@@ -6,7 +6,7 @@ const win = window.__TAURI__?.window?.getCurrentWindow?.();
 const canvas = document.getElementById("mesh-bg");
 if (canvas) startMesh(canvas);
 
-// ── Кастомный titlebar ──────────────────────────────────────
+// ── Titlebar ────────────────────────────────────────────────
 document.querySelectorAll("[data-window-action]").forEach((btn) => {
   btn.addEventListener("click", async () => {
     if (!win) return;
@@ -18,58 +18,94 @@ document.querySelectorAll("[data-window-action]").forEach((btn) => {
 });
 
 // ── Навигация по разделам ──────────────────────────────────
-const navItems = document.querySelectorAll(".nav-item[data-view]");
+const navItems = document.querySelectorAll(".menu__item[data-view]");
 const views = document.querySelectorAll("section.view[data-view]");
 
 navItems.forEach((item) => {
   item.addEventListener("click", () => {
     const target = item.dataset.view;
-    navItems.forEach((n) => n.classList.toggle("nav-item--active", n === item));
-    views.forEach((v) => {
-      v.hidden = v.dataset.view !== target;
-    });
+    navItems.forEach((n) => n.classList.toggle("menu__item--active", n === item));
+    views.forEach((v) => { v.hidden = v.dataset.view !== target; });
   });
 });
 
-// ── Connect-кнопка (заглушка состояния — backend подключим следующей итерацией) ──
-const core = document.querySelector(".connect-core");
-const coreBtn = document.getElementById("core-btn");
-const coreLabel = document.getElementById("core-state-label");
-const coreHint = document.getElementById("core-state-hint");
+// ── HERO-диск: состояния подключения ───────────────────────
+const hero = document.getElementById("hero");
+const heroDisc = document.getElementById("hero-disc");
+const heroLabel = document.getElementById("hero-label");
+const heroHint = document.getElementById("hero-hint");
+const heroMeta = document.getElementById("hero-meta");
+const heroMetaValue = document.getElementById("hero-meta-value");
 
-let state = "idle"; // idle | connecting | connected
+let state = "idle";          // idle | connecting | connected
+let connectingTimer = null;
+let pingTimer = null;
 
-function setState(next) {
+function setHeroClass(cls) {
+  hero.classList.remove("hero--connecting", "hero--connected");
+  if (cls) hero.classList.add(cls);
+}
+
+function setState(next, opts = {}) {
   state = next;
-  core.dataset.state = next === "connected" ? "connected" : "";
+
   if (next === "idle") {
-    coreLabel.textContent = "CONNECT";
-    coreHint.textContent = "Tap to start";
+    setHeroClass(null);
+    heroLabel.textContent = "Не подключено";
+    heroHint.textContent = "Нажмите, чтобы запустить туннель";
+    heroMeta.hidden = true;
+    heroDisc.setAttribute("aria-label", "Подключиться");
   } else if (next === "connecting") {
-    coreLabel.textContent = "CONNECTING";
-    coreHint.textContent = "Поднимаю туннель…";
+    setHeroClass("hero--connecting");
+    heroLabel.textContent = "Подключаюсь…";
+    heroHint.textContent = "Поднимаю туннель через pl.190x4.pw";
+    heroMeta.hidden = true;
+    heroDisc.setAttribute("aria-label", "Отменить подключение");
   } else if (next === "connected") {
-    coreLabel.textContent = "CONNECTED";
-    coreHint.textContent = "Трафик идёт через pl.190x4.pw";
+    setHeroClass("hero--connected");
+    heroLabel.textContent = "Подключено";
+    heroHint.textContent = opts.hint ?? "Трафик идёт через pl.190x4.pw";
+    heroMetaValue.textContent = opts.ping ?? "— мс";
+    heroMeta.hidden = false;
+    heroDisc.setAttribute("aria-label", "Отключиться");
   }
 }
 
-coreBtn?.addEventListener("click", async () => {
+heroDisc?.addEventListener("click", () => {
   if (state === "idle") {
     setState("connecting");
-    // TODO: invoke('singbox_start', { profileId })
-    setTimeout(() => setState("connected"), 700);
+    // TODO: invoke('singbox_start', { profileId }) — следующая итерация
+    connectingTimer = setTimeout(() => {
+      setState("connected", { ping: `${28 + Math.floor(Math.random() * 30)} мс` });
+      startPingPolling();
+    }, 1200);
+  } else if (state === "connecting") {
+    clearTimeout(connectingTimer);
+    setState("idle");
   } else if (state === "connected") {
-    // TODO: invoke('singbox_stop')
+    clearInterval(pingTimer);
     setState("idle");
   }
 });
 
-// ── Переключатель режима ───────────────────────────────────
-document.querySelectorAll(".mode-switch__item").forEach((item) => {
-  item.addEventListener("click", () => {
-    document.querySelectorAll(".mode-switch__item")
-      .forEach((m) => m.classList.toggle("mode-switch__item--active", m === item));
-    // TODO: persist + apply on next connect
-  });
-});
+function startPingPolling() {
+  clearInterval(pingTimer);
+  pingTimer = setInterval(() => {
+    const next = 28 + Math.floor(Math.random() * 28);
+    heroMetaValue.textContent = `${next} мс`;
+  }, 3500);
+}
+
+// ── Sub-card ping (placeholder, в реале: TCP probe профиля) ──
+const subPing = document.getElementById("sub-ping");
+if (subPing) subPing.textContent = `${24 + Math.floor(Math.random() * 18)} мс`;
+
+// ── Traffic footer demo update ─────────────────────────────
+// (заглушка — следующая итерация подключит clash-api sing-box)
+setInterval(() => {
+  if (state !== "connected") return;
+  const d = (Math.random() * 900 + 100).toFixed(0);
+  const u = (Math.random() * 200 + 20).toFixed(0);
+  document.getElementById("tf-down").textContent = d;
+  document.getElementById("tf-up").textContent = u;
+}, 800);

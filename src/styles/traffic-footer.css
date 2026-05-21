@@ -1,0 +1,55 @@
+/* Тонкий traffic-footer в углу — фиксированная позиция, не отвлекает от hero. */
+.traffic-footer {
+  position: fixed;
+  left: 16px;
+  bottom: 14px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 13px 10px;
+  border-radius: 11px;
+  background: rgba(7, 6, 10, 0.6);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.traffic-footer__label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 8px;
+  letter-spacing: 1.6px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.traffic-footer__row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.traffic-footer__arrow {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.traffic-footer__value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  color: var(--text-main);
+  min-width: 32px;
+}
+
+.traffic-footer__unit {
+  font-size: 9.5px;
+  letter-spacing: 0.8px;
+  color: var(--text-faint);
+}

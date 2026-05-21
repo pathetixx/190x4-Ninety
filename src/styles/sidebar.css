@@ -1,0 +1,131 @@
+.sidebar {
+  position: relative;
+  z-index: 2;
+  width: 220px;
+  height: 100%;
+  padding: 14px 12px 14px;
+  background: rgba(7, 6, 10, 0.55);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Бренд-блок сверху */
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 22px;
+}
+
+.sidebar__brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.sidebar__brand-text { line-height: 1.1; }
+
+.sidebar__brand-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 1.6px;
+  color: var(--text-main);
+}
+
+.sidebar__brand-version {
+  margin-top: 3px;
+  font-family: var(--font-display);
+  font-size: 9px;
+  letter-spacing: 1.4px;
+  color: var(--text-faint);
+}
+
+/* Меню */
+.menu {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    background 250ms cubic-bezier(.25,.46,.45,.94),
+    color 250ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.menu__item:hover {
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-main);
+}
+
+.menu__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  transition:
+    background 250ms cubic-bezier(.25,.46,.45,.94),
+    color 250ms cubic-bezier(.25,.46,.45,.94),
+    box-shadow 250ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.menu__item:hover .menu__icon {
+  background: rgba(255, 255, 255, 0.075);
+  color: var(--text-main);
+}
+
+.menu__label {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+}
+
+/* Активный пункт */
+.menu__item--active {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  color: var(--text-main);
+}
+
+.menu__item--active .menu__icon {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent) inset,
+    0 0 16px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.menu__item--active .menu__label { font-weight: 600; }
+
+.sidebar__spacer { flex: 1; }
+
+/* Футер сайдбара — компактный статус */
+.sidebar__footer {
+  padding: 10px 10px 4px;
+}
+
+.sidebar__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}

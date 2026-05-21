@@ -1,0 +1,206 @@
+/* HERO — главное визуальное событие экрана.
+   Диск + 3-слойный halo + concentric pulse при connecting + breath-glow при connected.
+*/
+.hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 56px 0 36px;
+}
+
+/* ── Halo (3 слоя в одном, через многоступенчатый radial-gradient) ── */
+.hero__halo {
+  position: absolute;
+  top: -20px;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--accent) 28%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 14%, transparent) 28%,
+    color-mix(in srgb, var(--accent) 5%, transparent)  55%,
+    transparent 75%
+  );
+  filter: blur(24px);
+  opacity: 0.85;
+  z-index: 0;
+  pointer-events: none;
+  transition: all 600ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.hero--connected .hero__halo {
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--green) 32%, transparent) 0%,
+    color-mix(in srgb, var(--green) 16%, transparent) 28%,
+    color-mix(in srgb, var(--green) 6%, transparent)  55%,
+    transparent 75%
+  );
+  animation: halo-breath 2.4s ease-in-out infinite;
+}
+
+@keyframes halo-breath {
+  0%, 100% { opacity: 0.78; filter: blur(24px); transform: scale(1); }
+  50%      { opacity: 1.00; filter: blur(32px); transform: scale(1.04); }
+}
+
+/* ── Concentric rings во время CONNECTING ── */
+.hero__rings {
+  position: absolute;
+  top: 56px;
+  width: 200px;
+  height: 200px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.hero--connecting .hero__rings { opacity: 1; }
+
+.hero__ring {
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  animation: ring-pulse 1.8s cubic-bezier(.25,.46,.45,.94) infinite;
+}
+
+.hero__ring:nth-child(2) { animation-delay: 0.45s; }
+.hero__ring:nth-child(3) { animation-delay: 0.90s; }
+
+@keyframes ring-pulse {
+  0%   { transform: scale(1);    opacity: 0.85; }
+  100% { transform: scale(1.55); opacity: 0;    }
+}
+
+/* ── Диск (главная интерактивная цель) ── */
+.hero__disc {
+  position: relative;
+  z-index: 1;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background:
+    radial-gradient(closest-side,
+      rgba(28, 18, 28, 0.55) 0%,
+      rgba(12, 8, 12, 0.85) 75%),
+    rgba(7, 6, 10, 0.4);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+    0 28px 60px -18px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 12px 26px rgba(0, 0, 0, 0.5);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    border-color 400ms cubic-bezier(.25,.46,.45,.94),
+    box-shadow  400ms cubic-bezier(.25,.46,.45,.94),
+    transform   200ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.hero__disc:hover {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.07) inset,
+    0 32px 70px -16px color-mix(in srgb, var(--accent) 50%, transparent),
+    0 16px 30px rgba(0, 0, 0, 0.55);
+}
+
+.hero__disc:active { transform: scale(0.96); }
+
+.hero--connected .hero__disc {
+  border-color: color-mix(in srgb, var(--green) 60%, transparent);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.07) inset,
+    0 32px 80px -12px color-mix(in srgb, var(--green) 45%, transparent),
+    0 16px 30px rgba(0, 0, 0, 0.55);
+}
+
+.hero--connecting .hero__disc {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.hero__logo {
+  width: 100px;
+  height: 100px;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 4px 16px color-mix(in srgb, var(--accent) 50%, transparent))
+    drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
+  transition: filter 500ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.hero--connected .hero__logo {
+  filter:
+    drop-shadow(0 4px 20px color-mix(in srgb, var(--green) 60%, transparent))
+    drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+}
+
+/* ── Подпись состояния под диском ── */
+.hero__status {
+  margin-top: 30px;
+  text-align: center;
+  z-index: 1;
+}
+
+.hero__status-label {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 24px;
+  letter-spacing: -0.3px;
+  color: var(--text-main);
+  transition: color 400ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.hero--connected   .hero__status-label { color: var(--green); }
+.hero--connecting  .hero__status-label { color: var(--accent-bright); }
+
+.hero__status-hint {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.hero__status-meta {
+  margin-top: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 14px;
+  background: rgba(18, 10, 18, 0.5);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.hero__meta-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: meta-dot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes meta-dot-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1.0; }
+}
+
+.hero__meta-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}

@@ -26,35 +26,39 @@ button {
   cursor: pointer;
 }
 
-/* Mesh canvas — самый нижний слой, на весь экран */
+img { display: block; }
+
+/* Mesh canvas — поверх watermark карты, под layout */
 #mesh-bg {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
-  z-index: 0;
+  z-index: 1;
   pointer-events: none;
 }
 
-/* Основная раскладка */
+/* Основной grid: sidebar | content */
 .layout {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: grid;
-  grid-template-columns: 64px 1fr;
-  height: calc(100vh - 36px);     /* минус кастомный titlebar */
+  grid-template-columns: 220px 1fr;
+  height: calc(100vh - 36px);
 }
 
 .content {
   position: relative;
   overflow-y: auto;
-  padding: 28px 32px 40px;
+  padding: 24px 32px 80px;     /* нижний паддинг — под traffic-footer */
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
 }
 
-/* Скрытие view */
 .view[hidden] { display: none; }
 
-/* Скроллбар — узкий, неоновый */
+/* Скроллбар */
 .content::-webkit-scrollbar { width: 8px; }
 .content::-webkit-scrollbar-track { background: transparent; }
 .content::-webkit-scrollbar-thumb {
@@ -62,3 +66,36 @@ button {
   border-radius: 4px;
 }
 .content::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* Placeholder для пустых экранов */
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  text-align: center;
+}
+.placeholder h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.placeholder p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* Status dot — переиспользуемая */
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--text-faint);
+}
+.status-dot[data-state="online"]   { background: var(--green); box-shadow: 0 0 8px color-mix(in srgb, var(--green) 70%, transparent); }
+.status-dot[data-state="warn"]     { background: var(--amber); }
+.status-dot[data-state="error"]    { background: var(--red); }
