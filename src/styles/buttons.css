@@ -1,0 +1,52 @@
+/* PrimaryButton из hub190x4-app — заполненный градиент, маленький
+   Orbitron-капс с tracking. Bg текста — bg-0 (не белый). */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 54px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 95%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 62%, transparent) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: var(--bg-0);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 1.4px;
+  transition: transform 100ms ease, filter 140ms ease;
+}
+
+.btn-primary:hover { filter: brightness(1.05); }
+.btn-primary:active { transform: scale(0.955); }
+.btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* CyberButton — glass, accent-обводка, маленький капс. */
+.btn-cyber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 18%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 6%, transparent) 100%);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  transition: transform 100ms ease, background 140ms ease;
+}
+
+.btn-cyber:hover {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 10%, transparent) 100%);
+}
+
+.btn-cyber:active { transform: scale(0.955); }

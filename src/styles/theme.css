@@ -1,0 +1,73 @@
+/* ─────────────────────────────────────────────────────────────
+   Дизайн-токены 190x4. Извлечены из hub190x4-app/Theme.kt.
+   Bg всегда тёмный #07060A, акцент меняется в пакетах тем
+   (NeonRed / Synthwave / Matrix / Mono). Пакет переключается
+   через [data-theme="..."] на :root.
+───────────────────────────────────────────────────────────── */
+
+:root {
+  /* База (не меняется темой) */
+  --bg-0: #07060A;
+  --bg-1: #120A12;
+  --bg-2: #1C121C;
+  --grid-line: #241826;
+
+  --text-main: #F2F3F7;
+  --text-dim: #8A8E9C;
+  --text-faint: #565A68;
+
+  --glass-hi: 255, 255, 255;   /* rgba components — alpha задаётся inline */
+  --glass-lo: 0, 0, 0;
+
+  --green: #2DD36F;
+  --red:   #FF3547;
+  --amber: #FFB000;
+
+  /* Holo (отдельные акценты секций) */
+  --holo-cyan:   #6EE7FF;
+  --holo-violet: #C77DFF;
+  --holo-pink:   #FF6EC7;
+
+  /* Акцент текущей темы (по умолчанию — NeonRed) */
+  --accent:        #FF2A40;
+  --accent-bright: #FF566B;
+  --accent-dim:    #992030;
+
+  /* Радиусы */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-xl: 22px;
+
+  /* Прозрачности стекла */
+  --glass-fill-top: rgba(255, 255, 255, 0.10);
+  --glass-fill-bot: rgba(255, 255, 255, 0.035);
+  --glass-stroke-top: rgba(255, 255, 255, 0.30);
+  --glass-stroke-mid: rgba(255, 255, 255, 0.08);
+  --glass-stroke-bot: rgba(255, 255, 255, 0.04);
+
+  /* Шрифты — главное правило проекта.
+     Тело и заголовки — системный sans (никаких "AI-Orbitron").
+     Orbitron — ТОЛЬКО для лого/мелких капс-меток/пилюль. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display",
+               "Segoe UI", Inter, "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-display: "Orbitron", var(--font-sans);
+}
+
+/* Тема SYNTHWAVE — пример, как мог бы выглядеть смены пакета.
+   Сейчас не активирована; ставится через data-theme="synthwave" на <html>. */
+:root[data-theme="synthwave"] {
+  --accent:        #C77DFF;
+  --accent-bright: #E0A6FF;
+  --accent-dim:    #7A3FA0;
+}
+:root[data-theme="matrix"] {
+  --accent:        #2BD66A;
+  --accent-bright: #5CEE92;
+  --accent-dim:    #1A8C45;
+}
+:root[data-theme="mono"] {
+  --accent:        #E8E8EE;
+  --accent-bright: #FFFFFF;
+  --accent-dim:    #9A9AA6;
+}

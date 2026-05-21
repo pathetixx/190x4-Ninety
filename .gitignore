@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+.npm/
+
+# Rust / Tauri build artefacts
+src-tauri/target/
+src-tauri/gen/
+
+# Bundled binaries downloaded by CI (sing-box.exe etc)
+src-tauri/binaries/*.exe
+src-tauri/binaries/*.dll
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+*.msi
+*.exe.tmp
+
+# Lockfiles we don't want to track from VPS edits
+# (CI installs deps fresh anyway)
+package-lock.json

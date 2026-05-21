@@ -1,0 +1,84 @@
+.screen-header { margin-bottom: 28px; }
+
+.screen-header__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.screen-header__main { flex: 1; min-width: 0; }
+
+.screen-header__kicker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.screen-header__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.screen-header__kicker {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 2.4px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.screen-header__title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 27px;
+  line-height: 32px;
+  letter-spacing: -0.3px;     /* лёгкий tight — не AI-капс */
+  color: var(--text-main);
+}
+
+.screen-header__subtitle {
+  margin: 4px 0 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.screen-header__trailing {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.screen-header__rule {
+  margin-top: 14px;
+  width: 34px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, var(--accent) 0%, transparent 100%);
+}
+
+/* Icon-chip (стеклянная квадратная кнопка-иконка) */
+.icon-chip {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.icon-chip:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.icon-chip:active { transform: scale(0.96); }

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ninety</title>
+    <link rel="stylesheet" href="/styles/theme.css" />
+    <link rel="stylesheet" href="/styles/base.css" />
+    <link rel="stylesheet" href="/styles/titlebar.css" />
+    <link rel="stylesheet" href="/styles/nav-rail.css" />
+    <link rel="stylesheet" href="/styles/screen-header.css" />
+    <link rel="stylesheet" href="/styles/glass.css" />
+    <link rel="stylesheet" href="/styles/buttons.css" />
+    <link rel="stylesheet" href="/styles/connect.css" />
+  </head>
+  <body>
+    <!-- Живой mesh-фон, медленный bloom -->
+    <canvas id="mesh-bg"></canvas>
+
+    <!-- Кастомный titlebar (frameless) -->
+    <header class="titlebar" data-tauri-drag-region>
+      <div class="titlebar__brand" data-tauri-drag-region>
+        <span class="titlebar__logo">NINETY</span>
+        <span class="titlebar__dim">· 190x4</span>
+      </div>
+      <div class="titlebar__controls">
+        <button class="tb-btn" data-window-action="minimize" aria-label="Minimize">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button class="tb-btn" data-window-action="maximize" aria-label="Maximize">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button class="tb-btn tb-btn--close" data-window-action="close" aria-label="Close">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0l-10 10" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Основная раскладка: nav-rail + content -->
+    <div class="layout">
+      <nav class="nav-rail" aria-label="Sections">
+        <button class="nav-item nav-item--active" data-view="connect" title="Связь">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v9m0 0a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></svg>
+        </button>
+        <button class="nav-item" data-view="profiles" title="Профили">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>
+        </button>
+        <button class="nav-item" data-view="logs" title="Логи">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        </button>
+        <div class="nav-rail__spacer"></div>
+        <button class="nav-item" data-view="settings" title="Настройки">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+        </button>
+      </nav>
+
+      <main class="content">
+        <!-- ── Экран CONNECT ────────────────────────────────────── -->
+        <section class="view view--connect" data-view="connect">
+          <header class="screen-header">
+            <div class="screen-header__row">
+              <div class="screen-header__main">
+                <div class="screen-header__kicker-row">
+                  <span class="screen-header__dot"></span>
+                  <span class="screen-header__kicker">СВЯЗЬ</span>
+                </div>
+                <h1 class="screen-header__title">Ninety</h1>
+                <p class="screen-header__subtitle">
+                  <span id="profile-host">pl.190x4.pw</span> ·
+                  <span id="profile-proto">Reality</span> ·
+                  <span id="profile-transport">XHTTP</span>
+                </p>
+              </div>
+              <div class="screen-header__trailing">
+                <button class="icon-chip" title="Тест задержки">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v3M12 19v3M2 12h3M19 12h3M12 8a4 4 0 1 0 4 4"/></svg>
+                </button>
+                <button class="icon-chip" title="Настройки соединения">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="screen-header__rule"></div>
+          </header>
+
+          <!-- Connect-ядро -->
+          <div class="connect-core glass">
+            <div class="core-ring" id="core-ring">
+              <div class="core-ring__inner">
+                <button class="core-btn" id="core-btn" type="button">
+                  <span class="core-btn__icon" aria-hidden="true">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                  </span>
+                </button>
+              </div>
+              <div class="core-ring__pulse"></div>
+            </div>
+            <div class="core-state">
+              <div class="core-state__label" id="core-state-label">CONNECT</div>
+              <div class="core-state__hint" id="core-state-hint">Tap to start</div>
+            </div>
+
+            <div class="traffic">
+              <div class="traffic__cell">
+                <span class="traffic__arrow">↓</span>
+                <span class="traffic__value" id="traffic-down">0.0</span>
+                <span class="traffic__unit">KB/s</span>
+              </div>
+              <div class="traffic__divider"></div>
+              <div class="traffic__cell">
+                <span class="traffic__arrow">↑</span>
+                <span class="traffic__value" id="traffic-up">0.0</span>
+                <span class="traffic__unit">KB/s</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Режим: System proxy / TUN -->
+          <div class="mode-switch">
+            <button class="mode-switch__item mode-switch__item--active" data-mode="system">
+              <span class="mode-switch__title">System proxy</span>
+              <span class="mode-switch__hint">HKCU · без UAC</span>
+            </button>
+            <button class="mode-switch__item" data-mode="tun">
+              <span class="mode-switch__title">TUN mode</span>
+              <span class="mode-switch__hint">весь трафик · требует админ</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- ── Остальные экраны (placeholder) ───────────────────── -->
+        <section class="view" data-view="profiles" hidden>
+          <header class="screen-header">
+            <div class="screen-header__row">
+              <div class="screen-header__main">
+                <div class="screen-header__kicker-row">
+                  <span class="screen-header__dot"></span>
+                  <span class="screen-header__kicker">ПОДПИСКИ И ПРОФИЛИ</span>
+                </div>
+                <h1 class="screen-header__title">Профили</h1>
+                <p class="screen-header__subtitle">скоро</p>
+              </div>
+            </div>
+            <div class="screen-header__rule"></div>
+          </header>
+        </section>
+
+        <section class="view" data-view="logs" hidden>
+          <header class="screen-header">
+            <div class="screen-header__row">
+              <div class="screen-header__main">
+                <div class="screen-header__kicker-row">
+                  <span class="screen-header__dot"></span>
+                  <span class="screen-header__kicker">ЯДРО · STDOUT</span>
+                </div>
+                <h1 class="screen-header__title">Логи</h1>
+                <p class="screen-header__subtitle">скоро</p>
+              </div>
+            </div>
+            <div class="screen-header__rule"></div>
+          </header>
+        </section>
+
+        <section class="view" data-view="settings" hidden>
+          <header class="screen-header">
+            <div class="screen-header__row">
+              <div class="screen-header__main">
+                <div class="screen-header__kicker-row">
+                  <span class="screen-header__dot"></span>
+                  <span class="screen-header__kicker">КЛИЕНТ И ЯДРО</span>
+                </div>
+                <h1 class="screen-header__title">Настройки</h1>
+                <p class="screen-header__subtitle">скоро</p>
+              </div>
+            </div>
+            <div class="screen-header__rule"></div>
+          </header>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
