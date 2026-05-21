@@ -17,7 +17,7 @@ document.querySelectorAll("[data-window-action]").forEach((btn) => {
   });
 });
 
-// ── Навигация по разделам ──────────────────────────────────
+// ── Навигация ───────────────────────────────────────────────
 const navItems = document.querySelectorAll(".menu__item[data-view]");
 const views = document.querySelectorAll("section.view[data-view]");
 
@@ -29,21 +29,29 @@ navItems.forEach((item) => {
   });
 });
 
-// ── HERO-диск: состояния подключения ───────────────────────
+// ── HERO ───────────────────────────────────────────────────
 const hero = document.getElementById("hero");
 const heroDisc = document.getElementById("hero-disc");
 const heroLabel = document.getElementById("hero-label");
 const heroHint = document.getElementById("hero-hint");
 const heroMeta = document.getElementById("hero-meta");
 const heroMetaValue = document.getElementById("hero-meta-value");
+const tfDown = document.getElementById("tf-down");
+const tfUp = document.getElementById("tf-up");
 
-let state = "idle";          // idle | connecting | connected
+let state = "idle";
 let connectingTimer = null;
 let pingTimer = null;
+let trafficTimer = null;
 
 function setHeroClass(cls) {
   hero.classList.remove("hero--connecting", "hero--connected");
   if (cls) hero.classList.add(cls);
+}
+
+function showMeta(show) {
+  if (show) heroMeta.removeAttribute("hidden");
+  else heroMeta.setAttribute("hidden", "");
 }
 
 function setState(next, opts = {}) {
@@ -53,37 +61,40 @@ function setState(next, opts = {}) {
     setHeroClass(null);
     heroLabel.textContent = "Не подключено";
     heroHint.textContent = "Нажмите, чтобы запустить туннель";
-    heroMeta.hidden = true;
+    showMeta(false);
     heroDisc.setAttribute("aria-label", "Подключиться");
+    tfDown.textContent = "0";
+    tfUp.textContent = "0";
+    clearInterval(pingTimer);
+    clearInterval(trafficTimer);
   } else if (next === "connecting") {
     setHeroClass("hero--connecting");
     heroLabel.textContent = "Подключаюсь…";
     heroHint.textContent = "Поднимаю туннель через pl.190x4.pw";
-    heroMeta.hidden = true;
+    showMeta(false);
     heroDisc.setAttribute("aria-label", "Отменить подключение");
   } else if (next === "connected") {
     setHeroClass("hero--connected");
     heroLabel.textContent = "Подключено";
-    heroHint.textContent = opts.hint ?? "Трафик идёт через pl.190x4.pw";
+    heroHint.textContent = "Трафик идёт через pl.190x4.pw";
     heroMetaValue.textContent = opts.ping ?? "— мс";
-    heroMeta.hidden = false;
+    showMeta(true);
     heroDisc.setAttribute("aria-label", "Отключиться");
+    startPingPolling();
+    startTrafficPolling();
   }
 }
 
 heroDisc?.addEventListener("click", () => {
   if (state === "idle") {
     setState("connecting");
-    // TODO: invoke('singbox_start', { profileId }) — следующая итерация
     connectingTimer = setTimeout(() => {
-      setState("connected", { ping: `${28 + Math.floor(Math.random() * 30)} мс` });
-      startPingPolling();
-    }, 1200);
+      setState("connected", { ping: `${28 + Math.floor(Math.random() * 28)} мс` });
+    }, 1300);
   } else if (state === "connecting") {
     clearTimeout(connectingTimer);
     setState("idle");
   } else if (state === "connected") {
-    clearInterval(pingTimer);
     setState("idle");
   }
 });
@@ -91,21 +102,20 @@ heroDisc?.addEventListener("click", () => {
 function startPingPolling() {
   clearInterval(pingTimer);
   pingTimer = setInterval(() => {
-    const next = 28 + Math.floor(Math.random() * 28);
+    const next = 26 + Math.floor(Math.random() * 28);
     heroMetaValue.textContent = `${next} мс`;
   }, 3500);
 }
 
-// ── Sub-card ping (placeholder, в реале: TCP probe профиля) ──
-const subPing = document.getElementById("sub-ping");
-if (subPing) subPing.textContent = `${24 + Math.floor(Math.random() * 18)} мс`;
+function startTrafficPolling() {
+  clearInterval(trafficTimer);
+  trafficTimer = setInterval(() => {
+    if (state !== "connected") return;
+    tfDown.textContent = (Math.random() * 900 + 100).toFixed(0);
+    tfUp.textContent = (Math.random() * 200 + 20).toFixed(0);
+  }, 850);
+}
 
-// ── Traffic footer demo update ─────────────────────────────
-// (заглушка — следующая итерация подключит clash-api sing-box)
-setInterval(() => {
-  if (state !== "connected") return;
-  const d = (Math.random() * 900 + 100).toFixed(0);
-  const u = (Math.random() * 200 + 20).toFixed(0);
-  document.getElementById("tf-down").textContent = d;
-  document.getElementById("tf-up").textContent = u;
-}, 800);
+// ── Sub-card ping (placeholder) ─────────────────────────────
+const subPing = document.getElementById("sub-ping");
+if (subPing) subPing.textContent = `${24 + Math.floor(Math.random() * 12)} мс`;

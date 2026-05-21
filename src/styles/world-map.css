@@ -1,6 +1,5 @@
-/* Watermark карты мира — самый нижний слой.
-   Континенты белые в исходном SVG → через opacity делаем еле-видимыми.
-   Положение: центр content-области (компенсируем sidebar 220px слева). */
+/* Watermark карты мира. Поверх Bg0, под mesh-bloom'ом и контентом.
+   z-index выше mesh-bg — карта видна на чистом фоне, mesh подсвечивает её сверху. */
 .world-map {
   position: fixed;
   inset: 0;
@@ -9,13 +8,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-left: 220px;        /* учитываем sidebar — карта в content-области */
 }
 
 .world-map__svg {
-  width: 86%;
+  width: 92%;
   max-width: 1100px;
   height: auto;
-  opacity: 0.05;
-  filter: blur(0.4px);        /* лёгкая мягкость кромок */
+  max-height: 78vh;
+  opacity: 0.085;          /* поднято с 0.045 — на тёмном фоне нужно сильнее */
+  filter: blur(0.5px);
+  transform: translateX(80px);  /* сместить карту чуть правее (компенсация sidebar) */
 }

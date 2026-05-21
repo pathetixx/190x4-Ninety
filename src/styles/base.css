@@ -12,6 +12,7 @@ html, body {
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.45;
+  font-feature-settings: "cv11", "ss01", "ss03";     /* Inter — открытые a/g, прямой 1, true ellipsis */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   user-select: none;
@@ -28,7 +29,7 @@ button {
 
 img { display: block; }
 
-/* Mesh canvas — поверх watermark карты, под layout */
+/* Mesh canvas — выше карты мира, под layout */
 #mesh-bg {
   position: fixed;
   inset: 0;
@@ -38,7 +39,6 @@ img { display: block; }
   pointer-events: none;
 }
 
-/* Основной grid: sidebar | content */
 .layout {
   position: relative;
   z-index: 2;
@@ -50,8 +50,8 @@ img { display: block; }
 .content {
   position: relative;
   overflow-y: auto;
-  padding: 24px 32px 80px;     /* нижний паддинг — под traffic-footer */
-  max-width: 720px;
+  padding: 16px 28px 32px;       /* меньше сверху — sub-card ближе к titlebar */
+  max-width: 680px;
   margin: 0 auto;
   width: 100%;
 }
@@ -67,7 +67,6 @@ img { display: block; }
 }
 .content::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.12); }
 
-/* Placeholder для пустых экранов */
 .placeholder {
   display: flex;
   flex-direction: column;
@@ -88,7 +87,7 @@ img { display: block; }
   color: var(--text-dim);
 }
 
-/* Status dot — переиспользуемая */
+/* Status dot */
 .status-dot {
   width: 7px;
   height: 7px;
@@ -96,6 +95,6 @@ img { display: block; }
   display: inline-block;
   background: var(--text-faint);
 }
-.status-dot[data-state="online"]   { background: var(--green); box-shadow: 0 0 8px color-mix(in srgb, var(--green) 70%, transparent); }
-.status-dot[data-state="warn"]     { background: var(--amber); }
-.status-dot[data-state="error"]    { background: var(--red); }
+.status-dot[data-state="online"] { background: var(--green); box-shadow: 0 0 8px color-mix(in srgb, var(--green) 70%, transparent); }
+.status-dot[data-state="warn"]   { background: var(--amber); }
+.status-dot[data-state="error"]  { background: var(--red); }
