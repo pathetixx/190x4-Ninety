@@ -154,98 +154,31 @@
     0 18px 36px rgba(0, 0, 0, 0.55);
 }
 
-/* ── Реактор-анимация внутри диска ───────────────────────── */
-.hero__core {
-  width: 92%;
-  height: 92%;
-  overflow: visible;
+/* ── Огненная маска (VP9 alpha WebM) ──────────────────────
+   480×480 видео с прозрачным фоном. playbackRate меняется
+   через JS в зависимости от состояния (idle/connecting/connected).
+*/
+.hero__mask {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+  transform: scale(1.0);
+  transform-origin: center;
+  filter: brightness(0.75) saturate(0.9);
+  transition: filter 600ms cubic-bezier(.25,.46,.45,.94);
 }
 
-/* Внешнее статическое кольцо */
-.core__ring--outer {
-  fill: none;
-  stroke: color-mix(in srgb, var(--accent) 45%, transparent);
-  stroke-width: 0.8;
-  opacity: 0.6;
+.hero--connecting .hero__mask {
+  filter: brightness(1.05) saturate(1.1);
 }
 
-/* Тики по периметру */
-.core__ticks line {
-  stroke: color-mix(in srgb, var(--accent) 75%, transparent);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  opacity: 0.7;
-}
-
-/* Средняя орбита — пунктир, вращается */
-.core__orbit--mid {
-  fill: none;
-  stroke: color-mix(in srgb, var(--accent-bright) 70%, transparent);
-  stroke-width: 1;
-  stroke-dasharray: 4 6;
-  stroke-linecap: round;
-  transform-origin: 120px 120px;
-  animation: orbit-spin 14s linear infinite;
-}
-
-@keyframes orbit-spin {
-  to { transform: rotate(360deg); }
-}
-
-/* Спутник, бегущий по орбите r=74 */
-.core__satellite {
-  fill: var(--accent-bright);
-  filter: drop-shadow(0 0 6px var(--accent-bright));
-  transform-origin: 120px 120px;
-  /* стартовая позиция: центр + (74, 0) */
-  transform: translate(74px, 0);
-  animation: satellite-orbit 7s linear infinite;
-}
-
-@keyframes satellite-orbit {
-  from { transform: rotate(0deg)   translate(74px, 0) rotate(0deg); }
-  to   { transform: rotate(360deg) translate(74px, 0) rotate(-360deg); }
-}
-
-/* Центральное ядро */
-.core__core {
+.hero--connected .hero__mask {
   filter:
-    drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 70%, transparent))
-    drop-shadow(0 0 28px color-mix(in srgb, var(--accent) 40%, transparent));
-  animation: core-breath 3.4s ease-in-out infinite;
-  transform-origin: 120px 120px;
+    brightness(1.1) saturate(1.15)
+    drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 55%, transparent));
 }
-
-@keyframes core-breath {
-  0%, 100% { opacity: 0.85; transform: scale(1); }
-  50%      { opacity: 1.00; transform: scale(1.06); }
-}
-
-/* Центральная точка-пульс */
-.core__pulse {
-  fill: var(--accent-bright);
-  transform-origin: 120px 120px;
-  animation: core-pulse 1.8s ease-in-out infinite;
-}
-
-@keyframes core-pulse {
-  0%, 100% { opacity: 0.7; transform: scale(0.9); }
-  50%      { opacity: 1.0; transform: scale(1.15); }
-}
-
-/* CONNECTING: реактор разгоняется */
-.hero--connecting .core__orbit--mid { animation-duration: 6s; }
-.hero--connecting .core__satellite  { animation-duration: 3s; }
-.hero--connecting .core__core       { animation-duration: 1.6s; }
-.hero--connecting .core__pulse      { animation-duration: 0.9s; }
-
-/* CONNECTED: ярче и стабильнее */
-.hero--connected .core__ring--outer { opacity: 0.85; stroke: color-mix(in srgb, var(--accent-bright) 70%, transparent); }
-.hero--connected .core__ticks line  { opacity: 1; }
-.hero--connected .core__orbit--mid  { animation-duration: 10s; stroke: var(--accent-bright); }
-.hero--connected .core__satellite   { animation-duration: 5s; fill: #fff; filter: drop-shadow(0 0 10px var(--accent-bright)); }
-.hero--connected .core__core        { animation-duration: 2.4s; }
-.hero--connected .core__pulse       { animation-duration: 1.4s; }
 
 /* ── Подпись состояния ── */
 .hero__status {
@@ -267,9 +200,10 @@
 .hero--connecting  .hero__status-label { color: var(--accent-bright); }
 
 .hero__status-hint {
-  margin-top: 5px;
-  font-size: 13px;
+  margin-top: 6px;
+  font-size: 14px;
   color: var(--text-dim);
+  letter-spacing: -0.1px;
 }
 
 .hero__status-meta {
@@ -312,4 +246,48 @@
   letter-spacing: 0.2px;
   color: var(--text-main);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Live RX/TX рядом с hero (только в connected) ──────── */
+.hero__traffic {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 12px;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: rgba(18, 10, 18, 0.5);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, rgba(255,255,255,0.04));
+}
+
+.hero__traffic[hidden] {
+  display: none !important;
+}
+
+.hero__traffic-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hero__traffic-arrow {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--accent-bright) 90%, transparent);
+  font-weight: 700;
+}
+
+.hero__traffic-value {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.hero__traffic-unit {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
 }

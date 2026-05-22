@@ -131,18 +131,19 @@
               </svg>
             </div>
             <div class="sub-card__main">
-              <div class="sub-card__name">190X4 · Польша</div>
+              <div class="sub-card__head">
+                <span class="sub-card__name">190X4</span>
+                <span class="sub-card__expire"><span id="sub-expire">153</span> дн</span>
+              </div>
+              <div class="sub-card__progress" aria-hidden="true">
+                <span class="sub-card__progress-fill" id="sub-progress-fill" style="width: 1.4%"></span>
+              </div>
               <div class="sub-card__meta">
-                <span class="sub-card__meta-item">
-                  <span class="status-dot" data-state="online"></span>
-                  <span id="sub-ping">— мс</span>
+                <span class="sub-card__meta-traffic">
+                  <span id="sub-traffic-used">12</span> / <span id="sub-traffic-total">857</span> ГБ
                 </span>
-                <span class="sub-card__meta-item">
-                  <span id="sub-nodes">1</span> нода
-                </span>
-                <span class="sub-card__meta-item">
-                  обн. <span id="sub-updated">сейчас</span>
-                </span>
+                <span class="sub-card__meta-sep">·</span>
+                <span class="sub-card__meta-dim">обн. <span id="sub-updated">сейчас</span></span>
               </div>
             </div>
           </article>
@@ -176,38 +177,10 @@
               <span class="hero__ring"></span>
             </div>
             <button class="hero__disc" id="hero-disc" type="button" aria-label="Подключиться">
-              <svg class="hero__core" viewBox="0 0 240 240" aria-hidden="true">
-                <defs>
-                  <radialGradient id="coreGrad" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%"  stop-color="var(--accent-bright)" stop-opacity="0.95"/>
-                    <stop offset="40%" stop-color="var(--accent)"        stop-opacity="0.70"/>
-                    <stop offset="100%" stop-color="var(--accent-dim)"   stop-opacity="0"/>
-                  </radialGradient>
-                </defs>
-
-                <!-- Внешнее статическое кольцо с тиками -->
-                <circle class="core__ring core__ring--outer" cx="120" cy="120" r="98" />
-                <g class="core__ticks">
-                  <line x1="120" y1="14"  x2="120" y2="26"  />
-                  <line x1="120" y1="214" x2="120" y2="226" />
-                  <line x1="14"  y1="120" x2="26"  y2="120" />
-                  <line x1="214" y1="120" x2="226" y2="120" />
-                  <line x1="46"  y1="46"  x2="55"  y2="55"  />
-                  <line x1="185" y1="46"  x2="194" y2="55"  />
-                  <line x1="46"  y1="194" x2="55"  y2="185" />
-                  <line x1="185" y1="194" x2="194" y2="185" />
-                </g>
-
-                <!-- Средняя пунктирная орбита, вращается -->
-                <circle class="core__orbit core__orbit--mid" cx="120" cy="120" r="74" />
-
-                <!-- Точка-спутник, бегущая по орбите -->
-                <circle class="core__satellite" r="4" />
-
-                <!-- Центральное ядро (gradient) -->
-                <circle class="core__core" cx="120" cy="120" r="34" fill="url(#coreGrad)"/>
-                <circle class="core__pulse" cx="120" cy="120" r="10" />
-              </svg>
+              <video class="hero__mask" id="hero-mask"
+                     src="/assets/video/hero-mask.webm"
+                     autoplay loop muted playsinline disablepictureinpicture
+                     aria-hidden="true"></video>
             </button>
 
             <div class="hero__status">
@@ -216,6 +189,18 @@
               <div class="hero__status-meta" id="hero-meta" hidden>
                 <span class="hero__meta-dot"></span>
                 <span class="hero__meta-value" id="hero-meta-value">— мс</span>
+              </div>
+              <div class="hero__traffic" id="hero-traffic" hidden>
+                <span class="hero__traffic-item">
+                  <span class="hero__traffic-arrow">↓</span>
+                  <span class="hero__traffic-value" id="hero-rx">0</span>
+                  <span class="hero__traffic-unit">КиБ/с</span>
+                </span>
+                <span class="hero__traffic-item">
+                  <span class="hero__traffic-arrow">↑</span>
+                  <span class="hero__traffic-value" id="hero-tx">0</span>
+                  <span class="hero__traffic-unit">КиБ/с</span>
+                </span>
               </div>
             </div>
           </div>
@@ -230,7 +215,13 @@
             </div>
             <div class="location-card__main">
               <div class="location-card__name">pl.190x4.pw</div>
-              <div class="location-card__sub">VLESS · Reality · XHTTP</div>
+              <div class="location-card__sub">
+                <span class="location-card__proto">VLESS · Reality · XHTTP</span>
+                <span class="location-card__ping">
+                  <span class="status-dot" data-state="online"></span>
+                  <span id="loc-ping">— мс</span>
+                </span>
+              </div>
             </div>
             <span class="location-card__chevron">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>

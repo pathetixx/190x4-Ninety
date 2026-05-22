@@ -109,12 +109,19 @@ document.getElementById("location-card")?.addEventListener("click", (e) => {
 // ── HERO ───────────────────────────────────────────────────
 const hero = document.getElementById("hero");
 const heroDisc = document.getElementById("hero-disc");
+const heroMask = document.getElementById("hero-mask");
 const heroLabel = document.getElementById("hero-label");
 const heroHint = document.getElementById("hero-hint");
 const heroMeta = document.getElementById("hero-meta");
 const heroMetaValue = document.getElementById("hero-meta-value");
+const heroTraffic = document.getElementById("hero-traffic");
+const heroRx = document.getElementById("hero-rx");
+const heroTx = document.getElementById("hero-tx");
 const tfDown = document.getElementById("tf-down");
 const tfUp = document.getElementById("tf-up");
+const locPing = document.getElementById("loc-ping");
+
+if (heroMask) heroMask.playbackRate = 0.6;
 
 let state = "idle";
 let connectingTimer = null;
@@ -131,6 +138,12 @@ function showMeta(show) {
   else heroMeta.setAttribute("hidden", "");
 }
 
+function showTraffic(show) {
+  if (!heroTraffic) return;
+  if (show) heroTraffic.removeAttribute("hidden");
+  else heroTraffic.setAttribute("hidden", "");
+}
+
 function setState(next, opts = {}) {
   state = next;
 
@@ -139,9 +152,13 @@ function setState(next, opts = {}) {
     heroLabel.textContent = "Не подключено";
     heroHint.textContent = "Нажмите, чтобы запустить туннель";
     showMeta(false);
+    showTraffic(false);
     heroDisc.setAttribute("aria-label", "Подключиться");
     tfDown.textContent = "0";
     tfUp.textContent = "0";
+    if (heroRx) heroRx.textContent = "0";
+    if (heroTx) heroTx.textContent = "0";
+    if (heroMask) heroMask.playbackRate = 0.6;
     clearInterval(pingTimer);
     clearInterval(trafficTimer);
   } else if (next === "connecting") {
@@ -149,14 +166,18 @@ function setState(next, opts = {}) {
     heroLabel.textContent = "Подключаюсь…";
     heroHint.textContent = "Поднимаю туннель через pl.190x4.pw";
     showMeta(false);
+    showTraffic(false);
     heroDisc.setAttribute("aria-label", "Отменить подключение");
+    if (heroMask) heroMask.playbackRate = 1.6;
   } else if (next === "connected") {
     setHeroClass("hero--connected");
     heroLabel.textContent = "Подключено";
     heroHint.textContent = "Трафик идёт через pl.190x4.pw";
     heroMetaValue.textContent = opts.ping ?? "— мс";
     showMeta(true);
+    showTraffic(true);
     heroDisc.setAttribute("aria-label", "Отключиться");
+    if (heroMask) heroMask.playbackRate = 1.0;
     startPingPolling();
     startTrafficPolling();
   }
@@ -188,11 +209,14 @@ function startTrafficPolling() {
   clearInterval(trafficTimer);
   trafficTimer = setInterval(() => {
     if (state !== "connected") return;
-    tfDown.textContent = (Math.random() * 900 + 100).toFixed(0);
-    tfUp.textContent = (Math.random() * 200 + 20).toFixed(0);
+    const down = (Math.random() * 900 + 100).toFixed(0);
+    const up = (Math.random() * 200 + 20).toFixed(0);
+    tfDown.textContent = down;
+    tfUp.textContent = up;
+    if (heroRx) heroRx.textContent = down;
+    if (heroTx) heroTx.textContent = up;
   }, 850);
 }
 
-// ── Sub-card ping (placeholder) ─────────────────────────────
-const subPing = document.getElementById("sub-ping");
-if (subPing) subPing.textContent = `${24 + Math.floor(Math.random() * 12)} мс`;
+// ── Location-card ping (placeholder, до интеграции sing-box) ─
+if (locPing) locPing.textContent = `${24 + Math.floor(Math.random() * 12)} мс`;

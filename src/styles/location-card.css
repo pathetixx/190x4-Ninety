@@ -58,12 +58,39 @@
 }
 
 .location-card__sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-top: 2px;
+}
+
+.location-card__proto {
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 9px;
   letter-spacing: 1.4px;
   color: var(--text-dim);
+}
+
+.location-card__ping {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.location-card__ping::before {
+  content: "·";
+  margin-right: 2px;
+  color: var(--text-faint);
+  font-weight: 700;
+}
+
+.location-card__ping .status-dot {
+  width: 6px;
+  height: 6px;
 }
 
 .location-card__chevron {
