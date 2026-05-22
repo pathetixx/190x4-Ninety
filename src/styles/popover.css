@@ -1,0 +1,158 @@
+/* Popovers — стиль карточек 190x4, прижатые к правому верхнему углу. */
+.popover {
+  position: fixed;
+  z-index: 100;
+  min-width: 260px;
+  max-width: 340px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(18, 10, 18, 0.85);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 24px 60px -12px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+  animation: pop-in 180ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.popover[hidden] { display: none; }
+
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.popover__header {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+
+/* Segmented control: Прокси / Системный прокси / VPN-TUN */
+.seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  margin-bottom: 12px;
+}
+
+.seg__btn {
+  padding: 8px 6px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  transition: background 200ms cubic-bezier(.25,.46,.45,.94), color 200ms;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.seg__btn:hover { color: var(--text-main); }
+
+.seg__btn--active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--text-main);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent) inset,
+    0 0 14px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+/* Row с тогглом */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.toggle-row__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-main);
+}
+
+.toggle-row__label svg { color: var(--text-dim); }
+
+/* Switch */
+.switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.switch input { position: absolute; opacity: 0; pointer-events: none; }
+.switch__track {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  transition: background 250ms cubic-bezier(.25,.46,.45,.94);
+}
+.switch__track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: transform 250ms cubic-bezier(.25,.46,.45,.94), background 250ms;
+}
+.switch input:checked + .switch__track {
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.switch input:checked + .switch__track::after {
+  transform: translateX(14px);
+  background: var(--accent-bright);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+/* Add-subscription tiles */
+.add-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.add-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 200ms cubic-bezier(.25,.46,.45,.94), transform 200ms, border-color 200ms;
+}
+
+.add-tile svg { color: var(--accent-bright); }
+
+.add-tile:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  transform: translateY(-1px);
+}
+
+.add-tile:active { transform: translateY(0); }

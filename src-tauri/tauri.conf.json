@@ -7,14 +7,15 @@
     "frontendDist": "../src"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
         "title": "Ninety",
         "width": 1100,
         "height": 720,
-        "minWidth": 880,
-        "minHeight": 600,
+        "minWidth": 720,
+        "minHeight": 560,
         "decorations": false,
         "transparent": false,
         "resizable": true,

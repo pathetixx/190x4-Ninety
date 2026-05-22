@@ -43,20 +43,20 @@ export function startMesh(canvas) {
     // Прозрачный canvas — watermark карты видна сквозь
     ctx.clearRect(0, 0, w, h);
 
-    // 1. Багровый bloom — основной (усилен с 0.20 до 0.32)
+    // 1. Багровый bloom — основной (приглушён, чтобы hero читался)
     const c1x = w * (0.32 + 0.20 * Math.cos(p1));
     const c1y = h * (0.30 + 0.14 * Math.sin(p1));
     drawBloom(c1x, c1y, w * 0.95, [
-      [0,    rgba(NEON_RED, 0.32)],
-      [0.50, rgba(NEON_RED_DIM, 0.14)],
+      [0,    rgba(NEON_RED, 0.18)],
+      [0.50, rgba(NEON_RED_DIM, 0.08)],
       [1,    "rgba(0,0,0,0)"],
     ]);
 
-    // 2. Фиолетовый намёк — усилен с 0.10 до 0.16
+    // 2. Фиолетовый намёк
     const c2x = w * (0.78 - 0.18 * Math.sin(p2));
     const c2y = h * (0.68 + 0.16 * Math.cos(p2));
     drawBloom(c2x, c2y, w * 0.8, [
-      [0, rgba(HOLO_B, 0.16)],
+      [0, rgba(HOLO_B, 0.09)],
       [1, "rgba(0,0,0,0)"],
     ]);
 
@@ -64,7 +64,7 @@ export function startMesh(canvas) {
     const c3x = w * (0.50 + 0.12 * Math.sin(p1 + 1.7));
     const c3y = h * 0.92;
     drawBloom(c3x, c3y, w * 0.7, [
-      [0, rgba(HOLO_A, 0.09)],
+      [0, rgba(HOLO_A, 0.05)],
       [1, "rgba(0,0,0,0)"],
     ]);
 

@@ -13,6 +13,37 @@
 
 .titlebar__spacer { flex: 1; }
 
+.titlebar__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+}
+
+.tb-action {
+  width: 32px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--text-dim);
+  background: transparent;
+  transition: background 200ms cubic-bezier(.25,.46,.45,.94), color 200ms;
+}
+
+.tb-action:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-main);
+}
+
+.tb-action[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-bright);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent) inset;
+}
+
 .titlebar__controls {
   display: flex;
 }

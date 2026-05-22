@@ -1,6 +1,8 @@
 import { startMesh } from "/lib/mesh-background.js";
 
-const win = window.__TAURI__?.window?.getCurrentWindow?.();
+// ── Tauri 2 с withGlobalTauri:true даёт нам window.__TAURI__.window ──
+const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
+  ?? window.__TAURI__?.window?.getCurrent?.();
 
 // ── Mesh-фон ────────────────────────────────────────────────
 const canvas = document.getElementById("mesh-bg");
@@ -9,11 +11,79 @@ if (canvas) startMesh(canvas);
 // ── Titlebar ────────────────────────────────────────────────
 document.querySelectorAll("[data-window-action]").forEach((btn) => {
   btn.addEventListener("click", async () => {
-    if (!win) return;
+    if (!tauriWin) {
+      console.warn("Tauri window API недоступен");
+      return;
+    }
     const action = btn.dataset.windowAction;
-    if (action === "minimize") await win.minimize();
-    else if (action === "maximize") await win.toggleMaximize();
-    else if (action === "close") await win.close();
+    try {
+      if (action === "minimize") await tauriWin.minimize();
+      else if (action === "maximize") await tauriWin.toggleMaximize();
+      else if (action === "close") await tauriWin.close();
+    } catch (e) {
+      console.error("window action failed", action, e);
+    }
+  });
+});
+
+// ── Popovers (mode-toggle + add-subscription) ───────────────
+const popovers = {
+  mode: { btn: document.getElementById("mode-toggle"), el: document.getElementById("mode-popover") },
+  add:  { btn: document.getElementById("add-sub"),     el: document.getElementById("add-popover") },
+};
+
+function closeAllPopovers(except) {
+  for (const key of Object.keys(popovers)) {
+    if (key === except) continue;
+    const p = popovers[key];
+    p.el.hidden = true;
+    p.btn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function placePopover(p) {
+  const r = p.btn.getBoundingClientRect();
+  p.el.style.top = `${Math.round(r.bottom + 8)}px`;
+  // привязка к правому краю — popover тянется влево от кнопки
+  p.el.style.right = `${Math.round(window.innerWidth - r.right)}px`;
+}
+
+for (const key of Object.keys(popovers)) {
+  const p = popovers[key];
+  if (!p.btn || !p.el) continue;
+  p.btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const willOpen = p.el.hidden;
+    closeAllPopovers(key);
+    if (willOpen) {
+      placePopover(p);
+      p.el.hidden = false;
+      p.btn.setAttribute("aria-expanded", "true");
+    } else {
+      p.el.hidden = true;
+      p.btn.setAttribute("aria-expanded", "false");
+    }
+  });
+  p.el.addEventListener("click", (e) => e.stopPropagation());
+}
+
+document.addEventListener("click", () => closeAllPopovers());
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllPopovers(); });
+window.addEventListener("resize", () => {
+  for (const key of Object.keys(popovers)) {
+    const p = popovers[key];
+    if (!p.el.hidden) placePopover(p);
+  }
+});
+
+// ── Mode segmented ──────────────────────────────────────────
+const modeSeg = document.getElementById("mode-seg");
+modeSeg?.addEventListener("click", (e) => {
+  const b = e.target.closest(".seg__btn");
+  if (!b) return;
+  modeSeg.querySelectorAll(".seg__btn").forEach((x) => {
+    x.classList.toggle("seg__btn--active", x === b);
+    x.setAttribute("aria-selected", x === b ? "true" : "false");
   });
 });
 
@@ -21,12 +91,19 @@ document.querySelectorAll("[data-window-action]").forEach((btn) => {
 const navItems = document.querySelectorAll(".menu__item[data-view]");
 const views = document.querySelectorAll("section.view[data-view]");
 
+function switchView(target) {
+  navItems.forEach((n) => n.classList.toggle("menu__item--active", n.dataset.view === target));
+  views.forEach((v) => { v.hidden = v.dataset.view !== target; });
+}
+
 navItems.forEach((item) => {
-  item.addEventListener("click", () => {
-    const target = item.dataset.view;
-    navItems.forEach((n) => n.classList.toggle("menu__item--active", n === item));
-    views.forEach((v) => { v.hidden = v.dataset.view !== target; });
-  });
+  item.addEventListener("click", () => switchView(item.dataset.view));
+});
+
+document.getElementById("location-card")?.addEventListener("click", (e) => {
+  // клик по location-card → переход в Профили
+  if (e.target.closest(".hero__disc")) return;
+  switchView("profiles");
 });
 
 // ── HERO ───────────────────────────────────────────────────

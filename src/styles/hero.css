@@ -1,25 +1,25 @@
 /* HERO — главный визуальный центр.
-   Диск 240px + halo центрирован относительно него + concentric pulse + breath.
-   Halo сделан как ::before на .hero, абсолют по центру, без углов. */
+   Диск + halo + concentric pulse + breath. Все размеры через clamp() для адаптива. */
 
 .hero {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 36px 0 20px;
-  isolation: isolate;       /* свой stacking context чтобы halo не вылезал за карточки */
+  padding: clamp(24px, 4vw, 36px) 0 20px;
+  isolation: isolate;
+  --hero-disc-size: clamp(180px, 32vw, 240px);
+  --hero-halo-size: calc(var(--hero-disc-size) * 2);
 }
 
 /* ── Halo: абсолютный круг идеально по центру диска ── */
 .hero__halo {
   position: absolute;
-  top: 36px;
+  top: clamp(24px, 4vw, 36px);
   left: 50%;
-  width: 480px;
-  height: 480px;
-  margin-left: -240px;
-  margin-top: -120px;
+  width: var(--hero-halo-size);
+  height: var(--hero-halo-size);
+  transform: translate(-50%, -25%);
   border-radius: 50%;
   background: radial-gradient(
     closest-side,
@@ -37,8 +37,8 @@
 }
 
 @keyframes halo-idle-breath {
-  0%, 100% { opacity: 0.78; transform: scale(1); }
-  50%      { opacity: 0.92; transform: scale(1.03); }
+  0%, 100% { opacity: 0.78; transform: translate(-50%, -25%) scale(1); }
+  50%      { opacity: 0.92; transform: translate(-50%, -25%) scale(1.03); }
 }
 
 .hero--connecting .hero__halo {
@@ -46,34 +46,34 @@
 }
 
 @keyframes halo-connecting {
-  0%, 100% { opacity: 0.85; transform: scale(1.00); }
-  50%      { opacity: 1.00; transform: scale(1.06); }
+  0%, 100% { opacity: 0.85; transform: translate(-50%, -25%) scale(1.00); }
+  50%      { opacity: 1.00; transform: translate(-50%, -25%) scale(1.06); }
 }
 
 .hero--connected .hero__halo {
   background: radial-gradient(
     closest-side,
-    color-mix(in srgb, var(--green) 28%, transparent) 0%,
-    color-mix(in srgb, var(--green) 14%, transparent) 30%,
-    color-mix(in srgb, var(--green) 5%, transparent)  58%,
+    color-mix(in srgb, var(--accent) 30%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 16%, transparent) 30%,
+    color-mix(in srgb, var(--accent) 6%, transparent)  58%,
     transparent 78%
   );
   animation: halo-connected-breath 2.6s ease-in-out infinite;
 }
 
 @keyframes halo-connected-breath {
-  0%, 100% { opacity: 0.85; transform: scale(1.00); filter: blur(36px); }
-  50%      { opacity: 1.00; transform: scale(1.06); filter: blur(44px); }
+  0%, 100% { opacity: 0.85; transform: translate(-50%, -25%) scale(1.00); filter: blur(36px); }
+  50%      { opacity: 1.00; transform: translate(-50%, -25%) scale(1.06); filter: blur(44px); }
 }
 
-/* ── Concentric rings во время CONNECTING — тоже центрируем по диску ── */
+/* ── Concentric rings во время CONNECTING ── */
 .hero__rings {
   position: absolute;
-  top: 36px;
+  top: clamp(24px, 4vw, 36px);
   left: 50%;
-  width: 240px;
-  height: 240px;
-  margin-left: -120px;
+  width: var(--hero-disc-size);
+  height: var(--hero-disc-size);
+  transform: translateX(-50%);
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -87,8 +87,8 @@
 
 .hero__ring {
   position: absolute;
-  width: 240px;
-  height: 240px;
+  width: var(--hero-disc-size);
+  height: var(--hero-disc-size);
   border-radius: 50%;
   border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
   animation: ring-pulse 1.9s cubic-bezier(.25,.46,.45,.94) infinite;
@@ -102,18 +102,18 @@
   100% { transform: scale(1.50); opacity: 0;    }
 }
 
-/* ── Диск 240px ── */
+/* ── Диск ── */
 .hero__disc {
   position: relative;
   z-index: 2;
-  width: 240px;
-  height: 240px;
+  width: var(--hero-disc-size);
+  height: var(--hero-disc-size);
   border-radius: 50%;
   background:
     radial-gradient(closest-side,
-      rgba(28, 18, 28, 0.55) 0%,
-      rgba(10, 6, 10, 0.88) 78%),
-    rgba(7, 6, 10, 0.4);
+      rgba(28, 18, 28, 0.78) 0%,
+      rgba(7, 4, 7, 0.92) 78%),
+    rgba(7, 6, 10, 0.55);
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
@@ -145,17 +145,17 @@
 }
 
 .hero--connected .hero__disc {
-  border-color: color-mix(in srgb, var(--green) 60%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 75%, transparent);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.06) inset,
-    0 36px 90px -14px color-mix(in srgb, var(--green) 45%, transparent),
+    0 36px 90px -14px color-mix(in srgb, var(--accent) 55%, transparent),
     0 18px 36px rgba(0, 0, 0, 0.55);
 }
 
 /* Hero-mark — прозрачный foreground логотипа. */
 .hero__logo {
-  width: 126px;
-  height: 126px;
+  width: calc(var(--hero-disc-size) * 0.525);
+  height: calc(var(--hero-disc-size) * 0.525);
   object-fit: contain;
   filter:
     drop-shadow(0 6px 22px color-mix(in srgb, var(--accent) 55%, transparent))
@@ -165,7 +165,7 @@
 
 .hero--connected .hero__logo {
   filter:
-    drop-shadow(0 6px 26px color-mix(in srgb, var(--green) 60%, transparent))
+    drop-shadow(0 6px 30px color-mix(in srgb, var(--accent) 70%, transparent))
     drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
 }
 
@@ -185,7 +185,7 @@
   transition: color 400ms cubic-bezier(.25,.46,.45,.94);
 }
 
-.hero--connected   .hero__status-label { color: var(--green); }
+.hero--connected   .hero__status-label { color: var(--accent-bright); }
 .hero--connecting  .hero__status-label { color: var(--accent-bright); }
 
 .hero__status-hint {
@@ -210,15 +210,15 @@
 }
 
 .hero__status-meta[hidden] {
-  display: none !important;   /* перебиваем inline-flex */
+  display: none !important;
 }
 
 .hero__meta-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 8px var(--green);
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
   animation: meta-dot-pulse 1.5s ease-in-out infinite;
 }
 

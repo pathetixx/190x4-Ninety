@@ -66,20 +66,6 @@
   color: var(--text-dim);
 }
 
-/* Protocol pill стал гораздо тише — только лёгкий outline, без яркого accent */
-.location-card__pill {
-  padding: 4px 9px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--text-dim);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 9px;
-  letter-spacing: 1.2px;
-  flex-shrink: 0;
-}
-
 .location-card__chevron {
   color: var(--text-faint);
   flex-shrink: 0;
@@ -89,5 +75,5 @@
 
 .location-card:hover .location-card__chevron {
   transform: translateX(3px);
-  color: var(--text-dim);
+  color: var(--accent-bright);
 }
