@@ -64,10 +64,17 @@ img { display: block; }
 .content {
   position: relative;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   padding: 16px clamp(16px, 4vw, 32px) 32px;
-  max-width: 720px;
-  margin: 0 auto;
   width: 100%;
+}
+
+.view {
+  width: 100%;
+  max-width: 720px;
 }
 
 .view[hidden] { display: none; }
@@ -133,6 +140,6 @@ img { display: block; }
 
 /* Узкие окна */
 @media (max-width: 760px) {
-  .view__toolbar { gap: 8px; margin-bottom: 10px; }
+  .view__toolbar { gap: 6px; }
   .tool-btn { width: 40px; height: 40px; border-radius: 11px; }
 }

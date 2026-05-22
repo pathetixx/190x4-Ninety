@@ -23,10 +23,14 @@
   width: 44px;
   height: 44px;
   border-radius: 12px;
-  object-fit: contain;
-  filter:
-    drop-shadow(0 4px 12px color-mix(in srgb, var(--accent) 40%, transparent))
-    drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #1a1018;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+    0 4px 14px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 .sidebar__brand-text {

@@ -8,7 +8,7 @@
   align-items: center;
   padding: clamp(16px, 2.4vw, 24px) 0 16px;
   isolation: isolate;
-  --hero-disc-size: clamp(180px, 30vw, 240px);
+  --hero-disc-size: clamp(200px, 26vw, 300px);
   --hero-halo-size: calc(var(--hero-disc-size) * 1.95);
 }
 
@@ -257,7 +257,7 @@
 .hero__status-label {
   font-family: var(--font-sans);
   font-weight: 600;
-  font-size: 22px;
+  font-size: clamp(20px, 2vw, 28px);
   letter-spacing: -0.35px;
   color: var(--text-main);
   transition: color 400ms cubic-bezier(.25,.46,.45,.94);

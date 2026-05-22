@@ -1,9 +1,17 @@
-/* Toolbar над sub-card: 2 круглые кнопки (режим + добавить подписку) */
+/* Sub-row: подписка-карточка слева + 2 кнопки справа в одной строке */
+.sub-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.sub-row .sub-card { flex: 1; min-width: 0; }
+
 .view__toolbar {
   display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-bottom: 14px;
+  align-items: center;
+  gap: 8px;
 }
 
 .tool-btn {
@@ -41,4 +49,9 @@
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent) inset,
     0 0 18px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+@media (max-width: 540px) {
+  .sub-row { flex-direction: column; gap: 8px; }
+  .view__toolbar { justify-content: flex-end; }
 }
