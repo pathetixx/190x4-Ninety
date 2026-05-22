@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="/styles/world-map.css" />
     <link rel="stylesheet" href="/styles/popover.css" />
     <link rel="stylesheet" href="/styles/toolbar.css" />
+    <link rel="stylesheet" href="/styles/profiles.css" />
   </head>
   <body>
     <!-- Watermark карты мира -->
@@ -256,9 +257,11 @@
     <div class="popover" id="mode-popover" role="dialog" aria-label="Режим подключения" hidden>
       <div class="popover__header">Режим подключения</div>
       <div class="seg" role="tablist" id="mode-seg">
-        <button class="seg__btn" role="tab" data-mode="proxy">Прокси</button>
-        <button class="seg__btn seg__btn--active" role="tab" data-mode="system" aria-selected="true">Системный прокси</button>
+        <button class="seg__btn seg__btn--active" role="tab" data-mode="proxy" aria-selected="true">Системный прокси</button>
         <button class="seg__btn" role="tab" data-mode="tun">VPN · TUN</button>
+      </div>
+      <div class="popover__hint" id="mode-hint">
+        Прокси работает без UAC. TUN перехватывает весь трафик, запросит запуск sing-box от админа.
       </div>
       <label class="toggle-row">
         <span class="toggle-row__label">
@@ -270,16 +273,16 @@
     </div>
 
     <div class="popover" id="add-popover" role="dialog" aria-label="Добавить подписку" hidden>
-      <div class="popover__header">Добавить подписку</div>
+      <div class="popover__header">Добавить конфиг</div>
       <div class="add-grid">
-        <button class="add-tile" data-action="clipboard">
+        <button class="add-tile" data-action="clipboard" type="button">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
             <rect x="8" y="4" width="12" height="16" rx="2"/>
             <path d="M4 8v12a2 2 0 0 0 2 2h10"/>
           </svg>
-          <span>Буфер обмена</span>
+          <span>Из буфера</span>
         </button>
-        <button class="add-tile" data-action="manual">
+        <button class="add-tile" data-action="manual" type="button">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <line x1="12" y1="5" x2="12" y2="19"/>
             <line x1="5" y1="12" x2="19" y2="12"/>
@@ -287,7 +290,17 @@
           <span>Вручную</span>
         </button>
       </div>
+      <div class="add-manual" id="add-manual" hidden>
+        <textarea class="add-manual__input" id="add-input" rows="4" placeholder="vless://uuid@host:443?security=reality&type=tcp&..."></textarea>
+        <div class="add-manual__row">
+          <span class="add-manual__error" id="add-error"></span>
+          <button class="add-manual__submit" id="add-submit" type="button">Импорт</button>
+        </div>
+      </div>
+      <div class="popover__hint" id="profiles-summary">Профилей нет</div>
     </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
     <script type="module" src="/main.js"></script>
   </body>

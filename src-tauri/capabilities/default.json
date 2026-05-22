@@ -11,6 +11,7 @@
     "core:window:allow-close",
     "core:window:allow-set-decorations",
     "core:webview:default",
+    "core:path:default",
     "shell:default"
   ]
 }
