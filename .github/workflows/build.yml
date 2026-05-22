@@ -6,6 +6,9 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -66,4 +69,4 @@ jobs:
           files: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/nsis/*.exe
-          generate_release_notes: true
+          fail_on_unmatched_files: true
