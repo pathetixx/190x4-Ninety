@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ninety",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "pw.x190x4.ninety",
   "build": {
     "frontendDist": "../src"
@@ -30,6 +30,7 @@
   "bundle": {
     "active": true,
     "targets": ["msi", "nsis"],
+    "createUpdaterArtifacts": true,
     "externalBin": ["binaries/sing-box"],
     "icon": [
       "icons/32x32.png",
@@ -45,6 +46,14 @@
       "nsis": {
         "installerIcon": "icons/icon.ico"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1N0I1RTAwMEQ3MUQ3OUUKUldTZTEzRU5BRjU3ZGN3TkZoK28yeFRVa2tLdlhxNy8zUXo1aUdXN1lOSUE3MzZLUmVCRnFYamsK",
+      "endpoints": [
+        "https://github.com/pathetixx/190x4-Ninety/releases/latest/download/latest.json"
+      ]
     }
   }
 }

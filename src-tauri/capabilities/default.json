@@ -12,6 +12,10 @@
     "core:window:allow-set-decorations",
     "core:webview:default",
     "core:path:default",
-    "shell:default"
+    "core:event:default",
+    "shell:default",
+    "updater:default",
+    "process:default",
+    "dialog:default"
   ]
 }

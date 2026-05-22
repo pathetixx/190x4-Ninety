@@ -14,6 +14,7 @@ import {
 } from "/lib/singbox.js";
 import { loadOptions } from "/lib/options.js";
 import { mountSettings } from "/lib/settings-view.js";
+import { isAvailable as updaterAvailable, checkForUpdate, askAndInstall } from "/lib/updater.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -495,3 +496,28 @@ updateHeroHint();
     }
   } catch {}
 })();
+
+// ── Auto-update ────────────────────────────────────────────
+async function runUpdateCheck({ silent = true } = {}) {
+  if (!updaterAvailable()) {
+    if (!silent) toast("Updater недоступен", "error", 2500);
+    return;
+  }
+  const update = await checkForUpdate();
+  if (!update) {
+    if (!silent) toast("Обновлений нет — у вас актуальная версия", "info", 2400);
+    return;
+  }
+  await askAndInstall(update, {
+    onProgress: (p) => {
+      if (p.phase === "started") toast(`Скачиваю обновление ${update.version}…`, "info", 2000);
+      else if (p.phase === "finished") toast("Установка и перезапуск…", "success", 4000);
+    },
+  });
+}
+
+// Проверка при старте — через 3 сек после bootstrap
+setTimeout(() => runUpdateCheck({ silent: true }), 3000);
+
+// Глобальная функция для кнопки «Проверить обновления» в settings
+window.__ninetyUpdateCheck = () => runUpdateCheck({ silent: false });

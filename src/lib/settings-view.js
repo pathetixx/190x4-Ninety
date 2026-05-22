@@ -88,6 +88,9 @@ export function mountSettings(root, opts = {}) {
         input.addEventListener("blur", handler);
       }
     });
+    el.querySelectorAll("[data-action='check-updates']").forEach(btn => {
+      btn.addEventListener("click", () => window.__ninetyUpdateCheck?.());
+    });
   }
   render();
 
@@ -210,11 +213,16 @@ function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
 
 // ── Разделы ────────────────────────────────────────────────
 function renderGeneral(o) {
+  const version = window.__TAURI_METADATA__?.__currentVersion ?? "0.1.1";
   return `
     <div class="settings-section">
       ${row(iconUrl(), "URL для теста соединения", "Любой HTTP/HTTPS endpoint, проверяющий доступ", inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
       ${row(iconClock(), "Интервал теста (сек)", "Как часто sing-box проверяет outbound", inputText("urlTest.intervalSec", o.urlTest.intervalSec, "number", 'min="30" max="3600"'))}
       ${row(iconLog(), "Уровень логов", "Подробность лога sing-box", select("log.level", o.log.level, LOG_LEVELS, LOG_LABELS))}
+    </div>
+    <div class="settings-section">
+      ${row(iconUpdate(), "Версия Ninety", "Текущая установленная версия", `<span class="settings-version">${version}</span>`)}
+      ${row(iconUpdate(), "Проверить обновления", "Скачать и установить новую версию с GitHub", `<button class="settings-btn" data-action="check-updates" type="button">Проверить</button>`)}
     </div>
   `;
 }
@@ -310,3 +318,4 @@ function iconBroadcast(){ return svgWrap('<path opacity="0.25" d="M128 96a32 32 
 function iconScissors() { return svgWrap('<path opacity="0.25" d="M86 134a30 30 0 1 0-30-30 30 30 0 0 0 30 30Z"/><path d="M222.69 121.37 162 96l60.69-25.37a8 8 0 0 0-6.16-14.77l-100.1 41.84A45.95 45.95 0 1 0 88 134a45.7 45.7 0 0 0 28.46-9.7l100.1 41.84a8 8 0 0 0 6.16-14.77Z"/>'); }
 function iconCase()     { return svgWrap('<path opacity="0.25" d="M232 56v152a16 16 0 0 1-16 16H40a16 16 0 0 1-16-16V56Z"/><path d="M216 32H40a16 16 0 0 0-16 16v160a16 16 0 0 0 16 16h176a16 16 0 0 0 16-16V48a16 16 0 0 0-16-16Z"/>'); }
 function iconPad()      { return svgWrap('<path opacity="0.25" d="M224 80v96a16 16 0 0 1-16 16H48a16 16 0 0 1-16-16V80Z"/><path d="M208 64H48a16 16 0 0 0-16 16v96a16 16 0 0 0 16 16h160a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16Z"/>'); }
+function iconUpdate()   { return svgWrap('<path opacity="0.25" d="M128 32a96 96 0 1 0 96 96 96 96 0 0 0-96-96Z"/><path d="M197.66 113.66 145.66 165.66a8 8 0 0 1-11.32 0L82.34 113.66a8 8 0 0 1 11.32-11.32L120 128.69V72a8 8 0 0 1 16 0v56.69l26.34-26.35a8 8 0 0 1 11.32 11.32Z"/>'); }
