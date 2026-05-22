@@ -1,10 +1,31 @@
-// Ninety · sing-box config builder + vless:// парсер + хранилище профилей
-// Совместимо с sing-box 1.10.x (CI скачивает 1.10.5)
+// Ninety · sing-box 1.13.x config builder
+// Архитектура — зеркало Hiddify HiddifyOptions → builder.go.
+// vless парсер + хранилище профилей здесь же.
+
+import { DEFAULT_OPTIONS } from "/lib/options.js";
 
 const PROFILES_KEY = "ninety.profiles.v1";
 const ACTIVE_KEY = "ninety.profiles.active";
 const MODE_KEY = "ninety.mode";
 
+const HIDDIFY_GEO_BASE = "https://raw.githubusercontent.com/hiddify/hiddify-geo/rule-set";
+const BLOCK_AD_SETS = [
+  ["geosite-ads", `${HIDDIFY_GEO_BASE}/block/geosite-category-ads-all.srs`],
+  ["geosite-malware", `${HIDDIFY_GEO_BASE}/block/geosite-malware.srs`],
+  ["geosite-phishing", `${HIDDIFY_GEO_BASE}/block/geosite-phishing.srs`],
+  ["geosite-cryptominers", `${HIDDIFY_GEO_BASE}/block/geosite-cryptominers.srs`],
+  ["geoip-malware", `${HIDDIFY_GEO_BASE}/block/geoip-malware.srs`],
+  ["geoip-phishing", `${HIDDIFY_GEO_BASE}/block/geoip-phishing.srs`],
+];
+
+const IPV6_STRATEGY_MAP = {
+  disable: "ipv4_only",
+  enable: "prefer_ipv4",
+  prefer: "prefer_ipv6",
+  only: "ipv6_only",
+};
+
+// ── vless парсер ────────────────────────────────────────────
 export function parseVless(raw) {
   const url = String(raw || "").trim();
   if (!url.startsWith("vless://")) throw new Error("Не vless:// ссылка");
@@ -64,7 +85,8 @@ function safeDecode(s) {
   try { return decodeURIComponent(s); } catch { return s; }
 }
 
-function buildOutbound(p) {
+// ── outbound из профиля + mux ───────────────────────────────
+function buildOutbound(p, options) {
   const out = {
     type: "vless",
     tag: "proxy",
@@ -114,53 +136,200 @@ function buildOutbound(p) {
       break;
   }
 
+  if (options?.mux?.enable) {
+    out.multiplex = {
+      enabled: true,
+      protocol: options.mux.protocol || "h2mux",
+      max_streams: options.mux.maxStreams || 8,
+      padding: !!options.mux.padding,
+    };
+  }
+
   return out;
 }
 
-export function buildConfig({ profile, mode }) {
-  const outbound = buildOutbound(profile);
-  const inbound = mode === "tun" ? {
-    type: "tun",
-    tag: "tun-in",
-    interface_name: "ninety-tun",
-    address: ["172.19.0.1/30"],
-    mtu: 9000,
-    auto_route: true,
-    strict_route: false,
-    sniff: true,
-  } : {
-    type: "mixed",
-    tag: "mixed-in",
-    listen: "127.0.0.1",
-    listen_port: 7890,
-    sniff: true,
+// ── rule_sets для региона + block_ads ───────────────────────
+function buildRuleSets(options) {
+  const sets = [];
+  const region = options.region;
+  if (region && region !== "other") {
+    sets.push({
+      type: "remote", tag: `geoip-${region}`, format: "binary",
+      url: `${HIDDIFY_GEO_BASE}/country/geoip-${region}.srs`,
+      update_interval: "120h", download_detour: "proxy",
+    });
+    sets.push({
+      type: "remote", tag: `geosite-${region}`, format: "binary",
+      url: `${HIDDIFY_GEO_BASE}/country/geosite-${region}.srs`,
+      update_interval: "120h", download_detour: "proxy",
+    });
+  }
+  if (options.blockAds) {
+    for (const [tag, url] of BLOCK_AD_SETS) {
+      sets.push({
+        type: "remote", tag, format: "binary",
+        url, update_interval: "120h", download_detour: "proxy",
+      });
+    }
+  }
+  return sets;
+}
+
+// ── DNS ────────────────────────────────────────────────────
+function buildDns(options) {
+  const ipv6Strategy = IPV6_STRATEGY_MAP[options.route.ipv6Mode] || "prefer_ipv4";
+  const dns = {
+    servers: [
+      {
+        tag: "dns-remote",
+        address: options.dns.remoteAddress,
+        address_resolver: "dns-direct",
+        strategy: ipv6Strategy,
+        detour: "proxy",
+      },
+      {
+        tag: "dns-direct",
+        address: options.dns.directAddress,
+        strategy: ipv6Strategy,
+        detour: "direct",
+      },
+      { tag: "dns-block", address: "rcode://refused" },
+    ],
+    rules: [],
+    independent_cache: !!options.dns.independentCache,
+    strategy: ipv6Strategy,
+    final: "dns-remote",
   };
 
+  if (options.region && options.region !== "other") {
+    dns.rules.push({
+      domain_suffix: [`.${options.region}`],
+      server: "dns-direct",
+      rewrite_ttl: 86400,
+    });
+    dns.rules.push({
+      rule_set: [`geosite-${options.region}`],
+      server: "dns-direct",
+      rewrite_ttl: 86400,
+    });
+  }
+
+  if (options.blockAds) {
+    dns.rules.push({
+      rule_set: ["geosite-ads", "geosite-malware", "geosite-phishing", "geosite-cryptominers"],
+      server: "dns-block",
+    });
+  }
+
+  if (options.dns.enableFakeDns) {
+    dns.servers.push({ tag: "dns-fake", address: "fakeip" });
+    dns.fakeip = {
+      enabled: true,
+      inet4_range: "198.18.0.0/15",
+      inet6_range: "fc00::/18",
+    };
+    dns.rules.push({
+      query_type: ["A", "AAAA"],
+      server: "dns-fake",
+    });
+  }
+
+  return dns;
+}
+
+// ── route ──────────────────────────────────────────────────
+function buildRoute(options) {
+  const rules = [
+    { action: "sniff" },
+    { protocol: "dns", action: "hijack-dns" },
+  ];
+
+  if (options.route.bypassLan) {
+    rules.push({ ip_is_private: true, outbound: "direct" });
+  }
+
+  if (options.region && options.region !== "other") {
+    rules.push({ domain_suffix: [`.${options.region}`], outbound: "direct" });
+    rules.push({
+      rule_set: [`geosite-${options.region}`, `geoip-${options.region}`],
+      outbound: "direct",
+    });
+  }
+
+  if (options.blockAds) {
+    rules.push({
+      rule_set: ["geosite-ads", "geosite-malware", "geosite-phishing", "geosite-cryptominers", "geoip-malware", "geoip-phishing"],
+      action: "reject",
+    });
+  }
+
+  const route = {
+    rules,
+    rule_set: buildRuleSets(options),
+    final: "proxy",
+    auto_detect_interface: true,
+  };
+
+  if (options.route.resolveDestination) {
+    route.default_domain_resolver = { server: "dns-remote" };
+  }
+
+  return route;
+}
+
+// ── inbound ────────────────────────────────────────────────
+function buildInbound(mode, options) {
+  if (mode === "tun") {
+    return {
+      type: "tun",
+      tag: "tun-in",
+      interface_name: "ninety-tun",
+      address: ["172.19.0.1/30"],
+      mtu: options.inbound.mtu || 9000,
+      auto_route: true,
+      strict_route: !!options.inbound.strictRoute,
+      stack: options.inbound.tunStack || "mixed",
+      sniff: true,
+    };
+  }
   return {
-    log: { level: "warn", timestamp: true },
-    dns: {
-      servers: [
-        { tag: "remote", address: "https://1.1.1.1/dns-query", detour: "proxy" },
-        { tag: "local", address: "local", detour: "direct" },
-      ],
-      rules: [{ outbound: "any", server: "local" }],
-      strategy: "prefer_ipv4",
-    },
-    inbounds: [inbound],
-    outbounds: [
-      outbound,
-      { type: "direct", tag: "direct" },
-      { type: "dns", tag: "dns-out" },
-    ],
-    route: {
-      rules: [{ protocol: "dns", outbound: "dns-out" }],
-      final: "proxy",
-      auto_detect_interface: true,
-    },
+    type: "mixed",
+    tag: "mixed-in",
+    listen: options.inbound.allowConnectionFromLan ? "0.0.0.0" : "127.0.0.1",
+    listen_port: options.inbound.mixedPort || 7890,
+    sniff: true,
   };
 }
 
-// ── Storage ─────────────────────────────────────────────
+// ── главный builder ────────────────────────────────────────
+export function buildConfig({ profile, mode, options }) {
+  const opts = options || DEFAULT_OPTIONS;
+  const outbound = buildOutbound(profile, opts);
+
+  const config = {
+    log: { level: opts.log.level || "warn", timestamp: true },
+    dns: buildDns(opts),
+    inbounds: [buildInbound(mode, opts)],
+    outbounds: [
+      outbound,
+      { type: "direct", tag: "direct" },
+    ],
+    route: buildRoute(opts),
+    experimental: {
+      cache_file: { enabled: true, store_rdrc: true },
+    },
+  };
+
+  if (opts.experimental?.enableClashApi) {
+    config.experimental.clash_api = {
+      external_controller: `127.0.0.1:${opts.experimental.clashApiPort || 9090}`,
+    };
+  }
+
+  return config;
+}
+
+// ── профили (storage) ──────────────────────────────────────
 export function loadProfiles() {
   try {
     const raw = localStorage.getItem(PROFILES_KEY);

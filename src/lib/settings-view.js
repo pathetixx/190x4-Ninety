@@ -1,0 +1,312 @@
+// Ninety · Settings view — 6 разделов навигатором, как в Hiddify.
+// Не SPA-роутер: внутренний state хранится в this view (sectionKey).
+
+import {
+  loadOptions, saveOptions, updateOption,
+  REGIONS, IPV6_MODES, TUN_STACKS, LOG_LEVELS, BALANCER_STRATEGIES,
+} from "/lib/options.js";
+
+const SECTIONS = [
+  { key: "general",    title: "Общие",        icon: iconGeneral,    hint: "Логи, тест соединения, интервалы" },
+  { key: "routing",    title: "Маршрутизация", icon: iconRouting,    hint: "Регион, обход LAN, блокировка рекламы" },
+  { key: "dns",        title: "DNS",           icon: iconDns,        hint: "Remote / Direct DNS, fake-DNS" },
+  { key: "inbound",    title: "Входящие",      icon: iconInbound,    hint: "Mixed-порт, MTU, TUN-стек" },
+  { key: "tls-tricks", title: "Трюки TLS",     icon: iconTls,        hint: "Фрагментация ClientHello, padding" },
+  { key: "warp",       title: "WARP",          icon: iconWarp,       hint: "Cloudflare WARP — скоро" },
+];
+
+const REGION_LABELS = {
+  other: "Не выбран",
+  ru: "Россия (ru)",
+  cn: "Китай (cn)",
+  ir: "Иран (ir)",
+  tr: "Турция (tr)",
+  by: "Беларусь (by)",
+};
+
+const IPV6_LABELS = {
+  disable: "Отключить",
+  enable:  "Включить (prefer IPv4)",
+  prefer:  "Предпочитать IPv6",
+  only:    "Только IPv6",
+};
+
+const TUN_STACK_LABELS = {
+  mixed:  "Mixed (рекомендуется)",
+  gvisor: "gVisor (изолированный)",
+  system: "System (нативный)",
+};
+
+const BALANCER_LABELS = {
+  "round-robin":         "Round robin",
+  "consistent-hashing":  "Consistent hashing",
+  "sticky-sessions":     "Sticky sessions",
+};
+
+const LOG_LABELS = {
+  trace: "trace", debug: "debug", info: "info", warn: "warn", error: "error",
+};
+
+let currentSection = null; // null = menu
+
+export function mountSettings(root, opts = {}) {
+  if (!root) return;
+  const onChange = opts.onChange || (() => {});
+  function render() {
+    if (!currentSection) {
+      root.innerHTML = renderMenu();
+      bindMenu(root);
+    } else {
+      const sec = SECTIONS.find(s => s.key === currentSection);
+      root.innerHTML = renderSection(sec);
+      bindSection(root, sec, onChange);
+    }
+  }
+  function bindMenu(el) {
+    el.querySelectorAll("[data-section]").forEach(item => {
+      item.addEventListener("click", () => {
+        currentSection = item.dataset.section;
+        render();
+      });
+    });
+  }
+  function bindSection(el, sec, onChange) {
+    el.querySelector("[data-back]")?.addEventListener("click", () => {
+      currentSection = null;
+      render();
+    });
+    el.querySelectorAll("[data-opt]").forEach(input => {
+      const path = input.dataset.opt;
+      const handler = () => {
+        const value = readInput(input);
+        updateOption(path, value);
+        onChange(path, value);
+        if (input.dataset.affectsView) render();
+      };
+      input.addEventListener("change", handler);
+      if (input.type === "number" || input.type === "text" || input.type === "url") {
+        input.addEventListener("blur", handler);
+      }
+    });
+  }
+  render();
+
+  return {
+    refresh: render,
+    goMenu: () => { currentSection = null; render(); },
+  };
+}
+
+function readInput(input) {
+  if (input.type === "checkbox") return !!input.checked;
+  if (input.type === "number") {
+    const n = Number(input.value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return input.value;
+}
+
+// ── Меню (главная settings) ────────────────────────────────
+function renderMenu() {
+  return `
+    <header class="settings-head settings-head--root">
+      <h2 class="settings-head__title">Настройки</h2>
+    </header>
+    <div class="settings-menu">
+      ${SECTIONS.map(s => `
+        <button class="settings-menu__item" data-section="${s.key}" type="button">
+          <span class="settings-menu__icon">${s.icon()}</span>
+          <span class="settings-menu__body">
+            <span class="settings-menu__title">${s.title}</span>
+            <span class="settings-menu__hint">${s.hint}</span>
+          </span>
+          <span class="settings-menu__chevron">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+// ── Подраздел ──────────────────────────────────────────────
+function renderSection(sec) {
+  const o = loadOptions();
+  return `
+    <header class="settings-head">
+      <button class="settings-back" data-back type="button" aria-label="Назад">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <h2 class="settings-head__title">${sec.title}</h2>
+    </header>
+    ${renderSectionBody(sec, o)}
+  `;
+}
+
+function renderSectionBody(sec, o) {
+  switch (sec.key) {
+    case "general":    return renderGeneral(o);
+    case "routing":    return renderRouting(o);
+    case "dns":        return renderDns(o);
+    case "inbound":    return renderInbound(o);
+    case "tls-tricks": return renderTlsTricks(o);
+    case "warp":       return renderWarp(o);
+  }
+  return "";
+}
+
+// helpers
+function row(icon, label, hint, control) {
+  return `
+    <div class="setting-row">
+      <span class="setting-row__icon">${icon || ""}</span>
+      <span class="setting-row__main">
+        <span class="setting-row__label">${label}</span>
+        ${hint ? `<span class="setting-row__hint">${hint}</span>` : ""}
+      </span>
+      <span class="setting-row__control">${control}</span>
+    </div>
+  `;
+}
+
+function toggle(path, checked) {
+  return `
+    <label class="switch">
+      <input type="checkbox" data-opt="${path}" ${checked ? "checked" : ""}/>
+      <span class="switch__track"></span>
+    </label>
+  `;
+}
+
+function select(path, value, options, labels = {}, affectsView = false) {
+  const opts = options.map(v => `<option value="${v}" ${v === value ? "selected" : ""}>${labels[v] || v}</option>`).join("");
+  return `<select class="settings-select" data-opt="${path}" ${affectsView ? "data-affects-view" : ""}>${opts}</select>`;
+}
+
+function inputText(path, value, type = "text", attrs = "") {
+  return `<input class="settings-input" type="${type}" value="${escapeAttr(value ?? "")}" data-opt="${path}" ${attrs}/>`;
+}
+
+function escapeAttr(s) {
+  return String(s ?? "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
+  return `
+    <div class="setting-row">
+      <span class="setting-row__icon"></span>
+      <span class="setting-row__main">
+        <span class="setting-row__label">${label}</span>
+        ${hint ? `<span class="setting-row__hint">${hint}</span>` : ""}
+      </span>
+      <span class="setting-row__control setting-row__control--range">
+        <input class="settings-input settings-input--num" type="number" value="${fromVal}" data-opt="${fromPath}"/>
+        <span class="settings-range__sep">—</span>
+        <input class="settings-input settings-input--num" type="number" value="${toVal}" data-opt="${toPath}"/>
+      </span>
+    </div>
+  `;
+}
+
+// ── Разделы ────────────────────────────────────────────────
+function renderGeneral(o) {
+  return `
+    <div class="settings-section">
+      ${row(iconUrl(), "URL для теста соединения", "Любой HTTP/HTTPS endpoint, проверяющий доступ", inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
+      ${row(iconClock(), "Интервал теста (сек)", "Как часто sing-box проверяет outbound", inputText("urlTest.intervalSec", o.urlTest.intervalSec, "number", 'min="30" max="3600"'))}
+      ${row(iconLog(), "Уровень логов", "Подробность лога sing-box", select("log.level", o.log.level, LOG_LEVELS, LOG_LABELS))}
+    </div>
+  `;
+}
+
+function renderRouting(o) {
+  return `
+    <div class="settings-section">
+      ${row(iconPin(), "Регион", "Локальный трафик региона идёт напрямую через geosite/geoip rule_sets от hiddify-geo (обновление каждые 5 дней через прокси)", select("region", o.region, REGIONS, REGION_LABELS, true))}
+      ${row(iconBalancer(), "Стратегия Balancer", "Используется при множественных нодах (alpha7)", select("route.balancerStrategy", o.route.balancerStrategy, BALANCER_STRATEGIES, BALANCER_LABELS))}
+      ${row(iconShield(), "Блокировать рекламу", "Domain/IP списки рекламы и malware из hiddify-geo", toggle("blockAds", o.blockAds))}
+      ${row(iconLan(), "Обход LAN", "Локальные адреса (10.x, 192.168.x и т.п.) идут напрямую", toggle("route.bypassLan", o.route.bypassLan))}
+      ${row(iconTarget(), "Определять адрес назначения", "Резолвить домен в IP перед маршрутизацией", toggle("route.resolveDestination", o.route.resolveDestination))}
+      ${row(iconIpv6(), "Маршрут IPv6", "Стратегия выбора IPv4/IPv6", select("route.ipv6Mode", o.route.ipv6Mode, IPV6_MODES, IPV6_LABELS))}
+    </div>
+  `;
+}
+
+function renderDns(o) {
+  return `
+    <div class="settings-section">
+      ${row(iconRemote(), "Remote DNS", "DNS для трафика через прокси (DoH/DoT/UDP)", inputText("dns.remoteAddress", o.dns.remoteAddress, "text"))}
+      ${row(iconDirect(), "Direct DNS", "DNS для прямого трафика (для region и bypass)", inputText("dns.directAddress", o.dns.directAddress, "text"))}
+      ${row(iconCache(), "Независимый DNS-кэш", "Раздельный кэш для remote и direct", toggle("dns.independentCache", o.dns.independentCache))}
+      ${row(iconMask(), "Fake-DNS", "Возвращать поддельный IP, маппинг в памяти. Полезно при TUN", toggle("dns.enableFakeDns", o.dns.enableFakeDns))}
+    </div>
+  `;
+}
+
+function renderInbound(o) {
+  return `
+    <div class="settings-section">
+      ${row(iconPort(), "Mixed port", "Локальный SOCKS+HTTP порт для системного прокси", inputText("inbound.mixedPort", o.inbound.mixedPort, "number", 'min="1024" max="65535"'))}
+      ${row(iconMtu(), "MTU TUN", "Максимальный размер пакета", inputText("inbound.mtu", o.inbound.mtu, "number", 'min="576" max="9000"'))}
+      ${row(iconStack(), "TUN стек", "Реализация TUN-стека", select("inbound.tunStack", o.inbound.tunStack, TUN_STACKS, TUN_STACK_LABELS))}
+      ${row(iconLock(), "Строгая маршрутизация", "Блокировать утечки трафика мимо TUN", toggle("inbound.strictRoute", o.inbound.strictRoute))}
+      ${row(iconBroadcast(), "Принимать с LAN", "Mixed inbound будет слушать 0.0.0.0 вместо 127.0.0.1", toggle("inbound.allowConnectionFromLan", o.inbound.allowConnectionFromLan))}
+    </div>
+  `;
+}
+
+function renderTlsTricks(o) {
+  return `
+    <div class="settings-banner">
+      Трюки TLS работают через форк <code>hiddify-sing-box</code>. В текущем mainline sing-box фрагментация ClientHello недоступна — настройки сохраняются, но в config не передаются. Добавится отдельной итерацией с переходом на форк.
+    </div>
+    <div class="settings-section">
+      ${row(iconScissors(), "Фрагментация ClientHello", "Бьёт TLS handshake на куски — обход DPI", toggle("tlsTricks.enableFragment", o.tlsTricks.enableFragment))}
+      ${rangeRow("Размер фрагмента (байт)", "Диапазон случайной длины каждого фрагмента", "tlsTricks.fragmentSize.from", o.tlsTricks.fragmentSize.from, "tlsTricks.fragmentSize.to", o.tlsTricks.fragmentSize.to)}
+      ${rangeRow("Задержка между фрагментами (мс)", "Случайный sleep между отправкой кусков", "tlsTricks.fragmentSleep.from", o.tlsTricks.fragmentSleep.from, "tlsTricks.fragmentSleep.to", o.tlsTricks.fragmentSleep.to)}
+      ${row(iconCase(), "Mixed SNI case", "Перемешивает регистр в SNI", toggle("tlsTricks.mixedSniCase", o.tlsTricks.mixedSniCase))}
+      ${row(iconPad(), "TLS padding", "Добавляет padding в ClientHello", toggle("tlsTricks.enablePadding", o.tlsTricks.enablePadding))}
+      ${rangeRow("Размер padding (байт)", "Диапазон длины", "tlsTricks.paddingSize.from", o.tlsTricks.paddingSize.from, "tlsTricks.paddingSize.to", o.tlsTricks.paddingSize.to)}
+    </div>
+  `;
+}
+
+function renderWarp(o) {
+  return `
+    <div class="settings-banner">
+      Cloudflare WARP как дополнительный слой (chain поверх VLESS или альтернативный outbound) — в следующих итерациях. Здесь будут регистрация аккаунта, fake-packets, clean-IP.
+    </div>
+  `;
+}
+
+// ── Иконки (Phosphor Duotone, inline SVG) ──────────────────
+function svgWrap(inner) {
+  return `<svg viewBox="0 0 256 256" width="20" height="20" fill="currentColor">${inner}</svg>`;
+}
+function iconGeneral()  { return svgWrap('<path opacity="0.25" d="M128 88a40 40 0 1 0 40 40 40 40 0 0 0-40-40Z"/><path d="M128 80a48 48 0 1 0 48 48 48.05 48.05 0 0 0-48-48Zm0 80a32 32 0 1 1 32-32 32 32 0 0 1-32 32Z"/>'); }
+function iconRouting()  { return svgWrap('<path opacity="0.25" d="M192 56a32 32 0 1 1-32-32 32 32 0 0 1 32 32Z"/><path d="M232 48a24 24 0 0 0-44.46-12.45A104 104 0 0 0 88.8 224h.18a24 24 0 1 0 4.2-15.6A88 88 0 0 1 192.06 35.6 24 24 0 0 0 232 48Z"/>'); }
+function iconDns()      { return svgWrap('<path opacity="0.25" d="M224 56v48H32V56a8 8 0 0 1 8-8h176a8 8 0 0 1 8 8Z"/><path d="M216 40H40a16 16 0 0 0-16 16v144a16 16 0 0 0 16 16h176a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 16v40H40V56Zm-176 56h176v40H40Zm0 88v-32h176v32Z"/>'); }
+function iconInbound()  { return svgWrap('<path opacity="0.25" d="M216 48v80a8 8 0 0 1-8 8h-72v-80a8 8 0 0 1 8-8h72Z"/><path d="M208 40h-72a16 16 0 0 0-16 16v32H48a16 16 0 0 0-16 16v96a16 16 0 0 0 16 16h120a16 16 0 0 0 16-16v-32h24a16 16 0 0 0 16-16V48a16 16 0 0 0-16-16Z"/>'); }
+function iconTls()      { return svgWrap('<path opacity="0.25" d="M96 92a36 36 0 1 1-36-36 36 36 0 0 1 36 36Z"/><path d="M239.32 154.36 165.36 94.06A44 44 0 1 0 60 92a44 44 0 0 0 70.06 35.34l60.3 73.96a16 16 0 0 0 12.49 5.94 16.13 16.13 0 0 0 9.05-2.8l27.7-19.14A16 16 0 0 0 239.32 154.36ZM60 64a28 28 0 1 1-28 28 28 28 0 0 1 28-28Z"/>'); }
+function iconWarp()     { return svgWrap('<path opacity="0.25" d="M248 128a72 72 0 0 1-72 72H88a64 64 0 0 1 0-128 64.13 64.13 0 0 1 6.49.32A72 72 0 0 1 248 128Z"/><path d="M176 88a87.84 87.84 0 0 0-78.7 48.6A56 56 0 1 0 88 248h88a80 80 0 0 0 0-160Z"/>'); }
+function iconUrl()      { return svgWrap('<path opacity="0.25" d="M232 128a104 104 0 1 1-104-104"/><path d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Z"/>'); }
+function iconClock()    { return svgWrap('<path opacity="0.25" d="M224 128a96 96 0 1 1-96-96 96 96 0 0 1 96 96Z"/><path d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Zm56 112h-56a8 8 0 0 1-8-8V72a8 8 0 0 1 16 0v48h48a8 8 0 0 1 0 16Z"/>'); }
+function iconLog()      { return svgWrap('<path opacity="0.25" d="M208 88V216a8 8 0 0 1-8 8H56a8 8 0 0 1-8-8V40a8 8 0 0 1 8-8h88Z"/><path d="M213.66 82.34 157.66 26.34A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66Z"/>'); }
+function iconPin()      { return svgWrap('<path opacity="0.25" d="M208 104c0 64-80 128-80 128S48 168 48 104a80 80 0 0 1 160 0Z"/><path d="M128 64a40 40 0 1 0 40 40 40 40 0 0 0-40-40Z"/>'); }
+function iconBalancer() { return svgWrap('<path opacity="0.25" d="M251.69 92.41 209 41.81a8 8 0 0 0-12 0L153 92.4a8 8 0 0 0 6 13.6h28V232a8 8 0 0 0 16 0V106h28a8 8 0 0 0 5.69-13.59Z"/><path d="M101.69 92.41 59 41.81a8 8 0 0 0-12 0L4 92.4a8 8 0 0 0 6 13.6h27V232a8 8 0 0 0 16 0V106h28a8 8 0 0 0 5.69-13.59Z"/>'); }
+function iconShield()   { return svgWrap('<path opacity="0.25" d="M208 40v88c0 70.4-72.84 96-80 96s-80-25.6-80-96V40a8 8 0 0 1 8-8h144a8 8 0 0 1 8 8Z"/><path d="M208 32H48a16 16 0 0 0-16 16v88c0 70.42 73.41 99.41 80 102a8.55 8.55 0 0 0 6 0c6.59-2.6 80-31.58 80-102V48a16 16 0 0 0-16-16Z"/>'); }
+function iconLan()      { return svgWrap('<path opacity="0.25" d="M120 32a8 8 0 0 1 0 16H64a16 16 0 0 0-16 16v64a8 8 0 0 1-16 0V64a32 32 0 0 1 32-32Z"/><path d="M218.83 161.17a4 4 0 0 0-5.66 0l-23.4 23.4-25.94-25.94a8 8 0 0 0-11.31 11.31l25.94 25.94-23.4 23.4a4 4 0 0 0 2.83 6.83H224a8 8 0 0 0 8-8v-58.34a4 4 0 0 0-6.83-2.83Z"/>'); }
+function iconTarget()   { return svgWrap('<path opacity="0.25" d="M224 128a96 96 0 1 1-96-96 96 96 0 0 1 96 96Z"/><path d="M128 24a104 104 0 1 0 104 104 104.11 104.11 0 0 0-104-104Zm0 192a88 88 0 1 1 88-88 88.1 88.1 0 0 1-88 88Zm0-144a56 56 0 1 0 56 56 56 56 0 0 0-56-56Z"/>'); }
+function iconIpv6()     { return svgWrap('<path opacity="0.25" d="M128 24a104 104 0 1 0 104 104A104 104 0 0 0 128 24Z"/><path d="M128 88a40 40 0 1 0 40 40 40 40 0 0 0-40-40Z"/>'); }
+function iconRemote()   { return svgWrap('<path opacity="0.25" d="M232 64v128H24V64Z"/><path d="M224 48H32a16 16 0 0 0-16 16v128a16 16 0 0 0 16 16h192a16 16 0 0 0 16-16V64a16 16 0 0 0-16-16Z"/>'); }
+function iconDirect()   { return svgWrap('<path opacity="0.25" d="M152 32v80h80Z"/><path d="m213.66 82.34-56-56A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66Z"/>'); }
+function iconCache()    { return svgWrap('<path opacity="0.25" d="M224 72v40c0 17.67-43 32-96 32S32 129.67 32 112V72c0-17.67 43-32 96-32S224 54.33 224 72Z"/><path d="M128 24c-30.62 0-57.55 8.45-77.78 24.43C42.84 56.13 32 67.74 32 80v96c0 17.67 43 32 96 32s96-14.33 96-32V80c0-12.26-10.84-23.87-18.22-31.57C185.55 32.45 158.62 24 128 24Z"/>'); }
+function iconMask()     { return svgWrap('<path opacity="0.25" d="M128 24c-30.93 0-56 25.07-56 56a32 32 0 0 0 32 32h48a32 32 0 0 0 32-32c0-30.93-25.07-56-56-56Z"/><path d="M251.76 113.4A8 8 0 0 0 244 104h-12V80a72 72 0 0 0-144 0v24H24a8 8 0 0 0-7.76 9.4l16 88A8 8 0 0 0 40 208h176a8 8 0 0 0 7.87-6.6Z"/>'); }
+function iconPort()     { return svgWrap('<path opacity="0.25" d="M224 56v144a8 8 0 0 1-8 8H40a8 8 0 0 1-8-8V56a8 8 0 0 1 8-8h176a8 8 0 0 1 8 8Z"/><path d="M216 40H40a16 16 0 0 0-16 16v144a16 16 0 0 0 16 16h176a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16ZM160 96l-32 32-32-32Z"/>'); }
+function iconMtu()      { return svgWrap('<path opacity="0.25" d="M48 56v144l160-72Z"/><path d="M218.83 116.91 70.43 28.18a14.43 14.43 0 0 0-15.18.41A14.66 14.66 0 0 0 48 41v174a14.66 14.66 0 0 0 7.25 12.42 14.45 14.45 0 0 0 15.18.4l148.4-88.72a14.74 14.74 0 0 0 0-25.19Z"/>'); }
+function iconStack()    { return svgWrap('<path opacity="0.25" d="M232 128 128 192 24 128l104-64Z"/><path d="M236.21 124.65 132 60.65a8 8 0 0 0-8.42 0L19.79 124.65a8 8 0 0 0 0 13.7l104.21 64a8 8 0 0 0 8.42 0l104.21-64a8 8 0 0 0-.42-13.7Z"/>'); }
+function iconLock()     { return svgWrap('<path opacity="0.25" d="M208 88V216a8 8 0 0 1-8 8H56a8 8 0 0 1-8-8V88a8 8 0 0 1 8-8h144a8 8 0 0 1 8 8Z"/><path d="M208 72h-24V56a56 56 0 0 0-112 0v16H48a16 16 0 0 0-16 16v128a16 16 0 0 0 16 16h160a16 16 0 0 0 16-16V88a16 16 0 0 0-16-16ZM88 56a40 40 0 0 1 80 0v16H88Z"/>'); }
+function iconBroadcast(){ return svgWrap('<path opacity="0.25" d="M128 96a32 32 0 1 1-32 32 32 32 0 0 1 32-32Z"/><path d="M180.61 102.4a8 8 0 0 1-13.06 9.2C159.05 99.68 144 88 128 88s-31.05 11.68-39.55 23.6a8 8 0 1 1-13.06-9.2C84.46 89 105.31 72 128 72S171.54 89 180.61 102.4Z"/>'); }
+function iconScissors() { return svgWrap('<path opacity="0.25" d="M86 134a30 30 0 1 0-30-30 30 30 0 0 0 30 30Z"/><path d="M222.69 121.37 162 96l60.69-25.37a8 8 0 0 0-6.16-14.77l-100.1 41.84A45.95 45.95 0 1 0 88 134a45.7 45.7 0 0 0 28.46-9.7l100.1 41.84a8 8 0 0 0 6.16-14.77Z"/>'); }
+function iconCase()     { return svgWrap('<path opacity="0.25" d="M232 56v152a16 16 0 0 1-16 16H40a16 16 0 0 1-16-16V56Z"/><path d="M216 32H40a16 16 0 0 0-16 16v160a16 16 0 0 0 16 16h176a16 16 0 0 0 16-16V48a16 16 0 0 0-16-16Z"/>'); }
+function iconPad()      { return svgWrap('<path opacity="0.25" d="M224 80v96a16 16 0 0 1-16 16H48a16 16 0 0 1-16-16V80Z"/><path d="M208 64H48a16 16 0 0 0-16 16v96a16 16 0 0 0 16 16h160a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16Z"/>'); }
