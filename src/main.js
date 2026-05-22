@@ -12,6 +12,8 @@ import {
   getMode,
   setMode,
 } from "/lib/singbox.js";
+import { loadOptions } from "/lib/options.js";
+import { mountSettings } from "/lib/settings-view.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -238,6 +240,27 @@ document.getElementById("location-card")?.addEventListener("click", (e) => {
   switchView("profiles");
 });
 
+// ── Settings view ──────────────────────────────────────────
+const settingsRoot = document.getElementById("settings-root");
+let settingsCtl = null;
+if (settingsRoot) {
+  settingsCtl = mountSettings(settingsRoot, {
+    onChange: () => {
+      if (state === "connected" || state === "connecting") {
+        toast("Изменения применятся при следующем подключении", "info", 2400);
+      }
+      if (state === "idle") updateHeroHint();
+    },
+  });
+}
+
+navItems.forEach((item) => {
+  if (item.dataset.view !== "settings") return;
+  item.addEventListener("click", () => {
+    if (settingsCtl) settingsCtl.goMenu();
+  });
+});
+
 // ── Profiles view ──────────────────────────────────────────
 const profilesView = document.querySelector('section.view[data-view="profiles"]');
 function renderProfilesView() {
@@ -412,12 +435,13 @@ heroDisc?.addEventListener("click", async () => {
     const p = getActiveProfile();
     if (!p) { toast("Сначала импортируйте vless://", "error"); return; }
     const mode = getMode();
-    const config = buildConfig({ profile: p, mode });
+    const options = loadOptions();
+    const config = buildConfig({ profile: p, mode, options });
     setState("connecting");
     try {
       await invoke("start_singbox", { configJson: JSON.stringify(config), mode });
       if (mode === "proxy") {
-        await invoke("set_system_proxy", { enable: true, hostPort: "127.0.0.1:7890" });
+        await invoke("set_system_proxy", { enable: true, hostPort: `127.0.0.1:${options.inbound.mixedPort || 7890}` });
       }
       setState("connected", { ping: `${28 + Math.floor(Math.random() * 28)} мс` });
       toast("Подключено", "success", 1600);

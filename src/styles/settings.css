@@ -1,0 +1,259 @@
+/* Ninety · Settings view */
+.view--settings {
+  display: block;
+  overflow: auto;
+  padding: 12px 16px 32px;
+}
+
+.settings-root {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Шапка */
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 4px 8px;
+}
+
+.settings-head__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--text-main);
+}
+
+.settings-back {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-main);
+  transition: background 200ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.settings-back:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Меню (главная страница настроек) */
+.settings-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: rgba(18, 10, 18, 0.7);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: left;
+  transition: border-color 200ms cubic-bezier(.25,.46,.45,.94), background 200ms, transform 200ms;
+}
+
+.settings-menu__item:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, rgba(18, 10, 18, 0.7));
+  transform: translateY(-1px);
+}
+
+.settings-menu__icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-bright);
+}
+
+.settings-menu__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-menu__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.settings-menu__hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-menu__chevron {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+/* Секция (контейнер строк) */
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(18, 10, 18, 0.7);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Строка настройки */
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: rgba(0, 0, 0, 0.15);
+  transition: background 180ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.setting-row:hover { background: rgba(255, 255, 255, 0.025); }
+
+.setting-row__icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.setting-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.setting-row__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.setting-row__hint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.setting-row__control {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setting-row__control--range {
+  gap: 6px;
+}
+
+.settings-range__sep {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* Input */
+.settings-input {
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-main);
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  font-size: 11px;
+  min-width: 200px;
+  text-align: right;
+  transition: border-color 200ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.settings-input--num {
+  min-width: 70px;
+  text-align: center;
+}
+
+.settings-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+/* Select */
+.settings-select {
+  padding: 7px 28px 7px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-main);
+  font-size: 12px;
+  font-family: inherit;
+  min-width: 180px;
+  text-align: left;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2399828a' stroke-width='2.4' stroke-linecap='round'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  transition: border-color 200ms cubic-bezier(.25,.46,.45,.94);
+  cursor: pointer;
+}
+
+.settings-select:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.settings-select option {
+  background: #1c121c;
+  color: var(--text-main);
+}
+
+/* Banner (info / warning) */
+.settings-banner {
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text-main);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.settings-banner code {
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--accent-bright);
+}
