@@ -257,3 +257,30 @@
   background: rgba(0, 0, 0, 0.4);
   color: var(--accent-bright);
 }
+
+.settings-version {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  color: var(--accent-bright);
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.settings-btn {
+  padding: 7px 14px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 200ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.settings-btn:hover {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}

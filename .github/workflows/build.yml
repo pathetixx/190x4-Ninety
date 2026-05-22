@@ -50,7 +50,36 @@ jobs:
       - name: Build Tauri
         run: npm run tauri build
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ""
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+
+      - name: Generate latest.json (only on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $cfg = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
+          $version = $cfg.version
+          $tag = "${{ github.ref_name }}"
+          $nsis = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $nsis) { Write-Error "NSIS setup not found"; exit 1 }
+          $sigPath = "$($nsis.FullName).sig"
+          if (-not (Test-Path $sigPath)) { Write-Error "Signature not found: $sigPath"; exit 1 }
+          $sig = (Get-Content $sigPath -Raw).Trim()
+          $url = "https://github.com/pathetixx/190x4-Ninety/releases/download/$tag/$($nsis.Name)"
+          $json = [ordered]@{
+            version = $version
+            notes = "См. полные заметки в GitHub Release: $tag"
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = $sig
+                url = $url
+              }
+            }
+          } | ConvertTo-Json -Depth 5
+          Set-Content -Path latest.json -Value $json -Encoding UTF8
+          Write-Host "=== latest.json ==="
+          Get-Content latest.json
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -59,6 +88,7 @@ jobs:
           path: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.sig
           if-no-files-found: error
           retention-days: 14
 
@@ -69,4 +99,6 @@ jobs:
           files: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.sig
+            latest.json
           fail_on_unmatched_files: true
