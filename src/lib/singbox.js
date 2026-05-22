@@ -175,26 +175,61 @@ function buildRuleSets(options) {
   return sets;
 }
 
-// ── DNS ────────────────────────────────────────────────────
+// ── DNS server: парсер строки в новый формат sing-box 1.12+ ─
+// Поддерживаемые входы:
+//   https://host/path   → {type: "https", server, path?}
+//   tls://host[:port]   → {type: "tls",   server, server_port?}
+//   tcp://host[:port]   → {type: "tcp",   server, server_port?}
+//   udp://host[:port]   → {type: "udp",   server, server_port?}
+//   quic://host[:port]  → {type: "quic",  server, server_port?}
+//   1.2.3.4 / host      → {type: "udp",   server} (дефолт)
+//   local | system      → {type: "local"}
+function parseDnsAddress(raw) {
+  const s = String(raw || "").trim();
+  if (!s || s === "local" || s === "system") return { type: "local" };
+  const m = s.match(/^([a-z]+):\/\/(.+)$/i);
+  if (!m) return { type: "udp", server: s };
+  const scheme = m[1].toLowerCase();
+  const rest = m[2];
+  if (scheme === "https") {
+    const u = (() => { try { return new URL(s); } catch { return null; } })();
+    const o = { type: "https", server: u ? u.hostname : rest };
+    if (u && u.port) o.server_port = parseInt(u.port, 10);
+    if (u && u.pathname && u.pathname !== "/") o.path = u.pathname;
+    return o;
+  }
+  if (["tls", "tcp", "udp", "quic"].includes(scheme)) {
+    const o = { type: scheme };
+    const idx = rest.lastIndexOf(":");
+    if (idx > 0 && !rest.includes("/")) {
+      o.server = rest.slice(0, idx);
+      o.server_port = parseInt(rest.slice(idx + 1), 10);
+    } else {
+      o.server = rest;
+    }
+    return o;
+  }
+  return { type: "udp", server: s };
+}
+
 function buildDns(options) {
   const ipv6Strategy = IPV6_STRATEGY_MAP[options.route.ipv6Mode] || "prefer_ipv4";
+
+  const remoteSrv = {
+    tag: "dns-remote",
+    ...parseDnsAddress(options.dns.remoteAddress),
+    domain_resolver: "dns-direct",
+    detour: "proxy",
+  };
+
+  const directSrv = {
+    tag: "dns-direct",
+    ...parseDnsAddress(options.dns.directAddress),
+    detour: "direct",
+  };
+
   const dns = {
-    servers: [
-      {
-        tag: "dns-remote",
-        address: options.dns.remoteAddress,
-        address_resolver: "dns-direct",
-        strategy: ipv6Strategy,
-        detour: "proxy",
-      },
-      {
-        tag: "dns-direct",
-        address: options.dns.directAddress,
-        strategy: ipv6Strategy,
-        detour: "direct",
-      },
-      { tag: "dns-block", address: "rcode://refused" },
-    ],
+    servers: [remoteSrv, directSrv],
     rules: [],
     independent_cache: !!options.dns.independentCache,
     strategy: ipv6Strategy,
@@ -214,24 +249,14 @@ function buildDns(options) {
     });
   }
 
-  if (options.blockAds) {
-    dns.rules.push({
-      rule_set: ["geosite-ads", "geosite-malware", "geosite-phishing", "geosite-cryptominers"],
-      server: "dns-block",
-    });
-  }
-
   if (options.dns.enableFakeDns) {
-    dns.servers.push({ tag: "dns-fake", address: "fakeip" });
-    dns.fakeip = {
-      enabled: true,
+    dns.servers.push({
+      tag: "dns-fake",
+      type: "fakeip",
       inet4_range: "198.18.0.0/15",
       inet6_range: "fc00::/18",
-    };
-    dns.rules.push({
-      query_type: ["A", "AAAA"],
-      server: "dns-fake",
     });
+    dns.rules.push({ query_type: ["A", "AAAA"], server: "dns-fake" });
   }
 
   return dns;
@@ -268,16 +293,15 @@ function buildRoute(options) {
     rule_set: buildRuleSets(options),
     final: "proxy",
     auto_detect_interface: true,
+    default_domain_resolver: {
+      server: options.route.resolveDestination ? "dns-remote" : "dns-direct",
+    },
   };
-
-  if (options.route.resolveDestination) {
-    route.default_domain_resolver = { server: "dns-remote" };
-  }
 
   return route;
 }
 
-// ── inbound ────────────────────────────────────────────────
+// ── inbound (sing-box 1.13: sniff/tun.address — через route rules / inet4_address) ─
 function buildInbound(mode, options) {
   if (mode === "tun") {
     return {
@@ -289,7 +313,6 @@ function buildInbound(mode, options) {
       auto_route: true,
       strict_route: !!options.inbound.strictRoute,
       stack: options.inbound.tunStack || "mixed",
-      sniff: true,
     };
   }
   return {
@@ -297,7 +320,6 @@ function buildInbound(mode, options) {
     tag: "mixed-in",
     listen: options.inbound.allowConnectionFromLan ? "0.0.0.0" : "127.0.0.1",
     listen_port: options.inbound.mixedPort || 7890,
-    sniff: true,
   };
 }
 
