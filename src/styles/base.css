@@ -116,10 +116,11 @@ img { display: block; }
 /* ── Адаптив ─────────────────────────────────────────────── */
 
 /* Средние окна: sidebar схлопывается до иконок */
-@media (max-width: 940px) {
-  .layout { grid-template-columns: 64px minmax(0, 1fr); }
+@media (max-width: 1000px) {
+  .layout { grid-template-columns: 68px minmax(0, 1fr); }
   .sidebar { padding: 14px 8px; }
-  .sidebar__brand { justify-content: center; padding: 6px 0 18px; }
+  .sidebar__brand { justify-content: center; padding: 8px 0 18px; gap: 0; }
+  .sidebar__brand-mark { width: 40px; height: 40px; }
   .sidebar__brand-text { display: none; }
   .menu__item { justify-content: center; padding: 7px 0; }
   .menu__label { display: none; }
@@ -131,7 +132,7 @@ img { display: block; }
 }
 
 /* Узкие окна */
-@media (max-width: 720px) {
-  .titlebar__actions { padding: 0 4px; gap: 2px; }
-  .tb-action { width: 28px; }
+@media (max-width: 760px) {
+  .view__toolbar { gap: 8px; margin-bottom: 10px; }
+  .tool-btn { width: 40px; height: 40px; border-radius: 11px; }
 }

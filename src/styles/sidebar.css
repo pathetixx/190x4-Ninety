@@ -15,15 +15,18 @@
 .sidebar__brand {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 10px 10px 22px;
+  gap: 12px;
+  padding: 14px 8px 26px;
 }
 
 .sidebar__brand-mark {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
   object-fit: contain;
+  filter:
+    drop-shadow(0 4px 12px color-mix(in srgb, var(--accent) 40%, transparent))
+    drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
 }
 
 .sidebar__brand-text {
@@ -34,17 +37,17 @@
 .sidebar__brand-name {
   font-family: var(--font-sans);
   font-weight: 700;
-  font-size: 16px;
-  letter-spacing: -0.3px;
+  font-size: 20px;
+  letter-spacing: -0.4px;
   color: var(--text-main);
 }
 
 .sidebar__brand-version {
-  margin-top: 2px;
+  margin-top: 4px;
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 10px;
-  letter-spacing: 1.4px;
+  letter-spacing: 1.6px;
   color: var(--text-faint);
 }
 

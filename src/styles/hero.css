@@ -1,21 +1,21 @@
 /* HERO — главный визуальный центр.
-   Диск + halo + concentric pulse + breath. Все размеры через clamp() для адаптива. */
+   Диск + halo + concentric pulse + breath. Реактор-анимация вместо лого. */
 
 .hero {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: clamp(24px, 4vw, 36px) 0 20px;
+  padding: clamp(16px, 2.4vw, 24px) 0 16px;
   isolation: isolate;
-  --hero-disc-size: clamp(180px, 32vw, 240px);
-  --hero-halo-size: calc(var(--hero-disc-size) * 2);
+  --hero-disc-size: clamp(180px, 30vw, 240px);
+  --hero-halo-size: calc(var(--hero-disc-size) * 1.95);
 }
 
 /* ── Halo: абсолютный круг идеально по центру диска ── */
 .hero__halo {
   position: absolute;
-  top: clamp(24px, 4vw, 36px);
+  top: clamp(16px, 2.4vw, 24px);
   left: 50%;
   width: var(--hero-halo-size);
   height: var(--hero-halo-size);
@@ -53,9 +53,9 @@
 .hero--connected .hero__halo {
   background: radial-gradient(
     closest-side,
-    color-mix(in srgb, var(--accent) 30%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 16%, transparent) 30%,
-    color-mix(in srgb, var(--accent) 6%, transparent)  58%,
+    color-mix(in srgb, var(--accent) 32%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 30%,
+    color-mix(in srgb, var(--accent) 7%, transparent)  58%,
     transparent 78%
   );
   animation: halo-connected-breath 2.6s ease-in-out infinite;
@@ -69,7 +69,7 @@
 /* ── Concentric rings во время CONNECTING ── */
 .hero__rings {
   position: absolute;
-  top: clamp(24px, 4vw, 36px);
+  top: clamp(16px, 2.4vw, 24px);
   left: 50%;
   width: var(--hero-disc-size);
   height: var(--hero-disc-size);
@@ -124,6 +124,8 @@
   display: grid;
   place-items: center;
   cursor: pointer;
+  padding: 0;
+  overflow: hidden;
   transition:
     border-color 500ms cubic-bezier(.25,.46,.45,.94),
     box-shadow  500ms cubic-bezier(.25,.46,.45,.94),
@@ -152,26 +154,102 @@
     0 18px 36px rgba(0, 0, 0, 0.55);
 }
 
-/* Hero-mark — прозрачный foreground логотипа. */
-.hero__logo {
-  width: calc(var(--hero-disc-size) * 0.525);
-  height: calc(var(--hero-disc-size) * 0.525);
-  object-fit: contain;
-  filter:
-    drop-shadow(0 6px 22px color-mix(in srgb, var(--accent) 55%, transparent))
-    drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
-  transition: filter 600ms cubic-bezier(.25,.46,.45,.94);
+/* ── Реактор-анимация внутри диска ───────────────────────── */
+.hero__core {
+  width: 92%;
+  height: 92%;
+  overflow: visible;
 }
 
-.hero--connected .hero__logo {
-  filter:
-    drop-shadow(0 6px 30px color-mix(in srgb, var(--accent) 70%, transparent))
-    drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+/* Внешнее статическое кольцо */
+.core__ring--outer {
+  fill: none;
+  stroke: color-mix(in srgb, var(--accent) 45%, transparent);
+  stroke-width: 0.8;
+  opacity: 0.6;
 }
+
+/* Тики по периметру */
+.core__ticks line {
+  stroke: color-mix(in srgb, var(--accent) 75%, transparent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+
+/* Средняя орбита — пунктир, вращается */
+.core__orbit--mid {
+  fill: none;
+  stroke: color-mix(in srgb, var(--accent-bright) 70%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 4 6;
+  stroke-linecap: round;
+  transform-origin: 120px 120px;
+  animation: orbit-spin 14s linear infinite;
+}
+
+@keyframes orbit-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Спутник, бегущий по орбите r=74 */
+.core__satellite {
+  fill: var(--accent-bright);
+  filter: drop-shadow(0 0 6px var(--accent-bright));
+  transform-origin: 120px 120px;
+  /* стартовая позиция: центр + (74, 0) */
+  transform: translate(74px, 0);
+  animation: satellite-orbit 7s linear infinite;
+}
+
+@keyframes satellite-orbit {
+  from { transform: rotate(0deg)   translate(74px, 0) rotate(0deg); }
+  to   { transform: rotate(360deg) translate(74px, 0) rotate(-360deg); }
+}
+
+/* Центральное ядро */
+.core__core {
+  filter:
+    drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 70%, transparent))
+    drop-shadow(0 0 28px color-mix(in srgb, var(--accent) 40%, transparent));
+  animation: core-breath 3.4s ease-in-out infinite;
+  transform-origin: 120px 120px;
+}
+
+@keyframes core-breath {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50%      { opacity: 1.00; transform: scale(1.06); }
+}
+
+/* Центральная точка-пульс */
+.core__pulse {
+  fill: var(--accent-bright);
+  transform-origin: 120px 120px;
+  animation: core-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes core-pulse {
+  0%, 100% { opacity: 0.7; transform: scale(0.9); }
+  50%      { opacity: 1.0; transform: scale(1.15); }
+}
+
+/* CONNECTING: реактор разгоняется */
+.hero--connecting .core__orbit--mid { animation-duration: 6s; }
+.hero--connecting .core__satellite  { animation-duration: 3s; }
+.hero--connecting .core__core       { animation-duration: 1.6s; }
+.hero--connecting .core__pulse      { animation-duration: 0.9s; }
+
+/* CONNECTED: ярче и стабильнее */
+.hero--connected .core__ring--outer { opacity: 0.85; stroke: color-mix(in srgb, var(--accent-bright) 70%, transparent); }
+.hero--connected .core__ticks line  { opacity: 1; }
+.hero--connected .core__orbit--mid  { animation-duration: 10s; stroke: var(--accent-bright); }
+.hero--connected .core__satellite   { animation-duration: 5s; fill: #fff; filter: drop-shadow(0 0 10px var(--accent-bright)); }
+.hero--connected .core__core        { animation-duration: 2.4s; }
+.hero--connected .core__pulse       { animation-duration: 1.4s; }
 
 /* ── Подпись состояния ── */
 .hero__status {
-  margin-top: 28px;
+  margin-top: 22px;
   text-align: center;
   z-index: 2;
 }

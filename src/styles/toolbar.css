@@ -1,0 +1,44 @@
+/* Toolbar над sub-card: 2 круглые кнопки (режим + добавить подписку) */
+.view__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.tool-btn {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: var(--text-dim);
+  background: rgba(18, 10, 18, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(16px) saturate(130%);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  transition:
+    background 220ms cubic-bezier(.25,.46,.45,.94),
+    border-color 220ms cubic-bezier(.25,.46,.45,.94),
+    color 220ms,
+    transform 220ms;
+}
+
+.tool-btn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, rgba(18, 10, 18, 0.55));
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--text-main);
+  transform: translateY(-1px);
+}
+
+.tool-btn:active { transform: translateY(0); }
+
+.tool-btn[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent-bright);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent) inset,
+    0 0 18px color-mix(in srgb, var(--accent) 35%, transparent);
+}
