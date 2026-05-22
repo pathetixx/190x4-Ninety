@@ -1,8 +1,17 @@
+mod vpn;
+
+#[cfg(target_os = "windows")]
+mod proxy_win;
+#[cfg(not(target_os = "windows"))]
+mod proxy_stub;
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Manager, RunEvent, WindowEvent,
 };
+
+use vpn::SingboxState;
 
 #[tauri::command]
 fn ping() -> &'static str {
@@ -21,6 +30,7 @@ fn show_main(app: &tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(SingboxState::default())
         .setup(|app| {
             let show_item = MenuItem::with_id(app, "show", "Показать Ninety", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
@@ -56,7 +66,20 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .invoke_handler(tauri::generate_handler![ping])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .invoke_handler(tauri::generate_handler![
+            ping,
+            vpn::start_singbox,
+            vpn::stop_singbox,
+            vpn::singbox_running,
+            vpn::set_system_proxy,
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<SingboxState>() {
+                    vpn::force_cleanup(&state);
+                }
+            }
+        });
 }

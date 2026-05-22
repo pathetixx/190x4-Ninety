@@ -1,0 +1,109 @@
+/* Profiles view — список карточек */
+.profiles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px 0;
+}
+
+.profiles-list__title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 2.4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 0 0 6px 4px;
+}
+
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(18, 10, 18, 0.7);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: border-color 200ms cubic-bezier(.25,.46,.45,.94), background 200ms;
+}
+
+.profile-card:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.profile-card--active {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, rgba(18, 10, 18, 0.7));
+  box-shadow: 0 0 22px -4px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.profile-card__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-card__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-card__meta {
+  margin-top: 4px;
+  font-size: 11px;
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.profile-card__btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background 200ms cubic-bezier(.25,.46,.45,.94), border-color 200ms;
+}
+
+.profile-card__btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.profile-card__btn--danger:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent-bright);
+}
+
+.profile-card__badge {
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-family: var(--font-display);
+  font-size: 9px;
+  letter-spacing: 1.6px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+}
