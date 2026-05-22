@@ -1,21 +1,18 @@
-/* Watermark карты мира. Поверх Bg0, под mesh-bloom'ом и контентом.
-   z-index выше mesh-bg — карта видна на чистом фоне, mesh подсвечивает её сверху. */
+/* Watermark карты мира — как у Hiddify: BoxFit.cover.
+   SVG растягивается по всему body, обрезаясь по короткой стороне → нет пустот по бокам. */
 .world-map {
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .world-map__svg {
-  width: 92%;
-  max-width: 1100px;
-  height: auto;
-  max-height: 78vh;
-  opacity: 0.085;          /* поднято с 0.045 — на тёмном фоне нужно сильнее */
-  filter: blur(0.5px);
-  transform: translateX(80px);  /* сместить карту чуть правее (компенсация sidebar) */
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.18;
+  /* SVG тёмный → подсвечиваем brightness, чтобы был виден на --bg-0 #07060A,
+     как Hiddify подсвечивает colorFilter:Colors.white.withValues(alpha:.15) */
+  filter: blur(0.4px) brightness(1.6) contrast(0.9);
 }
