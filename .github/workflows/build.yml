@@ -102,3 +102,5 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.sig
             latest.json
           fail_on_unmatched_files: true
+          prerelease: false
+          make_latest: "true"
