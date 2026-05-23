@@ -4,9 +4,8 @@
 
 import { DEFAULT_OPTIONS } from "/lib/options.js";
 
-// Transports которые mainline sing-box 1.13 НЕ поддерживает.
-// xhttp — расширение xray, ждёт форка sing-box-hiddify.
-const UNSUPPORTED_TRANSPORTS = new Set(["xhttp"]);
+// С форком hiddify-sing-box xhttp поддержан нативно — фильтра больше нет.
+const UNSUPPORTED_TRANSPORTS = new Set();
 
 const PROFILES_KEY = "ninety.profiles.v1";
 const ACTIVE_KEY = "ninety.profiles.active";
@@ -717,6 +716,27 @@ export function buildConfig({ profile, source, mode, options }) {
     config.experimental.clash_api = {
       external_controller: `127.0.0.1:${opts.experimental.clashApiPort || 9090}`,
     };
+  }
+
+  // TLS-tricks форка hiddify-sing-box: глобально в experimental.tls_tricks.
+  // Применяется ко всем TLS-handshake outbound'ов на стороне ядра.
+  const t = opts.tlsTricks || {};
+  const tricks = {};
+  if (t.enableFragment) {
+    const fs = t.fragmentSize || { from: 10, to: 30 };
+    const fsl = t.fragmentSleep || { from: 2, to: 8 };
+    tricks.fragment_size = `${fs.from}-${fs.to}`;
+    tricks.fragment_sleep = `${fsl.from}-${fsl.to}`;
+  }
+  if (t.enablePadding) {
+    const ps = t.paddingSize || { from: 100, to: 900 };
+    tricks.padding_size = `${ps.from}-${ps.to}`;
+  }
+  if (t.mixedSniCase) {
+    tricks.mixedcase_sni = true;
+  }
+  if (Object.keys(tricks).length) {
+    config.experimental.tls_tricks = tricks;
   }
 
   return config;
