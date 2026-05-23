@@ -42,6 +42,76 @@ fn log_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("singbox.log"))
 }
 
+#[tauri::command]
+pub fn singbox_log_path(app: AppHandle) -> Result<String, String> {
+    log_path(&app)
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| "log_dir недоступен".to_string())
+}
+
+#[tauri::command]
+pub fn read_singbox_log(app: AppHandle, tail_bytes: Option<u64>) -> Result<String, String> {
+    let Some(path) = log_path(&app) else {
+        return Err("log_dir недоступен".into());
+    };
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    let limit = tail_bytes.unwrap_or(128 * 1024);
+    let meta = std::fs::metadata(&path).map_err(|e| format!("stat: {e}"))?;
+    let size = meta.len();
+    if size <= limit {
+        return std::fs::read_to_string(&path).map_err(|e| format!("read: {e}"));
+    }
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(&path).map_err(|e| format!("open: {e}"))?;
+    f.seek(SeekFrom::End(-(limit as i64))).map_err(|e| format!("seek: {e}"))?;
+    let mut buf = Vec::with_capacity(limit as usize);
+    f.read_to_end(&mut buf).map_err(|e| format!("read_to_end: {e}"))?;
+    let text = String::from_utf8_lossy(&buf).to_string();
+    let cut = text.find('\n').map(|i| i + 1).unwrap_or(0);
+    Ok(format!("…[обрезано {} байт сверху]…\n{}", size - limit, &text[cut..]))
+}
+
+#[tauri::command]
+pub fn clear_singbox_log(app: AppHandle) -> Result<(), String> {
+    let Some(path) = log_path(&app) else {
+        return Err("log_dir недоступен".into());
+    };
+    if path.exists() {
+        std::fs::write(&path, b"").map_err(|e| format!("truncate: {e}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
+    let dir = app.path().app_log_dir().map_err(|e| format!("app_log_dir: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| format!("explorer: {e}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| format!("open: {e}"))?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| format!("xdg-open: {e}"))?;
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 fn resolve_singbox_exe() -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -134,7 +204,7 @@ pub async fn start_singbox(
                         let _ = writeln!(w, "STDERR: {text}");
                     }
                     last_stderr.push(text);
-                    if last_stderr.len() > 8 {
+                    if last_stderr.len() > 40 {
                         last_stderr.remove(0);
                     }
                 }

@@ -230,6 +230,10 @@ const views = document.querySelectorAll("section.view[data-view]");
 function switchView(target) {
   navItems.forEach((n) => n.classList.toggle("menu__item--active", n.dataset.view === target));
   views.forEach((v) => { v.hidden = v.dataset.view !== target; });
+  if (typeof onLogsViewLeave === "function" && typeof onLogsViewEnter === "function") {
+    if (target === "logs") onLogsViewEnter();
+    else onLogsViewLeave();
+  }
 }
 
 navItems.forEach((item) => {
@@ -261,6 +265,118 @@ navItems.forEach((item) => {
     if (settingsCtl) settingsCtl.goMenu();
   });
 });
+
+// ── Logs view ──────────────────────────────────────────────
+const logsView = document.getElementById("logs-view");
+const logsPath = document.getElementById("logs-path");
+const logsSize = document.getElementById("logs-size");
+const logsAuto = document.getElementById("logs-auto");
+const logsRefreshBtn = document.getElementById("logs-refresh");
+const logsCopyBtn = document.getElementById("logs-copy");
+const logsClearBtn = document.getElementById("logs-clear");
+const logsOpenBtn = document.getElementById("logs-open");
+
+let logsTimer = null;
+let logsActive = false;
+let logsLastValue = "";
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} Б`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КиБ`;
+  return `${(n / 1024 / 1024).toFixed(2)} МиБ`;
+}
+
+async function refreshLogs({ keepScroll = false } = {}) {
+  if (!logsView) return;
+  try {
+    const text = await invoke("read_singbox_log", { tailBytes: 256 * 1024 });
+    if (text === logsLastValue) return;
+    logsLastValue = text;
+    const atBottom = !keepScroll || (logsView.scrollTop + logsView.clientHeight >= logsView.scrollHeight - 8);
+    logsView.value = text || "";
+    if (atBottom) logsView.scrollTop = logsView.scrollHeight;
+    if (logsSize) {
+      const bytes = new TextEncoder().encode(text || "").length;
+      logsSize.textContent = text ? formatBytes(bytes) : "пусто";
+    }
+  } catch (e) {
+    if (logsView) logsView.value = `Ошибка чтения лога: ${e?.message || e}`;
+  }
+}
+
+async function refreshLogsPath() {
+  if (!logsPath) return;
+  try {
+    const path = await invoke("singbox_log_path");
+    logsPath.textContent = path;
+    logsPath.title = path;
+  } catch {
+    logsPath.textContent = "—";
+  }
+}
+
+function startLogsAuto() {
+  stopLogsAuto();
+  if (!logsAuto?.checked) return;
+  logsTimer = setInterval(() => refreshLogs({ keepScroll: true }), 2000);
+}
+
+function stopLogsAuto() {
+  if (logsTimer) { clearInterval(logsTimer); logsTimer = null; }
+}
+
+logsAuto?.addEventListener("change", () => {
+  if (logsActive && logsAuto.checked) startLogsAuto();
+  else stopLogsAuto();
+});
+
+logsRefreshBtn?.addEventListener("click", () => refreshLogs());
+
+logsCopyBtn?.addEventListener("click", async () => {
+  const text = logsView?.value || "";
+  if (!text) { toast("Лог пуст", "info", 1400); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Лог скопирован в буфер", "success", 1600);
+  } catch {
+    logsView.focus();
+    logsView.select();
+    try {
+      document.execCommand("copy");
+      toast("Лог скопирован", "success", 1600);
+    } catch {
+      toast("Не удалось скопировать — выделите вручную (Ctrl+A, Ctrl+C)", "error", 3000);
+    }
+  }
+});
+
+logsClearBtn?.addEventListener("click", async () => {
+  try {
+    await invoke("clear_singbox_log");
+    logsLastValue = "__force__";
+    await refreshLogs();
+    toast("Лог очищен", "info", 1400);
+  } catch (e) {
+    toast(`Не удалось очистить: ${e?.message || e}`, "error", 2500);
+  }
+});
+
+logsOpenBtn?.addEventListener("click", async () => {
+  try { await invoke("open_log_dir"); }
+  catch (e) { toast(`Не удалось открыть папку: ${e?.message || e}`, "error", 2500); }
+});
+
+function onLogsViewEnter() {
+  logsActive = true;
+  refreshLogsPath();
+  refreshLogs();
+  startLogsAuto();
+}
+
+function onLogsViewLeave() {
+  logsActive = false;
+  stopLogsAuto();
+}
 
 // ── Profiles view ──────────────────────────────────────────
 const profilesView = document.querySelector('section.view[data-view="profiles"]');
@@ -449,9 +565,10 @@ heroDisc?.addEventListener("click", async () => {
     } catch (e) {
       console.error("start failed", e);
       setState("idle");
-      toast(`Не удалось запустить: ${e?.message || e}`, "error", 5000);
+      toast(`Не удалось запустить — открываю логи`, "error", 3500);
       try { await invoke("stop_singbox"); } catch {}
       try { await invoke("set_system_proxy", { enable: false }); } catch {}
+      switchView("logs");
     }
   } else if (state === "connecting" || state === "connected") {
     try { await invoke("set_system_proxy", { enable: false }); } catch {}

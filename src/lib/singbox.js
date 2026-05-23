@@ -222,10 +222,12 @@ function buildDns(options) {
     detour: "proxy",
   };
 
+  // detour "direct" в sing-box 1.13 не задаём — direct outbound у нас пустой
+  // (без bind_interface), а 1.13 на пустой direct outbound выдаёт
+  // "detour to an empty direct outbound makes no sense" и падает на старте.
   const directSrv = {
     tag: "dns-direct",
     ...parseDnsAddress(options.dns.directAddress),
-    detour: "direct",
   };
 
   const dns = {
