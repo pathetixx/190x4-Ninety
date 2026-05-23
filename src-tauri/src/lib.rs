@@ -36,6 +36,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(SingboxState::default())
         .manage(clash_stream::ClashStreamState::default())
         .setup(|app| {
@@ -88,6 +89,7 @@ pub fn run() {
             clash::clash_test_node,
             clash::clash_test_group,
             clash::clash_select_proxy,
+            clash::fetch_public_ip,
             clash_stream::clash_traffic_start,
             clash_stream::clash_traffic_stop,
         ])

@@ -117,3 +117,35 @@
   transform: translateX(3px);
   color: var(--accent-bright);
 }
+
+.location-card__ip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  font-size: 10.5px;
+}
+.location-card__ip-label {
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.location-card__ip-value {
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: text;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: border-color 0.14s ease, color 0.14s ease;
+}
+.location-card__ip-value:hover {
+  color: var(--text-main);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.location-card__ip-value[data-revealed="true"] {
+  color: var(--text-main);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
