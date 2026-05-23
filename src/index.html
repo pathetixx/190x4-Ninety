@@ -18,6 +18,7 @@
     <link rel="stylesheet" href="/styles/settings.css" />
     <link rel="stylesheet" href="/styles/logs.css" />
     <link rel="stylesheet" href="/styles/update.css" />
+    <link rel="stylesheet" href="/styles/add-modal.css" />
   </head>
   <body>
     <!-- Watermark карты мира -->
@@ -290,44 +291,76 @@
       </label>
     </div>
 
-    <div class="popover" id="add-popover" role="dialog" aria-label="Добавить подписку" hidden>
-      <div class="popover__header">Добавить</div>
-      <div class="seg add-seg" role="tablist" id="add-seg">
-        <button class="seg__btn seg__btn--active" role="tab" data-add-mode="config" aria-selected="true">Конфиг vless</button>
-        <button class="seg__btn" role="tab" data-add-mode="sub" aria-selected="false">Подписка по URL</button>
-      </div>
-      <div class="add-grid" id="add-grid-config">
-        <button class="add-tile" data-action="clipboard" type="button">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="8" y="4" width="12" height="16" rx="2"/>
-            <path d="M4 8v12a2 2 0 0 0 2 2h10"/>
-          </svg>
-          <span>Из буфера</span>
-        </button>
-        <button class="add-tile" data-action="manual" type="button">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          <span>Вручную</span>
-        </button>
-      </div>
-      <div class="add-manual" id="add-manual" hidden>
-        <textarea class="add-manual__input" id="add-input" rows="4" placeholder="vless://uuid@host:443?security=reality&type=tcp&..."></textarea>
-        <div class="add-manual__row">
-          <span class="add-manual__error" id="add-error"></span>
-          <button class="add-manual__submit" id="add-submit" type="button">Импорт</button>
+    <!-- profiles-summary остаётся (используется как indicator), но без popover-обёртки -->
+    <span id="profiles-summary" hidden></span>
+
+    <!-- Add Profile Modal — Hiddify-style ───────────────────── -->
+    <div class="add-modal" id="add-modal" role="dialog" aria-modal="true" aria-labelledby="add-modal-title" hidden>
+      <div class="add-modal__backdrop" id="add-modal-backdrop"></div>
+      <div class="add-modal__card">
+        <div class="add-modal__head">
+          <div class="add-modal__kicker" id="add-modal-title">ДОБАВИТЬ ПРОФИЛЬ</div>
+          <button class="add-modal__close" id="add-modal-close" type="button" aria-label="Закрыть">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+          </button>
+        </div>
+
+        <!-- Options page -->
+        <div class="add-modal__page add-modal__page--options" id="add-modal-page-options">
+          <div class="add-modal__hint">
+            Вставь подписку по URL, vless://-ссылку или их список — мы разберёмся сами.
+          </div>
+          <div class="add-modal__tiles">
+            <button class="add-modal__tile" data-action="clipboard" type="button">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="8" y="4" width="12" height="16" rx="2"/>
+                <path d="M4 8v12a2 2 0 0 0 2 2h10"/>
+                <path d="M11 4h6a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-6V4z"/>
+              </svg>
+              <span class="add-modal__tile-title">Из буфера</span>
+              <span class="add-modal__tile-sub">Распознаёт URL и vless://</span>
+            </button>
+            <button class="add-modal__tile" data-action="manual" type="button">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              <span class="add-modal__tile-title">Вручную</span>
+              <span class="add-modal__tile-sub">URL + название + интервал</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Manual page -->
+        <div class="add-modal__page add-modal__page--manual" id="add-modal-page-manual" hidden>
+          <div class="add-modal__field">
+            <label class="add-modal__label" for="add-modal-name">Название</label>
+            <input class="add-modal__input" id="add-modal-name" type="text" placeholder="Моя подписка" autocomplete="off"/>
+          </div>
+          <div class="add-modal__field">
+            <label class="add-modal__label" for="add-modal-url">URL или vless://</label>
+            <input class="add-modal__input" id="add-modal-url" type="text" placeholder="https://example.com/sub  или  vless://..." autocomplete="off"/>
+          </div>
+          <div class="add-modal__field">
+            <div class="add-modal__row">
+              <label class="add-modal__label" for="add-modal-interval">Авто-обновление</label>
+              <span class="add-modal__interval-val" id="add-modal-interval-val">12 ч</span>
+            </div>
+            <input class="add-modal__slider" id="add-modal-interval" type="range" min="0" max="96" step="1" value="12"/>
+          </div>
+          <div class="add-modal__error" id="add-modal-error" hidden></div>
+          <div class="add-modal__actions">
+            <button class="add-modal__btn add-modal__btn--ghost" id="add-modal-back" type="button">НАЗАД</button>
+            <button class="add-modal__btn add-modal__btn--primary" id="add-modal-submit" type="button">ДОБАВИТЬ</button>
+          </div>
+        </div>
+
+        <!-- Loading page -->
+        <div class="add-modal__page add-modal__page--loading" id="add-modal-page-loading" hidden>
+          <div class="add-modal__spinner" aria-hidden="true"></div>
+          <div class="add-modal__loading-text" id="add-modal-loading-text">Загружаю подписку…</div>
         </div>
       </div>
-      <div class="add-sub" id="add-sub-form" hidden>
-        <input class="add-sub__input" id="add-sub-url" type="url" placeholder="https://example.com/subscription"/>
-        <input class="add-sub__input" id="add-sub-name" type="text" placeholder="Название (необязательно)"/>
-        <div class="add-manual__row">
-          <span class="add-manual__error" id="add-sub-error"></span>
-          <button class="add-manual__submit" id="add-sub-submit" type="button">Подписаться</button>
-        </div>
-      </div>
-      <div class="popover__hint" id="profiles-summary">Профилей нет</div>
     </div>
 
     <!-- Update Modal ────────────────────────────────────────── -->
