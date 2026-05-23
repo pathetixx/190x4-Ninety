@@ -33,7 +33,7 @@ import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
-import { gradeDelay, pickEffectiveNode, getProxies, lastDelay } from "/lib/clash-api.js";
+import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 
@@ -680,17 +680,12 @@ const heroDisc = document.getElementById("hero-disc");
 const heroMask = document.getElementById("hero-mask");
 const heroLabel = document.getElementById("hero-label");
 const heroHint = document.getElementById("hero-hint");
-const heroMeta = document.getElementById("hero-meta");
-const heroMetaValue = document.getElementById("hero-meta-value");
-const heroTraffic = document.getElementById("hero-traffic");
-const heroRx = document.getElementById("hero-rx");
-const heroTx = document.getElementById("hero-tx");
+const heroPing = document.getElementById("hero-ping");
+const heroPingValue = document.getElementById("hero-ping-value");
 const tfDown = document.getElementById("tf-down");
 const tfUp = document.getElementById("tf-up");
 const tfDownUnit = document.getElementById("tf-down-unit");
 const tfUpUnit = document.getElementById("tf-up-unit");
-const heroRxUnit = document.getElementById("hero-rx-unit");
-const heroTxUnit = document.getElementById("hero-tx-unit");
 const locPing = document.getElementById("loc-ping");
 const locPingDot = document.querySelector(".location-card__ping .status-dot");
 const locIpRow = document.getElementById("loc-ip-row");
@@ -775,15 +770,10 @@ function setHeroClass(cls) {
   if (cls) hero.classList.add(cls);
 }
 
-function showMeta(show) {
-  if (show) heroMeta.removeAttribute("hidden");
-  else heroMeta.setAttribute("hidden", "");
-}
-
-function showTraffic(show) {
-  if (!heroTraffic) return;
-  if (show) heroTraffic.removeAttribute("hidden");
-  else heroTraffic.setAttribute("hidden", "");
+function showPing(show) {
+  if (!heroPing) return;
+  if (show) heroPing.removeAttribute("hidden");
+  else heroPing.setAttribute("hidden", "");
 }
 
 function updateHeroHint() {
@@ -848,46 +838,55 @@ function setState(next, opts = {}) {
     applyReconnectUI();
     setHeroClass(null);
     heroLabel.textContent = "Не подключено";
-    showMeta(false);
-    showTraffic(false);
+    showPing(false);
     heroDisc.setAttribute("aria-label", "Подключиться");
     tfDown.textContent = "0";
     tfUp.textContent = "0";
-    if (heroRx) heroRx.textContent = "0";
-    if (heroTx) heroTx.textContent = "0";
     if (tfDownUnit) tfDownUnit.textContent = "КиБ/с";
     if (tfUpUnit) tfUpUnit.textContent = "КиБ/с";
-    if (heroRxUnit) heroRxUnit.textContent = "КиБ/с";
-    if (heroTxUnit) heroTxUnit.textContent = "КиБ/с";
     if (heroMask) heroMask.playbackRate = 0.6;
     stopClashStream();
     if (publicIpTimer) { clearInterval(publicIpTimer); publicIpTimer = null; }
     lastPublicIp = null;
     if (locIpRow) locIpRow.hidden = true;
     currentEffectiveNode = null;
+    if (heroHint) heroHint.hidden = false;
     updateHeroHint();
   } else if (next === "connecting") {
     setHeroClass("hero--connecting");
     heroLabel.textContent = "Подключаюсь…";
-    const p = activeNodeForDisplay();
-    heroHint.textContent = p ? `Поднимаю туннель через ${p.host}` : "Поднимаю туннель…";
-    showMeta(false);
-    showTraffic(false);
+    // Без хардкода хоста — Hiddify тоже не показывает в этом состоянии.
+    if (heroHint) { heroHint.textContent = "Поднимаю туннель"; heroHint.hidden = false; }
+    showPing(false);
     heroDisc.setAttribute("aria-label", "Отменить подключение");
     if (heroMask) heroMask.playbackRate = 1.6;
   } else if (next === "connected") {
     setHeroClass("hero--connected");
     heroLabel.textContent = "Подключено";
-    const p = activeNodeForDisplay();
-    const mode = getMode() === "tun" ? "TUN-туннель" : "системный прокси";
-    heroHint.textContent = p ? `Трафик идёт через ${p.host} · ${mode}` : `Трафик идёт через ${mode}`;
-    heroMetaValue.textContent = opts.ping ?? "— мс";
-    showMeta(true);
-    showTraffic(true);
+    // Никаких "Трафик идёт через …" — это был хардкод. Пинг — единственный
+    // признак ниже label, как в Hiddify (Wi-Fi + значение).
+    if (heroHint) heroHint.hidden = true;
+    applyPingDisplay(opts.ping ?? null);
+    showPing(true);
     heroDisc.setAttribute("aria-label", "Отключиться");
     if (heroMask) heroMask.playbackRate = 1.0;
     startTrafficStream();
   }
+}
+
+// Единый рендерер пинга в hero и location-card.
+// delay > 0 && < 65000 → число + grade; 0/null → "— мс"; >= 65000 → "Тайм-аут"
+function applyPingDisplay(delay) {
+  const num = Number(delay);
+  let text, grade;
+  if (!num || num <= 0) { text = "— мс"; grade = "dead"; }
+  else if (num >= 65000) { text = "Тайм-аут"; grade = "dead"; }
+  else { text = `${num} мс`; grade = gradeDelay(num); }
+
+  if (heroPingValue) heroPingValue.textContent = text;
+  if (heroPing) heroPing.dataset.grade = grade;
+  if (locPing) locPing.textContent = text;
+  if (locPingDot) locPingDot.dataset.state = grade === "good" ? "online" : (grade === "mid" ? "warn" : "offline");
 }
 
 // ── real-time WS-стрим из clash-API ────────────────────────
@@ -897,27 +896,45 @@ function applyTrafficValues({ up, down }) {
   const u = formatRate(up);
   if (tfDown) tfDown.textContent = d.value;
   if (tfUp) tfUp.textContent = u.value;
-  if (heroRx) heroRx.textContent = d.value;
-  if (heroTx) heroTx.textContent = u.value;
   if (tfDownUnit) tfDownUnit.textContent = d.unit;
   if (tfUpUnit) tfUpUnit.textContent = u.unit;
-  if (heroRxUnit) heroRxUnit.textContent = d.unit;
-  if (heroTxUnit) heroTxUnit.textContent = u.unit;
 }
 
 function applyPingValue({ delay }) {
   if (state !== "connected") return;
-  if (delay > 0 && delay < 65000) {
-    const text = `${delay} мс`;
-    if (locPing) locPing.textContent = text;
-    if (heroMetaValue) heroMetaValue.textContent = text;
-    if (locPingDot) locPingDot.dataset.state = gradeDelay(delay) === "bad" ? "warn" : "online";
-  } else {
-    if (locPing) locPing.textContent = "— мс";
-    if (heroMetaValue) heroMetaValue.textContent = "— мс";
-    if (locPingDot) locPingDot.dataset.state = "offline";
-  }
+  applyPingDisplay(delay);
 }
+
+// Клик по ping-пилюле = принудительный force-test задержки текущей ноды.
+// При timeout/недоступности — показываем «Тайм-аут».
+let manualTestInFlight = false;
+heroPing?.addEventListener("click", async () => {
+  if (state !== "connected") return;
+  if (manualTestInFlight) return;
+  manualTestInFlight = true;
+  heroPing.dataset.testing = "true";
+  try {
+    let target = null;
+    try {
+      const data = await getProxies();
+      target = pickEffectiveNode(data);
+    } catch {}
+    if (!target) {
+      applyPingDisplay(0);
+      return;
+    }
+    try {
+      const r = await testNode(target, { timeoutMs: 5000 });
+      const fresh = Number(r?.delay) || 0;
+      applyPingDisplay(fresh > 0 && fresh < 65000 ? fresh : 65000);
+    } catch {
+      applyPingDisplay(65000); // → «Тайм-аут»
+    }
+  } finally {
+    delete heroPing.dataset.testing;
+    manualTestInFlight = false;
+  }
+});
 
 async function startTrafficStream() {
   try {
