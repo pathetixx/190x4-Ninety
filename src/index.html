@@ -291,8 +291,12 @@
     </div>
 
     <div class="popover" id="add-popover" role="dialog" aria-label="Добавить подписку" hidden>
-      <div class="popover__header">Добавить конфиг</div>
-      <div class="add-grid">
+      <div class="popover__header">Добавить</div>
+      <div class="seg add-seg" role="tablist" id="add-seg">
+        <button class="seg__btn seg__btn--active" role="tab" data-add-mode="config" aria-selected="true">Конфиг vless</button>
+        <button class="seg__btn" role="tab" data-add-mode="sub" aria-selected="false">Подписка по URL</button>
+      </div>
+      <div class="add-grid" id="add-grid-config">
         <button class="add-tile" data-action="clipboard" type="button">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
             <rect x="8" y="4" width="12" height="16" rx="2"/>
@@ -313,6 +317,14 @@
         <div class="add-manual__row">
           <span class="add-manual__error" id="add-error"></span>
           <button class="add-manual__submit" id="add-submit" type="button">Импорт</button>
+        </div>
+      </div>
+      <div class="add-sub" id="add-sub-form" hidden>
+        <input class="add-sub__input" id="add-sub-url" type="url" placeholder="https://example.com/subscription"/>
+        <input class="add-sub__input" id="add-sub-name" type="text" placeholder="Название (необязательно)"/>
+        <div class="add-manual__row">
+          <span class="add-manual__error" id="add-sub-error"></span>
+          <button class="add-manual__submit" id="add-sub-submit" type="button">Подписаться</button>
         </div>
       </div>
       <div class="popover__hint" id="profiles-summary">Профилей нет</div>

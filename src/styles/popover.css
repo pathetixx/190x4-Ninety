@@ -228,6 +228,34 @@
   background: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
+/* Add-subscription URL form */
+.add-sub {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.add-sub[hidden] { display: none; }
+
+.add-sub__input {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-main);
+  font-family: "Inter", sans-serif;
+  font-size: 12px;
+  box-sizing: border-box;
+  transition: border-color 200ms cubic-bezier(.25,.46,.45,.94);
+}
+
+.add-sub__input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
 /* Toast */
 .toast {
   position: fixed;
