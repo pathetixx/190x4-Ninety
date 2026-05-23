@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="/styles/toolbar.css" />
     <link rel="stylesheet" href="/styles/profiles.css" />
     <link rel="stylesheet" href="/styles/settings.css" />
+    <link rel="stylesheet" href="/styles/logs.css" />
   </head>
   <body>
     <!-- Watermark карты мира -->
@@ -238,10 +239,28 @@
           </div>
         </section>
 
-        <section class="view view--placeholder" data-view="logs" hidden>
-          <div class="placeholder">
-            <h2>Логи</h2>
-            <p>Stdout sing-box и события клиента — скоро.</p>
+        <section class="view view--logs" data-view="logs" hidden>
+          <div class="logs">
+            <div class="logs__head">
+              <div class="logs__title-wrap">
+                <h2 class="logs__title">Логи sing-box</h2>
+                <div class="logs__path" id="logs-path" title="">—</div>
+              </div>
+              <div class="logs__actions">
+                <button class="logs__btn" id="logs-refresh" type="button">Обновить</button>
+                <button class="logs__btn logs__btn--accent" id="logs-copy" type="button">Скопировать</button>
+                <button class="logs__btn" id="logs-clear" type="button">Очистить</button>
+                <button class="logs__btn" id="logs-open" type="button">Открыть папку</button>
+              </div>
+            </div>
+            <div class="logs__meta">
+              <label class="logs__toggle">
+                <input type="checkbox" id="logs-auto" checked/>
+                <span>Автообновление каждые 2 сек</span>
+              </label>
+              <span class="logs__size" id="logs-size"></span>
+            </div>
+            <textarea class="logs__view" id="logs-view" readonly spellcheck="false" placeholder="Лог пуст. Запустите подключение — sing-box stdout/stderr будут писаться сюда."></textarea>
           </div>
         </section>
 

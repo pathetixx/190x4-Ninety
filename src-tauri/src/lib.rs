@@ -75,6 +75,10 @@ pub fn run() {
             vpn::stop_singbox,
             vpn::singbox_running,
             vpn::set_system_proxy,
+            vpn::read_singbox_log,
+            vpn::clear_singbox_log,
+            vpn::singbox_log_path,
+            vpn::open_log_dir,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
