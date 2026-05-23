@@ -91,66 +91,374 @@ function safeDecode(s) {
   try { return decodeURIComponent(s); } catch { return s; }
 }
 
-// ── outbound из профиля + mux ───────────────────────────────
-function buildOutbound(p, options) {
-  const out = {
-    type: "vless",
-    tag: "proxy",
-    server: p.host,
-    server_port: p.port,
-    uuid: p.uuid,
-    packet_encoding: "xudp",
-  };
-  if (p.flow) out.flow = p.flow;
+function safeAtob(s) {
+  try {
+    const cleaned = String(s).replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    if (!cleaned) return "";
+    const padded = cleaned + "=".repeat((4 - cleaned.length % 4) % 4);
+    return atob(padded);
+  } catch { return ""; }
+}
 
-  if (p.security === "tls" || p.security === "reality") {
-    out.tls = {
-      enabled: true,
-      server_name: p.sni,
-      utls: { enabled: true, fingerprint: p.fp || "chrome" },
+function splitHostPort(hostPort) {
+  if (hostPort.startsWith("[")) {
+    const close = hostPort.indexOf("]");
+    if (close < 0) throw new Error("Битый IPv6");
+    return {
+      host: hostPort.slice(1, close),
+      port: parseInt(hostPort.slice(close + 2), 10),
     };
-    if (p.alpn) out.tls.alpn = p.alpn.split(",").map(s => s.trim()).filter(Boolean);
-    if (p.security === "reality") {
-      out.tls.reality = { enabled: true, public_key: p.pbk, short_id: p.sid };
+  }
+  const colonIdx = hostPort.lastIndexOf(":");
+  if (colonIdx < 0) throw new Error("Нет порта");
+  return {
+    host: hostPort.slice(0, colonIdx),
+    port: parseInt(hostPort.slice(colonIdx + 1), 10),
+  };
+}
+
+function splitTrailingHashName(url, fallback) {
+  const hashIdx = url.indexOf("#");
+  const name = hashIdx >= 0 ? safeDecode(url.slice(hashIdx + 1)) : fallback;
+  const main = hashIdx >= 0 ? url.slice(0, hashIdx) : url;
+  return { name, main };
+}
+
+function splitQuery(main) {
+  const qIdx = main.indexOf("?");
+  const head = qIdx >= 0 ? main.slice(0, qIdx) : main;
+  const query = qIdx >= 0 ? main.slice(qIdx + 1) : "";
+  return { head, query: new URLSearchParams(query) };
+}
+
+// ── vmess парсер (base64 JSON) ──────────────────────────────
+export function parseVmess(raw) {
+  const url = String(raw || "").trim();
+  if (!url.startsWith("vmess://")) throw new Error("Не vmess:// ссылка");
+  const payload = url.slice("vmess://".length);
+  const { name: hashName, main } = splitTrailingHashName(payload, null);
+  const decoded = safeAtob(main);
+  if (!decoded) throw new Error("vmess: не декодируется base64");
+  let j;
+  try { j = JSON.parse(decoded); } catch { throw new Error("vmess: не JSON"); }
+  const port = parseInt(j.port, 10);
+  if (!port) throw new Error("vmess: нет порта");
+  return {
+    raw: url,
+    proto: "vmess",
+    name: hashName || j.ps || j.remarks || "VMESS",
+    host: j.add,
+    port,
+    uuid: j.id,
+    alterId: parseInt(j.aid || j.alterId || "0", 10),
+    security: j.scy || j.security || "auto",
+    tlsMode: (j.tls || "") === "tls" || j.tls === "reality" ? j.tls : "none",
+    sni: j.sni || j.host || j.add,
+    fp: j.fp || "chrome",
+    alpn: j.alpn || "",
+    type: j.net || "tcp",
+    path: j.path || "",
+    host_header: j.host || "",
+    serviceName: j.path || "",
+    mode: j.type || "",
+  };
+}
+
+// ── trojan парсер ───────────────────────────────────────────
+export function parseTrojan(raw) {
+  const url = String(raw || "").trim();
+  if (!url.startsWith("trojan://")) throw new Error("Не trojan:// ссылка");
+  const rest = url.slice("trojan://".length);
+  const { name, main } = splitTrailingHashName(rest, "TROJAN");
+  const { head, query } = splitQuery(main);
+  const atIdx = head.lastIndexOf("@");
+  if (atIdx < 0) throw new Error("trojan: нет @host:port");
+  const password = decodeURIComponent(head.slice(0, atIdx));
+  const { host, port } = splitHostPort(head.slice(atIdx + 1));
+  const get = (k, def = "") => query.get(k) ?? def;
+  return {
+    raw: url,
+    proto: "trojan",
+    name,
+    host, port,
+    password,
+    security: get("security", "tls"),
+    type: get("type", "tcp"),
+    sni: get("sni") || host,
+    fp: get("fp", "chrome"),
+    alpn: get("alpn", ""),
+    path: get("path", ""),
+    host_header: get("host", ""),
+    serviceName: get("serviceName", ""),
+    mode: get("mode", ""),
+  };
+}
+
+// ── shadowsocks (SIP002) ────────────────────────────────────
+export function parseShadowsocks(raw) {
+  const url = String(raw || "").trim();
+  if (!url.startsWith("ss://")) throw new Error("Не ss:// ссылка");
+  const rest = url.slice("ss://".length);
+  const { name, main } = splitTrailingHashName(rest, "SS");
+  const { head, query } = splitQuery(main);
+  const atIdx = head.lastIndexOf("@");
+  if (atIdx < 0) {
+    // Legacy form: base64(method:password@host:port)
+    const decoded = safeAtob(head);
+    if (!decoded) throw new Error("ss: не декодируется legacy base64");
+    const at2 = decoded.lastIndexOf("@");
+    if (at2 < 0) throw new Error("ss: legacy без @host:port");
+    const credsRaw = decoded.slice(0, at2);
+    const [method, password] = credsRaw.split(":", 2);
+    const { host, port } = splitHostPort(decoded.slice(at2 + 1));
+    return { raw: url, proto: "shadowsocks", name, host, port, method, password };
+  }
+  const credsRaw = head.slice(0, atIdx);
+  // SIP002: userinfo может быть как раз base64url(method:password)
+  let method, password;
+  if (credsRaw.includes(":")) {
+    [method, password] = credsRaw.split(":", 2);
+    password = decodeURIComponent(password);
+  } else {
+    const decoded = safeAtob(credsRaw);
+    const sep = decoded.indexOf(":");
+    if (sep < 0) throw new Error("ss: bad userinfo");
+    method = decoded.slice(0, sep);
+    password = decoded.slice(sep + 1);
+  }
+  const { host, port } = splitHostPort(head.slice(atIdx + 1));
+  const plugin = query.get("plugin") || "";
+  let pluginName = "", pluginOpts = "";
+  if (plugin) {
+    const semi = plugin.indexOf(";");
+    pluginName = semi >= 0 ? plugin.slice(0, semi) : plugin;
+    pluginOpts = semi >= 0 ? plugin.slice(semi + 1) : "";
+  }
+  return {
+    raw: url, proto: "shadowsocks", name, host, port,
+    method, password,
+    plugin: pluginName, plugin_opts: pluginOpts,
+  };
+}
+
+// ── hysteria2 ───────────────────────────────────────────────
+export function parseHysteria2(raw) {
+  const url = String(raw || "").trim();
+  const scheme = url.startsWith("hysteria2://") ? "hysteria2://" : (url.startsWith("hy2://") ? "hy2://" : null);
+  if (!scheme) throw new Error("Не hysteria2:// ссылка");
+  const rest = url.slice(scheme.length);
+  const { name, main } = splitTrailingHashName(rest, "HYSTERIA2");
+  const { head, query } = splitQuery(main);
+  const atIdx = head.lastIndexOf("@");
+  if (atIdx < 0) throw new Error("hysteria2: нет @host:port");
+  const password = decodeURIComponent(head.slice(0, atIdx));
+  const { host, port } = splitHostPort(head.slice(atIdx + 1));
+  const get = (k, def = "") => query.get(k) ?? def;
+  return {
+    raw: url, proto: "hysteria2", name,
+    host, port, password,
+    sni: get("sni") || host,
+    obfs: get("obfs", ""),
+    obfsPassword: get("obfs-password") || get("obfsPassword", ""),
+    alpn: get("alpn", "h3"),
+    insecure: get("insecure", "0") === "1",
+    pinSHA256: get("pinSHA256", ""),
+    upMbps: parseInt(get("up") || "0", 10) || undefined,
+    downMbps: parseInt(get("down") || "0", 10) || undefined,
+  };
+}
+
+// ── tuic v5 ────────────────────────────────────────────────
+export function parseTuic(raw) {
+  const url = String(raw || "").trim();
+  if (!url.startsWith("tuic://")) throw new Error("Не tuic:// ссылка");
+  const rest = url.slice("tuic://".length);
+  const { name, main } = splitTrailingHashName(rest, "TUIC");
+  const { head, query } = splitQuery(main);
+  const atIdx = head.lastIndexOf("@");
+  if (atIdx < 0) throw new Error("tuic: нет @host:port");
+  const auth = head.slice(0, atIdx);
+  const [uuid, passwordRaw] = auth.split(":", 2);
+  const password = decodeURIComponent(passwordRaw || "");
+  const { host, port } = splitHostPort(head.slice(atIdx + 1));
+  const get = (k, def = "") => query.get(k) ?? def;
+  return {
+    raw: url, proto: "tuic", name,
+    host, port, uuid, password,
+    sni: get("sni") || host,
+    alpn: get("alpn", "h3"),
+    congestionControl: get("congestion_control") || get("congestionControl", "bbr"),
+    udpRelayMode: get("udp_relay_mode") || get("udpRelayMode", "native"),
+    zeroRttHandshake: get("zero_rtt_handshake", "false") === "true",
+    disableSni: get("disable_sni", "false") === "true",
+  };
+}
+
+// ── главный dispatcher ─────────────────────────────────────
+// Возвращает профиль с .proto полем. Назад-совместимо со старыми vless-only
+// профилями (у тех .proto не было; считаем "vless").
+export function parseLink(raw) {
+  const s = String(raw || "").trim();
+  if (s.startsWith("vless://"))     return { ...parseVless(s), proto: "vless" };
+  if (s.startsWith("vmess://"))     return parseVmess(s);
+  if (s.startsWith("trojan://"))    return parseTrojan(s);
+  if (s.startsWith("ss://"))        return parseShadowsocks(s);
+  if (s.startsWith("hysteria2://") || s.startsWith("hy2://")) return parseHysteria2(s);
+  if (s.startsWith("tuic://"))      return parseTuic(s);
+  throw new Error(`Неподдерживаемый протокол: ${s.split("://")[0] || s.slice(0, 16)}://`);
+}
+
+export function profileProto(p) {
+  return p?.proto || "vless";
+}
+
+// ── общие части (TLS, transport) ───────────────────────────
+function buildTls(p) {
+  // Для vless reality/tls; vmess/trojan/tuic — обычный TLS
+  const tlsMode = p.tlsMode || p.security; // vmess использует tlsMode, остальные security
+  if (tlsMode !== "tls" && tlsMode !== "reality") return null;
+  const tls = {
+    enabled: true,
+    server_name: p.sni,
+    utls: { enabled: true, fingerprint: p.fp || "chrome" },
+  };
+  if (p.alpn) tls.alpn = String(p.alpn).split(",").map(s => s.trim()).filter(Boolean);
+  if (tlsMode === "reality") {
+    tls.reality = { enabled: true, public_key: p.pbk, short_id: p.sid };
+  }
+  return tls;
+}
+
+function buildTransport(p) {
+  switch (p.type) {
+    case "ws": {
+      const t = { type: "ws" };
+      if (p.path) t.path = p.path;
+      if (p.host_header) t.headers = { Host: p.host_header };
+      return t;
+    }
+    case "grpc": {
+      const t = { type: "grpc" };
+      if (p.serviceName) t.service_name = p.serviceName;
+      return t;
+    }
+    case "http":
+    case "h2": {
+      const t = { type: "http" };
+      if (p.path) t.path = p.path;
+      if (p.host_header) t.host = p.host_header.split(",").map(s => s.trim());
+      return t;
+    }
+    case "xhttp": {
+      const t = { type: "xhttp" };
+      if (p.path) t.path = p.path;
+      if (p.host_header) t.host = p.host_header;
+      if (p.mode) t.mode = p.mode;
+      return t;
+    }
+    default:
+      return null;
+  }
+}
+
+function applyMux(out, options) {
+  if (!options?.mux?.enable) return;
+  out.multiplex = {
+    enabled: true,
+    protocol: options.mux.protocol || "h2mux",
+    max_streams: options.mux.maxStreams || 8,
+    padding: !!options.mux.padding,
+  };
+}
+
+// ── outbound dispatcher по протоколу ───────────────────────
+function buildOutbound(p, options) {
+  const proto = profileProto(p);
+  const base = { tag: "proxy", server: p.host, server_port: p.port };
+  let out;
+  switch (proto) {
+    case "vmess": {
+      out = {
+        ...base,
+        type: "vmess",
+        uuid: p.uuid,
+        security: p.security || "auto",
+        alter_id: p.alterId || 0,
+        packet_encoding: "xudp",
+      };
+      break;
+    }
+    case "trojan": {
+      out = { ...base, type: "trojan", password: p.password };
+      break;
+    }
+    case "shadowsocks": {
+      out = { ...base, type: "shadowsocks", method: p.method, password: p.password };
+      if (p.plugin) {
+        out.plugin = p.plugin;
+        if (p.plugin_opts) out.plugin_opts = p.plugin_opts;
+      }
+      break;
+    }
+    case "hysteria2": {
+      out = {
+        ...base,
+        type: "hysteria2",
+        password: p.password,
+      };
+      if (p.upMbps) out.up_mbps = p.upMbps;
+      if (p.downMbps) out.down_mbps = p.downMbps;
+      if (p.obfs) {
+        out.obfs = { type: p.obfs };
+        if (p.obfsPassword) out.obfs.password = p.obfsPassword;
+      }
+      // hysteria2 всегда поверх QUIC/TLS — TLS обязателен
+      out.tls = {
+        enabled: true,
+        server_name: p.sni || p.host,
+        insecure: !!p.insecure,
+        alpn: (p.alpn || "h3").split(",").map(s => s.trim()).filter(Boolean),
+      };
+      if (p.pinSHA256) out.tls.certificate_public_key_sha256 = p.pinSHA256;
+      return out;
+    }
+    case "tuic": {
+      out = {
+        ...base,
+        type: "tuic",
+        uuid: p.uuid,
+        password: p.password,
+        congestion_control: p.congestionControl || "bbr",
+        udp_relay_mode: p.udpRelayMode || "native",
+        zero_rtt_handshake: !!p.zeroRttHandshake,
+      };
+      out.tls = {
+        enabled: true,
+        server_name: p.sni || p.host,
+        insecure: !!p.insecure,
+        disable_sni: !!p.disableSni,
+        alpn: (p.alpn || "h3").split(",").map(s => s.trim()).filter(Boolean),
+      };
+      return out;
+    }
+    case "vless":
+    default: {
+      out = {
+        ...base,
+        type: "vless",
+        uuid: p.uuid,
+        packet_encoding: "xudp",
+      };
+      if (p.flow) out.flow = p.flow;
+      break;
     }
   }
 
-  switch (p.type) {
-    case "ws":
-      out.transport = { type: "ws" };
-      if (p.path) out.transport.path = p.path;
-      if (p.host_header) out.transport.headers = { Host: p.host_header };
-      break;
-    case "grpc":
-      out.transport = { type: "grpc" };
-      if (p.serviceName) out.transport.service_name = p.serviceName;
-      break;
-    case "http":
-    case "h2":
-      out.transport = { type: "http" };
-      if (p.path) out.transport.path = p.path;
-      if (p.host_header) out.transport.host = p.host_header.split(",").map(s => s.trim());
-      break;
-    case "xhttp":
-      out.transport = { type: "xhttp" };
-      if (p.path) out.transport.path = p.path;
-      if (p.host_header) out.transport.host = p.host_header;
-      if (p.mode) out.transport.mode = p.mode;
-      break;
-    case "tcp":
-    default:
-      break;
-  }
-
-  if (options?.mux?.enable) {
-    out.multiplex = {
-      enabled: true,
-      protocol: options.mux.protocol || "h2mux",
-      max_streams: options.mux.maxStreams || 8,
-      padding: !!options.mux.padding,
-    };
-  }
-
+  const tls = buildTls(p);
+  if (tls) out.tls = tls;
+  const transport = buildTransport(p);
+  if (transport) out.transport = transport;
+  applyMux(out, options);
   return out;
 }
 
@@ -452,7 +760,12 @@ export function getActiveProfile() {
 }
 
 export function addProfileFromVless(raw) {
-  const parsed = parseVless(raw);
+  return addProfileFromLink(raw);
+}
+
+// Универсальный добавитель — работает для любого supported протокола.
+export function addProfileFromLink(raw) {
+  const parsed = parseLink(raw);
   const id = "p_" + Math.random().toString(36).slice(2, 10);
   const list = loadProfiles();
   list.push({ ...parsed, id });
