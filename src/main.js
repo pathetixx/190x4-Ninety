@@ -28,6 +28,7 @@ import { mountSettings } from "/lib/settings-view.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
 import { openUpdateModal } from "/lib/update-modal.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
+import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { gradeDelay } from "/lib/clash-api.js";
@@ -292,11 +293,24 @@ if (settingsRoot) {
   settingsCtl = mountSettings(settingsRoot, {
     onChange: () => {
       if (state === "connected" || state === "connecting") {
-        toast("Изменения применятся при следующем подключении", "info", 2400);
+        needsReconnect = true;
+        applyReconnectUI();
+        toast("Изменились настройки — нажмите RECONNECT для применения", "info", 2800);
       }
       if (state === "idle") updateHeroHint();
     },
   });
+}
+
+function applyReconnectUI() {
+  if (!hero) return;
+  if (needsReconnect && (state === "connected" || state === "connecting")) {
+    hero.classList.add("hero--reconnect");
+    if (heroLabel) heroLabel.textContent = "RECONNECT";
+    if (heroHint) heroHint.textContent = "Настройки изменились — переподключитесь";
+  } else {
+    hero.classList.remove("hero--reconnect");
+  }
 }
 
 navItems.forEach((item) => {
@@ -554,6 +568,7 @@ profilesView?.addEventListener("click", async (e) => {
     const id = subMenuBtn.dataset.menuSub;
     const menu = openPMenu(subMenuBtn, [
       { id: "refresh",  label: "Обновить",  icon: ICON_REFRESH },
+      { id: "edit",     label: "Редактировать", icon: ICON_EDIT },
       { id: "copy",     label: "Копировать URL", icon: ICON_COPY },
       { id: "activate", label: "Сделать активной", icon: ICON_CHECK },
       { id: "remove",   label: "Удалить",   icon: ICON_TRASH, danger: true },
@@ -562,6 +577,11 @@ profilesView?.addEventListener("click", async (e) => {
       const act = ev.target.closest("[data-act]")?.dataset.act;
       if (!act) return;
       closePMenu();
+      if (act === "edit") {
+        const sub = loadSubscriptions().find(s => s.id === id);
+        if (sub) openEditSubscription(sub, { onSaved: () => { refreshProfilesSummary(); }, onToast: toast });
+        return;
+      }
       if (act === "refresh") {
         try {
           const r = await refreshSubscription(id);
@@ -598,6 +618,7 @@ profilesView?.addEventListener("click", async (e) => {
     e.stopPropagation();
     const id = profileMenuBtn.dataset.menuProfile;
     const menu = openPMenu(profileMenuBtn, [
+      { id: "edit",     label: "Редактировать",    icon: ICON_EDIT },
       { id: "activate", label: "Сделать активным", icon: ICON_CHECK },
       { id: "remove",   label: "Удалить",          icon: ICON_TRASH, danger: true },
     ]);
@@ -605,6 +626,11 @@ profilesView?.addEventListener("click", async (e) => {
       const act = ev.target.closest("[data-act]")?.dataset.act;
       if (!act) return;
       closePMenu();
+      if (act === "edit") {
+        const p = loadProfiles().find(x => x.id === id);
+        if (p) openEditProfile(p, { onSaved: () => { refreshProfilesSummary(); }, onToast: toast });
+        return;
+      }
       if (act === "activate") {
         setActiveProfileId(id);
         setActiveKind("single");
@@ -671,6 +697,7 @@ if (heroMask) heroMask.playbackRate = 0.6;
 }
 
 let state = "idle";
+let needsReconnect = false;
 
 function setHeroClass(cls) {
   hero.classList.remove("hero--connecting", "hero--connected");
@@ -729,6 +756,8 @@ function setState(next, opts = {}) {
   if (view) view.dataset.connState = next;
 
   if (next === "idle") {
+    needsReconnect = false;
+    applyReconnectUI();
     setHeroClass(null);
     heroLabel.textContent = "Не подключено";
     showMeta(false);
@@ -813,6 +842,17 @@ async function startTrafficStream() {
 
 heroDisc?.addEventListener("click", async () => {
   if (heroDisc.disabled) return;
+  // RECONNECT-режим: рестарт ядра с новыми опциями
+  if (needsReconnect && (state === "connected" || state === "connecting")) {
+    try { await invoke("set_system_proxy", { enable: false }); } catch {}
+    try { await invoke("stop_singbox"); } catch {}
+    setState("idle");
+    needsReconnect = false;
+    applyReconnectUI();
+    // мгновенно стартуем заново
+    setTimeout(() => heroDisc.click(), 60);
+    return;
+  }
   if (state === "idle") {
     const src = getActiveSource();
     if (!src) { toast("Сначала импортируйте конфиг или подписку", "error"); return; }

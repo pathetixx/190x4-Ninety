@@ -52,7 +52,7 @@ jobs:
           Push-Location hsb
           $env:GOTOOLCHAIN = "local"
           $env:CGO_ENABLED = "0"
-          go build -trimpath -tags "$tags" -ldflags "-s -w -buildid=" -o sing-box.exe ./cmd/sing-box
+          go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o sing-box.exe ./cmd/sing-box
           if (-not $?) { Write-Error "go build failed"; exit 1 }
           Pop-Location
           New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null

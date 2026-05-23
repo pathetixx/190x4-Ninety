@@ -133,6 +133,17 @@ export function removeSubscription(id) {
   }
 }
 
+// Точечное обновление полей подписки (rename, autoUpdate, interval, …).
+// Сохраняет неуказанные поля, не трогает .profiles и .lastUpdate.
+export function updateSubscription(id, patch) {
+  const list = loadSubscriptions();
+  const idx = list.findIndex(s => s.id === id);
+  if (idx < 0) return null;
+  list[idx] = { ...list[idx], ...patch };
+  saveSubscriptions(list);
+  return list[idx];
+}
+
 // ── fetch + merge ───────────────────────────────────────────
 async function fetchInfo(url) {
   const info = await invoke("fetch_subscription", { url });
