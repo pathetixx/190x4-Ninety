@@ -268,8 +268,9 @@ export function onProxiesViewEnter() {
   pollTimer = setInterval(refresh, POLL_MS);
 }
 
-// Если active = "auto" но URLTest ещё не запускал замер — форсируем,
-// чтобы юзер не ждал 3 мин до первого выбора.
+// Если active = "auto" но monitoring ещё пустой — Balancer "auto" не знает
+// delay'ев и фолбэчится к первой ноде. Форсим URLTest "lowest" (он наполняет
+// monitoring) — после первого теста Balancer возьмёт реального лидера.
 async function kickstartAutoIfNeeded() {
   const data = lastClashSnapshot;
   if (!data) return;
@@ -278,7 +279,7 @@ async function kickstartAutoIfNeeded() {
   const auto = data.proxies?.auto;
   if (!auto) return;
   if (auto.now && auto.now !== "auto") return;
-  try { await testGroup("auto"); await refresh(); } catch {}
+  try { await testGroup("lowest"); await refresh(); } catch {}
 }
 
 export function onProxiesViewLeave() {
@@ -306,7 +307,10 @@ export function mountProxiesView({ onToast } = {}) {
     handleNodeClick(card, onToast);
   });
 
-  // FAB — перетест группы (URLTest "auto", если есть, иначе селектора)
+  // FAB — перетест группы. Тестим URLTest "lowest" (он умеет /delay endpoint
+  // через URLTestGroup interface). Balancer "auto" — OutboundGroup без URLTest,
+  // его delay-эндпоинт ничего не даст. После URLTest monitoring обновится →
+  // Balancer "auto" увидит свежие delay'и и пересчитает текущего лидера.
   const fab = $("proxies-fab");
   fab?.addEventListener("click", async () => {
     if (testingAll) return;
@@ -314,7 +318,7 @@ export function mountProxiesView({ onToast } = {}) {
     fab.classList.add("proxies-fab--testing");
     try {
       const nodes = nodesFromSource();
-      const group = nodes.length >= 2 ? "auto" : "proxy";
+      const group = nodes.length >= 2 ? "lowest" : "proxy";
       await testGroup(group);
       onToast?.("Перетестировал все ноды", "success", 1600);
       await refresh();

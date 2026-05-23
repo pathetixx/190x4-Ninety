@@ -673,25 +673,41 @@ export function buildConfig({ profile, source, mode, options }) {
 
   let outbounds;
   if (useUrltest) {
-    // Hiddify-схема: внешний Selector "proxy" + внутренний URLTest "auto".
-    // Selector принимает PUT /proxies/proxy (ручной выбор юзера), URLTest сам выбирает min-delay.
-    // Юзер ткнул ноду → Selector.now = node-tag. Юзер ткнул "Auto" → Selector.now = "auto".
+    // Hiddify-схема (builder.go:269-301): "Auto" — это НЕ URLTest, а Balancer
+    // со strategy=lowest-delay. Balancer на каждом новом connection выбирает
+    // outbound с минимальным delay из monitoring + interrupt_exist_connections
+    // обрывает старые соединения когда лидер меняется → реальное "live"
+    // переключение. URLTest рядом нужен ТОЛЬКО для health-чека: он сам тестит
+    // каждые N минут и наполняет monitoring, который читает Balancer.
+    // Без URLTest balancer не знает delay'ев и фолбэчится к первой ноде.
     const utCfg = opts.urlTest || {};
-    const auto = {
+    const nodeTags = vlessOutbounds.map(o => o.tag);
+
+    // Health-checker (скрыт из proxies UI, юзер про него не знает).
+    const urlTest = {
       type: "urltest",
-      tag: "auto",
-      outbounds: vlessOutbounds.map(o => o.tag),
+      tag: "lowest",
+      outbounds: nodeTags,
       url: utCfg.url || "https://www.gstatic.com/generate_204",
       interval: utCfg.interval || "3m",
       tolerance: utCfg.tolerance || 50,
-      // Критично: иначе при URLTest-rotation существующие TCP-коннекты висят
-      // на старой ноде. Hiddify: builder.go ставит true и для URLTest, и для Selector.
+      // false — URLTest сам не должен обрывать TCP. Прерывание — задача
+      // Balancer, иначе sing-box будет дважды дёргать interrupt при rotation.
+      interrupt_exist_connections: false,
+    };
+    // "Авто" в UI — Balancer, lowest-delay per-connection.
+    const auto = {
+      type: "balancer",
+      tag: "auto",
+      outbounds: nodeTags,
+      strategy: "lowest-delay",
+      delay_acceptable_ratio: 2,
       interrupt_exist_connections: true,
     };
     const selector = {
       type: "selector",
       tag: "proxy",
-      outbounds: ["auto", ...vlessOutbounds.map(o => o.tag)],
+      outbounds: ["auto", "lowest", ...nodeTags],
       default: "auto",
       // Главный фикс hot-switch: с false старые соединения держатся
       // на прошлом outbound — браузер качает страницу через старый сервер
@@ -701,6 +717,7 @@ export function buildConfig({ profile, source, mode, options }) {
     outbounds = [
       selector,
       auto,
+      urlTest,
       ...vlessOutbounds,
       { type: "direct", tag: "direct" },
     ];
