@@ -50,25 +50,26 @@ const canvas = document.getElementById("mesh-bg");
 if (canvas) startMesh(canvas);
 
 // ── Version (dynamic из Tauri) ─────────────────────────────
+// ВАЖНО: НЕ использовать MutationObserver на settings-root — apply() меняет
+// textContent #settings-version, это создаёт новую мутацию → бесконечный
+// цикл → фриз WebView2 при входе в Settings/Общие (alpha14 bug).
+let appVersionCached = "—";
+
+function applySettingsVersion() {
+  const el = document.getElementById("settings-version");
+  if (el && el.textContent !== appVersionCached) el.textContent = appVersionCached;
+}
+
 async function fillAppVersion() {
   let v = "—";
   try {
     const app = window.__TAURI__?.app;
     if (app?.getVersion) v = await app.getVersion();
   } catch {}
+  appVersionCached = v;
   const sidebar = document.getElementById("sidebar-version");
   if (sidebar) sidebar.textContent = `${v} · 190X4`;
-  // settings версия — после первого рендера settings
-  const apply = () => {
-    const el = document.getElementById("settings-version");
-    if (el) el.textContent = v;
-  };
-  apply();
-  // MutationObserver — пересоздание DOM при навигации
-  const settingsRoot = document.getElementById("settings-root");
-  if (settingsRoot) {
-    new MutationObserver(apply).observe(settingsRoot, { childList: true, subtree: true });
-  }
+  applySettingsVersion();
 }
 fillAppVersion();
 
@@ -270,6 +271,7 @@ function switchView(target) {
   }
   if (target === "proxies") onProxiesViewEnter();
   else onProxiesViewLeave();
+  if (target === "settings") setTimeout(applySettingsVersion, 0);
 }
 
 navItems.forEach((item) => {
@@ -302,6 +304,7 @@ if (settingsRoot) {
       }
       if (state === "idle") updateHeroHint();
     },
+    onRender: () => applySettingsVersion(),
   });
 }
 
