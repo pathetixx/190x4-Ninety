@@ -4,9 +4,6 @@
 
 import { DEFAULT_OPTIONS } from "/lib/options.js";
 
-// С форком hiddify-sing-box xhttp поддержан нативно — фильтра больше нет.
-const UNSUPPORTED_TRANSPORTS = new Set();
-
 const PROFILES_KEY = "ninety.profiles.v1";
 const ACTIVE_KEY = "ninety.profiles.active";
 const ACTIVE_KIND_KEY = "ninety.active.kind";   // "single" | "sub"
@@ -578,11 +575,25 @@ function buildDns(options) {
 }
 
 // ── route ──────────────────────────────────────────────────
-function buildRoute(options) {
+function buildRoute(options, mode) {
   const rules = [
     { action: "sniff" },
     { protocol: "dns", action: "hijack-dns" },
   ];
+
+  // ProcessName bypass — критично для TUN-режима. Без него собственный трафик
+  // Ninety (Tauri webview HTTP-запросы к ipwho.is и т.п.), tunnel-сервиса и
+  // самого sing-box петлял бы обратно в TUN-интерфейс. Аналог Hiddify
+  // tunnel_service.go:80-95 — bypass Hiddify.exe/HiddifyCli.exe.
+  // В proxy-режиме process_name не применим (трафик идёт через mixed inbound,
+  // sing-box не знает о клиентских процессах) — правило безвредно, но добавляем
+  // только в TUN чтобы не плодить лишнее.
+  if (mode === "tun") {
+    rules.push({
+      process_name: ["Ninety.exe", "ninety-tunnel-svc.exe", "sing-box.exe"],
+      outbound: "direct",
+    });
+  }
 
   if (options.route.bypassLan) {
     rules.push({ ip_is_private: true, outbound: "direct" });
@@ -649,17 +660,10 @@ export function buildConfig({ profile, source, mode, options }) {
   const src = source ?? (profile ? { kind: "single", profile } : null);
   if (!src) throw new Error("buildConfig: нет источника");
 
-  const allNodes = src.kind === "sub" ? src.nodes : [src.profile];
-  if (!allNodes?.length) throw new Error("buildConfig: пустой список нод");
+  const nodes = src.kind === "sub" ? src.nodes : [src.profile];
+  if (!nodes?.length) throw new Error("buildConfig: пустой список нод");
 
-  // Mainline sing-box 1.13 не знает xhttp transport (это xray-форка фича).
-  // Фильтруем такие ноды; считаем сколько отбросили — UI покажет в toast.
-  const nodes = allNodes.filter(n => !UNSUPPORTED_TRANSPORTS.has((n.type || "tcp").toLowerCase()));
-  if (!nodes.length) {
-    throw new Error(`Все ${allNodes.length} нод используют xhttp transport — нужен форк sing-box. Выберите другую ноду или подписку.`);
-  }
-
-  const route = buildRoute(opts);
+  const route = buildRoute(opts, mode);
   const useUrltest = nodes.length >= 2;
   const vlessOutbounds = nodes.map((n, i) => {
     const ob = buildOutbound(n, opts);

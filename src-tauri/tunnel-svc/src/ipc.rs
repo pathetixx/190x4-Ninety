@@ -178,6 +178,14 @@ async fn handle_conn(conn: NamedPipeServer, manager: Arc<Manager>) {
                 )
                 .await;
             }
+            "clear_log" => {
+                let p = manager.singbox_log_path();
+                let r = match std::fs::write(&p, b"") {
+                    Ok(()) => Response::ok(serde_json::Value::Null),
+                    Err(e) => Response::err(&format!("truncate {}: {e}", p.display())),
+                };
+                let _ = write_response(&mut tx, &r).await;
+            }
             "subscribe_logs" => {
                 // ACK сразу, потом стрим в режиме push-only до разрыва
                 let _ =

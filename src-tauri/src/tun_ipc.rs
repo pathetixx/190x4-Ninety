@@ -247,6 +247,35 @@ pub async fn ipc_stop() -> Result<(), String> {
     }
 }
 
+pub async fn ipc_log_path() -> Result<String, String> {
+    let r = call(Request {
+        cmd: "log_path",
+        config_json: None,
+    })
+    .await?;
+    if !r.ok {
+        return Err(r.error.unwrap_or_else(|| "log_path failed".into()));
+    }
+    r.data
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "log_path: no string in response".into())
+}
+
+pub async fn ipc_clear_log() -> Result<(), String> {
+    let r = call(Request {
+        cmd: "clear_log",
+        config_json: None,
+    })
+    .await?;
+    if r.ok {
+        Ok(())
+    } else {
+        Err(r.error.unwrap_or_else(|| "clear_log failed".into()))
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct TunnelStatus {
     pub service: SvcState,
