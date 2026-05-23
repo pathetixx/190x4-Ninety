@@ -29,6 +29,8 @@ import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js
 import { openUpdateModal } from "/lib/update-modal.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
+import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
+import { gradeDelay } from "/lib/clash-api.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -651,7 +653,12 @@ const heroRx = document.getElementById("hero-rx");
 const heroTx = document.getElementById("hero-tx");
 const tfDown = document.getElementById("tf-down");
 const tfUp = document.getElementById("tf-up");
+const tfDownUnit = document.getElementById("tf-down-unit");
+const tfUpUnit = document.getElementById("tf-up-unit");
+const heroRxUnit = document.getElementById("hero-rx-unit");
+const heroTxUnit = document.getElementById("hero-tx-unit");
 const locPing = document.getElementById("loc-ping");
+const locPingDot = document.querySelector(".location-card__ping .status-dot");
 const locName = document.querySelector(".location-card__name");
 const locProto = document.querySelector(".location-card__proto");
 
@@ -664,8 +671,6 @@ if (heroMask) heroMask.playbackRate = 0.6;
 }
 
 let state = "idle";
-let trafficTimer = null;
-let pingTimer = null;
 
 function setHeroClass(cls) {
   hero.classList.remove("hero--connecting", "hero--connected");
@@ -733,9 +738,12 @@ function setState(next, opts = {}) {
     tfUp.textContent = "0";
     if (heroRx) heroRx.textContent = "0";
     if (heroTx) heroTx.textContent = "0";
+    if (tfDownUnit) tfDownUnit.textContent = "КиБ/с";
+    if (tfUpUnit) tfUpUnit.textContent = "КиБ/с";
+    if (heroRxUnit) heroRxUnit.textContent = "КиБ/с";
+    if (heroTxUnit) heroTxUnit.textContent = "КиБ/с";
     if (heroMask) heroMask.playbackRate = 0.6;
-    clearInterval(trafficTimer);
-    clearInterval(pingTimer);
+    stopClashStream();
     updateHeroHint();
   } else if (next === "connecting") {
     setHeroClass("hero--connecting");
@@ -759,8 +767,47 @@ function setState(next, opts = {}) {
     showTraffic(true);
     heroDisc.setAttribute("aria-label", "Отключиться");
     if (heroMask) heroMask.playbackRate = 1.0;
-    startTrafficSim();
-    startPingSim();
+    startTrafficStream();
+  }
+}
+
+// ── real-time WS-стрим из clash-API ────────────────────────
+function applyTrafficValues({ up, down }) {
+  if (state !== "connected") return;
+  const d = formatRate(down);
+  const u = formatRate(up);
+  if (tfDown) tfDown.textContent = d.value;
+  if (tfUp) tfUp.textContent = u.value;
+  if (heroRx) heroRx.textContent = d.value;
+  if (heroTx) heroTx.textContent = u.value;
+  if (tfDownUnit) tfDownUnit.textContent = d.unit;
+  if (tfUpUnit) tfUpUnit.textContent = u.unit;
+  if (heroRxUnit) heroRxUnit.textContent = d.unit;
+  if (heroTxUnit) heroTxUnit.textContent = u.unit;
+}
+
+function applyPingValue({ delay }) {
+  if (state !== "connected") return;
+  if (delay > 0 && delay < 65000) {
+    const text = `${delay} мс`;
+    if (locPing) locPing.textContent = text;
+    if (heroMetaValue) heroMetaValue.textContent = text;
+    if (locPingDot) locPingDot.dataset.state = gradeDelay(delay) === "bad" ? "warn" : "online";
+  } else {
+    if (locPing) locPing.textContent = "— мс";
+    if (heroMetaValue) heroMetaValue.textContent = "— мс";
+    if (locPingDot) locPingDot.dataset.state = "offline";
+  }
+}
+
+async function startTrafficStream() {
+  try {
+    await startClashStream({
+      onTraffic: applyTrafficValues,
+      onPing: applyPingValue,
+    });
+  } catch (e) {
+    console.warn("startClashStream failed", e);
   }
 }
 
@@ -796,29 +843,8 @@ heroDisc?.addEventListener("click", async () => {
   }
 });
 
-function startTrafficSim() {
-  clearInterval(trafficTimer);
-  trafficTimer = setInterval(() => {
-    if (state !== "connected") return;
-    const down = (Math.random() * 900 + 100).toFixed(0);
-    const up = (Math.random() * 200 + 20).toFixed(0);
-    tfDown.textContent = down;
-    tfUp.textContent = up;
-    if (heroRx) heroRx.textContent = down;
-    if (heroTx) heroTx.textContent = up;
-  }, 850);
-}
-
-function startPingSim() {
-  clearInterval(pingTimer);
-  pingTimer = setInterval(() => {
-    const next = 26 + Math.floor(Math.random() * 28);
-    heroMetaValue.textContent = `${next} мс`;
-  }, 3500);
-}
-
 // ── Bootstrap ──────────────────────────────────────────────
-if (locPing) locPing.textContent = `${24 + Math.floor(Math.random() * 12)} мс`;
+if (locPing) locPing.textContent = "— мс";
 refreshProfilesSummary();
 updateHeroHint();
 

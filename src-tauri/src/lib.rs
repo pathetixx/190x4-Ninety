@@ -1,4 +1,5 @@
 mod clash;
+mod clash_stream;
 mod subscription;
 mod vpn;
 
@@ -36,6 +37,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(SingboxState::default())
+        .manage(clash_stream::ClashStreamState::default())
         .setup(|app| {
             let show_item = MenuItem::with_id(app, "show", "Показать Ninety", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
@@ -86,6 +88,8 @@ pub fn run() {
             clash::clash_test_node,
             clash::clash_test_group,
             clash::clash_select_proxy,
+            clash_stream::clash_traffic_start,
+            clash_stream::clash_traffic_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
