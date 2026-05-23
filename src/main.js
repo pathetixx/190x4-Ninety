@@ -29,6 +29,7 @@ import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js
 import { openUpdateModal } from "/lib/update-modal.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
+import { copySubscriptionUrl, exportSingboxJson } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { gradeDelay } from "/lib/clash-api.js";
@@ -572,6 +573,7 @@ profilesView?.addEventListener("click", async (e) => {
       { id: "refresh",  label: "Обновить",  icon: ICON_REFRESH },
       { id: "edit",     label: "Редактировать", icon: ICON_EDIT },
       { id: "copy",     label: "Копировать URL", icon: ICON_COPY },
+      { id: "export",   label: "Экспорт sing-box JSON", icon: ICON_COPY },
       { id: "activate", label: "Сделать активной", icon: ICON_CHECK },
       { id: "remove",   label: "Удалить",   icon: ICON_TRASH, danger: true },
     ]);
@@ -595,10 +597,10 @@ profilesView?.addEventListener("click", async (e) => {
         refreshSubCardFromActive();
       } else if (act === "copy") {
         const sub = loadSubscriptions().find(s => s.id === id);
-        if (sub?.url) {
-          try { await navigator.clipboard.writeText(sub.url); toast("URL скопирован", "success", 1400); }
-          catch { toast("Не удалось скопировать", "error", 1800); }
-        }
+        await copySubscriptionUrl(sub, toast);
+      } else if (act === "export") {
+        const sub = loadSubscriptions().find(s => s.id === id);
+        if (sub) await exportSingboxJson({ kind: "sub", subscription: sub, nodes: sub.profiles }, toast);
       } else if (act === "activate") {
         setActiveKind("sub");
         setActiveSubscriptionId(id);
