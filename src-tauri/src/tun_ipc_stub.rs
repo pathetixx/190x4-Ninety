@@ -22,11 +22,23 @@ pub fn ensure_running() -> Result<(), String> {
     Err(ERR.into())
 }
 
+pub fn service_status() -> Result<SvcState, String> {
+    Err(ERR.into())
+}
+
 pub async fn ipc_start(_config_path: &str) -> Result<u32, String> {
     Err(ERR.into())
 }
 
 pub async fn ipc_stop() -> Result<(), String> {
+    Err(ERR.into())
+}
+
+pub async fn ipc_log_path() -> Result<String, String> {
+    Err(ERR.into())
+}
+
+pub async fn ipc_clear_log() -> Result<(), String> {
     Err(ERR.into())
 }
 

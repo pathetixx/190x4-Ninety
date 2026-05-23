@@ -8,7 +8,7 @@ use tokio::sync::broadcast;
 
 use crate::consts::{SINGBOX_EXE_NAMES, SINGBOX_LOG_FILE_NAME};
 use crate::logging::exe_dir;
-use crate::{lerr, linfo, lwarn};
+use crate::{linfo, lwarn};
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -125,12 +125,16 @@ impl Manager {
             .stderr(Stdio::piped())
             .stdin(Stdio::null());
 
-        // CREATE_NO_WINDOW — без вспышки консоли
+        // CREATE_NO_WINDOW = без вспышки консоли.
+        // CREATE_NEW_PROCESS_GROUP нужен чтобы GenerateConsoleCtrlEvent(CTRL_BREAK)
+        // в stop() мог адресоваться к sing-box и его потомкам как к группе —
+        // без этого Ctrl+Break применяется ко всему дереву родителей.
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
         }
 
         let mut child = cmd.spawn().map_err(|e| format!("spawn sing-box: {e}"))?;
@@ -162,40 +166,68 @@ impl Manager {
     }
 
     pub fn stop(&self) -> Result<(), String> {
-        let mut g = self.inner.lock().unwrap();
-        if let Some(mut child) = g.child.take() {
-            g.pid = None;
-            // child.kill() = TerminateProcess по PID, владельцем которого мы и являемся
-            match child.kill() {
-                Ok(()) => {
-                    let _ = child.wait();
-                    linfo!("sing-box остановлен");
-                    Ok(())
-                }
-                Err(e) => {
-                    lerr!("kill sing-box: {e}");
-                    Err(format!("kill: {e}"))
-                }
-            }
-        } else {
-            // идемпотентно — уже остановлен
-            Ok(())
+        let taken = {
+            let mut g = self.inner.lock().unwrap();
+            let pid = g.pid.take();
+            g.child.take().map(|c| (c, pid))
+        };
+        if let Some((child, pid)) = taken {
+            graceful_then_kill(child, pid, std::time::Duration::from_secs(3));
+            linfo!("sing-box остановлен");
         }
+        Ok(())
     }
 
     pub fn force_cleanup(&self) {
-        let mut g = self.inner.lock().unwrap();
-        if let Some(mut child) = g.child.take() {
-            g.pid = None;
-            let _ = child.kill();
-            let _ = child.wait();
-            lwarn!("force_cleanup: sing-box убит");
+        let taken = {
+            let mut g = self.inner.lock().unwrap();
+            let pid = g.pid.take();
+            g.child.take().map(|c| (c, pid))
+        };
+        if let Some((child, pid)) = taken {
+            graceful_then_kill(child, pid, std::time::Duration::from_secs(2));
+            lwarn!("force_cleanup: sing-box остановлен");
         }
     }
 
     pub fn singbox_log_path(&self) -> PathBuf {
         singbox_log_path()
     }
+}
+
+// Graceful shutdown: послать CTRL+BREAK группе процесса (sing-box получит сигнал
+// и корректно закроет Wintun-интерфейс), дождаться выхода до timeout, потом
+// TerminateProcess. Без graceful Wintun-адаптер NinetyTunnel может остаться
+// висеть в системе. Аналог Hiddify box.CloseService() через CTRL.
+fn graceful_then_kill(
+    mut child: std::process::Child,
+    pid: Option<u32>,
+    timeout: std::time::Duration,
+) {
+    #[cfg(target_os = "windows")]
+    if let Some(pid) = pid {
+        use windows::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
+        unsafe {
+            // CTRL_BREAK_EVENT адресуется по process group ID = первый PID группы.
+            // Sing-box стартовал с CREATE_NEW_PROCESS_GROUP → его PID = ID группы.
+            let _ = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = pid;
+
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            _ => break,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn pump_pipe<R: std::io::Read>(

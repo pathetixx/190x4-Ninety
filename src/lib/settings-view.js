@@ -11,9 +11,20 @@ const SECTIONS = [
   { key: "routing",    title: "Маршрутизация", icon: iconRouting,    hint: "Регион, обход LAN, блокировка рекламы" },
   { key: "dns",        title: "DNS",           icon: iconDns,        hint: "Remote / Direct DNS, fake-DNS" },
   { key: "inbound",    title: "Входящие",      icon: iconInbound,    hint: "Mixed-порт, MTU, TUN-стек" },
+  { key: "tunnel",     title: "Туннель",       icon: iconTunnel,     hint: "Windows Service для TUN-режима" },
   { key: "tls-tricks", title: "Трюки TLS",     icon: iconTls,        hint: "Фрагментация ClientHello, padding" },
   { key: "warp",       title: "WARP",          icon: iconWarp,       hint: "Cloudflare WARP — скоро" },
 ];
+
+const TUNNEL_STATE_LABELS = {
+  not_installed: "Не установлен",
+  stopped:       "Остановлен",
+  start_pending: "Запускается…",
+  stop_pending:  "Останавливается…",
+  running:       "Работает",
+  paused:        "Приостановлен",
+  other:         "Неизвестно",
+};
 
 const REGION_LABELS = {
   other: "Не выбран",
@@ -103,6 +114,60 @@ export function mountSettings(root, opts = {}) {
     el.querySelectorAll("[data-action='check-updates']").forEach(btn => {
       btn.addEventListener("click", () => window.__ninetyUpdateCheck?.());
     });
+    bindTunnelSection(el, sec);
+  }
+
+  async function bindTunnelSection(el, sec) {
+    if (sec.key !== "tunnel") return;
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (!invoke) return;
+
+    const statusEl = el.querySelector("#tunnel-svc-status");
+    const pidEl = el.querySelector("#tunnel-svc-pid");
+
+    const refresh = async () => {
+      if (statusEl) { statusEl.textContent = "Проверка…"; statusEl.dataset.state = ""; }
+      if (pidEl) pidEl.textContent = "—";
+      try {
+        const full = await invoke("tunnel_full_status");
+        const svc = full?.service || "other";
+        if (statusEl) {
+          statusEl.textContent = TUNNEL_STATE_LABELS[svc] || svc;
+          statusEl.dataset.state = svc;
+        }
+        if (pidEl) pidEl.textContent = full?.pid ? String(full.pid) : "—";
+      } catch (e) {
+        if (statusEl) {
+          statusEl.textContent = "Ошибка: " + (e?.message || e);
+          statusEl.dataset.state = "error";
+        }
+      }
+    };
+
+    const runAction = async (btn, cmd, label) => {
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = label;
+      try {
+        await invoke(cmd);
+        await refresh();
+      } catch (e) {
+        alert((cmd.includes("install") ? "Установка" : "Удаление") +
+              " не удалось: " + (e?.message || e));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    };
+
+    el.querySelectorAll("[data-action='tunnel-install']").forEach(b => {
+      b.addEventListener("click", () => runAction(b, "tunnel_service_install", "Устанавливаю…"));
+    });
+    el.querySelectorAll("[data-action='tunnel-uninstall']").forEach(b => {
+      b.addEventListener("click", () => runAction(b, "tunnel_service_uninstall", "Удаляю…"));
+    });
+
+    refresh();
   }
   render();
 
@@ -164,6 +229,7 @@ function renderSectionBody(sec, o) {
     case "routing":    return renderRouting(o);
     case "dns":        return renderDns(o);
     case "inbound":    return renderInbound(o);
+    case "tunnel":     return renderTunnel(o);
     case "tls-tricks": return renderTlsTricks(o);
     case "warp":       return renderWarp(o);
   }
@@ -304,6 +370,27 @@ function renderWarp(o) {
   `;
 }
 
+function renderTunnel(o) {
+  // Статус подтягивается асинхронно в bindSection — отрисовываем placeholder.
+  return `
+    <div class="settings-banner">
+      В TUN-режиме sing-box работает не у вас, а внутри Windows Service <code>NinetyTunnelService</code> под LocalSystem. Это нужно, потому что создание TUN-интерфейса и установка маршрутов требуют прав администратора. UAC показывается ровно один раз — при первой установке сервиса.
+    </div>
+    <div class="settings-section">
+      ${row(iconShield(), "Статус сервиса", "Состояние NinetyTunnelService в SCM. Обновляется при входе в раздел.",
+        `<span class="settings-version" id="tunnel-svc-status" data-state="">Проверка…</span>`)}
+      ${row(iconLog(), "PID sing-box внутри сервиса", "Идентификатор процесса sing-box, которым управляет служба. Прочерк — sing-box не запущен.",
+        `<span class="settings-version" id="tunnel-svc-pid">—</span>`)}
+    </div>
+    <div class="settings-section">
+      ${row(iconRocket(), "Установить сервис", "Зарегистрировать NinetyTunnelService в SCM. Покажется UAC. После — TUN-режим работает без повторных UAC.",
+        `<button class="settings-btn" data-action="tunnel-install" type="button">Установить</button>`)}
+      ${row(iconScissors(), "Удалить сервис", "Полностью убрать NinetyTunnelService из системы. Покажется UAC. Следующий TUN-старт снова покажет UAC при установке.",
+        `<button class="settings-btn settings-btn--danger" data-action="tunnel-uninstall" type="button">Удалить</button>`)}
+    </div>
+  `;
+}
+
 // ── Иконки (Phosphor Duotone, inline SVG) ──────────────────
 function svgWrap(inner) {
   return `<svg viewBox="0 0 256 256" width="20" height="20" fill="currentColor">${inner}</svg>`;
@@ -314,6 +401,7 @@ function iconDns()      { return svgWrap('<path opacity="0.25" d="M224 56v48H32V
 function iconInbound()  { return svgWrap('<path opacity="0.25" d="M216 48v80a8 8 0 0 1-8 8h-72v-80a8 8 0 0 1 8-8h72Z"/><path d="M208 40h-72a16 16 0 0 0-16 16v32H48a16 16 0 0 0-16 16v96a16 16 0 0 0 16 16h120a16 16 0 0 0 16-16v-32h24a16 16 0 0 0 16-16V48a16 16 0 0 0-16-16Z"/>'); }
 function iconTls()      { return svgWrap('<path opacity="0.25" d="M96 92a36 36 0 1 1-36-36 36 36 0 0 1 36 36Z"/><path d="M239.32 154.36 165.36 94.06A44 44 0 1 0 60 92a44 44 0 0 0 70.06 35.34l60.3 73.96a16 16 0 0 0 12.49 5.94 16.13 16.13 0 0 0 9.05-2.8l27.7-19.14A16 16 0 0 0 239.32 154.36ZM60 64a28 28 0 1 1-28 28 28 28 0 0 1 28-28Z"/>'); }
 function iconWarp()     { return svgWrap('<path opacity="0.25" d="M248 128a72 72 0 0 1-72 72H88a64 64 0 0 1 0-128 64.13 64.13 0 0 1 6.49.32A72 72 0 0 1 248 128Z"/><path d="M176 88a87.84 87.84 0 0 0-78.7 48.6A56 56 0 1 0 88 248h88a80 80 0 0 0 0-160Z"/>'); }
+function iconTunnel()   { return svgWrap('<path opacity="0.25" d="M224 136v80H32v-80a96 96 0 0 1 192 0Z"/><path d="M128 32a104.12 104.12 0 0 0-104 104v80a8 8 0 0 0 8 8h40a8 8 0 0 0 8-8 48 48 0 0 1 96 0 8 8 0 0 0 8 8h40a8 8 0 0 0 8-8v-80A104.12 104.12 0 0 0 128 32Zm88 176h-24.4a64 64 0 0 0-127.2 0H40v-72a88 88 0 0 1 176 0Z"/>'); }
 function iconUrl()      { return svgWrap('<path opacity="0.25" d="M232 128a104 104 0 1 1-104-104"/><path d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Z"/>'); }
 function iconClock()    { return svgWrap('<path opacity="0.25" d="M224 128a96 96 0 1 1-96-96 96 96 0 0 1 96 96Z"/><path d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Zm56 112h-56a8 8 0 0 1-8-8V72a8 8 0 0 1 16 0v48h48a8 8 0 0 1 0 16Z"/>'); }
 function iconLog()      { return svgWrap('<path opacity="0.25" d="M208 88V216a8 8 0 0 1-8 8H56a8 8 0 0 1-8-8V40a8 8 0 0 1 8-8h88Z"/><path d="M213.66 82.34 157.66 26.34A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66Z"/>'); }

@@ -46,18 +46,39 @@ fn log_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("singbox.log"))
 }
 
-#[tauri::command]
-pub fn singbox_log_path(app: AppHandle) -> Result<String, String> {
-    log_path(&app)
-        .map(|p| p.to_string_lossy().to_string())
-        .ok_or_else(|| "log_dir недоступен".to_string())
+// Резолв пути к логу с учётом режима. В TUN — лог пишет сервис рядом
+// со своим exe, путь возвращается IPC-командой log_path. В proxy — пишет
+// сам Tauri в app_log_dir.
+async fn resolved_log_path(app: &AppHandle, state: &SingboxState) -> Result<PathBuf, String> {
+    let tun = { *state.tun_via_svc.lock().unwrap() };
+    if tun {
+        #[cfg(target_os = "windows")]
+        {
+            let s = crate::tun_ipc::ipc_log_path().await?;
+            return Ok(PathBuf::from(s));
+        }
+        #[cfg(not(target_os = "windows"))]
+        return Err("TUN mode требует Windows".into());
+    }
+    log_path(app).ok_or_else(|| "log_dir недоступен".to_string())
 }
 
 #[tauri::command]
-pub fn read_singbox_log(app: AppHandle, tail_bytes: Option<u64>) -> Result<String, String> {
-    let Some(path) = log_path(&app) else {
-        return Err("log_dir недоступен".into());
-    };
+pub async fn singbox_log_path(
+    app: AppHandle,
+    state: State<'_, SingboxState>,
+) -> Result<String, String> {
+    let p = resolved_log_path(&app, &state).await?;
+    Ok(p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn read_singbox_log(
+    app: AppHandle,
+    state: State<'_, SingboxState>,
+    tail_bytes: Option<u64>,
+) -> Result<String, String> {
+    let path = resolved_log_path(&app, &state).await?;
     if !path.exists() {
         return Ok(String::new());
     }
@@ -78,7 +99,19 @@ pub fn read_singbox_log(app: AppHandle, tail_bytes: Option<u64>) -> Result<Strin
 }
 
 #[tauri::command]
-pub fn clear_singbox_log(app: AppHandle) -> Result<(), String> {
+pub async fn clear_singbox_log(
+    app: AppHandle,
+    state: State<'_, SingboxState>,
+) -> Result<(), String> {
+    let tun = { *state.tun_via_svc.lock().unwrap() };
+    if tun {
+        #[cfg(target_os = "windows")]
+        {
+            return crate::tun_ipc::ipc_clear_log().await;
+        }
+        #[cfg(not(target_os = "windows"))]
+        return Err("TUN mode требует Windows".into());
+    }
     let Some(path) = log_path(&app) else {
         return Err("log_dir недоступен".into());
     };
@@ -259,7 +292,20 @@ pub async fn stop_singbox(state: State<'_, SingboxState>) -> Result<(), String> 
 
 #[tauri::command]
 pub fn singbox_running(state: State<'_, SingboxState>) -> bool {
-    state.child.lock().unwrap().is_some() || *state.tun_via_svc.lock().unwrap()
+    if state.child.lock().unwrap().is_some() {
+        return true;
+    }
+    let tun = { *state.tun_via_svc.lock().unwrap() };
+    if !tun {
+        return false;
+    }
+    // tun_via_svc=true — это наш флаг. Доверять ему вслепую нельзя: сервис мог
+    // вылететь из-под Ninety (crash, manual sc stop, обновление). Спрашиваем SCM
+    // напрямую — sync, быстро, не лочит pipe.
+    matches!(
+        crate::tun_ipc::service_status(),
+        Ok(crate::tun_ipc::SvcState::Running) | Ok(crate::tun_ipc::SvcState::StartPending)
+    )
 }
 
 #[tauri::command]
