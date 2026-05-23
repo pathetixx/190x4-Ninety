@@ -9,6 +9,13 @@ on:
 permissions:
   contents: write
 
+# Push в main + tag для одного SHA триггерят два run'а параллельно.
+# Они дерутся за один cache-key Swatinem/rust-cache и второй падает на
+# "Restoring cache...". Очередь по SHA решает без cancel/rerun вручную.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
+
 jobs:
   build-windows:
     runs-on: windows-latest

@@ -90,6 +90,12 @@ img { display: block; }
   justify-content: center;
 }
 
+/* /proxies — сетка нод растягивается на всю ширину контейнера,
+   как у Hiddify (там нет maxWidth для proxies_overview_page). */
+.view--proxies {
+  max-width: none;
+}
+
 .view[hidden] { display: none; }
 
 /* Скроллбар */
