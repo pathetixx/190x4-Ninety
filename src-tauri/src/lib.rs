@@ -1,3 +1,4 @@
+mod subscription;
 mod vpn;
 
 #[cfg(target_os = "windows")]
@@ -79,6 +80,7 @@ pub fn run() {
             vpn::clear_singbox_log,
             vpn::singbox_log_path,
             vpn::open_log_dir,
+            subscription::fetch_subscription,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

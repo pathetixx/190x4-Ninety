@@ -11,7 +11,24 @@ import {
   removeProfile,
   getMode,
   setMode,
+  getActiveKind,
+  setActiveKind,
+  getActiveSource,
 } from "/lib/singbox.js";
+import {
+  loadSubscriptions,
+  getActiveSubscription,
+  getActiveSubscriptionId,
+  setActiveSubscriptionId,
+  addSubscriptionFromUrl,
+  refreshSubscription,
+  refreshAllSubscriptions,
+  removeSubscription,
+  subscriptionDaysLeft,
+  subscriptionUsedBytes,
+  formatGiB,
+  relativeTime,
+} from "/lib/subscriptions.js";
 import { loadOptions } from "/lib/options.js";
 import { mountSettings } from "/lib/settings-view.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
@@ -133,20 +150,128 @@ const addManual = document.getElementById("add-manual");
 const addInput = document.getElementById("add-input");
 const addError = document.getElementById("add-error");
 const addSubmit = document.getElementById("add-submit");
+const addSeg = document.getElementById("add-seg");
+const addGridConfig = document.getElementById("add-grid-config");
+const addSubForm = document.getElementById("add-sub-form");
+const addSubUrl = document.getElementById("add-sub-url");
+const addSubName = document.getElementById("add-sub-name");
+const addSubError = document.getElementById("add-sub-error");
+const addSubSubmit = document.getElementById("add-sub-submit");
 const profilesSummary = document.getElementById("profiles-summary");
 
+function setAddMode(mode) {
+  const isSub = mode === "sub";
+  addSeg?.querySelectorAll(".seg__btn").forEach(b => {
+    const active = b.dataset.addMode === mode;
+    b.classList.toggle("seg__btn--active", active);
+    b.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (addGridConfig) addGridConfig.hidden = isSub;
+  if (addManual) addManual.hidden = true;
+  if (addSubForm) addSubForm.hidden = !isSub;
+  if (isSub) setTimeout(() => addSubUrl?.focus(), 50);
+}
+
+addSeg?.addEventListener("click", (e) => {
+  const b = e.target.closest(".seg__btn");
+  if (!b) return;
+  setAddMode(b.dataset.addMode);
+});
+
+function setSubError(msg) { if (addSubError) addSubError.textContent = msg || ""; }
+
+addSubSubmit?.addEventListener("click", async () => {
+  const url = addSubUrl?.value.trim();
+  if (!url) { setSubError("Введите URL"); return; }
+  addSubSubmit.disabled = true;
+  setSubError("Загружаю…");
+  try {
+    const sub = await addSubscriptionFromUrl(url, addSubName?.value.trim() || "");
+    setActiveKind("sub");
+    setActiveSubscriptionId(sub.id);
+    if (addSubUrl) addSubUrl.value = "";
+    if (addSubName) addSubName.value = "";
+    setSubError("");
+    setAddMode("config");
+    closeAllPopovers();
+    toast(`Подписка "${sub.name}" — ${sub.profiles.length} нод`, "success", 2000);
+    refreshProfilesSummary();
+    refreshSubCardFromActive();
+    updateHeroForActive();
+  } catch (e) {
+    setSubError(e?.message || "Не удалось загрузить");
+  } finally {
+    addSubSubmit.disabled = false;
+  }
+});
+
+addSubUrl?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); addSubSubmit?.click(); }
+});
+
 function refreshProfilesSummary() {
-  const list = loadProfiles();
-  const active = getActiveProfile();
   if (!profilesSummary) return;
-  if (list.length === 0) {
-    profilesSummary.textContent = "Профилей нет — добавьте vless:// конфиг.";
+  const profilesList = loadProfiles();
+  const subsList = loadSubscriptions();
+  const src = getActiveSource();
+  if (!src) {
+    profilesSummary.textContent = "Ничего не выбрано — импортируйте конфиг или подписку.";
+  } else if (src.kind === "sub") {
+    const n = src.nodes.length;
+    profilesSummary.textContent = `Подписка: ${src.subscription.name} (${n} ${plural(n, ["нода", "ноды", "нод"])})`;
   } else {
-    const n = list.length;
-    profilesSummary.textContent = `Активный: ${active?.name || "—"} (${n} ${plural(n, ["профиль", "профиля", "профилей"])})`;
+    profilesSummary.textContent = `Активный: ${src.profile.name || "—"} (${profilesList.length} ${plural(profilesList.length, ["профиль", "профиля", "профилей"])}${subsList.length ? `, подписок ${subsList.length}` : ""})`;
   }
   renderProfilesView();
   updateHeroForActive();
+  refreshSubCardFromActive();
+}
+
+// ── sub-card sync с активной подпиской ─────────────────────
+const subName = document.querySelector(".sub-card__name");
+const subExpire = document.getElementById("sub-expire");
+const subExpireUnit = document.querySelector(".sub-card__expire");
+const subProgressFill = document.getElementById("sub-progress-fill");
+const subTrafficUsed = document.getElementById("sub-traffic-used");
+const subTrafficTotal = document.getElementById("sub-traffic-total");
+const subUpdated = document.getElementById("sub-updated");
+
+function refreshSubCardFromActive() {
+  const src = getActiveSource();
+  if (src?.kind === "sub") {
+    const sub = src.subscription;
+    if (subName) subName.textContent = sub.name?.toUpperCase() || "ПОДПИСКА";
+    const days = subscriptionDaysLeft(sub);
+    if (subExpire) subExpire.textContent = days != null ? String(days) : "—";
+    if (subExpireUnit) subExpireUnit.style.display = days != null ? "" : "none";
+    const used = subscriptionUsedBytes(sub);
+    const total = sub.total ?? null;
+    if (subTrafficUsed) subTrafficUsed.textContent = formatGiB(used);
+    if (subTrafficTotal) subTrafficTotal.textContent = total != null ? formatGiB(total) : "—";
+    if (subProgressFill && total) {
+      const pct = Math.min(100, (used / total) * 100);
+      subProgressFill.style.width = `${pct.toFixed(1)}%`;
+    } else if (subProgressFill) {
+      subProgressFill.style.width = "0%";
+    }
+    if (subUpdated) subUpdated.textContent = relativeTime(sub.lastUpdate);
+  } else if (src?.kind === "single") {
+    if (subName) subName.textContent = "ЛОКАЛЬНЫЙ КОНФИГ";
+    if (subExpire) subExpire.textContent = "—";
+    if (subExpireUnit) subExpireUnit.style.display = "none";
+    if (subTrafficUsed) subTrafficUsed.textContent = "—";
+    if (subTrafficTotal) subTrafficTotal.textContent = "—";
+    if (subProgressFill) subProgressFill.style.width = "0%";
+    if (subUpdated) subUpdated.textContent = "—";
+  } else {
+    if (subName) subName.textContent = "НЕТ ПОДПИСКИ";
+    if (subExpire) subExpire.textContent = "—";
+    if (subExpireUnit) subExpireUnit.style.display = "none";
+    if (subTrafficUsed) subTrafficUsed.textContent = "—";
+    if (subTrafficTotal) subTrafficTotal.textContent = "—";
+    if (subProgressFill) subProgressFill.style.width = "0%";
+    if (subUpdated) subUpdated.textContent = "—";
+  }
 }
 
 function plural(n, forms) {
@@ -381,21 +506,53 @@ function onLogsViewLeave() {
 
 // ── Profiles view ──────────────────────────────────────────
 const profilesView = document.querySelector('section.view[data-view="profiles"]');
+
 function renderProfilesView() {
   if (!profilesView) return;
-  const list = loadProfiles();
-  const activeId = getActiveProfileId();
-  if (list.length === 0) {
+  const profilesList = loadProfiles();
+  const subsList = loadSubscriptions();
+  const activeProfileId = getActiveProfileId();
+  const activeKind = getActiveKind();
+  const activeSubId = getActiveSubscriptionId();
+
+  if (profilesList.length === 0 && subsList.length === 0) {
     profilesView.innerHTML = `
       <div class="placeholder">
         <h2>Профили</h2>
-        <p>Добавьте vless:// через кнопку «+» наверху главного экрана.</p>
+        <p>Добавьте конфиг или подписку через кнопку «+» наверху главного экрана.</p>
       </div>
     `;
     return;
   }
-  const items = list.map(p => {
-    const isActive = p.id === activeId;
+
+  const subItems = subsList.map(s => {
+    const isActive = activeKind === "sub" && s.id === activeSubId;
+    const days = subscriptionDaysLeft(s);
+    const meta = [
+      `${s.profiles?.length || 0} нод`,
+      days != null ? `${days} дн` : null,
+      s.total != null ? `${formatGiB(subscriptionUsedBytes(s))}/${formatGiB(s.total)} ГБ` : null,
+      `обн. ${relativeTime(s.lastUpdate)}`,
+    ].filter(Boolean).join(" · ");
+    return `
+      <div class="profile-card${isActive ? " profile-card--active" : ""}" data-sub-id="${s.id}">
+        <div class="profile-card__main">
+          <div class="profile-card__name">${escapeHtml(s.name)} <span class="profile-card__tag">SUB</span></div>
+          <div class="profile-card__meta">${escapeHtml(meta)}</div>
+        </div>
+        <div class="profile-card__actions">
+          ${isActive
+            ? `<span class="profile-card__badge">Активна</span>`
+            : `<button class="profile-card__btn" data-sub-act="activate" type="button">Выбрать</button>`}
+          <button class="profile-card__btn" data-sub-act="refresh" type="button">Обновить</button>
+          <button class="profile-card__btn profile-card__btn--danger" data-sub-act="remove" type="button">Удалить</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const profileItems = profilesList.map(p => {
+    const isActive = activeKind === "single" && p.id === activeProfileId;
     return `
       <div class="profile-card${isActive ? " profile-card--active" : ""}" data-id="${p.id}">
         <div class="profile-card__main">
@@ -411,10 +568,11 @@ function renderProfilesView() {
       </div>
     `;
   }).join("");
+
   profilesView.innerHTML = `
     <div class="profiles-list">
-      <h2 class="profiles-list__title">Профили</h2>
-      ${items}
+      ${subsList.length ? `<h2 class="profiles-list__title">Подписки</h2>${subItems}` : ""}
+      ${profilesList.length ? `<h2 class="profiles-list__title">Конфиги</h2>${profileItems}` : ""}
     </div>
   `;
 }
@@ -423,13 +581,47 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
 
-profilesView?.addEventListener("click", (e) => {
+profilesView?.addEventListener("click", async (e) => {
+  const subCard = e.target.closest(".profile-card[data-sub-id]");
+  if (subCard) {
+    const id = subCard.dataset.subId;
+    const act = e.target.closest("[data-sub-act]")?.dataset.subAct;
+    if (!act) return;
+    if (act === "activate") {
+      setActiveKind("sub");
+      setActiveSubscriptionId(id);
+      refreshProfilesSummary();
+      toast("Подписка активирована", "success", 1800);
+    } else if (act === "refresh") {
+      const btn = e.target.closest("button");
+      if (btn) { btn.disabled = true; btn.textContent = "…"; }
+      try {
+        const r = await refreshSubscription(id);
+        toast(`Обновлено: ${r.profiles.length} нод`, "success", 1800);
+        refreshProfilesSummary();
+      } catch (err) {
+        toast(`Ошибка: ${err?.message || err}`, "error", 2800);
+      } finally {
+        renderProfilesView();
+      }
+    } else if (act === "remove") {
+      removeSubscription(id);
+      if (getActiveKind() === "sub" && !getActiveSubscriptionId()) {
+        setActiveKind("single");
+      }
+      refreshProfilesSummary();
+      toast("Подписка удалена", "info", 1800);
+    }
+    return;
+  }
+
   const card = e.target.closest(".profile-card");
   if (!card) return;
   const id = card.dataset.id;
   const act = e.target.closest("[data-act]")?.dataset.act;
   if (act === "activate") {
     setActiveProfileId(id);
+    setActiveKind("single");
     refreshProfilesSummary();
     toast("Профиль активирован", "success", 1800);
   } else if (act === "remove") {
@@ -480,9 +672,9 @@ function showTraffic(show) {
 
 function updateHeroHint() {
   if (state !== "idle") return;
-  const p = getActiveProfile();
-  if (!p) {
-    heroHint.textContent = "Импортируйте vless:// через кнопку «+»";
+  const src = getActiveSource();
+  if (!src) {
+    heroHint.textContent = "Импортируйте конфиг или подписку через кнопку «+»";
     heroDisc.disabled = true;
     heroDisc.setAttribute("aria-disabled", "true");
   } else {
@@ -494,8 +686,15 @@ function updateHeroHint() {
 }
 
 function updateHeroForActive() {
-  const p = getActiveProfile();
-  if (locName && p) locName.textContent = p.name || p.host;
+  const src = getActiveSource();
+  const p = src?.kind === "sub" ? src.nodes[0] : src?.profile;
+  if (locName) {
+    if (src?.kind === "sub") {
+      locName.textContent = `${src.subscription.name} · ${p?.name || p?.host || "—"}`;
+    } else if (p) {
+      locName.textContent = p.name || p.host;
+    }
+  }
   if (locProto && p) {
     const parts = ["VLESS"];
     if (p.security && p.security !== "none") parts.push(p.security);
@@ -525,7 +724,8 @@ function setState(next, opts = {}) {
   } else if (next === "connecting") {
     setHeroClass("hero--connecting");
     heroLabel.textContent = "Подключаюсь…";
-    const p = getActiveProfile();
+    const src = getActiveSource();
+    const p = src?.kind === "sub" ? src.nodes[0] : src?.profile;
     heroHint.textContent = p ? `Поднимаю туннель через ${p.host}` : "Поднимаю туннель…";
     showMeta(false);
     showTraffic(false);
@@ -534,7 +734,8 @@ function setState(next, opts = {}) {
   } else if (next === "connected") {
     setHeroClass("hero--connected");
     heroLabel.textContent = "Подключено";
-    const p = getActiveProfile();
+    const src = getActiveSource();
+    const p = src?.kind === "sub" ? src.nodes[0] : src?.profile;
     const mode = getMode() === "tun" ? "TUN-туннель" : "системный прокси";
     heroHint.textContent = p ? `Трафик идёт через ${p.host} · ${mode}` : `Трафик идёт через ${mode}`;
     heroMetaValue.textContent = opts.ping ?? "— мс";
@@ -550,11 +751,11 @@ function setState(next, opts = {}) {
 heroDisc?.addEventListener("click", async () => {
   if (heroDisc.disabled) return;
   if (state === "idle") {
-    const p = getActiveProfile();
-    if (!p) { toast("Сначала импортируйте vless://", "error"); return; }
+    const src = getActiveSource();
+    if (!src) { toast("Сначала импортируйте конфиг или подписку", "error"); return; }
     const mode = getMode();
     const options = loadOptions();
-    const config = buildConfig({ profile: p, mode, options });
+    const config = buildConfig({ source: src, mode, options });
     setState("connecting");
     try {
       await invoke("start_singbox", { configJson: JSON.stringify(config), mode });
@@ -636,3 +837,23 @@ setTimeout(() => runUpdateCheck({ silent: true }), 3000);
 
 // Глобальная функция для кнопки «Проверить обновления» в settings
 window.__ninetyUpdateCheck = () => runUpdateCheck({ silent: false });
+
+// ── Subscriptions auto-refresh ─────────────────────────────
+// Стартовый рефреш через 60 сек после bootstrap (чтобы не тормозить старт),
+// дальше каждые 30 минут. Ошибки не показываем — это фоновая задача.
+async function silentRefreshSubs() {
+  const list = loadSubscriptions();
+  if (!list.length) return;
+  try {
+    await refreshAllSubscriptions();
+    refreshSubCardFromActive();
+    refreshProfilesSummary();
+  } catch (e) {
+    console.warn("subs auto-refresh failed", e);
+  }
+}
+setTimeout(silentRefreshSubs, 60_000);
+setInterval(silentRefreshSubs, 30 * 60_000);
+
+// «Только что» / «N мин назад» обновляем каждые 30 сек
+setInterval(refreshSubCardFromActive, 30_000);

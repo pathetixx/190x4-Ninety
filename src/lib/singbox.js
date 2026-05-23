@@ -6,6 +6,8 @@ import { DEFAULT_OPTIONS } from "/lib/options.js";
 
 const PROFILES_KEY = "ninety.profiles.v1";
 const ACTIVE_KEY = "ninety.profiles.active";
+const ACTIVE_KIND_KEY = "ninety.active.kind";   // "single" | "sub"
+const ACTIVE_SUB_KEY = "ninety.subscriptions.active";
 const MODE_KEY = "ninety.mode";
 
 const HIDDIFY_GEO_BASE = "https://raw.githubusercontent.com/hiddify/hiddify-geo/rule-set";
@@ -326,19 +328,56 @@ function buildInbound(mode, options) {
 }
 
 // ── главный builder ────────────────────────────────────────
-export function buildConfig({ profile, mode, options }) {
+// Поддерживает оба вызова:
+//   buildConfig({ profile, mode, options }) — одиночный vless (legacy)
+//   buildConfig({ source, mode, options })  — { kind, profile|nodes }
+// Если nodes.length >= 2 → собирает urltest group: outbound "auto" с
+// дочерними vless'ами; route.final → auto.
+export function buildConfig({ profile, source, mode, options }) {
   const opts = options || DEFAULT_OPTIONS;
-  const outbound = buildOutbound(profile, opts);
+  const src = source ?? (profile ? { kind: "single", profile } : null);
+  if (!src) throw new Error("buildConfig: нет источника");
+
+  const nodes = src.kind === "sub" ? src.nodes : [src.profile];
+  if (!nodes?.length) throw new Error("buildConfig: пустой список нод");
+
+  const route = buildRoute(opts);
+  const useUrltest = nodes.length >= 2;
+  const vlessOutbounds = nodes.map((n, i) => {
+    const ob = buildOutbound(n, opts);
+    ob.tag = useUrltest ? `node-${i}-${sanitizeTag(n.name) || n.host}` : "proxy";
+    return ob;
+  });
+
+  let outbounds;
+  if (useUrltest) {
+    const utCfg = opts.urlTest || {};
+    const urltest = {
+      type: "urltest",
+      tag: "proxy",
+      outbounds: vlessOutbounds.map(o => o.tag),
+      url: utCfg.url || "https://www.gstatic.com/generate_204",
+      interval: utCfg.interval || "3m",
+      tolerance: utCfg.tolerance || 50,
+    };
+    outbounds = [
+      urltest,
+      ...vlessOutbounds,
+      { type: "direct", tag: "direct" },
+    ];
+  } else {
+    outbounds = [
+      vlessOutbounds[0],
+      { type: "direct", tag: "direct" },
+    ];
+  }
 
   const config = {
     log: { level: opts.log.level || "warn", timestamp: true },
     dns: buildDns(opts),
     inbounds: [buildInbound(mode, opts)],
-    outbounds: [
-      outbound,
-      { type: "direct", tag: "direct" },
-    ],
-    route: buildRoute(opts),
+    outbounds,
+    route,
     experimental: {
       cache_file: { enabled: true, store_rdrc: true },
     },
@@ -351,6 +390,10 @@ export function buildConfig({ profile, mode, options }) {
   }
 
   return config;
+}
+
+function sanitizeTag(s) {
+  return String(s || "").replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 24);
 }
 
 // ── профили (storage) ──────────────────────────────────────
@@ -386,8 +429,44 @@ export function addProfileFromVless(raw) {
   const list = loadProfiles();
   list.push({ ...parsed, id });
   saveProfiles(list);
-  if (!getActiveProfileId()) setActiveProfileId(id);
+  if (!getActiveProfileId() && getActiveKind() !== "sub") {
+    setActiveProfileId(id);
+    setActiveKind("single");
+  }
   return { id, profile: parsed };
+}
+
+// ── unified active source (profile | subscription) ─────────
+export function getActiveKind() {
+  return localStorage.getItem(ACTIVE_KIND_KEY) || "single";
+}
+
+export function setActiveKind(kind) {
+  localStorage.setItem(ACTIVE_KIND_KEY, kind === "sub" ? "sub" : "single");
+}
+
+function loadSubsRaw() {
+  try { return JSON.parse(localStorage.getItem("ninety.subscriptions.v1")) || []; }
+  catch { return []; }
+}
+
+/**
+ * Возвращает текущий активный источник для коннекта.
+ * { kind: "single", profile } — одиночный vless
+ * { kind: "sub", subscription, nodes } — подписка (>=1 нод)
+ * null — ничего не активно
+ */
+export function getActiveSource() {
+  const kind = getActiveKind();
+  if (kind === "sub") {
+    const subId = localStorage.getItem(ACTIVE_SUB_KEY);
+    if (!subId) return null;
+    const sub = loadSubsRaw().find(s => s.id === subId);
+    if (!sub || !sub.profiles?.length) return null;
+    return { kind: "sub", subscription: sub, nodes: sub.profiles };
+  }
+  const p = getActiveProfile();
+  return p ? { kind: "single", profile: p } : null;
 }
 
 export function removeProfile(id) {
