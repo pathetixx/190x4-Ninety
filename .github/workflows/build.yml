@@ -88,8 +88,13 @@ jobs:
           $notes = ""
           try {
             $raw = gh release view $tag --json body --jq .body 2>$null
-            if ($raw -is [array]) { $notes = ($raw -join "`n") } else { $notes = [string]$raw }
+            if ($LASTEXITCODE -eq 0) {
+              if ($raw -is [array]) { $notes = ($raw -join "`n") } else { $notes = [string]$raw }
+            }
           } catch { $notes = "" }
+          # gh release view exit-code не должен валить весь шаг, если релиз
+          # ещё не создан (мы делаем `gh release create` отдельно или через softprops).
+          $global:LASTEXITCODE = 0
           if ([string]::IsNullOrWhiteSpace($notes)) { $notes = "Заметки релиза недоступны." }
           $json = [ordered]@{
             version = $version
