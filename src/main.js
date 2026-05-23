@@ -32,6 +32,8 @@ import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { gradeDelay } from "/lib/clash-api.js";
+import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
+import { notify } from "/lib/notify.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -685,6 +687,38 @@ const heroRxUnit = document.getElementById("hero-rx-unit");
 const heroTxUnit = document.getElementById("hero-tx-unit");
 const locPing = document.getElementById("loc-ping");
 const locPingDot = document.querySelector(".location-card__ping .status-dot");
+const locIpRow = document.getElementById("loc-ip-row");
+const locIp = document.getElementById("loc-ip");
+
+let lastPublicIp = null;
+if (locIp) bindIpReveal(locIp, () => lastPublicIp);
+
+async function refreshPublicIp() {
+  if (state !== "connected") return;
+  const m = getMode();
+  const port = loadOptions().inbound.mixedPort || 7890;
+  const proxyHostPort = m === "proxy" ? `127.0.0.1:${port}` : null;
+  try {
+    const info = await fetchPublicIp({ proxyHostPort });
+    if (!info?.success && info?.ip == null) {
+      // ipwho.is при ошибке отдаёт { success: false, message }
+      throw new Error(info?.message || "no ip");
+    }
+    lastPublicIp = info.ip;
+    if (locIpRow) locIpRow.hidden = false;
+    if (locIp) {
+      locIp.textContent = maskIp(info.ip);
+      locIp.dataset.revealed = "false";
+      const flag = info.country_code?.toLowerCase();
+      const country = info.country || info.country_code || "";
+      if (flag) locIp.title = `${country} · кликните, чтобы показать IP на 20 сек`;
+    }
+  } catch (e) {
+    if (locIpRow) locIpRow.hidden = false;
+    if (locIp) locIp.textContent = "— · —";
+    console.warn("public ip failed", e?.message || e);
+  }
+}
 const locName = document.querySelector(".location-card__name");
 const locProto = document.querySelector(".location-card__proto");
 
@@ -698,6 +732,7 @@ if (heroMask) heroMask.playbackRate = 0.6;
 
 let state = "idle";
 let needsReconnect = false;
+let publicIpTimer = null;
 
 function setHeroClass(cls) {
   hero.classList.remove("hero--connecting", "hero--connected");
@@ -773,6 +808,9 @@ function setState(next, opts = {}) {
     if (heroTxUnit) heroTxUnit.textContent = "КиБ/с";
     if (heroMask) heroMask.playbackRate = 0.6;
     stopClashStream();
+    if (publicIpTimer) { clearInterval(publicIpTimer); publicIpTimer = null; }
+    lastPublicIp = null;
+    if (locIpRow) locIpRow.hidden = true;
     updateHeroHint();
   } else if (next === "connecting") {
     setHeroClass("hero--connecting");
@@ -838,6 +876,10 @@ async function startTrafficStream() {
   } catch (e) {
     console.warn("startClashStream failed", e);
   }
+  // Публичный IP — отложенно (sing-box секунду стартует), потом раз в 5 мин
+  setTimeout(refreshPublicIp, 2500);
+  if (publicIpTimer) clearInterval(publicIpTimer);
+  publicIpTimer = setInterval(refreshPublicIp, 5 * 60_000);
 }
 
 heroDisc?.addEventListener("click", async () => {
@@ -865,8 +907,11 @@ heroDisc?.addEventListener("click", async () => {
       if (mode === "proxy") {
         await invoke("set_system_proxy", { enable: true, hostPort: `127.0.0.1:${options.inbound.mixedPort || 7890}` });
       }
-      setState("connected", { ping: `${28 + Math.floor(Math.random() * 28)} мс` });
+      setState("connected", { ping: "— мс" });
       toast("Подключено", "success", 1600);
+      const src2 = getActiveSource();
+      const p2 = src2?.kind === "sub" ? src2.nodes[0] : src2?.profile;
+      notify("Ninety · подключено", p2 ? `Через ${p2.host}` : "Туннель поднят");
     } catch (e) {
       console.error("start failed", e);
       setState("idle");
@@ -880,6 +925,7 @@ heroDisc?.addEventListener("click", async () => {
     try { await invoke("stop_singbox"); } catch (e) { console.warn("stop failed", e); }
     setState("idle");
     toast("Отключено", "info", 1400);
+    notify("Ninety · отключено", "Туннель закрыт");
   }
 });
 

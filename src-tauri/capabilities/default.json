@@ -16,6 +16,7 @@
     "shell:default",
     "updater:default",
     "process:default",
-    "dialog:default"
+    "dialog:default",
+    "notification:default"
   ]
 }

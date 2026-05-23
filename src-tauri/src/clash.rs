@@ -3,6 +3,30 @@
 
 use serde_json::Value;
 
+// ── Public IP info (через прокси, если активен) ────────────
+// Возвращает то, что вернул ipwho.is — обычно содержит {ip, country, city, ...}.
+#[tauri::command]
+pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
+    let mut b = reqwest::Client::builder()
+        .user_agent("Ninety/0.1")
+        .timeout(std::time::Duration::from_secs(8));
+    if let Some(p) = proxy {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            let pr = reqwest::Proxy::all(trimmed)
+                .map_err(|e| format!("proxy: {e}"))?;
+            b = b.proxy(pr);
+        }
+    }
+    let c = b.build().map_err(|e| format!("client: {e}"))?;
+    let r = c
+        .get("https://ipwho.is/")
+        .send()
+        .await
+        .map_err(|e| format!("req: {e}"))?;
+    r.json::<Value>().await.map_err(|e| format!("json: {e}"))
+}
+
 fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
