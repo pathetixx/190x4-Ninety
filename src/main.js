@@ -1,13 +1,9 @@
 import { startMesh } from "/lib/mesh-background.js";
 import {
-  parseVless,
   buildConfig,
   loadProfiles,
-  saveProfiles,
-  getActiveProfile,
   getActiveProfileId,
   setActiveProfileId,
-  addProfileFromVless,
   removeProfile,
   getMode,
   setMode,
@@ -17,10 +13,8 @@ import {
 } from "/lib/singbox.js";
 import {
   loadSubscriptions,
-  getActiveSubscription,
   getActiveSubscriptionId,
   setActiveSubscriptionId,
-  addSubscriptionFromUrl,
   refreshSubscription,
   refreshAllSubscriptions,
   removeSubscription,
@@ -33,6 +27,7 @@ import { loadOptions } from "/lib/options.js";
 import { mountSettings } from "/lib/settings-view.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
 import { openUpdateModal } from "/lib/update-modal.js";
+import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -77,7 +72,6 @@ document.querySelectorAll("[data-window-action]").forEach((btn) => {
 // ── Popovers ────────────────────────────────────────────────
 const popovers = {
   mode: { btn: document.getElementById("mode-toggle"), el: document.getElementById("mode-popover") },
-  add:  { btn: document.getElementById("add-sub"),     el: document.getElementById("add-popover") },
 };
 
 function closeAllPopovers(except) {
@@ -144,69 +138,20 @@ modeSeg?.addEventListener("click", (e) => {
   updateHeroHint();
 });
 
-// ── Add-popover ─────────────────────────────────────────────
-const addPopover = document.getElementById("add-popover");
-const addManual = document.getElementById("add-manual");
-const addInput = document.getElementById("add-input");
-const addError = document.getElementById("add-error");
-const addSubmit = document.getElementById("add-submit");
-const addSeg = document.getElementById("add-seg");
-const addGridConfig = document.getElementById("add-grid-config");
-const addSubForm = document.getElementById("add-sub-form");
-const addSubUrl = document.getElementById("add-sub-url");
-const addSubName = document.getElementById("add-sub-name");
-const addSubError = document.getElementById("add-sub-error");
-const addSubSubmit = document.getElementById("add-sub-submit");
+// ── Add Profile Modal — Hiddify-style ──────────────────────
 const profilesSummary = document.getElementById("profiles-summary");
 
-function setAddMode(mode) {
-  const isSub = mode === "sub";
-  addSeg?.querySelectorAll(".seg__btn").forEach(b => {
-    const active = b.dataset.addMode === mode;
-    b.classList.toggle("seg__btn--active", active);
-    b.setAttribute("aria-selected", active ? "true" : "false");
-  });
-  if (addGridConfig) addGridConfig.hidden = isSub;
-  if (addManual) addManual.hidden = true;
-  if (addSubForm) addSubForm.hidden = !isSub;
-  if (isSub) setTimeout(() => addSubUrl?.focus(), 50);
-}
-
-addSeg?.addEventListener("click", (e) => {
-  const b = e.target.closest(".seg__btn");
-  if (!b) return;
-  setAddMode(b.dataset.addMode);
-});
-
-function setSubError(msg) { if (addSubError) addSubError.textContent = msg || ""; }
-
-addSubSubmit?.addEventListener("click", async () => {
-  const url = addSubUrl?.value.trim();
-  if (!url) { setSubError("Введите URL"); return; }
-  addSubSubmit.disabled = true;
-  setSubError("Загружаю…");
-  try {
-    const sub = await addSubscriptionFromUrl(url, addSubName?.value.trim() || "");
-    setActiveKind("sub");
-    setActiveSubscriptionId(sub.id);
-    if (addSubUrl) addSubUrl.value = "";
-    if (addSubName) addSubName.value = "";
-    setSubError("");
-    setAddMode("config");
-    closeAllPopovers();
-    toast(`Подписка "${sub.name}" — ${sub.profiles.length} нод`, "success", 2000);
+mountAddModal({
+  onCommit: (res) => {
+    toast(res.message, "success", 2000);
     refreshProfilesSummary();
-    refreshSubCardFromActive();
-    updateHeroForActive();
-  } catch (e) {
-    setSubError(e?.message || "Не удалось загрузить");
-  } finally {
-    addSubSubmit.disabled = false;
-  }
+  },
 });
 
-addSubUrl?.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); addSubSubmit?.click(); }
+document.getElementById("add-sub")?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  closeAllPopovers();
+  openAddModal();
 });
 
 function refreshProfilesSummary() {
@@ -281,73 +226,6 @@ function plural(n, forms) {
   return forms[2];
 }
 
-async function importFromClipboard() {
-  try {
-    const text = await navigator.clipboard.readText();
-    if (!text || !text.trim()) {
-      addManual.hidden = false;
-      addInput.focus();
-      setAddError("Буфер пуст. Вставьте vless:// вручную.");
-      return;
-    }
-    tryImport(text);
-  } catch (e) {
-    addManual.hidden = false;
-    addInput.value = "";
-    addInput.focus();
-    setAddError("Нет доступа к буферу — вставьте вручную.");
-  }
-}
-
-function tryImport(raw) {
-  try {
-    const { profile } = addProfileFromVless(raw);
-    setAddError("");
-    addInput.value = "";
-    addManual.hidden = true;
-    closeAllPopovers();
-    refreshProfilesSummary();
-    toast(`Профиль "${profile.name}" импортирован`, "success");
-  } catch (e) {
-    addManual.hidden = false;
-    setAddError(e?.message || "Не удалось распарсить vless://");
-    if (!addInput.value) addInput.value = raw;
-    addInput.focus();
-  }
-}
-
-function setAddError(msg) {
-  if (addError) addError.textContent = msg || "";
-}
-
-addPopover?.addEventListener("click", (e) => {
-  const tile = e.target.closest(".add-tile");
-  if (!tile) return;
-  const action = tile.dataset.action;
-  if (action === "clipboard") {
-    importFromClipboard();
-  } else if (action === "manual") {
-    addManual.hidden = false;
-    setAddError("");
-    addInput.focus();
-  }
-});
-
-addSubmit?.addEventListener("click", () => {
-  const raw = addInput.value.trim();
-  if (!raw) {
-    setAddError("Введите vless://... строку");
-    return;
-  }
-  tryImport(raw);
-});
-
-addInput?.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    addSubmit?.click();
-  }
-});
 
 // ── Навигация ───────────────────────────────────────────────
 const navItems = document.querySelectorAll(".menu__item[data-view]");

@@ -9,38 +9,39 @@ const ACTIVE_SUB_KEY = "ninety.subscriptions.active";
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-// ── base64 detect + decode ─────────────────────────────────
-function isLikelyBase64(s) {
-  const trimmed = s.trim();
-  if (trimmed.length < 24) return false;
-  if (trimmed.startsWith("vless://") || trimmed.startsWith("vmess://") || trimmed.startsWith("trojan://")) return false;
-  // base64 alphabet (стандартный + url-safe), allow newlines/spaces
-  return /^[A-Za-z0-9+/=_\-\s]+$/.test(trimmed);
-}
-
-function tryBase64Decode(s) {
-  const cleaned = s.replace(/\s+/g, "");
+// ── base64 helpers (Hiddify-style: try-and-see) ────────────
+// Никаких regex-проверок «похоже на base64». Просто пытаемся decode —
+// если успешно и есть осмысленные ссылки, берём декод; иначе оригинал.
+export function safeDecodeBase64(s) {
   try {
-    // url-safe → standard
-    const std = cleaned.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = std + "=".repeat((4 - std.length % 4) % 4);
-    return decodeURIComponent(escape(atob(padded)));
+    const cleaned = String(s).replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    if (!cleaned) return "";
+    const padded = cleaned + "=".repeat((4 - cleaned.length % 4) % 4);
+    const bin = atob(padded);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
   } catch {
-    return null;
+    return "";
   }
 }
 
+const KNOWN_PROTO_RE = /vless:\/\/|vmess:\/\/|trojan:\/\/|ss:\/\/|hysteria2?:\/\/|tuic:\/\//i;
+
 /**
  * Парсит тело подписки в массив vless-профилей.
+ * Hiddify подход: decode base64 → если содержит протоколы, используем декод.
  * Поддерживает: plain newline-список, base64-encoded список.
  */
 export function parseSubscriptionBody(body) {
   let text = String(body || "").trim();
   if (!text) return [];
 
-  if (isLikelyBase64(text)) {
-    const decoded = tryBase64Decode(text);
-    if (decoded) text = decoded;
+  // Сначала пробуем декодировать как base64 — если в результате есть
+  // знакомые протокольные схемы, считаем что это base64-list.
+  const decoded = safeDecodeBase64(text);
+  if (decoded && KNOWN_PROTO_RE.test(decoded)) {
+    text = decoded;
   }
 
   const lines = text.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
@@ -54,6 +55,45 @@ export function parseSubscriptionBody(body) {
     }
   }
   return profiles;
+}
+
+// ── Hiddify-style LinkParser: распознаёт что юзер вставил ──
+//   { kind: "url", url }              — подписка по http(s) URL
+//   { kind: "config", content }       — одиночная vless:// ссылка
+//   { kind: "list", content }         — несколько vless:// (raw или base64)
+//   { kind: "empty" } / { kind: "unknown" }
+export function detectAddInput(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return { kind: "empty" };
+
+  // Direct vless link
+  if (s.startsWith("vless://")) return { kind: "config", content: s };
+
+  // Hiddify-style deeplink: hiddify://import/<url> или ?url=
+  const dl = s.match(/^(?:hiddify|v2ray|v2rayn|v2rayng|clash|clashmeta|sing-box):\/\/(.+)$/i);
+  if (dl) {
+    const rest = dl[1];
+    if (/^https?:\/\//i.test(rest)) return { kind: "url", url: rest };
+    try {
+      const u = new URL(s.replace(/^[a-z0-9-]+:\/\//i, "http://"));
+      const url = u.searchParams.get("url");
+      if (url) return { kind: "url", url };
+      const importPath = rest.replace(/^import\//i, "");
+      if (/^https?:\/\//i.test(importPath)) return { kind: "url", url: importPath };
+    } catch {}
+  }
+
+  // Plain http(s) URL
+  if (/^https?:\/\//i.test(s)) return { kind: "url", url: s };
+
+  // Base64 список?
+  const decoded = safeDecodeBase64(s);
+  if (decoded && KNOWN_PROTO_RE.test(decoded)) return { kind: "list", content: decoded };
+
+  // Plain список со vless://
+  if (/vless:\/\//.test(s)) return { kind: "list", content: s };
+
+  return { kind: "unknown", raw: s };
 }
 
 // ── storage ────────────────────────────────────────────────
