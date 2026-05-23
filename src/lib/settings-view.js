@@ -213,7 +213,6 @@ function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
 
 // ── Разделы ────────────────────────────────────────────────
 function renderGeneral(o) {
-  const version = window.__TAURI_METADATA__?.__currentVersion ?? "0.1.1";
   return `
     <div class="settings-section">
       ${row(iconUrl(), "URL для теста соединения", "Любой HTTP/HTTPS endpoint, проверяющий доступ", inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
@@ -221,7 +220,7 @@ function renderGeneral(o) {
       ${row(iconLog(), "Уровень логов", "Подробность лога sing-box", select("log.level", o.log.level, LOG_LEVELS, LOG_LABELS))}
     </div>
     <div class="settings-section">
-      ${row(iconUpdate(), "Версия Ninety", "Текущая установленная версия", `<span class="settings-version">${version}</span>`)}
+      ${row(iconUpdate(), "Версия Ninety", "Текущая установленная версия", `<span class="settings-version" id="settings-version">—</span>`)}
       ${row(iconUpdate(), "Проверить обновления", "Скачать и установить новую версию с GitHub", `<button class="settings-btn" data-action="check-updates" type="button">Проверить</button>`)}
     </div>
   `;

@@ -52,8 +52,13 @@ fn decode_profile_title(raw: &str) -> Option<String> {
 
 #[tauri::command]
 pub async fn fetch_subscription(url: String) -> Result<SubscriptionInfo, String> {
+    // ВАЖНО: User-Agent определяет ответ сервера. Многие подписочные
+    // панели (sub-store, marzban, xo.e0f.cx и т.п.) отдают:
+    //   - известным клиентам (v2rayN, ClashMeta) — plain/base64 vless-список,
+    //   - неизвестным — JSON или HTML страницу логина.
+    // Поэтому шлём проверенный v2rayN UA.
     let client = reqwest::Client::builder()
-        .user_agent("Ninety/0.1 (sing-box subscription)")
+        .user_agent("v2rayN/6.42")
         .timeout(std::time::Duration::from_secs(20))
         .gzip(true)
         .build()
