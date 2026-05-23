@@ -8,6 +8,12 @@ mod proxy_win;
 #[cfg(not(target_os = "windows"))]
 mod proxy_stub;
 
+#[cfg(target_os = "windows")]
+mod tun_ipc;
+#[cfg(not(target_os = "windows"))]
+#[path = "tun_ipc_stub.rs"]
+mod tun_ipc;
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -101,6 +107,10 @@ pub fn run() {
             vpn::clear_singbox_log,
             vpn::singbox_log_path,
             vpn::open_log_dir,
+            tun_ipc::tunnel_service_status,
+            tun_ipc::tunnel_service_install,
+            tun_ipc::tunnel_service_uninstall,
+            tun_ipc::tunnel_full_status,
             subscription::fetch_subscription,
             clash::clash_get_proxies,
             clash::clash_test_node,

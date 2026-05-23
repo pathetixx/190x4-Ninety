@@ -3,10 +3,12 @@ use std::os::windows::ffi::OsStrExt;
 use winreg::enums::*;
 use winreg::RegKey;
 use windows::core::PCWSTR;
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, WAIT_TIMEOUT};
 use windows::Win32::Networking::WinInet::{
     InternetSetOptionW, INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED,
 };
-use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
+use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
 use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
 const INET_SETTINGS_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
@@ -42,7 +44,13 @@ pub fn set_system_proxy(enable: bool, host_port: Option<&str>) -> Result<(), Str
     Ok(())
 }
 
-pub fn run_elevated(exe: &str, args: &[&str]) -> Result<(), String> {
+// Запустить процесс через runas (UAC) и дождаться выхода с exit-кодом.
+// Используется когда нужно знать результат elevated-операции (например,
+// "ninety-tunnel-svc.exe install" — мы должны узнать, согласился ли юзер
+// в UAC и успела ли регистрация сервиса).
+pub fn run_elevated_wait(exe: &str, args: &[&str], timeout_ms: u32) -> Result<i32, String> {
+    let verb = to_wide("runas");
+    let file = to_wide(exe);
     let params = args
         .iter()
         .map(|a| {
@@ -54,29 +62,38 @@ pub fn run_elevated(exe: &str, args: &[&str]) -> Result<(), String> {
         })
         .collect::<Vec<_>>()
         .join(" ");
-    let verb = to_wide("runas");
-    let file = to_wide(exe);
     let params_w = to_wide(&params);
 
-    let result = unsafe {
-        ShellExecuteW(
-            None,
-            PCWSTR(verb.as_ptr()),
-            PCWSTR(file.as_ptr()),
-            PCWSTR(params_w.as_ptr()),
-            PCWSTR::null(),
-            SW_HIDE,
-        )
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        hwnd: HWND::default(),
+        lpVerb: PCWSTR(verb.as_ptr()),
+        lpFile: PCWSTR(file.as_ptr()),
+        lpParameters: PCWSTR(params_w.as_ptr()),
+        lpDirectory: PCWSTR::null(),
+        nShow: SW_HIDE.0,
+        ..Default::default()
     };
-    let code = result.0 as isize;
-    if code <= 32 {
-        return Err(format!("ShellExecuteW runas failed (code {code})"));
-    }
-    Ok(())
-}
 
-pub fn taskkill_singbox() {
-    let _ = std::process::Command::new("taskkill")
-        .args(["/F", "/IM", "sing-box.exe"])
-        .output();
+    unsafe {
+        ShellExecuteExW(&mut info).map_err(|e| format!("ShellExecuteExW: {e}"))?;
+    }
+
+    let h: HANDLE = info.hProcess;
+    if h.is_invalid() {
+        return Err("ShellExecuteExW не вернул process handle (UAC отменён?)".into());
+    }
+
+    unsafe {
+        let wait = WaitForSingleObject(h, timeout_ms);
+        if wait == WAIT_TIMEOUT {
+            let _ = CloseHandle(h);
+            return Err(format!("timeout {timeout_ms}ms ожидания elevated-процесса"));
+        }
+        let mut code: u32 = 0;
+        GetExitCodeProcess(h, &mut code).map_err(|e| format!("GetExitCodeProcess: {e}"))?;
+        let _ = CloseHandle(h);
+        Ok(code as i32)
+    }
 }

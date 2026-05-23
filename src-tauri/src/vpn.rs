@@ -12,8 +12,12 @@ use crate::proxy_win as proxy;
 use crate::proxy_stub as proxy;
 
 pub struct SingboxState {
+    // Локальный child sing-box (sidecar) — для proxy-режима, запускается под
+    // обычным юзером через tauri-plugin-shell.
     child: Mutex<Option<CommandChild>>,
-    elevated: Mutex<bool>,
+    // TUN-режим: sing-box работает не у нас, а внутри NinetyTunnelService
+    // под LocalSystem. Здесь — флаг, что мы инициировали TUN-сессию через IPC.
+    tun_via_svc: Mutex<bool>,
     died: Arc<Mutex<Option<String>>>,
 }
 
@@ -21,7 +25,7 @@ impl Default for SingboxState {
     fn default() -> Self {
         Self {
             child: Mutex::new(None),
-            elevated: Mutex::new(false),
+            tun_via_svc: Mutex::new(false),
             died: Arc::new(Mutex::new(None)),
         }
     }
@@ -112,27 +116,6 @@ pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
-fn resolve_singbox_exe() -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let dir = exe.parent().ok_or_else(|| "no parent dir".to_string())?;
-    let candidates = [
-        dir.join("sing-box-x86_64-pc-windows-msvc.exe"),
-        dir.join("sing-box.exe"),
-        dir.join("binaries").join("sing-box-x86_64-pc-windows-msvc.exe"),
-        dir.join("binaries").join("sing-box.exe"),
-    ];
-    for c in &candidates {
-        if c.exists() {
-            return Ok(c.to_string_lossy().to_string());
-        }
-    }
-    Err(format!(
-        "sing-box.exe не найден рядом с {}",
-        dir.display()
-    ))
-}
-
 #[tauri::command]
 pub async fn start_singbox(
     app: AppHandle,
@@ -142,23 +125,40 @@ pub async fn start_singbox(
 ) -> Result<(), String> {
     {
         let child = state.child.lock().unwrap();
-        let elevated = state.elevated.lock().unwrap();
-        if child.is_some() || *elevated {
+        let tun = state.tun_via_svc.lock().unwrap();
+        if child.is_some() || *tun {
             return Err("sing-box уже запущен".into());
         }
         *state.died.lock().unwrap() = None;
     }
 
     let path = config_path(&app)?;
-    std::fs::write(&path, config_json).map_err(|e| format!("write config: {e}"))?;
+    std::fs::write(&path, &config_json).map_err(|e| format!("write config: {e}"))?;
     let path_str = path.to_string_lossy().to_string();
 
     if mode == "tun" {
         #[cfg(target_os = "windows")]
         {
-            let exe = resolve_singbox_exe()?;
-            proxy::run_elevated(&exe, &["run", "-c", &path_str])?;
-            *state.elevated.lock().unwrap() = true;
+            // ensure_running синхронна (SCM-операции блокирующие): при необходимости
+            // показывает UAC для первичной установки сервиса; на повторных запусках —
+            // просто SCM Start. UAC показывается ровно один раз за время жизни машины.
+            tokio::task::spawn_blocking(crate::tun_ipc::ensure_running)
+                .await
+                .map_err(|e| format!("ensure_running join: {e}"))??;
+
+            // Если в сервисе остался sing-box от прошлой сессии (Ninety закрылся
+            // криво, сервис продолжил жить) — сначала чистим, чтобы start не упал
+            // с "sing-box уже запущен".
+            if let Ok(st) = crate::tun_ipc::ipc_status().await {
+                if st.singbox_running {
+                    let _ = crate::tun_ipc::ipc_stop().await;
+                }
+            }
+
+            // Передаём JSON inline через IPC: сервис под LocalSystem пишет
+            // конфиг сам у себя, не полагаясь на user-profile путь.
+            crate::tun_ipc::ipc_start(&config_json).await?;
+            *state.tun_via_svc.lock().unwrap() = true;
             return Ok(());
         }
         #[cfg(not(target_os = "windows"))]
@@ -241,17 +241,25 @@ pub async fn stop_singbox(state: State<'_, SingboxState>) -> Result<(), String> 
     if let Some(child) = taken {
         let _ = child.kill();
     }
-    let mut elevated = state.elevated.lock().unwrap();
-    if *elevated {
-        proxy::taskkill_singbox();
-        *elevated = false;
+
+    let was_tun = {
+        let mut g = state.tun_via_svc.lock().unwrap();
+        let v = *g;
+        *g = false;
+        v
+    };
+    if was_tun {
+        #[cfg(target_os = "windows")]
+        {
+            crate::tun_ipc::ipc_stop().await?;
+        }
     }
     Ok(())
 }
 
 #[tauri::command]
 pub fn singbox_running(state: State<'_, SingboxState>) -> bool {
-    state.child.lock().unwrap().is_some() || *state.elevated.lock().unwrap()
+    state.child.lock().unwrap().is_some() || *state.tun_via_svc.lock().unwrap()
 }
 
 #[tauri::command]
@@ -263,10 +271,19 @@ pub fn force_cleanup(state: &SingboxState) {
     if let Some(child) = state.child.lock().unwrap().take() {
         let _ = child.kill();
     }
-    let mut elevated = state.elevated.lock().unwrap();
-    if *elevated {
-        proxy::taskkill_singbox();
-        *elevated = false;
+    let was_tun = {
+        let mut g = state.tun_via_svc.lock().unwrap();
+        let v = *g;
+        *g = false;
+        v
+    };
+    if was_tun {
+        #[cfg(target_os = "windows")]
+        {
+            // Synchronous shutdown — приложение завершается, ждать
+            // async-context некогда. Tokio block_on внутри tauri::async_runtime.
+            let _ = tauri::async_runtime::block_on(crate::tun_ipc::ipc_stop());
+        }
     }
     #[cfg(target_os = "windows")]
     let _ = proxy::set_system_proxy(false, None);

@@ -67,6 +67,21 @@ jobs:
           $size = (Get-Item "src-tauri/binaries/sing-box-x86_64-pc-windows-msvc.exe").Length
           Write-Host "Built hiddify-sing-box $tag ($([math]::Round($size/1MB,1)) MB)."
 
+      - name: Build ninety-tunnel-svc (Windows Service)
+        shell: pwsh
+        run: |
+          # Сервисный бинарь для TUN-режима: ставится как NinetyTunnelService,
+          # управляет sing-box под LocalSystem (см. tunnel-svc/src/runner.rs).
+          # Tauri externalBin ждёт файл по пути binaries/<name>-<triple>.exe.
+          cd src-tauri
+          cargo build --release -p ninety-tunnel-svc --target x86_64-pc-windows-msvc
+          if (-not $?) { Write-Error "tunnel-svc build failed"; exit 1 }
+          $src = "target/x86_64-pc-windows-msvc/release/ninety-tunnel-svc.exe"
+          $dst = "binaries/ninety-tunnel-svc-x86_64-pc-windows-msvc.exe"
+          Copy-Item $src $dst -Force
+          $size = (Get-Item $dst).Length
+          Write-Host "Built ninety-tunnel-svc ($([math]::Round($size/1KB,0)) KB)."
+
       - name: Build Tauri
         run: npm run tauri build
         env:
