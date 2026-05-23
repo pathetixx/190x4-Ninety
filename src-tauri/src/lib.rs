@@ -37,9 +37,26 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        // Автозапуск при входе в Windows. С --minimized окно скрыто в трей
+        // на старте — проверка флага startMinimized делается на JS-стороне
+        // (если выключен — окно показывается сразу через .show()).
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostarted"]),
+        ))
         .manage(SingboxState::default())
         .manage(clash_stream::ClashStreamState::default())
         .setup(|app| {
+            // Если запущен через автостарт (--autostarted) — прячем окно
+            // в трей сразу. Юзер откроет из трея или через тулбар Windows.
+            let argv: Vec<String> = std::env::args().collect();
+            let autostarted = argv.iter().any(|a| a == "--autostarted");
+            if autostarted {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.hide();
+                }
+            }
+
             let show_item = MenuItem::with_id(app, "show", "Показать Ninety", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;

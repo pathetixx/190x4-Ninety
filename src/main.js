@@ -1050,6 +1050,32 @@ updateHeroHint();
   } catch {}
 })();
 
+// startMinimized: на ручном запуске скрыть окно если опция включена.
+// (При --autostarted Rust уже скрыл окно в setup() — здесь повтор без вреда.)
+(async () => {
+  try {
+    const opts = loadOptions();
+    if (opts.general?.startMinimized && tauriWin?.hide) {
+      await tauriWin.hide();
+    }
+  } catch {}
+})();
+
+// Синхронизация флага autostart с реальным registry-state Windows.
+// Если юзер выключил автозапуск через Диспетчер задач / Параметры —
+// тут подтянем актуальное состояние в options.
+(async () => {
+  try {
+    const enabled = await invoke("plugin:autostart|is_enabled");
+    const opts = loadOptions();
+    if (typeof enabled === "boolean" && opts.general?.autostart !== enabled) {
+      // updateOption ленивый импорт — путь из options.js
+      const { updateOption } = await import("/lib/options.js");
+      updateOption("general.autostart", enabled);
+    }
+  } catch {}
+})();
+
 // ── Auto-update ────────────────────────────────────────────
 async function runUpdateCheck({ silent = true } = {}) {
   if (!updaterAvailable()) {

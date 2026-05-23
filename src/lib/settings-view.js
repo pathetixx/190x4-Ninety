@@ -79,9 +79,19 @@ export function mountSettings(root, opts = {}) {
     });
     el.querySelectorAll("[data-opt]").forEach(input => {
       const path = input.dataset.opt;
-      const handler = () => {
+      const handler = async () => {
         const value = readInput(input);
         updateOption(path, value);
+        // Боковые эффекты: тогглы которые меняют Windows-state, а не sing-box config
+        if (input.dataset.action === "autostart") {
+          try {
+            const invoke = window.__TAURI__?.core?.invoke;
+            const cmd = value ? "plugin:autostart|enable" : "plugin:autostart|disable";
+            if (invoke) await invoke(cmd);
+          } catch (e) {
+            console.warn("autostart toggle failed", e);
+          }
+        }
         onChange(path, value);
         if (input.dataset.affectsView) render();
       };
@@ -174,10 +184,11 @@ function row(icon, label, hint, control) {
   `;
 }
 
-function toggle(path, checked) {
+function toggle(path, checked, extra = {}) {
+  const action = extra.action ? `data-action="${extra.action}"` : "";
   return `
     <label class="switch">
-      <input type="checkbox" data-opt="${path}" ${checked ? "checked" : ""}/>
+      <input type="checkbox" data-opt="${path}" ${action} ${checked ? "checked" : ""}/>
       <span class="switch__track"></span>
     </label>
   `;
@@ -215,7 +226,12 @@ function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
 
 // ── Разделы ────────────────────────────────────────────────
 function renderGeneral(o) {
+  const g = o.general || {};
   return `
+    <div class="settings-section">
+      ${row(iconRocket(), "Запускать при входе в систему", "Ninety будет автоматически стартовать при логине в Windows", toggle("general.autostart", g.autostart, { action: "autostart" }))}
+      ${row(iconEyeOff(), "Запускать свернутым", "На старте окно сразу прячется в трей — иконка остаётся справа внизу", toggle("general.startMinimized", g.startMinimized))}
+    </div>
     <div class="settings-section">
       ${row(iconUrl(), "URL для теста соединения", "Любой HTTP/HTTPS endpoint, проверяющий доступ", inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
       ${row(iconClock(), "Интервал теста (сек)", "Как часто sing-box проверяет outbound", inputText("urlTest.intervalSec", o.urlTest.intervalSec, "number", 'min="30" max="3600"'))}
@@ -320,3 +336,5 @@ function iconScissors() { return svgWrap('<path opacity="0.25" d="M86 134a30 30 
 function iconCase()     { return svgWrap('<path opacity="0.25" d="M232 56v152a16 16 0 0 1-16 16H40a16 16 0 0 1-16-16V56Z"/><path d="M216 32H40a16 16 0 0 0-16 16v160a16 16 0 0 0 16 16h176a16 16 0 0 0 16-16V48a16 16 0 0 0-16-16Z"/>'); }
 function iconPad()      { return svgWrap('<path opacity="0.25" d="M224 80v96a16 16 0 0 1-16 16H48a16 16 0 0 1-16-16V80Z"/><path d="M208 64H48a16 16 0 0 0-16 16v96a16 16 0 0 0 16 16h160a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16Z"/>'); }
 function iconUpdate()   { return svgWrap('<path opacity="0.25" d="M128 32a96 96 0 1 0 96 96 96 96 0 0 0-96-96Z"/><path d="M197.66 113.66 145.66 165.66a8 8 0 0 1-11.32 0L82.34 113.66a8 8 0 0 1 11.32-11.32L120 128.69V72a8 8 0 0 1 16 0v56.69l26.34-26.35a8 8 0 0 1 11.32 11.32Z"/>'); }
+function iconRocket()   { return svgWrap('<path opacity="0.25" d="M152 224v-48a8 8 0 0 0-3.81-6.83l-30.43-18.26 24.24-24.24L160 144l-8 80Z"/><path d="m226.27 60.94-3.74-23a8 8 0 0 0-6.51-6.51l-23-3.74A86.7 86.7 0 0 0 144.34 45.6l-15.81 19a87.8 87.8 0 0 0-66.86 25.62L33.94 119A8 8 0 0 0 36 132.94l32.4 16.2-2.65 26.46a8 8 0 0 0 2.28 6.49l27.88 27.88a8 8 0 0 0 6.49 2.28l26.46-2.65 16.2 32.4a8 8 0 0 0 13.93 2.06l28.78-27.73a87.78 87.78 0 0 0 25.62-66.86l19-15.81a86.7 86.7 0 0 0 17.88-71.72ZM168 112a16 16 0 1 1 16-16 16 16 0 0 1-16 16Z"/>'); }
+function iconEyeOff()   { return svgWrap('<path opacity="0.25" d="M53.92 34.62a8 8 0 1 0-11.84 10.76L72.13 78.4C26.59 113 12.24 158.78 12.07 159.33a8 8 0 0 0 0 5.34c.32 1 8.27 24.31 32.6 48.21 32.43 31.81 71.46 48.4 112.92 48.4a155.7 155.7 0 0 0 46.31-7.16l27.32 30a8 8 0 1 0 11.84-10.76Z"/><path d="M157.59 96.41A36 36 0 0 1 159.59 159.59L106.41 100.41A36 36 0 0 1 157.59 96.41Z"/>'); }
