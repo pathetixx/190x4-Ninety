@@ -10,6 +10,7 @@ import {
   getActiveKind,
   setActiveKind,
   getActiveSource,
+  nodeTag,
 } from "/lib/singbox.js";
 import {
   loadSubscriptions,
@@ -32,7 +33,7 @@ import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
-import { gradeDelay } from "/lib/clash-api.js";
+import { gradeDelay, pickEffectiveNode, getProxies, lastDelay } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 
@@ -726,6 +727,36 @@ async function refreshPublicIp() {
 }
 const locName = document.querySelector(".location-card__name");
 const locProto = document.querySelector(".location-card__proto");
+const locFlag = document.querySelector(".location-card__flag");
+
+const FLAGS_BASE = "/assets/flags";
+const FLAG_NON_ISO_ALIAS = { uk: "gb", en: "gb", uae: "ae", usa: "us", rus: "ru" };
+
+function isoFromNodeName(name) {
+  if (!name) return null;
+  const cps = Array.from(name);
+  for (let i = 0; i < cps.length - 1; i++) {
+    const a = cps[i].codePointAt(0);
+    const b = cps[i + 1].codePointAt(0);
+    if (a >= 0x1F1E6 && a <= 0x1F1FF && b >= 0x1F1E6 && b <= 0x1F1FF) {
+      return String.fromCharCode(97 + (a - 0x1F1E6)) + String.fromCharCode(97 + (b - 0x1F1E6));
+    }
+  }
+  const m = String(name).match(/(?:^|[\s|·,])([A-Za-z]{2,3})\b/);
+  if (m) {
+    const tok = m[1].toLowerCase();
+    if (FLAG_NON_ISO_ALIAS[tok]) return FLAG_NON_ISO_ALIAS[tok];
+    if (tok.length === 2) return tok;
+  }
+  return null;
+}
+
+function setLocationFlag(iso) {
+  if (!locFlag) return;
+  if (iso) {
+    locFlag.innerHTML = `<img src="${FLAGS_BASE}/${iso}.svg" alt="" style="width:100%;height:100%;object-fit:cover;display:block">`;
+  }
+}
 
 if (heroMask) heroMask.playbackRate = 0.6;
 
@@ -770,21 +801,38 @@ function updateHeroHint() {
   }
 }
 
+// Текущая нода через которую реально идёт трафик — приходит из clash-API
+// event'ом ninety:node-changed. Когда null — fallback на nodes[0]/profile.
+let currentEffectiveNode = null;
+
+function activeNodeForDisplay() {
+  if (currentEffectiveNode) return currentEffectiveNode;
+  const src = getActiveSource();
+  return src?.kind === "sub" ? src.nodes[0] : src?.profile;
+}
+
 function updateHeroForActive() {
   const src = getActiveSource();
-  const p = src?.kind === "sub" ? src.nodes[0] : src?.profile;
+  const p = activeNodeForDisplay();
   if (locName) {
     if (src?.kind === "sub") {
-      locName.textContent = `${src.subscription.name} · ${p?.name || p?.host || "—"}`;
+      const nodeLabel = p?.name || p?.host || "—";
+      locName.textContent = `${src.subscription.name} · ${nodeLabel}`;
     } else if (p) {
       locName.textContent = p.name || p.host;
     }
   }
   if (locProto && p) {
-    const parts = ["VLESS"];
-    if (p.security && p.security !== "none") parts.push(p.security);
+    const proto = (p.proto || "vless").toUpperCase();
+    const parts = [proto];
+    const sec = p.security || p.tlsMode;
+    if (sec && sec !== "none") parts.push(sec);
     if (p.type) parts.push(p.type.toUpperCase());
     locProto.textContent = parts.join(" · ");
+  }
+  if (p) {
+    const iso = isoFromNodeName(p.name) || isoFromNodeName(p.host);
+    setLocationFlag(iso);
   }
   if (state === "idle") updateHeroHint();
 }
@@ -816,12 +864,12 @@ function setState(next, opts = {}) {
     if (publicIpTimer) { clearInterval(publicIpTimer); publicIpTimer = null; }
     lastPublicIp = null;
     if (locIpRow) locIpRow.hidden = true;
+    currentEffectiveNode = null;
     updateHeroHint();
   } else if (next === "connecting") {
     setHeroClass("hero--connecting");
     heroLabel.textContent = "Подключаюсь…";
-    const src = getActiveSource();
-    const p = src?.kind === "sub" ? src.nodes[0] : src?.profile;
+    const p = activeNodeForDisplay();
     heroHint.textContent = p ? `Поднимаю туннель через ${p.host}` : "Поднимаю туннель…";
     showMeta(false);
     showTraffic(false);
@@ -830,8 +878,7 @@ function setState(next, opts = {}) {
   } else if (next === "connected") {
     setHeroClass("hero--connected");
     heroLabel.textContent = "Подключено";
-    const src = getActiveSource();
-    const p = src?.kind === "sub" ? src.nodes[0] : src?.profile;
+    const p = activeNodeForDisplay();
     const mode = getMode() === "tun" ? "TUN-туннель" : "системный прокси";
     heroHint.textContent = p ? `Трафик идёт через ${p.host} · ${mode}` : `Трафик идёт через ${mode}`;
     heroMetaValue.textContent = opts.ping ?? "— мс";
@@ -877,6 +924,10 @@ async function startTrafficStream() {
     await startClashStream({
       onTraffic: applyTrafficValues,
       onPing: applyPingValue,
+      onNodeChange: ({ tag }) => {
+        // Эффективная нода реально поменялась (URLTest перевыбрал или юзер выбрал)
+        syncEffectiveFromClash({ knownTag: tag });
+      },
     });
   } catch (e) {
     console.warn("startClashStream failed", e);
@@ -886,6 +937,38 @@ async function startTrafficStream() {
   if (publicIpTimer) clearInterval(publicIpTimer);
   publicIpTimer = setInterval(refreshPublicIp, 5 * 60_000);
 }
+
+// Подтягивает effective node через clash → обновляет hero/location/IP.
+// Если knownTag передан — используем его (без лишнего запроса в clash).
+async function syncEffectiveFromClash({ knownTag } = {}) {
+  let tag = knownTag || null;
+  if (!tag) {
+    try {
+      const data = await getProxies();
+      tag = pickEffectiveNode(data);
+    } catch { return; }
+  }
+  if (!tag) return;
+  const src = getActiveSource();
+  if (!src || src.kind !== "sub") return;
+  // Тэг outbound'а — единая формула из singbox.js (nodeTag), чтобы не разъезжалось.
+  const node = src.nodes.find((n, i) => nodeTag(i, n) === tag);
+  if (!node) return;
+  const prevHost = currentEffectiveNode?.host;
+  currentEffectiveNode = node;
+  updateHeroForActive();
+  if (state === "connected" && prevHost && prevHost !== node.host) {
+    // Сервер реально сменился — IP надо перечитать
+    if (locIp) locIp.textContent = "— · —";
+    setTimeout(refreshPublicIp, 600);
+  }
+}
+
+// Слушаем событие из proxies-view: юзер кликнул ноду / URLTest переключился
+window.addEventListener("ninety:node-changed", (ev) => {
+  const tag = ev.detail?.tag;
+  syncEffectiveFromClash({ knownTag: tag });
+});
 
 heroDisc?.addEventListener("click", async () => {
   if (heroDisc.disabled) return;
@@ -914,8 +997,9 @@ heroDisc?.addEventListener("click", async () => {
       }
       setState("connected", { ping: "— мс" });
       toast("Подключено", "success", 1600);
-      const src2 = getActiveSource();
-      const p2 = src2?.kind === "sub" ? src2.nodes[0] : src2?.profile;
+      // Через 800мс синхронизируем effective node через clash — URLTest уже выбрал ноду
+      setTimeout(syncEffectiveFromClash, 800);
+      const p2 = activeNodeForDisplay();
       notify("Ninety · подключено", p2 ? `Через ${p2.host}` : "Туннель поднят");
     } catch (e) {
       console.error("start failed", e);
