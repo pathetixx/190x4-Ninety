@@ -177,38 +177,36 @@
 
           <!-- HERO -->
           <div class="hero" id="hero">
-            <div class="hero__halo"></div>
-            <div class="hero__rings" aria-hidden="true">
-              <span class="hero__ring"></span>
-              <span class="hero__ring"></span>
-              <span class="hero__ring"></span>
+            <!-- Сцена: halo + rings + disc центрированы как единое целое -->
+            <div class="hero__stage">
+              <div class="hero__halo"></div>
+              <div class="hero__rings" aria-hidden="true">
+                <span class="hero__ring"></span>
+                <span class="hero__ring"></span>
+                <span class="hero__ring"></span>
+              </div>
+              <button class="hero__disc" id="hero-disc" type="button" aria-label="Подключиться">
+                <video class="hero__mask" id="hero-mask"
+                       src="/assets/video/hero-mask.webm"
+                       autoplay loop muted playsinline disablepictureinpicture
+                       aria-hidden="true"></video>
+              </button>
             </div>
-            <button class="hero__disc" id="hero-disc" type="button" aria-label="Подключиться">
-              <video class="hero__mask" id="hero-mask"
-                     src="/assets/video/hero-mask.webm"
-                     autoplay loop muted playsinline disablepictureinpicture
-                     aria-hidden="true"></video>
-            </button>
 
             <div class="hero__status">
               <div class="hero__status-label" id="hero-label">Не подключено</div>
               <div class="hero__status-hint" id="hero-hint">Нажмите, чтобы запустить туннель</div>
-              <div class="hero__status-meta" id="hero-meta" hidden>
-                <span class="hero__meta-dot"></span>
-                <span class="hero__meta-value" id="hero-meta-value">— мс</span>
-              </div>
-              <div class="hero__traffic" id="hero-traffic" hidden>
-                <span class="hero__traffic-item">
-                  <span class="hero__traffic-arrow">↓</span>
-                  <span class="hero__traffic-value" id="hero-rx">0</span>
-                  <span class="hero__traffic-unit" id="hero-rx-unit">КиБ/с</span>
-                </span>
-                <span class="hero__traffic-item">
-                  <span class="hero__traffic-arrow">↑</span>
-                  <span class="hero__traffic-value" id="hero-tx">0</span>
-                  <span class="hero__traffic-unit" id="hero-tx-unit">КиБ/с</span>
-                </span>
-              </div>
+              <button class="hero__ping" id="hero-ping" type="button" hidden
+                      aria-label="Обновить задержку">
+                <svg class="hero__ping-icon" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+                  <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+                  <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+                  <line x1="12" y1="20" x2="12.01" y2="20"/>
+                </svg>
+                <span class="hero__ping-value" id="hero-ping-value">— мс</span>
+              </button>
             </div>
           </div>
 

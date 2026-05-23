@@ -6,20 +6,32 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   padding: clamp(16px, 2.4vw, 24px) 0 16px;
   isolation: isolate;
   --hero-disc-size: clamp(200px, 26vw, 300px);
   --hero-halo-size: calc(var(--hero-disc-size) * 1.95);
 }
 
-/* ── Halo: абсолютный круг идеально по центру диска ── */
+/* Сцена-обёртка: halo + rings + disc позиционируются ОТНОСИТЕЛЬНО неё,
+   а не относительно flex-контейнера .hero. Иначе при flex:1 в view--connect
+   halo/rings уезжают вверх, а disc — туда, куда его выровнял justify-content. */
+.hero__stage {
+  position: relative;
+  width: var(--hero-disc-size);
+  height: var(--hero-disc-size);
+  display: grid;
+  place-items: center;
+}
+
+/* ── Halo: круг идеально по центру диска ── */
 .hero__halo {
   position: absolute;
-  top: clamp(16px, 2.4vw, 24px);
+  top: 50%;
   left: 50%;
   width: var(--hero-halo-size);
   height: var(--hero-halo-size);
-  transform: translate(-50%, -25%);
+  transform: translate(-50%, -50%);
   border-radius: 50%;
   background: radial-gradient(
     closest-side,
@@ -37,8 +49,8 @@
 }
 
 @keyframes halo-idle-breath {
-  0%, 100% { opacity: 0.78; transform: translate(-50%, -25%) scale(1); }
-  50%      { opacity: 0.92; transform: translate(-50%, -25%) scale(1.03); }
+  0%, 100% { opacity: 0.78; transform: translate(-50%, -50%) scale(1); }
+  50%      { opacity: 0.92; transform: translate(-50%, -50%) scale(1.03); }
 }
 
 .hero--connecting .hero__halo {
@@ -46,8 +58,8 @@
 }
 
 @keyframes halo-connecting {
-  0%, 100% { opacity: 0.85; transform: translate(-50%, -25%) scale(1.00); }
-  50%      { opacity: 1.00; transform: translate(-50%, -25%) scale(1.06); }
+  0%, 100% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.00); }
+  50%      { opacity: 1.00; transform: translate(-50%, -50%) scale(1.06); }
 }
 
 .hero--connected .hero__halo {
@@ -62,18 +74,14 @@
 }
 
 @keyframes halo-connected-breath {
-  0%, 100% { opacity: 0.85; transform: translate(-50%, -25%) scale(1.00); filter: blur(36px); }
-  50%      { opacity: 1.00; transform: translate(-50%, -25%) scale(1.06); filter: blur(44px); }
+  0%, 100% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.00); filter: blur(36px); }
+  50%      { opacity: 1.00; transform: translate(-50%, -50%) scale(1.06); filter: blur(44px); }
 }
 
 /* ── Concentric rings во время CONNECTING ── */
 .hero__rings {
   position: absolute;
-  top: clamp(16px, 2.4vw, 24px);
-  left: 50%;
-  width: var(--hero-disc-size);
-  height: var(--hero-disc-size);
-  transform: translateX(-50%);
+  inset: 0;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -87,8 +95,8 @@
 
 .hero__ring {
   position: absolute;
-  width: var(--hero-disc-size);
-  height: var(--hero-disc-size);
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
   border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
   animation: ring-pulse 1.9s cubic-bezier(.25,.46,.45,.94) infinite;
@@ -206,46 +214,66 @@
   letter-spacing: -0.1px;
 }
 
-.hero__status-meta {
+/* Крупный кликабельный пинг (Wi-Fi + значение) — заменяет старый meta-dot.
+   Клик = принудительный force-test задержки текущей ноды. */
+.hero__ping {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 6px 12px;
-  border-radius: 12px;
-  background: rgba(18, 10, 18, 0.55);
+  gap: 10px;
+  margin-top: 14px;
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  background: rgba(18, 10, 18, 0.45);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  opacity: 1;
-  transition: opacity 250ms ease;
-}
-
-.hero__status-meta[hidden] {
-  display: none !important;
-}
-
-.hero__meta-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 8px var(--accent);
-  animation: meta-dot-pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes meta-dot-pulse {
-  0%, 100% { opacity: 0.5; }
-  50%      { opacity: 1.0; }
-}
-
-.hero__meta-value {
-  font-family: var(--font-sans);
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: 0.2px;
   color: var(--text-main);
+  cursor: pointer;
+  font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
+  transition: border-color 200ms cubic-bezier(.25,.46,.45,.94),
+              background 200ms cubic-bezier(.25,.46,.45,.94),
+              transform 120ms cubic-bezier(.25,.46,.45,.94);
+}
+.hero__ping[hidden] { display: none !important; }
+.hero__ping:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: rgba(28, 18, 28, 0.6);
+}
+.hero__ping:active { transform: scale(0.97); }
+.hero__ping:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.hero__ping-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--accent-bright);
+  flex-shrink: 0;
+}
+
+.hero__ping-value {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  line-height: 1;
+}
+
+/* Грейды пинга */
+.hero__ping[data-grade="good"] .hero__ping-icon  { color: #4ADE80; }
+.hero__ping[data-grade="mid"]  .hero__ping-icon  { color: #F59E0B; }
+.hero__ping[data-grade="bad"]  .hero__ping-icon  { color: #EF4444; }
+.hero__ping[data-grade="dead"] .hero__ping-icon  { color: var(--text-faint); }
+.hero__ping[data-grade="dead"] .hero__ping-value { color: var(--text-dim); }
+
+/* Состояние «идёт замер» */
+.hero__ping[data-testing="true"] .hero__ping-icon {
+  animation: hero-ping-spin 0.9s linear infinite;
+}
+@keyframes hero-ping-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* ── Live RX/TX рядом с hero (только в connected) ──────── */
