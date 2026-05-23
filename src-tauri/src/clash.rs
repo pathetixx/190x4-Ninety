@@ -66,3 +66,33 @@ pub async fn clash_test_group(
     let r = c.get(path).send().await.map_err(|e| format!("request: {e}"))?;
     r.json::<Value>().await.map_err(|e| format!("decode: {e}"))
 }
+
+// Переключение активной ноды Selector-группы.
+// PUT /proxies/{group}  body: {"name": "<node-tag>"}
+// В sing-box clash-API это работает только для Selector (не URLTest).
+#[tauri::command]
+pub async fn clash_select_proxy(
+    port: u16,
+    group: String,
+    name: String,
+) -> Result<(), String> {
+    let c = client()?;
+    let body = serde_json::json!({ "name": name });
+    let path = format!(
+        "{}/proxies/{}",
+        base(port),
+        urlencoding::encode(&group)
+    );
+    let r = c
+        .put(path)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("request: {e}"))?;
+    let status = r.status();
+    if !status.is_success() {
+        let text = r.text().await.unwrap_or_default();
+        return Err(format!("HTTP {status}: {text}"));
+    }
+    Ok(())
+}

@@ -18,16 +18,38 @@ export async function testGroup(group, { port = DEFAULT_PORT, url = DEFAULT_URL,
   return invoke("clash_test_group", { port, group, url, timeoutMs });
 }
 
-// Текущая выбранная нода urltest-группы.
-// В sing-box clash-API структура: proxies["proxy"] = { type:"URLTest", now: "node-tag", all: ["node-0", ...], history: [{time, delay}] }
-export function pickActiveNode(proxiesResp) {
-  const proxies = proxiesResp?.proxies || {};
-  const group = proxies.proxy;
-  if (!group) return null;
-  return group.now || null;
+// Ручной выбор активной ноды в Selector-группе.
+// PUT /proxies/{group} {"name": tag}. Работает только для type=Selector.
+export async function selectProxy(group, name, { port = DEFAULT_PORT } = {}) {
+  return invoke("clash_select_proxy", { port, group, name });
 }
 
-// Достаём последний delay по истории истории
+// "now" внешнего Selector — что юзер выбрал ("auto" или node-tag).
+export function pickSelectorNow(proxiesResp) {
+  const proxies = proxiesResp?.proxies || {};
+  const sel = proxies.proxy;
+  if (!sel) return null;
+  return sel.now || null;
+}
+
+// Эффективная нода через которую реально пойдёт трафик.
+// Если selector.now=="auto" — лезем в URLTest "auto" и берём его .now (min-delay).
+export function pickEffectiveNode(proxiesResp) {
+  const proxies = proxiesResp?.proxies || {};
+  const sel = proxies.proxy;
+  if (!sel || !sel.now) return null;
+  if (sel.now === "auto") {
+    return proxies.auto?.now || null;
+  }
+  return sel.now;
+}
+
+// Совместимая точка для старого кода — теперь == pickSelectorNow.
+export function pickActiveNode(proxiesResp) {
+  return pickSelectorNow(proxiesResp);
+}
+
+// Последний delay по истории
 export function lastDelay(proxyObj) {
   if (!proxyObj) return 0;
   const hist = proxyObj.history;
@@ -38,8 +60,11 @@ export function lastDelay(proxyObj) {
   return 0;
 }
 
+// Hiddify-UX: 0 или >65000 трактуем как "не дотянулись" — "Connecting"/dead.
+// Прочее — числовая градация.
 export function gradeDelay(ms) {
   if (!ms || ms <= 0) return "dead";
+  if (ms >= 65000) return "dead";
   if (ms < 800) return "good";
   if (ms < 1500) return "mid";
   return "bad";
