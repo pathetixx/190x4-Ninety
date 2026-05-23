@@ -28,6 +28,7 @@ import { mountSettings } from "/lib/settings-view.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
 import { openUpdateModal } from "/lib/update-modal.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
+import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -261,6 +262,8 @@ function switchView(target) {
     if (target === "logs") onLogsViewEnter();
     else onLogsViewLeave();
   }
+  if (target === "proxies") onProxiesViewEnter();
+  else onProxiesViewLeave();
 }
 
 navItems.forEach((item) => {
@@ -269,8 +272,16 @@ navItems.forEach((item) => {
 
 document.getElementById("location-card")?.addEventListener("click", (e) => {
   if (e.target.closest(".hero__disc")) return;
-  switchView("profiles");
+  // Hiddify-логика: список нод доступен только при активном VPN.
+  if (state !== "connected") {
+    toast("Сначала подключитесь", "info", 1400);
+    return;
+  }
+  switchView("proxies");
 });
+
+// Mount Proxies view (FAB-молния → перетест группы)
+mountProxiesView({ onToast: toast });
 
 // ── Settings view ──────────────────────────────────────────
 const settingsRoot = document.getElementById("settings-root");
@@ -408,6 +419,14 @@ function onLogsViewLeave() {
 // ── Profiles view ──────────────────────────────────────────
 const profilesView = document.querySelector('section.view[data-view="profiles"]');
 
+const ICON_DOTS = `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>`;
+const ICON_PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+const ICON_REFRESH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`;
+const ICON_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`;
+const ICON_TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>`;
+const ICON_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+const ICON_COPY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+
 function renderProfilesView() {
   if (!profilesView) return;
   const profilesList = loadProfiles();
@@ -418,10 +437,11 @@ function renderProfilesView() {
 
   if (profilesList.length === 0 && subsList.length === 0) {
     profilesView.innerHTML = `
-      <div class="placeholder">
-        <h2>Профили</h2>
-        <p>Добавьте конфиг или подписку через кнопку «+» наверху главного экрана.</p>
+      <div class="profiles-empty">
+        <div class="profiles-empty__title">Нет профилей</div>
+        <div class="profiles-empty__sub">Добавьте подписку по URL или одиночный vless:// — кнопка «+» снизу справа или на главном экране.</div>
       </div>
+      <button class="profiles-fab" id="profiles-fab" type="button">${ICON_PLUS}<span>Добавить профиль</span></button>
     `;
     return;
   }
@@ -429,24 +449,27 @@ function renderProfilesView() {
   const subItems = subsList.map(s => {
     const isActive = activeKind === "sub" && s.id === activeSubId;
     const days = subscriptionDaysLeft(s);
-    const meta = [
-      `${s.profiles?.length || 0} нод`,
-      days != null ? `${days} дн` : null,
-      s.total != null ? `${formatGiB(subscriptionUsedBytes(s))}/${formatGiB(s.total)} ГБ` : null,
-      `обн. ${relativeTime(s.lastUpdate)}`,
-    ].filter(Boolean).join(" · ");
+    const used = subscriptionUsedBytes(s);
+    const total = s.total ?? null;
+    const pct = total ? Math.min(100, (used / total) * 100) : 0;
+    const expired = days === 0;
+    const traffic = total != null
+      ? `${formatGiB(used)} / ${formatGiB(total)} ГиБ`
+      : `${formatGiB(used)} ГиБ`;
+    const daysText = days == null ? "—" : (expired ? "Истекла" : `осталось ${days} дн`);
     return `
-      <div class="profile-card${isActive ? " profile-card--active" : ""}" data-sub-id="${s.id}">
-        <div class="profile-card__main">
-          <div class="profile-card__name">${escapeHtml(s.name)} <span class="profile-card__tag">SUB</span></div>
-          <div class="profile-card__meta">${escapeHtml(meta)}</div>
-        </div>
-        <div class="profile-card__actions">
-          ${isActive
-            ? `<span class="profile-card__badge">Активна</span>`
-            : `<button class="profile-card__btn" data-sub-act="activate" type="button">Выбрать</button>`}
-          <button class="profile-card__btn" data-sub-act="refresh" type="button">Обновить</button>
-          <button class="profile-card__btn profile-card__btn--danger" data-sub-act="remove" type="button">Удалить</button>
+      <div class="ptile${isActive ? " ptile--active" : ""}" data-sub-id="${s.id}">
+        <button class="ptile__menu" data-menu-sub="${s.id}" type="button" aria-label="Меню">${ICON_DOTS}</button>
+        <div class="ptile__body" data-sub-activate="${s.id}">
+          <div class="ptile__head">
+            <span class="ptile__name">${escapeHtml(s.name)}</span>
+            <span class="ptile__chip">${s.profiles?.length || 0} нод</span>
+          </div>
+          <div class="ptile__progress"><div class="ptile__progress-fill" style="width:${pct.toFixed(1)}%"></div></div>
+          <div class="ptile__info${expired ? " ptile__info--expired" : ""}">
+            <span>${escapeHtml(traffic)}</span>
+            <span>${escapeHtml(daysText)}</span>
+          </div>
         </div>
       </div>
     `;
@@ -455,16 +478,17 @@ function renderProfilesView() {
   const profileItems = profilesList.map(p => {
     const isActive = activeKind === "single" && p.id === activeProfileId;
     return `
-      <div class="profile-card${isActive ? " profile-card--active" : ""}" data-id="${p.id}">
-        <div class="profile-card__main">
-          <div class="profile-card__name">${escapeHtml(p.name)}</div>
-          <div class="profile-card__meta">${escapeHtml(p.host)}:${p.port} · ${escapeHtml(p.security)} · ${escapeHtml(p.type)}</div>
-        </div>
-        <div class="profile-card__actions">
-          ${isActive
-            ? `<span class="profile-card__badge">Активен</span>`
-            : `<button class="profile-card__btn" data-act="activate" type="button">Выбрать</button>`}
-          <button class="profile-card__btn profile-card__btn--danger" data-act="remove" type="button">Удалить</button>
+      <div class="ptile${isActive ? " ptile--active" : ""}" data-id="${p.id}">
+        <button class="ptile__menu" data-menu-profile="${p.id}" type="button" aria-label="Меню">${ICON_DOTS}</button>
+        <div class="ptile__body" data-profile-activate="${p.id}">
+          <div class="ptile__head">
+            <span class="ptile__name">${escapeHtml(p.name)}</span>
+            <span class="ptile__chip">${escapeHtml((p.security || "tcp").toUpperCase())}</span>
+          </div>
+          <div class="ptile__info">
+            <span>${escapeHtml(`${p.host}:${p.port}`)}</span>
+            <span>${escapeHtml((p.type || "tcp").toUpperCase())}</span>
+          </div>
         </div>
       </div>
     `;
@@ -475,7 +499,39 @@ function renderProfilesView() {
       ${subsList.length ? `<h2 class="profiles-list__title">Подписки</h2>${subItems}` : ""}
       ${profilesList.length ? `<h2 class="profiles-list__title">Конфиги</h2>${profileItems}` : ""}
     </div>
+    <button class="profiles-fab" id="profiles-fab" type="button">${ICON_PLUS}<span>Добавить профиль</span></button>
   `;
+}
+
+// Popup-меню действий
+let openMenu = null;
+function closePMenu() {
+  if (openMenu) { openMenu.remove(); openMenu = null; document.removeEventListener("click", onDocClickClosePMenu); }
+}
+function onDocClickClosePMenu(e) {
+  if (openMenu && !openMenu.contains(e.target)) closePMenu();
+}
+function openPMenu(anchor, items) {
+  closePMenu();
+  const menu = document.createElement("div");
+  menu.className = "pmenu";
+  menu.innerHTML = items.map(it => `
+    <button class="pmenu__item${it.danger ? " pmenu__item--danger" : ""}" data-act="${it.id}" type="button">
+      ${it.icon || ""}<span>${escapeHtml(it.label)}</span>
+    </button>
+  `).join("");
+  document.body.appendChild(menu);
+  const rect = anchor.getBoundingClientRect();
+  const m = menu.getBoundingClientRect();
+  let top = rect.bottom + 6;
+  let left = rect.left;
+  if (top + m.height > window.innerHeight - 12) top = rect.top - m.height - 6;
+  if (left + m.width > window.innerWidth - 12) left = window.innerWidth - m.width - 12;
+  menu.style.top = `${Math.max(8, top)}px`;
+  menu.style.left = `${Math.max(8, left)}px`;
+  openMenu = menu;
+  setTimeout(() => document.addEventListener("click", onDocClickClosePMenu), 10);
+  return menu;
 }
 
 function escapeHtml(s) {
@@ -483,52 +539,102 @@ function escapeHtml(s) {
 }
 
 profilesView?.addEventListener("click", async (e) => {
-  const subCard = e.target.closest(".profile-card[data-sub-id]");
-  if (subCard) {
-    const id = subCard.dataset.subId;
-    const act = e.target.closest("[data-sub-act]")?.dataset.subAct;
-    if (!act) return;
-    if (act === "activate") {
-      setActiveKind("sub");
-      setActiveSubscriptionId(id);
-      refreshProfilesSummary();
-      toast("Подписка активирована", "success", 1800);
-    } else if (act === "refresh") {
-      const btn = e.target.closest("button");
-      if (btn) { btn.disabled = true; btn.textContent = "…"; }
-      try {
-        const r = await refreshSubscription(id);
-        toast(`Обновлено: ${r.profiles.length} нод`, "success", 1800);
-        refreshProfilesSummary();
-      } catch (err) {
-        toast(`Ошибка: ${err?.message || err}`, "error", 2800);
-      } finally {
-        renderProfilesView();
-      }
-    } else if (act === "remove") {
-      removeSubscription(id);
-      if (getActiveKind() === "sub" && !getActiveSubscriptionId()) {
-        setActiveKind("single");
-      }
-      refreshProfilesSummary();
-      toast("Подписка удалена", "info", 1800);
-    }
+  // FAB → открыть add-modal
+  if (e.target.closest("#profiles-fab")) {
+    openAddModal();
     return;
   }
 
-  const card = e.target.closest(".profile-card");
-  if (!card) return;
-  const id = card.dataset.id;
-  const act = e.target.closest("[data-act]")?.dataset.act;
-  if (act === "activate") {
+  // Меню (3 точки) подписки
+  const subMenuBtn = e.target.closest("[data-menu-sub]");
+  if (subMenuBtn) {
+    e.stopPropagation();
+    const id = subMenuBtn.dataset.menuSub;
+    const menu = openPMenu(subMenuBtn, [
+      { id: "refresh",  label: "Обновить",  icon: ICON_REFRESH },
+      { id: "copy",     label: "Копировать URL", icon: ICON_COPY },
+      { id: "activate", label: "Сделать активной", icon: ICON_CHECK },
+      { id: "remove",   label: "Удалить",   icon: ICON_TRASH, danger: true },
+    ]);
+    menu.addEventListener("click", async (ev) => {
+      const act = ev.target.closest("[data-act]")?.dataset.act;
+      if (!act) return;
+      closePMenu();
+      if (act === "refresh") {
+        try {
+          const r = await refreshSubscription(id);
+          toast(`Обновлено: ${r.profiles.length} нод`, "success", 1800);
+        } catch (err) {
+          toast(`Ошибка: ${err?.message || err}`, "error", 2800);
+        }
+        renderProfilesView();
+        refreshSubCardFromActive();
+      } else if (act === "copy") {
+        const sub = loadSubscriptions().find(s => s.id === id);
+        if (sub?.url) {
+          try { await navigator.clipboard.writeText(sub.url); toast("URL скопирован", "success", 1400); }
+          catch { toast("Не удалось скопировать", "error", 1800); }
+        }
+      } else if (act === "activate") {
+        setActiveKind("sub");
+        setActiveSubscriptionId(id);
+        refreshProfilesSummary();
+        toast("Подписка активирована", "success", 1800);
+      } else if (act === "remove") {
+        removeSubscription(id);
+        if (getActiveKind() === "sub" && !getActiveSubscriptionId()) setActiveKind("single");
+        refreshProfilesSummary();
+        toast("Подписка удалена", "info", 1800);
+      }
+    });
+    return;
+  }
+
+  // Меню (3 точки) одиночного профиля
+  const profileMenuBtn = e.target.closest("[data-menu-profile]");
+  if (profileMenuBtn) {
+    e.stopPropagation();
+    const id = profileMenuBtn.dataset.menuProfile;
+    const menu = openPMenu(profileMenuBtn, [
+      { id: "activate", label: "Сделать активным", icon: ICON_CHECK },
+      { id: "remove",   label: "Удалить",          icon: ICON_TRASH, danger: true },
+    ]);
+    menu.addEventListener("click", (ev) => {
+      const act = ev.target.closest("[data-act]")?.dataset.act;
+      if (!act) return;
+      closePMenu();
+      if (act === "activate") {
+        setActiveProfileId(id);
+        setActiveKind("single");
+        refreshProfilesSummary();
+        toast("Профиль активирован", "success", 1800);
+      } else if (act === "remove") {
+        removeProfile(id);
+        refreshProfilesSummary();
+        toast("Профиль удалён", "info", 1800);
+      }
+    });
+    return;
+  }
+
+  // Клик по телу карточки → активация (Hiddify-стиль)
+  const subActivate = e.target.closest("[data-sub-activate]");
+  if (subActivate) {
+    const id = subActivate.dataset.subActivate;
+    setActiveKind("sub");
+    setActiveSubscriptionId(id);
+    refreshProfilesSummary();
+    toast("Подписка активирована", "success", 1500);
+    return;
+  }
+  const profileActivate = e.target.closest("[data-profile-activate]");
+  if (profileActivate) {
+    const id = profileActivate.dataset.profileActivate;
     setActiveProfileId(id);
     setActiveKind("single");
     refreshProfilesSummary();
-    toast("Профиль активирован", "success", 1800);
-  } else if (act === "remove") {
-    removeProfile(id);
-    refreshProfilesSummary();
-    toast("Профиль удалён", "info", 1800);
+    toast("Профиль активирован", "success", 1500);
+    return;
   }
 });
 
@@ -550,6 +656,12 @@ const locName = document.querySelector(".location-card__name");
 const locProto = document.querySelector(".location-card__proto");
 
 if (heroMask) heroMask.playbackRate = 0.6;
+
+// Изначально data-attr "idle" — чтобы CSS прятал location-card до коннекта
+{
+  const v = document.querySelector('.view--connect');
+  if (v) v.dataset.connState = "idle";
+}
 
 let state = "idle";
 let trafficTimer = null;
@@ -607,6 +719,9 @@ function updateHeroForActive() {
 
 function setState(next, opts = {}) {
   state = next;
+  // Сигнал для CSS — скрытие location-card снизу когда idle/connecting
+  const view = document.querySelector('.view--connect');
+  if (view) view.dataset.connState = next;
 
   if (next === "idle") {
     setHeroClass(null);

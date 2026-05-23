@@ -4,6 +4,10 @@
 
 import { DEFAULT_OPTIONS } from "/lib/options.js";
 
+// Transports которые mainline sing-box 1.13 НЕ поддерживает.
+// xhttp — расширение xray, ждёт форка sing-box-hiddify.
+const UNSUPPORTED_TRANSPORTS = new Set(["xhttp"]);
+
 const PROFILES_KEY = "ninety.profiles.v1";
 const ACTIVE_KEY = "ninety.profiles.active";
 const ACTIVE_KIND_KEY = "ninety.active.kind";   // "single" | "sub"
@@ -338,8 +342,15 @@ export function buildConfig({ profile, source, mode, options }) {
   const src = source ?? (profile ? { kind: "single", profile } : null);
   if (!src) throw new Error("buildConfig: нет источника");
 
-  const nodes = src.kind === "sub" ? src.nodes : [src.profile];
-  if (!nodes?.length) throw new Error("buildConfig: пустой список нод");
+  const allNodes = src.kind === "sub" ? src.nodes : [src.profile];
+  if (!allNodes?.length) throw new Error("buildConfig: пустой список нод");
+
+  // Mainline sing-box 1.13 не знает xhttp transport (это xray-форка фича).
+  // Фильтруем такие ноды; считаем сколько отбросили — UI покажет в toast.
+  const nodes = allNodes.filter(n => !UNSUPPORTED_TRANSPORTS.has((n.type || "tcp").toLowerCase()));
+  if (!nodes.length) {
+    throw new Error(`Все ${allNodes.length} нод используют xhttp transport — нужен форк sing-box. Выберите другую ноду или подписку.`);
+  }
 
   const route = buildRoute(opts);
   const useUrltest = nodes.length >= 2;

@@ -19,6 +19,7 @@
     <link rel="stylesheet" href="/styles/logs.css" />
     <link rel="stylesheet" href="/styles/update.css" />
     <link rel="stylesheet" href="/styles/add-modal.css" />
+    <link rel="stylesheet" href="/styles/proxies.css" />
   </head>
   <body>
     <!-- Watermark карты мира -->
@@ -234,11 +235,22 @@
           </article>
         </section>
 
-        <section class="view view--placeholder" data-view="profiles" hidden>
+        <section class="view view--profiles" data-view="profiles" hidden>
           <div class="placeholder">
             <h2>Профили</h2>
             <p>Управление подписками и одиночными конфигами — скоро.</p>
           </div>
+        </section>
+
+        <section class="view view--proxies" data-view="proxies" hidden>
+          <div class="proxies-head">
+            <h2 class="proxies-title">Ноды подписки</h2>
+            <span class="proxies-meta" id="proxies-meta">—</span>
+          </div>
+          <div class="proxies-grid" id="proxies-grid"></div>
+          <button class="proxies-fab" id="proxies-fab" type="button" aria-label="Проверить задержку всех нод">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+          </button>
         </section>
 
         <section class="view view--logs" data-view="logs" hidden>

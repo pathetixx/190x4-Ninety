@@ -1,3 +1,4 @@
+mod clash;
 mod subscription;
 mod vpn;
 
@@ -81,6 +82,9 @@ pub fn run() {
             vpn::singbox_log_path,
             vpn::open_log_dir,
             subscription::fetch_subscription,
+            clash::clash_get_proxies,
+            clash::clash_test_node,
+            clash::clash_test_group,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
