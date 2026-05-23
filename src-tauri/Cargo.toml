@@ -1,6 +1,6 @@
 [package]
 name = "ninety"
-version = "0.1.17"
+version = "0.1.18"
 description = "Ninety — VPN client in 190x4 aesthetic"
 authors = ["pathetixx"]
 edition = "2021"
