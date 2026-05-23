@@ -65,7 +65,7 @@ async function handleInput(raw, userOverride = {}) {
   const decision = detectAddInput(raw);
 
   if (decision.kind === "empty" || decision.kind === "unknown") {
-    throw new Error("Не распознал ввод. Вставь vless:// ссылку или http(s):// URL подписки.");
+    throw new Error("Не распознал ввод. Вставь ссылку (vless/vmess/trojan/ss/hysteria2/tuic) или http(s):// URL подписки.");
   }
 
   if (decision.kind === "config") {
@@ -75,13 +75,10 @@ async function handleInput(raw, userOverride = {}) {
   }
 
   if (decision.kind === "list") {
-    // Несколько vless:// без URL подписки — добавим каждый отдельным конфигом
     const profiles = parseSubscriptionBody(decision.content);
-    if (profiles.length === 0) throw new Error("Не нашёл валидных vless:// в списке");
-    let last;
+    if (profiles.length === 0) throw new Error("Не нашёл валидных конфигов в списке");
     for (const p of profiles) {
-      const { profile } = addProfileFromVless(p.raw);
-      last = profile;
+      addProfileFromVless(p.raw);
     }
     setActiveKind("single");
     return { type: "list", message: `Импортировано ${profiles.length} конфигов` };

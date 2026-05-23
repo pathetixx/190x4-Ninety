@@ -1,7 +1,9 @@
 // Ninety · subscriptions
 // URL-импорт списка vless://, парсинг subscription-userinfo, storage.
 
-import { parseVless } from "/lib/singbox.js";
+import { parseVless, parseLink } from "/lib/singbox.js";
+
+const PROTO_PREFIX_RE = /^(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic):\/\//i;
 
 const SUBS_KEY = "ninety.subscriptions.v1";
 const ACTIVE_SUB_KEY = "ninety.subscriptions.active";
@@ -47,11 +49,11 @@ export function parseSubscriptionBody(body) {
   const lines = text.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
   const profiles = [];
   for (const line of lines) {
-    if (!line.startsWith("vless://")) continue;
+    if (!PROTO_PREFIX_RE.test(line)) continue;
     try {
-      profiles.push(parseVless(line));
+      profiles.push(parseLink(line));
     } catch (e) {
-      console.warn("subscription: skip invalid vless line", e?.message);
+      console.warn("subscription: skip invalid link", e?.message);
     }
   }
   return profiles;
@@ -66,8 +68,8 @@ export function detectAddInput(raw) {
   const s = String(raw || "").trim();
   if (!s) return { kind: "empty" };
 
-  // Direct vless link
-  if (s.startsWith("vless://")) return { kind: "config", content: s };
+  // Direct protocol link (vless/vmess/trojan/ss/hysteria2/tuic)
+  if (PROTO_PREFIX_RE.test(s)) return { kind: "config", content: s };
 
   // Hiddify-style deeplink: hiddify://import/<url> или ?url=
   const dl = s.match(/^(?:hiddify|v2ray|v2rayn|v2rayng|clash|clashmeta|sing-box):\/\/(.+)$/i);
@@ -90,8 +92,8 @@ export function detectAddInput(raw) {
   const decoded = safeDecodeBase64(s);
   if (decoded && KNOWN_PROTO_RE.test(decoded)) return { kind: "list", content: decoded };
 
-  // Plain список со vless://
-  if (/vless:\/\//.test(s)) return { kind: "list", content: s };
+  // Plain список с любыми поддерживаемыми протоколами
+  if (KNOWN_PROTO_RE.test(s)) return { kind: "list", content: s };
 
   return { kind: "unknown", raw: s };
 }
