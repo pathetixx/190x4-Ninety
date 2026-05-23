@@ -838,6 +838,16 @@ export function removeProfile(id) {
   }
 }
 
+// Точечное обновление полей одиночного профиля (rename и т.п.).
+export function updateProfile(id, patch) {
+  const list = loadProfiles();
+  const idx = list.findIndex(p => p.id === id);
+  if (idx < 0) return null;
+  list[idx] = { ...list[idx], ...patch };
+  saveProfiles(list);
+  return list[idx];
+}
+
 export function getMode() {
   const m = localStorage.getItem(MODE_KEY);
   return m === "tun" ? "tun" : "proxy";

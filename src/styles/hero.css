@@ -291,3 +291,22 @@
   color: var(--text-dim);
   letter-spacing: 0.3px;
 }
+
+/* RECONNECT-режим — бирюзовый акцент когда настройки сменились пока VPN активен */
+.hero.hero--reconnect .hero__disc {
+  --halo-color: #2DD4D4;
+  box-shadow: 0 0 60px -10px rgba(45, 212, 212, 0.55),
+              inset 0 0 0 2px rgba(45, 212, 212, 0.6);
+  animation: hero-reconnect-pulse 1.8s ease-in-out infinite;
+}
+.hero.hero--reconnect .hero__label {
+  color: #5EE7E7;
+  letter-spacing: 0.08em;
+  font-family: "Orbitron", sans-serif;
+  font-weight: 700;
+}
+
+@keyframes hero-reconnect-pulse {
+  0%, 100% { box-shadow: 0 0 60px -10px rgba(45, 212, 212, 0.55), inset 0 0 0 2px rgba(45, 212, 212, 0.6); }
+  50%      { box-shadow: 0 0 90px -10px rgba(45, 212, 212, 0.85), inset 0 0 0 2px rgba(45, 212, 212, 0.95); }
+}
