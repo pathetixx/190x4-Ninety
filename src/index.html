@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="/styles/profiles.css" />
     <link rel="stylesheet" href="/styles/settings.css" />
     <link rel="stylesheet" href="/styles/logs.css" />
+    <link rel="stylesheet" href="/styles/update.css" />
   </head>
   <body>
     <!-- Watermark карты мира -->
@@ -315,6 +316,36 @@
         </div>
       </div>
       <div class="popover__hint" id="profiles-summary">Профилей нет</div>
+    </div>
+
+    <!-- Update Modal ────────────────────────────────────────── -->
+    <div class="update-modal" id="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-kicker" hidden>
+      <div class="update-modal__backdrop" id="update-backdrop"></div>
+      <div class="update-modal__card">
+        <div class="update-modal__kicker" id="update-kicker">ОБНОВЛЕНИЕ ДОСТУПНО</div>
+        <div class="update-modal__version">
+          <span class="update-modal__ver" id="update-current">—</span>
+          <span class="update-modal__arrow">→</span>
+          <span class="update-modal__ver update-modal__ver--accent" id="update-latest">—</span>
+        </div>
+        <div class="update-modal__section-label">Что нового</div>
+        <div class="update-modal__changelog" id="update-changelog">—</div>
+
+        <div class="update-modal__progress" id="update-progress" hidden>
+          <div class="update-modal__bar"><div class="update-modal__bar-fill" id="update-bar"></div></div>
+          <div class="update-modal__progress-row">
+            <span class="update-modal__progress-label" id="update-progress-label">Загрузка</span>
+            <span class="update-modal__progress-pct" id="update-progress-pct">0%</span>
+          </div>
+        </div>
+
+        <div class="update-modal__error" id="update-error" hidden></div>
+
+        <div class="update-modal__actions" id="update-actions">
+          <button class="update-modal__btn update-modal__btn--ghost" id="update-later" type="button">ПОЗЖЕ</button>
+          <button class="update-modal__btn update-modal__btn--primary" id="update-install" type="button">ОБНОВИТЬ</button>
+        </div>
+      </div>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

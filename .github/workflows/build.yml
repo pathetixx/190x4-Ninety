@@ -56,6 +56,8 @@ jobs:
       - name: Generate latest.json (only on tag)
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $cfg = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
           $version = $cfg.version
@@ -66,9 +68,13 @@ jobs:
           if (-not (Test-Path $sigPath)) { Write-Error "Signature not found: $sigPath"; exit 1 }
           $sig = (Get-Content $sigPath -Raw).Trim()
           $url = "https://github.com/pathetixx/190x4-Ninety/releases/download/$tag/$($nsis.Name)"
+          # Тянем body релиза — для нормальных changelog'ов в кастомной модалке
+          $notes = ""
+          try { $notes = gh release view $tag --json body --jq .body 2>$null } catch { $notes = "" }
+          if (-not $notes) { $notes = "Заметки релиза недоступны." }
           $json = [ordered]@{
             version = $version
-            notes = "См. полные заметки в GitHub Release: $tag"
+            notes = $notes
             pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
             platforms = [ordered]@{
               "windows-x86_64" = [ordered]@{
