@@ -52,6 +52,7 @@ let currentSection = null; // null = menu
 export function mountSettings(root, opts = {}) {
   if (!root) return;
   const onChange = opts.onChange || (() => {});
+  const onRender = opts.onRender || (() => {});
   function render() {
     if (!currentSection) {
       root.innerHTML = renderMenu();
@@ -61,6 +62,7 @@ export function mountSettings(root, opts = {}) {
       root.innerHTML = renderSection(sec);
       bindSection(root, sec, onChange);
     }
+    onRender(currentSection);
   }
   function bindMenu(el) {
     el.querySelectorAll("[data-section]").forEach(item => {
