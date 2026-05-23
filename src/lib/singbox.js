@@ -680,13 +680,19 @@ export function buildConfig({ profile, source, mode, options }) {
       url: utCfg.url || "https://www.gstatic.com/generate_204",
       interval: utCfg.interval || "3m",
       tolerance: utCfg.tolerance || 50,
+      // Критично: иначе при URLTest-rotation существующие TCP-коннекты висят
+      // на старой ноде. Hiddify: builder.go ставит true и для URLTest, и для Selector.
+      interrupt_exist_connections: true,
     };
     const selector = {
       type: "selector",
       tag: "proxy",
       outbounds: ["auto", ...vlessOutbounds.map(o => o.tag)],
       default: "auto",
-      interrupt_exist_connections: false,
+      // Главный фикс hot-switch: с false старые соединения держатся
+      // на прошлом outbound — браузер качает страницу через старый сервер
+      // даже после переключения. Hiddify ставит true для всех селекторов.
+      interrupt_exist_connections: true,
     };
     outbounds = [
       selector,
