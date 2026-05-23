@@ -68,10 +68,16 @@ jobs:
           if (-not (Test-Path $sigPath)) { Write-Error "Signature not found: $sigPath"; exit 1 }
           $sig = (Get-Content $sigPath -Raw).Trim()
           $url = "https://github.com/pathetixx/190x4-Ninety/releases/download/$tag/$($nsis.Name)"
-          # Тянем body релиза — для нормальных changelog'ов в кастомной модалке
+          # Тянем body релиза — для нормальных changelog'ов в кастомной модалке.
+          # ВАЖНО: gh выводит body построчно → PowerShell делает массив строк,
+          # ConvertTo-Json потом сериализует массив. Tauri updater ждёт строку,
+          # иначе latest.json парсится как "обновлений нет". -join "`n" склеивает.
           $notes = ""
-          try { $notes = gh release view $tag --json body --jq .body 2>$null } catch { $notes = "" }
-          if (-not $notes) { $notes = "Заметки релиза недоступны." }
+          try {
+            $raw = gh release view $tag --json body --jq .body 2>$null
+            if ($raw -is [array]) { $notes = ($raw -join "`n") } else { $notes = [string]$raw }
+          } catch { $notes = "" }
+          if ([string]::IsNullOrWhiteSpace($notes)) { $notes = "Заметки релиза недоступны." }
           $json = [ordered]@{
             version = $version
             notes = $notes
