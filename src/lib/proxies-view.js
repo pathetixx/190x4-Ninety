@@ -67,7 +67,8 @@ function nodesFromSource() {
   const src = getActiveSource();
   if (!src) return [];
   const raw = src.kind === "sub" ? src.nodes : [src.profile];
-  const filtered = raw.filter(n => (n.type || "tcp").toLowerCase() !== "xhttp");
+  // С форком hiddify-sing-box xhttp поддерживается — больше не фильтруем.
+  const filtered = raw;
   return filtered.map((n, i) => ({
     ...n,
     clashTag: filtered.length >= 2 ? nodeTag(i, n) : "proxy",
