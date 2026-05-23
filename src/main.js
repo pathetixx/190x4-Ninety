@@ -42,6 +42,29 @@ const invoke = window.__TAURI__?.core?.invoke
 const canvas = document.getElementById("mesh-bg");
 if (canvas) startMesh(canvas);
 
+// ── Version (dynamic из Tauri) ─────────────────────────────
+async function fillAppVersion() {
+  let v = "—";
+  try {
+    const app = window.__TAURI__?.app;
+    if (app?.getVersion) v = await app.getVersion();
+  } catch {}
+  const sidebar = document.getElementById("sidebar-version");
+  if (sidebar) sidebar.textContent = `${v} · 190X4`;
+  // settings версия — после первого рендера settings
+  const apply = () => {
+    const el = document.getElementById("settings-version");
+    if (el) el.textContent = v;
+  };
+  apply();
+  // MutationObserver — пересоздание DOM при навигации
+  const settingsRoot = document.getElementById("settings-root");
+  if (settingsRoot) {
+    new MutationObserver(apply).observe(settingsRoot, { childList: true, subtree: true });
+  }
+}
+fillAppVersion();
+
 // ── Toast ───────────────────────────────────────────────────
 const toastEl = document.getElementById("toast");
 let toastTimer = null;
