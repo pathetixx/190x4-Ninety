@@ -14,7 +14,8 @@ import {
 } from "/lib/singbox.js";
 import { loadOptions } from "/lib/options.js";
 import { mountSettings } from "/lib/settings-view.js";
-import { isAvailable as updaterAvailable, checkForUpdate, askAndInstall } from "/lib/updater.js";
+import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
+import { openUpdateModal } from "/lib/update-modal.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -625,12 +626,9 @@ async function runUpdateCheck({ silent = true } = {}) {
     if (!silent) toast("Обновлений нет — у вас актуальная версия", "info", 2400);
     return;
   }
-  await askAndInstall(update, {
-    onProgress: (p) => {
-      if (p.phase === "started") toast(`Скачиваю обновление ${update.version}…`, "info", 2000);
-      else if (p.phase === "finished") toast("Установка и перезапуск…", "success", 4000);
-    },
-  });
+  // silent=true (автопроверка на старте) — уважаем "Позже" по этой версии;
+  // silent=false (юзер сам нажал) — игнорируем skip, показываем всё равно.
+  await openUpdateModal(update, { respectSkip: silent });
 }
 
 // Проверка при старте — через 3 сек после bootstrap
