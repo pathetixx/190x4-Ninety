@@ -34,10 +34,15 @@ export function pickSelectorNow(proxiesResp) {
 
 // Эффективная нода через которую реально пойдёт трафик.
 // Если selector.now=="auto" — лезем в URLTest "auto" и берём его .now (min-delay).
+// Для одиночного профиля (нет Selector) — возвращаем "proxy" (это сам outbound).
 export function pickEffectiveNode(proxiesResp) {
   const proxies = proxiesResp?.proxies || {};
   const sel = proxies.proxy;
-  if (!sel || !sel.now) return null;
+  if (!sel) return null;
+  if (!sel.now) {
+    // single-mode: "proxy" — это и есть конечный outbound, а не Selector
+    return sel.type && sel.type.toLowerCase() === "selector" ? null : "proxy";
+  }
   if (sel.now === "auto") {
     return proxies.auto?.now || null;
   }

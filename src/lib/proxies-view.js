@@ -19,6 +19,14 @@ let lastClashSnapshot = null;
 // Локальный optimistic-active: после клика подсвечиваем сразу, не ждём поллинг.
 let optimisticActiveTag = null;
 let optimisticUntilTs = 0;
+// Запомненный effective node — чтобы диспатчить ninety:node-changed только при реальном изменении
+let lastEffectiveTag = null;
+
+function dispatchNodeChanged(tag, node) {
+  window.dispatchEvent(new CustomEvent("ninety:node-changed", {
+    detail: { tag, node: node || null },
+  }));
+}
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
@@ -216,6 +224,12 @@ async function refresh() {
   const nodes = nodesFromSource();
   const selectorTag = effectiveSelectorTag(data);
   const effectiveTag = pickEffectiveNode(data);
+  // URLTest сам мог перевыбрать ноду — синхронизируем хедер и IP
+  if (effectiveTag && effectiveTag !== lastEffectiveTag) {
+    lastEffectiveTag = effectiveTag;
+    const node = nodes.find(n => n.clashTag === effectiveTag) || null;
+    dispatchNodeChanged(effectiveTag, node);
+  }
   render(nodes, selectorTag, effectiveTag, data);
 }
 
@@ -232,6 +246,14 @@ async function handleNodeClick(card, onToast) {
   try {
     await selectProxy("proxy", tag);
     onToast?.(tag === "auto" ? "Режим Авто" : "Сервер переключён", "success", 1200);
+    // Для "auto" реальный исходящий определит URLTest — узнаем после refresh.
+    // Для ручного выбора — сразу синхронизируем hero/location/IP.
+    if (tag !== "auto") {
+      const nodes = nodesFromSource();
+      const node = nodes.find(n => n.clashTag === tag) || null;
+      lastEffectiveTag = tag;
+      dispatchNodeChanged(tag, node);
+    }
     await refresh();
   } catch (e) {
     optimisticActiveTag = null;
