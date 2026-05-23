@@ -1,39 +1,170 @@
-// Ninety · Proxies view (sticky grid с пингом + FAB-молния)
+// Ninety · Proxies view — Hiddify-style: SVG-флаги, авто-сортировка по пингу,
+// клик-выбор через Selector, AUTO-режим сверху, FAB-молния перетеста.
 
-import { getProxies, testGroup, lastDelay, gradeDelay, pickActiveNode } from "/lib/clash-api.js";
-import { getActiveSource } from "/lib/singbox.js";
+import {
+  getProxies, testGroup, selectProxy,
+  pickSelectorNow, pickEffectiveNode,
+  lastDelay, gradeDelay,
+} from "/lib/clash-api.js";
+import { getActiveSource, nodeTag } from "/lib/singbox.js";
 
 function $(id) { return document.getElementById(id); }
+
+const POLL_MS = 4000;
+const FLAGS_BASE = "/assets/flags";
 
 let pollTimer = null;
 let testingAll = false;
 let lastClashSnapshot = null;
+// Локальный optimistic-active: после клика подсвечиваем сразу, не ждём поллинг.
+let optimisticActiveTag = null;
+let optimisticUntilTs = 0;
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
 
-// Эмодзи-флаг из имени ноды (если нет — глобус).
-// Hiddify-подписки обычно засовывают флаг прямо в название через regional indicator codepoints.
-function extractFlag(name) {
-  if (!name) return "🌐";
-  // ищем первый regional-indicator pair
-  const codepoints = Array.from(name).map(c => c.codePointAt(0));
+// ── флаги: имя ноды → ISO-3166-1 alpha-2 (lowercase) ────────
+// 1) Regional-indicator pair в названии (🇫🇮, 🇩🇪) → конвертим в "fi", "de".
+// 2) Иначе ищем явный 2-буквенный токен на границе слова ("FI", "DE-Mobile").
+// 3) Маппинг частых не-ISO-сокращений в подписках (UK→gb, EN→gb и т.п.).
+const NON_ISO_ALIAS = { uk: "gb", en: "gb", uae: "ae", usa: "us", rus: "ru" };
+
+function flagIsoFromName(name) {
+  if (!name) return null;
+  const codepoints = Array.from(name);
   for (let i = 0; i < codepoints.length - 1; i++) {
-    const a = codepoints[i];
-    const b = codepoints[i + 1];
+    const a = codepoints[i].codePointAt(0);
+    const b = codepoints[i + 1].codePointAt(0);
     if (a >= 0x1F1E6 && a <= 0x1F1FF && b >= 0x1F1E6 && b <= 0x1F1FF) {
-      return String.fromCodePoint(a, b);
+      const iso = String.fromCharCode(97 + (a - 0x1F1E6)) + String.fromCharCode(97 + (b - 0x1F1E6));
+      return iso;
     }
   }
-  return "🌐";
+  // Fallback: 2-3-буквенный токен в начале или после нечислового границы
+  const m = name.match(/(?:^|[\s|·,])([A-Za-z]{2,3})\b/);
+  if (m) {
+    const tok = m[1].toLowerCase();
+    if (NON_ISO_ALIAS[tok]) return NON_ISO_ALIAS[tok];
+    if (tok.length === 2) return tok;
+  }
+  return null;
 }
 
 function stripFlag(name) {
   return String(name || "").replace(/(?:\p{Regional_Indicator}){2}\s*/u, "").trim();
 }
 
-function render(nodes, activeTag, clashData) {
+function flagHtml(iso, fallbackText) {
+  if (iso) {
+    return `<img class="pnode__flag-img" src="${FLAGS_BASE}/${iso}.svg" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'pnode__flag-fallback',textContent:'${escapeHtml(fallbackText || "?")}'}))">`;
+  }
+  return `<span class="pnode__flag-fallback">${escapeHtml(fallbackText || "?")}</span>`;
+}
+
+// ── список нод подписки → ноды с clash-тэгами ──────────────
+function nodesFromSource() {
+  const src = getActiveSource();
+  if (!src) return [];
+  const raw = src.kind === "sub" ? src.nodes : [src.profile];
+  const filtered = raw.filter(n => (n.type || "tcp").toLowerCase() !== "xhttp");
+  return filtered.map((n, i) => ({
+    ...n,
+    clashTag: filtered.length >= 2 ? nodeTag(i, n) : "proxy",
+  }));
+}
+
+// ── сортировка ─────────────────────────────────────────────
+const GRADE_ORDER = { good: 0, mid: 1, bad: 2, dead: 3 };
+
+function sortNodes(nodes, clashData) {
+  return nodes
+    .map(n => {
+      const delay = lastDelay(clashData?.proxies?.[n.clashTag]);
+      return { n, delay, grade: gradeDelay(delay) };
+    })
+    .sort((a, b) => {
+      const ga = GRADE_ORDER[a.grade], gb = GRADE_ORDER[b.grade];
+      if (ga !== gb) return ga - gb;
+      // внутри одного grade — по фактическому delay (live первые)
+      if (a.delay !== b.delay) {
+        const aa = a.delay > 0 ? a.delay : 99999;
+        const bb = b.delay > 0 ? b.delay : 99999;
+        return aa - bb;
+      }
+      return String(a.n.name || a.n.host).localeCompare(String(b.n.name || b.n.host));
+    })
+    .map(x => x.n);
+}
+
+// ── render ─────────────────────────────────────────────────
+function effectiveSelectorTag(clashData) {
+  // optimistic override живёт 4 сек — пока бэк не подтвердит
+  if (optimisticActiveTag && Date.now() < optimisticUntilTs) {
+    return optimisticActiveTag;
+  }
+  return pickSelectorNow(clashData);
+}
+
+function pingCellHtml(delay, grade) {
+  if (delay > 0 && delay < 65000) {
+    return `<div class="pnode__ping" data-grade="${grade}">${delay}<span class="pnode__ping-unit">ms</span></div>`;
+  }
+  // Hiddify UX: 0 или >65000 пока в Connecting/timed-out — показываем точки
+  return `<div class="pnode__ping pnode__ping--idle" data-grade="${grade}">—</div>`;
+}
+
+function nodeCardHtml(n, isActive, delay, grade) {
+  const iso = flagIsoFromName(n.name);
+  const cleanName = stripFlag(n.name) || n.host;
+  const fallback = (iso ? iso.toUpperCase() : (cleanName.slice(0, 2).toUpperCase() || "?"));
+  return `
+    <div class="pnode${isActive ? " pnode--active" : ""}" data-tag="${escapeHtml(n.clashTag)}" role="button" tabindex="0">
+      <div class="pnode__flag">${flagHtml(iso, fallback)}</div>
+      <div class="pnode__main">
+        <div class="pnode__name">${escapeHtml(cleanName)}</div>
+        <div class="pnode__sub">
+          <span>${escapeHtml(n.host)}</span>
+          <span class="pnode__sub-type">${escapeHtml((n.type || "tcp").toUpperCase())}</span>
+        </div>
+      </div>
+      ${pingCellHtml(delay, grade)}
+      ${isActive ? `<div class="pnode__check" aria-hidden="true"></div>` : ""}
+    </div>
+  `;
+}
+
+function autoCardHtml(isActive, effectiveTag, allNodes, clashData) {
+  // Под "Авто" пишем какая нода реально выбрана URLTest'ом + её пинг.
+  let subText = "Быстрейший по пингу";
+  let pingHtml = `<div class="pnode__ping pnode__ping--idle">—</div>`;
+  if (effectiveTag && effectiveTag !== "auto") {
+    const node = allNodes.find(n => n.clashTag === effectiveTag);
+    const delay = lastDelay(clashData?.proxies?.[effectiveTag]);
+    const grade = gradeDelay(delay);
+    if (node) {
+      subText = `Сейчас → ${stripFlag(node.name) || node.host}`;
+      pingHtml = pingCellHtml(delay, grade);
+    }
+  }
+  return `
+    <div class="pnode pnode--auto${isActive ? " pnode--active" : ""}" data-tag="auto" role="button" tabindex="0">
+      <div class="pnode__flag pnode__flag--auto" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polyline>
+        </svg>
+      </div>
+      <div class="pnode__main">
+        <div class="pnode__name">Авто</div>
+        <div class="pnode__sub"><span>${escapeHtml(subText)}</span></div>
+      </div>
+      ${pingHtml}
+      ${isActive ? `<div class="pnode__check" aria-hidden="true"></div>` : ""}
+    </div>
+  `;
+}
+
+function render(nodes, selectorTag, effectiveTag, clashData) {
   const grid = $("proxies-grid");
   const metaEl = $("proxies-meta");
   if (!grid) return;
@@ -44,70 +175,87 @@ function render(nodes, activeTag, clashData) {
     return;
   }
 
+  const alive = nodes.filter(n => {
+    const d = lastDelay(clashData?.proxies?.[n.clashTag]);
+    return d > 0 && d < 65000;
+  }).length;
+
   if (metaEl) {
-    const alive = nodes.filter(n => clashData?.proxies?.[n.clashTag]?.history?.length).length;
-    metaEl.textContent = `${nodes.length} нод · активна: ${activeTag || "—"}`;
+    const activeLabel = selectorTag === "auto"
+      ? "Авто"
+      : (selectorTag ? (nodes.find(n => n.clashTag === selectorTag)?.name?.slice(0, 24) || selectorTag) : "—");
+    metaEl.textContent = `${nodes.length} нод · ${alive} активных · режим: ${activeLabel}`;
   }
 
-  grid.innerHTML = nodes.map(n => {
-    const flag = extractFlag(n.name);
-    const cleanName = stripFlag(n.name) || n.host;
-    const isActive = n.clashTag === activeTag;
-    const proxyObj = clashData?.proxies?.[n.clashTag];
-    const delay = lastDelay(proxyObj);
-    const grade = gradeDelay(delay);
-    const delayText = delay > 0 ? `${delay}ms` : (proxyObj ? "—" : "·");
-    return `
-      <div class="pnode${isActive ? " pnode--active" : ""}" data-tag="${escapeHtml(n.clashTag)}">
-        <div class="pnode__flag">${flag}</div>
-        <div class="pnode__main">
-          <div class="pnode__name">${escapeHtml(cleanName)}</div>
-          <div class="pnode__sub">
-            <span>${escapeHtml(n.host)}</span>
-            <span class="pnode__sub-type">${escapeHtml((n.type || "tcp").toUpperCase())}</span>
-          </div>
-        </div>
-        <div class="pnode__ping" data-grade="${grade}">${escapeHtml(delayText)}</div>
-      </div>
-    `;
-  }).join("");
-}
+  const sorted = sortNodes(nodes, clashData);
+  const multi = nodes.length >= 2;
 
-function nodesFromSource() {
-  const src = getActiveSource();
-  if (!src) return [];
-  const raw = src.kind === "sub" ? src.nodes : [src.profile];
-  // mainline sing-box не знает xhttp — отбрасываем такие, как и при build
-  const filtered = raw.filter(n => (n.type || "tcp").toLowerCase() !== "xhttp");
-  return filtered.map((n, i) => ({
-    ...n,
-    // Эти теги должны совпадать с тем что buildConfig в singbox.js выставляет:
-    //   useUrltest=true → "node-i-<sanitized name>"
-    //   useUrltest=false → "proxy"
-    clashTag: filtered.length >= 2
-      ? `node-${i}-${(n.name || n.host).replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 24)}`
-      : "proxy",
-  }));
+  let html = "";
+  if (multi) {
+    html += autoCardHtml(selectorTag === "auto", effectiveTag, nodes, clashData);
+  }
+  for (const n of sorted) {
+    const delay = lastDelay(clashData?.proxies?.[n.clashTag]);
+    const grade = gradeDelay(delay);
+    // active = ручной выбор юзера; также подсвечиваем effectiveTag когда selector="auto"
+    const isManualActive = n.clashTag === selectorTag && selectorTag !== "auto";
+    html += nodeCardHtml(n, isManualActive, delay, grade);
+  }
+  grid.innerHTML = html;
 }
 
 async function refresh() {
+  let data = null;
   try {
-    const data = await getProxies();
+    data = await getProxies();
     lastClashSnapshot = data;
-    const nodes = nodesFromSource();
-    const active = pickActiveNode(data) || (nodes.length === 1 ? "proxy" : null);
-    render(nodes, active, data);
   } catch (e) {
-    // ядро могло отключиться — рендерим без свежих данных
-    const nodes = nodesFromSource();
-    render(nodes, null, lastClashSnapshot);
+    data = lastClashSnapshot;
+  }
+  const nodes = nodesFromSource();
+  const selectorTag = effectiveSelectorTag(data);
+  const effectiveTag = pickEffectiveNode(data);
+  render(nodes, selectorTag, effectiveTag, data);
+}
+
+// ── click-handler: выбор ноды через Selector ───────────────
+async function handleNodeClick(card, onToast) {
+  const tag = card.dataset.tag;
+  if (!tag) return;
+  // optimistic UI
+  optimisticActiveTag = tag;
+  optimisticUntilTs = Date.now() + 4500;
+  document.querySelectorAll("#proxies-grid .pnode").forEach(c => {
+    c.classList.toggle("pnode--active", c.dataset.tag === tag);
+  });
+  try {
+    await selectProxy("proxy", tag);
+    onToast?.(tag === "auto" ? "Режим Авто" : "Сервер переключён", "success", 1200);
+    await refresh();
+  } catch (e) {
+    optimisticActiveTag = null;
+    onToast?.(`Не удалось переключить: ${e?.message || e}`, "error", 2500);
+    await refresh();
   }
 }
 
 export function onProxiesViewEnter() {
-  refresh();
+  refresh().then(() => kickstartAutoIfNeeded());
   stopPoll();
-  pollTimer = setInterval(refresh, 4000);
+  pollTimer = setInterval(refresh, POLL_MS);
+}
+
+// Если active = "auto" но URLTest ещё не запускал замер — форсируем,
+// чтобы юзер не ждал 3 мин до первого выбора.
+async function kickstartAutoIfNeeded() {
+  const data = lastClashSnapshot;
+  if (!data) return;
+  const selNow = pickSelectorNow(data);
+  if (selNow !== "auto") return;
+  const auto = data.proxies?.auto;
+  if (!auto) return;
+  if (auto.now && auto.now !== "auto") return;
+  try { await testGroup("auto"); await refresh(); } catch {}
 }
 
 export function onProxiesViewLeave() {
@@ -119,6 +267,23 @@ function stopPoll() {
 }
 
 export function mountProxiesView({ onToast } = {}) {
+  const grid = $("proxies-grid");
+  // Делегированный клик по .pnode
+  grid?.addEventListener("click", (e) => {
+    const card = e.target.closest(".pnode");
+    if (!card) return;
+    handleNodeClick(card, onToast);
+  });
+  // Клавиатура — Enter/Space
+  grid?.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const card = e.target.closest(".pnode");
+    if (!card) return;
+    e.preventDefault();
+    handleNodeClick(card, onToast);
+  });
+
+  // FAB — перетест группы (URLTest "auto", если есть, иначе селектора)
   const fab = $("proxies-fab");
   fab?.addEventListener("click", async () => {
     if (testingAll) return;
@@ -126,14 +291,9 @@ export function mountProxiesView({ onToast } = {}) {
     fab.classList.add("proxies-fab--testing");
     try {
       const nodes = nodesFromSource();
-      // urltest-группа тегается "proxy" если nodes >= 2; иначе только одна нода
-      if (nodes.length >= 2) {
-        await testGroup("proxy");
-        onToast?.("Перетестировал все ноды", "success", 1600);
-      } else if (nodes.length === 1) {
-        await testGroup("proxy"); // urltest endpoint можно дёрнуть и для одиночного селектора
-        onToast?.("Тест пинга запущен", "info", 1400);
-      }
+      const group = nodes.length >= 2 ? "auto" : "proxy";
+      await testGroup(group);
+      onToast?.("Перетестировал все ноды", "success", 1600);
       await refresh();
     } catch (e) {
       onToast?.(`Ошибка теста: ${e?.message || e}`, "error", 2500);

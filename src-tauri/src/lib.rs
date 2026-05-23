@@ -85,6 +85,7 @@ pub fn run() {
             clash::clash_get_proxies,
             clash::clash_test_node,
             clash::clash_test_group,
+            clash::clash_select_proxy,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

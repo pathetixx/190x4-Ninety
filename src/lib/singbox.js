@@ -356,23 +356,34 @@ export function buildConfig({ profile, source, mode, options }) {
   const useUrltest = nodes.length >= 2;
   const vlessOutbounds = nodes.map((n, i) => {
     const ob = buildOutbound(n, opts);
-    ob.tag = useUrltest ? `node-${i}-${sanitizeTag(n.name) || n.host}` : "proxy";
+    ob.tag = useUrltest ? nodeTag(i, n) : "proxy";
     return ob;
   });
 
   let outbounds;
   if (useUrltest) {
+    // Hiddify-схема: внешний Selector "proxy" + внутренний URLTest "auto".
+    // Selector принимает PUT /proxies/proxy (ручной выбор юзера), URLTest сам выбирает min-delay.
+    // Юзер ткнул ноду → Selector.now = node-tag. Юзер ткнул "Auto" → Selector.now = "auto".
     const utCfg = opts.urlTest || {};
-    const urltest = {
+    const auto = {
       type: "urltest",
-      tag: "proxy",
+      tag: "auto",
       outbounds: vlessOutbounds.map(o => o.tag),
       url: utCfg.url || "https://www.gstatic.com/generate_204",
       interval: utCfg.interval || "3m",
       tolerance: utCfg.tolerance || 50,
     };
+    const selector = {
+      type: "selector",
+      tag: "proxy",
+      outbounds: ["auto", ...vlessOutbounds.map(o => o.tag)],
+      default: "auto",
+      interrupt_exist_connections: false,
+    };
     outbounds = [
-      urltest,
+      selector,
+      auto,
       ...vlessOutbounds,
       { type: "direct", tag: "direct" },
     ];
@@ -405,6 +416,12 @@ export function buildConfig({ profile, source, mode, options }) {
 
 function sanitizeTag(s) {
   return String(s || "").replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 24);
+}
+
+// Единая логика тэга outbound'а для multi-node подписки.
+// Должна совпадать между builder'ом и proxies-view, иначе селектор будет бить мимо.
+export function nodeTag(i, node) {
+  return `node-${i}-${sanitizeTag(node.name) || node.host}`;
 }
 
 // ── профили (storage) ──────────────────────────────────────
