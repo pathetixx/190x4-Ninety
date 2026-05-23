@@ -1,3 +1,16 @@
+/* Скрываем location-card пока VPN не запущен — Hiddify-логика:
+   нижняя карточка появляется только в Connected. */
+.view--connect[data-conn-state="idle"] .location-card,
+.view--connect[data-conn-state="connecting"] .location-card {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+}
+.view--connect .location-card {
+  transition: opacity 280ms cubic-bezier(.25,.46,.45,.94),
+              transform 280ms cubic-bezier(.25,.46,.45,.94);
+}
+
 /* Карточка локации — флаг (SVG) + название + протокол + chevron. */
 .location-card {
   display: flex;

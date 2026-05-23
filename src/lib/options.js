@@ -52,7 +52,9 @@ export const DEFAULT_OPTIONS = {
     padding: false,
   },
   experimental: {
-    enableClashApi: false,
+    // Включён по умолчанию: используется для view Proxies (список нод + ping)
+    // и для real-time RX/TX. Доступен только на 127.0.0.1.
+    enableClashApi: true,
     clashApiPort: 9090,
   },
 };
