@@ -1,0 +1,26 @@
+[package]
+name = "ninety-tunnel-svc"
+version = "0.1.20"
+description = "Ninety tunnel service — administers sing-box TUN mode under Windows SCM"
+edition = "2021"
+
+[[bin]]
+name = "ninety-tunnel-svc"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-service = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+] }
