@@ -1,4 +1,3 @@
-import { startMesh } from "/lib/mesh-background.js";
 import {
   buildConfig,
   loadProfiles,
@@ -32,6 +31,7 @@ import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
+import { mountServerDrawer, open as openServerDrawer, close as closeServerDrawer } from "/lib/server-drawer.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
@@ -46,9 +46,45 @@ const invoke = window.__TAURI__?.core?.invoke
     return Promise.reject(new Error("Tauri invoke недоступен (web preview)"));
   });
 
-// ── Mesh-фон ────────────────────────────────────────────────
-const canvas = document.getElementById("mesh-bg");
-if (canvas) startMesh(canvas);
+// ── Theme switcher (Kurogane / Synthwave / Matrix / Mono) ──
+const THEME_KEY = "ninety.theme";
+const THEMES = ["kurogane", "synthwave", "matrix", "mono"];
+const appRoot = document.getElementById("app-root");
+
+export function getTheme() {
+  const raw = localStorage.getItem(THEME_KEY);
+  return THEMES.includes(raw) ? raw : "kurogane";
+}
+export function setTheme(t) {
+  if (!THEMES.includes(t)) return;
+  localStorage.setItem(THEME_KEY, t);
+  if (appRoot) appRoot.dataset.theme = t;
+  window.dispatchEvent(new CustomEvent("ninety:theme-changed", { detail: { theme: t } }));
+}
+// Применяем сохранённую тему сразу — до первого рендера остального
+if (appRoot) appRoot.dataset.theme = getTheme();
+window.__ninetySetTheme = setTheme;
+
+// ── Hero targeting ticks (60 шт, каждые 6°, 12 major) ──────
+(function generateHeroTicks() {
+  const svg = document.getElementById("hero-ticks");
+  if (!svg) return;
+  const cx = 50, cy = 50, rOuter = 50;
+  const parts = [];
+  for (let i = 0; i < 60; i++) {
+    const angle = (i * 6 - 90) * Math.PI / 180;
+    const isMajor = i % 5 === 0;
+    const len = isMajor ? 4 : 2;
+    const r1 = rOuter - 0.5;
+    const r2 = rOuter - 0.5 - len;
+    const x1 = (cx + Math.cos(angle) * r1).toFixed(2);
+    const y1 = (cy + Math.sin(angle) * r1).toFixed(2);
+    const x2 = (cx + Math.cos(angle) * r2).toFixed(2);
+    const y2 = (cy + Math.sin(angle) * r2).toFixed(2);
+    parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${isMajor ? "tick tick--major" : "tick"}"/>`);
+  }
+  svg.innerHTML = parts.join("");
+})();
 
 // ── Version (dynamic из Tauri) ─────────────────────────────
 // ВАЖНО: НЕ использовать MutationObserver на settings-root — apply() меняет
@@ -151,15 +187,41 @@ window.addEventListener("resize", () => {
 
 // ── Mode segmented (3 режима как у Hiddify) ─────────────────
 const modeSeg = document.getElementById("mode-seg");
+const modeHint = document.getElementById("mode-hint");
+const warpSwitch = document.getElementById("warp-switch");
+
+const MODE_HINTS = {
+  proxy:       `<b>Прокси.</b> sing-box слушает <code>127.0.0.1:7890</code> как mixed (HTTP+SOCKS5). Прописать прокси нужно вручную в браузере или приложении — остальной трафик идёт мимо.`,
+  systemProxy: `<b>Системный.</b> То же, плюс автоматически прописываем системный прокси в HKCU Internet Settings и шлём WinINET notify. Работает «из коробки» для всего, что уважает системные настройки; UWP и приложения с hardcoded-сетью — нет.`,
+  tun:         `<b>VPN · TUN.</b> Перехват всего трафика через службу <code>NinetyTunnelService</code> под LocalSystem. UAC — один раз при первом включении (служба ставится постоянно). Покрывает любые приложения, включая UWP.`,
+};
+
 function applyModeToUI(m) {
-  if (!modeSeg) return;
-  modeSeg.querySelectorAll(".seg__btn").forEach((x) => {
-    const active = x.dataset.mode === m;
-    x.classList.toggle("seg__btn--active", active);
-    x.setAttribute("aria-selected", active ? "true" : "false");
-  });
+  if (modeSeg) {
+    modeSeg.querySelectorAll(".seg__btn").forEach((x) => {
+      const active = x.dataset.mode === m;
+      x.dataset.on = active ? "true" : "false";
+      x.setAttribute("aria-selected", active ? "true" : "false");
+    });
+  }
+  if (modeHint) modeHint.innerHTML = MODE_HINTS[m] || MODE_HINTS.systemProxy;
 }
 applyModeToUI(getMode());
+
+// WARP switch в popover'е
+(function initWarpSwitch() {
+  if (!warpSwitch) return;
+  const opts = loadOptions();
+  warpSwitch.dataset.on = String(!!opts.warp?.enabled);
+  warpSwitch.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const newVal = warpSwitch.dataset.on !== "true";
+    warpSwitch.dataset.on = String(newVal);
+    updateOption("warp.enabled", newVal);
+    if (state === "connected" || state === "connecting") scheduleAutoReconnect();
+    updateWarpBadge();
+  });
+})();
 
 modeSeg?.addEventListener("click", async (e) => {
   const b = e.target.closest(".seg__btn");
@@ -215,21 +277,27 @@ document.getElementById("add-sub")?.addEventListener("click", (e) => {
 });
 
 function refreshProfilesSummary() {
-  if (!profilesSummary) return;
-  const profilesList = loadProfiles();
+  const profilesListLocal = loadProfiles();
   const subsList = loadSubscriptions();
   const src = getActiveSource();
-  if (!src) {
-    profilesSummary.textContent = "Ничего не выбрано — импортируйте конфиг или подписку.";
-  } else if (src.kind === "sub") {
-    const n = src.nodes.length;
-    profilesSummary.textContent = `Подписка: ${src.subscription.name} (${n} ${plural(n, ["нода", "ноды", "нод"])})`;
-  } else {
-    profilesSummary.textContent = `Активный: ${src.profile.name || "—"} (${profilesList.length} ${plural(profilesList.length, ["профиль", "профиля", "профилей"])}${subsList.length ? `, подписок ${subsList.length}` : ""})`;
+  if (profilesSummary) {
+    if (subsList.length) profilesSummary.textContent = String(subsList.length);
+    else profilesSummary.textContent = "";
   }
   renderProfilesView();
   updateHeroForActive();
   refreshSubCardFromActive();
+  syncEmptyState();
+}
+
+// Empty-state: нет ни подписки ни конфига → показываем onboarding,
+// скрываем все screen + приглушаем sidebar Профили/Ноды/Логи
+function syncEmptyState() {
+  if (!appRoot) return;
+  const empty = loadProfiles().length === 0 && loadSubscriptions().length === 0;
+  appRoot.dataset.empty = String(empty);
+  const onb = document.getElementById("onboarding-screen");
+  if (onb) onb.hidden = !empty;
 }
 
 // ── sub-card sync с активной подпиской ─────────────────────
@@ -288,11 +356,11 @@ function plural(n, forms) {
 
 
 // ── Навигация ───────────────────────────────────────────────
-const navItems = document.querySelectorAll(".menu__item[data-view]");
-const views = document.querySelectorAll("section.view[data-view]");
+const navItems = document.querySelectorAll(".nav__item[data-view]");
+const views = document.querySelectorAll("section.screen[data-view]");
 
 function switchView(target) {
-  navItems.forEach((n) => n.classList.toggle("menu__item--active", n.dataset.view === target));
+  navItems.forEach((n) => n.classList.toggle("nav__item--active", n.dataset.view === target));
   views.forEach((v) => { v.hidden = v.dataset.view !== target; });
   if (typeof onLogsViewLeave === "function" && typeof onLogsViewEnter === "function") {
     if (target === "logs") onLogsViewEnter();
@@ -309,16 +377,17 @@ navItems.forEach((item) => {
 
 document.getElementById("location-card")?.addEventListener("click", (e) => {
   if (e.target.closest(".hero__disc")) return;
-  // Hiddify-логика: список нод доступен только при активном VPN.
+  // ServerDrawer — slide-from-right при connected; иначе toast.
   if (state !== "connected") {
-    toast("Сначала подключитесь", "info", 1400);
+    toast("Сначала подключитесь — выбор ноды доступен в туннеле", "info", 1800);
     return;
   }
-  switchView("proxies");
+  openServerDrawer({ connected: true });
 });
 
-// Mount Proxies view (FAB-молния → перетест группы)
+// Mount Proxies view (FAB-молния → перетест группы) + ServerDrawer
 mountProxiesView({ onToast: toast });
+mountServerDrawer({ onToast: toast });
 
 // ── Settings view ──────────────────────────────────────────
 const settingsRoot = document.getElementById("settings-root");
@@ -400,8 +469,8 @@ function applyReconnectUI() {
   if (!hero) return;
   if (needsReconnect && (state === "connected" || state === "connecting")) {
     hero.classList.add("hero--reconnect");
-    if (heroLabel) heroLabel.textContent = "RECONNECT";
-    if (heroHint) heroHint.textContent = "Применяю новые настройки…";
+    if (heroLabel) heroLabel.textContent = "Применить настройки";
+    setHeroHintText("RECONNECT · APPLY NEW SETTINGS");
   } else {
     hero.classList.remove("hero--reconnect");
   }
@@ -615,32 +684,35 @@ function onLogsViewLeave() {
 }
 
 // ── Profiles view ──────────────────────────────────────────
-const profilesView = document.querySelector('section.view[data-view="profiles"]');
+const profilesView = document.querySelector('section.screen[data-view="profiles"]');
+const profilesList = document.getElementById("profiles-list");
 
-const ICON_DOTS = `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>`;
-const ICON_PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
-const ICON_REFRESH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`;
-const ICON_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`;
-const ICON_TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>`;
-const ICON_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-const ICON_COPY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-const ICON_QR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3"/><path d="M20 14v3"/><path d="M14 20h3"/><path d="M17 17h4v4h-4z"/></svg>`;
+const ICON_DOTS    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>`;
+const ICON_PLUS    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M12 5v14"/><path d="M5 12h14"/></svg>`;
+const ICON_REFRESH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>`;
+const ICON_EDIT    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`;
+const ICON_TRASH   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 6h18"/><path d="m19 6-1.5 14a2 2 0 0 1-2 1.8h-7a2 2 0 0 1-2-1.8L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
+const ICON_CHECK   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="m5 12 5 5L20 7"/></svg>`;
+const ICON_COPY    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const ICON_QR      = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/><path d="M20 14v3"/><path d="M14 20h3"/><path d="M17 17v4"/><path d="M21 21h-1"/></svg>`;
+const ICON_GLOBE   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/></svg>`;
+const ICON_FILE    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg>`;
 
 function renderProfilesView() {
-  if (!profilesView) return;
-  const profilesList = loadProfiles();
+  if (!profilesList) return;
+  const profsList = loadProfiles();
   const subsList = loadSubscriptions();
   const activeProfileId = getActiveProfileId();
   const activeKind = getActiveKind();
   const activeSubId = getActiveSubscriptionId();
 
-  if (profilesList.length === 0 && subsList.length === 0) {
-    profilesView.innerHTML = `
-      <div class="profiles-empty">
-        <div class="profiles-empty__title">Нет профилей</div>
-        <div class="profiles-empty__sub">Добавьте подписку по URL или одиночный vless:// — кнопка «+» снизу справа или на главном экране.</div>
+  if (profsList.length === 0 && subsList.length === 0) {
+    profilesList.innerHTML = `
+      <div class="onb" style="margin: 32px auto 0; text-align: center;">
+        <div class="onb__kicker">SUBSCRIPTIONS · EMPTY</div>
+        <h2 class="onb__title" style="font-size:20px">Нет профилей</h2>
+        <p class="onb__sub">Добавьте подписку по URL или одиночный vless:// — кнопкой «+» сверху, плюс-кнопкой на главном или в меню.</p>
       </div>
-      <button class="profiles-fab" id="profiles-fab" type="button">${ICON_PLUS}<span>Добавить профиль</span></button>
     `;
     return;
   }
@@ -650,57 +722,96 @@ function renderProfilesView() {
     const days = subscriptionDaysLeft(s);
     const used = subscriptionUsedBytes(s);
     const total = s.total ?? null;
-    const pct = total ? Math.min(100, (used / total) * 100) : 0;
-    const expired = days === 0;
-    const traffic = total != null
-      ? `${formatGiB(used)} / ${formatGiB(total)} ГиБ`
-      : `${formatGiB(used)} ГиБ`;
-    const daysText = days == null ? "—" : (expired ? "Истекла" : `осталось ${days} дн`);
+    const updated = relativeTime(s.lastUpdate) || "—";
+    const nodesCount = s.profiles?.length || 0;
+    const trafficUsed = used != null ? formatGiB(used) : "—";
+    const trafficTotal = total != null ? `/${formatGiB(total)}` : "";
     return `
-      <div class="ptile${isActive ? " ptile--active" : ""}" data-sub-id="${s.id}">
-        <button class="ptile__menu" data-menu-sub="${s.id}" type="button" aria-label="Меню">${ICON_DOTS}</button>
-        <div class="ptile__body" data-sub-activate="${s.id}">
-          <div class="ptile__head">
-            <span class="ptile__name">${escapeHtml(s.name)}</span>
-            <span class="ptile__chip">${s.profiles?.length || 0} нод</span>
+      <article class="prof-card" data-active="${isActive}" data-sub-id="${s.id}">
+        <div class="prof-card__icon">${ICON_GLOBE}</div>
+        <div class="prof-card__main" data-sub-activate="${s.id}">
+          <div class="prof-card__head">
+            <span class="prof-card__name">${escapeHtml(s.name)}</span>
+            ${isActive ? `<span class="prof-card__badge">АКТИВНЫЙ</span>` : ""}
           </div>
-          <div class="ptile__progress"><div class="ptile__progress-fill" style="width:${pct.toFixed(1)}%"></div></div>
-          <div class="ptile__info${expired ? " ptile__info--expired" : ""}">
-            <span>${escapeHtml(traffic)}</span>
-            <span>${escapeHtml(daysText)}</span>
+          <div class="prof-card__url">${escapeHtml(s.url || "")}</div>
+        </div>
+        <div class="prof-card__stats">
+          <div class="prof-card__stat">
+            <span class="prof-card__stat-val tnum">${nodesCount}</span>
+            <span class="prof-card__stat-lbl">УЗЛОВ</span>
+          </div>
+          <div class="prof-card__stat">
+            <span class="prof-card__stat-val tnum">${trafficUsed}${trafficTotal}<span style="color:var(--text-faint);font-size:9px;margin-left:3px;">ГиБ</span></span>
+            <span class="prof-card__stat-lbl">ТРАФИК</span>
+          </div>
+          <div class="prof-card__stat">
+            <span class="prof-card__stat-val tnum">${days == null ? "—" : days}${days != null ? `<span style="color:var(--text-faint);font-size:9px;margin-left:3px;">дн</span>` : ""}</span>
+            <span class="prof-card__stat-lbl">ИСТЕКАЕТ</span>
+          </div>
+          <div class="prof-card__stat">
+            <span class="prof-card__stat-val" style="font-size:11px;color:var(--text-mid);">${escapeHtml(updated)}</span>
+            <span class="prof-card__stat-lbl">ОБНОВЛЕНО</span>
           </div>
         </div>
-      </div>
+        <button class="prof-card__menu" data-menu-sub="${s.id}" type="button" aria-label="Меню">${ICON_DOTS}</button>
+      </article>
     `;
   }).join("");
 
-  const profileItems = profilesList.map(p => {
+  const profileItems = profsList.map(p => {
     const isActive = activeKind === "single" && p.id === activeProfileId;
+    const proto = (p.proto || "vless").toUpperCase();
+    const security = (p.security || "tcp").toUpperCase();
     return `
-      <div class="ptile${isActive ? " ptile--active" : ""}" data-id="${p.id}">
-        <button class="ptile__menu" data-menu-profile="${p.id}" type="button" aria-label="Меню">${ICON_DOTS}</button>
-        <div class="ptile__body" data-profile-activate="${p.id}">
-          <div class="ptile__head">
-            <span class="ptile__name">${escapeHtml(p.name)}</span>
-            <span class="ptile__chip">${escapeHtml((p.security || "tcp").toUpperCase())}</span>
+      <article class="prof-card" data-active="${isActive}" data-id="${p.id}">
+        <div class="prof-card__icon">${ICON_FILE}</div>
+        <div class="prof-card__main" data-profile-activate="${p.id}">
+          <div class="prof-card__head">
+            <span class="prof-card__name">${escapeHtml(p.name)}</span>
+            ${isActive ? `<span class="prof-card__badge">АКТИВНЫЙ</span>` : ""}
           </div>
-          <div class="ptile__info">
-            <span>${escapeHtml(`${p.host}:${p.port}`)}</span>
-            <span>${escapeHtml((p.type || "tcp").toUpperCase())}</span>
+          <div class="prof-card__url">${escapeHtml(`${p.host}:${p.port}`)}</div>
+        </div>
+        <div class="prof-card__stats">
+          <div class="prof-card__stat">
+            <span class="prof-card__stat-val" style="font-size:11px;">${escapeHtml(proto)}</span>
+            <span class="prof-card__stat-lbl">ПРОТОКОЛ</span>
+          </div>
+          <div class="prof-card__stat">
+            <span class="prof-card__stat-val" style="font-size:11px;">${escapeHtml(security)}</span>
+            <span class="prof-card__stat-lbl">TLS</span>
           </div>
         </div>
-      </div>
+        <button class="prof-card__menu" data-menu-profile="${p.id}" type="button" aria-label="Меню">${ICON_DOTS}</button>
+      </article>
     `;
   }).join("");
 
-  profilesView.innerHTML = `
-    <div class="profiles-list">
-      ${subsList.length ? `<h2 class="profiles-list__title">Подписки</h2>${subItems}` : ""}
-      ${profilesList.length ? `<h2 class="profiles-list__title">Конфиги</h2>${profileItems}` : ""}
-    </div>
-    <button class="profiles-fab" id="profiles-fab" type="button">${ICON_PLUS}<span>Добавить профиль</span></button>
-  `;
+  profilesList.innerHTML = `${subItems}${profileItems}`;
 }
+
+// Кнопки header'а profiles экрана + onboarding
+document.getElementById("profiles-add")?.addEventListener("click", () => openAddModal());
+document.getElementById("onb-add")?.addEventListener("click", () => openAddModal());
+document.getElementById("onb-clipboard")?.addEventListener("click", async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    openAddModal({ prefillUrl: (text || "").trim() });
+  } catch {
+    openAddModal();
+  }
+});
+document.getElementById("profiles-refresh-all")?.addEventListener("click", async () => {
+  try {
+    await refreshAllSubscriptions();
+    refreshSubCardFromActive();
+    refreshProfilesSummary();
+    toast("Подписки обновлены", "success", 1800);
+  } catch (e) {
+    toast(`Ошибка: ${e?.message || e}`, "error", 2800);
+  }
+});
 
 // Popup-меню действий
 let openMenu = null;
@@ -856,20 +967,101 @@ profilesView?.addEventListener("click", async (e) => {
 
 // ── HERO ───────────────────────────────────────────────────
 const hero = document.getElementById("hero");
+const heroBurst = document.getElementById("hero-burst");
+const heroLock = document.getElementById("hero-lock");
 const heroDisc = document.getElementById("hero-disc");
 const heroMask = document.getElementById("hero-mask");
 const heroLabel = document.getElementById("hero-label");
 const heroHint = document.getElementById("hero-hint");
+const heroHintText = document.getElementById("hero-hint-text");
 const heroPing = document.getElementById("hero-ping");
 const heroPingValue = document.getElementById("hero-ping-value");
 const tfDown = document.getElementById("tf-down");
 const tfUp = document.getElementById("tf-up");
 const tfDownUnit = document.getElementById("tf-down-unit");
 const tfUpUnit = document.getElementById("tf-up-unit");
+const locCard = document.getElementById("location-card");
+const statsStrip = document.getElementById("stats-strip");
+const statsUptime = document.getElementById("stats-uptime");
+const statsDown = document.getElementById("stats-down");
+const statsUp = document.getElementById("stats-up");
+const statsDownUnit = document.getElementById("stats-down-unit");
+const statsUpUnit = document.getElementById("stats-up-unit");
+const statsMode = document.getElementById("stats-mode");
 const locPing = document.getElementById("loc-ping");
-const locPingDot = document.querySelector(".location-card__ping .status-dot");
 const locIpRow = document.getElementById("loc-ip-row");
 const locIp = document.getElementById("loc-ip");
+
+// Мап-имена для CSS data-state (handoff terminology)
+const STATE_HERO = { idle: "standby", connecting: "linking", connected: "secured" };
+const STATE_KICKER = {
+  idle:       "STAND-BY · DISCONNECTED",
+  connecting: "LINKING · NEGOTIATING",
+  connected:  "SECURED · TUNNEL ACTIVE",
+};
+const MODE_LABEL = { proxy: "ПРОКСИ", systemProxy: "СИСТЕМНЫЙ", tun: "VPN · TUN" };
+
+// Remount-приём: заменить элемент копией → CSS-анимация перезапускается с нуля.
+// Используется для .hero__burst, .hero__lock (они анимируются один раз на смену).
+function remountByClone(el) {
+  if (!el) return null;
+  const clone = el.cloneNode(false);
+  el.replaceWith(clone);
+  return clone;
+}
+
+let heroBurstEl = heroBurst;
+let heroLockEl = heroLock;
+
+function applyHeroState(internalState) {
+  if (!hero) return;
+  const ds = STATE_HERO[internalState] || "standby";
+  hero.dataset.state = ds;
+  // Remount transition layers — CSS @keyframes на data-state перезапускается с нуля
+  heroBurstEl = remountByClone(heroBurstEl);
+  if (heroBurstEl) heroBurstEl.dataset.state = ds;
+  heroLockEl = remountByClone(heroLockEl);
+  if (heroLockEl) heroLockEl.dataset.state = ds;
+}
+
+// Stats-strip vs Location-card: connected → stats, иначе → loc
+function applyHomeBottom(internalState) {
+  if (!locCard || !statsStrip) return;
+  if (internalState === "connected") {
+    locCard.hidden = true;
+    statsStrip.hidden = false;
+  } else {
+    locCard.hidden = false;
+    statsStrip.hidden = true;
+  }
+}
+
+// Uptime tracker: с момента входа в connected. Адаптивный формат.
+let uptimeStartTs = null;
+let uptimeTimer = null;
+function fmtUptime(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600) % 24;
+  const d = Math.floor(total / 86400);
+  if (d > 0) return `${d}д ${h}ч`;
+  if (h > 0) return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  if (total >= 60) return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `0:${String(s).padStart(2, "0")}`;
+}
+function startUptime() {
+  uptimeStartTs = Date.now();
+  if (statsUptime) statsUptime.textContent = "0:00";
+  stopUptime();
+  uptimeTimer = setInterval(() => {
+    if (statsUptime && uptimeStartTs) statsUptime.textContent = fmtUptime(Date.now() - uptimeStartTs);
+  }, 1000);
+}
+function stopUptime() {
+  if (uptimeTimer) { clearInterval(uptimeTimer); uptimeTimer = null; }
+  uptimeStartTs = null;
+}
 
 let lastPublicIp = null;
 if (locIp) bindIpReveal(locIp, () => lastPublicIp);
@@ -900,9 +1092,9 @@ async function refreshPublicIp() {
     console.warn("public ip failed", e?.message || e);
   }
 }
-const locName = document.querySelector(".location-card__name");
-const locProto = document.querySelector(".location-card__proto");
-const locFlag = document.querySelector(".location-card__flag");
+const locName = document.querySelector(".loc-card__name");
+const locProto = document.querySelector(".loc-card__sub b");
+const locFlag = document.querySelector(".loc-card__flag");
 
 const FLAGS_BASE = "/assets/flags";
 const FLAG_NON_ISO_ALIAS = { uk: "gb", en: "gb", uae: "ae", usa: "us", rus: "ru" };
@@ -933,21 +1125,19 @@ function setLocationFlag(iso) {
   }
 }
 
-if (heroMask) heroMask.playbackRate = 0.6;
+if (heroMask) heroMask.playbackRate = 0.7;
 
-// Изначально data-attr "idle" — чтобы CSS прятал location-card до коннекта
-{
-  const v = document.querySelector('.view--connect');
-  if (v) v.dataset.connState = "idle";
-}
+// Initial home-bottom + hero-state (standby)
+applyHomeBottom("idle");
+applyHeroState("idle");
 
 let state = "idle";
 let needsReconnect = false;
 let publicIpTimer = null;
 
-function setHeroClass(cls) {
-  hero.classList.remove("hero--connecting", "hero--connected");
-  if (cls) hero.classList.add(cls);
+function setHeroHintText(text) {
+  if (heroHintText) heroHintText.textContent = text;
+  else if (heroHint) heroHint.textContent = text;
 }
 
 function showPing(show) {
@@ -960,15 +1150,17 @@ function updateHeroHint() {
   if (state !== "idle") return;
   const src = getActiveSource();
   if (!src) {
-    heroHint.textContent = "Импортируйте конфиг или подписку через кнопку «+»";
-    heroDisc.disabled = true;
-    heroDisc.setAttribute("aria-disabled", "true");
+    setHeroHintText("ИМПОРТИРУЙТЕ КОНФИГ ИЛИ ПОДПИСКУ");
+    if (heroDisc) {
+      heroDisc.disabled = true;
+      heroDisc.setAttribute("aria-disabled", "true");
+    }
   } else {
-    const m = getMode();
-    const label = m === "tun" ? "VPN-туннель" : m === "systemProxy" ? "системный прокси" : "локальный прокси (127.0.0.1)";
-    heroHint.textContent = `Нажмите, чтобы поднять ${label}`;
-    heroDisc.disabled = false;
-    heroDisc.removeAttribute("aria-disabled");
+    setHeroHintText(STATE_KICKER.idle);
+    if (heroDisc) {
+      heroDisc.disabled = false;
+      heroDisc.removeAttribute("aria-disabled");
+    }
   }
 }
 
@@ -1010,24 +1202,23 @@ function updateHeroForActive() {
 
 function setState(next, opts = {}) {
   state = next;
-  // Сигнал для CSS — скрытие location-card снизу когда idle/connecting
-  const view = document.querySelector('.view--connect');
-  if (view) view.dataset.connState = next;
+  applyHeroState(next);
+  applyHomeBottom(next);
 
   if (next === "idle") {
     needsReconnect = false;
     if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
     stopWarpRescanLoop();
+    stopUptime();
     applyReconnectUI();
-    setHeroClass(null);
-    heroLabel.textContent = "Не подключено";
+    if (heroLabel) heroLabel.textContent = "Не подключено";
     showPing(false);
-    heroDisc.setAttribute("aria-label", "Подключиться");
-    tfDown.textContent = "0";
-    tfUp.textContent = "0";
-    if (tfDownUnit) tfDownUnit.textContent = "КиБ/с";
-    if (tfUpUnit) tfUpUnit.textContent = "КиБ/с";
-    if (heroMask) heroMask.playbackRate = 0.6;
+    if (heroDisc) heroDisc.setAttribute("aria-label", "Подключиться");
+    if (tfDown) tfDown.textContent = "0";
+    if (tfUp) tfUp.textContent = "0";
+    if (tfDownUnit) tfDownUnit.textContent = "КБ/с";
+    if (tfUpUnit) tfUpUnit.textContent = "КБ/с";
+    if (heroMask) heroMask.playbackRate = 0.7;
     stopClashStream();
     if (publicIpTimer) { clearInterval(publicIpTimer); publicIpTimer = null; }
     lastPublicIp = null;
@@ -1036,23 +1227,22 @@ function setState(next, opts = {}) {
     if (heroHint) heroHint.hidden = false;
     updateHeroHint();
   } else if (next === "connecting") {
-    setHeroClass("hero--connecting");
-    heroLabel.textContent = "Подключаюсь…";
-    // Без хардкода хоста — Hiddify тоже не показывает в этом состоянии.
-    if (heroHint) { heroHint.textContent = "Поднимаю туннель"; heroHint.hidden = false; }
+    if (heroLabel) heroLabel.textContent = "Подключение…";
+    if (heroHint) heroHint.hidden = false;
+    setHeroHintText(STATE_KICKER.connecting);
     showPing(false);
-    heroDisc.setAttribute("aria-label", "Отменить подключение");
-    if (heroMask) heroMask.playbackRate = 1.6;
+    if (heroDisc) heroDisc.setAttribute("aria-label", "Отменить подключение");
+    if (heroMask) heroMask.playbackRate = 1.4;
   } else if (next === "connected") {
-    setHeroClass("hero--connected");
-    heroLabel.textContent = "Подключено";
-    // Никаких "Трафик идёт через …" — это был хардкод. Пинг — единственный
-    // признак ниже label, как в Hiddify (Wi-Fi + значение).
-    if (heroHint) heroHint.hidden = true;
+    if (heroLabel) heroLabel.textContent = "Защищено";
+    if (heroHint) heroHint.hidden = false;
+    setHeroHintText(STATE_KICKER.connected);
     applyPingDisplay(opts.ping ?? null);
     showPing(true);
-    heroDisc.setAttribute("aria-label", "Отключиться");
+    if (heroDisc) heroDisc.setAttribute("aria-label", "Отключиться");
     if (heroMask) heroMask.playbackRate = 1.0;
+    if (statsMode) statsMode.textContent = MODE_LABEL[getMode()] || "—";
+    startUptime();
     startTrafficStream();
     startWarpRescanLoop();
     updateWarpBadge();
@@ -1063,15 +1253,14 @@ function setState(next, opts = {}) {
 // delay > 0 && < 65000 → число + grade; 0/null → "— мс"; >= 65000 → "Тайм-аут"
 function applyPingDisplay(delay) {
   const num = Number(delay);
-  let text, grade;
-  if (!num || num <= 0) { text = "— мс"; grade = "dead"; }
-  else if (num >= 65000) { text = "Тайм-аут"; grade = "dead"; }
-  else { text = `${num} мс`; grade = gradeDelay(num); }
+  let text, grade, valOnly;
+  if (!num || num <= 0) { text = "— мс"; grade = "dead"; valOnly = "—"; }
+  else if (num >= 65000) { text = "Тайм-аут"; grade = "dead"; valOnly = "—"; }
+  else { text = `${num} мс`; grade = gradeDelay(num); valOnly = String(num); }
 
-  if (heroPingValue) heroPingValue.textContent = text;
+  if (heroPingValue) heroPingValue.textContent = valOnly;
   if (heroPing) heroPing.dataset.grade = grade;
   if (locPing) locPing.textContent = text;
-  if (locPingDot) locPingDot.dataset.state = grade === "good" ? "online" : (grade === "mid" ? "warn" : "offline");
 }
 
 // ── real-time WS-стрим из clash-API ────────────────────────
@@ -1083,6 +1272,11 @@ function applyTrafficValues({ up, down }) {
   if (tfUp) tfUp.textContent = u.value;
   if (tfDownUnit) tfDownUnit.textContent = d.unit;
   if (tfUpUnit) tfUpUnit.textContent = u.unit;
+  // Дублируем в stats-strip на главной (когда secured)
+  if (statsDown) statsDown.textContent = d.value;
+  if (statsUp) statsUp.textContent = u.value;
+  if (statsDownUnit) statsDownUnit.textContent = d.unit;
+  if (statsUpUnit) statsUpUnit.textContent = u.unit;
 }
 
 function applyPingValue({ delay }) {
@@ -1174,6 +1368,14 @@ window.addEventListener("ninety:node-changed", (ev) => {
 
 heroDisc?.addEventListener("click", async () => {
   if (heroDisc.disabled) return;
+  // Click ripple — расходится от центра диска (handoff anim 520ms)
+  const stage = heroDisc.closest(".hero__stage");
+  if (stage) {
+    const ripple = document.createElement("div");
+    ripple.className = "hero__ripple";
+    stage.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 600);
+  }
   // RECONNECT-режим: рестарт ядра с новыми опциями
   if (needsReconnect && (state === "connected" || state === "connecting")) {
     try { await invoke("set_system_proxy", { enable: false }); } catch {}

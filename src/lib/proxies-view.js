@@ -65,9 +65,9 @@ function stripFlag(name) {
 
 function flagHtml(iso, fallbackText) {
   if (iso) {
-    return `<img class="pnode__flag-img" src="${FLAGS_BASE}/${iso}.svg" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'pnode__flag-fallback',textContent:'${escapeHtml(fallbackText || "?")}'}))">`;
+    return `<img class="prox__flag-img" src="${FLAGS_BASE}/${iso}.svg" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'prox__flag-fallback',textContent:'${escapeHtml(fallbackText || "?")}'}))">`;
   }
-  return `<span class="pnode__flag-fallback">${escapeHtml(fallbackText || "?")}</span>`;
+  return `<span class="prox__flag-fallback">${escapeHtml(fallbackText || "?")}</span>`;
 }
 
 // ── список нод подписки → ноды с clash-тэгами ──────────────
@@ -117,36 +117,34 @@ function effectiveSelectorTag(clashData) {
 
 function pingCellHtml(delay, grade) {
   if (delay > 0 && delay < 65000) {
-    return `<div class="pnode__ping" data-grade="${grade}">${delay}<span class="pnode__ping-unit">ms</span></div>`;
+    return `<div class="prox__ping" data-grade="${grade}">${delay}<span class="prox__ping-unit">мс</span></div>`;
   }
-  // Hiddify UX: 0 или >65000 пока в Connecting/timed-out — показываем точки
-  return `<div class="pnode__ping pnode__ping--idle" data-grade="${grade}">—</div>`;
+  return `<div class="prox__ping" data-grade="dead">—</div>`;
 }
 
 function nodeCardHtml(n, isActive, delay, grade) {
   const iso = flagIsoFromName(n.name);
   const cleanName = stripFlag(n.name) || n.host;
   const fallback = (iso ? iso.toUpperCase() : (cleanName.slice(0, 2).toUpperCase() || "?"));
+  const proto = (n.type || "tcp").toUpperCase();
   return `
-    <div class="pnode${isActive ? " pnode--active" : ""}" data-tag="${escapeHtml(n.clashTag)}" role="button" tabindex="0">
-      <div class="pnode__flag">${flagHtml(iso, fallback)}</div>
-      <div class="pnode__main">
-        <div class="pnode__name">${escapeHtml(cleanName)}</div>
-        <div class="pnode__sub">
+    <div class="prox" data-active="${isActive}" data-tag="${escapeHtml(n.clashTag)}" role="button" tabindex="0">
+      <div class="prox__flag">${flagHtml(iso, fallback)}</div>
+      <div class="prox__main">
+        <div class="prox__name">${escapeHtml(cleanName)}</div>
+        <div class="prox__sub">
           <span>${escapeHtml(n.host)}</span>
-          <span class="pnode__sub-type">${escapeHtml((n.type || "tcp").toUpperCase())}</span>
+          <span class="prox__sub-type">${escapeHtml(proto)}</span>
         </div>
       </div>
       ${pingCellHtml(delay, grade)}
-      ${isActive ? `<div class="pnode__check" aria-hidden="true"></div>` : ""}
     </div>
   `;
 }
 
 function autoCardHtml(isActive, effectiveTag, allNodes, clashData) {
-  // Под "Авто" пишем какая нода реально выбрана URLTest'ом + её пинг.
   let subText = "Быстрейший по пингу";
-  let pingHtml = `<div class="pnode__ping pnode__ping--idle">—</div>`;
+  let pingHtml = `<div class="prox__ping" data-grade="dead">—</div>`;
   if (effectiveTag && effectiveTag !== "auto") {
     const node = allNodes.find(n => n.clashTag === effectiveTag);
     const delay = lastDelay(clashData?.proxies?.[effectiveTag]);
@@ -157,18 +155,17 @@ function autoCardHtml(isActive, effectiveTag, allNodes, clashData) {
     }
   }
   return `
-    <div class="pnode pnode--auto${isActive ? " pnode--active" : ""}" data-tag="auto" role="button" tabindex="0">
-      <div class="pnode__flag pnode__flag--auto" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polyline>
+    <div class="prox prox--auto" data-active="${isActive}" data-tag="auto" role="button" tabindex="0">
+      <div class="prox__flag" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/>
         </svg>
       </div>
-      <div class="pnode__main">
-        <div class="pnode__name">Авто</div>
-        <div class="pnode__sub"><span>${escapeHtml(subText)}</span></div>
+      <div class="prox__main">
+        <div class="prox__name">Авто</div>
+        <div class="prox__sub"><span>${escapeHtml(subText)}</span></div>
       </div>
       ${pingHtml}
-      ${isActive ? `<div class="pnode__check" aria-hidden="true"></div>` : ""}
     </div>
   `;
 }
@@ -179,8 +176,8 @@ function render(nodes, selectorTag, effectiveTag, clashData) {
   if (!grid) return;
 
   if (!nodes?.length) {
-    grid.innerHTML = `<div class="profiles-empty"><div class="profiles-empty__title">Нет нод</div><div class="profiles-empty__sub">Подписка пуста или не подключена.</div></div>`;
-    if (metaEl) metaEl.textContent = "—";
+    grid.innerHTML = `<div class="onb" style="grid-column:1/-1;margin:32px auto 0;text-align:center;"><div class="onb__kicker">NODES · EMPTY</div><h2 class="onb__title" style="font-size:18px">Нет нод</h2><p class="onb__sub">Подписка пуста или не подключена.</p></div>`;
+    if (metaEl) metaEl.textContent = "Подписка не выбрана";
     return;
   }
 
@@ -206,7 +203,6 @@ function render(nodes, selectorTag, effectiveTag, clashData) {
   for (const n of sorted) {
     const delay = lastDelay(clashData?.proxies?.[n.clashTag]);
     const grade = gradeDelay(delay);
-    // active = ручной выбор юзера; также подсвечиваем effectiveTag когда selector="auto"
     const isManualActive = n.clashTag === selectorTag && selectorTag !== "auto";
     html += nodeCardHtml(n, isManualActive, delay, grade);
   }
@@ -240,8 +236,8 @@ async function handleNodeClick(card, onToast) {
   // optimistic UI
   optimisticActiveTag = tag;
   optimisticUntilTs = Date.now() + 4500;
-  document.querySelectorAll("#proxies-grid .pnode").forEach(c => {
-    c.classList.toggle("pnode--active", c.dataset.tag === tag);
+  document.querySelectorAll("#proxies-grid .prox").forEach(c => {
+    c.dataset.active = c.dataset.tag === tag ? "true" : "false";
   });
   try {
     await selectProxy("proxy", tag);
@@ -292,30 +288,25 @@ function stopPoll() {
 
 export function mountProxiesView({ onToast } = {}) {
   const grid = $("proxies-grid");
-  // Делегированный клик по .pnode
   grid?.addEventListener("click", (e) => {
-    const card = e.target.closest(".pnode");
+    const card = e.target.closest(".prox");
     if (!card) return;
     handleNodeClick(card, onToast);
   });
-  // Клавиатура — Enter/Space
   grid?.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
-    const card = e.target.closest(".pnode");
+    const card = e.target.closest(".prox");
     if (!card) return;
     e.preventDefault();
     handleNodeClick(card, onToast);
   });
 
-  // FAB — перетест группы. Тестим URLTest "lowest" (он умеет /delay endpoint
-  // через URLTestGroup interface). Balancer "auto" — OutboundGroup без URLTest,
-  // его delay-эндпоинт ничего не даст. После URLTest monitoring обновится →
-  // Balancer "auto" увидит свежие delay'и и пересчитает текущего лидера.
+  // FAB test-all
   const fab = $("proxies-fab");
   fab?.addEventListener("click", async () => {
     if (testingAll) return;
     testingAll = true;
-    fab.classList.add("proxies-fab--testing");
+    fab.dataset.testing = "true";
     try {
       const nodes = nodesFromSource();
       const group = nodes.length >= 2 ? "lowest" : "proxy";
@@ -326,7 +317,7 @@ export function mountProxiesView({ onToast } = {}) {
       onToast?.(`Ошибка теста: ${e?.message || e}`, "error", 2500);
     } finally {
       testingAll = false;
-      fab.classList.remove("proxies-fab--testing");
+      delete fab.dataset.testing;
     }
   });
 }

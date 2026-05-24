@@ -1,0 +1,327 @@
+/* ─────────────────────────────────────────────────────────────
+   Ninety — Settings extras: input/select/banner/version
+   Дополняет screens.css компонентами, которых там нет.
+   ───────────────────────────────────────────────────────────── */
+
+.settings-input,
+.settings-select {
+  height: 30px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-hi);
+  background: var(--ink-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-xs);
+  outline: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
+  min-width: 0;
+  max-width: 240px;
+  transition: border-color 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.settings-input:hover,
+.settings-select:hover {
+  border-color: var(--line-3);
+  background: var(--ink-3);
+}
+.settings-input:focus,
+.settings-select:focus {
+  border-color: var(--accent);
+  background: var(--ink-3);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.settings-input--num { width: 84px; text-align: right; }
+
+.settings-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-range__sep { color: var(--text-faint); font-size: 11px; }
+
+.settings-banner {
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: var(--ink-2);
+  border: 1px solid var(--line-1);
+  color: var(--text-mid);
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 0 0 12px;
+}
+.settings-banner code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.05);
+  color: var(--accent-bright);
+}
+
+.settings-version {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-mid);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
+}
+
+/* ───────── Settings menu (root) ───────── */
+.settings-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-menu__item {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: var(--ink-1);
+  border: 1px solid var(--line-1);
+  color: var(--text-hi);
+  cursor: pointer;
+  text-align: left;
+  transition: background 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+.settings-menu__item:hover {
+  background: var(--ink-2);
+  border-color: var(--line-3);
+}
+.settings-menu__icon {
+  display: grid; place-items: center;
+  width: 36px; height: 36px;
+  border-radius: var(--r-xs);
+  background: var(--ink-2);
+  color: var(--text-mid);
+}
+.settings-menu__icon svg { width: 18px; height: 18px; }
+.settings-menu__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.settings-menu__title {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--text-hi);
+}
+.settings-menu__hint {
+  font-size: 11.5px;
+  color: var(--text-lo);
+}
+.settings-menu__chevron {
+  color: var(--text-faint);
+  display: grid;
+  place-items: center;
+}
+
+/* ───────── Settings section header (sub-page) ───────── */
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--line-1);
+  margin-bottom: 18px;
+}
+.settings-back {
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border-radius: var(--r-xs);
+  color: var(--text-mid);
+}
+.settings-back:hover { color: var(--text-hi); background: rgba(255,255,255,0.04); }
+.settings-head__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.022em;
+  color: var(--text-hi);
+  line-height: 1;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+/* set-row icon (старый макет внутри set-row) */
+.set-row {
+  position: relative;
+}
+.set-row::before {
+  content: "";
+  position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+  pointer-events: none;
+}
+
+/* Tunnel status block */
+.tunnel-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--ink-1);
+  border: 1px solid var(--line-2);
+  position: relative;
+}
+.tunnel-status::before {
+  content: "";
+  position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+}
+.tunnel-status__row {
+  display: flex; align-items: center; gap: 10px;
+}
+.tunnel-status__dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  box-shadow: 0 0 0 4px transparent;
+  flex-shrink: 0;
+}
+.tunnel-status__dot[data-state="running"] {
+  background: var(--ok);
+  box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.18);
+}
+.tunnel-status__dot[data-state="stopped"] {
+  background: var(--warn);
+  box-shadow: 0 0 0 4px rgba(245, 181, 68, 0.18);
+}
+.tunnel-status__dot[data-state="error"] {
+  background: var(--err);
+  box-shadow: 0 0 0 4px rgba(229, 72, 77, 0.18);
+}
+.tunnel-status__text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-hi);
+  letter-spacing: -0.005em;
+}
+.tunnel-status__meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-lo);
+  letter-spacing: -0.005em;
+  padding-left: 18px;
+}
+.tunnel-status__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+}
+
+/* WARP status row */
+.warp-status-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: var(--ink-1);
+  border: 1px solid var(--line-1);
+}
+.warp-status-row__t {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-hi);
+}
+.warp-status-row__sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-lo);
+  margin-top: 2px;
+  letter-spacing: -0.005em;
+}
+
+/* Danger-кнопка — для warp-reset, tunnel-uninstall */
+.btn--danger {
+  color: var(--err);
+  border-color: rgba(229, 72, 77, 0.3);
+}
+.btn--danger:hover {
+  color: #fff;
+  background: rgba(229, 72, 77, 0.16);
+  border-color: var(--err);
+}
+
+/* set-row helpers (для set-row__ctl) */
+.set-row__ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ───────── Logs console (textarea-вариант) ───────── */
+/* screens.css определяет .logs__console как div; для textarea убираем стандартный
+   border/outline/resize и подгоняем под общую эстетику. */
+textarea.logs__console {
+  resize: none;
+  outline: 0;
+  color: var(--text-mid);
+  white-space: pre;
+  -webkit-font-smoothing: subpixel-antialiased;
+}
+textarea.logs__console:focus { outline: 1px solid var(--accent-soft); outline-offset: -1px; }
+.logs__console::placeholder { color: var(--text-faint); font-style: italic; }
+.logs__toggle input[type="checkbox"] { accent-color: var(--accent); }
+
+/* Drawer active-node label (показывается при secured) */
+.drawer__active {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-mid);
+}
+.drawer__active-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent-bright);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* Server card — spinner для "переключаюсь..." */
+.srv__ping[data-spinning="true"] {
+  position: relative;
+  color: var(--text-faint);
+}
+.srv__ping[data-spinning="true"]::after {
+  content: "";
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  animation: srv-spin 0.7s linear infinite;
+  margin-left: 6px;
+}
+@keyframes srv-spin { to { transform: rotate(360deg); } }
+
+/* Drawer не закрывается до завершения switch'а */
+.drawer[data-busy="true"] { pointer-events: none; }
+.drawer[data-busy="true"] .drawer__close { pointer-events: auto; }
+
+/* ───────── Onboarding empty-state ───────── */
+.app[data-empty="true"] .screen { display: none !important; }
+.app[data-empty="true"] .nav__item[data-view="profiles"],
+.app[data-empty="true"] .nav__item[data-view="proxies"],
+.app[data-empty="true"] .nav__item[data-view="logs"] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.app:not([data-empty="true"]) #onboarding-screen { display: none !important; }
+

@@ -1,0 +1,168 @@
+/* ─────────────────────────────────────────────────────────────
+   Ninety — Proxies screen (full-width grid 268×72)
+   Премиум-токены: ink-1 фон, top edge highlight, accent-soft active.
+   Подключается отдельно — handoff про /proxies явных классов не дал.
+   ───────────────────────────────────────────────────────────── */
+
+.prox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 10px;
+  align-content: start;
+  padding-bottom: 18px;
+}
+
+.prox {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  height: 72px;
+  padding: 0 14px;
+  border-radius: var(--r-md);
+  background: var(--ink-1);
+  border: 1px solid var(--line-2);
+  cursor: pointer;
+  overflow: hidden;
+  transition: background 180ms var(--ease-out), border-color 180ms var(--ease-out);
+}
+.prox::before {
+  content: "";
+  position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+  pointer-events: none;
+}
+.prox:hover { background: var(--ink-2); border-color: var(--line-3); }
+.prox:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+.prox[data-active="true"] {
+  background: linear-gradient(180deg, var(--accent-soft) 0%, transparent 50%), var(--ink-1);
+  border-color: rgba(255,255,255,0.04);
+  box-shadow: 0 0 0 1px var(--accent-soft) inset;
+}
+.prox[data-active="true"]::before {
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.55;
+}
+
+.prox__flag {
+  width: 28px; height: 20px;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid rgba(0,0,0,0.4);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  display: grid;
+  place-items: center;
+  background: var(--ink-2);
+}
+.prox__flag img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.prox__flag-fallback {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.prox__main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.prox__name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: -0.005em;
+  color: var(--text-hi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prox__sub {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-lo);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prox__sub-type {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.prox__ping {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-mid);
+  min-width: 56px;
+  justify-content: flex-end;
+}
+.prox__ping[data-grade="good"] { color: var(--ok); }
+.prox__ping[data-grade="mid"]  { color: var(--warn); }
+.prox__ping[data-grade="bad"]  { color: var(--err); }
+.prox__ping[data-grade="dead"] { color: var(--text-faint); }
+.prox__ping-unit {
+  font-size: 9px;
+  color: var(--text-faint);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* AUTO-карточка — особая, иконка-молния вместо флага */
+.prox--auto .prox__flag {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent-bright);
+  display: grid;
+  place-items: center;
+}
+.prox--auto .prox__flag svg { width: 14px; height: 14px; }
+.prox--auto .prox__name { color: var(--accent-bright); }
+
+/* ───────── FAB test-all ───────── */
+.prox-fab {
+  position: absolute;
+  bottom: 24px; right: 28px;
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: var(--ink-2);
+  border: 1px solid var(--accent);
+  display: grid;
+  place-items: center;
+  color: var(--accent-bright);
+  cursor: pointer;
+  box-shadow:
+    0 0 0 1px var(--line-1) inset,
+    0 12px 32px -10px rgba(0,0,0,0.6),
+    0 0 24px var(--accent-glow);
+  transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out), background 220ms var(--ease-out);
+  z-index: 5;
+}
+.prox-fab:hover {
+  transform: scale(1.04);
+  background: var(--ink-3);
+  box-shadow:
+    0 0 0 1px var(--line-1) inset,
+    0 16px 40px -10px rgba(0,0,0,0.7),
+    0 0 36px var(--accent-glow);
+}
+.prox-fab:active { transform: scale(0.96); }
+.prox-fab svg { width: 20px; height: 20px; transition: transform 360ms var(--ease-out); }
+.prox-fab[data-testing="true"] svg {
+  animation: prox-fab-spin 1.1s linear infinite;
+}
+@keyframes prox-fab-spin { to { transform: rotate(360deg); } }
+
+/* Главный контейнер screen[data-view=proxies] должен иметь position:relative
+   чтобы FAB корректно прижался в правый нижний угол области контента */
+.screen[data-view="proxies"] { position: relative; }
