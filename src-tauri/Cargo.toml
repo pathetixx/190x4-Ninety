@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "ninety"
-version = "0.1.23"
+version = "0.1.24"
 description = "Ninety — VPN client in 190x4 aesthetic"
 authors = ["pathetixx"]
 edition = "2021"
@@ -34,6 +34,10 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json"] }
 base64 = "0.22"
 urlencoding = "2.1"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+libloading = "0.8"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.52"

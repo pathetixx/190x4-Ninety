@@ -1,7 +1,9 @@
 mod clash;
 mod clash_stream;
 mod subscription;
+mod url_handler;
 mod vpn;
+mod warp;
 
 #[cfg(target_os = "windows")]
 mod proxy_win;
@@ -144,6 +146,12 @@ pub fn run() {
             clash::fetch_public_ip,
             clash_stream::clash_traffic_start,
             clash_stream::clash_traffic_stop,
+            url_handler::register_url_handler,
+            url_handler::unregister_url_handler,
+            url_handler::is_url_handler_registered,
+            warp::warp_register,
+            warp::warp_status,
+            warp::warp_reset,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
