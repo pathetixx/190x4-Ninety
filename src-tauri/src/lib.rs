@@ -20,6 +20,9 @@ use tauri::{
     Manager, RunEvent, WindowEvent,
 };
 
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+use tauri_plugin_deep_link::DeepLinkExt;
+
 use vpn::SingboxState;
 
 #[tauri::command]
@@ -38,6 +41,18 @@ fn show_main(app: &tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // single-instance ОБЯЗАН быть зарегистрирован первым: на second-launch
+        // (юзер кликнул ninety://import/...) система запускает второй процесс;
+        // single-instance перехватывает argv и пробрасывает в первый. Без
+        // этого plugin deep-link создал бы новый window каждый раз.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -60,6 +75,16 @@ pub fn run() {
             if autostarted {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.hide();
+                }
+            }
+
+            // Регистрация ninety:// в HKCR при первом запуске. На NSIS-инсталле
+            // tauri-plugin-deep-link уже прописал ключи в installer; register_all
+            // нужен для portable-сценария / dev-режима / повторной регистрации.
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            {
+                if let Err(e) = app.deep_link().register_all() {
+                    eprintln!("deep-link register_all: {e}");
                 }
             }
 

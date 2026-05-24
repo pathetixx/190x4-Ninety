@@ -174,4 +174,14 @@ async function doClipboard() {
   }
 }
 
-export function openAddModal() { openModal(); }
+export function openAddModal({ prefillUrl, prefillName } = {}) {
+  openModal();
+  if (prefillUrl) {
+    showPage("manual");
+    const u = $("add-modal-url");
+    if (u) u.value = prefillUrl;
+    const n = $("add-modal-name");
+    if (n && prefillName) n.value = prefillName;
+    setTimeout(() => $("add-modal-submit")?.focus(), 50);
+  }
+}

@@ -30,7 +30,7 @@ import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js
 import { openUpdateModal } from "/lib/update-modal.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
-import { copySubscriptionUrl, exportSingboxJson } from "/lib/share.js";
+import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode } from "/lib/clash-api.js";
@@ -449,6 +449,7 @@ const ICON_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const ICON_TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>`;
 const ICON_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
 const ICON_COPY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const ICON_QR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3"/><path d="M20 14v3"/><path d="M14 20h3"/><path d="M17 17h4v4h-4z"/></svg>`;
 
 function renderProfilesView() {
   if (!profilesView) return;
@@ -577,6 +578,7 @@ profilesView?.addEventListener("click", async (e) => {
       { id: "refresh",  label: "Обновить",  icon: ICON_REFRESH },
       { id: "edit",     label: "Редактировать", icon: ICON_EDIT },
       { id: "copy",     label: "Копировать URL", icon: ICON_COPY },
+      { id: "qr",       label: "Показать QR", icon: ICON_QR },
       { id: "export",   label: "Экспорт sing-box JSON", icon: ICON_COPY },
       { id: "activate", label: "Сделать активной", icon: ICON_CHECK },
       { id: "remove",   label: "Удалить",   icon: ICON_TRASH, danger: true },
@@ -602,6 +604,9 @@ profilesView?.addEventListener("click", async (e) => {
       } else if (act === "copy") {
         const sub = loadSubscriptions().find(s => s.id === id);
         await copySubscriptionUrl(sub, toast);
+      } else if (act === "qr") {
+        const sub = loadSubscriptions().find(s => s.id === id);
+        if (sub) openQRModal(sub);
       } else if (act === "export") {
         const sub = loadSubscriptions().find(s => s.id === id);
         if (sub) await exportSingboxJson({ kind: "sub", subscription: sub, nodes: sub.profiles }, toast);
@@ -1117,3 +1122,57 @@ setInterval(silentRefreshSubs, 30 * 60_000);
 
 // «Только что» / «N мин назад» обновляем каждые 30 сек
 setInterval(refreshSubCardFromActive, 30_000);
+
+// ── Deep link ninety://import/<url> ────────────────────────
+// Юзер кликает по ссылке в TG/браузере → Windows запускает Ninety с argv,
+// single-instance plugin перехватывает и emit'ит onOpenUrl в первый процесс.
+// Парсим ninety://import/<encoded-url> и открываем add-modal с prefilled URL —
+// юзер видит что добавляет и подтверждает.
+const NINETY_SCHEME_RE = /^ninety:\/\/import\/(.+)$/i;
+
+function handleDeepLinkUrl(rawUrl) {
+  try {
+    const m = String(rawUrl || "").match(NINETY_SCHEME_RE);
+    if (!m) return;
+    let target = m[1];
+    try { target = decodeURIComponent(target); } catch {}
+    // Если внутри стоит query ?name=..., вытаскиваем для prefillName
+    let prefillName = "";
+    const qIdx = target.indexOf("?");
+    if (qIdx >= 0) {
+      const tail = target.slice(qIdx + 1);
+      target = target.slice(0, qIdx);
+      try {
+        const params = new URLSearchParams(tail);
+        const n = params.get("name");
+        if (n) prefillName = n;
+      } catch {}
+    }
+    openAddModal({ prefillUrl: target, prefillName });
+  } catch (e) {
+    console.warn("deeplink handle failed", e);
+  }
+}
+
+(async () => {
+  const dl = window.__TAURI__?.deepLink;
+  if (!dl?.onOpenUrl) return;
+  try {
+    // onOpenUrl получает URL'ы и при cold-start (если Windows запустил Ninety
+    // самим ninety://...), и при warm second-instance через single-instance.
+    await dl.onOpenUrl((urls) => {
+      if (!Array.isArray(urls)) return;
+      for (const u of urls) handleDeepLinkUrl(u);
+    });
+    // Также проверяем getCurrent на случай если URL был передан до того
+    // как мы подписались (cold-start race).
+    if (dl.getCurrent) {
+      try {
+        const initial = await dl.getCurrent();
+        if (Array.isArray(initial)) for (const u of initial) handleDeepLinkUrl(u);
+      } catch {}
+    }
+  } catch (e) {
+    console.warn("deeplink subscribe failed", e);
+  }
+})();

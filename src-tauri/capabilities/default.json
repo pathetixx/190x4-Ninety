@@ -18,6 +18,7 @@
     "process:default",
     "dialog:default",
     "notification:default",
-    "autostart:default"
+    "autostart:default",
+    "deep-link:default"
   ]
 }
