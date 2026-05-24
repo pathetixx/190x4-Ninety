@@ -38,7 +38,7 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 # WG handshake (boringtun) — нужен для warp_scan_endpoints в WG-режиме.
 # default-features = false убирает FFI bindings и device-loop, оставляет noise/Tunn.
-boringtun = { version = "0.6", default-features = false }
+boringtun = { version = "0.7", default-features = false }
 # BLAKE2s для пересчёта MAC1 после подмены reserved (CF WARP client_id routing).
 blake2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }

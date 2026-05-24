@@ -181,7 +181,8 @@ async fn wg_ping(
     timeout: Duration,
 ) -> Option<u64> {
     // Tunn::new берёт private/peer by value — клонируем (StaticSecret поддерживает
-    // Clone в x25519-dalek 2 с feature static_secrets).
+    // Clone в x25519-dalek 2 с feature static_secrets). В boringtun 0.7+ возвращает
+    // Self напрямую, без Result.
     let mut tunn = Tunn::new(
         keys.private.clone(),
         keys.peer_public,
@@ -189,7 +190,7 @@ async fn wg_ping(
         None,
         0,
         None,
-    ).ok()?;
+    );
 
     let mut buf = [0u8; 256];
     let init_len = match tunn.format_handshake_initiation(&mut buf, true) {
