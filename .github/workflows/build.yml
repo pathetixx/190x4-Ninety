@@ -82,6 +82,23 @@ jobs:
           $size = (Get-Item $dst).Length
           Write-Host "Built ninety-tunnel-svc ($([math]::Round($size/1KB,0)) KB)."
 
+      - name: Download wintun.dll
+        shell: pwsh
+        run: |
+          # Wintun — BSD-licensed user-mode driver от WireGuard. Нужен tunnel-svc'у
+          # как fallback к pnputil при очистке `ninety-tun` (см. tun_cleanup.rs
+          # уровень 2). Без DLL fallback пропускается и cleanup полагается только
+          # на pnputil/netsh — ~95% случаев. Bundle гарантирует 100%.
+          $url = "https://www.wintun.net/builds/wintun-0.14.1.zip"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile wintun.zip -UseBasicParsing
+          Expand-Archive -Path wintun.zip -DestinationPath wintun -Force
+          $src = "wintun/wintun/bin/amd64/wintun.dll"
+          if (-not (Test-Path $src)) { Write-Error "wintun.dll не найден после распаковки"; exit 1 }
+          Copy-Item $src "src-tauri/binaries/wintun.dll" -Force
+          $size = (Get-Item "src-tauri/binaries/wintun.dll").Length
+          Write-Host "wintun.dll bundled ($([math]::Round($size/1KB,1)) KB)."
+
       - name: Build Tauri
         run: npm run tauri build
         env:

@@ -702,12 +702,40 @@ function buildWarpEndpoint(warpOpts, warpInfo) {
       },
     ],
   };
+
+  // AmneziaWG обфускация (hiddify/wireguard-go fork). Поле noise.fake_packet
+  // вписывается прямо в WG-endpoint sing-box форка (см. hsb/option/wireguard.go).
+  // Range сериализуется как "from-to" string (Range.MarshalJSON в hiddify/wireguard-go).
+  const noisePreset = warpOpts.noisePreset || "off";
+  const noise = WARP_NOISE_PRESETS[noisePreset];
+  if (noise) {
+    endpoint.noise = { fake_packet: noise };
+  }
+
   if (warpOpts.mode === "chain") {
     // detour: WG-пакеты WARP отправляются через активный selector "proxy"
     endpoint.detour = "proxy";
   }
   return endpoint;
 }
+
+const WARP_NOISE_PRESETS = {
+  off: null,
+  default: {
+    enabled: true,
+    count: "1-3",
+    size: "10-30",
+    delay: "10-30",
+    mode: "random",
+  },
+  aggressive: {
+    enabled: true,
+    count: "3-8",
+    size: "30-90",
+    delay: "5-15",
+    mode: "random",
+  },
+};
 
 // ── главный builder ────────────────────────────────────────
 // Поддерживает оба вызова:
