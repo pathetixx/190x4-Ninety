@@ -149,7 +149,7 @@ window.addEventListener("resize", () => {
   }
 });
 
-// ── Mode segmented (proxy/tun, реальное состояние) ──────────
+// ── Mode segmented (3 режима как у Hiddify) ─────────────────
 const modeSeg = document.getElementById("mode-seg");
 function applyModeToUI(m) {
   if (!modeSeg) return;
@@ -161,14 +161,42 @@ function applyModeToUI(m) {
 }
 applyModeToUI(getMode());
 
-modeSeg?.addEventListener("click", (e) => {
+modeSeg?.addEventListener("click", async (e) => {
   const b = e.target.closest(".seg__btn");
   if (!b) return;
-  const m = b.dataset.mode === "tun" ? "tun" : "proxy";
-  setMode(m);
-  applyModeToUI(m);
+  const requested = b.dataset.mode;
+  if (!["proxy", "systemProxy", "tun"].includes(requested)) return;
+  // При выборе TUN — гарантируем что NinetyTunnelService установлен.
+  // Иначе start_singbox упадёт при первой попытке connect.
+  if (requested === "tun") {
+    const ok = await ensureTunnelServiceInstalled();
+    if (!ok) return; // юзер отказался ставить или установка не удалась
+  }
+  setMode(requested);
+  applyModeToUI(requested);
   updateHeroHint();
 });
+
+// Проверяет статус NinetyTunnelService. Если не_installed — предлагает
+// установить (с UAC). Возвращает true если сервис в Stopped/Running на выходе.
+async function ensureTunnelServiceInstalled() {
+  try {
+    const full = await invoke("tunnel_full_status");
+    const svc = full?.service || "other";
+    if (svc !== "not_installed") return true;
+    const yes = confirm(
+      "Для VPN · TUN нужна служба NinetyTunnelService.\n\n" +
+      "Установить сейчас? Windows запросит UAC ОДИН раз — дальше connect/disconnect без подтверждений."
+    );
+    if (!yes) return false;
+    await invoke("tunnel_service_install");
+    toast("Служба NinetyTunnelService установлена", "success", 1800);
+    return true;
+  } catch (e) {
+    toast(`Установка службы не удалась: ${e?.message || e}`, "error", 3500);
+    return false;
+  }
+}
 
 // ── Add Profile Modal — Hiddify-style ──────────────────────
 const profilesSummary = document.getElementById("profiles-summary");
@@ -304,6 +332,8 @@ if (settingsRoot) {
         startWarpRescanLoop();
         return;
       }
+      // Badge с активным endpoint должен реагировать на любое изменение warp.*
+      if (path === "warp.enabled" || path === "warp.endpoint") updateWarpBadge();
       if (!pathNeedsRestart(path)) return;
       if (state === "connected" || state === "connecting") {
         scheduleAutoReconnect();
@@ -377,6 +407,33 @@ function applyReconnectUI() {
   }
 }
 
+// ── WARP UX (hero badge + история ротаций) ──────────────────
+const WARP_HISTORY_KEY = "ninety.warp.history";
+const WARP_HISTORY_LIMIT = 20;
+const locWarpRow = document.getElementById("loc-warp-row");
+const locWarpEndpoint = document.getElementById("loc-warp-endpoint");
+
+function updateWarpBadge() {
+  if (!locWarpRow || !locWarpEndpoint) return;
+  const o = loadOptions();
+  const enabled = !!o.warp?.enabled;
+  const connected = state === "connected";
+  if (!enabled || !connected) { locWarpRow.hidden = true; return; }
+  locWarpEndpoint.textContent = o.warp?.endpoint || "—";
+  locWarpRow.hidden = false;
+}
+
+function recordWarpRotation(from, to, oldDelay, newDelay) {
+  try {
+    const raw = localStorage.getItem(WARP_HISTORY_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    list.unshift({ ts: Date.now(), from, to, oldDelay, newDelay });
+    if (list.length > WARP_HISTORY_LIMIT) list.length = WARP_HISTORY_LIMIT;
+    localStorage.setItem(WARP_HISTORY_KEY, JSON.stringify(list));
+    window.dispatchEvent(new CustomEvent("ninety:warp-rotation"));
+  } catch (e) { console.warn("warp history save failed", e); }
+}
+
 // ── WARP periodic re-scan ───────────────────────────────────
 // Раз в N минут (warp.autoRescanIntervalMin) опрашиваем delay outbound "warp"
 // через clash-API. Если выше порога — запускаем scan, ставим лучший endpoint
@@ -426,8 +483,12 @@ async function warpRescanTick() {
       return;
     }
     const newEndpoint = `${best.ip}:${best.port}`;
+    const fromEndpoint = loadOptions().warp?.endpoint || "—";
     updateOption("warp.endpoint", newEndpoint);
-    toast(`WARP → ${newEndpoint} (${best.latency_ms}мс)`, "success", 2400);
+    recordWarpRotation(fromEndpoint, newEndpoint, curDelay, best.latency_ms);
+    console.info("[WARP rescan]", { from: fromEndpoint, to: newEndpoint, oldDelay: curDelay, newDelay: best.latency_ms });
+    toast(`WARP → ${newEndpoint} (${best.latency_ms}мс, было ${curDelay || "—"})`, "success", 2400);
+    updateWarpBadge();
     scheduleAutoReconnect();
   } finally {
     warpRescanInFlight = false;
@@ -903,8 +964,9 @@ function updateHeroHint() {
     heroDisc.disabled = true;
     heroDisc.setAttribute("aria-disabled", "true");
   } else {
-    const mode = getMode() === "tun" ? "VPN-туннель" : "системный прокси";
-    heroHint.textContent = `Нажмите, чтобы поднять ${mode}`;
+    const m = getMode();
+    const label = m === "tun" ? "VPN-туннель" : m === "systemProxy" ? "системный прокси" : "локальный прокси (127.0.0.1)";
+    heroHint.textContent = `Нажмите, чтобы поднять ${label}`;
     heroDisc.disabled = false;
     heroDisc.removeAttribute("aria-disabled");
   }
@@ -993,6 +1055,7 @@ function setState(next, opts = {}) {
     if (heroMask) heroMask.playbackRate = 1.0;
     startTrafficStream();
     startWarpRescanLoop();
+    updateWarpBadge();
   }
 }
 
@@ -1141,7 +1204,10 @@ heroDisc?.addEventListener("click", async () => {
     setState("connecting");
     try {
       await invoke("start_singbox", { configJson: JSON.stringify(config), mode });
-      if (mode === "proxy") {
+      // Системный прокси выставляем ТОЛЬКО для mode=systemProxy. Для голого
+      // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт
+      // полный intercept через TUN-интерфейс.
+      if (mode === "systemProxy") {
         await invoke("set_system_proxy", { enable: true, hostPort: `127.0.0.1:${options.inbound.mixedPort || 7890}` });
       }
       setState("connected", { ping: "— мс" });

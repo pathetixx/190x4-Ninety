@@ -285,6 +285,33 @@ export function mountSettings(root, opts = {}) {
       render();
     });
 
+    // История ротаций — читается из localStorage, обновляется по событию.
+    const historyList = el.querySelector("#warp-history-list");
+    const historyCount = el.querySelector("#warp-history-count");
+    const renderHistory = () => {
+      let items = [];
+      try { items = JSON.parse(localStorage.getItem("ninety.warp.history") || "[]"); } catch {}
+      if (historyCount) historyCount.textContent = items.length ? `${items.length} шт.` : "пусто";
+      if (!historyList) return;
+      if (!items.length) { historyList.innerHTML = ""; return; }
+      historyList.innerHTML = items.map(it => {
+        const d = new Date(it.ts);
+        const ts = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")} ${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}`;
+        return `<div class="setting-row">
+          <span class="setting-row__icon">${iconRemote()}</span>
+          <span class="setting-row__main">
+            <span class="setting-row__label">${it.to}</span>
+            <span class="setting-row__hint">${ts} · ${it.newDelay}мс (было ${it.oldDelay || "—"}, ${it.from})</span>
+          </span>
+        </div>`;
+      }).join("");
+    };
+    renderHistory();
+    const hHandler = () => renderHistory();
+    window.addEventListener("ninety:warp-rotation", hHandler);
+    // При перерисовке секции (back→warp снова) bindWarpSection вызывается заново —
+    // старый listener останется, но он идемпотентен; cleanup опускаем для простоты.
+
     refresh();
   }
 
@@ -538,7 +565,7 @@ function renderInbound(o) {
 function renderTlsTricks(o) {
   return `
     <div class="settings-banner">
-      Трюки TLS работают через форк <code>hiddify-sing-box</code>. В текущем mainline sing-box фрагментация ClientHello недоступна — настройки сохраняются, но в config не передаются. Добавится отдельной итерацией с переходом на форк.
+      Трюки TLS работают через форк <code>hiddify-sing-box</code> (собран с <code>with_awg</code> + <code>badlinkname</code>). Включённые опции пишутся в <code>experimental.tls_tricks</code> и применяются ко всем outbound с TLS-handshake.
     </div>
     <div class="settings-section">
       ${row(iconScissors(), "Фрагментация ClientHello", "Бьёт TLS handshake на куски — обход DPI", toggle("tlsTricks.enableFragment", o.tlsTricks.enableFragment))}
@@ -608,6 +635,12 @@ function renderWarp(o) {
       ${row(iconTarget(), "Порог latency (мс)",
         "Если delay текущего endpoint превышает порог (или равен 0 — таймаут) — триггер scan.",
         inputText("warp.autoRescanThresholdMs", w.autoRescanThresholdMs ?? 300, "number", 'min="100" max="5000"'))}
+    </div>
+    <div class="settings-section">
+      ${row(iconLog(), "История ротаций",
+        "Последние авто-смены WARP endpoint. Хранится локально, последние 20 записей.",
+        `<span class="settings-version" id="warp-history-count">—</span>`)}
+      <div id="warp-history-list"></div>
     </div>
     <div class="settings-section">
       ${row(iconShield(), "Статус регистрации",
