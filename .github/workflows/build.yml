@@ -2,7 +2,11 @@ name: Build Ninety
 
 on:
   push:
-    branches: [main]
+    # Билдим только на push alpha-тегов. Раньше слушали и branches: [main] —
+    # каждый релизный пуш (git push origin main --tags) триггерил 2 параллельных
+    # билда на одном SHA. main-билд "для проверки" был фиктивным: шёл параллельно
+    # с tag-билдом, а не до него — ничего не защищал. Для ad-hoc проверки без
+    # тега есть workflow_dispatch.
     tags: ['v*']
   workflow_dispatch:
 
