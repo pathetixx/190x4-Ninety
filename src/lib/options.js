@@ -10,9 +10,31 @@ export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"];
 export const MUX_PROTOCOLS = ["h2mux", "smux", "yamux"];
 export const BALANCER_STRATEGIES = ["round-robin", "consistent-hashing", "sticky-sessions"];
 
+export const URL_HANDLER_SCHEMES = ["vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "tuic", "sub"];
+
 export const DEFAULT_OPTIONS = {
   region: "ru",
   blockAds: false,
+  general: {
+    autostart: false,
+    startMinimized: false,
+    // Какие схемы зарегистрированы как handler Ninety в HKCU. Используется UI'ем
+    // для отображения чек-боксов; реальный source-of-truth — реестр Windows,
+    // синхронизируется через is_url_handler_registered на старте.
+    urlSchemes: [],
+  },
+  warp: {
+    // Включает выбор WARP в селекторе outbound (UI). Сама регистрация делается
+    // отдельной кнопкой, ключи лежат в app_config_dir/warp.json (Rust-сторона).
+    enabled: false,
+    // "direct" — WARP как единственный outbound (без прокси)
+    // "chain"  — WARP как detour поверх активной ноды (proxy → WARP → internet)
+    mode: "direct",
+    // Endpoint policy: "auto4" / "auto6" / "auto" / конкретный IP:port.
+    // CF возвращает peer.endpoint, мы по умолчанию используем engage.cloudflareclient.com.
+    endpoint: "engage.cloudflareclient.com:2408",
+    mtu: 1280,
+  },
   log: { level: "info", timestamp: true, disabled: false },
   urlTest: {
     connectionTestUrl: "http://cp.cloudflare.com/generate_204",

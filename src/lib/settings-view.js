@@ -4,7 +4,18 @@
 import {
   loadOptions, saveOptions, updateOption,
   REGIONS, IPV6_MODES, TUN_STACKS, LOG_LEVELS, BALANCER_STRATEGIES,
+  URL_HANDLER_SCHEMES,
 } from "/lib/options.js";
+
+const SCHEME_LABELS = {
+  vless: "vless://", vmess: "vmess://", ss: "ss://", trojan: "trojan://",
+  hysteria2: "hysteria2://", hy2: "hy2://", tuic: "tuic://", sub: "sub://",
+};
+
+const WARP_MODE_LABELS = {
+  direct: "Только WARP (без других прокси)",
+  chain:  "WARP поверх активного прокси (chain)",
+};
 
 const SECTIONS = [
   { key: "general",    title: "Общие",        icon: iconGeneral,    hint: "Логи, тест соединения, интервалы" },
@@ -13,7 +24,7 @@ const SECTIONS = [
   { key: "inbound",    title: "Входящие",      icon: iconInbound,    hint: "Mixed-порт, MTU, TUN-стек" },
   { key: "tunnel",     title: "Туннель",       icon: iconTunnel,     hint: "Windows Service для TUN-режима" },
   { key: "tls-tricks", title: "Трюки TLS",     icon: iconTls,        hint: "Фрагментация ClientHello, padding" },
-  { key: "warp",       title: "WARP",          icon: iconWarp,       hint: "Cloudflare WARP — скоро" },
+  { key: "warp",       title: "WARP",          icon: iconWarp,       hint: "Cloudflare WARP — outbound и chain" },
 ];
 
 const TUNNEL_STATE_LABELS = {
@@ -114,7 +125,106 @@ export function mountSettings(root, opts = {}) {
     el.querySelectorAll("[data-action='check-updates']").forEach(btn => {
       btn.addEventListener("click", () => window.__ninetyUpdateCheck?.());
     });
+    bindSchemeToggles(el, onChange);
     bindTunnelSection(el, sec);
+    bindWarpSection(el, sec, onChange);
+  }
+
+  function bindSchemeToggles(el, onChange) {
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (!invoke) return;
+    el.querySelectorAll("[data-scheme]").forEach(input => {
+      input.addEventListener("change", async () => {
+        const scheme = input.dataset.scheme;
+        const want = !!input.checked;
+        const cmd = want ? "register_url_handler" : "unregister_url_handler";
+        try {
+          await invoke(cmd, { scheme });
+          // Обновляем options.general.urlSchemes — для UI persistence.
+          // Source of truth — реестр, проверяется через is_url_handler_registered
+          // на старте app (см. main.js).
+          const opts = loadOptions();
+          const cur = new Set(opts.general?.urlSchemes || []);
+          if (want) cur.add(scheme); else cur.delete(scheme);
+          updateOption("general.urlSchemes", [...cur]);
+          onChange(`general.urlSchemes.${scheme}`, want);
+        } catch (e) {
+          alert(`${want ? "Регистрация" : "Удаление"} ${scheme}:// не удалось: ${e?.message || e}`);
+          input.checked = !want;
+        }
+      });
+    });
+  }
+
+  async function bindWarpSection(el, sec, onChange) {
+    if (sec.key !== "warp") return;
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (!invoke) return;
+
+    const statusEl = el.querySelector("#warp-status");
+    const ipv4El = el.querySelector("#warp-ipv4");
+    const licenseInput = el.querySelector("#warp-license-input");
+    const registerBtn = el.querySelector("[data-action='warp-register']");
+    const resetBtn = el.querySelector("[data-action='warp-reset']");
+
+    const formatStatus = (info) => {
+      if (!info) return { status: "Не зарегистрирован", ipv4: "—", license: "" };
+      const plus = info.warp_plus ? " · WARP+" : "";
+      const type = info.account_type ? `${info.account_type}${plus}` : (info.warp_plus ? "WARP+" : "free");
+      return {
+        status: `Активна (${type})`,
+        ipv4: info.local_ipv4 || "—",
+        license: info.license || "",
+      };
+    };
+
+    const refresh = async () => {
+      try {
+        const info = await invoke("warp_status");
+        const v = formatStatus(info);
+        if (statusEl) statusEl.textContent = v.status;
+        if (ipv4El) ipv4El.textContent = v.ipv4;
+        if (licenseInput) licenseInput.value = v.license;
+      } catch (e) {
+        if (statusEl) statusEl.textContent = `Ошибка: ${e?.message || e}`;
+      }
+    };
+
+    registerBtn?.addEventListener("click", async () => {
+      const orig = registerBtn.textContent;
+      registerBtn.disabled = true;
+      registerBtn.textContent = "Регистрирую…";
+      try {
+        const license = licenseInput?.value?.trim() || null;
+        await invoke("warp_register", { license });
+        await refresh();
+        onChange("warp.registered", true);
+      } catch (e) {
+        alert(`Регистрация WARP не удалось: ${e?.message || e}`);
+      } finally {
+        registerBtn.disabled = false;
+        registerBtn.textContent = orig;
+      }
+    });
+
+    resetBtn?.addEventListener("click", async () => {
+      if (!confirm("Удалить регистрацию WARP? Локальные ключи будут стёрты.")) return;
+      const orig = resetBtn.textContent;
+      resetBtn.disabled = true;
+      resetBtn.textContent = "Сбрасываю…";
+      try {
+        await invoke("warp_reset");
+        await refresh();
+        onChange("warp.registered", false);
+      } catch (e) {
+        alert(`Сброс WARP не удалось: ${e?.message || e}`);
+      } finally {
+        resetBtn.disabled = false;
+        resetBtn.textContent = orig;
+      }
+    });
+
+    refresh();
   }
 
   async function bindTunnelSection(el, sec) {
@@ -293,10 +403,26 @@ function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
 // ── Разделы ────────────────────────────────────────────────
 function renderGeneral(o) {
   const g = o.general || {};
+  const registered = new Set(g.urlSchemes || []);
+  const schemeRows = URL_HANDLER_SCHEMES.map(s => row(
+    iconUrl(),
+    SCHEME_LABELS[s] || s,
+    `Ninety будет открываться при клике по ${SCHEME_LABELS[s] || s + "://"} ссылкам`,
+    `<label class="switch">
+       <input type="checkbox" data-scheme="${s}" ${registered.has(s) ? "checked" : ""}/>
+       <span class="switch__track"></span>
+     </label>`,
+  )).join("");
   return `
     <div class="settings-section">
       ${row(iconRocket(), "Запускать при входе в систему", "Ninety будет автоматически стартовать при логине в Windows", toggle("general.autostart", g.autostart, { action: "autostart" }))}
       ${row(iconEyeOff(), "Запускать свернутым", "На старте окно сразу прячется в трей — иконка остаётся справа внизу", toggle("general.startMinimized", g.startMinimized))}
+    </div>
+    <div class="settings-banner">
+      Обработка ссылок: только Ninety. Не включайте схемы, которые уже использует другой VPN-клиент — последний победитель регистрации перетянет ассоциацию на себя.
+    </div>
+    <div class="settings-section">
+      ${schemeRows}
     </div>
     <div class="settings-section">
       ${row(iconUrl(), "URL для теста соединения", "Любой HTTP/HTTPS endpoint, проверяющий доступ", inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
@@ -365,9 +491,43 @@ function renderTlsTricks(o) {
 }
 
 function renderWarp(o) {
+  const w = o.warp || {};
   return `
     <div class="settings-banner">
-      Cloudflare WARP как дополнительный слой (chain поверх VLESS или альтернативный outbound) — в следующих итерациях. Здесь будут регистрация аккаунта, fake-packets, clean-IP.
+      Cloudflare WARP регистрирует WireGuard-устройство в Cloudflare. Бесплатный WARP — без лицензии (просто «Зарегистрировать»). WARP+ — введите 26-символьный ключ из приложения «1.1.1.1». Ключи и токен хранятся локально в <code>app_config_dir/warp.json</code>.
+    </div>
+    <div class="settings-section">
+      ${row(iconWarp(), "Включить WARP",
+        "Подмешать WARP в конфиг sing-box. Активирует выбранный режим (direct/chain).",
+        toggle("warp.enabled", w.enabled))}
+      ${row(iconBalancer(), "Режим WARP",
+        "<b>Direct</b> — единственный outbound (трафик через WARP, без вашего прокси). <b>Chain</b> — поверх активного прокси (proxy → WARP → internet).",
+        select("warp.mode", w.mode || "direct", ["direct", "chain"], WARP_MODE_LABELS))}
+      ${row(iconRemote(), "Endpoint",
+        "WARP сервер: <code>engage.cloudflareclient.com:2408</code> по умолчанию. Можно <code>auto4</code>/<code>auto6</code>/<code>auto</code> — sing-box выберет случайный clean-IP.",
+        inputText("warp.endpoint", w.endpoint || "engage.cloudflareclient.com:2408", "text"))}
+      ${row(iconMtu(), "MTU",
+        "Максимальный размер WG-пакета. CF рекомендует 1280.",
+        inputText("warp.mtu", w.mtu || 1280, "number", 'min="576" max="1500"'))}
+    </div>
+    <div class="settings-section">
+      ${row(iconLock(), "Лицензия WARP+ (опционально)",
+        "26 символов из приложения «1.1.1.1» → Settings → Account → Key. Оставьте пусто для бесплатного WARP.",
+        `<input class="settings-input" type="text" id="warp-license-input" value="" maxlength="26" placeholder="xxxxxxxx-xxxxxxxx-xxxxxxxx" autocomplete="off" spellcheck="false"/>`)}
+      ${row(iconRocket(), "Зарегистрировать / обновить",
+        "Создаёт WG-пару и регистрирует device в CF API. Старая регистрация (если была) — удаляется на стороне CF.",
+        `<button class="settings-btn" data-action="warp-register" type="button">Зарегистрировать</button>`)}
+      ${row(iconScissors(), "Сбросить регистрацию",
+        "Удаляет device на стороне CF и стирает локальный warp.json. WARP перестанет работать до повторной регистрации.",
+        `<button class="settings-btn settings-btn--danger" data-action="warp-reset" type="button">Сбросить</button>`)}
+    </div>
+    <div class="settings-section">
+      ${row(iconShield(), "Статус регистрации",
+        "Тип аккаунта (free / limited / unlimited) и наличие WARP+.",
+        `<span class="settings-version" id="warp-status">Проверка…</span>`)}
+      ${row(iconRemote(), "Адрес WG (IPv4)",
+        "Локальный адрес, выданный Cloudflare для вашего устройства.",
+        `<span class="settings-version" id="warp-ipv4">—</span>`)}
     </div>
   `;
 }

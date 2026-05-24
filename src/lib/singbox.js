@@ -649,13 +649,77 @@ function buildInbound(mode, options) {
   };
 }
 
+// ── WARP endpoint (Cloudflare WireGuard) ───────────────────
+// Принимает WarpInfo из Tauri-команды warp_status (см. src-tauri/src/warp.rs)
+// и собирает sing-box endpoint type=wireguard. Возвращает [endpoint, finalTag]
+// или null если WARP не сконфигурирован.
+//
+//   mode "direct": WARP — единственный outbound, route.final = "warp",
+//                  proxy selector в outbounds для UI/clash-API остаётся.
+//   mode "chain":  WARP поверх proxy (endpoint.detour = "proxy"), route.final = "warp".
+function buildWarpEndpoint(warpOpts, warpInfo) {
+  if (!warpOpts?.enabled || !warpInfo?.private_key || !warpInfo?.peer_public_key) {
+    return null;
+  }
+  const endpointStr = warpOpts.endpoint || "engage.cloudflareclient.com:2408";
+  // hostPort: либо host:port, либо auto4/auto6/auto → host = строка, port = 2408
+  let host = endpointStr, port = 2408;
+  if (/^auto[46]?$/.test(endpointStr)) {
+    host = endpointStr;
+  } else {
+    try {
+      const { host: h, port: p } = splitHostPort(endpointStr);
+      host = h;
+      if (p) port = p;
+    } catch {
+      // fallback: оставляем endpointStr как host
+    }
+  }
+
+  // client_id base64 → 3 байта reserved (CF проверяет первые 3)
+  const clientIdRaw = safeAtob(warpInfo.client_id || "");
+  const reserved = [];
+  for (let i = 0; i < 3; i++) reserved.push(clientIdRaw.charCodeAt(i) || 0);
+
+  const address = [];
+  if (warpInfo.local_ipv4) address.push(`${warpInfo.local_ipv4}/32`);
+  if (warpInfo.local_ipv6) address.push(`${warpInfo.local_ipv6}/128`);
+  if (!address.length) return null;
+
+  const endpoint = {
+    type: "wireguard",
+    tag: "warp",
+    address,
+    private_key: warpInfo.private_key,
+    mtu: warpOpts.mtu || 1280,
+    peers: [
+      {
+        address: host,
+        port,
+        public_key: warpInfo.peer_public_key,
+        allowed_ips: ["0.0.0.0/0", "::/0"],
+        reserved,
+      },
+    ],
+  };
+  if (warpOpts.mode === "chain") {
+    // detour: WG-пакеты WARP отправляются через активный selector "proxy"
+    endpoint.detour = "proxy";
+  }
+  return endpoint;
+}
+
 // ── главный builder ────────────────────────────────────────
 // Поддерживает оба вызова:
 //   buildConfig({ profile, mode, options }) — одиночный vless (legacy)
 //   buildConfig({ source, mode, options })  — { kind, profile|nodes }
 // Если nodes.length >= 2 → собирает urltest group: outbound "auto" с
 // дочерними vless'ами; route.final → auto.
-export function buildConfig({ profile, source, mode, options }) {
+//
+// warpInfo: опциональный объект WarpInfo от warp_status команды.
+//   Если options.warp.enabled === true и warpInfo передан с валидными ключами —
+//   добавляется WireGuard endpoint и route.final переключается на "warp".
+export function buildConfig({ profile, source, mode, options, warpInfo }) {
   const opts = options || DEFAULT_OPTIONS;
   const src = source ?? (profile ? { kind: "single", profile } : null);
   if (!src) throw new Error("buildConfig: нет источника");
@@ -728,6 +792,13 @@ export function buildConfig({ profile, source, mode, options }) {
     ];
   }
 
+  // WARP endpoint (опционально): подмешиваем wireguard endpoint и
+  // переключаем route.final на "warp".
+  const warpEndpoint = buildWarpEndpoint(opts.warp, warpInfo);
+  if (warpEndpoint) {
+    route.final = "warp";
+  }
+
   const config = {
     log: {
       level: opts.log?.level || "info",
@@ -742,6 +813,9 @@ export function buildConfig({ profile, source, mode, options }) {
       cache_file: { enabled: true, store_rdrc: true },
     },
   };
+  if (warpEndpoint) {
+    config.endpoints = [warpEndpoint];
+  }
 
   if (opts.experimental?.enableClashApi) {
     config.experimental.clash_api = {

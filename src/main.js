@@ -1010,7 +1010,17 @@ heroDisc?.addEventListener("click", async () => {
     if (!src) { toast("Сначала импортируйте конфиг или подписку", "error"); return; }
     const mode = getMode();
     const options = loadOptions();
-    const config = buildConfig({ source: src, mode, options });
+    // Если WARP включён — тянем регистрацию из app_config_dir/warp.json
+    // и передаём в builder. Без warpInfo builder тихо пропустит warp endpoint.
+    let warpInfo = null;
+    if (options.warp?.enabled) {
+      try { warpInfo = await invoke("warp_status"); } catch {}
+      if (!warpInfo) {
+        toast("WARP включён, но не зарегистрирован — Settings → WARP → «Зарегистрировать»", "error", 3500);
+        return;
+      }
+    }
+    const config = buildConfig({ source: src, mode, options, warpInfo });
     setState("connecting");
     try {
       await invoke("start_singbox", { configJson: JSON.stringify(config), mode });
@@ -1081,6 +1091,28 @@ updateHeroHint();
   } catch {}
 })();
 
+// Синхронизация списка зарегистрированных URL-схем с реальным HKCU.
+// Юзер мог удалить ключи руками / переинсталлировать Ninety в другую папку,
+// тогда наш path в реестре устарел — is_url_handler_registered вернёт false,
+// и мы синхронизируем options.general.urlSchemes под реальное состояние.
+(async () => {
+  try {
+    const { URL_HANDLER_SCHEMES, updateOption } = await import("/lib/options.js");
+    const actual = [];
+    for (const scheme of URL_HANDLER_SCHEMES) {
+      try {
+        const ok = await invoke("is_url_handler_registered", { scheme });
+        if (ok) actual.push(scheme);
+      } catch {}
+    }
+    const opts = loadOptions();
+    const current = opts.general?.urlSchemes || [];
+    const sameLen = current.length === actual.length;
+    const sameSet = sameLen && current.every(s => actual.includes(s));
+    if (!sameSet) updateOption("general.urlSchemes", actual);
+  } catch {}
+})();
+
 // ── Auto-update ────────────────────────────────────────────
 async function runUpdateCheck({ silent = true } = {}) {
   if (!updaterAvailable()) {
@@ -1123,32 +1155,92 @@ setInterval(silentRefreshSubs, 30 * 60_000);
 // «Только что» / «N мин назад» обновляем каждые 30 сек
 setInterval(refreshSubCardFromActive, 30_000);
 
-// ── Deep link ninety://import/<url> ────────────────────────
-// Юзер кликает по ссылке в TG/браузере → Windows запускает Ninety с argv,
-// single-instance plugin перехватывает и emit'ит onOpenUrl в первый процесс.
-// Парсим ninety://import/<encoded-url> и открываем add-modal с prefilled URL —
-// юзер видит что добавляет и подтверждает.
-const NINETY_SCHEME_RE = /^ninety:\/\/import\/(.+)$/i;
+// ── Deep links ──────────────────────────────────────────────
+// Поддерживаемые форматы:
+//   ninety://import/<encoded-url>             — подписка (legacy, оставлено)
+//   ninety://import?url=...&name=...          — подписка (query-style)
+//   ninety://config/<encoded-link>            — одиночный конфиг (vless/vmess/...)
+//   ninety://add/<base64-url>                 — подписка (Happ-style, base64 URL)
+//   <proto>://...                             — top-level link (vless/vmess/ss/
+//                                               trojan/hysteria2/tuic/sub), если юзер
+//                                               включил opt-in регистрацию схем в
+//                                               Settings → Общие
+// Windows запускает Ninety с argv, single-instance plugin перехватывает и
+// emit'ит onOpenUrl в первый процесс. Авто-импорта нет — юзер видит prefilled
+// URL в add-modal и подтверждает (защита от malicious links).
+const NINETY_RE = /^ninety:\/\/([a-z]+)(?:\/(.*))?$/i;
+const TOP_LEVEL_PROTOS = ["vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "tuic", "sub"];
+
+function safeAtobUrl(s) {
+  try {
+    const cleaned = String(s).replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    const padded = cleaned + "=".repeat((4 - cleaned.length % 4) % 4);
+    return atob(padded);
+  } catch { return ""; }
+}
 
 function handleDeepLinkUrl(rawUrl) {
   try {
-    const m = String(rawUrl || "").match(NINETY_SCHEME_RE);
+    const raw = String(rawUrl || "").trim();
+    if (!raw) return;
+
+    // top-level proto:// (vless/vmess/...) — opt-in
+    const protoIdx = raw.indexOf("://");
+    if (protoIdx > 0) {
+      const proto = raw.slice(0, protoIdx).toLowerCase();
+      if (TOP_LEVEL_PROTOS.includes(proto)) {
+        if (proto === "sub") {
+          // sub://<base64-url> → раскрываем и шлём как подписку
+          const decoded = safeAtobUrl(raw.slice(protoIdx + 3));
+          if (decoded) {
+            openAddModal({ prefillUrl: decoded });
+            return;
+          }
+        }
+        openAddModal({ prefillUrl: raw });
+        return;
+      }
+    }
+
+    // ninety://<action>/<rest>
+    const m = raw.match(NINETY_RE);
     if (!m) return;
-    let target = m[1];
-    try { target = decodeURIComponent(target); } catch {}
-    // Если внутри стоит query ?name=..., вытаскиваем для prefillName
+    const action = m[1].toLowerCase();
+    let rest = m[2] || "";
+
+    // Хвост ?name=... — общий для import/config
     let prefillName = "";
-    const qIdx = target.indexOf("?");
+    let queryUrl = "";
+    const qIdx = rest.indexOf("?");
     if (qIdx >= 0) {
-      const tail = target.slice(qIdx + 1);
-      target = target.slice(0, qIdx);
+      const tail = rest.slice(qIdx + 1);
+      rest = rest.slice(0, qIdx);
       try {
         const params = new URLSearchParams(tail);
         const n = params.get("name");
         if (n) prefillName = n;
+        const u = params.get("url");
+        if (u) queryUrl = u;
       } catch {}
     }
-    openAddModal({ prefillUrl: target, prefillName });
+    // ninety://import?url=... — путь пустой, URL пришёл в query
+    if (!rest && queryUrl) rest = queryUrl;
+
+    try { rest = decodeURIComponent(rest); } catch {}
+
+    if (!rest) return;
+
+    if (action === "add") {
+      // ninety://add/<base64-url> — раскрываем base64
+      const decoded = safeAtobUrl(rest);
+      if (decoded) {
+        openAddModal({ prefillUrl: decoded, prefillName });
+        return;
+      }
+    }
+
+    // import / config / add (если base64 не распознали) — кидаем сырой URL
+    openAddModal({ prefillUrl: rest, prefillName });
   } catch (e) {
     console.warn("deeplink handle failed", e);
   }
