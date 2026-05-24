@@ -160,7 +160,7 @@ fn parse_wg_keys(info: &crate::warp::WarpInfo) -> Option<WgKeys> {
 //
 // MAC1 = BLAKE2s-128(key=BLAKE2s-256("mac1----" || peer_static_pub), data=msg[..116])
 fn recompute_mac1(packet: &mut [u8], peer_pub: &[u8; 32]) {
-    use blake2::digest::{KeyInit, Mac, Update};
+    use blake2::digest::{KeyInit, Mac};
     use blake2::{digest::consts::U16, Blake2s256, Blake2sMac, Digest};
 
     let mut h = Blake2s256::new();
@@ -168,7 +168,9 @@ fn recompute_mac1(packet: &mut [u8], peer_pub: &[u8; 32]) {
     Digest::update(&mut h, peer_pub.as_ref());
     let key = h.finalize();
 
-    let mut mac = Blake2sMac::<U16>::new_from_slice(&key)
+    // KeyInit и Mac оба определяют new_from_slice — нужен disambiguation
+    type Mac16 = Blake2sMac<U16>;
+    let mut mac = <Mac16 as KeyInit>::new_from_slice(&key)
         .expect("blake2s 32-byte key");
     Mac::update(&mut mac, &packet[..116]);
     let tag = mac.finalize().into_bytes();
