@@ -96,6 +96,11 @@ img { display: block; }
   max-width: none;
 }
 
+/* /Логи — textarea растягивается на всю ширину при maximize. */
+.view--logs {
+  max-width: none;
+}
+
 .view[hidden] { display: none; }
 
 /* Скроллбар */

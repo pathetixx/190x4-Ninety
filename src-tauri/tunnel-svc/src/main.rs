@@ -16,6 +16,7 @@ mod singbox;
 mod ipc;
 #[cfg(target_os = "windows")]
 mod runner;
+mod tun_cleanup;
 
 #[cfg(target_os = "windows")]
 fn main() {

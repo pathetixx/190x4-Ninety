@@ -13,7 +13,7 @@ export const BALANCER_STRATEGIES = ["round-robin", "consistent-hashing", "sticky
 export const DEFAULT_OPTIONS = {
   region: "ru",
   blockAds: false,
-  log: { level: "warn" },
+  log: { level: "info", timestamp: true, disabled: false },
   urlTest: {
     connectionTestUrl: "http://cp.cloudflare.com/generate_204",
     intervalSec: 600,
