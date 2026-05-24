@@ -729,7 +729,11 @@ export function buildConfig({ profile, source, mode, options }) {
   }
 
   const config = {
-    log: { level: opts.log.level || "warn", timestamp: true },
+    log: {
+      level: opts.log?.level || "info",
+      timestamp: opts.log?.timestamp !== false,
+      ...(opts.log?.disabled ? { disabled: true } : {}),
+    },
     dns: buildDns(opts),
     inbounds: [buildInbound(mode, opts)],
     outbounds,

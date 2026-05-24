@@ -63,6 +63,11 @@ fn run_service() -> Result<(), String> {
 
     linfo!("сервис стартовал");
 
+    // Подчищаем осиротевший ninety-tun до того как клиент пришлёт первый start.
+    // Если sing-box падал жёстко в прошлой сессии — адаптер остался зарегистрирован,
+    // и новый sing-box не сможет его создать.
+    crate::tun_cleanup::cleanup_orphan_tun_adapter();
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
