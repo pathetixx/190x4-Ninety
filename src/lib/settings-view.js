@@ -21,6 +21,7 @@ const WARP_NOISE_LABELS = {
   off:        "Off — обычный WireGuard",
   default:    "Default — лёгкая обфускация (1-3 пакета)",
   aggressive: "Aggressive — больше шума (3-8 пакетов)",
+  custom:     "Custom — параметры ниже",
 };
 
 const SECTIONS = [
@@ -240,21 +241,26 @@ export function mountSettings(root, opts = {}) {
       scanBtn.disabled = true;
       scanBtn.textContent = "Сканирую…";
       if (scanResults) scanResults.hidden = false;
-      if (scanStatus) scanStatus.textContent = "Пробую CF WARP endpoints (TCP-ping)…";
+      const deep = !!loadOptions().warp?.deepScan;
+      // mode=auto: WG handshake если warp.json есть, иначе TCP. Backend сам определит.
+      if (scanStatus) scanStatus.textContent = deep
+        ? "Глубокое сканирование CF WARP-пула (~15-25с)…"
+        : "Пробую CF WARP endpoints…";
       if (scanList) scanList.innerHTML = "";
       try {
-        const results = await invoke("warp_scan_endpoints", { topN: 10 });
+        const results = await invoke("warp_scan_endpoints", { topN: 10, deep, mode: "auto" });
         if (!Array.isArray(results) || results.length === 0) {
           if (scanStatus) scanStatus.textContent = "Ничего не нашлось — все IP в семпле недоступны. Попробуйте ещё раз.";
           return;
         }
-        if (scanStatus) scanStatus.textContent = `Top-${results.length} по пингу. Нажмите «Применить» — endpoint выше обновится.`;
+        const method = results[0]?.method === "wg" ? "WG-handshake" : "TCP-ping";
+        if (scanStatus) scanStatus.textContent = `Top-${results.length} по latency (${method}). Нажмите «Применить» — endpoint выше обновится.`;
         if (scanList) scanList.innerHTML = results.map(r => `
           <div class="setting-row">
             <span class="setting-row__icon">${iconTarget()}</span>
             <span class="setting-row__main">
               <span class="setting-row__label">${r.ip}:${r.port}</span>
-              <span class="setting-row__hint">${r.latency_ms} мс</span>
+              <span class="setting-row__hint">${r.latency_ms} мс · ${r.method}</span>
             </span>
             <span class="setting-row__control">
               <button class="settings-btn" data-scan-pick="${r.ip}:${r.port}" type="button">Применить</button>
@@ -566,8 +572,9 @@ function renderWarp(o) {
         inputText("warp.mtu", w.mtu || 1280, "number", 'min="576" max="1500"'))}
       ${row(iconScissors(), "Обфускация (AmneziaWG)",
         "Подмешивает junk-пакеты перед WG-хендшейком — обход DPI, который ловит WG-сигнатуру (актуально для РФ-ТСПУ с апреля 2026). Работает только в форке sing-box (у нас собран с <code>with_awg</code>).",
-        select("warp.noisePreset", w.noisePreset || "off", ["off", "default", "aggressive"], WARP_NOISE_LABELS))}
+        select("warp.noisePreset", w.noisePreset || "off", ["off", "default", "aggressive", "custom"], WARP_NOISE_LABELS, true))}
     </div>
+    ${(w.noisePreset === "custom") ? renderWarpCustomNoise(w.customNoise || {}) : ""}
     <div class="settings-section">
       ${row(iconLock(), "Лицензия WARP+ (опционально)",
         "26 символов из приложения «1.1.1.1» → Settings → Account → Key. Оставьте пусто для бесплатного WARP.",
@@ -581,12 +588,26 @@ function renderWarp(o) {
     </div>
     <div class="settings-section">
       ${row(iconTarget(), "Найти лучший CF endpoint",
-        "Сканирует ~40 IP × 14 портов из CF WARP-пула через TCP-connect ping. После завершения — top-10 c минимальным пингом. Нажмите «Применить» рядом с нужным, чтобы выставить в поле Endpoint выше.",
+        "Сканирует CF WARP-пул через TCP-connect ping (~40 IP × 14 портов в обычном режиме, ~330 IP × 14 портов в глубоком). После — top-10 по latency. «Применить» рядом с нужным IP выставит его в поле Endpoint выше.",
         `<button class="settings-btn" data-action="warp-scan" type="button">Сканировать</button>`)}
+      ${row(iconCache(), "Глубокое сканирование",
+        "Расширенный набор подсетей CF (~22 вместо 8) и больше IP на подсеть. Дольше (~15-25с), но шанс найти лучший endpoint выше.",
+        toggle("warp.deepScan", !!w.deepScan))}
     </div>
     <div class="settings-section" id="warp-scan-results" hidden>
       <div class="settings-banner" id="warp-scan-status">Сканирую…</div>
       <div id="warp-scan-list"></div>
+    </div>
+    <div class="settings-section">
+      ${row(iconClock(), "Авто-ротация endpoint",
+        "Раз в N минут опрашиваем delay текущего WARP-узла через clash-API. Если он выше порога — запускаем scan и применяем лучший (auto-reconnect). Бьёт ровно один раз пока endpoint не нормализуется.",
+        toggle("warp.autoRescan", !!w.autoRescan))}
+      ${row(iconClock(), "Интервал опроса (мин)",
+        "Как часто проверять latency. Слишком часто = лишний трафик и шум в логах.",
+        inputText("warp.autoRescanIntervalMin", w.autoRescanIntervalMin ?? 30, "number", 'min="5" max="360"'))}
+      ${row(iconTarget(), "Порог latency (мс)",
+        "Если delay текущего endpoint превышает порог (или равен 0 — таймаут) — триггер scan.",
+        inputText("warp.autoRescanThresholdMs", w.autoRescanThresholdMs ?? 300, "number", 'min="100" max="5000"'))}
     </div>
     <div class="settings-section">
       ${row(iconShield(), "Статус регистрации",
@@ -595,6 +616,20 @@ function renderWarp(o) {
       ${row(iconRemote(), "Адрес WG (IPv4)",
         "Локальный адрес, выданный Cloudflare для вашего устройства.",
         `<span class="settings-version" id="warp-ipv4">—</span>`)}
+    </div>
+  `;
+}
+
+function renderWarpCustomNoise(cn) {
+  const c = cn.count || {}, s = cn.size || {}, d = cn.delay || {};
+  return `
+    <div class="settings-banner">
+      Custom-обфускация: количество junk-пакетов и их размер/задержка задаются вручную. Слишком крупные значения (например count 20+) увеличат время WG-handshake и могут перегрузить узкие каналы.
+    </div>
+    <div class="settings-section">
+      ${rangeRow("Количество fake-пакетов", "Сколько мусора отправить перед реальным WG-init.", "warp.customNoise.count.from", c.from ?? 2, "warp.customNoise.count.to", c.to ?? 5)}
+      ${rangeRow("Размер пакета (байт)", "Случайная длина каждого fake-пакета.", "warp.customNoise.size.from", s.from ?? 20, "warp.customNoise.size.to", s.to ?? 60)}
+      ${rangeRow("Задержка между пакетами (мс)", "Случайный sleep между отправкой junk-пакетов.", "warp.customNoise.delay.from", d.from ?? 8, "warp.customNoise.delay.to", d.to ?? 20)}
     </div>
   `;
 }
