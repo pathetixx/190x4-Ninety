@@ -1,0 +1,59 @@
+/* ─────────────────────────────────────────────────────────────
+   Ninety — Reduced motion overrides
+   prefers-reduced-motion: убираем бесконечные анимации (sweep/halo
+   breath) и драматические burst-коллапсы. Оставляем короткие
+   opacity-fade'ы для индикации событий + press-scale для тактильности.
+   Drawer/popover короткие transition не трогаем.
+   ───────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  /* Полностью убрать бесконечные */
+  .hero__sweep,
+  .hero__halo {
+    animation: none !important;
+  }
+  .hero__halo {
+    opacity: 0.55 !important;
+    transform: none !important;
+  }
+  .hero__sweep { opacity: 0 !important; }
+
+  /* Burst / lock / ripple → короткий fade */
+  .hero__burst[data-state],
+  .hero__lock[data-state="secured"],
+  .hero__ripple {
+    animation: hero-rm-fade 200ms linear forwards !important;
+    transform: none !important;
+    filter: none !important;
+  }
+  @keyframes hero-rm-fade {
+    0%   { opacity: 0.5; }
+    100% { opacity: 0; }
+  }
+
+  /* Title / kicker / ping — смена без translate/blur */
+  .hero__title,
+  .hero__kicker,
+  .hero__ping {
+    animation: hero-rm-text 160ms linear backwards !important;
+    transform: none !important;
+    filter: none !important;
+  }
+  @keyframes hero-rm-text {
+    0%   { opacity: 0; }
+    100% { opacity: 1; }
+  }
+
+  /* Status-dot pulse — без opacity-петли */
+  .hero[data-state="linking"] .hero__kicker-dot {
+    animation: none !important;
+  }
+
+  /* Spinner FAB (proxies) и srv-spin — оставить только если они индикативны.
+     Spinner-крутёжки — это feedback "идёт работа" → оставляем минимальные */
+  .prox-fab[data-testing="true"] svg,
+  .srv__ping[data-spinning="true"]::after,
+  .add-modal__spinner {
+    /* оставляем — это не декор, а индикатор активной работы */
+  }
+}

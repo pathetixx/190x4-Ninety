@@ -26,12 +26,20 @@ const WARP_NOISE_LABELS = {
 
 const SECTIONS = [
   { key: "general",    title: "Общие",        icon: iconGeneral,    hint: "Логи, тест соединения, интервалы" },
+  { key: "appearance", title: "Оформление",   icon: iconTheme,      hint: "Темы: Kurogane / Synthwave / Matrix / Mono" },
   { key: "routing",    title: "Маршрутизация", icon: iconRouting,    hint: "Регион, обход LAN, блокировка рекламы" },
   { key: "dns",        title: "DNS",           icon: iconDns,        hint: "Remote / Direct DNS, fake-DNS" },
   { key: "inbound",    title: "Входящие",      icon: iconInbound,    hint: "Mixed-порт, MTU, TUN-стек" },
   { key: "tunnel",     title: "Туннель",       icon: iconTunnel,     hint: "Windows Service для TUN-режима" },
   { key: "tls-tricks", title: "Трюки TLS",     icon: iconTls,        hint: "Фрагментация ClientHello, padding" },
   { key: "warp",       title: "WARP",          icon: iconWarp,       hint: "Cloudflare WARP — outbound и chain" },
+];
+
+const THEMES = [
+  { id: "kurogane",  name: "Kurogane",  kicker: "NEON · RED",  accent: "#DE5772", glow: "rgba(192,48,74,0.35)" },
+  { id: "synthwave", name: "Synthwave", kicker: "VIOLET WAVE", accent: "#E0A6FF", glow: "rgba(199,125,255,0.35)" },
+  { id: "matrix",    name: "Matrix",    kicker: "EMERALD",     accent: "#5CEE92", glow: "rgba(43,214,106,0.35)" },
+  { id: "mono",      name: "Mono",      kicker: "MONOCHROME",  accent: "#FFFFFF", glow: "rgba(255,255,255,0.25)" },
 ];
 
 const TUNNEL_STATE_LABELS = {
@@ -106,20 +114,18 @@ export function mountSettings(root, opts = {}) {
       currentSection = null;
       render();
     });
-    el.querySelectorAll("[data-opt]").forEach(input => {
+    // <input>/<select> с data-opt — старая логика (change/blur → value)
+    el.querySelectorAll("input[data-opt], select[data-opt]").forEach(input => {
       const path = input.dataset.opt;
       const handler = async () => {
         const value = readInput(input);
         updateOption(path, value);
-        // Боковые эффекты: тогглы которые меняют Windows-state, а не sing-box config
         if (input.dataset.action === "autostart") {
           try {
             const invoke = window.__TAURI__?.core?.invoke;
             const cmd = value ? "plugin:autostart|enable" : "plugin:autostart|disable";
             if (invoke) await invoke(cmd);
-          } catch (e) {
-            console.warn("autostart toggle failed", e);
-          }
+          } catch (e) { console.warn("autostart toggle failed", e); }
         }
         onChange(path, value);
         if (input.dataset.affectsView) render();
@@ -129,27 +135,59 @@ export function mountSettings(root, opts = {}) {
         input.addEventListener("blur", handler);
       }
     });
+    // .switch[data-on][data-opt] — новый toggle (click переключает)
+    el.querySelectorAll(".switch[data-opt]").forEach(sw => {
+      const path = sw.dataset.opt;
+      sw.addEventListener("click", async () => {
+        const newVal = sw.dataset.on !== "true";
+        sw.dataset.on = String(newVal);
+        updateOption(path, newVal);
+        if (sw.dataset.action === "autostart") {
+          try {
+            const invoke = window.__TAURI__?.core?.invoke;
+            const cmd = newVal ? "plugin:autostart|enable" : "plugin:autostart|disable";
+            if (invoke) await invoke(cmd);
+          } catch (e) { console.warn("autostart toggle failed", e); }
+        }
+        onChange(path, newVal);
+        if (sw.dataset.affectsView) render();
+      });
+    });
     el.querySelectorAll("[data-action='check-updates']").forEach(btn => {
       btn.addEventListener("click", () => window.__ninetyUpdateCheck?.());
     });
     bindSchemeToggles(el, onChange);
     bindTunnelSection(el, sec);
     bindWarpSection(el, sec, onChange);
+    bindAppearanceSection(el, sec);
+  }
+
+  function bindAppearanceSection(el, sec) {
+    if (sec.key !== "appearance") return;
+    el.querySelectorAll(".theme-card[data-theme]").forEach(card => {
+      card.addEventListener("click", () => {
+        const id = card.dataset.theme;
+        // главный setter в main.js пишет localStorage + меняет data-theme на корне
+        window.__ninetySetTheme?.(id);
+        el.querySelectorAll(".theme-card[data-theme]").forEach(c => {
+          c.dataset.on = String(c.dataset.theme === id);
+        });
+      });
+    });
   }
 
   function bindSchemeToggles(el, onChange) {
     const invoke = window.__TAURI__?.core?.invoke;
     if (!invoke) return;
-    el.querySelectorAll("[data-scheme]").forEach(input => {
-      input.addEventListener("change", async () => {
-        const scheme = input.dataset.scheme;
-        const want = !!input.checked;
+    el.querySelectorAll(".switch[data-scheme]").forEach(sw => {
+      sw.addEventListener("click", async () => {
+        const scheme = sw.dataset.scheme;
+        const was = sw.dataset.on === "true";
+        const want = !was;
         const cmd = want ? "register_url_handler" : "unregister_url_handler";
         try {
           await invoke(cmd, { scheme });
-          // Обновляем options.general.urlSchemes — для UI persistence.
-          // Source of truth — реестр, проверяется через is_url_handler_registered
-          // на старте app (см. main.js).
+          sw.dataset.on = String(want);
           const opts = loadOptions();
           const cur = new Set(opts.general?.urlSchemes || []);
           if (want) cur.add(scheme); else cur.delete(scheme);
@@ -157,7 +195,6 @@ export function mountSettings(root, opts = {}) {
           onChange(`general.urlSchemes.${scheme}`, want);
         } catch (e) {
           alert(`${want ? "Регистрация" : "Удаление"} ${scheme}:// не удалось: ${e?.message || e}`);
-          input.checked = !want;
         }
       });
     });
@@ -263,7 +300,7 @@ export function mountSettings(root, opts = {}) {
               <span class="setting-row__hint">${r.latency_ms} мс · ${r.method}</span>
             </span>
             <span class="setting-row__control">
-              <button class="settings-btn" data-scan-pick="${r.ip}:${r.port}" type="button">Применить</button>
+              <button class="btn btn--sm" data-scan-pick="${r.ip}:${r.port}" type="button">Применить</button>
             </span>
           </div>
         `).join("");
@@ -424,6 +461,7 @@ function renderSection(sec) {
 function renderSectionBody(sec, o) {
   switch (sec.key) {
     case "general":    return renderGeneral(o);
+    case "appearance": return renderAppearance(o);
     case "routing":    return renderRouting(o);
     case "dns":        return renderDns(o);
     case "inbound":    return renderInbound(o);
@@ -434,28 +472,53 @@ function renderSectionBody(sec, o) {
   return "";
 }
 
-// helpers
-function row(icon, label, hint, control) {
+function renderAppearance() {
+  const current = localStorage.getItem("ninety.theme") || "kurogane";
+  const cards = THEMES.map(t => `
+    <div class="theme-card" data-theme="${t.id}" data-on="${current === t.id}"
+         style="--theme-accent:${t.accent};--theme-glow:${t.glow};">
+      <div class="theme-card__check">
+        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
+      </div>
+      <div class="theme-card__top">
+        <span class="theme-card__dot"></span>
+        <span class="theme-card__kicker">${t.kicker}</span>
+      </div>
+      <div class="theme-card__name">${t.name}</div>
+      <div class="theme-card__swatches">
+        <span style="opacity:1"></span>
+        <span style="opacity:0.7"></span>
+        <span style="opacity:0.45"></span>
+        <span style="opacity:0.22"></span>
+      </div>
+    </div>
+  `).join("");
   return `
-    <div class="setting-row">
-      <span class="setting-row__icon">${icon || ""}</span>
-      <span class="setting-row__main">
-        <span class="setting-row__label">${label}</span>
-        ${hint ? `<span class="setting-row__hint">${hint}</span>` : ""}
-      </span>
-      <span class="setting-row__control">${control}</span>
+    <div class="settings-banner">
+      Палитра неизменна — меняется только акцентный цвет. Выбор сохраняется автоматически.
+    </div>
+    <div class="theme-grid">${cards}</div>
+  `;
+}
+
+// helpers — новые премиум-токены (.set-row, .switch[data-on], .seg)
+function row(_icon, label, hint, control) {
+  // _icon более не показываем — премиум-эстетика без декоративных иконок в строках
+  return `
+    <div class="set-row">
+      <div class="set-row__lbl">
+        <div class="set-row__t">${label}</div>
+        ${hint ? `<div class="set-row__d">${hint}</div>` : ""}
+      </div>
+      <div class="set-row__ctl">${control}</div>
     </div>
   `;
 }
 
 function toggle(path, checked, extra = {}) {
   const action = extra.action ? `data-action="${extra.action}"` : "";
-  return `
-    <label class="switch">
-      <input type="checkbox" data-opt="${path}" ${action} ${checked ? "checked" : ""}/>
-      <span class="switch__track"></span>
-    </label>
-  `;
+  const affects = extra.affectsView ? `data-affects-view="true"` : "";
+  return `<span class="switch" data-opt="${path}" data-on="${checked ? "true" : "false"}" ${action} ${affects}></span>`;
 }
 
 function select(path, value, options, labels = {}, affectsView = false) {
@@ -464,7 +527,8 @@ function select(path, value, options, labels = {}, affectsView = false) {
 }
 
 function inputText(path, value, type = "text", attrs = "") {
-  return `<input class="settings-input" type="${type}" value="${escapeAttr(value ?? "")}" data-opt="${path}" ${attrs}/>`;
+  const cls = type === "number" ? "settings-input settings-input--num" : "settings-input";
+  return `<input class="${cls}" type="${type}" value="${escapeAttr(value ?? "")}" data-opt="${path}" ${attrs}/>`;
 }
 
 function escapeAttr(s) {
@@ -473,19 +537,22 @@ function escapeAttr(s) {
 
 function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
   return `
-    <div class="setting-row">
-      <span class="setting-row__icon"></span>
-      <span class="setting-row__main">
-        <span class="setting-row__label">${label}</span>
-        ${hint ? `<span class="setting-row__hint">${hint}</span>` : ""}
-      </span>
-      <span class="setting-row__control setting-row__control--range">
+    <div class="set-row">
+      <div class="set-row__lbl">
+        <div class="set-row__t">${label}</div>
+        ${hint ? `<div class="set-row__d">${hint}</div>` : ""}
+      </div>
+      <div class="set-row__ctl settings-range">
         <input class="settings-input settings-input--num" type="number" value="${fromVal}" data-opt="${fromPath}"/>
         <span class="settings-range__sep">—</span>
         <input class="settings-input settings-input--num" type="number" value="${toVal}" data-opt="${toPath}"/>
-      </span>
+      </div>
     </div>
   `;
+}
+
+function settingsBtn(action, label, primary = false) {
+  return `<button class="btn btn--sm${primary ? " btn--primary" : ""}" data-action="${action}" type="button">${label}</button>`;
 }
 
 // ── Разделы ────────────────────────────────────────────────
@@ -496,10 +563,7 @@ function renderGeneral(o) {
     iconUrl(),
     SCHEME_LABELS[s] || s,
     `Ninety будет открываться при клике по ${SCHEME_LABELS[s] || s + "://"} ссылкам`,
-    `<label class="switch">
-       <input type="checkbox" data-scheme="${s}" ${registered.has(s) ? "checked" : ""}/>
-       <span class="switch__track"></span>
-     </label>`,
+    `<span class="switch" data-scheme="${s}" data-on="${registered.has(s) ? "true" : "false"}"></span>`,
   )).join("");
   return `
     <div class="settings-section">
@@ -521,7 +585,7 @@ function renderGeneral(o) {
     </div>
     <div class="settings-section">
       ${row(iconUpdate(), "Версия Ninety", "Текущая установленная версия", `<span class="settings-version" id="settings-version">—</span>`)}
-      ${row(iconUpdate(), "Проверить обновления", "Скачать и установить новую версию с GitHub", `<button class="settings-btn" data-action="check-updates" type="button">Проверить</button>`)}
+      ${row(iconUpdate(), "Проверить обновления", "Скачать и установить новую версию с GitHub", `<button class="btn btn--sm" data-action="check-updates" type="button">Проверить</button>`)}
     </div>
   `;
 }
@@ -608,15 +672,15 @@ function renderWarp(o) {
         `<input class="settings-input" type="text" id="warp-license-input" value="" maxlength="26" placeholder="xxxxxxxx-xxxxxxxx-xxxxxxxx" autocomplete="off" spellcheck="false"/>`)}
       ${row(iconRocket(), "Зарегистрировать / обновить",
         "Создаёт WG-пару и регистрирует device в CF API. Старая регистрация (если была) — удаляется на стороне CF.",
-        `<button class="settings-btn" data-action="warp-register" type="button">Зарегистрировать</button>`)}
+        `<button class="btn btn--sm" data-action="warp-register" type="button">Зарегистрировать</button>`)}
       ${row(iconScissors(), "Сбросить регистрацию",
         "Удаляет device на стороне CF и стирает локальный warp.json. WARP перестанет работать до повторной регистрации.",
-        `<button class="settings-btn settings-btn--danger" data-action="warp-reset" type="button">Сбросить</button>`)}
+        `<button class="btn btn--sm btn--danger" data-action="warp-reset" type="button">Сбросить</button>`)}
     </div>
     <div class="settings-section">
       ${row(iconTarget(), "Найти лучший CF endpoint",
         "Сканирует CF WARP-пул через TCP-connect ping (~40 IP × 14 портов в обычном режиме, ~330 IP × 14 портов в глубоком). После — top-10 по latency. «Применить» рядом с нужным IP выставит его в поле Endpoint выше.",
-        `<button class="settings-btn" data-action="warp-scan" type="button">Сканировать</button>`)}
+        `<button class="btn btn--sm" data-action="warp-scan" type="button">Сканировать</button>`)}
       ${row(iconCache(), "Глубокое сканирование",
         "Расширенный набор подсетей CF (~22 вместо 8) и больше IP на подсеть. Дольше (~15-25с), но шанс найти лучший endpoint выше.",
         toggle("warp.deepScan", !!w.deepScan))}
@@ -681,9 +745,9 @@ function renderTunnel(o) {
     </div>
     <div class="settings-section">
       ${row(iconRocket(), "Установить сервис", "Зарегистрировать NinetyTunnelService в SCM. Покажется UAC. После — TUN-режим работает без повторных UAC.",
-        `<button class="settings-btn" data-action="tunnel-install" type="button">Установить</button>`)}
+        `<button class="btn btn--sm" data-action="tunnel-install" type="button">Установить</button>`)}
       ${row(iconScissors(), "Удалить сервис", "Полностью убрать NinetyTunnelService из системы. Покажется UAC. Следующий TUN-старт снова покажет UAC при установке.",
-        `<button class="settings-btn settings-btn--danger" data-action="tunnel-uninstall" type="button">Удалить</button>`)}
+        `<button class="btn btn--sm btn--danger" data-action="tunnel-uninstall" type="button">Удалить</button>`)}
     </div>
   `;
 }
@@ -699,6 +763,7 @@ function iconInbound()  { return svgWrap('<path opacity="0.25" d="M216 48v80a8 8
 function iconTls()      { return svgWrap('<path opacity="0.25" d="M96 92a36 36 0 1 1-36-36 36 36 0 0 1 36 36Z"/><path d="M239.32 154.36 165.36 94.06A44 44 0 1 0 60 92a44 44 0 0 0 70.06 35.34l60.3 73.96a16 16 0 0 0 12.49 5.94 16.13 16.13 0 0 0 9.05-2.8l27.7-19.14A16 16 0 0 0 239.32 154.36ZM60 64a28 28 0 1 1-28 28 28 28 0 0 1 28-28Z"/>'); }
 function iconWarp()     { return svgWrap('<path opacity="0.25" d="M248 128a72 72 0 0 1-72 72H88a64 64 0 0 1 0-128 64.13 64.13 0 0 1 6.49.32A72 72 0 0 1 248 128Z"/><path d="M176 88a87.84 87.84 0 0 0-78.7 48.6A56 56 0 1 0 88 248h88a80 80 0 0 0 0-160Z"/>'); }
 function iconTunnel()   { return svgWrap('<path opacity="0.25" d="M224 136v80H32v-80a96 96 0 0 1 192 0Z"/><path d="M128 32a104.12 104.12 0 0 0-104 104v80a8 8 0 0 0 8 8h40a8 8 0 0 0 8-8 48 48 0 0 1 96 0 8 8 0 0 0 8 8h40a8 8 0 0 0 8-8v-80A104.12 104.12 0 0 0 128 32Zm88 176h-24.4a64 64 0 0 0-127.2 0H40v-72a88 88 0 0 1 176 0Z"/>'); }
+function iconTheme()    { return svgWrap('<path opacity="0.25" d="M128 32a96 96 0 0 0 0 192c8 0 16-8 16-16s-8-16-16-16h-8a16 16 0 0 1 0-32h24a32 32 0 0 0 0-64h-16a16 16 0 0 1 0-32h64a16 16 0 0 0 16-16A96.11 96.11 0 0 0 128 32Z"/><circle cx="68" cy="100" r="12"/><circle cx="100" cy="68" r="12"/><circle cx="156" cy="68" r="12"/><circle cx="188" cy="100" r="12"/>'); }
 function iconUrl()      { return svgWrap('<path opacity="0.25" d="M232 128a104 104 0 1 1-104-104"/><path d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Z"/>'); }
 function iconClock()    { return svgWrap('<path opacity="0.25" d="M224 128a96 96 0 1 1-96-96 96 96 0 0 1 96 96Z"/><path d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Zm56 112h-56a8 8 0 0 1-8-8V72a8 8 0 0 1 16 0v48h48a8 8 0 0 1 0 16Z"/>'); }
 function iconLog()      { return svgWrap('<path opacity="0.25" d="M208 88V216a8 8 0 0 1-8 8H56a8 8 0 0 1-8-8V40a8 8 0 0 1 8-8h88Z"/><path d="M213.66 82.34 157.66 26.34A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66Z"/>'); }

@@ -4,417 +4,513 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ninety · 190x4</title>
-    <link rel="stylesheet" href="/styles/theme.css" />
-    <link rel="stylesheet" href="/styles/base.css" />
-    <link rel="stylesheet" href="/styles/titlebar.css" />
-    <link rel="stylesheet" href="/styles/sidebar.css" />
-    <link rel="stylesheet" href="/styles/sub-card.css" />
-    <link rel="stylesheet" href="/styles/hero.css" />
-    <link rel="stylesheet" href="/styles/location-card.css" />
-    <link rel="stylesheet" href="/styles/world-map.css" />
+    <link rel="stylesheet" href="/styles/tokens.css" />
+    <link rel="stylesheet" href="/styles/app.css" />
+    <link rel="stylesheet" href="/styles/screens.css" />
+    <!-- Legacy CSS — экраны/оверлеи переделываются в Этапах 2-3 -->
     <link rel="stylesheet" href="/styles/popover.css" />
-    <link rel="stylesheet" href="/styles/toolbar.css" />
-    <link rel="stylesheet" href="/styles/profiles.css" />
-    <link rel="stylesheet" href="/styles/settings.css" />
-    <link rel="stylesheet" href="/styles/logs.css" />
     <link rel="stylesheet" href="/styles/update.css" />
     <link rel="stylesheet" href="/styles/add-modal.css" />
-    <link rel="stylesheet" href="/styles/proxies.css" />
     <link rel="stylesheet" href="/styles/edit-modal.css" />
     <link rel="stylesheet" href="/styles/qr-modal.css" />
+    <link rel="stylesheet" href="/styles/settings-extras.css" />
+    <link rel="stylesheet" href="/styles/proxies-screen.css" />
+    <link rel="stylesheet" href="/styles/motion-rm.css" />
   </head>
   <body>
-    <!-- Watermark карты мира -->
-    <div class="world-map" aria-hidden="true">
-      <img class="world-map__svg" src="/assets/world-map.svg" alt="" />
-    </div>
+    <div class="app" data-theme="kurogane" id="app-root">
 
-    <!-- Mesh-фон (медленный bloom поверх карты) -->
-    <canvas id="mesh-bg" aria-hidden="true"></canvas>
+      <!-- Titlebar ─────────────────────────────────────────── -->
+      <header class="titlebar" data-tauri-drag-region>
+        <div class="titlebar__title" data-tauri-drag-region><b>NINETY</b>&nbsp;&nbsp;·&nbsp;&nbsp;190X4 VPN</div>
+        <div class="titlebar__controls">
+          <button class="tb-btn" data-window-action="minimize" aria-label="Свернуть">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg>
+          </button>
+          <button class="tb-btn" data-window-action="maximize" aria-label="Развернуть">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="1"/></svg>
+          </button>
+          <button class="tb-btn tb-btn--close" data-window-action="close" aria-label="Закрыть">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></svg>
+          </button>
+        </div>
+      </header>
 
-    <!-- Тёмная воронка под hero, чтобы лого и текст читались -->
-    <div class="hero-vignette" aria-hidden="true"></div>
+      <!-- Layout ──────────────────────────────────────────── -->
+      <div class="layout">
 
-    <!-- Titlebar -->
-    <header class="titlebar" data-tauri-drag-region>
-      <div class="titlebar__spacer" data-tauri-drag-region></div>
-      <div class="titlebar__controls">
-        <button class="tb-btn" data-window-action="minimize" aria-label="Свернуть">
-          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg>
-        </button>
-        <button class="tb-btn" data-window-action="maximize" aria-label="Развернуть">
-          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
-        </button>
-        <button class="tb-btn tb-btn--close" data-window-action="close" aria-label="Закрыть">
-          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0l-10 10" stroke="currentColor" stroke-width="1"/></svg>
-        </button>
+        <!-- Sidebar ─────────────────────────────────────── -->
+        <aside class="sidebar">
+          <div class="brand">
+            <img class="brand__mark" src="/assets/ninety-mark.png" alt="" />
+            <div class="brand__txt">
+              <div class="brand__name">Ninety</div>
+              <div class="brand__meta" id="sidebar-version">— · 190X4</div>
+            </div>
+          </div>
+
+          <ul class="nav" role="navigation">
+            <li class="nav__item nav__item--active" data-view="home">
+              <span class="nav__icon">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 10.5 12 3l9 7.5"/>
+                  <path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>
+                </svg>
+              </span>
+              <span class="nav__label">Главная</span>
+            </li>
+            <li class="nav__item" data-view="profiles">
+              <span class="nav__icon">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m12 2 9 5-9 5-9-5 9-5z"/>
+                  <path d="m3 12 9 5 9-5"/>
+                  <path d="m3 17 9 5 9-5"/>
+                </svg>
+              </span>
+              <span class="nav__label">Профили</span>
+              <span class="nav__hint" id="profiles-summary"></span>
+            </li>
+            <li class="nav__item" data-view="proxies">
+              <span class="nav__icon">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/>
+                </svg>
+              </span>
+              <span class="nav__label">Ноды</span>
+            </li>
+            <li class="nav__item" data-view="logs">
+              <span class="nav__icon">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m4 17 6-6-6-6"/>
+                  <path d="M12 19h8"/>
+                </svg>
+              </span>
+              <span class="nav__label">Логи</span>
+            </li>
+            <li class="nav__item" data-view="settings">
+              <span class="nav__icon">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+              </span>
+              <span class="nav__label">Настройки</span>
+            </li>
+          </ul>
+
+          <div class="sidebar__spacer"></div>
+
+          <div class="traffic">
+            <div class="traffic__label">Трафик</div>
+            <div class="traffic__row">
+              <span class="traffic__key">
+                <svg class="traffic__arrow" viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16"/><path d="m6 14 6 6 6-6"/></svg>
+                Down
+              </span>
+              <span>
+                <span class="traffic__val" id="tf-down">0</span>
+                <span class="traffic__unit" id="tf-down-unit">КБ/с</span>
+              </span>
+            </div>
+            <div class="traffic__row">
+              <span class="traffic__key">
+                <svg class="traffic__arrow" viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V4"/><path d="m6 10 6-6 6 6"/></svg>
+                Up
+              </span>
+              <span>
+                <span class="traffic__val" id="tf-up">0</span>
+                <span class="traffic__unit" id="tf-up-unit">КБ/с</span>
+              </span>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Content ─────────────────────────────────────── -->
+        <main class="content">
+
+          <!-- HOME screen ─────────────────────────────── -->
+          <section class="screen" data-view="home">
+            <div class="sub-row">
+              <article class="sub-card" tabindex="0">
+                <div class="sub-card__icon">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9"/>
+                    <path d="M3 12h18"/>
+                    <path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/>
+                  </svg>
+                </div>
+                <div class="sub-card__main">
+                  <div class="sub-card__head">
+                    <span class="sub-card__name">190X4</span>
+                    <span class="sub-card__expire"><b id="sub-expire">153</b>&nbsp;ДН&nbsp;ОСТАЛОСЬ</span>
+                  </div>
+                  <div class="sub-card__bar">
+                    <span class="sub-card__bar-fill" id="sub-progress-fill" style="width: 1.4%"></span>
+                  </div>
+                  <div class="sub-card__meta">
+                    <span><b id="sub-traffic-used">12</b> / <b id="sub-traffic-total">857</b> ГБ</span>
+                    <span class="sub-card__meta-sep">·</span>
+                    <span>обновлено <span id="sub-updated">сейчас</span></span>
+                  </div>
+                </div>
+              </article>
+
+              <div class="toolbar">
+                <button class="tool-btn" id="mode-toggle" type="button" aria-label="Режим подключения" aria-haspopup="dialog" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 6h10"/><circle cx="17" cy="6" r="2"/>
+                    <path d="M10 12h10"/><circle cx="7" cy="12" r="2"/>
+                    <path d="M4 18h10"/><circle cx="17" cy="18" r="2"/>
+                  </svg>
+                </button>
+                <button class="tool-btn" id="add-sub" type="button" aria-label="Добавить подписку" aria-haspopup="dialog" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 5v14"/><path d="M5 12h14"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- HERO ──────────────────────────────── -->
+            <div class="hero" id="hero" data-state="standby">
+              <div class="hero__stage">
+                <div class="hero__halo"></div>
+                <div class="hero__ring hero__ring--3"></div>
+                <div class="hero__ring hero__ring--2"></div>
+                <svg class="hero__ticks" id="hero-ticks" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+                <div class="hero__ring hero__ring--1"></div>
+                <div class="hero__sweep"></div>
+
+                <!-- Transition layers (remount-driven через JS) -->
+                <div class="hero__burst" id="hero-burst" data-state="standby"></div>
+                <div class="hero__lock" id="hero-lock" data-state="standby"></div>
+
+                <button class="hero__disc" id="hero-disc" type="button" aria-label="Toggle VPN">
+                  <video class="hero__mask" id="hero-mask"
+                         src="/assets/video/hero-mask.webm"
+                         autoplay loop muted playsinline disablepictureinpicture
+                         aria-hidden="true"></video>
+                </button>
+              </div>
+
+              <div class="hero__status">
+                <h1 class="hero__title" id="hero-label">Не подключено</h1>
+                <div class="hero__kicker" id="hero-hint">
+                  <span class="hero__kicker-dot"></span>
+                  <span id="hero-hint-text">STAND-BY · DISCONNECTED</span>
+                </div>
+                <button class="hero__ping" id="hero-ping" type="button" hidden aria-label="Обновить задержку">
+                  <svg class="hero__ping-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M5 12.5a11 11 0 0 1 14 0"/>
+                    <path d="M2 9a16 16 0 0 1 20 0"/>
+                    <path d="M8.5 16a6 6 0 0 1 7 0"/>
+                    <path d="M12 19.5h.01"/>
+                  </svg>
+                  <span class="hero__ping-val" id="hero-ping-value">—</span>
+                  <span class="hero__ping-unit">МС</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Location card (показывается в standby/linking) -->
+            <article class="loc-card" tabindex="0" id="location-card">
+              <span class="loc-card__flag" aria-label="Польша">
+                <svg viewBox="0 0 8 5" preserveAspectRatio="none">
+                  <rect width="8" height="2.5" fill="#fff"/>
+                  <rect y="2.5" width="8" height="2.5" fill="#dc143c"/>
+                </svg>
+              </span>
+              <div class="loc-card__main">
+                <div class="loc-card__name">pl.190x4.pw</div>
+                <div class="loc-card__sub">
+                  <b>VLESS · REALITY · XHTTP</b>
+                </div>
+                <div class="loc-card__ip" id="loc-ip-row" hidden>
+                  <span class="loc-card__ip-label">IP</span>
+                  <span class="loc-card__ip-value" id="loc-ip" title="Кликните, чтобы показать на 20 секунд">— · —</span>
+                </div>
+                <div class="loc-card__ip" id="loc-warp-row" hidden>
+                  <span class="loc-card__ip-label">WARP</span>
+                  <span class="loc-card__ip-value" id="loc-warp-endpoint" title="Текущий CF endpoint">—</span>
+                </div>
+              </div>
+              <div class="loc-card__metric">
+                <div class="loc-card__metric-val" id="loc-ping">— мс</div>
+                <div class="loc-card__metric-lbl">PING</div>
+              </div>
+              <span class="loc-card__chev">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+              </span>
+            </article>
+
+            <!-- Stats-strip (показывается в secured) -->
+            <div class="stats" id="stats-strip" hidden>
+              <div class="stats__cell">
+                <span class="stats__label">UPTIME</span>
+                <span class="stats__value tnum" id="stats-uptime">0:00</span>
+              </div>
+              <div class="stats__cell">
+                <span class="stats__label">ВХОДЯЩИЙ</span>
+                <span class="stats__value tnum"><span id="stats-down">0.0</span><span class="unit" id="stats-down-unit">КБ/с</span></span>
+              </div>
+              <div class="stats__cell">
+                <span class="stats__label">ИСХОДЯЩИЙ</span>
+                <span class="stats__value tnum"><span id="stats-up">0.0</span><span class="unit" id="stats-up-unit">КБ/с</span></span>
+              </div>
+              <div class="stats__cell">
+                <span class="stats__label">РЕЖИМ</span>
+                <span class="stats__value" id="stats-mode">СИСТЕМНЫЙ</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- PROFILES screen -->
+          <section class="screen" data-view="profiles" hidden>
+            <div class="screen__head">
+              <div class="screen__head-main">
+                <div class="screen__kicker">SUBSCRIPTIONS</div>
+                <h2 class="screen__title">Профили</h2>
+                <div class="screen__sub">Подписки и одиночные конфиги. Активный профиль помечен <span style="color:var(--accent-bright)">точкой</span> — используется при подключении.</div>
+              </div>
+              <div class="screen__actions">
+                <button class="btn btn--ghost btn--sm" id="profiles-refresh-all" type="button">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+                  Обновить
+                </button>
+                <button class="btn btn--primary btn--sm" id="profiles-add" type="button">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                  Добавить
+                </button>
+              </div>
+            </div>
+            <div class="screen__body">
+              <div class="prof-list" id="profiles-list"></div>
+            </div>
+          </section>
+
+          <!-- PROXIES screen -->
+          <section class="screen" data-view="proxies" hidden>
+            <div class="screen__head">
+              <div class="screen__head-main">
+                <div class="screen__kicker">NODES · 190X4</div>
+                <h2 class="screen__title">Ноды</h2>
+                <div class="screen__sub" id="proxies-meta">Подписка не выбрана</div>
+              </div>
+            </div>
+            <div class="screen__body">
+              <div class="prox-grid" id="proxies-grid"></div>
+            </div>
+            <button class="prox-fab" id="proxies-fab" type="button" aria-label="Проверить задержку всех нод">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+            </button>
+          </section>
+
+          <!-- LOGS screen ─ переделывается в Этапе 2 -->
+          <section class="screen" data-view="logs" hidden>
+            <div class="screen__head">
+              <div class="screen__head-main">
+                <div class="screen__kicker">SING-BOX · STDOUT / STDERR</div>
+                <h2 class="screen__title">Логи</h2>
+                <div class="screen__sub" id="logs-path" title="">—</div>
+              </div>
+              <div class="screen__actions">
+                <button class="btn btn--sm" id="logs-open" type="button">Папка</button>
+                <button class="btn btn--sm" id="logs-clear" type="button">Очистить</button>
+                <button class="btn btn--sm" id="logs-copy" type="button">Скопировать</button>
+                <button class="btn btn--sm btn--primary" id="logs-refresh" type="button">Обновить</button>
+              </div>
+            </div>
+            <div class="logs">
+              <div class="logs__meta">
+                <div class="logs__meta-left">
+                  <span class="logs__size" id="logs-size"></span>
+                </div>
+                <label class="logs__toggle">
+                  <input type="checkbox" id="logs-auto" checked />
+                  <span>Автообновление 2 с</span>
+                </label>
+              </div>
+              <textarea class="logs__console" id="logs-view" readonly spellcheck="false" placeholder="Лог пуст. Запустите подключение — sing-box stdout/stderr будут писаться сюда."></textarea>
+            </div>
+          </section>
+
+          <!-- SETTINGS screen -->
+          <section class="screen" data-view="settings" hidden>
+            <div class="settings-root" id="settings-root"></div>
+          </section>
+
+          <!-- Onboarding empty-state -->
+          <section class="onboarding" id="onboarding-screen" hidden>
+            <div class="onb">
+              <div class="onb__mark">
+                <img src="/assets/ninety-mark.png" alt="" />
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px;align-items:center;">
+                <div class="onb__kicker">NINETY · 190X4 · FIRST RUN</div>
+                <h1 class="onb__title">Один шаг до туннеля</h1>
+                <p class="onb__sub">Добавьте подписку 190x4 — мы разберём список нод, проверим задержку и подключим к самому быстрому. Вручную настраивать ничего не надо.</p>
+              </div>
+              <div class="onb__cta">
+                <button class="btn btn--primary" id="onb-add" type="button">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+                  Добавить подписку
+                </button>
+                <button class="btn" id="onb-clipboard" type="button">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+                  Из буфера обмена
+                </button>
+              </div>
+              <div style="margin-top:8px;padding:10px 14px;border-radius:8px;background:var(--ink-1);border:1px solid var(--line-1);font-size:11.5px;color:var(--text-lo);font-family:var(--font-mono);letter-spacing:-0.005em;">
+                Поддерживается: <span style="color:var(--text-mid);">vless://</span>, <span style="color:var(--text-mid);">vmess://</span>, <span style="color:var(--text-mid);">trojan://</span>, <span style="color:var(--text-mid);">ss://</span>, <span style="color:var(--text-mid);">https://…sub</span>
+              </div>
+            </div>
+          </section>
+
+        </main>
       </div>
-    </header>
 
-    <div class="layout">
-      <aside class="sidebar">
-        <div class="sidebar__brand" data-tauri-drag-region>
-          <img class="sidebar__brand-mark" src="/assets/ninety-mark.png" alt="" />
-          <div class="sidebar__brand-text">
-            <div class="sidebar__brand-name">Ninety</div>
-            <div class="sidebar__brand-version" id="sidebar-version">— · 190X4</div>
+      <!-- Legacy popovers ─── переделываются в Этапе 3 -->
+      <div class="popover" id="mode-popover" role="dialog" aria-label="Режим подключения" hidden>
+        <div class="popover__kicker">РЕЖИМ ПОДКЛЮЧЕНИЯ</div>
+        <div class="seg" role="tablist" id="mode-seg">
+          <button class="seg__btn" role="tab" data-mode="proxy" data-on="false">Прокси</button>
+          <button class="seg__btn" role="tab" data-mode="systemProxy" data-on="true">Системный</button>
+          <button class="seg__btn" role="tab" data-mode="tun" data-on="false">VPN · TUN</button>
+        </div>
+        <div class="popover__hint" id="mode-hint">
+          <b>Системный.</b> sing-box на <code>127.0.0.1:7890</code> + автоматически прописываем системный прокси через HKCU.
+        </div>
+        <label class="popover__warp">
+          <span class="popover__warp-lbl">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            Доп. безопасность с WARP
+          </span>
+          <span class="switch" id="warp-switch" data-on="false"></span>
+        </label>
+      </div>
+
+      <!-- Add Profile Modal ── переделывается в Этапе 3 -->
+      <div class="add-modal" id="add-modal" role="dialog" aria-modal="true" aria-labelledby="add-modal-title" hidden>
+        <div class="add-modal__backdrop" id="add-modal-backdrop"></div>
+        <div class="add-modal__card">
+          <div class="add-modal__head">
+            <div class="add-modal__kicker" id="add-modal-title">ДОБАВИТЬ ПРОФИЛЬ</div>
+            <button class="add-modal__close" id="add-modal-close" type="button" aria-label="Закрыть">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></svg>
+            </button>
+          </div>
+
+          <div class="add-modal__page add-modal__page--options" id="add-modal-page-options">
+            <div class="add-modal__hint">
+              Вставь подписку по URL, vless://-ссылку или их список — мы разберёмся сами.
+            </div>
+            <div class="add-modal__tiles">
+              <button class="add-modal__tile" data-action="clipboard" type="button">
+                <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="8" y="2" width="8" height="4" rx="1"/>
+                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                </svg>
+                <span class="add-modal__tile-title">Из буфера</span>
+                <span class="add-modal__tile-sub">Распознаёт URL и vless://</span>
+              </button>
+              <button class="add-modal__tile" data-action="manual" type="button">
+                <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 5v14"/><path d="M5 12h14"/>
+                </svg>
+                <span class="add-modal__tile-title">Вручную</span>
+                <span class="add-modal__tile-sub">URL + название + интервал</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="add-modal__page add-modal__page--manual" id="add-modal-page-manual" hidden>
+            <div class="add-modal__field">
+              <label class="add-modal__label" for="add-modal-name">Название</label>
+              <input class="add-modal__input" id="add-modal-name" type="text" placeholder="Моя подписка" autocomplete="off"/>
+            </div>
+            <div class="add-modal__field">
+              <label class="add-modal__label" for="add-modal-url">URL или vless://</label>
+              <input class="add-modal__input" id="add-modal-url" type="text" placeholder="https://example.com/sub  или  vless://..." autocomplete="off"/>
+            </div>
+            <div class="add-modal__field">
+              <div class="add-modal__row">
+                <label class="add-modal__label" for="add-modal-interval">Авто-обновление</label>
+                <span class="add-modal__interval-val" id="add-modal-interval-val">12 ч</span>
+              </div>
+              <input class="add-modal__slider" id="add-modal-interval" type="range" min="0" max="96" step="1" value="12"/>
+            </div>
+            <div class="add-modal__error" id="add-modal-error" hidden></div>
+            <div class="add-modal__actions">
+              <button class="add-modal__btn add-modal__btn--ghost" id="add-modal-back" type="button">НАЗАД</button>
+              <button class="add-modal__btn add-modal__btn--primary" id="add-modal-submit" type="button">ДОБАВИТЬ</button>
+            </div>
+          </div>
+
+          <div class="add-modal__page add-modal__page--loading" id="add-modal-page-loading" hidden>
+            <div class="add-modal__spinner" aria-hidden="true"></div>
+            <div class="add-modal__loading-text" id="add-modal-loading-text">Загружаю подписку…</div>
           </div>
         </div>
+      </div>
 
-        <ul class="menu" role="navigation">
-          <li class="menu__item menu__item--active" data-view="connect">
-            <span class="menu__icon">
-              <svg viewBox="0 0 256 256" width="20" height="20" fill="currentColor">
-                <path opacity="0.25" d="M208 128v76a8 8 0 0 1-8 8h-44v-56h-48v56H56a8 8 0 0 1-8-8v-76l80-72Z"/>
-                <path d="m219.31 108.68-80-72a16 16 0 0 0-22.62 0l-80 72A16 16 0 0 0 32 120v76a16 16 0 0 0 16 16h48a8 8 0 0 0 8-8v-56h32v56a8 8 0 0 0 8 8h48a16 16 0 0 0 16-16v-76a16 16 0 0 0-7.69-13.32ZM208 200h-40v-56a8 8 0 0 0-8-8h-48a8 8 0 0 0-8 8v56H48v-80l80-72 80 72Z"/>
-              </svg>
-            </span>
-            <span class="menu__label">Главная</span>
-          </li>
-
-          <li class="menu__item" data-view="profiles">
-            <span class="menu__icon">
-              <svg viewBox="0 0 256 256" width="20" height="20" fill="currentColor">
-                <path opacity="0.25" d="M224 56v40H32V56a8 8 0 0 1 8-8h176a8 8 0 0 1 8 8Z"/>
-                <path d="M216 40H40a16 16 0 0 0-16 16v144a16 16 0 0 0 16 16h176a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 16v32H40V56Zm0 144H40V104h176v96Zm-16-40a8 8 0 0 1-8 8h-64a8 8 0 0 1 0-16h64a8 8 0 0 1 8 8Zm0-32a8 8 0 0 1-8 8h-64a8 8 0 0 1 0-16h64a8 8 0 0 1 8 8Z"/>
-              </svg>
-            </span>
-            <span class="menu__label">Профили</span>
-          </li>
-
-          <li class="menu__item" data-view="logs">
-            <span class="menu__icon">
-              <svg viewBox="0 0 256 256" width="20" height="20" fill="currentColor">
-                <path opacity="0.25" d="M208 88V216a8 8 0 0 1-8 8H56a8 8 0 0 1-8-8V40a8 8 0 0 1 8-8h88Z"/>
-                <path d="M213.66 82.34l-56-56A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66ZM160 51.31 188.69 80H160ZM200 216H56V40h88v48a8 8 0 0 0 8 8h48Zm-32-104a8 8 0 0 1-8 8H96a8 8 0 0 1 0-16h64a8 8 0 0 1 8 8Zm0 32a8 8 0 0 1-8 8H96a8 8 0 0 1 0-16h64a8 8 0 0 1 8 8Zm0 32a8 8 0 0 1-8 8H96a8 8 0 0 1 0-16h64a8 8 0 0 1 8 8Z"/>
-              </svg>
-            </span>
-            <span class="menu__label">Логи</span>
-          </li>
-
-          <li class="menu__item" data-view="settings">
-            <span class="menu__icon">
-              <svg viewBox="0 0 256 256" width="20" height="20" fill="currentColor">
-                <path opacity="0.25" d="M128 88a40 40 0 1 0 40 40 40 40 0 0 0-40-40Z"/>
-                <path d="m230.94 154.65-19.21-11.1a86.94 86.94 0 0 0 0-31.1l19.21-11.1a8 8 0 0 0 3.62-9.46l-12.32-32a8 8 0 0 0-9-5.13l-21.41 4a87.6 87.6 0 0 0-22-12.69l-8.5-20.41A8 8 0 0 0 153.84 20h-51.68a8 8 0 0 0-7.49 5.66l-8.5 20.41a87.6 87.6 0 0 0-22 12.69l-21.41-4a8 8 0 0 0-9 5.13l-12.32 32a8 8 0 0 0 3.62 9.46l19.21 11.1a86.94 86.94 0 0 0 0 31.1l-19.21 11.1a8 8 0 0 0-3.62 9.46l12.32 32a8 8 0 0 0 9 5.13l21.41-4a87.6 87.6 0 0 0 22 12.69l8.5 20.41a8 8 0 0 0 7.49 5.66h51.68a8 8 0 0 0 7.49-5.66l8.5-20.41a87.6 87.6 0 0 0 22-12.69l21.41 4a8 8 0 0 0 9-5.13l12.32-32a8 8 0 0 0-3.62-9.46ZM128 168a40 40 0 1 1 40-40 40 40 0 0 1-40 40Z"/>
-              </svg>
-            </span>
-            <span class="menu__label">Настройки</span>
-          </li>
-        </ul>
-
-        <div class="sidebar__spacer"></div>
-
-        <!-- Traffic — компактно, в самом sidebar (не fixed-футтер) -->
-        <div class="sidebar__traffic">
-          <div class="sidebar__traffic-label">Трафик</div>
-          <div class="sidebar__traffic-row">
-            <span class="sidebar__traffic-key">
-              <span class="sidebar__traffic-arrow">↓</span> Входящий
-            </span>
-            <span>
-              <span class="sidebar__traffic-value" id="tf-down">0</span><span class="sidebar__traffic-unit" id="tf-down-unit">КиБ/с</span>
-            </span>
+      <!-- Update Modal ── переделывается в Этапе 3 -->
+      <div class="update-modal" id="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-kicker" hidden>
+        <div class="update-modal__backdrop" id="update-backdrop"></div>
+        <div class="update-modal__card">
+          <div class="update-modal__kicker" id="update-kicker">ОБНОВЛЕНИЕ ДОСТУПНО</div>
+          <div class="update-modal__version">
+            <span class="update-modal__ver" id="update-current">—</span>
+            <span class="update-modal__arrow">→</span>
+            <span class="update-modal__ver update-modal__ver--accent" id="update-latest">—</span>
           </div>
-          <div class="sidebar__traffic-row">
-            <span class="sidebar__traffic-key">
-              <span class="sidebar__traffic-arrow">↑</span> Исходящий
-            </span>
-            <span>
-              <span class="sidebar__traffic-value" id="tf-up">0</span><span class="sidebar__traffic-unit" id="tf-up-unit">КиБ/с</span>
-            </span>
+          <div class="update-modal__section-label">Что нового</div>
+          <div class="update-modal__changelog" id="update-changelog">—</div>
+
+          <div class="update-modal__progress" id="update-progress" hidden>
+            <div class="update-modal__bar"><div class="update-modal__bar-fill" id="update-bar"></div></div>
+            <div class="update-modal__progress-row">
+              <span class="update-modal__progress-label" id="update-progress-label">Загрузка</span>
+              <span class="update-modal__progress-pct" id="update-progress-pct">0%</span>
+            </div>
+          </div>
+
+          <div class="update-modal__error" id="update-error" hidden></div>
+
+          <div class="update-modal__actions" id="update-actions">
+            <button class="update-modal__btn update-modal__btn--ghost" id="update-later" type="button">ПОЗЖЕ</button>
+            <button class="update-modal__btn update-modal__btn--primary" id="update-install" type="button">ОБНОВИТЬ</button>
           </div>
         </div>
+      </div>
+
+      <!-- Server Drawer (Этап 3) ─── slide-from-right -->
+      <div class="drawer-bg" id="drawer-bg" data-open="false"></div>
+      <aside class="drawer" id="server-drawer" data-open="false">
+        <div class="drawer__head">
+          <div>
+            <div class="drawer__kicker">PICK A NODE</div>
+            <div class="drawer__title" id="drawer-title">Узлы подписки</div>
+            <div class="drawer__active" id="drawer-active" hidden>
+              <span class="drawer__active-dot"></span>
+              <span id="drawer-active-text">—</span>
+            </div>
+          </div>
+          <button class="drawer__close" id="drawer-close" type="button" aria-label="Закрыть">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></svg>
+          </button>
+        </div>
+        <div class="drawer__search">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-lo)"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="text" id="drawer-search" placeholder="Поиск: страна, хост…" autocomplete="off" />
+        </div>
+        <div class="drawer__list" id="drawer-list"></div>
       </aside>
 
-      <main class="content">
-        <section class="view view--connect" data-view="connect">
-          <!-- Sub-row: подписка + 2 toolbar-кнопки рядом -->
-          <div class="sub-row">
-          <article class="sub-card" tabindex="0">
-            <div class="sub-card__icon">
-              <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor">
-                <path opacity="0.25" d="M232 128a104 104 0 1 1-104-104"/>
-                <path d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Zm88 104a87.6 87.6 0 0 1-3.33 24h-38.51a157.44 157.44 0 0 0 0-48h38.51a87.6 87.6 0 0 1 3.33 24Zm-116 24a140.61 140.61 0 0 1 0-48h56a140.61 140.61 0 0 1 0 48Zm10.13 16h35.74a86.6 86.6 0 0 1-17.87 26.49A86.6 86.6 0 0 1 110.13 168Zm0-80a86.6 86.6 0 0 1 17.87-26.49A86.6 86.6 0 0 1 145.87 88Zm98.5 0h-35.62a106 106 0 0 0-15.21-28.51A88.29 88.29 0 0 1 208.63 88ZM82.34 59.49A106 106 0 0 0 67.13 88H47.37a88.29 88.29 0 0 1 34.97-28.51ZM40 128a87.6 87.6 0 0 1 3.33-24h38.51a157.44 157.44 0 0 0 0 48H43.33A87.6 87.6 0 0 1 40 128Zm7.37 40h19.76a106 106 0 0 0 15.21 28.51A88.29 88.29 0 0 1 47.37 168Zm126.29 28.51A106 106 0 0 0 188.87 168h19.76a88.29 88.29 0 0 1-34.97 28.51Z"/>
-              </svg>
-            </div>
-            <div class="sub-card__main">
-              <div class="sub-card__head">
-                <span class="sub-card__name">190X4</span>
-                <span class="sub-card__expire"><span id="sub-expire">153</span> дн</span>
-              </div>
-              <div class="sub-card__progress" aria-hidden="true">
-                <span class="sub-card__progress-fill" id="sub-progress-fill" style="width: 1.4%"></span>
-              </div>
-              <div class="sub-card__meta">
-                <span class="sub-card__meta-traffic">
-                  <span id="sub-traffic-used">12</span> / <span id="sub-traffic-total">857</span> ГБ
-                </span>
-                <span class="sub-card__meta-sep">·</span>
-                <span class="sub-card__meta-dim">обн. <span id="sub-updated">сейчас</span></span>
-              </div>
-            </div>
-          </article>
+      <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-            <div class="view__toolbar">
-              <button class="tool-btn" id="mode-toggle" type="button" aria-label="Режим подключения" aria-haspopup="dialog" aria-expanded="false">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-                  <line x1="4" y1="6" x2="14" y2="6"/>
-                  <circle cx="17" cy="6" r="2.4" fill="currentColor"/>
-                  <line x1="10" y1="12" x2="20" y2="12"/>
-                  <circle cx="7" cy="12" r="2.4" fill="currentColor"/>
-                  <line x1="4" y1="18" x2="14" y2="18"/>
-                  <circle cx="17" cy="18" r="2.4" fill="currentColor"/>
-                </svg>
-              </button>
-              <button class="tool-btn" id="add-sub" type="button" aria-label="Добавить подписку" aria-haspopup="dialog" aria-expanded="false">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                  <line x1="12" y1="5" x2="12" y2="19"/>
-                  <line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <!-- HERO -->
-          <div class="hero" id="hero">
-            <!-- Сцена: halo + rings + disc центрированы как единое целое -->
-            <div class="hero__stage">
-              <div class="hero__halo"></div>
-              <div class="hero__rings" aria-hidden="true">
-                <span class="hero__ring"></span>
-                <span class="hero__ring"></span>
-                <span class="hero__ring"></span>
-              </div>
-              <button class="hero__disc" id="hero-disc" type="button" aria-label="Подключиться">
-                <video class="hero__mask" id="hero-mask"
-                       src="/assets/video/hero-mask.webm"
-                       autoplay loop muted playsinline disablepictureinpicture
-                       aria-hidden="true"></video>
-              </button>
-            </div>
-
-            <div class="hero__status">
-              <div class="hero__status-label" id="hero-label">Не подключено</div>
-              <div class="hero__status-hint" id="hero-hint">Нажмите, чтобы запустить туннель</div>
-              <button class="hero__ping" id="hero-ping" type="button" hidden
-                      aria-label="Обновить задержку">
-                <svg class="hero__ping-icon" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
-                  <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
-                  <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
-                  <line x1="12" y1="20" x2="12.01" y2="20"/>
-                </svg>
-                <span class="hero__ping-value" id="hero-ping-value">— мс</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Карточка локации снизу -->
-          <article class="location-card" tabindex="0" id="location-card">
-            <div class="location-card__flag" aria-label="Польша">
-              <svg viewBox="0 0 8 5" preserveAspectRatio="none">
-                <rect width="8" height="2.5" fill="#fff"/>
-                <rect y="2.5" width="8" height="2.5" fill="#dc143c"/>
-              </svg>
-            </div>
-            <div class="location-card__main">
-              <div class="location-card__name">pl.190x4.pw</div>
-              <div class="location-card__sub">
-                <span class="location-card__proto">VLESS · Reality · XHTTP</span>
-                <span class="location-card__ping">
-                  <span class="status-dot" data-state="online"></span>
-                  <span id="loc-ping">— мс</span>
-                </span>
-              </div>
-              <div class="location-card__ip" id="loc-ip-row" hidden>
-                <span class="location-card__ip-label">IP</span>
-                <span class="location-card__ip-value" id="loc-ip" title="Кликните, чтобы показать на 20 секунд">— · —</span>
-              </div>
-              <div class="location-card__ip" id="loc-warp-row" hidden>
-                <span class="location-card__ip-label">WARP</span>
-                <span class="location-card__ip-value" id="loc-warp-endpoint" title="Текущий CF endpoint для WARP outbound">—</span>
-              </div>
-            </div>
-            <span class="location-card__chevron">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
-            </span>
-          </article>
-        </section>
-
-        <section class="view view--profiles" data-view="profiles" hidden>
-          <div class="placeholder">
-            <h2>Профили</h2>
-            <p>Управление подписками и одиночными конфигами — скоро.</p>
-          </div>
-        </section>
-
-        <section class="view view--proxies" data-view="proxies" hidden>
-          <div class="proxies-head">
-            <h2 class="proxies-title">Ноды подписки</h2>
-            <span class="proxies-meta" id="proxies-meta">—</span>
-          </div>
-          <div class="proxies-grid" id="proxies-grid"></div>
-          <button class="proxies-fab" id="proxies-fab" type="button" aria-label="Проверить задержку всех нод">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>
-          </button>
-        </section>
-
-        <section class="view view--logs" data-view="logs" hidden>
-          <div class="logs">
-            <div class="logs__head">
-              <div class="logs__title-wrap">
-                <h2 class="logs__title">Логи sing-box</h2>
-                <div class="logs__path" id="logs-path" title="">—</div>
-              </div>
-              <div class="logs__actions">
-                <button class="logs__btn" id="logs-refresh" type="button">Обновить</button>
-                <button class="logs__btn logs__btn--accent" id="logs-copy" type="button">Скопировать</button>
-                <button class="logs__btn" id="logs-clear" type="button">Очистить</button>
-                <button class="logs__btn" id="logs-open" type="button">Открыть папку</button>
-              </div>
-            </div>
-            <div class="logs__meta">
-              <label class="logs__toggle">
-                <input type="checkbox" id="logs-auto" checked/>
-                <span>Автообновление каждые 2 сек</span>
-              </label>
-              <span class="logs__size" id="logs-size"></span>
-            </div>
-            <textarea class="logs__view" id="logs-view" readonly spellcheck="false" placeholder="Лог пуст. Запустите подключение — sing-box stdout/stderr будут писаться сюда."></textarea>
-          </div>
-        </section>
-
-        <section class="view view--settings" data-view="settings" hidden>
-          <div class="settings-root" id="settings-root"></div>
-        </section>
-      </main>
     </div>
-
-    <!-- Popovers ────────────────────────────────────────────── -->
-    <div class="popover" id="mode-popover" role="dialog" aria-label="Режим подключения" hidden>
-      <div class="popover__header">Режим подключения</div>
-      <div class="seg" role="tablist" id="mode-seg">
-        <button class="seg__btn" role="tab" data-mode="proxy" aria-selected="false">Прокси</button>
-        <button class="seg__btn seg__btn--active" role="tab" data-mode="systemProxy" aria-selected="true">Системный прокси</button>
-        <button class="seg__btn" role="tab" data-mode="tun">VPN · TUN</button>
-      </div>
-      <div class="popover__hint" id="mode-hint">
-        <b>Прокси</b> — sing-box на 127.0.0.1:7890, ничего не правим в Windows; настройте браузер/приложение сами. <b>Системный прокси</b> — то же + автоматически прописываем HKCU Internet Settings, работает «из коробки». <b>VPN · TUN</b> — перехват всего трафика через службу <code>NinetyTunnelService</code>; UAC показывается один раз при установке (Settings → Туннель).
-      </div>
-      <label class="toggle-row">
-        <span class="toggle-row__label">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17.5 19a4.5 4.5 0 0 0 0-9 7 7 0 0 0-13.5 2 5 5 0 0 0 .5 9"/></svg>
-          Дополнительная безопасность с WARP
-        </span>
-        <span class="switch"><input type="checkbox" id="warp-toggle"/><span class="switch__track"></span></span>
-      </label>
-    </div>
-
-    <!-- profiles-summary остаётся (используется как indicator), но без popover-обёртки -->
-    <span id="profiles-summary" hidden></span>
-
-    <!-- Add Profile Modal — Hiddify-style ───────────────────── -->
-    <div class="add-modal" id="add-modal" role="dialog" aria-modal="true" aria-labelledby="add-modal-title" hidden>
-      <div class="add-modal__backdrop" id="add-modal-backdrop"></div>
-      <div class="add-modal__card">
-        <div class="add-modal__head">
-          <div class="add-modal__kicker" id="add-modal-title">ДОБАВИТЬ ПРОФИЛЬ</div>
-          <button class="add-modal__close" id="add-modal-close" type="button" aria-label="Закрыть">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
-          </button>
-        </div>
-
-        <!-- Options page -->
-        <div class="add-modal__page add-modal__page--options" id="add-modal-page-options">
-          <div class="add-modal__hint">
-            Вставь подписку по URL, vless://-ссылку или их список — мы разберёмся сами.
-          </div>
-          <div class="add-modal__tiles">
-            <button class="add-modal__tile" data-action="clipboard" type="button">
-              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="8" y="4" width="12" height="16" rx="2"/>
-                <path d="M4 8v12a2 2 0 0 0 2 2h10"/>
-                <path d="M11 4h6a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-6V4z"/>
-              </svg>
-              <span class="add-modal__tile-title">Из буфера</span>
-              <span class="add-modal__tile-sub">Распознаёт URL и vless://</span>
-            </button>
-            <button class="add-modal__tile" data-action="manual" type="button">
-              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-                <line x1="12" y1="5" x2="12" y2="19"/>
-                <line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-              <span class="add-modal__tile-title">Вручную</span>
-              <span class="add-modal__tile-sub">URL + название + интервал</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Manual page -->
-        <div class="add-modal__page add-modal__page--manual" id="add-modal-page-manual" hidden>
-          <div class="add-modal__field">
-            <label class="add-modal__label" for="add-modal-name">Название</label>
-            <input class="add-modal__input" id="add-modal-name" type="text" placeholder="Моя подписка" autocomplete="off"/>
-          </div>
-          <div class="add-modal__field">
-            <label class="add-modal__label" for="add-modal-url">URL или vless://</label>
-            <input class="add-modal__input" id="add-modal-url" type="text" placeholder="https://example.com/sub  или  vless://..." autocomplete="off"/>
-          </div>
-          <div class="add-modal__field">
-            <div class="add-modal__row">
-              <label class="add-modal__label" for="add-modal-interval">Авто-обновление</label>
-              <span class="add-modal__interval-val" id="add-modal-interval-val">12 ч</span>
-            </div>
-            <input class="add-modal__slider" id="add-modal-interval" type="range" min="0" max="96" step="1" value="12"/>
-          </div>
-          <div class="add-modal__error" id="add-modal-error" hidden></div>
-          <div class="add-modal__actions">
-            <button class="add-modal__btn add-modal__btn--ghost" id="add-modal-back" type="button">НАЗАД</button>
-            <button class="add-modal__btn add-modal__btn--primary" id="add-modal-submit" type="button">ДОБАВИТЬ</button>
-          </div>
-        </div>
-
-        <!-- Loading page -->
-        <div class="add-modal__page add-modal__page--loading" id="add-modal-page-loading" hidden>
-          <div class="add-modal__spinner" aria-hidden="true"></div>
-          <div class="add-modal__loading-text" id="add-modal-loading-text">Загружаю подписку…</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Update Modal ────────────────────────────────────────── -->
-    <div class="update-modal" id="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-kicker" hidden>
-      <div class="update-modal__backdrop" id="update-backdrop"></div>
-      <div class="update-modal__card">
-        <div class="update-modal__kicker" id="update-kicker">ОБНОВЛЕНИЕ ДОСТУПНО</div>
-        <div class="update-modal__version">
-          <span class="update-modal__ver" id="update-current">—</span>
-          <span class="update-modal__arrow">→</span>
-          <span class="update-modal__ver update-modal__ver--accent" id="update-latest">—</span>
-        </div>
-        <div class="update-modal__section-label">Что нового</div>
-        <div class="update-modal__changelog" id="update-changelog">—</div>
-
-        <div class="update-modal__progress" id="update-progress" hidden>
-          <div class="update-modal__bar"><div class="update-modal__bar-fill" id="update-bar"></div></div>
-          <div class="update-modal__progress-row">
-            <span class="update-modal__progress-label" id="update-progress-label">Загрузка</span>
-            <span class="update-modal__progress-pct" id="update-progress-pct">0%</span>
-          </div>
-        </div>
-
-        <div class="update-modal__error" id="update-error" hidden></div>
-
-        <div class="update-modal__actions" id="update-actions">
-          <button class="update-modal__btn update-modal__btn--ghost" id="update-later" type="button">ПОЗЖЕ</button>
-          <button class="update-modal__btn update-modal__btn--primary" id="update-install" type="button">ОБНОВИТЬ</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
     <script type="module" src="/main.js"></script>
   </body>
