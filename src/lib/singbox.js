@@ -1002,11 +1002,34 @@ export function updateProfile(id, patch) {
   return list[idx];
 }
 
+// 3 режима как у Hiddify (ServiceMode enum):
+//   proxy       — sing-box локально на 127.0.0.1:mixedPort, системный прокси НЕ
+//                 трогаем. Юзер сам направляет браузер/приложения в SOCKS+HTTP.
+//   systemProxy — sing-box + автоматически выставляем HKCU Internet Settings.
+//                 Это default на desktop (как у Hiddify).
+//   tun         — TUN intercept всего трафика через NinetyTunnelService.
+//
+// Старое значение "proxy" из pre-alpha34 = systemProxy (мы всегда выставляли
+// system proxy). При чтении мигрируем — старые юзеры не теряют поведение.
+const VALID_MODES = new Set(["proxy", "systemProxy", "tun"]);
+
 export function getMode() {
   const m = localStorage.getItem(MODE_KEY);
-  return m === "tun" ? "tun" : "proxy";
+  if (m === "tun") return "tun";
+  if (m === "systemProxy") return "systemProxy";
+  if (m === "proxy") {
+    // Миграция: если флаг миграции стоит — это новый "proxy" (без системного),
+    // иначе старое поведение → systemProxy.
+    if (localStorage.getItem(MODE_KEY + ".migrated") === "1") return "proxy";
+    localStorage.setItem(MODE_KEY, "systemProxy");
+    localStorage.setItem(MODE_KEY + ".migrated", "1");
+    return "systemProxy";
+  }
+  return "systemProxy"; // default desktop
 }
 
 export function setMode(m) {
-  localStorage.setItem(MODE_KEY, m === "tun" ? "tun" : "proxy");
+  const v = VALID_MODES.has(m) ? m : "systemProxy";
+  localStorage.setItem(MODE_KEY, v);
+  localStorage.setItem(MODE_KEY + ".migrated", "1");
 }

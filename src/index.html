@@ -232,6 +232,10 @@
                 <span class="location-card__ip-label">IP</span>
                 <span class="location-card__ip-value" id="loc-ip" title="Кликните, чтобы показать на 20 секунд">— · —</span>
               </div>
+              <div class="location-card__ip" id="loc-warp-row" hidden>
+                <span class="location-card__ip-label">WARP</span>
+                <span class="location-card__ip-value" id="loc-warp-endpoint" title="Текущий CF endpoint для WARP outbound">—</span>
+              </div>
             </div>
             <span class="location-card__chevron">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
@@ -292,11 +296,12 @@
     <div class="popover" id="mode-popover" role="dialog" aria-label="Режим подключения" hidden>
       <div class="popover__header">Режим подключения</div>
       <div class="seg" role="tablist" id="mode-seg">
-        <button class="seg__btn seg__btn--active" role="tab" data-mode="proxy" aria-selected="true">Системный прокси</button>
+        <button class="seg__btn" role="tab" data-mode="proxy" aria-selected="false">Прокси</button>
+        <button class="seg__btn seg__btn--active" role="tab" data-mode="systemProxy" aria-selected="true">Системный прокси</button>
         <button class="seg__btn" role="tab" data-mode="tun">VPN · TUN</button>
       </div>
       <div class="popover__hint" id="mode-hint">
-        Прокси работает без UAC. TUN перехватывает весь трафик, запросит запуск sing-box от админа.
+        <b>Прокси</b> — sing-box на 127.0.0.1:7890, ничего не правим в Windows; настройте браузер/приложение сами. <b>Системный прокси</b> — то же + автоматически прописываем HKCU Internet Settings, работает «из коробки». <b>VPN · TUN</b> — перехват всего трафика через службу <code>NinetyTunnelService</code>; UAC показывается один раз при установке (Settings → Туннель).
       </div>
       <label class="toggle-row">
         <span class="toggle-row__label">
