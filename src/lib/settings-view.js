@@ -17,6 +17,12 @@ const WARP_MODE_LABELS = {
   chain:  "WARP поверх активного прокси (chain)",
 };
 
+const WARP_NOISE_LABELS = {
+  off:        "Off — обычный WireGuard",
+  default:    "Default — лёгкая обфускация (1-3 пакета)",
+  aggressive: "Aggressive — больше шума (3-8 пакетов)",
+};
+
 const SECTIONS = [
   { key: "general",    title: "Общие",        icon: iconGeneral,    hint: "Логи, тест соединения, интервалы" },
   { key: "routing",    title: "Маршрутизация", icon: iconRouting,    hint: "Регион, обход LAN, блокировка рекламы" },
@@ -222,6 +228,55 @@ export function mountSettings(root, opts = {}) {
         resetBtn.disabled = false;
         resetBtn.textContent = orig;
       }
+    });
+
+    const scanBtn = el.querySelector("[data-action='warp-scan']");
+    const scanResults = el.querySelector("#warp-scan-results");
+    const scanStatus = el.querySelector("#warp-scan-status");
+    const scanList = el.querySelector("#warp-scan-list");
+
+    scanBtn?.addEventListener("click", async () => {
+      const orig = scanBtn.textContent;
+      scanBtn.disabled = true;
+      scanBtn.textContent = "Сканирую…";
+      if (scanResults) scanResults.hidden = false;
+      if (scanStatus) scanStatus.textContent = "Пробую CF WARP endpoints (TCP-ping)…";
+      if (scanList) scanList.innerHTML = "";
+      try {
+        const results = await invoke("warp_scan_endpoints", { topN: 10 });
+        if (!Array.isArray(results) || results.length === 0) {
+          if (scanStatus) scanStatus.textContent = "Ничего не нашлось — все IP в семпле недоступны. Попробуйте ещё раз.";
+          return;
+        }
+        if (scanStatus) scanStatus.textContent = `Top-${results.length} по пингу. Нажмите «Применить» — endpoint выше обновится.`;
+        if (scanList) scanList.innerHTML = results.map(r => `
+          <div class="setting-row">
+            <span class="setting-row__icon">${iconTarget()}</span>
+            <span class="setting-row__main">
+              <span class="setting-row__label">${r.ip}:${r.port}</span>
+              <span class="setting-row__hint">${r.latency_ms} мс</span>
+            </span>
+            <span class="setting-row__control">
+              <button class="settings-btn" data-scan-pick="${r.ip}:${r.port}" type="button">Применить</button>
+            </span>
+          </div>
+        `).join("");
+      } catch (e) {
+        if (scanStatus) scanStatus.textContent = `Ошибка сканирования: ${e?.message || e}`;
+      } finally {
+        scanBtn.disabled = false;
+        scanBtn.textContent = orig;
+      }
+    });
+
+    scanList?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-scan-pick]");
+      if (!btn) return;
+      const endpoint = btn.dataset.scanPick;
+      updateOption("warp.endpoint", endpoint);
+      // Перерисуем — input выше получит новое значение
+      onChange("warp.endpoint", endpoint);
+      render();
     });
 
     refresh();
@@ -509,6 +564,9 @@ function renderWarp(o) {
       ${row(iconMtu(), "MTU",
         "Максимальный размер WG-пакета. CF рекомендует 1280.",
         inputText("warp.mtu", w.mtu || 1280, "number", 'min="576" max="1500"'))}
+      ${row(iconScissors(), "Обфускация (AmneziaWG)",
+        "Подмешивает junk-пакеты перед WG-хендшейком — обход DPI, который ловит WG-сигнатуру (актуально для РФ-ТСПУ с апреля 2026). Работает только в форке sing-box (у нас собран с <code>with_awg</code>).",
+        select("warp.noisePreset", w.noisePreset || "off", ["off", "default", "aggressive"], WARP_NOISE_LABELS))}
     </div>
     <div class="settings-section">
       ${row(iconLock(), "Лицензия WARP+ (опционально)",
@@ -520,6 +578,15 @@ function renderWarp(o) {
       ${row(iconScissors(), "Сбросить регистрацию",
         "Удаляет device на стороне CF и стирает локальный warp.json. WARP перестанет работать до повторной регистрации.",
         `<button class="settings-btn settings-btn--danger" data-action="warp-reset" type="button">Сбросить</button>`)}
+    </div>
+    <div class="settings-section">
+      ${row(iconTarget(), "Найти лучший CF endpoint",
+        "Сканирует ~40 IP × 14 портов из CF WARP-пула через TCP-connect ping. После завершения — top-10 c минимальным пингом. Нажмите «Применить» рядом с нужным, чтобы выставить в поле Endpoint выше.",
+        `<button class="settings-btn" data-action="warp-scan" type="button">Сканировать</button>`)}
+    </div>
+    <div class="settings-section" id="warp-scan-results" hidden>
+      <div class="settings-banner" id="warp-scan-status">Сканирую…</div>
+      <div id="warp-scan-list"></div>
     </div>
     <div class="settings-section">
       ${row(iconShield(), "Статус регистрации",

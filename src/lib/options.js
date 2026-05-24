@@ -34,6 +34,12 @@ export const DEFAULT_OPTIONS = {
     // CF возвращает peer.endpoint, мы по умолчанию используем engage.cloudflareclient.com.
     endpoint: "engage.cloudflareclient.com:2408",
     mtu: 1280,
+    // AmneziaWG fake-packet обфускация. Пресеты:
+    //   off        — никаких junk-пакетов, обычный WG
+    //   default    — лёгкая обфускация (1-3 пакета, 10-30 байт, 10-30мс задержка)
+    //   aggressive — больше шума (3-8 пакетов, 30-90 байт, 5-15мс задержка)
+    // Передаётся в endpoint.noise.fake_packet (см. hiddify/wireguard-go).
+    noisePreset: "off",
   },
   log: { level: "info", timestamp: true, disabled: false },
   urlTest: {

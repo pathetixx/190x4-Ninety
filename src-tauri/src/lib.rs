@@ -1,5 +1,6 @@
 mod clash;
 mod clash_stream;
+mod scanner;
 mod subscription;
 mod url_handler;
 mod vpn;
@@ -152,6 +153,7 @@ pub fn run() {
             warp::warp_register,
             warp::warp_status,
             warp::warp_reset,
+            scanner::warp_scan_endpoints,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
