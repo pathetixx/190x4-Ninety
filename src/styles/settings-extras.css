@@ -325,3 +325,9 @@ textarea.logs__console:focus { outline: 1px solid var(--accent-soft); outline-of
 }
 .app:not([data-empty="true"]) #onboarding-screen { display: none !important; }
 
+/* ───────── HOTFIX: HTML5 hidden атрибут перебивается любым display: ─────────
+   screens.css ставит .screen { display: flex } всем секциям, включая [hidden].
+   Без !important hidden attribute не работает → видны ВСЕ экраны одновременно.
+   Тот же баг с .onboarding { display: grid } и stats-strip. */
+[hidden] { display: none !important; }
+
