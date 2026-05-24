@@ -38,8 +38,22 @@ export const DEFAULT_OPTIONS = {
     //   off        — никаких junk-пакетов, обычный WG
     //   default    — лёгкая обфускация (1-3 пакета, 10-30 байт, 10-30мс задержка)
     //   aggressive — больше шума (3-8 пакетов, 30-90 байт, 5-15мс задержка)
+    //   custom     — берёт значения из warp.customNoise (см. ниже)
     // Передаётся в endpoint.noise.fake_packet (см. hiddify/wireguard-go).
     noisePreset: "off",
+    // Параметры custom-пресета (только если noisePreset === "custom")
+    customNoise: {
+      count: { from: 2, to: 5 },
+      size:  { from: 20, to: 60 },
+      delay: { from: 8, to: 20 },
+    },
+    // Расширенный пул подсетей в Endpoint Scanner.
+    deepScan: false,
+    // Periodic re-scan: следим за latency текущего WARP-endpoint через
+    // clash-API, при росте выше порога — запускаем scan и применяем лучший.
+    autoRescan: false,
+    autoRescanIntervalMin: 30,    // как часто опрашивать (минуты)
+    autoRescanThresholdMs: 300,   // если latency выше — пересканировать
   },
   log: { level: "info", timestamp: true, disabled: false },
   urlTest: {

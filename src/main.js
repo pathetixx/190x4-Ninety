@@ -24,7 +24,7 @@ import {
   formatGiB,
   relativeTime,
 } from "/lib/subscriptions.js";
-import { loadOptions } from "/lib/options.js";
+import { loadOptions, updateOption } from "/lib/options.js";
 import { mountSettings } from "/lib/settings-view.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
 import { openUpdateModal } from "/lib/update-modal.js";
@@ -297,11 +297,16 @@ const settingsRoot = document.getElementById("settings-root");
 let settingsCtl = null;
 if (settingsRoot) {
   settingsCtl = mountSettings(settingsRoot, {
-    onChange: () => {
+    onChange: (path) => {
+      // Тогглы periodic re-scan и его интервал — не трогают sing-box, только
+      // фоновый JS-loop. Пересоздаём loop сразу, реконнект не нужен.
+      if (path === "warp.autoRescan" || path === "warp.autoRescanIntervalMin" || path === "warp.autoRescanThresholdMs") {
+        startWarpRescanLoop();
+        return;
+      }
+      if (!pathNeedsRestart(path)) return;
       if (state === "connected" || state === "connecting") {
-        needsReconnect = true;
-        applyReconnectUI();
-        toast("Изменились настройки — нажмите RECONNECT для применения", "info", 2800);
+        scheduleAutoReconnect();
       }
       if (state === "idle") updateHeroHint();
     },
@@ -309,14 +314,123 @@ if (settingsRoot) {
   });
 }
 
+// Какие настройки реально приводят к изменению sing-box конфига и требуют
+// рестарта ядра. Всё остальное (Windows-state, неактивные ветки config'а) —
+// применяется мгновенно, без переподключения.
+function pathNeedsRestart(path) {
+  if (!path) return true;
+  // Windows-сторона, sing-box не трогает
+  if (path === "general.autostart") return false;
+  if (path === "general.startMinimized") return false;
+  if (path.startsWith("general.urlSchemes")) return false;
+  // balancerStrategy сейчас не передаётся в config (strategy захардкожена в singbox.js)
+  if (path === "route.balancerStrategy") return false;
+  const opts = loadOptions();
+  // WARP register/reset — переразложить config нужно только если WARP активен
+  if (path === "warp.registered") return !!opts.warp?.enabled;
+  // warp.deepScan и warp.autoRescan* — не идут в config sing-box, только в UI/JS-loop
+  if (path === "warp.deepScan") return false;
+  if (path.startsWith("warp.autoRescan")) return false;
+  // customNoise активна только при noisePreset=="custom"; если другой — игнор
+  if (path.startsWith("warp.customNoise.") && opts.warp?.noisePreset !== "custom") return false;
+  // WARP-настройки при выключенном WARP в config не попадают
+  if (path.startsWith("warp.") && path !== "warp.enabled" && !opts.warp?.enabled) return false;
+  // TUN-only поля в proxy-режиме не используются (см. inbound в singbox.js)
+  if (path === "inbound.mtu" || path === "inbound.tunStack" || path === "inbound.strictRoute") {
+    return getMode() === "tun";
+  }
+  return true;
+}
+
+const RECONNECT_DEBOUNCE_MS = 1200;
+let pendingReconnectTimer = null;
+
+function scheduleAutoReconnect() {
+  if (state !== "connected" && state !== "connecting") return;
+  needsReconnect = true;
+  applyReconnectUI();
+  if (pendingReconnectTimer) clearTimeout(pendingReconnectTimer);
+  pendingReconnectTimer = setTimeout(performAutoReconnect, RECONNECT_DEBOUNCE_MS);
+}
+
+async function performAutoReconnect() {
+  pendingReconnectTimer = null;
+  if (!needsReconnect) return;
+  if (state !== "connected" && state !== "connecting") return;
+  toast("Применяю новые настройки…", "info", 1400);
+  try { await invoke("set_system_proxy", { enable: false }); } catch {}
+  try { await invoke("stop_singbox"); } catch {}
+  setState("idle");
+  needsReconnect = false;
+  applyReconnectUI();
+  setTimeout(() => heroDisc?.click(), 60);
+}
+
 function applyReconnectUI() {
   if (!hero) return;
   if (needsReconnect && (state === "connected" || state === "connecting")) {
     hero.classList.add("hero--reconnect");
     if (heroLabel) heroLabel.textContent = "RECONNECT";
-    if (heroHint) heroHint.textContent = "Настройки изменились — переподключитесь";
+    if (heroHint) heroHint.textContent = "Применяю новые настройки…";
   } else {
     hero.classList.remove("hero--reconnect");
+  }
+}
+
+// ── WARP periodic re-scan ───────────────────────────────────
+// Раз в N минут (warp.autoRescanIntervalMin) опрашиваем delay outbound "warp"
+// через clash-API. Если выше порога — запускаем scan, ставим лучший endpoint
+// и дёргаем auto-reconnect. Активно только при state=connected + warp.enabled
+// + warp.autoRescan.
+let warpRescanTimer = null;
+let warpRescanInFlight = false;
+
+function startWarpRescanLoop() {
+  stopWarpRescanLoop();
+  const opts = loadOptions();
+  if (!opts.warp?.enabled || !opts.warp?.autoRescan) return;
+  if (state !== "connected") return;
+  const minutes = Math.max(5, Math.min(360, Number(opts.warp?.autoRescanIntervalMin) || 30));
+  warpRescanTimer = setInterval(warpRescanTick, minutes * 60_000);
+}
+
+function stopWarpRescanLoop() {
+  if (warpRescanTimer) { clearInterval(warpRescanTimer); warpRescanTimer = null; }
+}
+
+async function warpRescanTick() {
+  if (warpRescanInFlight) return;
+  if (state !== "connected") return;
+  const opts = loadOptions();
+  if (!opts.warp?.enabled || !opts.warp?.autoRescan) return;
+  const threshold = Math.max(100, Number(opts.warp?.autoRescanThresholdMs) || 300);
+  warpRescanInFlight = true;
+  try {
+    let curDelay = 0;
+    try {
+      const r = await testNode("warp", { timeoutMs: 4000, url: "http://cp.cloudflare.com/generate_204" });
+      curDelay = r?.delay || 0;
+    } catch { curDelay = 0; }
+    // 0 = таймаут или not-reachable, выше порога — ротируем.
+    if (curDelay > 0 && curDelay <= threshold) return;
+    toast(`WARP delay ${curDelay || "—"}мс — ищу лучший endpoint`, "info", 2200);
+    let results = [];
+    try {
+      results = await invoke("warp_scan_endpoints", { topN: 5, deep: false, mode: "wg" });
+    } catch { return; }
+    const best = Array.isArray(results) && results.length ? results[0] : null;
+    if (!best) return;
+    // Применяем только если новый лучше на ≥50мс, чтобы не дёргаться от шума.
+    if (curDelay > 0 && best.latency_ms + 50 >= curDelay) {
+      toast(`WARP: лучший найденный ${best.latency_ms}мс — текущий ${curDelay}мс уже норм`, "info", 2400);
+      return;
+    }
+    const newEndpoint = `${best.ip}:${best.port}`;
+    updateOption("warp.endpoint", newEndpoint);
+    toast(`WARP → ${newEndpoint} (${best.latency_ms}мс)`, "success", 2400);
+    scheduleAutoReconnect();
+  } finally {
+    warpRescanInFlight = false;
   }
 }
 
@@ -840,6 +954,8 @@ function setState(next, opts = {}) {
 
   if (next === "idle") {
     needsReconnect = false;
+    if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
+    stopWarpRescanLoop();
     applyReconnectUI();
     setHeroClass(null);
     heroLabel.textContent = "Не подключено";
@@ -876,6 +992,7 @@ function setState(next, opts = {}) {
     heroDisc.setAttribute("aria-label", "Отключиться");
     if (heroMask) heroMask.playbackRate = 1.0;
     startTrafficStream();
+    startWarpRescanLoop();
   }
 }
 
@@ -1074,6 +1191,27 @@ updateHeroHint();
       await tauriWin.hide();
     }
   } catch {}
+})();
+
+// Автостарт через Windows login: после bootstrap'а сразу поднимаем VPN
+// с последним выбранным сервером. Если sing-box уже работает (например
+// перезапуск UI поверх живого ядра) — не дёргаем. Без активного source
+// тоже ничего не делаем (heroDisc был бы disabled).
+(async () => {
+  try {
+    const autostarted = await invoke("is_autostarted");
+    if (!autostarted) return;
+    const running = await invoke("singbox_running");
+    if (running) return;
+    if (!getActiveSource()) return;
+    // Дать UI смонтироваться (heroDisc обвешан обработчиком в самом конце)
+    await new Promise(r => setTimeout(r, 600));
+    if (state === "idle" && !heroDisc.disabled) {
+      heroDisc.click();
+    }
+  } catch (e) {
+    console.warn("autostart-connect failed", e);
+  }
 })();
 
 // Синхронизация флага autostart с реальным registry-state Windows.

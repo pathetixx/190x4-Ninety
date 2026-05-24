@@ -707,7 +707,10 @@ function buildWarpEndpoint(warpOpts, warpInfo) {
   // вписывается прямо в WG-endpoint sing-box форка (см. hsb/option/wireguard.go).
   // Range сериализуется как "from-to" string (Range.MarshalJSON в hiddify/wireguard-go).
   const noisePreset = warpOpts.noisePreset || "off";
-  const noise = WARP_NOISE_PRESETS[noisePreset];
+  let noise = WARP_NOISE_PRESETS[noisePreset];
+  if (noisePreset === "custom") {
+    noise = buildCustomNoise(warpOpts.customNoise);
+  }
   if (noise) {
     endpoint.noise = { fake_packet: noise };
   }
@@ -735,7 +738,25 @@ const WARP_NOISE_PRESETS = {
     delay: "5-15",
     mode: "random",
   },
+  custom: null, // собирается из warp.customNoise через buildCustomNoise
 };
+
+function buildCustomNoise(cn) {
+  if (!cn) return null;
+  const range = (r, defFrom, defTo) => {
+    const f = Number.isFinite(r?.from) ? r.from : defFrom;
+    const t = Number.isFinite(r?.to)   ? r.to   : defTo;
+    const lo = Math.min(f, t), hi = Math.max(f, t);
+    return `${lo}-${hi}`;
+  };
+  return {
+    enabled: true,
+    count: range(cn.count, 2, 5),
+    size:  range(cn.size, 20, 60),
+    delay: range(cn.delay, 8, 20),
+    mode: "random",
+  };
+}
 
 // ── главный builder ────────────────────────────────────────
 // Поддерживает оба вызова:

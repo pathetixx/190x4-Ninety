@@ -33,6 +33,13 @@ fn ping() -> &'static str {
     "pong"
 }
 
+/// True если процесс стартовал с флагом --autostarted (Windows login или
+/// дев-симуляция). Используется фронтендом для авто-подключения после bootstrap.
+#[tauri::command]
+fn is_autostarted() -> bool {
+    std::env::args().any(|a| a == "--autostarted")
+}
+
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
@@ -127,6 +134,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ping,
+            is_autostarted,
             vpn::start_singbox,
             vpn::stop_singbox,
             vpn::singbox_running,
