@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ninety",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "identifier": "pw.x190x4.ninety",
   "build": {
     "frontendDist": "../src"
@@ -31,6 +31,7 @@
     "active": true,
     "targets": ["msi", "nsis"],
     "createUpdaterArtifacts": true,
+    "licenseFile": "./windows/license.txt",
     "externalBin": ["binaries/sing-box", "binaries/ninety-tunnel-svc"],
     "resources": {
       "binaries/wintun.dll": "wintun.dll"
@@ -51,7 +52,6 @@
         "installerHooks": "./windows/hooks.nsh",
         "headerImage": "./windows/header.bmp",
         "sidebarImage": "./windows/sidebar.bmp",
-        "license": "./windows/license.txt",
         "displayLanguageSelector": false,
         "languages": ["English", "Russian"]
       }
