@@ -273,43 +273,6 @@
 .logs__console:focus-visible { outline: 1px solid var(--accent-soft); outline-offset: -1px; }
 .logs__toggle input[type="checkbox"] { accent-color: var(--accent); }
 
-/* Drawer active-node label (показывается при secured) */
-.drawer__active {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-  font-size: 11.5px;
-  color: var(--text-mid);
-}
-.drawer__active-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--accent-bright);
-  box-shadow: 0 0 8px var(--accent-glow);
-}
-
-/* Server card — spinner для "переключаюсь..." */
-.srv__ping[data-spinning="true"] {
-  position: relative;
-  color: var(--text-faint);
-}
-.srv__ping[data-spinning="true"]::after {
-  content: "";
-  display: inline-block;
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  border: 1.5px solid var(--accent-soft);
-  border-top-color: var(--accent);
-  animation: srv-spin 0.7s linear infinite;
-  margin-left: 6px;
-}
-@keyframes srv-spin { to { transform: rotate(360deg); } }
-
-/* Drawer не закрывается до завершения switch'а */
-.drawer[data-busy="true"] { pointer-events: none; }
-.drawer[data-busy="true"] .drawer__close { pointer-events: auto; }
-
 /* ───────── Onboarding empty-state / wizard ───────── */
 .app[data-empty="true"] .screen,
 .app[data-wizard="true"] .screen { display: none !important; }

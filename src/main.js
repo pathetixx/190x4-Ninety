@@ -31,7 +31,6 @@ import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
-import { mountServerDrawer, open as openServerDrawer, close as closeServerDrawer } from "/lib/server-drawer.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
@@ -396,19 +395,8 @@ navItems.forEach((item) => {
   item.addEventListener("click", () => switchView(item.dataset.view));
 });
 
-document.getElementById("location-card")?.addEventListener("click", (e) => {
-  if (e.target.closest(".hero__disc")) return;
-  // ServerDrawer — slide-from-right при connected; иначе toast.
-  if (state !== "connected") {
-    toast("Сначала подключитесь — выбор ноды доступен в туннеле", "info", 1800);
-    return;
-  }
-  openServerDrawer({ connected: true });
-});
-
-// Mount Proxies view (FAB-молния → перетест группы) + ServerDrawer
+// Mount Proxies view (FAB-молния → перетест группы)
 mountProxiesView({ onToast: toast });
-mountServerDrawer({ onToast: toast });
 
 // ── Settings view ──────────────────────────────────────────
 const settingsRoot = document.getElementById("settings-root");

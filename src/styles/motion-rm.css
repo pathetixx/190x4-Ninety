@@ -3,7 +3,7 @@
    prefers-reduced-motion: убираем бесконечные анимации (sweep/halo
    breath) и драматические burst-коллапсы. Оставляем короткие
    opacity-fade'ы для индикации событий + press-scale для тактильности.
-   Drawer/popover короткие transition не трогаем.
+   Popover короткие transition не трогаем.
    ───────────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -49,10 +49,8 @@
     animation: none !important;
   }
 
-  /* Spinner FAB (proxies) и srv-spin — оставить только если они индикативны.
-     Spinner-крутёжки — это feedback "идёт работа" → оставляем минимальные */
+  /* Spinner FAB (proxies) — оставить, это feedback "идёт работа", не декор */
   .prox-fab[data-testing="true"] svg,
-  .srv__ping[data-spinning="true"]::after,
   .add-modal__spinner {
     /* оставляем — это не декор, а индикатор активной работы */
   }
