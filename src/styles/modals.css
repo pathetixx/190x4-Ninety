@@ -50,6 +50,11 @@
   border: 1px solid var(--line-2);
   box-shadow: 0 28px 60px -16px rgba(0, 0, 0, 0.7);
   animation: popover-in 0.18s var(--ease-out);
+  /* Перебиваем screens.css .popover (opacity:0/pointer-events:none/transform,
+     завязанные на [data-open]) — здесь видимость держит атрибут [hidden]. */
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
 }
 .popover::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;

@@ -486,3 +486,15 @@
    Тот же баг с .onboarding { display: grid } и stats-strip. */
 [hidden] { display: none !important; }
 
+/* Ячейка СЕРВЕР в stats-strip: длинное имя ноды режем эллипсисом, иначе
+   ломает grid-колонку 1fr (min-width:auto у grid-итема не даёт ужаться). */
+.stats__cell { min-width: 0; }
+#stats-server {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
