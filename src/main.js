@@ -467,11 +467,11 @@ function scheduleAutoReconnect() {
   pendingReconnectTimer = setTimeout(performAutoReconnect, RECONNECT_DEBOUNCE_MS);
 }
 
-async function performAutoReconnect() {
+async function performAutoReconnect(reason = "Применяю новые настройки…") {
   pendingReconnectTimer = null;
   if (!needsReconnect) return;
   if (state !== "connected" && state !== "connecting") return;
-  toast("Применяю новые настройки…", "info", 1400);
+  toast(reason, "info", 1400);
   try { await invoke("set_system_proxy", { enable: false }); } catch {}
   try { await invoke("stop_singbox"); } catch {}
   setState("idle");
@@ -489,6 +489,19 @@ function applyReconnectUI() {
   } else {
     hero.classList.remove("hero--reconnect");
   }
+}
+
+// Сменился активный источник (подписка/профиль) при поднятом VPN — немедленно
+// пересобираем конфиг с новыми нодами. Без дебаунса (явное действие юзера),
+// в отличие от scheduleAutoReconnect для правок настроек. Реконнект уходит в
+// idle (сбросит currentEffectiveNode) → buildConfig читает свежий getActiveSource()
+// → AUTO-селектор по новым нодам, они пингуются URLTest'ом.
+function reconnectForSourceChange(reason) {
+  if (state !== "connected" && state !== "connecting") return false;
+  needsReconnect = true;
+  if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
+  performAutoReconnect(reason);
+  return true;
 }
 
 // ── WARP UX (hero badge + история ротаций) ──────────────────
@@ -1033,10 +1046,16 @@ profilesView?.addEventListener("click", async (e) => {
         const sub = loadSubscriptions().find(s => s.id === id);
         if (sub) await exportSingboxJson({ kind: "sub", subscription: sub, nodes: sub.profiles }, toast);
       } else if (act === "activate") {
+        const wasActive = getActiveKind() === "sub" && getActiveSubscriptionId() === id;
         setActiveKind("sub");
         setActiveSubscriptionId(id);
+        currentEffectiveNode = null;
         refreshProfilesSummary();
-        toast("Подписка активирована", "success", 1800);
+        if (!wasActive && reconnectForSourceChange("Переключаюсь на новую подписку…")) {
+          // реконнект сам поднимет VPN заново на AUTO-сервере новой подписки
+        } else {
+          toast("Подписка активирована", "success", 1800);
+        }
       } else if (act === "remove") {
         removeSubscription(id);
         if (getActiveKind() === "sub" && !getActiveSubscriptionId()) setActiveKind("single");
@@ -1067,10 +1086,16 @@ profilesView?.addEventListener("click", async (e) => {
         return;
       }
       if (act === "activate") {
+        const wasActive = getActiveKind() === "single" && getActiveProfileId() === id;
         setActiveProfileId(id);
         setActiveKind("single");
+        currentEffectiveNode = null;
         refreshProfilesSummary();
-        toast("Профиль активирован", "success", 1800);
+        if (!wasActive && reconnectForSourceChange("Переключаюсь на новый профиль…")) {
+          // реконнект сам поднимет VPN заново на новом конфиге
+        } else {
+          toast("Профиль активирован", "success", 1800);
+        }
       } else if (act === "remove") {
         removeProfile(id);
         refreshProfilesSummary();
@@ -1118,7 +1143,7 @@ const tfDownUnit = document.getElementById("tf-down-unit");
 const tfUpUnit = document.getElementById("tf-up-unit");
 const locCard = document.getElementById("location-card");
 const statsStrip = document.getElementById("stats-strip");
-const statsUptime = document.getElementById("stats-uptime");
+const statsServer = document.getElementById("stats-server");
 const statsDown = document.getElementById("stats-down");
 const statsUp = document.getElementById("stats-up");
 const statsDownUnit = document.getElementById("stats-down-unit");
@@ -1135,7 +1160,7 @@ const STATE_KICKER = {
   connecting: "LINKING · NEGOTIATING",
   connected:  "SECURED · TUNNEL ACTIVE",
 };
-const MODE_LABEL = { proxy: "ПРОКСИ", systemProxy: "СИСТЕМНЫЙ", tun: "VPN · TUN" };
+const MODE_LABEL = { proxy: "ПРОКСИ", systemProxy: "СИСТЕМНЫЙ ПРОКСИ", tun: "VPN · TUN" };
 
 // Remount-приём: заменить элемент копией → CSS-анимация перезапускается с нуля.
 // Используется для .hero__burst, .hero__lock (они анимируются один раз на смену).
@@ -1172,31 +1197,13 @@ function applyHomeBottom(internalState) {
   }
 }
 
-// Uptime tracker: с момента входа в connected. Адаптивный формат.
-let uptimeStartTs = null;
-let uptimeTimer = null;
-function fmtUptime(ms) {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const s = total % 60;
-  const m = Math.floor(total / 60) % 60;
-  const h = Math.floor(total / 3600) % 24;
-  const d = Math.floor(total / 86400);
-  if (d > 0) return `${d}д ${h}ч`;
-  if (h > 0) return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  if (total >= 60) return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  return `0:${String(s).padStart(2, "0")}`;
-}
-function startUptime() {
-  uptimeStartTs = Date.now();
-  if (statsUptime) statsUptime.textContent = "0:00";
-  stopUptime();
-  uptimeTimer = setInterval(() => {
-    if (statsUptime && uptimeStartTs) statsUptime.textContent = fmtUptime(Date.now() - uptimeStartTs);
-  }, 1000);
-}
-function stopUptime() {
-  if (uptimeTimer) { clearInterval(uptimeTimer); uptimeTimer = null; }
-  uptimeStartTs = null;
+// Активный сервер в stats-strip — обновляется при connect и смене effective-ноды.
+function updateStatsServer() {
+  if (!statsServer) return;
+  const p = activeNodeForDisplay();
+  const label = p?.name || p?.host || "—";
+  statsServer.textContent = label;
+  statsServer.title = label;
 }
 
 let lastPublicIp = null;
@@ -1333,6 +1340,7 @@ function updateHeroForActive() {
     const iso = isoFromNodeName(p.name) || isoFromNodeName(p.host);
     setLocationFlag(iso);
   }
+  updateStatsServer();
   if (state === "idle") updateHeroHint();
 }
 
@@ -1345,7 +1353,6 @@ function setState(next, opts = {}) {
     needsReconnect = false;
     if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
     stopWarpRescanLoop();
-    stopUptime();
     applyReconnectUI();
     if (heroLabel) heroLabel.textContent = "Не подключено";
     showPing(false);
@@ -1378,7 +1385,7 @@ function setState(next, opts = {}) {
     if (heroDisc) heroDisc.setAttribute("aria-label", "Отключиться");
     if (heroMask) heroMask.playbackRate = 1.0;
     if (statsMode) statsMode.textContent = MODE_LABEL[getMode()] || "—";
-    startUptime();
+    updateStatsServer();
     startTrafficStream();
     startWarpRescanLoop();
     updateWarpBadge();
