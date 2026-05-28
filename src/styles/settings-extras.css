@@ -264,18 +264,13 @@
   justify-content: flex-end;
 }
 
-/* ───────── Logs console (textarea-вариант) ───────── */
-/* screens.css определяет .logs__console как div; для textarea убираем стандартный
-   border/outline/resize и подгоняем под общую эстетику. */
-textarea.logs__console {
-  resize: none;
+/* ───────── Logs console — структурный рендер log-line ───────── */
+.logs__console {
   outline: 0;
-  color: var(--text-mid);
-  white-space: pre;
   -webkit-font-smoothing: subpixel-antialiased;
+  user-select: text;
 }
-textarea.logs__console:focus { outline: 1px solid var(--accent-soft); outline-offset: -1px; }
-.logs__console::placeholder { color: var(--text-faint); font-style: italic; }
+.logs__console:focus-visible { outline: 1px solid var(--accent-soft); outline-offset: -1px; }
 .logs__toggle input[type="checkbox"] { accent-color: var(--accent); }
 
 /* Drawer active-node label (показывается при secured) */
@@ -315,15 +310,175 @@ textarea.logs__console:focus { outline: 1px solid var(--accent-soft); outline-of
 .drawer[data-busy="true"] { pointer-events: none; }
 .drawer[data-busy="true"] .drawer__close { pointer-events: auto; }
 
-/* ───────── Onboarding empty-state ───────── */
-.app[data-empty="true"] .screen { display: none !important; }
+/* ───────── Onboarding empty-state / wizard ───────── */
+.app[data-empty="true"] .screen,
+.app[data-wizard="true"] .screen { display: none !important; }
 .app[data-empty="true"] .nav__item[data-view="profiles"],
 .app[data-empty="true"] .nav__item[data-view="proxies"],
-.app[data-empty="true"] .nav__item[data-view="logs"] {
+.app[data-empty="true"] .nav__item[data-view="logs"],
+.app[data-wizard="true"] .nav__item[data-view="profiles"],
+.app[data-wizard="true"] .nav__item[data-view="proxies"],
+.app[data-wizard="true"] .nav__item[data-view="logs"] {
   opacity: 0.4;
   pointer-events: none;
 }
-.app:not([data-empty="true"]) #onboarding-screen { display: none !important; }
+.app:not([data-empty="true"]):not([data-wizard="true"]) #onboarding-screen { display: none !important; }
+
+/* Wizard — прогресс-индикатор */
+.onb-wizard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  width: 100%;
+  max-width: 520px;
+}
+.onb-progress {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+}
+.onb-progress__dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  border: 1px solid var(--line-2);
+  transition: background 220ms var(--ease-out), box-shadow 220ms var(--ease-out), border-color 220ms var(--ease-out);
+}
+.onb-progress__bar {
+  width: 24px;
+  height: 1px;
+  background: var(--line-2);
+}
+#onboarding-screen[data-step="1"] .onb-progress__dot[data-step="1"],
+#onboarding-screen[data-step="2"] .onb-progress__dot[data-step="2"],
+#onboarding-screen[data-step="3"] .onb-progress__dot[data-step="3"],
+#onboarding-screen[data-step="4"] .onb-progress__dot[data-step="4"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+/* пройденные шаги — серым с заливкой */
+#onboarding-screen[data-step="2"] .onb-progress__dot[data-step="1"],
+#onboarding-screen[data-step="3"] .onb-progress__dot[data-step="1"],
+#onboarding-screen[data-step="3"] .onb-progress__dot[data-step="2"],
+#onboarding-screen[data-step="4"] .onb-progress__dot[data-step="1"],
+#onboarding-screen[data-step="4"] .onb-progress__dot[data-step="2"],
+#onboarding-screen[data-step="4"] .onb-progress__dot[data-step="3"] {
+  background: var(--accent-soft);
+  border-color: var(--accent-deep);
+}
+
+.onb-step {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+/* Tiles — Из буфера / Вручную */
+.onb-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+  margin: 4px 0;
+}
+.onb-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 22px 14px;
+  border-radius: var(--r-md);
+  background: var(--ink-1);
+  border: 1px solid var(--line-2);
+  color: var(--text-hi);
+  cursor: pointer;
+  transition: background 200ms var(--ease-out), border-color 200ms var(--ease-out), transform 160ms var(--ease-out);
+}
+.onb-tile:hover {
+  background: var(--ink-2);
+  border-color: var(--line-3);
+  transform: translateY(-1px);
+}
+.onb-tile svg { color: var(--accent-bright); }
+.onb-tile__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+.onb-tile__sub {
+  font-size: 11.5px;
+  color: var(--text-lo);
+  text-align: center;
+}
+
+.onb-supported {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: -0.005em;
+  color: var(--text-lo);
+  background: var(--ink-1);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
+  text-align: center;
+  line-height: 1.7;
+}
+.onb-supported span { color: var(--text-mid); }
+
+/* Connecting — спиннер */
+.onb-spinner {
+  position: relative;
+  width: 78px; height: 78px;
+}
+.onb-spinner__ring,
+.onb-spinner__ring--2 {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  animation: onb-spin 1.1s linear infinite;
+}
+.onb-spinner__ring--2 {
+  inset: 12px;
+  border-color: transparent;
+  border-top-color: var(--accent-bright);
+  animation-duration: 1.7s;
+  animation-direction: reverse;
+}
+.onb-spinner__core {
+  position: absolute;
+  inset: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 18px var(--accent-glow);
+  animation: onb-pulse 1.4s ease-in-out infinite;
+}
+@keyframes onb-spin { to { transform: rotate(360deg); } }
+@keyframes onb-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1); }
+}
+
+/* Готово — галочка */
+.onb-check {
+  width: 78px; height: 78px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  color: var(--accent-bright);
+  box-shadow: 0 0 0 6px rgba(255,255,255,0.02), 0 0 32px var(--accent-glow);
+  animation: onb-check-in 0.4s var(--ease-emph);
+}
+@keyframes onb-check-in {
+  from { transform: scale(0.6); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
 
 /* ───────── HOTFIX: HTML5 hidden атрибут перебивается любым display: ─────────
    screens.css ставит .screen { display: flex } всем секциям, включая [hidden].

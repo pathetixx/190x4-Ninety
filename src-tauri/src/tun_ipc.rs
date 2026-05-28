@@ -335,3 +335,27 @@ pub async fn tunnel_service_uninstall() -> Result<(), String> {
 pub async fn tunnel_full_status() -> Result<TunnelStatus, String> {
     ipc_status().await
 }
+
+#[tauri::command]
+pub async fn tunnel_service_restart() -> Result<(), String> {
+    tokio::task::spawn_blocking(restart_service)
+        .await
+        .map_err(|e| format!("restart join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn tunnel_service_log_path() -> Result<String, String> {
+    ipc_log_path().await
+}
+
+fn restart_service() -> Result<(), String> {
+    // Перезапуск через UAC-elevated cmd.exe — stop+start как один runas pipeline,
+    // один UAC покрывает оба шага.
+    let cmdline = format!("/c sc stop {SERVICE_NAME} & sc start {SERVICE_NAME}");
+    let code = proxy_win::run_elevated_wait("cmd.exe", &[cmdline.as_str()], 30_000)?;
+    if code != 0 {
+        return Err(format!("sc stop/start завершился с кодом {code}"));
+    }
+    wait_for_state(SvcState::Running, Duration::from_secs(10))?;
+    Ok(())
+}

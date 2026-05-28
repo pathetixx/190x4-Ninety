@@ -147,6 +147,8 @@ pub fn run() {
             tun_ipc::tunnel_service_install,
             tun_ipc::tunnel_service_uninstall,
             tun_ipc::tunnel_full_status,
+            tun_ipc::tunnel_service_restart,
+            tun_ipc::tunnel_service_log_path,
             subscription::fetch_subscription,
             clash::clash_get_proxies,
             clash::clash_test_node,

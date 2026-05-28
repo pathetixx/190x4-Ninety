@@ -1,0 +1,50 @@
+Ninety — 190X4 VPN
+===================
+
+Лицензия MIT (Copyright © 2026 pathetixx · 190x4.pw)
+
+Программа распространяется бесплатно. Исходный код открыт:
+https://github.com/pathetixx/190x4-Ninety
+
+КРАТКО О ТОМ, ЧТО ВЫ УСТАНАВЛИВАЕТЕ:
+
+  •  Ninety.exe — UI-приложение, работает под вашей учётной записью.
+  •  ninety-tunnel-svc.exe — Windows-служба NinetyTunnelService,
+     устанавливается ОДИН РАЗ при первом включении режима VPN · TUN.
+     Запросит UAC. Все последующие подключения — без UAC.
+  •  sing-box.exe — VPN-движок, форк hiddify-sing-box, MIT.
+  •  wintun.dll — драйвер виртуального сетевого адаптера WireGuard,
+     BSD-3-Clause. Поставляется рядом с Ninety.exe.
+
+ЧТО ОТПРАВЛЯЕТСЯ В ИНТЕРНЕТ:
+
+  •  Конфиги подписки — только серверам, которые вы сами добавили.
+  •  Запросы на обновление — только GitHub Releases (api.github.com).
+  •  Без телеметрии, аналитики, рекламы.
+
+ГАРАНТИИ:
+
+  Программа предоставляется «КАК ЕСТЬ», без каких-либо гарантий.
+  Используя Ninety, вы соглашаетесь с условиями MIT.
+
+Полный текст лицензии:
+
+----------------------------------------------------------------------
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.

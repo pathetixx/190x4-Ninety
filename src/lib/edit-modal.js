@@ -102,13 +102,12 @@ export function openEditSubscription(sub, { onSaved, onToast } = {}) {
       <span class="edit-modal__label">Имя</span>
       <input type="text" id="edit-name" value="${escapeHtml(sub.name || "")}" maxlength="80" autocomplete="off">
     </label>
-    <label class="edit-modal__row">
+    <div class="edit-modal__row">
       <span class="edit-modal__label">Авто-обновление</span>
-      <label class="switch">
-        <input type="checkbox" id="edit-auto" ${autoUpdate ? "checked" : ""}>
-        <span class="switch__slider"></span>
-      </label>
-    </label>
+      <span class="switch" id="edit-auto" role="switch" tabindex="0"
+            data-on="${autoUpdate ? "true" : "false"}"
+            aria-checked="${autoUpdate ? "true" : "false"}"></span>
+    </div>
     <label class="edit-modal__field">
       <span class="edit-modal__label">Интервал обновления — <span id="edit-interval-val">${escapeHtml(intervalLabel(interval))}</span></span>
       <input type="range" id="edit-interval" min="0" max="96" step="1" value="${interval}">
@@ -120,7 +119,7 @@ export function openEditSubscription(sub, { onSaved, onToast } = {}) {
     fields,
     onSave: (root) => {
       const name = root.querySelector("#edit-name").value.trim() || sub.name;
-      const autoUpdate = root.querySelector("#edit-auto").checked;
+      const autoUpdate = root.querySelector("#edit-auto").dataset.on === "true";
       const interval = parseInt(root.querySelector("#edit-interval").value, 10) || 0;
       updateSubscription(sub.id, { name, autoUpdate, updateIntervalHours: interval });
       onToast?.("Сохранено", "success", 1400);
@@ -130,4 +129,14 @@ export function openEditSubscription(sub, { onSaved, onToast } = {}) {
   const slider = root.querySelector("#edit-interval");
   const valEl = root.querySelector("#edit-interval-val");
   slider.addEventListener("input", () => { valEl.textContent = intervalLabel(slider.value); });
+  const sw = root.querySelector("#edit-auto");
+  const toggleSw = () => {
+    const next = sw.dataset.on !== "true";
+    sw.dataset.on = String(next);
+    sw.setAttribute("aria-checked", String(next));
+  };
+  sw.addEventListener("click", toggleSw);
+  sw.addEventListener("keydown", (e) => {
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleSw(); }
+  });
 }
