@@ -504,6 +504,30 @@ function reconnectForSourceChange(reason) {
   return true;
 }
 
+// Единая активация источника (подписка/профиль). Зовётся И из pmenu «Сделать
+// активным», И из клика по телу карточки — раньше реконнект был только в pmenu,
+// поэтому клик по карточке менял активный источник, а VPN оставался на старом
+// конфиге. При поднятом VPN и реальной смене источника — немедленный реконнект.
+function activateSource(kind, id) {
+  const isSub = kind === "sub";
+  const wasActive = isSub
+    ? (getActiveKind() === "sub" && getActiveSubscriptionId() === id)
+    : (getActiveKind() === "single" && getActiveProfileId() === id);
+  if (isSub) {
+    setActiveKind("sub");
+    setActiveSubscriptionId(id);
+  } else {
+    setActiveProfileId(id);
+    setActiveKind("single");
+  }
+  currentEffectiveNode = null;
+  refreshProfilesSummary();
+  const reason = isSub ? "Переключаюсь на новую подписку…" : "Переключаюсь на новый профиль…";
+  if (wasActive || !reconnectForSourceChange(reason)) {
+    toast(isSub ? "Подписка активирована" : "Профиль активирован", "success", 1800);
+  }
+}
+
 // ── WARP UX (hero badge + история ротаций) ──────────────────
 const WARP_HISTORY_KEY = "ninety.warp.history";
 const WARP_HISTORY_LIMIT = 20;
@@ -1046,16 +1070,7 @@ profilesView?.addEventListener("click", async (e) => {
         const sub = loadSubscriptions().find(s => s.id === id);
         if (sub) await exportSingboxJson({ kind: "sub", subscription: sub, nodes: sub.profiles }, toast);
       } else if (act === "activate") {
-        const wasActive = getActiveKind() === "sub" && getActiveSubscriptionId() === id;
-        setActiveKind("sub");
-        setActiveSubscriptionId(id);
-        currentEffectiveNode = null;
-        refreshProfilesSummary();
-        if (!wasActive && reconnectForSourceChange("Переключаюсь на новую подписку…")) {
-          // реконнект сам поднимет VPN заново на AUTO-сервере новой подписки
-        } else {
-          toast("Подписка активирована", "success", 1800);
-        }
+        activateSource("sub", id);
       } else if (act === "remove") {
         removeSubscription(id);
         if (getActiveKind() === "sub" && !getActiveSubscriptionId()) setActiveKind("single");
@@ -1086,16 +1101,7 @@ profilesView?.addEventListener("click", async (e) => {
         return;
       }
       if (act === "activate") {
-        const wasActive = getActiveKind() === "single" && getActiveProfileId() === id;
-        setActiveProfileId(id);
-        setActiveKind("single");
-        currentEffectiveNode = null;
-        refreshProfilesSummary();
-        if (!wasActive && reconnectForSourceChange("Переключаюсь на новый профиль…")) {
-          // реконнект сам поднимет VPN заново на новом конфиге
-        } else {
-          toast("Профиль активирован", "success", 1800);
-        }
+        activateSource("single", id);
       } else if (act === "remove") {
         removeProfile(id);
         refreshProfilesSummary();
@@ -1108,20 +1114,12 @@ profilesView?.addEventListener("click", async (e) => {
   // Клик по телу карточки → активация (Hiddify-стиль)
   const subActivate = e.target.closest("[data-sub-activate]");
   if (subActivate) {
-    const id = subActivate.dataset.subActivate;
-    setActiveKind("sub");
-    setActiveSubscriptionId(id);
-    refreshProfilesSummary();
-    toast("Подписка активирована", "success", 1500);
+    activateSource("sub", subActivate.dataset.subActivate);
     return;
   }
   const profileActivate = e.target.closest("[data-profile-activate]");
   if (profileActivate) {
-    const id = profileActivate.dataset.profileActivate;
-    setActiveProfileId(id);
-    setActiveKind("single");
-    refreshProfilesSummary();
-    toast("Профиль активирован", "success", 1500);
+    activateSource("single", profileActivate.dataset.profileActivate);
     return;
   }
 });
