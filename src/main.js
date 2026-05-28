@@ -234,9 +234,15 @@ modeSeg?.addEventListener("click", async (e) => {
     const ok = await ensureTunnelServiceInstalled();
     if (!ok) return; // юзер отказался ставить или установка не удалась
   }
+  const prevMode = getMode();
   setMode(requested);
   applyModeToUI(requested);
   updateHeroHint();
+  // Режим меняет inbound (TUN vs mixed) и системный прокси — при поднятом VPN
+  // надо пересобрать конфиг. reconnectForSourceChange сам уходит в idle (сбросит
+  // системный прокси старого режима) и поднимается заново. Если не connected —
+  // no-op, режим применится при следующем connect.
+  if (requested !== prevMode) reconnectForSourceChange("Переключаю режим…");
 });
 
 // Проверяет статус NinetyTunnelService. Если не_installed — предлагает
@@ -671,9 +677,12 @@ function highlightMessage(msg) {
     .replace(/\b(?:wss?|https?):\/\/[^\s]+/gi, '<span class="acc">$&</span>');
 }
 
+const LOG_RENDER_MAX_LINES = 800;
 function renderLogsHtml(text) {
   if (!text) return '';
-  const lines = text.split(/\r?\n/);
+  // Ограничиваем DOM последними N строками — 256КБ хвоста дают тысячи строк
+  // (простыня + тормоза рендера). Свежие строки внизу, как в консоли.
+  const lines = text.split(/\r?\n/).slice(-LOG_RENDER_MAX_LINES);
   const out = [];
   let buffer = []; // продолжения многострочного сообщения
   let lastIdx = -1;
@@ -1142,6 +1151,7 @@ const tfUpUnit = document.getElementById("tf-up-unit");
 const locCard = document.getElementById("location-card");
 const statsStrip = document.getElementById("stats-strip");
 const statsServer = document.getElementById("stats-server");
+const statsFlag = document.getElementById("stats-flag");
 const statsDown = document.getElementById("stats-down");
 const statsUp = document.getElementById("stats-up");
 const statsDownUnit = document.getElementById("stats-down-unit");
@@ -1202,6 +1212,11 @@ function updateStatsServer() {
   const label = p?.name || p?.host || "—";
   statsServer.textContent = label;
   statsServer.title = label;
+  if (statsFlag) {
+    const iso = p ? (isoFromNodeName(p.name) || isoFromNodeName(p.host)) : null;
+    statsFlag.innerHTML = iso ? `<img src="${FLAGS_BASE}/${iso}.svg" alt="">` : "";
+    statsFlag.hidden = !iso;
+  }
 }
 
 let lastPublicIp = null;

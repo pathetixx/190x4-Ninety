@@ -608,12 +608,20 @@ function renderGeneral(o) {
       ${row(iconRocket(), "Запускать при входе в систему", "Ninety будет автоматически стартовать при логине в Windows", toggle("general.autostart", g.autostart, { action: "autostart" }))}
       ${row(iconEyeOff(), "Запускать свернутым", "На старте окно сразу прячется в трей — иконка остаётся справа внизу", toggle("general.startMinimized", g.startMinimized))}
     </div>
-    <div class="settings-banner">
-      Обработка ссылок: только Ninety. Не включайте схемы, которые уже использует другой VPN-клиент — последний победитель регистрации перетянет ассоциацию на себя.
-    </div>
-    <div class="settings-section">
-      ${schemeRows}
-    </div>
+    <details class="set-collapse">
+      <summary class="set-collapse__summary">
+        <span class="set-collapse__icon">${iconUrl()}</span>
+        <span class="set-collapse__title">Обработка ссылок</span>
+        <span class="set-collapse__meta">${registered.size ? `${registered.size} вкл.` : "выкл."}</span>
+        <span class="set-collapse__chev"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+      </summary>
+      <div class="settings-banner">
+        Только Ninety. Не включайте схемы, которые уже использует другой VPN-клиент — последний победитель регистрации перетянет ассоциацию на себя.
+      </div>
+      <div class="settings-section">
+        ${schemeRows}
+      </div>
+    </details>
     <div class="settings-section">
       ${row(iconUrl(), "URL для теста соединения", "Любой HTTP/HTTPS endpoint, проверяющий доступ", inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
       ${row(iconClock(), "Интервал теста (сек)", "Как часто sing-box проверяет outbound", inputText("urlTest.intervalSec", o.urlTest.intervalSec, "number", 'min="30" max="3600"'))}
