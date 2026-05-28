@@ -65,3 +65,13 @@ pub async fn tunnel_service_uninstall() -> Result<(), String> {
 pub async fn tunnel_full_status() -> Result<TunnelStatus, String> {
     Err(ERR.into())
 }
+
+#[tauri::command]
+pub async fn tunnel_service_restart() -> Result<(), String> {
+    Err(ERR.into())
+}
+
+#[tauri::command]
+pub async fn tunnel_service_log_path() -> Result<String, String> {
+    Err(ERR.into())
+}

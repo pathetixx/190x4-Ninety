@@ -1,6 +1,6 @@
 [package]
 name = "ninety-tunnel-svc"
-version = "0.1.29"
+version = "0.1.30"
 description = "Ninety tunnel service — administers sing-box TUN mode under Windows SCM"
 edition = "2021"
 

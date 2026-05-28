@@ -267,6 +267,13 @@ mountAddModal({
   onCommit: (res) => {
     toast(res.message, "success", 2000);
     refreshProfilesSummary();
+    // Wizard: после step 2 — переходим на «подключение»
+    if (wizardActive && wizardStepNum <= 2) {
+      showOnbStep(3);
+      setTimeout(() => {
+        try { heroDisc?.click(); } catch {}
+      }, 450);
+    }
   },
 });
 
@@ -290,14 +297,22 @@ function refreshProfilesSummary() {
   syncEmptyState();
 }
 
-// Empty-state: нет ни подписки ни конфига → показываем onboarding,
-// скрываем все screen + приглушаем sidebar Профили/Ноды/Логи
+// Empty-state: нет ни подписки ни конфига → показываем onboarding wizard
+// (если он ещё не пройден). Wizard также удерживает onboarding visible пока
+// юзер не дошёл до step 4 — даже если empty уже false (подписка добавлена).
 function syncEmptyState() {
   if (!appRoot) return;
   const empty = loadProfiles().length === 0 && loadSubscriptions().length === 0;
   appRoot.dataset.empty = String(empty);
   const onb = document.getElementById("onboarding-screen");
-  if (onb) onb.hidden = !empty;
+  if (empty && !isOnboardingDone() && !wizardActive) {
+    openWizardAt(wizardStepNum || 1);
+    return;
+  }
+  appRoot.dataset.wizard = String(wizardActive);
+  if (onb) onb.hidden = !(wizardActive || empty);
+  // empty + done — показываем шаг 1 (welcome) для повторного re-add, без wizardActive
+  if (empty && !wizardActive && onb) showOnbStep(1);
 }
 
 // ── sub-card sync с активной подпиской ─────────────────────
@@ -591,21 +606,95 @@ function formatBytes(n) {
   return `${(n / 1024 / 1024).toFixed(2)} МиБ`;
 }
 
+// sing-box stdout: `+0300 2025-01-01 12:34:56 INFO [tag] message`
+//                  `12:34:56.123 INFO message`           (timestamp без даты)
+//                  `INFO message`                        (timestamp выключен)
+//                  `+0300 INFO message`                  (offset без timestamp)
+// Группы: 1=offset, 2=date, 3=time, 4=level, 5=rest
+const LOG_LINE_RE = /^(?:([+-]\d{4})\s+)?(?:(\d{4}-\d{2}-\d{2})\s+)?(\d{1,2}:\d{2}:\d{2}(?:\.\d+)?)?\s*(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|PANIC)\s+(.*)$/i;
+
+function levelGrade(lvl) {
+  const l = lvl.toUpperCase();
+  if (l === "ERROR" || l === "FATAL" || l === "PANIC") return "err";
+  if (l === "WARN" || l === "WARNING") return "warn";
+  if (l === "TRACE" || l === "DEBUG") return "ok";
+  return "info";
+}
+
+function escapeLog(s) {
+  return s.replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+}
+
+function highlightMessage(msg) {
+  const safe = escapeLog(msg);
+  // tag в [скобках] подсветить
+  return safe
+    .replace(/\[([^\]]+)\]/g, '<b>[$1]</b>')
+    .replace(/\b(\d+\.\d+\.\d+\.\d+)(?::\d+)?\b/g, '<span class="acc">$&</span>')
+    .replace(/\b(?:wss?|https?):\/\/[^\s]+/gi, '<span class="acc">$&</span>');
+}
+
+function renderLogsHtml(text) {
+  if (!text) return '';
+  const lines = text.split(/\r?\n/);
+  const out = [];
+  let buffer = []; // продолжения многострочного сообщения
+  let lastIdx = -1;
+  for (const raw of lines) {
+    if (!raw) {
+      if (lastIdx >= 0) buffer.push(''); // пустые строки прилеплены к предыдущей
+      continue;
+    }
+    const m = LOG_LINE_RE.exec(raw);
+    if (m) {
+      // финализировать предыдущую если был мульти-line
+      if (lastIdx >= 0 && buffer.length) {
+        out[lastIdx] = out[lastIdx].replace('</span></div>', escapeLog('\n' + buffer.join('\n')) + '</span></div>');
+        buffer = [];
+      }
+      const [, , date, time, level, rest] = m;
+      const t = time || (date ? date.slice(5) : '—');
+      const lvl = level.toUpperCase();
+      const grade = levelGrade(lvl);
+      out.push(`<div class="log-line"><span class="log-line__t">${escapeLog(t)}</span><span class="log-line__l log-line__l--${grade}">${lvl}</span><span class="log-line__m">${highlightMessage(rest)}</span></div>`);
+      lastIdx = out.length - 1;
+    } else {
+      // без timestamp и без уровня → продолжение или plain
+      if (lastIdx >= 0) {
+        buffer.push(raw);
+      } else {
+        out.push(`<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--info">···</span><span class="log-line__m">${escapeLog(raw)}</span></div>`);
+        lastIdx = out.length - 1;
+      }
+    }
+  }
+  if (lastIdx >= 0 && buffer.length) {
+    out[lastIdx] = out[lastIdx].replace('</span></div>', escapeLog('\n' + buffer.join('\n')) + '</span></div>');
+  }
+  return out.join('');
+}
+
 async function refreshLogs({ keepScroll = false } = {}) {
   if (!logsView) return;
   try {
     const text = await invoke("read_singbox_log", { tailBytes: 256 * 1024 });
     if (text === logsLastValue) return;
     logsLastValue = text;
-    const atBottom = !keepScroll || (logsView.scrollTop + logsView.clientHeight >= logsView.scrollHeight - 8);
-    logsView.value = text || "";
+    const atBottom = !keepScroll || (logsView.scrollTop + logsView.clientHeight >= logsView.scrollHeight - 24);
+    if (!text) {
+      logsView.innerHTML = '<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--info">···</span><span class="log-line__m" style="font-style:italic;color:var(--text-faint)">Лог пуст. Запустите подключение — sing-box stdout/stderr будут писаться сюда.</span></div>';
+    } else {
+      logsView.innerHTML = renderLogsHtml(text);
+    }
     if (atBottom) logsView.scrollTop = logsView.scrollHeight;
     if (logsSize) {
       const bytes = new TextEncoder().encode(text || "").length;
       logsSize.textContent = text ? formatBytes(bytes) : "пусто";
     }
   } catch (e) {
-    if (logsView) logsView.value = `Ошибка чтения лога: ${e?.message || e}`;
+    if (logsView) {
+      logsView.innerHTML = `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--err">ERR</span><span class="log-line__m">${escapeLog(`Ошибка чтения лога: ${e?.message || e}`)}</span></div>`;
+    }
   }
 }
 
@@ -638,20 +727,13 @@ logsAuto?.addEventListener("change", () => {
 logsRefreshBtn?.addEventListener("click", () => refreshLogs());
 
 logsCopyBtn?.addEventListener("click", async () => {
-  const text = logsView?.value || "";
+  const text = logsLastValue || "";
   if (!text) { toast("Лог пуст", "info", 1400); return; }
   try {
     await navigator.clipboard.writeText(text);
     toast("Лог скопирован в буфер", "success", 1600);
   } catch {
-    logsView.focus();
-    logsView.select();
-    try {
-      document.execCommand("copy");
-      toast("Лог скопирован", "success", 1600);
-    } catch {
-      toast("Не удалось скопировать — выделите вручную (Ctrl+A, Ctrl+C)", "error", 3000);
-    }
+    toast("Не удалось скопировать — попробуйте выделить мышью и Ctrl+C", "error", 3000);
   }
 });
 
@@ -791,14 +873,68 @@ function renderProfilesView() {
   profilesList.innerHTML = `${subItems}${profileItems}`;
 }
 
-// Кнопки header'а profiles экрана + onboarding
+// Кнопки header'а profiles экрана
 document.getElementById("profiles-add")?.addEventListener("click", () => openAddModal());
-document.getElementById("onb-add")?.addEventListener("click", () => openAddModal());
-document.getElementById("onb-clipboard")?.addEventListener("click", async () => {
-  try {
-    const text = await navigator.clipboard.readText();
-    openAddModal({ prefillUrl: (text || "").trim() });
-  } catch {
+
+// ── Onboarding wizard (4 шага) ─────────────────────────────
+const ONB_STEP_KEY = "ninety.onboarding.step";
+const ONB_DONE_KEY = "ninety.onboarding.done";
+let wizardActive = false;
+let wizardStepNum = parseInt(localStorage.getItem(ONB_STEP_KEY) || "1", 10) || 1;
+
+function isOnboardingDone() {
+  return localStorage.getItem(ONB_DONE_KEY) === "1";
+}
+function markOnboardingDone() {
+  localStorage.setItem(ONB_DONE_KEY, "1");
+  localStorage.removeItem(ONB_STEP_KEY);
+}
+function showOnbStep(n) {
+  wizardStepNum = Math.max(1, Math.min(4, n));
+  localStorage.setItem(ONB_STEP_KEY, String(wizardStepNum));
+  const onb = document.getElementById("onboarding-screen");
+  if (!onb) return;
+  onb.dataset.step = String(wizardStepNum);
+  onb.querySelectorAll(".onb-step").forEach(s => {
+    s.hidden = s.dataset.step !== String(wizardStepNum);
+  });
+}
+function openWizardAt(step = 1) {
+  wizardActive = true;
+  if (appRoot) appRoot.dataset.wizard = "true";
+  const onb = document.getElementById("onboarding-screen");
+  if (onb) onb.hidden = false;
+  showOnbStep(step);
+}
+function closeWizard() {
+  markOnboardingDone();
+  wizardActive = false;
+  if (appRoot) appRoot.dataset.wizard = "false";
+  syncEmptyState();
+}
+
+// Делегированные обработчики кнопок wizard
+document.getElementById("onboarding-screen")?.addEventListener("click", async (e) => {
+  const next = e.target.closest("[data-onb-next]");
+  if (next) {
+    const n = parseInt(next.dataset.onbNext, 10);
+    if (!wizardActive) openWizardAt(n);
+    else showOnbStep(n);
+    return;
+  }
+  const back = e.target.closest("[data-onb-back]");
+  if (back) { showOnbStep(parseInt(back.dataset.onbBack, 10)); return; }
+  if (e.target.closest("[data-onb-skip]")) { closeWizard(); return; }
+  if (e.target.closest("[data-onb-finish]")) { closeWizard(); return; }
+  const action = e.target.closest("[data-onb-action]")?.dataset.onbAction;
+  if (action === "clipboard") {
+    if (!wizardActive) openWizardAt(2); // на всякий случай — фиксируем wizard-state
+    try {
+      const text = await navigator.clipboard.readText();
+      openAddModal({ prefillUrl: (text || "").trim() });
+    } catch { openAddModal(); }
+  } else if (action === "manual") {
+    if (!wizardActive) openWizardAt(2);
     openAddModal();
   }
 });
@@ -1246,6 +1382,8 @@ function setState(next, opts = {}) {
     startTrafficStream();
     startWarpRescanLoop();
     updateWarpBadge();
+    // Wizard: подключились — переходим на финальный шаг
+    if (wizardActive && wizardStepNum === 3) showOnbStep(4);
   }
 }
 

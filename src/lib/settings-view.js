@@ -357,12 +357,33 @@ export function mountSettings(root, opts = {}) {
     const invoke = window.__TAURI__?.core?.invoke;
     if (!invoke) return;
 
+    const block = el.querySelector("#tunnel-statusblock");
     const statusEl = el.querySelector("#tunnel-svc-status");
+    const dotEl = el.querySelector("#tunnel-svc-dot");
     const pidEl = el.querySelector("#tunnel-svc-pid");
+    const actionsEl = el.querySelector("#tunnel-status-actions");
+
+    // Маппинг SvcState → grade for dot (running/stopped/error/неизвестно)
+    const dotState = (svc) => {
+      if (svc === "running") return "running";
+      if (svc === "stopped" || svc === "not_installed") return "stopped";
+      if (svc === "error" || svc === "other") return "error";
+      return ""; // start_pending / stop_pending / paused → нейтральный
+    };
+    // Какие кнопки показывать при каком state
+    const visibleActions = (svc) => {
+      if (svc === "not_installed") return ["tunnel-install", "tunnel-refresh"];
+      if (svc === "running")       return ["tunnel-restart", "tunnel-open-log", "tunnel-uninstall", "tunnel-refresh"];
+      if (svc === "stopped")       return ["tunnel-restart", "tunnel-open-log", "tunnel-uninstall", "tunnel-refresh"];
+      // pending / paused / other / error — даём только refresh + uninstall
+      return ["tunnel-uninstall", "tunnel-refresh"];
+    };
 
     const refresh = async () => {
       if (statusEl) { statusEl.textContent = "Проверка…"; statusEl.dataset.state = ""; }
+      if (dotEl) dotEl.dataset.state = "";
       if (pidEl) pidEl.textContent = "—";
+      if (block) block.dataset.svc = "unknown";
       try {
         const full = await invoke("tunnel_full_status");
         const svc = full?.service || "other";
@@ -370,16 +391,25 @@ export function mountSettings(root, opts = {}) {
           statusEl.textContent = TUNNEL_STATE_LABELS[svc] || svc;
           statusEl.dataset.state = svc;
         }
+        if (dotEl) dotEl.dataset.state = dotState(svc);
         if (pidEl) pidEl.textContent = full?.pid ? String(full.pid) : "—";
+        if (block) block.dataset.svc = svc;
+        const visible = new Set(visibleActions(svc));
+        if (actionsEl) {
+          actionsEl.querySelectorAll("[data-action]").forEach(b => {
+            b.hidden = !visible.has(b.dataset.action);
+          });
+        }
       } catch (e) {
         if (statusEl) {
           statusEl.textContent = "Ошибка: " + (e?.message || e);
           statusEl.dataset.state = "error";
         }
+        if (dotEl) dotEl.dataset.state = "error";
       }
     };
 
-    const runAction = async (btn, cmd, label) => {
+    const runAction = async (btn, cmd, label, errLabel) => {
       const orig = btn.textContent;
       btn.disabled = true;
       btn.textContent = label;
@@ -387,19 +417,27 @@ export function mountSettings(root, opts = {}) {
         await invoke(cmd);
         await refresh();
       } catch (e) {
-        alert((cmd.includes("install") ? "Установка" : "Удаление") +
-              " не удалось: " + (e?.message || e));
+        alert(`${errLabel} не удалось: ${e?.message || e}`);
       } finally {
         btn.disabled = false;
         btn.textContent = orig;
       }
     };
 
-    el.querySelectorAll("[data-action='tunnel-install']").forEach(b => {
-      b.addEventListener("click", () => runAction(b, "tunnel_service_install", "Устанавливаю…"));
-    });
-    el.querySelectorAll("[data-action='tunnel-uninstall']").forEach(b => {
-      b.addEventListener("click", () => runAction(b, "tunnel_service_uninstall", "Удаляю…"));
+    actionsEl?.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-action]");
+      if (!b) return;
+      switch (b.dataset.action) {
+        case "tunnel-install":   return runAction(b, "tunnel_service_install",   "Устанавливаю…", "Установка");
+        case "tunnel-uninstall": return runAction(b, "tunnel_service_uninstall", "Удаляю…",       "Удаление");
+        case "tunnel-restart":   return runAction(b, "tunnel_service_restart",   "Перезапуск…",   "Перезапуск");
+        case "tunnel-refresh":   return refresh();
+        case "tunnel-open-log": {
+          try { await invoke("open_log_dir"); }
+          catch (err) { alert(`Открыть лог не удалось: ${err?.message || err}`); }
+          return;
+        }
+      }
     });
 
     refresh();
@@ -644,52 +682,85 @@ function renderTlsTricks(o) {
 
 function renderWarp(o) {
   const w = o.warp || {};
+  const groupHead = (title, hint) => `
+    <div class="set-group__head">
+      <div class="set-group__title">${title}</div>
+      ${hint ? `<div class="set-group__hint">${hint}</div>` : ""}
+    </div>`;
   return `
     <div class="settings-banner">
       Cloudflare WARP регистрирует WireGuard-устройство в Cloudflare. Бесплатный WARP — без лицензии (просто «Зарегистрировать»). WARP+ — введите 26-символьный ключ из приложения «1.1.1.1». Ключи и токен хранятся локально в <code>app_config_dir/warp.json</code>.
     </div>
-    <div class="settings-section">
+
+    <!-- 1. Базовые: enabled + mode -->
+    <div class="set-group">
+      ${groupHead("Подключение", "Где включить WARP и какой режим использовать.")}
       ${row(iconWarp(), "Включить WARP",
         "Подмешать WARP в конфиг sing-box. Активирует выбранный режим (direct/chain).",
         toggle("warp.enabled", w.enabled))}
       ${row(iconBalancer(), "Режим WARP",
         "<b>Direct</b> — единственный outbound (трафик через WARP, без вашего прокси). <b>Chain</b> — поверх активного прокси (proxy → WARP → internet).",
         select("warp.mode", w.mode || "direct", ["direct", "chain"], WARP_MODE_LABELS))}
+    </div>
+
+    <!-- 2. Регистрация: license + register/reset + status/ipv4 -->
+    <div class="set-group">
+      ${groupHead("Регистрация", "Создаёт WireGuard device на стороне Cloudflare. Без регистрации WARP не подключится.")}
+      <div class="warp-status-row">
+        <div>
+          <div class="warp-status-row__t" id="warp-status">Проверка…</div>
+          <div class="warp-status-row__sub">WG IPv4: <span id="warp-ipv4">—</span></div>
+        </div>
+        <span class="kicker kicker--mid">CLOUDFLARE</span>
+      </div>
+      ${row(iconLock(), "Лицензия WARP+ (опционально)",
+        "26 символов из приложения «1.1.1.1» → Settings → Account → Key. Оставьте пусто для бесплатного WARP.",
+        `<input class="settings-input" type="text" id="warp-license-input" value="" maxlength="26" placeholder="xxxxxxxx-xxxxxxxx-xxxxxxxx" autocomplete="off" spellcheck="false"/>`)}
+      <div class="set-row">
+        <div class="set-row__lbl">
+          <div class="set-row__t">Управление регистрацией</div>
+          <div class="set-row__d">«Зарегистрировать» создаёт пару и обновляет device в CF. «Сбросить» удаляет device и стирает локальный warp.json.</div>
+        </div>
+        <div class="set-row__ctl">
+          <button class="btn btn--sm" data-action="warp-register" type="button">Зарегистрировать</button>
+          <button class="btn btn--sm btn--danger" data-action="warp-reset" type="button">Сбросить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Endpoint + scanner: endpoint, MTU, scan -->
+    <div class="set-group">
+      ${groupHead("Endpoint", "Куда подключаться. Сканер ищет быстрый IP в публичных подсетях CF.")}
       ${row(iconRemote(), "Endpoint",
         "WARP сервер: <code>engage.cloudflareclient.com:2408</code> по умолчанию. Можно <code>auto4</code>/<code>auto6</code>/<code>auto</code> — sing-box выберет случайный clean-IP.",
         inputText("warp.endpoint", w.endpoint || "engage.cloudflareclient.com:2408", "text"))}
       ${row(iconMtu(), "MTU",
         "Максимальный размер WG-пакета. CF рекомендует 1280.",
         inputText("warp.mtu", w.mtu || 1280, "number", 'min="576" max="1500"'))}
-      ${row(iconScissors(), "Обфускация (AmneziaWG)",
-        "Подмешивает junk-пакеты перед WG-хендшейком — обход DPI, который ловит WG-сигнатуру (актуально для РФ-ТСПУ с апреля 2026). Работает только в форке sing-box (у нас собран с <code>with_awg</code>).",
-        select("warp.noisePreset", w.noisePreset || "off", ["off", "default", "aggressive", "custom"], WARP_NOISE_LABELS, true))}
-    </div>
-    ${(w.noisePreset === "custom") ? renderWarpCustomNoise(w.customNoise || {}) : ""}
-    <div class="settings-section">
-      ${row(iconLock(), "Лицензия WARP+ (опционально)",
-        "26 символов из приложения «1.1.1.1» → Settings → Account → Key. Оставьте пусто для бесплатного WARP.",
-        `<input class="settings-input" type="text" id="warp-license-input" value="" maxlength="26" placeholder="xxxxxxxx-xxxxxxxx-xxxxxxxx" autocomplete="off" spellcheck="false"/>`)}
-      ${row(iconRocket(), "Зарегистрировать / обновить",
-        "Создаёт WG-пару и регистрирует device в CF API. Старая регистрация (если была) — удаляется на стороне CF.",
-        `<button class="btn btn--sm" data-action="warp-register" type="button">Зарегистрировать</button>`)}
-      ${row(iconScissors(), "Сбросить регистрацию",
-        "Удаляет device на стороне CF и стирает локальный warp.json. WARP перестанет работать до повторной регистрации.",
-        `<button class="btn btn--sm btn--danger" data-action="warp-reset" type="button">Сбросить</button>`)}
-    </div>
-    <div class="settings-section">
       ${row(iconTarget(), "Найти лучший CF endpoint",
-        "Сканирует CF WARP-пул через TCP-connect ping (~40 IP × 14 портов в обычном режиме, ~330 IP × 14 портов в глубоком). После — top-10 по latency. «Применить» рядом с нужным IP выставит его в поле Endpoint выше.",
+        "Сканирует CF WARP-пул через WG-handshake (если есть warp.json) или TCP-ping. top-10 по latency, «Применить» подставит в поле Endpoint.",
         `<button class="btn btn--sm" data-action="warp-scan" type="button">Сканировать</button>`)}
       ${row(iconCache(), "Глубокое сканирование",
-        "Расширенный набор подсетей CF (~22 вместо 8) и больше IP на подсеть. Дольше (~15-25с), но шанс найти лучший endpoint выше.",
+        "Расширенный набор подсетей CF (~22 вместо 8) и больше IP на подсеть. Дольше (~15-25с), шанс найти лучший endpoint выше.",
         toggle("warp.deepScan", !!w.deepScan))}
+      <div class="settings-section" id="warp-scan-results" hidden style="margin: 6px 0 0;">
+        <div class="settings-banner" id="warp-scan-status">Сканирую…</div>
+        <div id="warp-scan-list"></div>
+      </div>
     </div>
-    <div class="settings-section" id="warp-scan-results" hidden>
-      <div class="settings-banner" id="warp-scan-status">Сканирую…</div>
-      <div id="warp-scan-list"></div>
+
+    <!-- 4. Маскировка: AmneziaWG noise -->
+    <div class="set-group">
+      ${groupHead("Маскировка (AmneziaWG)", "Junk-пакеты перед WG-хендшейком — обход ML-DPI, который ловит WG-сигнатуру (актуально для РФ-ТСПУ с апреля 2026).")}
+      ${row(iconScissors(), "Профиль обфускации",
+        "Готовый набор (off/default/aggressive) или custom — параметры ниже. Работает только в форке sing-box (собран с <code>with_awg</code>).",
+        select("warp.noisePreset", w.noisePreset || "off", ["off", "default", "aggressive", "custom"], WARP_NOISE_LABELS, true))}
+      ${(w.noisePreset === "custom") ? renderWarpCustomNoise(w.customNoise || {}) : ""}
     </div>
-    <div class="settings-section">
+
+    <!-- 5. Авто-ротация -->
+    <div class="set-group">
+      ${groupHead("Авто-ротация endpoint", "Когда задержка текущего endpoint выше порога — Ninety автоматически пересканирует и переключится на лучший. Используется при connected.")}
       ${row(iconClock(), "Авто-ротация endpoint",
         "Раз в N минут опрашиваем delay текущего WARP-узла через clash-API. Если он выше порога — запускаем scan и применяем лучший (auto-reconnect). Бьёт ровно один раз пока endpoint не нормализуется.",
         toggle("warp.autoRescan", !!w.autoRescan))}
@@ -700,19 +771,14 @@ function renderWarp(o) {
         "Если delay текущего endpoint превышает порог (или равен 0 — таймаут) — триггер scan.",
         inputText("warp.autoRescanThresholdMs", w.autoRescanThresholdMs ?? 300, "number", 'min="100" max="5000"'))}
     </div>
-    <div class="settings-section">
-      ${row(iconLog(), "История ротаций",
-        "Последние авто-смены WARP endpoint. Хранится локально, последние 20 записей.",
+
+    <!-- 6. История ротаций -->
+    <div class="set-group">
+      ${groupHead("История ротаций", "Последние авто-смены WARP endpoint — что было, что стало, на сколько мс улучшилось. Хранится локально, последние 20 записей.")}
+      ${row(iconLog(), "Количество записей",
+        "Сколько ротаций в локальной истории.",
         `<span class="settings-version" id="warp-history-count">—</span>`)}
       <div id="warp-history-list"></div>
-    </div>
-    <div class="settings-section">
-      ${row(iconShield(), "Статус регистрации",
-        "Тип аккаунта (free / limited / unlimited) и наличие WARP+.",
-        `<span class="settings-version" id="warp-status">Проверка…</span>`)}
-      ${row(iconRemote(), "Адрес WG (IPv4)",
-        "Локальный адрес, выданный Cloudflare для вашего устройства.",
-        `<span class="settings-version" id="warp-ipv4">—</span>`)}
     </div>
   `;
 }
@@ -732,22 +798,32 @@ function renderWarpCustomNoise(cn) {
 }
 
 function renderTunnel(o) {
-  // Статус подтягивается асинхронно в bindSection — отрисовываем placeholder.
+  // Статус подтягивается асинхронно в bindSection (bindTunnelSection).
+  // .tunnel-status — единый блок: dot+state+PID+actions.
   return `
     <div class="settings-banner">
       В TUN-режиме sing-box работает не у вас, а внутри Windows Service <code>NinetyTunnelService</code> под LocalSystem. Это нужно, потому что создание TUN-интерфейса и установка маршрутов требуют прав администратора. UAC показывается ровно один раз — при первой установке сервиса.
     </div>
-    <div class="settings-section">
-      ${row(iconShield(), "Статус сервиса", "Состояние NinetyTunnelService в SCM. Обновляется при входе в раздел.",
-        `<span class="settings-version" id="tunnel-svc-status" data-state="">Проверка…</span>`)}
-      ${row(iconLog(), "PID sing-box внутри сервиса", "Идентификатор процесса sing-box, которым управляет служба. Прочерк — sing-box не запущен.",
-        `<span class="settings-version" id="tunnel-svc-pid">—</span>`)}
+    <div class="tunnel-status" id="tunnel-statusblock" data-svc="unknown">
+      <div class="tunnel-status__row">
+        <span class="tunnel-status__dot" id="tunnel-svc-dot" data-state=""></span>
+        <span class="tunnel-status__text" id="tunnel-svc-status" data-state="">Проверка…</span>
+      </div>
+      <div class="tunnel-status__meta">
+        <span>PID sing-box: <span id="tunnel-svc-pid">—</span></span>
+      </div>
+      <div class="tunnel-status__actions" id="tunnel-status-actions">
+        <button class="btn btn--sm" data-action="tunnel-install" type="button" hidden>Установить</button>
+        <button class="btn btn--sm" data-action="tunnel-restart" type="button" hidden>Перезапустить</button>
+        <button class="btn btn--sm" data-action="tunnel-open-log" type="button" hidden>Открыть лог</button>
+        <button class="btn btn--sm btn--danger" data-action="tunnel-uninstall" type="button" hidden>Удалить</button>
+        <button class="btn btn--sm" data-action="tunnel-refresh" type="button">Обновить</button>
+      </div>
     </div>
     <div class="settings-section">
-      ${row(iconRocket(), "Установить сервис", "Зарегистрировать NinetyTunnelService в SCM. Покажется UAC. После — TUN-режим работает без повторных UAC.",
-        `<button class="btn btn--sm" data-action="tunnel-install" type="button">Установить</button>`)}
-      ${row(iconScissors(), "Удалить сервис", "Полностью убрать NinetyTunnelService из системы. Покажется UAC. Следующий TUN-старт снова покажет UAC при установке.",
-        `<button class="btn btn--sm btn--danger" data-action="tunnel-uninstall" type="button">Удалить</button>`)}
+      <div class="settings-banner" style="margin: 4px 0 0;">
+        <b>Установить</b> — регистрирует службу в SCM (UAC, один раз). <b>Перезапустить</b> — <code>sc stop</code> + <code>sc start</code> через UAC. <b>Открыть лог</b> — папка <code>%APPDATA%</code>, где сервис пишет stdout/stderr sing-box. <b>Удалить</b> — снимает службу полностью.
+      </div>
     </div>
   `;
 }
