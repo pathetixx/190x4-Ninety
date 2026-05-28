@@ -773,6 +773,13 @@ export function buildConfig({ profile, source, mode, options, warpInfo }) {
   const src = source ?? (profile ? { kind: "single", profile } : null);
   if (!src) throw new Error("buildConfig: нет источника");
 
+  // URL/интервал теста соединения — из настроек (ключи connectionTestUrl/intervalSec,
+  // ровно как у Hiddify). Раньше buildConfig читал несуществующие url/interval и
+  // конфиг юзера игнорировался.
+  const testUrl = opts.urlTest?.connectionTestUrl || "https://www.gstatic.com/generate_204";
+  const intervalSec = Number(opts.urlTest?.intervalSec) > 0 ? Number(opts.urlTest.intervalSec) : 600;
+  const testInterval = `${intervalSec}s`;
+
   const nodes = src.kind === "sub" ? src.nodes : [src.profile];
   if (!nodes?.length) throw new Error("buildConfig: пустой список нод");
 
@@ -793,7 +800,6 @@ export function buildConfig({ profile, source, mode, options, warpInfo }) {
     // переключение. URLTest рядом нужен ТОЛЬКО для health-чека: он сам тестит
     // каждые N минут и наполняет monitoring, который читает Balancer.
     // Без URLTest balancer не знает delay'ев и фолбэчится к первой ноде.
-    const utCfg = opts.urlTest || {};
     const nodeTags = vlessOutbounds.map(o => o.tag);
 
     // Health-checker (скрыт из proxies UI, юзер про него не знает).
@@ -801,9 +807,9 @@ export function buildConfig({ profile, source, mode, options, warpInfo }) {
       type: "urltest",
       tag: "lowest",
       outbounds: nodeTags,
-      url: utCfg.url || "https://www.gstatic.com/generate_204",
-      interval: utCfg.interval || "3m",
-      tolerance: utCfg.tolerance || 50,
+      url: testUrl,
+      interval: testInterval,
+      tolerance: 50,
       // false — URLTest сам не должен обрывать TCP. Прерывание — задача
       // Balancer, иначе sing-box будет дважды дёргать interrupt при rotation.
       interrupt_exist_connections: false,
@@ -871,6 +877,29 @@ export function buildConfig({ profile, source, mode, options, warpInfo }) {
       external_controller: `127.0.0.1:${opts.experimental.clashApiPort || 9090}`,
     };
   }
+
+  // Unified delay: ядро делает второй замер по уже поднятому соединению и отдаёт
+  // чистый RTT без TCP/TLS-хендшейка. Без него пинг для VLESS+Reality раздут в
+  // 2-3 раза. Глобальный флаг — влияет и на UI-пинг (urltest history + ручной
+  // /delay), и на balancer "auto". Точно как в Hiddify (box.go:144).
+  config.experimental.unified_delay = { enabled: true };
+
+  // Monitoring: активный health-чек, из которого balancer "auto" берёт живые
+  // задержки. При ошибке дозвона balancer зовёт InvalidateTest → priority
+  // ре-тест → мгновенное переключение на живой сервер (фейловер по таймауту).
+  // Без явного блока ядро поднимает monitoring на грубых дефолтах (5 мин/gstatic).
+  // URL-список и debounce — как в Hiddify (builder.go:382-413).
+  config.experimental.monitoring = {
+    urls: [...new Set([
+      testUrl,
+      "https://www.google.com/generate_204",
+      "http://captive.apple.com/generate_204",
+      "https://cp.cloudflare.com",
+    ])],
+    interval: testInterval,
+    debounce_window: "500ms",
+    idle_timeout: `${intervalSec * 3}s`,
+  };
 
   // TLS-tricks форка hiddify-sing-box: глобально в experimental.tls_tricks.
   // Применяется ко всем TLS-handshake outbound'ов на стороне ядра.
