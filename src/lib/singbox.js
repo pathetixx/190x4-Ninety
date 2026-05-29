@@ -327,6 +327,61 @@ function buildTls(p) {
   return tls;
 }
 
+// xhttp base-ключи, у которых имена json совпадают в Xray и форке sing-box.
+const XHTTP_PASS_KEYS = [
+  "host", "path", "headers", "xPaddingBytes", "noGRPCHeader", "noSSEHeader",
+  "scMaxEachPostBytes", "scMinPostsIntervalMs", "scMaxBufferedPosts",
+  "scStreamUpServerSecs", "xmux",
+];
+
+// Xray tlsSettings/realitySettings → OutboundTLSOptions форка sing-box.
+function xrayTlsToSingbox(ds) {
+  const sec = ds.security;
+  if (sec !== "tls" && sec !== "reality") return null;
+  const ts = ds.tlsSettings || ds.realitySettings || {};
+  const tls = { enabled: true };
+  const sni = ts.serverName || ts.server_name;
+  if (sni) tls.server_name = sni;
+  tls.utls = { enabled: true, fingerprint: ts.fingerprint || "chrome" };
+  const alpn = ts.alpn;
+  if (Array.isArray(alpn) && alpn.length) tls.alpn = alpn;
+  else if (typeof alpn === "string" && alpn) tls.alpn = alpn.split(",").map(s => s.trim()).filter(Boolean);
+  if (ts.allowInsecure || ts.insecure) tls.insecure = true;
+  if (sec === "reality") {
+    tls.reality = {
+      enabled: true,
+      public_key: ts.publicKey || ts.public_key || "",
+      short_id: ts.shortId || ts.short_id || "",
+    };
+  }
+  return tls;
+}
+
+// Xray downloadSettings (StreamSettings) → V2RayXHTTPDownloadOptions форка.
+// address→server, port→server_port, xhttpSettings.* → плоские base-поля, tls.
+function xrayDownloadToSingbox(ds) {
+  if (!ds || typeof ds !== "object") return null;
+  const d = {};
+  if (ds.address) d.server = String(ds.address);
+  if (ds.port != null) d.server_port = Number(ds.port);
+  const xs = (ds.xhttpSettings && typeof ds.xhttpSettings === "object") ? ds.xhttpSettings : {};
+  for (const k of XHTTP_PASS_KEYS) if (xs[k] !== undefined) d[k] = xs[k];
+  const tls = xrayTlsToSingbox(ds);
+  if (tls) d.tls = tls;
+  return Object.keys(d).length ? d : null;
+}
+
+// Безопасный мерж Xray-extra в xhttp-транспорт форка. Эмитим только
+// поля, известные форку (иначе unknown-field роняет ВЕСЬ конфиг).
+function mergeXhttpExtra(t, ex) {
+  for (const k of XHTTP_PASS_KEYS) if (ex[k] !== undefined) t[k] = ex[k];
+  if (ex.mode) t.mode = ex.mode;
+  if (ex.downloadSettings) {
+    const d = xrayDownloadToSingbox(ex.downloadSettings);
+    if (d) t.downloadSettings = d;
+  }
+}
+
 function buildTransport(p) {
   switch (p.type) {
     case "ws": {
@@ -354,12 +409,17 @@ function buildTransport(p) {
       if (p.mode) t.mode = p.mode;
       // extra={...} из ссылки несёт xhttp-подопции (xPaddingBytes,
       // scMaxEachPostBytes, downloadSettings, noGRPCHeader, headers, xmux…).
-      // Без них download-канал уходит в дефолт и сервер рвёт handshake
-      // ("download handshake: read payload: unexpected EOF").
+      // Без них download-канал уходит в дефолт и сервер рвёт handshake.
+      // ВАЖНО: extra — в Xray-схеме. Скаляры и xmux по именам совпадают с
+      // форком sing-box, но downloadSettings — это Xray StreamSettings
+      // (address/port/security/xhttpSettings) и форк его не понимает.
+      // Поэтому мержим только whitelisted-ключи и транслируем downloadSettings,
+      // эмитя строго известные форку поля — иначе один узел роняет весь конфиг
+      // (json: unknown field "address").
       if (p.extra) {
         try {
           const ex = JSON.parse(p.extra);
-          if (ex && typeof ex === "object") Object.assign(t, ex);
+          if (ex && typeof ex === "object") mergeXhttpExtra(t, ex);
         } catch { /* битый extra — игнорируем, базовых полей достаточно */ }
       }
       // hiddify-sing-box требует непустой mode, иначе падает весь конфиг
