@@ -15,6 +15,10 @@ pub struct SingboxState {
     // Локальный child sing-box (sidecar) — для proxy-режима, запускается под
     // обычным юзером через tauri-plugin-shell.
     child: Mutex<Option<CommandChild>>,
+    // xray-core sidecar (two-core): обслуживает xhttp-ноды. Всегда user-level
+    // на 127.0.0.1, в т.ч. при TUN — sing-box из сервиса (LocalSystem) ходит
+    // к нему через loopback socks-мост.
+    xray_child: Mutex<Option<CommandChild>>,
     // TUN-режим: sing-box работает не у нас, а внутри NinetyTunnelService
     // под LocalSystem. Здесь — флаг, что мы инициировали TUN-сессию через IPC.
     tun_via_svc: Mutex<bool>,
@@ -25,6 +29,7 @@ impl Default for SingboxState {
     fn default() -> Self {
         Self {
             child: Mutex::new(None),
+            xray_child: Mutex::new(None),
             tun_via_svc: Mutex::new(false),
             died: Arc::new(Mutex::new(None)),
         }
@@ -44,6 +49,75 @@ fn log_path(app: &AppHandle) -> Option<PathBuf> {
     let dir = app.path().app_log_dir().ok()?;
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("singbox.log"))
+}
+
+fn xray_config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("app_config_dir: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
+    Ok(dir.join("xray-current.json"))
+}
+
+fn xray_log_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_log_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("xray.log"))
+}
+
+// Поднимает xray-core sidecar для xhttp-нод (two-core). Всегда user-level,
+// слушает 127.0.0.1; sing-box (свой child или сервис под LocalSystem) ходит
+// к нему через loopback socks-мосты из конфига. Spawn до sing-box.
+async fn spawn_xray(
+    app: &AppHandle,
+    state: &SingboxState,
+    xray_json: &str,
+) -> Result<(), String> {
+    let path = xray_config_path(app)?;
+    std::fs::write(&path, xray_json).map_err(|e| format!("write xray config: {e}"))?;
+    let path_str = path.to_string_lossy().to_string();
+
+    let sidecar = app
+        .shell()
+        .sidecar("xray")
+        .map_err(|e| format!("xray sidecar lookup: {e}"))?;
+    let (mut rx, child) = sidecar
+        .args(["run", "-c", &path_str])
+        .spawn()
+        .map_err(|e| format!("spawn xray: {e}"))?;
+    *state.xray_child.lock().unwrap() = Some(child);
+
+    let log_file = xray_log_path(app);
+    tauri::async_runtime::spawn(async move {
+        let mut writer = log_file.as_ref().and_then(|p| {
+            std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
+        });
+        if let Some(w) = writer.as_mut() {
+            let _ = writeln!(w, "\n=== xray start ===");
+        }
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                    if let Some(w) = writer.as_mut() {
+                        let _ = writeln!(w, "{}", String::from_utf8_lossy(&line));
+                    }
+                }
+                CommandEvent::Terminated(payload) => {
+                    if let Some(w) = writer.as_mut() {
+                        let _ = writeln!(w, "xray умер (код {:?})", payload.code);
+                    }
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+
+    // Дать xray подняться и забиндить socks-инбаунды до старта sing-box,
+    // иначе первые urltest'ы xhttp-нод словят connection refused.
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    Ok(())
 }
 
 // Резолв пути к логу с учётом режима. В TUN — лог пишет сервис рядом
@@ -155,14 +229,24 @@ pub async fn start_singbox(
     state: State<'_, SingboxState>,
     config_json: String,
     mode: String,
+    xray_json: Option<String>,
 ) -> Result<(), String> {
     {
         let child = state.child.lock().unwrap();
         let tun = state.tun_via_svc.lock().unwrap();
-        if child.is_some() || *tun {
+        if child.is_some() || *tun || state.xray_child.lock().unwrap().is_some() {
             return Err("sing-box уже запущен".into());
         }
         *state.died.lock().unwrap() = None;
+    }
+
+    // Two-core: если в конфиге есть xhttp-ноды, поднимаем xray ДО sing-box
+    // (в любом режиме). При ошибке спавна — не стартуем VPN вовсе.
+    if let Some(xj) = xray_json.as_ref().filter(|s| !s.trim().is_empty()) {
+        if let Err(e) = spawn_xray(&app, &state, xj).await {
+            kill_xray(&state);
+            return Err(e);
+        }
     }
 
     let path = config_path(&app)?;
@@ -175,9 +259,15 @@ pub async fn start_singbox(
             // ensure_running синхронна (SCM-операции блокирующие): при необходимости
             // показывает UAC для первичной установки сервиса; на повторных запусках —
             // просто SCM Start. UAC показывается ровно один раз за время жизни машины.
-            tokio::task::spawn_blocking(crate::tun_ipc::ensure_running)
+            // При любой ошибке гасим уже поднятый xray, чтобы не оставить sidecar.
+            if let Err(e) = tokio::task::spawn_blocking(crate::tun_ipc::ensure_running)
                 .await
-                .map_err(|e| format!("ensure_running join: {e}"))??;
+                .map_err(|e| format!("ensure_running join: {e}"))
+                .and_then(|r| r)
+            {
+                kill_xray(&state);
+                return Err(e);
+            }
 
             // Если в сервисе остался sing-box от прошлой сессии (Ninety закрылся
             // криво, сервис продолжил жить) — сначала чистим, чтобы start не упал
@@ -190,7 +280,10 @@ pub async fn start_singbox(
 
             // Передаём JSON inline через IPC: сервис под LocalSystem пишет
             // конфиг сам у себя, не полагаясь на user-profile путь.
-            crate::tun_ipc::ipc_start(&config_json).await?;
+            if let Err(e) = crate::tun_ipc::ipc_start(&config_json).await {
+                kill_xray(&state);
+                return Err(e);
+            }
             *state.tun_via_svc.lock().unwrap() = true;
             return Ok(());
         }
@@ -262,10 +355,17 @@ pub async fn start_singbox(
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
     if let Some(err) = state.died.lock().unwrap().take() {
         *state.child.lock().unwrap() = None;
+        kill_xray(&state);
         return Err(err);
     }
 
     Ok(())
+}
+
+fn kill_xray(state: &SingboxState) {
+    if let Some(child) = state.xray_child.lock().unwrap().take() {
+        let _ = child.kill();
+    }
 }
 
 #[tauri::command]
@@ -274,6 +374,7 @@ pub async fn stop_singbox(state: State<'_, SingboxState>) -> Result<(), String> 
     if let Some(child) = taken {
         let _ = child.kill();
     }
+    kill_xray(&state);
 
     let was_tun = {
         let mut g = state.tun_via_svc.lock().unwrap();
@@ -317,6 +418,7 @@ pub fn force_cleanup(state: &SingboxState) {
     if let Some(child) = state.child.lock().unwrap().take() {
         let _ = child.kill();
     }
+    kill_xray(state);
     let was_tun = {
         let mut g = state.tun_via_svc.lock().unwrap();
         let v = *g;

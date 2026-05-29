@@ -1537,11 +1537,16 @@ heroDisc?.addEventListener("click", async () => {
         return;
       }
     }
-    // xray:true пока НЕ передаём — спавн xray-моста подключается в Rust-срезе.
-    const { config } = buildConfig({ source: src, mode, options, warpInfo });
+    // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
+    // socks-перенаправление. xray=null когда xhttp в источнике нет.
+    const { config, xray } = buildConfig({ source: src, mode, options, warpInfo, xray: true });
     setState("connecting");
     try {
-      await invoke("start_singbox", { configJson: JSON.stringify(config), mode });
+      await invoke("start_singbox", {
+        configJson: JSON.stringify(config),
+        mode,
+        xrayJson: xray ? JSON.stringify(xray) : null,
+      });
       // Системный прокси выставляем ТОЛЬКО для mode=systemProxy. Для голого
       // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт
       // полный intercept через TUN-интерфейс.
