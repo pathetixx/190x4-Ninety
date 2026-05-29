@@ -12,10 +12,44 @@ use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLE
 use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
 const INET_SETTINGS_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+const NINETY_KEY: &str = r"Software\Ninety";
 const PROXY_OVERRIDE: &str = "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>";
 
 fn to_wide(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+}
+
+// Снапшот прежних ProxyEnable/ProxyServer — один раз, до того как Ninety
+// перезапишет их своими. Без этого выключение Ninety затёрло бы прокси, который
+// юзер мог настроить вне Ninety. Повторный enable снапшот не перетирает.
+fn save_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) {
+    let Ok((nk, _)) = hkcu.create_subkey(NINETY_KEY) else { return };
+    if nk.get_value::<u32, _>("SavedProxyValid").unwrap_or(0) == 1 {
+        return;
+    }
+    let cur_enable: u32 = inet.get_value("ProxyEnable").unwrap_or(0);
+    let cur_server: String = inet.get_value("ProxyServer").unwrap_or_default();
+    let _ = nk.set_value("SavedProxyEnable", &cur_enable);
+    let _ = nk.set_value("SavedProxyServer", &cur_server);
+    let _ = nk.set_value("SavedProxyValid", &1u32);
+}
+
+// Восстановить прежнее состояние из снапшота. true — если снапшот был применён.
+fn restore_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> bool {
+    let Ok(nk) = hkcu.open_subkey_with_flags(NINETY_KEY, KEY_READ | KEY_WRITE) else {
+        return false;
+    };
+    if nk.get_value::<u32, _>("SavedProxyValid").unwrap_or(0) != 1 {
+        return false;
+    }
+    let saved_enable: u32 = nk.get_value("SavedProxyEnable").unwrap_or(0);
+    let saved_server: String = nk.get_value("SavedProxyServer").unwrap_or_default();
+    let _ = inet.set_value("ProxyEnable", &saved_enable);
+    if !saved_server.is_empty() {
+        let _ = inet.set_value("ProxyServer", &saved_server);
+    }
+    let _ = nk.set_value("SavedProxyValid", &0u32);
+    true
 }
 
 pub fn set_system_proxy(enable: bool, host_port: Option<&str>) -> Result<(), String> {
@@ -25,6 +59,7 @@ pub fn set_system_proxy(enable: bool, host_port: Option<&str>) -> Result<(), Str
         .map_err(|e| format!("open Internet Settings: {e}"))?;
 
     if enable {
+        save_proxy_snapshot(&hkcu, &key);
         let hp = host_port.unwrap_or("127.0.0.1:7890");
         key.set_value("ProxyServer", &hp.to_string())
             .map_err(|e| format!("set ProxyServer: {e}"))?;
@@ -32,7 +67,8 @@ pub fn set_system_proxy(enable: bool, host_port: Option<&str>) -> Result<(), Str
             .map_err(|e| format!("set ProxyOverride: {e}"))?;
         key.set_value("ProxyEnable", &1u32)
             .map_err(|e| format!("set ProxyEnable: {e}"))?;
-    } else {
+    } else if !restore_proxy_snapshot(&hkcu, &key) {
+        // снапшота нет (Ninety не включал прокси) — просто выключаем
         key.set_value("ProxyEnable", &0u32)
             .map_err(|e| format!("clear ProxyEnable: {e}"))?;
     }

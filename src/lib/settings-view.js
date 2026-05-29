@@ -667,7 +667,7 @@ function renderInbound(o) {
       ${row(iconMtu(), "MTU TUN", "Максимальный размер пакета", inputText("inbound.mtu", o.inbound.mtu, "number", 'min="576" max="9000"'))}
       ${row(iconStack(), "TUN стек", "Реализация TUN-стека", select("inbound.tunStack", o.inbound.tunStack, TUN_STACKS, TUN_STACK_LABELS))}
       ${row(iconLock(), "Строгая маршрутизация", "Блокировать утечки трафика мимо TUN", toggle("inbound.strictRoute", o.inbound.strictRoute))}
-      ${row(iconBroadcast(), "Принимать с LAN", "Mixed inbound будет слушать 0.0.0.0 вместо 127.0.0.1", toggle("inbound.allowConnectionFromLan", o.inbound.allowConnectionFromLan))}
+      ${row(iconBroadcast(), "Принимать с LAN", "⚠ Открытый прокси без пароля на 0.0.0.0 — любой в вашей сети сможет ходить через ваш VPN. Включайте только в доверенной сети", toggle("inbound.allowConnectionFromLan", o.inbound.allowConnectionFromLan))}
     </div>
   `;
 }

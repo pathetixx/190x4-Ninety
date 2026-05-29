@@ -15,11 +15,14 @@ use crate::consts::PIPE_NAME;
 use crate::singbox::Manager;
 use crate::{lerr, linfo};
 
-// SDDL DACL: GenericAll для Authenticated Users + LocalSystem.
+// SDDL DACL: GenericAll для Interactive Users + LocalSystem.
 // Без явного DACL пайп создаётся под LocalSystem с дефолтным DACL, в котором
 // обычному юзеру (Medium IL) нет доступа → ERROR_ACCESS_DENIED при подключении
-// клиента Tauri. AU=Authenticated Users (S-1-5-11), SY=LocalSystem.
-const PIPE_SDDL: &[u8] = b"D:(A;;GA;;;AU)(A;;GA;;;SY)\0";
+// клиента Tauri. IU=Interactive (S-1-5-4) — только интерактивно вошедший юзер
+// (сессия с рабочим столом), что отсекает сетевые/сервисные логоны; раньше было
+// AU (все Authenticated Users) — слишком широко. SY=LocalSystem.
+// Поверх DACL пир дополнительно аутентифицируется по пути образа (verify_peer).
+const PIPE_SDDL: &[u8] = b"D:(A;;GA;;;IU)(A;;GA;;;SY)\0";
 
 struct SecurityHandle {
     psd: PSECURITY_DESCRIPTOR,
@@ -114,7 +117,75 @@ pub async fn run(manager: Arc<Manager>, mut shutdown: broadcast::Receiver<()>) {
     drop(sd_handle);
 }
 
+// Аутентификация пира: возвращаем каталог exe процесса-клиента пайпа.
+// Команда `start` исполняет sing-box под LocalSystem с конфигом клиента —
+// нельзя доверять любому локальному процессу. Проверяем, что клиент запущен из
+// того же защищённого каталога, что и сам сервис (%ProgramFiles%\Ninety —
+// туда не пишет non-admin), т.е. это настоящий Ninety.exe, а не чужой процесс.
+fn peer_exe_dir(conn: &NamedPipeServer) -> Result<std::path::PathBuf, String> {
+    use std::os::windows::io::AsRawHandle;
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::{CloseHandle, BOOL, HANDLE};
+    use windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    let mut pid: u32 = 0;
+    unsafe {
+        GetNamedPipeClientProcessId(HANDLE(conn.as_raw_handle()), &mut pid)
+            .map_err(|e| format!("GetNamedPipeClientProcessId: {e}"))?;
+    }
+    unsafe {
+        let hproc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, BOOL(0), pid)
+            .map_err(|e| format!("OpenProcess({pid}): {e}"))?;
+        let mut buf = vec![0u16; 32768];
+        let mut len = buf.len() as u32;
+        let res =
+            QueryFullProcessImageNameW(hproc, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len);
+        let _ = CloseHandle(hproc);
+        res.map_err(|e| format!("QueryFullProcessImageNameW: {e}"))?;
+        let path = String::from_utf16_lossy(&buf[..len as usize]);
+        std::path::PathBuf::from(path)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .ok_or_else(|| "peer image has no parent dir".to_string())
+    }
+}
+
+fn peer_is_trusted(conn: &NamedPipeServer) -> bool {
+    let theirs = match peer_exe_dir(conn).and_then(|d| {
+        std::fs::canonicalize(&d).map_err(|e| format!("canon peer {}: {e}", d.display()))
+    }) {
+        Ok(p) => p,
+        Err(e) => {
+            lerr!("ipc: не смог определить каталог пира: {e}");
+            return false;
+        }
+    };
+    let ours = match std::fs::canonicalize(crate::logging::exe_dir()) {
+        Ok(p) => p,
+        Err(e) => {
+            lerr!("ipc: canon собственного каталога: {e}");
+            return false;
+        }
+    };
+    if theirs != ours {
+        lerr!(
+            "ipc: отклонён клиент из {} (доверяем только {})",
+            theirs.display(),
+            ours.display()
+        );
+        return false;
+    }
+    true
+}
+
 async fn handle_conn(conn: NamedPipeServer, manager: Arc<Manager>) {
+    if !peer_is_trusted(&conn) {
+        return;
+    }
     let (rx, mut tx) = tokio::io::split(conn);
     let mut reader = BufReader::new(rx);
     let mut line = String::new();

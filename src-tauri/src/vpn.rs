@@ -36,6 +36,40 @@ impl Default for SingboxState {
     }
 }
 
+// Финальная обработка конфига перед запуском sing-box (в любом режиме):
+//  - инжектим секрет clash-API (см. clash::clash_secret), чтобы 9090 не был
+//    доступен любому локальному процессу без авторизации;
+//  - принудительно держим external_controller на 127.0.0.1 (даже если фронт
+//    зачем-то выставил 0.0.0.0) — управление ядром не должно торчать в сеть.
+// При невалидном JSON возвращаем как есть: пусть sing-box сам ругнётся.
+fn harden_config(raw: &str) -> String {
+    let mut v: serde_json::Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return raw.to_string(),
+    };
+    if let Some(api) = v
+        .get_mut("experimental")
+        .and_then(|e| e.get_mut("clash_api"))
+        .and_then(|a| a.as_object_mut())
+    {
+        api.insert(
+            "secret".into(),
+            serde_json::Value::String(crate::clash::clash_secret().to_string()),
+        );
+        let port = api
+            .get("external_controller")
+            .and_then(|c| c.as_str())
+            .and_then(|s| s.rsplit(':').next())
+            .unwrap_or("9090")
+            .to_string();
+        api.insert(
+            "external_controller".into(),
+            serde_json::Value::String(format!("127.0.0.1:{port}")),
+        );
+    }
+    serde_json::to_string(&v).unwrap_or_else(|_| raw.to_string())
+}
+
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -240,6 +274,9 @@ pub async fn start_singbox(
         *state.died.lock().unwrap() = None;
     }
 
+    // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
+    let config_json = harden_config(&config_json);
+
     // Two-core: если в конфиге есть xhttp-ноды, поднимаем xray ДО sing-box
     // (в любом режиме). При ошибке спавна — не стартуем VPN вовсе.
     if let Some(xj) = xray_json.as_ref().filter(|s| !s.trim().is_empty()) {
@@ -285,7 +322,32 @@ pub async fn start_singbox(
                 return Err(e);
             }
             *state.tun_via_svc.lock().unwrap() = true;
-            return Ok(());
+
+            // Сервис отдаёт pid сразу, не дожидаясь парсинга конфига. Даём
+            // sing-box ~900мс упасть на битом конфиге/биндинге и проверяем статус
+            // через IPC — иначе вернули бы «успех» при неработающем туннеле.
+            tokio::time::sleep(std::time::Duration::from_millis(900)).await;
+            match crate::tun_ipc::ipc_status().await {
+                Ok(st) if st.singbox_running => return Ok(()),
+                Ok(_) => {
+                    let tail = crate::tun_ipc::ipc_log_path()
+                        .await
+                        .ok()
+                        .and_then(|p| std::fs::read_to_string(p).ok())
+                        .map(|s| s.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"))
+                        .unwrap_or_default();
+                    let _ = crate::tun_ipc::ipc_stop().await;
+                    *state.tun_via_svc.lock().unwrap() = false;
+                    kill_xray(&state);
+                    return Err(format!("sing-box не запустился в TUN-режиме (упал сразу).\n{tail}"));
+                }
+                Err(e) => {
+                    // не смогли подтвердить статус — не рушим, флаг оставляем,
+                    // фронт перепроверит через singbox_running/SCM
+                    eprintln!("tun poststart status check: {e}");
+                    return Ok(());
+                }
+            }
         }
         #[cfg(not(target_os = "windows"))]
         return Err("TUN mode требует Windows".into());

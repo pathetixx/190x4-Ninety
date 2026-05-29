@@ -75,12 +75,24 @@ pub fn cleanup_orphan_tun_adapter() {
     );
 }
 
+// Полный путь к системной утилите. Сервис исполняется под LocalSystem, и звать
+// бинари по голому имени — приглашение к PATH/CWD-hijack от SYSTEM. Резолвим в
+// %SystemRoot%\System32 явно.
+#[cfg(target_os = "windows")]
+fn system32(prog: &str) -> String {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+    match prog {
+        "powershell" => format!(r"{root}\System32\WindowsPowerShell\v1.0\powershell.exe"),
+        other => format!(r"{root}\System32\{other}.exe"),
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn run_silent(prog: &str, args: &[&str]) -> Option<std::process::Output> {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    Command::new(prog)
+    Command::new(system32(prog))
         .args(args)
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -209,17 +221,15 @@ fn find_wintun_dll() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
 
     let mut candidates: Vec<PathBuf> = Vec::new();
-    // 1) Рядом с exe сервиса (production bundle)
+    // 1) Рядом с exe сервиса (production bundle, %ProgramFiles%\Ninety — admin-only)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             candidates.push(parent.join("wintun.dll"));
         }
     }
-    // 2) Текущая директория (dev)
-    if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(cwd.join("wintun.dll"));
-    }
-    // 3) System32 (если установлен Wintun глобально — например, WireGuard MSI)
+    // CWD намеренно НЕ кандидат: сервис под LocalSystem, CWD=System32, грузить
+    // DLL по CWD из привилегированного процесса — вектор DLL-hijack.
+    // 2) System32 (если установлен Wintun глобально — например, WireGuard MSI)
     if let Some(sysroot) = std::env::var_os("SystemRoot") {
         let mut p = PathBuf::from(sysroot);
         p.push("System32");

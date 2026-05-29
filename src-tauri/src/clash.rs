@@ -2,6 +2,21 @@
 // Через Rust, чтобы избежать CORS-ограничений WebView2.
 
 use serde_json::Value;
+use std::sync::OnceLock;
+
+// Секрет clash-API: генерируется один раз за жизнь процесса, инжектится в
+// конфиг sing-box (vpn::harden_config) и отправляется в каждом запросе как
+// Bearer. Без него любой локальный процесс мог бы рулить ядром через 9090
+// (смена ноды, чтение конфига, статистика). 127.0.0.1 + секрет закрывают это.
+pub fn clash_secret() -> &'static str {
+    static SECRET: OnceLock<String> = OnceLock::new();
+    SECRET.get_or_init(|| {
+        use rand_core::RngCore;
+        let mut b = [0u8; 16];
+        rand_core::OsRng.fill_bytes(&mut b);
+        b.iter().map(|x| format!("{x:02x}")).collect()
+    })
+}
 
 // ── Public IP info (через прокси, если активен) ────────────
 // Возвращает то, что вернул ipwho.is — обычно содержит {ip, country, city, ...}.
@@ -43,6 +58,7 @@ pub async fn clash_get_proxies(port: u16) -> Result<Value, String> {
     let c = client()?;
     let r = c
         .get(format!("{}/proxies", base(port)))
+        .bearer_auth(clash_secret())
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;
@@ -66,7 +82,7 @@ pub async fn clash_test_node(
         urlencoding::encode(&test_url),
         t
     );
-    let r = c.get(path).send().await.map_err(|e| format!("request: {e}"))?;
+    let r = c.get(path).bearer_auth(clash_secret()).send().await.map_err(|e| format!("request: {e}"))?;
     r.json::<Value>().await.map_err(|e| format!("decode: {e}"))
 }
 
@@ -87,7 +103,7 @@ pub async fn clash_test_group(
         urlencoding::encode(&test_url),
         t
     );
-    let r = c.get(path).send().await.map_err(|e| format!("request: {e}"))?;
+    let r = c.get(path).bearer_auth(clash_secret()).send().await.map_err(|e| format!("request: {e}"))?;
     r.json::<Value>().await.map_err(|e| format!("decode: {e}"))
 }
 
@@ -109,6 +125,7 @@ pub async fn clash_select_proxy(
     );
     let r = c
         .put(path)
+        .bearer_auth(clash_secret())
         .json(&body)
         .send()
         .await
