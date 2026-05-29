@@ -626,3 +626,10 @@
 
 /* Content scroll area now scrolls vertically */
 .content { overflow-y: auto; }
+
+/* Fix · mono theme has a near-white accent — keep on-accent text dark */
+[data-theme="mono"] .btn--primary,
+[data-theme="mono"] .btn--primary:hover { color: var(--ink-0); }
+
+/* The Mono swatch card's check tick (white-on-near-white regardless of active theme) */
+.theme-card[data-theme="mono"] .theme-card__check { color: var(--ink-0); }

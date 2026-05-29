@@ -1,0 +1,192 @@
+/* ─────────────────────────────────────────────────────────────
+   Ninety — Notification Stack (replaces the old `.toast` block)
+   Premium liquid-glass toasts: top-right, stacked, icon + progress.
+   Uses existing design tokens (tokens.css).
+   ───────────────────────────────────────────────────────────── */
+
+/* Stack container — created once by toast.js, lives top-right under titlebar */
+.ntf-stack {
+  position: fixed;
+  top: 46px;           /* clears the 36px titlebar */
+  right: 18px;
+  z-index: 10000;      /* above every modal (update-modal is 9999) */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 340px;
+  max-width: calc(100vw - 36px);
+  pointer-events: none;   /* let clicks pass between cards */
+}
+
+/* ── Card ─────────────────────────────────────────────────── */
+.ntf {
+  --ntf-accent: var(--accent);
+  --ntf-soft: var(--accent-soft);
+  --ntf-glow: var(--accent-glow);
+  position: relative;
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: start;
+  column-gap: 12px;
+  padding: 13px 13px 13px 15px;
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0) 42%),
+    var(--ink-1);
+  border: 1px solid var(--line-2);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 18px 50px -16px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(0, 0, 0, 0.2);
+  color: var(--text-hi);
+  overflow: hidden;
+  pointer-events: auto;
+  cursor: default;
+  will-change: transform, opacity;
+  animation: ntf-in 0.42s var(--ease-emph) both;
+}
+
+/* Left accent stitch — the single-accent language used across the app */
+.ntf::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--ntf-accent);
+  box-shadow: 0 0 10px var(--ntf-glow);
+}
+
+/* Exit state — collapse + slide out */
+.ntf[data-leaving="true"] {
+  animation: ntf-out 0.32s var(--ease-out) both;
+  pointer-events: none;
+}
+
+/* ── Icon disc ─────────────────────────────────────────────── */
+.ntf__icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--ntf-soft);
+  color: var(--ntf-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ntf-accent) 22%, transparent) inset;
+}
+.ntf__icon svg { width: 16px; height: 16px; }
+
+/* Pulsing live-dot used by the connection toast while "linking" */
+.ntf__pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ntf-accent);
+  box-shadow: 0 0 0 0 var(--ntf-glow);
+  animation: ntf-pulse 1.3s ease-in-out infinite;
+}
+
+/* ── Text ──────────────────────────────────────────────────── */
+.ntf__body { min-width: 0; padding-top: 1px; }
+.ntf__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: -0.006em;
+  line-height: 1.3;
+  color: var(--text-hi);
+  word-break: break-word;
+}
+.ntf__desc {
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-mid);
+  word-break: break-word;
+}
+.ntf__desc code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-hi);
+}
+
+/* ── Close ─────────────────────────────────────────────────── */
+.ntf__close {
+  width: 22px;
+  height: 22px;
+  margin: -2px -2px 0 0;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  transition: color 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.ntf__close:hover { color: var(--text-hi); background: rgba(255, 255, 255, 0.06); }
+.ntf__close svg { width: 13px; height: 13px; }
+
+/* ── Auto-dismiss progress rail ────────────────────────────── */
+.ntf__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  transform-origin: left center;
+  background: var(--ntf-accent);
+  opacity: 0.55;
+  animation: ntf-bar linear forwards;
+  animation-duration: var(--ntf-life, 3000ms);
+}
+/* Hovering the card pauses its countdown */
+.ntf:hover .ntf__bar { animation-play-state: paused; }
+
+/* ── Kind palettes ─────────────────────────────────────────── */
+.ntf[data-kind="success"] {
+  --ntf-accent: var(--ok);
+  --ntf-soft: rgba(74, 222, 128, 0.13);
+  --ntf-glow: rgba(74, 222, 128, 0.30);
+}
+.ntf[data-kind="error"] {
+  --ntf-accent: var(--err);
+  --ntf-soft: rgba(229, 72, 77, 0.14);
+  --ntf-glow: rgba(229, 72, 77, 0.32);
+}
+.ntf[data-kind="warn"] {
+  --ntf-accent: var(--warn);
+  --ntf-soft: rgba(245, 181, 68, 0.14);
+  --ntf-glow: rgba(245, 181, 68, 0.30);
+}
+/* info + connected both ride the live theme accent (default vars above).
+   Design rule: accent = connected/success-of-connection (matches the hero
+   "Защищено" accent-bright label + the accent stitch). The green --ok kind is
+   reserved for NON-connection successes (subscriptions updated, profile
+   activated, log copied…) and for the small status-dot. The shield-check icon
+   is what distinguishes a `connected` toast from a generic `info` toast. */
+.ntf[data-kind="connected"] { /* inherits --ntf-accent: var(--accent) */ }
+
+/* ── Motion ────────────────────────────────────────────────── */
+@keyframes ntf-in {
+  0%   { opacity: 0; transform: translateX(28px) scale(0.96); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes ntf-out {
+  0%   { opacity: 1; transform: translateX(0) scale(1); max-height: 200px; margin-bottom: 0; }
+  100% { opacity: 0; transform: translateX(28px) scale(0.97); max-height: 0; margin-bottom: -10px; padding-top: 0; padding-bottom: 0; }
+}
+@keyframes ntf-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@keyframes ntf-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--ntf-glow); opacity: 1; }
+  50%      { box-shadow: 0 0 0 5px transparent;   opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ntf, .ntf[data-leaving="true"] { animation-duration: 0.001ms; }
+  .ntf__bar { animation: none; opacity: 0; }
+  .ntf__pulse { animation: none; }
+}
