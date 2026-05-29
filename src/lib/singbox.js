@@ -80,6 +80,7 @@ export function parseVless(raw) {
     host_header: get("host", ""),
     serviceName: get("serviceName", ""),
     mode: get("mode", ""),
+    extra: get("extra", ""),
   };
 }
 
@@ -187,6 +188,7 @@ export function parseTrojan(raw) {
     host_header: get("host", ""),
     serviceName: get("serviceName", ""),
     mode: get("mode", ""),
+    extra: get("extra", ""),
   };
 }
 
@@ -350,6 +352,19 @@ function buildTransport(p) {
       if (p.path) t.path = p.path;
       if (p.host_header) t.host = p.host_header;
       if (p.mode) t.mode = p.mode;
+      // extra={...} из ссылки несёт xhttp-подопции (xPaddingBytes,
+      // scMaxEachPostBytes, downloadSettings, noGRPCHeader, headers, xmux…).
+      // Без них download-канал уходит в дефолт и сервер рвёт handshake
+      // ("download handshake: read payload: unexpected EOF").
+      if (p.extra) {
+        try {
+          const ex = JSON.parse(p.extra);
+          if (ex && typeof ex === "object") Object.assign(t, ex);
+        } catch { /* битый extra — игнорируем, базовых полей достаточно */ }
+      }
+      // hiddify-sing-box требует непустой mode, иначе падает весь конфиг
+      // ("mode is not set" на этапе загрузки). auto — безопасный дефолт.
+      if (!t.mode) t.mode = "auto";
       return t;
     }
     default:

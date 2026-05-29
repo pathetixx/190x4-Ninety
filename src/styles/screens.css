@@ -199,6 +199,46 @@
 }
 .prof-card__menu:hover { color: var(--text-mid); background: rgba(255,255,255,0.04); }
 
+/* Попап-меню действий по профилю/подписке (⋯).
+   Стили потерялись при premium-редизайне (alpha35) — без них .pmenu
+   рендерился position:static в конце <body>, невидимым → клик «не реагировал». */
+.pmenu {
+  position: fixed;
+  z-index: 9500;
+  min-width: 210px;
+  padding: 6px;
+  border-radius: var(--r-md);
+  background: var(--ink-2);
+  border: 1px solid var(--line-3);
+  box-shadow: 0 24px 60px -12px rgba(0,0,0,0.7);
+  animation: pmenu-in 160ms var(--ease-out);
+}
+.pmenu[hidden] { display: none; }
+.pmenu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--r-xs);
+  background: transparent;
+  border: none;
+  color: var(--text-mid);
+  font-family: var(--font-display);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms var(--ease-out), color 150ms var(--ease-out);
+}
+.pmenu__item:hover { background: rgba(255,255,255,0.05); color: var(--text-hi); }
+.pmenu__item--danger { color: #FF566B; }
+.pmenu__item--danger:hover { background: rgba(255,42,64,0.10); color: #FF566B; }
+.pmenu__item svg { width: 16px; height: 16px; opacity: 0.85; }
+@keyframes pmenu-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 /* ═══════════════════════════════════════════
    LOGS SCREEN
 ═══════════════════════════════════════════ */
