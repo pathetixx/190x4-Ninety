@@ -463,6 +463,60 @@ async function performAutoReconnect(reason = "Применяю новые нас
   setTimeout(() => heroDisc?.click(), 60);
 }
 
+// ── health-watchdog ────────────────────────────────────────
+// Пока connected — раз в 5с проверяем что ядра живы. Без этого краш sing-box/xray
+// в середине сессии оставался невидимым: UI держал «Защищено», системный прокси
+// указывал на мёртвый порт, трафик уходил в чёрную дыру. Логика:
+//   sing-box упал  → туннель закрыт: снять прокси, idle, нотифай с причиной, логи.
+//   xray упал      → жив sing-box, но xhttp-мост мёртв → авто-реконнект (пересоберёт
+//                    конфиг и поднимет оба ядра заново).
+const HEALTH_TICK_MS = 5000;
+let healthTimer = null;
+let healthBusy = false;
+
+function startHealthWatchdog() {
+  if (healthTimer) return;
+  healthTimer = setInterval(healthTick, HEALTH_TICK_MS);
+}
+function stopHealthWatchdog() {
+  if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
+}
+
+async function healthTick() {
+  if (state !== "connected" || healthBusy) return;
+  healthBusy = true;
+  try {
+    const ok = await invoke("singbox_running");
+    if (!ok) {
+      const why = await invoke("vpn_last_error").catch(() => null);
+      try { await invoke("set_system_proxy", { enable: false }); } catch {}
+      try { await invoke("stop_singbox"); } catch {}
+      setState("idle");
+      toast("Ядро остановилось", "error", 7000, {
+        group: "conn",
+        desc: "Туннель закрыт · sing-box завершился неожиданно",
+      });
+      notify("Ninety · туннель закрыт", "Ядро sing-box остановилось");
+      if (why) console.warn("sing-box died:", why);
+      switchView("logs");
+      return;
+    }
+    // sing-box жив — проверяем xray-мост (xhttp).
+    const xr = await invoke("xray_status").catch(() => "none");
+    if (xr === "died") {
+      toast("xhttp-ядро упало — переподключаюсь", "warn", 4000, { group: "conn", connecting: true });
+      notify("Ninety", "xhttp-ядро перезапускается");
+      // reconnectForSourceChange сам ставит needsReconnect и зовёт реконнект,
+      // который поднимет sing-box И xray заново из свежего конфига.
+      reconnectForSourceChange("Перезапуск xhttp-ядра…");
+    }
+  } catch (e) {
+    console.warn("healthTick failed", e);
+  } finally {
+    healthBusy = false;
+  }
+}
+
 function applyReconnectUI() {
   if (!hero) return;
   if (needsReconnect && (state === "connected" || state === "connecting")) {
@@ -1342,6 +1396,7 @@ function setState(next, opts = {}) {
   if (next === "idle") {
     needsReconnect = false;
     if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
+    stopHealthWatchdog();
     stopWarpRescanLoop();
     applyReconnectUI();
     if (heroLabel) heroLabel.textContent = "Не подключено";
@@ -1378,6 +1433,7 @@ function setState(next, opts = {}) {
     updateStatsServer();
     startTrafficStream();
     startWarpRescanLoop();
+    startHealthWatchdog();
     updateWarpBadge();
     // Wizard: подключились — переходим на финальный шаг
     if (wizardActive && wizardStepNum === 3) showOnbStep(4);

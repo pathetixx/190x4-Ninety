@@ -134,6 +134,15 @@ export function openUpdateModal(update, opts = {}) {
       setProgressLabel("Загрузка");
       setBarIndeterminate();
 
+      // Гасим ядра до установки: xray.exe / sing-box.exe держат бинарники
+      // залоченными, NSIS-инсталлятор иначе падает на "файл занят". stop_singbox
+      // снимает оба child'а + останавливает TUN-сервис. NSIS-хук — подстраховка.
+      const invoke = window.__TAURI__?.core?.invoke;
+      if (invoke) {
+        try { await invoke("set_system_proxy", { enable: false }); } catch {}
+        try { await invoke("stop_singbox"); } catch (e) { console.warn("pre-update stop failed", e); }
+      }
+
       let total = 0;
       let downloaded = 0;
       let lastPct = -1;
