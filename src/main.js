@@ -1537,7 +1537,8 @@ heroDisc?.addEventListener("click", async () => {
         return;
       }
     }
-    const config = buildConfig({ source: src, mode, options, warpInfo });
+    // xray:true пока НЕ передаём — спавн xray-моста подключается в Rust-срезе.
+    const { config } = buildConfig({ source: src, mode, options, warpInfo });
     setState("connecting");
     try {
       await invoke("start_singbox", { configJson: JSON.stringify(config), mode });

@@ -833,6 +833,59 @@ function buildCustomNoise(cn) {
   };
 }
 
+// ── two-core bridge: xhttp через xray-core ─────────────────
+// Порт xhttp в форке sing-box (packet-up) надёжно тащит только пинг, реальный
+// поток рассыпается. Эталон — xray-core. Поэтому xhttp-ноды уводим в локальный
+// xray (per-node socks-inbound), а в sing-box оставляем socks-мост на 127.0.0.1.
+// urltest/balancer sing-box продолжают пинговать ноду сквозь socks → xray.
+// Важно: xhttpSettings для xray — это РОВНО то, что в ссылке (host/path/mode +
+// extra с downloadSettings в Xray-схеме), без какой-либо трансляции.
+const XRAY_BRIDGE_BASE_PORT = 31100;
+
+function nodeToXrayStream(p) {
+  const ss = { network: "xhttp" };
+  const sec = p.tlsMode || p.security;
+  if (sec === "reality") {
+    ss.security = "reality";
+    ss.realitySettings = {
+      serverName: p.sni || "",
+      fingerprint: p.fp || "chrome",
+      publicKey: p.pbk || "",
+      shortId: p.sid || "",
+    };
+  } else if (sec === "tls") {
+    ss.security = "tls";
+    ss.tlsSettings = { serverName: p.sni || "", fingerprint: p.fp || "chrome" };
+    if (p.alpn) ss.tlsSettings.alpn = String(p.alpn).split(",").map(s => s.trim()).filter(Boolean);
+  } else {
+    ss.security = "none";
+  }
+  const xs = { host: p.host_header || p.sni || "", path: p.path || "/", mode: p.mode || "auto" };
+  if (p.extra) {
+    try { const ex = JSON.parse(p.extra); if (ex && typeof ex === "object") Object.assign(xs, ex); }
+    catch { /* битый extra — базовых полей достаточно */ }
+  }
+  ss.xhttpSettings = xs;
+  return ss;
+}
+
+function nodeToXrayOutbound(p, tag) {
+  if (profileProto(p) === "trojan") {
+    return {
+      tag, protocol: "trojan",
+      settings: { servers: [{ address: p.host, port: p.port, password: p.password }] },
+      streamSettings: nodeToXrayStream(p),
+    };
+  }
+  const user = { id: p.uuid, encryption: p.encryption || "none" };
+  if (p.flow) user.flow = p.flow;
+  return {
+    tag, protocol: "vless",
+    settings: { vnext: [{ address: p.host, port: p.port, users: [user] }] },
+    streamSettings: nodeToXrayStream(p),
+  };
+}
+
 // ── главный builder ────────────────────────────────────────
 // Поддерживает оба вызова:
 //   buildConfig({ profile, mode, options }) — одиночный vless (legacy)
@@ -843,7 +896,7 @@ function buildCustomNoise(cn) {
 // warpInfo: опциональный объект WarpInfo от warp_status команды.
 //   Если options.warp.enabled === true и warpInfo передан с валидными ключами —
 //   добавляется WireGuard endpoint и route.final переключается на "warp".
-export function buildConfig({ profile, source, mode, options, warpInfo }) {
+export function buildConfig({ profile, source, mode, options, warpInfo, xray = false }) {
   const opts = options || DEFAULT_OPTIONS;
   const src = source ?? (profile ? { kind: "single", profile } : null);
   if (!src) throw new Error("buildConfig: нет источника");
@@ -865,6 +918,35 @@ export function buildConfig({ profile, source, mode, options, warpInfo }) {
     ob.tag = useUrltest ? nodeTag(i, n) : "proxy";
     return ob;
   });
+
+  // Two-core bridge: xhttp-ноды → локальный xray, в sing-box остаётся socks-мост.
+  let xrayConfig = null;
+  if (xray) {
+    const xIn = [], xOut = [], xRules = [];
+    nodes.forEach((n, i) => {
+      if (n.type !== "xhttp") return;
+      const idx = xOut.length;
+      const port = XRAY_BRIDGE_BASE_PORT + idx;
+      const inTag = `in-${idx}`, outTag = `out-${idx}`;
+      xIn.push({ tag: inTag, listen: "127.0.0.1", port, protocol: "socks", settings: { auth: "noauth", udp: true } });
+      xOut.push(nodeToXrayOutbound(n, outTag));
+      xRules.push({ type: "field", inboundTag: [inTag], outboundTag: outTag });
+      // Мост вместо vless+xhttp; тег outbound'а сохраняем — селектор/urltest
+      // ссылаются на него.
+      vlessOutbounds[i] = {
+        tag: vlessOutbounds[i].tag,
+        type: "socks", server: "127.0.0.1", server_port: port, version: "5",
+      };
+    });
+    if (xOut.length) {
+      xrayConfig = {
+        log: { loglevel: "warning" },
+        inbounds: xIn,
+        outbounds: xOut,
+        routing: { domainStrategy: "AsIs", rules: xRules },
+      };
+    }
+  }
 
   let outbounds;
   if (useUrltest) {
@@ -997,7 +1079,7 @@ export function buildConfig({ profile, source, mode, options, warpInfo }) {
     config.experimental.tls_tricks = tricks;
   }
 
-  return config;
+  return { config, xray: xrayConfig };
 }
 
 function sanitizeTag(s) {
