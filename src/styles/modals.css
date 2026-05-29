@@ -66,31 +66,6 @@
   to   { opacity: 1; transform: translateY(0)    scale(1); }
 }
 
-/* ═══ TOAST (нижний центр) ══════════════════════════════════ */
-.toast {
-  position: fixed;
-  bottom: 22px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 200;
-  padding: 10px 16px;
-  border-radius: var(--r-sm);
-  background: var(--ink-1);
-  border: 1px solid var(--line-2);
-  color: var(--text-hi);
-  font-size: 12.5px;
-  max-width: 460px;
-  box-shadow: 0 18px 50px -14px rgba(0, 0, 0, 0.7);
-  animation: toast-in 0.2s var(--ease-out);
-}
-.toast[data-kind="error"]   { border-color: rgba(229,72,77,0.45);  color: var(--err); }
-.toast[data-kind="success"] { border-color: rgba(74,222,128,0.40); }
-.toast[data-kind="info"]    { border-color: var(--accent-soft); }
-@keyframes toast-in {
-  from { opacity: 0; transform: translate(-50%, 8px); }
-  to   { opacity: 1; transform: translate(-50%, 0); }
-}
-
 /* ═══ ADD-PROFILE MODAL ═════════════════════════════════════ */
 .add-modal {
   position: fixed;

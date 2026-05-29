@@ -682,9 +682,10 @@
   font-size: 22px;
   letter-spacing: -0.025em;
   color: var(--text-hi);
-  line-height: 1;
+  line-height: 1.05;
   margin: 0;
-  white-space: nowrap;
+  text-wrap: balance;
+  max-width: 100%;
   animation: hero-text-in 420ms var(--ease-emph) backwards;
 }
 .hero__kicker {

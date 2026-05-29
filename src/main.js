@@ -35,6 +35,7 @@ import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream
 import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
+import { toast } from "/lib/toast.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -108,18 +109,6 @@ async function fillAppVersion() {
   applySettingsVersion();
 }
 fillAppVersion();
-
-// ── Toast ───────────────────────────────────────────────────
-const toastEl = document.getElementById("toast");
-let toastTimer = null;
-function toast(msg, kind = "info", ms = 3000) {
-  if (!toastEl) return;
-  toastEl.textContent = msg;
-  toastEl.dataset.kind = kind;
-  toastEl.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { toastEl.hidden = true; }, ms);
-}
 
 // ── Titlebar ────────────────────────────────────────────────
 document.querySelectorAll("[data-window-action]").forEach((btn) => {
@@ -465,7 +454,7 @@ async function performAutoReconnect(reason = "Применяю новые нас
   pendingReconnectTimer = null;
   if (!needsReconnect) return;
   if (state !== "connected" && state !== "connecting") return;
-  toast(reason, "info", 1400);
+  toast(reason, "info", 0, { group: "conn", connecting: true });
   try { await invoke("set_system_proxy", { enable: false }); } catch {}
   try { await invoke("stop_singbox"); } catch {}
   setState("idle");
@@ -1559,7 +1548,10 @@ heroDisc?.addEventListener("click", async () => {
         await invoke("set_system_proxy", { enable: true, hostPort: `127.0.0.1:${options.inbound.mixedPort || 7890}` });
       }
       setState("connected", { ping: "— мс" });
-      toast("Подключено", "success", 1600);
+      toast("Защищено", "connected", 2200, {
+        group: "conn",
+        desc: (activeNodeForDisplay()?.host) ? `Через ${activeNodeForDisplay().host}` : "Туннель поднят",
+      });
       // Через 800мс синхронизируем effective node через clash — URLTest уже выбрал ноду
       setTimeout(syncEffectiveFromClash, 800);
       const p2 = activeNodeForDisplay();
@@ -1567,7 +1559,7 @@ heroDisc?.addEventListener("click", async () => {
     } catch (e) {
       console.error("start failed", e);
       setState("idle");
-      toast(`Не удалось запустить — открываю логи`, "error", 3500);
+      toast("Не удалось запустить", "error", 4500, { desc: "Открываю логи — sing-box не стартовал" });
       try { await invoke("stop_singbox"); } catch {}
       try { await invoke("set_system_proxy", { enable: false }); } catch {}
       switchView("logs");
@@ -1576,7 +1568,7 @@ heroDisc?.addEventListener("click", async () => {
     try { await invoke("set_system_proxy", { enable: false }); } catch {}
     try { await invoke("stop_singbox"); } catch (e) { console.warn("stop failed", e); }
     setState("idle");
-    toast("Отключено", "info", 1400);
+    toast("Отключено", "info", 2000, { group: "conn", desc: "Туннель закрыт · системный прокси снят" });
     notify("Ninety · отключено", "Туннель закрыт");
   }
 });
