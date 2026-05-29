@@ -138,6 +138,8 @@ pub fn run() {
             vpn::start_singbox,
             vpn::stop_singbox,
             vpn::singbox_running,
+            vpn::xray_status,
+            vpn::vpn_last_error,
             vpn::set_system_proxy,
             vpn::read_singbox_log,
             vpn::clear_singbox_log,

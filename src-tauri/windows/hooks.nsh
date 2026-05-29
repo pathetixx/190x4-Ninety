@@ -22,6 +22,10 @@
   Pop $0
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM sing-box.exe'
   Pop $0
+  ; two-core: xray-sidecar лочит xray.exe — без остановки апдейт падает на
+  ; "файл занят другим процессом".
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM xray.exe'
+  Pop $0
   Sleep 500
 !macroend
 
@@ -35,5 +39,9 @@
   nsExec::Exec '"$SYSDIR\sc.exe" delete NinetyTunnelService'
   Pop $0
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM Ninety.exe'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM sing-box.exe'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM xray.exe'
   Pop $0
 !macroend

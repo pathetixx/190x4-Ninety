@@ -23,6 +23,10 @@ pub struct SingboxState {
     // под LocalSystem. Здесь — флаг, что мы инициировали TUN-сессию через IPC.
     tun_via_svc: Mutex<bool>,
     died: Arc<Mutex<Option<String>>>,
+    // Причина смерти xray-sidecar (two-core). Ставится монитор-таском xray при
+    // Terminated, сбрасывается при start_singbox. Нужен чтобы фронт мог отличить
+    // «упал xhttp-мост» (авто-реконнект) от «упал sing-box» (туннель закрыт).
+    xray_died: Arc<Mutex<Option<String>>>,
 }
 
 impl Default for SingboxState {
@@ -32,6 +36,7 @@ impl Default for SingboxState {
             xray_child: Mutex::new(None),
             tun_via_svc: Mutex::new(false),
             died: Arc::new(Mutex::new(None)),
+            xray_died: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -122,6 +127,7 @@ async fn spawn_xray(
         .map_err(|e| format!("spawn xray: {e}"))?;
     *state.xray_child.lock().unwrap() = Some(child);
 
+    let died_flag = state.xray_died.clone();
     let log_file = xray_log_path(app);
     tauri::async_runtime::spawn(async move {
         let mut writer = log_file.as_ref().and_then(|p| {
@@ -130,17 +136,29 @@ async fn spawn_xray(
         if let Some(w) = writer.as_mut() {
             let _ = writeln!(w, "\n=== xray start ===");
         }
+        let mut last: Vec<String> = Vec::new();
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                    let text = String::from_utf8_lossy(&line).to_string();
                     if let Some(w) = writer.as_mut() {
-                        let _ = writeln!(w, "{}", String::from_utf8_lossy(&line));
+                        let _ = writeln!(w, "{text}");
+                    }
+                    last.push(text);
+                    if last.len() > 40 {
+                        last.remove(0);
                     }
                 }
                 CommandEvent::Terminated(payload) => {
+                    let msg = format!(
+                        "xray умер (код {:?}). Последние строки:\n{}",
+                        payload.code,
+                        last.join("\n")
+                    );
                     if let Some(w) = writer.as_mut() {
-                        let _ = writeln!(w, "xray умер (код {:?})", payload.code);
+                        let _ = writeln!(w, "{msg}");
                     }
+                    *died_flag.lock().unwrap() = Some(msg);
                     break;
                 }
                 _ => {}
@@ -272,6 +290,7 @@ pub async fn start_singbox(
             return Err("sing-box уже запущен".into());
         }
         *state.died.lock().unwrap() = None;
+        *state.xray_died.lock().unwrap() = None;
     }
 
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
@@ -456,7 +475,11 @@ pub async fn stop_singbox(state: State<'_, SingboxState>) -> Result<(), String> 
 #[tauri::command]
 pub fn singbox_running(state: State<'_, SingboxState>) -> bool {
     if state.child.lock().unwrap().is_some() {
-        return true;
+        // Хэндл child не чистится при смерти процесса — монитор-таск лишь
+        // выставляет died. Без этой проверки singbox_running возвращал бы true
+        // вечно после краша ядра (UI держит «Защищено», прокси указывает на
+        // мёртвый порт, трафик в чёрную дыру). Труп живым не считаем.
+        return state.died.lock().unwrap().is_none();
     }
     let tun = { *state.tun_via_svc.lock().unwrap() };
     if !tun {
@@ -474,6 +497,32 @@ pub fn singbox_running(state: State<'_, SingboxState>) -> bool {
 #[tauri::command]
 pub async fn set_system_proxy(enable: bool, host_port: Option<String>) -> Result<(), String> {
     proxy::set_system_proxy(enable, host_port.as_deref())
+}
+
+// Статус xray-sidecar (two-core) для health-watchdog'а фронта:
+//   "none"  — xray не спавнился (xhttp-нод в активном конфиге нет);
+//   "alive" — поднят и не падал;
+//   "died"  — был поднят, но процесс завершился (xhttp-мост мёртв).
+// child-хэндл при смерти не чистится, поэтому различаем по флагу xray_died.
+#[tauri::command]
+pub fn xray_status(state: State<'_, SingboxState>) -> &'static str {
+    if state.xray_child.lock().unwrap().is_none() {
+        return "none";
+    }
+    if state.xray_died.lock().unwrap().is_some() {
+        "died"
+    } else {
+        "alive"
+    }
+}
+
+// Последняя причина смерти ядра (sing-box приоритетнее xray) — для тоста/нотифая.
+#[tauri::command]
+pub fn vpn_last_error(state: State<'_, SingboxState>) -> Option<String> {
+    if let Some(e) = state.died.lock().unwrap().clone() {
+        return Some(e);
+    }
+    state.xray_died.lock().unwrap().clone()
 }
 
 pub fn force_cleanup(state: &SingboxState) {
