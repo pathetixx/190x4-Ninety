@@ -54,6 +54,45 @@ fn singbox_config_path() -> PathBuf {
     exe_dir().join("singbox-current.json")
 }
 
+// Санитизация конфига, пришедшего по IPC: сервис исполняет sing-box под
+// LocalSystem, поэтому конфиг — это привилегированный ввод. Любое поле
+// sing-box, задающее путь записи файла, превращается в примитив записи файлов
+// от SYSTEM (LPE). Вычищаем такие поля независимо от того, кто прислал конфиг:
+//   - log.output        → удаляем; sing-box пишет в stdout, его пампит сервис;
+//   - cache_file.path    → если задан, переносим в каталог сервиса (не наружу);
+//   - clash_api.external_ui      → удаляем (отдача произвольной директории);
+//   - clash_api.external_controller → жёстко 127.0.0.1.
+fn sanitize_config(raw: &str) -> Result<String, String> {
+    let mut v: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| format!("config json: {e}"))?;
+
+    if let Some(log) = v.get_mut("log").and_then(|l| l.as_object_mut()) {
+        log.remove("output");
+    }
+    if let Some(exp) = v.get_mut("experimental").and_then(|e| e.as_object_mut()) {
+        if let Some(cf) = exp.get_mut("cache_file").and_then(|c| c.as_object_mut()) {
+            if cf.contains_key("path") {
+                let safe = exe_dir().join("cache.db").to_string_lossy().to_string();
+                cf.insert("path".into(), serde_json::Value::String(safe));
+            }
+        }
+        if let Some(api) = exp.get_mut("clash_api").and_then(|a| a.as_object_mut()) {
+            api.remove("external_ui");
+            let port = api
+                .get("external_controller")
+                .and_then(|c| c.as_str())
+                .and_then(|s| s.rsplit(':').next())
+                .unwrap_or("9090")
+                .to_string();
+            api.insert(
+                "external_controller".into(),
+                serde_json::Value::String(format!("127.0.0.1:{port}")),
+            );
+        }
+    }
+    serde_json::to_string(&v).map_err(|e| format!("reserialize: {e}"))
+}
+
 impl Manager {
     pub fn new() -> Arc<Self> {
         // capacity=256: достаточно для logs viewer, при переполнении старые
@@ -106,8 +145,9 @@ impl Manager {
         // Конфиг пишет сервис у себя (LocalSystem, %ProgramFiles%\Ninety\),
         // а не Tauri (user profile). LocalSystem может не иметь доступа на
         // чтение %APPDATA% других юзеров, поэтому inline-передача через IPC.
+        let sanitized = sanitize_config(config_json)?;
         let config_path = singbox_config_path();
-        std::fs::write(&config_path, config_json)
+        std::fs::write(&config_path, &sanitized)
             .map_err(|e| format!("write config {}: {e}", config_path.display()))?;
 
         let exe = resolve_singbox_exe()?;

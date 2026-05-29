@@ -56,11 +56,18 @@ jobs:
         shell: pwsh
         run: |
           $tag = "v1.13.0.h5"
+          # Пин на конкретный commit: теги на GitHub перемещаемы. Бинарь идёт в
+          # подписанный инсталлятор и исполняется под LocalSystem — supply-chain
+          # критичен. Если апстрим переместит тег, SHA не сойдётся и сборка упадёт.
+          $pinnedSha = "9b6b004adfb079db2134b682f9b4ff42434c2f38"
           $tags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,badlinkname,tfogo_checklinkname0,with_grpc,with_awg"
           Write-Host "Cloning hiddify-sing-box $tag…"
           git clone --depth 1 --branch $tag https://github.com/hiddify/hiddify-sing-box.git hsb
           if (-not $?) { Write-Error "git clone failed"; exit 1 }
           Push-Location hsb
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $pinnedSha) { Write-Error "hiddify-sing-box $tag = $head, ожидался $pinnedSha (тег перемещён?)"; exit 1 }
+          Write-Host "Verified hiddify-sing-box commit $head."
           $env:GOTOOLCHAIN = "local"
           $env:CGO_ENABLED = "0"
           go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o sing-box.exe ./cmd/sing-box
@@ -80,10 +87,14 @@ jobs:
           # xhttp, что в Throne; самый свежий тег, что собирается на Go 1.25
           # (v26.* требуют go 1.26). Чистый Go, статика, без cronet.
           $tag = "v25.12.8"
+          $pinnedSha = "81f8f398c7b2b845853b1e85087c6122acc6db0b"
           Write-Host "Cloning Xray-core $tag…"
           git clone --depth 1 --branch $tag https://github.com/XTLS/Xray-core.git xray-core
           if (-not $?) { Write-Error "git clone xray failed"; exit 1 }
           Push-Location xray-core
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $pinnedSha) { Write-Error "Xray-core $tag = $head, ожидался $pinnedSha (тег перемещён?)"; exit 1 }
+          Write-Host "Verified Xray-core commit $head."
           $env:GOTOOLCHAIN = "local"
           $env:CGO_ENABLED = "0"
           go build -trimpath -ldflags "-s -w -buildid=" -o xray.exe ./main
@@ -116,8 +127,14 @@ jobs:
           # уровень 2). Без DLL fallback пропускается и cleanup полагается только
           # на pnputil/netsh — ~95% случаев. Bundle гарантирует 100%.
           $url = "https://www.wintun.net/builds/wintun-0.14.1.zip"
+          $expectedSha = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
           Write-Host "Downloading $url"
           Invoke-WebRequest -Uri $url -OutFile wintun.zip -UseBasicParsing
+          # wintun.dll грузится сервисом под LocalSystem — проверяем целостность
+          # загрузки (wintun.net без подписи артефакта, поэтому пин по sha256).
+          $sha = (Get-FileHash wintun.zip -Algorithm SHA256).Hash.ToLower()
+          if ($sha -ne $expectedSha) { Write-Error "wintun.zip sha256 = $sha, ожидался $expectedSha"; exit 1 }
+          Write-Host "Verified wintun.zip sha256."
           Expand-Archive -Path wintun.zip -DestinationPath wintun -Force
           $src = "wintun/wintun/bin/amd64/wintun.dll"
           if (-not (Test-Path $src)) { Write-Error "wintun.dll не найден после распаковки"; exit 1 }

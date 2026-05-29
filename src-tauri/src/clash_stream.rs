@@ -15,7 +15,11 @@ pub struct ClashStreamState {
 }
 
 async fn run_stream(app: AppHandle, port: u16) {
-    let url = format!("ws://127.0.0.1:{port}/traffic");
+    // token в query — так clash-API авторизует websocket (header'ы для WS не шлём).
+    let url = format!(
+        "ws://127.0.0.1:{port}/traffic?token={}",
+        crate::clash::clash_secret()
+    );
     // Простой reconnect-цикл: если ядро перезапустилось / ещё не подняло WS — ждём.
     loop {
         match connect_async(&url).await {
