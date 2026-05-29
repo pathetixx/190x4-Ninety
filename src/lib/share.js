@@ -86,7 +86,9 @@ export async function exportSingboxJson(source, toast) {
     return;
   }
   try {
-    const config = buildConfig({
+    // Шаринг — самодостаточный sing-box (xhttp транслируется в-движок,
+    // без xray-моста), поэтому xray не запрашиваем.
+    const { config } = buildConfig({
       source,
       mode: getMode(),
       options: loadOptions(),
