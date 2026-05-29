@@ -71,6 +71,28 @@ jobs:
           $size = (Get-Item "src-tauri/binaries/sing-box-x86_64-pc-windows-msvc.exe").Length
           Write-Host "Built hiddify-sing-box $tag ($([math]::Round($size/1MB,1)) MB)."
 
+      - name: Build xray-core from source (two-core — xhttp)
+        shell: pwsh
+        run: |
+          # xhttp в форке sing-box (packet-up) тащит только пинг; реальный поток
+          # рассыпается. Эталон — xray-core, поэтому xhttp-ноды гоним через него
+          # (two-core: sing-box → loopback socks-мост → xray). Тот же зрелый
+          # xhttp, что в Throne; самый свежий тег, что собирается на Go 1.25
+          # (v26.* требуют go 1.26). Чистый Go, статика, без cronet.
+          $tag = "v25.12.8"
+          Write-Host "Cloning Xray-core $tag…"
+          git clone --depth 1 --branch $tag https://github.com/XTLS/Xray-core.git xray-core
+          if (-not $?) { Write-Error "git clone xray failed"; exit 1 }
+          Push-Location xray-core
+          $env:GOTOOLCHAIN = "local"
+          $env:CGO_ENABLED = "0"
+          go build -trimpath -ldflags "-s -w -buildid=" -o xray.exe ./main
+          if (-not $?) { Write-Error "xray build failed"; exit 1 }
+          Pop-Location
+          Copy-Item xray-core/xray.exe "src-tauri/binaries/xray-x86_64-pc-windows-msvc.exe" -Force
+          $size = (Get-Item "src-tauri/binaries/xray-x86_64-pc-windows-msvc.exe").Length
+          Write-Host "Built Xray-core $tag ($([math]::Round($size/1MB,1)) MB)."
+
       - name: Build ninety-tunnel-svc (Windows Service)
         shell: pwsh
         run: |
