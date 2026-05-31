@@ -1,7 +1,7 @@
 // WebSocket-стрим clash-API через Rust: события "clash:traffic" приходят как { up, down }
 // (байт/сек). Также exposed legacy poll-функция для пинга /proxies.
 
-import { getProxies, lastDelay, pickEffectiveNode, warmTestNode } from "/lib/clash-api.js";
+import { getProxies, lastDelay, pickEffectiveNode, refreshEffectiveDelay } from "/lib/clash-api.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -39,20 +39,21 @@ export async function startClashStream({ port = DEFAULT_PORT, onTraffic, onPing,
         const data = await getProxies(port);
         const effective = pickEffectiveNode(data);
         const obj = effective ? data?.proxies?.[effective] : null;
-        let d = lastDelay(obj);
-        // Авто-обновление: периодически форсим тёплый замер, чтобы число в
-        // hero/location-card жило, а не зависало на старой записи history.
-        // Мёртвое значение оживляем чаще, живое — освежаем раз в WARM_REFRESH_MS.
+        const d = lastDelay(obj);
+        // Авто-обновление history: периодически в ФОНЕ тестируем URLTest-группу
+        // (Hiddify-style, unified_delay → совпадает со списком нод), результат
+        // отдаём через onPing. Сам поллинг при этом не блокируется групповым
+        // тестом. Мёртвое значение освежаем чаще, живое — раз в WARM_REFRESH_MS.
         const now = Date.now();
         const dead = !d || d <= 0 || d >= 65000;
         const due = effective && (now - lastForceTestTs) > (dead ? DEAD_RETEST_MS : WARM_REFRESH_MS);
         if (due) {
           lastForceTestTs = now;
-          try {
-            const r = await warmTestNode(effective, { port, timeoutMs: 4000, samples: dead ? 1 : 2 });
-            const fresh = Number(r?.delay) || 0;
-            if (fresh > 0 && fresh < 65000) d = fresh;
-          } catch {}
+          refreshEffectiveDelay({ port, timeoutMs: 4000 })
+            .then((r) => {
+              if (r?.delay > 0 && r.delay < 65000) onPing({ delay: r.delay, nodeTag: r.tag });
+            })
+            .catch(() => {});
         }
         if (effective && effective !== lastEffectiveTag) {
           lastEffectiveTag = effective;

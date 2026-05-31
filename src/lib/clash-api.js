@@ -18,22 +18,41 @@ export async function testGroup(group, { port = DEFAULT_PORT, url = DEFAULT_URL,
   return invoke("clash_test_group", { port, group, url, timeoutMs });
 }
 
-// Тёплый замер задержки. Одиночный GET /proxies/{name}/delay открывает
-// холодное соединение через прокси — в него входит полный TLS-handshake и
-// установка туннеля, из-за чего разовый клик выдавал завышенное значение
-// (31мс пассивно → 170мс по клику). Гоняем несколько проб подряд и берём
-// минимум: первая оплачивает установку, последующие переиспользуют тёплое
-// соединение и отражают реальный RTT — как пассивный поллинг sing-box.
-export async function warmTestNode(name, { port = DEFAULT_PORT, url = DEFAULT_URL, timeoutMs = 5000, samples = 3 } = {}) {
-  let best = 0;
-  for (let i = 0; i < samples; i++) {
-    try {
-      const r = await testNode(name, { port, url, timeoutMs });
-      const d = Number(r?.delay) || 0;
-      if (d > 0 && d < 65000 && (best === 0 || d < best)) best = d;
-    } catch {}
+// Замер задержки эффективной ноды «как в Hiddify».
+//
+// Корень бага «в списке 30мс, на главной 100+»: одиночный GET /proxies/{name}/delay
+// открывает холодное соединение через прокси (полный dial+TLS), из-за чего разовый
+// клик выдавал завышенное значение, и тёплый min-из-N не помогал (каждый /delay —
+// независимый холодный вызов). Список же берёт history ноды, которую наполняет
+// тест URLTest-ГРУППЫ "lowest" (/group/lowest/delay) — она меряет все ноды разом
+// под unified_delay и пишет их history. Hiddify на главной читает ровно тот же
+// urlTestDelay из group-инфо, а клик зовёт urlTest("") — групповой тест.
+//
+// Поэтому тестируем группу и читаем history эффективной ноды → число по построению
+// совпадает с тем, что в списке. Для одиночного профиля группы "lowest" нет
+// (outbounds = [proxy, direct]) → одиночный замер сам по себе и есть истина.
+export async function refreshEffectiveDelay({ port = DEFAULT_PORT, url = DEFAULT_URL, timeoutMs = 4000 } = {}) {
+  let data;
+  try { data = await getProxies(port); } catch { return { delay: 0, tag: null }; }
+  const tag = pickEffectiveNode(data);
+  if (!tag) return { delay: 0, tag: null };
+
+  if (data?.proxies?.lowest) {
+    // /group/{name}/delay отдаёт map {tag: delay}; берём эффективную ноду.
+    let res = null;
+    try { res = await testGroup("lowest", { port, url, timeoutMs }); } catch {}
+    let d = Number(res?.[tag]) || 0;
+    if (!(d > 0 && d < 65000)) {
+      // fallback: перечитать свежую history (на случай иной формы ответа)
+      try { const fresh = await getProxies(port); d = lastDelay(fresh?.proxies?.[tag]); } catch {}
+    }
+    return { delay: d, tag };
   }
-  return { delay: best };
+
+  try {
+    const r = await testNode(tag, { port, url, timeoutMs });
+    return { delay: Number(r?.delay) || 0, tag };
+  } catch { return { delay: 0, tag }; }
 }
 
 // Ручной выбор активной ноды в Selector-группе.
