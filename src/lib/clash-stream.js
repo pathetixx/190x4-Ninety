@@ -40,10 +40,10 @@ export async function startClashStream({ port = DEFAULT_PORT, onTraffic, onPing,
         const effective = pickEffectiveNode(data);
         const obj = effective ? data?.proxies?.[effective] : null;
         const d = lastDelay(obj);
-        // Авто-обновление history: периодически в ФОНЕ тестируем URLTest-группу
-        // (Hiddify-style, unified_delay → совпадает со списком нод), результат
-        // отдаём через onPing. Сам поллинг при этом не блокируется групповым
-        // тестом. Мёртвое значение освежаем чаще, живое — раз в WARM_REFRESH_MS.
+        // Авто-обновление: периодически в ФОНЕ перемеряем эффективную ноду
+        // (refreshEffectiveDelay → одиночный /proxies/{name}/delay, пропатчен на
+        // unified → совпадает со списком), результат отдаём через onPing; сам
+        // поллинг не блокируется. Мёртвое освежаем чаще, живое — раз в WARM_REFRESH_MS.
         const now = Date.now();
         const dead = !d || d <= 0 || d >= 65000;
         const due = effective && (now - lastForceTestTs) > (dead ? DEAD_RETEST_MS : WARM_REFRESH_MS);

@@ -68,6 +68,20 @@ jobs:
           $head = (git rev-parse HEAD).Trim()
           if ($head -ne $pinnedSha) { Write-Error "hiddify-sing-box $tag = $head, ожидался $pinnedSha (тег перемещён?)"; exit 1 }
           Write-Host "Verified hiddify-sing-box commit $head."
+          # Патч (после SHA-проверки, supply-chain аудит апстрима сохранён):
+          # одиночный GET /proxies/{name}/delay в апстреме меряет через
+          # context.Background() → не наследует box-ctx → IsUnifiedDelayFromContext
+          # = false → меряет холодный dial+TLS (завышение ~3x: список 30мс, главная
+          # 100+). Групповой /group/{name}/delay уже использует r.Context() → unified.
+          # Делаем одиночный таким же: он перемеряет КАЖДЫЙ вызов (нет interval-gate
+          # как у группы, которая молчит 600с) → живой И точный пинг на главной.
+          $pf = "experimental/clashapi/proxies.go"
+          $old = "ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))"
+          $new = "ctx, cancel := context.WithTimeout(r.Context(), time.Millisecond*time.Duration(timeout))"
+          $content = Get-Content $pf -Raw
+          if ($content -notmatch [regex]::Escape($old)) { Write-Error "patch target not found in $pf (форк изменился — пересними патч)"; exit 1 }
+          Set-Content $pf $content.Replace($old, $new) -NoNewline
+          Write-Host "Patched getProxyDelay → r.Context() (unified delay для одиночного теста)."
           $env:GOTOOLCHAIN = "local"
           $env:CGO_ENABLED = "0"
           go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o sing-box.exe ./cmd/sing-box
