@@ -18,6 +18,24 @@ export async function testGroup(group, { port = DEFAULT_PORT, url = DEFAULT_URL,
   return invoke("clash_test_group", { port, group, url, timeoutMs });
 }
 
+// Тёплый замер задержки. Одиночный GET /proxies/{name}/delay открывает
+// холодное соединение через прокси — в него входит полный TLS-handshake и
+// установка туннеля, из-за чего разовый клик выдавал завышенное значение
+// (31мс пассивно → 170мс по клику). Гоняем несколько проб подряд и берём
+// минимум: первая оплачивает установку, последующие переиспользуют тёплое
+// соединение и отражают реальный RTT — как пассивный поллинг sing-box.
+export async function warmTestNode(name, { port = DEFAULT_PORT, url = DEFAULT_URL, timeoutMs = 5000, samples = 3 } = {}) {
+  let best = 0;
+  for (let i = 0; i < samples; i++) {
+    try {
+      const r = await testNode(name, { port, url, timeoutMs });
+      const d = Number(r?.delay) || 0;
+      if (d > 0 && d < 65000 && (best === 0 || d < best)) best = d;
+    } catch {}
+  }
+  return { delay: best };
+}
+
 // Ручной выбор активной ноды в Selector-группе.
 // PUT /proxies/{group} {"name": tag}. Работает только для type=Selector.
 export async function selectProxy(group, name, { port = DEFAULT_PORT } = {}) {

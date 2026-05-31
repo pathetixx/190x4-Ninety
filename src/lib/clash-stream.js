@@ -1,7 +1,7 @@
 // WebSocket-стрим clash-API через Rust: события "clash:traffic" приходят как { up, down }
 // (байт/сек). Также exposed legacy poll-функция для пинга /proxies.
 
-import { getProxies, lastDelay, pickEffectiveNode, testNode } from "/lib/clash-api.js";
+import { getProxies, lastDelay, pickEffectiveNode, warmTestNode } from "/lib/clash-api.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -9,7 +9,8 @@ const eventApi = window.__TAURI__?.event;
 
 const DEFAULT_PORT = 9090;
 const PING_POLL_MS = 3000;          // как в Hiddify — частый поллинг свежего delay
-const FORCE_TEST_EVERY_MS = 12000;  // если delay устарел/0 — форсим test_node
+const DEAD_RETEST_MS = 4000;        // мёртвый/0 замер — оживляем тёплым тестом часто
+const WARM_REFRESH_MS = 10000;      // живой замер — периодически освежаем (auto-refresh)
 
 let unlistenTraffic = null;
 let pingTimer = null;
@@ -39,13 +40,16 @@ export async function startClashStream({ port = DEFAULT_PORT, onTraffic, onPing,
         const effective = pickEffectiveNode(data);
         const obj = effective ? data?.proxies?.[effective] : null;
         let d = lastDelay(obj);
-        // Hiddify: если последний замер мёртв/0 — форсим свежий test через
-        // GET /proxies/{name}/delay (не чаще раза в 12 сек, чтобы не молотить).
+        // Авто-обновление: периодически форсим тёплый замер, чтобы число в
+        // hero/location-card жило, а не зависало на старой записи history.
+        // Мёртвое значение оживляем чаще, живое — освежаем раз в WARM_REFRESH_MS.
         const now = Date.now();
-        if ((!d || d <= 0 || d >= 65000) && effective && (now - lastForceTestTs) > FORCE_TEST_EVERY_MS) {
+        const dead = !d || d <= 0 || d >= 65000;
+        const due = effective && (now - lastForceTestTs) > (dead ? DEAD_RETEST_MS : WARM_REFRESH_MS);
+        if (due) {
           lastForceTestTs = now;
           try {
-            const r = await testNode(effective, { port, timeoutMs: 4000 });
+            const r = await warmTestNode(effective, { port, timeoutMs: 4000, samples: dead ? 1 : 2 });
             const fresh = Number(r?.delay) || 0;
             if (fresh > 0 && fresh < 65000) d = fresh;
           } catch {}

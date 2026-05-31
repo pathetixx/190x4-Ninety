@@ -32,7 +32,7 @@ import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
-import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode } from "/lib/clash-api.js";
+import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode, selectProxy } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
@@ -214,7 +214,11 @@ applyModeToUI(getMode());
 modeSeg?.addEventListener("click", async (e) => {
   const b = e.target.closest(".seg__btn");
   if (!b) return;
-  const requested = b.dataset.mode;
+  await changeMode(b.dataset.mode);
+});
+
+// Единая смена режима подключения — из сегмента на главной И из меню трея.
+async function changeMode(requested) {
   if (!["proxy", "systemProxy", "tun"].includes(requested)) return;
   // При выборе TUN — гарантируем что NinetyTunnelService установлен.
   // Иначе start_singbox упадёт при первой попытке connect.
@@ -226,12 +230,13 @@ modeSeg?.addEventListener("click", async (e) => {
   setMode(requested);
   applyModeToUI(requested);
   updateHeroHint();
+  syncTrayMenu();
   // Режим меняет inbound (TUN vs mixed) и системный прокси — при поднятом VPN
   // надо пересобрать конфиг. reconnectForSourceChange сам уходит в idle (сбросит
   // системный прокси старого режима) и поднимается заново. Если не connected —
   // no-op, режим применится при следующем connect.
   if (requested !== prevMode) reconnectForSourceChange("Переключаю режим…");
-});
+}
 
 // Проверяет статус NinetyTunnelService. Если не_installed — предлагает
 // установить (с UAC). Возвращает true если сервис в Stopped/Running на выходе.
@@ -558,7 +563,9 @@ function activateSource(kind, id) {
     setActiveKind("single");
   }
   currentEffectiveNode = null;
+  currentEffectiveTag = null;
   refreshProfilesSummary();
+  syncTrayMenu();
   const reason = isSub ? "Переключаюсь на новую подписку…" : "Переключаюсь на новый профиль…";
   if (wasActive || !reconnectForSourceChange(reason)) {
     toast(isSub ? "Подписка активирована" : "Профиль активирован", "success", 1800);
@@ -1224,14 +1231,16 @@ function applyHeroState(internalState) {
   if (heroLockEl) heroLockEl.dataset.state = ds;
 }
 
-// Stats-strip vs Location-card: connected → stats, иначе → loc
+// Stats-strip vs Location-card: connected → stats-strip с live-метриками.
+// Когда VPN выключен (idle/connecting) — нижняя плитка сервера не нужна,
+// прячем обе (раньше показывали loc-card в standby — лишний шум).
 function applyHomeBottom(internalState) {
   if (!locCard || !statsStrip) return;
   if (internalState === "connected") {
     locCard.hidden = true;
     statsStrip.hidden = false;
   } else {
-    locCard.hidden = false;
+    locCard.hidden = true;
     statsStrip.hidden = true;
   }
 }
@@ -1354,6 +1363,7 @@ function updateHeroHint() {
 // Текущая нода через которую реально идёт трафик — приходит из clash-API
 // event'ом ninety:node-changed. Когда null — fallback на nodes[0]/profile.
 let currentEffectiveNode = null;
+let currentEffectiveTag = null;
 
 function activeNodeForDisplay() {
   if (currentEffectiveNode) return currentEffectiveNode;
@@ -1412,6 +1422,7 @@ function setState(next, opts = {}) {
     lastPublicIp = null;
     if (locIpRow) locIpRow.hidden = true;
     currentEffectiveNode = null;
+    currentEffectiveTag = null;
     if (heroHint) heroHint.hidden = false;
     updateHeroHint();
   } else if (next === "connecting") {
@@ -1438,6 +1449,8 @@ function setState(next, opts = {}) {
     // Wizard: подключились — переходим на финальный шаг
     if (wizardActive && wizardStepNum === 3) showOnbStep(4);
   }
+
+  syncTrayMenu();
 }
 
 // Единый рендерер пинга в hero и location-card.
@@ -1494,9 +1507,17 @@ heroPing?.addEventListener("click", async () => {
       return;
     }
     try {
-      const r = await testNode(target, { timeoutMs: 5000 });
-      const fresh = Number(r?.delay) || 0;
-      applyPingDisplay(fresh > 0 && fresh < 65000 ? fresh : 65000);
+      // Тёплый замер: первая проба холодная (установка туннеля → завышение),
+      // гоняем несколько и берём минимум — совпадает с пассивным значением.
+      let fresh = 0;
+      for (let i = 0; i < 3; i++) {
+        try {
+          const r = await testNode(target, { timeoutMs: 5000 });
+          const d = Number(r?.delay) || 0;
+          if (d > 0 && d < 65000 && (fresh === 0 || d < fresh)) fresh = d;
+        } catch {}
+      }
+      applyPingDisplay(fresh > 0 ? fresh : 65000);
     } catch {
       applyPingDisplay(65000); // → «Тайм-аут»
     }
@@ -1543,7 +1564,9 @@ async function syncEffectiveFromClash({ knownTag } = {}) {
   if (!node) return;
   const prevHost = currentEffectiveNode?.host;
   currentEffectiveNode = node;
+  currentEffectiveTag = tag;
   updateHeroForActive();
+  syncTrayMenu();
   if (state === "connected" && prevHost && prevHost !== node.host) {
     // Сервер реально сменился — IP надо перечитать
     if (locIp) locIp.textContent = "— · —";
@@ -1556,6 +1579,59 @@ window.addEventListener("ninety:node-changed", (ev) => {
   const tag = ev.detail?.tag;
   syncEffectiveFromClash({ knownTag: tag });
 });
+
+// ── Трей: динамическое контекстное меню (режим + список серверов) ──
+// Список серверов — только для подписки с >=2 нодами (у одиночного конфига
+// и сабов из одной ноды clash-тэг всегда "proxy", переключать нечего).
+function buildTrayServers() {
+  const src = getActiveSource();
+  if (!src || src.kind !== "sub" || !Array.isArray(src.nodes) || src.nodes.length < 2) return [];
+  return src.nodes.map((n, i) => {
+    const tag = nodeTag(i, n);
+    return { id: tag, label: (n.name || n.host || tag).slice(0, 48), selected: tag === currentEffectiveTag };
+  });
+}
+
+let trayMenuBusy = false;
+async function syncTrayMenu() {
+  if (trayMenuBusy) return;
+  trayMenuBusy = true;
+  try {
+    await invoke("set_tray_menu", {
+      payload: { connected: state === "connected", mode: getMode(), servers: buildTrayServers() },
+    });
+  } catch (e) {
+    console.warn("syncTrayMenu failed", e);
+  } finally {
+    trayMenuBusy = false;
+  }
+}
+
+// События из Rust-меню трея: смена режима и выбор сервера (только при VPN on).
+(async () => {
+  const ev = window.__TAURI__?.event;
+  if (!ev?.listen) return;
+  try {
+    await ev.listen("tray:set-mode", (e) => {
+      if (typeof e?.payload === "string") changeMode(e.payload);
+    });
+    await ev.listen("tray:select-server", async (e) => {
+      const tag = e?.payload;
+      if (!tag || state !== "connected") return;
+      try {
+        await selectProxy("proxy", tag);
+        const src = getActiveSource();
+        const node = src?.kind === "sub" ? (src.nodes.find((n, i) => nodeTag(i, n) === tag) || null) : null;
+        currentEffectiveTag = tag;
+        if (node) { currentEffectiveNode = node; updateHeroForActive(); }
+        toast("Сервер переключён", "success", 1200);
+        syncTrayMenu();
+      } catch (err) {
+        toast(`Не удалось переключить: ${err?.message || err}`, "error", 2500);
+      }
+    });
+  } catch (e) { console.warn("tray listeners failed", e); }
+})();
 
 heroDisc?.addEventListener("click", async () => {
   if (heroDisc.disabled) return;
@@ -1639,6 +1715,7 @@ heroDisc?.addEventListener("click", async () => {
 if (locPing) locPing.textContent = "— мс";
 refreshProfilesSummary();
 updateHeroHint();
+syncTrayMenu();
 
 // При старте app — синхронизируем UI с реальным состоянием sing-box
 (async () => {

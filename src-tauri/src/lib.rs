@@ -18,9 +18,9 @@ mod tun_ipc;
 mod tun_ipc;
 
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, RunEvent, WindowEvent,
+    Emitter, Manager, RunEvent, WindowEvent,
 };
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -46,6 +46,82 @@ fn show_main(app: &tauri::AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+}
+
+#[derive(serde::Deserialize, Default)]
+struct TraySrv {
+    id: String,
+    label: String,
+    #[serde(default)]
+    selected: bool,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct TrayMenuPayload {
+    #[serde(default)]
+    connected: bool,
+    #[serde(default)]
+    mode: String,
+    #[serde(default)]
+    servers: Vec<TraySrv>,
+}
+
+/// Собирает контекстное меню трея под текущее состояние: выбор режима
+/// подключения (radio-чек) и список серверов активной подписки. Подменю
+/// «Сервер» активно только при поднятом VPN — иначе серое (disabled).
+fn build_tray_menu(
+    app: &tauri::AppHandle,
+    payload: &TrayMenuPayload,
+) -> tauri::Result<Menu<tauri::Wry>> {
+    let show_item = MenuItem::with_id(app, "show", "Показать Ninety", true, None::<&str>)?;
+
+    // Режим подключения
+    let m_proxy = CheckMenuItem::with_id(app, "mode:proxy", "Прокси", true, payload.mode == "proxy", None::<&str>)?;
+    let m_sys = CheckMenuItem::with_id(app, "mode:systemProxy", "Системный прокси", true, payload.mode == "systemProxy", None::<&str>)?;
+    let m_tun = CheckMenuItem::with_id(app, "mode:tun", "VPN · TUN", true, payload.mode == "tun", None::<&str>)?;
+    let mode_sub = Submenu::with_items(app, "Режим подключения", true, &[&m_proxy, &m_sys, &m_tun])?;
+
+    // Выбор сервера — активен только когда VPN поднят
+    let srv_enabled = payload.connected && !payload.servers.is_empty();
+    let server_sub = if payload.servers.is_empty() {
+        let none = MenuItem::with_id(app, "srv:none", "Нет серверов", false, None::<&str>)?;
+        Submenu::with_items(app, "Сервер", false, &[&none])?
+    } else {
+        let mut items: Vec<CheckMenuItem<tauri::Wry>> = Vec::with_capacity(payload.servers.len());
+        for s in &payload.servers {
+            items.push(CheckMenuItem::with_id(
+                app,
+                format!("srv:{}", s.id),
+                &s.label,
+                srv_enabled,
+                s.selected,
+                None::<&str>,
+            )?);
+        }
+        let refs: Vec<&dyn IsMenuItem<tauri::Wry>> =
+            items.iter().map(|i| i as &dyn IsMenuItem<tauri::Wry>).collect();
+        Submenu::with_items(app, "Сервер", srv_enabled, &refs)?
+    };
+
+    let sep1 = PredefinedMenuItem::separator(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
+
+    Menu::with_items(
+        app,
+        &[&show_item, &sep1, &mode_sub, &server_sub, &sep2, &quit_item],
+    )
+}
+
+/// Фронтенд зовёт при каждом изменении состояния (connect/disconnect, смена
+/// режима/подписки/эффективной ноды) — пересобираем меню трея под него.
+#[tauri::command]
+fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), String> {
+    let menu = build_tray_menu(&app, &payload).map_err(|e| e.to_string())?;
+    if let Some(tray) = app.tray_by_id("main") {
+        tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -98,19 +174,29 @@ pub fn run() {
                 }
             }
 
-            let show_item = MenuItem::with_id(app, "show", "Показать Ninety", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let menu = build_tray_menu(app.handle(), &TrayMenuPayload::default())?;
 
             let _tray = TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Ninety · 190x4")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => show_main(app),
-                    "quit" => app.exit(0),
-                    _ => {}
+                .on_menu_event(|app, event| {
+                    let id = event.id.as_ref();
+                    match id {
+                        "show" => show_main(app),
+                        "quit" => app.exit(0),
+                        "mode:proxy" => { let _ = app.emit("tray:set-mode", "proxy"); }
+                        "mode:systemProxy" => { let _ = app.emit("tray:set-mode", "systemProxy"); }
+                        "mode:tun" => { let _ = app.emit("tray:set-mode", "tun"); }
+                        other if other.starts_with("srv:") => {
+                            let tag = other.trim_start_matches("srv:");
+                            if tag != "none" {
+                                let _ = app.emit("tray:select-server", tag.to_string());
+                            }
+                        }
+                        _ => {}
+                    }
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
@@ -135,6 +221,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ping,
             is_autostarted,
+            set_tray_menu,
             vpn::start_singbox,
             vpn::stop_singbox,
             vpn::singbox_running,
