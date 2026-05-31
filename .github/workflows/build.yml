@@ -69,19 +69,23 @@ jobs:
           if ($head -ne $pinnedSha) { Write-Error "hiddify-sing-box $tag = $head, ожидался $pinnedSha (тег перемещён?)"; exit 1 }
           Write-Host "Verified hiddify-sing-box commit $head."
           # Патч (после SHA-проверки, supply-chain аудит апстрима сохранён):
-          # одиночный GET /proxies/{name}/delay в апстреме меряет через
-          # context.Background() → не наследует box-ctx → IsUnifiedDelayFromContext
-          # = false → меряет холодный dial+TLS (завышение ~3x: список 30мс, главная
-          # 100+). Групповой /group/{name}/delay уже использует r.Context() → unified.
-          # Делаем одиночный таким же: он перемеряет КАЖДЫЙ вызов (нет interval-gate
-          # как у группы, которая молчит 600с) → живой И точный пинг на главной.
+          # одиночный GET /proxies/{name}/delay (getProxyDelay) в апстреме меряет
+          # через context.Background() → IsUnifiedDelayFromContext=false → один HEAD
+          # с холодным dial+TLS вместо чистого второго RTT (завышение ~3x: список 30,
+          # главная 100+). Флаг unified живёт в ctx (common/urltest/context.go) и
+          # ставится в box.go:145 — но ПОСЛЕ создания clash-сервера (~box.go:138),
+          # поэтому ни server.ctx, ни r.Context() его не несут (alpha52 на r.Context()
+          # был холостым). Группа же работает: её g.ctx создаётся уже после box.go:145.
+          # Фикс: явно навешиваем флаг на server.ctx (в нём box-сервисы: RootCAs/NTP),
+          # как делает box.go. Одиночный замер перемеряет КАЖДЫЙ вызов (нет interval-
+          # gate группы, которая молчит 600с) → пинг на главной живой И точный.
           $pf = "experimental/clashapi/proxies.go"
           $old = "ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))"
-          $new = "ctx, cancel := context.WithTimeout(r.Context(), time.Millisecond*time.Duration(timeout))"
+          $new = "ctx, cancel := context.WithTimeout(urltest.ContextWithIsUnifiedDelay(server.ctx), time.Millisecond*time.Duration(timeout))"
           $content = Get-Content $pf -Raw
           if ($content -notmatch [regex]::Escape($old)) { Write-Error "patch target not found in $pf (форк изменился — пересними патч)"; exit 1 }
           Set-Content $pf $content.Replace($old, $new) -NoNewline
-          Write-Host "Patched getProxyDelay → r.Context() (unified delay для одиночного теста)."
+          Write-Host "Patched getProxyDelay → unified delay на server.ctx."
           $env:GOTOOLCHAIN = "local"
           $env:CGO_ENABLED = "0"
           go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o sing-box.exe ./cmd/sing-box
