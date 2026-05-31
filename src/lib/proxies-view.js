@@ -2,7 +2,7 @@
 // клик-выбор через Selector, AUTO-режим сверху, FAB-молния перетеста.
 
 import {
-  getProxies, testGroup, selectProxy,
+  getProxies, testGroup, testNode, selectProxy,
   pickSelectorNow, pickEffectiveNode,
   lastDelay, gradeDelay,
 } from "/lib/clash-api.js";
@@ -309,8 +309,12 @@ export function mountProxiesView({ onToast } = {}) {
     fab.dataset.testing = "true";
     try {
       const nodes = nodesFromSource();
-      const group = nodes.length >= 2 ? "lowest" : "proxy";
-      await testGroup(group);
+      // refresh по ходу — список оживает прогрессивно, не ждёт все ноды
+      let last = 0;
+      await testAllNodes(nodes, () => {
+        const now = Date.now();
+        if (now - last > 600) { last = now; refresh(); }
+      });
       onToast?.("Перетестировал все ноды", "success", 1600);
       await refresh();
     } catch (e) {
@@ -320,4 +324,22 @@ export function mountProxiesView({ onToast } = {}) {
       delete fab.dataset.testing;
     }
   });
+}
+
+// Перетест ВСЕХ нод по одной через /proxies/{tag}/delay (пропатчен на unified →
+// точно, и перемеряет КАЖДЫЙ вызов). Групповой /group/lowest/delay тут не годится:
+// он interval-gated (urlTest skip нод с history моложе 600с) → «обновить всё»
+// освежало лишь устаревшие, а свежие (включая то, что дёргает автозамер главной)
+// застывали. Пул concurrency=8 — как batch-лимит в самом ядре, без UDP/TCP-всплеска.
+async function testAllNodes(nodes, onProgress) {
+  const tags = [...new Set(nodes.map(n => n.clashTag))];
+  let i = 0;
+  async function worker() {
+    while (i < tags.length) {
+      const t = tags[i++];
+      try { await testNode(t, { timeoutMs: 5000 }); } catch {}
+      try { onProgress?.(); } catch {}
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(8, tags.length) }, worker));
 }
