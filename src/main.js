@@ -32,7 +32,7 @@ import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
-import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode, selectProxy } from "/lib/clash-api.js";
+import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
@@ -1497,30 +1497,11 @@ heroPing?.addEventListener("click", async () => {
   manualTestInFlight = true;
   heroPing.dataset.testing = "true";
   try {
-    let target = null;
-    try {
-      const data = await getProxies();
-      target = pickEffectiveNode(data);
-    } catch {}
-    if (!target) {
-      applyPingDisplay(0);
-      return;
-    }
-    try {
-      // Тёплый замер: первая проба холодная (установка туннеля → завышение),
-      // гоняем несколько и берём минимум — совпадает с пассивным значением.
-      let fresh = 0;
-      for (let i = 0; i < 3; i++) {
-        try {
-          const r = await testNode(target, { timeoutMs: 5000 });
-          const d = Number(r?.delay) || 0;
-          if (d > 0 && d < 65000 && (fresh === 0 || d < fresh)) fresh = d;
-        } catch {}
-      }
-      applyPingDisplay(fresh > 0 ? fresh : 65000);
-    } catch {
-      applyPingDisplay(65000); // → «Тайм-аут»
-    }
+    // Hiddify-style: клик = тест URLTest-ГРУППЫ (как urlTest("")), а не одиночный
+    // /proxies/{name}/delay. Число читается из history эффективной ноды → совпадает
+    // со списком нод. Подробности в refreshEffectiveDelay.
+    const { delay } = await refreshEffectiveDelay({ timeoutMs: 5000 });
+    applyPingDisplay(delay > 0 ? delay : 65000);
   } finally {
     delete heroPing.dataset.testing;
     manualTestInFlight = false;
