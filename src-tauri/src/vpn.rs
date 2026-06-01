@@ -12,16 +12,13 @@ use crate::proxy_win as proxy;
 use crate::proxy_stub as proxy;
 
 pub struct SingboxState {
-    // Локальный child sing-box (sidecar) — для proxy-режима, запускается под
-    // обычным юзером через tauri-plugin-shell.
+    // Child sing-box (sidecar) для ВСЕХ режимов, включая TUN. В TUN-режиме
+    // Ninety запущен elevated (Throne-style), поэтому sing-box-child наследует
+    // админ-права и сам поднимает TUN-инбаунд — отдельной службы больше нет.
     child: Mutex<Option<CommandChild>>,
-    // xray-core sidecar (two-core): обслуживает xhttp-ноды. Всегда user-level
-    // на 127.0.0.1, в т.ч. при TUN — sing-box из сервиса (LocalSystem) ходит
-    // к нему через loopback socks-мост.
+    // xray-core sidecar (two-core): обслуживает xhttp-ноды. Слушает 127.0.0.1;
+    // sing-box ходит к нему через loopback socks-мост.
     xray_child: Mutex<Option<CommandChild>>,
-    // TUN-режим: sing-box работает не у нас, а внутри NinetyTunnelService
-    // под LocalSystem. Здесь — флаг, что мы инициировали TUN-сессию через IPC.
-    tun_via_svc: Mutex<bool>,
     died: Arc<Mutex<Option<String>>>,
     // Причина смерти xray-sidecar (two-core). Ставится монитор-таском xray при
     // Terminated, сбрасывается при start_singbox. Нужен чтобы фронт мог отличить
@@ -34,7 +31,6 @@ impl Default for SingboxState {
         Self {
             child: Mutex::new(None),
             xray_child: Mutex::new(None),
-            tun_via_svc: Mutex::new(false),
             died: Arc::new(Mutex::new(None)),
             xray_died: Arc::new(Mutex::new(None)),
         }
@@ -172,39 +168,24 @@ async fn spawn_xray(
     Ok(())
 }
 
-// Резолв пути к логу с учётом режима. В TUN — лог пишет сервис рядом
-// со своим exe, путь возвращается IPC-командой log_path. В proxy — пишет
-// сам Tauri в app_log_dir.
-async fn resolved_log_path(app: &AppHandle, state: &SingboxState) -> Result<PathBuf, String> {
-    let tun = { *state.tun_via_svc.lock().unwrap() };
-    if tun {
-        #[cfg(target_os = "windows")]
-        {
-            let s = crate::tun_ipc::ipc_log_path().await?;
-            return Ok(PathBuf::from(s));
-        }
-        #[cfg(not(target_os = "windows"))]
-        return Err("TUN mode требует Windows".into());
-    }
+// Путь к логу sing-box. Лог во всех режимах пишет сам Tauri в app_log_dir
+// (sing-box — наш child, его stdout/stderr льётся в файл монитор-таском).
+fn resolved_log_path(app: &AppHandle) -> Result<PathBuf, String> {
     log_path(app).ok_or_else(|| "log_dir недоступен".to_string())
 }
 
 #[tauri::command]
-pub async fn singbox_log_path(
-    app: AppHandle,
-    state: State<'_, SingboxState>,
-) -> Result<String, String> {
-    let p = resolved_log_path(&app, &state).await?;
+pub async fn singbox_log_path(app: AppHandle) -> Result<String, String> {
+    let p = resolved_log_path(&app)?;
     Ok(p.to_string_lossy().to_string())
 }
 
 #[tauri::command]
 pub async fn read_singbox_log(
     app: AppHandle,
-    state: State<'_, SingboxState>,
     tail_bytes: Option<u64>,
 ) -> Result<String, String> {
-    let path = resolved_log_path(&app, &state).await?;
+    let path = resolved_log_path(&app)?;
     if !path.exists() {
         return Ok(String::new());
     }
@@ -225,19 +206,7 @@ pub async fn read_singbox_log(
 }
 
 #[tauri::command]
-pub async fn clear_singbox_log(
-    app: AppHandle,
-    state: State<'_, SingboxState>,
-) -> Result<(), String> {
-    let tun = { *state.tun_via_svc.lock().unwrap() };
-    if tun {
-        #[cfg(target_os = "windows")]
-        {
-            return crate::tun_ipc::ipc_clear_log().await;
-        }
-        #[cfg(not(target_os = "windows"))]
-        return Err("TUN mode требует Windows".into());
-    }
+pub async fn clear_singbox_log(app: AppHandle) -> Result<(), String> {
     let Some(path) = log_path(&app) else {
         return Err("log_dir недоступен".into());
     };
@@ -285,8 +254,7 @@ pub async fn start_singbox(
 ) -> Result<(), String> {
     {
         let child = state.child.lock().unwrap();
-        let tun = state.tun_via_svc.lock().unwrap();
-        if child.is_some() || *tun || state.xray_child.lock().unwrap().is_some() {
+        if child.is_some() || state.xray_child.lock().unwrap().is_some() {
             return Err("sing-box уже запущен".into());
         }
         *state.died.lock().unwrap() = None;
@@ -309,68 +277,11 @@ pub async fn start_singbox(
     std::fs::write(&path, &config_json).map_err(|e| format!("write config: {e}"))?;
     let path_str = path.to_string_lossy().to_string();
 
-    if mode == "tun" {
-        #[cfg(target_os = "windows")]
-        {
-            // ensure_running синхронна (SCM-операции блокирующие): при необходимости
-            // показывает UAC для первичной установки сервиса; на повторных запусках —
-            // просто SCM Start. UAC показывается ровно один раз за время жизни машины.
-            // При любой ошибке гасим уже поднятый xray, чтобы не оставить sidecar.
-            if let Err(e) = tokio::task::spawn_blocking(crate::tun_ipc::ensure_running)
-                .await
-                .map_err(|e| format!("ensure_running join: {e}"))
-                .and_then(|r| r)
-            {
-                kill_xray(&state);
-                return Err(e);
-            }
-
-            // Если в сервисе остался sing-box от прошлой сессии (Ninety закрылся
-            // криво, сервис продолжил жить) — сначала чистим, чтобы start не упал
-            // с "sing-box уже запущен".
-            if let Ok(st) = crate::tun_ipc::ipc_status().await {
-                if st.singbox_running {
-                    let _ = crate::tun_ipc::ipc_stop().await;
-                }
-            }
-
-            // Передаём JSON inline через IPC: сервис под LocalSystem пишет
-            // конфиг сам у себя, не полагаясь на user-profile путь.
-            if let Err(e) = crate::tun_ipc::ipc_start(&config_json).await {
-                kill_xray(&state);
-                return Err(e);
-            }
-            *state.tun_via_svc.lock().unwrap() = true;
-
-            // Сервис отдаёт pid сразу, не дожидаясь парсинга конфига. Даём
-            // sing-box ~900мс упасть на битом конфиге/биндинге и проверяем статус
-            // через IPC — иначе вернули бы «успех» при неработающем туннеле.
-            tokio::time::sleep(std::time::Duration::from_millis(900)).await;
-            match crate::tun_ipc::ipc_status().await {
-                Ok(st) if st.singbox_running => return Ok(()),
-                Ok(_) => {
-                    let tail = crate::tun_ipc::ipc_log_path()
-                        .await
-                        .ok()
-                        .and_then(|p| std::fs::read_to_string(p).ok())
-                        .map(|s| s.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"))
-                        .unwrap_or_default();
-                    let _ = crate::tun_ipc::ipc_stop().await;
-                    *state.tun_via_svc.lock().unwrap() = false;
-                    kill_xray(&state);
-                    return Err(format!("sing-box не запустился в TUN-режиме (упал сразу).\n{tail}"));
-                }
-                Err(e) => {
-                    // не смогли подтвердить статус — не рушим, флаг оставляем,
-                    // фронт перепроверит через singbox_running/SCM
-                    eprintln!("tun poststart status check: {e}");
-                    return Ok(());
-                }
-            }
-        }
-        #[cfg(not(target_os = "windows"))]
-        return Err("TUN mode требует Windows".into());
-    }
+    // Режим (proxy/systemProxy/tun) больше не влияет на запуск ядра в Rust:
+    // TUN-инбаунд уже зашит в config_json (buildInbound в singbox.js), а
+    // system proxy выставляет фронт отдельной командой. В TUN Ninety обязан
+    // быть elevated — это гарантирует JS (is_elevated/relaunch) до вызова.
+    let _ = &mode;
 
     let sidecar = app
         .shell()
@@ -453,22 +364,12 @@ fn kill_xray(state: &SingboxState) {
 pub async fn stop_singbox(state: State<'_, SingboxState>) -> Result<(), String> {
     let taken = state.child.lock().unwrap().take();
     if let Some(child) = taken {
+        // child.kill() гасит sing-box; wintun-адаптер (non-persistent) снимается
+        // системой вместе со смертью процесса, державшего его — отдельная чистка
+        // TUN-интерфейса не нужна.
         let _ = child.kill();
     }
     kill_xray(&state);
-
-    let was_tun = {
-        let mut g = state.tun_via_svc.lock().unwrap();
-        let v = *g;
-        *g = false;
-        v
-    };
-    if was_tun {
-        #[cfg(target_os = "windows")]
-        {
-            crate::tun_ipc::ipc_stop().await?;
-        }
-    }
     Ok(())
 }
 
@@ -481,17 +382,7 @@ pub fn singbox_running(state: State<'_, SingboxState>) -> bool {
         // мёртвый порт, трафик в чёрную дыру). Труп живым не считаем.
         return state.died.lock().unwrap().is_none();
     }
-    let tun = { *state.tun_via_svc.lock().unwrap() };
-    if !tun {
-        return false;
-    }
-    // tun_via_svc=true — это наш флаг. Доверять ему вслепую нельзя: сервис мог
-    // вылететь из-под Ninety (crash, manual sc stop, обновление). Спрашиваем SCM
-    // напрямую — sync, быстро, не лочит pipe.
-    matches!(
-        crate::tun_ipc::service_status(),
-        Ok(crate::tun_ipc::SvcState::Running) | Ok(crate::tun_ipc::SvcState::StartPending)
-    )
+    false
 }
 
 #[tauri::command]
@@ -530,20 +421,6 @@ pub fn force_cleanup(state: &SingboxState) {
         let _ = child.kill();
     }
     kill_xray(state);
-    let was_tun = {
-        let mut g = state.tun_via_svc.lock().unwrap();
-        let v = *g;
-        *g = false;
-        v
-    };
-    if was_tun {
-        #[cfg(target_os = "windows")]
-        {
-            // Synchronous shutdown — приложение завершается, ждать
-            // async-context некогда. Tokio block_on внутри tauri::async_runtime.
-            let _ = tauri::async_runtime::block_on(crate::tun_ipc::ipc_stop());
-        }
-    }
     #[cfg(target_os = "windows")]
     let _ = proxy::set_system_proxy(false, None);
 }

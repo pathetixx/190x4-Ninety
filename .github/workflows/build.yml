@@ -122,28 +122,13 @@ jobs:
           $size = (Get-Item "src-tauri/binaries/xray-x86_64-pc-windows-msvc.exe").Length
           Write-Host "Built Xray-core $tag ($([math]::Round($size/1MB,1)) MB)."
 
-      - name: Build ninety-tunnel-svc (Windows Service)
-        shell: pwsh
-        run: |
-          # Сервисный бинарь для TUN-режима: ставится как NinetyTunnelService,
-          # управляет sing-box под LocalSystem (см. tunnel-svc/src/runner.rs).
-          # Tauri externalBin ждёт файл по пути binaries/<name>-<triple>.exe.
-          cd src-tauri
-          cargo build --release -p ninety-tunnel-svc --target x86_64-pc-windows-msvc
-          if (-not $?) { Write-Error "tunnel-svc build failed"; exit 1 }
-          $src = "target/x86_64-pc-windows-msvc/release/ninety-tunnel-svc.exe"
-          $dst = "binaries/ninety-tunnel-svc-x86_64-pc-windows-msvc.exe"
-          Copy-Item $src $dst -Force
-          $size = (Get-Item $dst).Length
-          Write-Host "Built ninety-tunnel-svc ($([math]::Round($size/1KB,0)) KB)."
-
       - name: Download wintun.dll
         shell: pwsh
         run: |
-          # Wintun — BSD-licensed user-mode driver от WireGuard. Нужен tunnel-svc'у
-          # как fallback к pnputil при очистке `ninety-tun` (см. tun_cleanup.rs
-          # уровень 2). Без DLL fallback пропускается и cleanup полагается только
-          # на pnputil/netsh — ~95% случаев. Bundle гарантирует 100%.
+          # Wintun — BSD-licensed user-mode driver от WireGuard. Нужен sing-box.exe
+          # для TUN-инбаунда (с alpha55 sing-box поднимает TUN сам, как child
+          # элевированного Ninety — Throne-style). DLL кладётся рядом с Ninety.exe
+          # = рядом с sing-box.exe в install dir, sing-box грузит её по имени.
           $url = "https://www.wintun.net/builds/wintun-0.14.1.zip"
           $expectedSha = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
           Write-Host "Downloading $url"

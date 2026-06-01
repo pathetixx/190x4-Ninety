@@ -657,15 +657,15 @@ function buildRoute(options, mode) {
   ];
 
   // ProcessName bypass — критично для TUN-режима. Без него собственный трафик
-  // Ninety (Tauri webview HTTP-запросы к ipwho.is и т.п.), tunnel-сервиса и
-  // самого sing-box петлял бы обратно в TUN-интерфейс. Аналог Hiddify
-  // tunnel_service.go:80-95 — bypass Hiddify.exe/HiddifyCli.exe.
+  // Ninety (Tauri webview HTTP-запросы к ipwho.is и т.п.), самого sing-box и
+  // xray (two-core: xhttp-мост сам дозванивается до реального сервера) петлял
+  // бы обратно в TUN-интерфейс. Аналог Hiddify tunnel_service.go:80-95.
   // В proxy-режиме process_name не применим (трафик идёт через mixed inbound,
   // sing-box не знает о клиентских процессах) — правило безвредно, но добавляем
   // только в TUN чтобы не плодить лишнее.
   if (mode === "tun") {
     rules.push({
-      process_name: ["Ninety.exe", "ninety-tunnel-svc.exe", "sing-box.exe"],
+      process_name: ["Ninety.exe", "sing-box.exe", "xray.exe"],
       outbound: "direct",
     });
   }
@@ -1193,7 +1193,8 @@ export function updateProfile(id, patch) {
 //                 трогаем. Юзер сам направляет браузер/приложения в SOCKS+HTTP.
 //   systemProxy — sing-box + автоматически выставляем HKCU Internet Settings.
 //                 Это default на desktop (как у Hiddify).
-//   tun         — TUN intercept всего трафика через NinetyTunnelService.
+//   tun         — TUN intercept всего трафика. sing-box поднимает TUN-интерфейс
+//                 как наш child (Ninety запущен от админа, Throne-style).
 //
 // Старое значение "proxy" из pre-alpha34 = systemProxy (мы всегда выставляли
 // system proxy). При чтении мигрируем — старые юзеры не теряют поведение.

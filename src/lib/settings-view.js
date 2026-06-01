@@ -29,8 +29,7 @@ const SECTIONS = [
   { key: "appearance", title: "Оформление",   icon: iconTheme,      hint: "Темы: Kurogane / Synthwave / Matrix / Mono" },
   { key: "routing",    title: "Маршрутизация", icon: iconRouting,    hint: "Регион, обход LAN, блокировка рекламы" },
   { key: "dns",        title: "DNS",           icon: iconDns,        hint: "Remote / Direct DNS, fake-DNS" },
-  { key: "inbound",    title: "Входящие",      icon: iconInbound,    hint: "Mixed-порт, MTU, TUN-стек" },
-  { key: "tunnel",     title: "Туннель",       icon: iconTunnel,     hint: "Windows Service для TUN-режима" },
+  { key: "inbound",    title: "Входящие",      icon: iconInbound,    hint: "Mixed-порт, MTU, TUN-стек, права админа" },
   { key: "tls-tricks", title: "Трюки TLS",     icon: iconTls,        hint: "Фрагментация ClientHello, padding" },
   { key: "warp",       title: "WARP",          icon: iconWarp,       hint: "Cloudflare WARP — outbound и chain" },
 ];
@@ -41,16 +40,6 @@ const THEMES = [
   { id: "matrix",    name: "Matrix",    kicker: "EMERALD",     accent: "#5CEE92", glow: "rgba(43,214,106,0.35)" },
   { id: "mono",      name: "Mono",      kicker: "MONOCHROME",  accent: "#FFFFFF", glow: "rgba(255,255,255,0.25)" },
 ];
-
-const TUNNEL_STATE_LABELS = {
-  not_installed: "Не установлен",
-  stopped:       "Остановлен",
-  start_pending: "Запускается…",
-  stop_pending:  "Останавливается…",
-  running:       "Работает",
-  paused:        "Приостановлен",
-  other:         "Неизвестно",
-};
 
 const REGION_LABELS = {
   other: "Не выбран",
@@ -157,9 +146,35 @@ export function mountSettings(root, opts = {}) {
       btn.addEventListener("click", () => window.__ninetyUpdateCheck?.());
     });
     bindSchemeToggles(el, onChange);
-    bindTunnelSection(el, sec);
+    bindAlwaysAdmin(el, sec);
     bindWarpSection(el, sec, onChange);
     bindAppearanceSection(el, sec);
+  }
+
+  // Тумблер «Всегда запускать от администратора» (секция Входящие). Состояние
+  // живёт не в options-localStorage, а в маркер-файле на стороне Rust
+  // (is_always_admin/set_always_admin) — поэтому биндим отдельно от generic
+  // switch'ей. При включении на следующих стартах Ninety сам перезапустится
+  // с UAC (см. setup() в lib.rs) — нужно для TUN без ручного запроса прав.
+  async function bindAlwaysAdmin(el, sec) {
+    if (sec.key !== "inbound") return;
+    const invoke = window.__TAURI__?.core?.invoke;
+    const sw = el.querySelector("#always-admin-switch");
+    if (!invoke || !sw) return;
+    try {
+      const on = await invoke("is_always_admin");
+      sw.dataset.on = String(!!on);
+    } catch {}
+    sw.addEventListener("click", async () => {
+      const newVal = sw.dataset.on !== "true";
+      sw.dataset.on = String(newVal);
+      try {
+        await invoke("set_always_admin", { enable: newVal });
+      } catch (e) {
+        sw.dataset.on = String(!newVal); // откат при ошибке
+        alert(`Не удалось сохранить настройку: ${e?.message || e}`);
+      }
+    });
   }
 
   function bindAppearanceSection(el, sec) {
@@ -352,96 +367,6 @@ export function mountSettings(root, opts = {}) {
     refresh();
   }
 
-  async function bindTunnelSection(el, sec) {
-    if (sec.key !== "tunnel") return;
-    const invoke = window.__TAURI__?.core?.invoke;
-    if (!invoke) return;
-
-    const block = el.querySelector("#tunnel-statusblock");
-    const statusEl = el.querySelector("#tunnel-svc-status");
-    const dotEl = el.querySelector("#tunnel-svc-dot");
-    const pidEl = el.querySelector("#tunnel-svc-pid");
-    const actionsEl = el.querySelector("#tunnel-status-actions");
-
-    // Маппинг SvcState → grade for dot (running/stopped/error/неизвестно)
-    const dotState = (svc) => {
-      if (svc === "running") return "running";
-      if (svc === "stopped" || svc === "not_installed") return "stopped";
-      if (svc === "error" || svc === "other") return "error";
-      return ""; // start_pending / stop_pending / paused → нейтральный
-    };
-    // Какие кнопки показывать при каком state
-    const visibleActions = (svc) => {
-      if (svc === "not_installed") return ["tunnel-install", "tunnel-refresh"];
-      if (svc === "running")       return ["tunnel-restart", "tunnel-open-log", "tunnel-uninstall", "tunnel-refresh"];
-      if (svc === "stopped")       return ["tunnel-restart", "tunnel-open-log", "tunnel-uninstall", "tunnel-refresh"];
-      // pending / paused / other / error — даём только refresh + uninstall
-      return ["tunnel-uninstall", "tunnel-refresh"];
-    };
-
-    const refresh = async () => {
-      if (statusEl) { statusEl.textContent = "Проверка…"; statusEl.dataset.state = ""; }
-      if (dotEl) dotEl.dataset.state = "";
-      if (pidEl) pidEl.textContent = "—";
-      if (block) block.dataset.svc = "unknown";
-      try {
-        const full = await invoke("tunnel_full_status");
-        const svc = full?.service || "other";
-        if (statusEl) {
-          statusEl.textContent = TUNNEL_STATE_LABELS[svc] || svc;
-          statusEl.dataset.state = svc;
-        }
-        if (dotEl) dotEl.dataset.state = dotState(svc);
-        if (pidEl) pidEl.textContent = full?.pid ? String(full.pid) : "—";
-        if (block) block.dataset.svc = svc;
-        const visible = new Set(visibleActions(svc));
-        if (actionsEl) {
-          actionsEl.querySelectorAll("[data-action]").forEach(b => {
-            b.hidden = !visible.has(b.dataset.action);
-          });
-        }
-      } catch (e) {
-        if (statusEl) {
-          statusEl.textContent = "Ошибка: " + (e?.message || e);
-          statusEl.dataset.state = "error";
-        }
-        if (dotEl) dotEl.dataset.state = "error";
-      }
-    };
-
-    const runAction = async (btn, cmd, label, errLabel) => {
-      const orig = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = label;
-      try {
-        await invoke(cmd);
-        await refresh();
-      } catch (e) {
-        alert(`${errLabel} не удалось: ${e?.message || e}`);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = orig;
-      }
-    };
-
-    actionsEl?.addEventListener("click", async (e) => {
-      const b = e.target.closest("[data-action]");
-      if (!b) return;
-      switch (b.dataset.action) {
-        case "tunnel-install":   return runAction(b, "tunnel_service_install",   "Устанавливаю…", "Установка");
-        case "tunnel-uninstall": return runAction(b, "tunnel_service_uninstall", "Удаляю…",       "Удаление");
-        case "tunnel-restart":   return runAction(b, "tunnel_service_restart",   "Перезапуск…",   "Перезапуск");
-        case "tunnel-refresh":   return refresh();
-        case "tunnel-open-log": {
-          try { await invoke("open_log_dir"); }
-          catch (err) { alert(`Открыть лог не удалось: ${err?.message || err}`); }
-          return;
-        }
-      }
-    });
-
-    refresh();
-  }
   render();
 
   return {
@@ -503,7 +428,6 @@ function renderSectionBody(sec, o) {
     case "routing":    return renderRouting(o);
     case "dns":        return renderDns(o);
     case "inbound":    return renderInbound(o);
-    case "tunnel":     return renderTunnel(o);
     case "tls-tricks": return renderTlsTricks(o);
     case "warp":       return renderWarp(o);
   }
@@ -668,6 +592,7 @@ function renderInbound(o) {
       ${row(iconStack(), "TUN стек", "Реализация TUN-стека", select("inbound.tunStack", o.inbound.tunStack, TUN_STACKS, TUN_STACK_LABELS))}
       ${row(iconLock(), "Строгая маршрутизация", "Блокировать утечки трафика мимо TUN", toggle("inbound.strictRoute", o.inbound.strictRoute))}
       ${row(iconBroadcast(), "Принимать с LAN", "⚠ Открытый прокси без пароля на 0.0.0.0 — любой в вашей сети сможет ходить через ваш VPN. Включайте только в доверенной сети", toggle("inbound.allowConnectionFromLan", o.inbound.allowConnectionFromLan))}
+      ${row(iconShield(), "Всегда запускать от администратора", "Нужно для режима VPN · TUN. Ninety будет стартовать с правами админа (UAC при запуске) — при включении TUN запрос больше не появится.", `<span class="switch" id="always-admin-switch" data-on="false"></span>`)}
     </div>
   `;
 }
@@ -805,37 +730,6 @@ function renderWarpCustomNoise(cn) {
   `;
 }
 
-function renderTunnel(o) {
-  // Статус подтягивается асинхронно в bindSection (bindTunnelSection).
-  // .tunnel-status — единый блок: dot+state+PID+actions.
-  return `
-    <div class="settings-banner">
-      В TUN-режиме sing-box работает не у вас, а внутри Windows Service <code>NinetyTunnelService</code> под LocalSystem. Это нужно, потому что создание TUN-интерфейса и установка маршрутов требуют прав администратора. UAC показывается ровно один раз — при первой установке сервиса.
-    </div>
-    <div class="tunnel-status" id="tunnel-statusblock" data-svc="unknown">
-      <div class="tunnel-status__row">
-        <span class="tunnel-status__dot" id="tunnel-svc-dot" data-state=""></span>
-        <span class="tunnel-status__text" id="tunnel-svc-status" data-state="">Проверка…</span>
-      </div>
-      <div class="tunnel-status__meta">
-        <span>PID sing-box: <span id="tunnel-svc-pid">—</span></span>
-      </div>
-      <div class="tunnel-status__actions" id="tunnel-status-actions">
-        <button class="btn btn--sm" data-action="tunnel-install" type="button" hidden>Установить</button>
-        <button class="btn btn--sm" data-action="tunnel-restart" type="button" hidden>Перезапустить</button>
-        <button class="btn btn--sm" data-action="tunnel-open-log" type="button" hidden>Открыть лог</button>
-        <button class="btn btn--sm btn--danger" data-action="tunnel-uninstall" type="button" hidden>Удалить</button>
-        <button class="btn btn--sm" data-action="tunnel-refresh" type="button">Обновить</button>
-      </div>
-    </div>
-    <div class="settings-section">
-      <div class="settings-banner" style="margin: 4px 0 0;">
-        <b>Установить</b> — регистрирует службу в SCM (UAC, один раз). <b>Перезапустить</b> — <code>sc stop</code> + <code>sc start</code> через UAC. <b>Открыть лог</b> — папка <code>%APPDATA%</code>, где сервис пишет stdout/stderr sing-box. <b>Удалить</b> — снимает службу полностью.
-      </div>
-    </div>
-  `;
-}
-
 // ── Иконки: тонкая линия, 24×24, stroke 1.5 — единый стиль с sidebar/titlebar ──
 function svgWrap(inner) {
   return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
@@ -847,7 +741,6 @@ function iconTheme()    { return svgWrap('<circle cx="12" cy="12" r="9"/><path d
 function iconRouting()  { return svgWrap('<circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M6 8.2 V10 a3 3 0 0 0 3 3 h6 a3 3 0 0 0 3 -3 V8.2"/><path d="M12 13 V15.8"/>'); }
 function iconDns()      { return svgWrap('<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><circle cx="7" cy="7.5" r="0.7" fill="currentColor" stroke="none"/><circle cx="7" cy="16.5" r="0.7" fill="currentColor" stroke="none"/><line x1="11" y1="7.5" x2="17" y2="7.5"/><line x1="11" y1="16.5" x2="17" y2="16.5"/>'); }
 function iconInbound()  { return svgWrap('<path d="M3 13 V18 a2 2 0 0 0 2 2 h14 a2 2 0 0 0 2 -2 V13 l-3.4 -6.3 a2 2 0 0 0 -1.8 -1.05 H8.2 a2 2 0 0 0 -1.8 1.05 Z"/><path d="M3 13 h5 l1.5 2.5 h5 L16 13 h5"/>'); }
-function iconTunnel()   { return svgWrap('<path d="M3 20 V13 a9 9 0 0 1 18 0 V20"/><path d="M2 20 H22"/><path d="M9 20 V15 a3 3 0 0 1 6 0 V20"/>'); }
 function iconTls()      { return svgWrap('<path d="M14 3 L15.4 8 L20 9.5 L15.4 11 L14 16 L12.6 11 L8 9.5 L12.6 8 Z"/><path d="M6.5 15 L7.2 17 L9 17.8 L7.2 18.6 L6.5 20.8 L5.8 18.6 L4 17.8 L5.8 17 Z"/>'); }
 function iconWarp()     { return svgWrap('<path d="M8 17 H17 a4 4 0 0 0 0 -8 a5.2 5.2 0 0 0 -9.7 -1.2 A3.8 3.8 0 0 0 8 17 Z"/><line x1="2" y1="20" x2="6" y2="20"/><line x1="3" y1="16" x2="5" y2="16"/>'); }
 
