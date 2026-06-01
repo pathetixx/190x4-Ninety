@@ -369,6 +369,8 @@ pub fn run() {
             dpi::dpi_check_update,
             dpi::dpi_update_strategies,
             dpi::dpi_autotest,
+            dpi::dpi_log_path,
+            dpi::dpi_read_log,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

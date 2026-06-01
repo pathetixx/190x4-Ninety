@@ -75,6 +75,7 @@ const S = {
   gameFilter: lsGet(LS.gameFilter, "off"),
   ipset: lsGet(LS.ipset, "any"),
   hasUpdate: false,
+  lastError: "",
   versions: { app: "—", engine: "winws", strategies: "—" },
   domains: null,
   ipsetOpen: false,
@@ -108,9 +109,12 @@ function renderBody() {
       <div><b>DPI-обход на паузе:</b> в режиме TUN весь трафик идёт через VPN, обход не требуется. При выходе из TUN обход восстановится автоматически.</div>
     </div>`;
   } else if (st === "error") {
+    const reason = S.lastError
+      ? esc(S.lastError.length > 400 ? S.lastError.slice(-400) : S.lastError)
+      : "Нужны права администратора, либо занят драйвер WinDivert / порт.";
     banner = `<div class="dpi-banner" data-kind="error">
       <span class="dpi-banner__icon">${ic("alert", 16)}</span>
-      <div><b>Движок winws не запустился.</b> Нужны права администратора, либо занят драйвер WinDivert / порт.</div>
+      <div><b>Движок winws не запустился.</b> <span style="white-space:pre-wrap;font-family:var(--font-mono);font-size:11px">${reason}</span></div>
       <button class="btn btn--sm dpi-banner__action" data-dpi-logs>${ic("terminal", 13)} Открыть логи</button>
     </div>`;
   }
@@ -287,13 +291,15 @@ function renderAll() { renderBody(); renderChip(); renderBadge(); }
 async function startEngine() {
   S.base = "starting";
   renderAll();
+  S.lastError = "";
   try {
     await invoke("dpi_start", { strategyId: stratByName(S.strategy).id, gameFilter: S.gameFilter, ipset: S.ipset });
     S.base = "running";
     localStorage.setItem(LS.enabled, "true");
   } catch (e) {
     S.base = "error";
-    toast(`DPI-обход: ${e?.message || e}`, "error", 4000);
+    S.lastError = String(e?.message || e);
+    toast(`DPI-обход не запустился — см. детали в карточке`, "error", 5000);
   }
   renderAll();
 }
@@ -454,7 +460,7 @@ function onClick(e) {
   if (t.closest("[data-dpi-drawer-close]") || t.closest("[data-dpi-drawer-bg]")) { closeDrawer(); return; }
   const strat = t.closest("[data-dpi-strat]");
   if (strat) { setStrategy(stratByName(strat.dataset.dpiStrat)); closeDrawer(); return; }
-  if (t.closest("[data-dpi-logs]")) { e.preventDefault(); goView("logs"); return; }
+  if (t.closest("[data-dpi-logs]")) { e.preventDefault(); invoke("open_log_dir").catch(() => goView("logs")); return; }
   if (t.closest("[data-dpi-pick-start]")) { pickStart(); return; }
   const apply = t.closest("[data-dpi-pick-apply]");
   if (apply) { pickApply(apply.dataset.dpiPickApply); return; }
@@ -489,7 +495,10 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
   if (typeof switchView === "function") goView = switchView;
   if (typeof ee === "function") ensureElevated = ee;
 
-  document.getElementById("app-root")?.addEventListener("click", onClick);
+  // Делегирование на document (не #app-root): дравер добавляется в document.body
+  // вне #app-root, поэтому его клики — закрытие/фон/выбор стратегии — должны
+  // ловиться на уровне документа.
+  document.addEventListener("click", onClick);
   document.getElementById("dpi-strategies-btn")?.addEventListener("click", openDrawer);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && drawerEl) closeDrawer(); });
 
