@@ -108,6 +108,32 @@ fn write_ipset_mode(app: &AppHandle, lists: &Path, mode: &str) -> Result<(), Str
     Ok(())
 }
 
+// Лог winws (stdout+stderr) — критичен для диагностики мгновенных падений.
+fn dpi_log_file(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_log_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("dpi.log"))
+}
+
+/// Путь к логу winws (для UI «Открыть логи»).
+#[tauri::command]
+pub fn dpi_log_path(app: AppHandle) -> Result<String, String> {
+    dpi_log_file(&app)
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| "log_dir недоступен".into())
+}
+
+/// Хвост лога winws (для показа в UI при ошибке).
+#[tauri::command]
+pub fn dpi_read_log(app: AppHandle) -> Result<String, String> {
+    let Some(p) = dpi_log_file(&app) else { return Ok(String::new()) };
+    if !p.exists() {
+        return Ok(String::new());
+    }
+    let bytes = std::fs::read(&p).map_err(|e| format!("read dpi.log: {e}"))?;
+    Ok(String::from_utf8_lossy(&bytes).to_string())
+}
+
 fn read_strategies(app: &AppHandle) -> Result<Vec<Strategy>, String> {
     let path = res_dpi(app)?.join("strategies.json");
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("read strategies.json: {e}"))?;
@@ -213,6 +239,18 @@ pub async fn dpi_start(
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
+    // Перенаправляем stdout+stderr winws в dpi.log — без этого причина
+    // мгновенного выхода (битый аргумент / не найден .bin / WinDivert) теряется.
+    let log = dpi_log_file(&app);
+    if let Some(ref lp) = log {
+        if let Ok(f) = std::fs::File::create(lp) {
+            if let Ok(f2) = f.try_clone() {
+                cmd.stdout(std::process::Stdio::from(f));
+                cmd.stderr(std::process::Stdio::from(f2));
+            }
+        }
+    }
+
     let child = cmd.spawn().map_err(|e| format!("spawn winws: {e}"))?;
     *state.child.lock().unwrap() = Some(child);
 
@@ -223,10 +261,22 @@ pub async fn dpi_start(
         if let Some(child) = guard.as_mut() {
             if let Ok(Some(status)) = child.try_wait() {
                 *guard = None;
-                return Err(format!(
-                    "winws завершился сразу (код {:?}). Нужны права администратора или занят драйвер WinDivert.",
-                    status.code()
-                ));
+                let tail = log
+                    .as_ref()
+                    .and_then(|p| std::fs::read(p).ok())
+                    .map(|b| String::from_utf8_lossy(&b).trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| {
+                        let chars: Vec<char> = s.chars().collect();
+                        let t: String = if chars.len() > 700 {
+                            chars[chars.len() - 700..].iter().collect()
+                        } else {
+                            s.clone()
+                        };
+                        format!("\nВывод winws:\n{t}")
+                    })
+                    .unwrap_or_else(|| " Нужны права администратора или занят драйвер WinDivert.".into());
+                return Err(format!("winws завершился сразу (код {:?}).{}", status.code(), tail));
             }
         }
     }
