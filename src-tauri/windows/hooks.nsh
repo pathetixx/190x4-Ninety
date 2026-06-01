@@ -1,14 +1,17 @@
 ; hooks.nsh — pre-install / pre-uninstall actions для Ninety.
 ; Подключается через bundle.windows.nsis.installerHooks в tauri.conf.json.
 ;
-; Зачем нужно: TUN-режим работает через Windows Service NinetyTunnelService,
-; который держит файл ninety-tunnel-svc.exe залоченным. Без остановки сервиса
-; апдейт упадёт на "файл занят другим процессом".
+; Зачем нужно: перед апдейтом/удалением гасим запущенные процессы Ninety и
+; ядра (sing-box.exe, xray.exe) — иначе NSIS падает на "файл занят".
 ;
-; Аналог inno_setup.sas:69-77 из Hiddify (taskkill + net stop + sc delete).
+; NinetyTunnelService — ЛЕГАСИ: до alpha55 TUN работал через эту службу.
+; С Throne-style элевацией служба больше не ставится, но у апгрейдящихся с
+; alpha54- она ещё установлена — поэтому здесь её принудительно сносим
+; (sc stop + delete + taskkill ninety-tunnel-svc.exe). После одного апдейта
+; на машине не остаётся ни службы, ни её бинаря.
 
 !macro NSIS_HOOK_PREINSTALL
-  DetailPrint "Останавливаем NinetyTunnelService (если установлен)..."
+  DetailPrint "Сносим легаси-службу NinetyTunnelService (если осталась с alpha54-)..."
   nsExec::Exec '"$SYSDIR\sc.exe" stop NinetyTunnelService'
   Pop $0
   ; sc stop асинхронный — даём время на корректное завершение
@@ -30,7 +33,7 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  DetailPrint "Останавливаем NinetyTunnelService..."
+  DetailPrint "Сносим легаси-службу NinetyTunnelService (если осталась)..."
   nsExec::Exec '"$SYSDIR\sc.exe" stop NinetyTunnelService'
   Pop $0
   Sleep 1500

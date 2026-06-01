@@ -12,10 +12,11 @@ mod proxy_win;
 mod proxy_stub;
 
 #[cfg(target_os = "windows")]
-mod tun_ipc;
+use proxy_win as elevation;
 #[cfg(not(target_os = "windows"))]
-#[path = "tun_ipc_stub.rs"]
-mod tun_ipc;
+use proxy_stub as elevation;
+
+use std::path::PathBuf;
 
 use tauri::{
     menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
@@ -38,6 +39,78 @@ fn ping() -> &'static str {
 #[tauri::command]
 fn is_autostarted() -> bool {
     std::env::args().any(|a| a == "--autostarted")
+}
+
+/// True если этот запуск должен авто-подключиться после bootstrap:
+///  --autostarted — вход в Windows (окно в трее);
+///  --elevated    — мы перезапустились от админа ради TUN (окно видимо).
+/// Фронт в обоих случаях поднимает VPN активного источника.
+#[tauri::command]
+fn should_autoconnect() -> bool {
+    std::env::args().any(|a| a == "--autostarted" || a == "--elevated")
+}
+
+/// True если текущий процесс имеет права администратора (elevated token).
+/// TUN-режим (Throne-style) требует этого: sing-box-child наследует права и
+/// сам поднимает TUN-интерфейс. Фронт проверяет перед включением TUN.
+#[tauri::command]
+fn is_elevated() -> bool {
+    elevation::is_elevated()
+}
+
+/// Перезапускает Ninety от администратора (UAC) для TUN-режима. Передаёт
+/// новому процессу --elevated (+ сохраняет --autostarted если был), чтобы тот
+/// авто-подключился. Возврат:
+///  Ok(true)  — elevated-инстанс стартовал, текущий процесс завершится сам;
+///  Ok(false) — юзер отменил UAC, остаёмся в текущем (не-admin) процессе.
+#[tauri::command]
+fn relaunch_elevated(app: tauri::AppHandle) -> Result<bool, String> {
+    let mut extra: Vec<&str> = vec!["--elevated"];
+    let autostarted = std::env::args().any(|a| a == "--autostarted");
+    if autostarted {
+        extra.push("--autostarted");
+    }
+    let started = elevation::relaunch_self_elevated(&extra)?;
+    if started {
+        // Элевированный инстанс уже создан (юзер согласился в UAC). Текущий
+        // (не-admin) процесс надо НЕМЕДЛЕННО убить, чтобы освободить лок
+        // tauri-plugin-single-instance — иначе плагин завернёт новый инстанс
+        // как дубль и тот сразу выйдет (как у Throne: relaunch → quit → release
+        // QLocalServer). std::process::exit минует RunEvent::Exit, поэтому
+        // синхронно чистим ядро и системный прокси здесь же.
+        if let Some(state) = app.try_state::<SingboxState>() {
+            vpn::force_cleanup(&state);
+        }
+        std::process::exit(0);
+    }
+    Ok(false)
+}
+
+fn always_admin_marker(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("always-admin"))
+}
+
+/// True если включён режим «всегда запускать от администратора» (маркер-файл
+/// в app_config_dir). Читается на старте в setup() для авто-элевации.
+#[tauri::command]
+fn is_always_admin(app: tauri::AppHandle) -> bool {
+    always_admin_marker(&app).map(|p| p.exists()).unwrap_or(false)
+}
+
+/// Включает/выключает «всегда от администратора». При включении на следующих
+/// стартах Ninety сам перезапустится с UAC (см. setup()).
+#[tauri::command]
+fn set_always_admin(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
+    let p = always_admin_marker(&app).ok_or("config dir недоступен")?;
+    if enable {
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::write(&p, b"1").map_err(|e| format!("write marker: {e}"))?;
+    } else if p.exists() {
+        std::fs::remove_file(&p).map_err(|e| format!("remove marker: {e}"))?;
+    }
+    Ok(())
 }
 
 fn show_main(app: &tauri::AppHandle) {
@@ -154,13 +227,42 @@ pub fn run() {
         .manage(SingboxState::default())
         .manage(clash_stream::ClashStreamState::default())
         .setup(|app| {
-            // Если запущен через автостарт (--autostarted) — прячем окно
-            // в трей сразу. Юзер откроет из трея или через тулбар Windows.
             let argv: Vec<String> = std::env::args().collect();
             let autostarted = argv.iter().any(|a| a == "--autostarted");
-            if autostarted {
-                if let Some(w) = app.get_webview_window("main") {
+
+            // Throne-style «всегда от админа»: если маркер стоит и мы ещё не
+            // elevated — перезапускаемся с UAC и выходим. Делаем ДО показа окна
+            // (окно visible:false в конфиге), поэтому без мигания. Если юзер
+            // отменит UAC — продолжаем как обычный процесс (TUN просто не
+            // заработает, фронт попросит права при включении).
+            #[cfg(target_os = "windows")]
+            {
+                let already_elevated = argv.iter().any(|a| a == "--elevated");
+                if !already_elevated && !elevation::is_elevated() {
+                    let want = always_admin_marker(app.handle())
+                        .map(|p| p.exists())
+                        .unwrap_or(false);
+                    if want {
+                        let mut extra: Vec<&str> = vec!["--elevated"];
+                        if autostarted {
+                            extra.push("--autostarted");
+                        }
+                        if elevation::relaunch_self_elevated(&extra).unwrap_or(false) {
+                            // Освобождаем лок single-instance немедленно (ядро
+                            // ещё не поднято на этом этапе — чистить нечего).
+                            std::process::exit(0);
+                        }
+                    }
+                }
+            }
+
+            // Окно по умолчанию скрыто (visible:false). Показываем сейчас, кроме
+            // автозапуска при входе в Windows — там оставляем в трее.
+            if let Some(w) = app.get_webview_window("main") {
+                if autostarted {
                     let _ = w.hide();
+                } else {
+                    let _ = w.show();
                 }
             }
 
@@ -221,6 +323,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ping,
             is_autostarted,
+            should_autoconnect,
+            is_elevated,
+            relaunch_elevated,
+            is_always_admin,
+            set_always_admin,
             set_tray_menu,
             vpn::start_singbox,
             vpn::stop_singbox,
@@ -232,12 +339,6 @@ pub fn run() {
             vpn::clear_singbox_log,
             vpn::singbox_log_path,
             vpn::open_log_dir,
-            tun_ipc::tunnel_service_status,
-            tun_ipc::tunnel_service_install,
-            tun_ipc::tunnel_service_uninstall,
-            tun_ipc::tunnel_full_status,
-            tun_ipc::tunnel_service_restart,
-            tun_ipc::tunnel_service_log_path,
             subscription::fetch_subscription,
             clash::clash_get_proxies,
             clash::clash_test_node,

@@ -1,10 +1,10 @@
 [workspace]
-members = [".", "tunnel-svc"]
+members = ["."]
 resolver = "2"
 
 [package]
 name = "ninety"
-version = "0.1.47"
+version = "0.1.48"
 description = "Ninety — VPN client in 190x4 aesthetic"
 authors = ["pathetixx"]
 edition = "2021"
@@ -42,14 +42,13 @@ boringtun = { version = "0.7", default-features = false }
 # BLAKE2s для пересчёта MAC1 после подмены reserved (CF WARP client_id routing).
 blake2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
-libloading = "0.8"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.52"
-windows-service = "0.7"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_Networking_WinInet",
+    "Win32_Security",
     "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_UI_Shell",

@@ -181,7 +181,7 @@ const warpSwitch = document.getElementById("warp-switch");
 const MODE_HINTS = {
   proxy:       `<b>Прокси.</b> sing-box слушает <code>127.0.0.1:7890</code> как mixed (HTTP+SOCKS5). Прописать прокси нужно вручную в браузере или приложении — остальной трафик идёт мимо.`,
   systemProxy: `<b>Системный.</b> То же, плюс автоматически прописываем системный прокси в HKCU Internet Settings и шлём WinINET notify. Работает «из коробки» для всего, что уважает системные настройки; UWP и приложения с hardcoded-сетью — нет.`,
-  tun:         `<b>VPN · TUN.</b> Перехват всего трафика через службу <code>NinetyTunnelService</code> под LocalSystem. UAC — один раз при первом включении (служба ставится постоянно). Покрывает любые приложения, включая UWP.`,
+  tun:         `<b>VPN · TUN.</b> Перехват всего трафика на уровне сетевого интерфейса — покрывает любые приложения, включая UWP и игры. Требует запуск Ninety от администратора: UAC один раз, либо включите «Всегда от администратора» в Настройках.`,
 };
 
 function applyModeToUI(m) {
@@ -220,11 +220,12 @@ modeSeg?.addEventListener("click", async (e) => {
 // Единая смена режима подключения — из сегмента на главной И из меню трея.
 async function changeMode(requested) {
   if (!["proxy", "systemProxy", "tun"].includes(requested)) return;
-  // При выборе TUN — гарантируем что NinetyTunnelService установлен.
-  // Иначе start_singbox упадёт при первой попытке connect.
+  // TUN (Throne-style) требует чтобы всё приложение было запущено от админа.
+  // Если мы не elevated — ensureElevatedForTun перезапустит Ninety с UAC
+  // (и вернёт false: текущий процесс умирает, дальше идти незачем).
   if (requested === "tun") {
-    const ok = await ensureTunnelServiceInstalled();
-    if (!ok) return; // юзер отказался ставить или установка не удалась
+    const ok = await ensureElevatedForTun();
+    if (!ok) return;
   }
   const prevMode = getMode();
   setMode(requested);
@@ -238,23 +239,32 @@ async function changeMode(requested) {
   if (requested !== prevMode) reconnectForSourceChange("Переключаю режим…");
 }
 
-// Проверяет статус NinetyTunnelService. Если не_installed — предлагает
-// установить (с UAC). Возвращает true если сервис в Stopped/Running на выходе.
-async function ensureTunnelServiceInstalled() {
+// TUN поднимает сетевой интерфейс — для этого sing-box (наш child) должен
+// работать от админа, значит и всё приложение тоже. Если уже elevated — ок,
+// продолжаем. Иначе перезапускаем Ninety от админа через UAC: перезапущенный
+// инстанс читает mode=tun из localStorage и авто-подключается (--elevated).
+// Возврат: true — можно продолжать в текущем (уже admin) процессе; false —
+// идёт перезапуск ИЛИ юзер отказался от UAC.
+async function ensureElevatedForTun() {
   try {
-    const full = await invoke("tunnel_full_status");
-    const svc = full?.service || "other";
-    if (svc !== "not_installed") return true;
+    if (await invoke("is_elevated")) return true;
     const yes = confirm(
-      "Для VPN · TUN нужна служба NinetyTunnelService.\n\n" +
-      "Установить сейчас? Windows запросит UAC ОДИН раз — дальше connect/disconnect без подтверждений."
+      "Для режима VPN · TUN нужны права администратора.\n\n" +
+      "Перезапустить Ninety от имени администратора? Windows запросит подтверждение (UAC).\n\n" +
+      "Подсказка: включите «Всегда запускать от администратора» в Настройках, чтобы не видеть этот запрос."
     );
     if (!yes) return false;
-    await invoke("tunnel_service_install");
-    toast("Служба NinetyTunnelService установлена", "success", 1800);
-    return true;
+    // Запоминаем режим заранее — перезапущенный admin-инстанс поднимется в TUN.
+    setMode("tun");
+    const started = await invoke("relaunch_elevated");
+    if (!started) {
+      toast("Запуск от администратора отменён — TUN недоступен", "error", 3000);
+      return false;
+    }
+    toast("Перезапуск от имени администратора…", "info", 2500);
+    return false; // текущий процесс вот-вот завершится — не продолжаем
   } catch (e) {
-    toast(`Установка службы не удалась: ${e?.message || e}`, "error", 3500);
+    toast(`Не удалось получить права администратора: ${e?.message || e}`, "error", 3500);
     return false;
   }
 }
@@ -1719,14 +1729,14 @@ syncTrayMenu();
   } catch {}
 })();
 
-// Автостарт через Windows login: после bootstrap'а сразу поднимаем VPN
-// с последним выбранным сервером. Если sing-box уже работает (например
-// перезапуск UI поверх живого ядра) — не дёргаем. Без активного source
-// тоже ничего не делаем (heroDisc был бы disabled).
+// Авто-подключение после bootstrap: при автостарте через Windows login
+// (--autostarted) ИЛИ при перезапуске от админа ради TUN (--elevated) сразу
+// поднимаем VPN с последним выбранным сервером. Если sing-box уже работает
+// (перезапуск UI поверх живого ядра) — не дёргаем. Без активного source тоже.
 (async () => {
   try {
-    const autostarted = await invoke("is_autostarted");
-    if (!autostarted) return;
+    const autoconnect = await invoke("should_autoconnect");
+    if (!autoconnect) return;
     const running = await invoke("singbox_running");
     if (running) return;
     if (!getActiveSource()) return;
