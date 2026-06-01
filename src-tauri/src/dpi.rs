@@ -343,6 +343,55 @@ pub fn dpi_set_node_exclude(
     Ok(())
 }
 
+// Имя user-списка по виду: "exclude" → исключения, иначе → пользовательские
+// домены обхода. Правим ТОЛЬКО *-user.txt (базовые списки Flowseal не трогаем —
+// их перезатирает silent-updater).
+fn user_list_name(kind: &str) -> &'static str {
+    match kind {
+        "exclude" => "list-exclude-user.txt",
+        _ => "list-general-user.txt",
+    }
+}
+
+/// Прочитать пользовательский список доменов (для редактора в UI).
+/// kind: "user" (домены обхода) | "exclude" (исключения).
+#[tauri::command]
+pub fn dpi_read_list(app: AppHandle, kind: String) -> Result<String, String> {
+    let lists = ensure_lists(&app)?;
+    let p = lists.join(user_list_name(&kind));
+    Ok(std::fs::read_to_string(&p).unwrap_or_default())
+}
+
+/// Сохранить пользовательский список доменов из редактора. Нормализует:
+/// trim каждой строки, выкидывает пустые и дубли (комментарии # и // сохраняет).
+/// Возвращает число записей-доменов (без комментариев) для обновления счётчика.
+#[tauri::command]
+pub fn dpi_write_list(app: AppHandle, kind: String, content: String) -> Result<usize, String> {
+    let lists = ensure_lists(&app)?;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = String::new();
+    let mut n = 0usize;
+    for line in content.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if t.starts_with('#') || t.starts_with("//") {
+            out.push_str(t);
+            out.push('\n');
+            continue;
+        }
+        if seen.insert(t.to_string()) {
+            out.push_str(t);
+            out.push('\n');
+            n += 1;
+        }
+    }
+    std::fs::write(lists.join(user_list_name(&kind)), out)
+        .map_err(|e| format!("write {}: {e}", user_list_name(&kind)))?;
+    Ok(n)
+}
+
 fn append_unique(path: &Path, line: &str) -> Result<(), String> {
     let existing = std::fs::read_to_string(path).unwrap_or_default();
     if existing.lines().any(|l| l.trim() == line) {

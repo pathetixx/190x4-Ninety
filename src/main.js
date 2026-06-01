@@ -31,7 +31,7 @@ import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
-import { mountDpiView, setDpiVpnMode, excludeVpnNode } from "/lib/dpi-view.js";
+import { mountDpiView, setDpiVpnMode, excludeVpnNode, autostartDpiIfEnabled } from "/lib/dpi-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
@@ -1765,24 +1765,37 @@ syncTrayMenu();
   } catch {}
 })();
 
-// Авто-подключение после bootstrap: при автостарте через Windows login
-// (--autostarted) ИЛИ при перезапуске от админа ради TUN (--elevated) сразу
-// поднимаем VPN с последним выбранным сервером. Если sing-box уже работает
-// (перезапуск UI поверх живого ядра) — не дёргаем. Без активного source тоже.
+// Авто-запуск после bootstrap: при автостарте через Windows login
+// (--autostarted) ИЛИ при перезапуске от админа (--elevated) поднимаем VPN с
+// последним сервером И DPI-обход, если он был включён. Элевация — ОДНИМ
+// перезапуском: TUN-режим и DPI требуют admin-прав; если процесс ещё не
+// elevated и что-то из них нужно — тихо relaunch_elevated (перезапущенный
+// --elevated процесс снова попадёт сюда уже с правами и поднимет всё без UAC).
+// proxy/systemProxy прав не требуют, поэтому в не-TUN элевация только ради DPI.
 (async () => {
   try {
     const autoconnect = await invoke("should_autoconnect");
     if (!autoconnect) return;
-    const running = await invoke("singbox_running");
-    if (running) return;
-    if (!getActiveSource()) return;
-    // Дать UI смонтироваться (heroDisc обвешан обработчиком в самом конце)
-    await new Promise(r => setTimeout(r, 600));
-    if (state === "idle" && !heroDisc.disabled) {
-      heroDisc.click();
+
+    const tunWanted = getMode() === "tun";
+    const dpiWanted = localStorage.getItem("ninety.dpi.enabled") === "true" && !tunWanted;
+    if ((tunWanted || dpiWanted) && !(await invoke("is_elevated"))) {
+      if (tunWanted) setMode("tun"); // перезапущенный admin-инстанс поднимется в TUN
+      const started = await invoke("relaunch_elevated");
+      if (started) return; // текущий процесс вот-вот завершится
+      // элевация не удалась — продолжаем тем, что доступно без прав (VPN proxy)
     }
+
+    // VPN: не дёргаем, если ядро уже живо (перезапуск UI) или нет source.
+    const running = await invoke("singbox_running");
+    if (!running && getActiveSource()) {
+      await new Promise(r => setTimeout(r, 600)); // дать UI домонтироваться
+      if (state === "idle" && !heroDisc.disabled) heroDisc.click();
+    }
+    // DPI: поднять движок, если был включён (мы здесь уже elevated либо UAC отклонён).
+    if (dpiWanted) await autostartDpiIfEnabled();
   } catch (e) {
-    console.warn("autostart-connect failed", e);
+    console.warn("autostart failed", e);
   }
 })();
 

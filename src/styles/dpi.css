@@ -794,3 +794,49 @@
   align-items: center;
   justify-content: space-between;
 }
+
+/* ═══════════ DOMAIN LIST EDITOR (drawer) ═══════════ */
+.dpi-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 20px 18px;
+  gap: 12px;
+}
+.dpi-editor__hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-lo);
+}
+.dpi-editor__area {
+  flex: 1 1 auto;
+  min-height: 0;
+  resize: none;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: var(--ink-0, rgba(0,0,0,0.25));
+  color: var(--text-hi);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  outline: none;
+  transition: border-color 140ms ease;
+}
+.dpi-editor__area:focus { border-color: var(--accent-soft); }
+.dpi-editor__area::placeholder { color: var(--text-faint); }
+.dpi-editor__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dpi-editor__file {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+.dpi-editor__actions { display: flex; gap: 8px; }
