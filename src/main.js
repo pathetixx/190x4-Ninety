@@ -31,6 +31,7 @@ import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
+import { mountDpiView, setDpiVpnMode, excludeVpnNode } from "/lib/dpi-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
@@ -193,6 +194,8 @@ function applyModeToUI(m) {
     });
   }
   if (modeHint) modeHint.innerHTML = MODE_HINTS[m] || MODE_HINTS.systemProxy;
+  // DPI-обход слушает режим: вход в TUN → пауза, выход → восстановление.
+  setDpiVpnMode(m);
 }
 applyModeToUI(getMode());
 
@@ -263,6 +266,31 @@ async function ensureElevatedForTun() {
     }
     toast("Перезапуск от имени администратора…", "info", 2500);
     return false; // текущий процесс вот-вот завершится — не продолжаем
+  } catch (e) {
+    toast(`Не удалось получить права администратора: ${e?.message || e}`, "error", 3500);
+    return false;
+  }
+}
+
+// DPI-обход: winws грузит kernel-драйвер WinDivert → нужны админ-права. Та же
+// схема, что у TUN, но без смены режима: уже elevated → продолжаем; иначе
+// перезапуск с UAC (текущий процесс умрёт, вернём false).
+async function ensureElevatedForDpi() {
+  try {
+    if (await invoke("is_elevated")) return true;
+    const yes = confirm(
+      "Для DPI-обхода нужны права администратора (движок winws загружает драйвер WinDivert).\n\n" +
+      "Перезапустить Ninety от имени администратора? Windows запросит подтверждение (UAC).\n\n" +
+      "Подсказка: включите «Всегда запускать от администратора» в Настройках, чтобы не видеть этот запрос."
+    );
+    if (!yes) return false;
+    const started = await invoke("relaunch_elevated");
+    if (!started) {
+      toast("Запуск от администратора отменён — DPI-обход недоступен", "error", 3000);
+      return false;
+    }
+    toast("Перезапуск от имени администратора…", "info", 2500);
+    return false; // процесс вот-вот завершится
   } catch (e) {
     toast(`Не удалось получить права администратора: ${e?.message || e}`, "error", 3500);
     return false;
@@ -401,6 +429,11 @@ navItems.forEach((item) => {
 
 // Mount Proxies view (FAB-молния → перетест группы)
 mountProxiesView({ onToast: toast });
+
+// Mount DPI-обход (экран + чип на главной). Синхронизируем режим VPN сразу:
+// в TUN обход авто-паузится (см. dpi-view.js::effState).
+mountDpiView({ onToast: toast, switchView, ensureElevated: ensureElevatedForDpi });
+setDpiVpnMode(getMode());
 
 // ── Settings view ──────────────────────────────────────────
 const settingsRoot = document.getElementById("settings-root");
@@ -1456,6 +1489,9 @@ function setState(next, opts = {}) {
     startWarpRescanLoop();
     startHealthWatchdog();
     updateWarpBadge();
+    // DPI-обход: вносим сервер активной ноды в исключения winws, чтобы он не
+    // трогал зашифрованный трафик к VPN-серверу (главный риск из спайка).
+    try { excludeVpnNode(activeNodeForDisplay()?.host); } catch {}
     // Wizard: подключились — переходим на финальный шаг
     if (wizardActive && wizardStepNum === 3) showOnbStep(4);
   }

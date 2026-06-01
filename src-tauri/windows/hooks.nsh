@@ -29,6 +29,10 @@
   ; "файл занят другим процессом".
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM xray.exe'
   Pop $0
+  ; DPI-обход: winws.exe лочит свой бинарь и драйвер WinDivert — гасим перед
+  ; апдейтом, иначе NSIS падает на "файл занят".
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM winws.exe'
+  Pop $0
   Sleep 500
 !macroend
 
@@ -46,5 +50,7 @@
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM sing-box.exe'
   Pop $0
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM xray.exe'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM winws.exe'
   Pop $0
 !macroend
