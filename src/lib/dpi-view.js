@@ -83,8 +83,11 @@ const S = {
   updating: null,       // id строки, которая сейчас обновляется
 };
 
+// В TUN весь трафик идёт через туннель → движок реально остановлен (pauseEngineForTun),
+// но если DPI логически включён (LS.enabled) — показываем «На паузе», а не «Выключен»:
+// при выходе из TUN он восстановится. Вне TUN — реальное состояние движка.
 function effState() {
-  if (S.vpnMode === "tun" && (S.base === "running" || S.base === "starting")) return "paused";
+  if (S.vpnMode === "tun" && lsGet(LS.enabled, "false") === "true") return "paused";
   return S.base;
 }
 
@@ -311,11 +314,49 @@ async function stopEngine() {
   renderAll();
 }
 
+// Пауза движка при входе в TUN: реально глушим winws, НО LS.enabled оставляем
+// "true" — это «логическое желание», по которому восстановимся при выходе.
+async function pauseEngineForTun() {
+  try { await invoke("dpi_stop"); } catch {}
+  S.base = "off";        // движок реально остановлен; effState даст "paused" по LS.enabled
+  renderAll();
+}
+
+// Возврат из TUN: поднять движок, если DPI был включён до паузы. Процесс в этот
+// момент уже elevated (TUN требовал прав), поэтому UAC обычно не всплывёт.
+async function resumeEngineAfterTun() {
+  if (lsGet(LS.enabled, "false") !== "true") return;
+  if (S.base === "running" || S.base === "starting") return;
+  const ok = await ensureElevated();
+  if (!ok) return;
+  await startEngine();
+}
+
 async function toggleDpi() {
+  // В TUN движок на паузе — тоггл меняет лишь «хотим ли DPI после выхода из TUN».
+  if (S.vpnMode === "tun") {
+    const want = lsGet(LS.enabled, "false") !== "true";
+    localStorage.setItem(LS.enabled, want ? "true" : "false");
+    renderAll();
+    toast(want ? "DPI включится после выхода из TUN" : "DPI-обход выключен", "info", 2200);
+    return;
+  }
   if (S.base === "running" || S.base === "starting") { await stopEngine(); return; }
   // включение требует админ-прав (winws грузит драйвер). Та же инфра, что у TUN.
   const ok = await ensureElevated();
   if (!ok) return; // идёт перезапуск с UAC или отказ — текущий процесс не продолжает
+  await startEngine();
+}
+
+// Автозапуск DPI при старте приложения (Windows-логин), если был включён.
+// Вызывается из main.js только в should_autoconnect-ветке. Процесс к этому
+// моменту уже elevated (см. единый автозапуск в main.js) → стартуем без confirm.
+export async function autostartDpiIfEnabled() {
+  if (lsGet(LS.enabled, "false") !== "true") return;
+  if (S.vpnMode === "tun") return; // в TUN обход не нужен — останется на паузе
+  try { if (await invoke("dpi_running")) { S.base = "running"; renderAll(); return; } } catch {}
+  const ok = await ensureElevated();
+  if (!ok) return;
   await startEngine();
 }
 
@@ -451,6 +492,75 @@ function renderStratList(query) {
       </div>`).join("");
 }
 
+/* ═══════════ DOMAIN LIST EDITOR (динамический) ═══════════ */
+let editorEl = null;
+const EDITOR_META = {
+  user:    { kicker: "MY DOMAINS · HOSTLIST", title: "Мои домены",
+             hint: "Домены (по одному в строке), которые принудительно идут в обход DPI. Поддомены добавляйте отдельно. Строки с # — комментарии.",
+             file: "list-general-user.txt" },
+  exclude: { kicker: "EXCLUDE · BYPASS WINWS", title: "Исключения",
+             hint: "Домены, которые winws НЕ трогает (например, банки или сервисы, ломающиеся от обхода). Сервер активной VPN-ноды добавляется сюда автоматически.",
+             file: "list-exclude-user.txt" },
+};
+
+async function openListEditor(kind) {
+  if (editorEl) return;
+  const meta = EDITOR_META[kind] || EDITOR_META.user;
+  let content = "";
+  try { content = await invoke("dpi_read_list", { kind }); } catch {}
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <div class="drawer-bg" data-dpi-editor-bg></div>
+    <aside class="drawer drawer--editor" role="dialog" aria-label="${esc(meta.title)}">
+      <div class="drawer__head">
+        <div><div class="drawer__kicker">${esc(meta.kicker)}</div><div class="drawer__title">${esc(meta.title)}</div></div>
+        <button class="drawer__close" data-dpi-editor-close aria-label="Закрыть">${ic("close", 16)}</button>
+      </div>
+      <div class="dpi-editor">
+        <div class="dpi-editor__hint">${esc(meta.hint)}</div>
+        <textarea class="dpi-editor__area" id="dpi-editor-area" spellcheck="false" autocomplete="off"
+          placeholder="discord.com&#10;gateway.discord.gg&#10;youtube.com">${esc(content)}</textarea>
+        <div class="dpi-editor__foot">
+          <span class="dpi-editor__file">${esc(meta.file)}</span>
+          <div class="dpi-editor__actions">
+            <button class="btn btn--sm" data-dpi-editor-close>Отмена</button>
+            <button class="btn btn--sm btn--primary" data-dpi-editor-save="${esc(kind)}">${ic("check", 13)} Сохранить</button>
+          </div>
+        </div>
+      </div>
+    </aside>`;
+  editorEl = wrap;
+  document.body.appendChild(wrap);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    wrap.querySelector(".drawer-bg").dataset.open = "true";
+    wrap.querySelector(".drawer").dataset.open = "true";
+  }));
+  setTimeout(() => wrap.querySelector("#dpi-editor-area")?.focus(), 320);
+}
+
+function closeListEditor() {
+  if (!editorEl) return;
+  const w = editorEl;
+  editorEl = null;
+  w.querySelector(".drawer-bg").dataset.open = "false";
+  w.querySelector(".drawer").dataset.open = "false";
+  setTimeout(() => w.remove(), 340);
+}
+
+async function saveListEditor(kind) {
+  const area = editorEl?.querySelector("#dpi-editor-area");
+  if (!area) return;
+  try {
+    await invoke("dpi_write_list", { kind, content: area.value });
+    await loadDomains();
+    closeListEditor();
+    await restartIfRunning(); // применить свежий список к движку
+    toast(kind === "exclude" ? "Исключения сохранены" : "Список доменов сохранён", "info", 1800);
+  } catch (e) {
+    toast(`Не удалось сохранить: ${e?.message || e}`, "error", 3500);
+  }
+}
+
 /* ═══════════ EVENT DELEGATION ═══════════ */
 function onClick(e) {
   const t = e.target;
@@ -471,14 +581,26 @@ function onClick(e) {
   if (t.closest("[data-dpi-ipset-toggle]")) { S.ipsetOpen = !S.ipsetOpen; renderBody(); return; }
   const upd = t.closest("[data-dpi-update]");
   if (upd) { runUpdate(upd.dataset.dpiUpdate); return; }
-  if (t.closest("[data-dpi-domains]")) { toast("Редактор списков — в следующей итерации", "info", 2200); return; }
+  const dom = t.closest("[data-dpi-domains]");
+  if (dom) { openListEditor(dom.dataset.dpiDomains); return; }
+  if (t.closest("[data-dpi-editor-close]") || t.closest("[data-dpi-editor-bg]")) { closeListEditor(); return; }
+  const save = t.closest("[data-dpi-editor-save]");
+  if (save) { saveListEditor(save.dataset.dpiEditorSave); return; }
 }
 
 /* ═══════════ PUBLIC API ═══════════ */
 export function setDpiVpnMode(mode) {
   if (!mode || mode === S.vpnMode) return;
+  const prev = S.vpnMode;
   S.vpnMode = mode;
   renderAll();
+  // Реальная пауза/возврат движка по режиму VPN (риск из спайка: в TUN весь
+  // трафик в туннеле, winws иначе жуёт зашифрованный VLESS).
+  if (mode === "tun") {
+    if (S.base === "running" || S.base === "starting") pauseEngineForTun();
+  } else if (prev === "tun") {
+    resumeEngineAfterTun();
+  }
 }
 
 // Внести сервер активной VPN-ноды в exclude winws (главный риск из спайка —
@@ -500,7 +622,11 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
   // ловиться на уровне документа.
   document.addEventListener("click", onClick);
   document.getElementById("dpi-strategies-btn")?.addEventListener("click", openDrawer);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && drawerEl) closeDrawer(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (editorEl) closeListEditor();
+    else if (drawerEl) closeDrawer();
+  });
 
   // Прогресс авто-подбора (событие из Rust dpi_autotest).
   if (tauriListen) {
@@ -517,8 +643,17 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
 
   renderAll();
   await loadStrategies();
-  // Реальное состояние движка после возможного перезапуска приложения.
-  try { if (await invoke("dpi_running")) S.base = "running"; } catch {}
+  // Реальное состояние движка после перезапуска приложения (UI поверх живого
+  // winws). Синхронизируем в обе стороны: жив → running + чиним LS.enabled;
+  // мёртв, но локально считались running → сбрасываем в off (чип не врёт).
+  try {
+    if (await invoke("dpi_running")) {
+      S.base = "running";
+      localStorage.setItem(LS.enabled, "true");
+    } else if (S.base === "running" || S.base === "starting") {
+      S.base = "off";
+    }
+  } catch {}
   await Promise.all([loadVersions(), loadDomains(), checkUpdate()]);
   renderAll();
 }
