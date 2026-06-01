@@ -140,6 +140,20 @@ fn read_strategies(app: &AppHandle) -> Result<Vec<Strategy>, String> {
     serde_json::from_str(&raw).map_err(|e| format!("parse strategies.json: {e}"))
 }
 
+// Срезать verbatim-префикс Windows (`\\?\C:\…` → `C:\…`, `\\?\UNC\srv\…` →
+// `\\srv\…`). resource_dir()/canonicalize на Windows возвращают такой путь;
+// CreateProcess его глотает, но сам winws открывает .bin своим парсером, который
+// `\\?\` не понимает → «could not read …». Срезаем для строк, уходящих в args.
+fn strip_verbatim(p: &str) -> String {
+    if let Some(rest) = p.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = p.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        p.to_string()
+    }
+}
+
 // Подстановка плейсхолдеров батника на абсолютные пути/порты.
 fn subst(arg: &str, bin: &str, lists: &str, g_tcp: &str, g_udp: &str) -> String {
     let binp = format!("{bin}{MAIN_SEPARATOR}");
@@ -222,8 +236,8 @@ pub async fn dpi_start(
         _ => ("12", "12"), // off — безвредный одиночный порт (как дефолт Flowseal)
     };
 
-    let bin_s = bin.to_string_lossy().to_string();
-    let lists_s = lists.to_string_lossy().to_string();
+    let bin_s = strip_verbatim(&bin.to_string_lossy());
+    let lists_s = strip_verbatim(&lists.to_string_lossy());
     let args: Vec<String> = strat
         .args
         .iter()
@@ -475,8 +489,8 @@ pub async fn dpi_autotest(
     }
     let lists = ensure_lists(&app)?;
     write_ipset_mode(&app, &lists, "any")?;
-    let bin_s = bin.to_string_lossy().to_string();
-    let lists_s = lists.to_string_lossy().to_string();
+    let bin_s = strip_verbatim(&bin.to_string_lossy());
+    let lists_s = strip_verbatim(&lists.to_string_lossy());
     let client = no_proxy_client()?;
     let total = strategies.len();
 
