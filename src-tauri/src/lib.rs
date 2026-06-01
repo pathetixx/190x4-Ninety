@@ -1,5 +1,6 @@
 mod clash;
 mod clash_stream;
+mod dpi;
 mod scanner;
 mod subscription;
 mod url_handler;
@@ -80,6 +81,9 @@ fn relaunch_elevated(app: tauri::AppHandle) -> Result<bool, String> {
         // синхронно чистим ядро и системный прокси здесь же.
         if let Some(state) = app.try_state::<SingboxState>() {
             vpn::force_cleanup(&state);
+        }
+        if let Some(state) = app.try_state::<dpi::DpiState>() {
+            dpi::force_cleanup(&state);
         }
         std::process::exit(0);
     }
@@ -225,6 +229,7 @@ pub fn run() {
             Some(vec!["--autostarted"]),
         ))
         .manage(SingboxState::default())
+        .manage(dpi::DpiState::default())
         .manage(clash_stream::ClashStreamState::default())
         .setup(|app| {
             let argv: Vec<String> = std::env::args().collect();
@@ -354,6 +359,16 @@ pub fn run() {
             warp::warp_status,
             warp::warp_reset,
             scanner::warp_scan_endpoints,
+            dpi::dpi_strategies,
+            dpi::dpi_domains_count,
+            dpi::dpi_start,
+            dpi::dpi_stop,
+            dpi::dpi_running,
+            dpi::dpi_set_node_exclude,
+            dpi::dpi_versions,
+            dpi::dpi_check_update,
+            dpi::dpi_update_strategies,
+            dpi::dpi_autotest,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -361,6 +376,9 @@ pub fn run() {
             if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
                 if let Some(state) = app.try_state::<SingboxState>() {
                     vpn::force_cleanup(&state);
+                }
+                if let Some(state) = app.try_state::<dpi::DpiState>() {
+                    dpi::force_cleanup(&state);
                 }
             }
         });
