@@ -601,7 +601,7 @@ function renderInbound(o) {
 function renderTlsTricks(o) {
   return `
     <div class="settings-banner">
-      Трюки TLS режут handshake к VPN-серверу на части — помогают поднять туннель, когда провайдер душит соединение по SNI. Применяются к прокси-подключению (ядро <code>hiddify-sing-box</code>, per-outbound <code>tls</code>). С Reality начинайте с фрагментации; padding и mixed-case включайте только если без них не пробивает.
+      Трюки TLS режут handshake к VPN-серверу на части — помогают поднять туннель, когда провайдер душит соединение по SNI. Применяются к прокси-подключению. С Reality начинайте с фрагментации; padding и mixed-case включайте только если без них не пробивает.
     </div>
     <div class="settings-section">
       ${row(iconScissors(), "Фрагментация ClientHello", "Бьёт TLS handshake на куски — обход DPI", toggle("tlsTricks.enableFragment", o.tlsTricks.enableFragment))}
