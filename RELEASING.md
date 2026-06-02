@@ -26,13 +26,14 @@
    > красный → fix-forward следующим тегом. Две компиляции = пустая трата
    > раннер-минут. (`workflow_dispatch` оставлен в триггерах только для ad-hoc
    > отладки CI, не для релизного ритуала.)
-4. **Сразу** создать GitHub Release **как DRAFT** с заметками:
+4. **Сразу** создать GitHub Release **как DRAFT** с заголовком и заметками:
    ```
-   gh release create v0.1.56 --draft --notes "…"
+   gh release create v0.1.56 --draft --title "Ninety v0.1.56" --notes "…"
    ```
-   Заголовок не указываем — CI (softprops, `name: Ninety <tag>`) проставит сам.
-   Заметки нужны draft'у, чтобы шаг "Generate latest.json" вшил их (он тянет body
-   через `gh release view`, на драфте работает).
+   **Заголовок указываем сами** (без «alpha»!): softprops при публикации draft'а
+   имя НЕ перезаписывает (проверено на 0.1.60 — без --title вышло голое
+   «v0.1.56»). Заметки нужны draft'у, чтобы шаг "Generate latest.json" вшил их
+   (тянет body через `gh release view`, на драфте работает).
 
    > **Почему DRAFT (критично для OTA).** Updater-эндпоинт —
    > `releases/latest/download/latest.json`, редирект на релиз с бейджем
