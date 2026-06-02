@@ -1,5 +1,5 @@
 // Ninety · DPI-обход (DPI bypass) — экран раздела + чип на главной.
-// UI из design_handoff_dpi (Claude Design), подключён к движку winws через
+// UI подключён к движку winws через
 // Rust-команды dpi_* (см. src-tauri/src/dpi.rs). State и persistence реальные.
 //
 // Публичное API:

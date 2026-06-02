@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Запекание header.bmp (150x57) и sidebar.bmp (164x314) для NSIS-инсталлера.
 
-Исходники — хэндофф-арт Claude Design в `art/header.png` / `art/sidebar.png`
-(эстетика 190×4 Kurogane: марка на plate, вордмарк Orbitron, неон). NSIS требует
-24-bit BMP без альфы — здесь PNG плющатся на матовый чёрный фон и сохраняются BMP3.
+Исходный арт в `art/header.png` / `art/sidebar.png` (эстетика 190×4 Kurogane:
+марка на plate, вордмарк Orbitron, неон). NSIS требует 24-bit BMP без альфы —
+здесь PNG плющатся на матовый чёрный фон и сохраняются BMP3.
 
 Запускать руками когда меняется арт: положить новые PNG точных размеров в `art/`
-и `python3 make_installer_bitmaps.py`. НЕ генерируем лого программно — арт рисуется
-в Claude Design (см. handoff). Старый процедурный генератор заменён этим запеканием.
+и `python3 make_installer_bitmaps.py`. Лого не генерируем программно — арт рисуется
+дизайн-инструментом. Старый процедурный генератор заменён этим запеканием.
 """
 from PIL import Image
 import os

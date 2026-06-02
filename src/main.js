@@ -1250,7 +1250,7 @@ const locPing = document.getElementById("loc-ping");
 const locIpRow = document.getElementById("loc-ip-row");
 const locIp = document.getElementById("loc-ip");
 
-// Мап-имена для CSS data-state (handoff terminology)
+// Мап-имена для CSS data-state
 const STATE_HERO = { idle: "standby", connecting: "linking", connected: "secured" };
 const STATE_KICKER = {
   idle:       "STAND-BY · DISCONNECTED",
@@ -1734,7 +1734,7 @@ async function syncTrayMenu() {
 
 heroDisc?.addEventListener("click", async () => {
   if (heroDisc.disabled) return;
-  // Click ripple — расходится от центра диска (handoff anim 520ms)
+  // Click ripple — расходится от центра диска (anim 520ms)
   const stage = heroDisc.closest(".hero__stage");
   if (stage) {
     const ripple = document.createElement("div");
