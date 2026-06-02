@@ -137,11 +137,21 @@ export function openUpdateModal(update, opts = {}) {
       // Гасим ядра до установки: xray.exe / sing-box.exe держат бинарники
       // залоченными, NSIS-инсталлятор иначе падает на "файл занят". stop_singbox
       // снимает оба child'а + останавливает TUN-сервис. NSIS-хук — подстраховка.
+      // DPI-обход: winws лочит свой бинарь И kernel-драйвер WinDivert (его служба
+      // не выгружается со смертью процесса) → инсталлер падает. dpi_unload_driver
+      // гасит winws и снимает службу WinDivert; аппа при запущенном DPI уже
+      // elevated, поэтому sc-команды проходят. Запоминаем, что DPI был включён —
+      // после перезапуска autostart-блок поднимет его обратно.
+      const dpiWasOn = (() => {
+        try { return localStorage.getItem("ninety.dpi.enabled") === "true"; } catch { return false; }
+      })();
       const invoke = window.__TAURI__?.core?.invoke;
       if (invoke) {
         try { await invoke("set_system_proxy", { enable: false }); } catch {}
         try { await invoke("stop_singbox"); } catch (e) { console.warn("pre-update stop failed", e); }
+        try { await invoke("dpi_unload_driver"); } catch (e) { console.warn("pre-update dpi unload failed", e); }
       }
+      if (dpiWasOn) { try { localStorage.setItem("ninety.dpi.resumeAfterUpdate", "1"); } catch {} }
 
       let total = 0;
       let downloaded = 0;

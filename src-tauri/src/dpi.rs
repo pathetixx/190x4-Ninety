@@ -610,3 +610,30 @@ pub fn force_cleanup(state: &DpiState) {
         let _ = child.wait();
     }
 }
+
+/// Полная выгрузка движка перед OTA-апдейтом. Гасим winws И СНИМАЕМ kernel-драйвер
+/// WinDivert: его служба winws ставит сам при старте, и после kill процесса она
+/// остаётся загруженной в ядре, лоча `WinDivert64.sys`/`winws.exe` → NSIS-инсталлер
+/// падает на «файл занят» (та самая ошибка OTA). `sc stop/delete` требует
+/// админ-прав, но при запущенном DPI аппа уже elevated (winws — наш child,
+/// наследует токен), поэтому здесь команды проходят. Ошибки не критичны —
+/// драйвера могло и не быть; имя службы у разных сборок winws — WinDivert или
+/// WinDivert14 (как чистит service.bat Flowseal), снимаем обе.
+#[tauri::command]
+pub fn dpi_unload_driver(state: State<'_, DpiState>) -> Result<(), String> {
+    force_cleanup(&state);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        for svc in ["WinDivert", "WinDivert14"] {
+            for verb in ["stop", "delete"] {
+                let _ = std::process::Command::new("sc")
+                    .args([verb, svc])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
+            }
+        }
+    }
+    Ok(())
+}

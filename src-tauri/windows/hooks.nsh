@@ -33,6 +33,18 @@
   ; апдейтом, иначе NSIS падает на "файл занят".
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM winws.exe'
   Pop $0
+  ; Сам kernel-драйвер WinDivert после kill winws остаётся загружен и держит
+  ; WinDivert64.sys залоченным → снимаем службу. Основную выгрузку делает аппа из
+  ; Rust (dpi_unload_driver) ДО загрузки апдейта; под perUser-инсталлером прав на
+  ; sc может не быть — здесь это подстраховка (имя WinDivert/WinDivert14).
+  nsExec::Exec '"$SYSDIR\sc.exe" stop WinDivert'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\sc.exe" stop WinDivert14'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\sc.exe" delete WinDivert'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\sc.exe" delete WinDivert14'
+  Pop $0
   Sleep 500
 !macroend
 
@@ -52,5 +64,13 @@
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM xray.exe'
   Pop $0
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM winws.exe'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\sc.exe" stop WinDivert'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\sc.exe" stop WinDivert14'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\sc.exe" delete WinDivert'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\sc.exe" delete WinDivert14'
   Pop $0
 !macroend
