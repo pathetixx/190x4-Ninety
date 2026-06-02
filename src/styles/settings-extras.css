@@ -540,4 +540,55 @@
 .logs__console .log-line__l--warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
 .logs__console .log-line__l--err  { color: var(--err);  background: color-mix(in srgb, var(--err) 18%, transparent); }
 .logs__console .log-line__l--ok   { color: var(--ok);   background: color-mix(in srgb, var(--ok) 14%, transparent); }
+/* Сообщение: сохраняем переносы строк (мульти-line сообщения склеиваются
+   через \n в renderLogsHtml) и переносим длинные токены (URL/base64/JSON),
+   иначе строки сливаются в «кашу» без видимых границ. */
+.logs__console .log-line__m {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+/* Тонкая разделительная линия между записями — глаз цепляет начало строки. */
+.logs__console .log-line + .log-line { border-top: 1px solid rgba(255, 255, 255, 0.04); }
+.logs__console .log-line:nth-child(odd) { background: rgba(255, 255, 255, 0.025); }
+
+/* ───────── Секция «О программе» ───────── */
+.about__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 18px 0 14px;
+}
+.about__plate {
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: var(--accent-bright, var(--accent));
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  margin-bottom: 6px;
+}
+.about__title { font-size: 22px; font-weight: 700; color: var(--text-hi); letter-spacing: -0.01em; }
+.about__ver { font-size: 12px; color: var(--text-lo); }
+.about__ver span { color: var(--text-mid); }
+.about__tagline { font-size: 12px; color: var(--text-faint); }
+.about__pill {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-mid);
+  padding: 2px 9px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.about__foot {
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  padding: 14px 0 4px;
+}
 

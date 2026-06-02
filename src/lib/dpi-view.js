@@ -301,6 +301,11 @@ function renderBadge() {
 
 function renderAll() { renderBody(); renderChip(); renderBadge(); }
 
+// Сообщить остальному приложению (трею), что DPI-обход вкл/выкл изменился.
+function emitDpiChanged() {
+  try { window.dispatchEvent(new CustomEvent("ninety:dpi-changed")); } catch {}
+}
+
 /* ═══════════ ACTIONS (реальный движок) ═══════════ */
 async function startEngine() {
   S.base = "starting";
@@ -310,6 +315,7 @@ async function startEngine() {
     await invoke("dpi_start", { strategyId: stratByName(S.strategy).id, gameFilter: S.gameFilter, ipset: S.ipset });
     S.base = "running";
     localStorage.setItem(LS.enabled, "true");
+    emitDpiChanged();
   } catch (e) {
     S.base = "error";
     S.lastError = String(e?.message || e);
@@ -322,6 +328,7 @@ async function stopEngine() {
   try { await invoke("dpi_stop"); } catch {}
   S.base = "off";
   localStorage.setItem(LS.enabled, "false");
+  emitDpiChanged();
   renderAll();
 }
 
@@ -343,12 +350,13 @@ async function resumeEngineAfterTun() {
   await startEngine();
 }
 
-async function toggleDpi() {
+export async function toggleDpi() {
   // В TUN движок на паузе — тоггл меняет лишь «хотим ли DPI после выхода из TUN».
   // Исключение — split-Discord: там движок реально работает в TUN, тоггл = старт/стоп.
   if (S.vpnMode === "tun" && !splitDiscordActive()) {
     const want = lsGet(LS.enabled, "false") !== "true";
     localStorage.setItem(LS.enabled, want ? "true" : "false");
+    emitDpiChanged();
     renderAll();
     toast(want ? "DPI включится после выхода из TUN" : "DPI-обход выключен", "info", 2200);
     return;

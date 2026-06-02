@@ -20,7 +20,7 @@ use proxy_stub as elevation;
 use std::path::PathBuf;
 
 use tauri::{
-    menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{CheckMenuItem, IconMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, RunEvent, WindowEvent,
 };
@@ -131,6 +131,22 @@ struct TraySrv {
     label: String,
     #[serde(default)]
     selected: bool,
+    /// ISO-код страны (2 буквы, lower) для флага в трее. None → без иконки.
+    #[serde(default)]
+    iso: Option<String>,
+}
+
+/// Грузит флаг страны из ресурсов (flags/<iso>.png, растеризованы из SVG)
+/// для IconMenuItem. Best-effort: нет файла/кода → None (пункт без иконки).
+fn flag_icon(app: &tauri::AppHandle, iso: &Option<String>) -> Option<tauri::image::Image<'static>> {
+    let iso = iso.as_ref()?;
+    if iso.len() != 2 || !iso.bytes().all(|b| b.is_ascii_lowercase()) {
+        return None;
+    }
+    // Флаги — read-only ресурсы рядом с бинарём (<resource_dir>/flags/<iso>.png),
+    // как и движок DPI. resource_dir проверен в dpi.rs.
+    let path = app.path().resource_dir().ok()?.join("flags").join(format!("{iso}.png"));
+    tauri::image::Image::from_path(path).ok()
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -141,6 +157,8 @@ struct TrayMenuPayload {
     mode: String,
     #[serde(default)]
     servers: Vec<TraySrv>,
+    #[serde(default, rename = "dpiActive")]
+    dpi_active: bool,
 }
 
 /// Собирает контекстное меню трея под текущее состояние: выбор режима
@@ -152,26 +170,34 @@ fn build_tray_menu(
 ) -> tauri::Result<Menu<tauri::Wry>> {
     let show_item = MenuItem::with_id(app, "show", "Показать Ninety", true, None::<&str>)?;
 
+    // Подключиться / Отключиться — по фактическому состоянию VPN
+    let toggle_label = if payload.connected { "Отключиться" } else { "Подключиться" };
+    let conn_item = MenuItem::with_id(app, "toggle-vpn", toggle_label, true, None::<&str>)?;
+
     // Режим подключения
     let m_proxy = CheckMenuItem::with_id(app, "mode:proxy", "Прокси", true, payload.mode == "proxy", None::<&str>)?;
     let m_sys = CheckMenuItem::with_id(app, "mode:systemProxy", "Системный прокси", true, payload.mode == "systemProxy", None::<&str>)?;
     let m_tun = CheckMenuItem::with_id(app, "mode:tun", "VPN · TUN", true, payload.mode == "tun", None::<&str>)?;
     let mode_sub = Submenu::with_items(app, "Режим подключения", true, &[&m_proxy, &m_sys, &m_tun])?;
 
-    // Выбор сервера — активен только когда VPN поднят
+    // Выбор сервера — активен только когда VPN поднят. Иконка — флаг страны
+    // (IconMenuItem); выбранный сервер помечаем «●», т.к. у IconMenuItem нет
+    // чек-состояния.
     let srv_enabled = payload.connected && !payload.servers.is_empty();
     let server_sub = if payload.servers.is_empty() {
         let none = MenuItem::with_id(app, "srv:none", "Нет серверов", false, None::<&str>)?;
         Submenu::with_items(app, "Сервер", false, &[&none])?
     } else {
-        let mut items: Vec<CheckMenuItem<tauri::Wry>> = Vec::with_capacity(payload.servers.len());
+        let mut items: Vec<IconMenuItem<tauri::Wry>> = Vec::with_capacity(payload.servers.len());
         for s in &payload.servers {
-            items.push(CheckMenuItem::with_id(
+            let label = if s.selected { format!("●  {}", s.label) } else { format!("    {}", s.label) };
+            let icon = flag_icon(app, &s.iso);
+            items.push(IconMenuItem::with_id(
                 app,
                 format!("srv:{}", s.id),
-                &s.label,
+                &label,
                 srv_enabled,
-                s.selected,
+                icon,
                 None::<&str>,
             )?);
         }
@@ -180,13 +206,30 @@ fn build_tray_menu(
         Submenu::with_items(app, "Сервер", srv_enabled, &refs)?
     };
 
+    // DPI-обход — статус (disabled, информативный) + переключатель
+    let dpi_status = MenuItem::with_id(
+        app,
+        "dpi:status",
+        if payload.dpi_active { "Статус: активен" } else { "Статус: выключен" },
+        false,
+        None::<&str>,
+    )?;
+    let dpi_toggle = MenuItem::with_id(
+        app,
+        "dpi:toggle",
+        if payload.dpi_active { "Выключить DPI-обход" } else { "Включить DPI-обход" },
+        true,
+        None::<&str>,
+    )?;
+    let dpi_sub = Submenu::with_items(app, "DPI-обход", true, &[&dpi_status, &dpi_toggle])?;
+
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
 
     Menu::with_items(
         app,
-        &[&show_item, &sep1, &mode_sub, &server_sub, &sep2, &quit_item],
+        &[&show_item, &sep1, &conn_item, &mode_sub, &server_sub, &dpi_sub, &sep2, &quit_item],
     )
 }
 
@@ -293,6 +336,8 @@ pub fn run() {
                     match id {
                         "show" => show_main(app),
                         "quit" => app.exit(0),
+                        "toggle-vpn" => { let _ = app.emit("tray:toggle-vpn", ()); }
+                        "dpi:toggle" => { let _ = app.emit("tray:toggle-dpi", ()); }
                         "mode:proxy" => { let _ = app.emit("tray:set-mode", "proxy"); }
                         "mode:systemProxy" => { let _ = app.emit("tray:set-mode", "systemProxy"); }
                         "mode:tun" => { let _ = app.emit("tray:set-mode", "tun"); }

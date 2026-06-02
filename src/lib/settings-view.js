@@ -32,6 +32,7 @@ const SECTIONS = [
   { key: "inbound",    title: "Входящие",      icon: iconInbound,    hint: "Mixed-порт, MTU, TUN-стек, права админа" },
   { key: "tls-tricks", title: "Трюки TLS",     icon: iconTls,        hint: "Фрагментация ClientHello, padding" },
   { key: "warp",       title: "WARP",          icon: iconWarp,       hint: "Cloudflare WARP — outbound и chain" },
+  { key: "about",      title: "О программе",   icon: iconInfo,       hint: "Версия, репозиторий, лицензия" },
 ];
 
 const THEMES = [
@@ -149,6 +150,30 @@ export function mountSettings(root, opts = {}) {
     bindAlwaysAdmin(el, sec);
     bindWarpSection(el, sec, onChange);
     bindAppearanceSection(el, sec);
+    bindAboutSection(el, sec);
+  }
+
+  // Секция «О программе»: подставляем версию приложения и открываем репозиторий
+  // в системном браузере (через shell-плагин; Tauri перехватывает обычную
+  // навигацию, поэтому внешние ссылки только так).
+  async function bindAboutSection(el, sec) {
+    if (sec.key !== "about") return;
+    const verEl = el.querySelector("#about-version");
+    if (verEl) {
+      try {
+        const v = await window.__TAURI__?.app?.getVersion?.();
+        if (v) verEl.textContent = v;
+      } catch {}
+    }
+    el.querySelector("#about-repo")?.addEventListener("click", () => openExternal(REPO_URL));
+  }
+
+  function openExternal(url) {
+    try {
+      const open = window.__TAURI__?.shell?.open;
+      if (open) { open(url); return; }
+    } catch {}
+    try { window.open(url, "_blank"); } catch {}
   }
 
   // Тумблер «Всегда запускать от администратора» (секция Входящие). Состояние
@@ -430,6 +455,7 @@ function renderSectionBody(sec, o) {
     case "inbound":    return renderInbound(o);
     case "tls-tricks": return renderTlsTricks(o);
     case "warp":       return renderWarp(o);
+    case "about":      return renderAbout(o);
   }
   return "";
 }
@@ -613,6 +639,30 @@ function renderTlsTricks(o) {
   `;
 }
 
+const REPO_URL = "https://github.com/pathetixx/190x4-Ninety";
+
+function renderAbout() {
+  return `
+    <div class="about">
+      <div class="about__head">
+        <div class="about__plate">190X4</div>
+        <div class="about__title">Ninety</div>
+        <div class="about__ver">версия <span id="about-version">—</span></div>
+        <div class="about__tagline">VPN-клиент в эстетике 190x4</div>
+      </div>
+      <div class="settings-banner">
+        Лёгкий VPN-клиент под Windows: VLESS / VMess / Trojan / Hysteria2 / TUIC, режимы «Прокси · Системный прокси · VPN · TUN», подписки с live-переключением серверов, трюки TLS (фрагментация ClientHello) и DPI-обход для обхода блокировок.
+      </div>
+      <div class="settings-section">
+        ${row(iconUrl(), "Репозиторий", "Исходники, релизы и баг-репорты на GitHub", `<button class="btn btn--sm" id="about-repo">Открыть</button>`)}
+        ${row(iconUpdate(), "Обновления", "Проверить наличие новой версии", `<button class="btn btn--sm" data-action="check-updates">Проверить</button>`)}
+        ${row(iconShield(), "Лицензия", "Открытый исходный код", `<span class="about__pill">MIT</span>`)}
+      </div>
+      <div class="about__foot">© 190x4 · собрано на ядре sing-box</div>
+    </div>
+  `;
+}
+
 function renderWarp(o) {
   const w = o.warp || {};
   const groupHead = (title, hint) => `
@@ -743,6 +793,7 @@ function iconDns()      { return svgWrap('<rect x="3" y="4" width="18" height="7
 function iconInbound()  { return svgWrap('<path d="M3 13 V18 a2 2 0 0 0 2 2 h14 a2 2 0 0 0 2 -2 V13 l-3.4 -6.3 a2 2 0 0 0 -1.8 -1.05 H8.2 a2 2 0 0 0 -1.8 1.05 Z"/><path d="M3 13 h5 l1.5 2.5 h5 L16 13 h5"/>'); }
 function iconTls()      { return svgWrap('<path d="M14 3 L15.4 8 L20 9.5 L15.4 11 L14 16 L12.6 11 L8 9.5 L12.6 8 Z"/><path d="M6.5 15 L7.2 17 L9 17.8 L7.2 18.6 L6.5 20.8 L5.8 18.6 L4 17.8 L5.8 17 Z"/>'); }
 function iconWarp()     { return svgWrap('<path d="M8 17 H17 a4 4 0 0 0 0 -8 a5.2 5.2 0 0 0 -9.7 -1.2 A3.8 3.8 0 0 0 8 17 Z"/><line x1="2" y1="20" x2="6" y2="20"/><line x1="3" y1="16" x2="5" y2="16"/>'); }
+function iconInfo()     { return svgWrap('<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none"/>'); }
 
 // — Row icons (внутри set-row, banner, sub-section) —
 function iconUrl()       { return svgWrap('<path d="M10 14 a4 4 0 0 1 0 -5.66 l3 -3 a4 4 0 0 1 5.66 5.66 l-1.5 1.5"/><path d="M14 10 a4 4 0 0 1 0 5.66 l-3 3 a4 4 0 0 1 -5.66 -5.66 l1.5 -1.5"/>'); }
