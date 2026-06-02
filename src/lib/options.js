@@ -84,9 +84,14 @@ export const DEFAULT_OPTIONS = {
     allowConnectionFromLan: false,
   },
   tlsTricks: {
+    // hiddify-sing-box v1.13.0.h5 (upstream 1.12+): фрагментация и tls_tricks
+    // переехали из experimental.tls_tricks в per-outbound tls{} и применяются
+    // к прокси-outbound. fragmentMode: "record" (record_fragment, рекоменд.
+    // upstream — производительнее, мягче к Reality) | "tcp" (fragment, TCP-
+    // сегменты + fragment_fallback_delay). Поля взаимоисключающие.
     enableFragment: false,
-    fragmentSize: { from: 10, to: 30 },
-    fragmentSleep: { from: 2, to: 8 },
+    fragmentMode: "record",
+    fragmentFallbackDelay: "500ms",
     mixedSniCase: false,
     enablePadding: false,
     paddingSize: { from: 100, to: 900 },

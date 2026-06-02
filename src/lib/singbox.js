@@ -452,6 +452,36 @@ function applyMux(out, options) {
   };
 }
 
+// TLS-фрагментация + tls_tricks форка hiddify-sing-box (v1.13.0.h5).
+// ВАЖНО: upstream 1.12 убрал experimental.tls_tricks и перенёс эти трюки в
+// per-outbound tls{}: fragment / record_fragment / fragment_fallback_delay +
+// tls.tls_tricks{ mixedcase_sni, padding_size }. Парсер 1.12+ строгий — любое
+// неизвестное поле роняет ВЕСЬ конфиг (json: unknown field) и ядро не стартует
+// (это и был баг «при включении ВПН перестаёт работать»). Пишем строго эти поля.
+// Применяем только к прокси-outbound с TCP-TLS handshake; QUIC (hysteria2/tuic)
+// сюда не доходит — те делают return раньше, фрагментация TLS-записей к ним
+// неприменима.
+function applyTlsTricks(out, options) {
+  const t = options?.tlsTricks;
+  if (!t || !out.tls?.enabled) return;
+  if (t.enableFragment) {
+    if (t.fragmentMode === "tcp") {
+      // fragment и record_fragment взаимоисключающие — ставим что-то одно.
+      out.tls.fragment = true;
+      if (t.fragmentFallbackDelay) out.tls.fragment_fallback_delay = t.fragmentFallbackDelay;
+    } else {
+      out.tls.record_fragment = true;
+    }
+  }
+  const tricks = {};
+  if (t.enablePadding) {
+    const ps = t.paddingSize || { from: 100, to: 900 };
+    tricks.padding_size = `${ps.from}-${ps.to}`;
+  }
+  if (t.mixedSniCase) tricks.mixedcase_sni = true;
+  if (Object.keys(tricks).length) out.tls.tls_tricks = tricks;
+}
+
 // ── outbound dispatcher по протоколу ───────────────────────
 function buildOutbound(p, options) {
   const proto = profileProto(p);
@@ -540,6 +570,7 @@ function buildOutbound(p, options) {
   const transport = buildTransport(p);
   if (transport) out.transport = transport;
   applyMux(out, options);
+  applyTlsTricks(out, options);
   return out;
 }
 
@@ -1084,26 +1115,9 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
     idle_timeout: `${intervalSec * 3}s`,
   };
 
-  // TLS-tricks форка hiddify-sing-box: глобально в experimental.tls_tricks.
-  // Применяется ко всем TLS-handshake outbound'ов на стороне ядра.
-  const t = opts.tlsTricks || {};
-  const tricks = {};
-  if (t.enableFragment) {
-    const fs = t.fragmentSize || { from: 10, to: 30 };
-    const fsl = t.fragmentSleep || { from: 2, to: 8 };
-    tricks.fragment_size = `${fs.from}-${fs.to}`;
-    tricks.fragment_sleep = `${fsl.from}-${fsl.to}`;
-  }
-  if (t.enablePadding) {
-    const ps = t.paddingSize || { from: 100, to: 900 };
-    tricks.padding_size = `${ps.from}-${ps.to}`;
-  }
-  if (t.mixedSniCase) {
-    tricks.mixedcase_sni = true;
-  }
-  if (Object.keys(tricks).length) {
-    config.experimental.tls_tricks = tricks;
-  }
+  // TLS-tricks (фрагментация/padding/mixedcase) более НЕ пишутся глобально:
+  // в hiddify-sing-box v1.13.0.h5 experimental.tls_tricks удалён. Теперь они
+  // применяются per-outbound в applyTlsTricks() при сборке прокси-outbound.
 
   return { config, xray: xrayConfig };
 }

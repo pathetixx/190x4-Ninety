@@ -601,14 +601,13 @@ function renderInbound(o) {
 function renderTlsTricks(o) {
   return `
     <div class="settings-banner">
-      Трюки TLS работают через форк <code>hiddify-sing-box</code> (собран с <code>with_awg</code> + <code>badlinkname</code>). Включённые опции пишутся в <code>experimental.tls_tricks</code> и применяются ко всем outbound с TLS-handshake.
+      Трюки TLS режут handshake к VPN-серверу на части — помогают поднять туннель, когда провайдер душит соединение по SNI. Применяются к прокси-подключению (ядро <code>hiddify-sing-box</code>, per-outbound <code>tls</code>). С Reality начинайте с фрагментации; padding и mixed-case включайте только если без них не пробивает.
     </div>
     <div class="settings-section">
       ${row(iconScissors(), "Фрагментация ClientHello", "Бьёт TLS handshake на куски — обход DPI", toggle("tlsTricks.enableFragment", o.tlsTricks.enableFragment))}
-      ${rangeRow("Размер фрагмента (байт)", "Диапазон случайной длины каждого фрагмента", "tlsTricks.fragmentSize.from", o.tlsTricks.fragmentSize.from, "tlsTricks.fragmentSize.to", o.tlsTricks.fragmentSize.to)}
-      ${rangeRow("Задержка между фрагментами (мс)", "Случайный sleep между отправкой кусков", "tlsTricks.fragmentSleep.from", o.tlsTricks.fragmentSleep.from, "tlsTricks.fragmentSleep.to", o.tlsTricks.fragmentSleep.to)}
-      ${row(iconCase(), "Mixed SNI case", "Перемешивает регистр в SNI", toggle("tlsTricks.mixedSniCase", o.tlsTricks.mixedSniCase))}
-      ${row(iconPad(), "TLS padding", "Добавляет padding в ClientHello", toggle("tlsTricks.enablePadding", o.tlsTricks.enablePadding))}
+      ${row(iconScissors(), "Способ фрагментации", "record — на TLS-записи (рекоменд., быстрее); TCP — на сегменты (агрессивнее)", select("tlsTricks.fragmentMode", o.tlsTricks.fragmentMode, ["record", "tcp"], { record: "По TLS-записям (record)", tcp: "По TCP-сегментам" }))}
+      ${row(iconCase(), "Mixed SNI case", "Перемешивает регистр в SNI (может ломать Reality)", toggle("tlsTricks.mixedSniCase", o.tlsTricks.mixedSniCase))}
+      ${row(iconPad(), "TLS padding", "Добавляет padding в ClientHello (может ломать Reality)", toggle("tlsTricks.enablePadding", o.tlsTricks.enablePadding))}
       ${rangeRow("Размер padding (байт)", "Диапазон длины", "tlsTricks.paddingSize.from", o.tlsTricks.paddingSize.from, "tlsTricks.paddingSize.to", o.tlsTricks.paddingSize.to)}
     </div>
   `;
