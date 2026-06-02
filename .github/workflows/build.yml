@@ -145,6 +145,25 @@ jobs:
           $size = (Get-Item "src-tauri/binaries/wintun.dll").Length
           Write-Host "wintun.dll bundled ($([math]::Round($size/1KB,1)) KB)."
 
+      - name: Generate build-info (паспорт сборки для «О программе»)
+        shell: pwsh
+        run: |
+          # Запекаем реальные commit/date/version в src/lib/build-info.js ПЕРЕД
+          # сборкой (frontendDist=../src, бандлера нет → файл едет как есть).
+          # core/channel/platform НЕ трогаем — они единственным источником живут
+          # в самом build-info.js (core версионируется рядом с пином sing-box).
+          $sha = (git rev-parse --short HEAD).Trim()
+          $date = (Get-Date).ToUniversalTime().ToString("dd.MM.yyyy")
+          $cfg = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $ver = $cfg.version
+          $f = "src/lib/build-info.js"
+          $c = Get-Content $f -Raw
+          $c = $c -replace 'commit:\s*"[^"]*"', "commit: `"$sha`""
+          $c = $c -replace 'date:\s*"[^"]*"', "date: `"$date`""
+          $c = $c -replace 'version:\s*"[^"]*"', "version: `"$ver`""
+          Set-Content $f $c -NoNewline
+          Write-Host "build-info: version=$ver commit=$sha date=$date"
+
       - name: Build Tauri
         run: npm run tauri build
         env:

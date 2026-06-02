@@ -552,43 +552,5 @@
 .logs__console .log-line + .log-line { border-top: 1px solid rgba(255, 255, 255, 0.04); }
 .logs__console .log-line:nth-child(odd) { background: rgba(255, 255, 255, 0.025); }
 
-/* ───────── Секция «О программе» ───────── */
-.about__head {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 4px;
-  padding: 18px 0 14px;
-}
-.about__plate {
-  font-family: var(--font-mono, monospace);
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.18em;
-  color: var(--accent-bright, var(--accent));
-  padding: 5px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  margin-bottom: 6px;
-}
-.about__title { font-size: 22px; font-weight: 700; color: var(--text-hi); letter-spacing: -0.01em; }
-.about__ver { font-size: 12px; color: var(--text-lo); }
-.about__ver span { color: var(--text-mid); }
-.about__tagline { font-size: 12px; color: var(--text-faint); }
-.about__pill {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-mid);
-  padding: 2px 9px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
-}
-.about__foot {
-  text-align: center;
-  font-size: 10.5px;
-  color: var(--text-faint);
-  padding: 14px 0 4px;
-}
+/* Секция «О программе» — стили вынесены в about.css (handoff Claude Design). */
 

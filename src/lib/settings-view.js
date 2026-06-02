@@ -6,6 +6,7 @@ import {
   REGIONS, IPV6_MODES, TUN_STACKS, LOG_LEVELS, BALANCER_STRATEGIES,
   URL_HANDLER_SCHEMES,
 } from "/lib/options.js";
+import { BUILD_INFO } from "/lib/build-info.js";
 
 const SCHEME_LABELS = {
   vless: "vless://", vmess: "vmess://", ss: "ss://", trojan: "trojan://",
@@ -158,13 +159,17 @@ export function mountSettings(root, opts = {}) {
   // навигацию, поэтому внешние ссылки только так).
   async function bindAboutSection(el, sec) {
     if (sec.key !== "about") return;
-    const verEl = el.querySelector("#about-version");
-    if (verEl) {
-      try {
-        const v = await window.__TAURI__?.app?.getVersion?.();
-        if (v) verEl.textContent = v;
-      } catch {}
-    }
+    // Версия — авторитетно из рантайма (tauri.conf), подставляем и в паспорт,
+    // и в чип идентичности. build-info даёт лишь дев-фолбэк до загрузки.
+    try {
+      const v = await window.__TAURI__?.app?.getVersion?.();
+      if (v) {
+        const specVer = el.querySelector("#about-version");
+        if (specVer) specVer.textContent = v;
+        const chip = el.querySelector("#about-version-chip");
+        if (chip) chip.textContent = `v${v}`;
+      }
+    } catch {}
     el.querySelector("#about-repo")?.addEventListener("click", () => openExternal(REPO_URL));
   }
 
@@ -579,10 +584,6 @@ function renderGeneral(o) {
       ${row(iconLog(), "Метка времени в логах", "Префикс времени перед каждой строкой sing-box лога", toggle("log.timestamp", o.log.timestamp !== false))}
       ${row(iconLog(), "Полностью отключить логи", "sing-box не пишет ни одной строки — диагностика станет невозможна. Включайте только для прод-сценария.", toggle("log.disabled", !!o.log.disabled))}
     </div>
-    <div class="settings-section">
-      ${row(iconUpdate(), "Версия Ninety", "Текущая установленная версия", `<span class="settings-version" id="settings-version">—</span>`)}
-      ${row(iconUpdate(), "Проверить обновления", "Скачать и установить новую версию с GitHub", `<button class="btn btn--sm" data-action="check-updates" type="button">Проверить</button>`)}
-    </div>
   `;
 }
 
@@ -641,27 +642,122 @@ function renderTlsTricks(o) {
 
 const REPO_URL = "https://github.com/pathetixx/190x4-Ninety";
 
+const ABOUT_PROTOCOLS = ["VLESS", "VMess", "Trojan", "Hysteria2", "TUIC"];
+const ABOUT_MODES = ["Прокси", "Системный прокси", "VPN · TUN"];
+
+function aboutSpecCell(icon, key, value) {
+  return `<div class="about-spec__cell">
+    <span class="about-spec__icon">${icon}</span>
+    <span class="about-spec__k">${key}</span>
+    <span class="about-spec__dots"></span>
+    <span class="about-spec__v">${value}</span>
+  </div>`;
+}
+
+// Паспорт сборки. Версия — из рантайма (bindAboutSection подставит в #about-*),
+// остальное — из build-info.js (commit/date/core/channel запекает CI).
 function renderAbout() {
+  const b = BUILD_INFO;
+  const ver = b.version || "—";
+  const protos = ABOUT_PROTOCOLS.map(p => `<span class="about-chip">${p}</span>`).join("");
+  const modes = ABOUT_MODES.map(m => `<span class="about-chip about-chip--mode">${m}</span>`).join("");
   return `
-    <div class="about">
-      <div class="about__head">
-        <div class="about__plate">190X4</div>
-        <div class="about__title">Ninety</div>
-        <div class="about__ver">версия <span id="about-version">—</span></div>
-        <div class="about__tagline">VPN-клиент в эстетике 190x4</div>
+    <div class="about__col">
+      <section class="about-id">
+        <div class="about-id__mark"><img src="/assets/ninety-mark.png" alt="Ninety"></div>
+        <span class="about-id__badge">190×4</span>
+        <h1 class="about-id__name">Ninety</h1>
+        <div class="about-id__ver">
+          <span class="about-id__chip" id="about-version-chip">v${ver}</span>
+          <span class="about-id__sep"></span>
+          <span class="about-id__channel">${b.channel} channel</span>
+        </div>
+        <p class="about-id__tag">VPN-клиент в эстетике 190×4</p>
+      </section>
+
+      <p class="about-desc">
+        Лёгкий VPN-клиент под Windows: VLESS / VMess / Trojan / Hysteria2 / TUIC,
+        режимы «Прокси · Системный прокси · VPN · TUN», подписки с
+        live-переключением серверов, трюки TLS (фрагментация ClientHello) и
+        DPI-обход для обхода блокировок.
+      </p>
+
+      <div class="about-tags">
+        <div class="about-tags__group">
+          <div class="about-tags__label">Протоколы</div>
+          <div class="about-tags__row">${protos}</div>
+        </div>
+        <div class="about-tags__group">
+          <div class="about-tags__label">Режимы</div>
+          <div class="about-tags__row">${modes}</div>
+        </div>
       </div>
-      <div class="settings-banner">
-        Лёгкий VPN-клиент под Windows: VLESS / VMess / Trojan / Hysteria2 / TUIC, режимы «Прокси · Системный прокси · VPN · TUN», подписки с live-переключением серверов, трюки TLS (фрагментация ClientHello) и DPI-обход для обхода блокировок.
-      </div>
-      <div class="settings-section">
-        ${row(iconUrl(), "Репозиторий", "Исходники, релизы и баг-репорты на GitHub", `<button class="btn btn--sm" id="about-repo">Открыть</button>`)}
-        ${row(iconUpdate(), "Обновления", "Проверить наличие новой версии", `<button class="btn btn--sm" data-action="check-updates">Проверить</button>`)}
-        ${row(iconShield(), "Лицензия", "Открытый исходный код", `<span class="about__pill">MIT</span>`)}
-      </div>
-      <div class="about__foot">© 190x4 · собрано на ядре sing-box</div>
+
+      <section class="about-spec">
+        <div class="about-spec__head">Технический паспорт</div>
+        <div class="about-spec__grid">
+          ${aboutSpecCell(aboutIconBox(), "Версия", `<span id="about-version">${ver}</span>`)}
+          ${aboutSpecCell(aboutIconCpu(), "Сборка", b.commit)}
+          ${aboutSpecCell(aboutIconBox(), "Ядро", b.core)}
+          ${aboutSpecCell(aboutIconCpu(), "Платформа", b.platform)}
+          ${aboutSpecCell(aboutIconBolt(), "Канал", b.channel)}
+          ${aboutSpecCell(aboutIconRefresh(), "Обновлено", b.date)}
+        </div>
+      </section>
+
+      <section class="about-links">
+        <button class="about-link" id="about-repo" type="button">
+          <span class="about-link__icon">${aboutIconGithub()}</span>
+          <span class="about-link__main">
+            <span class="about-link__t">Репозиторий</span>
+            <span class="about-link__d">Исходники, релизы и баг-репорты на GitHub</span>
+          </span>
+          <span class="about-link__cta btn btn--sm">Открыть${aboutIconExternal()}</span>
+        </button>
+
+        <button class="about-link" data-action="check-updates" type="button">
+          <span class="about-link__icon about-link__icon--ok">${aboutIconDownload()}</span>
+          <span class="about-link__main">
+            <span class="about-link__t">Обновления</span>
+            <span class="about-link__d">
+              <span class="about-link__status"><span class="about-link__dot"></span>Установлена актуальная версия</span>
+            </span>
+          </span>
+          <span class="about-link__cta btn btn--sm">${aboutIconRefresh()}Проверить</span>
+        </button>
+
+        <div class="about-link about-link--static">
+          <span class="about-link__icon">${aboutIconScale()}</span>
+          <span class="about-link__main">
+            <span class="about-link__t">Лицензия</span>
+            <span class="about-link__d">Открытый исходный код — свободно для форка и аудита</span>
+          </span>
+          <span class="about-link__lic">MIT</span>
+        </div>
+      </section>
+
+      <footer class="about-foot">
+        <span class="about-foot__rule"></span>
+        <span class="about-foot__txt">© 190×4 · собрано на ядре <b>sing-box</b></span>
+        <span class="about-foot__made">${aboutIconHeart()}сделано в эстетике Kurogane</span>
+      </footer>
     </div>
   `;
 }
+
+// Иконки экрана «О программе» — lucide-style, 1.5px stroke, currentColor.
+function aboutSvg(size, body) {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+}
+function aboutIconBox() { return aboutSvg(13, '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>'); }
+function aboutIconCpu() { return aboutSvg(13, '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/>'); }
+function aboutIconBolt() { return aboutSvg(13, '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>'); }
+function aboutIconRefresh() { return aboutSvg(12, '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>'); }
+function aboutIconGithub() { return aboutSvg(17, '<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>'); }
+function aboutIconExternal() { return aboutSvg(12, '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'); }
+function aboutIconDownload() { return aboutSvg(17, '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>'); }
+function aboutIconScale() { return aboutSvg(17, '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>'); }
+function aboutIconHeart() { return aboutSvg(11, '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/>'); }
 
 function renderWarp(o) {
   const w = o.warp || {};

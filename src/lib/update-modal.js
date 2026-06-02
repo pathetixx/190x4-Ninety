@@ -49,7 +49,7 @@ function showError(msg) {
   }
 }
 
-function shouldSkip(version) {
+export function shouldSkip(version) {
   try { return localStorage.getItem(SKIP_KEY) === String(version); }
   catch { return false; }
 }

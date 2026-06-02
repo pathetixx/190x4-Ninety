@@ -1,0 +1,305 @@
+/* ─────────────────────────────────────────────────────────────
+   Ninety — «О программе» (About)
+   Премиум spec-sheet в эстетике Kurogane. Handoff Claude Design.
+   Шапка (back + заголовок) рендерится общим каркасом Settings
+   (.settings-head), поэтому здесь — только тело-колонка вниз.
+   ───────────────────────────────────────────────────────────── */
+
+.about__col {
+  width: 100%;
+  max-width: 660px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 8px 0 12px;
+}
+
+/* ═══ IDENTITY ═══ */
+.about-id {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  padding: 18px 0 4px;
+}
+.about-id__mark {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  border-radius: 20px;
+  background: radial-gradient(closest-side, var(--ink-2), var(--ink-1) 82%);
+  border: 1px solid var(--line-2);
+  display: grid;
+  place-items: center;
+  box-shadow:
+    0 0 0 1px var(--line-1) inset,
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 20px 46px -18px rgba(0, 0, 0, 0.75),
+    0 0 40px var(--accent-glow);
+}
+.about-id__mark::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: var(--edge-top);
+  pointer-events: none;
+}
+.about-id__mark img { width: 88%; height: 88%; object-fit: contain; }
+
+.about-id__badge {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  text-indent: 0.28em;
+  padding: 5px 11px;
+  border-radius: 999px;
+  color: var(--accent-bright);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  text-transform: uppercase;
+}
+.about-id__name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 34px;
+  letter-spacing: -0.03em;
+  color: var(--text-hi);
+  line-height: 1;
+}
+.about-id__ver { display: inline-flex; align-items: center; gap: 10px; }
+.about-id__chip {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--text-hi);
+  padding: 4px 9px;
+  border-radius: var(--r-xs);
+  background: var(--ink-2);
+  border: 1px solid var(--line-2);
+  font-variant-numeric: tabular-nums;
+}
+.about-id__sep { width: 3px; height: 3px; border-radius: 50%; background: var(--text-faint); }
+.about-id__channel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-lo);
+}
+.about-id__tag { margin: 2px 0 0; font-size: 13px; color: var(--text-lo); }
+
+/* ── Описание ── */
+.about-desc {
+  margin: 0 auto;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-mid);
+  max-width: 560px;
+  text-wrap: pretty;
+}
+
+/* ═══ ПРОТОКОЛЫ / РЕЖИМЫ ═══ */
+.about-tags {
+  display: grid;
+  grid-template-columns: auto 1px auto;
+  align-items: start;
+  gap: 22px;
+  justify-content: center;
+  padding: 4px 0;
+}
+.about-tags::after {
+  content: "";
+  grid-column: 2;
+  grid-row: 1;
+  width: 1px;
+  height: 100%;
+  background: var(--line-1);
+}
+.about-tags__group { display: flex; flex-direction: column; gap: 9px; align-items: center; }
+.about-tags__label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.about-tags__row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.about-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text-mid);
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--ink-1);
+  border: 1px solid var(--line-2);
+}
+.about-chip--mode { color: var(--text-lo); background: transparent; border-color: var(--line-1); }
+
+/* ═══ ТЕХНИЧЕСКИЙ ПАСПОРТ ═══ */
+.about-spec {
+  border-radius: var(--r-md);
+  background: var(--ink-1);
+  border: 1px solid var(--line-2);
+  overflow: hidden;
+  position: relative;
+}
+.about-spec::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+}
+.about-spec__head {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 13px 18px 11px;
+  border-bottom: 1px solid var(--line-1);
+}
+.about-spec__grid { display: grid; grid-template-columns: 1fr 1fr; }
+.about-spec__cell {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line-1);
+  border-left: 1px solid var(--line-1);
+  min-width: 0;
+}
+.about-spec__grid > .about-spec__cell:nth-child(-n + 2) { border-top: 0; }
+.about-spec__grid > .about-spec__cell:nth-child(odd) { border-left: 0; }
+.about-spec__icon { color: var(--text-faint); display: grid; place-items: center; flex-shrink: 0; }
+.about-spec__k { font-size: 12px; color: var(--text-lo); white-space: nowrap; }
+.about-spec__dots {
+  flex: 1;
+  height: 0;
+  border-bottom: 1px dotted var(--line-3);
+  margin: 0 2px;
+  min-width: 10px;
+  transform: translateY(2px);
+}
+.about-spec__v {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-hi);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ═══ ССЫЛКИ ═══ */
+.about-links { display: flex; flex-direction: column; gap: 8px; }
+.about-link {
+  display: grid;
+  grid-template-columns: 38px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  padding: 13px 16px;
+  border-radius: var(--r-md);
+  background: var(--ink-1);
+  border: 1px solid var(--line-2);
+  color: inherit;
+  text-decoration: none;
+  position: relative;
+  overflow: hidden;
+  transition: background 180ms var(--ease-out), border-color 180ms var(--ease-out), transform 120ms var(--ease-out);
+}
+.about-link::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+}
+a.about-link:hover,
+button.about-link:hover { background: var(--ink-2); border-color: var(--line-3); }
+button.about-link:active { transform: translateY(1px); }
+.about-link--static { cursor: default; }
+
+.about-link__icon {
+  width: 38px; height: 38px;
+  border-radius: var(--r-sm);
+  background: var(--ink-2);
+  border: 1px solid var(--line-1);
+  display: grid; place-items: center;
+  color: var(--text-mid);
+}
+.about-link__icon--ok { color: var(--accent-bright); background: var(--accent-soft); border-color: transparent; }
+
+.about-link__main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.about-link__t {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.005em;
+  color: var(--text-hi);
+}
+.about-link__d { font-size: 12px; color: var(--text-lo); }
+.about-link__status { display: inline-flex; align-items: center; gap: 7px; }
+.about-link__dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 60%, transparent);
+}
+
+.about-link__cta {
+  pointer-events: none;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+a.about-link:hover .about-link__cta,
+button.about-link:hover .about-link__cta {
+  color: var(--text-hi);
+  border-color: var(--line-3);
+  background: var(--ink-3);
+}
+.about-link__lic {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--text-mid);
+  padding: 5px 11px;
+  border-radius: var(--r-xs);
+  background: var(--ink-2);
+  border: 1px solid var(--line-2);
+}
+
+/* ═══ ПОДВАЛ ═══ */
+.about-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 4px;
+  text-align: center;
+}
+.about-foot__rule { width: 40px; height: 1px; background: var(--line-2); }
+.about-foot__txt {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.about-foot__txt b { color: var(--text-lo); font-weight: 500; }
+.about-foot__made {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.about-foot__made svg { color: var(--accent); }

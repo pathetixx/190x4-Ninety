@@ -159,6 +159,10 @@ struct TrayMenuPayload {
     servers: Vec<TraySrv>,
     #[serde(default, rename = "dpiActive")]
     dpi_active: bool,
+    /// Версия доступного обновления, найденного фоновой проверкой пока окно в
+    /// трее. Some → показываем выделенный пункт «Обновить до vX». None → нет.
+    #[serde(default, rename = "updateVersion")]
+    update_version: Option<String>,
 }
 
 /// Собирает контекстное меню трея под текущее состояние: выбор режима
@@ -226,6 +230,19 @@ fn build_tray_menu(
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
+
+    // Доступное обновление (нашлось пока окно в трее) — выделенный пункт сверху.
+    // Клик показывает окно и открывает модалку установки.
+    if let Some(ver) = &payload.update_version {
+        let upd = MenuItem::with_id(
+            app, "update:install", &format!("⤓  Обновить до v{ver}"), true, None::<&str>,
+        )?;
+        let sep0 = PredefinedMenuItem::separator(app)?;
+        return Menu::with_items(
+            app,
+            &[&upd, &sep0, &show_item, &sep1, &conn_item, &mode_sub, &server_sub, &dpi_sub, &sep2, &quit_item],
+        );
+    }
 
     Menu::with_items(
         app,
@@ -336,6 +353,7 @@ pub fn run() {
                     match id {
                         "show" => show_main(app),
                         "quit" => app.exit(0),
+                        "update:install" => { show_main(app); let _ = app.emit("tray:update", ()); }
                         "toggle-vpn" => { let _ = app.emit("tray:toggle-vpn", ()); }
                         "dpi:toggle" => { let _ = app.emit("tray:toggle-dpi", ()); }
                         "mode:proxy" => { let _ = app.emit("tray:set-mode", "proxy"); }
