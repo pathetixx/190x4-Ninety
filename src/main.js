@@ -26,7 +26,7 @@ import {
 import { loadOptions, updateOption } from "/lib/options.js";
 import { mountSettings } from "/lib/settings-view.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
-import { openUpdateModal } from "/lib/update-modal.js";
+import { openUpdateModal, shouldSkip as updateShouldSkip } from "/lib/update-modal.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
@@ -1421,21 +1421,43 @@ function nodeDisplayLabel(n) {
   return n?.name || n?.host || "";
 }
 
-// OS-уведомление о подключении с ИМЕНЕМ реально выбранной ноды. Для подписки
-// из >=2 нод балансировщик выбирает сервер уже после старта ядра — поэтому
-// ждём и синхронизируем effective node через clash, иначе показали бы nodes[0]
-// (первый в списке), а не фактический. Для одиночного профиля нода одна.
+// Гарантированно непустое имя сервера для тоста/уведомления. Цепочка фолбэков:
+// фактическая нода из clash → первая нода/профиль источника → имя подписки.
+// Возвращает "" только если активного источника вообще нет.
+function resolveServerLabel() {
+  const eff = currentEffectiveNode;
+  if (eff?.name || eff?.host) return eff.name || eff.host;
+  const src = getActiveSource();
+  if (src?.kind === "sub") {
+    const n0 = src.nodes?.[0];
+    if (n0?.name || n0?.host) return n0.name || n0.host;
+    return src.subscription?.name || "";
+  }
+  const p = src?.profile;
+  return p?.name || p?.host || "";
+}
+
+// OS-уведомление + догоняющий тост о подключении с ИМЕНЕМ реально выбранной
+// ноды. Для подписки из >=2 нод балансировщик выбирает сервер уже ПОСЛЕ старта
+// ядра — опрашиваем clash, пока не появится фактический сервер (до ~3.5с),
+// иначе показали бы nodes[0] (первый в списке), а не фактический. Для одиночного
+// профиля нода одна — ждать нечего.
 async function notifyConnectedWithRealNode(isMultiSub) {
   if (isMultiSub) {
-    await new Promise(r => setTimeout(r, 900));
-    try { await syncEffectiveFromClash(); } catch {}
-    if (!currentEffectiveNode) {
-      await new Promise(r => setTimeout(r, 700));
+    for (let i = 0; i < 7; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      if (state !== "connected") return; // успели отключиться
       try { await syncEffectiveFromClash(); } catch {}
+      if (currentEffectiveNode) break;
     }
   }
-  if (state !== "connected") return; // успели отключиться — не шлём
-  const label = nodeDisplayLabel(activeNodeForDisplay());
+  if (state !== "connected") return;
+  const label = resolveServerLabel();
+  // Для подписки стартовый тост был обобщённым (балансировщик ещё не выбрал) —
+  // догоняем реальным сервером, когда он стал известен.
+  if (label && isMultiSub) {
+    toast("Защищено", "connected", 2000, { group: "conn", desc: `Сервер: ${label}` });
+  }
   notify("Ninety · подключено", label ? `Сервер: ${label}` : "Туннель поднят");
 }
 
@@ -1656,7 +1678,11 @@ async function syncTrayMenu() {
     let dpiActive = false;
     try { dpiActive = localStorage.getItem("ninety.dpi.enabled") === "true"; } catch {}
     await invoke("set_tray_menu", {
-      payload: { connected: state === "connected", mode: getMode(), servers: buildTrayServers(), dpiActive },
+      payload: {
+        connected: state === "connected", mode: getMode(),
+        servers: buildTrayServers(), dpiActive,
+        updateVersion: pendingUpdate?.version || null,
+      },
     });
   } catch (e) {
     console.warn("syncTrayMenu failed", e);
@@ -1675,6 +1701,8 @@ async function syncTrayMenu() {
     });
     // Подключиться/Отключиться из трея — тот же путь, что клик по hero-диску.
     await ev.listen("tray:toggle-vpn", () => { heroDisc?.click(); });
+    // «Обновить до vX» из трея → окно уже показано Rust-обработчиком, открываем модалку.
+    await ev.listen("tray:update", () => { flushPendingUpdate(); });
     // DPI-обход вкл/выкл из трея — тот же toggleDpi, что в UI; затем рефреш меню.
     await ev.listen("tray:toggle-dpi", async () => {
       try { await toggleDpi(); } catch (err) { console.warn("tray dpi toggle failed", err); }
@@ -1754,8 +1782,12 @@ heroDisc?.addEventListener("click", async () => {
       const src0 = getActiveSource();
       const isMultiSub = src0?.kind === "sub" && Array.isArray(src0.nodes) && src0.nodes.length >= 2;
       // In-app тост сразу. Для подписки нода ещё не выбрана балансировщиком —
-      // не врём конкретным сервером; для одиночного профиля показываем его имя.
-      const initLabel = isMultiSub ? "" : nodeDisplayLabel(activeNodeForDisplay());
+      // показываем имя подписки (не врём конкретным сервером), затем
+      // notifyConnectedWithRealNode догонит тост фактическим сервером. Для
+      // одиночного профиля сразу его имя.
+      const initLabel = isMultiSub
+        ? (src0.subscription?.name || "Подписка")
+        : nodeDisplayLabel(activeNodeForDisplay());
       toast("Защищено", "connected", 2200, {
         group: "conn",
         desc: initLabel || "Туннель поднят",
@@ -1891,6 +1923,39 @@ syncTrayMenu();
 })();
 
 // ── Auto-update ────────────────────────────────────────────
+// Обновление, найденное фоновой проверкой, пока окно свёрнуто в трей. Не
+// выдёргиваем окно модалкой — копим здесь, показываем когда юзер вернётся
+// (фокус окна / клик по пункту трея). null = ничего не ждёт.
+let pendingUpdate = null;
+let updateModalShowing = false;
+
+// Окно «на виду»? (видимо и не свёрнуто). В трее hide() → isVisible()=false.
+async function windowIsForeground() {
+  if (!tauriWin) return true;
+  try {
+    const visible = await tauriWin.isVisible?.();
+    if (visible === false) return false;
+    const min = await tauriWin.isMinimized?.();
+    return !min;
+  } catch { return true; }
+}
+
+async function showUpdateModal(update, opts = {}) {
+  updateModalShowing = true;
+  try { await openUpdateModal(update, opts); }
+  finally { updateModalShowing = false; }
+}
+
+// Показать отложенное обновление (юзер вернулся к окну). respectSkip=false —
+// он сам открыл приложение, значит готов смотреть; «Позже» внутри модалки.
+async function flushPendingUpdate() {
+  if (!pendingUpdate || updateModalShowing) return;
+  const u = pendingUpdate;
+  pendingUpdate = null;
+  syncTrayMenu(); // снять пункт «Обновить» из трея
+  await showUpdateModal(u, { respectSkip: false });
+}
+
 async function runUpdateCheck({ silent = true } = {}) {
   if (!updaterAvailable()) {
     if (!silent) toast("Updater недоступен", "error", 2500);
@@ -1901,13 +1966,33 @@ async function runUpdateCheck({ silent = true } = {}) {
     if (!silent) toast("Обновлений нет — у вас актуальная версия", "info", 2400);
     return;
   }
-  // silent=true (автопроверка на старте) — уважаем "Позже" по этой версии;
-  // silent=false (юзер сам нажал) — игнорируем skip, показываем всё равно.
-  await openUpdateModal(update, { respectSkip: silent });
+  // Юзер сам нажал «Проверить» → показываем модалку немедленно, skip игнорим.
+  if (!silent) { await showUpdateModal(update, { respectSkip: false }); return; }
+  // Фоновая проверка: уважаем «Позже» по этой версии — не навязываемся.
+  if (updateShouldSkip(update.version)) return;
+  // Окно на виду → обычная модалка. Свёрнуто в трей → не выдёргиваем: OS-
+  // уведомление + пункт в трее, модалка откроется когда юзер вернётся.
+  if (await windowIsForeground()) {
+    await showUpdateModal(update, { respectSkip: true });
+  } else {
+    pendingUpdate = update;
+    syncTrayMenu();
+    notify("Ninety · доступно обновление",
+      `Версия ${update.version} готова к установке. Откройте Ninety, чтобы обновиться.`);
+  }
 }
 
-// Проверка при старте — через 3 сек после bootstrap
+// Проверка при старте — через 3 сек после bootstrap, далее каждые 6 часов
+// (юзер может держать клиент включённым сутками — иначе узнает об апдейте
+// только после ручного перезапуска).
 setTimeout(() => runUpdateCheck({ silent: true }), 3000);
+setInterval(() => runUpdateCheck({ silent: true }), 6 * 60 * 60 * 1000);
+
+// Вернулись к окну (фокус из трея/таскбара) → показать отложенный апдейт.
+(async () => {
+  try { await tauriWin?.onFocusChanged?.(({ payload: focused }) => { if (focused) flushPendingUpdate(); }); }
+  catch (e) { console.warn("focus listener failed", e); }
+})();
 
 // Глобальная функция для кнопки «Проверить обновления» в settings
 window.__ninetyUpdateCheck = () => runUpdateCheck({ silent: false });
