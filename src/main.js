@@ -1774,8 +1774,17 @@ syncTrayMenu();
 // proxy/systemProxy прав не требуют, поэтому в не-TUN элевация только ради DPI.
 (async () => {
   try {
+    // После OTA-апдейта процесс перезапускается БЕЗ --autostarted/--elevated, и
+    // should_autoconnect=false → блок бы не вошёл, DPI не вернулся. update-modal
+    // ставит resumeAfterUpdate, если DPI был включён, — по нему тоже входим
+    // (dpiWanted ниже поднимет обход обратно, при необходимости через UAC).
+    const resumeAfterUpdate = (() => {
+      try { return localStorage.getItem("ninety.dpi.resumeAfterUpdate") === "1"; } catch { return false; }
+    })();
+    if (resumeAfterUpdate) { try { localStorage.removeItem("ninety.dpi.resumeAfterUpdate"); } catch {} }
+
     const autoconnect = await invoke("should_autoconnect");
-    if (!autoconnect) return;
+    if (!autoconnect && !resumeAfterUpdate) return;
 
     const tunWanted = getMode() === "tun";
     const dpiWanted = localStorage.getItem("ninety.dpi.enabled") === "true" && !tunWanted;

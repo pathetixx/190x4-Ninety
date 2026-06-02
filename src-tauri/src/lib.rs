@@ -373,6 +373,7 @@ pub fn run() {
             dpi::dpi_read_log,
             dpi::dpi_read_list,
             dpi::dpi_write_list,
+            dpi::dpi_unload_driver,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
