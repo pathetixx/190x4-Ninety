@@ -27,3 +27,7 @@ dist/
 # Lockfiles we don't want to track from VPS edits
 # (CI installs deps fresh anyway)
 package-lock.json
+
+# Python bytecode (gen_strategies.py)
+__pycache__/
+*.pyc
