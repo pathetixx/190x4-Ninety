@@ -31,7 +31,7 @@ import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
-import { mountDpiView, setDpiVpnMode, excludeVpnNode, autostartDpiIfEnabled } from "/lib/dpi-view.js";
+import { mountDpiView, setDpiVpnMode, excludeVpnNode, autostartDpiIfEnabled, toggleDpi } from "/lib/dpi-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
@@ -1416,6 +1416,29 @@ function activeNodeForDisplay() {
   return src?.kind === "sub" ? src.nodes[0] : src?.profile;
 }
 
+// Имя ноды как в списке нод (не адрес). host — запасной вариант.
+function nodeDisplayLabel(n) {
+  return n?.name || n?.host || "";
+}
+
+// OS-уведомление о подключении с ИМЕНЕМ реально выбранной ноды. Для подписки
+// из >=2 нод балансировщик выбирает сервер уже после старта ядра — поэтому
+// ждём и синхронизируем effective node через clash, иначе показали бы nodes[0]
+// (первый в списке), а не фактический. Для одиночного профиля нода одна.
+async function notifyConnectedWithRealNode(isMultiSub) {
+  if (isMultiSub) {
+    await new Promise(r => setTimeout(r, 900));
+    try { await syncEffectiveFromClash(); } catch {}
+    if (!currentEffectiveNode) {
+      await new Promise(r => setTimeout(r, 700));
+      try { await syncEffectiveFromClash(); } catch {}
+    }
+  }
+  if (state !== "connected") return; // успели отключиться — не шлём
+  const label = nodeDisplayLabel(activeNodeForDisplay());
+  notify("Ninety · подключено", label ? `Сервер: ${label}` : "Туннель поднят");
+}
+
 function updateHeroForActive() {
   const src = getActiveSource();
   const p = activeNodeForDisplay();
@@ -1609,6 +1632,9 @@ window.addEventListener("ninety:node-changed", (ev) => {
   syncEffectiveFromClash({ knownTag: tag });
 });
 
+// DPI-обход переключили из UI → обновить статус/подпись в трее.
+window.addEventListener("ninety:dpi-changed", () => syncTrayMenu());
+
 // ── Трей: динамическое контекстное меню (режим + список серверов) ──
 // Список серверов — только для подписки с >=2 нодами (у одиночного конфига
 // и сабов из одной ноды clash-тэг всегда "proxy", переключать нечего).
@@ -1617,7 +1643,8 @@ function buildTrayServers() {
   if (!src || src.kind !== "sub" || !Array.isArray(src.nodes) || src.nodes.length < 2) return [];
   return src.nodes.map((n, i) => {
     const tag = nodeTag(i, n);
-    return { id: tag, label: (n.name || n.host || tag).slice(0, 48), selected: tag === currentEffectiveTag };
+    const iso = isoFromNodeName(n.name) || isoFromNodeName(n.host) || null;
+    return { id: tag, label: (n.name || n.host || tag).slice(0, 48), selected: tag === currentEffectiveTag, iso };
   });
 }
 
@@ -1626,8 +1653,10 @@ async function syncTrayMenu() {
   if (trayMenuBusy) return;
   trayMenuBusy = true;
   try {
+    let dpiActive = false;
+    try { dpiActive = localStorage.getItem("ninety.dpi.enabled") === "true"; } catch {}
     await invoke("set_tray_menu", {
-      payload: { connected: state === "connected", mode: getMode(), servers: buildTrayServers() },
+      payload: { connected: state === "connected", mode: getMode(), servers: buildTrayServers(), dpiActive },
     });
   } catch (e) {
     console.warn("syncTrayMenu failed", e);
@@ -1643,6 +1672,13 @@ async function syncTrayMenu() {
   try {
     await ev.listen("tray:set-mode", (e) => {
       if (typeof e?.payload === "string") changeMode(e.payload);
+    });
+    // Подключиться/Отключиться из трея — тот же путь, что клик по hero-диску.
+    await ev.listen("tray:toggle-vpn", () => { heroDisc?.click(); });
+    // DPI-обход вкл/выкл из трея — тот же toggleDpi, что в UI; затем рефреш меню.
+    await ev.listen("tray:toggle-dpi", async () => {
+      try { await toggleDpi(); } catch (err) { console.warn("tray dpi toggle failed", err); }
+      syncTrayMenu();
     });
     await ev.listen("tray:select-server", async (e) => {
       const tag = e?.payload;
@@ -1715,14 +1751,19 @@ heroDisc?.addEventListener("click", async () => {
         await invoke("set_system_proxy", { enable: true, hostPort: `127.0.0.1:${options.inbound.mixedPort || 7890}` });
       }
       setState("connected", { ping: "— мс" });
+      const src0 = getActiveSource();
+      const isMultiSub = src0?.kind === "sub" && Array.isArray(src0.nodes) && src0.nodes.length >= 2;
+      // In-app тост сразу. Для подписки нода ещё не выбрана балансировщиком —
+      // не врём конкретным сервером; для одиночного профиля показываем его имя.
+      const initLabel = isMultiSub ? "" : nodeDisplayLabel(activeNodeForDisplay());
       toast("Защищено", "connected", 2200, {
         group: "conn",
-        desc: (activeNodeForDisplay()?.host) ? `Через ${activeNodeForDisplay().host}` : "Туннель поднят",
+        desc: initLabel || "Туннель поднят",
       });
-      // Через 800мс синхронизируем effective node через clash — URLTest уже выбрал ноду
-      setTimeout(syncEffectiveFromClash, 800);
-      const p2 = activeNodeForDisplay();
-      notify("Ninety · подключено", p2 ? `Через ${p2.host}` : "Туннель поднят");
+      syncTrayMenu(); // трей → «Отключиться» (для sub ещё раз обновится после sync)
+      // Effective node + OS-уведомление с именем фактического сервера (внутри
+      // делает syncEffectiveFromClash → обновляет hero/локацию/трей).
+      notifyConnectedWithRealNode(isMultiSub);
     } catch (e) {
       console.error("start failed", e);
       setState("idle");

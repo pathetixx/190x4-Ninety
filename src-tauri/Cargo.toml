@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "ninety"
-version = "0.1.56"
+version = "0.1.57"
 description = "Ninety — VPN client in 190x4 aesthetic"
 authors = ["pathetixx"]
 edition = "2021"
@@ -17,7 +17,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
