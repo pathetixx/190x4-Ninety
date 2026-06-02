@@ -251,6 +251,25 @@ export function formatGiB(bytes) {
   return (bytes / 1024 / 1024 / 1024).toFixed(bytes < 1e9 ? 2 : 1);
 }
 
+// Умный форматтер трафика: сам подбирает единицу (Б/КБ/МБ/ГБ/ТБ), даёт
+// «12.3 МБ» / «1.45 ГБ» / «857 ГБ» вместо вечного «0.00 ГБ» на мелких объёмах.
+export function formatBytes(bytes) {
+  const b = Number(bytes) || 0;
+  if (b <= 0) return "0 Б";
+  const units = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+  let v = b, i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  const dec = i <= 1 || v >= 100 ? 0 : (v >= 10 ? 1 : 2);
+  return `${v.toFixed(dec)} ${units[i]}`;
+}
+
+// total=0 (или отсутствует) у многих панелей = безлимит/не метится. Возвращаем
+// число только если это реальный положительный лимит, иначе null = безлимит.
+export function subscriptionLimitBytes(sub) {
+  const t = sub?.total;
+  return typeof t === "number" && t > 0 ? t : null;
+}
+
 export function relativeTime(ts) {
   if (!ts) return "—";
   const secs = Math.max(0, Math.floor((Date.now() - ts) / 1000));
