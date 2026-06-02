@@ -11,7 +11,9 @@
 ; на машине не остаётся ни службы, ни её бинаря.
 
 !macro NSIS_HOOK_PREINSTALL
-  DetailPrint "Сносим легаси-службу NinetyTunnelService (если осталась с alpha54-)..."
+  DetailPrint "Подготовка к установке: завершаем компоненты Ninety..."
+  ; Легаси-служба NinetyTunnelService (TUN до alpha55). У давно не обновлявшихся
+  ; ещё может быть установлена — тихо сносим, на актуальных версиях это no-op.
   nsExec::Exec '"$SYSDIR\sc.exe" stop NinetyTunnelService'
   Pop $0
   ; sc stop асинхронный — даём время на корректное завершение
@@ -20,7 +22,6 @@
   Pop $0
   nsExec::Exec '"$SYSDIR\sc.exe" delete NinetyTunnelService'
   Pop $0
-  DetailPrint "Закрываем запущенные процессы Ninety..."
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM Ninety.exe'
   Pop $0
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM sing-box.exe'
@@ -49,7 +50,8 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  DetailPrint "Сносим легаси-службу NinetyTunnelService (если осталась)..."
+  DetailPrint "Завершаем компоненты Ninety..."
+  ; Легаси-служба (см. PREINSTALL) — тихий no-op на актуальных версиях.
   nsExec::Exec '"$SYSDIR\sc.exe" stop NinetyTunnelService'
   Pop $0
   Sleep 1500

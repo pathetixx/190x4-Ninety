@@ -39,6 +39,7 @@ const I = {
   close:    '<path d="m6 6 12 12"/><path d="m18 6-12 12"/>',
   search:   '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
+  sliders:  '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>',
 };
 function ic(name, size = 16, stroke = 1.5) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round">${I[name] || ""}</svg>`;
@@ -201,7 +202,7 @@ function renderBody() {
         <article class="dpi-card">
           <div class="dpi-card__head">
             <div class="dpi-card__label">${ic("shield", 13)}Текущая стратегия</div>
-            <button class="btn btn--sm" data-dpi-drawer>${ic("refresh", 13)} Сменить</button>
+            <button class="btn btn--sm" data-dpi-drawer>${ic("sliders", 13)} Стратегии</button>
           </div>
           <div class="dpi-strategy">
             <div class="dpi-strategy__row">
@@ -635,7 +636,6 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
   // вне #app-root, поэтому его клики — закрытие/фон/выбор стратегии — должны
   // ловиться на уровне документа.
   document.addEventListener("click", onClick);
-  document.getElementById("dpi-strategies-btn")?.addEventListener("click", openDrawer);
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (editorEl) closeListEditor();
