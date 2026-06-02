@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ninety",
-  "version": "0.1.53",
+  "version": "0.1.54",
   "identifier": "pw.x190x4.ninety",
   "build": {
     "frontendDist": "../src"
@@ -39,7 +39,8 @@
       "dpi/bin/*": "dpi/bin/",
       "dpi/lists/*": "dpi/lists/",
       "dpi/strategies.json": "dpi/strategies.json",
-      "dpi/version.txt": "dpi/version.txt"
+      "dpi/version.txt": "dpi/version.txt",
+      "dpi/engine-version.txt": "dpi/engine-version.txt"
     },
     "icon": [
       "icons/32x32.png",

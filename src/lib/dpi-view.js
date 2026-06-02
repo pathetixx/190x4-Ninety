@@ -7,9 +7,18 @@
 //   setDpiVpnMode(mode)  — синхронизировать режим VPN (TUN→пауза)
 //   excludeVpnNode(host) — внести сервер активной ноды в exclude winws
 
+import { loadOptions } from "/lib/options.js";
+
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 const tauriListen = window.__TAURI__?.event?.listen;
+
+// Split-routing Discord активен: в TUN, и опция включена. Тогда winws НЕ паузим
+// в TUN — он десинхрит direct-Discord на реальном интерфейсе (голос low-ping).
+function splitDiscordActive() {
+  try { return S.vpnMode === "tun" && !!loadOptions()?.route?.tunSplitDiscord; }
+  catch { return false; }
+}
 
 /* ═══════════ ICONS (inner SVG, стиль Lucide 1.5px) ═══════════ */
 const I = {
@@ -87,7 +96,8 @@ const S = {
 // но если DPI логически включён (LS.enabled) — показываем «На паузе», а не «Выключен»:
 // при выходе из TUN он восстановится. Вне TUN — реальное состояние движка.
 function effState() {
-  if (S.vpnMode === "tun" && lsGet(LS.enabled, "false") === "true") return "paused";
+  // В split-Discord движок реально работает и в TUN → отдаём реальное S.base.
+  if (S.vpnMode === "tun" && !splitDiscordActive() && lsGet(LS.enabled, "false") === "true") return "paused";
   return S.base;
 }
 
@@ -148,7 +158,7 @@ function renderBody() {
 
   const UPD = [
     { id: "app", name: "Приложение", ver: `Ninety ${S.versions.app}`, icon: "box", upd: false },
-    { id: "engine", name: "Движок обхода", ver: S.versions.engine, icon: "cpu", upd: false },
+    { id: "engine", name: "Движок обхода", ver: S.versions.engine, icon: "cpu", upd: false, note: "в приложении" },
     { id: "strategies", name: "Набор стратегий", ver: `lists ${S.versions.strategies}`, icon: "list", upd: S.hasUpdate },
   ];
   const updRows = UPD.map((row) => {
@@ -156,7 +166,7 @@ function renderBody() {
     const right = row.upd
       ? `<span class="dpi-pill" data-kind="update">обновление</span>
          <button class="btn btn--sm btn--primary" data-dpi-update="${row.id}" ${isUpd ? "disabled" : ""}>${isUpd ? "…" : "Обновить"}</button>`
-      : `<span class="dpi-pill" data-kind="ok">актуально</span>`;
+      : `<span class="dpi-pill" data-kind="ok">${row.note || "актуально"}</span>`;
     return `<div class="dpi-upd-row" data-updating="${isUpd}">
         <span class="dpi-upd-row__icon">${ic(row.icon, 15)}</span>
         <div class="dpi-upd-row__main"><span class="dpi-upd-row__name">${row.name}</span><span class="dpi-upd-row__ver">${esc(row.ver)}</span></div>
@@ -334,7 +344,8 @@ async function resumeEngineAfterTun() {
 
 async function toggleDpi() {
   // В TUN движок на паузе — тоггл меняет лишь «хотим ли DPI после выхода из TUN».
-  if (S.vpnMode === "tun") {
+  // Исключение — split-Discord: там движок реально работает в TUN, тоггл = старт/стоп.
+  if (S.vpnMode === "tun" && !splitDiscordActive()) {
     const want = lsGet(LS.enabled, "false") !== "true";
     localStorage.setItem(LS.enabled, want ? "true" : "false");
     renderAll();
@@ -353,7 +364,7 @@ async function toggleDpi() {
 // моменту уже elevated (см. единый автозапуск в main.js) → стартуем без confirm.
 export async function autostartDpiIfEnabled() {
   if (lsGet(LS.enabled, "false") !== "true") return;
-  if (S.vpnMode === "tun") return; // в TUN обход не нужен — останется на паузе
+  if (S.vpnMode === "tun" && !splitDiscordActive()) return; // в TUN без split обход на паузе
   try { if (await invoke("dpi_running")) { S.base = "running"; renderAll(); return; } } catch {}
   const ok = await ensureElevated();
   if (!ok) return;
@@ -597,7 +608,10 @@ export function setDpiVpnMode(mode) {
   // Реальная пауза/возврат движка по режиму VPN (риск из спайка: в TUN весь
   // трафик в туннеле, winws иначе жуёт зашифрованный VLESS).
   if (mode === "tun") {
-    if (S.base === "running" || S.base === "starting") pauseEngineForTun();
+    // split-Discord: оставляем winws работать (десинхрит direct-Discord в TUN).
+    if (!loadOptions()?.route?.tunSplitDiscord && (S.base === "running" || S.base === "starting")) {
+      pauseEngineForTun();
+    }
   } else if (prev === "tun") {
     resumeEngineAfterTun();
   }

@@ -484,6 +484,8 @@ function pathNeedsRestart(path) {
   if (path === "inbound.mtu" || path === "inbound.tunStack" || path === "inbound.strictRoute") {
     return getMode() === "tun";
   }
+  // split-routing Discord влияет только на TUN-маршруты
+  if (path === "route.tunSplitDiscord") return getMode() === "tun";
   return true;
 }
 
@@ -1787,7 +1789,9 @@ syncTrayMenu();
     if (!autoconnect && !resumeAfterUpdate) return;
 
     const tunWanted = getMode() === "tun";
-    const dpiWanted = localStorage.getItem("ninety.dpi.enabled") === "true" && !tunWanted;
+    // DPI нужен вне TUN, либо в TUN при split-Discord (winws десинхрит direct-Discord).
+    const splitDiscord = tunWanted && !!loadOptions()?.route?.tunSplitDiscord;
+    const dpiWanted = localStorage.getItem("ninety.dpi.enabled") === "true" && (!tunWanted || splitDiscord);
     if ((tunWanted || dpiWanted) && !(await invoke("is_elevated"))) {
       if (tunWanted) setMode("tun"); // перезапущенный admin-инстанс поднимется в TUN
       const started = await invoke("relaunch_elevated");

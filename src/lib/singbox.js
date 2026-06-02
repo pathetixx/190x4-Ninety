@@ -20,6 +20,16 @@ const BLOCK_AD_SETS = [
   ["geoip-phishing", `${HIDDIFY_GEO_BASE}/block/geoip-phishing.srs`],
 ];
 
+// SagerNet sing-geosite — у hiddify-geo нет geosite-discord, берём отсюда.
+const DISCORD_GEO_BASE = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set";
+// Доменные суффиксы Discord — дублируют geosite-discord на случай, если правило
+// не подтянулось, и ловят по sniffed-SNI. Только домены Discord уходят в direct
+// (без IP-листа: кривой CIDR увёл бы чужой трафик мимо VPN = утечка).
+const DISCORD_SUFFIXES = [
+  "discord.com", "discordapp.com", "discordapp.net", "discord.gg",
+  "discord.media", "discord.dev", "discordstatus.com", "dis.gd",
+];
+
 const IPV6_STRATEGY_MAP = {
   disable: "ipv4_only",
   enable: "prefer_ipv4",
@@ -534,8 +544,16 @@ function buildOutbound(p, options) {
 }
 
 // ── rule_sets для региона + block_ads ───────────────────────
-function buildRuleSets(options) {
+function buildRuleSets(options, mode) {
   const sets = [];
+  // TUN + split Discord: правило для маршрутизации доменов Discord мимо туннеля.
+  if (mode === "tun" && options.route?.tunSplitDiscord) {
+    sets.push({
+      type: "remote", tag: "geosite-discord", format: "binary",
+      url: `${DISCORD_GEO_BASE}/geosite-discord.srs`,
+      update_interval: "120h", download_detour: "proxy",
+    });
+  }
   const region = options.region;
   if (region && region !== "other") {
     sets.push({
@@ -670,6 +688,14 @@ function buildRoute(options, mode) {
     });
   }
 
+  // TUN + split Discord: домены Discord идут direct (мимо туннеля), чтобы winws
+  // десинхрил их на реальном интерфейсе. winws при этом НЕ паузится в TUN (см.
+  // dpi-view.setDpiVpnMode). VPN-нода уже в exclude winws — её трафик не трогаем.
+  if (mode === "tun" && options.route?.tunSplitDiscord) {
+    rules.push({ rule_set: ["geosite-discord"], outbound: "direct" });
+    rules.push({ domain_suffix: DISCORD_SUFFIXES, outbound: "direct" });
+  }
+
   if (options.route.bypassLan) {
     rules.push({ ip_is_private: true, outbound: "direct" });
   }
@@ -691,7 +717,7 @@ function buildRoute(options, mode) {
 
   const route = {
     rules,
-    rule_set: buildRuleSets(options),
+    rule_set: buildRuleSets(options, mode),
     final: "proxy",
     auto_detect_interface: true,
     default_domain_resolver: {

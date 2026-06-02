@@ -71,6 +71,10 @@ export const DEFAULT_OPTIONS = {
     resolveDestination: false,
     ipv6Mode: "disable",
     balancerStrategy: "round-robin",
+    // TUN + split-routing: Discord идёт мимо туннеля (direct), чтобы DPI-обход
+    // (winws) десинхрил его на реальном интерфейсе — голос low-ping одновременно
+    // с полным TUN. Opt-in: в полном TUN весь трафик в туннеле, обход не нужен.
+    tunSplitDiscord: false,
   },
   inbound: {
     mixedPort: 7890,

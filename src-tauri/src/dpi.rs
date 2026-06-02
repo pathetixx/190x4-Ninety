@@ -426,13 +426,103 @@ fn strat_version(app: &AppHandle) -> String {
         .unwrap_or_else(|| "—".into())
 }
 
+// Распарсить версию движка из вывода `winws --version` (баннер вида
+// "github version 72.12 (...)" — печатается самим winws). Ищем токен с цифрами
+// после слова "version".
+fn parse_engine_version(out: &str) -> Option<String> {
+    for line in out.lines() {
+        let low = line.to_lowercase();
+        if let Some(idx) = low.find("version") {
+            let after = &line[idx + "version".len()..];
+            let tok: String = after
+                .trim()
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '.')
+                .collect();
+            if tok.chars().any(|c| c.is_ascii_digit()) {
+                return Some(tok);
+            }
+        }
+    }
+    None
+}
+
+// Реальная версия движка winws на машине: спрашиваем у самого winws (--version).
+// Ограниченное ожидание ~1.5с + kill, чтобы не повиснуть, если бинарь поведёт
+// себя неожиданно. Windows-only (winws.exe — Win-бинарь).
+#[cfg(target_os = "windows")]
+fn engine_version_runtime(app: &AppHandle) -> Option<String> {
+    use std::io::Read;
+    use std::os::windows::process::CommandExt;
+    let bin = bin_dir(app).ok()?;
+    let exe = bin.join("winws.exe");
+    if !exe.exists() {
+        return None;
+    }
+    let mut child = std::process::Command::new(&exe)
+        .arg("--version")
+        .current_dir(&bin)
+        .creation_flags(0x0800_0000)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    let mut waited = 0u64;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if waited >= 1500 {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+                waited += 100;
+            }
+            Err(_) => {
+                let _ = child.kill();
+                return None;
+            }
+        }
+    }
+    let mut out = String::new();
+    if let Some(mut so) = child.stdout.take() {
+        let _ = so.read_to_string(&mut out);
+    }
+    if parse_engine_version(&out).is_none() {
+        if let Some(mut se) = child.stderr.take() {
+            let _ = se.read_to_string(&mut out);
+        }
+    }
+    parse_engine_version(&out).map(|v| format!("zapret {v}"))
+}
+
+// Версия движка: реальная от winws (--version) → bundled engine-version.txt → дефолт.
+fn engine_version(app: &AppHandle) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(v) = engine_version_runtime(app) {
+            return v;
+        }
+    }
+    res_dpi(app)
+        .ok()
+        .and_then(|d| std::fs::read_to_string(d.join("engine-version.txt")).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "winws (zapret)".into())
+}
+
 /// Три версии для карточки «Обновления»: приложение / движок / набор стратегий.
+/// Движок едет в составе приложения (app-OTA), поэтому отдельной кнопки обновления
+/// у него нет — обновляется вместе с Ninety.
 #[tauri::command]
 pub fn dpi_versions(app: AppHandle) -> serde_json::Value {
     let strat = strat_version(&app);
     serde_json::json!({
         "app": app.package_info().version.to_string(),
-        "engine": "winws (zapret)",
+        "engine": engine_version(&app),
         "strategies": strat,
     })
 }
