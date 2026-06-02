@@ -38,7 +38,7 @@ export function openQRModal(sub) {
       </div>
       <h3 class="qr-modal__name"></h3>
       <div class="qr-modal__qr-wrap" data-qr></div>
-      <p class="qr-modal__hint">Отсканируйте на телефоне в любом vless-клиенте (Hiddify, v2rayNG, NekoBox).</p>
+      <p class="qr-modal__hint">Отсканируйте на телефоне в любом совместимом vless-клиенте.</p>
       <div class="qr-modal__actions">
         <button class="qr-modal__btn" type="button" data-copy>Скопировать URL</button>
       </div>

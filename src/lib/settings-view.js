@@ -591,9 +591,9 @@ function renderGeneral(o) {
 function renderRouting(o) {
   return `
     <div class="settings-section">
-      ${row(iconPin(), "Регион", "Локальный трафик региона идёт напрямую через geosite/geoip rule_sets от hiddify-geo (обновление каждые 5 дней через прокси)", select("region", o.region, REGIONS, REGION_LABELS, true))}
+      ${row(iconPin(), "Регион", "Локальный трафик региона идёт напрямую через geosite/geoip rule_sets (обновление каждые 5 дней через прокси)", select("region", o.region, REGIONS, REGION_LABELS, true))}
       ${row(iconBalancer(), "Стратегия Balancer", "Используется при множественных нодах (alpha7)", select("route.balancerStrategy", o.route.balancerStrategy, BALANCER_STRATEGIES, BALANCER_LABELS))}
-      ${row(iconShield(), "Блокировать рекламу", "Domain/IP списки рекламы и malware из hiddify-geo", toggle("blockAds", o.blockAds))}
+      ${row(iconShield(), "Блокировать рекламу", "Domain/IP списки рекламы и malware", toggle("blockAds", o.blockAds))}
       ${row(iconLan(), "Обход LAN", "Локальные адреса (10.x, 192.168.x и т.п.) идут напрямую", toggle("route.bypassLan", o.route.bypassLan))}
       ${row(iconTarget(), "Определять адрес назначения", "Резолвить домен в IP перед маршрутизацией", toggle("route.resolveDestination", o.route.resolveDestination))}
       ${row(iconIpv6(), "Маршрут IPv6", "Стратегия выбора IPv4/IPv6", select("route.ipv6Mode", o.route.ipv6Mode, IPV6_MODES, IPV6_LABELS))}
