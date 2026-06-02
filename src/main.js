@@ -20,7 +20,8 @@ import {
   removeSubscription,
   subscriptionDaysLeft,
   subscriptionUsedBytes,
-  formatGiB,
+  subscriptionLimitBytes,
+  formatBytes as fmtTraffic,
   relativeTime,
 } from "/lib/subscriptions.js";
 import { loadOptions, updateOption } from "/lib/options.js";
@@ -357,8 +358,8 @@ const subName = document.querySelector(".sub-card__name");
 const subExpire = document.getElementById("sub-expire");
 const subExpireUnit = document.querySelector(".sub-card__expire");
 const subProgressFill = document.getElementById("sub-progress-fill");
-const subTrafficUsed = document.getElementById("sub-traffic-used");
-const subTrafficTotal = document.getElementById("sub-traffic-total");
+const subTraffic = document.getElementById("sub-traffic");
+const subBar = document.getElementById("sub-bar");
 const subUpdated = document.getElementById("sub-updated");
 
 function refreshSubCardFromActive() {
@@ -370,30 +371,34 @@ function refreshSubCardFromActive() {
     if (subExpire) subExpire.textContent = days != null ? String(days) : "—";
     if (subExpireUnit) subExpireUnit.style.display = days != null ? "" : "none";
     const used = subscriptionUsedBytes(sub);
-    const total = sub.total ?? null;
-    if (subTrafficUsed) subTrafficUsed.textContent = formatGiB(used);
-    if (subTrafficTotal) subTrafficTotal.textContent = total != null ? formatGiB(total) : "—";
-    if (subProgressFill && total) {
-      const pct = Math.min(100, (used / total) * 100);
-      subProgressFill.style.width = `${pct.toFixed(1)}%`;
-    } else if (subProgressFill) {
-      subProgressFill.style.width = "0%";
+    const limit = subscriptionLimitBytes(sub); // null = безлимит/не метится (total=0)
+    if (subTraffic) {
+      subTraffic.innerHTML = limit != null
+        ? `<b>${fmtTraffic(used)}</b> / <b>${fmtTraffic(limit)}</b>`
+        : `<b>${fmtTraffic(used)}</b> · безлимит`;
+    }
+    // Прогресс-бар только когда есть реальный лимит — иначе это пустая полоса.
+    if (subBar) subBar.style.display = limit != null ? "" : "none";
+    if (subProgressFill) {
+      subProgressFill.style.width = limit
+        ? `${Math.min(100, (used / limit) * 100).toFixed(1)}%`
+        : "0%";
     }
     if (subUpdated) subUpdated.textContent = relativeTime(sub.lastUpdate);
   } else if (src?.kind === "single") {
     if (subName) subName.textContent = "ЛОКАЛЬНЫЙ КОНФИГ";
     if (subExpire) subExpire.textContent = "—";
     if (subExpireUnit) subExpireUnit.style.display = "none";
-    if (subTrafficUsed) subTrafficUsed.textContent = "—";
-    if (subTrafficTotal) subTrafficTotal.textContent = "—";
+    if (subTraffic) subTraffic.textContent = "—";
+    if (subBar) subBar.style.display = "none";
     if (subProgressFill) subProgressFill.style.width = "0%";
     if (subUpdated) subUpdated.textContent = "—";
   } else {
     if (subName) subName.textContent = "НЕТ ПОДПИСКИ";
     if (subExpire) subExpire.textContent = "—";
     if (subExpireUnit) subExpireUnit.style.display = "none";
-    if (subTrafficUsed) subTrafficUsed.textContent = "—";
-    if (subTrafficTotal) subTrafficTotal.textContent = "—";
+    if (subTraffic) subTraffic.textContent = "—";
+    if (subBar) subBar.style.display = "none";
     if (subProgressFill) subProgressFill.style.width = "0%";
     if (subUpdated) subUpdated.textContent = "—";
   }
@@ -932,11 +937,12 @@ function renderProfilesView() {
     const isActive = activeKind === "sub" && s.id === activeSubId;
     const days = subscriptionDaysLeft(s);
     const used = subscriptionUsedBytes(s);
-    const total = s.total ?? null;
+    const limit = subscriptionLimitBytes(s); // null = безлимит (total=0)
     const updated = relativeTime(s.lastUpdate) || "—";
     const nodesCount = s.profiles?.length || 0;
-    const trafficUsed = used != null ? formatGiB(used) : "—";
-    const trafficTotal = total != null ? `/${formatGiB(total)}` : "";
+    const trafficStr = limit != null
+      ? `${fmtTraffic(used)} / ${fmtTraffic(limit)}`
+      : `${fmtTraffic(used)} · ∞`;
     return `
       <article class="prof-card" data-active="${isActive}" data-sub-id="${s.id}">
         <div class="prof-card__icon">${ICON_GLOBE}</div>
@@ -953,7 +959,7 @@ function renderProfilesView() {
             <span class="prof-card__stat-lbl">УЗЛОВ</span>
           </div>
           <div class="prof-card__stat">
-            <span class="prof-card__stat-val tnum">${trafficUsed}${trafficTotal}<span style="color:var(--text-faint);font-size:9px;margin-left:3px;">ГиБ</span></span>
+            <span class="prof-card__stat-val tnum">${trafficStr}</span>
             <span class="prof-card__stat-lbl">ТРАФИК</span>
           </div>
           <div class="prof-card__stat">

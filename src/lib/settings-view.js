@@ -171,6 +171,7 @@ export function mountSettings(root, opts = {}) {
       }
     } catch {}
     el.querySelector("#about-repo")?.addEventListener("click", () => openExternal(REPO_URL));
+    el.querySelector("#about-license")?.addEventListener("click", () => openExternal(LICENSE_URL));
   }
 
   function openExternal(url) {
@@ -641,6 +642,7 @@ function renderTlsTricks(o) {
 }
 
 const REPO_URL = "https://github.com/pathetixx/190x4-Ninety";
+const LICENSE_URL = "https://github.com/pathetixx/190x4-Ninety/blob/main/LICENSE";
 
 const ABOUT_PROTOCOLS = ["VLESS", "VMess", "Trojan", "Hysteria2", "TUIC"];
 const ABOUT_MODES = ["Прокси", "Системный прокси", "VPN · TUN"];
@@ -670,7 +672,7 @@ function renderAbout() {
         <div class="about-id__ver">
           <span class="about-id__chip" id="about-version-chip">v${ver}</span>
           <span class="about-id__sep"></span>
-          <span class="about-id__channel">${b.channel} channel</span>
+          <span class="about-id__channel">${b.channel}</span>
         </div>
         <p class="about-id__tag">VPN-клиент в эстетике 190×4</p>
       </section>
@@ -726,14 +728,14 @@ function renderAbout() {
           <span class="about-link__cta btn btn--sm">${aboutIconRefresh()}Проверить</span>
         </button>
 
-        <div class="about-link about-link--static">
+        <button class="about-link" id="about-license" type="button">
           <span class="about-link__icon">${aboutIconScale()}</span>
           <span class="about-link__main">
             <span class="about-link__t">Лицензия</span>
             <span class="about-link__d">Открытый исходный код — свободно для форка и аудита</span>
           </span>
           <span class="about-link__lic">MIT</span>
-        </div>
+        </button>
       </section>
 
       <footer class="about-foot">
