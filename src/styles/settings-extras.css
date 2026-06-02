@@ -552,5 +552,5 @@
 .logs__console .log-line + .log-line { border-top: 1px solid rgba(255, 255, 255, 0.04); }
 .logs__console .log-line:nth-child(odd) { background: rgba(255, 255, 255, 0.025); }
 
-/* Секция «О программе» — стили вынесены в about.css (handoff Claude Design). */
+/* Секция «О программе» — стили вынесены в about.css. */
 
