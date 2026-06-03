@@ -3,7 +3,7 @@
 
 import { parseVless, parseLink } from "/lib/singbox.js";
 
-const PROTO_PREFIX_RE = /^(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic):\/\//i;
+const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt):\/\/|naive\+[a-z]+:\/\/)/i;
 
 const SUBS_KEY = "ninety.subscriptions.v1";
 const ACTIVE_SUB_KEY = "ninety.subscriptions.active";
@@ -28,7 +28,13 @@ export function safeDecodeBase64(s) {
   }
 }
 
-const KNOWN_PROTO_RE = /vless:\/\/|vmess:\/\/|trojan:\/\/|ss:\/\/|hysteria2?:\/\/|tuic:\/\//i;
+const KNOWN_PROTO_RE = /vless:\/\/|vmess:\/\/|trojan:\/\/|ss:\/\/|hysteria2?:\/\/|tuic:\/\/|tt:\/\/|naive\+[a-z]+:\/\//i;
+
+// TrustTunnel endpoint-.toml (export из endpoint): плоский toml с hostname/addresses.
+const TT_TOML_RE = /^\s*hostname\s*=.*[\r\n]/m;
+function looksLikeTrustTunnelToml(s) {
+  return TT_TOML_RE.test(s) && /^\s*addresses\s*=/m.test(s) && /^\s*username\s*=/m.test(s);
+}
 
 /**
  * Парсит тело подписки в массив vless-профилей.
@@ -94,6 +100,9 @@ export function detectAddInput(raw) {
 
   // Plain список с любыми поддерживаемыми протоколами
   if (KNOWN_PROTO_RE.test(s)) return { kind: "list", content: s };
+
+  // TrustTunnel endpoint-.toml (вставлен текстом или загружен файлом)
+  if (looksLikeTrustTunnelToml(s)) return { kind: "tt-toml", content: s };
 
   return { kind: "unknown", raw: s };
 }

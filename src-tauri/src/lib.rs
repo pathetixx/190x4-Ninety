@@ -401,6 +401,7 @@ pub fn run() {
             vpn::stop_singbox,
             vpn::singbox_running,
             vpn::xray_status,
+            vpn::sidecar_status,
             vpn::vpn_last_error,
             vpn::set_system_proxy,
             vpn::read_singbox_log,

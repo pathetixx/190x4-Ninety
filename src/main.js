@@ -564,6 +564,14 @@ async function healthTick() {
       // reconnectForSourceChange сам ставит needsReconnect и зовёт реконнект,
       // который поднимет sing-box И xray заново из свежего конфига.
       reconnectForSourceChange("Перезапуск xhttp-ядра…");
+      return;
+    }
+    // sidecar-клиенты naive/trusttunnel — та же логика, что у xray-моста.
+    const sc = await invoke("sidecar_status").catch(() => "none");
+    if (sc === "died") {
+      toast("Клиент протокола упал — переподключаюсь", "warn", 4000, { group: "conn", connecting: true });
+      notify("Ninety", "Перезапуск клиента протокола");
+      reconnectForSourceChange("Перезапуск клиента…");
     }
   } catch (e) {
     console.warn("healthTick failed", e);
@@ -1778,13 +1786,15 @@ heroDisc?.addEventListener("click", async () => {
     }
     // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
     // socks-перенаправление. xray=null когда xhttp в источнике нет.
-    const { config, xray } = buildConfig({ source: src, mode, options, warpInfo, xray: true });
+    const { config, xray, sidecars } = buildConfig({ source: src, mode, options, warpInfo, xray: true });
     setState("connecting");
     try {
       await invoke("start_singbox", {
         configJson: JSON.stringify(config),
         mode,
         xrayJson: xray ? JSON.stringify(xray) : null,
+        // naive/trusttunnel клиенты (по одному на ноду); null когда таких нод нет.
+        sidecarsJson: sidecars && sidecars.length ? JSON.stringify(sidecars) : null,
       });
       // Системный прокси выставляем ТОЛЬКО для mode=systemProxy. Для голого
       // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт

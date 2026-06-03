@@ -517,7 +517,15 @@
                 <span class="add-modal__tile-title">Вручную</span>
                 <span class="add-modal__tile-sub">URL + название + интервал</span>
               </button>
+              <button class="add-modal__tile" data-action="file" type="button">
+                <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>
+                </svg>
+                <span class="add-modal__tile-title">Файл .toml</span>
+                <span class="add-modal__tile-sub">TrustTunnel endpoint-конфиг</span>
+              </button>
             </div>
+            <input id="add-modal-file" type="file" accept=".toml,text/plain" hidden/>
           </div>
 
           <div class="add-modal__page add-modal__page--manual" id="add-modal-page-manual" hidden>
@@ -526,8 +534,8 @@
               <input class="add-modal__input" id="add-modal-name" type="text" placeholder="Моя подписка" autocomplete="off"/>
             </div>
             <div class="add-modal__field">
-              <label class="add-modal__label" for="add-modal-url">URL или vless://</label>
-              <input class="add-modal__input" id="add-modal-url" type="text" placeholder="https://example.com/sub  или  vless://..." autocomplete="off"/>
+              <label class="add-modal__label" for="add-modal-url">URL, vless://, naive+https://, tt://…</label>
+              <input class="add-modal__input" id="add-modal-url" type="text" placeholder="https://example.com/sub  ·  vless://…  ·  naive+https://…  ·  tt://…" autocomplete="off"/>
             </div>
             <div class="add-modal__field">
               <div class="add-modal__row">

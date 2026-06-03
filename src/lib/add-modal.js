@@ -2,7 +2,7 @@
 // Hiddify-style: единый flow для clipboard / URL / vless://.
 
 import { detectAddInput, addSubscriptionFromUrl, parseSubscriptionBody } from "/lib/subscriptions.js";
-import { addProfileFromVless, setActiveKind } from "/lib/singbox.js";
+import { addProfileFromVless, addTrustTunnelFromToml, setActiveKind } from "/lib/singbox.js";
 
 function $(id) { return document.getElementById(id); }
 
@@ -65,13 +65,19 @@ async function handleInput(raw, userOverride = {}) {
   const decision = detectAddInput(raw);
 
   if (decision.kind === "empty" || decision.kind === "unknown") {
-    throw new Error("Не распознал ввод. Вставь ссылку (vless/vmess/trojan/ss/hysteria2/tuic) или http(s):// URL подписки.");
+    throw new Error("Не распознал ввод. Вставь ссылку (vless/vmess/trojan/ss/hysteria2/tuic/naive/tt) или http(s):// URL подписки, либо .toml TrustTunnel.");
   }
 
   if (decision.kind === "config") {
     const { profile } = addProfileFromVless(decision.content);
     setActiveKind("single");
     return { type: "config", message: `Конфиг "${profile.name}" импортирован` };
+  }
+
+  if (decision.kind === "tt-toml") {
+    const { profile } = addTrustTunnelFromToml(decision.content, userOverride.name || "");
+    setActiveKind("single");
+    return { type: "config", message: `TrustTunnel "${profile.name}" импортирован` };
   }
 
   if (decision.kind === "list") {
@@ -109,6 +115,27 @@ export function mountAddModal({ onCommit } = {}) {
     else if (action === "manual") {
       showPage("manual");
       setTimeout(() => $("add-modal-url")?.focus(), 50);
+    }
+    else if (action === "file") $("add-modal-file")?.click();
+  });
+
+  // Импорт файла (TrustTunnel .toml): читаем через FileReader, кормим handleInput.
+  $("add-modal-file")?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // позволить повторный выбор того же файла
+    if (!file) return;
+    setError(null);
+    showPage("loading");
+    setLoadingText("Читаю файл…");
+    try {
+      const text = await file.text();
+      const baseName = file.name.replace(/\.[^.]+$/, "");
+      const res = await handleInput(text, { name: baseName });
+      onCommitCb?.(res);
+      closeModal();
+    } catch (err) {
+      showPage("manual");
+      setError(err?.message || String(err));
     }
   });
 
