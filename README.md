@@ -96,12 +96,19 @@ npm run tauri build   # релизная сборка → .msi / .exe
 
 ## Поддержать
 
-Проект развивается на энтузиазме. Если Ninety оказался полезен — можно закинуть на кофе:
+Проект развивается на энтузиазме. Если Ninety оказался полезен — можно закинуть на кофе (наведите на адрес и нажмите 📋, чтобы скопировать):
 
-| Сеть | Адрес |
-|------|-------|
-| **TON** | `UQC21op6_5Qgsw0i7TQvh12XBex9I5bqmPeMNuJ20INdjtg7` |
-| **USDT** · TRC20 (Tron) | `TGbdvr1gSYgQciFNRjwdmAmCbNLjK9wgJR` |
+**TON**
+
+```
+UQC21op6_5Qgsw0i7TQvh12XBex9I5bqmPeMNuJ20INdjtg7
+```
+
+**USDT** · TRC20 (Tron)
+
+```
+TGbdvr1gSYgQciFNRjwdmAmCbNLjK9wgJR
+```
 
 Спасибо 🖤
 
