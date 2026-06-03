@@ -68,6 +68,11 @@ def parse_args(text):
     args = []
     for tok in re.findall(r'(?:[^\s"]|"[^"]*")+', joined):
         tok = tok.replace('"', "")
+        # cmd-escape: внутри батника `^` экранирует следующий символ. В стратегиях
+        # встречается только `^!` (значение fake-tls для авто-ClientHello при
+        # enabledelayedexpansion) — winws должен получить литерал `!`, иначе
+        # читает `^!` как путь к файлу и падает «could not read ^!».
+        tok = tok.replace("^!", "!")
         if tok:
             args.append(tok)
     return args
