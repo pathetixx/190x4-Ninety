@@ -46,6 +46,11 @@
   Pop $0
   nsExec::Exec '"$SYSDIR\sc.exe" delete WinDivert14'
   Pop $0
+  ; Monkey — наш переименованный вариант драйвера WinDivert (см. dpi.rs bin_dir).
+  nsExec::Exec '"$SYSDIR\sc.exe" stop Monkey'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\sc.exe" delete Monkey'
+  Pop $0
   Sleep 500
 !macroend
 
@@ -74,5 +79,10 @@
   nsExec::Exec '"$SYSDIR\sc.exe" delete WinDivert'
   Pop $0
   nsExec::Exec '"$SYSDIR\sc.exe" delete WinDivert14'
+  Pop $0
+  ; Monkey — наш переименованный вариант драйвера WinDivert (см. dpi.rs bin_dir).
+  nsExec::Exec '"$SYSDIR\sc.exe" stop Monkey'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\sc.exe" delete Monkey'
   Pop $0
 !macroend
