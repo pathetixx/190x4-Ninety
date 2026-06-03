@@ -160,7 +160,7 @@ function renderBody() {
   const UPD = [
     { id: "app", name: "Приложение", ver: `Ninety ${S.versions.app}`, icon: "box", upd: false },
     { id: "engine", name: "Движок обхода", ver: S.versions.engine, icon: "cpu", upd: false, note: "в приложении" },
-    { id: "strategies", name: "Набор стратегий", ver: `lists ${S.versions.strategies}`, icon: "list", upd: S.hasUpdate },
+    { id: "strategies", name: "Набор стратегий", ver: `v${S.versions.strategies}`, icon: "list", upd: S.hasUpdate },
   ];
   const updRows = UPD.map((row) => {
     const isUpd = S.updating === row.id;
@@ -420,12 +420,16 @@ async function runUpdate(id) {
   S.updating = id;
   renderBody();
   try {
-    const ver = await invoke("dpi_update_strategies");
-    if (ver) S.versions.strategies = ver;
+    // Канал данных: стратегии + списки + .bin одним подписанным бандлом
+    // (подпись проверяется в Rust до применения). Версия — тег Flowseal.
+    const r = await invoke("dpi_sync_channel");
+    if (r?.version) S.versions.strategies = r.version;
     S.hasUpdate = false;
+    await loadStrategies(); // перечитать обновлённые определения стратегий
+    await loadVersions();
     await loadDomains();
-    await restartIfRunning(); // применить свежие списки
-    toast("Списки обновлены", "info", 1800);
+    await restartIfRunning(); // применить свежий набор к запущенному winws
+    toast("Набор стратегий обновлён", "info", 1800);
   } catch (e) {
     toast(`Обновление не удалось: ${e?.message || e}`, "error", 3500);
   }

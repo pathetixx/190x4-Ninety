@@ -1,0 +1,132 @@
+name: DPI channel (Flowseal sync)
+
+# Робот «канала данных»: раз в сутки смотрит последний релиз Flowseal, пересобирает
+# strategies.json (gen_strategies.py) + собирает списки и .bin-пейлоады, подписывает
+# нашим minisign-ключом (тем же TAURI_SIGNING_PRIVATE_KEY, что и OTA) и публикует в
+# prerelease-релиз `dpi-channel`. Ninety тянет этот бандл на лету, проверяет подпись и
+# применяет — БЕЗ обновления приложения. Это ТОЛЬКО данные (стратегии/списки/.bin).
+# Движок (winws.exe/WinDivert) тут НЕ трогается — он едет через подписанный OTA-релиз
+# (см. engine-watch.yml: следит за bol-van/zapret-win-bundle, открывает PR).
+#
+# prerelease=true важно: dpi-channel НЕ должен стать "Latest", иначе перебьёт
+# updater-эндпоинт приложения (releases/latest/download/latest.json).
+
+on:
+  schedule:
+    - cron: "17 5 * * *" # ежедневно 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dpi-channel
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Последний релиз Flowseal
+        id: fl
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=$(gh api repos/Flowseal/zapret-discord-youtube/releases/latest --jq .tag_name)
+          [ -n "$tag" ] || { echo "::error::не удалось получить тег Flowseal"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Flowseal latest = $tag"
+
+      - name: Скачать и распаковать релиз
+        run: |
+          set -euo pipefail
+          tag="${{ steps.fl.outputs.tag }}"
+          url="https://github.com/Flowseal/zapret-discord-youtube/releases/download/${tag}/zapret-discord-youtube-${tag}.zip"
+          curl -fsSL -o fl.zip "$url"
+          mkdir -p fl && unzip -q fl.zip -d fl
+          # .bat лежат в корне zip; нормализуем путь до каталога с general*.bat
+          d=$(dirname "$(find fl -iname 'general.bat' | head -1)")
+          echo "FL_DIR=$d" >> "$GITHUB_ENV"
+
+      - name: Собрать бандл канала (только данные)
+        run: |
+          set -euo pipefail
+          mkdir -p bundle/lists bundle/bin
+          python3 src-tauri/dpi/gen_strategies.py "$FL_DIR" bundle/strategies.json
+          # базовые списки (user-списки живут на клиенте, их не возим)
+          for f in list-general.txt list-google.txt list-exclude.txt ipset-exclude.txt; do
+            [ -f "$FL_DIR/lists/$f" ] && cp "$FL_DIR/lists/$f" "bundle/lists/$f" || true
+          done
+          # .bin-пейлоады стратегий (инертные данные, версионно-связаны с strategies.json)
+          cp "$FL_DIR"/bin/*.bin bundle/bin/ 2>/dev/null || true
+          echo "${{ steps.fl.outputs.tag }}" > bundle/version.txt
+
+      - name: Страж — все ли .bin на месте
+        run: |
+          python3 - <<'PY'
+          import json, re, os, sys
+          strat = json.load(open("bundle/strategies.json"))
+          have = set(os.listdir("bundle/bin"))
+          need = set()
+          for st in strat:
+              for a in st["args"]:
+                  m = re.search(r"%BIN%([^\s]+\.bin)", a)
+                  if m: need.add(m.group(1))
+          missing = sorted(need - have)
+          if missing:
+              print("::error::strategies ссылаются на отсутствующие .bin: " + ", ".join(missing))
+              sys.exit(1)
+          print(f"bin OK: {len(have)} пейлоадов в бандле, {len(need)} использовано стратегиями")
+          PY
+
+      - name: Упаковать + чексумма
+        id: pack
+        run: |
+          set -euo pipefail
+          (cd bundle && zip -qr ../dpi-channel.zip .)
+          sha=$(sha256sum dpi-channel.zip | awk '{print $1}')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "bundle sha256=$sha"
+
+      - name: Пропустить, если не изменилось
+        id: chk
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prev=$(gh release view dpi-channel --json body --jq .body 2>/dev/null | grep -oP 'sha256=\K\S+' || echo "")
+          if [ "$prev" = "${{ steps.pack.outputs.sha }}" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "канал уже актуален — выходим"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Поставить tauri signer
+        if: steps.chk.outputs.changed == 'true'
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Подписать бандл (minisign, наш OTA-ключ)
+        if: steps.chk.outputs.changed == 'true'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          # → dpi-channel.zip.sig (base64 minisign-подпись; Rust её декодирует и верифицирует)
+          tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "" dpi-channel.zip
+          test -f dpi-channel.zip.sig
+
+      - name: Опубликовать в релиз dpi-channel
+        if: steps.chk.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          notes="flowseal=${{ steps.fl.outputs.tag }} sha256=${{ steps.pack.outputs.sha }}"
+          if gh release view dpi-channel >/dev/null 2>&1; then
+            gh release edit dpi-channel --prerelease --notes "$notes"
+          else
+            gh release create dpi-channel --prerelease --title "DPI channel (данные стратегий)" --notes "$notes"
+          fi
+          gh release upload dpi-channel dpi-channel.zip dpi-channel.zip.sig --clobber
+          echo "опубликован канал: flowseal=${{ steps.fl.outputs.tag }}"

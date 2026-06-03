@@ -431,6 +431,7 @@ pub fn run() {
             dpi::dpi_versions,
             dpi::dpi_check_update,
             dpi::dpi_update_strategies,
+            dpi::dpi_sync_channel,
             dpi::dpi_autotest,
             dpi::dpi_log_path,
             dpi::dpi_read_log,

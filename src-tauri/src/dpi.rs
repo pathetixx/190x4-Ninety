@@ -33,6 +33,16 @@ struct Strategy {
 
 const FLOWSEAL_RAW: &str = "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main";
 
+// Канал данных стратегий: подписанный prerelease-ассет, который раз в сутки
+// обновляет робот dpi-channel.yml из релизов Flowseal. Ninety тянет его на лету,
+// проверяет minisign-подпись и применяет — БЕЗ обновления приложения. Возит только
+// данные (strategies.json + списки + .bin), движок едет через OTA (см. engine-watch).
+const CHANNEL_BASE: &str =
+    "https://github.com/pathetixx/190x4-Ninety/releases/download/dpi-channel";
+// minisign-pubkey: ДОЛЖЕН совпадать с plugins.updater.pubkey в tauri.conf.json
+// (тот же ключ подписывает и OTA, и канал). base64 от файла minisign-pubkey.
+const CHANNEL_PUBKEY_B64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1N0I1RTAwMEQ3MUQ3OUUKUldTZTEzRU5BRjU3ZGN3TkZoK28yeFRVa2tLdlhxNy8zUXo1aUdXN1lOSUE3MzZLUmVCRnFYamsK";
+
 // ── Пути ────────────────────────────────────────────────────────────
 // Каталог движка в ресурсах (read-only): <resource_dir>/dpi.
 fn res_dpi(app: &AppHandle) -> Result<PathBuf, String> {
@@ -87,6 +97,61 @@ fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dst)
 }
 
+// Writable-каталог .bin-пейлоадов: <app_data>/dpi/bin-data. Движок (winws.exe +
+// драйвер) остаётся read-only в ресурсе, а .bin выносим сюда, чтобы канал мог их
+// обновлять без переустановки. winws читает .bin по абсолютному пути (%BIN%),
+// независимо от cwd — поэтому свойство «движок из read-only» не нарушается.
+fn bindata_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?
+        .join("dpi")
+        .join("bin-data");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir bin-data: {e}"))?;
+    Ok(dir)
+}
+
+// Засеять bin-data из ресурсного движка, если ещё нет ни одного .bin (первый
+// запуск / до первого синка канала). Канал потом перезатирает/добавляет файлы.
+fn ensure_bindata(app: &AppHandle) -> Result<PathBuf, String> {
+    let dst = bindata_dir(app)?;
+    let has_bin = std::fs::read_dir(&dst)
+        .map(|it| {
+            it.flatten()
+                .any(|e| e.path().extension().is_some_and(|x| x == "bin"))
+        })
+        .unwrap_or(false);
+    if !has_bin {
+        if let Ok(rd) = std::fs::read_dir(bin_dir(app)?) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "bin") {
+                    if let Some(name) = p.file_name() {
+                        let _ = std::fs::copy(&p, dst.join(name));
+                    }
+                }
+            }
+        }
+    }
+    Ok(dst)
+}
+
+// Путь к strategies.json: оверлей канала (<app_data>/dpi/strategies.json) имеет
+// приоритет над забандленным ресурсом. Так обновлённые стратегии применяются без
+// переустановки приложения.
+fn strategies_path(app: &AppHandle) -> PathBuf {
+    if let Ok(dir) = app.path().app_data_dir() {
+        let p = dir.join("dpi").join("strategies.json");
+        if p.exists() {
+            return p;
+        }
+    }
+    res_dpi(app)
+        .map(|d| d.join("strategies.json"))
+        .unwrap_or_default()
+}
+
 // Режим ipset → содержимое ipset-all.txt (как в service.bat Flowseal):
 //   any    — пустой файл (обход по совпадению домена, рекомендуется);
 //   loaded — полный набор IP из ресурсного ipset-all.base.txt;
@@ -135,7 +200,7 @@ pub fn dpi_read_log(app: AppHandle) -> Result<String, String> {
 }
 
 fn read_strategies(app: &AppHandle) -> Result<Vec<Strategy>, String> {
-    let path = res_dpi(app)?.join("strategies.json");
+    let path = strategies_path(app);
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("read strategies.json: {e}"))?;
     serde_json::from_str(&raw).map_err(|e| format!("parse strategies.json: {e}"))
 }
@@ -170,7 +235,7 @@ fn subst(arg: &str, bin: &str, lists: &str, g_tcp: &str, g_udp: &str) -> String 
 /// Сырой strategies.json — фронт рендерит список стратегий из него.
 #[tauri::command]
 pub fn dpi_strategies(app: AppHandle) -> Result<String, String> {
-    let path = res_dpi(&app)?.join("strategies.json");
+    let path = strategies_path(&app);
     std::fs::read_to_string(&path).map_err(|e| format!("read strategies.json: {e}"))
 }
 
@@ -236,12 +301,15 @@ pub async fn dpi_start(
         _ => ("12", "12"), // off — безвредный одиночный порт (как дефолт Flowseal)
     };
 
-    let bin_s = strip_verbatim(&bin.to_string_lossy());
+    // %BIN% → writable bin-data (оверлей канала), НЕ движок: cwd ниже остаётся
+    // на read-only ресурсе (winws.exe + WinDivert.dll грузятся оттуда).
+    let bindata = ensure_bindata(&app)?;
+    let bindata_s = strip_verbatim(&bindata.to_string_lossy());
     let lists_s = strip_verbatim(&lists.to_string_lossy());
     let args: Vec<String> = strat
         .args
         .iter()
-        .map(|a| subst(a, &bin_s, &lists_s, g_tcp, g_udp))
+        .map(|a| subst(a, &bindata_s, &lists_s, g_tcp, g_udp))
         .collect();
 
     let mut cmd = std::process::Command::new(&exe);
@@ -598,6 +666,162 @@ pub async fn dpi_update_strategies(app: AppHandle) -> Result<String, String> {
     Ok(ver)
 }
 
+// ── Канал данных стратегий (подписанный, без переустановки) ──────────
+
+// Проверить minisign-подпись бандла нашим pubkey (тем же, что у OTA).
+// sig_b64 — содержимое .sig-ассета (base64 от minisign-подписи, формат tauri).
+fn verify_channel(data: &[u8], sig_b64: &str) -> Result<(), String> {
+    use base64::Engine;
+    use minisign_verify::{PublicKey, Signature};
+    let std_b64 = base64::engine::general_purpose::STANDARD;
+    // pubkey: base64 → текст файла minisign-pubkey → берём не-комментарную строку.
+    let pk_raw = std_b64
+        .decode(CHANNEL_PUBKEY_B64)
+        .map_err(|e| format!("pubkey b64: {e}"))?;
+    let pk_text = String::from_utf8(pk_raw).map_err(|e| format!("pubkey utf8: {e}"))?;
+    let key_line = pk_text
+        .lines()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty() && !l.starts_with("untrusted comment"))
+        .ok_or("pubkey: ключевая строка не найдена")?;
+    let pk = PublicKey::from_base64(key_line).map_err(|e| format!("pubkey decode: {e}"))?;
+    // .sig: base64 → текст minisign-подписи (с trusted/untrusted comment).
+    let sig_raw = std_b64
+        .decode(sig_b64.trim())
+        .map_err(|e| format!("sig b64: {e}"))?;
+    let sig_text = String::from_utf8(sig_raw).map_err(|e| format!("sig utf8: {e}"))?;
+    let sig = Signature::decode(&sig_text).map_err(|e| format!("sig decode: {e}"))?;
+    pk.verify(data, &sig, true)
+        .map_err(|e| format!("ПОДПИСЬ НЕВЕРНА: {e}"))
+}
+
+// Какие .bin использует strategies.json (плейсхолдер %BIN%xxx.bin в args).
+fn referenced_bins(strategies: &[Strategy]) -> std::collections::HashSet<String> {
+    let mut need = std::collections::HashSet::new();
+    for st in strategies {
+        for a in &st.args {
+            if let Some(p) = a.find("%BIN%") {
+                let tail = &a[p + "%BIN%".len()..];
+                let name: String = tail.chars().take_while(|c| !c.is_whitespace()).collect();
+                if name.ends_with(".bin") {
+                    need.insert(name);
+                }
+            }
+        }
+    }
+    need
+}
+
+/// Синхронизировать канал стратегий: скачать подписанный бандл, проверить подпись
+/// ДО распаковки, провалидировать (strategies.json парсится, все .bin на месте) и
+/// атомарно применить в app_data. Возвращает {version, applied}. Движок НЕ трогает.
+#[tauri::command]
+pub async fn dpi_sync_channel(app: AppHandle) -> Result<serde_json::Value, String> {
+    let client = no_proxy_client()?;
+    // 1. подпись + бандл
+    let sig_b64 = client
+        .get(format!("{CHANNEL_BASE}/dpi-channel.zip.sig"))
+        .send()
+        .await
+        .map_err(|e| format!("fetch sig: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("sig http: {e}"))?
+        .text()
+        .await
+        .map_err(|e| format!("read sig: {e}"))?;
+    let zip_bytes = client
+        .get(format!("{CHANNEL_BASE}/dpi-channel.zip"))
+        .send()
+        .await
+        .map_err(|e| format!("fetch zip: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("zip http: {e}"))?
+        .bytes()
+        .await
+        .map_err(|e| format!("read zip: {e}"))?;
+
+    // 2. ВЕРИФИКАЦИЯ подписи до любой распаковки.
+    verify_channel(&zip_bytes, &sig_b64)?;
+
+    // 3. Распаковать в стейджинг, провалидировать.
+    let dpi_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?
+        .join("dpi");
+    let staging = dpi_data.join(".staging");
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::create_dir_all(&staging).map_err(|e| format!("mkdir staging: {e}"))?;
+
+    let reader = std::io::Cursor::new(zip_bytes.as_ref());
+    let mut zip = zip::ZipArchive::new(reader).map_err(|e| format!("open zip: {e}"))?;
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
+        // защита от zip-slip: берём только безопасное относительное имя.
+        let name = match entry.enclosed_name() {
+            Some(n) => n.to_path_buf(),
+            None => continue,
+        };
+        let out = staging.join(&name);
+        if entry.is_dir() {
+            let _ = std::fs::create_dir_all(&out);
+            continue;
+        }
+        if let Some(parent) = out.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let mut f = std::fs::File::create(&out).map_err(|e| format!("create {name:?}: {e}"))?;
+        std::io::copy(&mut entry, &mut f).map_err(|e| format!("unzip {name:?}: {e}"))?;
+    }
+
+    // strategies.json валиден?
+    let strat_raw = std::fs::read_to_string(staging.join("strategies.json"))
+        .map_err(|e| format!("staged strategies.json: {e}"))?;
+    let strategies: Vec<Strategy> =
+        serde_json::from_str(&strat_raw).map_err(|e| format!("parse strategies: {e}"))?;
+    // все ли нужные .bin есть в бандле (или уже в bin-data)?
+    let staged_bin = staging.join("bin");
+    let existing = bindata_dir(&app)?;
+    for name in referenced_bins(&strategies) {
+        if !staged_bin.join(&name).exists() && !existing.join(&name).exists() {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(format!("в бандле нет .bin: {name}"));
+        }
+    }
+
+    // 4. Применить: strategies.json, базовые списки, .bin, версия. user-списки и
+    // ipset-all.txt НЕ трогаем (они на стороне клиента / задаются режимом).
+    std::fs::copy(staging.join("strategies.json"), dpi_data.join("strategies.json"))
+        .map_err(|e| format!("apply strategies: {e}"))?;
+    let lists = lists_dir(&app)?;
+    let staged_lists = staging.join("lists");
+    for name in ["list-general.txt", "list-google.txt", "list-exclude.txt", "ipset-exclude.txt"] {
+        let from = staged_lists.join(name);
+        if from.exists() {
+            let _ = std::fs::copy(&from, lists.join(name));
+        }
+    }
+    if let Ok(rd) = std::fs::read_dir(&staged_bin) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().is_some_and(|x| x == "bin") {
+                if let Some(n) = p.file_name() {
+                    let _ = std::fs::copy(&p, existing.join(n));
+                }
+            }
+        }
+    }
+    let ver = std::fs::read_to_string(staging.join("version.txt"))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !ver.is_empty() {
+        let _ = std::fs::write(dpi_data.join("strategies-version.txt"), &ver);
+    }
+    let _ = std::fs::remove_dir_all(&staging);
+    Ok(serde_json::json!({ "version": ver, "applied": true }))
+}
+
 // ── Авто-подбор стратегии ───────────────────────────────────────────
 #[derive(serde::Serialize, Clone)]
 struct AutotestProgress {
@@ -628,7 +852,8 @@ pub async fn dpi_autotest(
     }
     let lists = ensure_lists(&app)?;
     write_ipset_mode(&app, &lists, "any")?;
-    let bin_s = strip_verbatim(&bin.to_string_lossy());
+    let bindata = ensure_bindata(&app)?;
+    let bindata_s = strip_verbatim(&bindata.to_string_lossy());
     let lists_s = strip_verbatim(&lists.to_string_lossy());
     let client = no_proxy_client()?;
     let total = strategies.len();
@@ -644,7 +869,7 @@ pub async fn dpi_autotest(
         let args: Vec<String> = strat
             .args
             .iter()
-            .map(|a| subst(a, &bin_s, &lists_s, "12", "12"))
+            .map(|a| subst(a, &bindata_s, &lists_s, "12", "12"))
             .collect();
         let mut cmd = std::process::Command::new(&exe);
         cmd.args(&args).current_dir(&bin);
