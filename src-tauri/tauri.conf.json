@@ -33,7 +33,7 @@
     "targets": ["msi", "nsis"],
     "createUpdaterArtifacts": true,
     "licenseFile": "./windows/license.rtf",
-    "externalBin": ["binaries/sing-box", "binaries/xray"],
+    "externalBin": ["binaries/sing-box", "binaries/xray", "binaries/naive", "binaries/trusttunnel_client"],
     "resources": {
       "binaries/wintun.dll": "wintun.dll",
       "dpi/bin/*": "dpi/bin/",

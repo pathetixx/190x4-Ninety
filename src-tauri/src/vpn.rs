@@ -24,6 +24,13 @@ pub struct SingboxState {
     // Terminated, сбрасывается при start_singbox. Нужен чтобы фронт мог отличить
     // «упал xhttp-мост» (авто-реконнект) от «упал sing-box» (туннель закрыт).
     xray_died: Arc<Mutex<Option<String>>>,
+    // Sidecar-клиенты naive / trusttunnel_client (по одному процессу на ноду):
+    // каждый поднимает локальный SOCKS5, sing-box ходит к ним loopback-мостом.
+    // Список, т.к. этих протоколов в одном источнике может быть несколько.
+    sidecars: Mutex<Vec<CommandChild>>,
+    // Причина смерти любого sidecar-клиента (naive/TT) — как xray_died, для
+    // авто-реконнекта фронтом (sidecar_status).
+    sidecar_died: Arc<Mutex<Option<String>>>,
 }
 
 impl Default for SingboxState {
@@ -33,8 +40,18 @@ impl Default for SingboxState {
             xray_child: Mutex::new(None),
             died: Arc::new(Mutex::new(None)),
             xray_died: Arc::new(Mutex::new(None)),
+            sidecars: Mutex::new(Vec::new()),
+            sidecar_died: Arc::new(Mutex::new(None)),
         }
     }
+}
+
+// Спецификация sidecar-клиента, приходит из фронта (buildConfig.sidecars).
+#[derive(serde::Deserialize)]
+struct SidecarSpec {
+    kind: String, // "naive" | "trusttunnel"
+    port: u16,
+    config: String,
 }
 
 // Финальная обработка конфига перед запуском sing-box (в любом режиме):
@@ -168,6 +185,96 @@ async fn spawn_xray(
     Ok(())
 }
 
+// Поднимает sidecar-клиенты naive / trusttunnel_client (по одному на ноду).
+// Каждый слушает локальный SOCKS5 (порт из spec), sing-box ходит к ним мостом.
+// User-level (SOCKS-режим TT не требует админ-прав/TUN). Spawn до sing-box.
+async fn spawn_sidecars(
+    app: &AppHandle,
+    state: &SingboxState,
+    specs: &[SidecarSpec],
+) -> Result<(), String> {
+    let cfg_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("app_config_dir: {e}"))?;
+    std::fs::create_dir_all(&cfg_dir).map_err(|e| format!("mkdir: {e}"))?;
+    let log_dir = app.path().app_log_dir().ok();
+
+    for spec in specs {
+        // Имя бинаря (externalBin) + аргументы + расширение конфига по типу.
+        let (bin, ext, file_arg) = match spec.kind.as_str() {
+            "naive" => ("naive", "json", false),               // naive.exe <config.json>
+            "trusttunnel" => ("trusttunnel_client", "toml", true), // --config <toml>
+            other => return Err(format!("неизвестный sidecar: {other}")),
+        };
+        let cfg_path = cfg_dir.join(format!("{}-{}.{}", spec.kind, spec.port, ext));
+        std::fs::write(&cfg_path, &spec.config)
+            .map_err(|e| format!("write {} config: {e}", spec.kind))?;
+        let cfg_str = cfg_path.to_string_lossy().to_string();
+
+        let sidecar = app
+            .shell()
+            .sidecar(bin)
+            .map_err(|e| format!("{bin} sidecar lookup: {e}"))?;
+        let cmd = if file_arg {
+            sidecar.args(["--config", &cfg_str])
+        } else {
+            sidecar.args([cfg_str.as_str()])
+        };
+        let (mut rx, child) = cmd
+            .spawn()
+            .map_err(|e| format!("spawn {bin}: {e}"))?;
+        state.sidecars.lock().unwrap().push(child);
+
+        let died_flag = state.sidecar_died.clone();
+        let log_file = log_dir.as_ref().map(|d| d.join(format!("{}.log", spec.kind)));
+        let label = format!("{} :{}", spec.kind, spec.port);
+        tauri::async_runtime::spawn(async move {
+            let mut writer = log_file.as_ref().and_then(|p| {
+                std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
+            });
+            if let Some(w) = writer.as_mut() {
+                let _ = writeln!(w, "\n=== {label} start ===");
+            }
+            let mut last: Vec<String> = Vec::new();
+            while let Some(event) = rx.recv().await {
+                match event {
+                    CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                        let text = String::from_utf8_lossy(&line).to_string();
+                        if let Some(w) = writer.as_mut() {
+                            let _ = writeln!(w, "{text}");
+                        }
+                        last.push(text);
+                        if last.len() > 40 {
+                            last.remove(0);
+                        }
+                    }
+                    CommandEvent::Terminated(payload) => {
+                        let msg = format!(
+                            "{label} умер (код {:?}). Последние строки:\n{}",
+                            payload.code,
+                            last.join("\n")
+                        );
+                        if let Some(w) = writer.as_mut() {
+                            let _ = writeln!(w, "{msg}");
+                        }
+                        *died_flag.lock().unwrap() = Some(msg);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        });
+    }
+
+    if !specs.is_empty() {
+        // Дать клиентам забиндить SOCKS до старта sing-box (handshake к endpoint'у
+        // у TrustTunnel небыстрый), иначе первые urltest'ы словят refused.
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    }
+    Ok(())
+}
+
 // Путь к логу sing-box. Лог во всех режимах пишет сам Tauri в app_log_dir
 // (sing-box — наш child, его stdout/stderr льётся в файл монитор-таском).
 fn resolved_log_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -251,6 +358,7 @@ pub async fn start_singbox(
     config_json: String,
     mode: String,
     xray_json: Option<String>,
+    sidecars_json: Option<String>,
 ) -> Result<(), String> {
     {
         let child = state.child.lock().unwrap();
@@ -259,6 +367,7 @@ pub async fn start_singbox(
         }
         *state.died.lock().unwrap() = None;
         *state.xray_died.lock().unwrap() = None;
+        *state.sidecar_died.lock().unwrap() = None;
     }
 
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
@@ -269,6 +378,17 @@ pub async fn start_singbox(
     if let Some(xj) = xray_json.as_ref().filter(|s| !s.trim().is_empty()) {
         if let Err(e) = spawn_xray(&app, &state, xj).await {
             kill_xray(&state);
+            return Err(e);
+        }
+    }
+
+    // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
+    if let Some(sj) = sidecars_json.as_ref().filter(|s| !s.trim().is_empty()) {
+        let specs: Vec<SidecarSpec> =
+            serde_json::from_str(sj).map_err(|e| format!("sidecars json: {e}"))?;
+        if let Err(e) = spawn_sidecars(&app, &state, &specs).await {
+            kill_xray(&state);
+            kill_sidecars(&state);
             return Err(e);
         }
     }
@@ -348,6 +468,7 @@ pub async fn start_singbox(
     if let Some(err) = state.died.lock().unwrap().take() {
         *state.child.lock().unwrap() = None;
         kill_xray(&state);
+        kill_sidecars(&state);
         return Err(err);
     }
 
@@ -356,6 +477,12 @@ pub async fn start_singbox(
 
 fn kill_xray(state: &SingboxState) {
     if let Some(child) = state.xray_child.lock().unwrap().take() {
+        let _ = child.kill();
+    }
+}
+
+fn kill_sidecars(state: &SingboxState) {
+    for child in state.sidecars.lock().unwrap().drain(..) {
         let _ = child.kill();
     }
 }
@@ -370,6 +497,7 @@ pub async fn stop_singbox(state: State<'_, SingboxState>) -> Result<(), String> 
         let _ = child.kill();
     }
     kill_xray(&state);
+    kill_sidecars(&state);
     Ok(())
 }
 
@@ -407,13 +535,32 @@ pub fn xray_status(state: State<'_, SingboxState>) -> &'static str {
     }
 }
 
-// Последняя причина смерти ядра (sing-box приоритетнее xray) — для тоста/нотифая.
+// Статус sidecar-клиентов naive/TT для health-watchdog'а (аналог xray_status):
+//   "none"  — sidecar'ов не поднимали (таких нод в конфиге нет);
+//   "alive" — подняты и не падали;
+//   "died"  — хотя бы один клиент завершился (мост мёртв → реконнект).
+#[tauri::command]
+pub fn sidecar_status(state: State<'_, SingboxState>) -> &'static str {
+    if state.sidecars.lock().unwrap().is_empty() {
+        return "none";
+    }
+    if state.sidecar_died.lock().unwrap().is_some() {
+        "died"
+    } else {
+        "alive"
+    }
+}
+
+// Последняя причина смерти ядра (sing-box приоритетнее xray/sidecar) — для тоста.
 #[tauri::command]
 pub fn vpn_last_error(state: State<'_, SingboxState>) -> Option<String> {
     if let Some(e) = state.died.lock().unwrap().clone() {
         return Some(e);
     }
-    state.xray_died.lock().unwrap().clone()
+    if let Some(e) = state.xray_died.lock().unwrap().clone() {
+        return Some(e);
+    }
+    state.sidecar_died.lock().unwrap().clone()
 }
 
 pub fn force_cleanup(state: &SingboxState) {
@@ -421,6 +568,7 @@ pub fn force_cleanup(state: &SingboxState) {
         let _ = child.kill();
     }
     kill_xray(state);
+    kill_sidecars(state);
     #[cfg(target_os = "windows")]
     let _ = proxy::set_system_proxy(false, None);
 }

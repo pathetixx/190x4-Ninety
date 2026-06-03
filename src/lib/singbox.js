@@ -124,6 +124,14 @@ function splitHostPort(hostPort) {
   };
 }
 
+// base64url → Uint8Array (для бинарного TLV-пейлоада tt:// deep-link).
+function bytesFromB64url(s) {
+  const bin = safeAtob(s); // safeAtob уже умеет url-алфавит (- _) и паддинг
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
 function splitTrailingHashName(url, fallback) {
   const hashIdx = url.indexOf("#");
   const name = hashIdx >= 0 ? safeDecode(url.slice(hashIdx + 1)) : fallback;
@@ -305,6 +313,174 @@ export function parseTuic(raw) {
 // ── главный dispatcher ─────────────────────────────────────
 // Возвращает профиль с .proto полем. Назад-совместимо со старыми vless-only
 // профилями (у тех .proto не было; считаем "vless").
+// ── NaiveProxy ──────────────────────────────────────────────
+// Формат подписки: naive+https://user:pass@host:port#name (также naive+quic://).
+// Внутри после naive+ лежит ровно значение `proxy` клиента naive (klzgrad).
+// Движок — sidecar naive.exe на стеке Chromium; в sing-box идёт socks-мост.
+export function parseNaive(raw) {
+  const url = String(raw || "").trim();
+  if (!url.startsWith("naive+")) throw new Error("Не naive+ ссылка");
+  const inner = url.slice("naive+".length); // https://user:pass@host:port#name
+  const scheme = inner.startsWith("https://") ? "https" : (inner.startsWith("quic://") ? "quic" : null);
+  if (!scheme) throw new Error("naive: ожидается https:// или quic://");
+  const rest = inner.slice(`${scheme}://`.length);
+  const { name, main } = splitTrailingHashName(rest, "Naive");
+  const { head } = splitQuery(main);
+  const atIdx = head.lastIndexOf("@");
+  if (atIdx < 0) throw new Error("naive: нет user:pass@host:port");
+  const cred = head.slice(0, atIdx);
+  const colon = cred.indexOf(":");
+  if (colon < 0) throw new Error("naive: нет user:pass");
+  const username = decodeURIComponent(cred.slice(0, colon));
+  const password = decodeURIComponent(cred.slice(colon + 1));
+  const { host, port } = splitHostPort(head.slice(atIdx + 1));
+  if (!port) throw new Error("naive: нет порта");
+  return { raw: url, proto: "naive", name, host, port, username, password, scheme };
+}
+
+// ── TrustTunnel (AdGuard, Apache-2.0) ───────────────────────
+// Два источника одной и той же конфигурации: deep-link tt://?<base64url TLV>
+// и endpoint-.toml (export from endpoint). Оба → единый профиль. Движок —
+// sidecar trusttunnel_client.exe в режиме [listener.socks]; sing-box socks-мост.
+
+// QUIC/TLS variable-length integer (RFC 9000 §16): 2 старших бита первого байта
+// задают размер (00→1,01→2,10→4,11→8 байт), big-endian, без верхних 2 бит.
+function readQuicVarint(buf, pos) {
+  if (pos >= buf.length) throw new Error("tt: varint за пределами буфера");
+  const first = buf[pos];
+  const lenLog = first >> 6;            // 0..3
+  const n = 1 << lenLog;                // 1,2,4,8
+  if (pos + n > buf.length) throw new Error("tt: усечённый varint");
+  let v = BigInt(first & 0x3f);
+  for (let i = 1; i < n; i++) v = (v << 8n) | BigInt(buf[pos + i]);
+  return { value: Number(v), next: pos + n };
+}
+
+const TT_UPSTREAM = { 1: "http2", 2: "http3" };
+
+// Разбор TLV-пейлоада (после base64url-декода) в поля endpoint-конфига.
+function parseTrustTunnelTlv(buf) {
+  const td = new TextDecoder();
+  const f = { addresses: [], dnsUpstreams: [] };
+  let pos = 0;
+  while (pos < buf.length) {
+    const t = readQuicVarint(buf, pos); pos = t.next;
+    const l = readQuicVarint(buf, pos); pos = l.next;
+    const end = pos + l.value;
+    if (end > buf.length) throw new Error("tt: длина TLV за пределами буфера");
+    const val = buf.subarray(pos, end);
+    const str = () => td.decode(val);
+    const bool = () => val.length >= 1 && val[0] === 0x01;
+    switch (t.value) {
+      case 0x00: f.version = readQuicVarint(val, 0).value; break;
+      case 0x01: f.hostname = str(); break;
+      case 0x02: f.addresses.push(str()); break;          // повторяемый
+      case 0x03: f.customSni = str(); break;
+      case 0x04: f.hasIpv6 = bool(); break;
+      case 0x05: f.username = str(); break;
+      case 0x06: f.password = str(); break;
+      case 0x07: f.skipVerification = bool(); break;
+      case 0x08: f.certificateDer = Uint8Array.from(val); break; // DER (raw)
+      case 0x09: f.upstreamProtocol = TT_UPSTREAM[readQuicVarint(val, 0).value] || "http2"; break;
+      case 0x0A: f.antiDpi = bool(); break;
+      case 0x0B: f.clientRandom = str(); break;
+      case 0x0C: f.name = str(); break;
+      case 0x0D: {                                         // String[] dns_upstreams
+        let p = 0;
+        while (p < val.length) {
+          const ln = readQuicVarint(val, p); p = ln.next;
+          f.dnsUpstreams.push(td.decode(val.subarray(p, p + ln.value)));
+          p += ln.value;
+        }
+        break;
+      }
+      default: break; // неизвестные теги игнорируем (forward-compat, см. спеку)
+    }
+    pos = end;
+  }
+  if (!f.hostname || !f.addresses.length || f.username == null || f.password == null) {
+    throw new Error("tt: deep-link без обязательных полей (hostname/addresses/username/password)");
+  }
+  return f;
+}
+
+// Сборка профиля trusttunnel из полей (общая для deep-link и .toml).
+function ttProfile(f, rawForStorage) {
+  const first = f.addresses[0] || "";
+  let host = f.hostname, port = 443;
+  try { const hp = splitHostPort(first); host = hp.host || f.hostname; port = hp.port || 443; } catch {}
+  return {
+    raw: rawForStorage,
+    proto: "trusttunnel",
+    name: f.name || f.hostname || "TrustTunnel",
+    host: f.hostname || host, // для отображения — hostname endpoint'а
+    port,
+    hostname: f.hostname,
+    addresses: f.addresses.slice(),
+    username: f.username,
+    password: f.password,
+    skipVerification: !!f.skipVerification,
+    upstreamProtocol: f.upstreamProtocol || "http2",
+    antiDpi: !!f.antiDpi,
+    customSni: f.customSni || "",
+    hasIpv6: f.hasIpv6 !== false,
+    clientRandom: f.clientRandom || "",
+    certificate: f.certificate || "",      // PEM (из .toml); из deep-link DER → ниже
+    certificateDer: f.certificateDer || null,
+    dnsUpstreams: (f.dnsUpstreams || []).slice(),
+  };
+}
+
+export function parseTrustTunnelDeepLink(raw) {
+  const url = String(raw || "").trim();
+  if (!url.startsWith("tt://")) throw new Error("Не tt:// ссылка");
+  // tt://?<payload> — payload в query-части (case-sensitive), без префикса '?'
+  const q = url.indexOf("?");
+  if (q < 0) throw new Error("tt: нет '?<payload>'");
+  const payload = url.slice(q + 1).split(/[#&]/)[0];
+  if (!payload) throw new Error("tt: пустой payload");
+  const f = parseTrustTunnelTlv(bytesFromB64url(payload));
+  return ttProfile(f, url);
+}
+
+// Мини-парсер endpoint-.toml (плоский: key = value, массивы строк, без секций).
+// Достаточно для конфига, который экспортирует endpoint (см. trusttunnel_nl.toml).
+export function parseTrustTunnelToml(text, displayName) {
+  const src = String(text || "");
+  const get = (key) => {
+    const m = src.match(new RegExp(`^\\s*${key}\\s*=\\s*(.+?)\\s*$`, "m"));
+    return m ? m[1].trim() : undefined;
+  };
+  const unq = (v) => (v == null ? v : v.replace(/^["']|["']$/g, ""));
+  const arr = (v) => {
+    if (v == null) return [];
+    const m = v.match(/\[(.*)\]/s);
+    if (!m) return [];
+    return m[1].split(",").map(s => unq(s.trim())).filter(Boolean);
+  };
+  const boolv = (v, d) => (v == null ? d : /true/i.test(v));
+  const hostname = unq(get("hostname"));
+  const addresses = arr(get("addresses"));
+  const username = unq(get("username"));
+  const password = unq(get("password"));
+  if (!hostname || !addresses.length || !username || password == null) {
+    throw new Error("TrustTunnel .toml: нет hostname/addresses/username/password");
+  }
+  const up = (unq(get("upstream_protocol")) || "http2").toLowerCase();
+  const f = {
+    hostname, addresses, username, password,
+    skipVerification: boolv(get("skip_verification"), false),
+    upstreamProtocol: up === "http3" ? "http3" : "http2",
+    antiDpi: boolv(get("anti_dpi"), false),
+    customSni: unq(get("custom_sni")) || "",
+    hasIpv6: boolv(get("has_ipv6"), true),
+    clientRandom: unq(get("client_random")) || "",
+    dnsUpstreams: arr(get("dns_upstreams")),
+    name: unq(get("name")) || displayName || hostname,
+  };
+  return ttProfile(f, `tt-toml://${hostname}`); // raw — синтетический маркер для storage
+}
+
 export function parseLink(raw) {
   const s = String(raw || "").trim();
   if (s.startsWith("vless://"))     return { ...parseVless(s), proto: "vless" };
@@ -313,6 +489,8 @@ export function parseLink(raw) {
   if (s.startsWith("ss://"))        return parseShadowsocks(s);
   if (s.startsWith("hysteria2://") || s.startsWith("hy2://")) return parseHysteria2(s);
   if (s.startsWith("tuic://"))      return parseTuic(s);
+  if (s.startsWith("naive+"))       return parseNaive(s);
+  if (s.startsWith("tt://"))        return parseTrustTunnelDeepLink(s);
   throw new Error(`Неподдерживаемый протокол: ${s.split("://")[0] || s.slice(0, 16)}://`);
 }
 
@@ -552,6 +730,12 @@ function buildOutbound(p, options) {
       };
       return out;
     }
+    case "naive":
+    case "trusttunnel":
+      // Эти протоколы всегда идут через локальный sidecar-клиент (SOCKS5-мост):
+      // нативного outbound в sing-box нет. Заглушка-socks; реальный порт
+      // подставит bridge-loop в buildConfig (server_port=0 будет перезаписан).
+      return { ...base, type: "socks", server: "127.0.0.1", server_port: 0, version: "5" };
     case "vless":
     default: {
       out = {
@@ -898,6 +1082,53 @@ function buildCustomNoise(cn) {
 // Важно: xhttpSettings для xray — это РОВНО то, что в ссылке (host/path/mode +
 // extra с downloadSettings в Xray-схеме), без какой-либо трансляции.
 const XRAY_BRIDGE_BASE_PORT = 31100;
+// Локальные SOCKS5-порты sidecar-клиентов naive / trusttunnel_client. Раздельные
+// диапазоны, чтобы не пересечься между собой и с xray (31100+).
+const NAIVE_BRIDGE_BASE_PORT = 31200;
+const TT_BRIDGE_BASE_PORT = 31300;
+
+// config.json клиента naive (klzgrad): один proxy → один локальный SOCKS5.
+function naiveSidecarConfig(p, port) {
+  const u = encodeURIComponent(p.username);
+  const pw = encodeURIComponent(p.password);
+  const scheme = p.scheme === "quic" ? "quic" : "https";
+  return JSON.stringify({
+    listen: `socks://127.0.0.1:${port}`,
+    proxy: `${scheme}://${u}:${pw}@${p.host}:${p.port}`,
+  }, null, 2);
+}
+
+// Экранирование значения для TOML basic-string.
+function tomlStr(v) {
+  return `"${String(v ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+function tomlArr(list) {
+  return `[${(list || []).map(tomlStr).join(", ")}]`;
+}
+
+// trusttunnel_client.toml в режиме SOCKS5-листенера (без TUN → без админ-прав).
+// killswitch выключен: в socks-мосте он не нужен и мог бы резать локальный трафик.
+function trustTunnelSidecarConfig(p, port) {
+  const lines = [
+    `loglevel = "info"`,
+    `killswitch_enabled = false`,
+    ``,
+    `[endpoint]`,
+    `hostname = ${tomlStr(p.hostname)}`,
+    `addresses = ${tomlArr(p.addresses)}`,
+    `has_ipv6 = ${p.hasIpv6 ? "true" : "false"}`,
+    `username = ${tomlStr(p.username)}`,
+    `password = ${tomlStr(p.password)}`,
+    `skip_verification = ${p.skipVerification ? "true" : "false"}`,
+    `upstream_protocol = ${tomlStr(p.upstreamProtocol || "http2")}`,
+    `anti_dpi = ${p.antiDpi ? "true" : "false"}`,
+  ];
+  if (p.clientRandom) lines.push(`client_random = ${tomlStr(p.clientRandom)}`);
+  if (p.certificate) lines.push(`certificate = ${tomlStr(p.certificate)}`);
+  if (p.dnsUpstreams && p.dnsUpstreams.length) lines.push(`dns_upstreams = ${tomlArr(p.dnsUpstreams)}`);
+  lines.push(``, `[listener.socks]`, `address = "127.0.0.1:${port}"`);
+  return lines.join("\n") + "\n";
+}
 
 function nodeToXrayStream(p) {
   const ss = { network: "xhttp" };
@@ -1004,6 +1235,27 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
       };
     }
   }
+
+  // Sidecar-мост для naive / trusttunnel (всегда, не зависит от флага xray):
+  // у этих протоколов нет нативного outbound — каждая нода поднимает свой
+  // клиент-процесс на 127.0.0.1:PORT (SOCKS5), а в sing-box остаётся socks-мост.
+  // urltest/balancer пингуют ноду сквозь socks → клиент, как и с xray.
+  const sidecars = [];
+  let naiveN = 0, ttN = 0;
+  nodes.forEach((n, i) => {
+    const proto = profileProto(n);
+    let port, config, kind;
+    if (proto === "naive") {
+      port = NAIVE_BRIDGE_BASE_PORT + naiveN++; kind = "naive"; config = naiveSidecarConfig(n, port);
+    } else if (proto === "trusttunnel") {
+      port = TT_BRIDGE_BASE_PORT + ttN++; kind = "trusttunnel"; config = trustTunnelSidecarConfig(n, port);
+    } else return;
+    sidecars.push({ kind, port, config });
+    vlessOutbounds[i] = {
+      tag: vlessOutbounds[i].tag,
+      type: "socks", server: "127.0.0.1", server_port: port, version: "5",
+    };
+  });
 
   let outbounds;
   if (useUrltest) {
@@ -1119,7 +1371,7 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
   // в hiddify-sing-box v1.13.0.h5 experimental.tls_tricks удалён. Теперь они
   // применяются per-outbound в applyTlsTricks() при сборке прокси-outbound.
 
-  return { config, xray: xrayConfig };
+  return { config, xray: xrayConfig, sidecars };
 }
 
 function sanitizeTag(s) {
@@ -1164,8 +1416,7 @@ export function addProfileFromVless(raw) {
 }
 
 // Универсальный добавитель — работает для любого supported протокола.
-export function addProfileFromLink(raw) {
-  const parsed = parseLink(raw);
+function storeProfile(parsed) {
   const id = "p_" + Math.random().toString(36).slice(2, 10);
   const list = loadProfiles();
   list.push({ ...parsed, id });
@@ -1175,6 +1426,15 @@ export function addProfileFromLink(raw) {
     setActiveKind("single");
   }
   return { id, profile: parsed };
+}
+
+export function addProfileFromLink(raw) {
+  return storeProfile(parseLink(raw));
+}
+
+// Импорт TrustTunnel из endpoint-.toml (вставлен текстом или загружен файлом).
+export function addTrustTunnelFromToml(tomlText, displayName) {
+  return storeProfile(parseTrustTunnelToml(tomlText, displayName));
 }
 
 // ── unified active source (profile | subscription) ─────────

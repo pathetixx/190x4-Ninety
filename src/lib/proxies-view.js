@@ -126,7 +126,10 @@ function nodeCardHtml(n, isActive, delay, grade) {
   const iso = flagIsoFromName(n.name);
   const cleanName = stripFlag(n.name) || n.host;
   const fallback = (iso ? iso.toUpperCase() : (cleanName.slice(0, 2).toUpperCase() || "?"));
-  const proto = (n.type || "tcp").toUpperCase();
+  // naive/trusttunnel идут через sidecar (n.type не задан) — показываем имя
+  // протокола, остальным — транспорт (tcp/xhttp/…).
+  const PROTO_LABEL = { naive: "Naive", trusttunnel: "TrustTunnel" };
+  const proto = PROTO_LABEL[n.proto] || (n.type || "tcp").toUpperCase();
   return `
     <div class="prox" data-active="${isActive}" data-tag="${escapeHtml(n.clashTag)}" role="button" tabindex="0">
       <div class="prox__flag">${flagHtml(iso, fallback)}</div>

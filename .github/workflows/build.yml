@@ -145,6 +145,36 @@ jobs:
           $size = (Get-Item "src-tauri/binaries/wintun.dll").Length
           Write-Host "wintun.dll bundled ($([math]::Round($size/1KB,1)) KB)."
 
+      - name: Download protocol sidecars (naive + trusttunnel_client)
+        shell: pwsh
+        run: |
+          # naive (klzgrad, BSD/Chromium-stack) и trusttunnel_client (AdGuard,
+          # Apache-2.0) — sidecar-клиенты для naive/TrustTunnel-нод. Оба слушают
+          # локальный SOCKS5, sing-box ходит к ним loopback-мостом (как xray для
+          # xhttp). Пин версий + sha256 (релизы без подписи артефакта).
+          function Get-Sidecar($url, $sha, $zip, $exeName, $out) {
+            Write-Host "Downloading $url"
+            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+            $h = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+            if ($h -ne $sha) { Write-Error "$zip sha256 = $h, ожидался $sha"; exit 1 }
+            Write-Host "Verified $zip sha256."
+            $dst = "extract-$exeName"
+            Expand-Archive -Path $zip -DestinationPath $dst -Force
+            $src = Get-ChildItem -Path $dst -Recurse -Filter $exeName | Select-Object -First 1
+            if (-not $src) { Write-Error "$exeName не найден в $zip"; exit 1 }
+            Copy-Item $src.FullName $out -Force
+            $size = (Get-Item $out).Length
+            Write-Host "$exeName bundled ($([math]::Round($size/1MB,1)) MB)."
+          }
+          Get-Sidecar `
+            "https://github.com/klzgrad/naiveproxy/releases/download/v148.0.7778.96-5/naiveproxy-v148.0.7778.96-5-win-x64.zip" `
+            "54c7918557a7bd694f86ec7942b85d88b3623b21514ac3160c1e9e0e63175e8e" `
+            naive.zip "naive.exe" "src-tauri/binaries/naive-x86_64-pc-windows-msvc.exe"
+          Get-Sidecar `
+            "https://github.com/TrustTunnel/TrustTunnelClient/releases/download/v1.0.49/trusttunnel_client-v1.0.49-windows-x86_64.zip" `
+            "0e11150e77c083c828593e6fab7f76a159dd55b9ad9101dd70c4568da3cdf11b" `
+            tt.zip "trusttunnel_client.exe" "src-tauri/binaries/trusttunnel_client-x86_64-pc-windows-msvc.exe"
+
       - name: Generate build-info (паспорт сборки для «О программе»)
         shell: pwsh
         run: |
