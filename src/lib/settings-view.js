@@ -3,7 +3,7 @@
 
 import {
   loadOptions, saveOptions, updateOption,
-  REGIONS, IPV6_MODES, TUN_STACKS, LOG_LEVELS, BALANCER_STRATEGIES,
+  REGIONS, IPV6_MODES, TUN_STACKS, LOG_LEVELS, MUX_PROTOCOLS,
   URL_HANDLER_SCHEMES,
 } from "/lib/options.js";
 import { BUILD_INFO } from "/lib/build-info.js";
@@ -32,6 +32,7 @@ const SECTIONS = [
   { key: "dns",        title: "DNS",           icon: iconDns,        hint: "Remote / Direct DNS, fake-DNS" },
   { key: "inbound",    title: "Входящие",      icon: iconInbound,    hint: "Mixed-порт, MTU, TUN-стек, права админа" },
   { key: "tls-tricks", title: "Трюки TLS",     icon: iconTls,        hint: "Фрагментация ClientHello, padding" },
+  { key: "mux",        title: "Мультиплексор", icon: iconMux,        hint: "Несколько соединений через один транспорт" },
   { key: "warp",       title: "WARP",          icon: iconWarp,       hint: "Cloudflare WARP — outbound и chain" },
   { key: "about",      title: "О программе",   icon: iconInfo,       hint: "Версия, репозиторий, лицензия" },
 ];
@@ -65,14 +66,12 @@ const TUN_STACK_LABELS = {
   system: "System (нативный)",
 };
 
-const BALANCER_LABELS = {
-  "round-robin":         "Round robin",
-  "consistent-hashing":  "Consistent hashing",
-  "sticky-sessions":     "Sticky sessions",
-};
-
 const LOG_LABELS = {
   trace: "trace", debug: "debug", info: "info", warn: "warn", error: "error",
+};
+
+const MUX_PROTOCOL_LABELS = {
+  h2mux: "h2mux (рекомендуется)", smux: "smux", yamux: "yamux",
 };
 
 let currentSection = null; // null = menu
@@ -460,6 +459,7 @@ function renderSectionBody(sec, o) {
     case "dns":        return renderDns(o);
     case "inbound":    return renderInbound(o);
     case "tls-tricks": return renderTlsTricks(o);
+    case "mux":        return renderMux(o);
     case "warp":       return renderWarp(o);
     case "about":      return renderAbout(o);
   }
@@ -593,10 +593,9 @@ function renderRouting(o) {
   return `
     <div class="settings-section">
       ${row(iconPin(), "Регион", "Локальный трафик региона идёт напрямую через geosite/geoip rule_sets (обновление каждые 5 дней через прокси)", select("region", o.region, REGIONS, REGION_LABELS, true))}
-      ${row(iconBalancer(), "Стратегия Balancer", "Используется при множественных нодах (alpha7)", select("route.balancerStrategy", o.route.balancerStrategy, BALANCER_STRATEGIES, BALANCER_LABELS))}
       ${row(iconShield(), "Блокировать рекламу", "Domain/IP списки рекламы и malware", toggle("blockAds", o.blockAds))}
       ${row(iconLan(), "Обход LAN", "Локальные адреса (10.x, 192.168.x и т.п.) идут напрямую", toggle("route.bypassLan", o.route.bypassLan))}
-      ${row(iconTarget(), "Определять адрес назначения", "Резолвить домен в IP перед маршрутизацией", toggle("route.resolveDestination", o.route.resolveDestination))}
+      ${row(iconTarget(), "Назначение через Remote DNS", "Домены назначения резолвятся через Remote DNS (внутри туннеля). Выключено — через Direct DNS. Включайте, чтобы DNS назначения не утекал мимо прокси.", toggle("route.resolveDestination", o.route.resolveDestination))}
       ${row(iconIpv6(), "Маршрут IPv6", "Стратегия выбора IPv4/IPv6", select("route.ipv6Mode", o.route.ipv6Mode, IPV6_MODES, IPV6_LABELS))}
       ${row(iconRouting(), "Discord мимо туннеля (TUN)", "Только в режиме TUN: домены Discord идут напрямую, чтобы DPI-обход десинхрил их (голос с низким пингом). Без обхода/в proxy не влияет.", toggle("route.tunSplitDiscord", o.route.tunSplitDiscord))}
     </div>
@@ -641,10 +640,28 @@ function renderTlsTricks(o) {
   `;
 }
 
+function renderMux(o) {
+  const m = o.mux || {};
+  const enabled = !!m.enable;
+  return `
+    <div class="settings-banner">
+      Мультиплексор гонит несколько соединений через один транспорт к ноде — меньше TLS-рукопожатий и нагрузки на сервер. На быстрых каналах может, наоборот, резать скорость. Включайте, только если этого требует сервер или соединений много и они мелкие. Протокол должен поддерживаться и на стороне сервера.
+    </div>
+    <div class="settings-section">
+      ${row(iconMux(), "Включить мультиплексор", "Один транспорт под все соединения к активной ноде (sing-box multiplex)", toggle("mux.enable", enabled, { affectsView: true }))}
+      ${enabled ? `
+      ${row(iconMux(), "Протокол", "Схема мультиплексирования — должна совпадать с сервером", select("mux.protocol", m.protocol || "h2mux", MUX_PROTOCOLS, MUX_PROTOCOL_LABELS))}
+      ${row(iconPort(), "Макс. потоков", "Сколько соединений на один транспорт (по умолчанию 8)", inputText("mux.maxStreams", m.maxStreams ?? 8, "number", 'min="1" max="1024"'))}
+      ${row(iconPad(), "Padding", "Добавлять padding в mux-кадры — маскирует размеры пакетов", toggle("mux.padding", !!m.padding))}
+      ` : ""}
+    </div>
+  `;
+}
+
 const REPO_URL = "https://github.com/pathetixx/190x4-Ninety";
 const LICENSE_URL = "https://github.com/pathetixx/190x4-Ninety/blob/main/LICENSE";
 
-const ABOUT_PROTOCOLS = ["VLESS", "VMess", "Trojan", "Hysteria2", "TUIC"];
+const ABOUT_PROTOCOLS = ["VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "TUIC", "NaiveProxy", "TrustTunnel"];
 const ABOUT_MODES = ["Прокси", "Системный прокси", "VPN · TUN"];
 
 function aboutSpecCell(icon, key, value) {
@@ -678,7 +695,8 @@ function renderAbout() {
       </section>
 
       <p class="about-desc">
-        Лёгкий VPN-клиент под Windows: VLESS / VMess / Trojan / Hysteria2 / TUIC,
+        Лёгкий VPN-клиент под Windows: VLESS / VMess / Trojan / Shadowsocks /
+        Hysteria2 / TUIC / NaiveProxy / TrustTunnel,
         режимы «Прокси · Системный прокси · VPN · TUN», подписки с
         live-переключением серверов, трюки TLS (фрагментация ClientHello) и
         DPI-обход для обхода блокировок.
@@ -899,6 +917,7 @@ function iconClock()     { return svgWrap('<circle cx="12" cy="12" r="9"/><path 
 function iconLog()       { return svgWrap('<path d="M14 3 H6 a2 2 0 0 0 -2 2 V19 a2 2 0 0 0 2 2 H18 a2 2 0 0 0 2 -2 V9 Z"/><path d="M14 3 V9 H20"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/>'); }
 function iconPin()       { return svgWrap('<path d="M19 11 c0 5.5 -7 11 -7 11 s-7 -5.5 -7 -11 a7 7 0 0 1 14 0 Z"/><circle cx="12" cy="11" r="2.5"/>'); }
 function iconBalancer()  { return svgWrap('<line x1="12" y1="3" x2="12" y2="9"/><path d="M5 21 V14 a3 3 0 0 1 3 -3 h8 a3 3 0 0 1 3 3 V21"/><line x1="12" y1="11" x2="12" y2="21"/><circle cx="12" cy="9" r="1.4" fill="currentColor" stroke="none"/>'); }
+function iconMux()       { return svgWrap('<line x1="3" y1="6" x2="9" y2="6"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="3" y1="18" x2="9" y2="18"/><path d="M9 6 C 13 6 13 12 16 12"/><path d="M9 12 H16"/><path d="M9 18 C 13 18 13 12 16 12"/><line x1="16" y1="12" x2="21" y2="12"/><circle cx="17" cy="12" r="1.4" fill="currentColor" stroke="none"/>'); }
 function iconShield()    { return svgWrap('<path d="M12 3 L4 6 V12 c0 4.5 3.5 8 8 9 c4.5 -1 8 -4.5 8 -9 V6 Z"/>'); }
 function iconLan()       { return svgWrap('<rect x="3" y="3" width="6" height="5" rx="1"/><rect x="15" y="3" width="6" height="5" rx="1"/><rect x="9" y="16" width="6" height="5" rx="1"/><path d="M6 8 V11 H18 V8"/><path d="M12 11 V16"/>'); }
 function iconTarget()    { return svgWrap('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>'); }

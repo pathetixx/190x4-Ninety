@@ -473,8 +473,6 @@ function pathNeedsRestart(path) {
   if (path === "general.autostart") return false;
   if (path === "general.startMinimized") return false;
   if (path.startsWith("general.urlSchemes")) return false;
-  // balancerStrategy сейчас не передаётся в config (strategy захардкожена в singbox.js)
-  if (path === "route.balancerStrategy") return false;
   const opts = loadOptions();
   // WARP register/reset — переразложить config нужно только если WARP активен
   if (path === "warp.registered") return !!opts.warp?.enabled;
