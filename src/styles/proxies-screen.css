@@ -131,7 +131,11 @@
 
 /* ───────── FAB test-all ───────── */
 .prox-fab {
-  position: absolute;
+  /* fixed (не absolute): .screen[data-view=proxies] сам скроллится внутри
+     .content (overflow-y:auto), поэтому absolute+bottom уезжал вместе с экраном.
+     fixed привязывает FAB к окну (предки без transform/filter → containing block
+     = viewport). Прячется вместе с экраном через [hidden]{display:none}. */
+  position: fixed;
   bottom: 24px; right: 28px;
   width: 48px; height: 48px;
   border-radius: 50%;
