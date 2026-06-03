@@ -8,7 +8,6 @@ export const IPV6_MODES = ["disable", "enable", "prefer", "only"];
 export const TUN_STACKS = ["mixed", "gvisor", "system"];
 export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"];
 export const MUX_PROTOCOLS = ["h2mux", "smux", "yamux"];
-export const BALANCER_STRATEGIES = ["round-robin", "consistent-hashing", "sticky-sessions"];
 
 export const URL_HANDLER_SCHEMES = ["vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "tuic", "sub"];
 
@@ -70,7 +69,6 @@ export const DEFAULT_OPTIONS = {
     bypassLan: true,
     resolveDestination: false,
     ipv6Mode: "disable",
-    balancerStrategy: "round-robin",
     // TUN + split-routing: Discord идёт мимо туннеля (direct), чтобы DPI-обход
     // (winws) десинхрил его на реальном интерфейсе — голос low-ping одновременно
     // с полным TUN. Opt-in: в полном TUN весь трафик в туннеле, обход не нужен.
