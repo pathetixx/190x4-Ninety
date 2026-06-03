@@ -53,8 +53,15 @@ fn res_dpi(app: &AppHandle) -> Result<PathBuf, String> {
         .join("dpi");
     Ok(dir)
 }
-fn bin_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(res_dpi(app)?.join("bin"))
+// monkey=true → каталог bin-monkey: тот же winws.exe + cygwin1.dll, но WinDivert.dll
+// с пропатченными широкими строками (служба WinDivert→Monkey, файл драйвера
+// WinDivert64.sys→Monkey64.sys; имя устройства \\.\WinDivert сохранено — его
+// создаёт сам .sys в DriverEntry, Monkey64.sys байт-идентичен WinDivert64.sys).
+// Драйвер грузится по той же подписи Microsoft/WDF, но в SCM и на диске значится
+// как «Monkey» → имя WinDivert не светится в списке служб/файлов. На функционал
+// обхода не влияет.
+fn bin_dir(app: &AppHandle, monkey: bool) -> Result<PathBuf, String> {
+    Ok(res_dpi(app)?.join(if monkey { "bin-monkey" } else { "bin" }))
 }
 fn res_lists(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(res_dpi(app)?.join("lists"))
@@ -123,7 +130,7 @@ fn ensure_bindata(app: &AppHandle) -> Result<PathBuf, String> {
         })
         .unwrap_or(false);
     if !has_bin {
-        if let Ok(rd) = std::fs::read_dir(bin_dir(app)?) {
+        if let Ok(rd) = std::fs::read_dir(bin_dir(app, false)?) {
             for e in rd.flatten() {
                 let p = e.path();
                 if p.extension().is_some_and(|x| x == "bin") {
@@ -267,6 +274,7 @@ pub async fn dpi_start(
     strategy_id: String,
     game_filter: String,
     ipset: String,
+    monkey: bool,
 ) -> Result<(), String> {
     // Уже запущен? Чистим труп / отказываем.
     {
@@ -288,7 +296,7 @@ pub async fn dpi_start(
         .find(|s| s.id == strategy_id)
         .ok_or_else(|| format!("стратегия '{strategy_id}' не найдена"))?;
 
-    let bin = bin_dir(&app)?;
+    let bin = bin_dir(&app, monkey)?;
     let exe = bin.join("winws.exe");
     if !exe.exists() {
         return Err(format!("winws.exe не найден: {}", exe.display()));
@@ -522,7 +530,7 @@ fn parse_engine_version(out: &str) -> Option<String> {
 fn engine_version_runtime(app: &AppHandle) -> Option<String> {
     use std::io::Read;
     use std::os::windows::process::CommandExt;
-    let bin = bin_dir(app).ok()?;
+    let bin = bin_dir(app, false).ok()?; // winws.exe идентичен в обоих каталогах
     let exe = bin.join("winws.exe");
     if !exe.exists() {
         return None;
@@ -840,12 +848,13 @@ pub async fn dpi_autotest(
     app: AppHandle,
     state: State<'_, DpiState>,
     test_url: Option<String>,
+    monkey: bool,
 ) -> Result<serde_json::Value, String> {
     force_cleanup(&state); // глушим текущий winws — будем цикловать свои
     let url = test_url.unwrap_or_else(|| "https://www.youtube.com/".into());
 
     let strategies = read_strategies(&app)?;
-    let bin = bin_dir(&app)?;
+    let bin = bin_dir(&app, monkey)?;
     let exe = bin.join("winws.exe");
     if !exe.exists() {
         return Err(format!("winws.exe не найден: {}", exe.display()));
@@ -933,7 +942,8 @@ pub fn force_cleanup(state: &DpiState) {
 /// админ-прав, но при запущенном DPI аппа уже elevated (winws — наш child,
 /// наследует токен), поэтому здесь команды проходят. Ошибки не критичны —
 /// драйвера могло и не быть; имя службы у разных сборок winws — WinDivert или
-/// WinDivert14 (как чистит service.bat Flowseal), снимаем обе.
+/// WinDivert14 (как чистит service.bat Flowseal), плюс Monkey (наш переименованный
+/// вариант, см. bin_dir) — снимаем все.
 #[tauri::command]
 pub fn dpi_unload_driver(state: State<'_, DpiState>) -> Result<(), String> {
     force_cleanup(&state);
@@ -941,7 +951,7 @@ pub fn dpi_unload_driver(state: State<'_, DpiState>) -> Result<(), String> {
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        for svc in ["WinDivert", "WinDivert14"] {
+        for svc in ["WinDivert", "WinDivert14", "Monkey"] {
             for verb in ["stop", "delete"] {
                 let _ = std::process::Command::new("sc")
                     .args([verb, svc])

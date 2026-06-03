@@ -37,6 +37,7 @@
     "resources": {
       "binaries/wintun.dll": "wintun.dll",
       "dpi/bin/*": "dpi/bin/",
+      "dpi/bin-monkey/*": "dpi/bin-monkey/",
       "dpi/lists/*": "dpi/lists/",
       "dpi/strategies.json": "dpi/strategies.json",
       "dpi/version.txt": "dpi/version.txt",

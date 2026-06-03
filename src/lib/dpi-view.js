@@ -75,6 +75,7 @@ const LS = {
   strategy: "ninety.dpi.strategy",
   gameFilter: "ninety.dpi.gameFilter",
   ipset: "ninety.dpi.ipset",
+  monkey: "ninety.dpi.monkey",
 };
 const lsGet = (k, d) => { const v = localStorage.getItem(k); return v == null ? d : v; };
 
@@ -84,6 +85,7 @@ const S = {
   strategy: lsGet(LS.strategy, "ALT11"),
   gameFilter: lsGet(LS.gameFilter, "off"),
   ipset: lsGet(LS.ipset, "any"),
+  monkey: lsGet(LS.monkey, "false") === "true",
   hasUpdate: false,
   lastError: "",
   versions: { app: "—", engine: "winws", strategies: "—" },
@@ -274,6 +276,16 @@ function renderBody() {
             <div class="dpi-row__d" style="max-width:none">${ipsetHint}</div>
           </div></div></div>
         </article>
+
+        <article class="dpi-card">
+          <div class="dpi-row">
+            <div class="dpi-row__lbl">
+              <div class="dpi-row__t">Подменить WinDivert на Monkey</div>
+              <div class="dpi-row__d">Драйвер обхода грузится под нейтральным именем «Monkey» вместо «WinDivert» (служба и файл .sys). Сам движок и стратегии не меняются.</div>
+            </div>
+            <span class="switch" data-on="${S.monkey}" data-dpi-monkey role="switch" aria-checked="${S.monkey}"></span>
+          </div>
+        </article>
       </div>
     </div>`;
 }
@@ -312,7 +324,7 @@ async function startEngine() {
   renderAll();
   S.lastError = "";
   try {
-    await invoke("dpi_start", { strategyId: stratByName(S.strategy).id, gameFilter: S.gameFilter, ipset: S.ipset });
+    await invoke("dpi_start", { strategyId: stratByName(S.strategy).id, gameFilter: S.gameFilter, ipset: S.ipset, monkey: S.monkey });
     S.base = "running";
     localStorage.setItem(LS.enabled, "true");
     emitDpiChanged();
@@ -388,6 +400,17 @@ async function restartIfRunning() {
   }
 }
 
+// Смена режима драйвера (WinDivert↔Monkey): меняется имя kernel-службы и файла
+// .sys → перед стартом нового надо снять уже загруженный драйвер старого имени,
+// иначе в ядре повиснут обе службы. Аппа elevated (DPI запущен) → dpi_unload_driver
+// снимает WinDivert/WinDivert14/Monkey. Если выключен — просто применится при старте.
+async function restartWithDriverSwap() {
+  if (S.base !== "running" && S.base !== "starting") return;
+  try { await invoke("dpi_stop"); } catch {}
+  try { await invoke("dpi_unload_driver"); } catch {}
+  await startEngine();
+}
+
 async function setStrategy(s) {
   S.strategy = s.name;
   localStorage.setItem(LS.strategy, s.name);
@@ -444,7 +467,7 @@ async function pickStart() {
   const ok = await ensureElevated();
   if (!ok) { S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" }; return; }
   try {
-    const r = await invoke("dpi_autotest", {});
+    const r = await invoke("dpi_autotest", { monkey: S.monkey });
     if (r?.best_id) {
       const best = STRATEGIES.find((s) => s.id === r.best_id);
       S.autopick = {
@@ -603,6 +626,14 @@ function onClick(e) {
   const ips = t.closest("[data-dpi-ipset]");
   if (ips) { S.ipset = ips.dataset.dpiIpset; localStorage.setItem(LS.ipset, S.ipset); renderBody(); restartIfRunning(); return; }
   if (t.closest("[data-dpi-ipset-toggle]")) { S.ipsetOpen = !S.ipsetOpen; renderBody(); return; }
+  if (t.closest("[data-dpi-monkey]")) {
+    S.monkey = !S.monkey;
+    localStorage.setItem(LS.monkey, S.monkey ? "true" : "false");
+    renderBody();
+    restartWithDriverSwap();
+    toast(S.monkey ? "Драйвер: Monkey (имя WinDivert скрыто)" : "Драйвер: WinDivert (стандартный)", "info", 2400);
+    return;
+  }
   const upd = t.closest("[data-dpi-update]");
   if (upd) { runUpdate(upd.dataset.dpiUpdate); return; }
   const dom = t.closest("[data-dpi-domains]");
