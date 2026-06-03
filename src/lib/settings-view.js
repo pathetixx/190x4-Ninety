@@ -182,13 +182,13 @@ export function mountSettings(root, opts = {}) {
     try { window.open(url, "_blank"); } catch {}
   }
 
-  // Тумблер «Всегда запускать от администратора» (секция Входящие). Состояние
+  // Тумблер «Всегда запускать от администратора» (секция Общие). Состояние
   // живёт не в options-localStorage, а в маркер-файле на стороне Rust
   // (is_always_admin/set_always_admin) — поэтому биндим отдельно от generic
   // switch'ей. При включении на следующих стартах Ninety сам перезапустится
   // с UAC (см. setup() в lib.rs) — нужно для TUN без ручного запроса прав.
   async function bindAlwaysAdmin(el, sec) {
-    if (sec.key !== "inbound") return;
+    if (sec.key !== "general") return;
     const invoke = window.__TAURI__?.core?.invoke;
     const sw = el.querySelector("#always-admin-switch");
     if (!invoke || !sw) return;
@@ -561,6 +561,7 @@ function renderGeneral(o) {
   )).join("");
   return `
     <div class="settings-section">
+      ${row(iconShield(), "Всегда запускать от администратора", "Нужно для режима VPN · TUN. Ninety будет стартовать с правами админа (UAC при запуске) — при включении TUN запрос больше не появится.", `<span class="switch" id="always-admin-switch" data-on="false"></span>`)}
       ${row(iconRocket(), "Запускать при входе в систему", "Ninety будет автоматически стартовать при логине в Windows", toggle("general.autostart", g.autostart, { action: "autostart" }))}
       ${row(iconEyeOff(), "Запускать свернутым", "На старте окно сразу прячется в трей — иконка остаётся справа внизу", toggle("general.startMinimized", g.startMinimized))}
     </div>
@@ -621,7 +622,6 @@ function renderInbound(o) {
       ${row(iconStack(), "TUN стек", "Реализация TUN-стека", select("inbound.tunStack", o.inbound.tunStack, TUN_STACKS, TUN_STACK_LABELS))}
       ${row(iconLock(), "Строгая маршрутизация", "Блокировать утечки трафика мимо TUN", toggle("inbound.strictRoute", o.inbound.strictRoute))}
       ${row(iconBroadcast(), "Принимать с LAN", "⚠ Открытый прокси без пароля на 0.0.0.0 — любой в вашей сети сможет ходить через ваш VPN. Включайте только в доверенной сети", toggle("inbound.allowConnectionFromLan", o.inbound.allowConnectionFromLan))}
-      ${row(iconShield(), "Всегда запускать от администратора", "Нужно для режима VPN · TUN. Ninety будет стартовать с правами админа (UAC при запуске) — при включении TUN запрос больше не появится.", `<span class="switch" id="always-admin-switch" data-on="false"></span>`)}
     </div>
   `;
 }
