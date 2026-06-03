@@ -1255,8 +1255,16 @@ const STATE_HERO = { idle: "standby", connecting: "linking", connected: "secured
 const STATE_KICKER = {
   idle:       "STAND-BY · DISCONNECTED",
   connecting: "LINKING · NEGOTIATING",
-  connected:  "SECURED · TUNNEL ACTIVE",
+  connected:  "SECURED · TUNNEL ACTIVE", // дефолт; в connected берём connectedKicker() по режиму
 };
+// Kicker в состоянии connected зависит от режима: TUNNEL ACTIVE только в TUN,
+// системный прокси → SYSTEM PROXY, прокси → PROXY ACTIVE (раньше всегда «TUNNEL ACTIVE»).
+const CONNECTED_KICKER = {
+  tun:         "SECURED · TUNNEL ACTIVE",
+  systemProxy: "SECURED · SYSTEM PROXY",
+  proxy:       "SECURED · PROXY ACTIVE",
+};
+function connectedKicker() { return CONNECTED_KICKER[getMode()] || STATE_KICKER.connected; }
 const MODE_LABEL = { proxy: "ПРОКСИ", systemProxy: "СИСТЕМНЫЙ ПРОКСИ", tun: "VPN · TUN" };
 
 // Remount-приём: заменить элемент копией → CSS-анимация перезапускается с нуля.
@@ -1531,7 +1539,7 @@ function setState(next, opts = {}) {
   } else if (next === "connected") {
     if (heroLabel) heroLabel.textContent = "Защищено";
     if (heroHint) heroHint.hidden = false;
-    setHeroHintText(STATE_KICKER.connected);
+    setHeroHintText(connectedKicker());
     applyPingDisplay(opts.ping ?? null);
     showPing(true);
     if (heroDisc) heroDisc.setAttribute("aria-label", "Отключиться");
