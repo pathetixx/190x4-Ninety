@@ -54,7 +54,7 @@ export const DEFAULT_OPTIONS = {
     autoRescanIntervalMin: 30,    // как часто опрашивать (минуты)
     autoRescanThresholdMs: 300,   // если latency выше — пересканировать
   },
-  log: { level: "info", timestamp: true, disabled: false },
+  log: { level: "info", disabled: false },
   urlTest: {
     connectionTestUrl: "http://cp.cloudflare.com/generate_204",
     intervalSec: 600,

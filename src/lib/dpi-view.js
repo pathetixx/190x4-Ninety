@@ -324,7 +324,7 @@ async function startEngine() {
   renderAll();
   S.lastError = "";
   try {
-    await invoke("dpi_start", { strategyId: stratByName(S.strategy).id, gameFilter: S.gameFilter, ipset: S.ipset, monkey: S.monkey });
+    await invoke("dpi_start", { strategyId: stratByName(S.strategy).id, gameFilter: S.gameFilter, ipset: S.ipset, monkey: S.monkey, logsDisabled: !!loadOptions()?.log?.disabled });
     S.base = "running";
     localStorage.setItem(LS.enabled, "true");
     emitDpiChanged();

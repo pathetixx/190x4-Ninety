@@ -1845,6 +1845,8 @@ heroDisc?.addEventListener("click", async () => {
         xrayJson: xray ? JSON.stringify(xray) : null,
         // naive/trusttunnel клиенты (по одному на ноду); null когда таких нод нет.
         sidecarsJson: sidecars && sidecars.length ? JSON.stringify(sidecars) : null,
+        // «Полностью отключить логи» → Rust не пишет файлы ни одного компонента.
+        logsDisabled: !!options.log?.disabled,
       });
       // Системный прокси выставляем ТОЛЬКО для mode=systemProxy. Для голого
       // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт

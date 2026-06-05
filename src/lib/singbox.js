@@ -1106,11 +1106,26 @@ function tomlArr(list) {
   return `[${(list || []).map(tomlStr).join(", ")}]`;
 }
 
+// Уровень логов из настроек (opts.log.level) → формат конкретного движка.
+// Настройка одна, но движки называют уровни по-разному. Базовая шкала —
+// sing-box: trace/debug/info/warn/error.
+const SB_LEVELS = ["trace", "debug", "info", "warn", "error"];
+function sbLevel(opts) {
+  const l = opts?.log?.level;
+  return SB_LEVELS.includes(l) ? l : "info";
+}
+// xray: debug/info/warning/error/none (warn → warning).
+function xrayLevel(opts) {
+  return ({ trace: "debug", debug: "debug", info: "info", warn: "warning", error: "error" })[sbLevel(opts)] || "warning";
+}
+// trusttunnel: trace/debug/info/warn/error — имена совпадают с sing-box.
+function ttLevel(opts) { return sbLevel(opts); }
+
 // trusttunnel_client.toml в режиме SOCKS5-листенера (без TUN → без админ-прав).
 // killswitch выключен: в socks-мосте он не нужен и мог бы резать локальный трафик.
-function trustTunnelSidecarConfig(p, port) {
+function trustTunnelSidecarConfig(p, port, opts) {
   const lines = [
-    `loglevel = "info"`,
+    `loglevel = ${tomlStr(ttLevel(opts))}`,
     // vpn_mode обязателен (top-level): клиент падает «Unexpected VPN mode: » при
     // его отсутствии (build_config парсит его до listener). general = весь трафик
     // socks-листенера в endpoint; selective гонит в туннель только exclusions —
@@ -1233,7 +1248,7 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
     });
     if (xOut.length) {
       xrayConfig = {
-        log: { loglevel: "warning" },
+        log: { loglevel: xrayLevel(opts) },
         inbounds: xIn,
         outbounds: xOut,
         routing: { domainStrategy: "AsIs", rules: xRules },
@@ -1253,7 +1268,7 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
     if (proto === "naive") {
       port = NAIVE_BRIDGE_BASE_PORT + naiveN++; kind = "naive"; config = naiveSidecarConfig(n, port);
     } else if (proto === "trusttunnel") {
-      port = TT_BRIDGE_BASE_PORT + ttN++; kind = "trusttunnel"; config = trustTunnelSidecarConfig(n, port);
+      port = TT_BRIDGE_BASE_PORT + ttN++; kind = "trusttunnel"; config = trustTunnelSidecarConfig(n, port, opts);
     } else return;
     sidecars.push({ kind, port, config });
     vlessOutbounds[i] = {
@@ -1327,8 +1342,8 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
 
   const config = {
     log: {
-      level: opts.log?.level || "info",
-      timestamp: opts.log?.timestamp !== false,
+      level: sbLevel(opts),
+      timestamp: true, // нужен для парсера/фильтра экрана Логи
       ...(opts.log?.disabled ? { disabled: true } : {}),
     },
     dns: buildDns(opts),
