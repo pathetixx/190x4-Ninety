@@ -732,10 +732,14 @@ const logsRefreshBtn = document.getElementById("logs-refresh");
 const logsCopyBtn = document.getElementById("logs-copy");
 const logsClearBtn = document.getElementById("logs-clear");
 const logsOpenBtn = document.getElementById("logs-open");
+const logsSearch = document.getElementById("logs-search");
+const logsLevel = document.getElementById("logs-level");
 
 let logsTimer = null;
 let logsActive = false;
 let logsLastValue = "";
+let logsFilterQuery = "";
+let logsFilterLevel = "";
 
 function formatBytes(n) {
   if (n < 1024) return `${n} Б`;
@@ -772,46 +776,82 @@ function highlightMessage(msg) {
 }
 
 const LOG_RENDER_MAX_LINES = 800;
-function renderLogsHtml(text) {
-  if (!text) return '';
-  // Ограничиваем DOM последними N строками — 256КБ хвоста дают тысячи строк
-  // (простыня + тормоза рендера). Свежие строки внизу, как в консоли.
+// Уровень из дропдауна → набор токенов лога. WARN/WARNING и ERROR/FATAL/PANIC
+// группируются, чтобы «warn»/«error» ловили все варианты.
+const LOG_LEVEL_GROUP = {
+  trace: ["TRACE"], debug: ["DEBUG"], info: ["INFO"],
+  warn: ["WARN", "WARNING"], error: ["ERROR", "FATAL", "PANIC"],
+};
+
+// Парс текста лога в структурные записи (с прилепленными многострочными
+// продолжениями) — нужно, чтобы фильтр по уровню/тексту работал по записи
+// целиком, не разрывая мульти-line сообщения.
+function parseLogEntries(text) {
   const lines = text.split(/\r?\n/).slice(-LOG_RENDER_MAX_LINES);
-  const out = [];
-  let buffer = []; // продолжения многострочного сообщения
-  let lastIdx = -1;
+  const entries = [];
+  let cur = null;
   for (const raw of lines) {
-    if (!raw) {
-      if (lastIdx >= 0) buffer.push(''); // пустые строки прилеплены к предыдущей
-      continue;
-    }
+    if (!raw) { if (cur) cur.cont.push(''); continue; }
     const m = LOG_LINE_RE.exec(raw);
     if (m) {
-      // финализировать предыдущую если был мульти-line
-      if (lastIdx >= 0 && buffer.length) {
-        out[lastIdx] = out[lastIdx].replace('</span></div>', escapeLog('\n' + buffer.join('\n')) + '</span></div>');
-        buffer = [];
-      }
       const [, , date, time, level, rest] = m;
       const t = time || (date ? date.slice(5) : '—');
       const lvl = level.toUpperCase();
-      const grade = levelGrade(lvl);
-      out.push(`<div class="log-line"><span class="log-line__t">${escapeLog(t)}</span><span class="log-line__l log-line__l--${grade}">${lvl}</span><span class="log-line__m">${highlightMessage(rest)}</span></div>`);
-      lastIdx = out.length - 1;
+      cur = { t, lvl, grade: levelGrade(lvl), msg: rest, cont: [] };
+      entries.push(cur);
+    } else if (cur) {
+      cur.cont.push(raw);
     } else {
-      // без timestamp и без уровня → продолжение или plain
-      if (lastIdx >= 0) {
-        buffer.push(raw);
-      } else {
-        out.push(`<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--info">···</span><span class="log-line__m">${escapeLog(raw)}</span></div>`);
-        lastIdx = out.length - 1;
-      }
+      cur = { t: '—', lvl: '', grade: 'info', msg: raw, cont: [] };
+      entries.push(cur);
     }
   }
-  if (lastIdx >= 0 && buffer.length) {
-    out[lastIdx] = out[lastIdx].replace('</span></div>', escapeLog('\n' + buffer.join('\n')) + '</span></div>');
+  return entries;
+}
+
+function filterLogEntries(entries) {
+  const group = logsFilterLevel ? LOG_LEVEL_GROUP[logsFilterLevel] : null;
+  const words = logsFilterQuery ? logsFilterQuery.split(/\s+/).filter(Boolean) : [];
+  if (!group && !words.length) return entries;
+  return entries.filter(e => {
+    if (group && !group.includes(e.lvl)) return false;
+    if (words.length) {
+      const hay = `${e.t} ${e.lvl} ${e.msg} ${e.cont.join(' ')}`.toLowerCase();
+      if (!words.every(w => hay.includes(w))) return false;
+    }
+    return true;
+  });
+}
+
+function renderLogEntries(entries) {
+  const out = [];
+  for (const e of entries) {
+    const lvlDisp = e.lvl || '···';
+    const tail = e.cont.length ? escapeLog('\n' + e.cont.join('\n')) : '';
+    out.push(`<div class="log-line"><span class="log-line__t">${escapeLog(e.t)}</span><span class="log-line__l log-line__l--${e.grade}">${lvlDisp}</span><span class="log-line__m">${highlightMessage(e.msg)}${tail}</span></div>`);
   }
   return out.join('');
+}
+
+function logsInfoLine(text) {
+  return `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--info">···</span><span class="log-line__m" style="font-style:italic;color:var(--text-faint)">${escapeLog(text)}</span></div>`;
+}
+
+// Рендер из кэша (logsLastValue) с учётом фильтров — зовётся и при обновлении
+// лога, и при смене фильтра (без повторного чтения файла).
+function applyLogsRender({ keepScroll = false } = {}) {
+  if (!logsView) return;
+  const text = logsLastValue && logsLastValue !== "__force__" ? logsLastValue : "";
+  const atBottom = !keepScroll || (logsView.scrollTop + logsView.clientHeight >= logsView.scrollHeight - 24);
+  if (!text) {
+    logsView.innerHTML = logsInfoLine("Лог пуст. Запустите подключение — журнал sing-box будет писаться сюда.");
+  } else {
+    const filtered = filterLogEntries(parseLogEntries(text));
+    logsView.innerHTML = filtered.length
+      ? renderLogEntries(filtered)
+      : logsInfoLine("Ничего не найдено по фильтру.");
+  }
+  if (atBottom) logsView.scrollTop = logsView.scrollHeight;
 }
 
 async function refreshLogs({ keepScroll = false } = {}) {
@@ -820,21 +860,13 @@ async function refreshLogs({ keepScroll = false } = {}) {
     const text = await invoke("read_singbox_log", { tailBytes: 256 * 1024 });
     if (text === logsLastValue) return;
     logsLastValue = text;
-    const atBottom = !keepScroll || (logsView.scrollTop + logsView.clientHeight >= logsView.scrollHeight - 24);
-    if (!text) {
-      logsView.innerHTML = '<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--info">···</span><span class="log-line__m" style="font-style:italic;color:var(--text-faint)">Лог пуст. Запустите подключение — sing-box stdout/stderr будут писаться сюда.</span></div>';
-    } else {
-      logsView.innerHTML = renderLogsHtml(text);
-    }
-    if (atBottom) logsView.scrollTop = logsView.scrollHeight;
     if (logsSize) {
       const bytes = new TextEncoder().encode(text || "").length;
       logsSize.textContent = text ? formatBytes(bytes) : "пусто";
     }
+    applyLogsRender({ keepScroll });
   } catch (e) {
-    if (logsView) {
-      logsView.innerHTML = `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--err">ERR</span><span class="log-line__m">${escapeLog(`Ошибка чтения лога: ${e?.message || e}`)}</span></div>`;
-    }
+    logsView.innerHTML = `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--err">ERR</span><span class="log-line__m">${escapeLog(`Ошибка чтения лога: ${e?.message || e}`)}</span></div>`;
   }
 }
 
@@ -842,8 +874,12 @@ async function refreshLogsPath() {
   if (!logsPath) return;
   try {
     const path = await invoke("singbox_log_path");
-    logsPath.textContent = path;
-    logsPath.title = path;
+    // Показываем ПАПКУ журналов, а не singbox.log: в ней лежат логи всех
+    // компонентов (sing-box, xray, naive, trusttunnel, dpi). Кнопка «Папка»
+    // её открывает. В консоли ниже — лог ядра sing-box.
+    const dir = path.replace(/[\\/][^\\/]*$/, "");
+    logsPath.textContent = dir;
+    logsPath.title = "Журналы компонентов: sing-box, xray, naive, trusttunnel, dpi";
   } catch {
     logsPath.textContent = "—";
   }
@@ -865,6 +901,16 @@ logsAuto?.addEventListener("change", () => {
 });
 
 logsRefreshBtn?.addEventListener("click", () => refreshLogs());
+
+logsSearch?.addEventListener("input", () => {
+  logsFilterQuery = logsSearch.value.trim().toLowerCase();
+  applyLogsRender();
+});
+
+logsLevel?.addEventListener("change", () => {
+  logsFilterLevel = logsLevel.value;
+  applyLogsRender();
+});
 
 logsCopyBtn?.addEventListener("click", async () => {
   const text = logsLastValue || "";
