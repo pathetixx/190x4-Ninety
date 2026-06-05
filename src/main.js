@@ -432,6 +432,16 @@ navItems.forEach((item) => {
   item.addEventListener("click", () => switchView(item.dataset.view));
 });
 
+// Карточка активной подписки на главной → открыть «Профили» (как в hiddify):
+// явная кнопка-шеврон + клик/Enter по самой карточке.
+const subCardEl = document.querySelector(".sub-card");
+const subOpenBtn = document.getElementById("sub-open-profiles");
+subOpenBtn?.addEventListener("click", (e) => { e.stopPropagation(); switchView("profiles"); });
+subCardEl?.addEventListener("click", () => switchView("profiles"));
+subCardEl?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchView("profiles"); }
+});
+
 // Mount Proxies view (FAB-молния → перетест группы)
 mountProxiesView({ onToast: toast });
 
