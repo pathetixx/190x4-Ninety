@@ -1111,6 +1111,11 @@ function tomlArr(list) {
 function trustTunnelSidecarConfig(p, port) {
   const lines = [
     `loglevel = "info"`,
+    // vpn_mode обязателен (top-level): клиент падает «Unexpected VPN mode: » при
+    // его отсутствии (build_config парсит его до listener). general = весь трафик
+    // socks-листенера в endpoint; selective гонит в туннель только exclusions —
+    // нам нужен general, т.к. маршрутизацию делает sing-box, а TT — чистый мост.
+    `vpn_mode = "general"`,
     `killswitch_enabled = false`,
     ``,
     `[endpoint]`,
