@@ -335,7 +335,7 @@
           <section class="screen" data-view="logs" hidden>
             <div class="screen__head">
               <div class="screen__head-main">
-                <div class="screen__kicker">ЖУРНАЛ ЯДРА · SING-BOX</div>
+                <div class="screen__kicker" id="logs-kicker">ЖУРНАЛ · SING-BOX</div>
                 <h2 class="screen__title">Логи</h2>
                 <div class="screen__sub" id="logs-path" title="">—</div>
               </div>
@@ -348,6 +348,13 @@
             </div>
             <div class="logs">
               <div class="logs__filter">
+                <select id="logs-source" class="logs__level logs__source" aria-label="Источник лога">
+                  <option value="singbox">sing-box</option>
+                  <option value="xray">xray</option>
+                  <option value="naive">naive</option>
+                  <option value="trusttunnel">trusttunnel</option>
+                  <option value="dpi">DPI · winws</option>
+                </select>
                 <input type="text" id="logs-search" class="logs__search" placeholder="Фильтр" autocomplete="off" spellcheck="false" aria-label="Поиск по логам" />
                 <select id="logs-level" class="logs__level" aria-label="Уровень логов">
                   <option value="">Все</option>

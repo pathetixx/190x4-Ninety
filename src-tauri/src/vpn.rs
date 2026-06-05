@@ -287,23 +287,19 @@ pub async fn singbox_log_path(app: AppHandle) -> Result<String, String> {
     Ok(p.to_string_lossy().to_string())
 }
 
-#[tauri::command]
-pub async fn read_singbox_log(
-    app: AppHandle,
-    tail_bytes: Option<u64>,
-) -> Result<String, String> {
-    let path = resolved_log_path(&app)?;
+// Читает хвост файла (последние tail_bytes), отрезая первую обрезанную строку.
+fn read_tail(path: &std::path::Path, tail_bytes: Option<u64>) -> Result<String, String> {
     if !path.exists() {
         return Ok(String::new());
     }
     let limit = tail_bytes.unwrap_or(128 * 1024);
-    let meta = std::fs::metadata(&path).map_err(|e| format!("stat: {e}"))?;
+    let meta = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?;
     let size = meta.len();
     if size <= limit {
-        return std::fs::read_to_string(&path).map_err(|e| format!("read: {e}"));
+        return std::fs::read_to_string(path).map_err(|e| format!("read: {e}"));
     }
     use std::io::{Read, Seek, SeekFrom};
-    let mut f = std::fs::File::open(&path).map_err(|e| format!("open: {e}"))?;
+    let mut f = std::fs::File::open(path).map_err(|e| format!("open: {e}"))?;
     f.seek(SeekFrom::End(-(limit as i64))).map_err(|e| format!("seek: {e}"))?;
     let mut buf = Vec::with_capacity(limit as usize);
     f.read_to_end(&mut buf).map_err(|e| format!("read_to_end: {e}"))?;
@@ -312,11 +308,57 @@ pub async fn read_singbox_log(
     Ok(format!("…[обрезано {} байт сверху]…\n{}", size - limit, &text[cut..]))
 }
 
+// Файл лога по ключу источника. Все компоненты пишут в app_log_dir.
+fn component_log_file(app: &AppHandle, source: &str) -> Option<PathBuf> {
+    let name = match source {
+        "singbox" => "singbox.log",
+        "xray" => "xray.log",
+        "naive" => "naive.log",
+        "trusttunnel" => "trusttunnel.log",
+        "dpi" => "dpi.log",
+        _ => return None,
+    };
+    let dir = app.path().app_log_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join(name))
+}
+
+#[tauri::command]
+pub async fn read_singbox_log(
+    app: AppHandle,
+    tail_bytes: Option<u64>,
+) -> Result<String, String> {
+    read_tail(&resolved_log_path(&app)?, tail_bytes)
+}
+
+// Чтение лога любого компонента (singbox/xray/naive/trusttunnel/dpi).
+#[tauri::command]
+pub async fn read_log(
+    app: AppHandle,
+    source: String,
+    tail_bytes: Option<u64>,
+) -> Result<String, String> {
+    let path = component_log_file(&app, &source)
+        .ok_or_else(|| format!("неизвестный источник лога: {source}"))?;
+    read_tail(&path, tail_bytes)
+}
+
 #[tauri::command]
 pub async fn clear_singbox_log(app: AppHandle) -> Result<(), String> {
     let Some(path) = log_path(&app) else {
         return Err("log_dir недоступен".into());
     };
+    if path.exists() {
+        std::fs::write(&path, b"").map_err(|e| format!("truncate: {e}"))?;
+    }
+    Ok(())
+}
+
+// Очистка лога любого компонента.
+#[tauri::command]
+pub async fn clear_log(app: AppHandle, source: String) -> Result<(), String> {
+    let path = component_log_file(&app, &source)
+        .ok_or_else(|| format!("неизвестный источник лога: {source}"))?;
     if path.exists() {
         std::fs::write(&path, b"").map_err(|e| format!("truncate: {e}"))?;
     }
