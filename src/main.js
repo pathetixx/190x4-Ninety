@@ -38,6 +38,7 @@ import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode, selectP
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
+import { FLAGS_BASE, flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -1429,28 +1430,7 @@ const locName = document.querySelector(".loc-card__name");
 const locProto = document.querySelector(".loc-card__sub b");
 const locFlag = document.querySelector(".loc-card__flag");
 
-const FLAGS_BASE = "/assets/flags";
-const FLAG_NON_ISO_ALIAS = { uk: "gb", en: "gb", uae: "ae", usa: "us", rus: "ru" };
-
-function isoFromNodeName(name) {
-  if (!name) return null;
-  const cps = Array.from(name);
-  for (let i = 0; i < cps.length - 1; i++) {
-    const a = cps[i].codePointAt(0);
-    const b = cps[i + 1].codePointAt(0);
-    if (a >= 0x1F1E6 && a <= 0x1F1FF && b >= 0x1F1E6 && b <= 0x1F1FF) {
-      return String.fromCharCode(97 + (a - 0x1F1E6)) + String.fromCharCode(97 + (b - 0x1F1E6));
-    }
-  }
-  const m = String(name).match(/(?:^|[\s|·,])([A-Za-z]{2,3})\b/);
-  if (m) {
-    const tok = m[1].toLowerCase();
-    if (FLAG_NON_ISO_ALIAS[tok]) return FLAG_NON_ISO_ALIAS[tok];
-    if (tok.length === 2) return tok;
-  }
-  return null;
-}
-
+// флаги: FLAGS_BASE + isoFromNodeName импортированы из /lib/flags.js
 function setLocationFlag(iso) {
   if (!locFlag) return;
   if (iso) {
