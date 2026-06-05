@@ -335,7 +335,7 @@
           <section class="screen" data-view="logs" hidden>
             <div class="screen__head">
               <div class="screen__head-main">
-                <div class="screen__kicker">SING-BOX · STDOUT / STDERR</div>
+                <div class="screen__kicker">ЖУРНАЛ ЯДРА · SING-BOX</div>
                 <h2 class="screen__title">Логи</h2>
                 <div class="screen__sub" id="logs-path" title="">—</div>
               </div>
@@ -347,6 +347,17 @@
               </div>
             </div>
             <div class="logs">
+              <div class="logs__filter">
+                <input type="text" id="logs-search" class="logs__search" placeholder="Фильтр" autocomplete="off" spellcheck="false" aria-label="Поиск по логам" />
+                <select id="logs-level" class="logs__level" aria-label="Уровень логов">
+                  <option value="">Все</option>
+                  <option value="trace">trace</option>
+                  <option value="debug">debug</option>
+                  <option value="info">info</option>
+                  <option value="warn">warn</option>
+                  <option value="error">error</option>
+                </select>
+              </div>
               <div class="logs__meta">
                 <div class="logs__meta-left">
                   <span class="logs__size" id="logs-size"></span>
