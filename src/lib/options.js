@@ -9,18 +9,12 @@ export const TUN_STACKS = ["mixed", "gvisor", "system"];
 export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"];
 export const MUX_PROTOCOLS = ["h2mux", "smux", "yamux"];
 
-export const URL_HANDLER_SCHEMES = ["vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "tuic", "sub"];
-
 export const DEFAULT_OPTIONS = {
   region: "ru",
   blockAds: false,
   general: {
     autostart: false,
     startMinimized: false,
-    // Какие схемы зарегистрированы как handler Ninety в HKCU. Используется UI'ем
-    // для отображения чек-боксов; реальный source-of-truth — реестр Windows,
-    // синхронизируется через is_url_handler_registered на старте.
-    urlSchemes: [],
   },
   warp: {
     // Включает выбор WARP в селекторе outbound (UI). Сама регистрация делается

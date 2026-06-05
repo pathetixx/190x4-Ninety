@@ -483,7 +483,6 @@ function pathNeedsRestart(path) {
   // Windows-сторона, sing-box не трогает
   if (path === "general.autostart") return false;
   if (path === "general.startMinimized") return false;
-  if (path.startsWith("general.urlSchemes")) return false;
   const opts = loadOptions();
   // WARP register/reset — переразложить config нужно только если WARP активен
   if (path === "warp.registered") return !!opts.warp?.enabled;
@@ -1973,28 +1972,6 @@ syncTrayMenu();
       const { updateOption } = await import("/lib/options.js");
       updateOption("general.autostart", enabled);
     }
-  } catch {}
-})();
-
-// Синхронизация списка зарегистрированных URL-схем с реальным HKCU.
-// Юзер мог удалить ключи руками / переинсталлировать Ninety в другую папку,
-// тогда наш path в реестре устарел — is_url_handler_registered вернёт false,
-// и мы синхронизируем options.general.urlSchemes под реальное состояние.
-(async () => {
-  try {
-    const { URL_HANDLER_SCHEMES, updateOption } = await import("/lib/options.js");
-    const actual = [];
-    for (const scheme of URL_HANDLER_SCHEMES) {
-      try {
-        const ok = await invoke("is_url_handler_registered", { scheme });
-        if (ok) actual.push(scheme);
-      } catch {}
-    }
-    const opts = loadOptions();
-    const current = opts.general?.urlSchemes || [];
-    const sameLen = current.length === actual.length;
-    const sameSet = sameLen && current.every(s => actual.includes(s));
-    if (!sameSet) updateOption("general.urlSchemes", actual);
   } catch {}
 })();
 
