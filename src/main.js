@@ -734,12 +734,21 @@ const logsClearBtn = document.getElementById("logs-clear");
 const logsOpenBtn = document.getElementById("logs-open");
 const logsSearch = document.getElementById("logs-search");
 const logsLevel = document.getElementById("logs-level");
+const logsSource = document.getElementById("logs-source");
+const logsKicker = document.getElementById("logs-kicker");
+
+const LOG_SOURCE_LABEL = {
+  singbox: "SING-BOX", xray: "XRAY", naive: "NAIVE",
+  trusttunnel: "TRUSTTUNNEL", dpi: "DPI · WINWS",
+};
 
 let logsTimer = null;
 let logsActive = false;
 let logsLastValue = "";
 let logsFilterQuery = "";
 let logsFilterLevel = "";
+
+function currentLogSource() { return logsSource?.value || "singbox"; }
 
 function formatBytes(n) {
   if (n < 1024) return `${n} Б`;
@@ -844,7 +853,8 @@ function applyLogsRender({ keepScroll = false } = {}) {
   const text = logsLastValue && logsLastValue !== "__force__" ? logsLastValue : "";
   const atBottom = !keepScroll || (logsView.scrollTop + logsView.clientHeight >= logsView.scrollHeight - 24);
   if (!text) {
-    logsView.innerHTML = logsInfoLine("Лог пуст. Запустите подключение — журнал sing-box будет писаться сюда.");
+    const label = LOG_SOURCE_LABEL[currentLogSource()] || "компонент";
+    logsView.innerHTML = logsInfoLine(`Лог пуст — ${label} ещё ничего не записал.`);
   } else {
     const filtered = filterLogEntries(parseLogEntries(text));
     logsView.innerHTML = filtered.length
@@ -857,7 +867,7 @@ function applyLogsRender({ keepScroll = false } = {}) {
 async function refreshLogs({ keepScroll = false } = {}) {
   if (!logsView) return;
   try {
-    const text = await invoke("read_singbox_log", { tailBytes: 256 * 1024 });
+    const text = await invoke("read_log", { source: currentLogSource(), tailBytes: 256 * 1024 });
     if (text === logsLastValue) return;
     logsLastValue = text;
     if (logsSize) {
@@ -912,6 +922,12 @@ logsLevel?.addEventListener("change", () => {
   applyLogsRender();
 });
 
+logsSource?.addEventListener("change", () => {
+  if (logsKicker) logsKicker.textContent = `ЖУРНАЛ · ${LOG_SOURCE_LABEL[currentLogSource()] || "—"}`;
+  logsLastValue = "__force__"; // сменился источник — перечитать файл и перерисовать
+  refreshLogs();
+});
+
 logsCopyBtn?.addEventListener("click", async () => {
   const text = logsLastValue || "";
   if (!text) { toast("Лог пуст", "info", 1400); return; }
@@ -925,7 +941,7 @@ logsCopyBtn?.addEventListener("click", async () => {
 
 logsClearBtn?.addEventListener("click", async () => {
   try {
-    await invoke("clear_singbox_log");
+    await invoke("clear_log", { source: currentLogSource() });
     logsLastValue = "__force__";
     await refreshLogs();
     toast("Лог очищен", "info", 1400);
