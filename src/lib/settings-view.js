@@ -26,15 +26,15 @@ const WARP_NOISE_LABELS = {
 };
 
 const SECTIONS = [
-  { key: "general",    title: "Общие",        icon: iconGeneral,    hint: "Логи, тест соединения, интервалы" },
-  { key: "appearance", title: "Оформление",   icon: iconTheme,      hint: "Темы: Kurogane / Synthwave / Matrix / Mono" },
-  { key: "routing",    title: "Маршрутизация", icon: iconRouting,    hint: "Регион, обход LAN, блокировка рекламы" },
-  { key: "dns",        title: "DNS",           icon: iconDns,        hint: "Remote / Direct DNS, fake-DNS" },
-  { key: "inbound",    title: "Входящие",      icon: iconInbound,    hint: "Mixed-порт, MTU, TUN-стек, права админа" },
-  { key: "tls-tricks", title: "Трюки TLS",     icon: iconTls,        hint: "Фрагментация ClientHello, padding" },
-  { key: "mux",        title: "Мультиплексор", icon: iconMux,        hint: "Несколько соединений через один транспорт" },
-  { key: "warp",       title: "WARP",          icon: iconWarp,       hint: "Cloudflare WARP — outbound и chain" },
-  { key: "about",      title: "О программе",   icon: iconInfo,       hint: "Версия, репозиторий, лицензия" },
+  { key: "general",    title: "Общие",            icon: iconGeneral,    hint: "Автозапуск, права администратора, логи, тест соединения" },
+  { key: "appearance", title: "Оформление",       icon: iconTheme,      hint: "Темы оформления: Kurogane, Synthwave, Matrix, Mono" },
+  { key: "routing",    title: "Маршрутизация",     icon: iconRouting,    hint: "Регион, обход локальной сети, блокировка рекламы, IPv6" },
+  { key: "dns",        title: "DNS",               icon: iconDns,        hint: "Remote- и Direct-DNS, кэш, fake-DNS" },
+  { key: "inbound",    title: "Локальный доступ",  icon: iconInbound,    hint: "Локальный порт, MTU, TUN-стек, доступ из сети" },
+  { key: "tls-tricks", title: "TLS-фрагментация",  icon: iconTls,        hint: "Фрагментация ClientHello, padding, регистр SNI" },
+  { key: "mux",        title: "Мультиплексор",     icon: iconMux,        hint: "Несколько соединений через один транспорт" },
+  { key: "warp",       title: "WARP",              icon: iconWarp,       hint: "Cloudflare WARP: режим, лицензия, endpoint" },
+  { key: "about",      title: "О программе",       icon: iconInfo,       hint: "Версия, репозиторий, лицензия" },
 ];
 
 const THEMES = [
@@ -584,7 +584,7 @@ function renderGeneral(o) {
       ${row(iconClock(), "Интервал теста (сек)", "Как часто sing-box проверяет outbound", inputText("urlTest.intervalSec", o.urlTest.intervalSec, "number", 'min="30" max="3600"'))}
       ${row(iconLog(), "Уровень логов", "Подробность лога sing-box", select("log.level", o.log.level, LOG_LEVELS, LOG_LABELS))}
       ${row(iconLog(), "Метка времени в логах", "Префикс времени перед каждой строкой sing-box лога", toggle("log.timestamp", o.log.timestamp !== false))}
-      ${row(iconLog(), "Полностью отключить логи", "sing-box не пишет ни одной строки — диагностика станет невозможна. Включайте только для прод-сценария.", toggle("log.disabled", !!o.log.disabled))}
+      ${row(iconLog(), "Полностью отключить логи", "sing-box не пишет ни одной строки — диагностика станет невозможна. Включайте, только если логи точно не нужны.", toggle("log.disabled", !!o.log.disabled))}
     </div>
   `;
 }
@@ -620,7 +620,7 @@ function renderInbound(o) {
       ${row(iconMtu(), "MTU TUN", "Максимальный размер пакета", inputText("inbound.mtu", o.inbound.mtu, "number", 'min="576" max="9000"'))}
       ${row(iconStack(), "TUN стек", "Реализация TUN-стека", select("inbound.tunStack", o.inbound.tunStack, TUN_STACKS, TUN_STACK_LABELS))}
       ${row(iconLock(), "Строгая маршрутизация", "Блокировать утечки трафика мимо TUN", toggle("inbound.strictRoute", o.inbound.strictRoute))}
-      ${row(iconBroadcast(), "Принимать с LAN", "⚠ Открытый прокси без пароля на 0.0.0.0 — любой в вашей сети сможет ходить через ваш VPN. Включайте только в доверенной сети", toggle("inbound.allowConnectionFromLan", o.inbound.allowConnectionFromLan))}
+      ${row(iconBroadcast(), "Доступ из локальной сети", "⚠ Открытый прокси без пароля на 0.0.0.0 — любое устройство в вашей сети сможет выходить в интернет через ваш VPN. Включайте только в доверенной сети", toggle("inbound.allowConnectionFromLan", o.inbound.allowConnectionFromLan))}
     </div>
   `;
 }
@@ -628,10 +628,10 @@ function renderInbound(o) {
 function renderTlsTricks(o) {
   return `
     <div class="settings-banner">
-      Трюки TLS режут handshake к VPN-серверу на части — помогают поднять туннель, когда провайдер душит соединение по SNI. Применяются к прокси-подключению. С Reality начинайте с фрагментации; padding и mixed-case включайте только если без них не пробивает.
+      Фрагментация делит TLS-handshake к серверу на части — это помогает установить соединение, когда провайдер ограничивает доступ по имени домена (SNI). Применяется к прокси-подключению. С Reality начните с фрагментации; padding и смену регистра SNI включайте, только если без них соединение не устанавливается.
     </div>
     <div class="settings-section">
-      ${row(iconScissors(), "Фрагментация ClientHello", "Бьёт TLS handshake на куски — обход DPI", toggle("tlsTricks.enableFragment", o.tlsTricks.enableFragment))}
+      ${row(iconScissors(), "Фрагментация ClientHello", "Делит TLS-handshake на части — обход DPI", toggle("tlsTricks.enableFragment", o.tlsTricks.enableFragment))}
       ${row(iconScissors(), "Способ фрагментации", "record — на TLS-записи (рекоменд., быстрее); TCP — на сегменты (агрессивнее)", select("tlsTricks.fragmentMode", o.tlsTricks.fragmentMode, ["record", "tcp"], { record: "По TLS-записям (record)", tcp: "По TCP-сегментам" }))}
       ${row(iconCase(), "Mixed SNI case", "Перемешивает регистр в SNI (может ломать Reality)", toggle("tlsTricks.mixedSniCase", o.tlsTricks.mixedSniCase))}
       ${row(iconPad(), "TLS padding", "Добавляет padding в ClientHello (может ломать Reality)", toggle("tlsTricks.enablePadding", o.tlsTricks.enablePadding))}
