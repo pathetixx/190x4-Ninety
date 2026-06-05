@@ -1132,6 +1132,10 @@ function trustTunnelSidecarConfig(p, port, opts) {
     // нам нужен general, т.к. маршрутизацию делает sing-box, а TT — чистый мост.
     `vpn_mode = "general"`,
     `killswitch_enabled = false`,
+    // Дефолт официального setup_wizard — true; выравниваем 1:1 (post-quantum
+    // группа в TLS-handshake). Не влияет на auth, но убирает единственное
+    // расхождение нашего settings-конфига с каноническим выводом визарда.
+    `post_quantum_group_enabled = true`,
     ``,
     `[endpoint]`,
     `hostname = ${tomlStr(p.hostname)}`,
