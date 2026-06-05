@@ -252,11 +252,45 @@ fn build_tray_menu(
 
 /// Фронтенд зовёт при каждом изменении состояния (connect/disconnect, смена
 /// режима/подписки/эффективной ноды) — пересобираем меню трея под него.
+// Значок трея под состояние: off (отключено) / proxy / tun (synthwave-purple).
+// Встроены в бинарь (include_bytes) — не зависят от resource_dir; 32px,
+// Windows даунскейлит под нужный размер нотификейшн-зоны.
+fn tray_state_icon(connected: bool, mode: &str) -> Option<tauri::image::Image<'static>> {
+    const OFF: &[u8] = include_bytes!("../icons/tray/oni_off_32.png");
+    const PROXY: &[u8] = include_bytes!("../icons/tray/oni_proxy_32.png");
+    const TUN: &[u8] = include_bytes!("../icons/tray/oni_tun_32.png");
+    let bytes = if !connected {
+        OFF
+    } else if mode == "tun" {
+        TUN
+    } else {
+        PROXY
+    };
+    tauri::image::Image::from_bytes(bytes).ok()
+}
+
+// Tooltip трея — даёт точный режим (иконка только сигналит статус/тип).
+fn tray_tooltip(connected: bool, mode: &str) -> String {
+    if !connected {
+        return "Ninety · отключено".to_string();
+    }
+    let m = match mode {
+        "tun" => "TUN",
+        "systemProxy" => "системный прокси",
+        _ => "прокси",
+    };
+    format!("Ninety · {m} · подключено")
+}
+
 #[tauri::command]
 fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), String> {
     let menu = build_tray_menu(&app, &payload).map_err(|e| e.to_string())?;
     if let Some(tray) = app.tray_by_id("main") {
         tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+        if let Some(icon) = tray_state_icon(payload.connected, &payload.mode) {
+            let _ = tray.set_icon(Some(icon));
+        }
+        let _ = tray.set_tooltip(Some(tray_tooltip(payload.connected, &payload.mode)));
     }
     Ok(())
 }
@@ -343,9 +377,13 @@ pub fn run() {
 
             let menu = build_tray_menu(app.handle(), &TrayMenuPayload::default())?;
 
+            // Старт всегда в состоянии «отключено» — серый значок; фронт после
+            // загрузки/автоконнекта пришлёт set_tray_menu с актуальным режимом.
+            let init_icon = tray_state_icon(false, "")
+                .unwrap_or_else(|| app.default_window_icon().unwrap().clone());
             let _tray = TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Ninety · 190x4")
+                .icon(init_icon)
+                .tooltip(tray_tooltip(false, ""))
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {
