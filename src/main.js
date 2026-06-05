@@ -39,6 +39,7 @@ import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
 import { FLAGS_BASE, flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
+import { startMeter, stopMeter, getMeasured, resetMeasured, sourceKeyOf } from "/lib/traffic-meter.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -374,9 +375,11 @@ function refreshSubCardFromActive() {
     const used = subscriptionUsedBytes(sub);
     const limit = subscriptionLimitBytes(sub); // null = безлимит/не метится (total=0)
     if (subTraffic) {
+      // Гибрид: есть реальный лимит провайдера → квота used/total. Иначе показываем
+      // наш измеренный трафик (заголовок провайдера ненадёжен/0).
       subTraffic.innerHTML = limit != null
         ? `<b>${fmtTraffic(used)}</b> / <b>${fmtTraffic(limit)}</b>`
-        : `<b>${fmtTraffic(used)}</b> · безлимит`;
+        : `<b>${fmtTraffic(getMeasured(`sub:${sub.id}`).total)}</b> · безлимит`;
     }
     // Прогресс-бар только когда есть реальный лимит — иначе это пустая полоса.
     if (subBar) subBar.style.display = limit != null ? "" : "none";
@@ -390,7 +393,8 @@ function refreshSubCardFromActive() {
     if (subName) subName.textContent = "ЛОКАЛЬНЫЙ КОНФИГ";
     if (subExpire) subExpire.textContent = "—";
     if (subExpireUnit) subExpireUnit.style.display = "none";
-    if (subTraffic) subTraffic.textContent = "—";
+    // У одиночного профиля (hysteria/naive/tt) нет квоты — показываем измеренный трафик.
+    if (subTraffic) subTraffic.innerHTML = `<b>${fmtTraffic(getMeasured(`profile:${src.profile.id}`).total)}</b>`;
     if (subBar) subBar.style.display = "none";
     if (subProgressFill) subProgressFill.style.width = "0%";
     if (subUpdated) subUpdated.textContent = "—";
@@ -1020,7 +1024,7 @@ function renderProfilesView() {
     const nodesCount = s.profiles?.length || 0;
     const trafficStr = limit != null
       ? `${fmtTraffic(used)} / ${fmtTraffic(limit)}`
-      : `${fmtTraffic(used)} · ∞`;
+      : `${fmtTraffic(getMeasured(`sub:${s.id}`).total)} · ∞`;
     return `
       <article class="prof-card" data-active="${isActive}" data-sub-id="${s.id}">
         <div class="prof-card__icon">${ICON_GLOBE}</div>
@@ -1076,6 +1080,10 @@ function renderProfilesView() {
           <div class="prof-card__stat">
             <span class="prof-card__stat-val" style="font-size:11px;">${escapeHtml(security)}</span>
             <span class="prof-card__stat-lbl">TLS</span>
+          </div>
+          <div class="prof-card__stat">
+            <span class="prof-card__stat-val tnum">${fmtTraffic(getMeasured(`profile:${p.id}`).total)}</span>
+            <span class="prof-card__stat-lbl">ТРАФИК</span>
           </div>
         </div>
         <button class="prof-card__menu" data-menu-profile="${p.id}" type="button" aria-label="Меню">${ICON_DOTS}</button>
@@ -1216,6 +1224,7 @@ profilesView?.addEventListener("click", async (e) => {
       { id: "qr",       label: "Показать QR", icon: ICON_QR },
       { id: "export",   label: "Экспорт sing-box JSON", icon: ICON_COPY },
       { id: "activate", label: "Сделать активной", icon: ICON_CHECK },
+      { id: "reset-traffic", label: "Сбросить счётчик трафика", icon: ICON_REFRESH },
       { id: "remove",   label: "Удалить",   icon: ICON_TRASH, danger: true },
     ]);
     menu.addEventListener("click", async (ev) => {
@@ -1247,6 +1256,11 @@ profilesView?.addEventListener("click", async (e) => {
         if (sub) await exportSingboxJson({ kind: "sub", subscription: sub, nodes: sub.profiles }, toast);
       } else if (act === "activate") {
         activateSource("sub", id);
+      } else if (act === "reset-traffic") {
+        resetMeasured(`sub:${id}`);
+        renderProfilesView();
+        refreshSubCardFromActive();
+        toast("Счётчик трафика сброшен", "info", 1600);
       } else if (act === "remove") {
         removeSubscription(id);
         if (getActiveKind() === "sub" && !getActiveSubscriptionId()) setActiveKind("single");
@@ -1265,6 +1279,7 @@ profilesView?.addEventListener("click", async (e) => {
     const menu = openPMenu(profileMenuBtn, [
       { id: "edit",     label: "Редактировать",    icon: ICON_EDIT },
       { id: "activate", label: "Сделать активным", icon: ICON_CHECK },
+      { id: "reset-traffic", label: "Сбросить счётчик трафика", icon: ICON_REFRESH },
       { id: "remove",   label: "Удалить",          icon: ICON_TRASH, danger: true },
     ]);
     menu.addEventListener("click", (ev) => {
@@ -1278,6 +1293,11 @@ profilesView?.addEventListener("click", async (e) => {
       }
       if (act === "activate") {
         activateSource("single", id);
+      } else if (act === "reset-traffic") {
+        resetMeasured(`profile:${id}`);
+        renderProfilesView();
+        refreshSubCardFromActive();
+        toast("Счётчик трафика сброшен", "info", 1600);
       } else if (act === "remove") {
         removeProfile(id);
         refreshProfilesSummary();
@@ -1579,6 +1599,7 @@ function setState(next, opts = {}) {
     if (tfUpUnit) tfUpUnit.textContent = "КБ/с";
     if (heroMask) heroMask.playbackRate = 0.7;
     stopClashStream();
+    stopMeter();
     if (publicIpTimer) { clearInterval(publicIpTimer); publicIpTimer = null; }
     lastPublicIp = null;
     if (locIpRow) locIpRow.hidden = true;
@@ -1604,6 +1625,8 @@ function setState(next, opts = {}) {
     if (statsMode) statsMode.textContent = MODE_LABEL[getMode()] || "—";
     updateStatsServer();
     startTrafficStream();
+    // Учёт реально измеренного трафика активного источника (для гибрид-плитки).
+    startMeter({ sourceKey: sourceKeyOf(getActiveSource()), onUpdate: refreshSubCardFromActive });
     startWarpRescanLoop();
     startHealthWatchdog();
     updateWarpBadge();
