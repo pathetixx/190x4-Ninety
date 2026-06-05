@@ -65,6 +65,24 @@ pub async fn clash_get_proxies(port: u16) -> Result<Value, String> {
     r.json::<Value>().await.map_err(|e| format!("decode: {e}"))
 }
 
+// Кумулятивный трафик с момента старта ядра: /connections отдаёт uploadTotal/
+// downloadTotal (байты). Сбрасывается при перезапуске sing-box — накопление между
+// сессиями ведёт фронт (traffic-meter.js, дельты в localStorage per-source).
+#[tauri::command]
+pub async fn clash_traffic_total(port: u16) -> Result<Value, String> {
+    let c = client()?;
+    let r = c
+        .get(format!("{}/connections", base(port)))
+        .bearer_auth(clash_secret())
+        .send()
+        .await
+        .map_err(|e| format!("request: {e}"))?;
+    let v = r.json::<Value>().await.map_err(|e| format!("decode: {e}"))?;
+    let up = v.get("uploadTotal").and_then(|x| x.as_u64()).unwrap_or(0);
+    let down = v.get("downloadTotal").and_then(|x| x.as_u64()).unwrap_or(0);
+    Ok(serde_json::json!({ "up": up, "down": down }))
+}
+
 #[tauri::command]
 pub async fn clash_test_node(
     port: u16,

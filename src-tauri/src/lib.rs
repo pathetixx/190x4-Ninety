@@ -450,6 +450,7 @@ pub fn run() {
             vpn::open_log_dir,
             subscription::fetch_subscription,
             clash::clash_get_proxies,
+            clash::clash_traffic_total,
             clash::clash_test_node,
             clash::clash_test_group,
             clash::clash_select_proxy,
