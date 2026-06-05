@@ -125,6 +125,7 @@ async fn spawn_xray(
     app: &AppHandle,
     state: &SingboxState,
     xray_json: &str,
+    logs_disabled: bool,
 ) -> Result<(), String> {
     let path = xray_config_path(app)?;
     std::fs::write(&path, xray_json).map_err(|e| format!("write xray config: {e}"))?;
@@ -141,7 +142,9 @@ async fn spawn_xray(
     *state.xray_child.lock().unwrap() = Some(child);
 
     let died_flag = state.xray_died.clone();
-    let log_file = xray_log_path(app);
+    // logs_disabled (настройка «Полностью отключить логи») → не пишем файл лога;
+    // in-memory last для диагностики краша (died_flag) сохраняем.
+    let log_file = if logs_disabled { None } else { xray_log_path(app) };
     tauri::async_runtime::spawn(async move {
         let mut writer = log_file.as_ref().and_then(|p| {
             std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
@@ -192,6 +195,7 @@ async fn spawn_sidecars(
     app: &AppHandle,
     state: &SingboxState,
     specs: &[SidecarSpec],
+    logs_disabled: bool,
 ) -> Result<(), String> {
     let cfg_dir = app
         .path()
@@ -227,7 +231,11 @@ async fn spawn_sidecars(
         state.sidecars.lock().unwrap().push(child);
 
         let died_flag = state.sidecar_died.clone();
-        let log_file = log_dir.as_ref().map(|d| d.join(format!("{}.log", spec.kind)));
+        let log_file = if logs_disabled {
+            None
+        } else {
+            log_dir.as_ref().map(|d| d.join(format!("{}.log", spec.kind)))
+        };
         let label = format!("{} :{}", spec.kind, spec.port);
         tauri::async_runtime::spawn(async move {
             let mut writer = log_file.as_ref().and_then(|p| {
@@ -401,7 +409,9 @@ pub async fn start_singbox(
     mode: String,
     xray_json: Option<String>,
     sidecars_json: Option<String>,
+    logs_disabled: Option<bool>,
 ) -> Result<(), String> {
+    let logs_disabled = logs_disabled.unwrap_or(false);
     {
         let child = state.child.lock().unwrap();
         if child.is_some() || state.xray_child.lock().unwrap().is_some() {
@@ -418,7 +428,7 @@ pub async fn start_singbox(
     // Two-core: если в конфиге есть xhttp-ноды, поднимаем xray ДО sing-box
     // (в любом режиме). При ошибке спавна — не стартуем VPN вовсе.
     if let Some(xj) = xray_json.as_ref().filter(|s| !s.trim().is_empty()) {
-        if let Err(e) = spawn_xray(&app, &state, xj).await {
+        if let Err(e) = spawn_xray(&app, &state, xj, logs_disabled).await {
             kill_xray(&state);
             return Err(e);
         }
@@ -428,7 +438,7 @@ pub async fn start_singbox(
     if let Some(sj) = sidecars_json.as_ref().filter(|s| !s.trim().is_empty()) {
         let specs: Vec<SidecarSpec> =
             serde_json::from_str(sj).map_err(|e| format!("sidecars json: {e}"))?;
-        if let Err(e) = spawn_sidecars(&app, &state, &specs).await {
+        if let Err(e) = spawn_sidecars(&app, &state, &specs, logs_disabled).await {
             kill_xray(&state);
             kill_sidecars(&state);
             return Err(e);
@@ -457,7 +467,9 @@ pub async fn start_singbox(
     *state.child.lock().unwrap() = Some(child);
 
     let died_flag = state.died.clone();
-    let log_file = log_path(&app);
+    // sing-box при logs_disabled и так молчит (log.disabled в конфиге), но гасим
+    // и файловый writer — единообразно с остальными движками.
+    let log_file = if logs_disabled { None } else { log_path(&app) };
     tauri::async_runtime::spawn(async move {
         let mut writer = log_file.as_ref().and_then(|p| {
             std::fs::OpenOptions::new()

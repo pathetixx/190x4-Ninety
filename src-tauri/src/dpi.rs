@@ -275,7 +275,9 @@ pub async fn dpi_start(
     game_filter: String,
     ipset: String,
     monkey: bool,
+    logs_disabled: Option<bool>,
 ) -> Result<(), String> {
+    let logs_disabled = logs_disabled.unwrap_or(false);
     // Уже запущен? Чистим труп / отказываем.
     {
         let mut guard = state.child.lock().unwrap();
@@ -331,7 +333,10 @@ pub async fn dpi_start(
 
     // Перенаправляем stdout+stderr winws в dpi.log — без этого причина
     // мгновенного выхода (битый аргумент / не найден .bin / WinDivert) теряется.
-    let log = dpi_log_file(&app);
+    // При logs_disabled («Полностью отключить логи») файл не создаём — вывод winws
+    // уходит в никуда (CREATE_NO_WINDOW → нет консоли); диагностика краша при этом
+    // не сохранится, юзер сам отключил логи.
+    let log = if logs_disabled { None } else { dpi_log_file(&app) };
     if let Some(ref lp) = log {
         if let Ok(f) = std::fs::File::create(lp) {
             if let Ok(f2) = f.try_clone() {

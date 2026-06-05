@@ -581,10 +581,9 @@ function renderGeneral(o) {
     </details>
     <div class="settings-section">
       ${row(iconUrl(), "URL для теста соединения", "Любой HTTP/HTTPS endpoint, проверяющий доступ", inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
-      ${row(iconClock(), "Интервал теста (сек)", "Как часто sing-box проверяет outbound", inputText("urlTest.intervalSec", o.urlTest.intervalSec, "number", 'min="30" max="3600"'))}
-      ${row(iconLog(), "Уровень логов", "Подробность лога sing-box", select("log.level", o.log.level, LOG_LEVELS, LOG_LABELS))}
-      ${row(iconLog(), "Метка времени в логах", "Префикс времени перед каждой строкой sing-box лога", toggle("log.timestamp", o.log.timestamp !== false))}
-      ${row(iconLog(), "Полностью отключить логи", "sing-box не пишет ни одной строки — диагностика станет невозможна. Включайте, только если логи точно не нужны.", toggle("log.disabled", !!o.log.disabled))}
+      ${row(iconClock(), "Интервал теста (сек)", "Как часто проверяется доступность серверов — для всех нод, включая мостовые (xray, NaiveProxy, TrustTunnel)", inputText("urlTest.intervalSec", o.urlTest.intervalSec, "number", 'min="30" max="3600"'))}
+      ${row(iconLog(), "Уровень логов", "Подробность логов всех компонентов (sing-box, xray, TrustTunnel)", select("log.level", o.log.level, LOG_LEVELS, LOG_LABELS))}
+      ${row(iconLog(), "Полностью отключить логи", "Ни один компонент (sing-box, xray, NaiveProxy, TrustTunnel, DPI) не пишет логи — диагностика станет невозможна. Включайте, только если логи точно не нужны.", toggle("log.disabled", !!o.log.disabled))}
     </div>
   `;
 }
