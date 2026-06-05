@@ -479,41 +479,6 @@
 .stats__flag img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .stats__server-row .stats__value { min-width: 0; }
 
-/* ───────── Свёртываемый блок настроек (details/summary) ───────── */
-.set-collapse {
-  margin-bottom: 18px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-  background: var(--ink-1);
-  overflow: hidden;
-}
-.set-collapse > summary.set-collapse__summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 16px;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-.set-collapse__summary::-webkit-details-marker { display: none; }
-.set-collapse__summary:hover { background: var(--ink-2); }
-.set-collapse__icon { display: inline-flex; color: var(--text-lo); flex-shrink: 0; }
-.set-collapse__icon svg { width: 18px; height: 18px; }
-.set-collapse__title { font-size: 13px; font-weight: 500; color: var(--text-hi); flex: 1 1 auto; }
-.set-collapse__meta {
-  font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
-  color: var(--text-faint); flex-shrink: 0;
-}
-.set-collapse__chev {
-  display: inline-flex; color: var(--text-faint); flex-shrink: 0;
-  transition: transform 0.2s var(--ease-out);
-}
-.set-collapse[open] .set-collapse__chev { transform: rotate(180deg); }
-.set-collapse[open] > summary.set-collapse__summary { border-bottom: 1px solid var(--line-1); }
-.set-collapse > .settings-banner,
-.set-collapse > .settings-section { margin: 12px 14px; }
-
 /* ───────── Логи: бейдж уровня + зебра + читаемость ───────── */
 .logs__console { line-height: 1.5; }
 .logs__console .log-line {

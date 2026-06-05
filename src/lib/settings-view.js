@@ -4,14 +4,8 @@
 import {
   loadOptions, saveOptions, updateOption,
   REGIONS, IPV6_MODES, TUN_STACKS, LOG_LEVELS, MUX_PROTOCOLS,
-  URL_HANDLER_SCHEMES,
 } from "/lib/options.js";
 import { BUILD_INFO } from "/lib/build-info.js";
-
-const SCHEME_LABELS = {
-  vless: "vless://", vmess: "vmess://", ss: "ss://", trojan: "trojan://",
-  hysteria2: "hysteria2://", hy2: "hy2://", tuic: "tuic://", sub: "sub://",
-};
 
 const WARP_MODE_LABELS = {
   direct: "Только WARP (без других прокси)",
@@ -146,7 +140,6 @@ export function mountSettings(root, opts = {}) {
     el.querySelectorAll("[data-action='check-updates']").forEach(btn => {
       btn.addEventListener("click", () => window.__ninetyUpdateCheck?.());
     });
-    bindSchemeToggles(el, onChange);
     bindAlwaysAdmin(el, sec);
     bindWarpSection(el, sec, onChange);
     bindAppearanceSection(el, sec);
@@ -217,30 +210,6 @@ export function mountSettings(root, opts = {}) {
         el.querySelectorAll(".theme-card[data-theme]").forEach(c => {
           c.dataset.on = String(c.dataset.theme === id);
         });
-      });
-    });
-  }
-
-  function bindSchemeToggles(el, onChange) {
-    const invoke = window.__TAURI__?.core?.invoke;
-    if (!invoke) return;
-    el.querySelectorAll(".switch[data-scheme]").forEach(sw => {
-      sw.addEventListener("click", async () => {
-        const scheme = sw.dataset.scheme;
-        const was = sw.dataset.on === "true";
-        const want = !was;
-        const cmd = want ? "register_url_handler" : "unregister_url_handler";
-        try {
-          await invoke(cmd, { scheme });
-          sw.dataset.on = String(want);
-          const opts = loadOptions();
-          const cur = new Set(opts.general?.urlSchemes || []);
-          if (want) cur.add(scheme); else cur.delete(scheme);
-          updateOption("general.urlSchemes", [...cur]);
-          onChange(`general.urlSchemes.${scheme}`, want);
-        } catch (e) {
-          alert(`${want ? "Регистрация" : "Удаление"} ${scheme}:// не удалось: ${e?.message || e}`);
-        }
       });
     });
   }
@@ -552,33 +521,12 @@ function settingsBtn(action, label, primary = false) {
 // ── Разделы ────────────────────────────────────────────────
 function renderGeneral(o) {
   const g = o.general || {};
-  const registered = new Set(g.urlSchemes || []);
-  const schemeRows = URL_HANDLER_SCHEMES.map(s => row(
-    iconUrl(),
-    SCHEME_LABELS[s] || s,
-    `Ninety будет открываться при клике по ${SCHEME_LABELS[s] || s + "://"} ссылкам`,
-    `<span class="switch" data-scheme="${s}" data-on="${registered.has(s) ? "true" : "false"}"></span>`,
-  )).join("");
   return `
     <div class="settings-section">
       ${row(iconShield(), "Всегда запускать от администратора", "Нужно для режима VPN · TUN. Ninety будет стартовать с правами админа (UAC при запуске) — при включении TUN запрос больше не появится.", `<span class="switch" id="always-admin-switch" data-on="false"></span>`)}
       ${row(iconRocket(), "Запускать при входе в систему", "Ninety будет автоматически стартовать при логине в Windows", toggle("general.autostart", g.autostart, { action: "autostart" }))}
       ${row(iconEyeOff(), "Запускать свернутым", "На старте окно сразу прячется в трей — иконка остаётся справа внизу", toggle("general.startMinimized", g.startMinimized))}
     </div>
-    <details class="set-collapse">
-      <summary class="set-collapse__summary">
-        <span class="set-collapse__icon">${iconUrl()}</span>
-        <span class="set-collapse__title">Обработка ссылок</span>
-        <span class="set-collapse__meta">${registered.size ? `${registered.size} вкл.` : "выкл."}</span>
-        <span class="set-collapse__chev"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
-      </summary>
-      <div class="settings-banner">
-        Только Ninety. Не включайте схемы, которые уже использует другой VPN-клиент — последний победитель регистрации перетянет ассоциацию на себя.
-      </div>
-      <div class="settings-section">
-        ${schemeRows}
-      </div>
-    </details>
     <div class="settings-section">
       ${row(iconUrl(), "URL для теста соединения", "Любой HTTP/HTTPS endpoint, проверяющий доступ", inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
       ${row(iconClock(), "Интервал теста (сек)", "Как часто проверяется доступность серверов — для всех нод, включая мостовые (xray, NaiveProxy, TrustTunnel)", inputText("urlTest.intervalSec", o.urlTest.intervalSec, "number", 'min="30" max="3600"'))}
