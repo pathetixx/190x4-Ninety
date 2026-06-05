@@ -1143,6 +1143,10 @@ function trustTunnelSidecarConfig(p, port, opts) {
     `upstream_protocol = ${tomlStr(p.upstreamProtocol || "http2")}`,
     `anti_dpi = ${p.antiDpi ? "true" : "false"}`,
   ];
+  // custom_sni: переопределяет SNI/authority для endpoint'а. Если подписка его
+  // задаёт, без него запрос уходит на неверный vhost → сервер может вернуть
+  // «Authorization Required». Раньше поле терялось.
+  if (p.customSni) lines.push(`custom_sni = ${tomlStr(p.customSni)}`);
   if (p.clientRandom) lines.push(`client_random = ${tomlStr(p.clientRandom)}`);
   if (p.certificate) lines.push(`certificate = ${tomlStr(p.certificate)}`);
   if (p.dnsUpstreams && p.dnsUpstreams.length) lines.push(`dns_upstreams = ${tomlArr(p.dnsUpstreams)}`);
