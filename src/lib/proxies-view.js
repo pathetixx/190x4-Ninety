@@ -33,11 +33,37 @@ function escapeHtml(s) {
 }
 
 // ── флаги: имя ноды → ISO ── (логика в /lib/flags.js, импортируется выше)
+// Фолбэк при отсутствии .svg вешается НЕ inline-обработчиком (`onerror=`), а
+// через addEventListener в attachFlagFallbacks() после вставки разметки: строгий
+// CSP (`script-src 'self'` без unsafe-inline) блокирует inline event-handlers,
+// поэтому inline-onerror молча не срабатывал. data-flag-fallback несёт текст-замену.
 function flagHtml(iso, fallbackText) {
   if (iso) {
-    return `<img class="prox__flag-img" src="${FLAGS_BASE}/${iso}.svg" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'prox__flag-fallback',textContent:'${escapeHtml(fallbackText || "?")}'}))">`;
+    return `<img class="prox__flag-img" src="${FLAGS_BASE}/${iso}.svg" alt="" loading="lazy" data-flag-fallback="${escapeAttr(fallbackText || "?")}">`;
   }
   return `<span class="prox__flag-fallback">${escapeHtml(fallbackText || "?")}</span>`;
+}
+
+// Экранирование для значения атрибута (кавычки → entity).
+function escapeAttr(s) {
+  return String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
+// После вставки разметки: на каждый флаг-img вешаем обработчик ошибки загрузки
+// (CSP-совместимо) и сразу проверяем уже-провалившиеся (complete && naturalWidth=0,
+// напр. из кэша) — заменяем битый флаг на текстовый фолбэк.
+function attachFlagFallbacks(root) {
+  if (!root) return;
+  for (const img of root.querySelectorAll(".prox__flag-img[data-flag-fallback]")) {
+    const swap = () => {
+      const span = document.createElement("span");
+      span.className = "prox__flag-fallback";
+      span.textContent = img.getAttribute("data-flag-fallback") || "?";
+      img.replaceWith(span);
+    };
+    img.addEventListener("error", swap, { once: true });
+    if (img.complete && img.naturalWidth === 0) swap();
+  }
 }
 
 // ── список нод подписки → ноды с clash-тэгами ──────────────
@@ -180,6 +206,7 @@ function render(nodes, selectorTag, effectiveTag, clashData) {
     html += nodeCardHtml(n, isManualActive, delay, grade);
   }
   grid.innerHTML = html;
+  attachFlagFallbacks(grid);
 }
 
 async function refresh() {

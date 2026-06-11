@@ -1098,9 +1098,25 @@ function naiveSidecarConfig(p, port) {
   }, null, 2);
 }
 
-// Экранирование значения для TOML basic-string.
+// Экранирование значения для TOML basic-string. Помимо \ и ", обязательно
+// экранируем управляющие символы: TOML запрещает сырой перевод строки/таб
+// внутри basic-string, поэтому поле подписки с \n (username/password/customSni/
+// certificate) иначе даёт невалидный конфиг → trusttunnel_client падает на
+// парсинге и нода молча не поднимается.
 function tomlStr(v) {
-  return `"${String(v ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  const s = String(v ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")
+    // прочие control-символы (U+0000–U+001F, плюс DEL U+007F); \n \r \t уже
+    // заменены выше и в диапазон не попадут.
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, (c) =>
+      `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`
+    );
+  return `"${s}"`;
 }
 function tomlArr(list) {
   return `[${(list || []).map(tomlStr).join(", ")}]`;
