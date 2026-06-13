@@ -755,7 +755,7 @@ let qualityDot = null;
 function mountQualityChip() {
   const slot = document.getElementById("quality-chip-slot");
   if (!slot) return;
-  slot.innerHTML = `<div class="qchip" data-q="UNKNOWN" data-active="false" title="Качество канала · детект троттла/ТСПУ в реальном времени">
+  slot.innerHTML = `<div class="qchip" data-q="UNKNOWN" data-active="false" title="Качество связи — следим за скоростью и восстанавливаем при замедлении">
       <span class="qchip__pulse" aria-hidden="true"></span>
       <span class="qchip__txt"><span class="qchip__label">КАНАЛ</span><span class="qchip__state"></span></span>
     </div>`;
