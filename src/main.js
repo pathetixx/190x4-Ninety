@@ -620,8 +620,27 @@ const qualityEngine = createQualityEngine({
       try { await refreshEffectiveDelay({ timeoutMs: 5000 }); return true; }
       catch { return false; }
     },
-    // R3 — фрагментация TLS (реконнект). Если выключена — включаем; если уже
-    // включена — эскалируем сменой режима record↔tcp.
+    // R2 — увести с конкретной плохой ноды: текущую кладём на cooldown и вручную
+    // выбираем лучшую из оставшихся (selectProxy). Селектор "proxy" собран с
+    // interrupt_exist_connections=true → застрявшие соединения рвутся сами. Без
+    // реконнекта. false (ступень пропускается) если альтернатив нет.
+    excludeWorstNode: async () => {
+      const nodes = qualityNodesFromSource();
+      if (nodes.length < 2) return false;
+      let proxies = {};
+      try { proxies = (await getProxies())?.proxies || {}; } catch {}
+      const now = Date.now();
+      for (const [tag, exp] of qualityExcluded) if (exp <= now) qualityExcluded.delete(tag);
+      const cur = currentEffectiveTag;
+      if (cur && cur !== "auto") qualityExcluded.set(cur, now + QUALITY_EXCLUDE_MS);
+      const avail = nodes.filter(n => n.clashTag && n.clashTag !== cur && !qualityExcluded.has(n.clashTag));
+      const pick = rankByDelay(avail, proxies)[0]?.clashTag;
+      if (!pick) return false;
+      try { await selectProxy("proxy", pick); return true; }
+      catch { return false; }
+    },
+    // R3 — маскировка трафика фрагментацией TLS (реконнект). Если выключена —
+    // включаем; если уже включена — эскалируем сменой режима record↔tcp.
     applyFragmentation: async () => {
       const t = loadOptions().tlsTricks;
       if (!t.enableFragment) {
@@ -629,7 +648,7 @@ const qualityEngine = createQualityEngine({
       } else {
         updateOption("tlsTricks.fragmentMode", t.fragmentMode === "record" ? "tcp" : "record");
       }
-      return reconnectForSourceChange("Оптимизация: фрагментация…");
+      return reconnectForSourceChange("Включаю маскировку трафика…");
     },
     // R4 — пересканировать WARP-endpoint и применить лучший (реконнект). Только
     // если WARP включён, иначе ступень неприменима → false (движок пропустит).
@@ -641,19 +660,37 @@ const qualityEngine = createQualityEngine({
         const ep = best?.endpoint || (best?.host && best?.port ? `${best.host}:${best.port}` : null);
         if (!ep) return false;
         updateOption("warp.endpoint", ep);
-        return reconnectForSourceChange("Оптимизация: WARP-endpoint…");
+        return reconnectForSourceChange("Переключаю запасной канал…");
       } catch { return false; }
     },
-    // Гибрид-гейт перед реконнект-ступенью (когда aggressive=false).
+    // R5 — перейти на ноду ДРУГОГО транспорта/протокола (proto:type), лучшую по
+    // пингу: меняет саму сигнатуру трафика на проводе. selectProxy + interrupt →
+    // застрявшие соединения рвутся, реконнект ядра не нужен. false если ноды
+    // другого транспорта в источнике нет.
+    switchTransport: async () => {
+      const nodes = qualityNodesFromSource();
+      if (nodes.length < 2) return false;
+      const cur = currentEffectiveTag;
+      const curNode = nodes.find(n => n.clashTag === cur) || currentEffectiveNode;
+      const curClass = curNode ? transportClass(curNode) : null;
+      let proxies = {};
+      try { proxies = (await getProxies())?.proxies || {}; } catch {}
+      const alt = nodes.filter(n => n.clashTag && n.clashTag !== cur && transportClass(n) !== curClass);
+      const pick = rankByDelay(alt, proxies)[0]?.clashTag;
+      if (!pick) return false;
+      try { await selectProxy("proxy", pick); return true; }
+      catch { return false; }
+    },
+    // Гибрид-гейт перед реконнект-ступенью (когда aggressive=false). Простым языком.
     confirmReconnect: (label) =>
-      Promise.resolve(confirm(`Связь деградировала. Оптимизировать соединение (${label})? Потребуется короткий реконнект.`)),
-    // R6 — сдаёмся честно.
+      Promise.resolve(confirm(`Соединение замедлилось. Попробовать ускорить — «${label}»? Потребуется короткое переподключение.`)),
+    // R6 — сдаёмся честно, без жаргона.
     giveUp: (st) => {
-      toast("Сеть жёстко душит соединение", "error", 8000, {
+      toast("Не удалось ускорить соединение", "error", 8000, {
         group: "quality",
-        desc: "Автоподбор не помог · смени локацию или стратегию DPI-обхода",
+        desc: "Попробуйте выбрать другую страну в списке серверов",
       });
-      notify("Ninety · качество связи", "Сеть душит трафик — смени локацию/стратегию");
+      notify("Ninety · качество связи", "Не удалось ускорить — попробуйте другую страну");
     },
     // Контекст для обучения (что было активно в момент успеха).
     getContext: () => {
@@ -684,9 +721,36 @@ const qualityEngine = createQualityEngine({
   },
 });
 
+// ── Хелперы лесенки качества (R2/R5) ───────────────────────
+// Cooldown нод, забракованных R2 — чтобы не выбирать их снова сразу.
+const QUALITY_EXCLUDE_MS = 5 * 60_000;
+const qualityExcluded = new Map(); // clashTag → expiry ts
+// Ноды активного источника с clash-тэгами (зеркало proxies-view.nodesFromSource).
+function qualityNodesFromSource() {
+  const src = getActiveSource();
+  if (!src) return [];
+  const raw = src.kind === "sub" ? (src.nodes || []) : [src.profile];
+  const list = raw.filter(Boolean);
+  return list.map((n, i) => ({ ...n, clashTag: list.length >= 2 ? nodeTag(i, n) : "proxy" }));
+}
+// Класс транспорта ноды (протокол + сеть). R5 ищет ноду с ДРУГИМ классом.
+function transportClass(n) {
+  return `${n?.proto || "vless"}:${n?.type || "-"}`;
+}
+// Сортировка нод по живому пингу (без пинга — в конец).
+function rankByDelay(nodes, proxies) {
+  return nodes
+    .map(n => ({ ...n, _d: lastDelay(proxies[n.clashTag]) }))
+    .sort((a, b) => {
+      const da = Number.isFinite(a._d) && a._d > 0 ? a._d : Infinity;
+      const db = Number.isFinite(b._d) && b._d > 0 ? b._d : Infinity;
+      return da - db;
+    });
+}
+
 // ── Индикатор качества канала (телеметрия в hero-статусе) ──
 // Состояние правит движок через onState; чип монтируется один раз,
-// показывается/прячется по connected/idle.
+// показывается/прячается по connected/idle.
 let qualityDot = null;
 function mountQualityChip() {
   const slot = document.getElementById("quality-chip-slot");
