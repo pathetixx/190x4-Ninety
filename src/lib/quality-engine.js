@@ -32,11 +32,15 @@ const PROFILE_TTL_MS = 7 * 24 * 3600 * 1000;
 // aggressive/промпт + бюджет реконнектов). action = имя в actions-map; если
 // действие отсутствует или вернуло {applied:false} — ступень пропускается.
 const LADDER = [
-  { id: "R1", action: "selectNextNode",  reconnect: false, label: "Смена ноды" },
-  { id: "R2", action: "excludeWorstNode", reconnect: false, label: "Исключение ноды" },
-  { id: "R3", action: "applyFragmentation", reconnect: true, label: "Фрагментация TLS" },
-  { id: "R4", action: "rescanWarp",       reconnect: true,  label: "Пересканировать WARP" },
-  { id: "R5", action: "switchTransport",  reconnect: true,  label: "Смена транспорта" },
+  // label — текст для юзера, ПРОСТЫМ языком (видно в промпте/тосте на R3/R4).
+  { id: "R1", action: "selectNextNode",  reconnect: false, label: "Смена сервера" },
+  { id: "R2", action: "excludeWorstNode", reconnect: false, label: "Другой сервер" },
+  { id: "R3", action: "applyFragmentation", reconnect: true, label: "Маскировка трафика" },
+  { id: "R4", action: "rescanWarp",       reconnect: true,  label: "Запасной канал" },
+  // R5 — клиентское переключение на ноду другого транспорта; селектор "proxy"
+  // собран с interrupt_exist_connections=true → застрявшие флоу рвутся сами,
+  // полный реконнект ядра не нужен (потому reconnect:false, не гейтим промптом).
+  { id: "R5", action: "switchTransport",  reconnect: false, label: "Другой способ подключения" },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -164,7 +168,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
     remediating = true;
     lastLadderAt = Date.now();
     badStreak = 0;
-    actions.notify?.("Ninety · оптимизация связи", "Канал деградировал — подбираю обход");
+    actions.notify?.("Ninety · качество связи", "Соединение замедлилось — пробую ускорить");
 
     try {
       const start = learnedStartIndex(); // обучение: стартуем с выученной ступени
