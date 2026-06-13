@@ -28,6 +28,7 @@ const SECTIONS = [
   { key: "tls-tricks", title: "TLS-фрагментация",  icon: iconTls,        hint: "Фрагментация ClientHello, padding, регистр SNI" },
   { key: "mux",        title: "Мультиплексор",     icon: iconMux,        hint: "Несколько соединений через один транспорт" },
   { key: "warp",       title: "WARP",              icon: iconWarp,       hint: "Cloudflare WARP: режим, лицензия, endpoint" },
+  { key: "quality",    title: "Качество связи",    icon: iconBroadcast,  hint: "Авто-детект троттлинга и восстановление соединения" },
   { key: "about",      title: "О программе",       icon: iconInfo,       hint: "Версия, репозиторий, лицензия" },
 ];
 
@@ -430,9 +431,31 @@ function renderSectionBody(sec, o) {
     case "tls-tricks": return renderTlsTricks(o);
     case "mux":        return renderMux(o);
     case "warp":       return renderWarp(o);
+    case "quality":    return renderQuality(o);
     case "about":      return renderAbout(o);
   }
   return "";
+}
+
+function renderQuality(o) {
+  const q = o.quality || {};
+  return `
+    <div class="settings-banner">
+      Движок следит за реальной скоростью канала через туннель и, если провайдер
+      начинает «тормозить» соединение (троттлинг / ТСПУ), сам пробует его восстановить —
+      сменой узла, фрагментацией TLS или WARP. Состояние видно на индикаторе «КАНАЛ»
+      на главном экране.
+    </div>
+    <div class="settings-section">
+      ${row(iconBroadcast(), "Следить за качеством канала", "Фоновая проверка скорости и авто-лечение при деградации. Выключите, если не нужно.", toggle("quality.enabled", q.enabled !== false))}
+      ${row(iconRocket(), "Чинить автоматически", "При деградации сразу переподключаться (смена узла / фрагментация / WARP) без вопроса. Если выключено — спросим перед переподключением.", toggle("quality.aggressive", !!q.aggressive))}
+      ${row(iconEyeOff(), "Экономия трафика", "Не гонять проверки вхолостую — только при подозрении на троттлинг. Меньше расход трафика на сами проверки.", toggle("quality.lowDataMode", !!q.lowDataMode))}
+    </div>
+    <div class="settings-section">
+      ${row(iconTarget(), "Порог скорости", "Ниже этой скорости канал считается «медленным» и движок начинает лечение. Выше — «отлично».", select("quality.goodBps", String(q.goodBps ?? 1500000), ["750000", "1500000", "3000000", "6000000"], { "750000": "0.75 Мбит/с · мягко", "1500000": "1.5 Мбит/с · обычно", "3000000": "3 Мбит/с · строго", "6000000": "6 Мбит/с · жёстко" }))}
+      ${row(iconClock(), "Интервал проверки (сек)", "Как часто проверять качество вхолостую при активном соединении. В режиме экономии трафика фоновые проверки отключены.", inputText("quality.idleProbeSec", q.idleProbeSec ?? 300, "number", 'min="60" max="900"'))}
+    </div>
+  `;
 }
 
 function renderAppearance() {
