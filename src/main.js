@@ -38,7 +38,7 @@ import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode, selectP
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
-import { FLAGS_BASE, flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
+import { FLAGS_BASE, flagIsoFromName as isoFromNodeName, stripFlag } from "/lib/flags.js";
 import { startMeter, stopMeter, getMeasured, resetMeasured, sourceKeyOf } from "/lib/traffic-meter.js";
 import { createQualityEngine } from "/lib/quality-engine.js";
 
@@ -1582,7 +1582,8 @@ function applyHomeBottom(internalState) {
 function updateStatsServer() {
   if (!statsServer) return;
   const p = activeNodeForDisplay();
-  const label = p?.name || p?.host || "—";
+  // Имя без флаг-эмодзи: страну уже показывает SVG-флаг в ячейке (иначе дубль флага).
+  const label = stripFlag(p?.name) || p?.host || "—";
   statsServer.textContent = label;
   statsServer.title = label;
   if (statsFlag) {
