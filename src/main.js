@@ -40,6 +40,7 @@ import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
 import { FLAGS_BASE, flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
 import { startMeter, stopMeter, getMeasured, resetMeasured, sourceKeyOf } from "/lib/traffic-meter.js";
+import { createQualityEngine } from "/lib/quality-engine.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -469,6 +470,15 @@ if (settingsRoot) {
       }
       // Badge с активным endpoint должен реагировать на любое изменение warp.*
       if (path === "warp.enabled" || path === "warp.endpoint") updateWarpBadge();
+      // Качество связи — опции читает движок, ядро не трогаем. Применяем вживую
+      // через setOptions; вкл/выкл прячет/показывает индикатор «КАНАЛ».
+      if (path.startsWith("quality.")) {
+        qualityEngine.setOptions(loadOptions().quality);
+        if (path === "quality.enabled" && state === "connected") {
+          showQualityChip(loadOptions().quality?.enabled !== false);
+        }
+        return;
+      }
       if (!pathNeedsRestart(path)) return;
       if (state === "connected" || state === "connecting") {
         scheduleAutoReconnect();
@@ -584,13 +594,115 @@ async function healthTick() {
       toast("Клиент протокола упал — переподключаюсь", "warn", 4000, { group: "conn", connecting: true });
       notify("Ninety", "Перезапуск клиента протокола");
       reconnectForSourceChange("Перезапуск клиента…");
+      return;
     }
+    // Liveness OK — отдаём ход движку качества (детект троттла/деградации).
+    // Fire-and-forget: проба до 4с не должна держать healthBusy и тормозить
+    // следующий liveness-тик; у движка свои guard'ы probing/remediating.
+    qualityEngine.tick().catch(() => {});
   } catch (e) {
     console.warn("healthTick failed", e);
   } finally {
     healthBusy = false;
   }
 }
+
+// ── Движок качества связи ──────────────────────────────────
+// Декаплинг: движок не знает про DOM/main.js, все «руки» инжектим здесь.
+// Ступени лесенки, которых пока нет (R2 exclude-node, R5 switch-transport),
+// просто не передаём в actions — движок их пропускает.
+const qualityEngine = createQualityEngine({
+  invoke,
+  actions: {
+    // R1 — перевыбор ноды балансером без реконнекта: форсим re-test группы
+    // lowest, urltest переберёт живые задержки и подвинет эффективную ноду.
+    selectNextNode: async () => {
+      try { await refreshEffectiveDelay({ timeoutMs: 5000 }); return true; }
+      catch { return false; }
+    },
+    // R3 — фрагментация TLS (реконнект). Если выключена — включаем; если уже
+    // включена — эскалируем сменой режима record↔tcp.
+    applyFragmentation: async () => {
+      const t = loadOptions().tlsTricks;
+      if (!t.enableFragment) {
+        updateOption("tlsTricks.enableFragment", true);
+      } else {
+        updateOption("tlsTricks.fragmentMode", t.fragmentMode === "record" ? "tcp" : "record");
+      }
+      return reconnectForSourceChange("Оптимизация: фрагментация…");
+    },
+    // R4 — пересканировать WARP-endpoint и применить лучший (реконнект). Только
+    // если WARP включён, иначе ступень неприменима → false (движок пропустит).
+    rescanWarp: async () => {
+      if (!loadOptions().warp.enabled) return false;
+      try {
+        const res = await invoke("warp_scan_endpoints", { topN: 5, deep: false, mode: "auto" });
+        const best = Array.isArray(res) ? res[0] : res?.results?.[0];
+        const ep = best?.endpoint || (best?.host && best?.port ? `${best.host}:${best.port}` : null);
+        if (!ep) return false;
+        updateOption("warp.endpoint", ep);
+        return reconnectForSourceChange("Оптимизация: WARP-endpoint…");
+      } catch { return false; }
+    },
+    // Гибрид-гейт перед реконнект-ступенью (когда aggressive=false).
+    confirmReconnect: (label) =>
+      Promise.resolve(confirm(`Связь деградировала. Оптимизировать соединение (${label})? Потребуется короткий реконнект.`)),
+    // R6 — сдаёмся честно.
+    giveUp: (st) => {
+      toast("Сеть жёстко душит соединение", "error", 8000, {
+        group: "quality",
+        desc: "Автоподбор не помог · смени локацию или стратегию DPI-обхода",
+      });
+      notify("Ninety · качество связи", "Сеть душит трафик — смени локацию/стратегию");
+    },
+    // Контекст для обучения (что было активно в момент успеха).
+    getContext: () => {
+      const o = loadOptions();
+      return {
+        node: currentEffectiveNode?.name || currentEffectiveNode?.host || null,
+        tlsTrick: o.tlsTricks.enableFragment ? o.tlsTricks.fragmentMode : null,
+        warpEndpoint: o.warp.enabled ? o.warp.endpoint : null,
+      };
+    },
+    // ASN локального ISP (не exit'а): прямой no_proxy ip-info. В TUN-режиме
+    // запрос уйдёт через туннель (вернёт exit ASN) — для v1 допустимо, ключ
+    // просто менее точен; фолбэк "unknown".
+    localAsn: async () => {
+      try {
+        const info = await invoke("fetch_public_ip", {});
+        const asn = info?.connection?.asn ?? info?.asn;
+        return asn != null ? String(asn) : "unknown";
+      } catch { return "unknown"; }
+    },
+    onState: (st) => {
+      if (!qualityDot) return;
+      qualityDot.dataset.q = st;
+      if (qualityDot.dataset.active !== "true") qualityDot.dataset.active = "true";
+    },
+    toast, notify,
+    log: (m) => console.info("[quality]", m),
+  },
+});
+
+// ── Индикатор качества канала (телеметрия в hero-статусе) ──
+// Состояние правит движок через onState; чип монтируется один раз,
+// показывается/прячется по connected/idle.
+let qualityDot = null;
+function mountQualityChip() {
+  const slot = document.getElementById("quality-chip-slot");
+  if (!slot) return;
+  slot.innerHTML = `<div class="qchip" data-q="UNKNOWN" data-active="false" title="Качество канала · детект троттла/ТСПУ в реальном времени">
+      <span class="qchip__pulse" aria-hidden="true"></span>
+      <span class="qchip__txt"><span class="qchip__label">КАНАЛ</span><span class="qchip__state"></span></span>
+    </div>`;
+  qualityDot = slot.firstElementChild;
+}
+function showQualityChip(on) {
+  if (!qualityDot) return;
+  if (on) qualityDot.dataset.q = "UNKNOWN";
+  qualityDot.dataset.active = on ? "true" : "false";
+}
+mountQualityChip();
 
 function applyReconnectUI() {
   if (!hero) return;
@@ -1589,6 +1701,8 @@ function setState(next, opts = {}) {
     if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
     stopHealthWatchdog();
     stopWarpRescanLoop();
+    qualityEngine.onIdle();
+    showQualityChip(false);
     applyReconnectUI();
     if (heroLabel) heroLabel.textContent = "Не подключено";
     showPing(false);
@@ -1629,6 +1743,13 @@ function setState(next, opts = {}) {
     startMeter({ sourceKey: sourceKeyOf(getActiveSource()), onUpdate: refreshSubCardFromActive });
     startWarpRescanLoop();
     startHealthWatchdog();
+    // В TUN режиме mixed-inbound'а нет → проба идёт напрямую (port=0 = direct),
+    // трафик Ninety.exe и так проходит туннель. Иначе — через mixed-inbound.
+    qualityEngine.onConnected({
+      port: getMode() === "tun" ? 0 : (loadOptions().inbound.mixedPort || 7890),
+      ...loadOptions().quality,
+    });
+    showQualityChip(loadOptions().quality?.enabled !== false);
     updateWarpBadge();
     // DPI-обход: вносим сервер активной ноды в исключения winws, чтобы он не
     // трогал зашифрованный трафик к VPN-серверу (главный риск из спайка).
@@ -1657,6 +1778,7 @@ function applyPingDisplay(delay) {
 // ── real-time WS-стрим из clash-API ────────────────────────
 function applyTrafficValues({ up, down }) {
   if (state !== "connected") return;
+  qualityEngine.updatePassive({ down });
   const d = formatRate(down);
   const u = formatRate(up);
   if (tfDown) tfDown.textContent = d.value;

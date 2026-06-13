@@ -1,6 +1,7 @@
 mod clash;
 mod clash_stream;
 mod dpi;
+mod quality;
 mod scanner;
 mod subscription;
 mod url_handler;
@@ -464,6 +465,7 @@ pub fn run() {
             warp::warp_status,
             warp::warp_reset,
             scanner::warp_scan_endpoints,
+            quality::probe_quality,
             dpi::dpi_strategies,
             dpi::dpi_domains_count,
             dpi::dpi_start,
