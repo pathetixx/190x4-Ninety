@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/pathetixx/190x4-Ninety?include_prereleases&sort=semver&label=release&color=C0304A)](https://github.com/pathetixx/190x4-Ninety/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/pathetixx/190x4-Ninety/build.yml?event=push&label=build)](https://github.com/pathetixx/190x4-Ninety/actions)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-1d1d24)](#установка)
-[![License](https://img.shields.io/github/license/pathetixx/190x4-Ninety?color=6B6B72)](./LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-6B6B72)](./LICENSE)
 
 **Нативный VPN-клиент под Windows в эстетике 190x4.**
 Tauri 2 поверх движка sing-box: подписки, авто-выбор ноды, маршрутизация по регионам, системный прокси и TUN — без браузера, без Electron, один лёгкий бинарь.
