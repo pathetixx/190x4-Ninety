@@ -38,6 +38,7 @@ const I = {
   pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5v14l12-7z"/></svg>',
   info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+  chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
 };
 const TYPE_ICON = { domain: I.globe, ip: I.net, process: I.app };
 const ACTION_ICON = { proxy: I.vpn, direct: I.direct, block: I.block };
@@ -74,6 +75,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
   let monitorPaused = false;
   let monConns = [];
   let monTimer = null;
+  let monExpanded = new Set(); // раскрытые группы приложений (по имени процесса)
   let dragId = null;
 
   // модалка
@@ -498,21 +500,73 @@ export function mountRoutingRules(rootEl, opts = {}) {
     commit();
   }
 
-  /* ═══ МОНИТОР СОЕДИНЕНИЙ ═══ */
+  /* ═══ МОНИТОР СОЕДИНЕНИЙ (группировка по приложению, Throne-style) ═══ */
+  const UNKNOWN_KEY = " "; // ведро для соединений без определённого процесса
   function routeChip(outbound) {
     const ob = ACTION_LABELS[outbound] ? outbound : "proxy";
     return '<span class="rr-action rr-action--' + ob + '"><span class="rr-action__dot"></span>' + ACTION_LABELS[ob] + "</span>";
   }
-  function connRow(c, isNew) {
-    const r = el("div", "rr-conn" + (isNew ? " rr-conn--new" : ""));
-    const app = c.process
-      ? '<span class="rr-conn__app">' + I.app + "<span>" + esc(c.process) + "</span></span>"
-      : '<span class="rr-conn__app rr-conn__app--empty">' + I.app + "<span>—</span></span>";
+  // Сводка маршрутов группы: по точке на каждый различный outbound.
+  function routeDots(conns) {
+    const set = [...new Set(conns.map((c) => (ACTION_LABELS[c.outbound] ? c.outbound : "proxy")))];
+    return '<span class="rr-appgrp__dots">' +
+      set.map((o) => '<span class="rr-dot rr-dot--' + o + '" title="' + ACTION_LABELS[o] + '"></span>').join("") +
+      "</span>";
+  }
+  // Группировка соединений по имени процесса; именованные — выше, по числу
+  // соединений, затем по алфавиту. Ведро UNKNOWN_KEY — соединения без процесса.
+  function groupConns(conns) {
+    const map = new Map();
+    for (const c of conns) {
+      const key = c.process || UNKNOWN_KEY;
+      let g = map.get(key);
+      if (!g) { g = { process: c.process || null, path: c.processPath || "", conns: [] }; map.set(key, g); }
+      if (!g.path && c.processPath) g.path = c.processPath;
+      g.conns.push(c);
+    }
+    return [...map.values()].sort((a, b) => {
+      if (!!a.process !== !!b.process) return a.process ? -1 : 1;
+      if (b.conns.length !== a.conns.length) return b.conns.length - a.conns.length;
+      return (a.process || "").localeCompare(b.process || "");
+    });
+  }
+  function connSubRow(c) {
+    const r = el("div", "rr-csub");
+    const host = c.host || c.destinationIP || "—";
+    const ipLine = c.host && c.destinationIP ? '<span class="rr-csub__ip">' + esc(c.destinationIP) + "</span>" : "";
     r.innerHTML =
-      app +
-      '<span class="rr-conn__dest"><span class="rr-conn__host">' + esc(c.host || "—") + '</span><span class="rr-conn__ip">' + esc(c.destinationIP || "") + "</span></span>" +
-      '<span class="rr-conn__route">' + routeChip(c.outbound) + "</span>";
+      '<span class="rr-csub__dest"><span class="rr-csub__host">' + esc(host) + "</span>" + ipLine + "</span>" +
+      routeChip(c.outbound);
     return r;
+  }
+  function appGroup(g) {
+    const key = g.process || UNKNOWN_KEY;
+    const open = monExpanded.has(key);
+    const wrap = el("div", "rr-appgrp" + (g.process ? "" : " rr-appgrp--unknown"));
+    wrap.dataset.open = String(open);
+
+    const name = g.process || "Без процесса";
+    const path = g.path && g.path !== g.process ? '<span class="rr-appgrp__path">' + esc(g.path) + "</span>" : "";
+    const head = el("button", "rr-appgrp__head");
+    head.type = "button";
+    head.innerHTML =
+      '<span class="rr-appgrp__chev">' + I.chev + "</span>" +
+      '<span class="rr-appgrp__ico">' + I.app + "</span>" +
+      '<span class="rr-appgrp__meta"><span class="rr-appgrp__name">' + esc(name) + "</span>" + path + "</span>" +
+      routeDots(g.conns) +
+      '<span class="rr-appgrp__count" title="Активных соединений">' + g.conns.length + "</span>";
+    head.addEventListener("click", () => {
+      const nowOpen = wrap.dataset.open !== "true";
+      wrap.dataset.open = String(nowOpen);
+      if (nowOpen) monExpanded.add(key); else monExpanded.delete(key);
+    });
+
+    const body = el("div", "rr-appgrp__conns");
+    g.conns.forEach((c) => body.appendChild(connSubRow(c)));
+
+    wrap.appendChild(head);
+    wrap.appendChild(body);
+    return wrap;
   }
   function renderMonitor() {
     const host = $("#rr-listhost");
@@ -527,8 +581,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
         '<span class="rr-mon-count" id="rr-moncount"></span>' +
         '<button class="btn btn--sm" id="rr-pausebtn" type="button">' + (monitorPaused ? I.play + "Возобновить" : I.pause + "Пауза") + "</button>" +
       "</div>" +
-      '<div class="rr-table"><div class="rr-table__head"><span class="rr-th">Приложение</span><span class="rr-th">Назначение</span><span class="rr-th">Маршрут</span></div><div id="rr-conns"></div></div>' +
-      '<div class="rr-mon-note">' + I.info + "<span>Имя приложения видно только для соединений, попавших под правило <b>по процессу</b>. Пустое поле (—) — это норма: адрес и маршрут всё равно известны.</span></div>";
+      '<div class="rr-appgroups" id="rr-conns"></div>';
     host.appendChild(wrap);
     wrap.querySelector("#rr-pausebtn").addEventListener("click", () => { monitorPaused = !monitorPaused; if (monitorPaused) stopMonTimer(); else startMonTimer(); renderMonitor(); });
     paintConns();
@@ -541,10 +594,11 @@ export function mountRoutingRules(rootEl, opts = {}) {
     if (!monConns.length) {
       host.innerHTML = '<div class="rr-picker__state"><div class="rr-picker__state-text">Пока нет активных соединений</div></div>';
     } else {
-      monConns.slice(0, 12).forEach((c) => host.appendChild(connRow(c, false)));
+      const groups = groupConns(monConns);
+      groups.forEach((g) => host.appendChild(appGroup(g)));
     }
     const cnt = $("#rr-moncount");
-    if (cnt) cnt.textContent = monConns.length + " " + plural(monConns.length, "активное", "активных", "активных");
+    if (cnt) cnt.textContent = monConns.length + " " + plural(monConns.length, "соединение", "соединения", "соединений");
   }
   async function pollConns() {
     // Стоп, если секцию перерисовали/ушли с монитора.
