@@ -71,15 +71,22 @@ const MUX_PROTOCOL_LABELS = {
 };
 
 let currentSection = null; // null = menu
+let currentSubsection = null; // вложенный уровень внутри секции (напр. routing→routing-rules)
 
 export function mountSettings(root, opts = {}) {
   if (!root) return;
   const onChange = opts.onChange || (() => {});
   const onRender = opts.onRender || (() => {});
+  // Живой инстанс под-экрана «Правила маршрутизации» — чтобы погасить его
+  // монитор-таймер при уходе назад.
+  let routingRulesInstance = null;
   function render() {
     if (!currentSection) {
       root.innerHTML = renderMenu();
       bindMenu(root);
+    } else if (currentSection === "routing" && currentSubsection === "routing-rules") {
+      root.innerHTML = renderRoutingRulesSub();
+      bindRoutingRulesSub(root, onChange);
     } else {
       const sec = SECTIONS.find(s => s.key === currentSection);
       root.innerHTML = renderSection(sec);
@@ -87,10 +94,34 @@ export function mountSettings(root, opts = {}) {
     }
     onRender(currentSection);
   }
+
+  // Под-экран «Правила маршрутизации»: settings-head (с back → назад в
+  // «Маршрутизация») + точка монтирования rr-блока.
+  function renderRoutingRulesSub() {
+    return `
+    <header class="settings-head">
+      <button class="settings-back" data-back-sub type="button" aria-label="Назад">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <h2 class="settings-head__title">Правила маршрутизации</h2>
+    </header>
+    <div id="rr-rules-mount"></div>
+  `;
+  }
+  function bindRoutingRulesSub(el, onChange) {
+    el.querySelector("[data-back-sub]")?.addEventListener("click", () => {
+      if (routingRulesInstance) { routingRulesInstance.destroy?.(); routingRulesInstance = null; }
+      currentSubsection = null;
+      render();
+    });
+    const mount = el.querySelector("#rr-rules-mount");
+    if (mount) routingRulesInstance = mountRoutingRules(mount, { onChange, hideTitle: true });
+  }
   function bindMenu(el) {
     el.querySelectorAll("[data-section]").forEach(item => {
       item.addEventListener("click", () => {
         currentSection = item.dataset.section;
+        currentSubsection = null;
         render();
       });
     });
@@ -149,12 +180,14 @@ export function mountSettings(root, opts = {}) {
     bindRoutingSection(el, sec, onChange);
   }
 
-  // Подраздел «Правила маршрутизации» — отдельный модуль (routing-view.js)
-  // строит весь rr-блок в точке монтирования и сам персистит/реконнектит.
-  function bindRoutingSection(el, sec, onChange) {
+  // Секция «Маршрутизация»: строка-ссылка в под-экран «Правила маршрутизации».
+  // Сам rr-блок монтируется отдельным под-экраном (routing-view.js).
+  function bindRoutingSection(el, sec) {
     if (sec.key !== "routing") return;
-    const mount = el.querySelector("#rr-rules-mount");
-    if (mount) mountRoutingRules(mount, { onChange });
+    el.querySelector("[data-subsection='routing-rules']")?.addEventListener("click", () => {
+      currentSubsection = "routing-rules";
+      render();
+    });
   }
 
   // Секция «О программе»: подставляем версию приложения и открываем репозиторий
@@ -579,7 +612,25 @@ function renderRouting(o) {
       ${row(iconIpv6(), "Маршрут IPv6", "Стратегия выбора IPv4/IPv6", select("route.ipv6Mode", o.route.ipv6Mode, IPV6_MODES, IPV6_LABELS))}
       ${row(iconRouting(), "Discord мимо туннеля (TUN)", "Только в режиме TUN: домены Discord идут напрямую, чтобы DPI-обход десинхрил их (голос с низким пингом). Без обхода/в proxy не влияет.", toggle("route.tunSplitDiscord", o.route.tunSplitDiscord))}
     </div>
-    <div id="rr-rules-mount"></div>
+    <div class="settings-section">
+      ${subNavRow("Правила маршрутизации", "Свои правила поверх регионального · домен / IP / приложение", "routing-rules")}
+    </div>
+  `;
+}
+
+// Строка-ссылка в под-экран (визуально как row(...), но кликабельна и с шевроном
+// справа). Клик ловит bindRoutingSection по data-subsection.
+function subNavRow(label, hint, subsection) {
+  return `
+    <button class="set-row set-row--nav" data-subsection="${subsection}" type="button">
+      <div class="set-row__lbl">
+        <div class="set-row__t">${label}</div>
+        ${hint ? `<div class="set-row__d">${hint}</div>` : ""}
+      </div>
+      <span class="settings-menu__chevron">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+      </span>
+    </button>
   `;
 }
 

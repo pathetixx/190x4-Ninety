@@ -16,11 +16,24 @@ pub struct NetProcess {
 /// Уникальные процессы (по имени exe) с установленными исходящими TCP-соединениями.
 /// На не-Windows возвращает пустой список (команда всё равно зарегистрирована,
 /// чтобы фронт не падал в dev-окружении).
+///
+/// async + spawn_blocking: Win32-снимок не морозит webview-поток. catch_unwind:
+/// любая паника внутри collect() (рост таблицы, чтение за границей буфера) даёт
+/// Err(String), а не unwind через IPC-границу — иначе JS-промис не settl-ится и
+/// спиннер пикера висит вечно. Команда ОБЯЗАНА всегда завершаться Ok/Err.
 #[tauri::command]
-pub fn list_network_processes() -> Result<Vec<NetProcess>, String> {
+pub async fn list_network_processes() -> Result<Vec<NetProcess>, String> {
     #[cfg(windows)]
     {
-        windows_impl::collect()
+        let joined = tauri::async_runtime::spawn_blocking(|| {
+            std::panic::catch_unwind(windows_impl::collect)
+                .unwrap_or_else(|_| Err("снимок сетевых процессов аварийно прерван".into()))
+        })
+        .await;
+        match joined {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("задача снимка процессов не выполнилась: {e}")),
+        }
     }
     #[cfg(not(windows))]
     {
@@ -33,9 +46,9 @@ mod windows_impl {
     use super::NetProcess;
     use std::collections::BTreeMap;
     use windows::core::PWSTR;
-    use windows::Win32::Foundation::{CloseHandle, BOOL};
+    use windows::Win32::Foundation::{CloseHandle, BOOL, ERROR_INSUFFICIENT_BUFFER};
     use windows::Win32::NetworkManagement::IpHelper::{
-        GetExtendedTcpTable, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_ALL,
+        GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_ALL,
     };
     use windows::Win32::Networking::WinSock::AF_INET;
     use windows::Win32::System::Threading::{
@@ -80,30 +93,51 @@ mod windows_impl {
             if size == 0 {
                 return Ok(Vec::new());
             }
-            // Буфер выровнен под u32 (структуры MIB_* требуют 4-байтового
-            // выравнивания; Vec<u8> его не гарантирует).
-            let mut buf = vec![0u32; (size as usize + 3) / 4];
-            let rc = GetExtendedTcpTable(
-                Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
-                &mut size,
-                BOOL(0),
-                AF_INET.0 as u32,
-                TCP_TABLE_OWNER_PID_ALL,
-                0,
-            );
-            if rc != 0 {
-                return Err(format!("GetExtendedTcpTable: код {rc}"));
+            // Таблица TCP может вырасти между probe и чтением → 2-й вызов вернёт
+            // ERROR_INSUFFICIENT_BUFFER (122) и обновит `avail` нужным размером.
+            // Перечитываем размер и повторяем (до 3 попыток), а не падаем.
+            for _ in 0..3 {
+                // Буфер выровнен под u32 (структуры MIB_* требуют 4-байтового
+                // выравнивания; Vec<u8> его не гарантирует).
+                let words = (size as usize + 3) / 4;
+                let mut buf = vec![0u32; words];
+                let mut avail = size; // сколько байт сообщаем API как доступно
+                let rc = GetExtendedTcpTable(
+                    Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
+                    &mut avail,
+                    BOOL(0),
+                    AF_INET.0 as u32,
+                    TCP_TABLE_OWNER_PID_ALL,
+                    0,
+                );
+                if rc == ERROR_INSUFFICIENT_BUFFER.0 {
+                    // avail теперь несёт требуемый размер — перевыделим и повторим.
+                    size = avail.max(size.saturating_add(4096));
+                    continue;
+                }
+                if rc != 0 {
+                    return Err(format!("GetExtendedTcpTable: код {rc}"));
+                }
+                let table = &*(buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID);
+                // Не доверяем dwNumEntries слепо: ограничиваем числом строк, реально
+                // помещающихся в выделенный буфер (защита от чтения за границей).
+                let alloc_bytes = words * 4;
+                let header = (table.table.as_ptr() as usize) - (buf.as_ptr() as usize);
+                let cap_rows = alloc_bytes
+                    .saturating_sub(header)
+                    / core::mem::size_of::<MIB_TCPROW_OWNER_PID>();
+                let n = (table.dwNumEntries as usize).min(cap_rows);
+                let rows = std::slice::from_raw_parts(table.table.as_ptr(), n);
+                let mut pids: Vec<u32> = rows
+                    .iter()
+                    .filter(|r| r.dwState == TCP_STATE_ESTAB)
+                    .map(|r| r.dwOwningPid)
+                    .collect();
+                pids.sort_unstable();
+                pids.dedup();
+                return Ok(pids);
             }
-            let table = &*(buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID);
-            let rows = std::slice::from_raw_parts(table.table.as_ptr(), table.dwNumEntries as usize);
-            let mut pids: Vec<u32> = rows
-                .iter()
-                .filter(|r| r.dwState == TCP_STATE_ESTAB)
-                .map(|r| r.dwOwningPid)
-                .collect();
-            pids.sort_unstable();
-            pids.dedup();
-            Ok(pids)
+            Err("таблица TCP-соединений растёт быстрее, чем читается".into())
         }
     }
 

@@ -63,6 +63,9 @@ export function mountRoutingRules(rootEl, opts = {}) {
   if (activeInstance) activeInstance.destroy();
 
   const onChange = typeof opts.onChange === "function" ? opts.onChange : () => {};
+  // hideTitle: под-экран Настроек уже даёт заголовок «Правила маршрутизации» в
+  // settings-head — глушим внутренний .rr-head__title, чтобы не дублировать.
+  const hideTitle = !!opts.hideTitle;
   const clashPort = loadOptions().experimental?.clashApiPort || 9090;
 
   // ── состояние ──
@@ -106,12 +109,16 @@ export function mountRoutingRules(rootEl, opts = {}) {
         `<span>${esc(REGION_SHORT[iso] || iso)}</span></span>`
       : "";
 
-    block.innerHTML =
-      '<div class="rr-head rr-head--sub">' +
-        '<div class="rr-head__main">' +
+    const headMain = hideTitle
+      ? ""
+      : '<div class="rr-head__main">' +
           '<h3 class="rr-head__title">Правила маршрутизации</h3>' +
           '<p class="rr-head__sub">Свои правила поверх регионального — <b>домен</b>, <b>IP</b> или <b>приложение</b> → Через VPN, Напрямую или Блок.</p>' +
-        "</div>" +
+        "</div>";
+
+    block.innerHTML =
+      '<div class="rr-head rr-head--sub">' +
+        headMain +
         '<button class="btn btn--primary" id="rr-addbtn" type="button">' + I.route + "Добавить правило</button>" +
       "</div>" +
       '<div class="rr-bar">' +
@@ -437,19 +444,39 @@ export function mountRoutingRules(rootEl, opts = {}) {
       });
     }
 
-    async function load() {
+    // Watchdog: бэкенд-команда обязана отвечать, но если она зависнет (паника до
+    // фикса / редкий ABI-сбой), промис никогда не settl-ится и спиннер висит
+    // вечно. Гонка с таймаутом гарантирует, что UI всегда восстанавливается.
+    const timeout = (ms) => new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms));
+    function failState() {
+      scroll.innerHTML = "";
+      const st = el("div", "rr-picker__state");
+      st.innerHTML = '<div class="rr-picker__state-text">Не удалось получить список — повторите</div>';
+      const retry = el("button", "rr-refresh", I.refresh + "Повторить");
+      retry.type = "button";
+      retry.addEventListener("click", () => load());
+      st.appendChild(retry);
+      scroll.appendChild(st);
+    }
+    async function load(announce) {
       loading();
+      let list;
       try {
-        const list = await listNetworkProcesses();
-        if (!box.isConnected) return;
-        paint(Array.isArray(list) ? list : []);
-      } catch (e) {
-        if (box.isConnected) scroll.innerHTML = stateBlock("Не удалось получить список: " + (e?.message || e));
+        list = await Promise.race([listNetworkProcesses(), timeout(6000)]);
+      } catch {
+        if (box.isConnected) failState();
+        return;
+      }
+      if (!box.isConnected) return;
+      const arr = Array.isArray(list) ? list : [];
+      paint(arr);
+      if (announce) {
+        toast("Список обновлён · " + arr.length + " " + plural(arr.length, "приложение", "приложения", "приложений"), "success", 1400);
       }
     }
     refreshBtn.addEventListener("click", () => {
       refreshBtn.classList.add("is-spinning");
-      load().finally(() => refreshBtn.classList.remove("is-spinning"));
+      load(true).finally(() => refreshBtn.classList.remove("is-spinning"));
     });
     load();
     return box;

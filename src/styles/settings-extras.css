@@ -161,6 +161,20 @@
   pointer-events: none;
 }
 
+/* Строка-ссылка в под-экран: тот же вид, что у .set-row, но кликабельна целиком */
+.set-row--nav {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.set-row--nav:hover {
+  background: var(--ink-2, rgba(255,255,255,0.04));
+  border-color: var(--line-2, rgba(255,255,255,0.1));
+}
+.set-row--nav:hover .settings-menu__chevron { color: var(--text-mid); }
+
 /* Tunnel status block */
 .tunnel-status {
   display: flex;
