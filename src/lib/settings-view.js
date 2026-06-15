@@ -6,6 +6,7 @@ import {
   REGIONS, IPV6_MODES, TUN_STACKS, LOG_LEVELS, MUX_PROTOCOLS,
 } from "/lib/options.js";
 import { BUILD_INFO } from "/lib/build-info.js";
+import { mountRoutingRules } from "/lib/routing-view.js";
 
 const WARP_MODE_LABELS = {
   direct: "Только WARP (без других прокси)",
@@ -145,6 +146,15 @@ export function mountSettings(root, opts = {}) {
     bindWarpSection(el, sec, onChange);
     bindAppearanceSection(el, sec);
     bindAboutSection(el, sec);
+    bindRoutingSection(el, sec, onChange);
+  }
+
+  // Подраздел «Правила маршрутизации» — отдельный модуль (routing-view.js)
+  // строит весь rr-блок в точке монтирования и сам персистит/реконнектит.
+  function bindRoutingSection(el, sec, onChange) {
+    if (sec.key !== "routing") return;
+    const mount = el.querySelector("#rr-rules-mount");
+    if (mount) mountRoutingRules(mount, { onChange });
   }
 
   // Секция «О программе»: подставляем версию приложения и открываем репозиторий
@@ -569,6 +579,7 @@ function renderRouting(o) {
       ${row(iconIpv6(), "Маршрут IPv6", "Стратегия выбора IPv4/IPv6", select("route.ipv6Mode", o.route.ipv6Mode, IPV6_MODES, IPV6_LABELS))}
       ${row(iconRouting(), "Discord мимо туннеля (TUN)", "Только в режиме TUN: домены Discord идут напрямую, чтобы DPI-обход десинхрил их (голос с низким пингом). Без обхода/в proxy не влияет.", toggle("route.tunSplitDiscord", o.route.tunSplitDiscord))}
     </div>
+    <div id="rr-rules-mount"></div>
   `;
 }
 
