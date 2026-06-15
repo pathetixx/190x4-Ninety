@@ -883,6 +883,45 @@ function buildDns(options) {
 }
 
 // ── route ──────────────────────────────────────────────────
+// Пользовательские правила маршрутизации (options.route.customRules) → правила
+// sing-box. Одно правило юзера = один route-rule. Действие: proxy/direct → outbound,
+// block → action:"reject" (как blockAds). Пропускаем выключенные и без значений.
+// Тип:
+//   domain  + match → domain_suffix (дефолт) / domain (exact) / domain_keyword
+//   ip            → ip_cidr (одиночный IP нормализуем в /32, IPv6 в /128)
+//   process       → process_name (работает во ВСЕХ режимах — sing-box резолвит
+//                   процесс по локальному сокету mixed-inbound, привязки к TUN нет)
+function customRulesToSingbox(customRules) {
+  if (!Array.isArray(customRules)) return [];
+  const out = [];
+  for (const r of customRules) {
+    if (!r || r.enabled === false) continue;
+    const values = (Array.isArray(r.values) ? r.values : [])
+      .map((v) => String(v).trim())
+      .filter(Boolean);
+    if (!values.length) continue;
+
+    const rule = {};
+    if (r.type === "domain") {
+      const field =
+        r.match === "exact" ? "domain" : r.match === "keyword" ? "domain_keyword" : "domain_suffix";
+      rule[field] = values;
+    } else if (r.type === "ip") {
+      rule.ip_cidr = values.map((v) => (v.includes("/") ? v : `${v}/${v.includes(":") ? 128 : 32}`));
+    } else if (r.type === "process") {
+      rule.process_name = values;
+    } else {
+      continue; // неизвестный тип — пропускаем
+    }
+
+    if (r.action === "block") rule.action = "reject";
+    else rule.outbound = r.action === "direct" ? "direct" : "proxy";
+
+    out.push(rule);
+  }
+  return out;
+}
+
 function buildRoute(options, mode) {
   const rules = [
     { action: "sniff" },
@@ -893,9 +932,11 @@ function buildRoute(options, mode) {
   // Ninety (Tauri webview HTTP-запросы к ipwho.is и т.п.), самого sing-box и
   // xray (two-core: xhttp-мост сам дозванивается до реального сервера) петлял
   // бы обратно в TUN-интерфейс. Аналог Hiddify tunnel_service.go:80-95.
-  // В proxy-режиме process_name не применим (трафик идёт через mixed inbound,
-  // sing-box не знает о клиентских процессах) — правило безвредно, но добавляем
-  // только в TUN чтобы не плодить лишнее.
+  // В proxy/systemProxy это bypass-правило не нужно: свой трафик Ninety туда не
+  // петляет (no_proxy reqwest + нет auto_route, перехватывающего всё), поэтому
+  // добавляем только в TUN. ВАЖНО: сам process-матчинг работает во ВСЕХ режимах
+  // (sing-box резолвит процесс по локальному сокету mixed-inbound) — ограничения
+  // «process_name только в TUN» НЕТ; здесь речь исключительно про bypass-петлю.
   if (mode === "tun") {
     rules.push({
       process_name: ["Ninety.exe", "sing-box.exe", "xray.exe"],
@@ -910,6 +951,12 @@ function buildRoute(options, mode) {
     rules.push({ rule_set: ["geosite-discord"], outbound: "direct" });
     rules.push({ domain_suffix: DISCORD_SUFFIXES, outbound: "direct" });
   }
+
+  // Пользовательские правила — ВЫШЕ региона/рекламы/LAN (приоритетнее базы), но
+  // ниже служебных safety-правил. Порядок в массиве = приоритет (первое совпадение
+  // выигрывает): кастом перекрывает регион (напр. «Telegram → через VPN» победит
+  // .ru-direct для трафика Telegram), а весь остальной трафик слушает базу ниже.
+  rules.push(...customRulesToSingbox(options.route?.customRules));
 
   if (options.route.bypassLan) {
     rules.push({ ip_is_private: true, outbound: "direct" });

@@ -1,6 +1,7 @@
 mod clash;
 mod clash_stream;
 mod dpi;
+mod netproc;
 mod quality;
 mod scanner;
 mod subscription;
@@ -451,6 +452,7 @@ pub fn run() {
             vpn::open_log_dir,
             subscription::fetch_subscription,
             clash::clash_get_proxies,
+            clash::clash_get_connections,
             clash::clash_traffic_total,
             clash::clash_test_node,
             clash::clash_test_group,
@@ -482,6 +484,7 @@ pub fn run() {
             dpi::dpi_read_list,
             dpi::dpi_write_list,
             dpi::dpi_unload_driver,
+            netproc::list_network_processes,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
