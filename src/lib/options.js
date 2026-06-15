@@ -67,6 +67,13 @@ export const DEFAULT_OPTIONS = {
     // (winws) десинхрил его на реальном интерфейсе — голос low-ping одновременно
     // с полным TUN. Opt-in: в полном TUN весь трафик в туннеле, обход не нужен.
     tunSplitDiscord: false,
+    // Пользовательские правила маршрутизации (гибкие, как в Throne). Каждое:
+    //   { id, enabled, type:"domain"|"ip"|"process", match:"suffix"|"exact"|"keyword",
+    //     values:[…], action:"proxy"|"direct"|"block" }
+    // Применяются в buildRoute ПОСЛЕ служебных правил и ВЫШЕ региона/рекламы
+    // (кастом приоритетнее региональной базы — точечная настройка поверх).
+    // deepMerge берёт массив целиком → миграция у существующих юзеров без потерь.
+    customRules: [],
   },
   inbound: {
     mixedPort: 7890,

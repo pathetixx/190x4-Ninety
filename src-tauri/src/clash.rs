@@ -83,6 +83,64 @@ pub async fn clash_traffic_total(port: u16) -> Result<Value, String> {
     Ok(serde_json::json!({ "up": up, "down": down }))
 }
 
+// Живые соединения с привязкой к процессу и outbound'у — для монитора правил
+// маршрутизации (что куда сейчас идёт: напрямую/через VPN/блок). Возвращаем
+// компактный список [{ process, host, destinationIP, outbound }]; outbound
+// нормализован в "direct"|"proxy"|"block" по chains (block — если в цепочке
+// reject/block). ВАЖНО: metadata.process заполнен только когда у sing-box активен
+// process-матчинг (есть ≥1 правило по процессу) — иначе process=null.
+#[tauri::command]
+pub async fn clash_get_connections(port: u16) -> Result<Value, String> {
+    let c = client()?;
+    let r = c
+        .get(format!("{}/connections", base(port)))
+        .bearer_auth(clash_secret())
+        .send()
+        .await
+        .map_err(|e| format!("request: {e}"))?;
+    let v = r.json::<Value>().await.map_err(|e| format!("decode: {e}"))?;
+    let mut out = Vec::new();
+    if let Some(conns) = v.get("connections").and_then(|x| x.as_array()) {
+        for conn in conns {
+            let md = conn.get("metadata");
+            let field = |k: &str| {
+                md.and_then(|m| m.get(k))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            };
+            let process = {
+                let p = field("process");
+                if p.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(p)
+                }
+            };
+            let chains = conn.get("chains").and_then(|x| x.as_array());
+            let has = |tag: &str| {
+                chains
+                    .map(|a| a.iter().any(|x| x.as_str() == Some(tag)))
+                    .unwrap_or(false)
+            };
+            let outbound = if has("reject") || has("block") {
+                "block"
+            } else if has("direct") {
+                "direct"
+            } else {
+                "proxy"
+            };
+            out.push(serde_json::json!({
+                "process": process,
+                "host": field("host"),
+                "destinationIP": field("destinationIP"),
+                "outbound": outbound,
+            }));
+        }
+    }
+    Ok(Value::Array(out))
+}
+
 #[tauri::command]
 pub async fn clash_test_node(
     port: u16,

@@ -10,6 +10,19 @@ export async function getProxies(port = DEFAULT_PORT) {
   return invoke("clash_get_proxies", { port });
 }
 
+// Живые соединения для монитора правил маршрутизации:
+// [{ process, host, destinationIP, outbound:"direct"|"proxy"|"block" }].
+// process=null, если sing-box не резолвил процесс (нет активных process-правил).
+export async function getConnections(port = DEFAULT_PORT) {
+  return invoke("clash_get_connections", { port });
+}
+
+// Процессы с исходящей сетевой активностью (для выбора при создании правила):
+// [{ name, pid, path }]. Нативный снимок ОС, от sing-box не зависит.
+export async function listNetworkProcesses() {
+  return invoke("list_network_processes");
+}
+
 export async function testNode(name, { port = DEFAULT_PORT, url = DEFAULT_URL, timeoutMs = 5000 } = {}) {
   return invoke("clash_test_node", { port, name, url, timeoutMs });
 }
