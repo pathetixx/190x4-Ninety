@@ -926,6 +926,16 @@ function buildRoute(options, mode) {
   const rules = [
     { action: "sniff" },
     { protocol: "dns", action: "hijack-dns" },
+    // Принудительный process-lookup для ВСЕХ соединений (во всех режимах). В
+    // стоковом sing-box нет глобального find_process — процесс резолвится, только
+    // когда правило его требует. Это правило с несуществующим именем форсит резолв
+    // сокет→PID→exe (sing-box кладёт имя в metadata.process для clash API), но само
+    // НЕ матчится → маршрутизацию не меняет. Благодаря ему монитор соединений
+    // показывает имя приложения у каждого соединения (как Throne), а не только под
+    // process-правилом. Стоит выше bypass/custom/region, чтобы lookup срабатывал до
+    // первого терминального правила. Накладные: один lookup на соединение (sing-box
+    // кэширует TCP-таблицу). Сентинел заведомо не совпадёт ни с одним реальным exe.
+    { process_name: [" ninety-force-process-lookup"], outbound: "direct" },
   ];
 
   // ProcessName bypass — критично для TUN-режима. Без него собственный трафик

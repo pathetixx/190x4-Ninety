@@ -85,10 +85,12 @@ pub async fn clash_traffic_total(port: u16) -> Result<Value, String> {
 
 // Живые соединения с привязкой к процессу и outbound'у — для монитора правил
 // маршрутизации (что куда сейчас идёт: напрямую/через VPN/блок). Возвращаем
-// компактный список [{ process, host, destinationIP, outbound }]; outbound
-// нормализован в "direct"|"proxy"|"block" по chains (block — если в цепочке
-// reject/block). ВАЖНО: metadata.process заполнен только когда у sing-box активен
-// process-матчинг (есть ≥1 правило по процессу) — иначе process=null.
+// компактный список [{ process, processPath, host, destinationIP, outbound }];
+// outbound нормализован в "direct"|"proxy"|"block" по chains (block — если в
+// цепочке reject/block). metadata.process/processPath заполнены, т.к. в конфиге
+// есть форсирующее process-правило (buildRoute в singbox.js) — sing-box резолвит
+// процесс у каждого соединения. Если по какой-то причине процесс не определился
+// (системный сокет и т.п.) — process=null, путь пуст.
 #[tauri::command]
 pub async fn clash_get_connections(port: u16) -> Result<Value, String> {
     let c = client()?;
@@ -132,6 +134,7 @@ pub async fn clash_get_connections(port: u16) -> Result<Value, String> {
             };
             out.push(serde_json::json!({
                 "process": process,
+                "processPath": field("processPath"),
                 "host": field("host"),
                 "destinationIP": field("destinationIP"),
                 "outbound": outbound,
