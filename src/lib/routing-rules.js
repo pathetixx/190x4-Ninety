@@ -14,8 +14,8 @@ export const DOMAIN_MATCHES = ["suffix", "exact", "keyword"];
 export const RULE_ACTIONS = ["proxy", "direct", "block"];
 
 // Подписи для UI (человеческим языком, без жаргона).
-export const TYPE_LABELS = { domain: "Домен", ip: "IP / подсеть", process: "Процесс" };
-export const MATCH_LABELS = { suffix: "Поддомены (suffix)", exact: "Точно", keyword: "Содержит" };
+export const TYPE_LABELS = { domain: "Домен", ip: "IP · подсеть", process: "Процесс" };
+export const MATCH_LABELS = { suffix: "Поддомены", exact: "Точно", keyword: "Содержит" };
 export const ACTION_LABELS = { proxy: "Через VPN", direct: "Напрямую", block: "Блок" };
 
 // crypto.randomUUID есть в webview2/Tauri; фолбэк на случай старого окружения/тестов.
