@@ -128,5 +128,9 @@ jobs:
           else
             gh release create dpi-channel --prerelease --title "DPI channel (данные стратегий)" --notes "$notes"
           fi
-          gh release upload dpi-channel dpi-channel.zip dpi-channel.zip.sig --clobber
+          # version.txt — отдельным ассетом: dpi_check_update читает его напрямую
+          # (дёшево, без скачивания всего бандла) и сравнивает с локальной версией.
+          # Источник проверки = источник установки (этот же канал) → нет «битого круга».
+          cp bundle/version.txt version.txt
+          gh release upload dpi-channel dpi-channel.zip dpi-channel.zip.sig version.txt --clobber
           echo "опубликован канал: flowseal=${{ steps.fl.outputs.tag }}"

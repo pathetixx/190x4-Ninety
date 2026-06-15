@@ -616,16 +616,24 @@ fn no_proxy_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("http client: {e}"))
 }
 
-/// Доступно ли обновление набора стратегий (сравнение с version.txt Flowseal).
+/// Доступно ли обновление набора стратегий. Сравниваем с версией НАШЕГО КАНАЛА
+/// (version.txt-ассет релиза dpi-channel) — тем, что реально поставит кнопка
+/// «Обновить» через dpi_sync_channel. НЕ с live-версией Flowseal: канал
+/// пересобирается роботом раз в сутки и неизбежно отстаёт от свежего релиза
+/// Flowseal. Если сверяться с live, в окне «Flowseal зарелизил → канал ещё не
+/// синканул» проверка показывает «обновление есть», а кнопка тянет старый бандл
+/// → local никогда не догоняет remote → вечный «битый круг» обновления.
 #[tauri::command]
 pub async fn dpi_check_update(app: AppHandle) -> Result<serde_json::Value, String> {
     let local = strat_version(&app);
     let client = no_proxy_client()?;
     let remote = client
-        .get(format!("{FLOWSEAL_RAW}/.service/version.txt"))
+        .get(format!("{CHANNEL_BASE}/version.txt"))
         .send()
         .await
         .map_err(|e| format!("fetch version: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("version http: {e}"))?
         .text()
         .await
         .map_err(|e| format!("read version: {e}"))?
