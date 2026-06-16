@@ -87,10 +87,12 @@ pub async fn clash_traffic_total(port: u16) -> Result<Value, String> {
 // маршрутизации (что куда сейчас идёт: напрямую/через VPN/блок). Возвращаем
 // компактный список [{ process, processPath, host, destinationIP, outbound }];
 // outbound нормализован в "direct"|"proxy"|"block" по chains (block — если в
-// цепочке reject/block). metadata.process/processPath заполнены, т.к. в конфиге
-// есть форсирующее process-правило (buildRoute в singbox.js) — sing-box резолвит
-// процесс у каждого соединения. Если по какой-то причине процесс не определился
-// (системный сокет и т.п.) — process=null, путь пуст.
+// цепочке reject/block). processPath заполняется, т.к. в конфиге есть
+// форсирующее process-правило (buildRoute в singbox.js) — sing-box резолвит
+// сокет→PID→exe у КАЖДОГО соединения (route.go: processSearcher!=nil ⇒ резолв на
+// каждом коннекте). process (имя) выводим тут как basename пути: форк отдаёт лишь
+// processPath. Если процесс не определился (системный сокет и т.п.) — process=null,
+// путь пуст.
 #[tauri::command]
 pub async fn clash_get_connections(port: u16) -> Result<Value, String> {
     let c = client()?;
@@ -111,12 +113,30 @@ pub async fn clash_get_connections(port: u16) -> Result<Value, String> {
                     .unwrap_or("")
                     .to_string()
             };
+            // Имя процесса. Форк (hiddify-sing-box v1.13.0.h5) НЕ эмитит поле
+            // metadata.process — в clashapi/trafficontrol/tracker.go::MarshalJSON
+            // отдаётся ТОЛЬКО processPath (полный путь к exe). Поэтому имя выводим
+            // как basename пути (как Throne/metacubexd): C:\...\AyuGram.exe →
+            // "AyuGram.exe". На Windows processPath = чистый путь (ConnectionOwner
+            // UserId=-1, без " (user)"-суффикса). Если форк когда-нибудь начнёт
+            // слать process — берём его. rsplit по обоим разделителям — не зависит
+            // от платформы сборки.
+            let process_path = field("processPath");
             let process = {
-                let p = field("process");
-                if p.is_empty() {
+                let direct = field("process");
+                let name = if !direct.is_empty() {
+                    direct
+                } else {
+                    process_path
+                        .rsplit(|ch| ch == '\\' || ch == '/')
+                        .next()
+                        .unwrap_or("")
+                        .to_string()
+                };
+                if name.is_empty() {
                     Value::Null
                 } else {
-                    Value::String(p)
+                    Value::String(name)
                 }
             };
             let chains = conn.get("chains").and_then(|x| x.as_array());
@@ -134,7 +154,7 @@ pub async fn clash_get_connections(port: u16) -> Result<Value, String> {
             };
             out.push(serde_json::json!({
                 "process": process,
-                "processPath": field("processPath"),
+                "processPath": process_path,
                 "host": field("host"),
                 "destinationIP": field("destinationIP"),
                 "outbound": outbound,
