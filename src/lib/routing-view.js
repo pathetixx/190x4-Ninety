@@ -112,7 +112,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
       : "";
 
     const headMain = hideTitle
-      ? ""
+      ? '<p class="rr-head__sub rr-head__sub--solo">Свои правила поверх регионального · <b>домен</b> / <b>IP</b> / <b>приложение</b></p>'
       : '<div class="rr-head__main">' +
           '<h3 class="rr-head__title">Правила маршрутизации</h3>' +
           '<p class="rr-head__sub">Свои правила поверх регионального — <b>домен</b>, <b>IP</b> или <b>приложение</b> → Через VPN, Напрямую или Блок.</p>' +

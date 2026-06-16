@@ -12,9 +12,10 @@ export async function getProxies(port = DEFAULT_PORT) {
 
 // Живые соединения для монитора правил маршрутизации:
 // [{ process, processPath, host, destinationIP, outbound:"direct"|"proxy"|"block" }].
-// Имя процесса резолвится у каждого соединения (в конфиге есть форсирующее
-// process-правило, см. singbox.js::buildRoute); process=null лишь для соединений,
-// у которых ОС не отдала владельца сокета (системные и т.п.).
+// Процесс резолвится у каждого соединения (в конфиге есть форсирующее
+// process-правило → sing-box ищет владельца сокета на каждом коннекте). Форк шлёт
+// только processPath; имя (process) Rust выводит как basename пути. process=null
+// лишь для соединений, у которых ОС не отдала владельца сокета (системные и т.п.).
 export async function getConnections(port = DEFAULT_PORT) {
   return invoke("clash_get_connections", { port });
 }
