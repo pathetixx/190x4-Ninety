@@ -21,13 +21,10 @@ export function isAvailable() {
 export async function checkForUpdate() {
   const a = api();
   if (!a) return null;
-  try {
-    const update = await a.updater.check();
-    return update; // null или {version, currentVersion, downloadAndInstall, ...}
-  } catch (e) {
-    console.warn("updater check failed", e);
-    return null;
-  }
+  // Ошибки (нет сети / заблокированный CDN ассетов) НЕ глотаем — пробрасываем
+  // наверх, чтобы runUpdateCheck отличил «не смог проверить» от «обновлений нет».
+  // Раньше оба случая возвращали null → апп врал «у вас актуальная версия».
+  return a.updater.check(); // null = апдейта нет; {version, ...} = есть
 }
 
 // askToUpdate(update, {onProgress, toast})
