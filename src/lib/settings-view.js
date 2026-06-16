@@ -730,8 +730,9 @@ function renderAbout() {
         Лёгкий VPN-клиент под Windows: VLESS / VMess / Trojan / Shadowsocks /
         Hysteria2 / TUIC / NaiveProxy / TrustTunnel,
         режимы «Прокси · Системный прокси · VPN · TUN», подписки с
-        live-переключением серверов, трюки TLS (фрагментация ClientHello) и
-        DPI-обход для обхода блокировок.
+        live-переключением серверов, правила маршрутизации (домен / IP /
+        приложение), движок качества связи и обход блокировок (фрагментация
+        TLS + DPI).
       </p>
 
       <div class="about-tags">
@@ -772,7 +773,7 @@ function renderAbout() {
           <span class="about-link__main">
             <span class="about-link__t">Обновления</span>
             <span class="about-link__d">
-              <span class="about-link__status"><span class="about-link__dot"></span>Установлена актуальная версия</span>
+              <span class="about-link__status"><span class="about-link__dot"></span>Обновления проверяются автоматически</span>
             </span>
           </span>
           <span class="about-link__cta btn btn--sm">${aboutIconRefresh()}Проверить</span>

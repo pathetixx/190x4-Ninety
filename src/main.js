@@ -2224,7 +2224,14 @@ async function runUpdateCheck({ silent = true } = {}) {
     if (!silent) toast("Updater недоступен", "error", 2500);
     return;
   }
-  const update = await checkForUpdate();
+  let update;
+  try {
+    update = await checkForUpdate();
+  } catch (e) {
+    console.warn("update check failed", e);
+    if (!silent) toast("Не удалось проверить обновления. Проверьте интернет или включите VPN.", "error", 4000);
+    return;
+  }
   if (!update) {
     if (!silent) toast("Обновлений нет — у вас актуальная версия", "info", 2400);
     return;

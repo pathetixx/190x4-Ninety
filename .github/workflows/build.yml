@@ -274,3 +274,18 @@ jobs:
           # релиза/заметках, а не во флаге. Схема тегов — semver vX.Y.Z.
           prerelease: false
           make_latest: "true"
+
+      # РФ-доступный fallback OTA: тот же .exe + latest.json (url→r2.dev) в R2.
+      # Идёт ПОСЛЕ публикации github-релиза → провал R2 не валит первичный OTA.
+      - name: Mirror update to Cloudflare R2 (RU fallback)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ninety-updates
+          R2_PUBLIC_URL: https://pub-d55ef44f89364070a9c55d8d0f9d825b.r2.dev
+        run: |
+          python -m pip install --quiet boto3
+          python scripts/r2_mirror.py
