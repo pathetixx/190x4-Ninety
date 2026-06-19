@@ -90,6 +90,8 @@ const S = {
   lastError: "",
   versions: { app: "—", engine: "winws", strategies: "—" },
   domains: null,
+  hosts: { applied: false, entries: 0, busy: false },
+  ipsetList: { count: null, busy: false },
   ipsetOpen: false,
   autopick: { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" },
   updating: null,       // id строки, которая сейчас обновляется
@@ -235,6 +237,21 @@ function renderBody() {
             </div>
           </div>
         </article>
+
+        <article class="dpi-card dpi-hosts">
+          <div class="dpi-card__head">
+            <div class="dpi-card__label">${ic("box", 13)}Файл hosts</div>
+            <span class="dpi-pill" data-kind="${S.hosts.applied ? "ok" : "idle"}">${S.hosts.applied ? "применён" : "не применён"}</span>
+          </div>
+          <div class="dpi-row__d" style="max-width:none">Прописывает рабочие IP для доменов, которые ломает не DPI, а подмена DNS у провайдера — голосовые серверы Discord, веб-Telegram, GitHub. Дополняет обход на уровне адресов.</div>
+          <div class="dpi-hosts__row">
+            <div class="dpi-hosts__stat"><span class="dpi-hosts__num tnum">${S.hosts.applied ? S.hosts.entries.toLocaleString("ru-RU") : "—"}</span><span class="dpi-hosts__unit">${S.hosts.applied ? "записей активно" : "не активен"}</span></div>
+            <div class="dpi-hosts__actions">
+              <button class="btn btn--sm btn--primary" data-dpi-hosts-apply ${S.hosts.busy ? "disabled" : ""}>${S.hosts.busy ? "…" : S.hosts.applied ? "Обновить" : "Применить"}</button>
+              ${S.hosts.applied ? `<button class="btn btn--sm" data-dpi-hosts-clear ${S.hosts.busy ? "disabled" : ""}>Сбросить</button>` : ""}
+            </div>
+          </div>
+        </article>
       </div>
 
       <div class="dpi-col">
@@ -274,6 +291,13 @@ function renderBody() {
               <button class="seg__btn" data-on="${S.ipset === "off"}" data-dpi-ipset="off">Выкл</button>
             </div>
             <div class="dpi-row__d" style="max-width:none">${ipsetHint}</div>
+            <div class="dpi-ipset__upd">
+              <div class="dpi-ipset__upd-info">
+                <span class="dpi-ipset__upd-t">Список IP (ipset-all)</span>
+                <span class="dpi-ipset__upd-c">${S.ipsetList.count == null ? "—" : S.ipsetList.count.toLocaleString("ru-RU") + " адресов"}</span>
+              </div>
+              <button class="btn btn--sm" data-dpi-ipset-update ${S.ipsetList.busy ? "disabled" : ""}>${ic("download", 13)} ${S.ipsetList.busy ? "…" : "Обновить список"}</button>
+            </div>
           </div></div></div>
         </article>
 
@@ -436,6 +460,54 @@ async function loadDomains() {
 }
 async function checkUpdate() {
   try { const r = await invoke("dpi_check_update"); S.hasUpdate = !!r?.available; } catch {}
+}
+async function loadHosts() {
+  try { const r = await invoke("dpi_hosts_status"); S.hosts.applied = !!r?.applied; S.hosts.entries = r?.entries || 0; } catch {}
+}
+async function loadIpsetCount() {
+  try { S.ipsetList.count = await invoke("dpi_ipset_count"); } catch { S.ipsetList.count = null; }
+}
+
+/* ── Файл hosts (правка системного hosts — нужны админ-права) ── */
+async function applyHosts() {
+  const ok = await ensureElevated();
+  if (!ok) return; // идёт перезапуск с UAC или отказ
+  S.hosts.busy = true; renderBody();
+  try {
+    const r = await invoke("dpi_hosts_apply");
+    S.hosts.applied = true; S.hosts.entries = r?.entries || 0;
+    toast(`Файл hosts обновлён · ${S.hosts.entries.toLocaleString("ru-RU")} записей`, "info", 2400);
+  } catch (e) {
+    toast(`Файл hosts: ${e?.message || e}`, "error", 4500);
+  }
+  S.hosts.busy = false; renderBody();
+}
+async function clearHosts() {
+  const ok = await ensureElevated();
+  if (!ok) return;
+  S.hosts.busy = true; renderBody();
+  try {
+    await invoke("dpi_hosts_clear");
+    S.hosts.applied = false; S.hosts.entries = 0;
+    toast("Записи hosts удалены", "info", 1800);
+  } catch (e) {
+    toast(`Файл hosts: ${e?.message || e}`, "error", 4500);
+  }
+  S.hosts.busy = false; renderBody();
+}
+
+/* ── Обновление базы ipset (пишется в app_data — без админ-прав) ── */
+async function updateIpset() {
+  S.ipsetList.busy = true; renderBody();
+  try {
+    const n = await invoke("dpi_update_ipset");
+    S.ipsetList.count = n;
+    toast(`Список IP обновлён · ${n.toLocaleString("ru-RU")} адресов`, "info", 2400);
+    if (S.ipset === "loaded") await restartIfRunning(); // применить свежий набор к winws
+  } catch (e) {
+    toast(`Список IP: ${e?.message || e}`, "error", 4500);
+  }
+  S.ipsetList.busy = false; renderBody();
 }
 
 async function runUpdate(id) {
@@ -638,6 +710,9 @@ function onClick(e) {
   if (upd) { runUpdate(upd.dataset.dpiUpdate); return; }
   const dom = t.closest("[data-dpi-domains]");
   if (dom) { openListEditor(dom.dataset.dpiDomains); return; }
+  if (t.closest("[data-dpi-hosts-apply]")) { applyHosts(); return; }
+  if (t.closest("[data-dpi-hosts-clear]")) { clearHosts(); return; }
+  if (t.closest("[data-dpi-ipset-update]")) { updateIpset(); return; }
   if (t.closest("[data-dpi-editor-close]") || t.closest("[data-dpi-editor-bg]")) { closeListEditor(); return; }
   const save = t.closest("[data-dpi-editor-save]");
   if (save) { saveListEditor(save.dataset.dpiEditorSave); return; }
@@ -711,6 +786,6 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
       S.base = "off";
     }
   } catch {}
-  await Promise.all([loadVersions(), loadDomains(), checkUpdate()]);
+  await Promise.all([loadVersions(), loadDomains(), checkUpdate(), loadHosts(), loadIpsetCount()]);
   renderAll();
 }

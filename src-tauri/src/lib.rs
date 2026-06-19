@@ -484,6 +484,11 @@ pub fn run() {
             dpi::dpi_read_list,
             dpi::dpi_write_list,
             dpi::dpi_unload_driver,
+            dpi::dpi_hosts_status,
+            dpi::dpi_hosts_apply,
+            dpi::dpi_hosts_clear,
+            dpi::dpi_ipset_count,
+            dpi::dpi_update_ipset,
             netproc::list_network_processes,
         ])
         .build(tauri::generate_context!())

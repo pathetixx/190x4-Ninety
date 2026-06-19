@@ -455,6 +455,26 @@
 }
 .dpi-domains__actions { display: flex; gap: 8px; }
 
+/* ── HOSTS card ── */
+.dpi-hosts__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+}
+.dpi-hosts__stat { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.dpi-hosts__num {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 22px;
+  color: var(--text-hi);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.dpi-hosts__unit { font-size: 11.5px; color: var(--text-lo); }
+.dpi-hosts__actions { display: flex; gap: 8px; flex-shrink: 0; }
+
 /* ═══════════════════════════════════════════
    UPDATES CARD
 ═══════════════════════════════════════════ */
@@ -506,6 +526,11 @@
 .dpi-pill[data-kind="ok"] {
   color: var(--text-lo);
   background: rgba(255,255,255,0.03);
+  border: 1px solid var(--line-1);
+}
+.dpi-pill[data-kind="idle"] {
+  color: var(--text-faint);
+  background: rgba(255,255,255,0.02);
   border: 1px solid var(--line-1);
 }
 .dpi-pill[data-kind="update"] {
@@ -561,6 +586,28 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.dpi-ipset__upd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: var(--r-sm);
+  background: var(--ink-2);
+  border: 1px solid var(--line-1);
+}
+.dpi-ipset__upd-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dpi-ipset__upd-t {
+  font-size: 12px; font-weight: 500; color: var(--text-hi);
+  letter-spacing: -0.005em;
+}
+.dpi-ipset__upd-c {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ═══════════════════════════════════════════

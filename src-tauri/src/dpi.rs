@@ -167,7 +167,10 @@ fn write_ipset_mode(app: &AppHandle, lists: &Path, mode: &str) -> Result<(), Str
     let target = lists.join("ipset-all.txt");
     match mode {
         "loaded" => {
-            let base = res_lists(app)?.join("ipset-all.base.txt");
+            // writable-копия base (после dpi_update_ipset) приоритетнее ресурсной —
+            // так обновлённый список IP применяется без переустановки приложения.
+            let wbase = lists.join("ipset-all.base.txt");
+            let base = if wbase.exists() { wbase } else { res_lists(app)?.join("ipset-all.base.txt") };
             std::fs::copy(&base, &target).map_err(|e| format!("ipset loaded: {e}"))?;
         }
         "off" => {
@@ -841,6 +844,218 @@ pub async fn dpi_sync_channel(app: AppHandle) -> Result<serde_json::Value, Strin
     }
     let _ = std::fs::remove_dir_all(&staging);
     Ok(serde_json::json!({ "version": ver, "applied": true }))
+}
+
+// ── Файл hosts (обход DNS-подмены) + обновление базы ipset ───────────
+// Зачем hosts вдобавок к winws: когда провайдер не режет пакеты, а ПОДМЕНЯЕТ
+// DNS-ответ, домен резолвится в мусор и handshake не начинается — winws нечего
+// десинхронить. Прибиваем рабочие IP гвоздём (голосовые серверы Discord,
+// веб-Telegram, GitHub). Пишем ТОЛЬКО свой блок между маркерами, чужие строки
+// hosts не трогаем; идемпотентно — повторный apply заменяет блок целиком.
+const HOSTS_BEGIN: &str = "# >>> 190x4 Ninety (DPI hosts) >>>";
+const HOSTS_END: &str = "# <<< 190x4 Ninety (DPI hosts) <<<";
+
+#[cfg(target_os = "windows")]
+fn system_hosts_path() -> PathBuf {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+    PathBuf::from(root).join(r"System32\drivers\etc\hosts")
+}
+#[cfg(not(target_os = "windows"))]
+fn system_hosts_path() -> PathBuf {
+    PathBuf::from("/etc/hosts")
+}
+
+// Удалить наш managed-блок (BEGIN..END включительно) из текста hosts, не трогая
+// остальное. Возвращает текст без блока (с финальным \n у каждой строки).
+fn strip_managed_block(content: &str) -> String {
+    let mut out = String::new();
+    let mut skip = false;
+    for line in content.lines() {
+        let t = line.trim();
+        if t == HOSTS_BEGIN {
+            skip = true;
+            continue;
+        }
+        if t == HOSTS_END {
+            skip = false;
+            continue;
+        }
+        if skip {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+// Сколько валидных записей «IP домен» в тексте (без пустых строк и комментариев).
+fn count_hosts_entries(body: &str) -> usize {
+    body.lines()
+        .filter(|l| {
+            let t = l.trim();
+            !t.is_empty() && !t.starts_with('#') && t.split_whitespace().count() >= 2
+        })
+        .count()
+}
+
+/// Статус системного hosts: применён ли наш блок и сколько в нём записей.
+#[tauri::command]
+pub fn dpi_hosts_status(_app: AppHandle) -> Result<serde_json::Value, String> {
+    let content = std::fs::read_to_string(system_hosts_path()).unwrap_or_default();
+    let mut inside = false;
+    let mut block = String::new();
+    for line in content.lines() {
+        let t = line.trim();
+        if t == HOSTS_BEGIN {
+            inside = true;
+            continue;
+        }
+        if t == HOSTS_END {
+            inside = false;
+            continue;
+        }
+        if inside {
+            block.push_str(line);
+            block.push('\n');
+        }
+    }
+    Ok(serde_json::json!({
+        "applied": content.contains(HOSTS_BEGIN),
+        "entries": count_hosts_entries(&block),
+    }))
+}
+
+/// Скачать актуальный hosts из репозитория и (пере)записать наш managed-блок в
+/// системный hosts. Требует админ-прав (фронт элевирует перед вызовом). Делает
+/// бэкап оригинала при первой записи и сбрасывает DNS-кэш. Возвращает число записей.
+#[tauri::command]
+pub async fn dpi_hosts_apply(app: AppHandle) -> Result<serde_json::Value, String> {
+    let client = no_proxy_client()?;
+    let raw = client
+        .get(format!("{FLOWSEAL_RAW}/.service/hosts"))
+        .send()
+        .await
+        .map_err(|e| format!("fetch hosts: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("hosts http: {e}"))?
+        .text()
+        .await
+        .map_err(|e| format!("read hosts: {e}"))?;
+    let body = raw.replace("\r\n", "\n");
+    let body = body.trim();
+    if count_hosts_entries(body) == 0 {
+        return Err("в источнике нет записей hosts".into());
+    }
+
+    let path = system_hosts_path();
+    let current = std::fs::read_to_string(&path).unwrap_or_default();
+
+    // Бэкап оригинала один раз — до первой нашей записи.
+    if let Ok(dir) = app.path().app_data_dir() {
+        let bdir = dir.join("dpi");
+        let _ = std::fs::create_dir_all(&bdir);
+        let backup = bdir.join("hosts.backup");
+        if !backup.exists() && !current.contains(HOSTS_BEGIN) {
+            let _ = std::fs::write(&backup, &current);
+        }
+    }
+
+    // Снять старый блок (если был), дописать свежий в конец.
+    let base = strip_managed_block(&current);
+    let base = base.trim_end();
+    let mut out = String::new();
+    out.push_str(base);
+    if !base.is_empty() {
+        out.push_str("\n\n");
+    }
+    out.push_str(HOSTS_BEGIN);
+    out.push('\n');
+    out.push_str(body);
+    out.push('\n');
+    out.push_str(HOSTS_END);
+    out.push('\n');
+
+    std::fs::write(&path, out.as_bytes()).map_err(|e| {
+        format!("запись hosts ({}): нужны права администратора — {e}", path.display())
+    })?;
+    flush_dns();
+    Ok(serde_json::json!({ "entries": count_hosts_entries(body) }))
+}
+
+/// Удалить наш managed-блок из системного hosts (полный откат). Требует админ-прав.
+#[tauri::command]
+pub fn dpi_hosts_clear(_app: AppHandle) -> Result<(), String> {
+    let path = system_hosts_path();
+    let current = std::fs::read_to_string(&path).unwrap_or_default();
+    if !current.contains(HOSTS_BEGIN) {
+        return Ok(());
+    }
+    let stripped = format!("{}\n", strip_managed_block(&current).trim_end());
+    std::fs::write(&path, stripped.as_bytes())
+        .map_err(|e| format!("запись hosts: нужны права администратора — {e}"))?;
+    flush_dns();
+    Ok(())
+}
+
+fn flush_dns() {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new("ipconfig")
+            .arg("/flushdns")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+    }
+}
+
+// Сколько IP-записей в файле-списке ipset (строки без пустых и комментариев).
+fn count_ipset_lines(txt: &str) -> usize {
+    txt.lines()
+        .filter(|l| {
+            let t = l.trim();
+            !t.is_empty() && !t.starts_with('#')
+        })
+        .count()
+}
+
+/// Текущее число IP в активной базе ipset (writable-override → ресурс).
+#[tauri::command]
+pub fn dpi_ipset_count(app: AppHandle) -> Result<usize, String> {
+    let lists = ensure_lists(&app)?;
+    let wbase = lists.join("ipset-all.base.txt");
+    let path = if wbase.exists() { wbase } else { res_lists(&app)?.join("ipset-all.base.txt") };
+    let txt = std::fs::read_to_string(&path).unwrap_or_default();
+    Ok(count_ipset_lines(&txt))
+}
+
+/// Обновить базу ipset (ipset-all) актуальным списком из репозитория. Пишем в
+/// writable-копию app_data — режим IPSet «Загружен» берёт её приоритетно. Если
+/// движок запущен в этом режиме, перезапуск winws — на стороне фронта.
+/// Возвращает число загруженных IP.
+#[tauri::command]
+pub async fn dpi_update_ipset(app: AppHandle) -> Result<usize, String> {
+    let lists = ensure_lists(&app)?;
+    let client = no_proxy_client()?;
+    let raw = client
+        .get(format!("{FLOWSEAL_RAW}/.service/ipset-service.txt"))
+        .send()
+        .await
+        .map_err(|e| format!("fetch ipset: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("ipset http: {e}"))?
+        .text()
+        .await
+        .map_err(|e| format!("read ipset: {e}"))?;
+    let body = raw.replace("\r\n", "\n");
+    let n = count_ipset_lines(&body);
+    if n == 0 {
+        return Err("в источнике нет IP-записей".into());
+    }
+    std::fs::write(lists.join("ipset-all.base.txt"), body.as_bytes())
+        .map_err(|e| format!("запись ipset base: {e}"))?;
+    Ok(n)
 }
 
 // ── Авто-подбор стратегии ───────────────────────────────────────────
