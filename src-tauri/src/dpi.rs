@@ -619,6 +619,58 @@ fn no_proxy_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("http client: {e}"))
 }
 
+// Клиент для ЗАГРУЗКИ СПИСКОВ (hosts/ipset). port=Some(p>0) → через mixed-inbound
+// sing-box (http://127.0.0.1:p), т.е. трафик идёт через обход/VPN; иначе прямой
+// запрос. Отличие от no_proxy_client: прямой запрос к raw.githubusercontent.com
+// из РФ режется ТСПУ — поэтому при активном VPN (proxy/systemProxy) тянем через
+// прокси, а на direct падаем фолбэком (паттерн взят у quality::build_client).
+fn list_client(port: Option<u16>) -> Result<reqwest::Client, String> {
+    let mut b = reqwest::Client::builder().timeout(Duration::from_secs(20));
+    if let Some(p) = port {
+        if p > 0 {
+            let proxy = reqwest::Proxy::all(format!("http://127.0.0.1:{p}"))
+                .map_err(|e| format!("proxy: {e}"))?;
+            b = b.proxy(proxy);
+        }
+    }
+    b.build().map_err(|e| format!("http client: {e}"))
+}
+
+// Загрузить текст списка устойчиво: сперва через прокси (если port задан — путь
+// через обход), при неудаче — прямым запросом; по 2 попытки на каждый. github raw
+// из РФ флапает/режется ТСПУ, поэтому ретраи + проксирование повышают шанс пройти.
+// Если прокси не слушает (VPN выключен) — proxy-попытка быстро падает → direct.
+async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String> {
+    let mut routes: Vec<Option<u16>> = Vec::new();
+    if matches!(port, Some(p) if p > 0) {
+        routes.push(port); // 1) через mixed-inbound (обход)
+    }
+    routes.push(None); // 2) прямой fallback
+    let mut last = String::from("нет попыток");
+    for via in routes {
+        let client = match list_client(via) {
+            Ok(c) => c,
+            Err(e) => {
+                last = e;
+                continue;
+            }
+        };
+        for attempt in 0..2 {
+            match client.get(url).send().await.and_then(|r| r.error_for_status()) {
+                Ok(resp) => match resp.text().await {
+                    Ok(t) => return Ok(t),
+                    Err(e) => last = format!("read body: {e}"),
+                },
+                Err(e) => last = format!("send: {e}"),
+            }
+            if attempt == 0 {
+                tokio::time::sleep(Duration::from_millis(400)).await;
+            }
+        }
+    }
+    Err(last)
+}
+
 /// Доступно ли обновление набора стратегий. Сравниваем с версией НАШЕГО КАНАЛА
 /// (version.txt-ассет релиза dpi-channel) — тем, что реально поставит кнопка
 /// «Обновить» через dpi_sync_channel. НЕ с live-версией Flowseal: канал
@@ -930,18 +982,10 @@ pub fn dpi_hosts_status(_app: AppHandle) -> Result<serde_json::Value, String> {
 /// системный hosts. Требует админ-прав (фронт элевирует перед вызовом). Делает
 /// бэкап оригинала при первой записи и сбрасывает DNS-кэш. Возвращает число записей.
 #[tauri::command]
-pub async fn dpi_hosts_apply(app: AppHandle) -> Result<serde_json::Value, String> {
-    let client = no_proxy_client()?;
-    let raw = client
-        .get(format!("{FLOWSEAL_RAW}/.service/hosts"))
-        .send()
+pub async fn dpi_hosts_apply(app: AppHandle, port: Option<u16>) -> Result<serde_json::Value, String> {
+    let raw = fetch_list_text(&format!("{FLOWSEAL_RAW}/.service/hosts"), port)
         .await
-        .map_err(|e| format!("fetch hosts: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("hosts http: {e}"))?
-        .text()
-        .await
-        .map_err(|e| format!("read hosts: {e}"))?;
+        .map_err(|e| format!("fetch hosts: {e}"))?;
     let body = raw.replace("\r\n", "\n");
     let body = body.trim();
     if count_hosts_entries(body) == 0 {
@@ -1035,19 +1079,11 @@ pub fn dpi_ipset_count(app: AppHandle) -> Result<usize, String> {
 /// движок запущен в этом режиме, перезапуск winws — на стороне фронта.
 /// Возвращает число загруженных IP.
 #[tauri::command]
-pub async fn dpi_update_ipset(app: AppHandle) -> Result<usize, String> {
+pub async fn dpi_update_ipset(app: AppHandle, port: Option<u16>) -> Result<usize, String> {
     let lists = ensure_lists(&app)?;
-    let client = no_proxy_client()?;
-    let raw = client
-        .get(format!("{FLOWSEAL_RAW}/.service/ipset-service.txt"))
-        .send()
+    let raw = fetch_list_text(&format!("{FLOWSEAL_RAW}/.service/ipset-service.txt"), port)
         .await
-        .map_err(|e| format!("fetch ipset: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("ipset http: {e}"))?
-        .text()
-        .await
-        .map_err(|e| format!("read ipset: {e}"))?;
+        .map_err(|e| format!("fetch ipset: {e}"))?;
     let body = raw.replace("\r\n", "\n");
     let n = count_ipset_lines(&body);
     if n == 0 {

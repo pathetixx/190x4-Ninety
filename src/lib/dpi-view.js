@@ -468,13 +468,24 @@ async function loadIpsetCount() {
   try { S.ipsetList.count = await invoke("dpi_ipset_count"); } catch { S.ipsetList.count = null; }
 }
 
+// Порт для загрузки списков (hosts/ipset): mixed-inbound (трафик через обход),
+// если VPN активен в proxy/systemProxy; 0 = прямой запрос (TUN — трафик и так в
+// туннеле, либо VPN выключен). Прямой запрос к github raw из РФ режется ТСПУ,
+// поэтому при активном обходе тянем через прокси; Rust сам падает на direct, если
+// прокси молчит.
+async function listFetchPort() {
+  if (S.vpnMode === "tun") return 0;
+  try { if (!(await invoke("singbox_running"))) return 0; } catch { return 0; }
+  try { return Number(loadOptions()?.inbound?.mixedPort) || 7890; } catch { return 7890; }
+}
+
 /* ── Файл hosts (правка системного hosts — нужны админ-права) ── */
 async function applyHosts() {
   const ok = await ensureElevated();
   if (!ok) return; // идёт перезапуск с UAC или отказ
   S.hosts.busy = true; renderBody();
   try {
-    const r = await invoke("dpi_hosts_apply");
+    const r = await invoke("dpi_hosts_apply", { port: await listFetchPort() });
     S.hosts.applied = true; S.hosts.entries = r?.entries || 0;
     toast(`Файл hosts обновлён · ${S.hosts.entries.toLocaleString("ru-RU")} записей`, "info", 2400);
   } catch (e) {
@@ -500,7 +511,7 @@ async function clearHosts() {
 async function updateIpset() {
   S.ipsetList.busy = true; renderBody();
   try {
-    const n = await invoke("dpi_update_ipset");
+    const n = await invoke("dpi_update_ipset", { port: await listFetchPort() });
     S.ipsetList.count = n;
     toast(`Список IP обновлён · ${n.toLocaleString("ru-RU")} адресов`, "info", 2400);
     if (S.ipset === "loaded") await restartIfRunning(); // применить свежий набор к winws
