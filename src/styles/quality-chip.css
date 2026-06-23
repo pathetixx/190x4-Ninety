@@ -140,3 +140,82 @@
   .qchip__pulse::before { animation: none !important; opacity: 0 !important; }
   .qchip__pulse::after  { animation: none !important; }
 }
+
+/* ───── Осциллограмма канала (раскрытый вид чипа, II.4) ───── */
+.qchip[data-active="true"] { cursor: pointer; }
+
+.qscope {
+  position: fixed;
+  z-index: 80;
+  width: 320px;
+  padding: 12px;
+  background: var(--surface-1, #14141A);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: var(--r-md, 14px);
+  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.7);
+  animation: qscope-in 0.16s var(--ease-out, ease);
+}
+@keyframes qscope-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+.qscope__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.qscope__title {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-mid);
+}
+.qscope__now { display: inline-flex; align-items: center; gap: 8px; }
+.qscope__pill { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; }
+.qscope__bps { font-size: 12px; color: var(--text-hi); font-variant-numeric: tabular-nums; }
+.qscope__svg {
+  display: block;
+  width: 100%;
+  height: 96px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: var(--r-sm, 10px);
+}
+.qscope__line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 4px var(--accent-glow));
+}
+.qscope__base {
+  stroke: var(--ok);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+.qscope__rungs line {
+  stroke: var(--warn);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.55;
+  vector-effect: non-scaling-stroke;
+}
+.qscope__rungs text { fill: var(--warn); font-size: 8px; font-weight: 700; }
+.qscope__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.qscope__legend { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-lo); }
+.qscope__legend i { width: 14px; border-top: 1px dashed var(--ok); opacity: 0.6; }
+.qscope__hint { font-size: 10px; color: var(--text-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .qscope { animation: none; }
+}
