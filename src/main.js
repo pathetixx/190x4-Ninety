@@ -54,7 +54,7 @@ const invoke = window.__TAURI__?.core?.invoke
 
 // ── Theme switcher (Kurogane / Synthwave / Matrix / Mono) ──
 const THEME_KEY = "ninety.theme";
-const THEMES = ["kurogane", "synthwave", "matrix", "mono"];
+const THEMES = ["kurogane", "synthwave", "matrix", "mono", "command"];
 const appRoot = document.getElementById("app-root");
 
 export function getTheme() {
