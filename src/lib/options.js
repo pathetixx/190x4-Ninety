@@ -19,6 +19,10 @@ export const DEFAULT_OPTIONS = {
     // Защищённые сети (дом/офис) не трогаются. Доверенные открытые сети — в
     // localStorage ninety.wifi.trusted.
     autoProtectWifi: false,
+    // I.2 (ЭКСПЕРИМЕНТАЛЬНО): WFP kill switch. В режимах proxy/systemProxy блокирует
+    // весь исходящий, кроме loopback и sing-box.exe → при падении ядра трафик не
+    // утекает мимо туннеля. В TUN утечки держит strict_route, kill switch не нужен.
+    killSwitch: false,
   },
   warp: {
     // Включает выбор WARP в селекторе outbound (UI). Сама регистрация делается

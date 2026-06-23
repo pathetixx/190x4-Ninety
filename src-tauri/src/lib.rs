@@ -9,6 +9,7 @@ mod url_handler;
 mod vpn;
 mod warp;
 mod wifi;
+mod killswitch;
 
 #[cfg(target_os = "windows")]
 mod proxy_win;
@@ -328,6 +329,7 @@ pub fn run() {
         .manage(SingboxState::default())
         .manage(dpi::DpiState::default())
         .manage(clash_stream::ClashStreamState::default())
+        .manage(killswitch::KillSwitchState::default())
         .setup(|app| {
             let argv: Vec<String> = std::env::args().collect();
             let autostarted = argv.iter().any(|a| a == "--autostarted");
@@ -492,6 +494,9 @@ pub fn run() {
             dpi::dpi_update_ipset,
             netproc::list_network_processes,
             wifi::current_wifi,
+            killswitch::killswitch_arm,
+            killswitch::killswitch_disarm,
+            killswitch::killswitch_active,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -508,6 +513,9 @@ pub fn run() {
                     // (драйвер мог загрузить только elevated-инстанс), поэтому
                     // sc-команды внутри проходят.
                     dpi::full_unload(&state);
+                }
+                if let Some(state) = app.try_state::<killswitch::KillSwitchState>() {
+                    killswitch::force_disarm(&state);
                 }
             }
         });

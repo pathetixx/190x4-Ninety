@@ -277,6 +277,29 @@ setInterval(checkWifiProtect, 25_000);
 window.addEventListener("focus", checkWifiProtect);
 checkWifiProtect();
 
+// ── Kill Switch (I.2) ───────────────────────────────────────
+// В proxy/systemProxy при включённой опции на время соединения поднимаем WFP-блок
+// (весь исходящий кроме loopback и sing-box.exe). В TUN не нужен (strict_route).
+// WFP требует админ-прав: если не elevated — не армим и подсказываем тостом (раз).
+let killSwitchHintShown = false;
+async function applyKillSwitch(connected) {
+  try {
+    if (!connected) { await invoke("killswitch_disarm"); return; }
+    if (!loadOptions().general?.killSwitch || getMode() === "tun") {
+      await invoke("killswitch_disarm");
+      return;
+    }
+    if (!(await invoke("is_elevated"))) {
+      if (!killSwitchHintShown) {
+        killSwitchHintShown = true;
+        toast("Kill Switch требует прав администратора — включите «Всегда запускать от администратора» в Настройках", "warn", 6000);
+      }
+      return;
+    }
+    await invoke("killswitch_arm", {});
+  } catch (e) { console.warn("kill switch", e); }
+}
+
 // TUN поднимает сетевой интерфейс — для этого sing-box (наш child) должен
 // работать от админа, значит и всё приложение тоже. Если уже elevated — ок,
 // продолжаем. Иначе перезапускаем Ninety от админа через UAC: перезапущенный
@@ -1805,6 +1828,7 @@ function setState(next, opts = {}) {
     if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
     stopHealthWatchdog();
     stopWarpRescanLoop();
+    applyKillSwitch(false); // снять WFP-блок при отключении
     qualityEngine.onIdle();
     showQualityChip(false);
     applyReconnectUI();
@@ -1847,6 +1871,7 @@ function setState(next, opts = {}) {
     startMeter({ sourceKey: sourceKeyOf(getActiveSource()), onUpdate: refreshSubCardFromActive });
     startWarpRescanLoop();
     startHealthWatchdog();
+    applyKillSwitch(true); // поднять WFP-блок (proxy/systemProxy + elevated)
     // В TUN режиме mixed-inbound'а нет → проба идёт напрямую (port=0 = direct),
     // трафик Ninety.exe и так проходит туннель. Иначе — через mixed-inbound.
     qualityEngine.onConnected({

@@ -591,6 +591,7 @@ function renderGeneral(o) {
       ${row(iconRocket(), "Запускать при входе в систему", "Ninety будет автоматически стартовать при логине в Windows", toggle("general.autostart", g.autostart, { action: "autostart" }))}
       ${row(iconEyeOff(), "Запускать свернутым", "На старте окно сразу прячется в трей — иконка остаётся справа внизу", toggle("general.startMinimized", g.startMinimized))}
       ${row(iconShield(), "Защита на чужих Wi-Fi", "При подключении к открытой (без пароля) сети Ninety сам включит режим VPN · TUN. Защищённые сети (дом/офис) не трогаются. Потребуются права администратора (UAC).", toggle("general.autoProtectWifi", !!g.autoProtectWifi))}
+      ${row(iconShield(), "Аварийная блокировка (Kill Switch)", "Экспериментально. В режимах «Прокси» и «Системный прокси»: если VPN-ядро вдруг упадёт, весь трафик блокируется, кроме самого туннеля — данные не утекут в открытую сеть. Нужны права администратора. В режиме TUN не требуется.", toggle("general.killSwitch", !!g.killSwitch))}
     </div>
     <div class="settings-section">
       ${row(iconUrl(), "URL для теста соединения", "Любой HTTP/HTTPS endpoint, проверяющий доступ", inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
