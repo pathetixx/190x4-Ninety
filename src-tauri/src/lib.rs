@@ -8,6 +8,7 @@ mod subscription;
 mod url_handler;
 mod vpn;
 mod warp;
+mod wifi;
 
 #[cfg(target_os = "windows")]
 mod proxy_win;
@@ -490,6 +491,7 @@ pub fn run() {
             dpi::dpi_ipset_count,
             dpi::dpi_update_ipset,
             netproc::list_network_processes,
+            wifi::current_wifi,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

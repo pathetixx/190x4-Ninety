@@ -15,6 +15,10 @@ export const DEFAULT_OPTIONS = {
   general: {
     autostart: false,
     startMinimized: false,
+    // III.3: авто-включение TUN при подключении к ОТКРЫТОЙ (нешифрованной) Wi-Fi.
+    // Защищённые сети (дом/офис) не трогаются. Доверенные открытые сети — в
+    // localStorage ninety.wifi.trusted.
+    autoProtectWifi: false,
   },
   warp: {
     // Включает выбор WARP в селекторе outbound (UI). Сама регистрация делается
