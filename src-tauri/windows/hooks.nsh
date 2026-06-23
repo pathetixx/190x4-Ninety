@@ -22,7 +22,7 @@
 ; драйвер реально загружен (есть служба). sc query прав не требует: код 0 = служба
 ; есть. На драйвере `sc stop` синхронный → к delete он уже выгружен, служба-сирота
 ; не повисает. Метка с ${__LINE__} — уникальна на каждую вставку макроса.
-!macro NinetyDriverCleanup
+!macro NinetyDriverCleanup UNIQ
   Push $R0
   Push $0
   StrCpy $R0 "0"
@@ -34,10 +34,10 @@
   Pop $0
   StrCmp $0 "0" 0 +2
     StrCpy $R0 "1"
-  StrCmp $R0 "1" 0 ninety_drv_done_${__LINE__}
+  StrCmp $R0 "1" 0 ninety_drv_done_${UNIQ}
     DetailPrint "Снимаем kernel-драйвер WinDivert (нужны права администратора)..."
     ExecShellWait "runas" "$SYSDIR\cmd.exe" '/c sc stop WinDivert & sc delete WinDivert & sc stop WinDivert14 & sc delete WinDivert14 & sc stop Monkey & sc delete Monkey' SW_HIDE
-  ninety_drv_done_${__LINE__}:
+  ninety_drv_done_${UNIQ}:
   Pop $0
   Pop $R0
 !macroend
@@ -70,7 +70,7 @@
   Sleep 1000
   ; Снять kernel-драйвер (gated UAC). В норме OTA уже снял его elevated-аппой
   ; (update-modal → dpi_unload_driver) → служба отсутствует → UAC не появится.
-  !insertmacro NinetyDriverCleanup
+  !insertmacro NinetyDriverCleanup "pre"
   Sleep 500
 !macroend
 
@@ -96,7 +96,7 @@
   Sleep 1000
   ; Фул-очистка: снять kernel-драйвер (gated UAC — поднимется, если аппу убили
   ; taskkill'ом раньше, чем она успела снять драйвер сама).
-  !insertmacro NinetyDriverCleanup
+  !insertmacro NinetyDriverCleanup "un"
   ; Подстраховка на случай, если драйвер всё же не выгрузился (UAC отклонён и т.п.):
   ; .sys залочен → удалить сейчас нельзя. Помечаем на снос при перезагрузке, чтобы
   ; каталог установки не оставался «грязным» после деинсталляции.
