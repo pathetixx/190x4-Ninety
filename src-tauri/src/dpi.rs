@@ -1199,30 +1199,48 @@ pub fn force_cleanup(state: &DpiState) {
     }
 }
 
-/// Полная выгрузка движка перед OTA-апдейтом. Гасим winws И СНИМАЕМ kernel-драйвер
-/// WinDivert: его служба winws ставит сам при старте, и после kill процесса она
-/// остаётся загруженной в ядре, лоча `WinDivert64.sys`/`winws.exe` → NSIS-инсталлер
-/// падает на «файл занят» (та самая ошибка OTA). `sc stop/delete` требует
-/// админ-прав, но при запущенном DPI аппа уже elevated (winws — наш child,
-/// наследует токен), поэтому здесь команды проходят. Ошибки не критичны —
-/// драйвера могло и не быть; имя службы у разных сборок winws — WinDivert или
-/// WinDivert14 (как чистит service.bat Flowseal), плюс Monkey (наш переименованный
-/// вариант, см. bin_dir) — снимаем все.
-#[tauri::command]
-pub fn dpi_unload_driver(state: State<'_, DpiState>) -> Result<(), String> {
-    force_cleanup(&state);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        for svc in ["WinDivert", "WinDivert14", "Monkey"] {
-            for verb in ["stop", "delete"] {
-                let _ = std::process::Command::new("sc")
-                    .args([verb, svc])
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .output();
-            }
+/// Снять kernel-службы драйвера WinDivert/Monkey. ТРЕБУЕТ админ-прав — вызывать
+/// только из elevated-процесса (при запущенном DPI аппа уже elevated: winws — наш
+/// child, наследует токен). На kernel-драйвере `sc stop` блокирующий: возвращает
+/// управление лишь ПОСЛЕ выгрузки драйвера из ядра — и только тогда снимается лок с
+/// `WinDivert64.sys`/`Monkey64.sys` в каталоге установки. `stop` идёт перед `delete`:
+/// раз stop синхронный, к delete драйвер уже выгружен и служба-сирота в ядре не
+/// повисает (иначе её не снять без перезагрузки). Имя службы у разных сборок winws —
+/// WinDivert или WinDivert14 (как чистит service.bat Flowseal), плюс Monkey (наш
+/// переименованный вариант, см. bin_dir) — снимаем все.
+#[cfg(target_os = "windows")]
+pub fn unload_driver_services() {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    for svc in ["WinDivert", "WinDivert14", "Monkey"] {
+        for verb in ["stop", "delete"] {
+            let _ = std::process::Command::new("sc")
+                .args([verb, svc])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
         }
     }
+}
+#[cfg(not(target_os = "windows"))]
+pub fn unload_driver_services() {}
+
+/// Полная выгрузка движка: убить winws И снять kernel-драйвер. Вызывается перед
+/// OTA-апдейтом (команда ниже), при смене режима драйвера И при выходе приложения
+/// (lib.rs RunEvent::Exit). Иначе после закрытия Ninety драйвер остаётся резидентным
+/// в ядре, его .sys лочит файл в каталоге установки, и следующая (пере)установка
+/// падает на «Невозможно открыть файл для записи» (та самая ошибка). force_cleanup
+/// сперва убивает winws и reap'ает процесс (wait) — handle к \\.\WinDivert
+/// закрывается ДО `sc stop`, поэтому драйвер выгружается с первого раза.
+pub fn full_unload(state: &DpiState) {
+    force_cleanup(state);
+    unload_driver_services();
+}
+
+/// Команда из фронта: перед OTA-апдейтом и при смене режима драйвера (WinDivert↔
+/// Monkey). Тонкая обёртка над full_unload — оставлена как #[tauri::command] под
+/// invoke("dpi_unload_driver").
+#[tauri::command]
+pub fn dpi_unload_driver(state: State<'_, DpiState>) -> Result<(), String> {
+    full_unload(&state);
     Ok(())
 }

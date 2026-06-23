@@ -499,7 +499,13 @@ pub fn run() {
                     vpn::force_cleanup(&state);
                 }
                 if let Some(state) = app.try_state::<dpi::DpiState>() {
-                    dpi::force_cleanup(&state);
+                    // full_unload, а не force_cleanup: при выходе снимаем И
+                    // kernel-драйвер WinDivert/Monkey. Иначе он остаётся резидентным
+                    // в ядре и лочит свой .sys в каталоге установки → следующая
+                    // (пере)установка падает на «файл занят». Аппа здесь elevated
+                    // (драйвер мог загрузить только elevated-инстанс), поэтому
+                    // sc-команды внутри проходят.
+                    dpi::full_unload(&state);
                 }
             }
         });
