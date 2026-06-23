@@ -42,6 +42,8 @@ import { toast } from "/lib/toast.js";
 import { FLAGS_BASE, flagIsoFromName as isoFromNodeName, stripFlag } from "/lib/flags.js";
 import { startMeter, stopMeter, getMeasured, resetMeasured, sourceKeyOf } from "/lib/traffic-meter.js";
 import { createQualityEngine } from "/lib/quality-engine.js";
+import { bus } from "/lib/bus.js";
+import { openQualityScope } from "/lib/quality-scope.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -717,6 +719,8 @@ const qualityEngine = createQualityEngine({
       qualityDot.dataset.q = st;
       if (qualityDot.dataset.active !== "true") qualityDot.dataset.active = "true";
     },
+    // Каждая проба → в шину; осциллограмма канала (раскрытый чип) подписана на неё.
+    onSample: (s) => bus.emit("quality:sample", s),
     toast, notify,
     log: (m) => console.info("[quality]", m),
   },
@@ -768,6 +772,16 @@ function showQualityChip(on) {
   qualityDot.dataset.active = on ? "true" : "false";
 }
 mountQualityChip();
+// Клик по чипу «КАНАЛ» при активном мониторинге → осциллограмма goodput-проб.
+qualityDot?.addEventListener("click", (e) => {
+  if (qualityDot.dataset.active !== "true") return;
+  e.stopPropagation();
+  openQualityScope({
+    anchor: qualityDot,
+    getSamples: () => qualityEngine.getSamples(),
+    goodBps: Number(loadOptions().quality?.goodBps) || 1_500_000,
+  });
+});
 
 function applyReconnectUI() {
   if (!hero) return;

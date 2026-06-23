@@ -50,6 +50,8 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
   let cfg = normalizeOpts(opts);
   let running = false;          // connected + движок активен
   let probing = false;          // идёт probe_quality (не наслаивать)
+  const SAMPLE_CAP = 120;       // ring-буфер последних проб (для осциллограммы)
+  const samples = [];
   let remediating = false;      // идёт лесенка (tick молчит)
   let badStreak = 0;
   let goodStreak = 0;
@@ -88,8 +90,25 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
     return { peak, last: passive[passive.length - 1].down };
   }
 
+  // Записать сэмпл пробы в ring-буфер + отдать наружу (onSample → шина → осциллограмма).
+  // rung — id применённой ступени лесенки (R1..R6), если проба идёт в верификации
+  // лечения; иначе null (фоновый heartbeat). Аддитивно: на лесенку/тосты не влияет.
+  function recordSample(r, rung) {
+    if (!r) return;
+    const sample = {
+      t: Date.now(),
+      bps: Number(r.goodput_bps) || 0,
+      q: classify(r),
+      rung: rung || null,
+      stalled: !!r.stalled,
+    };
+    samples.push(sample);
+    if (samples.length > SAMPLE_CAP) samples.shift();
+    actions.onSample?.(sample);
+  }
+
   // ── Активная проба ─────────────────────────────────────
-  async function probe() {
+  async function probe(rung = null) {
     if (probing) return null;
     probing = true;
     lastProbeAt = Date.now();
@@ -100,6 +119,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
         sampleBytes: cfg.probeBytes,
         budgetMs: 4000,
       });
+      recordSample(r, rung);
       return r;
     } catch (e) {
       actions.log?.("probe_quality failed: " + e);
@@ -203,7 +223,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
         // Верификация: GOOD_STREAK подряд чистых проб → коммит + обучение.
         let verified = 0;
         for (let k = 0; k < GOOD_STREAK; k++) {
-          const r = await probe();
+          const r = await probe(step.id);
           if (classify(r) === "GOOD") {
             verified++;
             if (verified >= GOOD_STREAK) {
@@ -303,6 +323,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
 
   return {
     onConnected, onIdle, tick, updatePassive, setOptions,
+    getSamples: () => samples.slice(), // снимок ring-буфера для осциллограммы
     get state() { return lastState; },
     get isRemediating() { return remediating; },
   };
