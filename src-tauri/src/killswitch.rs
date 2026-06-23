@@ -112,9 +112,10 @@ mod win {
         let mut engine = HANDLE::default();
         let mut session: FWPM_SESSION0 = std::mem::zeroed();
         session.flags = FWPM_SESSION_FLAG_DYNAMIC;
-        FwpmEngineOpen0(PCWSTR::null(), AUTHN_DEFAULT, None, Some(&session), &mut engine)
-            .ok()
-            .map_err(|e| format!("FwpmEngineOpen0: {e}"))?;
+        let rc = FwpmEngineOpen0(PCWSTR::null(), AUTHN_DEFAULT, None, Some(&session), &mut engine);
+        if rc != 0 {
+            return Err(format!("FwpmEngineOpen0: {rc}"));
+        }
 
         let res = build_filters(engine, exe_path);
         match res {
@@ -138,9 +139,10 @@ mod win {
         sub.subLayerKey = SUBLAYER;
         sub.displayData.name = PWSTR(sname.as_mut_ptr());
         sub.weight = 0x0100;
-        FwpmSubLayerAdd0(engine, &sub, None)
-            .ok()
-            .map_err(|e| format!("FwpmSubLayerAdd0: {e}"))?;
+        let rc = FwpmSubLayerAdd0(engine, &sub, None);
+        if rc != 0 {
+            return Err(format!("FwpmSubLayerAdd0: {rc}"));
+        }
 
         let layers = [FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWPM_LAYER_ALE_AUTH_CONNECT_V6];
 
@@ -181,9 +183,10 @@ mod win {
             f.numFilterConditions = conds.len() as u32;
             f.filterCondition = conds.as_mut_ptr();
         }
-        FwpmFilterAdd0(engine, &f, None, None)
-            .ok()
-            .map_err(|e| format!("FwpmFilterAdd0: {e}"))?;
+        let rc = FwpmFilterAdd0(engine, &f, None, None);
+        if rc != 0 {
+            return Err(format!("FwpmFilterAdd0: {rc}"));
+        }
         Ok(())
     }
 
@@ -215,9 +218,10 @@ mod win {
     unsafe fn app_id_blob(exe: &str) -> Result<*mut FWP_BYTE_BLOB, String> {
         let w = wide(exe);
         let mut blob: *mut FWP_BYTE_BLOB = std::ptr::null_mut();
-        FwpmGetAppIdFromFileName0(PCWSTR(w.as_ptr()), &mut blob)
-            .ok()
-            .map_err(|e| format!("FwpmGetAppIdFromFileName0: {e}"))?;
+        let rc = FwpmGetAppIdFromFileName0(PCWSTR(w.as_ptr()), &mut blob);
+        if rc != 0 {
+            return Err(format!("FwpmGetAppIdFromFileName0: {rc}"));
+        }
         if blob.is_null() {
             return Err("app id blob пуст".into());
         }
