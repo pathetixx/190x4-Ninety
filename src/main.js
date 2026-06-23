@@ -249,6 +249,34 @@ async function changeMode(requested) {
   if (requested !== prevMode) reconnectForSourceChange("Переключаю режим…");
 }
 
+// ── Авто-защита на чужих Wi-Fi (III.3) ──────────────────────
+// Политика во фронте (Rust только отдаёт текущую сеть): на ОТКРЫТОЙ сети, не
+// входящей в доверенные, при включённой опции — авто-включаем TUN (changeMode сам
+// поднимет UAC). Защищённые сети не трогаем. lastWifiHandled гасит повтор на той
+// же сети, чтобы не дёргать UAC по кругу.
+const WIFI_TRUSTED_KEY = "ninety.wifi.trusted";
+function wifiTrusted() {
+  try { return JSON.parse(localStorage.getItem(WIFI_TRUSTED_KEY) || "[]"); }
+  catch { return []; }
+}
+let lastWifiHandled = null;
+async function checkWifiProtect() {
+  try {
+    if (!loadOptions().general?.autoProtectWifi) return;
+    if (getMode() === "tun") return;
+    const w = await invoke("current_wifi");
+    if (!w?.connected) { lastWifiHandled = null; return; }
+    if (w.secured || wifiTrusted().includes(w.ssid)) { lastWifiHandled = null; return; }
+    if (lastWifiHandled === w.ssid) return; // уже отреагировали на эту сеть
+    lastWifiHandled = w.ssid;
+    toast(`Открытая сеть «${w.ssid || "без имени"}» — включаю защиту (TUN)`, "warn", 4000);
+    changeMode("tun");
+  } catch {}
+}
+setInterval(checkWifiProtect, 25_000);
+window.addEventListener("focus", checkWifiProtect);
+checkWifiProtect();
+
 // TUN поднимает сетевой интерфейс — для этого sing-box (наш child) должен
 // работать от админа, значит и всё приложение тоже. Если уже elevated — ок,
 // продолжаем. Иначе перезапускаем Ninety от админа через UAC: перезапущенный
