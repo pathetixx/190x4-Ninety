@@ -8,6 +8,7 @@
 //   excludeVpnNode(host) — внести сервер активной ноды в exclude winws
 
 import { loadOptions } from "/lib/options.js";
+import { escapeHtml as esc } from "/lib/esc.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -44,7 +45,6 @@ const I = {
 function ic(name, size = 16, stroke = 1.5) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round">${I[name] || ""}</svg>`;
 }
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 /* ═══════════ DATA ═══════════ */
 // Реальный список приходит из dpi_strategies() (strategies.json движка).

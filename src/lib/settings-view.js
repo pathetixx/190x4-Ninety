@@ -7,6 +7,7 @@ import {
 } from "/lib/options.js";
 import { BUILD_INFO } from "/lib/build-info.js";
 import { mountRoutingRules } from "/lib/routing-view.js";
+import { escapeAttr } from "/lib/esc.js";
 
 const WARP_MODE_LABELS = {
   direct: "Только WARP (без других прокси)",
@@ -558,10 +559,6 @@ function select(path, value, options, labels = {}, affectsView = false) {
 function inputText(path, value, type = "text", attrs = "") {
   const cls = type === "number" ? "settings-input settings-input--num" : "settings-input";
   return `<input class="${cls}" type="${type}" value="${escapeAttr(value ?? "")}" data-opt="${path}" ${attrs}/>`;
-}
-
-function escapeAttr(s) {
-  return String(s ?? "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
 function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
