@@ -39,6 +39,7 @@ const THEMES = [
   { id: "synthwave", name: "Synthwave", kicker: "VIOLET WAVE", accent: "#E0A6FF", glow: "rgba(199,125,255,0.35)" },
   { id: "matrix",    name: "Matrix",    kicker: "EMERALD",     accent: "#5CEE92", glow: "rgba(43,214,106,0.35)" },
   { id: "mono",      name: "Mono",      kicker: "MONOCHROME",  accent: "#FFFFFF", glow: "rgba(255,255,255,0.25)" },
+  { id: "command",   name: "Command Center", kicker: "CMD · CRIMSON", accent: "#FF3355", glow: "rgba(255,45,70,0.45)" },
 ];
 
 const REGION_LABELS = {
