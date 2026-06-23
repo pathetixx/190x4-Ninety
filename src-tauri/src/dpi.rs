@@ -240,6 +240,28 @@ fn subst(arg: &str, bin: &str, lists: &str, g_tcp: &str, g_udp: &str) -> String 
         .replace("%GameFilter%", g_tcp)
 }
 
+// Снять ЛЮБОЙ winws.exe в системе. Возвращает true, если процесс был найден и убит.
+// Вызывается из dpi_start перед спавном своего winws: к той точке наш child уже не
+// жив (дедуп вернул бы «уже запущен»), значит любой живой winws — сирота от другого
+// инстанса Ninety. Элевация поднимает ВТОРОЙ процесс Ninety со своим DpiState, а
+// дедуп видит только свой child → без этого два winws дерутся за один kernel-драйвер
+// WinDivert и движок падает с «драйвер занят».
+#[cfg(target_os = "windows")]
+fn kill_stray_winws() -> bool {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    std::process::Command::new("taskkill")
+        .args(["/F", "/IM", "winws.exe"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map(|o| o.status.success()) // код 0 = хотя бы один процесс убит
+        .unwrap_or(false)
+}
+#[cfg(not(target_os = "windows"))]
+fn kill_stray_winws() -> bool {
+    false
+}
+
 // ── Команды ─────────────────────────────────────────────────────────
 
 /// Сырой strategies.json — фронт рендерит список стратегий из него.
@@ -324,6 +346,13 @@ pub async fn dpi_start(
         .iter()
         .map(|a| subst(a, &bindata_s, &lists_s, g_tcp, g_udp))
         .collect();
+
+    // Защита от «двойного старта»: гасим stray-winws (сирота от другого инстанса)
+    // перед запуском своего — иначе два winws дерутся за драйвер WinDivert. Если
+    // кого-то убили, даём драйверу отцепиться от мёртвого хэндла до нашего старта.
+    if kill_stray_winws() {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
 
     let mut cmd = std::process::Command::new(&exe);
     cmd.args(&args).current_dir(&bin); // cwd = bin → WinDivert.dll грузится по соседству
