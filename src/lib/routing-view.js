@@ -16,6 +16,7 @@ import {
 } from "/lib/routing-rules.js";
 import { listNetworkProcesses, getConnections } from "/lib/clash-api.js";
 import { toast } from "/lib/toast.js";
+import { escapeHtml as esc } from "/lib/esc.js";
 
 const REGION_SHORT = { ru: "Россия", cn: "Китай", ir: "Иран", tr: "Турция", by: "Беларусь" };
 
@@ -45,7 +46,6 @@ const ACTION_ICON = { proxy: I.vpn, direct: I.direct, block: I.block };
 
 /* ── helpers ── */
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 // Русское склонение: plural(n,"правило","правила","правил")
 function plural(n, one, few, many) {
   const m10 = n % 10, m100 = n % 100;

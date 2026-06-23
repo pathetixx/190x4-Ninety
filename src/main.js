@@ -26,6 +26,7 @@ import {
 } from "/lib/subscriptions.js";
 import { loadOptions, updateOption } from "/lib/options.js";
 import { mountSettings } from "/lib/settings-view.js";
+import { escapeHtml } from "/lib/esc.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
 import { openUpdateModal, shouldSkip as updateShouldSkip } from "/lib/update-modal.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
@@ -1375,10 +1376,6 @@ function openPMenu(anchor, items) {
   openMenu = menu;
   setTimeout(() => document.addEventListener("click", onDocClickClosePMenu), 10);
   return menu;
-}
-
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
 
 profilesView?.addEventListener("click", async (e) => {

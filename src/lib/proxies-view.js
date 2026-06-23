@@ -8,6 +8,7 @@ import {
 } from "/lib/clash-api.js";
 import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { FLAGS_BASE, flagIsoFromName, stripFlag } from "/lib/flags.js";
+import { escapeHtml, escapeAttr } from "/lib/esc.js";
 
 function $(id) { return document.getElementById(id); }
 
@@ -28,10 +29,6 @@ function dispatchNodeChanged(tag, node) {
   }));
 }
 
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-}
-
 // ── флаги: имя ноды → ISO ── (логика в /lib/flags.js, импортируется выше)
 // Фолбэк при отсутствии .svg вешается НЕ inline-обработчиком (`onerror=`), а
 // через addEventListener в attachFlagFallbacks() после вставки разметки: строгий
@@ -42,11 +39,6 @@ function flagHtml(iso, fallbackText) {
     return `<img class="prox__flag-img" src="${FLAGS_BASE}/${iso}.svg" alt="" loading="lazy" data-flag-fallback="${escapeAttr(fallbackText || "?")}">`;
   }
   return `<span class="prox__flag-fallback">${escapeHtml(fallbackText || "?")}</span>`;
-}
-
-// Экранирование для значения атрибута (кавычки → entity).
-function escapeAttr(s) {
-  return String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
 
 // После вставки разметки: на каждый флаг-img вешаем обработчик ошибки загрузки

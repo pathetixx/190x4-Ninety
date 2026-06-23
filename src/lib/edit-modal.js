@@ -3,6 +3,7 @@
 
 import { updateSubscription } from "/lib/subscriptions.js";
 import { updateProfile } from "/lib/singbox.js";
+import { escapeHtml } from "/lib/esc.js";
 
 function intervalLabel(h) {
   const n = Number(h) || 0;
@@ -22,10 +23,6 @@ function close() {
 
 function onKey(e) {
   if (e.key === "Escape") close();
-}
-
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
 
 function build({ title, fields, onSave }) {
