@@ -104,6 +104,21 @@ mod win {
     const SUBLAYER: GUID = GUID::from_u128(0x9011f2a3_5c7b_4e1d_8a2f_1b6c3d4e5f60);
     const AUTHN_DEFAULT: u32 = 0xFFFF_FFFF; // RPC_C_AUTHN_DEFAULT
 
+    // FwpmEngineOpen0 нет в биндингах windows-rs 0.58 (её сигнатура тянет
+    // SEC_WINNT_AUTH_IDENTITY_W, добавление фичи не помогло) — импортируем символ
+    // напрямую из fwpuclnt.dll через raw-dylib (не зависит от механизма линковки
+    // windows-rs). authidentity передаём null.
+    #[link(name = "fwpuclnt", kind = "raw-dylib")]
+    extern "system" {
+        fn FwpmEngineOpen0(
+            servername: *const u16,
+            authnservice: u32,
+            authidentity: *const core::ffi::c_void,
+            session: *const FWPM_SESSION0,
+            enginehandle: *mut HANDLE,
+        ) -> u32;
+    }
+
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
@@ -112,7 +127,13 @@ mod win {
         let mut engine = HANDLE::default();
         let mut session: FWPM_SESSION0 = std::mem::zeroed();
         session.flags = FWPM_SESSION_FLAG_DYNAMIC;
-        let rc = FwpmEngineOpen0(PCWSTR::null(), AUTHN_DEFAULT, None, Some(&session), &mut engine);
+        let rc = FwpmEngineOpen0(
+            std::ptr::null(),
+            AUTHN_DEFAULT,
+            std::ptr::null(),
+            &session,
+            &mut engine,
+        );
         if rc != 0 {
             return Err(format!("FwpmEngineOpen0: {rc}"));
         }
