@@ -111,10 +111,13 @@
           <div class="sidebar__spacer"></div>
 
           <div class="traffic">
-            <div class="traffic__label">Трафик</div>
+            <div class="traffic__head">
+              <div class="traffic__label">Трафик · live</div>
+              <span class="traffic__dot" id="tf-dot" aria-hidden="true"></span>
+            </div>
             <div class="traffic__row">
               <span class="traffic__key">
-                <svg class="traffic__arrow" viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16"/><path d="m6 14 6 6 6-6"/></svg>
+                <svg class="traffic__arrow traffic__arrow--down" viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16"/><path d="m6 14 6 6 6-6"/></svg>
                 Down
               </span>
               <span>
@@ -152,16 +155,18 @@
                 <div class="sub-card__main">
                   <div class="sub-card__head">
                     <span class="sub-card__name">190X4</span>
-                    <span class="sub-card__expire"><b id="sub-expire">153</b>&nbsp;ДН&nbsp;ОСТАЛОСЬ</span>
+                    <span class="sub-card__quota" id="sub-traffic">—</span>
                   </div>
                   <div class="sub-card__bar" id="sub-bar">
                     <span class="sub-card__bar-fill" id="sub-progress-fill" style="width: 1.4%"></span>
                   </div>
                   <div class="sub-card__meta">
-                    <span id="sub-traffic">—</span>
-                    <span class="sub-card__meta-sep">·</span>
                     <span>обновлено <span id="sub-updated">сейчас</span></span>
                   </div>
+                </div>
+                <div class="sub-card__expire">
+                  <b id="sub-expire">153</b>
+                  <span class="sub-card__expire-lbl">дн&nbsp;осталось</span>
                 </div>
                 <button class="sub-card__open" type="button" id="sub-open-profiles" aria-label="Открыть профили" title="Профили">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -189,16 +194,9 @@
             <!-- HERO ──────────────────────────────── -->
             <div class="hero" id="hero" data-state="standby">
               <div class="hero__stage">
+                <div class="hero__bloom"></div>
                 <div class="hero__halo"></div>
-                <div class="hero__ring hero__ring--3"></div>
-                <div class="hero__ring hero__ring--2"></div>
-                <svg class="hero__ticks" id="hero-ticks" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
-                <div class="hero__ring hero__ring--1"></div>
-                <div class="hero__sweep"></div>
-
-                <!-- Transition layers (remount-driven через JS) -->
-                <div class="hero__burst" id="hero-burst" data-state="standby"></div>
-                <div class="hero__lock" id="hero-lock" data-state="standby"></div>
+                <svg class="hud" id="hero-hud" viewBox="0 0 400 400" aria-hidden="true"></svg>
 
                 <button class="hero__disc" id="hero-disc" type="button" aria-label="Toggle VPN">
                   <video class="hero__mask" id="hero-mask"
@@ -215,17 +213,6 @@
                   <span id="hero-hint-text">STAND-BY · DISCONNECTED</span>
                 </div>
                 <div id="dpi-chip-slot"></div>
-                <div id="quality-chip-slot"></div>
-                <button class="hero__ping" id="hero-ping" type="button" hidden aria-label="Обновить задержку">
-                  <svg class="hero__ping-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M5 12.5a11 11 0 0 1 14 0"/>
-                    <path d="M2 9a16 16 0 0 1 20 0"/>
-                    <path d="M8.5 16a6 6 0 0 1 7 0"/>
-                    <path d="M12 19.5h.01"/>
-                  </svg>
-                  <span class="hero__ping-val" id="hero-ping-value">—</span>
-                  <span class="hero__ping-unit">МС</span>
-                </button>
               </div>
             </div>
 
@@ -260,25 +247,46 @@
               </span>
             </article>
 
-            <!-- Stats-strip (показывается в secured) -->
+            <!-- Телеметрия-полоса (secured) — session-уровень, мгновенная скорость живёт в сайдбаре -->
             <div class="stats" id="stats-strip" hidden>
               <div class="stats__cell">
-                <span class="stats__label">СЕРВЕР</span>
+                <span class="stats__label">Сервер</span>
                 <span class="stats__server-row">
                   <span class="stats__flag" id="stats-flag" aria-hidden="true" hidden></span>
                   <span class="stats__value" id="stats-server">—</span>
                 </span>
               </div>
+
+              <button class="stats__cell stats__cell--btn" id="tele-ping" type="button" title="Обновить задержку">
+                <span class="stats__label">Пинг
+                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="stats__label-ic"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+                </span>
+                <span class="stats__ping-row">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stats__ping-ic"><path d="M5 12.5a11 11 0 0 1 14 0"/><path d="M2 9a16 16 0 0 1 20 0"/><path d="M8.5 16a6 6 0 0 1 7 0"/><path d="M12 19.5h.01"/></svg>
+                  <span class="stats__value tnum"><span id="stats-ping">—</span><span class="unit">мс</span></span>
+                </span>
+              </button>
+
+              <button class="stats__cell stats__cell--btn" id="tele-channel" type="button" data-q="UNKNOWN" data-active="false" title="Осциллограмма канала">
+                <span class="stats__label">Канал
+                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="stats__label-ic"><path d="M3 12h3l2.5 7 4-14 2.5 9 1.5-4h4.5"/></svg>
+                </span>
+                <span class="stats__chan-row">
+                  <span class="stats__sonar" aria-hidden="true"><i></i></span>
+                  <span class="stats__value" id="stats-channel">—</span>
+                </span>
+              </button>
+
               <div class="stats__cell">
-                <span class="stats__label">ВХОДЯЩИЙ</span>
-                <span class="stats__value tnum"><span id="stats-down">0.0</span><span class="unit" id="stats-down-unit">КБ/с</span></span>
+                <span class="stats__label">Сессия</span>
+                <span class="stats__sess-row">
+                  <span class="stats__value tnum" id="stats-uptime">—</span>
+                  <span class="stats__sub tnum" id="stats-total">↓ 0 · ↑ 0</span>
+                </span>
               </div>
+
               <div class="stats__cell">
-                <span class="stats__label">ИСХОДЯЩИЙ</span>
-                <span class="stats__value tnum"><span id="stats-up">0.0</span><span class="unit" id="stats-up-unit">КБ/с</span></span>
-              </div>
-              <div class="stats__cell">
-                <span class="stats__label">РЕЖИМ</span>
+                <span class="stats__label">Режим</span>
                 <span class="stats__value" id="stats-mode">СИСТЕМНЫЙ</span>
               </div>
             </div>

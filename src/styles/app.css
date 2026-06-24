@@ -210,7 +210,12 @@
   padding: 14px 4px 2px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 11px;
+}
+.traffic__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .traffic__label {
   font-family: var(--font-mono);
@@ -218,6 +223,18 @@
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-faint);
+}
+.traffic__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  box-shadow: 0 0 7px transparent;
+  transition: background 0.3s var(--ease-out), box-shadow 0.3s var(--ease-out);
+}
+.traffic__dot[data-live="true"] {
+  background: var(--ok);
+  box-shadow: 0 0 7px var(--ok);
 }
 .traffic__row {
   display: flex;
@@ -238,6 +255,7 @@
   height: 9px;
   color: var(--text-faint);
 }
+.traffic__arrow--down { color: var(--accent-bright); }
 .traffic__val {
   font-family: var(--font-mono);
   font-weight: 500;
@@ -284,9 +302,9 @@
   background: var(--ink-1);
   border: 1px solid var(--line-2);
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   overflow: hidden;
 }
 .sub-card::before {
@@ -331,12 +349,11 @@
   color: var(--text-mid);
 }
 .sub-card__icon svg { width: 16px; height: 16px; }
-.sub-card__main { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.sub-card__main { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
 .sub-card__head {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 .sub-card__name {
   font-family: var(--font-display);
@@ -345,15 +362,37 @@
   letter-spacing: -0.005em;
   color: var(--text-hi);
 }
-.sub-card__expire {
+.sub-card__quota {
   font-family: var(--font-mono);
-  font-weight: 500;
   font-size: 10px;
-  letter-spacing: 0.08em;
-  color: var(--text-mid);
-  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-lo);
+  white-space: nowrap;
 }
-.sub-card__expire b { color: var(--accent-bright); font-weight: 600; }
+.sub-card__quota b { color: var(--text-mid); font-weight: 500; }
+/* Колонка «осталось дней» справа */
+.sub-card__expire {
+  text-align: right;
+  padding-right: 4px;
+  line-height: 1;
+}
+.sub-card__expire b {
+  display: block;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent-bright);
+  font-variant-numeric: tabular-nums;
+}
+.sub-card__expire-lbl {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  margin-top: 3px;
+}
 .sub-card__bar {
   position: relative;
   height: 2px;
@@ -463,100 +502,98 @@
   50%      { opacity: 0.45; }
 }
 
-/* Stage — концентрические targeting кольца + маска в центре.
+/* Stage — кибер-HUD (SVG) вокруг маски-самурая.
    Aspect-ratio + проценты внутри = адаптивно сжимается под доступную высоту. */
 .hero__stage {
   position: relative;
   aspect-ratio: 1;
-  width: min(220px, 100%);
+  width: min(280px, 100%);
   max-height: 100%;
   display: grid;
   place-items: center;
 }
 
-.hero__ring {
+/* Bloom — самый дальний мягкий ореол акцента */
+.hero__bloom {
   position: absolute;
+  width: 118%;
+  height: 118%;
   border-radius: 50%;
-  border: 1px solid var(--line-2);
+  background: radial-gradient(closest-side, var(--accent-glow) 0%, transparent 70%);
+  filter: blur(42px);
+  opacity: 0.16;
   pointer-events: none;
+  transition: opacity 0.5s var(--ease-out);
 }
-.hero__ring--1 { width: 67%; height: 67%; }
-.hero__ring--2 { width: 83%; height: 83%; border-color: var(--line-1); }
-.hero__ring--3 { width: 100%; height: 100%; border-color: var(--line-1); border-style: dashed; opacity: 0.5; }
+.hero[data-state="linking"] .hero__bloom { opacity: 0.6; }
+.hero[data-state="secured"] .hero__bloom { opacity: 0.8; }
 
-/* Tickmarks scale with stage */
-.hero__ticks {
-  position: absolute;
-  width: 83%;
-  height: 83%;
-  pointer-events: none;
-}
-.hero__ticks circle { fill: none; stroke: var(--line-3); stroke-width: 1; }
-.hero__ticks .tick {
-  stroke: var(--text-faint);
-  stroke-width: 1;
-}
-.hero__ticks .tick--major {
-  stroke: var(--text-lo);
-  stroke-width: 1.2;
-}
-
-/* Halo */
+/* Halo — ближний ореол под маской */
 .hero__halo {
   position: absolute;
-  width: 86%;
-  height: 86%;
+  width: 78%;
+  height: 78%;
   border-radius: 50%;
   background: radial-gradient(closest-side, var(--accent-glow) 0%, var(--accent-soft) 35%, transparent 70%);
   filter: blur(20px);
-  opacity: 0.65;
-  animation: hero-breath 6s ease-in-out infinite;
-  pointer-events: none;
-}
-@keyframes hero-breath {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50%      { opacity: 0.75; transform: scale(1.03); }
-}
-.hero[data-state="linking"] .hero__halo {
-  animation: hero-breath-fast 1.6s ease-in-out infinite;
-  opacity: 0.85;
-}
-@keyframes hero-breath-fast {
-  0%, 100% { transform: scale(1); opacity: 0.7; }
-  50%      { transform: scale(1.06); opacity: 1; }
-}
-.hero[data-state="secured"] .hero__halo {
-  opacity: 0.9;
-  animation: hero-breath-slow 4.5s ease-in-out infinite;
-}
-@keyframes hero-breath-slow {
-  0%, 100% { transform: scale(1); opacity: 0.75; }
-  50%      { transform: scale(1.04); opacity: 1; }
-}
-
-/* Sweep — медленно вращающаяся радиальная полоса по самому большому кольцу */
-.hero__sweep {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background:
-    conic-gradient(from 0deg, transparent 0deg, transparent 280deg, var(--accent) 360deg);
-  -webkit-mask: radial-gradient(closest-side, transparent calc(50% - 1px), #000 calc(50% - 1px), #000 50%, transparent 50%);
-          mask: radial-gradient(closest-side, transparent calc(50% - 1px), #000 calc(50% - 1px), #000 50%, transparent 50%);
   opacity: 0.5;
-  animation: hero-sweep 12s linear infinite;
   pointer-events: none;
+  transition: opacity 0.5s var(--ease-out);
 }
-@keyframes hero-sweep { to { transform: rotate(360deg); } }
-.hero[data-state="linking"] .hero__sweep { animation-duration: 2.4s; opacity: 0.95; }
-.hero[data-state="secured"] .hero__sweep { animation-duration: 24s; opacity: 0.7; }
+.hero[data-state="linking"] .hero__halo { opacity: 0.85; }
+.hero[data-state="secured"] .hero__halo { opacity: 0.9; }
+
+/* HUD — вращающиеся кольца, гейдж, ридауты (наполняется lib/hero-hud.js) */
+.hud {
+  position: absolute;
+  width: 114%;
+  height: 114%;
+  pointer-events: none;
+  overflow: visible;
+  opacity: 0.5;
+  transition: opacity 0.5s var(--ease-out);
+}
+.hero[data-state="linking"] .hud { opacity: 0.82; }
+.hero[data-state="secured"] .hud { opacity: 1; }
+.hud__sys {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 2.2px;
+  fill: var(--text-hi);
+  font-weight: 500;
+}
+.hud__target {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 2.2px;
+  fill: var(--accent-bright);
+  font-weight: 500;
+}
+.hud__clock {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 1.5px;
+  fill: var(--text-faint);
+}
+.hud__intg {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  fill: var(--accent-bright);
+}
+.hud__err {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 2px;
+  fill: var(--err);
+}
 
 /* Disc — кнопка с маской самурая */
 .hero__disc {
   position: relative;
-  width: 54%;
-  height: 54%;
+  width: 42%;
+  height: 42%;
   border-radius: 50%;
   background:
     radial-gradient(closest-side, var(--ink-2) 0%, var(--ink-1) 70%, var(--ink-0) 100%);
@@ -624,78 +661,6 @@
   padding-bottom: 4px;
 }
 
-/* ═══════════ TRANSITION LAYERS ═══════════ */
-
-/* Burst layer — кратко вспыхивает при смене состояния */
-.hero__burst {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  pointer-events: none;
-  opacity: 0;
-  border: 1px solid transparent;
-}
-.hero__burst[data-state="linking"] { animation: hero-burst-link    640ms var(--ease-emph) forwards; }
-.hero__burst[data-state="secured"] { animation: hero-burst-secure  900ms var(--ease-emph) forwards; }
-.hero__burst[data-state="standby"] { animation: hero-burst-release 520ms var(--ease-emph) forwards; }
-
-@keyframes hero-burst-link {
-  /* кольцо сжимается внутрь, как «scan-in» — система ищет канал */
-  0%   { transform: scale(1.08); border: 1px solid var(--accent-bright); opacity: 0.7;  filter: blur(0); }
-  50%  { transform: scale(0.86); border-color: var(--accent);            opacity: 0.55; filter: blur(0.5px); }
-  100% { transform: scale(0.55); border-color: transparent;              opacity: 0;    filter: blur(2px); }
-}
-@keyframes hero-burst-secure {
-  /* outward lock — фиксация цели, расходится с диска */
-  0%   { transform: scale(0.55); border: 2px solid var(--accent-bright); opacity: 0;   filter: drop-shadow(0 0 0 transparent); }
-  30%  { transform: scale(0.80); border-color: var(--accent-bright);     opacity: 0.95; }
-  60%  { transform: scale(1.18); border-color: var(--accent);            opacity: 0.65; }
-  100% { transform: scale(1.4);  border-color: transparent;              opacity: 0; }
-}
-@keyframes hero-burst-release {
-  /* отключение — короткий outward fade */
-  0%   { transform: scale(1);    border: 1px solid var(--accent);   opacity: 0.5; }
-  100% { transform: scale(1.18); border-color: transparent;          opacity: 0;   }
-}
-
-/* Lock ring — фиксированное thin ring которое появляется в secured (после burst) */
-.hero__lock {
-  position: absolute;
-  width: 83%;
-  height: 83%;
-  border-radius: 50%;
-  pointer-events: none;
-  opacity: 0;
-  border: 1px solid transparent;
-}
-.hero__lock[data-state="secured"] {
-  animation: hero-lock-in 1100ms var(--ease-emph) forwards;
-}
-@keyframes hero-lock-in {
-  /* появляется с задержкой, после того как burst прошёл — снап в кольцо */
-  0%, 30% { opacity: 0; transform: scale(1.06); border-color: transparent; }
-  55%     { opacity: 0.9; transform: scale(0.98); border-color: var(--accent-bright); }
-  70%     { opacity: 0.6; transform: scale(1);    border-color: var(--accent); }
-  100%    { opacity: 0.45; transform: scale(1);   border-color: var(--accent); }
-}
-
-/* Click ripple — расходится от центра диска */
-.hero__ripple {
-  position: absolute;
-  width: 54%;   /* размер диска */
-  height: 54%;
-  border-radius: 50%;
-  pointer-events: none;
-  border: 1.5px solid var(--accent-bright);
-  opacity: 0.9;
-  animation: hero-ripple 520ms var(--ease-out) forwards;
-}
-@keyframes hero-ripple {
-  0%   { transform: scale(1);    opacity: 0.9; border-width: 1.5px; }
-  100% { transform: scale(2.2);  opacity: 0;   border-width: 0.5px; }
-}
-
 /* ═══════════ DISC press effect ═══════════ */
 .hero__disc:active { transform: scale(0.94); transition-duration: 80ms; }
 
@@ -720,41 +685,11 @@
   60%  { opacity: 1; filter: blur(0); }
   100% { opacity: 1; transform: translateY(0); }
 }
-.hero__ping {
-  animation: hero-ping-in 600ms var(--ease-emph) 240ms backwards;
+.hero[data-state="secured"] .hero__title {
+  color: var(--accent-bright);
+  text-shadow: 0 0 18px var(--accent-glow), 0 0 44px color-mix(in srgb, var(--accent) 22%, transparent);
 }
-@keyframes hero-ping-in {
-  0%   { opacity: 0; transform: translateY(8px) scale(0.92); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
-}
-.hero[data-state="secured"] .hero__title { color: var(--accent-bright); }
-
-.hero__ping {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 12px 7px 10px;
-  border-radius: 999px;
-  background: var(--ink-2);
-  border: 1px solid var(--line-2);
-  font-variant-numeric: tabular-nums;
-  transition: border-color 180ms var(--ease-out), background 180ms var(--ease-out);
-  animation: hero-ping-in 600ms var(--ease-emph) 240ms backwards;
-}
-.hero__ping:hover { border-color: var(--line-3); background: var(--ink-3); }
-.hero__ping-icon { width: 13px; height: 13px; color: var(--ok); }
-.hero__ping-val {
-  font-family: var(--font-mono);
-  font-weight: 500;
-  font-size: 12px;
-  color: var(--text-hi);
-}
-.hero__ping-unit {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-lo);
-  letter-spacing: 0.04em;
-}
+.hero__title { font-size: 23px; }
 
 /* ═══════════════════════════════════════════
    LOCATION CARD
@@ -846,49 +781,70 @@
 .loc-card:hover .loc-card__chev { color: var(--text-mid); background: rgba(255,255,255,0.04); }
 
 /* ═══════════════════════════════════════════
-   FOOTER STRIP — sub-stats (premium info-density)
+   ТЕЛЕМЕТРИЯ-ПОЛОСА (secured) — session-уровень: Сервер · Пинг · Канал · Сессия · Режим.
+   Мгновенная скорость тут НЕ дублируется — она живёт в сайдбар-мониторе.
 ═══════════════════════════════════════════ */
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: 1.3fr 0.66fr 0.92fr 1.4fr 1.05fr;
   gap: 0;
   padding: 14px 18px;
   border-radius: var(--r-md);
   background: var(--ink-1);
   border: 1px solid var(--line-2);
+  background-image: var(--edge-top);
   position: relative;
-}
-.stats::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
 }
 .stats__cell {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   padding: 0 16px;
   border-left: 1px solid var(--line-1);
+  min-width: 0;
 }
 .stats__cell:first-child { border-left: 0; padding-left: 0; }
 .stats__cell:last-child { padding-right: 0; }
+
+/* Кликабельные ячейки (Пинг / Канал) — переоформленная <button> */
+.stats__cell--btn {
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  margin: -2px 0;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  border-radius: var(--r-xs);
+  transition: background 0.15s var(--ease-out);
+}
+.stats__cell--btn:hover { background: rgba(255, 255, 255, 0.035); }
+.stats__cell--btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
 .stats__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.16em;
   color: var(--text-faint);
   text-transform: uppercase;
 }
+.stats__label-ic { opacity: 0.55; flex-shrink: 0; }
 .stats__value {
   font-family: var(--font-display);
   font-weight: 500;
-  font-size: 16px;
+  font-size: 15px;
   letter-spacing: -0.01em;
   color: var(--text-hi);
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .stats__value .unit {
   font-family: var(--font-mono);
@@ -899,3 +855,72 @@
   margin-left: 3px;
 }
 .stats__value--accent { color: var(--accent-bright); }
+
+/* Сервер — флаг + имя */
+.stats__server-row { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.stats__flag {
+  width: 20px;
+  height: 14px;
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.stats__flag img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Пинг — зелёная иконка сигнала + значение */
+.stats__ping-row { display: flex; align-items: center; gap: 8px; }
+.stats__ping-ic { color: var(--ok); flex-shrink: 0; }
+#tele-ping[data-grade="bad"] .stats__ping-ic,
+#tele-ping[data-grade="dead"] .stats__ping-ic { color: var(--err); }
+#tele-ping[data-grade="mid"] .stats__ping-ic { color: var(--warn); }
+#tele-ping[data-testing="true"] .stats__value { color: var(--text-lo); }
+
+/* Канал — сонар-точка + состояние */
+.stats__chan-row { display: flex; align-items: center; gap: 9px; }
+.stats__sonar {
+  --q: var(--ok);
+  position: relative;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+}
+.stats__sonar i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--q);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--q) 50%, transparent);
+  z-index: 1;
+}
+.stats__sonar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--q);
+  animation: stats-sonar 2.4s var(--ease-out) infinite;
+}
+@keyframes stats-sonar {
+  0%   { transform: scale(1);   opacity: 0.6; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+#tele-channel[data-q="UNKNOWN"] .stats__sonar { --q: var(--text-mid); }
+#tele-channel[data-q="GOOD"]    .stats__sonar { --q: var(--ok); }
+#tele-channel[data-q="SLOW"]    .stats__sonar { --q: var(--warn); }
+#tele-channel[data-q="STALLED"] .stats__sonar,
+#tele-channel[data-q="DEAD"]    .stats__sonar { --q: var(--err); }
+#tele-channel[data-active="false"] .stats__sonar::after { animation: none; opacity: 0; }
+
+/* Сессия — аптайм + тоталы */
+.stats__sess-row { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stats__sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-lo);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

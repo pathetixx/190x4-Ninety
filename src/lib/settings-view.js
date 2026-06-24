@@ -23,7 +23,7 @@ const WARP_NOISE_LABELS = {
 
 const SECTIONS = [
   { key: "general",    title: "Общие",            icon: iconGeneral,    hint: "Автозапуск, права администратора, логи, тест соединения" },
-  { key: "appearance", title: "Оформление",       icon: iconTheme,      hint: "Темы оформления: Kurogane, Synthwave, Matrix, Mono" },
+  { key: "appearance", title: "Оформление",       icon: iconTheme,      hint: "Акцент интерфейса: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
   { key: "routing",    title: "Маршрутизация",     icon: iconRouting,    hint: "Регион, обход локальной сети, блокировка рекламы, IPv6" },
   { key: "dns",        title: "DNS",               icon: iconDns,        hint: "Remote- и Direct-DNS, кэш, fake-DNS" },
   { key: "inbound",    title: "Локальный доступ",  icon: iconInbound,    hint: "Локальный порт, MTU, TUN-стек, доступ из сети" },
@@ -36,6 +36,7 @@ const SECTIONS = [
 
 const THEMES = [
   { id: "kurogane",  name: "Kurogane",  kicker: "NEON · RED",  accent: "#DE5772", glow: "rgba(192,48,74,0.35)" },
+  { id: "cyan",      name: "Cyan",      kicker: "SECURED · CYAN", accent: "#6CF2F2", glow: "rgba(31,214,214,0.45)" },
   { id: "synthwave", name: "Synthwave", kicker: "VIOLET WAVE", accent: "#E0A6FF", glow: "rgba(199,125,255,0.35)" },
   { id: "matrix",    name: "Matrix",    kicker: "EMERALD",     accent: "#5CEE92", glow: "rgba(43,214,106,0.35)" },
   { id: "mono",      name: "Mono",      kicker: "MONOCHROME",  accent: "#FFFFFF", glow: "rgba(255,255,255,0.25)" },

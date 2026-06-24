@@ -1,7 +1,7 @@
 /* ─────────────────────────────────────────────────────────────
    Ninety — Premium Tokens
    Японский премиум: лак + единственный акцент-стежок.
-   Четыре палитры: Kurogane (crimson default), Synthwave, Matrix, Mono.
+   Палитры: Kurogane (crimson default), Cyan, Synthwave, Matrix, Command Center, Mono.
    ───────────────────────────────────────────────────────────── */
 
 /* ─── Local fonts (Inter Tight / Inter / JetBrains Mono, latin + cyrillic) ─── */
@@ -238,6 +238,17 @@
   --accent-deep:   #6E1A28;
   --accent-soft:   rgba(192, 48, 74, 0.14);
   --accent-glow:   rgba(192, 48, 74, 0.32);
+}
+
+/* ────── Тема Cyan — «защищено = бирюза» ──────
+   Холодный электрический cyan: усиленный glow (0.42) — спокойный «безопасный»
+   контр-полюс к багровому Kurogane. Хорошо читается на HUD главного экрана. */
+[data-theme="cyan"] {
+  --accent:        #1FD6D6;
+  --accent-bright: #6CF2F2;
+  --accent-deep:   #0C7373;
+  --accent-soft:   rgba(31, 214, 214, 0.14);
+  --accent-glow:   rgba(31, 214, 214, 0.42);
 }
 
 /* ────── Тема Synthwave — мягкий фиолетовый (наш текущий) ────── */
