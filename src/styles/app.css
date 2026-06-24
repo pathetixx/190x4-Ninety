@@ -169,7 +169,12 @@
 .nav__item:hover { color: var(--text-hi); background: rgba(255, 255, 255, 0.025); }
 .nav__item--active {
   color: var(--text-hi);
-  background: rgba(255, 255, 255, 0.035);
+  background:
+    linear-gradient(90deg, var(--accent-soft), transparent 78%),
+    rgba(255, 255, 255, 0.03);
+  box-shadow:
+    0 0 20px -5px var(--accent-glow),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .nav__item--active::before {
   content: "";
@@ -507,8 +512,9 @@
 .hero__stage {
   position: relative;
   aspect-ratio: 1;
-  width: min(280px, 100%);
-  max-height: 100%;
+  height: min(360px, 100%);   /* размер от высоты — квадрат не сплющивается при смене нижней карточки */
+  width: auto;
+  max-width: 100%;
   display: grid;
   place-items: center;
 }
@@ -571,20 +577,20 @@
 }
 .hud__clock {
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: 9px;
   letter-spacing: 1.5px;
-  fill: var(--text-faint);
+  fill: var(--text-lo);
 }
 .hud__intg {
   font-family: var(--font-display);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   letter-spacing: 0.5px;
   fill: var(--accent-bright);
 }
 .hud__err {
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: 9px;
   letter-spacing: 2px;
   fill: var(--err);
 }
@@ -621,7 +627,7 @@
     0 28px 70px -20px rgba(0, 0, 0, 0.85),
     0 0 48px var(--accent-glow);
 }
-.hero__disc:active { transform: scale(0.98); }
+.hero__disc:active { transform: scale(0.97); transition-duration: 90ms; }
 .hero[data-state="secured"] .hero__disc {
   border-color: rgba(255, 255, 255, 0.10);
   box-shadow:
@@ -660,9 +666,6 @@
   gap: 8px;
   padding-bottom: 4px;
 }
-
-/* ═══════════ DISC press effect ═══════════ */
-.hero__disc:active { transform: scale(0.94); transition-duration: 80ms; }
 
 /* ═══════════ Title morph ═══════════ */
 .hero__title {
@@ -915,12 +918,15 @@
 #tele-channel[data-q="DEAD"]    .stats__sonar { --q: var(--err); }
 #tele-channel[data-active="false"] .stats__sonar::after { animation: none; opacity: 0; }
 
-/* Сессия — аптайм + тоталы */
-.stats__sess-row { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* Сессия — аптайм + тоталы справа от времени (одна базовая линия) */
+.stats__sess-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.stats__sess-row .stats__value { flex-shrink: 0; }
 .stats__sub {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-lo);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

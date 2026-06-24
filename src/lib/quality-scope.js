@@ -1,8 +1,11 @@
-// Ninety · осциллограмма канала (II.4) — раскрытый вид индикатора «КАНАЛ».
-// Рисует серию goodput-проб движка качества (strip-chart), отмечает применённые
-// ступени лесенки R1–R6 и порог «отличной» скорости. Живо обновляется через шину
-// (событие quality:sample). Данные ТОЛЬКО локальные (движок качества) — наружу
-// ничего не уходит. Первый потребитель шины bus.js.
+// Ninety · осциллограмма канала — раскрытый вид индикатора «КАНАЛ».  [ИСПРАВЛЕННАЯ ВЕРСИЯ]
+//
+// ▼ ЧТО ИСПРАВЛЕНО:
+//   1) Поповер больше НЕ уезжает за нижний край окна. Раньше он жёстко ставился ПОД
+//      якорем (top = anchor.bottom + 8), а ячейка «КАНАЛ» стоит у самого низа окна →
+//      окно вылезало за экран. Теперь по умолчанию открывается НАД якорем, а если
+//      сверху не хватает места — флипается вниз. Плюс клампится по обеим осям.
+//   2) Заголовок «Осциллограмма канала» → «Качество канала» (юзер-френдли).
 import { bus } from "/lib/bus.js";
 import { escapeHtml } from "/lib/esc.js";
 
@@ -10,6 +13,7 @@ const Q_LABEL = { UNKNOWN: "ПРОВЕРКА", GOOD: "ОТЛИЧНО", SLOW: "М
 const Q_VAR = { UNKNOWN: "--text-mid", GOOD: "--ok", SLOW: "--warn", STALLED: "--err", DEAD: "--err" };
 const MAX_POINTS = 60;
 const W = 320, H = 96, PAD = 6;
+const GAP = 10; // отступ поповера от якоря
 
 let open = null; // активный поповер (один за раз)
 
@@ -21,7 +25,7 @@ export function openQualityScope({ anchor, getSamples, goodBps = 1_500_000 } = {
   root.className = "qscope";
   root.innerHTML =
     '<div class="qscope__head">' +
-      '<span class="qscope__title">Осциллограмма канала</span>' +
+      '<span class="qscope__title">Качество канала</span>' +
       '<span class="qscope__now"><span class="qscope__pill" data-q="UNKNOWN"></span><span class="qscope__bps">—</span></span>' +
     '</div>' +
     `<svg class="qscope__svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">` +
@@ -35,12 +39,8 @@ export function openQualityScope({ anchor, getSamples, goodBps = 1_500_000 } = {
     '</div>';
   document.body.appendChild(root);
 
-  // Позиционирование под якорем (чип «КАНАЛ»).
-  const r = anchor?.getBoundingClientRect?.();
-  if (r) {
-    root.style.left = Math.max(8, Math.min(window.innerWidth - W - 20, r.left)) + "px";
-    root.style.top = (r.bottom + 8) + "px";
-  }
+  // ── Позиционирование: по умолчанию НАД якорем, флип вниз если сверху мало места. ──
+  positionScope(root, anchor);
 
   const line = root.querySelector(".qscope__line");
   const base = root.querySelector(".qscope__base");
@@ -79,11 +79,30 @@ export function openQualityScope({ anchor, getSamples, goodBps = 1_500_000 } = {
 
   function onDoc(e) { if (!root.contains(e.target) && e.target !== anchor && !anchor?.contains(e.target)) closeScope(); }
   function onKey(e) { if (e.key === "Escape") closeScope(); }
+  const onReflow = () => positionScope(root, anchor);
   setTimeout(() => document.addEventListener("click", onDoc), 10);
   document.addEventListener("keydown", onKey);
+  window.addEventListener("resize", onReflow);
 
-  open = { root, off, onDoc, onKey };
+  open = { root, off, onDoc, onKey, onReflow };
   return open;
+}
+
+// НАД якорем по умолчанию; вниз — только если сверху не помещается. Клампинг по краям.
+function positionScope(root, anchor) {
+  const r = anchor?.getBoundingClientRect?.();
+  if (!r) return;
+  const h = root.offsetHeight || H + 70;
+  const left = Math.max(8, Math.min(window.innerWidth - root.offsetWidth - 8, r.left));
+  const spaceAbove = r.top;
+  let top;
+  if (spaceAbove >= h + GAP) {
+    top = r.top - h - GAP;            // НАД ячейкой (предпочтительно)
+  } else {
+    top = Math.min(window.innerHeight - h - 8, r.bottom + GAP); // флип вниз + кламп
+  }
+  root.style.left = left + "px";
+  root.style.top = Math.max(8, top) + "px";
 }
 
 export function closeScope() {
@@ -91,6 +110,7 @@ export function closeScope() {
   open.off?.();
   document.removeEventListener("click", open.onDoc);
   document.removeEventListener("keydown", open.onKey);
+  window.removeEventListener("resize", open.onReflow);
   open.root.remove();
   open = null;
 }

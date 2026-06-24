@@ -1,12 +1,15 @@
-// Ninety · кибер-HUD главного экрана (редизайн home).
+// Ninety · кибер-HUD главного экрана (редизайн home).  [ИСПРАВЛЕННАЯ ВЕРСИЯ]
 // Вокруг маски-самурая: вращающиеся SVG-кольца, гейдж INTEGRITY, часы, изогнутый
 // текст SYSTEM STATUS / TARGET LOCKED, бегущая ERR-строка, хром. аберрация + глитч.
-// Сама маска (video) остаётся в DOM отдельно — HUD её не трогает, только обрамляет.
 //
-// Геометрия портирована из дизайн-хэндоффа (viewBox 400×400, центр 200,200).
-// Анимация: rAF для вращения колец, setInterval для текстовых ридаутов — всё прямой
-// записью в DOM (без ре-рендера), как и остальной home. Цвета — токены темы
-// (var(--accent…)), поэтому HUD автоматически перекрашивается под выбранную палитру.
+// ▼ ЧТО ИСПРАВЛЕНО относительно прежней версии:
+//   1) Тексты-ридауты разнесены, чтобы не наезжали друг на друга и на дуги:
+//      clock y=60→106, INTEGRITY y=330→298, ERR y=350→372.  (раньше всё было свалено
+//      в один 20px-пятак внизу + часы лезли на дугу SYSTEM STATUS).
+//   2) Анимация HUD больше НЕ глушится prefers-reduced-motion: вращение колец, глитч,
+//      INTEGRITY/ERR/blink работают всегда. HUD — смысловой центр экрана, а не декор;
+//      при выключенных в Windows анимациях он раньше полностью замерзал (играла только
+//      видео-маска). Если нужна строгая a11y — верните флаг `reduced` в startRot()/таймеры.
 
 const CX = 200, CY = 200;
 const P = (deg, r) => [CX + Math.cos((deg * Math.PI) / 180) * r, CY + Math.sin((deg * Math.PI) / 180) * r];
@@ -19,9 +22,7 @@ function buildStatic() {
   };
   let s = '<circle cx="200" cy="200" r="98" fill="none" stroke="var(--accent-deep)" stroke-width="1"/>';
   s += '<circle cx="200" cy="200" r="102" fill="none" stroke="var(--line-2)" stroke-width="0.6"/>';
-  // 4 «target-lock» дуги на диагоналях
   [45, 135, 225, 315].forEach((a) => { s += arc(190, a - 13, a + 13, 2.6, "var(--accent-bright)", 'style="filter:drop-shadow(0 0 3px var(--accent-glow));"'); });
-  // 4 кардинальные засечки
   [0, 90, 180, 270].forEach((a) => {
     const [x1, y1] = P(a, 198), [x2, y2] = P(a, 209);
     s += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--accent)" stroke-width="1.4" stroke-linecap="round"/>`;
@@ -80,9 +81,9 @@ function buildHud() {
     <g data-hud="ca" filter="url(#hud-ca)" style="transition:transform .05s linear;">
       <text data-hud="sys" class="hud__sys"><textPath href="#hud-top" startOffset="50%" text-anchor="middle">SYSTEM STATUS: STAND-BY</textPath></text>
       <text class="hud__target" data-hud="target"><textPath href="#hud-bot" startOffset="50%" text-anchor="middle">TARGET LOCKED: UNKNOWN</textPath></text>
-      <text data-hud="clock" x="200" y="60" text-anchor="middle" class="hud__clock">——.——.——  ——:——:——</text>
-      <text data-hud="intg" x="200" y="330" text-anchor="middle" class="hud__intg">INTEGRITY 0%</text>
-      <text data-hud="err" x="200" y="350" text-anchor="middle" class="hud__err">NO LINK</text>
+      <text data-hud="clock" x="200" y="106" text-anchor="middle" class="hud__clock">——.——.——  ——:——:——</text>
+      <text data-hud="intg" x="200" y="298" text-anchor="middle" class="hud__intg">INTEGRITY 0%</text>
+      <text data-hud="err" x="200" y="372" text-anchor="middle" class="hud__err">NO LINK</text>
     </g>`;
 }
 
@@ -97,7 +98,6 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
   const els = {};
   svg.querySelectorAll("[data-hud]").forEach((el) => { els[el.dataset.hud] = el; });
 
-  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   const st = () => (getState?.() || "standby");
   let raf = null, timers = [], intgVal = 0, ei = 0, clockStr = "";
 
@@ -136,7 +136,6 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
     setTimeout(() => { if (g) g.setAttribute("transform", ""); svg.style.opacity = ""; }, 150);
   }
 
-  // Текстовые ридауты, зависящие от состояния — зовётся при смене conn-состояния.
   function sync() {
     const s = st();
     if (els.sys) els.sys.querySelector("textPath").textContent =
@@ -148,7 +147,7 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
   }
 
   function startRot() {
-    if (reduced || raf) return;
+    if (raf) return;
     const t0 = performance.now();
     const rot = (k, deg) => els[k] && els[k].setAttribute("transform", `rotate(${(((deg % 360) + 360) % 360).toFixed(2)} 200 200)`);
     const loop = (t) => {
@@ -159,14 +158,13 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
     raf = requestAnimationFrame(loop);
   }
 
+  // Анимация запускается ВСЕГДА (HUD — центр экрана, не вестибулярно-агрессивный декор).
   updClock(); sync(); startRot();
   timers.push(setInterval(updClock, 1000));
-  if (!reduced) {
-    timers.push(setInterval(updIntegrity, 1600));
-    timers.push(setInterval(blink, 1500));
-    timers.push(setInterval(cycleErr, 2400));
-    timers.push(setInterval(glitch, 4000));
-  }
+  timers.push(setInterval(updIntegrity, 1600));
+  timers.push(setInterval(blink, 1500));
+  timers.push(setInterval(cycleErr, 2400));
+  timers.push(setInterval(glitch, 4000));
 
   return {
     sync,
