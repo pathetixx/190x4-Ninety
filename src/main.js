@@ -44,6 +44,7 @@ import { startMeter, stopMeter, getMeasured, resetMeasured, sourceKeyOf } from "
 import { createQualityEngine } from "/lib/quality-engine.js";
 import { bus } from "/lib/bus.js";
 import { openQualityScope } from "/lib/quality-scope.js";
+import { initHeroHud } from "/lib/hero-hud.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -72,27 +73,6 @@ export function setTheme(t) {
 // Применяем сохранённую тему сразу — до первого рендера остального
 if (appRoot) appRoot.dataset.theme = getTheme();
 window.__ninetySetTheme = setTheme;
-
-// ── Hero targeting ticks (60 шт, каждые 6°, 12 major) ──────
-(function generateHeroTicks() {
-  const svg = document.getElementById("hero-ticks");
-  if (!svg) return;
-  const cx = 50, cy = 50, rOuter = 50;
-  const parts = [];
-  for (let i = 0; i < 60; i++) {
-    const angle = (i * 6 - 90) * Math.PI / 180;
-    const isMajor = i % 5 === 0;
-    const len = isMajor ? 4 : 2;
-    const r1 = rOuter - 0.5;
-    const r2 = rOuter - 0.5 - len;
-    const x1 = (cx + Math.cos(angle) * r1).toFixed(2);
-    const y1 = (cy + Math.sin(angle) * r1).toFixed(2);
-    const x2 = (cx + Math.cos(angle) * r2).toFixed(2);
-    const y2 = (cy + Math.sin(angle) * r2).toFixed(2);
-    parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${isMajor ? "tick tick--major" : "tick"}"/>`);
-  }
-  svg.innerHTML = parts.join("");
-})();
 
 // ── Version (dynamic из Tauri) ─────────────────────────────
 // ВАЖНО: НЕ использовать MutationObserver на settings-root — apply() меняет
@@ -767,7 +747,7 @@ const qualityEngine = createQualityEngine({
     },
     onState: (st) => {
       if (!qualityDot) return;
-      qualityDot.dataset.q = st;
+      setChannelState(st);
       if (qualityDot.dataset.active !== "true") qualityDot.dataset.active = "true";
     },
     // Каждая проба → в шину; осциллограмма канала (раскрытый чип) подписана на неё.
@@ -804,26 +784,22 @@ function rankByDelay(nodes, proxies) {
     });
 }
 
-// ── Индикатор качества канала (телеметрия в hero-статусе) ──
-// Состояние правит движок через onState; чип монтируется один раз,
-// показывается/прячается по connected/idle.
-let qualityDot = null;
-function mountQualityChip() {
-  const slot = document.getElementById("quality-chip-slot");
-  if (!slot) return;
-  slot.innerHTML = `<div class="qchip" data-q="UNKNOWN" data-active="false" title="Качество связи — следим за скоростью и восстанавливаем при замедлении">
-      <span class="qchip__pulse" aria-hidden="true"></span>
-      <span class="qchip__txt"><span class="qchip__label">КАНАЛ</span><span class="qchip__state"></span></span>
-    </div>`;
-  qualityDot = slot.firstElementChild;
+// ── Индикатор качества канала (ячейка «Канал» в телеметрии-полосе) ──
+// Состояние правит движок через onState; ячейка живёт в stats-strip (secured),
+// показывается/прячается вместе с полосой. Человеческий язык, без техножаргона.
+const Q_CHANNEL_LABEL = { UNKNOWN: "Проверка", GOOD: "Отлично", SLOW: "Медленно", STALLED: "Тормозит", DEAD: "Нет связи" };
+const qualityDot = document.getElementById("tele-channel"); // #tele-channel (data-q/data-active)
+const qualityState = document.getElementById("stats-channel");
+function setChannelState(st) {
+  if (qualityDot) qualityDot.dataset.q = st;
+  if (qualityState) qualityState.textContent = Q_CHANNEL_LABEL[st] || st;
 }
 function showQualityChip(on) {
   if (!qualityDot) return;
-  if (on) qualityDot.dataset.q = "UNKNOWN";
+  if (on) setChannelState("UNKNOWN");
   qualityDot.dataset.active = on ? "true" : "false";
 }
-mountQualityChip();
-// Клик по чипу «КАНАЛ» при активном мониторинге → осциллограмма goodput-проб.
+// Клик по ячейке «Канал» при активном мониторинге → осциллограмма goodput-проб.
 qualityDot?.addEventListener("click", (e) => {
   if (qualityDot.dataset.active !== "true") return;
   e.stopPropagation();
@@ -1560,28 +1536,26 @@ profilesView?.addEventListener("click", async (e) => {
 
 // ── HERO ───────────────────────────────────────────────────
 const hero = document.getElementById("hero");
-const heroBurst = document.getElementById("hero-burst");
-const heroLock = document.getElementById("hero-lock");
 const heroDisc = document.getElementById("hero-disc");
 const heroMask = document.getElementById("hero-mask");
 const heroLabel = document.getElementById("hero-label");
 const heroHint = document.getElementById("hero-hint");
 const heroHintText = document.getElementById("hero-hint-text");
-const heroPing = document.getElementById("hero-ping");
-const heroPingValue = document.getElementById("hero-ping-value");
 const tfDown = document.getElementById("tf-down");
 const tfUp = document.getElementById("tf-up");
 const tfDownUnit = document.getElementById("tf-down-unit");
 const tfUpUnit = document.getElementById("tf-up-unit");
+const tfDot = document.getElementById("tf-dot");
 const locCard = document.getElementById("location-card");
 const statsStrip = document.getElementById("stats-strip");
 const statsServer = document.getElementById("stats-server");
 const statsFlag = document.getElementById("stats-flag");
-const statsDown = document.getElementById("stats-down");
-const statsUp = document.getElementById("stats-up");
-const statsDownUnit = document.getElementById("stats-down-unit");
-const statsUpUnit = document.getElementById("stats-up-unit");
 const statsMode = document.getElementById("stats-mode");
+// Телеметрия-полоса (secured): Пинг · Канал · Сессия
+const telePing = document.getElementById("tele-ping");
+const statsPing = document.getElementById("stats-ping");
+const statsUptime = document.getElementById("stats-uptime");
+const statsTotal = document.getElementById("stats-total");
 const locPing = document.getElementById("loc-ping");
 const locIpRow = document.getElementById("loc-ip-row");
 const locIp = document.getElementById("loc-ip");
@@ -1601,29 +1575,17 @@ const CONNECTED_KICKER = {
   proxy:       "SECURED · PROXY ACTIVE",
 };
 function connectedKicker() { return CONNECTED_KICKER[getMode()] || STATE_KICKER.connected; }
-const MODE_LABEL = { proxy: "ПРОКСИ", systemProxy: "СИСТЕМНЫЙ ПРОКСИ", tun: "VPN · TUN" };
+const MODE_LABEL = { proxy: "Прокси", systemProxy: "Системный прокси", tun: "VPN · TUN" };
 
-// Remount-приём: заменить элемент копией → CSS-анимация перезапускается с нуля.
-// Используется для .hero__burst, .hero__lock (они анимируются один раз на смену).
-function remountByClone(el) {
-  if (!el) return null;
-  const clone = el.cloneNode(false);
-  el.replaceWith(clone);
-  return clone;
-}
-
-let heroBurstEl = heroBurst;
-let heroLockEl = heroLock;
+// Кибер-HUD вокруг маски (lib/hero-hud.js). Инициализируется ниже, после
+// объявления `state` — getState читает его лениво из замыкания.
+let heroHud = null;
 
 function applyHeroState(internalState) {
   if (!hero) return;
   const ds = STATE_HERO[internalState] || "standby";
   hero.dataset.state = ds;
-  // Remount transition layers — CSS @keyframes на data-state перезапускается с нуля
-  heroBurstEl = remountByClone(heroBurstEl);
-  if (heroBurstEl) heroBurstEl.dataset.state = ds;
-  heroLockEl = remountByClone(heroLockEl);
-  if (heroLockEl) heroLockEl.dataset.state = ds;
+  heroHud?.sync(); // обновить SYSTEM STATUS / TARGET / INTEGRITY / ERR под состояние
 }
 
 // Stats-strip vs Location-card: connected → stats-strip с live-метриками.
@@ -1706,15 +1668,19 @@ let state = "idle";
 let needsReconnect = false;
 let publicIpTimer = null;
 
+// Запускаем HUD после объявления state. TARGET читает фактический сервер.
+function hudTarget() {
+  const l = stripFlag(resolveServerLabel()) || "190X4";
+  return l.toUpperCase().replace(/\s+/g, "-").slice(0, 16);
+}
+heroHud = initHeroHud(document.getElementById("hero-hud"), {
+  getState: () => STATE_HERO[state] || "standby",
+  getTarget: hudTarget,
+});
+
 function setHeroHintText(text) {
   if (heroHintText) heroHintText.textContent = text;
   else if (heroHint) heroHint.textContent = text;
-}
-
-function showPing(show) {
-  if (!heroPing) return;
-  if (show) heroPing.removeAttribute("hidden");
-  else heroPing.setAttribute("hidden", "");
 }
 
 function updateHeroHint() {
@@ -1833,12 +1799,13 @@ function setState(next, opts = {}) {
     showQualityChip(false);
     applyReconnectUI();
     if (heroLabel) heroLabel.textContent = "Не подключено";
-    showPing(false);
+    stopSession();
     if (heroDisc) heroDisc.setAttribute("aria-label", "Подключиться");
     if (tfDown) tfDown.textContent = "0";
     if (tfUp) tfUp.textContent = "0";
     if (tfDownUnit) tfDownUnit.textContent = "КБ/с";
     if (tfUpUnit) tfUpUnit.textContent = "КБ/с";
+    if (tfDot) tfDot.dataset.live = "false";
     if (heroMask) heroMask.playbackRate = 0.7;
     stopClashStream();
     stopMeter();
@@ -1853,7 +1820,6 @@ function setState(next, opts = {}) {
     if (heroLabel) heroLabel.textContent = "Подключение…";
     if (heroHint) heroHint.hidden = false;
     setHeroHintText(STATE_KICKER.connecting);
-    showPing(false);
     if (heroDisc) heroDisc.setAttribute("aria-label", "Отменить подключение");
     if (heroMask) heroMask.playbackRate = 1.4;
   } else if (next === "connected") {
@@ -1861,7 +1827,8 @@ function setState(next, opts = {}) {
     if (heroHint) heroHint.hidden = false;
     setHeroHintText(connectedKicker());
     applyPingDisplay(opts.ping ?? null);
-    showPing(true);
+    startSession();
+    if (tfDot) tfDot.dataset.live = "true";
     if (heroDisc) heroDisc.setAttribute("aria-label", "Отключиться");
     if (heroMask) heroMask.playbackRate = 1.0;
     if (statsMode) statsMode.textContent = MODE_LABEL[getMode()] || "—";
@@ -1890,7 +1857,7 @@ function setState(next, opts = {}) {
   syncTrayMenu();
 }
 
-// Единый рендерер пинга в hero и location-card.
+// Единый рендерер пинга: ячейка «Пинг» телеметрии + location-card.
 // delay > 0 && < 65000 → число + grade; 0/null → "— мс"; >= 65000 → "Тайм-аут"
 function applyPingDisplay(delay) {
   const num = Number(delay);
@@ -1899,26 +1866,52 @@ function applyPingDisplay(delay) {
   else if (num >= 65000) { text = "Тайм-аут"; grade = "dead"; valOnly = "—"; }
   else { text = `${num} мс`; grade = gradeDelay(num); valOnly = String(num); }
 
-  if (heroPingValue) heroPingValue.textContent = valOnly;
-  if (heroPing) heroPing.dataset.grade = grade;
+  if (statsPing) statsPing.textContent = valOnly;
+  if (telePing) telePing.dataset.grade = grade;
   if (locPing) locPing.textContent = text;
+}
+
+// ── Сессия (телеметрия secured): аптайм + накопленные тоталы ──
+// Мгновенная скорость живёт в сайдбаре; здесь — суммарный объём за сессию.
+let sessionTimer = null, sessionStart = 0, sessionDownBytes = 0, sessionUpBytes = 0;
+function fmtUptime(s) {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h > 0) return `${h}ч ${String(m).padStart(2, "0")}м`;
+  return `${m}м ${String(sec).padStart(2, "0")}с`;
+}
+function paintSession() {
+  if (statsUptime) statsUptime.textContent = fmtUptime(Math.floor((Date.now() - sessionStart) / 1000));
+  if (statsTotal) statsTotal.textContent = `↓ ${fmtTraffic(sessionDownBytes)} · ↑ ${fmtTraffic(sessionUpBytes)}`;
+}
+function startSession() {
+  sessionStart = Date.now();
+  sessionDownBytes = 0;
+  sessionUpBytes = 0;
+  paintSession();
+  if (sessionTimer) clearInterval(sessionTimer);
+  sessionTimer = setInterval(paintSession, 1000);
+}
+function stopSession() {
+  if (sessionTimer) { clearInterval(sessionTimer); sessionTimer = null; }
+  if (statsUptime) statsUptime.textContent = "—";
+  if (statsTotal) statsTotal.textContent = "↓ 0 · ↑ 0";
+  if (statsPing) statsPing.textContent = "—";
+  setChannelState("UNKNOWN");
 }
 
 // ── real-time WS-стрим из clash-API ────────────────────────
 function applyTrafficValues({ up, down }) {
   if (state !== "connected") return;
   qualityEngine.updatePassive({ down });
+  // down/up — байт/сек; интегрируем в session-тоталы (тик ≈ 1с).
+  sessionDownBytes += Math.max(0, down) || 0;
+  sessionUpBytes += Math.max(0, up) || 0;
   const d = formatRate(down);
   const u = formatRate(up);
   if (tfDown) tfDown.textContent = d.value;
   if (tfUp) tfUp.textContent = u.value;
   if (tfDownUnit) tfDownUnit.textContent = d.unit;
   if (tfUpUnit) tfUpUnit.textContent = u.unit;
-  // Дублируем в stats-strip на главной (когда secured)
-  if (statsDown) statsDown.textContent = d.value;
-  if (statsUp) statsUp.textContent = u.value;
-  if (statsDownUnit) statsDownUnit.textContent = d.unit;
-  if (statsUpUnit) statsUpUnit.textContent = u.unit;
 }
 
 function applyPingValue({ delay }) {
@@ -1926,14 +1919,15 @@ function applyPingValue({ delay }) {
   applyPingDisplay(delay);
 }
 
-// Клик по ping-пилюле = принудительный force-test задержки текущей ноды.
+// Клик по ячейке «Пинг» = принудительный force-test задержки текущей ноды.
 // При timeout/недоступности — показываем «Тайм-аут».
 let manualTestInFlight = false;
-heroPing?.addEventListener("click", async () => {
+telePing?.addEventListener("click", async () => {
   if (state !== "connected") return;
   if (manualTestInFlight) return;
   manualTestInFlight = true;
-  heroPing.dataset.testing = "true";
+  telePing.dataset.testing = "true";
+  if (statsPing) statsPing.textContent = "···";
   try {
     // Hiddify-style: клик = тест URLTest-ГРУППЫ (как urlTest("")), а не одиночный
     // /proxies/{name}/delay. Число читается из history эффективной ноды → совпадает
@@ -1941,7 +1935,7 @@ heroPing?.addEventListener("click", async () => {
     const { delay } = await refreshEffectiveDelay({ timeoutMs: 5000 });
     applyPingDisplay(delay > 0 ? delay : 65000);
   } finally {
-    delete heroPing.dataset.testing;
+    delete telePing.dataset.testing;
     manualTestInFlight = false;
   }
 });
