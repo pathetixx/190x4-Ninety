@@ -1,40 +1,15 @@
 /* ─────────────────────────────────────────────────────────────
    Ninety — Reduced motion overrides
-   prefers-reduced-motion: убираем бесконечные анимации (sweep/halo
-   breath) и драматические burst-коллапсы. Оставляем короткие
-   opacity-fade'ы для индикации событий + press-scale для тактильности.
-   Popover короткие transition не трогаем.
+   prefers-reduced-motion: смягчаем драматические переходы (translate/blur
+   на смене статуса, пульс точки). HUD главного экрана НЕ глушим — он
+   смысловой центр, его движение на JS и живёт всегда (см. hero-hud.js).
+   Короткие popover-transition не трогаем.
    ───────────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
-  /* Полностью убрать бесконечные */
-  .hero__sweep,
-  .hero__halo {
-    animation: none !important;
-  }
-  .hero__halo {
-    opacity: 0.55 !important;
-    transform: none !important;
-  }
-  .hero__sweep { opacity: 0 !important; }
-
-  /* Burst / lock / ripple → короткий fade */
-  .hero__burst[data-state],
-  .hero__lock[data-state="secured"],
-  .hero__ripple {
-    animation: hero-rm-fade 200ms linear forwards !important;
-    transform: none !important;
-    filter: none !important;
-  }
-  @keyframes hero-rm-fade {
-    0%   { opacity: 0.5; }
-    100% { opacity: 0; }
-  }
-
-  /* Title / kicker / ping — смена без translate/blur */
+  /* Title / kicker — смена статуса без translate/blur, только opacity */
   .hero__title,
-  .hero__kicker,
-  .hero__ping {
+  .hero__kicker {
     animation: hero-rm-text 160ms linear backwards !important;
     transform: none !important;
     filter: none !important;
@@ -44,14 +19,10 @@
     100% { opacity: 1; }
   }
 
-  /* Status-dot pulse — без opacity-петли */
+  /* Пульс точки статуса (linking) — без opacity-петли */
   .hero[data-state="linking"] .hero__kicker-dot {
     animation: none !important;
   }
 
-  /* Spinner FAB (proxies) — оставить, это feedback "идёт работа", не декор */
-  .prox-fab[data-testing="true"] svg,
-  .add-modal__spinner {
-    /* оставляем — это не декор, а индикатор активной работы */
-  }
+  /* Spinner FAB / модалки — оставляем: это индикатор активной работы, не декор */
 }
