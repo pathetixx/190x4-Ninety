@@ -55,9 +55,9 @@ const invoke = window.__TAURI__?.core?.invoke
     return Promise.reject(new Error("Tauri invoke недоступен (web preview)"));
   });
 
-// ── Theme switcher (Kurogane / Synthwave / Matrix / Mono) ──
+// ── Theme switcher (Kurogane / Cyan / Synthwave / Matrix / Command / Mono) ──
 const THEME_KEY = "ninety.theme";
-const THEMES = ["kurogane", "synthwave", "matrix", "mono", "command"];
+const THEMES = ["kurogane", "cyan", "synthwave", "matrix", "mono", "command"];
 const appRoot = document.getElementById("app-root");
 
 export function getTheme() {
