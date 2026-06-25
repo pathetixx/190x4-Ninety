@@ -630,6 +630,26 @@
     0 0 60px var(--accent-glow);
 }
 
+/* Click-ripple — расходится от центра диска при клике (создаётся в main.js, живёт 600ms).
+   ОБЯЗАТЕЛЬНО position:absolute: иначе безстилевой div попадает в грид .hero__stage
+   второй строкой и сдвигает центрированную маску вверх на время жизни риппла. */
+.hero__ripple {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 42%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(closest-side, var(--accent-glow), transparent 70%);
+  animation: hero-ripple 520ms var(--ease-out) forwards;
+}
+@keyframes hero-ripple {
+  from { opacity: 0.6; transform: translate(-50%, -50%) scale(0.6); }
+  to   { opacity: 0;   transform: translate(-50%, -50%) scale(2.2); }
+}
+
 .hero__mask {
   width: 100%;
   height: 100%;
