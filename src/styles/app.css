@@ -791,6 +791,8 @@
   background-image: var(--edge-top);
   position: relative;
 }
+/* Резерв места: вне connected полоса невидима, но высоту держит → сцена не уезжает */
+.stats--reserved { visibility: hidden; }
 .stats__cell {
   display: flex;
   flex-direction: column;

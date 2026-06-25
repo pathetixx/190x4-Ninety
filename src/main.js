@@ -1602,13 +1602,12 @@ function applyHeroState(internalState) {
 // прячем обе (раньше показывали loc-card в standby — лишний шум).
 function applyHomeBottom(internalState) {
   if (!locCard || !statsStrip) return;
-  if (internalState === "connected") {
-    locCard.hidden = true;
-    statsStrip.hidden = false;
-  } else {
-    locCard.hidden = true;
-    statsStrip.hidden = true;
-  }
+  locCard.hidden = true;
+  // Stats-strip ВСЕГДА в потоке (держит высоту), видимой делаем только в connected.
+  // Иначе её появление при connect сжимает .hero снизу → центрированная сцена/маска
+  // уезжает вверх (а при disconnect — обратно вниз). Резерв места = сцена не двигается.
+  statsStrip.hidden = false;
+  statsStrip.classList.toggle("stats--reserved", internalState !== "connected");
 }
 
 // Активный сервер в stats-strip — обновляется при connect и смене effective-ноды.
