@@ -52,8 +52,8 @@ struct CfAccount {
     warp_plus: bool,
     #[serde(default)]
     account_type: String,
-    #[serde(default)]
-    license: String,
+    // прочие поля ответа CF (license и т.п.) не используем — serde их игнорит.
+    // Лицензию в WarpInfo кладём введённую юзером (license_used), не account.license.
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,19 +66,9 @@ struct CfConfig {
 
 #[derive(Debug, Deserialize)]
 struct CfPeer {
+    // из пира берём только публичный ключ; endpoint (host/v4/v6) из ответа
+    // регистрации не используем — адрес выхода подбирает warp_scan_endpoints.
     public_key: String,
-    #[serde(default)]
-    endpoint: CfEndpoint,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct CfEndpoint {
-    #[serde(default)]
-    host: String,
-    #[serde(default)]
-    v4: String,
-    #[serde(default)]
-    v6: String,
 }
 
 #[derive(Debug, Deserialize)]
