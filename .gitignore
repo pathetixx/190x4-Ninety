@@ -31,8 +31,3 @@ package-lock.json
 # Python bytecode (gen_strategies.py)
 __pycache__/
 *.pyc
-
-# design-sync (claude.ai/design) — локальное состояние тулинга, в репо не нужно
-.design-sync/
-.ds-sync/
-ds-bundle/
