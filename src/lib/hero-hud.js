@@ -128,12 +128,13 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
     els.err.style.fill = sec ? "var(--text-lo)" : "var(--err)";
   }
   function glitch() {
-    if (Math.random() > 0.6) return;
+    // Тонкая хром-аберрация ТОЛЬКО на текст-ридаутах (els.ca). НЕ гасим весь HUD
+    // (прежний svg.opacity=0.55 моргал всей сборкой → читалось как рывок).
+    if (Math.random() > 0.72) return;
     const g = els.ca; if (!g) return;
-    g.setAttribute("transform", "translate(3,-1) skewX(-3)");
-    svg.style.opacity = "0.55";
-    setTimeout(() => g && g.setAttribute("transform", "translate(-2,1)"), 65);
-    setTimeout(() => { if (g) g.setAttribute("transform", ""); svg.style.opacity = ""; }, 150);
+    g.setAttribute("transform", "translate(2,-1) skewX(-2)");
+    setTimeout(() => g && g.setAttribute("transform", "translate(-1,1)"), 60);
+    setTimeout(() => g && g.setAttribute("transform", ""), 135);
   }
 
   function sync() {
