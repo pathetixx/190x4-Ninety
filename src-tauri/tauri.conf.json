@@ -74,7 +74,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1N0I1RTAwMEQ3MUQ3OUUKUldTZTEzRU5BRjU3ZGN3TkZoK28yeFRVa2tLdlhxNy8zUXo1aUdXN1lOSUE3MzZLUmVCRnFYamsK",
       "endpoints": [
-        "https://pub-d55ef44f89364070a9c55d8d0f9d825b.r2.dev/latest.json",
+        "https://gitlab.com/api/v4/projects/83749391/packages/generic/ninety/stable/latest.json",
         "https://github.com/pathetixx/190x4-Ninety/releases/latest/download/latest.json"
       ]
     }

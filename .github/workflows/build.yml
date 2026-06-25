@@ -289,3 +289,16 @@ jobs:
         run: |
           python -m pip install --quiet boto3
           python scripts/r2_mirror.py
+
+      # РФ-доступный ИСТОЧНИК OTA: тот же .exe + latest.json (url→gitlab) в GitLab
+      # generic package registry публичного проекта (анонимная отдача). gitlab.com из
+      # РФ доступен, в отличие от r2.dev. Это первичный эндпоинт в tauri.conf.json;
+      # github — резерв. R2-шаг выше оставлен для легаси-сборок ≤0.1.75 (у них вшит
+      # порядок [r2, github] — если перестать обновлять R2, их апдейтер застрянет).
+      - name: Mirror update to GitLab (RU source)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GITLAB_PROJECT_ID: "83749391"
+        run: python scripts/gitlab_mirror.py
