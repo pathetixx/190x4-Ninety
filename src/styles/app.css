@@ -591,7 +591,8 @@
 .hero__disc {
   position: relative;
   width: 42%;
-  height: 42%;
+  height: auto;
+  aspect-ratio: 1;   /* диск-маска ВСЕГДА круг (height от ширины), даже если сцена на миг не-квадрат при клике */
   border-radius: 50%;
   background:
     radial-gradient(closest-side, var(--ink-2) 0%, var(--ink-1) 70%, var(--ink-0) 100%);
