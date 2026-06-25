@@ -416,13 +416,22 @@ function refreshSubCardFromActive() {
         ? `<b>${fmtTraffic(used)}</b> / <b>${fmtTraffic(limit)}</b>`
         : `<b>${fmtTraffic(getMeasured(`sub:${sub.id}`).total)}</b> · безлимит`;
     }
-    // Прогресс-бар только когда есть реальный лимит — иначе это пустая полоса.
-    if (subBar) subBar.style.display = limit != null ? "" : "none";
-    if (subProgressFill) {
-      subProgressFill.style.width = limit
-        ? `${Math.min(100, (used / limit) * 100).toFixed(1)}%`
-        : "0%";
+    // Прогресс-бар: при лимите ГБ — расход квоты (used/total); при безлимите — доля
+    // ОСТАВШЕГОСЯ СРОКА подписки. Период провайдер не отдаёт → самокалибровка по пику
+    // виденных дней (= длина периода/последнего продления): полный при продлении,
+    // убывает к концу. Без срока и без лимита показывать нечего — прячем.
+    let barPct = null;
+    if (limit != null) {
+      barPct = Math.min(100, (used / limit) * 100);
+    } else if (days != null) {
+      const key = `ninety.sub.${sub.id}.peakDays`;
+      let peak = 0;
+      try { peak = Number(localStorage.getItem(key)) || 0; } catch {}
+      if (days > peak) { peak = days; try { localStorage.setItem(key, String(peak)); } catch {} }
+      barPct = peak > 0 ? Math.max(0, Math.min(100, (days / peak) * 100)) : 100;
     }
+    if (subBar) subBar.style.display = barPct != null ? "" : "none";
+    if (subProgressFill) subProgressFill.style.width = barPct != null ? `${barPct.toFixed(1)}%` : "0%";
     if (subUpdated) subUpdated.textContent = relativeTime(sub.lastUpdate);
   } else if (src?.kind === "single") {
     if (subName) subName.textContent = "ЛОКАЛЬНЫЙ КОНФИГ";
