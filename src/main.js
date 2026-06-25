@@ -2032,6 +2032,9 @@ function buildTrayServers() {
 }
 
 let trayMenuBusy = false;
+// Объявлено заранее (до syncTrayMenu и бутстрапа): syncTrayMenu читает pendingUpdate
+// уже на старте — если оставить let в секции Auto-update ниже, первый вызов падает в TDZ.
+let pendingUpdate = null;
 async function syncTrayMenu() {
   if (trayMenuBusy) return;
   trayMenuBusy = true;
@@ -2266,10 +2269,9 @@ syncTrayMenu();
 })();
 
 // ── Auto-update ────────────────────────────────────────────
-// Обновление, найденное фоновой проверкой, пока окно свёрнуто в трей. Не
-// выдёргиваем окно модалкой — копим здесь, показываем когда юзер вернётся
-// (фокус окна / клик по пункту трея). null = ничего не ждёт.
-let pendingUpdate = null;
+// Обновление, найденное фоновой проверкой пока окно свёрнуто в трей, копится в
+// pendingUpdate (объявлен выше, до syncTrayMenu). Окно модалкой не выдёргиваем —
+// показываем когда юзер вернётся (фокус окна / клик по пункту трея).
 let updateModalShowing = false;
 
 // Окно «на виду»? (видимо и не свёрнуто). В трее hide() → isVisible()=false.
