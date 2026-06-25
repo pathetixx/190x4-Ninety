@@ -1012,6 +1012,13 @@ function formatBytes(n) {
 // Группы: 1=offset, 2=date, 3=time, 4=level, 5=rest
 const LOG_LINE_RE = /^(?:([+-]\d{4})\s+)?(?:(\d{4}-\d{2}-\d{2})\s+)?(\d{1,2}:\d{2}:\d{2}(?:\.\d+)?)?\s*(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|PANIC)\s+(.*)$/i;
 
+// sing-box/xray льют в stderr с ANSI-цветами, а капча процессов префиксует строку
+// «STDERR: »/«STDOUT: ». И то и другое сбивает LOG_LINE_RE (уровень обёрнут в \x1b[..m,
+// якорь ^ упирается в префикс) → строка падала в сырьё. Снимаем перед парсингом.
+const LOG_ANSI_RE = /\x1b\[[0-9;]*m/g;        // eslint-disable-line no-control-regex
+const LOG_STD_PREFIX_RE = /^(?:STDERR|STDOUT):\s*/;
+function cleanLogLine(s) { return s.replace(LOG_ANSI_RE, "").replace(LOG_STD_PREFIX_RE, ""); }
+
 function levelGrade(lvl) {
   const l = lvl.toUpperCase();
   if (l === "ERROR" || l === "FATAL" || l === "PANIC") return "err";
@@ -1048,7 +1055,8 @@ function parseLogEntries(text) {
   const lines = text.split(/\r?\n/).slice(-LOG_RENDER_MAX_LINES);
   const entries = [];
   let cur = null;
-  for (const raw of lines) {
+  for (const raw0 of lines) {
+    const raw = cleanLogLine(raw0);
     if (!raw) { if (cur) cur.cont.push(''); continue; }
     const m = LOG_LINE_RE.exec(raw);
     if (m) {
@@ -1178,8 +1186,10 @@ logsSource?.addEventListener("change", () => {
 });
 
 logsCopyBtn?.addEventListener("click", async () => {
-  const text = logsLastValue || "";
-  if (!text) { toast("Лог пуст", "info", 1400); return; }
+  const raw = logsLastValue && logsLastValue !== "__force__" ? logsLastValue : "";
+  if (!raw) { toast("Лог пуст", "info", 1400); return; }
+  // копируем без ANSI/префиксов — ровно то, что на экране, а не управляющие коды
+  const text = raw.split(/\r?\n/).map(cleanLogLine).join("\n");
   try {
     await navigator.clipboard.writeText(text);
     toast("Лог скопирован в буфер", "success", 1600);
