@@ -1615,6 +1615,7 @@ function updateStatsServer() {
     statsFlag.innerHTML = iso ? `<img src="${FLAGS_BASE}/${iso}.svg" alt="">` : "";
     statsFlag.hidden = !iso;
   }
+  heroHud?.sync(); // эффективная нода сменилась → перечитать TARGET LOCKED в HUD
 }
 
 let lastPublicIp = null;
@@ -1670,7 +1671,12 @@ let publicIpTimer = null;
 
 // Запускаем HUD после объявления state. TARGET читает фактический сервер.
 function hudTarget() {
-  const l = stripFlag(resolveServerLabel()) || "190X4";
+  // Тот же источник, что ячейка «Сервер» телеметрии (activeNodeForDisplay) — HUD-таргет
+  // всегда совпадает с реально выбранной нодой. Балансировщик подписки выбирает сервер
+  // уже ПОСЛЕ старта ядра, поэтому при коннекте сюда раньше попадал nodes[0] (Germany #1),
+  // а телеметрия позже показывала фактический (Latvia #2) — теперь оба тянут одно и то же.
+  const p = activeNodeForDisplay();
+  const l = stripFlag(p?.name) || p?.host || "190X4";
   return l.toUpperCase().replace(/\s+/g, "-").slice(0, 16);
 }
 heroHud = initHeroHud(document.getElementById("hero-hud"), {
