@@ -935,7 +935,7 @@ function buildRoute(options, mode) {
     // process-правилом. Стоит выше bypass/custom/region, чтобы lookup срабатывал до
     // первого терминального правила. Накладные: один lookup на соединение (sing-box
     // кэширует TCP-таблицу). Сентинел заведомо не совпадёт ни с одним реальным exe.
-    { process_name: [" ninety-force-process-lookup"], outbound: "direct" },
+    { process_name: ["\u0000ninety-force-process-lookup"], outbound: "direct" },
   ];
 
   // ProcessName bypass — критично для TUN-режима. Без него собственный трафик
