@@ -305,24 +305,18 @@
   padding: 14px 18px;
   border-radius: var(--r-md);
   background: var(--ink-1);
+  background-image: var(--edge-top);   /* единый материал с карточкой телеметрии */
   border: 1px solid var(--line-2);
   display: grid;
   grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 16px;
   overflow: hidden;
+  cursor: pointer;
 }
-.sub-card::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.08) 30%, rgba(255, 255, 255, 0.08) 70%, transparent 100%);
-}
-.sub-card { cursor: pointer; }
 .sub-card__open {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--r-sm);
   background: transparent;
   border: 1px solid transparent;
@@ -431,6 +425,7 @@
   min-height: 56px;
   border-radius: var(--r-md);
   background: var(--ink-1);
+  background-image: var(--edge-top);   /* единый материал с sub-card и телеметрией */
   border: 1px solid var(--line-2);
   color: var(--text-mid);
   display: grid;
@@ -438,13 +433,6 @@
   transition: background 180ms var(--ease-out), color 180ms var(--ease-out), border-color 180ms var(--ease-out), transform 180ms var(--ease-out);
   position: relative;
   overflow: hidden;
-}
-.tool-btn::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
 }
 .tool-btn:hover {
   color: var(--text-hi);
@@ -471,6 +459,7 @@
   padding: 4px 0 0;
   gap: 14px;
   min-height: 0;
+  container-type: size;   /* сцена меряет квадрат от РАЗМЕРА .hero, а не от потока контента */
 }
 
 /* Status kicker под stage */
@@ -508,12 +497,15 @@
 }
 
 /* Stage — кибер-HUD (SVG) вокруг маски-самурая.
-   Aspect-ratio + проценты внутри = адаптивно сжимается под доступную высоту. */
+   Сторона = МЕНЬШАЯ из доступных ширины/высоты .hero (за вычетом блока статуса),
+   зажата в [180px, 360px]. width задаёт сторону, aspect-ratio:1 держит height = width →
+   сцена ВСЕГДА квадрат: не овалит маску, не разъезжается при ресайзе окна и при смене
+   нижней карточки/DPI-чипа (рефлоу контента на квадрат больше не влияет). */
 .hero__stage {
   position: relative;
+  width: clamp(180px, min(100cqw, calc(100cqh - 78px)), 360px);
   aspect-ratio: 1;
-  height: min(360px, 100%);   /* размер от высоты — квадрат не сплющивается при смене нижней карточки */
-  width: auto;
+  height: auto;
   max-width: 100%;
   display: grid;
   place-items: center;
