@@ -64,14 +64,22 @@ export function getTheme() {
   const raw = localStorage.getItem(THEME_KEY);
   return THEMES.includes(raw) ? raw : "kurogane";
 }
+// data-theme вешаем на <html> (documentElement), а НЕ только на #app-root: иначе
+// портал-UI вне #app-root (модалки/тосты/контекст-меню, аппендятся в body) берёт
+// :root-дефолт (kurogane) вместо активной темы. #app-root держим в синхроне тем же
+// значением — его собственный [data-theme] иначе перебьёт наследование для app-поддерева.
+function applyThemeAttr(t) {
+  document.documentElement.dataset.theme = t;
+  if (appRoot) appRoot.dataset.theme = t;
+}
 export function setTheme(t) {
   if (!THEMES.includes(t)) return;
   localStorage.setItem(THEME_KEY, t);
-  if (appRoot) appRoot.dataset.theme = t;
+  applyThemeAttr(t);
   window.dispatchEvent(new CustomEvent("ninety:theme-changed", { detail: { theme: t } }));
 }
 // Применяем сохранённую тему сразу — до первого рендера остального
-if (appRoot) appRoot.dataset.theme = getTheme();
+applyThemeAttr(getTheme());
 window.__ninetySetTheme = setTheme;
 
 // ── Version (dynamic из Tauri) ─────────────────────────────
