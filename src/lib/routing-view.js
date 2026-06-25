@@ -450,6 +450,8 @@ export function mountRoutingRules(rootEl, opts = {}) {
     // фикса / редкий ABI-сбой), промис никогда не settl-ится и спиннер висит
     // вечно. Гонка с таймаутом гарантирует, что UI всегда восстанавливается.
     const timeout = (ms) => new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms));
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const MIN_SPIN = 500; // мин. показ спиннера, чтобы анимация загрузки успела сыграть
     function failState() {
       scroll.innerHTML = "";
       const st = el("div", "rr-picker__state");
@@ -462,6 +464,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     }
     async function load(announce) {
       loading();
+      const t0 = performance.now();
       let list;
       try {
         list = await Promise.race([listNetworkProcesses(), timeout(6000)]);
@@ -469,6 +472,10 @@ export function mountRoutingRules(rootEl, opts = {}) {
         if (box.isConnected) failState();
         return;
       }
+      // Бэкенд часто отвечает за пару мс — даём спиннеру дожить минимум MIN_SPIN,
+      // иначе вместо анимации виден лишь однокадровый «дёрг» при подмене контента.
+      const left = MIN_SPIN - (performance.now() - t0);
+      if (left > 0) await sleep(left);
       if (!box.isConnected) return;
       const arr = Array.isArray(list) ? list : [];
       paint(arr);
