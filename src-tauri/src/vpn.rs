@@ -11,6 +11,33 @@ use crate::proxy_win as proxy;
 #[cfg(not(target_os = "windows"))]
 use crate::proxy_stub as proxy;
 
+/// Снимает ANSI-escape (цветовые SGR и прочие CSI) из строки лога движка.
+/// sing-box/xray красят stderr даже в пайп — без этого в .log летят управляющие
+/// коды (\x1b[36mINFO\x1b[0m). Чистим у источника: и файл, и in-memory буферы,
+/// и death-сообщение получаются без мусора. На фронте есть дублирующий стрип.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '\x1b' {
+            // CSI: ESC '[' … <буква-терминатор>. Прочие ESC-последовательности —
+            // просто роняем сам ESC (в логах движков их практически нет).
+            if it.peek() == Some(&'[') {
+                it.next();
+                while let Some(&n) = it.peek() {
+                    it.next();
+                    if n.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
 pub struct SingboxState {
     // Child sing-box (sidecar) для ВСЕХ режимов, включая TUN. В TUN-режиме
     // Ninety запущен elevated (Throne-style), поэтому sing-box-child наследует
@@ -137,6 +164,7 @@ async fn spawn_xray(
         .map_err(|e| format!("xray sidecar lookup: {e}"))?;
     let (mut rx, child) = sidecar
         .args(["run", "-c", &path_str])
+        .env("NO_COLOR", "1")
         .spawn()
         .map_err(|e| format!("spawn xray: {e}"))?;
     *state.xray_child.lock().unwrap() = Some(child);
@@ -156,7 +184,7 @@ async fn spawn_xray(
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
-                    let text = String::from_utf8_lossy(&line).to_string();
+                    let text = strip_ansi(&String::from_utf8_lossy(&line));
                     if let Some(w) = writer.as_mut() {
                         let _ = writeln!(w, "{text}");
                     }
@@ -226,6 +254,7 @@ async fn spawn_sidecars(
             sidecar.args([cfg_str.as_str()])
         };
         let (mut rx, child) = cmd
+            .env("NO_COLOR", "1")
             .spawn()
             .map_err(|e| format!("spawn {bin}: {e}"))?;
         state.sidecars.lock().unwrap().push(child);
@@ -248,7 +277,7 @@ async fn spawn_sidecars(
             while let Some(event) = rx.recv().await {
                 match event {
                     CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
-                        let text = String::from_utf8_lossy(&line).to_string();
+                        let text = strip_ansi(&String::from_utf8_lossy(&line));
                         if let Some(w) = writer.as_mut() {
                             let _ = writeln!(w, "{text}");
                         }
@@ -461,6 +490,7 @@ pub async fn start_singbox(
         .map_err(|e| format!("sidecar lookup: {e}"))?;
     let (mut rx, child) = sidecar
         .args(["run", "-c", &path_str])
+        .env("NO_COLOR", "1")
         .spawn()
         .map_err(|e| format!("spawn sing-box: {e}"))?;
 
@@ -485,13 +515,13 @@ pub async fn start_singbox(
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
-                    let text = String::from_utf8_lossy(&line).to_string();
+                    let text = strip_ansi(&String::from_utf8_lossy(&line));
                     if let Some(w) = writer.as_mut() {
                         let _ = writeln!(w, "{text}");
                     }
                 }
                 CommandEvent::Stderr(line) => {
-                    let text = String::from_utf8_lossy(&line).to_string();
+                    let text = strip_ansi(&String::from_utf8_lossy(&line));
                     if let Some(w) = writer.as_mut() {
                         let _ = writeln!(w, "STDERR: {text}");
                     }

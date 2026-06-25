@@ -1475,8 +1475,17 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
   return { config, xray: xrayConfig, sidecars };
 }
 
+// Имя ноды → безопасный фрагмент тега. ГРУППЫ недопустимых символов (эмодзи-флаг,
+// пробелы, ·) схлопываем в ОДИН дефис и обрезаем по краям — иначе из «🇱🇻 Latvia · Riga»
+// получался «----Latvia---Riga», и в логах sing-box висел тег node-2----Latvia---Riga.
+// Уникальность держит индекс i в nodeTag, поэтому схлопывание коллизий не плодит.
 function sanitizeTag(s) {
-  return String(s || "").replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 24);
+  return String(s || "")
+    .replace(/[^A-Za-z0-9_.-]+/g, "-")  // run недопустимых → один дефис
+    .replace(/-{2,}/g, "-")             // схлопнуть кратные дефисы
+    .replace(/^[-.]+|[-.]+$/g, "")      // обрезать дефисы/точки по краям
+    .slice(0, 24)
+    .replace(/[-.]+$/g, "");            // slice мог оставить хвостовой дефис
 }
 
 // Единая логика тэга outbound'а для multi-node подписки.
