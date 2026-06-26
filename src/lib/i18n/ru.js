@@ -388,7 +388,12 @@ export const ru = {
     none: "Обновлений нет — у вас актуальная версия",
     notifyTitle: "Ninety · доступно обновление",
     notifyBody: "Версия {version} готова к установке. Откройте Ninety, чтобы обновиться.",
+    askText: "Доступно обновление {version} (сейчас {current}).\nУстановить?",
+    ok: "Обновить",
+    later: "Позже",
   },
+
+  notif: { region: "Уведомления", close: "Закрыть" },
 
   qEngine: {
     steps: {
