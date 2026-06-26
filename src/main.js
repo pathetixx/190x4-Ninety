@@ -1460,6 +1460,7 @@ onLangChange(() => {
   applyDom(document);
   populateOnbPrefs();
   refreshDynamicText();
+  settingsCtl?.refresh();
 });
 
 // Перерисовать динамические подписи главной (статус hero, подсказка режима, режим в

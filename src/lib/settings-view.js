@@ -10,30 +10,29 @@ import { availableLangs, getLang, setLang, t } from "/lib/i18n/index.js";
 import { mountRoutingRules } from "/lib/routing-view.js";
 import { escapeAttr } from "/lib/esc.js";
 
-const WARP_MODE_LABELS = {
-  direct: "Только WARP (без других прокси)",
-  chain:  "WARP поверх активного прокси (chain)",
-};
-
-const WARP_NOISE_LABELS = {
-  off:        "Off — обычный WireGuard",
-  default:    "Default — лёгкая обфускация (1-3 пакета)",
-  aggressive: "Aggressive — больше шума (3-8 пакетов)",
-  custom:     "Custom — параметры ниже",
-};
+// Label-карты строятся в рантайме: t() зависит от текущего языка, замораживать
+// на import нельзя. SECTIONS держит только key+icon; title/hint берём через t().
+const warpModeLabels  = () => ({ direct: t("settings.enums.warpMode.direct"), chain: t("settings.enums.warpMode.chain") });
+const warpNoiseLabels = () => ({
+  off: t("settings.enums.warpNoise.off"), default: t("settings.enums.warpNoise.default"),
+  aggressive: t("settings.enums.warpNoise.aggressive"), custom: t("settings.enums.warpNoise.custom"),
+});
 
 const SECTIONS = [
-  { key: "general",    title: "Общие",            icon: iconGeneral,    hint: "Автозапуск, права администратора, логи, тест соединения" },
-  { key: "appearance", title: "Оформление",       icon: iconTheme,      hint: "Акцент интерфейса: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
-  { key: "routing",    title: "Маршрутизация",     icon: iconRouting,    hint: "Регион, обход локальной сети, блокировка рекламы, IPv6" },
-  { key: "dns",        title: "DNS",               icon: iconDns,        hint: "Remote- и Direct-DNS, кэш, fake-DNS" },
-  { key: "inbound",    title: "Локальный доступ",  icon: iconInbound,    hint: "Локальный порт, MTU, TUN-стек, доступ из сети" },
-  { key: "tls-tricks", title: "TLS-фрагментация",  icon: iconTls,        hint: "Фрагментация ClientHello, padding, регистр SNI" },
-  { key: "mux",        title: "Мультиплексор",     icon: iconMux,        hint: "Несколько соединений через один транспорт" },
-  { key: "warp",       title: "WARP",              icon: iconWarp,       hint: "Cloudflare WARP: режим, лицензия, endpoint" },
-  { key: "quality",    title: "Качество связи",    icon: iconBroadcast,  hint: "Скорость соединения и авто-восстановление при замедлении" },
-  { key: "about",      title: "О программе",       icon: iconInfo,       hint: "Версия, репозиторий, лицензия" },
+  { key: "general",    icon: iconGeneral },
+  { key: "appearance", icon: iconTheme },
+  { key: "routing",    icon: iconRouting },
+  { key: "dns",        icon: iconDns },
+  { key: "inbound",    icon: iconInbound },
+  { key: "tls-tricks", icon: iconTls },
+  { key: "mux",        icon: iconMux },
+  { key: "warp",       icon: iconWarp },
+  { key: "quality",    icon: iconBroadcast },
+  { key: "about",      icon: iconInfo },
 ];
+
+const secTitle = (key) => t(`settings.sec.${key}.title`);
+const secHint  = (key) => t(`settings.sec.${key}.hint`);
 
 const THEMES = [
   { id: "kurogane",  name: "Kurogane",  kicker: "NEON · RED",  accent: "#DE5772", glow: "rgba(192,48,74,0.35)" },
@@ -44,35 +43,28 @@ const THEMES = [
   { id: "command",   name: "Command Center", kicker: "CMD · CRIMSON", accent: "#FF3355", glow: "rgba(255,45,70,0.45)" },
 ];
 
-const REGION_LABELS = {
-  other: "Не выбран",
-  ru: "Россия (ru)",
-  cn: "Китай (cn)",
-  ir: "Иран (ir)",
-  tr: "Турция (tr)",
-  by: "Беларусь (by)",
-};
+const regionLabels = () => ({
+  other: t("settings.enums.region.other"), ru: t("settings.enums.region.ru"), cn: t("settings.enums.region.cn"),
+  ir: t("settings.enums.region.ir"), tr: t("settings.enums.region.tr"), by: t("settings.enums.region.by"),
+});
 
-const IPV6_LABELS = {
-  disable: "Отключить",
-  enable:  "Включить (prefer IPv4)",
-  prefer:  "Предпочитать IPv6",
-  only:    "Только IPv6",
-};
+const ipv6Labels = () => ({
+  disable: t("settings.enums.ipv6.disable"), enable: t("settings.enums.ipv6.enable"),
+  prefer: t("settings.enums.ipv6.prefer"), only: t("settings.enums.ipv6.only"),
+});
 
-const TUN_STACK_LABELS = {
-  mixed:  "Mixed (рекомендуется)",
-  gvisor: "gVisor (изолированный)",
-  system: "System (нативный)",
-};
+const tunStackLabels = () => ({
+  mixed: t("settings.enums.tunStack.mixed"), gvisor: t("settings.enums.tunStack.gvisor"), system: t("settings.enums.tunStack.system"),
+});
 
+// Уровни логов — литеральные имена sing-box, не переводятся.
 const LOG_LABELS = {
   trace: "trace", debug: "debug", info: "info", warn: "warn", error: "error",
 };
 
-const MUX_PROTOCOL_LABELS = {
-  h2mux: "h2mux (рекомендуется)", smux: "smux", yamux: "yamux",
-};
+const muxProtocolLabels = () => ({
+  h2mux: t("settings.enums.mux.h2mux"), smux: t("settings.enums.mux.smux"), yamux: t("settings.enums.mux.yamux"),
+});
 
 let currentSection = null; // null = menu
 let currentSubsection = null; // вложенный уровень внутри секции (напр. routing→routing-rules)
@@ -104,10 +96,10 @@ export function mountSettings(root, opts = {}) {
   function renderRoutingRulesSub() {
     return `
     <header class="settings-head">
-      <button class="settings-back" data-back-sub type="button" aria-label="Назад">
+      <button class="settings-back" data-back-sub type="button" aria-label="${t("settings.back")}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
       </button>
-      <h2 class="settings-head__title">Правила маршрутизации</h2>
+      <h2 class="settings-head__title">${t("settings.routingRulesTitle")}</h2>
     </header>
     <div id="rr-rules-mount"></div>
   `;
@@ -243,7 +235,7 @@ export function mountSettings(root, opts = {}) {
         await invoke("set_always_admin", { enable: newVal });
       } catch (e) {
         sw.dataset.on = String(!newVal); // откат при ошибке
-        alert(`Не удалось сохранить настройку: ${e?.message || e}`);
+        alert(t("settings.general.adminSaveErr", { err: e?.message || e }));
       }
     });
   }
@@ -278,11 +270,11 @@ export function mountSettings(root, opts = {}) {
     const resetBtn = el.querySelector("[data-action='warp-reset']");
 
     const formatStatus = (info) => {
-      if (!info) return { status: "Не зарегистрирован", ipv4: "—", license: "" };
+      if (!info) return { status: t("settings.warp.statusUnreg"), ipv4: "—", license: "" };
       const plus = info.warp_plus ? " · WARP+" : "";
       const type = info.account_type ? `${info.account_type}${plus}` : (info.warp_plus ? "WARP+" : "free");
       return {
-        status: `Активна (${type})`,
+        status: t("settings.warp.statusActive", { type }),
         ipv4: info.local_ipv4 || "—",
         license: info.license || "",
       };
@@ -296,21 +288,21 @@ export function mountSettings(root, opts = {}) {
         if (ipv4El) ipv4El.textContent = v.ipv4;
         if (licenseInput) licenseInput.value = v.license;
       } catch (e) {
-        if (statusEl) statusEl.textContent = `Ошибка: ${e?.message || e}`;
+        if (statusEl) statusEl.textContent = t("settings.warp.statusErr", { err: e?.message || e });
       }
     };
 
     registerBtn?.addEventListener("click", async () => {
       const orig = registerBtn.textContent;
       registerBtn.disabled = true;
-      registerBtn.textContent = "Регистрирую…";
+      registerBtn.textContent = t("settings.warp.registering");
       try {
         const license = licenseInput?.value?.trim() || null;
         await invoke("warp_register", { license });
         await refresh();
         onChange("warp.registered", true);
       } catch (e) {
-        alert(`Регистрация WARP не удалось: ${e?.message || e}`);
+        alert(t("settings.warp.registerErr", { err: e?.message || e }));
       } finally {
         registerBtn.disabled = false;
         registerBtn.textContent = orig;
@@ -318,16 +310,16 @@ export function mountSettings(root, opts = {}) {
     });
 
     resetBtn?.addEventListener("click", async () => {
-      if (!confirm("Удалить регистрацию WARP? Локальные ключи будут стёрты.")) return;
+      if (!confirm(t("settings.warp.resetConfirm"))) return;
       const orig = resetBtn.textContent;
       resetBtn.disabled = true;
-      resetBtn.textContent = "Сбрасываю…";
+      resetBtn.textContent = t("settings.warp.resetting");
       try {
         await invoke("warp_reset");
         await refresh();
         onChange("warp.registered", false);
       } catch (e) {
-        alert(`Сброс WARP не удалось: ${e?.message || e}`);
+        alert(t("settings.warp.resetErr", { err: e?.message || e }));
       } finally {
         resetBtn.disabled = false;
         resetBtn.textContent = orig;
@@ -342,36 +334,36 @@ export function mountSettings(root, opts = {}) {
     scanBtn?.addEventListener("click", async () => {
       const orig = scanBtn.textContent;
       scanBtn.disabled = true;
-      scanBtn.textContent = "Сканирую…";
+      scanBtn.textContent = t("settings.warp.scanning");
       if (scanResults) scanResults.hidden = false;
       const deep = !!loadOptions().warp?.deepScan;
       // mode=auto: WG handshake если warp.json есть, иначе TCP. Backend сам определит.
       if (scanStatus) scanStatus.textContent = deep
-        ? "Глубокое сканирование CF WARP-пула (~15-25с)…"
-        : "Пробую CF WARP endpoints…";
+        ? t("settings.warp.scanStatusDeep")
+        : t("settings.warp.scanStatusNormal");
       if (scanList) scanList.innerHTML = "";
       try {
         const results = await invoke("warp_scan_endpoints", { topN: 10, deep, mode: "auto" });
         if (!Array.isArray(results) || results.length === 0) {
-          if (scanStatus) scanStatus.textContent = "Ничего не нашлось — все IP в семпле недоступны. Попробуйте ещё раз.";
+          if (scanStatus) scanStatus.textContent = t("settings.warp.scanNone");
           return;
         }
         const method = results[0]?.method === "wg" ? "WG-handshake" : "TCP-ping";
-        if (scanStatus) scanStatus.textContent = `Top-${results.length} по latency (${method}). Нажмите «Применить» — endpoint выше обновится.`;
+        if (scanStatus) scanStatus.textContent = t("settings.warp.scanTop", { n: results.length, method });
         if (scanList) scanList.innerHTML = results.map(r => `
           <div class="setting-row">
             <span class="setting-row__icon">${iconTarget()}</span>
             <span class="setting-row__main">
               <span class="setting-row__label">${r.ip}:${r.port}</span>
-              <span class="setting-row__hint">${r.latency_ms} мс · ${r.method}</span>
+              <span class="setting-row__hint">${t("settings.warp.scanRowHint", { ms: r.latency_ms, method: r.method })}</span>
             </span>
             <span class="setting-row__control">
-              <button class="btn btn--sm" data-scan-pick="${r.ip}:${r.port}" type="button">Применить</button>
+              <button class="btn btn--sm" data-scan-pick="${r.ip}:${r.port}" type="button">${t("settings.warp.applyBtn")}</button>
             </span>
           </div>
         `).join("");
       } catch (e) {
-        if (scanStatus) scanStatus.textContent = `Ошибка сканирования: ${e?.message || e}`;
+        if (scanStatus) scanStatus.textContent = t("settings.warp.scanErr", { err: e?.message || e });
       } finally {
         scanBtn.disabled = false;
         scanBtn.textContent = orig;
@@ -394,7 +386,7 @@ export function mountSettings(root, opts = {}) {
     const renderHistory = () => {
       let items = [];
       try { items = JSON.parse(localStorage.getItem("ninety.warp.history") || "[]"); } catch {}
-      if (historyCount) historyCount.textContent = items.length ? `${items.length} шт.` : "пусто";
+      if (historyCount) historyCount.textContent = items.length ? t("settings.warp.histCount", { n: items.length }) : t("settings.warp.histEmpty");
       if (!historyList) return;
       if (!items.length) { historyList.innerHTML = ""; return; }
       historyList.innerHTML = items.map(it => {
@@ -404,7 +396,7 @@ export function mountSettings(root, opts = {}) {
           <span class="setting-row__icon">${iconRemote()}</span>
           <span class="setting-row__main">
             <span class="setting-row__label">${it.to}</span>
-            <span class="setting-row__hint">${ts} · ${it.newDelay}мс (было ${it.oldDelay || "—"}, ${it.from})</span>
+            <span class="setting-row__hint">${t("settings.warp.histRowHint", { ts, newDelay: it.newDelay, old: it.oldDelay || "—", from: it.from })}</span>
           </span>
         </div>`;
       }).join("");
@@ -439,15 +431,15 @@ function readInput(input) {
 function renderMenu() {
   return `
     <header class="settings-head settings-head--root">
-      <h2 class="settings-head__title">Настройки</h2>
+      <h2 class="settings-head__title">${t("settings.title")}</h2>
     </header>
     <div class="settings-menu">
       ${SECTIONS.map(s => `
         <button class="settings-menu__item" data-section="${s.key}" type="button">
           <span class="settings-menu__icon">${s.icon()}</span>
           <span class="settings-menu__body">
-            <span class="settings-menu__title">${s.title}</span>
-            <span class="settings-menu__hint">${s.hint}</span>
+            <span class="settings-menu__title">${secTitle(s.key)}</span>
+            <span class="settings-menu__hint">${secHint(s.key)}</span>
           </span>
           <span class="settings-menu__chevron">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
@@ -463,10 +455,10 @@ function renderSection(sec) {
   const o = loadOptions();
   return `
     <header class="settings-head">
-      <button class="settings-back" data-back type="button" aria-label="Назад">
+      <button class="settings-back" data-back type="button" aria-label="${t("settings.back")}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
       </button>
-      <h2 class="settings-head__title">${sec.title}</h2>
+      <h2 class="settings-head__title">${secTitle(sec.key)}</h2>
     </header>
     ${renderSectionBody(sec, o)}
   `;
@@ -491,20 +483,15 @@ function renderSectionBody(sec, o) {
 function renderQuality(o) {
   const q = o.quality || {};
   return `
-    <div class="settings-banner">
-      Ninety следит за реальной скоростью соединения. Если провайдер начинает его
-      замедлять, программа сама пробует восстановить связь — меняет сервер, включает
-      маскировку трафика или подключает запасной канал. Текущее состояние показывает
-      индикатор «КАНАЛ» на главном экране.
+    <div class="settings-banner">${t("settings.quality.banner")}</div>
+    <div class="settings-section">
+      ${row(iconBroadcast(), t("settings.quality.watchTitle"), t("settings.quality.watchHint"), toggle("quality.enabled", q.enabled !== false))}
+      ${row(iconRocket(), t("settings.quality.autoTitle"), t("settings.quality.autoHint"), toggle("quality.aggressive", !!q.aggressive))}
+      ${row(iconEyeOff(), t("settings.quality.saveTitle"), t("settings.quality.saveHint"), toggle("quality.lowDataMode", !!q.lowDataMode))}
     </div>
     <div class="settings-section">
-      ${row(iconBroadcast(), "Следить за качеством связи", "Фоновая проверка скорости и автоматическое восстановление при замедлении. Выключите, если не нужно.", toggle("quality.enabled", q.enabled !== false))}
-      ${row(iconRocket(), "Чинить автоматически", "При замедлении сразу применять восстановление (смена сервера, маскировка трафика или запасной канал) без вопроса. Если выключено — программа спросит перед переподключением.", toggle("quality.aggressive", !!q.aggressive))}
-      ${row(iconEyeOff(), "Экономия трафика", "Не запускать проверки вхолостую — только при подозрении на замедление. Меньше расход трафика на сами проверки.", toggle("quality.lowDataMode", !!q.lowDataMode))}
-    </div>
-    <div class="settings-section">
-      ${row(iconTarget(), "Порог скорости", "Ниже этой скорости соединение считается медленным и программа начинает восстановление. Выше — «отлично».", select("quality.goodBps", String(q.goodBps ?? 1500000), ["750000", "1500000", "3000000", "6000000"], { "750000": "0.75 Мбит/с · мягко", "1500000": "1.5 Мбит/с · обычно", "3000000": "3 Мбит/с · строго", "6000000": "6 Мбит/с · жёстко" }))}
-      ${row(iconClock(), "Интервал проверки (сек)", "Как часто проверять скорость при активном соединении. В режиме экономии трафика фоновые проверки отключены.", inputText("quality.idleProbeSec", q.idleProbeSec ?? 300, "number", 'min="60" max="900"'))}
+      ${row(iconTarget(), t("settings.quality.thrTitle"), t("settings.quality.thrHint"), select("quality.goodBps", String(q.goodBps ?? 1500000), ["750000", "1500000", "3000000", "6000000"], { "750000": t("settings.enums.qualityGood.750000"), "1500000": t("settings.enums.qualityGood.1500000"), "3000000": t("settings.enums.qualityGood.3000000"), "6000000": t("settings.enums.qualityGood.6000000") }))}
+      ${row(iconClock(), t("settings.quality.intTitle"), t("settings.quality.intHint"), inputText("quality.idleProbeSec", q.idleProbeSec ?? 300, "number", 'min="60" max="900"'))}
     </div>
   `;
 }
@@ -537,9 +524,7 @@ function renderAppearance() {
   `).join("");
   return `
     ${langRow}
-    <div class="settings-banner">
-      Палитра неизменна — меняется только акцентный цвет. Выбор сохраняется автоматически.
-    </div>
+    <div class="settings-banner">${t("settings.appearance.themeBanner")}</div>
     <div class="theme-grid">${cards}</div>
   `;
 }
@@ -599,17 +584,17 @@ function renderGeneral(o) {
   const g = o.general || {};
   return `
     <div class="settings-section">
-      ${row(iconShield(), "Всегда запускать от администратора", "Нужно для режима VPN · TUN. Ninety будет стартовать с правами админа (UAC при запуске) — при включении TUN запрос больше не появится.", `<span class="switch" id="always-admin-switch" data-on="false"></span>`)}
-      ${row(iconRocket(), "Запускать при входе в систему", "Ninety будет автоматически стартовать при логине в Windows", toggle("general.autostart", g.autostart, { action: "autostart" }))}
-      ${row(iconEyeOff(), "Запускать свернутым", "На старте окно сразу прячется в трей — иконка остаётся справа внизу", toggle("general.startMinimized", g.startMinimized))}
-      ${row(iconShield(), "Защита на чужих Wi-Fi", "При подключении к открытой (без пароля) сети Ninety сам включит режим VPN · TUN. Защищённые сети (дом/офис) не трогаются. Потребуются права администратора (UAC).", toggle("general.autoProtectWifi", !!g.autoProtectWifi))}
-      ${row(iconShield(), "Аварийная блокировка (Kill Switch)", "Экспериментально. В режимах «Прокси» и «Системный прокси»: если VPN-ядро вдруг упадёт, весь трафик блокируется, кроме самого туннеля — данные не утекут в открытую сеть. Нужны права администратора. В режиме TUN не требуется.", toggle("general.killSwitch", !!g.killSwitch))}
+      ${row(iconShield(), t("settings.general.adminTitle"), t("settings.general.adminHint"), `<span class="switch" id="always-admin-switch" data-on="false"></span>`)}
+      ${row(iconRocket(), t("settings.general.autostartTitle"), t("settings.general.autostartHint"), toggle("general.autostart", g.autostart, { action: "autostart" }))}
+      ${row(iconEyeOff(), t("settings.general.startMinTitle"), t("settings.general.startMinHint"), toggle("general.startMinimized", g.startMinimized))}
+      ${row(iconShield(), t("settings.general.wifiTitle"), t("settings.general.wifiHint"), toggle("general.autoProtectWifi", !!g.autoProtectWifi))}
+      ${row(iconShield(), t("settings.general.killTitle"), t("settings.general.killHint"), toggle("general.killSwitch", !!g.killSwitch))}
     </div>
     <div class="settings-section">
-      ${row(iconUrl(), "URL для теста соединения", "Любой HTTP/HTTPS endpoint, проверяющий доступ", inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
-      ${row(iconClock(), "Интервал теста (сек)", "Как часто проверяется доступность серверов — для всех нод, включая мостовые (xray, NaiveProxy, TrustTunnel)", inputText("urlTest.intervalSec", o.urlTest.intervalSec, "number", 'min="30" max="3600"'))}
-      ${row(iconLog(), "Уровень логов", "Подробность логов всех компонентов (sing-box, xray, TrustTunnel)", select("log.level", o.log.level, LOG_LEVELS, LOG_LABELS))}
-      ${row(iconLog(), "Полностью отключить логи", "Ни один компонент (sing-box, xray, NaiveProxy, TrustTunnel, DPI) не пишет логи — диагностика станет невозможна. Включайте, только если логи точно не нужны.", toggle("log.disabled", !!o.log.disabled))}
+      ${row(iconUrl(), t("settings.general.testUrlTitle"), t("settings.general.testUrlHint"), inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
+      ${row(iconClock(), t("settings.general.testIntTitle"), t("settings.general.testIntHint"), inputText("urlTest.intervalSec", o.urlTest.intervalSec, "number", 'min="30" max="3600"'))}
+      ${row(iconLog(), t("settings.general.logLevelTitle"), t("settings.general.logLevelHint"), select("log.level", o.log.level, LOG_LEVELS, LOG_LABELS))}
+      ${row(iconLog(), t("settings.general.logOffTitle"), t("settings.general.logOffHint"), toggle("log.disabled", !!o.log.disabled))}
     </div>
   `;
 }
@@ -617,15 +602,15 @@ function renderGeneral(o) {
 function renderRouting(o) {
   return `
     <div class="settings-section">
-      ${row(iconPin(), "Регион", "Локальный трафик региона идёт напрямую через geosite/geoip rule_sets (обновление каждые 5 дней через прокси)", select("region", o.region, REGIONS, REGION_LABELS, true))}
-      ${row(iconShield(), "Блокировать рекламу", "Domain/IP списки рекламы и malware", toggle("blockAds", o.blockAds))}
-      ${row(iconLan(), "Обход LAN", "Локальные адреса (10.x, 192.168.x и т.п.) идут напрямую", toggle("route.bypassLan", o.route.bypassLan))}
-      ${row(iconTarget(), "Назначение через Remote DNS", "Домены назначения резолвятся через Remote DNS (внутри туннеля). Выключено — через Direct DNS. Включайте, чтобы DNS назначения не утекал мимо прокси.", toggle("route.resolveDestination", o.route.resolveDestination))}
-      ${row(iconIpv6(), "Маршрут IPv6", "Стратегия выбора IPv4/IPv6", select("route.ipv6Mode", o.route.ipv6Mode, IPV6_MODES, IPV6_LABELS))}
-      ${row(iconRouting(), "Discord мимо туннеля (TUN)", "Только в режиме TUN: домены Discord идут напрямую, чтобы DPI-обход десинхрил их (голос с низким пингом). Без обхода/в proxy не влияет.", toggle("route.tunSplitDiscord", o.route.tunSplitDiscord))}
+      ${row(iconPin(), t("settings.routing.regionTitle"), t("settings.routing.regionHint"), select("region", o.region, REGIONS, regionLabels(), true))}
+      ${row(iconShield(), t("settings.routing.adsTitle"), t("settings.routing.adsHint"), toggle("blockAds", o.blockAds))}
+      ${row(iconLan(), t("settings.routing.lanTitle"), t("settings.routing.lanHint"), toggle("route.bypassLan", o.route.bypassLan))}
+      ${row(iconTarget(), t("settings.routing.destTitle"), t("settings.routing.destHint"), toggle("route.resolveDestination", o.route.resolveDestination))}
+      ${row(iconIpv6(), t("settings.routing.ipv6Title"), t("settings.routing.ipv6Hint"), select("route.ipv6Mode", o.route.ipv6Mode, IPV6_MODES, ipv6Labels()))}
+      ${row(iconRouting(), t("settings.routing.discordTitle"), t("settings.routing.discordHint"), toggle("route.tunSplitDiscord", o.route.tunSplitDiscord))}
     </div>
     <div class="settings-section">
-      ${subNavRow("Правила маршрутизации", "Свои правила поверх регионального · домен / IP / приложение", "routing-rules")}
+      ${subNavRow(t("settings.routing.rulesNavTitle"), t("settings.routing.rulesNavHint"), "routing-rules")}
     </div>
   `;
 }
@@ -649,10 +634,10 @@ function subNavRow(label, hint, subsection) {
 function renderDns(o) {
   return `
     <div class="settings-section">
-      ${row(iconRemote(), "Remote DNS", "DNS для трафика через прокси (DoH/DoT/UDP)", inputText("dns.remoteAddress", o.dns.remoteAddress, "text"))}
-      ${row(iconDirect(), "Direct DNS", "DNS для прямого трафика (для region и bypass)", inputText("dns.directAddress", o.dns.directAddress, "text"))}
-      ${row(iconCache(), "Независимый DNS-кэш", "Раздельный кэш для remote и direct", toggle("dns.independentCache", o.dns.independentCache))}
-      ${row(iconMask(), "Fake-DNS", "Возвращать поддельный IP, маппинг в памяти. Полезно при TUN", toggle("dns.enableFakeDns", o.dns.enableFakeDns))}
+      ${row(iconRemote(), t("settings.dns.remoteTitle"), t("settings.dns.remoteHint"), inputText("dns.remoteAddress", o.dns.remoteAddress, "text"))}
+      ${row(iconDirect(), t("settings.dns.directTitle"), t("settings.dns.directHint"), inputText("dns.directAddress", o.dns.directAddress, "text"))}
+      ${row(iconCache(), t("settings.dns.cacheTitle"), t("settings.dns.cacheHint"), toggle("dns.independentCache", o.dns.independentCache))}
+      ${row(iconMask(), t("settings.dns.fakeTitle"), t("settings.dns.fakeHint"), toggle("dns.enableFakeDns", o.dns.enableFakeDns))}
     </div>
   `;
 }
@@ -660,26 +645,24 @@ function renderDns(o) {
 function renderInbound(o) {
   return `
     <div class="settings-section">
-      ${row(iconPort(), "Mixed port", "Локальный SOCKS+HTTP порт для системного прокси", inputText("inbound.mixedPort", o.inbound.mixedPort, "number", 'min="1024" max="65535"'))}
-      ${row(iconMtu(), "MTU TUN", "Максимальный размер пакета", inputText("inbound.mtu", o.inbound.mtu, "number", 'min="576" max="9000"'))}
-      ${row(iconStack(), "TUN стек", "Реализация TUN-стека", select("inbound.tunStack", o.inbound.tunStack, TUN_STACKS, TUN_STACK_LABELS))}
-      ${row(iconLock(), "Строгая маршрутизация", "Блокировать утечки трафика мимо TUN", toggle("inbound.strictRoute", o.inbound.strictRoute))}
-      ${row(iconBroadcast(), "Доступ из локальной сети", "⚠ Открытый прокси без пароля на 0.0.0.0 — любое устройство в вашей сети сможет выходить в интернет через ваш VPN. Включайте только в доверенной сети", toggle("inbound.allowConnectionFromLan", o.inbound.allowConnectionFromLan))}
+      ${row(iconPort(), t("settings.inbound.portTitle"), t("settings.inbound.portHint"), inputText("inbound.mixedPort", o.inbound.mixedPort, "number", 'min="1024" max="65535"'))}
+      ${row(iconMtu(), t("settings.inbound.mtuTitle"), t("settings.inbound.mtuHint"), inputText("inbound.mtu", o.inbound.mtu, "number", 'min="576" max="9000"'))}
+      ${row(iconStack(), t("settings.inbound.stackTitle"), t("settings.inbound.stackHint"), select("inbound.tunStack", o.inbound.tunStack, TUN_STACKS, tunStackLabels()))}
+      ${row(iconLock(), t("settings.inbound.strictTitle"), t("settings.inbound.strictHint"), toggle("inbound.strictRoute", o.inbound.strictRoute))}
+      ${row(iconBroadcast(), t("settings.inbound.lanTitle"), t("settings.inbound.lanHint"), toggle("inbound.allowConnectionFromLan", o.inbound.allowConnectionFromLan))}
     </div>
   `;
 }
 
 function renderTlsTricks(o) {
   return `
-    <div class="settings-banner">
-      Фрагментация делит TLS-handshake к серверу на части — это помогает установить соединение, когда провайдер ограничивает доступ по имени домена (SNI). Применяется к прокси-подключению. С Reality начните с фрагментации; padding и смену регистра SNI включайте, только если без них соединение не устанавливается.
-    </div>
+    <div class="settings-banner">${t("settings.tls.banner")}</div>
     <div class="settings-section">
-      ${row(iconScissors(), "Фрагментация ClientHello", "Делит TLS-handshake на части — обход DPI", toggle("tlsTricks.enableFragment", o.tlsTricks.enableFragment))}
-      ${row(iconScissors(), "Способ фрагментации", "record — на TLS-записи (рекоменд., быстрее); TCP — на сегменты (агрессивнее)", select("tlsTricks.fragmentMode", o.tlsTricks.fragmentMode, ["record", "tcp"], { record: "По TLS-записям (record)", tcp: "По TCP-сегментам" }))}
-      ${row(iconCase(), "Mixed SNI case", "Перемешивает регистр в SNI (может ломать Reality)", toggle("tlsTricks.mixedSniCase", o.tlsTricks.mixedSniCase))}
-      ${row(iconPad(), "TLS padding", "Добавляет padding в ClientHello (может ломать Reality)", toggle("tlsTricks.enablePadding", o.tlsTricks.enablePadding))}
-      ${rangeRow("Размер padding (байт)", "Диапазон длины", "tlsTricks.paddingSize.from", o.tlsTricks.paddingSize.from, "tlsTricks.paddingSize.to", o.tlsTricks.paddingSize.to)}
+      ${row(iconScissors(), t("settings.tls.fragTitle"), t("settings.tls.fragHint"), toggle("tlsTricks.enableFragment", o.tlsTricks.enableFragment))}
+      ${row(iconScissors(), t("settings.tls.modeTitle"), t("settings.tls.modeHint"), select("tlsTricks.fragmentMode", o.tlsTricks.fragmentMode, ["record", "tcp"], { record: t("settings.enums.fragmentMode.record"), tcp: t("settings.enums.fragmentMode.tcp") }))}
+      ${row(iconCase(), t("settings.tls.sniTitle"), t("settings.tls.sniHint"), toggle("tlsTricks.mixedSniCase", o.tlsTricks.mixedSniCase))}
+      ${row(iconPad(), t("settings.tls.padTitle"), t("settings.tls.padHint"), toggle("tlsTricks.enablePadding", o.tlsTricks.enablePadding))}
+      ${rangeRow(t("settings.tls.padSizeTitle"), t("settings.tls.padSizeHint"), "tlsTricks.paddingSize.from", o.tlsTricks.paddingSize.from, "tlsTricks.paddingSize.to", o.tlsTricks.paddingSize.to)}
     </div>
   `;
 }
@@ -688,15 +671,13 @@ function renderMux(o) {
   const m = o.mux || {};
   const enabled = !!m.enable;
   return `
-    <div class="settings-banner">
-      Мультиплексор гонит несколько соединений через один транспорт к ноде — меньше TLS-рукопожатий и нагрузки на сервер. На быстрых каналах может, наоборот, резать скорость. Включайте, только если этого требует сервер или соединений много и они мелкие. Протокол должен поддерживаться и на стороне сервера.
-    </div>
+    <div class="settings-banner">${t("settings.mux.banner")}</div>
     <div class="settings-section">
-      ${row(iconMux(), "Включить мультиплексор", "Один транспорт под все соединения к активной ноде (sing-box multiplex)", toggle("mux.enable", enabled, { affectsView: true }))}
+      ${row(iconMux(), t("settings.mux.enableTitle"), t("settings.mux.enableHint"), toggle("mux.enable", enabled, { affectsView: true }))}
       ${enabled ? `
-      ${row(iconMux(), "Протокол", "Схема мультиплексирования — должна совпадать с сервером", select("mux.protocol", m.protocol || "h2mux", MUX_PROTOCOLS, MUX_PROTOCOL_LABELS))}
-      ${row(iconPort(), "Макс. потоков", "Сколько соединений на один транспорт (по умолчанию 8)", inputText("mux.maxStreams", m.maxStreams ?? 8, "number", 'min="1" max="1024"'))}
-      ${row(iconPad(), "Padding", "Добавлять padding в mux-кадры — маскирует размеры пакетов", toggle("mux.padding", !!m.padding))}
+      ${row(iconMux(), t("settings.mux.protoTitle"), t("settings.mux.protoHint"), select("mux.protocol", m.protocol || "h2mux", MUX_PROTOCOLS, muxProtocolLabels()))}
+      ${row(iconPort(), t("settings.mux.streamsTitle"), t("settings.mux.streamsHint"), inputText("mux.maxStreams", m.maxStreams ?? 8, "number", 'min="1" max="1024"'))}
+      ${row(iconPad(), t("settings.mux.padTitle"), t("settings.mux.padHint"), toggle("mux.padding", !!m.padding))}
       ` : ""}
     </div>
   `;
@@ -706,7 +687,8 @@ const REPO_URL = "https://github.com/pathetixx/190x4-Ninety";
 const LICENSE_URL = "https://github.com/pathetixx/190x4-Ninety/blob/main/LICENSE";
 
 const ABOUT_PROTOCOLS = ["VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "TUIC", "NaiveProxy", "TrustTunnel"];
-const ABOUT_MODES = ["Прокси", "Системный прокси", "VPN · TUN"];
+// Режимы переиспользуют каталог главной (mode.*), чтобы не дублировать переводы.
+const aboutModes = () => [t("mode.proxy"), t("mode.systemProxy"), t("mode.tun")];
 
 function aboutSpecCell(icon, key, value) {
   return `<div class="about-spec__cell">
@@ -723,7 +705,7 @@ function renderAbout() {
   const b = BUILD_INFO;
   const ver = b.version || "—";
   const protos = ABOUT_PROTOCOLS.map(p => `<span class="about-chip">${p}</span>`).join("");
-  const modes = ABOUT_MODES.map(m => `<span class="about-chip about-chip--mode">${m}</span>`).join("");
+  const modes = aboutModes().map(m => `<span class="about-chip about-chip--mode">${m}</span>`).join("");
   return `
     <div class="about__col">
       <section class="about-id">
@@ -735,38 +717,31 @@ function renderAbout() {
           <span class="about-id__sep"></span>
           <span class="about-id__channel">${b.channel}</span>
         </div>
-        <p class="about-id__tag">Нативный VPN-клиент для Windows на движке sing-box</p>
+        <p class="about-id__tag">${t("settings.about.tag")}</p>
       </section>
 
-      <p class="about-desc">
-        Лёгкий VPN-клиент под Windows: VLESS / VMess / Trojan / Shadowsocks /
-        Hysteria2 / TUIC / NaiveProxy / TrustTunnel,
-        режимы «Прокси · Системный прокси · VPN · TUN», подписки с
-        live-переключением серверов, правила маршрутизации (домен / IP /
-        приложение), движок качества связи и обход блокировок (фрагментация
-        TLS + DPI).
-      </p>
+      <p class="about-desc">${t("settings.about.desc")}</p>
 
       <div class="about-tags">
         <div class="about-tags__group">
-          <div class="about-tags__label">Протоколы</div>
+          <div class="about-tags__label">${t("settings.about.protocols")}</div>
           <div class="about-tags__row">${protos}</div>
         </div>
         <div class="about-tags__group">
-          <div class="about-tags__label">Режимы</div>
+          <div class="about-tags__label">${t("settings.about.modes")}</div>
           <div class="about-tags__row">${modes}</div>
         </div>
       </div>
 
       <section class="about-spec">
-        <div class="about-spec__head">Технический паспорт</div>
+        <div class="about-spec__head">${t("settings.about.specHead")}</div>
         <div class="about-spec__grid">
-          ${aboutSpecCell(aboutIconBox(), "Версия", `<span id="about-version">${ver}</span>`)}
-          ${aboutSpecCell(aboutIconCpu(), "Сборка", b.commit)}
-          ${aboutSpecCell(aboutIconBox(), "Ядро", b.core)}
-          ${aboutSpecCell(aboutIconCpu(), "Платформа", b.platform)}
-          ${aboutSpecCell(aboutIconBolt(), "Канал", b.channel)}
-          ${aboutSpecCell(aboutIconRefresh(), "Обновлено", b.date)}
+          ${aboutSpecCell(aboutIconBox(), t("settings.about.specVersion"), `<span id="about-version">${ver}</span>`)}
+          ${aboutSpecCell(aboutIconCpu(), t("settings.about.specBuild"), b.commit)}
+          ${aboutSpecCell(aboutIconBox(), t("settings.about.specCore"), b.core)}
+          ${aboutSpecCell(aboutIconCpu(), t("settings.about.specPlatform"), b.platform)}
+          ${aboutSpecCell(aboutIconBolt(), t("settings.about.specChannel"), b.channel)}
+          ${aboutSpecCell(aboutIconRefresh(), t("settings.about.specUpdated"), b.date)}
         </div>
       </section>
 
@@ -774,28 +749,28 @@ function renderAbout() {
         <button class="about-link" id="about-repo" type="button">
           <span class="about-link__icon">${aboutIconGithub()}</span>
           <span class="about-link__main">
-            <span class="about-link__t">Репозиторий</span>
-            <span class="about-link__d">Исходники, релизы и баг-репорты на GitHub</span>
+            <span class="about-link__t">${t("settings.about.repoTitle")}</span>
+            <span class="about-link__d">${t("settings.about.repoDesc")}</span>
           </span>
-          <span class="about-link__cta btn btn--sm">Открыть${aboutIconExternal()}</span>
+          <span class="about-link__cta btn btn--sm">${t("settings.about.open")}${aboutIconExternal()}</span>
         </button>
 
         <button class="about-link" data-action="check-updates" type="button">
           <span class="about-link__icon about-link__icon--ok">${aboutIconDownload()}</span>
           <span class="about-link__main">
-            <span class="about-link__t">Обновления</span>
+            <span class="about-link__t">${t("settings.about.updTitle")}</span>
             <span class="about-link__d">
-              <span class="about-link__status"><span class="about-link__dot"></span>Обновления проверяются автоматически</span>
+              <span class="about-link__status"><span class="about-link__dot"></span>${t("settings.about.updStatus")}</span>
             </span>
           </span>
-          <span class="about-link__cta btn btn--sm">${aboutIconRefresh()}Проверить</span>
+          <span class="about-link__cta btn btn--sm">${aboutIconRefresh()}${t("settings.about.check")}</span>
         </button>
 
         <button class="about-link" id="about-license" type="button">
           <span class="about-link__icon">${aboutIconScale()}</span>
           <span class="about-link__main">
-            <span class="about-link__t">Лицензия</span>
-            <span class="about-link__d">Открытый исходный код — свободно для форка и аудита</span>
+            <span class="about-link__t">${t("settings.about.licTitle")}</span>
+            <span class="about-link__d">${t("settings.about.licDesc")}</span>
           </span>
           <span class="about-link__lic">MIT</span>
         </button>
@@ -803,8 +778,8 @@ function renderAbout() {
 
       <footer class="about-foot">
         <span class="about-foot__rule"></span>
-        <span class="about-foot__txt">© 190×4 · собрано на ядре <b>sing-box</b></span>
-        <span class="about-foot__made">${aboutIconHeart()}сделано в эстетике Kurogane</span>
+        <span class="about-foot__txt">${t("settings.about.footTxt")}</span>
+        <span class="about-foot__made">${aboutIconHeart()}${t("settings.about.footMade")}</span>
       </footer>
     </div>
   `;
@@ -832,95 +807,93 @@ function renderWarp(o) {
       ${hint ? `<div class="set-group__hint">${hint}</div>` : ""}
     </div>`;
   return `
-    <div class="settings-banner">
-      Cloudflare WARP регистрирует WireGuard-устройство в Cloudflare. Бесплатный WARP — без лицензии (просто «Зарегистрировать»). WARP+ — введите 26-символьный ключ из приложения «1.1.1.1». Ключи и токен хранятся локально в <code>app_config_dir/warp.json</code>.
-    </div>
+    <div class="settings-banner">${t("settings.warp.banner")}</div>
 
     <!-- 1. Базовые: enabled + mode -->
     <div class="set-group">
-      ${groupHead("Подключение", "Где включить WARP и какой режим использовать.")}
-      ${row(iconWarp(), "Включить WARP",
-        "Подмешать WARP в конфиг sing-box. Активирует выбранный режим (direct/chain).",
+      ${groupHead(t("settings.warp.grpConn"), t("settings.warp.grpConnHint"))}
+      ${row(iconWarp(), t("settings.warp.enableTitle"),
+        t("settings.warp.enableHint"),
         toggle("warp.enabled", w.enabled))}
-      ${row(iconBalancer(), "Режим WARP",
-        "<b>Direct</b> — единственный outbound (трафик через WARP, без вашего прокси). <b>Chain</b> — поверх активного прокси (proxy → WARP → internet).",
-        select("warp.mode", w.mode || "direct", ["direct", "chain"], WARP_MODE_LABELS))}
+      ${row(iconBalancer(), t("settings.warp.modeTitle"),
+        t("settings.warp.modeHint"),
+        select("warp.mode", w.mode || "direct", ["direct", "chain"], warpModeLabels()))}
     </div>
 
     <!-- 2. Регистрация: license + register/reset + status/ipv4 -->
     <div class="set-group">
-      ${groupHead("Регистрация", "Создаёт WireGuard device на стороне Cloudflare. Без регистрации WARP не подключится.")}
+      ${groupHead(t("settings.warp.grpReg"), t("settings.warp.grpRegHint"))}
       <div class="warp-status-row">
         <div>
-          <div class="warp-status-row__t" id="warp-status">Проверка…</div>
+          <div class="warp-status-row__t" id="warp-status">${t("settings.warp.statusChecking")}</div>
           <div class="warp-status-row__sub">WG IPv4: <span id="warp-ipv4">—</span></div>
         </div>
         <span class="kicker kicker--mid">CLOUDFLARE</span>
       </div>
-      ${row(iconLock(), "Лицензия WARP+ (опционально)",
-        "26 символов из приложения «1.1.1.1» → Settings → Account → Key. Оставьте пусто для бесплатного WARP.",
+      ${row(iconLock(), t("settings.warp.licTitle"),
+        t("settings.warp.licHint"),
         `<input class="settings-input" type="text" id="warp-license-input" value="" maxlength="26" placeholder="xxxxxxxx-xxxxxxxx-xxxxxxxx" autocomplete="off" spellcheck="false"/>`)}
       <div class="set-row">
         <div class="set-row__lbl">
-          <div class="set-row__t">Управление регистрацией</div>
-          <div class="set-row__d">«Зарегистрировать» создаёт пару и обновляет device в CF. «Сбросить» удаляет device и стирает локальный warp.json.</div>
+          <div class="set-row__t">${t("settings.warp.manageTitle")}</div>
+          <div class="set-row__d">${t("settings.warp.manageHint")}</div>
         </div>
         <div class="set-row__ctl">
-          <button class="btn btn--sm" data-action="warp-register" type="button">Зарегистрировать</button>
-          <button class="btn btn--sm btn--danger" data-action="warp-reset" type="button">Сбросить</button>
+          <button class="btn btn--sm" data-action="warp-register" type="button">${t("settings.warp.register")}</button>
+          <button class="btn btn--sm btn--danger" data-action="warp-reset" type="button">${t("settings.warp.reset")}</button>
         </div>
       </div>
     </div>
 
     <!-- 3. Endpoint + scanner: endpoint, MTU, scan -->
     <div class="set-group">
-      ${groupHead("Endpoint", "Куда подключаться. Сканер ищет быстрый IP в публичных подсетях CF.")}
-      ${row(iconRemote(), "Endpoint",
-        "WARP сервер: <code>engage.cloudflareclient.com:2408</code> по умолчанию. Можно <code>auto4</code>/<code>auto6</code>/<code>auto</code> — sing-box выберет случайный clean-IP.",
+      ${groupHead(t("settings.warp.grpEndpoint"), t("settings.warp.grpEndpointHint"))}
+      ${row(iconRemote(), t("settings.warp.endpointTitle"),
+        t("settings.warp.endpointHint"),
         inputText("warp.endpoint", w.endpoint || "engage.cloudflareclient.com:2408", "text"))}
-      ${row(iconMtu(), "MTU",
-        "Максимальный размер WG-пакета. CF рекомендует 1280.",
+      ${row(iconMtu(), t("settings.warp.mtuTitle"),
+        t("settings.warp.mtuHint"),
         inputText("warp.mtu", w.mtu || 1280, "number", 'min="576" max="1500"'))}
-      ${row(iconTarget(), "Найти лучший CF endpoint",
-        "Сканирует CF WARP-пул через WG-handshake (если есть warp.json) или TCP-ping. top-10 по latency, «Применить» подставит в поле Endpoint.",
-        `<button class="btn btn--sm" data-action="warp-scan" type="button">Сканировать</button>`)}
-      ${row(iconCache(), "Глубокое сканирование",
-        "Расширенный набор подсетей CF (~22 вместо 8) и больше IP на подсеть. Дольше (~15-25с), шанс найти лучший endpoint выше.",
+      ${row(iconTarget(), t("settings.warp.scanTitle"),
+        t("settings.warp.scanHint"),
+        `<button class="btn btn--sm" data-action="warp-scan" type="button">${t("settings.warp.scan")}</button>`)}
+      ${row(iconCache(), t("settings.warp.deepTitle"),
+        t("settings.warp.deepHint"),
         toggle("warp.deepScan", !!w.deepScan))}
       <div class="settings-section" id="warp-scan-results" hidden style="margin: 6px 0 0;">
-        <div class="settings-banner" id="warp-scan-status">Сканирую…</div>
+        <div class="settings-banner" id="warp-scan-status">${t("settings.warp.scanInit")}</div>
         <div id="warp-scan-list"></div>
       </div>
     </div>
 
     <!-- 4. Маскировка: AmneziaWG noise -->
     <div class="set-group">
-      ${groupHead("Маскировка (AmneziaWG)", "Junk-пакеты перед WG-хендшейком — обход ML-DPI, который ловит WG-сигнатуру (актуально для РФ-ТСПУ с апреля 2026).")}
-      ${row(iconScissors(), "Профиль обфускации",
-        "Готовый набор (off/default/aggressive) или custom — параметры ниже. Работает только в форке sing-box (собран с <code>with_awg</code>).",
-        select("warp.noisePreset", w.noisePreset || "off", ["off", "default", "aggressive", "custom"], WARP_NOISE_LABELS, true))}
+      ${groupHead(t("settings.warp.grpMask"), t("settings.warp.grpMaskHint"))}
+      ${row(iconScissors(), t("settings.warp.noiseTitle"),
+        t("settings.warp.noiseHint"),
+        select("warp.noisePreset", w.noisePreset || "off", ["off", "default", "aggressive", "custom"], warpNoiseLabels(), true))}
       ${(w.noisePreset === "custom") ? renderWarpCustomNoise(w.customNoise || {}) : ""}
     </div>
 
     <!-- 5. Авто-ротация -->
     <div class="set-group">
-      ${groupHead("Авто-ротация endpoint", "Когда задержка текущего endpoint выше порога — Ninety автоматически пересканирует и переключится на лучший. Используется при connected.")}
-      ${row(iconClock(), "Авто-ротация endpoint",
-        "Раз в N минут опрашиваем delay текущего WARP-узла через clash-API. Если он выше порога — запускаем scan и применяем лучший (auto-reconnect). Бьёт ровно один раз пока endpoint не нормализуется.",
+      ${groupHead(t("settings.warp.grpRot"), t("settings.warp.grpRotHint"))}
+      ${row(iconClock(), t("settings.warp.rotTitle"),
+        t("settings.warp.rotHint"),
         toggle("warp.autoRescan", !!w.autoRescan))}
-      ${row(iconClock(), "Интервал опроса (мин)",
-        "Как часто проверять latency. Слишком часто = лишний трафик и шум в логах.",
+      ${row(iconClock(), t("settings.warp.rotIntTitle"),
+        t("settings.warp.rotIntHint"),
         inputText("warp.autoRescanIntervalMin", w.autoRescanIntervalMin ?? 30, "number", 'min="5" max="360"'))}
-      ${row(iconTarget(), "Порог latency (мс)",
-        "Если delay текущего endpoint превышает порог (или равен 0 — таймаут) — триггер scan.",
+      ${row(iconTarget(), t("settings.warp.rotThrTitle"),
+        t("settings.warp.rotThrHint"),
         inputText("warp.autoRescanThresholdMs", w.autoRescanThresholdMs ?? 300, "number", 'min="100" max="5000"'))}
     </div>
 
     <!-- 6. История ротаций -->
     <div class="set-group">
-      ${groupHead("История ротаций", "Последние авто-смены WARP endpoint — что было, что стало, на сколько мс улучшилось. Хранится локально, последние 20 записей.")}
-      ${row(iconLog(), "Количество записей",
-        "Сколько ротаций в локальной истории.",
+      ${groupHead(t("settings.warp.grpHist"), t("settings.warp.grpHistHint"))}
+      ${row(iconLog(), t("settings.warp.histCountTitle"),
+        t("settings.warp.histCountHint"),
         `<span class="settings-version" id="warp-history-count">—</span>`)}
       <div id="warp-history-list"></div>
     </div>
@@ -930,13 +903,11 @@ function renderWarp(o) {
 function renderWarpCustomNoise(cn) {
   const c = cn.count || {}, s = cn.size || {}, d = cn.delay || {};
   return `
-    <div class="settings-banner">
-      Custom-обфускация: количество junk-пакетов и их размер/задержка задаются вручную. Слишком крупные значения (например count 20+) увеличат время WG-handshake и могут перегрузить узкие каналы.
-    </div>
+    <div class="settings-banner">${t("settings.warp.customBanner")}</div>
     <div class="settings-section">
-      ${rangeRow("Количество fake-пакетов", "Сколько мусора отправить перед реальным WG-init.", "warp.customNoise.count.from", c.from ?? 2, "warp.customNoise.count.to", c.to ?? 5)}
-      ${rangeRow("Размер пакета (байт)", "Случайная длина каждого fake-пакета.", "warp.customNoise.size.from", s.from ?? 20, "warp.customNoise.size.to", s.to ?? 60)}
-      ${rangeRow("Задержка между пакетами (мс)", "Случайный sleep между отправкой junk-пакетов.", "warp.customNoise.delay.from", d.from ?? 8, "warp.customNoise.delay.to", d.to ?? 20)}
+      ${rangeRow(t("settings.warp.customCountTitle"), t("settings.warp.customCountHint"), "warp.customNoise.count.from", c.from ?? 2, "warp.customNoise.count.to", c.to ?? 5)}
+      ${rangeRow(t("settings.warp.customSizeTitle"), t("settings.warp.customSizeHint"), "warp.customNoise.size.from", s.from ?? 20, "warp.customNoise.size.to", s.to ?? 60)}
+      ${rangeRow(t("settings.warp.customDelayTitle"), t("settings.warp.customDelayHint"), "warp.customNoise.delay.from", d.from ?? 8, "warp.customNoise.delay.to", d.to ?? 20)}
     </div>
   `;
 }
