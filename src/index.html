@@ -122,7 +122,7 @@
               </span>
               <span>
                 <span class="traffic__val" id="tf-down">0</span>
-                <span class="traffic__unit" id="tf-down-unit">КБ/с</span>
+                <span class="traffic__unit" id="tf-down-unit" data-i18n="units.rateKiB">КБ/с</span>
               </span>
             </div>
             <div class="traffic__row">
@@ -132,7 +132,7 @@
               </span>
               <span>
                 <span class="traffic__val" id="tf-up">0</span>
-                <span class="traffic__unit" id="tf-up-unit">КБ/с</span>
+                <span class="traffic__unit" id="tf-up-unit" data-i18n="units.rateKiB">КБ/с</span>
               </span>
             </div>
           </div>
@@ -231,11 +231,11 @@
                 </div>
                 <div class="loc-card__ip" id="loc-ip-row" hidden>
                   <span class="loc-card__ip-label">IP</span>
-                  <span class="loc-card__ip-value" id="loc-ip" title="Кликните, чтобы показать на 20 секунд">— · —</span>
+                  <span class="loc-card__ip-value" id="loc-ip" data-i18n-title="home.ipClickShow" title="Кликните, чтобы показать на 20 секунд">— · —</span>
                 </div>
                 <div class="loc-card__ip" id="loc-warp-row" hidden>
                   <span class="loc-card__ip-label">WARP</span>
-                  <span class="loc-card__ip-value" id="loc-warp-endpoint" title="Текущий CF endpoint">—</span>
+                  <span class="loc-card__ip-value" id="loc-warp-endpoint" data-i18n-title="home.warpEpTitle" title="Текущий CF endpoint">—</span>
                 </div>
               </div>
               <div class="loc-card__metric">
@@ -263,7 +263,7 @@
                 </span>
                 <span class="stats__ping-row">
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stats__ping-ic"><path d="M5 12.5a11 11 0 0 1 14 0"/><path d="M2 9a16 16 0 0 1 20 0"/><path d="M8.5 16a6 6 0 0 1 7 0"/><path d="M12 19.5h.01"/></svg>
-                  <span class="stats__value tnum"><span id="stats-ping">—</span><span class="unit">мс</span></span>
+                  <span class="stats__value tnum"><span id="stats-ping">—</span><span class="unit" data-i18n="units.ms">мс</span></span>
                 </span>
               </button>
 
@@ -328,7 +328,7 @@
             <div class="screen__body">
               <div class="prox-grid" id="proxies-grid"></div>
             </div>
-            <button class="prox-fab" id="proxies-fab" type="button" aria-label="Проверить задержку всех нод">
+            <button class="prox-fab" id="proxies-fab" type="button" data-i18n-aria-label="proxies.fabAria" aria-label="Проверить задержку всех нод">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
             </button>
           </section>
@@ -351,7 +351,7 @@
           <section class="screen" data-view="logs" hidden>
             <div class="screen__head">
               <div class="screen__head-main">
-                <div class="screen__kicker" id="logs-kicker">ЖУРНАЛ · SING-BOX</div>
+                <div class="screen__kicker" id="logs-kicker" data-i18n="logs.kickerInit">ЖУРНАЛ · SING-BOX</div>
                 <h2 class="screen__title" data-i18n="logs.title">Логи</h2>
                 <div class="screen__sub" id="logs-path" title="">—</div>
               </div>
@@ -451,7 +451,7 @@
               <!-- Шаг 2 — Импорт подписки -->
               <div class="onb-step" data-step="2" hidden>
                 <div class="onb">
-                  <div class="onb__kicker">ШАГ 2  ·  ИМПОРТ</div>
+                  <div class="onb__kicker" data-i18n="onb.step2">ШАГ 2  ·  ИМПОРТ</div>
                   <h1 class="onb__title" data-i18n="onb.import.title">Добавьте подписку</h1>
                   <p class="onb__sub" data-i18n-html="onb.import.sub">Вставьте URL подписки или ссылку <code>vless://</code>. Если она уже в буфере обмена — мы её прочитаем.</p>
                   <div class="onb-tiles">
@@ -484,7 +484,7 @@
                     <div class="onb-spinner__ring onb-spinner__ring--2"></div>
                     <div class="onb-spinner__core"></div>
                   </div>
-                  <div class="onb__kicker">ШАГ 3  ·  ПОДКЛЮЧЕНИЕ</div>
+                  <div class="onb__kicker" data-i18n="onb.step3">ШАГ 3  ·  ПОДКЛЮЧЕНИЕ</div>
                   <h1 class="onb__title" id="onb-connect-title" data-i18n="onb.connect.title">Подключаюсь к самой быстрой ноде…</h1>
                   <p class="onb__sub" id="onb-connect-sub" data-i18n="onb.connect.sub">sing-box стартует, перебираем ноды через clash-API. Это займёт пару секунд.</p>
                   <div class="onb__cta">
@@ -499,7 +499,7 @@
                   <div class="onb-check" aria-hidden="true">
                     <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
                   </div>
-                  <div class="onb__kicker">ШАГ 4  ·  ГОТОВО</div>
+                  <div class="onb__kicker" data-i18n="onb.step4">ШАГ 4  ·  ГОТОВО</div>
                   <h1 class="onb__title" data-i18n="onb.done.title">VPN подключён</h1>
                   <p class="onb__sub" data-i18n-html="onb.done.sub">Трафик идёт через выбранную ноду. Любые проблемы — <code>Логи</code> сбоку. Сервер можно сменить кликом по карточке локации.</p>
                   <div class="onb__cta">
@@ -543,14 +543,14 @@
         <div class="add-modal__backdrop" id="add-modal-backdrop"></div>
         <div class="add-modal__card">
           <div class="add-modal__head">
-            <div class="add-modal__kicker" id="add-modal-title">ДОБАВИТЬ ПРОФИЛЬ</div>
-            <button class="add-modal__close" id="add-modal-close" type="button" aria-label="Закрыть">
+            <div class="add-modal__kicker" id="add-modal-title" data-i18n="add.title">ДОБАВИТЬ ПРОФИЛЬ</div>
+            <button class="add-modal__close" id="add-modal-close" type="button" data-i18n-aria-label="add.close" aria-label="Закрыть">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></svg>
             </button>
           </div>
 
           <div class="add-modal__page add-modal__page--options" id="add-modal-page-options">
-            <div class="add-modal__hint">
+            <div class="add-modal__hint" data-i18n="add.hint">
               Вставь подписку по URL, vless://-ссылку или их список — мы разберёмся сами.
             </div>
             <div class="add-modal__tiles">
@@ -559,22 +559,22 @@
                   <rect x="8" y="2" width="8" height="4" rx="1"/>
                   <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
                 </svg>
-                <span class="add-modal__tile-title">Из буфера</span>
-                <span class="add-modal__tile-sub">Распознаёт URL и vless://</span>
+                <span class="add-modal__tile-title" data-i18n="add.tileClipboard">Из буфера</span>
+                <span class="add-modal__tile-sub" data-i18n="add.tileClipboardSub">Распознаёт URL и vless://</span>
               </button>
               <button class="add-modal__tile" data-action="manual" type="button">
                 <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M12 5v14"/><path d="M5 12h14"/>
                 </svg>
-                <span class="add-modal__tile-title">Вручную</span>
-                <span class="add-modal__tile-sub">URL + название + интервал</span>
+                <span class="add-modal__tile-title" data-i18n="add.tileManual">Вручную</span>
+                <span class="add-modal__tile-sub" data-i18n="add.tileManualSub">URL + название + интервал</span>
               </button>
               <button class="add-modal__tile" data-action="file" type="button">
                 <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>
                 </svg>
-                <span class="add-modal__tile-title">Файл .toml</span>
-                <span class="add-modal__tile-sub">TrustTunnel endpoint-конфиг</span>
+                <span class="add-modal__tile-title" data-i18n="add.tileFile">Файл .toml</span>
+                <span class="add-modal__tile-sub" data-i18n="add.tileFileSub">TrustTunnel endpoint-конфиг</span>
               </button>
             </div>
             <input id="add-modal-file" type="file" accept=".toml,text/plain" hidden/>
@@ -582,8 +582,8 @@
 
           <div class="add-modal__page add-modal__page--manual" id="add-modal-page-manual" hidden>
             <div class="add-modal__field">
-              <label class="add-modal__label" for="add-modal-name">Название</label>
-              <input class="add-modal__input" id="add-modal-name" type="text" placeholder="Моя подписка" autocomplete="off"/>
+              <label class="add-modal__label" for="add-modal-name" data-i18n="add.labelName">Название</label>
+              <input class="add-modal__input" id="add-modal-name" type="text" data-i18n-placeholder="add.phName" placeholder="Моя подписка" autocomplete="off"/>
             </div>
             <div class="add-modal__field">
               <label class="add-modal__label" for="add-modal-url">URL, vless://, naive+https://, tt://…</label>
@@ -591,15 +591,15 @@
             </div>
             <div class="add-modal__field">
               <div class="add-modal__row">
-                <label class="add-modal__label" for="add-modal-interval">Авто-обновление</label>
+                <label class="add-modal__label" for="add-modal-interval" data-i18n="add.labelAuto">Авто-обновление</label>
                 <span class="add-modal__interval-val" id="add-modal-interval-val">12 ч</span>
               </div>
               <input class="add-modal__slider" id="add-modal-interval" type="range" min="0" max="96" step="1" value="12"/>
             </div>
             <div class="add-modal__error" id="add-modal-error" hidden></div>
             <div class="add-modal__actions">
-              <button class="add-modal__btn add-modal__btn--ghost" id="add-modal-back" type="button">НАЗАД</button>
-              <button class="add-modal__btn add-modal__btn--primary" id="add-modal-submit" type="button">ДОБАВИТЬ</button>
+              <button class="add-modal__btn add-modal__btn--ghost" id="add-modal-back" type="button" data-i18n="add.back">НАЗАД</button>
+              <button class="add-modal__btn add-modal__btn--primary" id="add-modal-submit" type="button" data-i18n="add.submit">ДОБАВИТЬ</button>
             </div>
           </div>
 
@@ -614,13 +614,13 @@
       <div class="update-modal" id="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-kicker" hidden>
         <div class="update-modal__backdrop" id="update-backdrop"></div>
         <div class="update-modal__card">
-          <div class="update-modal__kicker" id="update-kicker">ОБНОВЛЕНИЕ ДОСТУПНО</div>
+          <div class="update-modal__kicker" id="update-kicker" data-i18n="updModal.available">ОБНОВЛЕНИЕ ДОСТУПНО</div>
           <div class="update-modal__version">
             <span class="update-modal__ver" id="update-current">—</span>
             <span class="update-modal__arrow">→</span>
             <span class="update-modal__ver update-modal__ver--accent" id="update-latest">—</span>
           </div>
-          <div class="update-modal__section-label">Что нового</div>
+          <div class="update-modal__section-label" data-i18n="updModal.whatsNew">Что нового</div>
           <div class="update-modal__changelog" id="update-changelog">—</div>
 
           <div class="update-modal__progress" id="update-progress" hidden>
@@ -634,8 +634,8 @@
           <div class="update-modal__error" id="update-error" hidden></div>
 
           <div class="update-modal__actions" id="update-actions">
-            <button class="update-modal__btn update-modal__btn--ghost" id="update-later" type="button">ПОЗЖЕ</button>
-            <button class="update-modal__btn update-modal__btn--primary" id="update-install" type="button">ОБНОВИТЬ</button>
+            <button class="update-modal__btn update-modal__btn--ghost" id="update-later" type="button" data-i18n="updModal.later">ПОЗЖЕ</button>
+            <button class="update-modal__btn update-modal__btn--primary" id="update-install" type="button" data-i18n="updModal.install">ОБНОВИТЬ</button>
           </div>
         </div>
       </div>

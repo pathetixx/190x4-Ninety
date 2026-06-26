@@ -32,6 +32,8 @@ export const ru = {
     noSub: "НЕТ ПОДПИСКИ",
     unlimited: "безлимит",
     importHint: "ИМПОРТИРУЙТЕ КОНФИГ ИЛИ ПОДПИСКУ",
+    ipClickShow: "Кликните, чтобы показать на 20 секунд",
+    warpEpTitle: "Текущий CF endpoint",
   },
 
   hero: {
@@ -82,6 +84,7 @@ export const ru = {
   proxies: {
     title: "Ноды",
     metaNone: "Подписка не выбрана",
+    fabAria: "Проверить задержку всех нод",
     auto: "Авто",
     autoSub: "Быстрейший по пингу",
     autoNow: "Сейчас → {name}",
@@ -228,6 +231,7 @@ export const ru = {
     levelAria: "Уровень логов",
     searchAria: "Поиск по логам",
     kicker: "ЖУРНАЛ",
+    kickerInit: "ЖУРНАЛ · SING-BOX",
     compFallback: "компонент",
     empty: "Лог пуст — {comp} ещё ничего не записал.",
     notFound: "Ничего не найдено по фильтру.",
@@ -422,6 +426,15 @@ export const ru = {
     loadingClipboard: "Читаю буфер…",
     errNoClipboard: "Нет доступа к буферу — введите URL вручную ниже.",
     errClipboardEmpty: "Буфер пуст. Введите URL вручную.",
+    title: "ДОБАВИТЬ ПРОФИЛЬ",
+    close: "Закрыть",
+    hint: "Вставь подписку по URL, vless://-ссылку или их список — мы разберёмся сами.",
+    tileClipboard: "Из буфера", tileClipboardSub: "Распознаёт URL и vless://",
+    tileManual: "Вручную", tileManualSub: "URL + название + интервал",
+    tileFile: "Файл .toml", tileFileSub: "TrustTunnel endpoint-конфиг",
+    labelName: "Название", phName: "Моя подписка",
+    labelAuto: "Авто-обновление",
+    back: "НАЗАД", submit: "ДОБАВИТЬ",
   },
 
   edit: {
@@ -446,6 +459,9 @@ export const ru = {
     done: "ГОТОВО",
     failed: "Не удалось обновить: {err}",
     retry: "ПОВТОРИТЬ",
+    available: "ОБНОВЛЕНИЕ ДОСТУПНО",
+    whatsNew: "Что нового",
+    later: "ПОЗЖЕ",
   },
 
   share: {
@@ -544,6 +560,9 @@ export const ru = {
   onb: {
     skip: "Пропустить",
     back: "Назад",
+    step2: "ШАГ 2  ·  ИМПОРТ",
+    step3: "ШАГ 3  ·  ПОДКЛЮЧЕНИЕ",
+    step4: "ШАГ 4  ·  ГОТОВО",
     prefs: { language: "Язык", region: "Регион", theme: "Тема" },
     welcome: {
       title: "Добро пожаловать в Ninety",
