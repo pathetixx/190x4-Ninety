@@ -42,6 +42,7 @@ const STATIC = { ru, en };
 const DYNAMIC = {
   uk: () => import("/lib/i18n/uk.js").then(m => m.uk),
   zh: () => import("/lib/i18n/zh.js").then(m => m.zh),
+  es: () => import("/lib/i18n/es.js").then(m => m.es),
 };
 
 const _flat = {};   // code -> плоский словарь key->string
