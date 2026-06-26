@@ -41,6 +41,7 @@ const STATIC = { ru, en };
 // Динамические загрузчики (фаза 3): code -> () => import(...).then(m => m.<code>)
 const DYNAMIC = {
   uk: () => import("/lib/i18n/uk.js").then(m => m.uk),
+  zh: () => import("/lib/i18n/zh.js").then(m => m.zh),
 };
 
 const _flat = {};   // code -> плоский словарь key->string
