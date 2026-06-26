@@ -71,6 +71,120 @@ export const en = {
   dpi: {
     title: "DPI Bypass",
     sub: "Built-in unblocking for services that won't open directly. Runs alongside the VPN.",
+
+    master: {
+      offTitle: "Bypass off",
+      offDesc: "Requests to blocked services go direct. Turn on bypass — voice, messengers and streaming open up.",
+      startingTitle: "Starting…",
+      startingDesc: "Bringing up the engine and applying strategy <b>{strat}</b>.",
+      runningTitle: "Bypass active",
+      runningDesc: "Traffic to domains in the list goes around DPI. Runs alongside the VPN.",
+      errorTitle: "Startup error",
+      errorDesc: `Couldn't bring up the <b>winws</b> engine. It needs administrator rights or the driver is busy — details in the <a href="#" data-dpi-logs>logs</a>.`,
+      pausedTitle: "Paused",
+      pausedDesc: "VPN is in TUN mode — all traffic already goes through the tunnel, bypass isn't needed.",
+    },
+
+    modeTxt: { proxy: "PROXY", systemProxy: "SYSTEM PROXY", tun: "VPN · TUN" },
+    chip: { off: "Off", starting: "Starting", running: "On", error: "Error", paused: "Paused", open: "Open DPI Bypass" },
+
+    banner: {
+      paused: "<b>DPI bypass is paused:</b> in TUN mode all traffic goes through the VPN, bypass isn't needed. When you leave TUN, bypass resumes automatically.",
+      errorFallback: "Needs administrator rights, or the WinDivert driver / port is busy.",
+      errorTitle: "The winws engine didn't start.",
+      openLogs: "Open logs",
+    },
+
+    autopick: {
+      cardLabel: "Auto-pick strategy",
+      lead: "We'll run <b>all {n} strategies</b> on your connection and pick the one that actually unblocks services. <b>Run with the VPN off.</b>",
+      start: "Tune for my connection",
+      checking: "Testing strategy <b>{name}</b>",
+      progLine: "connection test · TLS handshake · ping&nbsp;&nbsp;<b>{i}</b> of {total}",
+      recommended: "Recommended",
+      apply: "Apply {name}",
+      again: "Again",
+      metaOk: "{passed} of {total} passed · best latency {ms} ms",
+      metaNone: "No strategy passed — make sure the VPN is off.",
+      toastErr: "Auto-pick: {err}",
+    },
+
+    strategy: { label: "Current strategy", drawerBtn: "Strategies", recTag: "recommended" },
+
+    game: {
+      title: "Game filter",
+      desc: "Extra bypass for games (Fortnite, Valorant) — filters both TCP and UDP. Not needed for regular web.",
+      off: "Off", tcpudp: "TCP + UDP",
+    },
+
+    hosts: {
+      label: "hosts file",
+      applied: "applied", notApplied: "not applied",
+      desc: "Writes working IPs for domains broken not by DPI but by the provider's DNS spoofing — Discord voice servers, web Telegram, GitHub. Complements bypass at the address level.",
+      unitActive: "entries active", unitInactive: "inactive",
+      apply: "Apply", update: "Update", clear: "Reset",
+      toastApplied: "hosts file updated · {n} entries",
+      toastCleared: "hosts entries removed",
+      toastErr: "hosts file: {err}",
+    },
+
+    vpn: {
+      label: "Link with the VPN",
+      descTun: "VPN in TUN mode intercepts all traffic — bypass pauses automatically.",
+      descOther: "Bypass is independent of the VPN: it works over the system proxy even when the VPN is off. The active node's server is auto-added to exclusions.",
+    },
+
+    domains: { label: "Domain lists", unit: "domains bypassed", user: "My domains", exclude: "Exclusions" },
+
+    updates: {
+      label: "Updates",
+      appName: "Application", engineName: "Bypass engine", strategiesName: "Strategy set",
+      engineNote: "in the app", pillUpdate: "update", pillOk: "up to date",
+      btnUpdate: "Update",
+      toastDone: "Strategy set updated",
+      toastErr: "Update failed: {err}",
+    },
+
+    ipset: {
+      label: "IPSet mode",
+      desc: "Advanced: filtering by IP sets",
+      any: "Any", loaded: "Loaded", off: "Off",
+      hintAny: "Bypass applies to any IP on a domain match. Recommended.",
+      hintLoaded: "Bypass only for IPs from the loaded set (ipset-all).",
+      hintOff: "IP filtering is off — only the domain list decides.",
+      listLabel: "IP list (ipset-all)", unit: "addresses", update: "Update list",
+      toastDone: "IP list updated · {n} addresses",
+      toastErr: "IP list: {err}",
+    },
+
+    monkey: {
+      title: "Disguise WinDivert as Monkey",
+      desc: "The bypass driver loads under the neutral name “Monkey” instead of “WinDivert” (service and .sys file). The engine and strategies themselves don't change.",
+      toastOn: "Driver: Monkey (WinDivert name hidden)",
+      toastOff: "Driver: WinDivert (standard)",
+    },
+
+    drawer: {
+      aria: "Bypass strategies", title: "Bypass strategies", close: "Close",
+      search: "Search: ALT11, fake tls…", count: "{n} strategies", activeMarked: "ACTIVE IS MARKED",
+    },
+
+    editor: {
+      userTitle: "My domains",
+      userHint: "Domains (one per line) forced through DPI bypass. Add subdomains separately. Lines starting with # are comments.",
+      excludeTitle: "Exclusions",
+      excludeHint: "Domains winws does NOT touch (e.g. banks or services that break under bypass). The active VPN node's server is added here automatically.",
+      close: "Close", cancel: "Cancel", save: "Save",
+      toastExclude: "Exclusions saved", toastUser: "Domain list saved",
+      toastErr: "Couldn't save: {err}",
+    },
+
+    toast: {
+      startFail: "DPI bypass didn't start — see details in the card",
+      willEnable: "DPI will turn on after you leave TUN",
+      disabled: "DPI bypass off",
+      strategy: "Strategy: {name}",
+    },
   },
 
   logs: {

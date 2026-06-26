@@ -9,6 +9,7 @@
 
 import { loadOptions } from "/lib/options.js";
 import { escapeHtml as esc } from "/lib/esc.js";
+import { t } from "/lib/i18n/index.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -53,21 +54,22 @@ let STRATEGIES = [{ id: "alt11", name: "ALT11", desc: "Самый стойкий
 const stratByName = (n) =>
   STRATEGIES.find((s) => s.name === n) || STRATEGIES.find((s) => s.id === n) || STRATEGIES[0];
 
+// kicker — декоративный английский (не локализуем); title/desc — через t() в рантайме.
 const MASTER = {
-  off:      { kicker: () => "OFF · STAND-BY",     title: "Обход выключен", icon: "dpi",
-              desc: () => "Запросы к заблокированным сервисам идут напрямую. Включите обход — откроются голос, мессенджеры и стриминг." },
-  starting: { kicker: () => "STARTING · WINWS",   title: "Запускается…",   icon: "dpi",
-              desc: (s) => `Поднимаю движок и применяю стратегию <b>${esc(s)}</b>.` },
-  running:  { kicker: (s) => "RUNNING · " + s,    title: "Обход активен",  icon: "dpi",
-              desc: () => "Трафик к доменам из списка идёт в обход DPI. Работает параллельно с VPN." },
-  error:    { kicker: () => "ERROR · DRIVER",     title: "Ошибка запуска", icon: "alert",
-              desc: () => 'Не удалось поднять движок <b>winws</b>. Нужны права администратора или занят драйвер — детали в <a href="#" data-dpi-logs>логах</a>.' },
-  paused:   { kicker: () => "PAUSED · TUN",       title: "На паузе",       icon: "pause",
-              desc: () => "VPN в режиме TUN — весь трафик уже идёт через туннель, обход не требуется." },
+  off:      { kicker: () => "OFF · STAND-BY",     icon: "dpi",
+              title: () => t("dpi.master.offTitle"),      desc: () => t("dpi.master.offDesc") },
+  starting: { kicker: () => "STARTING · WINWS",   icon: "dpi",
+              title: () => t("dpi.master.startingTitle"), desc: (s) => t("dpi.master.startingDesc", { strat: esc(s) }) },
+  running:  { kicker: (s) => "RUNNING · " + s,    icon: "dpi",
+              title: () => t("dpi.master.runningTitle"),  desc: () => t("dpi.master.runningDesc") },
+  error:    { kicker: () => "ERROR · DRIVER",     icon: "alert",
+              title: () => t("dpi.master.errorTitle"),    desc: () => t("dpi.master.errorDesc") },
+  paused:   { kicker: () => "PAUSED · TUN",       icon: "pause",
+              title: () => t("dpi.master.pausedTitle"),   desc: () => t("dpi.master.pausedDesc") },
 };
 
-const MODE_TXT = { proxy: "ПРОКСИ", systemProxy: "СИСТЕМНЫЙ ПРОКСИ", tun: "VPN · TUN" };
-const CHIP_STATUS = { off: "Выкл", starting: "Запуск", running: "Вкл", error: "Ошибка", paused: "Пауза" };
+const modeTxt = () => ({ proxy: t("dpi.modeTxt.proxy"), systemProxy: t("dpi.modeTxt.systemProxy"), tun: t("dpi.modeTxt.tun") });
+const chipStatus = () => ({ off: t("dpi.chip.off"), starting: t("dpi.chip.starting"), running: t("dpi.chip.running"), error: t("dpi.chip.error"), paused: t("dpi.chip.paused") });
 
 /* ═══════════ STATE (persisted в localStorage) ═══════════ */
 const LS = {
@@ -124,54 +126,54 @@ function renderBody() {
   if (st === "paused") {
     banner = `<div class="dpi-banner" data-kind="paused">
       <span class="dpi-banner__icon">${ic("info", 16)}</span>
-      <div><b>DPI-обход на паузе:</b> в режиме TUN весь трафик идёт через VPN, обход не требуется. При выходе из TUN обход восстановится автоматически.</div>
+      <div>${t("dpi.banner.paused")}</div>
     </div>`;
   } else if (st === "error") {
     const reason = S.lastError
       ? esc(S.lastError.length > 400 ? S.lastError.slice(-400) : S.lastError)
-      : "Нужны права администратора, либо занят драйвер WinDivert / порт.";
+      : t("dpi.banner.errorFallback");
     banner = `<div class="dpi-banner" data-kind="error">
       <span class="dpi-banner__icon">${ic("alert", 16)}</span>
-      <div><b>Движок winws не запустился.</b> <span style="white-space:pre-wrap;font-family:var(--font-mono);font-size:11px">${reason}</span></div>
-      <button class="btn btn--sm dpi-banner__action" data-dpi-logs>${ic("terminal", 13)} Открыть логи</button>
+      <div><b>${t("dpi.banner.errorTitle")}</b> <span style="white-space:pre-wrap;font-family:var(--font-mono);font-size:11px">${reason}</span></div>
+      <button class="btn btn--sm dpi-banner__action" data-dpi-logs>${ic("terminal", 13)} ${t("dpi.banner.openLogs")}</button>
     </div>`;
   }
 
   let autopick = "";
   if (p.phase === "idle") {
-    autopick = `<div class="dpi-autopick__lead">Прогоним <b>все ${STRATEGIES.length} стратегий</b> на вашем интернете и выберем ту, что реально открывает заблокированные сервисы. <b>Запускать при выключенном VPN.</b></div>
-      <div class="dpi-autopick__actions"><button class="btn btn--primary btn--sm" data-dpi-pick-start>${ic("target", 13)} Подобрать под мой интернет</button></div>`;
+    autopick = `<div class="dpi-autopick__lead">${t("dpi.autopick.lead", { n: STRATEGIES.length })}</div>
+      <div class="dpi-autopick__actions"><button class="btn btn--primary btn--sm" data-dpi-pick-start>${ic("target", 13)} ${t("dpi.autopick.start")}</button></div>`;
   } else if (p.phase === "running") {
     const total = p.total || STRATEGIES.length;
     const pct = total ? (p.i / total * 100).toFixed(1) : 0;
     autopick = `<div class="dpi-autopick__prog">
-        <div class="dpi-autopick__prog-top"><span class="dpi-autopick__prog-now">Проверяю стратегию <b>${esc(p.name || "…")}</b></span></div>
+        <div class="dpi-autopick__prog-top"><span class="dpi-autopick__prog-now">${t("dpi.autopick.checking", { name: esc(p.name || "…") })}</span></div>
         <div class="dpi-bar"><span class="dpi-bar__fill" style="width:${pct}%"></span></div>
-        <div class="dpi-autopick__candidate">тест соединения · TLS-handshake · ping&nbsp;&nbsp;<b>${p.i}</b> из ${total}</div>
+        <div class="dpi-autopick__candidate">${t("dpi.autopick.progLine", { i: p.i, total })}</div>
       </div>`;
   } else if (p.phase === "done") {
     autopick = `<div class="dpi-result">
         <span class="dpi-result__icon">${ic("check", 18)}</span>
-        <div class="dpi-result__main"><div class="dpi-result__label">Рекомендуется</div><div class="dpi-result__name">${esc(p.best || "—")}</div></div>
+        <div class="dpi-result__main"><div class="dpi-result__label">${t("dpi.autopick.recommended")}</div><div class="dpi-result__name">${esc(p.best || "—")}</div></div>
         <div class="dpi-result__meta">${esc(p.meta || "")}</div>
       </div>
       <div class="dpi-autopick__actions">
-        ${p.best ? `<button class="btn btn--primary btn--sm" data-dpi-pick-apply="${esc(p.best)}">${ic("check", 13)} Применить ${esc(p.best)}</button>` : ""}
-        <button class="btn btn--sm" data-dpi-pick-start>Заново</button>
+        ${p.best ? `<button class="btn btn--primary btn--sm" data-dpi-pick-apply="${esc(p.best)}">${ic("check", 13)} ${t("dpi.autopick.apply", { name: esc(p.best) })}</button>` : ""}
+        <button class="btn btn--sm" data-dpi-pick-start>${t("dpi.autopick.again")}</button>
       </div>`;
   }
 
   const UPD = [
-    { id: "app", name: "Приложение", ver: `Ninety ${S.versions.app}`, icon: "box", upd: false },
-    { id: "engine", name: "Движок обхода", ver: S.versions.engine, icon: "cpu", upd: false, note: "в приложении" },
-    { id: "strategies", name: "Набор стратегий", ver: `v${S.versions.strategies}`, icon: "list", upd: S.hasUpdate },
+    { id: "app", name: t("dpi.updates.appName"), ver: `Ninety ${S.versions.app}`, icon: "box", upd: false },
+    { id: "engine", name: t("dpi.updates.engineName"), ver: S.versions.engine, icon: "cpu", upd: false, note: t("dpi.updates.engineNote") },
+    { id: "strategies", name: t("dpi.updates.strategiesName"), ver: `v${S.versions.strategies}`, icon: "list", upd: S.hasUpdate },
   ];
   const updRows = UPD.map((row) => {
     const isUpd = S.updating === row.id;
     const right = row.upd
-      ? `<span class="dpi-pill" data-kind="update">обновление</span>
-         <button class="btn btn--sm btn--primary" data-dpi-update="${row.id}" ${isUpd ? "disabled" : ""}>${isUpd ? "…" : "Обновить"}</button>`
-      : `<span class="dpi-pill" data-kind="ok">${row.note || "актуально"}</span>`;
+      ? `<span class="dpi-pill" data-kind="update">${t("dpi.updates.pillUpdate")}</span>
+         <button class="btn btn--sm btn--primary" data-dpi-update="${row.id}" ${isUpd ? "disabled" : ""}>${isUpd ? "…" : t("dpi.updates.btnUpdate")}</button>`
+      : `<span class="dpi-pill" data-kind="ok">${row.note || t("dpi.updates.pillOk")}</span>`;
     return `<div class="dpi-upd-row" data-updating="${isUpd}">
         <span class="dpi-upd-row__icon">${ic(row.icon, 15)}</span>
         <div class="dpi-upd-row__main"><span class="dpi-upd-row__name">${row.name}</span><span class="dpi-upd-row__ver">${esc(row.ver)}</span></div>
@@ -180,9 +182,7 @@ function renderBody() {
       </div>`;
   }).join("");
 
-  const ipsetHint = { any: "Обход применяется к любому IP по совпадению домена. Рекомендуется.",
-    loaded: "Обход только для IP из загруженного набора (ipset-all).",
-    off: "IP-фильтрация выключена — решает только список доменов." }[S.ipset];
+  const ipsetHint = { any: t("dpi.ipset.hintAny"), loaded: t("dpi.ipset.hintLoaded"), off: t("dpi.ipset.hintOff") }[S.ipset];
   const domainsTxt = S.domains == null ? "…" : S.domains.toLocaleString("ru-RU");
 
   body.innerHTML = `
@@ -192,7 +192,7 @@ function renderBody() {
       <div class="dpi-master__icon">${ic(m.icon, 24)}</div>
       <div class="dpi-master__main">
         <div class="dpi-master__kicker"><span class="dpi-master__dot"></span><span>${esc(m.kicker(S.strategy))}</span></div>
-        <h3 class="dpi-master__title">${m.title}</h3>
+        <h3 class="dpi-master__title">${m.title()}</h3>
         <p class="dpi-master__desc">${m.desc(S.strategy)}</p>
       </div>
       <div class="dpi-master__toggle">
@@ -205,13 +205,13 @@ function renderBody() {
       <div class="dpi-col">
         <article class="dpi-card">
           <div class="dpi-card__head">
-            <div class="dpi-card__label">${ic("shield", 13)}Текущая стратегия</div>
-            <button class="btn btn--sm" data-dpi-drawer>${ic("sliders", 13)} Стратегии</button>
+            <div class="dpi-card__label">${ic("shield", 13)}${t("dpi.strategy.label")}</div>
+            <button class="btn btn--sm" data-dpi-drawer>${ic("sliders", 13)} ${t("dpi.strategy.drawerBtn")}</button>
           </div>
           <div class="dpi-strategy">
             <div class="dpi-strategy__row">
               <span class="dpi-strategy__name">${esc(cur.name)}</span>
-              ${S.strategy === "ALT11" ? '<span class="dpi-strategy__tag">рекоменд.</span>' : ""}
+              ${S.strategy === "ALT11" ? `<span class="dpi-strategy__tag">${t("dpi.strategy.recTag")}</span>` : ""}
             </div>
             <div class="dpi-strategy__desc">${esc(cur.desc || "")}</div>
           </div>
@@ -219,7 +219,7 @@ function renderBody() {
 
         <article class="dpi-card dpi-autopick">
           <div class="dpi-card__head">
-            <div class="dpi-card__label">${ic("target", 13)}Авто-подбор стратегии</div>
+            <div class="dpi-card__label">${ic("target", 13)}${t("dpi.autopick.cardLabel")}</div>
             ${p.phase === "running" ? `<span class="dpi-autopick__prog-count">${p.i} / ${p.total || STRATEGIES.length}</span>` : ""}
           </div>
           ${autopick}
@@ -228,27 +228,27 @@ function renderBody() {
         <article class="dpi-card">
           <div class="dpi-row">
             <div class="dpi-row__lbl">
-              <div class="dpi-row__t">Игровой фильтр</div>
-              <div class="dpi-row__d">Доп. обход для игр (Fortnite, Valorant) — фильтрует и TCP, и UDP. Для обычного веба не нужен.</div>
+              <div class="dpi-row__t">${t("dpi.game.title")}</div>
+              <div class="dpi-row__d">${t("dpi.game.desc")}</div>
             </div>
             <div class="seg">
-              <button class="seg__btn" data-on="${S.gameFilter === "off"}" data-dpi-game="off">Выкл</button>
-              <button class="seg__btn" data-on="${S.gameFilter === "tcpudp"}" data-dpi-game="tcpudp">TCP + UDP</button>
+              <button class="seg__btn" data-on="${S.gameFilter === "off"}" data-dpi-game="off">${t("dpi.game.off")}</button>
+              <button class="seg__btn" data-on="${S.gameFilter === "tcpudp"}" data-dpi-game="tcpudp">${t("dpi.game.tcpudp")}</button>
             </div>
           </div>
         </article>
 
         <article class="dpi-card dpi-hosts">
           <div class="dpi-card__head">
-            <div class="dpi-card__label">${ic("box", 13)}Файл hosts</div>
-            <span class="dpi-pill" data-kind="${S.hosts.applied ? "ok" : "idle"}">${S.hosts.applied ? "применён" : "не применён"}</span>
+            <div class="dpi-card__label">${ic("box", 13)}${t("dpi.hosts.label")}</div>
+            <span class="dpi-pill" data-kind="${S.hosts.applied ? "ok" : "idle"}">${S.hosts.applied ? t("dpi.hosts.applied") : t("dpi.hosts.notApplied")}</span>
           </div>
-          <div class="dpi-row__d" style="max-width:none">Прописывает рабочие IP для доменов, которые ломает не DPI, а подмена DNS у провайдера — голосовые серверы Discord, веб-Telegram, GitHub. Дополняет обход на уровне адресов.</div>
+          <div class="dpi-row__d" style="max-width:none">${t("dpi.hosts.desc")}</div>
           <div class="dpi-hosts__row">
-            <div class="dpi-hosts__stat"><span class="dpi-hosts__num tnum">${S.hosts.applied ? S.hosts.entries.toLocaleString("ru-RU") : "—"}</span><span class="dpi-hosts__unit">${S.hosts.applied ? "записей активно" : "не активен"}</span></div>
+            <div class="dpi-hosts__stat"><span class="dpi-hosts__num tnum">${S.hosts.applied ? S.hosts.entries.toLocaleString("ru-RU") : "—"}</span><span class="dpi-hosts__unit">${S.hosts.applied ? t("dpi.hosts.unitActive") : t("dpi.hosts.unitInactive")}</span></div>
             <div class="dpi-hosts__actions">
-              <button class="btn btn--sm btn--primary" data-dpi-hosts-apply ${S.hosts.busy ? "disabled" : ""}>${S.hosts.busy ? "…" : S.hosts.applied ? "Обновить" : "Применить"}</button>
-              ${S.hosts.applied ? `<button class="btn btn--sm" data-dpi-hosts-clear ${S.hosts.busy ? "disabled" : ""}>Сбросить</button>` : ""}
+              <button class="btn btn--sm btn--primary" data-dpi-hosts-apply ${S.hosts.busy ? "disabled" : ""}>${S.hosts.busy ? "…" : S.hosts.applied ? t("dpi.hosts.update") : t("dpi.hosts.apply")}</button>
+              ${S.hosts.applied ? `<button class="btn btn--sm" data-dpi-hosts-clear ${S.hosts.busy ? "disabled" : ""}>${t("dpi.hosts.clear")}</button>` : ""}
             </div>
           </div>
         </article>
@@ -257,46 +257,46 @@ function renderBody() {
       <div class="dpi-col">
         <article class="dpi-card dpi-vpn">
           <div class="dpi-card__head">
-            <div class="dpi-card__label">${ic("link", 13)}Связь с VPN</div>
-            <div class="dpi-vpn__mode" data-tun="${S.vpnMode === "tun"}"><span class="dpi-vpn__mode-dot"></span>${MODE_TXT[S.vpnMode] || MODE_TXT.systemProxy}</div>
+            <div class="dpi-card__label">${ic("link", 13)}${t("dpi.vpn.label")}</div>
+            <div class="dpi-vpn__mode" data-tun="${S.vpnMode === "tun"}"><span class="dpi-vpn__mode-dot"></span>${modeTxt()[S.vpnMode] || modeTxt().systemProxy}</div>
           </div>
           <div class="dpi-row__d" style="max-width:none">${S.vpnMode === "tun"
-            ? "VPN в режиме TUN перехватывает весь трафик — обход автоматически встаёт на паузу."
-            : "Обход независим от VPN: работает поверх системного прокси, даже если VPN выключен. Сервер активной ноды авто-добавляется в исключения."}</div>
+            ? t("dpi.vpn.descTun")
+            : t("dpi.vpn.descOther")}</div>
         </article>
 
         <article class="dpi-card">
-          <div class="dpi-card__head"><div class="dpi-card__label">${ic("list", 13)}Списки доменов</div></div>
-          <div class="dpi-domains__count"><span class="dpi-domains__num tnum">${domainsTxt}</span><span class="dpi-domains__unit">доменов обходится</span></div>
+          <div class="dpi-card__head"><div class="dpi-card__label">${ic("list", 13)}${t("dpi.domains.label")}</div></div>
+          <div class="dpi-domains__count"><span class="dpi-domains__num tnum">${domainsTxt}</span><span class="dpi-domains__unit">${t("dpi.domains.unit")}</span></div>
           <div class="dpi-domains__actions">
-            <button class="btn btn--sm" data-dpi-domains="user">Мои домены</button>
-            <button class="btn btn--sm" data-dpi-domains="exclude">Исключения</button>
+            <button class="btn btn--sm" data-dpi-domains="user">${t("dpi.domains.user")}</button>
+            <button class="btn btn--sm" data-dpi-domains="exclude">${t("dpi.domains.exclude")}</button>
           </div>
         </article>
 
         <article class="dpi-card dpi-updates">
-          <div class="dpi-card__head"><div class="dpi-card__label">${ic("download", 13)}Обновления</div></div>
+          <div class="dpi-card__head"><div class="dpi-card__label">${ic("download", 13)}${t("dpi.updates.label")}</div></div>
           <div class="dpi-upd">${updRows}</div>
         </article>
 
         <article class="dpi-card dpi-ipset" data-open="${S.ipsetOpen}">
           <div class="dpi-ipset__head" data-dpi-ipset-toggle>
-            <div class="dpi-row__lbl"><div class="dpi-row__t">Режим IPSet</div><div class="dpi-row__d">Для продвинутых: фильтрация по IP-множествам</div></div>
+            <div class="dpi-row__lbl"><div class="dpi-row__t">${t("dpi.ipset.label")}</div><div class="dpi-row__d">${t("dpi.ipset.desc")}</div></div>
             <span class="dpi-ipset__chev">${ic("chevron", 16)}</span>
           </div>
           <div class="dpi-ipset__body"><div class="dpi-ipset__inner"><div class="dpi-ipset__pad">
             <div class="seg">
-              <button class="seg__btn" data-on="${S.ipset === "any"}" data-dpi-ipset="any">Любой</button>
-              <button class="seg__btn" data-on="${S.ipset === "loaded"}" data-dpi-ipset="loaded">Загружен</button>
-              <button class="seg__btn" data-on="${S.ipset === "off"}" data-dpi-ipset="off">Выкл</button>
+              <button class="seg__btn" data-on="${S.ipset === "any"}" data-dpi-ipset="any">${t("dpi.ipset.any")}</button>
+              <button class="seg__btn" data-on="${S.ipset === "loaded"}" data-dpi-ipset="loaded">${t("dpi.ipset.loaded")}</button>
+              <button class="seg__btn" data-on="${S.ipset === "off"}" data-dpi-ipset="off">${t("dpi.ipset.off")}</button>
             </div>
             <div class="dpi-row__d" style="max-width:none">${ipsetHint}</div>
             <div class="dpi-ipset__upd">
               <div class="dpi-ipset__upd-info">
-                <span class="dpi-ipset__upd-t">Список IP (ipset-all)</span>
-                <span class="dpi-ipset__upd-c">${S.ipsetList.count == null ? "—" : S.ipsetList.count.toLocaleString("ru-RU") + " адресов"}</span>
+                <span class="dpi-ipset__upd-t">${t("dpi.ipset.listLabel")}</span>
+                <span class="dpi-ipset__upd-c">${S.ipsetList.count == null ? "—" : S.ipsetList.count.toLocaleString("ru-RU") + " " + t("dpi.ipset.unit")}</span>
               </div>
-              <button class="btn btn--sm" data-dpi-ipset-update ${S.ipsetList.busy ? "disabled" : ""}>${ic("download", 13)} ${S.ipsetList.busy ? "…" : "Обновить список"}</button>
+              <button class="btn btn--sm" data-dpi-ipset-update ${S.ipsetList.busy ? "disabled" : ""}>${ic("download", 13)} ${S.ipsetList.busy ? "…" : t("dpi.ipset.update")}</button>
             </div>
           </div></div></div>
         </article>
@@ -304,8 +304,8 @@ function renderBody() {
         <article class="dpi-card">
           <div class="dpi-row">
             <div class="dpi-row__lbl">
-              <div class="dpi-row__t">Подменить WinDivert на Monkey</div>
-              <div class="dpi-row__d">Драйвер обхода грузится под нейтральным именем «Monkey» вместо «WinDivert» (служба и файл .sys). Сам движок и стратегии не меняются.</div>
+              <div class="dpi-row__t">${t("dpi.monkey.title")}</div>
+              <div class="dpi-row__d">${t("dpi.monkey.desc")}</div>
             </div>
             <span class="switch" data-on="${S.monkey}" data-dpi-monkey role="switch" aria-checked="${S.monkey}"></span>
           </div>
@@ -319,10 +319,10 @@ function renderChip() {
   if (!slot) return;
   const st = effState();
   const switchOn = st === "running" || st === "starting";
-  slot.innerHTML = `<button class="dpi-chip" data-state="${st}" data-dpi-open title="Открыть DPI-обход">
+  slot.innerHTML = `<button class="dpi-chip" data-state="${st}" data-dpi-open title="${t("dpi.chip.open")}">
       <span class="dpi-chip__icon">${ic("dpi", 16)}</span>
       <span class="dpi-chip__txt">
-        <span class="dpi-chip__status">DPI · ${CHIP_STATUS[st]}</span>
+        <span class="dpi-chip__status">DPI · ${chipStatus()[st]}</span>
         <span class="dpi-chip__strat">${esc(S.strategy)}</span>
       </span>
       <span class="dpi-chip__sep"></span>
@@ -336,6 +336,9 @@ function renderBadge() {
 }
 
 function renderAll() { renderBody(); renderChip(); renderBadge(); }
+
+// Живой ре-рендер при смене языка (зовётся из onLangChange в main.js).
+export function rerenderDpiView() { renderAll(); }
 
 // Сообщить остальному приложению (трею), что DPI-обход вкл/выкл изменился.
 function emitDpiChanged() {
@@ -355,7 +358,7 @@ async function startEngine() {
   } catch (e) {
     S.base = "error";
     S.lastError = String(e?.message || e);
-    toast(`DPI-обход не запустился — см. детали в карточке`, "error", 5000);
+    toast(t("dpi.toast.startFail"), "error", 5000);
   }
   renderAll();
 }
@@ -394,7 +397,7 @@ export async function toggleDpi() {
     localStorage.setItem(LS.enabled, want ? "true" : "false");
     emitDpiChanged();
     renderAll();
-    toast(want ? "DPI включится после выхода из TUN" : "DPI-обход выключен", "info", 2200);
+    toast(want ? t("dpi.toast.willEnable") : t("dpi.toast.disabled"), "info", 2200);
     return;
   }
   if (S.base === "running" || S.base === "starting") { await stopEngine(); return; }
@@ -440,7 +443,7 @@ async function setStrategy(s) {
   localStorage.setItem(LS.strategy, s.name);
   renderAll();
   await restartIfRunning();
-  toast(`Стратегия: ${s.name}`, "info", 1600);
+  toast(t("dpi.toast.strategy", { name: s.name }), "info", 1600);
 }
 
 async function loadStrategies() {
@@ -487,9 +490,9 @@ async function applyHosts() {
   try {
     const r = await invoke("dpi_hosts_apply", { port: await listFetchPort() });
     S.hosts.applied = true; S.hosts.entries = r?.entries || 0;
-    toast(`Файл hosts обновлён · ${S.hosts.entries.toLocaleString("ru-RU")} записей`, "info", 2400);
+    toast(t("dpi.hosts.toastApplied", { n: S.hosts.entries.toLocaleString("ru-RU") }), "info", 2400);
   } catch (e) {
-    toast(`Файл hosts: ${e?.message || e}`, "error", 4500);
+    toast(t("dpi.hosts.toastErr", { err: e?.message || e }), "error", 4500);
   }
   S.hosts.busy = false; renderBody();
 }
@@ -500,9 +503,9 @@ async function clearHosts() {
   try {
     await invoke("dpi_hosts_clear");
     S.hosts.applied = false; S.hosts.entries = 0;
-    toast("Записи hosts удалены", "info", 1800);
+    toast(t("dpi.hosts.toastCleared"), "info", 1800);
   } catch (e) {
-    toast(`Файл hosts: ${e?.message || e}`, "error", 4500);
+    toast(t("dpi.hosts.toastErr", { err: e?.message || e }), "error", 4500);
   }
   S.hosts.busy = false; renderBody();
 }
@@ -513,10 +516,10 @@ async function updateIpset() {
   try {
     const n = await invoke("dpi_update_ipset", { port: await listFetchPort() });
     S.ipsetList.count = n;
-    toast(`Список IP обновлён · ${n.toLocaleString("ru-RU")} адресов`, "info", 2400);
+    toast(t("dpi.ipset.toastDone", { n: n.toLocaleString("ru-RU") }), "info", 2400);
     if (S.ipset === "loaded") await restartIfRunning(); // применить свежий набор к winws
   } catch (e) {
-    toast(`Список IP: ${e?.message || e}`, "error", 4500);
+    toast(t("dpi.ipset.toastErr", { err: e?.message || e }), "error", 4500);
   }
   S.ipsetList.busy = false; renderBody();
 }
@@ -535,9 +538,9 @@ async function runUpdate(id) {
     await loadVersions();
     await loadDomains();
     await restartIfRunning(); // применить свежий набор к запущенному winws
-    toast("Набор стратегий обновлён", "info", 1800);
+    toast(t("dpi.updates.toastDone"), "info", 1800);
   } catch (e) {
-    toast(`Обновление не удалось: ${e?.message || e}`, "error", 3500);
+    toast(t("dpi.updates.toastErr", { err: e?.message || e }), "error", 3500);
   }
   S.updating = null;
   renderAll();
@@ -556,14 +559,14 @@ async function pickStart() {
       S.autopick = {
         phase: "done", i: r.total, total: r.total,
         best: best?.name || r.best_name,
-        meta: `${r.passed} из ${r.total} прошли · лучшая задержка ${r.latency_ms} мс`,
+        meta: t("dpi.autopick.metaOk", { passed: r.passed, total: r.total, ms: r.latency_ms }),
       };
     } else {
-      S.autopick = { phase: "done", i: r?.total || 0, total: r?.total || 0, best: null, meta: "Ни одна стратегия не прошла — проверьте, что VPN выключен." };
+      S.autopick = { phase: "done", i: r?.total || 0, total: r?.total || 0, best: null, meta: t("dpi.autopick.metaNone") };
     }
   } catch (e) {
     S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" };
-    toast(`Авто-подбор: ${e?.message || e}`, "error", 3500);
+    toast(t("dpi.autopick.toastErr", { err: e?.message || e }), "error", 3500);
   }
   renderAll();
 }
@@ -583,12 +586,12 @@ function openDrawer() {
   const wrap = document.createElement("div");
   wrap.innerHTML = `
     <div class="drawer-bg" data-dpi-drawer-bg></div>
-    <aside class="drawer" role="dialog" aria-label="Стратегии обхода">
+    <aside class="drawer" role="dialog" aria-label="${t("dpi.drawer.aria")}">
       <div class="drawer__head">
-        <div><div class="drawer__kicker">PICK A STRATEGY · WINWS</div><div class="drawer__title">Стратегии обхода</div></div>
-        <button class="drawer__close" data-dpi-drawer-close aria-label="Закрыть">${ic("close", 16)}</button>
+        <div><div class="drawer__kicker">PICK A STRATEGY · WINWS</div><div class="drawer__title">${t("dpi.drawer.title")}</div></div>
+        <button class="drawer__close" data-dpi-drawer-close aria-label="${t("dpi.drawer.close")}">${ic("close", 16)}</button>
       </div>
-      <div class="drawer__search">${ic("search", 14)}<input type="text" id="dpi-strat-search" placeholder="Поиск: ALT11, fake tls…" autocomplete="off"></div>
+      <div class="drawer__search">${ic("search", 14)}<input type="text" id="dpi-strat-search" placeholder="${t("dpi.drawer.search")}" autocomplete="off"></div>
       <div class="drawer__list" id="dpi-strat-list"></div>
     </aside>`;
   drawerEl = wrap;
@@ -615,7 +618,7 @@ function renderStratList(query) {
   const q = (query || "").toLowerCase();
   const cur = stratByName(S.strategy);
   const filtered = STRATEGIES.filter((s) => !q || s.name.toLowerCase().includes(q) || (s.desc || "").toLowerCase().includes(q));
-  list.innerHTML = `<div class="drawer__section"><span>${filtered.length} стратегий</span><span>АКТИВНАЯ ПОМЕЧЕНА</span></div>` +
+  list.innerHTML = `<div class="drawer__section"><span>${t("dpi.drawer.count", { n: filtered.length })}</span><span>${t("dpi.drawer.activeMarked")}</span></div>` +
     filtered.map((s) => `<div class="strat" data-active="${s.id === cur.id}" data-dpi-strat="${s.id}">
         <div class="strat__main"><div class="strat__name">${esc(s.name)}</div><div class="strat__desc">${esc(s.desc || "")}</div></div>
         <span class="strat__check">${ic("check", 11, 2.5)}</span>
@@ -624,18 +627,20 @@ function renderStratList(query) {
 
 /* ═══════════ DOMAIN LIST EDITOR (динамический) ═══════════ */
 let editorEl = null;
-const EDITOR_META = {
-  user:    { kicker: "MY DOMAINS · HOSTLIST", title: "Мои домены",
-             hint: "Домены (по одному в строке), которые принудительно идут в обход DPI. Поддомены добавляйте отдельно. Строки с # — комментарии.",
-             file: "list-general-user.txt" },
-  exclude: { kicker: "EXCLUDE · BYPASS WINWS", title: "Исключения",
-             hint: "Домены, которые winws НЕ трогает (например, банки или сервисы, ломающиеся от обхода). Сервер активной VPN-ноды добавляется сюда автоматически.",
-             file: "list-exclude-user.txt" },
-};
+// kicker — декоративный английский; title/hint — через t(). file — имя на диске.
+function editorMeta(kind) {
+  const map = {
+    user:    { kicker: "MY DOMAINS · HOSTLIST", title: t("dpi.editor.userTitle"),
+               hint: t("dpi.editor.userHint"), file: "list-general-user.txt" },
+    exclude: { kicker: "EXCLUDE · BYPASS WINWS", title: t("dpi.editor.excludeTitle"),
+               hint: t("dpi.editor.excludeHint"), file: "list-exclude-user.txt" },
+  };
+  return map[kind] || map.user;
+}
 
 async function openListEditor(kind) {
   if (editorEl) return;
-  const meta = EDITOR_META[kind] || EDITOR_META.user;
+  const meta = editorMeta(kind);
   let content = "";
   try { content = await invoke("dpi_read_list", { kind }); } catch {}
   const wrap = document.createElement("div");
@@ -644,7 +649,7 @@ async function openListEditor(kind) {
     <aside class="drawer drawer--editor" role="dialog" aria-label="${esc(meta.title)}">
       <div class="drawer__head">
         <div><div class="drawer__kicker">${esc(meta.kicker)}</div><div class="drawer__title">${esc(meta.title)}</div></div>
-        <button class="drawer__close" data-dpi-editor-close aria-label="Закрыть">${ic("close", 16)}</button>
+        <button class="drawer__close" data-dpi-editor-close aria-label="${t("dpi.editor.close")}">${ic("close", 16)}</button>
       </div>
       <div class="dpi-editor">
         <div class="dpi-editor__hint">${esc(meta.hint)}</div>
@@ -653,8 +658,8 @@ async function openListEditor(kind) {
         <div class="dpi-editor__foot">
           <span class="dpi-editor__file">${esc(meta.file)}</span>
           <div class="dpi-editor__actions">
-            <button class="btn btn--sm" data-dpi-editor-close>Отмена</button>
-            <button class="btn btn--sm btn--primary" data-dpi-editor-save="${esc(kind)}">${ic("check", 13)} Сохранить</button>
+            <button class="btn btn--sm" data-dpi-editor-close>${t("dpi.editor.cancel")}</button>
+            <button class="btn btn--sm btn--primary" data-dpi-editor-save="${esc(kind)}">${ic("check", 13)} ${t("dpi.editor.save")}</button>
           </div>
         </div>
       </div>
@@ -685,9 +690,9 @@ async function saveListEditor(kind) {
     await loadDomains();
     closeListEditor();
     await restartIfRunning(); // применить свежий список к движку
-    toast(kind === "exclude" ? "Исключения сохранены" : "Список доменов сохранён", "info", 1800);
+    toast(kind === "exclude" ? t("dpi.editor.toastExclude") : t("dpi.editor.toastUser"), "info", 1800);
   } catch (e) {
-    toast(`Не удалось сохранить: ${e?.message || e}`, "error", 3500);
+    toast(t("dpi.editor.toastErr", { err: e?.message || e }), "error", 3500);
   }
 }
 
@@ -714,7 +719,7 @@ function onClick(e) {
     localStorage.setItem(LS.monkey, S.monkey ? "true" : "false");
     renderBody();
     restartWithDriverSwap();
-    toast(S.monkey ? "Драйвер: Monkey (имя WinDivert скрыто)" : "Драйвер: WinDivert (стандартный)", "info", 2400);
+    toast(S.monkey ? t("dpi.monkey.toastOn") : t("dpi.monkey.toastOff"), "info", 2400);
     return;
   }
   const upd = t.closest("[data-dpi-update]");
