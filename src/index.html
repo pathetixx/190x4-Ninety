@@ -24,13 +24,13 @@
       <header class="titlebar" data-tauri-drag-region>
         <div class="titlebar__title" data-tauri-drag-region><b>NINETY</b>&nbsp;&nbsp;·&nbsp;&nbsp;190X4 VPN</div>
         <div class="titlebar__controls">
-          <button class="tb-btn" data-window-action="minimize" aria-label="Свернуть">
+          <button class="tb-btn" data-window-action="minimize" aria-label="Свернуть" data-i18n-aria-label="titlebar.min">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg>
           </button>
-          <button class="tb-btn" data-window-action="maximize" aria-label="Развернуть">
+          <button class="tb-btn" data-window-action="maximize" aria-label="Развернуть" data-i18n-aria-label="titlebar.max">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="1"/></svg>
           </button>
-          <button class="tb-btn tb-btn--close" data-window-action="close" aria-label="Закрыть">
+          <button class="tb-btn tb-btn--close" data-window-action="close" aria-label="Закрыть" data-i18n-aria-label="titlebar.close">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></svg>
           </button>
         </div>
@@ -57,7 +57,7 @@
                   <path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>
                 </svg>
               </span>
-              <span class="nav__label">Главная</span>
+              <span class="nav__label" data-i18n="nav.home">Главная</span>
             </li>
             <li class="nav__item" data-view="profiles">
               <span class="nav__icon">
@@ -67,7 +67,7 @@
                   <path d="m3 17 9 5 9-5"/>
                 </svg>
               </span>
-              <span class="nav__label">Профили</span>
+              <span class="nav__label" data-i18n="nav.profiles">Профили</span>
               <span class="nav__hint" id="profiles-summary"></span>
             </li>
             <li class="nav__item" data-view="proxies">
@@ -76,7 +76,7 @@
                   <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/>
                 </svg>
               </span>
-              <span class="nav__label">Ноды</span>
+              <span class="nav__label" data-i18n="nav.proxies">Ноды</span>
             </li>
             <li class="nav__item" data-view="dpi">
               <span class="nav__icon">
@@ -85,7 +85,7 @@
                   <path d="M12.8 7 9.8 12.2h2.5L11 16"/>
                 </svg>
               </span>
-              <span class="nav__label">DPI-обход</span>
+              <span class="nav__label" data-i18n="nav.dpi">DPI-обход</span>
               <span class="nav__badge" id="dpi-nav-badge" hidden></span>
             </li>
             <li class="nav__item" data-view="logs">
@@ -95,7 +95,7 @@
                   <path d="M12 19h8"/>
                 </svg>
               </span>
-              <span class="nav__label">Логи</span>
+              <span class="nav__label" data-i18n="nav.logs">Логи</span>
             </li>
             <li class="nav__item" data-view="settings">
               <span class="nav__icon">
@@ -104,7 +104,7 @@
                   <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                 </svg>
               </span>
-              <span class="nav__label">Настройки</span>
+              <span class="nav__label" data-i18n="nav.settings">Настройки</span>
             </li>
           </ul>
 
@@ -112,13 +112,13 @@
 
           <div class="traffic">
             <div class="traffic__head">
-              <div class="traffic__label">Трафик · live</div>
+              <div class="traffic__label" data-i18n="traffic.label">Трафик · live</div>
               <span class="traffic__dot" id="tf-dot" aria-hidden="true"></span>
             </div>
             <div class="traffic__row">
               <span class="traffic__key">
                 <svg class="traffic__arrow traffic__arrow--down" viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16"/><path d="m6 14 6 6 6-6"/></svg>
-                Down
+                <span data-i18n="traffic.down">Down</span>
               </span>
               <span>
                 <span class="traffic__val" id="tf-down">0</span>
@@ -128,7 +128,7 @@
             <div class="traffic__row">
               <span class="traffic__key">
                 <svg class="traffic__arrow" viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V4"/><path d="m6 10 6-6 6 6"/></svg>
-                Up
+                <span data-i18n="traffic.up">Up</span>
               </span>
               <span>
                 <span class="traffic__val" id="tf-up">0</span>
@@ -161,14 +161,14 @@
                     <span class="sub-card__bar-fill" id="sub-progress-fill" style="width: 1.4%"></span>
                   </div>
                   <div class="sub-card__meta">
-                    <span>обновлено <span id="sub-updated">сейчас</span></span>
+                    <span><span data-i18n="home.updated">обновлено</span> <span id="sub-updated">сейчас</span></span>
                   </div>
                 </div>
                 <div class="sub-card__expire">
                   <b id="sub-expire">153</b>
-                  <span class="sub-card__expire-lbl">дн&nbsp;осталось</span>
+                  <span class="sub-card__expire-lbl" data-i18n="home.daysLeft">дн&nbsp;осталось</span>
                 </div>
-                <button class="sub-card__open" type="button" id="sub-open-profiles" aria-label="Открыть профили" title="Профили">
+                <button class="sub-card__open" type="button" id="sub-open-profiles" aria-label="Открыть профили" title="Профили" data-i18n-aria-label="home.openProfiles" data-i18n-title="nav.profiles">
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M9 6l6 6-6 6"/>
                   </svg>
@@ -176,14 +176,14 @@
               </article>
 
               <div class="toolbar">
-                <button class="tool-btn" id="mode-toggle" type="button" aria-label="Режим подключения" aria-haspopup="dialog" aria-expanded="false">
+                <button class="tool-btn" id="mode-toggle" type="button" aria-label="Режим подключения" data-i18n-aria-label="home.modeToggle" aria-haspopup="dialog" aria-expanded="false">
                   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M4 6h10"/><circle cx="17" cy="6" r="2"/>
                     <path d="M10 12h10"/><circle cx="7" cy="12" r="2"/>
                     <path d="M4 18h10"/><circle cx="17" cy="18" r="2"/>
                   </svg>
                 </button>
-                <button class="tool-btn" id="add-sub" type="button" aria-label="Добавить подписку" aria-haspopup="dialog" aria-expanded="false">
+                <button class="tool-btn" id="add-sub" type="button" aria-label="Добавить подписку" data-i18n-aria-label="home.addSub" aria-haspopup="dialog" aria-expanded="false">
                   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 5v14"/><path d="M5 12h14"/>
                   </svg>
@@ -207,7 +207,7 @@
               </div>
 
               <div class="hero__status">
-                <h1 class="hero__title" id="hero-label">Не подключено</h1>
+                <h1 class="hero__title" id="hero-label" data-i18n="hero.notConnected">Не подключено</h1>
                 <div class="hero__kicker" id="hero-hint">
                   <span class="hero__kicker-dot"></span>
                   <span id="hero-hint-text">STAND-BY · DISCONNECTED</span>
@@ -250,15 +250,15 @@
             <!-- Телеметрия-полоса (secured) — session-уровень, мгновенная скорость живёт в сайдбаре -->
             <div class="stats" id="stats-strip" hidden>
               <div class="stats__cell">
-                <span class="stats__label">Сервер</span>
+                <span class="stats__label" data-i18n="stats.server">Сервер</span>
                 <span class="stats__server-row">
                   <span class="stats__flag" id="stats-flag" aria-hidden="true" hidden></span>
                   <span class="stats__value" id="stats-server">—</span>
                 </span>
               </div>
 
-              <button class="stats__cell stats__cell--btn" id="tele-ping" type="button" title="Обновить задержку">
-                <span class="stats__label">Пинг
+              <button class="stats__cell stats__cell--btn" id="tele-ping" type="button" title="Обновить задержку" data-i18n-title="stats.pingTitle">
+                <span class="stats__label"><span data-i18n="stats.ping">Пинг</span>
                   <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="stats__label-ic"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
                 </span>
                 <span class="stats__ping-row">
@@ -267,8 +267,8 @@
                 </span>
               </button>
 
-              <button class="stats__cell stats__cell--btn" id="tele-channel" type="button" data-q="UNKNOWN" data-active="false" title="Качество канала">
-                <span class="stats__label">Канал
+              <button class="stats__cell stats__cell--btn" id="tele-channel" type="button" data-q="UNKNOWN" data-active="false" title="Качество канала" data-i18n-title="stats.channelTitle">
+                <span class="stats__label"><span data-i18n="stats.channel">Канал</span>
                   <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="stats__label-ic"><path d="M3 12h3l2.5 7 4-14 2.5 9 1.5-4h4.5"/></svg>
                 </span>
                 <span class="stats__chan-row">
@@ -278,7 +278,7 @@
               </button>
 
               <div class="stats__cell">
-                <span class="stats__label">Сессия</span>
+                <span class="stats__label" data-i18n="stats.session">Сессия</span>
                 <span class="stats__sess-row">
                   <span class="stats__value tnum" id="stats-uptime">—</span>
                   <span class="stats__sub tnum" id="stats-total">↓ 0 · ↑ 0</span>
@@ -286,8 +286,8 @@
               </div>
 
               <div class="stats__cell">
-                <span class="stats__label">Режим</span>
-                <span class="stats__value" id="stats-mode">СИСТЕМНЫЙ</span>
+                <span class="stats__label" data-i18n="stats.mode">Режим</span>
+                <span class="stats__value" id="stats-mode" data-i18n="stats.modeSystem">СИСТЕМНЫЙ</span>
               </div>
             </div>
           </section>
@@ -297,17 +297,17 @@
             <div class="screen__head">
               <div class="screen__head-main">
                 <div class="screen__kicker">SUBSCRIPTIONS</div>
-                <h2 class="screen__title">Профили</h2>
-                <div class="screen__sub">Подписки и одиночные конфиги. Активный профиль помечен <span style="color:var(--accent-bright)">точкой</span> — используется при подключении.</div>
+                <h2 class="screen__title" data-i18n="profiles.title">Профили</h2>
+                <div class="screen__sub" data-i18n-html="profiles.sub">Подписки и одиночные конфиги. Активный профиль помечен <span style="color:var(--accent-bright)">точкой</span> — используется при подключении.</div>
               </div>
               <div class="screen__actions">
                 <button class="btn btn--ghost btn--sm" id="profiles-refresh-all" type="button">
                   <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
-                  Обновить
+                  <span data-i18n="profiles.refresh">Обновить</span>
                 </button>
                 <button class="btn btn--primary btn--sm" id="profiles-add" type="button">
                   <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-                  Добавить
+                  <span data-i18n="profiles.add">Добавить</span>
                 </button>
               </div>
             </div>
@@ -321,8 +321,8 @@
             <div class="screen__head">
               <div class="screen__head-main">
                 <div class="screen__kicker">NODES · 190X4</div>
-                <h2 class="screen__title">Ноды</h2>
-                <div class="screen__sub" id="proxies-meta">Подписка не выбрана</div>
+                <h2 class="screen__title" data-i18n="proxies.title">Ноды</h2>
+                <div class="screen__sub" id="proxies-meta" data-i18n="proxies.metaNone">Подписка не выбрана</div>
               </div>
             </div>
             <div class="screen__body">
@@ -338,8 +338,8 @@
             <div class="screen__head">
               <div class="screen__head-main">
                 <div class="screen__kicker">DPI BYPASS · WINWS ENGINE</div>
-                <h2 class="screen__title">DPI-обход</h2>
-                <div class="screen__sub">Встроенный обход блокировок для сервисов, которые не открываются напрямую. Работает параллельно с VPN.</div>
+                <h2 class="screen__title" data-i18n="dpi.title">DPI-обход</h2>
+                <div class="screen__sub" data-i18n="dpi.sub">Встроенный обход блокировок для сервисов, которые не открываются напрямую. Работает параллельно с VPN.</div>
               </div>
             </div>
             <div class="screen__body">
@@ -352,28 +352,28 @@
             <div class="screen__head">
               <div class="screen__head-main">
                 <div class="screen__kicker" id="logs-kicker">ЖУРНАЛ · SING-BOX</div>
-                <h2 class="screen__title">Логи</h2>
+                <h2 class="screen__title" data-i18n="logs.title">Логи</h2>
                 <div class="screen__sub" id="logs-path" title="">—</div>
               </div>
               <div class="screen__actions">
-                <button class="btn btn--sm" id="logs-open" type="button">Папка</button>
-                <button class="btn btn--sm" id="logs-clear" type="button">Очистить</button>
-                <button class="btn btn--sm" id="logs-copy" type="button">Скопировать</button>
-                <button class="btn btn--sm btn--primary" id="logs-refresh" type="button">Обновить</button>
+                <button class="btn btn--sm" id="logs-open" type="button" data-i18n="logs.folder">Папка</button>
+                <button class="btn btn--sm" id="logs-clear" type="button" data-i18n="logs.clear">Очистить</button>
+                <button class="btn btn--sm" id="logs-copy" type="button" data-i18n="logs.copy">Скопировать</button>
+                <button class="btn btn--sm btn--primary" id="logs-refresh" type="button" data-i18n="logs.refresh">Обновить</button>
               </div>
             </div>
             <div class="logs">
               <div class="logs__filter">
-                <select id="logs-source" class="logs__level logs__source" aria-label="Источник лога">
+                <select id="logs-source" class="logs__level logs__source" aria-label="Источник лога" data-i18n-aria-label="logs.sourceAria">
                   <option value="singbox">sing-box</option>
                   <option value="xray">xray</option>
                   <option value="naive">naive</option>
                   <option value="trusttunnel">trusttunnel</option>
                   <option value="dpi">DPI · winws</option>
                 </select>
-                <input type="text" id="logs-search" class="logs__search" placeholder="Фильтр" autocomplete="off" spellcheck="false" aria-label="Поиск по логам" />
-                <select id="logs-level" class="logs__level" aria-label="Уровень логов">
-                  <option value="">Все</option>
+                <input type="text" id="logs-search" class="logs__search" placeholder="Фильтр" autocomplete="off" spellcheck="false" aria-label="Поиск по логам" data-i18n-placeholder="logs.filterPlaceholder" data-i18n-aria-label="logs.searchAria" />
+                <select id="logs-level" class="logs__level" aria-label="Уровень логов" data-i18n-aria-label="logs.levelAria">
+                  <option value="" data-i18n="logs.levelAll">Все</option>
                   <option value="trace">trace</option>
                   <option value="debug">debug</option>
                   <option value="info">info</option>
@@ -387,7 +387,7 @@
                 </div>
                 <label class="logs__toggle">
                   <input type="checkbox" id="logs-auto" checked />
-                  <span>Автообновление 2 с</span>
+                  <span data-i18n="logs.autoRefresh">Автообновление 2 с</span>
                 </label>
               </div>
               <div class="logs__console" id="logs-view" tabindex="0" aria-live="polite"></div>
@@ -418,14 +418,32 @@
                 <div class="onb">
                   <div class="onb__mark"><img src="/assets/ninety-mark.png" alt="" /></div>
                   <div class="onb__kicker">NINETY · 190X4 · FIRST RUN</div>
-                  <h1 class="onb__title">Добро пожаловать в Ninety</h1>
-                  <p class="onb__sub">Нативный VPN-клиент для Windows. Сейчас мы за 4 шага добавим подписку, подключимся к самой быстрой ноде — и всё. Вручную настраивать ничего не нужно.</p>
+                  <h1 class="onb__title" data-i18n="onb.welcome.title">Добро пожаловать в Ninety</h1>
+                  <p class="onb__sub" data-i18n="onb.welcome.sub">Нативный VPN-клиент для Windows. Сейчас мы за 4 шага добавим подписку, подключимся к самой быстрой ноде — и всё. Вручную настраивать ничего не нужно.</p>
+                  <div class="onb-prefs" id="onb-prefs">
+                    <label class="onb-pref">
+                      <span class="onb-pref__lbl" data-i18n="onb.prefs.language">Язык</span>
+                      <div class="onb-pref__field">
+                        <select class="onb-pref__select" id="onb-lang"></select>
+                      </div>
+                    </label>
+                    <label class="onb-pref">
+                      <span class="onb-pref__lbl" data-i18n="onb.prefs.region">Регион</span>
+                      <div class="onb-pref__field">
+                        <select class="onb-pref__select" id="onb-region"></select>
+                      </div>
+                    </label>
+                    <div class="onb-pref">
+                      <span class="onb-pref__lbl" data-i18n="onb.prefs.theme">Тема</span>
+                      <div class="onb-themes" id="onb-themes"></div>
+                    </div>
+                  </div>
                   <div class="onb__cta">
                     <button class="btn btn--primary" data-onb-next="2" type="button">
-                      Начать
+                      <span data-i18n="onb.welcome.start">Начать</span>
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
                     </button>
-                    <button class="btn btn--ghost" data-onb-skip type="button">Пропустить</button>
+                    <button class="btn btn--ghost" data-onb-skip type="button" data-i18n="onb.skip">Пропустить</button>
                   </div>
                 </div>
               </div>
@@ -434,26 +452,26 @@
               <div class="onb-step" data-step="2" hidden>
                 <div class="onb">
                   <div class="onb__kicker">ШАГ 2  ·  ИМПОРТ</div>
-                  <h1 class="onb__title">Добавьте подписку</h1>
-                  <p class="onb__sub">Вставьте URL подписки или ссылку <code>vless://</code>. Если она уже в буфере обмена — мы её прочитаем.</p>
+                  <h1 class="onb__title" data-i18n="onb.import.title">Добавьте подписку</h1>
+                  <p class="onb__sub" data-i18n-html="onb.import.sub">Вставьте URL подписки или ссылку <code>vless://</code>. Если она уже в буфере обмена — мы её прочитаем.</p>
                   <div class="onb-tiles">
                     <button class="onb-tile" data-onb-action="clipboard" type="button">
                       <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
-                      <span class="onb-tile__title">Из буфера</span>
-                      <span class="onb-tile__sub">URL / vless:// / vmess://</span>
+                      <span class="onb-tile__title" data-i18n="onb.import.fromClipboard">Из буфера</span>
+                      <span class="onb-tile__sub" data-i18n="onb.import.fromClipboardSub">URL / vless:// / vmess://</span>
                     </button>
                     <button class="onb-tile" data-onb-action="manual" type="button">
                       <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-                      <span class="onb-tile__title">Вручную</span>
-                      <span class="onb-tile__sub">URL + название + интервал</span>
+                      <span class="onb-tile__title" data-i18n="onb.import.manual">Вручную</span>
+                      <span class="onb-tile__sub" data-i18n="onb.import.manualSub">URL + название + интервал</span>
                     </button>
                   </div>
                   <div class="onb-supported">
-                    Поддерживается: <span>vless://</span> · <span>vmess://</span> · <span>trojan://</span> · <span>ss://</span> · <span>hysteria2://</span> · <span>tuic://</span> · <span>https://…sub</span>
+                    <span data-i18n="onb.import.supported">Поддерживается:</span> <span>vless://</span> · <span>vmess://</span> · <span>trojan://</span> · <span>ss://</span> · <span>hysteria2://</span> · <span>tuic://</span> · <span>https://…sub</span>
                   </div>
                   <div class="onb__cta">
-                    <button class="btn btn--ghost" data-onb-back="1" type="button">Назад</button>
-                    <button class="btn btn--ghost" data-onb-skip type="button">Пропустить</button>
+                    <button class="btn btn--ghost" data-onb-back="1" type="button" data-i18n="onb.back">Назад</button>
+                    <button class="btn btn--ghost" data-onb-skip type="button" data-i18n="onb.skip">Пропустить</button>
                   </div>
                 </div>
               </div>
@@ -467,10 +485,10 @@
                     <div class="onb-spinner__core"></div>
                   </div>
                   <div class="onb__kicker">ШАГ 3  ·  ПОДКЛЮЧЕНИЕ</div>
-                  <h1 class="onb__title" id="onb-connect-title">Подключаюсь к самой быстрой ноде…</h1>
-                  <p class="onb__sub" id="onb-connect-sub">sing-box стартует, перебираем ноды через clash-API. Это займёт пару секунд.</p>
+                  <h1 class="onb__title" id="onb-connect-title" data-i18n="onb.connect.title">Подключаюсь к самой быстрой ноде…</h1>
+                  <p class="onb__sub" id="onb-connect-sub" data-i18n="onb.connect.sub">sing-box стартует, перебираем ноды через clash-API. Это займёт пару секунд.</p>
                   <div class="onb__cta">
-                    <button class="btn btn--ghost" data-onb-skip type="button">Отменить</button>
+                    <button class="btn btn--ghost" data-onb-skip type="button" data-i18n="onb.connect.cancel">Отменить</button>
                   </div>
                 </div>
               </div>
@@ -482,11 +500,11 @@
                     <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
                   </div>
                   <div class="onb__kicker">ШАГ 4  ·  ГОТОВО</div>
-                  <h1 class="onb__title">VPN подключён</h1>
-                  <p class="onb__sub">Трафик идёт через выбранную ноду. Любые проблемы — <code>Логи</code> сбоку. Сервер можно сменить кликом по карточке локации.</p>
+                  <h1 class="onb__title" data-i18n="onb.done.title">VPN подключён</h1>
+                  <p class="onb__sub" data-i18n-html="onb.done.sub">Трафик идёт через выбранную ноду. Любые проблемы — <code>Логи</code> сбоку. Сервер можно сменить кликом по карточке локации.</p>
                   <div class="onb__cta">
                     <button class="btn btn--primary" data-onb-finish type="button">
-                      Открыть Ninety
+                      <span data-i18n="onb.done.open">Открыть Ninety</span>
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
                     </button>
                   </div>
@@ -499,12 +517,12 @@
       </div>
 
       <!-- Legacy popovers ─── переделываются в Этапе 3 -->
-      <div class="popover" id="mode-popover" role="dialog" aria-label="Режим подключения" hidden>
-        <div class="popover__kicker">РЕЖИМ ПОДКЛЮЧЕНИЯ</div>
+      <div class="popover" id="mode-popover" role="dialog" aria-label="Режим подключения" data-i18n-aria-label="mode.popoverAria" hidden>
+        <div class="popover__kicker" data-i18n="mode.kicker">РЕЖИМ ПОДКЛЮЧЕНИЯ</div>
         <div class="seg" role="tablist" id="mode-seg">
-          <button class="seg__btn" role="tab" data-mode="proxy" data-on="false">Прокси</button>
-          <button class="seg__btn" role="tab" data-mode="systemProxy" data-on="true">Системный прокси</button>
-          <button class="seg__btn" role="tab" data-mode="tun" data-on="false">VPN · TUN</button>
+          <button class="seg__btn" role="tab" data-mode="proxy" data-on="false" data-i18n="mode.proxy">Прокси</button>
+          <button class="seg__btn" role="tab" data-mode="systemProxy" data-on="true" data-i18n="mode.systemProxy">Системный прокси</button>
+          <button class="seg__btn" role="tab" data-mode="tun" data-on="false" data-i18n="mode.tun">VPN · TUN</button>
         </div>
         <div class="popover__hint" id="mode-hint">
           <b>Для всего сразу.</b> Включается для всех программ, что следуют системным настройкам сети, — большинство браузеров и приложений. Настраивать вручную ничего не нужно. Некоторые игры и приложения из Microsoft Store его не видят.
@@ -514,7 +532,7 @@
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
             </svg>
-            Доп. безопасность с WARP
+            <span data-i18n="mode.warpExtra">Доп. безопасность с WARP</span>
           </span>
           <span class="switch" id="warp-switch" data-on="false"></span>
         </label>
