@@ -14,6 +14,13 @@ export const en = {
 
   traffic: { label: "Traffic · live", down: "Down", up: "Up" },
 
+  units: {
+    ms: "ms",
+    timeout: "Timeout",
+    hour: "h", min: "m", sec: "s",
+    rateB: "B/s", rateKiB: "KiB/s", rateMiB: "MiB/s",
+  },
+
   home: {
     updated: "updated",
     daysLeft: "days left",
@@ -32,6 +39,7 @@ export const en = {
     connecting: "Connecting…",
     secured: "Protected",
     apply: "Apply settings",
+    ipTooltip: "{country} · click to show the IP for 20 sec",
   },
   heroAria: {
     connect: "Connect",

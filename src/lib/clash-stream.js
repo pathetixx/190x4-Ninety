@@ -2,6 +2,7 @@
 // (байт/сек). Также exposed legacy poll-функция для пинга /proxies.
 
 import { getProxies, lastDelay, pickEffectiveNode, refreshEffectiveDelay } from "/lib/clash-api.js";
+import { t } from "/lib/i18n/index.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -81,12 +82,12 @@ export async function stopClashStream() {
 export function formatRate(bytesPerSec) {
   const b = Math.max(0, Number(bytesPerSec) || 0);
   if (b < 1024) {
-    return { value: b.toFixed(0), unit: "Б/с" };
+    return { value: b.toFixed(0), unit: t("units.rateB") };
   }
   const kib = b / 1024;
   if (kib < 1024) {
-    return { value: kib < 10 ? kib.toFixed(1) : kib.toFixed(0), unit: "КиБ/с" };
+    return { value: kib < 10 ? kib.toFixed(1) : kib.toFixed(0), unit: t("units.rateKiB") };
   }
   const mib = kib / 1024;
-  return { value: mib < 10 ? mib.toFixed(2) : mib.toFixed(1), unit: "МиБ/с" };
+  return { value: mib < 10 ? mib.toFixed(2) : mib.toFixed(1), unit: t("units.rateMiB") };
 }

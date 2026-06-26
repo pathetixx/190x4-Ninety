@@ -1461,6 +1461,12 @@ onLangChange(() => {
   refreshSubCardFromActive();
   setChannelState(lastChannelState);
   updateHeroHint();
+  applyPingDisplay(lastPingDelay);
+  if (state === "connected") paintSession();
+  else {
+    if (tfDownUnit) tfDownUnit.textContent = t("units.rateKiB");
+    if (tfUpUnit) tfUpUnit.textContent = t("units.rateKiB");
+  }
   if (logsActive) {
     if (logsKicker) logsKicker.textContent = `${t("logs.kicker")} · ${LOG_SOURCE_LABEL[currentLogSource()] || "—"}`;
     applyLogsRender({ keepScroll: true });
@@ -1747,7 +1753,7 @@ async function refreshPublicIp() {
       locIp.dataset.revealed = "false";
       const flag = info.country_code?.toLowerCase();
       const country = info.country || info.country_code || "";
-      if (flag) locIp.title = `${country} · кликните, чтобы показать IP на 20 сек`;
+      if (flag) locIp.title = t("hero.ipTooltip", { country });
     }
   } catch (e) {
     if (locIpRow) locIpRow.hidden = false;
@@ -1917,8 +1923,8 @@ function setState(next, opts = {}) {
     if (heroDisc) heroDisc.setAttribute("aria-label", t("heroAria.connect"));
     if (tfDown) tfDown.textContent = "0";
     if (tfUp) tfUp.textContent = "0";
-    if (tfDownUnit) tfDownUnit.textContent = "КБ/с";
-    if (tfUpUnit) tfUpUnit.textContent = "КБ/с";
+    if (tfDownUnit) tfDownUnit.textContent = t("units.rateKiB");
+    if (tfUpUnit) tfUpUnit.textContent = t("units.rateKiB");
     if (tfDot) tfDot.dataset.live = "false";
     if (heroMask) heroMask.playbackRate = 0.7;
     stopClashStream();
@@ -1973,12 +1979,14 @@ function setState(next, opts = {}) {
 
 // Единый рендерер пинга: ячейка «Пинг» телеметрии + location-card.
 // delay > 0 && < 65000 → число + grade; 0/null → "— мс"; >= 65000 → "Тайм-аут"
+let lastPingDelay = null;
 function applyPingDisplay(delay) {
+  lastPingDelay = delay;
   const num = Number(delay);
   let text, grade, valOnly;
-  if (!num || num <= 0) { text = "— мс"; grade = "dead"; valOnly = "—"; }
-  else if (num >= 65000) { text = "Тайм-аут"; grade = "dead"; valOnly = "—"; }
-  else { text = `${num} мс`; grade = gradeDelay(num); valOnly = String(num); }
+  if (!num || num <= 0) { text = `— ${t("units.ms")}`; grade = "dead"; valOnly = "—"; }
+  else if (num >= 65000) { text = t("units.timeout"); grade = "dead"; valOnly = "—"; }
+  else { text = `${num} ${t("units.ms")}`; grade = gradeDelay(num); valOnly = String(num); }
 
   if (statsPing) statsPing.textContent = valOnly;
   if (telePing) telePing.dataset.grade = grade;
@@ -1990,8 +1998,8 @@ function applyPingDisplay(delay) {
 let sessionTimer = null, sessionStart = 0, sessionDownBytes = 0, sessionUpBytes = 0;
 function fmtUptime(s) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-  if (h > 0) return `${h}ч ${String(m).padStart(2, "0")}м`;
-  return `${m}м ${String(sec).padStart(2, "0")}с`;
+  if (h > 0) return `${h}${t("units.hour")} ${String(m).padStart(2, "0")}${t("units.min")}`;
+  return `${m}${t("units.min")} ${String(sec).padStart(2, "0")}${t("units.sec")}`;
 }
 function paintSession() {
   if (statsUptime) statsUptime.textContent = fmtUptime(Math.floor((Date.now() - sessionStart) / 1000));
@@ -2238,7 +2246,7 @@ heroDisc?.addEventListener("click", async () => {
       if (mode === "systemProxy") {
         await invoke("set_system_proxy", { enable: true, hostPort: `127.0.0.1:${options.inbound.mixedPort || 7890}` });
       }
-      setState("connected", { ping: "— мс" });
+      setState("connected", { ping: null });
       const src0 = getActiveSource();
       const isMultiSub = src0?.kind === "sub" && Array.isArray(src0.nodes) && src0.nodes.length >= 2;
       // In-app тост сразу. Для подписки нода ещё не выбрана балансировщиком —
@@ -2274,7 +2282,7 @@ heroDisc?.addEventListener("click", async () => {
 });
 
 // ── Bootstrap ──────────────────────────────────────────────
-if (locPing) locPing.textContent = "— мс";
+if (locPing) locPing.textContent = `— ${t("units.ms")}`;
 refreshProfilesSummary();
 updateHeroHint();
 syncTrayMenu();
@@ -2284,7 +2292,7 @@ syncTrayMenu();
   try {
     const running = await invoke("singbox_running");
     if (running) {
-      setState("connected", { ping: "— мс" });
+      setState("connected", { ping: null });
     }
   } catch {}
 })();
