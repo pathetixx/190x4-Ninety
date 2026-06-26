@@ -219,16 +219,27 @@ jobs:
           # ВАЖНО: gh выводит body построчно → PowerShell делает массив строк,
           # ConvertTo-Json потом сериализует массив. Tauri updater ждёт строку,
           # иначе latest.json парсится как "обновлений нет". -join "`n" склеивает.
+          # Источник notes с приоритетом — чтобы не было chicken-egg «релиза ещё нет»:
+          #   1) аннотация тега — доступна на этапе билда ВСЕГДА (релиз создаётся позже);
+          #   2) тело релиза — фолбэк для re-run, когда релиз уже опубликован;
+          #   3) плейсхолдер.
+          # Прежняя версия читала ТОЛЬКО тело релиза → на первом билде notes уходили
+          # пустыми в latest.json (а значит и в OTA/R2/GitLab). Аннотированный тег чинит.
           $notes = ""
-          try {
-            $raw = gh release view $tag --json body --jq .body 2>$null
-            if ($LASTEXITCODE -eq 0) {
-              if ($raw -is [array]) { $notes = ($raw -join "`n") } else { $notes = [string]$raw }
-            }
-          } catch { $notes = "" }
-          # gh release view exit-code не должен валить весь шаг, если релиз
-          # ещё не создан (мы делаем `gh release create` отдельно или через softprops).
+          # гарантируем наличие объекта аннотированного тега даже при shallow-checkout
+          git fetch origin "+refs/tags/$($tag):refs/tags/$($tag)" --force 2>$null
           $global:LASTEXITCODE = 0
+          $tagMsg = (git tag -l $tag --format='%(contents)' 2>$null | Out-String).Trim()
+          if (-not [string]::IsNullOrWhiteSpace($tagMsg)) { $notes = $tagMsg }
+          if ([string]::IsNullOrWhiteSpace($notes)) {
+            try {
+              $raw = gh release view $tag --json body --jq .body 2>$null
+              if ($LASTEXITCODE -eq 0) {
+                if ($raw -is [array]) { $notes = ($raw -join "`n") } else { $notes = [string]$raw }
+              }
+            } catch { $notes = "" }
+            $global:LASTEXITCODE = 0
+          }
           if ([string]::IsNullOrWhiteSpace($notes)) { $notes = "Заметки релиза недоступны." }
           $json = [ordered]@{
             version = $version
