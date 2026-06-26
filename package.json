@@ -1,7 +1,7 @@
 {
   "name": "ninety",
   "private": true,
-  "version": "0.1.77",
+  "version": "0.1.78",
   "type": "module",
   "scripts": {
     "tauri": "tauri"
