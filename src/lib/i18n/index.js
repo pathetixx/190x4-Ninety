@@ -39,7 +39,9 @@ const LANG_KEY = "ninety.lang";
 // Статические каталоги — всегда в памяти (база + фолбэк). Фаза 3: остальные 13.
 const STATIC = { ru, en };
 // Динамические загрузчики (фаза 3): code -> () => import(...).then(m => m.<code>)
-const DYNAMIC = {};
+const DYNAMIC = {
+  uk: () => import("/lib/i18n/uk.js").then(m => m.uk),
+};
 
 const _flat = {};   // code -> плоский словарь key->string
 let _lang = "en";
