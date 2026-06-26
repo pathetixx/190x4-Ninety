@@ -3,17 +3,18 @@
 import { buildConfig, getMode } from "/lib/singbox.js";
 import { loadOptions } from "/lib/options.js";
 import qrcode from "/vendor/qrcode.mjs";
+import { t } from "/lib/i18n/index.js";
 
 export async function copySubscriptionUrl(sub, toast) {
   if (!sub?.url) {
-    toast?.("У подписки нет URL", "error", 1800);
+    toast?.(t("share.noUrl"), "error", 1800);
     return;
   }
   try {
     await navigator.clipboard.writeText(sub.url);
-    toast?.("URL скопирован", "success", 1400);
+    toast?.(t("share.urlCopied"), "success", 1400);
   } catch {
-    toast?.("Не удалось скопировать", "error", 1800);
+    toast?.(t("share.copyFailed"), "error", 1800);
   }
 }
 
@@ -31,21 +32,21 @@ export function openQRModal(sub) {
     <div class="qr-modal__backdrop"></div>
     <div class="qr-modal__card">
       <div class="qr-modal__head">
-        <span class="qr-modal__kicker">QR-КОД ПОДПИСКИ</span>
-        <button class="qr-modal__close" type="button" aria-label="Закрыть">
+        <span class="qr-modal__kicker">${t("share.qrKicker")}</span>
+        <button class="qr-modal__close" type="button" aria-label="${t("share.close")}">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
       <h3 class="qr-modal__name"></h3>
       <div class="qr-modal__qr-wrap" data-qr></div>
-      <p class="qr-modal__hint">Отсканируйте на телефоне в любом совместимом vless-клиенте.</p>
+      <p class="qr-modal__hint">${t("share.qrHint")}</p>
       <div class="qr-modal__actions">
-        <button class="qr-modal__btn" type="button" data-copy>Скопировать URL</button>
+        <button class="qr-modal__btn" type="button" data-copy>${t("share.copyUrl")}</button>
       </div>
     </div>
   `;
 
-  card.querySelector(".qr-modal__name").textContent = sub.name || "Подписка";
+  card.querySelector(".qr-modal__name").textContent = sub.name || t("share.subFallback");
 
   try {
     const qr = qrcode(0, "M");
@@ -53,7 +54,7 @@ export function openQRModal(sub) {
     qr.make();
     card.querySelector("[data-qr]").innerHTML = qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
   } catch (e) {
-    card.querySelector("[data-qr]").textContent = `Не удалось сгенерировать QR: ${e?.message || e}`;
+    card.querySelector("[data-qr]").textContent = t("share.qrError", { err: e?.message || e });
   }
 
   const close = () => closeQRModal();
@@ -62,7 +63,7 @@ export function openQRModal(sub) {
   card.querySelector("[data-copy]").addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(sub.url);
-      card.querySelector("[data-copy]").textContent = "Скопировано";
+      card.querySelector("[data-copy]").textContent = t("share.copied");
       setTimeout(close, 700);
     } catch {}
   });
@@ -82,7 +83,7 @@ function onQRKey(e) {
 
 export async function exportSingboxJson(source, toast) {
   if (!source) {
-    toast?.("Нет активного источника", "error", 1800);
+    toast?.(t("share.noSource"), "error", 1800);
     return;
   }
   try {
@@ -95,8 +96,8 @@ export async function exportSingboxJson(source, toast) {
     });
     const json = JSON.stringify(config, null, 2);
     await navigator.clipboard.writeText(json);
-    toast?.(`sing-box config скопирован (${(json.length / 1024).toFixed(1)} КБ)`, "success", 2000);
+    toast?.(t("share.exported", { kb: (json.length / 1024).toFixed(1) }), "success", 2000);
   } catch (e) {
-    toast?.(`Ошибка экспорта: ${e?.message || e}`, "error", 2500);
+    toast?.(t("share.exportError", { err: e?.message || e }), "error", 2500);
   }
 }
