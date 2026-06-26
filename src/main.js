@@ -237,7 +237,7 @@ async function changeMode(requested) {
   // надо пересобрать конфиг. reconnectForSourceChange сам уходит в idle (сбросит
   // системный прокси старого режима) и поднимается заново. Если не connected —
   // no-op, режим применится при следующем connect.
-  if (requested !== prevMode) reconnectForSourceChange("Переключаю режим…");
+  if (requested !== prevMode) reconnectForSourceChange(t("conn.switchMode"));
 }
 
 // ── Авто-защита на чужих Wi-Fi (III.3) ──────────────────────
@@ -260,7 +260,7 @@ async function checkWifiProtect() {
     if (w.secured || wifiTrusted().includes(w.ssid)) { lastWifiHandled = null; return; }
     if (lastWifiHandled === w.ssid) return; // уже отреагировали на эту сеть
     lastWifiHandled = w.ssid;
-    toast(`Открытая сеть «${w.ssid || "без имени"}» — включаю защиту (TUN)`, "warn", 4000);
+    toast(t("wifi.openProtect", { ssid: w.ssid || t("wifi.noName") }), "warn", 4000);
     changeMode("tun");
   } catch {}
 }
@@ -283,7 +283,7 @@ async function applyKillSwitch(connected) {
     if (!(await invoke("is_elevated"))) {
       if (!killSwitchHintShown) {
         killSwitchHintShown = true;
-        toast("Kill Switch требует прав администратора — включите «Всегда запускать от администратора» в Настройках", "warn", 6000);
+        toast(t("elev.killSwitchHint"), "warn", 6000);
       }
       return;
     }
@@ -300,23 +300,19 @@ async function applyKillSwitch(connected) {
 async function ensureElevatedForTun() {
   try {
     if (await invoke("is_elevated")) return true;
-    const yes = confirm(
-      "Для режима VPN · TUN нужны права администратора.\n\n" +
-      "Перезапустить Ninety от имени администратора? Windows запросит подтверждение (UAC).\n\n" +
-      "Подсказка: включите «Всегда запускать от администратора» в Настройках, чтобы не видеть этот запрос."
-    );
+    const yes = confirm(t("elev.tunConfirm"));
     if (!yes) return false;
     // Запоминаем режим заранее — перезапущенный admin-инстанс поднимется в TUN.
     setMode("tun");
     const started = await invoke("relaunch_elevated");
     if (!started) {
-      toast("Запуск от администратора отменён — TUN недоступен", "error", 3000);
+      toast(t("elev.tunCancelled"), "error", 3000);
       return false;
     }
-    toast("Перезапуск от имени администратора…", "info", 2500);
+    toast(t("elev.relaunching"), "info", 2500);
     return false; // текущий процесс вот-вот завершится — не продолжаем
   } catch (e) {
-    toast(`Не удалось получить права администратора: ${e?.message || e}`, "error", 3500);
+    toast(t("elev.failed", { err: e?.message || e }), "error", 3500);
     return false;
   }
 }
@@ -327,21 +323,17 @@ async function ensureElevatedForTun() {
 async function ensureElevatedForDpi() {
   try {
     if (await invoke("is_elevated")) return true;
-    const yes = confirm(
-      "Для DPI-обхода нужны права администратора (движок winws загружает драйвер WinDivert).\n\n" +
-      "Перезапустить Ninety от имени администратора? Windows запросит подтверждение (UAC).\n\n" +
-      "Подсказка: включите «Всегда запускать от администратора» в Настройках, чтобы не видеть этот запрос."
-    );
+    const yes = confirm(t("elev.dpiConfirm"));
     if (!yes) return false;
     const started = await invoke("relaunch_elevated");
     if (!started) {
-      toast("Запуск от администратора отменён — DPI-обход недоступен", "error", 3000);
+      toast(t("elev.dpiCancelled"), "error", 3000);
       return false;
     }
-    toast("Перезапуск от имени администратора…", "info", 2500);
+    toast(t("elev.relaunching"), "info", 2500);
     return false; // процесс вот-вот завершится
   } catch (e) {
-    toast(`Не удалось получить права администратора: ${e?.message || e}`, "error", 3500);
+    toast(t("elev.failed", { err: e?.message || e }), "error", 3500);
     return false;
   }
 }
@@ -414,7 +406,7 @@ function refreshSubCardFromActive() {
   const src = getActiveSource();
   if (src?.kind === "sub") {
     const sub = src.subscription;
-    if (subName) subName.textContent = sub.name?.toUpperCase() || "ПОДПИСКА";
+    if (subName) subName.textContent = sub.name?.toUpperCase() || t("home.subDefault");
     const days = subscriptionDaysLeft(sub);
     if (subExpire) subExpire.textContent = days != null ? String(days) : "—";
     if (subExpireUnit) subExpireUnit.style.display = days != null ? "" : "none";
@@ -425,7 +417,7 @@ function refreshSubCardFromActive() {
       // наш измеренный трафик (заголовок провайдера ненадёжен/0).
       subTraffic.innerHTML = limit != null
         ? `<b>${fmtTraffic(used)}</b> / <b>${fmtTraffic(limit)}</b>`
-        : `<b>${fmtTraffic(getMeasured(`sub:${sub.id}`).total)}</b> · безлимит`;
+        : `<b>${fmtTraffic(getMeasured(`sub:${sub.id}`).total)}</b> · ${t("home.unlimited")}`;
     }
     // Прогресс-бар: при лимите ГБ — расход квоты (used/total); при безлимите — доля
     // ОСТАВШЕГОСЯ СРОКА подписки. Период провайдер не отдаёт → самокалибровка по пику
@@ -445,7 +437,7 @@ function refreshSubCardFromActive() {
     if (subProgressFill) subProgressFill.style.width = barPct != null ? `${barPct.toFixed(1)}%` : "0%";
     if (subUpdated) subUpdated.textContent = relativeTime(sub.lastUpdate);
   } else if (src?.kind === "single") {
-    if (subName) subName.textContent = "ЛОКАЛЬНЫЙ КОНФИГ";
+    if (subName) subName.textContent = t("home.localConfig");
     if (subExpire) subExpire.textContent = "—";
     if (subExpireUnit) subExpireUnit.style.display = "none";
     // У одиночного профиля (hysteria/naive/tt) нет квоты — показываем измеренный трафик.
@@ -454,7 +446,7 @@ function refreshSubCardFromActive() {
     if (subProgressFill) subProgressFill.style.width = "0%";
     if (subUpdated) subUpdated.textContent = "—";
   } else {
-    if (subName) subName.textContent = "НЕТ ПОДПИСКИ";
+    if (subName) subName.textContent = t("home.noSub");
     if (subExpire) subExpire.textContent = "—";
     if (subExpireUnit) subExpireUnit.style.display = "none";
     if (subTraffic) subTraffic.textContent = "—";
@@ -581,7 +573,7 @@ function scheduleAutoReconnect() {
   pendingReconnectTimer = setTimeout(performAutoReconnect, RECONNECT_DEBOUNCE_MS);
 }
 
-async function performAutoReconnect(reason = "Применяю новые настройки…") {
+async function performAutoReconnect(reason = t("conn.applyingSettings")) {
   pendingReconnectTimer = null;
   if (!needsReconnect) return;
   if (state !== "connected" && state !== "connecting") return;
@@ -623,11 +615,11 @@ async function healthTick() {
       try { await invoke("set_system_proxy", { enable: false }); } catch {}
       try { await invoke("stop_singbox"); } catch {}
       setState("idle");
-      toast("Ядро остановилось", "error", 7000, {
+      toast(t("conn.coreStopped"), "error", 7000, {
         group: "conn",
-        desc: "Туннель закрыт · sing-box завершился неожиданно",
+        desc: t("conn.coreStoppedDesc"),
       });
-      notify("Ninety · туннель закрыт", "Ядро sing-box остановилось");
+      notify(t("conn.notifyClosedTitle"), t("conn.notifyClosedBody"));
       if (why) console.warn("sing-box died:", why);
       switchView("logs");
       return;
@@ -635,19 +627,19 @@ async function healthTick() {
     // sing-box жив — проверяем xray-мост (xhttp).
     const xr = await invoke("xray_status").catch(() => "none");
     if (xr === "died") {
-      toast("xhttp-ядро упало — переподключаюсь", "warn", 4000, { group: "conn", connecting: true });
-      notify("Ninety", "xhttp-ядро перезапускается");
+      toast(t("conn.xhttpDown"), "warn", 4000, { group: "conn", connecting: true });
+      notify("Ninety", t("conn.xhttpNotify"));
       // reconnectForSourceChange сам ставит needsReconnect и зовёт реконнект,
       // который поднимет sing-box И xray заново из свежего конфига.
-      reconnectForSourceChange("Перезапуск xhttp-ядра…");
+      reconnectForSourceChange(t("conn.xhttpReconnect"));
       return;
     }
     // sidecar-клиенты naive/trusttunnel — та же логика, что у xray-моста.
     const sc = await invoke("sidecar_status").catch(() => "none");
     if (sc === "died") {
-      toast("Клиент протокола упал — переподключаюсь", "warn", 4000, { group: "conn", connecting: true });
-      notify("Ninety", "Перезапуск клиента протокола");
-      reconnectForSourceChange("Перезапуск клиента…");
+      toast(t("conn.clientDown"), "warn", 4000, { group: "conn", connecting: true });
+      notify("Ninety", t("conn.clientNotify"));
+      reconnectForSourceChange(t("conn.clientReconnect"));
       return;
     }
     // Liveness OK — отдаём ход движку качества (детект троттла/деградации).
@@ -702,7 +694,7 @@ const qualityEngine = createQualityEngine({
       } else {
         updateOption("tlsTricks.fragmentMode", t.fragmentMode === "record" ? "tcp" : "record");
       }
-      return reconnectForSourceChange("Включаю маскировку трафика…");
+      return reconnectForSourceChange(t("qToast.masking"));
     },
     // R4 — пересканировать WARP-endpoint и применить лучший (реконнект). Только
     // если WARP включён, иначе ступень неприменима → false (движок пропустит).
@@ -714,7 +706,7 @@ const qualityEngine = createQualityEngine({
         const ep = best?.endpoint || (best?.host && best?.port ? `${best.host}:${best.port}` : null);
         if (!ep) return false;
         updateOption("warp.endpoint", ep);
-        return reconnectForSourceChange("Переключаю запасной канал…");
+        return reconnectForSourceChange(t("qToast.backup"));
       } catch { return false; }
     },
     // R5 — перейти на ноду ДРУГОГО транспорта/протокола (proto:type), лучшую по
@@ -737,14 +729,14 @@ const qualityEngine = createQualityEngine({
     },
     // Гибрид-гейт перед реконнект-ступенью (когда aggressive=false). Простым языком.
     confirmReconnect: (label) =>
-      Promise.resolve(confirm(`Соединение замедлилось. Попробовать ускорить — «${label}»? Потребуется короткое переподключение.`)),
+      Promise.resolve(confirm(t("qToast.confirmSpeedup", { label }))),
     // R6 — сдаёмся честно, без жаргона.
     giveUp: (st) => {
-      toast("Не удалось ускорить соединение", "error", 8000, {
+      toast(t("qToast.giveUp"), "error", 8000, {
         group: "quality",
-        desc: "Попробуйте выбрать другую страну в списке серверов",
+        desc: t("qToast.giveUpDesc"),
       });
-      notify("Ninety · качество связи", "Не удалось ускорить — попробуйте другую страну");
+      notify(t("qToast.giveUpNotifyTitle"), t("qToast.giveUpNotifyBody"));
     },
     // Контекст для обучения (что было активно в момент успеха).
     getContext: () => {
@@ -807,12 +799,14 @@ function rankByDelay(nodes, proxies) {
 // ── Индикатор качества канала (ячейка «Канал» в телеметрии-полосе) ──
 // Состояние правит движок через onState; ячейка живёт в stats-strip (secured),
 // показывается/прячается вместе с полосой. Человеческий язык, без техножаргона.
-const Q_CHANNEL_LABEL = { UNKNOWN: "Проверка", GOOD: "Отлично", SLOW: "Медленно", STALLED: "Тормозит", DEAD: "Нет связи" };
+const qChannelLabel = (st) => t("qToast.channel." + String(st).toLowerCase());
 const qualityDot = document.getElementById("tele-channel"); // #tele-channel (data-q/data-active)
 const qualityState = document.getElementById("stats-channel");
+let lastChannelState = "UNKNOWN";
 function setChannelState(st) {
+  lastChannelState = st;
   if (qualityDot) qualityDot.dataset.q = st;
-  if (qualityState) qualityState.textContent = Q_CHANNEL_LABEL[st] || st;
+  if (qualityState) qualityState.textContent = qChannelLabel(st);
 }
 function showQualityChip(on) {
   if (!qualityDot) return;
@@ -874,9 +868,9 @@ function activateSource(kind, id) {
   currentEffectiveTag = null;
   refreshProfilesSummary();
   syncTrayMenu();
-  const reason = isSub ? "Переключаюсь на новую подписку…" : "Переключаюсь на новый профиль…";
+  const reason = isSub ? t("conn.switchSub") : t("conn.switchProfile");
   if (wasActive || !reconnectForSourceChange(reason)) {
-    toast(isSub ? "Подписка активирована" : "Профиль активирован", "success", 1800);
+    toast(isSub ? t("conn.subActivated") : t("conn.profileActivated"), "success", 1800);
   }
 }
 
@@ -943,7 +937,7 @@ async function warpRescanTick() {
     } catch { curDelay = 0; }
     // 0 = таймаут или not-reachable, выше порога — ротируем.
     if (curDelay > 0 && curDelay <= threshold) return;
-    toast(`WARP delay ${curDelay || "—"}мс — ищу лучший endpoint`, "info", 2200);
+    toast(t("warpToast.searching", { delay: curDelay || "—" }), "info", 2200);
     let results = [];
     try {
       results = await invoke("warp_scan_endpoints", { topN: 5, deep: false, mode: "wg" });
@@ -952,7 +946,7 @@ async function warpRescanTick() {
     if (!best) return;
     // Применяем только если новый лучше на ≥50мс, чтобы не дёргаться от шума.
     if (curDelay > 0 && best.latency_ms + 50 >= curDelay) {
-      toast(`WARP: лучший найденный ${best.latency_ms}мс — текущий ${curDelay}мс уже норм`, "info", 2400);
+      toast(t("warpToast.alreadyOk", { best: best.latency_ms, cur: curDelay }), "info", 2400);
       return;
     }
     const newEndpoint = `${best.ip}:${best.port}`;
@@ -960,7 +954,7 @@ async function warpRescanTick() {
     updateOption("warp.endpoint", newEndpoint);
     recordWarpRotation(fromEndpoint, newEndpoint, curDelay, best.latency_ms);
     console.info("[WARP rescan]", { from: fromEndpoint, to: newEndpoint, oldDelay: curDelay, newDelay: best.latency_ms });
-    toast(`WARP → ${newEndpoint} (${best.latency_ms}мс, было ${curDelay || "—"})`, "success", 2400);
+    toast(t("warpToast.rotated", { ep: newEndpoint, best: best.latency_ms, old: curDelay || "—" }), "success", 2400);
     updateWarpBadge();
     scheduleAutoReconnect();
   } finally {
@@ -1003,9 +997,9 @@ let logsFilterLevel = "";
 function currentLogSource() { return logsSource?.value || "singbox"; }
 
 function formatBytes(n) {
-  if (n < 1024) return `${n} Б`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КиБ`;
-  return `${(n / 1024 / 1024).toFixed(2)} МиБ`;
+  if (n < 1024) return `${n} ${t("logs.bytesB")}`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} ${t("logs.bytesKiB")}`;
+  return `${(n / 1024 / 1024).toFixed(2)} ${t("logs.bytesMiB")}`;
 }
 
 // sing-box stdout: `+0300 2025-01-01 12:34:56 INFO [tag] message`
@@ -1113,13 +1107,13 @@ function applyLogsRender({ keepScroll = false } = {}) {
   const text = logsLastValue && logsLastValue !== "__force__" ? logsLastValue : "";
   const atBottom = !keepScroll || (logsView.scrollTop + logsView.clientHeight >= logsView.scrollHeight - 24);
   if (!text) {
-    const label = LOG_SOURCE_LABEL[currentLogSource()] || "компонент";
-    logsView.innerHTML = logsInfoLine(`Лог пуст — ${label} ещё ничего не записал.`);
+    const label = LOG_SOURCE_LABEL[currentLogSource()] || t("logs.compFallback");
+    logsView.innerHTML = logsInfoLine(t("logs.empty", { comp: label }));
   } else {
     const filtered = filterLogEntries(parseLogEntries(text));
     logsView.innerHTML = filtered.length
       ? renderLogEntries(filtered)
-      : logsInfoLine("Ничего не найдено по фильтру.");
+      : logsInfoLine(t("logs.notFound"));
   }
   if (atBottom) logsView.scrollTop = logsView.scrollHeight;
 }
@@ -1132,11 +1126,11 @@ async function refreshLogs({ keepScroll = false } = {}) {
     logsLastValue = text;
     if (logsSize) {
       const bytes = new TextEncoder().encode(text || "").length;
-      logsSize.textContent = text ? formatBytes(bytes) : "пусто";
+      logsSize.textContent = text ? formatBytes(bytes) : t("logs.sizeEmpty");
     }
     applyLogsRender({ keepScroll });
   } catch (e) {
-    logsView.innerHTML = `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--err">ERR</span><span class="log-line__m">${escapeLog(`Ошибка чтения лога: ${e?.message || e}`)}</span></div>`;
+    logsView.innerHTML = `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--err">ERR</span><span class="log-line__m">${escapeLog(t("logs.readErr", { err: e?.message || e }))}</span></div>`;
   }
 }
 
@@ -1149,7 +1143,7 @@ async function refreshLogsPath() {
     // её открывает. В консоли ниже — лог ядра sing-box.
     const dir = path.replace(/[\\/][^\\/]*$/, "");
     logsPath.textContent = dir;
-    logsPath.title = "Журналы компонентов: sing-box, xray, naive, trusttunnel, dpi";
+    logsPath.title = t("logs.pathTitle");
   } catch {
     logsPath.textContent = "—";
   }
@@ -1183,21 +1177,21 @@ logsLevel?.addEventListener("change", () => {
 });
 
 logsSource?.addEventListener("change", () => {
-  if (logsKicker) logsKicker.textContent = `ЖУРНАЛ · ${LOG_SOURCE_LABEL[currentLogSource()] || "—"}`;
+  if (logsKicker) logsKicker.textContent = `${t("logs.kicker")} · ${LOG_SOURCE_LABEL[currentLogSource()] || "—"}`;
   logsLastValue = "__force__"; // сменился источник — перечитать файл и перерисовать
   refreshLogs();
 });
 
 logsCopyBtn?.addEventListener("click", async () => {
   const raw = logsLastValue && logsLastValue !== "__force__" ? logsLastValue : "";
-  if (!raw) { toast("Лог пуст", "info", 1400); return; }
+  if (!raw) { toast(t("logs.emptyToast"), "info", 1400); return; }
   // копируем без ANSI/префиксов — ровно то, что на экране, а не управляющие коды
   const text = raw.split(/\r?\n/).map(cleanLogLine).join("\n");
   try {
     await navigator.clipboard.writeText(text);
-    toast("Лог скопирован в буфер", "success", 1600);
+    toast(t("logs.copied"), "success", 1600);
   } catch {
-    toast("Не удалось скопировать — попробуйте выделить мышью и Ctrl+C", "error", 3000);
+    toast(t("logs.copyErr"), "error", 3000);
   }
 });
 
@@ -1206,15 +1200,15 @@ logsClearBtn?.addEventListener("click", async () => {
     await invoke("clear_log", { source: currentLogSource() });
     logsLastValue = "__force__";
     await refreshLogs();
-    toast("Лог очищен", "info", 1400);
+    toast(t("logs.cleared"), "info", 1400);
   } catch (e) {
-    toast(`Не удалось очистить: ${e?.message || e}`, "error", 2500);
+    toast(t("logs.clearErr", { err: e?.message || e }), "error", 2500);
   }
 });
 
 logsOpenBtn?.addEventListener("click", async () => {
   try { await invoke("open_log_dir"); }
-  catch (e) { toast(`Не удалось открыть папку: ${e?.message || e}`, "error", 2500); }
+  catch (e) { toast(t("logs.openErr", { err: e?.message || e }), "error", 2500); }
 });
 
 function onLogsViewEnter() {
@@ -1256,8 +1250,8 @@ function renderProfilesView() {
     profilesList.innerHTML = `
       <div class="onb" style="margin: 32px auto 0; text-align: center;">
         <div class="onb__kicker">SUBSCRIPTIONS · EMPTY</div>
-        <h2 class="onb__title" style="font-size:20px">Нет профилей</h2>
-        <p class="onb__sub">Добавьте подписку по URL или одиночный vless:// — кнопкой «+» сверху, плюс-кнопкой на главном или в меню.</p>
+        <h2 class="onb__title" style="font-size:20px">${t("prof.emptyTitle")}</h2>
+        <p class="onb__sub">${t("prof.emptySub")}</p>
       </div>
     `;
     return;
@@ -1279,29 +1273,29 @@ function renderProfilesView() {
         <div class="prof-card__main" data-sub-activate="${s.id}">
           <div class="prof-card__head">
             <span class="prof-card__name">${escapeHtml(s.name)}</span>
-            ${isActive ? `<span class="prof-card__badge">АКТИВНЫЙ</span>` : ""}
+            ${isActive ? `<span class="prof-card__badge">${t("prof.badgeActive")}</span>` : ""}
           </div>
           <div class="prof-card__url">${escapeHtml(s.url || "")}</div>
         </div>
         <div class="prof-card__stats">
           <div class="prof-card__stat">
             <span class="prof-card__stat-val tnum">${nodesCount}</span>
-            <span class="prof-card__stat-lbl">УЗЛОВ</span>
+            <span class="prof-card__stat-lbl">${t("prof.statNodes")}</span>
           </div>
           <div class="prof-card__stat">
             <span class="prof-card__stat-val tnum">${trafficStr}</span>
-            <span class="prof-card__stat-lbl">ТРАФИК</span>
+            <span class="prof-card__stat-lbl">${t("prof.statTraffic")}</span>
           </div>
           <div class="prof-card__stat">
-            <span class="prof-card__stat-val tnum">${days == null ? "—" : days}${days != null ? `<span style="color:var(--text-faint);font-size:9px;margin-left:3px;">дн</span>` : ""}</span>
-            <span class="prof-card__stat-lbl">ИСТЕКАЕТ</span>
+            <span class="prof-card__stat-val tnum">${days == null ? "—" : days}${days != null ? `<span style="color:var(--text-faint);font-size:9px;margin-left:3px;">${t("prof.daysUnit")}</span>` : ""}</span>
+            <span class="prof-card__stat-lbl">${t("prof.statExpires")}</span>
           </div>
           <div class="prof-card__stat">
             <span class="prof-card__stat-val" style="font-size:11px;color:var(--text-mid);">${escapeHtml(updated)}</span>
-            <span class="prof-card__stat-lbl">ОБНОВЛЕНО</span>
+            <span class="prof-card__stat-lbl">${t("prof.statUpdated")}</span>
           </div>
         </div>
-        <button class="prof-card__menu" data-menu-sub="${s.id}" type="button" aria-label="Меню">${ICON_DOTS}</button>
+        <button class="prof-card__menu" data-menu-sub="${s.id}" type="button" aria-label="${t("prof.menuAria")}">${ICON_DOTS}</button>
       </article>
     `;
   }).join("");
@@ -1316,14 +1310,14 @@ function renderProfilesView() {
         <div class="prof-card__main" data-profile-activate="${p.id}">
           <div class="prof-card__head">
             <span class="prof-card__name">${escapeHtml(p.name)}</span>
-            ${isActive ? `<span class="prof-card__badge">АКТИВНЫЙ</span>` : ""}
+            ${isActive ? `<span class="prof-card__badge">${t("prof.badgeActive")}</span>` : ""}
           </div>
           <div class="prof-card__url">${escapeHtml(`${p.host}:${p.port}`)}</div>
         </div>
         <div class="prof-card__stats">
           <div class="prof-card__stat">
             <span class="prof-card__stat-val" style="font-size:11px;">${escapeHtml(proto)}</span>
-            <span class="prof-card__stat-lbl">ПРОТОКОЛ</span>
+            <span class="prof-card__stat-lbl">${t("prof.statProto")}</span>
           </div>
           <div class="prof-card__stat">
             <span class="prof-card__stat-val" style="font-size:11px;">${escapeHtml(security)}</span>
@@ -1331,10 +1325,10 @@ function renderProfilesView() {
           </div>
           <div class="prof-card__stat">
             <span class="prof-card__stat-val tnum">${fmtTraffic(getMeasured(`profile:${p.id}`).total)}</span>
-            <span class="prof-card__stat-lbl">ТРАФИК</span>
+            <span class="prof-card__stat-lbl">${t("prof.statTraffic")}</span>
           </div>
         </div>
-        <button class="prof-card__menu" data-menu-profile="${p.id}" type="button" aria-label="Меню">${ICON_DOTS}</button>
+        <button class="prof-card__menu" data-menu-profile="${p.id}" type="button" aria-label="${t("prof.menuAria")}">${ICON_DOTS}</button>
       </article>
     `;
   }).join("");
@@ -1463,6 +1457,15 @@ onLangChange(() => {
   settingsCtl?.refresh();
   rerenderDpiView();
   rerenderProxiesView();
+  renderProfilesView();
+  refreshSubCardFromActive();
+  setChannelState(lastChannelState);
+  updateHeroHint();
+  if (logsActive) {
+    if (logsKicker) logsKicker.textContent = `${t("logs.kicker")} · ${LOG_SOURCE_LABEL[currentLogSource()] || "—"}`;
+    applyLogsRender({ keepScroll: true });
+    refreshLogsPath();
+  }
 });
 
 // Перерисовать динамические подписи главной (статус hero, подсказка режима, режим в
@@ -1488,9 +1491,9 @@ document.getElementById("profiles-refresh-all")?.addEventListener("click", async
     await refreshAllSubscriptions();
     refreshSubCardFromActive();
     refreshProfilesSummary();
-    toast("Подписки обновлены", "success", 1800);
+    toast(t("prof.subsRefreshed"), "success", 1800);
   } catch (e) {
-    toast(`Ошибка: ${e?.message || e}`, "error", 2800);
+    toast(t("prof.toastErr", { err: e?.message || e }), "error", 2800);
   }
 });
 
@@ -1538,14 +1541,14 @@ profilesView?.addEventListener("click", async (e) => {
     e.stopPropagation();
     const id = subMenuBtn.dataset.menuSub;
     const menu = openPMenu(subMenuBtn, [
-      { id: "refresh",  label: "Обновить",  icon: ICON_REFRESH },
-      { id: "edit",     label: "Редактировать", icon: ICON_EDIT },
-      { id: "copy",     label: "Копировать URL", icon: ICON_COPY },
-      { id: "qr",       label: "Показать QR", icon: ICON_QR },
-      { id: "export",   label: "Экспорт sing-box JSON", icon: ICON_COPY },
-      { id: "activate", label: "Сделать активной", icon: ICON_CHECK },
-      { id: "reset-traffic", label: "Сбросить счётчик трафика", icon: ICON_REFRESH },
-      { id: "remove",   label: "Удалить",   icon: ICON_TRASH, danger: true },
+      { id: "refresh",  label: t("prof.menu.refresh"),  icon: ICON_REFRESH },
+      { id: "edit",     label: t("prof.menu.edit"), icon: ICON_EDIT },
+      { id: "copy",     label: t("prof.menu.copyUrl"), icon: ICON_COPY },
+      { id: "qr",       label: t("prof.menu.qr"), icon: ICON_QR },
+      { id: "export",   label: t("prof.menu.export"), icon: ICON_COPY },
+      { id: "activate", label: t("prof.menu.activateSub"), icon: ICON_CHECK },
+      { id: "reset-traffic", label: t("prof.menu.resetTraffic"), icon: ICON_REFRESH },
+      { id: "remove",   label: t("prof.menu.remove"),   icon: ICON_TRASH, danger: true },
     ]);
     menu.addEventListener("click", async (ev) => {
       const act = ev.target.closest("[data-act]")?.dataset.act;
@@ -1559,9 +1562,9 @@ profilesView?.addEventListener("click", async (e) => {
       if (act === "refresh") {
         try {
           const r = await refreshSubscription(id);
-          toast(`Обновлено: ${r.profiles.length} нод`, "success", 1800);
+          toast(t("prof.toastUpdated", { n: r.profiles.length }), "success", 1800);
         } catch (err) {
-          toast(`Ошибка: ${err?.message || err}`, "error", 2800);
+          toast(t("prof.toastErr", { err: err?.message || err }), "error", 2800);
         }
         renderProfilesView();
         refreshSubCardFromActive();
@@ -1580,12 +1583,12 @@ profilesView?.addEventListener("click", async (e) => {
         resetMeasured(`sub:${id}`);
         renderProfilesView();
         refreshSubCardFromActive();
-        toast("Счётчик трафика сброшен", "info", 1600);
+        toast(t("prof.toastTrafficReset"), "info", 1600);
       } else if (act === "remove") {
         removeSubscription(id);
         if (getActiveKind() === "sub" && !getActiveSubscriptionId()) setActiveKind("single");
         refreshProfilesSummary();
-        toast("Подписка удалена", "info", 1800);
+        toast(t("prof.toastSubRemoved"), "info", 1800);
       }
     });
     return;
@@ -1597,10 +1600,10 @@ profilesView?.addEventListener("click", async (e) => {
     e.stopPropagation();
     const id = profileMenuBtn.dataset.menuProfile;
     const menu = openPMenu(profileMenuBtn, [
-      { id: "edit",     label: "Редактировать",    icon: ICON_EDIT },
-      { id: "activate", label: "Сделать активным", icon: ICON_CHECK },
-      { id: "reset-traffic", label: "Сбросить счётчик трафика", icon: ICON_REFRESH },
-      { id: "remove",   label: "Удалить",          icon: ICON_TRASH, danger: true },
+      { id: "edit",     label: t("prof.menu.edit"),    icon: ICON_EDIT },
+      { id: "activate", label: t("prof.menu.activateProfile"), icon: ICON_CHECK },
+      { id: "reset-traffic", label: t("prof.menu.resetTraffic"), icon: ICON_REFRESH },
+      { id: "remove",   label: t("prof.menu.remove"),          icon: ICON_TRASH, danger: true },
     ]);
     menu.addEventListener("click", (ev) => {
       const act = ev.target.closest("[data-act]")?.dataset.act;
@@ -1617,11 +1620,11 @@ profilesView?.addEventListener("click", async (e) => {
         resetMeasured(`profile:${id}`);
         renderProfilesView();
         refreshSubCardFromActive();
-        toast("Счётчик трафика сброшен", "info", 1600);
+        toast(t("prof.toastTrafficReset"), "info", 1600);
       } else if (act === "remove") {
         removeProfile(id);
         refreshProfilesSummary();
-        toast("Профиль удалён", "info", 1800);
+        toast(t("prof.toastProfileRemoved"), "info", 1800);
       }
     });
     return;
@@ -1798,7 +1801,7 @@ function updateHeroHint() {
   if (state !== "idle") return;
   const src = getActiveSource();
   if (!src) {
-    setHeroHintText("ИМПОРТИРУЙТЕ КОНФИГ ИЛИ ПОДПИСКУ");
+    setHeroHintText(t("home.importHint"));
     if (heroDisc) {
       heroDisc.disabled = true;
       heroDisc.setAttribute("aria-disabled", "true");
@@ -1863,9 +1866,9 @@ async function notifyConnectedWithRealNode(isMultiSub) {
   // Для подписки стартовый тост был обобщённым (балансировщик ещё не выбрал) —
   // догоняем реальным сервером, когда он стал известен.
   if (label && isMultiSub) {
-    toast("Защищено", "connected", 2000, { group: "conn", desc: `Сервер: ${label}` });
+    toast(t("conn.protected"), "connected", 2000, { group: "conn", desc: t("conn.serverDesc", { label }) });
   }
-  notify("Ninety · подключено", label ? `Сервер: ${label}` : "Туннель поднят");
+  notify(t("conn.notifyConnected"), label ? t("conn.serverDesc", { label }) : t("conn.tunnelUp"));
 }
 
 function updateHeroForActive() {
@@ -2170,10 +2173,10 @@ async function syncTrayMenu() {
         const node = src?.kind === "sub" ? (src.nodes.find((n, i) => nodeTag(i, n) === tag) || null) : null;
         currentEffectiveTag = tag;
         if (node) { currentEffectiveNode = node; updateHeroForActive(); }
-        toast("Сервер переключён", "success", 1200);
+        toast(t("conn.serverSwitched"), "success", 1200);
         syncTrayMenu();
       } catch (err) {
-        toast(`Не удалось переключить: ${err?.message || err}`, "error", 2500);
+        toast(t("conn.switchErr", { err: err?.message || err }), "error", 2500);
       }
     });
   } catch (e) { console.warn("tray listeners failed", e); }
@@ -2202,7 +2205,7 @@ heroDisc?.addEventListener("click", async () => {
   }
   if (state === "idle") {
     const src = getActiveSource();
-    if (!src) { toast("Сначала импортируйте конфиг или подписку", "error"); return; }
+    if (!src) { toast(t("conn.needSource"), "error"); return; }
     const mode = getMode();
     const options = loadOptions();
     // Если WARP включён — тянем регистрацию из app_config_dir/warp.json
@@ -2211,7 +2214,7 @@ heroDisc?.addEventListener("click", async () => {
     if (options.warp?.enabled) {
       try { warpInfo = await invoke("warp_status"); } catch {}
       if (!warpInfo) {
-        toast("WARP включён, но не зарегистрирован — Settings → WARP → «Зарегистрировать»", "error", 3500);
+        toast(t("conn.warpUnreg"), "error", 3500);
         return;
       }
     }
@@ -2243,11 +2246,11 @@ heroDisc?.addEventListener("click", async () => {
       // notifyConnectedWithRealNode догонит тост фактическим сервером. Для
       // одиночного профиля сразу его имя.
       const initLabel = isMultiSub
-        ? (src0.subscription?.name || "Подписка")
+        ? (src0.subscription?.name || t("conn.subFallback"))
         : nodeDisplayLabel(activeNodeForDisplay());
-      toast("Защищено", "connected", 2200, {
+      toast(t("conn.protected"), "connected", 2200, {
         group: "conn",
-        desc: initLabel || "Туннель поднят",
+        desc: initLabel || t("conn.tunnelUp"),
       });
       syncTrayMenu(); // трей → «Отключиться» (для sub ещё раз обновится после sync)
       // Effective node + OS-уведомление с именем фактического сервера (внутри
@@ -2256,7 +2259,7 @@ heroDisc?.addEventListener("click", async () => {
     } catch (e) {
       console.error("start failed", e);
       setState("idle");
-      toast("Не удалось запустить", "error", 4500, { desc: "Открываю логи — sing-box не стартовал" });
+      toast(t("conn.startFail"), "error", 4500, { desc: t("conn.startFailDesc") });
       try { await invoke("stop_singbox"); } catch {}
       try { await invoke("set_system_proxy", { enable: false }); } catch {}
       switchView("logs");
@@ -2265,8 +2268,8 @@ heroDisc?.addEventListener("click", async () => {
     try { await invoke("set_system_proxy", { enable: false }); } catch {}
     try { await invoke("stop_singbox"); } catch (e) { console.warn("stop failed", e); }
     setState("idle");
-    toast("Отключено", "info", 2000, { group: "conn", desc: "Туннель закрыт · системный прокси снят" });
-    notify("Ninety · отключено", "Туннель закрыт");
+    toast(t("conn.disconnected"), "info", 2000, { group: "conn", desc: t("conn.disconnectedDesc") });
+    notify(t("conn.notifyDisconnected"), t("conn.notifyDisconnectedBody"));
   }
 });
 
@@ -2392,7 +2395,7 @@ async function flushPendingUpdate() {
 
 async function runUpdateCheck({ silent = true } = {}) {
   if (!updaterAvailable()) {
-    if (!silent) toast("Updater недоступен", "error", 2500);
+    if (!silent) toast(t("update.unavailable"), "error", 2500);
     return;
   }
   let update;
@@ -2400,11 +2403,11 @@ async function runUpdateCheck({ silent = true } = {}) {
     update = await checkForUpdate();
   } catch (e) {
     console.warn("update check failed", e);
-    if (!silent) toast("Не удалось проверить обновления. Проверьте интернет или включите VPN.", "error", 4000);
+    if (!silent) toast(t("update.checkFailed"), "error", 4000);
     return;
   }
   if (!update) {
-    if (!silent) toast("Обновлений нет — у вас актуальная версия", "info", 2400);
+    if (!silent) toast(t("update.none"), "info", 2400);
     return;
   }
   // Юзер сам нажал «Проверить» → показываем модалку немедленно, skip игнорим.
@@ -2418,8 +2421,8 @@ async function runUpdateCheck({ silent = true } = {}) {
   } else {
     pendingUpdate = update;
     syncTrayMenu();
-    notify("Ninety · доступно обновление",
-      `Версия ${update.version} готова к установке. Откройте Ninety, чтобы обновиться.`);
+    notify(t("update.notifyTitle"),
+      t("update.notifyBody", { version: update.version }));
   }
 }
 
