@@ -11,14 +11,18 @@
 
 import { loadOptions, updateOption } from "/lib/options.js";
 import {
-  TYPE_LABELS, MATCH_LABELS, ACTION_LABELS,
   newRule, normalizeValue, isValidValue, sanitizeRule,
 } from "/lib/routing-rules.js";
 import { listNetworkProcesses, getConnections } from "/lib/clash-api.js";
 import { toast } from "/lib/toast.js";
 import { escapeHtml as esc } from "/lib/esc.js";
+import { t, getLang } from "/lib/i18n/index.js";
 
-const REGION_SHORT = { ru: "Россия", cn: "Китай", ir: "Иран", tr: "Турция", by: "Беларусь" };
+// Подписи правил — из каталога i18n (строятся в рантайме под текущий язык).
+const TYPE_LABELS = () => ({ domain: t("rr.type.domain"), ip: t("rr.type.ip"), process: t("rr.type.process") });
+const MATCH_LABELS = () => ({ suffix: t("rr.match.suffix"), exact: t("rr.match.exact"), keyword: t("rr.match.keyword") });
+const ACTION_LABELS = () => ({ proxy: t("rr.action.proxy"), direct: t("rr.action.direct"), block: t("rr.action.block") });
+const REGION_SHORT = () => ({ ru: t("rr.region.ru"), cn: t("rr.region.cn"), ir: t("rr.region.ir"), tr: t("rr.region.tr"), by: t("rr.region.by") });
 
 /* ── иконки (Lucide-стиль, currentColor) ── */
 const I = {
@@ -46,12 +50,17 @@ const ACTION_ICON = { proxy: I.vpn, direct: I.direct, block: I.block };
 
 /* ── helpers ── */
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
-// Русское склонение: plural(n,"правило","правила","правил")
-function plural(n, one, few, many) {
-  const m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-  return many;
+// Склонение по каталогу: plural(n, "pluralRules") → rr.pluralRules.{one|few|many}.
+// RU — три формы; прочие языки — англо-подобно (1 → one, иначе many).
+function plural(n, key) {
+  const one = t(`rr.${key}.one`), few = t(`rr.${key}.few`), many = t(`rr.${key}.many`);
+  if (getLang() === "ru") {
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+    return many;
+  }
+  return n === 1 ? one : many;
 }
 
 // Глобальный реестр живых mount'ов — при повторном mount (re-render секции
@@ -95,7 +104,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
   function commit(silent) {
     updateOption("route.customRules", rules);
     onChange("route.customRules");
-    if (!silent) toast("Правила обновлены", "success", 1600);
+    if (!silent) toast(t("rr.rulesUpdated"), "success", 1600);
   }
 
   /* ── каркас блока ── */
@@ -106,34 +115,34 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const o = loadOptions();
     const iso = o.region && o.region !== "other" ? o.region : null;
     const baseChip = iso
-      ? `<span class="rr-base"><span class="rr-base__k">База</span>` +
+      ? `<span class="rr-base"><span class="rr-base__k">${t("rr.baseKicker")}</span>` +
         `<span class="rr-base__flag"><img src="/assets/flags/${iso}.svg" alt=""></span>` +
-        `<span>${esc(REGION_SHORT[iso] || iso)}</span></span>`
+        `<span>${esc(REGION_SHORT()[iso] || iso)}</span></span>`
       : "";
 
     const headMain = hideTitle
-      ? '<p class="rr-head__sub rr-head__sub--solo">Свои правила поверх регионального · <b>домен</b> / <b>IP</b> / <b>приложение</b></p>'
+      ? `<p class="rr-head__sub rr-head__sub--solo">${t("rr.headSubSolo")}</p>`
       : '<div class="rr-head__main">' +
-          '<h3 class="rr-head__title">Правила маршрутизации</h3>' +
-          '<p class="rr-head__sub">Свои правила поверх регионального — <b>домен</b>, <b>IP</b> или <b>приложение</b> → Через VPN, Напрямую или Блок.</p>' +
+          `<h3 class="rr-head__title">${t("rr.title")}</h3>` +
+          `<p class="rr-head__sub">${t("rr.headSub")}</p>` +
         "</div>";
 
     block.innerHTML =
       '<div class="rr-head rr-head--sub">' +
         headMain +
-        '<button class="btn btn--primary" id="rr-addbtn" type="button">' + I.route + "Добавить правило</button>" +
+        '<button class="btn btn--primary" id="rr-addbtn" type="button">' + I.route + esc(t("rr.addRule")) + "</button>" +
       "</div>" +
       '<div class="rr-bar">' +
         '<div class="seg">' +
-          '<button class="seg__btn" id="tab-rules" data-on="true" type="button">Правила</button>' +
-          '<button class="seg__btn" id="tab-monitor" data-on="false" type="button">Соединения</button>' +
+          `<button class="seg__btn" id="tab-rules" data-on="true" type="button">${t("rr.tabRules")}</button>` +
+          `<button class="seg__btn" id="tab-monitor" data-on="false" type="button">${t("rr.tabConns")}</button>` +
         "</div>" +
         '<span class="rr-bar__spring"></span>' +
         baseChip +
         '<span class="rr-count" id="rr-count"></span>' +
       "</div>" +
       '<div class="rr-priority" id="rr-priority">' + I.priority +
-        "<span>Ваши правила срабатывают <b>раньше регионального</b>. Порядок сверху вниз = приоритет: применяется первое совпадение.</span></div>" +
+        `<span>${t("rr.priority")}</span></div>` +
       '<div id="rr-listhost"></div>';
 
     rootEl.appendChild(block);
@@ -146,7 +155,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
 
   /* ═══ СПИСОК ПРАВИЛ ═══ */
   function actionPill(action) {
-    return '<span class="rr-action rr-action--' + action + '"><span class="rr-action__dot"></span>' + ACTION_LABELS[action] + "</span>";
+    return '<span class="rr-action rr-action--' + action + '"><span class="rr-action__dot"></span>' + ACTION_LABELS()[action] + "</span>";
   }
   function ruleRow(rule, idx) {
     const row = el("div", "rr-rule");
@@ -159,18 +168,18 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const vis = vals.slice(0, 2);
     const extra = vals.length - vis.length;
     let chips = vis.map((v) => '<span class="rr-chip">' + esc(v) + "</span>").join("");
-    if (extra > 0) chips += '<span class="rr-chip rr-chip--more">+' + extra + " ещё</span>";
-    const matchNote = rule.type === "domain" ? '<span class="rr-match">' + (MATCH_LABELS[rule.match] || MATCH_LABELS.suffix) + "</span>" : "";
+    if (extra > 0) chips += '<span class="rr-chip rr-chip--more">+' + extra + " " + esc(t("rr.more")) + "</span>";
+    const matchNote = rule.type === "domain" ? '<span class="rr-match">' + (MATCH_LABELS()[rule.match] || MATCH_LABELS().suffix) + "</span>" : "";
 
     row.innerHTML =
-      '<div class="rr-grip" title="Перетащите, чтобы изменить приоритет">' + I.grip + '<span class="rr-ord">' + ord + "</span></div>" +
-      '<button class="switch" data-on="' + (rule.enabled !== false) + '" data-act="toggle" type="button" aria-label="Включить правило"></button>' +
-      '<span class="rr-type">' + TYPE_ICON[rule.type] + (TYPE_LABELS[rule.type] || rule.type) + "</span>" +
+      '<div class="rr-grip" title="' + esc(t("rr.gripTitle")) + '">' + I.grip + '<span class="rr-ord">' + ord + "</span></div>" +
+      '<button class="switch" data-on="' + (rule.enabled !== false) + '" data-act="toggle" type="button" aria-label="' + esc(t("rr.enableRule")) + '"></button>' +
+      '<span class="rr-type">' + TYPE_ICON[rule.type] + (TYPE_LABELS()[rule.type] || rule.type) + "</span>" +
       '<div class="rr-values">' + chips + matchNote + "</div>" +
       actionPill(rule.action) +
       '<div class="rr-rowacts">' +
-        '<button class="rr-iconbtn" data-act="edit" type="button" aria-label="Редактировать">' + I.edit + "</button>" +
-        '<button class="rr-iconbtn rr-iconbtn--danger" data-act="del" type="button" aria-label="Удалить">' + I.trash + "</button>" +
+        '<button class="rr-iconbtn" data-act="edit" type="button" aria-label="' + esc(t("rr.edit")) + '">' + I.edit + "</button>" +
+        '<button class="rr-iconbtn rr-iconbtn--danger" data-act="del" type="button" aria-label="' + esc(t("rr.delete")) + '">' + I.trash + "</button>" +
       "</div>";
 
     row.querySelector('[data-act="toggle"]').addEventListener("click", () => {
@@ -213,7 +222,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const host = $("#rr-listhost");
     if (!host) return;
     host.innerHTML = "";
-    $("#rr-count").textContent = rules.length + " " + plural(rules.length, "правило", "правила", "правил");
+    $("#rr-count").textContent = rules.length + " " + plural(rules.length, "pluralRules");
     if (!rules.length) { host.appendChild(emptyState()); return; }
     const list = el("div", "rr-list");
     rules.forEach((r, i) => list.appendChild(ruleRow(r, i)));
@@ -224,9 +233,9 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const e = el("div", "rr-empty");
     e.innerHTML =
       '<div class="rr-empty__icon">' + I.priority + "</div>" +
-      '<div class="rr-empty__title">Пока нет своих правил</div>' +
-      '<div class="rr-empty__text">Добавьте первое — например, пустить конкретный сайт напрямую, мимо VPN. Ваши правила работают поверх регионального.</div>' +
-      '<button class="btn btn--primary" data-act="add" type="button">' + I.route + "Добавить правило</button>";
+      `<div class="rr-empty__title">${t("rr.emptyTitle")}</div>` +
+      `<div class="rr-empty__text">${t("rr.emptyText")}</div>` +
+      '<button class="btn btn--primary" data-act="add" type="button">' + I.route + esc(t("rr.addRule")) + "</button>";
     e.querySelector('[data-act="add"]').addEventListener("click", () => openModal(null));
     return e;
   }
@@ -240,13 +249,13 @@ export function mountRoutingRules(rootEl, opts = {}) {
     back.innerHTML =
       '<div class="rr-modal__backdrop" data-act="close"></div>' +
       '<div class="rr-modal__card" role="dialog" aria-modal="true">' +
-        '<div class="rr-modal__head"><div><div class="rr-modal__kicker">Правило маршрутизации</div>' +
-          '<h3 class="rr-modal__title">' + (existing ? "Изменить правило" : "Новое правило") + "</h3></div>" +
+        '<div class="rr-modal__head"><div><div class="rr-modal__kicker">' + esc(t("rr.modalKicker")) + '</div>' +
+          '<h3 class="rr-modal__title">' + (existing ? t("rr.modalEdit") : t("rr.modalNew")) + "</h3></div>" +
           '<button class="rr-modal__close" data-act="close" type="button">' + I.x + "</button></div>" +
         '<div class="rr-modal__body" id="rr-mbody"></div>' +
         '<div class="rr-modal__foot">' +
-          '<button class="btn btn--ghost" data-act="close" type="button">Отмена</button>' +
-          '<button class="btn btn--primary" id="rr-save" data-act="save" type="button">' + I.check + "Сохранить</button>" +
+          `<button class="btn btn--ghost" data-act="close" type="button">${t("rr.cancel")}</button>` +
+          '<button class="btn btn--primary" id="rr-save" data-act="save" type="button">' + I.check + esc(t("rr.save")) + "</button>" +
         "</div>" +
       "</div>";
     document.body.appendChild(back);
@@ -269,16 +278,16 @@ export function mountRoutingRules(rootEl, opts = {}) {
     body.innerHTML = "";
 
     // a) тип
-    const typeField = el("div", "rr-field", '<div class="rr-label">Тип правила</div>');
+    const typeField = el("div", "rr-field", `<div class="rr-label">${t("rr.fieldType")}</div>`);
     const seg = el("div", "rr-seg");
-    ["domain", "ip", "process"].forEach((t) => {
-      const b = el("button", "rr-seg__btn", TYPE_ICON[t] + "<span>" + TYPE_LABELS[t] + "</span>");
+    ["domain", "ip", "process"].forEach((ty) => {
+      const b = el("button", "rr-seg__btn", TYPE_ICON[ty] + "<span>" + TYPE_LABELS()[ty] + "</span>");
       b.type = "button";
-      b.dataset.on = String(draft.type === t);
+      b.dataset.on = String(draft.type === ty);
       b.addEventListener("click", () => {
-        if (draft.type === t) return;
-        draft.type = t; draft.values = [];
-        if (t === "domain" && !draft.match) draft.match = "suffix";
+        if (draft.type === ty) return;
+        draft.type = ty; draft.values = [];
+        if (ty === "domain" && !draft.match) draft.match = "suffix";
         renderModalBody();
       });
       seg.appendChild(b);
@@ -292,13 +301,13 @@ export function mountRoutingRules(rootEl, opts = {}) {
     else body.appendChild(processFields());
 
     // c) действие
-    const actField = el("div", "rr-field", '<div class="rr-label">Что делать с трафиком</div>');
+    const actField = el("div", "rr-field", `<div class="rr-label">${t("rr.fieldAction")}</div>`);
     const pick = el("div", "rr-actions-pick");
     ["proxy", "direct", "block"].forEach((a) => {
       const b = el("button", "rr-apick");
       b.type = "button";
       b.dataset.act = a; b.dataset.on = String(draft.action === a);
-      b.innerHTML = '<span class="rr-apick__ico">' + ACTION_ICON[a] + '</span><span class="rr-apick__t">' + ACTION_LABELS[a] + "</span>";
+      b.innerHTML = '<span class="rr-apick__ico">' + ACTION_ICON[a] + '</span><span class="rr-apick__t">' + ACTION_LABELS()[a] + "</span>";
       b.addEventListener("click", () => { draft.action = a; pick.querySelectorAll(".rr-apick").forEach((x) => { x.dataset.on = String(x.dataset.act === a); }); });
       pick.appendChild(b);
     });
@@ -316,7 +325,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
       wrap.querySelectorAll(".rr-ichip").forEach((c) => c.remove());
       draft.values.forEach((v, i) => {
         const bad = !isValidValue(type, v);
-        const c = el("span", "rr-ichip" + (bad ? " is-bad" : ""), esc(v) + '<button class="rr-ichip__x" type="button" aria-label="Убрать">' + I.x + "</button>");
+        const c = el("span", "rr-ichip" + (bad ? " is-bad" : ""), esc(v) + '<button class="rr-ichip__x" type="button" aria-label="' + esc(t("rr.remove")) + '">' + I.x + "</button>");
         c.querySelector(".rr-ichip__x").addEventListener("click", (ev) => { ev.stopPropagation(); draft.values.splice(i, 1); repaint(); updatePreview(); updateSave(); });
         wrap.insertBefore(c, entry);
       });
@@ -345,29 +354,29 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const type = draft.type;
     if (!draft.values.length) {
       p.innerHTML = type === "domain"
-        ? "Сохранится в нижнем регистре, без схемы и пути: <b>https://YouTube.com/feed</b> → <b>youtube.com</b>"
+        ? t("rr.previewDomain")
         : type === "ip"
-          ? "Одиночный адрес трактуется как /32 (IPv6 — /128): <b>1.2.3.4</b> → <b>1.2.3.4/32</b>"
-          : "Имя приложения нормализуется до basename + .exe: <b>C:\\…\\Telegram.exe</b> → <b>Telegram.exe</b>";
+          ? t("rr.previewIp")
+          : t("rr.previewProcess");
       p.classList.remove("rr-preview--warn");
       return;
     }
     const norm = draft.values.map((v) => ({ raw: v, n: normalizeValue(type, v), ok: isValidValue(type, v) }));
     const good = norm.filter((x) => x.ok);
     const bad = norm.filter((x) => !x.ok);
-    let html = good.length ? "Сохранится как: " + good.map((x) => "<b>" + esc(x.n) + "</b>").join(", ") : "Нет распознанных значений";
-    if (bad.length) html += '<br><span class="rr-preview--warn">Будет отброшено (не распознано): ' + bad.map((x) => esc(x.raw)).join(", ") + "</span>";
+    let html = good.length ? t("rr.previewSavedAs") + good.map((x) => "<b>" + esc(x.n) + "</b>").join(", ") : t("rr.previewNone");
+    if (bad.length) html += '<br><span class="rr-preview--warn">' + esc(t("rr.previewDropped")) + bad.map((x) => esc(x.raw)).join(", ") + "</span>";
     p.innerHTML = html;
   }
 
   function domainFields() {
-    const f = el("div", "rr-field", '<div class="rr-label">Домены</div><div class="rr-sublabel">Введите домен и нажмите Enter. Можно несколько.</div>');
+    const f = el("div", "rr-field", `<div class="rr-label">${t("rr.fieldDomains")}</div><div class="rr-sublabel">${t("rr.subDomains")}</div>`);
     f.appendChild(chipInput("domain", "youtube.com"));
-    const mlabel = el("div", "rr-label"); mlabel.style.marginTop = "4px"; mlabel.textContent = "Режим совпадения";
+    const mlabel = el("div", "rr-label"); mlabel.style.marginTop = "4px"; mlabel.textContent = t("rr.matchMode");
     f.appendChild(mlabel);
     const seg = el("div", "rr-seg");
     ["suffix", "exact", "keyword"].forEach((m) => {
-      const b = el("button", "rr-seg__btn", "<span>" + MATCH_LABELS[m] + "</span>");
+      const b = el("button", "rr-seg__btn", "<span>" + MATCH_LABELS()[m] + "</span>");
       b.type = "button";
       b.dataset.on = String(draft.match === m);
       b.addEventListener("click", () => { draft.match = m; seg.querySelectorAll(".rr-seg__btn").forEach((x, i) => { x.dataset.on = String(["suffix", "exact", "keyword"][i] === m); }); });
@@ -379,17 +388,17 @@ export function mountRoutingRules(rootEl, opts = {}) {
     return f;
   }
   function ipFields() {
-    const f = el("div", "rr-field", '<div class="rr-label">IP-адреса и подсети</div><div class="rr-sublabel">Один адрес или подсеть (CIDR). Можно несколько.</div>');
-    f.appendChild(chipInput("ip", "1.2.3.4  или  10.0.0.0/24"));
+    const f = el("div", "rr-field", `<div class="rr-label">${t("rr.fieldIps")}</div><div class="rr-sublabel">${t("rr.subIps")}</div>`);
+    f.appendChild(chipInput("ip", t("rr.ipPlaceholder")));
     f.appendChild(previewBox());
     queueMicrotask(updatePreview);
     return f;
   }
   function processFields() {
-    const f = el("div", "rr-field", '<div class="rr-label">Приложение</div>');
+    const f = el("div", "rr-field", `<div class="rr-label">${t("rr.fieldApp")}</div>`);
     const sw = el("div", "rr-proc-switch");
-    const bPick = el("button", "rr-pickbtn", I.app + "Выбрать из запущенных"); bPick.type = "button";
-    const bMan = el("button", "rr-pickbtn", I.edit + "Ввести имя вручную"); bMan.type = "button";
+    const bPick = el("button", "rr-pickbtn", I.app + esc(t("rr.pickRunning"))); bPick.type = "button";
+    const bMan = el("button", "rr-pickbtn", I.edit + esc(t("rr.enterManual"))); bMan.type = "button";
     const sync = () => { bPick.style.opacity = procMode === "pick" ? "1" : "0.55"; bMan.style.opacity = procMode === "manual" ? "1" : "0.55"; };
     bPick.addEventListener("click", () => { procMode = "pick"; sync(); renderProcArea(); });
     bMan.addEventListener("click", () => { procMode = "manual"; sync(); renderProcArea(); });
@@ -416,18 +425,18 @@ export function mountRoutingRules(rootEl, opts = {}) {
   function processPicker() {
     const box = el("div", "rr-picker");
     box.innerHTML =
-      '<div class="rr-picker__head"><span class="rr-picker__title"><span class="rr-picker__live"></span>Запущенные приложения с сетью</span>' +
-        '<button class="rr-refresh" data-act="refresh" type="button">' + I.refresh + "Обновить</button></div>" +
+      '<div class="rr-picker__head"><span class="rr-picker__title"><span class="rr-picker__live"></span>' + esc(t("rr.pickerTitle")) + '</span>' +
+        '<button class="rr-refresh" data-act="refresh" type="button">' + I.refresh + esc(t("rr.refresh")) + "</button></div>" +
       '<div class="rr-picker__scroll" id="rr-procscroll"></div>';
     const scroll = box.querySelector("#rr-procscroll");
     const refreshBtn = box.querySelector('[data-act="refresh"]');
 
     const stateBlock = (text) => '<div class="rr-picker__state"><div class="rr-picker__state-text">' + esc(text) + "</div></div>";
-    const loading = () => { scroll.innerHTML = '<div class="rr-picker__state"><div class="rr-spinner"></div><div class="rr-picker__state-text">Снимаю список приложений…</div></div>'; };
+    const loading = () => { scroll.innerHTML = '<div class="rr-picker__state"><div class="rr-spinner"></div><div class="rr-picker__state-text">' + esc(t("rr.pickerLoading")) + '</div></div>'; };
 
     function paint(list) {
       scroll.innerHTML = "";
-      if (!list.length) { scroll.innerHTML = stateBlock("Нет приложений с сетевой активностью"); return; }
+      if (!list.length) { scroll.innerHTML = stateBlock(t("rr.pickerEmpty")); return; }
       list.forEach((p) => {
         const item = el("div", "rr-proc");
         item.dataset.checked = String(draft.values.includes(p.name));
@@ -455,8 +464,8 @@ export function mountRoutingRules(rootEl, opts = {}) {
     function failState() {
       scroll.innerHTML = "";
       const st = el("div", "rr-picker__state");
-      st.innerHTML = '<div class="rr-picker__state-text">Не удалось получить список — повторите</div>';
-      const retry = el("button", "rr-refresh", I.refresh + "Повторить");
+      st.innerHTML = `<div class="rr-picker__state-text">${t("rr.pickerFail")}</div>`;
+      const retry = el("button", "rr-refresh", I.refresh + esc(t("rr.retry")));
       retry.type = "button";
       retry.addEventListener("click", () => load());
       st.appendChild(retry);
@@ -480,7 +489,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
       const arr = Array.isArray(list) ? list : [];
       paint(arr);
       if (announce) {
-        toast("Список обновлён · " + arr.length + " " + plural(arr.length, "приложение", "приложения", "приложений"), "success", 1400);
+        toast(t("rr.listUpdated", { n: arr.length, noun: plural(arr.length, "pluralApps") }), "success", 1400);
       }
     }
     refreshBtn.addEventListener("click", () => {
@@ -510,14 +519,14 @@ export function mountRoutingRules(rootEl, opts = {}) {
   /* ═══ МОНИТОР СОЕДИНЕНИЙ (группировка по приложению, Throne-style) ═══ */
   const UNKNOWN_KEY = " "; // ведро для соединений без определённого процесса
   function routeChip(outbound) {
-    const ob = ACTION_LABELS[outbound] ? outbound : "proxy";
-    return '<span class="rr-action rr-action--' + ob + '"><span class="rr-action__dot"></span>' + ACTION_LABELS[ob] + "</span>";
+    const ob = ACTION_LABELS()[outbound] ? outbound : "proxy";
+    return '<span class="rr-action rr-action--' + ob + '"><span class="rr-action__dot"></span>' + ACTION_LABELS()[ob] + "</span>";
   }
   // Сводка маршрутов группы: по точке на каждый различный outbound.
   function routeDots(conns) {
-    const set = [...new Set(conns.map((c) => (ACTION_LABELS[c.outbound] ? c.outbound : "proxy")))];
+    const set = [...new Set(conns.map((c) => (ACTION_LABELS()[c.outbound] ? c.outbound : "proxy")))];
     return '<span class="rr-appgrp__dots">' +
-      set.map((o) => '<span class="rr-dot rr-dot--' + o + '" title="' + ACTION_LABELS[o] + '"></span>').join("") +
+      set.map((o) => '<span class="rr-dot rr-dot--' + o + '" title="' + ACTION_LABELS()[o] + '"></span>').join("") +
       "</span>";
   }
   // Группировка соединений по имени процесса; именованные — выше, по числу
@@ -552,7 +561,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const wrap = el("div", "rr-appgrp" + (g.process ? "" : " rr-appgrp--unknown"));
     wrap.dataset.open = String(open);
 
-    const name = g.process || "Без процесса";
+    const name = g.process || t("rr.noProcess");
     const path = g.path && g.path !== g.process ? '<span class="rr-appgrp__path">' + esc(g.path) + "</span>" : "";
     const head = el("button", "rr-appgrp__head");
     head.type = "button";
@@ -561,7 +570,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
       '<span class="rr-appgrp__ico">' + I.app + "</span>" +
       '<span class="rr-appgrp__meta"><span class="rr-appgrp__name">' + esc(name) + "</span>" + path + "</span>" +
       routeDots(g.conns) +
-      '<span class="rr-appgrp__count" title="Активных соединений">' + g.conns.length + "</span>";
+      `<span class="rr-appgrp__count" title="${esc(t("rr.activeConns"))}">` + g.conns.length + "</span>";
     head.addEventListener("click", () => {
       const nowOpen = wrap.dataset.open !== "true";
       wrap.dataset.open = String(nowOpen);
@@ -583,10 +592,10 @@ export function mountRoutingRules(rootEl, opts = {}) {
     wrap.dataset.paused = String(monitorPaused);
     wrap.innerHTML =
       '<div class="rr-mon-bar">' +
-        '<span class="rr-mon-live"><span class="rr-mon-live__dot"></span>' + (monitorPaused ? "Пауза" : "Обновление каждые 2 c") + "</span>" +
+        '<span class="rr-mon-live"><span class="rr-mon-live__dot"></span>' + (monitorPaused ? t("rr.monPaused") : t("rr.monLive")) + "</span>" +
         '<span class="rr-bar__spring"></span>' +
         '<span class="rr-mon-count" id="rr-moncount"></span>' +
-        '<button class="btn btn--sm" id="rr-pausebtn" type="button">' + (monitorPaused ? I.play + "Возобновить" : I.pause + "Пауза") + "</button>" +
+        '<button class="btn btn--sm" id="rr-pausebtn" type="button">' + (monitorPaused ? I.play + esc(t("rr.resume")) : I.pause + esc(t("rr.pause"))) + "</button>" +
       "</div>" +
       '<div class="rr-appgroups" id="rr-conns"></div>';
     host.appendChild(wrap);
@@ -599,13 +608,13 @@ export function mountRoutingRules(rootEl, opts = {}) {
     if (!host) return;
     host.innerHTML = "";
     if (!monConns.length) {
-      host.innerHTML = '<div class="rr-picker__state"><div class="rr-picker__state-text">Пока нет активных соединений</div></div>';
+      host.innerHTML = `<div class="rr-picker__state"><div class="rr-picker__state-text">${t("rr.noConns")}</div></div>`;
     } else {
       const groups = groupConns(monConns);
       groups.forEach((g) => host.appendChild(appGroup(g)));
     }
     const cnt = $("#rr-moncount");
-    if (cnt) cnt.textContent = monConns.length + " " + plural(monConns.length, "соединение", "соединения", "соединений");
+    if (cnt) cnt.textContent = monConns.length + " " + plural(monConns.length, "pluralConns");
   }
   async function pollConns() {
     // Стоп, если секцию перерисовали/ушли с монитора.
