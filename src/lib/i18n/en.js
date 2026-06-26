@@ -32,6 +32,8 @@ export const en = {
     noSub: "NO SUBSCRIPTION",
     unlimited: "unlimited",
     importHint: "IMPORT A CONFIG OR SUBSCRIPTION",
+    ipClickShow: "Click to show for 20 seconds",
+    warpEpTitle: "Current CF endpoint",
   },
 
   hero: {
@@ -82,6 +84,7 @@ export const en = {
   proxies: {
     title: "Nodes",
     metaNone: "No subscription selected",
+    fabAria: "Test latency of all nodes",
     auto: "Auto",
     autoSub: "Fastest by ping",
     autoNow: "Now → {name}",
@@ -228,6 +231,7 @@ export const en = {
     levelAria: "Log level",
     searchAria: "Search logs",
     kicker: "LOG",
+    kickerInit: "LOG · SING-BOX",
     compFallback: "the component",
     empty: "Log is empty — {comp} hasn't written anything yet.",
     notFound: "Nothing matches the filter.",
@@ -422,6 +426,15 @@ export const en = {
     loadingClipboard: "Reading clipboard…",
     errNoClipboard: "No clipboard access — enter the URL manually below.",
     errClipboardEmpty: "Clipboard is empty. Enter the URL manually.",
+    title: "ADD PROFILE",
+    close: "Close",
+    hint: "Paste a subscription URL, a vless:// link, or a list of them — we'll figure it out.",
+    tileClipboard: "From clipboard", tileClipboardSub: "Detects URL and vless://",
+    tileManual: "Manually", tileManualSub: "URL + name + interval",
+    tileFile: ".toml file", tileFileSub: "TrustTunnel endpoint config",
+    labelName: "Name", phName: "My subscription",
+    labelAuto: "Auto-update",
+    back: "BACK", submit: "ADD",
   },
 
   edit: {
@@ -446,6 +459,9 @@ export const en = {
     done: "DONE",
     failed: "Update failed: {err}",
     retry: "RETRY",
+    available: "UPDATE AVAILABLE",
+    whatsNew: "What's new",
+    later: "LATER",
   },
 
   share: {
@@ -544,6 +560,9 @@ export const en = {
   onb: {
     skip: "Skip",
     back: "Back",
+    step2: "STEP 2  ·  IMPORT",
+    step3: "STEP 3  ·  CONNECT",
+    step4: "STEP 4  ·  DONE",
     prefs: { language: "Language", region: "Region", theme: "Theme" },
     welcome: {
       title: "Welcome to Ninety",
