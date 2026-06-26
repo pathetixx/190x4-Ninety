@@ -180,11 +180,8 @@ const modeSeg = document.getElementById("mode-seg");
 const modeHint = document.getElementById("mode-hint");
 const warpSwitch = document.getElementById("warp-switch");
 
-const MODE_HINTS = {
-  proxy:       `<b>Для отдельных программ.</b> Защищает только приложения, где вы сами укажете прокси — например, браузер. Остальной трафик идёт напрямую. Удобно, чтобы прикрыть что-то одно.`,
-  systemProxy: `<b>Для всего сразу.</b> Включается для всех программ, что следуют системным настройкам сети, — большинство браузеров и приложений. Настраивать вручную ничего не нужно. Некоторые игры и приложения из Microsoft Store его не видят.`,
-  tun:         `<b>Полная защита.</b> Через VPN идёт весь трафик компьютера — любые программы, игры и приложения без исключений. Нужно один раз разрешить запуск от администратора (или включить автозапуск с правами в Настройках).`,
-};
+// Подсказки режимов живут в каталоге i18n (mode.hint.*) — берутся t() при apply.
+const MODE_KEYS = ["proxy", "systemProxy", "tun"];
 
 function applyModeToUI(m) {
   if (modeSeg) {
@@ -194,7 +191,7 @@ function applyModeToUI(m) {
       x.setAttribute("aria-selected", active ? "true" : "false");
     });
   }
-  if (modeHint) modeHint.innerHTML = MODE_HINTS[m] || MODE_HINTS.systemProxy;
+  if (modeHint) modeHint.innerHTML = t("mode.hint." + (MODE_KEYS.includes(m) ? m : "systemProxy"));
   // DPI-обход слушает режим: вход в TUN → пауза, выход → восстановление.
   setDpiVpnMode(m);
 }
@@ -837,7 +834,7 @@ function applyReconnectUI() {
   if (!hero) return;
   if (needsReconnect && (state === "connected" || state === "connecting")) {
     hero.classList.add("hero--reconnect");
-    if (heroLabel) heroLabel.textContent = "Применить настройки";
+    if (heroLabel) heroLabel.textContent = t("hero.apply");
     setHeroHintText("RECONNECT · APPLY NEW SETTINGS");
   } else {
     hero.classList.remove("hero--reconnect");
@@ -1458,11 +1455,28 @@ document.getElementById("onb-themes")?.addEventListener("click", (e) => {
   populateOnbPrefs();
 });
 
-// Живой ре-рендер при смене языка: static-строки index.html + подписи пикеров.
+// Живой ре-рендер при смене языка: static-строки index.html + подписи пикеров + динамика главной.
 onLangChange(() => {
   applyDom(document);
   populateOnbPrefs();
+  refreshDynamicText();
 });
+
+// Перерисовать динамические подписи главной (статус hero, подсказка режима, режим в
+// телеметрии) без побочных эффектов — сессии/таймеры/ядро не трогаем.
+function refreshDynamicText() {
+  if (heroLabel) {
+    heroLabel.textContent =
+      state === "connected"  ? t("hero.secured")
+      : state === "connecting" ? t("hero.connecting")
+      : t("hero.notConnected");
+  }
+  if (modeHint) {
+    const m = getMode();
+    modeHint.innerHTML = t("mode.hint." + (MODE_KEYS.includes(m) ? m : "systemProxy"));
+  }
+  if (statsMode && state === "connected") statsMode.textContent = modeLabel(getMode());
+}
 
 populateOnbPrefs();
 
@@ -1664,7 +1678,7 @@ const CONNECTED_KICKER = {
   proxy:       "SECURED · PROXY ACTIVE",
 };
 function connectedKicker() { return CONNECTED_KICKER[getMode()] || STATE_KICKER.connected; }
-const MODE_LABEL = { proxy: "Прокси", systemProxy: "Системный прокси", tun: "VPN · TUN" };
+const modeLabel = (m) => t("mode." + m);
 
 // Кибер-HUD вокруг маски (lib/hero-hud.js). Инициализируется ниже, после
 // объявления `state` — getState читает его лениво из замыкания.
@@ -1892,9 +1906,9 @@ function setState(next, opts = {}) {
     qualityEngine.onIdle();
     showQualityChip(false);
     applyReconnectUI();
-    if (heroLabel) heroLabel.textContent = "Не подключено";
+    if (heroLabel) heroLabel.textContent = t("hero.notConnected");
     stopSession();
-    if (heroDisc) heroDisc.setAttribute("aria-label", "Подключиться");
+    if (heroDisc) heroDisc.setAttribute("aria-label", t("heroAria.connect"));
     if (tfDown) tfDown.textContent = "0";
     if (tfUp) tfUp.textContent = "0";
     if (tfDownUnit) tfDownUnit.textContent = "КБ/с";
@@ -1911,21 +1925,21 @@ function setState(next, opts = {}) {
     if (heroHint) heroHint.hidden = false;
     updateHeroHint();
   } else if (next === "connecting") {
-    if (heroLabel) heroLabel.textContent = "Подключение…";
+    if (heroLabel) heroLabel.textContent = t("hero.connecting");
     if (heroHint) heroHint.hidden = false;
     setHeroHintText(STATE_KICKER.connecting);
-    if (heroDisc) heroDisc.setAttribute("aria-label", "Отменить подключение");
+    if (heroDisc) heroDisc.setAttribute("aria-label", t("heroAria.cancelConnect"));
     if (heroMask) heroMask.playbackRate = 1.4;
   } else if (next === "connected") {
-    if (heroLabel) heroLabel.textContent = "Защищено";
+    if (heroLabel) heroLabel.textContent = t("hero.secured");
     if (heroHint) heroHint.hidden = false;
     setHeroHintText(connectedKicker());
     applyPingDisplay(opts.ping ?? null);
     startSession();
     if (tfDot) tfDot.dataset.live = "true";
-    if (heroDisc) heroDisc.setAttribute("aria-label", "Отключиться");
+    if (heroDisc) heroDisc.setAttribute("aria-label", t("heroAria.disconnect"));
     if (heroMask) heroMask.playbackRate = 1.0;
-    if (statsMode) statsMode.textContent = MODE_LABEL[getMode()] || "—";
+    if (statsMode) statsMode.textContent = modeLabel(getMode());
     updateStatsServer();
     startTrafficStream();
     // Учёт реально измеренного трафика активного источника (для гибрид-плитки).

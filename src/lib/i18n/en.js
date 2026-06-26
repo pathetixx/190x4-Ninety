@@ -22,7 +22,17 @@ export const en = {
     addSub: "Add subscription",
   },
 
-  hero: { notConnected: "Not connected" },
+  hero: {
+    notConnected: "Not connected",
+    connecting: "Connecting…",
+    secured: "Protected",
+    apply: "Apply settings",
+  },
+  heroAria: {
+    connect: "Connect",
+    cancelConnect: "Cancel connecting",
+    disconnect: "Disconnect",
+  },
 
   stats: {
     server: "Server",
@@ -42,6 +52,11 @@ export const en = {
     systemProxy: "System proxy",
     tun: "VPN · TUN",
     warpExtra: "Extra security with WARP",
+    hint: {
+      proxy: "<b>For specific apps.</b> Protects only the apps where you set the proxy yourself — a browser, for example. The rest of your traffic goes direct. Handy when you just need to cover one thing.",
+      systemProxy: "<b>For everything at once.</b> Turns on for every app that follows the system network settings — most browsers and apps. Nothing to configure by hand. Some games and Microsoft Store apps won't see it.",
+      tun: "<b>Full protection.</b> All of your computer's traffic goes through the VPN — any program, game or app, no exceptions. You'll need to allow running as administrator once (or enable autostart with admin rights in Settings).",
+    },
   },
 
   profiles: {
