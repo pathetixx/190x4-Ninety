@@ -6,6 +6,7 @@ import {
   REGIONS, IPV6_MODES, TUN_STACKS, LOG_LEVELS, MUX_PROTOCOLS,
 } from "/lib/options.js";
 import { BUILD_INFO } from "/lib/build-info.js";
+import { availableLangs, getLang, setLang, t } from "/lib/i18n/index.js";
 import { mountRoutingRules } from "/lib/routing-view.js";
 import { escapeAttr } from "/lib/esc.js";
 
@@ -249,6 +250,10 @@ export function mountSettings(root, opts = {}) {
 
   function bindAppearanceSection(el, sec) {
     if (sec.key !== "appearance") return;
+    el.querySelector("#settings-lang")?.addEventListener("change", async (e) => {
+      await setLang(e.target.value);
+      render(); // обновить подписи раздела на новом языке
+    });
     el.querySelectorAll(".theme-card[data-theme]").forEach(card => {
       card.addEventListener("click", () => {
         const id = card.dataset.theme;
@@ -506,17 +511,22 @@ function renderQuality(o) {
 
 function renderAppearance() {
   const current = localStorage.getItem("ninety.theme") || "kurogane";
-  const cards = THEMES.map(t => `
-    <div class="theme-card" data-theme="${t.id}" data-on="${current === t.id}"
-         style="--theme-accent:${t.accent};--theme-glow:${t.glow};">
+  const langOpts = availableLangs()
+    .map(l => `<option value="${l.code}"${l.code === getLang() ? " selected" : ""}>${l.name}</option>`)
+    .join("");
+  const langRow = row(null, t("settings.language"), t("settings.languageHint"),
+    `<select class="settings-select" id="settings-lang">${langOpts}</select>`);
+  const cards = THEMES.map(th => `
+    <div class="theme-card" data-theme="${th.id}" data-on="${current === th.id}"
+         style="--theme-accent:${th.accent};--theme-glow:${th.glow};">
       <div class="theme-card__check">
         <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
       </div>
       <div class="theme-card__top">
         <span class="theme-card__dot"></span>
-        <span class="theme-card__kicker">${t.kicker}</span>
+        <span class="theme-card__kicker">${th.kicker}</span>
       </div>
-      <div class="theme-card__name">${t.name}</div>
+      <div class="theme-card__name">${th.name}</div>
       <div class="theme-card__swatches">
         <span style="opacity:1"></span>
         <span style="opacity:0.7"></span>
@@ -526,6 +536,7 @@ function renderAppearance() {
     </div>
   `).join("");
   return `
+    ${langRow}
     <div class="settings-banner">
       Палитра неизменна — меняется только акцентный цвет. Выбор сохраняется автоматически.
     </div>

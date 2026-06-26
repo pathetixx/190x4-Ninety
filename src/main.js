@@ -24,7 +24,7 @@ import {
   formatBytes as fmtTraffic,
   relativeTime,
 } from "/lib/subscriptions.js";
-import { loadOptions, updateOption } from "/lib/options.js";
+import { loadOptions, updateOption, REGIONS } from "/lib/options.js";
 import { mountSettings } from "/lib/settings-view.js";
 import { escapeHtml } from "/lib/esc.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
@@ -45,6 +45,8 @@ import { createQualityEngine } from "/lib/quality-engine.js";
 import { bus } from "/lib/bus.js";
 import { openQualityScope } from "/lib/quality-scope.js";
 import { initHeroHud } from "/lib/hero-hud.js";
+import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t } from "/lib/i18n/index.js";
+import { detectRegion } from "/lib/i18n/region-detect.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -81,6 +83,10 @@ export function setTheme(t) {
 // Применяем сохранённую тему сразу — до первого рендера остального
 applyThemeAttr(getTheme());
 window.__ninetySetTheme = setTheme;
+
+// ── i18n: язык применяется ДО первого показа (каталог уже в памяти, синхронно).
+// Module-script отложен → DOM готов, applyDom внутри initI18n находит элементы.
+initI18n();
 
 // ── Version (dynamic из Tauri) ─────────────────────────────
 // ВАЖНО: НЕ использовать MutationObserver на settings-root — apply() меняет
@@ -1370,6 +1376,7 @@ function openWizardAt(step = 1) {
   if (appRoot) appRoot.dataset.wizard = "true";
   const onb = document.getElementById("onboarding-screen");
   if (onb) onb.hidden = false;
+  populateOnbPrefs();
   showOnbStep(step);
 }
 function closeWizard() {
@@ -1404,6 +1411,61 @@ document.getElementById("onboarding-screen")?.addEventListener("click", async (e
     openAddModal();
   }
 });
+// ── Онбординг · пикеры язык/регион/тема (Hiddify-style welcome) ──────────────
+// Подписи локализованы (t / availableLangs), тема и регион применяются сразу.
+function populateOnbPrefs() {
+  const swatches = {
+    kurogane: "#DE5772", cyan: "#6CF2F2", synthwave: "#E0A6FF",
+    matrix: "#5CEE92", mono: "#FFFFFF", command: "#FF3355",
+  };
+  const langSel = document.getElementById("onb-lang");
+  const regionSel = document.getElementById("onb-region");
+  const themesWrap = document.getElementById("onb-themes");
+  if (langSel) {
+    langSel.innerHTML = availableLangs()
+      .map(l => `<option value="${l.code}"${l.code === getLang() ? " selected" : ""}>${l.name}</option>`)
+      .join("");
+  }
+  if (regionSel) {
+    const cur = loadOptions().region;
+    regionSel.innerHTML = REGIONS
+      .map(r => `<option value="${r}"${r === cur ? " selected" : ""}>${t("region." + r)}</option>`)
+      .join("");
+  }
+  if (themesWrap) {
+    const cur = getTheme();
+    themesWrap.innerHTML = Object.entries(swatches)
+      .map(([id, c]) => `<button type="button" class="onb-theme${id === cur ? " onb-theme--on" : ""}" data-onb-theme="${id}" title="${id}" style="--sw:${c}"></button>`)
+      .join("");
+  }
+}
+
+// Первый запуск: регион предвыбран по таймзоне (один раз; выбор вернувшегося юзера не трогаем).
+if (!localStorage.getItem("ninety.region.detected") && !isOnboardingDone()) {
+  updateOption("region", detectRegion());
+  localStorage.setItem("ninety.region.detected", "1");
+}
+
+document.getElementById("onb-lang")?.addEventListener("change", (e) => { setLang(e.target.value); });
+document.getElementById("onb-region")?.addEventListener("change", (e) => {
+  updateOption("region", e.target.value);
+  localStorage.setItem("ninety.region.detected", "1");
+});
+document.getElementById("onb-themes")?.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-onb-theme]");
+  if (!b) return;
+  setTheme(b.dataset.onbTheme);
+  populateOnbPrefs();
+});
+
+// Живой ре-рендер при смене языка: static-строки index.html + подписи пикеров.
+onLangChange(() => {
+  applyDom(document);
+  populateOnbPrefs();
+});
+
+populateOnbPrefs();
+
 document.getElementById("profiles-refresh-all")?.addEventListener("click", async () => {
   try {
     await refreshAllSubscriptions();

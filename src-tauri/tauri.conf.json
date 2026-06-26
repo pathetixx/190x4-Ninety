@@ -60,7 +60,7 @@
         "installerHooks": "./windows/hooks.nsh",
         "headerImage": "./windows/header.bmp",
         "sidebarImage": "./windows/sidebar.bmp",
-        "displayLanguageSelector": false,
+        "displayLanguageSelector": true,
         "languages": ["English", "Russian"]
       }
     }
