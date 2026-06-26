@@ -14,6 +14,13 @@ export const ru = {
 
   traffic: { label: "Трафик · live", down: "Down", up: "Up" },
 
+  units: {
+    ms: "мс",
+    timeout: "Тайм-аут",
+    hour: "ч", min: "м", sec: "с",
+    rateB: "Б/с", rateKiB: "КиБ/с", rateMiB: "МиБ/с",
+  },
+
   home: {
     updated: "обновлено",
     daysLeft: "дн осталось",
@@ -32,6 +39,7 @@ export const ru = {
     connecting: "Подключение…",
     secured: "Защищено",
     apply: "Применить настройки",
+    ipTooltip: "{country} · кликните, чтобы показать IP на 20 сек",
   },
   heroAria: {
     connect: "Подключиться",
