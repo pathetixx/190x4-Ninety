@@ -3,6 +3,7 @@
 // vless парсер + хранилище профилей здесь же.
 
 import { DEFAULT_OPTIONS } from "/lib/options.js";
+import { t } from "/lib/i18n/index.js";
 
 const PROFILES_KEY = "ninety.profiles.v1";
 const ACTIVE_KEY = "ninety.profiles.active";
@@ -40,7 +41,7 @@ const IPV6_STRATEGY_MAP = {
 // ── vless парсер ────────────────────────────────────────────
 export function parseVless(raw) {
   const url = String(raw || "").trim();
-  if (!url.startsWith("vless://")) throw new Error("Не vless:// ссылка");
+  if (!url.startsWith("vless://")) throw new Error(t("sb.err.notVless"));
   const rest = url.slice("vless://".length);
   const hashIdx = rest.indexOf("#");
   const name = hashIdx >= 0 ? safeDecode(rest.slice(hashIdx + 1)) : "VLESS";
@@ -50,23 +51,23 @@ export function parseVless(raw) {
   const query = qIdx >= 0 ? main.slice(qIdx + 1) : "";
 
   const atIdx = head.lastIndexOf("@");
-  if (atIdx < 0) throw new Error("Нет @host:port");
+  if (atIdx < 0) throw new Error(t("sb.err.noHostPort"));
   const uuid = head.slice(0, atIdx);
   const hostPort = head.slice(atIdx + 1);
 
   let host, port;
   if (hostPort.startsWith("[")) {
     const close = hostPort.indexOf("]");
-    if (close < 0) throw new Error("Битый IPv6");
+    if (close < 0) throw new Error(t("sb.err.badIpv6"));
     host = hostPort.slice(1, close);
     port = parseInt(hostPort.slice(close + 2), 10);
   } else {
     const colonIdx = hostPort.lastIndexOf(":");
-    if (colonIdx < 0) throw new Error("Нет порта");
+    if (colonIdx < 0) throw new Error(t("sb.err.noPort"));
     host = hostPort.slice(0, colonIdx);
     port = parseInt(hostPort.slice(colonIdx + 1), 10);
   }
-  if (!port || port < 1 || port > 65535) throw new Error("Некорректный порт");
+  if (!port || port < 1 || port > 65535) throw new Error(t("sb.err.badPort"));
 
   const params = new URLSearchParams(query);
   const get = (k, def = "") => params.get(k) ?? def;
@@ -110,14 +111,14 @@ function safeAtob(s) {
 function splitHostPort(hostPort) {
   if (hostPort.startsWith("[")) {
     const close = hostPort.indexOf("]");
-    if (close < 0) throw new Error("Битый IPv6");
+    if (close < 0) throw new Error(t("sb.err.badIpv6"));
     return {
       host: hostPort.slice(1, close),
       port: parseInt(hostPort.slice(close + 2), 10),
     };
   }
   const colonIdx = hostPort.lastIndexOf(":");
-  if (colonIdx < 0) throw new Error("Нет порта");
+  if (colonIdx < 0) throw new Error(t("sb.err.noPort"));
   return {
     host: hostPort.slice(0, colonIdx),
     port: parseInt(hostPort.slice(colonIdx + 1), 10),
@@ -149,15 +150,15 @@ function splitQuery(main) {
 // ── vmess парсер (base64 JSON) ──────────────────────────────
 export function parseVmess(raw) {
   const url = String(raw || "").trim();
-  if (!url.startsWith("vmess://")) throw new Error("Не vmess:// ссылка");
+  if (!url.startsWith("vmess://")) throw new Error(t("sb.err.notVmess"));
   const payload = url.slice("vmess://".length);
   const { name: hashName, main } = splitTrailingHashName(payload, null);
   const decoded = safeAtob(main);
-  if (!decoded) throw new Error("vmess: не декодируется base64");
+  if (!decoded) throw new Error(t("sb.err.vmessB64"));
   let j;
-  try { j = JSON.parse(decoded); } catch { throw new Error("vmess: не JSON"); }
+  try { j = JSON.parse(decoded); } catch { throw new Error(t("sb.err.vmessJson")); }
   const port = parseInt(j.port, 10);
-  if (!port) throw new Error("vmess: нет порта");
+  if (!port) throw new Error(t("sb.err.vmessPort"));
   return {
     raw: url,
     proto: "vmess",
@@ -182,12 +183,12 @@ export function parseVmess(raw) {
 // ── trojan парсер ───────────────────────────────────────────
 export function parseTrojan(raw) {
   const url = String(raw || "").trim();
-  if (!url.startsWith("trojan://")) throw new Error("Не trojan:// ссылка");
+  if (!url.startsWith("trojan://")) throw new Error(t("sb.err.notTrojan"));
   const rest = url.slice("trojan://".length);
   const { name, main } = splitTrailingHashName(rest, "TROJAN");
   const { head, query } = splitQuery(main);
   const atIdx = head.lastIndexOf("@");
-  if (atIdx < 0) throw new Error("trojan: нет @host:port");
+  if (atIdx < 0) throw new Error(t("sb.err.trojanHostPort"));
   const password = decodeURIComponent(head.slice(0, atIdx));
   const { host, port } = splitHostPort(head.slice(atIdx + 1));
   const get = (k, def = "") => query.get(k) ?? def;
@@ -213,7 +214,7 @@ export function parseTrojan(raw) {
 // ── shadowsocks (SIP002) ────────────────────────────────────
 export function parseShadowsocks(raw) {
   const url = String(raw || "").trim();
-  if (!url.startsWith("ss://")) throw new Error("Не ss:// ссылка");
+  if (!url.startsWith("ss://")) throw new Error(t("sb.err.notSs"));
   const rest = url.slice("ss://".length);
   const { name, main } = splitTrailingHashName(rest, "SS");
   const { head, query } = splitQuery(main);
@@ -221,9 +222,9 @@ export function parseShadowsocks(raw) {
   if (atIdx < 0) {
     // Legacy form: base64(method:password@host:port)
     const decoded = safeAtob(head);
-    if (!decoded) throw new Error("ss: не декодируется legacy base64");
+    if (!decoded) throw new Error(t("sb.err.ssB64"));
     const at2 = decoded.lastIndexOf("@");
-    if (at2 < 0) throw new Error("ss: legacy без @host:port");
+    if (at2 < 0) throw new Error(t("sb.err.ssHostPort"));
     const credsRaw = decoded.slice(0, at2);
     const [method, password] = credsRaw.split(":", 2);
     const { host, port } = splitHostPort(decoded.slice(at2 + 1));
@@ -261,12 +262,12 @@ export function parseShadowsocks(raw) {
 export function parseHysteria2(raw) {
   const url = String(raw || "").trim();
   const scheme = url.startsWith("hysteria2://") ? "hysteria2://" : (url.startsWith("hy2://") ? "hy2://" : null);
-  if (!scheme) throw new Error("Не hysteria2:// ссылка");
+  if (!scheme) throw new Error(t("sb.err.notHy2"));
   const rest = url.slice(scheme.length);
   const { name, main } = splitTrailingHashName(rest, "HYSTERIA2");
   const { head, query } = splitQuery(main);
   const atIdx = head.lastIndexOf("@");
-  if (atIdx < 0) throw new Error("hysteria2: нет @host:port");
+  if (atIdx < 0) throw new Error(t("sb.err.hy2HostPort"));
   const password = decodeURIComponent(head.slice(0, atIdx));
   const { host, port } = splitHostPort(head.slice(atIdx + 1));
   const get = (k, def = "") => query.get(k) ?? def;
@@ -287,12 +288,12 @@ export function parseHysteria2(raw) {
 // ── tuic v5 ────────────────────────────────────────────────
 export function parseTuic(raw) {
   const url = String(raw || "").trim();
-  if (!url.startsWith("tuic://")) throw new Error("Не tuic:// ссылка");
+  if (!url.startsWith("tuic://")) throw new Error(t("sb.err.notTuic"));
   const rest = url.slice("tuic://".length);
   const { name, main } = splitTrailingHashName(rest, "TUIC");
   const { head, query } = splitQuery(main);
   const atIdx = head.lastIndexOf("@");
-  if (atIdx < 0) throw new Error("tuic: нет @host:port");
+  if (atIdx < 0) throw new Error(t("sb.err.tuicHostPort"));
   const auth = head.slice(0, atIdx);
   const [uuid, passwordRaw] = auth.split(":", 2);
   const password = decodeURIComponent(passwordRaw || "");
@@ -319,22 +320,22 @@ export function parseTuic(raw) {
 // Движок — sidecar naive.exe на стеке Chromium; в sing-box идёт socks-мост.
 export function parseNaive(raw) {
   const url = String(raw || "").trim();
-  if (!url.startsWith("naive+")) throw new Error("Не naive+ ссылка");
+  if (!url.startsWith("naive+")) throw new Error(t("sb.err.notNaive"));
   const inner = url.slice("naive+".length); // https://user:pass@host:port#name
   const scheme = inner.startsWith("https://") ? "https" : (inner.startsWith("quic://") ? "quic" : null);
-  if (!scheme) throw new Error("naive: ожидается https:// или quic://");
+  if (!scheme) throw new Error(t("sb.err.naiveScheme"));
   const rest = inner.slice(`${scheme}://`.length);
   const { name, main } = splitTrailingHashName(rest, "Naive");
   const { head } = splitQuery(main);
   const atIdx = head.lastIndexOf("@");
-  if (atIdx < 0) throw new Error("naive: нет user:pass@host:port");
+  if (atIdx < 0) throw new Error(t("sb.err.naiveUserPassHost"));
   const cred = head.slice(0, atIdx);
   const colon = cred.indexOf(":");
-  if (colon < 0) throw new Error("naive: нет user:pass");
+  if (colon < 0) throw new Error(t("sb.err.naiveUserPass"));
   const username = decodeURIComponent(cred.slice(0, colon));
   const password = decodeURIComponent(cred.slice(colon + 1));
   const { host, port } = splitHostPort(head.slice(atIdx + 1));
-  if (!port) throw new Error("naive: нет порта");
+  if (!port) throw new Error(t("sb.err.naivePort"));
   return { raw: url, proto: "naive", name, host, port, username, password, scheme };
 }
 
@@ -346,11 +347,11 @@ export function parseNaive(raw) {
 // QUIC/TLS variable-length integer (RFC 9000 §16): 2 старших бита первого байта
 // задают размер (00→1,01→2,10→4,11→8 байт), big-endian, без верхних 2 бит.
 function readQuicVarint(buf, pos) {
-  if (pos >= buf.length) throw new Error("tt: varint за пределами буфера");
+  if (pos >= buf.length) throw new Error(t("sb.err.ttVarintOOB"));
   const first = buf[pos];
   const lenLog = first >> 6;            // 0..3
   const n = 1 << lenLog;                // 1,2,4,8
-  if (pos + n > buf.length) throw new Error("tt: усечённый varint");
+  if (pos + n > buf.length) throw new Error(t("sb.err.ttVarintTrunc"));
   let v = BigInt(first & 0x3f);
   for (let i = 1; i < n; i++) v = (v << 8n) | BigInt(buf[pos + i]);
   return { value: Number(v), next: pos + n };
@@ -367,7 +368,7 @@ function parseTrustTunnelTlv(buf) {
     const t = readQuicVarint(buf, pos); pos = t.next;
     const l = readQuicVarint(buf, pos); pos = l.next;
     const end = pos + l.value;
-    if (end > buf.length) throw new Error("tt: длина TLV за пределами буфера");
+    if (end > buf.length) throw new Error(t("sb.err.ttTlvOOB"));
     const val = buf.subarray(pos, end);
     const str = () => td.decode(val);
     const bool = () => val.length >= 1 && val[0] === 0x01;
@@ -399,7 +400,7 @@ function parseTrustTunnelTlv(buf) {
     pos = end;
   }
   if (!f.hostname || !f.addresses.length || f.username == null || f.password == null) {
-    throw new Error("tt: deep-link без обязательных полей (hostname/addresses/username/password)");
+    throw new Error(t("sb.err.ttDeeplinkFields"));
   }
   return f;
 }
@@ -433,12 +434,12 @@ function ttProfile(f, rawForStorage) {
 
 export function parseTrustTunnelDeepLink(raw) {
   const url = String(raw || "").trim();
-  if (!url.startsWith("tt://")) throw new Error("Не tt:// ссылка");
+  if (!url.startsWith("tt://")) throw new Error(t("sb.err.notTt"));
   // tt://?<payload> — payload в query-части (case-sensitive), без префикса '?'
   const q = url.indexOf("?");
-  if (q < 0) throw new Error("tt: нет '?<payload>'");
+  if (q < 0) throw new Error(t("sb.err.ttNoPayload"));
   const payload = url.slice(q + 1).split(/[#&]/)[0];
-  if (!payload) throw new Error("tt: пустой payload");
+  if (!payload) throw new Error(t("sb.err.ttEmptyPayload"));
   const f = parseTrustTunnelTlv(bytesFromB64url(payload));
   return ttProfile(f, url);
 }
@@ -464,7 +465,7 @@ export function parseTrustTunnelToml(text, displayName) {
   const username = unq(get("username"));
   const password = unq(get("password"));
   if (!hostname || !addresses.length || !username || password == null) {
-    throw new Error("TrustTunnel .toml: нет hostname/addresses/username/password");
+    throw new Error(t("sb.err.ttTomlFields"));
   }
   const up = (unq(get("upstream_protocol")) || "http2").toLowerCase();
   const f = {
@@ -491,7 +492,7 @@ export function parseLink(raw) {
   if (s.startsWith("tuic://"))      return parseTuic(s);
   if (s.startsWith("naive+"))       return parseNaive(s);
   if (s.startsWith("tt://"))        return parseTrustTunnelDeepLink(s);
-  throw new Error(`Неподдерживаемый протокол: ${s.split("://")[0] || s.slice(0, 16)}://`);
+  throw new Error(t("sb.err.unsupported", { proto: s.split("://")[0] || s.slice(0, 16) }));
 }
 
 export function profileProto(p) {
@@ -1288,7 +1289,7 @@ function nodeToXrayOutbound(p, tag) {
 export function buildConfig({ profile, source, mode, options, warpInfo, xray = false }) {
   const opts = options || DEFAULT_OPTIONS;
   const src = source ?? (profile ? { kind: "single", profile } : null);
-  if (!src) throw new Error("buildConfig: нет источника");
+  if (!src) throw new Error(t("sb.err.buildNoSource"));
 
   // URL/интервал теста соединения — из настроек (ключи connectionTestUrl/intervalSec,
   // ровно как у Hiddify). Раньше buildConfig читал несуществующие url/interval и
@@ -1298,7 +1299,7 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
   const testInterval = `${intervalSec}s`;
 
   const nodes = src.kind === "sub" ? src.nodes : [src.profile];
-  if (!nodes?.length) throw new Error("buildConfig: пустой список нод");
+  if (!nodes?.length) throw new Error(t("sb.err.buildNoNodes"));
 
   const route = buildRoute(opts, mode);
   const useUrltest = nodes.length >= 2;
