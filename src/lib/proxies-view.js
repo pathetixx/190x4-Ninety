@@ -9,6 +9,7 @@ import {
 import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { FLAGS_BASE, flagIsoFromName, stripFlag } from "/lib/flags.js";
 import { escapeHtml, escapeAttr } from "/lib/esc.js";
+import { t } from "/lib/i18n/index.js";
 
 function $(id) { return document.getElementById(id); }
 
@@ -105,7 +106,7 @@ function effectiveSelectorTag(clashData) {
 
 function pingCellHtml(delay, grade) {
   if (delay > 0 && delay < 65000) {
-    return `<div class="prox__ping" data-grade="${grade}">${delay}<span class="prox__ping-unit">мс</span></div>`;
+    return `<div class="prox__ping" data-grade="${grade}">${delay}<span class="prox__ping-unit">${t("proxies.pingUnit")}</span></div>`;
   }
   return `<div class="prox__ping" data-grade="dead">—</div>`;
 }
@@ -134,14 +135,14 @@ function nodeCardHtml(n, isActive, delay, grade) {
 }
 
 function autoCardHtml(isActive, effectiveTag, allNodes, clashData) {
-  let subText = "Быстрейший по пингу";
+  let subText = t("proxies.autoSub");
   let pingHtml = `<div class="prox__ping" data-grade="dead">—</div>`;
   if (effectiveTag && effectiveTag !== "auto") {
     const node = allNodes.find(n => n.clashTag === effectiveTag);
     const delay = lastDelay(clashData?.proxies?.[effectiveTag]);
     const grade = gradeDelay(delay);
     if (node) {
-      subText = `Сейчас → ${stripFlag(node.name) || node.host}`;
+      subText = t("proxies.autoNow", { name: stripFlag(node.name) || node.host });
       pingHtml = pingCellHtml(delay, grade);
     }
   }
@@ -153,7 +154,7 @@ function autoCardHtml(isActive, effectiveTag, allNodes, clashData) {
         </svg>
       </div>
       <div class="prox__main">
-        <div class="prox__name">Авто</div>
+        <div class="prox__name">${t("proxies.auto")}</div>
         <div class="prox__sub"><span>${escapeHtml(subText)}</span></div>
       </div>
       ${pingHtml}
@@ -167,8 +168,8 @@ function render(nodes, selectorTag, effectiveTag, clashData) {
   if (!grid) return;
 
   if (!nodes?.length) {
-    grid.innerHTML = `<div class="onb" style="grid-column:1/-1;margin:32px auto 0;text-align:center;"><div class="onb__kicker">NODES · EMPTY</div><h2 class="onb__title" style="font-size:18px">Нет нод</h2><p class="onb__sub">Подписка пуста или не подключена.</p></div>`;
-    if (metaEl) metaEl.textContent = "Подписка не выбрана";
+    grid.innerHTML = `<div class="onb" style="grid-column:1/-1;margin:32px auto 0;text-align:center;"><div class="onb__kicker">NODES · EMPTY</div><h2 class="onb__title" style="font-size:18px">${t("proxies.emptyTitle")}</h2><p class="onb__sub">${t("proxies.emptySub")}</p></div>`;
+    if (metaEl) metaEl.textContent = t("proxies.metaNone");
     return;
   }
 
@@ -179,9 +180,9 @@ function render(nodes, selectorTag, effectiveTag, clashData) {
 
   if (metaEl) {
     const activeLabel = selectorTag === "auto"
-      ? "Авто"
+      ? t("proxies.auto")
       : (selectorTag ? (nodes.find(n => n.clashTag === selectorTag)?.name?.slice(0, 24) || selectorTag) : "—");
-    metaEl.textContent = `${nodes.length} нод · ${alive} активных · режим: ${activeLabel}`;
+    metaEl.textContent = t("proxies.meta", { total: nodes.length, alive, mode: activeLabel });
   }
 
   const sorted = sortNodes(nodes, clashData);
@@ -233,7 +234,7 @@ async function handleNodeClick(card, onToast) {
   });
   try {
     await selectProxy("proxy", tag);
-    onToast?.(tag === "auto" ? "Режим Авто" : "Сервер переключён", "success", 1200);
+    onToast?.(tag === "auto" ? t("proxies.toastAuto") : t("proxies.toastSwitched"), "success", 1200);
     // Для "auto" реальный исходящий определит URLTest — узнаем после refresh.
     // Для ручного выбора — сразу синхронизируем hero/location/IP.
     if (tag !== "auto") {
@@ -245,7 +246,7 @@ async function handleNodeClick(card, onToast) {
     await refresh();
   } catch (e) {
     optimisticActiveTag = null;
-    onToast?.(`Не удалось переключить: ${e?.message || e}`, "error", 2500);
+    onToast?.(t("proxies.toastSwitchErr", { err: e?.message || e }), "error", 2500);
     await refresh();
   }
 }
@@ -278,6 +279,14 @@ function stopPoll() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
+// Живой ре-рендер при смене языка (из onLangChange). Без сети — берём последний
+// снапшот clash; если его нет, render отрисует пустое состояние.
+export function rerenderProxiesView() {
+  if (!$("proxies-grid")) return;
+  const data = lastClashSnapshot;
+  render(nodesFromSource(), effectiveSelectorTag(data), pickEffectiveNode(data), data);
+}
+
 export function mountProxiesView({ onToast } = {}) {
   const grid = $("proxies-grid");
   grid?.addEventListener("click", (e) => {
@@ -307,10 +316,10 @@ export function mountProxiesView({ onToast } = {}) {
         const now = Date.now();
         if (now - last > 600) { last = now; refresh(); }
       });
-      onToast?.("Перетестировал все ноды", "success", 1600);
+      onToast?.(t("proxies.toastRetested"), "success", 1600);
       await refresh();
     } catch (e) {
-      onToast?.(`Ошибка теста: ${e?.message || e}`, "error", 2500);
+      onToast?.(t("proxies.toastTestErr", { err: e?.message || e }), "error", 2500);
     } finally {
       testingAll = false;
       delete fab.dataset.testing;

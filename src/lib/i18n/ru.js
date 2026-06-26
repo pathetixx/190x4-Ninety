@@ -66,7 +66,22 @@ export const ru = {
     add: "Добавить",
   },
 
-  proxies: { title: "Ноды", metaNone: "Подписка не выбрана" },
+  proxies: {
+    title: "Ноды",
+    metaNone: "Подписка не выбрана",
+    auto: "Авто",
+    autoSub: "Быстрейший по пингу",
+    autoNow: "Сейчас → {name}",
+    pingUnit: "мс",
+    emptyTitle: "Нет нод",
+    emptySub: "Подписка пуста или не подключена.",
+    meta: "{total} нод · {alive} активных · режим: {mode}",
+    toastAuto: "Режим Авто",
+    toastSwitched: "Сервер переключён",
+    toastSwitchErr: "Не удалось переключить: {err}",
+    toastRetested: "Перетестировал все ноды",
+    toastTestErr: "Ошибка теста: {err}",
+  },
 
   dpi: {
     title: "DPI-обход",
