@@ -32,7 +32,7 @@ import { openUpdateModal, shouldSkip as updateShouldSkip } from "/lib/update-mod
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
-import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave } from "/lib/proxies-view.js";
+import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView } from "/lib/proxies-view.js";
 import { mountDpiView, setDpiVpnMode, excludeVpnNode, autostartDpiIfEnabled, toggleDpi, rerenderDpiView } from "/lib/dpi-view.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
@@ -1462,6 +1462,7 @@ onLangChange(() => {
   refreshDynamicText();
   settingsCtl?.refresh();
   rerenderDpiView();
+  rerenderProxiesView();
 });
 
 // Перерисовать динамические подписи главной (статус hero, подсказка режима, режим в

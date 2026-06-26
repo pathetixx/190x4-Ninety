@@ -66,7 +66,22 @@ export const en = {
     add: "Add",
   },
 
-  proxies: { title: "Nodes", metaNone: "No subscription selected" },
+  proxies: {
+    title: "Nodes",
+    metaNone: "No subscription selected",
+    auto: "Auto",
+    autoSub: "Fastest by ping",
+    autoNow: "Now → {name}",
+    pingUnit: "ms",
+    emptyTitle: "No nodes",
+    emptySub: "The subscription is empty or not connected.",
+    meta: "{total} nodes · {alive} active · mode: {mode}",
+    toastAuto: "Auto mode",
+    toastSwitched: "Server switched",
+    toastSwitchErr: "Couldn't switch: {err}",
+    toastRetested: "Re-tested all nodes",
+    toastTestErr: "Test error: {err}",
+  },
 
   dpi: {
     title: "DPI Bypass",
