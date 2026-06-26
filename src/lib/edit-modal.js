@@ -4,14 +4,15 @@
 import { updateSubscription } from "/lib/subscriptions.js";
 import { updateProfile } from "/lib/singbox.js";
 import { escapeHtml } from "/lib/esc.js";
+import { t } from "/lib/i18n/index.js";
 
 function intervalLabel(h) {
   const n = Number(h) || 0;
-  if (n === 0) return "Не обновлять";
-  if (n < 24) return `Каждые ${n} ч`;
+  if (n === 0) return t("edit.intervalOff");
+  if (n < 24) return t("edit.intervalH", { n });
   const d = Math.floor(n / 24);
   const r = n % 24;
-  return r === 0 ? `Каждые ${d} д` : `Каждые ${d} д ${r} ч`;
+  return r === 0 ? t("edit.intervalD", { d }) : t("edit.intervalDH", { d, r });
 }
 
 let cleanup = null;
@@ -34,12 +35,12 @@ function build({ title, fields, onSave }) {
     <div class="edit-modal__panel" role="dialog" aria-modal="true">
       <header class="edit-modal__head">
         <h3 class="edit-modal__title">${escapeHtml(title)}</h3>
-        <button class="edit-modal__close" type="button" aria-label="Закрыть">✕</button>
+        <button class="edit-modal__close" type="button" aria-label="${t("edit.close")}">✕</button>
       </header>
       <div class="edit-modal__body">${fields}</div>
       <footer class="edit-modal__foot">
-        <button class="edit-modal__cancel" type="button">Отмена</button>
-        <button class="edit-modal__save" type="button">Сохранить</button>
+        <button class="edit-modal__cancel" type="button">${t("edit.cancel")}</button>
+        <button class="edit-modal__save" type="button">${t("edit.save")}</button>
       </footer>
     </div>
   `;
@@ -74,18 +75,18 @@ function build({ title, fields, onSave }) {
 export function openEditProfile(profile, { onSaved, onToast } = {}) {
   const fields = `
     <label class="edit-modal__field">
-      <span class="edit-modal__label">Имя</span>
+      <span class="edit-modal__label">${t("edit.name")}</span>
       <input type="text" id="edit-name" value="${escapeHtml(profile.name || "")}" maxlength="80" autocomplete="off">
     </label>
     <div class="edit-modal__hint">${escapeHtml(`${profile.host}:${profile.port} · ${(profile.proto || "vless").toUpperCase()}`)}</div>
   `;
   build({
-    title: "Редактировать конфиг",
+    title: t("edit.titleProfile"),
     fields,
     onSave: (root) => {
       const name = root.querySelector("#edit-name").value.trim() || profile.name;
       updateProfile(profile.id, { name });
-      onToast?.("Сохранено", "success", 1400);
+      onToast?.(t("edit.saved"), "success", 1400);
       onSaved?.();
     },
   });
@@ -96,30 +97,30 @@ export function openEditSubscription(sub, { onSaved, onToast } = {}) {
   const autoUpdate = sub.autoUpdate !== false; // default true
   const fields = `
     <label class="edit-modal__field">
-      <span class="edit-modal__label">Имя</span>
+      <span class="edit-modal__label">${t("edit.name")}</span>
       <input type="text" id="edit-name" value="${escapeHtml(sub.name || "")}" maxlength="80" autocomplete="off">
     </label>
     <div class="edit-modal__row">
-      <span class="edit-modal__label">Авто-обновление</span>
+      <span class="edit-modal__label">${t("edit.autoUpdate")}</span>
       <span class="switch" id="edit-auto" role="switch" tabindex="0"
             data-on="${autoUpdate ? "true" : "false"}"
             aria-checked="${autoUpdate ? "true" : "false"}"></span>
     </div>
     <label class="edit-modal__field">
-      <span class="edit-modal__label">Интервал обновления — <span id="edit-interval-val">${escapeHtml(intervalLabel(interval))}</span></span>
+      <span class="edit-modal__label">${t("edit.interval")} — <span id="edit-interval-val">${escapeHtml(intervalLabel(interval))}</span></span>
       <input type="range" id="edit-interval" min="0" max="96" step="1" value="${interval}">
     </label>
     <div class="edit-modal__hint">${escapeHtml(sub.url || "")}</div>
   `;
   const root = build({
-    title: "Редактировать подписку",
+    title: t("edit.titleSub"),
     fields,
     onSave: (root) => {
       const name = root.querySelector("#edit-name").value.trim() || sub.name;
       const autoUpdate = root.querySelector("#edit-auto").dataset.on === "true";
       const interval = parseInt(root.querySelector("#edit-interval").value, 10) || 0;
       updateSubscription(sub.id, { name, autoUpdate, updateIntervalHours: interval });
-      onToast?.("Сохранено", "success", 1400);
+      onToast?.(t("edit.saved"), "success", 1400);
       onSaved?.();
     },
   });

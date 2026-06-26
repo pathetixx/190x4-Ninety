@@ -3,6 +3,7 @@
 
 import { detectAddInput, addSubscriptionFromUrl, parseSubscriptionBody } from "/lib/subscriptions.js";
 import { addProfileFromVless, addTrustTunnelFromToml, setActiveKind } from "/lib/singbox.js";
+import { t } from "/lib/i18n/index.js";
 
 function $(id) { return document.getElementById(id); }
 
@@ -10,11 +11,11 @@ let onCommitCb = null;
 
 function intervalLabel(hours) {
   const h = Number(hours) || 0;
-  if (h === 0) return "Авто (сервер)";
-  if (h < 24) return `${h} ч`;
+  if (h === 0) return t("add.intervalAuto");
+  if (h < 24) return t("add.intervalH", { h });
   const d = Math.floor(h / 24);
   const r = h % 24;
-  return r === 0 ? `${d} д` : `${d} д ${r} ч`;
+  return r === 0 ? t("add.intervalD", { d }) : t("add.intervalDH", { d, r });
 }
 
 function showPage(name) {
@@ -65,39 +66,39 @@ async function handleInput(raw, userOverride = {}) {
   const decision = detectAddInput(raw);
 
   if (decision.kind === "empty" || decision.kind === "unknown") {
-    throw new Error("Не распознал ввод. Вставь ссылку (vless/vmess/trojan/ss/hysteria2/tuic/naive/tt) или http(s):// URL подписки, либо .toml TrustTunnel.");
+    throw new Error(t("add.errUnrecognized"));
   }
 
   if (decision.kind === "config") {
     const { profile } = addProfileFromVless(decision.content);
     setActiveKind("single");
-    return { type: "config", message: `Конфиг "${profile.name}" импортирован` };
+    return { type: "config", message: t("add.msgConfig", { name: profile.name }) };
   }
 
   if (decision.kind === "tt-toml") {
     const { profile } = addTrustTunnelFromToml(decision.content, userOverride.name || "");
     setActiveKind("single");
-    return { type: "config", message: `TrustTunnel "${profile.name}" импортирован` };
+    return { type: "config", message: t("add.msgTt", { name: profile.name }) };
   }
 
   if (decision.kind === "list") {
     const profiles = parseSubscriptionBody(decision.content);
-    if (profiles.length === 0) throw new Error("Не нашёл валидных конфигов в списке");
+    if (profiles.length === 0) throw new Error(t("add.errNoConfigs"));
     for (const p of profiles) {
       addProfileFromVless(p.raw);
     }
     setActiveKind("single");
-    return { type: "list", message: `Импортировано ${profiles.length} конфигов` };
+    return { type: "list", message: t("add.msgList", { n: profiles.length }) };
   }
 
   // kind === "url" → подписка
-  setLoadingText("Загружаю подписку…");
+  setLoadingText(t("add.loadingSub"));
   const sub = await addSubscriptionFromUrl(decision.url, userOverride.name || "");
   setActiveKind("sub");
   // localStorage.setItem("ninety.subscriptions.active", sub.id) — addSubscriptionFromUrl сам ставит при первом
   // но при добавлении не первой подписки активной не делает; принудительно ставим:
   localStorage.setItem("ninety.subscriptions.active", sub.id);
-  return { type: "sub", message: `Подписка "${sub.name}" — ${sub.profiles.length} нод` };
+  return { type: "sub", message: t("add.msgSub", { name: sub.name, n: sub.profiles.length }) };
 }
 
 export function mountAddModal({ onCommit } = {}) {
@@ -126,7 +127,7 @@ export function mountAddModal({ onCommit } = {}) {
     if (!file) return;
     setError(null);
     showPage("loading");
-    setLoadingText("Читаю файл…");
+    setLoadingText(t("add.loadingFile"));
     try {
       const text = await file.text();
       const baseName = file.name.replace(/\.[^.]+$/, "");
@@ -157,7 +158,7 @@ export function mountAddModal({ onCommit } = {}) {
   $("add-modal-submit")?.addEventListener("click", async () => {
     const url = $("add-modal-url")?.value.trim();
     const name = $("add-modal-name")?.value.trim();
-    if (!url) { setError("Введите URL или vless://"); return; }
+    if (!url) { setError(t("add.errNeedUrl")); return; }
     setError(null);
     showPage("loading");
     try {
@@ -174,19 +175,19 @@ export function mountAddModal({ onCommit } = {}) {
 async function doClipboard() {
   setError(null);
   showPage("loading");
-  setLoadingText("Читаю буфер…");
+  setLoadingText(t("add.loadingClipboard"));
   let raw = "";
   try {
     raw = await navigator.clipboard.readText();
   } catch {
     showPage("manual");
-    setError("Нет доступа к буферу — введите URL вручную ниже.");
+    setError(t("add.errNoClipboard"));
     setTimeout(() => $("add-modal-url")?.focus(), 50);
     return;
   }
   if (!raw?.trim()) {
     showPage("manual");
-    setError("Буфер пуст. Введите URL вручную.");
+    setError(t("add.errClipboardEmpty"));
     setTimeout(() => $("add-modal-url")?.focus(), 50);
     return;
   }

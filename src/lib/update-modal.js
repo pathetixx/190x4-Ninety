@@ -1,6 +1,8 @@
 // Ninety · Update modal controller
 // Кастомная модалка вместо нативного dialog.ask — в стиле hub190x4-app Android.
 
+import { t } from "/lib/i18n/index.js";
+
 const SKIP_KEY = "ninety.update.skip";
 
 function $(id) { return document.getElementById(id); }
@@ -87,14 +89,14 @@ export function openUpdateModal(update, opts = {}) {
   // Если notes — наш дефолт-заглушка из workflow, заменяем на дружелюбное
   changelogEl.textContent = body && !/См\. полные заметки в GitHub Release/.test(body)
     ? body
-    : "Заметки релиза недоступны. Открой страницу релиза на GitHub.";
+    : t("updModal.notesUnavailable");
 
   progressBox.hidden = true;
   showError(null);
   installBtn.disabled = false;
   laterBtn.disabled = false;
   laterBtn.hidden = false;
-  installBtn.textContent = "ОБНОВИТЬ";
+  installBtn.textContent = t("updModal.install");
   modal.hidden = false;
 
   return new Promise((resolve) => {
@@ -131,7 +133,7 @@ export function openUpdateModal(update, opts = {}) {
       installBtn.disabled = true;
       laterBtn.hidden = true;
       progressBox.hidden = false;
-      setProgressLabel("Загрузка");
+      setProgressLabel(t("updModal.downloading"));
       setBarIndeterminate();
 
       // Гасим ядра до установки: xray.exe / sing-box.exe держат бинарники
@@ -175,27 +177,27 @@ export function openUpdateModal(update, opts = {}) {
             }
           } else if (ev.event === "Finished") {
             setBarPct(100);
-            setProgressLabel("Установка…");
+            setProgressLabel(t("updModal.installing"));
             setBarIndeterminate();
           }
         });
 
-        setProgressLabel("Перезапуск…");
+        setProgressLabel(t("updModal.relaunching"));
         const a = api();
         try { await a?.process?.relaunch(); }
         catch (e) { console.warn("relaunch failed", e); }
         // Если relaunch не сработал — даём юзеру закрыть руками
-        installBtn.textContent = "ГОТОВО";
+        installBtn.textContent = t("updModal.done");
         installBtn.disabled = false;
         installBtn.addEventListener("click", close, { once: true });
       } catch (e) {
         console.error("update failed", e);
         installing = false;
         progressBox.hidden = true;
-        showError(`Не удалось обновить: ${e?.message || e}`);
+        showError(t("updModal.failed", { err: e?.message || e }));
         installBtn.disabled = false;
         laterBtn.hidden = false;
-        installBtn.textContent = "ПОВТОРИТЬ";
+        installBtn.textContent = t("updModal.retry");
       }
     };
 

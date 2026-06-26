@@ -2,6 +2,7 @@
 // URL-импорт списка vless://, парсинг subscription-userinfo, storage.
 
 import { parseVless, parseLink } from "/lib/singbox.js";
+import { t } from "/lib/i18n/index.js";
 
 const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt):\/\/|naive\+[a-z]+:\/\/)/i;
 
@@ -168,17 +169,17 @@ async function fetchInfo(url) {
  */
 export async function addSubscriptionFromUrl(url, customName = "") {
   const u = String(url || "").trim();
-  if (!/^https?:\/\//i.test(u)) throw new Error("Нужен http(s):// URL");
+  if (!/^https?:\/\//i.test(u)) throw new Error(t("subs.needHttpUrl"));
 
   const info = await fetchInfo(u);
   const profiles = parseSubscriptionBody(info.body);
-  if (profiles.length === 0) throw new Error("Подписка не содержит vless:// конфигов");
+  if (profiles.length === 0) throw new Error(t("subs.noVless"));
 
   const id = "sub_" + Math.random().toString(36).slice(2, 10);
   const sub = {
     id,
     url: u,
-    name: customName || info.profile_title || hostnameOf(u) || "Подписка",
+    name: customName || info.profile_title || hostnameOf(u) || t("subs.subFallback"),
     lastUpdate: Date.now(),
     expire: info.expire ?? null,
     upload: info.upload ?? null,
@@ -201,12 +202,12 @@ export async function addSubscriptionFromUrl(url, customName = "") {
 export async function refreshSubscription(id) {
   const list = loadSubscriptions();
   const idx = list.findIndex(s => s.id === id);
-  if (idx < 0) throw new Error("Подписка не найдена");
+  if (idx < 0) throw new Error(t("subs.notFound"));
   const cur = list[idx];
 
   const info = await fetchInfo(cur.url);
   const profiles = parseSubscriptionBody(info.body);
-  if (profiles.length === 0) throw new Error("Подписка пуста или невалидна");
+  if (profiles.length === 0) throw new Error(t("subs.emptyOrInvalid"));
 
   list[idx] = {
     ...cur,
@@ -264,8 +265,8 @@ export function formatGiB(bytes) {
 // «12.3 МБ» / «1.45 ГБ» / «857 ГБ» вместо вечного «0.00 ГБ» на мелких объёмах.
 export function formatBytes(bytes) {
   const b = Number(bytes) || 0;
-  if (b <= 0) return "0 Б";
-  const units = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+  if (b <= 0) return t("subs.zero");
+  const units = [t("subs.bytes.b"), t("subs.bytes.kb"), t("subs.bytes.mb"), t("subs.bytes.gb"), t("subs.bytes.tb")];
   let v = b, i = 0;
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
   const dec = i <= 1 || v >= 100 ? 0 : (v >= 10 ? 1 : 2);
@@ -282,11 +283,11 @@ export function subscriptionLimitBytes(sub) {
 export function relativeTime(ts) {
   if (!ts) return "—";
   const secs = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (secs < 60) return "только что";
+  if (secs < 60) return t("subs.relNow");
   const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins} мин назад`;
+  if (mins < 60) return t("subs.relMin", { n: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} ч назад`;
+  if (hours < 24) return t("subs.relHour", { n: hours });
   const days = Math.floor(hours / 24);
-  return `${days} д назад`;
+  return t("subs.relDay", { n: days });
 }
