@@ -724,7 +724,7 @@ function renderAbout() {
           <span class="about-id__sep"></span>
           <span class="about-id__channel">${b.channel}</span>
         </div>
-        <p class="about-id__tag">VPN-клиент в эстетике 190×4</p>
+        <p class="about-id__tag">Нативный VPN-клиент для Windows на движке sing-box</p>
       </section>
 
       <p class="about-desc">
