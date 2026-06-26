@@ -1,6 +1,8 @@
 // Ninety · auto-updater wrapper
 // Использует window.__TAURI__ (withGlobalTauri:true). Без bundle'инга npm пакета.
 
+import { t as i18n } from "/lib/i18n/index.js";
+
 const t = () => window.__TAURI__;
 
 function api() {
@@ -32,10 +34,10 @@ export async function askAndInstall(update, opts = {}) {
   const a = api();
   if (!a || !update) return false;
   const ask = a.dialog?.ask;
-  const confirmText = `Доступно обновление ${update.version} (сейчас ${update.currentVersion}).\nУстановить?`;
+  const confirmText = i18n("update.askText", { version: update.version, current: update.currentVersion });
   let yes = true;
   if (ask) {
-    yes = await ask(confirmText, { title: "Ninety", kind: "info", okLabel: "Обновить", cancelLabel: "Позже" });
+    yes = await ask(confirmText, { title: "Ninety", kind: "info", okLabel: i18n("update.ok"), cancelLabel: i18n("update.later") });
   }
   if (!yes) return false;
 

@@ -388,7 +388,12 @@ export const en = {
     none: "No updates — you're on the latest version",
     notifyTitle: "Ninety · update available",
     notifyBody: "Version {version} is ready to install. Open Ninety to update.",
+    askText: "Update {version} available (current {current}).\nInstall?",
+    ok: "Update",
+    later: "Later",
   },
+
+  notif: { region: "Notifications", close: "Close" },
 
   qEngine: {
     steps: {

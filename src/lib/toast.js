@@ -11,6 +11,8 @@
 // every existing call site keeps working unchanged.
 // ─────────────────────────────────────────────────────────────
 
+import { t } from "/lib/i18n/index.js";
+
 const MAX_VISIBLE = 4;          // older toasts auto-evict past this
 const DEFAULT_MS  = 3000;
 
@@ -38,7 +40,7 @@ function ensureStack() {
     stackEl = document.createElement("div");
     stackEl.className = "ntf-stack";
     stackEl.setAttribute("role", "region");
-    stackEl.setAttribute("aria-label", "Уведомления");
+    stackEl.setAttribute("aria-label", t("notif.region"));
     document.body.appendChild(stackEl);
   }
   return stackEl;
@@ -105,7 +107,7 @@ export function toast(title, kind = "info", ms = DEFAULT_MS, opts = {}) {
       '<div class="ntf__title"></div>' +
       (desc ? '<div class="ntf__desc"></div>' : "") +
     "</div>" +
-    '<button class="ntf__close" type="button" aria-label="Закрыть">' + CLOSE_SVG + "</button>" +
+    '<button class="ntf__close" type="button" aria-label="' + t("notif.close") + '">' + CLOSE_SVG + "</button>" +
     (ms > 0 ? '<span class="ntf__bar" aria-hidden="true"></span>' : "");
 
   // textContent (not innerHTML) for safety against injected server strings
