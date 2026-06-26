@@ -386,6 +386,25 @@ export const en = {
     notifyBody: "Version {version} is ready to install. Open Ninety to update.",
   },
 
+  qEngine: {
+    steps: {
+      R1: "Switch server", R2: "Another server", R3: "Traffic masking",
+      R4: "Backup channel", R5: "Different connection method",
+    },
+    optimizing: "Optimizing: {label}…",
+    notifyTitle: "Ninety · connection quality",
+    notifySlow: "The connection slowed down — trying to speed it up",
+    restored: "Connection restored",
+  },
+
+  qScope: {
+    label: { unknown: "CHECKING", good: "EXCELLENT", slow: "SLOW", stalled: "STALLING", dead: "NO CONNECTION" },
+    title: "Channel quality",
+    legend: "“excellent” threshold · {mbps} Mbps",
+    hint: "updates as speed checks run",
+    mbps: "{v} Mbps",
+  },
+
   onb: {
     skip: "Skip",
     back: "Back",
