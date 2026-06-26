@@ -10,6 +10,8 @@
 // ноды, реконнект, фрагментация, WARP-rescan, тосты) приходят как `actions`
 // при createQualityEngine. Так движок тестируется в изоляции и не знает про DOM.
 
+import { t } from "/lib/i18n/index.js";
+
 // ── Пороги (выровнены с quality.rs STALL_*) ────────────────
 const SLOW_FLOOR_BPS = 200_000;   // ниже = фактически «душат в ноль»
 const BAD_STREAK = 2;             // столько подряд плохих проб → лечим
@@ -32,16 +34,19 @@ const PROFILE_TTL_MS = 7 * 24 * 3600 * 1000;
 // aggressive/промпт + бюджет реконнектов). action = имя в actions-map; если
 // действие отсутствует или вернуло {applied:false} — ступень пропускается.
 const LADDER = [
-  // label — текст для юзера, ПРОСТЫМ языком (видно в промпте/тосте на R3/R4).
-  { id: "R1", action: "selectNextNode",  reconnect: false, label: "Смена сервера" },
-  { id: "R2", action: "excludeWorstNode", reconnect: false, label: "Другой сервер" },
-  { id: "R3", action: "applyFragmentation", reconnect: true, label: "Маскировка трафика" },
-  { id: "R4", action: "rescanWarp",       reconnect: true,  label: "Запасной канал" },
+  // Подпись ступени для юзера (простым языком, видна в промпте/тосте на R3/R4)
+  // берётся из каталога i18n по id: t("qEngine.steps.<id>") через stepLabel().
+  { id: "R1", action: "selectNextNode",  reconnect: false },
+  { id: "R2", action: "excludeWorstNode", reconnect: false },
+  { id: "R3", action: "applyFragmentation", reconnect: true },
+  { id: "R4", action: "rescanWarp",       reconnect: true },
   // R5 — клиентское переключение на ноду другого транспорта; селектор "proxy"
   // собран с interrupt_exist_connections=true → застрявшие флоу рвутся сами,
   // полный реконнект ядра не нужен (потому reconnect:false, не гейтим промптом).
-  { id: "R5", action: "switchTransport",  reconnect: false, label: "Другой способ подключения" },
+  { id: "R5", action: "switchTransport",  reconnect: false },
 ];
+
+const stepLabel = (step) => t("qEngine.steps." + step.id);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -188,7 +193,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
     remediating = true;
     lastLadderAt = Date.now();
     badStreak = 0;
-    actions.notify?.("Ninety · качество связи", "Соединение замедлилось — пробую ускорить");
+    actions.notify?.(t("qEngine.notifyTitle"), t("qEngine.notifySlow"));
 
     try {
       const start = learnedStartIndex(); // обучение: стартуем с выученной ступени
@@ -204,8 +209,8 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
           }
           // Гибрид: aggressive→авто+тост; иначе мягкий промпт.
           const ok = cfg.aggressive
-            ? (actions.toast?.(`Оптимизирую: ${step.label}…`, "warn", 3500, { group: "quality", connecting: true }), true)
-            : await (actions.confirmReconnect?.(step.label) ?? Promise.resolve(false));
+            ? (actions.toast?.(t("qEngine.optimizing", { label: stepLabel(step) }), "warn", 3500, { group: "quality", connecting: true }), true)
+            : await (actions.confirmReconnect?.(stepLabel(step)) ?? Promise.resolve(false));
           if (!ok) {
             actions.log?.("ladder: user declined reconnect at " + step.id);
             break;
@@ -250,7 +255,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
     goodStreak = GOOD_STREAK;
     badStreak = 0;
     lastState = "GOOD";
-    actions.toast?.("Связь восстановлена", "ok", 3000, { group: "quality" });
+    actions.toast?.(t("qEngine.restored"), "ok", 3000, { group: "quality" });
     actions.onState?.("GOOD", r);
     try {
       const ctx = (await actions.getContext?.()) || {};

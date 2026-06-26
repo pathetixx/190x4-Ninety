@@ -8,8 +8,9 @@
 //   2) Заголовок «Осциллограмма канала» → «Качество канала» (юзер-френдли).
 import { bus } from "/lib/bus.js";
 import { escapeHtml } from "/lib/esc.js";
+import { t } from "/lib/i18n/index.js";
 
-const Q_LABEL = { UNKNOWN: "ПРОВЕРКА", GOOD: "ОТЛИЧНО", SLOW: "МЕДЛЕННО", STALLED: "ТОРМОЗИТ", DEAD: "НЕТ СВЯЗИ" };
+const qLabel = (q) => t("qScope.label." + String(q).toLowerCase());
 const Q_VAR = { UNKNOWN: "--text-mid", GOOD: "--ok", SLOW: "--warn", STALLED: "--err", DEAD: "--err" };
 const MAX_POINTS = 60;
 const W = 320, H = 96, PAD = 6;
@@ -25,7 +26,7 @@ export function openQualityScope({ anchor, getSamples, goodBps = 1_500_000 } = {
   root.className = "qscope";
   root.innerHTML =
     '<div class="qscope__head">' +
-      '<span class="qscope__title">Качество канала</span>' +
+      `<span class="qscope__title">${t("qScope.title")}</span>` +
       '<span class="qscope__now"><span class="qscope__pill" data-q="UNKNOWN"></span><span class="qscope__bps">—</span></span>' +
     '</div>' +
     `<svg class="qscope__svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">` +
@@ -34,8 +35,8 @@ export function openQualityScope({ anchor, getSamples, goodBps = 1_500_000 } = {
       '<g class="qscope__rungs"></g>' +
     '</svg>' +
     '<div class="qscope__foot">' +
-      `<span class="qscope__legend"><i></i>порог «отлично» · ${(goodBps / 1e6).toFixed(1)} Мбит/с</span>` +
-      '<span class="qscope__hint">обновляется по мере проверок скорости</span>' +
+      `<span class="qscope__legend"><i></i>${t("qScope.legend", { mbps: (goodBps / 1e6).toFixed(1) })}</span>` +
+      `<span class="qscope__hint">${t("qScope.hint")}</span>` +
     '</div>';
   document.body.appendChild(root);
 
@@ -65,9 +66,9 @@ export function openQualityScope({ anchor, getSamples, goodBps = 1_500_000 } = {
     const last = pts[pts.length - 1];
     const q = last?.q || "UNKNOWN";
     pill.dataset.q = q;
-    pill.textContent = Q_LABEL[q] || q;
+    pill.textContent = qLabel(q);
     pill.style.color = `var(${Q_VAR[q] || "--text-mid"})`;
-    bpsEl.textContent = last ? `${(last.bps / 1e6).toFixed(1)} Мбит/с` : "—";
+    bpsEl.textContent = last ? t("qScope.mbps", { v: (last.bps / 1e6).toFixed(1) }) : "—";
   }
   draw();
 
