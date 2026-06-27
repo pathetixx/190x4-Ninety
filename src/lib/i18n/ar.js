@@ -604,7 +604,7 @@ export const ar = {
 
     sec: {
       general:    { title: "عام",          hint: "التشغيل التلقائي، صلاحيات المسؤول، السجلات، اختبار الاتصال" },
-      appearance: { title: "المظهر",       hint: "لون تمييز الواجهة: Kurogane، Cyan، Synthwave، Matrix، Command Center، Mono" },
+      appearance: { title: "المظهر",       hint: "لغة الواجهة ولون التمييز: Kurogane، Cyan، Synthwave، Matrix، Command Center، Mono" },
       routing:    { title: "التوجيه",      hint: "المنطقة، تجاوز الشبكة المحلية، حجب الإعلانات، IPv6" },
       dns:        { title: "DNS",          hint: "DNS البعيد والمباشر، التخزين المؤقت، fake-DNS" },
       inbound:    { title: "الوصول المحلي", hint: "المنفذ المحلي، MTU، مكدّس TUN، الوصول من الشبكة" },

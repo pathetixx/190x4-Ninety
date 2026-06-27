@@ -604,7 +604,7 @@ export const zh = {
 
     sec: {
       general:    { title: "通用",        hint: "自启、管理员权限、日志、连接测试" },
-      appearance: { title: "外观",        hint: "界面强调色：Kurogane、Cyan、Synthwave、Matrix、Command Center、Mono" },
+      appearance: { title: "外观",        hint: "界面语言与强调色：Kurogane、Cyan、Synthwave、Matrix、Command Center、Mono" },
       routing:    { title: "路由",        hint: "地区、局域网绕过、广告拦截、IPv6" },
       dns:        { title: "DNS",         hint: "远程与直连 DNS、缓存、fake-DNS" },
       inbound:    { title: "本地访问",    hint: "本地端口、MTU、TUN 栈、局域网访问" },

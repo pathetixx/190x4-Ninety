@@ -604,7 +604,7 @@ export const tr = {
 
     sec: {
       general:    { title: "Genel",         hint: "Otomatik başlatma, yönetici hakları, günlükler, bağlantı testi" },
-      appearance: { title: "Görünüm",       hint: "Arayüz vurgusu: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
+      appearance: { title: "Görünüm",       hint: "Arayüz dili ve vurgu: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
       routing:    { title: "Yönlendirme",   hint: "Bölge, LAN atlatma, reklam engelleme, IPv6" },
       dns:        { title: "DNS",           hint: "Uzak ve doğrudan DNS, önbellek, fake-DNS" },
       inbound:    { title: "Yerel erişim",  hint: "Yerel port, MTU, TUN yığını, LAN erişimi" },
