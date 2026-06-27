@@ -604,7 +604,7 @@ export const uk = {
 
     sec: {
       general:    { title: "Загальні",          hint: "Автозапуск, права адміністратора, логи, тест з'єднання" },
-      appearance: { title: "Оформлення",        hint: "Акцент інтерфейсу: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
+      appearance: { title: "Оформлення",        hint: "Мова інтерфейсу та акцент: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
       routing:    { title: "Маршрутизація",     hint: "Регіон, обхід локальної мережі, блокування реклами, IPv6" },
       dns:        { title: "DNS",               hint: "Remote- та Direct-DNS, кеш, fake-DNS" },
       inbound:    { title: "Локальний доступ",  hint: "Локальний порт, MTU, TUN-стек, доступ із мережі" },

@@ -604,7 +604,7 @@ export const pt = {
 
     sec: {
       general:    { title: "Geral",          hint: "Arranque automático, direitos de administrador, registos, teste de ligação" },
-      appearance: { title: "Aparência",      hint: "Acento da interface: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
+      appearance: { title: "Aparência",      hint: "Idioma da interface e cor de destaque: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
       routing:    { title: "Encaminhamento", hint: "Região, contorno de LAN, bloqueio de anúncios, IPv6" },
       dns:        { title: "DNS",            hint: "DNS remoto e direto, cache, fake-DNS" },
       inbound:    { title: "Acesso local",   hint: "Porta local, MTU, pilha TUN, acesso LAN" },

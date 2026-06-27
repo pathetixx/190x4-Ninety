@@ -604,7 +604,7 @@ export const fa = {
 
     sec: {
       general:    { title: "عمومی",        hint: "اجرای خودکار، دسترسی مدیر، گزارش‌ها، آزمایش اتصال" },
-      appearance: { title: "ظاهر",         hint: "رنگ تأکید رابط: Kurogane، Cyan، Synthwave، Matrix، Command Center، Mono" },
+      appearance: { title: "ظاهر",         hint: "زبان رابط و رنگ تأکید: Kurogane، Cyan، Synthwave، Matrix، Command Center، Mono" },
       routing:    { title: "مسیریابی",     hint: "منطقه، دور زدن شبکهٔ محلی، مسدودسازی تبلیغات، IPv6" },
       dns:        { title: "DNS",          hint: "DNS دور و مستقیم، کش، fake-DNS" },
       inbound:    { title: "دسترسی محلی",  hint: "پورت محلی، MTU، استک TUN، دسترسی از شبکه" },
