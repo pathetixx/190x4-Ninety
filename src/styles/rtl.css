@@ -1,0 +1,23 @@
+/* Ninety · RTL — зеркала под [dir="rtl"] (fa/ar). Грузится последним.
+   Направленческая вёрстка вынесена в логические свойства (inset-inline-*, margin/
+   padding/border-inline-*, text-align:start/end) прямо в каталогах стилей — они
+   зеркалятся сами. Здесь только то, что логикой не выражается: знаковые transform
+   (кнопки-переключатели, выезжающий дровер, стежок-индикатор) и transform-origin.
+   Центрирование (translate(-50%,…)) и анимации-шиммеры намеренно НЕ трогаем. */
+
+/* Переключатели: бегунок ездит в зеркальную сторону */
+[dir="rtl"] .switch[data-on="true"]::after { transform: translateX(-16px); }
+[dir="rtl"] .switch--lg[data-on="true"]::after { transform: translateX(-24px); }
+
+/* Дровер стратегий: закреплён у inline-end (в RTL — слева), выезжает с той же стороны */
+[dir="rtl"] .drawer { box-shadow: 36px 0 80px -20px rgba(0, 0, 0, 0.7); }
+[dir="rtl"] .drawer:not([data-open="true"]) { transform: translateX(-100%); }
+
+/* Акцентная риска активного пункта навигации: вынос наружу в зеркальную сторону */
+[dir="rtl"] .nav__item--active::before { transform: translate(12px, -50%); }
+
+/* Стежок-акцент уведомления: скругление на противоположной грани */
+[dir="rtl"] .ntf::before { border-radius: 2px 0 0 2px; }
+
+/* Рейл авто-закрытия тоста сжимается от inline-start */
+[dir="rtl"] .ntf__bar { transform-origin: right center; }

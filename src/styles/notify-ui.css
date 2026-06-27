@@ -8,7 +8,7 @@
 .ntf-stack {
   position: fixed;
   top: 46px;           /* clears the 36px titlebar */
-  right: 18px;
+  inset-inline-end: 18px;
   z-index: 10000;      /* above every modal (update-modal is 9999) */
   display: flex;
   flex-direction: column;
@@ -50,7 +50,7 @@
 .ntf::before {
   content: "";
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: 10px;
   bottom: 10px;
   width: 2px;

@@ -172,11 +172,11 @@
   gap: 9px;
   padding: 12px 18px;
   border-top: 1px solid var(--line-1);
-  border-left: 1px solid var(--line-1);
+  border-inline-start: 1px solid var(--line-1);
   min-width: 0;
 }
 .about-spec__grid > .about-spec__cell:nth-child(-n + 2) { border-top: 0; }
-.about-spec__grid > .about-spec__cell:nth-child(odd) { border-left: 0; }
+.about-spec__grid > .about-spec__cell:nth-child(odd) { border-inline-start: 0; }
 .about-spec__icon { color: var(--text-faint); display: grid; place-items: center; flex-shrink: 0; }
 .about-spec__k { font-size: 12px; color: var(--text-lo); white-space: nowrap; }
 .about-spec__dots {
@@ -204,7 +204,7 @@
   align-items: center;
   gap: 14px;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 13px 16px;
   border-radius: var(--r-md);
   background: var(--ink-1);

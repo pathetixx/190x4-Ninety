@@ -107,7 +107,7 @@
   display: flex;
   flex-direction: column;
   padding: 22px 18px 18px;
-  border-right: 1px solid var(--line-1);
+  border-inline-end: 1px solid var(--line-1);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.014) 0%, transparent 100%);
 }
 
@@ -179,7 +179,7 @@
 .nav__item--active::before {
   content: "";
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: 50%;
   width: 2px;
   height: 14px;
@@ -200,7 +200,7 @@
   letter-spacing: -0.005em;
 }
 .nav__hint {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.08em;
@@ -271,7 +271,7 @@
   font-family: var(--font-mono);
   font-size: 9px;
   color: var(--text-faint);
-  margin-left: 3px;
+  margin-inline-start: 3px;
   letter-spacing: 0.04em;
 }
 
@@ -371,8 +371,8 @@
 .sub-card__quota b { color: var(--text-mid); font-weight: 500; }
 /* Колонка «осталось дней» справа */
 .sub-card__expire {
-  text-align: right;
-  padding-right: 4px;
+  text-align: end;
+  padding-inline-end: 4px;
   line-height: 1;
 }
 .sub-card__expire b {
@@ -818,19 +818,19 @@
   flex-direction: column;
   gap: 5px;
   padding: 0 16px;
-  border-left: 1px solid var(--line-1);
+  border-inline-start: 1px solid var(--line-1);
   min-width: 0;
 }
-.stats__cell:first-child { border-left: 0; padding-left: 0; }
-.stats__cell:last-child { padding-right: 0; }
+.stats__cell:first-child { border-inline-start: 0; padding-inline-start: 0; }
+.stats__cell:last-child { padding-inline-end: 0; }
 
 /* Кликабельные ячейки (Пинг / Канал) — переоформленная <button> */
 .stats__cell--btn {
   border-top: 0;
-  border-right: 0;
+  border-inline-end: 0;
   border-bottom: 0;
   background: none;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   margin: -2px 0;
   padding-top: 2px;
@@ -870,7 +870,7 @@
   font-size: 10px;
   letter-spacing: 0.06em;
   color: var(--text-lo);
-  margin-left: 3px;
+  margin-inline-start: 3px;
 }
 .stats__value--accent { color: var(--accent-bright); }
 

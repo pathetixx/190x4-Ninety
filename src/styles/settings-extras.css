@@ -32,7 +32,7 @@
   background: var(--ink-3);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
-.settings-input--num { width: 84px; text-align: right; }
+.settings-input--num { width: 84px; text-align: end; }
 
 .settings-range {
   display: inline-flex;
@@ -85,7 +85,7 @@
   border: 1px solid var(--line-1);
   color: var(--text-hi);
   cursor: pointer;
-  text-align: left;
+  text-align: start;
   transition: background 160ms var(--ease-out), border-color 160ms var(--ease-out);
 }
 .settings-menu__item:hover {
@@ -164,7 +164,7 @@
 /* Строка-ссылка в под-экран: тот же вид, что у .set-row, но кликабельна целиком */
 .set-row--nav {
   width: 100%;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   font: inherit;
   transition: background 0.15s ease, border-color 0.15s ease;
@@ -224,7 +224,7 @@
   font-size: 11px;
   color: var(--text-lo);
   letter-spacing: -0.005em;
-  padding-left: 18px;
+  padding-inline-start: 18px;
 }
 .tunnel-status__actions {
   display: flex;
