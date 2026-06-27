@@ -9,7 +9,7 @@
 
 import { loadOptions } from "/lib/options.js";
 import { escapeHtml as esc } from "/lib/esc.js";
-import { t } from "/lib/i18n/index.js";
+import { t, getLang } from "/lib/i18n/index.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -51,6 +51,9 @@ function ic(name, size = 16, stroke = 1.5) {
 // Реальный список приходит из dpi_strategies() (strategies.json движка).
 // Фолбэк — на случай web-preview / ошибки чтения.
 let STRATEGIES = [{ id: "alt11", name: "ALT11", desc: "Самый стойкий профиль." }];
+// Описания стратегий — данные из канала (по-русски), через t() НЕ идут. Для
+// не-русского интерфейса прячем их, оставляя только имя стратегии (вариант B).
+const stratDesc = (d) => (getLang() === "ru" && d ? esc(d) : "");
 const stratByName = (n) =>
   STRATEGIES.find((s) => s.name === n) || STRATEGIES.find((s) => s.id === n) || STRATEGIES[0];
 
@@ -213,7 +216,7 @@ function renderBody() {
               <span class="dpi-strategy__name">${esc(cur.name)}</span>
               ${S.strategy === "ALT11" ? `<span class="dpi-strategy__tag">${t("dpi.strategy.recTag")}</span>` : ""}
             </div>
-            <div class="dpi-strategy__desc">${esc(cur.desc || "")}</div>
+            <div class="dpi-strategy__desc">${stratDesc(cur.desc)}</div>
           </div>
         </article>
 
@@ -620,7 +623,7 @@ function renderStratList(query) {
   const filtered = STRATEGIES.filter((s) => !q || s.name.toLowerCase().includes(q) || (s.desc || "").toLowerCase().includes(q));
   list.innerHTML = `<div class="drawer__section"><span>${t("dpi.drawer.count", { n: filtered.length })}</span><span>${t("dpi.drawer.activeMarked")}</span></div>` +
     filtered.map((s) => `<div class="strat" data-active="${s.id === cur.id}" data-dpi-strat="${s.id}">
-        <div class="strat__main"><div class="strat__name">${esc(s.name)}</div><div class="strat__desc">${esc(s.desc || "")}</div></div>
+        <div class="strat__main"><div class="strat__name">${esc(s.name)}</div><div class="strat__desc">${stratDesc(s.desc)}</div></div>
         <span class="strat__check">${ic("check", 11, 2.5)}</span>
       </div>`).join("");
 }
