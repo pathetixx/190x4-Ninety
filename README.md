@@ -2,12 +2,14 @@
 
 ![Ninety](./docs/banner.png)
 
-[![Release](https://img.shields.io/badge/release-v0.1.78-C0304A)](https://github.com/pathetixx/190x4-Ninety/releases)
+[![Release](https://img.shields.io/badge/release-v0.1.79-C0304A)](https://github.com/pathetixx/190x4-Ninety/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/pathetixx/190x4-Ninety/build.yml?event=push&label=build)](https://github.com/pathetixx/190x4-Ninety/actions)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-1d1d24)](#установка)
 [![License](https://img.shields.io/badge/license-MIT-6B6B72)](./LICENSE)
 
 **Нативный VPN-клиент под Windows.**
+
+**Русский** · [English](./README.en.md)
 
 </div>
 
@@ -31,6 +33,7 @@ Ninety — нативный VPN-клиент для Windows на базе уни
 - **Тонкая настройка** — DNS (remote/direct, fake-DNS), MTU и стек TUN, трюки TLS (фрагментация, padding, mixed-case SNI), тест соединения и интервалы.
 - **Автозапуск при входе в систему**, сворачивание в трей, автоматические обновления через GitHub Releases.
 - **6 тем** — Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono. Весь интерфейс на CSS-переменных, акцент темы подхватывают и окна-порталы, и кибер-HUD на главном экране.
+- **15 языков** — интерфейс на 15 языках, переключение в Настройках → Оформление без перезапуска; для فارسی и العربية — вёрстка справа налево (RTL).
 
 ## Протоколы и транспорты
 
