@@ -149,6 +149,15 @@ export function initI18n() {
   if (!localStorage.getItem(LANG_KEY)) localStorage.setItem(LANG_KEY, _lang);
   applyDir(_lang);
   applyDom(document);
+  // Сохранённый язык может быть динамическим (не в STATIC) — на синхронном старте
+  // его каталог ещё не в памяти, t() отдаёт en-фолбэк. Догружаем и ре-рендерим
+  // через тот же onLangChange, что и при ручной смене языка (листенеры к моменту
+  // резолва промиса уже подписаны — bootstrap синхронно отрабатывает раньше).
+  if (!_flat[_lang]) ensure(_lang).then(ok => {
+    if (!ok) return;
+    applyDom(document);
+    for (const cb of _listeners) { try { cb(_lang); } catch (e) { console.warn(e); } }
+  });
   return _lang;
 }
 
