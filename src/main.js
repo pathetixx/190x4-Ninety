@@ -1030,11 +1030,28 @@ function escapeLog(s) {
 
 function highlightMessage(msg) {
   const safe = escapeLog(msg);
-  // tag в [скобках] подсветить
+  // tag в [скобках] подсветить; если в теге узнаётся страна (имя ноды
+  // «node-17-Latvia-…») — вклеиваем флаг той же логикой, что на экране Нод.
+  // Служебные скобки ([mixed-in], [3589469481 0ms], [direct]) флага не дают —
+  // flagIsoFromName на них возвращает null. Фолбэк битого .svg — attachLogFlagFallbacks.
   return safe
-    .replace(/\[([^\]]+)\]/g, '<b>[$1]</b>')
+    .replace(/\[([^\]]+)\]/g, (_m, tag) => {
+      const iso = isoFromNodeName(tag);
+      const flag = iso ? `<img class="log-flag" src="${FLAGS_BASE}/${iso}.svg" alt="">` : '';
+      return `<b>[${flag}${tag}]</b>`;
+    })
     .replace(/\b(\d+\.\d+\.\d+\.\d+)(?::\d+)?\b/g, '<span class="acc">$&</span>')
     .replace(/\b(?:wss?|https?):\/\/[^\s]+/gi, '<span class="acc">$&</span>');
+}
+
+// CSP-safe фолбэк для флагов в логах (inline onerror блокируется): битый .svg
+// просто убираем — остаётся обычный тег ноды. Зовётся после каждого рендера лога.
+function attachLogFlagFallbacks(root) {
+  if (!root) return;
+  for (const img of root.querySelectorAll("img.log-flag")) {
+    img.addEventListener("error", () => img.remove(), { once: true });
+    if (img.complete && img.naturalWidth === 0) img.remove();
+  }
 }
 
 const LOG_RENDER_MAX_LINES = 800;
@@ -1114,6 +1131,7 @@ function applyLogsRender({ keepScroll = false } = {}) {
     logsView.innerHTML = filtered.length
       ? renderLogEntries(filtered)
       : logsInfoLine(t("logs.notFound"));
+    attachLogFlagFallbacks(logsView);
   }
   if (atBottom) logsView.scrollTop = logsView.scrollHeight;
 }
