@@ -527,6 +527,14 @@
   overflow-wrap: anywhere;
   word-break: normal;
 }
+/* Флаг страны у тега ноды (узнаётся из имени, как на экране Нод) */
+.logs__console .log-flag {
+  width: 13px;
+  height: auto;
+  vertical-align: -2px;
+  margin-inline-end: 4px;
+  border-radius: 2px;
+}
 /* Тонкая разделительная линия между записями — глаз цепляет начало строки. */
 .logs__console .log-line + .log-line { border-top: 1px solid rgba(255, 255, 255, 0.04); }
 .logs__console .log-line:nth-child(odd) { background: rgba(255, 255, 255, 0.025); }
