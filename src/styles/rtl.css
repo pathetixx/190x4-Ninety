@@ -21,3 +21,14 @@
 
 /* Рейл авто-закрытия тоста сжимается от inline-start */
 [dir="rtl"] .ntf__bar { transform-origin: right center; }
+
+/* Лог-консоль — машинный вывод sing-box (англ., таймстемпы, ID, скобки [id ms]):
+   держим LTR. Иначе биди переставляет токены ([2802161679 79ms] → [79ms 2802161679])
+   и right-align ломает чтение. Заголовок/тулбар экрана логов остаются RTL — они вне
+   .logs__console. Флаг страны у тега ноды при этом встаёт слева от тега (margin-inline). */
+[dir="rtl"] .logs__console { direction: ltr; }
+
+/* Disclosure-chevron (›) строк-ссылок: остриём в сторону чтения (влево).
+   .dpi-ipset__chev НЕ трогаем — у него собственный rotate(90deg) на раскрытии. */
+[dir="rtl"] .settings-menu__chevron svg,
+[dir="rtl"] .loc-card__chev svg { transform: scaleX(-1); }
