@@ -49,6 +49,7 @@ const DYNAMIC = {
   it: () => import("/lib/i18n/it.js").then(m => m.it),
   pt: () => import("/lib/i18n/pt.js").then(m => m.pt),
   ko: () => import("/lib/i18n/ko.js").then(m => m.ko),
+  pl: () => import("/lib/i18n/pl.js").then(m => m.pl),
 };
 
 const _flat = {};   // code -> плоский словарь key->string
