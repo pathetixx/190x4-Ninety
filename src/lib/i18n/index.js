@@ -41,6 +41,7 @@ const STATIC = { ru, en };
 // Динамические загрузчики (фаза 3): code -> () => import(...).then(m => m.<code>)
 const DYNAMIC = {
   fa: () => import("/lib/i18n/fa.js").then(m => m.fa),
+  ar: () => import("/lib/i18n/ar.js").then(m => m.ar),
   uk: () => import("/lib/i18n/uk.js").then(m => m.uk),
   zh: () => import("/lib/i18n/zh.js").then(m => m.zh),
   es: () => import("/lib/i18n/es.js").then(m => m.es),
