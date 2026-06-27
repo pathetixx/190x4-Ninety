@@ -226,7 +226,7 @@
   color: var(--text-mid);
   font-family: var(--font-display);
   font-size: 13px;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition: background 150ms var(--ease-out), color 150ms var(--ease-out);
 }
@@ -425,7 +425,7 @@
   content: "";
   position: absolute;
   top: 2px;
-  left: 2px;
+  inset-inline-start: 2px;
   width: 14px;
   height: 14px;
   border-radius: 50%;
@@ -524,7 +524,7 @@
 }
 .theme-card__check {
   position: absolute;
-  top: 12px; right: 12px;
+  top: 12px; inset-inline-end: 12px;
   width: 16px; height: 16px;
   border-radius: 50%;
   background: var(--theme-accent);
@@ -635,7 +635,7 @@
 .onb-pref__field::after {
   content: "";
   position: absolute;
-  right: 11px; top: 50%;
+  inset-inline-end: 11px; top: 50%;
   width: 6px; height: 6px;
   border-right: 1.5px solid var(--text-faint);
   border-bottom: 1.5px solid var(--text-faint);
