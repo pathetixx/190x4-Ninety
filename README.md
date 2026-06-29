@@ -2,7 +2,7 @@
 
 ![Ninety](./docs/banner.png)
 
-[![Release](https://img.shields.io/badge/release-v0.1.79-C0304A)](https://github.com/pathetixx/190x4-Ninety/releases)
+[![Release](https://img.shields.io/badge/release-v0.1.80-C0304A)](https://github.com/pathetixx/190x4-Ninety/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/pathetixx/190x4-Ninety/build.yml?event=push&label=build)](https://github.com/pathetixx/190x4-Ninety/actions)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-1d1d24)](#installation)
 [![License](https://img.shields.io/badge/license-MIT-6B6B72)](./LICENSE)
