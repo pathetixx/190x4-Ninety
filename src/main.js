@@ -2371,12 +2371,12 @@ syncTrayMenu();
   }
 })();
 
-// Синхронизация флага autostart с реальным registry-state Windows.
-// Если юзер выключил автозапуск через Диспетчер задач / Параметры —
+// Синхронизация флага autostart с реальным состоянием Windows (задача
+// Планировщика). Если юзер удалил задачу через Планировщик / Параметры —
 // тут подтянем актуальное состояние в options.
 (async () => {
   try {
-    const enabled = await invoke("plugin:autostart|is_enabled");
+    const enabled = await invoke("autostart_is_enabled");
     const opts = loadOptions();
     if (typeof enabled === "boolean" && opts.general?.autostart !== enabled) {
       // updateOption ленивый импорт — путь из options.js

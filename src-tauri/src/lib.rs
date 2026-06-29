@@ -121,6 +121,26 @@ fn set_always_admin(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// True если автозапуск при входе в Windows включён (задача Планировщика).
+#[tauri::command]
+fn autostart_is_enabled() -> bool {
+    elevation::autostart_is_enabled()
+}
+
+/// Включает автозапуск через задачу Планировщика с правами администратора
+/// (RunLevel=highest) — старт без UAC на каждый логин. Если процесс ещё не
+/// elevated, поднимет права только ради создания задачи (один UAC).
+#[tauri::command]
+fn autostart_enable() -> Result<(), String> {
+    elevation::autostart_enable()
+}
+
+/// Выключает автозапуск (удаляет задачу Планировщика).
+#[tauri::command]
+fn autostart_disable() -> Result<(), String> {
+    elevation::autostart_disable()
+}
+
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
@@ -319,13 +339,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        // Автозапуск при входе в Windows. С --minimized окно скрыто в трей
-        // на старте — проверка флага startMinimized делается на JS-стороне
-        // (если выключен — окно показывается сразу через .show()).
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec!["--autostarted"]),
-        ))
+        // Автозапуск при входе в Windows реализован через задачу Планировщика
+        // (см. autostart_enable/proxy_win). Прежний tauri-plugin-autostart писал
+        // Run-ключ реестра → не-elevated старт → relaunch с UAC на каждый логин;
+        // от него отказались, миграция в setup() (migrate_legacy_autostart).
         .manage(SingboxState::default())
         .manage(dpi::DpiState::default())
         .manage(clash_stream::ClashStreamState::default())
@@ -358,6 +375,16 @@ pub fn run() {
                         }
                     }
                 }
+            }
+
+            // Миграция прежнего автозапуска (Run-ключ плагина) на задачу
+            // Планировщика. В elevated-инстансе заводит задачу и сносит ключ —
+            // после этого вход в Windows перестаёт дёргать UAC.
+            #[cfg(target_os = "windows")]
+            {
+                elevation::migrate_legacy_autostart();
+                // Подхватываем актуальный путь exe в задаче (OTA-переустановка).
+                elevation::autostart_refresh_path();
             }
 
             // Окно по умолчанию скрыто (visible:false). Показываем сейчас, кроме
@@ -439,6 +466,9 @@ pub fn run() {
             relaunch_elevated,
             is_always_admin,
             set_always_admin,
+            autostart_is_enabled,
+            autostart_enable,
+            autostart_disable,
             set_tray_menu,
             vpn::start_singbox,
             vpn::stop_singbox,
