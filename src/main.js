@@ -471,6 +471,8 @@ const views = document.querySelectorAll("section.screen[data-view]");
 function switchView(target) {
   navItems.forEach((n) => n.classList.toggle("nav__item--active", n.dataset.view === target));
   views.forEach((v) => { v.hidden = v.dataset.view !== target; });
+  // Видео-маска декодится только пока главный экран виден — оффскрин обнуляем декод.
+  if (heroMask) { if (target === "home") heroMask.play?.().catch(() => {}); else heroMask.pause?.(); }
   if (typeof onLogsViewLeave === "function" && typeof onLogsViewEnter === "function") {
     if (target === "logs") onLogsViewEnter();
     else onLogsViewLeave();
