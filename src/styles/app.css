@@ -553,6 +553,24 @@
 }
 .hero[data-state="linking"] .hud { opacity: 0.82; }
 .hero[data-state="secured"] .hud { opacity: 1; }
+
+/* Вращение колец HUD — на КОМПОНОВЩИКЕ (GPU), не покадровой перерисовкой SVG.
+   Раньше крутили через setAttribute('transform') в rAF → каждый кадр Chromium
+   заново растрил весь <svg> (~167 примитивов + фильтры) в GPU-процессе.
+   Теперь это CSS-анимация на промоутнутых слоях: слой растрится один раз и
+   дальше только докомпозичивается. Скорости/направления идентичны прежним
+   (outer 6°/с, seg −10°/с, ticks 3.2°/с). НЕ глушим в reduced-motion: HUD —
+   смысловой центр экрана (см. motion-rm.css). */
+.hud__outer, .hud__seg, .hud__ticks {
+  transform-box: view-box;
+  transform-origin: 200px 200px;   /* центр HUD в координатах viewBox */
+  will-change: transform;
+}
+.hud__outer { animation: hud-spin 60s    linear infinite; }
+.hud__seg   { animation: hud-spin 36s    linear infinite reverse; }
+.hud__ticks { animation: hud-spin 112.5s linear infinite; }
+@keyframes hud-spin { to { transform: rotate(360deg); } }
+
 .hud__sys {
   font-family: var(--font-mono);
   font-size: 10px;

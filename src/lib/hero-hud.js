@@ -9,7 +9,11 @@
 //   2) Анимация HUD больше НЕ глушится prefers-reduced-motion: вращение колец, глитч,
 //      INTEGRITY/ERR/blink работают всегда. HUD — смысловой центр экрана, а не декор;
 //      при выключенных в Windows анимациях он раньше полностью замерзал (играла только
-//      видео-маска). Если нужна строгая a11y — верните флаг `reduced` в startRot()/таймеры.
+//      видео-маска). Если нужна строгая a11y — погасите .hud__outer/seg/ticks в app.css.
+//   3) Вращение колец перенесено с rAF+setAttribute('transform') на CSS-анимацию,
+//      идущую на компоновщике (GPU): слой растрится один раз, дальше только крутится.
+//      Это убирает покадровую перерисовку всего SVG (была причина высокой нагрузки на
+//      GPU-процесс WebView2 на главном экране). Скорости/направления не изменились.
 
 const CX = 200, CY = 200;
 const P = (deg, r) => [CX + Math.cos((deg * Math.PI) / 180) * r, CY + Math.sin((deg * Math.PI) / 180) * r];
@@ -99,7 +103,7 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
   svg.querySelectorAll("[data-hud]").forEach((el) => { els[el.dataset.hud] = el; });
 
   const st = () => (getState?.() || "standby");
-  let raf = null, timers = [], intgVal = 0, ei = 0, clockStr = "";
+  let timers = [], intgVal = 0, ei = 0, clockStr = "";
 
   function updClock() {
     const d = new Date();
@@ -146,20 +150,11 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
     cycleErr();
   }
 
-  function startRot() {
-    if (raf) return;
-    const t0 = performance.now();
-    const rot = (k, deg) => els[k] && els[k].setAttribute("transform", `rotate(${(((deg % 360) + 360) % 360).toFixed(2)} 200 200)`);
-    const loop = (t) => {
-      const e = (t - t0) / 1000;
-      rot("outer", e * 6); rot("seg", -e * 10); rot("ticks", e * 3.2);
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-  }
-
-  // Анимация запускается ВСЕГДА (HUD — центр экрана, не вестибулярно-агрессивный декор).
-  updClock(); sync(); startRot();
+  // Вращение колец (outer/seg/ticks) теперь живёт в CSS на компоновщике
+  // (см. .hud__outer/seg/ticks + @keyframes hud-spin в app.css) — без покадровой
+  // перерисовки SVG. Здесь остаются только редкие точечные обновления
+  // (часы/INTEGRITY/ERR/глитч) на setInterval. HUD анимируется ВСЕГДА.
+  updClock(); sync();
   timers.push(setInterval(updClock, 1000));
   timers.push(setInterval(updIntegrity, 1600));
   timers.push(setInterval(blink, 1500));
@@ -169,7 +164,6 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
   return {
     sync,
     destroy() {
-      if (raf) cancelAnimationFrame(raf);
       timers.forEach(clearInterval);
       timers = [];
     },
