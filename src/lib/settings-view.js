@@ -136,7 +136,7 @@ export function mountSettings(root, opts = {}) {
         if (input.dataset.action === "autostart") {
           try {
             const invoke = window.__TAURI__?.core?.invoke;
-            const cmd = value ? "plugin:autostart|enable" : "plugin:autostart|disable";
+            const cmd = value ? "autostart_enable" : "autostart_disable";
             if (invoke) await invoke(cmd);
           } catch (e) { console.warn("autostart toggle failed", e); }
         }
@@ -158,7 +158,7 @@ export function mountSettings(root, opts = {}) {
         if (sw.dataset.action === "autostart") {
           try {
             const invoke = window.__TAURI__?.core?.invoke;
-            const cmd = newVal ? "plugin:autostart|enable" : "plugin:autostart|disable";
+            const cmd = newVal ? "autostart_enable" : "autostart_disable";
             if (invoke) await invoke(cmd);
           } catch (e) { console.warn("autostart toggle failed", e); }
         }

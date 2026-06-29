@@ -11,3 +11,20 @@ pub fn is_elevated() -> bool {
 pub fn relaunch_self_elevated(_extra_args: &[&str]) -> Result<bool, String> {
     Err("elevation supported only on Windows".into())
 }
+
+// Автозапуск через Планировщик заданий — Windows-only.
+pub fn autostart_is_enabled() -> bool {
+    false
+}
+
+pub fn autostart_enable() -> Result<(), String> {
+    Err("autostart supported only on Windows".into())
+}
+
+pub fn autostart_disable() -> Result<(), String> {
+    Err("autostart supported only on Windows".into())
+}
+
+pub fn migrate_legacy_autostart() {}
+
+pub fn autostart_refresh_path() {}

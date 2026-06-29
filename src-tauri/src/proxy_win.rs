@@ -1,5 +1,7 @@
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
+use std::os::windows::process::CommandExt;
+use std::process::Command;
 use winreg::enums::*;
 use winreg::RegKey;
 use windows::core::PCWSTR;
@@ -12,7 +14,17 @@ use windows::Win32::Security::{
 };
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNORMAL};
+
+// Имя задачи в Планировщике (Task Scheduler). Через неё реализован автозапуск:
+// задача с RunLevel=Highest стартует Ninety уже с правами администратора при
+// входе в Windows — без UAC-промпта на каждый логин (которым страдал прежний
+// Run-ключ реестра: тот запускал не-elevated инстанс, и тот сам перезапускался
+// через runas → UAC). См. autostart_enable / migrate_legacy_autostart.
+const TASK_NAME: &str = "Ninety";
+// CREATE_NO_WINDOW — не мигать чёрным окном консоли schtasks.
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 
 const INET_SETTINGS_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
 const NINETY_KEY: &str = r"Software\Ninety";
@@ -154,5 +166,138 @@ pub fn relaunch_self_elevated(extra_args: &[&str]) -> Result<bool, String> {
         } else {
             Ok(false)
         }
+    }
+}
+
+// ── Автозапуск через Планировщик заданий ──────────────────────────────────
+// schtasks.exe — полный путь, чтобы не зависеть от PATH/cwd elevated-контекста.
+fn schtasks_exe() -> String {
+    std::env::var("SystemRoot")
+        .map(|r| format!(r"{r}\System32\schtasks.exe"))
+        .unwrap_or_else(|_| "schtasks.exe".into())
+}
+
+// Хвост команды создания задачи. /tr с кавычками внутри (путь exe может
+// содержать пробелы) экранируется как \" — это документированный способ
+// schtasks. RunLevel=highest + триггер onlogon → старт от админа без UAC.
+fn create_task_cmdline(exe: &str) -> String {
+    format!(
+        r#"/create /tn {} /tr "\"{}\" --autostarted --elevated" /sc onlogon /rl highest /f"#,
+        TASK_NAME, exe
+    )
+}
+
+// Запуск schtasks с поднятием прав (один UAC, само приложение не перезапускаем).
+// SW_HIDE прячет окно консоли. Ok(true) — UAC принят, Ok(false) — отменён.
+fn run_schtasks_elevated(cmdline: &str) -> bool {
+    let verb = to_wide("runas");
+    let file = to_wide(&schtasks_exe());
+    let params = to_wide(cmdline);
+    unsafe {
+        let h = ShellExecuteW(
+            HWND::default(),
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(file.as_ptr()),
+            PCWSTR(params.as_ptr()),
+            PCWSTR::null(),
+            SW_HIDE,
+        );
+        h.0 as isize > 32
+    }
+}
+
+// True если задача автозапуска зарегистрирована. Query прав не требует.
+pub fn autostart_is_enabled() -> bool {
+    Command::new(schtasks_exe())
+        .args(["/query", "/tn", TASK_NAME])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+// Создаёт/обновляет задачу. Если процесс уже elevated — напрямую (без UAC);
+// иначе поднимает права только для schtasks (один UAC) и ждёт появления задачи.
+pub fn autostart_enable() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let cmdline = create_task_cmdline(&exe.to_string_lossy());
+    if is_elevated() {
+        let ok = Command::new(schtasks_exe())
+            .raw_arg(&cmdline)
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+            .map_err(|e| format!("schtasks /create: {e}"))?
+            .success();
+        return if ok { Ok(()) } else { Err("schtasks /create вернул ошибку".into()) };
+    }
+    if !run_schtasks_elevated(&cmdline) {
+        return Err("Создание автозапуска отменено".into());
+    }
+    for _ in 0..20 {
+        if autostart_is_enabled() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Err("задача автозапуска не появилась".into())
+}
+
+// Удаляет задачу автозапуска (симметрично enable — direct если elevated).
+pub fn autostart_disable() -> Result<(), String> {
+    if !autostart_is_enabled() {
+        return Ok(());
+    }
+    let cmdline = format!("/delete /tn {} /f", TASK_NAME);
+    if is_elevated() {
+        let ok = Command::new(schtasks_exe())
+            .raw_arg(&cmdline)
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+            .map_err(|e| format!("schtasks /delete: {e}"))?
+            .success();
+        return if ok { Ok(()) } else { Err("schtasks /delete вернул ошибку".into()) };
+    }
+    if !run_schtasks_elevated(&cmdline) {
+        return Err("Отключение автозапуска отменено".into());
+    }
+    for _ in 0..20 {
+        if !autostart_is_enabled() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Err("задача автозапуска не удалилась".into())
+}
+
+// Миграция с прежнего автозапуска (Run-ключ реестра плагина autostart). Тот
+// стартовал не-elevated инстанс → relaunch через UAC на каждый логин. Сносим
+// ключ и, если мы в elevated-инстансе, заводим задачу планировщика взамен.
+// Удаляем Run-ключ ТОЛЬКО при успешном создании задачи — иначе у юзера без
+// always-admin (которому хватает не-elevated автозапуска) автозапуск бы пропал.
+pub fn migrate_legacy_autostart() {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let Ok(run) = hkcu.open_subkey_with_flags(RUN_KEY, KEY_READ | KEY_WRITE) else {
+        return;
+    };
+    // tauri-plugin-autostart писал значение под именем приложения; имя в разных
+    // сборках бывало "Ninety"/"ninety" — проверяем оба.
+    let names = ["Ninety", "ninety"];
+    let legacy = names.iter().any(|n| run.get_raw_value(n).is_ok());
+    if !legacy {
+        return;
+    }
+    if is_elevated() && autostart_enable().is_ok() {
+        for n in names {
+            let _ = run.delete_value(n);
+        }
+    }
+}
+
+// Актуализирует путь exe в задаче автозапуска (после переустановки в другой
+// каталог /create /f перезапишет команду). Только если задача уже есть и мы
+// elevated — иначе пропускаем: создание не-elevated дёрнуло бы лишний UAC.
+pub fn autostart_refresh_path() {
+    if is_elevated() && autostart_is_enabled() {
+        let _ = autostart_enable();
     }
 }
