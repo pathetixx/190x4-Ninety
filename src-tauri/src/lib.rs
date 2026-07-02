@@ -173,6 +173,60 @@ fn flag_icon(app: &tauri::AppHandle, iso: &Option<String>) -> Option<tauri::imag
     tauri::image::Image::from_path(path).ok()
 }
 
+/// Строки меню трея — приходят из фронта локализованными (язык интерфейса,
+/// см. tray.* в i18n-каталогах). Default = русский фолбэк: он виден только
+/// секунду-другую между созданием трея в setup() и первым set_tray_menu
+/// из bootstrap'а фронта.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct TrayLabels {
+    show: String,
+    connect: String,
+    disconnect: String,
+    mode_title: String,
+    mode_proxy: String,
+    mode_system: String,
+    mode_tun: String,
+    server: String,
+    no_servers: String,
+    dpi_title: String,
+    dpi_status_on: String,
+    dpi_status_off: String,
+    dpi_enable: String,
+    dpi_disable: String,
+    quit: String,
+    /// Шаблон с {ver} — «Обновить до v{ver}».
+    update_to: String,
+    tip_off: String,
+    /// Шаблон с {mode} — «Ninety · {mode} · подключено».
+    tip_connected: String,
+}
+
+impl Default for TrayLabels {
+    fn default() -> Self {
+        Self {
+            show: "Показать Ninety".into(),
+            connect: "Подключиться".into(),
+            disconnect: "Отключиться".into(),
+            mode_title: "Режим подключения".into(),
+            mode_proxy: "Прокси".into(),
+            mode_system: "Системный прокси".into(),
+            mode_tun: "VPN · TUN".into(),
+            server: "Сервер".into(),
+            no_servers: "Нет серверов".into(),
+            dpi_title: "DPI-обход".into(),
+            dpi_status_on: "Статус: активен".into(),
+            dpi_status_off: "Статус: выключен".into(),
+            dpi_enable: "Включить DPI-обход".into(),
+            dpi_disable: "Выключить DPI-обход".into(),
+            quit: "Выход".into(),
+            update_to: "Обновить до v{ver}".into(),
+            tip_off: "Ninety · отключено".into(),
+            tip_connected: "Ninety · {mode} · подключено".into(),
+        }
+    }
+}
+
 #[derive(serde::Deserialize, Default)]
 struct TrayMenuPayload {
     #[serde(default)]
@@ -187,6 +241,8 @@ struct TrayMenuPayload {
     /// трее. Some → показываем выделенный пункт «Обновить до vX». None → нет.
     #[serde(default, rename = "updateVersion")]
     update_version: Option<String>,
+    #[serde(default)]
+    labels: TrayLabels,
 }
 
 /// Собирает контекстное меню трея под текущее состояние: выбор режима
@@ -196,25 +252,26 @@ fn build_tray_menu(
     app: &tauri::AppHandle,
     payload: &TrayMenuPayload,
 ) -> tauri::Result<Menu<tauri::Wry>> {
-    let show_item = MenuItem::with_id(app, "show", "Показать Ninety", true, None::<&str>)?;
+    let l = &payload.labels;
+    let show_item = MenuItem::with_id(app, "show", &l.show, true, None::<&str>)?;
 
     // Подключиться / Отключиться — по фактическому состоянию VPN
-    let toggle_label = if payload.connected { "Отключиться" } else { "Подключиться" };
+    let toggle_label = if payload.connected { &l.disconnect } else { &l.connect };
     let conn_item = MenuItem::with_id(app, "toggle-vpn", toggle_label, true, None::<&str>)?;
 
     // Режим подключения
-    let m_proxy = CheckMenuItem::with_id(app, "mode:proxy", "Прокси", true, payload.mode == "proxy", None::<&str>)?;
-    let m_sys = CheckMenuItem::with_id(app, "mode:systemProxy", "Системный прокси", true, payload.mode == "systemProxy", None::<&str>)?;
-    let m_tun = CheckMenuItem::with_id(app, "mode:tun", "VPN · TUN", true, payload.mode == "tun", None::<&str>)?;
-    let mode_sub = Submenu::with_items(app, "Режим подключения", true, &[&m_proxy, &m_sys, &m_tun])?;
+    let m_proxy = CheckMenuItem::with_id(app, "mode:proxy", &l.mode_proxy, true, payload.mode == "proxy", None::<&str>)?;
+    let m_sys = CheckMenuItem::with_id(app, "mode:systemProxy", &l.mode_system, true, payload.mode == "systemProxy", None::<&str>)?;
+    let m_tun = CheckMenuItem::with_id(app, "mode:tun", &l.mode_tun, true, payload.mode == "tun", None::<&str>)?;
+    let mode_sub = Submenu::with_items(app, &l.mode_title, true, &[&m_proxy, &m_sys, &m_tun])?;
 
     // Выбор сервера — активен только когда VPN поднят. Иконка — флаг страны
     // (IconMenuItem); выбранный сервер помечаем «●», т.к. у IconMenuItem нет
     // чек-состояния.
     let srv_enabled = payload.connected && !payload.servers.is_empty();
     let server_sub = if payload.servers.is_empty() {
-        let none = MenuItem::with_id(app, "srv:none", "Нет серверов", false, None::<&str>)?;
-        Submenu::with_items(app, "Сервер", false, &[&none])?
+        let none = MenuItem::with_id(app, "srv:none", &l.no_servers, false, None::<&str>)?;
+        Submenu::with_items(app, &l.server, false, &[&none])?
     } else {
         let mut items: Vec<IconMenuItem<tauri::Wry>> = Vec::with_capacity(payload.servers.len());
         for s in &payload.servers {
@@ -231,35 +288,35 @@ fn build_tray_menu(
         }
         let refs: Vec<&dyn IsMenuItem<tauri::Wry>> =
             items.iter().map(|i| i as &dyn IsMenuItem<tauri::Wry>).collect();
-        Submenu::with_items(app, "Сервер", srv_enabled, &refs)?
+        Submenu::with_items(app, &l.server, srv_enabled, &refs)?
     };
 
     // DPI-обход — статус (disabled, информативный) + переключатель
     let dpi_status = MenuItem::with_id(
         app,
         "dpi:status",
-        if payload.dpi_active { "Статус: активен" } else { "Статус: выключен" },
+        if payload.dpi_active { &l.dpi_status_on } else { &l.dpi_status_off },
         false,
         None::<&str>,
     )?;
     let dpi_toggle = MenuItem::with_id(
         app,
         "dpi:toggle",
-        if payload.dpi_active { "Выключить DPI-обход" } else { "Включить DPI-обход" },
+        if payload.dpi_active { &l.dpi_disable } else { &l.dpi_enable },
         true,
         None::<&str>,
     )?;
-    let dpi_sub = Submenu::with_items(app, "DPI-обход", true, &[&dpi_status, &dpi_toggle])?;
+    let dpi_sub = Submenu::with_items(app, &l.dpi_title, true, &[&dpi_status, &dpi_toggle])?;
 
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let quit_item = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", &l.quit, true, None::<&str>)?;
 
     // Доступное обновление (нашлось пока окно в трее) — выделенный пункт сверху.
     // Клик показывает окно и открывает модалку установки.
     if let Some(ver) = &payload.update_version {
         let upd = MenuItem::with_id(
-            app, "update:install", &format!("⤓  Обновить до v{ver}"), true, None::<&str>,
+            app, "update:install", &format!("⤓  {}", l.update_to.replace("{ver}", ver)), true, None::<&str>,
         )?;
         let sep0 = PredefinedMenuItem::separator(app)?;
         return Menu::with_items(
@@ -294,16 +351,17 @@ fn tray_state_icon(connected: bool, mode: &str) -> Option<tauri::image::Image<'s
 }
 
 // Tooltip трея — даёт точный режим (иконка только сигналит статус/тип).
-fn tray_tooltip(connected: bool, mode: &str) -> String {
+// Строки локализованы фронтом; имя режима — тот же лейбл, что в меню.
+fn tray_tooltip(labels: &TrayLabels, connected: bool, mode: &str) -> String {
     if !connected {
-        return "Ninety · отключено".to_string();
+        return labels.tip_off.clone();
     }
     let m = match mode {
-        "tun" => "TUN",
-        "systemProxy" => "системный прокси",
-        _ => "прокси",
+        "tun" => &labels.mode_tun,
+        "systemProxy" => &labels.mode_system,
+        _ => &labels.mode_proxy,
     };
-    format!("Ninety · {m} · подключено")
+    labels.tip_connected.replace("{mode}", m)
 }
 
 #[tauri::command]
@@ -314,7 +372,7 @@ fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), 
         if let Some(icon) = tray_state_icon(payload.connected, &payload.mode) {
             let _ = tray.set_icon(Some(icon));
         }
-        let _ = tray.set_tooltip(Some(tray_tooltip(payload.connected, &payload.mode)));
+        let _ = tray.set_tooltip(Some(tray_tooltip(&payload.labels, payload.connected, &payload.mode)));
     }
     Ok(())
 }
@@ -407,15 +465,17 @@ pub fn run() {
                 }
             }
 
-            let menu = build_tray_menu(app.handle(), &TrayMenuPayload::default())?;
+            let init_payload = TrayMenuPayload::default();
+            let menu = build_tray_menu(app.handle(), &init_payload)?;
 
             // Старт всегда в состоянии «отключено» — серый значок; фронт после
-            // загрузки/автоконнекта пришлёт set_tray_menu с актуальным режимом.
+            // загрузки/автоконнекта пришлёт set_tray_menu с актуальным режимом
+            // и локализованными строками (до этого — русский фолбэк labels).
             let init_icon = tray_state_icon(false, "")
                 .unwrap_or_else(|| app.default_window_icon().unwrap().clone());
             let _tray = TrayIconBuilder::with_id("main")
                 .icon(init_icon)
-                .tooltip(tray_tooltip(false, ""))
+                .tooltip(tray_tooltip(&init_payload.labels, false, ""))
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {

@@ -1520,6 +1520,7 @@ onLangChange(() => {
   populateOnbPrefs();
   refreshDynamicText();
   settingsCtl?.refresh();
+  syncTrayMenu(); // меню/tooltip трея — на новый язык
   rerenderDpiView();
   rerenderProxiesView();
   renderProfilesView();
@@ -2211,6 +2212,29 @@ async function syncTrayMenu() {
         connected: state === "connected", mode: getMode(),
         servers: buildTrayServers(), dpiActive,
         updateVersion: pendingUpdate?.version || null,
+        // Строки меню/tooltip — на языке интерфейса (Rust держит русский
+        // фолбэк только до первого вызова). Пересборка на смену языка —
+        // syncTrayMenu в onLangChange.
+        labels: {
+          show: t("tray.show"),
+          connect: t("tray.connect"),
+          disconnect: t("tray.disconnect"),
+          modeTitle: t("home.modeToggle"),
+          modeProxy: t("mode.proxy"),
+          modeSystem: t("mode.systemProxy"),
+          modeTun: t("mode.tun"),
+          server: t("tray.server"),
+          noServers: t("tray.noServers"),
+          dpiTitle: t("dpi.title"),
+          dpiStatusOn: t("tray.dpiStatusOn"),
+          dpiStatusOff: t("tray.dpiStatusOff"),
+          dpiEnable: t("tray.dpiEnable"),
+          dpiDisable: t("tray.dpiDisable"),
+          quit: t("tray.quit"),
+          updateTo: t("tray.updateTo"),
+          tipOff: t("tray.tipOff"),
+          tipConnected: t("tray.tipConnected"),
+        },
       },
     });
   } catch (e) {

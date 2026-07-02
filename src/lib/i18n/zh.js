@@ -60,6 +60,23 @@ export const zh = {
     channelTitle: "通道质量",
   },
 
+  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  tray: {
+    show: "显示 Ninety",
+    connect: "连接",
+    disconnect: "断开",
+    server: "服务器",
+    noServers: "没有服务器",
+    dpiStatusOn: "状态：已启用",
+    dpiStatusOff: "状态：已关闭",
+    dpiEnable: "启用 DPI 绕过",
+    dpiDisable: "关闭 DPI 绕过",
+    quit: "退出",
+    updateTo: "更新到 v{ver}",
+    tipOff: "Ninety · 已断开",
+    tipConnected: "Ninety · {mode} · 已连接",
+  },
+
   mode: {
     popoverAria: "连接模式",
     kicker: "连接模式",

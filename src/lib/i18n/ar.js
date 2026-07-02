@@ -60,6 +60,23 @@ export const ar = {
     channelTitle: "جودة القناة",
   },
 
+  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  tray: {
+    show: "إظهار Ninety",
+    connect: "اتصال",
+    disconnect: "قطع الاتصال",
+    server: "الخادم",
+    noServers: "لا توجد خوادم",
+    dpiStatusOn: "الحالة: نشط",
+    dpiStatusOff: "الحالة: متوقف",
+    dpiEnable: "تفعيل تجاوز DPI",
+    dpiDisable: "إيقاف تجاوز DPI",
+    quit: "خروج",
+    updateTo: "التحديث إلى v{ver}",
+    tipOff: "Ninety · غير متصل",
+    tipConnected: "Ninety · {mode} · متصل",
+  },
+
   mode: {
     popoverAria: "وضع الاتصال",
     kicker: "وضع الاتصال",
