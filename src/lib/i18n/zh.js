@@ -342,6 +342,8 @@ export const zh = {
     serverSwitched: "已切换服务器",
     switchErr: "切换失败：{err}",
     subFallback: "订阅",
+    bridgeLoop: "协议桥接持续崩溃",
+    bridgeLoopDesc: "重连未能解决 — 连接已关闭。请查看日志并尝试其他服务器",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const zh = {
     giveUpDesc: "请在服务器列表中尝试其他国家/地区",
     giveUpNotifyTitle: "Ninety · 连接质量",
     giveUpNotifyBody: "无法提速——请尝试其他国家/地区",
+    hiddenNotifyTitle: "Ninety · 连接质量",
+    hiddenNotifyBody: "连接已变慢。请打开 Ninety 进行加速",
   },
 
   warpToast: {

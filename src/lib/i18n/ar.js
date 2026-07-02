@@ -342,6 +342,8 @@ export const ar = {
     serverSwitched: "تم تبديل الخادم",
     switchErr: "تعذّر التبديل: {err}",
     subFallback: "اشتراك",
+    bridgeLoop: "جسر البروتوكول يتعطل باستمرار",
+    bridgeLoopDesc: "لم تُجدِ إعادة الاتصال — تم إغلاق الاتصال. تحقق من السجلات وجرّب خادماً آخر",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const ar = {
     giveUpDesc: "جرّب اختيار بلد آخر من قائمة الخوادم",
     giveUpNotifyTitle: "Ninety · جودة الاتصال",
     giveUpNotifyBody: "تعذّر التسريع — جرّب بلدًا آخر",
+    hiddenNotifyTitle: "Ninety · جودة الاتصال",
+    hiddenNotifyBody: "أصبح الاتصال بطيئاً. افتح Ninety لتسريعه",
   },
 
   warpToast: {

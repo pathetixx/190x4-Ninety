@@ -1145,6 +1145,21 @@ const XRAY_BRIDGE_BASE_PORT = 31100;
 const NAIVE_BRIDGE_BASE_PORT = 31200;
 const TT_BRIDGE_BASE_PORT = 31300;
 
+// Сколько loopback-мостов нужно источнику — по одному порту на xhttp/naive/TT
+// ноду. main.js по этим счётчикам просит Rust (plan_bridge_ports) подобрать
+// свободные базы bind-пробой: дефолтные 31100+ может занять чужой процесс, и
+// мост умирал бы на старте. Результат уходит в buildConfig({ bridgePorts }).
+export function bridgeNeeds(nodes) {
+  const needs = { xray: 0, naive: 0, trusttunnel: 0 };
+  for (const n of nodes || []) {
+    if (n?.type === "xhttp") needs.xray++;
+    const proto = profileProto(n);
+    if (proto === "naive") needs.naive++;
+    else if (proto === "trusttunnel") needs.trusttunnel++;
+  }
+  return needs;
+}
+
 // config.json клиента naive (klzgrad): один proxy → один локальный SOCKS5.
 function naiveSidecarConfig(p, port) {
   const u = encodeURIComponent(p.username);
@@ -1286,10 +1301,18 @@ function nodeToXrayOutbound(p, tag) {
 // warpInfo: опциональный объект WarpInfo от warp_status команды.
 //   Если options.warp.enabled === true и warpInfo передан с валидными ключами —
 //   добавляется WireGuard endpoint и route.final переключается на "warp".
-export function buildConfig({ profile, source, mode, options, warpInfo, xray = false }) {
+export function buildConfig({ profile, source, mode, options, warpInfo, xray = false, bridgePorts }) {
   const opts = options || DEFAULT_OPTIONS;
   const src = source ?? (profile ? { kind: "single", profile } : null);
   if (!src) throw new Error(t("sb.err.buildNoSource"));
+
+  // Базы портов loopback-мостов: план из plan_bridge_ports (свободные диапазоны)
+  // либо статические дефолты (экспорт конфига, тесты — там bind не нужен).
+  const basePorts = {
+    xray: bridgePorts?.xray || XRAY_BRIDGE_BASE_PORT,
+    naive: bridgePorts?.naive || NAIVE_BRIDGE_BASE_PORT,
+    trusttunnel: bridgePorts?.trusttunnel || TT_BRIDGE_BASE_PORT,
+  };
 
   // URL/интервал теста соединения — из настроек (ключи connectionTestUrl/intervalSec,
   // ровно как у Hiddify). Раньше buildConfig читал несуществующие url/interval и
@@ -1316,7 +1339,7 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
     nodes.forEach((n, i) => {
       if (n.type !== "xhttp") return;
       const idx = xOut.length;
-      const port = XRAY_BRIDGE_BASE_PORT + idx;
+      const port = basePorts.xray + idx;
       const inTag = `in-${idx}`, outTag = `out-${idx}`;
       xIn.push({ tag: inTag, listen: "127.0.0.1", port, protocol: "socks", settings: { auth: "noauth", udp: true } });
       xOut.push(nodeToXrayOutbound(n, outTag));
@@ -1348,9 +1371,9 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
     const proto = profileProto(n);
     let port, config, kind;
     if (proto === "naive") {
-      port = NAIVE_BRIDGE_BASE_PORT + naiveN++; kind = "naive"; config = naiveSidecarConfig(n, port);
+      port = basePorts.naive + naiveN++; kind = "naive"; config = naiveSidecarConfig(n, port);
     } else if (proto === "trusttunnel") {
-      port = TT_BRIDGE_BASE_PORT + ttN++; kind = "trusttunnel"; config = trustTunnelSidecarConfig(n, port, opts);
+      port = basePorts.trusttunnel + ttN++; kind = "trusttunnel"; config = trustTunnelSidecarConfig(n, port, opts);
     } else return;
     sidecars.push({ kind, port, config });
     vlessOutbounds[i] = {

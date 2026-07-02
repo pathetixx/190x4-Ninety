@@ -342,6 +342,8 @@ export const fa = {
     serverSwitched: "سرور تغییر کرد",
     switchErr: "تعویض نشد: {err}",
     subFallback: "اشتراک",
+    bridgeLoop: "پل پروتکل مدام از کار می‌افتد",
+    bridgeLoopDesc: "اتصال مجدد کمکی نکرد — اتصال بسته شد. گزارش‌ها را بررسی کنید و سرور دیگری را امتحان کنید",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const fa = {
     giveUpDesc: "کشور دیگری را از فهرست سرورها امتحان کنید",
     giveUpNotifyTitle: "Ninety · کیفیت اتصال",
     giveUpNotifyBody: "تندتر نشد — کشور دیگری را امتحان کنید",
+    hiddenNotifyTitle: "Ninety · کیفیت اتصال",
+    hiddenNotifyBody: "اتصال کند شده است. برای افزایش سرعت، Ninety را باز کنید",
   },
 
   warpToast: {

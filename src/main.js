@@ -1,5 +1,6 @@
 import {
   buildConfig,
+  bridgeNeeds,
   loadProfiles,
   getActiveProfileId,
   setActiveProfileId,
@@ -45,6 +46,7 @@ import { createQualityEngine } from "/lib/quality-engine.js";
 import { bus } from "/lib/bus.js";
 import { openQualityScope } from "/lib/quality-scope.js";
 import { initHeroHud } from "/lib/hero-hud.js";
+import { parseDeepLink } from "/lib/deeplink.js";
 import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t } from "/lib/i18n/index.js";
 import { detectRegion } from "/lib/i18n/region-detect.js";
 
@@ -599,6 +601,35 @@ const HEALTH_TICK_MS = 5000;
 let healthTimer = null;
 let healthBusy = false;
 
+// Кап догоняющих реконнектов мостов (xray / naive / TT). Смерть моста сразу на
+// старте теперь фейлит start_singbox (fail-fast в Rust), но смерть в середине
+// сессии по-прежнему лечится реконнектом — без капа стабильно падающий мост
+// зациклил бы «упал → реконнект → упал» с тостами каждые ~10 секунд навсегда.
+const BRIDGE_RECONNECT_MAX = 3;
+const BRIDGE_RECONNECT_WINDOW_MS = 10 * 60_000;
+let bridgeReconnects = [];
+function bridgeReconnectAllowed() {
+  const cut = Date.now() - BRIDGE_RECONNECT_WINDOW_MS;
+  bridgeReconnects = bridgeReconnects.filter((ts) => ts > cut);
+  if (bridgeReconnects.length >= BRIDGE_RECONNECT_MAX) return false;
+  bridgeReconnects.push(Date.now());
+  return true;
+}
+
+// Бюджет исчерпан — мост падает системно, реконнекты не лечат. Закрываем
+// туннель целиком (как при смерти sing-box): честная ошибка вместо вечного цикла.
+async function stopForBridgeLoop() {
+  try { await invoke("set_system_proxy", { enable: false }); } catch {}
+  try { await invoke("stop_singbox"); } catch {}
+  setState("idle");
+  toast(t("conn.bridgeLoop"), "error", 8000, {
+    group: "conn",
+    desc: t("conn.bridgeLoopDesc"),
+  });
+  notify(t("conn.notifyClosedTitle"), t("conn.bridgeLoopDesc"));
+  switchView("logs");
+}
+
 function startHealthWatchdog() {
   if (healthTimer) return;
   healthTimer = setInterval(healthTick, HEALTH_TICK_MS);
@@ -629,6 +660,7 @@ async function healthTick() {
     // sing-box жив — проверяем xray-мост (xhttp).
     const xr = await invoke("xray_status").catch(() => "none");
     if (xr === "died") {
+      if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(); return; }
       toast(t("conn.xhttpDown"), "warn", 4000, { group: "conn", connecting: true });
       notify("Ninety", t("conn.xhttpNotify"));
       // reconnectForSourceChange сам ставит needsReconnect и зовёт реконнект,
@@ -639,6 +671,7 @@ async function healthTick() {
     // sidecar-клиенты naive/trusttunnel — та же логика, что у xray-моста.
     const sc = await invoke("sidecar_status").catch(() => "none");
     if (sc === "died") {
+      if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(); return; }
       toast(t("conn.clientDown"), "warn", 4000, { group: "conn", connecting: true });
       notify("Ninety", t("conn.clientNotify"));
       reconnectForSourceChange(t("conn.clientReconnect"));
@@ -690,11 +723,14 @@ const qualityEngine = createQualityEngine({
     // R3 — маскировка трафика фрагментацией TLS (реконнект). Если выключена —
     // включаем; если уже включена — эскалируем сменой режима record↔tcp.
     applyFragmentation: async () => {
-      const t = loadOptions().tlsTricks;
-      if (!t.enableFragment) {
+      // НЕ называть локальную переменную t: затенение i18n-функции здесь уже
+      // ломало R3 (TypeError после updateOption → настройки мутировали без
+      // реконнекта, лесенка щёлкала record↔tcp вхолостую).
+      const tricks = loadOptions().tlsTricks;
+      if (!tricks.enableFragment) {
         updateOption("tlsTricks.enableFragment", true);
       } else {
-        updateOption("tlsTricks.fragmentMode", t.fragmentMode === "record" ? "tcp" : "record");
+        updateOption("tlsTricks.fragmentMode", tricks.fragmentMode === "record" ? "tcp" : "record");
       }
       return reconnectForSourceChange(t("qToast.masking"));
     },
@@ -730,8 +766,17 @@ const qualityEngine = createQualityEngine({
       catch { return false; }
     },
     // Гибрид-гейт перед реконнект-ступенью (когда aggressive=false). Простым языком.
-    confirmReconnect: (label) =>
-      Promise.resolve(confirm(t("qToast.confirmSpeedup", { label }))),
+    // Окно в трее → нативный confirm повис бы невидимым и заблокировал лесенку
+    // (remediating не снимается, пока промис висит). Вместо этого OS-уведомление
+    // и отказ от дорогой ступени: юзер вернётся к окну — следующий прогон
+    // лесенки спросит нормально.
+    confirmReconnect: async (label) => {
+      if (!(await windowIsForeground())) {
+        notify(t("qToast.hiddenNotifyTitle"), t("qToast.hiddenNotifyBody"));
+        return false;
+      }
+      return confirm(t("qToast.confirmSpeedup", { label }));
+    },
     // R6 — сдаёмся честно, без жаргона.
     giveUp: (st) => {
       toast(t("qToast.giveUp"), "error", 8000, {
@@ -2246,9 +2291,19 @@ heroDisc?.addEventListener("click", async () => {
         return;
       }
     }
+    // Порты loopback-мостов (xhttp/naive/TT): дефолтные базы 31100+ может
+    // занять чужой процесс — Rust подбирает свободные диапазоны bind-пробой.
+    // Ошибка планирования не блокирует старт: билдер упадёт на статические
+    // дефолты, а занятый порт поймает fail-fast в start_singbox.
+    let bridgePorts = null;
+    const needs = bridgeNeeds(src.kind === "sub" ? src.nodes : [src.profile]);
+    if (needs.xray || needs.naive || needs.trusttunnel) {
+      try { bridgePorts = await invoke("plan_bridge_ports", { needs }); }
+      catch (e) { console.warn("plan_bridge_ports failed", e); }
+    }
     // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
     // socks-перенаправление. xray=null когда xhttp в источнике нет.
-    const { config, xray, sidecars } = buildConfig({ source: src, mode, options, warpInfo, xray: true });
+    const { config, xray, sidecars } = buildConfig({ source: src, mode, options, warpInfo, xray: true, bridgePorts });
     setState("connecting");
     try {
       await invoke("start_singbox", {
@@ -2490,91 +2545,14 @@ setInterval(silentRefreshSubs, 30 * 60_000);
 setInterval(refreshSubCardFromActive, 30_000);
 
 // ── Deep links ──────────────────────────────────────────────
-// Поддерживаемые форматы:
-//   ninety://import/<encoded-url>             — подписка (legacy, оставлено)
-//   ninety://import?url=...&name=...          — подписка (query-style)
-//   ninety://config/<encoded-link>            — одиночный конфиг (vless/vmess/...)
-//   ninety://add/<base64-url>                 — подписка (Happ-style, base64 URL)
-//   <proto>://...                             — top-level link (vless/vmess/ss/
-//                                               trojan/hysteria2/tuic/sub), если юзер
-//                                               включил opt-in регистрацию схем в
-//                                               Settings → Общие
+// Разбор форматов — в /lib/deeplink.js (чистая функция, покрыта тестами).
 // Windows запускает Ninety с argv, single-instance plugin перехватывает и
 // emit'ит onOpenUrl в первый процесс. Авто-импорта нет — юзер видит prefilled
 // URL в add-modal и подтверждает (защита от malicious links).
-const NINETY_RE = /^ninety:\/\/([a-z]+)(?:\/(.*))?$/i;
-const TOP_LEVEL_PROTOS = ["vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "tuic", "sub"];
-
-function safeAtobUrl(s) {
-  try {
-    const cleaned = String(s).replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
-    const padded = cleaned + "=".repeat((4 - cleaned.length % 4) % 4);
-    return atob(padded);
-  } catch { return ""; }
-}
-
 function handleDeepLinkUrl(rawUrl) {
   try {
-    const raw = String(rawUrl || "").trim();
-    if (!raw) return;
-
-    // top-level proto:// (vless/vmess/...) — opt-in
-    const protoIdx = raw.indexOf("://");
-    if (protoIdx > 0) {
-      const proto = raw.slice(0, protoIdx).toLowerCase();
-      if (TOP_LEVEL_PROTOS.includes(proto)) {
-        if (proto === "sub") {
-          // sub://<base64-url> → раскрываем и шлём как подписку
-          const decoded = safeAtobUrl(raw.slice(protoIdx + 3));
-          if (decoded) {
-            openAddModal({ prefillUrl: decoded });
-            return;
-          }
-        }
-        openAddModal({ prefillUrl: raw });
-        return;
-      }
-    }
-
-    // ninety://<action>/<rest>
-    const m = raw.match(NINETY_RE);
-    if (!m) return;
-    const action = m[1].toLowerCase();
-    let rest = m[2] || "";
-
-    // Хвост ?name=... — общий для import/config
-    let prefillName = "";
-    let queryUrl = "";
-    const qIdx = rest.indexOf("?");
-    if (qIdx >= 0) {
-      const tail = rest.slice(qIdx + 1);
-      rest = rest.slice(0, qIdx);
-      try {
-        const params = new URLSearchParams(tail);
-        const n = params.get("name");
-        if (n) prefillName = n;
-        const u = params.get("url");
-        if (u) queryUrl = u;
-      } catch {}
-    }
-    // ninety://import?url=... — путь пустой, URL пришёл в query
-    if (!rest && queryUrl) rest = queryUrl;
-
-    try { rest = decodeURIComponent(rest); } catch {}
-
-    if (!rest) return;
-
-    if (action === "add") {
-      // ninety://add/<base64-url> — раскрываем base64
-      const decoded = safeAtobUrl(rest);
-      if (decoded) {
-        openAddModal({ prefillUrl: decoded, prefillName });
-        return;
-      }
-    }
-
-    // import / config / add (если base64 не распознали) — кидаем сырой URL
-    openAddModal({ prefillUrl: rest, prefillName });
+    const intent = parseDeepLink(rawUrl);
+    if (intent) openAddModal({ prefillUrl: intent.url, prefillName: intent.name });
   } catch (e) {
     console.warn("deeplink handle failed", e);
   }

@@ -342,6 +342,8 @@ export const ko = {
     serverSwitched: "서버를 전환했습니다",
     switchErr: "전환할 수 없습니다: {err}",
     subFallback: "구독",
+    bridgeLoop: "프로토콜 브리지가 계속 중단됩니다",
+    bridgeLoopDesc: "재연결로 해결되지 않아 연결을 종료했습니다. 로그를 확인하고 다른 서버를 시도하세요",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const ko = {
     giveUpDesc: "서버 목록에서 다른 국가를 선택해 보세요",
     giveUpNotifyTitle: "Ninety · 연결 품질",
     giveUpNotifyBody: "속도를 높일 수 없습니다 — 다른 국가를 시도하세요",
+    hiddenNotifyTitle: "Ninety · 연결 품질",
+    hiddenNotifyBody: "연결이 느려졌습니다. Ninety를 열어 속도를 높이세요",
   },
 
   warpToast: {

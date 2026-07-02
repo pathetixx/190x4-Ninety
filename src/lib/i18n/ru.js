@@ -342,6 +342,8 @@ export const ru = {
     serverSwitched: "Сервер переключён",
     switchErr: "Не удалось переключить: {err}",
     subFallback: "Подписка",
+    bridgeLoop: "Мост протокола постоянно падает",
+    bridgeLoopDesc: "Переподключения не помогли — соединение закрыто. Проверьте логи и попробуйте другой сервер",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const ru = {
     giveUpDesc: "Попробуйте выбрать другую страну в списке серверов",
     giveUpNotifyTitle: "Ninety · качество связи",
     giveUpNotifyBody: "Не удалось ускорить — попробуйте другую страну",
+    hiddenNotifyTitle: "Ninety · качество связи",
+    hiddenNotifyBody: "Соединение замедлилось. Откройте Ninety, чтобы ускорить",
   },
 
   warpToast: {

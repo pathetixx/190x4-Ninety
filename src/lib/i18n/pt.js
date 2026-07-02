@@ -342,6 +342,8 @@ export const pt = {
     serverSwitched: "Servidor trocado",
     switchErr: "Não foi possível trocar: {err}",
     subFallback: "Subscrição",
+    bridgeLoop: "A ponte do protocolo cai constantemente",
+    bridgeLoopDesc: "As reconexões não ajudaram — conexão encerrada. Verifique os logs e tente outro servidor",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const pt = {
     giveUpDesc: "Tente escolher outro país na lista de servidores",
     giveUpNotifyTitle: "Ninety · qualidade da ligação",
     giveUpNotifyBody: "Não foi possível acelerar — tente outro país",
+    hiddenNotifyTitle: "Ninety · qualidade da conexão",
+    hiddenNotifyBody: "A conexão ficou lenta. Abra o Ninety para acelerá-la",
   },
 
   warpToast: {

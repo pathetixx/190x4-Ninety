@@ -1,6 +1,10 @@
 use base64::Engine;
 use serde::Serialize;
 
+// Кап тела ответа: список серверов — десятки килобайт; гигабайтный ответ — это
+// либо не подписка, либо злонамеренная панель, и глотать его в память нельзя.
+const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
+
 #[derive(Serialize)]
 pub struct SubscriptionInfo {
     pub body: String,
@@ -75,10 +79,21 @@ pub async fn fetch_subscription(url: String) -> Result<SubscriptionInfo, String>
 
     let headers = resp.headers().clone();
 
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| format!("body decode: {e}"))?;
+    if let Some(len) = resp.content_length() {
+        if len > MAX_BODY_BYTES as u64 {
+            return Err(format!("подписка больше {} МБ — это не список серверов", MAX_BODY_BYTES / 1024 / 1024));
+        }
+    }
+    // Стримим с капом (Content-Length может отсутствовать или врать).
+    let mut resp = resp;
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("body read: {e}"))? {
+        if buf.len() + chunk.len() > MAX_BODY_BYTES {
+            return Err(format!("подписка больше {} МБ — это не список серверов", MAX_BODY_BYTES / 1024 / 1024));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    let body = String::from_utf8_lossy(&buf).to_string();
 
     let (upload, download, total, expire) = headers
         .get("subscription-userinfo")
@@ -106,4 +121,35 @@ pub async fn fetch_subscription(url: String) -> Result<SubscriptionInfo, String>
         profile_update_interval_hours,
         status,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_userinfo_full() {
+        let (up, down, total, expire) =
+            parse_userinfo("upload=123; download=456; total=789; expire=1700000000");
+        assert_eq!(up, Some(123));
+        assert_eq!(down, Some(456));
+        assert_eq!(total, Some(789));
+        assert_eq!(expire, Some(1_700_000_000));
+    }
+
+    #[test]
+    fn parse_userinfo_partial_and_garbage() {
+        let (up, down, total, expire) = parse_userinfo("download=42; junk; foo=bar; upload=abc");
+        assert_eq!(up, None); // не число — пропущен
+        assert_eq!(down, Some(42));
+        assert_eq!(total, None);
+        assert_eq!(expire, None);
+    }
+
+    #[test]
+    fn decode_profile_title_plain_and_base64() {
+        assert_eq!(decode_profile_title("  Мой профиль "), Some("Мой профиль".into()));
+        assert_eq!(decode_profile_title(""), None);
+        assert_eq!(decode_profile_title("base64:TmluZXR5"), Some("Ninety".into()));
+    }
 }

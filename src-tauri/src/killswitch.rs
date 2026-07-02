@@ -3,9 +3,12 @@
 // Назначение: при падении ядра (sing-box/xray) в режимах proxy/systemProxy трафик
 // не должен утечь в открытую сеть. Ставим WFP-фильтры: БЛОКИРОВАТЬ весь исходящий
 // на ALE_AUTH_CONNECT, кроме (а) loopback (приложения ходят в локальный mixed-proxy)
-// и (б) самого sing-box.exe по app-id (его сокет к VPN-серверу). Если ядро умирает —
-// его permit становится бесполезным, block-all режет прямой выход → нет утечки.
-// В TUN-режим НЕ лезем: там утечки держит strict_route sing-box.
+// и (б) движков Ninety по app-id — их сокеты к VPN-серверу. Движков несколько:
+// внешний коннект делает не только sing-box.exe — при xhttp-нодах наружу ходит
+// xray.exe, при naive/TT — naive.exe / trusttunnel_client.exe (sing-box идёт к ним
+// loopback-мостом). Permit только sing-box глушил бы такие ноды намертво.
+// Если ядро умирает — его permit становится бесполезным, block-all режет прямой
+// выход → нет утечки. В TUN-режим НЕ лезем: там утечки держит strict_route sing-box.
 //
 // Безопасность от «вечного лока»: открываем WFP-движок DYNAMIC-сессией — все объекты
 // авто-снимаются при закрытии хэндла ИЛИ выходе процесса Ninety. То есть если аппа
@@ -23,30 +26,25 @@ use std::sync::Mutex;
 #[derive(Default)]
 pub struct KillSwitchState(pub Mutex<Option<isize>>);
 
-/// Включить kill switch. Идемпотентно: если уже активен — no-op. exe_path не задан →
-/// берём sing-box.exe рядом с нашим бинарём (Tauri-сайдкар ставится туда же).
+/// Включить kill switch. Идемпотентно: если уже активен — no-op. Permit получают
+/// все движки Ninety, найденные рядом с нашим бинарём (Tauri кладёт сайдкары туда
+/// же): permit для не запущенного exe инертен, а вот пропущенный permit глушит
+/// протокол намертво — поэтому не гадаем, какие ноды в активном конфиге.
 #[tauri::command]
-pub fn killswitch_arm(
-    state: tauri::State<'_, KillSwitchState>,
-    exe_path: Option<String>,
-) -> Result<(), String> {
+pub fn killswitch_arm(state: tauri::State<'_, KillSwitchState>) -> Result<(), String> {
     let mut guard = state.0.lock().unwrap();
     if guard.is_some() {
         return Ok(());
     }
     #[cfg(target_os = "windows")]
     {
-        let exe = match exe_path {
-            Some(p) => p,
-            None => default_singbox_path()?,
-        };
-        let handle = unsafe { win::arm(&exe)? };
+        let exes = engine_exe_paths()?;
+        let handle = unsafe { win::arm(&exes)? };
         *guard = Some(handle);
         Ok(())
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = exe_path;
         Err("kill switch доступен только на Windows".into())
     }
 }
@@ -83,15 +81,28 @@ pub fn force_disarm(state: &KillSwitchState) {
     }
 }
 
+// Все движки, способные делать внешний коннект (см. externalBin в tauri.conf.json).
+// Пропущенные на диске (например dev-запуск без сайдкаров) просто не попадают в
+// permit; если не нашёлся НИ ОДИН — это ошибка: armed-блок без единого permit
+// отрезал бы сеть целиком, включая сам туннель.
 #[cfg(target_os = "windows")]
-fn default_singbox_path() -> Result<String, String> {
+fn engine_exe_paths() -> Result<Vec<String>, String> {
+    const ENGINES: [&str; 4] = ["sing-box.exe", "xray.exe", "naive.exe", "trusttunnel_client.exe"];
     let dir = std::env::current_exe()
         .map_err(|e| format!("current_exe: {e}"))?
         .parent()
         .ok_or("нет родительского каталога exe")?
         .to_path_buf();
-    let p = dir.join("sing-box.exe");
-    Ok(p.to_string_lossy().to_string())
+    let exes: Vec<String> = ENGINES
+        .iter()
+        .map(|name| dir.join(name))
+        .filter(|p| p.exists())
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+    if exes.is_empty() {
+        return Err("движки не найдены рядом с Ninety — kill switch не включён".into());
+    }
+    Ok(exes)
 }
 
 #[cfg(target_os = "windows")]
@@ -123,7 +134,7 @@ mod win {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    pub unsafe fn arm(exe_path: &str) -> Result<isize, String> {
+    pub unsafe fn arm(exe_paths: &[String]) -> Result<isize, String> {
         let mut engine = HANDLE::default();
         let mut session: FWPM_SESSION0 = std::mem::zeroed();
         session.flags = FWPM_SESSION_FLAG_DYNAMIC;
@@ -138,7 +149,7 @@ mod win {
             return Err(format!("FwpmEngineOpen0: {rc}"));
         }
 
-        let res = build_filters(engine, exe_path);
+        let res = build_filters(engine, exe_paths);
         match res {
             Ok(()) => Ok(engine.0 as isize),
             Err(e) => {
@@ -153,7 +164,7 @@ mod win {
         let _ = FwpmEngineClose0(HANDLE(handle as *mut core::ffi::c_void));
     }
 
-    unsafe fn build_filters(engine: HANDLE, exe_path: &str) -> Result<(), String> {
+    unsafe fn build_filters(engine: HANDLE, exe_paths: &[String]) -> Result<(), String> {
         // sublayer
         let mut sname = wide("Ninety Kill Switch");
         let mut sub: FWPM_SUBLAYER0 = std::mem::zeroed();
@@ -176,13 +187,16 @@ mod win {
             let mut c = loopback_condition();
             add_filter(engine, &layer, FWP_ACTION_PERMIT, 15, std::slice::from_mut(&mut c))?;
         }
-        // permit sing-box.exe по app-id (высокий вес)
-        let blob = app_id_blob(exe_path)?;
-        for layer in layers {
-            let mut c = appid_condition(blob);
-            add_filter(engine, &layer, FWP_ACTION_PERMIT, 15, std::slice::from_mut(&mut c))?;
+        // permit каждого движка по app-id (высокий вес): sing-box + мосты
+        // xray/naive/trusttunnel_client — внешний коннект делает любой из них.
+        for exe in exe_paths {
+            let blob = app_id_blob(exe)?;
+            for layer in layers {
+                let mut c = appid_condition(blob);
+                add_filter(engine, &layer, FWP_ACTION_PERMIT, 15, std::slice::from_mut(&mut c))?;
+            }
+            FwpmFreeMemory0(&mut (blob as *mut core::ffi::c_void));
         }
-        FwpmFreeMemory0(&mut (blob as *mut core::ffi::c_void));
         Ok(())
     }
 

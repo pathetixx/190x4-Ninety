@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Manager, State};
@@ -58,6 +59,11 @@ pub struct SingboxState {
     // Причина смерти любого sidecar-клиента (naive/TT) — как xray_died, для
     // авто-реконнекта фронтом (sidecar_status).
     sidecar_died: Arc<Mutex<Option<String>>>,
+    // Sentinel «запуск идёт»: guard по child ловит только уже присвоенный хэндл,
+    // а между проверкой и присвоением у start_singbox секунды await'ов (settle-
+    // паузы мостов) — два конкурентных вызова спавнили бы два комплекта ядер,
+    // дерущихся за порты.
+    starting: AtomicBool,
 }
 
 impl Default for SingboxState {
@@ -69,7 +75,16 @@ impl Default for SingboxState {
             xray_died: Arc::new(Mutex::new(None)),
             sidecars: Mutex::new(Vec::new()),
             sidecar_died: Arc::new(Mutex::new(None)),
+            starting: AtomicBool::new(false),
         }
+    }
+}
+
+// RAII-сброс sentinel'а starting: покрывает все ранние return'ы start_singbox.
+struct StartingGuard<'a>(&'a AtomicBool);
+impl Drop for StartingGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 
@@ -213,6 +228,13 @@ async fn spawn_xray(
     // Дать xray подняться и забиндить socks-инбаунды до старта sing-box,
     // иначе первые urltest'ы xhttp-нод словят connection refused.
     tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+
+    // Fail-fast: умер в settle-паузе (битый конфиг, занятый порт) → фейлим старт
+    // с причиной. Раньше старт «удавался», а health-watchdog через 5с находил
+    // труп и уходил в реконнект — по кругу, потому что порт так и оставался занят.
+    if let Some(err) = state.xray_died.lock().unwrap().take() {
+        return Err(err);
+    }
     Ok(())
 }
 
@@ -308,6 +330,12 @@ async fn spawn_sidecars(
         // Дать клиентам забиндить SOCKS до старта sing-box (handshake к endpoint'у
         // у TrustTunnel небыстрый), иначе первые urltest'ы словят refused.
         tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+
+        // Fail-fast: клиент умер в settle-паузе → фейлим старт с причиной
+        // (см. spawn_xray — иначе health-watchdog зациклился бы на реконнектах).
+        if let Some(err) = state.sidecar_died.lock().unwrap().take() {
+            return Err(err);
+        }
     }
     Ok(())
 }
@@ -441,6 +469,12 @@ pub async fn start_singbox(
     logs_disabled: Option<bool>,
 ) -> Result<(), String> {
     let logs_disabled = logs_disabled.unwrap_or(false);
+    // Sentinel ДО guard-проверки: второй конкурентный вызов отсекается сразу,
+    // даже пока первый висит в settle-паузах мостов (child ещё не присвоен).
+    if state.starting.swap(true, Ordering::SeqCst) {
+        return Err("запуск уже идёт".into());
+    }
+    let _starting = StartingGuard(&state.starting);
     {
         let child = state.child.lock().unwrap();
         if child.is_some() || state.xray_child.lock().unwrap().is_some() {
@@ -555,6 +589,22 @@ pub async fn start_singbox(
         kill_sidecars(&state);
         return Err(err);
     }
+    // Мост мог умереть и в эти 800мс (после своей settle-паузы) — тоже fail-fast,
+    // иначе health-watchdog найдёт труп через 5с и уйдёт в цикл реконнектов.
+    let bridge_err = state
+        .xray_died
+        .lock()
+        .unwrap()
+        .take()
+        .or_else(|| state.sidecar_died.lock().unwrap().take());
+    if let Some(err) = bridge_err {
+        if let Some(child) = state.child.lock().unwrap().take() {
+            let _ = child.kill();
+        }
+        kill_xray(&state);
+        kill_sidecars(&state);
+        return Err(err);
+    }
 
     Ok(())
 }
@@ -655,4 +705,120 @@ pub fn force_cleanup(state: &SingboxState) {
     kill_sidecars(state);
     #[cfg(target_os = "windows")]
     let _ = proxy::set_system_proxy(false, None);
+}
+
+// ── Планирование портов loopback-мостов ─────────────────────
+// Статические базы (31100/31200/31300 в singbox.js) может занять чужой процесс —
+// тогда мост умирал бы на bind'е. Фронт перед buildConfig присылает, сколько
+// портов нужно каждому семейству; подбираем первый диапазон, где все порты
+// свободны (bind-проба на 127.0.0.1). Диапазоны семейств не пересекаются.
+// TOCTOU-окно (порт займут между пробой и spawn'ом) закрывает fail-fast в
+// start_singbox — но проба убирает детерминированные конфликты.
+
+#[derive(serde::Deserialize)]
+pub struct BridgeNeeds {
+    #[serde(default)]
+    xray: u16,
+    #[serde(default)]
+    naive: u16,
+    #[serde(default)]
+    trusttunnel: u16,
+}
+
+#[derive(serde::Serialize)]
+pub struct BridgePorts {
+    xray: u16,
+    naive: u16,
+    trusttunnel: u16,
+}
+
+fn port_free(port: u16) -> bool {
+    std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+// Первая база >= start, дающая `count` подряд свободных портов вне занятых
+// диапазонов. При count=0 порты не нужны — возвращаем дефолт без резервирования.
+fn find_free_base(start: u16, count: u16, taken: &mut Vec<(u16, u16)>) -> Result<u16, String> {
+    if count == 0 {
+        return Ok(start);
+    }
+    let mut base = start;
+    // Верхняя граница поиска с запасом; портов нужны единицы, не упрёмся.
+    while u32::from(base) + u32::from(count) <= 65535 && base < start.saturating_add(2000) {
+        let end = base + count;
+        let overlaps = taken.iter().any(|&(s, e)| base < e && s < end);
+        if !overlaps && (base..end).all(port_free) {
+            taken.push((base, end));
+            return Ok(base);
+        }
+        base += 1;
+    }
+    Err(format!("нет свободных портов для мостов (искали от {start})"))
+}
+
+#[tauri::command]
+pub async fn plan_bridge_ports(needs: BridgeNeeds) -> Result<BridgePorts, String> {
+    let mut taken: Vec<(u16, u16)> = Vec::new();
+    let xray = find_free_base(31100, needs.xray, &mut taken)?;
+    let naive = find_free_base(31200, needs.naive, &mut taken)?;
+    let trusttunnel = find_free_base(31300, needs.trusttunnel, &mut taken)?;
+    Ok(BridgePorts { xray, naive, trusttunnel })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_ansi_removes_sgr() {
+        assert_eq!(strip_ansi("\x1b[36mINFO\x1b[0m text"), "INFO text");
+        assert_eq!(strip_ansi("plain"), "plain");
+        assert_eq!(strip_ansi(""), "");
+        // ESC без CSI просто выпадает
+        assert_eq!(strip_ansi("a\x1bZb"), "aZb");
+    }
+
+    #[test]
+    fn harden_config_injects_secret_and_loopback() {
+        let raw = r#"{"experimental":{"clash_api":{"external_controller":"0.0.0.0:9090"}}}"#;
+        let out = harden_config(raw);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let api = &v["experimental"]["clash_api"];
+        assert_eq!(api["external_controller"], "127.0.0.1:9090");
+        let secret = api["secret"].as_str().unwrap();
+        assert_eq!(secret.len(), 32); // 16 байт hex
+    }
+
+    #[test]
+    fn harden_config_passes_invalid_json_through() {
+        assert_eq!(harden_config("not json"), "not json");
+    }
+
+    #[test]
+    fn find_free_base_skips_taken_ranges() {
+        let mut taken = vec![(41100u16, 41102u16)];
+        let base = find_free_base(41100, 2, &mut taken).unwrap();
+        assert!(base >= 41102, "диапазон не должен пересечь занятый: {base}");
+        // count=0 → дефолт без резервирования
+        let before = taken.len();
+        assert_eq!(find_free_base(41200, 0, &mut taken).unwrap(), 41200);
+        assert_eq!(taken.len(), before);
+    }
+
+    #[test]
+    fn find_free_base_skips_bound_port() {
+        // Реально займём порт (первый свободный в тихом диапазоне) и убедимся,
+        // что база сдвинулась за него.
+        let mut held = None;
+        for p in 42000u16..43000 {
+            if let Ok(l) = std::net::TcpListener::bind(("127.0.0.1", p)) {
+                held = Some((p, l));
+                break;
+            }
+        }
+        let (busy, _l) = held.expect("нет свободного порта в 42000..43000");
+        let mut taken = Vec::new();
+        let base = find_free_base(busy, 1, &mut taken).unwrap();
+        assert!(base > busy, "base={base} должен быть за занятым {busy}");
+    }
 }
