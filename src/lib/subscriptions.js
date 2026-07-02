@@ -155,8 +155,23 @@ export function updateSubscription(id, patch) {
 }
 
 // ── fetch + merge ───────────────────────────────────────────
+// Прокси для fetch_subscription: main.js подставляет локальный инбаунд при
+// поднятом VPN — запрос к панели уходит через туннель (не светит реальный IP
+// и работает там, где панель заблокирована напрямую). null → напрямую.
+let subProxyProvider = null;
+export function setSubscriptionProxy(fn) { subProxyProvider = fn; }
+
 async function fetchInfo(url) {
-  const info = await invoke("fetch_subscription", { url });
+  let proxy = null;
+  try { proxy = subProxyProvider?.() || null; } catch {}
+  let info;
+  try {
+    info = await invoke("fetch_subscription", { url, proxy });
+  } catch (e) {
+    if (!proxy) throw e;
+    // Туннель мог только что умереть — не блокируем обновление, повтор напрямую.
+    info = await invoke("fetch_subscription", { url, proxy: null });
+  }
   if (info.status >= 400) {
     throw new Error(`HTTP ${info.status}`);
   }

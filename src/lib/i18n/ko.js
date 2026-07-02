@@ -325,6 +325,7 @@ export const ko = {
   wifi: {
     openProtect: "개방 네트워크 「{ssid}」 — 보호(TUN) 활성화 중",
     noName: "이름 없음",
+    autoRestore: "안전한 네트워크입니다 — 이전 연결 모드로 되돌립니다",
   },
 
   conn: {
@@ -655,7 +656,7 @@ export const ko = {
       startMinTitle: "최소화하여 시작",
       startMinHint: "시작 시 창이 바로 트레이로 숨겨집니다 — 아이콘은 오른쪽 아래에 남습니다",
       wifiTitle: "신뢰할 수 없는 Wi-Fi에서 보호",
-      wifiHint: "개방(비밀번호 없는) 네트워크에 연결하면 Ninety가 자동으로 VPN · TUN을 켭니다. 보호된 네트워크(집/사무실)는 그대로 둡니다. 관리자 권한이 필요합니다(UAC).",
+      wifiHint: "개방(비밀번호 없는) 네트워크에 연결하면 Ninety가 자동으로 VPN · TUN을 켭니다. 보호된 네트워크(집/사무실)는 그대로 둡니다. 관리자 권한이 필요합니다(UAC). 안전한 네트워크로 돌아오면 이전 모드가 자동으로 복원됩니다.",
       killTitle: "Kill Switch",
       killHint: "실험적 기능. 「프록시」와 「시스템 프록시」 모드에서: VPN 코어가 갑자기 충돌하면 터널 자체를 제외한 모든 트래픽이 차단됩니다 — 데이터가 개방 네트워크로 새지 않습니다. 관리자 권한이 필요합니다. TUN 모드에서는 필요 없습니다.",
       testUrlTitle: "연결 테스트 URL",

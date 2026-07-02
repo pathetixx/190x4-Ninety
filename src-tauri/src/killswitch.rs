@@ -88,12 +88,12 @@ pub fn force_disarm(state: &KillSwitchState) {
 #[cfg(target_os = "windows")]
 fn engine_exe_paths() -> Result<Vec<String>, String> {
     const ENGINES: [&str; 4] = ["sing-box.exe", "xray.exe", "naive.exe", "trusttunnel_client.exe"];
-    let dir = std::env::current_exe()
-        .map_err(|e| format!("current_exe: {e}"))?
+    let self_exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let dir = self_exe
         .parent()
         .ok_or("нет родительского каталога exe")?
         .to_path_buf();
-    let exes: Vec<String> = ENGINES
+    let mut exes: Vec<String> = ENGINES
         .iter()
         .map(|name| dir.join(name))
         .filter(|p| p.exists())
@@ -102,6 +102,13 @@ fn engine_exe_paths() -> Result<Vec<String>, String> {
     if exes.is_empty() {
         return Err("движки не найдены рядом с Ninety — kill switch не включён".into());
     }
+    // Permit и самому Ninety: его reqwest-запросы (публичный IP, подписки,
+    // updater) идут напрямую, не через loopback-прокси — без permit они
+    // попадали бы под block-all при ЖИВОМ ядре (молча ломались IP-плитка,
+    // авто-обновление подписок и проверка апдейтов). Цена: при мёртвом ядре
+    // наружу может выйти только служебный трафик приложения, юзерский трафик
+    // по-прежнему блокируется.
+    exes.push(self_exe.to_string_lossy().to_string());
     Ok(exes)
 }
 

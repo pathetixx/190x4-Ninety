@@ -43,10 +43,17 @@ pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
 }
 
 fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+    // Клиент один на процесс (внутри Arc, clone дешёвый): не пересоздаём
+    // TLS-конфиг и пул соединений на каждый запрос UI к clash-API.
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    if let Some(c) = CLIENT.get() {
+        return Ok(c.clone());
+    }
+    let c = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("client: {e}"))
+        .map_err(|e| format!("client: {e}"))?;
+    Ok(CLIENT.get_or_init(|| c).clone())
 }
 
 fn base(port: u16) -> String {

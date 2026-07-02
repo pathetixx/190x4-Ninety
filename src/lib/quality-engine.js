@@ -229,13 +229,21 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
         let verified = 0;
         for (let k = 0; k < GOOD_STREAK; k++) {
           const r = await probe(step.id);
-          if (classify(r) === "GOOD") {
+          const st = classify(r);
+          if (st === "GOOD") {
             verified++;
             if (verified >= GOOD_STREAK) {
               await commitWin(step, r);
               return;
             }
             await sleep(800);
+          } else if (st === "UNKNOWN") {
+            // Проба сама не дотянулась (endpoint лёг / сеть моргнула) — проверить
+            // ступень нечем. «Не удалось проверить» ≠ «не помогло»: эскалация
+            // дальше жгла бы реконнекты вслепую. Прерываем лесенку до следующего
+            // тика (tick при UNKNOWN и так бездействует).
+            actions.log?.(`ladder ${step.id}: verify probe UNKNOWN — лесенка прервана`);
+            return;
           } else {
             verified = 0;
             break; // эта ступень не помогла — следующая

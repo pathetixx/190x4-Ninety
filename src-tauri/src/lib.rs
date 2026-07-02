@@ -1,3 +1,4 @@
+mod backup;
 mod clash;
 mod clash_stream;
 mod dpi;
@@ -84,7 +85,7 @@ fn relaunch_elevated(app: tauri::AppHandle) -> Result<bool, String> {
         // QLocalServer). std::process::exit минует RunEvent::Exit, поэтому
         // синхронно чистим ядро и системный прокси здесь же.
         if let Some(state) = app.try_state::<SingboxState>() {
-            vpn::force_cleanup(&state);
+            vpn::force_cleanup(&app, &state);
         }
         if let Some(state) = app.try_state::<dpi::DpiState>() {
             dpi::force_cleanup(&state);
@@ -588,13 +589,15 @@ pub fn run() {
             killswitch::killswitch_arm,
             killswitch::killswitch_disarm,
             killswitch::killswitch_active,
+            backup::state_backup_save,
+            backup::state_backup_load,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
                 if let Some(state) = app.try_state::<SingboxState>() {
-                    vpn::force_cleanup(&state);
+                    vpn::force_cleanup(app, &state);
                 }
                 if let Some(state) = app.try_state::<dpi::DpiState>() {
                     // full_unload, а не force_cleanup: при выходе снимаем И

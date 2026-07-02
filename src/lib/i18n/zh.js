@@ -325,6 +325,7 @@ export const zh = {
   wifi: {
     openProtect: "开放网络“{ssid}”——正在开启保护（TUN）",
     noName: "未命名",
+    autoRestore: "网络安全 — 正在恢复之前的连接模式",
   },
 
   conn: {
@@ -655,7 +656,7 @@ export const zh = {
       startMinTitle: "启动时最小化",
       startMinHint: "启动时窗口直接隐藏到托盘——图标停留在右下角",
       wifiTitle: "在不可信 Wi-Fi 上保护",
-      wifiHint: "连接到开放（无密码）网络时，Ninety 会自动开启 VPN · TUN。受保护的网络（家庭/办公室）不受影响。需要管理员权限（UAC）。",
+      wifiHint: "连接到开放（无密码）网络时，Ninety 会自动开启 VPN · TUN。受保护的网络（家庭/办公室）不受影响。需要管理员权限（UAC）。 回到安全网络后会自动恢复之前的模式。",
       killTitle: "网络熔断（Kill Switch）",
       killHint: "实验性。在“代理”和“系统代理”模式下：若 VPN 内核突然崩溃，除隧道自身外的所有流量都会被拦截——你的数据不会泄漏到开放网络。需要管理员权限。TUN 模式下无需。",
       testUrlTitle: "连接测试 URL",
