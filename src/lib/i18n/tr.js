@@ -162,7 +162,7 @@ export const tr = {
     vpn: {
       label: "VPN ile ilişkilendir",
       descTun: "TUN modundaki VPN tüm trafiği yakalar — atlatma otomatik olarak duraklar.",
-      descOther: "Atlatma VPN'den bağımsızdır: VPN kapalıyken bile sistem proxy'si üzerinden çalışır. Aktif düğümün sunucusu otomatik olarak istisnalara eklenir.",
+      descOther: "Atlatma VPN'den bağımsızdır ve VPN kapalıyken bile çalışır. Etkin düğümün sunucusu otomatik olarak istisnalara eklenir.",
     },
 
     domains: { label: "Alan adı listeleri", unit: "alan adı atlatıldı", user: "Alan adlarım", exclude: "İstisnalar" },
@@ -437,8 +437,8 @@ export const tr = {
     errClipboardEmpty: "Pano boş. URL'yi elle girin.",
     title: "PROFİL EKLE",
     close: "Kapat",
-    hint: "Bir abonelik URL'si, vless:// bağlantısı veya bunların listesini yapıştırın — gerisini biz hallederiz.",
-    tileClipboard: "Panodan", tileClipboardSub: "URL ve vless:// algılar",
+    hint: "Abonelik URL'sini, yapılandırma bağlantısını (vless, vmess, trojan, ss…) veya listesini yapıştırın — gerisini biz hallederiz.",
+    tileClipboard: "Panodan", tileClipboardSub: "URL'leri ve yapılandırma bağlantılarını tanır",
     tileManual: "Elle", tileManualSub: "URL + ad + aralık",
     tileFile: ".toml dosyası", tileFileSub: "TrustTunnel uç nokta yapılandırması",
     labelName: "Ad", phName: "Aboneliğim",
@@ -479,7 +479,7 @@ export const tr = {
     copyFailed: "Kopyalanamadı",
     qrKicker: "ABONELİK QR KODU",
     close: "Kapat",
-    qrHint: "Uyumlu herhangi bir vless istemcisinde telefonunuzla tarayın.",
+    qrHint: "Uyumlu bir VPN istemcisinde telefonla tarayın.",
     copyUrl: "URL'yi kopyala",
     subFallback: "Abonelik",
     qrError: "QR oluşturulamadı: {err}",
@@ -491,7 +491,7 @@ export const tr = {
 
   subs: {
     needHttpUrl: "http(s):// URL'si gerekli",
-    noVless: "Abonelik vless:// yapılandırması içermiyor",
+    noVless: "Abonelikte desteklenen yapılandırma yok",
     subFallback: "Abonelik",
     notFound: "Abonelik bulunamadı",
     emptyOrInvalid: "Abonelik boş veya geçersiz",
@@ -589,12 +589,12 @@ export const tr = {
     },
     connect: {
       title: "En hızlı düğüme bağlanılıyor…",
-      sub: "sing-box başlıyor ve düğümleri clash API üzerinden test ediyor. Birkaç saniye sürer.",
+      sub: "Motor başlatılıyor ve düğümler test ediliyor — en hızlısı seçilecek. Birkaç saniye sürer.",
       cancel: "İptal",
     },
     done: {
       title: "VPN bağlandı",
-      sub: "Trafiğiniz artık seçilen düğümden geçiyor. Sorun olursa — kenar çubuğundaki <code>Günlükler</code>. Konum kartına tıklayarak sunucu değiştirebilirsiniz.",
+      sub: "Trafik seçilen düğüm üzerinden akıyor. Sorun olursa — kenar çubuğundaki <code>Günlükler</code>. Sunucuyu «Düğümler» bölümünden değiştirebilirsiniz.",
       open: "Ninety'yi aç",
     },
   },
@@ -607,7 +607,7 @@ export const tr = {
     routingRulesTitle: "Yönlendirme kuralları",
 
     sec: {
-      general:    { title: "Genel",         hint: "Otomatik başlatma, yönetici hakları, günlükler, bağlantı testi" },
+      general:    { title: "Genel",         hint: "Otomatik başlatma, yönetici hakları, Wi-Fi koruması, kill switch, günlükler" },
       appearance: { title: "Görünüm",       hint: "Arayüz dili ve vurgu: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
       routing:    { title: "Yönlendirme",   hint: "Bölge, LAN atlatma, reklam engelleme, IPv6" },
       dns:        { title: "DNS",           hint: "Uzak ve doğrudan DNS, önbellek, fake-DNS" },
@@ -634,7 +634,7 @@ export const tr = {
       adminTitle: "Her zaman yönetici olarak çalıştır",
       adminHint: "VPN · TUN modu için gerekli. Ninety yönetici haklarıyla başlar (başlangıçta UAC) — TUN'u etkinleştirdiğinizde istem tekrar görünmez.",
       autostartTitle: "Sistem oturumu açılışında başlat",
-      autostartHint: "Windows'a giriş yaptığınızda Ninety otomatik olarak başlar",
+      autostartHint: "Ninety, Windows oturumu açıldığında yönetici haklarıyla başlar (Görev Zamanlayıcı görevi) — girişte UAC istemi görünmez",
       startMinTitle: "Simge durumunda başlat",
       startMinHint: "Başlangıçta pencere doğrudan sistem tepsisine gizlenir — simge sağ altta kalır",
       wifiTitle: "Güvenilmeyen Wi-Fi'de koru",
@@ -686,7 +686,7 @@ export const tr = {
 
     inbound: {
       portTitle: "Mixed port",
-      portHint: "Sistem proxy'si için yerel SOCKS+HTTP portu",
+      portHint: "«Proxy» ve «Sistem proxy'si» modları için yerel SOCKS+HTTP portu",
       mtuTitle: "TUN MTU",
       mtuHint: "Maksimum paket boyutu",
       stackTitle: "TUN yığını",
@@ -728,7 +728,7 @@ export const tr = {
       watchTitle: "Bağlantı kalitesini izle",
       watchHint: "Arka planda hız kontrolleri ve yavaşlamada otomatik kurtarma. Gerekmiyorsa kapatın.",
       autoTitle: "Otomatik düzelt",
-      autoHint: "Yavaşlamada kurtarmayı sormadan hemen uygula (sunucu değiştir, trafiği maskele veya yedek kanal). Kapalıysa — uygulama yeniden bağlanmadan önce sorar.",
+      autoHint: "Yavaşlamada kurtarmayı sormadan hemen uygula (sunucu değişimi, trafik maskeleme veya yedek kanal). Kapalıysa — uygulama yeniden bağlanmadan önce sorar; pencere tepsideyse bildirim gönderir.",
       saveTitle: "Trafikten tasarruf",
       saveHint: "Boşuna test etme — yalnızca yavaşlama şüphesinde. Testlerin kendisine harcanan trafik azalır.",
       thrTitle: "Hız eşiği",

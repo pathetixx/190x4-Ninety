@@ -162,7 +162,7 @@ export const fr = {
     vpn: {
       label: "Lier au VPN",
       descTun: "Le VPN en mode TUN intercepte tout le trafic — le contournement se met en pause automatiquement.",
-      descOther: "Le contournement est indépendant du VPN : il fonctionne via le proxy système même quand le VPN est désactivé. Le serveur du nœud actif est ajouté automatiquement aux exclusions.",
+      descOther: "Le contournement est indépendant du VPN et fonctionne même VPN éteint. Le serveur du nœud actif est ajouté automatiquement aux exclusions.",
     },
 
     domains: { label: "Listes de domaines", unit: "domaines contournés", user: "Mes domaines", exclude: "Exclusions" },
@@ -437,8 +437,8 @@ export const fr = {
     errClipboardEmpty: "Le presse-papiers est vide. Saisissez l’URL manuellement.",
     title: "AJOUTER UN PROFIL",
     close: "Fermer",
-    hint: "Collez une URL d’abonnement, un lien vless://, ou une liste — nous nous en occupons.",
-    tileClipboard: "Depuis le presse-papiers", tileClipboardSub: "Détecte URL et vless://",
+    hint: "Collez l'URL d'un abonnement, un lien de configuration (vless, vmess, trojan, ss…) ou une liste — on s'occupe du reste.",
+    tileClipboard: "Depuis le presse-papiers", tileClipboardSub: "Détecte les URL et liens de configuration",
     tileManual: "Manuellement", tileManualSub: "URL + nom + intervalle",
     tileFile: "fichier .toml", tileFileSub: "Config d’endpoint TrustTunnel",
     labelName: "Nom", phName: "Mon abonnement",
@@ -479,7 +479,7 @@ export const fr = {
     copyFailed: "Copie impossible",
     qrKicker: "QR CODE D’ABONNEMENT",
     close: "Fermer",
-    qrHint: "Scannez-le sur votre téléphone dans n’importe quel client vless compatible.",
+    qrHint: "Scannez-le sur votre téléphone dans un client VPN compatible.",
     copyUrl: "Copier l’URL",
     subFallback: "Abonnement",
     qrError: "Impossible de générer le QR : {err}",
@@ -491,7 +491,7 @@ export const fr = {
 
   subs: {
     needHttpUrl: "Une URL http(s):// est requise",
-    noVless: "L’abonnement ne contient aucune config vless://",
+    noVless: "L'abonnement ne contient aucune configuration prise en charge",
     subFallback: "Abonnement",
     notFound: "Abonnement introuvable",
     emptyOrInvalid: "Abonnement vide ou invalide",
@@ -589,12 +589,12 @@ export const fr = {
     },
     connect: {
       title: "Connexion au nœud le plus rapide…",
-      sub: "sing-box démarre et teste les nœuds via l’API clash. Cela prend quelques secondes.",
+      sub: "Démarrage du moteur et test des nœuds — le plus rapide sera choisi. Cela prend quelques secondes.",
       cancel: "Annuler",
     },
     done: {
       title: "VPN connecté",
-      sub: "Votre trafic passe désormais par le nœud sélectionné. Un souci — <code>Journaux</code> dans la barre latérale. Vous pouvez changer de serveur en cliquant sur la carte de localisation.",
+      sub: "Le trafic passe par le nœud choisi. Un souci — <code>Journaux</code> dans la barre latérale. Changez de serveur dans la section « Nœuds ».",
       open: "Ouvrir Ninety",
     },
   },
@@ -607,7 +607,7 @@ export const fr = {
     routingRulesTitle: "Règles de routage",
 
     sec: {
-      general:    { title: "Général",       hint: "Démarrage auto, droits administrateur, journaux, test de connexion" },
+      general:    { title: "Général",       hint: "Démarrage auto, droits administrateur, protection Wi-Fi, kill switch, journaux" },
       appearance: { title: "Apparence",     hint: "Langue de l'interface et accent : Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
       routing:    { title: "Routage",       hint: "Région, contournement LAN, blocage des pubs, IPv6" },
       dns:        { title: "DNS",           hint: "DNS distant et direct, cache, fake-DNS" },
@@ -634,7 +634,7 @@ export const fr = {
       adminTitle: "Toujours exécuter en tant qu’administrateur",
       adminHint: "Requis pour le mode VPN · TUN. Ninety démarrera avec les droits admin (UAC au lancement) — l’invite ne réapparaîtra plus quand vous activez TUN.",
       autostartTitle: "Démarrer à l’ouverture de session",
-      autostartHint: "Ninety démarrera automatiquement à votre connexion à Windows",
+      autostartHint: "Ninety démarre à l'ouverture de session Windows avec les droits administrateur (tâche du Planificateur) — sans invite UAC à la connexion",
       startMinTitle: "Démarrer réduit",
       startMinHint: "Au lancement, la fenêtre se cache directement dans la barre d’état système — l’icône reste en bas à droite",
       wifiTitle: "Protéger sur un Wi-Fi non fiable",
@@ -686,7 +686,7 @@ export const fr = {
 
     inbound: {
       portTitle: "Port Mixed",
-      portHint: "Port local SOCKS+HTTP pour le proxy système",
+      portHint: "Port local SOCKS+HTTP pour les modes « Proxy » et « Proxy système »",
       mtuTitle: "MTU du TUN",
       mtuHint: "Taille maximale des paquets",
       stackTitle: "Pile TUN",
@@ -728,7 +728,7 @@ export const fr = {
       watchTitle: "Surveiller la qualité de connexion",
       watchHint: "Tests de vitesse en arrière-plan et récupération automatique en cas de ralentissement. Désactivez si inutile.",
       autoTitle: "Corriger automatiquement",
-      autoHint: "En cas de ralentissement, appliquer la récupération immédiatement (changer de serveur, masquer le trafic, ou canal de secours) sans demander. Sinon — l’appli demande avant de se reconnecter.",
+      autoHint: "En cas de ralentissement, appliquer la récupération immédiatement (changement de serveur, masquage du trafic ou canal de secours) sans demander. Si désactivé — l'app demande avant de se reconnecter ; fenêtre dans la barre système : une notification est envoyée.",
       saveTitle: "Économiser le trafic",
       saveHint: "Ne pas tester pour rien — seulement en cas de ralentissement suspecté. Moins de trafic consacré aux tests eux-mêmes.",
       thrTitle: "Seuil de vitesse",

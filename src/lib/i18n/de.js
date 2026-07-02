@@ -162,7 +162,7 @@ export const de = {
     vpn: {
       label: "Mit dem VPN verknüpfen",
       descTun: "Das VPN im TUN-Modus fängt den gesamten Traffic ab — die Umgehung pausiert automatisch.",
-      descOther: "Die Umgehung ist unabhängig vom VPN: Sie läuft über den System-Proxy, auch wenn das VPN aus ist. Der Server des aktiven Knotens wird automatisch zu den Ausnahmen hinzugefügt.",
+      descOther: "Die Umgehung ist unabhängig vom VPN und funktioniert auch bei ausgeschaltetem VPN. Der Server des aktiven Knotens wird automatisch zu den Ausnahmen hinzugefügt.",
     },
 
     domains: { label: "Domain-Listen", unit: "Domains umgangen", user: "Meine Domains", exclude: "Ausnahmen" },
@@ -437,8 +437,8 @@ export const de = {
     errClipboardEmpty: "Die Zwischenablage ist leer. Gib die URL von Hand ein.",
     title: "PROFIL HINZUFÜGEN",
     close: "Schließen",
-    hint: "Füge eine Abo-URL, einen vless://-Link oder eine Liste davon ein — wir erkennen es selbst.",
-    tileClipboard: "Aus Zwischenablage", tileClipboardSub: "Erkennt URL und vless://",
+    hint: "Füge eine Abo-URL, einen Konfigurationslink (vless, vmess, trojan, ss…) oder eine Liste davon ein — wir kümmern uns darum.",
+    tileClipboard: "Aus Zwischenablage", tileClipboardSub: "Erkennt URLs und Konfigurationslinks",
     tileManual: "Von Hand", tileManualSub: "URL + Name + Intervall",
     tileFile: ".toml-Datei", tileFileSub: "TrustTunnel-Endpoint-Konfig",
     labelName: "Name", phName: "Mein Abo",
@@ -479,7 +479,7 @@ export const de = {
     copyFailed: "Kopieren fehlgeschlagen",
     qrKicker: "ABO-QR-CODE",
     close: "Schließen",
-    qrHint: "Scanne ihn auf dem Handy in einem beliebigen kompatiblen vless-Client.",
+    qrHint: "Mit dem Handy in einem kompatiblen VPN-Client scannen.",
     copyUrl: "URL kopieren",
     subFallback: "Abo",
     qrError: "QR konnte nicht erzeugt werden: {err}",
@@ -491,7 +491,7 @@ export const de = {
 
   subs: {
     needHttpUrl: "Eine http(s)://-URL ist erforderlich",
-    noVless: "Das Abo enthält keine vless://-Konfigs",
+    noVless: "Das Abo enthält keine unterstützten Konfigurationen",
     subFallback: "Abo",
     notFound: "Abo nicht gefunden",
     emptyOrInvalid: "Abo ist leer oder ungültig",
@@ -589,12 +589,12 @@ export const de = {
     },
     connect: {
       title: "Verbinde mit dem schnellsten Knoten…",
-      sub: "sing-box startet und testet Knoten über die clash-API. Das dauert ein paar Sekunden.",
+      sub: "Engine startet, Knoten werden getestet — der schnellste wird gewählt. Dauert ein paar Sekunden.",
       cancel: "Abbrechen",
     },
     done: {
       title: "VPN verbunden",
-      sub: "Dein Traffic läuft jetzt über den gewählten Knoten. Bei Problemen — <code>Protokoll</code> in der Seitenleiste. Den Server kannst du per Klick auf die Standortkarte wechseln.",
+      sub: "Der Traffic läuft über den gewählten Server. Bei Problemen — <code>Logs</code> in der Seitenleiste. Den Server wechselst du im Bereich „Knoten“.",
       open: "Ninety öffnen",
     },
   },
@@ -607,7 +607,7 @@ export const de = {
     routingRulesTitle: "Routing-Regeln",
 
     sec: {
-      general:    { title: "Allgemein",          hint: "Autostart, Administratorrechte, Protokolle, Verbindungstest" },
+      general:    { title: "Allgemein",          hint: "Autostart, Administratorrechte, WLAN-Schutz, Kill Switch, Logs" },
       appearance: { title: "Darstellung",        hint: "Sprache der Oberfläche und Akzent: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
       routing:    { title: "Routing",            hint: "Region, LAN-Umgehung, Werbeblockierung, IPv6" },
       dns:        { title: "DNS",                hint: "Remote- und Direct-DNS, Cache, fake-DNS" },
@@ -634,7 +634,7 @@ export const de = {
       adminTitle: "Immer als Administrator ausführen",
       adminHint: "Erforderlich für den Modus VPN · TUN. Ninety startet mit Admin-Rechten (UAC beim Start) — die Abfrage erscheint beim Aktivieren von TUN nicht mehr.",
       autostartTitle: "Beim Systemstart starten",
-      autostartHint: "Ninety startet automatisch, wenn du dich bei Windows anmeldest",
+      autostartHint: "Ninety startet bei der Windows-Anmeldung mit Administratorrechten (Aufgabenplanungs-Task) — ohne UAC-Abfrage beim Login",
       startMinTitle: "Minimiert starten",
       startMinHint: "Beim Start versteckt sich das Fenster direkt in der Taskleiste — das Symbol bleibt unten rechts",
       wifiTitle: "In unsicheren WLANs schützen",
@@ -686,7 +686,7 @@ export const de = {
 
     inbound: {
       portTitle: "Mixed port",
-      portHint: "Lokaler SOCKS+HTTP-Port für den System-Proxy",
+      portHint: "Lokaler SOCKS+HTTP-Port für die Modi „Proxy“ und „Systemproxy“",
       mtuTitle: "TUN-MTU",
       mtuHint: "Maximale Paketgröße",
       stackTitle: "TUN-Stack",
@@ -728,7 +728,7 @@ export const de = {
       watchTitle: "Verbindungsqualität überwachen",
       watchHint: "Geschwindigkeitsprüfungen im Hintergrund und automatische Wiederherstellung bei Verlangsamung. Ausschalten, wenn nicht benötigt.",
       autoTitle: "Automatisch beheben",
-      autoHint: "Bei Verlangsamung sofort die Wiederherstellung anwenden (Server wechseln, Traffic tarnen oder Reservekanal) ohne Nachfrage. Wenn aus — fragt die App vor dem Neuaufbau.",
+      autoHint: "Bei Verlangsamung Wiederherstellung sofort anwenden (Serverwechsel, Traffic-Maskierung oder Ersatzkanal) ohne Rückfrage. Wenn aus — fragt die App vor dem Reconnect; ist das Fenster im Tray, kommt eine Benachrichtigung.",
       saveTitle: "Traffic sparen",
       saveHint: "Keine Prüfungen ins Leere — nur bei Verdacht auf Verlangsamung. Weniger Traffic für die Prüfungen selbst.",
       thrTitle: "Geschwindigkeitsschwelle",

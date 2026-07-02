@@ -162,7 +162,7 @@ export const ja = {
     vpn: {
       label: "VPNと連携",
       descTun: "TUNモードのVPNはすべての通信を横取りします — 回避は自動的に一時停止します。",
-      descOther: "回避はVPNから独立しています: VPNがオフでもシステムプロキシ経由で動作します。アクティブなノードのサーバーは自動的に除外に追加されます。",
+      descOther: "バイパスは VPN から独立しており、VPN がオフでも動作します。アクティブなノードのサーバーは自動的に除外に追加されます。",
     },
 
     domains: { label: "ドメインリスト", unit: "ドメインを回避", user: "マイドメイン", exclude: "除外" },
@@ -437,8 +437,8 @@ export const ja = {
     errClipboardEmpty: "クリップボードが空です。URLを手動で入力してください。",
     title: "プロファイルを追加",
     close: "閉じる",
-    hint: "サブスクリプションURL、vless:// リンク、またはそのリストを貼り付けてください — こちらで判別します。",
-    tileClipboard: "クリップボードから", tileClipboardSub: "URLと vless:// を検出",
+    hint: "サブスクリプション URL、設定リンク（vless、vmess、trojan、ss…）またはそのリストを貼り付けてください — 自動で認識します。",
+    tileClipboard: "クリップボードから", tileClipboardSub: "URL と設定リンクを認識",
     tileManual: "手動", tileManualSub: "URL + 名前 + 間隔",
     tileFile: ".toml ファイル", tileFileSub: "TrustTunnel エンドポイント設定",
     labelName: "名前", phName: "マイサブスクリプション",
@@ -479,7 +479,7 @@ export const ja = {
     copyFailed: "コピーできませんでした",
     qrKicker: "サブスクリプションQRコード",
     close: "閉じる",
-    qrHint: "対応する任意の vless クライアントでスマートフォンからスキャンしてください。",
+    qrHint: "対応する VPN クライアントでスマホからスキャンしてください。",
     copyUrl: "URLをコピー",
     subFallback: "サブスクリプション",
     qrError: "QRを生成できませんでした: {err}",
@@ -491,7 +491,7 @@ export const ja = {
 
   subs: {
     needHttpUrl: "http(s):// のURLが必要です",
-    noVless: "サブスクリプションに vless:// 設定が含まれていません",
+    noVless: "サブスクリプションに対応する設定がありません",
     subFallback: "サブスクリプション",
     notFound: "サブスクリプションが見つかりません",
     emptyOrInvalid: "サブスクリプションが空か無効です",
@@ -589,12 +589,12 @@ export const ja = {
     },
     connect: {
       title: "最速のノードに接続中…",
-      sub: "sing-box が起動し、clash API でノードをテストしています。数秒で完了します。",
+      sub: "エンジンを起動してノードをテスト中 — 最速のものが選ばれます。数秒で完了します。",
       cancel: "キャンセル",
     },
     done: {
       title: "VPN に接続しました",
-      sub: "通信は選択したノードを経由するようになりました。問題があれば — サイドバーの <code>ログ</code>。場所カードをクリックするとサーバーを切り替えられます。",
+      sub: "トラフィックは選択したノードを経由しています。問題があればサイドバーの<code>ログ</code>へ。サーバーは「ノード」セクションで切り替えられます。",
       open: "Ninety を開く",
     },
   },
@@ -607,7 +607,7 @@ export const ja = {
     routingRulesTitle: "ルーティングルール",
 
     sec: {
-      general:    { title: "全般",          hint: "自動起動、管理者権限、ログ、接続テスト" },
+      general:    { title: "全般",          hint: "自動起動、管理者権限、Wi-Fi 保護、キルスイッチ、ログ" },
       appearance: { title: "外観",          hint: "インターフェース言語とアクセント: Kurogane、Cyan、Synthwave、Matrix、Command Center、Mono" },
       routing:    { title: "ルーティング",   hint: "地域、LAN回避、広告ブロック、IPv6" },
       dns:        { title: "DNS",           hint: "リモートおよびダイレクトDNS、キャッシュ、fake-DNS" },
@@ -634,7 +634,7 @@ export const ja = {
       adminTitle: "常に管理者として実行",
       adminHint: "VPN · TUN モードに必要です。Ninety は管理者権限で起動します（起動時に UAC）— TUN を有効にするときに確認は表示されなくなります。",
       autostartTitle: "システムログイン時に起動",
-      autostartHint: "Windows にログインすると Ninety が自動的に起動します",
+      autostartHint: "Windows サインイン時に Ninety が管理者権限で自動起動します（タスク スケジューラのタスク）— ログイン時に UAC は表示されません",
       startMinTitle: "最小化して起動",
       startMinHint: "起動時にウィンドウは直接トレイに隠れます — アイコンは右下に残ります",
       wifiTitle: "信頼できない Wi-Fi で保護",
@@ -686,7 +686,7 @@ export const ja = {
 
     inbound: {
       portTitle: "Mixed ポート",
-      portHint: "システムプロキシ用のローカル SOCKS+HTTP ポート",
+      portHint: "「プロキシ」「システム プロキシ」モードで使うローカル SOCKS+HTTP ポート",
       mtuTitle: "TUN MTU",
       mtuHint: "最大パケットサイズ",
       stackTitle: "TUN スタック",
@@ -728,7 +728,7 @@ export const ja = {
       watchTitle: "接続品質を監視",
       watchHint: "バックグラウンドの速度チェックと、低速時の自動回復。不要ならオフにしてください。",
       autoTitle: "自動で修正",
-      autoHint: "低速時に確認なしですぐ回復を適用（サーバー切り替え、通信のマスキング、バックアップ回線）。オフのときは、再接続の前にアプリが確認します。",
+      autoHint: "速度低下時に確認なしで即座に回復を適用します（サーバー切替、トラフィックのマスキング、バックアップ経路）。オフの場合は再接続前に確認します。ウィンドウがトレイにある場合は通知を送ります。",
       saveTitle: "通信量を節約",
       saveHint: "無駄にチェックしません — 低速の疑いがあるときだけ。チェック自体に使う通信量が減ります。",
       thrTitle: "速度しきい値",

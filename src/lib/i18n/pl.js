@@ -162,7 +162,7 @@ export const pl = {
     vpn: {
       label: "Powiąż z VPN",
       descTun: "VPN w trybie TUN przechwytuje cały ruch — omijanie wstrzymuje się automatycznie.",
-      descOther: "Omijanie jest niezależne od VPN: działa przez proxy systemowe nawet przy wyłączonym VPN. Serwer aktywnego węzła jest automatycznie dodawany do wykluczeń.",
+      descOther: "Obejście jest niezależne od VPN i działa nawet przy wyłączonym VPN. Serwer aktywnego węzła jest automatycznie dodawany do wyjątków.",
     },
 
     domains: { label: "Listy domen", unit: "domen omijanych", user: "Moje domeny", exclude: "Wykluczenia" },
@@ -437,8 +437,8 @@ export const pl = {
     errClipboardEmpty: "Schowek jest pusty. Wprowadź URL ręcznie.",
     title: "DODAJ PROFIL",
     close: "Zamknij",
-    hint: "Wklej adres URL subskrypcji, link vless:// lub ich listę — zajmiemy się resztą.",
-    tileClipboard: "Ze schowka", tileClipboardSub: "Wykrywa URL i vless://",
+    hint: "Wklej URL subskrypcji, link konfiguracji (vless, vmess, trojan, ss…) lub ich listę — sami się rozeznamy.",
+    tileClipboard: "Ze schowka", tileClipboardSub: "Rozpoznaje URL-e i linki konfiguracji",
     tileManual: "Ręcznie", tileManualSub: "URL + nazwa + interwał",
     tileFile: "plik .toml", tileFileSub: "Konfig endpointu TrustTunnel",
     labelName: "Nazwa", phName: "Moja subskrypcja",
@@ -479,7 +479,7 @@ export const pl = {
     copyFailed: "Nie udało się skopiować",
     qrKicker: "KOD QR SUBSKRYPCJI",
     close: "Zamknij",
-    qrHint: "Zeskanuj go telefonem w dowolnym zgodnym kliencie vless.",
+    qrHint: "Zeskanuj telefonem w zgodnym kliencie VPN.",
     copyUrl: "Kopiuj URL",
     subFallback: "Subskrypcja",
     qrError: "Nie udało się wygenerować QR: {err}",
@@ -491,7 +491,7 @@ export const pl = {
 
   subs: {
     needHttpUrl: "Wymagany jest adres URL http(s)://",
-    noVless: "Subskrypcja nie zawiera konfiguracji vless://",
+    noVless: "Subskrypcja nie zawiera obsługiwanych konfiguracji",
     subFallback: "Subskrypcja",
     notFound: "Nie znaleziono subskrypcji",
     emptyOrInvalid: "Subskrypcja pusta lub nieprawidłowa",
@@ -589,12 +589,12 @@ export const pl = {
     },
     connect: {
       title: "Łączenie z najszybszym węzłem…",
-      sub: "sing-box uruchamia się i testuje węzły przez API clash. Zajmuje to kilka sekund.",
+      sub: "Uruchamiamy silnik i testujemy węzły — zostanie wybrany najszybszy. To zajmie kilka sekund.",
       cancel: "Anuluj",
     },
     done: {
       title: "VPN połączony",
-      sub: "Twój ruch przechodzi teraz przez wybrany węzeł. Jakiś problem — <code>Dzienniki</code> na pasku bocznym. Możesz przełączać serwery, klikając kartę lokalizacji.",
+      sub: "Ruch przechodzi przez wybrany węzeł. Problemy — <code>Logi</code> na pasku bocznym. Serwer zmienisz w sekcji „Węzły”.",
       open: "Otwórz Ninety",
     },
   },
@@ -607,7 +607,7 @@ export const pl = {
     routingRulesTitle: "Reguły routingu",
 
     sec: {
-      general:    { title: "Ogólne",        hint: "Autostart, uprawnienia administratora, dzienniki, test połączenia" },
+      general:    { title: "Ogólne",        hint: "Autostart, uprawnienia administratora, ochrona Wi-Fi, kill switch, logi" },
       appearance: { title: "Wygląd",        hint: "Język interfejsu i akcent: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
       routing:    { title: "Routing",       hint: "Region, omijanie LAN, blokowanie reklam, IPv6" },
       dns:        { title: "DNS",           hint: "Zdalny i bezpośredni DNS, pamięć podręczna, fake-DNS" },
@@ -634,7 +634,7 @@ export const pl = {
       adminTitle: "Zawsze uruchamiaj jako administrator",
       adminHint: "Wymagane dla trybu VPN · TUN. Ninety uruchomi się z uprawnieniami administratora (UAC przy starcie) — pytanie nie pojawi się ponownie przy włączaniu TUN.",
       autostartTitle: "Uruchamiaj przy logowaniu do systemu",
-      autostartHint: "Ninety uruchomi się automatycznie po zalogowaniu do Windows",
+      autostartHint: "Ninety uruchamia się przy logowaniu do Windows z uprawnieniami administratora (zadanie Harmonogramu) — bez monitu UAC przy logowaniu",
       startMinTitle: "Uruchamiaj zminimalizowany",
       startMinHint: "Przy starcie okno chowa się od razu do zasobnika — ikona pozostaje w prawym dolnym rogu",
       wifiTitle: "Chroń w niezaufanym Wi-Fi",
@@ -686,7 +686,7 @@ export const pl = {
 
     inbound: {
       portTitle: "Port Mixed",
-      portHint: "Lokalny port SOCKS+HTTP dla proxy systemowego",
+      portHint: "Lokalny port SOCKS+HTTP dla trybów „Proxy” i „Proxy systemowe”",
       mtuTitle: "MTU TUN",
       mtuHint: "Maksymalny rozmiar pakietu",
       stackTitle: "Stos TUN",
@@ -728,7 +728,7 @@ export const pl = {
       watchTitle: "Obserwuj jakość połączenia",
       watchHint: "Testy prędkości w tle i automatyczne przywracanie przy spowolnieniu. Wyłącz, jeśli nie potrzebujesz.",
       autoTitle: "Naprawiaj automatycznie",
-      autoHint: "Przy spowolnieniu zastosuj przywracanie natychmiast (przełącz serwer, zamaskuj ruch lub kanał zapasowy) bez pytania. Jeśli wyłączone — aplikacja pyta przed ponownym połączeniem.",
+      autoHint: "Przy spowolnieniu od razu stosuj odzyskiwanie (zmiana serwera, maskowanie ruchu lub kanał zapasowy) bez pytania. Gdy wyłączone — aplikacja zapyta przed ponownym połączeniem; gdy okno jest w zasobniku, wyśle powiadomienie.",
       saveTitle: "Oszczędzaj ruch",
       saveHint: "Nie testuj na próżno — tylko przy podejrzeniu spowolnienia. Mniej ruchu zużytego na same testy.",
       thrTitle: "Próg prędkości",
