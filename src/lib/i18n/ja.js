@@ -60,6 +60,23 @@ export const ja = {
     channelTitle: "回線品質",
   },
 
+  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  tray: {
+    show: "Ninety を表示",
+    connect: "接続",
+    disconnect: "切断",
+    server: "サーバー",
+    noServers: "サーバーなし",
+    dpiStatusOn: "状態: 有効",
+    dpiStatusOff: "状態: 無効",
+    dpiEnable: "DPI バイパスを有効化",
+    dpiDisable: "DPI バイパスを無効化",
+    quit: "終了",
+    updateTo: "v{ver} に更新",
+    tipOff: "Ninety · 切断中",
+    tipConnected: "Ninety · {mode} · 接続中",
+  },
+
   mode: {
     popoverAria: "接続モード",
     kicker: "接続モード",

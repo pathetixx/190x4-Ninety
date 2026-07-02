@@ -60,6 +60,23 @@ export const fa = {
     channelTitle: "کیفیت کانال",
   },
 
+  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  tray: {
+    show: "نمایش Ninety",
+    connect: "اتصال",
+    disconnect: "قطع اتصال",
+    server: "سرور",
+    noServers: "سروری نیست",
+    dpiStatusOn: "وضعیت: فعال",
+    dpiStatusOff: "وضعیت: خاموش",
+    dpiEnable: "فعال‌سازی دور زدن DPI",
+    dpiDisable: "غیرفعال‌سازی دور زدن DPI",
+    quit: "خروج",
+    updateTo: "به‌روزرسانی به v{ver}",
+    tipOff: "Ninety · قطع",
+    tipConnected: "Ninety · {mode} · متصل",
+  },
+
   mode: {
     popoverAria: "حالت اتصال",
     kicker: "حالت اتصال",

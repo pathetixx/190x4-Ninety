@@ -60,6 +60,23 @@ export const uk = {
     channelTitle: "Якість каналу",
   },
 
+  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  tray: {
+    show: "Показати Ninety",
+    connect: "Підключитися",
+    disconnect: "Відключитися",
+    server: "Сервер",
+    noServers: "Немає серверів",
+    dpiStatusOn: "Статус: активний",
+    dpiStatusOff: "Статус: вимкнено",
+    dpiEnable: "Увімкнути DPI-обхід",
+    dpiDisable: "Вимкнути DPI-обхід",
+    quit: "Вихід",
+    updateTo: "Оновити до v{ver}",
+    tipOff: "Ninety · відключено",
+    tipConnected: "Ninety · {mode} · підключено",
+  },
+
   mode: {
     popoverAria: "Режим підключення",
     kicker: "РЕЖИМ ПІДКЛЮЧЕННЯ",

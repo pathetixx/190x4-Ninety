@@ -60,6 +60,23 @@ export const fr = {
     channelTitle: "Qualité du canal",
   },
 
+  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  tray: {
+    show: "Afficher Ninety",
+    connect: "Se connecter",
+    disconnect: "Se déconnecter",
+    server: "Serveur",
+    noServers: "Aucun serveur",
+    dpiStatusOn: "Statut : actif",
+    dpiStatusOff: "Statut : désactivé",
+    dpiEnable: "Activer le contournement DPI",
+    dpiDisable: "Désactiver le contournement DPI",
+    quit: "Quitter",
+    updateTo: "Mettre à jour vers v{ver}",
+    tipOff: "Ninety · déconnecté",
+    tipConnected: "Ninety · {mode} · connecté",
+  },
+
   mode: {
     popoverAria: "Mode de connexion",
     kicker: "MODE DE CONNEXION",

@@ -60,6 +60,23 @@ export const ko = {
     channelTitle: "채널 품질",
   },
 
+  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  tray: {
+    show: "Ninety 표시",
+    connect: "연결",
+    disconnect: "연결 해제",
+    server: "서버",
+    noServers: "서버 없음",
+    dpiStatusOn: "상태: 활성",
+    dpiStatusOff: "상태: 꺼짐",
+    dpiEnable: "DPI 우회 켜기",
+    dpiDisable: "DPI 우회 끄기",
+    quit: "종료",
+    updateTo: "v{ver}(으)로 업데이트",
+    tipOff: "Ninety · 연결 안 됨",
+    tipConnected: "Ninety · {mode} · 연결됨",
+  },
+
   mode: {
     popoverAria: "연결 모드",
     kicker: "연결 모드",

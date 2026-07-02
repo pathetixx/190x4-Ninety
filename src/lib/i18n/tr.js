@@ -60,6 +60,23 @@ export const tr = {
     channelTitle: "Kanal kalitesi",
   },
 
+  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  tray: {
+    show: "Ninety'yi göster",
+    connect: "Bağlan",
+    disconnect: "Bağlantıyı kes",
+    server: "Sunucu",
+    noServers: "Sunucu yok",
+    dpiStatusOn: "Durum: etkin",
+    dpiStatusOff: "Durum: kapalı",
+    dpiEnable: "DPI atlatmayı aç",
+    dpiDisable: "DPI atlatmayı kapat",
+    quit: "Çıkış",
+    updateTo: "v{ver} sürümüne güncelle",
+    tipOff: "Ninety · bağlı değil",
+    tipConnected: "Ninety · {mode} · bağlı",
+  },
+
   mode: {
     popoverAria: "Bağlantı modu",
     kicker: "BAĞLANTI MODU",
