@@ -162,7 +162,7 @@ export const en = {
     vpn: {
       label: "Link with the VPN",
       descTun: "VPN in TUN mode intercepts all traffic — bypass pauses automatically.",
-      descOther: "Bypass is independent of the VPN: it works over the system proxy even when the VPN is off. The active node's server is auto-added to exclusions.",
+      descOther: "Bypass is independent of the VPN and works even when the VPN is off. The active node's server is auto-added to exclusions.",
     },
 
     domains: { label: "Domain lists", unit: "domains bypassed", user: "My domains", exclude: "Exclusions" },
@@ -437,8 +437,8 @@ export const en = {
     errClipboardEmpty: "Clipboard is empty. Enter the URL manually.",
     title: "ADD PROFILE",
     close: "Close",
-    hint: "Paste a subscription URL, a vless:// link, or a list of them — we'll figure it out.",
-    tileClipboard: "From clipboard", tileClipboardSub: "Detects URL and vless://",
+    hint: "Paste a subscription URL, a config link (vless, vmess, trojan, ss…), or a list of them — we'll figure it out.",
+    tileClipboard: "From clipboard", tileClipboardSub: "Detects URLs and config links",
     tileManual: "Manually", tileManualSub: "URL + name + interval",
     tileFile: ".toml file", tileFileSub: "TrustTunnel endpoint config",
     labelName: "Name", phName: "My subscription",
@@ -479,7 +479,7 @@ export const en = {
     copyFailed: "Couldn't copy",
     qrKicker: "SUBSCRIPTION QR CODE",
     close: "Close",
-    qrHint: "Scan it on your phone in any compatible vless client.",
+    qrHint: "Scan it on your phone in a compatible VPN client.",
     copyUrl: "Copy URL",
     subFallback: "Subscription",
     qrError: "Couldn't generate the QR: {err}",
@@ -491,7 +491,7 @@ export const en = {
 
   subs: {
     needHttpUrl: "An http(s):// URL is required",
-    noVless: "The subscription contains no vless:// configs",
+    noVless: "The subscription contains no supported configs",
     subFallback: "Subscription",
     notFound: "Subscription not found",
     emptyOrInvalid: "Subscription is empty or invalid",
@@ -589,12 +589,12 @@ export const en = {
     },
     connect: {
       title: "Connecting to the fastest node…",
-      sub: "sing-box is starting and testing nodes over the clash API. This takes a couple of seconds.",
+      sub: "Starting the engine and testing nodes — the fastest one will be picked. This takes a couple of seconds.",
       cancel: "Cancel",
     },
     done: {
       title: "VPN connected",
-      sub: "Your traffic now runs through the selected node. Any trouble — <code>Logs</code> in the sidebar. You can switch servers by clicking the location card.",
+      sub: "Your traffic now runs through the selected node. Any trouble — <code>Logs</code> in the sidebar. You can switch servers in the Nodes section.",
       open: "Open Ninety",
     },
   },
@@ -607,7 +607,7 @@ export const en = {
     routingRulesTitle: "Routing rules",
 
     sec: {
-      general:    { title: "General",        hint: "Autostart, administrator rights, logs, connection test" },
+      general:    { title: "General",        hint: "Autostart, administrator rights, Wi-Fi protection, kill switch, logs" },
       appearance: { title: "Appearance",     hint: "Interface language and accent: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
       routing:    { title: "Routing",        hint: "Region, LAN bypass, ad blocking, IPv6" },
       dns:        { title: "DNS",            hint: "Remote and Direct DNS, cache, fake-DNS" },
@@ -634,7 +634,7 @@ export const en = {
       adminTitle: "Always run as administrator",
       adminHint: "Required for VPN · TUN mode. Ninety will start with admin rights (UAC at launch) — the prompt won't appear again when you enable TUN.",
       autostartTitle: "Start at system login",
-      autostartHint: "Ninety will start automatically when you log in to Windows",
+      autostartHint: "Ninety starts when you log in to Windows with administrator rights (Task Scheduler task) — no UAC prompt at login",
       startMinTitle: "Start minimized",
       startMinHint: "On launch the window hides straight to the tray — the icon stays in the bottom-right",
       wifiTitle: "Protect on untrusted Wi-Fi",
@@ -686,7 +686,7 @@ export const en = {
 
     inbound: {
       portTitle: "Mixed port",
-      portHint: "Local SOCKS+HTTP port for the system proxy",
+      portHint: "Local SOCKS+HTTP port for the Proxy and System proxy modes",
       mtuTitle: "TUN MTU",
       mtuHint: "Maximum packet size",
       stackTitle: "TUN stack",
@@ -728,7 +728,7 @@ export const en = {
       watchTitle: "Watch connection quality",
       watchHint: "Background speed checks and automatic recovery on slowdown. Turn off if you don't need it.",
       autoTitle: "Fix automatically",
-      autoHint: "On slowdown, apply recovery immediately (switch server, mask traffic, or backup channel) without asking. If off — the app asks before reconnecting.",
+      autoHint: "On slowdown, apply recovery immediately (switch server, mask traffic, or backup channel) without asking. If off — the app asks before reconnecting; when the window is minimized to tray, it sends a notification instead.",
       saveTitle: "Save traffic",
       saveHint: "Don't run checks for nothing — only on a suspected slowdown. Less traffic spent on the checks themselves.",
       thrTitle: "Speed threshold",

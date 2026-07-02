@@ -162,7 +162,7 @@ export const ko = {
     vpn: {
       label: "VPN과 연동",
       descTun: "TUN 모드의 VPN은 모든 트래픽을 가로챕니다 — 우회는 자동으로 일시 중지됩니다.",
-      descOther: "우회는 VPN과 독립적입니다: VPN이 꺼져 있어도 시스템 프록시를 통해 동작합니다. 활성 노드의 서버는 자동으로 제외 목록에 추가됩니다.",
+      descOther: "우회는 VPN과 독립적이며 VPN이 꺼져 있어도 작동합니다. 활성 노드의 서버는 자동으로 예외에 추가됩니다.",
     },
 
     domains: { label: "도메인 목록", unit: "개 도메인 우회됨", user: "내 도메인", exclude: "제외" },
@@ -437,8 +437,8 @@ export const ko = {
     errClipboardEmpty: "클립보드가 비어 있습니다. URL을 직접 입력하세요.",
     title: "프로필 추가",
     close: "닫기",
-    hint: "구독 URL, vless:// 링크, 또는 목록을 붙여넣으세요 — 저희가 알아서 처리합니다.",
-    tileClipboard: "클립보드에서", tileClipboardSub: "URL과 vless:// 감지",
+    hint: "구독 URL, 설정 링크(vless, vmess, trojan, ss…) 또는 목록을 붙여넣으세요 — 자동으로 인식합니다.",
+    tileClipboard: "클립보드에서", tileClipboardSub: "URL과 설정 링크 인식",
     tileManual: "직접 입력", tileManualSub: "URL + 이름 + 간격",
     tileFile: ".toml 파일", tileFileSub: "TrustTunnel 엔드포인트 설정",
     labelName: "이름", phName: "내 구독",
@@ -479,7 +479,7 @@ export const ko = {
     copyFailed: "복사할 수 없습니다",
     qrKicker: "구독 QR 코드",
     close: "닫기",
-    qrHint: "호환되는 vless 클라이언트에서 휴대폰으로 스캔하세요.",
+    qrHint: "호환되는 VPN 클라이언트에서 휴대폰으로 스캔하세요.",
     copyUrl: "URL 복사",
     subFallback: "구독",
     qrError: "QR을 생성할 수 없습니다: {err}",
@@ -491,7 +491,7 @@ export const ko = {
 
   subs: {
     needHttpUrl: "http(s):// URL이 필요합니다",
-    noVless: "구독에 vless:// 설정이 없습니다",
+    noVless: "구독에 지원되는 설정이 없습니다",
     subFallback: "구독",
     notFound: "구독을 찾을 수 없습니다",
     emptyOrInvalid: "구독이 비어 있거나 유효하지 않습니다",
@@ -589,12 +589,12 @@ export const ko = {
     },
     connect: {
       title: "가장 빠른 노드에 연결 중…",
-      sub: "sing-box가 시작되어 clash API로 노드를 테스트하고 있습니다. 몇 초 걸립니다.",
+      sub: "엔진을 시작하고 노드를 테스트 중 — 가장 빠른 것이 선택됩니다. 몇 초면 됩니다.",
       cancel: "취소",
     },
     done: {
       title: "VPN 연결됨",
-      sub: "이제 트래픽이 선택한 노드를 통과합니다. 문제가 있으면 — 사이드바의 <code>로그</code>. 위치 카드를 클릭하여 서버를 전환할 수 있습니다.",
+      sub: "트래픽이 선택한 노드를 통해 흐릅니다. 문제가 있으면 사이드바의 <code>로그</code>를 확인하세요. 서버는 「노드」 섹션에서 바꿀 수 있습니다.",
       open: "Ninety 열기",
     },
   },
@@ -607,7 +607,7 @@ export const ko = {
     routingRulesTitle: "라우팅 규칙",
 
     sec: {
-      general:    { title: "일반",          hint: "자동 시작, 관리자 권한, 로그, 연결 테스트" },
+      general:    { title: "일반",          hint: "자동 시작, 관리자 권한, Wi-Fi 보호, 킬 스위치, 로그" },
       appearance: { title: "외관",          hint: "인터페이스 언어 및 강조색: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
       routing:    { title: "라우팅",        hint: "지역, LAN 우회, 광고 차단, IPv6" },
       dns:        { title: "DNS",          hint: "원격 및 직접 DNS, 캐시, fake-DNS" },
@@ -634,7 +634,7 @@ export const ko = {
       adminTitle: "항상 관리자 권한으로 실행",
       adminHint: "VPN · TUN 모드에 필요합니다. Ninety가 관리자 권한으로 시작됩니다(시작 시 UAC) — TUN을 켤 때 확인이 다시 나타나지 않습니다.",
       autostartTitle: "시스템 로그인 시 시작",
-      autostartHint: "Windows에 로그인하면 Ninety가 자동으로 시작됩니다",
+      autostartHint: "Windows 로그인 시 Ninety가 관리자 권한으로 자동 시작됩니다(작업 스케줄러 작업) — 로그인 시 UAC 창이 뜨지 않습니다",
       startMinTitle: "최소화하여 시작",
       startMinHint: "시작 시 창이 바로 트레이로 숨겨집니다 — 아이콘은 오른쪽 아래에 남습니다",
       wifiTitle: "신뢰할 수 없는 Wi-Fi에서 보호",
@@ -686,7 +686,7 @@ export const ko = {
 
     inbound: {
       portTitle: "Mixed 포트",
-      portHint: "시스템 프록시용 로컬 SOCKS+HTTP 포트",
+      portHint: "「프록시」·「시스템 프록시」 모드에서 쓰는 로컬 SOCKS+HTTP 포트",
       mtuTitle: "TUN MTU",
       mtuHint: "최대 패킷 크기",
       stackTitle: "TUN 스택",
@@ -728,7 +728,7 @@ export const ko = {
       watchTitle: "연결 품질 감시",
       watchHint: "백그라운드 속도 확인과 느려질 때 자동 복구. 필요 없으면 끄세요.",
       autoTitle: "자동으로 수정",
-      autoHint: "느려질 때 묻지 않고 즉시 복구를 적용(서버 전환, 트래픽 마스킹, 또는 백업 채널). 꺼짐이면 — 재연결 전에 앱이 묻습니다.",
+      autoHint: "느려지면 확인 없이 즉시 복구를 적용합니다(서버 변경, 트래픽 마스킹, 예비 채널). 끄면 재연결 전에 물어봅니다. 창이 트레이에 있으면 알림을 보냅니다.",
       saveTitle: "트래픽 절약",
       saveHint: "괜히 확인하지 않습니다 — 느려짐이 의심될 때만. 확인 자체에 쓰는 트래픽이 줄어듭니다.",
       thrTitle: "속도 임계값",

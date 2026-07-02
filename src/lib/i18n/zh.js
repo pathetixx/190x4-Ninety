@@ -162,7 +162,7 @@ export const zh = {
     vpn: {
       label: "与 VPN 联动",
       descTun: "TUN 模式下 VPN 拦截所有流量——绕过会自动暂停。",
-      descOther: "绕过独立于 VPN：即使 VPN 关闭，也会基于系统代理工作。当前节点的服务器会自动加入排除项。",
+      descOther: "绕过功能独立于 VPN，即使 VPN 关闭也能工作。当前节点的服务器会自动加入排除列表。",
     },
 
     domains: { label: "域名列表", unit: "个域名已绕过", user: "我的域名", exclude: "排除项" },
@@ -437,8 +437,8 @@ export const zh = {
     errClipboardEmpty: "剪贴板为空。请手动输入 URL。",
     title: "添加配置",
     close: "关闭",
-    hint: "粘贴订阅 URL、vless:// 链接或它们的列表——我们会自动识别。",
-    tileClipboard: "从剪贴板", tileClipboardSub: "识别 URL 和 vless://",
+    hint: "粘贴订阅 URL、配置链接（vless、vmess、trojan、ss…）或它们的列表 — 我们会自动识别。",
+    tileClipboard: "从剪贴板", tileClipboardSub: "识别 URL 和配置链接",
     tileManual: "手动", tileManualSub: "URL + 名称 + 间隔",
     tileFile: ".toml 文件", tileFileSub: "TrustTunnel 端点配置",
     labelName: "名称", phName: "我的订阅",
@@ -479,7 +479,7 @@ export const zh = {
     copyFailed: "复制失败",
     qrKicker: "订阅二维码",
     close: "关闭",
-    qrHint: "在手机上用任意兼容 vless 的客户端扫描。",
+    qrHint: "用手机在兼容的 VPN 客户端中扫描。",
     copyUrl: "复制 URL",
     subFallback: "订阅",
     qrError: "无法生成二维码：{err}",
@@ -491,7 +491,7 @@ export const zh = {
 
   subs: {
     needHttpUrl: "需要 http(s):// URL",
-    noVless: "该订阅不含 vless:// 配置",
+    noVless: "订阅中没有受支持的配置",
     subFallback: "订阅",
     notFound: "未找到订阅",
     emptyOrInvalid: "订阅为空或无效",
@@ -589,12 +589,12 @@ export const zh = {
     },
     connect: {
       title: "正在连接到最快的节点…",
-      sub: "sing-box 正在启动，并通过 clash API 测试节点。这需要几秒钟。",
+      sub: "正在启动内核并测试节点 — 将自动选择最快的一个。只需几秒钟。",
       cancel: "取消",
     },
     done: {
       title: "VPN 已连接",
-      sub: "你的流量现在经过所选节点。遇到问题——查看侧栏的<code>日志</code>。点击位置卡片即可切换服务器。",
+      sub: "流量已通过所选节点。遇到问题 — 侧边栏的<code>日志</code>。可在「节点」页面切换服务器。",
       open: "打开 Ninety",
     },
   },
@@ -607,7 +607,7 @@ export const zh = {
     routingRulesTitle: "路由规则",
 
     sec: {
-      general:    { title: "通用",        hint: "自启、管理员权限、日志、连接测试" },
+      general:    { title: "通用",        hint: "自动启动、管理员权限、Wi-Fi 保护、紧急阻断、日志" },
       appearance: { title: "外观",        hint: "界面语言与强调色：Kurogane、Cyan、Synthwave、Matrix、Command Center、Mono" },
       routing:    { title: "路由",        hint: "地区、局域网绕过、广告拦截、IPv6" },
       dns:        { title: "DNS",         hint: "远程与直连 DNS、缓存、fake-DNS" },
@@ -634,7 +634,7 @@ export const zh = {
       adminTitle: "始终以管理员身份运行",
       adminHint: "VPN · TUN 模式所必需。Ninety 将以管理员权限启动（启动时弹出 UAC）——开启 TUN 时不再出现该提示。",
       autostartTitle: "登录系统时启动",
-      autostartHint: "登录 Windows 时 Ninety 将自动启动",
+      autostartHint: "登录 Windows 时 Ninety 以管理员权限自动启动（任务计划程序任务）— 登录时不会出现 UAC 提示",
       startMinTitle: "启动时最小化",
       startMinHint: "启动时窗口直接隐藏到托盘——图标停留在右下角",
       wifiTitle: "在不可信 Wi-Fi 上保护",
@@ -686,7 +686,7 @@ export const zh = {
 
     inbound: {
       portTitle: "Mixed port",
-      portHint: "系统代理使用的本地 SOCKS+HTTP 端口",
+      portHint: "「代理」和「系统代理」模式使用的本地 SOCKS+HTTP 端口",
       mtuTitle: "TUN MTU",
       mtuHint: "最大数据包大小",
       stackTitle: "TUN 栈",
@@ -728,7 +728,7 @@ export const zh = {
       watchTitle: "监测连接质量",
       watchHint: "后台速度检测，并在变慢时自动恢复。不需要时可关闭。",
       autoTitle: "自动修复",
-      autoHint: "变慢时立即执行恢复（切换服务器、伪装流量或备用通道）而不询问。关闭时——应用会在重连前询问。",
+      autoHint: "变慢时立即自动恢复（切换服务器、流量伪装或备用通道），无需确认。关闭时 — 程序会在重连前询问；窗口收起到托盘时会发送通知。",
       saveTitle: "节省流量",
       saveHint: "不做无谓检测——仅在疑似变慢时进行。检测本身消耗的流量更少。",
       thrTitle: "速度阈值",
