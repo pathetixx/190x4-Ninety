@@ -472,6 +472,7 @@ pub fn run() {
             set_tray_menu,
             vpn::start_singbox,
             vpn::stop_singbox,
+            vpn::plan_bridge_ports,
             vpn::singbox_running,
             vpn::xray_status,
             vpn::sidecar_status,

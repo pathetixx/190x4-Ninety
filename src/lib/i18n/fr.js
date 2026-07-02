@@ -342,6 +342,8 @@ export const fr = {
     serverSwitched: "Serveur changé",
     switchErr: "Changement impossible : {err}",
     subFallback: "Abonnement",
+    bridgeLoop: "Le pont de protocole plante en boucle",
+    bridgeLoopDesc: "Les reconnexions n'ont pas aidé — connexion fermée. Consultez les journaux et essayez un autre serveur",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const fr = {
     giveUpDesc: "Essayez de choisir un autre pays dans la liste des serveurs",
     giveUpNotifyTitle: "Ninety · qualité de connexion",
     giveUpNotifyBody: "Accélération impossible — essayez un autre pays",
+    hiddenNotifyTitle: "Ninety · qualité de connexion",
+    hiddenNotifyBody: "La connexion a ralenti. Ouvrez Ninety pour l'accélérer",
   },
 
   warpToast: {

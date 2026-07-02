@@ -342,6 +342,8 @@ export const pl = {
     serverSwitched: "Przełączono serwer",
     switchErr: "Nie udało się przełączyć: {err}",
     subFallback: "Subskrypcja",
+    bridgeLoop: "Most protokołu ciągle pada",
+    bridgeLoopDesc: "Ponowne połączenia nie pomogły — połączenie zamknięte. Sprawdź logi i wypróbuj inny serwer",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const pl = {
     giveUpDesc: "Spróbuj wybrać inny kraj z listy serwerów",
     giveUpNotifyTitle: "Ninety · jakość połączenia",
     giveUpNotifyBody: "Nie udało się przyspieszyć — spróbuj innego kraju",
+    hiddenNotifyTitle: "Ninety · jakość połączenia",
+    hiddenNotifyBody: "Połączenie zwolniło. Otwórz Ninety, aby je przyspieszyć",
   },
 
   warpToast: {

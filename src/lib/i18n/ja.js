@@ -342,6 +342,8 @@ export const ja = {
     serverSwitched: "サーバーを切り替えました",
     switchErr: "切り替えできませんでした: {err}",
     subFallback: "サブスクリプション",
+    bridgeLoop: "プロトコルブリッジが繰り返しクラッシュしています",
+    bridgeLoopDesc: "再接続でも解決しませんでした — 接続を終了しました。ログを確認し、別のサーバーをお試しください",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const ja = {
     giveUpDesc: "サーバーリストで別の国を選んでみてください",
     giveUpNotifyTitle: "Ninety · 接続品質",
     giveUpNotifyBody: "高速化できませんでした — 別の国をお試しください",
+    hiddenNotifyTitle: "Ninety · 接続品質",
+    hiddenNotifyBody: "接続が遅くなっています。Ninety を開いて高速化してください",
   },
 
   warpToast: {

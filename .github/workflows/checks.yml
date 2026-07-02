@@ -1,0 +1,63 @@
+name: Checks
+
+# Быстрая валидация без сборки инсталлятора: JS-тесты (парсеры/билдер/deep-link/
+# i18n-синхронность) + cargo test на windows (Rust-хелперы и компиляция всех
+# cfg(windows)-модулей). Релизный build.yml по-прежнему только на тегах.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  js-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          # glob-аргументы node --test требуют Node 21+
+          node-version: 22
+
+      - name: Run JS tests
+        run: npm test
+
+  rust-tests:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Stub sidecar binaries and wintun (нужны tauri-build, не тестам)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
+          foreach ($n in @("sing-box", "xray", "naive", "trusttunnel_client")) {
+            Set-Content -Path "src-tauri/binaries/$n-x86_64-pc-windows-msvc.exe" -Value "stub"
+          }
+          Set-Content -Path "src-tauri/binaries/wintun.dll" -Value "stub"
+
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: cargo clippy (информационно)
+        continue-on-error: true
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml

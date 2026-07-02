@@ -342,6 +342,8 @@ export const de = {
     serverSwitched: "Server gewechselt",
     switchErr: "Wechsel fehlgeschlagen: {err}",
     subFallback: "Abo",
+    bridgeLoop: "Die Protokoll-Brücke stürzt ständig ab",
+    bridgeLoopDesc: "Neuverbindungen halfen nicht — Verbindung geschlossen. Prüfe die Logs und versuche einen anderen Server",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const de = {
     giveUpDesc: "Versuche, ein anderes Land in der Serverliste zu wählen",
     giveUpNotifyTitle: "Ninety · Verbindungsqualität",
     giveUpNotifyBody: "Beschleunigung fehlgeschlagen — versuche ein anderes Land",
+    hiddenNotifyTitle: "Ninety · Verbindungsqualität",
+    hiddenNotifyBody: "Die Verbindung ist langsam geworden. Öffne Ninety, um sie zu beschleunigen",
   },
 
   warpToast: {

@@ -342,6 +342,8 @@ export const uk = {
     serverSwitched: "Сервер перемкнено",
     switchErr: "Не вдалося перемкнути: {err}",
     subFallback: "Підписка",
+    bridgeLoop: "Міст протоколу постійно падає",
+    bridgeLoopDesc: "Перепідключення не допомогли — з'єднання закрито. Перевірте логи та спробуйте інший сервер",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const uk = {
     giveUpDesc: "Спробуйте вибрати іншу країну в списку серверів",
     giveUpNotifyTitle: "Ninety · якість зв'язку",
     giveUpNotifyBody: "Не вдалося прискорити — спробуйте іншу країну",
+    hiddenNotifyTitle: "Ninety · якість зв'язку",
+    hiddenNotifyBody: "З'єднання сповільнилося. Відкрийте Ninety, щоб пришвидшити",
   },
 
   warpToast: {

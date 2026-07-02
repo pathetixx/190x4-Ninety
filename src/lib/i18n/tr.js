@@ -342,6 +342,8 @@ export const tr = {
     serverSwitched: "Sunucu değiştirildi",
     switchErr: "Değiştirilemedi: {err}",
     subFallback: "Abonelik",
+    bridgeLoop: "Protokol köprüsü sürekli çöküyor",
+    bridgeLoopDesc: "Yeniden bağlanmalar işe yaramadı — bağlantı kapatıldı. Günlükleri kontrol edin ve başka bir sunucu deneyin",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const tr = {
     giveUpDesc: "Sunucu listesinden başka bir ülke seçmeyi deneyin",
     giveUpNotifyTitle: "Ninety · bağlantı kalitesi",
     giveUpNotifyBody: "Hızlandırılamadı — başka bir ülke deneyin",
+    hiddenNotifyTitle: "Ninety · bağlantı kalitesi",
+    hiddenNotifyBody: "Bağlantı yavaşladı. Hızlandırmak için Ninety'yi açın",
   },
 
   warpToast: {

@@ -342,6 +342,8 @@ export const en = {
     serverSwitched: "Server switched",
     switchErr: "Couldn't switch: {err}",
     subFallback: "Subscription",
+    bridgeLoop: "Protocol bridge keeps crashing",
+    bridgeLoopDesc: "Reconnects didn't help — connection closed. Check the logs and try another server",
   },
 
   qToast: {
@@ -353,6 +355,8 @@ export const en = {
     giveUpDesc: "Try picking another country in the server list",
     giveUpNotifyTitle: "Ninety · connection quality",
     giveUpNotifyBody: "Couldn't speed up — try another country",
+    hiddenNotifyTitle: "Ninety · connection quality",
+    hiddenNotifyBody: "The connection slowed down. Open Ninety to speed it up",
   },
 
   warpToast: {
