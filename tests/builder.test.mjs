@@ -117,14 +117,37 @@ test("naive sidecar: креды url-энкодятся в proxy-URL", () => {
   assert.equal(cfg.listen, `socks://127.0.0.1:${sidecars[0].port}`);
 });
 
-test("tun-режим: единственный inbound — tun", () => {
+test("tun-режим: tun-inbound + probe-in, правило пробы выше bypass", () => {
   const { config } = buildConfig({
     source: { kind: "single", profile: vlessNode() },
     mode: "tun",
     options: DEFAULT_OPTIONS,
   });
-  assert.equal(config.inbounds.length, 1);
+  assert.equal(config.inbounds.length, 2);
   assert.equal(config.inbounds[0].type, "tun");
+  const probe = config.inbounds[1];
+  assert.equal(probe.tag, "probe-in");
+  assert.equal(probe.type, "mixed");
+  assert.equal(probe.listen, "127.0.0.1");
+  // Правило probe-in → proxy обязано стоять ВЫШЕ bypass-правила Ninety.exe,
+  // иначе проба качества уходит в direct и меряет голый канал вместо туннеля.
+  const rules = config.route.rules;
+  const probeIdx = rules.findIndex((r) => Array.isArray(r.inbound) && r.inbound.includes("probe-in"));
+  const bypassIdx = rules.findIndex((r) => Array.isArray(r.process_name) && r.process_name.includes("Ninety.exe"));
+  assert.ok(probeIdx >= 0, "нет правила probe-in");
+  assert.ok(bypassIdx >= 0, "нет bypass-правила Ninety.exe");
+  assert.ok(probeIdx < bypassIdx, "probe-in ниже bypass — проба пойдёт в direct");
+  assert.equal(rules[probeIdx].outbound, "proxy");
+});
+
+test("proxy-режим: единственный inbound — mixed (без probe-in)", () => {
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+  });
+  assert.equal(config.inbounds.length, 1);
+  assert.equal(config.inbounds[0].type, "mixed");
 });
 
 test("clash-api включается опцией experimental.enableClashApi", () => {

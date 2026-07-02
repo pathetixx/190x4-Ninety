@@ -325,6 +325,7 @@ export const pl = {
   wifi: {
     openProtect: "Otwarta sieć „{ssid}” — włączanie ochrony (TUN)",
     noName: "bez nazwy",
+    autoRestore: "Sieć jest bezpieczna — przywracam poprzedni tryb połączenia",
   },
 
   conn: {
@@ -655,7 +656,7 @@ export const pl = {
       startMinTitle: "Uruchamiaj zminimalizowany",
       startMinHint: "Przy starcie okno chowa się od razu do zasobnika — ikona pozostaje w prawym dolnym rogu",
       wifiTitle: "Chroń w niezaufanym Wi-Fi",
-      wifiHint: "Po połączeniu z otwartą siecią (bez hasła) Ninety automatycznie włącza VPN · TUN. Sieci chronione (dom/biuro) pozostają nietknięte. Wymaga uprawnień administratora (UAC).",
+      wifiHint: "Po połączeniu z otwartą siecią (bez hasła) Ninety automatycznie włącza VPN · TUN. Sieci chronione (dom/biuro) pozostają nietknięte. Wymaga uprawnień administratora (UAC). Po powrocie do bezpiecznej sieci poprzedni tryb zostanie przywrócony automatycznie.",
       killTitle: "Kill Switch",
       killHint: "Eksperymentalne. W trybach „Proxy” i „Proxy systemowe”: jeśli rdzeń VPN nagle ulegnie awarii, cały ruch zostaje zablokowany oprócz samego tunelu — Twoje dane nie wyciekną do otwartej sieci. Wymaga uprawnień administratora. Niepotrzebne w trybie TUN.",
       testUrlTitle: "URL testu połączenia",

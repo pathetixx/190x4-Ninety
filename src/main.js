@@ -24,8 +24,10 @@ import {
   subscriptionLimitBytes,
   formatBytes as fmtTraffic,
   relativeTime,
+  setSubscriptionProxy,
 } from "/lib/subscriptions.js";
 import { loadOptions, updateOption, REGIONS } from "/lib/options.js";
+import { backupNow, backupSoon, restoreIfEmpty } from "/lib/state-backup.js";
 import { mountSettings } from "/lib/settings-view.js";
 import { escapeHtml } from "/lib/esc.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
@@ -58,6 +60,15 @@ const invoke = window.__TAURI__?.core?.invoke
     console.warn("Tauri invoke недоступен:", cmd, args);
     return Promise.reject(new Error("Tauri invoke недоступен (web preview)"));
   });
+
+// ── Восстановление состояния из бэкапа ──────────────────────
+// Профиль WebView2 (EBWebView) могли снести чистилки диска/антивирус: если
+// localStorage пуст, а снапшот в app_config_dir есть — возвращаем ключи и
+// перезагружаем webview, чтобы все модули перечитали хранилище с нуля
+// (тема/язык/опции уже прочитаны дефолтами к этому моменту).
+(async () => {
+  try { if (await restoreIfEmpty()) location.reload(); } catch {}
+})();
 
 // ── Theme switcher (Kurogane / Cyan / Synthwave / Matrix / Command / Mono) ──
 const THEME_KEY = "ninety.theme";
@@ -221,8 +232,11 @@ modeSeg?.addEventListener("click", async (e) => {
 });
 
 // Единая смена режима подключения — из сегмента на главной И из меню трея.
-async function changeMode(requested) {
+// auto=true — переключение сделала Wi-Fi-авто-защита (см. checkWifiProtect);
+// ручной выбор юзера отменяет её авто-возврат прежнего режима.
+async function changeMode(requested, { auto = false } = {}) {
   if (!["proxy", "systemProxy", "tun"].includes(requested)) return;
+  if (!auto) { try { localStorage.removeItem(WIFI_PREV_MODE_KEY); } catch {} }
   // TUN (Throne-style) требует чтобы всё приложение было запущено от админа.
   // Если мы не elevated — ensureElevatedForTun перезапустит Ninety с UAC
   // (и вернёт false: текущий процесс умирает, дальше идти незачем).
@@ -246,8 +260,11 @@ async function changeMode(requested) {
 // Политика во фронте (Rust только отдаёт текущую сеть): на ОТКРЫТОЙ сети, не
 // входящей в доверенные, при включённой опции — авто-включаем TUN (changeMode сам
 // поднимет UAC). Защищённые сети не трогаем. lastWifiHandled гасит повтор на той
-// же сети, чтобы не дёргать UAC по кругу.
+// же сети, чтобы не дёргать UAC по кругу. Прежний режим запоминаем в
+// WIFI_PREV_MODE_KEY и возвращаем, когда сеть снова безопасна (раньше авто-TUN
+// оставался навсегда); ручная смена режима отменяет возврат (см. changeMode).
 const WIFI_TRUSTED_KEY = "ninety.wifi.trusted";
+const WIFI_PREV_MODE_KEY = "ninety.wifi.prevMode";
 function wifiTrusted() {
   try { return JSON.parse(localStorage.getItem(WIFI_TRUSTED_KEY) || "[]"); }
   catch { return []; }
@@ -256,14 +273,28 @@ let lastWifiHandled = null;
 async function checkWifiProtect() {
   try {
     if (!loadOptions().general?.autoProtectWifi) return;
-    if (getMode() === "tun") return;
     const w = await invoke("current_wifi");
-    if (!w?.connected) { lastWifiHandled = null; return; }
-    if (w.secured || wifiTrusted().includes(w.ssid)) { lastWifiHandled = null; return; }
+    const onOpenUntrusted = !!w?.connected && !w.secured && !wifiTrusted().includes(w.ssid);
+    if (!onOpenUntrusted) {
+      lastWifiHandled = null;
+      // Сеть безопасна (или Wi-Fi отключён) — вернуть режим, который был до авто-TUN.
+      const prev = localStorage.getItem(WIFI_PREV_MODE_KEY);
+      if (prev) {
+        try { localStorage.removeItem(WIFI_PREV_MODE_KEY); } catch {}
+        if (getMode() === "tun") {
+          toast(t("wifi.autoRestore"), "info", 3500);
+          changeMode(prev, { auto: true });
+        }
+        // getMode() !== "tun": юзер сам ушёл из TUN — просто забываем ключ.
+      }
+      return;
+    }
+    if (getMode() === "tun") return; // уже защищены
     if (lastWifiHandled === w.ssid) return; // уже отреагировали на эту сеть
     lastWifiHandled = w.ssid;
+    try { localStorage.setItem(WIFI_PREV_MODE_KEY, getMode()); } catch {}
     toast(t("wifi.openProtect", { ssid: w.ssid || t("wifi.noName") }), "warn", 4000);
-    changeMode("tun");
+    changeMode("tun", { auto: true });
   } catch {}
 }
 setInterval(checkWifiProtect, 25_000);
@@ -375,6 +406,7 @@ function refreshProfilesSummary() {
   updateHeroForActive();
   refreshSubCardFromActive();
   syncEmptyState();
+  backupSoon(); // профили/подписки изменились — обновить снапшот-бэкап
 }
 
 // Empty-state: нет ни подписки ни конфига → показываем onboarding wizard
@@ -458,14 +490,6 @@ function refreshSubCardFromActive() {
   }
 }
 
-function plural(n, forms) {
-  const mod10 = n % 10, mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return forms[0];
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return forms[1];
-  return forms[2];
-}
-
-
 // ── Навигация ───────────────────────────────────────────────
 const navItems = document.querySelectorAll(".nav__item[data-view]");
 const views = document.querySelectorAll("section.screen[data-view]");
@@ -512,6 +536,7 @@ let settingsCtl = null;
 if (settingsRoot) {
   settingsCtl = mountSettings(settingsRoot, {
     onChange: (path) => {
+      backupSoon(); // настройки изменились — обновить снапшот-бэкап состояния
       // Тогглы periodic re-scan и его интервал — не трогают sing-box, только
       // фоновый JS-loop. Пересоздаём loop сразу, реконнект не нужен.
       if (path === "warp.autoRescan" || path === "warp.autoRescanIntervalMin" || path === "warp.autoRescanThresholdMs") {
@@ -581,6 +606,7 @@ async function performAutoReconnect(reason = t("conn.applyingSettings")) {
   pendingReconnectTimer = null;
   if (!needsReconnect) return;
   if (state !== "connected" && state !== "connecting") return;
+  connectEpoch++; // инвалидировать возможный start_singbox в полёте
   toast(reason, "info", 0, { group: "conn", connecting: true });
   try { await invoke("set_system_proxy", { enable: false }); } catch {}
   try { await invoke("stop_singbox"); } catch {}
@@ -739,11 +765,13 @@ const qualityEngine = createQualityEngine({
     rescanWarp: async () => {
       if (!loadOptions().warp.enabled) return false;
       try {
+        // warp_scan_endpoints отдаёт ScanResult[] с полями ip/port (scanner.rs) —
+        // прежний код ждал endpoint/host, всегда получал null и ступень
+        // молча пропускалась (R4 был мёртв).
         const res = await invoke("warp_scan_endpoints", { topN: 5, deep: false, mode: "auto" });
-        const best = Array.isArray(res) ? res[0] : res?.results?.[0];
-        const ep = best?.endpoint || (best?.host && best?.port ? `${best.host}:${best.port}` : null);
-        if (!ep) return false;
-        updateOption("warp.endpoint", ep);
+        const best = Array.isArray(res) ? res[0] : null;
+        if (!best?.ip || !best?.port) return false;
+        updateOption("warp.endpoint", `${best.ip}:${best.port}`);
         return reconnectForSourceChange(t("qToast.backup"));
       } catch { return false; }
     },
@@ -1848,6 +1876,10 @@ applyHeroState("idle");
 let state = "idle";
 let needsReconnect = false;
 let publicIpTimer = null;
+// Поколение попытки подключения: «Отключить» во время старта ядра инкрементит
+// его, и завершившийся start_singbox видит отмену (см. heroDisc-обработчик) —
+// раньше быстрый connect→cancel всё равно заканчивался «Защищено».
+let connectEpoch = 0;
 
 // Запускаем HUD после объявления state. TARGET читает фактический сервер.
 function hudTarget() {
@@ -2025,10 +2057,11 @@ function setState(next, opts = {}) {
     startWarpRescanLoop();
     startHealthWatchdog();
     applyKillSwitch(true); // поднять WFP-блок (proxy/systemProxy + elevated)
-    // В TUN режиме mixed-inbound'а нет → проба идёт напрямую (port=0 = direct),
-    // трафик Ninety.exe и так проходит туннель. Иначе — через mixed-inbound.
+    // Проба всегда через локальный инбаунд sing-box: mixed-in (proxy/systemProxy)
+    // либо probe-in (TUN, тот же порт). «Напрямую» в TUN нельзя — bypass-правило
+    // Ninety.exe увело бы пробу в direct, и мерился бы голый канал, а не туннель.
     qualityEngine.onConnected({
-      port: getMode() === "tun" ? 0 : (loadOptions().inbound.mixedPort || 7890),
+      port: loadOptions().inbound.mixedPort || 7890,
       ...loadOptions().quality,
     });
     showQualityChip(loadOptions().quality?.enabled !== false);
@@ -2291,6 +2324,7 @@ heroDisc?.addEventListener("click", async () => {
   }
   // RECONNECT-режим: рестарт ядра с новыми опциями
   if (needsReconnect && (state === "connected" || state === "connecting")) {
+    connectEpoch++; // инвалидировать возможный start_singbox в полёте
     try { await invoke("set_system_proxy", { enable: false }); } catch {}
     try { await invoke("stop_singbox"); } catch {}
     setState("idle");
@@ -2328,6 +2362,7 @@ heroDisc?.addEventListener("click", async () => {
     // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
     // socks-перенаправление. xray=null когда xhttp в источнике нет.
     const { config, xray, sidecars } = buildConfig({ source: src, mode, options, warpInfo, xray: true, bridgePorts });
+    const epoch = ++connectEpoch;
     setState("connecting");
     try {
       await invoke("start_singbox", {
@@ -2339,6 +2374,15 @@ heroDisc?.addEventListener("click", async () => {
         // «Полностью отключить логи» → Rust не пишет файлы ни одного компонента.
         logsDisabled: !!options.log?.disabled,
       });
+      // Пока ядро стартовало (settle-паузы мостов), юзер мог нажать «Отключить»:
+      // тот клик застаёт child=None и глушить ему нечего. Ловим отмену по epoch
+      // и гасим только что поднятое ядро — иначе UI мигал «отключено» и
+      // возвращался в «Защищено».
+      if (epoch !== connectEpoch) {
+        try { await invoke("stop_singbox"); } catch {}
+        try { await invoke("set_system_proxy", { enable: false }); } catch {}
+        return;
+      }
       // Системный прокси выставляем ТОЛЬКО для mode=systemProxy. Для голого
       // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт
       // полный intercept через TUN-интерфейс.
@@ -2364,6 +2408,12 @@ heroDisc?.addEventListener("click", async () => {
       // делает syncEffectiveFromClash → обновляет hero/локацию/трей).
       notifyConnectedWithRealNode(isMultiSub);
     } catch (e) {
+      if (epoch !== connectEpoch) {
+        // Юзер уже отменил подключение — состояние/тосты выставил его клик,
+        // здесь только страховочный стоп без перетирания UI.
+        try { await invoke("stop_singbox"); } catch {}
+        return;
+      }
       console.error("start failed", e);
       setState("idle");
       toast(t("conn.startFail"), "error", 4500, { desc: t("conn.startFailDesc") });
@@ -2372,6 +2422,7 @@ heroDisc?.addEventListener("click", async () => {
       switchView("logs");
     }
   } else if (state === "connecting" || state === "connected") {
+    connectEpoch++; // отмена/дисконнект: инвалидировать возможный start в полёте
     try { await invoke("set_system_proxy", { enable: false }); } catch {}
     try { await invoke("stop_singbox"); } catch (e) { console.warn("stop failed", e); }
     setState("idle");
@@ -2385,6 +2436,20 @@ if (locPing) locPing.textContent = `— ${t("units.ms")}`;
 refreshProfilesSummary();
 updateHeroHint();
 syncTrayMenu();
+
+// Обновление подписок — через туннель, когда он поднят (mixed-in, в TUN —
+// probe-in на том же порту): панель не видит реальный IP. Если через прокси
+// не вышло, subscriptions.js повторяет напрямую.
+setSubscriptionProxy(() =>
+  state === "connected" ? `http://127.0.0.1:${loadOptions().inbound.mixedPort || 7890}` : null
+);
+
+// ── Бэкап состояния (localStorage → app_config_dir) ─────────
+// Мутации бэкапятся точечно (backupSoon в refreshProfilesSummary/settings);
+// периодический тик подстраховывает ключи, меняющиеся мимо этих точек
+// (traffic-meter, обучение движка качества и т.п.).
+setTimeout(backupNow, 15_000);
+setInterval(backupNow, 10 * 60_000);
 
 // При старте app — синхронизируем UI с реальным состоянием sing-box
 (async () => {
@@ -2549,17 +2614,30 @@ setInterval(() => runUpdateCheck({ silent: true }), 6 * 60 * 60 * 1000);
 window.__ninetyUpdateCheck = () => runUpdateCheck({ silent: false });
 
 // ── Subscriptions auto-refresh ─────────────────────────────
-// Стартовый рефреш через 60 сек после bootstrap (чтобы не тормозить старт),
-// дальше каждые 30 минут. Ошибки не показываем — это фоновая задача.
+// Тик каждые 30 минут (первый — через 60 сек, чтобы не тормозить старт), но
+// каждая подписка обновляется по СВОЕМУ интервалу: profile-update-interval из
+// заголовка панели, без заголовка — раз в 6 часов. Раньше заголовок сохранялся,
+// но игнорировался — всё дёргалось каждые 30 минут. Ручное «Обновить все»
+// по-прежнему обновляет немедленно. Ошибки не показываем — фоновая задача.
+const SUBS_REFRESH_DEFAULT_HOURS = 6;
 async function silentRefreshSubs() {
-  const list = loadSubscriptions();
-  if (!list.length) return;
-  try {
-    await refreshAllSubscriptions();
+  const now = Date.now();
+  let refreshed = 0;
+  for (const s of loadSubscriptions()) {
+    const hours = Number(s.updateIntervalHours) > 0
+      ? Number(s.updateIntervalHours)
+      : SUBS_REFRESH_DEFAULT_HOURS;
+    if (s.lastUpdate && now - s.lastUpdate < hours * 3600_000) continue;
+    try {
+      await refreshSubscription(s.id);
+      refreshed++;
+    } catch (e) {
+      console.warn("sub auto-refresh failed", s.id, e);
+    }
+  }
+  if (refreshed) {
     refreshSubCardFromActive();
     refreshProfilesSummary();
-  } catch (e) {
-    console.warn("subs auto-refresh failed", e);
   }
 }
 setTimeout(silentRefreshSubs, 60_000);

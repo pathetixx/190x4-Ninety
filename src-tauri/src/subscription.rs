@@ -55,18 +55,25 @@ fn decode_profile_title(raw: &str) -> Option<String> {
 }
 
 #[tauri::command]
-pub async fn fetch_subscription(url: String) -> Result<SubscriptionInfo, String> {
+pub async fn fetch_subscription(url: String, proxy: Option<String>) -> Result<SubscriptionInfo, String> {
     // ВАЖНО: User-Agent определяет ответ сервера. Многие подписочные
     // панели (sub-store, marzban, xo.e0f.cx и т.п.) отдают:
     //   - известным клиентам (v2rayN, ClashMeta) — plain/base64 vless-список,
     //   - неизвестным — JSON или HTML страницу логина.
     // Поэтому шлём проверенный v2rayN UA.
-    let client = reqwest::Client::builder()
+    let mut b = reqwest::Client::builder()
         .user_agent("v2rayN/6.42")
         .timeout(std::time::Duration::from_secs(20))
-        .gzip(true)
-        .build()
-        .map_err(|e| format!("client: {e}"))?;
+        .gzip(true);
+    // proxy (Some("http://127.0.0.1:PORT")) — при поднятом VPN фронт гонит
+    // рефреш через туннель: панель не видит реальный IP юзера, и подписка
+    // тянется даже когда её домен заблокирован напрямую. Rust системный прокси
+    // не чтит, поэтому задаём явно; невалидный адрес — фейлим с причиной.
+    if let Some(p) = proxy.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let pr = reqwest::Proxy::all(p).map_err(|e| format!("proxy: {e}"))?;
+        b = b.proxy(pr);
+    }
+    let client = b.build().map_err(|e| format!("client: {e}"))?;
 
     let resp = client
         .get(&url)

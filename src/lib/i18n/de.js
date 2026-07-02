@@ -325,6 +325,7 @@ export const de = {
   wifi: {
     openProtect: "Offenes Netzwerk „{ssid}“ — Schutz wird aktiviert (TUN)",
     noName: "ohne Namen",
+    autoRestore: "Netzwerk ist sicher — vorheriger Verbindungsmodus wird wiederhergestellt",
   },
 
   conn: {
@@ -655,7 +656,7 @@ export const de = {
       startMinTitle: "Minimiert starten",
       startMinHint: "Beim Start versteckt sich das Fenster direkt in der Taskleiste — das Symbol bleibt unten rechts",
       wifiTitle: "In unsicheren WLANs schützen",
-      wifiHint: "Beim Verbinden mit einem offenen (passwortlosen) Netzwerk aktiviert Ninety automatisch den Modus VPN · TUN. Geschützte Netzwerke (Zuhause/Büro) bleiben unangetastet. Erfordert Administratorrechte (UAC).",
+      wifiHint: "Beim Verbinden mit einem offenen (passwortlosen) Netzwerk aktiviert Ninety automatisch den Modus VPN · TUN. Geschützte Netzwerke (Zuhause/Büro) bleiben unangetastet. Erfordert Administratorrechte (UAC). Sobald Sie wieder in einem sicheren Netzwerk sind, wird der vorherige Modus automatisch wiederhergestellt.",
       killTitle: "Kill Switch",
       killHint: "Experimentell. In den Modi „Proxy“ und „System-Proxy“: Stürzt der VPN-Kern plötzlich ab, wird der gesamte Traffic außer dem Tunnel selbst blockiert — deine Daten gelangen nicht ins offene Netz. Erfordert Administratorrechte. Im TUN-Modus nicht nötig.",
       testUrlTitle: "Verbindungstest-URL",

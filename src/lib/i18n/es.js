@@ -325,6 +325,7 @@ export const es = {
   wifi: {
     openProtect: "Red abierta «{ssid}» — activando la protección (TUN)",
     noName: "sin nombre",
+    autoRestore: "La red es segura — restaurando el modo de conexión anterior",
   },
 
   conn: {
@@ -655,7 +656,7 @@ export const es = {
       startMinTitle: "Iniciar minimizado",
       startMinHint: "Al arrancar, la ventana se oculta directa a la bandeja — el icono se queda abajo a la derecha",
       wifiTitle: "Proteger en Wi-Fi no fiables",
-      wifiHint: "Al conectar a una red abierta (sin contraseña), Ninety activa el modo VPN · TUN automáticamente. Las redes protegidas (casa/oficina) se dejan en paz. Requiere permisos de administrador (UAC).",
+      wifiHint: "Al conectar a una red abierta (sin contraseña), Ninety activa el modo VPN · TUN automáticamente. Las redes protegidas (casa/oficina) se dejan en paz. Requiere permisos de administrador (UAC). Al volver a una red segura, el modo anterior se restaura automáticamente.",
       killTitle: "Kill Switch",
       killHint: "Experimental. En los modos «Proxy» y «Proxy del sistema»: si el núcleo VPN falla de repente, se bloquea todo el tráfico salvo el propio túnel — tus datos no se filtrarán a la red abierta. Requiere permisos de administrador. No hace falta en modo TUN.",
       testUrlTitle: "URL de prueba de conexión",

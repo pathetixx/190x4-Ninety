@@ -325,6 +325,7 @@ export const en = {
   wifi: {
     openProtect: "Open network “{ssid}” — turning on protection (TUN)",
     noName: "unnamed",
+    autoRestore: "Network is safe — restoring the previous connection mode",
   },
 
   conn: {
@@ -655,7 +656,7 @@ export const en = {
       startMinTitle: "Start minimized",
       startMinHint: "On launch the window hides straight to the tray — the icon stays in the bottom-right",
       wifiTitle: "Protect on untrusted Wi-Fi",
-      wifiHint: "When you connect to an open (password-free) network, Ninety turns on VPN · TUN automatically. Protected networks (home/office) are left alone. Requires administrator rights (UAC).",
+      wifiHint: "When you connect to an open (password-free) network, Ninety turns on VPN · TUN automatically. Protected networks (home/office) are left alone. Requires administrator rights (UAC). When you're back on a safe network, the previous mode is restored automatically.",
       killTitle: "Kill Switch",
       killHint: "Experimental. In “Proxy” and “System proxy” modes: if the VPN core suddenly crashes, all traffic is blocked except the tunnel itself — your data won't leak to the open network. Requires administrator rights. Not needed in TUN mode.",
       testUrlTitle: "Connection test URL",

@@ -949,6 +949,10 @@ function buildRoute(options, mode) {
   // (sing-box резолвит процесс по локальному сокету mixed-inbound) — ограничения
   // «process_name только в TUN» НЕТ; здесь речь исключительно про bypass-петлю.
   if (mode === "tun") {
+    // Проба качества (probe-in) — в туннель, ДО bypass-правила ниже: иначе
+    // process-матч Ninety.exe увёл бы её в direct и мерился бы голый канал
+    // вместо туннеля. При активном WARP buildConfig переставит outbound → warp.
+    rules.push({ inbound: ["probe-in"], outbound: "proxy" });
     rules.push({
       process_name: ["Ninety.exe", "sing-box.exe", "xray.exe"],
       outbound: "direct",
@@ -1001,26 +1005,39 @@ function buildRoute(options, mode) {
   return route;
 }
 
-// ── inbound (sing-box 1.13: sniff/tun.address — через route rules / inet4_address) ─
-function buildInbound(mode, options) {
+// ── inbounds (sing-box 1.13: sniff/tun.address — через route rules / inet4_address) ─
+// Возвращает МАССИВ инбаундов. В TUN, кроме tun-in, поднимаем probe-in — mixed
+// на loopback для пробы движка качества: собственный трафик Ninety.exe в TUN
+// уходит в direct bypass-правилом (защита от петли), поэтому «прямая» проба
+// мерила бы голый канал, а не туннель. Правило inbound=probe-in → proxy/warp
+// в buildRoute стоит ВЫШЕ bypass и гонит пробу сквозь аутбаунд.
+function buildInbounds(mode, options) {
   if (mode === "tun") {
-    return {
-      type: "tun",
-      tag: "tun-in",
-      interface_name: "ninety-tun",
-      address: ["172.19.0.1/30"],
-      mtu: options.inbound.mtu || 9000,
-      auto_route: true,
-      strict_route: !!options.inbound.strictRoute,
-      stack: options.inbound.tunStack || "mixed",
-    };
+    return [
+      {
+        type: "tun",
+        tag: "tun-in",
+        interface_name: "ninety-tun",
+        address: ["172.19.0.1/30"],
+        mtu: options.inbound.mtu || 9000,
+        auto_route: true,
+        strict_route: !!options.inbound.strictRoute,
+        stack: options.inbound.tunStack || "mixed",
+      },
+      {
+        type: "mixed",
+        tag: "probe-in",
+        listen: "127.0.0.1",
+        listen_port: options.inbound.mixedPort || 7890,
+      },
+    ];
   }
-  return {
+  return [{
     type: "mixed",
     tag: "mixed-in",
     listen: options.inbound.allowConnectionFromLan ? "0.0.0.0" : "127.0.0.1",
     listen_port: options.inbound.mixedPort || 7890,
-  };
+  }];
 }
 
 // ── WARP endpoint (Cloudflare WireGuard) ───────────────────
@@ -1443,6 +1460,11 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
   const warpEndpoint = buildWarpEndpoint(opts.warp, warpInfo);
   if (warpEndpoint) {
     route.final = "warp";
+    // Проба качества следует за final: мерить надо то плечо, которым реально
+    // идёт трафик (правило probe-in в buildRoute собрано с outbound=proxy).
+    for (const r of route.rules) {
+      if (Array.isArray(r.inbound) && r.inbound.includes("probe-in")) r.outbound = "warp";
+    }
   }
 
   const config = {
@@ -1452,7 +1474,7 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
       ...(opts.log?.disabled ? { disabled: true } : {}),
     },
     dns: buildDns(opts),
-    inbounds: [buildInbound(mode, opts)],
+    inbounds: buildInbounds(mode, opts),
     outbounds,
     route,
     experimental: {

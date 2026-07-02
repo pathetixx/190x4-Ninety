@@ -83,9 +83,15 @@ pub fn set_system_proxy(enable: bool, host_port: Option<&str>) -> Result<(), Str
         key.set_value("ProxyEnable", &1u32)
             .map_err(|e| format!("set ProxyEnable: {e}"))?;
     } else if !restore_proxy_snapshot(&hkcu, &key) {
-        // снапшота нет (Ninety не включал прокси) — просто выключаем
-        key.set_value("ProxyEnable", &0u32)
-            .map_err(|e| format!("clear ProxyEnable: {e}"))?;
+        // Снапшота нет — Ninety прокси не включал (disable зовётся щедро: любой
+        // disconnect/reconnect в любом режиме). Гасим только если ProxyServer
+        // указывает на наш loopback (остался от краша без снапшота); чужой
+        // прокси (корпоративный/ручной) не трогаем.
+        let cur: String = key.get_value("ProxyServer").unwrap_or_default();
+        if cur.starts_with("127.0.0.1:") {
+            key.set_value("ProxyEnable", &0u32)
+                .map_err(|e| format!("clear ProxyEnable: {e}"))?;
+        }
     }
 
     unsafe {

@@ -621,8 +621,26 @@ fn kill_sidecars(state: &SingboxState) {
     }
 }
 
+// Стирает конфиги мостов (naive-*.json, trusttunnel-*.toml) из app_config_dir.
+// В них лежат креды нод (user:pass) — не держим их на диске дольше сессии.
+// singbox-current.json/xray-current.json НЕ трогаем: это норма клиентов, и
+// они перезаписываются при следующем старте.
+fn purge_bridge_configs(app: &AppHandle) {
+    let Ok(dir) = app.path().app_config_dir() else { return };
+    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        let is_bridge = (name.starts_with("naive-") && name.ends_with(".json"))
+            || (name.starts_with("trusttunnel-") && name.ends_with(".toml"));
+        if is_bridge {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
 #[tauri::command]
-pub async fn stop_singbox(state: State<'_, SingboxState>) -> Result<(), String> {
+pub async fn stop_singbox(app: AppHandle, state: State<'_, SingboxState>) -> Result<(), String> {
     let taken = state.child.lock().unwrap().take();
     if let Some(child) = taken {
         // child.kill() гасит sing-box; wintun-адаптер (non-persistent) снимается
@@ -632,6 +650,7 @@ pub async fn stop_singbox(state: State<'_, SingboxState>) -> Result<(), String> 
     }
     kill_xray(&state);
     kill_sidecars(&state);
+    purge_bridge_configs(&app);
     Ok(())
 }
 
@@ -697,12 +716,13 @@ pub fn vpn_last_error(state: State<'_, SingboxState>) -> Option<String> {
     state.sidecar_died.lock().unwrap().clone()
 }
 
-pub fn force_cleanup(state: &SingboxState) {
+pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
     if let Some(child) = state.child.lock().unwrap().take() {
         let _ = child.kill();
     }
     kill_xray(state);
     kill_sidecars(state);
+    purge_bridge_configs(app);
     #[cfg(target_os = "windows")]
     let _ = proxy::set_system_proxy(false, None);
 }

@@ -325,6 +325,7 @@ export const tr = {
   wifi: {
     openProtect: "Açık ağ “{ssid}” — koruma (TUN) etkinleştiriliyor",
     noName: "adsız",
+    autoRestore: "Ağ güvenli — önceki bağlantı modu geri yükleniyor",
   },
 
   conn: {
@@ -655,7 +656,7 @@ export const tr = {
       startMinTitle: "Simge durumunda başlat",
       startMinHint: "Başlangıçta pencere doğrudan sistem tepsisine gizlenir — simge sağ altta kalır",
       wifiTitle: "Güvenilmeyen Wi-Fi'de koru",
-      wifiHint: "Açık (parolasız) bir ağa bağlandığınızda Ninety otomatik olarak VPN · TUN'u açar. Korumalı ağlar (ev/ofis) olduğu gibi bırakılır. Yönetici hakları gerektirir (UAC).",
+      wifiHint: "Açık (parolasız) bir ağa bağlandığınızda Ninety otomatik olarak VPN · TUN'u açar. Korumalı ağlar (ev/ofis) olduğu gibi bırakılır. Yönetici hakları gerektirir (UAC). Güvenli bir ağa döndüğünüzde önceki mod otomatik olarak geri yüklenir.",
       killTitle: "Kill Switch",
       killHint: "Deneysel. “Proxy” ve “Sistem proxy'si” modlarında: VPN çekirdeği aniden çökerse, tünelin kendisi dışındaki tüm trafik engellenir — verileriniz açık ağa sızmaz. Yönetici hakları gerektirir. TUN modunda gerekmez.",
       testUrlTitle: "Bağlantı testi URL'si",
