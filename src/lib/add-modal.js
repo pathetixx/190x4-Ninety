@@ -91,9 +91,10 @@ async function handleInput(raw, userOverride = {}) {
     return { type: "list", message: t("add.msgList", { n: profiles.length }) };
   }
 
-  // kind === "url" → подписка
+  // kind === "url" → подписка. intervalHours из слайдера «Авто-обновление»
+  // (0 = авто/по заголовку панели); передаётся только при ручном добавлении.
   setLoadingText(t("add.loadingSub"));
-  const sub = await addSubscriptionFromUrl(decision.url, userOverride.name || "");
+  const sub = await addSubscriptionFromUrl(decision.url, userOverride.name || "", userOverride.intervalHours);
   setActiveKind("sub");
   // localStorage.setItem("ninety.subscriptions.active", sub.id) — addSubscriptionFromUrl сам ставит при первом
   // но при добавлении не первой подписки активной не делает; принудительно ставим:
@@ -158,11 +159,12 @@ export function mountAddModal({ onCommit } = {}) {
   $("add-modal-submit")?.addEventListener("click", async () => {
     const url = $("add-modal-url")?.value.trim();
     const name = $("add-modal-name")?.value.trim();
+    const intervalHours = Number($("add-modal-interval")?.value) || 0;
     if (!url) { setError(t("add.errNeedUrl")); return; }
     setError(null);
     showPage("loading");
     try {
-      const res = await handleInput(url, { name });
+      const res = await handleInput(url, { name, intervalHours });
       onCommitCb?.(res);
       closeModal();
     } catch (e) {

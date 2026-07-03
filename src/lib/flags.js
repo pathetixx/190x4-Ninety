@@ -92,9 +92,13 @@ export function flagIsoFromName(name) {
   // Полное название страны словом (англ./рус.) → ISO
   const cm = name.match(COUNTRY_NAME_RE);
   if (cm) return COUNTRY_NAME[cm[1].toLowerCase()];
-  // Fallback: 2-3-буквенный токен в начале или после нечислового границы
+  // Fallback: 2-3-буквенный токен в начале или после нечислового границы.
+  // ТОЛЬКО верхний регистр («DE-1», «US East», «UK»): код страны в именах нод
+  // пишут капсом, а обычные слова («My», «Do», «Is») — нет. Без этого гейта
+  // «My Server» ловил флаг Малайзии, «Do X» — Доминики (ложный флаг хуже, чем
+  // текстовый фолбэк). Полные названия/эмодзи обрабатываются ветками выше.
   const m = String(name).match(/(?:^|[\s|·,])([A-Za-z]{2,3})\b/);
-  if (m) {
+  if (m && m[1] === m[1].toUpperCase()) {
     const tok = m[1].toLowerCase();
     if (NON_ISO_ALIAS[tok]) return NON_ISO_ALIAS[tok];
     if (tok.length === 2) return tok;
