@@ -182,7 +182,7 @@ async function fetchInfo(url) {
  * Создаёт новую подписку по URL: тянет, парсит, сохраняет.
  * @returns {object} subscription record
  */
-export async function addSubscriptionFromUrl(url, customName = "") {
+export async function addSubscriptionFromUrl(url, customName = "", intervalHoursOverride = null) {
   const u = String(url || "").trim();
   if (!/^https?:\/\//i.test(u)) throw new Error(t("subs.needHttpUrl"));
 
@@ -191,6 +191,9 @@ export async function addSubscriptionFromUrl(url, customName = "") {
   if (profiles.length === 0) throw new Error(t("subs.noVless"));
 
   const id = "sub_" + Math.random().toString(36).slice(2, 10);
+  // Явный выбор слайдера (>0) приоритетнее заголовка панели; 0 = «Авто» → берём
+  // profile-update-interval сервера, а без него silentRefreshSubs даёт 6ч дефолт.
+  const hours = Number(intervalHoursOverride);
   const sub = {
     id,
     url: u,
@@ -200,7 +203,7 @@ export async function addSubscriptionFromUrl(url, customName = "") {
     upload: info.upload ?? null,
     download: info.download ?? null,
     total: info.total ?? null,
-    updateIntervalHours: info.profile_update_interval_hours ?? null,
+    updateIntervalHours: hours > 0 ? hours : (info.profile_update_interval_hours ?? null),
     profiles,
   };
 
