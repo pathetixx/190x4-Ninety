@@ -53,6 +53,7 @@ import { initHeroHud } from "/lib/hero-hud.js";
 import { parseDeepLink } from "/lib/deeplink.js";
 import { applyKillSwitch, maybeWarnKillSwitchProxy } from "/lib/kill-switch.js";
 import { initWifiGuard, forgetWifiAutoRestore } from "/lib/wifi-guard.js";
+import { ensureWorkingDirectDns, startDnsGuard, stopDnsGuard } from "/lib/dns-guard.js";
 import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t } from "/lib/i18n/index.js";
 import { detectRegion } from "/lib/i18n/region-detect.js";
 
@@ -1693,6 +1694,7 @@ function setState(next, opts = {}) {
     if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
     stopHealthWatchdog();
     stopWarpRescanLoop();
+    stopDnsGuard();
     applyKillSwitch(false); // снять WFP-блок при отключении
     qualityEngine.onIdle();
     showQualityChip(false);
@@ -1737,6 +1739,13 @@ function setState(next, opts = {}) {
     startMeter({ sourceKey: sourceKeyOf(getActiveSource()), onUpdate: refreshSubCardFromActive });
     startWarpRescanLoop();
     startHealthWatchdog();
+    // DNS-watchdog: если direct-DNS ляжет в середине сессии — переключит на резерв
+    // и реконнектит (sing-box перечитает DNS из свежего конфига).
+    startDnsGuard({
+      toast,
+      isConnected: () => state === "connected",
+      onDnsSwitched: () => reconnectForSourceChange(t("dns.reconnect")),
+    });
     applyKillSwitch(true); // поднять WFP-блок (proxy/systemProxy + elevated)
     // Проба всегда через локальный инбаунд sing-box: mixed-in (proxy/systemProxy)
     // либо probe-in (TUN, тот же порт). «Напрямую» в TUN нельзя — bypass-правило
@@ -1943,6 +1952,11 @@ heroDisc?.addEventListener("click", async () => {
     const src = getActiveSource();
     if (!src) { toast(t("conn.needSource"), "error"); return; }
     const mode = getMode();
+    // DNS-watchdog: имя сервера ноды резолвится через direct-DNS ДО туннеля —
+    // если он мёртв (Google/Cloudflare DoH в РФ), старт падает с невнятным
+    // «i/o timeout». Пробуем и при отказе переключаем на резерв ДО buildConfig,
+    // чтобы конфиг собрался уже с рабочим резолвером. Только пока юзер не ушёл.
+    await ensureWorkingDirectDns({ toast, onlyIf: () => state === "idle" });
     const options = loadOptions();
     // Если WARP включён — тянем регистрацию из app_config_dir/warp.json
     // и передаём в builder. Без warpInfo builder тихо пропустит warp endpoint.

@@ -323,6 +323,14 @@ export const ko = {
     killSwitchProxyHint: "프록시 모드에서 Kill Switch는 수동으로 프록시로 지정한 앱을 제외한 모든 트래픽을 차단합니다. 전체 보호가 필요하면 시스템 프록시 또는 VPN · TUN을 사용하세요.",
   },
 
+  dns: {
+    switched: "DNS가 응답하지 않아 {dns}(으)로 전환했습니다",
+    switchedDesc: "직접 조회 리졸버를 작동 중인 예비 서버로 전환했습니다",
+    allDead: "예비 DNS 서버도 응답하지 않습니다",
+    allDeadDesc: "연결을 확인하거나 설정에서 DNS를 수동으로 변경하세요",
+    reconnect: "DNS 전환 중…",
+  },
+
   wifi: {
     openProtect: "개방 네트워크 「{ssid}」 — 보호(TUN) 활성화 중",
     noName: "이름 없음",

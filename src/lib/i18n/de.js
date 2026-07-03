@@ -323,6 +323,14 @@ export const de = {
     killSwitchProxyHint: "Im Proxy-Modus blockiert der Kill Switch den gesamten Verkehr außer Apps, die du manuell auf den Proxy verweist. Für systemweiten Schutz nutze Systemproxy oder VPN · TUN.",
   },
 
+  dns: {
+    switched: "DNS antwortete nicht — auf {dns} umgeschaltet",
+    switchedDesc: "Resolver für Direktabfragen auf ein funktionierendes Backup umgestellt",
+    allDead: "Auch die Backup-DNS sind nicht erreichbar",
+    allDeadDesc: "Prüfe die Verbindung oder ändere DNS in den Einstellungen manuell",
+    reconnect: "DNS wird gewechselt…",
+  },
+
   wifi: {
     openProtect: "Offenes Netzwerk „{ssid}“ — Schutz wird aktiviert (TUN)",
     noName: "ohne Namen",

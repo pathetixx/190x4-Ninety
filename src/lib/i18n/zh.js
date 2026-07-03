@@ -323,6 +323,14 @@ export const zh = {
     killSwitchProxyHint: "在代理模式下，Kill Switch 会拦截除手动指向代理的应用外的所有流量。如需全局保护，请使用系统代理或 VPN · TUN。",
   },
 
+  dns: {
+    switched: "DNS 无响应 — 已切换到 {dns}",
+    switchedDesc: "直连查询解析器已切换到可用的备用服务器",
+    allDead: "备用 DNS 也无法访问",
+    allDeadDesc: "请检查网络或在设置中手动更换 DNS",
+    reconnect: "正在切换 DNS…",
+  },
+
   wifi: {
     openProtect: "开放网络“{ssid}”——正在开启保护（TUN）",
     noName: "未命名",
