@@ -74,6 +74,26 @@ impl MonitorSpec {
     }
 }
 
+// Кап размера одного лог-файла движка. Логи sing-box/xray при уровне info и
+// активном трафике (особенно при DNS-retry-шторме: каждая неудачная резолюция —
+// строка) разрастались до сотен МБ (наблюдали singbox.log на 518 МБ). Кап держит
+// файл ограниченным: при переполнении обрезаем и продолжаем с маркером. Свежие
+// строки для диагностики краша всё равно живут в in-memory кольце (died_flag).
+const LOG_CAP_BYTES: u64 = 8 * 1024 * 1024;
+
+// Запись строки в лог с учётом капа. Файл открыт в append-режиме, поэтому при
+// переполнении достаточно set_len(0): следующая O_APPEND-запись уйдёт с позиции 0.
+fn write_capped(writer: &mut std::fs::File, written: &mut u64, line: &str) {
+    if *written > LOG_CAP_BYTES && writer.set_len(0).is_ok() {
+        let marker = format!("[лог обрезан по лимиту {} МБ]\n", LOG_CAP_BYTES / 1024 / 1024);
+        let _ = writer.write_all(marker.as_bytes());
+        *written = marker.len() as u64;
+    }
+    if writeln!(writer, "{line}").is_ok() {
+        *written += line.len() as u64 + 1;
+    }
+}
+
 // Монитор процесса-движка: льёт stdout/stderr в файл (если задан), копит
 // последние строки в кольце на 40 и при Terminated выставляет died_flag с
 // причиной. Один хелпер на все три движка.
@@ -85,10 +105,20 @@ fn spawn_log_monitor(
 ) {
     tauri::async_runtime::spawn(async move {
         let mut writer = log_file.as_ref().and_then(|p| {
+            // Раздутый с прошлой сессии файл начинаем заново — иначе кап стартовал
+            // бы уже переполненным и первую же строку писал бы после обрезки.
+            if std::fs::metadata(p).map(|m| m.len()).unwrap_or(0) > LOG_CAP_BYTES {
+                let _ = std::fs::write(p, b"");
+            }
             std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
         });
+        let mut written: u64 = writer
+            .as_ref()
+            .and_then(|w| w.metadata().ok())
+            .map(|m| m.len())
+            .unwrap_or(0);
         if let Some(w) = writer.as_mut() {
-            let _ = writeln!(w, "\n{}", spec.start_banner);
+            write_capped(w, &mut written, &format!("\n{}", spec.start_banner));
         }
         let mut last: Vec<String> = Vec::new();
         let push = |last: &mut Vec<String>, text: String| {
@@ -102,7 +132,7 @@ fn spawn_log_monitor(
                 CommandEvent::Stdout(line) => {
                     let text = strip_ansi(&String::from_utf8_lossy(&line));
                     if let Some(w) = writer.as_mut() {
-                        let _ = writeln!(w, "{text}");
+                        write_capped(w, &mut written, &text);
                     }
                     if spec.ring_stdout {
                         push(&mut last, text);
@@ -112,9 +142,9 @@ fn spawn_log_monitor(
                     let text = strip_ansi(&String::from_utf8_lossy(&line));
                     if let Some(w) = writer.as_mut() {
                         if spec.prefix_stderr {
-                            let _ = writeln!(w, "STDERR: {text}");
+                            write_capped(w, &mut written, &format!("STDERR: {text}"));
                         } else {
-                            let _ = writeln!(w, "{text}");
+                            write_capped(w, &mut written, &text);
                         }
                     }
                     push(&mut last, text);
@@ -128,7 +158,7 @@ fn spawn_log_monitor(
                         last.join("\n")
                     );
                     if let Some(w) = writer.as_mut() {
-                        let _ = writeln!(w, "{msg}");
+                        write_capped(w, &mut written, &msg);
                     }
                     *died_flag.lock().unwrap() = Some(msg);
                     break;
