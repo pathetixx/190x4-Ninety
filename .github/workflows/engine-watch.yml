@@ -1,14 +1,14 @@
 name: Engine watch (bol-van)
 
-# Watcher движка winws. Раз в неделю качает каноничные бинари из
-# bol-van/zapret-win-bundle (zapret-winws/) и сравнивает с нашим бандлом
-# src-tauri/dpi/bin/. Если движок изменился — открывает PR с обновлением.
-# НЕ автомерж: kernel-драйвер + .exe едут только через ревью → подписанный OTA.
-# .bin-пейлоады тут НЕ трогаются (они приходят из канала данных Flowseal).
+# winws engine watcher. Once a week it downloads the canonical binaries from
+# bol-van/zapret-win-bundle (zapret-winws/) and compares them with our bundle
+# in src-tauri/dpi/bin/. If the engine changed — opens a PR with the update.
+# NO automerge: the kernel driver + .exe ship only after review → signed OTA.
+# .bin payloads are NOT touched here (they come from the Flowseal data channel).
 
 on:
   schedule:
-    - cron: "37 5 * * 1" # еженедельно, пн 05:37 UTC
+    - cron: "37 5 * * 1" # weekly, Mon 05:37 UTC
   workflow_dispatch:
 
 permissions:
@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Скачать движок из zapret-win-bundle
+      - name: Download the engine from zapret-win-bundle
         run: |
           set -euo pipefail
           base="https://raw.githubusercontent.com/bol-van/zapret-win-bundle/master/zapret-winws"
@@ -30,19 +30,19 @@ jobs:
             curl -fsSL -o "new/$f" "$base/$f"
           done
 
-      - name: Сравнить с бандлом
+      - name: Compare with the bundle
         id: cmp
         run: |
           changed=0
           for f in winws.exe WinDivert64.sys WinDivert.dll cygwin1.dll; do
             a=$(sha256sum "new/$f" | awk '{print $1}')
             b=$(sha256sum "src-tauri/dpi/bin/$f" 2>/dev/null | awk '{print $1}')
-            if [ "$a" != "$b" ]; then changed=1; echo "изменился: $f"; fi
+            if [ "$a" != "$b" ]; then changed=1; echo "changed: $f"; fi
           done
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
-          [ "$changed" = "0" ] && echo "движок актуален" || true
+          [ "$changed" = "0" ] && echo "engine is up to date" || true
 
-      - name: Применить + открыть PR
+      - name: Apply + open a PR
         if: steps.cmp.outputs.changed == '1'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -51,7 +51,7 @@ jobs:
           for f in winws.exe WinDivert64.sys WinDivert.dll cygwin1.dll; do
             cp "new/$f" "src-tauri/dpi/bin/$f"
           done
-          # engine-version.txt — лишь фолбэк (рантайм берёт версию из `winws --version`).
+          # engine-version.txt is only a fallback (runtime reads `winws --version`).
           date -u +'zapret engine %Y-%m-%d (bol-van)' > src-tauri/dpi/engine-version.txt
           branch="engine-bump-$(date -u +%Y%m%d-%H%M)"
           git config user.name "ninety-bot"
@@ -60,9 +60,9 @@ jobs:
           git add src-tauri/dpi/bin/winws.exe src-tauri/dpi/bin/WinDivert64.sys \
                   src-tauri/dpi/bin/WinDivert.dll src-tauri/dpi/bin/cygwin1.dll \
                   src-tauri/dpi/engine-version.txt
-          git commit -m "chore(engine): обновление winws/WinDivert из bol-van/zapret-win-bundle"
+          git commit -m "chore(engine): bump winws/WinDivert from bol-van/zapret-win-bundle"
           git push -u origin "$branch"
           gh pr create \
             --base main --head "$branch" \
-            --title "Обновление движка winws (bol-van)" \
-            --body "Авто-PR: winws.exe/WinDivert изменились в bol-van/zapret-win-bundle. Проверь \`engine-version.txt\` (рантайм всё равно берёт версию из \`winws --version\`) и смержи → подписанный OTA-релиз. \`.bin\` НЕ трогаются — они приходят из канала данных Flowseal."
+            --title "winws engine update (bol-van)" \
+            --body "Auto-PR: winws.exe/WinDivert changed in bol-van/zapret-win-bundle. Check \`engine-version.txt\` (the runtime reads the version from \`winws --version\` anyway) and merge → signed OTA release. \`.bin\` payloads are NOT touched — they come from the Flowseal data channel."

@@ -53,11 +53,13 @@ struct MonitorSpec {
 
 impl MonitorSpec {
     // Мосты xray/naive/TT: и stdout, и stderr — диагностика краша, префикса нет.
+    // Строки смерти/маркеры — английские: они уходят в лог-файлы (их шлют в
+    // иссуи/саппорт при любом языке UI), юзерский тост локализуется фронтом.
     fn bridge(banner: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             start_banner: banner.into(),
             death_label: label.into(),
-            death_suffix: "Последние строки:",
+            death_suffix: "Last lines:",
             prefix_stderr: false,
             ring_stdout: true,
         }
@@ -67,7 +69,7 @@ impl MonitorSpec {
         Self {
             start_banner: banner.into(),
             death_label: label.into(),
-            death_suffix: "Последние ошибки:",
+            death_suffix: "Last errors:",
             prefix_stderr: true,
             ring_stdout: false,
         }
@@ -85,7 +87,7 @@ const LOG_CAP_BYTES: u64 = 8 * 1024 * 1024;
 // переполнении достаточно set_len(0): следующая O_APPEND-запись уйдёт с позиции 0.
 fn write_capped(writer: &mut std::fs::File, written: &mut u64, line: &str) {
     if *written > LOG_CAP_BYTES && writer.set_len(0).is_ok() {
-        let marker = format!("[лог обрезан по лимиту {} МБ]\n", LOG_CAP_BYTES / 1024 / 1024);
+        let marker = format!("[log truncated at {} MB cap]\n", LOG_CAP_BYTES / 1024 / 1024);
         let _ = writer.write_all(marker.as_bytes());
         *written = marker.len() as u64;
     }
@@ -151,7 +153,7 @@ fn spawn_log_monitor(
                 }
                 CommandEvent::Terminated(payload) => {
                     let msg = format!(
-                        "{} умер (код {:?}). {}\n{}",
+                        "{} died (code {:?}). {}\n{}",
                         spec.death_label,
                         payload.code,
                         spec.death_suffix,
@@ -435,7 +437,7 @@ fn read_tail(path: &std::path::Path, tail_bytes: Option<u64>) -> Result<String, 
     f.read_to_end(&mut buf).map_err(|e| format!("read_to_end: {e}"))?;
     let text = String::from_utf8_lossy(&buf).to_string();
     let cut = text.find('\n').map(|i| i + 1).unwrap_or(0);
-    Ok(format!("…[обрезано {} байт сверху]…\n{}", size - limit, &text[cut..]))
+    Ok(format!("…[{} bytes truncated above]…\n{}", size - limit, &text[cut..]))
 }
 
 // Файл лога по ключу источника. Все компоненты пишут в app_log_dir.

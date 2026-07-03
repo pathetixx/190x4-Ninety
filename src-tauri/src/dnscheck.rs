@@ -96,8 +96,19 @@ async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> Result<(
     sock.send(query).await.map_err(|e| format!("send: {e}"))?;
     let mut buf = [0u8; 512];
     match tokio::time::timeout(timeout, sock.recv(&mut buf)).await {
-        Ok(Ok(n)) if answer_count(&buf[..n]) > 0 => Ok(()),
-        Ok(Ok(_)) => Err("ответ без записей (ANCOUNT=0)".into()),
+        Ok(Ok(n)) => {
+            let resp = &buf[..n];
+            // Ответ обязан эхо-нуть наш transaction id и нести QR-бит (это
+            // ответ, а не запрос) — иначе любой залётный UDP-пакет с ненулевым
+            // ANCOUNT «оживлял» бы мёртвый резолвер.
+            if n < 12 || resp[..2] != query[..2] || resp[2] & 0x80 == 0 {
+                Err("невалидный DNS-ответ (id/QR не совпали)".into())
+            } else if answer_count(resp) > 0 {
+                Ok(())
+            } else {
+                Err("ответ без записей (ANCOUNT=0)".into())
+            }
+        }
         Ok(Err(e)) => Err(format!("recv: {e}")),
         Err(_) => Err("timeout".into()),
     }

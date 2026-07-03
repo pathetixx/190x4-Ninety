@@ -1,8 +1,8 @@
 name: Checks
 
-# Быстрая валидация без сборки инсталлятора: JS-тесты (парсеры/билдер/deep-link/
-# i18n-синхронность) + cargo test на windows (Rust-хелперы и компиляция всех
-# cfg(windows)-модулей). Релизный build.yml по-прежнему только на тегах.
+# Fast validation without building the installer: JS tests (parsers/builder/
+# deep-link/i18n sync) + cargo test on windows (Rust helpers and compilation of
+# all cfg(windows) modules). The release build.yml still runs only on tags.
 on:
   push:
     branches: [main]
@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          # glob-аргументы node --test требуют Node 21+
+          # node --test glob args require Node 21+
           node-version: 22
 
       - name: Run JS tests
@@ -47,7 +47,7 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Stub sidecar binaries and wintun (нужны tauri-build, не тестам)
+      - name: Stub sidecar binaries and wintun (needed by tauri-build, not the tests)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
@@ -59,6 +59,6 @@ jobs:
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      - name: cargo clippy (информационно)
+      - name: cargo clippy (informational)
         continue-on-error: true
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets

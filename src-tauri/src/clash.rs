@@ -117,23 +117,33 @@ pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
     }
     let c = b.build().map_err(|e| format!("client: {e}"))?;
 
-    // Все провайдеры бьём ПАРАЛЛЕЛЬНО, а не по очереди: раньше молчащий первый
-    // провайдер (частый случай из-под некоторых exit) держал IP-плитку до трёх
-    // таймаутов подряд (~24с). Результаты сохраняют порядок IP_PROVIDERS, поэтому
-    // приоритет (ipwho.is первым) не теряется — берём первого, кто нормализовался.
-    let requests = IP_PROVIDERS.iter().map(|&url| {
-        let c = c.clone();
-        async move {
-            let v = c.get(url).send().await.ok()?.json::<Value>().await.ok()?;
-            normalize_ip(&v)
+    // Ступенчатая гонка: приоритетный провайдер стартует сразу, каждый следующий
+    // — через STAGGER_MS (успеет только если предыдущие молчат). Первый
+    // нормализовавшийся ответ побеждает; остальные фьючи дропаются вместе со
+    // стримом — их запросы отменяются. Прежний join_all бил ВСЕ три эндпоинта
+    // на каждый вызов (по одному GEO-сервису каждые 5 минут сессии — лишние
+    // метаданные третьим сторонам) и ждал самого медленного даже при мгновенном
+    // ответе первого.
+    use futures_util::StreamExt;
+    const STAGGER_MS: u64 = 800;
+    let mut requests: futures_util::stream::FuturesUnordered<_> = IP_PROVIDERS
+        .iter()
+        .enumerate()
+        .map(|(i, &url)| {
+            let c = c.clone();
+            async move {
+                tokio::time::sleep(std::time::Duration::from_millis(STAGGER_MS * i as u64)).await;
+                let v = c.get(url).send().await.ok()?.json::<Value>().await.ok()?;
+                normalize_ip(&v)
+            }
+        })
+        .collect();
+    while let Some(res) = requests.next().await {
+        if let Some(v) = res {
+            return Ok(v);
         }
-    });
-    let results = futures_util::future::join_all(requests).await;
-    results
-        .into_iter()
-        .flatten()
-        .next()
-        .ok_or_else(|| "все провайдеры IP недоступны".to_string())
+    }
+    Err("все провайдеры IP недоступны".to_string())
 }
 
 fn client() -> Result<reqwest::Client, String> {
