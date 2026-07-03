@@ -320,6 +320,7 @@ export const en = {
     relaunching: "Restarting as administrator…",
     failed: "Couldn't get administrator rights: {err}",
     killSwitchHint: "Kill Switch needs administrator rights — enable “Always run as administrator” in Settings",
+    killSwitchProxyHint: "In Proxy mode Kill Switch blocks all traffic except apps you pointed at the proxy manually. For system-wide protection use System Proxy or VPN · TUN.",
   },
 
   wifi: {

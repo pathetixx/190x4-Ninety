@@ -320,6 +320,7 @@ export const de = {
     relaunching: "Neustart als Administrator…",
     failed: "Administratorrechte konnten nicht erlangt werden: {err}",
     killSwitchHint: "Kill Switch braucht Administratorrechte — aktiviere „Immer als Administrator ausführen“ in den Einstellungen",
+    killSwitchProxyHint: "Im Proxy-Modus blockiert der Kill Switch den gesamten Verkehr außer Apps, die du manuell auf den Proxy verweist. Für systemweiten Schutz nutze Systemproxy oder VPN · TUN.",
   },
 
   wifi: {

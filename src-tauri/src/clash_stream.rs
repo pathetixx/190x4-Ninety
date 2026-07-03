@@ -15,7 +15,11 @@ pub struct ClashStreamState {
 }
 
 async fn run_stream(app: AppHandle, port: u16) {
-    // token в query — так clash-API авторизует websocket (header'ы для WS не шлём).
+    // token в query — так clash-API авторизует websocket (браузерный WS-клиент не
+    // умеет слать заголовки, поэтому сервер принимает и query-token). Соединение —
+    // 127.0.0.1, секрет виден только этому процессу, поэтому token в URL безопасен.
+    // ⚠️ ИНВАРИАНТ: НЕ логировать `url` целиком (он содержит секрет) — при ошибках
+    // ниже пишем только факт, без адреса. Нарушение слило бы секрет clash-API в лог.
     let url = format!(
         "ws://127.0.0.1:{port}/traffic?token={}",
         crate::clash::clash_secret()

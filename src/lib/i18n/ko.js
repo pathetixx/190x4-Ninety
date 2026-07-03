@@ -320,6 +320,7 @@ export const ko = {
     relaunching: "관리자 권한으로 다시 시작 중…",
     failed: "관리자 권한을 얻을 수 없습니다: {err}",
     killSwitchHint: "Kill Switch에는 관리자 권한이 필요합니다 — 설정에서 「항상 관리자 권한으로 실행」을 켜세요",
+    killSwitchProxyHint: "프록시 모드에서 Kill Switch는 수동으로 프록시로 지정한 앱을 제외한 모든 트래픽을 차단합니다. 전체 보호가 필요하면 시스템 프록시 또는 VPN · TUN을 사용하세요.",
   },
 
   wifi: {

@@ -320,6 +320,7 @@ export const pt = {
     relaunching: "A reiniciar como administrador…",
     failed: "Não foi possível obter direitos de administrador: {err}",
     killSwitchHint: "O Kill Switch requer direitos de administrador — ative «Executar sempre como administrador» nas Definições",
+    killSwitchProxyHint: "No modo Proxy o Kill Switch bloqueia todo o tráfego exceto apps que você apontou para o proxy manualmente. Para proteção total use Proxy do sistema ou VPN · TUN.",
   },
 
   wifi: {

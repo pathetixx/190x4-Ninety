@@ -23,9 +23,11 @@ pub fn clash_secret() -> &'static str {
 // success}. Один провайдер — единая точка отказа (free-tier лимиты, досягаемость
 // из-под конкретного exit): перебираем несколько, у каждого свой формат ответа,
 // сводим к общему виду. Фронт (ip-info.js) и localAsn читают именно эти поля.
+// Все эндпоинты — HTTPS: fetch_public_ip зовётся и напрямую (localAsn, мимо
+// туннеля), plaintext-HTTP там дал бы ISP/ТСПУ видеть и подменять IP-lookup.
 const IP_PROVIDERS: &[&str] = &[
     "https://ipwho.is/",
-    "http://ip-api.com/json/?fields=status,message,country,countryCode,query,as",
+    "https://api.ip.sb/geoip",
     "https://ipapi.co/json/",
 ];
 
@@ -38,7 +40,13 @@ fn extract_asn(v: &Value) -> Value {
         }
     }
     for key in ["asn", "as"] {
-        if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
+        let Some(val) = v.get(key) else { continue };
+        // Числовой ASN (api.ip.sb: "asn":13335) — берём как есть; строковый
+        // ("AS13335"/"AS13335 Cloudflare") — выдираем цифры.
+        if val.is_number() {
+            return val.clone();
+        }
+        if let Some(s) = val.as_str() {
             let digits: String = s
                 .chars()
                 .skip_while(|c| !c.is_ascii_digit())
@@ -95,7 +103,10 @@ fn normalize_ip(v: &Value) -> Option<Value> {
 pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
     let mut b = reqwest::Client::builder()
         .user_agent("Ninety/0.1")
-        .timeout(std::time::Duration::from_secs(8));
+        // connect_timeout отдельно от общего: недосягаемый провайдер отваливается
+        // за 3с вместо того чтобы съесть весь бюджет запроса.
+        .connect_timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_secs(6));
     if let Some(p) = proxy {
         let trimmed = p.trim();
         if !trimmed.is_empty() {
@@ -106,20 +117,23 @@ pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
     }
     let c = b.build().map_err(|e| format!("client: {e}"))?;
 
-    let mut last_err = String::from("нет провайдеров IP");
-    for url in IP_PROVIDERS {
-        match c.get(*url).send().await {
-            Ok(r) => match r.json::<Value>().await {
-                Ok(v) => match normalize_ip(&v) {
-                    Some(out) => return Ok(out),
-                    None => last_err = format!("{url}: провайдер вернул неуспех"),
-                },
-                Err(e) => last_err = format!("{url}: json {e}"),
-            },
-            Err(e) => last_err = format!("{url}: req {e}"),
+    // Все провайдеры бьём ПАРАЛЛЕЛЬНО, а не по очереди: раньше молчащий первый
+    // провайдер (частый случай из-под некоторых exit) держал IP-плитку до трёх
+    // таймаутов подряд (~24с). Результаты сохраняют порядок IP_PROVIDERS, поэтому
+    // приоритет (ipwho.is первым) не теряется — берём первого, кто нормализовался.
+    let requests = IP_PROVIDERS.iter().map(|&url| {
+        let c = c.clone();
+        async move {
+            let v = c.get(url).send().await.ok()?.json::<Value>().await.ok()?;
+            normalize_ip(&v)
         }
-    }
-    Err(last_err)
+    });
+    let results = futures_util::future::join_all(requests).await;
+    results
+        .into_iter()
+        .flatten()
+        .next()
+        .ok_or_else(|| "все провайдеры IP недоступны".to_string())
 }
 
 fn client() -> Result<reqwest::Client, String> {
@@ -366,6 +380,20 @@ mod tests {
         assert_eq!(out["country"], "United States");
         assert_eq!(out["country_code"], "US");
         assert_eq!(out["asn"], 15169);
+    }
+
+    #[test]
+    fn normalize_ip_sb() {
+        // api.ip.sb/geoip: country_code + числовой asn на верхнем уровне.
+        let v = serde_json::json!({
+            "ip": "1.1.1.1", "country": "Australia",
+            "country_code": "AU", "asn": 13335
+        });
+        let out = normalize_ip(&v).unwrap();
+        assert_eq!(out["ip"], "1.1.1.1");
+        assert_eq!(out["country_code"], "AU");
+        assert_eq!(out["asn"], 13335);
+        assert_eq!(out["connection"]["asn"], 13335);
     }
 
     #[test]

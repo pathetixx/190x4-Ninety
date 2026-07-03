@@ -320,6 +320,7 @@ export const tr = {
     relaunching: "Yönetici olarak yeniden başlatılıyor…",
     failed: "Yönetici hakları alınamadı: {err}",
     killSwitchHint: "Kill Switch yönetici hakları gerektirir — Ayarlar'da “Her zaman yönetici olarak çalıştır” seçeneğini etkinleştirin",
+    killSwitchProxyHint: "Proxy modunda Kill Switch, proxy'ye elle yönlendirdiğin uygulamalar dışında tüm trafiği engeller. Sistem geneli koruma için Sistem Proxy'si veya VPN · TUN kullan.",
   },
 
   wifi: {

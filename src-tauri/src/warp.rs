@@ -230,6 +230,12 @@ pub async fn warp_register(
     let reg = cf_register(&pub_b64).await?;
 
     // 4) Опциональная активация WARP+
+    // Ключ WARP+ — ровно 26 символов. Если юзер ввёл что-то иной длины, раньше
+    // это молча уходило в ветку бесплатного WARP (юзер думал, что активировал+).
+    // Логируем факт игнора, чтобы причина была видна в диагностике.
+    if let Some(l) = license.as_deref().filter(|l| !l.is_empty() && l.len() != 26) {
+        eprintln!("warp: license ключ длины {} проигнорирован (ожидается 26) — активация WARP+ пропущена", l.len());
+    }
     let (warp_plus, account_type, license_used) = match &license {
         Some(l) if l.len() == 26 => {
             let patch = cf_patch_account(&reg.id, &reg.token, l).await?;
