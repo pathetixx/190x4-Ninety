@@ -36,7 +36,9 @@ import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView } from "/lib/proxies-view.js";
-import { mountDpiView, setDpiVpnMode, excludeVpnNode, autostartDpiIfEnabled, toggleDpi, rerenderDpiView } from "/lib/dpi-view.js";
+import { mountDpiView, setDpiVpnMode, excludeVpnNode, autostartDpiIfEnabled, rerenderDpiView } from "/lib/dpi-view.js";
+import { mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
+import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
@@ -320,7 +322,9 @@ async function applyKillSwitch(connected) {
       }
       return;
     }
-    await invoke("killswitch_arm", {});
+    // allowLan привязан к route.bypassLan (та же семантика «не трогать локалку»);
+    // DHCP kill switch пропускает всегда — рвать renew lease нельзя.
+    await invoke("killswitch_arm", { allowLan: loadOptions().route?.bypassLan !== false });
   } catch (e) { console.warn("kill switch", e); }
 }
 
@@ -499,10 +503,8 @@ function switchView(target) {
   views.forEach((v) => { v.hidden = v.dataset.view !== target; });
   // Видео-маска декодится только пока главный экран виден — оффскрин обнуляем декод.
   if (heroMask) { if (target === "home") heroMask.play?.().catch(() => {}); else heroMask.pause?.(); }
-  if (typeof onLogsViewLeave === "function" && typeof onLogsViewEnter === "function") {
-    if (target === "logs") onLogsViewEnter();
-    else onLogsViewLeave();
-  }
+  if (target === "logs") onLogsViewEnter();
+  else onLogsViewLeave();
   if (target === "proxies") onProxiesViewEnter();
   else onProxiesViewLeave();
   if (target === "settings") setTimeout(applySettingsVersion, 0);
@@ -822,9 +824,10 @@ const qualityEngine = createQualityEngine({
         warpEndpoint: o.warp.enabled ? o.warp.endpoint : null,
       };
     },
-    // ASN локального ISP (не exit'а): прямой no_proxy ip-info. В TUN-режиме
-    // запрос уйдёт через туннель (вернёт exit ASN) — для v1 допустимо, ключ
-    // просто менее точен; фолбэк "unknown".
+    // ASN локального ISP (не exit'а): ip-info БЕЗ proxy-арга → напрямую. Даже в
+    // TUN этот запрос идёт мимо туннеля (собственный трафик Ninety.exe уходит в
+    // direct bypass-правилом), поэтому вернётся именно локальный ISP — то, что
+    // нужно для ключа обучения ISP×час. Фолбэк "unknown".
     localAsn: async () => {
       try {
         const info = await invoke("fetch_public_ip", {});
@@ -1044,277 +1047,8 @@ navItems.forEach((item) => {
   });
 });
 
-// ── Logs view ──────────────────────────────────────────────
-const logsView = document.getElementById("logs-view");
-const logsPath = document.getElementById("logs-path");
-const logsSize = document.getElementById("logs-size");
-const logsAuto = document.getElementById("logs-auto");
-const logsRefreshBtn = document.getElementById("logs-refresh");
-const logsCopyBtn = document.getElementById("logs-copy");
-const logsClearBtn = document.getElementById("logs-clear");
-const logsOpenBtn = document.getElementById("logs-open");
-const logsSearch = document.getElementById("logs-search");
-const logsLevel = document.getElementById("logs-level");
-const logsSource = document.getElementById("logs-source");
-const logsKicker = document.getElementById("logs-kicker");
-
-const LOG_SOURCE_LABEL = {
-  singbox: "SING-BOX", xray: "XRAY", naive: "NAIVE",
-  trusttunnel: "TRUSTTUNNEL", dpi: "DPI · WINWS",
-};
-
-let logsTimer = null;
-let logsActive = false;
-let logsLastValue = "";
-let logsFilterQuery = "";
-let logsFilterLevel = "";
-
-function currentLogSource() { return logsSource?.value || "singbox"; }
-
-function formatBytes(n) {
-  if (n < 1024) return `${n} ${t("logs.bytesB")}`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} ${t("logs.bytesKiB")}`;
-  return `${(n / 1024 / 1024).toFixed(2)} ${t("logs.bytesMiB")}`;
-}
-
-// sing-box stdout: `+0300 2025-01-01 12:34:56 INFO [tag] message`
-//                  `12:34:56.123 INFO message`           (timestamp без даты)
-//                  `INFO message`                        (timestamp выключен)
-//                  `+0300 INFO message`                  (offset без timestamp)
-// Группы: 1=offset, 2=date, 3=time, 4=level, 5=rest
-const LOG_LINE_RE = /^(?:([+-]\d{4})\s+)?(?:(\d{4}-\d{2}-\d{2})\s+)?(\d{1,2}:\d{2}:\d{2}(?:\.\d+)?)?\s*(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|PANIC)\s+(.*)$/i;
-
-// sing-box/xray льют в stderr с ANSI-цветами, а капча процессов префиксует строку
-// «STDERR: »/«STDOUT: ». И то и другое сбивает LOG_LINE_RE (уровень обёрнут в \x1b[..m,
-// якорь ^ упирается в префикс) → строка падала в сырьё. Снимаем перед парсингом.
-const LOG_ANSI_RE = /\x1b\[[0-9;]*m/g;        // eslint-disable-line no-control-regex
-const LOG_STD_PREFIX_RE = /^(?:STDERR|STDOUT):\s*/;
-function cleanLogLine(s) { return s.replace(LOG_ANSI_RE, "").replace(LOG_STD_PREFIX_RE, ""); }
-
-function levelGrade(lvl) {
-  const l = lvl.toUpperCase();
-  if (l === "ERROR" || l === "FATAL" || l === "PANIC") return "err";
-  if (l === "WARN" || l === "WARNING") return "warn";
-  if (l === "TRACE" || l === "DEBUG") return "ok";
-  return "info";
-}
-
-function escapeLog(s) {
-  return s.replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
-}
-
-function highlightMessage(msg) {
-  const safe = escapeLog(msg);
-  // tag в [скобках] подсветить; если в теге узнаётся страна (имя ноды
-  // «node-17-Latvia-…») — вклеиваем флаг той же логикой, что на экране Нод.
-  // Служебные скобки ([mixed-in], [3589469481 0ms], [direct]) флага не дают —
-  // flagIsoFromName на них возвращает null. Фолбэк битого .svg — attachLogFlagFallbacks.
-  return safe
-    .replace(/\[([^\]]+)\]/g, (_m, tag) => {
-      const iso = isoFromNodeName(tag);
-      const flag = iso ? `<img class="log-flag" src="${FLAGS_BASE}/${iso}.svg" alt="">` : '';
-      return `<b>[${flag}${tag}]</b>`;
-    })
-    .replace(/\b(\d+\.\d+\.\d+\.\d+)(?::\d+)?\b/g, '<span class="acc">$&</span>')
-    .replace(/\b(?:wss?|https?):\/\/[^\s]+/gi, '<span class="acc">$&</span>');
-}
-
-// CSP-safe фолбэк для флагов в логах (inline onerror блокируется): битый .svg
-// просто убираем — остаётся обычный тег ноды. Зовётся после каждого рендера лога.
-function attachLogFlagFallbacks(root) {
-  if (!root) return;
-  for (const img of root.querySelectorAll("img.log-flag")) {
-    img.addEventListener("error", () => img.remove(), { once: true });
-    if (img.complete && img.naturalWidth === 0) img.remove();
-  }
-}
-
-const LOG_RENDER_MAX_LINES = 800;
-// Уровень из дропдауна → набор токенов лога. WARN/WARNING и ERROR/FATAL/PANIC
-// группируются, чтобы «warn»/«error» ловили все варианты.
-const LOG_LEVEL_GROUP = {
-  trace: ["TRACE"], debug: ["DEBUG"], info: ["INFO"],
-  warn: ["WARN", "WARNING"], error: ["ERROR", "FATAL", "PANIC"],
-};
-
-// Парс текста лога в структурные записи (с прилепленными многострочными
-// продолжениями) — нужно, чтобы фильтр по уровню/тексту работал по записи
-// целиком, не разрывая мульти-line сообщения.
-function parseLogEntries(text) {
-  const lines = text.split(/\r?\n/).slice(-LOG_RENDER_MAX_LINES);
-  const entries = [];
-  let cur = null;
-  for (const raw0 of lines) {
-    const raw = cleanLogLine(raw0);
-    if (!raw) { if (cur) cur.cont.push(''); continue; }
-    const m = LOG_LINE_RE.exec(raw);
-    if (m) {
-      const [, , date, time, level, rest] = m;
-      const t = time || (date ? date.slice(5) : '—');
-      const lvl = level.toUpperCase();
-      cur = { t, lvl, grade: levelGrade(lvl), msg: rest, cont: [] };
-      entries.push(cur);
-    } else if (cur) {
-      cur.cont.push(raw);
-    } else {
-      cur = { t: '—', lvl: '', grade: 'info', msg: raw, cont: [] };
-      entries.push(cur);
-    }
-  }
-  return entries;
-}
-
-function filterLogEntries(entries) {
-  const group = logsFilterLevel ? LOG_LEVEL_GROUP[logsFilterLevel] : null;
-  const words = logsFilterQuery ? logsFilterQuery.split(/\s+/).filter(Boolean) : [];
-  if (!group && !words.length) return entries;
-  return entries.filter(e => {
-    if (group && !group.includes(e.lvl)) return false;
-    if (words.length) {
-      const hay = `${e.t} ${e.lvl} ${e.msg} ${e.cont.join(' ')}`.toLowerCase();
-      if (!words.every(w => hay.includes(w))) return false;
-    }
-    return true;
-  });
-}
-
-function renderLogEntries(entries) {
-  const out = [];
-  for (const e of entries) {
-    const lvlDisp = e.lvl || '···';
-    const tail = e.cont.length ? escapeLog('\n' + e.cont.join('\n')) : '';
-    out.push(`<div class="log-line"><span class="log-line__t">${escapeLog(e.t)}</span><span class="log-line__l log-line__l--${e.grade}">${lvlDisp}</span><span class="log-line__m">${highlightMessage(e.msg)}${tail}</span></div>`);
-  }
-  return out.join('');
-}
-
-function logsInfoLine(text) {
-  return `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--info">···</span><span class="log-line__m" style="font-style:italic;color:var(--text-faint)">${escapeLog(text)}</span></div>`;
-}
-
-// Рендер из кэша (logsLastValue) с учётом фильтров — зовётся и при обновлении
-// лога, и при смене фильтра (без повторного чтения файла).
-function applyLogsRender({ keepScroll = false } = {}) {
-  if (!logsView) return;
-  const text = logsLastValue && logsLastValue !== "__force__" ? logsLastValue : "";
-  const atBottom = !keepScroll || (logsView.scrollTop + logsView.clientHeight >= logsView.scrollHeight - 24);
-  if (!text) {
-    const label = LOG_SOURCE_LABEL[currentLogSource()] || t("logs.compFallback");
-    logsView.innerHTML = logsInfoLine(t("logs.empty", { comp: label }));
-  } else {
-    const filtered = filterLogEntries(parseLogEntries(text));
-    logsView.innerHTML = filtered.length
-      ? renderLogEntries(filtered)
-      : logsInfoLine(t("logs.notFound"));
-    attachLogFlagFallbacks(logsView);
-  }
-  if (atBottom) logsView.scrollTop = logsView.scrollHeight;
-}
-
-async function refreshLogs({ keepScroll = false } = {}) {
-  if (!logsView) return;
-  try {
-    const text = await invoke("read_log", { source: currentLogSource(), tailBytes: 256 * 1024 });
-    if (text === logsLastValue) return;
-    logsLastValue = text;
-    if (logsSize) {
-      const bytes = new TextEncoder().encode(text || "").length;
-      logsSize.textContent = text ? formatBytes(bytes) : t("logs.sizeEmpty");
-    }
-    applyLogsRender({ keepScroll });
-  } catch (e) {
-    logsView.innerHTML = `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--err">ERR</span><span class="log-line__m">${escapeLog(t("logs.readErr", { err: e?.message || e }))}</span></div>`;
-  }
-}
-
-async function refreshLogsPath() {
-  if (!logsPath) return;
-  try {
-    const path = await invoke("singbox_log_path");
-    // Показываем ПАПКУ журналов, а не singbox.log: в ней лежат логи всех
-    // компонентов (sing-box, xray, naive, trusttunnel, dpi). Кнопка «Папка»
-    // её открывает. В консоли ниже — лог ядра sing-box.
-    const dir = path.replace(/[\\/][^\\/]*$/, "");
-    logsPath.textContent = dir;
-    logsPath.title = t("logs.pathTitle");
-  } catch {
-    logsPath.textContent = "—";
-  }
-}
-
-function startLogsAuto() {
-  stopLogsAuto();
-  if (!logsAuto?.checked) return;
-  logsTimer = setInterval(() => refreshLogs({ keepScroll: true }), 2000);
-}
-
-function stopLogsAuto() {
-  if (logsTimer) { clearInterval(logsTimer); logsTimer = null; }
-}
-
-logsAuto?.addEventListener("change", () => {
-  if (logsActive && logsAuto.checked) startLogsAuto();
-  else stopLogsAuto();
-});
-
-logsRefreshBtn?.addEventListener("click", () => refreshLogs());
-
-logsSearch?.addEventListener("input", () => {
-  logsFilterQuery = logsSearch.value.trim().toLowerCase();
-  applyLogsRender();
-});
-
-logsLevel?.addEventListener("change", () => {
-  logsFilterLevel = logsLevel.value;
-  applyLogsRender();
-});
-
-logsSource?.addEventListener("change", () => {
-  if (logsKicker) logsKicker.textContent = `${t("logs.kicker")} · ${LOG_SOURCE_LABEL[currentLogSource()] || "—"}`;
-  logsLastValue = "__force__"; // сменился источник — перечитать файл и перерисовать
-  refreshLogs();
-});
-
-logsCopyBtn?.addEventListener("click", async () => {
-  const raw = logsLastValue && logsLastValue !== "__force__" ? logsLastValue : "";
-  if (!raw) { toast(t("logs.emptyToast"), "info", 1400); return; }
-  // копируем без ANSI/префиксов — ровно то, что на экране, а не управляющие коды
-  const text = raw.split(/\r?\n/).map(cleanLogLine).join("\n");
-  try {
-    await navigator.clipboard.writeText(text);
-    toast(t("logs.copied"), "success", 1600);
-  } catch {
-    toast(t("logs.copyErr"), "error", 3000);
-  }
-});
-
-logsClearBtn?.addEventListener("click", async () => {
-  try {
-    await invoke("clear_log", { source: currentLogSource() });
-    logsLastValue = "__force__";
-    await refreshLogs();
-    toast(t("logs.cleared"), "info", 1400);
-  } catch (e) {
-    toast(t("logs.clearErr", { err: e?.message || e }), "error", 2500);
-  }
-});
-
-logsOpenBtn?.addEventListener("click", async () => {
-  try { await invoke("open_log_dir"); }
-  catch (e) { toast(t("logs.openErr", { err: e?.message || e }), "error", 2500); }
-});
-
-function onLogsViewEnter() {
-  logsActive = true;
-  refreshLogsPath();
-  refreshLogs();
-  startLogsAuto();
-}
-
-function onLogsViewLeave() {
-  logsActive = false;
-  stopLogsAuto();
-}
+// ── Logs view — вынесен в /lib/logs-view.js ────────────────
+mountLogsView();
 
 // ── Profiles view ──────────────────────────────────────────
 const profilesView = document.querySelector('section.screen[data-view="profiles"]');
@@ -1561,11 +1295,7 @@ onLangChange(() => {
     if (tfDownUnit) tfDownUnit.textContent = t("units.rateKiB");
     if (tfUpUnit) tfUpUnit.textContent = t("units.rateKiB");
   }
-  if (logsActive) {
-    if (logsKicker) logsKicker.textContent = `${t("logs.kicker")} · ${LOG_SOURCE_LABEL[currentLogSource()] || "—"}`;
-    applyLogsRender({ keepScroll: true });
-    refreshLogsPath();
-  }
+  rerenderLogsView(); // no-op, если экран Логи не активен
 });
 
 // Перерисовать динамические подписи главной (статус hero, подсказка режима, режим в
@@ -1831,13 +1561,20 @@ if (locIp) bindIpReveal(locIp, () => lastPublicIp);
 
 async function refreshPublicIp() {
   if (state !== "connected") return;
-  const m = getMode();
+  // IP всегда тянем ЧЕРЕЗ локальный inbound sing-box, во всех режимах:
+  //   proxy/systemProxy — mixed-in (reqwest системный прокси не чтит, поэтому
+  //     даже в systemProxy без явного адреса запрос ушёл бы напрямую → мимо
+  //     туннеля и показывал бы реальный IP юзера);
+  //   tun — probe-in слушает тот же порт; «напрямую» нельзя, т.к. собственный
+  //     трафик Ninety.exe в TUN уходит в direct bypass-правилом (защита от петли)
+  //     и IP-сервис увидел бы реальный IP, а не exit.
   const port = loadOptions().inbound.mixedPort || 7890;
-  const proxyHostPort = m === "proxy" ? `127.0.0.1:${port}` : null;
+  const proxyHostPort = `127.0.0.1:${port}`;
   try {
     const info = await fetchPublicIp({ proxyHostPort });
     if (!info?.success && info?.ip == null) {
-      // ipwho.is при ошибке отдаёт { success: false, message }
+      // Rust нормализует ответ (fetch_public_ip перебирает провайдеров); при
+      // неуспехе всех обычно летит Err → catch, эта ветка — страховка.
       throw new Error(info?.message || "no ip");
     }
     lastPublicIp = info.ip;
@@ -2217,100 +1954,24 @@ window.addEventListener("ninety:node-changed", (ev) => {
 // DPI-обход переключили из UI → обновить статус/подпись в трее.
 window.addEventListener("ninety:dpi-changed", () => syncTrayMenu());
 
-// ── Трей: динамическое контекстное меню (режим + список серверов) ──
-// Список серверов — только для подписки с >=2 нодами (у одиночного конфига
-// и сабов из одной ноды clash-тэг всегда "proxy", переключать нечего).
-function buildTrayServers() {
-  const src = getActiveSource();
-  if (!src || src.kind !== "sub" || !Array.isArray(src.nodes) || src.nodes.length < 2) return [];
-  return src.nodes.map((n, i) => {
-    const tag = nodeTag(i, n);
-    const iso = isoFromNodeName(n.name) || isoFromNodeName(n.host) || null;
-    return { id: tag, label: (n.name || n.host || tag).slice(0, 48), selected: tag === currentEffectiveTag, iso };
-  });
-}
-
-let trayMenuBusy = false;
-// Объявлено заранее (до syncTrayMenu и бутстрапа): syncTrayMenu читает pendingUpdate
-// уже на старте — если оставить let в секции Auto-update ниже, первый вызов падает в TDZ.
+// ── Трей — вынесен в /lib/tray.js; здесь только контекст main-состояния ──
+// Объявлено заранее (до initTray и бутстрапа): getUpdateVersion читает
+// pendingUpdate уже на старте — если оставить let в секции Auto-update ниже,
+// первый syncTrayMenu падает в TDZ.
 let pendingUpdate = null;
-async function syncTrayMenu() {
-  if (trayMenuBusy) return;
-  trayMenuBusy = true;
-  try {
-    let dpiActive = false;
-    try { dpiActive = localStorage.getItem("ninety.dpi.enabled") === "true"; } catch {}
-    await invoke("set_tray_menu", {
-      payload: {
-        connected: state === "connected", mode: getMode(),
-        servers: buildTrayServers(), dpiActive,
-        updateVersion: pendingUpdate?.version || null,
-        // Строки меню/tooltip — на языке интерфейса (Rust держит русский
-        // фолбэк только до первого вызова). Пересборка на смену языка —
-        // syncTrayMenu в onLangChange.
-        labels: {
-          show: t("tray.show"),
-          connect: t("tray.connect"),
-          disconnect: t("tray.disconnect"),
-          modeTitle: t("home.modeToggle"),
-          modeProxy: t("mode.proxy"),
-          modeSystem: t("mode.systemProxy"),
-          modeTun: t("mode.tun"),
-          server: t("tray.server"),
-          noServers: t("tray.noServers"),
-          dpiTitle: t("dpi.title"),
-          dpiStatusOn: t("tray.dpiStatusOn"),
-          dpiStatusOff: t("tray.dpiStatusOff"),
-          dpiEnable: t("tray.dpiEnable"),
-          dpiDisable: t("tray.dpiDisable"),
-          quit: t("tray.quit"),
-          updateTo: t("tray.updateTo"),
-          tipOff: t("tray.tipOff"),
-          tipConnected: t("tray.tipConnected"),
-        },
-      },
-    });
-  } catch (e) {
-    console.warn("syncTrayMenu failed", e);
-  } finally {
-    trayMenuBusy = false;
-  }
-}
-
-// События из Rust-меню трея: смена режима и выбор сервера (только при VPN on).
-(async () => {
-  const ev = window.__TAURI__?.event;
-  if (!ev?.listen) return;
-  try {
-    await ev.listen("tray:set-mode", (e) => {
-      if (typeof e?.payload === "string") changeMode(e.payload);
-    });
-    // Подключиться/Отключиться из трея — тот же путь, что клик по hero-диску.
-    await ev.listen("tray:toggle-vpn", () => { heroDisc?.click(); });
-    // «Обновить до vX» из трея → окно уже показано Rust-обработчиком, открываем модалку.
-    await ev.listen("tray:update", () => { flushPendingUpdate(); });
-    // DPI-обход вкл/выкл из трея — тот же toggleDpi, что в UI; затем рефреш меню.
-    await ev.listen("tray:toggle-dpi", async () => {
-      try { await toggleDpi(); } catch (err) { console.warn("tray dpi toggle failed", err); }
-      syncTrayMenu();
-    });
-    await ev.listen("tray:select-server", async (e) => {
-      const tag = e?.payload;
-      if (!tag || state !== "connected") return;
-      try {
-        await selectProxy("proxy", tag);
-        const src = getActiveSource();
-        const node = src?.kind === "sub" ? (src.nodes.find((n, i) => nodeTag(i, n) === tag) || null) : null;
-        currentEffectiveTag = tag;
-        if (node) { currentEffectiveNode = node; updateHeroForActive(); }
-        toast(t("conn.serverSwitched"), "success", 1200);
-        syncTrayMenu();
-      } catch (err) {
-        toast(t("conn.switchErr", { err: err?.message || err }), "error", 2500);
-      }
-    });
-  } catch (e) { console.warn("tray listeners failed", e); }
-})();
+initTray({
+  getState: () => state,
+  getEffectiveTag: () => currentEffectiveTag,
+  getUpdateVersion: () => pendingUpdate?.version || null,
+  onSetMode: (m) => changeMode(m),
+  onToggleVpn: () => heroDisc?.click(),
+  onUpdateClick: () => flushPendingUpdate(),
+  // Успешный выбор сервера из трея: обновить эффективную ноду + hero/локацию.
+  onServerSelected: (tag, node) => {
+    currentEffectiveTag = tag;
+    if (node) { currentEffectiveNode = node; updateHeroForActive(); }
+  },
+});
 
 heroDisc?.addEventListener("click", async () => {
   if (heroDisc.disabled) return;

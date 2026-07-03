@@ -19,7 +19,78 @@ pub fn clash_secret() -> &'static str {
 }
 
 // ── Public IP info (через прокси, если активен) ────────────
-// Возвращает то, что вернул ipwho.is — обычно содержит {ip, country, city, ...}.
+// Возвращает нормализованный {ip, country, country_code, asn, connection:{asn},
+// success}. Один провайдер — единая точка отказа (free-tier лимиты, досягаемость
+// из-под конкретного exit): перебираем несколько, у каждого свой формат ответа,
+// сводим к общему виду. Фронт (ip-info.js) и localAsn читают именно эти поля.
+const IP_PROVIDERS: &[&str] = &[
+    "https://ipwho.is/",
+    "http://ip-api.com/json/?fields=status,message,country,countryCode,query,as",
+    "https://ipapi.co/json/",
+];
+
+// Достаёт номер ASN из любого формата провайдера: ipwho.is — connection.asn
+// (число); ipapi.co — "asn":"AS13335"; ip-api.com — "as":"AS13335 Cloudflare".
+fn extract_asn(v: &Value) -> Value {
+    if let Some(a) = v.get("connection").and_then(|c| c.get("asn")) {
+        if a.is_number() || a.is_string() {
+            return a.clone();
+        }
+    }
+    for key in ["asn", "as"] {
+        if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
+            let digits: String = s
+                .chars()
+                .skip_while(|c| !c.is_ascii_digit())
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if let Ok(n) = digits.parse::<u64>() {
+                return serde_json::json!(n);
+            }
+        }
+    }
+    Value::Null
+}
+
+// Сводит ответ конкретного провайдера к единому виду. None — провайдер явно
+// сигналит неуспех (ipwho success:false, ip-api status:"fail") или нет IP →
+// пробуем следующего.
+fn normalize_ip(v: &Value) -> Option<Value> {
+    if v.get("success").and_then(|x| x.as_bool()) == Some(false) {
+        return None;
+    }
+    if v.get("status").and_then(|x| x.as_str()) == Some("fail") {
+        return None;
+    }
+    let ip = v
+        .get("ip")
+        .and_then(|x| x.as_str())
+        .or_else(|| v.get("query").and_then(|x| x.as_str()))?;
+    // Полное имя страны: ipapi.co кладёт его в country_name, остальные — в country.
+    let country = v
+        .get("country_name")
+        .and_then(|x| x.as_str())
+        .or_else(|| v.get("country").and_then(|x| x.as_str()))
+        .unwrap_or("");
+    // 2-буквенный код: ipwho — country_code, ip-api — countryCode, ipapi.co —
+    // country (там country это как раз код).
+    let country_code = v
+        .get("country_code")
+        .and_then(|x| x.as_str())
+        .or_else(|| v.get("countryCode").and_then(|x| x.as_str()))
+        .or_else(|| v.get("country").and_then(|x| x.as_str()).filter(|s| s.len() == 2))
+        .unwrap_or("");
+    let asn = extract_asn(v);
+    Some(serde_json::json!({
+        "ip": ip,
+        "country": country,
+        "country_code": country_code,
+        "asn": asn,
+        "connection": { "asn": asn },
+        "success": true,
+    }))
+}
+
 #[tauri::command]
 pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
     let mut b = reqwest::Client::builder()
@@ -34,12 +105,21 @@ pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
         }
     }
     let c = b.build().map_err(|e| format!("client: {e}"))?;
-    let r = c
-        .get("https://ipwho.is/")
-        .send()
-        .await
-        .map_err(|e| format!("req: {e}"))?;
-    r.json::<Value>().await.map_err(|e| format!("json: {e}"))
+
+    let mut last_err = String::from("нет провайдеров IP");
+    for url in IP_PROVIDERS {
+        match c.get(*url).send().await {
+            Ok(r) => match r.json::<Value>().await {
+                Ok(v) => match normalize_ip(&v) {
+                    Some(out) => return Ok(out),
+                    None => last_err = format!("{url}: провайдер вернул неуспех"),
+                },
+                Err(e) => last_err = format!("{url}: json {e}"),
+            },
+            Err(e) => last_err = format!("{url}: req {e}"),
+        }
+    }
+    Err(last_err)
 }
 
 fn client() -> Result<reqwest::Client, String> {
@@ -242,4 +322,56 @@ pub async fn clash_select_proxy(
         return Err(format!("HTTP {status}: {text}"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_ipwho() {
+        let v = serde_json::json!({
+            "ip": "1.2.3.4", "success": true, "country": "Germany",
+            "country_code": "DE", "connection": { "asn": 24940 }
+        });
+        let out = normalize_ip(&v).unwrap();
+        assert_eq!(out["ip"], "1.2.3.4");
+        assert_eq!(out["country_code"], "DE");
+        assert_eq!(out["asn"], 24940);
+        assert_eq!(out["connection"]["asn"], 24940);
+    }
+
+    #[test]
+    fn normalize_ipapi_com() {
+        // ip-api.com: query=ip, countryCode, as="AS13335 Cloudflare"
+        let v = serde_json::json!({
+            "status": "success", "query": "9.9.9.9", "country": "United States",
+            "countryCode": "US", "as": "AS13335 Cloudflare, Inc."
+        });
+        let out = normalize_ip(&v).unwrap();
+        assert_eq!(out["ip"], "9.9.9.9");
+        assert_eq!(out["country_code"], "US");
+        assert_eq!(out["asn"], 13335);
+    }
+
+    #[test]
+    fn normalize_ipapi_co() {
+        // ipapi.co: country=код, country_name=полное, asn="AS15169"
+        let v = serde_json::json!({
+            "ip": "8.8.8.8", "country": "US", "country_name": "United States",
+            "asn": "AS15169"
+        });
+        let out = normalize_ip(&v).unwrap();
+        assert_eq!(out["ip"], "8.8.8.8");
+        assert_eq!(out["country"], "United States");
+        assert_eq!(out["country_code"], "US");
+        assert_eq!(out["asn"], 15169);
+    }
+
+    #[test]
+    fn normalize_rejects_failure() {
+        assert!(normalize_ip(&serde_json::json!({ "success": false })).is_none());
+        assert!(normalize_ip(&serde_json::json!({ "status": "fail" })).is_none());
+        assert!(normalize_ip(&serde_json::json!({ "country": "X" })).is_none());
+    }
 }

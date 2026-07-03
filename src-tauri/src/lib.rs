@@ -22,6 +22,7 @@ use proxy_win as elevation;
 #[cfg(not(target_os = "windows"))]
 use proxy_stub as elevation;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use tauri::{
@@ -163,15 +164,31 @@ struct TraySrv {
 
 /// Грузит флаг страны из ресурсов (flags/<iso>.png, растеризованы из SVG)
 /// для IconMenuItem. Best-effort: нет файла/кода → None (пункт без иконки).
+/// Кэшируем по ISO: меню трея пересобирается на каждое изменение состояния
+/// (connect/смена ноды/DPI), а PNG-флаги неизменны — без кэша это лишний
+/// дисковый I/O на каждую пересборку.
 fn flag_icon(app: &tauri::AppHandle, iso: &Option<String>) -> Option<tauri::image::Image<'static>> {
     let iso = iso.as_ref()?;
     if iso.len() != 2 || !iso.bytes().all(|b| b.is_ascii_lowercase()) {
         return None;
     }
+    static FLAG_CACHE: std::sync::OnceLock<
+        std::sync::Mutex<HashMap<String, Option<tauri::image::Image<'static>>>>,
+    > = std::sync::OnceLock::new();
+    let cache = FLAG_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    if let Some(hit) = cache.lock().unwrap().get(iso).cloned() {
+        return hit;
+    }
     // Флаги — read-only ресурсы рядом с бинарём (<resource_dir>/flags/<iso>.png),
     // как и движок DPI. resource_dir проверен в dpi.rs.
-    let path = app.path().resource_dir().ok()?.join("flags").join(format!("{iso}.png"));
-    tauri::image::Image::from_path(path).ok()
+    let img = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|d| d.join("flags").join(format!("{iso}.png")))
+        .and_then(|p| tauri::image::Image::from_path(p).ok());
+    cache.lock().unwrap().insert(iso.clone(), img.clone());
+    img
 }
 
 /// Строки меню трея — приходят из фронта локализованными (язык интерфейса,

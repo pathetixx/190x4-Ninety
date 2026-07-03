@@ -1,6 +1,9 @@
-// Ninety · публичный IP юзера (через прокси-mode).
-// Тянет ipwho.is через системный мини-прокси sing-box; в TUN-режиме можно вызывать
-// и без proxy-arg — трафик автоматически пойдёт через интерфейс ядра.
+// Ninety · публичный IP юзера (через локальный inbound sing-box).
+// Rust-команда перебирает несколько IP-провайдеров и нормализует ответ. Запрос
+// ВСЕГДА идёт через loopback-прокси sing-box (mixed-in / probe-in) — даже в
+// systemProxy и TUN: reqwest не чтит системный прокси, а собственный трафик
+// Ninety.exe в TUN уходит в direct bypass'ом, поэтому «напрямую» показал бы
+// реальный IP юзера, а не exit. Явный proxyHostPort задаёт main.js.
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
