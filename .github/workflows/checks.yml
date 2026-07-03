@@ -40,6 +40,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+          components: clippy
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -60,4 +61,4 @@ jobs:
 
       - name: cargo clippy (информационно)
         continue-on-error: true
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets

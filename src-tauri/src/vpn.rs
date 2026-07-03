@@ -39,6 +39,106 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
+// Спецификация монитор-таска движка (см. spawn_log_monitor). Три движка
+// (sing-box / xray / naive|TT) читаются одинаково — writer + кольцо последних
+// строк + флаг смерти; различаются лишь баннером, подписью краша и тем, кладём
+// ли stdout в кольцо. Раньше этот блок был скопирован трижды.
+struct MonitorSpec {
+    start_banner: String,
+    death_label: String,
+    death_suffix: &'static str,
+    prefix_stderr: bool, // sing-box метит stderr префиксом «STDERR: »
+    ring_stdout: bool,   // класть ли stdout в кольцо диагностики (sing-box — нет)
+}
+
+impl MonitorSpec {
+    // Мосты xray/naive/TT: и stdout, и stderr — диагностика краша, префикса нет.
+    fn bridge(banner: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            start_banner: banner.into(),
+            death_label: label.into(),
+            death_suffix: "Последние строки:",
+            prefix_stderr: false,
+            ring_stdout: true,
+        }
+    }
+    // sing-box: stdout — обычный лог, кольцо копит только stderr (ошибки).
+    fn core(banner: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            start_banner: banner.into(),
+            death_label: label.into(),
+            death_suffix: "Последние ошибки:",
+            prefix_stderr: true,
+            ring_stdout: false,
+        }
+    }
+}
+
+// Монитор процесса-движка: льёт stdout/stderr в файл (если задан), копит
+// последние строки в кольце на 40 и при Terminated выставляет died_flag с
+// причиной. Один хелпер на все три движка.
+fn spawn_log_monitor(
+    mut rx: tauri::async_runtime::Receiver<CommandEvent>,
+    log_file: Option<PathBuf>,
+    died_flag: Arc<Mutex<Option<String>>>,
+    spec: MonitorSpec,
+) {
+    tauri::async_runtime::spawn(async move {
+        let mut writer = log_file.as_ref().and_then(|p| {
+            std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
+        });
+        if let Some(w) = writer.as_mut() {
+            let _ = writeln!(w, "\n{}", spec.start_banner);
+        }
+        let mut last: Vec<String> = Vec::new();
+        let push = |last: &mut Vec<String>, text: String| {
+            last.push(text);
+            if last.len() > 40 {
+                last.remove(0);
+            }
+        };
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stdout(line) => {
+                    let text = strip_ansi(&String::from_utf8_lossy(&line));
+                    if let Some(w) = writer.as_mut() {
+                        let _ = writeln!(w, "{text}");
+                    }
+                    if spec.ring_stdout {
+                        push(&mut last, text);
+                    }
+                }
+                CommandEvent::Stderr(line) => {
+                    let text = strip_ansi(&String::from_utf8_lossy(&line));
+                    if let Some(w) = writer.as_mut() {
+                        if spec.prefix_stderr {
+                            let _ = writeln!(w, "STDERR: {text}");
+                        } else {
+                            let _ = writeln!(w, "{text}");
+                        }
+                    }
+                    push(&mut last, text);
+                }
+                CommandEvent::Terminated(payload) => {
+                    let msg = format!(
+                        "{} умер (код {:?}). {}\n{}",
+                        spec.death_label,
+                        payload.code,
+                        spec.death_suffix,
+                        last.join("\n")
+                    );
+                    if let Some(w) = writer.as_mut() {
+                        let _ = writeln!(w, "{msg}");
+                    }
+                    *died_flag.lock().unwrap() = Some(msg);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+}
+
 pub struct SingboxState {
     // Child sing-box (sidecar) для ВСЕХ режимов, включая TUN. В TUN-режиме
     // Ninety запущен elevated (Throne-style), поэтому sing-box-child наследует
@@ -177,7 +277,7 @@ async fn spawn_xray(
         .shell()
         .sidecar("xray")
         .map_err(|e| format!("xray sidecar lookup: {e}"))?;
-    let (mut rx, child) = sidecar
+    let (rx, child) = sidecar
         .args(["run", "-c", &path_str])
         .env("NO_COLOR", "1")
         .spawn()
@@ -188,42 +288,7 @@ async fn spawn_xray(
     // logs_disabled (настройка «Полностью отключить логи») → не пишем файл лога;
     // in-memory last для диагностики краша (died_flag) сохраняем.
     let log_file = if logs_disabled { None } else { xray_log_path(app) };
-    tauri::async_runtime::spawn(async move {
-        let mut writer = log_file.as_ref().and_then(|p| {
-            std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
-        });
-        if let Some(w) = writer.as_mut() {
-            let _ = writeln!(w, "\n=== xray start ===");
-        }
-        let mut last: Vec<String> = Vec::new();
-        while let Some(event) = rx.recv().await {
-            match event {
-                CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
-                    let text = strip_ansi(&String::from_utf8_lossy(&line));
-                    if let Some(w) = writer.as_mut() {
-                        let _ = writeln!(w, "{text}");
-                    }
-                    last.push(text);
-                    if last.len() > 40 {
-                        last.remove(0);
-                    }
-                }
-                CommandEvent::Terminated(payload) => {
-                    let msg = format!(
-                        "xray умер (код {:?}). Последние строки:\n{}",
-                        payload.code,
-                        last.join("\n")
-                    );
-                    if let Some(w) = writer.as_mut() {
-                        let _ = writeln!(w, "{msg}");
-                    }
-                    *died_flag.lock().unwrap() = Some(msg);
-                    break;
-                }
-                _ => {}
-            }
-        }
-    });
+    spawn_log_monitor(rx, log_file, died_flag, MonitorSpec::bridge("=== xray start ===", "xray"));
 
     // Дать xray подняться и забиндить socks-инбаунды до старта sing-box,
     // иначе первые urltest'ы xhttp-нод словят connection refused.
@@ -275,7 +340,7 @@ async fn spawn_sidecars(
         } else {
             sidecar.args([cfg_str.as_str()])
         };
-        let (mut rx, child) = cmd
+        let (rx, child) = cmd
             .env("NO_COLOR", "1")
             .spawn()
             .map_err(|e| format!("spawn {bin}: {e}"))?;
@@ -288,42 +353,12 @@ async fn spawn_sidecars(
             log_dir.as_ref().map(|d| d.join(format!("{}.log", spec.kind)))
         };
         let label = format!("{} :{}", spec.kind, spec.port);
-        tauri::async_runtime::spawn(async move {
-            let mut writer = log_file.as_ref().and_then(|p| {
-                std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
-            });
-            if let Some(w) = writer.as_mut() {
-                let _ = writeln!(w, "\n=== {label} start ===");
-            }
-            let mut last: Vec<String> = Vec::new();
-            while let Some(event) = rx.recv().await {
-                match event {
-                    CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
-                        let text = strip_ansi(&String::from_utf8_lossy(&line));
-                        if let Some(w) = writer.as_mut() {
-                            let _ = writeln!(w, "{text}");
-                        }
-                        last.push(text);
-                        if last.len() > 40 {
-                            last.remove(0);
-                        }
-                    }
-                    CommandEvent::Terminated(payload) => {
-                        let msg = format!(
-                            "{label} умер (код {:?}). Последние строки:\n{}",
-                            payload.code,
-                            last.join("\n")
-                        );
-                        if let Some(w) = writer.as_mut() {
-                            let _ = writeln!(w, "{msg}");
-                        }
-                        *died_flag.lock().unwrap() = Some(msg);
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-        });
+        spawn_log_monitor(
+            rx,
+            log_file,
+            died_flag,
+            MonitorSpec::bridge(format!("=== {label} start ==="), label.clone()),
+        );
     }
 
     if !specs.is_empty() {
@@ -522,7 +557,7 @@ pub async fn start_singbox(
         .shell()
         .sidecar("sing-box")
         .map_err(|e| format!("sidecar lookup: {e}"))?;
-    let (mut rx, child) = sidecar
+    let (rx, child) = sidecar
         .args(["run", "-c", &path_str])
         .env("NO_COLOR", "1")
         .spawn()
@@ -534,52 +569,7 @@ pub async fn start_singbox(
     // sing-box при logs_disabled и так молчит (log.disabled в конфиге), но гасим
     // и файловый writer — единообразно с остальными движками.
     let log_file = if logs_disabled { None } else { log_path(&app) };
-    tauri::async_runtime::spawn(async move {
-        let mut writer = log_file.as_ref().and_then(|p| {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(p)
-                .ok()
-        });
-        if let Some(w) = writer.as_mut() {
-            let _ = writeln!(w, "\n=== sing-box start ===");
-        }
-        let mut last_stderr: Vec<String> = Vec::new();
-        while let Some(event) = rx.recv().await {
-            match event {
-                CommandEvent::Stdout(line) => {
-                    let text = strip_ansi(&String::from_utf8_lossy(&line));
-                    if let Some(w) = writer.as_mut() {
-                        let _ = writeln!(w, "{text}");
-                    }
-                }
-                CommandEvent::Stderr(line) => {
-                    let text = strip_ansi(&String::from_utf8_lossy(&line));
-                    if let Some(w) = writer.as_mut() {
-                        let _ = writeln!(w, "STDERR: {text}");
-                    }
-                    last_stderr.push(text);
-                    if last_stderr.len() > 40 {
-                        last_stderr.remove(0);
-                    }
-                }
-                CommandEvent::Terminated(payload) => {
-                    let msg = format!(
-                        "sing-box умер (код {:?}). Последние ошибки:\n{}",
-                        payload.code,
-                        last_stderr.join("\n")
-                    );
-                    if let Some(w) = writer.as_mut() {
-                        let _ = writeln!(w, "{msg}");
-                    }
-                    *died_flag.lock().unwrap() = Some(msg);
-                    break;
-                }
-                _ => {}
-            }
-        }
-    });
+    spawn_log_monitor(rx, log_file, died_flag, MonitorSpec::core("=== sing-box start ===", "sing-box"));
 
     // даём sing-box 800мс чтобы упасть с ошибкой парсинга / биндинга
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
@@ -639,6 +629,24 @@ fn purge_bridge_configs(app: &AppHandle) {
     }
 }
 
+// Стирает singbox-current.json / xray-current.json из app_config_dir. В них
+// UUID/пароли нод и (при активном WARP) приватный WG-ключ — держать их на диске
+// дольше сессии незачем: следующий старт всё равно перезапишет файлы заново.
+fn purge_current_configs(app: &AppHandle) {
+    let Ok(dir) = app.path().app_config_dir() else { return };
+    for name in ["singbox-current.json", "xray-current.json"] {
+        let _ = std::fs::remove_file(dir.join(name));
+    }
+}
+
+// Сбрасывает флаги смерти движков. Без этого причина прошлой смерти жила бы до
+// следующего start_singbox (vpn_last_error/*_status отдавали бы устаревшее).
+fn clear_death_flags(state: &SingboxState) {
+    *state.died.lock().unwrap() = None;
+    *state.xray_died.lock().unwrap() = None;
+    *state.sidecar_died.lock().unwrap() = None;
+}
+
 #[tauri::command]
 pub async fn stop_singbox(app: AppHandle, state: State<'_, SingboxState>) -> Result<(), String> {
     let taken = state.child.lock().unwrap().take();
@@ -651,6 +659,8 @@ pub async fn stop_singbox(app: AppHandle, state: State<'_, SingboxState>) -> Res
     kill_xray(&state);
     kill_sidecars(&state);
     purge_bridge_configs(&app);
+    purge_current_configs(&app);
+    clear_death_flags(&state);
     Ok(())
 }
 
@@ -723,6 +733,8 @@ pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
     kill_xray(state);
     kill_sidecars(state);
     purge_bridge_configs(app);
+    purge_current_configs(app);
+    clear_death_flags(state);
     #[cfg(target_os = "windows")]
     let _ = proxy::set_system_proxy(false, None);
 }

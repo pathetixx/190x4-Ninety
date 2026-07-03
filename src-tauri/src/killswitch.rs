@@ -31,7 +31,15 @@ pub struct KillSwitchState(pub Mutex<Option<isize>>);
 /// же): permit для не запущенного exe инертен, а вот пропущенный permit глушит
 /// протокол намертво — поэтому не гадаем, какие ноды в активном конфиге.
 #[tauri::command]
-pub fn killswitch_arm(state: tauri::State<'_, KillSwitchState>) -> Result<(), String> {
+pub fn killswitch_arm(
+    state: tauri::State<'_, KillSwitchState>,
+    allow_lan: Option<bool>,
+) -> Result<(), String> {
+    // allow_lan=true (по умолчанию — привязан к route.bypassLan во фронте): наряду
+    // с loopback пропускаем и приватные подсети, чтобы armed-блок не рвал принтеры/
+    // NAS/локальные шары. DHCP пропускаем ВСЕГДА — иначе на renew lease рвётся вся
+    // сеть «непонятно почему». В TUN kill switch не поднимается (strict_route).
+    let allow_lan = allow_lan.unwrap_or(true);
     let mut guard = state.0.lock().unwrap();
     if guard.is_some() {
         return Ok(());
@@ -39,12 +47,13 @@ pub fn killswitch_arm(state: tauri::State<'_, KillSwitchState>) -> Result<(), St
     #[cfg(target_os = "windows")]
     {
         let exes = engine_exe_paths()?;
-        let handle = unsafe { win::arm(&exes)? };
+        let handle = unsafe { win::arm(&exes, allow_lan)? };
         *guard = Some(handle);
         Ok(())
     }
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = allow_lan;
         Err("kill switch доступен только на Windows".into())
     }
 }
@@ -141,7 +150,7 @@ mod win {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    pub unsafe fn arm(exe_paths: &[String]) -> Result<isize, String> {
+    pub unsafe fn arm(exe_paths: &[String], allow_lan: bool) -> Result<isize, String> {
         let mut engine = HANDLE::default();
         let mut session: FWPM_SESSION0 = std::mem::zeroed();
         session.flags = FWPM_SESSION_FLAG_DYNAMIC;
@@ -156,7 +165,7 @@ mod win {
             return Err(format!("FwpmEngineOpen0: {rc}"));
         }
 
-        let res = build_filters(engine, exe_paths);
+        let res = build_filters(engine, exe_paths, allow_lan);
         match res {
             Ok(()) => Ok(engine.0 as isize),
             Err(e) => {
@@ -171,7 +180,7 @@ mod win {
         let _ = FwpmEngineClose0(HANDLE(handle as *mut core::ffi::c_void));
     }
 
-    unsafe fn build_filters(engine: HANDLE, exe_paths: &[String]) -> Result<(), String> {
+    unsafe fn build_filters(engine: HANDLE, exe_paths: &[String], allow_lan: bool) -> Result<(), String> {
         // sublayer
         let mut sname = wide("Ninety Kill Switch");
         let mut sub: FWPM_SUBLAYER0 = std::mem::zeroed();
@@ -194,6 +203,20 @@ mod win {
             let mut c = loopback_condition();
             add_filter(engine, &layer, FWP_ACTION_PERMIT, 15, std::slice::from_mut(&mut c))?;
         }
+        // permit DHCP (всегда): без него renew lease рвёт всю сеть. DHCPv4-клиент
+        // держит локальный UDP-порт 68, DHCPv6 — 546. Ставим по matching-слою.
+        {
+            let mut c4 = local_port_condition(68);
+            add_filter(engine, &FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWP_ACTION_PERMIT, 14, std::slice::from_mut(&mut c4))?;
+            let mut c6 = local_port_condition(546);
+            add_filter(engine, &FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWP_ACTION_PERMIT, 14, std::slice::from_mut(&mut c6))?;
+        }
+        // permit LAN (по опции): приватные/link-local/broadcast/multicast подсети,
+        // чтобы блок не резал принтеры, NAS и обнаружение устройств. bypassLan в
+        // sing-box эти пакеты мимо ядра не спасает — они режутся block-all у WFP.
+        if allow_lan {
+            permit_lan(engine)?;
+        }
         // permit каждого движка по app-id (высокий вес): sing-box + мосты
         // xray/naive/trusttunnel_client — внешний коннект делает любой из них.
         for exe in exe_paths {
@@ -205,6 +228,54 @@ mod win {
             FwpmFreeMemory0(&mut (blob as *mut core::ffi::c_void));
         }
         Ok(())
+    }
+
+    // Приватные диапазоны IPv4 (addr/mask в host-order) + IPv6 unique-local и
+    // link-local. broadcast/multicast — для DHCP-offer, mDNS, SSDP-обнаружения.
+    unsafe fn permit_lan(engine: HANDLE) -> Result<(), String> {
+        const V4: &[(u32, u32)] = &[
+            (0x0A00_0000, 0xFF00_0000), // 10.0.0.0/8
+            (0xAC10_0000, 0xFFF0_0000), // 172.16.0.0/12
+            (0xC0A8_0000, 0xFFFF_0000), // 192.168.0.0/16
+            (0xA9FE_0000, 0xFFFF_0000), // 169.254.0.0/16 link-local
+            (0xE000_0000, 0xF000_0000), // 224.0.0.0/4 multicast
+            (0xFFFF_FFFF, 0xFFFF_FFFF), // 255.255.255.255 broadcast
+        ];
+        for &(addr, mask) in V4 {
+            let am = FWP_V4_ADDR_AND_MASK { addr, mask };
+            let mut c: FWPM_FILTER_CONDITION0 = std::mem::zeroed();
+            c.fieldKey = FWPM_CONDITION_IP_REMOTE_ADDRESS;
+            c.matchType = FWP_MATCH_EQUAL;
+            c.conditionValue.r#type = FWP_V4_ADDR_MASK;
+            c.conditionValue.Anonymous.v4AddrMask = &am as *const _ as *mut FWP_V4_ADDR_AND_MASK;
+            add_filter(engine, &FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWP_ACTION_PERMIT, 12, std::slice::from_mut(&mut c))?;
+        }
+        // IPv6: fc00::/7 (ULA), fe80::/10 (link-local), ff00::/8 (multicast).
+        const V6: &[([u8; 16], u8)] = &[
+            ([0xFC, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 7),
+            ([0xFE, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 10),
+            ([0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 8),
+        ];
+        for &(addr, prefix) in V6 {
+            let am = FWP_V6_ADDR_AND_MASK { addr, prefixLength: prefix };
+            let mut c: FWPM_FILTER_CONDITION0 = std::mem::zeroed();
+            c.fieldKey = FWPM_CONDITION_IP_REMOTE_ADDRESS;
+            c.matchType = FWP_MATCH_EQUAL;
+            c.conditionValue.r#type = FWP_V6_ADDR_MASK;
+            c.conditionValue.Anonymous.v6AddrMask = &am as *const _ as *mut FWP_V6_ADDR_AND_MASK;
+            add_filter(engine, &FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWP_ACTION_PERMIT, 12, std::slice::from_mut(&mut c))?;
+        }
+        Ok(())
+    }
+
+    // Условие «локальный порт равен N» (для DHCP-permit).
+    unsafe fn local_port_condition(port: u16) -> FWPM_FILTER_CONDITION0 {
+        let mut c: FWPM_FILTER_CONDITION0 = std::mem::zeroed();
+        c.fieldKey = FWPM_CONDITION_IP_LOCAL_PORT;
+        c.matchType = FWP_MATCH_EQUAL;
+        c.conditionValue.r#type = FWP_UINT16;
+        c.conditionValue.Anonymous.uint16 = port;
+        c
     }
 
     unsafe fn add_filter(
