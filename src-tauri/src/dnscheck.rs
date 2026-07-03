@@ -84,22 +84,30 @@ fn parse_target(dns: &str) -> Target {
     Target::Udp(ensure_port(s, 53))
 }
 
-async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> bool {
-    let Ok(sock) = UdpSocket::bind("0.0.0.0:0").await else { return false };
-    if sock.connect(host_port).await.is_err() {
-        return false;
-    }
-    if sock.send(query).await.is_err() {
-        return false;
-    }
+// Ok = резолвер ответил записями; Err = причина смерти (уходит фронту в detail
+// для console-диагностики — bool терял её, и «почему dead» было не выяснить).
+async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> Result<(), String> {
+    let sock = UdpSocket::bind("0.0.0.0:0")
+        .await
+        .map_err(|e| format!("bind: {e}"))?;
+    sock.connect(host_port)
+        .await
+        .map_err(|e| format!("connect {host_port}: {e}"))?;
+    sock.send(query).await.map_err(|e| format!("send: {e}"))?;
     let mut buf = [0u8; 512];
     match tokio::time::timeout(timeout, sock.recv(&mut buf)).await {
-        Ok(Ok(n)) => answer_count(&buf[..n]) > 0,
-        _ => false,
+        Ok(Ok(n)) if answer_count(&buf[..n]) > 0 => Ok(()),
+        Ok(Ok(_)) => Err("ответ без записей (ANCOUNT=0)".into()),
+        Ok(Err(e)) => Err(format!("recv: {e}")),
+        Err(_) => Err("timeout".into()),
     }
 }
 
-async fn probe_doh(url: &str, query: &[u8], timeout: Duration) -> bool {
+// ⚠️ DoH-серверы (Quad9, Yandex) ТРЕБУЮТ HTTP/2: на HTTP/1.1 Quad9 отдаёт 505,
+// Yandex рвёт соединение. Поэтому reqwest в Cargo.toml собран с фичей "http2" —
+// без неё эта проба хоронила ЛЮБОЙ живой DoH (watchdog спамил фолбэком). Если
+// урезаешь фичи reqwest — http2 не трогать.
+async fn probe_doh(url: &str, query: &[u8], timeout: Duration) -> Result<(), String> {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     let b64 = URL_SAFE_NO_PAD.encode(query);
     let full = if url.contains('?') {
@@ -107,45 +115,58 @@ async fn probe_doh(url: &str, query: &[u8], timeout: Duration) -> bool {
     } else {
         format!("{url}?dns={b64}")
     };
-    let Ok(client) = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(3))
+    let client = reqwest::Client::builder()
+        // connect не длиннее общего бюджета (раньше connect 3с > timeout 2.5с).
+        .connect_timeout(timeout.min(Duration::from_secs(3)))
         .timeout(timeout)
         .build()
-    else {
-        return false;
-    };
-    match client
+        .map_err(|e| format!("client: {e}"))?;
+    let resp = client
         .get(full)
         .header("accept", "application/dns-message")
         .send()
         .await
-    {
-        Ok(r) if r.status().is_success() => {
-            let body = r.bytes().await.unwrap_or_default();
-            answer_count(&body) > 0
-        }
-        _ => false,
+        .map_err(|e| format!("request: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
+    }
+    let body = resp.bytes().await.map_err(|e| format!("body: {e}"))?;
+    if answer_count(&body) > 0 {
+        Ok(())
+    } else {
+        Err("ответ без записей (ANCOUNT=0)".into())
     }
 }
 
-/// Пробует зарезолвить `host` через резолвер `dns`. Возвращает:
+#[derive(serde::Serialize)]
+pub struct DnsProbeResult {
+    pub status: &'static str, // "ok" | "dead" | "skip"
+    /// Причина при "dead" — фронт пишет её в console для диагностики.
+    pub detail: Option<String>,
+}
+
+/// Пробует зарезолвить `host` через резолвер `dns`. status:
 ///   "ok"   — резолвер ответил записями (жив);
-///   "dead" — не ответил в срок / ошибка (мёртв → watchdog переключит резерв);
+///   "dead" — не ответил в срок / ошибка (detail = причина);
 ///   "skip" — формат резолвера пробой не покрыт (tls/tcp/quic/local) — не трогаем.
 #[tauri::command]
 pub async fn dns_probe(
     dns: String,
     host: String,
     timeout_ms: Option<u64>,
-) -> Result<String, String> {
-    let timeout = Duration::from_millis(timeout_ms.unwrap_or(2500).clamp(300, 10_000));
+) -> Result<DnsProbeResult, String> {
+    let timeout = Duration::from_millis(timeout_ms.unwrap_or(4000).clamp(300, 10_000));
     let query = build_dns_query(&host);
-    let alive = match parse_target(&dns) {
-        Target::Skip => return Ok("skip".into()),
+    let res = match parse_target(&dns) {
+        Target::Skip => return Ok(DnsProbeResult { status: "skip", detail: None }),
         Target::Udp(hp) => probe_udp(&hp, &query, timeout).await,
         Target::Doh(url) => probe_doh(&url, &query, timeout).await,
     };
-    Ok(if alive { "ok".into() } else { "dead".into() })
+    Ok(match res {
+        Ok(()) => DnsProbeResult { status: "ok", detail: None },
+        Err(e) => DnsProbeResult { status: "dead", detail: Some(e) },
+    })
 }
 
 #[cfg(test)]
