@@ -320,6 +320,7 @@ export const ja = {
     relaunching: "管理者として再起動中…",
     failed: "管理者権限を取得できませんでした: {err}",
     killSwitchHint: "Kill Switch には管理者権限が必要です — 設定で「常に管理者として実行」を有効にしてください",
+    killSwitchProxyHint: "プロキシモードでは、Kill Switch は手動でプロキシに向けたアプリ以外のすべての通信を遮断します。全体を保護するにはシステムプロキシまたは VPN · TUN を使ってください。",
   },
 
   wifi: {

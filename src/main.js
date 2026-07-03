@@ -51,6 +51,8 @@ import { bus } from "/lib/bus.js";
 import { openQualityScope } from "/lib/quality-scope.js";
 import { initHeroHud } from "/lib/hero-hud.js";
 import { parseDeepLink } from "/lib/deeplink.js";
+import { applyKillSwitch, maybeWarnKillSwitchProxy } from "/lib/kill-switch.js";
+import { initWifiGuard, forgetWifiAutoRestore } from "/lib/wifi-guard.js";
 import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t } from "/lib/i18n/index.js";
 import { detectRegion } from "/lib/i18n/region-detect.js";
 
@@ -234,11 +236,11 @@ modeSeg?.addEventListener("click", async (e) => {
 });
 
 // Единая смена режима подключения — из сегмента на главной И из меню трея.
-// auto=true — переключение сделала Wi-Fi-авто-защита (см. checkWifiProtect);
+// auto=true — переключение сделала Wi-Fi-авто-защита (см. /lib/wifi-guard.js);
 // ручной выбор юзера отменяет её авто-возврат прежнего режима.
 async function changeMode(requested, { auto = false } = {}) {
   if (!["proxy", "systemProxy", "tun"].includes(requested)) return;
-  if (!auto) { try { localStorage.removeItem(WIFI_PREV_MODE_KEY); } catch {} }
+  if (!auto) forgetWifiAutoRestore();
   // TUN (Throne-style) требует чтобы всё приложение было запущено от админа.
   // Если мы не elevated — ensureElevatedForTun перезапустит Ninety с UAC
   // (и вернёт false: текущий процесс умирает, дальше идти незачем).
@@ -258,75 +260,14 @@ async function changeMode(requested, { auto = false } = {}) {
   if (requested !== prevMode) reconnectForSourceChange(t("conn.switchMode"));
 }
 
-// ── Авто-защита на чужих Wi-Fi (III.3) ──────────────────────
-// Политика во фронте (Rust только отдаёт текущую сеть): на ОТКРЫТОЙ сети, не
-// входящей в доверенные, при включённой опции — авто-включаем TUN (changeMode сам
-// поднимет UAC). Защищённые сети не трогаем. lastWifiHandled гасит повтор на той
-// же сети, чтобы не дёргать UAC по кругу. Прежний режим запоминаем в
-// WIFI_PREV_MODE_KEY и возвращаем, когда сеть снова безопасна (раньше авто-TUN
-// оставался навсегда); ручная смена режима отменяет возврат (см. changeMode).
-const WIFI_TRUSTED_KEY = "ninety.wifi.trusted";
-const WIFI_PREV_MODE_KEY = "ninety.wifi.prevMode";
-function wifiTrusted() {
-  try { return JSON.parse(localStorage.getItem(WIFI_TRUSTED_KEY) || "[]"); }
-  catch { return []; }
-}
-let lastWifiHandled = null;
-async function checkWifiProtect() {
-  try {
-    if (!loadOptions().general?.autoProtectWifi) return;
-    const w = await invoke("current_wifi");
-    const onOpenUntrusted = !!w?.connected && !w.secured && !wifiTrusted().includes(w.ssid);
-    if (!onOpenUntrusted) {
-      lastWifiHandled = null;
-      // Сеть безопасна (или Wi-Fi отключён) — вернуть режим, который был до авто-TUN.
-      const prev = localStorage.getItem(WIFI_PREV_MODE_KEY);
-      if (prev) {
-        try { localStorage.removeItem(WIFI_PREV_MODE_KEY); } catch {}
-        if (getMode() === "tun") {
-          toast(t("wifi.autoRestore"), "info", 3500);
-          changeMode(prev, { auto: true });
-        }
-        // getMode() !== "tun": юзер сам ушёл из TUN — просто забываем ключ.
-      }
-      return;
-    }
-    if (getMode() === "tun") return; // уже защищены
-    if (lastWifiHandled === w.ssid) return; // уже отреагировали на эту сеть
-    lastWifiHandled = w.ssid;
-    try { localStorage.setItem(WIFI_PREV_MODE_KEY, getMode()); } catch {}
-    toast(t("wifi.openProtect", { ssid: w.ssid || t("wifi.noName") }), "warn", 4000);
-    changeMode("tun", { auto: true });
-  } catch {}
-}
-setInterval(checkWifiProtect, 25_000);
-window.addEventListener("focus", checkWifiProtect);
-checkWifiProtect();
+// ── Авто-защита на чужих Wi-Fi (III.3) — /lib/wifi-guard.js ──
+// changeMode инжектится (замыкает setMode/UI/реконнект); forgetWifiAutoRestore
+// зовётся из changeMode при ручной смене режима, отменяя авто-возврат.
+initWifiGuard({ changeMode });
 
-// ── Kill Switch (I.2) ───────────────────────────────────────
-// В proxy/systemProxy при включённой опции на время соединения поднимаем WFP-блок
-// (весь исходящий кроме loopback и sing-box.exe). В TUN не нужен (strict_route).
-// WFP требует админ-прав: если не elevated — не армим и подсказываем тостом (раз).
-let killSwitchHintShown = false;
-async function applyKillSwitch(connected) {
-  try {
-    if (!connected) { await invoke("killswitch_disarm"); return; }
-    if (!loadOptions().general?.killSwitch || getMode() === "tun") {
-      await invoke("killswitch_disarm");
-      return;
-    }
-    if (!(await invoke("is_elevated"))) {
-      if (!killSwitchHintShown) {
-        killSwitchHintShown = true;
-        toast(t("elev.killSwitchHint"), "warn", 6000);
-      }
-      return;
-    }
-    // allowLan привязан к route.bypassLan (та же семантика «не трогать локалку»);
-    // DHCP kill switch пропускает всегда — рвать renew lease нельзя.
-    await invoke("killswitch_arm", { allowLan: loadOptions().route?.bypassLan !== false });
-  } catch (e) { console.warn("kill switch", e); }
-}
+// ── Kill Switch (I.2) — /lib/kill-switch.js ─────────────────
+// applyKillSwitch(connected) зовётся из setState; maybeWarnKillSwitchProxy — из
+// settings onChange при включении опции в режиме «Прокси».
 
 // TUN поднимает сетевой интерфейс — для этого sing-box (наш child) должен
 // работать от админа, значит и всё приложение тоже. Если уже elevated — ок,
@@ -539,6 +480,9 @@ if (settingsRoot) {
   settingsCtl = mountSettings(settingsRoot, {
     onChange: (path) => {
       backupSoon(); // настройки изменились — обновить снапшот-бэкап состояния
+      // Kill switch в режиме «Прокси» режет весь трафик, кроме приложений, вручную
+      // направленных в прокси — предупреждаем при включении (один раз за сессию).
+      if (path === "general.killSwitch") maybeWarnKillSwitchProxy();
       // Тогглы periodic re-scan и его интервал — не трогают sing-box, только
       // фоновый JS-loop. Пересоздаём loop сразу, реконнект не нужен.
       if (path === "warp.autoRescan" || path === "warp.autoRescanIntervalMin" || path === "warp.autoRescanThresholdMs") {

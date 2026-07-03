@@ -320,6 +320,7 @@ export const pl = {
     relaunching: "Ponowne uruchamianie jako administrator…",
     failed: "Nie udało się uzyskać uprawnień administratora: {err}",
     killSwitchHint: "Kill Switch wymaga uprawnień administratora — włącz „Zawsze uruchamiaj jako administrator” w Ustawieniach",
+    killSwitchProxyHint: "W trybie Proxy Kill Switch blokuje cały ruch poza aplikacjami ręcznie skierowanymi na proxy. Aby chronić cały system, użyj Proxy systemowego lub VPN · TUN.",
   },
 
   wifi: {

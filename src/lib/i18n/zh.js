@@ -320,6 +320,7 @@ export const zh = {
     relaunching: "正在以管理员身份重启…",
     failed: "无法获取管理员权限：{err}",
     killSwitchHint: "Kill Switch 需要管理员权限——请在设置中开启“始终以管理员身份运行”",
+    killSwitchProxyHint: "在代理模式下，Kill Switch 会拦截除手动指向代理的应用外的所有流量。如需全局保护，请使用系统代理或 VPN · TUN。",
   },
 
   wifi: {
