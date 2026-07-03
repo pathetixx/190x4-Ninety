@@ -24,8 +24,7 @@ dist/
 *.msi
 *.exe.tmp
 
-# Lockfiles we don't want to track from VPS edits
-# (CI installs deps fresh anyway)
+# Lockfile intentionally untracked (no runtime deps; CI installs fresh)
 package-lock.json
 
 # Python bytecode (gen_strategies.py)

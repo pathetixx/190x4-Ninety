@@ -2,20 +2,20 @@ name: Build Ninety
 
 on:
   push:
-    # Билдим только на push alpha-тегов. Раньше слушали и branches: [main] —
-    # каждый релизный пуш (git push origin main --tags) триггерил 2 параллельных
-    # билда на одном SHA. main-билд "для проверки" был фиктивным: шёл параллельно
-    # с tag-билдом, а не до него — ничего не защищал. Для ad-hoc проверки без
-    # тега есть workflow_dispatch.
+    # Build only on tag pushes. We used to also listen on branches: [main] —
+    # every release push (git push origin main --tags) triggered 2 parallel
+    # builds of the same SHA. The main build "for validation" was fictional:
+    # it ran in parallel with the tag build, not before it, so it protected
+    # nothing. For ad-hoc runs without a tag there is workflow_dispatch.
     tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: write
 
-# Push в main + tag для одного SHA триггерят два run'а параллельно.
-# Они дерутся за один cache-key Swatinem/rust-cache и второй падает на
-# "Restoring cache...". Очередь по SHA решает без cancel/rerun вручную.
+# A push to main + a tag on the same SHA trigger two runs in parallel. They
+# fight over the same Swatinem/rust-cache key and the second one dies on
+# "Restoring cache...". Queueing by SHA fixes it without manual cancel/rerun.
 concurrency:
   group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: false
@@ -56,9 +56,9 @@ jobs:
         shell: pwsh
         run: |
           $tag = "v1.13.0.h5"
-          # Пин на конкретный commit: теги на GitHub перемещаемы. Бинарь идёт в
-          # подписанный инсталлятор и исполняется под LocalSystem — supply-chain
-          # критичен. Если апстрим переместит тег, SHA не сойдётся и сборка упадёт.
+          # Pin to an exact commit: GitHub tags are movable. The binary ships in
+          # the signed installer and runs under LocalSystem — supply chain is
+          # critical. If upstream moves the tag, the SHA mismatch fails the build.
           $pinnedSha = "9b6b004adfb079db2134b682f9b4ff42434c2f38"
           $tags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,badlinkname,tfogo_checklinkname0,with_grpc,with_awg"
           Write-Host "Cloning hiddify-sing-box $tag…"
@@ -66,26 +66,28 @@ jobs:
           if (-not $?) { Write-Error "git clone failed"; exit 1 }
           Push-Location hsb
           $head = (git rev-parse HEAD).Trim()
-          if ($head -ne $pinnedSha) { Write-Error "hiddify-sing-box $tag = $head, ожидался $pinnedSha (тег перемещён?)"; exit 1 }
+          if ($head -ne $pinnedSha) { Write-Error "hiddify-sing-box $tag = $head, expected $pinnedSha (tag moved?)"; exit 1 }
           Write-Host "Verified hiddify-sing-box commit $head."
-          # Патч (после SHA-проверки, supply-chain аудит апстрима сохранён):
-          # одиночный GET /proxies/{name}/delay (getProxyDelay) в апстреме меряет
-          # через context.Background() → IsUnifiedDelayFromContext=false → один HEAD
-          # с холодным dial+TLS вместо чистого второго RTT (завышение ~3x: список 30,
-          # главная 100+). Флаг unified живёт в ctx (common/urltest/context.go) и
-          # ставится в box.go:145 — но ПОСЛЕ создания clash-сервера (~box.go:138),
-          # поэтому ни server.ctx, ни r.Context() его не несут (alpha52 на r.Context()
-          # был холостым). Группа же работает: её g.ctx создаётся уже после box.go:145.
-          # Фикс: явно навешиваем флаг на server.ctx (в нём box-сервисы: RootCAs/NTP),
-          # как делает box.go. Одиночный замер перемеряет КАЖДЫЙ вызов (нет interval-
-          # gate группы, которая молчит 600с) → пинг на главной живой И точный.
+          # Patch (applied after the SHA check, so the upstream supply-chain audit
+          # still holds): the single GET /proxies/{name}/delay (getProxyDelay)
+          # upstream measures via context.Background() →
+          # IsUnifiedDelayFromContext=false → one HEAD with a cold dial+TLS instead
+          # of a clean second RTT (~3x inflation: node list 30, home 100+). The
+          # unified flag lives in ctx (common/urltest/context.go) and is set in
+          # box.go:145 — AFTER the clash server is created (~box.go:138), so neither
+          # server.ctx nor r.Context() carries it (alpha52 patching r.Context() was
+          # a no-op). Groups are fine: their g.ctx is created after box.go:145.
+          # Fix: attach the flag to server.ctx explicitly (it holds the box
+          # services: RootCAs/NTP), the same way box.go does. The single probe
+          # re-measures EVERY call (no group interval-gate that stays silent for
+          # 600s) → home-screen ping is both live AND accurate.
           $pf = "experimental/clashapi/proxies.go"
           $old = "ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))"
           $new = "ctx, cancel := context.WithTimeout(urltest.ContextWithIsUnifiedDelay(server.ctx), time.Millisecond*time.Duration(timeout))"
           $content = Get-Content $pf -Raw
-          if ($content -notmatch [regex]::Escape($old)) { Write-Error "patch target not found in $pf (форк изменился — пересними патч)"; exit 1 }
+          if ($content -notmatch [regex]::Escape($old)) { Write-Error "patch target not found in $pf (fork changed — redo the patch)"; exit 1 }
           Set-Content $pf $content.Replace($old, $new) -NoNewline
-          Write-Host "Patched getProxyDelay → unified delay на server.ctx."
+          Write-Host "Patched getProxyDelay → unified delay on server.ctx."
           $env:GOTOOLCHAIN = "local"
           $env:CGO_ENABLED = "0"
           go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o sing-box.exe ./cmd/sing-box
@@ -99,11 +101,11 @@ jobs:
       - name: Build xray-core from source (two-core — xhttp)
         shell: pwsh
         run: |
-          # xhttp в форке sing-box (packet-up) тащит только пинг; реальный поток
-          # рассыпается. Эталон — xray-core, поэтому xhttp-ноды гоним через него
-          # (two-core: sing-box → loopback socks-мост → xray). Тот же зрелый
-          # xhttp, что в Throne; самый свежий тег, что собирается на Go 1.25
-          # (v26.* требуют go 1.26). Чистый Go, статика, без cronet.
+          # xhttp in the sing-box fork (packet-up) only sustains pings; real
+          # streams fall apart. The reference implementation is xray-core, so
+          # xhttp nodes go through it (two-core: sing-box → loopback socks
+          # bridge → xray). Same mature xhttp as in Throne; the newest tag that
+          # builds on Go 1.25 (v26.* require go 1.26). Pure Go, static, no cronet.
           $tag = "v25.12.8"
           $pinnedSha = "81f8f398c7b2b845853b1e85087c6122acc6db0b"
           Write-Host "Cloning Xray-core $tag…"
@@ -111,7 +113,7 @@ jobs:
           if (-not $?) { Write-Error "git clone xray failed"; exit 1 }
           Push-Location xray-core
           $head = (git rev-parse HEAD).Trim()
-          if ($head -ne $pinnedSha) { Write-Error "Xray-core $tag = $head, ожидался $pinnedSha (тег перемещён?)"; exit 1 }
+          if ($head -ne $pinnedSha) { Write-Error "Xray-core $tag = $head, expected $pinnedSha (tag moved?)"; exit 1 }
           Write-Host "Verified Xray-core commit $head."
           $env:GOTOOLCHAIN = "local"
           $env:CGO_ENABLED = "0"
@@ -125,22 +127,23 @@ jobs:
       - name: Download wintun.dll
         shell: pwsh
         run: |
-          # Wintun — BSD-licensed user-mode driver от WireGuard. Нужен sing-box.exe
-          # для TUN-инбаунда (с alpha55 sing-box поднимает TUN сам, как child
-          # элевированного Ninety — Throne-style). DLL кладётся рядом с Ninety.exe
-          # = рядом с sing-box.exe в install dir, sing-box грузит её по имени.
+          # Wintun — BSD-licensed user-mode driver by WireGuard. sing-box.exe
+          # needs it for the TUN inbound (since alpha55 sing-box brings TUN up
+          # itself, as a child of elevated Ninety — Throne-style). The DLL sits
+          # next to Ninety.exe = next to sing-box.exe in the install dir;
+          # sing-box loads it by name.
           $url = "https://www.wintun.net/builds/wintun-0.14.1.zip"
           $expectedSha = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
           Write-Host "Downloading $url"
           Invoke-WebRequest -Uri $url -OutFile wintun.zip -UseBasicParsing
-          # wintun.dll грузится сервисом под LocalSystem — проверяем целостность
-          # загрузки (wintun.net без подписи артефакта, поэтому пин по sha256).
+          # wintun.dll is loaded under LocalSystem — verify download integrity
+          # (wintun.net ships no artifact signature, hence the sha256 pin).
           $sha = (Get-FileHash wintun.zip -Algorithm SHA256).Hash.ToLower()
-          if ($sha -ne $expectedSha) { Write-Error "wintun.zip sha256 = $sha, ожидался $expectedSha"; exit 1 }
+          if ($sha -ne $expectedSha) { Write-Error "wintun.zip sha256 = $sha, expected $expectedSha"; exit 1 }
           Write-Host "Verified wintun.zip sha256."
           Expand-Archive -Path wintun.zip -DestinationPath wintun -Force
           $src = "wintun/wintun/bin/amd64/wintun.dll"
-          if (-not (Test-Path $src)) { Write-Error "wintun.dll не найден после распаковки"; exit 1 }
+          if (-not (Test-Path $src)) { Write-Error "wintun.dll not found after extraction"; exit 1 }
           Copy-Item $src "src-tauri/binaries/wintun.dll" -Force
           $size = (Get-Item "src-tauri/binaries/wintun.dll").Length
           Write-Host "wintun.dll bundled ($([math]::Round($size/1KB,1)) KB)."
@@ -148,20 +151,20 @@ jobs:
       - name: Download protocol sidecars (naive + trusttunnel_client)
         shell: pwsh
         run: |
-          # naive (klzgrad, BSD/Chromium-stack) и trusttunnel_client (AdGuard,
-          # Apache-2.0) — sidecar-клиенты для naive/TrustTunnel-нод. Оба слушают
-          # локальный SOCKS5, sing-box ходит к ним loopback-мостом (как xray для
-          # xhttp). Пин версий + sha256 (релизы без подписи артефакта).
+          # naive (klzgrad, BSD/Chromium stack) and trusttunnel_client (AdGuard,
+          # Apache-2.0) — sidecar clients for naive/TrustTunnel nodes. Both listen
+          # on a local SOCKS5; sing-box reaches them over a loopback bridge (like
+          # xray for xhttp). Version pins + sha256 (releases ship unsigned).
           function Get-Sidecar($url, $sha, $zip, $exeName, $out) {
             Write-Host "Downloading $url"
             Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
             $h = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-            if ($h -ne $sha) { Write-Error "$zip sha256 = $h, ожидался $sha"; exit 1 }
+            if ($h -ne $sha) { Write-Error "$zip sha256 = $h, expected $sha"; exit 1 }
             Write-Host "Verified $zip sha256."
             $dst = "extract-$exeName"
             Expand-Archive -Path $zip -DestinationPath $dst -Force
             $src = Get-ChildItem -Path $dst -Recurse -Filter $exeName | Select-Object -First 1
-            if (-not $src) { Write-Error "$exeName не найден в $zip"; exit 1 }
+            if (-not $src) { Write-Error "$exeName not found in $zip"; exit 1 }
             Copy-Item $src.FullName $out -Force
             $size = (Get-Item $out).Length
             Write-Host "$exeName bundled ($([math]::Round($size/1MB,1)) MB)."
@@ -175,13 +178,13 @@ jobs:
             "0e11150e77c083c828593e6fab7f76a159dd55b9ad9101dd70c4568da3cdf11b" `
             tt.zip "trusttunnel_client.exe" "src-tauri/binaries/trusttunnel_client-x86_64-pc-windows-msvc.exe"
 
-      - name: Generate build-info (паспорт сборки для «О программе»)
+      - name: Generate build-info (About page build id)
         shell: pwsh
         run: |
-          # Запекаем реальные commit/date/version в src/lib/build-info.js ПЕРЕД
-          # сборкой (frontendDist=../src, бандлера нет → файл едет как есть).
-          # core/channel/platform НЕ трогаем — они единственным источником живут
-          # в самом build-info.js (core версионируется рядом с пином sing-box).
+          # Bake the real commit/date/version into src/lib/build-info.js BEFORE
+          # the build (frontendDist=../src, no bundler → the file ships as is).
+          # core/channel/platform stay untouched — build-info.js is their single
+          # source of truth (core is versioned next to the sing-box pin).
           $sha = (git rev-parse --short HEAD).Trim()
           $date = (Get-Date).ToUniversalTime().ToString("dd.MM.yyyy")
           $cfg = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
@@ -215,18 +218,21 @@ jobs:
           if (-not (Test-Path $sigPath)) { Write-Error "Signature not found: $sigPath"; exit 1 }
           $sig = (Get-Content $sigPath -Raw).Trim()
           $url = "https://github.com/pathetixx/190x4-Ninety/releases/download/$tag/$($nsis.Name)"
-          # Тянем body релиза — для нормальных changelog'ов в кастомной модалке.
-          # ВАЖНО: gh выводит body построчно → PowerShell делает массив строк,
-          # ConvertTo-Json потом сериализует массив. Tauri updater ждёт строку,
-          # иначе latest.json парсится как "обновлений нет". -join "`n" склеивает.
-          # Источник notes с приоритетом — чтобы не было chicken-egg «релиза ещё нет»:
-          #   1) аннотация тега — доступна на этапе билда ВСЕГДА (релиз создаётся позже);
-          #   2) тело релиза — фолбэк для re-run, когда релиз уже опубликован;
-          #   3) плейсхолдер.
-          # Прежняя версия читала ТОЛЬКО тело релиза → на первом билде notes уходили
-          # пустыми в latest.json (а значит и в OTA/R2/GitLab). Аннотированный тег чинит.
+          # Pull the release body — proper changelogs for the custom update modal.
+          # IMPORTANT: gh prints the body line by line → PowerShell turns it into
+          # a string array and ConvertTo-Json then serializes an array. The Tauri
+          # updater expects a string, otherwise latest.json parses as "no updates".
+          # -join "`n" glues it back together.
+          # Notes source, by priority — avoids the "release doesn't exist yet"
+          # chicken-and-egg:
+          #   1) tag annotation — ALWAYS available at build time (the release is created later);
+          #   2) release body — fallback for re-runs when the release is already published;
+          #   3) placeholder.
+          # The previous version read ONLY the release body → on the first build the
+          # notes went into latest.json empty (and thus into OTA/R2/GitLab too).
+          # The annotated tag fixes that.
           $notes = ""
-          # гарантируем наличие объекта аннотированного тега даже при shallow-checkout
+          # make sure the annotated tag object exists even on a shallow checkout
           git fetch origin "+refs/tags/$($tag):refs/tags/$($tag)" --force 2>$null
           $global:LASTEXITCODE = 0
           $tagMsg = (git tag -l $tag --format='%(contents)' 2>$null | Out-String).Trim()
@@ -240,7 +246,7 @@ jobs:
             } catch { $notes = "" }
             $global:LASTEXITCODE = 0
           }
-          if ([string]::IsNullOrWhiteSpace($notes)) { $notes = "Заметки релиза недоступны." }
+          if ([string]::IsNullOrWhiteSpace($notes)) { $notes = "Release notes are not available." }
           $json = [ordered]@{
             version = $version
             notes = $notes
@@ -278,16 +284,17 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.sig
             latest.json
           fail_on_unmatched_files: true
-          # prerelease ОБЯЗАН быть false: updater-эндпоинт — releases/latest/
-          # download/latest.json (GitHub-редирект на "Latest"), а GitHub
-          # исключает prerelease из "Latest". prerelease:true → /latest/ отдаст
-          # старый latest.json → OTA сломается. "alpha"-статус держим в названии
-          # релиза/заметках, а не во флаге. Схема тегов — semver vX.Y.Z.
+          # prerelease MUST be false: the updater endpoint is releases/latest/
+          # download/latest.json (a GitHub redirect to "Latest"), and GitHub
+          # excludes prereleases from "Latest". prerelease:true → /latest/ serves
+          # a stale latest.json → OTA breaks. The "alpha" status lives in the
+          # release title/notes, not in the flag. Tag scheme — semver vX.Y.Z.
           prerelease: false
           make_latest: "true"
 
-      # РФ-доступный fallback OTA: тот же .exe + latest.json (url→r2.dev) в R2.
-      # Идёт ПОСЛЕ публикации github-релиза → провал R2 не валит первичный OTA.
+      # RU-reachable OTA fallback: same .exe + latest.json (url→r2.dev) in R2.
+      # Runs AFTER the GitHub release is published → an R2 failure can't break
+      # the primary OTA.
       - name: Mirror update to Cloudflare R2 (RU fallback)
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
@@ -301,11 +308,12 @@ jobs:
           python -m pip install --quiet boto3
           python scripts/r2_mirror.py
 
-      # РФ-доступный ИСТОЧНИК OTA: тот же .exe + latest.json (url→gitlab) в GitLab
-      # generic package registry публичного проекта (анонимная отдача). gitlab.com из
-      # РФ доступен, в отличие от r2.dev. Это первичный эндпоинт в tauri.conf.json;
-      # github — резерв. R2-шаг выше оставлен для легаси-сборок ≤0.1.75 (у них вшит
-      # порядок [r2, github] — если перестать обновлять R2, их апдейтер застрянет).
+      # RU-reachable OTA SOURCE: same .exe + latest.json (url→gitlab) in the
+      # public project's GitLab generic package registry (anonymous download).
+      # gitlab.com is reachable from RU, unlike r2.dev. This is the primary
+      # endpoint in tauri.conf.json; GitHub is the backup. The R2 step above
+      # stays for legacy builds ≤0.1.75 (they ship the [r2, github] order —
+      # dropping R2 updates would strand their updater).
       - name: Mirror update to GitLab (RU source)
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash

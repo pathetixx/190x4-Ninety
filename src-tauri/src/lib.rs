@@ -6,6 +6,7 @@ mod dpi;
 mod netproc;
 mod quality;
 mod scanner;
+mod secrets;
 mod subscription;
 mod url_handler;
 mod vpn;

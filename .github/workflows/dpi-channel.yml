@@ -1,19 +1,20 @@
 name: DPI channel (Flowseal sync)
 
-# Робот «канала данных»: раз в сутки смотрит последний релиз Flowseal, пересобирает
-# strategies.json (gen_strategies.py) + собирает списки и .bin-пейлоады, подписывает
-# нашим minisign-ключом (тем же TAURI_SIGNING_PRIVATE_KEY, что и OTA) и публикует в
-# prerelease-релиз `dpi-channel`. Ninety тянет этот бандл на лету, проверяет подпись и
-# применяет — БЕЗ обновления приложения. Это ТОЛЬКО данные (стратегии/списки/.bin).
-# Движок (winws.exe/WinDivert) тут НЕ трогается — он едет через подписанный OTA-релиз
-# (см. engine-watch.yml: следит за bol-van/zapret-win-bundle, открывает PR).
+# Data-channel robot: once a day it checks the latest Flowseal release, rebuilds
+# strategies.json (gen_strategies.py), collects the lists and .bin payloads,
+# signs the bundle with our minisign key (the same TAURI_SIGNING_PRIVATE_KEY as
+# OTA) and publishes it to the `dpi-channel` prerelease. Ninety pulls this
+# bundle on the fly, verifies the signature and applies it — WITHOUT an app
+# update. This is DATA ONLY (strategies/lists/.bin). The engine
+# (winws.exe/WinDivert) is NOT touched here — it ships via the signed OTA
+# release (see engine-watch.yml: watches bol-van/zapret-win-bundle, opens a PR).
 #
-# prerelease=true важно: dpi-channel НЕ должен стать "Latest", иначе перебьёт
-# updater-эндпоинт приложения (releases/latest/download/latest.json).
+# prerelease=true matters: dpi-channel must NOT become "Latest", otherwise it
+# would shadow the app updater endpoint (releases/latest/download/latest.json).
 
 on:
   schedule:
-    - cron: "17 5 * * *" # ежедневно 05:17 UTC
+    - cron: "17 5 * * *" # daily, 05:17 UTC
   workflow_dispatch:
 
 permissions:
@@ -29,41 +30,41 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Последний релиз Flowseal
+      - name: Latest Flowseal release
         id: fl
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag=$(gh api repos/Flowseal/zapret-discord-youtube/releases/latest --jq .tag_name)
-          [ -n "$tag" ] || { echo "::error::не удалось получить тег Flowseal"; exit 1; }
+          [ -n "$tag" ] || { echo "::error::failed to resolve the Flowseal tag"; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Flowseal latest = $tag"
 
-      - name: Скачать и распаковать релиз
+      - name: Download and unpack the release
         run: |
           set -euo pipefail
           tag="${{ steps.fl.outputs.tag }}"
           url="https://github.com/Flowseal/zapret-discord-youtube/releases/download/${tag}/zapret-discord-youtube-${tag}.zip"
           curl -fsSL -o fl.zip "$url"
           mkdir -p fl && unzip -q fl.zip -d fl
-          # .bat лежат в корне zip; нормализуем путь до каталога с general*.bat
+          # .bat files live in the zip root; normalize to the dir with general*.bat
           d=$(dirname "$(find fl -iname 'general.bat' | head -1)")
           echo "FL_DIR=$d" >> "$GITHUB_ENV"
 
-      - name: Собрать бандл канала (только данные)
+      - name: Assemble the channel bundle (data only)
         run: |
           set -euo pipefail
           mkdir -p bundle/lists bundle/bin
           python3 src-tauri/dpi/gen_strategies.py "$FL_DIR" bundle/strategies.json
-          # базовые списки (user-списки живут на клиенте, их не возим)
+          # base lists only (user lists live on the client, we don't ship them)
           for f in list-general.txt list-google.txt list-exclude.txt ipset-exclude.txt; do
             [ -f "$FL_DIR/lists/$f" ] && cp "$FL_DIR/lists/$f" "bundle/lists/$f" || true
           done
-          # .bin-пейлоады стратегий (инертные данные, версионно-связаны с strategies.json)
+          # strategy .bin payloads (inert data, version-coupled with strategies.json)
           cp "$FL_DIR"/bin/*.bin bundle/bin/ 2>/dev/null || true
           echo "${{ steps.fl.outputs.tag }}" > bundle/version.txt
 
-      - name: Страж — все ли .bin на месте
+      - name: Guard — all referenced .bin present
         run: |
           python3 - <<'PY'
           import json, re, os, sys
@@ -76,12 +77,12 @@ jobs:
                   if m: need.add(m.group(1))
           missing = sorted(need - have)
           if missing:
-              print("::error::strategies ссылаются на отсутствующие .bin: " + ", ".join(missing))
+              print("::error::strategies reference missing .bin files: " + ", ".join(missing))
               sys.exit(1)
-          print(f"bin OK: {len(have)} пейлоадов в бандле, {len(need)} использовано стратегиями")
+          print(f"bin OK: {len(have)} payloads in the bundle, {len(need)} used by strategies")
           PY
 
-      - name: Упаковать + чексумма
+      - name: Pack + checksum
         id: pack
         run: |
           set -euo pipefail
@@ -90,33 +91,33 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "bundle sha256=$sha"
 
-      - name: Пропустить, если не изменилось
+      - name: Skip if unchanged
         id: chk
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           prev=$(gh release view dpi-channel --json body --jq .body 2>/dev/null | grep -oP 'sha256=\K\S+' || echo "")
           if [ "$prev" = "${{ steps.pack.outputs.sha }}" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "канал уже актуален — выходим"
+            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "channel is up to date — exiting"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Поставить tauri signer
+      - name: Install tauri signer
         if: steps.chk.outputs.changed == 'true'
         run: npm install -g @tauri-apps/cli@^2
 
-      - name: Подписать бандл (minisign, наш OTA-ключ)
+      - name: Sign the bundle (minisign, our OTA key)
         if: steps.chk.outputs.changed == 'true'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
-          # → dpi-channel.zip.sig (base64 minisign-подпись; Rust её декодирует и верифицирует)
+          # → dpi-channel.zip.sig (base64 minisign signature; Rust decodes and verifies it)
           tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "" dpi-channel.zip
           test -f dpi-channel.zip.sig
 
-      - name: Опубликовать в релиз dpi-channel
+      - name: Publish to the dpi-channel release
         if: steps.chk.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -126,11 +127,11 @@ jobs:
           if gh release view dpi-channel >/dev/null 2>&1; then
             gh release edit dpi-channel --prerelease --notes "$notes"
           else
-            gh release create dpi-channel --prerelease --title "DPI channel (данные стратегий)" --notes "$notes"
+            gh release create dpi-channel --prerelease --title "DPI channel (strategy data)" --notes "$notes"
           fi
-          # version.txt — отдельным ассетом: dpi_check_update читает его напрямую
-          # (дёшево, без скачивания всего бандла) и сравнивает с локальной версией.
-          # Источник проверки = источник установки (этот же канал) → нет «битого круга».
+          # version.txt as a separate asset: dpi_check_update reads it directly
+          # (cheap, no full bundle download) and compares with the local version.
+          # Check source = install source (this same channel) → no "broken loop".
           cp bundle/version.txt version.txt
           gh release upload dpi-channel dpi-channel.zip dpi-channel.zip.sig version.txt --clobber
-          echo "опубликован канал: flowseal=${{ steps.fl.outputs.tag }}"
+          echo "channel published: flowseal=${{ steps.fl.outputs.tag }}"

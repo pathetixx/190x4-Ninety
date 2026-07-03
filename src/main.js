@@ -541,6 +541,15 @@ function pathNeedsRestart(path) {
 const RECONNECT_DEBOUNCE_MS = 1200;
 let pendingReconnectTimer = null;
 
+// Единое гашение ядра: системный прокси → ядро → UI в idle. Все пути
+// отключения (ручное, авто-реконнект, watchdog, отказ моста, фейл старта)
+// идут через него, чтобы сброс системного прокси не потерялся ни в одном.
+async function shutdownCore() {
+  try { await invoke("set_system_proxy", { enable: false }); } catch {}
+  try { await invoke("stop_singbox"); } catch (e) { console.warn("stop failed", e); }
+  setState("idle");
+}
+
 function scheduleAutoReconnect() {
   if (state !== "connected" && state !== "connecting") return;
   needsReconnect = true;
@@ -555,9 +564,7 @@ async function performAutoReconnect(reason = t("conn.applyingSettings")) {
   if (state !== "connected" && state !== "connecting") return;
   connectEpoch++; // инвалидировать возможный start_singbox в полёте
   toast(reason, "info", 0, { group: "conn", connecting: true });
-  try { await invoke("set_system_proxy", { enable: false }); } catch {}
-  try { await invoke("stop_singbox"); } catch {}
-  setState("idle");
+  await shutdownCore();
   needsReconnect = false;
   applyReconnectUI();
   setTimeout(() => heroDisc?.click(), 60);
@@ -592,9 +599,7 @@ function bridgeReconnectAllowed() {
 // Бюджет исчерпан — мост падает системно, реконнекты не лечат. Закрываем
 // туннель целиком (как при смерти sing-box): честная ошибка вместо вечного цикла.
 async function stopForBridgeLoop() {
-  try { await invoke("set_system_proxy", { enable: false }); } catch {}
-  try { await invoke("stop_singbox"); } catch {}
-  setState("idle");
+  await shutdownCore();
   toast(t("conn.bridgeLoop"), "error", 8000, {
     group: "conn",
     desc: t("conn.bridgeLoopDesc"),
@@ -617,10 +622,9 @@ async function healthTick() {
   try {
     const ok = await invoke("singbox_running");
     if (!ok) {
+      // Причину смерти читаем ДО shutdownCore: stop_singbox сбрасывает флаги.
       const why = await invoke("vpn_last_error").catch(() => null);
-      try { await invoke("set_system_proxy", { enable: false }); } catch {}
-      try { await invoke("stop_singbox"); } catch {}
-      setState("idle");
+      await shutdownCore();
       toast(t("conn.coreStopped"), "error", 7000, {
         group: "conn",
         desc: t("conn.coreStoppedDesc"),
@@ -1939,9 +1943,7 @@ heroDisc?.addEventListener("click", async () => {
   // RECONNECT-режим: рестарт ядра с новыми опциями
   if (needsReconnect && (state === "connected" || state === "connecting")) {
     connectEpoch++; // инвалидировать возможный start_singbox в полёте
-    try { await invoke("set_system_proxy", { enable: false }); } catch {}
-    try { await invoke("stop_singbox"); } catch {}
-    setState("idle");
+    await shutdownCore();
     needsReconnect = false;
     applyReconnectUI();
     // мгновенно стартуем заново
@@ -2034,17 +2036,13 @@ heroDisc?.addEventListener("click", async () => {
         return;
       }
       console.error("start failed", e);
-      setState("idle");
+      await shutdownCore();
       toast(t("conn.startFail"), "error", 4500, { desc: t("conn.startFailDesc") });
-      try { await invoke("stop_singbox"); } catch {}
-      try { await invoke("set_system_proxy", { enable: false }); } catch {}
       switchView("logs");
     }
   } else if (state === "connecting" || state === "connected") {
     connectEpoch++; // отмена/дисконнект: инвалидировать возможный start в полёте
-    try { await invoke("set_system_proxy", { enable: false }); } catch {}
-    try { await invoke("stop_singbox"); } catch (e) { console.warn("stop failed", e); }
-    setState("idle");
+    await shutdownCore();
     toast(t("conn.disconnected"), "info", 2000, { group: "conn", desc: t("conn.disconnectedDesc") });
     notify(t("conn.notifyDisconnected"), t("conn.notifyDisconnectedBody"));
   }
@@ -2144,8 +2142,6 @@ setInterval(backupNow, 10 * 60_000);
     const enabled = await invoke("autostart_is_enabled");
     const opts = loadOptions();
     if (typeof enabled === "boolean" && opts.general?.autostart !== enabled) {
-      // updateOption ленивый импорт — путь из options.js
-      const { updateOption } = await import("/lib/options.js");
       updateOption("general.autostart", enabled);
     }
   } catch {}

@@ -4,6 +4,7 @@
 import { detectAddInput, addSubscriptionFromUrl, parseSubscriptionBody } from "/lib/subscriptions.js";
 import { addProfileFromVless, addTrustTunnelFromToml, setActiveKind } from "/lib/singbox.js";
 import { t } from "/lib/i18n/index.js";
+import { toast } from "/lib/toast.js";
 
 function $(id) { return document.getElementById(id); }
 
@@ -99,6 +100,9 @@ async function handleInput(raw, userOverride = {}) {
   // localStorage.setItem("ninety.subscriptions.active", sub.id) — addSubscriptionFromUrl сам ставит при первом
   // но при добавлении не первой подписки активной не делает; принудительно ставим:
   localStorage.setItem("ninety.subscriptions.active", sub.id);
+  // http:// — адрес и ключи подписки едут открытым текстом (виден провайдеру,
+  // и каждый рефреш тоже). Не блокируем (http-панели существуют), но предупреждаем.
+  if (/^http:\/\//i.test(decision.url)) toast(t("add.httpWarn"), "warn", 6000);
   return { type: "sub", message: t("add.msgSub", { name: sub.name, n: sub.profiles.length }) };
 }
 

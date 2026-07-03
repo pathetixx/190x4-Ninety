@@ -103,16 +103,29 @@ fn storage_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("warp.json"))
 }
 
+// warp.json хранится DPAPI-блобом (см. secrets.rs): внутри приватный WG-ключ и
+// access_token CF — plaintext на диске им не место. Легаси-файл (plaintext-JSON
+// от прежних версий) читаем как есть и сразу перешифровываем.
 fn read_info(app: &AppHandle) -> Option<WarpInfo> {
     let p = storage_path(app).ok()?;
-    let s = std::fs::read_to_string(&p).ok()?;
-    serde_json::from_str(&s).ok()
+    let bytes = std::fs::read(&p).ok()?;
+    if crate::secrets::is_plaintext_json(&bytes) {
+        let info: WarpInfo = serde_json::from_slice(&bytes).ok()?;
+        // Миграция на DPAPI (best-effort). На не-Windows seal = passthrough,
+        // перезапись ничего не меняет — пропускаем.
+        #[cfg(target_os = "windows")]
+        let _ = write_info(app, &info);
+        return Some(info);
+    }
+    let plain = crate::secrets::unseal(&bytes).ok()?;
+    serde_json::from_slice(&plain).ok()
 }
 
 fn write_info(app: &AppHandle, info: &WarpInfo) -> Result<(), String> {
     let p = storage_path(app)?;
-    let s = serde_json::to_string_pretty(info).map_err(|e| format!("serialize: {e}"))?;
-    std::fs::write(&p, s).map_err(|e| format!("write {}: {}", p.display(), e))
+    let s = serde_json::to_string(info).map_err(|e| format!("serialize: {e}"))?;
+    let sealed = crate::secrets::seal(s.as_bytes())?;
+    std::fs::write(&p, sealed).map_err(|e| format!("write {}: {}", p.display(), e))
 }
 
 fn delete_info(app: &AppHandle) -> Result<(), String> {
@@ -218,6 +231,21 @@ pub async fn warp_register(
     app: AppHandle,
     license: Option<String>,
 ) -> Result<WarpInfo, String> {
+    // Ключ WARP+ — ровно 26 символов. Раньше ключ иной длины молча уходил в
+    // ветку бесплатного WARP (юзер думал, что активировал WARP+) — теперь это
+    // честная ошибка ДО регистрации. UI дублирует проверку локализованно.
+    let license = license
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty());
+    if let Some(l) = license.as_deref() {
+        if l.len() != 26 {
+            return Err(format!(
+                "WARP+ license key must be 26 characters (got {})",
+                l.len()
+            ));
+        }
+    }
+
     // 1) Удалить старое устройство если было (best-effort)
     if let Some(old) = read_info(&app) {
         let _ = cf_delete(&old.account_id, &old.access_token).await;
@@ -229,15 +257,9 @@ pub async fn warp_register(
     // 3) POST /reg
     let reg = cf_register(&pub_b64).await?;
 
-    // 4) Опциональная активация WARP+
-    // Ключ WARP+ — ровно 26 символов. Если юзер ввёл что-то иной длины, раньше
-    // это молча уходило в ветку бесплатного WARP (юзер думал, что активировал+).
-    // Логируем факт игнора, чтобы причина была видна в диагностике.
-    if let Some(l) = license.as_deref().filter(|l| !l.is_empty() && l.len() != 26) {
-        eprintln!("warp: license ключ длины {} проигнорирован (ожидается 26) — активация WARP+ пропущена", l.len());
-    }
+    // 4) Опциональная активация WARP+ (длина ключа уже провалидирована выше).
     let (warp_plus, account_type, license_used) = match &license {
-        Some(l) if l.len() == 26 => {
+        Some(l) => {
             let patch = cf_patch_account(&reg.id, &reg.token, l).await?;
             (
                 patch.warp_plus || reg.account.warp_plus,

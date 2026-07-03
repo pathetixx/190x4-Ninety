@@ -326,6 +326,12 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
     passive.length = 0;
     lastProbeAt = Date.now(); // дать туннелю осесть перед первой пробой
     cachedAsn = null;
+    // Прогрев ASN сразу: learnedStartIndex читает ключ обучения СИНХРОННО в
+    // начале лесенки (learnKeySync), а cachedAsn раньше заполнялся только в
+    // commitWin — первая лесенка каждой сессии искала запись под "unknown:час"
+    // и выученная ступень не применялась. Fire-and-forget: до первой лесенки
+    // (минимум BAD_STREAK проб) ответ успевает осесть в кэше.
+    actions.localAsn?.().then((a) => { cachedAsn = a || "unknown"; }).catch(() => {});
   }
   function onIdle() {
     running = false;

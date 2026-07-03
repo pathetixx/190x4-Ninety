@@ -298,6 +298,12 @@ export function mountSettings(root, opts = {}) {
       registerBtn.textContent = t("settings.warp.registering");
       try {
         const license = licenseInput?.value?.trim() || null;
+        // Ключ WARP+ — ровно 26 символов; иная длина раньше молча регистрировала
+        // бесплатный WARP. Rust дублирует проверку, здесь — локализованно и до сети.
+        if (license && license.length !== 26) {
+          alert(t("settings.warp.licenseLen", { n: license.length }));
+          return;
+        }
         await invoke("warp_register", { license });
         await refresh();
         onChange("warp.registered", true);
