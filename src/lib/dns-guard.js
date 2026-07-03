@@ -30,7 +30,13 @@ const FALLBACKS = [
   "https://77.88.8.8/dns-query",        // Yandex DoH (крайний резерв)
 ];
 
-const PROBE_TIMEOUT_MS = 2500;
+const PROBE_TIMEOUT_MS = 4000;
+// Все резервы легли = скорее всего нет сети вообще. Не спамим: тост не чаще
+// раза в 30 мин, watchdog после этого отступает на 15 мин.
+const ALL_DEAD_TOAST_GAP_MS = 30 * 60_000;
+const ALL_DEAD_BACKOFF_MS = 15 * 60_000;
+let lastAllDeadToastAt = 0;
+let allDeadBackoffUntil = 0;
 
 // Короткое человекочитаемое имя DNS для тоста.
 function prettyDns(dns) {
@@ -42,8 +48,15 @@ function prettyDns(dns) {
 
 async function probe(dns) {
   try {
-    return await invoke("dns_probe", { dns, host: CONTROL_HOST, timeoutMs: PROBE_TIMEOUT_MS });
-  } catch { return "skip"; }
+    const r = await invoke("dns_probe", { dns, host: CONTROL_HOST, timeoutMs: PROBE_TIMEOUT_MS });
+    // Причину смерти — в console: без неё «почему dead» не выяснить (так и
+    // отловили бы 505 от HTTP/1.1-пробы сразу, а не по жалобе на тосты).
+    if (r?.status === "dead") console.warn("[dns-guard] проба dead:", dns, r?.detail || "");
+    return r?.status || "skip";
+  } catch (e) {
+    console.warn("[dns-guard] dns_probe invoke failed:", e?.message || e);
+    return "skip";
+  }
 }
 
 // Проверяет текущий direct-DNS; если он "dead" — ищет первый рабочий резерв,
@@ -54,6 +67,9 @@ export async function ensureWorkingDirectDns({ toast, onlyIf } = {}) {
   const cur = loadOptions().dns?.directAddress || "";
   const st = await probe(cur);
   if (st !== "dead") return null; // ok / skip — не вмешиваемся
+  // Перепроверка: не переключаемся по одиночному сбою (сеть моргнула, пакет
+  // потерялся) — dead признаём только по двум провалам подряд.
+  if ((await probe(cur)) !== "dead") return null;
   if (onlyIf && !onlyIf()) return null;
 
   for (const cand of FALLBACKS) {
@@ -66,8 +82,13 @@ export async function ensureWorkingDirectDns({ toast, onlyIf } = {}) {
     });
     return cand;
   }
-  // Все резервы легли тоже — честно сообщаем, настройку не трогаем.
-  toast?.(t("dns.allDead"), "error", 7000, { desc: t("dns.allDeadDesc") });
+  // Все резервы легли тоже — настройку не трогаем; сообщаем сдержанно
+  // (гейт по времени), watchdog отступает — иначе тост долбил каждый тик.
+  allDeadBackoffUntil = Date.now() + ALL_DEAD_BACKOFF_MS;
+  if (Date.now() - lastAllDeadToastAt >= ALL_DEAD_TOAST_GAP_MS) {
+    lastAllDeadToastAt = Date.now();
+    toast?.(t("dns.allDead"), "error", 7000, { desc: t("dns.allDeadDesc") });
+  }
   return null;
 }
 
@@ -80,10 +101,11 @@ export function startDnsGuard({ toast, isConnected, onDnsSwitched, intervalMs = 
   stopDnsGuard();
   timer = setInterval(async () => {
     if (inFlight || !isConnected?.()) return;
+    if (Date.now() < allDeadBackoffUntil) return; // после all-dead — отступаем
     inFlight = true;
     try {
-      const cur = loadOptions().dns?.directAddress || "";
-      if ((await probe(cur)) !== "dead") return; // жив/skip — ничего не делаем
+      // ensureWorkingDirectDns сам делает быстрый выход по первой ok-пробе и
+      // double-check перед переключением — отдельная предпроба не нужна.
       const next = await ensureWorkingDirectDns({ toast, onlyIf: isConnected });
       if (next) onDnsSwitched?.(next);
     } catch { /* фоновая задача — ошибки не эскалируем */ }

@@ -30,7 +30,9 @@ serde_json = "1"
 tokio = { version = "1", features = ["time", "sync", "rt", "macros", "net", "io-util"] }
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json"] }
+# http2 ОБЯЗАТЕЛЕН: DoH-серверы (Quad9/Yandex) отвергают HTTP/1.1 (505/обрыв),
+# без него dns_probe считал живой DoH-резолвер мёртвым — watchdog спамил фолбэком.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json", "http2"] }
 base64 = "0.22"
 # Проверка подписи канала стратегий (minisign — тот же ключ, что у OTA-апдейтера).
 minisign-verify = "0.2"
