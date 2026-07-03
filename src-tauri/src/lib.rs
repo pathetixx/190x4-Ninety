@@ -1,6 +1,7 @@
 mod backup;
 mod clash;
 mod clash_stream;
+mod dnscheck;
 mod dpi;
 mod netproc;
 mod quality;
@@ -580,6 +581,7 @@ pub fn run() {
             warp::warp_reset,
             scanner::warp_scan_endpoints,
             quality::probe_quality,
+            dnscheck::dns_probe,
             dpi::dpi_strategies,
             dpi::dpi_domains_count,
             dpi::dpi_start,

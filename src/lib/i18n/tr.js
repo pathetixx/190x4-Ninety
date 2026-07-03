@@ -323,6 +323,14 @@ export const tr = {
     killSwitchProxyHint: "Proxy modunda Kill Switch, proxy'ye elle yönlendirdiğin uygulamalar dışında tüm trafiği engeller. Sistem geneli koruma için Sistem Proxy'si veya VPN · TUN kullan.",
   },
 
+  dns: {
+    switched: "DNS yanıt vermiyordu — {dns} adresine geçildi",
+    switchedDesc: "Doğrudan sorgu çözümleyicisi çalışan bir yedeğe alındı",
+    allDead: "Yedek DNS sunucuları da erişilemez durumda",
+    allDeadDesc: "Bağlantıyı kontrol edin veya Ayarlar'dan DNS'i elle değiştirin",
+    reconnect: "DNS değiştiriliyor…",
+  },
+
   wifi: {
     openProtect: "Açık ağ “{ssid}” — koruma (TUN) etkinleştiriliyor",
     noName: "adsız",

@@ -323,6 +323,14 @@ export const it = {
     killSwitchProxyHint: "In modalità Proxy il Kill Switch blocca tutto il traffico tranne le app che hai puntato al proxy manualmente. Per una protezione globale usa Proxy di sistema o VPN · TUN.",
   },
 
+  dns: {
+    switched: "Il DNS non rispondeva — passato a {dns}",
+    switchedDesc: "Resolver delle richieste dirette spostato su una riserva funzionante",
+    allDead: "Anche i DNS di riserva non sono raggiungibili",
+    allDeadDesc: "Controlla la connessione o cambia il DNS nelle Impostazioni manualmente",
+    reconnect: "Cambio DNS…",
+  },
+
   wifi: {
     openProtect: "Rete aperta «{ssid}» — attivazione della protezione (TUN)",
     noName: "senza nome",

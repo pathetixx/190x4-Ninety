@@ -323,6 +323,14 @@ export const en = {
     killSwitchProxyHint: "In Proxy mode Kill Switch blocks all traffic except apps you pointed at the proxy manually. For system-wide protection use System Proxy or VPN · TUN.",
   },
 
+  dns: {
+    switched: "DNS wasn't responding — switched to {dns}",
+    switchedDesc: "Direct-query resolver moved to a working backup",
+    allDead: "Backup DNS servers are down too",
+    allDeadDesc: "Check your connection or change DNS in Settings manually",
+    reconnect: "Switching DNS…",
+  },
+
   wifi: {
     openProtect: "Open network “{ssid}” — turning on protection (TUN)",
     noName: "unnamed",

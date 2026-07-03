@@ -323,6 +323,14 @@ export const ja = {
     killSwitchProxyHint: "プロキシモードでは、Kill Switch は手動でプロキシに向けたアプリ以外のすべての通信を遮断します。全体を保護するにはシステムプロキシまたは VPN · TUN を使ってください。",
   },
 
+  dns: {
+    switched: "DNS が応答しませんでした — {dns} に切り替えました",
+    switchedDesc: "直接クエリのリゾルバーを稼働中の予備に切り替えました",
+    allDead: "予備の DNS も応答しません",
+    allDeadDesc: "接続を確認するか、設定で DNS を手動で変更してください",
+    reconnect: "DNS を切り替え中…",
+  },
+
   wifi: {
     openProtect: "オープンネットワーク「{ssid}」 — 保護（TUN）を有効化中",
     noName: "名前なし",
