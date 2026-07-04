@@ -42,6 +42,7 @@ export const es = {
     secured: "Protegido",
     apply: "Aplicar ajustes",
     ipTooltip: "{country} · haz clic para mostrar la IP 20 s",
+    ipGeoOff: "Consultas de geolocalización desactivadas en ajustes",
   },
   heroAria: {
     connect: "Conectar",
@@ -669,6 +670,8 @@ export const es = {
       wifiHint: "Al conectar a una red abierta (sin contraseña), Ninety activa el modo VPN · TUN automáticamente. Las redes protegidas (casa/oficina) se dejan en paz. Requiere permisos de administrador (UAC). Al volver a una red segura, el modo anterior se restaura automáticamente.",
       killTitle: "Kill Switch",
       killHint: "Experimental. En los modos «Proxy» y «Proxy del sistema»: si el núcleo VPN falla de repente, se bloquea todo el tráfico salvo el propio túnel — tus datos no se filtrarán a la red abierta. Requiere permisos de administrador. No hace falta en modo TUN.",
+      geoTitle: "No consultar mi IP ni país",
+      geoHint: "Ninety no contactará servicios externos para detectar tu IP, país y proveedor. El recuadro de IP en la pantalla principal quedará vacío y el ajuste automático de la mejor conexión será menos preciso.",
       testUrlTitle: "URL de prueba de conexión",
       testUrlHint: "Cualquier endpoint HTTP/HTTPS usado para comprobar el acceso",
       testIntTitle: "Intervalo de prueba (s)",

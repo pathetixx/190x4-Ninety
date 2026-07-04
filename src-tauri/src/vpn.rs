@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -122,12 +123,15 @@ fn spawn_log_monitor(
         if let Some(w) = writer.as_mut() {
             write_capped(w, &mut written, &format!("\n{}", spec.start_banner));
         }
-        let mut last: Vec<String> = Vec::new();
-        let push = |last: &mut Vec<String>, text: String| {
-            last.push(text);
-            if last.len() > 40 {
-                last.remove(0);
+        // Кольцо последних строк для death-диагностики. VecDeque, а не Vec:
+        // при переполнении срезаем голову за O(1) (pop_front) — Vec::remove(0)
+        // сдвигал бы весь буфер на каждую строку сверх кэпа.
+        let mut last: VecDeque<String> = VecDeque::with_capacity(40);
+        let push = |last: &mut VecDeque<String>, text: String| {
+            if last.len() == 40 {
+                last.pop_front();
             }
+            last.push_back(text);
         };
         while let Some(event) = rx.recv().await {
             match event {
@@ -157,7 +161,7 @@ fn spawn_log_monitor(
                         spec.death_label,
                         payload.code,
                         spec.death_suffix,
-                        last.join("\n")
+                        last.make_contiguous().join("\n")
                     );
                     if let Some(w) = writer.as_mut() {
                         write_capped(w, &mut written, &msg);
@@ -420,7 +424,8 @@ pub async fn singbox_log_path(app: AppHandle) -> Result<String, String> {
 }
 
 // Читает хвост файла (последние tail_bytes), отрезая первую обрезанную строку.
-fn read_tail(path: &std::path::Path, tail_bytes: Option<u64>) -> Result<String, String> {
+// pub(crate): dpi.rs переиспользует для dpi.log вместо чтения файла целиком.
+pub(crate) fn read_tail(path: &std::path::Path, tail_bytes: Option<u64>) -> Result<String, String> {
     if !path.exists() {
         return Ok(String::new());
     }
@@ -696,8 +701,9 @@ pub async fn stop_singbox(app: AppHandle, state: State<'_, SingboxState>) -> Res
     Ok(())
 }
 
-#[tauri::command]
-pub fn singbox_running(state: State<'_, SingboxState>) -> bool {
+// Внутренние вычисления статусов — переиспользуются одиночными командами и
+// агрегатом health_snapshot (один IPC-роунд-трип для watchdog'а вместо четырёх).
+fn compute_singbox_running(state: &SingboxState) -> bool {
     if state.child.lock().unwrap().is_some() {
         // Хэндл child не чистится при смерти процесса — монитор-таск лишь
         // выставляет died. Без этой проверки singbox_running возвращал бы true
@@ -706,6 +712,66 @@ pub fn singbox_running(state: State<'_, SingboxState>) -> bool {
         return state.died.lock().unwrap().is_none();
     }
     false
+}
+
+fn compute_xray_status(state: &SingboxState) -> &'static str {
+    if state.xray_child.lock().unwrap().is_none() {
+        return "none";
+    }
+    if state.xray_died.lock().unwrap().is_some() {
+        "died"
+    } else {
+        "alive"
+    }
+}
+
+fn compute_sidecar_status(state: &SingboxState) -> &'static str {
+    if state.sidecars.lock().unwrap().is_empty() {
+        return "none";
+    }
+    if state.sidecar_died.lock().unwrap().is_some() {
+        "died"
+    } else {
+        "alive"
+    }
+}
+
+fn compute_last_error(state: &SingboxState) -> Option<String> {
+    if let Some(e) = state.died.lock().unwrap().clone() {
+        return Some(e);
+    }
+    if let Some(e) = state.xray_died.lock().unwrap().clone() {
+        return Some(e);
+    }
+    state.sidecar_died.lock().unwrap().clone()
+}
+
+#[tauri::command]
+pub fn singbox_running(state: State<'_, SingboxState>) -> bool {
+    compute_singbox_running(&state)
+}
+
+// Агрегат статусов ядер за один вызов — watchdog фронта раньше дёргал
+// singbox_running / xray_status / sidecar_status / vpn_last_error четырьмя
+// отдельными invoke на каждом тике (раз в 5с всю сессию). last_error читаем
+// всегда: фронт использует его только при singbox_running=false, но лишний
+// clone дешевле второго round-trip'а.
+#[derive(serde::Serialize)]
+pub struct HealthSnapshot {
+    pub singbox_running: bool,
+    pub xray: &'static str,
+    pub sidecar: &'static str,
+    pub last_error: Option<String>,
+}
+
+#[tauri::command]
+pub fn health_snapshot(state: State<'_, SingboxState>) -> HealthSnapshot {
+    HealthSnapshot {
+        singbox_running: compute_singbox_running(&state),
+        xray: compute_xray_status(&state),
+        sidecar: compute_sidecar_status(&state),
+        last_error: compute_last_error(&state),
+    }
 }
 
 #[tauri::command]
@@ -720,14 +786,7 @@ pub async fn set_system_proxy(enable: bool, host_port: Option<String>) -> Result
 // child-хэндл при смерти не чистится, поэтому различаем по флагу xray_died.
 #[tauri::command]
 pub fn xray_status(state: State<'_, SingboxState>) -> &'static str {
-    if state.xray_child.lock().unwrap().is_none() {
-        return "none";
-    }
-    if state.xray_died.lock().unwrap().is_some() {
-        "died"
-    } else {
-        "alive"
-    }
+    compute_xray_status(&state)
 }
 
 // Статус sidecar-клиентов naive/TT для health-watchdog'а (аналог xray_status):
@@ -736,26 +795,13 @@ pub fn xray_status(state: State<'_, SingboxState>) -> &'static str {
 //   "died"  — хотя бы один клиент завершился (мост мёртв → реконнект).
 #[tauri::command]
 pub fn sidecar_status(state: State<'_, SingboxState>) -> &'static str {
-    if state.sidecars.lock().unwrap().is_empty() {
-        return "none";
-    }
-    if state.sidecar_died.lock().unwrap().is_some() {
-        "died"
-    } else {
-        "alive"
-    }
+    compute_sidecar_status(&state)
 }
 
 // Последняя причина смерти ядра (sing-box приоритетнее xray/sidecar) — для тоста.
 #[tauri::command]
 pub fn vpn_last_error(state: State<'_, SingboxState>) -> Option<String> {
-    if let Some(e) = state.died.lock().unwrap().clone() {
-        return Some(e);
-    }
-    if let Some(e) = state.xray_died.lock().unwrap().clone() {
-        return Some(e);
-    }
-    state.sidecar_died.lock().unwrap().clone()
+    compute_last_error(&state)
 }
 
 pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {

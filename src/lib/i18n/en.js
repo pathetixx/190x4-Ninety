@@ -42,6 +42,7 @@ export const en = {
     secured: "Protected",
     apply: "Apply settings",
     ipTooltip: "{country} · click to show the IP for 20 sec",
+    ipGeoOff: "Geo lookups disabled in settings",
   },
   heroAria: {
     connect: "Connect",
@@ -669,6 +670,8 @@ export const en = {
       wifiHint: "When you connect to an open (password-free) network, Ninety turns on VPN · TUN automatically. Protected networks (home/office) are left alone. Requires administrator rights (UAC). When you're back on a safe network, the previous mode is restored automatically.",
       killTitle: "Kill Switch",
       killHint: "Experimental. In “Proxy” and “System proxy” modes: if the VPN core suddenly crashes, all traffic is blocked except the tunnel itself — your data won't leak to the open network. Requires administrator rights. Not needed in TUN mode.",
+      geoTitle: "Don’t look up my IP and country",
+      geoHint: "Ninety won’t contact external services to detect your IP, country and provider. The IP tile on the home screen goes blank and auto-tuning the best connection becomes less accurate.",
       testUrlTitle: "Connection test URL",
       testUrlHint: "Any HTTP/HTTPS endpoint used to check access",
       testIntTitle: "Test interval (sec)",

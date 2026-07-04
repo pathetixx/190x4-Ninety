@@ -23,6 +23,10 @@ export const DEFAULT_OPTIONS = {
     // весь исходящий, кроме loopback и sing-box.exe → при падении ядра трафик не
     // утекает мимо туннеля. В TUN утечки держит strict_route, kill switch не нужен.
     killSwitch: false,
+    // Приватность: не обращаться к внешним geo/ASN-сервисам. localAsn (обучение
+    // движка качества ISP×час) ходит НАПРЯМУЮ, мимо туннеля — раскрывает реальный
+    // IP третьим сторонам. true → localAsn=unknown, IP-плитка на главной гаснет.
+    disableGeoLookup: false,
   },
   warp: {
     // Включает выбор WARP в селекторе outbound (UI). Сама регистрация делается
