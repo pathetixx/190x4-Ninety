@@ -99,7 +99,7 @@ mod windows_impl {
             for _ in 0..3 {
                 // Буфер выровнен под u32 (структуры MIB_* требуют 4-байтового
                 // выравнивания; Vec<u8> его не гарантирует).
-                let words = (size as usize + 3) / 4;
+                let words = (size as usize).div_ceil(4);
                 let mut buf = vec![0u32; words];
                 let mut avail = size; // сколько байт сообщаем API как доступно
                 let rc = GetExtendedTcpTable(

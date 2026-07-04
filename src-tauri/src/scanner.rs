@@ -143,9 +143,8 @@ fn parse_wg_keys(info: &crate::warp::WarpInfo) -> Option<WgKeys> {
     // client_id — base64 от 3 байт reserved
     let cid = B64.decode(info.client_id.as_bytes()).unwrap_or_default();
     let mut reserved = [0u8; 3];
-    for i in 0..3.min(cid.len()) {
-        reserved[i] = cid[i];
-    }
+    let n = 3.min(cid.len());
+    reserved[..n].copy_from_slice(&cid[..n]);
     Some(WgKeys {
         private: StaticSecret::from(p_arr),
         peer_public: PublicKey::from(pub_arr),

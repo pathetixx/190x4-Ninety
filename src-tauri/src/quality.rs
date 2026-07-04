@@ -203,11 +203,11 @@ async fn probe_one(
     // goodput считаем от первого байта до конца выборки (без setup/TTFB) —
     // это честная скорость канала аутбаунда.
     let body_ms = fb.elapsed().as_millis() as u64;
-    let goodput_bps = if body_ms > 0 {
-        bytes.saturating_mul(8).saturating_mul(1000) / body_ms
-    } else {
-        0
-    };
+    let goodput_bps = bytes
+        .saturating_mul(8)
+        .saturating_mul(1000)
+        .checked_div(body_ms)
+        .unwrap_or(0);
 
     Ok(ProbeResult {
         ok: !stalled,
