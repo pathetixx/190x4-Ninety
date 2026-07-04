@@ -9,24 +9,18 @@
 //     match:"suffix"|"exact"|"keyword" (только domain),
 //     values:[…], action:"proxy"|"direct"|"block" }
 
+import { uid } from "/lib/uid.js";
+
 export const RULE_TYPES = ["domain", "ip", "process"];
 export const DOMAIN_MATCHES = ["suffix", "exact", "keyword"];
 export const RULE_ACTIONS = ["proxy", "direct", "block"];
 
 // Подписи для UI — в каталоге i18n (rr.type/rr.match/rr.action), берёт routing-view.js.
 
-// crypto.randomUUID есть в webview2/Tauri; фолбэк на случай старого окружения/тестов.
-function uuid() {
-  try {
-    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  } catch {}
-  return "r-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-}
-
 // Новое правило с дефолтами (для кнопки «Добавить»).
 export function newRule(partial = {}) {
   return {
-    id: uuid(),
+    id: uid("r-"),
     enabled: true,
     type: "domain",
     match: "suffix",
@@ -126,7 +120,7 @@ export function sanitizeRule(rule) {
   }
   return {
     rule: {
-      id: rule?.id || uuid(),
+      id: rule?.id || uid("r-"),
       enabled: rule?.enabled !== false,
       type,
       ...(type === "domain" ? { match } : {}),
