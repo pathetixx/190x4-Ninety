@@ -622,10 +622,13 @@ async function healthTick() {
   if (state !== "connected" || healthBusy || updateInstalling) return;
   healthBusy = true;
   try {
-    const ok = await invoke("singbox_running");
-    if (!ok) {
-      // Причину смерти читаем ДО shutdownCore: stop_singbox сбрасывает флаги.
-      const why = await invoke("vpn_last_error").catch(() => null);
+    // Один агрегирующий вызов вместо четырёх (singbox_running/vpn_last_error/
+    // xray_status/sidecar_status) — снимает лишний IPC-трафик на каждом тике.
+    const snap = await invoke("health_snapshot");
+    if (!snap.singbox_running) {
+      // Причину смерти snapshot читает синхронно с running-статусом (до
+      // shutdownCore, который сбрасывает флаги).
+      const why = snap.last_error;
       await shutdownCore();
       toast(t("conn.coreStopped"), "error", 7000, {
         group: "conn",
@@ -637,8 +640,7 @@ async function healthTick() {
       return;
     }
     // sing-box жив — проверяем xray-мост (xhttp).
-    const xr = await invoke("xray_status").catch(() => "none");
-    if (xr === "died") {
+    if (snap.xray === "died") {
       if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(); return; }
       toast(t("conn.xhttpDown"), "warn", 4000, { group: "conn", connecting: true });
       notify("Ninety", t("conn.xhttpNotify"));
@@ -648,8 +650,7 @@ async function healthTick() {
       return;
     }
     // sidecar-клиенты naive/trusttunnel — та же логика, что у xray-моста.
-    const sc = await invoke("sidecar_status").catch(() => "none");
-    if (sc === "died") {
+    if (snap.sidecar === "died") {
       if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(); return; }
       toast(t("conn.clientDown"), "warn", 4000, { group: "conn", connecting: true });
       notify("Ninety", t("conn.clientNotify"));
@@ -780,6 +781,10 @@ const qualityEngine = createQualityEngine({
     // direct bypass-правилом), поэтому вернётся именно локальный ISP — то, что
     // нужно для ключа обучения ISP×час. Фолбэк "unknown".
     localAsn: async () => {
+      // Приватность: этот запрос идёт НАПРЯМУЮ (мимо туннеля) и раскрыл бы
+      // реальный IP geo-сервису. Если юзер отключил geo-lookup — не ходим,
+      // движок качества обучается по глобальному профилю (ASN "unknown").
+      if (loadOptions().general?.disableGeoLookup) return "unknown";
       try {
         const info = await invoke("fetch_public_ip", {});
         const asn = info?.connection?.asn ?? info?.asn;
@@ -1512,6 +1517,18 @@ if (locIp) bindIpReveal(locIp, () => lastPublicIp);
 
 async function refreshPublicIp() {
   if (state !== "connected") return;
+  // Приватность: юзер отключил geo-запросы → не дёргаем внешние IP-сервисы
+  // вовсе, IP-плитка гаснет с поясняющим тултипом.
+  if (loadOptions().general?.disableGeoLookup) {
+    lastPublicIp = null;
+    if (locIpRow) locIpRow.hidden = false;
+    if (locIp) {
+      locIp.textContent = "—";
+      locIp.dataset.revealed = "false";
+      locIp.title = t("hero.ipGeoOff");
+    }
+    return;
+  }
   // IP всегда тянем ЧЕРЕЗ локальный inbound sing-box, во всех режимах:
   //   proxy/systemProxy — mixed-in (reqwest системный прокси не чтит, поэтому
   //     даже в systemProxy без явного адреса запрос ушёл бы напрямую → мимо

@@ -554,6 +554,7 @@ pub fn run() {
             vpn::stop_singbox,
             vpn::plan_bridge_ports,
             vpn::singbox_running,
+            vpn::health_snapshot,
             vpn::xray_status,
             vpn::sidecar_status,
             vpn::vpn_last_error,

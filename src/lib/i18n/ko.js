@@ -42,6 +42,7 @@ export const ko = {
     secured: "보호됨",
     apply: "설정 적용",
     ipTooltip: "{country} · 클릭하면 IP를 20초간 표시",
+    ipGeoOff: "설정에서 위치 조회를 껐습니다",
   },
   heroAria: {
     connect: "연결",
@@ -669,6 +670,8 @@ export const ko = {
       wifiHint: "개방(비밀번호 없는) 네트워크에 연결하면 Ninety가 자동으로 VPN · TUN을 켭니다. 보호된 네트워크(집/사무실)는 그대로 둡니다. 관리자 권한이 필요합니다(UAC). 안전한 네트워크로 돌아오면 이전 모드가 자동으로 복원됩니다.",
       killTitle: "Kill Switch",
       killHint: "실험적 기능. 「프록시」와 「시스템 프록시」 모드에서: VPN 코어가 갑자기 충돌하면 터널 자체를 제외한 모든 트래픽이 차단됩니다 — 데이터가 개방 네트워크로 새지 않습니다. 관리자 권한이 필요합니다. TUN 모드에서는 필요 없습니다.",
+      geoTitle: "내 IP와 국가를 조회하지 않기",
+      geoHint: "Ninety가 IP·국가·통신사를 확인하기 위해 외부 서비스에 연결하지 않습니다. 홈 화면의 IP 칸이 비워지고 최적 연결 자동 선택의 정확도가 낮아집니다.",
       testUrlTitle: "연결 테스트 URL",
       testUrlHint: "접근 확인에 사용되는 임의의 HTTP/HTTPS 엔드포인트",
       testIntTitle: "테스트 간격(초)",

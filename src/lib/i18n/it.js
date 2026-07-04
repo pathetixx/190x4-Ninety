@@ -42,6 +42,7 @@ export const it = {
     secured: "Protetto",
     apply: "Applica impostazioni",
     ipTooltip: "{country} · clicca per mostrare l’IP per 20 s",
+    ipGeoOff: "Ricerche di geolocalizzazione disattivate nelle impostazioni",
   },
   heroAria: {
     connect: "Connetti",
@@ -669,6 +670,8 @@ export const it = {
       wifiHint: "Quando ti connetti a una rete aperta (senza password), Ninety attiva automaticamente VPN · TUN. Le reti protette (casa/ufficio) restano invariate. Richiede i diritti di amministratore (UAC). Al ritorno su una rete sicura, la modalità precedente viene ripristinata automaticamente.",
       killTitle: "Kill Switch",
       killHint: "Sperimentale. Nelle modalità «Proxy» e «Proxy di sistema»: se il core VPN va improvvisamente in crash, tutto il traffico viene bloccato tranne il tunnel stesso — i tuoi dati non trapelano sulla rete aperta. Richiede i diritti di amministratore. Non serve in modalità TUN.",
+      geoTitle: "Non cercare il mio IP e paese",
+      geoHint: "Ninety non contatterà servizi esterni per rilevare il tuo IP, il paese e l’operatore. Il riquadro IP nella schermata principale resterà vuoto e la scelta automatica della connessione migliore sarà meno precisa.",
       testUrlTitle: "URL di test della connessione",
       testUrlHint: "Qualsiasi endpoint HTTP/HTTPS usato per verificare l’accesso",
       testIntTitle: "Intervallo di test (s)",

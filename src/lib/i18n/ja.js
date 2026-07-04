@@ -42,6 +42,7 @@ export const ja = {
     secured: "保護されています",
     apply: "設定を適用",
     ipTooltip: "{country} · クリックでIPを20秒間表示",
+    ipGeoOff: "設定で位置情報の照会を無効にしています",
   },
   heroAria: {
     connect: "接続",
@@ -669,6 +670,8 @@ export const ja = {
       wifiHint: "オープン（パスワードなし）ネットワークに接続すると、Ninety は自動的に VPN · TUN をオンにします。保護されたネットワーク（自宅／職場）はそのままです。管理者権限が必要です（UAC）。 安全なネットワークに戻ると、以前のモードが自動的に復元されます。",
       killTitle: "Kill Switch",
       killHint: "実験的機能。「プロキシ」と「システムプロキシ」モードで: VPN コアが突然クラッシュした場合、トンネル自体を除くすべての通信がブロックされます — データがオープンなネットワークに漏れません。管理者権限が必要です。TUN モードでは不要です。",
+      geoTitle: "IP と国を照会しない",
+      geoHint: "Ninety は IP・国・プロバイダーを判定するために外部サービスへ接続しません。ホーム画面の IP 表示は空になり、最適な接続の自動選択の精度も下がります。",
       testUrlTitle: "接続テストURL",
       testUrlHint: "アクセス確認に使う任意の HTTP/HTTPS エンドポイント",
       testIntTitle: "テスト間隔（秒）",

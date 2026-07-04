@@ -42,6 +42,7 @@ export const tr = {
     secured: "Korunuyor",
     apply: "Ayarları uygula",
     ipTooltip: "{country} · IP'yi 20 sn göstermek için tıklayın",
+    ipGeoOff: "Konum sorguları ayarlarda kapalı",
   },
   heroAria: {
     connect: "Bağlan",
@@ -669,6 +670,8 @@ export const tr = {
       wifiHint: "Açık (parolasız) bir ağa bağlandığınızda Ninety otomatik olarak VPN · TUN'u açar. Korumalı ağlar (ev/ofis) olduğu gibi bırakılır. Yönetici hakları gerektirir (UAC). Güvenli bir ağa döndüğünüzde önceki mod otomatik olarak geri yüklenir.",
       killTitle: "Kill Switch",
       killHint: "Deneysel. “Proxy” ve “Sistem proxy'si” modlarında: VPN çekirdeği aniden çökerse, tünelin kendisi dışındaki tüm trafik engellenir — verileriniz açık ağa sızmaz. Yönetici hakları gerektirir. TUN modunda gerekmez.",
+      geoTitle: "IP ve ülkemi sorgulama",
+      geoHint: "Ninety; IP’nizi, ülkenizi ve sağlayıcınızı belirlemek için dış hizmetlere bağlanmaz. Ana ekrandaki IP kutucuğu boşalır ve en iyi bağlantının otomatik seçimi daha az isabetli olur.",
       testUrlTitle: "Bağlantı testi URL'si",
       testUrlHint: "Erişimi kontrol etmek için kullanılan herhangi bir HTTP/HTTPS uç noktası",
       testIntTitle: "Test aralığı (sn)",

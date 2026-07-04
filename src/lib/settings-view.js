@@ -595,6 +595,7 @@ function renderGeneral(o) {
       ${row(iconEyeOff(), t("settings.general.startMinTitle"), t("settings.general.startMinHint"), toggle("general.startMinimized", g.startMinimized))}
       ${row(iconShield(), t("settings.general.wifiTitle"), t("settings.general.wifiHint"), toggle("general.autoProtectWifi", !!g.autoProtectWifi))}
       ${row(iconShield(), t("settings.general.killTitle"), t("settings.general.killHint"), toggle("general.killSwitch", !!g.killSwitch))}
+      ${row(iconEyeOff(), t("settings.general.geoTitle"), t("settings.general.geoHint"), toggle("general.disableGeoLookup", !!g.disableGeoLookup))}
     </div>
     <div class="settings-section">
       ${row(iconUrl(), t("settings.general.testUrlTitle"), t("settings.general.testUrlHint"), inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}

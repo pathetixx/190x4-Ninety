@@ -42,6 +42,7 @@ export const zh = {
     secured: "已保护",
     apply: "应用设置",
     ipTooltip: "{country} · 点击显示 IP 20 秒",
+    ipGeoOff: "已在设置中关闭地理位置查询",
   },
   heroAria: {
     connect: "连接",
@@ -669,6 +670,8 @@ export const zh = {
       wifiHint: "连接到开放（无密码）网络时，Ninety 会自动开启 VPN · TUN。受保护的网络（家庭/办公室）不受影响。需要管理员权限（UAC）。 回到安全网络后会自动恢复之前的模式。",
       killTitle: "网络熔断（Kill Switch）",
       killHint: "实验性。在“代理”和“系统代理”模式下：若 VPN 内核突然崩溃，除隧道自身外的所有流量都会被拦截——你的数据不会泄漏到开放网络。需要管理员权限。TUN 模式下无需。",
+      geoTitle: "不查询我的 IP 和国家/地区",
+      geoHint: "Ninety 不会联系外部服务来识别你的 IP、国家/地区和运营商。主界面的 IP 卡片将变为空白，自动优选最佳连接的准确性也会下降。",
       testUrlTitle: "连接测试 URL",
       testUrlHint: "用于检查可达性的任意 HTTP/HTTPS 端点",
       testIntTitle: "测试间隔（秒）",

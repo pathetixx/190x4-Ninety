@@ -42,6 +42,7 @@ export const pl = {
     secured: "Chronione",
     apply: "Zastosuj ustawienia",
     ipTooltip: "{country} · kliknij, aby pokazać IP na 20 s",
+    ipGeoOff: "Zapytania geolokalizacyjne wyłączone w ustawieniach",
   },
   heroAria: {
     connect: "Połącz",
@@ -669,6 +670,8 @@ export const pl = {
       wifiHint: "Po połączeniu z otwartą siecią (bez hasła) Ninety automatycznie włącza VPN · TUN. Sieci chronione (dom/biuro) pozostają nietknięte. Wymaga uprawnień administratora (UAC). Po powrocie do bezpiecznej sieci poprzedni tryb zostanie przywrócony automatycznie.",
       killTitle: "Kill Switch",
       killHint: "Eksperymentalne. W trybach „Proxy” i „Proxy systemowe”: jeśli rdzeń VPN nagle ulegnie awarii, cały ruch zostaje zablokowany oprócz samego tunelu — Twoje dane nie wyciekną do otwartej sieci. Wymaga uprawnień administratora. Niepotrzebne w trybie TUN.",
+      geoTitle: "Nie sprawdzaj mojego IP i kraju",
+      geoHint: "Ninety nie będzie łączyć się z zewnętrznymi usługami, aby ustalić Twoje IP, kraj i dostawcę. Kafelek IP na ekranie głównym zgaśnie, a automatyczny dobór najlepszego połączenia będzie mniej dokładny.",
       testUrlTitle: "URL testu połączenia",
       testUrlHint: "Dowolny endpoint HTTP/HTTPS używany do sprawdzania dostępu",
       testIntTitle: "Interwał testu (s)",

@@ -209,11 +209,10 @@ pub fn dpi_log_path(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub fn dpi_read_log(app: AppHandle) -> Result<String, String> {
     let Some(p) = dpi_log_file(&app) else { return Ok(String::new()) };
-    if !p.exists() {
-        return Ok(String::new());
-    }
-    let bytes = std::fs::read(&p).map_err(|e| format!("read dpi.log: {e}"))?;
-    Ok(String::from_utf8_lossy(&bytes).to_string())
+    // read_tail капит хвостом (дефолт 128 КБ) вместо слурпа файла целиком: winws
+    // при verbose-логе за долгую сессию раздувает dpi.log, а гнать его весь через
+    // IPC незачем (тот же приём, что для singbox.log — см. vpn::read_tail).
+    crate::vpn::read_tail(&p, None)
 }
 
 fn read_strategies(app: &AppHandle) -> Result<Vec<Strategy>, String> {
@@ -247,25 +246,56 @@ fn subst(arg: &str, bin: &str, lists: &str, g_tcp: &str, g_udp: &str) -> String 
         .replace("%GameFilter%", g_tcp)
 }
 
-// Снять ЛЮБОЙ winws.exe в системе. Возвращает true, если процесс был найден и убит.
-// Вызывается из dpi_start перед спавном своего winws: к той точке наш child уже не
-// жив (дедуп вернул бы «уже запущен»), значит любой живой winws — сирота от другого
-// инстанса Ninety. Элевация поднимает ВТОРОЙ процесс Ninety со своим DpiState, а
-// дедуп видит только свой child → без этого два winws дерутся за один kernel-драйвер
-// WinDivert и движок падает с «драйвер занят».
+// Снять winws.exe-СИРОТУ ОТ ДРУГОГО ИНСТАНСА Ninety. Возвращает true, если хоть
+// один был убит. Вызывается из dpi_start перед спавном своего winws: к той точке
+// наш child уже не жив (дедуп вернул бы «уже запущен»), значит живой winws из
+// нашего каталога движка — сирота от второго инстанса Ninety (элевация поднимает
+// ВТОРОЙ процесс со своим DpiState; дедуп видит только свой child). Без этого два
+// winws дерутся за один kernel-драйвер WinDivert и движок падает «драйвер занят».
+//
+// Фильтруем по ExecutablePath: убиваем ТОЛЬКО winws внутри нашего res_dpi. Прежний
+// `taskkill /IM winws.exe` глушил ВСЕ процессы с этим именем — включая отдельный
+// zapret/аналог, запущенный юзером независимо от Ninety.
 #[cfg(target_os = "windows")]
-fn kill_stray_winws() -> bool {
+fn kill_stray_winws(dpi_root: &Path) -> bool {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    std::process::Command::new("taskkill")
-        .args(["/F", "/IM", "winws.exe"])
+    // PID|путь каждого winws.exe. CIM отдаёт обычный путь (без verbatim \\?\).
+    let ps = "Get-CimInstance Win32_Process -Filter \"Name='winws.exe'\" | \
+              ForEach-Object { \"$($_.ProcessId)|$($_.ExecutablePath)\" }";
+    let Ok(out) = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", ps])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
-        .map(|o| o.status.success()) // код 0 = хотя бы один процесс убит
-        .unwrap_or(false)
+    else {
+        return false;
+    };
+    // res_dpi может прийти в verbatim-форме — срезаем для префиксного сравнения.
+    let root = strip_verbatim(&dpi_root.to_string_lossy()).to_lowercase();
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut killed = false;
+    for line in text.lines() {
+        let Some((pid, path)) = line.trim().split_once('|') else { continue };
+        let (pid, path) = (pid.trim(), path.trim());
+        if pid.is_empty() || path.is_empty() {
+            continue;
+        }
+        // Не наш каталог движка → чужой winws, не трогаем.
+        if !path.to_lowercase().starts_with(&root) {
+            continue;
+        }
+        let ok = std::process::Command::new("taskkill")
+            .args(["/F", "/PID", pid])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        killed |= ok;
+    }
+    killed
 }
 #[cfg(not(target_os = "windows"))]
-fn kill_stray_winws() -> bool {
+fn kill_stray_winws(_dpi_root: &Path) -> bool {
     false
 }
 
@@ -354,10 +384,11 @@ pub async fn dpi_start(
         .map(|a| subst(a, &bindata_s, &lists_s, g_tcp, g_udp))
         .collect();
 
-    // Защита от «двойного старта»: гасим stray-winws (сирота от другого инстанса)
-    // перед запуском своего — иначе два winws дерутся за драйвер WinDivert. Если
-    // кого-то убили, даём драйверу отцепиться от мёртвого хэндла до нашего старта.
-    if kill_stray_winws() {
+    // Защита от «двойного старта»: гасим stray-winws (сирота от другого инстанса
+    // Ninety — по пути в нашем res_dpi) перед запуском своего, иначе два winws
+    // дерутся за драйвер WinDivert. Если кого-то убили, даём драйверу отцепиться
+    // от мёртвого хэндла до нашего старта.
+    if kill_stray_winws(&res_dpi(&app)?) {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 

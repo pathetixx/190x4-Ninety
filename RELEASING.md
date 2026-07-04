@@ -10,11 +10,13 @@
 
 ## Шаги
 
-1. Бамп версии в **4 файлах** (одно значение):
-   - `src-tauri/Cargo.toml` → `version`
-   - `src-tauri/Cargo.lock` → пакет `ninety` → `version`
-   - `src-tauri/tauri.conf.json` → `version`
-   - `package.json` → `version`
+1. Бамп версии — одной командой (проставляет одно значение во все 4 файла:
+   `tauri.conf.json`, `Cargo.toml`, `Cargo.lock` пакет `ninety`, `package.json`):
+   ```
+   node scripts/bump-version.mjs X.Y.Z
+   ```
+   Механизм чтения версии Tauri не централизуем (`"../package.json"` сломал бы
+   греп версии в `build.yml` → latest.json/OTA); скрипт синхронизирует все места.
 2. Коммит в `main`, push.
 3. Тег **обязательно аннотированный**, сообщение тега = заметки релиза. Push
    тега запускает релизную сборку:
