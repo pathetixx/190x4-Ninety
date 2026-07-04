@@ -620,13 +620,12 @@ pub fn run() {
                     vpn::force_cleanup(app, &state);
                 }
                 if let Some(state) = app.try_state::<dpi::DpiState>() {
-                    // full_unload, а не force_cleanup: при выходе снимаем И
-                    // kernel-драйвер WinDivert/Monkey. Иначе он остаётся резидентным
-                    // в ядре и лочит свой .sys в каталоге установки → следующая
-                    // (пере)установка падает на «файл занят». Аппа здесь elevated
-                    // (драйвер мог загрузить только elevated-инстанс), поэтому
-                    // sc-команды внутри проходят.
-                    dpi::full_unload(&state);
+                    // cleanup_on_exit убивает winws и снимает kernel-драйвер
+                    // WinDivert/Monkey, НО пропускает sc.exe при выключении ОС
+                    // (там sc.exe падает 0xc0000142, а драйвер выгрузит перезагрузка)
+                    // и когда DPI в этой сессии не поднимался. Лок .sys для
+                    // переустановки без ребута снимает явная dpi_unload_driver (OTA).
+                    dpi::cleanup_on_exit(&state);
                 }
                 if let Some(state) = app.try_state::<killswitch::KillSwitchState>() {
                     killswitch::force_disarm(&state);
