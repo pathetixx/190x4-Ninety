@@ -11,6 +11,7 @@
 
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::process::Child;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde::Deserialize;
@@ -21,6 +22,12 @@ use tauri::{AppHandle, Emitter, Manager, State};
 pub struct DpiState {
     // Child winws.exe. None — не запущен. Хэндл мутабелен для try_wait/kill.
     child: Mutex<Option<Child>>,
+    // Грузился ли kernel-драйвер WinDivert в этой сессии (winws хоть раз стартовал).
+    // Гейт для sc-выгрузки при выходе: если DPI не включали, snимать службы нечего —
+    // а безусловный `sc.exe` на каждый выход давал окно ошибки 0xc0000142 при
+    // выключении ПК (sc.exe не поднимается в сворачивающейся сессии). Сбрасывается
+    // после фактической выгрузки службы (full_unload).
+    driver_loaded: AtomicBool,
 }
 
 #[derive(Deserialize)]
@@ -380,6 +387,8 @@ pub async fn dpi_start(
 
     let child = cmd.spawn().map_err(|e| format!("spawn winws: {e}"))?;
     *state.child.lock().unwrap() = Some(child);
+    // winws поднял драйвер WinDivert — при выходе службу надо будет снять.
+    state.driver_loaded.store(true, Ordering::SeqCst);
 
     // Дать winws ~700мс упасть (занятый драйвер / нет прав / битые args).
     tokio::time::sleep(std::time::Duration::from_millis(700)).await;
@@ -1254,15 +1263,47 @@ pub fn unload_driver_services() {
 pub fn unload_driver_services() {}
 
 /// Полная выгрузка движка: убить winws И снять kernel-драйвер. Вызывается перед
-/// OTA-апдейтом (команда ниже), при смене режима драйвера И при выходе приложения
-/// (lib.rs RunEvent::Exit). Иначе после закрытия Ninety драйвер остаётся резидентным
-/// в ядре, его .sys лочит файл в каталоге установки, и следующая (пере)установка
-/// падает на «Невозможно открыть файл для записи» (та самая ошибка). force_cleanup
+/// OTA-апдейтом (команда ниже) и при смене режима драйвера. Иначе драйвер остаётся
+/// резидентным в ядре, его .sys лочит файл в каталоге установки, и следующая
+/// (пере)установка падает на «Невозможно открыть файл для записи». force_cleanup
 /// сперва убивает winws и reap'ает процесс (wait) — handle к \\.\WinDivert
 /// закрывается ДО `sc stop`, поэтому драйвер выгружается с первого раза.
 pub fn full_unload(state: &DpiState) {
     force_cleanup(state);
     unload_driver_services();
+    state.driver_loaded.store(false, Ordering::SeqCst);
+}
+
+/// true, если сессия Windows сейчас завершается (shutdown/logoff/reboot).
+#[cfg(target_os = "windows")]
+fn session_ending() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_SHUTTINGDOWN};
+    // SM_SHUTTINGDOWN != 0 на всём протяжении shutdown-последовательности ОС.
+    unsafe { GetSystemMetrics(SM_SHUTTINGDOWN) != 0 }
+}
+#[cfg(not(target_os = "windows"))]
+fn session_ending() -> bool {
+    false
+}
+
+/// Выгрузка при выходе приложения (lib.rs RunEvent::Exit). В отличие от
+/// full_unload здесь `sc.exe` дёргаем ЛИШЬ когда это оправдано:
+///  - идёт выключение/logoff ОС → пропускаем: драйвер и так выгрузится при
+///    перезагрузке, а запущенный в сворачивающейся сессии `sc.exe` не может
+///    инициализироваться и показывает окно ошибки 0xc0000142 (репорт юзера —
+///    «вылазит при выключении ПК»);
+///  - DPI в этой сессии не поднимался (driver_loaded=false) → снимать нечего,
+///    а безусловные 6 запусков `sc.exe` на каждый выход были лишними.
+/// Кейс «снять лок с .sys для переустановки без перезагрузки» покрыт явной
+/// командой dpi_unload_driver (её зовёт фронт перед OTA) — там full_unload.
+pub fn cleanup_on_exit(state: &DpiState) {
+    force_cleanup(state); // убить winws-child — без sc.exe, всегда безопасно
+    if session_ending() {
+        return;
+    }
+    if state.driver_loaded.swap(false, Ordering::SeqCst) {
+        unload_driver_services();
+    }
 }
 
 /// Команда из фронта: перед OTA-апдейтом и при смене режима драйвера (WinDivert↔
