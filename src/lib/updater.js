@@ -1,8 +1,6 @@
 // Ninety · auto-updater wrapper
 // Использует window.__TAURI__ (withGlobalTauri:true). Без bundle'инга npm пакета.
 
-import { t as i18n } from "/lib/i18n/index.js";
-
 const t = () => window.__TAURI__;
 
 function api() {
@@ -11,49 +9,27 @@ function api() {
   // В Tauri 2 с withGlobalTauri плагин-апи доступен как __TAURI__.updater
   const u = root.updater;
   const p = root.process;
-  const d = root.dialog;
   if (!u || !p) return null;
-  return { updater: u, process: p, dialog: d };
+  return { updater: u, process: p };
 }
 
 export function isAvailable() {
   return !!api();
 }
 
-export async function checkForUpdate() {
+// checkForUpdate({ proxy, timeoutMs }).
+// proxy ("http://127.0.0.1:PORT") — при поднятом VPN проверка идёт через свой
+// локальный инбаунд: reqwest апдейтера не чтит системный прокси, а в TUN трафик
+// Ninety.exe уходит в direct bypass-правилом, т.е. без прокси проверка ВСЕГДА
+// «напрямую» — у части провайдеров эндпоинты так недоступны. Прокси из check()
+// плагин запоминает в Update и скачивание идёт тем же клиентом (тоже в туннель).
+export async function checkForUpdate({ proxy = null, timeoutMs = 30_000 } = {}) {
   const a = api();
   if (!a) return null;
+  const opts = { timeout: timeoutMs };
+  if (proxy) opts.proxy = proxy;
   // Ошибки (нет сети / заблокированный CDN ассетов) НЕ глотаем — пробрасываем
   // наверх, чтобы runUpdateCheck отличил «не смог проверить» от «обновлений нет».
   // Раньше оба случая возвращали null → апп врал «у вас актуальная версия».
-  return a.updater.check(); // null = апдейта нет; {version, ...} = есть
-}
-
-// askToUpdate(update, {onProgress, toast})
-export async function askAndInstall(update, opts = {}) {
-  const a = api();
-  if (!a || !update) return false;
-  const ask = a.dialog?.ask;
-  const confirmText = i18n("update.askText", { version: update.version, current: update.currentVersion });
-  let yes = true;
-  if (ask) {
-    yes = await ask(confirmText, { title: "Ninety", kind: "info", okLabel: i18n("update.ok"), cancelLabel: i18n("update.later") });
-  }
-  if (!yes) return false;
-
-  let total = 0, downloaded = 0;
-  await update.downloadAndInstall((event) => {
-    if (event.event === "Started") {
-      total = event.data?.contentLength ?? 0;
-      opts.onProgress?.({ phase: "started", total });
-    } else if (event.event === "Progress") {
-      downloaded += event.data?.chunkLength ?? 0;
-      opts.onProgress?.({ phase: "progress", downloaded, total });
-    } else if (event.event === "Finished") {
-      opts.onProgress?.({ phase: "finished", total });
-    }
-  });
-
-  try { await a.process.relaunch(); } catch (e) { console.warn("relaunch failed", e); }
-  return true;
+  return a.updater.check(opts); // null = апдейта нет; {version, ...} = есть
 }
