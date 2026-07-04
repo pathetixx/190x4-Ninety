@@ -239,7 +239,7 @@ pub async fn clash_get_connections(port: u16) -> Result<Value, String> {
                     direct
                 } else {
                     process_path
-                        .rsplit(|ch| ch == '\\' || ch == '/')
+                        .rsplit(['\\', '/'])
                         .next()
                         .unwrap_or("")
                         .to_string()

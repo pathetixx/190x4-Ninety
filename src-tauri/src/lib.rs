@@ -336,7 +336,7 @@ fn build_tray_menu(
     // Клик показывает окно и открывает модалку установки.
     if let Some(ver) = &payload.update_version {
         let upd = MenuItem::with_id(
-            app, "update:install", &format!("⤓  {}", l.update_to.replace("{ver}", ver)), true, None::<&str>,
+            app, "update:install", format!("⤓  {}", l.update_to.replace("{ver}", ver)), true, None::<&str>,
         )?;
         let sep0 = PredefinedMenuItem::separator(app)?;
         return Menu::with_items(
