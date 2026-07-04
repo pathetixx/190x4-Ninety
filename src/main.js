@@ -617,7 +617,9 @@ function stopHealthWatchdog() {
 }
 
 async function healthTick() {
-  if (state !== "connected" || healthBusy) return;
+  // updateInstalling: модалка апдейта сама гасит ядра перед установкой —
+  // watchdog иначе находил «труп» и слал ложный «соединение закрыто» + логи.
+  if (state !== "connected" || healthBusy || updateInstalling) return;
   healthBusy = true;
   try {
     const ok = await invoke("singbox_running");
@@ -1763,6 +1765,9 @@ function setState(next, opts = {}) {
     // DPI-обход: вносим сервер активной ноды в исключения winws, чтобы он не
     // трогал зашифрованный трафик к VPN-серверу (главный риск из спайка).
     try { excludeVpnNode(activeNodeForDisplay()?.host); } catch {}
+    // Эндпоинты апдейта стали достижимы через туннель — дочекать, если прямые
+    // проверки не проходили (у части провайдеров gitlab/github режутся напрямую).
+    updateCheckIfStale();
     // Wizard: подключились — переходим на финальный шаг
     if (wizardActive && wizardStepNum === 3) showOnbStep(4);
   }
@@ -2099,22 +2104,39 @@ setInterval(backupNow, 10 * 60_000);
 (async () => {
   try {
     // После OTA-апдейта процесс перезапускается БЕЗ --autostarted/--elevated, и
-    // should_autoconnect=false → блок бы не вошёл, DPI не вернулся. update-modal
-    // ставит resumeAfterUpdate, если DPI был включён, — по нему тоже входим
-    // (dpiWanted ниже поднимет обход обратно, при необходимости через UAC).
-    const resumeAfterUpdate = (() => {
-      try { return localStorage.getItem("ninety.dpi.resumeAfterUpdate") === "1"; } catch { return false; }
+    // should_autoconnect=false → блок бы не вошёл. update-modal перед установкой
+    // пишет, что было поднято (ninety.update.resume = {vpn,dpi}) — по нему
+    // возвращаем сессию. Легаси-ключ ninety.dpi.resumeAfterUpdate писали версии
+    // ≤0.1.88 (только DPI); читаем ещё релиз-другой с прежней семантикой.
+    const resume = (() => {
+      try {
+        const raw = localStorage.getItem("ninety.update.resume");
+        if (raw) return JSON.parse(raw);
+        return localStorage.getItem("ninety.dpi.resumeAfterUpdate") === "1"
+          ? { vpn: true, dpi: true }
+          : null;
+      } catch { return null; }
     })();
-    if (resumeAfterUpdate) { try { localStorage.removeItem("ninety.dpi.resumeAfterUpdate"); } catch {} }
+    if (resume) {
+      try {
+        localStorage.removeItem("ninety.update.resume");
+        localStorage.removeItem("ninety.dpi.resumeAfterUpdate");
+      } catch {}
+    }
 
     const autoconnect = await invoke("should_autoconnect");
-    if (!autoconnect && !resumeAfterUpdate) return;
+    if (!autoconnect && !resume) return;
+    // VPN возвращаем при автостарте всегда; после OTA — только если он был
+    // поднят в момент установки (раньше юзер с выключенным DPI после апдейта
+    // оставался отключённым, пока не нажмёт руками).
+    const vpnWanted = autoconnect || !!resume?.vpn;
 
     const tunWanted = getMode() === "tun";
     // DPI нужен вне TUN, либо в TUN при split-Discord (winws десинхрит direct-Discord).
     const splitDiscord = tunWanted && !!loadOptions()?.route?.tunSplitDiscord;
     const dpiWanted = localStorage.getItem("ninety.dpi.enabled") === "true" && (!tunWanted || splitDiscord);
-    if ((tunWanted || dpiWanted) && !(await invoke("is_elevated"))) {
+    // Элевация ради TUN — только если VPN реально будем поднимать.
+    if (((tunWanted && vpnWanted) || dpiWanted) && !(await invoke("is_elevated"))) {
       if (tunWanted) setMode("tun"); // перезапущенный admin-инстанс поднимется в TUN
       const started = await invoke("relaunch_elevated");
       if (started) return; // текущий процесс вот-вот завершится
@@ -2123,7 +2145,7 @@ setInterval(backupNow, 10 * 60_000);
 
     // VPN: не дёргаем, если ядро уже живо (перезапуск UI) или нет source.
     const running = await invoke("singbox_running");
-    if (!running && getActiveSource()) {
+    if (vpnWanted && !running && getActiveSource()) {
       await new Promise(r => setTimeout(r, 600)); // дать UI домонтироваться
       if (state === "idle" && !heroDisc.disabled) heroDisc.click();
     }
@@ -2152,6 +2174,11 @@ setInterval(backupNow, 10 * 60_000);
 // pendingUpdate (объявлен выше, до syncTrayMenu). Окно модалкой не выдёргиваем —
 // показываем когда юзер вернётся (фокус окна / клик по пункту трея).
 let updateModalShowing = false;
+// Идёт скачивание/установка апдейта (модалка) — health-watchdog молчит.
+let updateInstalling = false;
+// OS-уведомление об апдейте — один раз на версию за сессию: фоновые проверки
+// повторяются, без дедупа юзер в трее ловил бы тост о той же версии каждый тик.
+let lastNotifiedUpdateVersion = null;
 
 // Окно «на виду»? (видимо и не свёрнуто). В трее hide() → isVisible()=false.
 async function windowIsForeground() {
@@ -2166,8 +2193,12 @@ async function windowIsForeground() {
 
 async function showUpdateModal(update, opts = {}) {
   updateModalShowing = true;
-  try { await openUpdateModal(update, opts); }
-  finally { updateModalShowing = false; }
+  try {
+    await openUpdateModal(update, { ...opts, onInstalling: (v) => { updateInstalling = v; } });
+  } finally {
+    updateModalShowing = false;
+    updateInstalling = false;
+  }
 }
 
 // Показать отложенное обновление (юзер вернулся к окну). respectSkip=false —
@@ -2180,27 +2211,44 @@ async function flushPendingUpdate() {
   await showUpdateModal(u, { respectSkip: false });
 }
 
+// Прокси для проверки/скачивания апдейта: при поднятом VPN — свой локальный
+// инбаунд (как рефреш подписок). Без него проверка ВСЕГДА идёт «напрямую»
+// (reqwest не чтит системный прокси, в TUN трафик Ninety.exe уходит в direct
+// bypass-правилом) — у части провайдеров эндпоинты так недоступны вовсе.
+function updaterProxy() {
+  return state === "connected" ? `http://127.0.0.1:${loadOptions().inbound.mixedPort || 7890}` : null;
+}
+
+// true — проверка ДОСТИГЛА сервера (апдейт есть или его нет); false — не смогли
+// проверить (нет сети / эндпоинты недоступны) → скедулер уходит в бэкоф-ретрай.
 async function runUpdateCheck({ silent = true } = {}) {
   if (!updaterAvailable()) {
     if (!silent) toast(t("update.unavailable"), "error", 2500);
-    return;
+    return false;
   }
   let update;
   try {
-    update = await checkForUpdate();
+    const proxy = updaterProxy();
+    try {
+      update = await checkForUpdate({ proxy });
+    } catch (e) {
+      if (!proxy) throw e;
+      // Туннель мог умереть в момент проверки — повтор напрямую.
+      update = await checkForUpdate();
+    }
   } catch (e) {
     console.warn("update check failed", e);
     if (!silent) toast(t("update.checkFailed"), "error", 4000);
-    return;
+    return false;
   }
   if (!update) {
     if (!silent) toast(t("update.none"), "info", 2400);
-    return;
+    return true;
   }
   // Юзер сам нажал «Проверить» → показываем модалку немедленно, skip игнорим.
-  if (!silent) { await showUpdateModal(update, { respectSkip: false }); return; }
+  if (!silent) { await showUpdateModal(update, { respectSkip: false }); return true; }
   // Фоновая проверка: уважаем «Позже» по этой версии — не навязываемся.
-  if (updateShouldSkip(update.version)) return;
+  if (updateShouldSkip(update.version)) return true;
   // Окно на виду → обычная модалка. Свёрнуто в трей → не выдёргиваем: OS-
   // уведомление + пункт в трее, модалка откроется когда юзер вернётся.
   if (await windowIsForeground()) {
@@ -2208,25 +2256,86 @@ async function runUpdateCheck({ silent = true } = {}) {
   } else {
     pendingUpdate = update;
     syncTrayMenu();
-    notify(t("update.notifyTitle"),
-      t("update.notifyBody", { version: update.version }));
+    if (lastNotifiedUpdateVersion !== update.version) {
+      lastNotifiedUpdateVersion = update.version;
+      notify(t("update.notifyTitle"),
+        t("update.notifyBody", { version: update.version }));
+    }
+  }
+  return true;
+}
+
+// ── Расписание проверок — по таймстампам, не по setInterval ──
+// Прежний setInterval(6ч) ломался о два сценария: (1) автозапуск с Windows —
+// первая проверка через 3с стабильно умирала об ещё не поднятую сеть, и до
+// следующей было 6 часов тишины; (2) сон/гибернация — интервальный таймер не
+// тикает во сне, реальный период уплывал далеко за 6ч. Теперь:
+//   успех  → следующая через 2ч (проверка = один JSON ~1КБ, дёшево);
+//   провал → бэкоф 30с → 2м → 5м → 15м (дальше по 15м) до первого успеха;
+//   лёгкий тик раз в 60с сравнивает часы (переживает сон и троттлинг скрытого
+//   окна — Chromium в трее коалесцирует таймеры как раз до 1/мин);
+//   внеплановые триггеры: появилась сеть (online), развернули окно, поднялся
+//   VPN (эндпоинты станут доступны через туннель). Всё это работает и в трее:
+//   апдейт доедет OS-уведомлением + пунктом «Обновить до vX» в меню трея.
+const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000;
+const UPDATE_RETRY_STEPS_MS = [30_000, 2 * 60_000, 5 * 60_000, 15 * 60_000];
+const UPDATE_STALE_MS = 30 * 60_000; // «давно не проверялись» для focus/connect
+let updateNextCheckAt = Date.now() + 3000; // первая — через 3с после старта
+let updateLastSuccessAt = 0;
+let updateRetryIdx = 0;
+let updateCheckBusy = false;
+
+function updateCheckSucceeded() {
+  updateLastSuccessAt = Date.now();
+  updateRetryIdx = 0;
+  updateNextCheckAt = Date.now() + UPDATE_CHECK_INTERVAL_MS;
+}
+
+async function scheduledUpdateCheck() {
+  // Модалка открыта — не дёргаем проверку под ней (и не сбиваем установку).
+  if (updateCheckBusy || updateModalShowing) return;
+  updateCheckBusy = true;
+  try {
+    if (await runUpdateCheck({ silent: true })) {
+      updateCheckSucceeded();
+    } else {
+      const step = UPDATE_RETRY_STEPS_MS[Math.min(updateRetryIdx, UPDATE_RETRY_STEPS_MS.length - 1)];
+      updateRetryIdx++;
+      updateNextCheckAt = Date.now() + step;
+    }
+  } finally {
+    updateCheckBusy = false;
   }
 }
 
-// Проверка при старте — через 3 сек после bootstrap, далее каждые 6 часов
-// (юзер может держать клиент включённым сутками — иначе узнает об апдейте
-// только после ручного перезапуска).
-setTimeout(() => runUpdateCheck({ silent: true }), 3000);
-setInterval(() => runUpdateCheck({ silent: true }), 6 * 60 * 60 * 1000);
+// Внеплановая проверка (фокус/online/connect) — только если давно не было
+// успешной, чтобы каждый Alt-Tab/реконнект не дёргал эндпоинты.
+function updateCheckIfStale(staleMs = UPDATE_STALE_MS) {
+  if (Date.now() - updateLastSuccessAt >= staleMs) scheduledUpdateCheck();
+}
 
-// Вернулись к окну (фокус из трея/таскбара) → показать отложенный апдейт.
+setTimeout(scheduledUpdateCheck, 3000);
+setInterval(() => { if (Date.now() >= updateNextCheckAt) scheduledUpdateCheck(); }, 60_000);
+
+// Сеть появилась (Wi-Fi догнал после логина, вышли из самолётного режима).
+window.addEventListener("online", () => updateCheckIfStale(60_000));
+
+// Вернулись к окну (фокус из трея/таскбара) → показать отложенный апдейт;
+// заодно дочекать, если с последней удачной проверки прошло полчаса.
 (async () => {
-  try { await tauriWin?.onFocusChanged?.(({ payload: focused }) => { if (focused) flushPendingUpdate(); }); }
-  catch (e) { console.warn("focus listener failed", e); }
+  try {
+    await tauriWin?.onFocusChanged?.(({ payload: focused }) => {
+      if (!focused) return;
+      flushPendingUpdate();
+      updateCheckIfStale();
+    });
+  } catch (e) { console.warn("focus listener failed", e); }
 })();
 
 // Глобальная функция для кнопки «Проверить обновления» в settings
-window.__ninetyUpdateCheck = () => runUpdateCheck({ silent: false });
+window.__ninetyUpdateCheck = async () => {
+  if (await runUpdateCheck({ silent: false })) updateCheckSucceeded();
+};
 
 // ── Subscriptions auto-refresh ─────────────────────────────
 // Тик каждые 30 минут (первый — через 60 сек, чтобы не тормозить старт), но

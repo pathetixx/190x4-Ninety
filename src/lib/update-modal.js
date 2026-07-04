@@ -62,9 +62,12 @@ function markSkipped(version) {
 
 /**
  * Открыть модалку для апдейта.
- * @param {object} update — объект Tauri updater (currentVersion, version, body, downloadAndInstall)
+ * @param {object} update — объект Tauri updater (currentVersion, version, body, download/install)
  * @param {object} opts
  * @param {boolean} opts.respectSkip — если true и юзер ранее нажал "Позже" на эту версию, не показывать
+ * @param {function} opts.onInstalling — (bool) идёт скачивание/установка; main.js
+ *   по нему глушит health-watchdog (иначе тот находил «труп» ядра, которое мы
+ *   сами погасили перед установкой, и слал ложный «соединение закрыто»).
  * @returns Promise<void> — резолвится после закрытия (либо relaunch — резолва не будет, app перезапустится)
  */
 export function openUpdateModal(update, opts = {}) {
@@ -129,6 +132,7 @@ export function openUpdateModal(update, opts = {}) {
     const onInstall = async () => {
       if (installing) return;
       installing = true;
+      opts.onInstalling?.(true);
       showError(null);
       installBtn.disabled = true;
       laterBtn.hidden = true;
@@ -136,51 +140,74 @@ export function openUpdateModal(update, opts = {}) {
       setProgressLabel(t("updModal.downloading"));
       setBarIndeterminate();
 
-      // Гасим ядра до установки: xray.exe / sing-box.exe держат бинарники
-      // залоченными, NSIS-инсталлятор иначе падает на "файл занят". stop_singbox
-      // снимает оба child'а + останавливает TUN-сервис. NSIS-хук — подстраховка.
-      // DPI-обход: winws лочит свой бинарь И kernel-драйвер WinDivert (его служба
-      // не выгружается со смертью процесса) → инсталлер падает. dpi_unload_driver
-      // гасит winws и снимает службу WinDivert; аппа при запущенном DPI уже
-      // elevated, поэтому sc-команды проходят. Запоминаем, что DPI был включён —
-      // после перезапуска autostart-блок поднимет его обратно.
       const dpiWasOn = (() => {
         try { return localStorage.getItem("ninety.dpi.enabled") === "true"; } catch { return false; }
       })();
       const invoke = window.__TAURI__?.core?.invoke;
-      if (invoke) {
+      // Что было поднято — запоминаем ДО гашения: после перезапуска
+      // автоконнект-блок main.js читает ninety.update.resume и возвращает
+      // сессию (раньше флаг был только про DPI — юзер с апдейтом при
+      // выключенном DPI оставался отключённым, пока не нажмёт руками).
+      let vpnWasOn = false;
+      if (invoke) { try { vpnWasOn = !!(await invoke("singbox_running")); } catch {} }
+      const writeResume = () => {
+        if (!vpnWasOn && !dpiWasOn) return;
+        try { localStorage.setItem("ninety.update.resume", JSON.stringify({ vpn: vpnWasOn, dpi: dpiWasOn })); } catch {}
+      };
+
+      // Гасим ядра ПЕРЕД установкой, но ПОСЛЕ скачивания: разлоченные бинарники
+      // нужны NSIS только на этапе install, а пока качаем — туннель жив (и
+      // download через check({proxy}) идёт по нему; гасить раньше = качать
+      // напрямую там, где напрямую не качается). stop_singbox снимает оба
+      // child'а; winws лочит свой бинарь И kernel-драйвер WinDivert (служба не
+      // выгружается со смертью процесса) → dpi_unload_driver гасит winws и
+      // снимает службу; аппа при запущенном DPI уже elevated, sc-команды пройдут.
+      const stopEngines = async () => {
+        if (!invoke) return;
         try { await invoke("set_system_proxy", { enable: false }); } catch {}
         try { await invoke("stop_singbox"); } catch (e) { console.warn("pre-update stop failed", e); }
         try { await invoke("dpi_unload_driver"); } catch (e) { console.warn("pre-update dpi unload failed", e); }
-      }
-      if (dpiWasOn) { try { localStorage.setItem("ninety.dpi.resumeAfterUpdate", "1"); } catch {} }
+      };
 
       let total = 0;
       let downloaded = 0;
       let lastPct = -1;
+      const onEvent = (ev) => {
+        if (ev.event === "Started") {
+          total = ev.data?.contentLength || 0;
+          downloaded = 0;
+          if (total > 0) setBarPct(0);
+          else setBarIndeterminate();
+        } else if (ev.event === "Progress") {
+          downloaded += ev.data?.chunkLength || 0;
+          if (total > 0) {
+            const pct = (downloaded / total) * 100;
+            if (Math.floor(pct) !== lastPct) {
+              lastPct = Math.floor(pct);
+              setBarPct(pct);
+            }
+          }
+        } else if (ev.event === "Finished") {
+          setBarPct(100);
+          setProgressLabel(t("updModal.installing"));
+          setBarIndeterminate();
+        }
+      };
 
       try {
-        await update.downloadAndInstall((ev) => {
-          if (ev.event === "Started") {
-            total = ev.data?.contentLength || 0;
-            downloaded = 0;
-            if (total > 0) setBarPct(0);
-            else setBarIndeterminate();
-          } else if (ev.event === "Progress") {
-            downloaded += ev.data?.chunkLength || 0;
-            if (total > 0) {
-              const pct = (downloaded / total) * 100;
-              if (Math.floor(pct) !== lastPct) {
-                lastPct = Math.floor(pct);
-                setBarPct(pct);
-              }
-            }
-          } else if (ev.event === "Finished") {
-            setBarPct(100);
-            setProgressLabel(t("updModal.installing"));
-            setBarIndeterminate();
-          }
-        });
+        if (typeof update.download === "function" && typeof update.install === "function") {
+          await update.download(onEvent);
+          setProgressLabel(t("updModal.installing"));
+          setBarIndeterminate();
+          writeResume();
+          await stopEngines();
+          await update.install();
+        } else {
+          // Урезанный API (нет раздельных download/install) — прежний порядок.
+          writeResume();
+          await stopEngines();
+          await update.downloadAndInstall(onEvent);
+        }
 
         setProgressLabel(t("updModal.relaunching"));
         const a = api();
@@ -192,7 +219,11 @@ export function openUpdateModal(update, opts = {}) {
         installBtn.addEventListener("click", close, { once: true });
       } catch (e) {
         console.error("update failed", e);
+        // Установка сорвалась — resume-флаг не должен сработать на следующем
+        // обычном старте и внезапно поднять VPN/DPI.
+        try { localStorage.removeItem("ninety.update.resume"); } catch {}
         installing = false;
+        opts.onInstalling?.(false);
         progressBox.hidden = true;
         showError(t("updModal.failed", { err: e?.message || e }));
         installBtn.disabled = false;

@@ -43,6 +43,12 @@ export function backupSoon(delayMs = 5000) {
 // модули перечитали localStorage с нуля (тема/язык/опции читаются при загрузке).
 export async function restoreIfEmpty() {
   if (CORE_KEYS.some((k) => localStorage.getItem(k) != null)) return false;
+  // Гвард от вечного цикла: снапшот с ninety.*-ключами, но без единого CORE_KEY
+  // (например, только тема) давал restore → reload → хранилище «всё ещё пусто» →
+  // restore → reload… sessionStorage переживает reload, но не перезапуск аппы —
+  // второй заход в рамках одной загрузки не делаем.
+  const ATTEMPT_KEY = "ninety.restore.attempted";
+  try { if (sessionStorage.getItem(ATTEMPT_KEY) === "1") return false; } catch {}
   let raw = null;
   try { raw = await invoke("state_backup_load"); } catch { return false; }
   if (!raw) return false;
@@ -53,5 +59,9 @@ export async function restoreIfEmpty() {
     if (!k.startsWith(PREFIX) || typeof v !== "string") continue; // чужие ключи не тащим
     try { localStorage.setItem(k, v); restored++; } catch {}
   }
-  return restored > 0;
+  if (restored > 0) {
+    try { sessionStorage.setItem(ATTEMPT_KEY, "1"); } catch {}
+    return true;
+  }
+  return false;
 }
