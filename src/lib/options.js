@@ -2,6 +2,8 @@
 // Все настройки пользователя в одном объекте, сохраняется в localStorage.
 
 const OPTIONS_KEY = "ninety.options.v1";
+// Флаг разовой миграции log.level info→warn (см. loadOptions).
+const LOG_WARN_MIGRATED_KEY = OPTIONS_KEY + ".logWarnMigrated";
 
 export const REGIONS = ["other", "ru", "cn", "ir", "tr", "by"];
 export const IPV6_MODES = ["disable", "enable", "prefer", "only"];
@@ -60,7 +62,11 @@ export const DEFAULT_OPTIONS = {
     autoRescanIntervalMin: 30,    // как часто опрашивать (минуты)
     autoRescanThresholdMs: 300,   // если latency выше — пересканировать
   },
-  log: { level: "info", disabled: false },
+  // Дефолт warn, не info: на info sing-box пишет в singbox.log домен каждого
+  // соединения — история браузинга на диске между сессиями (конфиги с кредами
+  // при этом целенаправленно стираются после сессии, см. purge_* в vpn.rs).
+  // info — осознанный выбор в настройках на время отладки.
+  log: { level: "warn", disabled: false },
   urlTest: {
     connectionTestUrl: "http://cp.cloudflare.com/generate_204",
     intervalSec: 600,
@@ -158,9 +164,26 @@ function deepMerge(target, source) {
 export function loadOptions() {
   try {
     const raw = localStorage.getItem(OPTIONS_KEY);
-    if (!raw) return structuredClone(DEFAULT_OPTIONS);
+    if (!raw) {
+      // Свежий профиль: мигрировать нечего, но флаг ставим сразу — если юзер
+      // потом осознанно выберет info, миграция ниже его уже не перетрёт.
+      localStorage.setItem(LOG_WARN_MIGRATED_KEY, "1");
+      return structuredClone(DEFAULT_OPTIONS);
+    }
     const parsed = JSON.parse(raw);
-    return deepMerge(DEFAULT_OPTIONS, parsed);
+    const opts = deepMerge(DEFAULT_OPTIONS, parsed);
+    // Разовая миграция: прежний дефолт log.level="info" писал домены всех
+    // соединений в singbox.log. Сохранённый info — почти наверняка старый
+    // дефолт (saveOptions хранит объект целиком), а не выбор юзера → один раз
+    // переводим на warn; вернуть можно в настройках, повторно не трогаем.
+    if (!localStorage.getItem(LOG_WARN_MIGRATED_KEY)) {
+      localStorage.setItem(LOG_WARN_MIGRATED_KEY, "1");
+      if (opts.log?.level === "info") {
+        opts.log.level = "warn";
+        saveOptions(opts);
+      }
+    }
+    return opts;
   } catch {
     return structuredClone(DEFAULT_OPTIONS);
   }

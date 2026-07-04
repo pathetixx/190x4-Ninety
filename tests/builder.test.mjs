@@ -138,6 +138,11 @@ test("tun-режим: tun-inbound + probe-in, правило пробы выше
   assert.ok(bypassIdx >= 0, "нет bypass-правила Ninety.exe");
   assert.ok(probeIdx < bypassIdx, "probe-in ниже bypass — проба пойдёт в direct");
   assert.equal(rules[probeIdx].outbound, "proxy");
+  // Bypass обязан покрывать ВСЕ движки, дозванивающиеся наружу (= ENGINES в
+  // killswitch.rs): пропущенный sidecar петлял бы через TUN сам в себя.
+  for (const exe of ["sing-box.exe", "xray.exe", "naive.exe", "trusttunnel_client.exe"]) {
+    assert.ok(rules[bypassIdx].process_name.includes(exe), `нет bypass для ${exe}`);
+  }
 });
 
 test("proxy-режим: единственный inbound — mixed (без probe-in)", () => {

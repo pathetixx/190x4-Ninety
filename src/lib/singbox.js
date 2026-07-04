@@ -4,6 +4,7 @@
 
 import { DEFAULT_OPTIONS } from "/lib/options.js";
 import { t } from "/lib/i18n/index.js";
+import { uid } from "/lib/uid.js";
 
 const PROFILES_KEY = "ninety.profiles.v1";
 const ACTIVE_KEY = "ninety.profiles.active";
@@ -941,8 +942,10 @@ function buildRoute(options, mode) {
 
   // ProcessName bypass — критично для TUN-режима. Без него собственный трафик
   // Ninety (Tauri webview HTTP-запросы к ipwho.is и т.п.), самого sing-box и
-  // xray (two-core: xhttp-мост сам дозванивается до реального сервера) петлял
-  // бы обратно в TUN-интерфейс. Аналог Hiddify tunnel_service.go:80-95.
+  // всех мостов (xray, naive, trusttunnel_client — каждый сам дозванивается до
+  // реального сервера) петлял бы обратно в TUN-интерфейс: коннект к endpoint'у
+  // ловит TUN → final:proxy → socks-мост → снова тот же клиент, рекурсия.
+  // Аналог Hiddify tunnel_service.go:80-95.
   // В proxy/systemProxy это bypass-правило не нужно: свой трафик Ninety туда не
   // петляет (no_proxy reqwest + нет auto_route, перехватывающего всё), поэтому
   // добавляем только в TUN. ВАЖНО: сам process-матчинг работает во ВСЕХ режимах
@@ -953,8 +956,13 @@ function buildRoute(options, mode) {
     // process-матч Ninety.exe увёл бы её в direct и мерился бы голый канал
     // вместо туннеля. При активном WARP buildConfig переставит outbound → warp.
     rules.push({ inbound: ["probe-in"], outbound: "proxy" });
+    // Список обязан покрывать ВСЕ движки, дозванивающиеся наружу (= ENGINES в
+    // killswitch.rs + Ninety.exe) — пропущенный sidecar зацикливается сам в себя.
     rules.push({
-      process_name: ["Ninety.exe", "sing-box.exe", "xray.exe"],
+      process_name: [
+        "Ninety.exe", "sing-box.exe", "xray.exe",
+        "naive.exe", "trusttunnel_client.exe",
+      ],
       outbound: "direct",
     });
   }
@@ -1573,7 +1581,7 @@ export function addProfileFromVless(raw) {
 
 // Универсальный добавитель — работает для любого supported протокола.
 function storeProfile(parsed) {
-  const id = "p_" + Math.random().toString(36).slice(2, 10);
+  const id = uid("p_");
   const list = loadProfiles();
   list.push({ ...parsed, id });
   saveProfiles(list);

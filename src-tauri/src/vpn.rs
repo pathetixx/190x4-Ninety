@@ -580,15 +580,41 @@ pub async fn start_singbox(
         }
     }
 
-    let path = config_path(&app)?;
-    std::fs::write(&path, &config_json).map_err(|e| format!("write config: {e}"))?;
-    let path_str = path.to_string_lossy().to_string();
-
     // Режим (proxy/systemProxy/tun) больше не влияет на запуск ядра в Rust:
     // TUN-инбаунд уже зашит в config_json (buildInbound в singbox.js), а
     // system proxy выставляет фронт отдельной командой. В TUN Ninety обязан
     // быть elevated — это гарантирует JS (is_elevated/relaunch) до вызова.
     let _ = &mode;
+
+    // Всё после поднятия мостов — через одну общую зачистку: ранний `?` здесь
+    // оставлял бы xray/naive/TT сиротами при фейле записи конфига или спавна
+    // sing-box (креды в их конфигах на диске, занятые порты, а guard
+    // xray_child.is_some() блокировал бы следующий старт до явного stop).
+    if let Err(e) = spawn_singbox_core(&app, &state, &config_json, logs_disabled).await {
+        // kill по уже мёртвому child безвреден (Err игнорируем).
+        if let Some(child) = state.child.lock().unwrap().take() {
+            let _ = child.kill();
+        }
+        kill_xray(&state);
+        kill_sidecars(&state);
+        return Err(e);
+    }
+
+    Ok(())
+}
+
+// Запись конфига + спавн sing-box + fail-fast-окно. Вынесено из start_singbox,
+// чтобы любой Err отсюда проходил у вызывающего через общую зачистку ядра и
+// мостов — сама функция ничего не подчищает.
+async fn spawn_singbox_core(
+    app: &AppHandle,
+    state: &SingboxState,
+    config_json: &str,
+    logs_disabled: bool,
+) -> Result<(), String> {
+    let path = config_path(app)?;
+    std::fs::write(&path, config_json).map_err(|e| format!("write config: {e}"))?;
+    let path_str = path.to_string_lossy().to_string();
 
     let sidecar = app
         .shell()
@@ -605,15 +631,12 @@ pub async fn start_singbox(
     let died_flag = state.died.clone();
     // sing-box при logs_disabled и так молчит (log.disabled в конфиге), но гасим
     // и файловый writer — единообразно с остальными движками.
-    let log_file = if logs_disabled { None } else { log_path(&app) };
+    let log_file = if logs_disabled { None } else { log_path(app) };
     spawn_log_monitor(rx, log_file, died_flag, MonitorSpec::core("=== sing-box start ===", "sing-box"));
 
     // даём sing-box 800мс чтобы упасть с ошибкой парсинга / биндинга
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
     if let Some(err) = state.died.lock().unwrap().take() {
-        *state.child.lock().unwrap() = None;
-        kill_xray(&state);
-        kill_sidecars(&state);
         return Err(err);
     }
     // Мост мог умереть и в эти 800мс (после своей settle-паузы) — тоже fail-fast,
@@ -625,14 +648,8 @@ pub async fn start_singbox(
         .take()
         .or_else(|| state.sidecar_died.lock().unwrap().take());
     if let Some(err) = bridge_err {
-        if let Some(child) = state.child.lock().unwrap().take() {
-            let _ = child.kill();
-        }
-        kill_xray(&state);
-        kill_sidecars(&state);
         return Err(err);
     }
-
     Ok(())
 }
 

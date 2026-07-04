@@ -3,6 +3,7 @@
 
 import { parseVless, parseLink } from "/lib/singbox.js";
 import { t } from "/lib/i18n/index.js";
+import { uid } from "/lib/uid.js";
 
 const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt):\/\/|naive\+[a-z]+:\/\/)/i;
 
@@ -190,7 +191,7 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
   const profiles = parseSubscriptionBody(info.body);
   if (profiles.length === 0) throw new Error(t("subs.noVless"));
 
-  const id = "sub_" + Math.random().toString(36).slice(2, 10);
+  const id = uid("sub_");
   // Явный выбор слайдера (>0) приоритетнее заголовка панели; 0 = «Авто» → берём
   // profile-update-interval сервера, а без него silentRefreshSubs даёт 6ч дефолт.
   const hours = Number(intervalHoursOverride);

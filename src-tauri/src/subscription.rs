@@ -64,6 +64,20 @@ pub async fn fetch_subscription(url: String, proxy: Option<String>) -> Result<Su
     let mut b = reqwest::Client::builder()
         .user_agent("v2rayN/6.42")
         .timeout(std::time::Duration::from_secs(20))
+        // URL подписки несёт секретный токен. Https→http-редирект (кривая
+        // панель или MITM на пути) отдал бы его открытым текстом — такой хоп
+        // фейлим. Лимит хопов — как у дефолтной политики reqwest.
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 10 {
+                attempt.error("слишком много редиректов")
+            } else if attempt.url().scheme() == "http"
+                && attempt.previous().iter().any(|u| u.scheme() == "https")
+            {
+                attempt.error("https→http редирект запрещён: токен подписки ушёл бы открытым текстом")
+            } else {
+                attempt.follow()
+            }
+        }))
         .gzip(true);
     // proxy (Some("http://127.0.0.1:PORT")) — при поднятом VPN фронт гонит
     // рефреш через туннель: панель не видит реальный IP юзера, и подписка
