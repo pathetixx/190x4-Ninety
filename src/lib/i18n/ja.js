@@ -700,6 +700,8 @@ export const ja = {
       ipv6Hint: "IPv4/IPv6 の選択戦略",
       discordTitle: "Discord をトンネル外に（TUN）",
       discordHint: "TUN モードのみ: Discord のドメインを直接接続にして、DPI回避が音声を desync しないようにします（低 ping の音声）。回避なし／プロキシでは効果はありません。",
+      procTitle: "モニターにアプリ名を表示",
+      procHint: "接続ごとにプロセスを解決し、モニターにアプリ名を表示します。オフ：混雑した回線での負荷は減りますが、名前は表示されません。",
       rulesNavTitle: "ルーティングルール",
       rulesNavHint: "地域ルールに加えるあなた自身のルール · ドメイン / IP / アプリ",
     },

@@ -5,8 +5,10 @@ name: DPI channel (Flowseal sync)
 # signs the bundle with our minisign key (the same TAURI_SIGNING_PRIVATE_KEY as
 # OTA) and publishes it to the `dpi-channel` prerelease. Ninety pulls this
 # bundle on the fly, verifies the signature and applies it — WITHOUT an app
-# update. This is DATA ONLY (strategies/lists/.bin). The engine
-# (winws.exe/WinDivert) is NOT touched here — it ships via the signed OTA
+# update. This is DATA ONLY (strategies/lists/.bin + service/hosts + service/
+# ipset-service.txt, consumed by dpi_hosts_apply/dpi_update_ipset — those write
+# to the system hosts file, so they must come signed, not from raw github). The
+# engine (winws.exe/WinDivert) is NOT touched here — it ships via the signed OTA
 # release (see engine-watch.yml: watches bol-van/zapret-win-bundle, opens a PR).
 #
 # prerelease=true matters: dpi-channel must NOT become "Latest", otherwise it
@@ -54,7 +56,7 @@ jobs:
       - name: Assemble the channel bundle (data only)
         run: |
           set -euo pipefail
-          mkdir -p bundle/lists bundle/bin
+          mkdir -p bundle/lists bundle/bin bundle/service
           python3 src-tauri/dpi/gen_strategies.py "$FL_DIR" bundle/strategies.json
           # base lists only (user lists live on the client, we don't ship them)
           for f in list-general.txt list-google.txt list-exclude.txt ipset-exclude.txt; do
@@ -62,6 +64,11 @@ jobs:
           done
           # strategy .bin payloads (inert data, version-coupled with strategies.json)
           cp "$FL_DIR"/bin/*.bin bundle/bin/ 2>/dev/null || true
+          # signed service data: hosts pin + ipset base (pulled by dpi_hosts_apply /
+          # dpi_update_ipset). Goes into the signed zip so the DNS-pin path is verified.
+          for f in hosts ipset-service.txt; do
+            [ -f "$FL_DIR/.service/$f" ] && cp "$FL_DIR/.service/$f" "bundle/service/$f" || true
+          done
           echo "${{ steps.fl.outputs.tag }}" > bundle/version.txt
 
       - name: Guard — all referenced .bin present

@@ -700,6 +700,8 @@ export const it = {
       ipv6Hint: "Strategia di selezione IPv4/IPv6",
       discordTitle: "Discord fuori dal tunnel (TUN)",
       discordHint: "Solo in modalità TUN: i domini Discord vanno diretti così il bypass DPI non li desincronizza (voce a basso ping). Nessun effetto senza bypass / in proxy.",
+      procTitle: "Nomi delle app nel monitor",
+      procHint: "Risolve il processo di ogni connessione così il monitor mostra l'app. Disattivato: meno carico su collegamenti congestionati, ma i nomi spariscono.",
       rulesNavTitle: "Regole di routing",
       rulesNavHint: "Le tue regole sopra quelle regionali · dominio / IP / app",
     },

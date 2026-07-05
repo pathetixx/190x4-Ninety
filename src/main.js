@@ -479,9 +479,14 @@ if (settingsRoot) {
   settingsCtl = mountSettings(settingsRoot, {
     onChange: (path) => {
       backupSoon(); // настройки изменились — обновить снапшот-бэкап состояния
-      // Kill switch в режиме «Прокси» режет весь трафик, кроме приложений, вручную
-      // направленных в прокси — предупреждаем при включении (один раз за сессию).
-      if (path === "general.killSwitch") maybeWarnKillSwitchProxy();
+      // Kill switch — чистый WFP-фильтр, конфиг sing-box не трогает: применяем
+      // вживую (arm/disarm по текущему состоянию), БЕЗ реконнекта туннеля (прежде
+      // тоггл ронял и поднимал VPN зря). В режиме «Прокси» — разовое предупреждение.
+      if (path === "general.killSwitch") {
+        maybeWarnKillSwitchProxy();
+        applyKillSwitch(state === "connected");
+        return;
+      }
       // Тогглы periodic re-scan и его интервал — не трогают sing-box, только
       // фоновый JS-loop. Пересоздаём loop сразу, реконнект не нужен.
       if (path === "warp.autoRescan" || path === "warp.autoRescanIntervalMin" || path === "warp.autoRescanThresholdMs") {
@@ -517,6 +522,8 @@ function pathNeedsRestart(path) {
   // Windows-сторона, sing-box не трогает
   if (path === "general.autostart") return false;
   if (path === "general.startMinimized") return false;
+  // Kill switch — WFP-фильтр, применяется вживую (см. onChange); ядро не трогает.
+  if (path === "general.killSwitch") return false;
   const opts = loadOptions();
   // WARP register/reset — переразложить config нужно только если WARP активен
   if (path === "warp.registered") return !!opts.warp?.enabled;

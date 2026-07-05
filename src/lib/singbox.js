@@ -937,7 +937,11 @@ function buildRoute(options, mode) {
     // process-правилом. Стоит выше bypass/custom/region, чтобы lookup срабатывал до
     // первого терминального правила. Накладные: один lookup на соединение (sing-box
     // кэширует TCP-таблицу). Сентинел заведомо не совпадёт ни с одним реальным exe.
-    { process_name: ["\u0000ninety-force-process-lookup"], outbound: "direct" },
+    // Opt-out (route.processLookup === false): монитор перестаёт показывать имена
+    // процессов, зато исчезает per-connection резолв — дешевле на нагруженном канале.
+    ...(options.route?.processLookup !== false
+      ? [{ process_name: ["\u0000ninety-force-process-lookup"], outbound: "direct" }]
+      : []),
   ];
 
   // ProcessName bypass — критично для TUN-режима. Без него собственный трафик

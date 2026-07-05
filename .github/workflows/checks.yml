@@ -40,9 +40,9 @@ jobs:
         with:
           node-version: 22
 
-      # Нет package-lock.json в репо → npm install, не ci.
+      # package-lock.json закоммичен → детерминированная установка через npm ci.
       - name: Install deps
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       # eslint.config.js + --max-warnings 0 (в npm-скрипте): и ошибки (no-undef,
       # дубли ключей, недостижимый код), и warn-находки (unused-vars) валят гейт.

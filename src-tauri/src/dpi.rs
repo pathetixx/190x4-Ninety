@@ -39,8 +39,6 @@ struct Strategy {
     args: Vec<String>,
 }
 
-const FLOWSEAL_RAW: &str = "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main";
-
 // Канал данных стратегий: подписанный prerelease-ассет, который раз в сутки
 // обновляет робот dpi-channel.yml из релизов Flowseal. Ninety тянет его на лету,
 // проверяет minisign-подпись и применяет — БЕЗ обновления приложения. Возит только
@@ -734,37 +732,11 @@ fn fetch_routes(port: Option<u16>) -> Vec<Option<u16>> {
     routes
 }
 
-// Загрузить текст списка устойчиво: proxy→direct (fetch_routes), по 2 попытки на
+// Загрузить сырые байты устойчиво: proxy→direct (fetch_routes), по 2 попытки на
 // каждый. Ретраи + проксирование повышают шанс пройти сквозь флапающий/режущийся
 // ТСПУ github. Если прокси не слушает (VPN выключен) — proxy-попытка быстро падает.
-async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String> {
-    let mut last = String::from("нет попыток");
-    for via in fetch_routes(port) {
-        let client = match list_client(via) {
-            Ok(c) => c,
-            Err(e) => {
-                last = e;
-                continue;
-            }
-        };
-        for attempt in 0..2 {
-            match client.get(url).send().await.and_then(|r| r.error_for_status()) {
-                Ok(resp) => match resp.text().await {
-                    Ok(t) => return Ok(t),
-                    Err(e) => last = format!("read body: {e}"),
-                },
-                Err(e) => last = format!("send: {e}"),
-            }
-            if attempt == 0 {
-                tokio::time::sleep(Duration::from_millis(400)).await;
-            }
-        }
-    }
-    Err(last)
-}
-
-// Как fetch_list_text, но возвращает сырые байты — для подписанного .zip-бандла
-// канала стратегий (его нельзя декодировать как UTF-8). Тот же proxy→direct-ретрай.
+// Байты (не текст): подписанный .zip-бандл канала нельзя декодировать как UTF-8;
+// текстовые ассеты (version.txt, .sig) читает fetch_list_text поверх этого.
 async fn fetch_list_bytes(url: &str, port: Option<u16>) -> Result<Vec<u8>, String> {
     let mut last = String::from("нет попыток");
     for via in fetch_routes(port) {
@@ -789,6 +761,13 @@ async fn fetch_list_bytes(url: &str, port: Option<u16>) -> Result<Vec<u8>, Strin
         }
     }
     Err(last)
+}
+
+// Текстовый ассет канала (version.txt, .sig) поверх fetch_list_bytes. Ассеты
+// заведомо UTF-8, поэтому lossy-декод безопасен и не плодит второй копии ретрай-цикла.
+async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String> {
+    let bytes = fetch_list_bytes(url, port).await?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// Доступно ли обновление набора стратегий. Сравниваем с версией НАШЕГО КАНАЛА
@@ -861,14 +840,26 @@ fn referenced_bins(strategies: &[Strategy]) -> std::collections::HashSet<String>
     need
 }
 
-/// Синхронизировать канал стратегий: скачать подписанный бандл, проверить подпись
-/// ДО распаковки, провалидировать (strategies.json парсится, все .bin на месте) и
-/// атомарно применить в app_data. Возвращает {version, applied}. Движок НЕ трогает.
-#[tauri::command]
-pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde_json::Value, String> {
-    // 1. подпись + бандл. port>0 (VPN в proxy/systemProxy) → тянем через туннель:
-    // ассеты релиза dpi-channel на github, из РФ напрямую режутся ТСПУ. Подпись
-    // проверяется ниже — маршрут доставки на доверие к бандлу не влияет.
+// Каталог последнего применённого подписанного service-набора (hosts/ipset) —
+// оффлайн-фолбэк, когда сеть недоступна, но канал уже синкали хоть раз.
+fn channel_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?
+        .join("dpi")
+        .join("channel");
+    Ok(dir)
+}
+
+// Скачать ПОДПИСАННЫЙ бандл канала, проверить minisign-подпись ДО распаковки и
+// распаковать в свежий staging (zip-slip-safe). Возвращает путь staging; чистить
+// его — на вызывающем. Единая точка входа доверенных данных канала: dpi_sync_channel
+// применяет отсюда strategies/lists/bin, а hosts/ipset берут service/* — все три
+// потока идут через подпись, без неподписанного github-raw в открытой сети.
+// port>0 (VPN в proxy/systemProxy) → тянем через туннель: ассеты релиза dpi-channel
+// на github, из РФ напрямую режутся ТСПУ. Подпись делает маршрут доставки недоверенным.
+async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<PathBuf, String> {
     let sig_b64 = fetch_list_text(&format!("{CHANNEL_BASE}/dpi-channel.zip.sig"), port)
         .await
         .map_err(|e| format!("fetch sig: {e}"))?;
@@ -876,10 +867,9 @@ pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde
         .await
         .map_err(|e| format!("fetch zip: {e}"))?;
 
-    // 2. ВЕРИФИКАЦИЯ подписи до любой распаковки.
+    // ВЕРИФИКАЦИЯ подписи до любой распаковки.
     verify_channel(&zip_bytes, &sig_b64)?;
 
-    // 3. Распаковать в стейджинг, провалидировать.
     let dpi_data = app
         .path()
         .app_data_dir()
@@ -909,6 +899,59 @@ pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde
         let mut f = std::fs::File::create(&out).map_err(|e| format!("create {name:?}: {e}"))?;
         std::io::copy(&mut entry, &mut f).map_err(|e| format!("unzip {name:?}: {e}"))?;
     }
+    Ok(staging)
+}
+
+// Прочитать последнюю применённую подписанную копию service-файла (оффлайн-фолбэк).
+fn read_cached_service(app: &AppHandle, name: &str) -> Result<String, String> {
+    let p = channel_cache_dir(app)?.join(name);
+    if p.exists() {
+        std::fs::read_to_string(&p).map_err(|e| format!("read cached {name}: {e}"))
+    } else {
+        Err(format!("{name}: подписанный канал ещё не синхронизирован"))
+    }
+}
+
+// Взять service-файл канала (hosts / ipset-service.txt) из ПОДПИСАННОГО бандла.
+// Сеть → стейджим свежий bundle (verify), извлекаем service/<name>, кешируем в
+// channel/. Нет сети → фолбэк на последнюю применённую подпись. Раньше hosts/ipset
+// тянулись напрямую с raw.githubusercontent.com/Flowseal без подписи и писались в
+// системный hosts — этот путь закрыт: доверяем только minisign-верифицированным данным.
+async fn fetch_channel_service(app: &AppHandle, port: Option<u16>, name: &str) -> Result<String, String> {
+    match stage_verified_bundle(app, port).await {
+        Ok(staging) => {
+            let src = staging.join("service").join(name);
+            if !src.exists() {
+                // Бандл ещё не несёт service/* (канал не пересобран роботом) —
+                // не падаем сразу, пробуем ранее применённую подписанную копию.
+                let _ = std::fs::remove_dir_all(&staging);
+                return read_cached_service(app, name);
+            }
+            let body = std::fs::read_to_string(&src).map_err(|e| format!("read {name}: {e}"))?;
+            if let Ok(dir) = channel_cache_dir(app) {
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = std::fs::write(dir.join(name), &body);
+            }
+            let _ = std::fs::remove_dir_all(&staging);
+            Ok(body)
+        }
+        // Сеть недоступна → отдаём кешированную подпись, если есть; иначе сетевую ошибку.
+        Err(net) => read_cached_service(app, name).map_err(|_| net),
+    }
+}
+
+/// Синхронизировать канал стратегий: скачать подписанный бандл, проверить подпись
+/// ДО распаковки, провалидировать (strategies.json парсится, все .bin на месте) и
+/// атомарно применить в app_data. Возвращает {version, applied}. Движок НЕ трогает.
+#[tauri::command]
+pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde_json::Value, String> {
+    // 1–3. Скачать + проверить подпись + распаковать в стейджинг (общий хелпер).
+    let dpi_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?
+        .join("dpi");
+    let staging = stage_verified_bundle(&app, port).await?;
 
     // strategies.json валиден?
     let strat_raw = std::fs::read_to_string(staging.join("strategies.json"))
@@ -953,6 +996,18 @@ pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde
         .to_string();
     if !ver.is_empty() {
         let _ = std::fs::write(dpi_data.join("strategies-version.txt"), &ver);
+    }
+    // Подписанные service-файлы (hosts-пин + база ipset) — в кеш канала: hosts/ipset
+    // берут их отсюда как оффлайн-фолбэк, когда сеть недоступна.
+    if let Ok(chan) = channel_cache_dir(&app) {
+        let _ = std::fs::create_dir_all(&chan);
+        let staged_service = staging.join("service");
+        for name in ["hosts", "ipset-service.txt"] {
+            let from = staged_service.join(name);
+            if from.exists() {
+                let _ = std::fs::copy(&from, chan.join(name));
+            }
+        }
     }
     let _ = std::fs::remove_dir_all(&staging);
     Ok(serde_json::json!({ "version": ver, "applied": true }))
@@ -1043,7 +1098,10 @@ pub fn dpi_hosts_status(_app: AppHandle) -> Result<serde_json::Value, String> {
 /// бэкап оригинала при первой записи и сбрасывает DNS-кэш. Возвращает число записей.
 #[tauri::command]
 pub async fn dpi_hosts_apply(app: AppHandle, port: Option<u16>) -> Result<serde_json::Value, String> {
-    let raw = fetch_list_text(&format!("{FLOWSEAL_RAW}/.service/hosts"), port)
+    // hosts прибивает IP↔домен в системном hosts — самый чувствительный из
+    // DPI-путей, поэтому берём его строго из minisign-подписанного канала (было:
+    // прямой неподписанный fetch с Flowseal raw).
+    let raw = fetch_channel_service(&app, port, "hosts")
         .await
         .map_err(|e| format!("fetch hosts: {e}"))?;
     let body = raw.replace("\r\n", "\n");
@@ -1141,7 +1199,8 @@ pub fn dpi_ipset_count(app: AppHandle) -> Result<usize, String> {
 #[tauri::command]
 pub async fn dpi_update_ipset(app: AppHandle, port: Option<u16>) -> Result<usize, String> {
     let lists = ensure_lists(&app)?;
-    let raw = fetch_list_text(&format!("{FLOWSEAL_RAW}/.service/ipset-service.txt"), port)
+    // База ipset — тоже из подписанного канала (было: прямой fetch с Flowseal raw).
+    let raw = fetch_channel_service(&app, port, "ipset-service.txt")
         .await
         .map_err(|e| format!("fetch ipset: {e}"))?;
     let body = raw.replace("\r\n", "\n");
@@ -1337,4 +1396,97 @@ pub fn cleanup_on_exit(state: &DpiState) {
 pub fn dpi_unload_driver(state: State<'_, DpiState>) -> Result<(), String> {
     full_unload(&state);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_verbatim_forms() {
+        assert_eq!(strip_verbatim(r"\\?\C:\dir\winws.exe"), r"C:\dir\winws.exe");
+        assert_eq!(strip_verbatim(r"\\?\UNC\srv\share\x"), r"\\srv\share\x");
+        assert_eq!(strip_verbatim(r"C:\plain\path"), r"C:\plain\path");
+        assert_eq!(strip_verbatim("/unix/style"), "/unix/style");
+    }
+
+    #[test]
+    fn subst_replaces_placeholders() {
+        let sep = MAIN_SEPARATOR;
+        let out = subst("%BIN%tls.bin", "BIN", "LST", "12", "34");
+        assert_eq!(out, format!("BIN{sep}tls.bin"));
+        let lst = subst("%LISTS%list-general.txt", "BIN", "LST", "12", "34");
+        assert_eq!(lst, format!("LST{sep}list-general.txt"));
+        // Game-фильтры: TCP/UDP раздельны, а legacy %GameFilter% берёт TCP.
+        assert_eq!(subst("--wf-tcp=%GameFilterTCP%", "B", "L", "80", "443"), "--wf-tcp=80");
+        assert_eq!(subst("--wf-udp=%GameFilterUDP%", "B", "L", "80", "443"), "--wf-udp=443");
+        assert_eq!(subst("%GameFilter%", "B", "L", "80", "443"), "80");
+    }
+
+    #[test]
+    fn referenced_bins_collects_only_bin_placeholders() {
+        let strat = vec![
+            Strategy {
+                id: "a".into(),
+                name: String::new(),
+                args: vec![
+                    "--fake-tls=%BIN%tls_clienthello_www_google_com.bin".into(),
+                    "--dpi-desync-fake-quic=%BIN%quic_initial_www_google_com.bin".into(),
+                    "--filter-tcp=443".into(),
+                ],
+            },
+            Strategy {
+                id: "b".into(),
+                name: String::new(),
+                // %LISTS% и голый %BIN% без .bin не должны попасть в набор.
+                args: vec!["%LISTS%list-general.txt".into(), "%BIN%".into()],
+            },
+        ];
+        let need = referenced_bins(&strat);
+        assert_eq!(need.len(), 2);
+        assert!(need.contains("tls_clienthello_www_google_com.bin"));
+        assert!(need.contains("quic_initial_www_google_com.bin"));
+    }
+
+    #[test]
+    fn strip_managed_block_removes_only_our_block() {
+        let content = format!(
+            "127.0.0.1 localhost\n{HOSTS_BEGIN}\n1.2.3.4 discord.com\n{HOSTS_END}\n10.0.0.1 nas\n"
+        );
+        let out = strip_managed_block(&content);
+        assert!(out.contains("127.0.0.1 localhost"));
+        assert!(out.contains("10.0.0.1 nas"));
+        assert!(!out.contains("discord.com"));
+        assert!(!out.contains(HOSTS_BEGIN));
+        // Идемпотентность: без блока текст меняется только нормализацией переносов.
+        let again = strip_managed_block(&out);
+        assert_eq!(out, again);
+    }
+
+    #[test]
+    fn count_hosts_entries_ignores_comments_and_singletons() {
+        let body = "# comment\n1.2.3.4 discord.com\n\n5.6.7.8 telegram.org\nonlyonetoken\n";
+        assert_eq!(count_hosts_entries(body), 2);
+    }
+
+    #[test]
+    fn count_ipset_lines_ignores_comments_and_blanks() {
+        let txt = "# base\n1.1.1.0/24\n\n8.8.8.0/24\n  # spaced comment\n9.9.9.9/32\n";
+        assert_eq!(count_ipset_lines(txt), 3);
+    }
+
+    #[test]
+    fn parse_engine_version_extracts_token() {
+        assert_eq!(parse_engine_version("github version 72.12 (abc)"), Some("72.12".into()));
+        assert_eq!(parse_engine_version("winws VERSION v70"), Some("v70".into()));
+        assert_eq!(parse_engine_version("no digits here"), None);
+        assert_eq!(parse_engine_version(""), None);
+    }
+
+    #[test]
+    fn user_list_name_maps_kind() {
+        assert_eq!(user_list_name("exclude"), "list-exclude-user.txt");
+        assert_eq!(user_list_name("user"), "list-general-user.txt");
+        assert_eq!(user_list_name("anything-else"), "list-general-user.txt");
+    }
 }

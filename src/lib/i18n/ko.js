@@ -700,6 +700,8 @@ export const ko = {
       ipv6Hint: "IPv4/IPv6 선택 전략",
       discordTitle: "Discord를 터널 밖으로(TUN)",
       discordHint: "TUN 모드 전용: Discord 도메인을 직접 연결로 보내 DPI 우회가 음성을 desync하지 않도록 합니다(저지연 음성). 우회 없음 / 프록시에서는 효과가 없습니다.",
+      procTitle: "모니터에 앱 이름 표시",
+      procHint: "각 연결의 프로세스를 확인해 모니터에 앱을 표시합니다. 끄면: 혼잡한 회선에서 부하가 줄지만 이름이 사라집니다.",
       rulesNavTitle: "라우팅 규칙",
       rulesNavHint: "지역 규칙 위에 적용되는 내 규칙 · 도메인 / IP / 앱",
     },

@@ -700,6 +700,8 @@ export const tr = {
       ipv6Hint: "IPv4/IPv6 seçim stratejisi",
       discordTitle: "Discord'u tünel dışına (TUN)",
       discordHint: "Yalnızca TUN modu: DPI atlatmanın sesi desync etmemesi için Discord alan adları doğrudan gider (düşük ping'li ses). Atlatma olmadan / proxy'de etkisizdir.",
+      procTitle: "İzleyicide uygulama adları",
+      procHint: "Her bağlantı için süreci çözerek izleyicinin uygulamayı göstermesini sağlar. Kapalı: yoğun hatlarda daha az yük, ama adlar kaybolur.",
       rulesNavTitle: "Yönlendirme kuralları",
       rulesNavHint: "Bölgesel kuralların üstündeki kendi kurallarınız · alan adı / IP / uygulama",
     },
