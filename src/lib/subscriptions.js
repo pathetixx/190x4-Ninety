@@ -219,42 +219,44 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
  * Обновляет существующую подписку.
  */
 export async function refreshSubscription(id) {
-  const list = loadSubscriptions();
-  const idx = list.findIndex(s => s.id === id);
-  if (idx < 0) throw new Error(t("subs.notFound"));
-  const cur = list[idx];
+  const cur = loadSubscriptions().find(s => s.id === id);
+  if (!cur) throw new Error(t("subs.notFound"));
 
   const info = await fetchInfo(cur.url);
   const profiles = parseSubscriptionBody(info.body);
   if (profiles.length === 0) throw new Error(t("subs.emptyOrInvalid"));
 
+  // Список перечитывается ПОСЛЕ await: за время fetch'а юзер мог переименовать
+  // или удалить подписку, а параллельный refresh — обновить соседнюю. Сохранение
+  // снапшота, взятого до await, молча откатывало бы эти изменения.
+  const list = loadSubscriptions();
+  const idx = list.findIndex(s => s.id === id);
+  if (idx < 0) throw new Error(t("subs.notFound"));
+  const fresh = list[idx];
   list[idx] = {
-    ...cur,
-    name: cur.name || info.profile_title || cur.name,
+    ...fresh,
+    name: fresh.name || info.profile_title || "",
     lastUpdate: Date.now(),
-    expire: info.expire ?? cur.expire,
-    upload: info.upload ?? cur.upload,
-    download: info.download ?? cur.download,
-    total: info.total ?? cur.total,
-    updateIntervalHours: info.profile_update_interval_hours ?? cur.updateIntervalHours,
+    expire: info.expire ?? fresh.expire,
+    upload: info.upload ?? fresh.upload,
+    download: info.download ?? fresh.download,
+    total: info.total ?? fresh.total,
+    updateIntervalHours: info.profile_update_interval_hours ?? fresh.updateIntervalHours,
     profiles,
   };
   saveSubscriptions(list);
   return list[idx];
 }
 
+// Параллельно: последовательный обход складывал сетевые таймауты при лежащем
+// туннеле. Гонок за localStorage нет — каждый refresh перечитывает список после
+// своего await, а load-mutate-save атомарен в одном синхронном блоке.
 export async function refreshAllSubscriptions() {
   const list = loadSubscriptions();
-  const results = [];
-  for (const s of list) {
-    try {
-      const r = await refreshSubscription(s.id);
-      results.push({ id: s.id, ok: true, count: r.profiles.length });
-    } catch (e) {
-      results.push({ id: s.id, ok: false, error: e?.message || String(e) });
-    }
-  }
-  return results;
+  const settled = await Promise.allSettled(list.map(s => refreshSubscription(s.id)));
+  return settled.map((r, i) => r.status === "fulfilled"
+    ? { id: list[i].id, ok: true, count: r.value.profiles.length }
+    : { id: list[i].id, ok: false, error: r.reason?.message || String(r.reason) });
 }
 
 function hostnameOf(url) {

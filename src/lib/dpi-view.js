@@ -9,6 +9,7 @@
 
 import { loadOptions } from "/lib/options.js";
 import { escapeHtml as esc } from "/lib/esc.js";
+import { a11ySwitchAll } from "/lib/switch-a11y.js";
 import { t, getLang } from "/lib/i18n/index.js";
 
 const invoke = window.__TAURI__?.core?.invoke
@@ -315,6 +316,7 @@ function renderBody() {
         </article>
       </div>
     </div>`;
+  a11ySwitchAll(body);
 }
 
 function renderChip() {

@@ -9,6 +9,7 @@ import { BUILD_INFO } from "/lib/build-info.js";
 import { availableLangs, getLang, setLang, t } from "/lib/i18n/index.js";
 import { mountRoutingRules } from "/lib/routing-view.js";
 import { escapeAttr } from "/lib/esc.js";
+import { a11ySwitchAll } from "/lib/switch-a11y.js";
 
 // Label-карты строятся в рантайме: t() зависит от текущего языка, замораживать
 // на import нельзя. SECTIONS держит только key+icon; title/hint берём через t().
@@ -88,6 +89,7 @@ export function mountSettings(root, opts = {}) {
       root.innerHTML = renderSection(sec);
       bindSection(root, sec, onChange);
     }
+    a11ySwitchAll(root);
     onRender(currentSection);
   }
 
@@ -168,6 +170,17 @@ export function mountSettings(root, opts = {}) {
     });
     el.querySelectorAll("[data-action='check-updates']").forEach(btn => {
       btn.addEventListener("click", () => window.__ninetyUpdateCheck?.());
+    });
+    // Строка-настройка с тумблером кликабельна целиком (как в Hiddify), не
+    // только сам тумблер. Только там, где тумблер — единственный контрол.
+    el.querySelectorAll(".set-row").forEach(rowEl => {
+      const sw = rowEl.querySelector(".switch");
+      if (!sw || rowEl.querySelectorAll("input, select, button, .switch").length > 1) return;
+      rowEl.classList.add("set-row--toggle");
+      rowEl.addEventListener("click", (e) => {
+        if (sw.contains(e.target)) return;
+        sw.click();
+      });
     });
     bindAlwaysAdmin(el, sec);
     bindWarpSection(el, sec, onChange);

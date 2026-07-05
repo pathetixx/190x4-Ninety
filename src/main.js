@@ -29,6 +29,8 @@ import {
 import { loadOptions, updateOption, REGIONS } from "/lib/options.js";
 import { backupNow, backupSoon, restoreIfEmpty } from "/lib/state-backup.js";
 import { mountSettings } from "/lib/settings-view.js";
+import { pathNeedsRestart } from "/lib/restart-policy.js";
+import { a11ySwitch } from "/lib/switch-a11y.js";
 import { escapeHtml } from "/lib/esc.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
 import { openUpdateModal, shouldSkip as updateShouldSkip } from "/lib/update-modal.js";
@@ -167,12 +169,20 @@ applyModeToUI(getMode());
   if (!warpSwitch) return;
   const opts = loadOptions();
   warpSwitch.dataset.on = String(!!opts.warp?.enabled);
+  a11ySwitch(warpSwitch);
   warpSwitch.addEventListener("click", async (e) => {
     e.stopPropagation();
     const newVal = warpSwitch.dataset.on !== "true";
     updateOption("warp.enabled", newVal);
     if (state === "connected" || state === "connecting") scheduleAutoReconnect();
     updateWarpBadge();
+  });
+  // Кликабельна вся строка лейбла, не только тумблер — как строки настроек.
+  const warpRow = warpSwitch.closest(".popover__warp");
+  warpRow?.addEventListener("click", (e) => {
+    if (warpSwitch.contains(e.target)) return;
+    e.preventDefault();
+    warpSwitch.click();
   });
 })();
 
@@ -461,7 +471,7 @@ if (settingsRoot) {
         }
         return;
       }
-      if (!pathNeedsRestart(path)) return;
+      if (!pathNeedsRestart(path, loadOptions(), getMode())) return;
       if (state === "connected" || state === "connecting") {
         scheduleAutoReconnect();
       }
@@ -469,35 +479,6 @@ if (settingsRoot) {
     },
     onRender: () => applySettingsVersion(),
   });
-}
-
-// Какие настройки реально приводят к изменению sing-box конфига и требуют
-// рестарта ядра. Всё остальное (Windows-state, неактивные ветки config'а) —
-// применяется мгновенно, без переподключения.
-function pathNeedsRestart(path) {
-  if (!path) return true;
-  // Windows-сторона, sing-box не трогает
-  if (path === "general.autostart") return false;
-  if (path === "general.startMinimized") return false;
-  // Kill switch — WFP-фильтр, применяется вживую (см. onChange); ядро не трогает.
-  if (path === "general.killSwitch") return false;
-  const opts = loadOptions();
-  // WARP register/reset — переразложить config нужно только если WARP активен
-  if (path === "warp.registered") return !!opts.warp?.enabled;
-  // warp.deepScan и warp.autoRescan* — не идут в config sing-box, только в UI/JS-loop
-  if (path === "warp.deepScan") return false;
-  if (path.startsWith("warp.autoRescan")) return false;
-  // customNoise активна только при noisePreset=="custom"; если другой — игнор
-  if (path.startsWith("warp.customNoise.") && opts.warp?.noisePreset !== "custom") return false;
-  // WARP-настройки при выключенном WARP в config не попадают
-  if (path.startsWith("warp.") && path !== "warp.enabled" && !opts.warp?.enabled) return false;
-  // TUN-only поля в proxy-режиме не используются (см. inbound в singbox.js)
-  if (path === "inbound.mtu" || path === "inbound.tunStack" || path === "inbound.strictRoute") {
-    return getMode() === "tun";
-  }
-  // split-routing Discord влияет только на TUN-маршруты
-  if (path === "route.tunSplitDiscord") return getMode() === "tun";
-  return true;
 }
 
 const RECONNECT_DEBOUNCE_MS = 1200;

@@ -175,6 +175,13 @@
 }
 .set-row--nav:hover .settings-menu__chevron { color: var(--text-mid); }
 
+/* Строка с одиноким тумблером кликабельна целиком (класс вешает settings-view) */
+.set-row--toggle { cursor: pointer; user-select: none; }
+.set-row--toggle:hover {
+  background: var(--ink-2, rgba(255,255,255,0.04));
+  border-color: var(--line-2, rgba(255,255,255,0.1));
+}
+
 /* Tunnel status block */
 .tunnel-status {
   display: flex;
