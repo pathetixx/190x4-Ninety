@@ -730,7 +730,9 @@
   display: flex; align-items: center; gap: 8px;
   font-size: 12px; color: var(--text-hi);
 }
-.popover__warp-lbl svg { color: var(--accent); }
+.popover__warp-lbl svg { color: var(--accent); flex-shrink: 0; }
+.popover__warp-txt { display: flex; flex-direction: column; gap: 2px; }
+.popover__warp-hint { font-size: 10.5px; color: var(--text-faint); }
 
 /* ═══════════════════════════════════════════
    MODE INDICATOR in sub-row (replaces toolbar button)

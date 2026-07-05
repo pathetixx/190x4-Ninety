@@ -85,6 +85,7 @@ export const ko = {
     systemProxy: "시스템 프록시",
     tun: "VPN · TUN",
     warpExtra: "WARP로 추가 보안",
+    warpExtraHint: "설정 → WARP와 동일한 설정",
     hint: {
       proxy: "<b>특정 앱용.</b> 직접 프록시를 설정한 앱(예: 브라우저)만 보호합니다. 나머지 트래픽은 직접 연결됩니다. 한 가지만 보호하면 될 때 편리합니다.",
       systemProxy: "<b>전부 한 번에.</b> 시스템 네트워크 설정을 따르는 모든 앱(대부분의 브라우저와 앱)에서 켜집니다. 수동 설정이 필요 없습니다. 일부 게임과 Microsoft Store 앱에는 적용되지 않습니다.",

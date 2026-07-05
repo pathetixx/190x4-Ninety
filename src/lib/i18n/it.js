@@ -85,6 +85,7 @@ export const it = {
     systemProxy: "Proxy di sistema",
     tun: "VPN · TUN",
     warpExtra: "Sicurezza extra con WARP",
+    warpExtraHint: "La stessa impostazione di Impostazioni → WARP",
     hint: {
       proxy: "<b>Per app specifiche.</b> Protegge solo le app dove imposti il proxy tu stesso — un browser, ad esempio. Il resto del traffico va diretto. Utile quando devi coprire solo una cosa.",
       systemProxy: "<b>Per tutto in una volta.</b> Si attiva per ogni app che segue le impostazioni di rete del sistema — la maggior parte dei browser e delle app. Niente da configurare a mano. Alcuni giochi e app del Microsoft Store non lo vedranno.",

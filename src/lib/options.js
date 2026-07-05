@@ -153,6 +153,9 @@ export const DEFAULT_OPTIONS = {
   },
 };
 
+// Массивы НЕ мёржатся: сохранённый массив целиком побеждает дефолтный.
+// Изменение массива в DEFAULT_OPTIONS (напр. quality.endpoints) не доедет до
+// существующих установок — нужна разовая миграция по образцу LOG_WARN_MIGRATED_KEY.
 function deepMerge(target, source) {
   if (typeof source !== "object" || source === null) return target;
   const out = Array.isArray(target) ? [...target] : { ...target };
@@ -208,6 +211,13 @@ export function updateOption(path, value) {
   }
   cur[keys[keys.length - 1]] = value;
   saveOptions(opts);
+  // Одна опция может быть представлена несколькими контролами в разных местах
+  // UI (warp.enabled: поповер «Режим» + Настройки → WARP). Контролы не
+  // перерисовываются при чужой записи — подписка на это событие обязана
+  // обновлять DOM всех дублей. Только DOM: запись опций из слушателя = цикл.
+  try {
+    window.dispatchEvent(new CustomEvent("ninety:option-changed", { detail: { path, value } }));
+  } catch {}
   return opts;
 }
 
