@@ -54,6 +54,9 @@ import { parseDeepLink } from "/lib/deeplink.js";
 import { applyKillSwitch, maybeWarnKillSwitchProxy } from "/lib/kill-switch.js";
 import { initWifiGuard, forgetWifiAutoRestore } from "/lib/wifi-guard.js";
 import { initWarpRescan } from "/lib/warp-rescan.js";
+import { initHealthWatchdog } from "/lib/health-watchdog.js";
+import { initTitlebar } from "/lib/titlebar.js";
+import { initPopovers } from "/lib/popovers.js";
 import { ensureWorkingDirectDns, startDnsGuard, stopDnsGuard } from "/lib/dns-guard.js";
 import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t } from "/lib/i18n/index.js";
 import { detectRegion } from "/lib/i18n/region-detect.js";
@@ -131,68 +134,11 @@ async function fillAppVersion() {
 }
 fillAppVersion();
 
-// ── Titlebar ────────────────────────────────────────────────
-document.querySelectorAll("[data-window-action]").forEach((btn) => {
-  btn.addEventListener("click", async () => {
-    if (!tauriWin) return;
-    const action = btn.dataset.windowAction;
-    try {
-      if (action === "minimize") await tauriWin.minimize();
-      else if (action === "maximize") await tauriWin.toggleMaximize();
-      else if (action === "close") await tauriWin.close();
-    } catch (e) {
-      console.error("window action failed", action, e);
-    }
-  });
-});
-
-// ── Popovers ────────────────────────────────────────────────
-const popovers = {
-  mode: { btn: document.getElementById("mode-toggle"), el: document.getElementById("mode-popover") },
-};
-
-function closeAllPopovers(except) {
-  for (const key of Object.keys(popovers)) {
-    if (key === except) continue;
-    const p = popovers[key];
-    p.el.hidden = true;
-    p.btn.setAttribute("aria-expanded", "false");
-  }
-}
-
-function placePopover(p) {
-  const r = p.btn.getBoundingClientRect();
-  p.el.style.top = `${Math.round(r.bottom + 8)}px`;
-  p.el.style.right = `${Math.round(window.innerWidth - r.right)}px`;
-}
-
-for (const key of Object.keys(popovers)) {
-  const p = popovers[key];
-  if (!p.btn || !p.el) continue;
-  p.btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const willOpen = p.el.hidden;
-    closeAllPopovers(key);
-    if (willOpen) {
-      placePopover(p);
-      p.el.hidden = false;
-      p.btn.setAttribute("aria-expanded", "true");
-    } else {
-      p.el.hidden = true;
-      p.btn.setAttribute("aria-expanded", "false");
-    }
-  });
-  p.el.addEventListener("click", (e) => e.stopPropagation());
-}
-
-document.addEventListener("click", () => closeAllPopovers());
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllPopovers(); });
-window.addEventListener("resize", () => {
-  for (const key of Object.keys(popovers)) {
-    const p = popovers[key];
-    if (!p.el.hidden) placePopover(p);
-  }
-});
+// ── Titlebar + поповеры — /lib/titlebar.js, /lib/popovers.js ──
+// Оконные кнопки и поповер «Режим» вынесены в модули. closeAllPopovers остаётся
+// доступен как алиас — его зовёт add-sub при открытии модалки.
+initTitlebar(tauriWin);
+const { closeAll: closeAllPopovers } = initPopovers();
 
 // ── Mode segmented (3 режима как у Hiddify) ─────────────────
 const modeSeg = document.getElementById("mode-seg");
@@ -576,103 +522,21 @@ async function performAutoReconnect(reason = t("conn.applyingSettings")) {
   setTimeout(() => heroDisc?.click(), 60);
 }
 
-// ── health-watchdog ────────────────────────────────────────
-// Пока connected — раз в 5с проверяем что ядра живы. Без этого краш sing-box/xray
-// в середине сессии оставался невидимым: UI держал «Защищено», системный прокси
-// указывал на мёртвый порт, трафик уходил в чёрную дыру. Логика:
-//   sing-box упал  → туннель закрыт: снять прокси, idle, нотифай с причиной, логи.
-//   xray упал      → жив sing-box, но xhttp-мост мёртв → авто-реконнект (пересоберёт
-//                    конфиг и поднимет оба ядра заново).
-const HEALTH_TICK_MS = 5000;
-let healthTimer = null;
-let healthBusy = false;
-
-// Кап догоняющих реконнектов мостов (xray / naive / TT). Смерть моста сразу на
-// старте теперь фейлит start_singbox (fail-fast в Rust), но смерть в середине
-// сессии по-прежнему лечится реконнектом — без капа стабильно падающий мост
-// зациклил бы «упал → реконнект → упал» с тостами каждые ~10 секунд навсегда.
-const BRIDGE_RECONNECT_MAX = 3;
-const BRIDGE_RECONNECT_WINDOW_MS = 10 * 60_000;
-let bridgeReconnects = [];
-function bridgeReconnectAllowed() {
-  const cut = Date.now() - BRIDGE_RECONNECT_WINDOW_MS;
-  bridgeReconnects = bridgeReconnects.filter((ts) => ts > cut);
-  if (bridgeReconnects.length >= BRIDGE_RECONNECT_MAX) return false;
-  bridgeReconnects.push(Date.now());
-  return true;
-}
-
-// Бюджет исчерпан — мост падает системно, реконнекты не лечат. Закрываем
-// туннель целиком (как при смерти sing-box): честная ошибка вместо вечного цикла.
-async function stopForBridgeLoop() {
-  await shutdownCore();
-  toast(t("conn.bridgeLoop"), "error", 8000, {
-    group: "conn",
-    desc: t("conn.bridgeLoopDesc"),
-  });
-  notify(t("conn.notifyClosedTitle"), t("conn.bridgeLoopDesc"));
-  switchView("logs");
-}
-
-function startHealthWatchdog() {
-  if (healthTimer) return;
-  healthTimer = setInterval(healthTick, HEALTH_TICK_MS);
-}
-function stopHealthWatchdog() {
-  if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
-}
-
-async function healthTick() {
-  // updateInstalling: модалка апдейта сама гасит ядра перед установкой —
-  // watchdog иначе находил «труп» и слал ложный «соединение закрыто» + логи.
-  if (state !== "connected" || healthBusy || updateInstalling) return;
-  healthBusy = true;
-  try {
-    // Один агрегирующий вызов вместо четырёх (singbox_running/vpn_last_error/
-    // xray_status/sidecar_status) — снимает лишний IPC-трафик на каждом тике.
-    const snap = await invoke("health_snapshot");
-    if (!snap.singbox_running) {
-      // Причину смерти snapshot читает синхронно с running-статусом (до
-      // shutdownCore, который сбрасывает флаги).
-      const why = snap.last_error;
-      await shutdownCore();
-      toast(t("conn.coreStopped"), "error", 7000, {
-        group: "conn",
-        desc: t("conn.coreStoppedDesc"),
-      });
-      notify(t("conn.notifyClosedTitle"), t("conn.notifyClosedBody"));
-      if (why) console.warn("sing-box died:", why);
-      switchView("logs");
-      return;
-    }
-    // sing-box жив — проверяем xray-мост (xhttp).
-    if (snap.xray === "died") {
-      if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(); return; }
-      toast(t("conn.xhttpDown"), "warn", 4000, { group: "conn", connecting: true });
-      notify("Ninety", t("conn.xhttpNotify"));
-      // reconnectForSourceChange сам ставит needsReconnect и зовёт реконнект,
-      // который поднимет sing-box И xray заново из свежего конфига.
-      reconnectForSourceChange(t("conn.xhttpReconnect"));
-      return;
-    }
-    // sidecar-клиенты naive/trusttunnel — та же логика, что у xray-моста.
-    if (snap.sidecar === "died") {
-      if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(); return; }
-      toast(t("conn.clientDown"), "warn", 4000, { group: "conn", connecting: true });
-      notify("Ninety", t("conn.clientNotify"));
-      reconnectForSourceChange(t("conn.clientReconnect"));
-      return;
-    }
-    // Liveness OK — отдаём ход движку качества (детект троттла/деградации).
-    // Fire-and-forget: проба до 4с не должна держать healthBusy и тормозить
-    // следующий liveness-тик; у движка свои guard'ы probing/remediating.
-    qualityEngine.tick().catch(() => {});
-  } catch (e) {
-    console.warn("healthTick failed", e);
-  } finally {
-    healthBusy = false;
-  }
-}
+// ── health-watchdog — /lib/health-watchdog.js ──────────────
+// Liveness ядер + bridge-reconnect вынесены в модуль; здесь инстанс с инжектом
+// состояния/реконнекта/движка качества. Алиасы сохраняют имена вызовов из setState
+// (start/stopHealthWatchdog) — их не трогаем. getQualityEngine — геттер, т.к.
+// qualityEngine определяется ниже по файлу; вызывается только в runtime-тике.
+const healthWatchdog = initHealthWatchdog({
+  getState: () => state,
+  isUpdateInstalling: () => updateInstalling,
+  shutdownCore,
+  reconnectForSourceChange,
+  switchView,
+  getQualityEngine: () => qualityEngine,
+});
+const startHealthWatchdog = healthWatchdog.start;
+const stopHealthWatchdog = healthWatchdog.stop;
 
 // ── Движок качества связи ──────────────────────────────────
 // Декаплинг: движок не знает про DOM/main.js, все «руки» инжектим здесь.
