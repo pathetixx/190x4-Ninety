@@ -170,12 +170,22 @@ applyModeToUI(getMode());
   warpSwitch.addEventListener("click", async (e) => {
     e.stopPropagation();
     const newVal = warpSwitch.dataset.on !== "true";
-    warpSwitch.dataset.on = String(newVal);
     updateOption("warp.enabled", newVal);
     if (state === "connected" || state === "connecting") scheduleAutoReconnect();
     updateWarpBadge();
   });
 })();
+
+// warp.enabled управляется из двух мест — свитч в поповере «Режим» и тумблер
+// в Настройки → WARP. Ни один не перерисовывается при изменении опции извне,
+// поэтому на любую запись (событие из updateOption) выравниваем оба контрола.
+window.addEventListener("ninety:option-changed", (e) => {
+  if (e.detail?.path !== "warp.enabled") return;
+  const on = String(!!e.detail.value);
+  if (warpSwitch) warpSwitch.dataset.on = on;
+  const settingsSw = document.querySelector('#settings-root .switch[data-opt="warp.enabled"]');
+  if (settingsSw) settingsSw.dataset.on = on;
+});
 
 modeSeg?.addEventListener("click", async (e) => {
   const b = e.target.closest(".seg__btn");

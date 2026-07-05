@@ -85,6 +85,7 @@ export const tr = {
     systemProxy: "Sistem proxy'si",
     tun: "VPN · TUN",
     warpExtra: "WARP ile ek güvenlik",
+    warpExtraHint: "Ayarlar → WARP ile aynı ayar",
     hint: {
       proxy: "<b>Belirli uygulamalar için.</b> Yalnızca proxy'yi kendiniz ayarladığınız uygulamaları korur — örneğin bir tarayıcı. Trafiğin geri kalanı doğrudan gider. Yalnızca bir şeyi korumanız gerektiğinde kullanışlıdır.",
       systemProxy: "<b>Hepsi bir arada.</b> Sistem ağ ayarlarını izleyen her uygulama için açılır — çoğu tarayıcı ve uygulama. Elle ayarlanacak bir şey yok. Bazı oyunlar ve Microsoft Store uygulamaları bunu görmez.",

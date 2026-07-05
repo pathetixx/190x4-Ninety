@@ -85,6 +85,7 @@ export const zh = {
     systemProxy: "系统代理",
     tun: "VPN · TUN",
     warpExtra: "使用 WARP 增强安全",
+    warpExtraHint: "与 设置 → WARP 相同的设置",
     hint: {
       proxy: "<b>用于特定应用。</b>仅保护你手动设置了代理的应用——例如浏览器。其余流量直连。只需覆盖某一项时很方便。",
       systemProxy: "<b>一次覆盖全部。</b>对所有遵循系统网络设置的应用生效——大多数浏览器和应用。无需手动配置。部分游戏和 Microsoft Store 应用不会识别它。",
