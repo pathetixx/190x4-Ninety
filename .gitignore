@@ -24,9 +24,6 @@ dist/
 *.msi
 *.exe.tmp
 
-# Lockfile intentionally untracked (no runtime deps; CI installs fresh)
-package-lock.json
-
 # Python bytecode (gen_strategies.py)
 __pycache__/
 *.pyc

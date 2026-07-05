@@ -85,6 +85,11 @@ export const DEFAULT_OPTIONS = {
     // (winws) десинхрил его на реальном интерфейсе — голос low-ping одновременно
     // с полным TUN. Opt-in: в полном TUN весь трафик в туннеле, обход не нужен.
     tunSplitDiscord: false,
+    // Форс process-lookup: sing-box резолвит сокет→PID→exe у КАЖДОГО соединения,
+    // чтобы монитор соединений показывал имя приложения (см. buildRoute). Цена —
+    // один lookup на коннект всю сессию. true (дефолт) сохраняет прежнее поведение;
+    // false убирает накладные, если монитор с именами процессов не нужен.
+    processLookup: true,
     // Пользовательские правила маршрутизации (гибкие, как в Throne). Каждое:
     //   { id, enabled, type:"domain"|"ip"|"process", match:"suffix"|"exact"|"keyword",
     //     values:[…], action:"proxy"|"direct"|"block" }

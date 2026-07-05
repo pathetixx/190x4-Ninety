@@ -611,6 +611,7 @@ function renderRouting(o) {
       ${row(iconTarget(), t("settings.routing.destTitle"), t("settings.routing.destHint"), toggle("route.resolveDestination", o.route.resolveDestination))}
       ${row(iconIpv6(), t("settings.routing.ipv6Title"), t("settings.routing.ipv6Hint"), select("route.ipv6Mode", o.route.ipv6Mode, IPV6_MODES, ipv6Labels()))}
       ${row(iconRouting(), t("settings.routing.discordTitle"), t("settings.routing.discordHint"), toggle("route.tunSplitDiscord", o.route.tunSplitDiscord))}
+      ${row(iconLog(), t("settings.routing.procTitle"), t("settings.routing.procHint"), toggle("route.processLookup", o.route.processLookup !== false))}
     </div>
     <div class="settings-section">
       ${subNavRow(t("settings.routing.rulesNavTitle"), t("settings.routing.rulesNavHint"), "routing-rules")}

@@ -700,6 +700,8 @@ export const zh = {
       ipv6Hint: "IPv4/IPv6 选择策略",
       discordTitle: "Discord 走隧道外（TUN）",
       discordHint: "仅 TUN 模式：Discord 域名直连，以免 DPI 绕过对其做 desync（保证低延迟语音）。无绕过时 / 代理模式下无效。",
+      procTitle: "监视器中显示应用名称",
+      procHint: "为每个连接解析进程，使监视器显示应用。关闭：繁忙链路开销更低，但名称会消失。",
       rulesNavTitle: "路由规则",
       rulesNavHint: "你的规则优先于区域规则 · 域名 / IP / 应用",
     },
