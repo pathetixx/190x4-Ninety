@@ -465,7 +465,9 @@ async function loadDomains() {
   try { S.domains = await invoke("dpi_domains_count"); } catch { S.domains = 0; }
 }
 async function checkUpdate() {
-  try { const r = await invoke("dpi_check_update"); S.hasUpdate = !!r?.available; } catch {}
+  // port>0 при активном VPN (proxy/systemProxy) → проверка версии канала идёт
+  // через туннель: version.txt на github, из РФ напрямую режется ТСПУ.
+  try { const r = await invoke("dpi_check_update", { port: await listFetchPort() }); S.hasUpdate = !!r?.available; } catch {}
 }
 async function loadHosts() {
   try { const r = await invoke("dpi_hosts_status"); S.hosts.applied = !!r?.applied; S.hosts.entries = r?.entries || 0; } catch {}
@@ -534,7 +536,8 @@ async function runUpdate(id) {
   try {
     // Канал данных: стратегии + списки + .bin одним подписанным бандлом
     // (подпись проверяется в Rust до применения). Версия — тег Flowseal.
-    const r = await invoke("dpi_sync_channel");
+    // port>0 при активном VPN → бандл тянется через туннель (github + ТСПУ).
+    const r = await invoke("dpi_sync_channel", { port: await listFetchPort() });
     if (r?.version) S.versions.strategies = r.version;
     S.hasUpdate = false;
     await loadStrategies(); // перечитать обновлённые определения стратегий

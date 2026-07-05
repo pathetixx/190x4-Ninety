@@ -1,5 +1,6 @@
 mod backup;
 mod clash;
+mod util;
 mod clash_stream;
 mod dnscheck;
 mod dpi;
@@ -27,6 +28,7 @@ use proxy_stub as elevation;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::util::MutexExt;
 use tauri::{
     menu::{CheckMenuItem, IconMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -178,7 +180,7 @@ fn flag_icon(app: &tauri::AppHandle, iso: &Option<String>) -> Option<tauri::imag
         std::sync::Mutex<HashMap<String, Option<tauri::image::Image<'static>>>>,
     > = std::sync::OnceLock::new();
     let cache = FLAG_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
-    if let Some(hit) = cache.lock().unwrap().get(iso).cloned() {
+    if let Some(hit) = cache.lock_recover().get(iso).cloned() {
         return hit;
     }
     // Флаги — read-only ресурсы рядом с бинарём (<resource_dir>/flags/<iso>.png),
@@ -189,7 +191,7 @@ fn flag_icon(app: &tauri::AppHandle, iso: &Option<String>) -> Option<tauri::imag
         .ok()
         .map(|d| d.join("flags").join(format!("{iso}.png")))
         .and_then(|p| tauri::image::Image::from_path(p).ok());
-    cache.lock().unwrap().insert(iso.clone(), img.clone());
+    cache.lock_recover().insert(iso.clone(), img.clone());
     img
 }
 
@@ -592,7 +594,6 @@ pub fn run() {
             dpi::dpi_set_node_exclude,
             dpi::dpi_versions,
             dpi::dpi_check_update,
-            dpi::dpi_update_strategies,
             dpi::dpi_sync_channel,
             dpi::dpi_autotest,
             dpi::dpi_log_path,

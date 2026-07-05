@@ -14,6 +14,7 @@ use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+use crate::util::MutexExt;
 use serde::Deserialize;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -246,6 +247,22 @@ fn subst(arg: &str, bin: &str, lists: &str, g_tcp: &str, g_udp: &str) -> String 
         .replace("%GameFilter%", g_tcp)
 }
 
+// Абсолютный путь к утилите в System32. Не полагаемся на PATH: DPI-команды
+// исполняются в elevated-процессе, где PATH-hijack (подсунутый taskkill.exe/sc.exe
+// в каталоге раньше System32) выполнялся бы с правами администратора. SystemRoot —
+// из окружения, фолбэк C:\Windows на случай пустой переменной.
+#[cfg(target_os = "windows")]
+fn system32(exe: &str) -> String {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+    format!(r"{root}\System32\{exe}")
+}
+// powershell.exe лежит в отдельном подкаталоге System32 (не в самом System32).
+#[cfg(target_os = "windows")]
+fn powershell_exe() -> String {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+    format!(r"{root}\System32\WindowsPowerShell\v1.0\powershell.exe")
+}
+
 // Снять winws.exe-СИРОТУ ОТ ДРУГОГО ИНСТАНСА Ninety. Возвращает true, если хоть
 // один был убит. Вызывается из dpi_start перед спавном своего winws: к той точке
 // наш child уже не жив (дедуп вернул бы «уже запущен»), значит живой winws из
@@ -263,7 +280,7 @@ fn kill_stray_winws(dpi_root: &Path) -> bool {
     // PID|путь каждого winws.exe. CIM отдаёт обычный путь (без verbatim \\?\).
     let ps = "Get-CimInstance Win32_Process -Filter \"Name='winws.exe'\" | \
               ForEach-Object { \"$($_.ProcessId)|$($_.ExecutablePath)\" }";
-    let Ok(out) = std::process::Command::new("powershell")
+    let Ok(out) = std::process::Command::new(powershell_exe())
         .args(["-NoProfile", "-NonInteractive", "-Command", ps])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -284,7 +301,7 @@ fn kill_stray_winws(dpi_root: &Path) -> bool {
         if !path.to_lowercase().starts_with(&root) {
             continue;
         }
-        let ok = std::process::Command::new("taskkill")
+        let ok = std::process::Command::new(system32("taskkill.exe"))
             .args(["/F", "/PID", pid])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
@@ -342,7 +359,7 @@ pub async fn dpi_start(
     let logs_disabled = logs_disabled.unwrap_or(false);
     // Уже запущен? Чистим труп / отказываем.
     {
-        let mut guard = state.child.lock().unwrap();
+        let mut guard = state.child.lock_recover();
         if let Some(child) = guard.as_mut() {
             match child.try_wait() {
                 Ok(Some(_)) => {
@@ -417,14 +434,14 @@ pub async fn dpi_start(
     }
 
     let child = cmd.spawn().map_err(|e| format!("spawn winws: {e}"))?;
-    *state.child.lock().unwrap() = Some(child);
+    *state.child.lock_recover() = Some(child);
     // winws поднял драйвер WinDivert — при выходе службу надо будет снять.
     state.driver_loaded.store(true, Ordering::SeqCst);
 
     // Дать winws ~700мс упасть (занятый драйвер / нет прав / битые args).
     tokio::time::sleep(std::time::Duration::from_millis(700)).await;
     {
-        let mut guard = state.child.lock().unwrap();
+        let mut guard = state.child.lock_recover();
         if let Some(child) = guard.as_mut() {
             if let Ok(Some(status)) = child.try_wait() {
                 *guard = None;
@@ -452,7 +469,7 @@ pub async fn dpi_start(
 
 #[tauri::command]
 pub fn dpi_stop(state: State<'_, DpiState>) -> Result<(), String> {
-    if let Some(mut child) = state.child.lock().unwrap().take() {
+    if let Some(mut child) = state.child.lock_recover().take() {
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -461,7 +478,7 @@ pub fn dpi_stop(state: State<'_, DpiState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn dpi_running(state: State<'_, DpiState>) -> bool {
-    let mut guard = state.child.lock().unwrap();
+    let mut guard = state.child.lock_recover();
     if let Some(child) = guard.as_mut() {
         match child.try_wait() {
             Ok(None) => true,          // живой
@@ -705,18 +722,24 @@ fn list_client(port: Option<u16>) -> Result<reqwest::Client, String> {
     b.build().map_err(|e| format!("http client: {e}"))
 }
 
-// Загрузить текст списка устойчиво: сперва через прокси (если port задан — путь
-// через обход), при неудаче — прямым запросом; по 2 попытки на каждый. github raw
-// из РФ флапает/режется ТСПУ, поэтому ретраи + проксирование повышают шанс пройти.
-// Если прокси не слушает (VPN выключен) — proxy-попытка быстро падает → direct.
-async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String> {
+// Порядок попыток загрузки: сперва через прокси (если port>0 — путь через обход),
+// затем прямой fallback. port=None/0 (VPN выключен / TUN) → только direct. github
+// raw и releases из РФ режутся ТСПУ, поэтому при активном VPN тянем через туннель.
+fn fetch_routes(port: Option<u16>) -> Vec<Option<u16>> {
     let mut routes: Vec<Option<u16>> = Vec::new();
     if matches!(port, Some(p) if p > 0) {
         routes.push(port); // 1) через mixed-inbound (обход)
     }
     routes.push(None); // 2) прямой fallback
+    routes
+}
+
+// Загрузить текст списка устойчиво: proxy→direct (fetch_routes), по 2 попытки на
+// каждый. Ретраи + проксирование повышают шанс пройти сквозь флапающий/режущийся
+// ТСПУ github. Если прокси не слушает (VPN выключен) — proxy-попытка быстро падает.
+async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String> {
     let mut last = String::from("нет попыток");
-    for via in routes {
+    for via in fetch_routes(port) {
         let client = match list_client(via) {
             Ok(c) => c,
             Err(e) => {
@@ -740,6 +763,34 @@ async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String>
     Err(last)
 }
 
+// Как fetch_list_text, но возвращает сырые байты — для подписанного .zip-бандла
+// канала стратегий (его нельзя декодировать как UTF-8). Тот же proxy→direct-ретрай.
+async fn fetch_list_bytes(url: &str, port: Option<u16>) -> Result<Vec<u8>, String> {
+    let mut last = String::from("нет попыток");
+    for via in fetch_routes(port) {
+        let client = match list_client(via) {
+            Ok(c) => c,
+            Err(e) => {
+                last = e;
+                continue;
+            }
+        };
+        for attempt in 0..2 {
+            match client.get(url).send().await.and_then(|r| r.error_for_status()) {
+                Ok(resp) => match resp.bytes().await {
+                    Ok(b) => return Ok(b.to_vec()),
+                    Err(e) => last = format!("read body: {e}"),
+                },
+                Err(e) => last = format!("send: {e}"),
+            }
+            if attempt == 0 {
+                tokio::time::sleep(Duration::from_millis(400)).await;
+            }
+        }
+    }
+    Err(last)
+}
+
 /// Доступно ли обновление набора стратегий. Сравниваем с версией НАШЕГО КАНАЛА
 /// (version.txt-ассет релиза dpi-channel) — тем, что реально поставит кнопка
 /// «Обновить» через dpi_sync_channel. НЕ с live-версией Flowseal: канал
@@ -748,19 +799,13 @@ async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String>
 /// синканул» проверка показывает «обновление есть», а кнопка тянет старый бандл
 /// → local никогда не догоняет remote → вечный «битый круг» обновления.
 #[tauri::command]
-pub async fn dpi_check_update(app: AppHandle) -> Result<serde_json::Value, String> {
+pub async fn dpi_check_update(app: AppHandle, port: Option<u16>) -> Result<serde_json::Value, String> {
     let local = strat_version(&app);
-    let client = no_proxy_client()?;
-    let remote = client
-        .get(format!("{CHANNEL_BASE}/version.txt"))
-        .send()
+    // port>0 (VPN в proxy/systemProxy) → проверка идёт через туннель: version.txt
+    // релиза dpi-channel лежит на github, а он из РФ режется ТСПУ напрямую.
+    let remote = fetch_list_text(&format!("{CHANNEL_BASE}/version.txt"), port)
         .await
         .map_err(|e| format!("fetch version: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("version http: {e}"))?
-        .text()
-        .await
-        .map_err(|e| format!("read version: {e}"))?
         .trim()
         .to_string();
     Ok(serde_json::json!({
@@ -768,47 +813,6 @@ pub async fn dpi_check_update(app: AppHandle) -> Result<serde_json::Value, Strin
         "remote": remote,
         "available": !remote.is_empty() && remote != local,
     }))
-}
-
-/// Silent-обновление списков из Flowseal (домены/исключения) БЕЗ переустановки
-/// и без трогания user-списков. Перезапуск winws — на стороне фронта (если был
-/// включён). Возвращает новую версию набора.
-#[tauri::command]
-pub async fn dpi_update_strategies(app: AppHandle) -> Result<String, String> {
-    let lists = ensure_lists(&app)?;
-    let client = no_proxy_client()?;
-    // Базовые списки доменов/исключений (user-версии не трогаем).
-    for name in ["list-general.txt", "list-google.txt", "list-exclude.txt", "ipset-exclude.txt"] {
-        let url = format!("{FLOWSEAL_RAW}/lists/{name}");
-        if let Ok(resp) = client.get(url.as_str()).send().await {
-            if resp.status().is_success() {
-                if let Ok(body) = resp.text().await {
-                    if !body.trim().is_empty() {
-                        let _ = std::fs::write(lists.join(name), body);
-                    }
-                }
-            }
-        }
-    }
-    // Зафиксировать новую версию набора в app_data-маркере.
-    let remote = client
-        .get(format!("{FLOWSEAL_RAW}/.service/version.txt"))
-        .send()
-        .await
-        .ok();
-    let ver = if let Some(r) = remote {
-        r.text().await.unwrap_or_default().trim().to_string()
-    } else {
-        String::new()
-    };
-    if !ver.is_empty() {
-        if let Ok(dir) = app.path().app_data_dir() {
-            let dpi_dir = dir.join("dpi");
-            let _ = std::fs::create_dir_all(&dpi_dir);
-            let _ = std::fs::write(dpi_dir.join("strategies-version.txt"), &ver);
-        }
-    }
-    Ok(ver)
 }
 
 // ── Канал данных стратегий (подписанный, без переустановки) ──────────
@@ -861,29 +865,16 @@ fn referenced_bins(strategies: &[Strategy]) -> std::collections::HashSet<String>
 /// ДО распаковки, провалидировать (strategies.json парсится, все .bin на месте) и
 /// атомарно применить в app_data. Возвращает {version, applied}. Движок НЕ трогает.
 #[tauri::command]
-pub async fn dpi_sync_channel(app: AppHandle) -> Result<serde_json::Value, String> {
-    let client = no_proxy_client()?;
-    // 1. подпись + бандл
-    let sig_b64 = client
-        .get(format!("{CHANNEL_BASE}/dpi-channel.zip.sig"))
-        .send()
+pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde_json::Value, String> {
+    // 1. подпись + бандл. port>0 (VPN в proxy/systemProxy) → тянем через туннель:
+    // ассеты релиза dpi-channel на github, из РФ напрямую режутся ТСПУ. Подпись
+    // проверяется ниже — маршрут доставки на доверие к бандлу не влияет.
+    let sig_b64 = fetch_list_text(&format!("{CHANNEL_BASE}/dpi-channel.zip.sig"), port)
         .await
-        .map_err(|e| format!("fetch sig: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("sig http: {e}"))?
-        .text()
+        .map_err(|e| format!("fetch sig: {e}"))?;
+    let zip_bytes = fetch_list_bytes(&format!("{CHANNEL_BASE}/dpi-channel.zip"), port)
         .await
-        .map_err(|e| format!("read sig: {e}"))?;
-    let zip_bytes = client
-        .get(format!("{CHANNEL_BASE}/dpi-channel.zip"))
-        .send()
-        .await
-        .map_err(|e| format!("fetch zip: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("zip http: {e}"))?
-        .bytes()
-        .await
-        .map_err(|e| format!("read zip: {e}"))?;
+        .map_err(|e| format!("fetch zip: {e}"))?;
 
     // 2. ВЕРИФИКАЦИЯ подписи до любой распаковки.
     verify_channel(&zip_bytes, &sig_b64)?;
@@ -898,7 +889,7 @@ pub async fn dpi_sync_channel(app: AppHandle) -> Result<serde_json::Value, Strin
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging).map_err(|e| format!("mkdir staging: {e}"))?;
 
-    let reader = std::io::Cursor::new(zip_bytes.as_ref());
+    let reader = std::io::Cursor::new(zip_bytes.as_slice());
     let mut zip = zip::ZipArchive::new(reader).map_err(|e| format!("open zip: {e}"))?;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
@@ -1116,7 +1107,7 @@ fn flush_dns() {
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let _ = std::process::Command::new("ipconfig")
+        let _ = std::process::Command::new(system32("ipconfig.exe"))
             .arg("/flushdns")
             .creation_flags(CREATE_NO_WINDOW)
             .output();
@@ -1262,7 +1253,7 @@ pub async fn dpi_autotest(
 }
 
 pub fn force_cleanup(state: &DpiState) {
-    if let Some(mut child) = state.child.lock().unwrap().take() {
+    if let Some(mut child) = state.child.lock_recover().take() {
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -1281,9 +1272,10 @@ pub fn force_cleanup(state: &DpiState) {
 pub fn unload_driver_services() {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let sc = system32("sc.exe");
     for svc in ["WinDivert", "WinDivert14", "Monkey"] {
         for verb in ["stop", "delete"] {
-            let _ = std::process::Command::new("sc")
+            let _ = std::process::Command::new(&sc)
                 .args([verb, svc])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();

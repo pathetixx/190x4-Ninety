@@ -25,6 +25,10 @@ pub fn clash_secret() -> &'static str {
 // сводим к общему виду. Фронт (ip-info.js) и localAsn читают именно эти поля.
 // Все эндпоинты — HTTPS: fetch_public_ip зовётся и напрямую (localAsn, мимо
 // туннеля), plaintext-HTTP там дал бы ISP/ТСПУ видеть и подменять IP-lookup.
+// ip-api.com в пул НЕ входит намеренно — у него только http-эндпоинт (https за
+// платой), а plaintext здесь неприемлем. Его формат (query/as/countryCode) в
+// normalize_ip/extract_asn всё же разобран: это резерв на случай возврата и
+// покрыто юнит-тестами (normalize_ipapi_com) — сама ветка в проде не срабатывает.
 const IP_PROVIDERS: &[&str] = &[
     "https://ipwho.is/",
     "https://api.ip.sb/geoip",
