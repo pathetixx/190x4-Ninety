@@ -40,7 +40,7 @@ import { mountDpiView, setDpiVpnMode, excludeVpnNode, autostartDpiIfEnabled, rer
 import { mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
 import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
-import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, testNode, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
+import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
@@ -53,6 +53,7 @@ import { initHeroHud } from "/lib/hero-hud.js";
 import { parseDeepLink } from "/lib/deeplink.js";
 import { applyKillSwitch, maybeWarnKillSwitchProxy } from "/lib/kill-switch.js";
 import { initWifiGuard, forgetWifiAutoRestore } from "/lib/wifi-guard.js";
+import { initWarpRescan } from "/lib/warp-rescan.js";
 import { ensureWorkingDirectDns, startDnsGuard, stopDnsGuard } from "/lib/dns-guard.js";
 import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t } from "/lib/i18n/index.js";
 import { detectRegion } from "/lib/i18n/region-detect.js";
@@ -913,93 +914,14 @@ function activateSource(kind, id) {
   }
 }
 
-// ── WARP UX (hero badge + история ротаций) ──────────────────
-const WARP_HISTORY_KEY = "ninety.warp.history";
-const WARP_HISTORY_LIMIT = 20;
-const locWarpRow = document.getElementById("loc-warp-row");
-const locWarpEndpoint = document.getElementById("loc-warp-endpoint");
-
-function updateWarpBadge() {
-  if (!locWarpRow || !locWarpEndpoint) return;
-  const o = loadOptions();
-  const enabled = !!o.warp?.enabled;
-  const connected = state === "connected";
-  if (!enabled || !connected) { locWarpRow.hidden = true; return; }
-  locWarpEndpoint.textContent = o.warp?.endpoint || "—";
-  locWarpRow.hidden = false;
-}
-
-function recordWarpRotation(from, to, oldDelay, newDelay) {
-  try {
-    const raw = localStorage.getItem(WARP_HISTORY_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    list.unshift({ ts: Date.now(), from, to, oldDelay, newDelay });
-    if (list.length > WARP_HISTORY_LIMIT) list.length = WARP_HISTORY_LIMIT;
-    localStorage.setItem(WARP_HISTORY_KEY, JSON.stringify(list));
-    window.dispatchEvent(new CustomEvent("ninety:warp-rotation"));
-  } catch (e) { console.warn("warp history save failed", e); }
-}
-
-// ── WARP periodic re-scan ───────────────────────────────────
-// Раз в N минут (warp.autoRescanIntervalMin) опрашиваем delay outbound "warp"
-// через clash-API. Если выше порога — запускаем scan, ставим лучший endpoint
-// и дёргаем auto-reconnect. Активно только при state=connected + warp.enabled
-// + warp.autoRescan.
-let warpRescanTimer = null;
-let warpRescanInFlight = false;
-
-function startWarpRescanLoop() {
-  stopWarpRescanLoop();
-  const opts = loadOptions();
-  if (!opts.warp?.enabled || !opts.warp?.autoRescan) return;
-  if (state !== "connected") return;
-  const minutes = Math.max(5, Math.min(360, Number(opts.warp?.autoRescanIntervalMin) || 30));
-  warpRescanTimer = setInterval(warpRescanTick, minutes * 60_000);
-}
-
-function stopWarpRescanLoop() {
-  if (warpRescanTimer) { clearInterval(warpRescanTimer); warpRescanTimer = null; }
-}
-
-async function warpRescanTick() {
-  if (warpRescanInFlight) return;
-  if (state !== "connected") return;
-  const opts = loadOptions();
-  if (!opts.warp?.enabled || !opts.warp?.autoRescan) return;
-  const threshold = Math.max(100, Number(opts.warp?.autoRescanThresholdMs) || 300);
-  warpRescanInFlight = true;
-  try {
-    let curDelay = 0;
-    try {
-      const r = await testNode("warp", { timeoutMs: 4000, url: "http://cp.cloudflare.com/generate_204" });
-      curDelay = r?.delay || 0;
-    } catch { curDelay = 0; }
-    // 0 = таймаут или not-reachable, выше порога — ротируем.
-    if (curDelay > 0 && curDelay <= threshold) return;
-    toast(t("warpToast.searching", { delay: curDelay || "—" }), "info", 2200);
-    let results = [];
-    try {
-      results = await invoke("warp_scan_endpoints", { topN: 5, deep: false, mode: "wg" });
-    } catch { return; }
-    const best = Array.isArray(results) && results.length ? results[0] : null;
-    if (!best) return;
-    // Применяем только если новый лучше на ≥50мс, чтобы не дёргаться от шума.
-    if (curDelay > 0 && best.latency_ms + 50 >= curDelay) {
-      toast(t("warpToast.alreadyOk", { best: best.latency_ms, cur: curDelay }), "info", 2400);
-      return;
-    }
-    const newEndpoint = `${best.ip}:${best.port}`;
-    const fromEndpoint = loadOptions().warp?.endpoint || "—";
-    updateOption("warp.endpoint", newEndpoint);
-    recordWarpRotation(fromEndpoint, newEndpoint, curDelay, best.latency_ms);
-    console.info("[WARP rescan]", { from: fromEndpoint, to: newEndpoint, oldDelay: curDelay, newDelay: best.latency_ms });
-    toast(t("warpToast.rotated", { ep: newEndpoint, best: best.latency_ms, old: curDelay || "—" }), "success", 2400);
-    updateWarpBadge();
-    scheduleAutoReconnect();
-  } finally {
-    warpRescanInFlight = false;
-  }
-}
+// ── WARP UX (hero badge + авто-ротация + история) — /lib/warp-rescan.js ──
+// Подсистема вынесена в модуль; здесь только инстанс с инжектом состояния/реконнекта.
+// Алиасы сохраняют прежние имена вызовов (updateWarpBadge/start/stopWarpRescanLoop),
+// разбросанные по setState/onChange/warp-switch — их не трогаем.
+const warpRescan = initWarpRescan({ getState: () => state, scheduleAutoReconnect });
+const updateWarpBadge = warpRescan.updateBadge;
+const startWarpRescanLoop = warpRescan.startLoop;
+const stopWarpRescanLoop = warpRescan.stopLoop;
 
 navItems.forEach((item) => {
   if (item.dataset.view !== "settings") return;
