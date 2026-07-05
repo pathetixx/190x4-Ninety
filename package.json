@@ -6,7 +6,7 @@
   "scripts": {
     "tauri": "tauri",
     "test": "node --test --import ./tests/register.mjs \"tests/*.test.mjs\"",
-    "lint": "eslint src tests scripts"
+    "lint": "eslint --max-warnings 0 src tests scripts"
   },
   "devDependencies": {
     "@eslint/js": "9.39.4",
