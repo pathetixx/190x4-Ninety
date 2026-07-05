@@ -2,7 +2,7 @@
 // Не SPA-роутер: внутренний state хранится в this view (sectionKey).
 
 import {
-  loadOptions, saveOptions, updateOption,
+  loadOptions, updateOption,
   REGIONS, IPV6_MODES, TUN_STACKS, LOG_LEVELS, MUX_PROTOCOLS,
 } from "/lib/options.js";
 import { BUILD_INFO } from "/lib/build-info.js";
@@ -581,10 +581,6 @@ function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
   `;
 }
 
-function settingsBtn(action, label, primary = false) {
-  return `<button class="btn btn--sm${primary ? " btn--primary" : ""}" data-action="${action}" type="button">${label}</button>`;
-}
-
 // ── Разделы ────────────────────────────────────────────────
 function renderGeneral(o) {
   const g = o.general || {};
@@ -957,6 +953,5 @@ function iconBroadcast() { return svgWrap('<path d="M4 9 a11 11 0 0 1 16 0"/><pa
 function iconScissors()  { return svgWrap('<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.5" y2="15.5"/><line x1="20" y1="20" x2="14" y2="14"/><line x1="8.5" y1="8.5" x2="11.5" y2="11.5"/>'); }
 function iconCase()      { return svgWrap('<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7 V5 a2 2 0 0 1 2 -2 h2 a2 2 0 0 1 2 2 V7"/><line x1="3" y1="13" x2="21" y2="13"/>'); }
 function iconPad()       { return svgWrap('<rect x="3" y="3" width="18" height="18" rx="2"/><rect x="8" y="8" width="8" height="8" rx="1"/>'); }
-function iconUpdate()    { return svgWrap('<path d="M3 12 a9 9 0 0 1 15.5 -6.4 L21 8"/><path d="M21 3 V8 H16"/><path d="M21 12 a9 9 0 0 1 -15.5 6.4 L3 16"/><path d="M3 21 V16 H8"/>'); }
 function iconRocket()    { return svgWrap('<path d="M14 4 a8 8 0 0 1 6 -2 a8 8 0 0 1 -2 6 L11 15 L9 13 Z"/><path d="M9 13 L5 17"/><path d="M5 15 L9 19 L7 21 L4 21 a1 1 0 0 1 -1 -1 L3 17 Z"/><circle cx="15" cy="9" r="1.5"/>'); }
 function iconEyeOff()    { return svgWrap('<line x1="3" y1="3" x2="21" y2="21"/><path d="M10 6.5 c0.7 -0.1 1.3 -0.2 2 -0.2 c6 0 9 5.7 9 5.7 c0 0 -1 1.8 -2.5 3.5"/><path d="M6 7.5 C 3.5 9.2 3 12 3 12 c0 0 3 5.7 9 5.7 c1.3 0 2.5 -0.3 3.5 -0.7"/><path d="M9.5 9.5 a3 3 0 0 0 4.2 4.2"/>'); }

@@ -1,7 +1,7 @@
 // Ninety · subscriptions
 // URL-импорт списка vless://, парсинг subscription-userinfo, storage.
 
-import { parseVless, parseLink } from "/lib/singbox.js";
+import { parseLink } from "/lib/singbox.js";
 import { t } from "/lib/i18n/index.js";
 import { uid } from "/lib/uid.js";
 

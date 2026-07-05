@@ -80,7 +80,6 @@ export function openUpdateModal(update, opts = {}) {
   const latestEl = $("update-latest");
   const changelogEl = $("update-changelog");
   const progressBox = $("update-progress");
-  const actionsBox = $("update-actions");
   const laterBtn = $("update-later");
   const installBtn = $("update-install");
 
