@@ -65,9 +65,14 @@ jobs:
           # strategy .bin payloads (inert data, version-coupled with strategies.json)
           cp "$FL_DIR"/bin/*.bin bundle/bin/ 2>/dev/null || true
           # signed service data: hosts pin + ipset base (pulled by dpi_hosts_apply /
-          # dpi_update_ipset). Goes into the signed zip so the DNS-pin path is verified.
+          # dpi_update_ipset). The release zip does NOT carry .service/, so fetch it
+          # from the repo at the resolved tag. Goes into the signed zip → the system-
+          # hosts / ipset path is verified, not trusted from raw github at runtime.
+          tag="${{ steps.fl.outputs.tag }}"
           for f in hosts ipset-service.txt; do
-            [ -f "$FL_DIR/.service/$f" ] && cp "$FL_DIR/.service/$f" "bundle/service/$f" || true
+            curl -fsSL -o "bundle/service/$f" \
+              "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/${tag}/.service/$f" \
+              || { echo "::error::failed to fetch .service/$f"; exit 1; }
           done
           echo "${{ steps.fl.outputs.tag }}" > bundle/version.txt
 
