@@ -56,18 +56,7 @@ export function parseVless(raw) {
   const uuid = head.slice(0, atIdx);
   const hostPort = head.slice(atIdx + 1);
 
-  let host, port;
-  if (hostPort.startsWith("[")) {
-    const close = hostPort.indexOf("]");
-    if (close < 0) throw new Error(t("sb.err.badIpv6"));
-    host = hostPort.slice(1, close);
-    port = parseInt(hostPort.slice(close + 2), 10);
-  } else {
-    const colonIdx = hostPort.lastIndexOf(":");
-    if (colonIdx < 0) throw new Error(t("sb.err.noPort"));
-    host = hostPort.slice(0, colonIdx);
-    port = parseInt(hostPort.slice(colonIdx + 1), 10);
-  }
+  const { host, port } = splitHostPort(hostPort);
   if (!port || port < 1 || port > 65535) throw new Error(t("sb.err.badPort"));
 
   const params = new URLSearchParams(query);

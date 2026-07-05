@@ -441,6 +441,7 @@
   transform: translateX(16px);
   background: #fff;
 }
+.switch:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
 /* Segmented (Mode chooser inside settings) */
 .seg {
