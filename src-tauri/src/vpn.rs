@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::util::MutexExt;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
@@ -166,7 +167,7 @@ fn spawn_log_monitor(
                     if let Some(w) = writer.as_mut() {
                         write_capped(w, &mut written, &msg);
                     }
-                    *died_flag.lock().unwrap() = Some(msg);
+                    *died_flag.lock_recover() = Some(msg);
                     break;
                 }
                 _ => {}
@@ -318,7 +319,7 @@ async fn spawn_xray(
         .env("NO_COLOR", "1")
         .spawn()
         .map_err(|e| format!("spawn xray: {e}"))?;
-    *state.xray_child.lock().unwrap() = Some(child);
+    *state.xray_child.lock_recover() = Some(child);
 
     let died_flag = state.xray_died.clone();
     // logs_disabled (настройка «Полностью отключить логи») → не пишем файл лога;
@@ -333,7 +334,7 @@ async fn spawn_xray(
     // Fail-fast: умер в settle-паузе (битый конфиг, занятый порт) → фейлим старт
     // с причиной. Раньше старт «удавался», а health-watchdog через 5с находил
     // труп и уходил в реконнект — по кругу, потому что порт так и оставался занят.
-    if let Some(err) = state.xray_died.lock().unwrap().take() {
+    if let Some(err) = state.xray_died.lock_recover().take() {
         return Err(err);
     }
     Ok(())
@@ -380,7 +381,7 @@ async fn spawn_sidecars(
             .env("NO_COLOR", "1")
             .spawn()
             .map_err(|e| format!("spawn {bin}: {e}"))?;
-        state.sidecars.lock().unwrap().push(child);
+        state.sidecars.lock_recover().push(child);
 
         let died_flag = state.sidecar_died.clone();
         let log_file = if logs_disabled {
@@ -404,7 +405,7 @@ async fn spawn_sidecars(
 
         // Fail-fast: клиент умер в settle-паузе → фейлим старт с причиной
         // (см. spawn_xray — иначе health-watchdog зациклился бы на реконнектах).
-        if let Some(err) = state.sidecar_died.lock().unwrap().take() {
+        if let Some(err) = state.sidecar_died.lock_recover().take() {
             return Err(err);
         }
     }
@@ -508,7 +509,12 @@ pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer")
+        // Абсолютный путь: explorer.exe лежит в %SystemRoot% (не в System32).
+        // Не полагаемся на PATH — открытие логов может идти из elevated-процесса.
+        let explorer = std::env::var("SystemRoot")
+            .map(|r| format!(r"{r}\explorer.exe"))
+            .unwrap_or_else(|_| r"C:\Windows\explorer.exe".into());
+        std::process::Command::new(explorer)
             .arg(&dir)
             .spawn()
             .map_err(|e| format!("explorer: {e}"))?;
@@ -548,13 +554,13 @@ pub async fn start_singbox(
     }
     let _starting = StartingGuard(&state.starting);
     {
-        let child = state.child.lock().unwrap();
-        if child.is_some() || state.xray_child.lock().unwrap().is_some() {
+        let child = state.child.lock_recover();
+        if child.is_some() || state.xray_child.lock_recover().is_some() {
             return Err("sing-box уже запущен".into());
         }
-        *state.died.lock().unwrap() = None;
-        *state.xray_died.lock().unwrap() = None;
-        *state.sidecar_died.lock().unwrap() = None;
+        *state.died.lock_recover() = None;
+        *state.xray_died.lock_recover() = None;
+        *state.sidecar_died.lock_recover() = None;
     }
 
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
@@ -592,7 +598,7 @@ pub async fn start_singbox(
     // xray_child.is_some() блокировал бы следующий старт до явного stop).
     if let Err(e) = spawn_singbox_core(&app, &state, &config_json, logs_disabled).await {
         // kill по уже мёртвому child безвреден (Err игнорируем).
-        if let Some(child) = state.child.lock().unwrap().take() {
+        if let Some(child) = state.child.lock_recover().take() {
             let _ = child.kill();
         }
         kill_xray(&state);
@@ -626,7 +632,7 @@ async fn spawn_singbox_core(
         .spawn()
         .map_err(|e| format!("spawn sing-box: {e}"))?;
 
-    *state.child.lock().unwrap() = Some(child);
+    *state.child.lock_recover() = Some(child);
 
     let died_flag = state.died.clone();
     // sing-box при logs_disabled и так молчит (log.disabled в конфиге), но гасим
@@ -636,17 +642,16 @@ async fn spawn_singbox_core(
 
     // даём sing-box 800мс чтобы упасть с ошибкой парсинга / биндинга
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-    if let Some(err) = state.died.lock().unwrap().take() {
+    if let Some(err) = state.died.lock_recover().take() {
         return Err(err);
     }
     // Мост мог умереть и в эти 800мс (после своей settle-паузы) — тоже fail-fast,
     // иначе health-watchdog найдёт труп через 5с и уйдёт в цикл реконнектов.
     let bridge_err = state
         .xray_died
-        .lock()
-        .unwrap()
+        .lock_recover()
         .take()
-        .or_else(|| state.sidecar_died.lock().unwrap().take());
+        .or_else(|| state.sidecar_died.lock_recover().take());
     if let Some(err) = bridge_err {
         return Err(err);
     }
@@ -654,13 +659,13 @@ async fn spawn_singbox_core(
 }
 
 fn kill_xray(state: &SingboxState) {
-    if let Some(child) = state.xray_child.lock().unwrap().take() {
+    if let Some(child) = state.xray_child.lock_recover().take() {
         let _ = child.kill();
     }
 }
 
 fn kill_sidecars(state: &SingboxState) {
-    for child in state.sidecars.lock().unwrap().drain(..) {
+    for child in state.sidecars.lock_recover().drain(..) {
         let _ = child.kill();
     }
 }
@@ -696,14 +701,14 @@ fn purge_current_configs(app: &AppHandle) {
 // Сбрасывает флаги смерти движков. Без этого причина прошлой смерти жила бы до
 // следующего start_singbox (vpn_last_error/*_status отдавали бы устаревшее).
 fn clear_death_flags(state: &SingboxState) {
-    *state.died.lock().unwrap() = None;
-    *state.xray_died.lock().unwrap() = None;
-    *state.sidecar_died.lock().unwrap() = None;
+    *state.died.lock_recover() = None;
+    *state.xray_died.lock_recover() = None;
+    *state.sidecar_died.lock_recover() = None;
 }
 
 #[tauri::command]
 pub async fn stop_singbox(app: AppHandle, state: State<'_, SingboxState>) -> Result<(), String> {
-    let taken = state.child.lock().unwrap().take();
+    let taken = state.child.lock_recover().take();
     if let Some(child) = taken {
         // child.kill() гасит sing-box; wintun-адаптер (non-persistent) снимается
         // системой вместе со смертью процесса, державшего его — отдельная чистка
@@ -721,21 +726,21 @@ pub async fn stop_singbox(app: AppHandle, state: State<'_, SingboxState>) -> Res
 // Внутренние вычисления статусов — переиспользуются одиночными командами и
 // агрегатом health_snapshot (один IPC-роунд-трип для watchdog'а вместо четырёх).
 fn compute_singbox_running(state: &SingboxState) -> bool {
-    if state.child.lock().unwrap().is_some() {
+    if state.child.lock_recover().is_some() {
         // Хэндл child не чистится при смерти процесса — монитор-таск лишь
         // выставляет died. Без этой проверки singbox_running возвращал бы true
         // вечно после краша ядра (UI держит «Защищено», прокси указывает на
         // мёртвый порт, трафик в чёрную дыру). Труп живым не считаем.
-        return state.died.lock().unwrap().is_none();
+        return state.died.lock_recover().is_none();
     }
     false
 }
 
 fn compute_xray_status(state: &SingboxState) -> &'static str {
-    if state.xray_child.lock().unwrap().is_none() {
+    if state.xray_child.lock_recover().is_none() {
         return "none";
     }
-    if state.xray_died.lock().unwrap().is_some() {
+    if state.xray_died.lock_recover().is_some() {
         "died"
     } else {
         "alive"
@@ -743,10 +748,10 @@ fn compute_xray_status(state: &SingboxState) -> &'static str {
 }
 
 fn compute_sidecar_status(state: &SingboxState) -> &'static str {
-    if state.sidecars.lock().unwrap().is_empty() {
+    if state.sidecars.lock_recover().is_empty() {
         return "none";
     }
-    if state.sidecar_died.lock().unwrap().is_some() {
+    if state.sidecar_died.lock_recover().is_some() {
         "died"
     } else {
         "alive"
@@ -754,13 +759,13 @@ fn compute_sidecar_status(state: &SingboxState) -> &'static str {
 }
 
 fn compute_last_error(state: &SingboxState) -> Option<String> {
-    if let Some(e) = state.died.lock().unwrap().clone() {
+    if let Some(e) = state.died.lock_recover().clone() {
         return Some(e);
     }
-    if let Some(e) = state.xray_died.lock().unwrap().clone() {
+    if let Some(e) = state.xray_died.lock_recover().clone() {
         return Some(e);
     }
-    state.sidecar_died.lock().unwrap().clone()
+    state.sidecar_died.lock_recover().clone()
 }
 
 #[tauri::command]
@@ -822,7 +827,7 @@ pub fn vpn_last_error(state: State<'_, SingboxState>) -> Option<String> {
 }
 
 pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
-    if let Some(child) = state.child.lock().unwrap().take() {
+    if let Some(child) = state.child.lock_recover().take() {
         let _ = child.kill();
     }
     kill_xray(state);

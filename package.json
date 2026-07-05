@@ -5,10 +5,14 @@
   "type": "module",
   "scripts": {
     "tauri": "tauri",
-    "test": "node --test --import ./tests/register.mjs \"tests/*.test.mjs\""
+    "test": "node --test --import ./tests/register.mjs \"tests/*.test.mjs\"",
+    "lint": "eslint src tests scripts"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.11.4"
+    "@eslint/js": "9.39.4",
+    "@tauri-apps/cli": "2.11.4",
+    "eslint": "9.39.4",
+    "globals": "17.7.0"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

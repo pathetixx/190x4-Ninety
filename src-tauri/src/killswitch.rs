@@ -21,6 +21,8 @@
 
 use std::sync::Mutex;
 
+use crate::util::MutexExt;
+
 /// Хранит сырой FWPM engine handle (isize), пока kill switch активен. None = выключен.
 /// HANDLE не Send/Sync — держим как isize, восстанавливаем при disarm.
 #[derive(Default)]
@@ -40,7 +42,7 @@ pub fn killswitch_arm(
     // NAS/локальные шары. DHCP пропускаем ВСЕГДА — иначе на renew lease рвётся вся
     // сеть «непонятно почему». В TUN kill switch не поднимается (strict_route).
     let allow_lan = allow_lan.unwrap_or(true);
-    let mut guard = state.0.lock().unwrap();
+    let mut guard = state.0.lock_recover();
     if guard.is_some() {
         return Ok(());
     }
@@ -61,7 +63,7 @@ pub fn killswitch_arm(
 /// Выключить kill switch (снять все фильтры). Идемпотентно.
 #[tauri::command]
 pub fn killswitch_disarm(state: tauri::State<'_, KillSwitchState>) -> Result<(), String> {
-    let mut guard = state.0.lock().unwrap();
+    let mut guard = state.0.lock_recover();
     if let Some(h) = guard.take() {
         #[cfg(target_os = "windows")]
         unsafe {
@@ -76,13 +78,13 @@ pub fn killswitch_disarm(state: tauri::State<'_, KillSwitchState>) -> Result<(),
 /// Активен ли kill switch (для синхронизации UI).
 #[tauri::command]
 pub fn killswitch_active(state: tauri::State<'_, KillSwitchState>) -> bool {
-    state.0.lock().unwrap().is_some()
+    state.0.lock_recover().is_some()
 }
 
 // Снять движок при выходе аппы (на случай, если фронт не успел) — фильтры и так
 // уйдут с процессом (dynamic-session), но закрываем явно.
 pub fn force_disarm(state: &KillSwitchState) {
-    if let Some(_h) = state.0.lock().unwrap().take() {
+    if let Some(_h) = state.0.lock_recover().take() {
         #[cfg(target_os = "windows")]
         unsafe {
             win::disarm(_h);

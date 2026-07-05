@@ -30,6 +30,25 @@ jobs:
       - name: Run JS tests
         run: npm test
 
+  js-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      # Нет package-lock.json в репо → npm install, не ci.
+      - name: Install deps
+        run: npm install --no-audit --no-fund
+
+      # eslint.config.js: ошибки (no-undef, дубли ключей, недостижимый код)
+      # валят гейт; стилевые находки идут как warnings и CI не роняют.
+      - name: Run ESLint
+        run: npm run lint
+
   rust-tests:
     runs-on: windows-latest
     timeout-minutes: 30
