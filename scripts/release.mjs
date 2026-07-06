@@ -1,15 +1,20 @@
 #!/usr/bin/env node
-// Ninety · пред-CI релиз одной командой. Оборачивает ручной ритуал
-// (RELEASING.md шаги 1–5) так, что две единственные ручные переменные —
-// номер версии и заметки — авторятся по одному разу и разъезжаться не могут:
+// Ninety · релиз одной командой, от бампа до раздачи по OTA. Оборачивает весь
+// ритуал (RELEASING.md) так, что две ручные переменные — номер версии и
+// заметки — авторятся по одному разу и разъезжаться не могут:
 //   версия → bump-version.mjs (4 файла);
 //   заметки → секция CHANGELOG.md этой версии → git tag -a -F → тело draft'а.
 // CHANGELOG.md — единый источник заметок: те же байты уходят в аннотацию тега
-// (→ latest.json/OTA) и в тело релиза. Скрипт останавливается ДО компиляции —
-// push тега и есть то, что запускает сборку/подпись/публикацию/OTA в CI.
+// (→ latest.json/OTA) и в тело релиза.
+//
+// Компиляция — в CI (локально не собираем): push тега запускает сборку/подпись/
+// публикацию/зеркала. С --watch скрипт доводит до конца: ждёт CI-ран и проверяет,
+// что релиз опубликован, ассеты на месте и latest.json реально раздаётся с
+// GitHub и GitLab.
 //
 // Использование:
-//   node scripts/release.mjs X.Y.Z [--dry-run] [--yes] [--allow-branch]
+//   node scripts/release.mjs X.Y.Z [--watch] [--dry-run] [--yes] [--allow-branch]
+//   node scripts/release.mjs X.Y.Z --verify        # только проверить уже вышедший релиз
 // Перед запуском: добавить секцию "## vX.Y.Z — YYYY-MM-DD" в НАЧАЛО CHANGELOG.md.
 
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
@@ -18,6 +23,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const die = (m) => { console.error(`✗ ${m}`); process.exit(1); };
@@ -36,16 +42,80 @@ function exec(cmd, a, { capture = false } = {}) {
 const cap = (cmd, a) => exec(cmd, a, { capture: true }).trim();
 const run = (cmd, a) => exec(cmd, a);
 
+const REPO = "pathetixx/190x4-Ninety";
+const GH_LATEST = `https://github.com/${REPO}/releases/latest/download/latest.json`;
+const GL_LATEST =
+  "https://gitlab.com/api/v4/projects/83749391/packages/generic/ninety/stable/latest.json";
+
+let failed = 0;
+const check = (ok, label) => { console.log(`  ${ok ? "✓" : "✗"} ${label}`); if (!ok) failed++; };
+
+// Поднять fn() до истины с ретраями — OTA-эндпоинты/CDN могут догонять пару секунд.
+async function retry(fn, tries = 8, delayMs = 5000) {
+  for (let i = 0; i < tries; i++) {
+    try { if (await fn()) return true; } catch { /* transient */ }
+    if (i < tries - 1) await sleep(delayMs);
+  }
+  return false;
+}
+
+// Проверка, что релиз реально встал и раздаётся. Используется --watch и --verify.
+async function verifyRelease(version) {
+  const tag = `v${version}`;
+  console.log(`\nПроверка релиза ${tag}:`);
+
+  let rel;
+  try {
+    rel = JSON.parse(cap("gh", ["release", "view", tag,
+      "--json", "isDraft,isPrerelease,assets"]));
+  } catch {
+    check(false, "gh release view — релиз не найден");
+    return;
+  }
+  check(!rel.isDraft, "опубликован (не draft)");
+  check(!rel.isPrerelease, "не prerelease (иначе выпадет из Latest → OTA сломан)");
+  const names = rel.assets.map((a) => a.name);
+  check(names.some((n) => /-setup\.exe$/.test(n)), "ассет установщика (.exe)");
+  check(names.some((n) => /-setup\.exe\.sig$/.test(n)), "подпись установщика (.sig)");
+  check(names.some((n) => /\.msi$/.test(n)), "ассет .msi");
+  check(names.includes("latest.json"), "ассет latest.json");
+
+  // GitHub /releases/latest/ отдаёт нашу версию ⇒ релиз стал Latest, и подпись на месте.
+  const ghOk = await retry(async () => {
+    const r = await fetch(GH_LATEST);
+    if (!r.ok) return false;
+    const j = await r.json();
+    return j.version === version && !!j.platforms?.["windows-x86_64"]?.signature;
+  });
+  check(ghOk, `GitHub OTA: latest.json = ${version}, подпись есть (= релиз Latest)`);
+
+  // GitLab — первичный OTA-источник (доступен из РФ), зеркалится CI после публикации.
+  const glOk = await retry(async () => {
+    const r = await fetch(GL_LATEST);
+    if (!r.ok) return false;
+    return (await r.json()).version === version;
+  });
+  check(glOk, `GitLab OTA (первичный): latest.json = ${version}`);
+}
+
 // --- аргументы ---
 const argv = process.argv.slice(2);
 const flags = new Set(argv.filter((a) => a.startsWith("--")));
 const version = argv.find((a) => !a.startsWith("--"));
 const dryRun = flags.has("--dry-run");
 const autoYes = flags.has("--yes");
+const watch = flags.has("--watch");
 
 if (!version || !/^\d+\.\d+\.\d+$/.test(version))
   die(`нужна версия X.Y.Z (получено: ${version ?? "<none>"})`);
 const tag = `v${version}`;
+
+// --- режим только-проверки ---
+if (flags.has("--verify")) {
+  await verifyRelease(version);
+  console.log(failed ? `\n✗ проверка: ${failed} провал(ов)` : "\n✓ всё встало");
+  process.exit(failed ? 1 : 0);
+}
 
 // --- предпроверки (только чтение) ---
 const branch = cap("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -75,7 +145,6 @@ if (end === -1) end = lines.length;
 const notes = lines.slice(headIdx + 1, end).join("\n").trim();
 if (!notes) die(`секция ${tag} в CHANGELOG.md пустая`);
 
-// дата в заголовке: проставить сегодняшнюю, если её нет
 const today = new Date().toISOString().slice(0, 10);
 const needDate = !/—\s*\d{4}-\d{2}-\d{2}/.test(lines[headIdx]);
 
@@ -87,8 +156,9 @@ console.log(`  заметки (${notes.split("\n").length} стр. из CHANGELO
 console.log(notes.split("\n").map((l) => "    " + l).join("\n"));
 console.log(`\n  дальше: commit main · git tag -a ${tag} -F · `
   + `push origin main ${tag} · gh release create --draft`);
-console.log(`  затем CI: компиляция → подпись → публикация draft'а → OTA. `
-  + `Это уедет пользователям.`);
+console.log(watch
+  ? "  затем слежу за CI (компиляция→подпись→публикация) и проверяю OTA. Это уедет пользователям."
+  : "  затем CI собирает/подписывает/публикует сам. Это уедет пользователям.");
 
 if (dryRun) { console.log("\n(dry-run: ничего не записано)"); process.exit(0); }
 
@@ -110,6 +180,7 @@ run("node", ["scripts/bump-version.mjs", version]);
 run("git", ["add", "package.json", "src-tauri/tauri.conf.json",
   "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "CHANGELOG.md"]);
 run("git", ["commit", "-m", tag]);
+const sha = cap("git", ["rev-parse", "HEAD"]);
 
 const dir = mkdtempSync(join(tmpdir(), "ninety-rel-"));
 const notesFile = join(dir, "notes.md");
@@ -120,6 +191,39 @@ run("git", ["push", "origin", "main"]);
 run("git", ["push", "origin", tag]);
 run("gh", ["release", "create", tag, "--draft", "--title", `Ninety ${tag}`,
   "-F", notesFile]);
-
 rmSync(dir, { recursive: true, force: true });
-console.log(`\n✓ ${tag} запушен, CI собирает. Следить: gh run watch`);
+console.log(`\n✓ ${tag} запушен, тег на месте, draft создан.`);
+
+if (!watch) {
+  console.log("CI собирает. Следить: gh run watch  (или перезапусти с --watch/--verify)");
+  process.exit(0);
+}
+
+// --- дождаться CI и проверить исход ---
+console.log(`\nЖду CI-ран для ${sha.slice(0, 7)}…`);
+let runId;
+for (let i = 0; i < 20 && !runId; i++) {
+  let runs = [];
+  try {
+    runs = JSON.parse(cap("gh", ["run", "list", "--workflow", "build.yml",
+      "--json", "databaseId,headSha", "--limit", "20"]));
+  } catch { /* ран ещё не зарегистрирован */ }
+  const r = runs.find((x) => x.headSha === sha);
+  if (r) runId = r.databaseId; else await sleep(3000);
+}
+if (!runId) die("CI-ран не появился за ~60с. Проверь: gh run list; потом --verify " + version);
+
+console.log(`Ран ${runId}: компиляция → подпись → публикация. Слежу…`);
+try {
+  execFileSync("gh", ["run", "watch", String(runId), "--exit-status"],
+    { cwd: root, stdio: "inherit" });
+} catch {
+  die("CI упал. Draft остался неопубликованным — OTA не тронута. "
+    + "Разбери лог (gh run view " + runId + " --log-failed) и катни fix-forward следующим тегом.");
+}
+
+await verifyRelease(version);
+console.log(failed
+  ? `\n✗ ${tag} собрался, но проверка нашла ${failed} проблем(у) — глянь вручную`
+  : `\n✓ ${tag} собран, опубликован и раздаётся по OTA (GitHub + GitLab)`);
+process.exit(failed ? 1 : 0);
