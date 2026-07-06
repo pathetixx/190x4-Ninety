@@ -9,7 +9,7 @@
 
 **Нативный VPN-клиент под Windows.**
 
-**Русский** · [English](./README.md)
+**Русский** · [English](./README.md) · [Журнал изменений](./CHANGELOG.md)
 
 </div>
 

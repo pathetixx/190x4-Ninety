@@ -9,7 +9,7 @@
 
 **A native VPN client for Windows.**
 
-[Русский](./README.ru.md) · **English**
+[Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md)
 
 </div>
 
