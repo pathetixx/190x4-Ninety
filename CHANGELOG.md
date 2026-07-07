@@ -3,6 +3,21 @@
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
 
+## v0.1.96 — 2026-07-07
+
+- Fixed: system proxy mode now restores the previous proxy bypass list (`ProxyOverride`) instead of leaving Ninety's own bypass list behind.
+- DPI strategy channel updates are applied more safely: required lists and `.bin` payloads are copied first, errors are no longer ignored, and `strategies.json` is replaced last.
+- Fixed: IPv6 VPN node exclusions for DPI bypass now use `/128` instead of `/32`.
+- Hardened WARP/DPI settings rendering and removed a stray binary NUL byte from the routing monitor source file.
+- Release builds now install npm dependencies with `npm ci` for lockfile-based reproducibility.
+
+- Исправлено: режим системного прокси теперь восстанавливает прежний список исключений (`ProxyOverride`), а не оставляет после себя список Ninety.
+- Обновления канала DPI-стратегий применяются безопаснее: нужные списки и `.bin`-файлы копируются первыми, ошибки больше не игнорируются, а `strategies.json` заменяется последним.
+- Исправлено: IPv6-ноды в исключениях DPI-обхода теперь получают `/128`, а не `/32`.
+- Усилена защита рендера настроек WARP/DPI и убран бинарный NUL-байт из исходника монитора маршрутизации.
+- Релизные сборки теперь ставят npm-зависимости через `npm ci` для воспроизводимости по lockfile.
+
+
 ## v0.1.95 — 2026-07-05
 
 - Fixed: the WARP toggle in the mode popover and in Settings → WARP now stay in sync; the popover row also hints that it is the same setting.
