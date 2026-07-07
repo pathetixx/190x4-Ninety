@@ -750,14 +750,14 @@ function buildOutbound(p, options) {
 }
 
 // ── rule_sets для региона + block_ads ───────────────────────
-function buildRuleSets(options, mode) {
+function buildRuleSets(options, mode, downloadDetour = "proxy") {
   const sets = [];
   // TUN + split Discord: правило для маршрутизации доменов Discord мимо туннеля.
   if (mode === "tun" && options.route?.tunSplitDiscord) {
     sets.push({
       type: "remote", tag: "geosite-discord", format: "binary",
       url: `${DISCORD_GEO_BASE}/geosite-discord.srs`,
-      update_interval: "120h", download_detour: "proxy",
+      update_interval: "120h", download_detour: downloadDetour,
     });
   }
   const region = options.region;
@@ -765,19 +765,19 @@ function buildRuleSets(options, mode) {
     sets.push({
       type: "remote", tag: `geoip-${region}`, format: "binary",
       url: `${HIDDIFY_GEO_BASE}/country/geoip-${region}.srs`,
-      update_interval: "120h", download_detour: "proxy",
+      update_interval: "120h", download_detour: downloadDetour,
     });
     sets.push({
       type: "remote", tag: `geosite-${region}`, format: "binary",
       url: `${HIDDIFY_GEO_BASE}/country/geosite-${region}.srs`,
-      update_interval: "120h", download_detour: "proxy",
+      update_interval: "120h", download_detour: downloadDetour,
     });
   }
   if (options.blockAds) {
     for (const [tag, url] of BLOCK_AD_SETS) {
       sets.push({
         type: "remote", tag, format: "binary",
-        url, update_interval: "120h", download_detour: "proxy",
+        url, update_interval: "120h", download_detour: downloadDetour,
       });
     }
   }
@@ -882,7 +882,7 @@ function buildDns(options) {
 //   ip            → ip_cidr (одиночный IP нормализуем в /32, IPv6 в /128)
 //   process       → process_name (работает во ВСЕХ режимах — sing-box резолвит
 //                   процесс по локальному сокету mixed-inbound, привязки к TUN нет)
-function customRulesToSingbox(customRules) {
+function customRulesToSingbox(customRules, protectedOutbound = "proxy") {
   if (!Array.isArray(customRules)) return [];
   const out = [];
   for (const r of customRules) {
@@ -906,14 +906,14 @@ function customRulesToSingbox(customRules) {
     }
 
     if (r.action === "block") rule.action = "reject";
-    else rule.outbound = r.action === "direct" ? "direct" : "proxy";
+    else rule.outbound = r.action === "direct" ? "direct" : protectedOutbound;
 
     out.push(rule);
   }
   return out;
 }
 
-function buildRoute(options, mode) {
+function buildRoute(options, mode, protectedOutbound = "proxy") {
   const rules = [
     { action: "sniff" },
     { protocol: "dns", action: "hijack-dns" },
@@ -948,7 +948,7 @@ function buildRoute(options, mode) {
     // Проба качества (probe-in) — в туннель, ДО bypass-правила ниже: иначе
     // process-матч Ninety.exe увёл бы её в direct и мерился бы голый канал
     // вместо туннеля. При активном WARP buildConfig переставит outbound → warp.
-    rules.push({ inbound: ["probe-in"], outbound: "proxy" });
+    rules.push({ inbound: ["probe-in"], outbound: protectedOutbound });
     // Список обязан покрывать ВСЕ движки, дозванивающиеся наружу (= ENGINES в
     // killswitch.rs + Ninety.exe) — пропущенный sidecar зацикливается сам в себя.
     rules.push({
@@ -972,7 +972,7 @@ function buildRoute(options, mode) {
   // ниже служебных safety-правил. Порядок в массиве = приоритет (первое совпадение
   // выигрывает): кастом перекрывает регион (напр. «Telegram → через VPN» победит
   // .ru-direct для трафика Telegram), а весь остальной трафик слушает базу ниже.
-  rules.push(...customRulesToSingbox(options.route?.customRules));
+  rules.push(...customRulesToSingbox(options.route?.customRules, protectedOutbound));
 
   if (options.route.bypassLan) {
     rules.push({ ip_is_private: true, outbound: "direct" });
@@ -995,7 +995,7 @@ function buildRoute(options, mode) {
 
   const route = {
     rules,
-    rule_set: buildRuleSets(options, mode),
+    rule_set: buildRuleSets(options, mode, protectedOutbound),
     final: "proxy",
     auto_detect_interface: true,
     default_domain_resolver: {
@@ -1322,7 +1322,10 @@ function nodeToXrayOutbound(p, tag) {
 export function buildConfig({ profile, source, mode, options, warpInfo, xray = false, bridgePorts }) {
   const opts = options || DEFAULT_OPTIONS;
   const src = source ?? (profile ? { kind: "single", profile } : null);
-  if (!src) throw new Error(t("sb.err.buildNoSource"));
+
+  const warpEndpoint = buildWarpEndpoint(opts.warp, warpInfo);
+  const warpOnly = !src && !!warpEndpoint && opts.warp?.mode === "direct";
+  if (!src && !warpOnly) throw new Error(t("sb.err.buildNoSource"));
 
   // Базы портов loopback-мостов: план из plan_bridge_ports (свободные диапазоны)
   // либо статические дефолты (экспорт конфига, тесты — там bind не нужен).
@@ -1339,10 +1342,11 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
   const intervalSec = Number(opts.urlTest?.intervalSec) > 0 ? Number(opts.urlTest.intervalSec) : 600;
   const testInterval = `${intervalSec}s`;
 
-  const nodes = src.kind === "sub" ? src.nodes : [src.profile];
-  if (!nodes?.length) throw new Error(t("sb.err.buildNoNodes"));
+  const nodes = warpOnly ? [] : (src.kind === "sub" ? src.nodes : [src.profile]);
+  if (!warpOnly && !nodes?.length) throw new Error(t("sb.err.buildNoNodes"));
 
-  const route = buildRoute(opts, mode);
+  const protectedOutbound = warpEndpoint ? "warp" : "proxy";
+  const route = buildRoute(opts, mode, protectedOutbound);
   const useUrltest = nodes.length >= 2;
   const vlessOutbounds = nodes.map((n, i) => {
     const ob = buildOutbound(n, opts);
@@ -1401,7 +1405,11 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
   });
 
   let outbounds;
-  if (useUrltest) {
+  if (warpOnly) {
+    outbounds = [
+      { type: "direct", tag: "direct" },
+    ];
+  } else if (useUrltest) {
     // Hiddify-схема (builder.go:269-301): "Auto" — это НЕ URLTest, а Balancer
     // со strategy=lowest-delay. Balancer на каждом новом connection выбирает
     // outbound с минимальным delay из monitoring + interrupt_exist_connections
@@ -1458,7 +1466,6 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
 
   // WARP endpoint (опционально): подмешиваем wireguard endpoint и
   // переключаем route.final на "warp".
-  const warpEndpoint = buildWarpEndpoint(opts.warp, warpInfo);
   if (warpEndpoint) {
     route.final = "warp";
     // Проба качества следует за final: мерить надо то плечо, которым реально

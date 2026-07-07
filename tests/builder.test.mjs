@@ -164,3 +164,57 @@ test("clash-api включается опцией experimental.enableClashApi", 
   });
   assert.ok(config.experimental.clash_api.external_controller.startsWith("127.0.0.1:"));
 });
+
+test("WARP direct: custom action proxy идёт в warp, а не мимо него", () => {
+  const opts = structuredClone(DEFAULT_OPTIONS);
+  opts.warp.enabled = true;
+  opts.warp.mode = "direct";
+  opts.route.customRules = [{
+    id: "r1",
+    enabled: true,
+    type: "domain",
+    match: "suffix",
+    values: ["example.com"],
+    action: "proxy",
+  }];
+  const warpInfo = {
+    private_key: "priv",
+    peer_public_key: "peer",
+    client_id: "AAAA",
+    local_ipv4: "172.16.0.2",
+  };
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "proxy",
+    options: opts,
+    warpInfo,
+  });
+  assert.equal(config.route.final, "warp");
+  const rule = config.route.rules.find((r) => r.domain_suffix?.includes("example.com"));
+  assert.equal(rule.outbound, "warp");
+  assert.ok(config.route.rule_set.every((rs) => rs.download_detour === "warp"));
+});
+
+test("WARP direct может собраться без активного профиля или подписки", () => {
+  const opts = structuredClone(DEFAULT_OPTIONS);
+  opts.warp.enabled = true;
+  opts.warp.mode = "direct";
+  const warpInfo = {
+    private_key: "priv",
+    peer_public_key: "peer",
+    client_id: "AAAA",
+    local_ipv4: "172.16.0.2",
+  };
+  const { config, xray, sidecars } = buildConfig({
+    source: null,
+    mode: "proxy",
+    options: opts,
+    warpInfo,
+  });
+  assert.equal(xray, null);
+  assert.deepEqual(sidecars, []);
+  assert.equal(config.route.final, "warp");
+  assert.deepEqual(config.endpoints.map((e) => e.tag), ["warp"]);
+  assert.deepEqual(config.outbounds.map((o) => o.tag), ["direct"]);
+  assert.ok(config.route.rule_set.every((rs) => rs.download_detour === "warp"));
+});

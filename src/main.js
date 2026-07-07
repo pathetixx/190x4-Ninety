@@ -320,12 +320,27 @@ function refreshProfilesSummary() {
   backupSoon(); // профили/подписки изменились — обновить снапшот-бэкап
 }
 
+function warpOnlyEnabled() {
+  const opts = loadOptions();
+  return !!opts.warp?.enabled && opts.warp?.mode === "direct";
+}
+
+function hasConnectSource() {
+  return !!getActiveSource() || warpOnlyEnabled();
+}
+
+function activeDisplaySource() {
+  return getActiveSource() || (warpOnlyEnabled()
+    ? { kind: "warp", profile: { id: "warp", proto: "wireguard", name: "WARP", host: loadOptions().warp?.endpoint || "engage.cloudflareclient.com" } }
+    : null);
+}
+
 // Empty-state: нет ни подписки ни конфига → показываем onboarding wizard
 // (если он ещё не пройден). Wizard также удерживает onboarding visible пока
 // юзер не дошёл до step 4 — даже если empty уже false (подписка добавлена).
 function syncEmptyState() {
   if (!appRoot) return;
-  const empty = loadProfiles().length === 0 && loadSubscriptions().length === 0;
+  const empty = loadProfiles().length === 0 && loadSubscriptions().length === 0 && !warpOnlyEnabled();
   appRoot.dataset.empty = String(empty);
   const onb = document.getElementById("onboarding-screen");
   if (empty && !isOnboardingDone() && !wizardActive) {
@@ -348,7 +363,7 @@ const subBar = document.getElementById("sub-bar");
 const subUpdated = document.getElementById("sub-updated");
 
 function refreshSubCardFromActive() {
-  const src = getActiveSource();
+  const src = activeDisplaySource();
   if (src?.kind === "sub") {
     const sub = src.subscription;
     if (subName) subName.textContent = sub.name?.toUpperCase() || t("home.subDefault");
@@ -387,6 +402,14 @@ function refreshSubCardFromActive() {
     if (subExpireUnit) subExpireUnit.style.display = "none";
     // У одиночного профиля (hysteria/naive/tt) нет квоты — показываем измеренный трафик.
     if (subTraffic) subTraffic.innerHTML = `<b>${fmtTraffic(getMeasured(`profile:${src.profile.id}`).total)}</b>`;
+    if (subBar) subBar.style.display = "none";
+    if (subProgressFill) subProgressFill.style.width = "0%";
+    if (subUpdated) subUpdated.textContent = "—";
+  } else if (src?.kind === "warp") {
+    if (subName) subName.textContent = "WARP";
+    if (subExpire) subExpire.textContent = "—";
+    if (subExpireUnit) subExpireUnit.style.display = "none";
+    if (subTraffic) subTraffic.innerHTML = `<b>${fmtTraffic(getMeasured("warp").total)}</b>`;
     if (subBar) subBar.style.display = "none";
     if (subProgressFill) subProgressFill.style.width = "0%";
     if (subUpdated) subUpdated.textContent = "—";
@@ -462,6 +485,10 @@ if (settingsRoot) {
       }
       // Badge с активным endpoint должен реагировать на любое изменение warp.*
       if (path === "warp.enabled" || path === "warp.endpoint") updateWarpBadge();
+      if (path === "warp.enabled" || path === "warp.mode") {
+        syncEmptyState();
+        updateHeroForActive();
+      }
       // Качество связи — опции читает движок, ядро не трогаем. Применяем вживую
       // через setOptions; вкл/выкл прячет/показывает индикатор «КАНАЛ».
       if (path.startsWith("quality.")) {
@@ -1389,7 +1416,7 @@ function setHeroHintText(text) {
 
 function updateHeroHint() {
   if (state !== "idle") return;
-  const src = getActiveSource();
+  const src = activeDisplaySource();
   if (!src) {
     setHeroHintText(t("home.importHint"));
     if (heroDisc) {
@@ -1412,7 +1439,7 @@ let currentEffectiveTag = null;
 
 function activeNodeForDisplay() {
   if (currentEffectiveNode) return currentEffectiveNode;
-  const src = getActiveSource();
+  const src = activeDisplaySource();
   return src?.kind === "sub" ? src.nodes[0] : src?.profile;
 }
 
@@ -1427,7 +1454,7 @@ function nodeDisplayLabel(n) {
 function resolveServerLabel() {
   const eff = currentEffectiveNode;
   if (eff?.name || eff?.host) return eff.name || eff.host;
-  const src = getActiveSource();
+  const src = activeDisplaySource();
   if (src?.kind === "sub") {
     const n0 = src.nodes?.[0];
     if (n0?.name || n0?.host) return n0.name || n0.host;
@@ -1462,12 +1489,14 @@ async function notifyConnectedWithRealNode(isMultiSub) {
 }
 
 function updateHeroForActive() {
-  const src = getActiveSource();
+  const src = activeDisplaySource();
   const p = activeNodeForDisplay();
   if (locName) {
     if (src?.kind === "sub") {
       const nodeLabel = p?.name || p?.host || "—";
       locName.textContent = `${src.subscription.name} · ${nodeLabel}`;
+    } else if (src?.kind === "warp") {
+      locName.textContent = "WARP";
     } else if (p) {
       locName.textContent = p.name || p.host;
     }
@@ -1540,7 +1569,7 @@ function setState(next, opts = {}) {
     updateStatsServer();
     startTrafficStream();
     // Учёт реально измеренного трафика активного источника (для гибрид-плитки).
-    startMeter({ sourceKey: sourceKeyOf(getActiveSource()), onUpdate: refreshSubCardFromActive });
+    startMeter({ sourceKey: sourceKeyOf(activeDisplaySource()), onUpdate: refreshSubCardFromActive });
     startWarpRescanLoop();
     startHealthWatchdog();
     // DNS-watchdog: если direct-DNS ляжет в середине сессии — переключит на резерв
@@ -1755,14 +1784,15 @@ heroDisc?.addEventListener("click", async () => {
   }
   if (state === "idle") {
     const src = getActiveSource();
-    if (!src) { toast(t("conn.needSource"), "error"); return; }
+    const options = loadOptions();
+    const warpOnly = !src && warpOnlyEnabled();
+    if (!src && !warpOnly) { toast(t("conn.needSource"), "error"); return; }
     const mode = getMode();
     // DNS-watchdog: имя сервера ноды резолвится через direct-DNS ДО туннеля —
     // если он мёртв (Google/Cloudflare DoH в РФ), старт падает с невнятным
     // «i/o timeout». Пробуем и при отказе переключаем на резерв ДО buildConfig,
     // чтобы конфиг собрался уже с рабочим резолвером. Только пока юзер не ушёл.
     await ensureWorkingDirectDns({ toast, onlyIf: () => state === "idle" });
-    const options = loadOptions();
     // Если WARP включён — тянем регистрацию из app_config_dir/warp.json
     // и передаём в builder. Без warpInfo builder тихо пропустит warp endpoint.
     let warpInfo = null;
@@ -1778,7 +1808,7 @@ heroDisc?.addEventListener("click", async () => {
     // Ошибка планирования не блокирует старт: билдер упадёт на статические
     // дефолты, а занятый порт поймает fail-fast в start_singbox.
     let bridgePorts = null;
-    const needs = bridgeNeeds(src.kind === "sub" ? src.nodes : [src.profile]);
+    const needs = bridgeNeeds(src ? (src.kind === "sub" ? src.nodes : [src.profile]) : []);
     if (needs.xray || needs.naive || needs.trusttunnel) {
       try { bridgePorts = await invoke("plan_bridge_ports", { needs }); }
       catch (e) { console.warn("plan_bridge_ports failed", e); }
@@ -1814,7 +1844,7 @@ heroDisc?.addEventListener("click", async () => {
         await invoke("set_system_proxy", { enable: true, hostPort: `127.0.0.1:${options.inbound.mixedPort || 7890}` });
       }
       setState("connected", { ping: null });
-      const src0 = getActiveSource();
+      const src0 = activeDisplaySource();
       const isMultiSub = src0?.kind === "sub" && Array.isArray(src0.nodes) && src0.nodes.length >= 2;
       // In-app тост сразу. Для подписки нода ещё не выбрана балансировщиком —
       // показываем имя подписки (не врём конкретным сервером), затем
@@ -1943,7 +1973,7 @@ setInterval(backupNow, 10 * 60_000);
 
     // VPN: не дёргаем, если ядро уже живо (перезапуск UI) или нет source.
     const running = await invoke("singbox_running");
-    if (vpnWanted && !running && getActiveSource()) {
+    if (vpnWanted && !running && hasConnectSource()) {
       await new Promise(r => setTimeout(r, 600)); // дать UI домонтироваться
       if (state === "idle" && !heroDisc.disabled) heroDisc.click();
     }
