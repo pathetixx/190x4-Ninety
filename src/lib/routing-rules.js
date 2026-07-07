@@ -51,11 +51,15 @@ function validIpv4(s) {
   if (!m) return false;
   return m.slice(1).every((o) => Number(o) >= 0 && Number(o) <= 255 && String(Number(o)) === o.replace(/^0+(?=\d)/, ""));
 }
-// Грубая, но достаточная проверка IPv6 (полные/сжатые формы).
 function validIpv6(s) {
   if (!s.includes(":")) return false;
-  if (!/^[0-9a-f:]+$/i.test(s)) return false;
-  return s.split("::").length <= 2 && s.split(":").length <= 8;
+  if (s.includes("%")) return false; // zone-id в sing-box ip_cidr не нужен
+  try {
+    new URL(`http://[${s}]/`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // IP/CIDR: вернуть нормализованную запись (одиночный IP → /32 или /128) либо "".
