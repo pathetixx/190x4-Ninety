@@ -7,9 +7,9 @@
 //   ninety://config/<encoded-link>            — одиночный конфиг (vless/vmess/...)
 //   ninety://add/<base64-url>                 — подписка (Happ-style, base64 URL)
 //   <proto>://...                             — top-level link (vless/vmess/ss/
-//                                               trojan/hysteria2/tuic/sub), если юзер
-//                                               включил opt-in регистрацию схем в
-//                                               Settings → Общие
+//                                               trojan/hysteria2/tuic/sub/tt/naive),
+//                                               если юзер включил opt-in регистрацию
+//                                               схем в Settings → Общие
 //
 // Возврат: { url, name } для add-modal (prefillUrl/prefillName) или null,
 // если ссылка не распознана. Авто-импорта нет — юзер видит prefilled URL и
@@ -19,7 +19,10 @@
 // ninety://import?url=...). Прежний паттерн (?:\/(.*))? требовал "/" — query-style
 // не матчился вовсе и молча игнорировался (поймано тестом).
 const NINETY_RE = /^ninety:\/\/([a-z]+)([/?].*)?$/i;
-const TOP_LEVEL_PROTOS = ["vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "tuic", "sub"];
+const TOP_LEVEL_PROTOS = [
+  "vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "tuic", "sub",
+  "tt", "naive+https", "naive+quic",
+];
 
 export function safeAtobUrl(s) {
   try {

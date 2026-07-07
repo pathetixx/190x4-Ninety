@@ -61,6 +61,14 @@ fn should_autoconnect() -> bool {
     std::env::args().any(|a| a == "--autostarted" || a == "--elevated")
 }
 
+/// Deep-link URL'ы, которые пришли argv при cold-start. Нужны для схем,
+/// зарегистрированных вручную (vless://, tt://, naive+https://...): plugin
+/// deep-link знает только статический ninety:// из tauri.conf.json.
+#[tauri::command]
+fn startup_deep_links() -> Vec<String> {
+    url_handler::extract_deep_link_urls(std::env::args())
+}
+
 /// True если текущий процесс имеет права администратора (elevated token).
 /// TUN-режим (Throne-style) требует этого: sing-box-child наследует права и
 /// сам поднимает TUN-интерфейс. Фронт проверяет перед включением TUN.
@@ -406,11 +414,15 @@ pub fn run() {
         // (юзер кликнул ninety://import/...) система запускает второй процесс;
         // single-instance перехватывает argv и пробрасывает в первый. Без
         // этого plugin deep-link создал бы новый window каждый раз.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.show();
                 let _ = w.set_focus();
+            }
+            let urls = url_handler::extract_deep_link_urls(argv);
+            if !urls.is_empty() {
+                let _ = app.emit("deep-link:open", urls);
             }
         }))
         .plugin(tauri_plugin_deep_link::init())
@@ -544,6 +556,7 @@ pub fn run() {
             ping,
             is_autostarted,
             should_autoconnect,
+            startup_deep_links,
             is_elevated,
             relaunch_elevated,
             is_always_admin,

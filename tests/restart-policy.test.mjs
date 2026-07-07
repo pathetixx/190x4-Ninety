@@ -15,7 +15,7 @@ test("пустой/неизвестный path — консервативно р
 });
 
 test("Windows-state и kill switch не трогают ядро", () => {
-  for (const p of ["general.autostart", "general.startMinimized", "general.killSwitch"]) {
+  for (const p of ["general.autostart", "general.startMinimized", "general.linkHandlers", "general.killSwitch"]) {
     assert.equal(pathNeedsRestart(p, warpOn, "tun"), false, p);
   }
 });

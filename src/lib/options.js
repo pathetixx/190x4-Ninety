@@ -17,6 +17,10 @@ export const DEFAULT_OPTIONS = {
   general: {
     autostart: false,
     startMinimized: false,
+    // Регистрировать Ninety как обработчик VPN-ссылок верхнего уровня:
+    // vless://, vmess://, ss://, trojan://, hysteria2://, hy2://, tuic://,
+    // sub://, tt://, naive+https://, naive+quic://.
+    linkHandlers: false,
     // III.3: авто-включение TUN при подключении к ОТКРЫТОЙ (нешифрованной) Wi-Fi.
     // Защищённые сети (дом/офис) не трогаются. Доверенные открытые сети — в
     // localStorage ninety.wifi.trusted.

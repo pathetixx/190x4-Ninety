@@ -47,6 +47,9 @@ test("top-level схемы отдаются как есть", () => {
     "vless://uuid@h.example.com:443",
     "trojan://pw@h.example.com:443",
     "hy2://pw@h.example.com:443",
+    "tt://?abc",
+    "naive+https://u:p@h.example.com:443#n",
+    "naive+quic://u:p@h.example.com:443#n",
   ]) {
     assert.deepEqual(parseDeepLink(raw), { url: raw, name: "" });
   }

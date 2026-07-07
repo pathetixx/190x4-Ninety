@@ -62,6 +62,7 @@ import { initPopovers } from "/lib/popovers.js";
 import { ensureWorkingDirectDns, startDnsGuard, stopDnsGuard } from "/lib/dns-guard.js";
 import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t } from "/lib/i18n/index.js";
 import { detectRegion } from "/lib/i18n/region-detect.js";
+import { applyLinkHandlers } from "/lib/link-handlers.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -1997,6 +1998,16 @@ setInterval(backupNow, 10 * 60_000);
   } catch {}
 })();
 
+// Если пользователь включил обработчики vless:// / tt:// / naive+...,
+// освежаем registry-путь при старте: после OTA/переустановки exe мог переехать.
+(async () => {
+  try {
+    if (loadOptions().general?.linkHandlers) await applyLinkHandlers(true);
+  } catch (e) {
+    console.warn("link handlers refresh failed", e);
+  }
+})();
+
 // ── Auto-update ────────────────────────────────────────────
 // Обновление, найденное фоновой проверкой пока окно свёрнуто в трей, копится в
 // pendingUpdate (объявлен выше, до syncTrayMenu). Окно модалкой не выдёргиваем —
@@ -2203,8 +2214,12 @@ setInterval(refreshSubCardFromActive, 30_000);
 // Windows запускает Ninety с argv, single-instance plugin перехватывает и
 // emit'ит onOpenUrl в первый процесс. Авто-импорта нет — юзер видит prefilled
 // URL в add-modal и подтверждает (защита от malicious links).
+const handledDeepLinks = new Set();
 function handleDeepLinkUrl(rawUrl) {
   try {
+    const key = String(rawUrl || "");
+    if (!key || handledDeepLinks.has(key)) return;
+    handledDeepLinks.add(key);
     const intent = parseDeepLink(rawUrl);
     if (intent) openAddModal({ prefillUrl: intent.url, prefillName: intent.name });
   } catch (e) {
@@ -2214,22 +2229,34 @@ function handleDeepLinkUrl(rawUrl) {
 
 (async () => {
   const dl = window.__TAURI__?.deepLink;
-  if (!dl?.onOpenUrl) return;
+  const ev = window.__TAURI__?.event;
   try {
+    if (ev?.listen) {
+      await ev.listen("deep-link:open", (event) => {
+        const urls = event?.payload;
+        if (Array.isArray(urls)) for (const u of urls) handleDeepLinkUrl(u);
+      });
+    }
     // onOpenUrl получает URL'ы и при cold-start (если Windows запустил Ninety
     // самим ninety://...), и при warm second-instance через single-instance.
-    await dl.onOpenUrl((urls) => {
-      if (!Array.isArray(urls)) return;
-      for (const u of urls) handleDeepLinkUrl(u);
-    });
+    if (dl?.onOpenUrl) {
+      await dl.onOpenUrl((urls) => {
+        if (!Array.isArray(urls)) return;
+        for (const u of urls) handleDeepLinkUrl(u);
+      });
+    }
     // Также проверяем getCurrent на случай если URL был передан до того
     // как мы подписались (cold-start race).
-    if (dl.getCurrent) {
+    if (dl?.getCurrent) {
       try {
         const initial = await dl.getCurrent();
         if (Array.isArray(initial)) for (const u of initial) handleDeepLinkUrl(u);
       } catch {}
     }
+    try {
+      const initial = await invoke("startup_deep_links");
+      if (Array.isArray(initial)) for (const u of initial) handleDeepLinkUrl(u);
+    } catch {}
   } catch (e) {
     console.warn("deeplink subscribe failed", e);
   }

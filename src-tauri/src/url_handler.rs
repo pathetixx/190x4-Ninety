@@ -3,7 +3,8 @@
 //
 // Tauri-plugin-deep-link регистрирует только статически заявленные в
 // tauri.conf.json схемы (у нас — "ninety"). Для opt-in регистрации
-// дополнительных протоколов (vless/vmess/ss/trojan/hysteria2/hy2/tuic/sub)
+// дополнительных протоколов (vless/vmess/ss/trojan/hysteria2/hy2/tuic/sub/tt/
+// naive+https/naive+quic)
 // делаем то же самое что и tauri-plugin-deep-link, но руками, чтобы юзер
 // мог включить/выключить из Settings → Общие.
 //
@@ -13,8 +14,56 @@
 //   \shell\open\command\(Default) = "\"<exe>\" \"%1\""
 
 pub const SUPPORTED_SCHEMES: &[&str] = &[
-    "vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "tuic", "sub",
+    "vless",
+    "vmess",
+    "ss",
+    "trojan",
+    "hysteria2",
+    "hy2",
+    "tuic",
+    "sub",
+    "tt",
+    "naive+https",
+    "naive+quic",
 ];
+
+const ALL_DEEP_LINK_SCHEMES: &[&str] = &[
+    "ninety",
+    "vless",
+    "vmess",
+    "ss",
+    "trojan",
+    "hysteria2",
+    "hy2",
+    "tuic",
+    "sub",
+    "tt",
+    "naive+https",
+    "naive+quic",
+];
+
+fn deep_link_scheme(s: &str) -> Option<&str> {
+    let idx = s.find("://")?;
+    Some(&s[..idx])
+}
+
+pub fn extract_deep_link_urls<I, S>(args: I) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .filter_map(|a| {
+            let s = a.as_ref().trim();
+            let scheme = deep_link_scheme(s)?.to_ascii_lowercase();
+            if ALL_DEEP_LINK_SCHEMES.contains(&scheme.as_str()) {
+                Some(s.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
 
 #[cfg(target_os = "windows")]
 fn current_exe_quoted() -> Result<String, String> {
@@ -124,4 +173,29 @@ pub fn unregister_url_handler(_scheme: String) -> Result<(), String> {
 #[cfg(not(target_os = "windows"))]
 pub fn is_url_handler_registered(_scheme: String) -> Result<bool, String> {
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_supported_deep_link_args_only() {
+        let urls = extract_deep_link_urls([
+            r"C:\Program Files\Ninety\Ninety.exe",
+            "--elevated",
+            "vless://uuid@example.com:443",
+            "tt://?abc",
+            "naive+https://u:p@example.com:443",
+            "https://example.com/sub",
+        ]);
+        assert_eq!(
+            urls,
+            vec![
+                "vless://uuid@example.com:443",
+                "tt://?abc",
+                "naive+https://u:p@example.com:443",
+            ]
+        );
+    }
 }

@@ -10,6 +10,7 @@ import { availableLangs, getLang, setLang, t } from "/lib/i18n/index.js";
 import { mountRoutingRules } from "/lib/routing-view.js";
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { a11ySwitchAll } from "/lib/switch-a11y.js";
+import { applyLinkHandlers } from "/lib/link-handlers.js";
 
 // Label-карты строятся в рантайме: t() зависит от текущего языка, замораживать
 // на import нельзя. SECTIONS держит только key+icon; title/hint берём через t().
@@ -171,6 +172,16 @@ export function mountSettings(root, opts = {}) {
             const cmd = newVal ? "autostart_enable" : "autostart_disable";
             if (invoke) await invoke(cmd);
           } catch (e) { console.warn("autostart toggle failed", e); }
+        }
+        if (sw.dataset.action === "link-handlers") {
+          try {
+            await applyLinkHandlers(newVal);
+          } catch (e) {
+            sw.dataset.on = String(!newVal);
+            updateOption(path, !newVal);
+            alert(t("settings.general.linkHandlersErr", { err: e?.message || e }));
+            return;
+          }
         }
         onChange(path, newVal);
         if (sw.dataset.affectsView) render();
@@ -614,6 +625,7 @@ function renderGeneral(o) {
       ${row(iconShield(), t("settings.general.adminTitle"), t("settings.general.adminHint"), `<span class="switch" id="always-admin-switch" data-on="false"></span>`)}
       ${row(iconRocket(), t("settings.general.autostartTitle"), t("settings.general.autostartHint"), toggle("general.autostart", g.autostart, { action: "autostart" }))}
       ${row(iconEyeOff(), t("settings.general.startMinTitle"), t("settings.general.startMinHint"), toggle("general.startMinimized", g.startMinimized))}
+      ${row(iconUrl(), t("settings.general.linkHandlersTitle"), t("settings.general.linkHandlersHint"), toggle("general.linkHandlers", !!g.linkHandlers, { action: "link-handlers" }))}
       ${row(iconShield(), t("settings.general.wifiTitle"), t("settings.general.wifiHint"), toggle("general.autoProtectWifi", !!g.autoProtectWifi))}
       ${row(iconShield(), t("settings.general.killTitle"), t("settings.general.killHint"), toggle("general.killSwitch", !!g.killSwitch))}
       ${row(iconEyeOff(), t("settings.general.geoTitle"), t("settings.general.geoHint"), toggle("general.disableGeoLookup", !!g.disableGeoLookup))}

@@ -8,6 +8,7 @@ export function pathNeedsRestart(path, opts, mode) {
   // Windows-сторона, sing-box не трогает
   if (path === "general.autostart") return false;
   if (path === "general.startMinimized") return false;
+  if (path === "general.linkHandlers") return false;
   // Kill switch — WFP-фильтр, применяется вживую (см. onChange); ядро не трогает.
   if (path === "general.killSwitch") return false;
   // WARP register/reset — переразложить config нужно только если WARP активен
