@@ -3,6 +3,19 @@
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
 
+## v0.1.97 — 2026-07-07
+
+- Fixed: in WARP direct mode, custom routing rules set to "Through VPN" and remote rule-set downloads now go through WARP instead of bypassing it.
+- WARP direct mode can now connect without an imported profile or subscription when WARP is registered.
+- Routing rules now reject malformed IPv6 values more strictly.
+- Added optional VPN link handler registration for quick imports, including `vless://`, `vmess://`, `ss://`, `trojan://`, `hysteria2://`, `tuic://`, `sub://`, `tt://`, and Naive links.
+
+- Исправлено: в WARP direct пользовательские правила «Через VPN» и загрузка удалённых rule-set'ов теперь идут через WARP, а не обходят его.
+- WARP direct теперь может подключаться без импортированного профиля или подписки, если WARP уже зарегистрирован.
+- Правила маршрутизации теперь строже отбрасывают некорректные IPv6-значения.
+- Добавлена опциональная регистрация VPN-ссылок для быстрого импорта, включая `vless://`, `vmess://`, `ss://`, `trojan://`, `hysteria2://`, `tuic://`, `sub://`, `tt://` и Naive-ссылки.
+
+
 ## v0.1.96 — 2026-07-07
 
 - Fixed: system proxy mode now restores the previous proxy bypass list (`ProxyOverride`) instead of leaving Ninety's own bypass list behind.
