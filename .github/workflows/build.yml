@@ -50,7 +50,7 @@ jobs:
           cache: false
 
       - name: Install npm deps
-        run: npm install
+        run: npm ci --no-audit --no-fund
 
       - name: Build sing-box from source (hiddify fork — tls_tricks, xhttp)
         shell: pwsh

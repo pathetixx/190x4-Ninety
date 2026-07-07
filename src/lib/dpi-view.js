@@ -8,7 +8,7 @@
 //   excludeVpnNode(host) — внести сервер активной ноды в exclude winws
 
 import { loadOptions } from "/lib/options.js";
-import { escapeHtml as esc } from "/lib/esc.js";
+import { escapeAttr, escapeHtml as esc } from "/lib/esc.js";
 import { a11ySwitchAll } from "/lib/switch-a11y.js";
 import { t, getLang } from "/lib/i18n/index.js";
 
@@ -627,7 +627,7 @@ function renderStratList(query) {
   const cur = stratByName(S.strategy);
   const filtered = STRATEGIES.filter((s) => !q || s.name.toLowerCase().includes(q) || (s.desc || "").toLowerCase().includes(q));
   list.innerHTML = `<div class="drawer__section"><span>${t("dpi.drawer.count", { n: filtered.length })}</span><span>${t("dpi.drawer.activeMarked")}</span></div>` +
-    filtered.map((s) => `<div class="strat" data-active="${s.id === cur.id}" data-dpi-strat="${s.id}">
+    filtered.map((s) => `<div class="strat" data-active="${s.id === cur.id}" data-dpi-strat="${escapeAttr(s.id)}">
         <div class="strat__main"><div class="strat__name">${esc(s.name)}</div><div class="strat__desc">${stratDesc(s.desc)}</div></div>
         <span class="strat__check">${ic("check", 11, 2.5)}</span>
       </div>`).join("");

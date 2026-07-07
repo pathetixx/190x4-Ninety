@@ -9,6 +9,7 @@
 // dpi_domains_count, dpi_set_node_exclude (главный риск из спайка — нода VPN
 // в exclude, иначе winws корёжит зашифрованный VLESS).
 
+use std::net::IpAddr;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -123,6 +124,54 @@ fn bindata_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .join("bin-data");
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir bin-data: {e}"))?;
     Ok(dir)
+}
+
+fn copy_replace(from: &Path, to: &Path, label: &str) -> Result<(), String> {
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {label}: {e}"))?;
+    }
+    let tmp_name = to
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| format!(".{n}.{}.tmp", std::process::id()))
+        .unwrap_or_else(|| format!(".ninety.{}.tmp", std::process::id()));
+    let tmp = to.with_file_name(tmp_name);
+    let _ = std::fs::remove_file(&tmp);
+    std::fs::copy(from, &tmp).map_err(|e| format!("copy {label}: {e}"))?;
+    match std::fs::rename(&tmp, to) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            let _ = std::fs::remove_file(to);
+            std::fs::rename(&tmp, to).map_err(|e| {
+                let _ = std::fs::remove_file(&tmp);
+                format!("replace {label}: {e}")
+            })
+        }
+    }
+}
+
+fn write_replace(to: &Path, body: &str, label: &str) -> Result<(), String> {
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {label}: {e}"))?;
+    }
+    let tmp_name = to
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| format!(".{n}.{}.tmp", std::process::id()))
+        .unwrap_or_else(|| format!(".ninety.{}.tmp", std::process::id()));
+    let tmp = to.with_file_name(tmp_name);
+    let _ = std::fs::remove_file(&tmp);
+    std::fs::write(&tmp, body).map_err(|e| format!("write {label}: {e}"))?;
+    match std::fs::rename(&tmp, to) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            let _ = std::fs::remove_file(to);
+            std::fs::rename(&tmp, to).map_err(|e| {
+                let _ = std::fs::remove_file(&tmp);
+                format!("replace {label}: {e}")
+            })
+        }
+    }
 }
 
 // Засеять bin-data из ресурсного движка, если ещё нет ни одного .bin (первый
@@ -504,8 +553,8 @@ pub fn dpi_set_node_exclude(
         append_unique(&lists.join("list-exclude-user.txt"), d)?;
     }
     if let Some(i) = ip.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        // ipset ждёт CIDR — одиночный IP оборачиваем в /32.
-        let entry = if i.contains('/') { i.to_string() } else { format!("{i}/32") };
+        // ipset ждёт CIDR: одиночный IPv4 → /32, одиночный IPv6 → /128.
+        let entry = normalize_ipset_entry(i)?;
         append_unique(&lists.join("ipset-exclude-user.txt"), &entry)?;
     }
     Ok(())
@@ -572,6 +621,18 @@ fn append_unique(path: &Path, line: &str) -> Result<(), String> {
     out.push_str(line);
     out.push('\n');
     std::fs::write(path, out).map_err(|e| format!("write exclude: {e}"))
+}
+
+fn normalize_ipset_entry(raw: &str) -> Result<String, String> {
+    let value = raw.trim();
+    if value.contains('/') {
+        return Ok(value.to_string());
+    }
+    match value.parse::<IpAddr>() {
+        Ok(IpAddr::V4(_)) => Ok(format!("{value}/32")),
+        Ok(IpAddr::V6(_)) => Ok(format!("{value}/128")),
+        Err(_) => Err(format!("invalid ip: {value}")),
+    }
 }
 
 // ── Версии / обновление списков ─────────────────────────────────────
@@ -953,64 +1014,76 @@ pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde
         .join("dpi");
     let staging = stage_verified_bundle(&app, port).await?;
 
-    // strategies.json валиден?
-    let strat_raw = std::fs::read_to_string(staging.join("strategies.json"))
-        .map_err(|e| format!("staged strategies.json: {e}"))?;
-    let strategies: Vec<Strategy> =
-        serde_json::from_str(&strat_raw).map_err(|e| format!("parse strategies: {e}"))?;
-    // все ли нужные .bin есть в бандле (или уже в bin-data)?
-    let staged_bin = staging.join("bin");
-    let existing = bindata_dir(&app)?;
-    for name in referenced_bins(&strategies) {
-        if !staged_bin.join(&name).exists() && !existing.join(&name).exists() {
-            let _ = std::fs::remove_dir_all(&staging);
-            return Err(format!("в бандле нет .bin: {name}"));
-        }
-    }
+    let result = (|| -> Result<serde_json::Value, String> {
+        std::fs::create_dir_all(&dpi_data).map_err(|e| format!("mkdir dpi data: {e}"))?;
 
-    // 4. Применить: strategies.json, базовые списки, .bin, версия. user-списки и
-    // ipset-all.txt НЕ трогаем (они на стороне клиента / задаются режимом).
-    std::fs::copy(staging.join("strategies.json"), dpi_data.join("strategies.json"))
-        .map_err(|e| format!("apply strategies: {e}"))?;
-    let lists = lists_dir(&app)?;
-    let staged_lists = staging.join("lists");
-    for name in ["list-general.txt", "list-google.txt", "list-exclude.txt", "ipset-exclude.txt"] {
-        let from = staged_lists.join(name);
-        if from.exists() {
-            let _ = std::fs::copy(&from, lists.join(name));
+        // strategies.json валиден?
+        let strat_path = staging.join("strategies.json");
+        let strat_raw = std::fs::read_to_string(&strat_path)
+            .map_err(|e| format!("staged strategies.json: {e}"))?;
+        let strategies: Vec<Strategy> =
+            serde_json::from_str(&strat_raw).map_err(|e| format!("parse strategies: {e}"))?;
+        // все ли нужные .bin есть в бандле (или уже в bin-data)?
+        let staged_bin = staging.join("bin");
+        let existing = bindata_dir(&app)?;
+        for name in referenced_bins(&strategies) {
+            if !staged_bin.join(&name).exists() && !existing.join(&name).exists() {
+                return Err(format!("в бандле нет .bin: {name}"));
+            }
         }
-    }
-    if let Ok(rd) = std::fs::read_dir(&staged_bin) {
-        for e in rd.flatten() {
-            let p = e.path();
-            if p.extension().is_some_and(|x| x == "bin") {
-                if let Some(n) = p.file_name() {
-                    let _ = std::fs::copy(&p, existing.join(n));
+
+        // 4. Применить: сначала зависимости, strategies.json последним. Так новая
+        // стратегия не сможет сослаться на .bin/список, который не скопировался.
+        let lists = lists_dir(&app)?;
+        let staged_lists = staging.join("lists");
+        for name in ["list-general.txt", "list-google.txt", "list-exclude.txt", "ipset-exclude.txt"] {
+            let from = staged_lists.join(name);
+            if from.exists() {
+                copy_replace(&from, &lists.join(name), &format!("list {name}"))?;
+            }
+        }
+
+        if staged_bin.exists() {
+            let rd = std::fs::read_dir(&staged_bin).map_err(|e| format!("read staged bin: {e}"))?;
+            for item in rd {
+                let entry = item.map_err(|e| format!("read staged bin entry: {e}"))?;
+                let p = entry.path();
+                if p.extension().is_some_and(|x| x == "bin") {
+                    if let Some(n) = p.file_name() {
+                        copy_replace(&p, &existing.join(n), &format!("bin {}", n.to_string_lossy()))?;
+                    }
                 }
             }
         }
-    }
-    let ver = std::fs::read_to_string(staging.join("version.txt"))
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    if !ver.is_empty() {
-        let _ = std::fs::write(dpi_data.join("strategies-version.txt"), &ver);
-    }
-    // Подписанные service-файлы (hosts-пин + база ipset) — в кеш канала: hosts/ipset
-    // берут их отсюда как оффлайн-фолбэк, когда сеть недоступна.
-    if let Ok(chan) = channel_cache_dir(&app) {
-        let _ = std::fs::create_dir_all(&chan);
+
+        // Подписанные service-файлы (hosts-пин + база ipset) — в кеш канала: hosts/ipset
+        // берут их отсюда как оффлайн-фолбэк, когда сеть недоступна.
         let staged_service = staging.join("service");
-        for name in ["hosts", "ipset-service.txt"] {
-            let from = staged_service.join(name);
-            if from.exists() {
-                let _ = std::fs::copy(&from, chan.join(name));
+        if staged_service.exists() {
+            let chan = channel_cache_dir(&app)?;
+            std::fs::create_dir_all(&chan).map_err(|e| format!("mkdir channel cache: {e}"))?;
+            for name in ["hosts", "ipset-service.txt"] {
+                let from = staged_service.join(name);
+                if from.exists() {
+                    copy_replace(&from, &chan.join(name), &format!("service {name}"))?;
+                }
             }
         }
-    }
+
+        let ver = std::fs::read_to_string(staging.join("version.txt"))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if !ver.is_empty() {
+            write_replace(&dpi_data.join("strategies-version.txt"), &ver, "strategies version")?;
+        }
+        // user-списки и ipset-all.txt НЕ трогаем: они на стороне клиента / задаются режимом.
+        copy_replace(&strat_path, &dpi_data.join("strategies.json"), "strategies")?;
+
+        Ok(serde_json::json!({ "version": ver, "applied": true }))
+    })();
     let _ = std::fs::remove_dir_all(&staging);
-    Ok(serde_json::json!({ "version": ver, "applied": true }))
+    result
 }
 
 // ── Файл hosts (обход DNS-подмены) + обновление базы ipset ───────────
@@ -1473,6 +1546,14 @@ mod tests {
     fn count_ipset_lines_ignores_comments_and_blanks() {
         let txt = "# base\n1.1.1.0/24\n\n8.8.8.0/24\n  # spaced comment\n9.9.9.9/32\n";
         assert_eq!(count_ipset_lines(txt), 3);
+    }
+
+    #[test]
+    fn normalize_ipset_entry_wraps_ipv4_and_ipv6() {
+        assert_eq!(normalize_ipset_entry("1.2.3.4").unwrap(), "1.2.3.4/32");
+        assert_eq!(normalize_ipset_entry("2606:4700:d0::a29f:c001").unwrap(), "2606:4700:d0::a29f:c001/128");
+        assert_eq!(normalize_ipset_entry("10.0.0.0/8").unwrap(), "10.0.0.0/8");
+        assert!(normalize_ipset_entry("example.com").is_err());
     }
 
     #[test]

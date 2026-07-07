@@ -517,7 +517,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
   }
 
   /* ═══ МОНИТОР СОЕДИНЕНИЙ (группировка по приложению, Throne-style) ═══ */
-  const UNKNOWN_KEY = " "; // ведро для соединений без определённого процесса
+  const UNKNOWN_KEY = "__ninety_unknown__"; // ведро для соединений без определённого процесса
   function routeChip(outbound) {
     const ob = ACTION_LABELS()[outbound] ? outbound : "proxy";
     return '<span class="rr-action rr-action--' + ob + '"><span class="rr-action__dot"></span>' + ACTION_LABELS()[ob] + "</span>";

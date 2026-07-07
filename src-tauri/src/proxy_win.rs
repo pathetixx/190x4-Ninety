@@ -34,8 +34,8 @@ fn to_wide(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
 }
 
-// Снапшот прежних ProxyEnable/ProxyServer — один раз, до того как Ninety
-// перезапишет их своими. Без этого выключение Ninety затёрло бы прокси, который
+// Снапшот прежних proxy-настроек — один раз, до того как Ninety перезапишет их
+// своими. Без этого выключение Ninety затёрло бы прокси/bypass-лист, которые
 // юзер мог настроить вне Ninety. Повторный enable снапшот не перетирает.
 fn save_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) {
     let Ok((nk, _)) = hkcu.create_subkey(NINETY_KEY) else { return };
@@ -43,9 +43,27 @@ fn save_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) {
         return;
     }
     let cur_enable: u32 = inet.get_value("ProxyEnable").unwrap_or(0);
-    let cur_server: String = inet.get_value("ProxyServer").unwrap_or_default();
     let _ = nk.set_value("SavedProxyEnable", &cur_enable);
-    let _ = nk.set_value("SavedProxyServer", &cur_server);
+    match inet.get_value::<String, _>("ProxyServer") {
+        Ok(v) => {
+            let _ = nk.set_value("SavedProxyServer", &v);
+            let _ = nk.set_value("SavedProxyServerPresent", &1u32);
+        }
+        Err(_) => {
+            let _ = nk.set_value("SavedProxyServer", &"".to_string());
+            let _ = nk.set_value("SavedProxyServerPresent", &0u32);
+        }
+    }
+    match inet.get_value::<String, _>("ProxyOverride") {
+        Ok(v) => {
+            let _ = nk.set_value("SavedProxyOverride", &v);
+            let _ = nk.set_value("SavedProxyOverridePresent", &1u32);
+        }
+        Err(_) => {
+            let _ = nk.set_value("SavedProxyOverride", &"".to_string());
+            let _ = nk.set_value("SavedProxyOverridePresent", &0u32);
+        }
+    }
     let _ = nk.set_value("SavedProxyValid", &1u32);
 }
 
@@ -59,9 +77,25 @@ fn restore_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> bool {
     }
     let saved_enable: u32 = nk.get_value("SavedProxyEnable").unwrap_or(0);
     let saved_server: String = nk.get_value("SavedProxyServer").unwrap_or_default();
+    let saved_server_present = nk
+        .get_value::<u32, _>("SavedProxyServerPresent")
+        .map(|v| v == 1)
+        .unwrap_or(!saved_server.is_empty());
+    let saved_override: String = nk.get_value("SavedProxyOverride").unwrap_or_default();
+    let saved_override_present = nk
+        .get_value::<u32, _>("SavedProxyOverridePresent")
+        .map(|v| v == 1)
+        .unwrap_or(false);
     let _ = inet.set_value("ProxyEnable", &saved_enable);
-    if !saved_server.is_empty() {
+    if saved_server_present {
         let _ = inet.set_value("ProxyServer", &saved_server);
+    } else {
+        let _ = inet.delete_value("ProxyServer");
+    }
+    if saved_override_present {
+        let _ = inet.set_value("ProxyOverride", &saved_override);
+    } else {
+        let _ = inet.delete_value("ProxyOverride");
     }
     let _ = nk.set_value("SavedProxyValid", &0u32);
     true

@@ -8,7 +8,7 @@ import {
 import { BUILD_INFO } from "/lib/build-info.js";
 import { availableLangs, getLang, setLang, t } from "/lib/i18n/index.js";
 import { mountRoutingRules } from "/lib/routing-view.js";
-import { escapeAttr } from "/lib/esc.js";
+import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { a11ySwitchAll } from "/lib/switch-a11y.js";
 
 // Label-карты строятся в рантайме: t() зависит от текущего языка, замораживать
@@ -77,7 +77,15 @@ export function mountSettings(root, opts = {}) {
   // Живой инстанс под-экрана «Правила маршрутизации» — чтобы погасить его
   // монитор-таймер при уходе назад.
   let routingRulesInstance = null;
+  let warpHistoryCleanup = null;
+  function cleanupTransientBindings() {
+    if (warpHistoryCleanup) {
+      warpHistoryCleanup();
+      warpHistoryCleanup = null;
+    }
+  }
   function render() {
+    cleanupTransientBindings();
     if (!currentSection) {
       root.innerHTML = renderMenu();
       bindMenu(root);
@@ -369,18 +377,22 @@ export function mountSettings(root, opts = {}) {
         }
         const method = results[0]?.method === "wg" ? "WG-handshake" : "TCP-ping";
         if (scanStatus) scanStatus.textContent = t("settings.warp.scanTop", { n: results.length, method });
-        if (scanList) scanList.innerHTML = results.map(r => `
-          <div class="setting-row">
-            <span class="setting-row__icon">${iconTarget()}</span>
-            <span class="setting-row__main">
-              <span class="setting-row__label">${r.ip}:${r.port}</span>
-              <span class="setting-row__hint">${t("settings.warp.scanRowHint", { ms: r.latency_ms, method: r.method })}</span>
-            </span>
-            <span class="setting-row__control">
-              <button class="btn btn--sm" data-scan-pick="${r.ip}:${r.port}" type="button">${t("settings.warp.applyBtn")}</button>
-            </span>
-          </div>
-        `).join("");
+        if (scanList) scanList.innerHTML = results.map(r => {
+          const endpoint = `${r.ip}:${r.port}`;
+          const hint = t("settings.warp.scanRowHint", { ms: r.latency_ms, method: r.method });
+          return `
+            <div class="setting-row">
+              <span class="setting-row__icon">${iconTarget()}</span>
+              <span class="setting-row__main">
+                <span class="setting-row__label">${escapeHtml(endpoint)}</span>
+                <span class="setting-row__hint">${escapeHtml(hint)}</span>
+              </span>
+              <span class="setting-row__control">
+                <button class="btn btn--sm" data-scan-pick="${escapeAttr(endpoint)}" type="button">${escapeHtml(t("settings.warp.applyBtn"))}</button>
+              </span>
+            </div>
+          `;
+        }).join("");
       } catch (e) {
         if (scanStatus) scanStatus.textContent = t("settings.warp.scanErr", { err: e?.message || e });
       } finally {
@@ -411,11 +423,12 @@ export function mountSettings(root, opts = {}) {
       historyList.innerHTML = items.map(it => {
         const d = new Date(it.ts);
         const ts = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")} ${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}`;
+        const hint = t("settings.warp.histRowHint", { ts, newDelay: it.newDelay, old: it.oldDelay || "—", from: it.from });
         return `<div class="setting-row">
           <span class="setting-row__icon">${iconRemote()}</span>
           <span class="setting-row__main">
-            <span class="setting-row__label">${it.to}</span>
-            <span class="setting-row__hint">${t("settings.warp.histRowHint", { ts, newDelay: it.newDelay, old: it.oldDelay || "—", from: it.from })}</span>
+            <span class="setting-row__label">${escapeHtml(it.to || "")}</span>
+            <span class="setting-row__hint">${escapeHtml(hint)}</span>
           </span>
         </div>`;
       }).join("");
@@ -423,8 +436,7 @@ export function mountSettings(root, opts = {}) {
     renderHistory();
     const hHandler = () => renderHistory();
     window.addEventListener("ninety:warp-rotation", hHandler);
-    // При перерисовке секции (back→warp снова) bindWarpSection вызывается заново —
-    // старый listener останется, но он идемпотентен; cleanup опускаем для простоты.
+    warpHistoryCleanup = () => window.removeEventListener("ninety:warp-rotation", hHandler);
 
     refresh();
   }
