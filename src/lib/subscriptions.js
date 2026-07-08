@@ -5,6 +5,9 @@ import { parseLink } from "/lib/singbox.js";
 import { t } from "/lib/i18n/index.js";
 import { uid } from "/lib/uid.js";
 import { loadOptions } from "/lib/options.js";
+import { safeDecodeBase64 } from "/lib/url-helpers.js";
+
+export { safeDecodeBase64 };
 
 const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt):\/\/|naive\+[a-z]+:\/\/)/i;
 
@@ -15,23 +18,9 @@ const REFRESH_ALL_CONCURRENCY = 3;
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-// ── base64 helpers (Hiddify-style: try-and-see) ────────────
+// ── base64 detection (Hiddify-style: try-and-see) ──────────
 // Никаких regex-проверок «похоже на base64». Просто пытаемся decode —
 // если успешно и есть осмысленные ссылки, берём декод; иначе оригинал.
-export function safeDecodeBase64(s) {
-  try {
-    const cleaned = String(s).replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
-    if (!cleaned) return "";
-    const padded = cleaned + "=".repeat((4 - cleaned.length % 4) % 4);
-    const bin = atob(padded);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-  } catch {
-    return "";
-  }
-}
-
 const KNOWN_PROTO_RE = /vless:\/\/|vmess:\/\/|trojan:\/\/|ss:\/\/|hysteria2?:\/\/|tuic:\/\/|tt:\/\/|naive\+[a-z]+:\/\//i;
 
 // TrustTunnel endpoint-.toml (export из endpoint): плоский toml с hostname/addresses.

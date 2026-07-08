@@ -16,6 +16,19 @@ export function safeAtob(s) {
   } catch { return ""; }
 }
 
+// Hiddify-style: пробуем decode как base64/base64url; если не вышло — пусто.
+export function safeDecodeBase64(s) {
+  try {
+    const bin = safeAtob(s);
+    if (!bin) return "";
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  } catch {
+    return "";
+  }
+}
+
 export function parsePort(value, errKey = "sb.err.badPort") {
   const raw = String(value ?? "").trim();
   if (!/^\d+$/.test(raw)) throw new Error(t(errKey));
