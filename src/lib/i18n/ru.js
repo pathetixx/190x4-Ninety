@@ -519,6 +519,14 @@ export const ru = {
     exportError: "Ошибка экспорта: {err}",
   },
 
+  confirm: {
+    kicker: "Подтверждение",
+    title: "Подтвердить действие",
+    message: "Это действие нельзя отменить.",
+    cancel: "Отмена",
+    ok: "Подтвердить",
+  },
+
   subs: {
     needHttpUrl: "Нужен http(s):// URL",
     noVless: "Подписка не содержит поддерживаемых конфигов",
@@ -683,7 +691,10 @@ export const ru = {
       clearSensitiveHint: "Остановит VPN/DPI, удалит профили, подписки, активный выбор, трафик, историю WARP/качества/Wi-Fi и encrypted backup. Настройки интерфейса останутся.",
       clearSensitiveButton: "Очистить",
       clearSensitiveBusy: "Очищаем…",
+      clearSensitiveModalTitle: "Удалить профили и подписки?",
       clearSensitiveConfirm: "Остановить VPN/DPI и удалить профили, подписки и локальный бэкап? Это действие нельзя отменить.",
+      clearSensitiveConfirmButton: "Удалить",
+      clearSensitiveCancel: "Отмена",
       clearSensitiveDone: "Чувствительные данные очищены.",
       clearSensitiveErr: "Не удалось очистить данные: {err}",
       testUrlTitle: "URL для теста соединения",

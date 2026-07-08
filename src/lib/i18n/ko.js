@@ -519,6 +519,14 @@ export const ko = {
     exportError: "내보내기 오류: {err}",
   },
 
+  confirm: {
+    kicker: "Confirmation",
+    title: "Confirm action",
+    message: "This action cannot be undone.",
+    cancel: "Cancel",
+    ok: "Confirm",
+  },
+
   subs: {
     needHttpUrl: "http(s):// URL이 필요합니다",
     noVless: "구독에 지원되는 설정이 없습니다",
@@ -683,7 +691,10 @@ export const ko = {
       clearSensitiveHint: "Stops VPN/DPI, removes profiles, subscriptions, active selection, traffic, WARP/quality/Wi-Fi history and the encrypted backup. Interface settings stay intact.",
       clearSensitiveButton: "Clear",
       clearSensitiveBusy: "Clearing…",
+      clearSensitiveModalTitle: "Delete profiles and subscriptions?",
       clearSensitiveConfirm: "Stop VPN/DPI and delete profiles, subscriptions and the local backup? This cannot be undone.",
+      clearSensitiveConfirmButton: "Delete",
+      clearSensitiveCancel: "Cancel",
       clearSensitiveDone: "Sensitive data has been cleared.",
       clearSensitiveErr: "Failed to clear data: {err}",
       testUrlTitle: "연결 테스트 URL",

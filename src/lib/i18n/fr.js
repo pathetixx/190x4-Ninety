@@ -519,6 +519,14 @@ export const fr = {
     exportError: "Erreur d’export : {err}",
   },
 
+  confirm: {
+    kicker: "Confirmation",
+    title: "Confirm action",
+    message: "This action cannot be undone.",
+    cancel: "Cancel",
+    ok: "Confirm",
+  },
+
   subs: {
     needHttpUrl: "Une URL http(s):// est requise",
     noVless: "L'abonnement ne contient aucune configuration prise en charge",
@@ -683,7 +691,10 @@ export const fr = {
       clearSensitiveHint: "Stops VPN/DPI, removes profiles, subscriptions, active selection, traffic, WARP/quality/Wi-Fi history and the encrypted backup. Interface settings stay intact.",
       clearSensitiveButton: "Clear",
       clearSensitiveBusy: "Clearing…",
+      clearSensitiveModalTitle: "Delete profiles and subscriptions?",
       clearSensitiveConfirm: "Stop VPN/DPI and delete profiles, subscriptions and the local backup? This cannot be undone.",
+      clearSensitiveConfirmButton: "Delete",
+      clearSensitiveCancel: "Cancel",
       clearSensitiveDone: "Sensitive data has been cleared.",
       clearSensitiveErr: "Failed to clear data: {err}",
       testUrlTitle: "URL de test de connexion",

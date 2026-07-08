@@ -11,6 +11,7 @@ import { mountRoutingRules } from "/lib/routing-view.js";
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { a11ySwitchAll } from "/lib/switch-a11y.js";
 import { applyLinkHandlers } from "/lib/link-handlers.js";
+import { openConfirmModal } from "/lib/confirm-modal.js";
 
 // Label-карты строятся в рантайме: t() зависит от текущего языка, замораживать
 // на import нельзя. SECTIONS держит только key+icon; title/hint берём через t().
@@ -278,8 +279,17 @@ export function mountSettings(root, opts = {}) {
     if (sec.key !== "general") return;
     const btn = el.querySelector("[data-action='clear-sensitive-data']");
     if (!btn) return;
-    btn.addEventListener("click", async () => {
-      if (!confirm(t("settings.general.clearSensitiveConfirm"))) return;
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const ok = await openConfirmModal({
+        title: t("settings.general.clearSensitiveModalTitle"),
+        message: t("settings.general.clearSensitiveConfirm"),
+        confirmLabel: t("settings.general.clearSensitiveConfirmButton"),
+        cancelLabel: t("settings.general.clearSensitiveCancel"),
+        danger: true,
+      });
+      if (!ok) return;
       const orig = btn.textContent;
       btn.disabled = true;
       btn.textContent = t("settings.general.clearSensitiveBusy");

@@ -66,6 +66,113 @@
   to   { opacity: 1; transform: translateY(0)    scale(1); }
 }
 
+/* ═══ CONFIRM MODAL ═════════════════════════════════════════ */
+.confirm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+}
+.confirm-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 5, 7, 0.68);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+}
+.confirm-modal__card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 460px);
+  padding: 20px 22px 18px;
+  background: var(--ink-1);
+  border: 1px solid rgba(255, 62, 92, 0.32);
+  border-radius: var(--r-lg);
+  box-shadow:
+    0 28px 60px -16px rgba(0, 0, 0, 0.72),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+    0 0 34px rgba(255, 45, 70, 0.08);
+  animation: modal-card-in 0.22s var(--ease-emph);
+}
+.confirm-modal__card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 62, 92, 0.42), transparent);
+  pointer-events: none;
+}
+.confirm-modal__head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.confirm-modal__kicker {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+}
+.confirm-modal__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--text-hi);
+}
+.confirm-modal__message {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-mid);
+}
+.confirm-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.confirm-modal__btn {
+  min-width: 104px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  font-weight: 650;
+  font-size: 12px;
+  transition: background 160ms var(--ease-out), border-color 160ms var(--ease-out), color 160ms var(--ease-out), transform 120ms var(--ease-out);
+}
+.confirm-modal__btn:active { transform: translateY(1px); }
+.confirm-modal__btn--ghost {
+  color: var(--text-mid);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line-2);
+}
+.confirm-modal__btn--ghost:hover,
+.confirm-modal__btn--ghost:focus-visible {
+  color: var(--text-hi);
+  border-color: var(--line-3);
+  background: rgba(255, 255, 255, 0.06);
+}
+.confirm-modal__btn--primary,
+.confirm-modal__btn--danger {
+  color: #fff;
+  background: rgba(215, 44, 70, 0.9);
+  border: 1px solid rgba(255, 86, 112, 0.58);
+  box-shadow: 0 0 24px rgba(255, 45, 70, 0.18);
+}
+.confirm-modal__btn--primary:hover,
+.confirm-modal__btn--primary:focus-visible,
+.confirm-modal__btn--danger:hover,
+.confirm-modal__btn--danger:focus-visible {
+  background: rgba(238, 53, 82, 0.96);
+  border-color: rgba(255, 120, 140, 0.72);
+}
+
 /* ═══ ADD-PROFILE MODAL ═════════════════════════════════════ */
 .add-modal {
   position: fixed;
