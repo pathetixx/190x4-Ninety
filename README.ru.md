@@ -102,6 +102,12 @@ npm run tauri build   # релизная сборка → .msi / .exe
 
 Движки (sing-box, xray-core, клиенты NaiveProxy и TrustTunnel) и `wintun.dll` подтягиваются на этапе сборки в CI и не хранятся в репозитории — см. [`.github/workflows/build.yml`](./.github/workflows/build.yml).
 
+На слабом VPS не запускайте локально тяжёлые Rust/Tauri-проверки (`cargo check`,
+`cargo test`, `cargo clippy`, `cargo build`, `npm run tauri build`). Гейт для Rust
+и сборки — Windows GitHub Actions; локальная работа на VPS ограничивается чтением
+кода, статическим осмотром и лёгкими JS-only задачами, если отдельно не разрешено
+иначе.
+
 ## Архитектура
 
 - **Интерфейс** — Tauri 2 (Rust + WebView2), фронтенд на vanilla HTML/CSS/JS без фреймворков и сборщиков.

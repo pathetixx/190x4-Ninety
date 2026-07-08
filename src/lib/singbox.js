@@ -371,14 +371,14 @@ function parseTrustTunnelTlv(buf) {
   const f = { addresses: [], dnsUpstreams: [] };
   let pos = 0;
   while (pos < buf.length) {
-    const t = readQuicVarint(buf, pos); pos = t.next;
-    const l = readQuicVarint(buf, pos); pos = l.next;
-    const end = pos + l.value;
+    const typeVarint = readQuicVarint(buf, pos); pos = typeVarint.next;
+    const lengthVarint = readQuicVarint(buf, pos); pos = lengthVarint.next;
+    const end = pos + lengthVarint.value;
     if (end > buf.length) throw new Error(t("sb.err.ttTlvOOB"));
     const val = buf.subarray(pos, end);
     const str = () => td.decode(val);
     const bool = () => val.length >= 1 && val[0] === 0x01;
-    switch (t.value) {
+    switch (typeVarint.value) {
       case 0x00: f.version = readQuicVarint(val, 0).value; break;
       case 0x01: f.hostname = str(); break;
       case 0x02: f.addresses.push(str()); break;          // повторяемый
@@ -458,12 +458,40 @@ export function parseTrustTunnelToml(text, displayName) {
     const m = src.match(new RegExp(`^\\s*${key}\\s*=\\s*(.+?)\\s*$`, "m"));
     return m ? m[1].trim() : undefined;
   };
-  const unq = (v) => (v == null ? v : v.replace(/^["']|["']$/g, ""));
+  const unescapeBasic = (s) => s.replace(/\\(["\\btnfrt])/g, (_, c) => ({
+    '"': '"', "\\": "\\", b: "\b", t: "\t", n: "\n", f: "\f", r: "\r",
+  })[c]);
+  const unq = (v) => {
+    if (v == null) return v;
+    const s = String(v).trim();
+    if (s.startsWith('"""') || s.startsWith("'''")) {
+      throw new Error(t("sb.err.ttTomlFields"));
+    }
+    if (s.startsWith('"') && s.endsWith('"')) return unescapeBasic(s.slice(1, -1));
+    if (s.startsWith("'") && s.endsWith("'")) return s.slice(1, -1);
+    return s;
+  };
   const arr = (v) => {
     if (v == null) return [];
     const m = v.match(/\[(.*)\]/s);
     if (!m) return [];
-    return m[1].split(",").map(s => unq(s.trim())).filter(Boolean);
+    const items = [];
+    let cur = "", quote = "", esc = false;
+    for (const ch of m[1]) {
+      if (esc) { cur += "\\" + ch; esc = false; continue; }
+      if (quote === '"' && ch === "\\") { esc = true; continue; }
+      if (quote) {
+        if (ch === quote) quote = "";
+        cur += ch;
+        continue;
+      }
+      if (ch === '"' || ch === "'") { quote = ch; cur += ch; continue; }
+      if (ch === ",") { items.push(cur); cur = ""; continue; }
+      cur += ch;
+    }
+    if (quote || esc) throw new Error(t("sb.err.ttTomlFields"));
+    items.push(cur);
+    return items.map(s => unq(s.trim())).filter(Boolean);
   };
   const boolv = (v, d) => (v == null ? d : /true/i.test(v));
   const hostname = unq(get("hostname"));
@@ -482,6 +510,7 @@ export function parseTrustTunnelToml(text, displayName) {
     customSni: unq(get("custom_sni")) || "",
     hasIpv6: boolv(get("has_ipv6"), true),
     clientRandom: unq(get("client_random")) || "",
+    certificate: unq(get("certificate")) || "",
     dnsUpstreams: arr(get("dns_upstreams")),
     name: unq(get("name")) || displayName || hostname,
   };

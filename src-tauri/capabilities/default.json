@@ -13,7 +13,7 @@
     "core:webview:default",
     "core:path:default",
     "core:event:default",
-    "shell:default",
+    "shell:allow-open",
     "updater:default",
     "process:default",
     "dialog:default",

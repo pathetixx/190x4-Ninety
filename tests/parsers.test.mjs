@@ -10,11 +10,18 @@ import {
   parseHysteria2,
   parseTuic,
   parseNaive,
+  parseTrustTunnelDeepLink,
+  parseTrustTunnelToml,
   parseLink,
   profileProto,
 } from "/lib/singbox.js";
 
 const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
+const b64urlBytes = (bytes) => Buffer.from(bytes)
+  .toString("base64")
+  .replace(/\+/g, "-")
+  .replace(/\//g, "_")
+  .replace(/=+$/, "");
 
 test("vless: reality + xhttp со всеми параметрами", () => {
   const p = parseVless(
@@ -141,6 +148,36 @@ test("naive: https-схема и креды", () => {
 test("naive: quic-схема; чужая схема кидает", () => {
   assert.equal(parseNaive("naive+quic://u:p@h.example.com:443").scheme, "quic");
   assert.throws(() => parseNaive("naive+socks://u:p@h.example.com:443"));
+});
+
+test("trusttunnel deeplink: malformed TLV даёт нормальную ошибку, не TypeError", () => {
+  const malformed = `tt://?${b64urlBytes([0x01, 0x05, 0x41])}`; // type=1, len=5, value shorter
+  assert.throws(
+    () => parseTrustTunnelDeepLink(malformed),
+    (err) => err instanceof Error && err.name !== "TypeError" && /ttTlvOOB|TLV|границ/i.test(err.message)
+  );
+});
+
+test("trusttunnel toml: happy path + certificate + массив с запятой внутри строки", () => {
+  const p = parseTrustTunnelToml(`
+hostname = "tt.example.com"
+addresses = ["1.2.3.4:443", "5.6.7.8:443"]
+username = "user"
+password = "pa\\"ss"
+skip_verification = true
+upstream_protocol = "http3"
+certificate = "-----BEGIN CERT-----\\nabc\\n-----END CERT-----"
+dns_upstreams = ["https://dns.example/dns-query,with-comma", "1.1.1.1"]
+`, "TT import");
+
+  assert.equal(p.proto, "trusttunnel");
+  assert.equal(p.hostname, "tt.example.com");
+  assert.deepEqual(p.addresses, ["1.2.3.4:443", "5.6.7.8:443"]);
+  assert.equal(p.password, 'pa"ss');
+  assert.equal(p.skipVerification, true);
+  assert.equal(p.upstreamProtocol, "http3");
+  assert.equal(p.certificate, "-----BEGIN CERT-----\nabc\n-----END CERT-----");
+  assert.deepEqual(p.dnsUpstreams, ["https://dns.example/dns-query,with-comma", "1.1.1.1"]);
 });
 
 test("parseLink: dispatcher по схеме и unsupported", () => {

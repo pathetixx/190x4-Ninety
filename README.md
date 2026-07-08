@@ -102,6 +102,11 @@ npm run tauri build   # release build → .msi / .exe
 
 The engines (sing-box, xray-core, the NaiveProxy and TrustTunnel clients) and `wintun.dll` are pulled in during the CI build and aren't stored in the repository — see [`.github/workflows/build.yml`](./.github/workflows/build.yml).
 
+On low-memory VPS hosts, do not run heavy Rust/Tauri checks locally (`cargo check`,
+`cargo test`, `cargo clippy`, `cargo build`, `npm run tauri build`). Use the
+Windows GitHub Actions workflows as the Rust/build gate; local VPS work should stay
+limited to static inspection and small JS-only tasks unless explicitly allowed.
+
 ## Architecture
 
 - **Interface** — Tauri 2 (Rust + WebView2), frontend in vanilla HTML/CSS/JS with no frameworks or bundlers.

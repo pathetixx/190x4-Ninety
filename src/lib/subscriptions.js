@@ -10,6 +10,7 @@ const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt):\/
 
 const SUBS_KEY = "ninety.subscriptions.v1";
 const ACTIVE_SUB_KEY = "ninety.subscriptions.active";
+const REFRESH_ALL_CONCURRENCY = 3;
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -253,12 +254,29 @@ export async function refreshSubscription(id) {
   return list[idx];
 }
 
-// Параллельно: последовательный обход складывал сетевые таймауты при лежащем
-// туннеле. Гонок за localStorage нет — каждый refresh перечитывает список после
-// своего await, а load-mutate-save атомарен в одном синхронном блоке.
+async function allSettledLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const idx = next++;
+      try {
+        out[idx] = { status: "fulfilled", value: await fn(items[idx], idx) };
+      } catch (reason) {
+        out[idx] = { status: "rejected", reason };
+      }
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+// Ограниченно параллельно: последовательный обход складывал сетевые таймауты,
+// а Promise.all по всем подпискам создавал burst при больших списках. Гонок за
+// localStorage нет — каждый refresh перечитывает список после своего await.
 export async function refreshAllSubscriptions() {
   const list = loadSubscriptions();
-  const settled = await Promise.allSettled(list.map(s => refreshSubscription(s.id)));
+  const settled = await allSettledLimit(list, REFRESH_ALL_CONCURRENCY, s => refreshSubscription(s.id));
   return settled.map((r, i) => r.status === "fulfilled"
     ? { id: list[i].id, ok: true, count: r.value.profiles.length }
     : { id: list[i].id, ok: false, error: r.reason?.message || String(r.reason) });

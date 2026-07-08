@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use crate::util::MutexExt;
+use reqwest::Response;
 use serde::Deserialize;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -46,6 +47,9 @@ struct Strategy {
 // данные (strategies.json + списки + .bin), движок едет через OTA (см. engine-watch).
 const CHANNEL_BASE: &str =
     "https://github.com/pathetixx/190x4-Ninety/releases/download/dpi-channel";
+const MAX_CHANNEL_BUNDLE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_CHANNEL_SIGNATURE_BYTES: u64 = 64 * 1024;
+const MAX_CHANNEL_TEXT_BYTES: u64 = 256 * 1024;
 // minisign-pubkey: ДОЛЖЕН совпадать с plugins.updater.pubkey в tauri.conf.json
 // (тот же ключ подписывает и OTA, и канал). base64 от файла minisign-pubkey.
 const CHANNEL_PUBKEY_B64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1N0I1RTAwMEQ3MUQ3OUUKUldTZTEzRU5BRjU3ZGN3TkZoK28yeFRVa2tLdlhxNy8zUXo1aUdXN1lOSUE3MzZLUmVCRnFYamsK";
@@ -625,8 +629,24 @@ fn append_unique(path: &Path, line: &str) -> Result<(), String> {
 
 fn normalize_ipset_entry(raw: &str) -> Result<String, String> {
     let value = raw.trim();
-    if value.contains('/') {
-        return Ok(value.to_string());
+    if let Some((ip, prefix)) = value.split_once('/') {
+        if ip.contains('/') || prefix.contains('/') {
+            return Err(format!("invalid cidr: {value}"));
+        }
+        let addr = ip
+            .parse::<IpAddr>()
+            .map_err(|_| format!("invalid cidr ip: {value}"))?;
+        let prefix = prefix
+            .parse::<u8>()
+            .map_err(|_| format!("invalid cidr prefix: {value}"))?;
+        let max = match addr {
+            IpAddr::V4(_) => 32,
+            IpAddr::V6(_) => 128,
+        };
+        if prefix > max {
+            return Err(format!("invalid cidr prefix: {value}"));
+        }
+        return Ok(format!("{ip}/{prefix}"));
     }
     match value.parse::<IpAddr>() {
         Ok(IpAddr::V4(_)) => Ok(format!("{value}/32")),
@@ -793,12 +813,45 @@ fn fetch_routes(port: Option<u16>) -> Vec<Option<u16>> {
     routes
 }
 
+fn ensure_content_length_limit(
+    content_length: Option<u64>,
+    max_bytes: u64,
+    label: &str,
+) -> Result<(), String> {
+    if let Some(n) = content_length.filter(|n| *n > max_bytes) {
+        return Err(format!("{label} too large: {n} bytes > {max_bytes}"));
+    }
+    Ok(())
+}
+
+async fn read_http_body_limited(
+    mut resp: Response,
+    max_bytes: u64,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    ensure_content_length_limit(resp.content_length(), max_bytes, label)?;
+    let mut body = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("read body: {e}"))? {
+        let next_len = body.len() as u64 + chunk.len() as u64;
+        if next_len > max_bytes {
+            return Err(format!("{label} too large: {next_len} bytes > {max_bytes}"));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 // Загрузить сырые байты устойчиво: proxy→direct (fetch_routes), по 2 попытки на
 // каждый. Ретраи + проксирование повышают шанс пройти сквозь флапающий/режущийся
 // ТСПУ github. Если прокси не слушает (VPN выключен) — proxy-попытка быстро падает.
 // Байты (не текст): подписанный .zip-бандл канала нельзя декодировать как UTF-8;
 // текстовые ассеты (version.txt, .sig) читает fetch_list_text поверх этого.
-async fn fetch_list_bytes(url: &str, port: Option<u16>) -> Result<Vec<u8>, String> {
+async fn fetch_list_bytes_limited(
+    url: &str,
+    port: Option<u16>,
+    max_bytes: u64,
+    label: &str,
+) -> Result<Vec<u8>, String> {
     let mut last = String::from("нет попыток");
     for via in fetch_routes(port) {
         let client = match list_client(via) {
@@ -810,8 +863,8 @@ async fn fetch_list_bytes(url: &str, port: Option<u16>) -> Result<Vec<u8>, Strin
         };
         for attempt in 0..2 {
             match client.get(url).send().await.and_then(|r| r.error_for_status()) {
-                Ok(resp) => match resp.bytes().await {
-                    Ok(b) => return Ok(b.to_vec()),
+                Ok(resp) => match read_http_body_limited(resp, max_bytes, label).await {
+                    Ok(b) => return Ok(b),
                     Err(e) => last = format!("read body: {e}"),
                 },
                 Err(e) => last = format!("send: {e}"),
@@ -826,9 +879,18 @@ async fn fetch_list_bytes(url: &str, port: Option<u16>) -> Result<Vec<u8>, Strin
 
 // Текстовый ассет канала (version.txt, .sig) поверх fetch_list_bytes. Ассеты
 // заведомо UTF-8, поэтому lossy-декод безопасен и не плодит второй копии ретрай-цикла.
-async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String> {
-    let bytes = fetch_list_bytes(url, port).await?;
+async fn fetch_list_text_limited(
+    url: &str,
+    port: Option<u16>,
+    max_bytes: u64,
+    label: &str,
+) -> Result<String, String> {
+    let bytes = fetch_list_bytes_limited(url, port, max_bytes, label).await?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String> {
+    fetch_list_text_limited(url, port, MAX_CHANNEL_TEXT_BYTES, "channel text").await
 }
 
 /// Доступно ли обновление набора стратегий. Сравниваем с версией НАШЕГО КАНАЛА
@@ -921,12 +983,22 @@ fn channel_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
 // port>0 (VPN в proxy/systemProxy) → тянем через туннель: ассеты релиза dpi-channel
 // на github, из РФ напрямую режутся ТСПУ. Подпись делает маршрут доставки недоверенным.
 async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<PathBuf, String> {
-    let sig_b64 = fetch_list_text(&format!("{CHANNEL_BASE}/dpi-channel.zip.sig"), port)
-        .await
-        .map_err(|e| format!("fetch sig: {e}"))?;
-    let zip_bytes = fetch_list_bytes(&format!("{CHANNEL_BASE}/dpi-channel.zip"), port)
-        .await
-        .map_err(|e| format!("fetch zip: {e}"))?;
+    let sig_b64 = fetch_list_text_limited(
+        &format!("{CHANNEL_BASE}/dpi-channel.zip.sig"),
+        port,
+        MAX_CHANNEL_SIGNATURE_BYTES,
+        "channel signature",
+    )
+    .await
+    .map_err(|e| format!("fetch sig: {e}"))?;
+    let zip_bytes = fetch_list_bytes_limited(
+        &format!("{CHANNEL_BASE}/dpi-channel.zip"),
+        port,
+        MAX_CHANNEL_BUNDLE_BYTES,
+        "channel bundle",
+    )
+    .await
+    .map_err(|e| format!("fetch zip: {e}"))?;
 
     // ВЕРИФИКАЦИЯ подписи до любой распаковки.
     verify_channel(&zip_bytes, &sig_b64)?;
@@ -1553,7 +1625,23 @@ mod tests {
         assert_eq!(normalize_ipset_entry("1.2.3.4").unwrap(), "1.2.3.4/32");
         assert_eq!(normalize_ipset_entry("2606:4700:d0::a29f:c001").unwrap(), "2606:4700:d0::a29f:c001/128");
         assert_eq!(normalize_ipset_entry("10.0.0.0/8").unwrap(), "10.0.0.0/8");
+        assert_eq!(normalize_ipset_entry("2001:db8::/32").unwrap(), "2001:db8::/32");
+        assert_eq!(normalize_ipset_entry("0.0.0.0/0").unwrap(), "0.0.0.0/0");
+        assert_eq!(normalize_ipset_entry("::/0").unwrap(), "::/0");
+        assert!(normalize_ipset_entry("1.2.3.4/999").is_err());
+        assert!(normalize_ipset_entry("2001:db8::/129").is_err());
+        assert!(normalize_ipset_entry("evil/thing").is_err());
+        assert!(normalize_ipset_entry("1.2.3.4/24/extra").is_err());
         assert!(normalize_ipset_entry("example.com").is_err());
+        assert!(normalize_ipset_entry("bad domain").is_err());
+    }
+
+    #[test]
+    fn channel_content_length_limit_rejects_oversize_declared_body() {
+        assert!(ensure_content_length_limit(Some(1024), 1024, "test body").is_ok());
+        assert!(ensure_content_length_limit(None, 1024, "test body").is_ok());
+        let err = ensure_content_length_limit(Some(1025), 1024, "test body").unwrap_err();
+        assert!(err.contains("test body too large"));
     }
 
     #[test]
