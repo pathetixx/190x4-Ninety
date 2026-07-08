@@ -73,6 +73,7 @@ jobs:
           )) {
             New-Item -ItemType File -Force -Path "src-tauri/binaries/$name" | Out-Null
           }
+          New-Item -ItemType File -Force -Path "src-tauri/binaries/wintun.dll" | Out-Null
 
       - name: Test Rust
         run: cargo test --manifest-path src-tauri/Cargo.toml
