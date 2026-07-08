@@ -3,6 +3,25 @@
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
 
+## v0.2.0 — 2026-07-08
+
+- Hardened runtime cleanup and sidecar startup so invalid sidecar config can no longer leave xray running.
+- VPN · TUN and Kill Switch now cover both short and Tauri target-suffixed engine process names, preventing sidecar traffic loops in installed builds.
+- Cancelling the UAC prompt when switching to TUN now restores the previous mode instead of leaving TUN saved.
+- Subscription refreshes now keep the privacy-safe default: if refresh through the tunnel fails, Ninety no longer retries directly unless explicitly allowed in Settings.
+- Port validation is now consistent across all supported link parsers, and DNS address parsing handles bracketed IPv6 plus ambiguous raw IPv6 safely.
+- Stale runtime configs with node credentials are purged on app startup after crashes or power loss.
+- Release CI now runs frontend lint, frontend tests, and Rust tests before the heavy engine build, with Windows-safe test discovery and Tauri sidecar placeholders for Rust tests.
+
+- Усилен cleanup и запуск sidecar'ов: битый JSON sidecar'ов больше не оставляет уже запущенный xray живым.
+- VPN · TUN и Kill Switch теперь покрывают и короткие, и Tauri target-suffixed имена процессов движков, чтобы sidecar'ы не петляли в установленной сборке.
+- При отмене UAC во время перехода в TUN прежний режим возвращается обратно, вместо сохранённого TUN.
+- Обновление подписок теперь по умолчанию приватное: если обновить через туннель не удалось, Ninety не повторяет запрос напрямую без явного разрешения в настройках.
+- Валидация портов унифицирована во всех поддерживаемых парсерах ссылок, а DNS-адреса безопасно обрабатывают IPv6 в скобках и неоднозначный raw IPv6.
+- Stale runtime-конфиги с кредами нод чистятся при старте приложения после crash/power loss.
+- Release CI теперь запускает frontend lint, frontend tests и Rust tests до тяжёлой сборки движков, с Windows-safe поиском тестов и Tauri placeholder'ами sidecar'ов для Rust-тестов.
+
+
 ## v0.1.100 — 2026-07-08
 
 - Fixed the early Rust test step in release CI: temporary sidecar placeholders are created before `cargo test`, then replaced by the real verified engine binaries later in the build.
