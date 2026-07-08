@@ -31,7 +31,7 @@ import { backupNow, backupSoon, restoreIfEmpty } from "/lib/state-backup.js";
 import { mountSettings } from "/lib/settings-view.js";
 import { pathNeedsRestart } from "/lib/restart-policy.js";
 import { a11ySwitch } from "/lib/switch-a11y.js";
-import { escapeHtml } from "/lib/esc.js";
+import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
 import { openUpdateModal, shouldSkip as updateShouldSkip } from "/lib/update-modal.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
@@ -873,9 +873,9 @@ function renderProfilesView() {
       ? `${fmtTraffic(used)} / ${fmtTraffic(limit)}`
       : `${fmtTraffic(getMeasured(`sub:${s.id}`).total)} · ∞`;
     return `
-      <article class="prof-card" data-active="${isActive}" data-sub-id="${s.id}">
+      <article class="prof-card" data-active="${isActive}" data-sub-id="${escapeAttr(s.id)}">
         <div class="prof-card__icon">${ICON_GLOBE}</div>
-        <div class="prof-card__main" data-sub-activate="${s.id}">
+        <div class="prof-card__main" data-sub-activate="${escapeAttr(s.id)}">
           <div class="prof-card__head">
             <span class="prof-card__name">${escapeHtml(s.name)}</span>
             ${isActive ? `<span class="prof-card__badge">${t("prof.badgeActive")}</span>` : ""}
@@ -900,7 +900,7 @@ function renderProfilesView() {
             <span class="prof-card__stat-lbl">${t("prof.statUpdated")}</span>
           </div>
         </div>
-        <button class="prof-card__menu" data-menu-sub="${s.id}" type="button" aria-label="${t("prof.menuAria")}">${ICON_DOTS}</button>
+        <button class="prof-card__menu" data-menu-sub="${escapeAttr(s.id)}" type="button" aria-label="${escapeAttr(t("prof.menuAria"))}">${ICON_DOTS}</button>
       </article>
     `;
   }).join("");
@@ -910,9 +910,9 @@ function renderProfilesView() {
     const proto = (p.proto || "vless").toUpperCase();
     const security = (p.security || "tcp").toUpperCase();
     return `
-      <article class="prof-card" data-active="${isActive}" data-id="${p.id}">
+      <article class="prof-card" data-active="${isActive}" data-id="${escapeAttr(p.id)}">
         <div class="prof-card__icon">${ICON_FILE}</div>
-        <div class="prof-card__main" data-profile-activate="${p.id}">
+        <div class="prof-card__main" data-profile-activate="${escapeAttr(p.id)}">
           <div class="prof-card__head">
             <span class="prof-card__name">${escapeHtml(p.name)}</span>
             ${isActive ? `<span class="prof-card__badge">${t("prof.badgeActive")}</span>` : ""}
@@ -933,7 +933,7 @@ function renderProfilesView() {
             <span class="prof-card__stat-lbl">${t("prof.statTraffic")}</span>
           </div>
         </div>
-        <button class="prof-card__menu" data-menu-profile="${p.id}" type="button" aria-label="${t("prof.menuAria")}">${ICON_DOTS}</button>
+        <button class="prof-card__menu" data-menu-profile="${escapeAttr(p.id)}" type="button" aria-label="${escapeAttr(t("prof.menuAria"))}">${ICON_DOTS}</button>
       </article>
     `;
   }).join("");
@@ -1019,19 +1019,19 @@ function populateOnbPrefs() {
   const themesWrap = document.getElementById("onb-themes");
   if (langSel) {
     langSel.innerHTML = availableLangs()
-      .map(l => `<option value="${l.code}"${l.code === getLang() ? " selected" : ""}>${l.name}</option>`)
+      .map(l => `<option value="${escapeAttr(l.code)}"${l.code === getLang() ? " selected" : ""}>${escapeHtml(l.name)}</option>`)
       .join("");
   }
   if (regionSel) {
     const cur = loadOptions().region;
     regionSel.innerHTML = REGIONS
-      .map(r => `<option value="${r}"${r === cur ? " selected" : ""}>${t("region." + r)}</option>`)
+      .map(r => `<option value="${escapeAttr(r)}"${r === cur ? " selected" : ""}>${escapeHtml(t("region." + r))}</option>`)
       .join("");
   }
   if (themesWrap) {
     const cur = getTheme();
     themesWrap.innerHTML = Object.entries(swatches)
-      .map(([id, c]) => `<button type="button" class="onb-theme${id === cur ? " onb-theme--on" : ""}" data-onb-theme="${id}" title="${id}" style="--sw:${c}"></button>`)
+      .map(([id, c]) => `<button type="button" class="onb-theme${id === cur ? " onb-theme--on" : ""}" data-onb-theme="${escapeAttr(id)}" title="${escapeAttr(id)}" style="--sw:${escapeAttr(c)}"></button>`)
       .join("");
   }
 }
@@ -1118,7 +1118,7 @@ function openPMenu(anchor, items) {
   const menu = document.createElement("div");
   menu.className = "pmenu";
   menu.innerHTML = items.map(it => `
-    <button class="pmenu__item${it.danger ? " pmenu__item--danger" : ""}" data-act="${it.id}" type="button">
+    <button class="pmenu__item${it.danger ? " pmenu__item--danger" : ""}" data-act="${escapeAttr(it.id)}" type="button">
       ${it.icon || ""}<span>${escapeHtml(it.label)}</span>
     </button>
   `).join("");

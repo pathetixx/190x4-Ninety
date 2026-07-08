@@ -4,6 +4,7 @@ import { buildConfig, getMode } from "/lib/singbox.js";
 import { loadOptions } from "/lib/options.js";
 import qrcode from "/vendor/qrcode.mjs";
 import { t } from "/lib/i18n/index.js";
+import { escapeAttr } from "/lib/esc.js";
 
 export async function copySubscriptionUrl(sub, toast) {
   if (!sub?.url) {
@@ -33,7 +34,7 @@ export function openQRModal(sub) {
     <div class="qr-modal__card">
       <div class="qr-modal__head">
         <span class="qr-modal__kicker">${t("share.qrKicker")}</span>
-        <button class="qr-modal__close" type="button" aria-label="${t("share.close")}">
+        <button class="qr-modal__close" type="button" aria-label="${escapeAttr(t("share.close"))}">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>

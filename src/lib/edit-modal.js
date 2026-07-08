@@ -3,7 +3,7 @@
 
 import { updateSubscription } from "/lib/subscriptions.js";
 import { updateProfile } from "/lib/singbox.js";
-import { escapeHtml } from "/lib/esc.js";
+import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { t } from "/lib/i18n/index.js";
 
 function intervalLabel(h) {
@@ -35,7 +35,7 @@ function build({ title, fields, onSave }) {
     <div class="edit-modal__panel" role="dialog" aria-modal="true">
       <header class="edit-modal__head">
         <h3 class="edit-modal__title">${escapeHtml(title)}</h3>
-        <button class="edit-modal__close" type="button" aria-label="${t("edit.close")}">✕</button>
+        <button class="edit-modal__close" type="button" aria-label="${escapeAttr(t("edit.close"))}">✕</button>
       </header>
       <div class="edit-modal__body">${fields}</div>
       <footer class="edit-modal__foot">

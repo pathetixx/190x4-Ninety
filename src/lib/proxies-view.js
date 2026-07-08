@@ -120,7 +120,7 @@ function nodeCardHtml(n, isActive, delay, grade) {
   const PROTO_LABEL = { naive: "Naive", trusttunnel: "TrustTunnel" };
   const proto = PROTO_LABEL[n.proto] || (n.type || "tcp").toUpperCase();
   return `
-    <div class="prox" data-active="${isActive}" data-tag="${escapeHtml(n.clashTag)}" role="button" tabindex="0">
+    <div class="prox" data-active="${isActive}" data-tag="${escapeAttr(n.clashTag)}" role="button" tabindex="0">
       <div class="prox__flag">${flagHtml(iso, fallback)}</div>
       <div class="prox__main">
         <div class="prox__name">${escapeHtml(cleanName)}</div>

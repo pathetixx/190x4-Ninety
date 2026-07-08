@@ -162,7 +162,7 @@ function renderBody() {
         <div class="dpi-result__meta">${esc(p.meta || "")}</div>
       </div>
       <div class="dpi-autopick__actions">
-        ${p.best ? `<button class="btn btn--primary btn--sm" data-dpi-pick-apply="${esc(p.best)}">${ic("check", 13)} ${t("dpi.autopick.apply", { name: esc(p.best) })}</button>` : ""}
+        ${p.best ? `<button class="btn btn--primary btn--sm" data-dpi-pick-apply="${escapeAttr(p.best)}">${ic("check", 13)} ${esc(t("dpi.autopick.apply", { name: p.best }))}</button>` : ""}
         <button class="btn btn--sm" data-dpi-pick-start>${t("dpi.autopick.again")}</button>
       </div>`;
   }
@@ -176,7 +176,7 @@ function renderBody() {
     const isUpd = S.updating === row.id;
     const right = row.upd
       ? `<span class="dpi-pill" data-kind="update">${t("dpi.updates.pillUpdate")}</span>
-         <button class="btn btn--sm btn--primary" data-dpi-update="${row.id}" ${isUpd ? "disabled" : ""}>${isUpd ? "…" : t("dpi.updates.btnUpdate")}</button>`
+         <button class="btn btn--sm btn--primary" data-dpi-update="${escapeAttr(row.id)}" ${isUpd ? "disabled" : ""}>${isUpd ? "…" : esc(t("dpi.updates.btnUpdate"))}</button>`
       : `<span class="dpi-pill" data-kind="ok">${row.note || t("dpi.updates.pillOk")}</span>`;
     return `<div class="dpi-upd-row" data-updating="${isUpd}">
         <span class="dpi-upd-row__icon">${ic(row.icon, 15)}</span>
@@ -324,7 +324,7 @@ function renderChip() {
   if (!slot) return;
   const st = effState();
   const switchOn = st === "running" || st === "starting";
-  slot.innerHTML = `<button class="dpi-chip" data-state="${st}" data-dpi-open title="${t("dpi.chip.open")}">
+  slot.innerHTML = `<button class="dpi-chip" data-state="${escapeAttr(st)}" data-dpi-open title="${escapeAttr(t("dpi.chip.open"))}">
       <span class="dpi-chip__icon">${ic("dpi", 16)}</span>
       <span class="dpi-chip__txt">
         <span class="dpi-chip__status">DPI · ${chipStatus()[st]}</span>
@@ -594,12 +594,12 @@ function openDrawer() {
   const wrap = document.createElement("div");
   wrap.innerHTML = `
     <div class="drawer-bg" data-dpi-drawer-bg></div>
-    <aside class="drawer" role="dialog" aria-label="${t("dpi.drawer.aria")}">
+    <aside class="drawer" role="dialog" aria-label="${escapeAttr(t("dpi.drawer.aria"))}">
       <div class="drawer__head">
         <div><div class="drawer__kicker">PICK A STRATEGY · WINWS</div><div class="drawer__title">${t("dpi.drawer.title")}</div></div>
-        <button class="drawer__close" data-dpi-drawer-close aria-label="${t("dpi.drawer.close")}">${ic("close", 16)}</button>
+        <button class="drawer__close" data-dpi-drawer-close aria-label="${escapeAttr(t("dpi.drawer.close"))}">${ic("close", 16)}</button>
       </div>
-      <div class="drawer__search">${ic("search", 14)}<input type="text" id="dpi-strat-search" placeholder="${t("dpi.drawer.search")}" autocomplete="off"></div>
+      <div class="drawer__search">${ic("search", 14)}<input type="text" id="dpi-strat-search" placeholder="${escapeAttr(t("dpi.drawer.search"))}" autocomplete="off"></div>
       <div class="drawer__list" id="dpi-strat-list"></div>
     </aside>`;
   drawerEl = wrap;
@@ -657,7 +657,7 @@ async function openListEditor(kind) {
     <aside class="drawer drawer--editor" role="dialog" aria-label="${esc(meta.title)}">
       <div class="drawer__head">
         <div><div class="drawer__kicker">${esc(meta.kicker)}</div><div class="drawer__title">${esc(meta.title)}</div></div>
-        <button class="drawer__close" data-dpi-editor-close aria-label="${t("dpi.editor.close")}">${ic("close", 16)}</button>
+        <button class="drawer__close" data-dpi-editor-close aria-label="${escapeAttr(t("dpi.editor.close"))}">${ic("close", 16)}</button>
       </div>
       <div class="dpi-editor">
         <div class="dpi-editor__hint">${esc(meta.hint)}</div>
@@ -667,7 +667,7 @@ async function openListEditor(kind) {
           <span class="dpi-editor__file">${esc(meta.file)}</span>
           <div class="dpi-editor__actions">
             <button class="btn btn--sm" data-dpi-editor-close>${t("dpi.editor.cancel")}</button>
-            <button class="btn btn--sm btn--primary" data-dpi-editor-save="${esc(kind)}">${ic("check", 13)} ${t("dpi.editor.save")}</button>
+            <button class="btn btn--sm btn--primary" data-dpi-editor-save="${escapeAttr(kind)}">${ic("check", 13)} ${t("dpi.editor.save")}</button>
           </div>
         </div>
       </div>

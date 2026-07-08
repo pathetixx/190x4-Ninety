@@ -107,10 +107,10 @@ export function mountSettings(root, opts = {}) {
   function renderRoutingRulesSub() {
     return `
     <header class="settings-head">
-      <button class="settings-back" data-back-sub type="button" aria-label="${t("settings.back")}">
+      <button class="settings-back" data-back-sub type="button" aria-label="${escapeAttr(t("settings.back"))}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
       </button>
-      <h2 class="settings-head__title">${t("settings.routingRulesTitle")}</h2>
+      <h2 class="settings-head__title">${escapeHtml(t("settings.routingRulesTitle"))}</h2>
     </header>
     <div id="rr-rules-mount"></div>
   `;
@@ -497,10 +497,10 @@ function renderSection(sec) {
   const o = loadOptions();
   return `
     <header class="settings-head">
-      <button class="settings-back" data-back type="button" aria-label="${t("settings.back")}">
+      <button class="settings-back" data-back type="button" aria-label="${escapeAttr(t("settings.back"))}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
       </button>
-      <h2 class="settings-head__title">${secTitle(sec.key)}</h2>
+      <h2 class="settings-head__title">${escapeHtml(secTitle(sec.key))}</h2>
     </header>
     ${renderSectionBody(sec, o)}
   `;
@@ -541,21 +541,21 @@ function renderQuality(o) {
 function renderAppearance() {
   const current = localStorage.getItem("ninety.theme") || "kurogane";
   const langOpts = availableLangs()
-    .map(l => `<option value="${l.code}"${l.code === getLang() ? " selected" : ""}>${l.name}</option>`)
+    .map(l => `<option value="${escapeAttr(l.code)}"${l.code === getLang() ? " selected" : ""}>${escapeHtml(l.name)}</option>`)
     .join("");
   const langRow = row(null, t("settings.language"), t("settings.languageHint"),
     `<select class="settings-select" id="settings-lang">${langOpts}</select>`);
   const cards = THEMES.map(th => `
-    <div class="theme-card" data-theme="${th.id}" data-on="${current === th.id}"
-         style="--theme-accent:${th.accent};--theme-glow:${th.glow};">
+    <div class="theme-card" data-theme="${escapeAttr(th.id)}" data-on="${current === th.id}"
+         style="--theme-accent:${escapeAttr(th.accent)};--theme-glow:${escapeAttr(th.glow)};">
       <div class="theme-card__check">
         <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
       </div>
       <div class="theme-card__top">
         <span class="theme-card__dot"></span>
-        <span class="theme-card__kicker">${th.kicker}</span>
+        <span class="theme-card__kicker">${escapeHtml(th.kicker)}</span>
       </div>
-      <div class="theme-card__name">${th.name}</div>
+      <div class="theme-card__name">${escapeHtml(th.name)}</div>
       <div class="theme-card__swatches">
         <span style="opacity:1"></span>
         <span style="opacity:0.7"></span>
@@ -586,19 +586,19 @@ function row(_icon, label, hint, control) {
 }
 
 function toggle(path, checked, extra = {}) {
-  const action = extra.action ? `data-action="${extra.action}"` : "";
+  const action = extra.action ? `data-action="${escapeAttr(extra.action)}"` : "";
   const affects = extra.affectsView ? `data-affects-view="true"` : "";
-  return `<span class="switch" data-opt="${path}" data-on="${checked ? "true" : "false"}" ${action} ${affects}></span>`;
+  return `<span class="switch" data-opt="${escapeAttr(path)}" data-on="${checked ? "true" : "false"}" ${action} ${affects}></span>`;
 }
 
 function select(path, value, options, labels = {}, affectsView = false) {
-  const opts = options.map(v => `<option value="${v}" ${v === value ? "selected" : ""}>${labels[v] || v}</option>`).join("");
-  return `<select class="settings-select" data-opt="${path}" ${affectsView ? "data-affects-view" : ""}>${opts}</select>`;
+  const opts = options.map(v => `<option value="${escapeAttr(v)}" ${v === value ? "selected" : ""}>${escapeHtml(labels[v] || v)}</option>`).join("");
+  return `<select class="settings-select" data-opt="${escapeAttr(path)}" ${affectsView ? "data-affects-view" : ""}>${opts}</select>`;
 }
 
 function inputText(path, value, type = "text", attrs = "") {
   const cls = type === "number" ? "settings-input settings-input--num" : "settings-input";
-  return `<input class="${cls}" type="${type}" value="${escapeAttr(value ?? "")}" data-opt="${path}" ${attrs}/>`;
+  return `<input class="${cls}" type="${escapeAttr(type)}" value="${escapeAttr(value ?? "")}" data-opt="${escapeAttr(path)}" ${attrs}/>`;
 }
 
 function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
@@ -609,9 +609,9 @@ function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
         ${hint ? `<div class="set-row__d">${hint}</div>` : ""}
       </div>
       <div class="set-row__ctl settings-range">
-        <input class="settings-input settings-input--num" type="number" value="${fromVal}" data-opt="${fromPath}"/>
+        <input class="settings-input settings-input--num" type="number" value="${escapeAttr(fromVal)}" data-opt="${escapeAttr(fromPath)}"/>
         <span class="settings-range__sep">—</span>
-        <input class="settings-input settings-input--num" type="number" value="${toVal}" data-opt="${toPath}"/>
+        <input class="settings-input settings-input--num" type="number" value="${escapeAttr(toVal)}" data-opt="${escapeAttr(toPath)}"/>
       </div>
     </div>
   `;
@@ -661,10 +661,10 @@ function renderRouting(o) {
 // справа). Клик ловит bindRoutingSection по data-subsection.
 function subNavRow(label, hint, subsection) {
   return `
-    <button class="set-row set-row--nav" data-subsection="${subsection}" type="button">
+    <button class="set-row set-row--nav" data-subsection="${escapeAttr(subsection)}" type="button">
       <div class="set-row__lbl">
-        <div class="set-row__t">${label}</div>
-        ${hint ? `<div class="set-row__d">${hint}</div>` : ""}
+        <div class="set-row__t">${escapeHtml(label)}</div>
+        ${hint ? `<div class="set-row__d">${escapeHtml(hint)}</div>` : ""}
       </div>
       <span class="settings-menu__chevron">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
@@ -735,7 +735,7 @@ const aboutModes = () => [t("mode.proxy"), t("mode.systemProxy"), t("mode.tun")]
 function aboutSpecCell(icon, key, value) {
   return `<div class="about-spec__cell">
     <span class="about-spec__icon">${icon}</span>
-    <span class="about-spec__k">${key}</span>
+    <span class="about-spec__k">${escapeHtml(key)}</span>
     <span class="about-spec__dots"></span>
     <span class="about-spec__v">${value}</span>
   </div>`;
@@ -747,7 +747,7 @@ function renderAbout() {
   const b = BUILD_INFO;
   const ver = b.version || "—";
   const protos = ABOUT_PROTOCOLS.map(p => `<span class="about-chip">${p}</span>`).join("");
-  const modes = aboutModes().map(m => `<span class="about-chip about-chip--mode">${m}</span>`).join("");
+  const modes = aboutModes().map(m => `<span class="about-chip about-chip--mode">${escapeHtml(m)}</span>`).join("");
   return `
     <div class="about__col">
       <section class="about-id">
@@ -755,9 +755,9 @@ function renderAbout() {
         <span class="about-id__badge">190×4</span>
         <h1 class="about-id__name">Ninety</h1>
         <div class="about-id__ver">
-          <span class="about-id__chip" id="about-version-chip">v${ver}</span>
+          <span class="about-id__chip" id="about-version-chip">v${escapeHtml(ver)}</span>
           <span class="about-id__sep"></span>
-          <span class="about-id__channel">${b.channel}</span>
+          <span class="about-id__channel">${escapeHtml(b.channel)}</span>
         </div>
         <p class="about-id__tag">${t("settings.about.tag")}</p>
       </section>
@@ -778,12 +778,12 @@ function renderAbout() {
       <section class="about-spec">
         <div class="about-spec__head">${t("settings.about.specHead")}</div>
         <div class="about-spec__grid">
-          ${aboutSpecCell(aboutIconBox(), t("settings.about.specVersion"), `<span id="about-version">${ver}</span>`)}
-          ${aboutSpecCell(aboutIconCpu(), t("settings.about.specBuild"), b.commit)}
-          ${aboutSpecCell(aboutIconBox(), t("settings.about.specCore"), b.core)}
-          ${aboutSpecCell(aboutIconCpu(), t("settings.about.specPlatform"), b.platform)}
-          ${aboutSpecCell(aboutIconBolt(), t("settings.about.specChannel"), b.channel)}
-          ${aboutSpecCell(aboutIconRefresh(), t("settings.about.specUpdated"), b.date)}
+          ${aboutSpecCell(aboutIconBox(), t("settings.about.specVersion"), `<span id="about-version">${escapeHtml(ver)}</span>`)}
+          ${aboutSpecCell(aboutIconCpu(), t("settings.about.specBuild"), escapeHtml(b.commit))}
+          ${aboutSpecCell(aboutIconBox(), t("settings.about.specCore"), escapeHtml(b.core))}
+          ${aboutSpecCell(aboutIconCpu(), t("settings.about.specPlatform"), escapeHtml(b.platform))}
+          ${aboutSpecCell(aboutIconBolt(), t("settings.about.specChannel"), escapeHtml(b.channel))}
+          ${aboutSpecCell(aboutIconRefresh(), t("settings.about.specUpdated"), escapeHtml(b.date))}
         </div>
       </section>
 
