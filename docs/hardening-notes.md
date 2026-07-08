@@ -71,6 +71,12 @@
 Каждый перенос должен быть механическим и сопровождаться теми же JS-тестами,
 без одновременного переименования и изменения поведения.
 
+Сделано:
+
+- Чистые URL/base64 helpers вынесены в `src/lib/url-helpers.js`.
+- Protocol parsers вынесены в `src/lib/protocol-parsers.js`; `singbox.js`
+  сохраняет старые parser-экспорты фасадом.
+
 ## Capabilities
 
 Текущее использование frontend API:
