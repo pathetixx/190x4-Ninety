@@ -3,6 +3,13 @@
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
 
+## v0.1.99 — 2026-07-08
+
+- Fixed the frontend test runner on Windows CI: tests are now enumerated by a small Node script instead of relying on shell glob expansion.
+
+- Исправлен запуск frontend-тестов в Windows CI: список тестов теперь собирает маленький Node-скрипт, а не shell glob.
+
+
 ## v0.1.98 — 2026-07-08
 
 - Fixed a startup cleanup edge case: invalid sidecar JSON can no longer leave an already-started xray process running.
