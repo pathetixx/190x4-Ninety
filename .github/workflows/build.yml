@@ -58,6 +58,22 @@ jobs:
       - name: Test frontend
         run: npm test
 
+      - name: Prepare sidecar placeholders for Rust tests
+        shell: pwsh
+        run: |
+          # `cargo test` runs tauri-build before the heavy engine build steps.
+          # tauri-build validates externalBin paths, so provide harmless
+          # placeholders; real signed/verified sidecars overwrite them below.
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
+          foreach ($name in @(
+            "sing-box-x86_64-pc-windows-msvc.exe",
+            "xray-x86_64-pc-windows-msvc.exe",
+            "naive-x86_64-pc-windows-msvc.exe",
+            "trusttunnel_client-x86_64-pc-windows-msvc.exe"
+          )) {
+            New-Item -ItemType File -Force -Path "src-tauri/binaries/$name" | Out-Null
+          }
+
       - name: Test Rust
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
