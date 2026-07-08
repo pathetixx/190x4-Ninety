@@ -3,6 +3,25 @@
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
 
+## v0.2.1 — 2026-07-08
+
+- Added an explicit sensitive-data cleanup action in Settings -> General: it stops VPN/DPI, removes profiles, subscriptions, active selection, traffic history, WARP/quality/Wi-Fi history, and clears the encrypted state backup.
+- State backup now keeps only restorable Ninety settings instead of preserving temporary traffic, update, WARP, quality, and Wi-Fi runtime keys.
+- DPI strategy channel downloads now enforce size limits for text, signatures, and zip bundles, and IP set entries reject malformed CIDR values more strictly.
+- Profile/subscription/settings rendering now escapes more dynamic text and attributes, reducing frontend injection risk from imported data.
+- Protocol link parsers and URL helpers were split into smaller tested modules without changing the public import flow.
+- Release CI now runs Rust clippy before the heavy Windows engine build.
+- Fixed the 32x32 Windows icon asset format.
+
+- Добавлена явная очистка чувствительных данных в «Настройки -> Общие»: она останавливает VPN/DPI, удаляет профили, подписки, активный выбор, историю трафика, историю WARP/качества/Wi-Fi и чистит encrypted state backup.
+- State backup теперь сохраняет только восстанавливаемые настройки Ninety, без временных ключей трафика, обновлений, WARP, качества и Wi-Fi runtime.
+- Загрузки канала DPI-стратегий теперь ограничены по размеру для текста, подписей и zip-бандлов, а IP set строже отбрасывает некорректные CIDR-значения.
+- Рендер профилей, подписок и настроек теперь экранирует больше динамического текста и атрибутов, снижая риск frontend injection через импортированные данные.
+- Парсеры VPN-ссылок и URL-helper'ы вынесены в меньшие тестируемые модули без изменения публичного import flow.
+- Release CI теперь запускает Rust clippy перед тяжёлой Windows-сборкой движков.
+- Исправлен формат 32x32 Windows icon asset.
+
+
 ## v0.2.0 — 2026-07-08
 
 - Hardened runtime cleanup and sidecar startup so invalid sidecar config can no longer leave xray running.
