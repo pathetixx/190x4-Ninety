@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "tauri": "tauri",
-    "test": "node --test --import ./tests/register.mjs \"tests/*.test.mjs\"",
+    "test": "node scripts/test.mjs",
     "lint": "eslint --max-warnings 0 src tests scripts"
   },
   "devDependencies": {
