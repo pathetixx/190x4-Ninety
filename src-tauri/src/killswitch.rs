@@ -98,7 +98,19 @@ pub fn force_disarm(state: &KillSwitchState) {
 // отрезал бы сеть целиком, включая сам туннель.
 #[cfg(target_os = "windows")]
 fn engine_exe_paths() -> Result<Vec<String>, String> {
-    const ENGINES: [&str; 4] = ["sing-box.exe", "xray.exe", "naive.exe", "trusttunnel_client.exe"];
+    // Tauri CLI resolves `externalBin: ["binaries/sing-box", ...]` to target-
+    // suffixed files in dev/build (`sing-box-x86_64-pc-windows-msvc.exe`).
+    // Keep the short names too: they make local/manual sidecar layouts harmless.
+    const ENGINES: [&str; 8] = [
+        "sing-box.exe",
+        "sing-box-x86_64-pc-windows-msvc.exe",
+        "xray.exe",
+        "xray-x86_64-pc-windows-msvc.exe",
+        "naive.exe",
+        "naive-x86_64-pc-windows-msvc.exe",
+        "trusttunnel_client.exe",
+        "trusttunnel_client-x86_64-pc-windows-msvc.exe",
+    ];
     let self_exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let dir = self_exe
         .parent()

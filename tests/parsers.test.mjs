@@ -153,3 +153,21 @@ test("profileProto: legacy-профиль без proto = vless", () => {
   assert.equal(profileProto({ host: "x", port: 1 }), "vless");
   assert.equal(profileProto({ proto: "naive" }), "naive");
 });
+
+test("парсеры: порт обязан быть 1..65535 и числом", () => {
+  const cases = [
+    ["vless", (port) => parseVless(`vless://uuid@example.com:${port}`)],
+    ["vmess", (port) => parseVmess("vmess://" + b64(JSON.stringify({ add: "vm.example.com", port, id: "uuid" })))],
+    ["trojan", (port) => parseTrojan(`trojan://pw@tj.example.com:${port}`)],
+    ["shadowsocks", (port) => parseShadowsocks(`ss://${b64("aes-256-gcm:secret")}@ss.example.com:${port}`)],
+    ["hysteria2", (port) => parseHysteria2(`hy2://pass@h2.example.com:${port}`)],
+    ["tuic", (port) => parseTuic(`tuic://uuid:pw@t.example.com:${port}`)],
+    ["naive", (port) => parseNaive(`naive+https://user:pw@n.example.com:${port}`)],
+  ];
+  for (const [name, parse] of cases) {
+    assert.equal(parse("443").port, 443, `${name}: 443 должен проходить`);
+    for (const bad of ["0", "65536", "abc", ""]) {
+      assert.throws(() => parse(bad), undefined, `${name}: ${bad || "empty"} должен падать`);
+    }
+  }
+});

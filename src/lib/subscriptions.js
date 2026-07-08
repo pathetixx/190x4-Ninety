@@ -4,6 +4,7 @@
 import { parseLink } from "/lib/singbox.js";
 import { t } from "/lib/i18n/index.js";
 import { uid } from "/lib/uid.js";
+import { loadOptions } from "/lib/options.js";
 
 const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt):\/\/|naive\+[a-z]+:\/\/)/i;
 
@@ -170,7 +171,11 @@ async function fetchInfo(url) {
     info = await invoke("fetch_subscription", { url, proxy });
   } catch (e) {
     if (!proxy) throw e;
-    // Туннель мог только что умереть — не блокируем обновление, повтор напрямую.
+    const allowDirectFallback = !!loadOptions().general?.allowDirectSubscriptionFallback;
+    if (!allowDirectFallback) {
+      throw new Error(t("subs.proxyFallbackDisabled"));
+    }
+    // Туннель мог только что умереть — если юзер явно разрешил, повторяем напрямую.
     info = await invoke("fetch_subscription", { url, proxy: null });
   }
   if (info.status >= 400) {

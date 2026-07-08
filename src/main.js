@@ -245,20 +245,33 @@ initWifiGuard({ changeMode });
 // Возврат: true — можно продолжать в текущем (уже admin) процессе; false —
 // идёт перезапуск ИЛИ юзер отказался от UAC.
 async function ensureElevatedForTun() {
+  const prevMode = getMode();
+  let modeStoredForRelaunch = false;
   try {
     if (await invoke("is_elevated")) return true;
     const yes = confirm(t("elev.tunConfirm"));
     if (!yes) return false;
     // Запоминаем режим заранее — перезапущенный admin-инстанс поднимется в TUN.
     setMode("tun");
+    modeStoredForRelaunch = true;
     const started = await invoke("relaunch_elevated");
     if (!started) {
+      setMode(prevMode);
+      applyModeToUI(prevMode);
+      updateHeroHint();
+      syncTrayMenu();
       toast(t("elev.tunCancelled"), "error", 3000);
       return false;
     }
     toast(t("elev.relaunching"), "info", 2500);
     return false; // текущий процесс вот-вот завершится — не продолжаем
   } catch (e) {
+    if (modeStoredForRelaunch) {
+      setMode(prevMode);
+      applyModeToUI(prevMode);
+      updateHeroHint();
+      syncTrayMenu();
+    }
     toast(t("elev.failed", { err: e?.message || e }), "error", 3500);
     return false;
   }

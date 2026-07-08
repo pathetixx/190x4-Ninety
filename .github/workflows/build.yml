@@ -52,6 +52,15 @@ jobs:
       - name: Install npm deps
         run: npm ci --no-audit --no-fund
 
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Test frontend
+        run: npm test
+
+      - name: Test Rust
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
       - name: Build sing-box from source (hiddify fork — tls_tricks, xhttp)
         shell: pwsh
         run: |

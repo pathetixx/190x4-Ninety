@@ -565,6 +565,11 @@ pub async fn start_singbox(
 
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
     let config_json = harden_config(&config_json);
+    let sidecar_specs: Option<Vec<SidecarSpec>> = sidecars_json
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|sj| serde_json::from_str(sj).map_err(|e| format!("sidecars json: {e}")))
+        .transpose()?;
 
     // Two-core: если в конфиге есть xhttp-ноды, поднимаем xray ДО sing-box
     // (в любом режиме). При ошибке спавна — не стартуем VPN вовсе.
@@ -576,10 +581,8 @@ pub async fn start_singbox(
     }
 
     // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
-    if let Some(sj) = sidecars_json.as_ref().filter(|s| !s.trim().is_empty()) {
-        let specs: Vec<SidecarSpec> =
-            serde_json::from_str(sj).map_err(|e| format!("sidecars json: {e}"))?;
-        if let Err(e) = spawn_sidecars(&app, &state, &specs, logs_disabled).await {
+    if let Some(specs) = sidecar_specs.as_ref() {
+        if let Err(e) = spawn_sidecars(&app, &state, specs, logs_disabled).await {
             kill_xray(&state);
             kill_sidecars(&state);
             return Err(e);
@@ -680,9 +683,28 @@ fn purge_bridge_configs(app: &AppHandle) {
     for e in entries.flatten() {
         let name = e.file_name();
         let name = name.to_string_lossy();
-        let is_bridge = (name.starts_with("naive-") && name.ends_with(".json"))
-            || (name.starts_with("trusttunnel-") && name.ends_with(".toml"));
-        if is_bridge {
+        if is_bridge_config_name(&name) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+fn is_bridge_config_name(name: &str) -> bool {
+    (name.starts_with("naive-") && name.ends_with(".json"))
+        || (name.starts_with("trusttunnel-") && name.ends_with(".toml"))
+}
+
+fn is_runtime_config_name(name: &str) -> bool {
+    matches!(name, "singbox-current.json" | "xray-current.json") || is_bridge_config_name(name)
+}
+
+pub fn purge_stale_runtime_configs(app: &AppHandle) {
+    let Ok(dir) = app.path().app_config_dir() else { return };
+    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        if is_runtime_config_name(&name) {
             let _ = std::fs::remove_file(e.path());
         }
     }
@@ -924,6 +946,27 @@ mod tests {
     #[test]
     fn harden_config_passes_invalid_json_through() {
         assert_eq!(harden_config("not json"), "not json");
+    }
+
+    #[test]
+    fn runtime_config_matcher_only_targets_ephemeral_files() {
+        for name in [
+            "singbox-current.json",
+            "xray-current.json",
+            "naive-31110.json",
+            "trusttunnel-31120.toml",
+        ] {
+            assert!(is_runtime_config_name(name), "{name} должен чиститься");
+        }
+        for name in [
+            "config.json",
+            "warp.json",
+            "singbox-current.json.bak",
+            "naive-profile.txt",
+            "trusttunnel-backup.toml.bak",
+        ] {
+            assert!(!is_runtime_config_name(name), "{name} нельзя чистить");
+        }
     }
 
     #[test]

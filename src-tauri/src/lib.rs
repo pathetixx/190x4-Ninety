@@ -442,6 +442,7 @@ pub fn run() {
         .setup(|app| {
             let argv: Vec<String> = std::env::args().collect();
             let autostarted = argv.iter().any(|a| a == "--autostarted");
+            vpn::purge_stale_runtime_configs(app.handle());
 
             // Throne-style «всегда от админа»: если маркер стоит и мы ещё не
             // elevated — перезапускаемся с UAC и выходим. Делаем ДО показа окна

@@ -11,6 +11,16 @@ const ACTIVE_KEY = "ninety.profiles.active";
 const ACTIVE_KIND_KEY = "ninety.active.kind";   // "single" | "sub"
 const ACTIVE_SUB_KEY = "ninety.subscriptions.active";
 const MODE_KEY = "ninety.mode";
+export const ENGINE_PROCESS_NAMES = [
+  "sing-box.exe",
+  "sing-box-x86_64-pc-windows-msvc.exe",
+  "xray.exe",
+  "xray-x86_64-pc-windows-msvc.exe",
+  "naive.exe",
+  "naive-x86_64-pc-windows-msvc.exe",
+  "trusttunnel_client.exe",
+  "trusttunnel_client-x86_64-pc-windows-msvc.exe",
+];
 
 const HIDDIFY_GEO_BASE = "https://raw.githubusercontent.com/hiddify/hiddify-geo/rule-set";
 const BLOCK_AD_SETS = [
@@ -56,8 +66,7 @@ export function parseVless(raw) {
   const uuid = head.slice(0, atIdx);
   const hostPort = head.slice(atIdx + 1);
 
-  const { host, port } = splitHostPort(hostPort);
-  if (!port || port < 1 || port > 65535) throw new Error(t("sb.err.badPort"));
+  const { host, port } = splitHostPort(hostPort, "sb.err.badPort");
 
   const params = new URLSearchParams(query);
   const get = (k, def = "") => params.get(k) ?? def;
@@ -98,20 +107,29 @@ function safeAtob(s) {
   } catch { return ""; }
 }
 
-function splitHostPort(hostPort) {
+function parsePort(value, errKey = "sb.err.badPort") {
+  const raw = String(value ?? "").trim();
+  if (!/^\d+$/.test(raw)) throw new Error(t(errKey));
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(t(errKey));
+  return port;
+}
+
+function splitHostPort(hostPort, errKey = "sb.err.badPort") {
   if (hostPort.startsWith("[")) {
     const close = hostPort.indexOf("]");
     if (close < 0) throw new Error(t("sb.err.badIpv6"));
+    if (hostPort.slice(close + 1, close + 2) !== ":") throw new Error(t("sb.err.noPort"));
     return {
       host: hostPort.slice(1, close),
-      port: parseInt(hostPort.slice(close + 2), 10),
+      port: parsePort(hostPort.slice(close + 2), errKey),
     };
   }
   const colonIdx = hostPort.lastIndexOf(":");
   if (colonIdx < 0) throw new Error(t("sb.err.noPort"));
   return {
     host: hostPort.slice(0, colonIdx),
-    port: parseInt(hostPort.slice(colonIdx + 1), 10),
+    port: parsePort(hostPort.slice(colonIdx + 1), errKey),
   };
 }
 
@@ -147,8 +165,7 @@ export function parseVmess(raw) {
   if (!decoded) throw new Error(t("sb.err.vmessB64"));
   let j;
   try { j = JSON.parse(decoded); } catch { throw new Error(t("sb.err.vmessJson")); }
-  const port = parseInt(j.port, 10);
-  if (!port) throw new Error(t("sb.err.vmessPort"));
+  const port = parsePort(j.port, "sb.err.vmessPort");
   return {
     raw: url,
     proto: "vmess",
@@ -180,7 +197,7 @@ export function parseTrojan(raw) {
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.trojanHostPort"));
   const password = decodeURIComponent(head.slice(0, atIdx));
-  const { host, port } = splitHostPort(head.slice(atIdx + 1));
+  const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.trojanHostPort");
   const get = (k, def = "") => query.get(k) ?? def;
   return {
     raw: url,
@@ -217,7 +234,7 @@ export function parseShadowsocks(raw) {
     if (at2 < 0) throw new Error(t("sb.err.ssHostPort"));
     const credsRaw = decoded.slice(0, at2);
     const [method, password] = credsRaw.split(":", 2);
-    const { host, port } = splitHostPort(decoded.slice(at2 + 1));
+    const { host, port } = splitHostPort(decoded.slice(at2 + 1), "sb.err.ssHostPort");
     return { raw: url, proto: "shadowsocks", name, host, port, method, password };
   }
   const credsRaw = head.slice(0, atIdx);
@@ -233,7 +250,7 @@ export function parseShadowsocks(raw) {
     method = decoded.slice(0, sep);
     password = decoded.slice(sep + 1);
   }
-  const { host, port } = splitHostPort(head.slice(atIdx + 1));
+  const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.ssHostPort");
   const plugin = query.get("plugin") || "";
   let pluginName = "", pluginOpts = "";
   if (plugin) {
@@ -259,7 +276,7 @@ export function parseHysteria2(raw) {
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.hy2HostPort"));
   const password = decodeURIComponent(head.slice(0, atIdx));
-  const { host, port } = splitHostPort(head.slice(atIdx + 1));
+  const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.hy2HostPort");
   const get = (k, def = "") => query.get(k) ?? def;
   return {
     raw: url, proto: "hysteria2", name,
@@ -287,7 +304,7 @@ export function parseTuic(raw) {
   const auth = head.slice(0, atIdx);
   const [uuid, passwordRaw] = auth.split(":", 2);
   const password = decodeURIComponent(passwordRaw || "");
-  const { host, port } = splitHostPort(head.slice(atIdx + 1));
+  const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.tuicHostPort");
   const get = (k, def = "") => query.get(k) ?? def;
   return {
     raw: url, proto: "tuic", name,
@@ -324,8 +341,7 @@ export function parseNaive(raw) {
   if (colon < 0) throw new Error(t("sb.err.naiveUserPass"));
   const username = decodeURIComponent(cred.slice(0, colon));
   const password = decodeURIComponent(cred.slice(colon + 1));
-  const { host, port } = splitHostPort(head.slice(atIdx + 1));
-  if (!port) throw new Error(t("sb.err.naivePort"));
+  const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.naivePort");
   return { raw: url, proto: "naive", name, host, port, username, password, scheme };
 }
 
@@ -808,17 +824,31 @@ function parseDnsAddress(raw) {
     return o;
   }
   if (["tls", "tcp", "udp", "quic"].includes(scheme)) {
-    const o = { type: scheme };
-    const idx = rest.lastIndexOf(":");
-    if (idx > 0 && !rest.includes("/")) {
-      o.server = rest.slice(0, idx);
-      o.server_port = parseInt(rest.slice(idx + 1), 10);
-    } else {
-      o.server = rest;
-    }
+    const hp = parseOptionalHostPort(rest);
+    const o = { type: scheme, server: hp.host };
+    if (hp.port != null) o.server_port = hp.port;
     return o;
   }
   return { type: "udp", server: s };
+}
+
+function parseOptionalHostPort(rest) {
+  const s = String(rest || "").trim();
+  if (s.startsWith("[")) {
+    const close = s.indexOf("]");
+    if (close < 0) return { host: s };
+    const host = s.slice(1, close);
+    const tail = s.slice(close + 1);
+    if (tail.startsWith(":")) return { host, port: parsePort(tail.slice(1), "sb.err.badPort") };
+    return { host };
+  }
+  if (s.includes("/")) return { host: s };
+  const colonCount = (s.match(/:/g) || []).length;
+  if (colonCount === 1) {
+    const idx = s.lastIndexOf(":");
+    return { host: s.slice(0, idx), port: parsePort(s.slice(idx + 1), "sb.err.badPort") };
+  }
+  return { host: s };
 }
 
 function buildDns(options) {
@@ -952,10 +982,7 @@ function buildRoute(options, mode, protectedOutbound = "proxy") {
     // Список обязан покрывать ВСЕ движки, дозванивающиеся наружу (= ENGINES в
     // killswitch.rs + Ninety.exe) — пропущенный sidecar зацикливается сам в себя.
     rules.push({
-      process_name: [
-        "Ninety.exe", "sing-box.exe", "xray.exe",
-        "naive.exe", "trusttunnel_client.exe",
-      ],
+      process_name: ["Ninety.exe", ...ENGINE_PROCESS_NAMES],
       outbound: "direct",
     });
   }

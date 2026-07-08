@@ -1,7 +1,7 @@
 // buildConfig: смоук всей сборки + two-core разводка мостов и TOML-экранирование.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildConfig, bridgeNeeds, parseVless } from "/lib/singbox.js";
+import { buildConfig, bridgeNeeds, ENGINE_PROCESS_NAMES, parseVless } from "/lib/singbox.js";
 import { DEFAULT_OPTIONS } from "/lib/options.js";
 
 const vlessNode = (over = {}) => ({
@@ -140,9 +140,30 @@ test("tun-режим: tun-inbound + probe-in, правило пробы выше
   assert.equal(rules[probeIdx].outbound, "proxy");
   // Bypass обязан покрывать ВСЕ движки, дозванивающиеся наружу (= ENGINES в
   // killswitch.rs): пропущенный sidecar петлял бы через TUN сам в себя.
-  for (const exe of ["sing-box.exe", "xray.exe", "naive.exe", "trusttunnel_client.exe"]) {
+  for (const exe of ENGINE_PROCESS_NAMES) {
     assert.ok(rules[bypassIdx].process_name.includes(exe), `нет bypass для ${exe}`);
   }
+});
+
+test("dns parser: IPv4, bracket IPv6, ambiguous IPv6 и DoH", () => {
+  const dnsDirect = (address) => {
+    const opts = structuredClone(DEFAULT_OPTIONS);
+    opts.dns.directAddress = address;
+    const { config } = buildConfig({
+      source: { kind: "single", profile: vlessNode() },
+      mode: "proxy",
+      options: opts,
+    });
+    return config.dns.servers.find((s) => s.tag === "dns-direct");
+  };
+
+  assert.deepEqual(dnsDirect("udp://1.1.1.1"), { tag: "dns-direct", type: "udp", server: "1.1.1.1" });
+  assert.deepEqual(dnsDirect("udp://1.1.1.1:53"), { tag: "dns-direct", type: "udp", server: "1.1.1.1", server_port: 53 });
+  assert.deepEqual(dnsDirect("udp://[2001:4860:4860::8888]:53"), { tag: "dns-direct", type: "udp", server: "2001:4860:4860::8888", server_port: 53 });
+  assert.deepEqual(dnsDirect("udp://[2001:4860:4860::8888]"), { tag: "dns-direct", type: "udp", server: "2001:4860:4860::8888" });
+  assert.deepEqual(dnsDirect("udp://2001:4860:4860::8888"), { tag: "dns-direct", type: "udp", server: "2001:4860:4860::8888" });
+  assert.deepEqual(dnsDirect("https://cloudflare-dns.com/dns-query"), { tag: "dns-direct", type: "https", server: "cloudflare-dns.com", path: "/dns-query" });
+  assert.deepEqual(dnsDirect("tls://dns.example.com:853"), { tag: "dns-direct", type: "tls", server: "dns.example.com", server_port: 853 });
 });
 
 test("proxy-режим: единственный inbound — mixed (без probe-in)", () => {
