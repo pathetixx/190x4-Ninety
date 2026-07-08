@@ -10,7 +10,8 @@
 // DPAPI-блобом (secrets.rs), не plaintext'ом. Легаси plaintext-JSON читается
 // как есть; первый же state_backup_save перезапишет его шифрованным.
 
-use std::path::PathBuf;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 fn backup_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -53,10 +54,37 @@ fn read_snapshot(path: &std::path::Path) -> Option<String> {
     String::from_utf8(crate::secrets::unseal(&bytes).ok()?).ok()
 }
 
+fn remove_file_if_exists(path: &Path) -> Result<bool, String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(format!("remove {}: {e}", path.display())),
+    }
+}
+
 /// Содержимое бэкапа либо None, если его ещё не делали. Битый/пропавший
 /// основной файл фолбэчится на .bak (прошлый снапшот, см. save).
 #[tauri::command]
 pub fn state_backup_load(app: AppHandle) -> Result<Option<String>, String> {
     let path = backup_path(&app)?;
     Ok(read_snapshot(&path).or_else(|| read_snapshot(&path.with_extension("json.bak"))))
+}
+
+/// Явная приватная очистка: фронт уже удалил localStorage-профили, здесь стираем
+/// encrypted snapshot и временные файлы, чтобы старые ноды не восстановились
+/// после следующего старта WebView2.
+#[tauri::command]
+pub fn state_backup_clear(app: AppHandle) -> Result<u32, String> {
+    let path = backup_path(&app)?;
+    let mut removed = 0;
+    for p in [
+        path.clone(),
+        path.with_extension("json.bak"),
+        path.with_extension("json.tmp"),
+    ] {
+        if remove_file_if_exists(&p)? {
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }

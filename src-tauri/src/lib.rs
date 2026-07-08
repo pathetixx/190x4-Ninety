@@ -627,6 +627,7 @@ pub fn run() {
             killswitch::killswitch_active,
             backup::state_backup_save,
             backup::state_backup_load,
+            backup::state_backup_clear,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -25,14 +25,15 @@
 - `state-backup` больше не сохраняет ephemeral telemetry/history:
   `ninety.traffic.*`, `ninety.sub.*.peakDays`, update resume, WARP history,
   quality profile и Wi-Fi trust/runtime state.
+- В `Настройки -> Общие` добавлена явная очистка профилей/подписок: она
+  останавливает VPN/DPI, чистит profile/subscription localStorage, отключает
+  логический DPI autostart и удаляет `state-backup.json/.bak/.tmp`. Runtime-
+  конфиги `singbox-current.json`, `xray-current.json` и bridge configs удаляет
+  уже существующий `stop_singbox`.
 
 Оставшийся безопасный порядок миграции:
 
-1. Добавить явную кнопку `Очистить чувствительные данные` с подтверждением.
-   Она должна остановить VPN/DPI, удалить профили, подписки, активные ключи,
-   runtime-конфиги (`singbox-current.json`, `xray-current.json`, bridge configs)
-   и `state-backup.json/.bak` через Rust-команду.
-2. Вынести профили/подписки в Rust-side encrypted store. Frontend API оставить
+1. Вынести профили/подписки в Rust-side encrypted store. Frontend API оставить
    похожим (`load/save`), миграция должна читать старый `localStorage`, записывать
    DPAPI-store и оставлять rollback до подтверждённого успешного старта.
 

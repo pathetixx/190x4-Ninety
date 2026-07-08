@@ -75,6 +75,7 @@ export function mountSettings(root, opts = {}) {
   if (!root) return;
   const onChange = opts.onChange || (() => {});
   const onRender = opts.onRender || (() => {});
+  const onSensitiveDataClear = opts.onSensitiveDataClear || (async () => {});
   // Живой инстанс под-экрана «Правила маршрутизации» — чтобы погасить его
   // монитор-таймер при уходе назад.
   let routingRulesInstance = null;
@@ -203,6 +204,7 @@ export function mountSettings(root, opts = {}) {
     });
     bindAlwaysAdmin(el, sec);
     bindWarpSection(el, sec, onChange);
+    bindSensitiveDataClear(el, sec, onSensitiveDataClear);
     bindAppearanceSection(el, sec);
     bindAboutSection(el, sec);
     bindRoutingSection(el, sec, onChange);
@@ -268,6 +270,27 @@ export function mountSettings(root, opts = {}) {
       } catch (e) {
         sw.dataset.on = String(!newVal); // откат при ошибке
         alert(t("settings.general.adminSaveErr", { err: e?.message || e }));
+      }
+    });
+  }
+
+  function bindSensitiveDataClear(el, sec, onClear) {
+    if (sec.key !== "general") return;
+    const btn = el.querySelector("[data-action='clear-sensitive-data']");
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+      if (!confirm(t("settings.general.clearSensitiveConfirm"))) return;
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = t("settings.general.clearSensitiveBusy");
+      try {
+        await onClear();
+        render();
+      } catch (e) {
+        alert(t("settings.general.clearSensitiveErr", { err: e?.message || e }));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
       }
     });
   }
@@ -636,6 +659,9 @@ function renderGeneral(o) {
       ${row(iconClock(), t("settings.general.testIntTitle"), t("settings.general.testIntHint"), inputText("urlTest.intervalSec", o.urlTest.intervalSec, "number", 'min="30" max="3600"'))}
       ${row(iconLog(), t("settings.general.logLevelTitle"), t("settings.general.logLevelHint"), select("log.level", o.log.level, LOG_LEVELS, LOG_LABELS))}
       ${row(iconLog(), t("settings.general.logOffTitle"), t("settings.general.logOffHint"), toggle("log.disabled", !!o.log.disabled))}
+    </div>
+    <div class="settings-section">
+      ${row(iconLock(), t("settings.general.clearSensitiveTitle"), t("settings.general.clearSensitiveHint"), `<button class="btn btn--sm btn--danger" data-action="clear-sensitive-data" type="button">${escapeHtml(t("settings.general.clearSensitiveButton"))}</button>`)}
     </div>
   `;
 }

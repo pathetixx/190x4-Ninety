@@ -48,6 +48,7 @@ import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
 import { FLAGS_BASE, flagIsoFromName as isoFromNodeName, stripFlag } from "/lib/flags.js";
 import { startMeter, stopMeter, getMeasured, resetMeasured, sourceKeyOf } from "/lib/traffic-meter.js";
+import { clearProfileStorage } from "/lib/storage-policy.js";
 import { createQualityEngine } from "/lib/quality-engine.js";
 import { bus } from "/lib/bus.js";
 import { openQualityScope } from "/lib/quality-scope.js";
@@ -517,6 +518,19 @@ if (settingsRoot) {
         scheduleAutoReconnect();
       }
       if (state === "idle") updateHeroHint();
+    },
+    onSensitiveDataClear: async () => {
+      connectEpoch++; // отменить возможный start_singbox в полёте
+      await shutdownCore();
+      try { await invoke("dpi_stop"); } catch {}
+      try { localStorage.setItem("ninety.dpi.enabled", "false"); } catch {}
+      clearProfileStorage();
+      await invoke("state_backup_clear");
+      try { sessionStorage.removeItem("ninety.restore.attempted"); } catch {}
+      refreshProfilesSummary();
+      rerenderDpiView();
+      syncTrayMenu();
+      toast(t("settings.general.clearSensitiveDone"), "success", 2400);
     },
     onRender: () => applySettingsVersion(),
   });
