@@ -3,6 +3,15 @@
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
 
+## v0.2.2 — 2026-07-08
+
+- Added an in-app confirmation modal before clearing profiles, subscriptions, active selection, traffic history, WARP/quality/Wi-Fi history, and encrypted backup state from Settings -> General.
+- The sensitive-data cleanup button no longer performs destructive reset on the first click; cleanup runs only after explicit confirmation.
+
+- Добавлено встроенное окно подтверждения перед очисткой профилей, подписок, активного выбора, истории трафика, истории WARP/качества/Wi-Fi и encrypted backup в «Настройки -> Общие».
+- Кнопка очистки чувствительных данных больше не делает destructive reset по первому клику: очистка запускается только после явного подтверждения.
+
+
 ## v0.2.1 — 2026-07-08
 
 - Added an explicit sensitive-data cleanup action in Settings -> General: it stops VPN/DPI, removes profiles, subscriptions, active selection, traffic history, WARP/quality/Wi-Fi history, and clears the encrypted state backup.
