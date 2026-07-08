@@ -18,16 +18,21 @@
 - `ninety.dpi.*`, `ninety.update.resume`: состояние DPI/update, не секреты, но не обязаны жить в backup вечно.
 - `ninety.traffic.*`, `ninety.warp.history`, `ninety.quality.profile`: телеметрия/история качества; полезны, но не нужны для восстановления профилей.
 
-Безопасный порядок миграции:
+Сделано:
+
+- `src/lib/storage-policy.js` централизует `ninety.*` ключи, backup/restore
+  фильтр и helper очистки profile/subscription storage.
+- `state-backup` больше не сохраняет ephemeral telemetry/history:
+  `ninety.traffic.*`, `ninety.sub.*.peakDays`, update resume, WARP history,
+  quality profile и Wi-Fi trust/runtime state.
+
+Оставшийся безопасный порядок миграции:
 
 1. Добавить явную кнопку `Очистить чувствительные данные` с подтверждением.
    Она должна остановить VPN/DPI, удалить профили, подписки, активные ключи,
    runtime-конфиги (`singbox-current.json`, `xray-current.json`, bridge configs)
    и `state-backup.json/.bak` через Rust-команду.
-2. Сузить backup snapshot: сохранять core-ключи восстановления и настройки,
-   но исключить ephemeral telemetry (`ninety.traffic.*`, update resume, restore
-   marker, временные пики подписок), если UX не требует их восстановления.
-3. Вынести профили/подписки в Rust-side encrypted store. Frontend API оставить
+2. Вынести профили/подписки в Rust-side encrypted store. Frontend API оставить
    похожим (`load/save`), миграция должна читать старый `localStorage`, записывать
    DPAPI-store и оставлять rollback до подтверждённого успешного старта.
 

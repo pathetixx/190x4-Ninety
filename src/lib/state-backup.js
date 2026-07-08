@@ -2,11 +2,13 @@
 //
 // localStorage живёт в профиле WebView2 (каталог EBWebView): его сносят
 // чистилки диска, антивирусы и переустановка системы — юзер молча теряет
-// профили/подписки/настройки. Держим снапшот всех ninety.*-ключей рядом с
-// конфигами (Rust: state_backup_save/load, файл state-backup.json) и на
-// старте восстанавливаем, если хранилище пусто.
+// профили/подписки/настройки. Держим шифрованный снапшот
+// восстанавливаемых ninety.*-ключей рядом с конфигами
+// (Rust: state_backup_save/load, файл state-backup.json) и на старте
+// восстанавливаем, если хранилище пусто.
 
-const PREFIX = "ninety.";
+import { shouldBackupStorageKey, shouldRestoreStorageKey } from "/lib/storage-policy.js";
+
 // Маркеры «хранилище живое»: есть хоть один — восстановление не нужно.
 const CORE_KEYS = ["ninety.options.v1", "ninety.profiles.v1", "ninety.subscriptions.v1"];
 
@@ -17,7 +19,9 @@ function snapshot() {
   const out = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k && k.startsWith(PREFIX)) out[k] = localStorage.getItem(k);
+    if (!shouldBackupStorageKey(k)) continue;
+    const v = localStorage.getItem(k);
+    if (v != null) out[k] = v;
   }
   return out;
 }
@@ -56,7 +60,7 @@ export async function restoreIfEmpty() {
   try { snap = JSON.parse(raw); } catch { return false; }
   let restored = 0;
   for (const [k, v] of Object.entries(snap)) {
-    if (!k.startsWith(PREFIX) || typeof v !== "string") continue; // чужие ключи не тащим
+    if (!shouldRestoreStorageKey(k) || typeof v !== "string") continue; // чужие/ephemeral ключи не тащим
     try { localStorage.setItem(k, v); restored++; } catch {}
   }
   if (restored > 0) {
