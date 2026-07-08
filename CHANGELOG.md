@@ -3,6 +3,13 @@
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
 
+## v0.1.100 — 2026-07-08
+
+- Fixed the early Rust test step in release CI: temporary sidecar placeholders are created before `cargo test`, then replaced by the real verified engine binaries later in the build.
+
+- Исправлен ранний шаг Rust-тестов в release CI: перед `cargo test` создаются временные placeholder sidecar'ы, а позже сборка заменяет их реальными проверенными бинарниками движков.
+
+
 ## v0.1.99 — 2026-07-08
 
 - Fixed the frontend test runner on Windows CI: tests are now enumerated by a small Node script instead of relying on shell glob expansion.
