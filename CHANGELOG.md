@@ -3,6 +3,27 @@
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
 
+## v0.2.3 — 2026-07-09
+
+- Background subscription refresh now respects per-subscription auto-update switches while manual refresh still updates every subscription.
+- Adding multiple protocol links now imports them as a list instead of treating the whole multi-line paste as one config.
+- Manual subscription refresh intervals are preserved across server header updates, with explicit auto/manual interval state.
+- Numeric settings now clamp invalid, empty, below-min, and above-max values in JavaScript.
+- Refresh-all subscription feedback now reports full success, partial failures, and full failures separately.
+- Theme metadata now lives in a shared registry used by Settings and onboarding.
+- Added Shiro Light, Sakura Haze, Midnight Indigo, Amber Glass, Glacier, and Ronin Violet themes.
+- CSS surfaces now use semantic overlay, shine, and shadow tokens so light themes render cleanly.
+
+- Фоновое обновление подписок теперь уважает switch автообновления у каждой подписки, а ручное обновление по-прежнему обновляет все подписки.
+- Вставка нескольких protocol-ссылок теперь импортируется списком, а не ошибочно считается одним config.
+- Ручной интервал обновления подписки больше не перезаписывается серверным header после refresh.
+- Числовые настройки теперь клампятся в JavaScript при пустых, некорректных и выходящих за min/max значениях.
+- «Обновить все подписки» теперь отдельно показывает полный успех, частичные ошибки и полный провал.
+- Метаданные тем вынесены в общий registry для Settings и onboarding.
+- Добавлены темы Shiro Light, Sakura Haze, Midnight Indigo, Amber Glass, Glacier и Ronin Violet.
+- CSS surfaces переведены на semantic overlay, shine и shadow tokens, чтобы светлые темы выглядели аккуратно.
+
+
 ## v0.2.2 — 2026-07-08
 
 - Added an in-app confirmation modal before clearing profiles, subscriptions, active selection, traffic history, WARP/quality/Wi-Fi history, and encrypted backup state from Settings -> General.
