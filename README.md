@@ -9,7 +9,7 @@
 
 # Ninety
 
-**A Kurogane-style Windows client for sing-box, WARP, routing rules and connection diagnostics.**
+**A Windows desktop networking client built with Tauri 2 and Rust around sing-box, WARP, routing rules and connection diagnostics.**
 
 [Download](https://github.com/pathetixx/190x4-Ninety/releases) · [Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md) · [Security](./SECURITY.md)
 
@@ -38,7 +38,7 @@ The goal is not to be a thin wrapper around a `config.json`. Ninety treats conne
 | **Bridges** | XHTTP via xray-core; NaiveProxy and TrustTunnel via local SOCKS sidecars; sing-box remains the central router. |
 | **Routing** | LAN bypass, regional rules, custom domain/IP/process rules, ad/malware/phishing rule sets and a live connections view. |
 | **Quality engine** | Watches real throughput, not only ping. Can re-test, switch nodes, apply masking, rescan WARP or suggest a reconnect step. |
-| **DPI tools** | Separate DPI bypass screen, strategy updates, domain/IP lists, driver cleanup and automatic VPN-node exclusions. |
+| **DPI tools** | Separate screen for DPI-related compatibility tools, strategy/list updates, driver cleanup and automatic VPN-node exclusions. |
 | **Privacy** | No ads or bundled analytics, privacy-safe log defaults, encrypted WARP/backup state on Windows, runtime config cleanup. |
 | **Desktop UX** | Tray menu, auto-update, session restore after update, themes, onboarding, 15 languages and RTL layout for فارسی / العربية. |
 
@@ -47,8 +47,8 @@ The goal is not to be a thin wrapper around a `config.json`. Ninety treats conne
 | Nodes | Profiles |
 |------|---------|
 | ![Nodes](./docs/nodes.png) | ![Profiles](./docs/profiles.png) |
-| **DPI bypass** | **Settings** |
-| ![DPI bypass](./docs/dpi.png) | ![Settings](./docs/settings.png) |
+| **DPI tools** | **Settings** |
+| ![DPI tools](./docs/dpi.png) | ![Settings](./docs/settings.png) |
 | **Logs** | **Channel quality** |
 | ![Logs](./docs/logs.png) | ![Channel quality](./docs/quality.png) |
 

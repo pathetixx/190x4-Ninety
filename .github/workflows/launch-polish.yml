@@ -35,8 +35,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_TITLE: Feedback, roadmap and known issues
+          ISSUE_LABELS: feedback,roadmap,pinned,help wanted
+          ISSUE_ASSIGNEE: pathetixx
+          ISSUE_COMMENT_MARKER: I keep this issue open as a public feedback and roadmap thread.
+          ISSUE_COMMENT: |
+            I keep this issue open as a public feedback and roadmap thread.
+
+            If you try Ninety and something feels confusing, broken or underdocumented, feel free to comment here or open a separate bug report.
+
+            Please do not post private subscription URLs, UUIDs, tokens, keys or full configs publicly.
         run: |
           set -euo pipefail
+
+          gh label create feedback --color C0304A --description "Public feedback and user reports" --force
+          gh label create roadmap --color 5319E7 --description "Roadmap tracking and planned polish" --force
+          gh label create pinned --color 6B6B72 --description "Pinned public repository thread" --force
+          gh label create "help wanted" --color 008672 --description "Extra attention is needed" --force
+          gh label create "needs-triage" --color D876E3 --description "Needs maintainer triage" --force
 
           issue_number="$(gh issue list \
             --state open \
@@ -52,6 +67,15 @@ jobs:
               --title "${ISSUE_TITLE}" \
               --body-file docs/feedback-roadmap.md)"
             issue_number="${issue_url##*/}"
+          fi
+
+          gh issue edit "${issue_number}" --add-label "${ISSUE_LABELS}"
+          gh issue edit "${issue_number}" --add-assignee "${ISSUE_ASSIGNEE}" \
+            || echo "Could not assign #${issue_number} to ${ISSUE_ASSIGNEE}; continuing."
+
+          if ! gh issue view "${issue_number}" --json comments \
+            --jq '.comments[].body' | grep -Fq "${ISSUE_COMMENT_MARKER}"; then
+            gh issue comment "${issue_number}" --body "${ISSUE_COMMENT}"
           fi
 
           gh issue pin "${issue_number}" || true

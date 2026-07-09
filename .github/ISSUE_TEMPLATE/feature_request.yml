@@ -18,7 +18,7 @@ body:
         - Node selection
         - Routing rules
         - WARP
-        - DPI bypass
+        - DPI tools
         - Kill switch
         - Logs / diagnostics
         - Updater

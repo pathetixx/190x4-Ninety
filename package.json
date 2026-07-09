@@ -2,7 +2,7 @@
   "name": "ninety",
   "private": true,
   "version": "0.2.3",
-  "description": "Ninety — Windows client for sing-box, WARP and routing rules",
+  "description": "Ninety — Windows desktop networking client for sing-box, WARP and routing rules",
   "license": "MIT",
   "homepage": "https://github.com/pathetixx/190x4-Ninety#readme",
   "repository": {

@@ -317,8 +317,8 @@ jobs:
           # prerelease MUST be false: the updater endpoint is releases/latest/
           # download/latest.json (a GitHub redirect to "Latest"), and GitHub
           # excludes prereleases from "Latest". prerelease:true → /latest/ serves
-          # a stale latest.json → OTA breaks. The "alpha" status lives in the
-          # release title/notes, not in the flag. Tag scheme — semver vX.Y.Z.
+          # a stale latest.json → OTA breaks. Release title and notes stay
+          # human-facing; tag scheme is semver vX.Y.Z.
           prerelease: false
           make_latest: "true"
 
@@ -339,7 +339,7 @@ jobs:
           python scripts/r2_mirror.py
 
       # RU-reachable OTA SOURCE: same .exe + latest.json (url→gitlab) in the
-      # public project's GitLab generic package registry (anonymous download).
+      # public project's GitLab generic package registry (unauthenticated download).
       # gitlab.com is reachable from RU, unlike r2.dev. This is the primary
       # endpoint in tauri.conf.json; GitHub is the backup. The R2 step above
       # stays for legacy builds ≤0.1.75 (they ship the [r2, github] order —

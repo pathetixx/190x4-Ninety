@@ -1,6 +1,6 @@
 # Ninety v0.2.3
 
-Ninety is a Kurogane-style Windows client for sing-box, WARP, TUN mode, routing rules and connection diagnostics.
+Ninety is a Windows desktop networking client built with Tauri 2 and Rust around sing-box, WARP, TUN mode, routing rules and connection diagnostics.
 
 This release focuses on import reliability, subscription refresh behavior, safer settings normalization and the new shared theme registry.
 
