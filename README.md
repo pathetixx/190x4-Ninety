@@ -7,9 +7,11 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-1d1d24)](#installation)
 [![License](https://img.shields.io/badge/license-MIT-6B6B72)](./LICENSE)
 
-**A native VPN client for Windows.**
+# Ninety
 
-[Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md)
+**A Kurogane-style Windows client for sing-box, WARP, routing rules and connection diagnostics.**
+
+[Download](https://github.com/pathetixx/190x4-Ninety/releases) · [Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md) · [Security](./SECURITY.md)
 
 </div>
 
@@ -17,36 +19,30 @@
 
 ![Home](./docs/home.png)
 
-## What is Ninety?
+## Why Ninety?
 
-Ninety is a native VPN client for Windows built on the universal sing-box proxy core. It does a lot: auto-picks the fastest node, runs a TUN mode that covers all system traffic, handles subscriptions and remote profiles, bypasses blocking and routes by region. With support for a wide set of protocols (VLESS, VMess, Trojan, Hysteria2, TUIC, NaiveProxy, TrustTunnel and more), no ads and open source — it's safe, private access to the free internet.
+Ninety is a native Windows desktop client built around the sing-box ecosystem, Tauri 2 and Rust. It is designed for users who want one clean app for subscriptions, standalone profiles, WARP, TUN mode, routing rules, DPI tools, logs, tray control and real connection-quality feedback.
 
-## Features
+The goal is not to be a thin wrapper around a `config.json`. Ninety treats connection state as a product problem: it starts and stops helper engines safely, restores Windows proxy settings, tracks the actually selected node, cleans runtime configs, keeps sensitive local state encrypted where possible, and gives the user visible diagnostics instead of a vague "connected" label.
 
-- **Subscriptions and standalone configs** — import by URL, from the clipboard, or via a `ninety://` link. Auto-update on the subscription's interval, QR export.
-- **Node selection** — a grid of servers with flags and live ping; **Auto** mode keeps the connection on the fastest node and switches by itself when latency rises or a timeout hits.
-- **Connection-quality control** — watches the real connection speed and, if the provider starts throttling it, recovers on its own: switches servers, turns on traffic masking, or brings up a backup channel. An indicator on the main screen shows the current state; fine-tuning lives in the "Connection quality" section.
-- **Three connection modes** — proxy, system proxy (no administrator rights), and **TUN** (all system traffic): turning it on prompts for UAC once, and the "always run as administrator" option removes even that.
-- **Block bypass** — TLS ClientHello fragmentation (by TLS records or TCP segments) helps bring the tunnel up when the provider throttles the handshake by SNI; plus a built-in DPI bypass to unblock services.
-- **Routing** — LAN bypass, region rules (in-country traffic goes direct), ad and tracker blocking at the DNS and routing level.
-- **WARP** — built-in registration, endpoint selection with a scanner and traffic masking; works as a standalone exit or as a link in a chain.
-- **Fine-tuning** — DNS (remote/direct, fake-DNS), MTU and TUN stack, TLS tricks (fragmentation, padding, mixed-case SNI), connection test and intervals.
-- **Start at system login**, minimize to tray, automatic updates via GitHub Releases.
-- **6 themes** — Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono. The whole interface runs on CSS variables; the theme accent is picked up by the portal windows and the cyber HUD on the main screen.
-- **15 languages** — the interface is translated into 15 languages, switchable in Settings → Appearance without a restart; فارسی and العربية are laid out right-to-left (RTL).
+> Ninety is a networking client, not an anonymity guarantee. Your privacy still depends on your server, provider, configuration and operating-system environment.
 
-## Protocols and transports
+## Highlights
 
-VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · NaiveProxy · TrustTunnel
-Reality · TLS (uTLS fingerprints) · XHTTP · WebSocket · gRPC · HTTP/2 · TCP
+| Area | What Ninety does |
+| --- | --- |
+| **Connection modes** | Local proxy, Windows system proxy and full **VPN · TUN** mode. TUN requests UAC only when needed; the app can also run elevated on login. |
+| **Sources** | Imports subscriptions, standalone links and TrustTunnel `.toml` endpoints. Supports clipboard import and optional deep links. |
+| **Node control** | Server grid with flags, live delay checks, auto selection, tray server switching and effective-node tracking. |
+| **Protocols** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, NaiveProxy, TrustTunnel and WARP/WireGuard. |
+| **Bridges** | XHTTP via xray-core; NaiveProxy and TrustTunnel via local SOCKS sidecars; sing-box remains the central router. |
+| **Routing** | LAN bypass, regional rules, custom domain/IP/process rules, ad/malware/phishing rule sets and a live connections view. |
+| **Quality engine** | Watches real throughput, not only ping. Can re-test, switch nodes, apply masking, rescan WARP or suggest a reconnect step. |
+| **DPI tools** | Separate DPI bypass screen, strategy updates, domain/IP lists, driver cleanup and automatic VPN-node exclusions. |
+| **Privacy** | No ads or bundled analytics, privacy-safe log defaults, encrypted WARP/backup state on Windows, runtime config cleanup. |
+| **Desktop UX** | Tray menu, auto-update, session restore after update, themes, onboarding, 15 languages and RTL layout for فارسی / العربية. |
 
-NaiveProxy and TrustTunnel are served by their own clients over a local
-SOCKS bridge (like XHTTP), independent of the selected connection mode.
-
-## Interface
-
-The main screen is a cyber HUD around a live mask: channel status, ping, connection
-integrity and the server the tunnel runs through. The other sections:
+## Screenshots
 
 | Nodes | Profiles |
 |------|---------|
@@ -56,77 +52,134 @@ integrity and the server the tunnel runs through. The other sections:
 | **Logs** | **Channel quality** |
 | ![Logs](./docs/logs.png) | ![Channel quality](./docs/quality.png) |
 
+## Supported protocols and transports
+
+**Protocols:** VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · NaiveProxy · TrustTunnel · WARP/WireGuard
+
+**Transports and options:** Reality · TLS with uTLS fingerprints · XHTTP · WebSocket · gRPC · HTTP/2 · TCP · TLS fragmentation · padding · mixed-case SNI · mux
+
+NaiveProxy and TrustTunnel are served by their own clients over local SOCKS bridges. XHTTP is bridged through xray-core when needed. The user still sees a single source and a single connection state.
+
 ## Installation
 
-Download the installer from [**Releases**](https://github.com/pathetixx/190x4-Ninety/releases) — `.msi` or `.exe` (NSIS).
-Updates arrive inside the app and install in one click.
+Download the latest installer from [**Releases**](https://github.com/pathetixx/190x4-Ninety/releases):
 
-Requirements: Windows 10 / 11 (x64).
+- `.exe` — NSIS installer.
+- `.msi` — MSI package.
+
+Requirements: **Windows 10 / 11 x64**.
+
+Updates are delivered inside the app. When the VPN is already connected, update checks and downloads can go through the active tunnel.
 
 ## Quick start
 
-1. **Add a source.** The **"+"** button at the top — paste a subscription URL (`https://…`) or a standalone `vless://` / `vmess://` / `trojan://` / `hysteria2://` / `tuic://` / `naive+https://…` / `tt://…` config from the clipboard. For TrustTunnel you can also import an endpoint `.toml` file (the **".toml file"** tile). A subscription pulls in the server list and updates on its own interval.
-2. **Pick a mode** (the toggle on the main screen):
-   - **System proxy** — the default, no administrator rights. Works for a browser and most apps.
-   - **Proxy** — a local SOCKS/HTTP on `127.0.0.1`; you point apps at it yourself.
-   - **VPN · TUN** — all system traffic goes through the tunnel. Turning it on asks for UAC once.
-3. **Connect** — click the large disc in the center of the main screen. Click again to disconnect.
-4. **Fine-tuning (optional):**
-   - On the **Nodes** tab pick a server by hand or leave it on **Auto** — the client keeps the connection on the fastest node and switches when latency rises.
-   - Turn on **DPI bypass** if a particular service is unreachable even with the VPN running.
-   - Turn on **TLS fragmentation** if the tunnel won't come up at all (see below).
+1. Open Ninety and press **+**.
+2. Paste a subscription URL or a standalone config link (`vless://`, `vmess://`, `trojan://`, `hysteria2://`, `tuic://`, `naive+https://`, `tt://`, etc.).
+3. Choose a mode:
+   - **System proxy** — default, no administrator rights, good for browsers and many desktop apps.
+   - **Proxy** — local SOCKS/HTTP on `127.0.0.1`; configure apps manually.
+   - **VPN · TUN** — routes system traffic through the tunnel and requires elevation.
+4. Click the central disc to connect. Click again to disconnect.
 
-**Not connecting?**
-- Refresh the subscription (profile menu → refresh) — servers may have changed.
-- Switch the node or flip to **Auto**.
-- Turn on **ClientHello fragmentation** (Settings → TLS tricks) — it often helps when the provider cuts the handshake.
-- Open the **Logs** — they show where the connection breaks.
+If something fails, open **Logs** first. The log screen is built for debugging startup, bridge and routing problems without digging through app folders.
 
-## Block bypass
+## Security and privacy notes
 
-When the provider interferes with the connection, Ninety has two independent mechanisms — they can be used together.
+Ninety is open source, but it still manages powerful networking components. Please read this before using it on a sensitive system.
 
-**TLS ClientHello fragmentation.** Some providers detect and cut traffic at the TLS handshake stage, reading the server name (SNI) from the first packet — the ClientHello. Ninety splits that packet into parts so the filter can't reassemble the SNI, and the tunnel comes up. Two split methods are available — by TLS records (recommended) or by TCP segments — plus padding and mixed-case SNI. Enabled in **Settings → TLS tricks**.
+- Imported profile and subscription data may contain credentials. Treat exports and logs carefully.
+- Runtime engine configs are created on demand and cleaned up after disconnect; stale runtime configs are purged on startup.
+- WARP keys and state backups are encrypted with Windows DPAPI where supported by the app backend.
+- The default engine log level is `warn` to avoid writing visited domains to disk during normal use.
+- External IP/geo lookups can be disabled in settings.
+- Subscription refreshes keep a privacy-safe default: direct fallback is opt-in.
+- The core control API listens on loopback.
+- TUN mode, DPI tools and kill switch touch system networking. Review the settings before enabling them.
 
-**DPI bypass.** A separate built-in engine for services the provider blocks at the DPI level even with the VPN running (e.g. voice calls in messengers, or specific sites). Managed in the **DPI bypass** section: turned on with a single button, the strategy can be picked by hand or via **auto-pick** — the client tries the options and keeps the one that works for your provider. Domain and exclusion lists are edited right in the app, and your VPN nodes' addresses are added to exclusions automatically so the bypass doesn't touch the tunnel itself. In full TUN mode the bypass isn't needed (all traffic is already in the tunnel) and pauses automatically. A separate toggle can load the bypass driver under a neutral name (instead of the standard one) — it doesn't affect functionality.
-
-## Build from source
-
-You'll need Rust (stable), Node ≥ 18 and MSVC build tools.
-
-```powershell
-npm install
-npm run tauri dev     # development window
-npm run tauri build   # release build → .msi / .exe
-```
-
-The engines (sing-box, xray-core, the NaiveProxy and TrustTunnel clients) and `wintun.dll` are pulled in during the CI build and aren't stored in the repository — see [`.github/workflows/build.yml`](./.github/workflows/build.yml).
-
-On low-memory VPS hosts, do not run heavy Rust/Tauri checks locally (`cargo check`,
-`cargo test`, `cargo clippy`, `cargo build`, `npm run tauri build`). Use the
-Windows GitHub Actions workflows as the Rust/build gate; local VPS work should stay
-limited to static inspection and small JS-only tasks unless explicitly allowed.
+For vulnerability reports, see [SECURITY.md](./SECURITY.md).
 
 ## Architecture
 
-- **Interface** — Tauri 2 (Rust + WebView2), frontend in vanilla HTML/CSS/JS with no frameworks or bundlers.
-- **Engine** — sing-box runs as a child process; the XHTTP transport is served by the xray-core engine, and the NaiveProxy and TrustTunnel protocols by their own clients; all of them connect to sing-box over a local socks bridge.
-- **TUN** — sing-box brings up the TUN interface as a child process of the app running with administrator rights; UAC is requested once when enabling it (the "always run as administrator" option removes even that). The core's control API is locked with a secret and listens only on loopback.
-- **Subscriptions and settings** — in `localStorage`; the engine config is assembled on the fly for the current mode and node.
+```text
+Tauri WebView UI
+        │
+        │ invoke / events
+        ▼
+Rust backend
+        │
+        ├─ sing-box process
+        ├─ xray bridge for XHTTP
+        ├─ NaiveProxy sidecar
+        ├─ TrustTunnel sidecar
+        ├─ WARP / WireGuard state
+        ├─ Windows system proxy
+        ├─ TUN / elevation / autostart
+        ├─ WFP kill switch
+        └─ updater, logs, backup and cleanup
+```
 
-## Support
+- **Frontend:** vanilla HTML/CSS/JavaScript, no framework and no bundler.
+- **Desktop shell:** Tauri 2 + WebView2.
+- **Backend:** Rust commands for process control, Windows integration, encrypted local secrets, logs and cleanup.
+- **Config builder:** JavaScript modules assemble sing-box/xray/sidecar configs for the active source, mode and options.
+- **CI:** GitHub Actions builds the Windows release and injects the external engines that are not stored in this repository.
 
-The project runs on enthusiasm. If Ninety turned out useful — you can buy a coffee (hover over the address and click 📋 to copy):
+## Build from source
+
+Requirements:
+
+- Rust stable.
+- Node.js 18 or newer.
+- MSVC build tools.
+- Windows environment for full Tauri builds.
+
+```powershell
+npm install
+npm run tauri dev
+npm run tauri build
+```
+
+The engines (`sing-box`, `xray-core`, NaiveProxy, TrustTunnel) and `wintun.dll` are pulled during CI. See [`.github/workflows/build.yml`](./.github/workflows/build.yml).
+
+For regular development checks:
+
+```powershell
+npm run lint
+npm test
+```
+
+Heavy Rust/Tauri checks are expected to run in the Windows CI pipeline unless you are on a properly prepared local Windows machine.
+
+## Repository map
+
+```text
+src/                  Frontend: screens, styles, i18n, config builder
+src-tauri/src/        Rust backend commands and Windows integration
+src-tauri/dpi/        DPI strategies, lists and bundled runtime resources
+docs/                 Screenshots and project images
+tests/                JavaScript unit tests
+.github/workflows/    Build, checks and release automation
+```
+
+## Contributing
+
+Bug reports, reproducible test cases, docs fixes and careful pull requests are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a PR.
+
+When reporting connection bugs, never paste private subscription URLs, access tokens, UUIDs, private keys or full exported configs into a public issue.
+
+## Support the project
+
+Ninety is developed on enthusiasm. If it is useful to you, you can support the work:
 
 **TON**
 
-```
+```text
 UQC21op6_5Qgsw0i7TQvh12XBex9I5bqmPeMNuJ20INdjtg7
 ```
 
-**USDT** · TRC20 (Tron)
+**USDT · TRC20**
 
-```
+```text
 TGbdvr1gSYgQciFNRjwdmAmCbNLjK9wgJR
 ```
 

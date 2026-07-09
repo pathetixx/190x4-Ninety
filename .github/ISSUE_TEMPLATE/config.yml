@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Download latest release
+    url: https://github.com/pathetixx/190x4-Ninety/releases
+    about: Install the newest build before reporting a bug.
+  - name: Security policy
+    url: https://github.com/pathetixx/190x4-Ninety/blob/main/SECURITY.md
+    about: Read this before reporting security-sensitive issues or sharing logs.

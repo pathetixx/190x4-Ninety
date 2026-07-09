@@ -1,0 +1,120 @@
+name: Bug report
+description: Report a reproducible problem in Ninety
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please remove private data before posting: subscription URLs, tokens, UUIDs, passwords, private keys, WARP registration data and full exported configs.
+
+  - type: input
+    id: version
+    attributes:
+      label: Ninety version
+      description: Example: v0.2.3
+      placeholder: v0.2.3
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Example: Windows 11 23H2 x64
+      placeholder: Windows 11 23H2 x64
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_type
+    attributes:
+      label: Install type
+      options:
+        - NSIS .exe installer
+        - MSI installer
+        - Development build
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Connection mode
+      options:
+        - Proxy
+        - System proxy
+        - VPN · TUN
+        - WARP-only
+        - Not connection-related
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Import / subscription
+        - Connection start / stop
+        - Node selection / proxy view
+        - Routing rules / connections monitor
+        - WARP
+        - DPI bypass
+        - Kill switch
+        - Logs
+        - Updater
+        - Tray / autostart
+        - UI / theme / localization
+        - Build / CI
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use sanitized data. Do not paste real private configs.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove credentials, subscription URLs, tokens, UUIDs, private keys and private server addresses.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I tested this on the latest release or current main branch.
+          required: true
+        - label: I removed private credentials and subscription data from this report.
+          required: true
+        - label: I checked existing issues for duplicates.
+          required: true
