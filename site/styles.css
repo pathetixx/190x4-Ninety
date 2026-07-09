@@ -479,13 +479,28 @@ h3 {
 
 .release-panel strong {
   display: block;
-  margin: 8px 0 12px;
+  margin: 8px 0 10px;
   font-size: 5rem;
   line-height: 0.9;
 }
 
+.release-meta {
+  display: block;
+  min-height: 1.4em;
+  margin-bottom: 16px;
+  color: var(--soft);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
 .release-panel p {
   margin-bottom: 22px;
+}
+
+.release-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .safety-grid {

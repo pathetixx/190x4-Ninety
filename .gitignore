@@ -23,6 +23,7 @@ Thumbs.db
 dist/
 *.msi
 *.exe.tmp
+site/release.json
 
 # Python bytecode (gen_strategies.py)
 __pycache__/

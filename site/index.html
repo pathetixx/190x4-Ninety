@@ -59,7 +59,12 @@
             Не обещает анонимность. Даёт аккуратное управление подключением, режимами Windows и видимую диагностику.
           </p>
           <div class="cta-row">
-            <a class="button primary" href="https://github.com/pathetixx/190x4-Ninety/releases/latest" data-i18n="hero.download">
+            <a
+              class="button primary"
+              href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+              data-download-link
+              data-i18n="hero.download"
+            >
               Скачать
             </a>
             <a class="button secondary" href="https://github.com/pathetixx/190x4-Ninety#documentation" data-i18n="hero.docs">
@@ -173,9 +178,35 @@
           </div>
           <div class="release-panel" aria-label="Release status">
             <span class="panel-label" data-i18n="release.label">CURRENT RELEASE</span>
-            <strong>v0.2.3</strong>
+            <strong data-release-version>v0.2.3</strong>
+            <span class="release-meta" data-release-meta>Проверяю последний релиз...</span>
             <p data-i18n="release.copy">Релизы публикуются через annotated tags, draft release и CI-артефакты. OTA changelog берётся из `latest.json`, а не из уже опубликованного текста релиза.</p>
-            <a class="button secondary compact" href="https://github.com/pathetixx/190x4-Ninety/releases/latest" data-i18n="release.link">Открыть релиз</a>
+            <div class="release-actions">
+              <a
+                class="button secondary compact"
+                href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+                data-release-link
+                data-i18n="release.link"
+              >
+                Открыть релиз
+              </a>
+              <a
+                class="button secondary compact"
+                href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+                data-download-link
+                data-i18n="release.exe"
+              >
+                Installer .exe
+              </a>
+              <a
+                class="button secondary compact"
+                href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+                data-msi-link
+                data-i18n="release.msi"
+              >
+                MSI
+              </a>
+            </div>
           </div>
         </div>
       </section>
@@ -212,7 +243,7 @@
         </div>
         <div class="footer-links">
           <a href="https://github.com/pathetixx/190x4-Ninety" data-i18n="footer.github">GitHub</a>
-          <a href="https://github.com/pathetixx/190x4-Ninety/releases/latest" data-i18n="footer.download">Download</a>
+          <a href="https://github.com/pathetixx/190x4-Ninety/releases/latest" data-download-link data-i18n="footer.download">Download</a>
           <a href="https://github.com/pathetixx/190x4-Ninety/security/policy" data-i18n="footer.security">Security</a>
           <a href="https://github.com/pathetixx/190x4-Ninety/issues/6" data-i18n="footer.feedback">Feedback</a>
         </div>

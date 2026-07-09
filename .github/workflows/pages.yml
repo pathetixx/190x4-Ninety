@@ -6,6 +6,8 @@ on:
     paths:
       - site/**
       - .github/workflows/pages.yml
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -19,6 +21,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'release' || github.event.release.prerelease == false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -29,6 +32,19 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v6
+
+      - name: Generate latest release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/releases/latest" \
+            --jq '{
+              tag_name,
+              html_url,
+              published_at,
+              assets: [.assets[] | {name, browser_download_url}]
+            }' > site/release.json
 
       - name: Upload static site
         uses: actions/upload-pages-artifact@v5

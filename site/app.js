@@ -49,6 +49,13 @@ const translations = {
     "release.label": "CURRENT RELEASE",
     "release.copy": "Релизы публикуются через annotated tags, draft release и CI-артефакты. OTA changelog берётся из latest.json, а не из уже опубликованного текста релиза.",
     "release.link": "Открыть релиз",
+    "release.exe": "Installer .exe",
+    "release.msi": "MSI",
+    "release.meta.loading": "Проверяю последний релиз...",
+    "release.meta.fallback": "Последний релиз откроется через GitHub.",
+    "release.meta.published": "Опубликован {date}",
+    "release.meta.assets": "EXE/MSI найдены автоматически",
+    "release.meta.exeOnly": "EXE найден автоматически",
     "safety.kicker": "Safety notes",
     "safety.title": "Сильные сетевые инструменты требуют честных ограничений",
     "safety.privacy.title": "Не гарантия анонимности",
@@ -113,6 +120,13 @@ const translations = {
     "release.label": "CURRENT RELEASE",
     "release.copy": "Releases are published through annotated tags, draft releases and CI assets. The OTA changelog comes from latest.json, not from an already published release body.",
     "release.link": "Open release",
+    "release.exe": "Installer .exe",
+    "release.msi": "MSI",
+    "release.meta.loading": "Checking latest release...",
+    "release.meta.fallback": "Latest release opens through GitHub.",
+    "release.meta.published": "Published {date}",
+    "release.meta.assets": "EXE/MSI found automatically",
+    "release.meta.exeOnly": "EXE found automatically",
     "safety.kicker": "Safety notes",
     "safety.title": "Powerful networking tools need honest limits",
     "safety.privacy.title": "Not anonymity",
@@ -127,6 +141,16 @@ const translations = {
     "footer.security": "Security",
     "footer.feedback": "Feedback",
   },
+};
+
+const releaseFallback = {
+  tagName: "v0.2.3",
+  htmlUrl: "https://github.com/pathetixx/190x4-Ninety/releases/latest",
+  exeUrl: "https://github.com/pathetixx/190x4-Ninety/releases/latest",
+  msiUrl: "https://github.com/pathetixx/190x4-Ninety/releases/latest",
+  publishedAt: "",
+  hasExe: false,
+  hasMsi: false,
 };
 
 const screens = {
@@ -167,20 +191,172 @@ const screens = {
   },
 };
 
-let currentLanguage = localStorage.getItem("ninety-site-language") || "ru";
+function getStoredLanguage() {
+  try {
+    return localStorage.getItem("ninety-site-language") || "ru";
+  } catch {
+    return "ru";
+  }
+}
+
+let currentLanguage = getStoredLanguage();
 let currentScreen = "home";
+let latestRelease = releaseFallback;
+let latestReleaseLoaded = false;
 
 const topbar = document.querySelector("[data-topbar]");
 const screenImage = document.querySelector("[data-screen-image]");
+const releaseVersionNodes = document.querySelectorAll("[data-release-version]");
+const releaseMetaNodes = document.querySelectorAll("[data-release-meta]");
+const releaseLinkNodes = document.querySelectorAll("[data-release-link]");
+const downloadLinkNodes = document.querySelectorAll("[data-download-link]");
+const msiLinkNodes = document.querySelectorAll("[data-msi-link]");
+
+function t(key) {
+  return translations[currentLanguage][key] || translations.ru[key] || key;
+}
+
+function formatTemplate(template, values) {
+  return Object.entries(values).reduce((result, [key, value]) => {
+    return result.replace(`{${key}}`, value);
+  }, template);
+}
+
+function storeLanguage(language) {
+  try {
+    localStorage.setItem("ninety-site-language", language);
+  } catch {
+    // В приватном или ограниченном режиме браузер может запретить localStorage.
+  }
+}
+
+function formatReleaseDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(currentLanguage === "ru" ? "ru-RU" : "en-US", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function pickReleaseAsset(assets, matcher) {
+  return assets.find((asset) => matcher.test(asset.name || ""));
+}
+
+function normalizeRelease(data) {
+  const assets = Array.isArray(data.assets) ? data.assets : [];
+  const exeAsset =
+    pickReleaseAsset(assets, /^Ninety_.*_x64-setup\.exe$/i) ||
+    pickReleaseAsset(assets, /\.exe$/i);
+  const msiAsset = pickReleaseAsset(assets, /\.msi$/i);
+  const htmlUrl = data.html_url || releaseFallback.htmlUrl;
+
+  return {
+    tagName: data.tag_name || releaseFallback.tagName,
+    htmlUrl,
+    exeUrl: exeAsset?.browser_download_url || htmlUrl,
+    msiUrl: msiAsset?.browser_download_url || htmlUrl,
+    publishedAt: data.published_at || "",
+    hasExe: Boolean(exeAsset?.browser_download_url),
+    hasMsi: Boolean(msiAsset?.browser_download_url),
+  };
+}
+
+function releaseMetaText() {
+  if (!latestReleaseLoaded) {
+    return t("release.meta.fallback");
+  }
+
+  const parts = [];
+  const date = formatReleaseDate(latestRelease.publishedAt);
+  if (date) {
+    parts.push(formatTemplate(t("release.meta.published"), { date }));
+  }
+  if (latestRelease.hasExe && latestRelease.hasMsi) {
+    parts.push(t("release.meta.assets"));
+  } else if (latestRelease.hasExe) {
+    parts.push(t("release.meta.exeOnly"));
+  }
+
+  return parts.join(" · ") || t("release.meta.fallback");
+}
+
+function renderRelease() {
+  releaseVersionNodes.forEach((node) => {
+    node.textContent = latestRelease.tagName;
+  });
+  releaseMetaNodes.forEach((node) => {
+    node.textContent = releaseMetaText();
+  });
+  releaseLinkNodes.forEach((node) => {
+    node.href = latestRelease.htmlUrl;
+  });
+  downloadLinkNodes.forEach((node) => {
+    node.href = latestRelease.exeUrl;
+  });
+  msiLinkNodes.forEach((node) => {
+    node.href = latestRelease.msiUrl;
+  });
+}
+
+async function loadLatestRelease() {
+  releaseMetaNodes.forEach((node) => {
+    node.textContent = t("release.meta.loading");
+  });
+
+  try {
+    latestRelease = await loadReleaseFromSiteMetadata();
+    latestReleaseLoaded = true;
+  } catch {
+    try {
+      latestRelease = await loadReleaseFromGitHubApi();
+      latestReleaseLoaded = true;
+    } catch {
+      latestRelease = releaseFallback;
+      latestReleaseLoaded = false;
+    }
+  }
+
+  renderRelease();
+}
+
+async function loadReleaseFromSiteMetadata() {
+  const response = await fetch("release.json", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Local release metadata request failed: ${response.status}`);
+  }
+
+  return normalizeRelease(await response.json());
+}
+
+async function loadReleaseFromGitHubApi() {
+  const response = await fetch("https://api.github.com/repos/pathetixx/190x4-Ninety/releases/latest", {
+    headers: {
+      Accept: "application/vnd.github+json",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub latest release request failed: ${response.status}`);
+  }
+
+  return normalizeRelease(await response.json());
+}
 
 function setLanguage(language) {
   currentLanguage = translations[language] ? language : "ru";
   document.documentElement.lang = currentLanguage;
-  localStorage.setItem("ninety-site-language", currentLanguage);
+  storeLanguage(currentLanguage);
 
   document.querySelectorAll("[data-i18n]").forEach((node) => {
-    const key = node.dataset.i18n;
-    const value = translations[currentLanguage][key];
+    const value = t(node.dataset.i18n);
     if (value) {
       node.textContent = value;
     }
@@ -191,6 +367,7 @@ function setLanguage(language) {
   });
 
   updateScreen(currentScreen);
+  renderRelease();
 }
 
 function updateScreen(name) {
@@ -218,3 +395,4 @@ window.addEventListener("scroll", () => {
 
 setLanguage(currentLanguage);
 updateScreen(currentScreen);
+loadLatestRelease();
