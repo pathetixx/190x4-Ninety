@@ -1,0 +1,7 @@
+# Merge Claude Code attribution into the repository owner in GitHub/Git views.
+# GitHub links commits to accounts by commit email; these are the known/likely
+# Claude Code identities that can appear in the Contributors widget.
+pathetixx <212099580+pathetixx@users.noreply.github.com> Claude <81847+claude@users.noreply.github.com>
+pathetixx <212099580+pathetixx@users.noreply.github.com> Claude <claude@anthropic.com>
+pathetixx <212099580+pathetixx@users.noreply.github.com> Claude <claude-code@anthropic.com>
+pathetixx <212099580+pathetixx@users.noreply.github.com> Claude <noreply@anthropic.com>
