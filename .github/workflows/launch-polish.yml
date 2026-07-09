@@ -1,0 +1,58 @@
+name: Launch polish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/release-v0.2.3.md
+      - docs/feedback-roadmap.md
+      - .github/workflows/launch-polish.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  apply-launch-copy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update GitHub Release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v0.2.3 >/dev/null 2>&1; then
+            gh release edit v0.2.3 --notes-file docs/release-v0.2.3.md
+          else
+            echo "Release v0.2.3 was not found; skipping release edit."
+          fi
+
+      - name: Create or update feedback roadmap issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TITLE: Feedback, roadmap and known issues
+        run: |
+          set -euo pipefail
+
+          issue_number="$(gh issue list \
+            --state open \
+            --search "${ISSUE_TITLE} in:title" \
+            --json number,title \
+            --jq '.[] | select(.title == env.ISSUE_TITLE) | .number' \
+            | head -n 1)"
+
+          if [ -n "${issue_number}" ]; then
+            gh issue edit "${issue_number}" --body-file docs/feedback-roadmap.md
+          else
+            issue_url="$(gh issue create \
+              --title "${ISSUE_TITLE}" \
+              --body-file docs/feedback-roadmap.md)"
+            issue_number="${issue_url##*/}"
+          fi
+
+          gh issue pin "${issue_number}" || true
+          echo "Feedback issue: #${issue_number}"
