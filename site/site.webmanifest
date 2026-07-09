@@ -1,0 +1,16 @@
+{
+  "name": "Ninety",
+  "short_name": "Ninety",
+  "description": "Windows desktop networking client for sing-box, WARP, routing rules and connection diagnostics.",
+  "start_url": ".",
+  "display": "browser",
+  "background_color": "#07070a",
+  "theme_color": "#0a0a0d",
+  "icons": [
+    {
+      "src": "assets/icon.png",
+      "sizes": "256x256",
+      "type": "image/png"
+    }
+  ]
+}

@@ -11,7 +11,7 @@
 
 **Desktop-клиент для Windows на Tauri 2 и Rust вокруг sing-box, WARP, правил маршрутизации и диагностики соединения.**
 
-[Скачать](https://github.com/pathetixx/190x4-Ninety/releases) · **Русский** · [English](./README.md) · [Журнал изменений](./CHANGELOG.md) · [Безопасность](./SECURITY.md)
+[Сайт](https://pathetixx.github.io/190x4-Ninety/) · [Скачать](https://github.com/pathetixx/190x4-Ninety/releases) · **Русский** · [English](./README.md) · [Журнал изменений](./CHANGELOG.md) · [Безопасность](./SECURITY.md)
 
 </div>
 
@@ -153,6 +153,7 @@ src/                  Фронтенд: экраны, стили, i18n, config b
 src-tauri/src/        Rust-бэкенд и интеграция с Windows
 src-tauri/dpi/        DPI-стратегии, списки и runtime-ресурсы
 docs/                 Скриншоты и изображения проекта
+site/                 Сайт для GitHub Pages
 tests/                JavaScript unit-тесты
 .github/workflows/    Сборка, проверки и релизная автоматизация
 ```

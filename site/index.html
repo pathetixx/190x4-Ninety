@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ninety — Windows networking client</title>
+    <meta
+      name="description"
+      content="Ninety is a Windows desktop networking client built with Tauri 2 and Rust around sing-box, WARP, routing rules and connection diagnostics."
+    />
+    <meta name="theme-color" content="#0a0a0d" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Ninety" />
+    <meta
+      property="og:description"
+      content="Windows desktop networking client for sing-box, WARP, routing rules and connection diagnostics."
+    />
+    <meta property="og:image" content="assets/og.png" />
+    <meta property="og:url" content="https://pathetixx.github.io/190x4-Ninety/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="assets/icon.png" />
+    <link rel="apple-touch-icon" href="assets/icon.png" />
+    <link rel="manifest" href="site.webmanifest" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar" data-topbar>
+      <a class="brand" href="#top" aria-label="Ninety">
+        <img src="assets/icon.png" alt="" width="32" height="32" />
+        <span>Ninety</span>
+      </a>
+      <nav class="nav" aria-label="Main navigation">
+        <a href="#features" data-i18n="nav.features">Возможности</a>
+        <a href="#screens" data-i18n="nav.screens">Интерфейс</a>
+        <a href="#docs" data-i18n="nav.docs">Документация</a>
+        <a href="#safety" data-i18n="nav.safety">Безопасность</a>
+      </nav>
+      <div class="top-actions" role="group" aria-label="Language">
+        <button class="lang-button is-active" type="button" data-lang="ru">RU</button>
+        <button class="lang-button" type="button" data-lang="en">EN</button>
+        <a class="ghost-link" href="https://github.com/pathetixx/190x4-Ninety" data-i18n="nav.github">GitHub</a>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <picture class="hero-media" aria-hidden="true">
+          <img src="assets/hero.webp" alt="" width="2200" height="1380" />
+        </picture>
+        <div class="hero-shade" aria-hidden="true"></div>
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="hero-content">
+          <p class="eyebrow" data-i18n="hero.eyebrow">190X4 · SECURE TUNNEL</p>
+          <h1 id="hero-title">Ninety</h1>
+          <p class="lead" data-i18n="hero.lead">
+            Desktop-клиент для Windows вокруг sing-box, WARP, правил маршрутизации и диагностики соединения.
+          </p>
+          <p class="note" data-i18n="hero.note">
+            Не обещает анонимность. Даёт аккуратное управление подключением, режимами Windows и видимую диагностику.
+          </p>
+          <div class="cta-row">
+            <a class="button primary" href="https://github.com/pathetixx/190x4-Ninety/releases/latest" data-i18n="hero.download">
+              Скачать
+            </a>
+            <a class="button secondary" href="https://github.com/pathetixx/190x4-Ninety#documentation" data-i18n="hero.docs">
+              Документация
+            </a>
+          </div>
+          <dl class="hero-stats" aria-label="Project facts">
+            <div>
+              <dt data-i18n="hero.stat.platform.label">Платформа</dt>
+              <dd data-i18n="hero.stat.platform.value">Windows 10 / 11 x64</dd>
+            </div>
+            <div>
+              <dt data-i18n="hero.stat.stack.label">Стек</dt>
+              <dd data-i18n="hero.stat.stack.value">Tauri 2 · Rust</dd>
+            </div>
+            <div>
+              <dt data-i18n="hero.stat.core.label">Ядро</dt>
+              <dd data-i18n="hero.stat.core.value">sing-box ecosystem</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="section intro-section" aria-label="Ninety summary">
+        <div class="section-inner intro-grid">
+          <div>
+            <p class="section-kicker" data-i18n="intro.kicker">Windows networking client</p>
+            <h2 data-i18n="intro.title">Один интерфейс для профилей, режимов и диагностики</h2>
+          </div>
+          <p data-i18n="intro.copy">
+            Ninety собирает подписки, одиночные профили, WARP, TUN, маршрутизацию, логи и автообновления в один desktop-клиент. Фокус проекта — предсказуемое состояние подключения, честные ограничения и аккуратная работа с системными настройками Windows.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="features" aria-labelledby="features-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker" data-i18n="features.kicker">Возможности</p>
+            <h2 id="features-title" data-i18n="features.title">Сетевой клиент без лишнего шума</h2>
+          </div>
+          <div class="feature-grid">
+            <article class="feature-card">
+              <span class="feature-mark">01</span>
+              <h3 data-i18n="feature.modes.title">Режимы Windows</h3>
+              <p data-i18n="feature.modes.copy">Локальный proxy, системный proxy, VPN · TUN и WARP-only. Elevated-режим используется только там, где он действительно нужен.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">02</span>
+              <h3 data-i18n="feature.sources.title">Источники</h3>
+              <p data-i18n="feature.sources.copy">Подписки, standalone-ссылки и TrustTunnel endpoint-файлы. Импорт из буфера и deep links держатся в одном пользовательском потоке.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">03</span>
+              <h3 data-i18n="feature.routing.title">Маршрутизация</h3>
+              <p data-i18n="feature.routing.copy">LAN bypass, региональные правила, пользовательские правила по доменам, IP и процессам, плюс отдельный монитор активных соединений.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">04</span>
+              <h3 data-i18n="feature.quality.title">Качество канала</h3>
+              <p data-i18n="feature.quality.copy">Проверки задержки, throughput-наблюдение, перепроверка узлов, подсказки по восстановлению и понятные логи вместо пустого статуса.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">05</span>
+              <h3 data-i18n="feature.sidecars.title">Sidecar engines</h3>
+              <p data-i18n="feature.sidecars.copy">sing-box остаётся центральным роутером, а XHTTP, NaiveProxy и TrustTunnel подключаются через локальные мосты, когда профиль этого требует.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">06</span>
+              <h3 data-i18n="feature.desktop.title">Desktop UX</h3>
+              <p data-i18n="feature.desktop.copy">Трей, восстановление после обновления, темы, onboarding, локализации и осторожные дефолты для логов и runtime-конфигов.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section screen-section" id="screens" aria-labelledby="screens-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker" data-i18n="screens.kicker">Интерфейс</p>
+            <h2 id="screens-title" data-i18n="screens.title">Реальное состояние подключения видно сразу</h2>
+          </div>
+          <div class="screen-shell">
+            <div class="screen-tabs" role="tablist" aria-label="Screenshots">
+              <button class="screen-tab is-active" type="button" data-screen="home" data-i18n="screens.home">Главная</button>
+              <button class="screen-tab" type="button" data-screen="nodes" data-i18n="screens.nodes">Ноды</button>
+              <button class="screen-tab" type="button" data-screen="profiles" data-i18n="screens.profiles">Профили</button>
+              <button class="screen-tab" type="button" data-screen="settings" data-i18n="screens.settings">Настройки</button>
+              <button class="screen-tab" type="button" data-screen="quality" data-i18n="screens.quality">Качество</button>
+            </div>
+            <figure class="screenshot-frame">
+              <img data-screen-image src="assets/screen-home.webp" alt="Ninety home screen" width="1400" height="878" />
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section split-section" id="docs" aria-labelledby="docs-title">
+        <div class="section-inner split-grid">
+          <div class="copy-block">
+            <p class="section-kicker" data-i18n="docs.kicker">Документация</p>
+            <h2 id="docs-title" data-i18n="docs.title">Быстрый вход без раскрытия приватных данных</h2>
+            <p data-i18n="docs.copy">
+              Документация объясняет режимы, privacy-модель, routing и troubleshooting без публикации приватных URL, UUID, ключей, WARP state или полных конфигов.
+            </p>
+            <div class="link-row">
+              <a href="https://github.com/pathetixx/190x4-Ninety#documentation" data-i18n="docs.user">User docs</a>
+              <a href="https://github.com/pathetixx/190x4-Ninety/blob/main/docs/architecture.md" data-i18n="docs.arch">Architecture</a>
+              <a href="https://github.com/pathetixx/190x4-Ninety/blob/main/RELEASING.md" data-i18n="docs.release">Release ritual</a>
+            </div>
+          </div>
+          <div class="release-panel" aria-label="Release status">
+            <span class="panel-label" data-i18n="release.label">CURRENT RELEASE</span>
+            <strong>v0.2.3</strong>
+            <p data-i18n="release.copy">Релизы публикуются через annotated tags, draft release и CI-артефакты. OTA changelog берётся из `latest.json`, а не из уже опубликованного текста релиза.</p>
+            <a class="button secondary compact" href="https://github.com/pathetixx/190x4-Ninety/releases/latest" data-i18n="release.link">Открыть релиз</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section safety-section" id="safety" aria-labelledby="safety-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker" data-i18n="safety.kicker">Safety notes</p>
+            <h2 id="safety-title" data-i18n="safety.title">Сильные сетевые инструменты требуют честных ограничений</h2>
+          </div>
+          <div class="safety-grid">
+            <article>
+              <h3 data-i18n="safety.privacy.title">Не гарантия анонимности</h3>
+              <p data-i18n="safety.privacy.copy">Приватность зависит от сервера, провайдера, профиля и окружения Windows. Ninety помогает управлять подключением, но не меняет эту базовую модель доверия.</p>
+            </article>
+            <article>
+              <h3 data-i18n="safety.secrets.title">Секреты не публикуются</h3>
+              <p data-i18n="safety.secrets.copy">В публичные issues нельзя вставлять subscription URLs, UUID, токены, private keys, WARP data и полные экспортированные конфиги.</p>
+            </article>
+            <article>
+              <h3 data-i18n="safety.system.title">Системные режимы заметны</h3>
+              <p data-i18n="safety.system.copy">TUN, kill switch и DPI-совместимость могут менять сетевое состояние Windows. Включайте их осознанно и проверяйте настройки перед репортом.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <strong>Ninety</strong>
+          <p data-i18n="footer.copy">Open-source Windows desktop networking client.</p>
+        </div>
+        <div class="footer-links">
+          <a href="https://github.com/pathetixx/190x4-Ninety" data-i18n="footer.github">GitHub</a>
+          <a href="https://github.com/pathetixx/190x4-Ninety/releases/latest" data-i18n="footer.download">Download</a>
+          <a href="https://github.com/pathetixx/190x4-Ninety/security/policy" data-i18n="footer.security">Security</a>
+          <a href="https://github.com/pathetixx/190x4-Ninety/issues/6" data-i18n="footer.feedback">Feedback</a>
+        </div>
+      </div>
+    </footer>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

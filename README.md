@@ -11,7 +11,7 @@
 
 **A Windows desktop networking client built with Tauri 2 and Rust around sing-box, WARP, routing rules and connection diagnostics.**
 
-[Download](https://github.com/pathetixx/190x4-Ninety/releases) · [Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md) · [Security](./SECURITY.md)
+[Website](https://pathetixx.github.io/190x4-Ninety/) · [Download](https://github.com/pathetixx/190x4-Ninety/releases) · [Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md) · [Security](./SECURITY.md)
 
 </div>
 
@@ -153,6 +153,7 @@ src/                  Frontend: screens, styles, i18n, config builder
 src-tauri/src/        Rust backend commands and Windows integration
 src-tauri/dpi/        DPI strategies, lists and bundled runtime resources
 docs/                 Screenshots and project images
+site/                 GitHub Pages website
 tests/                JavaScript unit tests
 .github/workflows/    Build, checks and release automation
 ```
