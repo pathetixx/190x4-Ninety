@@ -30,7 +30,7 @@
 .prox::before {
   content: "";
   position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
   pointer-events: none;
 }
 .prox:hover { background: var(--ink-2); border-color: var(--line-3); }
@@ -38,7 +38,7 @@
 
 .prox[data-active="true"] {
   background: linear-gradient(180deg, var(--accent-soft) 0%, transparent 50%), var(--ink-1);
-  border-color: rgba(255,255,255,0.04);
+  border-color: var(--overlay-2);
   box-shadow: 0 0 0 1px var(--accent-soft) inset;
 }
 .prox[data-active="true"]::before {
@@ -157,7 +157,7 @@
   background: var(--ink-3);
   box-shadow:
     0 0 0 1px var(--line-1) inset,
-    0 16px 40px -10px rgba(0,0,0,0.7),
+    0 16px 40px -10px var(--shadow-strong),
     0 0 36px var(--accent-glow);
 }
 .prox-fab:active { transform: scale(0.96); }

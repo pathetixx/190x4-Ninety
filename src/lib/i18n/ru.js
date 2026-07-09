@@ -413,6 +413,9 @@ export const ru = {
     toastSubRemoved: "Подписка удалена",
     toastProfileRemoved: "Профиль удалён",
     subsRefreshed: "Подписки обновлены",
+    subsRefreshOk: "Подписки обновлены",
+    subsRefreshPartial: "Обновлено: {ok}, ошибок: {fail}",
+    subsRefreshFailed: "Не удалось обновить подписки",
   },
 
   update: {

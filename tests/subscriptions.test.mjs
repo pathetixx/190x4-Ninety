@@ -16,34 +16,50 @@ function makeStorage() {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
+
+let invokeHandler = async () => {
+  throw new Error("invoke handler is not configured");
+};
+
+globalThis.window = {
+  __TAURI__: {
+    core: {
+      invoke: (...args) => invokeHandler(...args),
+    },
+  },
+};
+
+const {
+  detectAddInput,
+  mergeSubscriptionRefresh,
+  saveSubscriptions,
+  refreshAllSubscriptions,
+} = await import("/lib/subscriptions.js");
 
 test("refreshAllSubscriptions ограничивает concurrency и не валит общий refresh ошибкой одной подписки", async () => {
   const localStorage = makeStorage();
   globalThis.localStorage = localStorage;
-  globalThis.window = {
-    __TAURI__: {
-      core: {
-        invoke: async (cmd, { url }) => {
-          assert.equal(cmd, "fetch_subscription");
-          active++;
-          maxActive = Math.max(maxActive, active);
-          await sleep(url.endsWith("/2") ? 25 : 5);
-          active--;
-          if (url.endsWith("/4")) throw new Error("boom");
-          const host = new URL(url).hostname;
-          return { status: 200, body: `vless://uuid@${host}:443` };
-        },
-      },
-    },
+  invokeHandler = async (cmd, { url }) => {
+    assert.equal(cmd, "fetch_subscription");
+    seenUrls.push(url);
+    active++;
+    maxActive = Math.max(maxActive, active);
+    await sleep(url.endsWith("/2") ? 25 : 5);
+    active--;
+    if (url.endsWith("/4")) throw new Error("boom");
+    const host = new URL(url).hostname;
+    return { status: 200, body: `vless://uuid@${host}:443` };
   };
 
   let active = 0;
   let maxActive = 0;
-  const { saveSubscriptions, refreshAllSubscriptions } = await import("/lib/subscriptions.js");
+  const seenUrls = [];
   saveSubscriptions(Array.from({ length: 7 }, (_, i) => ({
     id: `s${i}`,
     url: `https://sub${i}.example/${i}`,
     name: `S${i}`,
+    autoUpdate: i === 3 ? false : true,
     profiles: [],
   })));
 
@@ -51,7 +67,75 @@ test("refreshAllSubscriptions ограничивает concurrency и не ва�
   assert.ok(maxActive <= 3, `одновременно было ${maxActive}, ожидали не больше 3`);
   assert.equal(res.length, 7);
   assert.deepEqual(res.map((r) => r.id), ["s0", "s1", "s2", "s3", "s4", "s5", "s6"]);
+  assert.ok(seenUrls.includes("https://sub3.example/3"), "ручной refreshAll должен обновлять autoUpdate=false");
   assert.equal(res.filter((r) => r.ok).length, 6);
   assert.equal(res.find((r) => r.id === "s4")?.ok, false);
   assert.match(res.find((r) => r.id === "s4")?.error || "", /boom/);
+});
+
+test("detectAddInput различает одиночный config, списки, URL и TrustTunnel TOML", () => {
+  const one = detectAddInput("vless://uuid@example.com:443#one");
+  assert.equal(one.kind, "config");
+  assert.equal(one.content, "vless://uuid@example.com:443#one");
+
+  const multi = "vless://uuid@example.com:443#one\ntrojan://pw@example.net:443#two";
+  assert.deepEqual(detectAddInput(multi), { kind: "list", content: multi });
+
+  const encodedList = b64(multi);
+  assert.deepEqual(detectAddInput(encodedList), { kind: "list", content: multi });
+
+  assert.deepEqual(detectAddInput("https://panel.example/sub"), { kind: "url", url: "https://panel.example/sub" });
+
+  const toml = `
+hostname = "tt.example.com"
+addresses = ["1.2.3.4:443"]
+username = "user"
+password = "pw"
+`;
+  assert.deepEqual(detectAddInput(toml), { kind: "tt-toml", content: toml.trim() });
+});
+
+test("mergeSubscriptionRefresh сохраняет ручной интервал при серверном header", () => {
+  const merged = mergeSubscriptionRefresh(
+    { id: "s1", name: "Manual", updateIntervalMode: "manual", updateIntervalHours: 24, serverUpdateIntervalHours: 6 },
+    { profile_update_interval_hours: 12, body: "", profile_title: "Server" },
+    [{ id: "p1" }]
+  );
+  assert.equal(merged.updateIntervalMode, "manual");
+  assert.equal(merged.updateIntervalHours, 24);
+  assert.equal(merged.serverUpdateIntervalHours, 12);
+  assert.deepEqual(merged.profiles, [{ id: "p1" }]);
+});
+
+test("mergeSubscriptionRefresh обновляет auto-интервал из серверного header", () => {
+  const merged = mergeSubscriptionRefresh(
+    { id: "s1", updateIntervalMode: "auto", updateIntervalHours: 6, serverUpdateIntervalHours: 6 },
+    { profile_update_interval_hours: 12 },
+    []
+  );
+  assert.equal(merged.updateIntervalMode, "auto");
+  assert.equal(merged.updateIntervalHours, 12);
+  assert.equal(merged.serverUpdateIntervalHours, 12);
+});
+
+test("mergeSubscriptionRefresh для auto без header сохраняет старый effective interval", () => {
+  const merged = mergeSubscriptionRefresh(
+    { id: "s1", updateIntervalMode: "auto", updateIntervalHours: 8, serverUpdateIntervalHours: 8 },
+    {},
+    []
+  );
+  assert.equal(merged.updateIntervalMode, "auto");
+  assert.equal(merged.updateIntervalHours, 8);
+  assert.equal(merged.serverUpdateIntervalHours, 8);
+});
+
+test("mergeSubscriptionRefresh не ломает legacy-подписку с updateIntervalHours", () => {
+  const merged = mergeSubscriptionRefresh(
+    { id: "s1", updateIntervalHours: 24 },
+    { profile_update_interval_hours: 6 },
+    []
+  );
+  assert.equal(merged.updateIntervalMode, "manual");
+  assert.equal(merged.updateIntervalHours, 24);
+  assert.equal(merged.serverUpdateIntervalHours, 6);
 });

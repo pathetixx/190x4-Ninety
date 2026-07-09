@@ -413,6 +413,9 @@ export const fr = {
     toastSubRemoved: "Abonnement supprimé",
     toastProfileRemoved: "Profil supprimé",
     subsRefreshed: "Abonnements actualisés",
+    subsRefreshOk: "Subscriptions refreshed",
+    subsRefreshPartial: "Updated: {ok}, failed: {fail}",
+    subsRefreshFailed: "Failed to refresh subscriptions",
   },
 
   update: {

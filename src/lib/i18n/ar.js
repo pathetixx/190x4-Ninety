@@ -413,6 +413,9 @@ export const ar = {
     toastSubRemoved: "حُذف الاشتراك",
     toastProfileRemoved: "حُذف الملف",
     subsRefreshed: "حُدِّثت الاشتراكات",
+    subsRefreshOk: "Subscriptions refreshed",
+    subsRefreshPartial: "Updated: {ok}, failed: {fail}",
+    subsRefreshFailed: "Failed to refresh subscriptions",
   },
 
   update: {

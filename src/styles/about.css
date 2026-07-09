@@ -35,8 +35,8 @@
   place-items: center;
   box-shadow:
     0 0 0 1px var(--line-1) inset,
-    0 1px 0 rgba(255, 255, 255, 0.05) inset,
-    0 20px 46px -18px rgba(0, 0, 0, 0.75),
+    0 1px 0 var(--shine-1) inset,
+    0 20px 46px -18px var(--shadow-strong),
     0 0 40px var(--accent-glow);
 }
 .about-id__mark::before {
@@ -154,7 +154,7 @@
 }
 .about-spec::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
 }
 .about-spec__head {
   font-family: var(--font-mono);
@@ -217,7 +217,7 @@
 }
 .about-link::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  background: linear-gradient(90deg, transparent, var(--overlay-3), transparent);
 }
 a.about-link:hover,
 button.about-link:hover { background: var(--ink-2); border-color: var(--line-3); }

@@ -413,6 +413,9 @@ export const zh = {
     toastSubRemoved: "订阅已删除",
     toastProfileRemoved: "配置已删除",
     subsRefreshed: "订阅已刷新",
+    subsRefreshOk: "Subscriptions refreshed",
+    subsRefreshPartial: "Updated: {ok}, failed: {fail}",
+    subsRefreshFailed: "Failed to refresh subscriptions",
   },
 
   update: {

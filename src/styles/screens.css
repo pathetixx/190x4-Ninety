@@ -89,7 +89,7 @@
   font-size: 10px;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(255,255,255,0.06);
+  background: var(--overlay-3);
   color: var(--text-lo);
   letter-spacing: 0.02em;
 }
@@ -118,11 +118,11 @@
 }
 .prof-card::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
 }
 .prof-card:hover { background: var(--ink-2); border-color: var(--line-3); }
 .prof-card[data-active="true"] {
-  border-color: rgba(255,255,255,0.04);
+  border-color: var(--overlay-2);
   background: linear-gradient(180deg, var(--accent-soft) 0%, transparent 40%), var(--ink-1);
 }
 .prof-card[data-active="true"]::before {
@@ -197,7 +197,7 @@
   border-radius: var(--r-xs);
   color: var(--text-faint);
 }
-.prof-card__menu:hover { color: var(--text-mid); background: rgba(255,255,255,0.04); }
+.prof-card__menu:hover { color: var(--text-mid); background: var(--overlay-2); }
 
 /* Попап-меню действий по профилю/подписке (⋯).
    Стили потерялись при premium-редизайне (alpha35) — без них .pmenu
@@ -210,7 +210,7 @@
   border-radius: var(--r-md);
   background: var(--ink-2);
   border: 1px solid var(--line-3);
-  box-shadow: 0 24px 60px -12px rgba(0,0,0,0.7);
+  box-shadow: 0 24px 60px -12px var(--shadow-strong);
   animation: pmenu-in 160ms var(--ease-out);
 }
 .pmenu[hidden] { display: none; }
@@ -230,7 +230,7 @@
   cursor: pointer;
   transition: background 150ms var(--ease-out), color 150ms var(--ease-out);
 }
-.pmenu__item:hover { background: rgba(255,255,255,0.05); color: var(--text-hi); }
+.pmenu__item:hover { background: var(--shine-1); color: var(--text-hi); }
 .pmenu__item--danger { color: #FF566B; }
 .pmenu__item--danger:hover { background: rgba(255,42,64,0.10); color: #FF566B; }
 .pmenu__item svg { width: 16px; height: 16px; opacity: 0.85; }
@@ -339,7 +339,7 @@
 }
 .logs__console::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  background: linear-gradient(90deg, transparent, var(--overlay-3), transparent);
 }
 .log-line {
   display: grid;
@@ -487,12 +487,12 @@
 }
 .theme-card::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
 }
 .theme-card:hover { border-color: var(--line-3); }
 .theme-card[data-on="true"] {
-  border-color: rgba(255,255,255,0.04);
-  background: linear-gradient(180deg, rgba(255,255,255,0.025) 0%, transparent 60%), var(--ink-1);
+  border-color: var(--overlay-2);
+  background: linear-gradient(180deg, var(--overlay-1) 0%, transparent 60%), var(--ink-1);
   box-shadow: 0 0 0 1px var(--theme-accent) inset, 0 0 22px var(--theme-glow);
 }
 .theme-card__top { display: flex; align-items: center; gap: 8px; }
@@ -563,8 +563,8 @@
   display: grid; place-items: center;
   box-shadow:
     0 0 0 1px var(--line-1) inset,
-    0 1px 0 rgba(255,255,255,0.05) inset,
-    0 18px 40px -16px rgba(0,0,0,0.7),
+    0 1px 0 var(--shine-1) inset,
+    0 18px 40px -16px var(--shadow-strong),
     0 0 32px var(--accent-glow);
 }
 .onb__mark img { width: 90%; height: 90%; object-fit: contain; }
@@ -673,7 +673,7 @@
   border-radius: var(--r-md);
   background: var(--ink-1);
   border: 1px solid var(--line-2);
-  box-shadow: 0 28px 60px -16px rgba(0,0,0,0.7);
+  box-shadow: 0 28px 60px -16px var(--shadow-strong);
   opacity: 0;
   pointer-events: none;
   transform: translateY(-6px) scale(0.98);
@@ -681,7 +681,7 @@
 }
 .popover::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
 }
 .popover[data-open="true"] {
   opacity: 1; pointer-events: auto;
@@ -714,7 +714,7 @@
   font-size: 10.5px;
   padding: 1px 4px;
   border-radius: 3px;
-  background: rgba(255,255,255,0.05);
+  background: var(--shine-1);
   color: var(--accent-bright);
 }
 .popover__warp {
@@ -769,12 +769,12 @@
 .logs__console::-webkit-scrollbar-track { background: transparent; }
 .content::-webkit-scrollbar-thumb,
 .logs__console::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--overlay-2);
   border-radius: 4px;
 }
 .content::-webkit-scrollbar-thumb:hover,
 .logs__console::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.10);
+  background: var(--overlay-4);
 }
 
 /* Content scroll area now scrolls vertically */

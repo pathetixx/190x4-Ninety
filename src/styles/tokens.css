@@ -1,7 +1,8 @@
 /* ─────────────────────────────────────────────────────────────
    Ninety — Premium Tokens
    Японский премиум: лак + единственный акцент-стежок.
-   Палитры: Kurogane (crimson default), Cyan, Synthwave, Matrix, Command Center, Mono.
+   Палитры: Kurogane, Shiro, Sakura, Cyan, Glacier, Midnight, Synthwave,
+   Ronin, Matrix, Amber, Mono, Command Center.
    ───────────────────────────────────────────────────────────── */
 
 /* ─── Local fonts (Inter Tight / Inter / JetBrains Mono, latin + cyrillic) ─── */
@@ -199,6 +200,16 @@
   /* Свечение сверху (top edge highlight) — премиум-приём */
   --edge-top: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 50%);
 
+  --overlay-1: rgba(255, 255, 255, 0.025);
+  --overlay-2: rgba(255, 255, 255, 0.04);
+  --overlay-3: rgba(255, 255, 255, 0.06);
+  --overlay-4: rgba(255, 255, 255, 0.10);
+
+  --shine-1: rgba(255, 255, 255, 0.05);
+  --shine-2: rgba(255, 255, 255, 0.08);
+
+  --shadow-strong: rgba(0, 0, 0, 0.70);
+
   --text-hi:   #F5F5F2;
   --text-mid:  #A3A3A8;
   --text-lo:   #6B6B72;
@@ -240,6 +251,78 @@
   --accent-glow:   rgba(192, 48, 74, 0.32);
 }
 
+/* ────── Shiro Light — светлый лак, не инверсия ────── */
+[data-theme="shiro"] {
+  --ink-0: #F7F3EA;
+  --ink-1: #EFE8DA;
+  --ink-2: #E7DEC9;
+  --ink-3: #D8CAB2;
+  --ink-4: #CBBBA0;
+
+  --line-1: rgba(23, 19, 15, 0.06);
+  --line-2: rgba(23, 19, 15, 0.10);
+  --line-3: rgba(23, 19, 15, 0.16);
+
+  --edge-top: linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0) 55%);
+
+  --overlay-1: rgba(23, 19, 15, 0.025);
+  --overlay-2: rgba(23, 19, 15, 0.04);
+  --overlay-3: rgba(23, 19, 15, 0.06);
+  --overlay-4: rgba(23, 19, 15, 0.10);
+
+  --shine-1: rgba(255, 255, 255, 0.38);
+  --shine-2: rgba(255, 255, 255, 0.52);
+
+  --shadow-strong: rgba(92, 74, 50, 0.24);
+
+  --text-hi: #17130F;
+  --text-mid: #5E564C;
+  --text-lo: #938676;
+  --text-faint: #B6A892;
+
+  --accent: #B9364E;
+  --accent-bright: #D76478;
+  --accent-deep: #7A1F31;
+  --accent-soft: rgba(185, 54, 78, 0.13);
+  --accent-glow: rgba(185, 54, 78, 0.24);
+}
+
+/* ────── Sakura Haze — светлая розовая дымка ────── */
+[data-theme="sakura"] {
+  --ink-0: #F4EEF2;
+  --ink-1: #ECE2E8;
+  --ink-2: #E3D5DD;
+  --ink-3: #D2C0CA;
+  --ink-4: #C5AFBC;
+
+  --line-1: rgba(29, 20, 26, 0.06);
+  --line-2: rgba(29, 20, 26, 0.10);
+  --line-3: rgba(29, 20, 26, 0.16);
+
+  --edge-top: linear-gradient(180deg, rgba(255,255,255,0.46) 0%, rgba(255,255,255,0) 55%);
+
+  --overlay-1: rgba(29, 20, 26, 0.025);
+  --overlay-2: rgba(29, 20, 26, 0.04);
+  --overlay-3: rgba(29, 20, 26, 0.06);
+  --overlay-4: rgba(29, 20, 26, 0.10);
+
+  --shine-1: rgba(255, 255, 255, 0.38);
+  --shine-2: rgba(255, 255, 255, 0.52);
+
+  --shadow-strong: rgba(92, 74, 50, 0.24);
+
+  --text-hi: #1D141A;
+  --text-mid: #66545D;
+  --text-lo: #967E8A;
+  --text-faint: #B9A2AE;
+
+  --accent: #C45072;
+  --accent-bright: #EA83A2;
+  --accent-deep: #84314A;
+  --accent-soft: rgba(196, 80, 114, 0.13);
+  --accent-glow: rgba(196, 80, 114, 0.24);
+}
+
 /* ────── Тема Cyan — «защищено = бирюза» ──────
    Холодный электрический cyan: усиленный glow (0.42) — спокойный «безопасный»
    контр-полюс к багровому Kurogane. Хорошо читается на HUD главного экрана. */
@@ -251,6 +334,58 @@
   --accent-glow:   rgba(31, 214, 214, 0.42);
 }
 
+/* ────── Glacier — холодный стальной cyan ────── */
+[data-theme="glacier"] {
+  --ink-0: #061014;
+  --ink-1: #0B181E;
+  --ink-2: #11242B;
+  --ink-3: #1A333B;
+  --ink-4: #22444E;
+
+  --line-1: rgba(220, 250, 255, 0.04);
+  --line-2: rgba(220, 250, 255, 0.075);
+  --line-3: rgba(220, 250, 255, 0.12);
+
+  --edge-top: linear-gradient(180deg, rgba(220,250,255,0.08) 0%, rgba(255,255,255,0) 50%);
+
+  --text-hi: #F0FCFF;
+  --text-mid: #A3C8D3;
+  --text-lo: #5D7D86;
+  --text-faint: #395862;
+
+  --accent: #76E6FF;
+  --accent-bright: #B9F4FF;
+  --accent-deep: #28798B;
+  --accent-soft: rgba(118, 230, 255, 0.14);
+  --accent-glow: rgba(118, 230, 255, 0.34);
+}
+
+/* ────── Midnight Indigo — глубокий индиго ────── */
+[data-theme="midnight"] {
+  --ink-0: #070911;
+  --ink-1: #0D1120;
+  --ink-2: #141B31;
+  --ink-3: #202B48;
+  --ink-4: #2A3659;
+
+  --line-1: rgba(255, 255, 255, 0.04);
+  --line-2: rgba(255, 255, 255, 0.075);
+  --line-3: rgba(255, 255, 255, 0.12);
+
+  --edge-top: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 50%);
+
+  --text-hi: #F2F5FF;
+  --text-mid: #AAB5D8;
+  --text-lo: #626D90;
+  --text-faint: #3F4968;
+
+  --accent: #7E96FF;
+  --accent-bright: #B8C6FF;
+  --accent-deep: #354A9B;
+  --accent-soft: rgba(126, 150, 255, 0.14);
+  --accent-glow: rgba(126, 150, 255, 0.34);
+}
+
 /* ────── Тема Synthwave — мягкий фиолетовый (наш текущий) ────── */
 [data-theme="synthwave"] {
   --accent:        #C77DFF;
@@ -260,6 +395,32 @@
   --accent-glow:   rgba(199, 125, 255, 0.32);
 }
 
+/* ────── Ronin Violet — noir violet ────── */
+[data-theme="ronin"] {
+  --ink-0: #09070E;
+  --ink-1: #100D17;
+  --ink-2: #1A1424;
+  --ink-3: #271B36;
+  --ink-4: #332348;
+
+  --line-1: rgba(255, 240, 255, 0.04);
+  --line-2: rgba(255, 240, 255, 0.075);
+  --line-3: rgba(255, 240, 255, 0.12);
+
+  --edge-top: linear-gradient(180deg, rgba(255,240,255,0.08) 0%, rgba(255,255,255,0) 50%);
+
+  --text-hi: #F9F2FF;
+  --text-mid: #B9A7C9;
+  --text-lo: #735F84;
+  --text-faint: #4B3B5A;
+
+  --accent: #A66CFF;
+  --accent-bright: #D2AEFF;
+  --accent-deep: #57308C;
+  --accent-soft: rgba(166, 108, 255, 0.14);
+  --accent-glow: rgba(166, 108, 255, 0.32);
+}
+
 /* ────── Тема Matrix — изумруд (наш текущий) ────── */
 [data-theme="matrix"] {
   --accent:        #2BD66A;
@@ -267,6 +428,32 @@
   --accent-deep:   #1A8C45;
   --accent-soft:   rgba(43, 214, 106, 0.14);
   --accent-glow:   rgba(43, 214, 106, 0.32);
+}
+
+/* ────── Amber Glass — black and gold ────── */
+[data-theme="amber"] {
+  --ink-0: #0A0805;
+  --ink-1: #12100B;
+  --ink-2: #1B160E;
+  --ink-3: #2A2113;
+  --ink-4: #372B18;
+
+  --line-1: rgba(255, 230, 180, 0.04);
+  --line-2: rgba(255, 230, 180, 0.075);
+  --line-3: rgba(255, 230, 180, 0.12);
+
+  --edge-top: linear-gradient(180deg, rgba(255, 231, 184, 0.08) 0%, rgba(255,255,255,0) 50%);
+
+  --text-hi: #FFF7E7;
+  --text-mid: #C8B99C;
+  --text-lo: #7F7056;
+  --text-faint: #514631;
+
+  --accent: #E0A750;
+  --accent-bright: #FFD07A;
+  --accent-deep: #7D541C;
+  --accent-soft: rgba(224, 167, 80, 0.14);
+  --accent-glow: rgba(224, 167, 80, 0.30);
 }
 
 /* ────── Тема Mono — монохром, акцент = чистый свет (наш текущий) ────── */

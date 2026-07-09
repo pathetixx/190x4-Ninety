@@ -413,6 +413,9 @@ export const fa = {
     toastSubRemoved: "اشتراک حذف شد",
     toastProfileRemoved: "پروفایل حذف شد",
     subsRefreshed: "اشتراک‌ها به‌روزرسانی شدند",
+    subsRefreshOk: "Subscriptions refreshed",
+    subsRefreshPartial: "Updated: {ok}, failed: {fail}",
+    subsRefreshFailed: "Failed to refresh subscriptions",
   },
 
   update: {

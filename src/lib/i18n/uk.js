@@ -413,6 +413,9 @@ export const uk = {
     toastSubRemoved: "Підписку видалено",
     toastProfileRemoved: "Профіль видалено",
     subsRefreshed: "Підписки оновлено",
+    subsRefreshOk: "Subscriptions refreshed",
+    subsRefreshPartial: "Updated: {ok}, failed: {fail}",
+    subsRefreshFailed: "Failed to refresh subscriptions",
   },
 
   update: {

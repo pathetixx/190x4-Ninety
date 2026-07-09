@@ -22,13 +22,13 @@
   border: 1px solid var(--line-2);
   border-radius: var(--r-lg);
   box-shadow:
-    0 28px 60px -16px rgba(0, 0, 0, 0.7),
-    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+    0 28px 60px -16px var(--shadow-strong),
+    0 1px 0 var(--overlay-2) inset;
   animation: modal-card-in 0.22s var(--ease-emph);
 }
 .modal-card-frame::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
   pointer-events: none;
 }
 @keyframes modal-card-in {
@@ -48,7 +48,7 @@
   border-radius: var(--r-md);
   background: var(--ink-1);
   border: 1px solid var(--line-2);
-  box-shadow: 0 28px 60px -16px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 28px 60px -16px var(--shadow-strong);
   animation: popover-in 0.18s var(--ease-out);
   /* Перебиваем screens.css .popover (opacity:0/pointer-events:none/transform,
      завязанные на [data-open]) — здесь видимость держит атрибут [hidden]. */
@@ -58,7 +58,7 @@
 }
 .popover::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
   pointer-events: none;
 }
 @keyframes popover-in {
@@ -92,8 +92,8 @@
   border: 1px solid rgba(255, 62, 92, 0.32);
   border-radius: var(--r-lg);
   box-shadow:
-    0 28px 60px -16px rgba(0, 0, 0, 0.72),
-    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+    0 28px 60px -16px var(--shadow-strong),
+    0 0 0 1px var(--overlay-1) inset,
     0 0 34px rgba(255, 45, 70, 0.08);
   animation: modal-card-in 0.22s var(--ease-emph);
 }
@@ -149,14 +149,14 @@
 .confirm-modal__btn:active { transform: translateY(1px); }
 .confirm-modal__btn--ghost {
   color: var(--text-mid);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--overlay-1);
   border: 1px solid var(--line-2);
 }
 .confirm-modal__btn--ghost:hover,
 .confirm-modal__btn--ghost:focus-visible {
   color: var(--text-hi);
   border-color: var(--line-3);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--overlay-3);
 }
 .confirm-modal__btn--primary,
 .confirm-modal__btn--danger {
@@ -200,13 +200,13 @@
   border-radius: var(--r-lg);
   padding: 20px 22px 18px;
   box-shadow:
-    0 28px 60px -16px rgba(0, 0, 0, 0.7),
-    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+    0 28px 60px -16px var(--shadow-strong),
+    0 1px 0 var(--overlay-2) inset;
   animation: modal-card-in 0.22s var(--ease-emph);
 }
 .add-modal__card::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
   pointer-events: none;
 }
 .add-modal__head {
@@ -230,7 +230,7 @@
   color: var(--text-mid);
   transition: background 160ms var(--ease-out), color 160ms var(--ease-out);
 }
-.add-modal__close:hover { color: var(--text-hi); background: rgba(255,255,255,0.04); }
+.add-modal__close:hover { color: var(--text-hi); background: var(--overlay-2); }
 
 .add-modal__page[hidden] { display: none; }
 .add-modal__page--options { display: flex; flex-direction: column; gap: 14px; }
@@ -433,8 +433,8 @@
   border: 1px solid var(--line-2);
   border-radius: var(--r-lg);
   box-shadow:
-    0 28px 60px -16px rgba(0, 0, 0, 0.7),
-    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+    0 28px 60px -16px var(--shadow-strong),
+    0 1px 0 var(--overlay-2) inset;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -442,7 +442,7 @@
 }
 .edit-modal__panel::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
   pointer-events: none;
 }
 .edit-modal__head {
@@ -467,7 +467,7 @@
   color: var(--text-mid);
   transition: background 160ms var(--ease-out), color 160ms var(--ease-out);
 }
-.edit-modal__close:hover { color: var(--text-hi); background: rgba(255,255,255,0.04); }
+.edit-modal__close:hover { color: var(--text-hi); background: var(--overlay-2); }
 .edit-modal__body {
   padding: 16px 20px;
   display: flex;
@@ -587,13 +587,13 @@
   flex-direction: column;
   gap: 14px;
   box-shadow:
-    0 28px 60px -16px rgba(0, 0, 0, 0.7),
-    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+    0 28px 60px -16px var(--shadow-strong),
+    0 1px 0 var(--overlay-2) inset;
   animation: modal-card-in 0.22s var(--ease-emph);
 }
 .update-modal__card::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
   pointer-events: none;
 }
 .update-modal__kicker {
@@ -643,11 +643,11 @@
 }
 .update-modal__changelog::-webkit-scrollbar { width: 6px; }
 .update-modal__changelog::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.06);
+  background: var(--overlay-3);
   border-radius: 3px;
 }
 .update-modal__changelog::-webkit-scrollbar-thumb:hover {
-  background: rgba(255,255,255,0.12);
+  background: var(--overlay-4);
 }
 
 .update-modal__progress { display: flex; flex-direction: column; gap: 6px; }
@@ -761,13 +761,13 @@
   flex-direction: column;
   gap: 14px;
   box-shadow:
-    0 28px 60px -16px rgba(0, 0, 0, 0.7),
-    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+    0 28px 60px -16px var(--shadow-strong),
+    0 1px 0 var(--overlay-2) inset;
   animation: modal-card-in 0.22s var(--ease-emph);
 }
 .qr-modal__card::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
   pointer-events: none;
 }
 .qr-modal__head {
@@ -793,7 +793,7 @@
   border: 0;
   transition: background 160ms var(--ease-out), color 160ms var(--ease-out);
 }
-.qr-modal__close:hover { color: var(--text-hi); background: rgba(255,255,255,0.04); }
+.qr-modal__close:hover { color: var(--text-hi); background: var(--overlay-2); }
 .qr-modal__name {
   font-family: var(--font-display);
   font-size: 16px;

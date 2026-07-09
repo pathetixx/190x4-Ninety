@@ -413,6 +413,9 @@ export const tr = {
     toastSubRemoved: "Abonelik silindi",
     toastProfileRemoved: "Profil silindi",
     subsRefreshed: "Abonelikler yenilendi",
+    subsRefreshOk: "Subscriptions refreshed",
+    subsRefreshPartial: "Updated: {ok}, failed: {fail}",
+    subsRefreshFailed: "Failed to refresh subscriptions",
   },
 
   update: {

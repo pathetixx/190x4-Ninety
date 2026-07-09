@@ -413,6 +413,9 @@ export const ja = {
     toastSubRemoved: "サブスクリプションを削除しました",
     toastProfileRemoved: "プロファイルを削除しました",
     subsRefreshed: "サブスクリプションを更新しました",
+    subsRefreshOk: "Subscriptions refreshed",
+    subsRefreshPartial: "Updated: {ok}, failed: {fail}",
+    subsRefreshFailed: "Failed to refresh subscriptions",
   },
 
   update: {

@@ -8,7 +8,7 @@ import { t } from "/lib/i18n/index.js";
 
 function intervalLabel(h) {
   const n = Number(h) || 0;
-  if (n === 0) return t("edit.intervalOff");
+  if (n === 0) return t("add.intervalAuto");
   if (n < 24) return t("edit.intervalH", { n });
   const d = Math.floor(n / 24);
   const r = n % 24;
@@ -93,7 +93,7 @@ export function openEditProfile(profile, { onSaved, onToast } = {}) {
 }
 
 export function openEditSubscription(sub, { onSaved, onToast } = {}) {
-  const interval = sub.updateIntervalHours ?? 24;
+  const interval = sub.updateIntervalMode === "auto" ? 0 : (sub.updateIntervalHours ?? 0);
   const autoUpdate = sub.autoUpdate !== false; // default true
   const fields = `
     <label class="edit-modal__field">
@@ -119,7 +119,13 @@ export function openEditSubscription(sub, { onSaved, onToast } = {}) {
       const name = root.querySelector("#edit-name").value.trim() || sub.name;
       const autoUpdate = root.querySelector("#edit-auto").dataset.on === "true";
       const interval = parseInt(root.querySelector("#edit-interval").value, 10) || 0;
-      updateSubscription(sub.id, { name, autoUpdate, updateIntervalHours: interval });
+      const updateIntervalMode = interval > 0 ? "manual" : "auto";
+      updateSubscription(sub.id, {
+        name,
+        autoUpdate,
+        updateIntervalMode,
+        updateIntervalHours: updateIntervalMode === "manual" ? interval : (sub.serverUpdateIntervalHours ?? null),
+      });
       onToast?.(t("edit.saved"), "success", 1400);
       onSaved?.();
     },

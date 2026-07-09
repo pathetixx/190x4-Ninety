@@ -127,7 +127,7 @@
 }
 .rr-rule::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  background: linear-gradient(90deg, transparent, var(--overlay-3), transparent);
   pointer-events: none;
 }
 .rr-rule:hover { background: var(--ink-2); border-color: var(--line-3); }
@@ -267,7 +267,7 @@
   transition: color 150ms var(--ease-out), background 150ms var(--ease-out);
 }
 .rr-iconbtn svg { width: 15px; height: 15px; }
-.rr-iconbtn:hover { color: var(--text-hi); background: rgba(255,255,255,0.05); }
+.rr-iconbtn:hover { color: var(--text-hi); background: var(--shine-1); }
 .rr-iconbtn--danger:hover { color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
 
 /* ═══ ПУСТОЕ СОСТОЯНИЕ ════════════════════════════════════════ */
@@ -328,12 +328,12 @@
   background: var(--ink-1);
   border: 1px solid var(--line-2);
   border-radius: var(--r-lg);
-  box-shadow: 0 28px 60px -16px rgba(0,0,0,0.7), 0 1px 0 rgba(255,255,255,0.04) inset;
+  box-shadow: 0 28px 60px -16px var(--shadow-strong), 0 1px 0 var(--overlay-2) inset;
   animation: modal-card-in 0.22s var(--ease-emph);
 }
 .rr-modal__card::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
   pointer-events: none;
 }
 .rr-modal__head {
@@ -360,7 +360,7 @@
   color: var(--text-mid);
   transition: background 160ms var(--ease-out), color 160ms var(--ease-out);
 }
-.rr-modal__close:hover { color: var(--text-hi); background: rgba(255,255,255,0.04); }
+.rr-modal__close:hover { color: var(--text-hi); background: var(--overlay-2); }
 .rr-modal__body {
   padding: 18px 20px;
   display: flex; flex-direction: column; gap: 18px;
@@ -451,7 +451,7 @@
   border-radius: 4px;
   color: var(--text-faint);
 }
-.rr-ichip__x:hover { color: var(--text-hi); background: rgba(255,255,255,0.06); }
+.rr-ichip__x:hover { color: var(--text-hi); background: var(--overlay-3); }
 .rr-ichip__x svg { width: 11px; height: 11px; }
 .rr-chipinput__entry {
   flex: 1 1 90px; min-width: 90px;
@@ -530,7 +530,7 @@
    лоадер/состояние → окно не дёргается на «Обновить». */
 .rr-picker__scroll { min-height: 200px; max-height: 220px; overflow-y: auto; }
 .rr-picker__scroll::-webkit-scrollbar { width: 7px; }
-.rr-picker__scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 4px; }
+.rr-picker__scroll::-webkit-scrollbar-thumb { background: var(--overlay-3); border-radius: 4px; }
 
 .rr-proc {
   display: grid;

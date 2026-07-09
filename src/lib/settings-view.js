@@ -12,6 +12,7 @@ import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { a11ySwitchAll } from "/lib/switch-a11y.js";
 import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { openConfirmModal } from "/lib/confirm-modal.js";
+import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
 
 // Label-карты строятся в рантайме: t() зависит от текущего языка, замораживать
 // на import нельзя. SECTIONS держит только key+icon; title/hint берём через t().
@@ -37,15 +38,6 @@ const SECTIONS = [
 const secTitle = (key) => t(`settings.sec.${key}.title`);
 const secHint  = (key) => t(`settings.sec.${key}.hint`);
 
-const THEMES = [
-  { id: "kurogane",  name: "Kurogane",  kicker: "NEON · RED",  accent: "#DE5772", glow: "rgba(192,48,74,0.35)" },
-  { id: "cyan",      name: "Cyan",      kicker: "SECURED · CYAN", accent: "#6CF2F2", glow: "rgba(31,214,214,0.45)" },
-  { id: "synthwave", name: "Synthwave", kicker: "VIOLET WAVE", accent: "#E0A6FF", glow: "rgba(199,125,255,0.35)" },
-  { id: "matrix",    name: "Matrix",    kicker: "EMERALD",     accent: "#5CEE92", glow: "rgba(43,214,106,0.35)" },
-  { id: "mono",      name: "Mono",      kicker: "MONOCHROME",  accent: "#FFFFFF", glow: "rgba(255,255,255,0.25)" },
-  { id: "command",   name: "Command Center", kicker: "CMD · CRIMSON", accent: "#FF3355", glow: "rgba(255,45,70,0.45)" },
-];
-
 const regionLabels = () => ({
   other: t("settings.enums.region.other"), ru: t("settings.enums.region.ru"), cn: t("settings.enums.region.cn"),
   ir: t("settings.enums.region.ir"), tr: t("settings.enums.region.tr"), by: t("settings.enums.region.by"),
@@ -63,6 +55,25 @@ const tunStackLabels = () => ({
 // Уровни логов — литеральные имена sing-box, не переводятся.
 const LOG_LABELS = {
   trace: "trace", debug: "debug", info: "info", warn: "warn", error: "error",
+};
+
+const NUMERIC_LIMITS = {
+  "urlTest.intervalSec": { min: 30, max: 3600, fallback: 600 },
+  "inbound.mixedPort": { min: 1024, max: 65535, fallback: 7890 },
+  "inbound.mtu": { min: 576, max: 9000, fallback: 9000 },
+  "quality.idleProbeSec": { min: 60, max: 900, fallback: 300 },
+  "warp.mtu": { min: 576, max: 1500, fallback: 1280 },
+  "warp.autoRescanIntervalMin": { min: 5, max: 360, fallback: 30 },
+  "warp.autoRescanThresholdMs": { min: 100, max: 5000, fallback: 300 },
+  "mux.maxStreams": { min: 1, max: 1024, fallback: 8 },
+  "tlsTricks.paddingSize.from": { min: 0, max: 4096, fallback: 100 },
+  "tlsTricks.paddingSize.to": { min: 0, max: 4096, fallback: 900 },
+  "warp.customNoise.count.from": { min: 1, max: 64, fallback: 2 },
+  "warp.customNoise.count.to": { min: 1, max: 64, fallback: 5 },
+  "warp.customNoise.size.from": { min: 1, max: 1500, fallback: 20 },
+  "warp.customNoise.size.to": { min: 1, max: 1500, fallback: 60 },
+  "warp.customNoise.delay.from": { min: 0, max: 10000, fallback: 8 },
+  "warp.customNoise.delay.to": { min: 0, max: 10000, fallback: 20 },
 };
 
 const muxProtocolLabels = () => ({
@@ -144,7 +155,7 @@ export function mountSettings(root, opts = {}) {
     el.querySelectorAll("input[data-opt], select[data-opt]").forEach(input => {
       const path = input.dataset.opt;
       const handler = async () => {
-        const value = readInput(input);
+        const value = readInput(input, path);
         updateOption(path, value);
         if (input.dataset.action === "autostart") {
           try {
@@ -493,13 +504,25 @@ export function mountSettings(root, opts = {}) {
   };
 }
 
-function readInput(input) {
+function readInput(input, path) {
   if (input.type === "checkbox") return !!input.checked;
   if (input.type === "number") {
-    const n = Number(input.value);
-    return Number.isFinite(n) ? n : 0;
+    const n = normalizeNumberOption(path, input.value);
+    input.value = String(n);
+    return n;
   }
   return input.value;
+}
+
+export function normalizeNumberOption(path, raw) {
+  const limit = NUMERIC_LIMITS[path];
+  const rawString = typeof raw === "string" ? raw.trim() : raw;
+  let n = rawString === "" ? NaN : Number(rawString);
+  if (!Number.isFinite(n)) n = limit?.fallback ?? 0;
+  if (limit) {
+    n = Math.min(limit.max, Math.max(limit.min, n));
+  }
+  return n;
 }
 
 // ── Меню (главная settings) ────────────────────────────────
@@ -572,7 +595,8 @@ function renderQuality(o) {
 }
 
 function renderAppearance() {
-  const current = localStorage.getItem("ninety.theme") || "kurogane";
+  const rawTheme = localStorage.getItem("ninety.theme");
+  const current = isThemeId(rawTheme) ? rawTheme : DEFAULT_THEME_ID;
   const langOpts = availableLangs()
     .map(l => `<option value="${escapeAttr(l.code)}"${l.code === getLang() ? " selected" : ""}>${escapeHtml(l.name)}</option>`)
     .join("");

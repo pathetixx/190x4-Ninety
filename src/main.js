@@ -64,6 +64,7 @@ import { ensureWorkingDirectDns, startDnsGuard, stopDnsGuard } from "/lib/dns-gu
 import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t } from "/lib/i18n/index.js";
 import { detectRegion } from "/lib/i18n/region-detect.js";
 import { applyLinkHandlers } from "/lib/link-handlers.js";
+import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -83,14 +84,13 @@ const invoke = window.__TAURI__?.core?.invoke
   try { if (await restoreIfEmpty()) location.reload(); } catch {}
 })();
 
-// ── Theme switcher (Kurogane / Cyan / Synthwave / Matrix / Command / Mono) ──
+// ── Theme switcher ──────────────────────────────────────────
 const THEME_KEY = "ninety.theme";
-const THEMES = ["kurogane", "cyan", "synthwave", "matrix", "mono", "command"];
 const appRoot = document.getElementById("app-root");
 
 export function getTheme() {
   const raw = localStorage.getItem(THEME_KEY);
-  return THEMES.includes(raw) ? raw : "kurogane";
+  return isThemeId(raw) ? raw : DEFAULT_THEME_ID;
 }
 // data-theme вешаем на <html> (documentElement), а НЕ только на #app-root: иначе
 // портал-UI вне #app-root (модалки/тосты/контекст-меню, аппендятся в body) берёт
@@ -101,7 +101,7 @@ function applyThemeAttr(t) {
   if (appRoot) appRoot.dataset.theme = t;
 }
 export function setTheme(t) {
-  if (!THEMES.includes(t)) return;
+  if (!isThemeId(t)) return;
   localStorage.setItem(THEME_KEY, t);
   applyThemeAttr(t);
   window.dispatchEvent(new CustomEvent("ninety:theme-changed", { detail: { theme: t } }));
@@ -1024,10 +1024,6 @@ document.getElementById("onboarding-screen")?.addEventListener("click", async (e
 // ── Онбординг · пикеры язык/регион/тема (Hiddify-style welcome) ──────────────
 // Подписи локализованы (t / availableLangs), тема и регион применяются сразу.
 function populateOnbPrefs() {
-  const swatches = {
-    kurogane: "#DE5772", cyan: "#6CF2F2", synthwave: "#E0A6FF",
-    matrix: "#5CEE92", mono: "#FFFFFF", command: "#FF3355",
-  };
   const langSel = document.getElementById("onb-lang");
   const regionSel = document.getElementById("onb-region");
   const themesWrap = document.getElementById("onb-themes");
@@ -1044,8 +1040,8 @@ function populateOnbPrefs() {
   }
   if (themesWrap) {
     const cur = getTheme();
-    themesWrap.innerHTML = Object.entries(swatches)
-      .map(([id, c]) => `<button type="button" class="onb-theme${id === cur ? " onb-theme--on" : ""}" data-onb-theme="${escapeAttr(id)}" title="${escapeAttr(id)}" style="--sw:${escapeAttr(c)}"></button>`)
+    themesWrap.innerHTML = THEMES
+      .map(theme => `<button type="button" class="onb-theme${theme.id === cur ? " onb-theme--on" : ""}" data-onb-theme="${escapeAttr(theme.id)}" title="${escapeAttr(theme.name)}" style="--sw:${escapeAttr(theme.accent)}"></button>`)
       .join("");
   }
 }
@@ -1110,10 +1106,22 @@ populateOnbPrefs();
 
 document.getElementById("profiles-refresh-all")?.addEventListener("click", async () => {
   try {
-    await refreshAllSubscriptions();
+    const results = await refreshAllSubscriptions();
+    const okCount = results.filter(r => r.ok).length;
+    const failCount = results.length - okCount;
+    const firstError = results.find(r => !r.ok)?.error;
     refreshSubCardFromActive();
     refreshProfilesSummary();
-    toast(t("prof.subsRefreshed"), "success", 1800);
+    if (failCount === 0) {
+      toast(t("prof.subsRefreshOk"), "success", 1800);
+    } else if (okCount > 0) {
+      toast(t("prof.subsRefreshPartial", { ok: okCount, fail: failCount }), "warn", 3200);
+    } else {
+      const msg = firstError
+        ? `${t("prof.subsRefreshFailed")}: ${firstError}`
+        : t("prof.subsRefreshFailed");
+      toast(msg, "error", 3200);
+    }
   } catch (e) {
     toast(t("prof.toastErr", { err: e?.message || e }), "error", 2800);
   }
@@ -2214,6 +2222,7 @@ async function silentRefreshSubs() {
   const now = Date.now();
   let refreshed = 0;
   for (const s of loadSubscriptions()) {
+    if (s.autoUpdate === false) continue;
     const hours = Number(s.updateIntervalHours) > 0
       ? Number(s.updateIntervalHours)
       : SUBS_REFRESH_DEFAULT_HOURS;

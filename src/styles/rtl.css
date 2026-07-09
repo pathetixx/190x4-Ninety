@@ -10,7 +10,7 @@
 [dir="rtl"] .switch--lg[data-on="true"]::after { transform: translateX(-24px); }
 
 /* Дровер стратегий: закреплён у inline-end (в RTL — слева), выезжает с той же стороны */
-[dir="rtl"] .drawer { box-shadow: 36px 0 80px -20px rgba(0, 0, 0, 0.7); }
+[dir="rtl"] .drawer { box-shadow: 36px 0 80px -20px var(--shadow-strong); }
 [dir="rtl"] .drawer:not([data-open="true"]) { transform: translateX(-100%); }
 
 /* Акцентная риска активного пункта навигации: вынос наружу в зеркальную сторону */

@@ -35,8 +35,8 @@
     var(--ink-1);
   border: 1px solid var(--line-2);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.04) inset,
-    0 18px 50px -16px rgba(0, 0, 0, 0.75),
+    0 1px 0 var(--overlay-2) inset,
+    0 18px 50px -16px var(--shadow-strong),
     0 0 0 1px rgba(0, 0, 0, 0.2);
   color: var(--text-hi);
   overflow: hidden;
@@ -111,7 +111,7 @@
   font-size: 10.5px;
   padding: 0 4px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--shine-1);
   color: var(--text-hi);
 }
 
@@ -126,7 +126,7 @@
   color: var(--text-faint);
   transition: color 160ms var(--ease-out), background 160ms var(--ease-out);
 }
-.ntf__close:hover { color: var(--text-hi); background: rgba(255, 255, 255, 0.06); }
+.ntf__close:hover { color: var(--text-hi); background: var(--overlay-3); }
 .ntf__close svg { width: 13px; height: 13px; }
 
 /* ── Auto-dismiss progress rail ────────────────────────────── */

@@ -10,9 +10,9 @@
   width: 320px;
   padding: 12px;
   background: var(--surface-1, #14141A);
-  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--line, var(--shine-2));
   border-radius: var(--r-md, 14px);
-  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 18px 50px -12px var(--shadow-strong);
   animation: qscope-in 0.16s var(--ease-out, ease);
 }
 @keyframes qscope-in {

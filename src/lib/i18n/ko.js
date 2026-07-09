@@ -413,6 +413,9 @@ export const ko = {
     toastSubRemoved: "구독을 삭제했습니다",
     toastProfileRemoved: "프로필을 삭제했습니다",
     subsRefreshed: "구독을 새로고침했습니다",
+    subsRefreshOk: "Subscriptions refreshed",
+    subsRefreshPartial: "Updated: {ok}, failed: {fail}",
+    subsRefreshFailed: "Failed to refresh subscriptions",
   },
 
   update: {

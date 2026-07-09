@@ -21,7 +21,8 @@ const invoke = window.__TAURI__?.core?.invoke
 // ── base64 detection (Hiddify-style: try-and-see) ──────────
 // Никаких regex-проверок «похоже на base64». Просто пытаемся decode —
 // если успешно и есть осмысленные ссылки, берём декод; иначе оригинал.
-const KNOWN_PROTO_RE = /vless:\/\/|vmess:\/\/|trojan:\/\/|ss:\/\/|hysteria2?:\/\/|tuic:\/\/|tt:\/\/|naive\+[a-z]+:\/\//i;
+const KNOWN_PROTO_RE = /vless:\/\/|vmess:\/\/|trojan:\/\/|ss:\/\/|hysteria2?:\/\/|hy2:\/\/|tuic:\/\/|tt:\/\/|naive\+[a-z]+:\/\//i;
+const KNOWN_PROTO_URL_RE = /(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt):\/\/|naive\+[a-z]+:\/\/)\S+/ig;
 
 // TrustTunnel endpoint-.toml (export из endpoint): плоский toml с hostname/addresses.
 const TT_TOML_RE = /^\s*hostname\s*=.*[\r\n]/m;
@@ -67,8 +68,12 @@ export function detectAddInput(raw) {
   const s = String(raw || "").trim();
   if (!s) return { kind: "empty" };
 
+  const protocolUrls = Array.from(s.matchAll(KNOWN_PROTO_URL_RE), m => m[0]);
+  if (protocolUrls.length > 1) return { kind: "list", content: s };
   // Direct protocol link (vless/vmess/trojan/ss/hysteria2/tuic)
-  if (PROTO_PREFIX_RE.test(s)) return { kind: "config", content: s };
+  if (protocolUrls.length === 1 && PROTO_PREFIX_RE.test(s) && protocolUrls[0] === s) {
+    return { kind: "config", content: s };
+  }
 
   // Hiddify-style deeplink: hiddify://import/<url> или ?url=
   const dl = s.match(/^(?:hiddify|v2ray|v2rayn|v2rayng|clash|clashmeta|sing-box):\/\/(.+)$/i);
@@ -190,6 +195,8 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
   // Явный выбор слайдера (>0) приоритетнее заголовка панели; 0 = «Авто» → берём
   // profile-update-interval сервера, а без него silentRefreshSubs даёт 6ч дефолт.
   const hours = Number(intervalHoursOverride);
+  const serverUpdateIntervalHours = info.profile_update_interval_hours ?? null;
+  const updateIntervalMode = hours > 0 ? "manual" : "auto";
   const sub = {
     id,
     url: u,
@@ -199,7 +206,9 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
     upload: info.upload ?? null,
     download: info.download ?? null,
     total: info.total ?? null,
-    updateIntervalHours: hours > 0 ? hours : (info.profile_update_interval_hours ?? null),
+    updateIntervalMode,
+    updateIntervalHours: updateIntervalMode === "manual" ? hours : serverUpdateIntervalHours,
+    serverUpdateIntervalHours,
     profiles,
   };
 
@@ -228,7 +237,21 @@ export async function refreshSubscription(id) {
   const idx = list.findIndex(s => s.id === id);
   if (idx < 0) throw new Error(t("subs.notFound"));
   const fresh = list[idx];
-  list[idx] = {
+  list[idx] = mergeSubscriptionRefresh(fresh, info, profiles);
+  saveSubscriptions(list);
+  return list[idx];
+}
+
+export function mergeSubscriptionRefresh(fresh, info, profiles) {
+  const hasServerInterval = info.profile_update_interval_hours != null;
+  const serverUpdateIntervalHours = hasServerInterval
+    ? info.profile_update_interval_hours
+    : (fresh.serverUpdateIntervalHours ?? null);
+  const mode = fresh.updateIntervalMode || (Number(fresh.updateIntervalHours) > 0 ? "manual" : "auto");
+  const updateIntervalHours = mode === "manual"
+    ? fresh.updateIntervalHours
+    : (hasServerInterval ? info.profile_update_interval_hours : fresh.updateIntervalHours);
+  return {
     ...fresh,
     name: fresh.name || info.profile_title || "",
     lastUpdate: Date.now(),
@@ -236,11 +259,11 @@ export async function refreshSubscription(id) {
     upload: info.upload ?? fresh.upload,
     download: info.download ?? fresh.download,
     total: info.total ?? fresh.total,
-    updateIntervalHours: info.profile_update_interval_hours ?? fresh.updateIntervalHours,
+    updateIntervalMode: mode,
+    updateIntervalHours: updateIntervalHours ?? null,
+    serverUpdateIntervalHours,
     profiles,
   };
-  saveSubscriptions(list);
-  return list[idx];
 }
 
 async function allSettledLimit(items, limit, fn) {
