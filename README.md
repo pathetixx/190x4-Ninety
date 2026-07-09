@@ -83,46 +83,42 @@ Updates are delivered inside the app. When the VPN is already connected, update 
 
 If something fails, open **Logs** first. The log screen is built for debugging startup, bridge and routing problems without digging through app folders.
 
+## Documentation
+
+User docs:
+
+- [Modes](./docs/modes.md) — Proxy, System proxy, VPN · TUN, WARP-only, DPI tools and kill switch.
+- [Troubleshooting](./docs/troubleshooting.md) — practical checks, logs to collect and what not to post publicly.
+- [Privacy](./docs/privacy.md) — local data, sensitive fields, logs, WARP state and limitations.
+- [Routing](./docs/routing.md) — LAN bypass, regional rules, custom rules, DNS and connection monitor notes.
+
+Project docs:
+
+- [Architecture](./docs/architecture.md) — frontend, Rust backend, sidecars, updater and CI engine injection.
+- [Security](./SECURITY.md) — vulnerability reporting and sensitive issue handling.
+- [Contributing](./CONTRIBUTING.md) — issue and PR expectations.
+
+Developer release docs:
+
+- [Releasing](./RELEASING.md) — release ritual, annotated tags, draft releases and OTA rules.
+
 ## Security and privacy notes
 
-Ninety is open source, but it still manages powerful networking components. Please read this before using it on a sensitive system.
+Ninety is open source, but it still manages powerful networking components.
 
-- Imported profile and subscription data may contain credentials. Treat exports and logs carefully.
-- Runtime engine configs are created on demand and cleaned up after disconnect; stale runtime configs are purged on startup.
-- WARP keys and state backups are encrypted with Windows DPAPI where supported by the app backend.
-- The default engine log level is `warn` to avoid writing visited domains to disk during normal use.
-- External IP/geo lookups can be disabled in settings.
-- Subscription refreshes keep a privacy-safe default: direct fallback is opt-in.
-- The core control API listens on loopback.
+- Imported profiles and subscriptions may contain credentials.
+- Logs and screenshots must be sanitized before public reports.
+- WARP keys and state backups use Windows DPAPI where supported by the backend.
 - TUN mode, DPI tools and kill switch touch system networking. Review the settings before enabling them.
+- Ninety is a networking client, not an anonymity guarantee.
 
-For vulnerability reports, see [SECURITY.md](./SECURITY.md).
+Read [Privacy](./docs/privacy.md) for local data handling and [SECURITY.md](./SECURITY.md) for vulnerability reports.
 
 ## Architecture
 
-```text
-Tauri WebView UI
-        │
-        │ invoke / events
-        ▼
-Rust backend
-        │
-        ├─ sing-box process
-        ├─ xray bridge for XHTTP
-        ├─ NaiveProxy sidecar
-        ├─ TrustTunnel sidecar
-        ├─ WARP / WireGuard state
-        ├─ Windows system proxy
-        ├─ TUN / elevation / autostart
-        ├─ WFP kill switch
-        └─ updater, logs, backup and cleanup
-```
+At a high level, Ninety is a Tauri WebView UI talking to a Rust backend through Tauri commands and events. The backend controls sing-box, helper sidecars, WARP/WireGuard state, Windows proxy/TUN state, kill switch, updater, logs and cleanup.
 
-- **Frontend:** vanilla HTML/CSS/JavaScript, no framework and no bundler.
-- **Desktop shell:** Tauri 2 + WebView2.
-- **Backend:** Rust commands for process control, Windows integration, encrypted local secrets, logs and cleanup.
-- **Config builder:** JavaScript modules assemble sing-box/xray/sidecar configs for the active source, mode and options.
-- **CI:** GitHub Actions builds the Windows release and injects the external engines that are not stored in this repository.
+See [Architecture](./docs/architecture.md) for the full overview.
 
 ## Build from source
 

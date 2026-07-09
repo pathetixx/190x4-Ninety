@@ -83,46 +83,42 @@ NaiveProxy и TrustTunnel обслуживаются собственными к
 
 Если что-то не работает, сначала откройте **Логи**. Экран логов сделан для диагностики старта, мостов и маршрутизации без ручного поиска файлов в папках приложения.
 
+## Документация
+
+Пользовательские разделы:
+
+- [Modes](./docs/modes.md) — Proxy, System proxy, VPN · TUN, WARP-only, DPI tools и kill switch.
+- [Troubleshooting](./docs/troubleshooting.md) — практичные проверки, какие логи собрать и что нельзя публиковать.
+- [Privacy](./docs/privacy.md) — локальные данные, чувствительные поля, логи, WARP-состояние и ограничения.
+- [Routing](./docs/routing.md) — LAN bypass, региональные правила, пользовательские правила, DNS и монитор соединений.
+
+Проектные разделы:
+
+- [Architecture](./docs/architecture.md) — frontend, Rust backend, sidecar'ы, updater и CI-подготовка движков.
+- [Security](./SECURITY.md) — сообщения об уязвимостях и чувствительных проблемах.
+- [Contributing](./CONTRIBUTING.md) — ожидания к issues и PR.
+
+Для разработки релизов:
+
+- [Releasing](./RELEASING.md) — релизный ритуал, annotated tags, draft releases и OTA-правила.
+
 ## Безопасность и приватность
 
-Ninety открыт по исходникам, но он управляет сильными сетевыми компонентами. Перед использованием на чувствительной системе стоит понимать следующее:
+Ninety открыт по исходникам, но он управляет сильными сетевыми компонентами.
 
-- Импортированные профили и подписки могут содержать креды. Не публикуйте экспорты и логи без очистки.
-- Runtime-конфиги движков создаются по требованию и чистятся после отключения; устаревшие runtime-конфиги удаляются при старте.
-- WARP-ключи и backup состояния шифруются через Windows DPAPI там, где это поддержано бэкендом приложения.
-- Уровень логов по умолчанию — `warn`, чтобы в обычном режиме не писать посещённые домены на диск.
-- Внешние IP/geo-запросы можно отключить в настройках.
-- Обновление подписок по умолчанию приватное: прямой fallback включается только явно.
-- Управляющий API ядра слушает только loopback.
+- Импортированные профили и подписки могут содержать креды.
+- Логи и скриншоты нужно очищать перед публичными reports.
+- WARP-ключи и backup состояния используют Windows DPAPI там, где это поддержано бэкендом.
 - TUN-режим, DPI-инструменты и kill switch меняют сетевое состояние системы. Перед включением проверьте настройки.
+- Ninety — сетевой клиент, а не гарантия анонимности.
 
-Для сообщений об уязвимостях см. [SECURITY.md](./SECURITY.md).
+Подробнее см. [Privacy](./docs/privacy.md), для уязвимостей — [SECURITY.md](./SECURITY.md).
 
 ## Архитектура
 
-```text
-Tauri WebView UI
-        │
-        │ invoke / events
-        ▼
-Rust backend
-        │
-        ├─ sing-box process
-        ├─ xray bridge for XHTTP
-        ├─ NaiveProxy sidecar
-        ├─ TrustTunnel sidecar
-        ├─ WARP / WireGuard state
-        ├─ Windows system proxy
-        ├─ TUN / elevation / autostart
-        ├─ WFP kill switch
-        └─ updater, logs, backup and cleanup
-```
+В общих чертах Ninety — это Tauri WebView UI, который общается с Rust backend через Tauri commands/events. Бэкенд управляет sing-box, sidecar'ами, WARP/WireGuard state, системным прокси Windows, TUN, kill switch, updater, логами и cleanup.
 
-- **Фронтенд:** vanilla HTML/CSS/JavaScript без фреймворка и сборщика.
-- **Desktop-оболочка:** Tauri 2 + WebView2.
-- **Бэкенд:** Rust-команды для управления процессами, интеграции с Windows, шифрования локальных секретов, логов и cleanup.
-- **Config builder:** JS-модули собирают конфиги sing-box/xray/sidecar под активный источник, режим и настройки.
-- **CI:** GitHub Actions собирает Windows-релиз и подтягивает внешние движки, которые не хранятся в репозитории.
+Полный обзор: [Architecture](./docs/architecture.md).
 
 ## Сборка из исходников
 
