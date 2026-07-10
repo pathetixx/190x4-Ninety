@@ -26,13 +26,28 @@ function snapshot() {
   return out;
 }
 
-export async function backupNow() {
-  const snap = snapshot();
-  // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой
-  // (например, если бэкап-тик сработал до восстановления).
-  if (!Object.keys(snap).length) return;
-  try { await invoke("state_backup_save", { json: JSON.stringify(snap) }); }
-  catch (e) { console.warn("state backup failed", e); }
+let backupInFlight = null;
+let backupQueued = false;
+
+export function backupNow() {
+  if (backupInFlight) {
+    backupQueued = true;
+    return backupInFlight;
+  }
+  backupInFlight = (async () => {
+    const snap = snapshot();
+    // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой.
+    if (!Object.keys(snap).length) return;
+    try { await invoke("state_backup_save", { json: JSON.stringify(snap) }); }
+    catch (e) { console.warn("state backup failed", e); }
+  })().finally(() => {
+    backupInFlight = null;
+    if (backupQueued) {
+      backupQueued = false;
+      backupNow();
+    }
+  });
+  return backupInFlight;
 }
 
 let backupTimer = null;

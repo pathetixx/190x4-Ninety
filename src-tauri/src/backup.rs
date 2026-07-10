@@ -12,7 +12,10 @@
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
+
+static BACKUP_LOCK: Mutex<()> = Mutex::new(());
 
 fn backup_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -27,21 +30,33 @@ fn backup_path(app: &AppHandle) -> Result<PathBuf, String> {
 /// битый бэкап — прежний файл до rename остаётся целым.
 #[tauri::command]
 pub fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
+    let _guard = BACKUP_LOCK.lock().map_err(|_| "state backup lock poisoned")?;
     let path = backup_path(&app)?;
     let tmp = path.with_extension("json.tmp");
     let sealed = crate::secrets::seal(json.as_bytes())?;
-    std::fs::write(&tmp, &sealed).map_err(|e| format!("write tmp: {e}"))?;
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;
+        file.write_all(&sealed).map_err(|e| format!("write tmp: {e}"))?;
+        file.sync_all().map_err(|e| format!("sync tmp: {e}"))?;
+    }
     // На Windows rename поверх существующего файла падает. Прежний снапшот не
     // удаляем, а откладываем в .bak: краш в окне «удалили старый, не переименовали
     // новый» оставлял бы юзера вообще без бэкапа — теперь жив хотя бы прошлый.
+    let bak = path.with_extension("json.bak");
     if path.exists() {
-        let bak = path.with_extension("json.bak");
         if bak.exists() {
             std::fs::remove_file(&bak).map_err(|e| format!("remove bak: {e}"))?;
         }
         std::fs::rename(&path, &bak).map_err(|e| format!("rotate old: {e}"))?;
     }
-    std::fs::rename(&tmp, &path).map_err(|e| format!("rename: {e}"))
+    if let Err(e) = std::fs::rename(&tmp, &path) {
+        if bak.exists() && !path.exists() {
+            let _ = std::fs::rename(&bak, &path);
+        }
+        return Err(format!("rename: {e}"));
+    }
+    Ok(())
 }
 
 // Чтение одного файла снапшота: DPAPI-блоб либо легаси plaintext-JSON.
@@ -66,6 +81,7 @@ fn remove_file_if_exists(path: &Path) -> Result<bool, String> {
 /// основной файл фолбэчится на .bak (прошлый снапшот, см. save).
 #[tauri::command]
 pub fn state_backup_load(app: AppHandle) -> Result<Option<String>, String> {
+    let _guard = BACKUP_LOCK.lock().map_err(|_| "state backup lock poisoned")?;
     let path = backup_path(&app)?;
     Ok(read_snapshot(&path).or_else(|| read_snapshot(&path.with_extension("json.bak"))))
 }
@@ -75,6 +91,7 @@ pub fn state_backup_load(app: AppHandle) -> Result<Option<String>, String> {
 /// после следующего старта WebView2.
 #[tauri::command]
 pub fn state_backup_clear(app: AppHandle) -> Result<u32, String> {
+    let _guard = BACKUP_LOCK.lock().map_err(|_| "state backup lock poisoned")?;
     let path = backup_path(&app)?;
     let mut removed = 0;
     for p in [

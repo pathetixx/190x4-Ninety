@@ -46,6 +46,16 @@ fn answer_count(resp: &[u8]) -> u16 {
     u16::from_be_bytes([resp[6], resp[7]])
 }
 
+fn validate_dns_response(resp: &[u8], query: &[u8]) -> Result<(), String> {
+    if resp.len() < 12 || query.len() < 2 || resp[..2] != query[..2] || resp[2] & 0x80 == 0 {
+        Err("невалидный DNS-ответ (id/QR не совпали)".into())
+    } else if answer_count(resp) > 0 {
+        Ok(())
+    } else {
+        Err("ответ без записей (ANCOUNT=0)".into())
+    }
+}
+
 // host[:port] → host:port (добавляет default при отсутствии). IPv6 ожидаем в
 // скобках ([::1] / [::1]:53); голый IPv6 без скобок не поддержан (редко для
 // direct-DNS, обычно udp://[...]).
@@ -87,12 +97,38 @@ fn parse_target(dns: &str) -> Target {
 // Ok = резолвер ответил записями; Err = причина смерти (уходит фронту в detail
 // для console-диагностики — bool терял её, и «почему dead» было не выяснить).
 async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> Result<(), String> {
-    let sock = UdpSocket::bind("0.0.0.0:0")
+    let addresses: Vec<_> = tokio::net::lookup_host(host_port)
+        .await
+        .map_err(|e| format!("resolve {host_port}: {e}"))?
+        .collect();
+    if addresses.is_empty() {
+        return Err(format!("resolve {host_port}: no addresses"));
+    }
+    let mut errors = Vec::new();
+    for address in addresses {
+        match probe_udp_addr(address, query, timeout).await {
+            Ok(()) => return Ok(()),
+            Err(e) => errors.push(format!("{address}: {e}")),
+        }
+    }
+    Err(errors.join("; "))
+}
+
+fn udp_bind_addr(address: std::net::SocketAddr) -> &'static str {
+    if address.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" }
+}
+
+async fn probe_udp_addr(
+    address: std::net::SocketAddr,
+    query: &[u8],
+    timeout: Duration,
+) -> Result<(), String> {
+    let sock = UdpSocket::bind(udp_bind_addr(address))
         .await
         .map_err(|e| format!("bind: {e}"))?;
-    sock.connect(host_port)
+    sock.connect(address)
         .await
-        .map_err(|e| format!("connect {host_port}: {e}"))?;
+        .map_err(|e| format!("connect: {e}"))?;
     sock.send(query).await.map_err(|e| format!("send: {e}"))?;
     let mut buf = [0u8; 512];
     match tokio::time::timeout(timeout, sock.recv(&mut buf)).await {
@@ -101,13 +137,7 @@ async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> Result<(
             // Ответ обязан эхо-нуть наш transaction id и нести QR-бит (это
             // ответ, а не запрос) — иначе любой залётный UDP-пакет с ненулевым
             // ANCOUNT «оживлял» бы мёртвый резолвер.
-            if n < 12 || resp[..2] != query[..2] || resp[2] & 0x80 == 0 {
-                Err("невалидный DNS-ответ (id/QR не совпали)".into())
-            } else if answer_count(resp) > 0 {
-                Ok(())
-            } else {
-                Err("ответ без записей (ANCOUNT=0)".into())
-            }
+            validate_dns_response(resp, query)
         }
         Ok(Err(e)) => Err(format!("recv: {e}")),
         Err(_) => Err("timeout".into()),
@@ -143,11 +173,7 @@ async fn probe_doh(url: &str, query: &[u8], timeout: Duration) -> Result<(), Str
         return Err(format!("HTTP {status}"));
     }
     let body = resp.bytes().await.map_err(|e| format!("body: {e}"))?;
-    if answer_count(&body) > 0 {
-        Ok(())
-    } else {
-        Err("ответ без записей (ANCOUNT=0)".into())
-    }
+    validate_dns_response(&body, query)
 }
 
 #[derive(serde::Serialize)]
@@ -211,5 +237,23 @@ mod tests {
         assert!(matches!(parse_target("tls://8.8.8.8"), Target::Skip));
         assert!(matches!(parse_target("local"), Target::Skip));
         assert!(matches!(parse_target(""), Target::Skip));
+    }
+
+    #[test]
+    fn udp_bind_matches_target_address_family() {
+        assert_eq!(udp_bind_addr("1.1.1.1:53".parse().unwrap()), "0.0.0.0:0");
+        assert_eq!(udp_bind_addr("[2606:4700:4700::1111]:53".parse().unwrap()), "[::]:0");
+    }
+
+    #[test]
+    fn dns_response_requires_matching_id_and_qr() {
+        let query = build_dns_query("example.com");
+        let mut response = vec![0u8; 12];
+        response[..2].copy_from_slice(&query[..2]);
+        response[2] = 0x80;
+        response[7] = 1;
+        assert!(validate_dns_response(&response, &query).is_ok());
+        response[0] ^= 1;
+        assert!(validate_dns_response(&response, &query).is_err());
     }
 }

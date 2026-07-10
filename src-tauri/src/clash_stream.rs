@@ -14,6 +14,17 @@ pub struct ClashStreamState {
     pub handle: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
+fn parse_traffic_message(text: &str) -> Option<Value> {
+    let value: Value = serde_json::from_str(text).ok()?;
+    let object = value.as_object()?;
+    if !object.get("up").is_some_and(Value::is_number)
+        || !object.get("down").is_some_and(Value::is_number)
+    {
+        return None;
+    }
+    Some(value)
+}
+
 async fn run_stream(app: AppHandle, port: u16) {
     // token в query — так clash-API авторизует websocket (браузерный WS-клиент не
     // умеет слать заголовки, поэтому сервер принимает и query-token). Соединение —
@@ -32,7 +43,7 @@ async fn run_stream(app: AppHandle, port: u16) {
                 while let Some(msg) = read.next().await {
                     match msg {
                         Ok(Message::Text(t)) => {
-                            if let Ok(v) = serde_json::from_str::<Value>(&t) {
+                            if let Some(v) = parse_traffic_message(&t) {
                                 let _ = app.emit("clash:traffic", v);
                             }
                         }
@@ -47,6 +58,19 @@ async fn run_stream(app: AppHandle, port: u16) {
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn traffic_message_requires_numeric_up_and_down() {
+        assert!(parse_traffic_message(r#"{"up":10,"down":20}"#).is_some());
+        assert!(parse_traffic_message(r#"{"up":"10","down":20}"#).is_none());
+        assert!(parse_traffic_message(r#"{"down":20}"#).is_none());
+        assert!(parse_traffic_message("not json").is_none());
     }
 }
 

@@ -1,4 +1,5 @@
 mod backup;
+mod atomic_file;
 mod clash;
 mod util;
 mod clash_stream;
@@ -439,10 +440,14 @@ pub fn run() {
         .manage(dpi::DpiState::default())
         .manage(clash_stream::ClashStreamState::default())
         .manage(killswitch::KillSwitchState::default())
+        .manage(scanner::WarpScanState::default())
         .setup(|app| {
             let argv: Vec<String> = std::env::args().collect();
             let autostarted = argv.iter().any(|a| a == "--autostarted");
             vpn::purge_stale_runtime_configs(app.handle());
+            if let Err(e) = vpn::recover_stale_system_proxy() {
+                eprintln!("stale system proxy recovery: {e}");
+            }
 
             // Throne-style «всегда от админа»: если маркер стоит и мы ещё не
             // elevated — перезапускаемся с UAC и выходим. Делаем ДО показа окна
@@ -598,6 +603,7 @@ pub fn run() {
             warp::warp_status,
             warp::warp_reset,
             scanner::warp_scan_endpoints,
+            scanner::warp_scan_cancel,
             quality::probe_quality,
             dnscheck::dns_probe,
             dpi::dpi_strategies,

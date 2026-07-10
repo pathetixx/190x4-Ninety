@@ -819,8 +819,16 @@ pub fn health_snapshot(state: State<'_, SingboxState>) -> HealthSnapshot {
 }
 
 #[tauri::command]
-pub async fn set_system_proxy(enable: bool, host_port: Option<String>) -> Result<(), String> {
-    proxy::set_system_proxy(enable, host_port.as_deref())
+pub async fn set_system_proxy(
+    enable: bool,
+    host_port: Option<String>,
+    bypass_lan: Option<bool>,
+) -> Result<(), String> {
+    proxy::set_system_proxy(enable, host_port.as_deref(), bypass_lan)
+}
+
+pub fn recover_stale_system_proxy() -> Result<(), String> {
+    proxy::recover_stale_system_proxy()
 }
 
 // Статус xray-sidecar (two-core) для health-watchdog'а фронта:
@@ -858,7 +866,7 @@ pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
     purge_current_configs(app);
     clear_death_flags(state);
     #[cfg(target_os = "windows")]
-    let _ = proxy::set_system_proxy(false, None);
+    let _ = proxy::set_system_proxy(false, None, None);
 }
 
 // ── Планирование портов loopback-мостов ─────────────────────

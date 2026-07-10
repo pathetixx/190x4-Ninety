@@ -1,5 +1,9 @@
-pub fn set_system_proxy(_enable: bool, _host_port: Option<&str>) -> Result<(), String> {
+pub fn set_system_proxy(_enable: bool, _host_port: Option<&str>, _bypass_lan: Option<bool>) -> Result<(), String> {
     Err("system proxy supported only on Windows".into())
+}
+
+pub fn recover_stale_system_proxy() -> Result<(), String> {
+    Ok(())
 }
 
 // Не-Windows: понятия elevated-токена/UAC нет. Считаем что прав достаточно

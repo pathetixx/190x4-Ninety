@@ -92,10 +92,15 @@ export function mountSettings(root, opts = {}) {
   // монитор-таймер при уходе назад.
   let routingRulesInstance = null;
   let warpHistoryCleanup = null;
+  let warpScanCleanup = null;
   function cleanupTransientBindings() {
     if (warpHistoryCleanup) {
       warpHistoryCleanup();
       warpHistoryCleanup = null;
+    }
+    if (warpScanCleanup) {
+      warpScanCleanup();
+      warpScanCleanup = null;
     }
   }
   function render() {
@@ -156,14 +161,21 @@ export function mountSettings(root, opts = {}) {
       const path = input.dataset.opt;
       const handler = async () => {
         const value = readInput(input, path);
-        updateOption(path, value);
         if (input.dataset.action === "autostart") {
           try {
             const invoke = window.__TAURI__?.core?.invoke;
             const cmd = value ? "autostart_enable" : "autostart_disable";
-            if (invoke) await invoke(cmd);
-          } catch (e) { console.warn("autostart toggle failed", e); }
+            if (!invoke) throw new Error("Tauri invoke unavailable");
+            await invoke(cmd);
+            const actual = await invoke("autostart_is_enabled");
+            if (!!actual !== !!value) throw new Error("Task Scheduler state did not change");
+          } catch (e) {
+            input.checked = !!loadOptions().general?.autostart;
+            console.warn("autostart toggle failed", e);
+            return;
+          }
         }
+        updateOption(path, value);
         onChange(path, value);
         if (input.dataset.affectsView) render();
       };
@@ -177,15 +189,24 @@ export function mountSettings(root, opts = {}) {
       const path = sw.dataset.opt;
       sw.addEventListener("click", async () => {
         const newVal = sw.dataset.on !== "true";
-        sw.dataset.on = String(newVal);
-        updateOption(path, newVal);
         if (sw.dataset.action === "autostart") {
+          sw.setAttribute("aria-busy", "true");
           try {
             const invoke = window.__TAURI__?.core?.invoke;
             const cmd = newVal ? "autostart_enable" : "autostart_disable";
-            if (invoke) await invoke(cmd);
-          } catch (e) { console.warn("autostart toggle failed", e); }
+            if (!invoke) throw new Error("Tauri invoke unavailable");
+            await invoke(cmd);
+            const actual = await invoke("autostart_is_enabled");
+            if (!!actual !== newVal) throw new Error("Task Scheduler state did not change");
+          } catch (e) {
+            sw.removeAttribute("aria-busy");
+            console.warn("autostart toggle failed", e);
+            return;
+          }
+          sw.removeAttribute("aria-busy");
         }
+        sw.dataset.on = String(newVal);
+        updateOption(path, newVal);
         if (sw.dataset.action === "link-handlers") {
           try {
             await applyLinkHandlers(newVal);
@@ -413,10 +434,27 @@ export function mountSettings(root, opts = {}) {
     const scanStatus = el.querySelector("#warp-scan-status");
     const scanList = el.querySelector("#warp-scan-list");
 
+    let scanning = false;
+    let scanEpoch = 0;
     scanBtn?.addEventListener("click", async () => {
+      if (scanning) {
+        const cleanup = warpScanCleanup;
+        warpScanCleanup = null;
+        if (cleanup) cleanup();
+        else {
+          scanEpoch++;
+          scanning = false;
+          try { await invoke("warp_scan_cancel"); } catch {}
+        }
+        scanBtn.textContent = t("settings.warp.scan");
+        if (scanStatus) scanStatus.textContent = t("confirm.cancel");
+        return;
+      }
+      const epoch = ++scanEpoch;
       const orig = scanBtn.textContent;
-      scanBtn.disabled = true;
-      scanBtn.textContent = t("settings.warp.scanning");
+      scanning = true;
+      scanBtn.disabled = false;
+      scanBtn.textContent = t("confirm.cancel");
       if (scanResults) scanResults.hidden = false;
       const deep = !!loadOptions().warp?.deepScan;
       // mode=auto: WG handshake если warp.json есть, иначе TCP. Backend сам определит.
@@ -424,8 +462,32 @@ export function mountSettings(root, opts = {}) {
         ? t("settings.warp.scanStatusDeep")
         : t("settings.warp.scanStatusNormal");
       if (scanList) scanList.innerHTML = "";
+      let unlisten = null;
+      // Устанавливаем cleanup до первого await: уход со страницы или быстрый
+      // повторный клик не должны запустить скан после поздней event.listen.
+      warpScanCleanup = () => {
+        if (epoch === scanEpoch) scanEpoch++;
+        scanning = false;
+        try { unlisten?.(); } catch {}
+        invoke("warp_scan_cancel").catch(() => {});
+      };
+      const listen = window.__TAURI__?.event?.listen;
+      if (listen) {
+        try {
+          unlisten = await listen("warp:scan-progress", (event) => {
+            if (!scanning || epoch !== scanEpoch || !scanStatus) return;
+            const p = event?.payload || {};
+            scanStatus.textContent = `${deep ? t("settings.warp.scanStatusDeep") : t("settings.warp.scanStatusNormal")} ${p.completed || 0}/${p.total || 0}`;
+          });
+        } catch {}
+      }
+      if (!scanning || epoch !== scanEpoch) {
+        try { unlisten?.(); } catch {}
+        return;
+      }
       try {
         const results = await invoke("warp_scan_endpoints", { topN: 10, deep, mode: "auto" });
+        if (epoch !== scanEpoch) return;
         if (!Array.isArray(results) || results.length === 0) {
           if (scanStatus) scanStatus.textContent = t("settings.warp.scanNone");
           return;
@@ -449,10 +511,16 @@ export function mountSettings(root, opts = {}) {
           `;
         }).join("");
       } catch (e) {
+        if (epoch !== scanEpoch) return;
         if (scanStatus) scanStatus.textContent = t("settings.warp.scanErr", { err: e?.message || e });
       } finally {
-        scanBtn.disabled = false;
-        scanBtn.textContent = orig;
+        try { unlisten?.(); } catch {}
+        if (epoch === scanEpoch) {
+          scanning = false;
+          warpScanCleanup = null;
+          scanBtn.disabled = false;
+          scanBtn.textContent = orig;
+        }
       }
     });
 

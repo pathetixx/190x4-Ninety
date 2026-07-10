@@ -88,8 +88,32 @@ pub fn register_url_handler(scheme: String) -> Result<(), String> {
     }
 
     let exe = current_exe_quoted()?;
+    let expected = scheme_handler_path(&exe);
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let base = format!("Software\\Classes\\{scheme}");
+    let command_path = format!("{base}\\shell\\open\\command");
+
+    // Первый opt-in сохраняет прежний command, чтобы disable мог вернуть
+    // обработчик другого клиента. Повторная регистрация Ninety backup не трогает.
+    let previous = hkcu
+        .open_subkey(&command_path)
+        .ok()
+        .and_then(|k| k.get_value::<String, _>("").ok());
+    if previous.as_deref().is_none_or(|value| !value.eq_ignore_ascii_case(&expected)) {
+        let backup_path = format!("Software\\Ninety\\UrlHandlers\\{scheme}");
+        let (backup, _) = hkcu
+            .create_subkey(&backup_path)
+            .map_err(|e| format!("create URL handler backup: {e}"))?;
+        if backup.get_value::<u32, _>("Saved").unwrap_or(0) != 1 {
+            backup
+                .set_value("PreviousCommand", &previous.clone().unwrap_or_default())
+                .map_err(|e| format!("save previous URL handler: {e}"))?;
+            backup
+                .set_value("PreviousCommandPresent", &u32::from(previous.is_some()))
+                .map_err(|e| format!("save previous URL handler flag: {e}"))?;
+            backup.set_value("Saved", &1u32).map_err(|e| format!("commit URL handler backup: {e}"))?;
+        }
+    }
 
     let (key, _) = hkcu
         .create_subkey(&base)
@@ -100,9 +124,9 @@ pub fn register_url_handler(scheme: String) -> Result<(), String> {
         .map_err(|e| format!("set URL Protocol {base}: {e}"))?;
 
     let (cmd, _) = hkcu
-        .create_subkey(format!("{base}\\shell\\open\\command"))
+        .create_subkey(&command_path)
         .map_err(|e| format!("create command subkey: {e}"))?;
-    cmd.set_value("", &scheme_handler_path(&exe))
+    cmd.set_value("", &expected)
         .map_err(|e| format!("set command: {e}"))?;
     Ok(())
 }
@@ -120,11 +144,42 @@ pub fn unregister_url_handler(scheme: String) -> Result<(), String> {
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let base = format!("Software\\Classes\\{scheme}");
+    let command_path = format!("{base}\\shell\\open\\command");
+    let expected = scheme_handler_path(&current_exe_quoted()?);
+    let actual = hkcu
+        .open_subkey(&command_path)
+        .ok()
+        .and_then(|k| k.get_value::<String, _>("").ok());
+    // Другой клиент уже стал владельцем — его регистрацию не трогаем.
+    if actual.as_deref().is_none_or(|value| !value.eq_ignore_ascii_case(&expected)) {
+        return Ok(());
+    }
+
+    let backup_path = format!("Software\\Ninety\\UrlHandlers\\{scheme}");
+    let previous = hkcu.open_subkey(&backup_path).ok().and_then(|backup| {
+        if backup.get_value::<u32, _>("Saved").unwrap_or(0) != 1
+            || backup.get_value::<u32, _>("PreviousCommandPresent").unwrap_or(0) != 1
+        {
+            return None;
+        }
+        backup.get_value::<String, _>("PreviousCommand").ok()
+    });
+    if let Some(previous) = previous {
+        let (key, _) = hkcu.create_subkey(&base).map_err(|e| format!("restore {base}: {e}"))?;
+        key.set_value("", &format!("URL:{} Protocol", scheme.to_uppercase()))
+            .map_err(|e| format!("restore default {base}: {e}"))?;
+        key.set_value("URL Protocol", &"")
+            .map_err(|e| format!("restore URL Protocol {base}: {e}"))?;
+        let (cmd, _) = hkcu.create_subkey(&command_path).map_err(|e| format!("restore command: {e}"))?;
+        cmd.set_value("", &previous).map_err(|e| format!("restore command value: {e}"))?;
+        let _ = hkcu.delete_subkey_all(&backup_path);
+        return Ok(());
+    }
     // delete_subkey_all — рекурсивное удаление; отсутствие ключа = Ok(()) в нашем
     // понимании (нечего удалять). NotFound маппим в Ok.
     match hkcu.delete_subkey_all(&base) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(()) => { let _ = hkcu.delete_subkey_all(&backup_path); Ok(()) },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => { let _ = hkcu.delete_subkey_all(&backup_path); Ok(()) },
         Err(e) => Err(format!("delete {base}: {e}")),
     }
 }

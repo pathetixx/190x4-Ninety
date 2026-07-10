@@ -102,6 +102,8 @@ const S = {
   autopick: { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" },
   updating: null,       // id строки, которая сейчас обновляется
 };
+let dpiOperationEpoch = 0;
+let dpiAutopickEpoch = 0;
 
 // В TUN весь трафик идёт через туннель → движок реально остановлен (pauseEngineForTun),
 // но если DPI логически включён (LS.enabled) — показываем «На паузе», а не «Выключен»:
@@ -154,6 +156,7 @@ function renderBody() {
         <div class="dpi-autopick__prog-top"><span class="dpi-autopick__prog-now">${t("dpi.autopick.checking", { name: esc(p.name || "…") })}</span></div>
         <div class="dpi-bar"><span class="dpi-bar__fill" style="width:${pct}%"></span></div>
         <div class="dpi-autopick__candidate">${t("dpi.autopick.progLine", { i: p.i, total })}</div>
+        <div class="dpi-autopick__actions"><button class="btn btn--sm" data-dpi-pick-cancel>${t("dpi.editor.cancel")}</button></div>
       </div>`;
   } else if (p.phase === "done") {
     autopick = `<div class="dpi-result">
@@ -352,15 +355,18 @@ function emitDpiChanged() {
 
 /* ═══════════ ACTIONS (реальный движок) ═══════════ */
 async function startEngine() {
+  const epoch = ++dpiOperationEpoch;
   S.base = "starting";
   renderAll();
   S.lastError = "";
   try {
     await invoke("dpi_start", { strategyId: stratByName(S.strategy).id, gameFilter: S.gameFilter, ipset: S.ipset, monkey: S.monkey, logsDisabled: !!loadOptions()?.log?.disabled });
+    if (epoch !== dpiOperationEpoch) return;
     S.base = "running";
     localStorage.setItem(LS.enabled, "true");
     emitDpiChanged();
   } catch (e) {
+    if (epoch !== dpiOperationEpoch) return;
     S.base = "error";
     S.lastError = String(e?.message || e);
     toast(t("dpi.toast.startFail"), "error", 5000);
@@ -369,6 +375,7 @@ async function startEngine() {
 }
 
 async function stopEngine() {
+  dpiOperationEpoch++;
   try { await invoke("dpi_stop"); } catch {}
   S.base = "off";
   localStorage.setItem(LS.enabled, "false");
@@ -379,6 +386,7 @@ async function stopEngine() {
 // Пауза движка при входе в TUN: реально глушим winws, НО LS.enabled оставляем
 // "true" — это «логическое желание», по которому восстановимся при выходе.
 async function pauseEngineForTun() {
+  dpiOperationEpoch++;
   try { await invoke("dpi_stop"); } catch {}
   S.base = "off";        // движок реально остановлен; effState даст "paused" по LS.enabled
   renderAll();
@@ -556,12 +564,15 @@ async function runUpdate(id) {
 
 /* ── Авто-подбор ── */
 async function pickStart() {
+  if (S.autopick.phase === "running") return;
+  const epoch = ++dpiAutopickEpoch;
   S.autopick = { phase: "running", i: 0, total: STRATEGIES.length, name: "", best: null, meta: "" };
   renderBody();
   const ok = await ensureElevated();
-  if (!ok) { S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" }; return; }
+  if (!ok || epoch !== dpiAutopickEpoch) { S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" }; return; }
   try {
     const r = await invoke("dpi_autotest", { monkey: S.monkey });
+    if (epoch !== dpiAutopickEpoch) return;
     if (r?.best_id) {
       const best = STRATEGIES.find((s) => s.id === r.best_id);
       S.autopick = {
@@ -573,9 +584,17 @@ async function pickStart() {
       S.autopick = { phase: "done", i: r?.total || 0, total: r?.total || 0, best: null, meta: t("dpi.autopick.metaNone") };
     }
   } catch (e) {
+    if (epoch !== dpiAutopickEpoch) return;
     S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" };
     toast(t("dpi.autopick.toastErr", { err: e?.message || e }), "error", 3500);
   }
+  renderAll();
+}
+
+async function pickCancel() {
+  dpiAutopickEpoch++;
+  try { await invoke("dpi_stop"); } catch {}
+  S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" };
   renderAll();
 }
 
@@ -715,6 +734,7 @@ function onClick(e) {
   if (strat) { setStrategy(stratByName(strat.dataset.dpiStrat)); closeDrawer(); return; }
   if (t.closest("[data-dpi-logs]")) { e.preventDefault(); invoke("open_log_dir").catch(() => goView("logs")); return; }
   if (t.closest("[data-dpi-pick-start]")) { pickStart(); return; }
+  if (t.closest("[data-dpi-pick-cancel]")) { pickCancel(); return; }
   const apply = t.closest("[data-dpi-pick-apply]");
   if (apply) { pickApply(apply.dataset.dpiPickApply); return; }
   const game = t.closest("[data-dpi-game]");

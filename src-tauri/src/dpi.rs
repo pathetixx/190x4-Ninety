@@ -12,10 +12,11 @@
 use std::net::IpAddr;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::process::Child;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use crate::util::MutexExt;
+use crate::atomic_file::{copy_replace, write_bytes_replace, write_replace};
 use reqwest::Response;
 use serde::Deserialize;
 use std::time::{Duration, Instant};
@@ -25,12 +26,78 @@ use tauri::{AppHandle, Emitter, Manager, State};
 pub struct DpiState {
     // Child winws.exe. None — не запущен. Хэндл мутабелен для try_wait/kill.
     child: Mutex<Option<Child>>,
+    // Короткие start/autotest операции сериализуются и получают generation.
+    // stop увеличивает generation: старый async-код после любого await видит
+    // отмену и не может оживить процесс или перетереть состояние новой сессии.
+    control: Mutex<DpiControl>,
     // Грузился ли kernel-драйвер WinDivert в этой сессии (winws хоть раз стартовал).
     // Гейт для sc-выгрузки при выходе: если DPI не включали, snимать службы нечего —
     // а безусловный `sc.exe` на каждый выход давал окно ошибки 0xc0000142 при
     // выключении ПК (sc.exe не поднимается в сворачивающейся сессии). Сбрасывается
     // после фактической выгрузки службы (full_unload).
     driver_loaded: AtomicBool,
+    // Службы, чей ImagePath был проверен как принадлежащий каталогу Ninety.
+    // Никогда не останавливаем глобальные WinDivert/WinDivert14 вслепую.
+    owned_services: Mutex<Vec<String>>,
+}
+
+#[derive(Default)]
+struct DpiControl {
+    generation: u64,
+    operation: Option<&'static str>,
+}
+
+fn begin_dpi_operation(state: &DpiState, name: &'static str) -> Result<u64, String> {
+    let mut control = state.control.lock_recover();
+    if let Some(active) = control.operation {
+        return Err(format!("DPI-операция уже выполняется: {active}"));
+    }
+    control.generation = control.generation.wrapping_add(1);
+    control.operation = Some(name);
+    Ok(control.generation)
+}
+
+fn dpi_operation_current(state: &DpiState, generation: u64) -> bool {
+    let control = state.control.lock_recover();
+    control.generation == generation && control.operation.is_some()
+}
+
+async fn wait_dpi_cancelled(state: &DpiState, generation: u64) {
+    while dpi_operation_current(state, generation) {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+async fn dpi_sleep_or_cancel(
+    state: &DpiState,
+    generation: u64,
+    duration: Duration,
+    label: &str,
+) -> Result<(), String> {
+    tokio::select! {
+        _ = tokio::time::sleep(duration) => Ok(()),
+        _ = wait_dpi_cancelled(state, generation) => Err(format!("{label} отменён")),
+    }
+}
+
+fn cancel_dpi_operation(state: &DpiState) {
+    let mut control = state.control.lock_recover();
+    control.generation = control.generation.wrapping_add(1);
+    control.operation = None;
+}
+
+struct DpiOperationGuard<'a> {
+    state: &'a DpiState,
+    generation: u64,
+}
+
+impl Drop for DpiOperationGuard<'_> {
+    fn drop(&mut self) {
+        let mut control = self.state.control.lock_recover();
+        if control.generation == self.generation {
+            control.operation = None;
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -41,8 +108,9 @@ struct Strategy {
     args: Vec<String>,
 }
 
-// Канал данных стратегий: подписанный prerelease-ассет, который раз в сутки
-// обновляет робот dpi-channel.yml из релизов Flowseal. Ninety тянет его на лету,
+// Канал данных стратегий: подписанный prerelease-ассет, который вручную
+// публикует reviewed workflow dpi-channel.yml из зафиксированного релиза Flowseal.
+// Ninety тянет его на лету,
 // проверяет minisign-подпись и применяет — БЕЗ обновления приложения. Возит только
 // данные (strategies.json + списки + .bin), движок едет через OTA (см. engine-watch).
 const CHANNEL_BASE: &str =
@@ -50,6 +118,23 @@ const CHANNEL_BASE: &str =
 const MAX_CHANNEL_BUNDLE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_CHANNEL_SIGNATURE_BYTES: u64 = 64 * 1024;
 const MAX_CHANNEL_TEXT_BYTES: u64 = 256 * 1024;
+const MAX_CHANNEL_ENTRIES: usize = 2048;
+const MAX_CHANNEL_ENTRY_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_CHANNEL_UNPACKED_BYTES: u64 = 256 * 1024 * 1024;
+static TEMP_FILE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+struct StagingDirGuard {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl Drop for StagingDirGuard {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+}
 // minisign-pubkey: ДОЛЖЕН совпадать с plugins.updater.pubkey в tauri.conf.json
 // (тот же ключ подписывает и OTA, и канал). base64 от файла minisign-pubkey.
 const CHANNEL_PUBKEY_B64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1N0I1RTAwMEQ3MUQ3OUUKUldTZTEzRU5BRjU3ZGN3TkZoK28yeFRVa2tLdlhxNy8zUXo1aUdXN1lOSUE3MzZLUmVCRnFYamsK";
@@ -128,54 +213,6 @@ fn bindata_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .join("bin-data");
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir bin-data: {e}"))?;
     Ok(dir)
-}
-
-fn copy_replace(from: &Path, to: &Path, label: &str) -> Result<(), String> {
-    if let Some(parent) = to.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {label}: {e}"))?;
-    }
-    let tmp_name = to
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(|n| format!(".{n}.{}.tmp", std::process::id()))
-        .unwrap_or_else(|| format!(".ninety.{}.tmp", std::process::id()));
-    let tmp = to.with_file_name(tmp_name);
-    let _ = std::fs::remove_file(&tmp);
-    std::fs::copy(from, &tmp).map_err(|e| format!("copy {label}: {e}"))?;
-    match std::fs::rename(&tmp, to) {
-        Ok(()) => Ok(()),
-        Err(_) => {
-            let _ = std::fs::remove_file(to);
-            std::fs::rename(&tmp, to).map_err(|e| {
-                let _ = std::fs::remove_file(&tmp);
-                format!("replace {label}: {e}")
-            })
-        }
-    }
-}
-
-fn write_replace(to: &Path, body: &str, label: &str) -> Result<(), String> {
-    if let Some(parent) = to.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {label}: {e}"))?;
-    }
-    let tmp_name = to
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(|n| format!(".{n}.{}.tmp", std::process::id()))
-        .unwrap_or_else(|| format!(".ninety.{}.tmp", std::process::id()));
-    let tmp = to.with_file_name(tmp_name);
-    let _ = std::fs::remove_file(&tmp);
-    std::fs::write(&tmp, body).map_err(|e| format!("write {label}: {e}"))?;
-    match std::fs::rename(&tmp, to) {
-        Ok(()) => Ok(()),
-        Err(_) => {
-            let _ = std::fs::remove_file(to);
-            std::fs::rename(&tmp, to).map_err(|e| {
-                let _ = std::fs::remove_file(&tmp);
-                format!("replace {label}: {e}")
-            })
-        }
-    }
 }
 
 // Засеять bin-data из ресурсного движка, если ещё нет ни одного .bin (первый
@@ -395,6 +432,88 @@ pub fn dpi_domains_count(app: AppHandle) -> Result<usize, String> {
     Ok(n)
 }
 
+const DPI_LOG_CAP_BYTES: u64 = 8 * 1024 * 1024;
+
+struct DpiLogWriter {
+    file: std::fs::File,
+    written: u64,
+}
+
+impl DpiLogWriter {
+    fn append(&mut self, bytes: &[u8]) {
+        use std::io::Write;
+        if self.written.saturating_add(bytes.len() as u64) > DPI_LOG_CAP_BYTES {
+            if self.file.set_len(0).is_ok() {
+                let marker = b"[dpi log truncated at 8 MB cap]\n";
+                let _ = self.file.write_all(marker);
+                self.written = marker.len() as u64;
+            }
+        }
+        if self.file.write_all(bytes).is_ok() {
+            self.written = self.written.saturating_add(bytes.len() as u64);
+        }
+    }
+}
+
+fn prepare_dpi_log(path: &Path) -> Option<Arc<Mutex<DpiLogWriter>>> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .truncate(false)
+        .open(path)
+        .ok()?;
+    let _ = file.set_len(0); // новая сессия — новый диагностический лог
+    let written = 0;
+    Some(Arc::new(Mutex::new(DpiLogWriter { file, written })))
+}
+
+fn spawn_dpi_log_pipe<R: std::io::Read + Send + 'static>(
+    mut reader: R,
+    writer: Arc<Mutex<DpiLogWriter>>,
+) {
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        loop {
+            match std::io::Read::read(&mut reader, &mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => writer.lock_recover().append(&buf[..n]),
+            }
+        }
+    });
+}
+
+#[cfg(target_os = "windows")]
+fn remember_owned_driver_services(state: &DpiState, bin: &Path) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let sc = system32("sc.exe");
+    let owned_root = strip_verbatim(&bin.to_string_lossy()).to_lowercase();
+    let mut owned = state.owned_services.lock_recover();
+    for svc in ["WinDivert", "WinDivert14", "Monkey"] {
+        let Ok(out) = std::process::Command::new(&sc)
+            .args(["qc", svc])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        else {
+            continue;
+        };
+        let text = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+        .replace(r"\??\", "")
+        .to_lowercase();
+        if out.status.success() && text.contains(&owned_root) && !owned.iter().any(|x| x == svc) {
+            owned.push(svc.to_string());
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn remember_owned_driver_services(_state: &DpiState, _bin: &Path) {}
+
 /// Запуск winws с выбранной стратегией. game_filter: "off"|"tcpudp";
 /// ipset: "any"|"loaded"|"off". Должен вызываться из elevated-процесса.
 #[tauri::command]
@@ -408,6 +527,8 @@ pub async fn dpi_start(
     logs_disabled: Option<bool>,
 ) -> Result<(), String> {
     let logs_disabled = logs_disabled.unwrap_or(false);
+    let generation = begin_dpi_operation(&state, "start")?;
+    let _operation = DpiOperationGuard { state: &state, generation };
     // Уже запущен? Чистим труп / отказываем.
     {
         let mut guard = state.child.lock_recover();
@@ -452,6 +573,10 @@ pub async fn dpi_start(
         .map(|a| subst(a, &bindata_s, &lists_s, g_tcp, g_udp))
         .collect();
 
+    if !dpi_operation_current(&state, generation) {
+        return Err("DPI start отменён".into());
+    }
+
     // Защита от «двойного старта»: гасим stray-winws (сирота от другого инстанса
     // Ninety — по пути в нашем res_dpi) перед запуском своего, иначе два winws
     // дерутся за драйвер WinDivert. Если кого-то убили, даём драйверу отцепиться
@@ -469,28 +594,45 @@ pub async fn dpi_start(
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    // Перенаправляем stdout+stderr winws в dpi.log — без этого причина
+    // Перенаправляем stdout+stderr winws в capped dpi.log — без этого причина
     // мгновенного выхода (битый аргумент / не найден .bin / WinDivert) теряется.
     // При logs_disabled («Полностью отключить логи») файл не создаём — вывод winws
     // уходит в никуда (CREATE_NO_WINDOW → нет консоли); диагностика краша при этом
     // не сохранится, юзер сам отключил логи.
     let log = if logs_disabled { None } else { dpi_log_file(&app) };
-    if let Some(ref lp) = log {
-        if let Ok(f) = std::fs::File::create(lp) {
-            if let Ok(f2) = f.try_clone() {
-                cmd.stdout(std::process::Stdio::from(f));
-                cmd.stderr(std::process::Stdio::from(f2));
-            }
-        }
+    let log_writer = log.as_ref().and_then(|lp| prepare_dpi_log(lp));
+    if log_writer.is_some() {
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
     }
 
-    let child = cmd.spawn().map_err(|e| format!("spawn winws: {e}"))?;
-    *state.child.lock_recover() = Some(child);
+    let mut child = cmd.spawn().map_err(|e| format!("spawn winws: {e}"))?;
+    if let Some(writer) = log_writer {
+        if let Some(stdout) = child.stdout.take() {
+            spawn_dpi_log_pipe(stdout, writer.clone());
+        }
+        if let Some(stderr) = child.stderr.take() {
+            spawn_dpi_log_pipe(stderr, writer);
+        }
+    }
+    // stop мог прийти между последней проверкой и spawn. Проверяем generation
+    // под control-lock и только затем публикуем child в общем состоянии.
+    {
+        let control = state.control.lock_recover();
+        if control.generation != generation || control.operation.is_none() {
+            drop(control);
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("DPI start отменён".into());
+        }
+        *state.child.lock_recover() = Some(child);
+    }
     // winws поднял драйвер WinDivert — при выходе службу надо будет снять.
     state.driver_loaded.store(true, Ordering::SeqCst);
 
     // Дать winws ~700мс упасть (занятый драйвер / нет прав / битые args).
-    tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+    dpi_sleep_or_cancel(&state, generation, Duration::from_millis(700), "DPI start").await?;
+    remember_owned_driver_services(&state, &bin);
     {
         let mut guard = state.child.lock_recover();
         if let Some(child) = guard.as_mut() {
@@ -520,6 +662,7 @@ pub async fn dpi_start(
 
 #[tauri::command]
 pub fn dpi_stop(state: State<'_, DpiState>) -> Result<(), String> {
+    cancel_dpi_operation(&state);
     if let Some(mut child) = state.child.lock_recover().take() {
         let _ = child.kill();
         let _ = child.wait();
@@ -896,7 +1039,7 @@ async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String>
 /// Доступно ли обновление набора стратегий. Сравниваем с версией НАШЕГО КАНАЛА
 /// (version.txt-ассет релиза dpi-channel) — тем, что реально поставит кнопка
 /// «Обновить» через dpi_sync_channel. НЕ с live-версией Flowseal: канал
-/// пересобирается роботом раз в сутки и неизбежно отстаёт от свежего релиза
+/// публикуется после review и может отставать от свежего релиза
 /// Flowseal. Если сверяться с live, в окне «Flowseal зарелизил → канал ещё не
 /// синканул» проверка показывает «обновление есть», а кнопка тянет старый бандл
 /// → local никогда не догоняет remote → вечный «битый круг» обновления.
@@ -976,7 +1119,7 @@ fn channel_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 // Скачать ПОДПИСАННЫЙ бандл канала, проверить minisign-подпись ДО распаковки и
-// распаковать в свежий staging (zip-slip-safe). Возвращает путь staging; чистить
+// распаковать в уникальный staging (zip-slip-safe). Возвращает путь staging; чистить
 // его — на вызывающем. Единая точка входа доверенных данных канала: dpi_sync_channel
 // применяет отсюда strategies/lists/bin, а hosts/ipset берут service/* — все три
 // потока идут через подпись, без неподписанного github-raw в открытой сети.
@@ -1008,30 +1151,54 @@ async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<Pat
         .app_data_dir()
         .map_err(|e| format!("app_data_dir: {e}"))?
         .join("dpi");
-    let staging = dpi_data.join(".staging");
-    let _ = std::fs::remove_dir_all(&staging);
+    let seq = TEMP_FILE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let staging = dpi_data.join(format!(".staging-{}-{seq}", std::process::id()));
     std::fs::create_dir_all(&staging).map_err(|e| format!("mkdir staging: {e}"))?;
+    let mut staging_guard = StagingDirGuard { path: staging.clone(), keep: false };
 
     let reader = std::io::Cursor::new(zip_bytes.as_slice());
     let mut zip = zip::ZipArchive::new(reader).map_err(|e| format!("open zip: {e}"))?;
+    if zip.len() > MAX_CHANNEL_ENTRIES {
+        return Err(format!(
+            "channel bundle has too many entries: {} > {MAX_CHANNEL_ENTRIES}",
+            zip.len()
+        ));
+    }
+    let mut unpacked = 0u64;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
+        if entry.size() > MAX_CHANNEL_ENTRY_BYTES {
+            return Err(format!(
+                "channel entry too large: {} ({} bytes)",
+                entry.name(),
+                entry.size()
+            ));
+        }
+        unpacked = unpacked
+            .checked_add(entry.size())
+            .ok_or("channel unpacked size overflow")?;
+        if unpacked > MAX_CHANNEL_UNPACKED_BYTES {
+            return Err(format!(
+                "channel unpacked data too large: {unpacked} > {MAX_CHANNEL_UNPACKED_BYTES}"
+            ));
+        }
         // защита от zip-slip: берём только безопасное относительное имя.
         let name = match entry.enclosed_name() {
             Some(n) => n.to_path_buf(),
-            None => continue,
+            None => return Err(format!("unsafe channel zip path: {}", entry.name())),
         };
         let out = staging.join(&name);
         if entry.is_dir() {
-            let _ = std::fs::create_dir_all(&out);
+            std::fs::create_dir_all(&out).map_err(|e| format!("mkdir {name:?}: {e}"))?;
             continue;
         }
         if let Some(parent) = out.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {parent:?}: {e}"))?;
         }
         let mut f = std::fs::File::create(&out).map_err(|e| format!("create {name:?}: {e}"))?;
         std::io::copy(&mut entry, &mut f).map_err(|e| format!("unzip {name:?}: {e}"))?;
     }
+    staging_guard.keep = true;
     Ok(staging)
 }
 
@@ -1146,11 +1313,13 @@ pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde
             .unwrap_or_default()
             .trim()
             .to_string();
+        // user-списки и ipset-all.txt НЕ трогаем: они на стороне клиента / задаются режимом.
+        copy_replace(&strat_path, &dpi_data.join("strategies.json"), "strategies")?;
+        // Marker — commit record. Пишем строго последним: если strategies не
+        // применились, UI не должен считать неудачную версию установленной.
         if !ver.is_empty() {
             write_replace(&dpi_data.join("strategies-version.txt"), &ver, "strategies version")?;
         }
-        // user-списки и ipset-all.txt НЕ трогаем: они на стороне клиента / задаются режимом.
-        copy_replace(&strat_path, &dpi_data.join("strategies.json"), "strategies")?;
 
         Ok(serde_json::json!({ "version": ver, "applied": true }))
     })();
@@ -1179,16 +1348,24 @@ fn system_hosts_path() -> PathBuf {
 
 // Удалить наш managed-блок (BEGIN..END включительно) из текста hosts, не трогая
 // остальное. Возвращает текст без блока (с финальным \n у каждой строки).
-fn strip_managed_block(content: &str) -> String {
+fn strip_managed_block(content: &str) -> Result<String, String> {
     let mut out = String::new();
     let mut skip = false;
+    let mut blocks = 0usize;
     for line in content.lines() {
         let t = line.trim();
         if t == HOSTS_BEGIN {
+            if skip {
+                return Err("hosts: вложенный BEGIN-маркер Ninety".into());
+            }
             skip = true;
+            blocks += 1;
             continue;
         }
         if t == HOSTS_END {
+            if !skip {
+                return Err("hosts: END-маркер Ninety без BEGIN".into());
+            }
             skip = false;
             continue;
         }
@@ -1198,7 +1375,13 @@ fn strip_managed_block(content: &str) -> String {
         out.push_str(line);
         out.push('\n');
     }
-    out
+    if skip {
+        return Err("hosts: BEGIN-маркер Ninety без END".into());
+    }
+    if blocks > 1 {
+        return Err(format!("hosts: найдено несколько managed-блоков Ninety ({blocks})"));
+    }
+    Ok(out)
 }
 
 // Сколько валидных записей «IP домен» в тексте (без пустых строк и комментариев).
@@ -1214,7 +1397,12 @@ fn count_hosts_entries(body: &str) -> usize {
 /// Статус системного hosts: применён ли наш блок и сколько в нём записей.
 #[tauri::command]
 pub fn dpi_hosts_status(_app: AppHandle) -> Result<serde_json::Value, String> {
-    let content = std::fs::read_to_string(system_hosts_path()).unwrap_or_default();
+    let path = system_hosts_path();
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("чтение hosts ({}): {e}", path.display()))?;
+    // Повреждённые маркеры нельзя показывать как нормальное applied-состояние:
+    // apply/clear в таком случае тоже остановятся без записи.
+    let _ = strip_managed_block(&content)?;
     let mut inside = false;
     let mut block = String::new();
     for line in content.lines() {
@@ -1256,20 +1444,37 @@ pub async fn dpi_hosts_apply(app: AppHandle, port: Option<u16>) -> Result<serde_
     }
 
     let path = system_hosts_path();
-    let current = std::fs::read_to_string(&path).unwrap_or_default();
+    let current = std::fs::read_to_string(&path)
+        .map_err(|e| format!("чтение hosts ({}): {e}", path.display()))?;
+    let base = strip_managed_block(&current)?;
 
-    // Бэкап оригинала один раз — до первой нашей записи.
-    if let Ok(dir) = app.path().app_data_dir() {
-        let bdir = dir.join("dpi");
-        let _ = std::fs::create_dir_all(&bdir);
-        let backup = bdir.join("hosts.backup");
-        if !backup.exists() && !current.contains(HOSTS_BEGIN) {
-            let _ = std::fs::write(&backup, &current);
+    // Бэкап оригинала один раз — до первой нашей записи. Ошибка backup блокирует
+    // системную запись: без проверяемого отката менять hosts нельзя.
+    let bdir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir для backup hosts: {e}"))?
+        .join("dpi");
+    std::fs::create_dir_all(&bdir).map_err(|e| format!("mkdir hosts backup: {e}"))?;
+    let backup = bdir.join("hosts.backup");
+    if !backup.exists() {
+        // При миграции со старой версии managed-блок уже может быть, а backup —
+        // ещё нет. В этом случае сохраняем восстановленную базу без нашего блока.
+        let backup_body = if current.contains(HOSTS_BEGIN) {
+            base.as_bytes()
+        } else {
+            current.as_bytes()
+        };
+        write_bytes_replace(&backup, backup_body, "hosts backup")?;
+        let saved = std::fs::read(&backup).map_err(|e| format!("verify hosts backup: {e}"))?;
+        if saved != backup_body {
+            return Err("проверка backup hosts: содержимое не совпало".into());
         }
+    } else if backup.exists() {
+        std::fs::File::open(&backup).map_err(|e| format!("open hosts backup: {e}"))?;
     }
 
     // Снять старый блок (если был), дописать свежий в конец.
-    let base = strip_managed_block(&current);
     let base = base.trim_end();
     let mut out = String::new();
     out.push_str(base);
@@ -1283,7 +1488,7 @@ pub async fn dpi_hosts_apply(app: AppHandle, port: Option<u16>) -> Result<serde_
     out.push_str(HOSTS_END);
     out.push('\n');
 
-    std::fs::write(&path, out.as_bytes()).map_err(|e| {
+    write_bytes_replace(&path, out.as_bytes(), "system hosts").map_err(|e| {
         format!("запись hosts ({}): нужны права администратора — {e}", path.display())
     })?;
     flush_dns();
@@ -1294,12 +1499,15 @@ pub async fn dpi_hosts_apply(app: AppHandle, port: Option<u16>) -> Result<serde_
 #[tauri::command]
 pub fn dpi_hosts_clear(_app: AppHandle) -> Result<(), String> {
     let path = system_hosts_path();
-    let current = std::fs::read_to_string(&path).unwrap_or_default();
+    let current = std::fs::read_to_string(&path)
+        .map_err(|e| format!("чтение hosts ({}): {e}", path.display()))?;
     if !current.contains(HOSTS_BEGIN) {
+        // Даже clear не должен молча принимать лишний END-маркер.
+        let _ = strip_managed_block(&current)?;
         return Ok(());
     }
-    let stripped = format!("{}\n", strip_managed_block(&current).trim_end());
-    std::fs::write(&path, stripped.as_bytes())
+    let stripped = format!("{}\n", strip_managed_block(&current)?.trim_end());
+    write_bytes_replace(&path, stripped.as_bytes(), "system hosts")
         .map_err(|e| format!("запись hosts: нужны права администратора — {e}"))?;
     flush_dns();
     Ok(())
@@ -1378,7 +1586,15 @@ pub async fn dpi_autotest(
     test_url: Option<String>,
     monkey: bool,
 ) -> Result<serde_json::Value, String> {
-    force_cleanup(&state); // глушим текущий winws — будем цикловать свои
+    let generation = begin_dpi_operation(&state, "autotest")?;
+    let _operation = DpiOperationGuard { state: &state, generation };
+    // Глушим текущий winws без изменения generation: autotest теперь владеет
+    // lifecycle и публикует каждый test-child в state, поэтому dpi_stop/exit
+    // способны отменить и reap'нуть его.
+    if let Some(mut child) = state.child.lock_recover().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
     let url = test_url.unwrap_or_else(|| "https://www.youtube.com/".into());
 
     let strategies = read_strategies(&app)?;
@@ -1399,6 +1615,9 @@ pub async fn dpi_autotest(
     let mut passed = 0usize;
 
     for (idx, strat) in strategies.iter().enumerate() {
+        if !dpi_operation_current(&state, generation) {
+            return Err("DPI autotest отменён".into());
+        }
         let _ = app.emit(
             "dpi:autotest",
             AutotestProgress { i: idx + 1, total, name: strat.name.clone() },
@@ -1415,22 +1634,44 @@ pub async fn dpi_autotest(
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x0800_0000);
         }
-        let child = cmd.spawn();
-        let mut child = match child {
+        let child = match cmd.spawn() {
             Ok(c) => c,
             Err(_) => continue,
         };
-        tokio::time::sleep(Duration::from_millis(700)).await;
+        {
+            let control = state.control.lock_recover();
+            if control.generation != generation || control.operation.is_none() {
+                drop(control);
+                let mut child = child;
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("DPI autotest отменён".into());
+            }
+            *state.child.lock_recover() = Some(child);
+        }
+        state.driver_loaded.store(true, Ordering::SeqCst);
+        dpi_sleep_or_cancel(&state, generation, Duration::from_millis(700), "DPI autotest").await?;
+        remember_owned_driver_services(&state, &bin);
 
         let t0 = Instant::now();
-        let ok = match client.get(url.as_str()).send().await {
-            Ok(r) => r.status().is_success() || r.status().is_redirection(),
-            Err(_) => false,
+        let ok = tokio::select! {
+            response = client.get(url.as_str()).send() => match response {
+                Ok(r) => r.status().is_success() || r.status().is_redirection(),
+                Err(_) => false,
+            },
+            _ = wait_dpi_cancelled(&state, generation) => {
+                return Err("DPI autotest отменён".into());
+            }
         };
         let lat = t0.elapsed().as_millis() as u64;
 
-        let _ = child.kill();
-        let _ = child.wait();
+        if !dpi_operation_current(&state, generation) {
+            return Err("DPI autotest отменён".into());
+        }
+        if let Some(mut child) = state.child.lock_recover().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
 
         if ok {
             passed += 1;
@@ -1443,7 +1684,7 @@ pub async fn dpi_autotest(
             }
         }
         // короткая пауза, чтобы драйвер успел отцепиться между прогонами
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        dpi_sleep_or_cancel(&state, generation, Duration::from_millis(150), "DPI autotest").await?;
     }
 
     match best {
@@ -1457,6 +1698,7 @@ pub async fn dpi_autotest(
 }
 
 pub fn force_cleanup(state: &DpiState) {
+    cancel_dpi_operation(state);
     if let Some(mut child) = state.child.lock_recover().take() {
         let _ = child.kill();
         let _ = child.wait();
@@ -1473,21 +1715,22 @@ pub fn force_cleanup(state: &DpiState) {
 /// WinDivert или WinDivert14 (как чистит service.bat Flowseal), плюс Monkey (наш
 /// переименованный вариант, см. bin_dir) — снимаем все.
 #[cfg(target_os = "windows")]
-pub fn unload_driver_services() {
+pub fn unload_driver_services(state: &DpiState) {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let sc = system32("sc.exe");
-    for svc in ["WinDivert", "WinDivert14", "Monkey"] {
+    let services = std::mem::take(&mut *state.owned_services.lock_recover());
+    for svc in services {
         for verb in ["stop", "delete"] {
             let _ = std::process::Command::new(&sc)
-                .args([verb, svc])
+                .args([verb, svc.as_str()])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
         }
     }
 }
 #[cfg(not(target_os = "windows"))]
-pub fn unload_driver_services() {}
+pub fn unload_driver_services(_state: &DpiState) {}
 
 /// Полная выгрузка движка: убить winws И снять kernel-драйвер. Вызывается перед
 /// OTA-апдейтом (команда ниже) и при смене режима драйвера. Иначе драйвер остаётся
@@ -1497,7 +1740,7 @@ pub fn unload_driver_services() {}
 /// закрывается ДО `sc stop`, поэтому драйвер выгружается с первого раза.
 pub fn full_unload(state: &DpiState) {
     force_cleanup(state);
-    unload_driver_services();
+    unload_driver_services(state);
     state.driver_loaded.store(false, Ordering::SeqCst);
 }
 
@@ -1530,7 +1773,7 @@ pub fn cleanup_on_exit(state: &DpiState) {
         return;
     }
     if state.driver_loaded.swap(false, Ordering::SeqCst) {
-        unload_driver_services();
+        unload_driver_services(state);
     }
 }
 
@@ -1598,14 +1841,31 @@ mod tests {
         let content = format!(
             "127.0.0.1 localhost\n{HOSTS_BEGIN}\n1.2.3.4 discord.com\n{HOSTS_END}\n10.0.0.1 nas\n"
         );
-        let out = strip_managed_block(&content);
+        let out = strip_managed_block(&content).unwrap();
         assert!(out.contains("127.0.0.1 localhost"));
         assert!(out.contains("10.0.0.1 nas"));
         assert!(!out.contains("discord.com"));
         assert!(!out.contains(HOSTS_BEGIN));
         // Идемпотентность: без блока текст меняется только нормализацией переносов.
-        let again = strip_managed_block(&out);
+        let again = strip_managed_block(&out).unwrap();
         assert_eq!(out, again);
+    }
+
+    #[test]
+    fn strip_managed_block_rejects_unbalanced_or_duplicate_markers() {
+        let open = format!("127.0.0.1 localhost\n{HOSTS_BEGIN}\n1.2.3.4 example.test\n");
+        assert!(strip_managed_block(&open).unwrap_err().contains("без END"));
+
+        let close = format!("127.0.0.1 localhost\n{HOSTS_END}\n");
+        assert!(strip_managed_block(&close).unwrap_err().contains("без BEGIN"));
+
+        let nested = format!("{HOSTS_BEGIN}\n{HOSTS_BEGIN}\n{HOSTS_END}\n{HOSTS_END}\n");
+        assert!(strip_managed_block(&nested).unwrap_err().contains("вложенный"));
+
+        let duplicate = format!(
+            "{HOSTS_BEGIN}\n1.1.1.1 one.test\n{HOSTS_END}\n{HOSTS_BEGIN}\n2.2.2.2 two.test\n{HOSTS_END}\n"
+        );
+        assert!(strip_managed_block(&duplicate).unwrap_err().contains("несколько"));
     }
 
     #[test]
@@ -1657,5 +1917,20 @@ mod tests {
         assert_eq!(user_list_name("exclude"), "list-exclude-user.txt");
         assert_eq!(user_list_name("user"), "list-general-user.txt");
         assert_eq!(user_list_name("anything-else"), "list-general-user.txt");
+    }
+
+    #[test]
+    fn dpi_operation_generation_cancels_stale_work() {
+        let state = DpiState::default();
+        let first = begin_dpi_operation(&state, "start").unwrap();
+        assert!(dpi_operation_current(&state, first));
+        assert!(begin_dpi_operation(&state, "autotest").is_err());
+
+        cancel_dpi_operation(&state);
+        assert!(!dpi_operation_current(&state, first));
+
+        let second = begin_dpi_operation(&state, "autotest").unwrap();
+        assert_ne!(first, second);
+        assert!(dpi_operation_current(&state, second));
     }
 }

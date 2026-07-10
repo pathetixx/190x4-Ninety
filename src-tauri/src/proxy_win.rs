@@ -29,51 +29,63 @@ const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const INET_SETTINGS_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
 const NINETY_KEY: &str = r"Software\Ninety";
 const PROXY_OVERRIDE: &str = "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>";
+const PROXY_OVERRIDE_LOOPBACK_ONLY: &str = "localhost;127.*";
 
 fn to_wide(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
 }
 
+fn proxy_owned_by_ninety(current: &str, active: Option<&str>) -> bool {
+    active
+        .map(|value| current.eq_ignore_ascii_case(value))
+        .unwrap_or_else(|| current.starts_with("127.0.0.1:"))
+}
+
 // Снапшот прежних proxy-настроек — один раз, до того как Ninety перезапишет их
 // своими. Без этого выключение Ninety затёрло бы прокси/bypass-лист, которые
 // юзер мог настроить вне Ninety. Повторный enable снапшот не перетирает.
-fn save_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) {
-    let Ok((nk, _)) = hkcu.create_subkey(NINETY_KEY) else { return };
+fn save_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> Result<(), String> {
+    let (nk, _) = hkcu
+        .create_subkey(NINETY_KEY)
+        .map_err(|e| format!("create Ninety proxy state: {e}"))?;
     if nk.get_value::<u32, _>("SavedProxyValid").unwrap_or(0) == 1 {
-        return;
+        return Ok(());
     }
     let cur_enable: u32 = inet.get_value("ProxyEnable").unwrap_or(0);
-    let _ = nk.set_value("SavedProxyEnable", &cur_enable);
+    nk.set_value("SavedProxyEnable", &cur_enable)
+        .map_err(|e| format!("save ProxyEnable: {e}"))?;
     match inet.get_value::<String, _>("ProxyServer") {
         Ok(v) => {
-            let _ = nk.set_value("SavedProxyServer", &v);
-            let _ = nk.set_value("SavedProxyServerPresent", &1u32);
+            nk.set_value("SavedProxyServer", &v).map_err(|e| format!("save ProxyServer: {e}"))?;
+            nk.set_value("SavedProxyServerPresent", &1u32).map_err(|e| format!("save ProxyServer flag: {e}"))?;
         }
         Err(_) => {
-            let _ = nk.set_value("SavedProxyServer", &"".to_string());
-            let _ = nk.set_value("SavedProxyServerPresent", &0u32);
+            nk.set_value("SavedProxyServer", &"".to_string()).map_err(|e| format!("clear saved ProxyServer: {e}"))?;
+            nk.set_value("SavedProxyServerPresent", &0u32).map_err(|e| format!("save ProxyServer absent flag: {e}"))?;
         }
     }
     match inet.get_value::<String, _>("ProxyOverride") {
         Ok(v) => {
-            let _ = nk.set_value("SavedProxyOverride", &v);
-            let _ = nk.set_value("SavedProxyOverridePresent", &1u32);
+            nk.set_value("SavedProxyOverride", &v).map_err(|e| format!("save ProxyOverride: {e}"))?;
+            nk.set_value("SavedProxyOverridePresent", &1u32).map_err(|e| format!("save ProxyOverride flag: {e}"))?;
         }
         Err(_) => {
-            let _ = nk.set_value("SavedProxyOverride", &"".to_string());
-            let _ = nk.set_value("SavedProxyOverridePresent", &0u32);
+            nk.set_value("SavedProxyOverride", &"".to_string()).map_err(|e| format!("clear saved ProxyOverride: {e}"))?;
+            nk.set_value("SavedProxyOverridePresent", &0u32).map_err(|e| format!("save ProxyOverride absent flag: {e}"))?;
         }
     }
-    let _ = nk.set_value("SavedProxyValid", &1u32);
+    nk.set_value("SavedProxyValid", &1u32)
+        .map_err(|e| format!("commit proxy snapshot: {e}"))?;
+    Ok(())
 }
 
 // Восстановить прежнее состояние из снапшота. true — если снапшот был применён.
-fn restore_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> bool {
+fn restore_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> Result<bool, String> {
     let Ok(nk) = hkcu.open_subkey_with_flags(NINETY_KEY, KEY_READ | KEY_WRITE) else {
-        return false;
+        return Ok(false);
     };
     if nk.get_value::<u32, _>("SavedProxyValid").unwrap_or(0) != 1 {
-        return false;
+        return Ok(false);
     }
     let saved_enable: u32 = nk.get_value("SavedProxyEnable").unwrap_or(0);
     let saved_server: String = nk.get_value("SavedProxyServer").unwrap_or_default();
@@ -86,45 +98,83 @@ fn restore_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> bool {
         .get_value::<u32, _>("SavedProxyOverridePresent")
         .map(|v| v == 1)
         .unwrap_or(false);
-    let _ = inet.set_value("ProxyEnable", &saved_enable);
     if saved_server_present {
-        let _ = inet.set_value("ProxyServer", &saved_server);
+        inet.set_value("ProxyServer", &saved_server).map_err(|e| format!("restore ProxyServer: {e}"))?;
     } else {
-        let _ = inet.delete_value("ProxyServer");
+        match inet.delete_value("ProxyServer") {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("delete ProxyServer: {e}")),
+        }
     }
     if saved_override_present {
-        let _ = inet.set_value("ProxyOverride", &saved_override);
+        inet.set_value("ProxyOverride", &saved_override).map_err(|e| format!("restore ProxyOverride: {e}"))?;
     } else {
-        let _ = inet.delete_value("ProxyOverride");
+        match inet.delete_value("ProxyOverride") {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("delete ProxyOverride: {e}")),
+        }
     }
-    let _ = nk.set_value("SavedProxyValid", &0u32);
-    true
+    // ProxyEnable is the commit marker visible to WinINet. Restore all
+    // dependent values first so a partial registry failure never activates a
+    // half-restored proxy configuration.
+    inet.set_value("ProxyEnable", &saved_enable)
+        .map_err(|e| format!("restore ProxyEnable: {e}"))?;
+    nk.set_value("SavedProxyValid", &0u32).map_err(|e| format!("clear proxy snapshot: {e}"))?;
+    let _ = nk.delete_value("ActiveProxyServer");
+    Ok(true)
 }
 
-pub fn set_system_proxy(enable: bool, host_port: Option<&str>) -> Result<(), String> {
+pub fn set_system_proxy(enable: bool, host_port: Option<&str>, bypass_lan: Option<bool>) -> Result<(), String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (key, _) = hkcu
         .create_subkey(INET_SETTINGS_KEY)
         .map_err(|e| format!("open Internet Settings: {e}"))?;
 
     if enable {
-        save_proxy_snapshot(&hkcu, &key);
+        save_proxy_snapshot(&hkcu, &key)?;
         let hp = host_port.unwrap_or("127.0.0.1:7890");
+        let (ninety, _) = hkcu
+            .create_subkey(NINETY_KEY)
+            .map_err(|e| format!("open Ninety proxy state: {e}"))?;
+        ninety
+            .set_value("ActiveProxyServer", &hp.to_string())
+            .map_err(|e| format!("save active proxy: {e}"))?;
         key.set_value("ProxyServer", &hp.to_string())
             .map_err(|e| format!("set ProxyServer: {e}"))?;
-        key.set_value("ProxyOverride", &PROXY_OVERRIDE.to_string())
+        let override_list = if bypass_lan.unwrap_or(true) {
+            PROXY_OVERRIDE
+        } else {
+            PROXY_OVERRIDE_LOOPBACK_ONLY
+        };
+        key.set_value("ProxyOverride", &override_list.to_string())
             .map_err(|e| format!("set ProxyOverride: {e}"))?;
         key.set_value("ProxyEnable", &1u32)
             .map_err(|e| format!("set ProxyEnable: {e}"))?;
-    } else if !restore_proxy_snapshot(&hkcu, &key) {
-        // Снапшота нет — Ninety прокси не включал (disable зовётся щедро: любой
-        // disconnect/reconnect в любом режиме). Гасим только если ProxyServer
-        // указывает на наш loopback (остался от краша без снапшота); чужой
-        // прокси (корпоративный/ручной) не трогаем.
-        let cur: String = key.get_value("ProxyServer").unwrap_or_default();
-        if cur.starts_with("127.0.0.1:") {
-            key.set_value("ProxyEnable", &0u32)
-                .map_err(|e| format!("clear ProxyEnable: {e}"))?;
+    } else {
+        let current: String = key.get_value("ProxyServer").unwrap_or_default();
+        let active = hkcu
+            .open_subkey(NINETY_KEY)
+            .ok()
+            .and_then(|k| k.get_value::<String, _>("ActiveProxyServer").ok());
+        if !proxy_owned_by_ninety(&current, active.as_deref()) {
+            // Кто-то сменил proxy после Ninety — не перетираем новый выбор.
+            // Это также покрывает legacy snapshot без ActiveProxyServer.
+            if let Ok(nk) = hkcu.open_subkey_with_flags(NINETY_KEY, KEY_READ | KEY_WRITE) {
+                let _ = nk.set_value("SavedProxyValid", &0u32);
+                let _ = nk.delete_value("ActiveProxyServer");
+            }
+        } else if !restore_proxy_snapshot(&hkcu, &key)? {
+            // Legacy crash без snapshot ownership: гасим только наш loopback.
+            let owned = proxy_owned_by_ninety(&current, active.as_deref());
+            if owned {
+                key.set_value("ProxyEnable", &0u32)
+                    .map_err(|e| format!("clear ProxyEnable: {e}"))?;
+                if let Ok(nk) = hkcu.open_subkey_with_flags(NINETY_KEY, KEY_READ | KEY_WRITE) {
+                    let _ = nk.delete_value("ActiveProxyServer");
+                }
+            }
         }
     }
 
@@ -133,6 +183,23 @@ pub fn set_system_proxy(enable: bool, host_port: Option<&str>) -> Result<(), Str
         let _ = InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0);
     }
     Ok(())
+}
+
+pub fn recover_stale_system_proxy() -> Result<(), String> {
+    set_system_proxy(false, None, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn proxy_ownership_prefers_explicit_marker() {
+        assert!(proxy_owned_by_ninety("127.0.0.1:7890", Some("127.0.0.1:7890")));
+        assert!(!proxy_owned_by_ninety("127.0.0.1:8080", Some("127.0.0.1:7890")));
+        assert!(proxy_owned_by_ninety("127.0.0.1:7890", None));
+        assert!(!proxy_owned_by_ninety("corp.example:8080", None));
+    }
 }
 
 // True если текущий процесс запущен с правами администратора (elevated token).

@@ -1,8 +1,8 @@
 // Ninety · Список процессов с исходящей сетевой активностью. Для UI правил
 // маршрутизации (выбор процесса вместо ручного ввода имени .exe). Снимок таблицы
-// TCP-соединений Windows (GetExtendedTcpTable, AF_INET, established) → PID → имя
+// TCP/UDP owner tables Windows (IPv4+IPv6) → PID → имя
 // exe (QueryFullProcessImageNameW). От sing-box НЕ зависит — работает даже без
-// активных правил. IPv6 — follow-up (TCP6_TABLE), сейчас IPv4 покрывает выбор.
+// активных правил.
 
 use serde::Serialize;
 
@@ -13,7 +13,7 @@ pub struct NetProcess {
     pub path: String,
 }
 
-/// Уникальные процессы (по имени exe) с установленными исходящими TCP-соединениями.
+/// Уникальные процессы (по имени exe) с TCP-соединениями или UDP endpoint'ами.
 /// На не-Windows возвращает пустой список (команда всё равно зарегистрирована,
 /// чтобы фронт не падал в dev-окружении).
 ///
@@ -46,11 +46,14 @@ mod windows_impl {
     use super::NetProcess;
     use std::collections::BTreeMap;
     use windows::core::PWSTR;
-    use windows::Win32::Foundation::{CloseHandle, BOOL, ERROR_INSUFFICIENT_BUFFER};
+    use windows::Win32::Foundation::{CloseHandle, GetLastError, BOOL, ERROR_INSUFFICIENT_BUFFER};
     use windows::Win32::NetworkManagement::IpHelper::{
-        GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_ALL,
+        GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCP6ROW_OWNER_PID,
+        MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID,
+        MIB_UDP6ROW_OWNER_PID, MIB_UDP6TABLE_OWNER_PID, MIB_UDPROW_OWNER_PID,
+        MIB_UDPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
     };
-    use windows::Win32::Networking::WinSock::AF_INET;
+    use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6};
     use windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
         PROCESS_QUERY_LIMITED_INFORMATION,
@@ -62,7 +65,7 @@ mod windows_impl {
 
     pub fn collect() -> Result<Vec<NetProcess>, String> {
         let mut out: BTreeMap<String, NetProcess> = BTreeMap::new();
-        for pid in established_pids()? {
+        for pid in network_pids()? {
             if pid == 0 {
                 continue;
             }
@@ -78,7 +81,17 @@ mod windows_impl {
         Ok(out.into_values().collect())
     }
 
-    fn established_pids() -> Result<Vec<u32>, String> {
+    fn network_pids() -> Result<Vec<u32>, String> {
+        let mut pids = established_pids_v4()?;
+        pids.extend(established_pids_v6()?);
+        pids.extend(udp_pids_v4()?);
+        pids.extend(udp_pids_v6()?);
+        pids.sort_unstable();
+        pids.dedup();
+        Ok(pids)
+    }
+
+    fn established_pids_v4() -> Result<Vec<u32>, String> {
         unsafe {
             // 1-й вызов: узнать размер (вернёт ERROR_INSUFFICIENT_BUFFER — игнор).
             let mut size: u32 = 0;
@@ -141,17 +154,128 @@ mod windows_impl {
         }
     }
 
+    fn established_pids_v6() -> Result<Vec<u32>, String> {
+        unsafe {
+            let mut size = 0u32;
+            let _ = GetExtendedTcpTable(None, &mut size, BOOL(0), AF_INET6.0 as u32, TCP_TABLE_OWNER_PID_ALL, 0);
+            if size == 0 { return Ok(Vec::new()); }
+            for _ in 0..3 {
+                let words = (size as usize).div_ceil(4);
+                let mut buf = vec![0u32; words];
+                let mut avail = size;
+                let rc = GetExtendedTcpTable(
+                    Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
+                    &mut avail,
+                    BOOL(0),
+                    AF_INET6.0 as u32,
+                    TCP_TABLE_OWNER_PID_ALL,
+                    0,
+                );
+                if rc == ERROR_INSUFFICIENT_BUFFER.0 {
+                    size = avail.max(size.saturating_add(4096));
+                    continue;
+                }
+                if rc != 0 { return Err(format!("GetExtendedTcpTable(v6): код {rc}")); }
+                let table = &*(buf.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID);
+                let alloc_bytes = words * 4;
+                let header = (table.table.as_ptr() as usize) - (buf.as_ptr() as usize);
+                let cap_rows = alloc_bytes.saturating_sub(header) / core::mem::size_of::<MIB_TCP6ROW_OWNER_PID>();
+                let rows = std::slice::from_raw_parts(table.table.as_ptr(), (table.dwNumEntries as usize).min(cap_rows));
+                return Ok(rows.iter().filter(|r| r.dwState == TCP_STATE_ESTAB).map(|r| r.dwOwningPid).collect());
+            }
+            Err("таблица TCPv6-соединений растёт быстрее, чем читается".into())
+        }
+    }
+
+    fn udp_pids_v4() -> Result<Vec<u32>, String> {
+        unsafe {
+            let mut size = 0u32;
+            let _ = GetExtendedUdpTable(None, &mut size, BOOL(0), AF_INET.0 as u32, UDP_TABLE_OWNER_PID, 0);
+            if size == 0 { return Ok(Vec::new()); }
+            for _ in 0..3 {
+                let words = (size as usize).div_ceil(4);
+                let mut buf = vec![0u32; words];
+                let mut avail = size;
+                let rc = GetExtendedUdpTable(
+                    Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
+                    &mut avail,
+                    BOOL(0),
+                    AF_INET.0 as u32,
+                    UDP_TABLE_OWNER_PID,
+                    0,
+                );
+                if rc == ERROR_INSUFFICIENT_BUFFER.0 {
+                    size = avail.max(size.saturating_add(4096));
+                    continue;
+                }
+                if rc != 0 { return Err(format!("GetExtendedUdpTable(v4): код {rc}")); }
+                let table = &*(buf.as_ptr() as *const MIB_UDPTABLE_OWNER_PID);
+                let alloc_bytes = words * 4;
+                let header = (table.table.as_ptr() as usize) - (buf.as_ptr() as usize);
+                let cap_rows = alloc_bytes.saturating_sub(header) / core::mem::size_of::<MIB_UDPROW_OWNER_PID>();
+                let rows = std::slice::from_raw_parts(table.table.as_ptr(), (table.dwNumEntries as usize).min(cap_rows));
+                return Ok(rows.iter().map(|r| r.dwOwningPid).collect());
+            }
+            Err("таблица UDPv4 endpoint'ов растёт быстрее, чем читается".into())
+        }
+    }
+
+    fn udp_pids_v6() -> Result<Vec<u32>, String> {
+        unsafe {
+            let mut size = 0u32;
+            let _ = GetExtendedUdpTable(None, &mut size, BOOL(0), AF_INET6.0 as u32, UDP_TABLE_OWNER_PID, 0);
+            if size == 0 { return Ok(Vec::new()); }
+            for _ in 0..3 {
+                let words = (size as usize).div_ceil(4);
+                let mut buf = vec![0u32; words];
+                let mut avail = size;
+                let rc = GetExtendedUdpTable(
+                    Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
+                    &mut avail,
+                    BOOL(0),
+                    AF_INET6.0 as u32,
+                    UDP_TABLE_OWNER_PID,
+                    0,
+                );
+                if rc == ERROR_INSUFFICIENT_BUFFER.0 {
+                    size = avail.max(size.saturating_add(4096));
+                    continue;
+                }
+                if rc != 0 { return Err(format!("GetExtendedUdpTable(v6): код {rc}")); }
+                let table = &*(buf.as_ptr() as *const MIB_UDP6TABLE_OWNER_PID);
+                let alloc_bytes = words * 4;
+                let header = (table.table.as_ptr() as usize) - (buf.as_ptr() as usize);
+                let cap_rows = alloc_bytes.saturating_sub(header) / core::mem::size_of::<MIB_UDP6ROW_OWNER_PID>();
+                let rows = std::slice::from_raw_parts(table.table.as_ptr(), (table.dwNumEntries as usize).min(cap_rows));
+                return Ok(rows.iter().map(|r| r.dwOwningPid).collect());
+            }
+            Err("таблица UDPv6 endpoint'ов растёт быстрее, чем читается".into())
+        }
+    }
+
     fn process_path(pid: u32) -> Option<String> {
         unsafe {
             let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, BOOL(0), pid).ok()?;
-            let mut buf = [0u16; 260];
-            let mut len = buf.len() as u32;
-            let res = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len);
-            let _ = CloseHandle(handle);
-            if res.is_err() || len == 0 {
-                return None;
+            let mut capacity = 260usize;
+            let result = loop {
+                let mut buf = vec![0u16; capacity];
+                let mut len = buf.len() as u32;
+                let res = QueryFullProcessImageNameW(
+                    handle,
+                    PROCESS_NAME_WIN32,
+                    PWSTR(buf.as_mut_ptr()),
+                    &mut len,
+                );
+                if res.is_ok() && len > 0 {
+                    break Some(String::from_utf16_lossy(&buf[..len as usize]));
+                }
+                if GetLastError() != ERROR_INSUFFICIENT_BUFFER || capacity >= 32768 {
+                    break None;
+                }
+                capacity = (capacity * 2).min(32768);
             }
-            Some(String::from_utf16_lossy(&buf[..len as usize]))
+            let _ = CloseHandle(handle);
+            result
         }
     }
 }

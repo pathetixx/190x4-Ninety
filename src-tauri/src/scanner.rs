@@ -13,9 +13,16 @@
 
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::net::{TcpStream, UdpSocket};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter, State};
+use futures_util::{stream, StreamExt};
+
+#[derive(Default)]
+pub struct WarpScanState {
+    generation: AtomicU64,
+}
 
 // CF WARP подсети с реальными WG-эндпоинтами. Каждая /24 содержит несколько
 // сотен живых IP. Берём из них случайные семплы.
@@ -77,6 +84,10 @@ fn pseudo_random_sample(per_subnet: usize, deep: bool) -> Vec<SocketAddr> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0x9E3779B97F4A7C15);
+    pseudo_random_sample_with_seed(per_subnet, deep, seed)
+}
+
+fn pseudo_random_sample_with_seed(per_subnet: usize, deep: bool, seed: u64) -> Vec<SocketAddr> {
     let mut state = seed;
     let next = |s: &mut u64| -> u32 {
         *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -86,9 +97,13 @@ fn pseudo_random_sample(per_subnet: usize, deep: bool) -> Vec<SocketAddr> {
     let subnets: &[(&str, u32, u32)] = if deep { CF_SUBNETS_DEEP } else { CF_SUBNETS_BASE };
     let mut targets: Vec<SocketAddr> = Vec::with_capacity(subnets.len() * per_subnet * CF_PORTS.len());
     for (prefix, lo, hi) in subnets {
-        let range = hi - lo + 1;
-        for _ in 0..per_subnet {
-            let last = lo + (next(&mut state) % range);
+        // Fisher–Yates: IP внутри /24 не повторяются в одном scan.
+        let mut hosts: Vec<u32> = (*lo..=*hi).collect();
+        for i in (1..hosts.len()).rev() {
+            let j = (next(&mut state) as usize) % (i + 1);
+            hosts.swap(i, j);
+        }
+        for last in hosts.into_iter().take(per_subnet) {
             let ip_str = format!("{prefix}{last}");
             for &port in CF_PORTS {
                 let full = format!("{ip_str}:{port}");
@@ -242,6 +257,7 @@ async fn wg_ping(
 #[tauri::command]
 pub async fn warp_scan_endpoints(
     app: AppHandle,
+    state: State<'_, WarpScanState>,
     per_subnet: Option<usize>,
     concurrency: Option<usize>,
     timeout_ms: Option<u64>,
@@ -249,6 +265,7 @@ pub async fn warp_scan_endpoints(
     deep: Option<bool>,
     mode: Option<String>,
 ) -> Result<Vec<ScanResult>, String> {
+    let generation = state.generation.fetch_add(1, Ordering::SeqCst).wrapping_add(1);
     let deep = deep.unwrap_or(false);
     let default_per = if deep { 15 } else { 5 };
     let per_subnet = per_subnet.unwrap_or(default_per).clamp(1, 30);
@@ -257,11 +274,17 @@ pub async fn warp_scan_endpoints(
 
     // Решаем какой метод реально пускать. Для WG нужны ключи из warp.json —
     // если их нет, любой "wg" / "auto" падает на TCP.
-    let warp_info = crate::warp::warp_status(app).ok().flatten();
+    let warp_info = crate::warp::warp_status(app.clone()).ok().flatten();
+    let parsed_keys = warp_info.as_ref().and_then(parse_wg_keys);
     let use_wg = match mode_req.as_str() {
-        "wg" => warp_info.is_some(),
+        "wg" => {
+            if parsed_keys.is_none() {
+                return Err("WG-режим требует валидную WARP-регистрацию".into());
+            }
+            true
+        }
         "tcp" => false,
-        _ => warp_info.is_some(), // auto
+        _ => parsed_keys.is_some(), // auto: битые/legacy ключи → TCP fallback
     };
     let method_label: &'static str = if use_wg { "wg" } else { "tcp" };
 
@@ -276,10 +299,9 @@ pub async fn warp_scan_endpoints(
 
     // Парсим ключи один раз для shared между задачами.
     let keys = if use_wg {
-        let info = warp_info.as_ref()
-            .ok_or_else(|| "WG-режим требует warp.json — зарегистрируйте WARP".to_string())?;
-        Some(std::sync::Arc::new(parse_wg_keys(info)
-            .ok_or_else(|| "warp.json: невалидные private/peer ключи".to_string())?))
+        Some(std::sync::Arc::new(parsed_keys.ok_or_else(|| {
+            "warp.json: невалидные private/peer ключи".to_string()
+        })?))
     } else {
         None
     };
@@ -289,13 +311,10 @@ pub async fn warp_scan_endpoints(
         return Err("no targets".into());
     }
 
-    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(concurrency));
-    let mut handles = Vec::with_capacity(targets.len());
-    for addr in targets {
-        let sem = sem.clone();
+    let total = targets.len();
+    let probes = stream::iter(targets.into_iter().map(|addr| {
         let keys = keys.clone();
-        handles.push(tokio::spawn(async move {
-            let _permit = sem.acquire_owned().await.ok()?;
+        async move {
             let lat = if let Some(k) = keys.as_deref() {
                 wg_ping(addr, k, timeout).await?
             } else {
@@ -307,16 +326,64 @@ pub async fn warp_scan_endpoints(
                 latency_ms: lat,
                 method: method_label.into(),
             })
-        }));
-    }
+        }
+    }))
+    .buffer_unordered(concurrency);
+    tokio::pin!(probes);
 
-    let mut results: Vec<ScanResult> = Vec::with_capacity(handles.len() / 4);
-    for h in handles {
-        if let Ok(Some(r)) = h.await {
-            results.push(r);
+    let mut results: Vec<ScanResult> = Vec::with_capacity(total / 4);
+    let mut completed = 0usize;
+    let deadline = tokio::time::sleep(Duration::from_secs(if deep { 30 } else { 15 }));
+    let mut cancel_tick = tokio::time::interval(Duration::from_millis(100));
+    cancel_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    tokio::pin!(deadline);
+    loop {
+        if state.generation.load(Ordering::SeqCst) != generation {
+            return Err("WARP scan отменён".into());
+        }
+        tokio::select! {
+            _ = &mut deadline => break,
+            _ = cancel_tick.tick() => {
+                if state.generation.load(Ordering::SeqCst) != generation {
+                    return Err("WARP scan отменён".into());
+                }
+            }
+            item = probes.next() => match item {
+                Some(result) => {
+                    completed += 1;
+                    if let Some(r) = result { results.push(r); }
+                    if completed == total || completed % 50 == 0 {
+                        let _ = app.emit("warp:scan-progress", serde_json::json!({
+                            "completed": completed,
+                            "total": total,
+                            "found": results.len(),
+                        }));
+                    }
+                }
+                None => break,
+            }
         }
     }
     results.sort_by_key(|r| r.latency_ms);
     results.truncate(top_n);
     Ok(results)
+}
+
+#[tauri::command]
+pub fn warp_scan_cancel(state: State<'_, WarpScanState>) {
+    state.generation.fetch_add(1, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn endpoint_sample_has_no_duplicate_socket_addresses() {
+        let targets = pseudo_random_sample_with_seed(30, true, 42);
+        let unique: HashSet<_> = targets.iter().copied().collect();
+        assert_eq!(unique.len(), targets.len());
+        assert_eq!(targets.len(), CF_SUBNETS_DEEP.len() * 30 * CF_PORTS.len());
+    }
 }

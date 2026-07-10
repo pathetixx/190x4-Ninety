@@ -23,6 +23,26 @@ use std::sync::Mutex;
 
 use crate::util::MutexExt;
 
+const ENGINE_NAMES: [&str; 8] = [
+    "sing-box.exe",
+    "sing-box-x86_64-pc-windows-msvc.exe",
+    "xray.exe",
+    "xray-x86_64-pc-windows-msvc.exe",
+    "naive.exe",
+    "naive-x86_64-pc-windows-msvc.exe",
+    "trusttunnel_client.exe",
+    "trusttunnel_client-x86_64-pc-windows-msvc.exe",
+];
+
+fn existing_engine_paths(dir: &std::path::Path) -> Vec<String> {
+    ENGINE_NAMES
+        .iter()
+        .map(|name| dir.join(name))
+        .filter(|p| p.exists())
+        .map(|p| p.to_string_lossy().to_string())
+        .collect()
+}
+
 /// Хранит сырой FWPM engine handle (isize), пока kill switch активен. None = выключен.
 /// HANDLE не Send/Sync — держим как isize, восстанавливаем при disarm.
 #[derive(Default)]
@@ -101,27 +121,12 @@ fn engine_exe_paths() -> Result<Vec<String>, String> {
     // Tauri CLI resolves `externalBin: ["binaries/sing-box", ...]` to target-
     // suffixed files in dev/build (`sing-box-x86_64-pc-windows-msvc.exe`).
     // Keep the short names too: they make local/manual sidecar layouts harmless.
-    const ENGINES: [&str; 8] = [
-        "sing-box.exe",
-        "sing-box-x86_64-pc-windows-msvc.exe",
-        "xray.exe",
-        "xray-x86_64-pc-windows-msvc.exe",
-        "naive.exe",
-        "naive-x86_64-pc-windows-msvc.exe",
-        "trusttunnel_client.exe",
-        "trusttunnel_client-x86_64-pc-windows-msvc.exe",
-    ];
     let self_exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let dir = self_exe
         .parent()
         .ok_or("нет родительского каталога exe")?
         .to_path_buf();
-    let mut exes: Vec<String> = ENGINES
-        .iter()
-        .map(|name| dir.join(name))
-        .filter(|p| p.exists())
-        .map(|p| p.to_string_lossy().to_string())
-        .collect();
+    let mut exes = existing_engine_paths(&dir);
     if exes.is_empty() {
         return Err("движки не найдены рядом с Ninety — kill switch не включён".into());
     }
@@ -133,6 +138,24 @@ fn engine_exe_paths() -> Result<Vec<String>, String> {
     // по-прежнему блокируется.
     exes.push(self_exe.to_string_lossy().to_string());
     Ok(exes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_discovery_only_returns_known_existing_binaries() {
+        let dir = std::env::temp_dir().join(format!("ninety-killswitch-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("sing-box.exe"), b"").unwrap();
+        std::fs::write(dir.join("unrelated.exe"), b"").unwrap();
+        let found = existing_engine_paths(&dir);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].ends_with("sing-box.exe"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(target_os = "windows")]

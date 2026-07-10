@@ -90,9 +90,11 @@ pub async fn probe_quality(
     }
 
     let mut last_err = ProbeResult::fail(String::new(), 0, "no endpoints".into());
+    let overall = Instant::now();
 
     for ep in &endpoints {
-        match probe_one(&client, ep, sample_bytes, budget).await {
+        let Some(remaining) = budget.checked_sub(overall.elapsed()) else { break };
+        match probe_one(&client, ep, sample_bytes, remaining).await {
             Ok(r) => return Ok(r), // первый отдавший тело — берём его метрики
             Err(r) => last_err = r,
         }
@@ -202,21 +204,37 @@ async fn probe_one(
 
     // goodput считаем от первого байта до конца выборки (без setup/TTFB) —
     // это честная скорость канала аутбаунда.
-    let body_ms = fb.elapsed().as_millis() as u64;
+    let body_ms = (fb.elapsed().as_millis() as u64).max(1);
     let goodput_bps = bytes
         .saturating_mul(8)
         .saturating_mul(1000)
         .checked_div(body_ms)
         .unwrap_or(0);
 
+    let complete = bytes >= sample_bytes;
     Ok(ProbeResult {
-        ok: !stalled,
+        ok: !stalled && complete,
         goodput_bps,
         ttfb_ms,
         bytes,
         ms,
         stalled,
         endpoint: endpoint.into(),
-        error: None,
+        error: if !stalled && !complete {
+            Some(format!("incomplete sample: {bytes}/{sample_bytes} bytes"))
+        } else {
+            None
+        },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sub_millisecond_goodput_uses_one_millisecond_floor() {
+        let bytes = 1024u64;
+        let body_ms = 0u64.max(1);
+        let bps = bytes.saturating_mul(8).saturating_mul(1000) / body_ms;
+        assert_eq!(bps, 8_192_000);
+    }
 }

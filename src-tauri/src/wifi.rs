@@ -12,6 +12,11 @@ pub struct WifiInfo {
     pub secured: bool,   // true = шифрование включено (WPA/WEP); false = открытая
 }
 
+fn decode_ssid(bytes: &[u8], declared_len: usize) -> String {
+    let len = declared_len.min(bytes.len());
+    String::from_utf8_lossy(&bytes[..len]).to_string()
+}
+
 /// Текущая Wi-Fi сеть (для авто-защиты на чужих сетях). На не-Windows и при
 /// отсутствии Wi-Fi-адаптера возвращает connected=false.
 #[tauri::command]
@@ -87,13 +92,23 @@ mod win {
         }
         let attr = &*(data as *const WLAN_CONNECTION_ATTRIBUTES);
         let ssid = &attr.wlanAssociationAttributes.dot11Ssid;
-        let len = (ssid.uSSIDLength as usize).min(ssid.ucSSID.len());
-        let name = String::from_utf8_lossy(&ssid.ucSSID[..len]).to_string();
+        let name = super::decode_ssid(&ssid.ucSSID, ssid.uSSIDLength as usize);
         // Открытая сеть = шифрование выключено ИЛИ auth = OPEN.
         let sec = &attr.wlanSecurityAttributes;
         let secured = sec.bSecurityEnabled.as_bool()
             && sec.dot11AuthAlgorithm != DOT11_AUTH_ALGO_80211_OPEN;
         WlanFreeMemory(data);
         Some(WifiInfo { connected: true, ssid: name, secured })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ssid_decoder_clamps_length_and_handles_non_utf8() {
+        assert_eq!(decode_ssid(b"Office\0garbage", 6), "Office");
+        assert!(decode_ssid(&[0xff, b'A'], 99).ends_with('A'));
     }
 }

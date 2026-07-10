@@ -21,9 +21,14 @@ use x25519_dalek::{PublicKey, StaticSecret};
 const CF_API_BASE: &str = "https://api.cloudflareclient.com/v0a2158";
 const CF_UA: &str = "okhttp/3.12.1";
 const CF_CLIENT_VERSION: &str = "a-6.10-2158";
+static WARP_OPERATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WarpInfo {
+    /// Top-level registration/device id used by /reg/{id} endpoints.
+    #[serde(default)]
+    pub registration_id: String,
+    /// Cloudflare account id (metadata only; never use as registration id).
     pub account_id: String,
     pub access_token: String,
     pub private_key: String,
@@ -125,13 +130,16 @@ fn write_info(app: &AppHandle, info: &WarpInfo) -> Result<(), String> {
     let p = storage_path(app)?;
     let s = serde_json::to_string(info).map_err(|e| format!("serialize: {e}"))?;
     let sealed = crate::secrets::seal(s.as_bytes())?;
-    std::fs::write(&p, sealed).map_err(|e| format!("write {}: {}", p.display(), e))
+    crate::atomic_file::write_bytes_replace(&p, &sealed, "warp state")
 }
 
 fn delete_info(app: &AppHandle) -> Result<(), String> {
     let p = storage_path(app)?;
-    if p.exists() {
-        std::fs::remove_file(&p).map_err(|e| format!("remove {}: {}", p.display(), e))?;
+    for file in [p.clone(), p.with_extension("json.new"), p.with_extension("json.bak")] {
+        if file.exists() {
+            std::fs::remove_file(&file)
+                .map_err(|e| format!("remove {}: {e}", file.display()))?;
+        }
     }
     Ok(())
 }
@@ -140,6 +148,35 @@ fn gen_wg_keypair() -> (String, String) {
     let secret = StaticSecret::random_from_rng(OsRng);
     let public = PublicKey::from(&secret);
     (B64.encode(secret.to_bytes()), B64.encode(public.as_bytes()))
+}
+
+fn validate_registration(reg: &CfRegResp) -> Result<(), String> {
+    if reg.id.trim().is_empty() || reg.token.trim().is_empty() {
+        return Err("cf reg: missing registration id or access token".into());
+    }
+    let peer = reg
+        .config
+        .peers
+        .first()
+        .map(|p| p.public_key.trim())
+        .filter(|p| !p.is_empty())
+        .ok_or("cf reg: missing peer public key")?;
+    let peer_raw = B64.decode(peer).map_err(|e| format!("cf reg: invalid peer key: {e}"))?;
+    if peer_raw.len() != 32 {
+        return Err(format!("cf reg: peer key has {} bytes, expected 32", peer_raw.len()));
+    }
+    if reg.config.interface.addresses.v4.trim().is_empty()
+        && reg.config.interface.addresses.v6.trim().is_empty()
+    {
+        return Err("cf reg: missing interface addresses".into());
+    }
+    let client_id = B64
+        .decode(reg.config.client_id.trim())
+        .map_err(|e| format!("cf reg: invalid client id: {e}"))?;
+    if client_id.len() < 3 {
+        return Err(format!("cf reg: client id has {} bytes, expected at least 3", client_id.len()));
+    }
+    Ok(())
 }
 
 fn http_client() -> Result<reqwest::Client, String> {
@@ -225,12 +262,13 @@ async fn cf_delete(id: &str, token: &str) -> Result<(), String> {
 
 /// Регистрирует новое WARP-устройство. license=None — бесплатный WARP, при
 /// наличии 26-символьного ключа — активирует WARP+. Если устройство уже было
-/// зарегистрировано — старое удаляется до перерегистрации.
+/// зарегистрировано — старое удаляется только после commit новой регистрации.
 #[tauri::command]
 pub async fn warp_register(
     app: AppHandle,
     license: Option<String>,
 ) -> Result<WarpInfo, String> {
+    let _operation = WARP_OPERATION_LOCK.lock().await;
     // Ключ WARP+ — ровно 26 символов. Раньше ключ иной длины молча уходил в
     // ветку бесплатного WARP (юзер думал, что активировал WARP+) — теперь это
     // честная ошибка ДО регистрации. UI дублирует проверку локализованно.
@@ -246,21 +284,29 @@ pub async fn warp_register(
         }
     }
 
-    // 1) Удалить старое устройство если было (best-effort)
-    if let Some(old) = read_info(&app) {
-        let _ = cf_delete(&old.account_id, &old.access_token).await;
-    }
+    // Старую регистрацию держим рабочей до атомарного commit новой.
+    let old = read_info(&app);
 
     // 2) Сгенерировать ключевую пару WG
     let (priv_b64, pub_b64) = gen_wg_keypair();
 
     // 3) POST /reg
     let reg = cf_register(&pub_b64).await?;
+    if let Err(e) = validate_registration(&reg) {
+        let _ = cf_delete(&reg.id, &reg.token).await;
+        return Err(e);
+    }
 
     // 4) Опциональная активация WARP+ (длина ключа уже провалидирована выше).
     let (warp_plus, account_type, license_used) = match &license {
         Some(l) => {
-            let patch = cf_patch_account(&reg.id, &reg.token, l).await?;
+            let patch = match cf_patch_account(&reg.id, &reg.token, l).await {
+                Ok(patch) => patch,
+                Err(e) => {
+                    let _ = cf_delete(&reg.id, &reg.token).await;
+                    return Err(e);
+                }
+            };
             (
                 patch.warp_plus || reg.account.warp_plus,
                 if !patch.account_type.is_empty() {
@@ -283,15 +329,11 @@ pub async fn warp_register(
     };
 
     let info = WarpInfo {
+        registration_id: reg.id.clone(),
         account_id: reg.account.id.clone(),
         access_token: reg.token.clone(),
         private_key: priv_b64,
-        peer_public_key: reg
-            .config
-            .peers
-            .first()
-            .map(|p| p.public_key.clone())
-            .unwrap_or_default(),
+        peer_public_key: reg.config.peers[0].public_key.clone(),
         local_ipv4: reg.config.interface.addresses.v4.clone(),
         local_ipv6: reg.config.interface.addresses.v6.clone(),
         client_id: reg.config.client_id.clone(),
@@ -305,7 +347,16 @@ pub async fn warp_register(
         registered_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    write_info(&app, &info)?;
+    if let Err(e) = write_info(&app, &info) {
+        let _ = cf_delete(&reg.id, &reg.token).await;
+        return Err(e);
+    }
+    // Commit состоялся — только теперь старая registration больше не нужна.
+    if let Some(old) = old.filter(|o| !o.registration_id.trim().is_empty()) {
+        if let Err(e) = cf_delete(&old.registration_id, &old.access_token).await {
+            eprintln!("WARP old registration cleanup failed: {e}");
+        }
+    }
     Ok(info)
 }
 
@@ -320,9 +371,57 @@ pub fn warp_status(app: AppHandle) -> Result<Option<WarpInfo>, String> {
 /// иначе юзер не сможет «сбросить» когда нет интернета.
 #[tauri::command]
 pub async fn warp_reset(app: AppHandle) -> Result<(), String> {
+    let _operation = WARP_OPERATION_LOCK.lock().await;
     if let Some(old) = read_info(&app) {
-        let _ = cf_delete(&old.account_id, &old.access_token).await;
+        if !old.registration_id.trim().is_empty() {
+            let _ = cf_delete(&old.registration_id, &old.access_token).await;
+        }
     }
     delete_info(&app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_registration() -> CfRegResp {
+        CfRegResp {
+            id: "registration-id".into(),
+            token: "token".into(),
+            account: CfAccount {
+                id: "account-id".into(),
+                warp_plus: false,
+                account_type: "free".into(),
+            },
+            config: CfConfig {
+                peers: vec![CfPeer { public_key: B64.encode([7u8; 32]) }],
+                interface: CfInterface {
+                    addresses: CfAddresses { v4: "172.16.0.2".into(), v6: String::new() },
+                },
+                client_id: B64.encode([1u8, 2, 3]),
+            },
+        }
+    }
+
+    #[test]
+    fn registration_validation_requires_wireguard_material() {
+        let mut reg = valid_registration();
+        assert!(validate_registration(&reg).is_ok());
+        reg.config.peers.clear();
+        assert!(validate_registration(&reg).unwrap_err().contains("peer public key"));
+    }
+
+    #[test]
+    fn legacy_warp_info_migrates_with_empty_registration_id() {
+        let json = r#"{
+          "account_id":"legacy-account","access_token":"token","private_key":"private",
+          "peer_public_key":"peer","local_ipv4":"172.16.0.2","local_ipv6":"",
+          "client_id":"AQID","license":null,"warp_plus":false,
+          "account_type":"free","registered_at":"2026-01-01T00:00:00Z"
+        }"#;
+        let info: WarpInfo = serde_json::from_str(json).unwrap();
+        assert!(info.registration_id.is_empty());
+        assert_eq!(info.account_id, "legacy-account");
+    }
 }
