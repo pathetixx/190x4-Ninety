@@ -1,9 +1,10 @@
 name: DPI channel (Flowseal sync)
 
-# Data-channel robot: once a day it checks the latest Flowseal release, rebuilds
+# Reviewed data-channel publisher: an operator supplies the exact upstream tag
+# and reviewed archive SHA-256, then the workflow rebuilds
 # strategies.json (gen_strategies.py), collects the lists and .bin payloads,
-# signs the bundle with our minisign key (the same TAURI_SIGNING_PRIVATE_KEY as
-# OTA) and publishes it to the `dpi-channel` prerelease. Ninety pulls this
+# signs the bundle after explicit tag+checksum review and publishes it to the
+# `dpi-channel` prerelease. Ninety pulls this
 # bundle on the fly, verifies the signature and applies it — WITHOUT an app
 # update. This is DATA ONLY (strategies/lists/.bin + service/hosts + service/
 # ipset-service.txt, consumed by dpi_hosts_apply/dpi_update_ipset — those write
@@ -15,9 +16,16 @@ name: DPI channel (Flowseal sync)
 # would shadow the app updater endpoint (releases/latest/download/latest.json).
 
 on:
-  schedule:
-    - cron: "17 5 * * *" # daily, 05:17 UTC
   workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Exact reviewed Flowseal release tag"
+        required: true
+        type: string
+      archive_sha256:
+        description: "Reviewed SHA-256 of the upstream release archive"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -32,15 +40,27 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Latest Flowseal release
+      - name: Resolve immutable Flowseal source
         id: fl
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag=$(gh api repos/Flowseal/zapret-discord-youtube/releases/latest --jq .tag_name)
-          [ -n "$tag" ] || { echo "::error::failed to resolve the Flowseal tag"; exit 1; }
+          set -euo pipefail
+          tag='${{ inputs.upstream_tag }}'
+          expected='${{ inputs.archive_sha256 }}'
+          [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::invalid upstream tag"; exit 1; }
+          [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "::error::archive_sha256 must be 64 hex chars"; exit 1; }
+          obj=$(gh api "repos/Flowseal/zapret-discord-youtube/git/ref/tags/$tag")
+          type=$(jq -r .object.type <<<"$obj")
+          sha=$(jq -r .object.sha <<<"$obj")
+          if [ "$type" = tag ]; then
+            sha=$(gh api "repos/Flowseal/zapret-discord-youtube/git/tags/$sha" --jq .object.sha)
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::failed to peel upstream tag"; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "Flowseal latest = $tag"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "expected=$expected" >> "$GITHUB_OUTPUT"
+          echo "Flowseal reviewed source = $tag ($sha)"
 
       - name: Download and unpack the release
         run: |
@@ -48,6 +68,7 @@ jobs:
           tag="${{ steps.fl.outputs.tag }}"
           url="https://github.com/Flowseal/zapret-discord-youtube/releases/download/${tag}/zapret-discord-youtube-${tag}.zip"
           curl -fsSL -o fl.zip "$url"
+          echo "${{ steps.fl.outputs.expected }}  fl.zip" | sha256sum --check --strict
           mkdir -p fl && unzip -q fl.zip -d fl
           # .bat files live in the zip root; normalize to the dir with general*.bat
           d=$(dirname "$(find fl -iname 'general.bat' | head -1)")
@@ -68,10 +89,10 @@ jobs:
           # dpi_update_ipset). The release zip does NOT carry .service/, so fetch it
           # from the repo at the resolved tag. Goes into the signed zip → the system-
           # hosts / ipset path is verified, not trusted from raw github at runtime.
-          tag="${{ steps.fl.outputs.tag }}"
+          source_sha="${{ steps.fl.outputs.sha }}"
           for f in hosts ipset-service.txt; do
             curl -fsSL -o "bundle/service/$f" \
-              "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/${tag}/.service/$f" \
+              "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/${source_sha}/.service/$f" \
               || { echo "::error::failed to fetch .service/$f"; exit 1; }
           done
           echo "${{ steps.fl.outputs.tag }}" > bundle/version.txt
@@ -115,9 +136,9 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install tauri signer
+      - name: Install locked signer
         if: steps.chk.outputs.changed == 'true'
-        run: npm install -g @tauri-apps/cli@^2
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Sign the bundle (minisign, our OTA key)
         if: steps.chk.outputs.changed == 'true'
@@ -126,7 +147,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
           # → dpi-channel.zip.sig (base64 minisign signature; Rust decodes and verifies it)
-          tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "" dpi-channel.zip
+          npx --no-install tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "" dpi-channel.zip
           test -f dpi-channel.zip.sig
 
       - name: Publish to the dpi-channel release
@@ -135,7 +156,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          notes="flowseal=${{ steps.fl.outputs.tag }} sha256=${{ steps.pack.outputs.sha }}"
+          notes="flowseal=${{ steps.fl.outputs.tag }} source=${{ steps.fl.outputs.sha }} upstream_sha256=${{ steps.fl.outputs.expected }} sha256=${{ steps.pack.outputs.sha }}"
           if gh release view dpi-channel >/dev/null 2>&1; then
             gh release edit dpi-channel --prerelease --notes "$notes"
           else

@@ -6,7 +6,8 @@
 //     version → бинарь, build-info.js, latest.json для OTA);
 //   src-tauri/Cargo.toml      — версия крейта;
 //   src-tauri/Cargo.lock      — пакет `ninety` (иначе cargo переписывал бы lock);
-//   package.json              — версия npm-обёртки.
+//   package.json              — версия npm-обёртки;
+//   site/app.js + index.html  — offline fallback версии сайта.
 //
 // Механизм чтения версии Tauri НЕ трогаем (напр. "version": "../package.json"):
 // build.yml грепает число из tauri.conf.json как строку — путь-плейсхолдер там
@@ -54,5 +55,8 @@ edit(
   /(name = "ninety"\nversion = ")\d+\.\d+\.\d+(")/,
   `$1${version}$2`,
 );
+
+edit("site/app.js", /(tagName:\s*"v)\d+\.\d+\.\d+(")/, `$1${version}$2`);
+edit("site/index.html", /(data-release-version>v)\d+\.\d+\.\d+(<\/strong>)/, `$1${version}$2`);
 
 console.log(`\nBumped to ${version}. Next: commit + push, then annotated tag (see RELEASING.md).`);

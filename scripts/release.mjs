@@ -2,7 +2,7 @@
 // Ninety · релиз одной командой, от бампа до раздачи по OTA. Оборачивает весь
 // ритуал (RELEASING.md) так, что две ручные переменные — номер версии и
 // заметки — авторятся по одному разу и разъезжаться не могут:
-//   версия → bump-version.mjs (4 файла);
+//   версия → bump-version.mjs (app manifests + website fallback);
 //   заметки → секция CHANGELOG.md этой версии → git tag -a -F → тело draft'а.
 // CHANGELOG.md — единый источник заметок: те же байты уходят в аннотацию тега
 // (→ latest.json/OTA) и в тело релиза.
@@ -13,7 +13,7 @@
 // GitHub и GitLab.
 //
 // Использование:
-//   node scripts/release.mjs X.Y.Z [--watch] [--dry-run] [--yes] [--allow-branch]
+//   node scripts/release.mjs X.Y.Z [--watch] [--dry-run] [--yes]
 //   node scripts/release.mjs X.Y.Z --verify        # только проверить уже вышедший релиз
 // Перед запуском: добавить секцию "## vX.Y.Z — YYYY-MM-DD" в НАЧАЛО CHANGELOG.md.
 
@@ -119,8 +119,21 @@ if (flags.has("--verify")) {
 
 // --- предпроверки (только чтение) ---
 const branch = cap("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
-if (branch !== "main" && !flags.has("--allow-branch"))
-  die(`ветка ${branch}, ожидалась main (RELEASING.md). Обход: --allow-branch`);
+if (branch !== "main") die(`ветка ${branch}, ожидалась main (RELEASING.md)`);
+run("git", ["fetch", "origin", "main"]);
+const head = cap("git", ["rev-parse", "HEAD"]);
+const originMain = cap("git", ["rev-parse", "origin/main"]);
+if (head !== originMain) die("локальный main должен точно совпадать с origin/main перед релизом");
+
+// Скрипт сам коммитит только release-файлы. Любая другая грязь (особенно уже
+// staged) могла бы незаметно попасть в релизный commit через общий git commit.
+const dirty = cap("git", ["status", "--porcelain=v1"])
+  .split("\n")
+  .filter(Boolean);
+const unexpectedDirty = dirty.filter((line) => !/^[ MARC?][ MDARC?] CHANGELOG\.md$/.test(line));
+if (unexpectedDirty.length) {
+  die(`перед релизом разрешено менять только CHANGELOG.md:\n${unexpectedDirty.join("\n")}`);
+}
 
 if (cap("git", ["tag", "-l", tag])) die(`тег ${tag} уже существует локально`);
 try {
@@ -150,7 +163,7 @@ const needDate = !/—\s*\d{4}-\d{2}-\d{2}/.test(lines[headIdx]);
 
 // --- план ---
 console.log(`\nРелиз ${tag}`);
-console.log(`  бамп 4 файлов → ${version}`);
+console.log(`  синхронизация версии приложения и сайта → ${version}`);
 if (needDate) console.log(`  дата в заголовке CHANGELOG → ${today}`);
 console.log(`  заметки (${notes.split("\n").length} стр. из CHANGELOG.md):`);
 console.log(notes.split("\n").map((l) => "    " + l).join("\n"));
@@ -177,8 +190,10 @@ if (needDate) {
 }
 
 run("node", ["scripts/bump-version.mjs", version]);
+run("node", ["scripts/check-version.mjs"]);
 run("git", ["add", "package.json", "src-tauri/tauri.conf.json",
-  "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "CHANGELOG.md"]);
+  "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "site/app.js",
+  "site/index.html", "CHANGELOG.md"]);
 run("git", ["commit", "-m", tag]);
 const sha = cap("git", ["rev-parse", "HEAD"]);
 

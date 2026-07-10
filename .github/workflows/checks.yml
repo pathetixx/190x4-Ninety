@@ -6,6 +6,8 @@ name: Checks
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -28,7 +30,7 @@ jobs:
           node-version: 22
 
       - name: Run JS tests
-        run: npm test
+        run: npm test && npm run check:versions
 
   js-lint:
     runs-on: ubuntu-latest

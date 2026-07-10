@@ -23,7 +23,7 @@ export default [
   {
     // Фронтенд — браузерные ES-модули (withGlobalTauri: __TAURI__ берётся как
     // window.__TAURI__, отдельный global не нужен).
-    files: ["src/**/*.js"],
+    files: ["src/**/*.js", "site/**/*.js"],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: "module",

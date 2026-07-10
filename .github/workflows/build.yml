@@ -31,7 +31,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -52,6 +52,9 @@ jobs:
 
       - name: Install npm deps
         run: npm ci --no-audit --no-fund
+
+      - name: Validate tag and version consistency
+        run: npm run check:versions
 
       - name: Lint frontend
         run: npm run lint
@@ -335,7 +338,7 @@ jobs:
           R2_BUCKET: ninety-updates
           R2_PUBLIC_URL: https://pub-d55ef44f89364070a9c55d8d0f9d825b.r2.dev
         run: |
-          python -m pip install --quiet boto3
+          python -m pip install --quiet --no-deps -r ci/requirements-r2.txt
           python scripts/r2_mirror.py
 
       # RU-reachable OTA SOURCE: same .exe + latest.json (url→gitlab) in the

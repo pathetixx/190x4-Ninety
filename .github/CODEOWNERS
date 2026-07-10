@@ -1,0 +1,7 @@
+# Privileged Windows and release surfaces require owner review when PR rules are enabled.
+/.github/workflows/ @pathetixx
+/src-tauri/src/dpi.rs @pathetixx
+/src-tauri/src/killswitch.rs @pathetixx
+/src-tauri/src/proxy_win.rs @pathetixx
+/src-tauri/src/warp.rs @pathetixx
+/scripts/release.mjs @pathetixx
