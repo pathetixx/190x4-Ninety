@@ -12,7 +12,7 @@
 // отправляется в CF, приватный остаётся у нас.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use rand_core::OsRng;
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
@@ -145,7 +145,10 @@ fn delete_info(app: &AppHandle) -> Result<(), String> {
 }
 
 fn gen_wg_keypair() -> (String, String) {
-    let secret = StaticSecret::random_from_rng(OsRng);
+    let mut private = [0u8; 32];
+    OsRng.fill_bytes(&mut private);
+    let secret = StaticSecret::from(private);
+    private.fill(0);
     let public = PublicKey::from(&secret);
     (B64.encode(secret.to_bytes()), B64.encode(public.as_bytes()))
 }
