@@ -130,7 +130,10 @@ if (head !== originMain) die("локальный main должен точно с
 const dirty = cap("git", ["status", "--porcelain=v1"])
   .split("\n")
   .filter(Boolean);
-const unexpectedDirty = dirty.filter((line) => !/^[ MARC?][ MDARC?] CHANGELOG\.md$/.test(line));
+// cap() trims output, поэтому у единственной строки первый пробел porcelain
+// может исчезнуть (" M CHANGELOG.md" → "M CHANGELOG.md").
+const releaseNotesOnly = /^(?:[ MARC?][ MDARC?]|[MARC?]) CHANGELOG\.md$/;
+const unexpectedDirty = dirty.filter((line) => !releaseNotesOnly.test(line));
 if (unexpectedDirty.length) {
   die(`перед релизом разрешено менять только CHANGELOG.md:\n${unexpectedDirty.join("\n")}`);
 }
