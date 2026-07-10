@@ -7,7 +7,7 @@
 // (Rust: state_backup_save/load, файл state-backup.json) и на старте
 // восстанавливаем, если хранилище пусто.
 
-import { shouldBackupStorageKey, shouldRestoreStorageKey } from "/lib/storage-policy.js";
+import { STORAGE_KEYS, shouldBackupStorageKey, shouldRestoreStorageKey } from "/lib/storage-policy.js";
 
 // Маркеры «хранилище живое»: есть хоть один — восстановление не нужно.
 const CORE_KEYS = ["ninety.options.v1", "ninety.profiles.v1", "ninety.subscriptions.v1"];
@@ -15,39 +15,38 @@ const CORE_KEYS = ["ninety.options.v1", "ninety.profiles.v1", "ninety.subscripti
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-function snapshot() {
+function snapshot({ includeUpdateResume = false } = {}) {
   const out = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (!shouldBackupStorageKey(k)) continue;
+    // Маркер возврата сессии нужен только в снимке, который делаем прямо перед
+    // OTA. В обычном бэкапе он не должен переживать произвольный перезапуск.
+    if (!shouldBackupStorageKey(k) && !(includeUpdateResume && k === STORAGE_KEYS.updateResume)) continue;
     const v = localStorage.getItem(k);
     if (v != null) out[k] = v;
   }
   return out;
 }
 
-let backupInFlight = null;
-let backupQueued = false;
+let backupInFlight = Promise.resolve();
 
-export function backupNow() {
-  if (backupInFlight) {
-    backupQueued = true;
-    return backupInFlight;
-  }
-  backupInFlight = (async () => {
-    const snap = snapshot();
+export function backupNow({ includeUpdateResume = false } = {}) {
+  // Каждая заявка получает собственный Promise: OTA не начнёт установку, пока
+  // именно её снимок не записан после возможного обычного бэкапа в очереди.
+  backupInFlight = backupInFlight.catch(() => {}).then(async () => {
+    const snap = snapshot({ includeUpdateResume });
     // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой.
     if (!Object.keys(snap).length) return;
     try { await invoke("state_backup_save", { json: JSON.stringify(snap) }); }
     catch (e) { console.warn("state backup failed", e); }
-  })().finally(() => {
-    backupInFlight = null;
-    if (backupQueued) {
-      backupQueued = false;
-      backupNow();
-    }
   });
   return backupInFlight;
+}
+
+// Перед OTA сохраняем единый снимок профиля и флага возврата сессии. Сам флаг
+// одноразовый: main.js удалит его сразу после следующего успешного старта.
+export function backupForUpdate() {
+  return backupNow({ includeUpdateResume: true });
 }
 
 let backupTimer = null;
@@ -75,7 +74,10 @@ export async function restoreIfEmpty() {
   try { snap = JSON.parse(raw); } catch { return false; }
   let restored = 0;
   for (const [k, v] of Object.entries(snap)) {
-    if (!shouldRestoreStorageKey(k) || typeof v !== "string") continue; // чужие/ephemeral ключи не тащим
+    // update.resume бывает только в снимке, созданном непосредственно перед
+    // OTA; без него при потерянном WebView2 восстановится профиль, но не сама
+    // активная сессия.
+    if ((!shouldRestoreStorageKey(k) && k !== STORAGE_KEYS.updateResume) || typeof v !== "string") continue;
     try { localStorage.setItem(k, v); restored++; } catch {}
   }
   if (restored > 0) {

@@ -27,7 +27,7 @@ import {
   setSubscriptionProxy,
 } from "/lib/subscriptions.js";
 import { loadOptions, updateOption, REGIONS } from "/lib/options.js";
-import { backupNow, backupSoon, restoreIfEmpty } from "/lib/state-backup.js";
+import { backupForUpdate, backupNow, backupSoon, restoreIfEmpty } from "/lib/state-backup.js";
 import { mountSettings } from "/lib/settings-view.js";
 import { pathNeedsRestart } from "/lib/restart-policy.js";
 import { a11ySwitch } from "/lib/switch-a11y.js";
@@ -81,8 +81,14 @@ const invoke = window.__TAURI__?.core?.invoke
 // localStorage пуст, а снапшот в app_config_dir есть — возвращаем ключи и
 // перезагружаем webview, чтобы все модули перечитали хранилище с нуля
 // (тема/язык/опции уже прочитаны дефолтами к этому моменту).
-(async () => {
-  try { if (await restoreIfEmpty()) location.reload(); } catch {}
+const restoreStateOnLaunch = (async () => {
+  try {
+    if (await restoreIfEmpty()) {
+      location.reload();
+      return true;
+    }
+  } catch {}
+  return false;
 })();
 
 // ── Theme switcher ──────────────────────────────────────────
@@ -1962,6 +1968,11 @@ setInterval(backupNow, 10 * 60_000);
 // При старте app — синхронизируем UI с реальным состоянием sing-box
 (async () => {
   try {
+    // При OTA WebView2 может стартовать с пустым localStorage. Не читаем
+    // активный источник раньше восстановления: иначе resume-флаг уже есть,
+    // а профиль ещё не загружен и VPN остаётся выключенным.
+    if (await restoreStateOnLaunch) return;
+
     const running = await invoke("singbox_running");
     if (running) {
       setState("connected", { ping: null });
@@ -1989,6 +2000,11 @@ setInterval(backupNow, 10 * 60_000);
 // proxy/systemProxy прав не требуют, поэтому в не-TUN элевация только ради DPI.
 (async () => {
   try {
+    // При OTA WebView2 может стартовать с пустым localStorage. Не читаем
+    // активный источник раньше восстановления: иначе resume-флаг уже есть,
+    // а профиль ещё не загружен и VPN остаётся выключенным.
+    if (await restoreStateOnLaunch) return;
+
     // После OTA-апдейта процесс перезапускается БЕЗ --autostarted/--elevated, и
     // should_autoconnect=false → блок бы не вошёл. update-modal перед установкой
     // пишет, что было поднято (ninety.update.resume = {vpn,dpi}) — по нему
@@ -2008,6 +2024,9 @@ setInterval(backupNow, 10 * 60_000);
         localStorage.removeItem("ninety.update.resume");
         localStorage.removeItem("ninety.dpi.resumeAfterUpdate");
       } catch {}
+      // Убрать одноразовый resume и из зашифрованного OTA-снимка, чтобы он не
+      // воскрес при будущей очистке WebView2.
+      await backupNow();
     }
 
     const autoconnect = await invoke("should_autoconnect");
@@ -2090,7 +2109,11 @@ async function windowIsForeground() {
 async function showUpdateModal(update, opts = {}) {
   updateModalShowing = true;
   try {
-    await openUpdateModal(update, { ...opts, onInstalling: (v) => { updateInstalling = v; } });
+    await openUpdateModal(update, {
+      ...opts,
+      onInstalling: (v) => { updateInstalling = v; },
+      onBeforeInstall: backupForUpdate,
+    });
   } finally {
     updateModalShowing = false;
     updateInstalling = false;

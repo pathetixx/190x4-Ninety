@@ -68,6 +68,8 @@ function markSkipped(version) {
  * @param {function} opts.onInstalling — (bool) идёт скачивание/установка; main.js
  *   по нему глушит health-watchdog (иначе тот находил «труп» ядра, которое мы
  *   сами погасили перед установкой, и слал ложный «соединение закрыто»).
+ * @param {function} opts.onBeforeInstall — async-хук перед остановкой ядер;
+ *   main.js сохраняет через него профиль и resume-маркер одним OTA-снимком.
  * @returns Promise<void> — резолвится после закрытия (либо relaunch — резолва не будет, app перезапустится)
  */
 export function openUpdateModal(update, opts = {}) {
@@ -199,11 +201,13 @@ export function openUpdateModal(update, opts = {}) {
           setProgressLabel(t("updModal.installing"));
           setBarIndeterminate();
           writeResume();
+          await opts.onBeforeInstall?.();
           await stopEngines();
           await update.install();
         } else {
           // Урезанный API (нет раздельных download/install) — прежний порядок.
           writeResume();
+          await opts.onBeforeInstall?.();
           await stopEngines();
           await update.downloadAndInstall(onEvent);
         }
