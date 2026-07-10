@@ -2,6 +2,15 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.4 — 2026-07-10
+
+- Updated Tauri, Windows platform bindings, networking and archive dependencies; adapted WARP key generation for the current cryptography API.
+- GitHub Actions are now pinned to immutable commit hashes and release checks validate that pinning automatically.
+- DPI strategy-channel signing now uses a dedicated key. This release accepts both the dedicated and previous key during the safe migration period.
+- Обновлены Tauri, Windows-привязки, сетевые и архивные зависимости; генерация WARP-ключа адаптирована к актуальному криптографическому API.
+- GitHub Actions закреплены на неизменяемые SHA-коммиты, а релизные проверки автоматически контролируют это правило.
+- Для подписи канала DPI-стратегий теперь используется отдельный ключ. В этом релизе для безопасного перехода принимаются и новый, и прежний ключи.
+
 
 ## v0.2.3 — 2026-07-09
 
