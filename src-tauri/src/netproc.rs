@@ -273,7 +273,7 @@ mod windows_impl {
                     break None;
                 }
                 capacity = (capacity * 2).min(32768);
-            }
+            };
             let _ = CloseHandle(handle);
             result
         }
