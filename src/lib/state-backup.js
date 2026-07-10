@@ -68,7 +68,7 @@ export async function restoreIfEmpty() {
   // второй заход в рамках одной загрузки не делаем.
   const ATTEMPT_KEY = "ninety.restore.attempted";
   try { if (sessionStorage.getItem(ATTEMPT_KEY) === "1") return false; } catch {}
-  let raw = null;
+  let raw;
   try { raw = await invoke("state_backup_load"); } catch { return false; }
   if (!raw) return false;
   let snap;

@@ -182,7 +182,7 @@ async function doClipboard() {
   setError(null);
   showPage("loading");
   setLoadingText(t("add.loadingClipboard"));
-  let raw = "";
+  let raw;
   try {
     raw = await navigator.clipboard.readText();
   } catch {

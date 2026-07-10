@@ -203,7 +203,7 @@ function render(nodes, selectorTag, effectiveTag, clashData) {
 }
 
 async function refresh() {
-  let data = null;
+  let data;
   try {
     data = await getProxies();
     lastClashSnapshot = data;
