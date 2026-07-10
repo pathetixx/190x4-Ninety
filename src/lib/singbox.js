@@ -377,14 +377,21 @@ function parseDnsAddress(raw) {
   const s = String(raw || "").trim();
   if (!s || s === "local" || s === "system") return { type: "local" };
   const m = s.match(/^([a-z]+):\/\/(.+)$/i);
-  if (!m) return { type: "udp", server: s };
+  if (!m) {
+    if (/\s|\//.test(s)) throw new Error(`invalid DNS server address: ${s}`);
+    const hp = parseOptionalHostPort(s);
+    const out = { type: "udp", server: hp.host };
+    if (hp.port != null) out.server_port = hp.port;
+    return out;
+  }
   const scheme = m[1].toLowerCase();
   const rest = m[2];
   if (scheme === "https") {
     const u = (() => { try { return new URL(s); } catch { return null; } })();
-    const o = { type: "https", server: u ? u.hostname : rest };
-    if (u && u.port) o.server_port = parseInt(u.port, 10);
-    if (u && u.pathname && u.pathname !== "/") o.path = u.pathname;
+    if (!u || !u.hostname || u.username || u.password) throw new Error(`invalid DoH URL: ${s}`);
+    const o = { type: "https", server: u.hostname };
+    if (u.port) o.server_port = parsePort(u.port, "sb.err.badPort");
+    if (u.pathname && u.pathname !== "/") o.path = u.pathname;
     return o;
   }
   if (["tls", "tcp", "udp", "quic"].includes(scheme)) {
@@ -393,36 +400,40 @@ function parseDnsAddress(raw) {
     if (hp.port != null) o.server_port = hp.port;
     return o;
   }
-  return { type: "udp", server: s };
+  throw new Error(`unsupported DNS scheme: ${scheme}`);
 }
 
 function parseOptionalHostPort(rest) {
   const s = String(rest || "").trim();
   if (s.startsWith("[")) {
     const close = s.indexOf("]");
-    if (close < 0) return { host: s };
+    if (close < 0) throw new Error(`invalid bracketed DNS address: ${s}`);
     const host = s.slice(1, close);
+    if (!host) throw new Error("empty DNS host");
     const tail = s.slice(close + 1);
     if (tail.startsWith(":")) return { host, port: parsePort(tail.slice(1), "sb.err.badPort") };
+    if (tail) throw new Error(`invalid DNS address suffix: ${tail}`);
     return { host };
   }
-  if (s.includes("/")) return { host: s };
+  if (!s || /\s|\//.test(s)) throw new Error(`invalid DNS host: ${s}`);
   const colonCount = (s.match(/:/g) || []).length;
   if (colonCount === 1) {
     const idx = s.lastIndexOf(":");
-    return { host: s.slice(0, idx), port: parsePort(s.slice(idx + 1), "sb.err.badPort") };
+    const host = s.slice(0, idx);
+    if (!host) throw new Error("empty DNS host");
+    return { host, port: parsePort(s.slice(idx + 1), "sb.err.badPort") };
   }
   return { host: s };
 }
 
-function buildDns(options) {
+function buildDns(options, protectedOutbound = "proxy") {
   const ipv6Strategy = IPV6_STRATEGY_MAP[options.route.ipv6Mode] || "prefer_ipv4";
 
   const remoteSrv = {
     tag: "dns-remote",
     ...parseDnsAddress(options.dns.remoteAddress),
     domain_resolver: "dns-direct",
-    detour: "proxy",
+    detour: protectedOutbound,
   };
 
   // detour "direct" в sing-box 1.13 не задаём — direct outbound у нас пустой
@@ -1072,7 +1083,7 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
       timestamp: true, // нужен для парсера/фильтра экрана Логи
       ...(opts.log?.disabled ? { disabled: true } : {}),
     },
-    dns: buildDns(opts),
+    dns: buildDns(opts, warpEndpoint ? "warp" : "proxy"),
     inbounds: buildInbounds(mode, opts),
     outbounds,
     route,
@@ -1117,7 +1128,53 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
   // в hiddify-sing-box v1.13.0.h5 experimental.tls_tricks удалён. Теперь они
   // применяются per-outbound в applyTlsTricks() при сборке прокси-outbound.
 
+  validateConfigReferences(config);
   return { config, xray: xrayConfig, sidecars };
+}
+
+// Semantic guard поверх JSON-схемы: sing-box принимает ссылки на теги строками,
+// поэтому опечатка/ветка WARP-only иначе обнаруживается только при запуске ядра.
+export function validateConfigReferences(config) {
+  const outboundTags = new Set([
+    ...(config.outbounds || []).map((o) => o?.tag),
+    ...(config.endpoints || []).map((o) => o?.tag),
+  ].filter(Boolean));
+  const dnsTags = new Set((config.dns?.servers || []).map((s) => s?.tag).filter(Boolean));
+  const missing = [];
+  const requireOutbound = (tag, path) => {
+    if (tag && !outboundTags.has(tag)) missing.push(`${path} -> ${tag}`);
+  };
+  const requireDns = (tag, path) => {
+    if (tag && !dnsTags.has(tag)) missing.push(`${path} -> ${tag}`);
+  };
+
+  requireOutbound(config.route?.final, "route.final");
+  for (const [i, rule] of (config.route?.rules || []).entries()) {
+    requireOutbound(rule?.outbound, `route.rules[${i}].outbound`);
+  }
+  for (const [i, set] of (config.route?.rule_set || []).entries()) {
+    requireOutbound(set?.download_detour, `route.rule_set[${i}].download_detour`);
+  }
+  for (const [i, outbound] of (config.outbounds || []).entries()) {
+    for (const [j, tag] of (outbound?.outbounds || []).entries()) {
+      requireOutbound(tag, `outbounds[${i}].outbounds[${j}]`);
+    }
+    requireOutbound(outbound?.default, `outbounds[${i}].default`);
+    requireOutbound(outbound?.detour, `outbounds[${i}].detour`);
+  }
+  for (const [i, server] of (config.dns?.servers || []).entries()) {
+    requireOutbound(server?.detour, `dns.servers[${i}].detour`);
+    requireDns(server?.domain_resolver, `dns.servers[${i}].domain_resolver`);
+  }
+  requireDns(config.dns?.final, "dns.final");
+  for (const [i, rule] of (config.dns?.rules || []).entries()) {
+    requireDns(rule?.server, `dns.rules[${i}].server`);
+  }
+
+  if (missing.length) {
+    throw new Error(`sing-box config references missing tags: ${missing.join(", ")}`);
+  }
+  return true;
 }
 
 // Имя ноды → безопасный фрагмент тега. ГРУППЫ недопустимых символов (эмодзи-флаг,

@@ -1,7 +1,7 @@
 // buildConfig: смоук всей сборки + two-core разводка мостов и TOML-экранирование.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildConfig, bridgeNeeds, ENGINE_PROCESS_NAMES, parseVless } from "/lib/singbox.js";
+import { buildConfig, bridgeNeeds, ENGINE_PROCESS_NAMES, parseVless, validateConfigReferences } from "/lib/singbox.js";
 import { DEFAULT_OPTIONS } from "/lib/options.js";
 
 const vlessNode = (over = {}) => ({
@@ -164,6 +164,8 @@ test("dns parser: IPv4, bracket IPv6, ambiguous IPv6 и DoH", () => {
   assert.deepEqual(dnsDirect("udp://2001:4860:4860::8888"), { tag: "dns-direct", type: "udp", server: "2001:4860:4860::8888" });
   assert.deepEqual(dnsDirect("https://cloudflare-dns.com/dns-query"), { tag: "dns-direct", type: "https", server: "cloudflare-dns.com", path: "/dns-query" });
   assert.deepEqual(dnsDirect("tls://dns.example.com:853"), { tag: "dns-direct", type: "tls", server: "dns.example.com", server_port: 853 });
+  assert.throws(() => dnsDirect("ftp://dns.example.com"), /unsupported DNS scheme/);
+  assert.throws(() => dnsDirect("https://[broken"), /invalid DoH URL/);
 });
 
 test("proxy-режим: единственный inbound — mixed (без probe-in)", () => {
@@ -237,5 +239,16 @@ test("WARP direct может собраться без активного про
   assert.equal(config.route.final, "warp");
   assert.deepEqual(config.endpoints.map((e) => e.tag), ["warp"]);
   assert.deepEqual(config.outbounds.map((o) => o.tag), ["direct"]);
+  assert.equal(config.dns.servers.find((s) => s.tag === "dns-remote")?.detour, "warp");
+  assert.equal(validateConfigReferences(config), true);
   assert.ok(config.route.rule_set.every((rs) => rs.download_detour === "warp"));
+});
+
+test("semantic validator отклоняет ссылки на отсутствующие outbound tags", () => {
+  const broken = {
+    outbounds: [{ tag: "direct", type: "direct" }],
+    route: { final: "missing", rules: [] },
+    dns: { servers: [{ tag: "dns", type: "local" }], final: "dns", rules: [] },
+  };
+  assert.throws(() => validateConfigReferences(broken), /route\.final -> missing/);
 });

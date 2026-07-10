@@ -32,10 +32,21 @@ export function initHealthWatchdog({
   reconnectForSourceChange,
   switchView,
   getQualityEngine,
+  invoke: invokeFn = invoke,
+  toast: toastFn = toast,
+  notify: notifyFn = notify,
+  t: tr = t,
+  setInterval: setIntervalFn = setInterval,
+  clearInterval: clearIntervalFn = clearInterval,
 }) {
   let timer = null;
   let busy = false;
   let bridgeReconnects = [];
+  let generation = 0;
+
+  const active = (run) => run === generation
+    && getState() === "connected"
+    && !isUpdateInstalling();
 
   function bridgeReconnectAllowed() {
     const cut = Date.now() - BRIDGE_RECONNECT_WINDOW_MS;
@@ -47,62 +58,69 @@ export function initHealthWatchdog({
 
   // Бюджет исчерпан — мост падает системно, реконнекты не лечат. Закрываем туннель
   // целиком (как при смерти sing-box): честная ошибка вместо вечного цикла.
-  async function stopForBridgeLoop() {
+  async function stopForBridgeLoop(run) {
+    if (!active(run)) return;
     await shutdownCore();
-    toast(t("conn.bridgeLoop"), "error", 8000, { group: "conn", desc: t("conn.bridgeLoopDesc") });
-    notify(t("conn.notifyClosedTitle"), t("conn.bridgeLoopDesc"));
+    toastFn(tr("conn.bridgeLoop"), "error", 8000, { group: "conn", desc: tr("conn.bridgeLoopDesc") });
+    notifyFn(tr("conn.notifyClosedTitle"), tr("conn.bridgeLoopDesc"));
     switchView("logs");
   }
 
   function start() {
     if (timer) return;
-    timer = setInterval(tick, HEALTH_TICK_MS);
+    generation++;
+    timer = setIntervalFn(tick, HEALTH_TICK_MS);
   }
 
   function stop() {
-    if (timer) { clearInterval(timer); timer = null; }
+    generation++;
+    if (timer) { clearIntervalFn(timer); timer = null; }
   }
 
   async function tick() {
     if (getState() !== "connected" || busy || isUpdateInstalling()) return;
+    const run = generation;
     busy = true;
     try {
       // Один агрегирующий вызов вместо четырёх (singbox_running/vpn_last_error/
       // xray_status/sidecar_status) — снимает лишний IPC-трафик на каждом тике.
-      const snap = await invoke("health_snapshot");
+      const snap = await invokeFn("health_snapshot");
+      if (!active(run)) return;
       if (!snap.singbox_running) {
         // Причину смерти snapshot читает синхронно с running-статусом (до
         // shutdownCore, который сбрасывает флаги).
         const why = snap.last_error;
         await shutdownCore();
-        toast(t("conn.coreStopped"), "error", 7000, { group: "conn", desc: t("conn.coreStoppedDesc") });
-        notify(t("conn.notifyClosedTitle"), t("conn.notifyClosedBody"));
+        toastFn(tr("conn.coreStopped"), "error", 7000, { group: "conn", desc: tr("conn.coreStoppedDesc") });
+        notifyFn(tr("conn.notifyClosedTitle"), tr("conn.notifyClosedBody"));
         if (why) console.warn("sing-box died:", why);
         switchView("logs");
         return;
       }
       // sing-box жив — проверяем xray-мост (xhttp).
       if (snap.xray === "died") {
-        if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(); return; }
-        toast(t("conn.xhttpDown"), "warn", 4000, { group: "conn", connecting: true });
-        notify("Ninety", t("conn.xhttpNotify"));
+        if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(run); return; }
+        if (!active(run)) return;
+        toastFn(tr("conn.xhttpDown"), "warn", 4000, { group: "conn", connecting: true });
+        notifyFn("Ninety", tr("conn.xhttpNotify"));
         // reconnectForSourceChange сам ставит needsReconnect и зовёт реконнект,
         // который поднимет sing-box И xray заново из свежего конфига.
-        reconnectForSourceChange(t("conn.xhttpReconnect"));
+        reconnectForSourceChange(tr("conn.xhttpReconnect"));
         return;
       }
       // sidecar-клиенты naive/trusttunnel — та же логика, что у xray-моста.
       if (snap.sidecar === "died") {
-        if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(); return; }
-        toast(t("conn.clientDown"), "warn", 4000, { group: "conn", connecting: true });
-        notify("Ninety", t("conn.clientNotify"));
-        reconnectForSourceChange(t("conn.clientReconnect"));
+        if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(run); return; }
+        if (!active(run)) return;
+        toastFn(tr("conn.clientDown"), "warn", 4000, { group: "conn", connecting: true });
+        notifyFn("Ninety", tr("conn.clientNotify"));
+        reconnectForSourceChange(tr("conn.clientReconnect"));
         return;
       }
       // Liveness OK — отдаём ход движку качества (детект троттла/деградации).
       // Fire-and-forget: проба до 4с не должна держать busy и тормозить следующий
       // liveness-тик; у движка свои guard'ы probing/remediating.
-      getQualityEngine()?.tick().catch(() => {});
+      if (active(run)) getQualityEngine()?.tick().catch(() => {});
     } catch (e) {
       console.warn("healthTick failed", e);
     } finally {
@@ -110,5 +128,5 @@ export function initHealthWatchdog({
     }
   }
 
-  return { start, stop };
+  return { start, stop, tick };
 }

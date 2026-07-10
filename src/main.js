@@ -42,6 +42,7 @@ import { mountDpiView, setDpiVpnMode, excludeVpnNode, autostartDpiIfEnabled, rer
 import { mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
 import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
+import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
 import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
@@ -520,7 +521,7 @@ if (settingsRoot) {
       if (state === "idle") updateHeroHint();
     },
     onSensitiveDataClear: async () => {
-      connectEpoch++; // отменить возможный start_singbox в полёте
+      connectAttempts.cancel(); // отменить возможный start_singbox в полёте
       await shutdownCore();
       try { await invoke("dpi_stop"); } catch {}
       try { localStorage.setItem("ninety.dpi.enabled", "false"); } catch {}
@@ -560,7 +561,7 @@ async function performAutoReconnect(reason = t("conn.applyingSettings")) {
   pendingReconnectTimer = null;
   if (!needsReconnect) return;
   if (state !== "connected" && state !== "connecting") return;
-  connectEpoch++; // инвалидировать возможный start_singbox в полёте
+  connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
   toast(reason, "info", 0, { group: "conn", connecting: true });
   await shutdownCore();
   needsReconnect = false;
@@ -1359,8 +1360,8 @@ function updateStatsServer() {
 let lastPublicIp = null;
 if (locIp) bindIpReveal(locIp, () => lastPublicIp);
 
-async function refreshPublicIp() {
-  if (state !== "connected") return;
+async function refreshPublicIp(epoch = connectAttempts.current()) {
+  if (state !== "connected" || !connectAttempts.isCurrent(epoch)) return;
   // Приватность: юзер отключил geo-запросы → не дёргаем внешние IP-сервисы
   // вовсе, IP-плитка гаснет с поясняющим тултипом.
   if (loadOptions().general?.disableGeoLookup) {
@@ -1384,6 +1385,7 @@ async function refreshPublicIp() {
   const proxyHostPort = `127.0.0.1:${port}`;
   try {
     const info = await fetchPublicIp({ proxyHostPort });
+    if (state !== "connected" || !connectAttempts.isCurrent(epoch)) return;
     if (!info?.success && info?.ip == null) {
       // Rust нормализует ответ (fetch_public_ip перебирает провайдеров); при
       // неуспехе всех обычно летит Err → catch, эта ветка — страховка.
@@ -1399,6 +1401,7 @@ async function refreshPublicIp() {
       if (flag) locIp.title = t("hero.ipTooltip", { country });
     }
   } catch (e) {
+    if (state !== "connected" || !connectAttempts.isCurrent(epoch)) return;
     if (locIpRow) locIpRow.hidden = false;
     if (locIp) locIp.textContent = "— · —";
     console.warn("public ip failed", e?.message || e);
@@ -1428,7 +1431,7 @@ let publicIpTimer = null;
 // Поколение попытки подключения: «Отключить» во время старта ядра инкрементит
 // его, и завершившийся start_singbox видит отмену (см. heroDisc-обработчик) —
 // раньше быстрый connect→cancel всё равно заканчивался «Защищено».
-let connectEpoch = 0;
+const connectAttempts = createConnectionAttemptGate();
 
 // Запускаем HUD после объявления state. TARGET читает фактический сервер.
 function hudTarget() {
@@ -1724,6 +1727,7 @@ telePing?.addEventListener("click", async () => {
 });
 
 async function startTrafficStream() {
+  const epoch = connectAttempts.current();
   try {
     await startClashStream({
       onTraffic: applyTrafficValues,
@@ -1736,10 +1740,11 @@ async function startTrafficStream() {
   } catch (e) {
     console.warn("startClashStream failed", e);
   }
+  if (state !== "connected" || !connectAttempts.isCurrent(epoch)) return;
   // Публичный IP — отложенно (sing-box секунду стартует), потом раз в 5 мин
-  setTimeout(refreshPublicIp, 2500);
+  setTimeout(() => refreshPublicIp(epoch), 2500);
   if (publicIpTimer) clearInterval(publicIpTimer);
-  publicIpTimer = setInterval(refreshPublicIp, 5 * 60_000);
+  publicIpTimer = setInterval(() => refreshPublicIp(epoch), 5 * 60_000);
 }
 
 // Подтягивает effective node через clash → обновляет hero/location/IP.
@@ -1810,7 +1815,7 @@ heroDisc?.addEventListener("click", async () => {
   }
   // RECONNECT-режим: рестарт ядра с новыми опциями
   if (needsReconnect && (state === "connected" || state === "connecting")) {
-    connectEpoch++; // инвалидировать возможный start_singbox в полёте
+    connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
     await shutdownCore();
     needsReconnect = false;
     applyReconnectUI();
@@ -1824,17 +1829,26 @@ heroDisc?.addEventListener("click", async () => {
     const warpOnly = !src && warpOnlyEnabled();
     if (!src && !warpOnly) { toast(t("conn.needSource"), "error"); return; }
     const mode = getMode();
+    // Владение попыткой захватываем ДО первого await: DNS/WARP/port preflight
+    // больше не оставляет state=idle, поэтому второй клик отменяет эту попытку,
+    // а не запускает параллельный start_singbox.
+    const epoch = connectAttempts.begin();
+    setState("connecting");
+    try {
     // DNS-watchdog: имя сервера ноды резолвится через direct-DNS ДО туннеля —
     // если он мёртв (Google/Cloudflare DoH в РФ), старт падает с невнятным
     // «i/o timeout». Пробуем и при отказе переключаем на резерв ДО buildConfig,
     // чтобы конфиг собрался уже с рабочим резолвером. Только пока юзер не ушёл.
-    await ensureWorkingDirectDns({ toast, onlyIf: () => state === "idle" });
+    await ensureWorkingDirectDns({ toast, onlyIf: () => state === "connecting" && connectAttempts.isCurrent(epoch) });
+    if (!connectAttempts.isCurrent(epoch) || state !== "connecting") return;
     // Если WARP включён — тянем регистрацию из app_config_dir/warp.json
     // и передаём в builder. Без warpInfo builder тихо пропустит warp endpoint.
     let warpInfo = null;
     if (options.warp?.enabled) {
       try { warpInfo = await invoke("warp_status"); } catch {}
+      if (!connectAttempts.isCurrent(epoch) || state !== "connecting") return;
       if (!warpInfo) {
+        setState("idle");
         toast(t("conn.warpUnreg"), "error", 3500);
         return;
       }
@@ -1848,13 +1862,11 @@ heroDisc?.addEventListener("click", async () => {
     if (needs.xray || needs.naive || needs.trusttunnel) {
       try { bridgePorts = await invoke("plan_bridge_ports", { needs }); }
       catch (e) { console.warn("plan_bridge_ports failed", e); }
+      if (!connectAttempts.isCurrent(epoch) || state !== "connecting") return;
     }
     // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
     // socks-перенаправление. xray=null когда xhttp в источнике нет.
     const { config, xray, sidecars } = buildConfig({ source: src, mode, options, warpInfo, xray: true, bridgePorts });
-    const epoch = ++connectEpoch;
-    setState("connecting");
-    try {
       await invoke("start_singbox", {
         configJson: JSON.stringify(config),
         mode,
@@ -1868,7 +1880,7 @@ heroDisc?.addEventListener("click", async () => {
       // тот клик застаёт child=None и глушить ему нечего. Ловим отмену по epoch
       // и гасим только что поднятое ядро — иначе UI мигал «отключено» и
       // возвращался в «Защищено».
-      if (epoch !== connectEpoch) {
+      if (!connectAttempts.isCurrent(epoch)) {
         try { await invoke("stop_singbox"); } catch {}
         try { await invoke("set_system_proxy", { enable: false }); } catch {}
         return;
@@ -1877,7 +1889,16 @@ heroDisc?.addEventListener("click", async () => {
       // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт
       // полный intercept через TUN-интерфейс.
       if (mode === "systemProxy") {
-        await invoke("set_system_proxy", { enable: true, hostPort: `127.0.0.1:${options.inbound.mixedPort || 7890}` });
+        await invoke("set_system_proxy", {
+          enable: true,
+          hostPort: `127.0.0.1:${options.inbound.mixedPort || 7890}`,
+          bypassLan: options.route?.bypassLan !== false,
+        });
+        if (!connectAttempts.isCurrent(epoch)) {
+          try { await invoke("set_system_proxy", { enable: false }); } catch {}
+          try { await invoke("stop_singbox"); } catch {}
+          return;
+        }
       }
       setState("connected", { ping: null });
       const src0 = activeDisplaySource();
@@ -1898,10 +1919,11 @@ heroDisc?.addEventListener("click", async () => {
       // делает syncEffectiveFromClash → обновляет hero/локацию/трей).
       notifyConnectedWithRealNode(isMultiSub);
     } catch (e) {
-      if (epoch !== connectEpoch) {
+      if (!connectAttempts.isCurrent(epoch)) {
         // Юзер уже отменил подключение — состояние/тосты выставил его клик,
         // здесь только страховочный стоп без перетирания UI.
         try { await invoke("stop_singbox"); } catch {}
+        try { await invoke("set_system_proxy", { enable: false }); } catch {}
         return;
       }
       console.error("start failed", e);
@@ -1910,7 +1932,7 @@ heroDisc?.addEventListener("click", async () => {
       switchView("logs");
     }
   } else if (state === "connecting" || state === "connected") {
-    connectEpoch++; // отмена/дисконнект: инвалидировать возможный start в полёте
+    connectAttempts.cancel(); // отмена/дисконнект: инвалидировать возможный start в полёте
     await shutdownCore();
     toast(t("conn.disconnected"), "info", 2000, { group: "conn", desc: t("conn.disconnectedDesc") });
     notify(t("conn.notifyDisconnected"), t("conn.notifyDisconnectedBody"));

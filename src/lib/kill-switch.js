@@ -14,28 +14,66 @@ import { t } from "/lib/i18n/index.js";
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-let killSwitchHintShown = false;
+export function createKillSwitchController(deps = {}) {
+  const call = deps.invoke || invoke;
+  const options = deps.loadOptions || loadOptions;
+  const mode = deps.getMode || getMode;
+  const showToast = deps.toast || toast;
+  const tr = deps.t || t;
+  const warn = deps.warn || ((...args) => console.warn(...args));
+  let desiredConnected = false;
+  let revision = 0;
+  let queue = Promise.resolve();
+  let killSwitchHintShown = false;
+
+  async function reconcile() {
+    const mine = revision;
+    const wanted = desiredConnected;
+    try {
+      if (!wanted) {
+        await call("killswitch_disarm");
+        return;
+      }
+      const opts = options();
+      if (!opts.general?.killSwitch || mode() === "tun") {
+        await call("killswitch_disarm");
+        return;
+      }
+      const elevated = await call("is_elevated");
+      // Пока ждали UAC/IPC, пользователь мог отключиться или сменить режим.
+      // Следующая queued reconciliation применит последнее желаемое состояние.
+      if (mine !== revision || !desiredConnected) return;
+      if (!elevated) {
+        if (!killSwitchHintShown) {
+          killSwitchHintShown = true;
+          showToast(tr("elev.killSwitchHint"), "warn", 6000);
+        }
+        return;
+      }
+      await call("killswitch_arm", { allowLan: options().route?.bypassLan !== false });
+    } catch (e) {
+      warn("kill switch", e);
+    }
+  }
+
+  // Все arm/disarm выполняются строго последовательно. Если disconnect пришёл
+  // во время arm, его disarm стоит в той же очереди и гарантированно идёт после.
+  function apply(connected) {
+    desiredConnected = !!connected;
+    revision++;
+    queue = queue.then(reconcile, reconcile);
+    return queue;
+  }
+
+  return { apply };
+}
+
+const killSwitchController = createKillSwitchController();
 
 // connected=true → поднять блок (если опция вкл и не TUN и elevated);
 // connected=false → снять. Идемпотентно на стороне Rust.
-export async function applyKillSwitch(connected) {
-  try {
-    if (!connected) { await invoke("killswitch_disarm"); return; }
-    if (!loadOptions().general?.killSwitch || getMode() === "tun") {
-      await invoke("killswitch_disarm");
-      return;
-    }
-    if (!(await invoke("is_elevated"))) {
-      if (!killSwitchHintShown) {
-        killSwitchHintShown = true;
-        toast(t("elev.killSwitchHint"), "warn", 6000);
-      }
-      return;
-    }
-    // allowLan привязан к route.bypassLan (та же семантика «не трогать локалку»);
-    // DHCP kill switch пропускает всегда — рвать renew lease нельзя.
-    await invoke("killswitch_arm", { allowLan: loadOptions().route?.bypassLan !== false });
-  } catch (e) { console.warn("kill switch", e); }
+export function applyKillSwitch(connected) {
+  return killSwitchController.apply(connected);
 }
 
 // Предупреждение при включении kill switch в режиме «Прокси»: там armed-блок

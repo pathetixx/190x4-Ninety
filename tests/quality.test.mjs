@@ -117,3 +117,34 @@ test("ступень R1 помогла → commitWin пишет профиль �
   assert.equal(rec.stepId, "R1");
   assert.equal(rec.node, "n1");
 });
+
+test("disconnect отменяет выполняющуюся remediation-лесенку", async () => {
+  installStorage();
+  let releaseAction;
+  const action = new Promise((resolve) => { releaseAction = resolve; });
+  let gaveUp = false;
+  let selectCalls = 0;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => (cmd === "probe_quality" ? STALLED : undefined),
+    actions: {
+      onState: () => {},
+      selectNextNode: async () => { selectCalls++; return action; },
+      giveUp: () => { gaveUp = true; },
+      notify: () => {}, log: () => {},
+    },
+    sleep: async () => {},
+    opts: { enabled: true },
+  });
+  engine.onConnected({});
+  armSuspect(engine);
+  await engine.tick();
+  const ladderTick = engine.tick();
+  while (selectCalls === 0) await Promise.resolve();
+  engine.onIdle();
+  releaseAction(true);
+  await ladderTick;
+
+  assert.equal(selectCalls, 1);
+  assert.equal(gaveUp, false, "старая сессия не должна продолжать лесенку после disconnect");
+  assert.equal(engine.isRemediating, false);
+});

@@ -50,14 +50,15 @@ const stepLabel = (step) => t("qEngine.steps." + step.id);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
+export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sleepFn = sleep } = {}) {
   // opts: { enabled, aggressive, lowDataMode, idleProbeSec, goodBps, probeBytes, endpoints }
   let cfg = normalizeOpts(opts);
   let running = false;          // connected + движок активен
-  let probing = false;          // идёт probe_quality (не наслаивать)
+  let sessionEpoch = 0;
+  let probingEpoch = null;      // probe принадлежит конкретной VPN-сессии
   const SAMPLE_CAP = 120;       // ring-буфер последних проб (для осциллограммы)
   const samples = [];
-  let remediating = false;      // идёт лесенка (tick молчит)
+  let remediatingEpoch = null;  // лесенка принадлежит конкретной VPN-сессии
   let badStreak = 0;
   let goodStreak = 0;
   let lastProbeAt = 0;
@@ -65,6 +66,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
   let reconnectTimes = [];      // timestamps реконнектов для часового капа
   let lastState = "UNKNOWN";
   const passive = [];           // [{t, down}] скользящее окно
+  const sessionActive = (epoch) => running && epoch === sessionEpoch;
 
   function normalizeOpts(o) {
     return {
@@ -113,9 +115,9 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
   }
 
   // ── Активная проба ─────────────────────────────────────
-  async function probe(rung = null) {
-    if (probing) return null;
-    probing = true;
+  async function probe(rung = null, epoch = sessionEpoch) {
+    if (!sessionActive(epoch) || probingEpoch === epoch) return null;
+    probingEpoch = epoch;
     lastProbeAt = Date.now();
     try {
       const r = await invoke("probe_quality", {
@@ -124,13 +126,14 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
         sampleBytes: cfg.probeBytes,
         budgetMs: 4000,
       });
+      if (!sessionActive(epoch)) return null;
       recordSample(r, rung);
       return r;
     } catch (e) {
       actions.log?.("probe_quality failed: " + e);
       return null;
     } finally {
-      probing = false;
+      if (probingEpoch === epoch) probingEpoch = null;
     }
   }
 
@@ -149,7 +152,8 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
 
   // ── Тик (зовётся из healthTick после liveness-OK) ──────
   async function tick() {
-    if (!running || !cfg.enabled || remediating || probing) return;
+    const epoch = sessionEpoch;
+    if (!sessionActive(epoch) || !cfg.enabled || remediatingEpoch === epoch || probingEpoch === epoch) return;
     const now = Date.now();
 
     const { peak, last } = passiveView();
@@ -162,7 +166,8 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
     if (!suspect && !heartbeatDue) return;
     if (now - lastProbeAt < PROBE_MIN_GAP_MS && !suspect) return;
 
-    const r = await probe();
+    const r = await probe(null, epoch);
+    if (!sessionActive(epoch)) return;
     const st = classify(r);
     lastState = st;
     actions.onState?.(st, r);
@@ -176,7 +181,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
     goodStreak = 0;
     badStreak += 1;
     if (badStreak >= BAD_STREAK && now - lastLadderAt >= LADDER_COOLDOWN_MS) {
-      await runLadder(st);
+      await runLadder(st, epoch);
     }
   }
 
@@ -188,9 +193,9 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
   }
 
   // ── Лесенка ────────────────────────────────────────────
-  async function runLadder(triggerState) {
-    if (remediating) return;
-    remediating = true;
+  async function runLadder(triggerState, epoch = sessionEpoch) {
+    if (!sessionActive(epoch) || remediatingEpoch === epoch) return;
+    remediatingEpoch = epoch;
     lastLadderAt = Date.now();
     badStreak = 0;
     actions.notify?.(t("qEngine.notifyTitle"), t("qEngine.notifySlow"));
@@ -198,6 +203,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
     try {
       const start = learnedStartIndex(); // обучение: стартуем с выученной ступени
       for (let i = start; i < LADDER.length; i++) {
+        if (!sessionActive(epoch)) return;
         const step = LADDER[i];
         const fn = actions[step.action];
         if (typeof fn !== "function") continue;
@@ -211,6 +217,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
           const ok = cfg.aggressive
             ? (actions.toast?.(t("qEngine.optimizing", { label: stepLabel(step) }), "warn", 3500, { group: "quality", connecting: true }), true)
             : await (actions.confirmReconnect?.(stepLabel(step)) ?? Promise.resolve(false));
+          if (!sessionActive(epoch)) return;
           if (!ok) {
             actions.log?.("ladder: user declined reconnect at " + step.id);
             break;
@@ -220,23 +227,26 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
         let applied = false;
         try { applied = (await fn()) !== false; }
         catch (e) { actions.log?.(`ladder ${step.id} failed: ${e}`); applied = false; }
+        if (!sessionActive(epoch)) return;
         if (!applied) continue;
 
         if (step.reconnect) reconnectTimes.push(Date.now());
-        await sleep(step.reconnect ? SETTLE_RECONNECT_MS : SETTLE_CHEAP_MS);
+        await sleepFn(step.reconnect ? SETTLE_RECONNECT_MS : SETTLE_CHEAP_MS);
+        if (!sessionActive(epoch)) return;
 
         // Верификация: GOOD_STREAK подряд чистых проб → коммит + обучение.
         let verified = 0;
         for (let k = 0; k < GOOD_STREAK; k++) {
-          const r = await probe(step.id);
+          const r = await probe(step.id, epoch);
+          if (!sessionActive(epoch)) return;
           const st = classify(r);
           if (st === "GOOD") {
             verified++;
             if (verified >= GOOD_STREAK) {
-              await commitWin(step, r);
+              await commitWin(step, r, epoch);
               return;
             }
-            await sleep(800);
+            await sleepFn(800);
           } else if (st === "UNKNOWN") {
             // Проба сама не дотянулась (endpoint лёг / сеть моргнула) — проверить
             // ступень нечем. «Не удалось проверить» ≠ «не помогло»: эскалация
@@ -251,15 +261,18 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
         }
       }
       // Все ступени исчерпаны — R6: сдаёмся честно.
-      actions.giveUp?.(triggerState);
+      if (sessionActive(epoch)) actions.giveUp?.(triggerState);
     } finally {
-      remediating = false;
-      lastProbeAt = Date.now(); // не долбить пробой сразу после лесенки
+      if (remediatingEpoch === epoch) {
+        remediatingEpoch = null;
+        lastProbeAt = Date.now(); // не долбить пробой сразу после лесенки
+      }
     }
   }
 
   // ── Обучение (localStorage, только локально) ───────────
-  async function commitWin(step, r) {
+  async function commitWin(step, r, epoch = sessionEpoch) {
+    if (!sessionActive(epoch)) return;
     goodStreak = GOOD_STREAK;
     badStreak = 0;
     lastState = "GOOD";
@@ -267,7 +280,9 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
     actions.onState?.("GOOD", r);
     try {
       const ctx = (await actions.getContext?.()) || {};
+      if (!sessionActive(epoch)) return;
       const key = await learnKey();
+      if (!sessionActive(epoch)) return;
       const store = loadProfile();
       store[key] = {
         stepId: step.id,
@@ -320,6 +335,8 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
 
   // ── Жизненный цикл ─────────────────────────────────────
   function onConnected(o = {}) {
+    sessionEpoch++;
+    const epoch = sessionEpoch;
     cfg = normalizeOpts({ ...cfg, ...o });
     running = true;
     badStreak = 0; goodStreak = 0; lastState = "UNKNOWN";
@@ -331,11 +348,13 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
     // commitWin — первая лесенка каждой сессии искала запись под "unknown:час"
     // и выученная ступень не применялась. Fire-and-forget: до первой лесенки
     // (минимум BAD_STREAK проб) ответ успевает осесть в кэше.
-    actions.localAsn?.().then((a) => { cachedAsn = a || "unknown"; }).catch(() => {});
+    actions.localAsn?.().then((a) => {
+      if (sessionActive(epoch)) cachedAsn = a || "unknown";
+    }).catch(() => {});
   }
   function onIdle() {
+    sessionEpoch++;
     running = false;
-    remediating = false;
     passive.length = 0;
   }
   function setOptions(o) { cfg = normalizeOpts({ ...cfg, ...o }); }
@@ -344,6 +363,6 @@ export function createQualityEngine({ invoke, actions = {}, opts = {} } = {}) {
     onConnected, onIdle, tick, updatePassive, setOptions,
     getSamples: () => samples.slice(), // снимок ring-буфера для осциллограммы
     get state() { return lastState; },
-    get isRemediating() { return remediating; },
+    get isRemediating() { return remediatingEpoch === sessionEpoch; },
   };
 }

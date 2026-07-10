@@ -94,9 +94,10 @@ export const DEFAULT_OPTIONS = {
     tunSplitDiscord: false,
     // Форс process-lookup: sing-box резолвит сокет→PID→exe у КАЖДОГО соединения,
     // чтобы монитор соединений показывал имя приложения (см. buildRoute). Цена —
-    // один lookup на коннект всю сессию. true (дефолт) сохраняет прежнее поведение;
-    // false убирает накладные, если монитор с именами процессов не нужен.
-    processLookup: true,
+    // один lookup на коннект всю сессию. false по умолчанию убирает этот налог;
+    // пользователь включает lookup, когда действительно нужен монитор с
+    // именами процессов. Сохранённое true у существующих профилей не меняем.
+    processLookup: false,
     // Пользовательские правила маршрутизации (гибкие, как в Throne). Каждое:
     //   { id, enabled, type:"domain"|"ip"|"process", match:"suffix"|"exact"|"keyword",
     //     values:[…], action:"proxy"|"direct"|"block" }
@@ -167,11 +168,117 @@ function deepMerge(target, source) {
   if (typeof source !== "object" || source === null) return target;
   const out = Array.isArray(target) ? [...target] : { ...target };
   for (const k of Object.keys(source)) {
+    // localStorage может быть изменён извне/в devtools. Не позволяем ключам
+    // JSON менять prototype объектов, которые затем уходят в config builder.
+    if (k === "__proto__" || k === "prototype" || k === "constructor") continue;
     if (source[k] && typeof source[k] === "object" && !Array.isArray(source[k]) && typeof target[k] === "object") {
       out[k] = deepMerge(target[k], source[k]);
     } else {
       out[k] = source[k];
     }
+  }
+  return out;
+}
+
+const ENUM_PATHS = {
+  region: REGIONS,
+  "route.ipv6Mode": IPV6_MODES,
+  "inbound.tunStack": TUN_STACKS,
+  "log.level": LOG_LEVELS,
+  "mux.protocol": MUX_PROTOCOLS,
+  "warp.mode": ["direct", "chain"],
+  "warp.noisePreset": ["off", "default", "aggressive", "custom"],
+  "tlsTricks.fragmentMode": ["record", "tcp"],
+};
+
+const NUMBER_PATHS = {
+  "urlTest.intervalSec": [30, 3600],
+  "inbound.mixedPort": [1024, 65535],
+  "inbound.mtu": [576, 9000],
+  "experimental.clashApiPort": [1024, 65535],
+  "quality.idleProbeSec": [60, 900],
+  "quality.goodBps": [10_000, 1_000_000_000],
+  "quality.probeBytes": [16_384, 4_194_304],
+  "warp.mtu": [576, 1500],
+  "warp.autoRescanIntervalMin": [5, 360],
+  "warp.autoRescanThresholdMs": [100, 5000],
+  "mux.maxStreams": [1, 1024],
+  "tlsTricks.paddingSize.from": [0, 4096],
+  "tlsTricks.paddingSize.to": [0, 4096],
+  "warp.customNoise.count.from": [1, 64],
+  "warp.customNoise.count.to": [1, 64],
+  "warp.customNoise.size.from": [1, 1500],
+  "warp.customNoise.size.to": [1, 1500],
+  "warp.customNoise.delay.from": [0, 10_000],
+  "warp.customNoise.delay.to": [0, 10_000],
+};
+
+const BOOLEAN_PATHS = [
+  "blockAds", "general.autostart", "general.startMinimized", "general.linkHandlers",
+  "general.autoProtectWifi", "general.killSwitch", "general.disableGeoLookup",
+  "general.allowDirectSubscriptionFallback", "warp.enabled", "warp.deepScan",
+  "warp.autoRescan", "log.disabled", "dns.independentCache", "dns.enableFakeDns",
+  "route.bypassLan", "route.resolveDestination", "route.tunSplitDiscord",
+  "route.processLookup", "inbound.strictRoute", "inbound.allowConnectionFromLan",
+  "tlsTricks.enableFragment", "tlsTricks.mixedSniCase", "tlsTricks.enablePadding",
+  "mux.enable", "mux.padding", "experimental.enableClashApi", "quality.enabled",
+  "quality.aggressive", "quality.lowDataMode",
+];
+
+function valueAt(obj, path) {
+  return path.split(".").reduce((cur, key) => cur?.[key], obj);
+}
+
+function setAt(obj, path, value) {
+  const keys = path.split(".");
+  let cur = obj;
+  for (const key of keys.slice(0, -1)) cur = cur[key];
+  cur[keys.at(-1)] = value;
+}
+
+function isHttpUrl(value) {
+  try { return ["http:", "https:"].includes(new URL(value).protocol); }
+  catch { return false; }
+}
+
+export function normalizeOptions(input) {
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const out = deepMerge(structuredClone(DEFAULT_OPTIONS), source);
+  for (const [path, allowed] of Object.entries(ENUM_PATHS)) {
+    if (!allowed.includes(valueAt(out, path))) setAt(out, path, valueAt(DEFAULT_OPTIONS, path));
+  }
+  for (const [path, [min, max]] of Object.entries(NUMBER_PATHS)) {
+    const value = Number(valueAt(out, path));
+    const fallback = valueAt(DEFAULT_OPTIONS, path);
+    setAt(out, path, Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback);
+  }
+  for (const path of BOOLEAN_PATHS) {
+    if (typeof valueAt(out, path) !== "boolean") setAt(out, path, valueAt(DEFAULT_OPTIONS, path));
+  }
+  if (!isHttpUrl(out.urlTest.connectionTestUrl)) out.urlTest.connectionTestUrl = DEFAULT_OPTIONS.urlTest.connectionTestUrl;
+  out.quality.endpoints = Array.isArray(out.quality.endpoints)
+    ? out.quality.endpoints.filter((url) => typeof url === "string" && isHttpUrl(url)).slice(0, 4)
+    : [];
+  if (!out.quality.endpoints.length) out.quality.endpoints = [...DEFAULT_OPTIONS.quality.endpoints];
+  if (!Array.isArray(out.route.customRules)) out.route.customRules = [];
+  for (const pair of [
+    out.tlsTricks.paddingSize,
+    out.warp.customNoise.count,
+    out.warp.customNoise.size,
+    out.warp.customNoise.delay,
+  ]) {
+    if (pair.from > pair.to) [pair.from, pair.to] = [pair.to, pair.from];
+  }
+  for (const path of ["dns.remoteAddress", "dns.directAddress", "warp.endpoint"]) {
+    if (typeof valueAt(out, path) !== "string" || !valueAt(out, path).trim()) {
+      setAt(out, path, valueAt(DEFAULT_OPTIONS, path));
+    } else {
+      setAt(out, path, valueAt(out, path).trim());
+    }
+  }
+  if (typeof out.tlsTricks.fragmentFallbackDelay !== "string"
+      || !/^\d+(?:\.\d+)?(?:ms|s)$/.test(out.tlsTricks.fragmentFallbackDelay.trim())) {
+    out.tlsTricks.fragmentFallbackDelay = DEFAULT_OPTIONS.tlsTricks.fragmentFallbackDelay;
   }
   return out;
 }
@@ -186,7 +293,7 @@ export function loadOptions() {
       return structuredClone(DEFAULT_OPTIONS);
     }
     const parsed = JSON.parse(raw);
-    const opts = deepMerge(DEFAULT_OPTIONS, parsed);
+    const opts = normalizeOptions(parsed);
     // Разовая миграция: прежний дефолт log.level="info" писал домены всех
     // соединений в singbox.log. Сохранённый info — почти наверняка старый
     // дефолт (saveOptions хранит объект целиком), а не выбор юзера → один раз
@@ -205,7 +312,9 @@ export function loadOptions() {
 }
 
 export function saveOptions(opts) {
-  localStorage.setItem(OPTIONS_KEY, JSON.stringify(opts));
+  const normalized = normalizeOptions(opts);
+  localStorage.setItem(OPTIONS_KEY, JSON.stringify(normalized));
+  return normalized;
 }
 
 export function updateOption(path, value) {
@@ -217,15 +326,17 @@ export function updateOption(path, value) {
     cur = cur[keys[i]];
   }
   cur[keys[keys.length - 1]] = value;
-  saveOptions(opts);
+  const normalized = saveOptions(opts);
   // Одна опция может быть представлена несколькими контролами в разных местах
   // UI (warp.enabled: поповер «Режим» + Настройки → WARP). Контролы не
   // перерисовываются при чужой записи — подписка на это событие обязана
   // обновлять DOM всех дублей. Только DOM: запись опций из слушателя = цикл.
   try {
-    window.dispatchEvent(new CustomEvent("ninety:option-changed", { detail: { path, value } }));
+    window.dispatchEvent(new CustomEvent("ninety:option-changed", {
+      detail: { path, value: valueAt(normalized, path) },
+    }));
   } catch {}
-  return opts;
+  return normalized;
 }
 
 export function getOption(opts, path, fallback) {
