@@ -255,6 +255,7 @@ async fn wg_ping(
 ///   deep        — bool, расширенный пул подсетей (~22 vs 8)
 ///   mode        — "auto" (default — WG если есть warp.json, иначе TCP) | "tcp" | "wg"
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri IPC сохраняет совместимые top-level args.
 pub async fn warp_scan_endpoints(
     app: AppHandle,
     state: State<'_, WarpScanState>,
@@ -352,7 +353,7 @@ pub async fn warp_scan_endpoints(
                 Some(result) => {
                     completed += 1;
                     if let Some(r) = result { results.push(r); }
-                    if completed == total || completed % 50 == 0 {
+                    if completed == total || completed.is_multiple_of(50) {
                         let _ = app.emit("warp:scan-progress", serde_json::json!({
                             "completed": completed,
                             "total": total,

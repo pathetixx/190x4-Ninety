@@ -189,19 +189,6 @@ pub fn recover_stale_system_proxy() -> Result<(), String> {
     set_system_proxy(false, None, None)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn proxy_ownership_prefers_explicit_marker() {
-        assert!(proxy_owned_by_ninety("127.0.0.1:7890", Some("127.0.0.1:7890")));
-        assert!(!proxy_owned_by_ninety("127.0.0.1:8080", Some("127.0.0.1:7890")));
-        assert!(proxy_owned_by_ninety("127.0.0.1:7890", None));
-        assert!(!proxy_owned_by_ninety("corp.example:8080", None));
-    }
-}
-
 // True если текущий процесс запущен с правами администратора (elevated token).
 // Throne-style TUN требует чтобы всё приложение было elevated — sing-box,
 // поднимающий TUN-инбаунд, работает дочерним процессом и наследует права.
@@ -406,5 +393,18 @@ pub fn migrate_legacy_autostart() {
 pub fn autostart_refresh_path() {
     if is_elevated() && autostart_is_enabled() {
         let _ = autostart_enable();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn proxy_ownership_prefers_explicit_marker() {
+        assert!(proxy_owned_by_ninety("127.0.0.1:7890", Some("127.0.0.1:7890")));
+        assert!(!proxy_owned_by_ninety("127.0.0.1:8080", Some("127.0.0.1:7890")));
+        assert!(proxy_owned_by_ninety("127.0.0.1:7890", None));
+        assert!(!proxy_owned_by_ninety("corp.example:8080", None));
     }
 }

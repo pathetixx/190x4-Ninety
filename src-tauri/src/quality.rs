@@ -204,12 +204,7 @@ async fn probe_one(
 
     // goodput считаем от первого байта до конца выборки (без setup/TTFB) —
     // это честная скорость канала аутбаунда.
-    let body_ms = (fb.elapsed().as_millis() as u64).max(1);
-    let goodput_bps = bytes
-        .saturating_mul(8)
-        .saturating_mul(1000)
-        .checked_div(body_ms)
-        .unwrap_or(0);
+    let goodput_bps = calculate_goodput_bps(bytes, fb.elapsed().as_millis() as u64);
 
     let complete = bytes >= sample_bytes;
     Ok(ProbeResult {
@@ -228,13 +223,19 @@ async fn probe_one(
     })
 }
 
+fn calculate_goodput_bps(bytes: u64, elapsed_ms: u64) -> u64 {
+    bytes
+        .saturating_mul(8)
+        .saturating_mul(1000)
+        / elapsed_ms.max(1)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::calculate_goodput_bps;
+
     #[test]
     fn sub_millisecond_goodput_uses_one_millisecond_floor() {
-        let bytes = 1024u64;
-        let body_ms = 0u64.max(1);
-        let bps = bytes.saturating_mul(8).saturating_mul(1000) / body_ms;
-        assert_eq!(bps, 8_192_000);
+        assert_eq!(calculate_goodput_bps(1024, 0), 8_192_000);
     }
 }

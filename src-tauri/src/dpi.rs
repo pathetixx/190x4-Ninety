@@ -442,12 +442,12 @@ struct DpiLogWriter {
 impl DpiLogWriter {
     fn append(&mut self, bytes: &[u8]) {
         use std::io::Write;
-        if self.written.saturating_add(bytes.len() as u64) > DPI_LOG_CAP_BYTES {
-            if self.file.set_len(0).is_ok() {
-                let marker = b"[dpi log truncated at 8 MB cap]\n";
-                let _ = self.file.write_all(marker);
-                self.written = marker.len() as u64;
-            }
+        if self.written.saturating_add(bytes.len() as u64) > DPI_LOG_CAP_BYTES
+            && self.file.set_len(0).is_ok()
+        {
+            let marker = b"[dpi log truncated at 8 MB cap]\n";
+            let _ = self.file.write_all(marker);
+            self.written = marker.len() as u64;
         }
         if self.file.write_all(bytes).is_ok() {
             self.written = self.written.saturating_add(bytes.len() as u64);
@@ -458,7 +458,6 @@ impl DpiLogWriter {
 fn prepare_dpi_log(path: &Path) -> Option<Arc<Mutex<DpiLogWriter>>> {
     let file = std::fs::OpenOptions::new()
         .create(true)
-        .write(true)
         .append(true)
         .truncate(false)
         .open(path)
