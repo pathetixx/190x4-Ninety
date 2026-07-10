@@ -39,7 +39,7 @@ minisign-verify = "0.2"
 # Распаковка подписанного бандла канала (после верификации байтов).
 zip = { version = "8", default-features = false, features = ["deflate"] }
 urlencoding = "2.1"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+x25519-dalek = { version = "3", features = ["static_secrets"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 # WG handshake (boringtun) — нужен для warp_scan_endpoints в WG-режиме.
 # default-features = false убирает FFI bindings и device-loop, оставляет noise/Tunn.
@@ -50,7 +50,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.56"
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Networking_WinInet",
     "Win32_Networking_WinSock",
