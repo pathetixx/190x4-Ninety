@@ -50,7 +50,7 @@ blake2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winreg = "0.55"
+winreg = "0.56"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_Networking_WinInet",
