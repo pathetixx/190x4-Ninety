@@ -23,7 +23,7 @@
     "lint": "eslint --max-warnings 0 src site tests scripts"
   },
   "devDependencies": {
-    "@eslint/js": "9.39.4",
+    "@eslint/js": "10.0.1",
     "@tauri-apps/cli": "2.11.4",
     "eslint": "9.39.4",
     "globals": "17.7.0"
