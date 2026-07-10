@@ -38,7 +38,7 @@ base64 = "0.22"
 minisign-verify = "0.2"
 # Распаковка подписанного бандла канала (после верификации байтов).
 # Версия 4.x — та же, что уже в дереве (feature-унификация, без дубля в lock).
-zip = { version = "4", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 urlencoding = "2.1"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
