@@ -135,9 +135,13 @@ impl Drop for StagingDirGuard {
         }
     }
 }
-// minisign-pubkey: ДОЛЖЕН совпадать с plugins.updater.pubkey в tauri.conf.json
-// (тот же ключ подписывает и OTA, и канал). base64 от файла minisign-pubkey.
-const CHANNEL_PUBKEY_B64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1N0I1RTAwMEQ3MUQ3OUUKUldTZTEzRU5BRjU3ZGN3TkZoK28yeFRVa2tLdlhxNy8zUXo1aUdXN1lOSUE3MzZLUmVCRnFYamsK";
+// Dedicated ключ канала DPI. Новые bundle подписываются только им.
+// base64 от файла minisign-pubkey; он намеренно НЕ совпадает с OTA updater key.
+const CHANNEL_DEDICATED_PUBKEY_B64: &str = "ZFc1MGNuVnpkR1ZrSUdOdmJXMWxiblE2SUcxcGJtbHphV2R1SUhCMVlteHBZeUJyWlhrNklFUTROREkyTVRoRVFUYzFRVFZCTUVZS1VsZFJVRmRzY1c1cVYwWkRNa2xzZDI1UlIySmhRbFpMVFd0M2RtUTJMM2d2U1dvemRUVjRNeTl4UzNGaGN5ODRNRWxYWjFoNEx6WUs=";
+// Переходное доверие: уже опубликованный dpi-channel подписан legacy OTA key.
+// Удалять только отдельным релизом после ручной ротации канала, см.
+// docs/DPI_CHANNEL_KEY_ROTATION.md.
+const CHANNEL_LEGACY_PUBKEY_B64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1N0I1RTAwMEQ3MUQ3OUUKUldTZTEzRU5BRjU3ZGN3TkZoK28yeFRVa2tLdlhxNy8zUXo1aUdXN1lOSUE3MzZLUmVCRnFYamsK";
 
 // ── Пути ────────────────────────────────────────────────────────────
 // Каталог движка в ресурсах (read-only): <resource_dir>/dpi.
@@ -1061,31 +1065,36 @@ pub async fn dpi_check_update(app: AppHandle, port: Option<u16>) -> Result<serde
 
 // ── Канал данных стратегий (подписанный, без переустановки) ──────────
 
-// Проверить minisign-подпись бандла нашим pubkey (тем же, что у OTA).
+// Проверить minisign-подпись бандла. Dedicated key пробуем первым, legacy OTA
+// key — только для безопасного перехода со старого опубликованного канала.
 // sig_b64 — содержимое .sig-ассета (base64 от minisign-подписи, формат tauri).
 fn verify_channel(data: &[u8], sig_b64: &str) -> Result<(), String> {
     use base64::Engine;
     use minisign_verify::{PublicKey, Signature};
     let std_b64 = base64::engine::general_purpose::STANDARD;
-    // pubkey: base64 → текст файла minisign-pubkey → берём не-комментарную строку.
-    let pk_raw = std_b64
-        .decode(CHANNEL_PUBKEY_B64)
-        .map_err(|e| format!("pubkey b64: {e}"))?;
-    let pk_text = String::from_utf8(pk_raw).map_err(|e| format!("pubkey utf8: {e}"))?;
-    let key_line = pk_text
-        .lines()
-        .map(|l| l.trim())
-        .find(|l| !l.is_empty() && !l.starts_with("untrusted comment"))
-        .ok_or("pubkey: ключевая строка не найдена")?;
-    let pk = PublicKey::from_base64(key_line).map_err(|e| format!("pubkey decode: {e}"))?;
     // .sig: base64 → текст minisign-подписи (с trusted/untrusted comment).
     let sig_raw = std_b64
         .decode(sig_b64.trim())
         .map_err(|e| format!("sig b64: {e}"))?;
     let sig_text = String::from_utf8(sig_raw).map_err(|e| format!("sig utf8: {e}"))?;
     let sig = Signature::decode(&sig_text).map_err(|e| format!("sig decode: {e}"))?;
-    pk.verify(data, &sig, true)
-        .map_err(|e| format!("ПОДПИСЬ НЕВЕРНА: {e}"))
+    for key_b64 in [CHANNEL_DEDICATED_PUBKEY_B64, CHANNEL_LEGACY_PUBKEY_B64] {
+        // pubkey: base64 → текст файла minisign-pubkey → некомментарная строка.
+        let pk_raw = std_b64
+            .decode(key_b64)
+            .map_err(|e| format!("pubkey b64: {e}"))?;
+        let pk_text = String::from_utf8(pk_raw).map_err(|e| format!("pubkey utf8: {e}"))?;
+        let key_line = pk_text
+            .lines()
+            .map(|line| line.trim())
+            .find(|line| !line.is_empty() && !line.starts_with("untrusted comment"))
+            .ok_or("pubkey: ключевая строка не найдена")?;
+        let pk = PublicKey::from_base64(key_line).map_err(|e| format!("pubkey decode: {e}"))?;
+        if pk.verify(data, &sig, true).is_ok() {
+            return Ok(());
+        }
+    }
+    Err("ПОДПИСЬ НЕВЕРНА: не принята dedicated или legacy ключом DPI-канала".into())
 }
 
 // Какие .bin использует strategies.json (плейсхолдер %BIN%xxx.bin в args).

@@ -30,7 +30,7 @@ jobs:
           node-version: 22
 
       - name: Run JS tests
-        run: npm test && npm run check:versions && npm run check:actions-pinned
+        run: npm test && npm run check:versions && npm run check:actions-pinned && npm run check:dpi-key-rotation
 
   js-lint:
     runs-on: ubuntu-latest

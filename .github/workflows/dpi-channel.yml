@@ -140,14 +140,14 @@ jobs:
         if: steps.chk.outputs.changed == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Sign the bundle (minisign, our OTA key)
+      - name: Sign the bundle (dedicated DPI key)
         if: steps.chk.outputs.changed == 'true'
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          DPI_CHANNEL_SIGNING_PRIVATE_KEY: ${{ secrets.DPI_CHANNEL_SIGNING_PRIVATE_KEY }}
+          DPI_CHANNEL_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.DPI_CHANNEL_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           # → dpi-channel.zip.sig (base64 minisign signature; Rust decodes and verifies it)
-          npx --no-install tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "" dpi-channel.zip
+          npx --no-install tauri signer sign --private-key "$DPI_CHANNEL_SIGNING_PRIVATE_KEY" --password "$DPI_CHANNEL_SIGNING_PRIVATE_KEY_PASSWORD" dpi-channel.zip
           test -f dpi-channel.zip.sig
 
       - name: Publish to the dpi-channel release
