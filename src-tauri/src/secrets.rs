@@ -54,7 +54,7 @@ mod win {
     // Копирует выходной блоб в Vec и освобождает LocalAlloc-память API.
     unsafe fn take(out: CRYPT_INTEGER_BLOB) -> Vec<u8> {
         let v = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
-        let _ = LocalFree(HLOCAL(out.pbData as *mut core::ffi::c_void));
+        let _ = LocalFree(Some(HLOCAL(out.pbData as *mut core::ffi::c_void)));
         v
     }
 

@@ -20,21 +20,22 @@
     "tauri": "tauri",
     "test": "node scripts/test.mjs",
     "check:versions": "node scripts/check-version.mjs",
+    "check:actions-pinned": "node scripts/check-actions-pinned.mjs",
     "lint": "eslint --max-warnings 0 src site tests scripts"
   },
   "devDependencies": {
-    "@eslint/js": "9.39.4",
+    "@eslint/js": "10.0.1",
     "@tauri-apps/cli": "2.11.4",
-    "eslint": "9.39.4",
+    "eslint": "10.6.0",
     "globals": "17.7.0"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-deep-link": "^2.0.1",
     "@tauri-apps/plugin-dialog": "^2.0.1",
     "@tauri-apps/plugin-notification": "^2.0.1",
     "@tauri-apps/plugin-process": "^2.0.1",
     "@tauri-apps/plugin-shell": "^2.0.1",
-    "@tauri-apps/plugin-updater": "^2.0.1",
-    "@tauri-apps/plugin-deep-link": "^2.0.1"
+    "@tauri-apps/plugin-updater": "^2.0.1"
   }
 }

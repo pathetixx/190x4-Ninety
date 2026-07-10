@@ -46,7 +46,7 @@ mod windows_impl {
     use super::NetProcess;
     use std::collections::BTreeMap;
     use windows::core::PWSTR;
-    use windows::Win32::Foundation::{CloseHandle, GetLastError, BOOL, ERROR_INSUFFICIENT_BUFFER};
+    use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_INSUFFICIENT_BUFFER};
     use windows::Win32::NetworkManagement::IpHelper::{
         GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCP6ROW_OWNER_PID,
         MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID,
@@ -98,7 +98,7 @@ mod windows_impl {
             let _ = GetExtendedTcpTable(
                 None,
                 &mut size,
-                BOOL(0),
+                false,
                 AF_INET.0 as u32,
                 TCP_TABLE_OWNER_PID_ALL,
                 0,
@@ -118,7 +118,7 @@ mod windows_impl {
                 let rc = GetExtendedTcpTable(
                     Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
                     &mut avail,
-                    BOOL(0),
+                    false,
                     AF_INET.0 as u32,
                     TCP_TABLE_OWNER_PID_ALL,
                     0,
@@ -157,7 +157,7 @@ mod windows_impl {
     fn established_pids_v6() -> Result<Vec<u32>, String> {
         unsafe {
             let mut size = 0u32;
-            let _ = GetExtendedTcpTable(None, &mut size, BOOL(0), AF_INET6.0 as u32, TCP_TABLE_OWNER_PID_ALL, 0);
+            let _ = GetExtendedTcpTable(None, &mut size, false, AF_INET6.0 as u32, TCP_TABLE_OWNER_PID_ALL, 0);
             if size == 0 { return Ok(Vec::new()); }
             for _ in 0..3 {
                 let words = (size as usize).div_ceil(4);
@@ -166,7 +166,7 @@ mod windows_impl {
                 let rc = GetExtendedTcpTable(
                     Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
                     &mut avail,
-                    BOOL(0),
+                    false,
                     AF_INET6.0 as u32,
                     TCP_TABLE_OWNER_PID_ALL,
                     0,
@@ -190,7 +190,7 @@ mod windows_impl {
     fn udp_pids_v4() -> Result<Vec<u32>, String> {
         unsafe {
             let mut size = 0u32;
-            let _ = GetExtendedUdpTable(None, &mut size, BOOL(0), AF_INET.0 as u32, UDP_TABLE_OWNER_PID, 0);
+            let _ = GetExtendedUdpTable(None, &mut size, false, AF_INET.0 as u32, UDP_TABLE_OWNER_PID, 0);
             if size == 0 { return Ok(Vec::new()); }
             for _ in 0..3 {
                 let words = (size as usize).div_ceil(4);
@@ -199,7 +199,7 @@ mod windows_impl {
                 let rc = GetExtendedUdpTable(
                     Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
                     &mut avail,
-                    BOOL(0),
+                    false,
                     AF_INET.0 as u32,
                     UDP_TABLE_OWNER_PID,
                     0,
@@ -223,7 +223,7 @@ mod windows_impl {
     fn udp_pids_v6() -> Result<Vec<u32>, String> {
         unsafe {
             let mut size = 0u32;
-            let _ = GetExtendedUdpTable(None, &mut size, BOOL(0), AF_INET6.0 as u32, UDP_TABLE_OWNER_PID, 0);
+            let _ = GetExtendedUdpTable(None, &mut size, false, AF_INET6.0 as u32, UDP_TABLE_OWNER_PID, 0);
             if size == 0 { return Ok(Vec::new()); }
             for _ in 0..3 {
                 let words = (size as usize).div_ceil(4);
@@ -232,7 +232,7 @@ mod windows_impl {
                 let rc = GetExtendedUdpTable(
                     Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
                     &mut avail,
-                    BOOL(0),
+                    false,
                     AF_INET6.0 as u32,
                     UDP_TABLE_OWNER_PID,
                     0,
@@ -255,7 +255,7 @@ mod windows_impl {
 
     fn process_path(pid: u32) -> Option<String> {
         unsafe {
-            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, BOOL(0), pid).ok()?;
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
             let mut capacity = 260usize;
             let result = loop {
                 let mut buf = vec![0u16; capacity];

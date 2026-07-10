@@ -245,7 +245,7 @@ pub fn relaunch_self_elevated(extra_args: &[&str]) -> Result<bool, String> {
 
     unsafe {
         let h = ShellExecuteW(
-            HWND::default(),
+            Some(HWND::default()),
             PCWSTR(verb.as_ptr()),
             PCWSTR(file.as_ptr()),
             PCWSTR(params_w.as_ptr()),
@@ -289,7 +289,7 @@ fn run_schtasks_elevated(cmdline: &str) -> bool {
     let params = to_wide(cmdline);
     unsafe {
         let h = ShellExecuteW(
-            HWND::default(),
+            Some(HWND::default()),
             PCWSTR(verb.as_ptr()),
             PCWSTR(file.as_ptr()),
             PCWSTR(params.as_ptr()),
