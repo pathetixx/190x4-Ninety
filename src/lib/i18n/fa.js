@@ -650,7 +650,7 @@ export const fa = {
 
     sec: {
       general:    { title: "عمومی",        hint: "شروع خودکار، دسترسی مدیر، محافظت Wi-Fi، کلید قطع اضطراری، گزارش‌ها" },
-      appearance: { title: "ظاهر",         hint: "زبان رابط و رنگ تأکید: Kurogane، Cyan، Synthwave، Matrix، Command Center، Mono" },
+      appearance: { title: "ظاهر",         hint: "زبان رابط و انتخاب پوسته" },
       routing:    { title: "مسیریابی",     hint: "منطقه، دور زدن شبکهٔ محلی، مسدودسازی تبلیغات، IPv6" },
       dns:        { title: "DNS",          hint: "DNS دور و مستقیم، کش، fake-DNS" },
       inbound:    { title: "دسترسی محلی",  hint: "پورت محلی، MTU، استک TUN، دسترسی از شبکه" },

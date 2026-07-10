@@ -650,7 +650,7 @@ export const ja = {
 
     sec: {
       general:    { title: "全般",          hint: "自動起動、管理者権限、Wi-Fi 保護、キルスイッチ、ログ" },
-      appearance: { title: "外観",          hint: "インターフェース言語とアクセント: Kurogane、Cyan、Synthwave、Matrix、Command Center、Mono" },
+      appearance: { title: "外観",          hint: "インターフェース言語とテーマの選択" },
       routing:    { title: "ルーティング",   hint: "地域、LAN回避、広告ブロック、IPv6" },
       dns:        { title: "DNS",           hint: "リモートおよびダイレクトDNS、キャッシュ、fake-DNS" },
       inbound:    { title: "ローカルアクセス", hint: "ローカルポート、MTU、TUNスタック、LANアクセス" },

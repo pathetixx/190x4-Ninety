@@ -650,7 +650,7 @@ export const uk = {
 
     sec: {
       general:    { title: "Загальні",          hint: "Автозапуск, права адміністратора, Wi-Fi-захист, Kill Switch, логи" },
-      appearance: { title: "Оформлення",        hint: "Мова інтерфейсу та акцент: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
+      appearance: { title: "Оформлення",        hint: "Мова інтерфейсу та вибір теми" },
       routing:    { title: "Маршрутизація",     hint: "Регіон, обхід локальної мережі, блокування реклами, IPv6" },
       dns:        { title: "DNS",               hint: "Remote- та Direct-DNS, кеш, fake-DNS" },
       inbound:    { title: "Локальний доступ",  hint: "Локальний порт, MTU, TUN-стек, доступ із мережі" },

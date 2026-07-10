@@ -725,6 +725,36 @@
 }
 .hero__title { font-size: 23px; }
 
+/* Shiro — отдельная светлая подача, а не тёмный HUD на светлом фоне. */
+[data-theme="shiro"] .app::before {
+  background:
+    radial-gradient(ellipse 72% 58% at 50% 100%, color-mix(in srgb, var(--accent-soft) 38%, transparent), transparent 70%),
+    var(--ink-0);
+}
+[data-theme="shiro"] .app::after { opacity: 0.025; }
+[data-theme="shiro"] .hero__bloom { filter: blur(48px); }
+[data-theme="shiro"] .hero[data-state="secured"] .hero__bloom { opacity: 0.42; }
+[data-theme="shiro"] .hero[data-state="secured"] .hero__halo { opacity: 0.6; }
+[data-theme="shiro"] .hero[data-state="secured"] .hud { opacity: 0.9; }
+[data-theme="shiro"] .hud__sys { fill: var(--text-mid); letter-spacing: 1.5px; }
+[data-theme="shiro"] .hud__target { fill: var(--accent-deep); letter-spacing: 1.5px; }
+[data-theme="shiro"] .hud__clock { fill: var(--text-lo); }
+[data-theme="shiro"] .hud__intg { fill: var(--accent-deep); }
+[data-theme="shiro"] .hud__err { fill: var(--text-lo); }
+[data-theme="shiro"] .hud [data-hud="ca"] { filter: none !important; }
+[data-theme="shiro"] .hero__disc {
+  background: radial-gradient(closest-side, #FFFFFF 0%, var(--ink-1) 72%, var(--ink-0) 100%);
+  box-shadow: 0 0 0 1px var(--line-1) inset, 0 1px 0 var(--shine-2) inset, 0 18px 42px -24px var(--shadow-strong), 0 0 22px var(--accent-glow);
+}
+[data-theme="shiro"] .hero__disc:hover,
+[data-theme="shiro"] .hero[data-state="secured"] .hero__disc {
+  box-shadow: 0 0 0 1px var(--line-1) inset, 0 1px 0 var(--shine-2) inset, 0 22px 48px -24px var(--shadow-strong), 0 0 30px var(--accent-glow);
+}
+[data-theme="shiro"] .hero[data-state="secured"] .hero__mask {
+  filter: brightness(1.04) saturate(0.96) contrast(1.02) drop-shadow(0 0 8px var(--accent-glow));
+}
+[data-theme="shiro"] .hero[data-state="secured"] .hero__title { text-shadow: none; }
+
 /* ═══════════════════════════════════════════
    LOCATION CARD
 ═══════════════════════════════════════════ */

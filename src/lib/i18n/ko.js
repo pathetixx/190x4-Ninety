@@ -650,7 +650,7 @@ export const ko = {
 
     sec: {
       general:    { title: "일반",          hint: "자동 시작, 관리자 권한, Wi-Fi 보호, 킬 스위치, 로그" },
-      appearance: { title: "외관",          hint: "인터페이스 언어 및 강조색: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
+      appearance: { title: "외관",          hint: "인터페이스 언어 및 테마 선택" },
       routing:    { title: "라우팅",        hint: "지역, LAN 우회, 광고 차단, IPv6" },
       dns:        { title: "DNS",          hint: "원격 및 직접 DNS, 캐시, fake-DNS" },
       inbound:    { title: "로컬 접근",     hint: "로컬 포트, MTU, TUN 스택, LAN 접근" },

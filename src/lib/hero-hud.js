@@ -132,6 +132,9 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
     els.err.style.fill = sec ? "var(--text-lo)" : "var(--err)";
   }
   function glitch() {
+    // Для светлых тем аберрация и резкое затемнение SVG выглядят как артефакт,
+    // а не как телеметрия. Кольца и живые показатели при этом остаются.
+    if (["shiro", "sakura"].includes(document.documentElement.dataset.theme)) return;
     if (Math.random() > 0.6) return;
     const g = els.ca; if (!g) return;
     g.setAttribute("transform", "translate(3,-1) skewX(-3)");

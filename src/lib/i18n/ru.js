@@ -650,7 +650,7 @@ export const ru = {
 
     sec: {
       general:    { title: "Общие",            hint: "Автозапуск, права администратора, Wi-Fi-защита, Kill Switch, логи" },
-      appearance: { title: "Оформление",       hint: "Язык интерфейса, акцент: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
+      appearance: { title: "Оформление",       hint: "Язык интерфейса и выбор темы" },
       routing:    { title: "Маршрутизация",     hint: "Регион, обход локальной сети, блокировка рекламы, IPv6" },
       dns:        { title: "DNS",               hint: "Remote- и Direct-DNS, кэш, fake-DNS" },
       inbound:    { title: "Локальный доступ",  hint: "Локальный порт, MTU, TUN-стек, доступ из сети" },

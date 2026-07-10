@@ -650,7 +650,7 @@ export const ar = {
 
     sec: {
       general:    { title: "عام",          hint: "التشغيل التلقائي، صلاحيات المسؤول، حماية Wi-Fi، مفتاح القطع، السجلات" },
-      appearance: { title: "المظهر",       hint: "لغة الواجهة ولون التمييز: Kurogane، Cyan، Synthwave، Matrix، Command Center، Mono" },
+      appearance: { title: "المظهر",       hint: "لغة الواجهة واختيار المظهر" },
       routing:    { title: "التوجيه",      hint: "المنطقة، تجاوز الشبكة المحلية، حجب الإعلانات، IPv6" },
       dns:        { title: "DNS",          hint: "DNS البعيد والمباشر، التخزين المؤقت، fake-DNS" },
       inbound:    { title: "الوصول المحلي", hint: "المنفذ المحلي، MTU، مكدّس TUN، الوصول من الشبكة" },

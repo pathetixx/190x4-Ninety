@@ -253,38 +253,38 @@
 
 /* ────── Shiro Light — светлый лак, не инверсия ────── */
 [data-theme="shiro"] {
-  --ink-0: #F7F3EA;
-  --ink-1: #EFE8DA;
-  --ink-2: #E7DEC9;
-  --ink-3: #D8CAB2;
-  --ink-4: #CBBBA0;
+  --ink-0: #FAFAF8;
+  --ink-1: #F5F4F0;
+  --ink-2: #EEECE6;
+  --ink-3: #E0DDD5;
+  --ink-4: #D1CDC3;
 
-  --line-1: rgba(23, 19, 15, 0.06);
-  --line-2: rgba(23, 19, 15, 0.10);
-  --line-3: rgba(23, 19, 15, 0.16);
+  --line-1: rgba(35, 31, 26, 0.055);
+  --line-2: rgba(35, 31, 26, 0.10);
+  --line-3: rgba(35, 31, 26, 0.15);
 
   --edge-top: linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0) 55%);
 
-  --overlay-1: rgba(23, 19, 15, 0.025);
-  --overlay-2: rgba(23, 19, 15, 0.04);
-  --overlay-3: rgba(23, 19, 15, 0.06);
-  --overlay-4: rgba(23, 19, 15, 0.10);
+  --overlay-1: rgba(35, 31, 26, 0.022);
+  --overlay-2: rgba(35, 31, 26, 0.04);
+  --overlay-3: rgba(35, 31, 26, 0.06);
+  --overlay-4: rgba(35, 31, 26, 0.10);
 
   --shine-1: rgba(255, 255, 255, 0.38);
   --shine-2: rgba(255, 255, 255, 0.52);
 
-  --shadow-strong: rgba(92, 74, 50, 0.24);
+  --shadow-strong: rgba(48, 42, 34, 0.17);
 
-  --text-hi: #17130F;
-  --text-mid: #5E564C;
-  --text-lo: #938676;
-  --text-faint: #B6A892;
+  --text-hi: #24211D;
+  --text-mid: #625D55;
+  --text-lo: #91897D;
+  --text-faint: #B7B0A4;
 
-  --accent: #B9364E;
-  --accent-bright: #D76478;
+  --accent: #B52F48;
+  --accent-bright: #CC5268;
   --accent-deep: #7A1F31;
-  --accent-soft: rgba(185, 54, 78, 0.13);
-  --accent-glow: rgba(185, 54, 78, 0.24);
+  --accent-soft: rgba(181, 47, 72, 0.11);
+  --accent-glow: rgba(181, 47, 72, 0.18);
 }
 
 /* ────── Sakura Haze — светлая розовая дымка ────── */

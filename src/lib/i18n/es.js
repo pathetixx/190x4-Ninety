@@ -650,7 +650,7 @@ export const es = {
 
     sec: {
       general:    { title: "General",            hint: "Inicio automático, permisos de administrador, protección Wi-Fi, kill switch, registros" },
-      appearance: { title: "Apariencia",         hint: "Idioma de la interfaz y acento: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
+      appearance: { title: "Apariencia",         hint: "Idioma de la interfaz y selección de tema" },
       routing:    { title: "Enrutamiento",       hint: "Región, evasión de LAN, bloqueo de anuncios, IPv6" },
       dns:        { title: "DNS",                hint: "DNS remoto y directo, caché, fake-DNS" },
       inbound:    { title: "Acceso local",       hint: "Puerto local, MTU, pila TUN, acceso desde la LAN" },

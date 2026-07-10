@@ -650,7 +650,7 @@ export const en = {
 
     sec: {
       general:    { title: "General",        hint: "Autostart, administrator rights, Wi-Fi protection, kill switch, logs" },
-      appearance: { title: "Appearance",     hint: "Interface language and accent: Kurogane, Cyan, Synthwave, Matrix, Command Center, Mono" },
+      appearance: { title: "Appearance",     hint: "Interface language and theme selection" },
       routing:    { title: "Routing",        hint: "Region, LAN bypass, ad blocking, IPv6" },
       dns:        { title: "DNS",            hint: "Remote and Direct DNS, cache, fake-DNS" },
       inbound:    { title: "Local access",   hint: "Local port, MTU, TUN stack, LAN access" },
