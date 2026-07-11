@@ -2,6 +2,16 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.5 — 2026-07-11
+
+- The active profile or subscription is now preserved reliably across an OTA restart, including when WebView storage must be restored.
+- Refined Shiro Light with a cleaner white surface, lighter HUD treatment, and calmer telemetry without light-theme glitch artifacts.
+- The Appearance settings section now clearly describes language and theme selection.
+
+- Активный профиль или подписка теперь надёжно сохраняется при OTA-перезапуске, включая сценарий восстановления хранилища WebView.
+- Тема Shiro Light получила более чистую белую поверхность, лёгкий HUD и спокойную телеметрию без глитч-артефактов светлой темы.
+- В разделе «Оформление» теперь явно указаны выбор языка и темы.
+
 ## v0.2.4 — 2026-07-10
 
 - Updated Tauri, Windows platform bindings, networking and archive dependencies; adapted WARP key generation for the current cryptography API.
