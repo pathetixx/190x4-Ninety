@@ -8,6 +8,9 @@ on:
       - .github/workflows/pages.yml
   release:
     types: [published]
+  workflow_run:
+    workflows: ["Build Ninety"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -21,7 +24,12 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name != 'release' || github.event.release.prerelease == false
+    # Публикация релиза через GITHUB_TOKEN не создаёт отдельный release-event
+    # workflow. workflow_run после Build Ninety гарантирует второй Pages deploy,
+    # когда релиз уже стал Latest и release.json содержит его ассеты.
+    if: >-
+      (github.event_name != 'release' || github.event.release.prerelease == false) &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
