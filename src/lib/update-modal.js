@@ -5,6 +5,24 @@ import { t } from "/lib/i18n/index.js";
 
 const SKIP_KEY = "ninety.update.skip";
 
+export function buildUpdateJournal({ targetVersion, stage, sourceFingerprint, mode, vpn, dpi, attempts = 1 }) {
+  return {
+    schemaVersion: 2,
+    targetVersion: targetVersion || null,
+    stage,
+    sourceFingerprint: sourceFingerprint || null,
+    mode: mode || null,
+    desired: { vpn: !!vpn, dpi: !!dpi },
+    attempts: Math.max(1, Number(attempts) || 1),
+    updatedAt: Date.now(),
+  };
+}
+
+export function resumeRuntimeReady(resume, { vpnReady, dpiReady }) {
+  const desired = resume?.schemaVersion === 2 ? resume.desired : resume;
+  return (!desired?.vpn || vpnReady === true) && (!desired?.dpi || dpiReady === true);
+}
+
 function $(id) { return document.getElementById(id); }
 
 function api() {
@@ -151,9 +169,23 @@ export function openUpdateModal(update, opts = {}) {
       // выключенном DPI оставался отключённым, пока не нажмёт руками).
       let vpnWasOn = false;
       if (invoke) { try { vpnWasOn = !!(await invoke("singbox_running")); } catch {} }
-      const writeResume = () => {
+      let journal = null;
+      const journalAttempt = (() => {
+        try { return (Number(JSON.parse(localStorage.getItem("ninety.update.resume") || "null")?.attempts) || 0) + 1; }
+        catch { return 1; }
+      })();
+      const writeResume = (stage) => {
         if (!vpnWasOn && !dpiWasOn) return;
-        try { localStorage.setItem("ninety.update.resume", JSON.stringify({ vpn: vpnWasOn, dpi: dpiWasOn })); } catch {}
+        journal = buildUpdateJournal({
+          targetVersion: update.version,
+          stage,
+          sourceFingerprint: opts.resumeContext?.sourceFingerprint || null,
+          mode: opts.resumeContext?.mode || null,
+          vpn: vpnWasOn,
+          dpi: dpiWasOn,
+          attempts: journalAttempt,
+        });
+        try { localStorage.setItem("ninety.update.resume", JSON.stringify(journal)); } catch {}
       };
 
       // Гасим ядра ПЕРЕД установкой, но ПОСЛЕ скачивания: разлоченные бинарники
@@ -164,10 +196,16 @@ export function openUpdateModal(update, opts = {}) {
       // выгружается со смертью процесса) → dpi_unload_driver гасит winws и
       // снимает службу; аппа при запущенном DPI уже elevated, sc-команды пройдут.
       const stopEngines = async () => {
-        if (!invoke) return;
-        try { await invoke("set_system_proxy", { enable: false }); } catch {}
-        try { await invoke("stop_singbox"); } catch (e) { console.warn("pre-update stop failed", e); }
-        try { await invoke("dpi_unload_driver"); } catch (e) { console.warn("pre-update dpi unload failed", e); }
+        if (!invoke) return null;
+        const result = await invoke("stop_singbox");
+        if (!result || result.portsReleased === false
+          || [result.singbox, result.xray, result.sidecars].includes("failed")
+          || result.systemProxy === "failed") {
+          throw new Error("Не удалось подтверждённо остановить сетевые движки");
+        }
+        await invoke("dpi_unload_driver");
+        opts.onRuntimeStopped?.(result);
+        return result;
       };
 
       let total = 0;
@@ -198,23 +236,30 @@ export function openUpdateModal(update, opts = {}) {
       try {
         if (typeof update.download === "function" && typeof update.install === "function") {
           await update.download(onEvent);
+          writeResume("downloaded");
           setProgressLabel(t("updModal.installing"));
           setBarIndeterminate();
-          writeResume();
+          writeResume("backup_ready");
           await opts.onBeforeInstall?.();
           await stopEngines();
+          writeResume("runtime_stopped");
+          writeResume("installing");
           await update.install();
         } else {
           // Урезанный API (нет раздельных download/install) — прежний порядок.
-          writeResume();
+          writeResume("backup_ready");
           await opts.onBeforeInstall?.();
           await stopEngines();
+          writeResume("installing");
           await update.downloadAndInstall(onEvent);
         }
 
         setProgressLabel(t("updModal.relaunching"));
         const a = api();
-        try { await a?.process?.relaunch(); }
+        try {
+          await a?.process?.relaunch();
+          writeResume("relaunch_confirmed");
+        }
         catch (e) { console.warn("relaunch failed", e); }
         // Если relaunch не сработал — даём юзеру закрыть руками
         installBtn.textContent = t("updModal.done");
@@ -222,9 +267,11 @@ export function openUpdateModal(update, opts = {}) {
         installBtn.addEventListener("click", close, { once: true });
       } catch (e) {
         console.error("update failed", e);
-        // Установка сорвалась — resume-флаг не должен сработать на следующем
-        // обычном старте и внезапно поднять VPN/DPI.
-        try { localStorage.removeItem("ninety.update.resume"); } catch {}
+        // Journal сохраняется до подтверждённого RuntimeReady: при ошибке
+        // восстанавливаем сессию сейчас либо честно остаёмся выключенными.
+        try { await opts.onRecovery?.(journal, e); } catch (recoveryError) {
+          console.warn("update recovery failed", recoveryError);
+        }
         installing = false;
         opts.onInstalling?.(false);
         progressBox.hidden = true;

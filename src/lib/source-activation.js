@@ -15,6 +15,9 @@ export function applyActiveSourceTransaction(source, deps, options = {}) {
 
   deps.resetEffectiveNode();
   deps.resetProxiesView();
+  deps.resetTraffic?.();
+  deps.resetQuality?.();
+  deps.invalidateRuntime?.();
   deps.refreshProfiles();
   deps.syncTray();
 

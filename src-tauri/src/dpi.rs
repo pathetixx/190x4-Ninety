@@ -204,6 +204,8 @@ fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
         "list-general-user.txt",
         "list-exclude-user.txt",
         "ipset-exclude-user.txt",
+        "active-vpn-domain.txt",
+        "active-vpn-ip.txt",
     ] {
         let to = dst.join(name);
         if !to.exists() {
@@ -595,11 +597,18 @@ pub async fn dpi_start(
     let bindata = ensure_bindata(&app)?;
     let bindata_s = strip_verbatim(&bindata.to_string_lossy());
     let lists_s = strip_verbatim(&lists.to_string_lossy());
-    let args: Vec<String> = strat
+    let mut args: Vec<String> = strat
         .args
         .iter()
         .map(|a| subst(a, &bindata_s, &lists_s, g_tcp, g_udp))
         .collect();
+    // Активный VPN endpoint — отдельные managed-файлы: смена ноды заменяет
+    // значение, не накапливает старые адреса и не трогает user exclusions.
+    args.push(format!(
+        "--hostlist-exclude={}active-vpn-domain.txt",
+        lists_s
+    ));
+    args.push(format!("--ipset-exclude={}active-vpn-ip.txt", lists_s));
 
     if !dpi_operation_current(&state, generation) {
         return Err("DPI start отменён".into());
@@ -742,6 +751,33 @@ pub fn dpi_set_node_exclude(
         let entry = normalize_ipset_entry(i)?;
         append_unique(&lists.join("ipset-exclude-user.txt"), &entry)?;
     }
+    Ok(())
+}
+
+/// Атомарно заменить исключение активного VPN endpoint. В отличие от
+/// dpi_set_node_exclude это session-managed state, а не пользовательский список.
+#[tauri::command]
+pub fn dpi_set_active_vpn_endpoint(
+    app: AppHandle,
+    ip: Option<String>,
+    domain: Option<String>,
+) -> Result<(), String> {
+    let lists = ensure_lists(&app)?;
+    let domain_value = domain
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+    let ip_value = match ip.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(value) => normalize_ipset_entry(value)?,
+        None => String::new(),
+    };
+    write_replace(
+        &lists.join("active-vpn-domain.txt"),
+        domain_value,
+        "active VPN domain",
+    )?;
+    write_replace(&lists.join("active-vpn-ip.txt"), &ip_value, "active VPN IP")?;
     Ok(())
 }
 

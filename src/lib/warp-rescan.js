@@ -18,7 +18,7 @@ const WARP_HISTORY_LIMIT = 20;
 
 // getState() — геттер текущего состояния соединения из main ("idle"|"connecting"|
 // "connected"); scheduleAutoReconnect — дебаунс-реконнект ядра после смены endpoint.
-export function initWarpRescan({ getState, scheduleAutoReconnect }) {
+export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
   const locWarpRow = document.getElementById("loc-warp-row");
   const locWarpEndpoint = document.getElementById("loc-warp-endpoint");
   let timer = null;
@@ -59,6 +59,8 @@ export function initWarpRescan({ getState, scheduleAutoReconnect }) {
 
   function stopLoop() {
     if (timer) { clearInterval(timer); timer = null; }
+    inFlight = false;
+    invoke("warp_scan_cancel").catch(() => {});
   }
 
   async function tick() {
@@ -67,11 +69,14 @@ export function initWarpRescan({ getState, scheduleAutoReconnect }) {
     const opts = loadOptions();
     if (!opts.warp?.enabled || !opts.warp?.autoRescan) return;
     const threshold = Math.max(100, Number(opts.warp?.autoRescanThresholdMs) || 300);
+    const token = runtime?.capture?.() || null;
+    if (runtime && !runtime.isCurrent(token)) return;
     inFlight = true;
     try {
       let curDelay = 0;
       try {
         const r = await testNode("warp", { timeoutMs: 4000, url: "http://cp.cloudflare.com/generate_204" });
+        if (runtime && !runtime.isCurrent(token)) return;
         curDelay = r?.delay || 0;
       } catch { curDelay = 0; }
       // 0 = таймаут или not-reachable, выше порога — ротируем.
@@ -81,6 +86,8 @@ export function initWarpRescan({ getState, scheduleAutoReconnect }) {
       try {
         results = await invoke("warp_scan_endpoints", { topN: 5, deep: false, mode: "wg" });
       } catch { return; }
+      if (runtime && !runtime.isCurrent(token)) return;
+      if (getState() !== "connected" || !loadOptions().warp?.enabled) return;
       const best = Array.isArray(results) && results.length ? results[0] : null;
       if (!best) return;
       // Применяем только если новый лучше на ≥50мс, чтобы не дёргаться от шума.
@@ -90,6 +97,7 @@ export function initWarpRescan({ getState, scheduleAutoReconnect }) {
       }
       const newEndpoint = `${best.ip}:${best.port}`;
       const fromEndpoint = loadOptions().warp?.endpoint || "—";
+      if (runtime && !runtime.isCurrent(token)) return;
       updateOption("warp.endpoint", newEndpoint);
       recordRotation(fromEndpoint, newEndpoint, curDelay, best.latency_ms);
       console.info("[WARP rescan]", { from: fromEndpoint, to: newEndpoint, oldDelay: curDelay, newDelay: best.latency_ms });

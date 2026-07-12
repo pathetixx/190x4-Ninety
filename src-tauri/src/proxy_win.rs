@@ -327,6 +327,25 @@ pub fn recover_stale_system_proxy() -> Result<(), String> {
     set_system_proxy(false, None, None)
 }
 
+pub fn system_proxy_owned() -> bool {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let current = hkcu
+        .open_subkey_with_flags(INET_SETTINGS_KEY, KEY_READ)
+        .ok();
+    let ninety = hkcu.open_subkey_with_flags(NINETY_KEY, KEY_READ).ok();
+    let enabled = current
+        .as_ref()
+        .and_then(|k| k.get_value::<u32, _>("ProxyEnable").ok())
+        == Some(1);
+    let server = current
+        .as_ref()
+        .and_then(|k| k.get_value::<String, _>("ProxyServer").ok());
+    let active = ninety
+        .as_ref()
+        .and_then(|k| k.get_value::<String, _>("ActiveProxyServer").ok());
+    enabled && server.is_some() && server == active
+}
+
 // True если текущий процесс запущен с правами администратора (elevated token).
 // Throne-style TUN требует чтобы всё приложение было elevated — sing-box,
 // поднимающий TUN-инбаунд, работает дочерним процессом и наследует права.

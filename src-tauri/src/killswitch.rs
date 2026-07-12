@@ -98,6 +98,10 @@ pub fn killswitch_disarm(state: tauri::State<'_, KillSwitchState>) -> Result<(),
 /// Активен ли kill switch (для синхронизации UI).
 #[tauri::command]
 pub fn killswitch_active(state: tauri::State<'_, KillSwitchState>) -> bool {
+    is_active(&state)
+}
+
+pub fn is_active(state: &KillSwitchState) -> bool {
     state.0.lock_recover().is_some()
 }
 

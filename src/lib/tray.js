@@ -109,7 +109,8 @@ export function initTray(context) {
         const tag = e?.payload;
         if (!tag || ctx.getState() !== "connected") return;
         try {
-          await selectProxy("proxy", tag);
+          const selected = await selectProxy("proxy", tag);
+          if (selected?.stale) return;
           const src = getActiveSource();
           const node = src?.kind === "sub" ? (src.nodes.find((n, i) => nodeTag(i, n) === tag) || null) : null;
           ctx.onServerSelected(tag, node);

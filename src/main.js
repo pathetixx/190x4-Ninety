@@ -33,24 +33,24 @@ import { pathNeedsRestart } from "/lib/restart-policy.js";
 import { a11ySwitch } from "/lib/switch-a11y.js";
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
-import { openUpdateModal, shouldSkip as updateShouldSkip } from "/lib/update-modal.js";
+import { openUpdateModal, resumeRuntimeReady, shouldSkip as updateShouldSkip } from "/lib/update-modal.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
-import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView, resetProxiesViewForSourceChange } from "/lib/proxies-view.js";
+import { mountProxiesView, nodesFromSource, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView, resetProxiesViewForSourceChange, snapshotMatchesSource } from "/lib/proxies-view.js";
 import { applyActiveSourceTransaction } from "/lib/source-activation.js";
-import { mountDpiView, setDpiVpnMode, excludeVpnNode, autostartDpiIfEnabled, rerenderDpiView } from "/lib/dpi-view.js";
+import { mountDpiView, setDpiVpnMode, excludeVpnNode, clearVpnNodeExclusion, autostartDpiIfEnabled, rerenderDpiView } from "/lib/dpi-view.js";
 import { mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
 import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
 import { createCoreStartBarrier } from "/lib/connection-start-barrier.js";
-import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
+import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
 import { FLAGS_BASE, flagIsoFromName as isoFromNodeName, stripFlag } from "/lib/flags.js";
-import { startMeter, stopMeter, getMeasured, resetMeasured, sourceKeyOf } from "/lib/traffic-meter.js";
+import { configureTrafficRuntime, startMeter, stopMeter, getMeasured, resetMeasured, sourceKeyOf } from "/lib/traffic-meter.js";
 import { clearProfileStorage } from "/lib/storage-policy.js";
 import { createQualityEngine } from "/lib/quality-engine.js";
 import { bus } from "/lib/bus.js";
@@ -68,6 +68,8 @@ import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t }
 import { detectRegion } from "/lib/i18n/region-detect.js";
 import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
+import { createRuntimeIdentityController, sourceFingerprint, sourceKey } from "/lib/runtime-identity.js";
+import { createSourceMutationController, planSourceDeletion } from "/lib/source-mutations.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -559,9 +561,22 @@ const coreStartBarrier = createCoreStartBarrier();
 // отключения (ручное, авто-реконнект, watchdog, отказ моста, фейл старта)
 // идут через него, чтобы сброс системного прокси не потерялся ни в одном.
 async function shutdownCore() {
-  try { await invoke("set_system_proxy", { enable: false }); } catch {}
-  try { await invoke("stop_singbox"); } catch (e) { console.warn("stop failed", e); }
+  setState("disconnecting");
+  runtimeIdentity.invalidate();
+  cancelPendingSelections();
+  connectAttempts.cancel();
+  let result = null;
+  try { result = await invoke("stop_singbox"); }
+  catch (e) { console.warn("stop failed", e); }
+  const componentFailed = result && [result.singbox, result.xray, result.sidecars].includes("failed");
+  const stopped = !!result && !componentFailed && result.portsReleased !== false
+    && result.systemProxy !== "failed";
+  if (!stopped) {
+    setState("cleanup_error");
+    return false;
+  }
   setState("idle");
+  return true;
 }
 
 function scheduleAutoReconnect() {
@@ -589,17 +604,17 @@ async function performAutoReconnectOnce(reason) {
   connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
   toast(reason, "info", 0, { group: "conn", connecting: true });
   const nativeStartWasPending = coreStartBarrier.isPending();
-  await shutdownCore();
+  if (!(await shutdownCore())) return;
   // stop_singbox не может отменить IPC-start, который ещё находится в settle-
   // фазе и не записал child. Ждём его физического завершения, затем повторно
   // гасим поздно поднявшийся комплект. Только после этого стартует новый source.
   if (nativeStartWasPending) {
     await coreStartBarrier.wait();
-    await shutdownCore();
+    if (!(await shutdownCore())) return;
   }
   needsReconnect = false;
   applyReconnectUI();
-  setTimeout(() => heroDisc?.click(), 60);
+  await handleConnectionIntent();
 }
 
 // ── health-watchdog — /lib/health-watchdog.js ──────────────
@@ -628,7 +643,8 @@ const qualityEngine = createQualityEngine({
     // R1 — перевыбор ноды балансером без реконнекта: форсим re-test группы
     // lowest, urltest переберёт живые задержки и подвинет эффективную ноду.
     selectNextNode: async () => {
-      try { await refreshEffectiveDelay({ timeoutMs: 5000 }); return true; }
+      const token = runtimeIdentity.capture();
+      try { await refreshEffectiveDelay({ timeoutMs: 5000, token }); return runtimeIdentity.isCurrent(token); }
       catch { return false; }
     },
     // R2 — увести с конкретной плохой ноды: текущую кладём на cooldown и вручную
@@ -636,23 +652,29 @@ const qualityEngine = createQualityEngine({
     // interrupt_exist_connections=true → застрявшие соединения рвутся сами. Без
     // реконнекта. false (ступень пропускается) если альтернатив нет.
     excludeWorstNode: async () => {
+      const token = runtimeIdentity.capture();
+      if (!token) return false;
       const nodes = qualityNodesFromSource();
       if (nodes.length < 2) return false;
       let proxies = {};
-      try { proxies = (await getProxies())?.proxies || {}; } catch {}
+      try { proxies = (await getProxies(undefined, { token }))?.proxies || {}; } catch {}
+      if (!runtimeIdentity.isCurrent(token)) return false;
       const now = Date.now();
+      const scoped = (tag) => `${token.sourceKey}:${token.sourceRevision}:${tag}`;
       for (const [tag, exp] of qualityExcluded) if (exp <= now) qualityExcluded.delete(tag);
       const cur = currentEffectiveTag;
-      if (cur && cur !== "auto") qualityExcluded.set(cur, now + QUALITY_EXCLUDE_MS);
-      const avail = nodes.filter(n => n.clashTag && n.clashTag !== cur && !qualityExcluded.has(n.clashTag));
+      if (cur && cur !== "auto") qualityExcluded.set(scoped(cur), now + QUALITY_EXCLUDE_MS);
+      const avail = nodes.filter(n => n.clashTag && n.clashTag !== cur && !qualityExcluded.has(scoped(n.clashTag)));
       const pick = rankByDelay(avail, proxies)[0]?.clashTag;
       if (!pick) return false;
-      try { await selectProxy("proxy", pick); return true; }
+      try { const r = await selectProxy("proxy", pick, { token }); return !r?.stale && runtimeIdentity.isCurrent(token); }
       catch { return false; }
     },
     // R3 — маскировка трафика фрагментацией TLS (реконнект). Если выключена —
     // включаем; если уже включена — эскалируем сменой режима record↔tcp.
     applyFragmentation: async () => {
+      const token = runtimeIdentity.capture();
+      if (!token || !runtimeIdentity.isCurrent(token)) return false;
       // НЕ называть локальную переменную t: затенение i18n-функции здесь уже
       // ломало R3 (TypeError после updateOption → настройки мутировали без
       // реконнекта, лесенка щёлкала record↔tcp вхолостую).
@@ -667,12 +689,15 @@ const qualityEngine = createQualityEngine({
     // R4 — пересканировать WARP-endpoint и применить лучший (реконнект). Только
     // если WARP включён, иначе ступень неприменима → false (движок пропустит).
     rescanWarp: async () => {
+      const token = runtimeIdentity.capture();
+      if (!token) return false;
       if (!loadOptions().warp.enabled) return false;
       try {
         // warp_scan_endpoints отдаёт ScanResult[] с полями ip/port (scanner.rs) —
         // прежний код ждал endpoint/host, всегда получал null и ступень
         // молча пропускалась (R4 был мёртв).
         const res = await invoke("warp_scan_endpoints", { topN: 5, deep: false, mode: "auto" });
+        if (!runtimeIdentity.isCurrent(token) || !loadOptions().warp.enabled) return false;
         const best = Array.isArray(res) ? res[0] : null;
         if (!best?.ip || !best?.port) return false;
         updateOption("warp.endpoint", `${best.ip}:${best.port}`);
@@ -684,17 +709,20 @@ const qualityEngine = createQualityEngine({
     // застрявшие соединения рвутся, реконнект ядра не нужен. false если ноды
     // другого транспорта в источнике нет.
     switchTransport: async () => {
+      const token = runtimeIdentity.capture();
+      if (!token) return false;
       const nodes = qualityNodesFromSource();
       if (nodes.length < 2) return false;
       const cur = currentEffectiveTag;
       const curNode = nodes.find(n => n.clashTag === cur) || currentEffectiveNode;
       const curClass = curNode ? transportClass(curNode) : null;
       let proxies = {};
-      try { proxies = (await getProxies())?.proxies || {}; } catch {}
+      try { proxies = (await getProxies(undefined, { token }))?.proxies || {}; } catch {}
+      if (!runtimeIdentity.isCurrent(token)) return false;
       const alt = nodes.filter(n => n.clashTag && n.clashTag !== cur && transportClass(n) !== curClass);
       const pick = rankByDelay(alt, proxies)[0]?.clashTag;
       if (!pick) return false;
-      try { await selectProxy("proxy", pick); return true; }
+      try { const r = await selectProxy("proxy", pick, { token }); return !r?.stale && runtimeIdentity.isCurrent(token); }
       catch { return false; }
     },
     // Гибрид-гейт перед реконнект-ступенью (когда aggressive=false). Простым языком.
@@ -842,6 +870,7 @@ function applyActiveSource(kind, id, options = {}) {
     ? (getActiveKind() === "sub" && getActiveSubscriptionId() === id)
     : (getActiveKind() === "single" && getActiveProfileId() === id);
   const reason = options.reason || (isSub ? t("conn.switchSub") : t("conn.switchProfile"));
+  if (wasActive) return { kind, id, state, reconnected: false };
   return applyActiveSourceTransaction({ kind, id }, {
     setActiveKind,
     setActiveProfileId,
@@ -850,7 +879,10 @@ function applyActiveSource(kind, id, options = {}) {
       currentEffectiveNode = null;
       currentEffectiveTag = null;
     },
-    resetProxiesView: resetProxiesViewForSourceChange,
+    resetProxiesView: () => { cancelPendingSelections(); resetProxiesViewForSourceChange(); },
+    resetTraffic: stopMeter,
+    resetQuality: () => { qualityExcluded.clear(); qualityEngine.onIdle(); },
+    invalidateRuntime: () => runtimeIdentity.invalidate(),
     refreshProfiles: refreshProfilesSummary,
     syncTray: syncTrayMenu,
     getState: () => state,
@@ -867,11 +899,104 @@ function activateSource(kind, id) {
   return applyActiveSource(kind, id);
 }
 
+function sourceById(kind, id) {
+  if (kind === "sub") {
+    const subscription = loadSubscriptions().find(s => s.id === id);
+    return subscription ? { kind: "sub", subscription, nodes: subscription.profiles || [] } : null;
+  }
+  const profile = loadProfiles().find(p => p.id === id);
+  return profile ? { kind: "single", profile } : null;
+}
+
+const runtimeIdentity = createRuntimeIdentityController({
+  getSource: activeDisplaySource,
+  getMode,
+  getClashPort: () => loadOptions().experimental?.clashApiPort || 9090,
+});
+configureClashRuntime(runtimeIdentity);
+configureTrafficRuntime(runtimeIdentity);
+
+const sourceMutations = createSourceMutationController({
+  getActiveSource,
+  getSource: sourceById,
+  getState: () => state,
+  invalidateRuntime: () => runtimeIdentity.invalidate(),
+  resetEffectiveNode: () => { currentEffectiveNode = null; currentEffectiveTag = null; },
+  resetProxiesView: () => { cancelPendingSelections(); resetProxiesViewForSourceChange(); },
+  resetTraffic: stopMeter,
+  resetQuality: () => { qualityExcluded.clear(); qualityEngine.onIdle(); },
+  refreshProfiles: refreshProfilesSummary,
+  syncTray: syncTrayMenu,
+  reconnect: reconnectForSourceChange,
+});
+
+function mutateSource(kind, id, mutation, reason, beforeFingerprint) {
+  const key = `${kind === "sub" ? "sub" : "profile"}:${id}`;
+  const beforeFingerprints = beforeFingerprint === undefined ? undefined : new Map([[key, beforeFingerprint]]);
+  return sourceMutations.run([{ kind, id }], mutation, { reason, beforeFingerprints });
+}
+
+function mutateSources(items, mutation, reason) {
+  return sourceMutations.run(items, mutation, { reason });
+}
+
+async function deleteSource(kind, id) {
+  const plan = planSourceDeletion({
+    kind, id, activeKey: sourceKey(getActiveSource()),
+    subscriptions: loadSubscriptions(), profiles: loadProfiles(), state,
+  });
+  const { active: isActive, fallback } = plan;
+
+  if (plan.mustStopBeforeDelete) {
+    connectAttempts.cancel();
+    const stopped = await shutdownCore();
+    if (!stopped) return false;
+  }
+
+  if (kind === "sub") removeSubscription(id);
+  else removeProfile(id);
+
+  if (isActive && fallback) {
+    // remove* выбирает fallback внутри своего типа. Сбрасываем этот скрытый
+    // side-effect, чтобы applyActiveSource видел настоящую смену и дал один reconnect.
+    if (fallback.kind === "sub") {
+      setActiveProfileId(null);
+      setActiveSubscriptionId(null);
+      setActiveKind("single");
+    } else {
+      setActiveSubscriptionId(null);
+      setActiveProfileId(null);
+      setActiveKind("sub");
+    }
+    applyActiveSource(fallback.kind, fallback.id, { reason: t("conn.applyingSettings") });
+  } else {
+    if (isActive) {
+      setActiveSubscriptionId(null);
+      setActiveProfileId(null);
+      setActiveKind("single");
+      runtimeIdentity.invalidate();
+      cancelPendingSelections();
+      currentEffectiveNode = null;
+      currentEffectiveTag = null;
+      resetProxiesViewForSourceChange();
+    }
+    refreshProfilesSummary();
+    syncTrayMenu();
+  }
+  backupSoon();
+  toast(kind === "sub" ? t("prof.toastSubRemoved") : t("prof.toastProfileRemoved"), "info", 1800);
+  return true;
+}
+
 // ── WARP UX (hero badge + авто-ротация + история) — /lib/warp-rescan.js ──
 // Подсистема вынесена в модуль; здесь только инстанс с инжектом состояния/реконнекта.
 // Алиасы сохраняют прежние имена вызовов (updateWarpBadge/start/stopWarpRescanLoop),
 // разбросанные по setState/onChange/warp-switch — их не трогаем.
-const warpRescan = initWarpRescan({ getState: () => state, scheduleAutoReconnect });
+const warpRescan = initWarpRescan({
+  getState: () => state,
+  scheduleAutoReconnect,
+  runtime: runtimeIdentity,
+});
 const updateWarpBadge = warpRescan.updateBadge;
 const startWarpRescanLoop = warpRescan.startLoop;
 const stopWarpRescanLoop = warpRescan.stopLoop;
@@ -1149,7 +1274,13 @@ populateOnbPrefs();
 
 document.getElementById("profiles-refresh-all")?.addEventListener("click", async () => {
   try {
-    const results = await refreshAllSubscriptions();
+    const subscriptions = loadSubscriptions();
+    const tx = await mutateSources(
+      subscriptions.map(s => ({ kind: "sub", id: s.id })),
+      refreshAllSubscriptions,
+      t("conn.applyingSettings"),
+    );
+    const results = tx.result;
     const okCount = results.filter(r => r.ok).length;
     const failCount = results.length - okCount;
     const firstError = results.find(r => !r.ok)?.error;
@@ -1229,12 +1360,17 @@ profilesView?.addEventListener("click", async (e) => {
       closePMenu();
       if (act === "edit") {
         const sub = loadSubscriptions().find(s => s.id === id);
-        if (sub) openEditSubscription(sub, { onSaved: () => { refreshProfilesSummary(); }, onToast: toast });
+        const before = sourceFingerprint(sourceById("sub", id));
+        if (sub) openEditSubscription(sub, {
+          onSaved: () => mutateSource("sub", id, async () => sub, t("conn.applyingSettings"), before),
+          onToast: toast,
+        });
         return;
       }
       if (act === "refresh") {
         try {
-          const r = await refreshSubscription(id);
+          const tx = await mutateSource("sub", id, () => refreshSubscription(id), t("conn.applyingSettings"));
+          const r = tx.result;
           toast(t("prof.toastUpdated", { n: r.profiles.length }), "success", 1800);
         } catch (err) {
           toast(t("prof.toastErr", { err: err?.message || err }), "error", 2800);
@@ -1258,10 +1394,7 @@ profilesView?.addEventListener("click", async (e) => {
         refreshSubCardFromActive();
         toast(t("prof.toastTrafficReset"), "info", 1600);
       } else if (act === "remove") {
-        removeSubscription(id);
-        if (getActiveKind() === "sub" && !getActiveSubscriptionId()) setActiveKind("single");
-        refreshProfilesSummary();
-        toast(t("prof.toastSubRemoved"), "info", 1800);
+        await deleteSource("sub", id);
       }
     });
     return;
@@ -1278,13 +1411,17 @@ profilesView?.addEventListener("click", async (e) => {
       { id: "reset-traffic", label: t("prof.menu.resetTraffic"), icon: ICON_REFRESH },
       { id: "remove",   label: t("prof.menu.remove"),          icon: ICON_TRASH, danger: true },
     ]);
-    menu.addEventListener("click", (ev) => {
+    menu.addEventListener("click", async (ev) => {
       const act = ev.target.closest("[data-act]")?.dataset.act;
       if (!act) return;
       closePMenu();
       if (act === "edit") {
         const p = loadProfiles().find(x => x.id === id);
-        if (p) openEditProfile(p, { onSaved: () => { refreshProfilesSummary(); }, onToast: toast });
+        const before = sourceFingerprint(sourceById("single", id));
+        if (p) openEditProfile(p, {
+          onSaved: () => mutateSource("single", id, async () => p, t("conn.applyingSettings"), before),
+          onToast: toast,
+        });
         return;
       }
       if (act === "activate") {
@@ -1295,9 +1432,7 @@ profilesView?.addEventListener("click", async (e) => {
         refreshSubCardFromActive();
         toast(t("prof.toastTrafficReset"), "info", 1600);
       } else if (act === "remove") {
-        removeProfile(id);
-        refreshProfilesSummary();
-        toast(t("prof.toastProfileRemoved"), "info", 1800);
+        await deleteSource("single", id);
       }
     });
     return;
@@ -1343,7 +1478,10 @@ const locIpRow = document.getElementById("loc-ip-row");
 const locIp = document.getElementById("loc-ip");
 
 // Мап-имена для CSS data-state
-const STATE_HERO = { idle: "standby", connecting: "linking", connected: "secured" };
+const STATE_HERO = {
+  idle: "standby", connecting: "linking", connected: "secured",
+  disconnecting: "linking", cleanup_error: "standby",
+};
 const STATE_KICKER = {
   idle:       "STAND-BY · DISCONNECTED",
   connecting: "LINKING · NEGOTIATING",
@@ -1608,6 +1746,8 @@ function setState(next, opts = {}) {
     if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
     stopHealthWatchdog();
     stopWarpRescanLoop();
+    clearVpnNodeExclusion();
+    invoke("warp_scan_cancel").catch(() => {});
     stopDnsGuard();
     applyKillSwitch(false); // снять WFP-блок при отключении
     qualityEngine.onIdle();
@@ -1637,6 +1777,29 @@ function setState(next, opts = {}) {
     setHeroHintText(STATE_KICKER.connecting);
     if (heroDisc) heroDisc.setAttribute("aria-label", t("heroAria.cancelConnect"));
     if (heroMask) heroMask.playbackRate = 1.4;
+  } else if (next === "disconnecting") {
+    stopHealthWatchdog();
+    stopWarpRescanLoop();
+    clearVpnNodeExclusion();
+    invoke("warp_scan_cancel").catch(() => {});
+    stopDnsGuard();
+    stopClashStream();
+    stopMeter();
+    qualityEngine.onIdle();
+    if (heroLabel) heroLabel.textContent = t("hero.connecting");
+    if (heroDisc) heroDisc.disabled = true;
+  } else if (next === "cleanup_error") {
+    stopHealthWatchdog();
+    stopWarpRescanLoop();
+    invoke("warp_scan_cancel").catch(() => {});
+    stopDnsGuard();
+    stopClashStream();
+    stopMeter();
+    applyKillSwitch(false);
+    qualityEngine.onIdle();
+    if (heroLabel) heroLabel.textContent = t("conn.startFail");
+    if (heroDisc) heroDisc.disabled = false;
+    toast(t("conn.startFail"), "error", 6000, { desc: t("conn.startFailDesc") });
   } else if (next === "connected") {
     if (heroLabel) heroLabel.textContent = t("hero.secured");
     if (heroHint) heroHint.hidden = false;
@@ -1650,7 +1813,11 @@ function setState(next, opts = {}) {
     updateStatsServer();
     startTrafficStream();
     // Учёт реально измеренного трафика активного источника (для гибрид-плитки).
-    startMeter({ sourceKey: sourceKeyOf(activeDisplaySource()), onUpdate: refreshSubCardFromActive });
+    startMeter({
+      sourceKey: sourceKeyOf(activeDisplaySource()),
+      token: runtimeIdentity.capture(),
+      onUpdate: refreshSubCardFromActive,
+    });
     startWarpRescanLoop();
     startHealthWatchdog();
     // DNS-watchdog: если direct-DNS ляжет в середине сессии — переключит на резерв
@@ -1660,7 +1827,6 @@ function setState(next, opts = {}) {
       isConnected: () => state === "connected",
       onDnsSwitched: () => reconnectForSourceChange(t("dns.reconnect")),
     });
-    applyKillSwitch(true); // поднять WFP-блок (proxy/systemProxy + elevated)
     // Проба всегда через локальный инбаунд sing-box: mixed-in (proxy/systemProxy)
     // либо probe-in (TUN, тот же порт). «Напрямую» в TUN нельзя — bypass-правило
     // Ninety.exe увело бы пробу в direct, и мерился бы голый канал, а не туннель.
@@ -1729,7 +1895,7 @@ function stopSession() {
 
 // ── real-time WS-стрим из clash-API ────────────────────────
 function applyTrafficValues({ up, down }) {
-  if (state !== "connected") return;
+  if (state !== "connected" || !runtimeIdentity.capture()) return;
   qualityEngine.updatePassive({ down });
   // down/up — байт/сек; интегрируем в session-тоталы (тик ≈ 1с).
   sessionDownBytes += Math.max(0, down) || 0;
@@ -1754,14 +1920,17 @@ telePing?.addEventListener("click", async () => {
   if (state !== "connected") return;
   if (manualTestInFlight) return;
   manualTestInFlight = true;
+  const token = runtimeIdentity.capture();
   telePing.dataset.testing = "true";
   if (statsPing) statsPing.textContent = "···";
   try {
     // Hiddify-style: клик = тест URLTest-ГРУППЫ (как urlTest("")), а не одиночный
     // /proxies/{name}/delay. Число читается из history эффективной ноды → совпадает
     // со списком нод. Подробности в refreshEffectiveDelay.
-    const { delay } = await refreshEffectiveDelay({ timeoutMs: 5000 });
-    applyPingDisplay(delay > 0 ? delay : 65000);
+    const { delay } = await refreshEffectiveDelay({ timeoutMs: 5000, token });
+    if (runtimeIdentity.isCurrent(token)) applyPingDisplay(delay > 0 ? delay : 65000);
+  } catch (e) {
+    if (e?.code !== "STALE_RUNTIME") console.warn("manual delay test failed", e);
   } finally {
     delete telePing.dataset.testing;
     manualTestInFlight = false;
@@ -1770,19 +1939,23 @@ telePing?.addEventListener("click", async () => {
 
 async function startTrafficStream() {
   const epoch = connectAttempts.current();
+  const token = runtimeIdentity.capture();
+  if (!token) return;
   try {
     await startClashStream({
-      onTraffic: applyTrafficValues,
-      onPing: applyPingValue,
+      port: token.clashPort,
+      onTraffic: (v) => { if (runtimeIdentity.isCurrent(token)) applyTrafficValues(v); },
+      onPing: (v) => { if (runtimeIdentity.isCurrent(token)) applyPingValue(v); },
       onNodeChange: ({ tag }) => {
+        if (!runtimeIdentity.isCurrent(token)) return;
         // Эффективная нода реально поменялась (URLTest перевыбрал или юзер выбрал)
-        syncEffectiveFromClash({ knownTag: tag });
+        syncEffectiveFromClash({ knownTag: tag, token });
       },
     });
   } catch (e) {
     console.warn("startClashStream failed", e);
   }
-  if (state !== "connected" || !connectAttempts.isCurrent(epoch)) return;
+  if (state !== "connected" || !connectAttempts.isCurrent(epoch) || !runtimeIdentity.isCurrent(token)) return;
   // Публичный IP — отложенно (sing-box секунду стартует), потом раз в 5 мин
   setTimeout(() => refreshPublicIp(epoch), 2500);
   if (publicIpTimer) clearInterval(publicIpTimer);
@@ -1791,30 +1964,39 @@ async function startTrafficStream() {
 
 // Подтягивает effective node через clash → обновляет hero/location/IP.
 // Если knownTag передан — используем его (без лишнего запроса в clash).
-async function syncEffectiveFromClash({ knownTag } = {}) {
+async function syncEffectiveFromClash({ knownTag, token = runtimeIdentity.capture() } = {}) {
+  if (!token || !runtimeIdentity.isCurrent(token)) return;
   let tag = knownTag || null;
   if (!tag) {
     try {
-      const data = await getProxies();
+      const data = await getProxies(undefined, { token });
       tag = pickEffectiveNode(data);
     } catch { return; }
   }
+  if (!runtimeIdentity.isCurrent(token)) return;
   if (!tag) return;
   const src = getActiveSource();
   if (!src || src.kind !== "sub") return;
   // Тэг outbound'а — единая формула из singbox.js (nodeTag), чтобы не разъезжалось.
   const node = src.nodes.find((n, i) => nodeTag(i, n) === tag);
   if (!node) return;
+  onEffectiveNodeChanged(token, tag, node);
+}
+
+function onEffectiveNodeChanged(token, tag, node) {
+  if (!runtimeIdentity.isCurrent(token) || !node) return false;
   const prevHost = currentEffectiveNode?.host;
   currentEffectiveNode = node;
   currentEffectiveTag = tag;
   updateHeroForActive();
   syncTrayMenu();
-  if (state === "connected" && prevHost && prevHost !== node.host) {
+  if (state === "connected" && prevHost !== node.host) {
+    try { excludeVpnNode(node.host); } catch {}
     // Сервер реально сменился — IP надо перечитать
     if (locIp) locIp.textContent = "— · —";
     setTimeout(refreshPublicIp, 600);
   }
+  return true;
 }
 
 // Слушаем событие из proxies-view: юзер кликнул ноду / URLTest переключился
@@ -1836,16 +2018,13 @@ initTray({
   getEffectiveTag: () => currentEffectiveTag,
   getUpdateVersion: () => pendingUpdate?.version || null,
   onSetMode: (m) => changeMode(m),
-  onToggleVpn: () => heroDisc?.click(),
+  onToggleVpn: () => handleConnectionIntent(),
   onUpdateClick: () => flushPendingUpdate(),
   // Успешный выбор сервера из трея: обновить эффективную ноду + hero/локацию.
-  onServerSelected: (tag, node) => {
-    currentEffectiveTag = tag;
-    if (node) { currentEffectiveNode = node; updateHeroForActive(); }
-  },
+  onServerSelected: (tag) => syncEffectiveFromClash({ knownTag: tag }),
 });
 
-heroDisc?.addEventListener("click", async () => {
+async function handleConnectionIntent() {
   if (heroDisc.disabled) return;
   // Во время source-reconnect state кратко становится idle, но старый IPC-start
   // ещё может завершаться. Ручной клик в этом окне не должен создать второй start.
@@ -1865,7 +2044,7 @@ heroDisc?.addEventListener("click", async () => {
     needsReconnect = false;
     applyReconnectUI();
     // мгновенно стартуем заново
-    setTimeout(() => heroDisc.click(), 60);
+    await handleConnectionIntent();
     return;
   }
   if (state === "idle") {
@@ -1911,15 +2090,22 @@ heroDisc?.addEventListener("click", async () => {
     }
     // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
     // socks-перенаправление. xray=null когда xhttp в источнике нет.
-    const { config, xray, sidecars } = buildConfig({ source: src, mode, options, warpInfo, xray: true, bridgePorts });
+      const { config, xray, sidecars } = buildConfig({ source: src, mode, options, warpInfo, xray: true, bridgePorts });
+      const configJson = JSON.stringify(config);
+      const runtimeToken = runtimeIdentity.begin({
+        source: activeDisplaySource(), mode, configJson,
+        clashPort: options.experimental?.clashApiPort || 9090,
+      });
       await coreStartBarrier.track(invoke("start_singbox", {
-        configJson: JSON.stringify(config),
+        configJson,
         mode,
         xrayJson: xray ? JSON.stringify(xray) : null,
         // naive/trusttunnel клиенты (по одному на ноду); null когда таких нод нет.
         sidecarsJson: sidecars && sidecars.length ? JSON.stringify(sidecars) : null,
         // «Полностью отключить логи» → Rust не пишет файлы ни одного компонента.
         logsDisabled: !!options.log?.disabled,
+        sourceFingerprint: runtimeToken.sourceFingerprint,
+        configHash: runtimeToken.configHash,
       }));
       // Пока ядро стартовало (settle-паузы мостов), юзер мог нажать «Отключить»:
       // тот клик застаёт child=None и глушить ему нечего. Ловим отмену по epoch
@@ -1929,6 +2115,10 @@ heroDisc?.addEventListener("click", async () => {
         try { await invoke("stop_singbox"); } catch {}
         try { await invoke("set_system_proxy", { enable: false }); } catch {}
         return;
+      }
+      const topology = await getProxies(undefined, { token: runtimeToken });
+      if (!warpOnly && !snapshotMatchesSource(topology, nodesFromSource())) {
+        throw new Error("Clash topology не соответствует активному источнику");
       }
       // Системный прокси выставляем ТОЛЬКО для mode=systemProxy. Для голого
       // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт
@@ -1944,6 +2134,18 @@ heroDisc?.addEventListener("click", async () => {
           try { await invoke("stop_singbox"); } catch {}
           return;
         }
+      }
+      if (!runtimeIdentity.isCurrent(runtimeToken)) {
+        await shutdownCore();
+        return;
+      }
+      // Kill switch — часть readiness, а не фоновый best-effort после connected.
+      const killSwitchReady = await applyKillSwitch(true);
+      if (!runtimeIdentity.isCurrent(runtimeToken)) return;
+      if (killSwitchReady === false) {
+        await shutdownCore();
+        toast(t("conn.startFail"), "error", 5000, { desc: t("conn.startFailDesc") });
+        return;
       }
       setState("connected", { ping: null });
       const src0 = activeDisplaySource();
@@ -1976,13 +2178,15 @@ heroDisc?.addEventListener("click", async () => {
       toast(t("conn.startFail"), "error", 4500, { desc: t("conn.startFailDesc") });
       switchView("logs");
     }
-  } else if (state === "connecting" || state === "connected") {
+  } else if (state === "connecting" || state === "connected" || state === "cleanup_error") {
     connectAttempts.cancel(); // отмена/дисконнект: инвалидировать возможный start в полёте
     await shutdownCore();
     toast(t("conn.disconnected"), "info", 2000, { group: "conn", desc: t("conn.disconnectedDesc") });
     notify(t("conn.notifyDisconnected"), t("conn.notifyDisconnectedBody"));
   }
-});
+}
+
+heroDisc?.addEventListener("click", handleConnectionIntent);
 
 // ── Bootstrap ──────────────────────────────────────────────
 if (locPing) locPing.textContent = `— ${t("units.ms")}`;
@@ -2012,10 +2216,29 @@ setInterval(backupNow, 10 * 60_000);
     // а профиль ещё не загружен и VPN остаётся выключенным.
     if (await restoreStateOnLaunch) return;
 
-    const running = await invoke("singbox_running");
-    if (running) {
-      setState("connected", { ping: null });
+    const snapshot = await invoke("runtime_snapshot");
+    if (!snapshot?.running) return;
+    const source = activeDisplaySource();
+    const options = loadOptions();
+    const killSwitchExpected = !!options.general?.killSwitch && getMode() !== "tun";
+    const matches = snapshot.clashReady === true
+      && snapshot.sourceFingerprint === sourceFingerprint(source)
+      && snapshot.mode === getMode()
+      && Number(snapshot.clashPort) === Number(options.experimental?.clashApiPort || 9090)
+      && (getMode() !== "systemProxy" || snapshot.systemProxyOwnership === "owned")
+      && (!killSwitchExpected || snapshot.killSwitchActive === true);
+    if (!matches) {
+      needsReconnect = true;
+      setState("connecting");
+      await shutdownCore();
+      if (hasConnectSource()) {
+        needsReconnect = false;
+        await handleConnectionIntent();
+      }
+      return;
     }
+    runtimeIdentity.adopt(snapshot, { source });
+    setState("connected", { ping: null });
   } catch {}
 })();
 
@@ -2052,22 +2275,17 @@ setInterval(backupNow, 10 * 60_000);
     const resume = (() => {
       try {
         const raw = localStorage.getItem("ninety.update.resume");
-        if (raw) return JSON.parse(raw);
+        if (raw) {
+          const journal = JSON.parse(raw);
+          return journal?.schemaVersion === 2
+            ? { ...journal.desired, journal }
+            : journal;
+        }
         return localStorage.getItem("ninety.dpi.resumeAfterUpdate") === "1"
           ? { vpn: true, dpi: true }
           : null;
       } catch { return null; }
     })();
-    if (resume) {
-      try {
-        localStorage.removeItem("ninety.update.resume");
-        localStorage.removeItem("ninety.dpi.resumeAfterUpdate");
-      } catch {}
-      // Убрать одноразовый resume и из зашифрованного OTA-снимка, чтобы он не
-      // воскрес при будущей очистке WebView2.
-      await backupNow();
-    }
-
     const autoconnect = await invoke("should_autoconnect");
     if (!autoconnect && !resume) return;
     // VPN возвращаем при автостарте всегда; после OTA — только если он был
@@ -2091,10 +2309,17 @@ setInterval(backupNow, 10 * 60_000);
     const running = await invoke("singbox_running");
     if (vpnWanted && !running && hasConnectSource()) {
       await new Promise(r => setTimeout(r, 600)); // дать UI домонтироваться
-      if (state === "idle" && !heroDisc.disabled) heroDisc.click();
+      if (state === "idle" && !heroDisc.disabled) await handleConnectionIntent();
     }
     // DPI: поднять движок, если был включён (мы здесь уже elevated либо UAC отклонён).
     if (dpiWanted) await autostartDpiIfEnabled();
+    if (resume) {
+      const vpnReady = !resume.vpn || state === "connected" || await invoke("singbox_running");
+      const dpiReady = !resume.dpi
+        || (tunWanted && !splitDiscord)
+        || (dpiWanted && await invoke("dpi_running"));
+      if (resumeRuntimeReady(resume.journal || resume, { vpnReady, dpiReady })) await markUpdateRuntimeReady();
+    }
   } catch (e) {
     console.warn("autostart failed", e);
   }
@@ -2134,6 +2359,14 @@ let updateInstalling = false;
 // повторяются, без дедупа юзер в трее ловил бы тост о той же версии каждый тик.
 let lastNotifiedUpdateVersion = null;
 
+async function markUpdateRuntimeReady() {
+  try {
+    localStorage.removeItem("ninety.update.resume");
+    localStorage.removeItem("ninety.dpi.resumeAfterUpdate");
+  } catch {}
+  await backupNow();
+}
+
 // Окно «на виду»? (видимо и не свёрнуто). В трее hide() → isVisible()=false.
 async function windowIsForeground() {
   if (!tauriWin) return true;
@@ -2152,6 +2385,32 @@ async function showUpdateModal(update, opts = {}) {
       ...opts,
       onInstalling: (v) => { updateInstalling = v; },
       onBeforeInstall: backupForUpdate,
+      resumeContext: {
+        sourceFingerprint: sourceFingerprint(activeDisplaySource()),
+        mode: getMode(),
+      },
+      onRuntimeStopped: () => {
+        runtimeIdentity.invalidate();
+        setState("idle");
+      },
+      onRecovery: async (journal) => {
+        const desired = journal?.desired || journal || {};
+        let recovered = true;
+        if (desired.vpn && hasConnectSource()) {
+          if (state !== "idle") setState("idle");
+          await handleConnectionIntent();
+          recovered = state === "connected";
+        }
+        if (desired.dpi) {
+          try {
+            await autostartDpiIfEnabled();
+            const tunPaused = getMode() === "tun" && !loadOptions()?.route?.tunSplitDiscord;
+            if (!tunPaused && !(await invoke("dpi_running"))) recovered = false;
+          } catch { recovered = false; }
+        }
+        if (recovered) await markUpdateRuntimeReady();
+        else setState("cleanup_error");
+      },
     });
   } finally {
     updateModalShowing = false;
@@ -2312,7 +2571,7 @@ async function silentRefreshSubs() {
       : SUBS_REFRESH_DEFAULT_HOURS;
     if (s.lastUpdate && now - s.lastUpdate < hours * 3600_000) continue;
     try {
-      await refreshSubscription(s.id);
+      await mutateSource("sub", s.id, () => refreshSubscription(s.id), t("conn.applyingSettings"));
       refreshed++;
     } catch (e) {
       console.warn("sub auto-refresh failed", s.id, e);

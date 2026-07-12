@@ -782,11 +782,29 @@ export function setDpiVpnMode(mode) {
 
 // Внести сервер активной VPN-ноды в exclude winws (главный риск из спайка —
 // иначе winws корёжит зашифрованный VLESS к серверу). host = домен или IP.
+let activeEndpointRevision = 0;
+let activeEndpointQueue = Promise.resolve();
+function setActiveVpnEndpoint(host) {
+  const revision = ++activeEndpointRevision;
+  const isIp = host && /^[0-9a-fA-F:.]+$/.test(host) && (host.includes(".") || host.includes(":"));
+  const args = !host ? { ip: null, domain: null }
+    : isIp ? { ip: host, domain: null } : { ip: null, domain: host };
+  const apply = async () => {
+    if (revision !== activeEndpointRevision) return false;
+    await invoke("dpi_set_active_vpn_endpoint", args);
+    return revision === activeEndpointRevision;
+  };
+  activeEndpointQueue = activeEndpointQueue.then(apply, apply);
+  return activeEndpointQueue.catch(() => false);
+}
+
 export function excludeVpnNode(host) {
-  if (!host) return;
-  const isIp = /^[0-9a-fA-F:.]+$/.test(host) && (host.includes(".") || host.includes(":"));
-  const args = isIp ? { ip: host, domain: null } : { ip: null, domain: host };
-  invoke("dpi_set_node_exclude", args).catch(() => {});
+  if (!host) return Promise.resolve(false);
+  return setActiveVpnEndpoint(host);
+}
+
+export function clearVpnNodeExclusion() {
+  return setActiveVpnEndpoint(null);
 }
 
 export async function mountDpiView({ onToast, switchView, ensureElevated: ee } = {}) {

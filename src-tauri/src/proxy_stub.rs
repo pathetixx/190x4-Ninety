@@ -10,6 +10,10 @@ pub fn recover_stale_system_proxy() -> Result<(), String> {
     Ok(())
 }
 
+pub fn system_proxy_owned() -> bool {
+    false
+}
+
 // Не-Windows: понятия elevated-токена/UAC нет. Считаем что прав достаточно
 // (на Linux/macOS TUN решается через capabilities/setuid вне рамок клиента).
 pub fn is_elevated() -> bool {

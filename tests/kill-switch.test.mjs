@@ -60,3 +60,17 @@ test("kill switch: disarm выполняется после уже начато�
   assert.equal(calls.at(-1), "killswitch_disarm");
   assert.equal(calls.filter((x) => x === "killswitch_arm").length, 1);
 });
+
+test("неподтверждённый killswitch_active не считается защищённым соединением", async () => {
+  const controller = createKillSwitchController({
+    invoke: async (cmd) => {
+      if (cmd === "is_elevated") return true;
+      if (cmd === "killswitch_active") return false;
+      return undefined;
+    },
+    loadOptions: () => ({ general: { killSwitch: true }, route: {} }),
+    getMode: () => "systemProxy",
+    toast: () => {}, t: x => x, warn: () => {},
+  });
+  assert.equal(await controller.apply(true), false);
+});

@@ -1,7 +1,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::util::MutexExt;
@@ -211,6 +211,19 @@ pub struct SingboxState {
     // паузы мостов) — два конкурентных вызова спавнили бы два комплекта ядер,
     // дерущихся за порты.
     starting: AtomicBool,
+    process_generation: AtomicU64,
+    runtime: Mutex<Option<RuntimeRecord>>,
+    runtime_ports: Mutex<Vec<u16>>,
+}
+
+#[derive(Clone)]
+struct RuntimeRecord {
+    process_generation: u64,
+    source_fingerprint: Option<String>,
+    config_hash: Option<String>,
+    mode: String,
+    clash_port: u16,
+    clash_ready: bool,
 }
 
 impl Default for SingboxState {
@@ -223,6 +236,9 @@ impl Default for SingboxState {
             sidecars: Mutex::new(Vec::new()),
             sidecar_died: Arc::new(Mutex::new(None)),
             starting: AtomicBool::new(false),
+            process_generation: AtomicU64::new(0),
+            runtime: Mutex::new(None),
+            runtime_ports: Mutex::new(Vec::new()),
         }
     }
 }
@@ -738,6 +754,117 @@ pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSnapshot {
+    running: bool,
+    process_generation: u64,
+    source_fingerprint: Option<String>,
+    config_hash: Option<String>,
+    mode: Option<String>,
+    clash_port: u16,
+    clash_ready: bool,
+    sidecars: serde_json::Value,
+    system_proxy_ownership: &'static str,
+    kill_switch_active: bool,
+}
+
+fn runtime_ports_from_config(raw: &str) -> Result<(u16, Vec<u16>), String> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| format!("config json: {e}"))?;
+    let clash = value
+        .pointer("/experimental/clash_api/external_controller")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.rsplit(':').next())
+        .and_then(|s| s.parse::<u16>().ok())
+        .ok_or_else(|| "Clash API не настроен".to_string())?;
+    let mut ports = vec![clash];
+    if let Some(inbounds) = value.get("inbounds").and_then(|v| v.as_array()) {
+        for inbound in inbounds {
+            if let Some(port) = inbound
+                .get("listen_port")
+                .and_then(|v| v.as_u64())
+                .and_then(|p| u16::try_from(p).ok())
+            {
+                ports.push(port);
+            }
+        }
+    }
+    if let Some(outbounds) = value.get("outbounds").and_then(|v| v.as_array()) {
+        for outbound in outbounds {
+            if outbound.get("server").and_then(|v| v.as_str()) == Some("127.0.0.1") {
+                if let Some(port) = outbound
+                    .get("server_port")
+                    .and_then(|v| v.as_u64())
+                    .and_then(|p| u16::try_from(p).ok())
+                {
+                    ports.push(port);
+                }
+            }
+        }
+    }
+    ports.sort_unstable();
+    ports.dedup();
+    Ok((clash, ports))
+}
+
+async fn wait_clash_ready(port: u16) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
+    loop {
+        match crate::clash::clash_get_proxies(port).await {
+            Ok(_) => return Ok(()),
+            Err(e) if tokio::time::Instant::now() >= deadline => {
+                return Err(format!("Clash API port={port} не готов: {e}"))
+            }
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(150)).await,
+        }
+    }
+}
+
+async fn wait_ports_released(ports: &[u16]) -> bool {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let mut occupied = false;
+        for port in ports {
+            if tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, *port))
+                .await
+                .is_ok()
+            {
+                occupied = true;
+                break;
+            }
+        }
+        if !occupied {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
+fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> RuntimeSnapshot {
+    let running = compute_singbox_running(state);
+    let record = state.runtime.lock_recover().clone();
+    RuntimeSnapshot {
+        running,
+        process_generation: record.as_ref().map(|r| r.process_generation).unwrap_or(0),
+        source_fingerprint: record.as_ref().and_then(|r| r.source_fingerprint.clone()),
+        config_hash: record.as_ref().and_then(|r| r.config_hash.clone()),
+        mode: record.as_ref().map(|r| r.mode.clone()),
+        clash_port: record.as_ref().map(|r| r.clash_port).unwrap_or(9090),
+        clash_ready: running && record.as_ref().is_some_and(|r| r.clash_ready),
+        sidecars: serde_json::json!({ "xray": compute_xray_status(state), "clients": compute_sidecar_status(state) }),
+        system_proxy_ownership: if proxy::system_proxy_owned() {
+            "owned"
+        } else {
+            "not_owned"
+        },
+        kill_switch_active,
+    }
+}
+
 #[tauri::command]
 pub async fn start_singbox(
     app: AppHandle,
@@ -747,7 +874,9 @@ pub async fn start_singbox(
     xray_json: Option<String>,
     sidecars_json: Option<String>,
     logs_disabled: Option<bool>,
-) -> Result<(), String> {
+    source_fingerprint: Option<String>,
+    config_hash: Option<String>,
+) -> Result<RuntimeSnapshot, String> {
     let logs_disabled = logs_disabled.unwrap_or(false);
     // Sentinel ДО guard-проверки: второй конкурентный вызов отсекается сразу,
     // даже пока первый висит в settle-паузах мостов (child ещё не присвоен).
@@ -765,8 +894,11 @@ pub async fn start_singbox(
         *state.sidecar_died.lock_recover() = None;
     }
 
+    let process_generation = state.process_generation.fetch_add(1, Ordering::SeqCst) + 1;
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
     let config_json = harden_config(&config_json);
+    let (clash_port, runtime_ports) = runtime_ports_from_config(&config_json)?;
+    *state.runtime_ports.lock_recover() = runtime_ports;
     let sidecar_specs: Option<Vec<SidecarSpec>> = sidecars_json
         .as_ref()
         .filter(|s| !s.trim().is_empty())
@@ -811,7 +943,24 @@ pub async fn start_singbox(
         return Err(e);
     }
 
-    Ok(())
+    if let Err(e) = wait_clash_ready(clash_port).await {
+        if let Some(child) = state.child.lock_recover().take() {
+            let _ = child.kill();
+        }
+        kill_xray(&state);
+        kill_sidecars(&state);
+        *state.runtime_ports.lock_recover() = Vec::new();
+        return Err(e);
+    }
+    *state.runtime.lock_recover() = Some(RuntimeRecord {
+        process_generation,
+        source_fingerprint,
+        config_hash,
+        mode,
+        clash_port,
+        clash_ready: true,
+    });
+    Ok(runtime_snapshot_value(&state, false))
 }
 
 // Запись конфига + спавн sing-box + fail-fast-окно. Вынесено из start_singbox,
@@ -868,16 +1017,20 @@ async fn spawn_singbox_core(
     Ok(())
 }
 
-fn kill_xray(state: &SingboxState) {
+fn kill_xray(state: &SingboxState) -> bool {
     if let Some(child) = state.xray_child.lock_recover().take() {
-        let _ = child.kill();
+        child.kill().is_ok()
+    } else {
+        true
     }
 }
 
-fn kill_sidecars(state: &SingboxState) {
+fn kill_sidecars(state: &SingboxState) -> bool {
+    let mut ok = true;
     for child in state.sidecars.lock_recover().drain(..) {
-        let _ = child.kill();
+        ok &= child.kill().is_ok();
     }
+    ok
 }
 
 // Стирает конфиги мостов (naive-*.json, trusttunnel-*.toml) из app_config_dir.
@@ -945,21 +1098,72 @@ fn clear_death_flags(state: &SingboxState) {
     *state.sidecar_died.lock_recover() = None;
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopResult {
+    singbox: &'static str,
+    xray: &'static str,
+    sidecars: &'static str,
+    ports_released: bool,
+    system_proxy: &'static str,
+}
+
 #[tauri::command]
-pub async fn stop_singbox(app: AppHandle, state: State<'_, SingboxState>) -> Result<(), String> {
+pub async fn stop_singbox(
+    app: AppHandle,
+    state: State<'_, SingboxState>,
+) -> Result<StopResult, String> {
+    let ports = state.runtime_ports.lock_recover().clone();
     let taken = state.child.lock_recover().take();
-    if let Some(child) = taken {
+    let singbox = if let Some(child) = taken {
         // child.kill() гасит sing-box; wintun-адаптер (non-persistent) снимается
         // системой вместе со смертью процесса, державшего его — отдельная чистка
         // TUN-интерфейса не нужна.
-        let _ = child.kill();
-    }
-    kill_xray(&state);
-    kill_sidecars(&state);
+        if child.kill().is_ok() {
+            "stopped"
+        } else {
+            "failed"
+        }
+    } else {
+        "already_stopped"
+    };
+    let had_xray = state.xray_child.lock_recover().is_some();
+    let xray_ok = kill_xray(&state);
+    let had_sidecars = !state.sidecars.lock_recover().is_empty();
+    let sidecars_ok = kill_sidecars(&state);
+    let proxy_was_owned = proxy::system_proxy_owned();
+    let proxy_ok = proxy::set_system_proxy(false, None, None).is_ok();
+    let ports_released = wait_ports_released(&ports).await;
     purge_bridge_configs(&app);
     purge_current_configs(&app);
     clear_death_flags(&state);
-    Ok(())
+    *state.runtime.lock_recover() = None;
+    *state.runtime_ports.lock_recover() = Vec::new();
+    Ok(StopResult {
+        singbox,
+        xray: if !had_xray {
+            "already_stopped"
+        } else if xray_ok {
+            "stopped"
+        } else {
+            "failed"
+        },
+        sidecars: if !had_sidecars {
+            "already_stopped"
+        } else if sidecars_ok {
+            "stopped"
+        } else {
+            "failed"
+        },
+        ports_released,
+        system_proxy: if !proxy_was_owned {
+            "not_owned"
+        } else if proxy_ok {
+            "restored"
+        } else {
+            "failed"
+        },
+    })
 }
 
 // Внутренние вычисления статусов — переиспользуются одиночными командами и
@@ -1010,6 +1214,14 @@ fn compute_last_error(state: &SingboxState) -> Option<String> {
 #[tauri::command]
 pub fn singbox_running(state: State<'_, SingboxState>) -> bool {
     compute_singbox_running(&state)
+}
+
+#[tauri::command]
+pub fn runtime_snapshot(
+    state: State<'_, SingboxState>,
+    kill_switch: State<'_, crate::killswitch::KillSwitchState>,
+) -> RuntimeSnapshot {
+    runtime_snapshot_value(&state, crate::killswitch::is_active(&kill_switch))
 }
 
 // Агрегат статусов ядер за один вызов — watchdog фронта раньше дёргал
@@ -1362,5 +1574,20 @@ mod tests {
         let mut taken = Vec::new();
         let base = find_free_base(busy, 1, &mut taken).unwrap();
         assert!(base > busy, "base={base} должен быть за занятым {busy}");
+    }
+
+    #[test]
+    fn runtime_ports_include_custom_clash_inbound_and_local_bridges() {
+        let raw = r#"{
+          "experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}},
+          "inbounds":[{"listen_port":7899}],
+          "outbounds":[
+            {"server":"127.0.0.1","server_port":31100},
+            {"server":"vpn.example","server_port":443}
+          ]
+        }"#;
+        let (clash, ports) = runtime_ports_from_config(raw).unwrap();
+        assert_eq!(clash, 9191);
+        assert_eq!(ports, vec![7899, 9191, 31100]);
     }
 }

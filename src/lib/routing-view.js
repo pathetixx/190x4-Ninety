@@ -76,7 +76,6 @@ export function mountRoutingRules(rootEl, opts = {}) {
   // hideTitle: под-экран Настроек уже даёт заголовок «Правила маршрутизации» в
   // settings-head — глушим внутренний .rr-head__title, чтобы не дублировать.
   const hideTitle = !!opts.hideTitle;
-  const clashPort = loadOptions().experimental?.clashApiPort || 9090;
 
   // ── состояние ──
   let rules = loadRules();
@@ -621,7 +620,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     // Стоп, если секцию перерисовали/ушли с монитора.
     if (!rootEl.isConnected || tab !== "monitor") { stopMonTimer(); return; }
     try {
-      const list = await getConnections(clashPort);
+      const list = await getConnections();
       if (!rootEl.isConnected || tab !== "monitor") return;
       monConns = Array.isArray(list) ? list : [];
       paintConns();

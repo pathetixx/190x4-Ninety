@@ -171,6 +171,22 @@ fn base(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
+async fn json_response(
+    operation: &str,
+    port: u16,
+    response: reqwest::Response,
+) -> Result<Value, String> {
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("{operation} port={port}: HTTP {status}: {body}"));
+    }
+    response
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("{operation} port={port}: decode: {e}"))
+}
+
 #[tauri::command]
 pub async fn clash_get_proxies(port: u16) -> Result<Value, String> {
     let c = client()?;
@@ -180,7 +196,11 @@ pub async fn clash_get_proxies(port: u16) -> Result<Value, String> {
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;
-    r.json::<Value>().await.map_err(|e| format!("decode: {e}"))
+    let value = json_response("get_proxies", port, r).await?;
+    if !value.get("proxies").is_some_and(Value::is_object) {
+        return Err(format!("get_proxies port={port}: invalid payload"));
+    }
+    Ok(value)
 }
 
 // Кумулятивный трафик с момента старта ядра: /connections отдаёт uploadTotal/
@@ -195,12 +215,15 @@ pub async fn clash_traffic_total(port: u16) -> Result<Value, String> {
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;
-    let v = r
-        .json::<Value>()
-        .await
-        .map_err(|e| format!("decode: {e}"))?;
-    let up = v.get("uploadTotal").and_then(|x| x.as_u64()).unwrap_or(0);
-    let down = v.get("downloadTotal").and_then(|x| x.as_u64()).unwrap_or(0);
+    let v = json_response("traffic_total", port, r).await?;
+    let up = v
+        .get("uploadTotal")
+        .and_then(|x| x.as_u64())
+        .ok_or_else(|| format!("traffic_total port={port}: uploadTotal missing"))?;
+    let down = v
+        .get("downloadTotal")
+        .and_then(|x| x.as_u64())
+        .ok_or_else(|| format!("traffic_total port={port}: downloadTotal missing"))?;
     Ok(serde_json::json!({ "up": up, "down": down }))
 }
 
@@ -223,10 +246,10 @@ pub async fn clash_get_connections(port: u16) -> Result<Value, String> {
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;
-    let v = r
-        .json::<Value>()
-        .await
-        .map_err(|e| format!("decode: {e}"))?;
+    let v = json_response("get_connections", port, r).await?;
+    if !v.get("connections").is_some_and(Value::is_array) {
+        return Err(format!("get_connections port={port}: connections missing"));
+    }
     let mut out = Vec::new();
     if let Some(conns) = v.get("connections").and_then(|x| x.as_array()) {
         for conn in conns {
@@ -311,7 +334,11 @@ pub async fn clash_test_node(
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;
-    r.json::<Value>().await.map_err(|e| format!("decode: {e}"))
+    let value = json_response("test_node", port, r).await?;
+    if !value.get("delay").is_some_and(Value::is_number) {
+        return Err(format!("test_node port={port}: delay missing"));
+    }
+    Ok(value)
 }
 
 #[tauri::command]
@@ -337,7 +364,11 @@ pub async fn clash_test_group(
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;
-    r.json::<Value>().await.map_err(|e| format!("decode: {e}"))
+    let value = json_response("test_group", port, r).await?;
+    if !value.is_object() {
+        return Err(format!("test_group port={port}: invalid payload"));
+    }
+    Ok(value)
 }
 
 // Переключение активной ноды Selector-группы.
@@ -358,7 +389,7 @@ pub async fn clash_select_proxy(port: u16, group: String, name: String) -> Resul
     let status = r.status();
     if !status.is_success() {
         let text = r.text().await.unwrap_or_default();
-        return Err(format!("HTTP {status}: {text}"));
+        return Err(format!("select_proxy port={port}: HTTP {status}: {text}"));
     }
     Ok(())
 }

@@ -287,6 +287,7 @@ async function refresh({ retry = false } = {}) {
 
 // ── click-handler: выбор ноды через Selector ───────────────
 async function handleNodeClick(card, onToast) {
+  const generation = sourceGeneration;
   const tag = card.dataset.tag;
   if (!tag) return;
   const nodes = nodesFromSource();
@@ -295,6 +296,7 @@ async function handleNodeClick(card, onToast) {
   if (nodes.length < 2) return;
 
   const data = await readMatchingSnapshot(nodes, { attempts: 2 });
+  if (generation !== sourceGeneration) return;
   const selector = data?.proxies?.proxy;
   if (!data || proxyType(selector) !== "selector" || !snapshotCanSelectTag(data, nodes, tag)) {
     optimisticActiveTag = null;
@@ -310,7 +312,8 @@ async function handleNodeClick(card, onToast) {
     c.dataset.active = c.dataset.tag === tag ? "true" : "false";
   });
   try {
-    await selectProxy("proxy", tag);
+    const selected = await selectProxy("proxy", tag);
+    if (generation !== sourceGeneration || selected?.stale) return;
     onToast?.(tag === "auto" ? t("proxies.toastAuto") : t("proxies.toastSwitched"), "success", 1200);
     // Для "auto" реальный исходящий определит URLTest — узнаем после refresh.
     // Для ручного выбора — сразу синхронизируем hero/location/IP.
@@ -350,6 +353,8 @@ async function kickstartAutoIfNeeded() {
 
 export function onProxiesViewLeave() {
   stopPoll();
+  sourceGeneration++;
+  testingAll = false;
 }
 
 export function resetProxiesViewForSourceChange() {
@@ -395,10 +400,12 @@ export function mountProxiesView({ onToast } = {}) {
   fab?.addEventListener("click", async () => {
     if (testingAll) return;
     testingAll = true;
+    const generation = sourceGeneration;
     fab.dataset.testing = "true";
     try {
       const nodes = nodesFromSource();
       const ready = await readMatchingSnapshot(nodes, { attempts: SOURCE_READY_RETRIES });
+      if (generation !== sourceGeneration) return;
       if (!ready) {
         onToast?.(t("conn.applyingSettings"), "info", 2400);
         renderApplying(nodes);
@@ -408,9 +415,11 @@ export function mountProxiesView({ onToast } = {}) {
       // refresh по ходу — список оживает прогрессивно, не ждёт все ноды
       let last = 0;
       await testAllNodes(nodes, () => {
+        if (generation !== sourceGeneration) return;
         const now = Date.now();
         if (now - last > 600) { last = now; refresh(); }
-      });
+      }, () => generation === sourceGeneration);
+      if (generation !== sourceGeneration) return;
       onToast?.(t("proxies.toastRetested"), "success", 1600);
       await refresh();
     } catch (e) {
@@ -427,13 +436,15 @@ export function mountProxiesView({ onToast } = {}) {
 // он interval-gated (urlTest skip нод с history моложе 600с) → «обновить всё»
 // освежало лишь устаревшие, а свежие (включая то, что дёргает автозамер главной)
 // застывали. Пул concurrency=8 — как batch-лимит в самом ядре, без UDP/TCP-всплеска.
-async function testAllNodes(nodes, onProgress) {
+async function testAllNodes(nodes, onProgress, shouldContinue = () => true) {
   const tags = [...new Set(nodes.map(n => n.clashTag))];
   let i = 0;
   async function worker() {
     while (i < tags.length) {
+      if (!shouldContinue()) return;
       const t = tags[i++];
       try { await testNode(t, { timeoutMs: 5000 }); } catch {}
+      if (!shouldContinue()) return;
       try { onProgress?.(); } catch {}
     }
   }

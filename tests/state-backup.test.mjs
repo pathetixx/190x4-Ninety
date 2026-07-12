@@ -34,7 +34,7 @@ globalThis.window = {
   },
 };
 
-const { backupForUpdate, backupNow, restoreIfEmpty } = await import("/lib/state-backup.js");
+const { backupForUpdate, backupNow, restoreIfEmpty, validateSnapshot } = await import("/lib/state-backup.js");
 
 test("OTA-снимок возвращает активный профиль и resume-маркер", async () => {
   localStorage.clear();
@@ -56,4 +56,21 @@ test("OTA-снимок возвращает активный профиль и r
   assert.equal(await restoreIfEmpty(), true);
   assert.equal(localStorage.getItem("ninety.profiles.active"), "p-last");
   assert.equal(localStorage.getItem("ninety.update.resume"), JSON.stringify({ vpn: true, dpi: false }));
+});
+
+test("partial/corrupt backup отклоняется до записи", () => {
+  assert.equal(validateSnapshot({
+    __schemaVersion: 2,
+    "ninety.options.v1": "{}",
+    "ninety.profiles.v1": "not-json",
+    "ninety.subscriptions.v1": "[]",
+  }), false);
+  assert.equal(validateSnapshot({
+    __schemaVersion: 2,
+    "ninety.options.v1": "{}",
+    "ninety.profiles.v1": "[]",
+    "ninety.subscriptions.v1": JSON.stringify([{ id: "s" }]),
+    "ninety.active.kind": "sub",
+    "ninety.subscriptions.active": "missing",
+  }), false);
 });

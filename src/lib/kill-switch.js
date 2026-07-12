@@ -32,27 +32,30 @@ export function createKillSwitchController(deps = {}) {
     try {
       if (!wanted) {
         await call("killswitch_disarm");
-        return;
+        return true;
       }
       const opts = options();
       if (!opts.general?.killSwitch || mode() === "tun") {
         await call("killswitch_disarm");
-        return;
+        return true;
       }
       const elevated = await call("is_elevated");
       // Пока ждали UAC/IPC, пользователь мог отключиться или сменить режим.
       // Следующая queued reconciliation применит последнее желаемое состояние.
-      if (mine !== revision || !desiredConnected) return;
+      if (mine !== revision || !desiredConnected) return false;
       if (!elevated) {
         if (!killSwitchHintShown) {
           killSwitchHintShown = true;
           showToast(tr("elev.killSwitchHint"), "warn", 6000);
         }
-        return;
+        return false;
       }
       await call("killswitch_arm", { allowLan: options().route?.bypassLan !== false });
+      const active = await call("killswitch_active");
+      return active === true;
     } catch (e) {
       warn("kill switch", e);
+      return false;
     }
   }
 

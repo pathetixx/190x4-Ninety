@@ -10,7 +10,6 @@
 // перезапуски приложения.
 
 const KEY_PREFIX = "ninety.traffic.";
-const CLASH_PORT = 9090; // external_controller (harden_config форсит 127.0.0.1:9090)
 const invoke = window.__TAURI__?.core?.invoke;
 
 function load(sourceKey) {
@@ -49,12 +48,26 @@ let curKey = null;
 let lastUp = 0, lastDown = 0;   // последний снимок кумулятивных тоталов ядра
 let haveBaseline = false;       // получили ли первый снимок (точку отсчёта дельт)
 let onUpdate = null;
+let meterRunId = 0;
+let runtimeToken = null;
+let runtimeProvider = null;
+let clashPort = 9090;
+
+export function configureTrafficRuntime(provider) {
+  runtimeProvider = provider || null;
+}
 
 async function poll() {
-  if (!invoke || !curKey) return;
+  const runId = meterRunId;
+  const key = curKey;
+  const token = runtimeToken;
+  if (!invoke || !key) return;
+  if (token && runtimeProvider?.isCurrent && !runtimeProvider.isCurrent(token)) return;
   let t;
-  try { t = await invoke("clash_traffic_total", { port: CLASH_PORT }); }
+  try { t = await invoke("clash_traffic_total", { port: clashPort }); }
   catch { return; } // ядро ещё не подняло clash-API / уже умерло — пропускаем тик
+  if (runId !== meterRunId || key !== curKey || token !== runtimeToken) return;
+  if (token && runtimeProvider?.isCurrent && !runtimeProvider.isCurrent(token)) return;
   const up = Number(t?.up) || 0, down = Number(t?.down) || 0;
   // Первый снимок после старта ядра — только точка отсчёта, дельту не пишем.
   if (!haveBaseline) { lastUp = up; lastDown = down; haveBaseline = true; return; }
@@ -65,18 +78,20 @@ async function poll() {
   if (dD < 0) dD = down;
   lastUp = up; lastDown = down;
   if (dU > 0 || dD > 0) {
-    const acc = load(curKey);
+    const acc = load(key);
     acc.up += dU; acc.down += dD;
-    save(curKey, acc);
+    save(key, acc);
     try { onUpdate?.(); } catch {}
   }
 }
 
 // Запустить опрос для активного источника. Зовётся при переходе в connected.
-export function startMeter({ sourceKey, intervalMs = 3000, onUpdate: cb } = {}) {
+export function startMeter({ sourceKey, intervalMs = 3000, onUpdate: cb, token, port } = {}) {
   stopMeter();
   curKey = sourceKey || null;
   onUpdate = cb || null;
+  runtimeToken = token || runtimeProvider?.capture?.() || null;
+  clashPort = Number(port ?? runtimeToken?.clashPort) || 9090;
   haveBaseline = false; lastUp = 0; lastDown = 0;
   if (!curKey) return;
   poll();
@@ -84,6 +99,7 @@ export function startMeter({ sourceKey, intervalMs = 3000, onUpdate: cb } = {}) 
 }
 
 export function stopMeter() {
+  meterRunId++;
   if (timer) { clearInterval(timer); timer = null; }
-  curKey = null; haveBaseline = false; onUpdate = null;
+  curKey = null; haveBaseline = false; onUpdate = null; runtimeToken = null;
 }

@@ -6,6 +6,7 @@ import { t } from "/lib/i18n/index.js";
 import { uid } from "/lib/uid.js";
 import { loadOptions } from "/lib/options.js";
 import { safeDecodeBase64 } from "/lib/url-helpers.js";
+import { hashRuntimeValue, stableNodeId } from "/lib/runtime-identity.js";
 
 export { safeDecodeBase64 };
 
@@ -117,6 +118,27 @@ export function saveSubscriptions(list) {
   localStorage.setItem(SUBS_KEY, JSON.stringify(list));
 }
 
+// Stable ID переживает rename/reorder и повторный refresh. Для новых одинаковых
+// структур добавляется occurrence; после первого сохранения ID матчится обратно.
+export function assignStableNodeIds(profiles, previous = [], namespace = "sub") {
+  const oldByShape = new Map();
+  for (const node of previous || []) {
+    const shape = hashRuntimeValue(stableNodeId({ ...node, stableId: undefined, id: undefined }, "shape"));
+    const q = oldByShape.get(shape) || [];
+    if (node.stableId) q.push(node.stableId);
+    oldByShape.set(shape, q);
+  }
+  const seen = new Map();
+  return (profiles || []).map(node => {
+    if (node.stableId || node.id) return node;
+    const shape = hashRuntimeValue(stableNodeId({ ...node, stableId: undefined, id: undefined }, "shape"));
+    const occurrence = seen.get(shape) || 0;
+    seen.set(shape, occurrence + 1);
+    const reused = oldByShape.get(shape)?.shift();
+    return { ...node, stableId: reused || `${namespace}-${shape}-${occurrence}` };
+  });
+}
+
 export function getActiveSubscriptionId() {
   return localStorage.getItem(ACTIVE_SUB_KEY);
 }
@@ -209,7 +231,7 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
     updateIntervalMode,
     updateIntervalHours: updateIntervalMode === "manual" ? hours : serverUpdateIntervalHours,
     serverUpdateIntervalHours,
-    profiles,
+    profiles: assignStableNodeIds(profiles, [], id),
   };
 
   const list = loadSubscriptions();
@@ -261,7 +283,7 @@ export function mergeSubscriptionRefresh(fresh, info, profiles) {
     updateIntervalMode: mode,
     updateIntervalHours: updateIntervalHours ?? null,
     serverUpdateIntervalHours,
-    profiles,
+    profiles: assignStableNodeIds(profiles, fresh.profiles, fresh.id),
   };
 }
 
