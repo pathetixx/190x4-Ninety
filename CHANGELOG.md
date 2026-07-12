@@ -2,6 +2,13 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.9 — 2026-07-12
+
+- Reconnect requests now use latest-wins arbitration, while user disconnect and OTA stop intents cancel stale reconnects safely.
+- Fixed reconnect progress toasts getting stuck and added regression coverage for reconnect races and final runtime/UI state.
+- Запросы реконнекта теперь разрешаются по latest-wins, а ручное отключение и остановка перед OTA безопасно отменяют устаревшие операции.
+- Исправлено зависание тоста применения настроек; добавлены регрессионные проверки гонок реконнекта и согласованности финального состояния runtime/UI.
+
 ## v0.2.8 — 2026-07-12
 
 - Fixed the Windows DPI session-exclusion path and guaranteed empty managed endpoint lists before winws starts.
