@@ -279,6 +279,9 @@ export function openUpdateModal(update, opts = {}) {
             return;
           }
           showError(t("updModal.failed", { err: e?.message || e }));
+          // Установка уже завершена: retry здесь не имеет смысла, а исходный
+          // onInstall нельзя оставлять рядом с кнопкой закрытия.
+          cleanup();
           installBtn.disabled = false;
           installBtn.textContent = t("updModal.done");
           installBtn.addEventListener("click", close, { once: true });
