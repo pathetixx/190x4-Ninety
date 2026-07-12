@@ -776,6 +776,7 @@ pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeSnapshot {
     running: bool,
+    starting: bool,
     process_generation: u64,
     source_fingerprint: Option<String>,
     config_hash: Option<String>,
@@ -867,6 +868,7 @@ fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> Run
     let record = state.runtime.lock_recover().clone();
     RuntimeSnapshot {
         running,
+        starting: state.starting.load(Ordering::SeqCst),
         process_generation: record.as_ref().map(|r| r.process_generation).unwrap_or(0),
         source_fingerprint: record.as_ref().and_then(|r| r.source_fingerprint.clone()),
         config_hash: record.as_ref().and_then(|r| r.config_hash.clone()),

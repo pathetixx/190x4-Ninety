@@ -71,6 +71,7 @@ import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
 import { createRuntimeIdentityController, sourceFingerprint, sourceKey } from "/lib/runtime-identity.js";
 import { createSourceMutationController, planSourceDeletion } from "/lib/source-mutations.js";
 import { createBootstrapCoordinator } from "/lib/bootstrap-coordinator.js";
+import { createNetworkIntentArbiter } from "/lib/network-intent.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -570,11 +571,30 @@ const RECONNECT_DEBOUNCE_MS = 1200;
 let pendingReconnectTimer = null;
 let autoReconnectInFlight = null;
 const coreStartBarrier = createCoreStartBarrier();
+const networkIntent = createNetworkIntentArbiter("idle");
+let networkIntentEpoch = 0;
+
+function beginNetworkIntent(desired) {
+  networkIntentEpoch = networkIntent.begin(desired);
+  return networkIntentEpoch;
+}
+
+function isCurrentNetworkIntent(epoch, desired) {
+  return networkIntent.isCurrent(epoch, desired);
+}
+
+function cancelPendingReconnect() {
+  needsReconnect = false;
+  if (pendingReconnectTimer) {
+    clearTimeout(pendingReconnectTimer);
+    pendingReconnectTimer = null;
+  }
+}
 
 // Единое гашение ядра: системный прокси → ядро → UI в idle. Все пути
 // отключения (ручное, авто-реконнект, watchdog, отказ моста, фейл старта)
 // идут через него, чтобы сброс системного прокси не потерялся ни в одном.
-async function shutdownCore() {
+async function shutdownCore({ finalize = true } = {}) {
   setState("disconnecting");
   runtimeIdentity.invalidate();
   cancelPendingSelections();
@@ -590,21 +610,22 @@ async function shutdownCore() {
     setState("cleanup_error");
     return false;
   }
-  setState("idle");
+  if (finalize) setState("idle");
   return true;
 }
 
 function scheduleAutoReconnect() {
   if (state !== "connected" && state !== "connecting") return;
+  const epoch = beginNetworkIntent("connected");
   needsReconnect = true;
   applyReconnectUI();
   if (pendingReconnectTimer) clearTimeout(pendingReconnectTimer);
-  pendingReconnectTimer = setTimeout(performAutoReconnect, RECONNECT_DEBOUNCE_MS);
+  pendingReconnectTimer = setTimeout(() => performAutoReconnect(undefined, epoch), RECONNECT_DEBOUNCE_MS);
 }
 
-async function performAutoReconnect(reason = t("conn.applyingSettings")) {
+async function performAutoReconnect(reason = t("conn.applyingSettings"), parentEpoch = networkIntentEpoch) {
   if (autoReconnectInFlight) return autoReconnectInFlight;
-  autoReconnectInFlight = performAutoReconnectOnce(reason);
+  autoReconnectInFlight = performAutoReconnectOnce(reason, parentEpoch);
   try {
     return await autoReconnectInFlight;
   } finally {
@@ -612,24 +633,24 @@ async function performAutoReconnect(reason = t("conn.applyingSettings")) {
   }
 }
 
-async function performAutoReconnectOnce(reason) {
+async function performAutoReconnectOnce(reason, epoch) {
   pendingReconnectTimer = null;
-  if (!needsReconnect) return;
+  if (!needsReconnect || !isCurrentNetworkIntent(epoch, "connected")) return;
   if (state !== "connected" && state !== "connecting") return;
   connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
   toast(reason, "info", 0, { group: "conn", connecting: true });
   const nativeStartWasPending = coreStartBarrier.isPending();
-  if (!(await shutdownCore())) return;
+  if (!(await shutdownCore()) || !isCurrentNetworkIntent(epoch, "connected")) return;
   // stop_singbox не может отменить IPC-start, который ещё находится в settle-
   // фазе и не записал child. Ждём его физического завершения, затем повторно
   // гасим поздно поднявшийся комплект. Только после этого стартует новый source.
   if (nativeStartWasPending) {
     await coreStartBarrier.wait();
-    if (!(await shutdownCore())) return;
+    if (!isCurrentNetworkIntent(epoch, "connected") || !(await shutdownCore())) return;
   }
   needsReconnect = false;
   applyReconnectUI();
-  await handleConnectionIntent();
+  await connectNetwork({ epoch });
 }
 
 // ── health-watchdog — /lib/health-watchdog.js ──────────────
@@ -869,9 +890,10 @@ function applyReconnectUI() {
 // → AUTO-селектор по новым нодам, они пингуются URLTest'ом.
 function reconnectForSourceChange(reason) {
   if (state !== "connected" && state !== "connecting") return false;
+  const epoch = beginNetworkIntent("connected");
   needsReconnect = true;
   if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
-  performAutoReconnect(reason);
+  performAutoReconnect(reason, epoch);
   return true;
 }
 
@@ -2063,18 +2085,22 @@ function runtimeSnapshotMatchesExpected(snapshot, source = activeDisplaySource()
     && (!killSwitchExpected || snapshot.killSwitchActive === true);
 }
 
-function adoptRuntimeSnapshot(snapshot, source = activeDisplaySource()) {
-  if (!snapshot?.running) return false;
+function finalizeConnected(snapshot, { epoch, source = activeDisplaySource(), token } = {}) {
+  if (!isCurrentNetworkIntent(epoch, "connected")) return false;
+  if (!runtimeSnapshotMatchesExpected(snapshot, source)) return false;
+  if (token && !runtimeIdentity.isCurrent(token)) return false;
   runtimeIdentity.adopt(snapshot, { source });
   setState("connected", { ping: null });
   return true;
 }
 
-async function performConnectionIntent() {
-  if (heroDisc.disabled && !networkBootstrapInProgress) return;
-  // Во время source-reconnect state кратко становится idle, но старый IPC-start
-  // ещё может завершаться. Ручной клик в этом окне не должен создать второй start.
-  if (autoReconnectInFlight && state === "idle") return;
+function adoptRuntimeSnapshot(snapshot, source = activeDisplaySource(), context = {}) {
+  return finalizeConnected(snapshot, { ...context, source });
+}
+
+async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
+  if (!isCurrentNetworkIntent(epoch, "connected")) return false;
+  if (state !== "idle") return state === "connected";
   // Click ripple — расходится от центра диска (anim 520ms)
   const stage = heroDisc.closest(".hero__stage");
   if (stage) {
@@ -2082,16 +2108,6 @@ async function performConnectionIntent() {
     ripple.className = "hero__ripple";
     stage.appendChild(ripple);
     setTimeout(() => ripple.remove(), 600);
-  }
-  // RECONNECT-режим: рестарт ядра с новыми опциями
-  if (needsReconnect && (state === "connected" || state === "connecting")) {
-    connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
-    await shutdownCore();
-    needsReconnect = false;
-    applyReconnectUI();
-    // мгновенно стартуем заново
-    await performConnectionIntent();
-    return;
   }
   if (state === "idle") {
     // Fail-safe against startup reconcile/autoconnect races: idle UI does not
@@ -2105,11 +2121,12 @@ async function performConnectionIntent() {
       setState("cleanup_error");
       return;
     }
+    if (!isCurrentNetworkIntent(epoch, "connected")) return false;
     if (observed?.running) {
-      if (runtimeSnapshotMatchesExpected(observed)) adoptRuntimeSnapshot(observed);
+      if (runtimeSnapshotMatchesExpected(observed)
+        && adoptRuntimeSnapshot(observed, activeDisplaySource(), { epoch })) return true;
       await shutdownCore();
-      toast(t("conn.disconnected"), "info", 2000, { group: "conn", desc: t("conn.disconnectedDesc") });
-      return;
+      return false;
     }
     const src = getActiveSource();
     const options = loadOptions();
@@ -2119,21 +2136,21 @@ async function performConnectionIntent() {
     // Владение попыткой захватываем ДО первого await: DNS/WARP/port preflight
     // больше не оставляет state=idle, поэтому второй клик отменяет эту попытку,
     // а не запускает параллельный start_singbox.
-    const epoch = connectAttempts.begin();
+    const attemptEpoch = connectAttempts.begin();
     setState("connecting");
     try {
     // DNS-watchdog: имя сервера ноды резолвится через direct-DNS ДО туннеля —
     // если он мёртв (Google/Cloudflare DoH в РФ), старт падает с невнятным
     // «i/o timeout». Пробуем и при отказе переключаем на резерв ДО buildConfig,
     // чтобы конфиг собрался уже с рабочим резолвером. Только пока юзер не ушёл.
-    await ensureWorkingDirectDns({ toast, onlyIf: () => state === "connecting" && connectAttempts.isCurrent(epoch) });
-    if (!connectAttempts.isCurrent(epoch) || state !== "connecting") return;
+    await ensureWorkingDirectDns({ toast, onlyIf: () => state === "connecting" && connectAttempts.isCurrent(attemptEpoch) });
+    if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
     // Если WARP включён — тянем регистрацию из app_config_dir/warp.json
     // и передаём в builder. Без warpInfo builder тихо пропустит warp endpoint.
     let warpInfo = null;
     if (options.warp?.enabled) {
       try { warpInfo = await invoke("warp_status"); } catch {}
-      if (!connectAttempts.isCurrent(epoch) || state !== "connecting") return;
+      if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
       if (!warpInfo) {
         setState("idle");
         toast(t("conn.warpUnreg"), "error", 3500);
@@ -2149,7 +2166,7 @@ async function performConnectionIntent() {
     if (needs.xray || needs.naive || needs.trusttunnel) {
       try { bridgePorts = await invoke("plan_bridge_ports", { needs }); }
       catch (e) { console.warn("plan_bridge_ports failed", e); }
-      if (!connectAttempts.isCurrent(epoch) || state !== "connecting") return;
+      if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
     }
     // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
     // socks-перенаправление. xray=null когда xhttp в источнике нет.
@@ -2174,20 +2191,24 @@ async function performConnectionIntent() {
       if (!runtimeSnapshot?.running || !Number(runtimeSnapshot.processGeneration)) {
         throw new Error("start_singbox не вернул подтверждённый runtime snapshot");
       }
-      // Backend является источником истины для processGeneration: локальный
-      // токен нужен только чтобы передать ожидаемый identity в start_singbox,
-      // после старта дальше работаем уже с подтверждённым snapshot Rust.
-      runtimeToken = runtimeIdentity.adopt(runtimeSnapshot, { source: runtimeSource });
       // Пока ядро стартовало (settle-паузы мостов), юзер мог нажать «Отключить»:
       // тот клик застаёт child=None и глушить ему нечего. Ловим отмену по epoch
       // и гасим только что поднятое ядро — иначе UI мигал «отключено» и
       // возвращался в «Защищено».
-      if (!connectAttempts.isCurrent(epoch)) {
+      if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
         try { await invoke("stop_singbox"); } catch {}
         try { await invoke("set_system_proxy", { enable: false }); } catch {}
         return;
       }
+      // Backend является источником истины для processGeneration: локальный
+      // токен нужен только чтобы передать ожидаемый identity в start_singbox,
+      // после актуальной проверки дальше работаем с подтверждённым snapshot Rust.
+      runtimeToken = runtimeIdentity.adopt(runtimeSnapshot, { source: runtimeSource });
       const topology = await getProxies(undefined, { token: runtimeToken });
+      if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
+        try { await invoke("stop_singbox"); } catch {}
+        return;
+      }
       if (!warpOnly && !snapshotMatchesSource(topology, nodesFromSource())) {
         throw new Error("Clash topology не соответствует активному источнику");
       }
@@ -2200,25 +2221,38 @@ async function performConnectionIntent() {
           hostPort: `127.0.0.1:${options.inbound.mixedPort || 7890}`,
           bypassLan: options.route?.bypassLan !== false,
         });
-        if (!connectAttempts.isCurrent(epoch)) {
+        if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
           try { await invoke("set_system_proxy", { enable: false }); } catch {}
           try { await invoke("stop_singbox"); } catch {}
           return;
         }
       }
-      if (!runtimeIdentity.isCurrent(runtimeToken)) {
+      if (!isCurrentNetworkIntent(epoch, "connected") || !runtimeIdentity.isCurrent(runtimeToken)) {
         await shutdownCore();
         return;
       }
       // Kill switch — часть readiness, а не фоновый best-effort после connected.
       const killSwitchReady = await applyKillSwitch(true);
-      if (!runtimeIdentity.isCurrent(runtimeToken)) return;
+      if (!isCurrentNetworkIntent(epoch, "connected") || !runtimeIdentity.isCurrent(runtimeToken)) {
+        try { await invoke("stop_singbox"); } catch {}
+        return;
+      }
       if (killSwitchReady === false) {
         await shutdownCore();
         toast(t("conn.startFail"), "error", 5000, { desc: t("conn.startFailDesc") });
         return;
       }
-      setState("connected", { ping: null });
+      let finalSnapshot;
+      try { finalSnapshot = await invoke("runtime_snapshot"); }
+      catch (e) {
+        console.warn("final runtime snapshot failed", e);
+        try { await invoke("stop_singbox"); } catch {}
+        return;
+      }
+      if (!finalizeConnected(finalSnapshot, { epoch, source: runtimeSource, token: runtimeToken })) {
+        try { await invoke("stop_singbox"); } catch {}
+        return;
+      }
       const src0 = activeDisplaySource();
       const isMultiSub = src0?.kind === "sub" && Array.isArray(src0.nodes) && src0.nodes.length >= 2;
       // In-app тост сразу. Для подписки нода ещё не выбрана балансировщиком —
@@ -2237,7 +2271,7 @@ async function performConnectionIntent() {
       // делает syncEffectiveFromClash → обновляет hero/локацию/трей).
       notifyConnectedWithRealNode(isMultiSub);
     } catch (e) {
-      if (!connectAttempts.isCurrent(epoch)) {
+      if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
         // Юзер уже отменил подключение — состояние/тосты выставил его клик,
         // здесь только страховочный стоп без перетирания UI.
         try { await invoke("stop_singbox"); } catch {}
@@ -2249,26 +2283,66 @@ async function performConnectionIntent() {
       toast(t("conn.startFail"), "error", 4500, { desc: t("conn.startFailDesc") });
       switchView("logs");
     }
-  } else if (state === "connecting" || state === "connected" || state === "cleanup_error") {
-    connectAttempts.cancel(); // отмена/дисконнект: инвалидировать возможный start в полёте
-    await shutdownCore();
-    toast(t("conn.disconnected"), "info", 2000, { group: "conn", desc: t("conn.disconnectedDesc") });
-    notify(t("conn.notifyDisconnected"), t("conn.notifyDisconnectedBody"));
   }
+  return false;
 }
 
 let connectionIntentInFlight = null;
+async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
+  cancelPendingReconnect();
+  connectAttempts.cancel();
+  const lateStart = coreStartBarrier.isPending();
+  if (!(await shutdownCore({ finalize: false }))) return false;
+  if (lateStart) {
+    await coreStartBarrier.wait();
+    if (!isCurrentNetworkIntent(epoch, "idle")) return false;
+    if (!(await shutdownCore({ finalize: false }))) return false;
+  }
+  if (!isCurrentNetworkIntent(epoch, "idle")) return false;
+  let snapshot = null;
+  let snapshotConfirmed = false;
+  try { snapshot = await invoke("runtime_snapshot"); snapshotConfirmed = true; }
+  catch (e) { console.warn("disconnect snapshot failed", e); }
+  if (snapshot?.running || snapshot?.starting) {
+    if (!(await shutdownCore({ finalize: false }))) return false;
+    try { snapshot = await invoke("runtime_snapshot"); snapshotConfirmed = true; }
+    catch { snapshot = null; snapshotConfirmed = false; }
+  }
+  if (!snapshotConfirmed || snapshot?.running || snapshot?.starting || !isCurrentNetworkIntent(epoch, "idle")) {
+    setState("cleanup_error");
+    return false;
+  }
+  setState("idle");
+  if (userInitiated) {
+    toast(t("conn.disconnected"), "info", 2000, { group: "conn", desc: t("conn.disconnectedDesc") });
+    notify(t("conn.notifyDisconnected"), t("conn.notifyDisconnectedBody"));
+  }
+  return true;
+}
+
+async function userToggleNetwork() {
+  const epoch = beginNetworkIntent("idle");
+  let snapshot = null;
+  try { snapshot = await invoke("runtime_snapshot"); } catch (e) { console.warn("toggle snapshot failed", e); }
+  const backendActive = snapshot?.running === true
+    || snapshot?.starting === true
+    || coreStartBarrier.isPending()
+    || connectionIntentInFlight !== null
+    || autoReconnectInFlight !== null
+    || state !== "idle";
+  if (backendActive || needsReconnect) return disconnectNetwork({ epoch, userInitiated: true });
+  const connectEpoch = beginNetworkIntent("connected");
+  return connectNetwork({ epoch: connectEpoch });
+}
+
 async function handleConnectionIntent({ internal = false } = {}) {
   if (!internal && networkBootstrapInProgress) return;
   if (connectionIntentInFlight) {
     if (internal) return connectionIntentInFlight;
-    // Второй быстрый клик отменяет текущий connect, но не создаёт второй
-    // start_singbox. shutdownCore переводит UI в честный idle после cleanup.
-    connectAttempts.cancel();
-    if (state === "connecting") await shutdownCore();
-    return connectionIntentInFlight;
+    const epoch = beginNetworkIntent("idle");
+    return disconnectNetwork({ epoch, userInitiated: true });
   }
-  const run = performConnectionIntent();
+  const run = userToggleNetwork();
   connectionIntentInFlight = run;
   try {
     return await run;
@@ -2305,7 +2379,8 @@ async function reconcileNetworkRuntime() {
     if (!snapshot?.running) return;
     const source = activeDisplaySource();
     if (runtimeSnapshotMatchesExpected(snapshot, source)) {
-      adoptRuntimeSnapshot(snapshot, source);
+      const epoch = beginNetworkIntent("connected");
+      adoptRuntimeSnapshot(snapshot, source, { epoch });
       return;
     }
     // Старый runtime не соответствует текущему источнику/режиму: сначала
@@ -2392,7 +2467,8 @@ async function autostartNetworkRuntime() {
     let runningSnapshot = await invoke("runtime_snapshot");
     if (runningSnapshot?.running) {
       if (runtimeSnapshotMatchesExpected(runningSnapshot)) {
-        adoptRuntimeSnapshot(runningSnapshot);
+        const epoch = beginNetworkIntent("connected");
+        adoptRuntimeSnapshot(runningSnapshot, activeDisplaySource(), { epoch });
       } else if (!(await shutdownCore())) {
         throw new Error("не удалось очистить runtime перед autostart");
       }
@@ -2402,10 +2478,14 @@ async function autostartNetworkRuntime() {
       await new Promise(r => setTimeout(r, 600)); // дать UI домонтироваться
       const beforeStart = await invoke("runtime_snapshot");
       if (beforeStart?.running) {
-        if (runtimeSnapshotMatchesExpected(beforeStart)) adoptRuntimeSnapshot(beforeStart);
+        if (runtimeSnapshotMatchesExpected(beforeStart)) {
+          const epoch = beginNetworkIntent("connected");
+          adoptRuntimeSnapshot(beforeStart, activeDisplaySource(), { epoch });
+        }
         else if (!(await shutdownCore())) throw new Error("runtime занято и cleanup не подтверждён");
       } else if (state === "idle") {
-        await handleConnectionIntent({ internal: true });
+        const epoch = beginNetworkIntent("connected");
+        await connectNetwork({ epoch });
       }
     }
     // DPI запускаем только после завершения VPN bootstrap. Endpoint сначала
@@ -2426,6 +2506,7 @@ async function autostartNetworkRuntime() {
 const bootstrapCoordinator = createBootstrapCoordinator({
   reconcile: async () => {
     if (await restoreStateOnLaunch) return;
+    beginNetworkIntent("idle");
     await reconcileNetworkRuntime();
   },
   autostart: async () => {
@@ -2532,7 +2613,8 @@ async function showUpdateModal(update, opts = {}) {
         let recovered = true;
         if (desired.vpn && hasConnectSource()) {
           if (state !== "idle") setState("idle");
-          await handleConnectionIntent();
+          const epoch = beginNetworkIntent("connected");
+          await connectNetwork({ epoch });
           recovered = state === "connected";
         }
         if (desired.dpi) {
