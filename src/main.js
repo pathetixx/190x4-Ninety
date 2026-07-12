@@ -497,15 +497,28 @@ setDpiVpnMode(getMode());
 const settingsRoot = document.getElementById("settings-root");
 let settingsCtl = null;
 if (settingsRoot) {
+  let killSwitchToggleEpoch = 0;
   settingsCtl = mountSettings(settingsRoot, {
-    onChange: (path) => {
+    onChange: async (path, value) => {
       backupSoon(); // настройки изменились — обновить снапшот-бэкап состояния
       // Kill switch — чистый WFP-фильтр, конфиг sing-box не трогает: применяем
       // вживую (arm/disarm по текущему состоянию), БЕЗ реконнекта туннеля (прежде
       // тоггл ронял и поднимал VPN зря). В режиме «Прокси» — разовое предупреждение.
       if (path === "general.killSwitch") {
+        const toggleEpoch = ++killSwitchToggleEpoch;
         maybeWarnKillSwitchProxy();
-        applyKillSwitch(state === "connected");
+        const ready = await applyKillSwitch(state === "connected");
+        // Армирование WFP — часть контракта настройки, а не fire-and-forget.
+        // Если ядро уже поднято, не оставляем переключатель включённым при
+        // фактически неактивной защите: откатываем запись и DOM к безопасному
+        // состоянию, затем явно снимаем возможный частично поднятый фильтр.
+        if (toggleEpoch === killSwitchToggleEpoch && ready === false) {
+          const revertedValue = !value;
+          updateOption(path, revertedValue);
+          settingsCtl?.refresh();
+          await applyKillSwitch(state === "connected" && revertedValue);
+          toast(t("conn.startFail"), "error", 5000, { desc: t("elev.killSwitchHint") });
+        }
         return;
       }
       // Тогглы periodic re-scan и его интервал — не трогают sing-box, только
@@ -570,6 +583,7 @@ async function shutdownCore() {
   catch (e) { console.warn("stop failed", e); }
   const componentFailed = result && [result.singbox, result.xray, result.sidecars].includes("failed");
   const stopped = !!result && !componentFailed && result.portsReleased !== false
+    && result.processesExited !== false
     && result.systemProxy !== "failed";
   if (!stopped) {
     setState("cleanup_error");
@@ -2092,11 +2106,12 @@ async function handleConnectionIntent() {
     // socks-перенаправление. xray=null когда xhttp в источнике нет.
       const { config, xray, sidecars } = buildConfig({ source: src, mode, options, warpInfo, xray: true, bridgePorts });
       const configJson = JSON.stringify(config);
-      const runtimeToken = runtimeIdentity.begin({
-        source: activeDisplaySource(), mode, configJson,
+      const runtimeSource = activeDisplaySource();
+      let runtimeToken = runtimeIdentity.begin({
+        source: runtimeSource, mode, configJson,
         clashPort: options.experimental?.clashApiPort || 9090,
       });
-      await coreStartBarrier.track(invoke("start_singbox", {
+      const runtimeSnapshot = await coreStartBarrier.track(invoke("start_singbox", {
         configJson,
         mode,
         xrayJson: xray ? JSON.stringify(xray) : null,
@@ -2107,6 +2122,13 @@ async function handleConnectionIntent() {
         sourceFingerprint: runtimeToken.sourceFingerprint,
         configHash: runtimeToken.configHash,
       }));
+      if (!runtimeSnapshot?.running || !Number(runtimeSnapshot.processGeneration)) {
+        throw new Error("start_singbox не вернул подтверждённый runtime snapshot");
+      }
+      // Backend является источником истины для processGeneration: локальный
+      // токен нужен только чтобы передать ожидаемый identity в start_singbox,
+      // после старта дальше работаем уже с подтверждённым snapshot Rust.
+      runtimeToken = runtimeIdentity.adopt(runtimeSnapshot, { source: runtimeSource });
       // Пока ядро стартовало (settle-паузы мостов), юзер мог нажать «Отключить»:
       // тот клик застаёт child=None и глушить ему нечего. Ловим отмену по epoch
       // и гасим только что поднятое ядро — иначе UI мигал «отключено» и
@@ -2239,7 +2261,27 @@ setInterval(backupNow, 10 * 60_000);
     }
     runtimeIdentity.adopt(snapshot, { source });
     setState("connected", { ping: null });
-  } catch {}
+  } catch (e) {
+    console.warn("startup runtime reconcile failed", e);
+    // Ошибка первичного snapshot не должна оставлять неизвестно живое ядро
+    // без UI/cleanup. Повторяем чтение один раз (например, transient IPC), а
+    // при повторном сбое выполняем контролируемый stop; если его нельзя
+    // подтвердить, оставляем явное cleanup_error вместо тихого idle.
+    try {
+      const retry = await invoke("runtime_snapshot");
+      if (retry?.running) {
+        console.warn("startup runtime snapshot retry still reports running; stopping runtime");
+      }
+    } catch (retryError) {
+      console.warn("startup runtime snapshot retry failed", retryError);
+    }
+    try {
+      if (!(await shutdownCore())) setState("cleanup_error");
+    } catch (cleanupError) {
+      console.warn("startup runtime cleanup failed", cleanupError);
+      setState("cleanup_error");
+    }
+  }
 })();
 
 // startMinimized: на ручном запуске скрыть окно если опция включена.
@@ -2410,6 +2452,7 @@ async function showUpdateModal(update, opts = {}) {
         }
         if (recovered) await markUpdateRuntimeReady();
         else setState("cleanup_error");
+        return recovered;
       },
     });
   } finally {

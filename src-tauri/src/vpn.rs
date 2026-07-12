@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use tokio::sync::Notify;
 
 use crate::util::MutexExt;
 use tauri::{AppHandle, Manager, State};
@@ -111,8 +112,11 @@ fn spawn_log_monitor(
     mut rx: tauri::async_runtime::Receiver<CommandEvent>,
     log_file: Option<PathBuf>,
     died_flag: Arc<Mutex<Option<String>>>,
+    live_processes: Arc<AtomicU64>,
+    process_exit_notify: Arc<Notify>,
     spec: MonitorSpec,
 ) {
+    live_processes.fetch_add(1, Ordering::SeqCst);
     tauri::async_runtime::spawn(async move {
         let mut writer = log_file.as_ref().and_then(|p| {
             // Раздутый с прошлой сессии файл начинаем заново — иначе кап стартовал
@@ -178,11 +182,17 @@ fn spawn_log_monitor(
                         write_capped(w, &mut written, &msg);
                     }
                     *died_flag.lock_recover() = Some(msg);
+                    live_processes.fetch_sub(1, Ordering::SeqCst);
+                    process_exit_notify.notify_waiters();
                     break;
                 }
                 _ => {}
             }
         }
+        // Без Terminated нет формального подтверждения завершения процесса
+        // (например, wait() мог вернуть ошибку). Оставляем счётчик живым:
+        // stop_singbox вернёт processesExited=false и UI уйдёт в cleanup_error,
+        // а не объявит физически не подтверждённый child остановленным.
     });
 }
 
@@ -214,6 +224,8 @@ pub struct SingboxState {
     process_generation: AtomicU64,
     runtime: Mutex<Option<RuntimeRecord>>,
     runtime_ports: Mutex<Vec<u16>>,
+    live_processes: Arc<AtomicU64>,
+    process_exit_notify: Arc<Notify>,
 }
 
 #[derive(Clone)]
@@ -239,6 +251,8 @@ impl Default for SingboxState {
             process_generation: AtomicU64::new(0),
             runtime: Mutex::new(None),
             runtime_ports: Mutex::new(Vec::new()),
+            live_processes: Arc::new(AtomicU64::new(0)),
+            process_exit_notify: Arc::new(Notify::new()),
         }
     }
 }
@@ -439,6 +453,8 @@ async fn spawn_xray(
         rx,
         log_file,
         died_flag,
+        state.live_processes.clone(),
+        state.process_exit_notify.clone(),
         MonitorSpec::bridge("=== xray start ===", "xray"),
     );
 
@@ -542,6 +558,8 @@ async fn spawn_sidecars(
             rx,
             log_file,
             died_flag,
+            state.live_processes.clone(),
+            state.process_exit_notify.clone(),
             MonitorSpec::bridge(format!("=== {label} start ==="), label.clone()),
         );
     }
@@ -997,6 +1015,8 @@ async fn spawn_singbox_core(
         rx,
         log_file,
         died_flag,
+        state.live_processes.clone(),
+        state.process_exit_notify.clone(),
         MonitorSpec::core("=== sing-box start ===", "sing-box"),
     );
 
@@ -1032,6 +1052,23 @@ fn kill_sidecars(state: &SingboxState) -> bool {
         ok &= child.kill().is_ok();
     }
     ok
+}
+
+async fn wait_processes_exited(state: &SingboxState) -> bool {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if state.live_processes.load(Ordering::SeqCst) == 0 {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        let notified = state.process_exit_notify.notified();
+        tokio::select! {
+            _ = notified => {}
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
+        }
+    }
 }
 
 // Стирает конфиги мостов (naive-*.json, trusttunnel-*.toml) из app_config_dir.
@@ -1106,6 +1143,7 @@ pub struct StopResult {
     xray: &'static str,
     sidecars: &'static str,
     ports_released: bool,
+    processes_exited: bool,
     system_proxy: &'static str,
 }
 
@@ -1134,6 +1172,7 @@ pub async fn stop_singbox(
     let sidecars_ok = kill_sidecars(&state);
     let proxy_was_owned = proxy::system_proxy_owned();
     let proxy_ok = proxy::set_system_proxy(false, None, None).is_ok();
+    let processes_exited = wait_processes_exited(&state).await;
     let ports_released = wait_ports_released(&ports).await;
     purge_bridge_configs(&app);
     purge_current_configs(&app);
@@ -1157,6 +1196,7 @@ pub async fn stop_singbox(
             "failed"
         },
         ports_released,
+        processes_exited,
         system_proxy: if !proxy_was_owned {
             "not_owned"
         } else if proxy_ok {

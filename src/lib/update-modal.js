@@ -199,6 +199,7 @@ export function openUpdateModal(update, opts = {}) {
         if (!invoke) return null;
         const result = await invoke("stop_singbox");
         if (!result || result.portsReleased === false
+          || result.processesExited === false
           || [result.singbox, result.xray, result.sidecars].includes("failed")
           || result.systemProxy === "failed") {
           throw new Error("Не удалось подтверждённо остановить сетевые движки");
@@ -257,11 +258,34 @@ export function openUpdateModal(update, opts = {}) {
         setProgressLabel(t("updModal.relaunching"));
         const a = api();
         try {
+          if (typeof a?.process?.relaunch !== "function") throw new Error("API перезапуска недоступен");
           await a?.process?.relaunch();
           writeResume("relaunch_confirmed");
+        } catch (e) {
+          // install уже завершён, поэтому повторная кнопка «Установить» не
+          // восстановит состояние. Сохраняем журнал и сразу отдаём управление
+          // recovery-хуку: он либо возвращает VPN/DPI в рабочее состояние, либо
+          // оставляет приложение в честном idle/cleanup_error.
+          console.warn("relaunch failed, running recovery", e);
+          writeResume("relaunch_failed");
+          let recovered = false;
+          try { recovered = (await opts.onRecovery?.(journal, e)) === true; }
+          catch (recoveryError) { console.warn("relaunch recovery failed", recoveryError); }
+          installing = false;
+          opts.onInstalling?.(false);
+          progressBox.hidden = true;
+          if (recovered) {
+            close();
+            return;
+          }
+          showError(t("updModal.failed", { err: e?.message || e }));
+          installBtn.disabled = false;
+          installBtn.textContent = t("updModal.done");
+          installBtn.addEventListener("click", close, { once: true });
+          return;
         }
-        catch (e) { console.warn("relaunch failed", e); }
-        // Если relaunch не сработал — даём юзеру закрыть руками
+        // После подтверждённого relaunch старый процесс скоро завершится;
+        // journal будет закрыт новым bootstrap только после RuntimeReady.
         installBtn.textContent = t("updModal.done");
         installBtn.disabled = false;
         installBtn.addEventListener("click", close, { once: true });
