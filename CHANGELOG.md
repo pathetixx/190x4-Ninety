@@ -2,6 +2,13 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.11 — 2026-07-12
+
+- The active-connection toggle now shows a distinct "Disconnecting" state while Ninety verifies process shutdown and port release, instead of incorrectly appearing to reconnect.
+- Connection arbitration and verified runtime cleanup remain unchanged, preserving safe subsequent reconnects.
+- Переключатель активного соединения теперь показывает отдельное состояние «Отключение…», пока Ninety подтверждает завершение процессов и освобождение портов, вместо ошибочного «Подключение…».
+- Арбитраж подключения и подтверждённая очистка runtime не изменены, поэтому последующее подключение остаётся защищено от гонок.
+
 ## v0.2.10 — 2026-07-12
 
 - Fixed the Connect button: the toggle mistook its own in-flight request for backend activity, so every click on an idle app routed to disconnect and the VPN could never start.
