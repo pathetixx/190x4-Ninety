@@ -2247,16 +2247,26 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         toast(t("conn.startFail"), "error", 5000, { desc: t("conn.startFailDesc") });
         return;
       }
+      // Фейл финальной проверки при ЖИВОМ намерении — это фейл старта: бросаем
+      // в catch (shutdownCore → idle + тост). Тихий стоп оставлял UI навсегда
+      // в «connecting» при уже погашенном ядре. Тихо выходим только при отмене —
+      // статус юзеру выставил его собственный клик.
       let finalSnapshot;
       try { finalSnapshot = await invoke("runtime_snapshot"); }
       catch (e) {
-        console.warn("final runtime snapshot failed", e);
-        try { await invoke("stop_singbox"); } catch {}
-        return;
+        if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
+          try { await invoke("stop_singbox"); } catch {}
+          return;
+        }
+        throw new Error(`финальный runtime snapshot не получен: ${e}`, { cause: e });
       }
       if (!finalizeConnected(finalSnapshot, { epoch, source: runtimeSource, token: runtimeToken })) {
-        try { await invoke("stop_singbox"); } catch {}
-        return;
+        if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)
+          || !runtimeIdentity.isCurrent(runtimeToken)) {
+          try { await invoke("stop_singbox"); } catch {}
+          return;
+        }
+        throw new Error("финальный runtime snapshot не прошёл проверку готовности");
       }
       const src0 = activeDisplaySource();
       const isMultiSub = src0?.kind === "sub" && Array.isArray(src0.nodes) && src0.nodes.length >= 2;
@@ -2329,10 +2339,14 @@ async function userToggleNetwork() {
   const epoch = beginNetworkIntent("idle");
   let snapshot = null;
   try { snapshot = await invoke("runtime_snapshot"); } catch (e) { console.warn("toggle snapshot failed", e); }
+  // connectionIntentInFlight сюда включать НЕЛЬЗЯ: handleConnectionIntent
+  // присваивает его промисом ЭТОГО же вызова до того, как мы проснёмся после
+  // await runtime_snapshot — проверка видела саму себя, backendActive был
+  // всегда true, и клик «Подключить» детерминированно уходил в disconnect.
+  // Конкурентные клики отсекает in-flight guard в handleConnectionIntent.
   const backendActive = snapshot?.running === true
     || snapshot?.starting === true
     || coreStartBarrier.isPending()
-    || connectionIntentInFlight !== null
     || reconnectQueue.isRunning()
     || state !== "idle";
   if (backendActive || needsReconnect) return disconnectNetwork({ epoch, userInitiated: true });
