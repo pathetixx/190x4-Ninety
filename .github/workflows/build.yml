@@ -37,7 +37,7 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           targets: x86_64-pc-windows-msvc
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -62,6 +62,9 @@ jobs:
       - name: Test frontend
         run: npm test
 
+      - name: Test release scripts
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
       - name: Prepare sidecar placeholders for Rust tests
         shell: pwsh
         run: |
@@ -81,6 +84,9 @@ jobs:
 
       - name: Test Rust
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Format Rust
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
       - name: Clippy Rust
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
@@ -230,6 +236,40 @@ jobs:
           Set-Content $f $c -NoNewline
           Write-Host "build-info: version=$ver commit=$sha date=$date"
 
+      - name: Configure Authenticode (optional)
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          $hasCert = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_BASE64)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD)
+          if (-not $hasCert -and -not $hasPassword) {
+            "AUTHENTICODE_ENABLED=false" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Host "Authenticode disabled: production certificate secrets are not configured."
+            exit 0
+          }
+          if (-not $hasCert -or -not $hasPassword) {
+            Write-Error "Both Authenticode secrets must be configured together."
+            exit 1
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "ninety-signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE_BASE64))
+          $password = ConvertTo-SecureString $env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password |
+            Where-Object HasPrivateKey | Select-Object -First 1
+          Remove-Item $pfx -Force
+          if (-not $certificate) { Write-Error "PFX did not contain a certificate with a private key"; exit 1 }
+          $path = "src-tauri/tauri.conf.json"
+          $cfg = Get-Content $path -Raw | ConvertFrom-Json
+          $cfg.bundle.windows | Add-Member -NotePropertyName certificateThumbprint -NotePropertyValue $certificate.Thumbprint -Force
+          $cfg.bundle.windows | Add-Member -NotePropertyName digestAlgorithm -NotePropertyValue "sha256" -Force
+          $cfg.bundle.windows | Add-Member -NotePropertyName timestampUrl -NotePropertyValue "https://timestamp.digicert.com" -Force
+          $cfg.bundle.windows | Add-Member -NotePropertyName tsp -NotePropertyValue $true -Force
+          $cfg | ConvertTo-Json -Depth 100 | Set-Content $path -Encoding utf8
+          "AUTHENTICODE_ENABLED=true" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Authenticode enabled with a production certificate from the CurrentUser store."
+
       - name: Build Tauri
         run: npm run tauri build
         env:
@@ -280,10 +320,17 @@ jobs:
             $global:LASTEXITCODE = 0
           }
           if ([string]::IsNullOrWhiteSpace($notes)) { $notes = "Release notes are not available." }
+          # Детерминированная дата аннотированного тега: повторный запуск того
+          # же workflow создаёт байт-в-байт тот же immutable versioned metadata.
+          $tagDate = (git for-each-ref --format='%(creatordate:iso8601-strict)' "refs/tags/$tag" | Out-String).Trim()
+          if ([string]::IsNullOrWhiteSpace($tagDate)) {
+            $tagDate = (git show -s --format=%cI HEAD | Out-String).Trim()
+          }
+          $pubDate = ([DateTimeOffset]::Parse($tagDate)).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ")
           $json = [ordered]@{
             version = $version
             notes = $notes
-            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            pub_date = $pubDate
             platforms = [ordered]@{
               "windows-x86_64" = [ordered]@{
                 signature = $sig
@@ -294,6 +341,10 @@ jobs:
           Set-Content -Path latest.json -Value $json -Encoding UTF8
           Write-Host "=== latest.json ==="
           Get-Content latest.json
+
+      - name: Qualify Windows artifacts and smoke-test app
+        shell: pwsh
+        run: ./scripts/release-smoke.ps1
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -306,28 +357,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Release on tag
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
-        with:
-          name: Ninety ${{ github.ref_name }}
-          files: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/nsis/*.sig
-            latest.json
-          fail_on_unmatched_files: true
-          # prerelease MUST be false: the updater endpoint is releases/latest/
-          # download/latest.json (a GitHub redirect to "Latest"), and GitHub
-          # excludes prereleases from "Latest". prerelease:true → /latest/ serves
-          # a stale latest.json → OTA breaks. Release title and notes stay
-          # human-facing; tag scheme is semver vX.Y.Z.
-          prerelease: false
-          make_latest: "true"
-
       # RU-reachable OTA fallback: same .exe + latest.json (url→r2.dev) in R2.
-      # Runs AFTER the GitHub release is published → an R2 failure can't break
-      # the primary OTA.
+      # Старые клиенты ≤0.1.75 всё ещё используют R2 первым endpoint. Обновляем
+      # его до promotion GitLab/GitHub; при ошибке draft остаётся unpublished.
       - name: Mirror update to Cloudflare R2 (RU fallback)
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
@@ -354,3 +386,34 @@ jobs:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
           GITLAB_PROJECT_ID: "83749391"
         run: python scripts/gitlab_mirror.py
+
+      # Публикация draft и переключение GitHub Latest разрешены только после
+      # проверенного promotion основного GitLab stable/latest.json. Если любой
+      # предыдущий шаг упал, draft остаётся draft, прежний GitHub Latest жив.
+      - name: Release on tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          name: Ninety ${{ github.ref_name }}
+          files: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.sig
+            latest.json
+          fail_on_unmatched_files: true
+          # prerelease MUST be false: the updater endpoint is releases/latest/
+          # download/latest.json (a GitHub redirect to "Latest"), and GitHub
+          # excludes prereleases from "Latest". prerelease:true → /latest/ serves
+          # a stale latest.json → OTA breaks. Release title and notes stay
+          # human-facing; tag scheme is semver vX.Y.Z.
+          prerelease: false
+          make_latest: "true"
+
+      - name: Verify published GitHub and GitLab OTA
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          node scripts/release.mjs $version --verify

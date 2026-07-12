@@ -10,7 +10,8 @@
 // Компиляция — в CI (локально не собираем): push тега запускает сборку/подпись/
 // публикацию/зеркала. С --watch скрипт доводит до конца: ждёт CI-ран и проверяет,
 // что релиз опубликован, ассеты на месте и latest.json реально раздаётся с
-// GitHub и GitLab.
+// GitHub и GitLab. CI сначала продвигает проверенный GitLab metadata и только
+// затем публикует draft как GitHub Latest.
 //
 // Использование:
 //   node scripts/release.mjs X.Y.Z [--watch] [--dry-run] [--yes]
@@ -81,21 +82,38 @@ async function verifyRelease(version) {
   check(names.includes("latest.json"), "ассет latest.json");
 
   // GitHub /releases/latest/ отдаёт нашу версию ⇒ релиз стал Latest, и подпись на месте.
+  let ghMetadata;
   const ghOk = await retry(async () => {
     const r = await fetch(GH_LATEST);
     if (!r.ok) return false;
     const j = await r.json();
-    return j.version === version && !!j.platforms?.["windows-x86_64"]?.signature;
+    const platform = j.platforms?.["windows-x86_64"];
+    if (j.version !== version || !platform?.signature) return false;
+    ghMetadata = j;
+    return true;
   });
   check(ghOk, `GitHub OTA: latest.json = ${version}, подпись есть (= релиз Latest)`);
 
-  // GitLab — первичный OTA-источник (доступен из РФ), зеркалится CI после публикации.
+  // GitLab — первичный OTA-источник. CI проверяет installer + versioned metadata,
+  // переключает stable/latest.json и только после этого публикует GitHub draft.
+  let glMetadata;
   const glOk = await retry(async () => {
     const r = await fetch(GL_LATEST);
     if (!r.ok) return false;
-    return (await r.json()).version === version;
+    const j = await r.json();
+    const platform = j.platforms?.["windows-x86_64"];
+    if (j.version !== version || !platform?.signature) return false;
+    if (!platform.url?.includes(`/packages/generic/ninety/${version}/`)) return false;
+    glMetadata = j;
+    return true;
   });
-  check(glOk, `GitLab OTA (первичный): latest.json = ${version}`);
+  check(glOk, `GitLab OTA (первичный): latest.json = ${version}, immutable URL и подпись есть`);
+  check(
+    !!ghMetadata && !!glMetadata
+      && ghMetadata.platforms["windows-x86_64"].signature
+        === glMetadata.platforms["windows-x86_64"].signature,
+    "GitHub/GitLab OTA используют одну updater signature",
+  );
 }
 
 // --- аргументы ---

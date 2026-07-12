@@ -4,8 +4,8 @@
 GitHub отдаёт релизы с `release-assets.githubusercontent.com`, который режется у
 части РФ-провайдеров. R2 (через нейтральный `pub-*.r2.dev`) из РФ доступен и без
 egress-платы. Заливаем тот же самый .exe (подпись minisign та же → валидна) и
-вариант latest.json с url на r2.dev. Tauri-updater пробует GitHub-endpoint первым,
-при провале (РФ-блок) падает на R2.
+вариант latest.json с url на r2.dev. Актуальные клиенты используют GitLab и
+GitHub; R2 сохраняется для старых версий, где он был первым endpoint.
 
 Запускается в CI после генерации github-варианта latest.json (он уже в CWD).
 Креды/настройки — из env (см. шаг build.yml). Только заливка; скачка анонимна.

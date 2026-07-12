@@ -32,6 +32,9 @@ jobs:
       - name: Run JS tests
         run: npm test && npm run check:versions && npm run check:actions-pinned && npm run check:dpi-key-rotation
 
+      - name: Test release scripts
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+
   js-lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -61,7 +64,7 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           targets: x86_64-pc-windows-msvc
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -79,6 +82,9 @@ jobs:
 
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: cargo fmt (gating)
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
       - name: cargo clippy (gating)
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
