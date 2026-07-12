@@ -2,6 +2,13 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.12 — 2026-07-12
+
+- Runtime shutdown now verifies process exit and port release in one fast parallel barrier instead of stacking sequential timeouts that could delay disconnect and profile switching for nearly 30 seconds.
+- In-flight xray, protocol-sidecar, sing-box, and Clash readiness stages are now cancelled promptly when a newer disconnect or reconnect intent arrives, while verified cleanup and race protection remain enforced.
+- Остановка runtime теперь параллельно подтверждает завершение процессов и освобождение портов вместо сложения последовательных тайм-аутов, которые могли задерживать отключение и смену профиля почти на 30 секунд.
+- Незавершённые этапы запуска xray, протокольных клиентов, sing-box и Clash теперь быстро отменяются новым намерением отключения или реконнекта, при этом подтверждённая очистка и защита от гонок сохранены.
+
 ## v0.2.11 — 2026-07-12
 
 - The active-connection toggle now shows a distinct "Disconnecting" state while Ninety verifies process shutdown and port release, instead of incorrectly appearing to reconnect.
