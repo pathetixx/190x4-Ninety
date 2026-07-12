@@ -72,6 +72,7 @@ import { createRuntimeIdentityController, sourceFingerprint, sourceKey } from "/
 import { createSourceMutationController, planSourceDeletion } from "/lib/source-mutations.js";
 import { createBootstrapCoordinator } from "/lib/bootstrap-coordinator.js";
 import { createNetworkIntentArbiter } from "/lib/network-intent.js";
+import { createLatestWinsReconnectQueue } from "/lib/reconnect-queue.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -569,7 +570,6 @@ if (settingsRoot) {
 
 const RECONNECT_DEBOUNCE_MS = 1200;
 let pendingReconnectTimer = null;
-let autoReconnectInFlight = null;
 const coreStartBarrier = createCoreStartBarrier();
 const networkIntent = createNetworkIntentArbiter("idle");
 let networkIntentEpoch = 0;
@@ -585,6 +585,7 @@ function isCurrentNetworkIntent(epoch, desired) {
 
 function cancelPendingReconnect() {
   needsReconnect = false;
+  reconnectQueue.cancel();
   if (pendingReconnectTimer) {
     clearTimeout(pendingReconnectTimer);
     pendingReconnectTimer = null;
@@ -623,34 +624,38 @@ function scheduleAutoReconnect() {
   pendingReconnectTimer = setTimeout(() => performAutoReconnect(undefined, epoch), RECONNECT_DEBOUNCE_MS);
 }
 
-async function performAutoReconnect(reason = t("conn.applyingSettings"), parentEpoch = networkIntentEpoch) {
-  if (autoReconnectInFlight) return autoReconnectInFlight;
-  autoReconnectInFlight = performAutoReconnectOnce(reason, parentEpoch);
-  try {
-    return await autoReconnectInFlight;
-  } finally {
-    autoReconnectInFlight = null;
-  }
+const reconnectQueue = createLatestWinsReconnectQueue({
+  run: ({ reason, epoch }) => performAutoReconnectOnce(reason, epoch),
+  canRun: ({ epoch }) => isCurrentNetworkIntent(epoch, "connected") && needsReconnect,
+});
+
+function performAutoReconnect(reason = t("conn.applyingSettings"), parentEpoch = networkIntentEpoch) {
+  return reconnectQueue.enqueue({ reason, epoch: parentEpoch });
 }
 
 async function performAutoReconnectOnce(reason, epoch) {
-  pendingReconnectTimer = null;
-  if (!needsReconnect || !isCurrentNetworkIntent(epoch, "connected")) return;
-  if (state !== "connected" && state !== "connecting") return;
-  connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
-  toast(reason, "info", 0, { group: "conn", connecting: true });
-  const nativeStartWasPending = coreStartBarrier.isPending();
-  if (!(await shutdownCore()) || !isCurrentNetworkIntent(epoch, "connected")) return;
-  // stop_singbox не может отменить IPC-start, который ещё находится в settle-
-  // фазе и не записал child. Ждём его физического завершения, затем повторно
-  // гасим поздно поднявшийся комплект. Только после этого стартует новый source.
-  if (nativeStartWasPending) {
-    await coreStartBarrier.wait();
-    if (!isCurrentNetworkIntent(epoch, "connected") || !(await shutdownCore())) return;
+  let reconnectToastId = null;
+  try {
+    pendingReconnectTimer = null;
+    if (!needsReconnect || !isCurrentNetworkIntent(epoch, "connected")) return;
+    if (state !== "connected" && state !== "connecting") return;
+    connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
+    reconnectToastId = toast(reason, "info", 0, { group: "conn", connecting: true });
+    const nativeStartWasPending = coreStartBarrier.isPending();
+    if (!(await shutdownCore()) || !isCurrentNetworkIntent(epoch, "connected")) return;
+    // stop_singbox не может отменить IPC-start, который ещё находится в settle-
+    // фазе и не записал child. Ждём его физического завершения, затем повторно
+    // гасим поздно поднявшийся комплект. Только после этого стартует новый source.
+    if (nativeStartWasPending) {
+      await coreStartBarrier.wait();
+      if (!isCurrentNetworkIntent(epoch, "connected") || !(await shutdownCore())) return;
+    }
+    needsReconnect = false;
+    applyReconnectUI();
+    await connectNetwork({ epoch });
+  } finally {
+    if (reconnectToastId) toast.dismiss(reconnectToastId);
   }
-  needsReconnect = false;
-  applyReconnectUI();
-  await connectNetwork({ epoch });
 }
 
 // ── health-watchdog — /lib/health-watchdog.js ──────────────
@@ -2328,7 +2333,7 @@ async function userToggleNetwork() {
     || snapshot?.starting === true
     || coreStartBarrier.isPending()
     || connectionIntentInFlight !== null
-    || autoReconnectInFlight !== null
+    || reconnectQueue.isRunning()
     || state !== "idle";
   if (backendActive || needsReconnect) return disconnectNetwork({ epoch, userInitiated: true });
   const connectEpoch = beginNetworkIntent("connected");
@@ -2600,6 +2605,11 @@ async function showUpdateModal(update, opts = {}) {
       ...opts,
       onInstalling: (v) => { updateInstalling = v; },
       onBeforeInstall: backupForUpdate,
+      onBeforeRuntimeStop: () => {
+        beginNetworkIntent("idle");
+        cancelPendingReconnect();
+        connectAttempts.cancel();
+      },
       resumeContext: {
         sourceFingerprint: sourceFingerprint(activeDisplaySource()),
         mode: getMode(),

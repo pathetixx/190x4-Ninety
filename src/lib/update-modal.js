@@ -88,6 +88,8 @@ function markSkipped(version) {
  *   сами погасили перед установкой, и слал ложный «соединение закрыто»).
  * @param {function} opts.onBeforeInstall — async-хук перед остановкой ядер;
  *   main.js сохраняет через него профиль и resume-маркер одним OTA-снимком.
+ * @param {function} opts.onBeforeRuntimeStop — синхронный хук перед остановкой
+ *   ядер; main.js инвалидирует reconnect-намерение до ухода в updater.
  * @returns Promise<void> — резолвится после закрытия (либо relaunch — резолва не будет, app перезапустится)
  */
 export function openUpdateModal(update, opts = {}) {
@@ -196,6 +198,7 @@ export function openUpdateModal(update, opts = {}) {
       // выгружается со смертью процесса) → dpi_unload_driver гасит winws и
       // снимает службу; аппа при запущенном DPI уже elevated, sc-команды пройдут.
       const stopEngines = async () => {
+        opts.onBeforeRuntimeStop?.();
         if (!invoke) return null;
         const result = await invoke("stop_singbox");
         if (!result || result.portsReleased === false
