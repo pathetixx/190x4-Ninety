@@ -27,11 +27,13 @@ node scripts/release.mjs 0.1.96 --watch
 аргументу), бампит 4 файла, коммитит в `main`, ставит аннотированный тег через
 `-F`, пушит `main` + тег, создаёт draft-релиз тем же текстом. С `--watch` дальше
 находит CI-ран по SHA коммита, ведёт его до конца (`gh run watch`, компиляция →
-подпись → публикация) и проверяет исход: релиз published и не prerelease, есть
+проверка → GitLab promotion → публикация) и проверяет исход: релиз published и не prerelease, есть
 `.exe`/`.sig`/`.msi`/`latest.json`, а `latest.json` реально отдаётся с GitHub
 (`/releases/latest/`, версия совпала ⇒ релиз Latest) и с GitLab (первичный
-источник). Красный CI → draft остаётся неопубликованным, OTA не тронута, катим
-fix-forward.
+источник). До публикации draft CI загружает и проверяет immutable installer и
+versioned metadata GitLab, затем переключает `stable/latest.json`. Красный CI до
+этого шага оставляет обе стабильные точки на предыдущем релизе; красный CI на
+предварительных стадиях оставляет draft неопубликованным. Катим fix-forward.
 
 Флаги: `--watch` — довести через CI и проверить OTA; `--verify` — только прогнать
 эти проверки на уже вышедшем релизе (`node scripts/release.mjs 0.1.96 --verify`);
@@ -98,8 +100,9 @@ fix-forward.
    > "Release on tag" (softprops, `draft:false` по умолчанию) публикует draft
    > вместе с ассетами в самом конце → переключение без слепой зоны. Бонус:
    > упавший билд оставляет draft неопубликованным — OTA не ломается вообще.
-6. Дождаться зелёного рана (`gh run watch`). CI сам публикует draft + грузит
-   ассеты. Проверить: релиз стал published и Latest, есть
+6. Дождаться зелёного рана (`gh run watch`). CI проверяет Windows artifacts и
+   запуск приложения, обновляет R2 для legacy-клиентов, безопасно продвигает
+   GitLab и только затем публикует draft + грузит GitHub assets. Проверить: релиз стал published и Latest, есть
    `Ninety_X.Y.Z_x64-setup.exe` (+`.sig`), `.msi`, `latest.json` с верной
    `version`/подписью, и `curl -sIL .../releases/latest/download/latest.json`
    даёт 302→200 (не 404).
