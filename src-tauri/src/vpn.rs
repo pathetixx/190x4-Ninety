@@ -598,7 +598,7 @@ pub(crate) fn read_tail(path: &std::path::Path, tail_bytes: Option<u64>) -> Resu
         .take_while(|b| (**b & 0b1100_0000) == 0b1000_0000)
         .count();
     let buf = &buf[utf8_skip..];
-    let text = String::from_utf8_lossy(&buf).to_string();
+    let text = String::from_utf8_lossy(buf).to_string();
     let cut = text.find('\n').map(|i| i + 1).unwrap_or(0);
     Ok(format!(
         "…[{} bytes truncated above]…\n{}",
