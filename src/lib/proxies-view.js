@@ -14,6 +14,8 @@ import { t } from "/lib/i18n/index.js";
 function $(id) { return document.getElementById(id); }
 
 const POLL_MS = 4000;
+const SOURCE_READY_RETRIES = 4;
+const SOURCE_READY_BACKOFF_MS = 250;
 
 let pollTimer = null;
 let testingAll = false;
@@ -23,6 +25,7 @@ let optimisticActiveTag = null;
 let optimisticUntilTs = 0;
 // Запомненный effective node — чтобы диспатчить ninety:node-changed только при реальном изменении
 let lastEffectiveTag = null;
+let sourceGeneration = 0;
 
 function dispatchNodeChanged(tag, node) {
   window.dispatchEvent(new CustomEvent("ninety:node-changed", {
@@ -60,7 +63,7 @@ function attachFlagFallbacks(root) {
 }
 
 // ── список нод подписки → ноды с clash-тэгами ──────────────
-function nodesFromSource() {
+export function nodesFromSource() {
   const src = getActiveSource();
   if (!src) return [];
   const raw = src.kind === "sub" ? src.nodes : [src.profile];
@@ -70,6 +73,55 @@ function nodesFromSource() {
     ...n,
     clashTag: filtered.length >= 2 ? nodeTag(i, n) : "proxy",
   }));
+}
+
+function proxyType(proxy) {
+  return String(proxy?.type || "").toLowerCase();
+}
+
+function selectorMembers(proxy) {
+  return Array.isArray(proxy?.all) ? proxy.all : [];
+}
+
+// Snapshot Clash относится к активному источнику только если в нём уже
+// присутствует собранная для этого источника топология. Это отделяет новый UI
+// от старого ядра во время реконнекта.
+export function snapshotMatchesSource(clashData, nodes) {
+  const proxies = clashData?.proxies;
+  const proxy = proxies?.proxy;
+  if (!proxy || !Array.isArray(nodes) || nodes.length === 0) return false;
+
+  if (nodes.length === 1) {
+    return proxyType(proxy) !== "selector";
+  }
+
+  if (proxyType(proxy) !== "selector") return false;
+  const expectedTags = nodes.map(n => n.clashTag);
+  const members = selectorMembers(proxy);
+  return ["auto", "lowest", ...expectedTags].every(tag =>
+    members.includes(tag) && proxies[tag]
+  );
+}
+
+export function snapshotCanSelectTag(clashData, nodes, tag) {
+  if (!snapshotMatchesSource(clashData, nodes) || nodes.length < 2) return false;
+  const selector = clashData.proxies.proxy;
+  return proxyType(selector) === "selector"
+    && selectorMembers(selector).includes(tag)
+    && Boolean(clashData.proxies[tag]);
+}
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function readMatchingSnapshot(nodes, { attempts = 1 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const data = await getProxies();
+      if (snapshotMatchesSource(data, nodes)) return data;
+    } catch {}
+    if (attempt + 1 < attempts) await sleep(SOURCE_READY_BACKOFF_MS * (attempt + 1));
+  }
+  return null;
 }
 
 // ── сортировка ─────────────────────────────────────────────
@@ -202,15 +254,26 @@ function render(nodes, selectorTag, effectiveTag, clashData) {
   attachFlagFallbacks(grid);
 }
 
-async function refresh() {
-  let data;
-  try {
-    data = await getProxies();
-    lastClashSnapshot = data;
-  } catch (e) {
-    data = lastClashSnapshot;
-  }
+function renderApplying(nodes) {
+  render(nodes, null, null, null);
+  const metaEl = $("proxies-meta");
+  if (metaEl) metaEl.textContent = t("conn.applyingSettings");
+}
+
+async function refresh({ retry = false } = {}) {
+  const generation = sourceGeneration;
   const nodes = nodesFromSource();
+  const data = await readMatchingSnapshot(nodes, {
+    attempts: retry ? SOURCE_READY_RETRIES : 1,
+  });
+  if (generation !== sourceGeneration) return;
+  if (!data) {
+    lastClashSnapshot = null;
+    lastEffectiveTag = null;
+    renderApplying(nodes);
+    return;
+  }
+  lastClashSnapshot = data;
   const selectorTag = effectiveSelectorTag(data);
   const effectiveTag = pickEffectiveNode(data);
   // URLTest сам мог перевыбрать ноду — синхронизируем хедер и IP
@@ -226,6 +289,20 @@ async function refresh() {
 async function handleNodeClick(card, onToast) {
   const tag = card.dataset.tag;
   if (!tag) return;
+  const nodes = nodesFromSource();
+  // Одиночный source не имеет Selector: карточка уже является активным
+  // конечным outbound, поэтому PUT /proxies/proxy здесь недопустим.
+  if (nodes.length < 2) return;
+
+  const data = await readMatchingSnapshot(nodes, { attempts: 2 });
+  const selector = data?.proxies?.proxy;
+  if (!data || proxyType(selector) !== "selector" || !snapshotCanSelectTag(data, nodes, tag)) {
+    optimisticActiveTag = null;
+    onToast?.(t("conn.applyingSettings"), "info", 2400);
+    await refresh({ retry: true });
+    return;
+  }
+  lastClashSnapshot = data;
   // optimistic UI
   optimisticActiveTag = tag;
   optimisticUntilTs = Date.now() + 4500;
@@ -252,7 +329,7 @@ async function handleNodeClick(card, onToast) {
 }
 
 export function onProxiesViewEnter() {
-  refresh().then(() => kickstartAutoIfNeeded());
+  refresh({ retry: true }).then(() => kickstartAutoIfNeeded());
   stopPoll();
   pollTimer = setInterval(refresh, POLL_MS);
 }
@@ -273,6 +350,17 @@ async function kickstartAutoIfNeeded() {
 
 export function onProxiesViewLeave() {
   stopPoll();
+}
+
+export function resetProxiesViewForSourceChange() {
+  sourceGeneration++;
+  lastClashSnapshot = null;
+  optimisticActiveTag = null;
+  optimisticUntilTs = 0;
+  lastEffectiveTag = null;
+  const nodes = nodesFromSource();
+  renderApplying(nodes);
+  if (pollTimer) void refresh({ retry: true });
 }
 
 function stopPoll() {
@@ -310,6 +398,13 @@ export function mountProxiesView({ onToast } = {}) {
     fab.dataset.testing = "true";
     try {
       const nodes = nodesFromSource();
+      const ready = await readMatchingSnapshot(nodes, { attempts: SOURCE_READY_RETRIES });
+      if (!ready) {
+        onToast?.(t("conn.applyingSettings"), "info", 2400);
+        renderApplying(nodes);
+        return;
+      }
+      lastClashSnapshot = ready;
       // refresh по ходу — список оживает прогрессивно, не ждёт все ноды
       let last = 0;
       await testAllNodes(nodes, () => {

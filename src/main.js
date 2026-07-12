@@ -37,12 +37,14 @@ import { openUpdateModal, shouldSkip as updateShouldSkip } from "/lib/update-mod
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
-import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView } from "/lib/proxies-view.js";
+import { mountProxiesView, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView, resetProxiesViewForSourceChange } from "/lib/proxies-view.js";
+import { applyActiveSourceTransaction } from "/lib/source-activation.js";
 import { mountDpiView, setDpiVpnMode, excludeVpnNode, autostartDpiIfEnabled, rerenderDpiView } from "/lib/dpi-view.js";
 import { mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
 import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
+import { createCoreStartBarrier } from "/lib/connection-start-barrier.js";
 import { gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
@@ -310,9 +312,14 @@ async function ensureElevatedForDpi() {
 const profilesSummary = document.getElementById("profiles-summary");
 
 mountAddModal({
-  onCommit: (res) => {
+  onCommit: async (res) => {
     toast(res.message, "success", 2000);
-    refreshProfilesSummary();
+    if (res.source) {
+      const reason = res.source.kind === "sub" ? t("conn.switchSub") : t("conn.switchProfile");
+      applyActiveSource(res.source.kind, res.source.id, { reconnect: true, silent: true, reason });
+    } else {
+      refreshProfilesSummary();
+    }
     // Wizard: после step 2 — переходим на «подключение»
     if (wizardActive && wizardStepNum <= 2) {
       showOnbStep(3);
@@ -545,6 +552,8 @@ if (settingsRoot) {
 
 const RECONNECT_DEBOUNCE_MS = 1200;
 let pendingReconnectTimer = null;
+let autoReconnectInFlight = null;
+const coreStartBarrier = createCoreStartBarrier();
 
 // Единое гашение ядра: системный прокси → ядро → UI в idle. Все пути
 // отключения (ручное, авто-реконнект, watchdog, отказ моста, фейл старта)
@@ -564,12 +573,30 @@ function scheduleAutoReconnect() {
 }
 
 async function performAutoReconnect(reason = t("conn.applyingSettings")) {
+  if (autoReconnectInFlight) return autoReconnectInFlight;
+  autoReconnectInFlight = performAutoReconnectOnce(reason);
+  try {
+    return await autoReconnectInFlight;
+  } finally {
+    autoReconnectInFlight = null;
+  }
+}
+
+async function performAutoReconnectOnce(reason) {
   pendingReconnectTimer = null;
   if (!needsReconnect) return;
   if (state !== "connected" && state !== "connecting") return;
   connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
   toast(reason, "info", 0, { group: "conn", connecting: true });
+  const nativeStartWasPending = coreStartBarrier.isPending();
   await shutdownCore();
+  // stop_singbox не может отменить IPC-start, который ещё находится в settle-
+  // фазе и не записал child. Ждём его физического завершения, затем повторно
+  // гасим поздно поднявшийся комплект. Только после этого стартует новый source.
+  if (nativeStartWasPending) {
+    await coreStartBarrier.wait();
+    await shutdownCore();
+  }
   needsReconnect = false;
   applyReconnectUI();
   setTimeout(() => heroDisc?.click(), 60);
@@ -809,26 +836,35 @@ function reconnectForSourceChange(reason) {
 // активным», И из клика по телу карточки — раньше реконнект был только в pmenu,
 // поэтому клик по карточке менял активный источник, а VPN оставался на старом
 // конфиге. При поднятом VPN и реальной смене источника — немедленный реконнект.
-function activateSource(kind, id) {
+function applyActiveSource(kind, id, options = {}) {
   const isSub = kind === "sub";
   const wasActive = isSub
     ? (getActiveKind() === "sub" && getActiveSubscriptionId() === id)
     : (getActiveKind() === "single" && getActiveProfileId() === id);
-  if (isSub) {
-    setActiveKind("sub");
-    setActiveSubscriptionId(id);
-  } else {
-    setActiveProfileId(id);
-    setActiveKind("single");
-  }
-  currentEffectiveNode = null;
-  currentEffectiveTag = null;
-  refreshProfilesSummary();
-  syncTrayMenu();
-  const reason = isSub ? t("conn.switchSub") : t("conn.switchProfile");
-  if (wasActive || !reconnectForSourceChange(reason)) {
-    toast(isSub ? t("conn.subActivated") : t("conn.profileActivated"), "success", 1800);
-  }
+  const reason = options.reason || (isSub ? t("conn.switchSub") : t("conn.switchProfile"));
+  return applyActiveSourceTransaction({ kind, id }, {
+    setActiveKind,
+    setActiveProfileId,
+    setActiveSubscriptionId,
+    resetEffectiveNode: () => {
+      currentEffectiveNode = null;
+      currentEffectiveTag = null;
+    },
+    resetProxiesView: resetProxiesViewForSourceChange,
+    refreshProfiles: refreshProfilesSummary,
+    syncTray: syncTrayMenu,
+    getState: () => state,
+    reconnectForSourceChange: (why) => wasActive ? false : reconnectForSourceChange(why),
+    notifyActivated: (activeKind) => toast(
+      activeKind === "sub" ? t("conn.subActivated") : t("conn.profileActivated"),
+      "success",
+      1800,
+    ),
+  }, { ...options, reason });
+}
+
+function activateSource(kind, id) {
+  return applyActiveSource(kind, id);
 }
 
 // ── WARP UX (hero badge + авто-ротация + история) — /lib/warp-rescan.js ──
@@ -1811,6 +1847,9 @@ initTray({
 
 heroDisc?.addEventListener("click", async () => {
   if (heroDisc.disabled) return;
+  // Во время source-reconnect state кратко становится idle, но старый IPC-start
+  // ещё может завершаться. Ручной клик в этом окне не должен создать второй start.
+  if (autoReconnectInFlight && state === "idle") return;
   // Click ripple — расходится от центра диска (anim 520ms)
   const stage = heroDisc.closest(".hero__stage");
   if (stage) {
@@ -1873,7 +1912,7 @@ heroDisc?.addEventListener("click", async () => {
     // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
     // socks-перенаправление. xray=null когда xhttp в источнике нет.
     const { config, xray, sidecars } = buildConfig({ source: src, mode, options, warpInfo, xray: true, bridgePorts });
-      await invoke("start_singbox", {
+      await coreStartBarrier.track(invoke("start_singbox", {
         configJson: JSON.stringify(config),
         mode,
         xrayJson: xray ? JSON.stringify(xray) : null,
@@ -1881,7 +1920,7 @@ heroDisc?.addEventListener("click", async () => {
         sidecarsJson: sidecars && sidecars.length ? JSON.stringify(sidecars) : null,
         // «Полностью отключить логи» → Rust не пишет файлы ни одного компонента.
         logsDisabled: !!options.log?.disabled,
-      });
+      }));
       // Пока ядро стартовало (settle-паузы мостов), юзер мог нажать «Отключить»:
       // тот клик застаёт child=None и глушить ему нечего. Ловим отмену по epoch
       // и гасим только что поднятое ядро — иначе UI мигал «отключено» и

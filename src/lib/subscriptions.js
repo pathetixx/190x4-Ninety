@@ -215,7 +215,6 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
   const list = loadSubscriptions();
   list.push(sub);
   saveSubscriptions(list);
-  if (!getActiveSubscriptionId()) setActiveSubscriptionId(id);
   return sub;
 }
 

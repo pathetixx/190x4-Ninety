@@ -1233,10 +1233,6 @@ function storeProfile(parsed) {
   const list = loadProfiles();
   list.push({ ...parsed, id });
   saveProfiles(list);
-  if (!getActiveProfileId() && getActiveKind() !== "sub") {
-    setActiveProfileId(id);
-    setActiveKind("single");
-  }
   return { id, profile: parsed };
 }
 

@@ -2,7 +2,7 @@
 // Hiddify-style: единый flow для clipboard / URL / vless://.
 
 import { detectAddInput, addSubscriptionFromUrl, parseSubscriptionBody } from "/lib/subscriptions.js";
-import { addProfileFromVless, addTrustTunnelFromToml, setActiveKind } from "/lib/singbox.js";
+import { addProfileFromVless, addTrustTunnelFromToml } from "/lib/singbox.js";
 import { t } from "/lib/i18n/index.js";
 import { toast } from "/lib/toast.js";
 
@@ -63,7 +63,7 @@ function onKey(e) {
   if (e.key === "Escape") closeModal();
 }
 
-async function handleInput(raw, userOverride = {}) {
+export async function importAddInput(raw, userOverride = {}) {
   const decision = detectAddInput(raw);
 
   if (decision.kind === "empty" || decision.kind === "unknown") {
@@ -71,39 +71,47 @@ async function handleInput(raw, userOverride = {}) {
   }
 
   if (decision.kind === "config") {
-    const { profile } = addProfileFromVless(decision.content);
-    setActiveKind("single");
-    return { type: "config", message: t("add.msgConfig", { name: profile.name }) };
+    const { id, profile } = addProfileFromVless(decision.content);
+    return {
+      type: "config",
+      message: t("add.msgConfig", { name: profile.name }),
+      source: { kind: "single", id },
+    };
   }
 
   if (decision.kind === "tt-toml") {
-    const { profile } = addTrustTunnelFromToml(decision.content, userOverride.name || "");
-    setActiveKind("single");
-    return { type: "config", message: t("add.msgTt", { name: profile.name }) };
+    const { id, profile } = addTrustTunnelFromToml(decision.content, userOverride.name || "");
+    return {
+      type: "config",
+      message: t("add.msgTt", { name: profile.name }),
+      source: { kind: "single", id },
+    };
   }
 
   if (decision.kind === "list") {
     const profiles = parseSubscriptionBody(decision.content);
     if (profiles.length === 0) throw new Error(t("add.errNoConfigs"));
-    for (const p of profiles) {
-      addProfileFromVless(p.raw);
-    }
-    setActiveKind("single");
-    return { type: "list", message: t("add.msgList", { n: profiles.length }) };
+    const added = profiles.map(p => addProfileFromVless(p.raw));
+    // Детерминированно активируем первый профиль именно этого импорта.
+    return {
+      type: "list",
+      message: t("add.msgList", { n: profiles.length }),
+      source: { kind: "single", id: added[0].id },
+    };
   }
 
   // kind === "url" → подписка. intervalHours из слайдера «Авто-обновление»
   // (0 = авто/по заголовку панели); передаётся только при ручном добавлении.
   setLoadingText(t("add.loadingSub"));
   const sub = await addSubscriptionFromUrl(decision.url, userOverride.name || "", userOverride.intervalHours);
-  setActiveKind("sub");
-  // localStorage.setItem("ninety.subscriptions.active", sub.id) — addSubscriptionFromUrl сам ставит при первом
-  // но при добавлении не первой подписки активной не делает; принудительно ставим:
-  localStorage.setItem("ninety.subscriptions.active", sub.id);
   // http:// — адрес и ключи подписки едут открытым текстом (виден провайдеру,
   // и каждый рефреш тоже). Не блокируем (http-панели существуют), но предупреждаем.
   if (/^http:\/\//i.test(decision.url)) toast(t("add.httpWarn"), "warn", 6000);
-  return { type: "sub", message: t("add.msgSub", { name: sub.name, n: sub.profiles.length }) };
+  return {
+    type: "sub",
+    message: t("add.msgSub", { name: sub.name, n: sub.profiles.length }),
+    source: { kind: "sub", id: sub.id },
+  };
 }
 
 export function mountAddModal({ onCommit } = {}) {
@@ -136,8 +144,8 @@ export function mountAddModal({ onCommit } = {}) {
     try {
       const text = await file.text();
       const baseName = file.name.replace(/\.[^.]+$/, "");
-      const res = await handleInput(text, { name: baseName });
-      onCommitCb?.(res);
+      const res = await importAddInput(text, { name: baseName });
+      await onCommitCb?.(res);
       closeModal();
     } catch (err) {
       showPage("manual");
@@ -168,8 +176,8 @@ export function mountAddModal({ onCommit } = {}) {
     setError(null);
     showPage("loading");
     try {
-      const res = await handleInput(url, { name, intervalHours });
-      onCommitCb?.(res);
+      const res = await importAddInput(url, { name, intervalHours });
+      await onCommitCb?.(res);
       closeModal();
     } catch (e) {
       showPage("manual");
@@ -198,8 +206,8 @@ async function doClipboard() {
     return;
   }
   try {
-    const res = await handleInput(raw);
-    onCommitCb?.(res);
+    const res = await importAddInput(raw);
+    await onCommitCb?.(res);
     closeModal();
   } catch (e) {
     showPage("manual");
