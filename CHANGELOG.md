@@ -2,6 +2,15 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.8 — 2026-07-12
+
+- Fixed the Windows DPI session-exclusion path and guaranteed empty managed endpoint lists before winws starts.
+- Serialized startup reconcile/autoconnect and guarded user intents against a running backend, duplicate starts, and stale reconnects.
+- Added a reviewed SourceForge fallback for the Flowseal DPI channel with exact-version hashes, archive safety guards, and signed service data.
+- Исправлен путь session exclusion для Windows DPI; перед запуском winws гарантированно создаются пустые managed-списки endpoint'ов.
+- Reconcile и autoconnect теперь выполняются последовательно, а пользовательские intent'ы защищены от уже работающего backend, двойного старта и устаревшего реконнекта.
+- Для DPI-канала Flowseal добавлен проверяемый SourceForge fallback с хэшами exact-version архивов, защитой распаковки и подписанными service-файлами.
+
 ## v0.2.7 — 2026-07-12
 
 - Runtime identity now adopts the backend process generation and rejects stale Clash, traffic, quality, and DPI operations across reconnects.
