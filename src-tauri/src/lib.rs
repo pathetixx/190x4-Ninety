@@ -1,30 +1,30 @@
-mod backup;
 mod atomic_file;
+mod backup;
 mod clash;
-mod util;
 mod clash_stream;
 mod dnscheck;
 mod dpi;
+mod killswitch;
 mod netproc;
 mod quality;
 mod scanner;
 mod secrets;
 mod subscription;
 mod url_handler;
+mod util;
 mod vpn;
 mod warp;
 mod wifi;
-mod killswitch;
 
-#[cfg(target_os = "windows")]
-mod proxy_win;
 #[cfg(not(target_os = "windows"))]
 mod proxy_stub;
-
 #[cfg(target_os = "windows")]
-use proxy_win as elevation;
+mod proxy_win;
+
 #[cfg(not(target_os = "windows"))]
 use proxy_stub as elevation;
+#[cfg(target_os = "windows")]
+use proxy_win as elevation;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -110,14 +110,19 @@ fn relaunch_elevated(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 fn always_admin_marker(app: &tauri::AppHandle) -> Option<PathBuf> {
-    app.path().app_config_dir().ok().map(|d| d.join("always-admin"))
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|d| d.join("always-admin"))
 }
 
 /// True если включён режим «всегда запускать от администратора» (маркер-файл
 /// в app_config_dir). Читается на старте в setup() для авто-элевации.
 #[tauri::command]
 fn is_always_admin(app: tauri::AppHandle) -> bool {
-    always_admin_marker(&app).map(|p| p.exists()).unwrap_or(false)
+    always_admin_marker(&app)
+        .map(|p| p.exists())
+        .unwrap_or(false)
 }
 
 /// Включает/выключает «всегда от администратора». При включении на следующих
@@ -138,22 +143,28 @@ fn set_always_admin(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
 
 /// True если автозапуск при входе в Windows включён (задача Планировщика).
 #[tauri::command]
-fn autostart_is_enabled() -> bool {
-    elevation::autostart_is_enabled()
+async fn autostart_is_enabled() -> Result<bool, String> {
+    tokio::task::spawn_blocking(elevation::autostart_is_enabled)
+        .await
+        .map_err(|e| format!("проверка автозапуска прервана: {e}"))
 }
 
 /// Включает автозапуск через задачу Планировщика с правами администратора
 /// (RunLevel=highest) — старт без UAC на каждый логин. Если процесс ещё не
 /// elevated, поднимет права только ради создания задачи (один UAC).
 #[tauri::command]
-fn autostart_enable() -> Result<(), String> {
-    elevation::autostart_enable()
+async fn autostart_enable() -> Result<(), String> {
+    tokio::task::spawn_blocking(elevation::autostart_enable)
+        .await
+        .map_err(|e| format!("создание автозапуска прервано: {e}"))?
 }
 
 /// Выключает автозапуск (удаляет задачу Планировщика).
 #[tauri::command]
-fn autostart_disable() -> Result<(), String> {
-    elevation::autostart_disable()
+async fn autostart_disable() -> Result<(), String> {
+    tokio::task::spawn_blocking(elevation::autostart_disable)
+        .await
+        .map_err(|e| format!("отключение автозапуска прервано: {e}"))?
 }
 
 fn show_main(app: &tauri::AppHandle) {
@@ -287,13 +298,38 @@ fn build_tray_menu(
     let show_item = MenuItem::with_id(app, "show", &l.show, true, None::<&str>)?;
 
     // Подключиться / Отключиться — по фактическому состоянию VPN
-    let toggle_label = if payload.connected { &l.disconnect } else { &l.connect };
+    let toggle_label = if payload.connected {
+        &l.disconnect
+    } else {
+        &l.connect
+    };
     let conn_item = MenuItem::with_id(app, "toggle-vpn", toggle_label, true, None::<&str>)?;
 
     // Режим подключения
-    let m_proxy = CheckMenuItem::with_id(app, "mode:proxy", &l.mode_proxy, true, payload.mode == "proxy", None::<&str>)?;
-    let m_sys = CheckMenuItem::with_id(app, "mode:systemProxy", &l.mode_system, true, payload.mode == "systemProxy", None::<&str>)?;
-    let m_tun = CheckMenuItem::with_id(app, "mode:tun", &l.mode_tun, true, payload.mode == "tun", None::<&str>)?;
+    let m_proxy = CheckMenuItem::with_id(
+        app,
+        "mode:proxy",
+        &l.mode_proxy,
+        true,
+        payload.mode == "proxy",
+        None::<&str>,
+    )?;
+    let m_sys = CheckMenuItem::with_id(
+        app,
+        "mode:systemProxy",
+        &l.mode_system,
+        true,
+        payload.mode == "systemProxy",
+        None::<&str>,
+    )?;
+    let m_tun = CheckMenuItem::with_id(
+        app,
+        "mode:tun",
+        &l.mode_tun,
+        true,
+        payload.mode == "tun",
+        None::<&str>,
+    )?;
     let mode_sub = Submenu::with_items(app, &l.mode_title, true, &[&m_proxy, &m_sys, &m_tun])?;
 
     // Выбор сервера — активен только когда VPN поднят. Иконка — флаг страны
@@ -306,7 +342,11 @@ fn build_tray_menu(
     } else {
         let mut items: Vec<IconMenuItem<tauri::Wry>> = Vec::with_capacity(payload.servers.len());
         for s in &payload.servers {
-            let label = if s.selected { format!("●  {}", s.label) } else { format!("    {}", s.label) };
+            let label = if s.selected {
+                format!("●  {}", s.label)
+            } else {
+                format!("    {}", s.label)
+            };
             let icon = flag_icon(app, &s.iso);
             items.push(IconMenuItem::with_id(
                 app,
@@ -317,8 +357,10 @@ fn build_tray_menu(
                 None::<&str>,
             )?);
         }
-        let refs: Vec<&dyn IsMenuItem<tauri::Wry>> =
-            items.iter().map(|i| i as &dyn IsMenuItem<tauri::Wry>).collect();
+        let refs: Vec<&dyn IsMenuItem<tauri::Wry>> = items
+            .iter()
+            .map(|i| i as &dyn IsMenuItem<tauri::Wry>)
+            .collect();
         Submenu::with_items(app, &l.server, srv_enabled, &refs)?
     };
 
@@ -326,14 +368,22 @@ fn build_tray_menu(
     let dpi_status = MenuItem::with_id(
         app,
         "dpi:status",
-        if payload.dpi_active { &l.dpi_status_on } else { &l.dpi_status_off },
+        if payload.dpi_active {
+            &l.dpi_status_on
+        } else {
+            &l.dpi_status_off
+        },
         false,
         None::<&str>,
     )?;
     let dpi_toggle = MenuItem::with_id(
         app,
         "dpi:toggle",
-        if payload.dpi_active { &l.dpi_disable } else { &l.dpi_enable },
+        if payload.dpi_active {
+            &l.dpi_disable
+        } else {
+            &l.dpi_enable
+        },
         true,
         None::<&str>,
     )?;
@@ -347,18 +397,42 @@ fn build_tray_menu(
     // Клик показывает окно и открывает модалку установки.
     if let Some(ver) = &payload.update_version {
         let upd = MenuItem::with_id(
-            app, "update:install", format!("⤓  {}", l.update_to.replace("{ver}", ver)), true, None::<&str>,
+            app,
+            "update:install",
+            format!("⤓  {}", l.update_to.replace("{ver}", ver)),
+            true,
+            None::<&str>,
         )?;
         let sep0 = PredefinedMenuItem::separator(app)?;
         return Menu::with_items(
             app,
-            &[&upd, &sep0, &show_item, &sep1, &conn_item, &mode_sub, &server_sub, &dpi_sub, &sep2, &quit_item],
+            &[
+                &upd,
+                &sep0,
+                &show_item,
+                &sep1,
+                &conn_item,
+                &mode_sub,
+                &server_sub,
+                &dpi_sub,
+                &sep2,
+                &quit_item,
+            ],
         );
     }
 
     Menu::with_items(
         app,
-        &[&show_item, &sep1, &conn_item, &mode_sub, &server_sub, &dpi_sub, &sep2, &quit_item],
+        &[
+            &show_item,
+            &sep1,
+            &conn_item,
+            &mode_sub,
+            &server_sub,
+            &dpi_sub,
+            &sep2,
+            &quit_item,
+        ],
     )
 }
 
@@ -403,7 +477,11 @@ fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), 
         if let Some(icon) = tray_state_icon(payload.connected, &payload.mode) {
             let _ = tray.set_icon(Some(icon));
         }
-        let _ = tray.set_tooltip(Some(tray_tooltip(&payload.labels, payload.connected, &payload.mode)));
+        let _ = tray.set_tooltip(Some(tray_tooltip(
+            &payload.labels,
+            payload.connected,
+            &payload.mode,
+        )));
     }
     Ok(())
 }
@@ -444,6 +522,7 @@ pub fn run() {
         .setup(|app| {
             let argv: Vec<String> = std::env::args().collect();
             let autostarted = argv.iter().any(|a| a == "--autostarted");
+            let ci_smoke = argv.iter().any(|a| a == "--ci-smoke");
             vpn::purge_stale_runtime_configs(app.handle());
             if let Err(e) = vpn::recover_stale_system_proxy() {
                 eprintln!("stale system proxy recovery: {e}");
@@ -488,7 +567,7 @@ pub fn run() {
             // Окно по умолчанию скрыто (visible:false). Показываем сейчас, кроме
             // автозапуска при входе в Windows — там оставляем в трее.
             if let Some(w) = app.get_webview_window("main") {
-                if autostarted {
+                if autostarted || ci_smoke {
                     let _ = w.hide();
                 } else {
                     let _ = w.show();
@@ -523,12 +602,25 @@ pub fn run() {
                     match id {
                         "show" => show_main(app),
                         "quit" => app.exit(0),
-                        "update:install" => { show_main(app); let _ = app.emit("tray:update", ()); }
-                        "toggle-vpn" => { let _ = app.emit("tray:toggle-vpn", ()); }
-                        "dpi:toggle" => { let _ = app.emit("tray:toggle-dpi", ()); }
-                        "mode:proxy" => { let _ = app.emit("tray:set-mode", "proxy"); }
-                        "mode:systemProxy" => { let _ = app.emit("tray:set-mode", "systemProxy"); }
-                        "mode:tun" => { let _ = app.emit("tray:set-mode", "tun"); }
+                        "update:install" => {
+                            show_main(app);
+                            let _ = app.emit("tray:update", ());
+                        }
+                        "toggle-vpn" => {
+                            let _ = app.emit("tray:toggle-vpn", ());
+                        }
+                        "dpi:toggle" => {
+                            let _ = app.emit("tray:toggle-dpi", ());
+                        }
+                        "mode:proxy" => {
+                            let _ = app.emit("tray:set-mode", "proxy");
+                        }
+                        "mode:systemProxy" => {
+                            let _ = app.emit("tray:set-mode", "systemProxy");
+                        }
+                        "mode:tun" => {
+                            let _ = app.emit("tray:set-mode", "tun");
+                        }
                         other if other.starts_with("srv:") => {
                             let tag = other.trim_start_matches("srv:");
                             if tag != "none" {
@@ -549,6 +641,20 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Квалификационный smoke в Windows CI: приложение проходит полный
+            // setup (включая backend-команды и tray), проверяет безопасный ping
+            // и само штатно завершает event loop. Никаких VPN/DPI-соединений.
+            if ci_smoke {
+                if ping() != "pong" {
+                    return Err("backend ping failed during CI smoke".into());
+                }
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    handle.exit(0);
+                });
+            }
 
             Ok(())
         })

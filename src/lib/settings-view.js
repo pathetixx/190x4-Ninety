@@ -13,6 +13,7 @@ import { a11ySwitchAll } from "/lib/switch-a11y.js";
 import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { openConfirmModal } from "/lib/confirm-modal.js";
 import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
+import { toast } from "/lib/toast.js";
 
 // Label-карты строятся в рантайме: t() зависит от текущего языка, замораживать
 // на import нельзя. SECTIONS держит только key+icon; title/hint берём через t().
@@ -172,6 +173,7 @@ export function mountSettings(root, opts = {}) {
           } catch (e) {
             input.checked = !!loadOptions().general?.autostart;
             console.warn("autostart toggle failed", e);
+            toast(e?.message || String(e), "error", 4500);
             return;
           }
         }
@@ -201,6 +203,7 @@ export function mountSettings(root, opts = {}) {
           } catch (e) {
             sw.removeAttribute("aria-busy");
             console.warn("autostart toggle failed", e);
+            toast(e?.message || String(e), "error", 4500);
             return;
           }
           sw.removeAttribute("aria-busy");

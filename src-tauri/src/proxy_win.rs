@@ -2,19 +2,17 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
-use winreg::enums::*;
-use winreg::RegKey;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND};
+use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, HWND};
 use windows::Win32::Networking::WinInet::{
     InternetSetOptionW, INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED,
 };
-use windows::Win32::Security::{
-    GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
-};
+use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNORMAL};
+use winreg::enums::*;
+use winreg::RegKey;
 
 // Имя задачи в Планировщике (Task Scheduler). Через неё реализован автозапуск:
 // задача с RunLevel=Highest стартует Ninety уже с правами администратора при
@@ -25,6 +23,7 @@ const TASK_NAME: &str = "Ninety";
 // CREATE_NO_WINDOW — не мигать чёрным окном консоли schtasks.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+const AUTOSTART_BACKOFF_MS: &[u64] = &[100, 150, 250, 400, 650, 1_000, 1_500, 2_000, 2_500];
 
 const INET_SETTINGS_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
 const NINETY_KEY: &str = r"Software\Ninety";
@@ -32,13 +31,122 @@ const PROXY_OVERRIDE: &str = "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;17
 const PROXY_OVERRIDE_LOOPBACK_ONLY: &str = "localhost;127.*";
 
 fn to_wide(s: &str) -> Vec<u16> {
-    OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    OsStr::new(s)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }
 
-fn proxy_owned_by_ninety(current: &str, active: Option<&str>) -> bool {
-    active
-        .map(|value| current.eq_ignore_ascii_case(value))
-        .unwrap_or_else(|| current.starts_with("127.0.0.1:"))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShellLaunchStatus {
+    Started,
+    Cancelled,
+    AccessDenied,
+    FileNotFound,
+    Failed { shell_code: isize, last_error: u32 },
+}
+
+fn classify_shell_launch(shell_code: isize, last_error: u32) -> ShellLaunchStatus {
+    if shell_code > 32 {
+        return ShellLaunchStatus::Started;
+    }
+    // ERROR_CANCELLED (1223) надёжно отличает отказ пользователя в UAC от
+    // обычного SE_ERR_ACCESSDENIED (5), когда Windows его выставляет.
+    if shell_code == 5 && last_error == 1223 {
+        return ShellLaunchStatus::Cancelled;
+    }
+    match shell_code {
+        2 | 3 => ShellLaunchStatus::FileNotFound,
+        5 => ShellLaunchStatus::AccessDenied,
+        _ => ShellLaunchStatus::Failed {
+            shell_code,
+            last_error,
+        },
+    }
+}
+
+fn shell_launch_status(handle: windows::Win32::Foundation::HINSTANCE) -> ShellLaunchStatus {
+    let last_error = unsafe { GetLastError().0 };
+    classify_shell_launch(handle.0 as isize, last_error)
+}
+
+const LEGACY_PROXY_SERVER: &str = "127.0.0.1:7890";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProxyRecoveryAction {
+    LeaveUntouched,
+    RestoreSnapshot,
+    DisableOwnedProxy,
+}
+
+// Старые версии Ninety сохраняли snapshot, но не ActiveProxyServer. Для них
+// поддерживаем только известный исторический адрес по умолчанию и только при
+// полностью валидном snapshot. Один лишь loopback никогда не доказывает
+// владение: это может быть Clash/Fiddler/Charles или корпоративный агент.
+fn proxy_recovery_action(
+    current_server: &str,
+    current_enable: u32,
+    current_override: Option<&str>,
+    active: Option<&str>,
+    snapshot_valid: bool,
+) -> ProxyRecoveryAction {
+    let settings_still_match = current_enable == 1
+        && matches!(
+            current_override,
+            Some(value) if value == PROXY_OVERRIDE || value == PROXY_OVERRIDE_LOOPBACK_ONLY
+        );
+    match active {
+        Some(value) if settings_still_match && current_server.eq_ignore_ascii_case(value) => {
+            if snapshot_valid {
+                ProxyRecoveryAction::RestoreSnapshot
+            } else {
+                ProxyRecoveryAction::DisableOwnedProxy
+            }
+        }
+        Some(_) => ProxyRecoveryAction::LeaveUntouched,
+        None if snapshot_valid
+            && settings_still_match
+            && current_server.eq_ignore_ascii_case(LEGACY_PROXY_SERVER) =>
+        {
+            ProxyRecoveryAction::RestoreSnapshot
+        }
+        None => ProxyRecoveryAction::LeaveUntouched,
+    }
+}
+
+#[derive(Debug)]
+struct ProxySnapshot {
+    enable: u32,
+    server: Option<String>,
+    proxy_override: Option<String>,
+}
+
+fn read_proxy_snapshot(nk: &RegKey) -> Option<ProxySnapshot> {
+    if nk.get_value::<u32, _>("SavedProxyValid").ok()? != 1 {
+        return None;
+    }
+    let enable = nk.get_value::<u32, _>("SavedProxyEnable").ok()?;
+    if enable > 1 {
+        return None;
+    }
+    let server_present = nk.get_value::<u32, _>("SavedProxyServerPresent").ok()?;
+    let override_present = nk.get_value::<u32, _>("SavedProxyOverridePresent").ok()?;
+    if server_present > 1 || override_present > 1 {
+        return None;
+    }
+    let server = match server_present {
+        1 => Some(nk.get_value::<String, _>("SavedProxyServer").ok()?),
+        _ => None,
+    };
+    let proxy_override = match override_present {
+        1 => Some(nk.get_value::<String, _>("SavedProxyOverride").ok()?),
+        _ => None,
+    };
+    Some(ProxySnapshot {
+        enable,
+        server,
+        proxy_override,
+    })
 }
 
 // Снапшот прежних proxy-настроек — один раз, до того как Ninety перезапишет их
@@ -49,29 +157,46 @@ fn save_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> Result<(), String> {
         .create_subkey(NINETY_KEY)
         .map_err(|e| format!("create Ninety proxy state: {e}"))?;
     if nk.get_value::<u32, _>("SavedProxyValid").unwrap_or(0) == 1 {
-        return Ok(());
+        return if read_proxy_snapshot(&nk).is_some() {
+            Ok(())
+        } else {
+            Err("сохранённое состояние системного proxy повреждено; включение отменено".into())
+        };
     }
     let cur_enable: u32 = inet.get_value("ProxyEnable").unwrap_or(0);
+    if cur_enable > 1 {
+        return Err(format!(
+            "неожиданное значение ProxyEnable={cur_enable}; включение отменено"
+        ));
+    }
     nk.set_value("SavedProxyEnable", &cur_enable)
         .map_err(|e| format!("save ProxyEnable: {e}"))?;
     match inet.get_value::<String, _>("ProxyServer") {
         Ok(v) => {
-            nk.set_value("SavedProxyServer", &v).map_err(|e| format!("save ProxyServer: {e}"))?;
-            nk.set_value("SavedProxyServerPresent", &1u32).map_err(|e| format!("save ProxyServer flag: {e}"))?;
+            nk.set_value("SavedProxyServer", &v)
+                .map_err(|e| format!("save ProxyServer: {e}"))?;
+            nk.set_value("SavedProxyServerPresent", &1u32)
+                .map_err(|e| format!("save ProxyServer flag: {e}"))?;
         }
         Err(_) => {
-            nk.set_value("SavedProxyServer", &"".to_string()).map_err(|e| format!("clear saved ProxyServer: {e}"))?;
-            nk.set_value("SavedProxyServerPresent", &0u32).map_err(|e| format!("save ProxyServer absent flag: {e}"))?;
+            nk.set_value("SavedProxyServer", &"".to_string())
+                .map_err(|e| format!("clear saved ProxyServer: {e}"))?;
+            nk.set_value("SavedProxyServerPresent", &0u32)
+                .map_err(|e| format!("save ProxyServer absent flag: {e}"))?;
         }
     }
     match inet.get_value::<String, _>("ProxyOverride") {
         Ok(v) => {
-            nk.set_value("SavedProxyOverride", &v).map_err(|e| format!("save ProxyOverride: {e}"))?;
-            nk.set_value("SavedProxyOverridePresent", &1u32).map_err(|e| format!("save ProxyOverride flag: {e}"))?;
+            nk.set_value("SavedProxyOverride", &v)
+                .map_err(|e| format!("save ProxyOverride: {e}"))?;
+            nk.set_value("SavedProxyOverridePresent", &1u32)
+                .map_err(|e| format!("save ProxyOverride flag: {e}"))?;
         }
         Err(_) => {
-            nk.set_value("SavedProxyOverride", &"".to_string()).map_err(|e| format!("clear saved ProxyOverride: {e}"))?;
-            nk.set_value("SavedProxyOverridePresent", &0u32).map_err(|e| format!("save ProxyOverride absent flag: {e}"))?;
+            nk.set_value("SavedProxyOverride", &"".to_string())
+                .map_err(|e| format!("clear saved ProxyOverride: {e}"))?;
+            nk.set_value("SavedProxyOverridePresent", &0u32)
+                .map_err(|e| format!("save ProxyOverride absent flag: {e}"))?;
         }
     }
     nk.set_value("SavedProxyValid", &1u32)
@@ -79,27 +204,15 @@ fn save_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> Result<(), String> {
     Ok(())
 }
 
-// Восстановить прежнее состояние из снапшота. true — если снапшот был применён.
-fn restore_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> Result<bool, String> {
-    let Ok(nk) = hkcu.open_subkey_with_flags(NINETY_KEY, KEY_READ | KEY_WRITE) else {
-        return Ok(false);
-    };
-    if nk.get_value::<u32, _>("SavedProxyValid").unwrap_or(0) != 1 {
-        return Ok(false);
-    }
-    let saved_enable: u32 = nk.get_value("SavedProxyEnable").unwrap_or(0);
-    let saved_server: String = nk.get_value("SavedProxyServer").unwrap_or_default();
-    let saved_server_present = nk
-        .get_value::<u32, _>("SavedProxyServerPresent")
-        .map(|v| v == 1)
-        .unwrap_or(!saved_server.is_empty());
-    let saved_override: String = nk.get_value("SavedProxyOverride").unwrap_or_default();
-    let saved_override_present = nk
-        .get_value::<u32, _>("SavedProxyOverridePresent")
-        .map(|v| v == 1)
-        .unwrap_or(false);
-    if saved_server_present {
-        inet.set_value("ProxyServer", &saved_server).map_err(|e| format!("restore ProxyServer: {e}"))?;
+// Восстановить полностью проверенное прежнее состояние из snapshot.
+fn restore_proxy_snapshot(
+    nk: &RegKey,
+    inet: &RegKey,
+    snapshot: ProxySnapshot,
+) -> Result<(), String> {
+    if let Some(saved_server) = snapshot.server {
+        inet.set_value("ProxyServer", &saved_server)
+            .map_err(|e| format!("restore ProxyServer: {e}"))?;
     } else {
         match inet.delete_value("ProxyServer") {
             Ok(()) => {}
@@ -107,8 +220,9 @@ fn restore_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> Result<bool, String> 
             Err(e) => return Err(format!("delete ProxyServer: {e}")),
         }
     }
-    if saved_override_present {
-        inet.set_value("ProxyOverride", &saved_override).map_err(|e| format!("restore ProxyOverride: {e}"))?;
+    if let Some(saved_override) = snapshot.proxy_override {
+        inet.set_value("ProxyOverride", &saved_override)
+            .map_err(|e| format!("restore ProxyOverride: {e}"))?;
     } else {
         match inet.delete_value("ProxyOverride") {
             Ok(()) => {}
@@ -119,14 +233,19 @@ fn restore_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> Result<bool, String> 
     // ProxyEnable is the commit marker visible to WinINet. Restore all
     // dependent values first so a partial registry failure never activates a
     // half-restored proxy configuration.
-    inet.set_value("ProxyEnable", &saved_enable)
+    inet.set_value("ProxyEnable", &snapshot.enable)
         .map_err(|e| format!("restore ProxyEnable: {e}"))?;
-    nk.set_value("SavedProxyValid", &0u32).map_err(|e| format!("clear proxy snapshot: {e}"))?;
+    nk.set_value("SavedProxyValid", &0u32)
+        .map_err(|e| format!("clear proxy snapshot: {e}"))?;
     let _ = nk.delete_value("ActiveProxyServer");
-    Ok(true)
+    Ok(())
 }
 
-pub fn set_system_proxy(enable: bool, host_port: Option<&str>, bypass_lan: Option<bool>) -> Result<(), String> {
+pub fn set_system_proxy(
+    enable: bool,
+    host_port: Option<&str>,
+    bypass_lan: Option<bool>,
+) -> Result<(), String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (key, _) = hkcu
         .create_subkey(INET_SETTINGS_KEY)
@@ -154,24 +273,43 @@ pub fn set_system_proxy(enable: bool, host_port: Option<&str>, bypass_lan: Optio
             .map_err(|e| format!("set ProxyEnable: {e}"))?;
     } else {
         let current: String = key.get_value("ProxyServer").unwrap_or_default();
-        let active = hkcu
-            .open_subkey(NINETY_KEY)
-            .ok()
+        let current_enable: u32 = key.get_value("ProxyEnable").unwrap_or(0);
+        let current_override = key.get_value::<String, _>("ProxyOverride").ok();
+        let state = hkcu
+            .open_subkey_with_flags(NINETY_KEY, KEY_READ | KEY_WRITE)
+            .ok();
+        let active = state
+            .as_ref()
             .and_then(|k| k.get_value::<String, _>("ActiveProxyServer").ok());
-        if !proxy_owned_by_ninety(&current, active.as_deref()) {
-            // Кто-то сменил proxy после Ninety — не перетираем новый выбор.
-            // Это также покрывает legacy snapshot без ActiveProxyServer.
-            if let Ok(nk) = hkcu.open_subkey_with_flags(NINETY_KEY, KEY_READ | KEY_WRITE) {
-                let _ = nk.set_value("SavedProxyValid", &0u32);
-                let _ = nk.delete_value("ActiveProxyServer");
+        let snapshot = state.as_ref().and_then(read_proxy_snapshot);
+        match proxy_recovery_action(
+            &current,
+            current_enable,
+            current_override.as_deref(),
+            active.as_deref(),
+            snapshot.is_some(),
+        ) {
+            ProxyRecoveryAction::LeaveUntouched => {
+                // Кто-то сменил proxy после Ninety либо доказательств владения
+                // нет. Настройки Windows не трогаем, stale-маркеры забываем.
+                if let Some(nk) = state.as_ref() {
+                    let _ = nk.set_value("SavedProxyValid", &0u32);
+                    let _ = nk.delete_value("ActiveProxyServer");
+                }
             }
-        } else if !restore_proxy_snapshot(&hkcu, &key)? {
-            // Legacy crash без snapshot ownership: гасим только наш loopback.
-            let owned = proxy_owned_by_ninety(&current, active.as_deref());
-            if owned {
+            ProxyRecoveryAction::RestoreSnapshot => {
+                let nk = state.as_ref().ok_or("proxy snapshot key disappeared")?;
+                let snapshot = snapshot.ok_or("proxy snapshot disappeared")?;
+                restore_proxy_snapshot(nk, &key, snapshot)?;
+            }
+            ProxyRecoveryAction::DisableOwnedProxy => {
+                // Явный ActiveProxyServer совпал, но snapshot отсутствует либо
+                // повреждён. Отключаем только доказанно наш proxy и не пытаемся
+                // восстанавливать частичные значения.
                 key.set_value("ProxyEnable", &0u32)
                     .map_err(|e| format!("clear ProxyEnable: {e}"))?;
-                if let Ok(nk) = hkcu.open_subkey_with_flags(NINETY_KEY, KEY_READ | KEY_WRITE) {
+                if let Some(nk) = state.as_ref() {
+                    let _ = nk.set_value("SavedProxyValid", &0u32);
                     let _ = nk.delete_value("ActiveProxyServer");
                 }
             }
@@ -252,13 +390,18 @@ pub fn relaunch_self_elevated(extra_args: &[&str]) -> Result<bool, String> {
             PCWSTR(dir_w.as_ptr()),
             SW_SHOWNORMAL,
         );
-        // ShellExecuteW возвращает HINSTANCE: >32 = успех. <=32 (часто 5 —
-        // SE_ERR_ACCESSDENIED / ERROR_CANCELLED) трактуем как отказ юзера в UAC.
-        let code = h.0 as isize;
-        if code > 32 {
-            Ok(true)
-        } else {
-            Ok(false)
+        match shell_launch_status(h) {
+            ShellLaunchStatus::Started => Ok(true),
+            ShellLaunchStatus::Cancelled => Ok(false),
+            ShellLaunchStatus::AccessDenied => {
+                Err("Windows отказала в запуске Ninety с правами администратора".into())
+            }
+            ShellLaunchStatus::FileNotFound => {
+                Err("Windows не нашла исполняемый файл Ninety".into())
+            }
+            ShellLaunchStatus::Failed { shell_code, last_error } => Err(format!(
+                "не удалось запустить Ninety с правами администратора (ShellExecute={shell_code}, Win32={last_error})"
+            )),
         }
     }
 }
@@ -282,8 +425,8 @@ fn create_task_cmdline(exe: &str) -> String {
 }
 
 // Запуск schtasks с поднятием прав (один UAC, само приложение не перезапускаем).
-// SW_HIDE прячет окно консоли. Ok(true) — UAC принят, Ok(false) — отменён.
-fn run_schtasks_elevated(cmdline: &str) -> bool {
+// SW_HIDE прячет окно консоли; подробный статус нужен для понятной ошибки UI.
+fn run_schtasks_elevated(cmdline: &str) -> ShellLaunchStatus {
     let verb = to_wide("runas");
     let file = to_wide(&schtasks_exe());
     let params = to_wide(cmdline);
@@ -296,8 +439,56 @@ fn run_schtasks_elevated(cmdline: &str) -> bool {
             PCWSTR::null(),
             SW_HIDE,
         );
-        h.0 as isize > 32
+        shell_launch_status(h)
     }
+}
+
+fn elevated_task_error(action: &str, status: ShellLaunchStatus) -> Result<(), String> {
+    match status {
+        ShellLaunchStatus::Started => Ok(()),
+        ShellLaunchStatus::Cancelled => Err(format!("{action} отменено пользователем в UAC")),
+        ShellLaunchStatus::AccessDenied => Err(format!("{action}: Windows отказала в доступе")),
+        ShellLaunchStatus::FileNotFound => Err(format!(
+            "{action}: schtasks.exe не найден в системном каталоге Windows"
+        )),
+        ShellLaunchStatus::Failed {
+            shell_code,
+            last_error,
+        } => Err(format!(
+            "{action}: системная ошибка запуска (ShellExecute={shell_code}, Win32={last_error})"
+        )),
+    }
+}
+
+fn wait_for_task_state_with<Q, S>(
+    expected: bool,
+    delays_ms: &[u64],
+    mut query: Q,
+    mut sleep: S,
+) -> bool
+where
+    Q: FnMut() -> bool,
+    S: FnMut(u64),
+{
+    if query() == expected {
+        return true;
+    }
+    for &delay in delays_ms {
+        sleep(delay);
+        if query() == expected {
+            return true;
+        }
+    }
+    false
+}
+
+fn wait_for_task_state(expected: bool) -> bool {
+    wait_for_task_state_with(
+        expected,
+        AUTOSTART_BACKOFF_MS,
+        autostart_is_enabled,
+        |delay| std::thread::sleep(std::time::Duration::from_millis(delay)),
+    )
 }
 
 // True если задача автозапуска зарегистрирована. Query прав не требует.
@@ -322,18 +513,17 @@ pub fn autostart_enable() -> Result<(), String> {
             .status()
             .map_err(|e| format!("schtasks /create: {e}"))?
             .success();
-        return if ok { Ok(()) } else { Err("schtasks /create вернул ошибку".into()) };
+        return if ok {
+            Ok(())
+        } else {
+            Err("schtasks /create вернул ошибку".into())
+        };
     }
-    if !run_schtasks_elevated(&cmdline) {
-        return Err("Создание автозапуска отменено".into());
+    elevated_task_error("Создание автозапуска", run_schtasks_elevated(&cmdline))?;
+    if wait_for_task_state(true) {
+        return Ok(());
     }
-    for _ in 0..20 {
-        if autostart_is_enabled() {
-            return Ok(());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    Err("задача автозапуска не появилась".into())
+    Err("задача автозапуска не появилась за 8,5 секунд".into())
 }
 
 // Удаляет задачу автозапуска (симметрично enable — direct если elevated).
@@ -349,18 +539,17 @@ pub fn autostart_disable() -> Result<(), String> {
             .status()
             .map_err(|e| format!("schtasks /delete: {e}"))?
             .success();
-        return if ok { Ok(()) } else { Err("schtasks /delete вернул ошибку".into()) };
+        return if ok {
+            Ok(())
+        } else {
+            Err("schtasks /delete вернул ошибку".into())
+        };
     }
-    if !run_schtasks_elevated(&cmdline) {
-        return Err("Отключение автозапуска отменено".into());
+    elevated_task_error("Отключение автозапуска", run_schtasks_elevated(&cmdline))?;
+    if wait_for_task_state(false) {
+        return Ok(());
     }
-    for _ in 0..20 {
-        if !autostart_is_enabled() {
-            return Ok(());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    Err("задача автозапуска не удалилась".into())
+    Err("задача автозапуска не удалилась за 8,5 секунд".into())
 }
 
 // Миграция с прежнего автозапуска (Run-ключ реестра плагина autostart). Тот
@@ -400,11 +589,156 @@ pub fn autostart_refresh_path() {
 mod tests {
     use super::*;
 
+    fn recovery_action(
+        server: &str,
+        active: Option<&str>,
+        snapshot_valid: bool,
+    ) -> ProxyRecoveryAction {
+        proxy_recovery_action(server, 1, Some(PROXY_OVERRIDE), active, snapshot_valid)
+    }
+
     #[test]
-    fn proxy_ownership_prefers_explicit_marker() {
-        assert!(proxy_owned_by_ninety("127.0.0.1:7890", Some("127.0.0.1:7890")));
-        assert!(!proxy_owned_by_ninety("127.0.0.1:8080", Some("127.0.0.1:7890")));
-        assert!(proxy_owned_by_ninety("127.0.0.1:7890", None));
-        assert!(!proxy_owned_by_ninety("corp.example:8080", None));
+    fn foreign_loopback_without_markers_is_untouched() {
+        assert_eq!(
+            recovery_action("127.0.0.1:8080", None, false),
+            ProxyRecoveryAction::LeaveUntouched
+        );
+    }
+
+    #[test]
+    fn matching_active_proxy_restores_valid_snapshot() {
+        assert_eq!(
+            recovery_action("127.0.0.1:7890", Some("127.0.0.1:7890"), true),
+            ProxyRecoveryAction::RestoreSnapshot
+        );
+    }
+
+    #[test]
+    fn matching_active_proxy_without_snapshot_only_disables_owned_value() {
+        assert_eq!(
+            recovery_action("127.0.0.1:7890", Some("127.0.0.1:7890"), false),
+            ProxyRecoveryAction::DisableOwnedProxy
+        );
+    }
+
+    #[test]
+    fn mismatching_active_proxy_is_untouched_even_with_snapshot() {
+        assert_eq!(
+            recovery_action("127.0.0.1:8080", Some("127.0.0.1:7890"), true),
+            ProxyRecoveryAction::LeaveUntouched
+        );
+    }
+
+    #[test]
+    fn valid_legacy_snapshot_only_accepts_historical_default() {
+        assert_eq!(
+            recovery_action(LEGACY_PROXY_SERVER, None, true),
+            ProxyRecoveryAction::RestoreSnapshot
+        );
+        assert_eq!(
+            recovery_action("127.0.0.1:8080", None, true),
+            ProxyRecoveryAction::LeaveUntouched
+        );
+    }
+
+    #[test]
+    fn absent_or_corrupt_legacy_snapshot_never_claims_proxy() {
+        assert_eq!(
+            recovery_action(LEGACY_PROXY_SERVER, None, false),
+            ProxyRecoveryAction::LeaveUntouched
+        );
+    }
+
+    #[test]
+    fn third_party_enable_or_override_change_is_untouched() {
+        assert_eq!(
+            proxy_recovery_action(
+                "127.0.0.1:7890",
+                0,
+                Some(PROXY_OVERRIDE),
+                Some("127.0.0.1:7890"),
+                true,
+            ),
+            ProxyRecoveryAction::LeaveUntouched
+        );
+        assert_eq!(
+            proxy_recovery_action(
+                "127.0.0.1:7890",
+                1,
+                Some("localhost;<local>"),
+                Some("127.0.0.1:7890"),
+                true,
+            ),
+            ProxyRecoveryAction::LeaveUntouched
+        );
+    }
+
+    #[test]
+    fn schtasks_command_quotes_spaces_and_unicode() {
+        let cmd = create_task_cmdline(r"C:\Program Files\Найнти\Ninety.exe");
+        assert_eq!(
+            cmd,
+            r#"/create /tn Ninety /tr \"C:\Program Files\Найнти\Ninety.exe\" --autostarted --elevated /sc onlogon /rl highest /f"#
+        );
+    }
+
+    #[test]
+    fn shell_launch_status_distinguishes_common_failures() {
+        assert_eq!(classify_shell_launch(33, 0), ShellLaunchStatus::Started);
+        assert_eq!(classify_shell_launch(5, 1223), ShellLaunchStatus::Cancelled);
+        assert_eq!(classify_shell_launch(5, 5), ShellLaunchStatus::AccessDenied);
+        assert_eq!(classify_shell_launch(2, 2), ShellLaunchStatus::FileNotFound);
+        assert_eq!(
+            classify_shell_launch(8, 8),
+            ShellLaunchStatus::Failed {
+                shell_code: 8,
+                last_error: 8
+            }
+        );
+    }
+
+    #[test]
+    fn autostart_backoff_covers_slow_scheduler() {
+        assert_eq!(AUTOSTART_BACKOFF_MS.iter().sum::<u64>(), 8_550);
+        assert!(AUTOSTART_BACKOFF_MS
+            .windows(2)
+            .all(|pair| pair[0] <= pair[1]));
+    }
+
+    #[test]
+    fn wait_accepts_late_task_appearance_and_removal() {
+        let mut create_checks = 0;
+        assert!(wait_for_task_state_with(
+            true,
+            AUTOSTART_BACKOFF_MS,
+            || {
+                create_checks += 1;
+                create_checks >= 6
+            },
+            |_| {}
+        ));
+
+        let mut delete_checks = 0;
+        assert!(wait_for_task_state_with(
+            false,
+            AUTOSTART_BACKOFF_MS,
+            || {
+                delete_checks += 1;
+                delete_checks < 6
+            },
+            |_| {}
+        ));
+    }
+
+    #[test]
+    fn wait_times_out_when_scheduler_never_changes() {
+        let mut sleeps = Vec::new();
+        assert!(!wait_for_task_state_with(
+            true,
+            AUTOSTART_BACKOFF_MS,
+            || false,
+            |delay| sleeps.push(delay)
+        ));
+        assert_eq!(sleeps, AUTOSTART_BACKOFF_MS);
     }
 }
