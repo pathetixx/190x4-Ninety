@@ -2,6 +2,15 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.6 — 2026-07-12
+
+- Hardened Windows proxy, autostart, sidecar logging, and backend read limits for more predictable long-running sessions.
+- Added stable release qualification checks, immutable GitHub Actions pinning, and safer OTA promotion metadata refreshes.
+- Fixed Windows test expectations and Clippy issues required by the release gate.
+- Усилены прокси и автозапуск в Windows, изоляция логов sidecar и ограничения чтения backend для стабильной долгой работы.
+- Добавлены проверки квалификации стабильного релиза, контроль неизменяемых SHA для GitHub Actions и безопасное обновление метаданных OTA.
+- Исправлены проверки Windows и замечания Clippy, блокировавшие релизный gate.
+
 ## v0.2.5 — 2026-07-11
 
 - The active profile or subscription is now preserved reliably across an OTA restart, including when WebView storage must be restored.
