@@ -135,10 +135,13 @@ fn write_info(app: &AppHandle, info: &WarpInfo) -> Result<(), String> {
 
 fn delete_info(app: &AppHandle) -> Result<(), String> {
     let p = storage_path(app)?;
-    for file in [p.clone(), p.with_extension("json.new"), p.with_extension("json.bak")] {
+    for file in [
+        p.clone(),
+        p.with_extension("json.new"),
+        p.with_extension("json.bak"),
+    ] {
         if file.exists() {
-            std::fs::remove_file(&file)
-                .map_err(|e| format!("remove {}: {e}", file.display()))?;
+            std::fs::remove_file(&file).map_err(|e| format!("remove {}: {e}", file.display()))?;
         }
     }
     Ok(())
@@ -164,9 +167,14 @@ fn validate_registration(reg: &CfRegResp) -> Result<(), String> {
         .map(|p| p.public_key.trim())
         .filter(|p| !p.is_empty())
         .ok_or("cf reg: missing peer public key")?;
-    let peer_raw = B64.decode(peer).map_err(|e| format!("cf reg: invalid peer key: {e}"))?;
+    let peer_raw = B64
+        .decode(peer)
+        .map_err(|e| format!("cf reg: invalid peer key: {e}"))?;
     if peer_raw.len() != 32 {
-        return Err(format!("cf reg: peer key has {} bytes, expected 32", peer_raw.len()));
+        return Err(format!(
+            "cf reg: peer key has {} bytes, expected 32",
+            peer_raw.len()
+        ));
     }
     if reg.config.interface.addresses.v4.trim().is_empty()
         && reg.config.interface.addresses.v6.trim().is_empty()
@@ -177,7 +185,10 @@ fn validate_registration(reg: &CfRegResp) -> Result<(), String> {
         .decode(reg.config.client_id.trim())
         .map_err(|e| format!("cf reg: invalid client id: {e}"))?;
     if client_id.len() < 3 {
-        return Err(format!("cf reg: client id has {} bytes, expected at least 3", client_id.len()));
+        return Err(format!(
+            "cf reg: client id has {} bytes, expected at least 3",
+            client_id.len()
+        ));
     }
     Ok(())
 }
@@ -267,10 +278,7 @@ async fn cf_delete(id: &str, token: &str) -> Result<(), String> {
 /// наличии 26-символьного ключа — активирует WARP+. Если устройство уже было
 /// зарегистрировано — старое удаляется только после commit новой регистрации.
 #[tauri::command]
-pub async fn warp_register(
-    app: AppHandle,
-    license: Option<String>,
-) -> Result<WarpInfo, String> {
+pub async fn warp_register(app: AppHandle, license: Option<String>) -> Result<WarpInfo, String> {
     let _operation = WARP_OPERATION_LOCK.lock().await;
     // Ключ WARP+ — ровно 26 символов. Раньше ключ иной длины молча уходил в
     // ветку бесплатного WARP (юзер думал, что активировал WARP+) — теперь это
@@ -398,9 +406,14 @@ mod tests {
                 account_type: "free".into(),
             },
             config: CfConfig {
-                peers: vec![CfPeer { public_key: B64.encode([7u8; 32]) }],
+                peers: vec![CfPeer {
+                    public_key: B64.encode([7u8; 32]),
+                }],
                 interface: CfInterface {
-                    addresses: CfAddresses { v4: "172.16.0.2".into(), v6: String::new() },
+                    addresses: CfAddresses {
+                        v4: "172.16.0.2".into(),
+                        v6: String::new(),
+                    },
                 },
                 client_id: B64.encode([1u8, 2, 3]),
             },
@@ -412,7 +425,9 @@ mod tests {
         let mut reg = valid_registration();
         assert!(validate_registration(&reg).is_ok());
         reg.config.peers.clear();
-        assert!(validate_registration(&reg).unwrap_err().contains("peer public key"));
+        assert!(validate_registration(&reg)
+            .unwrap_err()
+            .contains("peer public key"));
     }
 
     #[test]

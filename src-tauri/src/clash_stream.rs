@@ -75,10 +75,7 @@ mod tests {
 }
 
 #[tauri::command]
-pub async fn clash_traffic_start(
-    app: AppHandle,
-    port: u16,
-) -> Result<(), String> {
+pub async fn clash_traffic_start(app: AppHandle, port: u16) -> Result<(), String> {
     let state = app
         .try_state::<ClashStreamState>()
         .ok_or_else(|| "ClashStreamState not managed".to_string())?;
@@ -95,9 +92,7 @@ pub async fn clash_traffic_start(
 }
 
 #[tauri::command]
-pub async fn clash_traffic_stop(
-    state: State<'_, ClashStreamState>,
-) -> Result<(), String> {
+pub async fn clash_traffic_stop(state: State<'_, ClashStreamState>) -> Result<(), String> {
     let mut h = state.handle.lock().await;
     if let Some(handle) = h.take() {
         handle.abort();

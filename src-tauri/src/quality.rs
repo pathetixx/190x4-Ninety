@@ -93,7 +93,9 @@ pub async fn probe_quality(
     let overall = Instant::now();
 
     for ep in &endpoints {
-        let Some(remaining) = budget.checked_sub(overall.elapsed()) else { break };
+        let Some(remaining) = budget.checked_sub(overall.elapsed()) else {
+            break;
+        };
         match probe_one(&client, ep, sample_bytes, remaining).await {
             Ok(r) => return Ok(r), // первый отдавший тело — берём его метрики
             Err(r) => last_err = r,
@@ -224,10 +226,7 @@ async fn probe_one(
 }
 
 fn calculate_goodput_bps(bytes: u64, elapsed_ms: u64) -> u64 {
-    bytes
-        .saturating_mul(8)
-        .saturating_mul(1000)
-        / elapsed_ms.max(1)
+    bytes.saturating_mul(8).saturating_mul(1000) / elapsed_ms.max(1)
 }
 
 #[cfg(test)]

@@ -48,10 +48,10 @@ mod windows_impl {
     use windows::core::PWSTR;
     use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_INSUFFICIENT_BUFFER};
     use windows::Win32::NetworkManagement::IpHelper::{
-        GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCP6ROW_OWNER_PID,
-        MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID,
-        MIB_UDP6ROW_OWNER_PID, MIB_UDP6TABLE_OWNER_PID, MIB_UDPROW_OWNER_PID,
-        MIB_UDPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
+        GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID,
+        MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, MIB_UDP6ROW_OWNER_PID,
+        MIB_UDP6TABLE_OWNER_PID, MIB_UDPROW_OWNER_PID, MIB_UDPTABLE_OWNER_PID,
+        TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
     };
     use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6};
     use windows::Win32::System::Threading::{
@@ -136,8 +136,7 @@ mod windows_impl {
                 // помещающихся в выделенный буфер (защита от чтения за границей).
                 let alloc_bytes = words * 4;
                 let header = (table.table.as_ptr() as usize) - (buf.as_ptr() as usize);
-                let cap_rows = alloc_bytes
-                    .saturating_sub(header)
+                let cap_rows = alloc_bytes.saturating_sub(header)
                     / core::mem::size_of::<MIB_TCPROW_OWNER_PID>();
                 let n = (table.dwNumEntries as usize).min(cap_rows);
                 let rows = std::slice::from_raw_parts(table.table.as_ptr(), n);
@@ -157,8 +156,17 @@ mod windows_impl {
     fn established_pids_v6() -> Result<Vec<u32>, String> {
         unsafe {
             let mut size = 0u32;
-            let _ = GetExtendedTcpTable(None, &mut size, false, AF_INET6.0 as u32, TCP_TABLE_OWNER_PID_ALL, 0);
-            if size == 0 { return Ok(Vec::new()); }
+            let _ = GetExtendedTcpTable(
+                None,
+                &mut size,
+                false,
+                AF_INET6.0 as u32,
+                TCP_TABLE_OWNER_PID_ALL,
+                0,
+            );
+            if size == 0 {
+                return Ok(Vec::new());
+            }
             for _ in 0..3 {
                 let words = (size as usize).div_ceil(4);
                 let mut buf = vec![0u32; words];
@@ -175,13 +183,23 @@ mod windows_impl {
                     size = avail.max(size.saturating_add(4096));
                     continue;
                 }
-                if rc != 0 { return Err(format!("GetExtendedTcpTable(v6): код {rc}")); }
+                if rc != 0 {
+                    return Err(format!("GetExtendedTcpTable(v6): код {rc}"));
+                }
                 let table = &*(buf.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID);
                 let alloc_bytes = words * 4;
                 let header = (table.table.as_ptr() as usize) - (buf.as_ptr() as usize);
-                let cap_rows = alloc_bytes.saturating_sub(header) / core::mem::size_of::<MIB_TCP6ROW_OWNER_PID>();
-                let rows = std::slice::from_raw_parts(table.table.as_ptr(), (table.dwNumEntries as usize).min(cap_rows));
-                return Ok(rows.iter().filter(|r| r.dwState == TCP_STATE_ESTAB).map(|r| r.dwOwningPid).collect());
+                let cap_rows = alloc_bytes.saturating_sub(header)
+                    / core::mem::size_of::<MIB_TCP6ROW_OWNER_PID>();
+                let rows = std::slice::from_raw_parts(
+                    table.table.as_ptr(),
+                    (table.dwNumEntries as usize).min(cap_rows),
+                );
+                return Ok(rows
+                    .iter()
+                    .filter(|r| r.dwState == TCP_STATE_ESTAB)
+                    .map(|r| r.dwOwningPid)
+                    .collect());
             }
             Err("таблица TCPv6-соединений растёт быстрее, чем читается".into())
         }
@@ -190,8 +208,17 @@ mod windows_impl {
     fn udp_pids_v4() -> Result<Vec<u32>, String> {
         unsafe {
             let mut size = 0u32;
-            let _ = GetExtendedUdpTable(None, &mut size, false, AF_INET.0 as u32, UDP_TABLE_OWNER_PID, 0);
-            if size == 0 { return Ok(Vec::new()); }
+            let _ = GetExtendedUdpTable(
+                None,
+                &mut size,
+                false,
+                AF_INET.0 as u32,
+                UDP_TABLE_OWNER_PID,
+                0,
+            );
+            if size == 0 {
+                return Ok(Vec::new());
+            }
             for _ in 0..3 {
                 let words = (size as usize).div_ceil(4);
                 let mut buf = vec![0u32; words];
@@ -208,12 +235,18 @@ mod windows_impl {
                     size = avail.max(size.saturating_add(4096));
                     continue;
                 }
-                if rc != 0 { return Err(format!("GetExtendedUdpTable(v4): код {rc}")); }
+                if rc != 0 {
+                    return Err(format!("GetExtendedUdpTable(v4): код {rc}"));
+                }
                 let table = &*(buf.as_ptr() as *const MIB_UDPTABLE_OWNER_PID);
                 let alloc_bytes = words * 4;
                 let header = (table.table.as_ptr() as usize) - (buf.as_ptr() as usize);
-                let cap_rows = alloc_bytes.saturating_sub(header) / core::mem::size_of::<MIB_UDPROW_OWNER_PID>();
-                let rows = std::slice::from_raw_parts(table.table.as_ptr(), (table.dwNumEntries as usize).min(cap_rows));
+                let cap_rows = alloc_bytes.saturating_sub(header)
+                    / core::mem::size_of::<MIB_UDPROW_OWNER_PID>();
+                let rows = std::slice::from_raw_parts(
+                    table.table.as_ptr(),
+                    (table.dwNumEntries as usize).min(cap_rows),
+                );
                 return Ok(rows.iter().map(|r| r.dwOwningPid).collect());
             }
             Err("таблица UDPv4 endpoint'ов растёт быстрее, чем читается".into())
@@ -223,8 +256,17 @@ mod windows_impl {
     fn udp_pids_v6() -> Result<Vec<u32>, String> {
         unsafe {
             let mut size = 0u32;
-            let _ = GetExtendedUdpTable(None, &mut size, false, AF_INET6.0 as u32, UDP_TABLE_OWNER_PID, 0);
-            if size == 0 { return Ok(Vec::new()); }
+            let _ = GetExtendedUdpTable(
+                None,
+                &mut size,
+                false,
+                AF_INET6.0 as u32,
+                UDP_TABLE_OWNER_PID,
+                0,
+            );
+            if size == 0 {
+                return Ok(Vec::new());
+            }
             for _ in 0..3 {
                 let words = (size as usize).div_ceil(4);
                 let mut buf = vec![0u32; words];
@@ -241,12 +283,18 @@ mod windows_impl {
                     size = avail.max(size.saturating_add(4096));
                     continue;
                 }
-                if rc != 0 { return Err(format!("GetExtendedUdpTable(v6): код {rc}")); }
+                if rc != 0 {
+                    return Err(format!("GetExtendedUdpTable(v6): код {rc}"));
+                }
                 let table = &*(buf.as_ptr() as *const MIB_UDP6TABLE_OWNER_PID);
                 let alloc_bytes = words * 4;
                 let header = (table.table.as_ptr() as usize) - (buf.as_ptr() as usize);
-                let cap_rows = alloc_bytes.saturating_sub(header) / core::mem::size_of::<MIB_UDP6ROW_OWNER_PID>();
-                let rows = std::slice::from_raw_parts(table.table.as_ptr(), (table.dwNumEntries as usize).min(cap_rows));
+                let cap_rows = alloc_bytes.saturating_sub(header)
+                    / core::mem::size_of::<MIB_UDP6ROW_OWNER_PID>();
+                let rows = std::slice::from_raw_parts(
+                    table.table.as_ptr(),
+                    (table.dwNumEntries as usize).min(cap_rows),
+                );
                 return Ok(rows.iter().map(|r| r.dwOwningPid).collect());
             }
             Err("таблица UDPv6 endpoint'ов растёт быстрее, чем читается".into())

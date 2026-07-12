@@ -53,8 +53,10 @@ pub fn write_bytes_replace(to: &Path, body: &[u8], label: &str) -> Result<(), St
             .create_new(true)
             .open(&tmp)
             .map_err(|e| format!("create {label} temp: {e}"))?;
-        file.write_all(body).map_err(|e| format!("write {label} temp: {e}"))?;
-        file.sync_all().map_err(|e| format!("sync {label} temp: {e}"))?;
+        file.write_all(body)
+            .map_err(|e| format!("write {label} temp: {e}"))?;
+        file.sync_all()
+            .map_err(|e| format!("sync {label} temp: {e}"))?;
         drop(file);
         replace_file(&tmp, to, label)
     })();

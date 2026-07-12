@@ -15,8 +15,8 @@ use std::process::Child;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::util::MutexExt;
 use crate::atomic_file::{copy_replace, write_bytes_replace, write_replace};
+use crate::util::MutexExt;
 use reqwest::Response;
 use serde::Deserialize;
 use std::time::{Duration, Instant};
@@ -184,7 +184,12 @@ fn lists_dir(app: &AppHandle) -> Result<PathBuf, String> {
 fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
     let dst = lists_dir(app)?;
     let src = res_lists(app)?;
-    for name in ["list-general.txt", "list-google.txt", "list-exclude.txt", "ipset-exclude.txt"] {
+    for name in [
+        "list-general.txt",
+        "list-google.txt",
+        "list-exclude.txt",
+        "ipset-exclude.txt",
+    ] {
         let to = dst.join(name);
         if !to.exists() {
             let from = src.join(name);
@@ -195,7 +200,11 @@ fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
             }
         }
     }
-    for name in ["list-general-user.txt", "list-exclude-user.txt", "ipset-exclude-user.txt"] {
+    for name in [
+        "list-general-user.txt",
+        "list-exclude-user.txt",
+        "ipset-exclude-user.txt",
+    ] {
         let to = dst.join(name);
         if !to.exists() {
             std::fs::write(&to, b"").map_err(|e| format!("touch {name}: {e}"))?;
@@ -270,11 +279,16 @@ fn write_ipset_mode(app: &AppHandle, lists: &Path, mode: &str) -> Result<(), Str
             // writable-копия base (после dpi_update_ipset) приоритетнее ресурсной —
             // так обновлённый список IP применяется без переустановки приложения.
             let wbase = lists.join("ipset-all.base.txt");
-            let base = if wbase.exists() { wbase } else { res_lists(app)?.join("ipset-all.base.txt") };
+            let base = if wbase.exists() {
+                wbase
+            } else {
+                res_lists(app)?.join("ipset-all.base.txt")
+            };
             std::fs::copy(&base, &target).map_err(|e| format!("ipset loaded: {e}"))?;
         }
         "off" => {
-            std::fs::write(&target, b"203.0.113.113/32\n").map_err(|e| format!("ipset off: {e}"))?;
+            std::fs::write(&target, b"203.0.113.113/32\n")
+                .map_err(|e| format!("ipset off: {e}"))?;
         }
         _ => {
             std::fs::write(&target, b"").map_err(|e| format!("ipset any: {e}"))?;
@@ -301,7 +315,9 @@ pub fn dpi_log_path(app: AppHandle) -> Result<String, String> {
 /// Хвост лога winws (для показа в UI при ошибке).
 #[tauri::command]
 pub fn dpi_read_log(app: AppHandle) -> Result<String, String> {
-    let Some(p) = dpi_log_file(&app) else { return Ok(String::new()) };
+    let Some(p) = dpi_log_file(&app) else {
+        return Ok(String::new());
+    };
     // read_tail капит хвостом (дефолт 128 КБ) вместо слурпа файла целиком: winws
     // при verbose-логе за долгую сессию раздувает dpi.log, а гнать его весь через
     // IPC незачем (тот же приём, что для singbox.log — см. vpn::read_tail).
@@ -384,7 +400,9 @@ fn kill_stray_winws(dpi_root: &Path) -> bool {
     let text = String::from_utf8_lossy(&out.stdout);
     let mut killed = false;
     for line in text.lines() {
-        let Some((pid, path)) = line.trim().split_once('|') else { continue };
+        let Some((pid, path)) = line.trim().split_once('|') else {
+            continue;
+        };
         let (pid, path) = (pid.trim(), path.trim());
         if pid.is_empty() || path.is_empty() {
             continue;
@@ -422,7 +440,11 @@ pub fn dpi_strategies(app: AppHandle) -> Result<String, String> {
 pub fn dpi_domains_count(app: AppHandle) -> Result<usize, String> {
     let lists = ensure_lists(&app)?;
     let mut n = 0usize;
-    for name in ["list-general.txt", "list-general-user.txt", "list-google.txt"] {
+    for name in [
+        "list-general.txt",
+        "list-general-user.txt",
+        "list-google.txt",
+    ] {
         if let Ok(txt) = std::fs::read_to_string(lists.join(name)) {
             n += txt
                 .lines()
@@ -531,7 +553,10 @@ pub async fn dpi_start(
 ) -> Result<(), String> {
     let logs_disabled = logs_disabled.unwrap_or(false);
     let generation = begin_dpi_operation(&state, "start")?;
-    let _operation = DpiOperationGuard { state: &state, generation };
+    let _operation = DpiOperationGuard {
+        state: &state,
+        generation,
+    };
     // Уже запущен? Чистим труп / отказываем.
     {
         let mut guard = state.child.lock_recover();
@@ -602,7 +627,11 @@ pub async fn dpi_start(
     // При logs_disabled («Полностью отключить логи») файл не создаём — вывод winws
     // уходит в никуда (CREATE_NO_WINDOW → нет консоли); диагностика краша при этом
     // не сохранится, юзер сам отключил логи.
-    let log = if logs_disabled { None } else { dpi_log_file(&app) };
+    let log = if logs_disabled {
+        None
+    } else {
+        dpi_log_file(&app)
+    };
     let log_writer = log.as_ref().and_then(|lp| prepare_dpi_log(lp));
     if log_writer.is_some() {
         cmd.stdout(std::process::Stdio::piped());
@@ -655,8 +684,14 @@ pub async fn dpi_start(
                         };
                         format!("\nВывод winws:\n{t}")
                     })
-                    .unwrap_or_else(|| " Нужны права администратора или занят драйвер WinDivert.".into());
-                return Err(format!("winws завершился сразу (код {:?}).{}", status.code(), tail));
+                    .unwrap_or_else(|| {
+                        " Нужны права администратора или занят драйвер WinDivert.".into()
+                    });
+                return Err(format!(
+                    "winws завершился сразу (код {:?}).{}",
+                    status.code(),
+                    tail
+                ));
             }
         }
     }
@@ -678,9 +713,9 @@ pub fn dpi_running(state: State<'_, DpiState>) -> bool {
     let mut guard = state.child.lock_recover();
     if let Some(child) = guard.as_mut() {
         match child.try_wait() {
-            Ok(None) => true,          // живой
+            Ok(None) => true, // живой
             _ => {
-                *guard = None;         // умер — забываем хэндл
+                *guard = None; // умер — забываем хэндл
                 false
             }
         }
@@ -1008,7 +1043,12 @@ async fn fetch_list_bytes_limited(
             }
         };
         for attempt in 0..2 {
-            match client.get(url).send().await.and_then(|r| r.error_for_status()) {
+            match client
+                .get(url)
+                .send()
+                .await
+                .and_then(|r| r.error_for_status())
+            {
                 Ok(resp) => match read_http_body_limited(resp, max_bytes, label).await {
                     Ok(b) => return Ok(b),
                     Err(e) => last = format!("read body: {e}"),
@@ -1047,7 +1087,10 @@ async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String>
 /// синканул» проверка показывает «обновление есть», а кнопка тянет старый бандл
 /// → local никогда не догоняет remote → вечный «битый круг» обновления.
 #[tauri::command]
-pub async fn dpi_check_update(app: AppHandle, port: Option<u16>) -> Result<serde_json::Value, String> {
+pub async fn dpi_check_update(
+    app: AppHandle,
+    port: Option<u16>,
+) -> Result<serde_json::Value, String> {
     let local = strat_version(&app);
     // port>0 (VPN в proxy/systemProxy) → проверка идёт через туннель: version.txt
     // релиза dpi-channel лежит на github, а он из РФ режется ТСПУ напрямую.
@@ -1162,7 +1205,10 @@ async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<Pat
     let seq = TEMP_FILE_SEQ.fetch_add(1, Ordering::Relaxed);
     let staging = dpi_data.join(format!(".staging-{}-{seq}", std::process::id()));
     std::fs::create_dir_all(&staging).map_err(|e| format!("mkdir staging: {e}"))?;
-    let mut staging_guard = StagingDirGuard { path: staging.clone(), keep: false };
+    let mut staging_guard = StagingDirGuard {
+        path: staging.clone(),
+        keep: false,
+    };
 
     let reader = std::io::Cursor::new(zip_bytes.as_slice());
     let mut zip = zip::ZipArchive::new(reader).map_err(|e| format!("open zip: {e}"))?;
@@ -1225,7 +1271,11 @@ fn read_cached_service(app: &AppHandle, name: &str) -> Result<String, String> {
 // channel/. Нет сети → фолбэк на последнюю применённую подпись. Раньше hosts/ipset
 // тянулись напрямую с raw.githubusercontent.com/Flowseal без подписи и писались в
 // системный hosts — этот путь закрыт: доверяем только minisign-верифицированным данным.
-async fn fetch_channel_service(app: &AppHandle, port: Option<u16>, name: &str) -> Result<String, String> {
+async fn fetch_channel_service(
+    app: &AppHandle,
+    port: Option<u16>,
+    name: &str,
+) -> Result<String, String> {
     match stage_verified_bundle(app, port).await {
         Ok(staging) => {
             let src = staging.join("service").join(name);
@@ -1252,7 +1302,10 @@ async fn fetch_channel_service(app: &AppHandle, port: Option<u16>, name: &str) -
 /// ДО распаковки, провалидировать (strategies.json парсится, все .bin на месте) и
 /// атомарно применить в app_data. Возвращает {version, applied}. Движок НЕ трогает.
 #[tauri::command]
-pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde_json::Value, String> {
+pub async fn dpi_sync_channel(
+    app: AppHandle,
+    port: Option<u16>,
+) -> Result<serde_json::Value, String> {
     // 1–3. Скачать + проверить подпись + распаковать в стейджинг (общий хелпер).
     let dpi_data = app
         .path()
@@ -1283,7 +1336,12 @@ pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde
         // стратегия не сможет сослаться на .bin/список, который не скопировался.
         let lists = lists_dir(&app)?;
         let staged_lists = staging.join("lists");
-        for name in ["list-general.txt", "list-google.txt", "list-exclude.txt", "ipset-exclude.txt"] {
+        for name in [
+            "list-general.txt",
+            "list-google.txt",
+            "list-exclude.txt",
+            "ipset-exclude.txt",
+        ] {
             let from = staged_lists.join(name);
             if from.exists() {
                 copy_replace(&from, &lists.join(name), &format!("list {name}"))?;
@@ -1297,7 +1355,11 @@ pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde
                 let p = entry.path();
                 if p.extension().is_some_and(|x| x == "bin") {
                     if let Some(n) = p.file_name() {
-                        copy_replace(&p, &existing.join(n), &format!("bin {}", n.to_string_lossy()))?;
+                        copy_replace(
+                            &p,
+                            &existing.join(n),
+                            &format!("bin {}", n.to_string_lossy()),
+                        )?;
                     }
                 }
             }
@@ -1326,7 +1388,11 @@ pub async fn dpi_sync_channel(app: AppHandle, port: Option<u16>) -> Result<serde
         // Marker — commit record. Пишем строго последним: если strategies не
         // применились, UI не должен считать неудачную версию установленной.
         if !ver.is_empty() {
-            write_replace(&dpi_data.join("strategies-version.txt"), &ver, "strategies version")?;
+            write_replace(
+                &dpi_data.join("strategies-version.txt"),
+                &ver,
+                "strategies version",
+            )?;
         }
 
         Ok(serde_json::json!({ "version": ver, "applied": true }))
@@ -1387,7 +1453,9 @@ fn strip_managed_block(content: &str) -> Result<String, String> {
         return Err("hosts: BEGIN-маркер Ninety без END".into());
     }
     if blocks > 1 {
-        return Err(format!("hosts: найдено несколько managed-блоков Ninety ({blocks})"));
+        return Err(format!(
+            "hosts: найдено несколько managed-блоков Ninety ({blocks})"
+        ));
     }
     Ok(out)
 }
@@ -1438,7 +1506,10 @@ pub fn dpi_hosts_status(_app: AppHandle) -> Result<serde_json::Value, String> {
 /// системный hosts. Требует админ-прав (фронт элевирует перед вызовом). Делает
 /// бэкап оригинала при первой записи и сбрасывает DNS-кэш. Возвращает число записей.
 #[tauri::command]
-pub async fn dpi_hosts_apply(app: AppHandle, port: Option<u16>) -> Result<serde_json::Value, String> {
+pub async fn dpi_hosts_apply(
+    app: AppHandle,
+    port: Option<u16>,
+) -> Result<serde_json::Value, String> {
     // hosts прибивает IP↔домен в системном hosts — самый чувствительный из
     // DPI-путей, поэтому берём его строго из minisign-подписанного канала (было:
     // прямой неподписанный fetch с Flowseal raw).
@@ -1497,7 +1568,10 @@ pub async fn dpi_hosts_apply(app: AppHandle, port: Option<u16>) -> Result<serde_
     out.push('\n');
 
     write_bytes_replace(&path, out.as_bytes(), "system hosts").map_err(|e| {
-        format!("запись hosts ({}): нужны права администратора — {e}", path.display())
+        format!(
+            "запись hosts ({}): нужны права администратора — {e}",
+            path.display()
+        )
     })?;
     flush_dns();
     Ok(serde_json::json!({ "entries": count_hosts_entries(body) }))
@@ -1548,7 +1622,11 @@ fn count_ipset_lines(txt: &str) -> usize {
 pub fn dpi_ipset_count(app: AppHandle) -> Result<usize, String> {
     let lists = ensure_lists(&app)?;
     let wbase = lists.join("ipset-all.base.txt");
-    let path = if wbase.exists() { wbase } else { res_lists(&app)?.join("ipset-all.base.txt") };
+    let path = if wbase.exists() {
+        wbase
+    } else {
+        res_lists(&app)?.join("ipset-all.base.txt")
+    };
     let txt = std::fs::read_to_string(&path).unwrap_or_default();
     Ok(count_ipset_lines(&txt))
 }
@@ -1595,7 +1673,10 @@ pub async fn dpi_autotest(
     monkey: bool,
 ) -> Result<serde_json::Value, String> {
     let generation = begin_dpi_operation(&state, "autotest")?;
-    let _operation = DpiOperationGuard { state: &state, generation };
+    let _operation = DpiOperationGuard {
+        state: &state,
+        generation,
+    };
     // Глушим текущий winws без изменения generation: autotest теперь владеет
     // lifecycle и публикует каждый test-child в state, поэтому dpi_stop/exit
     // способны отменить и reap'нуть его.
@@ -1628,7 +1709,11 @@ pub async fn dpi_autotest(
         }
         let _ = app.emit(
             "dpi:autotest",
-            AutotestProgress { i: idx + 1, total, name: strat.name.clone() },
+            AutotestProgress {
+                i: idx + 1,
+                total,
+                name: strat.name.clone(),
+            },
         );
         let args: Vec<String> = strat
             .args
@@ -1658,7 +1743,13 @@ pub async fn dpi_autotest(
             *state.child.lock_recover() = Some(child);
         }
         state.driver_loaded.store(true, Ordering::SeqCst);
-        dpi_sleep_or_cancel(&state, generation, Duration::from_millis(700), "DPI autotest").await?;
+        dpi_sleep_or_cancel(
+            &state,
+            generation,
+            Duration::from_millis(700),
+            "DPI autotest",
+        )
+        .await?;
         remember_owned_driver_services(&state, &bin);
 
         let t0 = Instant::now();
@@ -1692,7 +1783,13 @@ pub async fn dpi_autotest(
             }
         }
         // короткая пауза, чтобы драйвер успел отцепиться между прогонами
-        dpi_sleep_or_cancel(&state, generation, Duration::from_millis(150), "DPI autotest").await?;
+        dpi_sleep_or_cancel(
+            &state,
+            generation,
+            Duration::from_millis(150),
+            "DPI autotest",
+        )
+        .await?;
     }
 
     match best {
@@ -1814,8 +1911,14 @@ mod tests {
         let lst = subst("%LISTS%list-general.txt", "BIN", "LST", "12", "34");
         assert_eq!(lst, format!("LST{sep}list-general.txt"));
         // Game-фильтры: TCP/UDP раздельны, а legacy %GameFilter% берёт TCP.
-        assert_eq!(subst("--wf-tcp=%GameFilterTCP%", "B", "L", "80", "443"), "--wf-tcp=80");
-        assert_eq!(subst("--wf-udp=%GameFilterUDP%", "B", "L", "80", "443"), "--wf-udp=443");
+        assert_eq!(
+            subst("--wf-tcp=%GameFilterTCP%", "B", "L", "80", "443"),
+            "--wf-tcp=80"
+        );
+        assert_eq!(
+            subst("--wf-udp=%GameFilterUDP%", "B", "L", "80", "443"),
+            "--wf-udp=443"
+        );
         assert_eq!(subst("%GameFilter%", "B", "L", "80", "443"), "80");
     }
 
@@ -1865,15 +1968,21 @@ mod tests {
         assert!(strip_managed_block(&open).unwrap_err().contains("без END"));
 
         let close = format!("127.0.0.1 localhost\n{HOSTS_END}\n");
-        assert!(strip_managed_block(&close).unwrap_err().contains("без BEGIN"));
+        assert!(strip_managed_block(&close)
+            .unwrap_err()
+            .contains("без BEGIN"));
 
         let nested = format!("{HOSTS_BEGIN}\n{HOSTS_BEGIN}\n{HOSTS_END}\n{HOSTS_END}\n");
-        assert!(strip_managed_block(&nested).unwrap_err().contains("вложенный"));
+        assert!(strip_managed_block(&nested)
+            .unwrap_err()
+            .contains("вложенный"));
 
         let duplicate = format!(
             "{HOSTS_BEGIN}\n1.1.1.1 one.test\n{HOSTS_END}\n{HOSTS_BEGIN}\n2.2.2.2 two.test\n{HOSTS_END}\n"
         );
-        assert!(strip_managed_block(&duplicate).unwrap_err().contains("несколько"));
+        assert!(strip_managed_block(&duplicate)
+            .unwrap_err()
+            .contains("несколько"));
     }
 
     #[test]
@@ -1891,9 +2000,15 @@ mod tests {
     #[test]
     fn normalize_ipset_entry_wraps_ipv4_and_ipv6() {
         assert_eq!(normalize_ipset_entry("1.2.3.4").unwrap(), "1.2.3.4/32");
-        assert_eq!(normalize_ipset_entry("2606:4700:d0::a29f:c001").unwrap(), "2606:4700:d0::a29f:c001/128");
+        assert_eq!(
+            normalize_ipset_entry("2606:4700:d0::a29f:c001").unwrap(),
+            "2606:4700:d0::a29f:c001/128"
+        );
         assert_eq!(normalize_ipset_entry("10.0.0.0/8").unwrap(), "10.0.0.0/8");
-        assert_eq!(normalize_ipset_entry("2001:db8::/32").unwrap(), "2001:db8::/32");
+        assert_eq!(
+            normalize_ipset_entry("2001:db8::/32").unwrap(),
+            "2001:db8::/32"
+        );
         assert_eq!(normalize_ipset_entry("0.0.0.0/0").unwrap(), "0.0.0.0/0");
         assert_eq!(normalize_ipset_entry("::/0").unwrap(), "::/0");
         assert!(normalize_ipset_entry("1.2.3.4/999").is_err());
@@ -1914,8 +2029,14 @@ mod tests {
 
     #[test]
     fn parse_engine_version_extracts_token() {
-        assert_eq!(parse_engine_version("github version 72.12 (abc)"), Some("72.12".into()));
-        assert_eq!(parse_engine_version("winws VERSION v70"), Some("v70".into()));
+        assert_eq!(
+            parse_engine_version("github version 72.12 (abc)"),
+            Some("72.12".into())
+        );
+        assert_eq!(
+            parse_engine_version("winws VERSION v70"),
+            Some("v70".into())
+        );
         assert_eq!(parse_engine_version("no digits here"), None);
         assert_eq!(parse_engine_version(""), None);
     }

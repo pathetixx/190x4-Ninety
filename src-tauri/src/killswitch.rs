@@ -146,7 +146,8 @@ mod tests {
 
     #[test]
     fn engine_discovery_only_returns_known_existing_binaries() {
-        let dir = std::env::temp_dir().join(format!("ninety-killswitch-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("ninety-killswitch-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("sing-box.exe"), b"").unwrap();
@@ -217,7 +218,11 @@ mod win {
         let _ = FwpmEngineClose0(HANDLE(handle as *mut core::ffi::c_void));
     }
 
-    unsafe fn build_filters(engine: HANDLE, exe_paths: &[String], allow_lan: bool) -> Result<(), String> {
+    unsafe fn build_filters(
+        engine: HANDLE,
+        exe_paths: &[String],
+        allow_lan: bool,
+    ) -> Result<(), String> {
         // sublayer
         let mut sname = wide("Ninety Kill Switch");
         let mut sub: FWPM_SUBLAYER0 = std::mem::zeroed();
@@ -229,7 +234,10 @@ mod win {
             return Err(format!("FwpmSubLayerAdd0: {rc}"));
         }
 
-        let layers = [FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWPM_LAYER_ALE_AUTH_CONNECT_V6];
+        let layers = [
+            FWPM_LAYER_ALE_AUTH_CONNECT_V4,
+            FWPM_LAYER_ALE_AUTH_CONNECT_V6,
+        ];
 
         // block-all (низкий вес)
         for layer in layers {
@@ -238,15 +246,33 @@ mod win {
         // permit loopback (высокий вес)
         for layer in layers {
             let mut c = loopback_condition();
-            add_filter(engine, &layer, FWP_ACTION_PERMIT, 15, std::slice::from_mut(&mut c))?;
+            add_filter(
+                engine,
+                &layer,
+                FWP_ACTION_PERMIT,
+                15,
+                std::slice::from_mut(&mut c),
+            )?;
         }
         // permit DHCP (всегда): без него renew lease рвёт всю сеть. DHCPv4-клиент
         // держит локальный UDP-порт 68, DHCPv6 — 546. Ставим по matching-слою.
         {
             let mut c4 = local_port_condition(68);
-            add_filter(engine, &FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWP_ACTION_PERMIT, 14, std::slice::from_mut(&mut c4))?;
+            add_filter(
+                engine,
+                &FWPM_LAYER_ALE_AUTH_CONNECT_V4,
+                FWP_ACTION_PERMIT,
+                14,
+                std::slice::from_mut(&mut c4),
+            )?;
             let mut c6 = local_port_condition(546);
-            add_filter(engine, &FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWP_ACTION_PERMIT, 14, std::slice::from_mut(&mut c6))?;
+            add_filter(
+                engine,
+                &FWPM_LAYER_ALE_AUTH_CONNECT_V6,
+                FWP_ACTION_PERMIT,
+                14,
+                std::slice::from_mut(&mut c6),
+            )?;
         }
         // permit LAN (по опции): приватные/link-local/broadcast/multicast подсети,
         // чтобы блок не резал принтеры, NAS и обнаружение устройств. bypassLan в
@@ -260,7 +286,13 @@ mod win {
             let blob = app_id_blob(exe)?;
             for layer in layers {
                 let mut c = appid_condition(blob);
-                add_filter(engine, &layer, FWP_ACTION_PERMIT, 15, std::slice::from_mut(&mut c))?;
+                add_filter(
+                    engine,
+                    &layer,
+                    FWP_ACTION_PERMIT,
+                    15,
+                    std::slice::from_mut(&mut c),
+                )?;
             }
             FwpmFreeMemory0(&mut (blob as *mut core::ffi::c_void));
         }
@@ -285,7 +317,13 @@ mod win {
             c.matchType = FWP_MATCH_EQUAL;
             c.conditionValue.r#type = FWP_V4_ADDR_MASK;
             c.conditionValue.Anonymous.v4AddrMask = &am as *const _ as *mut FWP_V4_ADDR_AND_MASK;
-            add_filter(engine, &FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWP_ACTION_PERMIT, 12, std::slice::from_mut(&mut c))?;
+            add_filter(
+                engine,
+                &FWPM_LAYER_ALE_AUTH_CONNECT_V4,
+                FWP_ACTION_PERMIT,
+                12,
+                std::slice::from_mut(&mut c),
+            )?;
         }
         // IPv6: fc00::/7 (ULA), fe80::/10 (link-local), ff00::/8 (multicast).
         const V6: &[([u8; 16], u8)] = &[
@@ -294,13 +332,22 @@ mod win {
             ([0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 8),
         ];
         for &(addr, prefix) in V6 {
-            let am = FWP_V6_ADDR_AND_MASK { addr, prefixLength: prefix };
+            let am = FWP_V6_ADDR_AND_MASK {
+                addr,
+                prefixLength: prefix,
+            };
             let mut c: FWPM_FILTER_CONDITION0 = std::mem::zeroed();
             c.fieldKey = FWPM_CONDITION_IP_REMOTE_ADDRESS;
             c.matchType = FWP_MATCH_EQUAL;
             c.conditionValue.r#type = FWP_V6_ADDR_MASK;
             c.conditionValue.Anonymous.v6AddrMask = &am as *const _ as *mut FWP_V6_ADDR_AND_MASK;
-            add_filter(engine, &FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWP_ACTION_PERMIT, 12, std::slice::from_mut(&mut c))?;
+            add_filter(
+                engine,
+                &FWPM_LAYER_ALE_AUTH_CONNECT_V6,
+                FWP_ACTION_PERMIT,
+                12,
+                std::slice::from_mut(&mut c),
+            )?;
         }
         Ok(())
     }

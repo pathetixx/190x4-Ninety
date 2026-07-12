@@ -61,7 +61,11 @@ fn validate_dns_response(resp: &[u8], query: &[u8]) -> Result<(), String> {
 // direct-DNS, обычно udp://[...]).
 fn ensure_port(host: &str, default: u16) -> String {
     if host.starts_with('[') {
-        if host.contains("]:") { host.to_string() } else { format!("{host}:{default}") }
+        if host.contains("]:") {
+            host.to_string()
+        } else {
+            format!("{host}:{default}")
+        }
     } else if host.contains(':') {
         host.to_string()
     } else {
@@ -70,9 +74,9 @@ fn ensure_port(host: &str, default: u16) -> String {
 }
 
 enum Target {
-    Udp(String),  // host:port для UDP DNS
-    Doh(String),  // полный https URL
-    Skip,         // формат, который не пробуем
+    Udp(String), // host:port для UDP DNS
+    Doh(String), // полный https URL
+    Skip,        // формат, который не пробуем
 }
 
 fn parse_target(dns: &str) -> Target {
@@ -115,7 +119,11 @@ async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> Result<(
 }
 
 fn udp_bind_addr(address: std::net::SocketAddr) -> &'static str {
-    if address.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" }
+    if address.is_ipv6() {
+        "[::]:0"
+    } else {
+        "0.0.0.0:0"
+    }
 }
 
 async fn probe_udp_addr(
@@ -196,13 +204,24 @@ pub async fn dns_probe(
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(4000).clamp(300, 10_000));
     let query = build_dns_query(&host);
     let res = match parse_target(&dns) {
-        Target::Skip => return Ok(DnsProbeResult { status: "skip", detail: None }),
+        Target::Skip => {
+            return Ok(DnsProbeResult {
+                status: "skip",
+                detail: None,
+            })
+        }
         Target::Udp(hp) => probe_udp(&hp, &query, timeout).await,
         Target::Doh(url) => probe_doh(&url, &query, timeout).await,
     };
     Ok(match res {
-        Ok(()) => DnsProbeResult { status: "ok", detail: None },
-        Err(e) => DnsProbeResult { status: "dead", detail: Some(e) },
+        Ok(()) => DnsProbeResult {
+            status: "ok",
+            detail: None,
+        },
+        Err(e) => DnsProbeResult {
+            status: "dead",
+            detail: Some(e),
+        },
     })
 }
 
@@ -232,8 +251,13 @@ mod tests {
     fn parse_target_variants() {
         assert!(matches!(parse_target("udp://77.88.8.8"), Target::Udp(hp) if hp == "77.88.8.8:53"));
         assert!(matches!(parse_target("77.88.8.8"), Target::Udp(hp) if hp == "77.88.8.8:53"));
-        assert!(matches!(parse_target("udp://1.1.1.1:5353"), Target::Udp(hp) if hp == "1.1.1.1:5353"));
-        assert!(matches!(parse_target("https://149.112.112.112/dns-query"), Target::Doh(_)));
+        assert!(
+            matches!(parse_target("udp://1.1.1.1:5353"), Target::Udp(hp) if hp == "1.1.1.1:5353")
+        );
+        assert!(matches!(
+            parse_target("https://149.112.112.112/dns-query"),
+            Target::Doh(_)
+        ));
         assert!(matches!(parse_target("tls://8.8.8.8"), Target::Skip));
         assert!(matches!(parse_target("local"), Target::Skip));
         assert!(matches!(parse_target(""), Target::Skip));
@@ -242,7 +266,10 @@ mod tests {
     #[test]
     fn udp_bind_matches_target_address_family() {
         assert_eq!(udp_bind_addr("1.1.1.1:53".parse().unwrap()), "0.0.0.0:0");
-        assert_eq!(udp_bind_addr("[2606:4700:4700::1111]:53".parse().unwrap()), "[::]:0");
+        assert_eq!(
+            udp_bind_addr("[2606:4700:4700::1111]:53".parse().unwrap()),
+            "[::]:0"
+        );
     }
 
     #[test]

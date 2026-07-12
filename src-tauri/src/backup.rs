@@ -30,14 +30,17 @@ fn backup_path(app: &AppHandle) -> Result<PathBuf, String> {
 /// битый бэкап — прежний файл до rename остаётся целым.
 #[tauri::command]
 pub fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
-    let _guard = BACKUP_LOCK.lock().map_err(|_| "state backup lock poisoned")?;
+    let _guard = BACKUP_LOCK
+        .lock()
+        .map_err(|_| "state backup lock poisoned")?;
     let path = backup_path(&app)?;
     let tmp = path.with_extension("json.tmp");
     let sealed = crate::secrets::seal(json.as_bytes())?;
     {
         use std::io::Write;
         let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;
-        file.write_all(&sealed).map_err(|e| format!("write tmp: {e}"))?;
+        file.write_all(&sealed)
+            .map_err(|e| format!("write tmp: {e}"))?;
         file.sync_all().map_err(|e| format!("sync tmp: {e}"))?;
     }
     // На Windows rename поверх существующего файла падает. Прежний снапшот не
@@ -81,7 +84,9 @@ fn remove_file_if_exists(path: &Path) -> Result<bool, String> {
 /// основной файл фолбэчится на .bak (прошлый снапшот, см. save).
 #[tauri::command]
 pub fn state_backup_load(app: AppHandle) -> Result<Option<String>, String> {
-    let _guard = BACKUP_LOCK.lock().map_err(|_| "state backup lock poisoned")?;
+    let _guard = BACKUP_LOCK
+        .lock()
+        .map_err(|_| "state backup lock poisoned")?;
     let path = backup_path(&app)?;
     Ok(read_snapshot(&path).or_else(|| read_snapshot(&path.with_extension("json.bak"))))
 }
@@ -91,7 +96,9 @@ pub fn state_backup_load(app: AppHandle) -> Result<Option<String>, String> {
 /// после следующего старта WebView2.
 #[tauri::command]
 pub fn state_backup_clear(app: AppHandle) -> Result<u32, String> {
-    let _guard = BACKUP_LOCK.lock().map_err(|_| "state backup lock poisoned")?;
+    let _guard = BACKUP_LOCK
+        .lock()
+        .map_err(|_| "state backup lock poisoned")?;
     let path = backup_path(&app)?;
     let mut removed = 0;
     for p in [

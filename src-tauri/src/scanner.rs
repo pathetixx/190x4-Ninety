@@ -11,13 +11,13 @@
 // IP-диапазоны и порты — из публично известного CF endpoint pool
 // (см. bepass-org/warp-plus/warp/endpoint.go, MIT).
 
+use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-use tokio::net::{TcpStream, UdpSocket};
 use tauri::{AppHandle, Emitter, State};
-use futures_util::{stream, StreamExt};
+use tokio::net::{TcpStream, UdpSocket};
 
 #[derive(Default)]
 pub struct WarpScanState {
@@ -90,12 +90,19 @@ fn pseudo_random_sample(per_subnet: usize, deep: bool) -> Vec<SocketAddr> {
 fn pseudo_random_sample_with_seed(per_subnet: usize, deep: bool, seed: u64) -> Vec<SocketAddr> {
     let mut state = seed;
     let next = |s: &mut u64| -> u32 {
-        *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (*s >> 33) as u32
     };
 
-    let subnets: &[(&str, u32, u32)] = if deep { CF_SUBNETS_DEEP } else { CF_SUBNETS_BASE };
-    let mut targets: Vec<SocketAddr> = Vec::with_capacity(subnets.len() * per_subnet * CF_PORTS.len());
+    let subnets: &[(&str, u32, u32)] = if deep {
+        CF_SUBNETS_DEEP
+    } else {
+        CF_SUBNETS_BASE
+    };
+    let mut targets: Vec<SocketAddr> =
+        Vec::with_capacity(subnets.len() * per_subnet * CF_PORTS.len());
     for (prefix, lo, hi) in subnets {
         // Fisher–Yates: IP внутри /24 не повторяются в одном scan.
         let mut hosts: Vec<u32> = (*lo..=*hi).collect();
@@ -184,29 +191,17 @@ fn recompute_mac1(packet: &mut [u8], peer_pub: &[u8; 32]) {
 
     // KeyInit и Mac оба определяют new_from_slice — нужен disambiguation
     type Mac16 = Blake2sMac<U16>;
-    let mut mac = <Mac16 as KeyInit>::new_from_slice(&key)
-        .expect("blake2s 32-byte key");
+    let mut mac = <Mac16 as KeyInit>::new_from_slice(&key).expect("blake2s 32-byte key");
     Mac::update(&mut mac, &packet[..116]);
     let tag = mac.finalize().into_bytes();
     packet[116..132].copy_from_slice(&tag);
 }
 
-async fn wg_ping(
-    addr: SocketAddr,
-    keys: &WgKeys,
-    timeout: Duration,
-) -> Option<u64> {
+async fn wg_ping(addr: SocketAddr, keys: &WgKeys, timeout: Duration) -> Option<u64> {
     // Tunn::new берёт private/peer by value — клонируем (StaticSecret поддерживает
     // Clone в x25519-dalek 2 с feature static_secrets). В boringtun 0.7+ возвращает
     // Self напрямую, без Result.
-    let mut tunn = Tunn::new(
-        keys.private.clone(),
-        keys.peer_public,
-        None,
-        None,
-        0,
-        None,
-    );
+    let mut tunn = Tunn::new(keys.private.clone(), keys.peer_public, None, None, 0, None);
 
     let mut buf = [0u8; 256];
     let init_len = match tunn.format_handshake_initiation(&mut buf, true) {
@@ -266,7 +261,10 @@ pub async fn warp_scan_endpoints(
     deep: Option<bool>,
     mode: Option<String>,
 ) -> Result<Vec<ScanResult>, String> {
-    let generation = state.generation.fetch_add(1, Ordering::SeqCst).wrapping_add(1);
+    let generation = state
+        .generation
+        .fetch_add(1, Ordering::SeqCst)
+        .wrapping_add(1);
     let deep = deep.unwrap_or(false);
     let default_per = if deep { 15 } else { 5 };
     let per_subnet = per_subnet.unwrap_or(default_per).clamp(1, 30);

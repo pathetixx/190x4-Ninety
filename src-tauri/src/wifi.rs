@@ -54,14 +54,13 @@ mod win {
 
     unsafe fn enum_and_query(handle: HANDLE) -> Option<WifiInfo> {
         let mut list_ptr: *mut WLAN_INTERFACE_INFO_LIST = std::ptr::null_mut();
-        if WlanEnumInterfaces(handle, None, &mut list_ptr) != ERROR_SUCCESS.0 || list_ptr.is_null() {
+        if WlanEnumInterfaces(handle, None, &mut list_ptr) != ERROR_SUCCESS.0 || list_ptr.is_null()
+        {
             return None;
         }
         let list = &*list_ptr;
-        let items = std::slice::from_raw_parts(
-            list.InterfaceInfo.as_ptr(),
-            list.dwNumberOfItems as usize,
-        );
+        let items =
+            std::slice::from_raw_parts(list.InterfaceInfo.as_ptr(), list.dwNumberOfItems as usize);
         let mut out = None;
         for it in items {
             if it.isState == wlan_interface_state_connected {
@@ -95,10 +94,14 @@ mod win {
         let name = super::decode_ssid(&ssid.ucSSID, ssid.uSSIDLength as usize);
         // Открытая сеть = шифрование выключено ИЛИ auth = OPEN.
         let sec = &attr.wlanSecurityAttributes;
-        let secured = sec.bSecurityEnabled.as_bool()
-            && sec.dot11AuthAlgorithm != DOT11_AUTH_ALGO_80211_OPEN;
+        let secured =
+            sec.bSecurityEnabled.as_bool() && sec.dot11AuthAlgorithm != DOT11_AUTH_ALGO_80211_OPEN;
         WlanFreeMemory(data);
-        Some(WifiInfo { connected: true, ssid: name, secured })
+        Some(WifiInfo {
+            connected: true,
+            ssid: name,
+            secured,
+        })
     }
 }
 

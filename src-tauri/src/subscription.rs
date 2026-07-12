@@ -55,7 +55,10 @@ fn decode_profile_title(raw: &str) -> Option<String> {
 }
 
 #[tauri::command]
-pub async fn fetch_subscription(url: String, proxy: Option<String>) -> Result<SubscriptionInfo, String> {
+pub async fn fetch_subscription(
+    url: String,
+    proxy: Option<String>,
+) -> Result<SubscriptionInfo, String> {
     // ВАЖНО: User-Agent определяет ответ сервера. Многие подписочные
     // панели (sub-store, marzban, xo.e0f.cx и т.п.) отдают:
     //   - известным клиентам (v2rayN, ClashMeta) — plain/base64 vless-список,
@@ -73,7 +76,8 @@ pub async fn fetch_subscription(url: String, proxy: Option<String>) -> Result<Su
             } else if attempt.url().scheme() == "http"
                 && attempt.previous().iter().any(|u| u.scheme() == "https")
             {
-                attempt.error("https→http редирект запрещён: токен подписки ушёл бы открытым текстом")
+                attempt
+                    .error("https→http редирект запрещён: токен подписки ушёл бы открытым текстом")
             } else {
                 attempt.follow()
             }
@@ -102,7 +106,10 @@ pub async fn fetch_subscription(url: String, proxy: Option<String>) -> Result<Su
 
     if let Some(len) = resp.content_length() {
         if len > MAX_BODY_BYTES as u64 {
-            return Err(format!("подписка больше {} МБ — это не список серверов", MAX_BODY_BYTES / 1024 / 1024));
+            return Err(format!(
+                "подписка больше {} МБ — это не список серверов",
+                MAX_BODY_BYTES / 1024 / 1024
+            ));
         }
     }
     // Стримим с капом (Content-Length может отсутствовать или врать).
@@ -110,7 +117,10 @@ pub async fn fetch_subscription(url: String, proxy: Option<String>) -> Result<Su
     let mut buf: Vec<u8> = Vec::new();
     while let Some(chunk) = resp.chunk().await.map_err(|e| format!("body read: {e}"))? {
         if buf.len() + chunk.len() > MAX_BODY_BYTES {
-            return Err(format!("подписка больше {} МБ — это не список серверов", MAX_BODY_BYTES / 1024 / 1024));
+            return Err(format!(
+                "подписка больше {} МБ — это не список серверов",
+                MAX_BODY_BYTES / 1024 / 1024
+            ));
         }
         buf.extend_from_slice(&chunk);
     }
@@ -169,8 +179,14 @@ mod tests {
 
     #[test]
     fn decode_profile_title_plain_and_base64() {
-        assert_eq!(decode_profile_title("  Мой профиль "), Some("Мой профиль".into()));
+        assert_eq!(
+            decode_profile_title("  Мой профиль "),
+            Some("Мой профиль".into())
+        );
         assert_eq!(decode_profile_title(""), None);
-        assert_eq!(decode_profile_title("base64:TmluZXR5"), Some("Ninety".into()));
+        assert_eq!(
+            decode_profile_title("base64:TmluZXR5"),
+            Some("Ninety".into())
+        );
     }
 }

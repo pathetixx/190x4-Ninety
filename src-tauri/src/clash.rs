@@ -90,7 +90,11 @@ fn normalize_ip(v: &Value) -> Option<Value> {
         .get("country_code")
         .and_then(|x| x.as_str())
         .or_else(|| v.get("countryCode").and_then(|x| x.as_str()))
-        .or_else(|| v.get("country").and_then(|x| x.as_str()).filter(|s| s.len() == 2))
+        .or_else(|| {
+            v.get("country")
+                .and_then(|x| x.as_str())
+                .filter(|s| s.len() == 2)
+        })
         .unwrap_or("");
     let asn = extract_asn(v);
     Some(serde_json::json!({
@@ -114,8 +118,7 @@ pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
     if let Some(p) = proxy {
         let trimmed = p.trim();
         if !trimmed.is_empty() {
-            let pr = reqwest::Proxy::all(trimmed)
-                .map_err(|e| format!("proxy: {e}"))?;
+            let pr = reqwest::Proxy::all(trimmed).map_err(|e| format!("proxy: {e}"))?;
             b = b.proxy(pr);
         }
     }
@@ -192,7 +195,10 @@ pub async fn clash_traffic_total(port: u16) -> Result<Value, String> {
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;
-    let v = r.json::<Value>().await.map_err(|e| format!("decode: {e}"))?;
+    let v = r
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("decode: {e}"))?;
     let up = v.get("uploadTotal").and_then(|x| x.as_u64()).unwrap_or(0);
     let down = v.get("downloadTotal").and_then(|x| x.as_u64()).unwrap_or(0);
     Ok(serde_json::json!({ "up": up, "down": down }))
@@ -217,7 +223,10 @@ pub async fn clash_get_connections(port: u16) -> Result<Value, String> {
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;
-    let v = r.json::<Value>().await.map_err(|e| format!("decode: {e}"))?;
+    let v = r
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("decode: {e}"))?;
     let mut out = Vec::new();
     if let Some(conns) = v.get("connections").and_then(|x| x.as_array()) {
         for conn in conns {
@@ -296,7 +305,12 @@ pub async fn clash_test_node(
         urlencoding::encode(&test_url),
         t
     );
-    let r = c.get(path).bearer_auth(clash_secret()).send().await.map_err(|e| format!("request: {e}"))?;
+    let r = c
+        .get(path)
+        .bearer_auth(clash_secret())
+        .send()
+        .await
+        .map_err(|e| format!("request: {e}"))?;
     r.json::<Value>().await.map_err(|e| format!("decode: {e}"))
 }
 
@@ -317,7 +331,12 @@ pub async fn clash_test_group(
         urlencoding::encode(&test_url),
         t
     );
-    let r = c.get(path).bearer_auth(clash_secret()).send().await.map_err(|e| format!("request: {e}"))?;
+    let r = c
+        .get(path)
+        .bearer_auth(clash_secret())
+        .send()
+        .await
+        .map_err(|e| format!("request: {e}"))?;
     r.json::<Value>().await.map_err(|e| format!("decode: {e}"))
 }
 
@@ -325,18 +344,10 @@ pub async fn clash_test_group(
 // PUT /proxies/{group}  body: {"name": "<node-tag>"}
 // В sing-box clash-API это работает только для Selector (не URLTest).
 #[tauri::command]
-pub async fn clash_select_proxy(
-    port: u16,
-    group: String,
-    name: String,
-) -> Result<(), String> {
+pub async fn clash_select_proxy(port: u16, group: String, name: String) -> Result<(), String> {
     let c = client()?;
     let body = serde_json::json!({ "name": name });
-    let path = format!(
-        "{}/proxies/{}",
-        base(port),
-        urlencoding::encode(&group)
-    );
+    let path = format!("{}/proxies/{}", base(port), urlencoding::encode(&group));
     let r = c
         .put(path)
         .bearer_auth(clash_secret())
