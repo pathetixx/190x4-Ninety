@@ -2,6 +2,13 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.10 — 2026-07-12
+
+- Fixed the Connect button: the toggle mistook its own in-flight request for backend activity, so every click on an idle app routed to disconnect and the VPN could never start.
+- A failed final runtime readiness check now reports a start error and returns to idle instead of leaving the UI stuck on "Connecting".
+- Исправлена кнопка подключения: переключатель принимал собственный незавершённый запрос за активность backend, поэтому каждый клик в выключенном состоянии уходил в отключение и VPN не мог запуститься.
+- Провал финальной проверки готовности runtime теперь показывает ошибку запуска и возвращает в выключенное состояние вместо вечного «Подключение…».
+
 ## v0.2.9 — 2026-07-12
 
 - Reconnect requests now use latest-wins arbitration, while user disconnect and OTA stop intents cancel stale reconnects safely.
