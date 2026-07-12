@@ -39,6 +39,7 @@ export const zh = {
   hero: {
     notConnected: "未连接",
     connecting: "连接中…",
+    disconnecting: "正在断开…",
     secured: "已保护",
     apply: "应用设置",
     ipTooltip: "{country} · 点击显示 IP 20 秒",

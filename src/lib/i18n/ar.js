@@ -39,6 +39,7 @@ export const ar = {
   hero: {
     notConnected: "غير متصل",
     connecting: "جارٍ الاتصال…",
+    disconnecting: "جارٍ قطع الاتصال…",
     secured: "محميّ",
     apply: "تطبيق الإعدادات",
     ipTooltip: "{country} · انقر لعرض الـ IP لمدة ٢٠ ثانية",

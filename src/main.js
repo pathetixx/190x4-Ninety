@@ -1303,6 +1303,7 @@ function refreshDynamicText() {
     heroLabel.textContent =
       state === "connected"  ? t("hero.secured")
       : state === "connecting" ? t("hero.connecting")
+      : state === "disconnecting" ? t("hero.disconnecting")
       : t("hero.notConnected");
   }
   if (modeHint) {
@@ -1527,6 +1528,7 @@ const STATE_HERO = {
 const STATE_KICKER = {
   idle:       "STAND-BY · DISCONNECTED",
   connecting: "LINKING · NEGOTIATING",
+  disconnecting: "DISCONNECTING · CLEANUP",
   connected:  "SECURED · TUNNEL ACTIVE", // дефолт; в connected берём connectedKicker() по режиму
 };
 // Kicker в состоянии connected зависит от режима: TUNNEL ACTIVE только в TUN,
@@ -1836,7 +1838,11 @@ function setState(next, opts = {}) {
     stopClashStream();
     stopMeter();
     qualityEngine.onIdle();
-    if (heroLabel) heroLabel.textContent = t("hero.connecting");
+    // Остановка подтверждается backend'ом (процессы завершены, порты освобождены),
+    // поэтому это отдельное переходное состояние, а не новый connect.
+    if (heroLabel) heroLabel.textContent = t("hero.disconnecting");
+    if (heroHint) heroHint.hidden = false;
+    setHeroHintText(STATE_KICKER.disconnecting);
     if (heroDisc) heroDisc.disabled = true;
   } else if (next === "cleanup_error") {
     stopHealthWatchdog();

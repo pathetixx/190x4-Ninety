@@ -39,6 +39,7 @@ export const fa = {
   hero: {
     notConnected: "متصل نیست",
     connecting: "در حال اتصال…",
+    disconnecting: "در حال قطع اتصال…",
     secured: "محافظت‌شده",
     apply: "اعمال تنظیمات",
     ipTooltip: "{country} · برای نمایش ۲۰ ثانیه‌ای IP کلیک کنید",

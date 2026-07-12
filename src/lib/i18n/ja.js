@@ -39,6 +39,7 @@ export const ja = {
   hero: {
     notConnected: "未接続",
     connecting: "接続中…",
+    disconnecting: "切断中…",
     secured: "保護されています",
     apply: "設定を適用",
     ipTooltip: "{country} · クリックでIPを20秒間表示",

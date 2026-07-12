@@ -39,6 +39,7 @@ export const uk = {
   hero: {
     notConnected: "Не підключено",
     connecting: "Підключення…",
+    disconnecting: "Відключення…",
     secured: "Захищено",
     apply: "Застосувати налаштування",
     ipTooltip: "{country} · натисніть, щоб показати IP на 20 сек",

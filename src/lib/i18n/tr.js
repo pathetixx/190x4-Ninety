@@ -39,6 +39,7 @@ export const tr = {
   hero: {
     notConnected: "Bağlı değil",
     connecting: "Bağlanıyor…",
+    disconnecting: "Bağlantı kesiliyor…",
     secured: "Korunuyor",
     apply: "Ayarları uygula",
     ipTooltip: "{country} · IP'yi 20 sn göstermek için tıklayın",

@@ -39,6 +39,7 @@ export const fr = {
   hero: {
     notConnected: "Non connecté",
     connecting: "Connexion…",
+    disconnecting: "Déconnexion…",
     secured: "Protégé",
     apply: "Appliquer les paramètres",
     ipTooltip: "{country} · cliquez pour afficher l’IP pendant 20 s",

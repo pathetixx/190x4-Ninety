@@ -39,6 +39,7 @@ export const ru = {
   hero: {
     notConnected: "Не подключено",
     connecting: "Подключение…",
+    disconnecting: "Отключение…",
     secured: "Защищено",
     apply: "Применить настройки",
     ipTooltip: "{country} · кликните, чтобы показать IP на 20 сек",

@@ -39,6 +39,7 @@ export const pt = {
   hero: {
     notConnected: "Não ligado",
     connecting: "A ligar…",
+    disconnecting: "A desligar…",
     secured: "Protegido",
     apply: "Aplicar definições",
     ipTooltip: "{country} · clique para mostrar o IP durante 20 s",

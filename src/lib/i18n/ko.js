@@ -39,6 +39,7 @@ export const ko = {
   hero: {
     notConnected: "연결 안 됨",
     connecting: "연결 중…",
+    disconnecting: "연결 해제 중…",
     secured: "보호됨",
     apply: "설정 적용",
     ipTooltip: "{country} · 클릭하면 IP를 20초간 표시",
