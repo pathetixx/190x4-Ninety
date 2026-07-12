@@ -866,6 +866,7 @@ fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> Run
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri IPC: именованные поля сохраняют совместимый wire contract.
 pub async fn start_singbox(
     app: AppHandle,
     state: State<'_, SingboxState>,
