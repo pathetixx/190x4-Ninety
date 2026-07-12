@@ -70,6 +70,7 @@ import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
 import { createRuntimeIdentityController, sourceFingerprint, sourceKey } from "/lib/runtime-identity.js";
 import { createSourceMutationController, planSourceDeletion } from "/lib/source-mutations.js";
+import { createBootstrapCoordinator } from "/lib/bootstrap-coordinator.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -1620,6 +1621,7 @@ applyHomeBottom("idle");
 applyHeroState("idle");
 
 let state = "idle";
+let networkBootstrapInProgress = true;
 let needsReconnect = false;
 let publicIpTimer = null;
 // Поколение попытки подключения: «Отключить» во время старта ядра инкрементит
@@ -1649,6 +1651,13 @@ function setHeroHintText(text) {
 
 function updateHeroHint() {
   if (state !== "idle") return;
+  if (networkBootstrapInProgress) {
+    if (heroDisc) {
+      heroDisc.disabled = true;
+      heroDisc.setAttribute("aria-disabled", "true");
+    }
+    return;
+  }
   const src = activeDisplaySource();
   if (!src) {
     setHeroHintText(t("home.importHint"));
@@ -1658,7 +1667,7 @@ function updateHeroHint() {
     }
   } else {
     setHeroHintText(STATE_KICKER.idle);
-    if (heroDisc) {
+    if (heroDisc && !networkBootstrapInProgress) {
       heroDisc.disabled = false;
       heroDisc.removeAttribute("aria-disabled");
     }
@@ -1812,7 +1821,7 @@ function setState(next, opts = {}) {
     applyKillSwitch(false);
     qualityEngine.onIdle();
     if (heroLabel) heroLabel.textContent = t("conn.startFail");
-    if (heroDisc) heroDisc.disabled = false;
+    if (heroDisc && !networkBootstrapInProgress) heroDisc.disabled = false;
     toast(t("conn.startFail"), "error", 6000, { desc: t("conn.startFailDesc") });
   } else if (next === "connected") {
     if (heroLabel) heroLabel.textContent = t("hero.secured");
@@ -1822,6 +1831,10 @@ function setState(next, opts = {}) {
     startSession();
     if (tfDot) tfDot.dataset.live = "true";
     if (heroDisc) heroDisc.setAttribute("aria-label", t("heroAria.disconnect"));
+    if (heroDisc && !networkBootstrapInProgress) {
+      heroDisc.disabled = false;
+      heroDisc.removeAttribute("aria-disabled");
+    }
     if (heroMask) heroMask.playbackRate = 1.0;
     if (statsMode) statsMode.textContent = modeLabel(getMode());
     updateStatsServer();
@@ -2038,8 +2051,27 @@ initTray({
   onServerSelected: (tag) => syncEffectiveFromClash({ knownTag: tag }),
 });
 
-async function handleConnectionIntent() {
-  if (heroDisc.disabled) return;
+function runtimeSnapshotMatchesExpected(snapshot, source = activeDisplaySource()) {
+  const options = loadOptions();
+  const killSwitchExpected = !!options.general?.killSwitch && getMode() !== "tun";
+  return !!snapshot?.running
+    && snapshot.clashReady === true
+    && snapshot.sourceFingerprint === sourceFingerprint(source)
+    && snapshot.mode === getMode()
+    && Number(snapshot.clashPort) === Number(options.experimental?.clashApiPort || 9090)
+    && (getMode() !== "systemProxy" || snapshot.systemProxyOwnership === "owned")
+    && (!killSwitchExpected || snapshot.killSwitchActive === true);
+}
+
+function adoptRuntimeSnapshot(snapshot, source = activeDisplaySource()) {
+  if (!snapshot?.running) return false;
+  runtimeIdentity.adopt(snapshot, { source });
+  setState("connected", { ping: null });
+  return true;
+}
+
+async function performConnectionIntent() {
+  if (heroDisc.disabled && !networkBootstrapInProgress) return;
   // Во время source-reconnect state кратко становится idle, но старый IPC-start
   // ещё может завершаться. Ручной клик в этом окне не должен создать второй start.
   if (autoReconnectInFlight && state === "idle") return;
@@ -2058,10 +2090,27 @@ async function handleConnectionIntent() {
     needsReconnect = false;
     applyReconnectUI();
     // мгновенно стартуем заново
-    await handleConnectionIntent();
+    await performConnectionIntent();
     return;
   }
   if (state === "idle") {
+    // Fail-safe against startup reconcile/autoconnect races: idle UI does not
+    // imply an idle backend. A running snapshot means this click is a user
+    // disconnect intent, never a second start_singbox.
+    let observed;
+    try {
+      observed = await invoke("runtime_snapshot");
+    } catch (e) {
+      console.warn("runtime snapshot before start failed", e);
+      setState("cleanup_error");
+      return;
+    }
+    if (observed?.running) {
+      if (runtimeSnapshotMatchesExpected(observed)) adoptRuntimeSnapshot(observed);
+      await shutdownCore();
+      toast(t("conn.disconnected"), "info", 2000, { group: "conn", desc: t("conn.disconnectedDesc") });
+      return;
+    }
     const src = getActiveSource();
     const options = loadOptions();
     const warpOnly = !src && warpOnlyEnabled();
@@ -2208,7 +2257,27 @@ async function handleConnectionIntent() {
   }
 }
 
-heroDisc?.addEventListener("click", handleConnectionIntent);
+let connectionIntentInFlight = null;
+async function handleConnectionIntent({ internal = false } = {}) {
+  if (!internal && networkBootstrapInProgress) return;
+  if (connectionIntentInFlight) {
+    if (internal) return connectionIntentInFlight;
+    // Второй быстрый клик отменяет текущий connect, но не создаёт второй
+    // start_singbox. shutdownCore переводит UI в честный idle после cleanup.
+    connectAttempts.cancel();
+    if (state === "connecting") await shutdownCore();
+    return connectionIntentInFlight;
+  }
+  const run = performConnectionIntent();
+  connectionIntentInFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (connectionIntentInFlight === run) connectionIntentInFlight = null;
+  }
+}
+
+heroDisc?.addEventListener("click", () => handleConnectionIntent());
 
 // ── Bootstrap ──────────────────────────────────────────────
 if (locPing) locPing.textContent = `— ${t("units.ms")}`;
@@ -2230,59 +2299,38 @@ setSubscriptionProxy(() =>
 setTimeout(backupNow, 15_000);
 setInterval(backupNow, 10 * 60_000);
 
-// При старте app — синхронизируем UI с реальным состоянием sing-box
-(async () => {
+async function reconcileNetworkRuntime() {
   try {
-    // При OTA WebView2 может стартовать с пустым localStorage. Не читаем
-    // активный источник раньше восстановления: иначе resume-флаг уже есть,
-    // а профиль ещё не загружен и VPN остаётся выключенным.
-    if (await restoreStateOnLaunch) return;
-
     const snapshot = await invoke("runtime_snapshot");
     if (!snapshot?.running) return;
     const source = activeDisplaySource();
-    const options = loadOptions();
-    const killSwitchExpected = !!options.general?.killSwitch && getMode() !== "tun";
-    const matches = snapshot.clashReady === true
-      && snapshot.sourceFingerprint === sourceFingerprint(source)
-      && snapshot.mode === getMode()
-      && Number(snapshot.clashPort) === Number(options.experimental?.clashApiPort || 9090)
-      && (getMode() !== "systemProxy" || snapshot.systemProxyOwnership === "owned")
-      && (!killSwitchExpected || snapshot.killSwitchActive === true);
-    if (!matches) {
-      needsReconnect = true;
-      setState("connecting");
-      await shutdownCore();
-      if (hasConnectSource()) {
-        needsReconnect = false;
-        await handleConnectionIntent();
-      }
+    if (runtimeSnapshotMatchesExpected(snapshot, source)) {
+      adoptRuntimeSnapshot(snapshot, source);
       return;
     }
-    runtimeIdentity.adopt(snapshot, { source });
-    setState("connected", { ping: null });
+    // Старый runtime не соответствует текущему источнику/режиму: сначала
+    // подтверждённо гасим его, затем autostart решит, нужен ли новый запуск.
+    if (!(await shutdownCore())) throw new Error("не удалось очистить старый runtime");
   } catch (e) {
     console.warn("startup runtime reconcile failed", e);
-    // Ошибка первичного snapshot не должна оставлять неизвестно живое ядро
-    // без UI/cleanup. Повторяем чтение один раз (например, transient IPC), а
-    // при повторном сбое выполняем контролируемый stop; если его нельзя
-    // подтвердить, оставляем явное cleanup_error вместо тихого idle.
     try {
       const retry = await invoke("runtime_snapshot");
-      if (retry?.running) {
-        console.warn("startup runtime snapshot retry still reports running; stopping runtime");
-      }
+      if (retry?.running) console.warn("startup snapshot retry still running; stopping runtime");
     } catch (retryError) {
       console.warn("startup runtime snapshot retry failed", retryError);
     }
     try {
-      if (!(await shutdownCore())) setState("cleanup_error");
+      const cleaned = await shutdownCore();
+      if (!cleaned) {
+        console.warn("startup runtime cleanup not confirmed");
+        setState("cleanup_error");
+      }
     } catch (cleanupError) {
       console.warn("startup runtime cleanup failed", cleanupError);
       setState("cleanup_error");
     }
   }
-})();
+}
 
 // startMinimized: на ручном запуске скрыть окно если опция включена.
 // (При --autostarted Rust уже скрыл окно в setup() — здесь повтор без вреда.)
@@ -2295,20 +2343,12 @@ setInterval(backupNow, 10 * 60_000);
   } catch {}
 })();
 
-// Авто-запуск после bootstrap: при автостарте через Windows login
+// Авто-запуск после reconcile: при автостарте через Windows login
 // (--autostarted) ИЛИ при перезапуске от админа (--elevated) поднимаем VPN с
 // последним сервером И DPI-обход, если он был включён. Элевация — ОДНИМ
 // перезапуском: TUN-режим и DPI требуют admin-прав; если процесс ещё не
-// elevated и что-то из них нужно — тихо relaunch_elevated (перезапущенный
-// --elevated процесс снова попадёт сюда уже с правами и поднимет всё без UAC).
-// proxy/systemProxy прав не требуют, поэтому в не-TUN элевация только ради DPI.
-(async () => {
-  try {
-    // При OTA WebView2 может стартовать с пустым localStorage. Не читаем
-    // активный источник раньше восстановления: иначе resume-флаг уже есть,
-    // а профиль ещё не загружен и VPN остаётся выключенным.
-    if (await restoreStateOnLaunch) return;
-
+// elevated и что-то из них нужно — тихо relaunch_elevated.
+async function autostartNetworkRuntime() {
     // После OTA-апдейта процесс перезапускается БЕЗ --autostarted/--elevated, и
     // should_autoconnect=false → блок бы не вошёл. update-modal перед установкой
     // пишет, что было поднято (ninety.update.resume = {vpn,dpi}) — по нему
@@ -2347,14 +2387,33 @@ setInterval(backupNow, 10 * 60_000);
       // элевация не удалась — продолжаем тем, что доступно без прав (VPN proxy)
     }
 
-    // VPN: не дёргаем, если ядро уже живо (перезапуск UI) или нет source.
-    const running = await invoke("singbox_running");
-    if (vpnWanted && !running && hasConnectSource()) {
-      await new Promise(r => setTimeout(r, 600)); // дать UI домонтироваться
-      if (state === "idle" && !heroDisc.disabled) await handleConnectionIntent();
+    // Второй snapshot после reconcile — последний fail-safe перед стартом:
+    // никакой frontend idle не является доказательством, что backend idle.
+    let runningSnapshot = await invoke("runtime_snapshot");
+    if (runningSnapshot?.running) {
+      if (runtimeSnapshotMatchesExpected(runningSnapshot)) {
+        adoptRuntimeSnapshot(runningSnapshot);
+      } else if (!(await shutdownCore())) {
+        throw new Error("не удалось очистить runtime перед autostart");
+      }
+      runningSnapshot = null;
     }
-    // DPI: поднять движок, если был включён (мы здесь уже elevated либо UAC отклонён).
-    if (dpiWanted) await autostartDpiIfEnabled();
+    if (vpnWanted && !runningSnapshot?.running && state !== "connected" && hasConnectSource()) {
+      await new Promise(r => setTimeout(r, 600)); // дать UI домонтироваться
+      const beforeStart = await invoke("runtime_snapshot");
+      if (beforeStart?.running) {
+        if (runtimeSnapshotMatchesExpected(beforeStart)) adoptRuntimeSnapshot(beforeStart);
+        else if (!(await shutdownCore())) throw new Error("runtime занято и cleanup не подтверждён");
+      } else if (state === "idle") {
+        await handleConnectionIntent({ internal: true });
+      }
+    }
+    // DPI запускаем только после завершения VPN bootstrap. Endpoint сначала
+    // попадает в managed exclusion, backend всё равно создаёт пустые файлы сам.
+    if (dpiWanted) {
+      await excludeVpnNode(state === "connected" ? activeNodeForDisplay()?.host : null);
+      await autostartDpiIfEnabled();
+    }
     if (resume) {
       const vpnReady = !resume.vpn || state === "connected" || await invoke("singbox_running");
       const dpiReady = !resume.dpi
@@ -2362,10 +2421,43 @@ setInterval(backupNow, 10 * 60_000);
         || (dpiWanted && await invoke("dpi_running"));
       if (resumeRuntimeReady(resume.journal || resume, { vpnReady, dpiReady })) await markUpdateRuntimeReady();
     }
-  } catch (e) {
-    console.warn("autostart failed", e);
-  }
-})();
+}
+
+const bootstrapCoordinator = createBootstrapCoordinator({
+  reconcile: async () => {
+    if (await restoreStateOnLaunch) return;
+    await reconcileNetworkRuntime();
+  },
+  autostart: async () => {
+    if (await restoreStateOnLaunch) return;
+    try {
+      await autostartNetworkRuntime();
+    } catch (e) {
+      console.warn("autostart failed", e);
+      try {
+        const snapshot = await invoke("runtime_snapshot");
+        if (snapshot?.running && !(await shutdownCore())) setState("cleanup_error");
+      } catch (cleanupError) {
+        console.warn("autostart cleanup failed", cleanupError);
+        setState("cleanup_error");
+      }
+    }
+  },
+  setBusy: (busy) => {
+    networkBootstrapInProgress = busy;
+    if (heroDisc) {
+      heroDisc.disabled = busy;
+      heroDisc.toggleAttribute("aria-disabled", busy);
+    }
+    if (!busy) updateHeroHint();
+  },
+});
+
+async function bootstrapNetworkRuntime() {
+  return bootstrapCoordinator.run();
+}
+
+bootstrapNetworkRuntime();
 
 // Синхронизация флага autostart с реальным состоянием Windows (задача
 // Планировщика). Если юзер удалил задачу через Планировщик / Параметры —

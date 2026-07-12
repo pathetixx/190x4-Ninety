@@ -1,7 +1,8 @@
 name: DPI channel (Flowseal sync)
 
-# Reviewed data-channel publisher: an operator supplies the exact upstream tag
-# and reviewed archive SHA-256, then the workflow rebuilds
+# Reviewed data-channel publisher: an operator supplies the exact upstream tag,
+# source preference, and reviewed archive SHA-256, then the workflow rebuilds
+# from immutable GitHub or versioned SourceForge fallback artifacts.
 # strategies.json (gen_strategies.py), collects the lists and .bin payloads,
 # signs the bundle after explicit tag+checksum review and publishes it to the
 # `dpi-channel` prerelease. Ninety pulls this
@@ -22,9 +23,22 @@ on:
         description: "Exact reviewed Flowseal release tag"
         required: true
         type: string
+      upstream_source:
+        description: "Upstream source (auto tries GitHub, then SourceForge)"
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - github
+          - sourceforge
       archive_sha256:
         description: "Reviewed SHA-256 of the upstream release archive"
         required: true
+        type: string
+      service_archive_sha256:
+        description: "SHA-256 of exact-version source archive when release ZIP lacks .service"
+        required: false
         type: string
 
 permissions:
@@ -44,58 +58,149 @@ jobs:
         id: fl
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_SOURCE: ${{ inputs.upstream_source }}
+          REQUESTED_TAG: ${{ inputs.upstream_tag }}
+          ARCHIVE_SHA256: ${{ inputs.archive_sha256 }}
         run: |
           set -euo pipefail
-          tag='${{ inputs.upstream_tag }}'
-          expected='${{ inputs.archive_sha256 }}'
+          tag="$REQUESTED_TAG"
+          requested="$REQUESTED_SOURCE"
+          expected="$ARCHIVE_SHA256"
           [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::invalid upstream tag"; exit 1; }
           [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "::error::archive_sha256 must be 64 hex chars"; exit 1; }
-          obj=$(gh api "repos/Flowseal/zapret-discord-youtube/git/ref/tags/$tag")
-          type=$(jq -r .object.type <<<"$obj")
-          sha=$(jq -r .object.sha <<<"$obj")
-          if [ "$type" = tag ]; then
-            sha=$(gh api "repos/Flowseal/zapret-discord-youtube/git/tags/$sha" --jq .object.sha)
+          [[ "$requested" = auto || "$requested" = github || "$requested" = sourceforge ]] || { echo "::error::invalid upstream_source"; exit 1; }
+
+          source=""
+          sha=""
+          archive_url=""
+          github_ok=false
+          if [ "$requested" != sourceforge ]; then
+            if obj=$(gh api "repos/Flowseal/zapret-discord-youtube/git/ref/tags/$tag" 2>/dev/null); then
+              type=$(jq -r .object.type <<<"$obj")
+              sha=$(jq -r .object.sha <<<"$obj")
+              if [ "$type" = tag ]; then
+                sha=$(gh api "repos/Flowseal/zapret-discord-youtube/git/tags/$sha" --jq .object.sha)
+              fi
+              if [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+                archive_url="https://github.com/Flowseal/zapret-discord-youtube/releases/download/${tag}/zapret-discord-youtube-${tag}.zip"
+                if curl -fsIL --max-time 20 "$archive_url" >/dev/null 2>&1; then github_ok=true; fi
+              fi
+            fi
           fi
-          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::failed to peel upstream tag"; exit 1; }
+          if [ "$github_ok" = true ]; then
+            source=github
+          elif [ "$requested" = github ]; then
+            echo "::error::requested GitHub source is unavailable"; exit 1
+          else
+            source=sourceforge
+            sha=""
+            archive_url="https://sourceforge.net/projects/flowseal.mirror/files/${tag}/zapret-discord-youtube-${tag}.zip/download"
+            curl -fsIL --max-time 20 "$archive_url" >/dev/null 2>&1 || { echo "::error::SourceForge archive is unavailable"; exit 1; }
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "source=$source" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "expected=$expected" >> "$GITHUB_OUTPUT"
-          echo "Flowseal reviewed source = $tag ($sha)"
+          echo "archive_url=$archive_url" >> "$GITHUB_OUTPUT"
+          echo "service_sha=${{ inputs.service_archive_sha256 }}" >> "$GITHUB_OUTPUT"
+          echo "Flowseal reviewed source = $source tag=$tag commit=${sha:-none} archive_sha256=$expected"
 
       - name: Download and unpack the release
         run: |
           set -euo pipefail
-          tag="${{ steps.fl.outputs.tag }}"
-          url="https://github.com/Flowseal/zapret-discord-youtube/releases/download/${tag}/zapret-discord-youtube-${tag}.zip"
-          curl -fsSL -o fl.zip "$url"
+          url="${{ steps.fl.outputs.archive_url }}"
+          curl -fsSL --max-time 120 -o fl.zip "$url"
           echo "${{ steps.fl.outputs.expected }}  fl.zip" | sha256sum --check --strict
+          python3 - fl.zip <<'PY'
+          import sys, zipfile
+          path = sys.argv[1]
+          limit = 200 * 1024 * 1024
+          with zipfile.ZipFile(path) as z:
+              total = 0
+              for info in z.infolist():
+                  name = info.filename.replace('\\', '/')
+                  if name.startswith('/') or name.startswith('../') or '/../' in name or name == '..':
+                      raise SystemExit(f'path traversal in archive: {info.filename}')
+                  total += info.file_size
+                  if total > limit:
+                      raise SystemExit('archive uncompressed size exceeds 200 MiB')
+          PY
           mkdir -p fl && unzip -q fl.zip -d fl
           # .bat files live in the zip root; normalize to the dir with general*.bat
-          d=$(dirname "$(find fl -iname 'general.bat' | head -1)")
+          d=$(dirname "$(find fl -type f -iname 'general.bat' | head -1)")
+          [ -n "$d" ] && [ "$d" != "." ] || { echo "::error::general.bat not found"; exit 1; }
           echo "FL_DIR=$d" >> "$GITHUB_ENV"
+          echo "source=${{ steps.fl.outputs.source }}" >> "$GITHUB_ENV"
+
+      - name: Download exact-version service archive when needed
+        if: ${{ steps.fl.outputs.source == 'sourceforge' || inputs.service_archive_sha256 != '' }}
+        run: |
+          set -euo pipefail
+          service_sha='${{ inputs.service_archive_sha256 }}'
+          if [ -z "$service_sha" ]; then
+            echo "::error::release ZIP lacks guaranteed .service; service_archive_sha256 is required"; exit 1
+          fi
+          [[ "$service_sha" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "::error::invalid service_archive_sha256"; exit 1; }
+          if [ "${{ steps.fl.outputs.source }}" = sourceforge ]; then
+            service_url="https://sourceforge.net/projects/flowseal.mirror/files/${{ steps.fl.outputs.tag }}/${{ steps.fl.outputs.tag }}%20source%20code.zip/download"
+          else
+            service_url="https://github.com/Flowseal/zapret-discord-youtube/archive/${{ steps.fl.outputs.sha }}.zip"
+          fi
+          curl -fsSL --max-time 120 -o service.zip "$service_url"
+          echo "$service_sha  service.zip" | sha256sum --check --strict
+          python3 - service.zip <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              total = 0
+              for info in z.infolist():
+                  name = info.filename.replace('\\', '/')
+                  if name.startswith('/') or name.startswith('../') or '/../' in name or name == '..':
+                      raise SystemExit(f'path traversal in service archive: {info.filename}')
+                  total += info.file_size
+                  if total > 200 * 1024 * 1024:
+                      raise SystemExit('service archive uncompressed size exceeds 200 MiB')
+          PY
+          mkdir -p service-src && unzip -q service.zip -d service-src
+          service_root=$(find service-src -type d -name .service -print -quit)
+          [ -n "$service_root" ] || { echo "::error::.service directory missing from exact-version source archive"; exit 1; }
+          mkdir -p fl/.service
+          cp "$service_root/hosts" fl/.service/hosts
+          cp "$service_root/ipset-service.txt" fl/.service/ipset-service.txt
 
       - name: Assemble the channel bundle (data only)
         run: |
           set -euo pipefail
           mkdir -p bundle/lists bundle/bin bundle/service
           python3 src-tauri/dpi/gen_strategies.py "$FL_DIR" bundle/strategies.json
+          test -s bundle/strategies.json
+          test -d "$FL_DIR/lists" || { echo "::error::lists directory missing"; exit 1; }
+          test -d "$FL_DIR/bin" || { echo "::error::bin directory missing"; exit 1; }
           # base lists only (user lists live on the client, we don't ship them)
           for f in list-general.txt list-google.txt list-exclude.txt ipset-exclude.txt; do
-            [ -f "$FL_DIR/lists/$f" ] && cp "$FL_DIR/lists/$f" "bundle/lists/$f" || true
+            [ -f "$FL_DIR/lists/$f" ] || { echo "::error::missing lists/$f"; exit 1; }
+            cp "$FL_DIR/lists/$f" "bundle/lists/$f"
           done
           # strategy .bin payloads (inert data, version-coupled with strategies.json)
-          cp "$FL_DIR"/bin/*.bin bundle/bin/ 2>/dev/null || true
-          # signed service data: hosts pin + ipset base (pulled by dpi_hosts_apply /
-          # dpi_update_ipset). The release zip does NOT carry .service/, so fetch it
-          # from the repo at the resolved tag. Goes into the signed zip → the system-
-          # hosts / ipset path is verified, not trusted from raw github at runtime.
-          source_sha="${{ steps.fl.outputs.sha }}"
+          find "$FL_DIR/bin" -maxdepth 1 -type f -name '*.bin' -print -quit | grep -q . || { echo "::error::no .bin payloads found"; exit 1; }
+          cp "$FL_DIR"/bin/*.bin bundle/bin/
+          # Service files are taken only from the reviewed release/source archive;
+          # never fetch unsigned raw files during channel assembly or runtime.
           for f in hosts ipset-service.txt; do
-            curl -fsSL -o "bundle/service/$f" \
-              "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/${source_sha}/.service/$f" \
-              || { echo "::error::failed to fetch .service/$f"; exit 1; }
+            [ -f "$FL_DIR/.service/$f" ] || { echo "::error::missing .service/$f (provide exact-version service_archive_sha256)"; exit 1; }
+            cp "$FL_DIR/.service/$f" "bundle/service/$f"
           done
           echo "${{ steps.fl.outputs.tag }}" > bundle/version.txt
+          python3 - <<'PY'
+          import json, os, sys
+          expected = os.environ.get('EXPECTED_TAG', '${{ steps.fl.outputs.tag }}')
+          value = open('bundle/version.txt', encoding='utf-8').read().strip()
+          if value != expected:
+              raise SystemExit(f'version mismatch: {value!r} != {expected!r}')
+          data = json.load(open('bundle/strategies.json', encoding='utf-8'))
+          if not isinstance(data, list) or not data:
+              raise SystemExit('strategies.json is empty')
+          print(f'strategies OK: {len(data)}')
+          PY
 
       - name: Guard — all referenced .bin present
         run: |
@@ -156,7 +261,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          notes="flowseal=${{ steps.fl.outputs.tag }} source=${{ steps.fl.outputs.sha }} upstream_sha256=${{ steps.fl.outputs.expected }} sha256=${{ steps.pack.outputs.sha }}"
+          notes="flowseal=${{ steps.fl.outputs.tag }} source=${{ steps.fl.outputs.source }} upstream_commit=${{ steps.fl.outputs.sha || 'none' }} upstream_sha256=${{ steps.fl.outputs.expected }} service_upstream_sha256=${{ steps.fl.outputs.service_sha || 'none' }} sha256=${{ steps.pack.outputs.sha }}"
           if gh release view dpi-channel >/dev/null 2>&1; then
             gh release edit dpi-channel --prerelease --notes "$notes"
           else

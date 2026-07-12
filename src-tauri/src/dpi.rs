@@ -357,6 +357,21 @@ fn subst(arg: &str, bin: &str, lists: &str, g_tcp: &str, g_udp: &str) -> String 
         .replace("%GameFilter%", g_tcp)
 }
 
+fn active_vpn_exclusion_args(lists: &Path) -> [String; 2] {
+    let active_domain = lists.join("active-vpn-domain.txt");
+    let active_ip = lists.join("active-vpn-ip.txt");
+    [
+        format!(
+            "--hostlist-exclude={}",
+            strip_verbatim(&active_domain.to_string_lossy())
+        ),
+        format!(
+            "--ipset-exclude={}",
+            strip_verbatim(&active_ip.to_string_lossy())
+        ),
+    ]
+}
+
 // Абсолютный путь к утилите в System32. Не полагаемся на PATH: DPI-команды
 // исполняются в elevated-процессе, где PATH-hijack (подсунутый taskkill.exe/sc.exe
 // в каталоге раньше System32) выполнялся бы с правами администратора. SystemRoot —
@@ -604,11 +619,7 @@ pub async fn dpi_start(
         .collect();
     // Активный VPN endpoint — отдельные managed-файлы: смена ноды заменяет
     // значение, не накапливает старые адреса и не трогает user exclusions.
-    args.push(format!(
-        "--hostlist-exclude={}active-vpn-domain.txt",
-        lists_s
-    ));
-    args.push(format!("--ipset-exclude={}active-vpn-ip.txt", lists_s));
+    args.extend(active_vpn_exclusion_args(&lists));
 
     if !dpi_operation_current(&state, generation) {
         return Err("DPI start отменён".into());
@@ -1956,6 +1967,24 @@ mod tests {
             "--wf-udp=443"
         );
         assert_eq!(subst("%GameFilter%", "B", "L", "80", "443"), "80");
+    }
+
+    #[test]
+    fn active_vpn_exclusion_paths_are_joined_as_single_arguments() {
+        let lists = PathBuf::from("C:\\Ninety Data\\Данные\\lists");
+        let args = active_vpn_exclusion_args(&lists);
+        assert!(!args[0].contains("listsactive-vpn"));
+        assert!(!args[1].contains("listsactive-vpn"));
+        assert!(args[1].ends_with(&format!("lists{MAIN_SEPARATOR}active-vpn-ip.txt")));
+        assert!(args[0].contains("Ninety Data"));
+        assert!(args[0].contains("Данные"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn active_vpn_exclusion_paths_use_windows_separator() {
+        let args = active_vpn_exclusion_args(Path::new(r"C:\Ninety Data\dpi\lists"));
+        assert!(args[1].ends_with(r"lists\active-vpn-ip.txt"));
     }
 
     #[test]
