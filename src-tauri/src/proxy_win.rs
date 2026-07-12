@@ -678,7 +678,7 @@ mod tests {
         let cmd = create_task_cmdline(r"C:\Program Files\Найнти\Ninety.exe");
         assert_eq!(
             cmd,
-            r#"/create /tn Ninety /tr \"C:\Program Files\Найнти\Ninety.exe\" --autostarted --elevated /sc onlogon /rl highest /f"#
+            r#"/create /tn Ninety /tr "\"C:\Program Files\Найнти\Ninety.exe\" --autostarted --elevated" /sc onlogon /rl highest /f"#
         );
     }
 
