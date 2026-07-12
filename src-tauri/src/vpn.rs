@@ -222,6 +222,9 @@ pub struct SingboxState {
     // дерущихся за порты.
     starting: AtomicBool,
     process_generation: AtomicU64,
+    // stop инкрементит поколение до kill: уже выполняющийся start после
+    // ближайшего await не имеет права поднять новый child поверх disconnect.
+    start_epoch: AtomicU64,
     runtime: Mutex<Option<RuntimeRecord>>,
     runtime_ports: Mutex<Vec<u16>>,
     live_processes: Arc<AtomicU64>,
@@ -249,6 +252,7 @@ impl Default for SingboxState {
             sidecar_died: Arc::new(Mutex::new(None)),
             starting: AtomicBool::new(false),
             process_generation: AtomicU64::new(0),
+            start_epoch: AtomicU64::new(0),
             runtime: Mutex::new(None),
             runtime_ports: Mutex::new(Vec::new()),
             live_processes: Arc::new(AtomicU64::new(0)),
@@ -425,6 +429,7 @@ async fn spawn_xray(
     state: &SingboxState,
     xray_json: &str,
     logs_disabled: bool,
+    start_epoch: u64,
 ) -> Result<(), String> {
     let path = xray_config_path(app)?;
     std::fs::write(&path, xray_json).map_err(|e| format!("write xray config: {e}"))?;
@@ -460,7 +465,7 @@ async fn spawn_xray(
 
     // Дать xray подняться и забиндить socks-инбаунды до старта sing-box,
     // иначе первые urltest'ы xhttp-нод словят connection refused.
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    wait_start_delay(state, start_epoch, std::time::Duration::from_millis(400)).await?;
 
     // Fail-fast: умер в settle-паузе (битый конфиг, занятый порт) → фейлим старт
     // с причиной. Раньше старт «удавался», а health-watchdog через 5с находил
@@ -479,6 +484,7 @@ async fn spawn_sidecars(
     state: &SingboxState,
     specs: &[SidecarSpec],
     logs_disabled: bool,
+    start_epoch: u64,
 ) -> Result<(), String> {
     let cfg_dir = app
         .path()
@@ -567,7 +573,7 @@ async fn spawn_sidecars(
     if !specs.is_empty() {
         // Дать клиентам забиндить SOCKS до старта sing-box (handshake к endpoint'у
         // у TrustTunnel небыстрый), иначе первые urltest'ы словят refused.
-        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        wait_start_delay(state, start_epoch, std::time::Duration::from_millis(1200)).await?;
 
         // Fail-fast: клиент умер в settle-паузе → фейлим старт с причиной
         // (см. spawn_xray — иначе health-watchdog зациклился бы на реконнектах).
@@ -827,9 +833,10 @@ fn runtime_ports_from_config(raw: &str) -> Result<(u16, Vec<u16>), String> {
     Ok((clash, ports))
 }
 
-async fn wait_clash_ready(port: u16) -> Result<(), String> {
+async fn wait_clash_ready(port: u16, state: &SingboxState, start_epoch: u64) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
+        ensure_start_current(state, start_epoch)?;
         match crate::clash::clash_get_proxies(port).await {
             Ok(_) => return Ok(()),
             Err(e) if tokio::time::Instant::now() >= deadline => {
@@ -840,26 +847,34 @@ async fn wait_clash_ready(port: u16) -> Result<(), String> {
     }
 }
 
-async fn wait_ports_released(ports: &[u16]) -> bool {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+// После kill подтверждаем оба условия ОДНИМ коротким барьером. Раньше два
+// независимых 5-секундных ожидания шли последовательно, а при отмене start в
+// полёте stop вызывался дважды — защитные дедлайны складывались почти в 30 с.
+async fn wait_runtime_released(state: &SingboxState, ports: &[u16]) -> (bool, bool) {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
-        let mut occupied = false;
+        let processes_exited = state.live_processes.load(Ordering::SeqCst) == 0;
+        let mut ports_released = true;
         for port in ports {
             if tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, *port))
                 .await
                 .is_ok()
             {
-                occupied = true;
+                ports_released = false;
                 break;
             }
         }
-        if !occupied {
-            return true;
+        if processes_exited && ports_released {
+            return (true, true);
         }
         if tokio::time::Instant::now() >= deadline {
-            return false;
+            return (processes_exited, ports_released);
         }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let notified = state.process_exit_notify.notified();
+        tokio::select! {
+            _ = notified => {}
+            _ = tokio::time::sleep(std::time::Duration::from_millis(25)) => {}
+        }
     }
 }
 
@@ -905,6 +920,7 @@ pub async fn start_singbox(
         return Err("запуск уже идёт".into());
     }
     let _starting = StartingGuard(&state.starting);
+    let start_epoch = state.start_epoch.fetch_add(1, Ordering::SeqCst) + 1;
     {
         let child = state.child.lock_recover();
         if child.is_some() || state.xray_child.lock_recover().is_some() {
@@ -929,19 +945,21 @@ pub async fn start_singbox(
     // Two-core: если в конфиге есть xhttp-ноды, поднимаем xray ДО sing-box
     // (в любом режиме). При ошибке спавна — не стартуем VPN вовсе.
     if let Some(xj) = xray_json.as_ref().filter(|s| !s.trim().is_empty()) {
-        if let Err(e) = spawn_xray(&app, &state, xj, logs_disabled).await {
+        if let Err(e) = spawn_xray(&app, &state, xj, logs_disabled, start_epoch).await {
             kill_xray(&state);
             return Err(e);
         }
+        ensure_start_current(&state, start_epoch)?;
     }
 
     // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
     if let Some(specs) = sidecar_specs.as_ref() {
-        if let Err(e) = spawn_sidecars(&app, &state, specs, logs_disabled).await {
+        if let Err(e) = spawn_sidecars(&app, &state, specs, logs_disabled, start_epoch).await {
             kill_xray(&state);
             kill_sidecars(&state);
             return Err(e);
         }
+        ensure_start_current(&state, start_epoch)?;
     }
 
     // Режим (proxy/systemProxy/tun) больше не влияет на запуск ядра в Rust:
@@ -954,7 +972,8 @@ pub async fn start_singbox(
     // оставлял бы xray/naive/TT сиротами при фейле записи конфига или спавна
     // sing-box (креды в их конфигах на диске, занятые порты, а guard
     // xray_child.is_some() блокировал бы следующий старт до явного stop).
-    if let Err(e) = spawn_singbox_core(&app, &state, &config_json, logs_disabled).await {
+    if let Err(e) = spawn_singbox_core(&app, &state, &config_json, logs_disabled, start_epoch).await
+    {
         // kill по уже мёртвому child безвреден (Err игнорируем).
         if let Some(child) = state.child.lock_recover().take() {
             let _ = child.kill();
@@ -963,8 +982,9 @@ pub async fn start_singbox(
         kill_sidecars(&state);
         return Err(e);
     }
+    ensure_start_current(&state, start_epoch)?;
 
-    if let Err(e) = wait_clash_ready(clash_port).await {
+    if let Err(e) = wait_clash_ready(clash_port, &state, start_epoch).await {
         if let Some(child) = state.child.lock_recover().take() {
             let _ = child.kill();
         }
@@ -992,6 +1012,7 @@ async fn spawn_singbox_core(
     state: &SingboxState,
     config_json: &str,
     logs_disabled: bool,
+    start_epoch: u64,
 ) -> Result<(), String> {
     let path = config_path(app)?;
     std::fs::write(&path, config_json).map_err(|e| format!("write config: {e}"))?;
@@ -1023,7 +1044,7 @@ async fn spawn_singbox_core(
     );
 
     // даём sing-box 800мс чтобы упасть с ошибкой парсинга / биндинга
-    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    wait_start_delay(state, start_epoch, std::time::Duration::from_millis(800)).await?;
     if let Some(err) = state.died.lock_recover().take() {
         return Err(err);
     }
@@ -1056,20 +1077,36 @@ fn kill_sidecars(state: &SingboxState) -> bool {
     ok
 }
 
-async fn wait_processes_exited(state: &SingboxState) -> bool {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> {
+    if state.start_epoch.load(Ordering::SeqCst) == epoch {
+        return Ok(());
+    }
+    if let Some(child) = state.child.lock_recover().take() {
+        let _ = child.kill();
+    }
+    kill_xray(state);
+    kill_sidecars(state);
+    *state.runtime_ports.lock_recover() = Vec::new();
+    Err("запуск отменён новым сетевым намерением".into())
+}
+
+async fn wait_start_delay(
+    state: &SingboxState,
+    epoch: u64,
+    duration: std::time::Duration,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + duration;
     loop {
-        if state.live_processes.load(Ordering::SeqCst) == 0 {
-            return true;
+        ensure_start_current(state, epoch)?;
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            return Ok(());
         }
-        if tokio::time::Instant::now() >= deadline {
-            return false;
-        }
-        let notified = state.process_exit_notify.notified();
-        tokio::select! {
-            _ = notified => {}
-            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
-        }
+        tokio::time::sleep(std::cmp::min(
+            deadline - now,
+            std::time::Duration::from_millis(25),
+        ))
+        .await;
     }
 }
 
@@ -1154,6 +1191,9 @@ pub async fn stop_singbox(
     app: AppHandle,
     state: State<'_, SingboxState>,
 ) -> Result<StopResult, String> {
+    // Инвалидируем start ДО снятия child-хэндлов. Если IPC-start находится в
+    // settle/readiness await, он увидит новое поколение и завершится без хвоста.
+    state.start_epoch.fetch_add(1, Ordering::SeqCst);
     let ports = state.runtime_ports.lock_recover().clone();
     let taken = state.child.lock_recover().take();
     let singbox = if let Some(child) = taken {
@@ -1174,8 +1214,7 @@ pub async fn stop_singbox(
     let sidecars_ok = kill_sidecars(&state);
     let proxy_was_owned = proxy::system_proxy_owned();
     let proxy_ok = proxy::set_system_proxy(false, None, None).is_ok();
-    let processes_exited = wait_processes_exited(&state).await;
-    let ports_released = wait_ports_released(&ports).await;
+    let (processes_exited, ports_released) = wait_runtime_released(&state, &ports).await;
     purge_bridge_configs(&app);
     purge_current_configs(&app);
     clear_death_flags(&state);
@@ -1632,5 +1671,14 @@ mod tests {
         let (clash, ports) = runtime_ports_from_config(raw).unwrap();
         assert_eq!(clash, 9191);
         assert_eq!(ports, vec![7899, 9191, 31100]);
+    }
+
+    #[test]
+    fn stop_epoch_invalidates_an_in_flight_start() {
+        let state = SingboxState::default();
+        let epoch = state.start_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        assert!(ensure_start_current(&state, epoch).is_ok());
+        state.start_epoch.fetch_add(1, Ordering::SeqCst);
+        assert!(ensure_start_current(&state, epoch).is_err());
     }
 }
