@@ -2,6 +2,15 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.7 — 2026-07-12
+
+- Runtime identity now adopts the backend process generation and rejects stale Clash, traffic, quality, and DPI operations across reconnects.
+- Shutdown waits for explicit child-process exit acknowledgements; startup reconcile and OTA recovery now handle relaunch failures with controlled cleanup.
+- Live Kill Switch changes confirm WFP state and roll back the setting when protection cannot be armed or disarmed.
+- Runtime identity теперь принимает реальное поколение процесса от backend и отбрасывает устаревшие операции Clash, трафика, качества и DPI после реконнектов.
+- Остановка ждёт явного подтверждения завершения child-процессов; startup reconcile и OTA recovery теперь обрабатывают ошибки relaunch через контролируемую очистку.
+- Изменения Kill Switch в активной сессии подтверждают состояние WFP и откатывают настройку, если защиту не удалось включить или снять.
+
 ## v0.2.6 — 2026-07-12
 
 - Hardened Windows proxy, autostart, sidecar logging, and backend read limits for more predictable long-running sessions.
