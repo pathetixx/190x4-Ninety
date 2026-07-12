@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,10 +9,10 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-#[cfg(target_os = "windows")]
-use crate::proxy_win as proxy;
 #[cfg(not(target_os = "windows"))]
 use crate::proxy_stub as proxy;
+#[cfg(target_os = "windows")]
+use crate::proxy_win as proxy;
 
 /// Снимает ANSI-escape (цветовые SGR и прочие CSI) из строки лога движка.
 /// sing-box/xray красят stderr даже в пайп — без этого в .log летят управляющие
@@ -84,12 +84,18 @@ impl MonitorSpec {
 // файл ограниченным: при переполнении обрезаем и продолжаем с маркером. Свежие
 // строки для диагностики краша всё равно живут в in-memory кольце (died_flag).
 const LOG_CAP_BYTES: u64 = 8 * 1024 * 1024;
+const DEFAULT_LOG_TAIL_BYTES: u64 = 128 * 1024;
+const MAX_LOG_TAIL_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_SIDECAR_LOG_FILES: usize = 16;
 
 // Запись строки в лог с учётом капа. Файл открыт в append-режиме, поэтому при
 // переполнении достаточно set_len(0): следующая O_APPEND-запись уйдёт с позиции 0.
 fn write_capped(writer: &mut std::fs::File, written: &mut u64, line: &str) {
     if *written > LOG_CAP_BYTES && writer.set_len(0).is_ok() {
-        let marker = format!("[log truncated at {} MB cap]\n", LOG_CAP_BYTES / 1024 / 1024);
+        let marker = format!(
+            "[log truncated at {} MB cap]\n",
+            LOG_CAP_BYTES / 1024 / 1024
+        );
         let _ = writer.write_all(marker.as_bytes());
         *written = marker.len() as u64;
     }
@@ -114,7 +120,11 @@ fn spawn_log_monitor(
             if std::fs::metadata(p).map(|m| m.len()).unwrap_or(0) > LOG_CAP_BYTES {
                 let _ = std::fs::write(p, b"");
             }
-            std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+                .ok()
         });
         let mut written: u64 = writer
             .as_ref()
@@ -233,6 +243,86 @@ struct SidecarSpec {
     config: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SidecarLogKind {
+    Naive,
+    TrustTunnel,
+}
+
+impl SidecarLogKind {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "naive" => Some(Self::Naive),
+            "trusttunnel" => Some(Self::TrustTunnel),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Naive => "naive",
+            Self::TrustTunnel => "trusttunnel",
+        }
+    }
+}
+
+fn sidecar_log_name(kind: SidecarLogKind, port: u16) -> String {
+    format!("{}-{port}.log", kind.as_str())
+}
+
+fn sidecar_log_port(name: &str, kind: SidecarLogKind) -> Option<u16> {
+    let port = name
+        .strip_prefix(&format!("{}-", kind.as_str()))?
+        .strip_suffix(".log")?;
+    if port.is_empty() || !port.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    port.parse().ok()
+}
+
+fn is_sidecar_log_name(name: &str, kind: SidecarLogKind) -> bool {
+    name == format!("{}.log", kind.as_str()) || sidecar_log_port(name, kind).is_some()
+}
+
+fn sidecar_log_entries(dir: &std::path::Path, kind: SidecarLogKind) -> Vec<std::fs::DirEntry> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| {
+            entry.file_type().map(|t| t.is_file()).unwrap_or(false)
+                && is_sidecar_log_name(&entry.file_name().to_string_lossy(), kind)
+        })
+        .collect()
+}
+
+fn prune_sidecar_logs(dir: &std::path::Path, kind: SidecarLogKind, protected: &HashSet<String>) {
+    let mut entries = sidecar_log_entries(dir, kind);
+    if entries.len().saturating_add(protected.len()) <= MAX_SIDECAR_LOG_FILES {
+        return;
+    }
+    entries.sort_by_key(|entry| {
+        entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    });
+    let keep_existing = MAX_SIDECAR_LOG_FILES.saturating_sub(protected.len());
+    let removable = entries
+        .iter()
+        .filter(|entry| !protected.contains(&entry.file_name().to_string_lossy().into_owned()))
+        .count()
+        .saturating_sub(keep_existing);
+    for entry in entries
+        .into_iter()
+        .filter(|entry| !protected.contains(&entry.file_name().to_string_lossy().into_owned()))
+        .take(removable)
+    {
+        let _ = std::fs::remove_file(entry.path());
+    }
+}
+
 // Финальная обработка конфига перед запуском sing-box (в любом режиме):
 //  - инжектим секрет clash-API (см. clash::clash_secret), чтобы 9090 не был
 //    доступен любому локальному процессу без авторизации;
@@ -324,8 +414,17 @@ async fn spawn_xray(
     let died_flag = state.xray_died.clone();
     // logs_disabled (настройка «Полностью отключить логи») → не пишем файл лога;
     // in-memory last для диагностики краша (died_flag) сохраняем.
-    let log_file = if logs_disabled { None } else { xray_log_path(app) };
-    spawn_log_monitor(rx, log_file, died_flag, MonitorSpec::bridge("=== xray start ===", "xray"));
+    let log_file = if logs_disabled {
+        None
+    } else {
+        xray_log_path(app)
+    };
+    spawn_log_monitor(
+        rx,
+        log_file,
+        died_flag,
+        MonitorSpec::bridge("=== xray start ===", "xray"),
+    );
 
     // Дать xray подняться и забиндить socks-инбаунды до старта sing-box,
     // иначе первые urltest'ы xhttp-нод словят connection refused.
@@ -356,10 +455,39 @@ async fn spawn_sidecars(
     std::fs::create_dir_all(&cfg_dir).map_err(|e| format!("mkdir: {e}"))?;
     let log_dir = app.path().app_log_dir().ok();
 
+    let mut planned_logs: HashSet<String> = HashSet::new();
+    for spec in specs {
+        let kind = SidecarLogKind::parse(&spec.kind)
+            .ok_or_else(|| format!("неизвестный sidecar: {}", spec.kind))?;
+        let name = sidecar_log_name(kind, spec.port);
+        if !planned_logs.insert(name) {
+            return Err(format!(
+                "дублирующийся {} sidecar на порту {}",
+                spec.kind, spec.port
+            ));
+        }
+    }
+    for kind in [SidecarLogKind::Naive, SidecarLogKind::TrustTunnel] {
+        let protected: HashSet<String> = planned_logs
+            .iter()
+            .filter(|name| sidecar_log_port(name, kind).is_some())
+            .cloned()
+            .collect();
+        if protected.len() > MAX_SIDECAR_LOG_FILES {
+            return Err(format!(
+                "слишком много {} sidecar: максимум {MAX_SIDECAR_LOG_FILES}",
+                kind.as_str()
+            ));
+        }
+        if let Some(dir) = log_dir.as_ref() {
+            prune_sidecar_logs(dir, kind, &protected);
+        }
+    }
+
     for spec in specs {
         // Имя бинаря (externalBin) + аргументы + расширение конфига по типу.
         let (bin, ext, file_arg) = match spec.kind.as_str() {
-            "naive" => ("naive", "json", false),               // naive.exe <config.json>
+            "naive" => ("naive", "json", false), // naive.exe <config.json>
             "trusttunnel" => ("trusttunnel_client", "toml", true), // --config <toml>
             other => return Err(format!("неизвестный sidecar: {other}")),
         };
@@ -387,7 +515,11 @@ async fn spawn_sidecars(
         let log_file = if logs_disabled {
             None
         } else {
-            log_dir.as_ref().map(|d| d.join(format!("{}.log", spec.kind)))
+            let kind = SidecarLogKind::parse(&spec.kind)
+                .ok_or_else(|| format!("неизвестный sidecar: {}", spec.kind))?;
+            log_dir
+                .as_ref()
+                .map(|d| d.join(sidecar_log_name(kind, spec.port)))
         };
         let label = format!("{} :{}", spec.kind, spec.port);
         spawn_log_monitor(
@@ -426,46 +558,108 @@ pub async fn singbox_log_path(app: AppHandle) -> Result<String, String> {
 
 // Читает хвост файла (последние tail_bytes), отрезая первую обрезанную строку.
 // pub(crate): dpi.rs переиспользует для dpi.log вместо чтения файла целиком.
+fn normalized_log_tail_bytes(tail_bytes: Option<u64>) -> u64 {
+    tail_bytes
+        .unwrap_or(DEFAULT_LOG_TAIL_BYTES)
+        .min(MAX_LOG_TAIL_BYTES)
+}
+
 pub(crate) fn read_tail(path: &std::path::Path, tail_bytes: Option<u64>) -> Result<String, String> {
     if !path.exists() {
         return Ok(String::new());
     }
-    let limit = tail_bytes.unwrap_or(128 * 1024);
+    let limit = normalized_log_tail_bytes(tail_bytes);
+    if limit == 0 {
+        return Ok(String::new());
+    }
     let meta = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?;
     let size = meta.len();
     if size <= limit {
-        return std::fs::read_to_string(path).map_err(|e| format!("read: {e}"));
+        use std::io::Read;
+        let f = std::fs::File::open(path).map_err(|e| format!("open: {e}"))?;
+        let mut bytes = Vec::with_capacity(size.min(limit) as usize);
+        f.take(limit)
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("read_to_end: {e}"))?;
+        return Ok(String::from_utf8_lossy(&bytes).into_owned());
     }
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(path).map_err(|e| format!("open: {e}"))?;
-    f.seek(SeekFrom::End(-(limit as i64))).map_err(|e| format!("seek: {e}"))?;
+    let start = size - limit;
+    f.seek(SeekFrom::Start(start))
+        .map_err(|e| format!("seek: {e}"))?;
     let mut buf = Vec::with_capacity(limit as usize);
-    f.read_to_end(&mut buf).map_err(|e| format!("read_to_end: {e}"))?;
+    f.take(limit)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("read_to_end: {e}"))?;
+    let utf8_skip = buf
+        .iter()
+        .take(3)
+        .take_while(|b| (**b & 0b1100_0000) == 0b1000_0000)
+        .count();
+    let buf = &buf[utf8_skip..];
     let text = String::from_utf8_lossy(&buf).to_string();
     let cut = text.find('\n').map(|i| i + 1).unwrap_or(0);
-    Ok(format!("…[{} bytes truncated above]…\n{}", size - limit, &text[cut..]))
+    Ok(format!(
+        "…[{} bytes truncated above]…\n{}",
+        start + utf8_skip as u64 + cut as u64,
+        &text[cut..]
+    ))
 }
 
-// Файл лога по ключу источника. Все компоненты пишут в app_log_dir.
-fn component_log_file(app: &AppHandle, source: &str) -> Option<PathBuf> {
-    let name = match source {
-        "singbox" => "singbox.log",
-        "xray" => "xray.log",
-        "naive" => "naive.log",
-        "trusttunnel" => "trusttunnel.log",
-        "dpi" => "dpi.log",
-        _ => return None,
+// Файлы лога по ключу источника. Для naive/TrustTunnel возвращается удобный
+// агрегированный список отдельных процессов плюс legacy-файл старых версий.
+fn component_log_files(dir: &std::path::Path, source: &str) -> Result<Vec<PathBuf>, String> {
+    let single = match source {
+        "singbox" => Some("singbox.log"),
+        "xray" => Some("xray.log"),
+        "dpi" => Some("dpi.log"),
+        "naive" | "trusttunnel" => None,
+        _ => return Err(format!("неизвестный источник лога: {source}")),
     };
-    let dir = app.path().app_log_dir().ok()?;
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join(name))
+    if let Some(name) = single {
+        return Ok(vec![dir.join(name)]);
+    }
+    let kind = SidecarLogKind::parse(source)
+        .ok_or_else(|| format!("неизвестный источник лога: {source}"))?;
+    let mut entries = sidecar_log_entries(dir, kind);
+    entries.sort_by_key(|entry| entry.file_name());
+    Ok(entries.into_iter().map(|entry| entry.path()).collect())
+}
+
+fn read_log_files(paths: &[PathBuf], tail_bytes: Option<u64>) -> Result<String, String> {
+    let limit = normalized_log_tail_bytes(tail_bytes);
+    if limit == 0 || paths.is_empty() {
+        return Ok(String::new());
+    }
+    let visible = paths.len().min(MAX_SIDECAR_LOG_FILES);
+    let per_file = (limit / visible as u64).max(1);
+    let mut chunks = Vec::new();
+    for path in paths.iter().take(visible) {
+        let text = read_tail(path, Some(per_file))?;
+        if text.is_empty() {
+            continue;
+        }
+        let label = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("sidecar.log");
+        chunks.push(format!("=== {label} ===\n{text}"));
+    }
+    Ok(chunks.join("\n"))
+}
+
+fn clear_log_files(paths: &[PathBuf]) -> Result<(), String> {
+    for path in paths {
+        if path.exists() {
+            std::fs::write(path, b"").map_err(|e| format!("truncate {}: {e}", path.display()))?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn read_singbox_log(
-    app: AppHandle,
-    tail_bytes: Option<u64>,
-) -> Result<String, String> {
+pub async fn read_singbox_log(app: AppHandle, tail_bytes: Option<u64>) -> Result<String, String> {
     read_tail(&resolved_log_path(&app)?, tail_bytes)
 }
 
@@ -476,9 +670,13 @@ pub async fn read_log(
     source: String,
     tail_bytes: Option<u64>,
 ) -> Result<String, String> {
-    let path = component_log_file(&app, &source)
-        .ok_or_else(|| format!("неизвестный источник лога: {source}"))?;
-    read_tail(&path, tail_bytes)
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| format!("app_log_dir: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
+    let paths = component_log_files(&dir, &source)?;
+    read_log_files(&paths, tail_bytes)
 }
 
 #[tauri::command]
@@ -495,17 +693,21 @@ pub async fn clear_singbox_log(app: AppHandle) -> Result<(), String> {
 // Очистка лога любого компонента.
 #[tauri::command]
 pub async fn clear_log(app: AppHandle, source: String) -> Result<(), String> {
-    let path = component_log_file(&app, &source)
-        .ok_or_else(|| format!("неизвестный источник лога: {source}"))?;
-    if path.exists() {
-        std::fs::write(&path, b"").map_err(|e| format!("truncate: {e}"))?;
-    }
-    Ok(())
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| format!("app_log_dir: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
+    let paths = component_log_files(&dir, &source)?;
+    clear_log_files(&paths)
 }
 
 #[tauri::command]
 pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
-    let dir = app.path().app_log_dir().map_err(|e| format!("app_log_dir: {e}"))?;
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| format!("app_log_dir: {e}"))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     #[cfg(target_os = "windows")]
     {
@@ -641,7 +843,12 @@ async fn spawn_singbox_core(
     // sing-box при logs_disabled и так молчит (log.disabled в конфиге), но гасим
     // и файловый writer — единообразно с остальными движками.
     let log_file = if logs_disabled { None } else { log_path(app) };
-    spawn_log_monitor(rx, log_file, died_flag, MonitorSpec::core("=== sing-box start ===", "sing-box"));
+    spawn_log_monitor(
+        rx,
+        log_file,
+        died_flag,
+        MonitorSpec::core("=== sing-box start ===", "sing-box"),
+    );
 
     // даём sing-box 800мс чтобы упасть с ошибкой парсинга / биндинга
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
@@ -678,8 +885,12 @@ fn kill_sidecars(state: &SingboxState) {
 // singbox-current.json/xray-current.json НЕ трогаем: это норма клиентов, и
 // они перезаписываются при следующем старте.
 fn purge_bridge_configs(app: &AppHandle) {
-    let Ok(dir) = app.path().app_config_dir() else { return };
-    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    let Ok(dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let name = e.file_name();
         let name = name.to_string_lossy();
@@ -699,8 +910,12 @@ fn is_runtime_config_name(name: &str) -> bool {
 }
 
 pub fn purge_stale_runtime_configs(app: &AppHandle) {
-    let Ok(dir) = app.path().app_config_dir() else { return };
-    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    let Ok(dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let name = e.file_name();
         let name = name.to_string_lossy();
@@ -714,7 +929,9 @@ pub fn purge_stale_runtime_configs(app: &AppHandle) {
 // UUID/пароли нод и (при активном WARP) приватный WG-ключ — держать их на диске
 // дольше сессии незачем: следующий старт всё равно перезапишет файлы заново.
 fn purge_current_configs(app: &AppHandle) {
-    let Ok(dir) = app.path().app_config_dir() else { return };
+    let Ok(dir) = app.path().app_config_dir() else {
+        return;
+    };
     for name in ["singbox-current.json", "xray-current.json"] {
         let _ = std::fs::remove_file(dir.join(name));
     }
@@ -915,7 +1132,9 @@ fn find_free_base(start: u16, count: u16, taken: &mut Vec<(u16, u16)>) -> Result
         }
         base += 1;
     }
-    Err(format!("нет свободных портов для мостов (искали от {start})"))
+    Err(format!(
+        "нет свободных портов для мостов (искали от {start})"
+    ))
 }
 
 #[tauri::command]
@@ -924,12 +1143,27 @@ pub async fn plan_bridge_ports(needs: BridgeNeeds) -> Result<BridgePorts, String
     let xray = find_free_base(31100, needs.xray, &mut taken)?;
     let naive = find_free_base(31200, needs.naive, &mut taken)?;
     let trusttunnel = find_free_base(31300, needs.trusttunnel, &mut taken)?;
-    Ok(BridgePorts { xray, naive, trusttunnel })
+    Ok(BridgePorts {
+        xray,
+        naive,
+        trusttunnel,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_dir(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("ninety-vpn-{label}-{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn strip_ansi_removes_sgr() {
@@ -954,6 +1188,131 @@ mod tests {
     #[test]
     fn harden_config_passes_invalid_json_through() {
         assert_eq!(harden_config("not json"), "not json");
+    }
+
+    #[test]
+    fn log_tail_caps_untrusted_requests() {
+        assert_eq!(normalized_log_tail_bytes(None), DEFAULT_LOG_TAIL_BYTES);
+        assert_eq!(normalized_log_tail_bytes(Some(0)), 0);
+        assert_eq!(
+            normalized_log_tail_bytes(Some(u64::MAX)),
+            MAX_LOG_TAIL_BYTES
+        );
+    }
+
+    #[test]
+    fn log_tail_handles_small_large_empty_and_missing_files() {
+        let dir = test_dir("tail");
+        let small = dir.join("small.log");
+        std::fs::write(&small, b"alpha\nbeta\n").unwrap();
+        assert_eq!(read_tail(&small, Some(128)).unwrap(), "alpha\nbeta\n");
+
+        let large = dir.join("large.log");
+        std::fs::write(&large, b"old line\nnew line one\nnew line two\n").unwrap();
+        let tail = read_tail(&large, Some(20)).unwrap();
+        assert!(tail.contains("bytes truncated above"));
+        assert!(tail.ends_with("new line two\n"));
+
+        let empty = dir.join("empty.log");
+        std::fs::write(&empty, b"").unwrap();
+        assert_eq!(read_tail(&empty, None).unwrap(), "");
+        assert_eq!(read_tail(&dir.join("missing.log"), None).unwrap(), "");
+        assert_eq!(read_tail(&small, Some(0)).unwrap(), "");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn log_tail_handles_no_newline_and_utf8_boundary() {
+        let dir = test_dir("utf8");
+        let plain = dir.join("plain.log");
+        std::fs::write(&plain, b"abcdefghijklmnop").unwrap();
+        let tail = read_tail(&plain, Some(5)).unwrap();
+        assert!(tail.ends_with("lmnop"));
+
+        let unicode = dir.join("unicode.log");
+        std::fs::write(&unicode, "aaaa€tail".as_bytes()).unwrap();
+        let tail = read_tail(&unicode, Some(6)).unwrap();
+        assert!(tail.ends_with("tail"));
+        assert!(!tail.contains('\u{fffd}'));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn sidecar_log_names_are_unique_and_strict() {
+        assert_eq!(
+            sidecar_log_name(SidecarLogKind::Naive, 31201),
+            "naive-31201.log"
+        );
+        assert_ne!(
+            sidecar_log_name(SidecarLogKind::Naive, 31201),
+            sidecar_log_name(SidecarLogKind::Naive, 31202)
+        );
+        assert_ne!(
+            sidecar_log_name(SidecarLogKind::Naive, 31201),
+            sidecar_log_name(SidecarLogKind::TrustTunnel, 31201)
+        );
+        assert_eq!(SidecarLogKind::parse("../naive"), None);
+        assert_eq!(
+            sidecar_log_port("naive-31201.log", SidecarLogKind::Naive),
+            Some(31201)
+        );
+        assert_eq!(
+            sidecar_log_port("naive-70000.log", SidecarLogKind::Naive),
+            None
+        );
+        assert_eq!(
+            sidecar_log_port("naive-../../secret.log", SidecarLogKind::Naive),
+            None
+        );
+    }
+
+    #[test]
+    fn sidecar_log_listing_and_clear_are_component_scoped() {
+        let dir = test_dir("sidecars");
+        for name in [
+            "naive.log",
+            "naive-31201.log",
+            "naive-31202.log",
+            "trusttunnel-31301.log",
+            "naive-invalid.log",
+        ] {
+            std::fs::write(dir.join(name), name.as_bytes()).unwrap();
+        }
+        let paths = component_log_files(&dir, "naive").unwrap();
+        assert_eq!(paths.len(), 3);
+        assert!(component_log_files(&dir, "../naive").is_err());
+        clear_log_files(&paths).unwrap();
+        assert!(paths
+            .iter()
+            .all(|path| std::fs::metadata(path).unwrap().len() == 0));
+        assert!(
+            std::fs::metadata(dir.join("trusttunnel-31301.log"))
+                .unwrap()
+                .len()
+                > 0
+        );
+        assert!(
+            std::fs::metadata(dir.join("naive-invalid.log"))
+                .unwrap()
+                .len()
+                > 0
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn stale_sidecar_log_count_is_bounded() {
+        let dir = test_dir("prune");
+        for port in 31000..31020 {
+            std::fs::write(
+                dir.join(sidecar_log_name(SidecarLogKind::Naive, port)),
+                b"log",
+            )
+            .unwrap();
+        }
+        prune_sidecar_logs(&dir, SidecarLogKind::Naive, &HashSet::new());
+        assert!(sidecar_log_entries(&dir, SidecarLogKind::Naive).len() <= MAX_SIDECAR_LOG_FILES);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
