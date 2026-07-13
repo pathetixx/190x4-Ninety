@@ -2,6 +2,13 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.15 — 2026-07-13
+
+- Windows shutdown now verifies terminated engine PIDs directly instead of waiting for delayed log-monitor events, preventing false cleanup failures during disconnect, profile switching, and OTA installation.
+- Runtime port release is checked with an immediate bind probe instead of an unbounded TCP connection, eliminating 15–30 second stalls; late termination events from an old runtime can no longer poison the next reconnect, and failed cleanup reports the exact remaining ports and pending events.
+- Остановка в Windows теперь проверяет завершение PID сетевых движков напрямую, а не ждёт запаздывающих событий монитора логов — это устраняет ложные ошибки очистки при отключении, смене профиля и установке OTA.
+- Освобождение runtime-портов теперь проверяется мгновенной bind-пробой вместо неограниченного TCP-подключения, поэтому зависания на 15–30 секунд исключены; поздние события старого runtime больше не ломают следующий реконнект, а при реальной ошибке диагностика показывает оставшиеся порты и ожидающие события.
+
 ## v0.2.14 — 2026-07-13
 
 - Windows shutdown now verifies terminated engine PIDs directly instead of waiting for delayed log-monitor events, preventing false cleanup failures during disconnect, profile switching, and OTA installation.
