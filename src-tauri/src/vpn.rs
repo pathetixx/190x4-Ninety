@@ -79,6 +79,11 @@ impl MonitorSpec {
     }
 }
 
+struct MonitorGeneration {
+    current: Arc<AtomicU64>,
+    value: u64,
+}
+
 // Кап размера одного лог-файла движка. Логи sing-box/xray при уровне info и
 // активном трафике (особенно при DNS-retry-шторме: каждая неудачная резолюция —
 // строка) разрастались до сотен МБ (наблюдали singbox.log на 518 МБ). Кап держит
@@ -114,8 +119,7 @@ fn spawn_log_monitor(
     died_flag: Arc<Mutex<Option<String>>>,
     live_processes: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
-    current_generation: Arc<AtomicU64>,
-    monitor_generation: u64,
+    generation: MonitorGeneration,
     spec: MonitorSpec,
 ) {
     live_processes.fetch_add(1, Ordering::SeqCst);
@@ -186,7 +190,7 @@ fn spawn_log_monitor(
                     // Terminated старого комплекта может прийти уже после
                     // быстрого stop и старта нового. Не позволяем запоздалому
                     // событию пометить новое ядро умершим.
-                    if current_generation.load(Ordering::SeqCst) == monitor_generation {
+                    if generation.current.load(Ordering::SeqCst) == generation.value {
                         *died_flag.lock_recover() = Some(msg);
                     }
                     live_processes.fetch_sub(1, Ordering::SeqCst);
@@ -468,8 +472,10 @@ async fn spawn_xray(
         died_flag,
         state.live_processes.clone(),
         state.process_exit_notify.clone(),
-        state.process_generation.clone(),
-        process_generation,
+        MonitorGeneration {
+            current: state.process_generation.clone(),
+            value: process_generation,
+        },
         MonitorSpec::bridge("=== xray start ===", "xray"),
     );
 
@@ -577,8 +583,10 @@ async fn spawn_sidecars(
             died_flag,
             state.live_processes.clone(),
             state.process_exit_notify.clone(),
-            state.process_generation.clone(),
-            process_generation,
+            MonitorGeneration {
+                current: state.process_generation.clone(),
+                value: process_generation,
+            },
             MonitorSpec::bridge(format!("=== {label} start ==="), label.clone()),
         );
     }
@@ -1122,8 +1130,10 @@ async fn spawn_singbox_core(
         died_flag,
         state.live_processes.clone(),
         state.process_exit_notify.clone(),
-        state.process_generation.clone(),
-        process_generation,
+        MonitorGeneration {
+            current: state.process_generation.clone(),
+            value: process_generation,
+        },
         MonitorSpec::core("=== sing-box start ===", "sing-box"),
     );
 
