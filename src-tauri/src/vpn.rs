@@ -1410,12 +1410,9 @@ pub async fn stop_singbox(
     }
     let xray_child = state.xray_child.lock_recover().take();
     let had_xray = xray_child.is_some();
-    match xray_child {
-        Some(child) => {
-            killed_pids.push(child.pid());
-            let _ = child.kill();
-        }
-        None => {}
+    if let Some(child) = xray_child {
+        killed_pids.push(child.pid());
+        let _ = child.kill();
     }
     let sidecar_children: Vec<_> = state.sidecars.lock_recover().drain(..).collect();
     let had_sidecars = !sidecar_children.is_empty();
