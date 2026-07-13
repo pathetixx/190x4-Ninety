@@ -367,6 +367,8 @@ export const en = {
     notifyDisconnectedBody: "Tunnel closed",
     startFail: "Couldn't start",
     startFailDesc: "Opening logs — sing-box didn't start",
+    cleanupFail: "Couldn't disconnect",
+    cleanupFailDesc: "Network component cleanup could not be confirmed",
     needSource: "Import a config or subscription first",
     warpUnreg: "WARP is on but not registered — Settings → WARP → “Register”",
     serverSwitched: "Server switched",

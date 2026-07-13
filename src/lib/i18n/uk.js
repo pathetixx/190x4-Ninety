@@ -367,6 +367,8 @@ export const uk = {
     notifyDisconnectedBody: "Тунель закрито",
     startFail: "Не вдалося запустити",
     startFailDesc: "Відкриваю журнал — sing-box не стартував",
+    cleanupFail: "Не вдалося відключити",
+    cleanupFailDesc: "Очищення мережевих компонентів не підтверджено",
     needSource: "Спочатку імпортуйте конфіг або підписку",
     warpUnreg: "WARP увімкнено, але не зареєстровано — Settings → WARP → «Зареєструвати»",
     serverSwitched: "Сервер перемкнено",

@@ -367,6 +367,8 @@ export const fa = {
     notifyDisconnectedBody: "تونل بسته شد",
     startFail: "راه‌اندازی نشد",
     startFailDesc: "در حال باز کردن گزارش‌ها — sing-box راه‌اندازی نشد",
+    cleanupFail: "قطع اتصال انجام نشد",
+    cleanupFailDesc: "پاک‌سازی اجزای شبکه تأیید نشد",
     needSource: "ابتدا یک پیکربندی یا اشتراک وارد کنید",
     warpUnreg: "WARP روشن است اما ثبت نشده — Settings → WARP → «ثبت»",
     serverSwitched: "سرور تغییر کرد",

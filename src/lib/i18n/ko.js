@@ -367,6 +367,8 @@ export const ko = {
     notifyDisconnectedBody: "터널이 닫혔습니다",
     startFail: "시작할 수 없습니다",
     startFailDesc: "로그를 여는 중 — sing-box가 시작되지 않았습니다",
+    cleanupFail: "연결을 해제하지 못했습니다",
+    cleanupFailDesc: "네트워크 구성 요소 정리를 확인하지 못했습니다",
     needSource: "먼저 설정 또는 구독을 가져오세요",
     warpUnreg: "WARP가 켜져 있지만 등록되지 않았습니다 — 설정 → WARP → 「등록」",
     serverSwitched: "서버를 전환했습니다",

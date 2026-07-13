@@ -367,6 +367,8 @@ export const pt = {
     notifyDisconnectedBody: "Túnel fechado",
     startFail: "Não foi possível iniciar",
     startFailDesc: "A abrir os registos — o sing-box não arrancou",
+    cleanupFail: "Falha ao desligar",
+    cleanupFailDesc: "Não foi possível confirmar a limpeza dos componentes de rede",
     needSource: "Importe primeiro uma config ou subscrição",
     warpUnreg: "O WARP está ativo mas não registado — Definições → WARP → «Registar»",
     serverSwitched: "Servidor trocado",

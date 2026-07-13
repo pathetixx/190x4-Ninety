@@ -367,6 +367,8 @@ export const ja = {
     notifyDisconnectedBody: "トンネルを閉じました",
     startFail: "起動できませんでした",
     startFailDesc: "ログを開いています — sing-box が起動しませんでした",
+    cleanupFail: "切断できませんでした",
+    cleanupFailDesc: "ネットワークコンポーネントの終了を確認できませんでした",
     needSource: "先に設定またはサブスクリプションをインポートしてください",
     warpUnreg: "WARP はオンですが未登録です — 設定 → WARP →「登録」",
     serverSwitched: "サーバーを切り替えました",

@@ -1184,6 +1184,16 @@ pub struct StopResult {
     ports_released: bool,
     processes_exited: bool,
     system_proxy: &'static str,
+    timings: StopTimings,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StopTimings {
+    kill_ms: u64,
+    proxy_ms: u64,
+    confirm_ms: u64,
+    total_ms: u64,
 }
 
 #[tauri::command]
@@ -1191,6 +1201,7 @@ pub async fn stop_singbox(
     app: AppHandle,
     state: State<'_, SingboxState>,
 ) -> Result<StopResult, String> {
+    let started_at = std::time::Instant::now();
     // Инвалидируем start ДО снятия child-хэндлов. Если IPC-start находится в
     // settle/readiness await, он увидит новое поколение и завершится без хвоста.
     state.start_epoch.fetch_add(1, Ordering::SeqCst);
@@ -1212,9 +1223,12 @@ pub async fn stop_singbox(
     let xray_ok = kill_xray(&state);
     let had_sidecars = !state.sidecars.lock_recover().is_empty();
     let sidecars_ok = kill_sidecars(&state);
+    let killed_at = std::time::Instant::now();
     let proxy_was_owned = proxy::system_proxy_owned();
     let proxy_ok = proxy::set_system_proxy(false, None, None).is_ok();
+    let proxy_done_at = std::time::Instant::now();
     let (processes_exited, ports_released) = wait_runtime_released(&state, &ports).await;
+    let confirmed_at = std::time::Instant::now();
     purge_bridge_configs(&app);
     purge_current_configs(&app);
     clear_death_flags(&state);
@@ -1244,6 +1258,12 @@ pub async fn stop_singbox(
             "restored"
         } else {
             "failed"
+        },
+        timings: StopTimings {
+            kill_ms: killed_at.duration_since(started_at).as_millis() as u64,
+            proxy_ms: proxy_done_at.duration_since(killed_at).as_millis() as u64,
+            confirm_ms: confirmed_at.duration_since(proxy_done_at).as_millis() as u64,
+            total_ms: started_at.elapsed().as_millis() as u64,
         },
     })
 }

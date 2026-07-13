@@ -367,6 +367,8 @@ export const tr = {
     notifyDisconnectedBody: "Tünel kapandı",
     startFail: "Başlatılamadı",
     startFailDesc: "Günlükler açılıyor — sing-box başlamadı",
+    cleanupFail: "Bağlantı kesilemedi",
+    cleanupFailDesc: "Ağ bileşenlerinin temizlendiği doğrulanamadı",
     needSource: "Önce bir yapılandırma veya abonelik içe aktarın",
     warpUnreg: "WARP açık ama kayıtlı değil — Ayarlar → WARP → “Kaydet”",
     serverSwitched: "Sunucu değiştirildi",

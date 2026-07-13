@@ -367,6 +367,8 @@ export const fr = {
     notifyDisconnectedBody: "Tunnel fermé",
     startFail: "Démarrage impossible",
     startFailDesc: "Ouverture des journaux — sing-box n’a pas démarré",
+    cleanupFail: "Échec de la déconnexion",
+    cleanupFailDesc: "Le nettoyage des composants réseau n’a pas pu être confirmé",
     needSource: "Importez d’abord une config ou un abonnement",
     warpUnreg: "WARP est activé mais non enregistré — Paramètres → WARP → « Enregistrer »",
     serverSwitched: "Serveur changé",

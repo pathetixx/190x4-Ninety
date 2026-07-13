@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, HWND};
 use windows::Win32::Networking::WinInet::{
@@ -29,6 +30,30 @@ const INET_SETTINGS_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Inte
 const NINETY_KEY: &str = r"Software\Ninety";
 const PROXY_OVERRIDE: &str = "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>";
 const PROXY_OVERRIDE_LOOPBACK_ONLY: &str = "localhost;127.*";
+static PROXY_NOTIFY_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+// InternetSetOptionW с NULL-handle работает синхронно. На части Windows
+// SETTINGS_CHANGED/REFRESH ждут зависшие WinINet-клиенты десятки секунд. Реестр
+// к этому моменту уже атомарно обновлён, поэтому оповещение выполняем вне IPC-
+// shutdown. Single-flight достаточно: notification сообщает «перечитай текущее
+// состояние», а не конкретное значение enable/disable.
+fn notify_proxy_change() {
+    if PROXY_NOTIFY_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("ninety-proxy-notify".into())
+        .spawn(|| {
+            unsafe {
+                let _ = InternetSetOptionW(None, INTERNET_OPTION_SETTINGS_CHANGED, None, 0);
+                let _ = InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0);
+            }
+            PROXY_NOTIFY_IN_FLIGHT.store(false, Ordering::SeqCst);
+        });
+    if spawned.is_err() {
+        PROXY_NOTIFY_IN_FLIGHT.store(false, Ordering::SeqCst);
+    }
+}
 
 fn to_wide(s: &str) -> Vec<u16> {
     OsStr::new(s)
@@ -316,10 +341,7 @@ pub fn set_system_proxy(
         }
     }
 
-    unsafe {
-        let _ = InternetSetOptionW(None, INTERNET_OPTION_SETTINGS_CHANGED, None, 0);
-        let _ = InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0);
-    }
+    notify_proxy_change();
     Ok(())
 }
 

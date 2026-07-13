@@ -603,11 +603,13 @@ async function shutdownCore({ finalize = true } = {}) {
   let result = null;
   try { result = await invoke("stop_singbox"); }
   catch (e) { console.warn("stop failed", e); }
+  if (result?.timings) console.info("runtime shutdown timings", result.timings);
   const componentFailed = result && [result.singbox, result.xray, result.sidecars].includes("failed");
   const stopped = !!result && !componentFailed && result.portsReleased !== false
     && result.processesExited !== false
     && result.systemProxy !== "failed";
   if (!stopped) {
+    console.error("runtime cleanup not confirmed", result);
     setState("cleanup_error");
     return false;
   }
@@ -1304,6 +1306,7 @@ function refreshDynamicText() {
       state === "connected"  ? t("hero.secured")
       : state === "connecting" ? t("hero.connecting")
       : state === "disconnecting" ? t("hero.disconnecting")
+      : state === "cleanup_error" ? t("conn.cleanupFail")
       : t("hero.notConnected");
   }
   if (modeHint) {
@@ -1853,9 +1856,9 @@ function setState(next, opts = {}) {
     stopMeter();
     applyKillSwitch(false);
     qualityEngine.onIdle();
-    if (heroLabel) heroLabel.textContent = t("conn.startFail");
+    if (heroLabel) heroLabel.textContent = t("conn.cleanupFail");
     if (heroDisc && !networkBootstrapInProgress) heroDisc.disabled = false;
-    toast(t("conn.startFail"), "error", 6000, { desc: t("conn.startFailDesc") });
+    toast(t("conn.cleanupFail"), "error", 6000, { desc: t("conn.cleanupFailDesc") });
   } else if (next === "connected") {
     if (heroLabel) heroLabel.textContent = t("hero.secured");
     if (heroHint) heroHint.hidden = false;

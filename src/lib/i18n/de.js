@@ -367,6 +367,8 @@ export const de = {
     notifyDisconnectedBody: "Tunnel geschlossen",
     startFail: "Start fehlgeschlagen",
     startFailDesc: "Öffne Protokoll — sing-box ist nicht gestartet",
+    cleanupFail: "Trennen fehlgeschlagen",
+    cleanupFailDesc: "Die Bereinigung der Netzwerkkomponenten wurde nicht bestätigt",
     needSource: "Importiere zuerst eine Konfig oder ein Abo",
     warpUnreg: "WARP ist an, aber nicht registriert — Einstellungen → WARP → „Registrieren“",
     serverSwitched: "Server gewechselt",

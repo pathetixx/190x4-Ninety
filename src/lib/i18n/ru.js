@@ -367,6 +367,8 @@ export const ru = {
     notifyDisconnectedBody: "Туннель закрыт",
     startFail: "Не удалось запустить",
     startFailDesc: "Открываю логи — sing-box не стартовал",
+    cleanupFail: "Не удалось отключить",
+    cleanupFailDesc: "Очистка сетевых компонентов не подтверждена",
     needSource: "Сначала импортируйте конфиг или подписку",
     warpUnreg: "WARP включён, но не зарегистрирован — Settings → WARP → «Зарегистрировать»",
     serverSwitched: "Сервер переключён",

@@ -367,6 +367,8 @@ export const zh = {
     notifyDisconnectedBody: "隧道已关闭",
     startFail: "无法启动",
     startFailDesc: "正在打开日志——sing-box 未启动",
+    cleanupFail: "无法断开连接",
+    cleanupFailDesc: "无法确认网络组件已清理",
     needSource: "请先导入配置或订阅",
     warpUnreg: "WARP 已开启但未注册——设置 → WARP →“注册”",
     serverSwitched: "已切换服务器",

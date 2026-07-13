@@ -367,6 +367,8 @@ export const ar = {
     notifyDisconnectedBody: "أُغلق النفق",
     startFail: "تعذّر البدء",
     startFailDesc: "جارٍ فتح السجلات — لم يبدأ sing-box",
+    cleanupFail: "تعذر قطع الاتصال",
+    cleanupFailDesc: "تعذر تأكيد تنظيف مكونات الشبكة",
     needSource: "استورد إعدادًا أو اشتراكًا أولًا",
     warpUnreg: "WARP مُفعَّل لكنه غير مسجَّل — Settings → WARP → «تسجيل»",
     serverSwitched: "تم تبديل الخادم",
