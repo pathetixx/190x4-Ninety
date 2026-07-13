@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { createNetworkIntentArbiter } = await import("/lib/network-intent.js");
+const { createNetworkIntentArbiter, repeatedConnectionIntentAction } = await import("/lib/network-intent.js");
 
 test("user disconnect invalidates late auto-connect completion", () => {
   const arbiter = createNetworkIntentArbiter();
@@ -18,4 +18,10 @@ test("connected + needsReconnect still uses a new idle intent", () => {
   assert.notEqual(reconnectEpoch, disconnectEpoch);
   assert.equal(arbiter.isCurrent(reconnectEpoch, "connected"), false);
   assert.equal(arbiter.isCurrent(disconnectEpoch, "idle"), true);
+});
+
+test("повторный клик не запускает второй disconnect", () => {
+  assert.equal(repeatedConnectionIntentAction({ inFlightKind: "disconnect", state: "connected" }), "join");
+  assert.equal(repeatedConnectionIntentAction({ inFlightKind: "connect", state: "disconnecting" }), "join");
+  assert.equal(repeatedConnectionIntentAction({ inFlightKind: "connect", state: "connecting" }), "cancel-connect");
 });

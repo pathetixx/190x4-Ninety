@@ -15,3 +15,8 @@ export function createNetworkIntentArbiter(initial = "idle") {
     epoch: () => epoch,
   };
 }
+
+export function repeatedConnectionIntentAction({ internal = false, inFlightKind, state }) {
+  if (internal || inFlightKind === "disconnect" || state === "disconnecting") return "join";
+  return "cancel-connect";
+}

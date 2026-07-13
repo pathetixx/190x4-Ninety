@@ -21,6 +21,19 @@ let streamRevision = 0;
 let desiredStream = null;
 let streamQueue = Promise.resolve();
 
+export function createSingleFlightRunner(task) {
+  let inFlight = null;
+  return (...args) => {
+    if (inFlight) return inFlight;
+    const run = Promise.resolve().then(() => task(...args));
+    const wrapped = run.finally(() => {
+      if (inFlight === wrapped) inFlight = null;
+    });
+    inFlight = wrapped;
+    return wrapped;
+  };
+}
+
 async function stopCurrentStream() {
   if (unlistenTraffic) { try { unlistenTraffic(); } catch {} unlistenTraffic = null; }
   if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
@@ -55,7 +68,7 @@ async function reconcileStream(revision) {
   }
   // параллельно — пинг-поллинг /proxies для location-card (Hiddify-style: 3с)
   if (onPing) {
-    const pollOnce = async () => {
+    const pollOnce = createSingleFlightRunner(async () => {
       if (revision !== streamRevision) return;
       try {
         const data = await getProxies(port);
@@ -86,7 +99,7 @@ async function reconcileStream(revision) {
       } catch {
         if (revision === streamRevision) onPing({ delay: 0, nodeTag: null });
       }
-    };
+    });
     pollOnce();
     pingTimer = setInterval(pollOnce, PING_POLL_MS);
   }

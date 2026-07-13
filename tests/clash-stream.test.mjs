@@ -18,7 +18,31 @@ globalThis.window = {
   },
 };
 
-const { startClashStream, stopClashStream } = await import("/lib/clash-stream.js");
+const { createSingleFlightRunner, startClashStream, stopClashStream } = await import("/lib/clash-stream.js");
+
+test("clash poll: второй тик присоединяется к незавершённому запросу", async () => {
+  let callsCount = 0;
+  let release;
+  const run = createSingleFlightRunner(async () => {
+    callsCount++;
+    await new Promise((resolve) => { release = resolve; });
+    return callsCount;
+  });
+
+  const first = run();
+  const second = run();
+  assert.equal(first, second);
+  await Promise.resolve();
+  assert.equal(callsCount, 1);
+  release();
+  await Promise.all([first, second]);
+
+  const third = run();
+  await Promise.resolve();
+  assert.equal(callsCount, 2);
+  release();
+  await third;
+});
 
 test("clash stream: stop отменяет start, ожидающий event.listen", async () => {
   const start = startClashStream({ onTraffic: () => {} });

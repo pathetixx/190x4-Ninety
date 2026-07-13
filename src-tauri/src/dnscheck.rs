@@ -101,8 +101,13 @@ fn parse_target(dns: &str) -> Target {
 // Ok = резолвер ответил записями; Err = причина смерти (уходит фронту в detail
 // для console-диагностики — bool терял её, и «почему dead» было не выяснить).
 async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> Result<(), String> {
-    let addresses: Vec<_> = tokio::net::lookup_host(host_port)
+    // Один общий deadline включает системный resolve и все полученные адреса.
+    // Иначе lookup_host был безлимитным, а каждый IPv4/IPv6 адрес получал ещё
+    // полный timeout — заявленные 4 секунды превращались в N×4 секунд.
+    let deadline = tokio::time::Instant::now() + timeout;
+    let addresses: Vec<_> = tokio::time::timeout_at(deadline, tokio::net::lookup_host(host_port))
         .await
+        .map_err(|_| format!("resolve {host_port}: timeout"))?
         .map_err(|e| format!("resolve {host_port}: {e}"))?
         .collect();
     if addresses.is_empty() {
@@ -110,9 +115,13 @@ async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> Result<(
     }
     let mut errors = Vec::new();
     for address in addresses {
-        match probe_udp_addr(address, query, timeout).await {
-            Ok(()) => return Ok(()),
-            Err(e) => errors.push(format!("{address}: {e}")),
+        match tokio::time::timeout_at(deadline, probe_udp_addr(address, query)).await {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(e)) => errors.push(format!("{address}: {e}")),
+            Err(_) => {
+                errors.push(format!("{address}: timeout"));
+                break;
+            }
         }
     }
     Err(errors.join("; "))
@@ -126,11 +135,7 @@ fn udp_bind_addr(address: std::net::SocketAddr) -> &'static str {
     }
 }
 
-async fn probe_udp_addr(
-    address: std::net::SocketAddr,
-    query: &[u8],
-    timeout: Duration,
-) -> Result<(), String> {
+async fn probe_udp_addr(address: std::net::SocketAddr, query: &[u8]) -> Result<(), String> {
     let sock = UdpSocket::bind(udp_bind_addr(address))
         .await
         .map_err(|e| format!("bind: {e}"))?;
@@ -139,16 +144,15 @@ async fn probe_udp_addr(
         .map_err(|e| format!("connect: {e}"))?;
     sock.send(query).await.map_err(|e| format!("send: {e}"))?;
     let mut buf = [0u8; 512];
-    match tokio::time::timeout(timeout, sock.recv(&mut buf)).await {
-        Ok(Ok(n)) => {
+    match sock.recv(&mut buf).await {
+        Ok(n) => {
             let resp = &buf[..n];
             // Ответ обязан эхо-нуть наш transaction id и нести QR-бит (это
             // ответ, а не запрос) — иначе любой залётный UDP-пакет с ненулевым
             // ANCOUNT «оживлял» бы мёртвый резолвер.
             validate_dns_response(resp, query)
         }
-        Ok(Err(e)) => Err(format!("recv: {e}")),
-        Err(_) => Err("timeout".into()),
+        Err(e) => Err(format!("recv: {e}")),
     }
 }
 

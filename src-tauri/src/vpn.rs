@@ -232,12 +232,20 @@ pub struct SingboxState {
     // паузы мостов) — два конкурентных вызова спавнили бы два комплекта ядер,
     // дерущихся за порты.
     starting: AtomicBool,
+    stopping: AtomicBool,
+    lifecycle_gate: Mutex<()>,
+    // Stop-вызовы сериализуются: второй клик не должен одновременно забирать
+    // уже вынутые child-хэндлы и объявлять runtime остановленным.
+    stop_lock: tokio::sync::Mutex<()>,
     process_generation: Arc<AtomicU64>,
     // stop инкрементит поколение до kill: уже выполняющийся start после
     // ближайшего await не имеет права поднять новый child поверх disconnect.
     start_epoch: AtomicU64,
     runtime: Mutex<Option<RuntimeRecord>>,
     runtime_ports: Mutex<Vec<u16>>,
+    // После неподтверждённого stop сохраняем физические PID/порты. Следующий
+    // stop повторяет очистку, а start не имеет права затереть этот runtime.
+    pending_cleanup: Mutex<Option<PendingCleanup>>,
     live_processes: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
 }
@@ -252,6 +260,23 @@ struct RuntimeRecord {
     clash_ready: bool,
 }
 
+#[derive(Clone, Default)]
+struct PendingCleanup {
+    pids: Vec<u32>,
+    ports: Vec<u16>,
+}
+
+fn cleanup_targets(runtime_ports: &[u16], pending: PendingCleanup) -> (Vec<u16>, Vec<u32>) {
+    let mut ports = runtime_ports.to_vec();
+    ports.extend(pending.ports);
+    ports.sort_unstable();
+    ports.dedup();
+    let mut pids = pending.pids;
+    pids.sort_unstable();
+    pids.dedup();
+    (ports, pids)
+}
+
 impl Default for SingboxState {
     fn default() -> Self {
         Self {
@@ -262,10 +287,14 @@ impl Default for SingboxState {
             sidecars: Mutex::new(Vec::new()),
             sidecar_died: Arc::new(Mutex::new(None)),
             starting: AtomicBool::new(false),
+            stopping: AtomicBool::new(false),
+            lifecycle_gate: Mutex::new(()),
+            stop_lock: tokio::sync::Mutex::new(()),
             process_generation: Arc::new(AtomicU64::new(0)),
             start_epoch: AtomicU64::new(0),
             runtime: Mutex::new(None),
             runtime_ports: Mutex::new(Vec::new()),
+            pending_cleanup: Mutex::new(None),
             live_processes: Arc::new(AtomicU64::new(0)),
             process_exit_notify: Arc::new(Notify::new()),
         }
@@ -275,6 +304,13 @@ impl Default for SingboxState {
 // RAII-сброс sentinel'а starting: покрывает все ранние return'ы start_singbox.
 struct StartingGuard<'a>(&'a AtomicBool);
 impl Drop for StartingGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+struct StoppingGuard<'a>(&'a AtomicBool);
+impl Drop for StoppingGuard<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::SeqCst);
     }
@@ -895,6 +931,24 @@ fn process_has_exited(pid: u32) -> bool {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn terminate_pid(pid: u32) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, TerminateProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
+    };
+
+    unsafe {
+        if let Ok(handle) = OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, false, pid) {
+            let _ = TerminateProcess(handle, 1);
+            let _ = CloseHandle(handle);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn terminate_pid(_pid: u32) {}
+
 #[cfg(not(target_os = "windows"))]
 fn killed_processes_exited(state: &SingboxState, _pids: &[u32]) -> bool {
     state.live_processes.load(Ordering::SeqCst) == 0
@@ -903,6 +957,19 @@ fn killed_processes_exited(state: &SingboxState, _pids: &[u32]) -> bool {
 #[cfg(target_os = "windows")]
 fn killed_processes_exited(_state: &SingboxState, pids: &[u32]) -> bool {
     pids.iter().all(|pid| process_has_exited(*pid))
+}
+
+#[cfg(target_os = "windows")]
+fn unresolved_pids(pids: &[u32]) -> Vec<u32> {
+    pids.iter()
+        .copied()
+        .filter(|pid| !process_has_exited(*pid))
+        .collect()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn unresolved_pids(pids: &[u32]) -> Vec<u32> {
+    pids.to_vec()
 }
 
 async fn wait_runtime_released(
@@ -977,24 +1044,37 @@ pub async fn start_singbox(
     config_hash: Option<String>,
 ) -> Result<RuntimeSnapshot, String> {
     let logs_disabled = logs_disabled.unwrap_or(false);
-    // Sentinel ДО guard-проверки: второй конкурентный вызов отсекается сразу,
-    // даже пока первый висит в settle-паузах мостов (child ещё не присвоен).
-    if state.starting.swap(true, Ordering::SeqCst) {
-        return Err("запуск уже идёт".into());
-    }
-    let _starting = StartingGuard(&state.starting);
-    let start_epoch = state.start_epoch.fetch_add(1, Ordering::SeqCst) + 1;
-    {
+    let (start_epoch, process_generation) = {
+        // Короткий синхронный gate делает старт/стоп линейными в точке смены
+        // поколения; сам долгий запуск под ним не выполняется.
+        let _gate = state.lifecycle_gate.lock_recover();
+        if state.stopping.load(Ordering::SeqCst) {
+            return Err("остановка ещё выполняется".into());
+        }
+        // Sentinel ДО child-проверки: второй конкурентный вызов отсекается,
+        // пока первый ещё находится в await до публикации child.
+        if state.starting.swap(true, Ordering::SeqCst) {
+            return Err("запуск уже идёт".into());
+        }
+        if state.pending_cleanup.lock_recover().is_some() {
+            state.starting.store(false, Ordering::SeqCst);
+            return Err("предыдущий runtime ещё не очищен; повторите отключение".into());
+        }
         let child = state.child.lock_recover();
         if child.is_some() || state.xray_child.lock_recover().is_some() {
+            state.starting.store(false, Ordering::SeqCst);
             return Err("sing-box уже запущен".into());
         }
+        let start_epoch = state.start_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        // Сначала меняем поколение, затем чистим death-флаги. Иначе запоздалый
+        // Terminated старого runtime мог попасть в окно и отравить новую сессию.
+        let process_generation = state.process_generation.fetch_add(1, Ordering::SeqCst) + 1;
         *state.died.lock_recover() = None;
         *state.xray_died.lock_recover() = None;
         *state.sidecar_died.lock_recover() = None;
-    }
-
-    let process_generation = state.process_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        (start_epoch, process_generation)
+    };
+    let _starting = StartingGuard(&state.starting);
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
     let config_json = harden_config(&config_json);
     let (clash_port, runtime_ports) = runtime_ports_from_config(&config_json)?;
@@ -1297,42 +1377,54 @@ pub async fn stop_singbox(
     app: AppHandle,
     state: State<'_, SingboxState>,
 ) -> Result<StopResult, String> {
+    let _stop = state.stop_lock.lock().await;
+    {
+        let _gate = state.lifecycle_gate.lock_recover();
+        state.stopping.store(true, Ordering::SeqCst);
+        // Инвалидируем start ДО снятия child-хэндлов. Если IPC-start находится
+        // в await, он увидит новое поколение и завершится без хвоста.
+        state.start_epoch.fetch_add(1, Ordering::SeqCst);
+    }
+    let _stopping = StoppingGuard(&state.stopping);
     let started_at = std::time::Instant::now();
-    // Инвалидируем start ДО снятия child-хэндлов. Если IPC-start находится в
-    // settle/readiness await, он увидит новое поколение и завершится без хвоста.
-    state.start_epoch.fetch_add(1, Ordering::SeqCst);
-    let ports = state.runtime_ports.lock_recover().clone();
-    let mut killed_pids = Vec::new();
+    let pending = state
+        .pending_cleanup
+        .lock_recover()
+        .clone()
+        .unwrap_or_default();
+    let runtime_ports = state.runtime_ports.lock_recover().clone();
+    let (ports, mut killed_pids) = cleanup_targets(&runtime_ports, pending);
+    // CommandChild уже потреблён прошлой попыткой. Повторный stop всё равно
+    // должен физически добить оставшийся PID, а не «успешно» забыть его.
+    for pid in &killed_pids {
+        terminate_pid(*pid);
+    }
     let taken = state.child.lock_recover().take();
-    let singbox = if let Some(child) = taken {
+    let had_singbox = taken.is_some();
+    if let Some(child) = taken {
         // child.kill() гасит sing-box; wintun-адаптер (non-persistent) снимается
         // системой вместе со смертью процесса, державшего его — отдельная чистка
         // TUN-интерфейса не нужна.
         killed_pids.push(child.pid());
-        if child.kill().is_ok() {
-            "stopped"
-        } else {
-            "failed"
-        }
-    } else {
-        "already_stopped"
-    };
+        let _ = child.kill();
+    }
     let xray_child = state.xray_child.lock_recover().take();
     let had_xray = xray_child.is_some();
-    let xray_ok = match xray_child {
+    match xray_child {
         Some(child) => {
             killed_pids.push(child.pid());
-            child.kill().is_ok()
+            let _ = child.kill();
         }
-        None => true,
-    };
+        None => {}
+    }
     let sidecar_children: Vec<_> = state.sidecars.lock_recover().drain(..).collect();
     let had_sidecars = !sidecar_children.is_empty();
-    let mut sidecars_ok = true;
     for child in sidecar_children {
         killed_pids.push(child.pid());
-        sidecars_ok &= child.kill().is_ok();
+        let _ = child.kill();
     }
+    killed_pids.sort_unstable();
+    killed_pids.dedup();
     let killed_at = std::time::Instant::now();
     let proxy_was_owned = proxy::system_proxy_owned();
     let proxy_ok = proxy::set_system_proxy(false, None, None).is_ok();
@@ -1341,23 +1433,41 @@ pub async fn stop_singbox(
         wait_runtime_released(&state, &ports, &killed_pids).await;
     let ports_released = remaining_ports.is_empty();
     let confirmed_at = std::time::Instant::now();
-    purge_bridge_configs(&app);
-    purge_current_configs(&app);
-    clear_death_flags(&state);
-    *state.runtime.lock_recover() = None;
-    *state.runtime_ports.lock_recover() = Vec::new();
+    let proxy_confirmed = !proxy_was_owned || proxy_ok;
+    let cleanup_confirmed = processes_exited && ports_released && proxy_confirmed;
+    if cleanup_confirmed {
+        purge_bridge_configs(&app);
+        purge_current_configs(&app);
+        clear_death_flags(&state);
+        *state.runtime.lock_recover() = None;
+        *state.runtime_ports.lock_recover() = Vec::new();
+        *state.pending_cleanup.lock_recover() = None;
+    } else {
+        *state.pending_cleanup.lock_recover() = Some(PendingCleanup {
+            pids: unresolved_pids(&killed_pids),
+            // Храним весь набор, а не только занятые порты: повторная проверка
+            // должна подтверждать освобождение полного runtime-контракта.
+            ports: ports.clone(),
+        });
+    }
     Ok(StopResult {
-        singbox,
+        singbox: if !had_singbox {
+            "already_stopped"
+        } else if processes_exited {
+            "stopped"
+        } else {
+            "failed"
+        },
         xray: if !had_xray {
             "already_stopped"
-        } else if xray_ok {
+        } else if processes_exited {
             "stopped"
         } else {
             "failed"
         },
         sidecars: if !had_sidecars {
             "already_stopped"
-        } else if sidecars_ok {
+        } else if processes_exited {
             "stopped"
         } else {
             "failed"
@@ -1814,5 +1924,16 @@ mod tests {
         assert!(ensure_start_current(&state, epoch).is_ok());
         state.start_epoch.fetch_add(1, Ordering::SeqCst);
         assert!(ensure_start_current(&state, epoch).is_err());
+    }
+
+    #[test]
+    fn repeated_stop_keeps_and_deduplicates_pending_targets() {
+        let pending = PendingCleanup {
+            pids: vec![20, 10, 20],
+            ports: vec![9090, 31100],
+        };
+        let (ports, pids) = cleanup_targets(&[7890, 9090], pending);
+        assert_eq!(ports, vec![7890, 9090, 31100]);
+        assert_eq!(pids, vec![10, 20]);
     }
 }

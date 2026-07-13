@@ -30,6 +30,10 @@ pub struct DpiState {
     // stop увеличивает generation: старый async-код после любого await видит
     // отмену и не может оживить процесс или перетереть состояние новой сессии.
     control: Mutex<DpiControl>,
+    // operation в control обнуляется сразу при cancel, но async start/autotest
+    // ещё может завершать текущий await. Этот флаг живёт до Drop guard'а и не
+    // позволяет stop/unload вернуть успех раньше фактического завершения таска.
+    operation_active: AtomicBool,
     // Грузился ли kernel-драйвер WinDivert в этой сессии (winws хоть раз стартовал).
     // Гейт для sc-выгрузки при выходе: если DPI не включали, snимать службы нечего —
     // а безусловный `sc.exe` на каждый выход давал окно ошибки 0xc0000142 при
@@ -47,9 +51,70 @@ struct DpiControl {
     operation: Option<&'static str>,
 }
 
+const CHILD_STOP_TIMEOUT: Duration = Duration::from_secs(2);
+const DRIVER_UNLOAD_TIMEOUT: Duration = Duration::from_secs(3);
+
+fn terminate_child_bounded(child: &mut Child, label: &str) -> Result<(), String> {
+    let kill_error = child.kill().err();
+    let deadline = Instant::now() + CHILD_STOP_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return Ok(()),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(None) => return Err(format!("{label} не завершился за 2 секунды")),
+            Err(e) => return Err(format!("не удалось подтвердить остановку {label}: {e}")),
+        }
+        if let Some(e) = kill_error.as_ref() {
+            // Ошибка kill допустима только если try_wait выше уже подтвердил,
+            // что процесс успел завершиться самостоятельно.
+            if Instant::now() >= deadline {
+                return Err(format!("не удалось остановить {label}: {e}"));
+            }
+        }
+    }
+}
+
+fn stop_managed_child(state: &DpiState, label: &str) -> Result<(), String> {
+    let Some(mut child) = state.child.lock_recover().take() else {
+        return Ok(());
+    };
+    match terminate_child_bounded(&mut child, label) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // Не теряем handle: повторная команда должна реально повторить
+            // остановку, а не принять None за подтверждённый успех.
+            *state.child.lock_recover() = Some(child);
+            Err(e)
+        }
+    }
+}
+
+fn stop_dpi_runtime(state: &DpiState, label: &str) -> Result<(), String> {
+    cancel_dpi_operation(state);
+    stop_managed_child(state, label)?;
+    let deadline = Instant::now() + CHILD_STOP_TIMEOUT;
+    while state.operation_active.load(Ordering::SeqCst) {
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "{label}: отменяемая операция не завершилась за 2 секунды"
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // Операция могла успеть spawn'ить child между первым take и проверкой
+    // generation. После Drop guard'а делаем финальный подтверждённый stop.
+    stop_managed_child(state, label)
+}
+
 fn begin_dpi_operation(state: &DpiState, name: &'static str) -> Result<u64, String> {
+    if state.operation_active.swap(true, Ordering::SeqCst) {
+        return Err("предыдущая DPI-операция ещё завершается".into());
+    }
     let mut control = state.control.lock_recover();
     if let Some(active) = control.operation {
+        state.operation_active.store(false, Ordering::SeqCst);
         return Err(format!("DPI-операция уже выполняется: {active}"));
     }
     control.generation = control.generation.wrapping_add(1);
@@ -97,6 +162,7 @@ impl Drop for DpiOperationGuard<'_> {
         if control.generation == self.generation {
             control.operation = None;
         }
+        self.state.operation_active.store(false, Ordering::SeqCst);
     }
 }
 
@@ -533,11 +599,30 @@ fn remember_owned_driver_services(state: &DpiState, bin: &Path) {
     let owned_root = strip_verbatim(&bin.to_string_lossy()).to_lowercase();
     let mut owned = state.owned_services.lock_recover();
     for svc in ["WinDivert", "WinDivert14", "Monkey"] {
-        let Ok(out) = std::process::Command::new(&sc)
+        let Ok(mut child) = std::process::Command::new(&sc)
             .args(["qc", svc])
             .creation_flags(CREATE_NO_WINDOW)
-            .output()
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
         else {
+            continue;
+        };
+        let deadline = Instant::now() + CHILD_STOP_TIMEOUT;
+        let completed = loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break true,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                _ => break false,
+            }
+        };
+        if !completed {
+            let _ = child.kill();
+            continue;
+        }
+        let Ok(out) = child.wait_with_output() else {
             continue;
         };
         let text = format!(
@@ -673,8 +758,7 @@ pub async fn dpi_start(
         let control = state.control.lock_recover();
         if control.generation != generation || control.operation.is_none() {
             drop(control);
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = terminate_child_bounded(&mut child, "winws");
             return Err("DPI start отменён".into());
         }
         *state.child.lock_recover() = Some(child);
@@ -720,12 +804,7 @@ pub async fn dpi_start(
 
 #[tauri::command]
 pub fn dpi_stop(state: State<'_, DpiState>) -> Result<(), String> {
-    cancel_dpi_operation(&state);
-    if let Some(mut child) = state.child.lock_recover().take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    Ok(())
+    stop_dpi_runtime(&state, "winws")
 }
 
 #[tauri::command]
@@ -950,8 +1029,7 @@ fn engine_version_runtime(app: &AppHandle) -> Option<String> {
             Ok(Some(_)) => break,
             Ok(None) => {
                 if waited >= 1500 {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    let _ = terminate_child_bounded(&mut child, "winws --version");
                     return None;
                 }
                 std::thread::sleep(Duration::from_millis(100));
@@ -1727,10 +1805,7 @@ pub async fn dpi_autotest(
     // Глушим текущий winws без изменения generation: autotest теперь владеет
     // lifecycle и публикует каждый test-child в state, поэтому dpi_stop/exit
     // способны отменить и reap'нуть его.
-    if let Some(mut child) = state.child.lock_recover().take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
+    stop_managed_child(&state, "winws")?;
     let url = test_url.unwrap_or_else(|| "https://www.youtube.com/".into());
 
     let strategies = read_strategies(&app)?;
@@ -1783,8 +1858,7 @@ pub async fn dpi_autotest(
             if control.generation != generation || control.operation.is_none() {
                 drop(control);
                 let mut child = child;
-                let _ = child.kill();
-                let _ = child.wait();
+                let _ = terminate_child_bounded(&mut child, "winws autotest");
                 return Err("DPI autotest отменён".into());
             }
             *state.child.lock_recover() = Some(child);
@@ -1814,10 +1888,7 @@ pub async fn dpi_autotest(
         if !dpi_operation_current(&state, generation) {
             return Err("DPI autotest отменён".into());
         }
-        if let Some(mut child) = state.child.lock_recover().take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        stop_managed_child(&state, "winws autotest")?;
 
         if ok {
             passed += 1;
@@ -1850,11 +1921,7 @@ pub async fn dpi_autotest(
 }
 
 pub fn force_cleanup(state: &DpiState) {
-    cancel_dpi_operation(state);
-    if let Some(mut child) = state.child.lock_recover().take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
+    let _ = stop_dpi_runtime(state, "winws");
 }
 
 /// Снять kernel-службы драйвера WinDivert/Monkey. ТРЕБУЕТ админ-прав — вызывать
@@ -1867,33 +1934,76 @@ pub fn force_cleanup(state: &DpiState) {
 /// WinDivert или WinDivert14 (как чистит service.bat Flowseal), плюс Monkey (наш
 /// переименованный вариант, см. bin_dir) — снимаем все.
 #[cfg(target_os = "windows")]
-pub fn unload_driver_services(state: &DpiState) {
+fn run_sc_bounded(sc: &str, verb: &str, service: &str, deadline: Instant) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let sc = system32("sc.exe");
-    let services = std::mem::take(&mut *state.owned_services.lock_recover());
-    for svc in services {
-        for verb in ["stop", "delete"] {
-            let _ = std::process::Command::new(&sc)
-                .args([verb, svc.as_str()])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output();
+    if Instant::now() >= deadline {
+        return Err("выгрузка DPI-драйвера превысила 3 секунды".into());
+    }
+    let mut child = std::process::Command::new(sc)
+        .args([verb, service])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("sc {verb} {service}: {e}"))?;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let code = status.code().unwrap_or(-1);
+                let idempotent = (verb == "stop" && matches!(code, 1060 | 1062))
+                    || (verb == "delete" && matches!(code, 1060 | 1072));
+                return if status.success() || idempotent {
+                    Ok(())
+                } else {
+                    Err(format!("sc {verb} {service} завершился с кодом {code}"))
+                };
+            }
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                return Err(format!(
+                    "sc {verb} {service} не завершился за общий лимит 3 секунды"
+                ));
+            }
+            Err(e) => return Err(format!("sc {verb} {service}: {e}")),
         }
     }
 }
+
+#[cfg(target_os = "windows")]
+pub fn unload_driver_services(state: &DpiState) -> Result<(), String> {
+    let sc = system32("sc.exe");
+    let services = state.owned_services.lock_recover().clone();
+    let deadline = Instant::now() + DRIVER_UNLOAD_TIMEOUT;
+    for svc in &services {
+        run_sc_bounded(&sc, "stop", svc, deadline)?;
+        run_sc_bounded(&sc, "delete", svc, deadline)?;
+    }
+    // Стираем ownership только после полного подтверждения. При ошибке весь
+    // список остаётся для безопасного повторного unload (операции идемпотентны).
+    state.owned_services.lock_recover().clear();
+    Ok(())
+}
 #[cfg(not(target_os = "windows"))]
-pub fn unload_driver_services(_state: &DpiState) {}
+pub fn unload_driver_services(_state: &DpiState) -> Result<(), String> {
+    Ok(())
+}
 
 /// Полная выгрузка движка: убить winws И снять kernel-драйвер. Вызывается перед
 /// OTA-апдейтом (команда ниже) и при смене режима драйвера. Иначе драйвер остаётся
 /// резидентным в ядре, его .sys лочит файл в каталоге установки, и следующая
-/// (пере)установка падает на «Невозможно открыть файл для записи». force_cleanup
-/// сперва убивает winws и reap'ает процесс (wait) — handle к \\.\WinDivert
-/// закрывается ДО `sc stop`, поэтому драйвер выгружается с первого раза.
-pub fn full_unload(state: &DpiState) {
-    force_cleanup(state);
-    unload_driver_services(state);
+/// (пере)установка падает на «Невозможно открыть файл для записи». Сначала
+/// подтверждаем завершение winws в коротком bounded-цикле — handle к
+/// \\.\WinDivert закрывается ДО `sc stop`, поэтому драйвер выгружается с первого
+/// раза. Все sc-команды делят один общий трёхсекундный deadline.
+pub fn full_unload(state: &DpiState) -> Result<(), String> {
+    stop_dpi_runtime(state, "winws")?;
+    unload_driver_services(state)?;
     state.driver_loaded.store(false, Ordering::SeqCst);
+    Ok(())
 }
 
 /// true, если сессия Windows сейчас завершается (shutdown/logoff/reboot).
@@ -1924,8 +2034,8 @@ pub fn cleanup_on_exit(state: &DpiState) {
     if session_ending() {
         return;
     }
-    if state.driver_loaded.swap(false, Ordering::SeqCst) {
-        unload_driver_services(state);
+    if state.driver_loaded.load(Ordering::SeqCst) && unload_driver_services(state).is_ok() {
+        state.driver_loaded.store(false, Ordering::SeqCst);
     }
 }
 
@@ -1934,8 +2044,7 @@ pub fn cleanup_on_exit(state: &DpiState) {
 /// invoke("dpi_unload_driver").
 #[tauri::command]
 pub fn dpi_unload_driver(state: State<'_, DpiState>) -> Result<(), String> {
-    full_unload(&state);
-    Ok(())
+    full_unload(&state)
 }
 
 #[cfg(test)]
@@ -2117,11 +2226,17 @@ mod tests {
     fn dpi_operation_generation_cancels_stale_work() {
         let state = DpiState::default();
         let first = begin_dpi_operation(&state, "start").unwrap();
+        let first_guard = DpiOperationGuard {
+            state: &state,
+            generation: first,
+        };
         assert!(dpi_operation_current(&state, first));
         assert!(begin_dpi_operation(&state, "autotest").is_err());
 
         cancel_dpi_operation(&state);
         assert!(!dpi_operation_current(&state, first));
+        assert!(begin_dpi_operation(&state, "autotest").is_err());
+        drop(first_guard);
 
         let second = begin_dpi_operation(&state, "autotest").unwrap();
         assert_ne!(first, second);

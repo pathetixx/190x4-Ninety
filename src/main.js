@@ -71,7 +71,7 @@ import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
 import { createRuntimeIdentityController, sourceFingerprint, sourceKey } from "/lib/runtime-identity.js";
 import { createSourceMutationController, planSourceDeletion } from "/lib/source-mutations.js";
 import { createBootstrapCoordinator } from "/lib/bootstrap-coordinator.js";
-import { createNetworkIntentArbiter } from "/lib/network-intent.js";
+import { createNetworkIntentArbiter, repeatedConnectionIntentAction } from "/lib/network-intent.js";
 import { createLatestWinsReconnectQueue } from "/lib/reconnect-queue.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
@@ -553,8 +553,14 @@ if (settingsRoot) {
     },
     onSensitiveDataClear: async () => {
       connectAttempts.cancel(); // отменить возможный start_singbox в полёте
-      await shutdownCore();
-      try { await invoke("dpi_stop"); } catch {}
+      if (!(await shutdownCore())) {
+        throw new Error("очистка VPN не подтверждена; данные не удалены");
+      }
+      try {
+        await invoke("dpi_stop");
+      } catch (e) {
+        throw new Error(`остановка DPI не подтверждена: ${e?.message || e}`, { cause: e });
+      }
       try { localStorage.setItem("ninety.dpi.enabled", "false"); } catch {}
       clearProfileStorage();
       await invoke("state_backup_clear");
@@ -2344,10 +2350,13 @@ async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
   return true;
 }
 
-async function userToggleNetwork() {
+async function userToggleNetwork(onResolvedKind) {
   const epoch = beginNetworkIntent("idle");
   let snapshot = null;
   try { snapshot = await invoke("runtime_snapshot"); } catch (e) { console.warn("toggle snapshot failed", e); }
+  // Повторный клик мог уже заменить intent, пока runtime_snapshot был в IPC.
+  // Старый toggle после этого не имеет права сам запускать ещё один disconnect.
+  if (!isCurrentNetworkIntent(epoch, "idle")) return false;
   // connectionIntentInFlight сюда включать НЕЛЬЗЯ: handleConnectionIntent
   // присваивает его промисом ЭТОГО же вызова до того, как мы проснёмся после
   // await runtime_snapshot — проверка видела саму себя, backendActive был
@@ -2358,7 +2367,11 @@ async function userToggleNetwork() {
     || coreStartBarrier.isPending()
     || reconnectQueue.isRunning()
     || state !== "idle";
-  if (backendActive || needsReconnect) return disconnectNetwork({ epoch, userInitiated: true });
+  if (backendActive || needsReconnect) {
+    onResolvedKind?.("disconnect");
+    return disconnectNetwork({ epoch, userInitiated: true });
+  }
+  onResolvedKind?.("connect");
   const connectEpoch = beginNetworkIntent("connected");
   return connectNetwork({ epoch: connectEpoch });
 }
@@ -2366,16 +2379,38 @@ async function userToggleNetwork() {
 async function handleConnectionIntent({ internal = false } = {}) {
   if (!internal && networkBootstrapInProgress) return;
   if (connectionIntentInFlight) {
-    if (internal) return connectionIntentInFlight;
+    const repeatedAction = repeatedConnectionIntentAction({
+      internal,
+      inFlightKind: connectionIntentInFlight.kind,
+      state,
+    });
+    if (repeatedAction === "join") {
+      return connectionIntentInFlight.promise;
+    }
+    // Повторный клик отменяет только запуск. Повторный клик во время уже
+    // идущего disconnect присоединяется к тому же Promise и не создаёт второй
+    // stop_singbox поверх первого.
     const epoch = beginNetworkIntent("idle");
-    return disconnectNetwork({ epoch, userInitiated: true });
+    const run = disconnectNetwork({ epoch, userInitiated: true });
+    const intent = { kind: "disconnect", promise: run };
+    connectionIntentInFlight = intent;
+    try {
+      return await run;
+    } finally {
+      if (connectionIntentInFlight === intent) connectionIntentInFlight = null;
+    }
   }
-  const run = userToggleNetwork();
-  connectionIntentInFlight = run;
+  const intent = {
+    kind: (state === "idle" && !needsReconnect) ? "connect" : "disconnect",
+    promise: null,
+  };
+  const run = userToggleNetwork((kind) => { intent.kind = kind; });
+  intent.promise = run;
+  connectionIntentInFlight = intent;
   try {
     return await run;
   } finally {
-    if (connectionIntentInFlight === run) connectionIntentInFlight = null;
+    if (connectionIntentInFlight === intent) connectionIntentInFlight = null;
   }
 }
 
