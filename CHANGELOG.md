@@ -2,6 +2,15 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.17 — 2026-07-13
+
+- Runtime shutdown is now fully retryable: unresolved engine PIDs and occupied ports are retained until physical cleanup is confirmed, while concurrent start/stop calls and late termination events can no longer corrupt the next session.
+- DPI shutdown and WinDivert unloading now verify process and service completion with strict shared deadlines; OTA installation and sensitive-data deletion are blocked when cleanup is not confirmed instead of reporting false success.
+- Repeated connection clicks no longer launch parallel disconnects, DNS probes obey one global timeout including name resolution, and Clash polling is single-flight to prevent overlapping stale requests.
+- Остановка runtime теперь полностью повторяема: незавершённые PID движков и занятые порты сохраняются до физического подтверждения очистки, а параллельные start/stop и поздние события завершения больше не повреждают следующую сессию.
+- Остановка DPI и выгрузка WinDivert теперь подтверждают завершение процессов и служб в строгих общих дедлайнах; установка OTA и удаление чувствительных данных блокируются при неподтверждённой очистке вместо ложного успеха.
+- Повторные клики подключения больше не запускают параллельные отключения, DNS-пробы соблюдают единый тайм-аут вместе с разрешением имени, а Clash-поллинг выполняется в режиме single-flight без перекрывающихся устаревших запросов.
+
 ## v0.2.16 — 2026-07-13
 
 - Runtime shutdown is now fully retryable: unresolved engine PIDs and occupied ports are retained until physical cleanup is confirmed, while concurrent start/stop calls and late termination events can no longer corrupt the next session.
