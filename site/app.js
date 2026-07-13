@@ -68,6 +68,8 @@ const translations = {
     "footer.github": "GitHub",
     "footer.download": "Download",
     "footer.security": "Security",
+    "footer.privacy": "Privacy",
+    "footer.signing": "Политика подписи",
     "footer.feedback": "Feedback",
   },
   en: {
@@ -139,6 +141,8 @@ const translations = {
     "footer.github": "GitHub",
     "footer.download": "Download",
     "footer.security": "Security",
+    "footer.privacy": "Privacy",
+    "footer.signing": "Code signing policy",
     "footer.feedback": "Feedback",
   },
 };

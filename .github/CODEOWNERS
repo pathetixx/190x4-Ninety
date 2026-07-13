@@ -1,5 +1,9 @@
-# Privileged Windows and release surfaces require owner review when PR rules are enabled.
+# Privileged Windows, release and signing surfaces require owner review when PR rules are enabled.
+* @pathetixx
 /.github/workflows/ @pathetixx
+/.signpath/ @pathetixx
+/CODE_SIGNING_POLICY.md @pathetixx
+/RELEASING.md @pathetixx
 /src-tauri/src/dpi.rs @pathetixx
 /src-tauri/src/killswitch.rs @pathetixx
 /src-tauri/src/proxy_win.rs @pathetixx

@@ -11,7 +11,7 @@
 
 **A Windows desktop networking client built with Tauri 2 and Rust around sing-box, WARP, routing rules and connection diagnostics.**
 
-[Website](https://pathetixx.github.io/190x4-Ninety/) · [Download](https://github.com/pathetixx/190x4-Ninety/releases) · [Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md) · [Security](./SECURITY.md)
+[Website](https://pathetixx.github.io/190x4-Ninety/) · [Download](https://github.com/pathetixx/190x4-Ninety/releases) · [Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md) · [Security](./SECURITY.md) · [Code signing policy](./CODE_SIGNING_POLICY.md)
 
 </div>
 
@@ -96,6 +96,7 @@ Project docs:
 
 - [Architecture](./docs/architecture.md) — frontend, Rust backend, sidecars, updater and CI engine injection.
 - [Security](./SECURITY.md) — vulnerability reporting and sensitive issue handling.
+- [Code signing policy](./CODE_SIGNING_POLICY.md) — release provenance, signing roles and artifact scope.
 - [Contributing](./CONTRIBUTING.md) — issue and PR expectations.
 
 Developer release docs:

@@ -2,6 +2,60 @@
 
 Ninety is a local Windows networking client. It does not run a hosted VPN service, and it does not make a server or provider trustworthy by itself.
 
+## No telemetry or project-operated collection
+
+Ninety does not include advertising, usage analytics, crash-report uploads or a
+project-operated account/telemetry service. The Ninety project does not receive
+copies of profiles, subscription contents, browsing history or connection logs
+from the application.
+
+Like any networking client, Ninety still makes outbound requests when required
+by a feature. The destination service can observe the public IP address and
+normal connection metadata. Those operational requests are described below.
+
+## Network requests
+
+Depending on the features the user enables, Ninety may contact:
+
+- servers, subscriptions and DNS resolvers explicitly configured by the user;
+- GitHub and GitLab to check for and download Ninety updates;
+- GitHub-hosted release channels or upstream repositories to retrieve signed or
+  pinned DPI data and routing rule sets;
+- public connectivity and download-test endpoints, including Google and
+  Cloudflare endpoints, to measure reachability, latency and throughput;
+- public IP/geo services (`ipwho.is`, `api.ip.sb` and `ipapi.co`) to show the
+  current public IP, country and network provider when geo lookups are enabled;
+- Cloudflare's WARP API and WARP endpoints when the user registers or connects
+  a WARP profile.
+
+Subscription credentials are sent only to the subscription endpoint entered by
+the user. Connection profile credentials are passed to the selected local
+network engines so they can connect to the configured server. Public test,
+update and geo services are not intentionally sent profile contents or logs.
+
+Geo lookups can be disabled in Settings. Subscription refresh, WARP
+registration, DPI data updates and connection tests occur only when their
+corresponding features are configured or used. Update checks are required for
+the built-in updater, but installing an offered update remains a user action.
+
+## Third-party services
+
+Requests to a user-configured server, subscription or DNS resolver are governed
+by that provider's privacy policy. Other service policies relevant to built-in
+features include:
+
+- [GitHub Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement)
+  for releases, update fallback and hosted rule data;
+- [GitLab Privacy Statement](https://about.gitlab.com/privacy/)
+  for the primary updater mirror;
+- [Cloudflare Privacy Policy](https://www.cloudflare.com/privacypolicy/)
+  for WARP, connectivity and download tests;
+- [Google Privacy Policy](https://policies.google.com/privacy)
+  for optional connectivity tests;
+- the published terms or privacy notices of
+  [ipwho.is](https://ipwho.is/), [IP.SB](https://ip.sb/) and
+  [ipapi.co](https://ipapi.co/) for optional public IP/geo lookups.
+
 ## What may be stored locally
 
 Depending on what you use, Ninety can store:

@@ -11,7 +11,7 @@
 
 **Desktop-клиент для Windows на Tauri 2 и Rust вокруг sing-box, WARP, правил маршрутизации и диагностики соединения.**
 
-[Сайт](https://pathetixx.github.io/190x4-Ninety/) · [Скачать](https://github.com/pathetixx/190x4-Ninety/releases) · **Русский** · [English](./README.md) · [Журнал изменений](./CHANGELOG.md) · [Безопасность](./SECURITY.md)
+[Сайт](https://pathetixx.github.io/190x4-Ninety/) · [Скачать](https://github.com/pathetixx/190x4-Ninety/releases) · **Русский** · [English](./README.md) · [Журнал изменений](./CHANGELOG.md) · [Безопасность](./SECURITY.md) · [Политика подписи](./CODE_SIGNING_POLICY.md)
 
 </div>
 
@@ -96,6 +96,7 @@ NaiveProxy и TrustTunnel обслуживаются собственными к
 
 - [Architecture](./docs/architecture.md) — frontend, Rust backend, sidecar'ы, updater и CI-подготовка движков.
 - [Security](./SECURITY.md) — сообщения об уязвимостях и чувствительных проблемах.
+- [Политика подписи](./CODE_SIGNING_POLICY.md) — происхождение релизов, роли и область подписи.
 - [Contributing](./CONTRIBUTING.md) — ожидания к issues и PR.
 
 Для разработки релизов:
