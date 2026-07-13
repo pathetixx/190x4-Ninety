@@ -850,15 +850,59 @@ async fn wait_clash_ready(port: u16, state: &SingboxState, start_epoch: u64) -> 
 // После kill подтверждаем оба условия ОДНИМ коротким барьером. Раньше два
 // независимых 5-секундных ожидания шли последовательно, а при отмене start в
 // полёте stop вызывался дважды — защитные дедлайны складывались почти в 30 с.
-async fn wait_runtime_released(state: &SingboxState, ports: &[u16]) -> (bool, bool) {
+#[cfg(target_os = "windows")]
+fn process_has_exited(pid: u32) -> bool {
+    use windows::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_INVALID_PARAMETER, WAIT_OBJECT_0,
+    };
+    use windows::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+    };
+
+    unsafe {
+        // PID принадлежит только что взятому из state child'у. Держать clone
+        // CommandChild нельзя (kill его consume'ит), поэтому после kill
+        // подтверждаем завершение непосредственно по process object Windows.
+        // ERROR_INVALID_PARAMETER означает, что PID уже исчез. Другую ошибку
+        // (например ACCESS_DENIED) нельзя выдавать за подтверждённый exit.
+        let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else {
+            return GetLastError() == ERROR_INVALID_PARAMETER;
+        };
+        let exited = WaitForSingleObject(handle, 0) == WAIT_OBJECT_0;
+        let _ = CloseHandle(handle);
+        exited
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn killed_processes_exited(state: &SingboxState, _pids: &[u32]) -> bool {
+    state.live_processes.load(Ordering::SeqCst) == 0
+}
+
+#[cfg(target_os = "windows")]
+fn killed_processes_exited(_state: &SingboxState, pids: &[u32]) -> bool {
+    pids.iter().all(|pid| process_has_exited(*pid))
+}
+
+async fn wait_runtime_released(
+    state: &SingboxState,
+    ports: &[u16],
+    killed_pids: &[u32],
+) -> (bool, bool) {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
-        let processes_exited = state.live_processes.load(Ordering::SeqCst) == 0;
+        // live_processes — это счётчик доставки CommandEvent::Terminated в
+        // монитор логов, а не состояние ОС. Событие идёт за stdout/stderr и
+        // может запоздать после успешного kill. На Windows ждём реальные PID.
+        let processes_exited = killed_processes_exited(state, killed_pids);
         let mut ports_released = true;
         for port in ports {
-            if tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, *port))
-                .await
-                .is_ok()
+            if tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, *port)),
+            )
+            .await
+            .is_ok_and(|result| result.is_ok())
             {
                 ports_released = false;
                 break;
@@ -1206,11 +1250,13 @@ pub async fn stop_singbox(
     // settle/readiness await, он увидит новое поколение и завершится без хвоста.
     state.start_epoch.fetch_add(1, Ordering::SeqCst);
     let ports = state.runtime_ports.lock_recover().clone();
+    let mut killed_pids = Vec::new();
     let taken = state.child.lock_recover().take();
     let singbox = if let Some(child) = taken {
         // child.kill() гасит sing-box; wintun-адаптер (non-persistent) снимается
         // системой вместе со смертью процесса, державшего его — отдельная чистка
         // TUN-интерфейса не нужна.
+        killed_pids.push(child.pid());
         if child.kill().is_ok() {
             "stopped"
         } else {
@@ -1219,15 +1265,28 @@ pub async fn stop_singbox(
     } else {
         "already_stopped"
     };
-    let had_xray = state.xray_child.lock_recover().is_some();
-    let xray_ok = kill_xray(&state);
-    let had_sidecars = !state.sidecars.lock_recover().is_empty();
-    let sidecars_ok = kill_sidecars(&state);
+    let xray_child = state.xray_child.lock_recover().take();
+    let had_xray = xray_child.is_some();
+    let xray_ok = match xray_child {
+        Some(child) => {
+            killed_pids.push(child.pid());
+            child.kill().is_ok()
+        }
+        None => true,
+    };
+    let sidecar_children: Vec<_> = state.sidecars.lock_recover().drain(..).collect();
+    let had_sidecars = !sidecar_children.is_empty();
+    let mut sidecars_ok = true;
+    for child in sidecar_children {
+        killed_pids.push(child.pid());
+        sidecars_ok &= child.kill().is_ok();
+    }
     let killed_at = std::time::Instant::now();
     let proxy_was_owned = proxy::system_proxy_owned();
     let proxy_ok = proxy::set_system_proxy(false, None, None).is_ok();
     let proxy_done_at = std::time::Instant::now();
-    let (processes_exited, ports_released) = wait_runtime_released(&state, &ports).await;
+    let (processes_exited, ports_released) =
+        wait_runtime_released(&state, &ports, &killed_pids).await;
     let confirmed_at = std::time::Instant::now();
     purge_bridge_configs(&app);
     purge_current_configs(&app);

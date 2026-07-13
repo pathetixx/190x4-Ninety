@@ -205,6 +205,7 @@ export function openUpdateModal(update, opts = {}) {
           || result.processesExited === false
           || [result.singbox, result.xray, result.sidecars].includes("failed")
           || result.systemProxy === "failed") {
+          console.warn("pre-update runtime shutdown unconfirmed", result);
           throw new Error("Не удалось подтверждённо остановить сетевые движки");
         }
         await invoke("dpi_unload_driver");
