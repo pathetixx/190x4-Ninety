@@ -2,6 +2,13 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.13 — 2026-07-13
+
+- Removed synchronous WinINet settings refresh from the critical shutdown path; Windows proxy notifications now run in a coalesced background worker and can no longer hold disconnect or profile switching for 25–30 seconds.
+- Runtime shutdown now reports per-stage timings for process termination, Windows proxy handling, and final confirmation, while cleanup failures are identified correctly as disconnect errors instead of start failures.
+- Синхронное обновление WinINet убрано из критического пути остановки: оповещения Windows о системном прокси теперь выполняются в объединяемом фоновом потоке и больше не могут задерживать отключение или смену профиля на 25–30 секунд.
+- Остановка runtime теперь возвращает отдельные замеры завершения процессов, обработки системного прокси и финального подтверждения, а ошибки очистки корректно показываются как ошибки отключения, а не запуска.
+
 ## v0.2.12 — 2026-07-12
 
 - Runtime shutdown now verifies process exit and port release in one fast parallel barrier instead of stacking sequential timeouts that could delay disconnect and profile switching for nearly 30 seconds.
