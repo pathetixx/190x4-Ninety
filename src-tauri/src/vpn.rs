@@ -114,6 +114,8 @@ fn spawn_log_monitor(
     died_flag: Arc<Mutex<Option<String>>>,
     live_processes: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
+    current_generation: Arc<AtomicU64>,
+    monitor_generation: u64,
     spec: MonitorSpec,
 ) {
     live_processes.fetch_add(1, Ordering::SeqCst);
@@ -181,7 +183,12 @@ fn spawn_log_monitor(
                     if let Some(w) = writer.as_mut() {
                         write_capped(w, &mut written, &msg);
                     }
-                    *died_flag.lock_recover() = Some(msg);
+                    // Terminated старого комплекта может прийти уже после
+                    // быстрого stop и старта нового. Не позволяем запоздалому
+                    // событию пометить новое ядро умершим.
+                    if current_generation.load(Ordering::SeqCst) == monitor_generation {
+                        *died_flag.lock_recover() = Some(msg);
+                    }
                     live_processes.fetch_sub(1, Ordering::SeqCst);
                     process_exit_notify.notify_waiters();
                     break;
@@ -221,7 +228,7 @@ pub struct SingboxState {
     // паузы мостов) — два конкурентных вызова спавнили бы два комплекта ядер,
     // дерущихся за порты.
     starting: AtomicBool,
-    process_generation: AtomicU64,
+    process_generation: Arc<AtomicU64>,
     // stop инкрементит поколение до kill: уже выполняющийся start после
     // ближайшего await не имеет права поднять новый child поверх disconnect.
     start_epoch: AtomicU64,
@@ -251,7 +258,7 @@ impl Default for SingboxState {
             sidecars: Mutex::new(Vec::new()),
             sidecar_died: Arc::new(Mutex::new(None)),
             starting: AtomicBool::new(false),
-            process_generation: AtomicU64::new(0),
+            process_generation: Arc::new(AtomicU64::new(0)),
             start_epoch: AtomicU64::new(0),
             runtime: Mutex::new(None),
             runtime_ports: Mutex::new(Vec::new()),
@@ -430,6 +437,7 @@ async fn spawn_xray(
     xray_json: &str,
     logs_disabled: bool,
     start_epoch: u64,
+    process_generation: u64,
 ) -> Result<(), String> {
     let path = xray_config_path(app)?;
     std::fs::write(&path, xray_json).map_err(|e| format!("write xray config: {e}"))?;
@@ -460,6 +468,8 @@ async fn spawn_xray(
         died_flag,
         state.live_processes.clone(),
         state.process_exit_notify.clone(),
+        state.process_generation.clone(),
+        process_generation,
         MonitorSpec::bridge("=== xray start ===", "xray"),
     );
 
@@ -485,6 +495,7 @@ async fn spawn_sidecars(
     specs: &[SidecarSpec],
     logs_disabled: bool,
     start_epoch: u64,
+    process_generation: u64,
 ) -> Result<(), String> {
     let cfg_dir = app
         .path()
@@ -566,6 +577,8 @@ async fn spawn_sidecars(
             died_flag,
             state.live_processes.clone(),
             state.process_exit_notify.clone(),
+            state.process_generation.clone(),
+            process_generation,
             MonitorSpec::bridge(format!("=== {label} start ==="), label.clone()),
         );
     }
@@ -888,31 +901,29 @@ async fn wait_runtime_released(
     state: &SingboxState,
     ports: &[u16],
     killed_pids: &[u32],
-) -> (bool, bool) {
+) -> (bool, Vec<u16>) {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
         // live_processes — это счётчик доставки CommandEvent::Terminated в
         // монитор логов, а не состояние ОС. Событие идёт за stdout/stderr и
         // может запоздать после успешного kill. На Windows ждём реальные PID.
         let processes_exited = killed_processes_exited(state, killed_pids);
-        let mut ports_released = true;
-        for port in ports {
-            if tokio::time::timeout(
-                std::time::Duration::from_millis(100),
-                tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, *port)),
-            )
-            .await
-            .is_ok_and(|result| result.is_ok())
-            {
-                ports_released = false;
-                break;
-            }
-        }
-        if processes_exited && ports_released {
-            return (true, true);
+        // Проверяем именно возможность следующего bind, а не connect. На
+        // Windows connect к уже закрытому, но фильтруемому WFP/WinDivert порту
+        // может ждать TCP retransmit 15–30 секунд и тем самым пробивать внешний
+        // двухсекундный deadline. bind отвечает синхронно и мгновенно.
+        let remaining_ports: Vec<u16> = ports
+            .iter()
+            .copied()
+            .filter(|port| {
+                std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, *port)).is_err()
+            })
+            .collect();
+        if processes_exited && remaining_ports.is_empty() {
+            return (true, Vec::new());
         }
         if tokio::time::Instant::now() >= deadline {
-            return (processes_exited, ports_released);
+            return (processes_exited, remaining_ports);
         }
         let notified = state.process_exit_notify.notified();
         tokio::select! {
@@ -989,7 +1000,16 @@ pub async fn start_singbox(
     // Two-core: если в конфиге есть xhttp-ноды, поднимаем xray ДО sing-box
     // (в любом режиме). При ошибке спавна — не стартуем VPN вовсе.
     if let Some(xj) = xray_json.as_ref().filter(|s| !s.trim().is_empty()) {
-        if let Err(e) = spawn_xray(&app, &state, xj, logs_disabled, start_epoch).await {
+        if let Err(e) = spawn_xray(
+            &app,
+            &state,
+            xj,
+            logs_disabled,
+            start_epoch,
+            process_generation,
+        )
+        .await
+        {
             kill_xray(&state);
             return Err(e);
         }
@@ -998,7 +1018,16 @@ pub async fn start_singbox(
 
     // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
     if let Some(specs) = sidecar_specs.as_ref() {
-        if let Err(e) = spawn_sidecars(&app, &state, specs, logs_disabled, start_epoch).await {
+        if let Err(e) = spawn_sidecars(
+            &app,
+            &state,
+            specs,
+            logs_disabled,
+            start_epoch,
+            process_generation,
+        )
+        .await
+        {
             kill_xray(&state);
             kill_sidecars(&state);
             return Err(e);
@@ -1016,7 +1045,15 @@ pub async fn start_singbox(
     // оставлял бы xray/naive/TT сиротами при фейле записи конфига или спавна
     // sing-box (креды в их конфигах на диске, занятые порты, а guard
     // xray_child.is_some() блокировал бы следующий старт до явного stop).
-    if let Err(e) = spawn_singbox_core(&app, &state, &config_json, logs_disabled, start_epoch).await
+    if let Err(e) = spawn_singbox_core(
+        &app,
+        &state,
+        &config_json,
+        logs_disabled,
+        start_epoch,
+        process_generation,
+    )
+    .await
     {
         // kill по уже мёртвому child безвреден (Err игнорируем).
         if let Some(child) = state.child.lock_recover().take() {
@@ -1057,6 +1094,7 @@ async fn spawn_singbox_core(
     config_json: &str,
     logs_disabled: bool,
     start_epoch: u64,
+    process_generation: u64,
 ) -> Result<(), String> {
     let path = config_path(app)?;
     std::fs::write(&path, config_json).map_err(|e| format!("write config: {e}"))?;
@@ -1084,6 +1122,8 @@ async fn spawn_singbox_core(
         died_flag,
         state.live_processes.clone(),
         state.process_exit_notify.clone(),
+        state.process_generation.clone(),
+        process_generation,
         MonitorSpec::core("=== sing-box start ===", "sing-box"),
     );
 
@@ -1226,7 +1266,9 @@ pub struct StopResult {
     xray: &'static str,
     sidecars: &'static str,
     ports_released: bool,
+    remaining_ports: Vec<u16>,
     processes_exited: bool,
+    pending_exit_events: u64,
     system_proxy: &'static str,
     timings: StopTimings,
 }
@@ -1285,8 +1327,9 @@ pub async fn stop_singbox(
     let proxy_was_owned = proxy::system_proxy_owned();
     let proxy_ok = proxy::set_system_proxy(false, None, None).is_ok();
     let proxy_done_at = std::time::Instant::now();
-    let (processes_exited, ports_released) =
+    let (processes_exited, remaining_ports) =
         wait_runtime_released(&state, &ports, &killed_pids).await;
+    let ports_released = remaining_ports.is_empty();
     let confirmed_at = std::time::Instant::now();
     purge_bridge_configs(&app);
     purge_current_configs(&app);
@@ -1310,7 +1353,9 @@ pub async fn stop_singbox(
             "failed"
         },
         ports_released,
+        remaining_ports,
         processes_exited,
+        pending_exit_events: state.live_processes.load(Ordering::SeqCst),
         system_proxy: if !proxy_was_owned {
             "not_owned"
         } else if proxy_ok {
