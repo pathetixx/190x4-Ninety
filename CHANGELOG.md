@@ -2,6 +2,17 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.25 — 2026-07-15
+
+- Fixed the Kurogane EXE installer in the real elevated update flow: navigation and title-bar controls now use deterministic dark bitmap chrome without white Windows-themed elements.
+- Installation progress now follows the native NSIS range through real install and uninstall stages without corrupting installer state, while stale navigation is hidden during active progress.
+- The refreshed Ninety icon is reapplied when the native event loop becomes ready and whenever the window is shown, fixing the old icon in taskbar hover thumbnails.
+- Installer CI now rejects white chrome and frozen progress, validates window dragging and complete screenshots, keeps preview versions synchronized, and uses a resilient NSIS installation fallback; the `190x4` artwork lockup was also tightened.
+- Исправлен установщик Kurogane в реальном elevated-потоке обновления: кнопки навигации и заголовка теперь используют собственную тёмную растровую отрисовку без белых системных элементов Windows.
+- Прогресс установки теперь следует внутренней шкале NSIS на реальных этапах установки и удаления без повреждения состояния установщика, а устаревшие кнопки скрываются во время активного прогресса.
+- Новая иконка Ninety повторно назначается после готовности нативного цикла событий и при каждом показе окна, исправляя старую иконку в миниатюре при наведении на панель задач.
+- CI установщика теперь отклоняет белые элементы и застывший прогресс, проверяет перетаскивание и полнооконные скриншоты, синхронизирует версию preview и использует устойчивую резервную установку NSIS; компоновка `190x4` также стала плотнее.
+
 ## v0.2.24 — 2026-07-15
 
 - The EXE installer shell was fully repaired: stock NSIS chrome was removed, every stage now follows the Kurogane visual system, the window is draggable again, and the red progress indicator and installation percentage update correctly.
