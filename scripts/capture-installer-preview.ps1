@@ -71,9 +71,13 @@ try {
   $startY = $before.Top + 36
   [NinetyPreviewWin32]::SetCursorPos($startX, $startY) | Out-Null
   [NinetyPreviewWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
-  Start-Sleep -Milliseconds 160
-  [NinetyPreviewWin32]::SetCursorPos($startX + 20, $startY + 20) | Out-Null
-  Start-Sleep -Milliseconds 160
+  # CI runners can be briefly busy after NSIS startup. Give its 40 ms shell
+  # timer ample time to enter the native caption-drag loop, then move in steps.
+  Start-Sleep -Seconds 1
+  foreach ($delta in 5, 10, 15, 20) {
+    [NinetyPreviewWin32]::SetCursorPos($startX + $delta, $startY + $delta) | Out-Null
+    Start-Sleep -Milliseconds 120
+  }
   [NinetyPreviewWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
   Start-Sleep -Milliseconds 500
   $after = Get-InstallerRect
