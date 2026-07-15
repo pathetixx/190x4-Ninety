@@ -63,6 +63,7 @@ try {
 
   [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
   Start-Sleep -Seconds 2
+  Save-InstallerWindow "00-before-drag.png"
 
   # Exercise real frameless-window dragging before taking the first capture.
   $before = Get-InstallerRect

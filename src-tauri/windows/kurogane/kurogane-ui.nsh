@@ -37,6 +37,7 @@ Var KuroganeFontBody
 Var KuroganeFontMeta
 Var KuroganeFontSteps
 Var KuroganeDragWasDown
+Var KuroganeShellTimerStarted
 
 LangString KStepOptions 1033 "OPTIONS"
 LangString KStepInstall 1033 "INSTALL"
@@ -157,7 +158,7 @@ LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПО
   SendMessage $0 ${WM_SETFONT} $KuroganeFontBody 1
 
   StrCpy $KuroganeDragWasDown 0
-  ${NSD_CreateTimer} ${MINIMIZEFUNCTION}ShellTick 40
+  StrCpy $KuroganeShellTimerStarted 0
 !macroend
 
 Function KuroganeGuiInit
@@ -265,6 +266,19 @@ Function un.KuroganeMinimizeShellTick
   !insertmacro KuroganeShellTickImpl
 FunctionEnd
 
+Function KuroganeStartShellTimer
+  ${If} $KuroganeShellTimerStarted != 1
+    StrCpy $KuroganeShellTimerStarted 1
+    ${NSD_CreateTimer} KuroganeMinimizeShellTick 40
+  ${EndIf}
+FunctionEnd
+Function un.KuroganeStartShellTimer
+  ${If} $KuroganeShellTimerStarted != 1
+    StrCpy $KuroganeShellTimerStarted 1
+    ${NSD_CreateTimer} un.KuroganeMinimizeShellTick 40
+  ${EndIf}
+FunctionEnd
+
 Function KuroganeStyleCurrentPage
   !insertmacro KuroganeStyleCurrentPageImpl
 FunctionEnd
@@ -274,10 +288,12 @@ Function un.KuroganeStyleCurrentPage
 FunctionEnd
 
 Function KuroganePageShow
+  Call KuroganeStartShellTimer
   Call KuroganeStyleCurrentPage
 FunctionEnd
 
 Function un.KuroganePageShow
+  Call un.KuroganeStartShellTimer
   Call un.KuroganeStyleCurrentPage
 FunctionEnd
 
@@ -285,6 +301,7 @@ FunctionEnd
 ; their stock wizard bitmap and use the full right atelier for native text and
 ; options; this preserves MUI lifecycle/checkbox behavior without its blue art.
 !macro KuroganeFullWindowPageShowImpl UNPREFIX
+  Call ${UNPREFIX}KuroganeStartShellTimer
   Call ${UNPREFIX}KuroganeStyleCurrentPage
   FindWindow $0 "Static" "" $KuroganePage 0
   ${If} $0 != 0
@@ -312,6 +329,7 @@ Function un.KuroganeFullWindowPageShow
 FunctionEnd
 
 !macro KuroganeProgressPageImpl UNPREFIX TITLE SUBTITLE STATUS
+  Call ${UNPREFIX}KuroganeStartShellTimer
   Call ${UNPREFIX}KuroganeStyleCurrentPage
 
   !insertmacro KuroganeSetText 1220 "$(KStepOptions)"
