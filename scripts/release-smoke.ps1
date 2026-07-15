@@ -15,16 +15,53 @@ $app = Get-Item "$releaseDir/ninety.exe"
 $nsis = @(Get-ChildItem "$releaseDir/bundle/nsis/*-setup.exe")
 $msi = @(Get-ChildItem "$releaseDir/bundle/msi/*.msi")
 $sigs = @(Get-ChildItem "$releaseDir/bundle/nsis/*-setup.exe.sig")
+$portableZips = @(Get-ChildItem "$releaseDir/portable/*_windows-x64-portable.zip")
+$portableDir = Join-Path $releaseDir "portable/Ninety"
+$portableApp = Get-Item (Join-Path $portableDir "Ninety.exe")
 
 Assert-Release ($app.Length -gt 2MB) "Ninety.exe отсутствует либо подозрительно мал"
 Assert-Release ($nsis.Count -eq 1) "ожидался ровно один NSIS installer"
 Assert-Release ($msi.Count -eq 1) "ожидался ровно один MSI installer"
 Assert-Release ($sigs.Count -eq 1) "ожидалась ровно одна Tauri updater signature"
+Assert-Release ($portableZips.Count -eq 1) "ожидался ровно один Portable ZIP"
 Assert-Release ($nsis[0].Length -gt 5MB) "NSIS installer подозрительно мал"
 Assert-Release ($msi[0].Length -gt 5MB) "MSI installer подозрительно мал"
 Assert-Release ($sigs[0].Length -gt 32) "Tauri updater signature пуста"
+Assert-Release ($portableZips[0].Length -gt 5MB) "Portable ZIP подозрительно мал"
 Assert-Release ($nsis[0].Name -match [regex]::Escape($version)) "версия отсутствует в имени NSIS"
 Assert-Release ($msi[0].Name -match [regex]::Escape($version)) "версия отсутствует в имени MSI"
+Assert-Release ($portableZips[0].Name -match [regex]::Escape($version)) "версия отсутствует в имени Portable ZIP"
+
+$portableFiles = @(
+  "Ninety.exe",
+  "Ninety.portable",
+  "README.txt",
+  "sing-box.exe",
+  "xray.exe",
+  "naive.exe",
+  "trusttunnel_client.exe",
+  "wintun.dll",
+  "dpi/strategies.json",
+  "dpi/bin/winws.exe",
+  "dpi/bin-monkey/winws.exe",
+  "flags/ru.png"
+)
+foreach ($name in $portableFiles) {
+  Assert-Release (Test-Path -LiteralPath (Join-Path $portableDir $name) -PathType Leaf) `
+    "в Portable staging отсутствует $name"
+}
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [System.IO.Compression.ZipFile]::OpenRead($portableZips[0].FullName)
+try {
+  $entries = @($archive.Entries | ForEach-Object FullName)
+  foreach ($name in $portableFiles) {
+    $entry = "Ninety/$($name.Replace('\\', '/'))"
+    Assert-Release ($entries -contains $entry) "в Portable ZIP отсутствует $entry"
+  }
+} finally {
+  $archive.Dispose()
+}
 
 $productVersion = [string]$app.VersionInfo.ProductVersion
 Assert-Release ($productVersion -match "^$([regex]::Escape($version))(?:\D|$)") `
@@ -63,7 +100,17 @@ if (-not $process.WaitForExit(15000)) {
 }
 Assert-Release ($process.ExitCode -eq 0) "Ninety.exe CI smoke завершился с кодом $($process.ExitCode)"
 
-$authenticodeFiles = @($app, $nsis[0], $msi[0])
+# Тот же boot из реально подготовленного Portable layout. Маркер рядом с EXE
+# включает безопасное portable-поведение updater'а.
+$portableProcess = Start-Process -FilePath $portableApp.FullName -ArgumentList "--ci-smoke" -PassThru
+if (-not $portableProcess.WaitForExit(15000)) {
+  Stop-Process -Id $portableProcess.Id -Force -ErrorAction SilentlyContinue
+  throw "Portable Ninety.exe не завершил CI smoke за 15 секунд"
+}
+Assert-Release ($portableProcess.ExitCode -eq 0) `
+  "Portable Ninety.exe CI smoke завершился с кодом $($portableProcess.ExitCode)"
+
+$authenticodeFiles = @($app, $portableApp, $nsis[0], $msi[0])
 $authenticodeEnabled = $env:AUTHENTICODE_ENABLED -eq "true"
 foreach ($file in $authenticodeFiles) {
   $status = Get-AuthenticodeSignature $file.FullName
@@ -74,4 +121,4 @@ foreach ($file in $authenticodeFiles) {
   }
 }
 
-Write-Host "Release smoke OK: version=$version, NSIS=$($nsis[0].Name), MSI=$($msi[0].Name)"
+Write-Host "Release smoke OK: version=$version, NSIS=$($nsis[0].Name), MSI=$($msi[0].Name), Portable=$($portableZips[0].Name)"

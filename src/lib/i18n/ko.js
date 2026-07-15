@@ -498,6 +498,8 @@ export const ko = {
   updModal: {
     notesUnavailable: "릴리스 노트를 사용할 수 없습니다. GitHub의 릴리스 페이지를 여세요.",
     install: "업데이트",
+    downloadPortable: "ZIP 다운로드",
+    browserUnavailable: "브라우저를 열 수 없습니다",
     downloading: "다운로드 중",
     installing: "설치 중…",
     relaunching: "다시 시작 중…",

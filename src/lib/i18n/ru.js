@@ -498,6 +498,8 @@ export const ru = {
   updModal: {
     notesUnavailable: "Заметки релиза недоступны. Открой страницу релиза на GitHub.",
     install: "ОБНОВИТЬ",
+    downloadPortable: "СКАЧАТЬ ZIP",
+    browserUnavailable: "Не удалось открыть браузер",
     downloading: "Загрузка",
     installing: "Установка…",
     relaunching: "Перезапуск…",

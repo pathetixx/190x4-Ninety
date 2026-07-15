@@ -498,6 +498,8 @@ export const ar = {
   updModal: {
     notesUnavailable: "ملاحظات الإصدار غير متاحة. افتح صفحة الإصدار على GitHub.",
     install: "تحديث",
+    downloadPortable: "تنزيل ZIP",
+    browserUnavailable: "تعذر فتح المتصفح",
     downloading: "جارٍ التنزيل",
     installing: "جارٍ التثبيت…",
     relaunching: "إعادة التشغيل…",

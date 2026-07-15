@@ -498,6 +498,8 @@ export const uk = {
   updModal: {
     notesUnavailable: "Нотатки релізу недоступні. Відкрий сторінку релізу на GitHub.",
     install: "ОНОВИТИ",
+    downloadPortable: "ЗАВАНТАЖИТИ ZIP",
+    browserUnavailable: "Не вдалося відкрити браузер",
     downloading: "Завантаження",
     installing: "Встановлення…",
     relaunching: "Перезапуск…",

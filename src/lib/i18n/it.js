@@ -498,6 +498,8 @@ export const it = {
   updModal: {
     notesUnavailable: "Note di rilascio non disponibili. Apri la pagina della release su GitHub.",
     install: "AGGIORNA",
+    downloadPortable: "SCARICA ZIP",
+    browserUnavailable: "Impossibile aprire il browser",
     downloading: "Download",
     installing: "Installazione…",
     relaunching: "Riavvio…",

@@ -46,6 +46,18 @@ fn ping() -> &'static str {
     "pong"
 }
 
+/// Portable-сборка определяется маркером рядом с Ninety.exe. Такой режим пока
+/// означает «без установки»: пользовательские данные по-прежнему живут в
+/// стандартных каталогах Windows, но встроенный updater не должен запускать
+/// NSIS и превращать распакованную копию в установленную.
+#[tauri::command]
+fn is_portable() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("Ninety.portable")))
+        .is_some_and(|marker| marker.is_file())
+}
+
 /// True если процесс стартовал с флагом --autostarted (Windows login или
 /// дев-симуляция). Используется фронтендом для авто-подключения после bootstrap.
 #[tauri::command]
@@ -666,6 +678,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ping,
+            is_portable,
             is_autostarted,
             should_autoconnect,
             startup_deep_links,

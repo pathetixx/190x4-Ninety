@@ -498,6 +498,8 @@ export const ja = {
   updModal: {
     notesUnavailable: "リリースノートが利用できません。GitHub のリリースページを開いてください。",
     install: "更新",
+    downloadPortable: "ZIPをダウンロード",
+    browserUnavailable: "ブラウザーを開けませんでした",
     downloading: "ダウンロード中",
     installing: "インストール中…",
     relaunching: "再起動中…",

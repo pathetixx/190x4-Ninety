@@ -4,6 +4,11 @@
 import { t } from "/lib/i18n/index.js";
 
 const SKIP_KEY = "ninety.update.skip";
+const RELEASE_BASE_URL = "https://github.com/pathetixx/190x4-Ninety/releases/tag";
+
+export function portableReleaseUrl(version) {
+  return `${RELEASE_BASE_URL}/v${encodeURIComponent(String(version || ""))}`;
+}
 
 export function buildUpdateJournal({ targetVersion, stage, sourceFingerprint, mode, vpn, dpi, attempts = 1 }) {
   return {
@@ -120,7 +125,9 @@ export function openUpdateModal(update, opts = {}) {
   installBtn.disabled = false;
   laterBtn.disabled = false;
   laterBtn.hidden = false;
-  installBtn.textContent = t("updModal.install");
+  installBtn.textContent = opts.portable
+    ? t("updModal.downloadPortable")
+    : t("updModal.install");
   modal.hidden = false;
 
   return new Promise((resolve) => {
@@ -152,6 +159,18 @@ export function openUpdateModal(update, opts = {}) {
 
     const onInstall = async () => {
       if (installing) return;
+      if (opts.portable) {
+        try {
+          const open = window.__TAURI__?.shell?.open;
+          if (typeof open !== "function") throw new Error(t("updModal.browserUnavailable"));
+          await open(portableReleaseUrl(update.version));
+          markSkipped(update.version);
+          close();
+        } catch (e) {
+          showError(t("updModal.failed", { err: e?.message || e }));
+        }
+        return;
+      }
       installing = true;
       opts.onInstalling?.(true);
       showError(null);

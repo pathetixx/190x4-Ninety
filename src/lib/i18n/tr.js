@@ -498,6 +498,8 @@ export const tr = {
   updModal: {
     notesUnavailable: "Sürüm notları kullanılamıyor. GitHub'da sürüm sayfasını açın.",
     install: "GÜNCELLE",
+    downloadPortable: "ZIP İNDİR",
+    browserUnavailable: "Tarayıcı açılamadı",
     downloading: "İndiriliyor",
     installing: "Yükleniyor…",
     relaunching: "Yeniden başlatılıyor…",

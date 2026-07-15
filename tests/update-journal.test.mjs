@@ -2,7 +2,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 globalThis.window = {};
-const { buildUpdateJournal, resumeRuntimeReady } = await import("/lib/update-modal.js");
+const { buildUpdateJournal, portableReleaseUrl, resumeRuntimeReady } = await import("/lib/update-modal.js");
+
+test("portable release URL targets the exact encoded tag", () => {
+  assert.equal(
+    portableReleaseUrl("0.2.18"),
+    "https://github.com/pathetixx/190x4-Ninety/releases/tag/v0.2.18",
+  );
+  assert.equal(portableReleaseUrl("1/2"),
+    "https://github.com/pathetixx/190x4-Ninety/releases/tag/v1%2F2");
+});
 
 test("OTA journal versioned и хранит fingerprint/mode/desired state", () => {
   const j = buildUpdateJournal({

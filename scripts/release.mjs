@@ -79,6 +79,7 @@ async function verifyRelease(version) {
   check(names.some((n) => /-setup\.exe$/.test(n)), "ассет установщика (.exe)");
   check(names.some((n) => /-setup\.exe\.sig$/.test(n)), "подпись установщика (.sig)");
   check(names.some((n) => /\.msi$/.test(n)), "ассет .msi");
+  check(names.some((n) => /_windows-x64-portable\.zip$/.test(n)), "ассет Portable ZIP (Windows x64)");
   check(names.includes("latest.json"), "ассет latest.json");
 
   // GitHub /releases/latest/ отдаёт нашу версию ⇒ релиз стал Latest, и подпись на месте.

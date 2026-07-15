@@ -2659,8 +2659,11 @@ async function windowIsForeground() {
 async function showUpdateModal(update, opts = {}) {
   updateModalShowing = true;
   try {
+    let portable = false;
+    try { portable = !!(await invoke("is_portable")); } catch {}
     await openUpdateModal(update, {
       ...opts,
+      portable,
       onInstalling: (v) => { updateInstalling = v; },
       onBeforeInstall: backupForUpdate,
       onBeforeRuntimeStop: () => {

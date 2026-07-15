@@ -498,6 +498,8 @@ export const fa = {
   updModal: {
     notesUnavailable: "یادداشت‌های انتشار در دسترس نیست. صفحهٔ انتشار را در GitHub باز کنید.",
     install: "به‌روزرسانی",
+    downloadPortable: "دانلود ZIP",
+    browserUnavailable: "مرورگر باز نشد",
     downloading: "در حال دانلود",
     installing: "در حال نصب…",
     relaunching: "در حال بازراه‌اندازی…",
