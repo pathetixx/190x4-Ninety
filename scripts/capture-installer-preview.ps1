@@ -72,7 +72,7 @@ try {
   [NinetyPreviewWin32]::SetCursorPos($startX, $startY) | Out-Null
   [NinetyPreviewWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
   Start-Sleep -Milliseconds 160
-  [NinetyPreviewWin32]::SetCursorPos($startX - 60, $startY + 25) | Out-Null
+  [NinetyPreviewWin32]::SetCursorPos($startX + 20, $startY + 20) | Out-Null
   Start-Sleep -Milliseconds 160
   [NinetyPreviewWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
   Start-Sleep -Milliseconds 500
