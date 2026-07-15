@@ -18,6 +18,7 @@ public static class NinetyPreviewWin32 {
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT { public int Left, Top, Right, Bottom; }
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
@@ -111,6 +112,7 @@ try {
   # Exercise real frameless-window dragging. Hosted runners occasionally lose
   # one synthetic mouse-down during startup, so retry independent gestures and
   # keep collecting visual evidence even if all attempts fail.
+  $home = Get-InstallerRect
   $dragPassed = $false
   foreach ($attempt in 0..2) {
     $before = Get-InstallerRect
@@ -133,6 +135,18 @@ try {
       break
     }
   }
+  # A successful drag can leave the lower edge behind the Windows taskbar.
+  # Restore the original rectangle before visual pixel checks and captures.
+  [NinetyPreviewWin32]::MoveWindow(
+    $window,
+    $home.Left,
+    $home.Top,
+    $home.Right - $home.Left,
+    $home.Bottom - $home.Top,
+    $true
+  ) | Out-Null
+  [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
+  Start-Sleep -Milliseconds 500
 
   Save-InstallerWindow "01-welcome.png"
   [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
