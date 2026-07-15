@@ -26,7 +26,17 @@ jobs:
 
       - name: Install NSIS
         shell: pwsh
-        run: choco install nsis --no-progress -y
+        run: |
+          $paths = @(
+            "${env:ProgramFiles}\NSIS\makensis.exe",
+            "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          )
+          foreach ($attempt in 1..3) {
+            choco install nsis --no-progress -y
+            if ($paths | Where-Object { Test-Path $_ }) { exit 0 }
+            if ($attempt -lt 3) { Start-Sleep -Seconds 12 }
+          }
+          throw "NSIS installation failed after three attempts"
 
       - name: Compile exact Kurogane shell
         shell: pwsh
