@@ -37,7 +37,7 @@ jobs:
 
       - name: Capture and exercise real Windows UI
         shell: pwsh
-        run: ./scripts/capture-installer-preview.ps1 -Installer ./kurogane-smoke.exe -OutputDirectory ./installer-preview
+        run: ./scripts/capture-installer-preview.ps1 -Installer ./src-tauri/windows/kurogane/kurogane-smoke.exe -OutputDirectory ./installer-preview
 
       - name: Upload full-window screenshots
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
