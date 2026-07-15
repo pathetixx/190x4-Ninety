@@ -52,7 +52,8 @@ jobs:
             "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
           ) | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $makensis) { throw "makensis.exe was not found after Chocolatey installation" }
-          & $makensis /V3 src-tauri/windows/kurogane/smoke.nsi
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          & $makensis /V3 "/DVERSION=$version" src-tauri/windows/kurogane/smoke.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Capture and exercise real Windows UI

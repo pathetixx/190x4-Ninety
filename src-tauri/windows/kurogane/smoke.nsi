@@ -5,7 +5,9 @@ ManifestDPIAwareness PerMonitorV2
 
 !include MUI2.nsh
 
-!define VERSION "0.2.19"
+!ifndef VERSION
+  !define VERSION "0.0.0-preview"
+!endif
 !define MUI_ICON "..\..\icons\icon.ico"
 !include "kurogane-ui.nsh"
 
