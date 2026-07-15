@@ -19,6 +19,7 @@
 !define K_COLOR_BORDER  "37373E"
 
 !define /ifndef PBM_GETPOS      0x0408
+!define /ifndef PBM_GETRANGE    0x0407
 !define /ifndef PBM_SETBARCOLOR 0x0409
 !define /ifndef PBM_SETBKCOLOR  0x2001
 !define /ifndef SC_MINIMIZE     0xF020
@@ -468,6 +469,13 @@ FunctionEnd
   ${If} $KuroganeProgressControl != 0
   ${AndIf} $KuroganePercentControl != 0
     SendMessage $KuroganeProgressControl ${PBM_GETPOS} 0 0 $0
+    ; NSIS uses its own progress range (commonly 0..30000), not 0..100.
+    ; Normalize the live native position before presenting a percentage.
+    SendMessage $KuroganeProgressControl ${PBM_GETRANGE} 0 0 $2
+    ${If} $2 > 0
+      IntOp $0 $0 * 100
+      IntOp $0 $0 / $2
+    ${EndIf}
     StrCpy $1 "$0%"
     SendMessage $KuroganePercentControl ${WM_SETTEXT} 0 "STR:$1"
   ${EndIf}

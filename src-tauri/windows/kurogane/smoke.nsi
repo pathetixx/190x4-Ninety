@@ -47,6 +47,7 @@ Section
   SetOutPath "$TEMP\NinetySmoke"
   FindWindow $0 "#32770" "" $HWNDPARENT
   GetDlgItem $R1 $0 1004
+  SendMessage $R1 0x0406 0 100
   StrCpy $2 0
   smoke_progress:
     IntOp $2 $2 + 10
