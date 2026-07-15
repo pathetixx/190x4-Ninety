@@ -18,6 +18,7 @@ RequestExecutionLevel user
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeInstFilesShow
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeInstFilesLeave
 !insertmacro MUI_PAGE_INSTFILES
+!define MUI_FINISHPAGE_NOAUTOCLOSE
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeFullWindowPageShow
 !insertmacro MUI_PAGE_FINISH
 

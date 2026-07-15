@@ -116,6 +116,15 @@ LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПО
 
   SetCtlColors $HWNDPARENT ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
 
+  GetDlgItem $0 $HWNDPARENT 1208
+  SetCtlColors $0 ${K_COLOR_WINDOW} ${K_COLOR_WINDOW}
+  GetDlgItem $0 $HWNDPARENT 1209
+  SetCtlColors $0 ${K_COLOR_BORDER} ${K_COLOR_BORDER}
+  GetDlgItem $0 $HWNDPARENT 1210
+  SetCtlColors $0 ${K_COLOR_WINDOW} ${K_COLOR_WINDOW}
+  GetDlgItem $0 $HWNDPARENT 1211
+  SetCtlColors $0 ${K_COLOR_BORDER} ${K_COLOR_BORDER}
+
   GetDlgItem $0 $HWNDPARENT 1200
   ${If} $0 != 0
     ${NSD_SetImage} $0 "$PLUGINSDIR\kurogane-left.bmp" $KuroganeLeftBitmap
@@ -224,6 +233,9 @@ FunctionEnd
     ShowWindow $1 $2
     System::Call 'user32::IsWindowEnabled(p r0) i .r2'
     EnableWindow $1 $2
+    ; MUI repositions its real buttons on every page. Keep them functional and
+    ; visible to the engine, but physically outside the client area.
+    System::Call 'user32::SetWindowPos(p r0, p 0, i 1200, i 700, i 1, i 1, i 0x14)'
   ${EndIf}
 !macroend
 
@@ -231,6 +243,22 @@ FunctionEnd
   !insertmacro KuroganeMirrorButton 3 1212
   !insertmacro KuroganeMirrorButton 1 1213
   !insertmacro KuroganeMirrorButton 2 1214
+
+  GetDlgItem $0 $HWNDPARENT 1205
+  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
+  System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
+  GetDlgItem $0 $HWNDPARENT 1207
+  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
+  System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
+  GetDlgItem $0 $HWNDPARENT 1212
+  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_PANEL}
+  System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
+  GetDlgItem $0 $HWNDPARENT 1213
+  SetCtlColors $0 ${K_COLOR_TEXT} C4213F
+  System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
+  GetDlgItem $0 $HWNDPARENT 1214
+  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_PANEL}
+  System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
 
   System::Call 'user32::GetAsyncKeyState(i 1) i .r0'
   IntOp $0 $0 & 0x8000

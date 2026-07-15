@@ -129,7 +129,9 @@ def make_left_panel():
 
 
 def make_title_brand():
-    size = (262, 64)
+    # One-pixel overscan on every edge avoids the Static control exposing its
+    # system-color background after DLU rounding on Windows.
+    size = (264, 66)
     out = Image.new("RGBA", size, (*INK, 255))
     mark = Image.open(SAMURAI_MARK).convert("RGBA")
     mark.thumbnail((55, 55), Image.Resampling.LANCZOS)

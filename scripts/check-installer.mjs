@@ -86,7 +86,7 @@ for (const [path, width, height] of [
   [resolve(configDir, "./windows/header.bmp"), 150, 57],
   [resolve(configDir, "./windows/sidebar.bmp"), 164, 314],
   [resolve(kuroganeDir, "left-panel.bmp"), 384, 538],
-  [resolve(kuroganeDir, "title-brand.bmp"), 262, 64],
+  [resolve(kuroganeDir, "title-brand.bmp"), 264, 66],
   [resolve(kuroganeDir, "progress-frame.bmp"), 460, 53],
 ]) {
   checkBmp(path, width, height);
