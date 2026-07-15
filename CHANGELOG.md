@@ -2,6 +2,15 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.23 — 2026-07-15
+
+- The first-run experience and navigation sidebar were redesigned in the Kurogane Split style with the Ninety samurai artwork, streamlined subscription import, a working skip path, and refreshed Windows/taskbar icons.
+- The active profile or subscription, the selected server for every subscription, and the desired DPI state now survive restarts, OTA relaunches, temporary API failures, and storage recovery; cancelling elevation safely rolls back the DPI intent.
+- The Windows EXE installer and uninstaller now use a fully custom Kurogane shell with live branded progress, stronger cleanup of engines, sidecars, legacy services and drivers, downgrade protection, and updated component/privacy information.
+- Первый запуск и боковая навигация полностью переработаны в стиле Kurogane Split с фирменной маской самурая, упрощённым импортом подписки, рабочим пропуском приветствия и обновлёнными иконками Windows/панели задач.
+- Активный профиль или подписка, выбранный сервер для каждой подписки и желаемое состояние DPI теперь сохраняются после перезапуска, OTA-релонча, временных ошибок API и восстановления хранилища; отмена повышения прав безопасно откатывает намерение включить DPI.
+- EXE-установщик и деинсталлятор Windows получили полностью собственную оболочку Kurogane с живым брендированным прогрессом, усиленной очисткой движков, sidecar-клиентов, старых служб и драйверов, защитой от downgrade и актуальным описанием компонентов и приватности.
+
 ## v0.2.22 — 2026-07-15
 
 - The first-run experience and navigation sidebar were redesigned in the Kurogane Split style with the Ninety samurai artwork, streamlined subscription import, a working skip path, and refreshed Windows/taskbar icons.
