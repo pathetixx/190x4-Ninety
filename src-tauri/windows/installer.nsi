@@ -172,8 +172,11 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 ; Installer pages, must be ordered as they appear
 ; 1. Welcome Page
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeFullWindowPageShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW NinetyWelcomeShow
 !insertmacro MUI_PAGE_WELCOME
+Function NinetyWelcomeShow
+  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text
+FunctionEnd
 
 ; 2. License Page (if defined)
 !if "${LICENSE}" != ""
@@ -427,8 +430,11 @@ Var AppStartMenuFolder
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeFullWindowPageShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW NinetyFinishShow
 !insertmacro MUI_PAGE_FINISH
+Function NinetyFinishShow
+  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.FinishPage $mui.FinishPage.Image $mui.FinishPage.Title $mui.FinishPage.Text
+FunctionEnd
 
 Function RunMainBinary
   nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""

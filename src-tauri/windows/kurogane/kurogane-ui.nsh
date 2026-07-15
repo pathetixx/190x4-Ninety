@@ -325,36 +325,24 @@ Function un.KuroganePageShow
   Call un.KuroganeStyleCurrentPage
 FunctionEnd
 
-; MUI welcome/finish pages are created as right-hosted nsDialogs pages. Hide
-; their stock wizard bitmap and use the full right atelier for native text and
-; options; this preserves MUI lifecycle/checkbox behavior without its blue art.
-!macro KuroganeFullWindowPageShowImpl UNPREFIX
+; MUI welcome/finish pages expose their exact HWNDs. Use those directly: after
+; the progress page, a generic FindWindow can otherwise select a stale dialog.
+!macro KuroganeKnownFullWindowPageShowImpl UNPREFIX PAGE IMAGE TITLE TEXT
+  StrCpy $KuroganePage ${PAGE}
   Call ${UNPREFIX}KuroganeStartShellTimer
-  Call ${UNPREFIX}KuroganeStyleCurrentPage
-  FindWindow $0 "Static" "" $KuroganePage 0
-  ${If} $0 != 0
-    ShowWindow $0 ${SW_HIDE}
-    FindWindow $1 "Static" "" $KuroganePage $0
-    ${If} $1 != 0
-      System::Call 'user32::SetWindowPos(p r1, p 0, i 44, i 72, i 500, i 72, i 0x14)'
-      SetCtlColors $1 ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
-      SendMessage $1 ${WM_SETFONT} $KuroganeFontTitle 1
-      FindWindow $2 "Static" "" $KuroganePage $1
-      ${If} $2 != 0
-        System::Call 'user32::SetWindowPos(p r2, p 0, i 44, i 148, i 500, i 230, i 0x14)'
-        SetCtlColors $2 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
-        SendMessage $2 ${WM_SETFONT} $KuroganeFontBody 1
-      ${EndIf}
-    ${EndIf}
-  ${EndIf}
-!macroend
+  SetCtlColors $KuroganePage ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
+  StrCpy $2 $KuroganePage
+  !insertmacro KuroganeStyleClass "Static" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} "false"
+  !insertmacro KuroganeStyleClass "Button" ${K_COLOR_TEXT} ${K_COLOR_PANEL} "true"
 
-Function KuroganeFullWindowPageShow
-  !insertmacro KuroganeFullWindowPageShowImpl ""
-FunctionEnd
-Function un.KuroganeFullWindowPageShow
-  !insertmacro KuroganeFullWindowPageShowImpl "un."
-FunctionEnd
+  ShowWindow ${IMAGE} ${SW_HIDE}
+  System::Call 'user32::SetWindowPos(p ${TITLE}, p 0, i 44, i 72, i 500, i 72, i 0x14)'
+  SetCtlColors ${TITLE} ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
+  SendMessage ${TITLE} ${WM_SETFONT} $KuroganeFontTitle 1
+  System::Call 'user32::SetWindowPos(p ${TEXT}, p 0, i 44, i 148, i 500, i 230, i 0x14)'
+  SetCtlColors ${TEXT} ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
+  SendMessage ${TEXT} ${WM_SETFONT} $KuroganeFontBody 1
+!macroend
 
 !macro KuroganeProgressPageImpl UNPREFIX TITLE SUBTITLE STATUS
   Call ${UNPREFIX}KuroganeStartShellTimer

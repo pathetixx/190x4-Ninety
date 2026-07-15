@@ -13,14 +13,20 @@ Name "Ninety"
 OutFile "kurogane-smoke.exe"
 RequestExecutionLevel user
 
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeFullWindowPageShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeWelcomeShow
 !insertmacro MUI_PAGE_WELCOME
+Function SmokeWelcomeShow
+  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text
+FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeInstFilesShow
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeInstFilesLeave
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_NOAUTOCLOSE
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeFullWindowPageShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeFinishShow
 !insertmacro MUI_PAGE_FINISH
+Function SmokeFinishShow
+  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.FinishPage $mui.FinishPage.Image $mui.FinishPage.Title $mui.FinishPage.Text
+FunctionEnd
 
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.KuroganePageShow
 !insertmacro MUI_UNPAGE_CONFIRM
