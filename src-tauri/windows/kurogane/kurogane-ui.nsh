@@ -401,6 +401,12 @@ FunctionEnd
 !macro KuroganeProgressPageImpl UNPREFIX TITLE SUBTITLE STATUS
   StrCpy $KuroganeProgressActive 1
   Call ${UNPREFIX}KuroganeApplyChromeNext
+  ; The NSIS VM blocks nsDialogs timers while Section instructions execute.
+  ; Hide stale welcome navigation synchronously before the first File command.
+  GetDlgItem $0 $HWNDPARENT 1212
+  ShowWindow $0 ${SW_HIDE}
+  GetDlgItem $0 $HWNDPARENT 1213
+  ShowWindow $0 ${SW_HIDE}
   Call ${UNPREFIX}KuroganeStartShellTimer
   Call ${UNPREFIX}KuroganeStyleCurrentPage
 

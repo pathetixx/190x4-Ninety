@@ -20,6 +20,7 @@ public static class NinetyPreviewWin32 {
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint message, UIntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
   [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr param);
@@ -105,6 +106,11 @@ try {
     }
   }
 
+  function Send-Enter {
+    [NinetyPreviewWin32]::PostMessage($window, 0x0100, [UIntPtr]0x0D, [IntPtr]::Zero) | Out-Null
+    [NinetyPreviewWin32]::PostMessage($window, 0x0101, [UIntPtr]0x0D, [IntPtr]::Zero) | Out-Null
+  }
+
   [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
   Start-Sleep -Seconds 2
   Save-InstallerWindow "00-before-drag.png"
@@ -149,12 +155,12 @@ try {
   Start-Sleep -Milliseconds 500
 
   Save-InstallerWindow "01-welcome.png"
-  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+  Send-Enter
   Start-Sleep -Seconds 3
   Assert-LiveProgress
   Save-InstallerWindow "02-progress.png"
   Start-Sleep -Seconds 5
-  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+  Send-Enter
   Start-Sleep -Seconds 1
   Save-InstallerWindow "03-finish.png"
   if (-not $dragPassed) {
