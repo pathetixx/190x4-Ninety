@@ -29,10 +29,10 @@ TARGETS = [
 def render_bmp(name, size):
     src = os.path.join(ART, f"{name}.png")
     if not os.path.exists(src):
-        sys.exit(f"нет исходника {src}")
+        sys.exit(f"source asset is missing: {src}")
     im = Image.open(src).convert("RGBA")
     if im.size != size:
-        sys.exit(f"{name}.png размер {im.size}, ожидался {size}")
+        sys.exit(f"{name}.png has size {im.size}, expected {size}")
     bg = Image.new("RGB", size, INK_0)
     bg.paste(im, (0, 0), im)  # корректно сводим PNG-альфу на фон установщика
     buf = io.BytesIO()
@@ -46,8 +46,8 @@ def bake(name, size, check=False):
     if check:
         actual = open(out, "rb").read() if os.path.exists(out) else b""
         if actual != expected:
-            sys.exit(f"{name}.bmp устарел; запустите make_installer_bitmaps.py")
-        print(f"✓ {name}.bmp {size} 24-bit синхронизирован")
+            sys.exit(f"{name}.bmp is stale; run make_installer_bitmaps.py")
+        print(f"OK {name}.bmp {size} 24-bit synchronized")
         return
     with open(out, "wb") as f:
         f.write(expected)

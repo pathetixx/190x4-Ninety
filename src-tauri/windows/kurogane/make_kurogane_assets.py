@@ -42,8 +42,8 @@ def save_or_check(image: Image.Image, name: str, check: bool):
     expected = bmp_bytes(image)
     if check:
         if not path.exists() or path.read_bytes() != expected:
-            raise SystemExit(f"{name} устарел — запустите {Path(__file__).name}")
-        print(f"✓ {name}: {image.size} 24-bit")
+            raise SystemExit(f"{name} is stale; run {Path(__file__).name}")
+        print(f"OK {name}: {image.size} 24-bit")
         return
     path.write_bytes(expected)
     print(f"{name}: {image.size} 24-bit")

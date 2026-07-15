@@ -66,13 +66,13 @@ def main():
     if args.check:
         actual = open(OUT, "rb").read() if os.path.exists(OUT) else b""
         if actual != expected:
-            sys.exit("license.rtf устарел; запустите make_license_rtf.py")
-        print(f"✓ {OUT} синхронизирован ({len(actual)} байт)")
+            sys.exit("license.rtf is stale; run make_license_rtf.py")
+        print(f"OK {OUT} synchronized ({len(actual)} bytes)")
         return
 
     with open(OUT, "wb") as f:
         f.write(expected)
-    print(f"✓ {OUT} ({os.path.getsize(OUT)} байт)")
+    print(f"OK {OUT} ({os.path.getsize(OUT)} bytes)")
 
 
 if __name__ == "__main__":
