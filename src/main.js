@@ -85,7 +85,7 @@ const invoke = window.__TAURI__?.core?.invoke
 
 // ── Восстановление состояния из бэкапа ──────────────────────
 // Профиль WebView2 (EBWebView) могли снести чистилки диска/антивирус: если
-// localStorage пуст, а снапшот в app_config_dir есть — возвращаем ключи и
+// localStorage пуст, а снапшот в writable config dir есть — возвращаем ключи и
 // перезагружаем webview, чтобы все модули перечитали хранилище с нуля
 // (тема/язык/опции уже прочитаны дефолтами к этому моменту).
 const restoreStateOnLaunch = (async () => {
@@ -2165,7 +2165,7 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
     // чтобы конфиг собрался уже с рабочим резолвером. Только пока юзер не ушёл.
     await ensureWorkingDirectDns({ toast, onlyIf: () => state === "connecting" && connectAttempts.isCurrent(attemptEpoch) });
     if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
-    // Если WARP включён — тянем регистрацию из app_config_dir/warp.json
+    // Если WARP включён — тянем регистрацию из writable config dir/warp.json
     // и передаём в builder. Без warpInfo builder тихо пропустит warp endpoint.
     let warpInfo = null;
     if (options.warp?.enabled) {
@@ -2429,7 +2429,7 @@ setSubscriptionProxy(() =>
   state === "connected" ? `http://127.0.0.1:${loadOptions().inbound.mixedPort || 7890}` : null
 );
 
-// ── Бэкап состояния (localStorage → app_config_dir) ─────────
+// ── Бэкап состояния (localStorage → writable config dir) ────
 // Мутации бэкапятся точечно (backupSoon в refreshProfilesSummary/settings);
 // периодический тик подстраховывает ключи, меняющиеся мимо этих точек
 // (traffic-meter, обучение движка качества и т.п.).

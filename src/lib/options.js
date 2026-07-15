@@ -39,7 +39,7 @@ export const DEFAULT_OPTIONS = {
   },
   warp: {
     // Включает выбор WARP в селекторе outbound (UI). Сама регистрация делается
-    // отдельной кнопкой, ключи лежат в app_config_dir/warp.json (Rust-сторона).
+    // отдельной кнопкой, ключи лежат в writable config dir/warp.json (Rust-сторона).
     enabled: false,
     // "direct" — WARP как единственный outbound (без прокси)
     // "chain"  — WARP как detour поверх активной ноды (proxy → WARP → internet)

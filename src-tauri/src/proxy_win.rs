@@ -20,7 +20,8 @@ use winreg::RegKey;
 // входе в Windows — без UAC-промпта на каждый логин (которым страдал прежний
 // Run-ключ реестра: тот запускал не-elevated инстанс, и тот сам перезапускался
 // через runas → UAC). См. autostart_enable / migrate_legacy_autostart.
-const TASK_NAME: &str = "Ninety";
+const INSTALLED_TASK_NAME: &str = "Ninety";
+const PORTABLE_TASK_NAME: &str = "Ninety Portable";
 // CREATE_NO_WINDOW — не мигать чёрным окном консоли schtasks.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -461,8 +462,25 @@ fn schtasks_exe() -> String {
 fn create_task_cmdline(exe: &str) -> String {
     format!(
         r#"/create /tn {} /tr "\"{}\" --autostarted --elevated" /sc onlogon /rl highest /f"#,
-        TASK_NAME, exe
+        schtasks_name_arg(task_name()),
+        exe
     )
+}
+
+fn task_name() -> &'static str {
+    if crate::app_paths::is_portable() {
+        PORTABLE_TASK_NAME
+    } else {
+        INSTALLED_TASK_NAME
+    }
+}
+
+fn schtasks_name_arg(name: &str) -> String {
+    if name.chars().any(char::is_whitespace) {
+        format!(r#""{name}""#)
+    } else {
+        name.to_string()
+    }
 }
 
 // Запуск schtasks с поднятием прав (один UAC, само приложение не перезапускаем).
@@ -535,7 +553,7 @@ fn wait_for_task_state(expected: bool) -> bool {
 // True если задача автозапуска зарегистрирована. Query прав не требует.
 pub fn autostart_is_enabled() -> bool {
     Command::new(schtasks_exe())
-        .args(["/query", "/tn", TASK_NAME])
+        .args(["/query", "/tn", task_name()])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map(|o| o.status.success())
@@ -572,7 +590,7 @@ pub fn autostart_disable() -> Result<(), String> {
     if !autostart_is_enabled() {
         return Ok(());
     }
-    let cmdline = format!("/delete /tn {} /f", TASK_NAME);
+    let cmdline = format!("/delete /tn {} /f", schtasks_name_arg(task_name()));
     if is_elevated() {
         let ok = Command::new(schtasks_exe())
             .raw_arg(&cmdline)
@@ -720,6 +738,15 @@ mod tests {
         assert_eq!(
             cmd,
             r#"/create /tn Ninety /tr "\"C:\Program Files\Найнти\Ninety.exe\" --autostarted --elevated" /sc onlogon /rl highest /f"#
+        );
+    }
+
+    #[test]
+    fn portable_task_name_is_quoted_for_raw_schtasks_command() {
+        assert_eq!(schtasks_name_arg(INSTALLED_TASK_NAME), "Ninety");
+        assert_eq!(
+            schtasks_name_arg(PORTABLE_TASK_NAME),
+            r#""Ninety Portable""#
         );
     }
 

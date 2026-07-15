@@ -5,7 +5,7 @@
 //     WARP-регистрации.
 //   * "wg"  — реальный WG handshake init packet через boringtun, ждём response
 //     (msg_type=2). Точнее — отсеивает "порт открыт, но WARP не отвечает".
-//     Использует ключи из app_config_dir/warp.json. Reserved-байты (CF
+//     Использует ключи из writable config dir/warp.json. Reserved-байты (CF
 //     client_id routing) подменяются, MAC1 пересчитывается через blake2.
 //
 // IP-диапазоны и порты — из публично известного CF endpoint pool

@@ -234,12 +234,7 @@ fn res_lists(app: &AppHandle) -> Result<PathBuf, String> {
 }
 // Writable-каталог списков: <app_data>/dpi/lists.
 fn lists_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?
-        .join("dpi")
-        .join("lists");
+    let dir = crate::app_paths::data_dir(app)?.join("dpi").join("lists");
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir lists: {e}"))?;
     Ok(dir)
 }
@@ -286,10 +281,7 @@ fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
 // обновлять без переустановки. winws читает .bin по абсолютному пути (%BIN%),
 // независимо от cwd — поэтому свойство «движок из read-only» не нарушается.
 fn bindata_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?
+    let dir = crate::app_paths::data_dir(app)?
         .join("dpi")
         .join("bin-data");
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir bin-data: {e}"))?;
@@ -325,7 +317,7 @@ fn ensure_bindata(app: &AppHandle) -> Result<PathBuf, String> {
 // приоритет над забандленным ресурсом. Так обновлённые стратегии применяются без
 // переустановки приложения.
 fn strategies_path(app: &AppHandle) -> PathBuf {
-    if let Ok(dir) = app.path().app_data_dir() {
+    if let Ok(dir) = crate::app_paths::data_dir(app) {
         let p = dir.join("dpi").join("strategies.json");
         if p.exists() {
             return p;
@@ -367,7 +359,7 @@ fn write_ipset_mode(app: &AppHandle, lists: &Path, mode: &str) -> Result<(), Str
 
 // Лог winws (stdout+stderr) — критичен для диагностики мгновенных падений.
 fn dpi_log_file(app: &AppHandle) -> Option<PathBuf> {
-    let dir = app.path().app_log_dir().ok()?;
+    let dir = crate::app_paths::log_dir(app).ok()?;
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("dpi.log"))
 }
@@ -966,7 +958,7 @@ fn normalize_ipset_entry(raw: &str) -> Result<String, String> {
 // Версия набора стратегий: app_data-маркер (после обновления) приоритетнее
 // ресурсной (bundled). Так UI отражает обновления и гасит badge.
 fn strat_version(app: &AppHandle) -> String {
-    if let Ok(dir) = app.path().app_data_dir() {
+    if let Ok(dir) = crate::app_paths::data_dir(app) {
         let marker = dir.join("dpi").join("strategies-version.txt");
         if let Ok(v) = std::fs::read_to_string(&marker) {
             let v = v.trim().to_string();
@@ -1285,12 +1277,7 @@ fn referenced_bins(strategies: &[Strategy]) -> std::collections::HashSet<String>
 // Каталог последнего применённого подписанного service-набора (hosts/ipset) —
 // оффлайн-фолбэк, когда сеть недоступна, но канал уже синкали хоть раз.
 fn channel_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?
-        .join("dpi")
-        .join("channel");
+    let dir = crate::app_paths::data_dir(app)?.join("dpi").join("channel");
     Ok(dir)
 }
 
@@ -1322,11 +1309,7 @@ async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<Pat
     // ВЕРИФИКАЦИЯ подписи до любой распаковки.
     verify_channel(&zip_bytes, &sig_b64)?;
 
-    let dpi_data = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?
-        .join("dpi");
+    let dpi_data = crate::app_paths::data_dir(app)?.join("dpi");
     let seq = TEMP_FILE_SEQ.fetch_add(1, Ordering::Relaxed);
     let staging = dpi_data.join(format!(".staging-{}-{seq}", std::process::id()));
     std::fs::create_dir_all(&staging).map_err(|e| format!("mkdir staging: {e}"))?;
@@ -1432,11 +1415,7 @@ pub async fn dpi_sync_channel(
     port: Option<u16>,
 ) -> Result<serde_json::Value, String> {
     // 1–3. Скачать + проверить подпись + распаковать в стейджинг (общий хелпер).
-    let dpi_data = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?
-        .join("dpi");
+    let dpi_data = crate::app_paths::data_dir(&app)?.join("dpi");
     let staging = stage_verified_bundle(&app, port).await?;
 
     let result = (|| -> Result<serde_json::Value, String> {
@@ -1654,11 +1633,7 @@ pub async fn dpi_hosts_apply(
 
     // Бэкап оригинала один раз — до первой нашей записи. Ошибка backup блокирует
     // системную запись: без проверяемого отката менять hosts нельзя.
-    let bdir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir для backup hosts: {e}"))?
-        .join("dpi");
+    let bdir = crate::app_paths::data_dir(&app)?.join("dpi");
     std::fs::create_dir_all(&bdir).map_err(|e| format!("mkdir hosts backup: {e}"))?;
     let backup = bdir.join("hosts.backup");
     if !backup.exists() {

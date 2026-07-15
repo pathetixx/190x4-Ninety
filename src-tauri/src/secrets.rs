@@ -9,7 +9,19 @@
 // детект по первому непробельному байту '{' (DPAPI-блоб начинается с байта
 // версии 0x01, коллизий нет); перешифровка — при следующей записи файла.
 //
-// Не-Windows (dev-стенд): passthrough без шифрования.
+// Full Portable: passthrough, потому что DPAPI привязал бы переносимый каталог
+// к одному Windows-пользователю и сломал бы профили/WARP на другом ПК. Это не
+// ослабляет уже существующий localStorage: он и так лежит в переносимом профиле
+// WebView2. README явно предупреждает защищать NinetyData как чувствительные
+// пользовательские данные. Не-Windows (dev-стенд): тоже passthrough.
+
+pub fn seal_for_app(_app: &tauri::AppHandle, data: &[u8]) -> Result<Vec<u8>, String> {
+    if crate::app_paths::is_portable() {
+        Ok(data.to_vec())
+    } else {
+        seal(data)
+    }
+}
 
 /// true если содержимое — легаси plaintext-JSON (не DPAPI-блоб).
 pub fn is_plaintext_json(bytes: &[u8]) -> bool {

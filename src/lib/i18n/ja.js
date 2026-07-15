@@ -804,7 +804,7 @@ export const ja = {
     },
 
     warp: {
-      banner: "Cloudflare WARP は WireGuard デバイスを Cloudflare に登録します。無料の WARP — ライセンス不要（「登録」だけ）。WARP+ — 「1.1.1.1」アプリの26文字のキーを入力します。キーとトークンは <code>app_config_dir/warp.json</code> にローカル保存されます。",
+      banner: "Cloudflare WARP は WireGuard デバイスを Cloudflare に登録します。無料の WARP — ライセンス不要（「登録」だけ）。WARP+ — 「1.1.1.1」アプリの26文字のキーを入力します。キーとトークンは Ninety にローカル保存されます。",
       grpConn: "接続",
       grpConnHint: "WARP をどこで有効にし、どのモードを使うか。",
       enableTitle: "WARP を有効化",

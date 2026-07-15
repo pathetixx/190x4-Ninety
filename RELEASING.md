@@ -28,7 +28,7 @@ node scripts/release.mjs 0.1.96 --watch
 `-F`, пушит `main` + тег, создаёт draft-релиз тем же текстом. С `--watch` дальше
 находит CI-ран по SHA коммита, ведёт его до конца (`gh run watch`, компиляция →
 проверка → GitLab promotion → публикация) и проверяет исход: релиз published и не prerelease, есть
-`.exe`/`.sig`/`.msi`/Portable ZIP/`latest.json`, а `latest.json` реально отдаётся с GitHub
+`.exe`/`.sig`/`.msi`/Full Portable ZIP/`latest.json`, а `latest.json` реально отдаётся с GitHub
 (`/releases/latest/`, версия совпала ⇒ релиз Latest) и с GitLab (первичный
 источник). До публикации draft CI загружает и проверяет immutable installer и
 versioned metadata GitLab, затем переключает `stable/latest.json`. Красный CI до
@@ -103,7 +103,7 @@ versioned metadata GitLab, затем переключает `stable/latest.json
 6. Дождаться зелёного рана (`gh run watch`). CI проверяет Windows artifacts и
    запуск приложения, обновляет R2 для legacy-клиентов, безопасно продвигает
    GitLab и только затем публикует draft + грузит GitHub assets. Проверить: релиз стал published и Latest, есть
-   `Ninety_X.Y.Z_x64-setup.exe` (+`.sig`), `.msi`, Windows x64 Portable ZIP,
+   `Ninety_X.Y.Z_x64-setup.exe` (+`.sig`), `.msi`, Windows x64 Full Portable ZIP,
    `latest.json` с верной
    `version`/подписью, и `curl -sIL .../releases/latest/download/latest.json`
    даёт 302→200 (не 404).

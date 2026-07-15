@@ -1,3 +1,4 @@
+mod app_paths;
 mod atomic_file;
 mod backup;
 mod clash;
@@ -46,16 +47,12 @@ fn ping() -> &'static str {
     "pong"
 }
 
-/// Portable-сборка определяется маркером рядом с Ninety.exe. Такой режим пока
-/// означает «без установки»: пользовательские данные по-прежнему живут в
-/// стандартных каталогах Windows, но встроенный updater не должен запускать
-/// NSIS и превращать распакованную копию в установленную.
+/// Full Portable определяется маркером рядом с Ninety.exe: writable-данные и
+/// WebView-профиль уходят в NinetyData, а updater предлагает новый ZIP вместо
+/// запуска NSIS и превращения распакованной копии в установленную.
 #[tauri::command]
 fn is_portable() -> bool {
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("Ninety.portable")))
-        .is_some_and(|marker| marker.is_file())
+    app_paths::is_portable()
 }
 
 /// True если процесс стартовал с флагом --autostarted (Windows login или
@@ -122,14 +119,13 @@ fn relaunch_elevated(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 fn always_admin_marker(app: &tauri::AppHandle) -> Option<PathBuf> {
-    app.path()
-        .app_config_dir()
+    app_paths::config_dir(app)
         .ok()
-        .map(|d| d.join("always-admin"))
+        .map(|dir| dir.join("always-admin"))
 }
 
 /// True если включён режим «всегда запускать от администратора» (маркер-файл
-/// в app_config_dir). Читается на старте в setup() для авто-элевации.
+/// в writable config dir). Читается на старте в setup() для авто-элевации.
 #[tauri::command]
 fn is_always_admin(app: tauri::AppHandle) -> bool {
     always_admin_marker(&app)
@@ -500,6 +496,17 @@ fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let portable = app_paths::is_portable();
+    let mut context = tauri::generate_context!();
+    if portable {
+        // Absolute WebView2 data directory задаётся только через builder.
+        // Запрещаем Tauri автоматически создавать окно из tauri.conf и
+        // создаём его в setup() с NinetyData/webview.
+        if let Some(window) = context.config_mut().app.windows.first_mut() {
+            window.create = false;
+        }
+    }
+
     tauri::Builder::default()
         // single-instance ОБЯЗАН быть зарегистрирован первым: на second-launch
         // (юзер кликнул ninety://import/...) система запускает второй процесс;
@@ -531,7 +538,21 @@ pub fn run() {
         .manage(clash_stream::ClashStreamState::default())
         .manage(killswitch::KillSwitchState::default())
         .manage(scanner::WarpScanState::default())
-        .setup(|app| {
+        .setup(move |app| {
+            if portable {
+                app_paths::ensure_portable_layout()?;
+                let config = app
+                    .config()
+                    .app
+                    .windows
+                    .first()
+                    .cloned()
+                    .ok_or("конфигурация главного окна отсутствует")?;
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?
+                    .data_directory(app_paths::webview_dir()?)
+                    .build()?;
+            }
+
             let argv: Vec<String> = std::env::args().collect();
             let autostarted = argv.iter().any(|a| a == "--autostarted");
             let ci_smoke = argv.iter().any(|a| a == "--ci-smoke");
@@ -571,8 +592,15 @@ pub fn run() {
             // после этого вход в Windows перестаёт дёргать UAC.
             #[cfg(target_os = "windows")]
             {
-                elevation::migrate_legacy_autostart();
-                // Подхватываем актуальный путь exe в задаче (OTA-переустановка).
+                // Portable не должен мигрировать или перепривязывать задачу
+                // установленной Ninety. Своя задача появится только если юзер
+                // явно включит автозапуск в настройках.
+                if !portable {
+                    elevation::migrate_legacy_autostart();
+                }
+                // Подхватываем актуальный путь exe: у установленной версии —
+                // после OTA, у Portable — после переноса папки. Имена задач
+                // разные, поэтому сборки не перепривязывают друг друга.
                 elevation::autostart_refresh_path();
             }
 
@@ -588,11 +616,15 @@ pub fn run() {
 
             // Регистрация ninety:// в HKCR при первом запуске. На NSIS-инсталле
             // tauri-plugin-deep-link уже прописал ключи в installer; register_all
-            // нужен для portable-сценария / dev-режима / повторной регистрации.
+            // нужен для dev-режима / повторной регистрации установленной версии.
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             {
-                if let Err(e) = app.deep_link().register_all() {
-                    eprintln!("deep-link register_all: {e}");
+                // Full Portable не пишет в реестр при обычном запуске. Ручные
+                // обработчики VPN-ссылок остаются opt-in через Настройки.
+                if !portable {
+                    if let Err(e) = app.deep_link().register_all() {
+                        eprintln!("deep-link register_all: {e}");
+                    }
                 }
             }
 
@@ -660,6 +692,25 @@ pub fn run() {
             if ci_smoke {
                 if ping() != "pong" {
                     return Err("backend ping failed during CI smoke".into());
+                }
+                if portable {
+                    for name in ["config", "data", "logs", "webview"] {
+                        if !app_paths::portable_root()?.join(name).is_dir() {
+                            return Err(format!("portable directory missing: {name}").into());
+                        }
+                    }
+                    // Реальная запись через production-path helper: ловит и
+                    // случайный AppData, и DPAPI, который сделал бы Full
+                    // Portable нечитаемым после переноса на другой ПК.
+                    backup::state_backup_save(app.handle().clone(), "{}".into())?;
+                    let snapshot = std::fs::read(
+                        app_paths::portable_root()?
+                            .join("config")
+                            .join("state-backup.json"),
+                    )?;
+                    if !secrets::is_plaintext_json(&snapshot) {
+                        return Err("portable state backup is not transferable".into());
+                    }
                 }
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
@@ -756,7 +807,7 @@ pub fn run() {
             backup::state_backup_load,
             backup::state_backup_clear,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {

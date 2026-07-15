@@ -804,7 +804,7 @@ export const zh = {
     },
 
     warp: {
-      banner: "Cloudflare WARP 会在 Cloudflare 注册一个 WireGuard 设备。免费 WARP——无需许可证（直接“注册”）。WARP+——输入“1.1.1.1”应用中的 26 位密钥。密钥与令牌本地存储于 <code>app_config_dir/warp.json</code>。",
+      banner: "Cloudflare WARP 会在 Cloudflare 注册一个 WireGuard 设备。免费 WARP——无需许可证（直接“注册”）。WARP+——输入“1.1.1.1”应用中的 26 位密钥。密钥与令牌由 Ninety 本地存储。",
       grpConn: "连接",
       grpConnHint: "在何处启用 WARP 以及使用哪种模式。",
       enableTitle: "启用 WARP",

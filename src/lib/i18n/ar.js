@@ -804,7 +804,7 @@ export const ar = {
     },
 
     warp: {
-      banner: "يسجّل Cloudflare WARP جهاز WireGuard في Cloudflare. WARP المجاني — بلا ترخيص (فقط «تسجيل»). WARP+ — أدخل المفتاح المكوّن من ٢٦ حرفًا من تطبيق «1.1.1.1». تُخزَّن المفاتيح والرمز محليًا في <code>app_config_dir/warp.json</code>.",
+      banner: "يسجّل Cloudflare WARP جهاز WireGuard في Cloudflare. WARP المجاني — بلا ترخيص (فقط «تسجيل»). WARP+ — أدخل المفتاح المكوّن من ٢٦ حرفًا من تطبيق «1.1.1.1». تُخزَّن المفاتيح والرمز محليًا في Ninety.",
       grpConn: "الاتصال",
       grpConnHint: "أين يُفعَّل WARP وأي وضع يُستخدم.",
       enableTitle: "تفعيل WARP",

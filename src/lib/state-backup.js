@@ -1,4 +1,4 @@
-// Ninety · бэкап/восстановление localStorage через app_config_dir.
+// Ninety · бэкап/восстановление localStorage через writable config dir.
 //
 // localStorage живёт в профиле WebView2 (каталог EBWebView): его сносят
 // чистилки диска, антивирусы и переустановка системы — юзер молча теряет

@@ -1,5 +1,5 @@
 // WARP: регистрация WireGuard-устройства в Cloudflare API + опциональная
-// активация WARP+ лицензии. Хранилище — app_config_dir/warp.json.
+// активация WARP+ лицензии. Хранилище — writable config dir/warp.json.
 //
 // CF API эндпоинты (публично известны из bepass-org/warp-plus, MIT, и старого
 // cloudflare/warp-tunnel-rs):
@@ -15,7 +15,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 const CF_API_BASE: &str = "https://api.cloudflareclient.com/v0a2158";
@@ -100,26 +100,25 @@ struct CfPatchAccountResp {
 }
 
 fn storage_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("app_config_dir: {e}"))?;
+    let dir = crate::app_paths::config_dir(app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     Ok(dir.join("warp.json"))
 }
 
-// warp.json хранится DPAPI-блобом (см. secrets.rs): внутри приватный WG-ключ и
-// access_token CF — plaintext на диске им не место. Легаси-файл (plaintext-JSON
-// от прежних версий) читаем как есть и сразу перешифровываем.
+// В установленной версии warp.json хранится DPAPI-блобом (см. secrets.rs).
+// Full Portable хранит JSON рядом с переносимым WebView-профилем: DPAPI сделал
+// бы его нечитаемым после переноса на другой ПК. Легаси plaintext читается как есть.
 fn read_info(app: &AppHandle) -> Option<WarpInfo> {
     let p = storage_path(app).ok()?;
     let bytes = std::fs::read(&p).ok()?;
     if crate::secrets::is_plaintext_json(&bytes) {
         let info: WarpInfo = serde_json::from_slice(&bytes).ok()?;
-        // Миграция на DPAPI (best-effort). На не-Windows seal = passthrough,
-        // перезапись ничего не меняет — пропускаем.
+        // Миграция установленной версии на DPAPI (best-effort). Portable
+        // намеренно оставляет переносимый plaintext без бессмысленной перезаписи.
         #[cfg(target_os = "windows")]
-        let _ = write_info(app, &info);
+        if !crate::app_paths::is_portable() {
+            let _ = write_info(app, &info);
+        }
         return Some(info);
     }
     let plain = crate::secrets::unseal(&bytes).ok()?;
@@ -129,7 +128,7 @@ fn read_info(app: &AppHandle) -> Option<WarpInfo> {
 fn write_info(app: &AppHandle, info: &WarpInfo) -> Result<(), String> {
     let p = storage_path(app)?;
     let s = serde_json::to_string(info).map_err(|e| format!("serialize: {e}"))?;
-    let sealed = crate::secrets::seal(s.as_bytes())?;
+    let sealed = crate::secrets::seal_for_app(app, s.as_bytes())?;
     crate::atomic_file::write_bytes_replace(&p, &sealed, "warp state")
 }
 

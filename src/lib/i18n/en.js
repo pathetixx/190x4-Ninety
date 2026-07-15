@@ -804,7 +804,7 @@ export const en = {
     },
 
     warp: {
-      banner: "Cloudflare WARP registers a WireGuard device with Cloudflare. Free WARP — no license (just “Register”). WARP+ — enter the 26-character key from the “1.1.1.1” app. Keys and token are stored locally in <code>app_config_dir/warp.json</code>.",
+      banner: "Cloudflare WARP registers a WireGuard device with Cloudflare. Free WARP — no license (just “Register”). WARP+ — enter the 26-character key from the “1.1.1.1” app. Keys and token are stored locally by Ninety.",
       grpConn: "Connection",
       grpConnHint: "Where to enable WARP and which mode to use.",
       enableTitle: "Enable WARP",

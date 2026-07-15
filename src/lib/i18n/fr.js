@@ -804,7 +804,7 @@ export const fr = {
     },
 
     warp: {
-      banner: "Cloudflare WARP enregistre un appareil WireGuard auprès de Cloudflare. WARP gratuit — sans licence (juste « Enregistrer »). WARP+ — saisissez la clé de 26 caractères de l’appli « 1.1.1.1 ». Les clés et le jeton sont stockés localement dans <code>app_config_dir/warp.json</code>.",
+      banner: "Cloudflare WARP enregistre un appareil WireGuard auprès de Cloudflare. WARP gratuit — sans licence (juste « Enregistrer »). WARP+ — saisissez la clé de 26 caractères de l’appli « 1.1.1.1 ». Les clés et le jeton sont stockés localement par Ninety.",
       grpConn: "Connexion",
       grpConnHint: "Où activer WARP et quel mode utiliser.",
       enableTitle: "Activer WARP",

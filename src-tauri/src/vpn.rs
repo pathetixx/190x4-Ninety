@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
 use crate::util::MutexExt;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -439,31 +439,25 @@ fn harden_config(raw: &str) -> String {
 }
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("app_config_dir: {e}"))?;
+    let dir = crate::app_paths::config_dir(app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     Ok(dir.join("singbox-current.json"))
 }
 
 fn log_path(app: &AppHandle) -> Option<PathBuf> {
-    let dir = app.path().app_log_dir().ok()?;
+    let dir = crate::app_paths::log_dir(app).ok()?;
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("singbox.log"))
 }
 
 fn xray_config_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("app_config_dir: {e}"))?;
+    let dir = crate::app_paths::config_dir(app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     Ok(dir.join("xray-current.json"))
 }
 
 fn xray_log_path(app: &AppHandle) -> Option<PathBuf> {
-    let dir = app.path().app_log_dir().ok()?;
+    let dir = crate::app_paths::log_dir(app).ok()?;
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("xray.log"))
 }
@@ -539,12 +533,9 @@ async fn spawn_sidecars(
     start_epoch: u64,
     process_generation: u64,
 ) -> Result<(), String> {
-    let cfg_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("app_config_dir: {e}"))?;
+    let cfg_dir = crate::app_paths::config_dir(app)?;
     std::fs::create_dir_all(&cfg_dir).map_err(|e| format!("mkdir: {e}"))?;
-    let log_dir = app.path().app_log_dir().ok();
+    let log_dir = crate::app_paths::log_dir(app).ok();
 
     let mut planned_logs: HashSet<String> = HashSet::new();
     for spec in specs {
@@ -641,7 +632,7 @@ async fn spawn_sidecars(
     Ok(())
 }
 
-// Путь к логу sing-box. Лог во всех режимах пишет сам Tauri в app_log_dir
+// Путь к логу sing-box. Лог во всех режимах пишет сам Tauri в writable log dir
 // (sing-box — наш child, его stdout/stderr льётся в файл монитор-таском).
 fn resolved_log_path(app: &AppHandle) -> Result<PathBuf, String> {
     log_path(app).ok_or_else(|| "log_dir недоступен".to_string())
@@ -767,10 +758,7 @@ pub async fn read_log(
     source: String,
     tail_bytes: Option<u64>,
 ) -> Result<String, String> {
-    let dir = app
-        .path()
-        .app_log_dir()
-        .map_err(|e| format!("app_log_dir: {e}"))?;
+    let dir = crate::app_paths::log_dir(&app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     let paths = component_log_files(&dir, &source)?;
     read_log_files(&paths, tail_bytes)
@@ -790,10 +778,7 @@ pub async fn clear_singbox_log(app: AppHandle) -> Result<(), String> {
 // Очистка лога любого компонента.
 #[tauri::command]
 pub async fn clear_log(app: AppHandle, source: String) -> Result<(), String> {
-    let dir = app
-        .path()
-        .app_log_dir()
-        .map_err(|e| format!("app_log_dir: {e}"))?;
+    let dir = crate::app_paths::log_dir(&app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     let paths = component_log_files(&dir, &source)?;
     clear_log_files(&paths)
@@ -801,10 +786,7 @@ pub async fn clear_log(app: AppHandle, source: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
-    let dir = app
-        .path()
-        .app_log_dir()
-        .map_err(|e| format!("app_log_dir: {e}"))?;
+    let dir = crate::app_paths::log_dir(&app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     #[cfg(target_os = "windows")]
     {
@@ -1284,12 +1266,12 @@ async fn wait_start_delay(
     }
 }
 
-// Стирает конфиги мостов (naive-*.json, trusttunnel-*.toml) из app_config_dir.
+// Стирает конфиги мостов (naive-*.json, trusttunnel-*.toml) из writable config dir.
 // В них лежат креды нод (user:pass) — не держим их на диске дольше сессии.
 // singbox-current.json/xray-current.json НЕ трогаем: это норма клиентов, и
 // они перезаписываются при следующем старте.
 fn purge_bridge_configs(app: &AppHandle) {
-    let Ok(dir) = app.path().app_config_dir() else {
+    let Ok(dir) = crate::app_paths::config_dir(app) else {
         return;
     };
     let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -1314,7 +1296,7 @@ fn is_runtime_config_name(name: &str) -> bool {
 }
 
 pub fn purge_stale_runtime_configs(app: &AppHandle) {
-    let Ok(dir) = app.path().app_config_dir() else {
+    let Ok(dir) = crate::app_paths::config_dir(app) else {
         return;
     };
     let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -1329,11 +1311,11 @@ pub fn purge_stale_runtime_configs(app: &AppHandle) {
     }
 }
 
-// Стирает singbox-current.json / xray-current.json из app_config_dir. В них
+// Стирает singbox-current.json / xray-current.json из writable config dir. В них
 // UUID/пароли нод и (при активном WARP) приватный WG-ключ — держать их на диске
 // дольше сессии незачем: следующий старт всё равно перезапишет файлы заново.
 fn purge_current_configs(app: &AppHandle) {
-    let Ok(dir) = app.path().app_config_dir() else {
+    let Ok(dir) = crate::app_paths::config_dir(app) else {
         return;
     };
     for name in ["singbox-current.json", "xray-current.json"] {

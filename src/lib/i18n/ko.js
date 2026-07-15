@@ -804,7 +804,7 @@ export const ko = {
     },
 
     warp: {
-      banner: "Cloudflare WARP는 WireGuard 기기를 Cloudflare에 등록합니다. 무료 WARP — 라이선스 불필요(「등록」만). WARP+ — 「1.1.1.1」 앱의 26자 키를 입력합니다. 키와 토큰은 <code>app_config_dir/warp.json</code>에 로컬로 저장됩니다.",
+      banner: "Cloudflare WARP는 WireGuard 기기를 Cloudflare에 등록합니다. 무료 WARP — 라이선스 불필요(「등록」만). WARP+ — 「1.1.1.1」 앱의 26자 키를 입력합니다. 키와 토큰은 Ninety에 로컬로 저장됩니다.",
       grpConn: "연결",
       grpConnHint: "WARP를 어디서 켜고 어떤 모드를 사용할지.",
       enableTitle: "WARP 활성화",

@@ -47,23 +47,39 @@ Copy-RequiredDirectory "src-tauri/flags" (Join-Path $appDir "flags")
 
 @"
 portable=1
+full_portable=1
+storage=NinetyData
 version=$version
 "@ | Set-Content -LiteralPath (Join-Path $appDir "Ninety.portable") -Encoding ascii
 
 @"
 Ninety Portable $version
 
-RU: Распакуйте архив целиком и запускайте Ninety.exe из этой папки.
-Не переносите только один EXE: рядом с ним необходимы движки, драйвер и ресурсы.
-Настройки и профили сохраняются в стандартных пользовательских каталогах Windows.
-Для обновления скачайте новый Portable ZIP со страницы релиза и распакуйте его
-в новую папку при закрытом Ninety.
+RU: Распакуйте архив целиком в локальную папку с правом записи и запускайте
+Ninety.exe. Не переносите только один EXE: рядом необходимы движки и ресурсы.
 
-EN: Extract the entire archive and run Ninety.exe from this folder.
-Do not move the EXE alone: the adjacent engines, driver and resources are required.
-Settings and profiles remain in the standard Windows user data directories.
-To update, download the new Portable ZIP from the release page and extract it
-to a new folder while Ninety is closed.
+При первом запуске рядом появится NinetyData. В ней хранятся все профили,
+настройки, WebView/localStorage, логи и обновляемые DPI-данные. Чтобы перенести
+Ninety на другой ПК, закройте приложение и скопируйте всю папку Ninety целиком.
+
+ВАЖНО: NinetyData содержит URL подписок, пароли нод и ключи WARP в переносимом
+виде. Не публикуйте и не передавайте свою рабочую папку Ninety другим людям.
+
+Обновление: закройте Ninety и распакуйте новый Portable ZIP поверх этой папки
+с заменой файлов. NinetyData в архив не входит и останется на месте.
+
+EN: Extract the whole archive to a writable local folder and run Ninety.exe.
+Do not move the EXE alone: the adjacent engines and resources are required.
+
+NinetyData is created on first launch. It contains all profiles, settings,
+WebView/localStorage, logs and updatable DPI data. To move Ninety to another PC,
+close the app and copy the entire Ninety folder.
+
+IMPORTANT: NinetyData contains subscription URLs, node passwords and WARP keys
+in portable form. Never publish or share your working Ninety folder.
+
+Update: close Ninety and extract the new Portable ZIP over this folder, replacing
+program files. NinetyData is not included in the archive and remains untouched.
 "@ | Set-Content -LiteralPath (Join-Path $appDir "README.txt") -Encoding utf8
 
 Compress-Archive -LiteralPath $appDir -DestinationPath $zipPath -CompressionLevel Optimal

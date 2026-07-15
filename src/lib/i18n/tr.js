@@ -804,7 +804,7 @@ export const tr = {
     },
 
     warp: {
-      banner: "Cloudflare WARP, Cloudflare'a bir WireGuard cihazı kaydeder. Ücretsiz WARP — lisanssız (yalnızca “Kaydet”). WARP+ — “1.1.1.1” uygulamasındaki 26 karakterlik anahtarı girin. Anahtarlar ve belirteç yerel olarak <code>app_config_dir/warp.json</code> içinde saklanır.",
+      banner: "Cloudflare WARP, Cloudflare'a bir WireGuard cihazı kaydeder. Ücretsiz WARP — lisanssız (yalnızca “Kaydet”). WARP+ — “1.1.1.1” uygulamasındaki 26 karakterlik anahtarı girin. Anahtarlar ve belirteç Ninety tarafından yerel olarak saklanır.",
       grpConn: "Bağlantı",
       grpConnHint: "WARP'ın nerede etkinleştirileceği ve hangi modun kullanılacağı.",
       enableTitle: "WARP'ı etkinleştir",

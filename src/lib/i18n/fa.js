@@ -804,7 +804,7 @@ export const fa = {
     },
 
     warp: {
-      banner: "Cloudflare WARP یک دستگاه WireGuard را در Cloudflare ثبت می‌کند. WARP رایگان — بدون لایسنس (فقط «ثبت»). WARP+ — کلید ۲۶ کاراکتری را از برنامهٔ «1.1.1.1» وارد کنید. کلیدها و توکن به‌صورت محلی در <code>app_config_dir/warp.json</code> ذخیره می‌شوند.",
+      banner: "Cloudflare WARP یک دستگاه WireGuard را در Cloudflare ثبت می‌کند. WARP رایگان — بدون لایسنس (فقط «ثبت»). WARP+ — کلید ۲۶ کاراکتری را از برنامهٔ «1.1.1.1» وارد کنید. کلیدها و توکن به‌صورت محلی در Ninety ذخیره می‌شوند.",
       grpConn: "اتصال",
       grpConnHint: "کجا WARP روشن شود و کدام حالت استفاده شود.",
       enableTitle: "فعال کردن WARP",

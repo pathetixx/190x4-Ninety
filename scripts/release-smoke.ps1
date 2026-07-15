@@ -109,6 +109,12 @@ if (-not $portableProcess.WaitForExit(15000)) {
 }
 Assert-Release ($portableProcess.ExitCode -eq 0) `
   "Portable Ninety.exe CI smoke завершился с кодом $($portableProcess.ExitCode)"
+foreach ($name in @("config", "data", "logs", "webview")) {
+  Assert-Release (Test-Path -LiteralPath (Join-Path $portableDir "NinetyData/$name") -PathType Container) `
+    "Full Portable не создал NinetyData/$name"
+}
+Assert-Release (Test-Path -LiteralPath (Join-Path $portableDir "NinetyData/config/state-backup.json") -PathType Leaf) `
+  "Full Portable не записал state backup в NinetyData/config"
 
 $authenticodeFiles = @($app, $portableApp, $nsis[0], $msi[0])
 $authenticodeEnabled = $env:AUTHENTICODE_ENABLED -eq "true"

@@ -1,4 +1,4 @@
-// Ninety · бэкап состояния фронта (localStorage → app_config_dir).
+// Ninety · бэкап состояния фронта (localStorage → writable config dir).
 //
 // localStorage живёт в профиле WebView2 (каталог EBWebView) — его сносят
 // чистилки диска, антивирусы и переустановка системы, и юзер молча теряет
@@ -6,22 +6,19 @@
 // сюда отфильтрованный снапшот восстанавливаемых ninety.*-ключей; при
 // пустом localStorage на старте забирает его обратно и перезагружает webview.
 //
-// Снапшот содержит URL подписок и UUID/пароли всех нод — на диске лежит
-// DPAPI-блобом (secrets.rs), не plaintext'ом. Легаси plaintext-JSON читается
-// как есть; первый же state_backup_save перезапишет его шифрованным.
+// Снапшот содержит URL подписок и UUID/пароли всех нод. В установленной версии
+// он защищён DPAPI; в Full Portable остаётся переносимым plaintext рядом с уже
+// переносимым WebView/localStorage (см. secrets.rs и предупреждение README).
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 static BACKUP_LOCK: Mutex<()> = Mutex::new(());
 
 fn backup_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("app_config_dir: {e}"))?;
+    let dir = crate::app_paths::config_dir(app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     Ok(dir.join("state-backup.json"))
 }
@@ -35,7 +32,7 @@ pub fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
         .map_err(|_| "state backup lock poisoned")?;
     let path = backup_path(&app)?;
     let tmp = path.with_extension("json.tmp");
-    let sealed = crate::secrets::seal(json.as_bytes())?;
+    let sealed = crate::secrets::seal_for_app(&app, json.as_bytes())?;
     {
         use std::io::Write;
         let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;

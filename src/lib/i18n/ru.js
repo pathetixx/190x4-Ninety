@@ -804,7 +804,7 @@ export const ru = {
     },
 
     warp: {
-      banner: "Cloudflare WARP регистрирует WireGuard-устройство в Cloudflare. Бесплатный WARP — без лицензии (просто «Зарегистрировать»). WARP+ — введите 26-символьный ключ из приложения «1.1.1.1». Ключи и токен хранятся локально в <code>app_config_dir/warp.json</code>.",
+      banner: "Cloudflare WARP регистрирует WireGuard-устройство в Cloudflare. Бесплатный WARP — без лицензии (просто «Зарегистрировать»). WARP+ — введите 26-символьный ключ из приложения «1.1.1.1». Ключи и токен хранятся в локальном хранилище Ninety.",
       grpConn: "Подключение",
       grpConnHint: "Где включить WARP и какой режим использовать.",
       enableTitle: "Включить WARP",
