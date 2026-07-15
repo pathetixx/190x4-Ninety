@@ -4,6 +4,9 @@
 
 ## v0.2.24 — 2026-07-15
 
+- The EXE installer shell was fully repaired: stock NSIS chrome was removed, every stage now follows the Kurogane visual system, the window is draggable again, and the red progress indicator and installation percentage update correctly.
+- Branded artwork now uses dimensions matched to the real Windows controls, without white gaps, clipping, or incorrect scaling.
+- Ninety now assigns the refreshed icon directly to its Windows window so the correct artwork is also used in the taskbar hover thumbnail.
 - Полностью исправлена оболочка EXE-установщика: убраны системные элементы NSIS, все этапы оформлены в едином стиле Kurogane, окно снова перетаскивается, а красный прогресс и процент установки обновляются корректно.
 - Размеры фирменной графики теперь соответствуют реальному Windows-интерфейсу без белых полей, обрезания и неверного масштабирования.
 - Новая иконка Ninety явно назначается самому окну Windows, поэтому она корректно отображается и в миниатюре при наведении на панель задач.

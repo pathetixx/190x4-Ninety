@@ -175,7 +175,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW NinetyWelcomeShow
 !insertmacro MUI_PAGE_WELCOME
 Function NinetyWelcomeShow
-  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text
+  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text Install
 FunctionEnd
 
 ; 2. License Page (if defined)
@@ -433,7 +433,7 @@ Var AppStartMenuFolder
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW NinetyFinishShow
 !insertmacro MUI_PAGE_FINISH
 Function NinetyFinishShow
-  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.FinishPage $mui.FinishPage.Image $mui.FinishPage.Title $mui.FinishPage.Text
+  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.FinishPage $mui.FinishPage.Image $mui.FinishPage.Title $mui.FinishPage.Text Finish
 FunctionEnd
 
 Function RunMainBinary
@@ -592,6 +592,7 @@ Section EarlyChecks
 SectionEnd
 
 Section WebView2
+  Call KuroganeProgressTick
   ; Check if Webview2 is already installed and skip this section
   ${If} ${RunningX64}
     ReadRegStr $4 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
@@ -681,9 +682,11 @@ Section WebView2
       ${EndIf}
     !endif
   ${EndIf}
+  Call KuroganeProgressTick
 SectionEnd
 
 Section Install
+  Call KuroganeProgressTick
   SetOutPath $INSTDIR
 
   !ifmacrodef NSIS_HOOK_PREINSTALL
@@ -694,6 +697,7 @@ Section Install
 
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
+  Call KuroganeProgressTick
 
   ; Copy resources
   {{#each resources_dirs}}
@@ -702,11 +706,13 @@ Section Install
   {{#each resources}}
     File /a "/oname={{this.[1]}}" "{{no-escape @key}}"
   {{/each}}
+  Call KuroganeProgressTick
 
   ; Copy external binaries
   {{#each binaries}}
     File /a "/oname={{this}}" "{{no-escape @key}}"
   {{/each}}
+  Call KuroganeProgressTick
 
   ; Create file associations
   {{#each file_associations as |association| ~}}
@@ -725,6 +731,7 @@ Section Install
 
   ; Create uninstaller
   WriteUninstaller "$INSTDIR\uninstall.exe"
+  Call KuroganeProgressTick
 
   ; Save $INSTDIR in registry for future installations
   WriteRegStr SHCTX "${MANUPRODUCTKEY}" "" $INSTDIR
@@ -786,6 +793,7 @@ Section Install
   ${If} $PassiveMode = 1
     SetAutoClose true
   ${EndIf}
+  Call KuroganeProgressTick
 SectionEnd
 
 Function .onInstSuccess
@@ -822,6 +830,7 @@ Function un.onInit
 FunctionEnd
 
 Section Uninstall
+  Call un.KuroganeProgressTick
 
   !ifmacrodef NSIS_HOOK_PREUNINSTALL
     !insertmacro NSIS_HOOK_PREUNINSTALL
@@ -842,6 +851,7 @@ Section Uninstall
   {{#each binaries}}
     Delete "$INSTDIR\\{{this}}"
   {{/each}}
+  Call un.KuroganeProgressTick
 
   ; Delete app associations
   {{#each file_associations as |association| ~}}
@@ -866,6 +876,7 @@ Section Uninstall
   RMDir /REBOOTOK "$INSTDIR\\{{this}}"
   {{/each}}
   RMDir "$INSTDIR"
+  Call un.KuroganeProgressTick
 
   ; Remove shortcuts if not updating
   ${If} $UpdateMode <> 1
@@ -940,6 +951,7 @@ Section Uninstall
   ${OrIf} $UpdateMode = 1
     SetAutoClose true
   ${EndIf}
+  Call un.KuroganeProgressTick
 SectionEnd
 
 Function RestorePreviousInstallLocation

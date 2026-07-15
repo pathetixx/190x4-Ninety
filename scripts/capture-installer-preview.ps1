@@ -14,12 +14,29 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class NinetyPreviewWin32 {
+  public delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT { public int Left, Top, Right, Bottom; }
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr param);
+  [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr hWnd);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);
+  public static IntPtr FindDescendantById(IntPtr parent, int id) {
+    IntPtr found = IntPtr.Zero;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      if (GetDlgCtrlID(child) == id) { found = child; return false; }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+  public static string ReadText(IntPtr hWnd) {
+    var value = new System.Text.StringBuilder(128);
+    GetWindowText(hWnd, value, value.Capacity);
+    return value.ToString();
+  }
 }
 "@
 
@@ -54,10 +71,36 @@ try {
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     try {
       $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+      # System-white chrome is a release blocker. Small white glyphs are fine;
+      # the old regression produced thousands of near-white pixels in solid
+      # top/footer rectangles.
       $bitmap.Save((Join-Path $OutputDirectory $Name), [System.Drawing.Imaging.ImageFormat]::Png)
+      $nearWhite = 0
+      for ($y = 0; $y -lt $height; $y += 2) {
+        $inTopChrome = $y -lt [int]($height * 0.13)
+        $inFooterChrome = $y -gt [int]($height * 0.88)
+        if (-not $inTopChrome -and -not $inFooterChrome) { continue }
+        $startX = if ($inTopChrome) { [int]($width * 0.84) } else { [int]($width * 0.60) }
+        for ($x = $startX; $x -lt $width; $x += 2) {
+          $pixel = $bitmap.GetPixel($x, $y)
+          if ($pixel.R -gt 235 -and $pixel.G -gt 235 -and $pixel.B -gt 235) { $nearWhite++ }
+        }
+      }
+      if ($nearWhite -gt 800) {
+        throw "System-white installer chrome detected in ${Name}: ${nearWhite} sampled pixels"
+      }
     } finally {
       $graphics.Dispose()
       $bitmap.Dispose()
+    }
+  }
+
+  function Assert-LiveProgress {
+    $percent = [NinetyPreviewWin32]::FindDescendantById($window, 1226)
+    if ($percent -eq [IntPtr]::Zero) { throw "Installer percentage control was not found" }
+    $value = [NinetyPreviewWin32]::ReadText($percent)
+    if ($value -notmatch '^([1-9][0-9]?|100)%$') {
+      throw "Installer percentage is not live: '$value'"
     }
   }
 
@@ -65,34 +108,44 @@ try {
   Start-Sleep -Seconds 2
   Save-InstallerWindow "00-before-drag.png"
 
-  # Exercise real frameless-window dragging before taking the first capture.
-  $before = Get-InstallerRect
-  $startX = $before.Left + 470
-  $startY = $before.Top + 36
-  [NinetyPreviewWin32]::SetCursorPos($startX, $startY) | Out-Null
-  [NinetyPreviewWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
-  # CI runners can be briefly busy after NSIS startup. Give its 40 ms shell
-  # timer ample time to enter the native caption-drag loop, then move in steps.
-  Start-Sleep -Seconds 1
-  foreach ($delta in 5, 10, 15, 20) {
-    [NinetyPreviewWin32]::SetCursorPos($startX + $delta, $startY + $delta) | Out-Null
-    Start-Sleep -Milliseconds 120
-  }
-  [NinetyPreviewWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
-  Start-Sleep -Milliseconds 500
-  $after = Get-InstallerRect
-  if ($after.Left -eq $before.Left -and $after.Top -eq $before.Top) {
-    throw "Frameless installer window did not move during drag test"
+  # Exercise real frameless-window dragging. Hosted runners occasionally lose
+  # one synthetic mouse-down during startup, so retry independent gestures and
+  # keep collecting visual evidence even if all attempts fail.
+  $dragPassed = $false
+  foreach ($attempt in 0..2) {
+    $before = Get-InstallerRect
+    [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
+    $startX = $before.Left + 420 + ($attempt * 35)
+    $startY = $before.Top + 34
+    [NinetyPreviewWin32]::SetCursorPos($startX, $startY) | Out-Null
+    Start-Sleep -Milliseconds 250
+    [NinetyPreviewWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 700
+    foreach ($delta in 8, 16, 24, 32, 40) {
+      [NinetyPreviewWin32]::SetCursorPos($startX + $delta, $startY + $delta) | Out-Null
+      Start-Sleep -Milliseconds 160
+    }
+    [NinetyPreviewWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 500
+    $after = Get-InstallerRect
+    if ($after.Left -ne $before.Left -or $after.Top -ne $before.Top) {
+      $dragPassed = $true
+      break
+    }
   }
 
   Save-InstallerWindow "01-welcome.png"
   [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
   Start-Sleep -Seconds 3
+  Assert-LiveProgress
   Save-InstallerWindow "02-progress.png"
   Start-Sleep -Seconds 5
   [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
   Start-Sleep -Seconds 1
   Save-InstallerWindow "03-finish.png"
+  if (-not $dragPassed) {
+    throw "Frameless installer window did not move after three independent drag gestures"
+  }
 } finally {
   if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
 }

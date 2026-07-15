@@ -28,6 +28,11 @@
 Var KuroganeLeftBitmap
 Var KuroganeTitleBitmap
 Var KuroganeProgressBitmap
+Var KuroganeChromeMinimizeBitmap
+Var KuroganeChromeCloseBitmap
+Var KuroganeNavBackBitmap
+Var KuroganeNavNextBitmap
+Var KuroganeNavCancelBitmap
 Var KuroganeProgressControl
 Var KuroganePercentControl
 Var KuroganeStatusControl
@@ -37,6 +42,7 @@ Var KuroganeFontBody
 Var KuroganeFontMeta
 Var KuroganeFontSteps
 Var KuroganeDragWasDown
+Var KuroganeProgressActive
 
 LangString KStepOptions 1033 "OPTIONS"
 LangString KStepInstall 1033 "INSTALL"
@@ -71,6 +77,58 @@ LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПО
     SendMessage $0 ${WM_SETFONT} ${FONT} 1
   ${EndIf}
 !macroend
+
+; Clickable resource statics are unreliable under the elevated/updater shell:
+; some Windows themes repaint them as white system buttons. Switch the same
+; HWNDs to bitmap statics and fill every pixel with deterministic Kurogane art.
+!macro KuroganeSetBitmap CONTROL PATH HANDLE
+  GetDlgItem $0 $HWNDPARENT ${CONTROL}
+  ${If} $0 != 0
+    ${If} ${HANDLE} != 0
+      ${NSD_FreeImage} ${HANDLE}
+      StrCpy ${HANDLE} 0
+    ${EndIf}
+    System::Call 'user32::GetWindowLongW(p r0, i -16) i .r1'
+    IntOp $1 $1 & 0xFFFFFFE0
+    IntOp $1 $1 | 0x0000030E
+    System::Call 'user32::SetWindowLongW(p r0, i -16, i r1)'
+    ${NSD_SetImage} $0 "${PATH}" ${HANDLE}
+    System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
+  ${EndIf}
+!macroend
+
+!macro KuroganeApplyChromeImpl NEXT_EN NEXT_RU
+  !insertmacro KuroganeSetBitmap 1205 "$PLUGINSDIR\kurogane-minimize.bmp" $KuroganeChromeMinimizeBitmap
+  !insertmacro KuroganeSetBitmap 1207 "$PLUGINSDIR\kurogane-close.bmp" $KuroganeChromeCloseBitmap
+  ${If} $LANGUAGE == 1049
+    !insertmacro KuroganeSetBitmap 1212 "$PLUGINSDIR\kurogane-back-ru.bmp" $KuroganeNavBackBitmap
+    !insertmacro KuroganeSetBitmap 1213 "$PLUGINSDIR\kurogane-${NEXT_RU}-ru.bmp" $KuroganeNavNextBitmap
+    !insertmacro KuroganeSetBitmap 1214 "$PLUGINSDIR\kurogane-cancel-ru.bmp" $KuroganeNavCancelBitmap
+  ${Else}
+    !insertmacro KuroganeSetBitmap 1212 "$PLUGINSDIR\kurogane-back-en.bmp" $KuroganeNavBackBitmap
+    !insertmacro KuroganeSetBitmap 1213 "$PLUGINSDIR\kurogane-${NEXT_EN}-en.bmp" $KuroganeNavNextBitmap
+    !insertmacro KuroganeSetBitmap 1214 "$PLUGINSDIR\kurogane-cancel-en.bmp" $KuroganeNavCancelBitmap
+  ${EndIf}
+!macroend
+
+Function KuroganeApplyChromeNext
+  !insertmacro KuroganeApplyChromeImpl "next" "next"
+FunctionEnd
+Function un.KuroganeApplyChromeNext
+  !insertmacro KuroganeApplyChromeImpl "next" "next"
+FunctionEnd
+Function KuroganeApplyChromeInstall
+  !insertmacro KuroganeApplyChromeImpl "install" "install"
+FunctionEnd
+Function un.KuroganeApplyChromeInstall
+  !insertmacro KuroganeApplyChromeImpl "install" "install"
+FunctionEnd
+Function KuroganeApplyChromeFinish
+  !insertmacro KuroganeApplyChromeImpl "finish" "finish"
+FunctionEnd
+Function un.KuroganeApplyChromeFinish
+  !insertmacro KuroganeApplyChromeImpl "finish" "finish"
+FunctionEnd
 
 !macro KuroganeStyleClass CLASS FOREGROUND BACKGROUND DISABLETHEME
   StrCpy $1 0
@@ -107,6 +165,18 @@ LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПО
   File /oname=$PLUGINSDIR\kurogane-left.bmp "${__FILEDIR__}\left-panel.bmp"
   File /oname=$PLUGINSDIR\kurogane-title.bmp "${__FILEDIR__}\title-brand.bmp"
   File /oname=$PLUGINSDIR\kurogane-progress.bmp "${__FILEDIR__}\progress-frame.bmp"
+  File /oname=$PLUGINSDIR\kurogane-minimize.bmp "${__FILEDIR__}\chrome-minimize.bmp"
+  File /oname=$PLUGINSDIR\kurogane-close.bmp "${__FILEDIR__}\chrome-close.bmp"
+  File /oname=$PLUGINSDIR\kurogane-back-en.bmp "${__FILEDIR__}\nav-back-en.bmp"
+  File /oname=$PLUGINSDIR\kurogane-back-ru.bmp "${__FILEDIR__}\nav-back-ru.bmp"
+  File /oname=$PLUGINSDIR\kurogane-next-en.bmp "${__FILEDIR__}\nav-next-en.bmp"
+  File /oname=$PLUGINSDIR\kurogane-next-ru.bmp "${__FILEDIR__}\nav-next-ru.bmp"
+  File /oname=$PLUGINSDIR\kurogane-install-en.bmp "${__FILEDIR__}\nav-install-en.bmp"
+  File /oname=$PLUGINSDIR\kurogane-install-ru.bmp "${__FILEDIR__}\nav-install-ru.bmp"
+  File /oname=$PLUGINSDIR\kurogane-finish-en.bmp "${__FILEDIR__}\nav-finish-en.bmp"
+  File /oname=$PLUGINSDIR\kurogane-finish-ru.bmp "${__FILEDIR__}\nav-finish-ru.bmp"
+  File /oname=$PLUGINSDIR\kurogane-cancel-en.bmp "${__FILEDIR__}\nav-cancel-en.bmp"
+  File /oname=$PLUGINSDIR\kurogane-cancel-ru.bmp "${__FILEDIR__}\nav-cancel-ru.bmp"
 
   CreateFont $KuroganeFontTitle "Segoe UI" 20 600
   CreateFont $KuroganeFontBody "Segoe UI" 9 400
@@ -144,28 +214,21 @@ LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПО
   GetDlgItem $0 $HWNDPARENT 1205
   ${If} $0 != 0
     ${NSD_OnClick} $0 ${MINIMIZEFUNCTION}
-    SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
   ${EndIf}
   GetDlgItem $0 $HWNDPARENT 1207
   ${If} $0 != 0
     ${NSD_OnClick} $0 ${CLOSEFUNCTION}
-    SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
   ${EndIf}
 
   GetDlgItem $0 $HWNDPARENT 1212
   ${NSD_OnClick} $0 ${MINIMIZEFUNCTION}NavBack
-  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_PANEL}
-  SendMessage $0 ${WM_SETFONT} $KuroganeFontBody 1
   GetDlgItem $0 $HWNDPARENT 1213
   ${NSD_OnClick} $0 ${MINIMIZEFUNCTION}NavNext
-  SetCtlColors $0 ${K_COLOR_TEXT} C4213F
-  SendMessage $0 ${WM_SETFONT} $KuroganeFontBody 1
   GetDlgItem $0 $HWNDPARENT 1214
   ${NSD_OnClick} $0 ${MINIMIZEFUNCTION}NavCancel
-  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_PANEL}
-  SendMessage $0 ${WM_SETFONT} $KuroganeFontBody 1
 
   StrCpy $KuroganeDragWasDown 0
+  StrCpy $KuroganeProgressActive 0
 !macroend
 
 Function KuroganeGuiInit
@@ -225,8 +288,6 @@ FunctionEnd
   GetDlgItem $1 $HWNDPARENT ${TARGET}
   ${If} $0 != 0
   ${AndIf} $1 != 0
-    System::Call 'user32::GetWindowTextW(p r0, w .r2, i ${NSIS_MAX_STRLEN})'
-    SendMessage $1 ${WM_SETTEXT} 0 "STR:$2"
     System::Call 'user32::IsWindowVisible(p r0) i .r2'
     ShowWindow $1 $2
     System::Call 'user32::IsWindowEnabled(p r0) i .r2'
@@ -238,25 +299,17 @@ FunctionEnd
 !macroend
 
 !macro KuroganeShellTickImpl
-  !insertmacro KuroganeMirrorButton 3 1212
-  !insertmacro KuroganeMirrorButton 1 1213
-  !insertmacro KuroganeMirrorButton 2 1214
-
-  GetDlgItem $0 $HWNDPARENT 1205
-  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
-  System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
-  GetDlgItem $0 $HWNDPARENT 1207
-  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
-  System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
-  GetDlgItem $0 $HWNDPARENT 1212
-  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_PANEL}
-  System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
-  GetDlgItem $0 $HWNDPARENT 1213
-  SetCtlColors $0 ${K_COLOR_TEXT} C4213F
-  System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
-  GetDlgItem $0 $HWNDPARENT 1214
-  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_PANEL}
-  System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
+  ${If} $KuroganeProgressActive == 1
+    GetDlgItem $0 $HWNDPARENT 1212
+    ShowWindow $0 ${SW_HIDE}
+    GetDlgItem $0 $HWNDPARENT 1213
+    ShowWindow $0 ${SW_HIDE}
+    !insertmacro KuroganeMirrorButton 2 1214
+  ${Else}
+    !insertmacro KuroganeMirrorButton 3 1212
+    !insertmacro KuroganeMirrorButton 1 1213
+    !insertmacro KuroganeMirrorButton 2 1214
+  ${EndIf}
 
   System::Call 'user32::GetAsyncKeyState(i 1) i .r0'
   IntOp $0 $0 & 0x8000
@@ -310,19 +363,25 @@ Function un.KuroganeStyleCurrentPage
 FunctionEnd
 
 Function KuroganePageShow
+  StrCpy $KuroganeProgressActive 0
+  Call KuroganeApplyChromeNext
   Call KuroganeStartShellTimer
   Call KuroganeStyleCurrentPage
 FunctionEnd
 
 Function un.KuroganePageShow
+  StrCpy $KuroganeProgressActive 0
+  Call un.KuroganeApplyChromeNext
   Call un.KuroganeStartShellTimer
   Call un.KuroganeStyleCurrentPage
 FunctionEnd
 
 ; MUI welcome/finish pages expose their exact HWNDs. Use those directly: after
 ; the progress page, a generic FindWindow can otherwise select a stale dialog.
-!macro KuroganeKnownFullWindowPageShowImpl UNPREFIX PAGE IMAGE TITLE TEXT
+!macro KuroganeKnownFullWindowPageShowImpl UNPREFIX PAGE IMAGE TITLE TEXT CHROME
+  StrCpy $KuroganeProgressActive 0
   StrCpy $KuroganePage ${PAGE}
+  Call ${UNPREFIX}KuroganeApplyChrome${CHROME}
   Call ${UNPREFIX}KuroganeStartShellTimer
   SetCtlColors $KuroganePage ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
   StrCpy $2 $KuroganePage
@@ -339,6 +398,8 @@ FunctionEnd
 !macroend
 
 !macro KuroganeProgressPageImpl UNPREFIX TITLE SUBTITLE STATUS
+  StrCpy $KuroganeProgressActive 1
+  Call ${UNPREFIX}KuroganeApplyChromeNext
   Call ${UNPREFIX}KuroganeStartShellTimer
   Call ${UNPREFIX}KuroganeStyleCurrentPage
 
@@ -423,6 +484,7 @@ FunctionEnd
 !macro KuroganeProgressLeaveImpl UNPREFIX
   ${NSD_KillTimer} ${UNPREFIX}KuroganeProgressTick
   ${NSD_FreeImage} $KuroganeProgressBitmap
+  StrCpy $KuroganeProgressActive 0
 !macroend
 
 Function KuroganeInstFilesLeave
@@ -437,4 +499,5 @@ FunctionEnd
   ${If} $KuroganeStatusControl != 0
     SendMessage $KuroganeStatusControl ${WM_SETTEXT} 0 "STR:${TEXT}"
   ${EndIf}
+  Call KuroganeProgressTick
 !macroend

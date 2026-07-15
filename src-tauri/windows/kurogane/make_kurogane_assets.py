@@ -94,6 +94,39 @@ def metallic_text(canvas, xy, text, typeface, spacing=0):
     shadow.putalpha(shadow_mask.filter(ImageFilter.GaussianBlur(1.2)))
     canvas.alpha_composite(shadow)
     canvas.paste(gradient, (x, y), mask)
+    return x + mask.width
+
+
+def make_button(size, text, *, primary=False, glyph=False):
+    """Raster button chrome: Windows theming must never repaint it white."""
+    out = Image.new("RGBA", size, (*PANEL, 255))
+    draw = ImageDraw.Draw(out)
+    if primary:
+        for y in range(size[1]):
+            t = y / max(1, size[1] - 1)
+            color = (213 + int(17 * (1 - t)), 31 + int(12 * (1 - t)), 62 + int(14 * (1 - t)))
+            draw.line((0, y, size[0] - 1, y), fill=color)
+        border = (255, 78, 101)
+        foreground = (249, 247, 248)
+    else:
+        for y in range(size[1]):
+            value = 18 - int(5 * y / max(1, size[1] - 1))
+            draw.line((0, y, size[0] - 1, y), fill=(value, value, value + 3))
+        border = (58, 58, 65)
+        foreground = (191, 191, 198)
+    draw.rectangle((0, 0, size[0] - 1, size[1] - 1), outline=border)
+    draw.line((1, 1, size[0] - 2, 1), fill=(88, 88, 95) if not primary else (255, 102, 122))
+
+    if any("А" <= char <= "я" or char in "Ёё" for char in text):
+        cyrillic = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+        face = ImageFont.truetype(str(cyrillic), 12) if cyrillic.exists() else font(12, bold=True)
+    else:
+        face = font(15 if glyph else 12, bold=not glyph)
+    box = draw.textbbox((0, 0), text, font=face)
+    x = (size[0] - (box[2] - box[0])) // 2
+    y = (size[1] - (box[3] - box[1])) // 2 - box[1]
+    draw.text((x, y), text, font=face, fill=foreground)
+    return out
 
 
 def make_left_panel():
@@ -121,8 +154,8 @@ def make_left_panel():
     draw.line((size[0] - 1, 0, size[0] - 1, size[1]), fill=(49, 49, 54, 255), width=1)
     draw.line((size[0] - 3, 0, size[0] - 3, size[1]), fill=(20, 20, 24, 210), width=1)
 
-    metallic_text(panel, (219, 392), "190x", font(23, bold=True), spacing=0)
-    draw.text((312, 392), "4", font=font(23, bold=True), fill=RED)
+    brand_end = metallic_text(panel, (219, 392), "190x", font(23, bold=True), spacing=0)
+    draw.text((brand_end - 3, 392), "4", font=font(23, bold=True), fill=RED)
     draw_spaced(draw, (206, 435), "NINETY", font(17, bold=True), (230, 230, 234), spacing=8)
     draw.text((234, 479), "/  SETUP", font=font(10), fill=(223, 55, 79))
     return panel
@@ -167,6 +200,18 @@ def main():
     save_or_check(make_left_panel(), "left-panel.bmp", args.check)
     save_or_check(make_title_brand(), "title-brand.bmp", args.check)
     save_or_check(make_progress_frame(), "progress-frame.bmp", args.check)
+    save_or_check(make_button((44, 35), "−", glyph=True), "chrome-minimize.bmp", args.check)
+    save_or_check(make_button((44, 35), "×", glyph=True), "chrome-close.bmp", args.check)
+    save_or_check(make_button((104, 35), "Back"), "nav-back-en.bmp", args.check)
+    save_or_check(make_button((104, 35), "Назад"), "nav-back-ru.bmp", args.check)
+    save_or_check(make_button((118, 35), "Next", primary=True), "nav-next-en.bmp", args.check)
+    save_or_check(make_button((118, 35), "Далее", primary=True), "nav-next-ru.bmp", args.check)
+    save_or_check(make_button((118, 35), "Install", primary=True), "nav-install-en.bmp", args.check)
+    save_or_check(make_button((118, 35), "Установить", primary=True), "nav-install-ru.bmp", args.check)
+    save_or_check(make_button((118, 35), "Finish", primary=True), "nav-finish-en.bmp", args.check)
+    save_or_check(make_button((118, 35), "Готово", primary=True), "nav-finish-ru.bmp", args.check)
+    save_or_check(make_button((110, 35), "Cancel"), "nav-cancel-en.bmp", args.check)
+    save_or_check(make_button((110, 35), "Отмена"), "nav-cancel-ru.bmp", args.check)
 
 
 if __name__ == "__main__":

@@ -72,6 +72,18 @@ for (const name of [
   "left-panel.bmp",
   "title-brand.bmp",
   "progress-frame.bmp",
+  "chrome-minimize.bmp",
+  "chrome-close.bmp",
+  "nav-back-en.bmp",
+  "nav-back-ru.bmp",
+  "nav-next-en.bmp",
+  "nav-next-ru.bmp",
+  "nav-install-en.bmp",
+  "nav-install-ru.bmp",
+  "nav-finish-en.bmp",
+  "nav-finish-ru.bmp",
+  "nav-cancel-en.bmp",
+  "nav-cancel-ru.bmp",
 ]) {
   if (!existsSync(resolve(kuroganeDir, name))) fail(`Kurogane: файл не найден (${name})`);
 }
@@ -88,6 +100,18 @@ for (const [path, width, height] of [
   [resolve(kuroganeDir, "left-panel.bmp"), 384, 538],
   [resolve(kuroganeDir, "title-brand.bmp"), 264, 66],
   [resolve(kuroganeDir, "progress-frame.bmp"), 460, 53],
+  [resolve(kuroganeDir, "chrome-minimize.bmp"), 44, 35],
+  [resolve(kuroganeDir, "chrome-close.bmp"), 44, 35],
+  [resolve(kuroganeDir, "nav-back-en.bmp"), 104, 35],
+  [resolve(kuroganeDir, "nav-back-ru.bmp"), 104, 35],
+  [resolve(kuroganeDir, "nav-next-en.bmp"), 118, 35],
+  [resolve(kuroganeDir, "nav-next-ru.bmp"), 118, 35],
+  [resolve(kuroganeDir, "nav-install-en.bmp"), 118, 35],
+  [resolve(kuroganeDir, "nav-install-ru.bmp"), 118, 35],
+  [resolve(kuroganeDir, "nav-finish-en.bmp"), 118, 35],
+  [resolve(kuroganeDir, "nav-finish-ru.bmp"), 118, 35],
+  [resolve(kuroganeDir, "nav-cancel-en.bmp"), 110, 35],
+  [resolve(kuroganeDir, "nav-cancel-ru.bmp"), 110, 35],
 ]) {
   checkBmp(path, width, height);
 }
@@ -110,6 +134,8 @@ if (templatePath && existsSync(templatePath)) {
     "MULTIUSER_PAGE_INSTALLMODE",
     "KuroganeInstFilesShow",
     "un.KuroganeInstFilesShow",
+    "Call KuroganeProgressTick",
+    "Call un.KuroganeProgressTick",
   ]) {
     if (!template.includes(marker)) fail(`в installer.nsi отсутствует ${marker}`);
   }

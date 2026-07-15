@@ -175,8 +175,25 @@ async fn autostart_disable() -> Result<(), String> {
         .map_err(|e| format!("отключение автозапуска прервано: {e}"))?
 }
 
+fn main_window_icon() -> Option<tauri::image::Image<'static>> {
+    const ICON: &[u8] = include_bytes!("../icons/128x128@2x.png");
+    tauri::image::Image::from_bytes(ICON).ok()
+}
+
+fn apply_main_window_icon(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        // Не используем default_window_icon(): Windows может отдать для него
+        // закэшированный ресурс предыдущей версии. Встроенный PNG каждый раз
+        // заново назначает WM_SETICON для thumbnail/hover окна.
+        if let Some(icon) = main_window_icon() {
+            let _ = w.set_icon(icon);
+        }
+    }
+}
+
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        apply_main_window_icon(app);
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
@@ -607,12 +624,7 @@ pub fn run() {
             // Окно по умолчанию скрыто (visible:false). Показываем сейчас, кроме
             // автозапуска при входе в Windows — там оставляем в трее.
             if let Some(w) = app.get_webview_window("main") {
-                // Windows хранит для окна отдельные small/big icons (WM_SETICON),
-                // независимо от иконки exe на панели задач. Задаём их явно,
-                // чтобы thumbnail/hover никогда не подхватывал старый ресурс.
-                if let Some(icon) = app.default_window_icon() {
-                    let _ = w.set_icon(icon.clone());
-                }
+                apply_main_window_icon(app.handle());
                 if autostarted || ci_smoke {
                     let _ = w.hide();
                 } else {
@@ -816,6 +828,12 @@ pub fn run() {
         .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
+            // setup() выполняется до полного создания нативного event loop.
+            // Повтор на Ready гарантирует, что Windows получит новую small/big
+            // icon уже после всех внутренних настроек окна Tauri/WebView2.
+            if matches!(&event, RunEvent::Ready) {
+                apply_main_window_icon(app);
+            }
             if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
                 if let Some(state) = app.try_state::<SingboxState>() {
                     vpn::force_cleanup(app, &state);
