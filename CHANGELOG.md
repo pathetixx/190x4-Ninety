@@ -2,6 +2,13 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.19 — 2026-07-15
+
+- Added a fully self-contained Windows x64 Portable edition: settings, subscriptions, logs, browser data, and connection data stay inside the `NinetyData` folder next to the executable.
+- Portable Ninety can be moved between Windows PCs without installation, preserves its data during ZIP updates, uses separate autostart, and downloads updates from the matching GitHub release.
+- Добавлена полностью автономная Portable-версия для Windows x64: настройки, подписки, логи, данные интерфейса и подключений хранятся в папке `NinetyData` рядом с приложением.
+- Portable Ninety можно переносить между компьютерами без установки; данные сохраняются при обновлении ZIP, автозапуск работает отдельно, а новые версии загружаются со страницы нужного релиза GitHub.
+
 ## v0.2.18 — 2026-07-15
 
 - Added a fully self-contained Windows x64 Portable edition: app settings, subscriptions, logs, browser data, and connection data stay inside the `NinetyData` folder next to the executable.
