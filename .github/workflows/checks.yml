@@ -31,7 +31,11 @@ jobs:
       - name: Compile exact Kurogane shell
         shell: pwsh
         run: |
-          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          $makensis = @(
+            "${env:ProgramFiles}\NSIS\makensis.exe",
+            "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $makensis) { throw "makensis.exe was not found after Chocolatey installation" }
           & $makensis /V3 src-tauri/windows/kurogane/smoke.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
