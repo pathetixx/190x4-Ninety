@@ -12,6 +12,7 @@ export const fa = {
     settings: "تنظیمات",
   },
 
+  sidebar: { ready: "آماده اتصال" },
   traffic: { label: "ترافیک · زنده", down: "دانلود", up: "آپلود" },
 
   units: {
@@ -626,9 +627,12 @@ export const fa = {
       start: "شروع",
     },
     import: {
+      inputLabel: "پیوند را جای‌گذاری کنید",
+      or: "یا",
       title: "افزودن اشتراک",
       sub: "یک URL اشتراک یا لینک <code>vless://</code> بچسبانید. اگر از قبل در کلیپ‌بورد باشد، خودمان برمی‌داریم.",
       fromClipboard: "از کلیپ‌بورد",
+      importAction: "وارد کردن",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "دستی",
       manualSub: "URL + نام + بازه",

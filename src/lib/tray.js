@@ -14,6 +14,7 @@ import { getActiveSource, getMode, nodeTag } from "/lib/singbox.js";
 import { selectProxy } from "/lib/clash-api.js";
 import { toggleDpi } from "/lib/dpi-view.js";
 import { flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
+import { rememberProxySelection } from "/lib/proxy-selection.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -112,6 +113,7 @@ export function initTray(context) {
           const selected = await selectProxy("proxy", tag);
           if (selected?.stale) return;
           const src = getActiveSource();
+          rememberProxySelection(src, tag);
           const node = src?.kind === "sub" ? (src.nodes.find((n, i) => nodeTag(i, n) === tag) || null) : null;
           ctx.onServerSelected(tag, node);
           toast(t("conn.serverSwitched"), "success", 1200);

@@ -12,6 +12,7 @@ export const es = {
     settings: "Ajustes",
   },
 
+  sidebar: { ready: "Listo para conectar" },
   traffic: { label: "Tráfico · en vivo", down: "Down", up: "Up" },
 
   units: {
@@ -626,9 +627,12 @@ export const es = {
       start: "Empezar",
     },
     import: {
+      inputLabel: "Pega el enlace",
+      or: "o",
       title: "Añade una suscripción",
       sub: "Pega una URL de suscripción o un enlace <code>vless://</code>. Si ya está en el portapapeles, lo cogeremos.",
       fromClipboard: "Del portapapeles",
+      importAction: "Importar",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "A mano",
       manualSub: "URL + nombre + intervalo",

@@ -12,6 +12,7 @@ export const uk = {
     settings: "Налаштування",
   },
 
+  sidebar: { ready: "Готово до підключення" },
   traffic: { label: "Трафік · live", down: "Down", up: "Up" },
 
   units: {
@@ -626,9 +627,12 @@ export const uk = {
       start: "Почати",
     },
     import: {
+      inputLabel: "Вставте посилання",
+      or: "або",
       title: "Додайте підписку",
       sub: "Вставте URL підписки або посилання <code>vless://</code>. Якщо воно вже в буфері обміну — ми його прочитаємо.",
       fromClipboard: "З буфера",
+      importAction: "Імпортувати",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "Вручну",
       manualSub: "URL + назва + інтервал",

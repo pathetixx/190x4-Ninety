@@ -12,6 +12,7 @@ export const zh = {
     settings: "设置",
   },
 
+  sidebar: { ready: "已准备连接" },
   traffic: { label: "流量 · 实时", down: "Down", up: "Up" },
 
   units: {
@@ -626,9 +627,12 @@ export const zh = {
       start: "开始",
     },
     import: {
+      inputLabel: "粘贴链接",
+      or: "或",
       title: "添加订阅",
       sub: "粘贴订阅 URL 或 <code>vless://</code> 链接。如果已在剪贴板中，我们会自动获取。",
       fromClipboard: "从剪贴板",
+      importAction: "导入",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "手动",
       manualSub: "URL + 名称 + 间隔",

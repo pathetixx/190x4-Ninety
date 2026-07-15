@@ -12,6 +12,7 @@ export const ar = {
     settings: "الإعدادات",
   },
 
+  sidebar: { ready: "جاهز للاتصال" },
   traffic: { label: "حركة البيانات · مباشر", down: "تنزيل", up: "رفع" },
 
   units: {
@@ -626,9 +627,12 @@ export const ar = {
       start: "ابدأ",
     },
     import: {
+      inputLabel: "ألصق الرابط",
+      or: "أو",
       title: "إضافة اشتراك",
       sub: "الصق رابط اشتراك أو رابط <code>vless://</code>. إن كان في الحافظة أصلًا، فسنلتقطه.",
       fromClipboard: "من الحافظة",
+      importAction: "استيراد",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "يدويًا",
       manualSub: "رابط + اسم + فترة",

@@ -12,6 +12,7 @@ export const en = {
     settings: "Settings",
   },
 
+  sidebar: { ready: "Ready to connect" },
   traffic: { label: "Traffic · live", down: "Down", up: "Up" },
 
   units: {
@@ -626,9 +627,12 @@ export const en = {
       start: "Get started",
     },
     import: {
+      inputLabel: "Paste link",
+      or: "or",
       title: "Add a subscription",
       sub: "Paste a subscription URL or a <code>vless://</code> link. If it's already on your clipboard, we'll pick it up.",
       fromClipboard: "From clipboard",
+      importAction: "Import",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "Manually",
       manualSub: "URL + name + interval",

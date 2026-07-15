@@ -12,6 +12,7 @@ export const pt = {
     settings: "Definições",
   },
 
+  sidebar: { ready: "Pronto para conectar" },
   traffic: { label: "Tráfego · em direto", down: "Desc.", up: "Sub." },
 
   units: {
@@ -626,9 +627,12 @@ export const pt = {
       start: "Começar",
     },
     import: {
+      inputLabel: "Cole o link",
+      or: "ou",
       title: "Adicionar uma subscrição",
       sub: "Cole um URL de subscrição ou um link <code>vless://</code>. Se já estiver na área de transferência, nós tratamos disso.",
       fromClipboard: "Da área de transferência",
+      importAction: "Importar",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "Manualmente",
       manualSub: "URL + nome + intervalo",

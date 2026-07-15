@@ -12,6 +12,7 @@ export const ko = {
     settings: "설정",
   },
 
+  sidebar: { ready: "연결 준비됨" },
   traffic: { label: "트래픽 · 실시간", down: "다운", up: "업" },
 
   units: {
@@ -626,9 +627,12 @@ export const ko = {
       start: "시작하기",
     },
     import: {
+      inputLabel: "링크 붙여넣기",
+      or: "또는",
       title: "구독 추가",
       sub: "구독 URL 또는 <code>vless://</code> 링크를 붙여넣으세요. 이미 클립보드에 있으면 자동으로 가져옵니다.",
       fromClipboard: "클립보드에서",
+      importAction: "가져오기",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "직접 입력",
       manualSub: "URL + 이름 + 간격",

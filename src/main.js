@@ -73,6 +73,10 @@ import { createSourceMutationController, planSourceDeletion } from "/lib/source-
 import { createBootstrapCoordinator } from "/lib/bootstrap-coordinator.js";
 import { createNetworkIntentArbiter, repeatedConnectionIntentAction } from "/lib/network-intent.js";
 import { createLatestWinsReconnectQueue } from "/lib/reconnect-queue.js";
+import { shouldShowOnboarding } from "/lib/onboarding-state.js";
+import { restoreRememberedProxySelection } from "/lib/proxy-selection.js";
+import { startupRuntimePlan } from "/lib/startup-runtime-policy.js";
+import { persistDpiIntentForRelaunch } from "/lib/dpi-elevation-intent.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -147,7 +151,7 @@ async function fillAppVersion() {
   } catch {}
   appVersionCached = v;
   const sidebar = document.getElementById("sidebar-version");
-  if (sidebar) sidebar.textContent = `${v} · 190X4`;
+  if (sidebar) sidebar.textContent = v === "—" ? "v—" : `v${v}`;
   applySettingsVersion();
 }
 fillAppVersion();
@@ -300,7 +304,14 @@ async function ensureElevatedForDpi() {
     if (await invoke("is_elevated")) return true;
     const yes = confirm(t("elev.dpiConfirm"));
     if (!yes) return false;
-    const started = await invoke("relaunch_elevated");
+    // relaunch_elevated при успехе завершает текущий процесс прямо внутри Rust,
+    // поэтому намерение включить DPI обязано попасть в storage и backup ДО UAC.
+    const started = await persistDpiIntentForRelaunch({
+      getEnabled: () => localStorage.getItem("ninety.dpi.enabled") === "true",
+      setEnabled: (enabled) => localStorage.setItem("ninety.dpi.enabled", enabled ? "true" : "false"),
+      backup: () => backupNow(),
+      relaunch: () => invoke("relaunch_elevated"),
+    });
     if (!started) {
       toast(t("elev.dpiCancelled"), "error", 3000);
       return false;
@@ -325,9 +336,9 @@ mountAddModal({
     } else {
       refreshProfilesSummary();
     }
-    // Wizard: после step 2 — переходим на «подключение»
-    if (wizardActive && wizardStepNum <= 2) {
-      showOnbStep(3);
+    // Wizard: после импорта переходим на «подключение».
+    if (wizardActive && wizardStepNum === 1) {
+      showOnbStep(2);
       setTimeout(() => {
         try { heroDisc?.click(); } catch {}
       }, 450);
@@ -374,17 +385,16 @@ function activeDisplaySource() {
 // юзер не дошёл до step 4 — даже если empty уже false (подписка добавлена).
 function syncEmptyState() {
   if (!appRoot) return;
-  const empty = loadProfiles().length === 0 && loadSubscriptions().length === 0 && !warpOnlyEnabled();
-  appRoot.dataset.empty = String(empty);
+  const sourceEmpty = loadProfiles().length === 0 && loadSubscriptions().length === 0 && !warpOnlyEnabled();
+  const onboardingEmpty = shouldShowOnboarding({ sourceEmpty, done: isOnboardingDone() });
+  appRoot.dataset.empty = String(onboardingEmpty);
   const onb = document.getElementById("onboarding-screen");
-  if (empty && !isOnboardingDone() && !wizardActive) {
+  if (onboardingEmpty && !wizardActive) {
     openWizardAt(wizardStepNum || 1);
     return;
   }
   appRoot.dataset.wizard = String(wizardActive);
-  if (onb) onb.hidden = !(wizardActive || empty);
-  // empty + done — показываем шаг 1 (welcome) для повторного re-add, без wizardActive
-  if (empty && !wizardActive && onb) showOnbStep(1);
+  if (onb) onb.hidden = !(wizardActive || onboardingEmpty);
 }
 
 // ── sub-card sync с активной подпиской ─────────────────────
@@ -921,7 +931,7 @@ function applyActiveSource(kind, id, options = {}) {
     : (getActiveKind() === "single" && getActiveProfileId() === id);
   const reason = options.reason || (isSub ? t("conn.switchSub") : t("conn.switchProfile"));
   if (wasActive) return { kind, id, state, reconnected: false };
-  return applyActiveSourceTransaction({ kind, id }, {
+  const result = applyActiveSourceTransaction({ kind, id }, {
     setActiveKind,
     setActiveProfileId,
     setActiveSubscriptionId,
@@ -943,6 +953,10 @@ function applyActiveSource(kind, id, options = {}) {
       1800,
     ),
   }, { ...options, reason });
+  // Активный профиль/подписка должны переживать и восстановление WebView2 из
+  // дискового снапшота, а не только обычный перезапуск localStorage.
+  void backupNow();
+  return result;
 }
 
 function activateSource(kind, id) {
@@ -1176,7 +1190,7 @@ function renderProfilesView() {
 // Кнопки header'а profiles экрана
 document.getElementById("profiles-add")?.addEventListener("click", () => openAddModal());
 
-// ── Onboarding wizard (4 шага) ─────────────────────────────
+// ── Onboarding wizard (импорт → подключение → готово) ───────
 const ONB_STEP_KEY = "ninety.onboarding.step";
 const ONB_DONE_KEY = "ninety.onboarding.done";
 let wizardActive = false;
@@ -1190,7 +1204,7 @@ function markOnboardingDone() {
   localStorage.removeItem(ONB_STEP_KEY);
 }
 function showOnbStep(n) {
-  wizardStepNum = Math.max(1, Math.min(4, n));
+  wizardStepNum = Math.max(1, Math.min(3, n));
   localStorage.setItem(ONB_STEP_KEY, String(wizardStepNum));
   const onb = document.getElementById("onboarding-screen");
   if (!onb) return;
@@ -1227,15 +1241,28 @@ document.getElementById("onboarding-screen")?.addEventListener("click", async (e
   if (back) { showOnbStep(parseInt(back.dataset.onbBack, 10)); return; }
   if (e.target.closest("[data-onb-skip]")) { closeWizard(); return; }
   if (e.target.closest("[data-onb-finish]")) { closeWizard(); return; }
+  const importInput = document.getElementById("onb-import-url");
+  if (e.target.closest("[data-onb-paste]")) {
+    try { importInput.value = (await navigator.clipboard.readText() || "").trim(); } catch {}
+    importInput?.focus();
+    return;
+  }
   const action = e.target.closest("[data-onb-action]")?.dataset.onbAction;
-  if (action === "clipboard") {
-    if (!wizardActive) openWizardAt(2); // на всякий случай — фиксируем wizard-state
+  if (action === "import") {
+    if (!wizardActive) openWizardAt(1);
+    let value = importInput?.value?.trim() || "";
+    if (!value) {
+      try { value = (await navigator.clipboard.readText() || "").trim(); } catch {}
+    }
+    openAddModal(value ? { prefillUrl: value } : undefined);
+  } else if (action === "clipboard") {
+    if (!wizardActive) openWizardAt(1); // на всякий случай — фиксируем wizard-state
     try {
       const text = await navigator.clipboard.readText();
       openAddModal({ prefillUrl: (text || "").trim() });
     } catch { openAddModal(); }
   } else if (action === "manual") {
-    if (!wizardActive) openWizardAt(2);
+    if (!wizardActive) openWizardAt(1);
     openAddModal();
   }
 });
@@ -1285,6 +1312,7 @@ document.getElementById("onb-themes")?.addEventListener("click", (e) => {
 // Живой ре-рендер при смене языка: static-строки index.html + подписи пикеров + динамика главной.
 onLangChange(() => {
   applyDom(document);
+  applySidebarState();
   populateOnbPrefs();
   refreshDynamicText();
   settingsCtl?.refresh();
@@ -1508,6 +1536,8 @@ const hero = document.getElementById("hero");
 const heroDisc = document.getElementById("hero-disc");
 const heroMask = document.getElementById("hero-mask");
 const heroLabel = document.getElementById("hero-label");
+const sidebarState = document.querySelector(".sidebar-state");
+const sidebarStateLabel = document.getElementById("sidebar-state-label");
 const heroHint = document.getElementById("hero-hint");
 const heroHintText = document.getElementById("hero-hint-text");
 const tfDown = document.getElementById("tf-down");
@@ -1797,8 +1827,22 @@ function updateHeroForActive() {
   if (state === "idle") updateHeroHint();
 }
 
+function applySidebarState(next = state) {
+  if (sidebarState) sidebarState.dataset.state = next;
+  if (!sidebarStateLabel) return;
+  const key = {
+    idle: "sidebar.ready",
+    connecting: "hero.connecting",
+    connected: "hero.secured",
+    disconnecting: "hero.disconnecting",
+    cleanup_error: "conn.cleanupFail",
+  }[next] || "sidebar.ready";
+  sidebarStateLabel.textContent = t(key);
+}
+
 function setState(next, opts = {}) {
   state = next;
+  applySidebarState(next);
   applyHeroState(next);
   applyHomeBottom(next);
 
@@ -1911,8 +1955,8 @@ function setState(next, opts = {}) {
     // Эндпоинты апдейта стали достижимы через туннель — дочекать, если прямые
     // проверки не проходили (у части провайдеров gitlab/github режутся напрямую).
     updateCheckIfStale();
-    // Wizard: подключились — переходим на финальный шаг
-    if (wizardActive && wizardStepNum === 3) showOnbStep(4);
+    // Wizard: подключились — переходим на финальный шаг.
+    if (wizardActive && wizardStepNum === 2) showOnbStep(3);
   }
 
   syncTrayMenu();
@@ -2074,8 +2118,14 @@ window.addEventListener("ninety:node-changed", (ev) => {
   syncEffectiveFromClash({ knownTag: tag });
 });
 
-// DPI-обход переключили из UI → обновить статус/подпись в трее.
-window.addEventListener("ninety:dpi-changed", () => syncTrayMenu());
+// DPI-обход и выбранная нода — критическое состояние: кроме localStorage сразу
+// обновляем дисковый снапшот. Иначе после очистки WebView2 мог восстановиться
+// предыдущий флаг DPI или старый "auto".
+window.addEventListener("ninety:dpi-changed", () => {
+  syncTrayMenu();
+  void backupNow();
+});
+window.addEventListener("ninety:proxy-selection-saved", () => { void backupNow(); });
 
 // ── Трей — вынесен в /lib/tray.js; здесь только контекст main-состояния ──
 // Объявлено заранее (до initTray и бутстрапа): getUpdateVersion читает
@@ -2231,6 +2281,18 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
       }
       if (!warpOnly && !snapshotMatchesSource(topology, nodesFromSource())) {
         throw new Error("Clash topology не соответствует активному источнику");
+      }
+      const restoredSelection = await restoreRememberedProxySelection({
+        source: runtimeSource,
+        topology,
+        apply: (tag) => selectProxy("proxy", tag, { token: runtimeToken }),
+        isCurrent: () => runtimeIdentity.isCurrent(runtimeToken)
+          && isCurrentNetworkIntent(epoch, "connected")
+          && connectAttempts.isCurrent(attemptEpoch),
+      });
+      if (restoredSelection.status === "stale") {
+        await shutdownCore();
+        return;
       }
       // Системный прокси выставляем ТОЛЬКО для mode=systemProxy. Для голого
       // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт
@@ -2507,16 +2569,17 @@ async function autostartNetworkRuntime() {
       } catch { return null; }
     })();
     const autoconnect = await invoke("should_autoconnect");
-    if (!autoconnect && !resume) return;
-    // VPN возвращаем при автостарте всегда; после OTA — только если он был
-    // поднят в момент установки (раньше юзер с выключенным DPI после апдейта
-    // оставался отключённым, пока не нажмёт руками).
-    const vpnWanted = autoconnect || !!resume?.vpn;
-
-    const tunWanted = getMode() === "tun";
-    // DPI нужен вне TUN, либо в TUN при split-Discord (winws десинхрит direct-Discord).
-    const splitDiscord = tunWanted && !!loadOptions()?.route?.tunSplitDiscord;
-    const dpiWanted = localStorage.getItem("ninety.dpi.enabled") === "true" && (!tunWanted || splitDiscord);
+    const mode = getMode();
+    const splitDiscord = mode === "tun" && !!loadOptions()?.route?.tunSplitDiscord;
+    const plan = startupRuntimePlan({
+      autoconnect,
+      resume,
+      dpiEnabled: localStorage.getItem("ninety.dpi.enabled") === "true",
+      mode,
+      tunSplitDiscord: splitDiscord,
+    });
+    if (!plan.shouldRun) return;
+    const { vpnWanted, tunWanted, dpiWanted } = plan;
     // Элевация ради TUN — только если VPN реально будем поднимать.
     if (((tunWanted && vpnWanted) || dpiWanted) && !(await invoke("is_elevated"))) {
       if (tunWanted) setMode("tun"); // перезапущенный admin-инстанс поднимется в TUN

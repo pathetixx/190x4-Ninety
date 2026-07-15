@@ -12,6 +12,7 @@ export const tr = {
     settings: "Ayarlar",
   },
 
+  sidebar: { ready: "Bağlantıya hazır" },
   traffic: { label: "Trafik · canlı", down: "İnd.", up: "Yük." },
 
   units: {
@@ -626,9 +627,12 @@ export const tr = {
       start: "Başla",
     },
     import: {
+      inputLabel: "Bağlantıyı yapıştır",
+      or: "veya",
       title: "Abonelik ekle",
       sub: "Bir abonelik URL'si veya <code>vless://</code> bağlantısı yapıştırın. Panodaysa onu alırız.",
       fromClipboard: "Panodan",
+      importAction: "İçe aktar",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "Elle",
       manualSub: "URL + ad + aralık",

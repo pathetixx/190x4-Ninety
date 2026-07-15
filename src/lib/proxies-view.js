@@ -10,6 +10,7 @@ import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { FLAGS_BASE, flagIsoFromName, stripFlag } from "/lib/flags.js";
 import { escapeHtml, escapeAttr } from "/lib/esc.js";
 import { t } from "/lib/i18n/index.js";
+import { rememberProxySelection } from "/lib/proxy-selection.js";
 
 function $(id) { return document.getElementById(id); }
 
@@ -314,6 +315,7 @@ async function handleNodeClick(card, onToast) {
   try {
     const selected = await selectProxy("proxy", tag);
     if (generation !== sourceGeneration || selected?.stale) return;
+    rememberProxySelection(getActiveSource(), tag);
     onToast?.(tag === "auto" ? t("proxies.toastAuto") : t("proxies.toastSwitched"), "success", 1200);
     // Для "auto" реальный исходящий определит URLTest — узнаем после refresh.
     // Для ручного выбора — сразу синхронизируем hero/location/IP.

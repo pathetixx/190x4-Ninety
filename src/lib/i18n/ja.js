@@ -12,6 +12,7 @@ export const ja = {
     settings: "設定",
   },
 
+  sidebar: { ready: "接続準備完了" },
   traffic: { label: "トラフィック · ライブ", down: "下り", up: "上り" },
 
   units: {
@@ -626,9 +627,12 @@ export const ja = {
       start: "始める",
     },
     import: {
+      inputLabel: "リンクを貼り付け",
+      or: "または",
       title: "サブスクリプションを追加",
       sub: "サブスクリプションURLまたは <code>vless://</code> リンクを貼り付けてください。すでにクリップボードにあれば自動で取り込みます。",
       fromClipboard: "クリップボードから",
+      importAction: "インポート",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "手動",
       manualSub: "URL + 名前 + 間隔",

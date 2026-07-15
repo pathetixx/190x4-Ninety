@@ -12,6 +12,7 @@ export const pl = {
     settings: "Ustawienia",
   },
 
+  sidebar: { ready: "Gotowy do połączenia" },
   traffic: { label: "Ruch · na żywo", down: "Pob.", up: "Wys." },
 
   units: {
@@ -626,9 +627,12 @@ export const pl = {
       start: "Rozpocznij",
     },
     import: {
+      inputLabel: "Wklej link",
+      or: "lub",
       title: "Dodaj subskrypcję",
       sub: "Wklej adres URL subskrypcji lub link <code>vless://</code>. Jeśli jest już w schowku, pobierzemy go.",
       fromClipboard: "Ze schowka",
+      importAction: "Importuj",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "Ręcznie",
       manualSub: "URL + nazwa + interwał",

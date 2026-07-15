@@ -12,6 +12,7 @@ export const fr = {
     settings: "Paramètres",
   },
 
+  sidebar: { ready: "Prêt à se connecter" },
   traffic: { label: "Trafic · en direct", down: "Desc.", up: "Mont." },
 
   units: {
@@ -626,9 +627,12 @@ export const fr = {
       start: "Commencer",
     },
     import: {
+      inputLabel: "Collez le lien",
+      or: "ou",
       title: "Ajouter un abonnement",
       sub: "Collez une URL d’abonnement ou un lien <code>vless://</code>. S’il est déjà dans votre presse-papiers, nous le récupérons.",
       fromClipboard: "Depuis le presse-papiers",
+      importAction: "Importer",
       fromClipboardSub: "URL / vless:// / vmess://",
       manual: "Manuellement",
       manualSub: "URL + nom + intervalle",

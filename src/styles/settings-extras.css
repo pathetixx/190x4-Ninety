@@ -297,16 +297,297 @@
 /* ───────── Onboarding empty-state / wizard ───────── */
 .app[data-empty="true"] .screen,
 .app[data-wizard="true"] .screen { display: none !important; }
-.app[data-empty="true"] .nav__item[data-view="profiles"],
-.app[data-empty="true"] .nav__item[data-view="proxies"],
-.app[data-empty="true"] .nav__item[data-view="logs"],
-.app[data-wizard="true"] .nav__item[data-view="profiles"],
-.app[data-wizard="true"] .nav__item[data-view="proxies"],
-.app[data-wizard="true"] .nav__item[data-view="logs"] {
-  opacity: 0.4;
-  pointer-events: none;
-}
+.app[data-empty="true"] .layout,
+.app[data-wizard="true"] .layout { grid-template-columns: minmax(0, 1fr); }
+.app[data-empty="true"] .sidebar,
+.app[data-wizard="true"] .sidebar { display: none; }
+.app[data-empty="true"] .content,
+.app[data-wizard="true"] .content { padding: 0; overflow: hidden; }
 .app:not([data-empty="true"]):not([data-wizard="true"]) #onboarding-screen { display: none !important; }
+
+/* Split Atelier: first run is its own focused surface, not a disabled app shell. */
+#onboarding-screen.onboarding {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(330px, 39%) minmax(0, 1fr);
+  place-items: stretch;
+  background: color-mix(in srgb, var(--ink-0) 96%, black);
+}
+.onb-brand-panel {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border-inline-end: 1px solid var(--line-2);
+  background:
+    radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 44%),
+    #08080a;
+}
+.onb-brand-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(7, 7, 9, 0.04) 0%, rgba(7, 7, 9, 0.12) 42%, #08080a 91%),
+    linear-gradient(90deg, rgba(7, 7, 9, 0.08), transparent 48%, rgba(7, 7, 9, 0.34));
+  z-index: 1;
+}
+.onb-brand-panel__art {
+  position: absolute;
+  inset: -2% -42% 12% -42%;
+  filter: saturate(0.72) brightness(0.54) contrast(1.14);
+  opacity: 0.92;
+}
+.onb-brand-panel__lockup {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 28px;
+  bottom: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  text-align: center;
+}
+.onb-brand-panel__wordmark {
+  font-family: var(--font-display);
+  font-size: clamp(34px, 4.2vw, 52px);
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.065em;
+  color: #b8b9bc;
+  text-shadow: 0 1px 0 #f0f0f1, 0 5px 18px rgba(0, 0, 0, 0.9);
+}
+.onb-brand-panel__wordmark b { color: var(--accent); font-weight: 700; }
+.onb-brand-panel__product {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  color: var(--text-mid);
+}
+.onb-brand-panel__product i { color: var(--accent); font-style: normal; }
+.onb-flow {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  padding: 30px 52px;
+  background:
+    radial-gradient(circle at 48% 48%, var(--overlay-1), transparent 44%),
+    linear-gradient(135deg, transparent 58%, color-mix(in srgb, var(--accent-soft) 18%, transparent));
+}
+.onb-wizard {
+  gap: 26px;
+  width: min(100%, 470px);
+  max-width: 470px;
+}
+.onb-progress { padding: 0; }
+.onb-progress__bar { width: 38px; }
+.onb-step .onb { width: 100%; max-width: 440px; gap: 19px; }
+.onb-step .onb__title { font-size: 28px; }
+.onb-step .onb__sub { max-width: 420px; }
+.onb-step .onb-prefs { max-width: 410px; }
+.onb-import {
+  width: 100%;
+  max-width: 390px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.onb-import__field {
+  position: relative;
+  width: 100%;
+}
+.onb-import__field input {
+  width: 100%;
+  height: 50px;
+  padding: 0 50px 0 15px;
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--ink-1) 92%, black);
+  color: var(--text-hi);
+  font: 12px var(--font-mono);
+  box-shadow: inset 0 1px 0 var(--shine-1);
+}
+.onb-import__field input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 74%, var(--line-3));
+  box-shadow: 0 0 0 3px var(--accent-soft), inset 0 1px 0 var(--shine-1);
+}
+.onb-import__paste {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 0;
+  width: 48px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  color: var(--accent-bright);
+  border-inline-start: 1px solid var(--line-1);
+}
+.onb-import__paste:hover { background: var(--overlay-2); color: var(--text-hi); }
+.onb-import__submit { width: 100%; height: 48px; justify-content: center; }
+.onb-import__manual {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  color: var(--text-mid);
+  font-size: 12px;
+}
+.onb-import__manual:hover { color: var(--accent-bright); }
+
+@media (max-width: 840px) {
+  #onboarding-screen.onboarding { grid-template-columns: 34% minmax(0, 1fr); }
+  .onb-flow { padding-inline: 28px; }
+  .onb-brand-panel__lockup { inset-inline: 16px; }
+}
+
+/* Approved Split Atelier proportions: compact, three-step and deliberately sparse. */
+#onboarding-screen.onboarding {
+  grid-template-columns: minmax(390px, 44%) minmax(0, 1fr);
+  background: #08090b;
+}
+#onboarding-screen .onb-brand-panel {
+  background:
+    linear-gradient(180deg, rgba(8, 9, 11, 0.08), rgba(8, 9, 11, 0.2) 58%, #09090b 100%),
+    radial-gradient(circle at 23% 46%, rgba(203, 39, 63, 0.11), transparent 40%),
+    #08090b;
+}
+#onboarding-screen .onb-brand-panel::before {
+  background:
+    linear-gradient(90deg, rgba(6, 7, 9, 0.03), transparent 52%, rgba(6, 7, 9, 0.52) 82%, #08090b 100%),
+    linear-gradient(180deg, rgba(6, 7, 9, 0.02), transparent 65%, rgba(6, 7, 9, 0.72));
+}
+#onboarding-screen .onb-brand-panel__art {
+  inset: 0;
+  background: url("/assets/split-atelier-v2.webp") center / cover no-repeat;
+  filter: brightness(0.88) contrast(1.06) saturate(0.82);
+  opacity: 1;
+}
+#onboarding-screen .onb-brand-panel__lockup {
+  inset: auto 34px 155px auto;
+  width: 190px;
+  align-items: center;
+  gap: 30px;
+  text-align: left;
+}
+#onboarding-screen .onb-brand-panel__signature {
+  align-self: center;
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: transparent;
+  background: linear-gradient(180deg, #d9dade 0%, #7f8186 50%, #b9babd 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3), 0 4px 12px #000;
+}
+#onboarding-screen .onb-brand-panel__signature b { color: var(--accent); font-weight: 700; }
+#onboarding-screen .onb-brand-panel__wordmark {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: #d6d6d8;
+  text-shadow: 0 2px 8px #000;
+}
+#onboarding-screen .onb-brand-panel__product {
+  align-self: center;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--accent-bright);
+}
+#onboarding-screen .onb-flow {
+  padding: 42px 56px 58px;
+  background:
+    radial-gradient(circle at 48% 43%, rgba(255, 255, 255, 0.025), transparent 48%),
+    linear-gradient(135deg, #0b0c0f, #08090b 72%);
+}
+#onboarding-screen .onb-wizard {
+  width: min(100%, 432px);
+  max-width: 432px;
+  gap: 44px;
+  transform: translateY(60px);
+}
+#onboarding-screen .onb-progress { gap: 0; padding: 0; }
+#onboarding-screen .onb-progress__dot { width: 13px; height: 13px; }
+#onboarding-screen .onb-progress__bar { width: 64px; }
+#onboarding-screen[data-step="1"] .onb-progress__dot[data-step="1"],
+#onboarding-screen[data-step="2"] .onb-progress__dot[data-step="2"],
+#onboarding-screen[data-step="3"] .onb-progress__dot[data-step="3"] {
+  box-shadow: inset 0 0 0 3px #0b0c0f, 0 0 10px var(--accent-glow);
+}
+#onboarding-screen .onb-step,
+#onboarding-screen .onb-step .onb { width: 100%; max-width: none; }
+#onboarding-screen .onb-step .onb { gap: 25px; }
+#onboarding-screen .onb-step .onb__kicker { display: none; }
+#onboarding-screen .onb-step .onb__title {
+  font-size: 32px;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+#onboarding-screen .onb-import { width: 100%; max-width: none; gap: 17px; }
+#onboarding-screen .onb-import__label {
+  margin-bottom: 0;
+  color: var(--text-mid);
+  font-size: 14px;
+  text-align: left;
+}
+#onboarding-screen .onb-import__field input {
+  height: 54px;
+  padding-inline: 16px 54px;
+  border-radius: 7px;
+  background: #0e0f12;
+  border-color: rgba(150, 153, 160, 0.42);
+}
+#onboarding-screen .onb-import__paste { width: 52px; height: 54px; }
+#onboarding-screen .onb-import__submit {
+  height: 60px;
+  border-radius: 7px;
+  font-size: 14px;
+  background: linear-gradient(180deg, #e23857 0%, #c52547 100%);
+  border-color: #eb4866;
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 24%, transparent), inset 0 1px rgba(255,255,255,.3);
+  margin-top: 16px;
+}
+#onboarding-screen .onb-import__separator {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 14px;
+  color: var(--text-faint);
+  font-size: 12px;
+  margin-top: 22px;
+}
+#onboarding-screen .onb-import__separator::before,
+#onboarding-screen .onb-import__separator::after {
+  content: "";
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--line-2));
+}
+#onboarding-screen .onb-import__separator::after { transform: scaleX(-1); }
+#onboarding-screen .onb__cta { margin-top: 0; }
+#onboarding-screen .onb__cta .btn--ghost {
+  min-height: 0;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  box-shadow: none;
+}
+
+@media (max-width: 940px) {
+  #onboarding-screen.onboarding { grid-template-columns: 39% minmax(0, 1fr); }
+  #onboarding-screen .onb-brand-panel__art { background-position: 45% center; }
+  #onboarding-screen .onb-brand-panel__lockup { right: 24px; }
+  #onboarding-screen .onb-flow { padding-inline: 38px; }
+}
 
 /* Wizard — прогресс-индикатор */
 .onb-wizard {
@@ -547,4 +828,3 @@
 .logs__console .log-line:nth-child(odd) { background: var(--overlay-1); }
 
 /* Секция «О программе» — стили вынесены в about.css. */
-

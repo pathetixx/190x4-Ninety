@@ -58,6 +58,31 @@ test("OTA-снимок возвращает активный профиль и r
   assert.equal(localStorage.getItem("ninety.update.resume"), JSON.stringify({ vpn: true, dpi: false }));
 });
 
+test("дисковый снимок сохраняет активный источник, выбранную ноду и включённый DPI", async () => {
+  localStorage.clear();
+  sessionStorage.clear();
+  localStorage.setItem("ninety.options.v1", "{}");
+  localStorage.setItem("ninety.profiles.v1", "[]");
+  localStorage.setItem("ninety.subscriptions.v1", JSON.stringify([{ id: "sub-last", profiles: [{ stableId: "node-last" }] }]));
+  localStorage.setItem("ninety.subscriptions.active", "sub-last");
+  localStorage.setItem("ninety.active.kind", "sub");
+  localStorage.setItem("ninety.proxy.selection.v1", JSON.stringify({ "sub:sub-last": "node-last" }));
+  localStorage.setItem("ninety.dpi.enabled", "true");
+
+  await backupNow();
+  const snapshot = JSON.parse(savedSnapshot);
+  assert.equal(snapshot["ninety.subscriptions.active"], "sub-last");
+  assert.equal(snapshot["ninety.active.kind"], "sub");
+  assert.equal(JSON.parse(snapshot["ninety.proxy.selection.v1"])["sub:sub-last"], "node-last");
+  assert.equal(snapshot["ninety.dpi.enabled"], "true");
+
+  localStorage.clear();
+  assert.equal(await restoreIfEmpty(), true);
+  assert.equal(localStorage.getItem("ninety.subscriptions.active"), "sub-last");
+  assert.equal(JSON.parse(localStorage.getItem("ninety.proxy.selection.v1"))["sub:sub-last"], "node-last");
+  assert.equal(localStorage.getItem("ninety.dpi.enabled"), "true");
+});
+
 test("partial/corrupt backup отклоняется до записи", () => {
   assert.equal(validateSnapshot({
     __schemaVersion: 2,
