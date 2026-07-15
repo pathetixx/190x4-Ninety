@@ -31,10 +31,6 @@ ManifestDPIAwareness PerMonitorV2
 ${StrCase}
 ${StrLoc}
 
-{{#if installer_hooks}}
-!include "{{installer_hooks}}"
-{{/if}}
-
 !define WEBVIEW2APPGUID "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 
 !define MANUFACTURER "{{manufacturer}}"
@@ -78,6 +74,12 @@ Var OldMainBinaryName
 ; Ninety: явная миграция существующей установки (см. блок в .onInit)
 Var NinetyPrevPerUser
 Var NinetyPrevPerMachine
+
+; The hook entry is loaded after VERSION and the other product constants so the
+; Kurogane UI can render live build metadata in the custom title bar.
+{{#if installer_hooks}}
+!include "{{installer_hooks}}"
+{{/if}}
 
 Name "${PRODUCTNAME}"
 BrandingText "${COPYRIGHT}"
@@ -170,17 +172,20 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 ; Installer pages, must be ordered as they appear
 ; 1. Welcome Page
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
 !insertmacro MUI_PAGE_WELCOME
 
 ; 2. License Page (if defined)
 !if "${LICENSE}" != ""
   !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+  !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
   !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
 !endif
 
 ; 3. Install mode (if it is set to `both`)
 !if "${INSTALLMODE}" == "both"
   !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+  !define MULTIUSER_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
   !insertmacro MULTIUSER_PAGE_INSTALLMODE
 !endif
 
@@ -299,6 +304,7 @@ Function PageReinstall
     ${EndIf}
 
     ${NSD_SetFocus} $R2
+    Call KuroganeStyleCurrentPage
     nsDialogs::Show
   ${EndIf}
 FunctionEnd
@@ -389,6 +395,7 @@ FunctionEnd
 
 ; 5. Choose install directory page
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
 !insertmacro MUI_PAGE_DIRECTORY
 
 ; 6. Start menu shortcut page
@@ -399,9 +406,12 @@ Var AppStartMenuFolder
 !else
   !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
 !endif
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
 !insertmacro MUI_PAGE_STARTMENU Application $AppStartMenuFolder
 
 ; 7. Installation page
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeInstFilesShow
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeInstFilesLeave
 !insertmacro MUI_PAGE_INSTFILES
 
 ; 8. Finish page
@@ -417,6 +427,7 @@ Var AppStartMenuFolder
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
 !insertmacro MUI_PAGE_FINISH
 
 Function RunMainBinary
@@ -457,6 +468,7 @@ Function un.ConfirmShow ; Add add a `Delete app data` check box
   Pop $DeleteAppDataCheckbox
   SendMessage $HWNDPARENT ${WM_GETFONT} 0 0 $1
   SendMessage $DeleteAppDataCheckbox ${WM_SETFONT} $1 1
+  Call un.KuroganeStyleCurrentPage
 FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave
 Function un.ConfirmLeave
@@ -466,6 +478,8 @@ FunctionEnd
 !insertmacro MUI_UNPAGE_CONFIRM
 
 ; 2. Uninstalling Page
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.KuroganeInstFilesShow
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.KuroganeInstFilesLeave
 !insertmacro MUI_UNPAGE_INSTFILES
 
 ;Languages

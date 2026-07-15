@@ -56,6 +56,9 @@ jobs:
       - name: Validate tag and version consistency
         run: npm run check:versions
 
+      - name: Validate Windows installer resources
+        run: npm run check:installer
+
       - name: Lint frontend
         run: npm run lint
 

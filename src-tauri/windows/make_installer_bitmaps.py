@@ -9,9 +9,12 @@
 и `python3 make_installer_bitmaps.py`. Лого не генерируем программно — арт рисуется
 дизайн-инструментом. Старый процедурный генератор заменён этим запеканием.
 """
-from PIL import Image
+import argparse
+import io
 import os
 import sys
+
+from PIL import Image
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ART = os.path.join(ROOT, "art")
@@ -23,7 +26,7 @@ TARGETS = [
 ]
 
 
-def bake(name, size):
+def render_bmp(name, size):
     src = os.path.join(ART, f"{name}.png")
     if not os.path.exists(src):
         sys.exit(f"нет исходника {src}")
@@ -31,12 +34,33 @@ def bake(name, size):
     if im.size != size:
         sys.exit(f"{name}.png размер {im.size}, ожидался {size}")
     bg = Image.new("RGB", size, INK_0)
-    bg.paste(im, (0, 0), im)  # альфа хэндоффа = 255 → потерь нет
+    bg.paste(im, (0, 0), im)  # корректно сводим PNG-альфу на фон установщика
+    buf = io.BytesIO()
+    bg.save(buf, format="BMP")  # 24-bit BMP3, bottom-up — то что ждёт NSIS
+    return buf.getvalue()
+
+
+def bake(name, size, check=False):
+    expected = render_bmp(name, size)
     out = os.path.join(ROOT, f"{name}.bmp")
-    bg.save(out, format="BMP")  # 24-bit BMP3, bottom-up — то что ждёт NSIS
-    print(f"{name}.bmp {bg.size} 24-bit")
+    if check:
+        actual = open(out, "rb").read() if os.path.exists(out) else b""
+        if actual != expected:
+            sys.exit(f"{name}.bmp устарел; запустите make_installer_bitmaps.py")
+        print(f"✓ {name}.bmp {size} 24-bit синхронизирован")
+        return
+    with open(out, "wb") as f:
+        f.write(expected)
+    print(f"{name}.bmp {size} 24-bit")
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="проверить, что BMP синхронизированы с PNG-исходниками",
+    )
+    args = parser.parse_args()
     for name, size in TARGETS:
-        bake(name, size)
+        bake(name, size, check=args.check)

@@ -32,6 +32,7 @@
     "active": true,
     "targets": ["msi", "nsis"],
     "createUpdaterArtifacts": true,
+    "copyright": "© 2026 pathetixx · 190x4",
     "licenseFile": "./windows/license.rtf",
     "externalBin": ["binaries/sing-box", "binaries/xray", "binaries/naive", "binaries/trusttunnel_client"],
     "resources": {
@@ -52,6 +53,7 @@
       "icons/icon.png"
     ],
     "windows": {
+      "allowDowngrades": false,
       "wix": {
         "language": "en-US"
       },
@@ -59,10 +61,9 @@
         "installMode": "both",
         "template": "./windows/installer.nsi",
         "installerIcon": "icons/icon.ico",
-        "installerHooks": "./windows/hooks.nsh",
-        "headerImage": "./windows/header.bmp",
-        "sidebarImage": "./windows/sidebar.bmp",
-        "displayLanguageSelector": true,
+        "uninstallerIcon": "icons/icon.ico",
+        "installerHooks": "./windows/installer-entry.nsh",
+        "displayLanguageSelector": false,
         "languages": ["English", "Russian"]
       }
     }

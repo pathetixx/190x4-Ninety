@@ -20,6 +20,7 @@
     "tauri": "tauri",
     "test": "node scripts/test.mjs",
     "check:versions": "node scripts/check-version.mjs",
+    "check:installer": "node scripts/check-installer.mjs",
     "check:actions-pinned": "node scripts/check-actions-pinned.mjs",
     "check:dpi-key-rotation": "node scripts/check-dpi-key-rotation.mjs",
     "lint": "eslint --max-warnings 0 src site tests scripts"
