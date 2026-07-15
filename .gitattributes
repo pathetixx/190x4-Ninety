@@ -1,0 +1,2 @@
+# Generated RTF is byte-checked in CI. Keep LF bytes unchanged on Windows checkout.
+src-tauri/windows/license.rtf -text
