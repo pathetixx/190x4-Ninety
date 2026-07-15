@@ -27,6 +27,23 @@ function configFile(label, value) {
   return path;
 }
 
+function checkBmp(path, width, height) {
+  if (!existsSync(path)) {
+    fail(`BMP не найден (${path})`);
+    return;
+  }
+  const bmp = readFileSync(path);
+  if (
+    bmp.length < 54 ||
+    bmp.subarray(0, 2).toString("ascii") !== "BM" ||
+    bmp.readInt32LE(18) !== width ||
+    Math.abs(bmp.readInt32LE(22)) !== height ||
+    bmp.readUInt16LE(28) !== 24
+  ) {
+    fail(`BMP ${path} должен быть ${width}x${height}, 24-bit`);
+  }
+}
+
 if (!Array.isArray(bundle.targets) || !bundle.targets.includes("nsis")) {
   fail("NSIS отсутствует в bundle.targets");
 }
@@ -64,6 +81,17 @@ const resourceExe = resolve(kuroganeDir, "kurogane-ui.exe");
 if (existsSync(resourceExe)) {
   const magic = readFileSync(resourceExe).subarray(0, 2).toString("ascii");
   if (magic !== "MZ") fail("Kurogane resource UI не является Windows PE-файлом");
+}
+
+for (const [path, width, height] of [
+  [resolve(configDir, "./windows/header.bmp"), 150, 57],
+  [resolve(configDir, "./windows/sidebar.bmp"), 164, 314],
+  [resolve(kuroganeDir, "left-panel.bmp"), 330, 463],
+  [resolve(kuroganeDir, "title-brand.bmp"), 225, 55],
+  [resolve(kuroganeDir, "progress-frame.bmp"), 396, 45],
+  [resolve(kuroganeDir, "progress-fill.bmp"), 368, 13],
+]) {
+  checkBmp(path, width, height);
 }
 
 if (entryPath && existsSync(entryPath)) {
@@ -111,13 +139,20 @@ if (!process.exitCode) {
     spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0
   );
   if (!python) {
-    fail("Python не найден — невозможно проверить сгенерированные RTF/BMP");
+    fail("Python не найден — невозможно проверить сгенерированный RTF");
   } else {
-    for (const script of [
-      "src-tauri/windows/make_license_rtf.py",
-      "src-tauri/windows/make_installer_bitmaps.py",
-      "src-tauri/windows/kurogane/make_kurogane_assets.py",
-    ]) {
+    const scripts = ["src-tauri/windows/make_license_rtf.py"];
+    const pillowAvailable =
+      spawnSync(python, ["-c", "import PIL"], { stdio: "ignore" }).status === 0;
+    if (pillowAvailable) {
+      scripts.push(
+        "src-tauri/windows/make_installer_bitmaps.py",
+        "src-tauri/windows/kurogane/make_kurogane_assets.py"
+      );
+    } else {
+      console.log("Pillow unavailable: BMP headers validated without regeneration");
+    }
+    for (const script of scripts) {
       const result = spawnSync(python, [script, "--check"], { stdio: "inherit" });
       if (result.status !== 0) {
         fail(`${script} --check завершился с кодом ${result.status ?? "unknown"}`);
