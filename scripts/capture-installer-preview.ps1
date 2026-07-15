@@ -112,7 +112,7 @@ try {
   # Exercise real frameless-window dragging. Hosted runners occasionally lose
   # one synthetic mouse-down during startup, so retry independent gestures and
   # keep collecting visual evidence even if all attempts fail.
-  $home = Get-InstallerRect
+  $originalRect = Get-InstallerRect
   $dragPassed = $false
   foreach ($attempt in 0..2) {
     $before = Get-InstallerRect
@@ -139,10 +139,10 @@ try {
   # Restore the original rectangle before visual pixel checks and captures.
   [NinetyPreviewWin32]::MoveWindow(
     $window,
-    $home.Left,
-    $home.Top,
-    $home.Right - $home.Left,
-    $home.Bottom - $home.Top,
+    $originalRect.Left,
+    $originalRect.Top,
+    $originalRect.Right - $originalRect.Left,
+    $originalRect.Bottom - $originalRect.Top,
     $true
   ) | Out-Null
   [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
