@@ -37,7 +37,6 @@ Var KuroganeFontBody
 Var KuroganeFontMeta
 Var KuroganeFontSteps
 Var KuroganeDragWasDown
-Var KuroganeShellTimerStarted
 
 LangString KStepOptions 1033 "OPTIONS"
 LangString KStepInstall 1033 "INSTALL"
@@ -167,7 +166,6 @@ LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПО
   SendMessage $0 ${WM_SETFONT} $KuroganeFontBody 1
 
   StrCpy $KuroganeDragWasDown 0
-  StrCpy $KuroganeShellTimerStarted 0
 !macroend
 
 Function KuroganeGuiInit
@@ -295,16 +293,12 @@ Function un.KuroganeMinimizeShellTick
 FunctionEnd
 
 Function KuroganeStartShellTimer
-  ${If} $KuroganeShellTimerStarted != 1
-    StrCpy $KuroganeShellTimerStarted 1
-    ${NSD_CreateTimer} KuroganeMinimizeShellTick 40
-  ${EndIf}
+  ${NSD_KillTimer} KuroganeMinimizeShellTick
+  ${NSD_CreateTimer} KuroganeMinimizeShellTick 40
 FunctionEnd
 Function un.KuroganeStartShellTimer
-  ${If} $KuroganeShellTimerStarted != 1
-    StrCpy $KuroganeShellTimerStarted 1
-    ${NSD_CreateTimer} un.KuroganeMinimizeShellTick 40
-  ${EndIf}
+  ${NSD_KillTimer} un.KuroganeMinimizeShellTick
+  ${NSD_CreateTimer} un.KuroganeMinimizeShellTick 40
 FunctionEnd
 
 Function KuroganeStyleCurrentPage
