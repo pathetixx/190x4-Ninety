@@ -13,12 +13,12 @@ Name "Ninety"
 OutFile "kurogane-smoke.exe"
 RequestExecutionLevel user
 
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeFullWindowPageShow
 !insertmacro MUI_PAGE_WELCOME
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeInstFilesShow
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeInstFilesLeave
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeFullWindowPageShow
 !insertmacro MUI_PAGE_FINISH
 
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.KuroganePageShow
@@ -32,7 +32,15 @@ RequestExecutionLevel user
 
 Section
   SetOutPath "$TEMP\NinetySmoke"
-  Sleep 500
+  FindWindow $0 "#32770" "" $HWNDPARENT
+  GetDlgItem $1 $0 1004
+  StrCpy $2 0
+  smoke_progress:
+    IntOp $2 $2 + 10
+    SendMessage $1 0x0402 $2 0
+    Sleep 650
+    IntCmp $2 100 smoke_progress_done smoke_progress smoke_progress_done
+  smoke_progress_done:
   WriteUninstaller "$TEMP\NinetySmoke\uninstall.exe"
 SectionEnd
 

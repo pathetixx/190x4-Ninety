@@ -172,7 +172,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 ; Installer pages, must be ordered as they appear
 ; 1. Welcome Page
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeFullWindowPageShow
 !insertmacro MUI_PAGE_WELCOME
 
 ; 2. License Page (if defined)
@@ -427,7 +427,7 @@ Var AppStartMenuFolder
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeFullWindowPageShow
 !insertmacro MUI_PAGE_FINISH
 
 Function RunMainBinary

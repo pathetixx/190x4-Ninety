@@ -607,6 +607,12 @@ pub fn run() {
             // Окно по умолчанию скрыто (visible:false). Показываем сейчас, кроме
             // автозапуска при входе в Windows — там оставляем в трее.
             if let Some(w) = app.get_webview_window("main") {
+                // Windows хранит для окна отдельные small/big icons (WM_SETICON),
+                // независимо от иконки exe на панели задач. Задаём их явно,
+                // чтобы thumbnail/hover никогда не подхватывал старый ресурс.
+                if let Some(icon) = app.default_window_icon() {
+                    let _ = w.set_icon(icon.clone());
+                }
                 if autostarted || ci_smoke {
                     let _ = w.hide();
                 } else {

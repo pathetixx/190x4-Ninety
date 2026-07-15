@@ -72,7 +72,6 @@ for (const name of [
   "left-panel.bmp",
   "title-brand.bmp",
   "progress-frame.bmp",
-  "progress-fill.bmp",
 ]) {
   if (!existsSync(resolve(kuroganeDir, name))) fail(`Kurogane: файл не найден (${name})`);
 }
@@ -86,10 +85,9 @@ if (existsSync(resourceExe)) {
 for (const [path, width, height] of [
   [resolve(configDir, "./windows/header.bmp"), 150, 57],
   [resolve(configDir, "./windows/sidebar.bmp"), 164, 314],
-  [resolve(kuroganeDir, "left-panel.bmp"), 330, 463],
-  [resolve(kuroganeDir, "title-brand.bmp"), 225, 55],
-  [resolve(kuroganeDir, "progress-frame.bmp"), 396, 45],
-  [resolve(kuroganeDir, "progress-fill.bmp"), 368, 13],
+  [resolve(kuroganeDir, "left-panel.bmp"), 384, 538],
+  [resolve(kuroganeDir, "title-brand.bmp"), 262, 64],
+  [resolve(kuroganeDir, "progress-frame.bmp"), 460, 53],
 ]) {
   checkBmp(path, width, height);
 }

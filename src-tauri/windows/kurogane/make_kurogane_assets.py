@@ -17,7 +17,6 @@ SAMURAI_MARK = ROOT / "src/assets/samurai-mark-v2.webp"
 INK = (11, 11, 14)
 PANEL = (11, 11, 14)
 RED = (255, 49, 79)
-RED_DARK = (124, 18, 38)
 
 
 def font(size: int, bold: bool = False):
@@ -98,7 +97,9 @@ def metallic_text(canvas, xy, text, typeface, spacing=0):
 
 
 def make_left_panel():
-    size = (330, 463)
+    # Exact pixel sizes of the corresponding DLU controls in the Windows NSIS
+    # resource at 100% scaling. SS_CENTERIMAGE never stretches a bitmap.
+    size = (384, 538)
     art = Image.open(SPLIT_ART).convert("RGB")
     # Slightly oversized crop keeps the oni eye and horn exactly where the
     # concept places them while preserving circuitry at the outer edge.
@@ -117,62 +118,43 @@ def make_left_panel():
     panel.alpha_composite(veil)
 
     draw = ImageDraw.Draw(panel)
-    draw.line((329, 0, 329, 463), fill=(49, 49, 54, 255), width=1)
-    draw.line((327, 0, 327, 463), fill=(20, 20, 24, 210), width=1)
+    draw.line((size[0] - 1, 0, size[0] - 1, size[1]), fill=(49, 49, 54, 255), width=1)
+    draw.line((size[0] - 3, 0, size[0] - 3, size[1]), fill=(20, 20, 24, 210), width=1)
 
-    metallic_text(panel, (188, 337), "190x", font(20, bold=True), spacing=0)
-    draw.text((268, 337), "4", font=font(20, bold=True), fill=RED)
-    draw_spaced(draw, (177, 374), "NINETY", font(15, bold=True), (230, 230, 234), spacing=7)
-    draw.text((201, 411), "/  SETUP", font=font(9), fill=(223, 55, 79))
+    metallic_text(panel, (219, 392), "190x", font(23, bold=True), spacing=0)
+    draw.text((312, 392), "4", font=font(23, bold=True), fill=RED)
+    draw_spaced(draw, (206, 435), "NINETY", font(17, bold=True), (230, 230, 234), spacing=8)
+    draw.text((234, 479), "/  SETUP", font=font(10), fill=(223, 55, 79))
     return panel
 
 
 def make_title_brand():
-    size = (225, 55)
+    size = (262, 64)
     out = Image.new("RGBA", size, (*INK, 255))
     mark = Image.open(SAMURAI_MARK).convert("RGBA")
-    mark.thumbnail((47, 47), Image.Resampling.LANCZOS)
-    out.alpha_composite(mark, (0, 4))
-    metallic_text(out, (56, 4), "NINETY", font(23, bold=True), spacing=1)
+    mark.thumbnail((55, 55), Image.Resampling.LANCZOS)
+    out.alpha_composite(mark, (0, 5))
+    metallic_text(out, (66, 5), "NINETY", font(27, bold=True), spacing=1)
     draw = ImageDraw.Draw(out)
-    draw_spaced(draw, (57, 33), "190x4  ·  VPN", font(8), (145, 145, 153), spacing=1)
+    draw_spaced(draw, (67, 39), "190x4  ·  VPN", font(9), (145, 145, 153), spacing=1)
     return out
 
 
 def make_progress_frame():
-    size = (396, 45)
+    size = (460, 53)
     out = Image.new("RGBA", size, (*PANEL, 255))
     draw = ImageDraw.Draw(out)
-    outer = [(2, 9), (10, 2), (382, 2), (394, 11), (394, 34), (384, 43), (10, 43), (2, 35)]
-    middle = [(6, 11), (12, 6), (380, 6), (390, 13), (390, 32), (382, 39), (12, 39), (6, 33)]
-    inner = [(11, 15), (16, 10), (376, 10), (385, 16), (385, 29), (378, 35), (16, 35), (11, 30)]
+    outer = [(2, 11), (12, 2), (444, 2), (458, 13), (458, 40), (446, 51), (12, 51), (2, 41)]
+    middle = [(7, 13), (14, 7), (442, 7), (453, 15), (453, 38), (444, 46), (14, 46), (7, 39)]
+    inner = [(13, 18), (19, 12), (438, 12), (447, 19), (447, 34), (440, 41), (19, 41), (13, 35)]
     draw.polygon(outer, fill=(20, 20, 24), outline=(98, 98, 105))
     draw.line(outer + [outer[0]], fill=(108, 108, 115), width=1)
     draw.polygon(middle, fill=(7, 7, 9), outline=(47, 47, 52))
     draw.polygon(inner, fill=(12, 12, 15), outline=(64, 64, 71))
-    draw.line((16, 12, 376, 12), fill=(121, 27, 44), width=1)
-    for x in range(24, 378, 18):
-        draw.line((x, 26, x + 8, 26), fill=(34, 34, 39), width=1)
-        draw.line((x, 30, x + 8, 30), fill=(23, 23, 27), width=1)
-    return out
-
-
-def make_progress_fill():
-    size = (368, 13)
-    out = Image.new("RGB", size, RED_DARK)
-    draw = ImageDraw.Draw(out)
-    for y in range(size[1]):
-        t = y / max(1, size[1] - 1)
-        if t < 0.42:
-            color = (255, int(78 - 45 * t / 0.42), int(103 - 43 * t / 0.42))
-        else:
-            color = (int(242 - 84 * (t - 0.42) / 0.58), 26, 52)
-        draw.line((0, y, size[0], y), fill=color)
-    draw.line((0, 0, size[0], 0), fill=(255, 116, 132))
-    draw.line((0, size[1] - 1, size[0], size[1] - 1), fill=(91, 7, 26))
-    for x in range(18, size[0], 18):
-        draw.line((x, 2, x, size[1] - 3), fill=(187, 18, 45))
-        draw.line((x + 1, 2, x + 1, size[1] - 3), fill=(255, 55, 78))
+    draw.line((19, 14, 438, 14), fill=(121, 27, 44), width=1)
+    for x in range(28, 440, 21):
+        draw.line((x, 31, x + 9, 31), fill=(34, 34, 39), width=1)
+        draw.line((x, 35, x + 9, 35), fill=(23, 23, 27), width=1)
     return out
 
 
@@ -183,7 +165,6 @@ def main():
     save_or_check(make_left_panel(), "left-panel.bmp", args.check)
     save_or_check(make_title_brand(), "title-brand.bmp", args.check)
     save_or_check(make_progress_frame(), "progress-frame.bmp", args.check)
-    save_or_check(make_progress_fill(), "progress-fill.bmp", args.check)
 
 
 if __name__ == "__main__":

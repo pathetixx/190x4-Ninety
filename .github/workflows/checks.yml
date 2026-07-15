@@ -18,6 +18,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  installer-preview:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis --no-progress -y
+
+      - name: Compile exact Kurogane shell
+        shell: pwsh
+        run: |
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          & $makensis /V3 src-tauri/windows/kurogane/smoke.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Capture and exercise real Windows UI
+        shell: pwsh
+        run: ./scripts/capture-installer-preview.ps1 -Installer ./kurogane-smoke.exe -OutputDirectory ./installer-preview
+
+      - name: Upload full-window screenshots
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installer-preview-${{ github.sha }}
+          path: installer-preview/*.png
+          if-no-files-found: error
+          retention-days: 14
+
   js-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10

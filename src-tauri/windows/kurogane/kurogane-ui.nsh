@@ -22,13 +22,13 @@
 !define /ifndef PBM_SETBARCOLOR 0x0409
 !define /ifndef PBM_SETBKCOLOR  0x2001
 !define /ifndef SC_MINIMIZE     0xF020
+!define /ifndef WM_NCLBUTTONDOWN 0x00A1
+!define /ifndef HTCAPTION        2
 
 Var KuroganeLeftBitmap
 Var KuroganeTitleBitmap
 Var KuroganeProgressBitmap
-Var KuroganeProgressFillBitmap
 Var KuroganeProgressControl
-Var KuroganeProgressFillControl
 Var KuroganePercentControl
 Var KuroganeStatusControl
 Var KuroganePage
@@ -36,6 +36,7 @@ Var KuroganeFontTitle
 Var KuroganeFontBody
 Var KuroganeFontMeta
 Var KuroganeFontSteps
+Var KuroganeDragWasDown
 
 LangString KStepOptions 1033 "OPTIONS"
 LangString KStepInstall 1033 "INSTALL"
@@ -106,7 +107,6 @@ LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПО
   File /oname=$PLUGINSDIR\kurogane-left.bmp "${__FILEDIR__}\left-panel.bmp"
   File /oname=$PLUGINSDIR\kurogane-title.bmp "${__FILEDIR__}\title-brand.bmp"
   File /oname=$PLUGINSDIR\kurogane-progress.bmp "${__FILEDIR__}\progress-frame.bmp"
-  File /oname=$PLUGINSDIR\kurogane-progress-fill.bmp "${__FILEDIR__}\progress-fill.bmp"
 
   CreateFont $KuroganeFontTitle "Segoe UI" 20 600
   CreateFont $KuroganeFontBody "Segoe UI" 9 400
@@ -143,24 +143,21 @@ LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПО
     SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
   ${EndIf}
 
-  GetDlgItem $0 $HWNDPARENT 1
-  ${If} $0 != 0
-    System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
-    SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_PANEL}
-    SendMessage $0 ${WM_SETFONT} $KuroganeFontBody 1
-  ${EndIf}
-  GetDlgItem $0 $HWNDPARENT 2
-  ${If} $0 != 0
-    System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
-    SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_PANEL}
-    SendMessage $0 ${WM_SETFONT} $KuroganeFontBody 1
-  ${EndIf}
-  GetDlgItem $0 $HWNDPARENT 3
-  ${If} $0 != 0
-    System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
-    SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_PANEL}
-    SendMessage $0 ${WM_SETFONT} $KuroganeFontBody 1
-  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 1212
+  ${NSD_OnClick} $0 ${MINIMIZEFUNCTION}NavBack
+  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_PANEL}
+  SendMessage $0 ${WM_SETFONT} $KuroganeFontBody 1
+  GetDlgItem $0 $HWNDPARENT 1213
+  ${NSD_OnClick} $0 ${MINIMIZEFUNCTION}NavNext
+  SetCtlColors $0 ${K_COLOR_TEXT} C4213F
+  SendMessage $0 ${WM_SETFONT} $KuroganeFontBody 1
+  GetDlgItem $0 $HWNDPARENT 1214
+  ${NSD_OnClick} $0 ${MINIMIZEFUNCTION}NavCancel
+  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_PANEL}
+  SendMessage $0 ${WM_SETFONT} $KuroganeFontBody 1
+
+  StrCpy $KuroganeDragWasDown 0
+  ${NSD_CreateTimer} ${MINIMIZEFUNCTION}ShellTick 40
 !macroend
 
 Function KuroganeGuiInit
@@ -189,6 +186,85 @@ Function un.KuroganeClose
   SendMessage $0 ${BM_CLICK} 0 0
 FunctionEnd
 
+!macro KuroganeNavClickImpl CONTROL
+  GetDlgItem $0 $HWNDPARENT ${CONTROL}
+  ${If} $0 != 0
+    SendMessage $0 ${BM_CLICK} 0 0
+  ${EndIf}
+!macroend
+
+Function KuroganeMinimizeNavBack
+  !insertmacro KuroganeNavClickImpl 3
+FunctionEnd
+Function KuroganeMinimizeNavNext
+  !insertmacro KuroganeNavClickImpl 1
+FunctionEnd
+Function KuroganeMinimizeNavCancel
+  !insertmacro KuroganeNavClickImpl 2
+FunctionEnd
+Function un.KuroganeMinimizeNavBack
+  !insertmacro KuroganeNavClickImpl 3
+FunctionEnd
+Function un.KuroganeMinimizeNavNext
+  !insertmacro KuroganeNavClickImpl 1
+FunctionEnd
+Function un.KuroganeMinimizeNavCancel
+  !insertmacro KuroganeNavClickImpl 2
+FunctionEnd
+
+!macro KuroganeMirrorButton SOURCE TARGET
+  GetDlgItem $0 $HWNDPARENT ${SOURCE}
+  GetDlgItem $1 $HWNDPARENT ${TARGET}
+  ${If} $0 != 0
+  ${AndIf} $1 != 0
+    System::Call 'user32::GetWindowTextW(p r0, w .r2, i ${NSIS_MAX_STRLEN})'
+    SendMessage $1 ${WM_SETTEXT} 0 "STR:$2"
+    System::Call 'user32::IsWindowVisible(p r0) i .r2'
+    ShowWindow $1 $2
+    System::Call 'user32::IsWindowEnabled(p r0) i .r2'
+    EnableWindow $1 $2
+  ${EndIf}
+!macroend
+
+!macro KuroganeShellTickImpl
+  !insertmacro KuroganeMirrorButton 3 1212
+  !insertmacro KuroganeMirrorButton 1 1213
+  !insertmacro KuroganeMirrorButton 2 1214
+
+  System::Call 'user32::GetAsyncKeyState(i 1) i .r0'
+  IntOp $0 $0 & 0x8000
+  ${If} $0 == 0
+    StrCpy $KuroganeDragWasDown 0
+  ${ElseIf} $KuroganeDragWasDown == 0
+    StrCpy $KuroganeDragWasDown 1
+    GetDlgItem $0 $HWNDPARENT 1208
+    ${If} $0 != 0
+      System::Call '*(&i4 0, &i4 0) p .r1'
+      System::Call 'user32::GetCursorPos(p r1)'
+      System::Call '*$1(&i4 .r2, &i4 .r3)'
+      System::Free $1
+      System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r1'
+      System::Call 'user32::GetWindowRect(p r0, p r1)'
+      System::Call '*$1(&i4 .r4, &i4 .r5, &i4 .r6, &i4 .r7)'
+      System::Free $1
+      ${If} $2 >= $4
+      ${AndIf} $2 < $6
+      ${AndIf} $3 >= $5
+      ${AndIf} $3 < $7
+        System::Call 'user32::ReleaseCapture()'
+        SendMessage $HWNDPARENT ${WM_NCLBUTTONDOWN} ${HTCAPTION} 0
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+Function KuroganeMinimizeShellTick
+  !insertmacro KuroganeShellTickImpl
+FunctionEnd
+Function un.KuroganeMinimizeShellTick
+  !insertmacro KuroganeShellTickImpl
+FunctionEnd
+
 Function KuroganeStyleCurrentPage
   !insertmacro KuroganeStyleCurrentPageImpl
 FunctionEnd
@@ -203,6 +279,36 @@ FunctionEnd
 
 Function un.KuroganePageShow
   Call un.KuroganeStyleCurrentPage
+FunctionEnd
+
+; MUI welcome/finish pages are created as right-hosted nsDialogs pages. Hide
+; their stock wizard bitmap and use the full right atelier for native text and
+; options; this preserves MUI lifecycle/checkbox behavior without its blue art.
+!macro KuroganeFullWindowPageShowImpl UNPREFIX
+  Call ${UNPREFIX}KuroganeStyleCurrentPage
+  FindWindow $0 "Static" "" $KuroganePage 0
+  ${If} $0 != 0
+    ShowWindow $0 ${SW_HIDE}
+    FindWindow $1 "Static" "" $KuroganePage $0
+    ${If} $1 != 0
+      System::Call 'user32::SetWindowPos(p r1, p 0, i 44, i 72, i 500, i 72, i 0x14)'
+      SetCtlColors $1 ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
+      SendMessage $1 ${WM_SETFONT} $KuroganeFontTitle 1
+      FindWindow $2 "Static" "" $KuroganePage $1
+      ${If} $2 != 0
+        System::Call 'user32::SetWindowPos(p r2, p 0, i 44, i 148, i 500, i 230, i 0x14)'
+        SetCtlColors $2 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
+        SendMessage $2 ${WM_SETFONT} $KuroganeFontBody 1
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+Function KuroganeFullWindowPageShow
+  !insertmacro KuroganeFullWindowPageShowImpl ""
+FunctionEnd
+Function un.KuroganeFullWindowPageShow
+  !insertmacro KuroganeFullWindowPageShowImpl "un."
 FunctionEnd
 
 !macro KuroganeProgressPageImpl UNPREFIX TITLE SUBTITLE STATUS
@@ -249,15 +355,14 @@ FunctionEnd
 
   GetDlgItem $KuroganeProgressControl $KuroganePage 1004
   ${If} $KuroganeProgressControl != 0
+    System::Call 'uxtheme::SetWindowTheme(p $KuroganeProgressControl, w "", w "")'
+    ShowWindow $KuroganeProgressControl ${SW_SHOW}
     SendMessage $KuroganeProgressControl ${PBM_SETBARCOLOR} 0 0x5436FF
-    SendMessage $KuroganeProgressControl ${PBM_SETBKCOLOR} 0 0x17120F
+    SendMessage $KuroganeProgressControl ${PBM_SETBKCOLOR} 0 0x1D1717
   ${EndIf}
 
-  GetDlgItem $KuroganeProgressFillControl $KuroganePage 1229
-  ${If} $KuroganeProgressFillControl != 0
-    ${NSD_SetImage} $KuroganeProgressFillControl "$PLUGINSDIR\kurogane-progress-fill.bmp" $KuroganeProgressFillBitmap
-  ${EndIf}
-
+  GetDlgItem $0 $KuroganePage 1027
+  ShowWindow $0 ${SW_HIDE}
   ${NSD_CreateTimer} ${UNPREFIX}KuroganeProgressTick 80
   Call ${UNPREFIX}KuroganeProgressTick
 !macroend
@@ -276,17 +381,6 @@ FunctionEnd
     SendMessage $KuroganeProgressControl ${PBM_GETPOS} 0 0 $0
     StrCpy $1 "$0%"
     SendMessage $KuroganePercentControl ${WM_SETTEXT} 0 "STR:$1"
-    ${If} $KuroganeProgressFillControl != 0
-      System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r2'
-      System::Call 'user32::GetClientRect(p $KuroganeProgressControl, p r2)'
-      System::Call '*$2(&i4 .r3, &i4 .r4, &i4 .r5, &i4 .r6)'
-      System::Free $2
-      IntOp $5 $5 - $3
-      IntOp $6 $6 - $4
-      IntOp $5 $5 * $0
-      IntOp $5 $5 / 100
-      System::Call 'user32::SetWindowPos(p $KuroganeProgressFillControl, p 0, i 0, i 0, i r5, i r6, i 0x16)'
-    ${EndIf}
   ${EndIf}
 !macroend
 
@@ -301,7 +395,6 @@ FunctionEnd
 !macro KuroganeProgressLeaveImpl UNPREFIX
   ${NSD_KillTimer} ${UNPREFIX}KuroganeProgressTick
   ${NSD_FreeImage} $KuroganeProgressBitmap
-  ${NSD_FreeImage} $KuroganeProgressFillBitmap
 !macroend
 
 Function KuroganeInstFilesLeave
