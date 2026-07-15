@@ -482,11 +482,23 @@ FunctionEnd
 !macroend
 
 Function KuroganeProgressTick
+  Push $0
+  Push $1
+  Push $2
   !insertmacro KuroganeProgressTickImpl
+  Pop $2
+  Pop $1
+  Pop $0
 FunctionEnd
 
 Function un.KuroganeProgressTick
+  Push $0
+  Push $1
+  Push $2
   !insertmacro KuroganeProgressTickImpl
+  Pop $2
+  Pop $1
+  Pop $0
 FunctionEnd
 
 !macro KuroganeProgressLeaveImpl UNPREFIX
