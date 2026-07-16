@@ -379,7 +379,7 @@ Function ConceptCMatrixScope
   !insertmacro CGFrame 58 183 244 50 59 184 242 48 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
   !insertmacro CGCenterText 59 184 39 48 "02" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $ConceptFontLabel
   !insertmacro CGText 110 193 130 14 "$(CGAllTitle)" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontLabel
-  !insertmacro CGText 110 212 176 12 "$(CGAllDescription)" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
+  !insertmacro CGText 110 209 176 20 "$(CGAllDescription)" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
   !insertmacro CGBox 31 251 287 3 ${K_COLOR_BORDER}
   !insertmacro CGBox 31 251 96 3 ${K_COLOR_ACCENT}
   nsDialogs::Show
