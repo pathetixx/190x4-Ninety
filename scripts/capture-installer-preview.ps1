@@ -29,6 +29,7 @@ public static class NinetyPreviewWin32 {
   [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
   [DllImport("user32.dll")] public static extern IntPtr GetSystemMenu(IntPtr hWnd, bool revert);
   [DllImport("user32.dll")] public static extern uint GetMenuState(IntPtr menu, uint id, uint flags);
+  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint message, UIntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
@@ -161,6 +162,22 @@ try {
     [NinetyPreviewWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
   }
 
+  function Find-NonClientPoint([int]$hitCode, [int]$left, [int]$top, [int]$right, [int]$bottom) {
+    for ($y = $top; $y -lt [Math]::Min($bottom, $top + 64); $y += 2) {
+      for ($x = [Math]::Max($left, $right - 240); $x -lt $right; $x += 2) {
+        $packed = (($y -band 0xFFFF) -shl 16) -bor ($x -band 0xFFFF)
+        $hit = [NinetyPreviewWin32]::SendMessage(
+          $window,
+          0x0084,
+          [IntPtr]::Zero,
+          [IntPtr]::new([int64]$packed)
+        ).ToInt32()
+        if ($hit -eq $hitCode) { return @($x, $y) }
+      }
+    }
+    return $null
+  }
+
   function Send-Enter {
     [NinetyPreviewWin32]::PostMessage($window, 0x0100, [UIntPtr]0x0D, [IntPtr]::Zero) | Out-Null
     [NinetyPreviewWin32]::PostMessage($window, 0x0101, [UIntPtr]0x0D, [IntPtr]::Zero) | Out-Null
@@ -290,11 +307,10 @@ try {
   Save-InstallerWindow "09-ota-progress.png"
 
   $otaOriginalRect = Get-InstallerRect
-  $captionButtonWidth = [Math]::Max(36, [NinetyPreviewWin32]::GetSystemMetrics(30))
   $captionButtonHeight = [Math]::Max(24, [NinetyPreviewWin32]::GetSystemMetrics(31))
-  $minimizeX = $otaOriginalRect.Right - [int]($captionButtonWidth * 1.5)
-  $captionY = $otaOriginalRect.Top + [int]($captionButtonHeight / 2)
-  Click-ScreenPoint $minimizeX $captionY
+  $minimizePoint = Find-NonClientPoint 8 $otaOriginalRect.Left $otaOriginalRect.Top $otaOriginalRect.Right $otaOriginalRect.Bottom
+  if (-not $minimizePoint) { throw "Passive OTA native minimize button hit target was not found" }
+  Click-ScreenPoint $minimizePoint[0] $minimizePoint[1]
   Start-Sleep -Milliseconds 500
   if (-not [NinetyPreviewWin32]::IsIconic($window)) {
     throw "Passive OTA native minimize button ignored a real left-click"

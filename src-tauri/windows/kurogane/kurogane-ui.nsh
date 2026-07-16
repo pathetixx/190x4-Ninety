@@ -877,6 +877,9 @@ FunctionEnd
 !macroend
 
 Function KuroganeInstFilesShow
+  ${If} $PassiveMode == 1
+    SendMessage $HWNDPARENT ${WM_SETTEXT} 0 "STR:$(KOtaWindowTitle)"
+  ${EndIf}
   !insertmacro KuroganeProgressPageImpl "" "$(KInstallTitle)" "$(KInstallSubtitle)" "$(KInstallStatus)"
 FunctionEnd
 
