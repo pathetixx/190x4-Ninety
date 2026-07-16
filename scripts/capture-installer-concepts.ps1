@@ -28,6 +28,11 @@ public static class NinetyConceptWin32 {
   [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr hWnd);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder text, int count);
+  [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hdc);
+  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int DrawText(IntPtr hdc, string text, int count, ref RECT rect, uint format);
+  [DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
   public static IntPtr FindDescendantById(IntPtr parent, int id) {
     IntPtr found = IntPtr.Zero;
     EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
@@ -60,6 +65,16 @@ public static class NinetyConceptWin32 {
     }, IntPtr.Zero);
     return found;
   }
+  public static IntPtr FindDescendantContainingText(IntPtr parent, string expected) {
+    IntPtr found = IntPtr.Zero;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      var value = new System.Text.StringBuilder(512);
+      GetWindowText(child, value, value.Capacity);
+      if (value.ToString().Contains(expected)) { found = child; return false; }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
   public static bool HasVisibleClass(IntPtr parent, string expectedClass) {
     bool found = false;
     EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
@@ -86,10 +101,47 @@ public static class NinetyConceptWin32 {
     }, IntPtr.Zero);
     return found;
   }
+  public static string FindStaticTextOverflow(IntPtr parent) {
+    string issue = null;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      if (!IsWindowVisible(child)) return true;
+      var className = new System.Text.StringBuilder(64);
+      GetClassName(child, className, className.Capacity);
+      if (className.ToString() != "Static") return true;
+      var value = new System.Text.StringBuilder(512);
+      GetWindowText(child, value, value.Capacity);
+      string text = value.ToString().Trim();
+      if (text.Length == 0) return true;
+      RECT windowRect;
+      if (!GetWindowRect(child, out windowRect)) return true;
+      int width = Math.Max(1, windowRect.Right - windowRect.Left);
+      int height = Math.Max(1, windowRect.Bottom - windowRect.Top);
+      IntPtr dc = GetDC(child);
+      if (dc == IntPtr.Zero) return true;
+      IntPtr font = SendMessage(child, 0x0031, IntPtr.Zero, IntPtr.Zero); // WM_GETFONT
+      IntPtr previous = font == IntPtr.Zero ? IntPtr.Zero : SelectObject(dc, font);
+      RECT measured = new RECT { Left = 0, Top = 0, Right = width, Bottom = 0 };
+      DrawText(dc, text, -1, ref measured, 0x00000010 | 0x00000400 | 0x00000800);
+      if (previous != IntPtr.Zero) SelectObject(dc, previous);
+      ReleaseDC(child, dc);
+      int neededHeight = measured.Bottom - measured.Top;
+      if (neededHeight > height + 4) {
+        issue = "'" + text.Replace("\r", " ").Replace("\n", " ") + "' needs " + neededHeight + "px, control has " + height + "px";
+        return false;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return issue;
+  }
 }
 "@
 
 $pages = @(
+  @{ File = "c-01-language.png";    Marker = "SIGNAL MATRIX / LOCALE"; Title = "Installer language / Язык установщика"; HasEdit = $false; Counter = "STEP 01 / 05" },
+  @{ File = "c-02-scope.png";       Marker = "КОНЦЕПТ C"; Title = "Доступ к приложению";       HasEdit = $false; Counter = "STEP 02 / 05" },
+  @{ File = "c-03-target.png";      Marker = "КОНЦЕПТ C"; Title = "Точка развёртывания";        HasEdit = $true;  Counter = "STEP 03 / 05" },
+  @{ File = "c-04-manifest.png";    Marker = "КОНЦЕПТ C"; Title = "Манифест открытого кода";    HasEdit = $false; Counter = "STEP 04 / 05" },
+  @{ File = "c-05-maintenance.png"; Marker = "КОНЦЕПТ C"; Title = "Задача установщика";         HasEdit = $false; Counter = "STEP 05 / 05" },
   @{ File = "a-01-scope.png";       Marker = "КОНЦЕПТ A"; Title = "Доступ к приложению";       HasEdit = $false },
   @{ File = "a-02-target.png";      Marker = "КОНЦЕПТ A"; Title = "Точка развёртывания";        HasEdit = $true  },
   @{ File = "a-03-manifest.png";    Marker = "КОНЦЕПТ A"; Title = "Манифест открытого кода";    HasEdit = $false },
@@ -97,11 +149,7 @@ $pages = @(
   @{ File = "b-01-scope.png";       Marker = "КОНЦЕПТ B"; Title = "Доступ к приложению";       HasEdit = $false },
   @{ File = "b-02-target.png";      Marker = "КОНЦЕПТ B"; Title = "Точка развёртывания";        HasEdit = $true  },
   @{ File = "b-03-manifest.png";    Marker = "КОНЦЕПТ B"; Title = "Манифест открытого кода";    HasEdit = $false },
-  @{ File = "b-04-maintenance.png"; Marker = "КОНЦЕПТ B"; Title = "Задача установщика";         HasEdit = $false },
-  @{ File = "c-01-scope.png";       Marker = "КОНЦЕПТ C"; Title = "Доступ к приложению";       HasEdit = $false },
-  @{ File = "c-02-target.png";      Marker = "КОНЦЕПТ C"; Title = "Точка развёртывания";        HasEdit = $true  },
-  @{ File = "c-03-manifest.png";    Marker = "КОНЦЕПТ C"; Title = "Манифест открытого кода";    HasEdit = $false },
-  @{ File = "c-04-maintenance.png"; Marker = "КОНЦЕПТ C"; Title = "Задача установщика";         HasEdit = $false }
+  @{ File = "b-04-maintenance.png"; Marker = "КОНЦЕПТ B"; Title = "Задача установщика";         HasEdit = $false }
 )
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
@@ -138,14 +186,29 @@ try {
     [NinetyConceptWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
   }
 
+  function Click-Text([string]$text) {
+    $control = [NinetyConceptWin32]::FindDescendantContainingText($window, $text)
+    if ($control -eq [IntPtr]::Zero) { throw "Concept text control '$text' was not found" }
+    $rect = Get-WindowRect $control
+    $x = [int](($rect.Left + $rect.Right) / 2)
+    $y = [int](($rect.Top + $rect.Bottom) / 2)
+    [NinetyConceptWin32]::SetForegroundWindow($window) | Out-Null
+    [NinetyConceptWin32]::SetCursorPos($x, $y) | Out-Null
+    Start-Sleep -Milliseconds 120
+    [NinetyConceptWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 100
+    [NinetyConceptWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+  }
+
   function Wait-ForPage([hashtable]$page) {
     $deadline = (Get-Date).AddSeconds(8)
     do {
       Start-Sleep -Milliseconds 120
       $hasMarker = [NinetyConceptWin32]::ContainsText($window, $page.Marker)
       $hasTitle = [NinetyConceptWin32]::ContainsText($window, $page.Title)
-    } until (($hasMarker -and $hasTitle) -or (Get-Date) -gt $deadline)
-    if (-not $hasMarker -or -not $hasTitle) {
+      $hasCounter = -not $page.Counter -or [NinetyConceptWin32]::ContainsText($window, $page.Counter)
+    } until (($hasMarker -and $hasTitle -and $hasCounter) -or (Get-Date) -gt $deadline)
+    if (-not $hasMarker -or -not $hasTitle -or -not $hasCounter) {
       throw "Concept page did not appear: $($page.File)"
     }
   }
@@ -190,8 +253,16 @@ try {
     if ([NinetyConceptWin32]::HasVisibleClass($pageWindow, "Button")) {
       throw "Stock radio/checkbox/button leaked into concept canvas: $($page.File)"
     }
+    if ($page.File.StartsWith("c-")) {
+      $overflow = [NinetyConceptWin32]::FindStaticTextOverflow($pageWindow)
+      if ($overflow) { throw "Signal Matrix text overflow on $($page.File): $overflow" }
+    }
     Start-Sleep -Milliseconds 250
     Save-Page $page
+    if ($page.File -eq "c-01-language.png") {
+      Click-Text "РУССКИЙ"
+      Start-Sleep -Milliseconds 250
+    }
     if ($index -lt ($pages.Count - 1)) {
       Click-Control 1213
     }

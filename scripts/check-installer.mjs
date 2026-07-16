@@ -110,8 +110,18 @@ if (existsSync(conceptGalleryPath)) {
     "CONCEPT A  /  CORE CARDS",
     "CONCEPT B  /  TERMINAL MANIFEST",
     "CONCEPT C  /  SIGNAL MATRIX",
+    "ConceptCMatrixLanguage",
+    'STEP ${INDEX} / 05',
   ]) {
     if (!conceptGallery.includes(marker)) fail(`Kurogane concept gallery не содержит ${marker}`);
+  }
+}
+
+const conceptInstallerPath = resolve(kuroganeDir, "concept-gallery.nsi");
+if (existsSync(conceptInstallerPath)) {
+  const conceptInstaller = readFileSync(conceptInstallerPath, "utf8");
+  if (!conceptInstaller.includes("GetUserDefaultUILanguage")) {
+    fail("Kurogane concept gallery не автоопределяет язык Windows");
   }
 }
 

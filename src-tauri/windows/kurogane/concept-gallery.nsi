@@ -19,6 +19,14 @@ Var PassiveMode
 Name "Ninety Installer Concepts"
 OutFile "kurogane-concepts.exe"
 
+; Signal Matrix is the selected direction, so its complete five-step flow is
+; presented first. Core Cards and Terminal Manifest remain comparison material.
+Page custom ConceptCMatrixLanguage
+Page custom ConceptCMatrixScope
+Page custom ConceptCMatrixTarget
+Page custom ConceptCMatrixManifest
+Page custom ConceptCMatrixMaintenance
+
 Page custom ConceptACardsScope
 Page custom ConceptACardsTarget
 Page custom ConceptACardsManifest
@@ -29,18 +37,18 @@ Page custom ConceptBTerminalTarget
 Page custom ConceptBTerminalManifest
 Page custom ConceptBTerminalMaintenance
 
-Page custom ConceptCMatrixScope
-Page custom ConceptCMatrixTarget
-Page custom ConceptCMatrixManifest
-Page custom ConceptCMatrixMaintenance
-
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "Russian"
 
 Function .onInit
-  ; Dima reviews the localized visual artifact; English definitions remain the
-  ; primary source directly above the Russian translations in the include.
-  StrCpy $LANGUAGE 1049
+  ; English is the fallback. Russian Windows is detected before the bilingual
+  ; custom language page appears; the user can always override that choice.
+  System::Call 'kernel32::GetUserDefaultUILanguage() i .r0'
+  ${If} $0 == 1049
+    StrCpy $LANGUAGE 1049
+  ${Else}
+    StrCpy $LANGUAGE 1033
+  ${EndIf}
 FunctionEnd
 
 Section

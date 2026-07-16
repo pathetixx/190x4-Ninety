@@ -4,6 +4,10 @@
 Var ConceptDialog
 Var ConceptFontMono
 Var ConceptFontLabel
+Var ConceptLanguageEnglish
+Var ConceptLanguageRussian
+Var ConceptLanguageEnglishState
+Var ConceptLanguageRussianState
 
 LangString CGConceptACards 1033 "CONCEPT A  /  CORE CARDS"
 LangString CGConceptBTerminal 1033 "CONCEPT B  /  TERMINAL MANIFEST"
@@ -42,6 +46,7 @@ LangString CGRemoveDescription 1033 "Remove the application and installed networ
 LangString CGDataPolicy 1033 "APPLICATION DATA"
 LangString CGKeepData 1033 "KEEP SETTINGS AND DATA"
 LangString CGStatusReady 1033 "READY"
+LangString CGChange 1033 "CHANGE"
 
 LangString CGConceptACards 1049 "КОНЦЕПТ A  /  CORE CARDS"
 LangString CGConceptBTerminal 1049 "КОНЦЕПТ B  /  TERMINAL MANIFEST"
@@ -80,6 +85,7 @@ LangString CGRemoveDescription 1049 "Удалить приложение и ус
 LangString CGDataPolicy 1049 "ДАННЫЕ ПРИЛОЖЕНИЯ"
 LangString CGKeepData 1049 "СОХРАНИТЬ НАСТРОЙКИ И ДАННЫЕ"
 LangString CGStatusReady 1049 "ГОТОВО"
+LangString CGChange 1049 "ИЗМЕНИТЬ"
 
 !macro CGBox X Y W H COLOR
   ${NSD_CreateLabel} ${X}u ${Y}u ${W}u ${H}u ""
@@ -280,16 +286,69 @@ FunctionEnd
 ; ---------------------------------------------------------------------------
 ; Concept C — Signal Matrix: asymmetric rails and a more distinctive HUD feel.
 
-!macro CGMatrixHeader STEP
+!macro CGMatrixHeader STEP INDEX
   !insertmacro CGBox 22 91 5 163 ${K_COLOR_ACCENT}
   !insertmacro CGBox 31 91 287 1 ${K_COLOR_BORDER}
   !insertmacro CGText 31 98 120 12 "${STEP}" ${K_COLOR_ACCENT} ${K_COLOR_WINDOW} $ConceptFontMono
-  !insertmacro CGText 252 98 66 12 "190X4 / 03" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
+  !insertmacro CGText 247 98 71 12 "STEP ${INDEX} / 05" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
 !macroend
+
+Function ConceptSelectEnglish
+  Pop $0
+  StrCpy $LANGUAGE 1033
+  SetCtlColors $ConceptLanguageEnglish ${K_COLOR_TEXT} ${K_COLOR_PANEL}
+  SetCtlColors $ConceptLanguageRussian ${K_COLOR_MUTED} ${K_COLOR_FIELD}
+  SendMessage $ConceptLanguageEnglishState ${WM_SETTEXT} 0 "STR:SELECTED"
+  SendMessage $ConceptLanguageRussianState ${WM_SETTEXT} 0 "STR:"
+FunctionEnd
+
+Function ConceptSelectRussian
+  Pop $0
+  StrCpy $LANGUAGE 1049
+  SetCtlColors $ConceptLanguageEnglish ${K_COLOR_MUTED} ${K_COLOR_FIELD}
+  SetCtlColors $ConceptLanguageRussian ${K_COLOR_TEXT} ${K_COLOR_PANEL}
+  SendMessage $ConceptLanguageEnglishState ${WM_SETTEXT} 0 "STR:"
+  SendMessage $ConceptLanguageRussianState ${WM_SETTEXT} 0 "STR:ВЫБРАНО"
+FunctionEnd
+
+Function ConceptCMatrixLanguage
+  !insertmacro CGBegin "SIGNAL MATRIX / LOCALE" "Installer language / Язык установщика" "Choose the interface language · Выберите язык интерфейса"
+  !insertmacro CGMatrixHeader "LANGUAGE MATRIX" "01"
+
+  !insertmacro CGFrame 42 121 260 51 43 122 258 49 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
+  ${NSD_CreateLabel} 58u 132u 176u 28u "ENGLISH$\r$\nPrimary · default fallback"
+  Pop $ConceptLanguageEnglish
+  SetCtlColors $ConceptLanguageEnglish ${K_COLOR_TEXT} ${K_COLOR_PANEL}
+  SendMessage $ConceptLanguageEnglish ${WM_SETFONT} $ConceptFontLabel 1
+  ${NSD_OnClick} $ConceptLanguageEnglish ConceptSelectEnglish
+  ${NSD_CreateLabel} 240u 137u 52u 14u "SELECTED"
+  Pop $ConceptLanguageEnglishState
+  SetCtlColors $ConceptLanguageEnglishState ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
+  SendMessage $ConceptLanguageEnglishState ${WM_SETFONT} $ConceptFontMono 1
+
+  !insertmacro CGFrame 58 183 244 50 59 184 242 48 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
+  ${NSD_CreateLabel} 74u 194u 160u 28u "РУССКИЙ$\r$\nДополнительный язык"
+  Pop $ConceptLanguageRussian
+  SetCtlColors $ConceptLanguageRussian ${K_COLOR_MUTED} ${K_COLOR_FIELD}
+  SendMessage $ConceptLanguageRussian ${WM_SETFONT} $ConceptFontLabel 1
+  ${NSD_OnClick} $ConceptLanguageRussian ConceptSelectRussian
+  ${NSD_CreateLabel} 240u 199u 52u 14u ""
+  Pop $ConceptLanguageRussianState
+  SetCtlColors $ConceptLanguageRussianState ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
+  SendMessage $ConceptLanguageRussianState ${WM_SETFONT} $ConceptFontMono 1
+
+  ${If} $LANGUAGE == 1049
+    Push $0
+    Call ConceptSelectRussian
+  ${EndIf}
+  !insertmacro CGBox 31 251 287 3 ${K_COLOR_BORDER}
+  !insertmacro CGBox 31 251 57 3 ${K_COLOR_ACCENT}
+  nsDialogs::Show
+FunctionEnd
 
 Function ConceptCMatrixScope
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGScopeTitle)" "$(CGScopeSubtitle)"
-  !insertmacro CGMatrixHeader "ACCESS MATRIX"
+  !insertmacro CGMatrixHeader "ACCESS MATRIX" "02"
   !insertmacro CGFrame 42 121 260 51 43 122 258 49 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
   !insertmacro CGCenterText 43 122 39 49 "01" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontLabel
   !insertmacro CGText 94 131 145 14 "$(CGCurrentTitle)" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $ConceptFontLabel
@@ -306,8 +365,8 @@ FunctionEnd
 
 Function ConceptCMatrixTarget
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGTargetTitle)" "$(CGTargetSubtitle)"
-  !insertmacro CGMatrixHeader "TARGET VECTOR"
-  !insertmacro CGText 43 121 200 11 "$(CGDefaultPath)" ${K_COLOR_TEXT} ${K_COLOR_WINDOW} $ConceptFontMono
+  !insertmacro CGMatrixHeader "TARGET VECTOR" "03"
+  !insertmacro CGText 43 121 200 11 "INSTALL TARGET" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGFrame 43 139 259 43 44 140 257 41 ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
   !insertmacro CGBox 44 140 5 41 ${K_COLOR_ACCENT}
   ${NSD_CreateText} 60u 149u 1u 1u "C:\Program Files\Ninety"
@@ -316,7 +375,9 @@ Function ConceptCMatrixTarget
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $ConceptFontMono 1
   SendMessage $0 ${WM_SETTEXT} 0 "STR:C:\Program Files\Ninety"
-  !insertmacro CGCenterText 249 149 42 22 "..." ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontLabel
+  !insertmacro CGText 60 153 150 12 "$(CGDefaultPath)" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontMono
+  !insertmacro CGFrame 219 149 74 22 220 150 72 20 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
+  !insertmacro CGCenterText 220 154 72 12 "$(CGChange)" ${K_COLOR_ACCENT} ${K_COLOR_PANEL} $ConceptFontMono
   !insertmacro CGText 43 197 78 11 "CAPACITY" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGBox 43 216 18 8 ${K_COLOR_ACCENT}
   !insertmacro CGBox 65 216 18 8 ${K_COLOR_BORDER}
@@ -332,7 +393,7 @@ FunctionEnd
 
 Function ConceptCMatrixManifest
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGManifestTitle)" "$(CGManifestSubtitle)"
-  !insertmacro CGMatrixHeader "LICENSE SIGNAL"
+  !insertmacro CGMatrixHeader "LICENSE SIGNAL" "04"
   !insertmacro CGFrame 43 121 259 118 44 122 257 116 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
   !insertmacro CGBox 44 122 70 116 ${K_COLOR_PANEL}
   !insertmacro CGText 54 133 50 12 "LICENSE" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $ConceptFontMono
@@ -350,20 +411,20 @@ FunctionEnd
 
 Function ConceptCMatrixMaintenance
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGMaintenanceTitle)" "$(CGMaintenanceSubtitle)"
-  !insertmacro CGMatrixHeader "OPERATION GRID"
-  !insertmacro CGFrame 43 121 259 47 44 122 257 45 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
-  !insertmacro CGBox 44 122 34 45 ${K_COLOR_ACCENT}
-  !insertmacro CGCenterText 44 137 34 14 "+" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontLabel
+  !insertmacro CGMatrixHeader "OPERATION GRID" "05"
+  !insertmacro CGFrame 43 121 259 52 44 122 257 50 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
+  !insertmacro CGBox 44 122 34 50 ${K_COLOR_ACCENT}
+  !insertmacro CGCenterText 44 140 34 14 "+" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontLabel
   !insertmacro CGText 91 131 180 14 "$(CGRepairTitle)" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $ConceptFontLabel
-  !insertmacro CGText 91 150 195 12 "$(CGRepairDescription)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
-  !insertmacro CGFrame 59 179 243 46 60 180 241 44 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
-  !insertmacro CGBox 60 180 34 44 ${K_COLOR_PANEL}
-  !insertmacro CGCenterText 60 194 34 14 "×" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $ConceptFontLabel
-  !insertmacro CGText 107 189 162 14 "$(CGRemoveTitle)" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontLabel
-  !insertmacro CGText 107 208 178 12 "$(CGRemoveDescription)" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
-  !insertmacro CGText 43 241 132 12 "DATA / PRESERVE" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
-  !insertmacro CGBox 186 245 85 3 ${K_COLOR_BORDER}
-  !insertmacro CGBox 186 245 57 3 ${K_COLOR_ACCENT}
-  !insertmacro CGText 279 239 23 12 "ON" ${K_COLOR_ACCENT} ${K_COLOR_WINDOW} $ConceptFontMono
+  !insertmacro CGText 91 150 195 20 "$(CGRepairDescription)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
+  !insertmacro CGFrame 59 181 243 57 60 182 241 55 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
+  !insertmacro CGBox 60 182 34 55 ${K_COLOR_PANEL}
+  !insertmacro CGCenterText 60 202 34 14 "×" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $ConceptFontLabel
+  !insertmacro CGText 107 191 178 14 "$(CGRemoveTitle)" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontLabel
+  !insertmacro CGText 107 210 178 24 "$(CGRemoveDescription)" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
+  !insertmacro CGText 43 247 132 12 "DATA / PRESERVE" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
+  !insertmacro CGBox 186 251 85 3 ${K_COLOR_BORDER}
+  !insertmacro CGBox 186 251 57 3 ${K_COLOR_ACCENT}
+  !insertmacro CGText 279 245 23 12 "ON" ${K_COLOR_ACCENT} ${K_COLOR_WINDOW} $ConceptFontMono
   nsDialogs::Show
 FunctionEnd
