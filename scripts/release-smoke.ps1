@@ -246,6 +246,7 @@ try {
   if (Test-Path -LiteralPath $programFilesInstall) {
     Remove-Item -LiteralPath $programFilesInstall -Recurse -Force -ErrorAction SilentlyContinue
   }
+  Remove-Item -LiteralPath "HKCU:\Software\pathetixx\Ninety" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 $authenticodeFiles = @($app, $portableApp, $nsis[0], $msi[0])

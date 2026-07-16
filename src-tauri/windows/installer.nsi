@@ -77,6 +77,7 @@ Var NinetyPrevPerUser
 Var NinetyPrevPerMachine
 Var NinetyInstallerMutex
 Var NinetyLockedPath
+Var NinetyWriteProbeAttempts
 
 ; The hook entry is loaded after VERSION and the other product constants so the
 ; Kurogane UI can render live build metadata in the custom title bar.
@@ -511,6 +512,7 @@ Function .onInit
   StrCpy $NinetyInstallerMutex $0
   Pop $1
   ${If} $1 == 183
+    SetErrorLevel 4
     IfSilent 0 +2
       Abort
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(KInstallerAlreadyRunning)"
@@ -845,8 +847,10 @@ FunctionEnd
 
 Function un.onInit
   System::Call 'kernel32::CreateMutexW(p 0, i 1, w "Local\\pw.x190x4.ninety.installer") p .r0 ?e'
+  StrCpy $NinetyInstallerMutex $0
   Pop $1
   ${If} $1 == 183
+    SetErrorLevel 4
     IfSilent 0 +2
       Abort
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(KInstallerAlreadyRunning)"
@@ -1028,6 +1032,7 @@ FunctionEnd
 
 Function NinetyValidateInstallTarget
   StrCpy $NinetyLockedPath ""
+  StrCpy $NinetyWriteProbeAttempts 0
   ClearErrors
   CreateDirectory "$INSTDIR"
   ${If} ${Errors}
@@ -1054,8 +1059,17 @@ Function NinetyValidateInstallTarget
   ; Detect any existing locked/unwritable payload before the first extraction.
   ; This converts hundreds of native per-file prompts into one controlled abort.
   IfFileExists "$INSTDIR\*.*" 0 target_writable
+  target_probe_existing:
+  StrCpy $NinetyLockedPath ""
   ${Locate} "$INSTDIR" "/L=F /G=1" "NinetyProbeWritableFile"
   ${If} $NinetyLockedPath != ""
+    IntOp $NinetyWriteProbeAttempts $NinetyWriteProbeAttempts + 1
+    ${If} $NinetyWriteProbeAttempts < 20
+      ; Tauri starts NSIS and then exits the old app. Give Windows a bounded
+      ; grace period to release image/resource handles before failing safely.
+      Sleep 250
+      Goto target_probe_existing
+    ${EndIf}
     Goto target_not_writable
   ${EndIf}
   target_writable:
@@ -1091,10 +1105,18 @@ FunctionEnd
 
 Function un.NinetyValidateRemovalTarget
   StrCpy $NinetyLockedPath ""
+  StrCpy $NinetyWriteProbeAttempts 0
   IfFileExists "$INSTDIR\*.*" 0 removal_target_ready
+  removal_probe_existing:
+  StrCpy $NinetyLockedPath ""
   ${un.Locate} "$INSTDIR" "/L=F /G=1" "un.NinetyProbeWritableFile"
   ${If} $NinetyLockedPath == ""
     Goto removal_target_ready
+  ${EndIf}
+  IntOp $NinetyWriteProbeAttempts $NinetyWriteProbeAttempts + 1
+  ${If} $NinetyWriteProbeAttempts < 20
+    Sleep 250
+    Goto removal_probe_existing
   ${EndIf}
   SetErrorLevel 5
   IfSilent 0 +2
