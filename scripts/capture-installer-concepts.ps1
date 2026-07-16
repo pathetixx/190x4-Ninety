@@ -178,18 +178,18 @@ public static class NinetyConceptWin32 {
 
 $pages = @(
   @{ File = "c-01-language.png";    Marker = "SIGNAL MATRIX / LOCALE"; Title = "Installer language / Язык установщика"; HasEdit = $false; Counter = "STEP 01 / 05" },
-  @{ File = "c-02-scope.png";       Marker = "КОНЦЕПТ C"; Title = "Доступ к приложению";       HasEdit = $false; Counter = "STEP 02 / 05" },
-  @{ File = "c-03-target.png";      Marker = "КОНЦЕПТ C"; Title = "Точка развёртывания";        HasEdit = $true;  Counter = "STEP 03 / 05" },
-  @{ File = "c-04-manifest.png";    Marker = "КОНЦЕПТ C"; Title = "Манифест открытого кода";    HasEdit = $false; Counter = "STEP 04 / 05" },
-  @{ File = "c-05-maintenance.png"; Marker = "КОНЦЕПТ C"; Title = "Задача установщика";         HasEdit = $false; Counter = "STEP 05 / 05" },
-  @{ File = "a-01-scope.png";       Marker = "КОНЦЕПТ A"; Title = "Доступ к приложению";       HasEdit = $false },
-  @{ File = "a-02-target.png";      Marker = "КОНЦЕПТ A"; Title = "Точка развёртывания";        HasEdit = $true  },
-  @{ File = "a-03-manifest.png";    Marker = "КОНЦЕПТ A"; Title = "Манифест открытого кода";    HasEdit = $false },
-  @{ File = "a-04-maintenance.png"; Marker = "КОНЦЕПТ A"; Title = "Задача установщика";         HasEdit = $false },
-  @{ File = "b-01-scope.png";       Marker = "КОНЦЕПТ B"; Title = "Доступ к приложению";       HasEdit = $false },
-  @{ File = "b-02-target.png";      Marker = "КОНЦЕПТ B"; Title = "Точка развёртывания";        HasEdit = $true  },
-  @{ File = "b-03-manifest.png";    Marker = "КОНЦЕПТ B"; Title = "Манифест открытого кода";    HasEdit = $false },
-  @{ File = "b-04-maintenance.png"; Marker = "КОНЦЕПТ B"; Title = "Задача установщика";         HasEdit = $false }
+  @{ File = "c-02-scope.png";       Marker = "CONCEPT C"; Title = "Application access";       HasEdit = $false; Counter = "STEP 02 / 05" },
+  @{ File = "c-03-target.png";      Marker = "CONCEPT C"; Title = "Deployment target";        HasEdit = $true;  Counter = "STEP 03 / 05" },
+  @{ File = "c-04-manifest.png";    Marker = "CONCEPT C"; Title = "Open-source manifest";     HasEdit = $false; Counter = "STEP 04 / 05" },
+  @{ File = "c-05-maintenance.png"; Marker = "CONCEPT C"; Title = "Installer operation";      HasEdit = $false; Counter = "STEP 05 / 05" },
+  @{ File = "a-01-scope.png";       Marker = "CONCEPT A"; Title = "Application access";       HasEdit = $false },
+  @{ File = "a-02-target.png";      Marker = "CONCEPT A"; Title = "Deployment target";        HasEdit = $true  },
+  @{ File = "a-03-manifest.png";    Marker = "CONCEPT A"; Title = "Open-source manifest";     HasEdit = $false },
+  @{ File = "a-04-maintenance.png"; Marker = "CONCEPT A"; Title = "Installer operation";      HasEdit = $false },
+  @{ File = "b-01-scope.png";       Marker = "CONCEPT B"; Title = "Application access";       HasEdit = $false },
+  @{ File = "b-02-target.png";      Marker = "CONCEPT B"; Title = "Deployment target";        HasEdit = $true  },
+  @{ File = "b-03-manifest.png";    Marker = "CONCEPT B"; Title = "Open-source manifest";     HasEdit = $false },
+  @{ File = "b-04-maintenance.png"; Marker = "CONCEPT B"; Title = "Installer operation";      HasEdit = $false }
 )
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null

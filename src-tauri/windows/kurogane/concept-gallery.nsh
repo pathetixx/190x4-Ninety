@@ -296,7 +296,6 @@ FunctionEnd
 
 Function ConceptApplyEnglish
   StrCpy $ConceptSelectedLanguage 1033
-  StrCpy $LANGUAGE 1033
   SendMessage $ConceptLanguageEnglish ${BM_SETCHECK} ${BST_CHECKED} 0
   SendMessage $ConceptLanguageRussian ${BM_SETCHECK} ${BST_UNCHECKED} 0
   SetCtlColors $ConceptLanguageEnglish ${K_COLOR_TEXT} ${K_COLOR_ACCENT}
@@ -307,7 +306,6 @@ FunctionEnd
 
 Function ConceptApplyRussian
   StrCpy $ConceptSelectedLanguage 1049
-  StrCpy $LANGUAGE 1049
   SendMessage $ConceptLanguageEnglish ${BM_SETCHECK} ${BST_UNCHECKED} 0
   SendMessage $ConceptLanguageRussian ${BM_SETCHECK} ${BST_CHECKED} 0
   SetCtlColors $ConceptLanguageEnglish ${K_COLOR_MUTED} ${K_COLOR_BORDER}
@@ -365,11 +363,12 @@ Function ConceptCMatrixLanguage
 FunctionEnd
 
 Function ConceptCMatrixLanguageLeave
-  StrCpy $LANGUAGE $ConceptSelectedLanguage
+  ; NSIS only permits changing $LANGUAGE during .onInit. This gallery page is
+  ; the approved visual contract for a future pre-init selector; it must not
+  ; pretend that an ordinary wizard page can switch native language tables.
 FunctionEnd
 
 Function ConceptCMatrixScope
-  StrCpy $LANGUAGE $ConceptSelectedLanguage
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGScopeTitle)" "$(CGScopeSubtitle)"
   !insertmacro CGMatrixHeader "ACCESS MATRIX" "02"
   !insertmacro CGFrame 42 121 260 51 43 122 258 49 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
@@ -387,7 +386,6 @@ Function ConceptCMatrixScope
 FunctionEnd
 
 Function ConceptCMatrixTarget
-  StrCpy $LANGUAGE $ConceptSelectedLanguage
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGTargetTitle)" "$(CGTargetSubtitle)"
   !insertmacro CGMatrixHeader "TARGET VECTOR" "03"
   !insertmacro CGText 43 121 200 11 "INSTALL TARGET" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
@@ -416,7 +414,6 @@ Function ConceptCMatrixTarget
 FunctionEnd
 
 Function ConceptCMatrixManifest
-  StrCpy $LANGUAGE $ConceptSelectedLanguage
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGManifestTitle)" "$(CGManifestSubtitle)"
   !insertmacro CGMatrixHeader "LICENSE SIGNAL" "04"
   !insertmacro CGFrame 43 121 259 118 44 122 257 116 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
@@ -435,7 +432,6 @@ Function ConceptCMatrixManifest
 FunctionEnd
 
 Function ConceptCMatrixMaintenance
-  StrCpy $LANGUAGE $ConceptSelectedLanguage
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGMaintenanceTitle)" "$(CGMaintenanceSubtitle)"
   !insertmacro CGMatrixHeader "OPERATION GRID" "05"
   !insertmacro CGFrame 43 121 259 52 44 122 257 50 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
