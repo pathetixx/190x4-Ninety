@@ -94,18 +94,18 @@ if (Test-Path $LatestJson) {
 # Полный boot Tauri без сети/VPN. --ci-smoke проверяет backend ping и сам
 # вызывает app.exit(0) через три секунды; зависание или мгновенный crash валят CI.
 $process = Start-Process -FilePath $app.FullName -ArgumentList "--ci-smoke" -PassThru
-if (-not $process.WaitForExit(15000)) {
+if (-not $process.WaitForExit(30000)) {
   Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-  throw "Ninety.exe не завершил CI smoke за 15 секунд"
+  throw "Ninety.exe не завершил CI smoke за 30 секунд"
 }
 Assert-Release ($process.ExitCode -eq 0) "Ninety.exe CI smoke завершился с кодом $($process.ExitCode)"
 
 # Тот же boot из реально подготовленного Portable layout. Маркер рядом с EXE
 # включает безопасное portable-поведение updater'а.
 $portableProcess = Start-Process -FilePath $portableApp.FullName -ArgumentList "--ci-smoke" -PassThru
-if (-not $portableProcess.WaitForExit(15000)) {
+if (-not $portableProcess.WaitForExit(30000)) {
   Stop-Process -Id $portableProcess.Id -Force -ErrorAction SilentlyContinue
-  throw "Portable Ninety.exe не завершил CI smoke за 15 секунд"
+  throw "Portable Ninety.exe не завершил CI smoke за 30 секунд"
 }
 Assert-Release ($portableProcess.ExitCode -eq 0) `
   "Portable Ninety.exe CI smoke завершился с кодом $($portableProcess.ExitCode)"
@@ -231,7 +231,7 @@ try {
 
   $installedProcess = Start-Process -FilePath (Join-Path $legacyInstall "Ninety.exe") `
     -ArgumentList "--ci-smoke" -PassThru
-  if (-not $installedProcess.WaitForExit(15000)) {
+  if (-not $installedProcess.WaitForExit(30000)) {
     Stop-Process -Id $installedProcess.Id -Force -ErrorAction SilentlyContinue
     throw "установленный через production NSIS Ninety.exe завис в CI smoke"
   }

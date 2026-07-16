@@ -731,8 +731,11 @@ pub fn run() {
                     }
                 }
                 let handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                // Do not depend on the shared async runtime being scheduled
+                // while WebView2/Defender finishes first-launch work on a fresh
+                // Windows runner. This watchdog exists only for --ci-smoke.
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
                     handle.exit(0);
                 });
             }
