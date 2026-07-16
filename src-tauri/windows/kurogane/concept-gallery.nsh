@@ -294,8 +294,7 @@ FunctionEnd
   !insertmacro CGText 247 98 71 12 "STEP ${INDEX} / 05" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
 !macroend
 
-Function ConceptSelectEnglish
-  Pop $0
+Function ConceptApplyEnglish
   StrCpy $ConceptSelectedLanguage 1033
   StrCpy $LANGUAGE 1033
   SendMessage $ConceptLanguageEnglish ${BM_SETCHECK} ${BST_CHECKED} 0
@@ -306,8 +305,7 @@ Function ConceptSelectEnglish
   SendMessage $ConceptLanguageRussianState ${WM_SETTEXT} 0 "STR:"
 FunctionEnd
 
-Function ConceptSelectRussian
-  Pop $0
+Function ConceptApplyRussian
   StrCpy $ConceptSelectedLanguage 1049
   StrCpy $LANGUAGE 1049
   SendMessage $ConceptLanguageEnglish ${BM_SETCHECK} ${BST_UNCHECKED} 0
@@ -316,6 +314,27 @@ Function ConceptSelectRussian
   SetCtlColors $ConceptLanguageRussian ${K_COLOR_TEXT} ${K_COLOR_PANEL}
   SendMessage $ConceptLanguageEnglishState ${WM_SETTEXT} 0 "STR:"
   SendMessage $ConceptLanguageRussianState ${WM_SETTEXT} 0 "STR:ВЫБРАНО"
+FunctionEnd
+
+Function ConceptSelectEnglish
+  Pop $0
+  Call ConceptApplyEnglish
+FunctionEnd
+
+Function ConceptSelectRussian
+  Pop $0
+  Call ConceptApplyRussian
+FunctionEnd
+
+Function ConceptSyncLanguageSelection
+  SendMessage $ConceptLanguageRussian ${BM_GETCHECK} 0 0 $0
+  ${If} $0 == ${BST_CHECKED}
+    ${If} $ConceptSelectedLanguage != 1049
+      Call ConceptApplyRussian
+    ${EndIf}
+  ${ElseIf} $ConceptSelectedLanguage != 1033
+    Call ConceptApplyEnglish
+  ${EndIf}
 FunctionEnd
 
 Function ConceptCMatrixLanguage
@@ -347,18 +366,22 @@ Function ConceptCMatrixLanguage
   SendMessage $ConceptLanguageRussianState ${WM_SETFONT} $ConceptFontMono 1
 
   ${If} $LANGUAGE == 1049
-    Push $0
-    Call ConceptSelectRussian
+    Call ConceptApplyRussian
   ${Else}
-    Push $0
-    Call ConceptSelectEnglish
+    Call ConceptApplyEnglish
   ${EndIf}
+  ; Native push-card state changes immediately on pointer/keyboard input. The
+  ; timer mirrors that state into the bilingual labels and locale without
+  ; depending on a fragile STATIC/BN_CLICKED notification path.
+  ${NSD_CreateTimer} ConceptSyncLanguageSelection 80
   !insertmacro CGBox 31 251 287 3 ${K_COLOR_BORDER}
   !insertmacro CGBox 31 251 57 3 ${K_COLOR_ACCENT}
   nsDialogs::Show
 FunctionEnd
 
 Function ConceptCMatrixLanguageLeave
+  ${NSD_KillTimer} ConceptSyncLanguageSelection
+  Call ConceptSyncLanguageSelection
   StrCpy $LANGUAGE $ConceptSelectedLanguage
 FunctionEnd
 

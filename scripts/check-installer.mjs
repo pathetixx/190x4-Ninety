@@ -111,6 +111,8 @@ if (existsSync(conceptGalleryPath)) {
     "CONCEPT B  /  TERMINAL MANIFEST",
     "CONCEPT C  /  SIGNAL MATRIX",
     "ConceptCMatrixLanguage",
+    "ConceptSyncLanguageSelection",
+    "BS_PUSHLIKE",
     'STEP ${INDEX} / 05',
   ]) {
     if (!conceptGallery.includes(marker)) fail(`Kurogane concept gallery не содержит ${marker}`);
