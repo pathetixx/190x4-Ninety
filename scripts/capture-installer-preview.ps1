@@ -456,8 +456,14 @@ try {
   if ([NinetyPreviewWin32]::ClassName($browseWindow) -ne "#32770") {
     throw "Deployment target Change opened an unexpected window class: $([NinetyPreviewWin32]::ClassName($browseWindow))"
   }
-  [System.Windows.Forms.SendKeys]::SendWait("{ESC}")
-  Start-Sleep -Milliseconds 500
+  [NinetyPreviewWin32]::PostMessage($browseWindow, 0x0010, [UIntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+  $browseCloseDeadline = (Get-Date).AddSeconds(5)
+  while ([NinetyPreviewWin32]::IsWindow($browseWindow) -and (Get-Date) -lt $browseCloseDeadline) {
+    Start-Sleep -Milliseconds 100
+  }
+  if ([NinetyPreviewWin32]::IsWindow($browseWindow)) {
+    throw "Deployment target folder picker did not close cleanly"
+  }
   [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
