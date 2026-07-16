@@ -149,7 +149,12 @@ function Wait-Removed([string]$Path, [int]$TimeoutSeconds = 30) {
 # default. Reinstall/OTA must update that exact path and never create a duplicate.
 $legacyInstall = Join-Path $env:LOCALAPPDATA "NinetyLegacySmoke-$PID"
 $programFilesInstall = Join-Path $env:ProgramFiles "Ninety"
-$ninetyUserRegistry = "HKCU:\Software\pathetixx\Ninety"
+$bundleIdentifier = [string]$config.identifier
+$identifierParts = @($bundleIdentifier.Split('.'))
+$manufacturer = if ($identifierParts.Count -gt 1) { $identifierParts[1] } else { $bundleIdentifier }
+Assert-Release (-not [string]::IsNullOrWhiteSpace($manufacturer)) `
+  "невозможно определить manufacturer из bundle identifier '$bundleIdentifier'"
+$ninetyUserRegistry = "HKCU:\Software\$manufacturer\Ninety"
 Remove-Item -LiteralPath $legacyInstall -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $ninetyUserRegistry -Recurse -Force -ErrorAction SilentlyContinue
 Assert-Release (-not (Test-Path -LiteralPath $programFilesInstall)) `
