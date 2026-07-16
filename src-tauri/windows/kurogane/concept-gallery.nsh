@@ -19,6 +19,7 @@ LangString CGAdmin 1033 "ADMIN REQUIRED"
 LangString CGTargetTitle 1033 "Deployment target"
 LangString CGTargetSubtitle 1033 "Keep the destination explicit and easy to verify."
 LangString CGInstallPath 1033 "INSTALL PATH"
+LangString CGDefaultPath 1033 "C:  ›  Program Files  ›  Ninety"
 LangString CGBrowse 1033 "CHANGE"
 LangString CGDiskSpace 1033 "DISK SPACE"
 LangString CGRequired 1033 "161.4 MB REQUIRED"
@@ -56,6 +57,7 @@ LangString CGAdmin 1049 "НУЖНЫ ПРАВА АДМИНИСТРАТОРА"
 LangString CGTargetTitle 1049 "Точка развёртывания"
 LangString CGTargetSubtitle 1049 "Каталог установки должен быть заметным и легко проверяемым."
 LangString CGInstallPath 1049 "КАТАЛОГ УСТАНОВКИ"
+LangString CGDefaultPath 1049 "C:  ›  Program Files  ›  Ninety"
 LangString CGBrowse 1049 "ИЗМЕНИТЬ"
 LangString CGDiskSpace 1049 "МЕСТО НА ДИСКЕ"
 LangString CGRequired 1049 "ТРЕБУЕТСЯ 161,4 МБ"
@@ -145,17 +147,14 @@ FunctionEnd
 Function ConceptACardsTarget
   !insertmacro CGBegin "$(CGConceptACards)" "$(CGTargetTitle)" "$(CGTargetSubtitle)"
   !insertmacro CGFrame 22 96 296 73 23 97 294 71 ${K_COLOR_BORDER} ${K_COLOR_PANEL}
-  !insertmacro CGText 38 107 180 11 "$(CGInstallPath)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $ConceptFontMono
+  !insertmacro CGText 38 107 200 11 "$(CGDefaultPath)" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $ConceptFontMono
   ${NSD_CreateText} 38u 126u 1u 1u "C:\Program Files\Ninety"
   Pop $0
   System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $ConceptFontMono 1
   SendMessage $0 ${WM_SETTEXT} 0 "STR:C:\Program Files\Ninety"
-  ; The production version swaps this presentation layer for the native edit
-  ; on focus, keeping the field fully editable without exposing stock chrome.
-  !insertmacro CGText 45 132 190 12 "C:  ›  Program Files  ›  Ninety" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontMono
-  System::Call 'user32::SetWindowPos(p r0, p 0, i 0, i 0, i 0, i 0, i 0x13)'
+  ; Production expands this collapsed native edit when the meta path is clicked.
   !insertmacro CGCenterText 248 126 54 23 "$(CGBrowse)" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontMono
   !insertmacro CGText 22 184 100 11 "$(CGDiskSpace)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGText 214 184 104 11 "$(CGAvailable)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
@@ -230,15 +229,13 @@ Function ConceptBTerminalTarget
   !insertmacro CGBTerminalHeader "DEPLOY"
   !insertmacro CGText 22 116 296 13 "$$ deploy --target" ${K_COLOR_ACCENT} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGFrame 22 136 296 38 23 137 294 36 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
-  !insertmacro CGText 33 147 12 13 ">" ${K_COLOR_ACCENT} ${K_COLOR_FIELD} $ConceptFontMono
+  !insertmacro CGText 33 147 210 13 "> C:/Program Files/Ninety" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontMono
   ${NSD_CreateText} 49u 143u 1u 1u "C:\Program Files\Ninety"
   Pop $0
   System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $ConceptFontMono 1
   SendMessage $0 ${WM_SETTEXT} 0 "STR:C:\Program Files\Ninety"
-  !insertmacro CGText 55 148 185 12 "C:/Program Files/Ninety" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontMono
-  System::Call 'user32::SetWindowPos(p r0, p 0, i 0, i 0, i 0, i 0, i 0x13)'
   !insertmacro CGCenterText 257 143 49 22 "EDIT" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontMono
   !insertmacro CGText 22 190 296 12 "volume.c:  [###---------------------------]  0.2%" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGText 22 210 142 12 "required  161.4 MiB" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
@@ -310,7 +307,7 @@ FunctionEnd
 Function ConceptCMatrixTarget
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGTargetTitle)" "$(CGTargetSubtitle)"
   !insertmacro CGMatrixHeader "TARGET VECTOR"
-  !insertmacro CGText 43 121 200 11 "$(CGInstallPath)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
+  !insertmacro CGText 43 121 200 11 "$(CGDefaultPath)" ${K_COLOR_TEXT} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGFrame 43 139 259 43 44 140 257 41 ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
   !insertmacro CGBox 44 140 5 41 ${K_COLOR_ACCENT}
   ${NSD_CreateText} 60u 149u 1u 1u "C:\Program Files\Ninety"
@@ -319,8 +316,6 @@ Function ConceptCMatrixTarget
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $ConceptFontMono 1
   SendMessage $0 ${WM_SETTEXT} 0 "STR:C:\Program Files\Ninety"
-  !insertmacro CGText 60 154 174 12 "C:  ›  Program Files  ›  Ninety" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontMono
-  System::Call 'user32::SetWindowPos(p r0, p 0, i 0, i 0, i 0, i 0, i 0x13)'
   !insertmacro CGCenterText 249 149 42 22 "..." ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontLabel
   !insertmacro CGText 43 197 78 11 "CAPACITY" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGBox 43 216 18 8 ${K_COLOR_ACCENT}
