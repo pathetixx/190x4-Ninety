@@ -178,11 +178,6 @@ try {
     return $null
   }
 
-  function Send-Enter {
-    [NinetyPreviewWin32]::PostMessage($window, 0x0100, [UIntPtr]0x0D, [IntPtr]::Zero) | Out-Null
-    [NinetyPreviewWin32]::PostMessage($window, 0x0101, [UIntPtr]0x0D, [IntPtr]::Zero) | Out-Null
-  }
-
   [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
   Start-Sleep -Seconds 2
   Save-InstallerWindow "00-initial.png"
@@ -252,9 +247,23 @@ try {
   Start-Sleep -Seconds 3
   Assert-LiveProgress
   Save-InstallerWindow "05-progress.png"
-  Start-Sleep -Seconds 5
-  Send-Enter
-  Start-Sleep -Seconds 1
+  # MUI_FINISHPAGE_NOAUTOCLOSE keeps the completed progress page visible until
+  # Next is activated. Do not send Enter on a fixed delay: a fast hosted runner
+  # may already be on Finish, where the same key would close the process before
+  # its visual evidence is captured.
+  $finishDeadline = (Get-Date).AddSeconds(15)
+  do {
+    $footerCancel = [NinetyPreviewWin32]::FindDescendantById($window, 1214)
+    $finishVisible = $footerCancel -eq [IntPtr]::Zero -or -not [NinetyPreviewWin32]::IsWindowVisible($footerCancel)
+    if ($finishVisible) { break }
+    $percent = [NinetyPreviewWin32]::FindDescendantById($window, 1226)
+    if ($percent -ne [IntPtr]::Zero -and [NinetyPreviewWin32]::ReadText($percent) -eq "100%") {
+      Click-InstallerControl 1213
+    }
+    Start-Sleep -Milliseconds 300
+  } until ((Get-Date) -gt $finishDeadline)
+  if (-not $finishVisible) { throw "Installer did not advance from completed progress to Finish" }
+  Start-Sleep -Milliseconds 500
   Save-InstallerWindow "06-finish.png"
   Click-InstallerControl 1207
   if (-not $process.WaitForExit(5000)) {
