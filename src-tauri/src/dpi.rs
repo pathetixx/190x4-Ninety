@@ -1240,8 +1240,7 @@ fn decode_channel_public_key(key_b64: &str) -> Result<minisign_verify::PublicKey
         .map(|line| line.trim())
         .find(|line| !line.is_empty() && !line.starts_with("untrusted comment"))
         .ok_or("pubkey: ключевая строка не найдена")?;
-    minisign_verify::PublicKey::from_base64(key_line)
-        .map_err(|e| format!("pubkey decode: {e}"))
+    minisign_verify::PublicKey::from_base64(key_line).map_err(|e| format!("pubkey decode: {e}"))
 }
 
 // Проверить minisign-подпись бандла. Dedicated key пробуем первым, legacy OTA
