@@ -253,12 +253,14 @@ try {
   # its visual evidence is captured.
   $finishDeadline = (Get-Date).AddSeconds(15)
   do {
-    $footerCancel = [NinetyPreviewWin32]::FindDescendantById($window, 1214)
+    # The visible navigation HWND is the real NSIS button (ID 2); resource
+    # anchor 1214 is intentionally hidden after its geometry is transferred.
+    $footerCancel = [NinetyPreviewWin32]::FindDescendantById($window, 2)
     $finishVisible = $footerCancel -eq [IntPtr]::Zero -or -not [NinetyPreviewWin32]::IsWindowVisible($footerCancel)
     if ($finishVisible) { break }
     $percent = [NinetyPreviewWin32]::FindDescendantById($window, 1226)
     if ($percent -ne [IntPtr]::Zero -and [NinetyPreviewWin32]::ReadText($percent) -eq "100%") {
-      Click-InstallerControl 1213
+      Click-InstallerControl 1
     }
     Start-Sleep -Milliseconds 300
   } until ((Get-Date) -gt $finishDeadline)
