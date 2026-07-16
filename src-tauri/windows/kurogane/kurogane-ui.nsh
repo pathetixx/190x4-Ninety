@@ -457,20 +457,21 @@ FunctionEnd
 !macroend
 
 !macro KuroganeSetDirectButtonBitmap HWND PATH HANDLE
+  StrCpy $9 ${HWND}
   ${If} ${HANDLE} != 0
-    SendMessage ${HWND} ${BM_SETIMAGE} ${IMAGE_BITMAP} 0
+    SendMessage $9 ${BM_SETIMAGE} ${IMAGE_BITMAP} 0
     ${NSD_FreeImage} ${HANDLE}
     StrCpy ${HANDLE} 0
   ${EndIf}
-  System::Call 'user32::GetWindowLongW(p ${HWND}, i -16) i .r0'
+  System::Call 'user32::GetWindowLongW(p r9, i -16) i .r0'
   IntOp $0 $0 | 0x00008080
-  System::Call 'user32::SetWindowLongW(p ${HWND}, i -16, i r0)'
-  System::Call 'uxtheme::SetWindowTheme(p ${HWND}, w "", w "")'
+  System::Call 'user32::SetWindowLongW(p r9, i -16, i r0)'
+  System::Call 'uxtheme::SetWindowTheme(p r9, w "", w "")'
   System::Call 'user32::LoadImageW(p 0, w "${PATH}", i 0, i 0, i 0, i 0x2010) p .r0'
   StrCpy ${HANDLE} $0
-  SendMessage ${HWND} ${BM_SETIMAGE} ${IMAGE_BITMAP} $0
+  SendMessage $9 ${BM_SETIMAGE} ${IMAGE_BITMAP} $0
   System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r1'
-  System::Call 'user32::GetWindowRect(p ${HWND}, p r1)'
+  System::Call 'user32::GetWindowRect(p r9, p r1)'
   System::Call '*$1(&i4 .r2, &i4 .r3, &i4 .r4, &i4 .r5)'
   System::Free $1
   IntOp $4 $4 - $2
@@ -478,8 +479,8 @@ FunctionEnd
   IntOp $4 $4 - 2
   IntOp $5 $5 - 2
   System::Call 'gdi32::CreateRectRgn(i 2, i 2, i r4, i r5) p .r1'
-  System::Call 'user32::SetWindowRgn(p ${HWND}, p r1, i 1)'
-  System::Call 'user32::InvalidateRect(p ${HWND}, p 0, i 1)'
+  System::Call 'user32::SetWindowRgn(p r9, p r1, i 1)'
+  System::Call 'user32::InvalidateRect(p r9, p 0, i 1)'
 !macroend
 
 !macro KuroganeApplyChromeImpl NEXT_EN NEXT_RU SHOW_BACK SHOW_NEXT SHOW_CANCEL
@@ -1161,7 +1162,7 @@ FunctionEnd
   SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
   SendMessage $0 ${WM_SETFONT} $KuroganeFontMeta 1
   GetDlgItem $0 ${PAGE} 1024
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 176 212 126 14
+  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 176 209 126 18
   !insertmacro KuroganeBringToFront $0
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
   SendMessage $0 ${WM_SETFONT} $KuroganeFontMeta 1

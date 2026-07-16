@@ -257,6 +257,9 @@ try {
     if (($style -band 0x00000080) -ne 0x00000080) {
       throw "$Name fell back to a stock Windows button"
     }
+    if ([NinetyPreviewWin32]::SendMessage($control, 0x00F6, [IntPtr]::Zero, [IntPtr]::Zero) -eq [IntPtr]::Zero) {
+      throw "$Name has bitmap style but no Kurogane image"
+    }
   }
 
   function Click-InstallerControl([int]$Id) {

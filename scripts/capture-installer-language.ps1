@@ -152,6 +152,9 @@ try {
     if (([NinetyLanguageWin32]::GetWindowLong($selectorControl, -16) -band 0x00000080) -ne 0x00000080) {
       throw "Language selector fell back to a stock Windows radio"
     }
+    if ([NinetyLanguageWin32]::SendMessage($selectorControl, 0x00F6, [IntPtr]::Zero, [IntPtr]::Zero) -eq [IntPtr]::Zero) {
+      throw "Language selector has no Kurogane signal image"
+    }
   }
   [NinetyLanguageWin32]::SendMessage($russian, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null # BM_CLICK
   Start-Sleep -Milliseconds 300
