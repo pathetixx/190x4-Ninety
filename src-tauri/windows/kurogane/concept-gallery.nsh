@@ -326,17 +326,6 @@ Function ConceptSelectRussian
   Call ConceptApplyRussian
 FunctionEnd
 
-Function ConceptSyncLanguageSelection
-  SendMessage $ConceptLanguageRussian ${BM_GETCHECK} 0 0 $0
-  ${If} $0 == ${BST_CHECKED}
-    ${If} $ConceptSelectedLanguage != 1049
-      Call ConceptApplyRussian
-    ${EndIf}
-  ${ElseIf} $ConceptSelectedLanguage != 1033
-    Call ConceptApplyEnglish
-  ${EndIf}
-FunctionEnd
-
 Function ConceptCMatrixLanguage
   !insertmacro CGBegin "SIGNAL MATRIX / LOCALE" "Installer language / Язык установщика" "Choose the interface language · Выберите язык интерфейса"
   !insertmacro CGMatrixHeader "LANGUAGE MATRIX" "01"
@@ -370,22 +359,17 @@ Function ConceptCMatrixLanguage
   ${Else}
     Call ConceptApplyEnglish
   ${EndIf}
-  ; Native push-card state changes immediately on pointer/keyboard input. The
-  ; timer mirrors that state into the bilingual labels and locale without
-  ; depending on a fragile STATIC/BN_CLICKED notification path.
-  ${NSD_CreateTimer} ConceptSyncLanguageSelection 80
   !insertmacro CGBox 31 251 287 3 ${K_COLOR_BORDER}
   !insertmacro CGBox 31 251 57 3 ${K_COLOR_ACCENT}
   nsDialogs::Show
 FunctionEnd
 
 Function ConceptCMatrixLanguageLeave
-  ${NSD_KillTimer} ConceptSyncLanguageSelection
-  Call ConceptSyncLanguageSelection
   StrCpy $LANGUAGE $ConceptSelectedLanguage
 FunctionEnd
 
 Function ConceptCMatrixScope
+  StrCpy $LANGUAGE $ConceptSelectedLanguage
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGScopeTitle)" "$(CGScopeSubtitle)"
   !insertmacro CGMatrixHeader "ACCESS MATRIX" "02"
   !insertmacro CGFrame 42 121 260 51 43 122 258 49 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
@@ -403,6 +387,7 @@ Function ConceptCMatrixScope
 FunctionEnd
 
 Function ConceptCMatrixTarget
+  StrCpy $LANGUAGE $ConceptSelectedLanguage
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGTargetTitle)" "$(CGTargetSubtitle)"
   !insertmacro CGMatrixHeader "TARGET VECTOR" "03"
   !insertmacro CGText 43 121 200 11 "INSTALL TARGET" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
@@ -431,6 +416,7 @@ Function ConceptCMatrixTarget
 FunctionEnd
 
 Function ConceptCMatrixManifest
+  StrCpy $LANGUAGE $ConceptSelectedLanguage
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGManifestTitle)" "$(CGManifestSubtitle)"
   !insertmacro CGMatrixHeader "LICENSE SIGNAL" "04"
   !insertmacro CGFrame 43 121 259 118 44 122 257 116 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
@@ -449,6 +435,7 @@ Function ConceptCMatrixManifest
 FunctionEnd
 
 Function ConceptCMatrixMaintenance
+  StrCpy $LANGUAGE $ConceptSelectedLanguage
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGMaintenanceTitle)" "$(CGMaintenanceSubtitle)"
   !insertmacro CGMatrixHeader "OPERATION GRID" "05"
   !insertmacro CGFrame 43 121 259 52 44 122 257 50 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}

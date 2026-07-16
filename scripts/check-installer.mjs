@@ -111,7 +111,7 @@ if (existsSync(conceptGalleryPath)) {
     "CONCEPT B  /  TERMINAL MANIFEST",
     "CONCEPT C  /  SIGNAL MATRIX",
     "ConceptCMatrixLanguage",
-    "ConceptSyncLanguageSelection",
+    "ConceptApplyRussian",
     "BS_PUSHLIKE",
     'STEP ${INDEX} / 05',
   ]) {
