@@ -141,6 +141,7 @@ if (templatePath && existsSync(templatePath)) {
     "KuroganeDirectoryShow",
     "KuroganeStartMenuShow",
     "KuroganeUninstallConfirmPageImpl $mui.UnConfirmPage",
+    "un.NinetyFinishShow",
     "KuroganeInstFilesShow",
     "un.KuroganeInstFilesShow",
     "Call KuroganeProgressTick",

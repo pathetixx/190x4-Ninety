@@ -270,6 +270,9 @@ try {
   Start-Sleep -Seconds 1
   Save-InstallerWindow "07-uninstall-confirm.png"
   Click-InstallerControl 1
+  Start-Sleep -Seconds 3
+  Save-InstallerWindow "08-uninstall-finish.png"
+  Click-InstallerControl 1
   $deadline = (Get-Date).AddSeconds(10)
   while ([NinetyPreviewWin32]::IsWindow($window) -and (Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 200

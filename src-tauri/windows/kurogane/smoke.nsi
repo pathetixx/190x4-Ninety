@@ -77,6 +77,11 @@ FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.KuroganeInstFilesShow
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.KuroganeInstFilesLeave
 !insertmacro MUI_UNPAGE_INSTFILES
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.SmokeFinishShow
+!insertmacro MUI_UNPAGE_FINISH
+Function un.SmokeFinishShow
+  !insertmacro KuroganeKnownFullWindowPageShowImpl "un." $mui.FinishPage $mui.FinishPage.Image $mui.FinishPage.Title $mui.FinishPage.Text Finish
+FunctionEnd
 
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "Russian"

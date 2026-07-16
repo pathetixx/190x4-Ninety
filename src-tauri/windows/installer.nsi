@@ -472,6 +472,14 @@ FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.KuroganeInstFilesLeave
 !insertmacro MUI_UNPAGE_INSTFILES
 
+; 3. Uninstall completion page
+!define MUI_PAGE_CUSTOMFUNCTION_PRE un.SkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.NinetyFinishShow
+!insertmacro MUI_UNPAGE_FINISH
+Function un.NinetyFinishShow
+  !insertmacro KuroganeKnownFullWindowPageShowImpl "un." $mui.FinishPage $mui.FinishPage.Image $mui.FinishPage.Title $mui.FinishPage.Text Finish
+FunctionEnd
+
 ;Languages
 {{#each languages}}
 !insertmacro MUI_LANGUAGE "{{this}}"
