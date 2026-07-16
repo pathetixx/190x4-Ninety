@@ -126,10 +126,24 @@ try {
   } until ($window -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
   if ($window -eq [IntPtr]::Zero) { throw "Installer window did not appear" }
 
+  function Refresh-InstallerWindow {
+    $candidate = [NinetyPreviewWin32]::FindKuroganeWindow()
+    if ($candidate -ne [IntPtr]::Zero) {
+      $script:window = $candidate
+      return
+    }
+    $process.Refresh()
+    if ($process.HasExited) { throw "Installer exited unexpectedly with code $($process.ExitCode)" }
+    throw "Kurogane installer window disappeared while the process was still running"
+  }
+
   function Get-InstallerRect {
     $rect = New-Object NinetyPreviewWin32+RECT
     if (-not [NinetyPreviewWin32]::GetWindowRect($window, [ref]$rect)) {
-      throw "GetWindowRect failed"
+      Refresh-InstallerWindow
+      if (-not [NinetyPreviewWin32]::GetWindowRect($window, [ref]$rect)) {
+        throw "GetWindowRect failed after reacquiring the Kurogane window"
+      }
     }
     return $rect
   }
