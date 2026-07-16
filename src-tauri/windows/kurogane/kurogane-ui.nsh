@@ -187,12 +187,14 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
   IntOp $4 ${X} + ${W}
   IntOp $5 ${Y} + ${H}
   System::Call '*(&i4 ${X}, &i4 ${Y}, &i4 r4, &i4 r5) p .r6'
-  System::Call 'user32::MapDialogRect(p $KuroganeMatrixParent, p r6)'
+  ; nsDialogs resolves `u` units against the main resource dialog. Use the same
+  ; base units while still parenting the control to the active page.
+  System::Call 'user32::MapDialogRect(p $HWNDPARENT, p r6)'
   System::Call '*$6(&i4 .r4, &i4 .r5, &i4 .r7, &i4 .r8)'
   System::Free $6
   IntOp $7 $7 - $4
   IntOp $8 $8 - $5
-  System::Call 'user32::CreateWindowExW(i 0, w "Static", w "", i 0x50000000, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 0, i 0, i 0) p .r0'
+  System::Call 'user32::CreateWindowExW(i 0, w "Static", w "", i 0x54000000, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 0, i 0, i 0) p .r0'
   SetCtlColors $0 ${COLOR} ${COLOR}
 !macroend
 
@@ -205,12 +207,12 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
   IntOp $4 ${X} + ${W}
   IntOp $5 ${Y} + ${H}
   System::Call '*(&i4 ${X}, &i4 ${Y}, &i4 r4, &i4 r5) p .r6'
-  System::Call 'user32::MapDialogRect(p $KuroganeMatrixParent, p r6)'
+  System::Call 'user32::MapDialogRect(p $HWNDPARENT, p r6)'
   System::Call '*$6(&i4 .r4, &i4 .r5, &i4 .r7, &i4 .r8)'
   System::Free $6
   IntOp $7 $7 - $4
   IntOp $8 $8 - $5
-  System::Call 'user32::CreateWindowExW(i 0, w "Static", w "${TEXT}", i 0x50000000, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 0, i 0, i 0) p .r0'
+  System::Call 'user32::CreateWindowExW(i 0, w "Static", w "${TEXT}", i 0x54000000, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 0, i 0, i 0) p .r0'
   SetCtlColors $0 ${FOREGROUND} ${BACKGROUND}
   SendMessage $0 ${WM_SETFONT} ${FONT} 1
 !macroend
@@ -239,7 +241,7 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
 !macroend
 
 !macro KuroganeSignalRadio X Y OUT
-  nsDialogs::CreateControl BUTTON "${DEFAULT_STYLES}|${WS_TABSTOP}|${BS_AUTORADIOBUTTON}|${BS_BITMAP}|${BS_FLAT}" 0 ${X}u ${Y}u 14u 14u ""
+  nsDialogs::CreateControl BUTTON "${DEFAULT_STYLES}|${WS_TABSTOP}|${BS_AUTORADIOBUTTON}|${BS_PUSHLIKE}|${BS_BITMAP}|${BS_FLAT}" 0 ${X}u ${Y}u 14u 14u ""
   Pop ${OUT}
   System::Call 'uxtheme::SetWindowTheme(p ${OUT}, w "", w "")'
 !macroend

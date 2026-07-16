@@ -81,6 +81,8 @@ public static class NinetyPreviewWin32 {
   }
   public static string FindStaticTextOverflow(IntPtr parent) {
     string issue = null;
+    RECT parentRect;
+    if (!GetWindowRect(parent, out parentRect)) return null;
     EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
       if (!IsWindowVisible(child)) return true;
       var className = new System.Text.StringBuilder(64);
@@ -92,6 +94,10 @@ public static class NinetyPreviewWin32 {
       if (text.Length == 0) return true;
       RECT windowRect;
       if (!GetWindowRect(child, out windowRect)) return true;
+      // MUI keeps layout anchors outside the visible 560-DLU shell. They may
+      // carry localized text and WS_VISIBLE while remaining entirely offscreen.
+      if (windowRect.Right <= parentRect.Left || windowRect.Left >= parentRect.Right ||
+          windowRect.Bottom <= parentRect.Top || windowRect.Top >= parentRect.Bottom) return true;
       int width = Math.Max(1, windowRect.Right - windowRect.Left);
       int height = Math.Max(1, windowRect.Bottom - windowRect.Top);
       IntPtr dc = GetDC(child);
@@ -302,20 +308,20 @@ try {
   Save-InstallerWindow "01-welcome.png"
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
-  Assert-NoTextOverflow "license"
   Save-InstallerWindow "02-license.png"
+  Assert-NoTextOverflow "license"
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
-  Assert-NoTextOverflow "install mode"
   Save-InstallerWindow "03-install-mode.png"
+  Assert-NoTextOverflow "install mode"
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
-  Assert-NoTextOverflow "maintenance"
   Save-InstallerWindow "04-maintenance.png"
+  Assert-NoTextOverflow "maintenance"
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
-  Assert-NoTextOverflow "deployment target"
   Save-InstallerWindow "05-target.png"
+  Assert-NoTextOverflow "deployment target"
   Click-InstallerControl 1
   Start-Sleep -Seconds 3
   Assert-LiveProgress
@@ -473,8 +479,8 @@ try {
   } until ($window -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
   if ($window -eq [IntPtr]::Zero) { throw "Uninstaller window did not appear" }
   Start-Sleep -Seconds 1
-  Assert-NoTextOverflow "uninstall confirmation"
   Save-InstallerWindow "09-uninstall-confirm.png"
+  Assert-NoTextOverflow "uninstall confirmation"
   Click-InstallerControl 1
   Start-Sleep -Seconds 3
   Save-InstallerWindow "10-uninstall-finish.png"
