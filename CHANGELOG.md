@@ -2,6 +2,17 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.30 — 2026-07-16
+
+- Updates and reinstalls now preserve every existing AppData, Program Files or custom installation path; only a genuinely fresh installation defaults to `C:\Program Files\Ninety`, preventing duplicate copies.
+- Setup and removal allow only one active operation, wait for the previous Ninety process to release resources, and stop before changing any files when the destination remains locked or unwritable.
+- Partial installations are blocked: resources can no longer be skipped after a write failure, and maintenance can safely hand control to the registered uninstaller without deadlocking the operation guard.
+- The release gate now exercises the production installer with a registered legacy AppData path, parallel setup rejection, locked-resource rollback, successful OTA in place, complete resource integrity, application launch and cleanup.
+- Обновления и переустановка теперь сохраняют существующий каталог AppData, Program Files или выбранный пользователем путь; `C:\Program Files\Ninety` используется по умолчанию только для действительно новой установки, поэтому дубликаты больше не создаются.
+- Одновременно разрешена только одна операция установки или удаления; установщик ждёт освобождения ресурсов прежним процессом Ninety и прекращает работу до изменения файлов, если каталог остаётся заблокированным либо недоступным для записи.
+- Частичная установка исключена: после ошибки записи ресурсы нельзя пропустить, а мастер обслуживания безопасно передаёт управление зарегистрированному деинсталлятору без взаимной блокировки.
+- Релизный гейт теперь проверяет настоящий установщик с зарегистрированным старым путём AppData, запрет параллельного запуска, откат при заблокированном ресурсе, успешное OTA-обновление на месте, целостность всех ресурсов, запуск приложения и очистку.
+
 ## v0.2.29 — 2026-07-16
 
 - Existing Ninety installations now stay in their registered AppData, Program Files or custom directory during updates and reinstalls; only a genuinely fresh installation defaults to `C:\Program Files\Ninety`.
