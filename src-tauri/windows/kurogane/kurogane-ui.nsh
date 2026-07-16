@@ -756,8 +756,12 @@ FunctionEnd
   ; Hide stale welcome navigation synchronously before the first File command.
   GetDlgItem $0 $HWNDPARENT 3
   ShowWindow $0 ${SW_HIDE}
+  System::Call 'gdi32::CreateRectRgn(i 0, i 0, i 0, i 0) p .r1'
+  System::Call 'user32::SetWindowRgn(p r0, p r1, i 1)'
   GetDlgItem $0 $HWNDPARENT 1
   ShowWindow $0 ${SW_HIDE}
+  System::Call 'gdi32::CreateRectRgn(i 0, i 0, i 0, i 0) p .r1'
+  System::Call 'user32::SetWindowRgn(p r0, p r1, i 1)'
   Call ${UNPREFIX}KuroganeStartShellTimer
   Call ${UNPREFIX}KuroganeStyleCurrentPage
 

@@ -14,6 +14,7 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class NinetyPreviewWin32 {
+  public delegate bool EnumWindowProc(IntPtr hWnd, IntPtr lParam);
   public delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT { public int Left, Top, Right, Bottom; }
@@ -22,16 +23,33 @@ public static class NinetyPreviewWin32 {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int command);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint message, UIntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowProc callback, IntPtr param);
   [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr param);
+  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr hWnd, int id);
   [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr hWnd);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);
   public static IntPtr FindDescendantById(IntPtr parent, int id) {
     IntPtr found = IntPtr.Zero;
     EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
       if (GetDlgCtrlID(child) == id) { found = child; return false; }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+  public static IntPtr FindKuroganeWindow() {
+    IntPtr found = IntPtr.Zero;
+    EnumWindows(delegate(IntPtr window, IntPtr param) {
+      if (IsWindowVisible(window) &&
+          GetDlgItem(window, 1205) != IntPtr.Zero &&
+          GetDlgItem(window, 1207) != IntPtr.Zero) {
+        found = window;
+        return false;
+      }
       return true;
     }, IntPtr.Zero);
     return found;
@@ -242,17 +260,29 @@ try {
     Start-Sleep -Milliseconds 200
     $process.Refresh()
     $window = $process.MainWindowHandle
+    if ($window -eq [IntPtr]::Zero) {
+      # NSIS uninstallers relaunch from a temporary Au_.exe copy, so the
+      # process returned by Start-Process can exit before the real UI appears.
+      $window = [NinetyPreviewWin32]::FindKuroganeWindow()
+    }
   } until ($window -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
   if ($window -eq [IntPtr]::Zero) { throw "Uninstaller window did not appear" }
   Start-Sleep -Seconds 1
   Save-InstallerWindow "07-uninstall-confirm.png"
   Click-InstallerControl 1
-  if (-not $process.WaitForExit(10000)) {
+  $deadline = (Get-Date).AddSeconds(10)
+  while ([NinetyPreviewWin32]::IsWindow($window) -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 200
+  }
+  if ([NinetyPreviewWin32]::IsWindow($window)) {
     throw "Uninstaller remove control ignored a real left-click"
   }
   if (-not $dragPassed) {
     throw "Frameless installer window did not move after three independent drag gestures"
   }
 } finally {
+  if ($window -ne [IntPtr]::Zero -and [NinetyPreviewWin32]::IsWindow($window)) {
+    [NinetyPreviewWin32]::PostMessage($window, 0x0010, [UIntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+  }
   if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
 }
