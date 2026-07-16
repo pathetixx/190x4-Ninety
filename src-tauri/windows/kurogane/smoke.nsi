@@ -21,15 +21,6 @@ Var SmokeMaintenancePrimary
 Var SmokeMaintenanceSecondary
 Var SmokeDeleteAppDataCheckbox
 
-LangString KSmokeMaintenanceIntro 1033 "Ninety ${VERSION} is already installed. Choose an action to continue."
-LangString KSmokeMaintenanceRepair 1033 "Add or reinstall components"
-LangString KSmokeMaintenanceRemove 1033 "Remove Ninety"
-LangString KSmokeDeleteData 1033 "Remove settings and data"
-LangString KSmokeMaintenanceIntro 1049 "Ninety ${VERSION} уже установлен. Выберите действие для продолжения."
-LangString KSmokeMaintenanceRepair 1049 "Добавить или переустановить компоненты"
-LangString KSmokeMaintenanceRemove 1049 "Удалить Ninety"
-LangString KSmokeDeleteData 1049 "Удалить настройки и данные"
-
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeWelcomeShow
 !insertmacro MUI_PAGE_WELCOME
 Function SmokeWelcomeShow
@@ -49,9 +40,9 @@ Page custom SmokeMaintenanceShow
 Function SmokeMaintenanceShow
   nsDialogs::Create 1018
   Pop $SmokeMaintenanceDialog
-  StrCpy $0 "$(KSmokeMaintenanceIntro)"
-  StrCpy $1 "$(KSmokeMaintenanceRepair)"
-  StrCpy $2 "$(KSmokeMaintenanceRemove)"
+  StrCpy $0 "Ninety ${VERSION} - $(KMaintenanceSubtitle)"
+  StrCpy $1 "$(KMaintenanceRepairAction)"
+  StrCpy $2 "$(KMaintenanceRemoveAction)"
   StrCpy $3 "$(KMaintenanceRepairDescription)"
   StrCpy $4 "$(KMaintenanceRemoveDescription)"
   !insertmacro KuroganeMaintenancePageImpl $SmokeMaintenanceDialog $SmokeMaintenancePrimary $SmokeMaintenanceSecondary $0 $1 $2 $3 $4
@@ -72,7 +63,7 @@ FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.SmokeConfirmShow
 !insertmacro MUI_UNPAGE_CONFIRM
 Function un.SmokeConfirmShow
-  !insertmacro KuroganeUninstallConfirmPageImpl $mui.UnConfirmPage $SmokeDeleteAppDataCheckbox "$(KSmokeDeleteData)"
+  !insertmacro KuroganeUninstallConfirmPageImpl $mui.UnConfirmPage $SmokeDeleteAppDataCheckbox "$(KUninstallDeleteData)"
 FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.KuroganeInstFilesShow
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.KuroganeInstFilesLeave
@@ -91,6 +82,10 @@ Function .onInit
   ; on that exact locale so localized bitmap chrome is exercised on every push.
   StrCpy $LANGUAGE 1049
   !insertmacro MULTIUSER_INIT
+FunctionEnd
+
+Function un.onInit
+  StrCpy $LANGUAGE 1049
 FunctionEnd
 
 Section

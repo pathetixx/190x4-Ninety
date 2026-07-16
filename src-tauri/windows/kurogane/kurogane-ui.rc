@@ -42,8 +42,8 @@ BEGIN
     CONTROL         "",1036,"Static",NOT WS_VISIBLE,600,0,1,1
     CONTROL         "",1045,"Static",NOT WS_VISIBLE,600,0,1,1
 
-    // NSIS continues to own these buttons and all page navigation. They stay
-    // off-canvas; the dark static controls below mirror and click them.
+    // NSIS continues to own these buttons and all page navigation. Kurogane
+    // moves them over the visible bitmap anchors at runtime.
     PUSHBUTTON      "",IDC_BACK,600,336,58,18,BS_FLAT | WS_GROUP
     PUSHBUTTON      "",IDOK,663,336,66,18,BS_FLAT
     PUSHBUTTON      "",IDCANCEL,734,336,61,18,BS_FLAT

@@ -77,8 +77,11 @@ LangString KMaintenanceRepairDescription 1033 "Restore or update the installed a
 LangString KMaintenanceRemoveDescription 1033 "Remove Ninety and its installed components from this computer."
 LangString KMaintenanceReplaceDescription 1033 "Remove the existing version before installing the selected version."
 LangString KMaintenanceKeepDescription 1033 "Keep the existing installation and continue without removing it first."
+LangString KMaintenanceRepairAction 1033 "Add or reinstall components"
+LangString KMaintenanceRemoveAction 1033 "Remove Ninety"
 LangString KUninstallConfirmTitle 1033 "Remove Ninety"
 LangString KUninstallConfirmSubtitle 1033 "The application will be closed and its installed components will be removed."
+LangString KUninstallDeleteData 1033 "Remove settings and data"
 
 LangString KStepOptions 1049 "ПАРАМЕТРЫ"
 LangString KStepInstall 1049 "УСТАНОВКА"
@@ -100,8 +103,11 @@ LangString KMaintenanceRepairDescription 1049 "Восстановить или �
 LangString KMaintenanceRemoveDescription 1049 "Удалить Ninety и установленные компоненты с этого компьютера."
 LangString KMaintenanceReplaceDescription 1049 "Удалить существующую версию перед установкой выбранной версии."
 LangString KMaintenanceKeepDescription 1049 "Сохранить существующую установку и продолжить без предварительного удаления."
+LangString KMaintenanceRepairAction 1049 "Добавить или переустановить компоненты"
+LangString KMaintenanceRemoveAction 1049 "Удалить Ninety"
 LangString KUninstallConfirmTitle 1049 "Удаление Ninety"
 LangString KUninstallConfirmSubtitle 1049 "Приложение будет закрыто, а установленные компоненты — удалены."
+LangString KUninstallDeleteData 1049 "Удалить настройки и данные"
 
 !macro KuroganeSetText CONTROL TEXT
   GetDlgItem $0 $KuroganePage ${CONTROL}
@@ -762,6 +768,9 @@ FunctionEnd
   ShowWindow $0 ${SW_HIDE}
   System::Call 'gdi32::CreateRectRgn(i 0, i 0, i 0, i 0) p .r1'
   System::Call 'user32::SetWindowRgn(p r0, p r1, i 1)'
+  ; Hiding a clipped bitmap button can leave stale pixels in the frameless
+  ; footer until Windows happens to repaint its parent. Redraw synchronously.
+  System::Call 'user32::RedrawWindow(p $HWNDPARENT, p 0, p 0, i 0x0185)'
   Call ${UNPREFIX}KuroganeStartShellTimer
   Call ${UNPREFIX}KuroganeStyleCurrentPage
 
