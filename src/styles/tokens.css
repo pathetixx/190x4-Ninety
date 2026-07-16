@@ -210,6 +210,27 @@
 
   --shadow-strong: rgba(0, 0, 0, 0.70);
 
+  /* ─── Sidebar material — derived from every active theme ─── */
+  --sidebar-surface-top: color-mix(in srgb, var(--ink-1) 94%, var(--text-hi) 6%);
+  --sidebar-surface-bottom: color-mix(in srgb, var(--ink-0) 96%, black 4%);
+  --sidebar-row-start: color-mix(in srgb, var(--ink-0) 96%, var(--text-hi) 4%);
+  --sidebar-row-middle: color-mix(in srgb, var(--ink-1) 88%, var(--ink-3) 12%);
+  --sidebar-row-hover: color-mix(in srgb, var(--ink-2) 90%, var(--text-hi) 10%);
+  --sidebar-row-active: color-mix(in srgb, var(--ink-3) 88%, var(--accent) 12%);
+  --sidebar-border-soft: var(--line-2);
+  --sidebar-border-strong: var(--line-3);
+  --sidebar-text: var(--text-mid);
+  --sidebar-text-active: var(--text-hi);
+  --sidebar-brand-gradient: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--text-hi) 90%, white 10%) 0%,
+    color-mix(in srgb, var(--text-hi) 58%, var(--text-mid) 42%) 42%,
+    color-mix(in srgb, var(--text-mid) 72%, var(--ink-3) 28%) 52%,
+    color-mix(in srgb, var(--text-hi) 45%, var(--text-mid) 55%) 100%
+  );
+  --sidebar-brand-stroke: color-mix(in srgb, var(--ink-0) 78%, transparent);
+  --sidebar-mark-filter: saturate(0.88) brightness(0.82) contrast(1.08) drop-shadow(0 8px 16px var(--shadow-strong));
+
   --text-hi:   #F5F5F2;
   --text-mid:  #A3A3A8;
   --text-lo:   #6B6B72;

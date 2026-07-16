@@ -25,6 +25,7 @@
 !define /ifndef SC_MINIMIZE     0xF020
 !define /ifndef WM_NCLBUTTONDOWN 0x00A1
 !define /ifndef HTCAPTION        2
+!define /ifndef EM_SETBKGNDCOLOR 0x0443
 
 Var KuroganeLeftBitmap
 Var KuroganeTitleBitmap
@@ -44,6 +45,16 @@ Var KuroganeFontMeta
 Var KuroganeFontSteps
 Var KuroganeDragWasDown
 Var KuroganeProgressActive
+Var KuroganeModeTitleControl
+Var KuroganeModeSubtitleControl
+Var KuroganeModeAllDescriptionControl
+Var KuroganeModeCurrentDescriptionControl
+Var KuroganeMaintenanceTitleControl
+Var KuroganeMaintenanceSubtitleControl
+Var KuroganeMaintenanceInfoControl
+Var KuroganeMaintenanceRepairDescriptionControl
+Var KuroganeMaintenanceRemoveDescriptionControl
+Var KuroganeUninstallSubtitleControl
 
 LangString KStepOptions 1033 "OPTIONS"
 LangString KStepInstall 1033 "INSTALL"
@@ -54,6 +65,19 @@ LangString KInstallStatus 1033 "CONFIGURING SECURE COMPONENTS"
 LangString KUninstallTitle 1033 "Removing Ninety"
 LangString KUninstallSubtitle 1033 "Cleaning application components"
 LangString KUninstallStatus 1033 "REMOVING SECURE COMPONENTS"
+LangString KLicenseTitle 1033 "License and components"
+LangString KModeTitle 1033 "Choose who can use Ninety"
+LangString KModeSubtitle 1033 "The installation scope can be changed later by reinstalling the application."
+LangString KModeAllDescription 1033 "Available to every Windows account on this computer."
+LangString KModeCurrentDescription 1033 "Installed only for the current Windows account."
+LangString KMaintenanceTitle 1033 "Ninety is already installed"
+LangString KMaintenanceSubtitle 1033 "Choose what to do with the existing installation."
+LangString KMaintenanceRepairDescription 1033 "Restore or update the installed application components."
+LangString KMaintenanceRemoveDescription 1033 "Remove Ninety and its installed components from this computer."
+LangString KMaintenanceReplaceDescription 1033 "Remove the existing version before installing the selected version."
+LangString KMaintenanceKeepDescription 1033 "Keep the existing installation and continue without removing it first."
+LangString KUninstallConfirmTitle 1033 "Remove Ninety"
+LangString KUninstallConfirmSubtitle 1033 "The application will be closed and its installed components will be removed."
 
 LangString KStepOptions 1049 "ПАРАМЕТРЫ"
 LangString KStepInstall 1049 "УСТАНОВКА"
@@ -64,6 +88,19 @@ LangString KInstallStatus 1049 "НАСТРАИВАЕМ ЗАЩИЩЁННЫЕ КО
 LangString KUninstallTitle 1049 "Удаляем Ninety"
 LangString KUninstallSubtitle 1049 "Очищаем компоненты приложения"
 LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПОНЕНТЫ"
+LangString KLicenseTitle 1049 "Лицензия и компоненты"
+LangString KModeTitle 1049 "Кто сможет пользоваться Ninety"
+LangString KModeSubtitle 1049 "Область установки можно изменить позже, переустановив приложение."
+LangString KModeAllDescription 1049 "Приложение будет доступно всем учётным записям Windows на этом компьютере."
+LangString KModeCurrentDescription 1049 "Приложение будет установлено только для текущей учётной записи Windows."
+LangString KMaintenanceTitle 1049 "Ninety уже установлен"
+LangString KMaintenanceSubtitle 1049 "Выберите, что сделать с существующей установкой."
+LangString KMaintenanceRepairDescription 1049 "Восстановить или обновить установленные компоненты приложения."
+LangString KMaintenanceRemoveDescription 1049 "Удалить Ninety и установленные компоненты с этого компьютера."
+LangString KMaintenanceReplaceDescription 1049 "Удалить существующую версию перед установкой выбранной версии."
+LangString KMaintenanceKeepDescription 1049 "Сохранить существующую установку и продолжить без предварительного удаления."
+LangString KUninstallConfirmTitle 1049 "Удаление Ninety"
+LangString KUninstallConfirmSubtitle 1049 "Приложение будет закрыто, а установленные компоненты — удалены."
 
 !macro KuroganeSetText CONTROL TEXT
   GetDlgItem $0 $KuroganePage ${CONTROL}
@@ -124,6 +161,12 @@ FunctionEnd
 Function un.KuroganeApplyChromeInstall
   !insertmacro KuroganeApplyChromeImpl "install" "install"
 FunctionEnd
+Function KuroganeApplyChromeRemove
+  !insertmacro KuroganeApplyChromeImpl "remove" "remove"
+FunctionEnd
+Function un.KuroganeApplyChromeRemove
+  !insertmacro KuroganeApplyChromeImpl "remove" "remove"
+FunctionEnd
 Function KuroganeApplyChromeFinish
   !insertmacro KuroganeApplyChromeImpl "finish" "finish"
 FunctionEnd
@@ -148,8 +191,8 @@ FunctionEnd
   kurogane_${CLASS}_done:
 !macroend
 
-!macro KuroganeStyleCurrentPageImpl
-  FindWindow $KuroganePage "#32770" "" $HWNDPARENT
+!macro KuroganeStylePageImpl PAGE
+  StrCpy $KuroganePage ${PAGE}
   StrCpy $2 $KuroganePage
   ${If} $KuroganePage != 0
     SetCtlColors $KuroganePage ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
@@ -159,6 +202,11 @@ FunctionEnd
     !insertmacro KuroganeStyleClass "RichEdit20W" ${K_COLOR_TEXT} ${K_COLOR_FIELD} "true"
     !insertmacro KuroganeStyleClass "RichEdit20A" ${K_COLOR_TEXT} ${K_COLOR_FIELD} "true"
   ${EndIf}
+!macroend
+
+!macro KuroganeStyleCurrentPageImpl
+  FindWindow $KuroganePage "#32770" "" $HWNDPARENT
+  !insertmacro KuroganeStylePageImpl $KuroganePage
 !macroend
 
 !macro KuroganeGuiInitImpl MINIMIZEFUNCTION CLOSEFUNCTION
@@ -174,6 +222,8 @@ FunctionEnd
   File /oname=$PLUGINSDIR\kurogane-next-ru.bmp "${__FILEDIR__}\nav-next-ru.bmp"
   File /oname=$PLUGINSDIR\kurogane-install-en.bmp "${__FILEDIR__}\nav-install-en.bmp"
   File /oname=$PLUGINSDIR\kurogane-install-ru.bmp "${__FILEDIR__}\nav-install-ru.bmp"
+  File /oname=$PLUGINSDIR\kurogane-remove-en.bmp "${__FILEDIR__}\nav-remove-en.bmp"
+  File /oname=$PLUGINSDIR\kurogane-remove-ru.bmp "${__FILEDIR__}\nav-remove-ru.bmp"
   File /oname=$PLUGINSDIR\kurogane-finish-en.bmp "${__FILEDIR__}\nav-finish-en.bmp"
   File /oname=$PLUGINSDIR\kurogane-finish-ru.bmp "${__FILEDIR__}\nav-finish-ru.bmp"
   File /oname=$PLUGINSDIR\kurogane-cancel-en.bmp "${__FILEDIR__}\nav-cancel-en.bmp"
@@ -241,24 +291,28 @@ Function un.KuroganeGuiInit
 FunctionEnd
 
 Function KuroganeMinimize
+  ; nsDialogs puts the originating HWND on the callback stack.
+  Pop $9
   SendMessage $HWNDPARENT ${WM_SYSCOMMAND} ${SC_MINIMIZE} 0
 FunctionEnd
 
 Function un.KuroganeMinimize
+  Pop $9
   SendMessage $HWNDPARENT ${WM_SYSCOMMAND} ${SC_MINIMIZE} 0
 FunctionEnd
 
 Function KuroganeClose
-  GetDlgItem $0 $HWNDPARENT 2
-  SendMessage $0 ${BM_CLICK} 0 0
+  Pop $9
+  SendMessage $HWNDPARENT ${WM_CLOSE} 0 0
 FunctionEnd
 
 Function un.KuroganeClose
-  GetDlgItem $0 $HWNDPARENT 2
-  SendMessage $0 ${BM_CLICK} 0 0
+  Pop $9
+  SendMessage $HWNDPARENT ${WM_CLOSE} 0 0
 FunctionEnd
 
 !macro KuroganeNavClickImpl CONTROL
+  Pop $9
   GetDlgItem $0 $HWNDPARENT ${CONTROL}
   ${If} $0 != 0
     SendMessage $0 ${BM_CLICK} 0 0
@@ -332,18 +386,85 @@ FunctionEnd
       ${AndIf} $2 < $6
       ${AndIf} $3 >= $5
       ${AndIf} $3 < $7
-        System::Call 'user32::ReleaseCapture()'
-        SendMessage $HWNDPARENT ${WM_NCLBUTTONDOWN} ${HTCAPTION} 0
+        ; Do not turn clicks on caption controls into a window drag. The old
+        ; polling fallback swallowed minimize/close before their STN_CLICKED.
+        StrCpy $8 0
+        GetDlgItem $0 $HWNDPARENT 1205
+        ${If} $0 != 0
+          System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r1'
+          System::Call 'user32::GetWindowRect(p r0, p r1)'
+          System::Call '*$1(&i4 .r4, &i4 .r5, &i4 .r6, &i4 .r7)'
+          System::Free $1
+          ${If} $2 >= $4
+          ${AndIf} $2 < $6
+          ${AndIf} $3 >= $5
+          ${AndIf} $3 < $7
+            StrCpy $8 1
+          ${EndIf}
+        ${EndIf}
+        GetDlgItem $0 $HWNDPARENT 1207
+        ${If} $0 != 0
+          System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r1'
+          System::Call 'user32::GetWindowRect(p r0, p r1)'
+          System::Call '*$1(&i4 .r4, &i4 .r5, &i4 .r6, &i4 .r7)'
+          System::Free $1
+          ${If} $2 >= $4
+          ${AndIf} $2 < $6
+          ${AndIf} $3 >= $5
+          ${AndIf} $3 < $7
+            StrCpy $8 1
+          ${EndIf}
+        ${EndIf}
+        ${If} $8 == 0
+          System::Call 'user32::ReleaseCapture()'
+          SendMessage $HWNDPARENT ${WM_NCLBUTTONDOWN} ${HTCAPTION} 0
+        ${EndIf}
       ${EndIf}
     ${EndIf}
   ${EndIf}
 !macroend
 
 Function KuroganeMinimizeShellTick
+  Push $0
+  Push $1
+  Push $2
+  Push $3
+  Push $4
+  Push $5
+  Push $6
+  Push $7
+  Push $8
   !insertmacro KuroganeShellTickImpl
+  Pop $8
+  Pop $7
+  Pop $6
+  Pop $5
+  Pop $4
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
 FunctionEnd
 Function un.KuroganeMinimizeShellTick
+  Push $0
+  Push $1
+  Push $2
+  Push $3
+  Push $4
+  Push $5
+  Push $6
+  Push $7
+  Push $8
   !insertmacro KuroganeShellTickImpl
+  Pop $8
+  Pop $7
+  Pop $6
+  Pop $5
+  Pop $4
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
 FunctionEnd
 
 Function KuroganeStartShellTimer
@@ -377,17 +498,164 @@ Function un.KuroganePageShow
   Call un.KuroganeStyleCurrentPage
 FunctionEnd
 
-; MUI welcome/finish pages expose their exact HWNDs. Use those directly: after
-; the progress page, a generic FindWindow can otherwise select a stale dialog.
-!macro KuroganeKnownFullWindowPageShowImpl UNPREFIX PAGE IMAGE TITLE TEXT CHROME
+; Page-specific show callbacks pass the exact MUI/nsDialogs HWND here. Generic
+; FindWindow is intentionally avoided: NSIS may keep an older child dialog alive
+; while the next page is being shown.
+!macro KuroganePrepareKnownPageImpl UNPREFIX PAGE CHROME
   StrCpy $KuroganeProgressActive 0
   StrCpy $KuroganePage ${PAGE}
   Call ${UNPREFIX}KuroganeApplyChrome${CHROME}
   Call ${UNPREFIX}KuroganeStartShellTimer
-  SetCtlColors $KuroganePage ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
-  StrCpy $2 $KuroganePage
-  !insertmacro KuroganeStyleClass "Static" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} "false"
-  !insertmacro KuroganeStyleClass "Button" ${K_COLOR_TEXT} ${K_COLOR_PANEL} "true"
+  !insertmacro KuroganeStylePageImpl ${PAGE}
+!macroend
+
+!macro KuroganeLicensePageImpl UNPREFIX PAGE TOPCONTROL RICHCONTROL
+  !insertmacro KuroganePrepareKnownPageImpl "${UNPREFIX}" ${PAGE} Next
+  SendMessage ${TOPCONTROL} ${WM_SETTEXT} 0 "STR:$(KLicenseTitle)"
+  SendMessage ${TOPCONTROL} ${WM_SETFONT} $KuroganeFontTitle 1
+  SetCtlColors ${TOPCONTROL} ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
+  SetCtlColors ${RICHCONTROL} ${K_COLOR_TEXT} ${K_COLOR_FIELD}
+  SendMessage ${RICHCONTROL} ${EM_SETBKGNDCOLOR} 0 0x1D1717
+!macroend
+
+; Rebuild the MultiUser page controls inside the page that the plugin already
+; owns. Its leave callback continues to read the same handle variables.
+!macro KuroganeInstallModePageImpl
+  ShowWindow $MultiUser.InstallModePage.Text ${SW_HIDE}
+  ShowWindow $MultiUser.InstallModePage.AllUsers ${SW_HIDE}
+  ShowWindow $MultiUser.InstallModePage.CurrentUser ${SW_HIDE}
+
+  ${NSD_CreateLabel} 22u 18u 296u 24u "$(KModeTitle)"
+  Pop $KuroganeModeTitleControl
+  ${NSD_CreateLabel} 22u 47u 296u 24u "$(KModeSubtitle)"
+  Pop $KuroganeModeSubtitleControl
+
+  ${NSD_CreateGroupBox} 22u 82u 296u 64u ""
+  Pop $0
+  ${NSD_CreateRadioButton} 34u 95u 272u 14u "$(MULTIUSER_INNERTEXT_INSTALLMODE_ALLUSERS)"
+  Pop $MultiUser.InstallModePage.AllUsers
+  ${NSD_CreateLabel} 53u 115u 249u 22u "$(KModeAllDescription)"
+  Pop $KuroganeModeAllDescriptionControl
+
+  ${NSD_CreateGroupBox} 22u 158u 296u 64u ""
+  Pop $0
+  ${NSD_CreateRadioButton} 34u 171u 272u 14u "$(MULTIUSER_INNERTEXT_INSTALLMODE_CURRENTUSER)"
+  Pop $MultiUser.InstallModePage.CurrentUser
+  ${NSD_CreateLabel} 53u 191u 249u 22u "$(KModeCurrentDescription)"
+  Pop $KuroganeModeCurrentDescriptionControl
+
+  ${If} $MultiUser.InstallMode == "AllUsers"
+    SendMessage $MultiUser.InstallModePage.AllUsers ${BM_SETCHECK} ${BST_CHECKED} 0
+    ${NSD_SetFocus} $MultiUser.InstallModePage.AllUsers
+  ${Else}
+    SendMessage $MultiUser.InstallModePage.CurrentUser ${BM_SETCHECK} ${BST_CHECKED} 0
+    ${NSD_SetFocus} $MultiUser.InstallModePage.CurrentUser
+  ${EndIf}
+
+  !insertmacro KuroganePrepareKnownPageImpl "" $MultiUser.InstallModePage Next
+  SendMessage $KuroganeModeTitleControl ${WM_SETFONT} $KuroganeFontTitle 1
+  SetCtlColors $KuroganeModeTitleControl ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
+  SetCtlColors $KuroganeModeSubtitleControl ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
+  SetCtlColors $KuroganeModeAllDescriptionControl ${K_COLOR_MUTED} ${K_COLOR_PANEL}
+  SetCtlColors $KuroganeModeCurrentDescriptionControl ${K_COLOR_MUTED} ${K_COLOR_PANEL}
+!macroend
+
+!macro KuroganeMaintenancePageImpl DIALOG PRIMARY SECONDARY INTROTEXT PRIMARYTEXT SECONDARYTEXT PRIMARYDESC SECONDARYDESC
+  ${NSD_CreateLabel} 22u 16u 296u 24u "$(KMaintenanceTitle)"
+  Pop $KuroganeMaintenanceTitleControl
+  ${NSD_CreateLabel} 22u 44u 296u 18u "$(KMaintenanceSubtitle)"
+  Pop $KuroganeMaintenanceSubtitleControl
+  ${NSD_CreateLabel} 22u 69u 296u 30u "${INTROTEXT}"
+  Pop $KuroganeMaintenanceInfoControl
+
+  ${NSD_CreateGroupBox} 22u 108u 296u 58u ""
+  Pop $0
+  ${NSD_CreateRadioButton} 34u 119u 272u 14u "${PRIMARYTEXT}"
+  Pop ${PRIMARY}
+  ${NSD_CreateLabel} 53u 139u 249u 18u "${PRIMARYDESC}"
+  Pop $KuroganeMaintenanceRepairDescriptionControl
+
+  ${NSD_CreateGroupBox} 22u 176u 296u 58u ""
+  Pop $0
+  ${NSD_CreateRadioButton} 34u 187u 272u 14u "${SECONDARYTEXT}"
+  Pop ${SECONDARY}
+  ${NSD_CreateLabel} 53u 207u 249u 18u "${SECONDARYDESC}"
+  Pop $KuroganeMaintenanceRemoveDescriptionControl
+
+  !insertmacro KuroganePrepareKnownPageImpl "" ${DIALOG} Next
+  SendMessage $KuroganeMaintenanceTitleControl ${WM_SETFONT} $KuroganeFontTitle 1
+  SetCtlColors $KuroganeMaintenanceTitleControl ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
+  SetCtlColors $KuroganeMaintenanceSubtitleControl ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
+  SetCtlColors $KuroganeMaintenanceInfoControl ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
+  SetCtlColors $KuroganeMaintenanceRepairDescriptionControl ${K_COLOR_MUTED} ${K_COLOR_PANEL}
+  SetCtlColors $KuroganeMaintenanceRemoveDescriptionControl ${K_COLOR_MUTED} ${K_COLOR_PANEL}
+!macroend
+
+!macro KuroganeMoveWindowDpi HWND X Y WIDTH HEIGHT DPI
+  IntOp $4 ${X} * ${DPI}
+  IntOp $5 ${Y} * ${DPI}
+  IntOp $6 ${WIDTH} * ${DPI}
+  IntOp $7 ${HEIGHT} * ${DPI}
+  IntOp $4 $4 / 96
+  IntOp $5 $5 / 96
+  IntOp $6 $6 / 96
+  IntOp $7 $7 / 96
+  System::Call 'user32::SetWindowPos(p ${HWND}, p 0, i r4, i r5, i r6, i r7, i 0x14)'
+!macroend
+
+!macro KuroganeUninstallConfirmPageImpl PAGE CHECKBOX CHECKBOXTEXT
+  StrCpy $1 ${PAGE}
+  System::Call "user32::GetDpiForWindow(p r1) i .r2"
+  ${If} $(^RTL) = 1
+    StrCpy $3 "${__NSD_CheckBox_EXSTYLE} | 0x00400000"
+  ${Else}
+    StrCpy $3 "${__NSD_CheckBox_EXSTYLE}"
+  ${EndIf}
+  IntOp $4 44 * $2
+  IntOp $5 184 * $2
+  IntOp $6 500 * $2
+  IntOp $7 28 * $2
+  IntOp $4 $4 / 96
+  IntOp $5 $5 / 96
+  IntOp $6 $6 / 96
+  IntOp $7 $7 / 96
+  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "${CHECKBOXTEXT}", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) p .r0'
+  StrCpy ${CHECKBOX} $0
+  SendMessage ${CHECKBOX} ${WM_SETFONT} $KuroganeFontBody 1
+
+  IntOp $4 44 * $2
+  IntOp $5 108 * $2
+  IntOp $6 500 * $2
+  IntOp $7 48 * $2
+  IntOp $4 $4 / 96
+  IntOp $5 $5 / 96
+  IntOp $6 $6 / 96
+  IntOp $7 $7 / 96
+  System::Call 'user32::CreateWindowEx(i 0, w "Static", w "$(KUninstallConfirmSubtitle)", i 0x50000000, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) p .r0'
+  StrCpy $KuroganeUninstallSubtitleControl $0
+
+  GetDlgItem $0 $1 1006
+  SendMessage $0 ${WM_SETTEXT} 0 "STR:$(KUninstallConfirmTitle)"
+  SendMessage $0 ${WM_SETFONT} $KuroganeFontTitle 1
+  !insertmacro KuroganeMoveWindowDpi $0 44 58 500 40 $2
+
+  GetDlgItem $0 $1 1029
+  !insertmacro KuroganeMoveWindowDpi $0 44 250 500 20 $2
+  GetDlgItem $0 $1 1000
+  !insertmacro KuroganeMoveWindowDpi $0 44 278 500 34 $2
+
+  !insertmacro KuroganePrepareKnownPageImpl "un." ${PAGE} Remove
+  GetDlgItem $0 ${PAGE} 1006
+  SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
+  SendMessage $KuroganeUninstallSubtitleControl ${WM_SETFONT} $KuroganeFontBody 1
+  SetCtlColors $KuroganeUninstallSubtitleControl ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
+  SetCtlColors ${CHECKBOX} ${K_COLOR_TEXT} ${K_COLOR_PANEL}
+!macroend
+
+; MUI welcome/finish pages expose their exact HWNDs. Use those directly: after
+; the progress page, a generic FindWindow can otherwise select a stale dialog.
+!macro KuroganeKnownFullWindowPageShowImpl UNPREFIX PAGE IMAGE TITLE TEXT CHROME
+  !insertmacro KuroganePrepareKnownPageImpl "${UNPREFIX}" ${PAGE} ${CHROME}
 
   ShowWindow ${IMAGE} ${SW_HIDE}
   System::Call 'user32::SetWindowPos(p ${TITLE}, p 0, i 44, i 72, i 500, i 72, i 0x14)'

@@ -20,6 +20,8 @@ public static class NinetyPreviewWin32 {
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int command);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint message, UIntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
@@ -78,6 +80,7 @@ try {
       # top/footer rectangles.
       $bitmap.Save((Join-Path $OutputDirectory $Name), [System.Drawing.Imaging.ImageFormat]::Png)
       $nearWhite = 0
+      $contentNearWhite = 0
       for ($y = 0; $y -lt $height; $y += 2) {
         $inTopChrome = $y -lt [int]($height * 0.13)
         $inFooterChrome = $y -gt [int]($height * 0.88)
@@ -88,8 +91,17 @@ try {
           if ($pixel.R -gt 235 -and $pixel.G -gt 235 -and $pixel.B -gt 235) { $nearWhite++ }
         }
       }
+      for ($y = [int]($height * 0.13); $y -lt [int]($height * 0.88); $y += 4) {
+        for ($x = [int]($width * 0.40); $x -lt $width; $x += 4) {
+          $pixel = $bitmap.GetPixel($x, $y)
+          if ($pixel.R -gt 235 -and $pixel.G -gt 235 -and $pixel.B -gt 235) { $contentNearWhite++ }
+        }
+      }
       if ($nearWhite -gt 800) {
         throw "System-white installer chrome detected in ${Name}: ${nearWhite} sampled pixels"
+      }
+      if ($contentNearWhite -gt 1800) {
+        throw "System-white installer page detected in ${Name}: ${contentNearWhite} sampled pixels"
       }
     } finally {
       $graphics.Dispose()
@@ -106,6 +118,23 @@ try {
     }
   }
 
+  function Click-InstallerControl([int]$Id) {
+    $control = [NinetyPreviewWin32]::FindDescendantById($window, $Id)
+    if ($control -eq [IntPtr]::Zero) { throw "Installer control $Id was not found" }
+    $controlRect = New-Object NinetyPreviewWin32+RECT
+    if (-not [NinetyPreviewWin32]::GetWindowRect($control, [ref]$controlRect)) {
+      throw "GetWindowRect failed for installer control $Id"
+    }
+    $x = [int](($controlRect.Left + $controlRect.Right) / 2)
+    $y = [int](($controlRect.Top + $controlRect.Bottom) / 2)
+    [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
+    [NinetyPreviewWin32]::SetCursorPos($x, $y) | Out-Null
+    Start-Sleep -Milliseconds 160
+    [NinetyPreviewWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 120
+    [NinetyPreviewWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+  }
+
   function Send-Enter {
     [NinetyPreviewWin32]::PostMessage($window, 0x0100, [UIntPtr]0x0D, [IntPtr]::Zero) | Out-Null
     [NinetyPreviewWin32]::PostMessage($window, 0x0101, [UIntPtr]0x0D, [IntPtr]::Zero) | Out-Null
@@ -113,6 +142,17 @@ try {
 
   [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
   Start-Sleep -Seconds 2
+
+  # The production regression affected real left-clicks while Enter still
+  # worked. Exercise the bitmap caption controls before taking screenshots.
+  Click-InstallerControl 1205
+  Start-Sleep -Milliseconds 500
+  if (-not [NinetyPreviewWin32]::IsIconic($window)) {
+    throw "Installer minimize control ignored a real left-click"
+  }
+  [NinetyPreviewWin32]::ShowWindow($window, 9) | Out-Null # SW_RESTORE
+  [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
+  Start-Sleep -Milliseconds 500
   Save-InstallerWindow "00-before-drag.png"
 
   # Exercise real frameless-window dragging. Hosted runners occasionally lose
@@ -155,14 +195,60 @@ try {
   Start-Sleep -Milliseconds 500
 
   Save-InstallerWindow "01-welcome.png"
-  Send-Enter
+  Click-InstallerControl 1213
+  Start-Sleep -Seconds 1
+  Save-InstallerWindow "02-license.png"
+  Click-InstallerControl 1213
+  Start-Sleep -Seconds 1
+  Save-InstallerWindow "03-install-mode.png"
+  Click-InstallerControl 1213
+  Start-Sleep -Seconds 1
+  Save-InstallerWindow "04-maintenance.png"
+  Click-InstallerControl 1213
   Start-Sleep -Seconds 3
   Assert-LiveProgress
-  Save-InstallerWindow "02-progress.png"
+  Save-InstallerWindow "05-progress.png"
   Start-Sleep -Seconds 5
   Send-Enter
   Start-Sleep -Seconds 1
-  Save-InstallerWindow "03-finish.png"
+  Save-InstallerWindow "06-finish.png"
+  Click-InstallerControl 1207
+  if (-not $process.WaitForExit(5000)) {
+    throw "Installer close control ignored a real left-click"
+  }
+
+  # Start once more to verify the footer Cancel control independently.
+  $process = Start-Process -FilePath $Installer -PassThru
+  $window = [IntPtr]::Zero
+  $deadline = (Get-Date).AddSeconds(20)
+  do {
+    Start-Sleep -Milliseconds 200
+    $process.Refresh()
+    $window = $process.MainWindowHandle
+  } until ($window -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
+  if ($window -eq [IntPtr]::Zero) { throw "Second installer window did not appear" }
+  Click-InstallerControl 1214
+  if (-not $process.WaitForExit(5000)) {
+    throw "Installer cancel control ignored a real left-click"
+  }
+
+  $uninstaller = Join-Path $env:TEMP "NinetySmoke\uninstall.exe"
+  if (-not (Test-Path $uninstaller)) { throw "Smoke uninstaller was not created" }
+  $process = Start-Process -FilePath $uninstaller -PassThru
+  $window = [IntPtr]::Zero
+  $deadline = (Get-Date).AddSeconds(20)
+  do {
+    Start-Sleep -Milliseconds 200
+    $process.Refresh()
+    $window = $process.MainWindowHandle
+  } until ($window -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
+  if ($window -eq [IntPtr]::Zero) { throw "Uninstaller window did not appear" }
+  Start-Sleep -Seconds 1
+  Save-InstallerWindow "07-uninstall-confirm.png"
+  Click-InstallerControl 1213
+  if (-not $process.WaitForExit(10000)) {
+    throw "Uninstaller remove control ignored a real left-click"
+  }
   if (-not $dragPassed) {
     throw "Frameless installer window did not move after three independent drag gestures"
   }

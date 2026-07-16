@@ -208,6 +208,8 @@ def main():
     save_or_check(make_button((118, 35), "Далее", primary=True), "nav-next-ru.bmp", args.check)
     save_or_check(make_button((118, 35), "Install", primary=True), "nav-install-en.bmp", args.check)
     save_or_check(make_button((118, 35), "Установить", primary=True), "nav-install-ru.bmp", args.check)
+    save_or_check(make_button((118, 35), "Remove", primary=True), "nav-remove-en.bmp", args.check)
+    save_or_check(make_button((118, 35), "Удалить", primary=True), "nav-remove-ru.bmp", args.check)
     save_or_check(make_button((118, 35), "Finish", primary=True), "nav-finish-en.bmp", args.check)
     save_or_check(make_button((118, 35), "Готово", primary=True), "nav-finish-ru.bmp", args.check)
     save_or_check(make_button((110, 35), "Cancel"), "nav-cancel-en.bmp", args.check)

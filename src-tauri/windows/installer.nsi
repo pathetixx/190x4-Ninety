@@ -181,20 +181,27 @@ FunctionEnd
 ; 2. License Page (if defined)
 !if "${LICENSE}" != ""
   !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
+  !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeLicenseShow
   !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
+  Function KuroganeLicenseShow
+    !insertmacro KuroganeLicensePageImpl "" $mui.LicensePage $mui.Licensepage.TopText $mui.Licensepage.LicenseText
+  FunctionEnd
 !endif
 
 ; 3. Install mode (if it is set to `both`)
 !if "${INSTALLMODE}" == "both"
   !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-  !define MULTIUSER_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
+  !define MULTIUSER_PAGE_CUSTOMFUNCTION_SHOW KuroganeInstallModeShow
   !insertmacro MULTIUSER_PAGE_INSTALLMODE
+  Function KuroganeInstallModeShow
+    !insertmacro KuroganeInstallModePageImpl
+  FunctionEnd
 !endif
 
 ; 4. Custom page to ask user if he wants to reinstall/uninstall
 ;    only if a previous installation was detected
 Var ReinstallPageCheck
+Var ReinstallPageDialog
 Page custom PageReinstall PageLeaveReinstall
 Function PageReinstall
   ; Uninstall previous WiX installation if exists.
@@ -248,17 +255,23 @@ Function PageReinstall
     StrCpy $R1 "$(alreadyInstalledLong)"
     StrCpy $R2 "$(addOrReinstall)"
     StrCpy $R3 "$(uninstallApp)"
+    StrCpy $R7 "$(KMaintenanceRepairDescription)"
+    StrCpy $R8 "$(KMaintenanceRemoveDescription)"
     !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "$(chooseMaintenanceOption)"
   ; Upgrading
   ${ElseIf} $R0 = 1
     StrCpy $R1 "$(olderOrUnknownVersionInstalled)"
     StrCpy $R2 "$(uninstallBeforeInstalling)"
     StrCpy $R3 "$(dontUninstall)"
+    StrCpy $R7 "$(KMaintenanceReplaceDescription)"
+    StrCpy $R8 "$(KMaintenanceKeepDescription)"
     !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "$(choowHowToInstall)"
   ; Downgrading
   ${ElseIf} $R0 = -1
     StrCpy $R1 "$(newerVersionInstalled)"
     StrCpy $R2 "$(uninstallBeforeInstalling)"
+    StrCpy $R7 "$(KMaintenanceReplaceDescription)"
+    StrCpy $R8 "$(KMaintenanceKeepDescription)"
     !if "${ALLOWDOWNGRADES}" == "true"
       StrCpy $R3 "$(dontUninstall)"
     !else
@@ -279,18 +292,11 @@ Function PageReinstall
     Call PageLeaveReinstall
   ${Else}
     nsDialogs::Create 1018
-    Pop $R4
+    Pop $ReinstallPageDialog
     ${IfThen} $(^RTL) = 1 ${|} nsDialogs::SetRTL $(^RTL) ${|}
 
-    ${NSD_CreateLabel} 0 0 100% 24u $R1
-    Pop $R1
-
-    ${NSD_CreateRadioButton} 30u 50u -30u 8u $R2
-    Pop $R2
+    !insertmacro KuroganeMaintenancePageImpl $ReinstallPageDialog $R2 $R3 $R1 $R2 $R3 $R7 $R8
     ${NSD_OnClick} $R2 PageReinstallUpdateSelection
-
-    ${NSD_CreateRadioButton} 30u 70u -30u 8u $R3
-    Pop $R3
     ; Disable this radio button if downgrading and downgrades are disabled
     !if "${ALLOWDOWNGRADES}" == "false"
       ${IfThen} $R0 = -1 ${|} EnableWindow $R3 0 ${|}
@@ -307,11 +313,11 @@ Function PageReinstall
     ${EndIf}
 
     ${NSD_SetFocus} $R2
-    Call KuroganeStyleCurrentPage
     nsDialogs::Show
   ${EndIf}
 FunctionEnd
 Function PageReinstallUpdateSelection
+  Pop $0
   ${NSD_GetState} $R2 $R1
   ${If} $R1 == ${BST_CHECKED}
     StrCpy $ReinstallPageCheck 1
@@ -398,8 +404,11 @@ FunctionEnd
 
 ; 5. Choose install directory page
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeDirectoryShow
 !insertmacro MUI_PAGE_DIRECTORY
+Function KuroganeDirectoryShow
+  !insertmacro KuroganePrepareKnownPageImpl "" $mui.DirectoryPage Next
+FunctionEnd
 
 ; 6. Start menu shortcut page
 Var AppStartMenuFolder
@@ -409,8 +418,11 @@ Var AppStartMenuFolder
 !else
   !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
 !endif
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganePageShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeStartMenuShow
 !insertmacro MUI_PAGE_STARTMENU Application $AppStartMenuFolder
+Function KuroganeStartMenuShow
+  !insertmacro KuroganePrepareKnownPageImpl "" $mui.StartMenuPage Next
+FunctionEnd
 
 ; 7. Installation page
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeInstFilesShow
@@ -444,44 +456,16 @@ FunctionEnd
 ; 1. Confirm uninstall page
 Var DeleteAppDataCheckbox
 Var DeleteAppDataCheckboxState
-!define /ifndef WS_EX_LAYOUTRTL         0x00400000
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.ConfirmShow
-Function un.ConfirmShow ; Add add a `Delete app data` check box
-  ; $1 inner dialog HWND
-  ; $2 window DPI
-  ; $3 style
-  ; $4 x
-  ; $5 y
-  ; $6 width
-  ; $7 height
-  FindWindow $1 "#32770" "" $HWNDPARENT ; Find inner dialog
-  System::Call "user32::GetDpiForWindow(p r1) i .r2"
-  ${If} $(^RTL) = 1
-    StrCpy $3 "${__NSD_CheckBox_EXSTYLE} | ${WS_EX_LAYOUTRTL}"
-    IntOp $4 50 * $2
-  ${Else}
-    StrCpy $3 "${__NSD_CheckBox_EXSTYLE}"
-    IntOp $4 0 * $2
-  ${EndIf}
-  IntOp $5 100 * $2
-  IntOp $6 400 * $2
-  IntOp $7 25 * $2
-  IntOp $4 $4 / 96
-  IntOp $5 $5 / 96
-  IntOp $6 $6 / 96
-  IntOp $7 $7 / 96
-  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "$(deleteAppData)", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) i .s'
-  Pop $DeleteAppDataCheckbox
-  SendMessage $HWNDPARENT ${WM_GETFONT} 0 0 $1
-  SendMessage $DeleteAppDataCheckbox ${WM_SETFONT} $1 1
-  Call un.KuroganeStyleCurrentPage
-FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave
+!define MUI_PAGE_CUSTOMFUNCTION_PRE un.SkipIfPassive
+!insertmacro MUI_UNPAGE_CONFIRM
+Function un.ConfirmShow ; Add a `Delete app data` check box
+  !insertmacro KuroganeUninstallConfirmPageImpl $mui.UnConfirmPage $DeleteAppDataCheckbox "$(deleteAppData)"
+FunctionEnd
 Function un.ConfirmLeave
   SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState
 FunctionEnd
-!define MUI_PAGE_CUSTOMFUNCTION_PRE un.SkipIfPassive
-!insertmacro MUI_UNPAGE_CONFIRM
 
 ; 2. Uninstalling Page
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.KuroganeInstFilesShow
