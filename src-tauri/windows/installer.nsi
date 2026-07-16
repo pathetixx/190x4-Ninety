@@ -191,6 +191,7 @@ FunctionEnd
 ; 3. Choose install directory page
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeDirectoryShow
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeDirectoryLeave
 !insertmacro MUI_PAGE_DIRECTORY
 Function KuroganeDirectoryShow
   !insertmacro KuroganeDirectoryPageImpl $mui.DirectoryPage

@@ -22,6 +22,7 @@ public static class NinetyPreviewWin32 {
   [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int index);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int command);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
@@ -89,6 +90,29 @@ public static class NinetyPreviewWin32 {
       return true;
     }, IntPtr.Zero);
     return found;
+  }
+  public static IntPtr FindVisibleButton(IntPtr parent, int expectedIndex) {
+    IntPtr found = IntPtr.Zero;
+    int selectedTop = expectedIndex == 0 ? Int32.MaxValue : Int32.MinValue;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      if (!IsWindowVisible(child)) return true;
+      var name = new System.Text.StringBuilder(64);
+      GetClassName(child, name, name.Capacity);
+      if (!string.Equals(name.ToString(), "Button", StringComparison.OrdinalIgnoreCase)) return true;
+      RECT rect;
+      if (GetWindowRect(child, out rect) &&
+          ((expectedIndex == 0 && rect.Top < selectedTop) || (expectedIndex != 0 && rect.Top > selectedTop))) {
+        selectedTop = rect.Top;
+        found = child;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+  public static string ClassName(IntPtr hWnd) {
+    var value = new System.Text.StringBuilder(64);
+    GetClassName(hWnd, value, value.Capacity);
+    return value.ToString();
   }
   public static IntPtr FindTextPrefix(IntPtr parent, string prefix) {
     IntPtr found = IntPtr.Zero;
@@ -265,13 +289,34 @@ try {
   function Click-InstallerControl([int]$Id) {
     $control = [NinetyPreviewWin32]::FindDescendantById($window, $Id)
     if ($control -eq [IntPtr]::Zero) { throw "Installer control $Id was not found" }
+    Click-InstallerHandle $control "control $Id"
+  }
+
+  function Click-InstallerHandle([IntPtr]$control, [string]$name) {
     $controlRect = New-Object NinetyPreviewWin32+RECT
     if (-not [NinetyPreviewWin32]::GetWindowRect($control, [ref]$controlRect)) {
-      throw "GetWindowRect failed for installer control $Id"
+      throw "GetWindowRect failed for installer $name"
     }
     $x = [int](($controlRect.Left + $controlRect.Right) / 2)
     $y = [int](($controlRect.Top + $controlRect.Bottom) / 2)
     Click-ScreenPoint $x $y
+  }
+
+  function Get-VisiblePage {
+    $page = [NinetyPreviewWin32]::FindVisiblePage($window)
+    if ($page -eq [IntPtr]::Zero) { throw "Visible installer page was not found" }
+    return $page
+  }
+
+  function Get-SignalSelector([int]$index, [string]$name) {
+    $control = [NinetyPreviewWin32]::FindVisibleButton((Get-VisiblePage), $index)
+    if ($control -eq [IntPtr]::Zero) { throw "$name selector was not found" }
+    return $control
+  }
+
+  function Assert-Checked([IntPtr]$control, [string]$name) {
+    $checked = [NinetyPreviewWin32]::SendMessage($control, 0x00F0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+    if ($checked -ne 1) { throw "$name ignored a real left-click" }
   }
 
   function Click-ScreenPoint([int]$x, [int]$y) {
@@ -360,12 +405,58 @@ try {
   Save-InstallerWindow "02-install-mode.png"
   Assert-NoTextOverflow "install mode"
   Assert-SignalCode "190X4 / 02" "install mode"
+  $modeSecondary = Get-SignalSelector 1 "All accounts"
+  Click-InstallerHandle $modeSecondary "All accounts selector"
+  Start-Sleep -Milliseconds 300
+  Assert-Checked $modeSecondary "All accounts selector"
+  $modePrimary = Get-SignalSelector 0 "Current account"
+  Click-InstallerHandle $modePrimary "Current account selector"
+  Start-Sleep -Milliseconds 300
+  Assert-Checked $modePrimary "Current account selector"
+
+  # Back and Next must both work through the same real LMB path users hit.
+  Click-InstallerControl 3
+  Start-Sleep -Milliseconds 600
+  if ([NinetyPreviewWin32]::ContainsText($window, "190X4 / 02")) {
+    throw "Installer Back control did not return from install mode"
+  }
+  Click-InstallerControl 1
+  Start-Sleep -Milliseconds 600
+  Assert-SignalCode "190X4 / 02" "install mode after Back"
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
   Save-InstallerWindow "03-target.png"
   Assert-NoTextOverflow "deployment target"
   Assert-SignalCode "190X4 / 03" "deployment target"
   Assert-BitmapButton 1001 "Deployment target change"
+  $targetPage = Get-VisiblePage
+  $stockTargetEdit = [NinetyPreviewWin32]::FindVisibleClass($targetPage, "Edit")
+  if ($stockTargetEdit -ne [IntPtr]::Zero) {
+    throw "Deployment target still exposes a stock Windows edit control"
+  }
+  $targetEdit = [NinetyPreviewWin32]::FindDescendantById($targetPage, 1019)
+  if ($targetEdit -eq [IntPtr]::Zero) { throw "Hidden NSIS deployment target value was not found" }
+  $targetValue = [NinetyPreviewWin32]::ReadText($targetEdit)
+  if ([string]::IsNullOrWhiteSpace($targetValue) -or -not [NinetyPreviewWin32]::ContainsText($targetPage, $targetValue)) {
+    throw "Custom deployment target display is not synchronized with NSIS"
+  }
+
+  # The custom Change bitmap must open the actual folder picker from LMB.
+  Click-InstallerControl 1001
+  $browseDeadline = (Get-Date).AddSeconds(5)
+  do {
+    Start-Sleep -Milliseconds 100
+    $browseWindow = [NinetyPreviewWin32]::GetForegroundWindow()
+  } until (($browseWindow -ne [IntPtr]::Zero -and $browseWindow -ne $window) -or (Get-Date) -gt $browseDeadline)
+  if ($browseWindow -eq [IntPtr]::Zero -or $browseWindow -eq $window) {
+    throw "Deployment target Change button ignored a real left-click"
+  }
+  if ([NinetyPreviewWin32]::ClassName($browseWindow) -ne "#32770") {
+    throw "Deployment target Change opened an unexpected window class: $([NinetyPreviewWin32]::ClassName($browseWindow))"
+  }
+  [System.Windows.Forms.SendKeys]::SendWait("{ESC}")
+  Start-Sleep -Milliseconds 500
+  [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
   Save-InstallerWindow "04-license.png"
@@ -395,6 +486,14 @@ try {
   Save-InstallerWindow "05-maintenance.png"
   Assert-NoTextOverflow "maintenance"
   Assert-SignalCode "190X4 / 05" "maintenance"
+  $maintenanceSecondary = Get-SignalSelector 1 "Remove Ninety"
+  Click-InstallerHandle $maintenanceSecondary "Remove Ninety selector"
+  Start-Sleep -Milliseconds 300
+  Assert-Checked $maintenanceSecondary "Remove Ninety selector"
+  $maintenancePrimary = Get-SignalSelector 0 "Repair Ninety"
+  Click-InstallerHandle $maintenancePrimary "Repair Ninety selector"
+  Start-Sleep -Milliseconds 300
+  Assert-Checked $maintenancePrimary "Repair Ninety selector"
   Click-InstallerControl 1
   Start-Sleep -Seconds 3
   Assert-LiveProgress
@@ -555,6 +654,10 @@ try {
   Save-InstallerWindow "09-uninstall-confirm.png"
   Assert-NoTextOverflow "uninstall confirmation"
   Assert-SignalCode "190X4 / RM" "uninstall confirmation"
+  $deleteDataToggle = Get-SignalSelector 0 "Remove settings and data"
+  Click-InstallerHandle $deleteDataToggle "Remove settings and data toggle"
+  Start-Sleep -Milliseconds 300
+  Assert-Checked $deleteDataToggle "Remove settings and data toggle"
   Click-InstallerControl 1
   Start-Sleep -Seconds 3
   Save-InstallerWindow "10-uninstall-finish.png"

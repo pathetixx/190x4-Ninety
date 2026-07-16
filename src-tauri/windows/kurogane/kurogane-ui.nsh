@@ -61,6 +61,12 @@ Var KuroganeCaptionPressed
 Var KuroganeLicenseTextControl
 Var KuroganeLicenseThumbControl
 Var KuroganeLicensePositionControl
+Var KuroganeMaintenancePrimaryTextValue
+Var KuroganeMaintenanceSecondaryTextValue
+Var KuroganeMaintenancePrimaryDescriptionValue
+Var KuroganeMaintenanceSecondaryDescriptionValue
+Var KuroganeTargetEditControl
+Var KuroganeTargetPathDisplayControl
 
 LangString KStepOptions 1033 "OPTIONS"
 LangString KStepInstall 1033 "INSTALL"
@@ -687,6 +693,8 @@ FunctionEnd
   StrCpy $KuroganeDragWasDown 0
   StrCpy $KuroganeProgressActive 0
   StrCpy $KuroganeCaptionPressed 0
+  StrCpy $KuroganeTargetEditControl 0
+  StrCpy $KuroganeTargetPathDisplayControl 0
 !macroend
 
 Function KuroganeGuiInit
@@ -888,6 +896,11 @@ Function KuroganeMinimizeShellTick
   Push $7
   Push $8
   !insertmacro KuroganeShellTickImpl
+  ${If} $KuroganeTargetEditControl != 0
+  ${AndIf} $KuroganeTargetPathDisplayControl != 0
+    ${NSD_GetText} $KuroganeTargetEditControl $0
+    SendMessage $KuroganeTargetPathDisplayControl ${WM_SETTEXT} 0 "STR:$0"
+  ${EndIf}
   Pop $8
   Pop $7
   Pop $6
@@ -1083,6 +1096,12 @@ FunctionEnd
 !macroend
 
 !macro KuroganeMaintenancePageImpl DIALOG PRIMARY SECONDARY INTROTEXT PRIMARYTEXT SECONDARYTEXT PRIMARYDESC SECONDARYDESC
+  ; The caller often passes temporary registers that page preparation is free
+  ; to clobber. Preserve every visible string before invoking shell callbacks.
+  StrCpy $KuroganeMaintenancePrimaryTextValue ${PRIMARYTEXT}
+  StrCpy $KuroganeMaintenanceSecondaryTextValue ${SECONDARYTEXT}
+  StrCpy $KuroganeMaintenancePrimaryDescriptionValue ${PRIMARYDESC}
+  StrCpy $KuroganeMaintenanceSecondaryDescriptionValue ${SECONDARYDESC}
   !insertmacro KuroganePrepareKnownPageImpl "" ${DIALOG} Next
   StrCpy $KuroganeMatrixParent ${DIALOG}
   !insertmacro KuroganeMatrixPageHeader "$(KMaintenanceEyebrow)" "$(KMaintenanceTitle)" "$(KMaintenanceSubtitle)" "$(KMaintenanceSignal)" "190X4 / 05"
@@ -1094,8 +1113,8 @@ FunctionEnd
   !insertmacro KuroganeMatrixBox 44 122 257 50 ${K_COLOR_PANEL}
   !insertmacro KuroganeMatrixBox 44 122 34 50 ${K_COLOR_ACCENT}
   !insertmacro KuroganeMatrixCenterText 44 140 34 14 "+" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 91 131 174 14 "${PRIMARYTEXT}" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 91 150 174 20 "${PRIMARYDESC}" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
+  !insertmacro KuroganeMatrixText 91 131 174 14 "$KuroganeMaintenancePrimaryTextValue" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 91 150 174 20 "$KuroganeMaintenancePrimaryDescriptionValue" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
   !insertmacro KuroganeSignalRadio 278 138 ${PRIMARY}
 
   !insertmacro KuroganeMatrixBox 59 181 243 57 ${K_COLOR_BORDER}
@@ -1103,8 +1122,8 @@ FunctionEnd
   !insertmacro KuroganeMatrixBox 60 182 241 55 ${K_COLOR_FIELD}
   !insertmacro KuroganeMatrixBox 60 182 34 55 ${K_COLOR_PANEL}
   !insertmacro KuroganeMatrixCenterText 60 202 34 14 "×" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 107 191 158 14 "${SECONDARYTEXT}" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 107 210 158 24 "${SECONDARYDESC}" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
+  !insertmacro KuroganeMatrixText 107 191 158 14 "$KuroganeMaintenanceSecondaryTextValue" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 107 210 158 24 "$KuroganeMaintenanceSecondaryDescriptionValue" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
   !insertmacro KuroganeSignalRadio 278 200 ${SECONDARY}
 
   !insertmacro KuroganeMatrixText 43 247 199 12 "$(KMaintenanceDataPolicy)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
@@ -1136,16 +1155,13 @@ FunctionEnd
   !insertmacro KuroganeMatrixFrame 43 139 259 43 44 140 257 41 ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
   !insertmacro KuroganeMatrixBox 44 140 5 41 ${K_COLOR_ACCENT}
 
-  GetDlgItem $0 ${PAGE} 1019
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 60 151 150 18
-  !insertmacro KuroganeBringToFront $0
-  System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
-  System::Call 'user32::GetWindowLongW(p r0, i -16) i .r1'
-  IntOp $1 $1 & 0xFF5FFFFF
-  System::Call 'user32::SetWindowLongW(p r0, i -16, i r1)'
-  System::Call 'user32::SetWindowPos(p r0, p 0, i 0, i 0, i 0, i 0, i 0x27)'
-  SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
-  SendMessage $0 ${WM_SETFONT} $KuroganeFontMono 1
+  ; Keep MUI's edit control as the authoritative value for validation and the
+  ; native folder picker, but never expose its stock Windows border/selection.
+  GetDlgItem $KuroganeTargetEditControl ${PAGE} 1019
+  ${NSD_GetText} $KuroganeTargetEditControl $1
+  ShowWindow $KuroganeTargetEditControl ${SW_HIDE}
+  !insertmacro KuroganeMatrixText 60 153 150 14 "$1" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontMono
+  StrCpy $KuroganeTargetPathDisplayControl $0
 
   GetDlgItem $0 ${PAGE} 1001
   !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 219 151 74 18
@@ -1175,6 +1191,11 @@ FunctionEnd
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
   SendMessage $0 ${WM_SETFONT} $KuroganeFontMeta 1
 !macroend
+
+Function KuroganeDirectoryLeave
+  StrCpy $KuroganeTargetEditControl 0
+  StrCpy $KuroganeTargetPathDisplayControl 0
+FunctionEnd
 
 !macro KuroganeMoveWindowDpi HWND X Y WIDTH HEIGHT DPI
   IntOp $4 ${X} * ${DPI}
@@ -1229,15 +1250,9 @@ FunctionEnd
   GetDlgItem $0 $1 1029
   ShowWindow $0 ${SW_HIDE}
   GetDlgItem $0 $1 1000
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 55 224 235 16
-  !insertmacro KuroganeBringToFront $0
-  System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
-  System::Call 'user32::GetWindowLongW(p r0, i -16) i .r1'
-  IntOp $1 $1 & 0xFF5FFFFF
-  System::Call 'user32::SetWindowLongW(p r0, i -16, i r1)'
-  System::Call 'user32::SetWindowPos(p r0, p 0, i 0, i 0, i 0, i 0, i 0x27)'
-  SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
-  SendMessage $0 ${WM_SETFONT} $KuroganeFontMono 1
+  ${NSD_GetText} $0 $2
+  ShowWindow $0 ${SW_HIDE}
+  !insertmacro KuroganeMatrixText 55 224 235 16 "$2" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontMono
   !insertmacro KuroganeBringToFront ${CHECKBOX}
   StrCpy $KuroganeToggleControl ${CHECKBOX}
   ${NSD_OnClick} $KuroganeToggleControl un.KuroganeToggleClick

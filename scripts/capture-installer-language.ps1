@@ -121,8 +121,12 @@ function Save-Selector([IntPtr]$window, [string]$name) {
 function Click-Control([IntPtr]$window, [int]$id) {
   $control = [NinetyLanguageWin32]::GetDlgItem($window, $id)
   if ($control -eq [IntPtr]::Zero) { throw "Language selector control $id was not found" }
+  Click-Handle $window $control "control $id"
+}
+
+function Click-Handle([IntPtr]$window, [IntPtr]$control, [string]$name) {
   $rect = New-Object NinetyLanguageWin32+RECT
-  if (-not [NinetyLanguageWin32]::GetWindowRect($control, [ref]$rect)) { throw "GetWindowRect failed for $id" }
+  if (-not [NinetyLanguageWin32]::GetWindowRect($control, [ref]$rect)) { throw "GetWindowRect failed for $name" }
   [NinetyLanguageWin32]::SetForegroundWindow($window) | Out-Null
   [NinetyLanguageWin32]::SetCursorPos([int](($rect.Left + $rect.Right) / 2), [int](($rect.Top + $rect.Bottom) / 2)) | Out-Null
   Start-Sleep -Milliseconds 140
@@ -156,7 +160,7 @@ try {
       throw "Language selector has no Kurogane signal image"
     }
   }
-  [NinetyLanguageWin32]::SendMessage($russian, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null # BM_CLICK
+  Click-Handle $window $russian "Russian selector"
   Start-Sleep -Milliseconds 300
   if ([NinetyLanguageWin32]::SendMessage($russian, 0x00F0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32() -ne 1) {
     throw "Russian language selector did not become checked"

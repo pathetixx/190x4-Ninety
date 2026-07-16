@@ -39,6 +39,7 @@ Function SmokeInstallModeShow
 FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeDirectoryShow
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeDirectoryLeave
 !insertmacro MUI_PAGE_DIRECTORY
 Function SmokeDirectoryShow
   !insertmacro KuroganeDirectoryPageImpl $mui.DirectoryPage
