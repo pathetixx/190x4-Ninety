@@ -299,6 +299,12 @@ try {
       throw "Passive OTA installer still exposes frozen custom caption control $id"
     }
   }
+  foreach ($id in 2, 1214) {
+    $unsafeCancel = [NinetyPreviewWin32]::FindDescendantById($window, $id)
+    if ($unsafeCancel -ne [IntPtr]::Zero -and [NinetyPreviewWin32]::IsWindowVisible($unsafeCancel)) {
+      throw "Passive OTA installer still exposes unsafe cancel control $id"
+    }
+  }
   $systemMenu = [NinetyPreviewWin32]::GetSystemMenu($window, $false)
   $closeState = [NinetyPreviewWin32]::GetMenuState($systemMenu, 0xF060, 0)
   if (($closeState -band 0x00000003) -eq 0) {

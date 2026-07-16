@@ -881,6 +881,14 @@ Function KuroganeInstFilesShow
     SendMessage $HWNDPARENT ${WM_SETTEXT} 0 "STR:$(KOtaWindowTitle)"
   ${EndIf}
   !insertmacro KuroganeProgressPageImpl "" "$(KInstallTitle)" "$(KInstallSubtitle)" "$(KInstallStatus)"
+  ${If} $PassiveMode == 1
+    ; An in-place OTA replacement must not advertise an unsafe action that
+    ; cannot be serviced while NSIS executes synchronous Section instructions.
+    GetDlgItem $0 $HWNDPARENT 1214
+    ShowWindow $0 ${SW_HIDE}
+    GetDlgItem $0 $HWNDPARENT 2
+    ShowWindow $0 ${SW_HIDE}
+  ${EndIf}
 FunctionEnd
 
 Function un.KuroganeInstFilesShow
