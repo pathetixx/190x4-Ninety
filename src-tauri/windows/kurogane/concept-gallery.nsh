@@ -146,7 +146,7 @@ Function ConceptACardsTarget
   !insertmacro CGBegin "$(CGConceptACards)" "$(CGTargetTitle)" "$(CGTargetSubtitle)"
   !insertmacro CGFrame 22 96 296 73 23 97 294 71 ${K_COLOR_BORDER} ${K_COLOR_PANEL}
   !insertmacro CGText 38 107 180 11 "$(CGInstallPath)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $ConceptFontMono
-  ${NSD_CreateText} 38u 126u 202u 23u "C:\Program Files\Ninety"
+  ${NSD_CreateText} 38u 126u 1u 1u "C:\Program Files\Ninety"
   Pop $0
   System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
@@ -231,7 +231,7 @@ Function ConceptBTerminalTarget
   !insertmacro CGText 22 116 296 13 "$$ deploy --target" ${K_COLOR_ACCENT} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGFrame 22 136 296 38 23 137 294 36 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
   !insertmacro CGText 33 147 12 13 ">" ${K_COLOR_ACCENT} ${K_COLOR_FIELD} $ConceptFontMono
-  ${NSD_CreateText} 49u 143u 199u 22u "C:\Program Files\Ninety"
+  ${NSD_CreateText} 49u 143u 1u 1u "C:\Program Files\Ninety"
   Pop $0
   System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
@@ -313,7 +313,7 @@ Function ConceptCMatrixTarget
   !insertmacro CGText 43 121 200 11 "$(CGInstallPath)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGFrame 43 139 259 43 44 140 257 41 ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
   !insertmacro CGBox 44 140 5 41 ${K_COLOR_ACCENT}
-  ${NSD_CreateText} 60u 149u 181u 22u "C:\Program Files\Ninety"
+  ${NSD_CreateText} 60u 149u 1u 1u "C:\Program Files\Ninety"
   Pop $0
   System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
