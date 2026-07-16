@@ -973,8 +973,9 @@ FunctionEnd
   System::Call 'uxtheme::SetWindowTheme(p r9, w "", w "")'
   SetCtlColors $9 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $9 ${WM_SETFONT} $KuroganeFontBody 1
-  SendMessage $9 ${WM_SETTEXT} 0 "STR:$(KLicenseDocument1)"
-  SendMessage $9 ${EM_SETSEL} -1 -1
+  SendMessage $9 ${WM_SETTEXT} 0 "STR:"
+  SendMessage $9 ${EM_SETSEL} 0 0
+  SendMessage $9 ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument1)"
   SendMessage $9 ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument2)"
   SendMessage $9 ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument3)"
   SendMessage $9 ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument4)"
@@ -982,6 +983,7 @@ FunctionEnd
   SendMessage $9 ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument6)"
   SendMessage $9 ${EM_SETSEL} 0 0
   SendMessage $9 ${EM_SCROLLCARET} 0 0
+  SendMessage $9 ${EM_LINESCROLL} 0 -10000
   SendMessage $9 ${EM_SETREADONLY} 1 0
   !insertmacro KuroganeBringToFront $9
   StrCpy $KuroganeLicenseTextControl $9

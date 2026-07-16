@@ -378,11 +378,17 @@ try {
   $licensePosition = [NinetyPreviewWin32]::FindTextPrefix($window, "ПОЗИЦИЯ ЧТЕНИЯ")
   if ($licensePosition -eq [IntPtr]::Zero) { throw "Live license read position was not found" }
   $beforeLicensePosition = [NinetyPreviewWin32]::ReadText($licensePosition)
-  [NinetyPreviewWin32]::SendMessage($license, 0x0100, [IntPtr]0x22, [IntPtr]::Zero) | Out-Null
-  [NinetyPreviewWin32]::SendMessage($license, 0x0101, [IntPtr]0x22, [IntPtr]::Zero) | Out-Null
+  $beforeLicenseLine = [NinetyPreviewWin32]::SendMessage($license, 0x00CE, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+  $licenseRect = New-Object NinetyPreviewWin32+RECT
+  if (-not [NinetyPreviewWin32]::GetWindowRect($license, [ref]$licenseRect)) { throw "License body geometry was not available" }
+  Click-ScreenPoint ([int](($licenseRect.Left + $licenseRect.Right) / 2)) ([int](($licenseRect.Top + $licenseRect.Bottom) / 2))
+  [System.Windows.Forms.SendKeys]::SendWait("{PGDN}")
   Start-Sleep -Milliseconds 500
+  $afterLicenseLine = [NinetyPreviewWin32]::SendMessage($license, 0x00CE, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
   $afterLicensePosition = [NinetyPreviewWin32]::ReadText($licensePosition)
-  if ($afterLicensePosition -eq $beforeLicensePosition) { throw "License Page Down did not move the custom read position" }
+  if ($afterLicenseLine -le $beforeLicenseLine -or $afterLicensePosition -eq $beforeLicensePosition) {
+    throw "License Page Down did not move the custom read position ($beforeLicenseLine -> $afterLicenseLine, '$beforeLicensePosition' -> '$afterLicensePosition')"
+  }
   Save-InstallerWindow "04-license-scrolled.png"
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
