@@ -853,6 +853,30 @@ FunctionEnd
   ${EndIf}
 !macroend
 
+!macro KuroganeLicenseTickImpl
+  SendMessage $KuroganeLicenseTextControl ${EM_GETFIRSTVISIBLELINE} 0 0 $0
+  SendMessage $KuroganeLicenseTextControl ${EM_GETLINECOUNT} 0 0 $1
+  IntOp $1 $1 - 8
+  ${If} $1 <= 0
+    StrCpy $0 0
+  ${Else}
+    IntOp $0 $0 * 100
+    IntOp $0 $0 / $1
+  ${EndIf}
+  ${If} $0 < 0
+    StrCpy $0 0
+  ${ElseIf} $0 > 100
+    StrCpy $0 100
+  ${EndIf}
+  IntFmt $1 "%03d" $0
+  StrCpy $3 "$(KLicensePosition) / $1%"
+  SendMessage $KuroganeLicensePositionControl ${WM_SETTEXT} 0 "STR:$3"
+  IntOp $2 $0 * 62
+  IntOp $2 $2 / 100
+  IntOp $2 $2 + 132
+  !insertmacro KuroganeMoveWindowDlu $KuroganePage $KuroganeLicenseThumbControl 291 $2 3 31
+!macroend
+
 Function KuroganeMinimizeShellTick
   Push $0
   Push $1
@@ -865,7 +889,7 @@ Function KuroganeMinimizeShellTick
   Push $8
   !insertmacro KuroganeShellTickImpl
   ${If} $KuroganeLicenseTextControl != 0
-    Call KuroganeLicenseTick
+    !insertmacro KuroganeLicenseTickImpl
   ${EndIf}
   Pop $8
   Pop $7
@@ -1006,27 +1030,7 @@ Function KuroganeLicenseTick
   ${If} $KuroganeLicenseTextControl == 0
     Return
   ${EndIf}
-  SendMessage $KuroganeLicenseTextControl ${EM_GETFIRSTVISIBLELINE} 0 0 $0
-  SendMessage $KuroganeLicenseTextControl ${EM_GETLINECOUNT} 0 0 $1
-  IntOp $1 $1 - 8
-  ${If} $1 <= 0
-    StrCpy $0 0
-  ${Else}
-    IntOp $0 $0 * 100
-    IntOp $0 $0 / $1
-  ${EndIf}
-  ${If} $0 < 0
-    StrCpy $0 0
-  ${ElseIf} $0 > 100
-    StrCpy $0 100
-  ${EndIf}
-  IntFmt $1 "%03d" $0
-  StrCpy $3 "$(KLicensePosition) / $1%"
-  SendMessage $KuroganeLicensePositionControl ${WM_SETTEXT} 0 "STR:$3"
-  IntOp $2 $0 * 62
-  IntOp $2 $2 / 100
-  IntOp $2 $2 + 132
-  !insertmacro KuroganeMoveWindowDlu $KuroganePage $KuroganeLicenseThumbControl 291 $2 3 31
+  !insertmacro KuroganeLicenseTickImpl
 FunctionEnd
 
 Function KuroganeLicenseLeave
