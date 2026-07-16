@@ -21,7 +21,7 @@ OutFile "kurogane-concepts.exe"
 
 ; Signal Matrix is the selected direction, so its complete five-step flow is
 ; presented first. Core Cards and Terminal Manifest remain comparison material.
-Page custom ConceptCMatrixLanguage
+Page custom ConceptCMatrixLanguage ConceptCMatrixLanguageLeave
 Page custom ConceptCMatrixScope
 Page custom ConceptCMatrixTarget
 Page custom ConceptCMatrixManifest
@@ -46,8 +46,10 @@ Function .onInit
   System::Call 'kernel32::GetUserDefaultUILanguage() i .r0'
   ${If} $0 == 1049
     StrCpy $LANGUAGE 1049
+    StrCpy $ConceptSelectedLanguage 1049
   ${Else}
     StrCpy $LANGUAGE 1033
+    StrCpy $ConceptSelectedLanguage 1033
   ${EndIf}
 FunctionEnd
 

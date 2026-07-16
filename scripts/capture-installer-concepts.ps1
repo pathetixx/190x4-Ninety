@@ -209,7 +209,7 @@ try {
       $hasCounter = -not $page.Counter -or [NinetyConceptWin32]::ContainsText($window, $page.Counter)
     } until (($hasMarker -and $hasTitle -and $hasCounter) -or (Get-Date) -gt $deadline)
     if (-not $hasMarker -or -not $hasTitle -or -not $hasCounter) {
-      throw "Concept page did not appear: $($page.File)"
+      throw "Concept page did not appear: $($page.File) (marker=$hasMarker, title=$hasTitle, counter=$hasCounter)"
     }
   }
 
@@ -261,7 +261,12 @@ try {
     Save-Page $page
     if ($page.File -eq "c-01-language.png") {
       Click-Text "РУССКИЙ"
-      Start-Sleep -Milliseconds 250
+      $languageDeadline = (Get-Date).AddSeconds(3)
+      do {
+        Start-Sleep -Milliseconds 100
+        $russianSelected = [NinetyConceptWin32]::ContainsText($window, "ВЫБРАНО")
+      } until ($russianSelected -or (Get-Date) -gt $languageDeadline)
+      if (-not $russianSelected) { throw "Russian language card ignored a real left-click" }
     }
     if ($index -lt ($pages.Count - 1)) {
       Click-Control 1213

@@ -8,6 +8,7 @@ Var ConceptLanguageEnglish
 Var ConceptLanguageRussian
 Var ConceptLanguageEnglishState
 Var ConceptLanguageRussianState
+Var ConceptSelectedLanguage
 
 LangString CGConceptACards 1033 "CONCEPT A  /  CORE CARDS"
 LangString CGConceptBTerminal 1033 "CONCEPT B  /  TERMINAL MANIFEST"
@@ -295,6 +296,7 @@ FunctionEnd
 
 Function ConceptSelectEnglish
   Pop $0
+  StrCpy $ConceptSelectedLanguage 1033
   StrCpy $LANGUAGE 1033
   SetCtlColors $ConceptLanguageEnglish ${K_COLOR_TEXT} ${K_COLOR_PANEL}
   SetCtlColors $ConceptLanguageRussian ${K_COLOR_MUTED} ${K_COLOR_FIELD}
@@ -304,6 +306,7 @@ FunctionEnd
 
 Function ConceptSelectRussian
   Pop $0
+  StrCpy $ConceptSelectedLanguage 1049
   StrCpy $LANGUAGE 1049
   SetCtlColors $ConceptLanguageEnglish ${K_COLOR_MUTED} ${K_COLOR_FIELD}
   SetCtlColors $ConceptLanguageRussian ${K_COLOR_TEXT} ${K_COLOR_PANEL}
@@ -344,6 +347,10 @@ Function ConceptCMatrixLanguage
   !insertmacro CGBox 31 251 287 3 ${K_COLOR_BORDER}
   !insertmacro CGBox 31 251 57 3 ${K_COLOR_ACCENT}
   nsDialogs::Show
+FunctionEnd
+
+Function ConceptCMatrixLanguageLeave
+  StrCpy $LANGUAGE $ConceptSelectedLanguage
 FunctionEnd
 
 Function ConceptCMatrixScope
