@@ -2,6 +2,19 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.27 — 2026-07-16
+
+- The Windows installer and uninstaller now use the complete Signal Matrix design across language, account scope, deployment target, license, maintenance and removal screens, with consistent `190X4` stage codes and no stock white controls.
+- Added a bilingual pre-install language selector with English as the primary fallback and Russian as the additional language; the custom license reader supports real Page Up/Page Down navigation without a native scrollbar.
+- Deployment and removal paths now use custom compact Matrix fields, while localized maintenance and uninstall copy is constrained to its cards without clipping or overflow.
+- OTA updates now use a responsive native Windows caption with working minimize and drag behavior while unsafe close/cancel actions remain disabled during file replacement; the refreshed About icon is also used consistently.
+- Windows CI now exercises real left-clicks for navigation, selection, folder change, cancellation and window controls, verifies frameless/native dragging, license paging, OTA behavior and the complete uninstall flow, and captures every screen for visual review.
+- Установщик и деинсталлятор Windows теперь полностью оформлены в стиле Signal Matrix: выбор языка, область установки, точка развёртывания, лицензия, обслуживание и удаление используют единые коды этапов `190X4` без белых системных элементов.
+- Добавлен двуязычный выбор языка до запуска установщика: английский используется как основной резервный язык, русский — как дополнительный; собственный экран лицензии поддерживает реальную навигацию Page Up/Page Down без системной полосы прокрутки.
+- Пути установки и удаления отображаются в собственных компактных полях Matrix, а локализованные тексты обслуживания и удаления гарантированно помещаются внутри карточек без обрезания и выхода за границы.
+- Окно OTA-обновления получило управляемый системный заголовок Windows с рабочими сворачиванием и перетаскиванием; небезопасные закрытие и отмена остаются заблокированы во время замены файлов, а в разделе «О программе» везде используется обновлённая иконка.
+- Windows CI теперь проверяет реальные клики ЛКМ по навигации, вариантам выбора, смене папки, отмене и кнопкам окна, перетаскивание обоих типов окон, перелистывание лицензии, OTA-сценарий и полный цикл удаления, сохраняя все экраны для ручной визуальной проверки.
+
 ## v0.2.26 — 2026-07-16
 
 - Исправлены клики мышью в установщике: кнопки установки, навигации, отмены, сворачивания и закрытия снова работают, а окно корректно перетаскивается.
