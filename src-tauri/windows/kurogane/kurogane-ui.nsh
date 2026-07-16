@@ -1044,13 +1044,13 @@ FunctionEnd
   !insertmacro KuroganeMatrixText 94 150 176 18 "$(KModeCurrentDescription)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
   !insertmacro KuroganeSignalRadio 278 138 $MultiUser.InstallModePage.CurrentUser
 
-  !insertmacro KuroganeMatrixBox 58 183 244 50 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 58 183 244 57 ${K_COLOR_BORDER}
   StrCpy $KuroganeSignalSecondaryBorder $0
-  !insertmacro KuroganeMatrixBox 59 184 242 48 ${K_COLOR_FIELD}
-  !insertmacro KuroganeMatrixBox 59 184 39 48 ${K_COLOR_PANEL}
+  !insertmacro KuroganeMatrixBox 59 184 242 55 ${K_COLOR_FIELD}
+  !insertmacro KuroganeMatrixBox 59 184 39 55 ${K_COLOR_PANEL}
   !insertmacro KuroganeMatrixCenterText 59 201 39 14 "02" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontSteps
   !insertmacro KuroganeMatrixText 110 193 158 14 "$(KModeAllTitle)" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 110 210 160 20 "$(KModeAllDescription)" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
+  !insertmacro KuroganeMatrixText 110 210 166 24 "$(KModeAllDescription)" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
   !insertmacro KuroganeSignalRadio 278 200 $MultiUser.InstallModePage.AllUsers
 
   !insertmacro KuroganeMatrixBox 31 251 287 3 ${K_COLOR_BORDER}
