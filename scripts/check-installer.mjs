@@ -64,6 +64,7 @@ const templatePath = configFile("template", nsis.template);
 const entryPath = configFile("installerHooks", nsis.installerHooks);
 const hooksPath = resolve(configDir, "./windows/hooks.nsh");
 const kuroganeDir = resolve(configDir, "./windows/kurogane");
+const conceptCapturePath = resolve(root, "./scripts/capture-installer-concepts.ps1");
 
 for (const name of [
   "kurogane-ui.nsh",
@@ -86,14 +87,32 @@ for (const name of [
   "nav-finish-ru.bmp",
   "nav-cancel-en.bmp",
   "nav-cancel-ru.bmp",
+  "concept-gallery.nsi",
+  "concept-gallery.nsh",
 ]) {
   if (!existsSync(resolve(kuroganeDir, name))) fail(`Kurogane: файл не найден (${name})`);
+}
+
+if (!existsSync(conceptCapturePath)) {
+  fail("Kurogane: скрипт захвата концептов не найден");
 }
 
 const resourceExe = resolve(kuroganeDir, "kurogane-ui.exe");
 if (existsSync(resourceExe)) {
   const magic = readFileSync(resourceExe).subarray(0, 2).toString("ascii");
   if (magic !== "MZ") fail("Kurogane resource UI не является Windows PE-файлом");
+}
+
+const conceptGalleryPath = resolve(kuroganeDir, "concept-gallery.nsh");
+if (existsSync(conceptGalleryPath)) {
+  const conceptGallery = readFileSync(conceptGalleryPath, "utf8");
+  for (const marker of [
+    "CONCEPT A  /  CORE CARDS",
+    "CONCEPT B  /  TERMINAL MANIFEST",
+    "CONCEPT C  /  SIGNAL MATRIX",
+  ]) {
+    if (!conceptGallery.includes(marker)) fail(`Kurogane concept gallery не содержит ${marker}`);
+  }
 }
 
 const kuroganeUiPath = resolve(kuroganeDir, "kurogane-ui.nsh");

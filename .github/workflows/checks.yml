@@ -55,17 +55,25 @@ jobs:
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           & $makensis /V3 "/DVERSION=$version" src-tauri/windows/kurogane/smoke.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $makensis /V3 "/DVERSION=$version" src-tauri/windows/kurogane/concept-gallery.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Capture and exercise real Windows UI
         shell: pwsh
         run: ./scripts/capture-installer-preview.ps1 -Installer ./src-tauri/windows/kurogane/kurogane-smoke.exe -OutputDirectory ./installer-preview
+
+      - name: Capture premium installer concepts
+        shell: pwsh
+        run: ./scripts/capture-installer-concepts.ps1 -Installer ./src-tauri/windows/kurogane/kurogane-concepts.exe -OutputDirectory ./installer-concepts
 
       - name: Upload full-window screenshots
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: installer-preview-${{ github.sha }}
-          path: installer-preview/*.png
+          path: |
+            installer-preview/*.png
+            installer-concepts/*.png
           if-no-files-found: error
           retention-days: 14
 

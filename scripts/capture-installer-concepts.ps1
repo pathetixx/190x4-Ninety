@@ -1,0 +1,208 @@
+param(
+  [Parameter(Mandatory = $true)]
+  [string]$Installer,
+  [Parameter(Mandatory = $true)]
+  [string]$OutputDirectory
+)
+
+$ErrorActionPreference = "Stop"
+$Installer = (Resolve-Path $Installer).Path
+
+Add-Type -AssemblyName System.Drawing
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class NinetyConceptWin32 {
+  public delegate bool EnumWindowProc(IntPtr hWnd, IntPtr lParam);
+  public delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT { public int Left, Top, Right, Bottom; }
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowProc callback, IntPtr param);
+  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr param);
+  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr hWnd, int id);
+  [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr hWnd);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder text, int count);
+  public static IntPtr FindDescendantById(IntPtr parent, int id) {
+    IntPtr found = IntPtr.Zero;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      if (GetDlgCtrlID(child) == id) { found = child; return false; }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+  public static IntPtr FindConceptWindow() {
+    IntPtr found = IntPtr.Zero;
+    EnumWindows(delegate(IntPtr window, IntPtr param) {
+      if (IsWindowVisible(window) &&
+          GetDlgItem(window, 1205) != IntPtr.Zero &&
+          GetDlgItem(window, 1213) != IntPtr.Zero &&
+          GetDlgItem(window, 1207) != IntPtr.Zero) {
+        found = window;
+        return false;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+  public static bool ContainsText(IntPtr parent, string expected) {
+    bool found = false;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      var value = new System.Text.StringBuilder(512);
+      GetWindowText(child, value, value.Capacity);
+      if (value.ToString().Contains(expected)) { found = true; return false; }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+  public static bool HasVisibleClass(IntPtr parent, string expectedClass) {
+    bool found = false;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      var value = new System.Text.StringBuilder(128);
+      GetClassName(child, value, value.Capacity);
+      if (IsWindowVisible(child) && string.Equals(value.ToString(), expectedClass, StringComparison.OrdinalIgnoreCase)) {
+        found = true;
+        return false;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+  public static IntPtr FindVisiblePage(IntPtr parent) {
+    IntPtr found = IntPtr.Zero;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      var value = new System.Text.StringBuilder(128);
+      GetClassName(child, value, value.Capacity);
+      if (IsWindowVisible(child) && value.ToString() == "#32770") {
+        found = child;
+        return false;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+}
+"@
+
+$pages = @(
+  @{ File = "a-01-scope.png";       Marker = "КОНЦЕПТ A"; Title = "Доступ к приложению";       HasEdit = $false },
+  @{ File = "a-02-target.png";      Marker = "КОНЦЕПТ A"; Title = "Точка развёртывания";        HasEdit = $true  },
+  @{ File = "a-03-manifest.png";    Marker = "КОНЦЕПТ A"; Title = "Манифест открытого кода";    HasEdit = $false },
+  @{ File = "a-04-maintenance.png"; Marker = "КОНЦЕПТ A"; Title = "Задача установщика";         HasEdit = $false },
+  @{ File = "b-01-scope.png";       Marker = "КОНЦЕПТ B"; Title = "Доступ к приложению";       HasEdit = $false },
+  @{ File = "b-02-target.png";      Marker = "КОНЦЕПТ B"; Title = "Точка развёртывания";        HasEdit = $true  },
+  @{ File = "b-03-manifest.png";    Marker = "КОНЦЕПТ B"; Title = "Манифест открытого кода";    HasEdit = $false },
+  @{ File = "b-04-maintenance.png"; Marker = "КОНЦЕПТ B"; Title = "Задача установщика";         HasEdit = $false },
+  @{ File = "c-01-scope.png";       Marker = "КОНЦЕПТ C"; Title = "Доступ к приложению";       HasEdit = $false },
+  @{ File = "c-02-target.png";      Marker = "КОНЦЕПТ C"; Title = "Точка развёртывания";        HasEdit = $true  },
+  @{ File = "c-03-manifest.png";    Marker = "КОНЦЕПТ C"; Title = "Манифест открытого кода";    HasEdit = $false },
+  @{ File = "c-04-maintenance.png"; Marker = "КОНЦЕПТ C"; Title = "Задача установщика";         HasEdit = $false }
+)
+
+New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+$process = Start-Process -FilePath $Installer -PassThru
+
+try {
+  $window = [IntPtr]::Zero
+  $deadline = (Get-Date).AddSeconds(20)
+  do {
+    Start-Sleep -Milliseconds 200
+    $window = [NinetyConceptWin32]::FindConceptWindow()
+  } until ($window -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
+  if ($window -eq [IntPtr]::Zero) { throw "Concept gallery window did not appear" }
+
+  function Get-WindowRect([IntPtr]$handle) {
+    $rect = New-Object NinetyConceptWin32+RECT
+    if (-not [NinetyConceptWin32]::GetWindowRect($handle, [ref]$rect)) {
+      throw "GetWindowRect failed"
+    }
+    return $rect
+  }
+
+  function Click-Control([int]$id) {
+    $control = [NinetyConceptWin32]::FindDescendantById($window, $id)
+    if ($control -eq [IntPtr]::Zero) { throw "Concept control $id was not found" }
+    $rect = Get-WindowRect $control
+    $x = [int](($rect.Left + $rect.Right) / 2)
+    $y = [int](($rect.Top + $rect.Bottom) / 2)
+    [NinetyConceptWin32]::SetForegroundWindow($window) | Out-Null
+    [NinetyConceptWin32]::SetCursorPos($x, $y) | Out-Null
+    Start-Sleep -Milliseconds 120
+    [NinetyConceptWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 100
+    [NinetyConceptWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+  }
+
+  function Wait-ForPage([hashtable]$page) {
+    $deadline = (Get-Date).AddSeconds(8)
+    do {
+      Start-Sleep -Milliseconds 120
+      $hasMarker = [NinetyConceptWin32]::ContainsText($window, $page.Marker)
+      $hasTitle = [NinetyConceptWin32]::ContainsText($window, $page.Title)
+    } until (($hasMarker -and $hasTitle) -or (Get-Date) -gt $deadline)
+    if (-not $hasMarker -or -not $hasTitle) {
+      throw "Concept page did not appear: $($page.File)"
+    }
+  }
+
+  function Save-Page([hashtable]$page) {
+    $rect = Get-WindowRect $window
+    $width = $rect.Right - $rect.Left
+    $height = $rect.Bottom - $rect.Top
+    if ($width -lt 900 -or $height -lt 600) {
+      throw "Unexpected concept gallery size: ${width}x${height}"
+    }
+    $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+      $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+      $bitmap.Save((Join-Path $OutputDirectory $page.File), [System.Drawing.Imaging.ImageFormat]::Png)
+      $nearWhite = 0
+      for ($y = 70; $y -lt ($height - 70); $y += 4) {
+        for ($x = [int]($width * 0.39); $x -lt $width; $x += 4) {
+          $pixel = $bitmap.GetPixel($x, $y)
+          if ($pixel.R -gt 238 -and $pixel.G -gt 238 -and $pixel.B -gt 238) { $nearWhite++ }
+        }
+      }
+      if ($nearWhite -gt 1200) {
+        throw "System-white default surface detected in $($page.File): $nearWhite sampled pixels"
+      }
+    } finally {
+      $graphics.Dispose()
+      $bitmap.Dispose()
+    }
+  }
+
+  for ($index = 0; $index -lt $pages.Count; $index++) {
+    $page = $pages[$index]
+    Wait-ForPage $page
+    $pageWindow = [NinetyConceptWin32]::FindVisiblePage($window)
+    if ($pageWindow -eq [IntPtr]::Zero) { throw "Visible concept page was not found: $($page.File)" }
+    $hasEdit = [NinetyConceptWin32]::HasVisibleClass($pageWindow, "Edit")
+    if ($hasEdit -ne $page.HasEdit) {
+      throw "Native path edit contract mismatch on $($page.File): expected=$($page.HasEdit), actual=$hasEdit"
+    }
+    if ([NinetyConceptWin32]::HasVisibleClass($pageWindow, "Button")) {
+      throw "Stock radio/checkbox/button leaked into concept canvas: $($page.File)"
+    }
+    Start-Sleep -Milliseconds 250
+    Save-Page $page
+    if ($index -lt ($pages.Count - 1)) {
+      Click-Control 1213
+    }
+  }
+
+  Click-Control 1207
+  if (-not $process.WaitForExit(8000)) {
+    throw "Concept gallery did not close from a real left-click"
+  }
+} finally {
+  if (-not $process.HasExited) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+  }
+}
