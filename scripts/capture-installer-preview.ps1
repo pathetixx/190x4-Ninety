@@ -270,8 +270,17 @@ try {
   if (-not $finishVisible) { throw "Installer did not advance from completed progress to Finish" }
   Start-Sleep -Milliseconds 500
   Save-InstallerWindow "06-finish.png"
-  Click-InstallerControl 1207
-  if (-not $process.WaitForExit(5000)) {
+  $closedFromCaption = $false
+  foreach ($attempt in 0..2) {
+    Click-InstallerControl 1207
+    if ($process.WaitForExit(1800)) {
+      $closedFromCaption = $true
+      break
+    }
+    [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
+    Start-Sleep -Milliseconds 250
+  }
+  if (-not $closedFromCaption) {
     throw "Installer close control ignored a real left-click"
   }
 
