@@ -6,8 +6,6 @@ Var ConceptFontMono
 Var ConceptFontLabel
 Var ConceptLanguageEnglish
 Var ConceptLanguageRussian
-Var ConceptLanguageEnglishText
-Var ConceptLanguageRussianText
 Var ConceptLanguageEnglishState
 Var ConceptLanguageRussianState
 Var ConceptSelectedLanguage
@@ -301,10 +299,8 @@ Function ConceptApplyEnglish
   StrCpy $LANGUAGE 1033
   SendMessage $ConceptLanguageEnglish ${BM_SETCHECK} ${BST_CHECKED} 0
   SendMessage $ConceptLanguageRussian ${BM_SETCHECK} ${BST_UNCHECKED} 0
-  SetCtlColors $ConceptLanguageEnglish ${K_COLOR_TEXT} ${K_COLOR_PANEL}
-  SetCtlColors $ConceptLanguageRussian ${K_COLOR_MUTED} ${K_COLOR_FIELD}
-  SetCtlColors $ConceptLanguageEnglishText ${K_COLOR_TEXT} ${K_COLOR_PANEL}
-  SetCtlColors $ConceptLanguageRussianText ${K_COLOR_MUTED} ${K_COLOR_FIELD}
+  SetCtlColors $ConceptLanguageEnglish ${K_COLOR_TEXT} ${K_COLOR_ACCENT}
+  SetCtlColors $ConceptLanguageRussian ${K_COLOR_MUTED} ${K_COLOR_BORDER}
   SendMessage $ConceptLanguageEnglishState ${WM_SETTEXT} 0 "STR:SELECTED"
   SendMessage $ConceptLanguageRussianState ${WM_SETTEXT} 0 "STR:"
 FunctionEnd
@@ -314,10 +310,8 @@ Function ConceptApplyRussian
   StrCpy $LANGUAGE 1049
   SendMessage $ConceptLanguageEnglish ${BM_SETCHECK} ${BST_UNCHECKED} 0
   SendMessage $ConceptLanguageRussian ${BM_SETCHECK} ${BST_CHECKED} 0
-  SetCtlColors $ConceptLanguageEnglish ${K_COLOR_MUTED} ${K_COLOR_FIELD}
-  SetCtlColors $ConceptLanguageRussian ${K_COLOR_TEXT} ${K_COLOR_PANEL}
-  SetCtlColors $ConceptLanguageEnglishText ${K_COLOR_MUTED} ${K_COLOR_FIELD}
-  SetCtlColors $ConceptLanguageRussianText ${K_COLOR_TEXT} ${K_COLOR_PANEL}
+  SetCtlColors $ConceptLanguageEnglish ${K_COLOR_MUTED} ${K_COLOR_BORDER}
+  SetCtlColors $ConceptLanguageRussian ${K_COLOR_TEXT} ${K_COLOR_ACCENT}
   SendMessage $ConceptLanguageEnglishState ${WM_SETTEXT} 0 "STR:"
   SendMessage $ConceptLanguageRussianState ${WM_SETTEXT} 0 "STR:ВЫБРАНО"
 FunctionEnd
@@ -348,44 +342,28 @@ Function ConceptCMatrixLanguage
   !insertmacro CGMatrixHeader "LANGUAGE MATRIX" "01"
 
   !insertmacro CGFrame 42 121 260 51 43 122 258 49 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
-  nsDialogs::CreateControl BUTTON "${DEFAULT_STYLES}|${WS_TABSTOP}|${BS_AUTORADIOBUTTON}|${BS_PUSHLIKE}|${BS_FLAT}" 0 43u 122u 258u 49u ""
+  !insertmacro CGText 58 132 162 28 "ENGLISH$\r$\nPrimary · default fallback" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $ConceptFontLabel
+  nsDialogs::CreateControl BUTTON "${DEFAULT_STYLES}|${WS_TABSTOP}|${BS_AUTORADIOBUTTON}|${BS_PUSHLIKE}|${BS_FLAT}" 0 278u 137u 14u 14u ""
   Pop $ConceptLanguageEnglish
   System::Call 'uxtheme::SetWindowTheme(p rConceptLanguageEnglish, w "", w "")'
-  SetCtlColors $ConceptLanguageEnglish ${K_COLOR_TEXT} ${K_COLOR_PANEL}
-  SendMessage $ConceptLanguageEnglish ${WM_SETFONT} $ConceptFontLabel 1
+  SetCtlColors $ConceptLanguageEnglish ${K_COLOR_TEXT} ${K_COLOR_ACCENT}
   ${NSD_OnClick} $ConceptLanguageEnglish ConceptSelectEnglish
-  ${NSD_CreateLabel} 58u 132u 176u 28u "ENGLISH$\r$\nPrimary · default fallback"
-  Pop $ConceptLanguageEnglishText
-  SetCtlColors $ConceptLanguageEnglishText ${K_COLOR_TEXT} ${K_COLOR_PANEL}
-  SendMessage $ConceptLanguageEnglishText ${WM_SETFONT} $ConceptFontLabel 1
-  EnableWindow $ConceptLanguageEnglishText 0
-  ${NSD_CreateLabel} 240u 137u 52u 14u "SELECTED"
+  ${NSD_CreateLabel} 224u 138u 47u 14u "SELECTED"
   Pop $ConceptLanguageEnglishState
   SetCtlColors $ConceptLanguageEnglishState ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
   SendMessage $ConceptLanguageEnglishState ${WM_SETFONT} $ConceptFontMono 1
-  EnableWindow $ConceptLanguageEnglishState 0
-  System::Call 'user32::SetWindowPos(p rConceptLanguageEnglishText, p 0, i 0, i 0, i 0, i 0, i 0x13)'
-  System::Call 'user32::SetWindowPos(p rConceptLanguageEnglishState, p 0, i 0, i 0, i 0, i 0, i 0x13)'
 
   !insertmacro CGFrame 58 183 244 50 59 184 242 48 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
-  nsDialogs::CreateControl BUTTON "${DEFAULT_STYLES}|${WS_TABSTOP}|${BS_AUTORADIOBUTTON}|${BS_PUSHLIKE}|${BS_FLAT}" 0 59u 184u 242u 48u ""
+  !insertmacro CGText 74 194 146 28 "РУССКИЙ$\r$\nДополнительный язык" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $ConceptFontLabel
+  nsDialogs::CreateControl BUTTON "${DEFAULT_STYLES}|${WS_TABSTOP}|${BS_AUTORADIOBUTTON}|${BS_PUSHLIKE}|${BS_FLAT}" 0 278u 199u 14u 14u ""
   Pop $ConceptLanguageRussian
   System::Call 'uxtheme::SetWindowTheme(p rConceptLanguageRussian, w "", w "")'
-  SetCtlColors $ConceptLanguageRussian ${K_COLOR_MUTED} ${K_COLOR_FIELD}
-  SendMessage $ConceptLanguageRussian ${WM_SETFONT} $ConceptFontLabel 1
+  SetCtlColors $ConceptLanguageRussian ${K_COLOR_TEXT} ${K_COLOR_BORDER}
   ${NSD_OnClick} $ConceptLanguageRussian ConceptSelectRussian
-  ${NSD_CreateLabel} 74u 194u 160u 28u "РУССКИЙ$\r$\nДополнительный язык"
-  Pop $ConceptLanguageRussianText
-  SetCtlColors $ConceptLanguageRussianText ${K_COLOR_MUTED} ${K_COLOR_FIELD}
-  SendMessage $ConceptLanguageRussianText ${WM_SETFONT} $ConceptFontLabel 1
-  EnableWindow $ConceptLanguageRussianText 0
-  ${NSD_CreateLabel} 240u 199u 52u 14u ""
+  ${NSD_CreateLabel} 224u 200u 47u 14u ""
   Pop $ConceptLanguageRussianState
   SetCtlColors $ConceptLanguageRussianState ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
   SendMessage $ConceptLanguageRussianState ${WM_SETFONT} $ConceptFontMono 1
-  EnableWindow $ConceptLanguageRussianState 0
-  System::Call 'user32::SetWindowPos(p rConceptLanguageRussianText, p 0, i 0, i 0, i 0, i 0, i 0x13)'
-  System::Call 'user32::SetWindowPos(p rConceptLanguageRussianState, p 0, i 0, i 0, i 0, i 0, i 0x13)'
 
   ${If} $LANGUAGE == 1049
     Call ConceptApplyRussian

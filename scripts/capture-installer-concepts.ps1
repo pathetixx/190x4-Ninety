@@ -66,17 +66,6 @@ public static class NinetyConceptWin32 {
     }, IntPtr.Zero);
     return found;
   }
-  public static IntPtr FindDescendantContainingText(IntPtr parent, string expected) {
-    IntPtr found = IntPtr.Zero;
-    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
-      if (!IsWindowVisible(child)) return true;
-      var value = new System.Text.StringBuilder(512);
-      GetWindowText(child, value, value.Capacity);
-      if (value.ToString().Contains(expected)) { found = child; return false; }
-      return true;
-    }, IntPtr.Zero);
-    return found;
-  }
   public static bool HasVisibleClass(IntPtr parent, string expectedClass) {
     bool found = false;
     EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
@@ -101,6 +90,23 @@ public static class NinetyConceptWin32 {
       return true;
     }, IntPtr.Zero);
     return count;
+  }
+  public static IntPtr FindVisibleClassAtIndex(IntPtr parent, string expectedClass, int expectedIndex) {
+    IntPtr found = IntPtr.Zero;
+    int index = 0;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      var value = new System.Text.StringBuilder(128);
+      GetClassName(child, value, value.Capacity);
+      if (IsWindowVisible(child) && string.Equals(value.ToString(), expectedClass, StringComparison.OrdinalIgnoreCase)) {
+        if (index == expectedIndex) {
+          found = child;
+          return false;
+        }
+        index++;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return found;
   }
   public static bool HasInvalidLanguagePushCard(IntPtr parent) {
     bool invalid = false;
@@ -220,11 +226,11 @@ try {
     [NinetyConceptWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
   }
 
-  function Click-Text([string]$text) {
+  function Click-LanguageCard([int]$index) {
     $pageWindow = [NinetyConceptWin32]::FindVisiblePage($window)
-    if ($pageWindow -eq [IntPtr]::Zero) { throw "Visible concept page was not found before clicking '$text'" }
-    $control = [NinetyConceptWin32]::FindDescendantContainingText($pageWindow, $text)
-    if ($control -eq [IntPtr]::Zero) { throw "Concept text control '$text' was not found" }
+    if ($pageWindow -eq [IntPtr]::Zero) { throw "Visible language page was not found" }
+    $control = [NinetyConceptWin32]::FindVisibleClassAtIndex($pageWindow, "Button", $index)
+    if ($control -eq [IntPtr]::Zero) { throw "Language push-card $index was not found" }
     $rect = Get-WindowRect $control
     $x = [int](($rect.Left + $rect.Right) / 2)
     $y = [int](($rect.Top + $rect.Bottom) / 2)
@@ -304,7 +310,7 @@ try {
     Start-Sleep -Milliseconds 250
     Save-Page $page
     if ($page.File -eq "c-01-language.png") {
-      Click-Text "РУССКИЙ"
+      Click-LanguageCard 1
       $languageDeadline = (Get-Date).AddSeconds(3)
       do {
         Start-Sleep -Milliseconds 100
@@ -314,7 +320,7 @@ try {
         # A freshly launched, non-elevated window can consume the first pointer
         # press only for activation on Windows runners. Retry with a second real
         # click and still require visible state feedback before navigation.
-        Click-Text "РУССКИЙ"
+        Click-LanguageCard 1
         $languageDeadline = (Get-Date).AddSeconds(3)
         do {
           Start-Sleep -Milliseconds 100
