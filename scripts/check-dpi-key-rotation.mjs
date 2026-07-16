@@ -18,4 +18,19 @@ if (legacyMatch[1] !== updaterKey) {
   throw new Error("Legacy DPI public key must match the current OTA updater public key during rotation");
 }
 
+function assertMinisignPublicKey(name, encoded) {
+  const text = Buffer.from(encoded, "base64").toString("utf8");
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines[0]?.startsWith("untrusted comment: minisign public key:")) {
+    throw new Error(`${name} must contain exactly one base64 layer around a minisign public-key file`);
+  }
+  const keyLine = lines.find((line) => !line.startsWith("untrusted comment"));
+  if (!keyLine || Buffer.from(keyLine, "base64").length !== 42) {
+    throw new Error(`${name} does not contain a valid minisign public-key line`);
+  }
+}
+
+assertMinisignPublicKey("Dedicated DPI public key", dedicatedMatch[1]);
+assertMinisignPublicKey("Legacy DPI public key", legacyMatch[1]);
+
 console.log("DPI key rotation guard OK: dedicated key differs from OTA key");

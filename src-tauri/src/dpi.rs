@@ -203,7 +203,7 @@ impl Drop for StagingDirGuard {
 }
 // Dedicated ключ канала DPI. Новые bundle подписываются только им.
 // base64 от файла minisign-pubkey; он намеренно НЕ совпадает с OTA updater key.
-const CHANNEL_DEDICATED_PUBKEY_B64: &str = "ZFc1MGNuVnpkR1ZrSUdOdmJXMWxiblE2SUcxcGJtbHphV2R1SUhCMVlteHBZeUJyWlhrNklFUTROREkyTVRoRVFUYzFRVFZCTUVZS1VsZFJVRmRzY1c1cVYwWkRNa2xzZDI1UlIySmhRbFpMVFd0M2RtUTJMM2d2U1dvemRUVjRNeTl4UzNGaGN5ODRNRWxYWjFoNEx6WUs=";
+const CHANNEL_DEDICATED_PUBKEY_B64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ4NDI2MThEQTc1QTVBMEYKUldRUFdscW5qV0ZDMklsd25RR2JhQlZLTWt3dmQ2L3gvSWozdTV4My9xS3Fhcy84MElXZ1h4LzYK";
 // Переходное доверие: уже опубликованный dpi-channel подписан legacy OTA key.
 // Удалять только отдельным релизом после ручной ротации канала, см.
 // docs/DPI_CHANNEL_KEY_ROTATION.md.
@@ -1225,12 +1225,31 @@ pub async fn dpi_check_update(
 
 // ── Канал данных стратегий (подписанный, без переустановки) ──────────
 
+fn decode_channel_public_key(key_b64: &str) -> Result<minisign_verify::PublicKey, String> {
+    use base64::Engine;
+    let std_b64 = base64::engine::general_purpose::STANDARD;
+    // Tauri хранит pubkey как base64 от полного minisign .pub-файла. После
+    // одного decode здесь обязан получиться комментарий и одна строка ключа.
+    // Лишний слой base64 раньше ломал чистые установки до чтения legacy key.
+    let pk_raw = std_b64
+        .decode(key_b64)
+        .map_err(|e| format!("pubkey b64: {e}"))?;
+    let pk_text = String::from_utf8(pk_raw).map_err(|e| format!("pubkey utf8: {e}"))?;
+    let key_line = pk_text
+        .lines()
+        .map(|line| line.trim())
+        .find(|line| !line.is_empty() && !line.starts_with("untrusted comment"))
+        .ok_or("pubkey: ключевая строка не найдена")?;
+    minisign_verify::PublicKey::from_base64(key_line)
+        .map_err(|e| format!("pubkey decode: {e}"))
+}
+
 // Проверить minisign-подпись бандла. Dedicated key пробуем первым, legacy OTA
 // key — только для безопасного перехода со старого опубликованного канала.
 // sig_b64 — содержимое .sig-ассета (base64 от minisign-подписи, формат tauri).
 fn verify_channel(data: &[u8], sig_b64: &str) -> Result<(), String> {
     use base64::Engine;
-    use minisign_verify::{PublicKey, Signature};
+    use minisign_verify::Signature;
     let std_b64 = base64::engine::general_purpose::STANDARD;
     // .sig: base64 → текст minisign-подписи (с trusted/untrusted comment).
     let sig_raw = std_b64
@@ -1238,21 +1257,26 @@ fn verify_channel(data: &[u8], sig_b64: &str) -> Result<(), String> {
         .map_err(|e| format!("sig b64: {e}"))?;
     let sig_text = String::from_utf8(sig_raw).map_err(|e| format!("sig utf8: {e}"))?;
     let sig = Signature::decode(&sig_text).map_err(|e| format!("sig decode: {e}"))?;
+    let mut key_errors = Vec::new();
+    let mut usable_keys = 0usize;
     for key_b64 in [CHANNEL_DEDICATED_PUBKEY_B64, CHANNEL_LEGACY_PUBKEY_B64] {
-        // pubkey: base64 → текст файла minisign-pubkey → некомментарная строка.
-        let pk_raw = std_b64
-            .decode(key_b64)
-            .map_err(|e| format!("pubkey b64: {e}"))?;
-        let pk_text = String::from_utf8(pk_raw).map_err(|e| format!("pubkey utf8: {e}"))?;
-        let key_line = pk_text
-            .lines()
-            .map(|line| line.trim())
-            .find(|line| !line.is_empty() && !line.starts_with("untrusted comment"))
-            .ok_or("pubkey: ключевая строка не найдена")?;
-        let pk = PublicKey::from_base64(key_line).map_err(|e| format!("pubkey decode: {e}"))?;
+        let pk = match decode_channel_public_key(key_b64) {
+            Ok(pk) => pk,
+            Err(error) => {
+                key_errors.push(error);
+                continue;
+            }
+        };
+        usable_keys += 1;
         if pk.verify(data, &sig, true).is_ok() {
             return Ok(());
         }
+    }
+    if usable_keys == 0 {
+        return Err(format!(
+            "ключи DPI-канала повреждены: {}",
+            key_errors.join("; ")
+        ));
     }
     Err("ПОДПИСЬ НЕВЕРНА: не принята dedicated или legacy ключом DPI-канала".into())
 }
@@ -2094,6 +2118,12 @@ mod tests {
         assert_eq!(need.len(), 2);
         assert!(need.contains("tls_clienthello_www_google_com.bin"));
         assert!(need.contains("quic_initial_www_google_com.bin"));
+    }
+
+    #[test]
+    fn embedded_channel_public_keys_decode_after_exactly_one_base64_layer() {
+        assert!(decode_channel_public_key(CHANNEL_DEDICATED_PUBKEY_B64).is_ok());
+        assert!(decode_channel_public_key(CHANNEL_LEGACY_PUBKEY_B64).is_ok());
     }
 
     #[test]
