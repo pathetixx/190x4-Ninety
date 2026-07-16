@@ -189,9 +189,7 @@ try {
   }
 
   function Assert-NoTextOverflow([string]$Name) {
-    $page = [NinetyPreviewWin32]::FindVisiblePage($window)
-    if ($page -eq [IntPtr]::Zero) { throw "Visible page was not found for overflow check: $Name" }
-    $overflow = [NinetyPreviewWin32]::FindStaticTextOverflow($page)
+    $overflow = [NinetyPreviewWin32]::FindStaticTextOverflow($window)
     if ($overflow) { throw "Installer text overflow on ${Name}: $overflow" }
   }
 

@@ -56,6 +56,7 @@ Function LanguageSelectEnglish
   Pop $0
   SendMessage $LanguageEnglish ${BM_SETCHECK} ${BST_CHECKED} 0
   SendMessage $LanguageRussian ${BM_SETCHECK} ${BST_UNCHECKED} 0
+  Call KuroganeApplySignalStates
   Call LanguageApplyState
 FunctionEnd
 
@@ -63,6 +64,7 @@ Function LanguageSelectRussian
   Pop $0
   SendMessage $LanguageEnglish ${BM_SETCHECK} ${BST_UNCHECKED} 0
   SendMessage $LanguageRussian ${BM_SETCHECK} ${BST_CHECKED} 0
+  Call KuroganeApplySignalStates
   Call LanguageApplyState
 FunctionEnd
 
@@ -96,11 +98,15 @@ Function LanguagePage
   SetCtlColors $LanguageRussianState ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
   SendMessage $LanguageRussianState ${WM_SETFONT} $KuroganeFontMono 1
 
+  StrCpy $KuroganeSignalPrimaryControl $LanguageEnglish
+  StrCpy $KuroganeSignalSecondaryControl $LanguageRussian
+
   ${If} $LANGUAGE == 1049
     SendMessage $LanguageRussian ${BM_SETCHECK} ${BST_CHECKED} 0
   ${Else}
     SendMessage $LanguageEnglish ${BM_SETCHECK} ${BST_CHECKED} 0
   ${EndIf}
+  Call KuroganeApplySignalStates
   Call LanguageApplyState
 
   ; No Back action exists before locale selection.

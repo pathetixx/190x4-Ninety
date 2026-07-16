@@ -36,6 +36,12 @@ Var KuroganeChromeCloseBitmap
 Var KuroganeNavBackBitmap
 Var KuroganeNavNextBitmap
 Var KuroganeNavCancelBitmap
+Var KuroganeSignalPrimaryControl
+Var KuroganeSignalSecondaryControl
+Var KuroganeSignalPrimaryBitmap
+Var KuroganeSignalSecondaryBitmap
+Var KuroganeToggleControl
+Var KuroganeToggleBitmap
 Var KuroganeProgressControl
 Var KuroganePercentControl
 Var KuroganeStatusControl
@@ -218,11 +224,60 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
 !macroend
 
 !macro KuroganeSignalRadio X Y OUT
-  nsDialogs::CreateControl BUTTON "${DEFAULT_STYLES}|${WS_TABSTOP}|${BS_AUTORADIOBUTTON}|${BS_PUSHLIKE}|${BS_FLAT}" 0 ${X}u ${Y}u 14u 14u ""
+  nsDialogs::CreateControl BUTTON "${DEFAULT_STYLES}|${WS_TABSTOP}|${BS_AUTORADIOBUTTON}|${BS_BITMAP}|${BS_FLAT}" 0 ${X}u ${Y}u 14u 14u ""
   Pop ${OUT}
   System::Call 'uxtheme::SetWindowTheme(p ${OUT}, w "", w "")'
-  SetCtlColors ${OUT} ${K_COLOR_TEXT} ${K_COLOR_ACCENT}
 !macroend
+
+!macro KuroganeSignalImage CONTROL HANDLE SELECTED
+  ${If} ${CONTROL} != 0
+    ${If} ${HANDLE} != 0
+      SendMessage ${CONTROL} ${BM_SETIMAGE} ${IMAGE_BITMAP} 0
+      ${NSD_FreeImage} ${HANDLE}
+      StrCpy ${HANDLE} 0
+    ${EndIf}
+    ${If} ${SELECTED} == ${BST_CHECKED}
+      System::Call 'user32::LoadImageW(p 0, w "$PLUGINSDIR\kurogane-signal-on.bmp", i 0, i 0, i 0, i 0x2010) p .r0'
+    ${Else}
+      System::Call 'user32::LoadImageW(p 0, w "$PLUGINSDIR\kurogane-signal-off.bmp", i 0, i 0, i 0, i 0x2010) p .r0'
+    ${EndIf}
+    StrCpy ${HANDLE} $0
+    SendMessage ${CONTROL} ${BM_SETIMAGE} ${IMAGE_BITMAP} $0
+  ${EndIf}
+!macroend
+
+Function KuroganeApplySignalStates
+  SendMessage $KuroganeSignalPrimaryControl ${BM_GETCHECK} 0 0 $1
+  !insertmacro KuroganeSignalImage $KuroganeSignalPrimaryControl $KuroganeSignalPrimaryBitmap $1
+  ${If} $KuroganeSignalSecondaryControl != 0
+    SendMessage $KuroganeSignalSecondaryControl ${BM_GETCHECK} 0 0 $1
+    !insertmacro KuroganeSignalImage $KuroganeSignalSecondaryControl $KuroganeSignalSecondaryBitmap $1
+  ${EndIf}
+FunctionEnd
+
+Function KuroganeSignalPrimaryClick
+  Pop $9
+  SendMessage $KuroganeSignalPrimaryControl ${BM_SETCHECK} ${BST_CHECKED} 0
+  SendMessage $KuroganeSignalSecondaryControl ${BM_SETCHECK} ${BST_UNCHECKED} 0
+  Call KuroganeApplySignalStates
+FunctionEnd
+
+Function KuroganeSignalSecondaryClick
+  Pop $9
+  SendMessage $KuroganeSignalPrimaryControl ${BM_SETCHECK} ${BST_UNCHECKED} 0
+  SendMessage $KuroganeSignalSecondaryControl ${BM_SETCHECK} ${BST_CHECKED} 0
+  Call KuroganeApplySignalStates
+FunctionEnd
+
+Function un.KuroganeApplyToggleState
+  SendMessage $KuroganeToggleControl ${BM_GETCHECK} 0 0 $1
+  !insertmacro KuroganeSignalImage $KuroganeToggleControl $KuroganeToggleBitmap $1
+FunctionEnd
+
+Function un.KuroganeToggleClick
+  Pop $9
+  Call un.KuroganeApplyToggleState
+FunctionEnd
 
 !macro KuroganeRunLanguageSelector RESULT
   InitPluginsDir
@@ -444,6 +499,8 @@ FunctionEnd
   File /oname=$PLUGINSDIR\kurogane-finish-ru.bmp "${__FILEDIR__}\nav-finish-ru.bmp"
   File /oname=$PLUGINSDIR\kurogane-cancel-en.bmp "${__FILEDIR__}\nav-cancel-en.bmp"
   File /oname=$PLUGINSDIR\kurogane-cancel-ru.bmp "${__FILEDIR__}\nav-cancel-ru.bmp"
+  File /oname=$PLUGINSDIR\kurogane-signal-off.bmp "${__FILEDIR__}\signal-off.bmp"
+  File /oname=$PLUGINSDIR\kurogane-signal-on.bmp "${__FILEDIR__}\signal-on.bmp"
 
   CreateFont $KuroganeFontTitle "Segoe UI" 20 600
   CreateFont $KuroganeFontBody "Segoe UI" 9 400
@@ -809,6 +866,12 @@ FunctionEnd
     ${NSD_SetFocus} $MultiUser.InstallModePage.CurrentUser
   ${EndIf}
 
+  StrCpy $KuroganeSignalPrimaryControl $MultiUser.InstallModePage.CurrentUser
+  StrCpy $KuroganeSignalSecondaryControl $MultiUser.InstallModePage.AllUsers
+  ${NSD_OnClick} $KuroganeSignalPrimaryControl KuroganeSignalPrimaryClick
+  ${NSD_OnClick} $KuroganeSignalSecondaryControl KuroganeSignalSecondaryClick
+  Call KuroganeApplySignalStates
+
   !insertmacro KuroganePrepareKnownPageImpl "" $MultiUser.InstallModePage Next
   SendMessage $KuroganeModeTitleControl ${WM_SETFONT} $KuroganeFontTitle 1
   SetCtlColors $KuroganeModeTitleControl ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
@@ -839,6 +902,12 @@ FunctionEnd
   ${NSD_CreateLabel} 75u 217u 189u 24u "${SECONDARYDESC}"
   Pop $KuroganeMaintenanceRemoveDescriptionControl
   !insertmacro KuroganeSignalRadio 278 207 ${SECONDARY}
+
+  StrCpy $KuroganeSignalPrimaryControl ${PRIMARY}
+  StrCpy $KuroganeSignalSecondaryControl ${SECONDARY}
+  ${NSD_OnClick} $KuroganeSignalPrimaryControl KuroganeSignalPrimaryClick
+  ${NSD_OnClick} $KuroganeSignalSecondaryControl KuroganeSignalSecondaryClick
+  Call KuroganeApplySignalStates
 
   !insertmacro KuroganePrepareKnownPageImpl "" ${DIALOG} Next
   SendMessage $KuroganeMaintenanceTitleControl ${WM_SETFONT} $KuroganeFontTitle 1
@@ -929,7 +998,7 @@ FunctionEnd
   System::Free $6
   IntOp $7 $7 - $4
   IntOp $8 $8 - $5
-  IntOp $9 ${__NSD_CheckBox_STYLE} | ${BS_PUSHLIKE}
+  IntOp $9 ${__NSD_CheckBox_STYLE} | ${BS_BITMAP}
   IntOp $9 $9 | ${BS_FLAT}
   System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "", i r9, i r4, i r5, i r7, i r8, p r1, i0, i0, i0) p .r0'
   StrCpy ${CHECKBOX} $0
@@ -971,6 +1040,9 @@ FunctionEnd
   SendMessage $KuroganeUninstallDataDescriptionControl ${WM_SETFONT} $KuroganeFontBody 1
   SetCtlColors ${CHECKBOX} ${K_COLOR_TEXT} ${K_COLOR_ACCENT}
   !insertmacro KuroganeBringToFront ${CHECKBOX}
+  StrCpy $KuroganeToggleControl ${CHECKBOX}
+  ${NSD_OnClick} $KuroganeToggleControl un.KuroganeToggleClick
+  Call un.KuroganeApplyToggleState
   GetDlgItem $0 ${PAGE} 1000
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $KuroganeFontMono 1

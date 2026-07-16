@@ -56,6 +56,7 @@ Function SmokeMaintenanceShow
   StrCpy $4 "$(KMaintenanceRemoveDescription)"
   !insertmacro KuroganeMaintenancePageImpl $SmokeMaintenanceDialog $SmokeMaintenancePrimary $SmokeMaintenanceSecondary $0 $1 $2 $3 $4
   SendMessage $SmokeMaintenancePrimary ${BM_SETCHECK} ${BST_CHECKED} 0
+  Call KuroganeApplySignalStates
   ${NSD_SetFocus} $SmokeMaintenancePrimary
   nsDialogs::Show
 FunctionEnd

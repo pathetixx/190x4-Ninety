@@ -129,6 +129,20 @@ def make_button(size, text, *, primary=False, glyph=False):
     return out
 
 
+def make_signal(selected: bool):
+    """Small deterministic selector used instead of a themed Windows radio."""
+    size = (24, 24)
+    out = Image.new("RGBA", size, (*PANEL, 255))
+    draw = ImageDraw.Draw(out)
+    border = (255, 54, 84) if selected else (70, 70, 78)
+    draw.rectangle((0, 0, 23, 23), fill=(16, 16, 20), outline=border)
+    draw.rectangle((3, 3, 20, 20), outline=(42, 42, 48))
+    if selected:
+        draw.rectangle((7, 7, 16, 16), fill=RED)
+        draw.rectangle((9, 9, 14, 14), fill=(255, 119, 137))
+    return out
+
+
 def make_left_panel():
     # Exact pixel sizes of the corresponding DLU controls in the Windows NSIS
     # resource at 100% scaling. SS_CENTERIMAGE never stretches a bitmap.
@@ -214,6 +228,8 @@ def main():
     save_or_check(make_button((118, 35), "Готово", primary=True), "nav-finish-ru.bmp", args.check)
     save_or_check(make_button((110, 35), "Cancel"), "nav-cancel-en.bmp", args.check)
     save_or_check(make_button((110, 35), "Отмена"), "nav-cancel-ru.bmp", args.check)
+    save_or_check(make_signal(False), "signal-off.bmp", args.check)
+    save_or_check(make_signal(True), "signal-on.bmp", args.check)
 
 
 if __name__ == "__main__":

@@ -88,6 +88,8 @@ for (const name of [
   "nav-finish-ru.bmp",
   "nav-cancel-en.bmp",
   "nav-cancel-ru.bmp",
+  "signal-off.bmp",
+  "signal-on.bmp",
   "concept-gallery.nsi",
   "concept-gallery.nsh",
   "language-selector.nsi",
@@ -168,6 +170,8 @@ for (const [path, width, height] of [
   [resolve(kuroganeDir, "nav-finish-ru.bmp"), 118, 35],
   [resolve(kuroganeDir, "nav-cancel-en.bmp"), 110, 35],
   [resolve(kuroganeDir, "nav-cancel-ru.bmp"), 110, 35],
+  [resolve(kuroganeDir, "signal-off.bmp"), 24, 24],
+  [resolve(kuroganeDir, "signal-on.bmp"), 24, 24],
 ]) {
   checkBmp(path, width, height);
 }

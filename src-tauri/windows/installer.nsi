@@ -311,6 +311,7 @@ Function PageReinstall
     ${Else}
       SendMessage $R3 ${BM_SETCHECK} ${BST_CHECKED} 0
     ${EndIf}
+    Call KuroganeApplySignalStates
 
     ${NSD_SetFocus} $R2
     nsDialogs::Show
@@ -324,6 +325,7 @@ Function PageReinstallUpdateSelection
   ${Else}
     StrCpy $ReinstallPageCheck 2
   ${EndIf}
+  Call KuroganeApplySignalStates
 FunctionEnd
 Function PageLeaveReinstall
   ${NSD_GetState} $R2 $R1
