@@ -1,53 +1,50 @@
-Ninety — 190X4 VPN
-===================
+Ninety — 190x4 VPN
 
-Лицензия MIT (Copyright © 2026 pathetixx · 190x4.pw)
+MIT License (Copyright © 2026 pathetixx · 190x4.pw)
 
-Программа распространяется бесплатно. Исходный код открыт:
+Ninety is free software. Its source code is available at:
 https://github.com/pathetixx/190x4-Ninety
 
-КРАТКО О ТОМ, ЧТО ВЫ УСТАНАВЛИВАЕТЕ:
+WHAT YOU ARE INSTALLING:
 
-  •  Ninety.exe — интерфейс и управляющая часть клиента.
-  •  sing-box.exe — основной сетевой движок.
-  •  xray.exe — движок для подключений XHTTP.
-  •  naive.exe и trusttunnel_client.exe — локальные клиенты-мосты для
-     NaiveProxy и TrustTunnel.
-  •  wintun.dll — компонент виртуального сетевого адаптера для режима VPN · TUN.
-  •  winws.exe, WinDivert64.sys и Monkey64.sys — компоненты обхода DPI.
+  •  Ninety.exe — the application interface and controller.
+  •  sing-box.exe — the primary networking engine.
+  •  xray.exe — the engine used for XHTTP connections.
+  •  naive.exe and trusttunnel_client.exe — local protocol bridges for
+     NaiveProxy and TrustTunnel.
+  •  wintun.dll — the virtual network adapter component for VPN · TUN mode.
+  •  winws.exe, WinDivert64.sys and Monkey64.sys — DPI-bypass components.
 
-Ninety не устанавливает постоянно работающую собственную Windows-службу.
-Системные права запрашиваются только для операций, которым они необходимы:
-режима VPN · TUN, обхода DPI и очистки соответствующих драйверов.
+Ninety does not install its own permanently running Windows service.
+Elevated access is requested only for operations that require it: VPN · TUN,
+DPI bypass and cleanup of the corresponding drivers.
 
-ЧТО ОТПРАВЛЯЕТСЯ В ИНТЕРНЕТ:
+WHAT IS SENT TO THE INTERNET:
 
-  •  Подписки загружаются с адресов, которые добавил пользователь. При включённом
-     прямом резервном обновлении запрос может выполняться без VPN.
-  •  VPN-трафик передаётся выбранным пользователем серверам и используемым ими
-     сетевым посредникам.
-  •  Проверка обновлений приложения выполняется через GitLab и GitHub Releases;
-     обновления данных обхода DPI — через подписанный канал GitHub Releases.
-  •  Проверки региона, доступности и качества соединения обращаются к внешним
-     тестовым/IP-сервисам только при использовании соответствующих функций.
-  •  Регистрация WARP обращается к API Cloudflare только по команде пользователя.
-  •  Ninety не содержит собственной телеметрии, аналитики или рекламы.
+  •  Subscriptions are fetched from addresses added by the user. When direct
+     fallback refresh is enabled, the request may be made without the VPN.
+  •  VPN traffic is sent to user-selected servers and their network providers.
+  •  App updates are checked through GitLab and GitHub Releases; DPI data is
+     updated through a signed GitHub Releases channel.
+  •  Region, availability and connection-quality checks contact external test
+     or IP services only when the corresponding features are used.
+  •  WARP registration contacts the Cloudflare API only on explicit request.
+  •  Ninety contains no first-party telemetry, analytics or advertising.
 
-СТОРОННИЕ КОМПОНЕНТЫ:
+THIRD-PARTY COMPONENTS:
 
-  В состав поставки входят отдельные сторонние исполняемые файлы, библиотеки и
-  драйверы. Они распространяются на условиях собственных лицензий их авторов.
-  Ссылки на исходный код, версии компонентов и сведения о сборке опубликованы в
-  репозитории Ninety и workflow выпуска.
+  The package includes third-party executables, libraries and drivers. They are
+  distributed under their authors' own licenses. Sources, component versions
+  and build details are published in the Ninety repository and release workflow.
 
-ГАРАНТИИ:
+WARRANTY:
 
-  Программа предоставляется «КАК ЕСТЬ», без каких-либо гарантий.
-  Используя Ninety, вы соглашаетесь с условиями MIT.
+  The software is provided AS IS, without warranty of any kind.
+  By using Ninety, you accept the MIT License.
 
-Полный текст лицензии:
+Full license text:
 
-----------------------------------------------------------------------
+MIT LICENSE TERMS
 
 Permission is hereby granted, free of charge, to any person obtaining a
 copy of this software and associated documentation files (the "Software"),
@@ -63,6 +60,52 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
 OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
 THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+
+Русский перевод
+
+Лицензия MIT (Copyright © 2026 pathetixx · 190x4.pw)
+
+Программа распространяется бесплатно. Исходный код открыт:
+https://github.com/pathetixx/190x4-Ninety
+
+ЧТО ВЫ УСТАНАВЛИВАЕТЕ:
+
+  •  Ninety.exe — интерфейс и управляющая часть клиента.
+  •  sing-box.exe — основной сетевой движок.
+  •  xray.exe — движок для подключений XHTTP.
+  •  naive.exe и trusttunnel_client.exe — локальные клиенты-мосты для
+     NaiveProxy и TrustTunnel.
+  •  wintun.dll — компонент виртуального сетевого адаптера для VPN · TUN.
+  •  winws.exe, WinDivert64.sys и Monkey64.sys — компоненты обхода DPI.
+
+Ninety не устанавливает постоянно работающую собственную Windows-службу.
+Системные права запрашиваются только для операций, которым они необходимы:
+режима VPN · TUN, обхода DPI и очистки соответствующих драйверов.
+
+ЧТО ОТПРАВЛЯЕТСЯ В ИНТЕРНЕТ:
+
+  •  Подписки загружаются с адресов, которые добавил пользователь. При включённом
+     прямом резервном обновлении запрос может выполняться без VPN.
+  •  VPN-трафик передаётся выбранным пользователем серверам и используемым ими
+     сетевым посредникам.
+  •  Проверка обновлений выполняется через GitLab и GitHub Releases; обновления
+     данных DPI — через подписанный канал GitHub Releases.
+  •  Проверки региона, доступности и качества соединения обращаются к внешним
+     тестовым/IP-сервисам только при использовании соответствующих функций.
+  •  Регистрация WARP обращается к API Cloudflare только по команде пользователя.
+  •  Ninety не содержит собственной телеметрии, аналитики или рекламы.
+
+СТОРОННИЕ КОМПОНЕНТЫ:
+
+  В поставку входят сторонние исполняемые файлы, библиотеки и драйверы. Они
+  распространяются на условиях лицензий их авторов. Исходники, версии и сведения
+  о сборке опубликованы в репозитории Ninety и workflow выпуска.
+
+ГАРАНТИИ:
+
+  Программа предоставляется «КАК ЕСТЬ», без каких-либо гарантий.
+  Используя Ninety, вы соглашаетесь с условиями MIT.

@@ -17,6 +17,7 @@ public static class NinetyLanguageWin32 {
   public delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int index);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowProc callback, IntPtr param);
   [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr param);
@@ -135,10 +136,18 @@ try {
   if (-not [NinetyLanguageWin32]::ContainsText($window, "Installer language / Язык установщика")) {
     throw "Bilingual selector title is missing"
   }
+  if (-not [NinetyLanguageWin32]::ContainsText($window, "190X4 / 01")) {
+    throw "Signal Matrix language screen code is missing"
+  }
   $english = [NinetyLanguageWin32]::FindVisibleButton($page, 0)
   $russian = [NinetyLanguageWin32]::FindVisibleButton($page, 1)
   if ($english -eq [IntPtr]::Zero -or $russian -eq [IntPtr]::Zero) {
     throw "Two native language selectors were not found"
+  }
+  foreach ($selector in $english, $russian) {
+    if (([NinetyLanguageWin32]::GetWindowLong($selector, -16) -band 0x00000080) -ne 0x00000080) {
+      throw "Language selector fell back to a stock Windows radio"
+    }
   }
   [NinetyLanguageWin32]::SendMessage($russian, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null # BM_CLICK
   Start-Sleep -Milliseconds 300

@@ -69,6 +69,37 @@ public static class NinetyPreviewWin32 {
     GetWindowText(hWnd, value, value.Capacity);
     return value.ToString();
   }
+  public static bool ContainsText(IntPtr parent, string expected) {
+    bool found = false;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      if (!IsWindowVisible(child)) return true;
+      string value = ReadText(child);
+      if (value.Contains(expected)) { found = true; return false; }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+  public static IntPtr FindVisibleClass(IntPtr parent, string prefix) {
+    IntPtr found = IntPtr.Zero;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      if (!IsWindowVisible(child)) return true;
+      var value = new System.Text.StringBuilder(64);
+      GetClassName(child, value, value.Capacity);
+      if (value.ToString().StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) { found = child; return false; }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+  public static IntPtr FindTextPrefix(IntPtr parent, string prefix) {
+    IntPtr found = IntPtr.Zero;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      if (!IsWindowVisible(child)) return true;
+      string value = ReadText(child);
+      if (value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) { found = child; return false; }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
   public static IntPtr FindVisiblePage(IntPtr parent) {
     IntPtr found = IntPtr.Zero;
     EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
@@ -213,6 +244,21 @@ try {
     if ($overflow) { throw "Installer text overflow on ${Name}: $overflow" }
   }
 
+  function Assert-SignalCode([string]$Code, [string]$Name) {
+    if (-not [NinetyPreviewWin32]::ContainsText($window, $Code)) {
+      throw "Signal Matrix code $Code is missing on $Name"
+    }
+  }
+
+  function Assert-BitmapButton([int]$Id, [string]$Name) {
+    $control = [NinetyPreviewWin32]::FindDescendantById($window, $Id)
+    if ($control -eq [IntPtr]::Zero) { throw "$Name button was not found" }
+    $style = [NinetyPreviewWin32]::GetWindowLong($control, -16)
+    if (($style -band 0x00000080) -ne 0x00000080) {
+      throw "$Name fell back to a stock Windows button"
+    }
+  }
+
   function Click-InstallerControl([int]$Id) {
     $control = [NinetyPreviewWin32]::FindDescendantById($window, $Id)
     if ($control -eq [IntPtr]::Zero) { throw "Installer control $Id was not found" }
@@ -308,20 +354,38 @@ try {
   Save-InstallerWindow "01-welcome.png"
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
-  Save-InstallerWindow "02-license.png"
-  Assert-NoTextOverflow "license"
-  Click-InstallerControl 1
-  Start-Sleep -Seconds 1
-  Save-InstallerWindow "03-install-mode.png"
+  Save-InstallerWindow "02-install-mode.png"
   Assert-NoTextOverflow "install mode"
+  Assert-SignalCode "190X4 / 02" "install mode"
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
-  Save-InstallerWindow "04-maintenance.png"
-  Assert-NoTextOverflow "maintenance"
-  Click-InstallerControl 1
-  Start-Sleep -Seconds 1
-  Save-InstallerWindow "05-target.png"
+  Save-InstallerWindow "03-target.png"
   Assert-NoTextOverflow "deployment target"
+  Assert-SignalCode "190X4 / 03" "deployment target"
+  Assert-BitmapButton 1001 "Deployment target change"
+  Click-InstallerControl 1
+  Start-Sleep -Seconds 1
+  Save-InstallerWindow "04-license.png"
+  Assert-NoTextOverflow "license"
+  Assert-SignalCode "190X4 / 04" "license"
+  $license = [NinetyPreviewWin32]::FindVisibleClass($window, "RichEdit")
+  if ($license -eq [IntPtr]::Zero) { throw "Signal Matrix license body was not found" }
+  $licenseStyle = [NinetyPreviewWin32]::GetWindowLong($license, -16)
+  if (($licenseStyle -band 0x00200000) -ne 0) { throw "License still exposes a native vertical scrollbar" }
+  $licensePosition = [NinetyPreviewWin32]::FindTextPrefix($window, "ПОЗИЦИЯ ЧТЕНИЯ")
+  if ($licensePosition -eq [IntPtr]::Zero) { throw "Live license read position was not found" }
+  $beforeLicensePosition = [NinetyPreviewWin32]::ReadText($licensePosition)
+  [NinetyPreviewWin32]::SendMessage($license, 0x0100, [IntPtr]0x22, [IntPtr]::Zero) | Out-Null
+  [NinetyPreviewWin32]::SendMessage($license, 0x0101, [IntPtr]0x22, [IntPtr]::Zero) | Out-Null
+  Start-Sleep -Milliseconds 500
+  $afterLicensePosition = [NinetyPreviewWin32]::ReadText($licensePosition)
+  if ($afterLicensePosition -eq $beforeLicensePosition) { throw "License Page Down did not move the custom read position" }
+  Save-InstallerWindow "04-license-scrolled.png"
+  Click-InstallerControl 1
+  Start-Sleep -Seconds 1
+  Save-InstallerWindow "05-maintenance.png"
+  Assert-NoTextOverflow "maintenance"
+  Assert-SignalCode "190X4 / 05" "maintenance"
   Click-InstallerControl 1
   Start-Sleep -Seconds 3
   Assert-LiveProgress
@@ -481,6 +545,7 @@ try {
   Start-Sleep -Seconds 1
   Save-InstallerWindow "09-uninstall-confirm.png"
   Assert-NoTextOverflow "uninstall confirmation"
+  Assert-SignalCode "190X4 / RM" "uninstall confirmation"
   Click-InstallerControl 1
   Start-Sleep -Seconds 3
   Save-InstallerWindow "10-uninstall-finish.png"

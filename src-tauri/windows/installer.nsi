@@ -178,17 +178,7 @@ Function NinetyWelcomeShow
   !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text Install
 FunctionEnd
 
-; 2. License Page (if defined)
-!if "${LICENSE}" != ""
-  !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeLicenseShow
-  !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
-  Function KuroganeLicenseShow
-    !insertmacro KuroganeLicensePageImpl "" $mui.LicensePage $mui.Licensepage.TopText $mui.Licensepage.LicenseText
-  FunctionEnd
-!endif
-
-; 3. Install mode (if it is set to `both`)
+; 2. Install mode (if it is set to `both`)
 !if "${INSTALLMODE}" == "both"
   !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
   !define MULTIUSER_PAGE_CUSTOMFUNCTION_SHOW KuroganeInstallModeShow
@@ -198,7 +188,26 @@ FunctionEnd
   FunctionEnd
 !endif
 
-; 4. Custom page to ask user if he wants to reinstall/uninstall
+; 3. Choose install directory page
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeDirectoryShow
+!insertmacro MUI_PAGE_DIRECTORY
+Function KuroganeDirectoryShow
+  !insertmacro KuroganeDirectoryPageImpl $mui.DirectoryPage
+FunctionEnd
+
+; 4. License Page (if defined)
+!if "${LICENSE}" != ""
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+  !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeLicenseShow
+  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeLicenseLeave
+  !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
+  Function KuroganeLicenseShow
+    !insertmacro KuroganeLicensePageImpl "" $mui.LicensePage $mui.Licensepage.TopText $mui.Licensepage.LicenseText
+  FunctionEnd
+!endif
+
+; 5. Custom page to ask user if he wants to reinstall/uninstall
 ;    only if a previous installation was detected
 Var ReinstallPageCheck
 Var ReinstallPageDialog
@@ -402,14 +411,6 @@ Function PageLeaveReinstall
       Abort
     ${EndIf}
   reinst_done:
-FunctionEnd
-
-; 5. Choose install directory page
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeDirectoryShow
-!insertmacro MUI_PAGE_DIRECTORY
-Function KuroganeDirectoryShow
-  !insertmacro KuroganeDirectoryPageImpl $mui.DirectoryPage
 FunctionEnd
 
 ; 6. Start menu shortcut page

@@ -88,6 +88,8 @@ for (const name of [
   "nav-finish-ru.bmp",
   "nav-cancel-en.bmp",
   "nav-cancel-ru.bmp",
+  "action-change-en.bmp",
+  "action-change-ru.bmp",
   "signal-off.bmp",
   "signal-on.bmp",
   "concept-gallery.nsi",
@@ -145,6 +147,9 @@ if (existsSync(kuroganeUiPath)) {
     "KuroganeDirectoryPageImpl",
     "KMaintenanceSignal",
     "KUninstallSignal",
+    "KuroganeMatrixPageHeader",
+    "EM_GETFIRSTVISIBLELINE",
+    '"190X4 / 05"',
   ]) {
     if (!kuroganeUi.includes(marker)) fail(`Kurogane OTA chrome не содержит ${marker}`);
   }
@@ -170,6 +175,8 @@ for (const [path, width, height] of [
   [resolve(kuroganeDir, "nav-finish-ru.bmp"), 118, 35],
   [resolve(kuroganeDir, "nav-cancel-en.bmp"), 110, 35],
   [resolve(kuroganeDir, "nav-cancel-ru.bmp"), 110, 35],
+  [resolve(kuroganeDir, "action-change-en.bmp"), 132, 35],
+  [resolve(kuroganeDir, "action-change-ru.bmp"), 132, 35],
   [resolve(kuroganeDir, "signal-off.bmp"), 24, 24],
   [resolve(kuroganeDir, "signal-on.bmp"), 24, 24],
 ]) {
@@ -209,6 +216,15 @@ if (templatePath && existsSync(templatePath)) {
   }
   if (template.includes("MUI_LANGDLL_DISPLAY")) {
     fail("installer.nsi не должен возвращаться к системному LangDLL диалогу");
+  }
+  const pageOrder = [
+    "KuroganeInstallModeShow",
+    "KuroganeDirectoryShow",
+    "KuroganeLicenseShow",
+    "Page custom PageReinstall",
+  ].map((marker) => template.indexOf(marker));
+  if (pageOrder.some((index) => index < 0) || pageOrder.some((index, i) => i > 0 && index <= pageOrder[i - 1])) {
+    fail("Signal Matrix production pages must follow 02 access → 03 target → 04 manifest → 05 operation");
   }
 }
 

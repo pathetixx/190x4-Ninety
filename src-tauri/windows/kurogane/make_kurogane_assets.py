@@ -228,6 +228,8 @@ def main():
     save_or_check(make_button((118, 35), "Готово", primary=True), "nav-finish-ru.bmp", args.check)
     save_or_check(make_button((110, 35), "Cancel"), "nav-cancel-en.bmp", args.check)
     save_or_check(make_button((110, 35), "Отмена"), "nav-cancel-ru.bmp", args.check)
+    save_or_check(make_button((132, 35), "Change"), "action-change-en.bmp", args.check)
+    save_or_check(make_button((132, 35), "Изменить"), "action-change-ru.bmp", args.check)
     save_or_check(make_signal(False), "signal-off.bmp", args.check)
     save_or_check(make_signal(True), "signal-on.bmp", args.check)
 

@@ -30,17 +30,24 @@ Var SmokeDeleteAppDataCheckbox
 Function SmokeWelcomeShow
   !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text Install
 FunctionEnd
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeLicenseShow
-!insertmacro MUI_PAGE_LICENSE "..\license.rtf"
-Function SmokeLicenseShow
-  !insertmacro KuroganeLicensePageImpl "" $mui.LicensePage $mui.Licensepage.TopText $mui.Licensepage.LicenseText
-FunctionEnd
 !define MULTIUSER_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
 !define MULTIUSER_PAGE_CUSTOMFUNCTION_SHOW SmokeInstallModeShow
 !insertmacro MULTIUSER_PAGE_INSTALLMODE
 Function SmokeInstallModeShow
   !insertmacro KuroganeInstallModePageImpl
+FunctionEnd
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeDirectoryShow
+!insertmacro MUI_PAGE_DIRECTORY
+Function SmokeDirectoryShow
+  !insertmacro KuroganeDirectoryPageImpl $mui.DirectoryPage
+FunctionEnd
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeLicenseShow
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeLicenseLeave
+!insertmacro MUI_PAGE_LICENSE "..\license.rtf"
+Function SmokeLicenseShow
+  !insertmacro KuroganeLicensePageImpl "" $mui.LicensePage $mui.Licensepage.TopText $mui.Licensepage.LicenseText
 FunctionEnd
 Page custom SmokeMaintenanceShow
 Function SmokeMaintenanceShow
@@ -59,12 +66,6 @@ Function SmokeMaintenanceShow
   Call KuroganeApplySignalStates
   ${NSD_SetFocus} $SmokeMaintenancePrimary
   nsDialogs::Show
-FunctionEnd
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeDirectoryShow
-!insertmacro MUI_PAGE_DIRECTORY
-Function SmokeDirectoryShow
-  !insertmacro KuroganeDirectoryPageImpl $mui.DirectoryPage
 FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeInstFilesShow
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeInstFilesLeave

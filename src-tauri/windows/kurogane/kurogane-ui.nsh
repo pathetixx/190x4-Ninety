@@ -36,8 +36,11 @@ Var KuroganeChromeCloseBitmap
 Var KuroganeNavBackBitmap
 Var KuroganeNavNextBitmap
 Var KuroganeNavCancelBitmap
+Var KuroganeActionBitmap
 Var KuroganeSignalPrimaryControl
 Var KuroganeSignalSecondaryControl
+Var KuroganeSignalPrimaryBorder
+Var KuroganeSignalSecondaryBorder
 Var KuroganeSignalPrimaryBitmap
 Var KuroganeSignalSecondaryBitmap
 Var KuroganeToggleControl
@@ -55,18 +58,9 @@ Var KuroganeMatrixParent
 Var KuroganeDragWasDown
 Var KuroganeProgressActive
 Var KuroganeCaptionPressed
-Var KuroganeModeTitleControl
-Var KuroganeModeSubtitleControl
-Var KuroganeModeAllDescriptionControl
-Var KuroganeModeCurrentDescriptionControl
-Var KuroganeMaintenanceTitleControl
-Var KuroganeMaintenanceSubtitleControl
-Var KuroganeMaintenanceInfoControl
-Var KuroganeMaintenanceRepairDescriptionControl
-Var KuroganeMaintenanceRemoveDescriptionControl
-Var KuroganeUninstallSubtitleControl
-Var KuroganeUninstallDataTitleControl
-Var KuroganeUninstallDataDescriptionControl
+Var KuroganeLicenseTextControl
+Var KuroganeLicenseThumbControl
+Var KuroganeLicensePositionControl
 
 LangString KStepOptions 1033 "OPTIONS"
 LangString KStepInstall 1033 "INSTALL"
@@ -80,9 +74,21 @@ LangString KUninstallStatus 1033 "REMOVING SECURE COMPONENTS"
 LangString KLicenseTitle 1033 "License and components"
 LangString KLicenseSubtitle 1033 "Readable licensing without falling back to a stock Windows dialog."
 LangString KLicenseSignal 1033 "LICENSE SIGNAL"
+LangString KLicenseEyebrow 1033 "SIGNAL MATRIX / MANIFEST"
+LangString KLicenseType 1033 "LICENSE"
+LangString KLicenseModules 1033 "MODULES"
+LangString KLicensePosition 1033 "READ POSITION"
+LangString KLicenseKeys 1033 "PAGE UP / PAGE DOWN"
+LangString KLicenseDocument1 1033 "Ninety — 190x4 VPN$\r$\nMIT License · Copyright © 2026 pathetixx · 190x4.pw$\r$\n$\r$\nNinety is free and open source:$\r$\ngithub.com/pathetixx/190x4-Ninety$\r$\n$\r$\nWHAT YOU ARE INSTALLING$\r$\n"
+LangString KLicenseDocument2 1033 "• Ninety.exe — application interface and controller.$\r$\n• sing-box.exe — primary networking engine.$\r$\n• xray.exe — XHTTP engine.$\r$\n• naive.exe and trusttunnel_client.exe — local protocol bridges.$\r$\n• wintun.dll — VPN · TUN adapter.$\r$\n• winws.exe, WinDivert64.sys and Monkey64.sys — DPI-bypass components.$\r$\n$\r$\n"
+LangString KLicenseDocument3 1033 "SYSTEM ACCESS$\r$\nNinety does not install its own permanently running Windows service. Elevated access is requested only for VPN · TUN, DPI bypass and related driver cleanup.$\r$\n$\r$\nNETWORK ACTIVITY$\r$\nSubscriptions are fetched from user-provided addresses. VPN traffic is sent through user-selected servers. App updates use GitLab and GitHub Releases; signed DPI data updates use GitHub Releases.$\r$\n$\r$\n"
+LangString KLicenseDocument4 1033 "Region, availability and connection-quality checks contact external test or IP services only when those features are used. WARP registration contacts Cloudflare only on explicit request. Ninety contains no first-party telemetry, analytics or advertising.$\r$\n$\r$\nTHIRD-PARTY COMPONENTS$\r$\nBundled executables, libraries and drivers remain subject to their authors’ licenses. Sources, versions and build details are published in the Ninety repository.$\r$\n$\r$\n"
+LangString KLicenseDocument5 1033 "MIT LICENSE$\r$\nPermission is granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to use, copy, modify, merge, publish, distribute, sublicense and/or sell copies, and to permit others to do so, subject to the following condition:$\r$\n$\r$\nThe copyright and permission notices must be included in all copies or substantial portions of the Software.$\r$\n$\r$\n"
+LangString KLicenseDocument6 1033 "THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. THE AUTHORS OR COPYRIGHT HOLDERS ARE NOT LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.$\r$\n$\r$\nContinuing means that you accept the MIT License."
 LangString KModeTitle 1033 "Choose who can use Ninety"
 LangString KModeSubtitle 1033 "Choose which Windows accounts can launch Ninety."
 LangString KModeSignal 1033 "ACCESS MATRIX"
+LangString KModeEyebrow 1033 "SIGNAL MATRIX / ACCESS"
 LangString KModeAllTitle 1033 "ALL ACCOUNTS"
 LangString KModeCurrentTitle 1033 "CURRENT ACCOUNT"
 LangString KModeAllDescription 1033 "Available to every Windows account on this computer."
@@ -90,6 +96,8 @@ LangString KModeCurrentDescription 1033 "Installed only for the current Windows 
 LangString KMaintenanceTitle 1033 "Ninety is already installed"
 LangString KMaintenanceSubtitle 1033 "Choose one deliberate action for the existing installation."
 LangString KMaintenanceSignal 1033 "OPERATION GRID"
+LangString KMaintenanceEyebrow 1033 "SIGNAL MATRIX / OPERATION"
+LangString KMaintenanceDataPolicy 1033 "DATA / DECIDE ON REMOVE"
 LangString KMaintenanceRepairDescription 1033 "Restore or update the installed application components."
 LangString KMaintenanceRemoveDescription 1033 "Remove Ninety and its installed components from this computer."
 LangString KMaintenanceReplaceDescription 1033 "Remove the existing version before installing the selected version."
@@ -101,19 +109,24 @@ LangString KUninstallConfirmSubtitle 1033 "The application will be closed and it
 LangString KUninstallDeleteData 1033 "Remove settings and data"
 LangString KUninstallDeleteDataDescription 1033 "Also remove saved profiles, preferences and local application data."
 LangString KUninstallSignal 1033 "REMOVAL MATRIX"
+LangString KUninstallEyebrow 1033 "SIGNAL MATRIX / REMOVE"
 LangString KUninstallPath 1033 "INSTALLATION TARGET"
 LangString KTargetTitle 1033 "Deployment target"
 LangString KTargetSubtitle 1033 "Keep the destination explicit and easy to verify."
 LangString KTargetSignal 1033 "TARGET VECTOR"
+LangString KTargetEyebrow 1033 "SIGNAL MATRIX / TARGET"
 LangString KTargetPath 1033 "INSTALL PATH"
 LangString KTargetCapacity 1033 "CAPACITY"
 LangString KTargetChange 1033 "CHANGE"
+LangString KTargetReady 1033 "READY"
+LangString KTargetShortcut 1033 "DESKTOP LINK / OPTIONAL"
 LangString KLanguageTitle 1033 "Installer language / Язык установщика"
 LangString KLanguageSubtitle 1033 "Choose the interface language · Выберите язык интерфейса"
 LangString KLanguageEnglishTitle 1033 "ENGLISH"
 LangString KLanguageEnglishDescription 1033 "Primary · default fallback"
 LangString KLanguageRussianTitle 1033 "РУССКИЙ"
 LangString KLanguageRussianDescription 1033 "Дополнительный язык"
+LangString KLanguageSelected 1033 "SELECTED"
 LangString KOtaWindowTitle 1033 "Ninety update"
 
 LangString KStepOptions 1049 "ПАРАМЕТРЫ"
@@ -128,9 +141,21 @@ LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПО
 LangString KLicenseTitle 1049 "Лицензия и компоненты"
 LangString KLicenseSubtitle 1049 "Читаемая лицензия без возврата к стандартному диалогу Windows."
 LangString KLicenseSignal 1049 "СИГНАЛ ЛИЦЕНЗИИ"
+LangString KLicenseEyebrow 1049 "SIGNAL MATRIX / МАНИФЕСТ"
+LangString KLicenseType 1049 "ЛИЦЕНЗИЯ"
+LangString KLicenseModules 1049 "МОДУЛИ"
+LangString KLicensePosition 1049 "ПОЗИЦИЯ ЧТЕНИЯ"
+LangString KLicenseKeys 1049 "PAGE UP / PAGE DOWN"
+LangString KLicenseDocument1 1049 "Ninety — 190x4 VPN$\r$\nЛицензия MIT · Copyright © 2026 pathetixx · 190x4.pw$\r$\n$\r$\nNinety распространяется бесплатно. Исходный код открыт:$\r$\ngithub.com/pathetixx/190x4-Ninety$\r$\n$\r$\nЧТО ВЫ УСТАНАВЛИВАЕТЕ$\r$\n"
+LangString KLicenseDocument2 1049 "• Ninety.exe — интерфейс и управляющая часть.$\r$\n• sing-box.exe — основной сетевой движок.$\r$\n• xray.exe — движок XHTTP.$\r$\n• naive.exe и trusttunnel_client.exe — локальные протокольные мосты.$\r$\n• wintun.dll — адаптер VPN · TUN.$\r$\n• winws.exe, WinDivert64.sys и Monkey64.sys — компоненты обхода DPI.$\r$\n$\r$\n"
+LangString KLicenseDocument3 1049 "СИСТЕМНЫЕ ПРАВА$\r$\nNinety не устанавливает собственную постоянно работающую службу Windows. Повышенные права запрашиваются только для VPN · TUN, обхода DPI и очистки связанных драйверов.$\r$\n$\r$\nСЕТЕВАЯ АКТИВНОСТЬ$\r$\nПодписки загружаются с адресов пользователя. VPN-трафик передаётся выбранным серверам. Обновления приложения поступают через GitLab и GitHub Releases, подписанные данные DPI — через GitHub Releases.$\r$\n$\r$\n"
+LangString KLicenseDocument4 1049 "Проверки региона, доступности и качества обращаются к внешним тестовым/IP-сервисам только при использовании этих функций. Регистрация WARP обращается к Cloudflare только по команде пользователя. В Ninety нет собственной телеметрии, аналитики и рекламы.$\r$\n$\r$\nСТОРОННИЕ КОМПОНЕНТЫ$\r$\nИсполняемые файлы, библиотеки и драйверы распространяются по лицензиям их авторов. Исходники, версии и сведения о сборке опубликованы в репозитории Ninety.$\r$\n$\r$\n"
+LangString KLicenseDocument5 1049 "ЛИЦЕНЗИЯ MIT$\r$\nЛюбому лицу, получившему копию программы и документации, бесплатно разрешается использовать, копировать, изменять, объединять, публиковать, распространять, сублицензировать и/или продавать копии, а также разрешать это другим лицам при следующем условии:$\r$\n$\r$\nУведомления об авторском праве и разрешении должны включаться во все копии или существенные части программы.$\r$\n$\r$\n"
+LangString KLicenseDocument6 1049 "ПРОГРАММА ПРЕДОСТАВЛЯЕТСЯ КАК ЕСТЬ, БЕЗ КАКИХ-ЛИБО ЯВНЫХ ИЛИ ПОДРАЗУМЕВАЕМЫХ ГАРАНТИЙ, ВКЛЮЧАЯ ТОВАРНУЮ ПРИГОДНОСТЬ, ПРИГОДНОСТЬ ДЛЯ КОНКРЕТНОЙ ЦЕЛИ И НЕНАРУШЕНИЕ ПРАВ. АВТОРЫ И ПРАВООБЛАДАТЕЛИ НЕ НЕСУТ ОТВЕТСТВЕННОСТИ ЗА ПРЕТЕНЗИИ, УЩЕРБ ИЛИ ИНЫЕ ОБЯЗАТЕЛЬСТВА, СВЯЗАННЫЕ С ПРОГРАММОЙ ИЛИ ЕЁ ИСПОЛЬЗОВАНИЕМ.$\r$\n$\r$\nПродолжая, вы принимаете условия MIT."
 LangString KModeTitle 1049 "Кто сможет пользоваться Ninety"
 LangString KModeSubtitle 1049 "Выберите, какие учётные записи Windows смогут запускать Ninety."
 LangString KModeSignal 1049 "МАТРИЦА ДОСТУПА"
+LangString KModeEyebrow 1049 "SIGNAL MATRIX / ДОСТУП"
 LangString KModeAllTitle 1049 "ВСЕ УЧЁТНЫЕ ЗАПИСИ"
 LangString KModeCurrentTitle 1049 "ТЕКУЩАЯ УЧЁТНАЯ ЗАПИСЬ"
 LangString KModeAllDescription 1049 "Приложение будет доступно всем учётным записям Windows на этом компьютере."
@@ -138,6 +163,8 @@ LangString KModeCurrentDescription 1049 "Приложение будет уст�
 LangString KMaintenanceTitle 1049 "Ninety уже установлен"
 LangString KMaintenanceSubtitle 1049 "Выберите одно осознанное действие для существующей установки."
 LangString KMaintenanceSignal 1049 "СЕТКА ОПЕРАЦИЙ"
+LangString KMaintenanceEyebrow 1049 "SIGNAL MATRIX / ОПЕРАЦИЯ"
+LangString KMaintenanceDataPolicy 1049 "ДАННЫЕ / РЕШИТЬ ПРИ УДАЛЕНИИ"
 LangString KMaintenanceRepairDescription 1049 "Восстановить или обновить установленные компоненты приложения."
 LangString KMaintenanceRemoveDescription 1049 "Удалить Ninety и установленные компоненты с этого компьютера."
 LangString KMaintenanceReplaceDescription 1049 "Удалить существующую версию перед установкой выбранной версии."
@@ -149,19 +176,24 @@ LangString KUninstallConfirmSubtitle 1049 "Приложение будет за�
 LangString KUninstallDeleteData 1049 "Удалить настройки и данные"
 LangString KUninstallDeleteDataDescription 1049 "Также удалить профили, настройки и локальные данные приложения."
 LangString KUninstallSignal 1049 "МАТРИЦА УДАЛЕНИЯ"
+LangString KUninstallEyebrow 1049 "SIGNAL MATRIX / УДАЛЕНИЕ"
 LangString KUninstallPath 1049 "ТОЧКА УСТАНОВКИ"
 LangString KTargetTitle 1049 "Точка развёртывания"
 LangString KTargetSubtitle 1049 "Каталог установки должен быть заметным и легко проверяемым."
 LangString KTargetSignal 1049 "ВЕКТОР РАЗВЁРТЫВАНИЯ"
+LangString KTargetEyebrow 1049 "SIGNAL MATRIX / КАТАЛОГ"
 LangString KTargetPath 1049 "КАТАЛОГ УСТАНОВКИ"
 LangString KTargetCapacity 1049 "МЕСТО НА ДИСКЕ"
 LangString KTargetChange 1049 "ИЗМЕНИТЬ"
+LangString KTargetReady 1049 "ГОТОВО"
+LangString KTargetShortcut 1049 "ЯРЛЫК / ПО ЖЕЛАНИЮ"
 LangString KLanguageTitle 1049 "Installer language / Язык установщика"
 LangString KLanguageSubtitle 1049 "Choose the interface language · Выберите язык интерфейса"
 LangString KLanguageEnglishTitle 1049 "ENGLISH"
 LangString KLanguageEnglishDescription 1049 "Primary · default fallback"
 LangString KLanguageRussianTitle 1049 "РУССКИЙ"
 LangString KLanguageRussianDescription 1049 "Дополнительный язык"
+LangString KLanguageSelected 1049 "ВЫБРАНО"
 LangString KOtaWindowTitle 1049 "Обновление Ninety"
 
 !macro KuroganeSetText CONTROL TEXT
@@ -212,16 +244,39 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
   System::Free $6
   IntOp $7 $7 - $4
   IntOp $8 $8 - $5
-  System::Call 'user32::CreateWindowExW(i 0, w "Static", w "${TEXT}", i 0x54000000, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 0, i 0, i 0) p .r0'
+  System::Call 'user32::CreateWindowExW(i 0, w "Static", w "${TEXT}", i 0x54000080, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 0, i 0, i 0) p .r0'
   SetCtlColors $0 ${FOREGROUND} ${BACKGROUND}
   SendMessage $0 ${WM_SETFONT} ${FONT} 1
+  !insertmacro KuroganeBringToFront $0
+!macroend
+
+!macro KuroganeMatrixCenterText X Y W H TEXT FOREGROUND BACKGROUND FONT
+  IntOp $4 ${X} + ${W}
+  IntOp $5 ${Y} + ${H}
+  System::Call '*(&i4 ${X}, &i4 ${Y}, &i4 r4, &i4 r5) p .r6'
+  System::Call 'user32::MapDialogRect(p $HWNDPARENT, p r6)'
+  System::Call '*$6(&i4 .r4, &i4 .r5, &i4 .r7, &i4 .r8)'
+  System::Free $6
+  IntOp $7 $7 - $4
+  IntOp $8 $8 - $5
+  System::Call 'user32::CreateWindowExW(i 0, w "Static", w "${TEXT}", i 0x54000081, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 0, i 0, i 0) p .r0'
+  SetCtlColors $0 ${FOREGROUND} ${BACKGROUND}
+  SendMessage $0 ${WM_SETFONT} ${FONT} 1
+  !insertmacro KuroganeBringToFront $0
 !macroend
 
 !macro KuroganeMatrixHeader LABEL META
-  !insertmacro KuroganeMatrixBox 22 82 5 169 ${K_COLOR_ACCENT}
-  !insertmacro KuroganeMatrixBox 31 82 287 1 ${K_COLOR_BORDER}
-  !insertmacro KuroganeMatrixText 31 90 170 12 "${LABEL}" ${K_COLOR_ACCENT} ${K_COLOR_WINDOW} $KuroganeFontMono
-  !insertmacro KuroganeMatrixText 221 90 97 12 "${META}" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+  !insertmacro KuroganeMatrixBox 22 91 5 163 ${K_COLOR_ACCENT}
+  !insertmacro KuroganeMatrixBox 31 91 287 1 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixText 31 98 170 12 "${LABEL}" ${K_COLOR_ACCENT} ${K_COLOR_WINDOW} $KuroganeFontMono
+  !insertmacro KuroganeMatrixText 247 98 71 12 "${META}" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+!macroend
+
+!macro KuroganeMatrixPageHeader EYEBROW TITLE SUBTITLE SIGNAL CODE
+  !insertmacro KuroganeMatrixText 22 14 296 12 "${EYEBROW}" ${K_COLOR_ACCENT} ${K_COLOR_WINDOW} $KuroganeFontMono
+  !insertmacro KuroganeMatrixText 22 34 296 29 "${TITLE}" ${K_COLOR_TEXT} ${K_COLOR_WINDOW} $KuroganeFontTitle
+  !insertmacro KuroganeMatrixText 22 64 296 20 "${SUBTITLE}" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontBody
+  !insertmacro KuroganeMatrixHeader "${SIGNAL}" "${CODE}"
 !macroend
 
 !macro KuroganeMoveWindowDlu PARENT HWND X Y WIDTH HEIGHT
@@ -244,6 +299,17 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
   nsDialogs::CreateControl BUTTON "${DEFAULT_STYLES}|${WS_TABSTOP}|${BS_AUTORADIOBUTTON}|${BS_PUSHLIKE}|${BS_BITMAP}|${BS_FLAT}" 0 ${X}u ${Y}u 14u 14u ""
   Pop ${OUT}
   System::Call 'uxtheme::SetWindowTheme(p ${OUT}, w "", w "")'
+  System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r0'
+  System::Call 'user32::GetWindowRect(p ${OUT}, p r0)'
+  System::Call '*$0(&i4 .r1, &i4 .r2, &i4 .r3, &i4 .r4)'
+  System::Free $0
+  IntOp $3 $3 - $1
+  IntOp $4 $4 - $2
+  IntOp $3 $3 - 2
+  IntOp $4 $4 - 2
+  System::Call 'gdi32::CreateRectRgn(i 2, i 2, i r3, i r4) p .r0'
+  System::Call 'user32::SetWindowRgn(p ${OUT}, p r0, i 1)'
+  !insertmacro KuroganeBringToFront ${OUT}
 !macroend
 
 !macro KuroganeSignalImage CONTROL HANDLE SELECTED
@@ -266,9 +332,25 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
 Function KuroganeApplySignalStates
   SendMessage $KuroganeSignalPrimaryControl ${BM_GETCHECK} 0 0 $1
   !insertmacro KuroganeSignalImage $KuroganeSignalPrimaryControl $KuroganeSignalPrimaryBitmap $1
+  ${If} $KuroganeSignalPrimaryBorder != 0
+    ${If} $1 == ${BST_CHECKED}
+      SetCtlColors $KuroganeSignalPrimaryBorder ${K_COLOR_ACCENT} ${K_COLOR_ACCENT}
+    ${Else}
+      SetCtlColors $KuroganeSignalPrimaryBorder ${K_COLOR_BORDER} ${K_COLOR_BORDER}
+    ${EndIf}
+    System::Call 'user32::InvalidateRect(p $KuroganeSignalPrimaryBorder, p 0, i 1)'
+  ${EndIf}
   ${If} $KuroganeSignalSecondaryControl != 0
     SendMessage $KuroganeSignalSecondaryControl ${BM_GETCHECK} 0 0 $1
     !insertmacro KuroganeSignalImage $KuroganeSignalSecondaryControl $KuroganeSignalSecondaryBitmap $1
+    ${If} $KuroganeSignalSecondaryBorder != 0
+      ${If} $1 == ${BST_CHECKED}
+        SetCtlColors $KuroganeSignalSecondaryBorder ${K_COLOR_ACCENT} ${K_COLOR_ACCENT}
+      ${Else}
+        SetCtlColors $KuroganeSignalSecondaryBorder ${K_COLOR_BORDER} ${K_COLOR_BORDER}
+      ${EndIf}
+      System::Call 'user32::InvalidateRect(p $KuroganeSignalSecondaryBorder, p 0, i 1)'
+    ${EndIf}
   ${EndIf}
 FunctionEnd
 
@@ -368,6 +450,32 @@ FunctionEnd
     ShowWindow $1 ${SW_HIDE}
     System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
   ${EndIf}
+!macroend
+
+!macro KuroganeSetDirectButtonBitmap HWND PATH HANDLE
+  ${If} ${HANDLE} != 0
+    SendMessage ${HWND} ${BM_SETIMAGE} ${IMAGE_BITMAP} 0
+    ${NSD_FreeImage} ${HANDLE}
+    StrCpy ${HANDLE} 0
+  ${EndIf}
+  System::Call 'user32::GetWindowLongW(p ${HWND}, i -16) i .r0'
+  IntOp $0 $0 | 0x00008080
+  System::Call 'user32::SetWindowLongW(p ${HWND}, i -16, i r0)'
+  System::Call 'uxtheme::SetWindowTheme(p ${HWND}, w "", w "")'
+  System::Call 'user32::LoadImageW(p 0, w "${PATH}", i 0, i 0, i 0, i 0x2010) p .r0'
+  StrCpy ${HANDLE} $0
+  SendMessage ${HWND} ${BM_SETIMAGE} ${IMAGE_BITMAP} $0
+  System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r1'
+  System::Call 'user32::GetWindowRect(p ${HWND}, p r1)'
+  System::Call '*$1(&i4 .r2, &i4 .r3, &i4 .r4, &i4 .r5)'
+  System::Free $1
+  IntOp $4 $4 - $2
+  IntOp $5 $5 - $3
+  IntOp $4 $4 - 2
+  IntOp $5 $5 - 2
+  System::Call 'gdi32::CreateRectRgn(i 2, i 2, i r4, i r5) p .r1'
+  System::Call 'user32::SetWindowRgn(p ${HWND}, p r1, i 1)'
+  System::Call 'user32::InvalidateRect(p ${HWND}, p 0, i 1)'
 !macroend
 
 !macro KuroganeApplyChromeImpl NEXT_EN NEXT_RU SHOW_BACK SHOW_NEXT SHOW_CANCEL
@@ -516,6 +624,8 @@ FunctionEnd
   File /oname=$PLUGINSDIR\kurogane-finish-ru.bmp "${__FILEDIR__}\nav-finish-ru.bmp"
   File /oname=$PLUGINSDIR\kurogane-cancel-en.bmp "${__FILEDIR__}\nav-cancel-en.bmp"
   File /oname=$PLUGINSDIR\kurogane-cancel-ru.bmp "${__FILEDIR__}\nav-cancel-ru.bmp"
+  File /oname=$PLUGINSDIR\kurogane-change-en.bmp "${__FILEDIR__}\action-change-en.bmp"
+  File /oname=$PLUGINSDIR\kurogane-change-ru.bmp "${__FILEDIR__}\action-change-ru.bmp"
   File /oname=$PLUGINSDIR\kurogane-signal-off.bmp "${__FILEDIR__}\signal-off.bmp"
   File /oname=$PLUGINSDIR\kurogane-signal-on.bmp "${__FILEDIR__}\signal-on.bmp"
 
@@ -830,52 +940,117 @@ FunctionEnd
   !insertmacro KuroganePrepareKnownPageImpl "${UNPREFIX}" ${PAGE} Next
   StrCpy $KuroganeMatrixParent ${PAGE}
 
-  SendMessage ${TOPCONTROL} ${WM_SETTEXT} 0 "STR:$(KLicenseTitle)"
-  SendMessage ${TOPCONTROL} ${WM_SETFONT} $KuroganeFontTitle 1
-  SetCtlColors ${TOPCONTROL} ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} ${TOPCONTROL} 22 17 296 25
+  ShowWindow ${TOPCONTROL} ${SW_HIDE}
+  GetDlgItem $0 ${PAGE} 1006
+  ShowWindow $0 ${SW_HIDE}
 
-  !insertmacro KuroganeMatrixText 22 48 296 22 "$(KLicenseSubtitle)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontBody
-  !insertmacro KuroganeMatrixHeader "$(KLicenseSignal)" "MIT  /  OPEN SOURCE"
-  !insertmacro KuroganeMatrixFrame 43 116 259 124 44 117 257 122 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
+  !insertmacro KuroganeMatrixPageHeader "$(KLicenseEyebrow)" "$(KLicenseTitle)" "$(KLicenseSubtitle)" "$(KLicenseSignal)" "190X4 / 04"
+  !insertmacro KuroganeMatrixFrame 43 121 259 118 44 122 257 116 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
+  !insertmacro KuroganeMatrixBox 44 122 70 116 ${K_COLOR_PANEL}
+  !insertmacro KuroganeMatrixText 54 133 50 12 "$(KLicenseType)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontMono
+  !insertmacro KuroganeMatrixText 54 151 50 17 "MIT" ${K_COLOR_ACCENT} ${K_COLOR_PANEL} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 54 181 50 12 "$(KLicenseModules)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontMono
+  !insertmacro KuroganeMatrixText 54 199 50 17 "12" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
 
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} ${RICHCONTROL} 43 116 259 124
+  !insertmacro KuroganeMoveWindowDlu ${PAGE} ${RICHCONTROL} 126 130 157 96
   !insertmacro KuroganeBringToFront ${RICHCONTROL}
   System::Call 'uxtheme::SetWindowTheme(p ${RICHCONTROL}, w "", w "")'
+  System::Call 'user32::GetWindowLongW(p ${RICHCONTROL}, i -16) i .r0'
+  IntOp $0 $0 & 0xFF5FFFFF
+  System::Call 'user32::SetWindowLongW(p ${RICHCONTROL}, i -16, i r0)'
+  System::Call 'user32::SetWindowPos(p ${RICHCONTROL}, p 0, i 0, i 0, i 0, i 0, i 0x27)'
   SetCtlColors ${RICHCONTROL} ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage ${RICHCONTROL} ${EM_SETBKGNDCOLOR} 0 0x1D1717
+  SendMessage ${RICHCONTROL} ${WM_SETFONT} $KuroganeFontBody 1
+  SendMessage ${RICHCONTROL} ${WM_SETTEXT} 0 "STR:$(KLicenseDocument1)"
+  SendMessage ${RICHCONTROL} ${EM_SETSEL} -1 -1
+  SendMessage ${RICHCONTROL} ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument2)"
+  SendMessage ${RICHCONTROL} ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument3)"
+  SendMessage ${RICHCONTROL} ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument4)"
+  SendMessage ${RICHCONTROL} ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument5)"
+  SendMessage ${RICHCONTROL} ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument6)"
+  SendMessage ${RICHCONTROL} ${EM_SETSEL} 0 0
+  SendMessage ${RICHCONTROL} ${EM_SCROLLCARET} 0 0
+  StrCpy $KuroganeLicenseTextControl ${RICHCONTROL}
 
-  GetDlgItem $0 ${PAGE} 1006
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 43 247 259 27
-  SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
-  SendMessage $0 ${WM_SETFONT} $KuroganeFontMeta 1
+  !insertmacro KuroganeMatrixBox 291 132 3 93 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 291 132 3 31 ${K_COLOR_ACCENT}
+  StrCpy $KuroganeLicenseThumbControl $0
+  !insertmacro KuroganeMatrixText 43 247 128 11 "$(KLicenseKeys)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+  !insertmacro KuroganeMatrixText 187 247 115 11 "$(KLicensePosition) / 000%" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+  StrCpy $KuroganeLicensePositionControl $0
+
+  ${NSD_KillTimer} KuroganeLicenseTick
+  ${NSD_CreateTimer} KuroganeLicenseTick 120
+  Call KuroganeLicenseTick
+  ${NSD_SetFocus} ${RICHCONTROL}
 !macroend
+
+Function KuroganeLicenseTick
+  ${If} $KuroganeLicenseTextControl == 0
+    Return
+  ${EndIf}
+  SendMessage $KuroganeLicenseTextControl ${EM_GETFIRSTVISIBLELINE} 0 0 $0
+  SendMessage $KuroganeLicenseTextControl ${EM_GETLINECOUNT} 0 0 $1
+  IntOp $1 $1 - 8
+  ${If} $1 <= 0
+    StrCpy $0 0
+  ${Else}
+    IntOp $0 $0 * 100
+    IntOp $0 $0 / $1
+  ${EndIf}
+  ${If} $0 < 0
+    StrCpy $0 0
+  ${ElseIf} $0 > 100
+    StrCpy $0 100
+  ${EndIf}
+  IntFmt $1 "%03d" $0
+  StrCpy $3 "$(KLicensePosition) / $1%"
+  SendMessage $KuroganeLicensePositionControl ${WM_SETTEXT} 0 "STR:$3"
+  IntOp $2 $0 * 62
+  IntOp $2 $2 / 100
+  IntOp $2 $2 + 132
+  !insertmacro KuroganeMoveWindowDlu $KuroganePage $KuroganeLicenseThumbControl 291 $2 3 31
+FunctionEnd
+
+Function KuroganeLicenseLeave
+  ${NSD_KillTimer} KuroganeLicenseTick
+  StrCpy $KuroganeLicenseTextControl 0
+  StrCpy $KuroganeLicenseThumbControl 0
+  StrCpy $KuroganeLicensePositionControl 0
+FunctionEnd
 
 ; Rebuild the MultiUser page controls inside the page that the plugin already
 ; owns. Its leave callback continues to read the same handle variables.
 !macro KuroganeInstallModePageImpl
+  !insertmacro KuroganePrepareKnownPageImpl "" $MultiUser.InstallModePage Next
   StrCpy $KuroganeMatrixParent $MultiUser.InstallModePage
   ShowWindow $MultiUser.InstallModePage.Text ${SW_HIDE}
   ShowWindow $MultiUser.InstallModePage.AllUsers ${SW_HIDE}
   ShowWindow $MultiUser.InstallModePage.CurrentUser ${SW_HIDE}
 
-  ${NSD_CreateLabel} 22u 17u 296u 25u "$(KModeTitle)"
-  Pop $KuroganeModeTitleControl
-  ${NSD_CreateLabel} 22u 48u 296u 22u "$(KModeSubtitle)"
-  Pop $KuroganeModeSubtitleControl
+  !insertmacro KuroganeMatrixPageHeader "$(KModeEyebrow)" "$(KModeTitle)" "$(KModeSubtitle)" "$(KModeSignal)" "190X4 / 02"
 
-  !insertmacro KuroganeMatrixHeader "$(KModeSignal)" "WINDOWS / ACCOUNT SCOPE"
-  !insertmacro KuroganeMatrixFrame 42 116 260 55 43 117 258 53 ${K_COLOR_BORDER} ${K_COLOR_PANEL}
-  !insertmacro KuroganeMatrixText 58 127 185 14 "$(KModeCurrentTitle)" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
-  ${NSD_CreateLabel} 58u 146u 200u 22u "$(KModeCurrentDescription)"
-  Pop $KuroganeModeCurrentDescriptionControl
-  !insertmacro KuroganeSignalRadio 278 135 $MultiUser.InstallModePage.CurrentUser
+  !insertmacro KuroganeMatrixBox 42 121 260 51 ${K_COLOR_BORDER}
+  StrCpy $KuroganeSignalPrimaryBorder $0
+  !insertmacro KuroganeMatrixBox 43 122 258 49 ${K_COLOR_PANEL}
+  !insertmacro KuroganeMatrixBox 43 122 39 49 ${K_COLOR_ACCENT}
+  !insertmacro KuroganeMatrixCenterText 43 139 39 14 "01" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 94 131 174 14 "$(KModeCurrentTitle)" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 94 150 176 18 "$(KModeCurrentDescription)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
+  !insertmacro KuroganeSignalRadio 278 138 $MultiUser.InstallModePage.CurrentUser
 
-  !insertmacro KuroganeMatrixFrame 58 181 244 55 59 182 242 53 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
-  !insertmacro KuroganeMatrixText 74 192 169 14 "$(KModeAllTitle)" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
-  ${NSD_CreateLabel} 74u 211u 184u 22u "$(KModeAllDescription)"
-  Pop $KuroganeModeAllDescriptionControl
+  !insertmacro KuroganeMatrixBox 58 183 244 50 ${K_COLOR_BORDER}
+  StrCpy $KuroganeSignalSecondaryBorder $0
+  !insertmacro KuroganeMatrixBox 59 184 242 48 ${K_COLOR_FIELD}
+  !insertmacro KuroganeMatrixBox 59 184 39 48 ${K_COLOR_PANEL}
+  !insertmacro KuroganeMatrixCenterText 59 201 39 14 "02" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 110 193 158 14 "$(KModeAllTitle)" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 110 210 160 20 "$(KModeAllDescription)" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
   !insertmacro KuroganeSignalRadio 278 200 $MultiUser.InstallModePage.AllUsers
+
+  !insertmacro KuroganeMatrixBox 31 251 287 3 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 31 251 96 3 ${K_COLOR_ACCENT}
 
   ${If} $MultiUser.InstallMode == "AllUsers"
     SendMessage $MultiUser.InstallModePage.AllUsers ${BM_SETCHECK} ${BST_CHECKED} 0
@@ -890,55 +1065,46 @@ FunctionEnd
   ${NSD_OnClick} $KuroganeSignalPrimaryControl KuroganeSignalPrimaryClick
   ${NSD_OnClick} $KuroganeSignalSecondaryControl KuroganeSignalSecondaryClick
   Call KuroganeApplySignalStates
-
-  !insertmacro KuroganePrepareKnownPageImpl "" $MultiUser.InstallModePage Next
-  SendMessage $KuroganeModeTitleControl ${WM_SETFONT} $KuroganeFontTitle 1
-  SetCtlColors $KuroganeModeTitleControl ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
-  SetCtlColors $KuroganeModeSubtitleControl ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
-  SetCtlColors $KuroganeModeCurrentDescriptionControl ${K_COLOR_MUTED} ${K_COLOR_PANEL}
-  SetCtlColors $KuroganeModeAllDescriptionControl ${K_COLOR_MUTED} ${K_COLOR_FIELD}
-  SendMessage $KuroganeModeCurrentDescriptionControl ${WM_SETFONT} $KuroganeFontBody 1
-  SendMessage $KuroganeModeAllDescriptionControl ${WM_SETFONT} $KuroganeFontBody 1
+  !insertmacro KuroganeBringToFront $MultiUser.InstallModePage.CurrentUser
+  !insertmacro KuroganeBringToFront $MultiUser.InstallModePage.AllUsers
 !macroend
 
 !macro KuroganeMaintenancePageImpl DIALOG PRIMARY SECONDARY INTROTEXT PRIMARYTEXT SECONDARYTEXT PRIMARYDESC SECONDARYDESC
+  !insertmacro KuroganePrepareKnownPageImpl "" ${DIALOG} Next
   StrCpy $KuroganeMatrixParent ${DIALOG}
-  ${NSD_CreateLabel} 22u 17u 296u 25u "$(KMaintenanceTitle)"
-  Pop $KuroganeMaintenanceTitleControl
-  ${NSD_CreateLabel} 22u 48u 296u 22u "$(KMaintenanceSubtitle)"
-  Pop $KuroganeMaintenanceSubtitleControl
-  !insertmacro KuroganeMatrixHeader "$(KMaintenanceSignal)" "PACKAGE / DECISION"
-  ${NSD_CreateLabel} 43u 107u 259u 13u "${INTROTEXT}"
-  Pop $KuroganeMaintenanceInfoControl
+  !insertmacro KuroganeMatrixPageHeader "$(KMaintenanceEyebrow)" "$(KMaintenanceTitle)" "$(KMaintenanceSubtitle)" "$(KMaintenanceSignal)" "190X4 / 05"
 
-  !insertmacro KuroganeMatrixFrame 43 126 259 52 44 127 257 50 ${K_COLOR_BORDER} ${K_COLOR_PANEL}
-  !insertmacro KuroganeMatrixText 59 136 188 14 "${PRIMARYTEXT}" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
-  ${NSD_CreateLabel} 59u 155u 205u 20u "${PRIMARYDESC}"
-  Pop $KuroganeMaintenanceRepairDescriptionControl
-  !insertmacro KuroganeSignalRadio 278 145 ${PRIMARY}
+  ; Render the action strings before PRIMARY/SECONDARY are overwritten with
+  ; the native radio HWNDs expected by Tauri's maintenance leave callback.
+  !insertmacro KuroganeMatrixBox 43 121 259 52 ${K_COLOR_BORDER}
+  StrCpy $KuroganeSignalPrimaryBorder $0
+  !insertmacro KuroganeMatrixBox 44 122 257 50 ${K_COLOR_PANEL}
+  !insertmacro KuroganeMatrixBox 44 122 34 50 ${K_COLOR_ACCENT}
+  !insertmacro KuroganeMatrixCenterText 44 140 34 14 "+" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 91 131 174 14 "${PRIMARYTEXT}" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 91 150 174 20 "${PRIMARYDESC}" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
+  !insertmacro KuroganeSignalRadio 278 138 ${PRIMARY}
 
-  !insertmacro KuroganeMatrixFrame 59 188 243 57 60 189 241 55 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
-  !insertmacro KuroganeMatrixText 75 198 172 14 "${SECONDARYTEXT}" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
-  ${NSD_CreateLabel} 75u 217u 189u 24u "${SECONDARYDESC}"
-  Pop $KuroganeMaintenanceRemoveDescriptionControl
-  !insertmacro KuroganeSignalRadio 278 207 ${SECONDARY}
+  !insertmacro KuroganeMatrixBox 59 181 243 57 ${K_COLOR_BORDER}
+  StrCpy $KuroganeSignalSecondaryBorder $0
+  !insertmacro KuroganeMatrixBox 60 182 241 55 ${K_COLOR_FIELD}
+  !insertmacro KuroganeMatrixBox 60 182 34 55 ${K_COLOR_PANEL}
+  !insertmacro KuroganeMatrixCenterText 60 202 34 14 "×" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 107 191 158 14 "${SECONDARYTEXT}" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 107 210 158 24 "${SECONDARYDESC}" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
+  !insertmacro KuroganeSignalRadio 278 200 ${SECONDARY}
+
+  !insertmacro KuroganeMatrixText 43 247 199 12 "$(KMaintenanceDataPolicy)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+  !insertmacro KuroganeMatrixBox 247 251 55 3 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 247 251 31 3 ${K_COLOR_ACCENT}
 
   StrCpy $KuroganeSignalPrimaryControl ${PRIMARY}
   StrCpy $KuroganeSignalSecondaryControl ${SECONDARY}
   ${NSD_OnClick} $KuroganeSignalPrimaryControl KuroganeSignalPrimaryClick
   ${NSD_OnClick} $KuroganeSignalSecondaryControl KuroganeSignalSecondaryClick
   Call KuroganeApplySignalStates
-
-  !insertmacro KuroganePrepareKnownPageImpl "" ${DIALOG} Next
-  SendMessage $KuroganeMaintenanceTitleControl ${WM_SETFONT} $KuroganeFontTitle 1
-  SetCtlColors $KuroganeMaintenanceTitleControl ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
-  SetCtlColors $KuroganeMaintenanceSubtitleControl ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
-  SetCtlColors $KuroganeMaintenanceInfoControl ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
-  SetCtlColors $KuroganeMaintenanceRepairDescriptionControl ${K_COLOR_MUTED} ${K_COLOR_PANEL}
-  SetCtlColors $KuroganeMaintenanceRemoveDescriptionControl ${K_COLOR_MUTED} ${K_COLOR_FIELD}
-  SendMessage $KuroganeMaintenanceInfoControl ${WM_SETFONT} $KuroganeFontMono 1
-  SendMessage $KuroganeMaintenanceRepairDescriptionControl ${WM_SETFONT} $KuroganeFontBody 1
-  SendMessage $KuroganeMaintenanceRemoveDescriptionControl ${WM_SETFONT} $KuroganeFontBody 1
+  !insertmacro KuroganeBringToFront ${PRIMARY}
+  !insertmacro KuroganeBringToFront ${SECONDARY}
 !macroend
 
 !macro KuroganeDirectoryPageImpl PAGE
@@ -952,42 +1118,47 @@ FunctionEnd
   GetDlgItem $0 ${PAGE} 1008
   ShowWindow $0 ${SW_HIDE}
 
-  !insertmacro KuroganeMatrixText 22 17 296 25 "$(KTargetTitle)" ${K_COLOR_TEXT} ${K_COLOR_WINDOW} $KuroganeFontTitle
-  !insertmacro KuroganeMatrixText 22 48 296 22 "$(KTargetSubtitle)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontBody
-  !insertmacro KuroganeMatrixHeader "$(KTargetSignal)" "FILESYSTEM / LOCAL"
-  !insertmacro KuroganeMatrixText 43 116 200 11 "$(KTargetPath)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
-  !insertmacro KuroganeMatrixFrame 43 134 259 45 44 135 257 43 ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
-  !insertmacro KuroganeMatrixBox 44 135 5 43 ${K_COLOR_ACCENT}
+  !insertmacro KuroganeMatrixPageHeader "$(KTargetEyebrow)" "$(KTargetTitle)" "$(KTargetSubtitle)" "$(KTargetSignal)" "190X4 / 03"
+  !insertmacro KuroganeMatrixText 43 121 200 11 "$(KTargetPath)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+  !insertmacro KuroganeMatrixFrame 43 139 259 43 44 140 257 41 ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
+  !insertmacro KuroganeMatrixBox 44 140 5 41 ${K_COLOR_ACCENT}
 
   GetDlgItem $0 ${PAGE} 1019
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 58 147 150 18
+  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 60 151 150 18
   !insertmacro KuroganeBringToFront $0
   System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
+  System::Call 'user32::GetWindowLongW(p r0, i -16) i .r1'
+  IntOp $1 $1 & 0xFF5FFFFF
+  System::Call 'user32::SetWindowLongW(p r0, i -16, i r1)'
+  System::Call 'user32::SetWindowPos(p r0, p 0, i 0, i 0, i 0, i 0, i 0x27)'
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $KuroganeFontMono 1
 
   GetDlgItem $0 ${PAGE} 1001
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 219 145 74 22
+  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 219 151 74 18
   !insertmacro KuroganeBringToFront $0
-  SendMessage $0 ${WM_SETTEXT} 0 "STR:$(KTargetChange)"
-  System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
-  SetCtlColors $0 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
-  SendMessage $0 ${WM_SETFONT} $KuroganeFontMono 1
+  ${If} $LANGUAGE == 1049
+    !insertmacro KuroganeSetDirectButtonBitmap $0 "$PLUGINSDIR\kurogane-change-ru.bmp" $KuroganeActionBitmap
+  ${Else}
+    !insertmacro KuroganeSetDirectButtonBitmap $0 "$PLUGINSDIR\kurogane-change-en.bmp" $KuroganeActionBitmap
+  ${EndIf}
 
-  !insertmacro KuroganeMatrixText 43 195 100 11 "$(KTargetCapacity)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
-  !insertmacro KuroganeMatrixBox 43 214 18 8 ${K_COLOR_ACCENT}
-  !insertmacro KuroganeMatrixBox 65 214 18 8 ${K_COLOR_BORDER}
-  !insertmacro KuroganeMatrixBox 87 214 18 8 ${K_COLOR_BORDER}
-  !insertmacro KuroganeMatrixBox 109 214 18 8 ${K_COLOR_BORDER}
-  !insertmacro KuroganeMatrixBox 131 214 18 8 ${K_COLOR_BORDER}
-  !insertmacro KuroganeMatrixBox 153 214 18 8 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixText 43 197 100 11 "$(KTargetCapacity)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+  !insertmacro KuroganeMatrixBox 43 216 18 8 ${K_COLOR_ACCENT}
+  !insertmacro KuroganeMatrixBox 65 216 18 8 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 87 216 18 8 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 109 216 18 8 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 131 216 18 8 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 153 216 18 8 ${K_COLOR_BORDER}
 
   GetDlgItem $0 ${PAGE} 1023
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 43 234 128 16
+  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 43 238 128 14
+  !insertmacro KuroganeBringToFront $0
   SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
   SendMessage $0 ${WM_SETFONT} $KuroganeFontMeta 1
   GetDlgItem $0 ${PAGE} 1024
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 176 234 126 16
+  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 176 212 126 14
+  !insertmacro KuroganeBringToFront $0
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
   SendMessage $0 ${WM_SETFONT} $KuroganeFontMeta 1
 !macroend
@@ -1005,69 +1176,59 @@ FunctionEnd
 !macroend
 
 !macro KuroganeUninstallConfirmPageImpl PAGE CHECKBOX CHECKBOXTEXT
+  !insertmacro KuroganePrepareKnownPageImpl "un." ${PAGE} Remove
   StrCpy $1 ${PAGE}
   StrCpy $KuroganeMatrixParent ${PAGE}
-  ${If} $(^RTL) = 1
-    StrCpy $3 "${__NSD_CheckBox_EXSTYLE} | 0x00400000"
-  ${Else}
-    StrCpy $3 "${__NSD_CheckBox_EXSTYLE}"
-  ${EndIf}
   IntOp $4 278 + 14
-  IntOp $5 135 + 14
-  System::Call '*(&i4 278, &i4 135, &i4 r4, &i4 r5) p .r6'
-  System::Call 'user32::MapDialogRect(p r1, p r6)'
+  IntOp $5 138 + 14
+  System::Call '*(&i4 278, &i4 138, &i4 r4, &i4 r5) p .r6'
+  System::Call 'user32::MapDialogRect(p $HWNDPARENT, p r6)'
   System::Call '*$6(&i4 .r4, &i4 .r5, &i4 .r7, &i4 .r8)'
   System::Free $6
   IntOp $7 $7 - $4
   IntOp $8 $8 - $5
-  IntOp $9 ${__NSD_CheckBox_STYLE} | ${BS_BITMAP}
-  IntOp $9 $9 | ${BS_FLAT}
-  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "", i r9, i r4, i r5, i r7, i r8, p r1, i0, i0, i0) p .r0'
+  System::Call 'user32::CreateWindowExW(i 0, w "Button", w "", i 0x54019083, i r4, i r5, i r7, i r8, p r1, i 0, i 0, i 0) p .r0'
   StrCpy ${CHECKBOX} $0
   System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
-  SendMessage ${CHECKBOX} ${WM_SETFONT} $KuroganeFontBody 1
+  System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r3'
+  System::Call 'user32::GetWindowRect(p ${CHECKBOX}, p r3)'
+  System::Call '*$3(&i4 .r4, &i4 .r5, &i4 .r6, &i4 .r7)'
+  System::Free $3
+  IntOp $6 $6 - $4
+  IntOp $7 $7 - $5
+  IntOp $6 $6 - 2
+  IntOp $7 $7 - 2
+  System::Call 'gdi32::CreateRectRgn(i 2, i 2, i r6, i r7) p .r3'
+  System::Call 'user32::SetWindowRgn(p ${CHECKBOX}, p r3, i 1)'
 
-  !insertmacro KuroganeMatrixText 22 48 296 22 "$(KUninstallConfirmSubtitle)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontBody
-  !insertmacro KuroganeMatrixHeader "$(KUninstallSignal)" "DATA / COMPONENTS"
-  !insertmacro KuroganeMatrixFrame 43 118 259 54 44 119 257 52 ${K_COLOR_BORDER} ${K_COLOR_PANEL}
-
-  !insertmacro KuroganeMatrixText 58 127 205 14 "${CHECKBOXTEXT}" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
-  StrCpy $KuroganeUninstallDataTitleControl $0
-  !insertmacro KuroganeMatrixText 58 146 205 22 "$(KUninstallDeleteDataDescription)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
-  StrCpy $KuroganeUninstallDataDescriptionControl $0
-
-  !insertmacro KuroganeMatrixText 43 187 259 12 "$(KUninstallPath)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
-  StrCpy $KuroganeUninstallSubtitleControl $0
+  !insertmacro KuroganeMatrixPageHeader "$(KUninstallEyebrow)" "$(KUninstallConfirmTitle)" "$(KUninstallConfirmSubtitle)" "$(KUninstallSignal)" "190X4 / RM"
+  !insertmacro KuroganeMatrixFrame 43 121 259 52 44 122 257 50 ${K_COLOR_BORDER} ${K_COLOR_PANEL}
+  !insertmacro KuroganeMatrixBox 44 122 34 50 ${K_COLOR_PANEL}
+  !insertmacro KuroganeMatrixCenterText 44 140 34 14 "×" ${K_COLOR_ACCENT} ${K_COLOR_PANEL} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 91 131 174 14 "${CHECKBOXTEXT}" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 91 150 174 20 "$(KUninstallDeleteDataDescription)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
+  !insertmacro KuroganeMatrixText 43 197 259 12 "$(KUninstallPath)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+  !insertmacro KuroganeMatrixFrame 43 216 259 32 44 217 257 30 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
 
   GetDlgItem $0 $1 1006
-  SendMessage $0 ${WM_SETTEXT} 0 "STR:$(KUninstallConfirmTitle)"
-  SendMessage $0 ${WM_SETFONT} $KuroganeFontTitle 1
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 22 17 296 25
+  ShowWindow $0 ${SW_HIDE}
 
   GetDlgItem $0 $1 1029
   ShowWindow $0 ${SW_HIDE}
   GetDlgItem $0 $1 1000
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 43 207 259 20
+  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 55 224 235 16
   !insertmacro KuroganeBringToFront $0
   System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
-
-  !insertmacro KuroganePrepareKnownPageImpl "un." ${PAGE} Remove
-  GetDlgItem $0 ${PAGE} 1006
-  SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
-  SendMessage $KuroganeUninstallSubtitleControl ${WM_SETFONT} $KuroganeFontMono 1
-  SetCtlColors $KuroganeUninstallSubtitleControl ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
-  SetCtlColors $KuroganeUninstallDataTitleControl ${K_COLOR_TEXT} ${K_COLOR_PANEL}
-  SetCtlColors $KuroganeUninstallDataDescriptionControl ${K_COLOR_MUTED} ${K_COLOR_PANEL}
-  SendMessage $KuroganeUninstallDataTitleControl ${WM_SETFONT} $KuroganeFontSteps 1
-  SendMessage $KuroganeUninstallDataDescriptionControl ${WM_SETFONT} $KuroganeFontBody 1
-  SetCtlColors ${CHECKBOX} ${K_COLOR_TEXT} ${K_COLOR_ACCENT}
+  System::Call 'user32::GetWindowLongW(p r0, i -16) i .r1'
+  IntOp $1 $1 & 0xFF5FFFFF
+  System::Call 'user32::SetWindowLongW(p r0, i -16, i r1)'
+  System::Call 'user32::SetWindowPos(p r0, p 0, i 0, i 0, i 0, i 0, i 0x27)'
+  SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
+  SendMessage $0 ${WM_SETFONT} $KuroganeFontMono 1
   !insertmacro KuroganeBringToFront ${CHECKBOX}
   StrCpy $KuroganeToggleControl ${CHECKBOX}
   ${NSD_OnClick} $KuroganeToggleControl un.KuroganeToggleClick
   Call un.KuroganeApplyToggleState
-  GetDlgItem $0 ${PAGE} 1000
-  SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
-  SendMessage $0 ${WM_SETFONT} $KuroganeFontMono 1
 !macroend
 
 ; MUI welcome/finish pages expose their exact HWNDs. Use those directly: after

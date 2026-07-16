@@ -45,9 +45,9 @@ Function LanguageApplyState
   SendMessage $LanguageRussian ${BM_GETCHECK} 0 0 $0
   ${If} $0 == ${BST_CHECKED}
     SendMessage $LanguageEnglishState ${WM_SETTEXT} 0 "STR:"
-    SendMessage $LanguageRussianState ${WM_SETTEXT} 0 "STR:ACTIVE"
+    SendMessage $LanguageRussianState ${WM_SETTEXT} 0 "STR:$(KLanguageSelected)"
   ${Else}
-    SendMessage $LanguageEnglishState ${WM_SETTEXT} 0 "STR:ACTIVE"
+    SendMessage $LanguageEnglishState ${WM_SETTEXT} 0 "STR:$(KLanguageSelected)"
     SendMessage $LanguageRussianState ${WM_SETTEXT} 0 "STR:"
   ${EndIf}
 FunctionEnd
@@ -74,30 +74,37 @@ Function LanguagePage
   !insertmacro KuroganePrepareKnownPageImpl "" $LanguageDialog Next
   StrCpy $KuroganeMatrixParent $LanguageDialog
 
-  ; The selector is itself the pre-init surface, not a pretend numbered page.
-  !insertmacro KuroganeMatrixText 22 17 296 25 "$(KLanguageTitle)" ${K_COLOR_TEXT} ${K_COLOR_WINDOW} $KuroganeFontTitle
-  !insertmacro KuroganeMatrixText 22 48 296 22 "$(KLanguageSubtitle)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontBody
-  !insertmacro KuroganeMatrixHeader "LANGUAGE MATRIX" "AUTO / MANUAL"
+  !insertmacro KuroganeMatrixPageHeader "SIGNAL MATRIX / LOCALE" "$(KLanguageTitle)" "$(KLanguageSubtitle)" "LANGUAGE MATRIX" "190X4 / 01"
 
-  !insertmacro KuroganeMatrixFrame 42 118 260 55 43 119 258 53 ${K_COLOR_BORDER} ${K_COLOR_PANEL}
-  !insertmacro KuroganeMatrixText 58 129 170 14 "$(KLanguageEnglishTitle)" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 58 148 190 18 "$(KLanguageEnglishDescription)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
-  !insertmacro KuroganeSignalRadio 278 137 $LanguageEnglish
+  !insertmacro KuroganeMatrixBox 42 121 260 51 ${K_COLOR_BORDER}
+  StrCpy $KuroganeSignalPrimaryBorder $0
+  !insertmacro KuroganeMatrixBox 43 122 258 49 ${K_COLOR_PANEL}
+  !insertmacro KuroganeMatrixText 58 132 170 14 "$(KLanguageEnglishTitle)" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 58 151 190 18 "$(KLanguageEnglishDescription)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
+  !insertmacro KuroganeSignalRadio 278 138 $LanguageEnglish
   ${NSD_OnClick} $LanguageEnglish LanguageSelectEnglish
   ${NSD_CreateLabel} 224u 139u 47u 12u ""
   Pop $LanguageEnglishState
   SetCtlColors $LanguageEnglishState ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
   SendMessage $LanguageEnglishState ${WM_SETFONT} $KuroganeFontMono 1
 
-  !insertmacro KuroganeMatrixFrame 58 183 244 55 59 184 242 53 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
+  !insertmacro KuroganeMatrixBox 58 183 244 50 ${K_COLOR_BORDER}
+  StrCpy $KuroganeSignalSecondaryBorder $0
+  !insertmacro KuroganeMatrixBox 59 184 242 48 ${K_COLOR_FIELD}
   !insertmacro KuroganeMatrixText 74 194 154 14 "$(KLanguageRussianTitle)" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
   !insertmacro KuroganeMatrixText 74 213 174 18 "$(KLanguageRussianDescription)" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
-  !insertmacro KuroganeSignalRadio 278 202 $LanguageRussian
+  !insertmacro KuroganeSignalRadio 278 200 $LanguageRussian
   ${NSD_OnClick} $LanguageRussian LanguageSelectRussian
   ${NSD_CreateLabel} 224u 204u 47u 12u ""
   Pop $LanguageRussianState
   SetCtlColors $LanguageRussianState ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
   SendMessage $LanguageRussianState ${WM_SETFONT} $KuroganeFontMono 1
+  !insertmacro KuroganeBringToFront $LanguageEnglishState
+  !insertmacro KuroganeBringToFront $LanguageRussianState
+  !insertmacro KuroganeBringToFront $LanguageEnglish
+  !insertmacro KuroganeBringToFront $LanguageRussian
+  !insertmacro KuroganeMatrixBox 31 251 287 3 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 31 251 57 3 ${K_COLOR_ACCENT}
 
   StrCpy $KuroganeSignalPrimaryControl $LanguageEnglish
   StrCpy $KuroganeSignalSecondaryControl $LanguageRussian
