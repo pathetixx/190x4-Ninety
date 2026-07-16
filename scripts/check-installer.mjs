@@ -219,6 +219,12 @@ if (templatePath && existsSync(templatePath)) {
     "KuroganeDirectoryShow",
     "KuroganeRunLanguageSelector",
     "NinetySetProgramFilesInstallDir",
+    "NinetyValidateInstallTarget",
+    "NinetyProbeWritableFile",
+    "un.NinetyValidateRemovalTarget",
+    "un.NinetyProbeWritableFile",
+    "CreateMutexW",
+    "AllowSkipFiles off",
     'StrCpy $INSTDIR "$PROGRAMFILES64\\${PRODUCTNAME}"',
     'ReadRegStr $0 HKCU "${MANUPRODUCTKEY}" "Installer Language"',
     "KuroganeStartMenuShow",
@@ -236,6 +242,19 @@ if (templatePath && existsSync(templatePath)) {
   }
   if (template.includes('StrCpy $INSTDIR "$LOCALAPPDATA\\${PRODUCTNAME}"')) {
     fail("стандартный путь установки не должен возвращаться в AppData");
+  }
+  for (const forbiddenMigration of [
+    '$4 == "$LOCALAPPDATA\\${PRODUCTNAME}"',
+    '$4 == "$LOCALAPPDATA\\Programs\\${PRODUCTNAME}"',
+    'GetKnownFolderPath $5 {5CD7AEE2-2219-4A67-B85D-6C9CE15660CB}',
+  ]) {
+    if (template.includes(forbiddenMigration)) {
+      fail(`installer.nsi не должен автоматически переносить существующую установку: ${forbiddenMigration}`);
+    }
+  }
+  if (!template.includes('StrCpy $INSTDIR $NinetyPrevPerUser') ||
+      !template.includes('StrCpy $INSTDIR $NinetyPrevPerMachine')) {
+    fail("installer.nsi должен сохранять зарегистрированный путь существующей установки");
   }
   const pageOrder = [
     "KuroganeInstallModeShow",

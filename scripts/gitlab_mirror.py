@@ -15,6 +15,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -122,6 +123,16 @@ class GitLabClient:
         except urllib.error.HTTPError as exc:
             raise MirrorError(f"GitLab upload {filename}: HTTP {exc.code}") from exc
 
+    def exists(self, url: str) -> bool:
+        req = urllib.request.Request(url, method="HEAD")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                return response.status == 200
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return False
+            raise MirrorError(f"GitLab HEAD: HTTP {exc.code}") from exc
+
     def verify_blob(self, version: str, filename: str, expected: bytes) -> bytes:
         expected_size = len(expected)
         expected_sha = sha256_hex(expected)
@@ -203,12 +214,49 @@ def promote_release(
     return installer_url
 
 
+def rollback_stable(client: GitLabClient, version: str) -> str:
+    """Promote already-verified immutable metadata without rebuilding assets."""
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise MirrorError(f"некорректная rollback-версия {version!r}")
+    metadata_body = client.download(version, METADATA_NAME)
+    if metadata_body is None:
+        raise MirrorError(f"immutable metadata {version}/{METADATA_NAME} не найдена")
+    try:
+        data = json.loads(metadata_body.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise MirrorError(f"immutable metadata {version} повреждена: {exc}") from exc
+    platforms = data.get("platforms") if isinstance(data, dict) else None
+    platform = platforms.get(PLATFORM) if isinstance(platforms, dict) else None
+    installer_url = platform.get("url") if isinstance(platform, dict) else None
+    if not isinstance(installer_url, str) or not installer_url:
+        raise MirrorError(f"immutable metadata {version} не содержит installer URL")
+    installer_name = urllib.parse.unquote(urllib.parse.urlparse(installer_url).path.rsplit("/", 1)[-1])
+    expected_url = client.url(version, installer_name)
+    validate_metadata(data, version, expected_url)
+    if installer_url != expected_url or not client.exists(installer_url):
+        raise MirrorError(f"immutable installer {version}/{installer_name} недоступен")
+    downloaded_stable = client.promote_stable(metadata_body)
+    validate_metadata_bytes(downloaded_stable, version, expected_url)
+    return installer_url
+
+
 def main() -> int:
     api = os.environ.get("GITLAB_API", "https://gitlab.com/api/v4")
     project_id = os.environ.get("GITLAB_PROJECT_ID")
     token = os.environ.get("GITLAB_TOKEN")
     if not project_id or not token:
         raise MirrorError("нужны GITLAB_PROJECT_ID и GITLAB_TOKEN")
+
+    client = GitLabClient(api, project_id, token)
+    if len(sys.argv) == 3 and sys.argv[1] == "--rollback":
+        installer_url = rollback_stable(client, sys.argv[2])
+        print(
+            "GitLab OTA rolled back safely: "
+            f"{client.url('stable', METADATA_NAME)} -> {installer_url}"
+        )
+        return 0
+    if len(sys.argv) != 1:
+        raise MirrorError("usage: gitlab_mirror.py [--rollback X.Y.Z]")
 
     installers = glob.glob("src-tauri/target/release/bundle/nsis/*-setup.exe")
     if len(installers) != 1:
@@ -228,7 +276,6 @@ def main() -> int:
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise MirrorError(f"локальный latest.json повреждён: {exc}") from exc
 
-    client = GitLabClient(api, project_id, token)
     installer_url = promote_release(
         client,
         source_metadata,

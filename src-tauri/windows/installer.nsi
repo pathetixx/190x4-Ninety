@@ -71,9 +71,12 @@ Var UpdateMode
 Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
-; Ninety: явная миграция существующей установки (см. блок в .onInit)
+; Existing installs must stay in their registered directory. A fresh install
+; defaults to Program Files when the current token can write there.
 Var NinetyPrevPerUser
 Var NinetyPrevPerMachine
+Var NinetyInstallerMutex
+Var NinetyLockedPath
 
 ; The hook entry is loaded after VERSION and the other product constants so the
 ; Kurogane UI can render live build metadata in the custom title bar.
@@ -84,6 +87,9 @@ Var NinetyPrevPerMachine
 Name "${PRODUCTNAME}"
 BrandingText "${COPYRIGHT}"
 OutFile "${OUTFILE}"
+; A missing file is safer than a partially updated client. Never offer the
+; stock NSIS "Ignore" action when a destination file cannot be replaced.
+AllowSkipFiles off
 
 ; We don't actually use this value as default install path,
 ; it's just for nsis to append the product name folder in the directory selector
@@ -499,6 +505,18 @@ FunctionEnd
 {{/each}}
 
 Function .onInit
+  ; One setup operation at a time. Apart from preventing duplicate writes this
+  ; also stops a second interactive installer from racing the OTA installer.
+  System::Call 'kernel32::CreateMutexW(p 0, i 1, w "Local\\pw.x190x4.ninety.installer") p .r0 ?e'
+  StrCpy $NinetyInstallerMutex $0
+  Pop $1
+  ${If} $1 == 183
+    IfSilent 0 +2
+      Abort
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(KInstallerAlreadyRunning)"
+    Abort
+  ${EndIf}
+
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   ${IfNot} ${Errors}
     StrCpy $PassiveMode 1
@@ -556,26 +574,33 @@ Function .onInit
   !if "${INSTALLMODE}" == "both"
     !insertmacro MULTIUSER_INIT
 
-    ; --- Ninety: детерминированная миграция существующих установок ---
-    ; Явно читаем прежний режим из обоих кустов реестра. Старые стандартные
-    ; per-user каталоги в AppData мигрируют на Program Files; осознанно выбранный
-    ; пользователем нестандартный каталог сохраняется функцией
-    ; RestorePreviousInstallLocation.
-    ; SetRegView 64 уже выставлен SetContext выше, кусты совпадают с записью.
+    ; Never migrate an installed client as a side effect of update/reinstall.
+    ; Prefer the current user's registered copy when both scopes exist: the OTA
+    ; request normally originates from that copy. Otherwise use the machine
+    ; registration. Either way this can only select an existing location.
     ReadRegStr $NinetyPrevPerMachine HKLM "${MANUPRODUCTKEY}" ""
     ReadRegStr $NinetyPrevPerUser    HKCU "${MANUPRODUCTKEY}" ""
-    ${If} $NinetyPrevPerMachine != ""
-      ; апгрейд установки «для всех» — остаёмся в Program Files
-      StrCpy $MultiUser.InstallMode "AllUsers"
-      SetShellVarContext all
-      Call RestorePreviousInstallLocation
-    ${ElseIf} $NinetyPrevPerUser != ""
-      ; Сохраняем пользовательский контекст, но не старый стандартный AppData.
+    ${If} $NinetyPrevPerUser != ""
+    ${AndIf} ${FileExists} "$NinetyPrevPerUser\${MAINBINARYNAME}.exe"
       StrCpy $MultiUser.InstallMode "CurrentUser"
       SetShellVarContext current
-      Call RestorePreviousInstallLocation
+      StrCpy $INSTDIR $NinetyPrevPerUser
+    ${ElseIf} $NinetyPrevPerMachine != ""
+    ${AndIf} ${FileExists} "$NinetyPrevPerMachine\${MAINBINARYNAME}.exe"
+      StrCpy $MultiUser.InstallMode "AllUsers"
+      SetShellVarContext all
+      StrCpy $INSTDIR $NinetyPrevPerMachine
+    ${ElseIf} $NinetyPrevPerUser != ""
+      ; An uninstall that keeps application data also keeps the user's chosen
+      ; destination. Reinstall there unless a live machine install exists.
+      StrCpy $MultiUser.InstallMode "CurrentUser"
+      SetShellVarContext current
+      StrCpy $INSTDIR $NinetyPrevPerUser
+    ${ElseIf} $NinetyPrevPerMachine != ""
+      StrCpy $MultiUser.InstallMode "AllUsers"
+      SetShellVarContext all
+      StrCpy $INSTDIR $NinetyPrevPerMachine
     ${EndIf}
-    ; Свежая установка в обоих режимах по умолчанию использует Program Files.
   !endif
 FunctionEnd
 
@@ -702,6 +727,7 @@ Section Install
   !endif
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  Call NinetyValidateInstallTarget
 
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
@@ -818,6 +844,15 @@ Function .onInstSuccess
 FunctionEnd
 
 Function un.onInit
+  System::Call 'kernel32::CreateMutexW(p 0, i 1, w "Local\\pw.x190x4.ninety.installer") p .r0 ?e'
+  Pop $1
+  ${If} $1 == 183
+    IfSilent 0 +2
+      Abort
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(KInstallerAlreadyRunning)"
+    Abort
+  ${EndIf}
+
   !insertmacro SetContext
 
   !if "${INSTALLMODE}" == "both"
@@ -845,6 +880,7 @@ Section Uninstall
   !endif
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  Call un.NinetyValidateRemovalTarget
 
   ; Delete the app directory and its content from disk
   ; Copy main executable
@@ -964,18 +1000,108 @@ SectionEnd
 
 Function RestorePreviousInstallLocation
   ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
-  GetKnownFolderPath $5 {5CD7AEE2-2219-4A67-B85D-6C9CE15660CB}
-  ${If} $4 == ""
-    Call NinetySetProgramFilesInstallDir
-  ${ElseIf} $4 == "$LOCALAPPDATA\${PRODUCTNAME}"
-  ${OrIf} $4 == "$LOCALAPPDATA\Programs\${PRODUCTNAME}"
-  ${OrIf} $4 == "$5\${PRODUCTNAME}"
-    ; Migrate only former standard per-user destinations. An explicit custom
-    ; directory remains untouched on reinstall/update.
-    Call NinetySetProgramFilesInstallDir
-  ${Else}
+  ${If} $4 != ""
+    ; Existing AppData, Program Files and custom installations all remain in
+    ; place. Moving binaries is an explicit future migration, never an OTA side
+    ; effect.
     StrCpy $INSTDIR $4
+  ${ElseIf} $MultiUser.Privileges == "Admin"
+    ; MultiUser already supplies a writable per-user fallback for standard
+    ; accounts. Only an elevated fresh install defaults to Program Files.
+    Call NinetySetProgramFilesInstallDir
+  ${ElseIf} $MultiUser.Privileges == "Power"
+    Call NinetySetProgramFilesInstallDir
   ${EndIf}
+FunctionEnd
+
+Function NinetyProbeWritableFile
+  ClearErrors
+  FileOpen $0 "$R9" a
+  ${If} ${Errors}
+    StrCpy $NinetyLockedPath "$R9"
+    Push "StopLocate"
+    Return
+  ${EndIf}
+  FileClose $0
+  Push ""
+FunctionEnd
+
+Function NinetyValidateInstallTarget
+  StrCpy $NinetyLockedPath ""
+  ClearErrors
+  CreateDirectory "$INSTDIR"
+  ${If} ${Errors}
+    StrCpy $NinetyLockedPath "$INSTDIR"
+    Goto target_not_writable
+  ${EndIf}
+
+  FileOpen $0 "$INSTDIR\.ninety-install-write-test" w
+  ${If} ${Errors}
+    StrCpy $NinetyLockedPath "$INSTDIR"
+    Goto target_not_writable
+  ${EndIf}
+  ClearErrors
+  FileWrite $0 "Ninety installer write probe"
+  ${If} ${Errors}
+    FileClose $0
+    Delete "$INSTDIR\.ninety-install-write-test"
+    StrCpy $NinetyLockedPath "$INSTDIR"
+    Goto target_not_writable
+  ${EndIf}
+  FileClose $0
+  Delete "$INSTDIR\.ninety-install-write-test"
+
+  ; Detect any existing locked/unwritable payload before the first extraction.
+  ; This converts hundreds of native per-file prompts into one controlled abort.
+  IfFileExists "$INSTDIR\*.*" 0 target_writable
+  ${Locate} "$INSTDIR" "/L=F /G=1" "NinetyProbeWritableFile"
+  ${If} $NinetyLockedPath != ""
+    Goto target_not_writable
+  ${EndIf}
+  target_writable:
+    Return
+
+  target_not_writable:
+    SetErrorLevel 5
+    IfSilent 0 +2
+      Abort
+    MessageBox MB_OK|MB_ICONSTOP "$(KInstallTargetUnavailable)$\r$\n$NinetyLockedPath"
+    Abort
+FunctionEnd
+
+Function un.NinetyProbeWritableFile
+  ; Loaded kernel drivers are intentionally handled with Delete /REBOOTOK in
+  ; the pre-uninstall hook. Every other payload must be writable before the
+  ; first destructive uninstall action.
+  ${If} $R9 == "$INSTDIR\dpi\bin\WinDivert64.sys"
+  ${OrIf} $R9 == "$INSTDIR\dpi\bin-monkey\Monkey64.sys"
+    Push ""
+    Return
+  ${EndIf}
+  ClearErrors
+  FileOpen $0 "$R9" a
+  ${If} ${Errors}
+    StrCpy $NinetyLockedPath "$R9"
+    Push "StopLocate"
+    Return
+  ${EndIf}
+  FileClose $0
+  Push ""
+FunctionEnd
+
+Function un.NinetyValidateRemovalTarget
+  StrCpy $NinetyLockedPath ""
+  IfFileExists "$INSTDIR\*.*" 0 removal_target_ready
+  ${un.Locate} "$INSTDIR" "/L=F /G=1" "un.NinetyProbeWritableFile"
+  ${If} $NinetyLockedPath == ""
+    Goto removal_target_ready
+  ${EndIf}
+  SetErrorLevel 5
+  IfSilent 0 +2
+    Abort
+  MessageBox MB_OK|MB_ICONSTOP "$(KInstallTargetUnavailable)$\r$\n$NinetyLockedPath"
+  Abort
+  removal_target_ready:
 FunctionEnd
 
 Function NinetySetProgramFilesInstallDir

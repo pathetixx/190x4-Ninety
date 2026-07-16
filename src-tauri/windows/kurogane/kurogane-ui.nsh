@@ -134,6 +134,8 @@ LangString KLanguageEnglishTitle 1033 "ENGLISH"
 LangString KLanguageRussianTitle 1033 "РУССКИЙ"
 LangString KLanguageSelected 1033 "SELECTED"
 LangString KOtaWindowTitle 1033 "Ninety update"
+LangString KInstallerAlreadyRunning 1033 "Ninety Setup is already running. Finish or close the active setup before starting another one."
+LangString KInstallTargetUnavailable 1033 "Ninety cannot safely update the selected folder. Close every running Ninety process and try again. No files were skipped."
 
 LangString KStepOptions 1049 "ПАРАМЕТРЫ"
 LangString KStepInstall 1049 "УСТАНОВКА"
@@ -199,6 +201,8 @@ LangString KLanguageEnglishTitle 1049 "ENGLISH"
 LangString KLanguageRussianTitle 1049 "РУССКИЙ"
 LangString KLanguageSelected 1049 "ВЫБРАНО"
 LangString KOtaWindowTitle 1049 "Обновление Ninety"
+LangString KInstallerAlreadyRunning 1049 "Установка Ninety уже запущена. Завершите или закройте активную установку перед повторным запуском."
+LangString KInstallTargetUnavailable 1049 "Ninety не может безопасно обновить выбранную папку. Закройте все процессы Ninety и повторите попытку. Ни один файл не был пропущен."
 
 !macro KuroganeSetText CONTROL TEXT
   GetDlgItem $0 $KuroganePage ${CONTROL}

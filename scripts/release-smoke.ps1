@@ -116,6 +116,138 @@ foreach ($name in @("config", "data", "logs", "webview")) {
 Assert-Release (Test-Path -LiteralPath (Join-Path $portableDir "NinetyData/config/state-backup.json") -PathType Leaf) `
   "Full Portable не записал state backup в NinetyData/config"
 
+function Invoke-Setup([string[]]$InstallerArgs, [int]$TimeoutMs = 120000) {
+  $setup = Start-Process -FilePath $nsis[0].FullName -ArgumentList $InstallerArgs -PassThru
+  if (-not $setup.WaitForExit($TimeoutMs)) {
+    Stop-Process -Id $setup.Id -Force -ErrorAction SilentlyContinue
+    throw "NSIS setup завис: $($InstallerArgs -join ' ')"
+  }
+  return $setup.ExitCode
+}
+
+function Get-InstallManifest([string]$Root) {
+  return @(
+    Get-ChildItem -LiteralPath $Root -File -Recurse |
+      Sort-Object FullName |
+      ForEach-Object {
+        $relative = [IO.Path]::GetRelativePath($Root, $_.FullName).Replace('\\', '/')
+        "$relative|$($_.Length)|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)"
+      }
+  )
+}
+
+function Wait-Removed([string]$Path, [int]$TimeoutSeconds = 30) {
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ((Test-Path -LiteralPath $Path) -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 250
+  }
+  Assert-Release (-not (Test-Path -LiteralPath $Path)) "uninstaller не удалил $Path"
+}
+
+# Exercise the real production NSIS, not only the app executable. The legacy
+# path models users installed in AppData before Program Files became the fresh
+# default. Reinstall/OTA must update that exact path and never create a duplicate.
+$legacyInstall = Join-Path $env:LOCALAPPDATA "NinetyLegacySmoke-$PID"
+$programFilesInstall = Join-Path $env:ProgramFiles "Ninety"
+Remove-Item -LiteralPath $legacyInstall -Recurse -Force -ErrorAction SilentlyContinue
+
+try {
+  $exit = Invoke-Setup @("/S", "/CurrentUser", "/D=$legacyInstall")
+  Assert-Release ($exit -eq 0) "clean NSIS install завершился с кодом $exit"
+  foreach ($name in @(
+    "Ninety.exe", "uninstall.exe", "sing-box.exe", "xray.exe", "naive.exe",
+    "trusttunnel_client.exe", "wintun.dll", "dpi/strategies.json", "dpi/bin/winws.exe",
+    "dpi/bin-monkey/winws.exe", "flags/ma.png", "flags/ru.png"
+  )) {
+    Assert-Release (Test-Path -LiteralPath (Join-Path $legacyInstall $name) -PathType Leaf) `
+      "production NSIS не установил $name"
+  }
+
+  $sourceFlags = @(Get-ChildItem -LiteralPath "src-tauri/flags" -File -Filter "*.png")
+  $installedFlags = @(Get-ChildItem -LiteralPath (Join-Path $legacyInstall "flags") -File -Filter "*.png")
+  Assert-Release ($installedFlags.Count -eq $sourceFlags.Count) `
+    "production NSIS установил $($installedFlags.Count) флагов вместо $($sourceFlags.Count)"
+  foreach ($sourceFlag in $sourceFlags) {
+    $installedFlag = Join-Path $legacyInstall "flags/$($sourceFlag.Name)"
+    Assert-Release (Test-Path -LiteralPath $installedFlag -PathType Leaf) `
+      "production NSIS потерял flags/$($sourceFlag.Name)"
+    Assert-Release ((Get-FileHash -LiteralPath $installedFlag -Algorithm SHA256).Hash -eq `
+      (Get-FileHash -LiteralPath $sourceFlag.FullName -Algorithm SHA256).Hash) `
+      "production NSIS повредил flags/$($sourceFlag.Name)"
+  }
+
+  # Exact regression from v0.2.28: a locked flags/ma.png must fail once before
+  # extraction, without partial replacement or a cascade of per-file dialogs.
+  $beforeLockedUpdate = Get-InstallManifest $legacyInstall
+  $maPath = Join-Path $legacyInstall "flags/ma.png"
+  $maLock = [IO.File]::Open($maPath, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+  try {
+    $lockedExit = Invoke-Setup @("/S", "/P", "/UPDATE") 30000
+  } finally {
+    $maLock.Dispose()
+  }
+  Assert-Release ($lockedExit -eq 5) `
+    "locked-resource update должен завершаться кодом 5 до распаковки, получен $lockedExit"
+  $afterLockedUpdate = Get-InstallManifest $legacyInstall
+  Assert-Release (-not (Compare-Object $beforeLockedUpdate $afterLockedUpdate)) `
+    "locked-resource update частично изменил существующую установку"
+
+  # With the lock gone the same OTA-style invocation must reuse the registered
+  # AppData path. Program Files must stay untouched: no duplicate installation.
+  $exit = Invoke-Setup @("/S", "/P", "/UPDATE")
+  Assert-Release ($exit -eq 0) "OTA-style reinstall завершился с кодом $exit"
+  Assert-Release (Test-Path -LiteralPath (Join-Path $legacyInstall "flags/ma.png") -PathType Leaf) `
+    "OTA-style reinstall потерял flags/ma.png"
+  Assert-Release (-not (Test-Path -LiteralPath $programFilesInstall)) `
+    "OTA existing AppData install создал дубликат в Program Files"
+
+  $installedProcess = Start-Process -FilePath (Join-Path $legacyInstall "Ninety.exe") `
+    -ArgumentList "--ci-smoke" -PassThru
+  if (-not $installedProcess.WaitForExit(15000)) {
+    Stop-Process -Id $installedProcess.Id -Force -ErrorAction SilentlyContinue
+    throw "установленный через production NSIS Ninety.exe завис в CI smoke"
+  }
+  Assert-Release ($installedProcess.ExitCode -eq 0) `
+    "установленный через production NSIS Ninety.exe завершился с кодом $($installedProcess.ExitCode)"
+
+  $uninstall = Start-Process -FilePath (Join-Path $legacyInstall "uninstall.exe") `
+    -ArgumentList "/S" -PassThru
+  $uninstall.WaitForExit(30000) | Out-Null
+  Wait-Removed $legacyInstall
+} finally {
+  if (Test-Path -LiteralPath $legacyInstall) {
+    Remove-Item -LiteralPath $legacyInstall -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+# Retaining app data after uninstall intentionally preserves the remembered
+# destination for real users. Remove only the ephemeral CI registration before
+# testing a truly fresh machine-wide install.
+Remove-Item -LiteralPath "HKCU:\Software\pathetixx\Ninety" -Recurse -Force -ErrorAction SilentlyContinue
+
+# A genuinely fresh install has no registered destination and must choose
+# Program Files even when the user chooses the current-account scope. This runs
+# only after the legacy-path scenario has removed its CI registry registration.
+Assert-Release (-not (Test-Path -LiteralPath $programFilesInstall)) `
+  "fresh-install smoke requires an empty Program Files target"
+try {
+  $exit = Invoke-Setup @("/S", "/CurrentUser")
+  Assert-Release ($exit -eq 0) "fresh Program Files install завершился с кодом $exit"
+  Assert-Release (Test-Path -LiteralPath (Join-Path $programFilesInstall "Ninety.exe") -PathType Leaf) `
+    "fresh install не выбрал Program Files"
+  Assert-Release (Test-Path -LiteralPath (Join-Path $programFilesInstall "flags/ma.png") -PathType Leaf) `
+    "fresh Program Files install потерял flags/ma.png"
+
+  $uninstall = Start-Process -FilePath (Join-Path $programFilesInstall "uninstall.exe") `
+    -ArgumentList "/S" -PassThru
+  $uninstall.WaitForExit(30000) | Out-Null
+  Wait-Removed $programFilesInstall
+} finally {
+  if (Test-Path -LiteralPath $programFilesInstall) {
+    Remove-Item -LiteralPath $programFilesInstall -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
 $authenticodeFiles = @($app, $portableApp, $nsis[0], $msi[0])
 $authenticodeEnabled = $env:AUTHENTICODE_ENABLED -eq "true"
 foreach ($file in $authenticodeFiles) {

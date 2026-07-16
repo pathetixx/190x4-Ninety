@@ -44,6 +44,14 @@ class FakeClient:
         self.calls.append(("promote", "stable", mirror.METADATA_NAME))
         return body
 
+    def download(self, version, filename):
+        self.calls.append(("download", version, filename))
+        return self.blobs.get((version, filename))
+
+    def exists(self, url):
+        self.calls.append(("exists", url))
+        return True
+
 
 class GitLabMirrorTests(unittest.TestCase):
     def test_package_url_quotes_components(self):
@@ -94,6 +102,30 @@ class GitLabMirrorTests(unittest.TestCase):
         body = json.dumps(metadata()).encode()
         with self.assertRaises(mirror.MirrorError):
             mirror.validate_metadata_bytes(body, "1.2.3", "https://gitlab.test/setup.exe")
+
+    def test_rollback_promotes_exact_immutable_metadata(self):
+        client = FakeClient()
+        installer_url = client.url("1.2.3", "Ninety_1.2.3_x64-setup.exe")
+        body = json.dumps(metadata(url=installer_url)).encode()
+        client.blobs[("1.2.3", mirror.METADATA_NAME)] = body
+        result = mirror.rollback_stable(client, "1.2.3")
+        self.assertEqual(result, installer_url)
+        self.assertEqual(
+            client.calls,
+            [
+                ("download", "1.2.3", mirror.METADATA_NAME),
+                ("exists", installer_url),
+                ("promote", "stable", mirror.METADATA_NAME),
+            ],
+        )
+
+    def test_rollback_rejects_untrusted_url_or_version(self):
+        client = FakeClient()
+        client.blobs[("1.2.3", mirror.METADATA_NAME)] = json.dumps(metadata()).encode()
+        with self.assertRaises(mirror.MirrorError):
+            mirror.rollback_stable(client, "1.2.3")
+        with self.assertRaises(mirror.MirrorError):
+            mirror.rollback_stable(client, "latest")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,44 @@
+name: Roll back stable OTA metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing immutable version to restore (X.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rollback-gitlab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Restore verified immutable GitLab metadata
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GITLAB_PROJECT_ID: "83749391"
+          ROLLBACK_VERSION: ${{ inputs.version }}
+        run: python scripts/gitlab_mirror.py --rollback "$ROLLBACK_VERSION"
+
+      - name: Verify stable GitLab endpoint
+        env:
+          ROLLBACK_VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          url = "https://gitlab.com/api/v4/projects/83749391/packages/generic/ninety/stable/latest.json"
+          with urllib.request.urlopen(url, timeout=60) as response:
+              data = json.load(response)
+          expected = os.environ["ROLLBACK_VERSION"]
+          if data.get("version") != expected:
+              raise SystemExit(f"stable version {data.get('version')!r} != {expected!r}")
+          platform = data.get("platforms", {}).get("windows-x86_64", {})
+          if not platform.get("signature") or f"/ninety/{expected}/" not in platform.get("url", ""):
+              raise SystemExit("stable metadata has no valid immutable installer/signature")
+          print(f"GitLab stable OTA = {expected}")
+          PY
