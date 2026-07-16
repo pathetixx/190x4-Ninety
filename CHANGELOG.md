@@ -2,6 +2,15 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.31 — 2026-07-16
+
+- Existing installations remain in their registered AppData, Program Files or custom directory during updates and reinstalls; only a genuinely fresh installation defaults to `C:\Program Files\Ninety`, preventing duplicate copies.
+- Setup and removal are single-operation and fail-safe: Ninety waits for released file handles, rejects parallel installers, disables resource skipping and makes no partial changes when a file remains locked or unwritable.
+- Maintenance can safely hand control to the registered uninstaller, while the production release gate verifies legacy AppData OTA in place, locked-resource rollback, complete resource integrity, installed-app launch and cleanup.
+- Существующие установки при обновлении и переустановке остаются в зарегистрированном каталоге AppData, Program Files или выбранной пользователем папке; `C:\Program Files\Ninety` используется по умолчанию только для действительно новой установки, поэтому дубликаты не создаются.
+- Установка и удаление работают в единственном экземпляре и безопасно прекращаются: Ninety ждёт освобождения файлов, отклоняет параллельный установщик, запрещает пропуск ресурсов и не вносит частичных изменений, если файл остаётся заблокированным либо недоступным для записи.
+- Мастер обслуживания безопасно передаёт управление зарегистрированному деинсталлятору, а production-гейт проверяет OTA поверх старой AppData-установки на месте, откат при заблокированном ресурсе, целостность всех ресурсов, запуск приложения и очистку.
+
 ## v0.2.30 — 2026-07-16
 
 - Updates and reinstalls now preserve every existing AppData, Program Files or custom installation path; only a genuinely fresh installation defaults to `C:\Program Files\Ninety`, preventing duplicate copies.
