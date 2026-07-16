@@ -270,18 +270,9 @@ try {
   if (-not $finishVisible) { throw "Installer did not advance from completed progress to Finish" }
   Start-Sleep -Milliseconds 500
   Save-InstallerWindow "06-finish.png"
-  $closedFromCaption = $false
-  foreach ($attempt in 0..2) {
-    Click-InstallerControl 1207
-    if ($process.WaitForExit(1800)) {
-      $closedFromCaption = $true
-      break
-    }
-    [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
-    Start-Sleep -Milliseconds 250
-  }
-  if (-not $closedFromCaption) {
-    throw "Installer close control ignored a real left-click"
+  Click-InstallerControl 1
+  if (-not $process.WaitForExit(5000)) {
+    throw "Installer Finish control ignored a real left-click"
   }
 
   # Start once more to verify the footer Cancel control independently.
@@ -297,6 +288,22 @@ try {
   Click-InstallerControl 2
   if (-not $process.WaitForExit(5000)) {
     throw "Installer cancel control ignored a real left-click"
+  }
+
+  # Verify the custom caption Close independently on a stable wizard page.
+  # NSIS intentionally owns Finish-page exit through button ID 1.
+  $process = Start-Process -FilePath $Installer -PassThru
+  $window = [IntPtr]::Zero
+  $deadline = (Get-Date).AddSeconds(20)
+  do {
+    Start-Sleep -Milliseconds 200
+    $process.Refresh()
+    $window = $process.MainWindowHandle
+  } until ($window -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
+  if ($window -eq [IntPtr]::Zero) { throw "Third installer window did not appear" }
+  Click-InstallerControl 1207
+  if (-not $process.WaitForExit(5000)) {
+    throw "Installer close control ignored a real left-click"
   }
 
   # Tauri updater uses /P /R and jumps straight into synchronous InstFiles.
