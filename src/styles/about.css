@@ -20,34 +20,39 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 11px;
   text-align: center;
-  padding: 18px 0 4px;
+  padding: 12px 0 4px;
 }
 .about-id__mark {
   position: relative;
-  width: 88px;
-  height: 88px;
-  border-radius: 20px;
-  background: radial-gradient(closest-side, var(--ink-2), var(--ink-1) 82%);
-  border: 1px solid var(--line-2);
+  width: 128px;
+  height: 112px;
   display: grid;
   place-items: center;
-  box-shadow:
-    0 0 0 1px var(--line-1) inset,
-    0 1px 0 var(--shine-1) inset,
-    0 20px 46px -18px var(--shadow-strong),
-    0 0 40px var(--accent-glow);
+  isolation: isolate;
 }
 .about-id__mark::before {
   content: "";
   position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  background: var(--edge-top);
+  z-index: -1;
+  width: 94px;
+  height: 68px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--accent-glow), transparent 74%);
+  filter: blur(9px);
+  opacity: 0.82;
   pointer-events: none;
 }
-.about-id__mark img { width: 88%; height: 88%; object-fit: contain; }
+.about-id__mark img {
+  display: block;
+  width: 118px;
+  height: 118px;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 16px 20px color-mix(in srgb, var(--shadow-strong) 72%, transparent))
+    drop-shadow(0 0 10px var(--accent-glow));
+}
 
 .about-id__badge {
   font-family: var(--font-mono);
@@ -61,6 +66,7 @@
   background: var(--accent-soft);
   border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
   text-transform: uppercase;
+  margin-top: -7px;
 }
 .about-id__name {
   margin: 0;
@@ -71,7 +77,13 @@
   color: var(--text-hi);
   line-height: 1;
 }
-.about-id__ver { display: inline-flex; align-items: center; gap: 10px; }
+.about-id__ver {
+  display: grid;
+  grid-template-columns: minmax(82px, 1fr) 3px minmax(82px, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  min-width: 191px;
+}
 .about-id__chip {
   font-family: var(--font-mono);
   font-weight: 500;
@@ -83,6 +95,7 @@
   background: var(--ink-2);
   border: 1px solid var(--line-2);
   font-variant-numeric: tabular-nums;
+  justify-self: end;
 }
 .about-id__sep { width: 3px; height: 3px; border-radius: 50%; background: var(--text-faint); }
 .about-id__channel {
@@ -91,6 +104,8 @@
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--text-lo);
+  justify-self: start;
+  white-space: nowrap;
 }
 .about-id__tag { margin: 2px 0 0; font-size: 13px; color: var(--text-lo); }
 
