@@ -559,6 +559,51 @@ try {
     throw "Installer close control ignored a real left-click"
   }
 
+  # Exercise the real two-process startup seam. The language selector owns the
+  # foreground first; after its LMB Next the waiting installer must reclaim it
+  # instead of appearing behind Explorer or another application.
+  $process = Start-Process -FilePath $Installer -ArgumentList "/SELECTLANG" -PassThru
+  $window = [IntPtr]::Zero
+  $selectorWindow = [IntPtr]::Zero
+  $deadline = (Get-Date).AddSeconds(20)
+  do {
+    Start-Sleep -Milliseconds 150
+    $candidate = [NinetyPreviewWin32]::FindKuroganeWindow()
+    if ($candidate -ne [IntPtr]::Zero -and [NinetyPreviewWin32]::ContainsText($candidate, "190X4 / 01")) {
+      $selectorWindow = $candidate
+    }
+  } until ($selectorWindow -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
+  if ($selectorWindow -eq [IntPtr]::Zero) { throw "Integrated language selector did not appear" }
+  $window = $selectorWindow
+  Click-InstallerControl 1
+
+  $handoffWindow = [IntPtr]::Zero
+  $deadline = (Get-Date).AddSeconds(10)
+  do {
+    Start-Sleep -Milliseconds 100
+    $candidate = [NinetyPreviewWin32]::FindKuroganeWindow()
+    if ($candidate -ne [IntPtr]::Zero -and
+        $candidate -ne $selectorWindow -and
+        -not [NinetyPreviewWin32]::ContainsText($candidate, "190X4 / 01")) {
+      $handoffWindow = $candidate
+    }
+  } until ($handoffWindow -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
+  if ($handoffWindow -eq [IntPtr]::Zero) { throw "Installer did not continue after language selection" }
+  $window = $handoffWindow
+  Start-Sleep -Milliseconds 500
+  if ([NinetyPreviewWin32]::GetForegroundWindow() -ne $window) {
+    throw "Main installer did not reclaim the foreground after language selection"
+  }
+  $handoffExStyle = [NinetyPreviewWin32]::GetWindowLong($window, -20)
+  if (($handoffExStyle -band 0x00000008) -ne 0) {
+    throw "Foreground handoff left the installer permanently topmost"
+  }
+  Save-InstallerWindow "00-language-handoff.png"
+  Click-InstallerControl 1207
+  if (-not $process.WaitForExit(5000)) {
+    throw "Installer did not close after the language handoff check"
+  }
+
   # Tauri updater uses /P /R and jumps straight into synchronous InstFiles.
   # Exercise the separate OS-managed OTA caption while that page is busy.
   $process = Start-Process -FilePath $Installer -ArgumentList "/P" -PassThru

@@ -6,6 +6,7 @@ ManifestDPIAware true
 ManifestDPIAwareness PerMonitorV2
 
 !include MUI2.nsh
+!include FileFunc.nsh
 
 !ifndef VERSION
   !define VERSION "0.0.0-preview"
@@ -24,6 +25,7 @@ Var LanguageEnglish
 Var LanguageRussian
 Var LanguageEnglishState
 Var LanguageRussianState
+Var LanguageHostPid
 
 Page custom LanguagePage LanguageLeave
 
@@ -31,6 +33,7 @@ Page custom LanguagePage LanguageLeave
 !insertmacro MUI_LANGUAGE "Russian"
 
 Function .onInit
+  ${GetOptions} $CMDLINE "/HOSTPID=" $LanguageHostPid
   System::Call 'kernel32::GetUserDefaultUILanguage() i .r0'
   ${If} $0 == 1049
     StrCpy $LANGUAGE 1049
@@ -38,6 +41,14 @@ Function .onInit
     ; English is the repository language and the fallback for every unsupported
     ; Windows locale.
     StrCpy $LANGUAGE 1033
+  ${EndIf}
+FunctionEnd
+
+Function LanguageGrantForeground
+  ${If} $LanguageHostPid != ""
+    ; The selector owns the foreground at this point, so Windows permits it to
+    ; hand activation back to the waiting installer process before it exits.
+    System::Call 'user32::AllowSetForegroundWindow(i $LanguageHostPid) i .r0'
   ${EndIf}
 FunctionEnd
 
@@ -133,11 +144,13 @@ Function LanguageLeave
   ${Else}
     SetErrorLevel 10
   ${EndIf}
+  Call LanguageGrantForeground
   Quit
 FunctionEnd
 
 Function LanguageAbort
   SetErrorLevel 12
+  Call LanguageGrantForeground
 FunctionEnd
 
 Section

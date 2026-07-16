@@ -67,6 +67,8 @@ Var KuroganeMaintenancePrimaryDescriptionValue
 Var KuroganeMaintenanceSecondaryDescriptionValue
 Var KuroganeTargetEditControl
 Var KuroganeTargetPathDisplayControl
+Var KuroganeForegroundHandoffPending
+Var KuroganeForegroundHandoffAttempts
 
 LangString KStepOptions 1033 "OPTIONS"
 LangString KStepInstall 1033 "INSTALL"
@@ -408,8 +410,38 @@ FunctionEnd
 !macro KuroganeRunLanguageSelector RESULT
   InitPluginsDir
   File /oname=$PLUGINSDIR\ninety-language.exe "${K_LANGUAGE_SELECTOR_EXE}"
-  ExecWait '"$PLUGINSDIR\ninety-language.exe"' ${RESULT}
+  System::Call 'kernel32::GetCurrentProcessId() i .r9'
+  ExecWait '"$PLUGINSDIR\ninety-language.exe" /HOSTPID=$9' ${RESULT}
+  ; The locale selector explicitly grants this host permission to reclaim the
+  ; foreground. Keep retry state until the real wizard HWND is visible.
+  StrCpy $KuroganeForegroundHandoffPending 1
+  StrCpy $KuroganeForegroundHandoffAttempts 0
 !macroend
+
+Function KuroganeClaimForeground
+  Push $0
+  Push $1
+  ${If} $KuroganeForegroundHandoffPending == 1
+    IntOp $KuroganeForegroundHandoffAttempts $KuroganeForegroundHandoffAttempts + 1
+    ShowWindow $HWNDPARENT ${SW_SHOW}
+    ; A short TOPMOST pulse puts the newly-created wizard above Explorer, then
+    ; immediately removes TOPMOST so intentional Alt+Tab still behaves normally.
+    System::Call 'user32::SetWindowPos(p $HWNDPARENT, p -1, i 0, i 0, i 0, i 0, i 0x0043)'
+    System::Call 'user32::BringWindowToTop(p $HWNDPARENT) i .r0'
+    System::Call 'user32::SetForegroundWindow(p $HWNDPARENT) i .r0'
+    System::Call 'user32::SetActiveWindow(p $HWNDPARENT) p .r0'
+    System::Call 'user32::SetWindowPos(p $HWNDPARENT, p -2, i 0, i 0, i 0, i 0, i 0x0013)'
+    System::Call 'user32::GetForegroundWindow() p .r1'
+    ${If} $1 == $HWNDPARENT
+      StrCpy $KuroganeForegroundHandoffPending 0
+    ${ElseIf} $KuroganeForegroundHandoffAttempts >= 12
+      ; Never turn foreground recovery into a permanent focus-stealing loop.
+      StrCpy $KuroganeForegroundHandoffPending 0
+    ${EndIf}
+  ${EndIf}
+  Pop $1
+  Pop $0
+FunctionEnd
 
 ; Clickable resource statics are unreliable under the elevated/updater shell:
 ; some Windows themes repaint them as white system buttons. Switch the same
@@ -717,6 +749,7 @@ FunctionEnd
 Function KuroganeGuiInit
   !insertmacro KuroganeGuiInitImpl KuroganeMinimize KuroganeClose
   !insertmacro KuroganeEnableManagedOtaWindowImpl
+  Call KuroganeClaimForeground
 FunctionEnd
 
 Function un.KuroganeGuiInit
@@ -913,6 +946,7 @@ Function KuroganeMinimizeShellTick
   Push $7
   Push $8
   !insertmacro KuroganeShellTickImpl
+  Call KuroganeClaimForeground
   ${If} $KuroganeTargetEditControl != 0
   ${AndIf} $KuroganeTargetPathDisplayControl != 0
     ${NSD_GetText} $KuroganeTargetEditControl $0

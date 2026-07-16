@@ -144,6 +144,7 @@ if (existsSync(kuroganeUiPath)) {
     "DwmSetWindowAttribute",
     "EnableMenuItem",
     "KuroganeRunLanguageSelector",
+    "KuroganeClaimForeground",
     "KuroganeDirectoryPageImpl",
     "KMaintenanceSignal",
     "KUninstallSignal",
@@ -152,6 +153,14 @@ if (existsSync(kuroganeUiPath)) {
     '"190X4 / 05"',
   ]) {
     if (!kuroganeUi.includes(marker)) fail(`Kurogane OTA chrome не содержит ${marker}`);
+  }
+}
+
+const languageSelectorSourcePath = resolve(kuroganeDir, "language-selector.nsi");
+if (existsSync(languageSelectorSourcePath)) {
+  const languageSelectorSource = readFileSync(languageSelectorSourcePath, "utf8");
+  for (const marker of ["/HOSTPID=", "AllowSetForegroundWindow", "LanguageGrantForeground"]) {
+    if (!languageSelectorSource.includes(marker)) fail(`Kurogane language selector не содержит ${marker}`);
   }
 }
 
