@@ -90,8 +90,7 @@ Function LanguagePage
   !insertmacro KuroganeMatrixBox 42 121 260 51 ${K_COLOR_BORDER}
   StrCpy $KuroganeSignalPrimaryBorder $0
   !insertmacro KuroganeMatrixBox 43 122 258 49 ${K_COLOR_PANEL}
-  !insertmacro KuroganeMatrixText 58 132 170 14 "$(KLanguageEnglishTitle)" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 58 151 190 18 "$(KLanguageEnglishDescription)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
+  !insertmacro KuroganeMatrixText 58 141 170 14 "$(KLanguageEnglishTitle)" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
   !insertmacro KuroganeSignalRadio 278 138 $LanguageEnglish
   ${NSD_OnClick} $LanguageEnglish LanguageSelectEnglish
   ${NSD_CreateLabel} 224u 139u 47u 12u ""
@@ -102,8 +101,7 @@ Function LanguagePage
   !insertmacro KuroganeMatrixBox 58 183 244 50 ${K_COLOR_BORDER}
   StrCpy $KuroganeSignalSecondaryBorder $0
   !insertmacro KuroganeMatrixBox 59 184 242 48 ${K_COLOR_FIELD}
-  !insertmacro KuroganeMatrixText 74 194 154 14 "$(KLanguageRussianTitle)" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 74 213 174 18 "$(KLanguageRussianDescription)" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
+  !insertmacro KuroganeMatrixText 74 203 154 14 "$(KLanguageRussianTitle)" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
   !insertmacro KuroganeSignalRadio 278 200 $LanguageRussian
   ${NSD_OnClick} $LanguageRussian LanguageSelectRussian
   ${NSD_CreateLabel} 224u 204u 47u 12u ""

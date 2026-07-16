@@ -544,19 +544,9 @@ Function .onInit
   ${If} $INSTDIR == "${PLACEHOLDER_INSTALL_DIR}"
     ; Set default install location
     !if "${INSTALLMODE}" == "perMachine"
-      ${If} ${RunningX64}
-        !if "${ARCH}" == "x64"
-          StrCpy $INSTDIR "$PROGRAMFILES64\${PRODUCTNAME}"
-        !else if "${ARCH}" == "arm64"
-          StrCpy $INSTDIR "$PROGRAMFILES64\${PRODUCTNAME}"
-        !else
-          StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
-        !endif
-      ${Else}
-        StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
-      ${EndIf}
+      Call NinetySetProgramFilesInstallDir
     !else if "${INSTALLMODE}" == "currentUser"
-      StrCpy $INSTDIR "$LOCALAPPDATA\${PRODUCTNAME}"
+      Call NinetySetProgramFilesInstallDir
     !endif
 
     Call RestorePreviousInstallLocation
@@ -567,13 +557,10 @@ Function .onInit
     !insertmacro MULTIUSER_INIT
 
     ; --- Ninety: детерминированная миграция существующих установок ---
-    ; Прежние сборки ставились в режиме currentUser (ключ в HKCU, путь в
-    ; %LOCALAPPDATA%\Ninety). MultiUser в passive/update-режиме на админ-аккаунте
-    ; может ошибочно уйти в per-machine → дубль в Program Files и осиротевший
-    ; AppData. Поэтому ЯВНО читаем прежний путь из обоих кустов реестра
-    ; (MANUPRODUCTKEY хранит чистый INSTDIR без кавычек, его же читает
-    ; RestorePreviousInstallLocation) и жёстко пиннимся к существующей установке —
-    ; контекст, режим и путь, — НЕ полагаясь на автодетект MultiUser.
+    ; Явно читаем прежний режим из обоих кустов реестра. Старые стандартные
+    ; per-user каталоги в AppData мигрируют на Program Files; осознанно выбранный
+    ; пользователем нестандартный каталог сохраняется функцией
+    ; RestorePreviousInstallLocation.
     ; SetRegView 64 уже выставлен SetContext выше, кусты совпадают с записью.
     ReadRegStr $NinetyPrevPerMachine HKLM "${MANUPRODUCTKEY}" ""
     ReadRegStr $NinetyPrevPerUser    HKCU "${MANUPRODUCTKEY}" ""
@@ -581,15 +568,14 @@ Function .onInit
       ; апгрейд установки «для всех» — остаёмся в Program Files
       StrCpy $MultiUser.InstallMode "AllUsers"
       SetShellVarContext all
-      StrCpy $INSTDIR $NinetyPrevPerMachine
+      Call RestorePreviousInstallLocation
     ${ElseIf} $NinetyPrevPerUser != ""
-      ; апгрейд per-user (в т.ч. старые currentUser-сборки) — остаёмся в AppData
+      ; Сохраняем пользовательский контекст, но не старый стандартный AppData.
       StrCpy $MultiUser.InstallMode "CurrentUser"
       SetShellVarContext current
-      StrCpy $INSTDIR $NinetyPrevPerUser
+      Call RestorePreviousInstallLocation
     ${EndIf}
-    ; свежая установка ($NinetyPrev* пусты) → обычный поток MultiUser (выбор
-    ; «для всех / для меня» + страница каталога; в passive — дефолт per-user).
+    ; Свежая установка в обоих режимах по умолчанию использует Program Files.
   !endif
 FunctionEnd
 
@@ -978,8 +964,32 @@ SectionEnd
 
 Function RestorePreviousInstallLocation
   ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
-  StrCmp $4 "" +2 0
+  GetKnownFolderPath $5 {5CD7AEE2-2219-4A67-B85D-6C9CE15660CB}
+  ${If} $4 == ""
+    Call NinetySetProgramFilesInstallDir
+  ${ElseIf} $4 == "$LOCALAPPDATA\${PRODUCTNAME}"
+  ${OrIf} $4 == "$LOCALAPPDATA\Programs\${PRODUCTNAME}"
+  ${OrIf} $4 == "$5\${PRODUCTNAME}"
+    ; Migrate only former standard per-user destinations. An explicit custom
+    ; directory remains untouched on reinstall/update.
+    Call NinetySetProgramFilesInstallDir
+  ${Else}
     StrCpy $INSTDIR $4
+  ${EndIf}
+FunctionEnd
+
+Function NinetySetProgramFilesInstallDir
+  ${If} ${RunningX64}
+    !if "${ARCH}" == "x64"
+      StrCpy $INSTDIR "$PROGRAMFILES64\${PRODUCTNAME}"
+    !else if "${ARCH}" == "arm64"
+      StrCpy $INSTDIR "$PROGRAMFILES64\${PRODUCTNAME}"
+    !else
+      StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
+    !endif
+  ${Else}
+    StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
+  ${EndIf}
 FunctionEnd
 
 Function Skip

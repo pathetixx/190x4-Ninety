@@ -147,6 +147,11 @@ try {
   if (-not [NinetyLanguageWin32]::ContainsText($window, "190X4 / 01")) {
     throw "Signal Matrix language screen code is missing"
   }
+  foreach ($internalLabel in "Primary", "default fallback", "Дополнительный язык") {
+    if ([NinetyLanguageWin32]::ContainsText($window, $internalLabel)) {
+      throw "Internal repository language priority leaked into the installer: $internalLabel"
+    }
+  }
   $english = [NinetyLanguageWin32]::FindVisibleButton($page, 0)
   $russian = [NinetyLanguageWin32]::FindVisibleButton($page, 1)
   if ($english -eq [IntPtr]::Zero -or $russian -eq [IntPtr]::Zero) {

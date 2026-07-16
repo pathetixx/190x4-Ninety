@@ -162,6 +162,12 @@ if (existsSync(languageSelectorSourcePath)) {
   for (const marker of ["/HOSTPID=", "AllowSetForegroundWindow", "LanguageGrantForeground"]) {
     if (!languageSelectorSource.includes(marker)) fail(`Kurogane language selector не содержит ${marker}`);
   }
+  for (const leakedLabel of ["KLanguageEnglishDescription", "KLanguageRussianDescription", "default fallback", "Дополнительный язык"]) {
+    const kuroganeUiSource = existsSync(kuroganeUiPath) ? readFileSync(kuroganeUiPath, "utf8") : "";
+    if (languageSelectorSource.includes(leakedLabel) || kuroganeUiSource.includes(leakedLabel)) {
+      fail(`Kurogane language selector показывает внутренний приоритет языка: ${leakedLabel}`);
+    }
+  }
 }
 
 for (const [path, width, height] of [
@@ -212,6 +218,8 @@ if (templatePath && existsSync(templatePath)) {
     "KuroganeLicenseShow",
     "KuroganeDirectoryShow",
     "KuroganeRunLanguageSelector",
+    "NinetySetProgramFilesInstallDir",
+    'StrCpy $INSTDIR "$PROGRAMFILES64\\${PRODUCTNAME}"',
     'ReadRegStr $0 HKCU "${MANUPRODUCTKEY}" "Installer Language"',
     "KuroganeStartMenuShow",
     "KuroganeUninstallConfirmPageImpl $mui.UnConfirmPage",
@@ -225,6 +233,9 @@ if (templatePath && existsSync(templatePath)) {
   }
   if (template.includes("MUI_LANGDLL_DISPLAY")) {
     fail("installer.nsi не должен возвращаться к системному LangDLL диалогу");
+  }
+  if (template.includes('StrCpy $INSTDIR "$LOCALAPPDATA\\${PRODUCTNAME}"')) {
+    fail("стандартный путь установки не должен возвращаться в AppData");
   }
   const pageOrder = [
     "KuroganeInstallModeShow",
