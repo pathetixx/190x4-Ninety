@@ -68,6 +68,7 @@ public static class NinetyConceptWin32 {
   public static IntPtr FindDescendantContainingText(IntPtr parent, string expected) {
     IntPtr found = IntPtr.Zero;
     EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      if (!IsWindowVisible(child)) return true;
       var value = new System.Text.StringBuilder(512);
       GetWindowText(child, value, value.Capacity);
       if (value.ToString().Contains(expected)) { found = child; return false; }
@@ -187,7 +188,9 @@ try {
   }
 
   function Click-Text([string]$text) {
-    $control = [NinetyConceptWin32]::FindDescendantContainingText($window, $text)
+    $pageWindow = [NinetyConceptWin32]::FindVisiblePage($window)
+    if ($pageWindow -eq [IntPtr]::Zero) { throw "Visible concept page was not found before clicking '$text'" }
+    $control = [NinetyConceptWin32]::FindDescendantContainingText($pageWindow, $text)
     if ($control -eq [IntPtr]::Zero) { throw "Concept text control '$text' was not found" }
     $rect = Get-WindowRect $control
     $x = [int](($rect.Left + $rect.Right) / 2)
@@ -266,6 +269,17 @@ try {
         Start-Sleep -Milliseconds 100
         $russianSelected = [NinetyConceptWin32]::ContainsText($window, "ВЫБРАНО")
       } until ($russianSelected -or (Get-Date) -gt $languageDeadline)
+      if (-not $russianSelected) {
+        # A freshly launched, non-elevated window can consume the first pointer
+        # press only for activation on Windows runners. Retry with a second real
+        # click and still require visible state feedback before navigation.
+        Click-Text "РУССКИЙ"
+        $languageDeadline = (Get-Date).AddSeconds(3)
+        do {
+          Start-Sleep -Milliseconds 100
+          $russianSelected = [NinetyConceptWin32]::ContainsText($window, "ВЫБРАНО")
+        } until ($russianSelected -or (Get-Date) -gt $languageDeadline)
+      }
       if (-not $russianSelected) { throw "Russian language card ignored a real left-click" }
     }
     if ($index -lt ($pages.Count - 1)) {
