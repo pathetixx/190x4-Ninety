@@ -1161,6 +1161,13 @@ FunctionEnd
   ${NSD_GetText} $KuroganeTargetEditControl $1
   ShowWindow $KuroganeTargetEditControl ${SW_HIDE}
   !insertmacro KuroganeMatrixText 60 153 150 14 "$1" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontMono
+  ; Give the custom value a stable automation ID and compact only its visual
+  ; rendering when a long per-user path cannot fit the reserved matrix lane.
+  System::Call 'user32::SetWindowLongW(p r0, i -12, i 1240)'
+  System::Call 'user32::GetWindowLongW(p r0, i -16) i .r1'
+  IntOp $1 $1 | 0x00008000
+  System::Call 'user32::SetWindowLongW(p r0, i -16, i r1)'
+  System::Call 'user32::SetWindowPos(p r0, p 0, i 0, i 0, i 0, i 0, i 0x27)'
   StrCpy $KuroganeTargetPathDisplayControl $0
 
   GetDlgItem $0 ${PAGE} 1001

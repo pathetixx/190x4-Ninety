@@ -434,11 +434,16 @@ try {
   if ($stockTargetEdit -ne [IntPtr]::Zero) {
     throw "Deployment target still exposes a stock Windows edit control"
   }
-  $targetEdit = [NinetyPreviewWin32]::FindDescendantById($targetPage, 1019)
+  $targetEdit = [NinetyPreviewWin32]::GetDlgItem($targetPage, 1019)
   if ($targetEdit -eq [IntPtr]::Zero) { throw "Hidden NSIS deployment target value was not found" }
+  $targetDisplay = [NinetyPreviewWin32]::FindDescendantById($targetPage, 1240)
+  if ($targetDisplay -eq [IntPtr]::Zero -or -not [NinetyPreviewWin32]::IsWindowVisible($targetDisplay)) {
+    throw "Custom deployment target display was not found"
+  }
   $targetValue = [NinetyPreviewWin32]::ReadText($targetEdit)
-  if ([string]::IsNullOrWhiteSpace($targetValue) -or -not [NinetyPreviewWin32]::ContainsText($targetPage, $targetValue)) {
-    throw "Custom deployment target display is not synchronized with NSIS"
+  $targetDisplayValue = [NinetyPreviewWin32]::ReadText($targetDisplay)
+  if ([string]::IsNullOrWhiteSpace($targetValue) -or $targetDisplayValue -ne $targetValue) {
+    throw "Custom deployment target display is not synchronized with NSIS ('$targetDisplayValue' != '$targetValue')"
   }
 
   # The custom Change bitmap must open the actual folder picker from LMB.
