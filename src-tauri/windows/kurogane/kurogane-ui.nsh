@@ -104,8 +104,8 @@ LangString KMaintenanceSubtitle 1033 "Choose one deliberate action for the exist
 LangString KMaintenanceSignal 1033 "OPERATION GRID"
 LangString KMaintenanceEyebrow 1033 "SIGNAL MATRIX / OPERATION"
 LangString KMaintenanceDataPolicy 1033 "DATA / DECIDE ON REMOVE"
-LangString KMaintenanceRepairDescription 1033 "Restore or update the installed application components."
-LangString KMaintenanceRemoveDescription 1033 "Remove Ninety and its installed components from this computer."
+LangString KMaintenanceRepairDescription 1033 "Restore or update Ninety components."
+LangString KMaintenanceRemoveDescription 1033 "Remove Ninety and its components from this computer."
 LangString KMaintenanceReplaceDescription 1033 "Remove the existing version before installing the selected version."
 LangString KMaintenanceKeepDescription 1033 "Keep the existing installation and continue without removing it first."
 LangString KMaintenanceRepairAction 1033 "Add or reinstall components"
@@ -171,8 +171,8 @@ LangString KMaintenanceSubtitle 1049 "Выберите одно осознанн
 LangString KMaintenanceSignal 1049 "СЕТКА ОПЕРАЦИЙ"
 LangString KMaintenanceEyebrow 1049 "SIGNAL MATRIX / ОПЕРАЦИЯ"
 LangString KMaintenanceDataPolicy 1049 "ДАННЫЕ / РЕШИТЬ ПРИ УДАЛЕНИИ"
-LangString KMaintenanceRepairDescription 1049 "Восстановить или обновить установленные компоненты приложения."
-LangString KMaintenanceRemoveDescription 1049 "Удалить Ninety и установленные компоненты с этого компьютера."
+LangString KMaintenanceRepairDescription 1049 "Восстановить или обновить компоненты Ninety."
+LangString KMaintenanceRemoveDescription 1049 "Удалить Ninety и его компоненты с этого компьютера."
 LangString KMaintenanceReplaceDescription 1049 "Удалить существующую версию перед установкой выбранной версии."
 LangString KMaintenanceKeepDescription 1049 "Сохранить существующую установку и продолжить без предварительного удаления."
 LangString KMaintenanceRepairAction 1049 "Добавить или переустановить компоненты"
@@ -257,6 +257,23 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
   System::Call 'user32::CreateWindowExW(i 0, w "Static", w "${TEXT}", i 0x54000080, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 0, i 0, i 0) p .r0'
   SetCtlColors $0 ${FOREGROUND} ${BACKGROUND}
   SendMessage $0 ${WM_SETFONT} ${FONT} 1
+  !insertmacro KuroganeBringToFront $0
+!macroend
+
+!macro KuroganeMatrixPath X Y W H TEXT
+  IntOp $4 ${X} + ${W}
+  IntOp $5 ${Y} + ${H}
+  System::Call '*(&i4 ${X}, &i4 ${Y}, &i4 r4, &i4 r5) p .r6'
+  System::Call 'user32::MapDialogRect(p $HWNDPARENT, p r6)'
+  System::Call '*$6(&i4 .r4, &i4 .r5, &i4 .r7, &i4 .r8)'
+  System::Free $6
+  IntOp $7 $7 - $4
+  IntOp $8 $8 - $5
+  ; SS_PATHELLIPSIS keeps long per-user destinations inside the reserved lane;
+  ; control ID 1240 gives the Windows gate a stable non-stock target.
+  System::Call 'user32::CreateWindowExW(i 0, w "Static", w "${TEXT}", i 0x54008080, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 1240, i 0, i 0) p .r0'
+  SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
+  SendMessage $0 ${WM_SETFONT} $KuroganeFontMono 1
   !insertmacro KuroganeBringToFront $0
 !macroend
 
@@ -1108,27 +1125,27 @@ FunctionEnd
 
   ; Render the action strings before PRIMARY/SECONDARY are overwritten with
   ; the native radio HWNDs expected by Tauri's maintenance leave callback.
-  !insertmacro KuroganeMatrixBox 43 121 259 52 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 43 121 259 58 ${K_COLOR_BORDER}
   StrCpy $KuroganeSignalPrimaryBorder $0
-  !insertmacro KuroganeMatrixBox 44 122 257 50 ${K_COLOR_PANEL}
-  !insertmacro KuroganeMatrixBox 44 122 34 50 ${K_COLOR_ACCENT}
-  !insertmacro KuroganeMatrixCenterText 44 140 34 14 "+" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixBox 44 122 257 56 ${K_COLOR_PANEL}
+  !insertmacro KuroganeMatrixBox 44 122 34 56 ${K_COLOR_ACCENT}
+  !insertmacro KuroganeMatrixCenterText 44 143 34 14 "+" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $KuroganeFontSteps
   !insertmacro KuroganeMatrixText 91 131 174 14 "$KuroganeMaintenancePrimaryTextValue" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 91 150 174 20 "$KuroganeMaintenancePrimaryDescriptionValue" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
-  !insertmacro KuroganeSignalRadio 278 138 ${PRIMARY}
+  !insertmacro KuroganeMatrixText 91 150 174 26 "$KuroganeMaintenancePrimaryDescriptionValue" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
+  !insertmacro KuroganeSignalRadio 278 141 ${PRIMARY}
 
-  !insertmacro KuroganeMatrixBox 59 181 243 57 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 59 187 243 57 ${K_COLOR_BORDER}
   StrCpy $KuroganeSignalSecondaryBorder $0
-  !insertmacro KuroganeMatrixBox 60 182 241 55 ${K_COLOR_FIELD}
-  !insertmacro KuroganeMatrixBox 60 182 34 55 ${K_COLOR_PANEL}
-  !insertmacro KuroganeMatrixCenterText 60 202 34 14 "×" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 107 191 158 14 "$KuroganeMaintenanceSecondaryTextValue" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 107 210 158 24 "$KuroganeMaintenanceSecondaryDescriptionValue" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
-  !insertmacro KuroganeSignalRadio 278 200 ${SECONDARY}
+  !insertmacro KuroganeMatrixBox 60 188 241 55 ${K_COLOR_FIELD}
+  !insertmacro KuroganeMatrixBox 60 188 34 55 ${K_COLOR_PANEL}
+  !insertmacro KuroganeMatrixCenterText 60 208 34 14 "×" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 107 197 158 14 "$KuroganeMaintenanceSecondaryTextValue" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 107 216 158 24 "$KuroganeMaintenanceSecondaryDescriptionValue" ${K_COLOR_MUTED} ${K_COLOR_FIELD} $KuroganeFontBody
+  !insertmacro KuroganeSignalRadio 278 206 ${SECONDARY}
 
-  !insertmacro KuroganeMatrixText 43 247 199 12 "$(KMaintenanceDataPolicy)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
-  !insertmacro KuroganeMatrixBox 247 251 55 3 ${K_COLOR_BORDER}
-  !insertmacro KuroganeMatrixBox 247 251 31 3 ${K_COLOR_ACCENT}
+  !insertmacro KuroganeMatrixText 43 251 199 12 "$(KMaintenanceDataPolicy)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+  !insertmacro KuroganeMatrixBox 247 255 55 3 ${K_COLOR_BORDER}
+  !insertmacro KuroganeMatrixBox 247 255 31 3 ${K_COLOR_ACCENT}
 
   StrCpy $KuroganeSignalPrimaryControl ${PRIMARY}
   StrCpy $KuroganeSignalSecondaryControl ${SECONDARY}
@@ -1160,14 +1177,7 @@ FunctionEnd
   GetDlgItem $KuroganeTargetEditControl ${PAGE} 1019
   ${NSD_GetText} $KuroganeTargetEditControl $1
   ShowWindow $KuroganeTargetEditControl ${SW_HIDE}
-  !insertmacro KuroganeMatrixText 60 153 150 14 "$1" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $KuroganeFontMono
-  ; Give the custom value a stable automation ID and compact only its visual
-  ; rendering when a long per-user path cannot fit the reserved matrix lane.
-  System::Call 'user32::SetWindowLongW(p r0, i -12, i 1240)'
-  System::Call 'user32::GetWindowLongW(p r0, i -16) i .r1'
-  IntOp $1 $1 | 0x00008000
-  System::Call 'user32::SetWindowLongW(p r0, i -16, i r1)'
-  System::Call 'user32::SetWindowPos(p r0, p 0, i 0, i 0, i 0, i 0, i 0x27)'
+  !insertmacro KuroganeMatrixPath 60 153 150 14 "$1"
   StrCpy $KuroganeTargetPathDisplayControl $0
 
   GetDlgItem $0 ${PAGE} 1001
