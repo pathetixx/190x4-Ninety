@@ -72,6 +72,7 @@ Function LanguagePage
   nsDialogs::Create 1018
   Pop $LanguageDialog
   !insertmacro KuroganePrepareKnownPageImpl "" $LanguageDialog Next
+  StrCpy $KuroganeMatrixParent $LanguageDialog
 
   ; The selector is itself the pre-init surface, not a pretend numbered page.
   !insertmacro KuroganeMatrixText 22 17 296 25 "$(KLanguageTitle)" ${K_COLOR_TEXT} ${K_COLOR_WINDOW} $KuroganeFontTitle

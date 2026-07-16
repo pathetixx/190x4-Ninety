@@ -51,6 +51,7 @@ Var KuroganeFontBody
 Var KuroganeFontMeta
 Var KuroganeFontSteps
 Var KuroganeFontMono
+Var KuroganeMatrixParent
 Var KuroganeDragWasDown
 Var KuroganeProgressActive
 Var KuroganeCaptionPressed
@@ -178,13 +179,20 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
 !macroend
 
 ; ---------------------------------------------------------------------------
-; Signal Matrix page primitives. They use ordinary nsDialogs controls so the
-; installer remains keyboard-accessible and fully owned by NSIS. Decorative
-; surfaces are explicitly pushed behind the native controls.
+; Signal Matrix page primitives. Standard MUI pages are resource dialogs, not
+; active nsDialogs contexts, so decorative controls must be parented explicitly
+; instead of relying on nsDialogs' implicit current-page handle.
 
 !macro KuroganeMatrixBox X Y W H COLOR
-  ${NSD_CreateLabel} ${X}u ${Y}u ${W}u ${H}u ""
-  Pop $0
+  IntOp $4 ${X} + ${W}
+  IntOp $5 ${Y} + ${H}
+  System::Call '*(&i4 ${X}, &i4 ${Y}, &i4 r4, &i4 r5) p .r6'
+  System::Call 'user32::MapDialogRect(p $KuroganeMatrixParent, p r6)'
+  System::Call '*$6(&i4 .r4, &i4 .r5, &i4 .r7, &i4 .r8)'
+  System::Free $6
+  IntOp $7 $7 - $4
+  IntOp $8 $8 - $5
+  System::Call 'user32::CreateWindowExW(i 0, w "Static", w "", i 0x50000000, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 0, i 0, i 0) p .r0'
   SetCtlColors $0 ${COLOR} ${COLOR}
 !macroend
 
@@ -194,8 +202,15 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
 !macroend
 
 !macro KuroganeMatrixText X Y W H TEXT FOREGROUND BACKGROUND FONT
-  ${NSD_CreateLabel} ${X}u ${Y}u ${W}u ${H}u "${TEXT}"
-  Pop $0
+  IntOp $4 ${X} + ${W}
+  IntOp $5 ${Y} + ${H}
+  System::Call '*(&i4 ${X}, &i4 ${Y}, &i4 r4, &i4 r5) p .r6'
+  System::Call 'user32::MapDialogRect(p $KuroganeMatrixParent, p r6)'
+  System::Call '*$6(&i4 .r4, &i4 .r5, &i4 .r7, &i4 .r8)'
+  System::Free $6
+  IntOp $7 $7 - $4
+  IntOp $8 $8 - $5
+  System::Call 'user32::CreateWindowExW(i 0, w "Static", w "${TEXT}", i 0x50000000, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 0, i 0, i 0) p .r0'
   SetCtlColors $0 ${FOREGROUND} ${BACKGROUND}
   SendMessage $0 ${WM_SETFONT} ${FONT} 1
 !macroend
@@ -811,6 +826,7 @@ FunctionEnd
 
 !macro KuroganeLicensePageImpl UNPREFIX PAGE TOPCONTROL RICHCONTROL
   !insertmacro KuroganePrepareKnownPageImpl "${UNPREFIX}" ${PAGE} Next
+  StrCpy $KuroganeMatrixParent ${PAGE}
 
   SendMessage ${TOPCONTROL} ${WM_SETTEXT} 0 "STR:$(KLicenseTitle)"
   SendMessage ${TOPCONTROL} ${WM_SETFONT} $KuroganeFontTitle 1
@@ -836,6 +852,7 @@ FunctionEnd
 ; Rebuild the MultiUser page controls inside the page that the plugin already
 ; owns. Its leave callback continues to read the same handle variables.
 !macro KuroganeInstallModePageImpl
+  StrCpy $KuroganeMatrixParent $MultiUser.InstallModePage
   ShowWindow $MultiUser.InstallModePage.Text ${SW_HIDE}
   ShowWindow $MultiUser.InstallModePage.AllUsers ${SW_HIDE}
   ShowWindow $MultiUser.InstallModePage.CurrentUser ${SW_HIDE}
@@ -883,6 +900,7 @@ FunctionEnd
 !macroend
 
 !macro KuroganeMaintenancePageImpl DIALOG PRIMARY SECONDARY INTROTEXT PRIMARYTEXT SECONDARYTEXT PRIMARYDESC SECONDARYDESC
+  StrCpy $KuroganeMatrixParent ${DIALOG}
   ${NSD_CreateLabel} 22u 17u 296u 25u "$(KMaintenanceTitle)"
   Pop $KuroganeMaintenanceTitleControl
   ${NSD_CreateLabel} 22u 48u 296u 22u "$(KMaintenanceSubtitle)"
@@ -923,6 +941,7 @@ FunctionEnd
 
 !macro KuroganeDirectoryPageImpl PAGE
   !insertmacro KuroganePrepareKnownPageImpl "" ${PAGE} Next
+  StrCpy $KuroganeMatrixParent ${PAGE}
 
   GetDlgItem $0 ${PAGE} 1006
   ShowWindow $0 ${SW_HIDE}
@@ -985,6 +1004,7 @@ FunctionEnd
 
 !macro KuroganeUninstallConfirmPageImpl PAGE CHECKBOX CHECKBOXTEXT
   StrCpy $1 ${PAGE}
+  StrCpy $KuroganeMatrixParent ${PAGE}
   ${If} $(^RTL) = 1
     StrCpy $3 "${__NSD_CheckBox_EXSTYLE} | 0x00400000"
   ${Else}
@@ -1009,13 +1029,13 @@ FunctionEnd
   !insertmacro KuroganeMatrixHeader "$(KUninstallSignal)" "DATA / COMPONENTS"
   !insertmacro KuroganeMatrixFrame 43 118 259 54 44 119 257 52 ${K_COLOR_BORDER} ${K_COLOR_PANEL}
 
-  ${NSD_CreateLabel} 58u 127u 205u 14u "${CHECKBOXTEXT}"
-  Pop $KuroganeUninstallDataTitleControl
-  ${NSD_CreateLabel} 58u 146u 205u 22u "$(KUninstallDeleteDataDescription)"
-  Pop $KuroganeUninstallDataDescriptionControl
+  !insertmacro KuroganeMatrixText 58 127 205 14 "${CHECKBOXTEXT}" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
+  StrCpy $KuroganeUninstallDataTitleControl $0
+  !insertmacro KuroganeMatrixText 58 146 205 22 "$(KUninstallDeleteDataDescription)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
+  StrCpy $KuroganeUninstallDataDescriptionControl $0
 
-  ${NSD_CreateLabel} 43u 187u 259u 12u "$(KUninstallPath)"
-  Pop $KuroganeUninstallSubtitleControl
+  !insertmacro KuroganeMatrixText 43 187 259 12 "$(KUninstallPath)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+  StrCpy $KuroganeUninstallSubtitleControl $0
 
   GetDlgItem $0 $1 1006
   SendMessage $0 ${WM_SETTEXT} 0 "STR:$(KUninstallConfirmTitle)"
