@@ -148,9 +148,10 @@ Function ConceptACardsTarget
   !insertmacro CGText 38 107 180 11 "$(CGInstallPath)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $ConceptFontMono
   ${NSD_CreateText} 38u 126u 202u 23u "C:\Program Files\Ninety"
   Pop $0
+  System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $ConceptFontMono 1
-  System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
+  SendMessage $0 ${WM_SETTEXT} 0 "STR:C:\Program Files\Ninety"
   !insertmacro CGCenterText 248 126 54 23 "$(CGBrowse)" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontMono
   !insertmacro CGText 22 184 100 11 "$(CGDiskSpace)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGText 214 184 104 11 "$(CGAvailable)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
@@ -205,7 +206,7 @@ FunctionEnd
 
 Function ConceptBTerminalScope
   !insertmacro CGBegin "$(CGConceptBTerminal)" "$(CGScopeTitle)" "$(CGScopeSubtitle)"
-  !insertmacro CGBTerminalHeader "ACCESS.SELECT"
+  !insertmacro CGBTerminalHeader "ACCESS"
   !insertmacro CGFrame 22 116 296 46 23 117 294 44 ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
   !insertmacro CGText 34 126 18 14 ">" ${K_COLOR_ACCENT} ${K_COLOR_FIELD} $ConceptFontMono
   !insertmacro CGText 55 126 175 14 "01  CURRENT_USER" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontMono
@@ -222,15 +223,16 @@ FunctionEnd
 
 Function ConceptBTerminalTarget
   !insertmacro CGBegin "$(CGConceptBTerminal)" "$(CGTargetTitle)" "$(CGTargetSubtitle)"
-  !insertmacro CGBTerminalHeader "DEPLOY.TARGET"
+  !insertmacro CGBTerminalHeader "DEPLOY"
   !insertmacro CGText 22 116 296 13 "$$ deploy --target" ${K_COLOR_ACCENT} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGFrame 22 136 296 38 23 137 294 36 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
   !insertmacro CGText 33 147 12 13 ">" ${K_COLOR_ACCENT} ${K_COLOR_FIELD} $ConceptFontMono
   ${NSD_CreateText} 49u 143u 199u 22u "C:\Program Files\Ninety"
   Pop $0
+  System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $ConceptFontMono 1
-  System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
+  SendMessage $0 ${WM_SETTEXT} 0 "STR:C:\Program Files\Ninety"
   !insertmacro CGCenterText 257 143 49 22 "EDIT" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontMono
   !insertmacro CGText 22 190 296 12 "volume.c:  [###---------------------------]  0.2%" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGText 22 210 142 12 "required  161.4 MiB" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
@@ -243,7 +245,7 @@ FunctionEnd
 
 Function ConceptBTerminalManifest
   !insertmacro CGBegin "$(CGConceptBTerminal)" "$(CGManifestTitle)" "$(CGManifestSubtitle)"
-  !insertmacro CGBTerminalHeader "MANIFEST.READ"
+  !insertmacro CGBTerminalHeader "MANIFEST"
   !insertmacro CGFrame 22 114 296 124 23 115 294 122 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
   !insertmacro CGBox 23 115 31 122 ${K_COLOR_PANEL}
   !insertmacro CGText 31 125 18 92 "01$\r$\n02$\r$\n03$\r$\n04$\r$\n05" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $ConceptFontMono
@@ -260,7 +262,7 @@ FunctionEnd
 
 Function ConceptBTerminalMaintenance
   !insertmacro CGBegin "$(CGConceptBTerminal)" "$(CGMaintenanceTitle)" "$(CGMaintenanceSubtitle)"
-  !insertmacro CGBTerminalHeader "PACKAGE.OPERATION"
+  !insertmacro CGBTerminalHeader "OPERATION"
   !insertmacro CGText 22 116 296 13 "$$ ninety-maintenance --select" ${K_COLOR_ACCENT} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGFrame 22 138 296 37 23 139 294 35 ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
   !insertmacro CGText 34 149 210 13 ">  REPAIR_COMPONENTS" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontMono
@@ -307,9 +309,10 @@ Function ConceptCMatrixTarget
   !insertmacro CGBox 44 140 5 41 ${K_COLOR_ACCENT}
   ${NSD_CreateText} 60u 149u 181u 22u "C:\Program Files\Ninety"
   Pop $0
+  System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $ConceptFontMono 1
-  System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
+  SendMessage $0 ${WM_SETTEXT} 0 "STR:C:\Program Files\Ninety"
   !insertmacro CGCenterText 249 149 42 22 "..." ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontLabel
   !insertmacro CGText 43 197 78 11 "CAPACITY" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGBox 43 216 18 8 ${K_COLOR_ACCENT}
