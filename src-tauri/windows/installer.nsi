@@ -390,6 +390,14 @@ Function PageLeaveReinstall
     HideWindow
     ClearErrors
 
+    ; The maintenance wizard intentionally launches the registered uninstaller.
+    ; Hand the operation lock to that child, then reclaim it before continuing;
+    ; unrelated setup processes remain rejected at every stable stage.
+    ${If} $NinetyInstallerMutex != 0
+      System::Call 'kernel32::CloseHandle(p $NinetyInstallerMutex)'
+      StrCpy $NinetyInstallerMutex 0
+    ${EndIf}
+
     ${If} $WixMode = 1
       ReadRegStr $R1 HKLM "$R6" "UninstallString"
       ExecWait '$R1' $0
@@ -401,10 +409,24 @@ Function PageLeaveReinstall
       StrCpy $R1 "$R1 _?=$4" ; append uninstall directory
       ExecWait '$R1' $0
     ${EndIf}
+    ${If} ${Errors}
+      StrCpy $5 1
+    ${Else}
+      StrCpy $5 0
+    ${EndIf}
+
+    System::Call 'kernel32::CreateMutexW(p 0, i 1, w "Local\\pw.x190x4.ninety.installer") p .r0 ?e'
+    StrCpy $NinetyInstallerMutex $0
+    Pop $6
+    ${If} $6 == 183
+      SetErrorLevel 4
+      MessageBox MB_OK|MB_ICONEXCLAMATION "$(KInstallerAlreadyRunning)"
+      Abort
+    ${EndIf}
 
     BringToFront
 
-    ${IfThen} ${Errors} ${|} StrCpy $0 2 ${|} ; ExecWait failed, set fake exit code
+    ${IfThen} $5 == 1 ${|} StrCpy $0 2 ${|} ; ExecWait failed, set fake exit code
 
     ${If} $0 <> 0
     ${OrIf} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"

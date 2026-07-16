@@ -224,6 +224,7 @@ if (templatePath && existsSync(templatePath)) {
     "un.NinetyValidateRemovalTarget",
     "un.NinetyProbeWritableFile",
     "CreateMutexW",
+    "CloseHandle",
     "AllowSkipFiles off",
     'StrCpy $INSTDIR "$PROGRAMFILES64\\${PRODUCTNAME}"',
     'ReadRegStr $0 HKCU "${MANUPRODUCTKEY}" "Installer Language"',

@@ -149,10 +149,18 @@ function Wait-Removed([string]$Path, [int]$TimeoutSeconds = 30) {
 # default. Reinstall/OTA must update that exact path and never create a duplicate.
 $legacyInstall = Join-Path $env:LOCALAPPDATA "NinetyLegacySmoke-$PID"
 $programFilesInstall = Join-Path $env:ProgramFiles "Ninety"
+$ninetyUserRegistry = "HKCU:\Software\pathetixx\Ninety"
 Remove-Item -LiteralPath $legacyInstall -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $ninetyUserRegistry -Recurse -Force -ErrorAction SilentlyContinue
+Assert-Release (-not (Test-Path -LiteralPath $programFilesInstall)) `
+  "legacy-path smoke requires an empty Program Files target"
 
 try {
-  $exit = Invoke-Setup @("/S", "/CurrentUser", "/D=$legacyInstall")
+  # Model a user installed before Program Files became the fresh default. The
+  # product registry value, not /D, is the source of truth for a real OTA.
+  New-Item -Path $ninetyUserRegistry -Force | Out-Null
+  Set-Item -Path $ninetyUserRegistry -Value $legacyInstall
+  $exit = Invoke-Setup @("/S", "/CurrentUser")
   Assert-Release ($exit -eq 0) "clean NSIS install завершился с кодом $exit"
   foreach ($name in @(
     "Ninety.exe", "uninstall.exe", "sing-box.exe", "xray.exe", "naive.exe",
@@ -182,9 +190,24 @@ try {
   $maPath = Join-Path $legacyInstall "flags/ma.png"
   $maLock = [IO.File]::Open($maPath, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
   try {
-    $lockedExit = Invoke-Setup @("/S", "/P", "/UPDATE") 30000
+    $lockedSetup = Start-Process -FilePath $nsis[0].FullName `
+      -ArgumentList @("/S", "/P", "/UPDATE") -PassThru
+    Start-Sleep -Milliseconds 1500
+    Assert-Release (-not $lockedSetup.HasExited) `
+      "locked-resource update did not enter its bounded handle wait"
+    $duplicateExit = Invoke-Setup @("/S", "/P", "/UPDATE") 15000
+    Assert-Release ($duplicateExit -eq 4) `
+      "parallel setup должен завершаться кодом 4, получен $duplicateExit"
+    if (-not $lockedSetup.WaitForExit(15000)) {
+      Stop-Process -Id $lockedSetup.Id -Force -ErrorAction SilentlyContinue
+      throw "locked-resource update не завершил ограниченное ожидание"
+    }
+    $lockedExit = $lockedSetup.ExitCode
   } finally {
     $maLock.Dispose()
+    if ($null -ne $lockedSetup -and -not $lockedSetup.HasExited) {
+      Stop-Process -Id $lockedSetup.Id -Force -ErrorAction SilentlyContinue
+    }
   }
   Assert-Release ($lockedExit -eq 5) `
     "locked-resource update должен завершаться кодом 5 до распаковки, получен $lockedExit"
@@ -218,12 +241,13 @@ try {
   if (Test-Path -LiteralPath $legacyInstall) {
     Remove-Item -LiteralPath $legacyInstall -Recurse -Force -ErrorAction SilentlyContinue
   }
+  Remove-Item -LiteralPath $ninetyUserRegistry -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # Retaining app data after uninstall intentionally preserves the remembered
 # destination for real users. Remove only the ephemeral CI registration before
 # testing a truly fresh machine-wide install.
-Remove-Item -LiteralPath "HKCU:\Software\pathetixx\Ninety" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $ninetyUserRegistry -Recurse -Force -ErrorAction SilentlyContinue
 
 # A genuinely fresh install has no registered destination and must choose
 # Program Files even when the user chooses the current-account scope. This runs
@@ -246,7 +270,7 @@ try {
   if (Test-Path -LiteralPath $programFilesInstall) {
     Remove-Item -LiteralPath $programFilesInstall -Recurse -Force -ErrorAction SilentlyContinue
   }
-  Remove-Item -LiteralPath "HKCU:\Software\pathetixx\Ninety" -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $ninetyUserRegistry -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 $authenticodeFiles = @($app, $portableApp, $nsis[0], $msi[0])
