@@ -196,16 +196,16 @@ try {
   Start-Sleep -Milliseconds 500
 
   Save-InstallerWindow "01-welcome.png"
-  Click-InstallerControl 1213
+  Click-InstallerControl 1
   Start-Sleep -Seconds 1
   Save-InstallerWindow "02-license.png"
-  Click-InstallerControl 1213
+  Click-InstallerControl 1
   Start-Sleep -Seconds 1
   Save-InstallerWindow "03-install-mode.png"
-  Click-InstallerControl 1213
+  Click-InstallerControl 1
   Start-Sleep -Seconds 1
   Save-InstallerWindow "04-maintenance.png"
-  Click-InstallerControl 1213
+  Click-InstallerControl 1
   Start-Sleep -Seconds 3
   Assert-LiveProgress
   Save-InstallerWindow "05-progress.png"
@@ -228,7 +228,7 @@ try {
     $window = $process.MainWindowHandle
   } until ($window -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
   if ($window -eq [IntPtr]::Zero) { throw "Second installer window did not appear" }
-  Click-InstallerControl 1214
+  Click-InstallerControl 2
   if (-not $process.WaitForExit(5000)) {
     throw "Installer cancel control ignored a real left-click"
   }
@@ -246,7 +246,7 @@ try {
   if ($window -eq [IntPtr]::Zero) { throw "Uninstaller window did not appear" }
   Start-Sleep -Seconds 1
   Save-InstallerWindow "07-uninstall-confirm.png"
-  Click-InstallerControl 1213
+  Click-InstallerControl 1
   if (-not $process.WaitForExit(10000)) {
     throw "Uninstaller remove control ignored a real left-click"
   }

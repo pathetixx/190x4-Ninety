@@ -45,6 +45,7 @@ Var KuroganeFontMeta
 Var KuroganeFontSteps
 Var KuroganeDragWasDown
 Var KuroganeProgressActive
+Var KuroganeCaptionPressed
 Var KuroganeModeTitleControl
 Var KuroganeModeSubtitleControl
 Var KuroganeModeAllDescriptionControl
@@ -135,17 +136,55 @@ LangString KUninstallConfirmSubtitle 1049 "Приложение будет за�
   ${EndIf}
 !macroend
 
+; Navigation must stay owned by NSIS. Move its real buttons over the bitmap
+; anchors and give those buttons the Kurogane art instead of proxying clicks
+; through main-window static controls (nsDialogs does not receive those events).
+!macro KuroganeSetButtonBitmap CONTROL ANCHOR PATH HANDLE
+  GetDlgItem $0 $HWNDPARENT ${CONTROL}
+  GetDlgItem $1 $HWNDPARENT ${ANCHOR}
+  ${If} $0 != 0
+  ${AndIf} $1 != 0
+    ${If} ${HANDLE} != 0
+      SendMessage $0 ${BM_SETIMAGE} ${IMAGE_BITMAP} 0
+      ${NSD_FreeImage} ${HANDLE}
+      StrCpy ${HANDLE} 0
+    ${EndIf}
+
+    System::Call 'user32::GetWindowLongW(p r0, i -16) i .r2'
+    IntOp $2 $2 | 0x00008080
+    System::Call 'user32::SetWindowLongW(p r0, i -16, i r2)'
+    System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
+    System::Call 'user32::LoadImageW(p 0, w "${PATH}", i 0, i 0, i 0, i 0x2010) p .r2'
+    StrCpy ${HANDLE} $2
+    SendMessage $0 ${BM_SETIMAGE} ${IMAGE_BITMAP} $2
+
+    System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r3'
+    System::Call 'user32::GetWindowRect(p r1, p r3)'
+    System::Call '*$3(&i4 .r4, &i4 .r5, &i4 .r6, &i4 .r7)'
+    System::Free $3
+    IntOp $8 $6 - $4
+    IntOp $9 $7 - $5
+    System::Call '*(&i4 r4, &i4 r5) p .r3'
+    System::Call 'user32::ScreenToClient(p $HWNDPARENT, p r3)'
+    System::Call '*$3(&i4 .r4, &i4 .r5)'
+    System::Free $3
+    System::Call 'user32::SetWindowPos(p r0, p 0, i r4, i r5, i r8, i r9, i 0x14)'
+    ShowWindow $1 ${SW_HIDE}
+    System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
+  ${EndIf}
+!macroend
+
 !macro KuroganeApplyChromeImpl NEXT_EN NEXT_RU
   !insertmacro KuroganeSetBitmap 1205 "$PLUGINSDIR\kurogane-minimize.bmp" $KuroganeChromeMinimizeBitmap
   !insertmacro KuroganeSetBitmap 1207 "$PLUGINSDIR\kurogane-close.bmp" $KuroganeChromeCloseBitmap
   ${If} $LANGUAGE == 1049
-    !insertmacro KuroganeSetBitmap 1212 "$PLUGINSDIR\kurogane-back-ru.bmp" $KuroganeNavBackBitmap
-    !insertmacro KuroganeSetBitmap 1213 "$PLUGINSDIR\kurogane-${NEXT_RU}-ru.bmp" $KuroganeNavNextBitmap
-    !insertmacro KuroganeSetBitmap 1214 "$PLUGINSDIR\kurogane-cancel-ru.bmp" $KuroganeNavCancelBitmap
+    !insertmacro KuroganeSetButtonBitmap 3 1212 "$PLUGINSDIR\kurogane-back-ru.bmp" $KuroganeNavBackBitmap
+    !insertmacro KuroganeSetButtonBitmap 1 1213 "$PLUGINSDIR\kurogane-${NEXT_RU}-ru.bmp" $KuroganeNavNextBitmap
+    !insertmacro KuroganeSetButtonBitmap 2 1214 "$PLUGINSDIR\kurogane-cancel-ru.bmp" $KuroganeNavCancelBitmap
   ${Else}
-    !insertmacro KuroganeSetBitmap 1212 "$PLUGINSDIR\kurogane-back-en.bmp" $KuroganeNavBackBitmap
-    !insertmacro KuroganeSetBitmap 1213 "$PLUGINSDIR\kurogane-${NEXT_EN}-en.bmp" $KuroganeNavNextBitmap
-    !insertmacro KuroganeSetBitmap 1214 "$PLUGINSDIR\kurogane-cancel-en.bmp" $KuroganeNavCancelBitmap
+    !insertmacro KuroganeSetButtonBitmap 3 1212 "$PLUGINSDIR\kurogane-back-en.bmp" $KuroganeNavBackBitmap
+    !insertmacro KuroganeSetButtonBitmap 1 1213 "$PLUGINSDIR\kurogane-${NEXT_EN}-en.bmp" $KuroganeNavNextBitmap
+    !insertmacro KuroganeSetButtonBitmap 2 1214 "$PLUGINSDIR\kurogane-cancel-en.bmp" $KuroganeNavCancelBitmap
   ${EndIf}
 !macroend
 
@@ -280,6 +319,7 @@ FunctionEnd
 
   StrCpy $KuroganeDragWasDown 0
   StrCpy $KuroganeProgressActive 0
+  StrCpy $KuroganeCaptionPressed 0
 !macroend
 
 Function KuroganeGuiInit
@@ -372,84 +412,62 @@ Function un.KuroganeMinimizeNavCancel
   !insertmacro KuroganeNavClickImpl 2
 FunctionEnd
 
-!macro KuroganeMirrorButton SOURCE TARGET
-  GetDlgItem $0 $HWNDPARENT ${SOURCE}
-  GetDlgItem $1 $HWNDPARENT ${TARGET}
+!macro KuroganePointInControl CONTROL RESULT
+  StrCpy ${RESULT} 0
+  GetDlgItem $0 $HWNDPARENT ${CONTROL}
   ${If} $0 != 0
-  ${AndIf} $1 != 0
-    System::Call 'user32::IsWindowVisible(p r0) i .r2'
-    ShowWindow $1 $2
-    System::Call 'user32::IsWindowEnabled(p r0) i .r2'
-    EnableWindow $1 $2
-    ; MUI repositions its real buttons on every page. Keep them functional and
-    ; visible to the engine, but physically outside the client area.
-    System::Call 'user32::SetWindowPos(p r0, p 0, i 1200, i 700, i 1, i 1, i 0x14)'
+    System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r1'
+    System::Call 'user32::GetWindowRect(p r0, p r1)'
+    System::Call '*$1(&i4 .r4, &i4 .r5, &i4 .r6, &i4 .r7)'
+    System::Free $1
+    ${If} $2 >= $4
+    ${AndIf} $2 < $6
+    ${AndIf} $3 >= $5
+    ${AndIf} $3 < $7
+      StrCpy ${RESULT} 1
+    ${EndIf}
   ${EndIf}
 !macroend
 
 !macro KuroganeShellTickImpl
-  ${If} $KuroganeProgressActive == 1
-    GetDlgItem $0 $HWNDPARENT 1212
-    ShowWindow $0 ${SW_HIDE}
-    GetDlgItem $0 $HWNDPARENT 1213
-    ShowWindow $0 ${SW_HIDE}
-    !insertmacro KuroganeMirrorButton 2 1214
-  ${Else}
-    !insertmacro KuroganeMirrorButton 3 1212
-    !insertmacro KuroganeMirrorButton 1 1213
-    !insertmacro KuroganeMirrorButton 2 1214
-  ${EndIf}
-
   System::Call 'user32::GetAsyncKeyState(i 1) i .r0'
   IntOp $0 $0 & 0x8000
   ${If} $0 == 0
-    StrCpy $KuroganeDragWasDown 0
-  ${ElseIf} $KuroganeDragWasDown == 0
-    StrCpy $KuroganeDragWasDown 1
-    GetDlgItem $0 $HWNDPARENT 1208
-    ${If} $0 != 0
+    ${If} $KuroganeDragWasDown == 1
+    ${AndIf} $KuroganeCaptionPressed != 0
       System::Call '*(&i4 0, &i4 0) p .r1'
       System::Call 'user32::GetCursorPos(p r1)'
       System::Call '*$1(&i4 .r2, &i4 .r3)'
       System::Free $1
-      System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r1'
-      System::Call 'user32::GetWindowRect(p r0, p r1)'
-      System::Call '*$1(&i4 .r4, &i4 .r5, &i4 .r6, &i4 .r7)'
-      System::Free $1
-      ${If} $2 >= $4
-      ${AndIf} $2 < $6
-      ${AndIf} $3 >= $5
-      ${AndIf} $3 < $7
-        ; Do not turn clicks on caption controls into a window drag. The old
-        ; polling fallback swallowed minimize/close before their STN_CLICKED.
-        StrCpy $8 0
-        GetDlgItem $0 $HWNDPARENT 1205
-        ${If} $0 != 0
-          System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r1'
-          System::Call 'user32::GetWindowRect(p r0, p r1)'
-          System::Call '*$1(&i4 .r4, &i4 .r5, &i4 .r6, &i4 .r7)'
-          System::Free $1
-          ${If} $2 >= $4
-          ${AndIf} $2 < $6
-          ${AndIf} $3 >= $5
-          ${AndIf} $3 < $7
-            StrCpy $8 1
-          ${EndIf}
+      !insertmacro KuroganePointInControl $KuroganeCaptionPressed $8
+      ${If} $8 == 1
+        ${If} $KuroganeCaptionPressed == 1205
+          SendMessage $HWNDPARENT ${WM_SYSCOMMAND} ${SC_MINIMIZE} 0
+        ${ElseIf} $KuroganeCaptionPressed == 1207
+          SendMessage $HWNDPARENT ${WM_CLOSE} 0 0
         ${EndIf}
-        GetDlgItem $0 $HWNDPARENT 1207
-        ${If} $0 != 0
-          System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r1'
-          System::Call 'user32::GetWindowRect(p r0, p r1)'
-          System::Call '*$1(&i4 .r4, &i4 .r5, &i4 .r6, &i4 .r7)'
-          System::Free $1
-          ${If} $2 >= $4
-          ${AndIf} $2 < $6
-          ${AndIf} $3 >= $5
-          ${AndIf} $3 < $7
-            StrCpy $8 1
-          ${EndIf}
-        ${EndIf}
-        ${If} $8 == 0
+      ${EndIf}
+    ${EndIf}
+    StrCpy $KuroganeDragWasDown 0
+    StrCpy $KuroganeCaptionPressed 0
+  ${ElseIf} $KuroganeDragWasDown == 0
+    StrCpy $KuroganeDragWasDown 1
+    StrCpy $KuroganeCaptionPressed 0
+    System::Call '*(&i4 0, &i4 0) p .r1'
+    System::Call 'user32::GetCursorPos(p r1)'
+    System::Call '*$1(&i4 .r2, &i4 .r3)'
+    System::Free $1
+
+    !insertmacro KuroganePointInControl 1205 $8
+    ${If} $8 == 1
+      StrCpy $KuroganeCaptionPressed 1205
+    ${Else}
+      !insertmacro KuroganePointInControl 1207 $8
+      ${If} $8 == 1
+        StrCpy $KuroganeCaptionPressed 1207
+      ${Else}
+        !insertmacro KuroganePointInControl 1208 $8
+        ${If} $8 == 1
           System::Call 'user32::ReleaseCapture()'
           SendMessage $HWNDPARENT ${WM_NCLBUTTONDOWN} ${HTCAPTION} 0
         ${EndIf}
@@ -503,11 +521,11 @@ FunctionEnd
 
 Function KuroganeStartShellTimer
   ${NSD_KillTimer} KuroganeMinimizeShellTick
-  ${NSD_CreateTimer} KuroganeMinimizeShellTick 40
+  ${NSD_CreateTimer} KuroganeMinimizeShellTick 20
 FunctionEnd
 Function un.KuroganeStartShellTimer
   ${NSD_KillTimer} un.KuroganeMinimizeShellTick
-  ${NSD_CreateTimer} un.KuroganeMinimizeShellTick 40
+  ${NSD_CreateTimer} un.KuroganeMinimizeShellTick 20
 FunctionEnd
 
 Function KuroganeStyleCurrentPage
@@ -709,9 +727,9 @@ FunctionEnd
   Call ${UNPREFIX}KuroganeBindChromeEvents
   ; The NSIS VM blocks nsDialogs timers while Section instructions execute.
   ; Hide stale welcome navigation synchronously before the first File command.
-  GetDlgItem $0 $HWNDPARENT 1212
+  GetDlgItem $0 $HWNDPARENT 3
   ShowWindow $0 ${SW_HIDE}
-  GetDlgItem $0 $HWNDPARENT 1213
+  GetDlgItem $0 $HWNDPARENT 1
   ShowWindow $0 ${SW_HIDE}
   Call ${UNPREFIX}KuroganeStartShellTimer
   Call ${UNPREFIX}KuroganeStyleCurrentPage
