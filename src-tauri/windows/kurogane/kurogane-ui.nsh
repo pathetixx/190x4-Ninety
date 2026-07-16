@@ -228,6 +228,10 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
   IntOp $8 $8 - $5
   System::Call 'user32::CreateWindowExW(i 0, w "Static", w "", i 0x54000000, i r4, i r5, i r7, i r8, p $KuroganeMatrixParent, i 0, i 0, i 0) p .r0'
   SetCtlColors $0 ${COLOR} ${COLOR}
+  ; Explicit Win32 child creation does not guarantee the painter order used by
+  ; nsDialogs. Promote each later layer so frame interiors cover their outer
+  ; border and content blocks cover the interior deterministically.
+  !insertmacro KuroganeBringToFront $0
 !macroend
 
 !macro KuroganeMatrixFrame X Y W H IX IY IW IH BORDER BACKGROUND

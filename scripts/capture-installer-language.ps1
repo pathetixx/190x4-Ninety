@@ -51,13 +51,17 @@ public static class NinetyLanguageWin32 {
   }
   public static IntPtr FindVisibleButton(IntPtr parent, int expectedIndex) {
     IntPtr found = IntPtr.Zero;
-    int index = 0;
+    int selectedTop = expectedIndex == 0 ? Int32.MaxValue : Int32.MinValue;
     EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
       var name = new System.Text.StringBuilder(64);
       GetClassName(child, name, name.Capacity);
       if (IsWindowVisible(child) && string.Equals(name.ToString(), "Button", StringComparison.OrdinalIgnoreCase)) {
-        if (index == expectedIndex) { found = child; return false; }
-        index++;
+        RECT rect;
+        if (GetWindowRect(child, out rect) &&
+            ((expectedIndex == 0 && rect.Top < selectedTop) || (expectedIndex != 0 && rect.Top > selectedTop))) {
+          selectedTop = rect.Top;
+          found = child;
+        }
       }
       return true;
     }, IntPtr.Zero);
