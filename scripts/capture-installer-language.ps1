@@ -148,8 +148,8 @@ try {
   if ($english -eq [IntPtr]::Zero -or $russian -eq [IntPtr]::Zero) {
     throw "Two native language selectors were not found"
   }
-  foreach ($selector in $english, $russian) {
-    if (([NinetyLanguageWin32]::GetWindowLong($selector, -16) -band 0x00000080) -ne 0x00000080) {
+  foreach ($selectorControl in $english, $russian) {
+    if (([NinetyLanguageWin32]::GetWindowLong($selectorControl, -16) -band 0x00000080) -ne 0x00000080) {
       throw "Language selector fell back to a stock Windows radio"
     }
   }
