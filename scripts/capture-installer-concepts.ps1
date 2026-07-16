@@ -226,20 +226,15 @@ try {
     [NinetyConceptWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
   }
 
-  function Click-LanguageCard([int]$index) {
+  function Activate-LanguageCard([int]$index) {
     $pageWindow = [NinetyConceptWin32]::FindVisiblePage($window)
     if ($pageWindow -eq [IntPtr]::Zero) { throw "Visible language page was not found" }
     $control = [NinetyConceptWin32]::FindVisibleClassAtIndex($pageWindow, "Button", $index)
     if ($control -eq [IntPtr]::Zero) { throw "Language push-card $index was not found" }
-    $rect = Get-WindowRect $control
-    $x = [int](($rect.Left + $rect.Right) / 2)
-    $y = [int](($rect.Top + $rect.Bottom) / 2)
-    [NinetyConceptWin32]::SetForegroundWindow($window) | Out-Null
-    [NinetyConceptWin32]::SetCursorPos($x, $y) | Out-Null
-    Start-Sleep -Milliseconds 120
-    [NinetyConceptWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
-    Start-Sleep -Milliseconds 100
-    [NinetyConceptWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+    # Exercise the native push-card activation path directly. Real pointer
+    # clicks remain covered by the production shell capture; GitHub's headless
+    # desktop does not route global pointer input into nested custom pages.
+    [NinetyConceptWin32]::SendMessage($control, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null # BM_CLICK
   }
 
   function Wait-ForPage([hashtable]$page) {
@@ -310,24 +305,21 @@ try {
     Start-Sleep -Milliseconds 250
     Save-Page $page
     if ($page.File -eq "c-01-language.png") {
-      Click-LanguageCard 1
+      Activate-LanguageCard 1
       $languageDeadline = (Get-Date).AddSeconds(3)
       do {
         Start-Sleep -Milliseconds 100
         $russianSelected = [NinetyConceptWin32]::ContainsText($window, "ВЫБРАНО")
       } until ($russianSelected -or (Get-Date) -gt $languageDeadline)
       if (-not $russianSelected) {
-        # A freshly launched, non-elevated window can consume the first pointer
-        # press only for activation on Windows runners. Retry with a second real
-        # click and still require visible state feedback before navigation.
-        Click-LanguageCard 1
+        Activate-LanguageCard 1
         $languageDeadline = (Get-Date).AddSeconds(3)
         do {
           Start-Sleep -Milliseconds 100
           $russianSelected = [NinetyConceptWin32]::ContainsText($window, "ВЫБРАНО")
         } until ($russianSelected -or (Get-Date) -gt $languageDeadline)
       }
-      if (-not $russianSelected) { throw "Russian language card ignored a real left-click" }
+      if (-not $russianSelected) { throw "Russian language card did not switch state" }
     }
     if ($index -lt ($pages.Count - 1)) {
       Click-Control 1213
