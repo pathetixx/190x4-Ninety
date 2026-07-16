@@ -864,6 +864,9 @@ Function KuroganeMinimizeShellTick
   Push $7
   Push $8
   !insertmacro KuroganeShellTickImpl
+  ${If} $KuroganeLicenseTextControl != 0
+    Call KuroganeLicenseTick
+  ${EndIf}
   Pop $8
   Pop $7
   Pop $6
@@ -995,8 +998,6 @@ FunctionEnd
   !insertmacro KuroganeMatrixText 187 247 115 11 "$(KLicensePosition) / 000%" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
   StrCpy $KuroganeLicensePositionControl $0
 
-  ${NSD_KillTimer} KuroganeLicenseTick
-  ${NSD_CreateTimer} KuroganeLicenseTick 120
   Call KuroganeLicenseTick
   ${NSD_SetFocus} $KuroganeLicenseTextControl
 !macroend
@@ -1029,7 +1030,6 @@ Function KuroganeLicenseTick
 FunctionEnd
 
 Function KuroganeLicenseLeave
-  ${NSD_KillTimer} KuroganeLicenseTick
   StrCpy $KuroganeLicenseTextControl 0
   StrCpy $KuroganeLicenseThumbControl 0
   StrCpy $KuroganeLicensePositionControl 0
