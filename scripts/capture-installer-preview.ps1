@@ -371,7 +371,7 @@ try {
   Save-InstallerWindow "04-license.png"
   Assert-NoTextOverflow "license"
   Assert-SignalCode "190X4 / 04" "license"
-  $license = [NinetyPreviewWin32]::FindVisibleClass($window, "RichEdit")
+  $license = [NinetyPreviewWin32]::FindVisibleClass($window, "Edit")
   if ($license -eq [IntPtr]::Zero) { throw "Signal Matrix license body was not found" }
   $licenseStyle = [NinetyPreviewWin32]::GetWindowLong($license, -16)
   if (($licenseStyle -band 0x00200000) -ne 0) { throw "License still exposes a native vertical scrollbar" }

@@ -957,26 +957,34 @@ FunctionEnd
   !insertmacro KuroganeMatrixText 54 181 50 12 "$(KLicenseModules)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontMono
   !insertmacro KuroganeMatrixText 54 199 50 17 "12" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
 
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} ${RICHCONTROL} 126 130 157 96
-  !insertmacro KuroganeBringToFront ${RICHCONTROL}
-  System::Call 'uxtheme::SetWindowTheme(p ${RICHCONTROL}, w "", w "")'
-  System::Call 'user32::GetWindowLongW(p ${RICHCONTROL}, i -16) i .r0'
-  IntOp $0 $0 & 0xFF5FFFFF
-  System::Call 'user32::SetWindowLongW(p ${RICHCONTROL}, i -16, i r0)'
-  System::Call 'user32::SetWindowPos(p ${RICHCONTROL}, p 0, i 0, i 0, i 0, i 0, i 0x27)'
-  SetCtlColors ${RICHCONTROL} ${K_COLOR_TEXT} ${K_COLOR_FIELD}
-  SendMessage ${RICHCONTROL} ${EM_SETBKGNDCOLOR} 0 0x1D1717
-  SendMessage ${RICHCONTROL} ${WM_SETFONT} $KuroganeFontBody 1
-  SendMessage ${RICHCONTROL} ${WM_SETTEXT} 0 "STR:$(KLicenseDocument1)"
-  SendMessage ${RICHCONTROL} ${EM_SETSEL} -1 -1
-  SendMessage ${RICHCONTROL} ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument2)"
-  SendMessage ${RICHCONTROL} ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument3)"
-  SendMessage ${RICHCONTROL} ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument4)"
-  SendMessage ${RICHCONTROL} ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument5)"
-  SendMessage ${RICHCONTROL} ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument6)"
-  SendMessage ${RICHCONTROL} ${EM_SETSEL} 0 0
-  SendMessage ${RICHCONTROL} ${EM_SCROLLCARET} 0 0
-  StrCpy $KuroganeLicenseTextControl ${RICHCONTROL}
+  ; Keep MUI's RichEdit only as an internal license-page contract. Its themed
+  ; non-client scrollbar cannot be fully recolored, so production uses a plain
+  ; read-only Edit with keyboard/mouse-wheel scrolling and a live custom rail.
+  ShowWindow ${RICHCONTROL} ${SW_HIDE}
+  IntOp $4 126 + 157
+  IntOp $5 130 + 96
+  System::Call '*(&i4 126, &i4 130, &i4 r4, &i4 r5) p .r6'
+  System::Call 'user32::MapDialogRect(p $HWNDPARENT, p r6)'
+  System::Call '*$6(&i4 .r4, &i4 .r5, &i4 .r7, &i4 .r8)'
+  System::Free $6
+  IntOp $7 $7 - $4
+  IntOp $8 $8 - $5
+  System::Call 'user32::CreateWindowExW(i 0, w "Edit", w "", i 0x54010044, i r4, i r5, i r7, i r8, p ${PAGE}, i 0, i 0, i 0) p .r9'
+  System::Call 'uxtheme::SetWindowTheme(p r9, w "", w "")'
+  SetCtlColors $9 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
+  SendMessage $9 ${WM_SETFONT} $KuroganeFontBody 1
+  SendMessage $9 ${WM_SETTEXT} 0 "STR:$(KLicenseDocument1)"
+  SendMessage $9 ${EM_SETSEL} -1 -1
+  SendMessage $9 ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument2)"
+  SendMessage $9 ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument3)"
+  SendMessage $9 ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument4)"
+  SendMessage $9 ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument5)"
+  SendMessage $9 ${EM_REPLACESEL} 0 "STR:$(KLicenseDocument6)"
+  SendMessage $9 ${EM_SETSEL} 0 0
+  SendMessage $9 ${EM_SCROLLCARET} 0 0
+  SendMessage $9 ${EM_SETREADONLY} 1 0
+  !insertmacro KuroganeBringToFront $9
+  StrCpy $KuroganeLicenseTextControl $9
 
   !insertmacro KuroganeMatrixBox 291 132 3 93 ${K_COLOR_BORDER}
   !insertmacro KuroganeMatrixBox 291 132 3 31 ${K_COLOR_ACCENT}
@@ -988,7 +996,7 @@ FunctionEnd
   ${NSD_KillTimer} KuroganeLicenseTick
   ${NSD_CreateTimer} KuroganeLicenseTick 120
   Call KuroganeLicenseTick
-  ${NSD_SetFocus} ${RICHCONTROL}
+  ${NSD_SetFocus} $KuroganeLicenseTextControl
 !macroend
 
 Function KuroganeLicenseTick
