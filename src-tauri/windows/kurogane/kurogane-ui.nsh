@@ -1130,8 +1130,8 @@ FunctionEnd
   !insertmacro KuroganeMatrixBox 44 122 257 56 ${K_COLOR_PANEL}
   !insertmacro KuroganeMatrixBox 44 122 34 56 ${K_COLOR_ACCENT}
   !insertmacro KuroganeMatrixCenterText 44 143 34 14 "+" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 91 131 174 14 "$KuroganeMaintenancePrimaryTextValue" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
-  !insertmacro KuroganeMatrixText 91 150 174 26 "$KuroganeMaintenancePrimaryDescriptionValue" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
+  !insertmacro KuroganeMatrixText 91 129 174 18 "$KuroganeMaintenancePrimaryTextValue" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
+  !insertmacro KuroganeMatrixText 91 151 174 25 "$KuroganeMaintenancePrimaryDescriptionValue" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontBody
   !insertmacro KuroganeSignalRadio 278 141 ${PRIMARY}
 
   !insertmacro KuroganeMatrixBox 59 187 243 57 ${K_COLOR_BORDER}
