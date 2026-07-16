@@ -152,6 +152,9 @@ Function ConceptACardsTarget
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $ConceptFontMono 1
   SendMessage $0 ${WM_SETTEXT} 0 "STR:C:\Program Files\Ninety"
+  ; The production version swaps this presentation layer for the native edit
+  ; on focus, keeping the field fully editable without exposing stock chrome.
+  !insertmacro CGText 45 132 190 12 "C:\Program Files\Ninety" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontMono
   !insertmacro CGCenterText 248 126 54 23 "$(CGBrowse)" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontMono
   !insertmacro CGText 22 184 100 11 "$(CGDiskSpace)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGText 214 184 104 11 "$(CGAvailable)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
@@ -233,6 +236,7 @@ Function ConceptBTerminalTarget
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $ConceptFontMono 1
   SendMessage $0 ${WM_SETTEXT} 0 "STR:C:\Program Files\Ninety"
+  !insertmacro CGText 55 148 185 12 "C:\Program Files\Ninety" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontMono
   !insertmacro CGCenterText 257 143 49 22 "EDIT" ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontMono
   !insertmacro CGText 22 190 296 12 "volume.c:  [###---------------------------]  0.2%" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGText 22 210 142 12 "required  161.4 MiB" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
@@ -304,7 +308,7 @@ FunctionEnd
 Function ConceptCMatrixTarget
   !insertmacro CGBegin "$(CGConceptCMatrix)" "$(CGTargetTitle)" "$(CGTargetSubtitle)"
   !insertmacro CGMatrixHeader "TARGET VECTOR"
-  !insertmacro CGText 43 121 96 11 "$(CGInstallPath)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
+  !insertmacro CGText 43 121 200 11 "$(CGInstallPath)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGFrame 43 139 259 43 44 140 257 41 ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
   !insertmacro CGBox 44 140 5 41 ${K_COLOR_ACCENT}
   ${NSD_CreateText} 60u 149u 181u 22u "C:\Program Files\Ninety"
@@ -313,6 +317,7 @@ Function ConceptCMatrixTarget
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $ConceptFontMono 1
   SendMessage $0 ${WM_SETTEXT} 0 "STR:C:\Program Files\Ninety"
+  !insertmacro CGText 60 154 174 12 "C:\Program Files\Ninety" ${K_COLOR_TEXT} ${K_COLOR_FIELD} $ConceptFontMono
   !insertmacro CGCenterText 249 149 42 22 "..." ${K_COLOR_TEXT} ${K_COLOR_ACCENT} $ConceptFontLabel
   !insertmacro CGText 43 197 78 11 "CAPACITY" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGBox 43 216 18 8 ${K_COLOR_ACCENT}
