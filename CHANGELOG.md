@@ -2,6 +2,15 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.28 — 2026-07-16
+
+- Refined the About identity: the samurai mark is now presented without an app-icon tile, and the brand/version lockup is optically aligned.
+- The language selector now offers neutral English and Russian choices; after continuing, the main installer reliably reclaims the foreground without remaining always-on-top.
+- The default installation directory is restored to `C:\Program Files\Ninety`; former standard AppData installations migrate there while explicitly chosen custom paths are preserved.
+- В разделе «О программе» маска самурая теперь отображается без плитки и рамки, а блок бренда и версии оптически выровнен.
+- Выбор языка теперь предлагает нейтральные варианты English и Русский; после продолжения основное окно установщика надёжно возвращается на передний план, не оставаясь постоянно поверх остальных окон.
+- Стандартный каталог установки снова `C:\Program Files\Ninety`; прежние стандартные установки в AppData мигрируют туда, а выбранные пользователем нестандартные пути сохраняются.
+
 ## v0.2.27 — 2026-07-16
 
 - The Windows installer and uninstaller now use the complete Signal Matrix design across language, account scope, deployment target, license, maintenance and removal screens, with consistent `190X4` stage codes and no stock white controls.
