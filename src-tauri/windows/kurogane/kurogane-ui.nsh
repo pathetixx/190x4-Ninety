@@ -1157,7 +1157,7 @@ FunctionEnd
   !insertmacro KuroganeMatrixBox 153 216 18 8 ${K_COLOR_BORDER}
 
   GetDlgItem $0 ${PAGE} 1023
-  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 43 238 128 14
+  !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 43 235 128 18
   !insertmacro KuroganeBringToFront $0
   SetCtlColors $0 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
   SendMessage $0 ${WM_SETFONT} $KuroganeFontMeta 1
