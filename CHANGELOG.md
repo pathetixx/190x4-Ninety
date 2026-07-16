@@ -2,6 +2,17 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.29 — 2026-07-16
+
+- Existing Ninety installations now stay in their registered AppData, Program Files or custom directory during updates and reinstalls; only a genuinely fresh installation defaults to `C:\Program Files\Ninety`.
+- Setup and removal are limited to one active operation, wait briefly for the previous app process to release files, and stop safely before making changes if any destination file remains locked or unwritable.
+- Partial installations are no longer possible: locked resources such as country flags cannot be skipped, and no automatic folder migration or duplicate installation is performed.
+- The Windows release gate now runs the production installer through clean installation, AppData OTA without duplication, locked-resource rollback, complete flag integrity, installed-app launch and uninstallation before publication.
+- Существующие установки Ninety при обновлении и переустановке остаются в своём зарегистрированном каталоге AppData, Program Files или выбранной пользователем папке; `C:\Program Files\Ninety` используется по умолчанию только для действительно новой установки.
+- Одновременно разрешена только одна операция установки или удаления; установщик кратко ждёт освобождения файлов прежним процессом и безопасно прекращает работу до любых изменений, если каталог или файл остаётся заблокированным либо недоступным для записи.
+- Частичная установка больше невозможна: заблокированные ресурсы, включая флаги стран, нельзя пропустить; автоматический перенос каталога и создание дубликата установки исключены.
+- Перед публикацией Windows-релиз теперь проходит реальную чистую установку, OTA поверх AppData без дубля, откат при заблокированном ресурсе, полную проверку целостности флагов, запуск установленного приложения и удаление.
+
 ## v0.2.28 — 2026-07-16
 
 - Refined the About identity: the samurai mark is now presented without an app-icon tile, and the brand/version lockup is optically aligned.
