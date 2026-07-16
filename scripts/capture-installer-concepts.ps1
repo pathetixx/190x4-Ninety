@@ -26,6 +26,7 @@ public static class NinetyConceptWin32 {
   [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr param);
   [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr hWnd, int id);
   [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int index);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder text, int count);
   [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
@@ -88,6 +89,38 @@ public static class NinetyConceptWin32 {
       return true;
     }, IntPtr.Zero);
     return found;
+  }
+  public static int CountVisibleClass(IntPtr parent, string expectedClass) {
+    int count = 0;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      var value = new System.Text.StringBuilder(128);
+      GetClassName(child, value, value.Capacity);
+      if (IsWindowVisible(child) && string.Equals(value.ToString(), expectedClass, StringComparison.OrdinalIgnoreCase)) {
+        count++;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return count;
+  }
+  public static bool HasInvalidLanguagePushCard(IntPtr parent) {
+    bool invalid = false;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      var value = new System.Text.StringBuilder(128);
+      GetClassName(child, value, value.Capacity);
+      if (!IsWindowVisible(child) || !string.Equals(value.ToString(), "Button", StringComparison.OrdinalIgnoreCase)) {
+        return true;
+      }
+      int style = GetWindowLong(child, -16); // GWL_STYLE
+      bool isAutoRadio = (style & 0x0000000F) == 0x00000009;
+      bool isPushLike = (style & 0x00001000) != 0;
+      bool isFlat = (style & 0x00008000) != 0;
+      if (!isAutoRadio || !isPushLike || !isFlat) {
+        invalid = true;
+        return false;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return invalid;
   }
   public static IntPtr FindVisiblePage(IntPtr parent) {
     IntPtr found = IntPtr.Zero;
@@ -253,7 +286,15 @@ try {
     if ($hasEdit -ne $page.HasEdit) {
       throw "Native path edit contract mismatch on $($page.File): expected=$($page.HasEdit), actual=$hasEdit"
     }
-    if ([NinetyConceptWin32]::HasVisibleClass($pageWindow, "Button")) {
+    $buttonCount = [NinetyConceptWin32]::CountVisibleClass($pageWindow, "Button")
+    if ($page.File -eq "c-01-language.png") {
+      if ($buttonCount -ne 2) {
+        throw "Language matrix must expose exactly two interactive push-cards, found $buttonCount"
+      }
+      if ([NinetyConceptWin32]::HasInvalidLanguagePushCard($pageWindow)) {
+        throw "Language matrix contains a stock button instead of a flat push-card"
+      }
+    } elseif ($buttonCount -ne 0) {
       throw "Stock radio/checkbox/button leaked into concept canvas: $($page.File)"
     }
     if ($page.File.StartsWith("c-")) {

@@ -298,6 +298,8 @@ Function ConceptSelectEnglish
   Pop $0
   StrCpy $ConceptSelectedLanguage 1033
   StrCpy $LANGUAGE 1033
+  SendMessage $ConceptLanguageEnglish ${BM_SETCHECK} ${BST_CHECKED} 0
+  SendMessage $ConceptLanguageRussian ${BM_SETCHECK} ${BST_UNCHECKED} 0
   SetCtlColors $ConceptLanguageEnglish ${K_COLOR_TEXT} ${K_COLOR_PANEL}
   SetCtlColors $ConceptLanguageRussian ${K_COLOR_MUTED} ${K_COLOR_FIELD}
   SendMessage $ConceptLanguageEnglishState ${WM_SETTEXT} 0 "STR:SELECTED"
@@ -308,6 +310,8 @@ Function ConceptSelectRussian
   Pop $0
   StrCpy $ConceptSelectedLanguage 1049
   StrCpy $LANGUAGE 1049
+  SendMessage $ConceptLanguageEnglish ${BM_SETCHECK} ${BST_UNCHECKED} 0
+  SendMessage $ConceptLanguageRussian ${BM_SETCHECK} ${BST_CHECKED} 0
   SetCtlColors $ConceptLanguageEnglish ${K_COLOR_MUTED} ${K_COLOR_FIELD}
   SetCtlColors $ConceptLanguageRussian ${K_COLOR_TEXT} ${K_COLOR_PANEL}
   SendMessage $ConceptLanguageEnglishState ${WM_SETTEXT} 0 "STR:"
@@ -319,8 +323,9 @@ Function ConceptCMatrixLanguage
   !insertmacro CGMatrixHeader "LANGUAGE MATRIX" "01"
 
   !insertmacro CGFrame 42 121 260 51 43 122 258 49 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
-  ${NSD_CreateLabel} 58u 132u 176u 28u "ENGLISH$\r$\nPrimary · default fallback"
+  nsDialogs::CreateControl BUTTON "${DEFAULT_STYLES}|${WS_TABSTOP}|${BS_AUTORADIOBUTTON}|${BS_PUSHLIKE}|${BS_FLAT}|${BS_MULTILINE}|${BS_LEFT}|${BS_VCENTER}" 0 43u 122u 258u 49u "    ENGLISH$\r$\n    Primary · default fallback"
   Pop $ConceptLanguageEnglish
+  System::Call 'uxtheme::SetWindowTheme(p rConceptLanguageEnglish, w "", w "")'
   SetCtlColors $ConceptLanguageEnglish ${K_COLOR_TEXT} ${K_COLOR_PANEL}
   SendMessage $ConceptLanguageEnglish ${WM_SETFONT} $ConceptFontLabel 1
   ${NSD_OnClick} $ConceptLanguageEnglish ConceptSelectEnglish
@@ -330,8 +335,9 @@ Function ConceptCMatrixLanguage
   SendMessage $ConceptLanguageEnglishState ${WM_SETFONT} $ConceptFontMono 1
 
   !insertmacro CGFrame 58 183 244 50 59 184 242 48 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
-  ${NSD_CreateLabel} 74u 194u 160u 28u "РУССКИЙ$\r$\nДополнительный язык"
+  nsDialogs::CreateControl BUTTON "${DEFAULT_STYLES}|${WS_TABSTOP}|${BS_AUTORADIOBUTTON}|${BS_PUSHLIKE}|${BS_FLAT}|${BS_MULTILINE}|${BS_LEFT}|${BS_VCENTER}" 0 59u 184u 242u 48u "    РУССКИЙ$\r$\n    Дополнительный язык"
   Pop $ConceptLanguageRussian
+  System::Call 'uxtheme::SetWindowTheme(p rConceptLanguageRussian, w "", w "")'
   SetCtlColors $ConceptLanguageRussian ${K_COLOR_MUTED} ${K_COLOR_FIELD}
   SendMessage $ConceptLanguageRussian ${WM_SETFONT} $ConceptFontLabel 1
   ${NSD_OnClick} $ConceptLanguageRussian ConceptSelectRussian
@@ -343,6 +349,9 @@ Function ConceptCMatrixLanguage
   ${If} $LANGUAGE == 1049
     Push $0
     Call ConceptSelectRussian
+  ${Else}
+    Push $0
+    Call ConceptSelectEnglish
   ${EndIf}
   !insertmacro CGBox 31 251 287 3 ${K_COLOR_BORDER}
   !insertmacro CGBox 31 251 57 3 ${K_COLOR_ACCENT}
