@@ -23,6 +23,7 @@ Var SmokeMaintenanceDialog
 Var SmokeMaintenancePrimary
 Var SmokeMaintenanceSecondary
 Var SmokeDeleteAppDataCheckbox
+Var SmokeLicenseDialog
 
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeWelcomeShow
@@ -42,12 +43,15 @@ FunctionEnd
 Function SmokeDirectoryShow
   !insertmacro KuroganeDirectoryPageImpl $mui.DirectoryPage
 FunctionEnd
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeLicenseShow
-!define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeLicenseLeave
-!insertmacro MUI_PAGE_LICENSE "..\license.rtf"
+Page custom SmokeLicenseShow KuroganeLicenseLeave
 Function SmokeLicenseShow
-  !insertmacro KuroganeLicensePageImpl "" $mui.LicensePage $mui.Licensepage.TopText $mui.Licensepage.LicenseText
+  ${If} $PassiveMode == 1
+    Abort
+  ${EndIf}
+  nsDialogs::Create 1018
+  Pop $SmokeLicenseDialog
+  !insertmacro KuroganeLicensePageImpl "" $SmokeLicenseDialog
+  nsDialogs::Show
 FunctionEnd
 Page custom SmokeMaintenanceShow
 Function SmokeMaintenanceShow

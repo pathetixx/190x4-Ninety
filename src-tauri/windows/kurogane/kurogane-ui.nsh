@@ -888,9 +888,6 @@ Function KuroganeMinimizeShellTick
   Push $7
   Push $8
   !insertmacro KuroganeShellTickImpl
-  ${If} $KuroganeLicenseTextControl != 0
-    !insertmacro KuroganeLicenseTickImpl
-  ${EndIf}
   Pop $8
   Pop $7
   Pop $6
@@ -968,13 +965,9 @@ FunctionEnd
   !insertmacro KuroganeStylePageImpl ${PAGE}
 !macroend
 
-!macro KuroganeLicensePageImpl UNPREFIX PAGE TOPCONTROL RICHCONTROL
+!macro KuroganeLicensePageImpl UNPREFIX PAGE
   !insertmacro KuroganePrepareKnownPageImpl "${UNPREFIX}" ${PAGE} Next
   StrCpy $KuroganeMatrixParent ${PAGE}
-
-  ShowWindow ${TOPCONTROL} ${SW_HIDE}
-  GetDlgItem $0 ${PAGE} 1006
-  ShowWindow $0 ${SW_HIDE}
 
   !insertmacro KuroganeMatrixPageHeader "$(KLicenseEyebrow)" "$(KLicenseTitle)" "$(KLicenseSubtitle)" "$(KLicenseSignal)" "190X4 / 04"
   !insertmacro KuroganeMatrixFrame 43 121 259 118 44 122 257 116 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
@@ -984,10 +977,8 @@ FunctionEnd
   !insertmacro KuroganeMatrixText 54 181 50 12 "$(KLicenseModules)" ${K_COLOR_MUTED} ${K_COLOR_PANEL} $KuroganeFontMono
   !insertmacro KuroganeMatrixText 54 199 50 17 "12" ${K_COLOR_TEXT} ${K_COLOR_PANEL} $KuroganeFontSteps
 
-  ; Keep MUI's RichEdit only as an internal license-page contract. Its themed
-  ; non-client scrollbar cannot be fully recolored, so production uses a plain
-  ; read-only Edit with keyboard/mouse-wheel scrolling and a live custom rail.
-  ShowWindow ${RICHCONTROL} ${SW_HIDE}
+  ; A plain read-only Edit keeps keyboard and mouse-wheel scrolling without the
+  ; themed non-client scrollbar that leaked into the old MUI license page.
   IntOp $4 126 + 157
   IntOp $5 130 + 96
   System::Call '*(&i4 126, &i4 130, &i4 r4, &i4 r5) p .r6'
@@ -1022,6 +1013,8 @@ FunctionEnd
   !insertmacro KuroganeMatrixText 187 247 115 11 "$(KLicensePosition) / 000%" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
   StrCpy $KuroganeLicensePositionControl $0
 
+  ${NSD_KillTimer} KuroganeLicenseTick
+  ${NSD_CreateTimer} KuroganeLicenseTick 60
   Call KuroganeLicenseTick
   ${NSD_SetFocus} $KuroganeLicenseTextControl
 !macroend
@@ -1034,6 +1027,7 @@ Function KuroganeLicenseTick
 FunctionEnd
 
 Function KuroganeLicenseLeave
+  ${NSD_KillTimer} KuroganeLicenseTick
   StrCpy $KuroganeLicenseTextControl 0
   StrCpy $KuroganeLicenseThumbControl 0
   StrCpy $KuroganeLicensePositionControl 0

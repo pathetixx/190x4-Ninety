@@ -198,12 +198,17 @@ FunctionEnd
 
 ; 4. License Page (if defined)
 !if "${LICENSE}" != ""
-  !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeLicenseShow
-  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeLicenseLeave
-  !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
+  Var KuroganeLicenseDialog
+  Page custom KuroganeLicenseShow KuroganeLicenseLeave
   Function KuroganeLicenseShow
-    !insertmacro KuroganeLicensePageImpl "" $mui.LicensePage $mui.Licensepage.TopText $mui.Licensepage.LicenseText
+    ${If} $PassiveMode == 1
+      Abort
+    ${EndIf}
+    nsDialogs::Create 1018
+    Pop $KuroganeLicenseDialog
+    ${IfThen} $(^RTL) = 1 ${|} nsDialogs::SetRTL $(^RTL) ${|}
+    !insertmacro KuroganeLicensePageImpl "" $KuroganeLicenseDialog
+    nsDialogs::Show
   FunctionEnd
 !endif
 
