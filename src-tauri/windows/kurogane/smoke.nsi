@@ -18,6 +18,7 @@ Var PassiveMode
 
 Name "Ninety"
 OutFile "kurogane-smoke.exe"
+InstallDir "$TEMP\NinetySmoke"
 Var SmokeMaintenanceDialog
 Var SmokeMaintenancePrimary
 Var SmokeMaintenanceSecondary
@@ -57,6 +58,12 @@ Function SmokeMaintenanceShow
   SendMessage $SmokeMaintenancePrimary ${BM_SETCHECK} ${BST_CHECKED} 0
   ${NSD_SetFocus} $SmokeMaintenancePrimary
   nsDialogs::Show
+FunctionEnd
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeDirectoryShow
+!insertmacro MUI_PAGE_DIRECTORY
+Function SmokeDirectoryShow
+  !insertmacro KuroganeDirectoryPageImpl $mui.DirectoryPage
 FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeInstFilesShow
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeInstFilesLeave
@@ -99,6 +106,17 @@ Function .onInit
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   ${IfNot} ${Errors}
     StrCpy $PassiveMode 1
+  ${EndIf}
+  ${GetOptions} $CMDLINE "/SELECTLANG" $0
+  ${IfNot} ${Errors}
+    !insertmacro KuroganeRunLanguageSelector $0
+    ${If} $0 == 11
+      StrCpy $LANGUAGE 1049
+    ${ElseIf} $0 == 10
+      StrCpy $LANGUAGE 1033
+    ${Else}
+      Abort
+    ${EndIf}
   ${EndIf}
   !insertmacro MULTIUSER_INIT
 FunctionEnd

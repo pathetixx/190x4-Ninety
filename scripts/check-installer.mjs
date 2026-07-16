@@ -53,8 +53,8 @@ if (windows.allowDowngrades !== false) {
 if (nsis.installMode !== "both") {
   fail("NSIS installMode должен сохранять поддержку per-user и per-machine");
 }
-if (nsis.displayLanguageSelector !== false) {
-  fail("кастомный Kurogane UI не должен открывать системный выбор языка перед окном");
+if (nsis.displayLanguageSelector !== true) {
+  fail("production NSIS должен открывать кастомный pre-init выбор языка");
 }
 
 configFile("licenseFile", bundle.licenseFile);
@@ -65,6 +65,7 @@ const entryPath = configFile("installerHooks", nsis.installerHooks);
 const hooksPath = resolve(configDir, "./windows/hooks.nsh");
 const kuroganeDir = resolve(configDir, "./windows/kurogane");
 const conceptCapturePath = resolve(root, "./scripts/capture-installer-concepts.ps1");
+const languageCapturePath = resolve(root, "./scripts/capture-installer-language.ps1");
 
 for (const name of [
   "kurogane-ui.nsh",
@@ -89,12 +90,16 @@ for (const name of [
   "nav-cancel-ru.bmp",
   "concept-gallery.nsi",
   "concept-gallery.nsh",
+  "language-selector.nsi",
 ]) {
   if (!existsSync(resolve(kuroganeDir, name))) fail(`Kurogane: файл не найден (${name})`);
 }
 
 if (!existsSync(conceptCapturePath)) {
   fail("Kurogane: скрипт захвата концептов не найден");
+}
+if (!existsSync(languageCapturePath)) {
+  fail("Kurogane: скрипт проверки выбора языка не найден");
 }
 
 const resourceExe = resolve(kuroganeDir, "kurogane-ui.exe");
@@ -134,6 +139,10 @@ if (existsSync(kuroganeUiPath)) {
     "KuroganeEnableManagedOtaWindowImpl",
     "DwmSetWindowAttribute",
     "EnableMenuItem",
+    "KuroganeRunLanguageSelector",
+    "KuroganeDirectoryPageImpl",
+    "KMaintenanceSignal",
+    "KUninstallSignal",
   ]) {
     if (!kuroganeUi.includes(marker)) fail(`Kurogane OTA chrome не содержит ${marker}`);
   }
@@ -182,6 +191,8 @@ if (templatePath && existsSync(templatePath)) {
     "KuroganeInstallModeShow",
     "KuroganeLicenseShow",
     "KuroganeDirectoryShow",
+    "KuroganeRunLanguageSelector",
+    'ReadRegStr $0 HKCU "${MANUPRODUCTKEY}" "Installer Language"',
     "KuroganeStartMenuShow",
     "KuroganeUninstallConfirmPageImpl $mui.UnConfirmPage",
     "un.NinetyFinishShow",
@@ -191,6 +202,9 @@ if (templatePath && existsSync(templatePath)) {
     "Call un.KuroganeProgressTick",
   ]) {
     if (!template.includes(marker)) fail(`в installer.nsi отсутствует ${marker}`);
+  }
+  if (template.includes("MUI_LANGDLL_DISPLAY")) {
+    fail("installer.nsi не должен возвращаться к системному LangDLL диалогу");
   }
 }
 

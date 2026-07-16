@@ -23,6 +23,9 @@ Thumbs.db
 dist/
 *.msi
 *.exe.tmp
+src-tauri/windows/kurogane/kurogane-language.exe
+src-tauri/windows/kurogane/kurogane-smoke.exe
+src-tauri/windows/kurogane/kurogane-concepts.exe
 site/release.json
 
 # Python bytecode (gen_strategies.py)

@@ -53,10 +53,16 @@ jobs:
           ) | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $makensis) { throw "makensis.exe was not found after Chocolatey installation" }
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          & $makensis /V3 "/DVERSION=$version" src-tauri/windows/kurogane/language-selector.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $makensis /V3 "/DVERSION=$version" src-tauri/windows/kurogane/smoke.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $makensis /V3 "/DVERSION=$version" src-tauri/windows/kurogane/concept-gallery.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Capture and exercise pre-init language UI
+        shell: pwsh
+        run: ./scripts/capture-installer-language.ps1 -Selector ./src-tauri/windows/kurogane/kurogane-language.exe -OutputDirectory ./installer-preview
 
       - name: Capture and exercise real Windows UI
         shell: pwsh

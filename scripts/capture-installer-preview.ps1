@@ -38,6 +38,11 @@ public static class NinetyPreviewWin32 {
   [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr hWnd, int id);
   [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr hWnd);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder text, int count);
+  [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hdc);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int DrawText(IntPtr hdc, string text, int count, ref RECT rect, uint format);
+  [DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
   public static IntPtr FindDescendantById(IntPtr parent, int id) {
     IntPtr found = IntPtr.Zero;
     EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
@@ -63,6 +68,48 @@ public static class NinetyPreviewWin32 {
     var value = new System.Text.StringBuilder(128);
     GetWindowText(hWnd, value, value.Capacity);
     return value.ToString();
+  }
+  public static IntPtr FindVisiblePage(IntPtr parent) {
+    IntPtr found = IntPtr.Zero;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      var value = new System.Text.StringBuilder(64);
+      GetClassName(child, value, value.Capacity);
+      if (IsWindowVisible(child) && value.ToString() == "#32770") { found = child; return false; }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+  public static string FindStaticTextOverflow(IntPtr parent) {
+    string issue = null;
+    EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
+      if (!IsWindowVisible(child)) return true;
+      var className = new System.Text.StringBuilder(64);
+      GetClassName(child, className, className.Capacity);
+      if (className.ToString() != "Static") return true;
+      var value = new System.Text.StringBuilder(512);
+      GetWindowText(child, value, value.Capacity);
+      string text = value.ToString().Trim();
+      if (text.Length == 0) return true;
+      RECT windowRect;
+      if (!GetWindowRect(child, out windowRect)) return true;
+      int width = Math.Max(1, windowRect.Right - windowRect.Left);
+      int height = Math.Max(1, windowRect.Bottom - windowRect.Top);
+      IntPtr dc = GetDC(child);
+      if (dc == IntPtr.Zero) return true;
+      IntPtr font = SendMessage(child, 0x0031, IntPtr.Zero, IntPtr.Zero); // WM_GETFONT
+      IntPtr previous = font == IntPtr.Zero ? IntPtr.Zero : SelectObject(dc, font);
+      RECT measured = new RECT { Left = 0, Top = 0, Right = width, Bottom = 0 };
+      DrawText(dc, text, -1, ref measured, 0x00000010 | 0x00000400 | 0x00000800);
+      if (previous != IntPtr.Zero) SelectObject(dc, previous);
+      ReleaseDC(child, dc);
+      int neededHeight = measured.Bottom - measured.Top;
+      if (neededHeight > height + 4) {
+        issue = "'" + text.Replace("\r", " ").Replace("\n", " ") + "' needs " + neededHeight + "px, control has " + height + "px";
+        return false;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return issue;
   }
 }
 "@
@@ -139,6 +186,13 @@ try {
     if ($value -notmatch '^([1-9][0-9]?|100)%$') {
       throw "Installer percentage is not live: '$value'"
     }
+  }
+
+  function Assert-NoTextOverflow([string]$Name) {
+    $page = [NinetyPreviewWin32]::FindVisiblePage($window)
+    if ($page -eq [IntPtr]::Zero) { throw "Visible page was not found for overflow check: $Name" }
+    $overflow = [NinetyPreviewWin32]::FindStaticTextOverflow($page)
+    if ($overflow) { throw "Installer text overflow on ${Name}: $overflow" }
   }
 
   function Click-InstallerControl([int]$Id) {
@@ -236,17 +290,24 @@ try {
   Save-InstallerWindow "01-welcome.png"
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
+  Assert-NoTextOverflow "license"
   Save-InstallerWindow "02-license.png"
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
+  Assert-NoTextOverflow "install mode"
   Save-InstallerWindow "03-install-mode.png"
   Click-InstallerControl 1
   Start-Sleep -Seconds 1
+  Assert-NoTextOverflow "maintenance"
   Save-InstallerWindow "04-maintenance.png"
+  Click-InstallerControl 1
+  Start-Sleep -Seconds 1
+  Assert-NoTextOverflow "deployment target"
+  Save-InstallerWindow "05-target.png"
   Click-InstallerControl 1
   Start-Sleep -Seconds 3
   Assert-LiveProgress
-  Save-InstallerWindow "05-progress.png"
+  Save-InstallerWindow "06-progress.png"
   # MUI_FINISHPAGE_NOAUTOCLOSE keeps the completed progress page visible until
   # Next is activated. Do not send Enter on a fixed delay: a fast hosted runner
   # may already be on Finish, where the same key would close the process before
@@ -269,7 +330,7 @@ try {
   } until ((Get-Date) -gt $finishDeadline)
   if (-not $finishVisible) { throw "Installer did not advance from completed progress to Finish" }
   Start-Sleep -Milliseconds 500
-  Save-InstallerWindow "06-finish.png"
+  Save-InstallerWindow "07-finish.png"
   Click-InstallerControl 1
   if (-not $process.WaitForExit(5000)) {
     throw "Installer Finish control ignored a real left-click"
@@ -340,7 +401,7 @@ try {
   if (($closeState -band 0x00000003) -eq 0) {
     throw "Passive OTA close action is not visibly disabled during file replacement"
   }
-  Save-InstallerWindow "09-ota-progress.png"
+  Save-InstallerWindow "08-ota-progress.png"
 
   $otaOriginalRect = Get-InstallerRect
   $captionButtonHeight = [Math]::Max(24, [NinetyPreviewWin32]::GetSystemMetrics(31))
@@ -400,10 +461,11 @@ try {
   } until ($window -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
   if ($window -eq [IntPtr]::Zero) { throw "Uninstaller window did not appear" }
   Start-Sleep -Seconds 1
-  Save-InstallerWindow "07-uninstall-confirm.png"
+  Assert-NoTextOverflow "uninstall confirmation"
+  Save-InstallerWindow "09-uninstall-confirm.png"
   Click-InstallerControl 1
   Start-Sleep -Seconds 3
-  Save-InstallerWindow "08-uninstall-finish.png"
+  Save-InstallerWindow "10-uninstall-finish.png"
   Click-InstallerControl 1
   $deadline = (Get-Date).AddSeconds(10)
   while ([NinetyPreviewWin32]::IsWindow($window) -and (Get-Date) -lt $deadline) {

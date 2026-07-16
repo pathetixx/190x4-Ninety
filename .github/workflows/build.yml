@@ -295,6 +295,22 @@ jobs:
           "AUTHENTICODE_ENABLED=true" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Authenticode enabled with a production certificate from the CurrentUser store."
 
+      - name: Compile pre-init installer language selector
+        shell: pwsh
+        run: |
+          choco install nsis --no-progress -y
+          $makensis = @(
+            "${env:ProgramFiles}\NSIS\makensis.exe",
+            "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $makensis) { throw "makensis.exe was not found after installation" }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          & $makensis /V3 "/DVERSION=$version" src-tauri/windows/kurogane/language-selector.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path src-tauri/windows/kurogane/kurogane-language.exe)) {
+            throw "Pre-init language selector was not generated"
+          }
+
       - name: Build Tauri
         run: npm run tauri build
         env:

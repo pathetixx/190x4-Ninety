@@ -407,7 +407,7 @@ FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeDirectoryShow
 !insertmacro MUI_PAGE_DIRECTORY
 Function KuroganeDirectoryShow
-  !insertmacro KuroganePrepareKnownPageImpl "" $mui.DirectoryPage Next
+  !insertmacro KuroganeDirectoryPageImpl $mui.DirectoryPage
 FunctionEnd
 
 ; 6. Start menu shortcut page
@@ -505,8 +505,29 @@ Function .onInit
     StrCpy $UpdateMode 1
   ${EndIf}
 
+  ; Restore the previously chosen locale for passive/silent updates, then let
+  ; the dedicated Signal Matrix pre-init window override it for interactive
+  ; setup. $LANGUAGE may only be changed during .onInit in NSIS.
+  ReadRegStr $0 HKCU "${MANUPRODUCTKEY}" "Installer Language"
+  ${If} $0 == "1033"
+    StrCpy $LANGUAGE 1033
+  ${ElseIf} $0 == "1049"
+    StrCpy $LANGUAGE 1049
+  ${EndIf}
+
   !if "${DISPLAYLANGUAGESELECTOR}" == "true"
-    !insertmacro MUI_LANGDLL_DISPLAY
+    ${If} $PassiveMode != 1
+      ${IfNot} ${Silent}
+        !insertmacro KuroganeRunLanguageSelector $0
+        ${If} $0 == 10
+          StrCpy $LANGUAGE 1033
+        ${ElseIf} $0 == 11
+          StrCpy $LANGUAGE 1049
+        ${Else}
+          Abort
+        ${EndIf}
+      ${EndIf}
+    ${EndIf}
   !endif
 
   !insertmacro SetContext
