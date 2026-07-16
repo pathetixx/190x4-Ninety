@@ -260,7 +260,10 @@ try {
     if ($finishVisible) { break }
     $percent = [NinetyPreviewWin32]::FindDescendantById($window, 1226)
     if ($percent -ne [IntPtr]::Zero -and [NinetyPreviewWin32]::ReadText($percent) -eq "100%") {
-      Click-InstallerControl 1
+      $next = [NinetyPreviewWin32]::FindDescendantById($window, 1)
+      if ($next -ne [IntPtr]::Zero) {
+        [NinetyPreviewWin32]::PostMessage($next, 0x00F5, [UIntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+      }
     }
     Start-Sleep -Milliseconds 300
   } until ((Get-Date) -gt $finishDeadline)
