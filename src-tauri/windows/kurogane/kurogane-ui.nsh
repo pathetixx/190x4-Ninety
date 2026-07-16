@@ -168,13 +168,24 @@ LangString KUninstallConfirmSubtitle 1049 "Приложение будет за�
     System::Call 'user32::ScreenToClient(p $HWNDPARENT, p r3)'
     System::Call '*$3(&i4 .r4, &i4 .r5)'
     System::Free $3
-    System::Call 'user32::SetWindowPos(p r0, p 0, i r4, i r5, i r8, i r9, i 0x14)'
+    ; A native BS_BITMAP button still paints a system border over the bitmap.
+    ; Give it a two-pixel gutter and clip that gutter out of the window region:
+    ; the remaining hit target is exactly the original Kurogane bitmap.
+    IntOp $4 $4 - 2
+    IntOp $5 $5 - 2
+    IntOp $6 $8 + 4
+    IntOp $7 $9 + 4
+    System::Call 'user32::SetWindowPos(p r0, p 0, i r4, i r5, i r6, i r7, i 0x14)'
+    IntOp $6 $8 + 2
+    IntOp $7 $9 + 2
+    System::Call 'gdi32::CreateRectRgn(i 2, i 2, i r6, i r7) p .r3'
+    System::Call 'user32::SetWindowRgn(p r0, p r3, i 1)'
     ShowWindow $1 ${SW_HIDE}
     System::Call 'user32::InvalidateRect(p r0, p 0, i 1)'
   ${EndIf}
 !macroend
 
-!macro KuroganeApplyChromeImpl NEXT_EN NEXT_RU
+!macro KuroganeApplyChromeImpl NEXT_EN NEXT_RU SHOW_BACK SHOW_NEXT SHOW_CANCEL
   !insertmacro KuroganeSetBitmap 1205 "$PLUGINSDIR\kurogane-minimize.bmp" $KuroganeChromeMinimizeBitmap
   !insertmacro KuroganeSetBitmap 1207 "$PLUGINSDIR\kurogane-close.bmp" $KuroganeChromeCloseBitmap
   ${If} $LANGUAGE == 1049
@@ -186,31 +197,38 @@ LangString KUninstallConfirmSubtitle 1049 "Приложение будет за�
     !insertmacro KuroganeSetButtonBitmap 1 1213 "$PLUGINSDIR\kurogane-${NEXT_EN}-en.bmp" $KuroganeNavNextBitmap
     !insertmacro KuroganeSetButtonBitmap 2 1214 "$PLUGINSDIR\kurogane-cancel-en.bmp" $KuroganeNavCancelBitmap
   ${EndIf}
+
+  GetDlgItem $0 $HWNDPARENT 3
+  ShowWindow $0 ${SHOW_BACK}
+  GetDlgItem $0 $HWNDPARENT 1
+  ShowWindow $0 ${SHOW_NEXT}
+  GetDlgItem $0 $HWNDPARENT 2
+  ShowWindow $0 ${SHOW_CANCEL}
 !macroend
 
 Function KuroganeApplyChromeNext
-  !insertmacro KuroganeApplyChromeImpl "next" "next"
+  !insertmacro KuroganeApplyChromeImpl "next" "next" ${SW_SHOW} ${SW_SHOW} ${SW_SHOW}
 FunctionEnd
 Function un.KuroganeApplyChromeNext
-  !insertmacro KuroganeApplyChromeImpl "next" "next"
+  !insertmacro KuroganeApplyChromeImpl "next" "next" ${SW_SHOW} ${SW_SHOW} ${SW_SHOW}
 FunctionEnd
 Function KuroganeApplyChromeInstall
-  !insertmacro KuroganeApplyChromeImpl "install" "install"
+  !insertmacro KuroganeApplyChromeImpl "install" "install" ${SW_HIDE} ${SW_SHOW} ${SW_SHOW}
 FunctionEnd
 Function un.KuroganeApplyChromeInstall
-  !insertmacro KuroganeApplyChromeImpl "install" "install"
+  !insertmacro KuroganeApplyChromeImpl "install" "install" ${SW_HIDE} ${SW_SHOW} ${SW_SHOW}
 FunctionEnd
 Function KuroganeApplyChromeRemove
-  !insertmacro KuroganeApplyChromeImpl "remove" "remove"
+  !insertmacro KuroganeApplyChromeImpl "remove" "remove" ${SW_HIDE} ${SW_SHOW} ${SW_SHOW}
 FunctionEnd
 Function un.KuroganeApplyChromeRemove
-  !insertmacro KuroganeApplyChromeImpl "remove" "remove"
+  !insertmacro KuroganeApplyChromeImpl "remove" "remove" ${SW_HIDE} ${SW_SHOW} ${SW_SHOW}
 FunctionEnd
 Function KuroganeApplyChromeFinish
-  !insertmacro KuroganeApplyChromeImpl "finish" "finish"
+  !insertmacro KuroganeApplyChromeImpl "finish" "finish" ${SW_HIDE} ${SW_SHOW} ${SW_HIDE}
 FunctionEnd
 Function un.KuroganeApplyChromeFinish
-  !insertmacro KuroganeApplyChromeImpl "finish" "finish"
+  !insertmacro KuroganeApplyChromeImpl "finish" "finish" ${SW_HIDE} ${SW_SHOW} ${SW_HIDE}
 FunctionEnd
 
 !macro KuroganeStyleClass CLASS FOREGROUND BACKGROUND DISABLETHEME
@@ -444,7 +462,16 @@ FunctionEnd
         ${If} $KuroganeCaptionPressed == 1205
           SendMessage $HWNDPARENT ${WM_SYSCOMMAND} ${SC_MINIMIZE} 0
         ${ElseIf} $KuroganeCaptionPressed == 1207
-          SendMessage $HWNDPARENT ${WM_CLOSE} 0 0
+          ; Follow the page's native action: Cancel during setup/progress and
+          ; Finish on the final page where Cancel is intentionally hidden.
+          GetDlgItem $0 $HWNDPARENT 2
+          System::Call 'user32::IsWindowVisible(p r0) i .r1'
+          ${If} $1 != 0
+            SendMessage $0 ${BM_CLICK} 0 0
+          ${Else}
+            GetDlgItem $0 $HWNDPARENT 1
+            SendMessage $0 ${BM_CLICK} 0 0
+          ${EndIf}
         ${EndIf}
       ${EndIf}
     ${EndIf}
