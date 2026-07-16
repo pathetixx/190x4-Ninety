@@ -101,6 +101,12 @@ LangString KTargetSignal 1033 "TARGET VECTOR"
 LangString KTargetPath 1033 "INSTALL PATH"
 LangString KTargetCapacity 1033 "CAPACITY"
 LangString KTargetChange 1033 "CHANGE"
+LangString KLanguageTitle 1033 "Installer language / Язык установщика"
+LangString KLanguageSubtitle 1033 "Choose the interface language · Выберите язык интерфейса"
+LangString KLanguageEnglishTitle 1033 "ENGLISH"
+LangString KLanguageEnglishDescription 1033 "Primary · default fallback"
+LangString KLanguageRussianTitle 1033 "РУССКИЙ"
+LangString KLanguageRussianDescription 1033 "Дополнительный язык"
 LangString KOtaWindowTitle 1033 "Ninety update"
 
 LangString KStepOptions 1049 "ПАРАМЕТРЫ"
@@ -143,6 +149,12 @@ LangString KTargetSignal 1049 "ВЕКТОР РАЗВЁРТЫВАНИЯ"
 LangString KTargetPath 1049 "КАТАЛОГ УСТАНОВКИ"
 LangString KTargetCapacity 1049 "МЕСТО НА ДИСКЕ"
 LangString KTargetChange 1049 "ИЗМЕНИТЬ"
+LangString KLanguageTitle 1049 "Installer language / Язык установщика"
+LangString KLanguageSubtitle 1049 "Choose the interface language · Выберите язык интерфейса"
+LangString KLanguageEnglishTitle 1049 "ENGLISH"
+LangString KLanguageEnglishDescription 1049 "Primary · default fallback"
+LangString KLanguageRussianTitle 1049 "РУССКИЙ"
+LangString KLanguageRussianDescription 1049 "Дополнительный язык"
 LangString KOtaWindowTitle 1049 "Обновление Ninety"
 
 !macro KuroganeSetText CONTROL TEXT
@@ -168,14 +180,11 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
   ${NSD_CreateLabel} ${X}u ${Y}u ${W}u ${H}u ""
   Pop $0
   SetCtlColors $0 ${COLOR} ${COLOR}
-  System::Call 'user32::SetWindowPos(p r0, p 1, i 0, i 0, i 0, i 0, i 0x13)'
 !macroend
 
 !macro KuroganeMatrixFrame X Y W H IX IY IW IH BORDER BACKGROUND
-  ; The inner surface is created first. Moving the outer surface to HWND_BOTTOM
-  ; afterwards keeps it behind the inner surface while leaving a one-DLU frame.
-  !insertmacro KuroganeMatrixBox ${IX} ${IY} ${IW} ${IH} ${BACKGROUND}
   !insertmacro KuroganeMatrixBox ${X} ${Y} ${W} ${H} ${BORDER}
+  !insertmacro KuroganeMatrixBox ${IX} ${IY} ${IW} ${IH} ${BACKGROUND}
 !macroend
 
 !macro KuroganeMatrixText X Y W H TEXT FOREGROUND BACKGROUND FONT
@@ -202,6 +211,10 @@ LangString KOtaWindowTitle 1049 "Обновление Ninety"
   IntOp $7 $7 - $4
   IntOp $8 $8 - $5
   System::Call 'user32::SetWindowPos(p ${HWND}, p 0, i r4, i r5, i r7, i r8, i 0x14)'
+!macroend
+
+!macro KuroganeBringToFront HWND
+  System::Call 'user32::SetWindowPos(p ${HWND}, p 0, i 0, i 0, i 0, i 0, i 0x13)'
 !macroend
 
 !macro KuroganeSignalRadio X Y OUT
@@ -752,6 +765,7 @@ FunctionEnd
   !insertmacro KuroganeMatrixFrame 43 116 259 124 44 117 257 122 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
 
   !insertmacro KuroganeMoveWindowDlu ${PAGE} ${RICHCONTROL} 43 116 259 124
+  !insertmacro KuroganeBringToFront ${RICHCONTROL}
   System::Call 'uxtheme::SetWindowTheme(p ${RICHCONTROL}, w "", w "")'
   SetCtlColors ${RICHCONTROL} ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage ${RICHCONTROL} ${EM_SETBKGNDCOLOR} 0 0x1D1717
@@ -857,12 +871,14 @@ FunctionEnd
 
   GetDlgItem $0 ${PAGE} 1019
   !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 58 147 150 18
+  !insertmacro KuroganeBringToFront $0
   System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $KuroganeFontMono 1
 
   GetDlgItem $0 ${PAGE} 1001
   !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 219 145 74 22
+  !insertmacro KuroganeBringToFront $0
   SendMessage $0 ${WM_SETTEXT} 0 "STR:$(KTargetChange)"
   System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
   SetCtlColors $0 ${K_COLOR_ACCENT} ${K_COLOR_PANEL}
@@ -941,6 +957,7 @@ FunctionEnd
   ShowWindow $0 ${SW_HIDE}
   GetDlgItem $0 $1 1000
   !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 43 207 259 20
+  !insertmacro KuroganeBringToFront $0
   System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
 
   !insertmacro KuroganePrepareKnownPageImpl "un." ${PAGE} Remove
@@ -953,6 +970,7 @@ FunctionEnd
   SendMessage $KuroganeUninstallDataTitleControl ${WM_SETFONT} $KuroganeFontSteps 1
   SendMessage $KuroganeUninstallDataDescriptionControl ${WM_SETFONT} $KuroganeFontBody 1
   SetCtlColors ${CHECKBOX} ${K_COLOR_TEXT} ${K_COLOR_ACCENT}
+  !insertmacro KuroganeBringToFront ${CHECKBOX}
   GetDlgItem $0 ${PAGE} 1000
   SetCtlColors $0 ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $0 ${WM_SETFONT} $KuroganeFontMono 1
