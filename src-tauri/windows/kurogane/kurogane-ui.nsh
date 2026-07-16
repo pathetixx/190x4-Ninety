@@ -290,6 +290,40 @@ Function un.KuroganeGuiInit
   !insertmacro KuroganeGuiInitImpl un.KuroganeMinimize un.KuroganeClose
 FunctionEnd
 
+; nsDialogs ignores OnClick registrations made before its page dialog exists.
+; Bind the resource-shell controls from each page SHOW callback instead of
+; relying on the early .onGUIInit registration alone.
+!macro KuroganeBindChromeEventsImpl UNPREFIX
+  GetDlgItem $0 $HWNDPARENT 1205
+  ${If} $0 != 0
+    ${NSD_OnClick} $0 ${UNPREFIX}KuroganeMinimize
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 1207
+  ${If} $0 != 0
+    ${NSD_OnClick} $0 ${UNPREFIX}KuroganeClose
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 1212
+  ${If} $0 != 0
+    ${NSD_OnClick} $0 ${UNPREFIX}KuroganeMinimizeNavBack
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 1213
+  ${If} $0 != 0
+    ${NSD_OnClick} $0 ${UNPREFIX}KuroganeMinimizeNavNext
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 1214
+  ${If} $0 != 0
+    ${NSD_OnClick} $0 ${UNPREFIX}KuroganeMinimizeNavCancel
+  ${EndIf}
+!macroend
+
+Function KuroganeBindChromeEvents
+  !insertmacro KuroganeBindChromeEventsImpl ""
+FunctionEnd
+
+Function un.KuroganeBindChromeEvents
+  !insertmacro KuroganeBindChromeEventsImpl "un."
+FunctionEnd
+
 Function KuroganeMinimize
   ; nsDialogs puts the originating HWND on the callback stack.
   Pop $9
@@ -487,6 +521,7 @@ FunctionEnd
 Function KuroganePageShow
   StrCpy $KuroganeProgressActive 0
   Call KuroganeApplyChromeNext
+  Call KuroganeBindChromeEvents
   Call KuroganeStartShellTimer
   Call KuroganeStyleCurrentPage
 FunctionEnd
@@ -494,6 +529,7 @@ FunctionEnd
 Function un.KuroganePageShow
   StrCpy $KuroganeProgressActive 0
   Call un.KuroganeApplyChromeNext
+  Call un.KuroganeBindChromeEvents
   Call un.KuroganeStartShellTimer
   Call un.KuroganeStyleCurrentPage
 FunctionEnd
@@ -505,6 +541,7 @@ FunctionEnd
   StrCpy $KuroganeProgressActive 0
   StrCpy $KuroganePage ${PAGE}
   Call ${UNPREFIX}KuroganeApplyChrome${CHROME}
+  Call ${UNPREFIX}KuroganeBindChromeEvents
   Call ${UNPREFIX}KuroganeStartShellTimer
   !insertmacro KuroganeStylePageImpl ${PAGE}
 !macroend
@@ -669,6 +706,7 @@ FunctionEnd
 !macro KuroganeProgressPageImpl UNPREFIX TITLE SUBTITLE STATUS
   StrCpy $KuroganeProgressActive 1
   Call ${UNPREFIX}KuroganeApplyChromeNext
+  Call ${UNPREFIX}KuroganeBindChromeEvents
   ; The NSIS VM blocks nsDialogs timers while Section instructions execute.
   ; Hide stale welcome navigation synchronously before the first File command.
   GetDlgItem $0 $HWNDPARENT 1212

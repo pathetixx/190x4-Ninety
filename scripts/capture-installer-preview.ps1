@@ -142,6 +142,7 @@ try {
 
   [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
   Start-Sleep -Seconds 2
+  Save-InstallerWindow "00-initial.png"
 
   # The production regression affected real left-clicks while Enter still
   # worked. Exercise the bitmap caption controls before taking screenshots.
