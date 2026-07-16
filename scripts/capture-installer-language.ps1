@@ -13,10 +13,12 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class NinetyLanguageWin32 {
+  public delegate bool EnumWindowProc(IntPtr hWnd, IntPtr lParam);
   public delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowProc callback, IntPtr param);
   [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr param);
   [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr hWnd, int id);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
@@ -25,6 +27,17 @@ public static class NinetyLanguageWin32 {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+  public static IntPtr FindKuroganeWindow() {
+    IntPtr found = IntPtr.Zero;
+    EnumWindows(delegate(IntPtr window, IntPtr param) {
+      if (IsWindowVisible(window) && GetDlgItem(window, 1205) != IntPtr.Zero && GetDlgItem(window, 1207) != IntPtr.Zero) {
+        found = window;
+        return false;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
   public static IntPtr FindVisiblePage(IntPtr parent) {
     IntPtr found = IntPtr.Zero;
     EnumChildWindows(parent, delegate(IntPtr child, IntPtr param) {
@@ -69,7 +82,7 @@ function Wait-ForSelector([System.Diagnostics.Process]$process) {
   do {
     Start-Sleep -Milliseconds 150
     $process.Refresh()
-    $window = $process.MainWindowHandle
+    $window = [NinetyLanguageWin32]::FindKuroganeWindow()
   } until ($window -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
   if ($window -eq [IntPtr]::Zero) { throw "Language selector window did not appear" }
   return $window
@@ -118,7 +131,8 @@ try {
   $window = Wait-ForSelector $process
   $page = [NinetyLanguageWin32]::FindVisiblePage($window)
   if ($page -eq [IntPtr]::Zero) { throw "Visible language page was not found" }
-  if (-not [NinetyLanguageWin32]::ContainsText($page, "Installer language / Язык установщика")) {
+  Save-Selector $window "00-language-selector-en.png"
+  if (-not [NinetyLanguageWin32]::ContainsText($window, "Installer language / Язык установщика")) {
     throw "Bilingual selector title is missing"
   }
   $english = [NinetyLanguageWin32]::FindVisibleButton($page, 0)
@@ -126,7 +140,6 @@ try {
   if ($english -eq [IntPtr]::Zero -or $russian -eq [IntPtr]::Zero) {
     throw "Two native language selectors were not found"
   }
-  Save-Selector $window "00-language-selector-en.png"
   [NinetyLanguageWin32]::SendMessage($russian, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null # BM_CLICK
   Start-Sleep -Milliseconds 300
   if ([NinetyLanguageWin32]::SendMessage($russian, 0x00F0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32() -ne 1) {
