@@ -19,12 +19,16 @@ public static class NinetyPreviewWin32 {
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT { public int Left, Top, Right, Bottom; }
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int index);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int command);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
+  [DllImport("user32.dll")] public static extern IntPtr GetSystemMenu(IntPtr hWnd, bool revert);
+  [DllImport("user32.dll")] public static extern uint GetMenuState(IntPtr menu, uint id, uint flags);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint message, UIntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
@@ -145,6 +149,10 @@ try {
     }
     $x = [int](($controlRect.Left + $controlRect.Right) / 2)
     $y = [int](($controlRect.Top + $controlRect.Bottom) / 2)
+    Click-ScreenPoint $x $y
+  }
+
+  function Click-ScreenPoint([int]$x, [int]$y) {
     [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
     [NinetyPreviewWin32]::SetCursorPos($x, $y) | Out-Null
     Start-Sleep -Milliseconds 160
@@ -249,6 +257,78 @@ try {
   Click-InstallerControl 2
   if (-not $process.WaitForExit(5000)) {
     throw "Installer cancel control ignored a real left-click"
+  }
+
+  # Tauri updater uses /P /R and jumps straight into synchronous InstFiles.
+  # Exercise the separate OS-managed OTA caption while that page is busy.
+  $process = Start-Process -FilePath $Installer -ArgumentList "/P" -PassThru
+  $window = [IntPtr]::Zero
+  $deadline = (Get-Date).AddSeconds(20)
+  do {
+    Start-Sleep -Milliseconds 200
+    $process.Refresh()
+    $window = $process.MainWindowHandle
+  } until ($window -ne [IntPtr]::Zero -or (Get-Date) -gt $deadline)
+  if ($window -eq [IntPtr]::Zero) { throw "Passive OTA installer window did not appear" }
+  Start-Sleep -Milliseconds 1400
+
+  $style = [NinetyPreviewWin32]::GetWindowLong($window, -16)
+  if (($style -band 0x00C00000) -ne 0x00C00000) {
+    throw "Passive OTA installer has no native Windows caption"
+  }
+  foreach ($id in 1205, 1207) {
+    $fakeCaption = [NinetyPreviewWin32]::FindDescendantById($window, $id)
+    if ($fakeCaption -ne [IntPtr]::Zero -and [NinetyPreviewWin32]::IsWindowVisible($fakeCaption)) {
+      throw "Passive OTA installer still exposes frozen custom caption control $id"
+    }
+  }
+  $systemMenu = [NinetyPreviewWin32]::GetSystemMenu($window, $false)
+  $closeState = [NinetyPreviewWin32]::GetMenuState($systemMenu, 0xF060, 0)
+  if (($closeState -band 0x00000003) -eq 0) {
+    throw "Passive OTA close action is not visibly disabled during file replacement"
+  }
+  Save-InstallerWindow "09-ota-progress.png"
+
+  $otaOriginalRect = Get-InstallerRect
+  $captionButtonWidth = [Math]::Max(36, [NinetyPreviewWin32]::GetSystemMetrics(30))
+  $captionButtonHeight = [Math]::Max(24, [NinetyPreviewWin32]::GetSystemMetrics(31))
+  $minimizeX = $otaOriginalRect.Right - [int]($captionButtonWidth * 1.5)
+  $captionY = $otaOriginalRect.Top + [int]($captionButtonHeight / 2)
+  Click-ScreenPoint $minimizeX $captionY
+  Start-Sleep -Milliseconds 500
+  if (-not [NinetyPreviewWin32]::IsIconic($window)) {
+    throw "Passive OTA native minimize button ignored a real left-click"
+  }
+  [NinetyPreviewWin32]::ShowWindow($window, 9) | Out-Null
+  [NinetyPreviewWin32]::SetForegroundWindow($window) | Out-Null
+  Start-Sleep -Milliseconds 400
+
+  $before = Get-InstallerRect
+  $startX = [int](($before.Left + $before.Right) / 2)
+  $startY = $before.Top + [int]($captionButtonHeight / 2)
+  [NinetyPreviewWin32]::SetCursorPos($startX, $startY) | Out-Null
+  [NinetyPreviewWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 300
+  foreach ($delta in 10, 20, 30, 40) {
+    [NinetyPreviewWin32]::SetCursorPos($startX + $delta, $startY + $delta) | Out-Null
+    Start-Sleep -Milliseconds 100
+  }
+  [NinetyPreviewWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 400
+  $after = Get-InstallerRect
+  if ($after.Left -eq $before.Left -and $after.Top -eq $before.Top) {
+    throw "Passive OTA window did not move from a real native-caption drag"
+  }
+  [NinetyPreviewWin32]::MoveWindow(
+    $window,
+    $otaOriginalRect.Left,
+    $otaOriginalRect.Top,
+    $otaOriginalRect.Right - $otaOriginalRect.Left,
+    $otaOriginalRect.Bottom - $otaOriginalRect.Top,
+    $true
+  ) | Out-Null
+  if (-not $process.WaitForExit(15000)) {
+    throw "Passive OTA installer did not finish and close automatically"
   }
 
   $uninstaller = Join-Path $env:TEMP "NinetySmoke\uninstall.exe"

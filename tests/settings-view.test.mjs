@@ -10,7 +10,11 @@ globalThis.window = {
   },
 };
 
-const { normalizeNumberOption } = await import("/lib/settings-view.js");
+const { ABOUT_MARK_ASSET, normalizeNumberOption } = await import("/lib/settings-view.js");
+
+test("экран «О программе» использует актуальную маску Ninety", () => {
+  assert.equal(ABOUT_MARK_ASSET, "/assets/samurai-mark-v2.webp");
+});
 
 test("normalizeNumberOption берёт fallback для пустого и некорректного значения", () => {
   assert.equal(normalizeNumberOption("urlTest.intervalSec", ""), 600);

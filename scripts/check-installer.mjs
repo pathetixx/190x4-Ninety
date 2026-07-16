@@ -96,6 +96,18 @@ if (existsSync(resourceExe)) {
   if (magic !== "MZ") fail("Kurogane resource UI не является Windows PE-файлом");
 }
 
+const kuroganeUiPath = resolve(kuroganeDir, "kurogane-ui.nsh");
+if (existsSync(kuroganeUiPath)) {
+  const kuroganeUi = readFileSync(kuroganeUiPath, "utf8");
+  for (const marker of [
+    "KuroganeEnableManagedOtaWindowImpl",
+    "DwmSetWindowAttribute",
+    "EnableMenuItem",
+  ]) {
+    if (!kuroganeUi.includes(marker)) fail(`Kurogane OTA chrome не содержит ${marker}`);
+  }
+}
+
 for (const [path, width, height] of [
   [resolve(configDir, "./windows/header.bmp"), 150, 57],
   [resolve(configDir, "./windows/sidebar.bmp"), 164, 314],

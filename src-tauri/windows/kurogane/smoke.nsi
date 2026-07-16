@@ -4,6 +4,7 @@ ManifestDPIAware true
 ManifestDPIAwareness PerMonitorV2
 
 !include MUI2.nsh
+!include FileFunc.nsh
 !define MULTIUSER_EXECUTIONLEVEL Highest
 !define MULTIUSER_INSTALLMODE_DEFAULT_CURRENTUSER
 !include MultiUser.nsh
@@ -12,6 +13,7 @@ ManifestDPIAwareness PerMonitorV2
   !define VERSION "0.0.0-preview"
 !endif
 !define MUI_ICON "..\..\icons\icon.ico"
+Var PassiveMode
 !include "kurogane-ui.nsh"
 
 Name "Ninety"
@@ -21,16 +23,19 @@ Var SmokeMaintenancePrimary
 Var SmokeMaintenanceSecondary
 Var SmokeDeleteAppDataCheckbox
 
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeWelcomeShow
 !insertmacro MUI_PAGE_WELCOME
 Function SmokeWelcomeShow
   !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text Install
 FunctionEnd
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeLicenseShow
 !insertmacro MUI_PAGE_LICENSE "..\license.rtf"
 Function SmokeLicenseShow
   !insertmacro KuroganeLicensePageImpl "" $mui.LicensePage $mui.Licensepage.TopText $mui.Licensepage.LicenseText
 FunctionEnd
+!define MULTIUSER_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
 !define MULTIUSER_PAGE_CUSTOMFUNCTION_SHOW SmokeInstallModeShow
 !insertmacro MULTIUSER_PAGE_INSTALLMODE
 Function SmokeInstallModeShow
@@ -38,6 +43,9 @@ Function SmokeInstallModeShow
 FunctionEnd
 Page custom SmokeMaintenanceShow
 Function SmokeMaintenanceShow
+  ${If} $PassiveMode == 1
+    Abort
+  ${EndIf}
   nsDialogs::Create 1018
   Pop $SmokeMaintenanceDialog
   StrCpy $0 "Ninety ${VERSION} - $(KMaintenanceSubtitle)"
@@ -54,6 +62,7 @@ FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE KuroganeInstFilesLeave
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_NOAUTOCLOSE
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeFinishShow
 !insertmacro MUI_PAGE_FINISH
 Function SmokeFinishShow
@@ -77,10 +86,20 @@ FunctionEnd
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "Russian"
 
+Function SmokeSkipIfPassive
+  ${If} $PassiveMode == 1
+    Abort
+  ${EndIf}
+FunctionEnd
+
 Function .onInit
   ; Production updater on Dima's machine runs in Russian. Keep the visual gate
   ; on that exact locale so localized bitmap chrome is exercised on every push.
   StrCpy $LANGUAGE 1049
+  ${GetOptions} $CMDLINE "/P" $PassiveMode
+  ${IfNot} ${Errors}
+    StrCpy $PassiveMode 1
+  ${EndIf}
   !insertmacro MULTIUSER_INIT
 FunctionEnd
 
@@ -102,6 +121,9 @@ Section
     IntCmp $2 100 smoke_progress_done smoke_progress smoke_progress_done
   smoke_progress_done:
   WriteUninstaller "$TEMP\NinetySmoke\uninstall.exe"
+  ${If} $PassiveMode == 1
+    SetAutoClose true
+  ${EndIf}
 SectionEnd
 
 Section "Uninstall"

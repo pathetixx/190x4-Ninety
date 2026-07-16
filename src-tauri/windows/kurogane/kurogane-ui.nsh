@@ -82,6 +82,7 @@ LangString KMaintenanceRemoveAction 1033 "Remove Ninety"
 LangString KUninstallConfirmTitle 1033 "Remove Ninety"
 LangString KUninstallConfirmSubtitle 1033 "The application will be closed and its installed components will be removed."
 LangString KUninstallDeleteData 1033 "Remove settings and data"
+LangString KOtaWindowTitle 1033 "Ninety update"
 
 LangString KStepOptions 1049 "ПАРАМЕТРЫ"
 LangString KStepInstall 1049 "УСТАНОВКА"
@@ -108,6 +109,7 @@ LangString KMaintenanceRemoveAction 1049 "Удалить Ninety"
 LangString KUninstallConfirmTitle 1049 "Удаление Ninety"
 LangString KUninstallConfirmSubtitle 1049 "Приложение будет закрыто, а установленные компоненты — удалены."
 LangString KUninstallDeleteData 1049 "Удалить настройки и данные"
+LangString KOtaWindowTitle 1049 "Обновление Ninety"
 
 !macro KuroganeSetText CONTROL TEXT
   GetDlgItem $0 $KuroganePage ${CONTROL}
@@ -272,6 +274,52 @@ FunctionEnd
   !insertmacro KuroganeStylePageImpl $KuroganePage
 !macroend
 
+; During a passive OTA update NSIS starts directly on InstFiles and executes
+; synchronous Section instructions. nsDialogs timers cannot service the custom
+; caption in that state. Give only the OTA window a real dark Windows caption:
+; native dragging/minimize remain responsive in the OS message loop, while
+; Close is visibly disabled so an in-place binary replacement cannot be cut off.
+!macro KuroganeEnableManagedOtaWindowImpl
+  ${If} $PassiveMode == 1
+    SendMessage $HWNDPARENT ${WM_SETTEXT} 0 "STR:$(KOtaWindowTitle)"
+
+    GetDlgItem $0 $HWNDPARENT 1205
+    ShowWindow $0 ${SW_HIDE}
+    GetDlgItem $0 $HWNDPARENT 1207
+    ShowWindow $0 ${SW_HIDE}
+
+    System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r0'
+    System::Call 'user32::GetClientRect(p $HWNDPARENT, p r0)'
+    System::Call '*$0(&i4 .r1, &i4 .r2, &i4 .r3, &i4 .r4)'
+    System::Free $0
+    IntOp $3 $3 - $1
+    IntOp $4 $4 - $2
+
+    System::Call 'user32::GetWindowLongW(p $HWNDPARENT, i -16) i .r5'
+    IntOp $5 $5 | 0x00C20000
+    System::Call 'user32::SetWindowLongW(p $HWNDPARENT, i -16, i r5)'
+    System::Call 'user32::GetWindowLongW(p $HWNDPARENT, i -20) i .r6'
+    System::Call '*(&i4 0, &i4 0, &i4 r3, &i4 r4) p .r0'
+    System::Call 'user32::AdjustWindowRectEx(p r0, i r5, i 0, i r6)'
+    System::Call '*$0(&i4 .r1, &i4 .r2, &i4 .r3, &i4 .r4)'
+    System::Free $0
+    IntOp $3 $3 - $1
+    IntOp $4 $4 - $2
+    System::Call 'user32::SetWindowPos(p $HWNDPARENT, p 0, i 0, i 0, i r3, i r4, i 0x36)'
+
+    ; Windows 11 caption colors; immersive dark mode remains the Win10 fallback.
+    System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 20, *i 1, i 4)'
+    System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 19, *i 1, i 4)'
+    System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 34, *i 0x003E3737, i 4)'
+    System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 35, *i 0x000E0B0B, i 4)'
+    System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 36, *i 0x00F3F1F1, i 4)'
+
+    System::Call 'user32::GetSystemMenu(p $HWNDPARENT, i 0) p .r0'
+    System::Call 'user32::EnableMenuItem(p r0, i 0xF060, i 0x00000001)'
+    System::Call 'user32::DrawMenuBar(p $HWNDPARENT)'
+  ${EndIf}
+!macroend
+
 !macro KuroganeGuiInitImpl MINIMIZEFUNCTION CLOSEFUNCTION
   InitPluginsDir
   File /oname=$PLUGINSDIR\kurogane-left.bmp "${__FILEDIR__}\left-panel.bmp"
@@ -348,6 +396,7 @@ FunctionEnd
 
 Function KuroganeGuiInit
   !insertmacro KuroganeGuiInitImpl KuroganeMinimize KuroganeClose
+  !insertmacro KuroganeEnableManagedOtaWindowImpl
 FunctionEnd
 
 Function un.KuroganeGuiInit

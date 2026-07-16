@@ -862,6 +862,7 @@ const LICENSE_URL = "https://github.com/pathetixx/190x4-Ninety/blob/main/LICENSE
 const ABOUT_PROTOCOLS = ["VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "TUIC", "NaiveProxy", "TrustTunnel"];
 // Режимы переиспользуют каталог главной (mode.*), чтобы не дублировать переводы.
 const aboutModes = () => [t("mode.proxy"), t("mode.systemProxy"), t("mode.tun")];
+export const ABOUT_MARK_ASSET = "/assets/samurai-mark-v2.webp";
 
 function aboutSpecCell(icon, key, value) {
   return `<div class="about-spec__cell">
@@ -882,7 +883,7 @@ function renderAbout() {
   return `
     <div class="about__col">
       <section class="about-id">
-        <div class="about-id__mark"><img src="/assets/ninety-mark.png" alt="Ninety"></div>
+        <div class="about-id__mark"><img src="${ABOUT_MARK_ASSET}" alt="Ninety"></div>
         <span class="about-id__badge">190×4</span>
         <h1 class="about-id__name">Ninety</h1>
         <div class="about-id__ver">
