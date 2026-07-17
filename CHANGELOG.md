@@ -2,6 +2,13 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.35 — 2026-07-17
+
+- Manual server choices now survive subscription refreshes when providers change node names or link formatting, including older subscriptions.
+- Ninety no longer silently falls back to Auto when a remembered manual server disappears from the subscription.
+- Ручной выбор сервера теперь сохраняется после обновления подписки, даже если провайдер меняет имя ноды или формат ссылки; это также работает для старых подписок.
+- Если сохранённый вручную сервер действительно исчез из подписки, Ninety больше не переключается молча на «Авто».
+
 ## v0.2.34 — 2026-07-17
 
 - Sequential setup and removal operations now hand off cleanly: a new installation briefly waits for the final NSIS cleanup tail, while a genuinely concurrent installer is still rejected before file access.
