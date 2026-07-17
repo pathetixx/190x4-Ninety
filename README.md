@@ -9,7 +9,7 @@
 
 # Ninety
 
-**A Windows desktop networking client built with Tauri 2 and Rust around sing-box, WARP, routing rules and connection diagnostics.**
+**A Windows networking client built with Tauri 2 and Rust. It brings sing-box, WARP, routing rules and connection diagnostics into one desktop app.**
 
 [Website](https://pathetixx.github.io/190x4-Ninety/) · [Download](https://github.com/pathetixx/190x4-Ninety/releases) · [Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md) · [Security](./SECURITY.md) · [Code signing policy](./CODE_SIGNING_POLICY.md)
 
@@ -21,26 +21,28 @@
 
 ## Why Ninety?
 
-Ninety is a native Windows desktop client built around the sing-box ecosystem, Tauri 2 and Rust. It is designed for users who want one clean app for subscriptions, standalone profiles, WARP, TUN mode, routing rules, DPI tools, logs, tray control and real connection-quality feedback.
+Ninety is a native Windows client for the sing-box ecosystem, built with Tauri 2 and Rust. It handles subscriptions, individual profiles, WARP, TUN mode, routing rules, DPI compatibility tools, logs and tray controls from one interface.
 
-The goal is not to be a thin wrapper around a `config.json`. Ninety treats connection state as a product problem: it starts and stops helper engines safely, restores Windows proxy settings, tracks the actually selected node, cleans runtime configs, keeps sensitive local state encrypted where possible, and gives the user visible diagnostics instead of a vague "connected" label.
+Many networking clients stop after generating a `config.json` and showing a green “Connected” label. Ninety keeps track of what is actually happening. It starts and stops helper processes cleanly, restores Windows proxy settings, shows the node that was really selected, removes temporary configs and protects sensitive local data where Windows allows it.
 
-> Ninety is a networking client, not an anonymity guarantee. Your privacy still depends on your server, provider, configuration and operating-system environment.
+When something breaks, you get diagnostics instead of guesswork.
+
+> Ninety is a networking client, not an anonymity guarantee. Your privacy still depends on the server, provider, configuration and operating-system environment you use.
 
 ## Highlights
 
 | Area | What Ninety does |
 | --- | --- |
-| **Connection modes** | Local proxy, Windows system proxy and full **VPN · TUN** mode. TUN requests UAC only when needed; the app can also run elevated on login. |
-| **Sources** | Imports subscriptions, standalone links and TrustTunnel `.toml` endpoints. Supports clipboard import and optional deep links. |
-| **Node control** | Server grid with flags, live delay checks, auto selection, tray server switching and effective-node tracking. |
+| **Connection modes** | Local proxy, Windows system proxy and full **VPN · TUN** mode. UAC appears only when TUN actually needs elevation; Ninety can also start elevated at login. |
+| **Sources** | Imports subscription URLs, individual proxy links and TrustTunnel `.toml` endpoints. Clipboard import is built in, while deep links remain optional. |
+| **Node control** | Server grid with country flags, live delay checks, automatic selection, tray switching and tracking of the node currently used by the connection. |
 | **Protocols** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, NaiveProxy, TrustTunnel and WARP/WireGuard. |
-| **Bridges** | XHTTP via xray-core; NaiveProxy and TrustTunnel via local SOCKS sidecars; sing-box remains the central router. |
-| **Routing** | LAN bypass, regional rules, custom domain/IP/process rules, ad/malware/phishing rule sets and a live connections view. |
-| **Quality engine** | Watches real throughput, not only ping. Can re-test, switch nodes, apply masking, rescan WARP or suggest a reconnect step. |
-| **DPI tools** | Separate screen for DPI-related compatibility tools, strategy/list updates, driver cleanup and automatic VPN-node exclusions. |
-| **Privacy** | No ads or bundled analytics, privacy-safe log defaults, encrypted WARP/backup state on Windows, runtime config cleanup. |
-| **Desktop UX** | Tray menu, auto-update, session restore after update, themes, onboarding, 15 languages and RTL layout for فارسی / العربية. |
+| **Bridges** | XHTTP runs through xray-core. NaiveProxy and TrustTunnel use local SOCKS sidecars, with sing-box remaining the central router. |
+| **Routing** | LAN bypass, regional routing, custom rules for domains, IP addresses and processes, plus ad, malware and phishing rule sets. Active connections can be inspected from the app. |
+| **Quality engine** | Measures real throughput instead of treating ping as the whole story. It can re-test the channel, change nodes, apply masking, rescan WARP or recommend reconnecting. |
+| **DPI tools** | A separate section for DPI compatibility tools, strategy and list updates, driver cleanup and automatic exclusions for VPN node addresses. |
+| **Privacy** | No ads or bundled analytics. Logs use conservative defaults, WARP and backup state is encrypted with Windows DPAPI where supported, and runtime configs are removed after use. |
+| **Desktop UX** | Tray controls, in-app updates, session restore after an update, themes, onboarding, 15 languages and RTL layouts for فارسی / العربية. |
 
 ## Screenshots
 
@@ -58,68 +60,70 @@ The goal is not to be a thin wrapper around a `config.json`. Ninety treats conne
 
 **Transports and options:** Reality · TLS with uTLS fingerprints · XHTTP · WebSocket · gRPC · HTTP/2 · TCP · TLS fragmentation · padding · mixed-case SNI · mux
 
-NaiveProxy and TrustTunnel are served by their own clients over local SOCKS bridges. XHTTP is bridged through xray-core when needed. The user still sees a single source and a single connection state.
+NaiveProxy and TrustTunnel run through their own local clients and expose SOCKS bridges to sing-box. XHTTP uses xray-core when necessary. In the UI, they still behave like regular profiles with one source and one connection state.
 
 ## Installation
 
-Download the latest installer from [**Releases**](https://github.com/pathetixx/190x4-Ninety/releases):
+Grab the latest installer from [**Releases**](https://github.com/pathetixx/190x4-Ninety/releases):
 
 - `.exe` — NSIS installer.
 - `.msi` — MSI package.
 
 Requirements: **Windows 10 / 11 x64**.
 
-Updates are delivered inside the app. When the VPN is already connected, update checks and downloads can go through the active tunnel.
+Updates are downloaded from inside the app. When a VPN connection is already active, Ninety can check for updates and download them through the tunnel.
 
 ## Quick start
 
 1. Open Ninety and press **+**.
-2. Paste a subscription URL or a standalone config link (`vless://`, `vmess://`, `trojan://`, `hysteria2://`, `tuic://`, `naive+https://`, `tt://`, etc.).
-3. Choose a mode:
-   - **System proxy** — default, no administrator rights, good for browsers and many desktop apps.
-   - **Proxy** — local SOCKS/HTTP on `127.0.0.1`; configure apps manually.
-   - **VPN · TUN** — routes system traffic through the tunnel and requires elevation.
-4. Click the central disc to connect. Click again to disconnect.
+2. Paste a subscription URL or an individual config link such as `vless://`, `vmess://`, `trojan://`, `hysteria2://`, `tuic://`, `naive+https://` or `tt://`.
+3. Choose a connection mode:
+   - **System proxy** — the default option. It does not require administrator rights and works with browsers and many desktop applications.
+   - **Proxy** — starts a local SOCKS/HTTP proxy on `127.0.0.1`. Applications must be configured manually.
+   - **VPN · TUN** — sends system traffic through the tunnel and requires elevation.
+4. Click the central disc to connect. Click it again to disconnect.
 
-If something fails, open **Logs** first. The log screen is built for debugging startup, bridge and routing problems without digging through app folders.
+If the connection does not start, open **Logs** first. The log screen shows startup, bridge and routing errors without making you search through application folders.
 
 ## Documentation
 
-User docs:
+For users:
 
-- [Modes](./docs/modes.md) — Proxy, System proxy, VPN · TUN, WARP-only, DPI tools and kill switch.
-- [Troubleshooting](./docs/troubleshooting.md) — practical checks, logs to collect and what not to post publicly.
-- [Privacy](./docs/privacy.md) — local data, sensitive fields, logs, WARP state and limitations.
-- [Routing](./docs/routing.md) — LAN bypass, regional rules, custom rules, DNS and connection monitor notes.
+- [Modes](./docs/modes.md) — Proxy, System proxy, VPN · TUN, WARP-only mode, DPI tools and the kill switch.
+- [Troubleshooting](./docs/troubleshooting.md) — checks you can run, logs worth collecting and information that should never be posted publicly.
+- [Privacy](./docs/privacy.md) — local data, sensitive fields, logs, WARP state and known limitations.
+- [Routing](./docs/routing.md) — LAN bypass, regional rules, custom routing, DNS and the connection monitor.
 
-Project docs:
+About the project:
 
 - [Architecture](./docs/architecture.md) — frontend, Rust backend, sidecars, updater and CI engine injection.
-- [Security](./SECURITY.md) — vulnerability reporting and sensitive issue handling.
-- [Code signing policy](./CODE_SIGNING_POLICY.md) — release provenance, signing roles and artifact scope.
-- [Contributing](./CONTRIBUTING.md) — issue and PR expectations.
+- [Security](./SECURITY.md) — how to report vulnerabilities and other sensitive problems.
+- [Code signing policy](./CODE_SIGNING_POLICY.md) — release provenance, signing roles and which artifacts are covered.
+- [Contributing](./CONTRIBUTING.md) — what to include in issues and pull requests.
 
-Developer release docs:
+Release development:
 
-- [Releasing](./RELEASING.md) — release ritual, annotated tags, draft releases and OTA rules.
+- [Releasing](./RELEASING.md) — the release process, annotated tags, draft releases and OTA rules.
 
 ## Security and privacy notes
 
-Ninety is open source, but it still manages powerful networking components.
+Ninety is open source, but the components it controls can change system-wide networking settings.
 
-- Imported profiles and subscriptions may contain credentials.
-- Logs and screenshots must be sanitized before public reports.
-- WARP keys and state backups use Windows DPAPI where supported by the backend.
-- TUN mode, DPI tools and kill switch touch system networking. Review the settings before enabling them.
-- Ninety is a networking client, not an anonymity guarantee.
+- Imported profiles and subscription URLs may contain credentials.
+- Remove secrets from logs and screenshots before posting them publicly.
+- WARP keys and state backups use Windows DPAPI where the backend supports it.
+- TUN mode, DPI tools and the kill switch modify Windows networking. Check the selected settings before enabling them.
+- Ninety does not guarantee anonymity.
 
-Read [Privacy](./docs/privacy.md) for local data handling and [SECURITY.md](./SECURITY.md) for vulnerability reports.
+See [Privacy](./docs/privacy.md) for details on local data handling. Vulnerabilities should be reported according to [SECURITY.md](./SECURITY.md).
 
 ## Architecture
 
-At a high level, Ninety is a Tauri WebView UI talking to a Rust backend through Tauri commands and events. The backend controls sing-box, helper sidecars, WARP/WireGuard state, Windows proxy/TUN state, kill switch, updater, logs and cleanup.
+Ninety uses a Tauri WebView frontend connected to a Rust backend through Tauri commands and events.
 
-See [Architecture](./docs/architecture.md) for the full overview.
+The backend controls sing-box, helper sidecars, WARP/WireGuard state, Windows proxy and TUN settings, the kill switch, updater, logs and runtime cleanup.
+
+The full breakdown is available in [Architecture](./docs/architecture.md).
 
 ## Build from source
 
@@ -128,7 +132,7 @@ Requirements:
 - Rust stable.
 - Node.js 18 or newer.
 - MSVC build tools.
-- Windows environment for full Tauri builds.
+- A Windows environment for complete Tauri builds.
 
 ```powershell
 npm install
@@ -136,16 +140,16 @@ npm run tauri dev
 npm run tauri build
 ```
 
-The engines (`sing-box`, `xray-core`, NaiveProxy, TrustTunnel) and `wintun.dll` are pulled during CI. See [`.github/workflows/build.yml`](./.github/workflows/build.yml).
+CI downloads the required engines — `sing-box`, `xray-core`, NaiveProxy and TrustTunnel — along with `wintun.dll`. The setup is defined in [`.github/workflows/build.yml`](./.github/workflows/build.yml).
 
-For regular development checks:
+For day-to-day development checks:
 
 ```powershell
 npm run lint
 npm test
 ```
 
-Heavy Rust/Tauri checks are expected to run in the Windows CI pipeline unless you are on a properly prepared local Windows machine.
+Full Rust and Tauri checks are best left to the Windows CI pipeline unless your local Windows environment already has the required toolchain and dependencies.
 
 ## Repository map
 
@@ -161,13 +165,13 @@ tests/                JavaScript unit tests
 
 ## Contributing
 
-Bug reports, reproducible test cases, docs fixes and careful pull requests are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a PR.
+Bug reports, reproducible test cases, documentation fixes and focused pull requests are welcome. Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a PR.
 
-When reporting connection bugs, never paste private subscription URLs, access tokens, UUIDs, private keys or full exported configs into a public issue.
+Never include private subscription URLs, access tokens, UUIDs, private keys or complete exported configs in a public connection bug report.
 
 ## Support the project
 
-Ninety is developed on enthusiasm. If it is useful to you, you can support the work:
+Ninety is built and maintained in spare time. If it saves you some hassle and you would like to support further development:
 
 **TON**
 
