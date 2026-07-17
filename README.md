@@ -41,7 +41,7 @@ When something breaks, you get diagnostics instead of guesswork.
 | **Routing** | LAN bypass, regional routing, custom rules for domains, IP addresses and processes, plus ad, malware and phishing rule sets. Active connections can be inspected from the app. |
 | **Quality engine** | Measures real throughput instead of treating ping as the whole story. It can re-test the channel, change nodes, apply masking, rescan WARP or recommend reconnecting. |
 | **DPI tools** | A separate section for DPI compatibility tools, strategy and list updates, driver cleanup and automatic exclusions for VPN node addresses. |
-| **Privacy** | No ads or bundled analytics. Logs use conservative defaults, WARP and backup state is encrypted with Windows DPAPI where supported, and runtime configs are removed after use. |
+| **Privacy** | No ads or bundled analytics. Logs use conservative defaults, WARP state and backups are encrypted with Windows DPAPI where supported, and runtime configs are removed after use. |
 | **Desktop UX** | Tray controls, in-app updates, session restore after an update, themes, onboarding, 15 languages and RTL layouts for فارسی / العربية. |
 
 ## Screenshots
