@@ -38,10 +38,10 @@ $expectedWidth = 0
 $expectedHeight = 0
 
 function Wait-NinetyWindow([System.Diagnostics.Process]$Process, [string]$View) {
-  $deadline = (Get-Date).AddSeconds(30)
+  $deadline = (Get-Date).AddSeconds(35)
   $lastTitle = ""
   do {
-    Start-Sleep -Milliseconds 150
+    Start-Sleep -Milliseconds 120
     $Process.Refresh()
     if ($Process.HasExited) {
       throw "Ninety exited before ${View} became ready (code $($Process.ExitCode))"
@@ -50,8 +50,8 @@ function Wait-NinetyWindow([System.Diagnostics.Process]$Process, [string]$View) 
     if ($handle -ne [IntPtr]::Zero) {
       $lastTitle = [NinetyReadmeWin32]::ReadTitle($handle)
       if ($lastTitle -like "*Ninety README ${View} READY*") { return $handle }
-      if ($lastTitle -like "*Ninety README ${View} ERROR*") {
-        throw "Ninety reported capture preparation error for ${View}"
+      if ($lastTitle -like "*Ninety README sequence ERROR*") {
+        throw "Ninety reported capture sequence error while waiting for ${View}"
       }
     }
   } until ((Get-Date) -gt $deadline)
@@ -62,7 +62,7 @@ function Save-NinetyWindow([IntPtr]$Window, [string]$Name) {
   [NinetyReadmeWin32]::ShowWindow($Window, 9) | Out-Null
   [NinetyReadmeWin32]::MoveWindow($Window, 80, 80, 1100, 720, $true) | Out-Null
   [NinetyReadmeWin32]::SetForegroundWindow($Window) | Out-Null
-  Start-Sleep -Milliseconds 900
+  Start-Sleep -Milliseconds 650
 
   $rect = New-Object NinetyReadmeWin32+RECT
   if (-not [NinetyReadmeWin32]::GetWindowRect($Window, [ref]$rect)) {
@@ -128,17 +128,26 @@ function Save-NinetyWindow([IntPtr]$Window, [string]$Name) {
   Write-Host "Captured ${Name}: ${width}x${height}, $($file.Length) bytes"
 }
 
-foreach ($view in $views) {
-  $process = Start-Process -FilePath $App -ArgumentList @("ninety://readme-capture/$view") -PassThru
-  try {
+$process = Start-Process -FilePath $App -PassThru
+try {
+  foreach ($view in $views) {
     $window = Wait-NinetyWindow -Process $process -View $view
     Save-NinetyWindow -Window $window -Name "$view.png"
-  } finally {
-    if (-not $process.HasExited) {
-      Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-      try { $process.WaitForExit(5000) | Out-Null } catch {}
-    }
-    Start-Sleep -Milliseconds 700
+  }
+
+  $deadline = (Get-Date).AddSeconds(15)
+  do {
+    Start-Sleep -Milliseconds 150
+    $process.Refresh()
+    if ($process.HasExited) { break }
+    $title = if ($process.MainWindowHandle -ne [IntPtr]::Zero) { [NinetyReadmeWin32]::ReadTitle($process.MainWindowHandle) } else { "" }
+    if ($title -like "*Ninety README sequence DONE*") { break }
+    if ($title -like "*Ninety README sequence ERROR*") { throw "Ninety reported capture sequence error" }
+  } until ((Get-Date) -gt $deadline)
+} finally {
+  if (-not $process.HasExited) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    try { $process.WaitForExit(5000) | Out-Null } catch {}
   }
 }
 
