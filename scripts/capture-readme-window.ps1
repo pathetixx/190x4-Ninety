@@ -32,6 +32,14 @@ public static class NinetyReadmeWin32 {
 }
 "@
 
+$workingArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$targetWidth = [Math]::Min(1100, $workingArea.Width)
+$targetHeight = [Math]::Min(720, $workingArea.Height)
+if ($targetWidth -lt 1000 -or $targetHeight -lt 650) {
+  throw "Windows work area is too small for README capture: $($workingArea.Width)x$($workingArea.Height)"
+}
+Write-Host "README capture work area: $($workingArea.Width)x$($workingArea.Height); window: ${targetWidth}x${targetHeight}"
+
 $views = @("home", "nodes", "profiles", "dpi", "settings", "logs", "quality")
 $hashes = @{}
 $expectedWidth = 0
@@ -51,7 +59,7 @@ function Wait-NinetyWindow([System.Diagnostics.Process]$Process, [string]$View) 
       $lastTitle = [NinetyReadmeWin32]::ReadTitle($handle)
       if ($lastTitle -like "*Ninety README ${View} READY*") { return $handle }
       if ($lastTitle -like "*Ninety README sequence ERROR*") {
-        throw "Ninety reported capture sequence error while waiting for ${View}"
+        throw "Ninety reported capture sequence error while waiting for ${View}: $lastTitle"
       }
     }
   } until ((Get-Date) -gt $deadline)
@@ -60,7 +68,14 @@ function Wait-NinetyWindow([System.Diagnostics.Process]$Process, [string]$View) 
 
 function Save-NinetyWindow([IntPtr]$Window, [string]$Name) {
   [NinetyReadmeWin32]::ShowWindow($Window, 9) | Out-Null
-  [NinetyReadmeWin32]::MoveWindow($Window, 80, 80, 1100, 720, $true) | Out-Null
+  [NinetyReadmeWin32]::MoveWindow(
+    $Window,
+    $workingArea.Left,
+    $workingArea.Top,
+    $targetWidth,
+    $targetHeight,
+    $true
+  ) | Out-Null
   [NinetyReadmeWin32]::SetForegroundWindow($Window) | Out-Null
   Start-Sleep -Milliseconds 650
 
@@ -72,6 +87,10 @@ function Save-NinetyWindow([IntPtr]$Window, [string]$Name) {
   $height = $rect.Bottom - $rect.Top
   if ($width -lt 1000 -or $height -lt 650) {
     throw "Unexpected Ninety window size for ${Name}: ${width}x${height}"
+  }
+  if ($rect.Left -lt $workingArea.Left -or $rect.Top -lt $workingArea.Top -or
+      $rect.Right -gt $workingArea.Right -or $rect.Bottom -gt $workingArea.Bottom) {
+    throw "Ninety window exceeds the work area for ${Name}: [$($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom)]"
   }
 
   if ($script:expectedWidth -eq 0) {
@@ -142,7 +161,7 @@ try {
     if ($process.HasExited) { break }
     $title = if ($process.MainWindowHandle -ne [IntPtr]::Zero) { [NinetyReadmeWin32]::ReadTitle($process.MainWindowHandle) } else { "" }
     if ($title -like "*Ninety README sequence DONE*") { break }
-    if ($title -like "*Ninety README sequence ERROR*") { throw "Ninety reported capture sequence error" }
+    if ($title -like "*Ninety README sequence ERROR*") { throw "Ninety reported capture sequence error: $title" }
   } until ((Get-Date) -gt $deadline)
 } finally {
   if (-not $process.HasExited) {
