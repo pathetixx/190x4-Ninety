@@ -6,12 +6,11 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/readme-screenshots.yml"
-      - "scripts/capture-readme-screenshots.py"
-      - "scripts/capture-readme-windows.py"
+      - "scripts/readme-capture-bootstrap.js"
+      - "scripts/capture-readme-window.ps1"
       - "src/**"
       - "src-tauri/src/**"
       - "src-tauri/tauri.conf.json"
-      - "src-tauri/tauri.readme.conf.json"
       - "docs/home.png"
       - "docs/nodes.png"
       - "docs/profiles.png"
@@ -53,11 +52,9 @@ jobs:
 
       - name: Install dependencies
         shell: pwsh
-        run: |
-          npm ci --no-audit --no-fund
-          python -m pip install --disable-pip-version-check --no-input pillow websocket-client
+        run: npm ci --no-audit --no-fund
 
-      - name: Prepare inert sidecars
+      - name: Prepare inert sidecars and CI-only capture entrypoint
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
@@ -71,27 +68,29 @@ jobs:
           }
           Set-Content -LiteralPath "src-tauri/binaries/wintun.dll" -Value "README screenshot fixture - never loaded" -Encoding ascii
 
+          Copy-Item -LiteralPath scripts/readme-capture-bootstrap.js -Destination src/readme-capture-bootstrap.js -Force
+          $index = Get-Content -LiteralPath src/index.html -Raw
+          $needle = '<script type="module" src="/main.js"></script>'
+          $replacement = '<script type="module" src="/readme-capture-bootstrap.js"></script>'
+          if (-not $index.Contains($needle)) { throw "main.js entrypoint not found in src/index.html" }
+          Set-Content -LiteralPath src/index.html -Value ($index.Replace($needle, $replacement)) -Encoding utf8
+
       - name: Build exact Tauri application
         shell: pwsh
-        run: npm run tauri build -- --no-bundle --config src-tauri/tauri.readme.conf.json
+        run: npm run tauri build -- --no-bundle
 
-      - name: Capture real WebView2 screens
+      - name: Capture real Ninety windows
         id: capture
         continue-on-error: true
         shell: pwsh
         run: |
           $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "NinetyReadmeWebView"
           Remove-Item -LiteralPath $env:WEBVIEW2_USER_DATA_FOLDER -Recurse -Force -ErrorAction SilentlyContinue
-
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          python scripts/capture-readme-windows.py `
-            --app ./src-tauri/target/release/ninety.exe `
-            --output ./readme-screenshots `
-            --version $version 2>&1 | Tee-Object -FilePath capture-readme.log
-          $captureExit = $LASTEXITCODE
           New-Item -ItemType Directory -Force -Path readme-screenshots | Out-Null
-          Copy-Item -LiteralPath capture-readme.log -Destination readme-screenshots/capture.log -Force
-          exit $captureExit
+          & scripts/capture-readme-window.ps1 `
+            -App ./src-tauri/target/release/ninety.exe `
+            -OutputDirectory ./readme-screenshots 2>&1 | Tee-Object -FilePath readme-screenshots/capture.log
+          exit $LASTEXITCODE
 
       - name: Upload screenshots and diagnostics
         if: always()
@@ -105,4 +104,4 @@ jobs:
       - name: Fail when capture failed
         if: steps.capture.outcome != 'success'
         shell: pwsh
-        run: throw "README screenshot capture failed; inspect the uploaded diagnostics artifact"
+        run: throw "README screenshot capture failed; inspect capture.log in the uploaded artifact"
