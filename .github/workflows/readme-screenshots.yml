@@ -11,6 +11,7 @@ on:
       - "src/**"
       - "src-tauri/src/**"
       - "src-tauri/tauri.conf.json"
+      - "src-tauri/tauri.readme.conf.json"
       - "docs/home.png"
       - "docs/nodes.png"
       - "docs/profiles.png"
@@ -72,19 +73,13 @@ jobs:
 
       - name: Build exact Tauri application
         shell: pwsh
-        run: npm run tauri build -- --no-bundle
+        run: npm run tauri build -- --no-bundle --config src-tauri/tauri.readme.conf.json
 
       - name: Capture real WebView2 screens
         id: capture
         continue-on-error: true
         shell: pwsh
         run: |
-          $wvPolicy = "HKCU:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments"
-          New-Item -Path $wvPolicy -Force | Out-Null
-          $wvArgs = "--remote-debugging-port=0 --remote-debugging-address=127.0.0.1 --remote-allow-origins=*"
-          New-ItemProperty -Path $wvPolicy -Name "ninety.exe" -Value $wvArgs -PropertyType String -Force | Out-Null
-          New-ItemProperty -Path $wvPolicy -Name "Ninety.exe" -Value $wvArgs -PropertyType String -Force | Out-Null
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $wvArgs
           $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "NinetyReadmeWebView"
           Remove-Item -LiteralPath $env:WEBVIEW2_USER_DATA_FOLDER -Recurse -Force -ErrorAction SilentlyContinue
 
