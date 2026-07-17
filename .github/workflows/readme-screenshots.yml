@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/readme-screenshots.yml"
       - "scripts/capture-readme-screenshots.py"
+      - "scripts/webview2-debug-proxy.py"
       - "src/**"
       - "src-tauri/src/**"
       - "src-tauri/tauri.conf.json"
@@ -78,25 +79,41 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          # WebView2 officially supports both the environment variable and this
-          # per-host registry policy. Hosted Windows runners ignored the inherited
-          # variable on the first attempt, so configure the documented fallback too.
           $wvPolicy = "HKCU:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments"
           New-Item -Path $wvPolicy -Force | Out-Null
-          $wvArgs = "--remote-debugging-port=9222 --remote-allow-origins=*"
+          $wvArgs = "--remote-debugging-port=0 --remote-debugging-address=127.0.0.1 --remote-allow-origins=*"
           New-ItemProperty -Path $wvPolicy -Name "ninety.exe" -Value $wvArgs -PropertyType String -Force | Out-Null
           New-ItemProperty -Path $wvPolicy -Name "Ninety.exe" -Value $wvArgs -PropertyType String -Force | Out-Null
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $wvArgs
           $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "NinetyReadmeWebView"
+          Remove-Item -LiteralPath $env:WEBVIEW2_USER_DATA_FOLDER -Recurse -Force -ErrorAction SilentlyContinue
 
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          python scripts/capture-readme-screenshots.py `
-            --app ./src-tauri/target/release/ninety.exe `
-            --output ./readme-screenshots `
-            --version $version 2>&1 | Tee-Object -FilePath capture-readme.log
-          $captureExit = $LASTEXITCODE
+          $proxyOut = Join-Path $pwd "webview2-debug-proxy.log"
+          $proxyErr = Join-Path $pwd "webview2-debug-proxy.err.log"
+          $debugProxy = Start-Process -FilePath python -ArgumentList @(
+            "scripts/webview2-debug-proxy.py",
+            "--user-data-root", $env:WEBVIEW2_USER_DATA_FOLDER,
+            "--listen-port", "9222",
+            "--timeout", "90"
+          ) -RedirectStandardOutput $proxyOut -RedirectStandardError $proxyErr -PassThru
+
+          try {
+            $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+            python scripts/capture-readme-screenshots.py `
+              --app ./src-tauri/target/release/ninety.exe `
+              --output ./readme-screenshots `
+              --version $version 2>&1 | Tee-Object -FilePath capture-readme.log
+            $captureExit = $LASTEXITCODE
+          } finally {
+            if ($debugProxy -and -not $debugProxy.HasExited) {
+              Stop-Process -Id $debugProxy.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
+
           New-Item -ItemType Directory -Force -Path readme-screenshots | Out-Null
           Copy-Item -LiteralPath capture-readme.log -Destination readme-screenshots/capture.log -Force
+          Copy-Item -LiteralPath $proxyOut -Destination readme-screenshots/webview2-debug-proxy.log -Force -ErrorAction SilentlyContinue
+          Copy-Item -LiteralPath $proxyErr -Destination readme-screenshots/webview2-debug-proxy.err.log -Force -ErrorAction SilentlyContinue
           exit $captureExit
 
       - name: Upload screenshots and diagnostics
@@ -111,4 +128,4 @@ jobs:
       - name: Fail when capture failed
         if: steps.capture.outcome != 'success'
         shell: pwsh
-        run: throw "README screenshot capture failed; inspect the uploaded capture.log artifact"
+        run: throw "README screenshot capture failed; inspect the uploaded diagnostics artifact"
