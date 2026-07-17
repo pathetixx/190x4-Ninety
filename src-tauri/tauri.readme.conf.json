@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Ninety",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 720,
+        "minHeight": 560,
+        "decorations": false,
+        "transparent": false,
+        "resizable": true,
+        "center": true,
+        "shadow": true,
+        "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port=0 --remote-debugging-address=127.0.0.1 --remote-allow-origins=*"
+      }
+    ]
+  }
+}
