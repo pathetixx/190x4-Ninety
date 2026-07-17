@@ -69,6 +69,16 @@ jobs:
           }
           Set-Content -LiteralPath "src-tauri/binaries/wintun.dll" -Value "README screenshot fixture - never loaded" -Encoding ascii
 
+          @'
+          {
+            "$schema": "../gen/schemas/desktop-schema.json",
+            "identifier": "readme-capture",
+            "description": "CI-only permission for deterministic README screenshot markers",
+            "windows": ["main"],
+            "permissions": ["core:window:allow-set-title"]
+          }
+          '@ | Set-Content -LiteralPath src-tauri/capabilities/readme-capture.json -Encoding utf8
+
           Copy-Item -LiteralPath scripts/readme-capture-bootstrap.js -Destination src/readme-capture-bootstrap.js -Force
           Copy-Item -LiteralPath scripts/readme-capture-sequence.js -Destination src/readme-capture-sequence.js -Force
           $index = Get-Content -LiteralPath src/index.html -Raw
