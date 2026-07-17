@@ -244,6 +244,16 @@ if (templatePath && existsSync(templatePath)) {
   if (template.includes('StrCpy $INSTDIR "$LOCALAPPDATA\\${PRODUCTNAME}"')) {
     fail("стандартный путь установки не должен возвращаться в AppData");
   }
+  if (!template.includes('!define NINETY_INSTALLER_MUTEX "pw.x190x4.ninety.installer"')) {
+    fail("installer.nsi должен использовать единое валидное имя operation mutex");
+  }
+  if (template.includes("Local\\\\pw.x190x4.ninety.installer")) {
+    fail("installer.nsi содержит невалидный двойной разделитель namespace в имени mutex");
+  }
+  const mutexAcquisitions = template.match(/!insertmacro NinetyAcquireInstallerMutex/g) ?? [];
+  if (mutexAcquisitions.length !== 3) {
+    fail(`operation mutex должен захватываться в setup, maintenance и uninstall (получено ${mutexAcquisitions.length})`);
+  }
   for (const forbiddenMigration of [
     '$4 == "$LOCALAPPDATA\\${PRODUCTNAME}"',
     '$4 == "$LOCALAPPDATA\\Programs\\${PRODUCTNAME}"',
