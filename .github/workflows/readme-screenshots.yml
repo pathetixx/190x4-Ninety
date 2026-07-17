@@ -7,7 +7,7 @@ on:
     paths:
       - ".github/workflows/readme-screenshots.yml"
       - "scripts/capture-readme-screenshots.py"
-      - "scripts/webview2-debug-proxy.py"
+      - "scripts/capture-readme-windows.py"
       - "src/**"
       - "src-tauri/src/**"
       - "src-tauri/tauri.conf.json"
@@ -85,37 +85,17 @@ jobs:
           New-ItemProperty -Path $wvPolicy -Name "ninety.exe" -Value $wvArgs -PropertyType String -Force | Out-Null
           New-ItemProperty -Path $wvPolicy -Name "Ninety.exe" -Value $wvArgs -PropertyType String -Force | Out-Null
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $wvArgs
-          # Microsoft documents that WebView2 auto-connect expects the actual
-          # user-data directory ending in EBWebView, not its parent folder.
-          $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "NinetyReadmeWebView\EBWebView"
+          $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "NinetyReadmeWebView"
           Remove-Item -LiteralPath $env:WEBVIEW2_USER_DATA_FOLDER -Recurse -Force -ErrorAction SilentlyContinue
 
-          $proxyOut = Join-Path $pwd "webview2-debug-proxy.log"
-          $proxyErr = Join-Path $pwd "webview2-debug-proxy.err.log"
-          $debugProxy = Start-Process -FilePath python -ArgumentList @(
-            "scripts/webview2-debug-proxy.py",
-            "--user-data-root", $env:WEBVIEW2_USER_DATA_FOLDER,
-            "--listen-port", "9222",
-            "--timeout", "90"
-          ) -RedirectStandardOutput $proxyOut -RedirectStandardError $proxyErr -PassThru
-
-          try {
-            $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-            python scripts/capture-readme-screenshots.py `
-              --app ./src-tauri/target/release/ninety.exe `
-              --output ./readme-screenshots `
-              --version $version 2>&1 | Tee-Object -FilePath capture-readme.log
-            $captureExit = $LASTEXITCODE
-          } finally {
-            if ($debugProxy -and -not $debugProxy.HasExited) {
-              Stop-Process -Id $debugProxy.Id -Force -ErrorAction SilentlyContinue
-            }
-          }
-
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          python scripts/capture-readme-windows.py `
+            --app ./src-tauri/target/release/ninety.exe `
+            --output ./readme-screenshots `
+            --version $version 2>&1 | Tee-Object -FilePath capture-readme.log
+          $captureExit = $LASTEXITCODE
           New-Item -ItemType Directory -Force -Path readme-screenshots | Out-Null
           Copy-Item -LiteralPath capture-readme.log -Destination readme-screenshots/capture.log -Force
-          Copy-Item -LiteralPath $proxyOut -Destination readme-screenshots/webview2-debug-proxy.log -Force -ErrorAction SilentlyContinue
-          Copy-Item -LiteralPath $proxyErr -Destination readme-screenshots/webview2-debug-proxy.err.log -Force -ErrorAction SilentlyContinue
           exit $captureExit
 
       - name: Upload screenshots and diagnostics
