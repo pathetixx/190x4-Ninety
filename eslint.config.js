@@ -40,6 +40,14 @@ export default [
     },
   },
   {
+    // CI-only README bootstrap физически лежит в scripts/, но исполняется внутри
+    // Tauri WebView2. Даём ему браузерные globals, сохраняя остальные Node-правила.
+    files: ["scripts/readme-capture-bootstrap.js"],
+    languageOptions: {
+      globals: { ...globals.browser },
+    },
+  },
+  {
     // Тесты и скрипты сборки — Node-окружение.
     files: ["tests/**/*.mjs", "scripts/**/*.{js,mjs}"],
     languageOptions: {
