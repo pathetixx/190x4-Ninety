@@ -92,12 +92,21 @@ jobs:
             -OutputDirectory ./readme-screenshots 2>&1 | Tee-Object -FilePath readme-screenshots/capture.log
           exit $LASTEXITCODE
 
+      - name: Package screenshots and diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem -LiteralPath readme-screenshots -File -ErrorAction SilentlyContinue)
+          if ($files.Count -eq 0) { throw "README capture produced no files" }
+          Write-Host "Packaging $($files.Count) files: $($files.Name -join ', ')"
+          Compress-Archive -LiteralPath $files.FullName -DestinationPath readme-screenshots.zip -CompressionLevel Optimal -Force
+
       - name: Upload screenshots and diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: readme-screenshots-${{ github.sha }}
-          path: readme-screenshots/**
+          path: readme-screenshots.zip
           if-no-files-found: error
           retention-days: 14
 
