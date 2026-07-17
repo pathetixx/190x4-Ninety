@@ -84,20 +84,41 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "NinetyReadmeWebView"
           Remove-Item -LiteralPath $env:WEBVIEW2_USER_DATA_FOLDER -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path readme-screenshots | Out-Null
-          & scripts/capture-readme-window.ps1 `
-            -App ./src-tauri/target/release/ninety.exe `
-            -OutputDirectory ./readme-screenshots 2>&1 | Tee-Object -FilePath readme-screenshots/capture.log
-          exit $LASTEXITCODE
+          $log = Join-Path (Resolve-Path readme-screenshots).Path "capture.log"
+
+          try {
+            & scripts/capture-readme-window.ps1 `
+              -App ./src-tauri/target/release/ninety.exe `
+              -OutputDirectory ./readme-screenshots 2>&1 | Tee-Object -FilePath $log
+
+            $names = @("home", "nodes", "profiles", "dpi", "settings", "logs", "quality")
+            foreach ($name in $names) {
+              $path = Join-Path readme-screenshots "$name.png"
+              if (-not (Test-Path -LiteralPath $path)) { throw "Missing screenshot: $path" }
+              $file = Get-Item -LiteralPath $path
+              if ($file.Length -lt 45000) { throw "Screenshot is too small: $path ($($file.Length) bytes)" }
+              Write-Host "$path -> $($file.Length) bytes"
+            }
+          } catch {
+            ($_ | Out-String) | Add-Content -LiteralPath $log -Encoding utf8
+            throw
+          }
 
       - name: Package screenshots and diagnostics
         if: always()
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path readme-screenshots | Out-Null
           $files = @(Get-ChildItem -LiteralPath readme-screenshots -File -ErrorAction SilentlyContinue)
-          if ($files.Count -eq 0) { throw "README capture produced no files" }
+          if ($files.Count -eq 0) {
+            Set-Content -LiteralPath readme-screenshots/capture.log -Value "README capture produced no files" -Encoding utf8
+            $files = @(Get-Item -LiteralPath readme-screenshots/capture.log)
+          }
           Write-Host "Packaging $($files.Count) files: $($files.Name -join ', ')"
           Compress-Archive -LiteralPath $files.FullName -DestinationPath readme-screenshots.zip -CompressionLevel Optimal -Force
 
