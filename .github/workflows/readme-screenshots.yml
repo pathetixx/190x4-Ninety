@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/readme-screenshots.yml"
       - "scripts/readme-capture-bootstrap.js"
+      - "scripts/readme-capture-sequence.js"
       - "scripts/capture-readme-window.ps1"
       - "src/**"
       - "src-tauri/src/**"
@@ -69,9 +70,10 @@ jobs:
           Set-Content -LiteralPath "src-tauri/binaries/wintun.dll" -Value "README screenshot fixture - never loaded" -Encoding ascii
 
           Copy-Item -LiteralPath scripts/readme-capture-bootstrap.js -Destination src/readme-capture-bootstrap.js -Force
+          Copy-Item -LiteralPath scripts/readme-capture-sequence.js -Destination src/readme-capture-sequence.js -Force
           $index = Get-Content -LiteralPath src/index.html -Raw
           $needle = '<script type="module" src="/main.js"></script>'
-          $replacement = '<script type="module" src="/readme-capture-bootstrap.js"></script>'
+          $replacement = '<script type="module" src="/readme-capture-sequence.js"></script>'
           if (-not $index.Contains($needle)) { throw "main.js entrypoint not found in src/index.html" }
           Set-Content -LiteralPath src/index.html -Value ($index.Replace($needle, $replacement)) -Encoding utf8
 
