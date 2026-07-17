@@ -76,6 +76,13 @@ jobs:
           $replacement = '<script type="module" src="/readme-capture-sequence.js"></script>'
           if (-not $index.Contains($needle)) { throw "main.js entrypoint not found in src/index.html" }
           Set-Content -LiteralPath src/index.html -Value ($index.Replace($needle, $replacement)) -Encoding utf8
+          if (-not (Select-String -LiteralPath src/index.html -SimpleMatch '/readme-capture-sequence.js')) {
+            throw "README capture entrypoint was not injected"
+          }
+
+      - name: Force application resource rebuild
+        shell: pwsh
+        run: cargo clean --manifest-path src-tauri/Cargo.toml -p ninety
 
       - name: Build exact Tauri application
         shell: pwsh
