@@ -114,13 +114,23 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path readme-screenshots | Out-Null
-          $files = @(Get-ChildItem -LiteralPath readme-screenshots -File -ErrorAction SilentlyContinue)
+          $source = (Resolve-Path -LiteralPath readme-screenshots).Path
+          $files = @(Get-ChildItem -LiteralPath $source -File -ErrorAction SilentlyContinue)
           if ($files.Count -eq 0) {
             Set-Content -LiteralPath readme-screenshots/capture.log -Value "README capture produced no files" -Encoding utf8
             $files = @(Get-Item -LiteralPath readme-screenshots/capture.log)
           }
           Write-Host "Packaging $($files.Count) files: $($files.Name -join ', ')"
-          Compress-Archive -LiteralPath $files.FullName -DestinationPath readme-screenshots.zip -CompressionLevel Optimal -Force
+          $archive = Join-Path $pwd "readme-screenshots.zip"
+          if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            $source,
+            $archive,
+            [System.IO.Compression.CompressionLevel]::Optimal,
+            $false
+          )
+          if (-not (Test-Path -LiteralPath $archive)) { throw "README screenshot archive was not created" }
 
       - name: Upload screenshots and diagnostics
         if: always()
