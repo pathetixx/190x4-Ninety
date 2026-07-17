@@ -40,14 +40,6 @@ export default [
     },
   },
   {
-    // CI-only README wrappers физически лежат в scripts/, но исполняются внутри
-    // Tauri WebView2. Даём им browser globals, сохраняя остальные Node-правила.
-    files: ["scripts/readme-capture-*.js"],
-    languageOptions: {
-      globals: { ...globals.browser },
-    },
-  },
-  {
     // Тесты и скрипты сборки — Node-окружение.
     files: ["tests/**/*.mjs", "scripts/**/*.{js,mjs}"],
     languageOptions: {
