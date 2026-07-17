@@ -2,6 +2,13 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.33 — 2026-07-17
+
+- The Windows installer and uninstaller now share a valid single-operation guard and fail safely if it cannot be acquired, so a second setup process exits before inspecting or changing installed files.
+- The production release gate keeps exercising overlapping OTA installers together with locked-resource rollback, path preservation, payload integrity, application launch and cleanup.
+- Установщик и деинсталлятор Windows теперь используют исправную единую блокировку операций и безопасно завершаются, если её нельзя получить; второй процесс установки останавливается до проверки или изменения установленных файлов.
+- Production-гейт продолжает проверять одновременный запуск OTA-установщиков вместе с откатом при заблокированном ресурсе, сохранением каталога, целостностью файлов, запуском приложения и очисткой.
+
 ## v0.2.32 — 2026-07-16
 
 - Existing AppData, Program Files and custom installations are updated in place; only a genuinely fresh installation defaults to `C:\Program Files\Ninety`, so updates no longer create duplicate copies.
