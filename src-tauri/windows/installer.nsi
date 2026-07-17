@@ -83,12 +83,30 @@ Var NinetyWriteProbeAttempts
 ; strings. Keep creation in one macro so setup, maintenance and uninstall all
 ; fail closed when the operation lock cannot be acquired.
 !define NINETY_INSTALLER_MUTEX "pw.x190x4.ninety.installer"
-!macro NinetyAcquireInstallerMutex ERROR_VAR
+!macro NinetyAcquireInstallerMutex ERROR_VAR UNIQ
   System::Call 'kernel32::CreateMutexW(p 0, i 1, w "${NINETY_INSTALLER_MUTEX}") p .r0 ?e'
   StrCpy $NinetyInstallerMutex $0
   Pop ${ERROR_VAR}
   ${If} $NinetyInstallerMutex == 0
-  ${OrIf} ${ERROR_VAR} == 183
+    Goto ninety_mutex_unavailable_${UNIQ}
+  ${EndIf}
+  ${If} ${ERROR_VAR} == 183
+    ; The real uninstaller finishes from a temporary child after its original
+    ; process and install directory disappear. Allow that short sequential tail
+    ; to drain, but keep a genuinely overlapping operation rejected.
+    System::Call 'kernel32::WaitForSingleObject(p $NinetyInstallerMutex, i 2000) i .r0'
+    ${If} $0 == 0
+      Goto ninety_mutex_acquired_${UNIQ}
+    ${ElseIf} $0 == 128
+      ; WAIT_ABANDONED: the previous process exited without releasing ownership;
+      ; this process now owns the mutex and can safely continue.
+      Goto ninety_mutex_acquired_${UNIQ}
+    ${EndIf}
+    Goto ninety_mutex_unavailable_${UNIQ}
+  ${EndIf}
+  Goto ninety_mutex_acquired_${UNIQ}
+
+  ninety_mutex_unavailable_${UNIQ}:
     ${If} $NinetyInstallerMutex != 0
       System::Call 'kernel32::CloseHandle(p $NinetyInstallerMutex)'
       StrCpy $NinetyInstallerMutex 0
@@ -98,7 +116,8 @@ Var NinetyWriteProbeAttempts
       Abort
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(KInstallerAlreadyRunning)"
     Abort
-  ${EndIf}
+
+  ninety_mutex_acquired_${UNIQ}:
 !macroend
 
 ; The hook entry is loaded after VERSION and the other product constants so the
@@ -437,7 +456,7 @@ Function PageLeaveReinstall
       StrCpy $5 0
     ${EndIf}
 
-    !insertmacro NinetyAcquireInstallerMutex $6
+    !insertmacro NinetyAcquireInstallerMutex $6 maintenance
 
     BringToFront
 
@@ -545,7 +564,7 @@ FunctionEnd
 Function .onInit
   ; One setup operation at a time. Apart from preventing duplicate writes this
   ; also stops a second interactive installer from racing the OTA installer.
-  !insertmacro NinetyAcquireInstallerMutex $1
+  !insertmacro NinetyAcquireInstallerMutex $1 setup
 
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   ${IfNot} ${Errors}
@@ -874,7 +893,7 @@ Function .onInstSuccess
 FunctionEnd
 
 Function un.onInit
-  !insertmacro NinetyAcquireInstallerMutex $1
+  !insertmacro NinetyAcquireInstallerMutex $1 uninstall
 
   !insertmacro SetContext
 

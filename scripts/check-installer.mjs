@@ -224,6 +224,7 @@ if (templatePath && existsSync(templatePath)) {
     "un.NinetyValidateRemovalTarget",
     "un.NinetyProbeWritableFile",
     "CreateMutexW",
+    "WaitForSingleObject",
     "CloseHandle",
     "AllowSkipFiles off",
     'StrCpy $INSTDIR "$PROGRAMFILES64\\${PRODUCTNAME}"',
