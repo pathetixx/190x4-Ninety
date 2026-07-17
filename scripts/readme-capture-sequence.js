@@ -1,12 +1,21 @@
 // CI-only wrapper: forces the sanitized bootstrap on, then cycles the real app
 // through every README view. Copied into src/ only inside the screenshot workflow.
 
-const tauri = window.__TAURI__;
-const originalInvoke = tauri?.core?.invoke?.bind(tauri.core);
+const BOOT_TITLE = "Ninety README sequence BOOT";
+document.title = BOOT_TITLE;
+
+let tauri = window.__TAURI__;
 const windowHandle = tauri?.window?.getCurrentWindow?.()
   ?? tauri?.window?.getCurrent?.();
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function setWindowTitle(title) {
+  document.title = title;
+  try { await windowHandle?.setTitle?.(title); } catch {}
+}
+
+await setWindowTitle(BOOT_TITLE);
 
 async function waitFor(fn, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
@@ -17,22 +26,50 @@ async function waitFor(fn, timeoutMs = 15000) {
   throw new Error("README sequence readiness timeout");
 }
 
-const startupFixture = async (command, args = {}) => {
-  if (command === "startup_deep_links") return ["ninety://readme-capture/home"];
-  return originalInvoke(command, args);
-};
-try {
-  tauri.core.invoke = startupFixture;
-} catch {
-  Object.defineProperty(tauri.core, "invoke", { value: startupFixture, configurable: true });
+async function mark(view, state = "READY") {
+  await setWindowTitle(`Ninety README ${view} ${state}`);
 }
 
-await import("/readme-capture-bootstrap.js");
+function installStartupFixture() {
+  const originalInvoke = tauri?.core?.invoke?.bind(tauri.core);
+  if (!originalInvoke) throw new Error("Tauri invoke is unavailable");
 
-async function mark(view, state = "READY") {
-  const title = `Ninety README ${view} ${state}`;
-  document.title = title;
-  await windowHandle?.setTitle?.(title);
+  const startupFixture = async (command, args = {}) => {
+    if (command === "startup_deep_links") return ["ninety://readme-capture/home"];
+    return originalInvoke(command, args);
+  };
+
+  let installed = false;
+  try {
+    tauri.core.invoke = startupFixture;
+    installed = tauri.core.invoke === startupFixture;
+  } catch {}
+
+  if (!installed) {
+    try {
+      Object.defineProperty(tauri.core, "invoke", {
+        value: startupFixture,
+        configurable: true,
+        writable: true,
+      });
+      installed = tauri.core.invoke === startupFixture;
+    } catch {}
+  }
+
+  if (!installed) {
+    try {
+      const replacementCore = Object.create(tauri.core);
+      Object.defineProperty(replacementCore, "invoke", {
+        value: startupFixture,
+        configurable: true,
+        writable: true,
+      });
+      tauri.core = replacementCore;
+      installed = tauri.core.invoke === startupFixture;
+    } catch {}
+  }
+
+  if (!installed) throw new Error("Unable to install README startup fixture");
 }
 
 async function openView(view) {
@@ -92,6 +129,9 @@ async function openView(view) {
 }
 
 try {
+  installStartupFixture();
+  await import("/readme-capture-bootstrap.js");
+
   // The imported bootstrap has already prepared and marked the home view.
   await sleep(4500);
   for (const view of ["nodes", "profiles", "dpi", "settings", "logs", "quality"]) {
@@ -101,5 +141,8 @@ try {
   await mark("sequence", "DONE");
 } catch (error) {
   console.error("README capture sequence failed", error);
-  await mark("sequence", "ERROR");
+  const message = String(error?.message || error || "unknown error")
+    .replace(/\s+/g, " ")
+    .slice(0, 100);
+  await mark("sequence", `ERROR ${message}`);
 }
