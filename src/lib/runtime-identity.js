@@ -45,6 +45,20 @@ function runtimeNodeShape(node) {
     .filter(([key, value]) => !DISPLAY_ONLY_FIELDS.has(key) && key !== "id" && value !== undefined));
 }
 
+// Сопоставление нод между refresh подписки не должно зависеть от исходной
+// ссылки или служебного stableId. Панель может поменять #имя, порядок query-
+// параметров или нормализовать URL, не меняя реально используемый outbound.
+function semanticNodeShape(node) {
+  if (!node || typeof node !== "object") return {};
+  return Object.fromEntries(Object.entries(node)
+    .filter(([key, value]) => !DISPLAY_ONLY_FIELDS.has(key)
+      && key !== "id" && key !== "raw" && key !== "stableId" && value !== undefined));
+}
+
+export function nodeSemanticFingerprint(node) {
+  return hashRuntimeValue(semanticNodeShape(node));
+}
+
 export function stableNodeId(node, namespace = "source") {
   const persisted = String(node?.stableId || node?.id || "").trim();
   if (persisted) return `${namespace}:${persisted}`;

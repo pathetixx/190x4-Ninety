@@ -2294,6 +2294,14 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         await shutdownCore();
         return;
       }
+      // Никогда не маскируем потерю ручного выбора тихим переходом на Auto.
+      // Если сервер действительно исчез из подписки, безопаснее не поднимать
+      // VPN, чем незаметно отправить трафик через другой маршрут.
+      if (restoredSelection.status === "unavailable" && restoredSelection.tag !== "auto") {
+        const error = new Error("Remembered server is no longer present in the active subscription");
+        error.code = "REMEMBERED_SELECTION_UNAVAILABLE";
+        throw error;
+      }
       // Системный прокси выставляем ТОЛЬКО для mode=systemProxy. Для голого
       // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт
       // полный intercept через TUN-интерфейс.

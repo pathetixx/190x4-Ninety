@@ -1,12 +1,13 @@
 // Ninety · subscriptions
 // URL-импорт списка vless://, парсинг subscription-userinfo, storage.
 
-import { parseLink } from "/lib/singbox.js";
+import { nodeTag, parseLink } from "/lib/singbox.js";
 import { t } from "/lib/i18n/index.js";
 import { uid } from "/lib/uid.js";
 import { loadOptions } from "/lib/options.js";
 import { safeDecodeBase64 } from "/lib/url-helpers.js";
-import { hashRuntimeValue, stableNodeId } from "/lib/runtime-identity.js";
+import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
+import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
 
 export { safeDecodeBase64 };
 
@@ -123,7 +124,7 @@ export function saveSubscriptions(list) {
 export function assignStableNodeIds(profiles, previous = [], namespace = "sub") {
   const oldByShape = new Map();
   for (const node of previous || []) {
-    const shape = hashRuntimeValue(stableNodeId({ ...node, stableId: undefined, id: undefined }, "shape"));
+    const shape = nodeSemanticFingerprint(node);
     const q = oldByShape.get(shape) || [];
     if (node.stableId) q.push(node.stableId);
     oldByShape.set(shape, q);
@@ -131,12 +132,30 @@ export function assignStableNodeIds(profiles, previous = [], namespace = "sub") 
   const seen = new Map();
   return (profiles || []).map(node => {
     if (node.stableId || node.id) return node;
-    const shape = hashRuntimeValue(stableNodeId({ ...node, stableId: undefined, id: undefined }, "shape"));
+    const shape = nodeSemanticFingerprint(node);
     const occurrence = seen.get(shape) || 0;
     seen.set(shape, occurrence + 1);
     const reused = oldByShape.get(shape)?.shift();
     return { ...node, stableId: reused || `${namespace}-${shape}-${occurrence}` };
   });
+}
+
+// Legacy-подписки могли сохранить ручной выбор по старому tag до появления
+// stableId. При первой миграции stableId меняет tag, поэтому переносим выбор по
+// semantic identity ноды, а не оставляем новый Selector на default=auto.
+function migrateRememberedSelection(id, previous = [], next = []) {
+  const source = { kind: "sub", subscription: { id } };
+  const oldTag = getRememberedProxySelection(source);
+  if (!oldTag || oldTag === "auto") return;
+
+  const oldIndex = previous.findIndex((node, i) => nodeTag(i, node) === oldTag);
+  if (oldIndex < 0) return;
+  const identity = nodeSemanticFingerprint(previous[oldIndex]);
+  const nextIndex = next.findIndex(node => nodeSemanticFingerprint(node) === identity);
+  if (nextIndex < 0) return;
+
+  const nextTag = nodeTag(nextIndex, next[nextIndex]);
+  if (nextTag !== oldTag) rememberProxySelection(source, nextTag);
 }
 
 export function getActiveSubscriptionId() {
@@ -258,7 +277,9 @@ export async function refreshSubscription(id) {
   const idx = list.findIndex(s => s.id === id);
   if (idx < 0) throw new Error(t("subs.notFound"));
   const fresh = list[idx];
-  list[idx] = mergeSubscriptionRefresh(fresh, info, profiles);
+  const merged = mergeSubscriptionRefresh(fresh, info, profiles);
+  migrateRememberedSelection(id, fresh.profiles || [], merged.profiles || []);
+  list[idx] = merged;
   saveSubscriptions(list);
   return list[idx];
 }

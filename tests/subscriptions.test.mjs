@@ -31,11 +31,15 @@ globalThis.window = {
 };
 
 const {
+  assignStableNodeIds,
   detectAddInput,
   mergeSubscriptionRefresh,
+  refreshSubscription,
   saveSubscriptions,
   refreshAllSubscriptions,
 } = await import("/lib/subscriptions.js");
+const { nodeTag, parseLink } = await import("/lib/singbox.js");
+const { getRememberedProxySelection, rememberProxySelection } = await import("/lib/proxy-selection.js");
 
 test("refreshAllSubscriptions ограничивает concurrency и не валит общий refresh ошибкой одной подписки", async () => {
   const localStorage = makeStorage();
@@ -138,4 +142,42 @@ test("mergeSubscriptionRefresh не ломает legacy-подписку с upda
   assert.equal(merged.updateIntervalMode, "manual");
   assert.equal(merged.updateIntervalHours, 24);
   assert.equal(merged.serverUpdateIntervalHours, 6);
+});
+
+test("stableId переживает смену имени в raw-ссылке подписки", () => {
+  const previous = assignStableNodeIds([
+    parseLink("vless://uuid@example.com:443?security=tls#Москва"),
+  ], [], "s1");
+  const next = assignStableNodeIds([
+    parseLink("vless://uuid@example.com:443?security=tls#Рига"),
+  ], previous, "s1");
+
+  assert.equal(next[0].stableId, previous[0].stableId);
+  assert.equal(nodeTag(0, next[0]), nodeTag(0, previous[0]));
+});
+
+test("первый refresh legacy-подписки переносит сохранённый ручной выбор", async () => {
+  const localStorage = makeStorage();
+  globalThis.localStorage = localStorage;
+  const oldNode = parseLink("vless://uuid@example.com:443?security=tls#Москва");
+  const source = { kind: "sub", subscription: { id: "legacy" } };
+  saveSubscriptions([{
+    id: "legacy",
+    url: "https://sub.example/list",
+    name: "Legacy",
+    profiles: [oldNode],
+  }]);
+  const oldTag = nodeTag(0, oldNode);
+  rememberProxySelection(source, oldTag);
+
+  invokeHandler = async (cmd, { url }) => {
+    assert.equal(cmd, "fetch_subscription");
+    assert.equal(url, "https://sub.example/list");
+    return { status: 200, body: "vless://uuid@example.com:443?security=tls#Рига" };
+  };
+
+  const refreshed = await refreshSubscription("legacy");
+  const newTag = nodeTag(0, refreshed.profiles[0]);
+  assert.notEqual(newTag, oldTag);
+  assert.equal(getRememberedProxySelection(source), newTag);
 });
