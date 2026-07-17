@@ -78,6 +78,17 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
+          # WebView2 officially supports both the environment variable and this
+          # per-host registry policy. Hosted Windows runners ignored the inherited
+          # variable on the first attempt, so configure the documented fallback too.
+          $wvPolicy = "HKCU:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments"
+          New-Item -Path $wvPolicy -Force | Out-Null
+          $wvArgs = "--remote-debugging-port=9222 --remote-allow-origins=*"
+          New-ItemProperty -Path $wvPolicy -Name "ninety.exe" -Value $wvArgs -PropertyType String -Force | Out-Null
+          New-ItemProperty -Path $wvPolicy -Name "Ninety.exe" -Value $wvArgs -PropertyType String -Force | Out-Null
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $wvArgs
+          $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "NinetyReadmeWebView"
+
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           python scripts/capture-readme-screenshots.py `
             --app ./src-tauri/target/release/ninety.exe `
