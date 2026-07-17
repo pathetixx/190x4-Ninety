@@ -85,7 +85,9 @@ jobs:
           New-ItemProperty -Path $wvPolicy -Name "ninety.exe" -Value $wvArgs -PropertyType String -Force | Out-Null
           New-ItemProperty -Path $wvPolicy -Name "Ninety.exe" -Value $wvArgs -PropertyType String -Force | Out-Null
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $wvArgs
-          $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "NinetyReadmeWebView"
+          # Microsoft documents that WebView2 auto-connect expects the actual
+          # user-data directory ending in EBWebView, not its parent folder.
+          $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "NinetyReadmeWebView\EBWebView"
           Remove-Item -LiteralPath $env:WEBVIEW2_USER_DATA_FOLDER -Recurse -Force -ErrorAction SilentlyContinue
 
           $proxyOut = Join-Path $pwd "webview2-debug-proxy.log"
