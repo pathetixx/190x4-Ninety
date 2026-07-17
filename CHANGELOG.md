@@ -2,6 +2,13 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.34 — 2026-07-17
+
+- Sequential setup and removal operations now hand off cleanly: a new installation briefly waits for the final NSIS cleanup tail, while a genuinely concurrent installer is still rejected before file access.
+- The Windows production gate verifies both sides of this lifecycle—the overlapping OTA guard and an immediate clean reinstall after complete removal—alongside rollback and payload integrity.
+- Последовательные операции установки и удаления теперь корректно передают управление: новая установка кратко ждёт завершения финальной очистки NSIS, а действительно параллельный установщик по-прежнему отклоняется до обращения к файлам.
+- Production-гейт Windows проверяет обе стороны этого сценария: защиту от одновременного OTA-запуска и немедленную чистую переустановку после полного удаления, а также откат и целостность файлов.
+
 ## v0.2.33 — 2026-07-17
 
 - The Windows installer and uninstaller now share a valid single-operation guard and fail safely if it cannot be acquired, so a second setup process exits before inspecting or changing installed files.
