@@ -43,6 +43,12 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: src-tauri
+          shared-key: readme-screenshots
+
       - name: Install dependencies
         shell: pwsh
         run: |
@@ -68,19 +74,30 @@ jobs:
         run: npm run tauri build -- --no-bundle
 
       - name: Capture real WebView2 screens
+        id: capture
+        continue-on-error: true
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           python scripts/capture-readme-screenshots.py `
             --app ./src-tauri/target/release/ninety.exe `
             --output ./readme-screenshots `
-            --version $version
+            --version $version 2>&1 | Tee-Object -FilePath capture-readme.log
+          $captureExit = $LASTEXITCODE
+          New-Item -ItemType Directory -Force -Path readme-screenshots | Out-Null
+          Copy-Item -LiteralPath capture-readme.log -Destination readme-screenshots/capture.log -Force
+          exit $captureExit
 
-      - name: Upload screenshots for visual review
+      - name: Upload screenshots and diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: readme-screenshots-${{ github.sha }}
-          path: readme-screenshots/*.png
+          path: readme-screenshots/**
           if-no-files-found: error
           retention-days: 14
+
+      - name: Fail when capture failed
+        if: steps.capture.outcome != 'success'
+        shell: pwsh
+        run: throw "README screenshot capture failed; inspect the uploaded capture.log artifact"
