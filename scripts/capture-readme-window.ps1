@@ -18,12 +18,24 @@ using System.Text;
 public static class NinetyReadmeWin32 {
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT { public int Left, Top, Right, Bottom; }
-  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out RECT value, int size);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int command);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+  public static bool GetVisibleWindowRect(IntPtr hWnd, out RECT rect) {
+    const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+    int result = DwmGetWindowAttribute(
+      hWnd,
+      DWMWA_EXTENDED_FRAME_BOUNDS,
+      out rect,
+      Marshal.SizeOf(typeof(RECT))
+    );
+    if (result == 0) return true;
+    return GetWindowRect(hWnd, out rect);
+  }
   public static string ReadTitle(IntPtr hWnd) {
     var value = new StringBuilder(256);
     GetWindowText(hWnd, value, value.Capacity);
@@ -33,12 +45,17 @@ public static class NinetyReadmeWin32 {
 "@
 
 $workingArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$targetWidth = [Math]::Min(1100, $workingArea.Width)
-$targetHeight = [Math]::Min(720, $workingArea.Height)
+$baseWidth = 1100.0
+$baseHeight = 720.0
+$scale = [Math]::Min($workingArea.Width / $baseWidth, $workingArea.Height / $baseHeight)
+$targetWidth = [int][Math]::Floor($baseWidth * $scale)
+$targetHeight = [int][Math]::Floor($baseHeight * $scale)
+$targetLeft = $workingArea.Left + [int][Math]::Floor(($workingArea.Width - $targetWidth) / 2.0)
+$targetTop = $workingArea.Top + [int][Math]::Floor(($workingArea.Height - $targetHeight) / 2.0)
 if ($targetWidth -lt 1000 -or $targetHeight -lt 650) {
   throw "Windows work area is too small for README capture: $($workingArea.Width)x$($workingArea.Height)"
 }
-Write-Host "README capture work area: $($workingArea.Width)x$($workingArea.Height); window: ${targetWidth}x${targetHeight}"
+Write-Host "README capture work area: $($workingArea.Width)x$($workingArea.Height); window: ${targetWidth}x${targetHeight} at ${targetLeft},${targetTop}"
 
 $views = @("home", "nodes", "profiles", "dpi", "settings", "logs", "quality")
 $hashes = @{}
@@ -70,8 +87,8 @@ function Save-NinetyWindow([IntPtr]$Window, [string]$Name) {
   [NinetyReadmeWin32]::ShowWindow($Window, 9) | Out-Null
   [NinetyReadmeWin32]::MoveWindow(
     $Window,
-    $workingArea.Left,
-    $workingArea.Top,
+    $targetLeft,
+    $targetTop,
     $targetWidth,
     $targetHeight,
     $true
@@ -80,17 +97,17 @@ function Save-NinetyWindow([IntPtr]$Window, [string]$Name) {
   Start-Sleep -Milliseconds 650
 
   $rect = New-Object NinetyReadmeWin32+RECT
-  if (-not [NinetyReadmeWin32]::GetWindowRect($Window, [ref]$rect)) {
-    throw "GetWindowRect failed for ${Name}"
+  if (-not [NinetyReadmeWin32]::GetVisibleWindowRect($Window, [ref]$rect)) {
+    throw "Visible window bounds failed for ${Name}"
   }
   $width = $rect.Right - $rect.Left
   $height = $rect.Bottom - $rect.Top
   if ($width -lt 1000 -or $height -lt 650) {
-    throw "Unexpected Ninety window size for ${Name}: ${width}x${height}"
+    throw "Unexpected visible Ninety window size for ${Name}: ${width}x${height}"
   }
   if ($rect.Left -lt $workingArea.Left -or $rect.Top -lt $workingArea.Top -or
       $rect.Right -gt $workingArea.Right -or $rect.Bottom -gt $workingArea.Bottom) {
-    throw "Ninety window exceeds the work area for ${Name}: [$($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom)]"
+    throw "Visible Ninety window exceeds the work area for ${Name}: [$($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom)]"
   }
 
   if ($script:expectedWidth -eq 0) {
