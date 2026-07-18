@@ -70,6 +70,71 @@ fn answer_count(resp: &[u8]) -> u16 {
     u16::from_be_bytes([resp[6], resp[7]])
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct DnsQuestion {
+    labels: Vec<Vec<u8>>,
+    qtype: u16,
+    qclass: u16,
+}
+
+fn read_dns_name(message: &[u8], start: usize) -> Result<(Vec<Vec<u8>>, usize), String> {
+    let mut labels = Vec::new();
+    let mut cursor = start;
+    let mut consumed_end = None;
+    let mut visited = std::collections::HashSet::new();
+
+    loop {
+        if cursor >= message.len() || !visited.insert(cursor) {
+            return Err("невалидное или циклическое DNS-имя".into());
+        }
+        let len = message[cursor];
+        if len & 0xc0 == 0xc0 {
+            let next = *message
+                .get(cursor + 1)
+                .ok_or("обрезанный DNS compression pointer")?;
+            let pointer = (usize::from(len & 0x3f) << 8) | usize::from(next);
+            if pointer >= message.len() {
+                return Err("DNS compression pointer вне пакета".into());
+            }
+            consumed_end.get_or_insert(cursor + 2);
+            cursor = pointer;
+            continue;
+        }
+        if len & 0xc0 != 0 {
+            return Err("неподдерживаемый DNS label type".into());
+        }
+        cursor += 1;
+        if len == 0 {
+            return Ok((labels, consumed_end.unwrap_or(cursor)));
+        }
+        let label_len = usize::from(len);
+        if label_len > 63 {
+            return Err("DNS label длиннее 63 байт".into());
+        }
+        let end = cursor.checked_add(label_len).ok_or("DNS label overflow")?;
+        let label = message
+            .get(cursor..end)
+            .ok_or("обрезанный DNS label")?
+            .iter()
+            .map(|byte| byte.to_ascii_lowercase())
+            .collect();
+        labels.push(label);
+        cursor = end;
+    }
+}
+
+fn parse_dns_question(message: &[u8], start: usize) -> Result<DnsQuestion, String> {
+    let (labels, end) = read_dns_name(message, start)?;
+    let fields = message
+        .get(end..end + 4)
+        .ok_or("обрезанные DNS QTYPE/QCLASS")?;
+    Ok(DnsQuestion {
+        labels,
+        qtype: u16::from_be_bytes([fields[0], fields[1]]),
+        qclass: u16::from_be_bytes([fields[2], fields[3]]),
+    })
+}
+
 fn validate_dns_response(resp: &[u8], query: &[u8]) -> Result<(), String> {
     if resp.len() < 12 || query.len() < 17 {
         return Err("невалидный DNS-ответ (короткий пакет)".into());
@@ -86,14 +151,10 @@ fn validate_dns_response(resp: &[u8], query: &[u8]) -> Result<(), String> {
         return Err(format!("DNS-ответ содержит QDCOUNT={qdcount}, ожидался 1"));
     }
 
-    // Ответ должен эхо-нуть тот же question (QNAME/QTYPE/QCLASS). Одного ID мало:
-    // при повторном использовании сокета/запоздалом пакете можно получить ответ
-    // на другой hostname и ошибочно признать текущий direct-DNS рабочим.
-    let question = &query[12..];
-    let question_end = 12usize
-        .checked_add(question.len())
-        .ok_or_else(|| "DNS question overflow".to_string())?;
-    if resp.len() < question_end || resp[12..question_end] != *question {
+    // QNAME регистронезависим и может использовать wire compression.
+    // Сравниваем разобранные labels + числовые QTYPE/QCLASS, сохраняя
+    // защиту от ответа на другой hostname без ложных dead на валидное эхо.
+    if parse_dns_question(resp, 12)? != parse_dns_question(query, 12)? {
         return Err("DNS-ответ относится к другому question".into());
     }
 
@@ -352,6 +413,33 @@ mod tests {
         response = valid_response(&query);
         response[12] ^= 1;
         assert!(validate_dns_response(&response, &query).is_err());
+    }
+
+    #[test]
+    fn dns_question_comparison_is_case_insensitive() {
+        let query = build_dns_query("example.com").unwrap();
+        let mut response = valid_response(&query);
+        response[13..20].make_ascii_uppercase();
+        assert!(validate_dns_response(&response, &query).is_ok());
+    }
+
+    #[test]
+    fn dns_name_parser_supports_compression_pointers() {
+        let mut message = build_dns_query("example.com").unwrap();
+        let pointer_offset = message.len();
+        message.extend_from_slice(&[0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01]);
+        assert_eq!(
+            parse_dns_question(&message, pointer_offset).unwrap(),
+            parse_dns_question(&message, 12).unwrap()
+        );
+    }
+
+    #[test]
+    fn dns_name_parser_rejects_pointer_loops() {
+        let mut message = vec![0u8; 18];
+        message[12] = 0xc0;
+        message[13] = 0x0c;
+        assert!(parse_dns_question(&message, 12).is_err());
     }
 
     #[test]
