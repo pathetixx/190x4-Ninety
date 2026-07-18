@@ -88,6 +88,34 @@ export const THEMES = [
     accent: "#FF3355",
     glow: "rgba(255,45,70,0.45)",
   },
+  {
+    id: "kintsugi",
+    name: "Kintsugi Noir",
+    kicker: "LACQUER · GOLD",
+    accent: "#E84D5B",
+    glow: "rgba(232,77,91,0.38)",
+  },
+  {
+    id: "aurora",
+    name: "Aurora Glass",
+    kicker: "AURORA · GLASS",
+    accent: "#59F4E6",
+    glow: "rgba(89,244,230,0.42)",
+  },
+  {
+    id: "porcelain",
+    name: "Porcelain Zero",
+    kicker: "PORCELAIN · INK",
+    accent: "#C94246",
+    glow: "rgba(201,66,70,0.18)",
+  },
+  {
+    id: "titanium",
+    name: "Titanium Signal",
+    kicker: "TITANIUM · SIGNAL",
+    accent: "#4EB8FF",
+    glow: "rgba(78,184,255,0.34)",
+  },
 ];
 
 export function themeIds() {

@@ -1,0 +1,74 @@
+/* ═════════════════════════════════════════════════════════════
+   Shared premium material layer
+   ══════════════════════════════════════════════════════════════ */
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .sub-card,
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .tool-btn,
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .loc-card,
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .stats,
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .popover,
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .add-modal__card,
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .update-modal__card {
+  background: var(--premium-card);
+  border-color: var(--premium-border);
+  box-shadow: var(--premium-shadow);
+}
+
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .tool-btn:hover,
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .loc-card:hover {
+  background: var(--premium-card-hover);
+  border-color: color-mix(in srgb, var(--premium-border) 72%, var(--accent) 28%);
+}
+
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hero__disc {
+  background: var(--premium-disc);
+  border-color: var(--premium-border);
+  box-shadow:
+    0 0 0 1px var(--line-1) inset,
+    0 1px 0 var(--shine-2) inset,
+    0 26px 64px -26px var(--shadow-strong),
+    0 0 34px var(--accent-glow);
+}
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hero__mask {
+  filter: var(--premium-mask-idle);
+}
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hero[data-state="secured"] .hero__mask {
+  filter: var(--premium-mask-secured);
+}
+
+/* A second HUD material gives these themes a real identity instead of just a new hue. */
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hud__static > path:nth-of-type(even),
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hud__outer > line:nth-of-type(6n),
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hud__ticks > line:nth-of-type(10n) {
+  stroke: var(--premium-secondary);
+}
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hud__target {
+  fill: var(--premium-secondary);
+}
+
+/* Theme chooser previews: show the material, not only four accent-opacity dots. */
+.theme-card[data-theme="kintsugi"] {
+  background: linear-gradient(145deg, #1D1412, #080606 72%);
+  border-color: rgba(216,181,107,.26);
+}
+.theme-card[data-theme="kintsugi"] .theme-card__kicker { color: #D8B56B; }
+.theme-card[data-theme="aurora"] {
+  background: linear-gradient(145deg, #15344A, #061522 68%, #161B43);
+  border-color: rgba(151,225,255,.24);
+}
+.theme-card[data-theme="aurora"] .theme-card__kicker { color: #8EA7FF; }
+.theme-card[data-theme="porcelain"] {
+  background: linear-gradient(145deg, #FFFDF8, #E8E1D6);
+  border-color: rgba(55,46,39,.16);
+  color: #28231F;
+}
+.theme-card[data-theme="porcelain"] .theme-card__name { color: #28231F; }
+.theme-card[data-theme="porcelain"] .theme-card__kicker { color: #8A7046; }
+.theme-card[data-theme="titanium"] {
+  background:
+    linear-gradient(rgba(199,213,223,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(199,213,223,.035) 1px, transparent 1px),
+    linear-gradient(145deg, #26313B, #0B1117 72%);
+  background-size: 18px 18px, 18px 18px, auto;
+  border-color: rgba(199,213,223,.18);
+}
+.theme-card[data-theme="titanium"] .theme-card__kicker { color: #C7D5DF; }

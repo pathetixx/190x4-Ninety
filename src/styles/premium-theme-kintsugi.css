@@ -1,0 +1,80 @@
+/* ══════════════════════════════════════════════════════════════
+   KINTSUGI NOIR — black lacquer, champagne gold, crimson signal
+   ══════════════════════════════════════════════════════════════ */
+:root[data-theme="kintsugi"],
+.app[data-theme="kintsugi"] {
+  color-scheme: dark;
+  --ink-0: #050404;
+  --ink-1: #0C0909;
+  --ink-2: #171111;
+  --ink-3: #241818;
+  --ink-4: #332020;
+  --line-1: rgba(224, 197, 139, 0.055);
+  --line-2: rgba(224, 197, 139, 0.12);
+  --line-3: rgba(224, 197, 139, 0.22);
+  --overlay-1: rgba(255, 238, 205, 0.025);
+  --overlay-2: rgba(255, 238, 205, 0.05);
+  --overlay-3: rgba(255, 238, 205, 0.08);
+  --overlay-4: rgba(255, 238, 205, 0.13);
+  --shine-1: rgba(255, 235, 196, 0.06);
+  --shine-2: rgba(255, 235, 196, 0.13);
+  --shadow-strong: rgba(0, 0, 0, 0.82);
+  --text-hi: #F5EEE7;
+  --text-mid: #B9AA9D;
+  --text-lo: #786C64;
+  --text-faint: #4B403B;
+  --accent: #E84D5B;
+  --accent-bright: #FF7180;
+  --accent-deep: #7F202B;
+  --accent-soft: rgba(232, 77, 91, 0.14);
+  --accent-glow: rgba(232, 77, 91, 0.38);
+  --ok: #E84D5B;
+  --warn: #D8B56B;
+  --premium-secondary: #D8B56B;
+  --premium-status: #E5C887;
+  --premium-card: linear-gradient(180deg, rgba(31, 22, 20, 0.96), rgba(10, 8, 8, 0.98));
+  --premium-card-hover: linear-gradient(180deg, rgba(42, 28, 25, 0.98), rgba(15, 10, 10, 0.99));
+  --premium-disc: radial-gradient(circle at 50% 42%, #241A16 0%, #0E0A09 58%, #050404 100%);
+  --premium-border: rgba(216, 181, 107, 0.24);
+  --premium-shadow: 0 18px 48px -30px rgba(0, 0, 0, 0.94), inset 0 1px rgba(255, 235, 196, 0.06);
+  --premium-mask-idle: sepia(0.38) saturate(0.78) brightness(0.88) contrast(1.12);
+  --premium-mask-secured: sepia(0.48) saturate(0.88) brightness(1.02) contrast(1.1) drop-shadow(0 0 14px rgba(232, 77, 91, 0.28));
+  --sidebar-surface-top: #15100F;
+  --sidebar-surface-bottom: #070505;
+  --sidebar-row-start: #090707;
+  --sidebar-row-middle: #100C0B;
+  --sidebar-row-hover: #1A1211;
+  --sidebar-row-active: #2A1517;
+  --sidebar-border-soft: rgba(216, 181, 107, 0.09);
+  --sidebar-border-strong: rgba(216, 181, 107, 0.17);
+  --sidebar-text: #A99889;
+  --sidebar-text-active: #F5EEE7;
+  --sidebar-mark-filter: sepia(0.55) saturate(0.8) brightness(0.92) contrast(1.08) drop-shadow(0 8px 18px rgba(0,0,0,.8));
+  --edge-top: linear-gradient(180deg, rgba(255, 232, 190, 0.09) 0%, rgba(255, 232, 190, 0) 58%);
+}
+
+html[data-theme="kintsugi"] .app::before {
+  background:
+    linear-gradient(118deg, transparent 0 25%, rgba(216, 181, 107, 0.08) 25.12%, transparent 25.32% 100%),
+    linear-gradient(64deg, transparent 0 70%, rgba(216, 181, 107, 0.055) 70.12%, transparent 70.32% 100%),
+    radial-gradient(ellipse 76% 64% at 64% 116%, rgba(232, 77, 91, 0.12), transparent 68%),
+    radial-gradient(circle at 85% 12%, rgba(216, 181, 107, 0.055), transparent 25%),
+    #050404;
+}
+html[data-theme="kintsugi"] .app::after { opacity: 0.075; }
+html[data-theme="kintsugi"] .sidebar::before {
+  opacity: 0.42;
+  background:
+    linear-gradient(132deg, transparent 0 43%, rgba(216, 181, 107, 0.10) 43.15%, transparent 43.35%),
+    repeating-linear-gradient(115deg, transparent 0 39px, rgba(216, 181, 107, 0.025) 40px, transparent 41px 79px);
+}
+html[data-theme="kintsugi"] .nav__item--active {
+  background:
+    linear-gradient(90deg, rgba(88, 27, 34, 0.30), rgba(232, 77, 91, 0.12) 72%, rgba(216, 181, 107, 0.06)),
+    #130C0C;
+  border-color: rgba(216, 181, 107, 0.18);
+}
+html[data-theme="kintsugi"] .hero[data-state="secured"] .hero__title {
+  color: var(--premium-status);
+  text-shadow: 0 0 18px rgba(216, 181, 107, 0.18), 0 0 42px rgba(232, 77, 91, 0.12);
+}

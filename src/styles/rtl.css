@@ -1,3 +1,5 @@
+@import url("/styles/premium-themes.css");
+
 /* Ninety · RTL — зеркала под [dir="rtl"] (fa/ar). Грузится последним.
    Направленческая вёрстка вынесена в логические свойства (inset-inline-*, margin/
    padding/border-inline-*, text-align:start/end) прямо в каталогах стилей — они
