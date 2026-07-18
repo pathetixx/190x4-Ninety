@@ -15,6 +15,8 @@
 use std::time::Duration;
 use tokio::net::UdpSocket;
 
+const MAX_DOH_RESPONSE_BYTES: usize = 64 * 1024;
+
 // Собирает DNS A-query wire-packet для host. id фиксирован — проба не
 // конкурентная, на один запрос один сокет/клиент.
 fn build_dns_query(host: &str) -> Vec<u8> {
@@ -184,7 +186,7 @@ async fn probe_doh(url: &str, query: &[u8], timeout: Duration) -> Result<(), Str
     if !status.is_success() {
         return Err(format!("HTTP {status}"));
     }
-    let body = resp.bytes().await.map_err(|e| format!("body: {e}"))?;
+    let body = crate::util::read_response_capped(resp, MAX_DOH_RESPONSE_BYTES, "DoH").await?;
     validate_dns_response(&body, query)
 }
 
