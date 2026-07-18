@@ -32,6 +32,7 @@ const MAX_SAMPLE_BYTES: u64 = 4 * 1024 * 1024;
 const MIN_BUDGET_MS: u64 = 500;
 const MAX_BUDGET_MS: u64 = 15_000;
 const MAX_ENDPOINTS: usize = 8;
+const MAX_REDIRECTS: usize = 3;
 
 #[derive(Serialize)]
 pub struct ProbeResult {
@@ -100,6 +101,31 @@ fn validate_endpoints(endpoints: Vec<String>) -> Result<Vec<String>, String> {
         .collect()
 }
 
+fn redirect_target_allowed(initial: &reqwest::Url, target: &reqwest::Url) -> bool {
+    initial.scheme() == "https"
+        && target.scheme() == "https"
+        && initial.host_str() == target.host_str()
+        && initial.port_or_known_default() == target.port_or_known_default()
+        && target.username().is_empty()
+        && target.password().is_none()
+}
+
+fn quality_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        let Some(initial) = attempt.previous().first() else {
+            return attempt.stop();
+        };
+        if attempt.previous().len() > MAX_REDIRECTS {
+            return attempt.stop();
+        }
+        if redirect_target_allowed(initial, attempt.url()) {
+            attempt.follow()
+        } else {
+            attempt.stop()
+        }
+    })
+}
+
 // Клиент пробы. port=Some(p>0) → через mixed-inbound (proxy/systemProxy);
 // иначе direct (tun — трафик и так в туннеле). БЕЗ общего .timeout(): тело
 // стримим до budget_ms вручную, иначе reqwest оборвёт долгую (но живую) выборку
@@ -107,6 +133,11 @@ fn validate_endpoints(endpoints: Vec<String>) -> Result<Vec<String>, String> {
 fn build_client(port: Option<u16>) -> Result<reqwest::Client, String> {
     let mut b = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
+        // Проверка исходного endpoint бессмысленна, если reqwest затем молча
+        // уйдёт по Location на HTTP или другой origin. Разрешаем только короткую
+        // same-origin HTTPS-цепочку; запрещённый redirect останется 3xx и проба
+        // корректно перейдёт к следующему endpoint.
+        .redirect(quality_redirect_policy())
         .no_gzip(); // считаем сырые байты на проводе, не распакованные
     if let Some(p) = port {
         if p > 0 {
@@ -304,5 +335,30 @@ mod tests {
         assert!(validate_endpoints(vec!["file:///etc/passwd".into()]).is_err());
         assert!(validate_endpoints(vec!["https://user:pass@example.com/file".into()]).is_err());
         assert!(validate_endpoints(vec!["https://example.com".into(); MAX_ENDPOINTS + 1]).is_err());
+    }
+
+    #[test]
+    fn redirects_stay_on_the_same_https_origin() {
+        let initial = reqwest::Url::parse("https://example.com/probe").unwrap();
+        assert!(redirect_target_allowed(
+            &initial,
+            &reqwest::Url::parse("https://example.com/next").unwrap()
+        ));
+        assert!(!redirect_target_allowed(
+            &initial,
+            &reqwest::Url::parse("http://example.com/next").unwrap()
+        ));
+        assert!(!redirect_target_allowed(
+            &initial,
+            &reqwest::Url::parse("https://other.example/next").unwrap()
+        ));
+        assert!(!redirect_target_allowed(
+            &initial,
+            &reqwest::Url::parse("https://example.com:444/next").unwrap()
+        ));
+        assert!(!redirect_target_allowed(
+            &initial,
+            &reqwest::Url::parse("https://user@example.com/next").unwrap()
+        ));
     }
 }
