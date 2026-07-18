@@ -139,9 +139,7 @@ fn valid_snapshot_str(raw: &str) -> bool {
 
 fn validate_snapshot_for_save(raw: &str) -> Result<(), String> {
     if raw.len() > MAX_SNAPSHOT_BYTES {
-        return Err(format!(
-            "state backup exceeds {MAX_SNAPSHOT_BYTES} bytes"
-        ));
+        return Err(format!("state backup exceeds {MAX_SNAPSHOT_BYTES} bytes"));
     }
     if !valid_snapshot_str(raw) {
         return Err("state backup snapshot is invalid".into());
