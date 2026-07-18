@@ -41,25 +41,30 @@ function snapshot({ includeUpdateResume = false } = {}) {
 }
 
 let backupInFlight = Promise.resolve();
+// Включается только ПОСЛЕ успешной записи строгого OTA-снимка. Само наличие
+// resume-маркера ещё не означает, что такой снимок уже существует: updater
+// сначала пишет marker в localStorage, затем вызывает backupForUpdate().
+let otaSnapshotProtected = false;
 
 export function backupNow({ includeUpdateResume = false, strict = false } = {}) {
   // Каждая заявка получает собственный Promise: OTA не начнёт установку, пока
   // именно её снимок не записан после возможного обычного бэкапа в очереди.
   backupInFlight = backupInFlight.catch(() => {}).then(async () => {
-    // Пока жив OTA-журнал, обычные debounce/periodic backup не имеют права
-    // перезаписать строгий снимок версией без ninety.update.resume. После
-    // подтверждённого RuntimeReady main.js удаляет журнал — фоновые записи
-    // автоматически возобновляются без отдельного lock/unlock API.
-    if (!includeUpdateResume) {
-      try {
-        if (localStorage.getItem(STORAGE_KEYS.updateResume) != null) return;
-      } catch {}
+    if (!includeUpdateResume && otaSnapshotProtected) {
+      let resumePending = false;
+      try { resumePending = localStorage.getItem(STORAGE_KEYS.updateResume) != null; } catch {}
+      // Пока жив OTA-журнал, debounce/periodic backup не имеет права перезаписать
+      // уже подтверждённый строгий снимок версией без ninety.update.resume.
+      if (resumePending) return;
+      // RuntimeReady удалил журнал: фоновые снимки снова разрешены.
+      otaSnapshotProtected = false;
     }
     const snap = snapshot({ includeUpdateResume });
     // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой.
     if (!snap) return;
     try {
       await invoke("state_backup_save", { json: JSON.stringify(snap) });
+      if (includeUpdateResume) otaSnapshotProtected = true;
     } catch (e) {
       console.warn("state backup failed", e);
       // Фоновые снимки остаются best-effort, но OTA обязан остановиться до
