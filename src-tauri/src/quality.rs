@@ -33,6 +33,13 @@ const MIN_BUDGET_MS: u64 = 500;
 const MAX_BUDGET_MS: u64 = 15_000;
 const MAX_ENDPOINTS: usize = 8;
 const MAX_REDIRECTS: usize = 3;
+const ALLOWED_QUALITY_HOSTS: &[&str] = &["speed.cloudflare.com"];
+
+fn quality_host_allowed(host: &str) -> bool {
+    ALLOWED_QUALITY_HOSTS
+        .iter()
+        .any(|allowed| host.eq_ignore_ascii_case(allowed))
+}
 
 #[derive(Serialize)]
 pub struct ProbeResult {
@@ -95,6 +102,12 @@ fn validate_endpoints(endpoints: Vec<String>) -> Result<Vec<String>, String> {
             }
             if !parsed.username().is_empty() || parsed.password().is_some() {
                 return Err("quality endpoint credentials are not allowed".into());
+            }
+            let host = parsed
+                .host_str()
+                .ok_or("quality endpoint host is missing")?;
+            if !quality_host_allowed(host) {
+                return Err(format!("quality endpoint host is not allowed: {host}"));
             }
             Ok(endpoint.to_string())
         })
@@ -334,7 +347,23 @@ mod tests {
         assert!(validate_endpoints(vec!["http://example.com/file".into()]).is_err());
         assert!(validate_endpoints(vec!["file:///etc/passwd".into()]).is_err());
         assert!(validate_endpoints(vec!["https://user:pass@example.com/file".into()]).is_err());
-        assert!(validate_endpoints(vec!["https://example.com".into(); MAX_ENDPOINTS + 1]).is_err());
+        assert!(validate_endpoints(vec!["https://127.0.0.1/probe".into()]).is_err());
+        assert!(validate_endpoints(vec!["https://localhost/probe".into()]).is_err());
+        assert!(validate_endpoints(vec!["https://192.168.1.1/probe".into()]).is_err());
+        assert!(validate_endpoints(vec!["https://example.com/file".into()]).is_err());
+        assert!(validate_endpoints(vec![
+            "https://speed.cloudflare.com".into();
+            MAX_ENDPOINTS + 1
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn quality_host_allowlist_is_exact_and_case_insensitive() {
+        assert!(quality_host_allowed("speed.cloudflare.com"));
+        assert!(quality_host_allowed("SPEED.CLOUDFLARE.COM"));
+        assert!(!quality_host_allowed("localhost"));
+        assert!(!quality_host_allowed("speed.cloudflare.com.evil.example"));
     }
 
     #[test]
