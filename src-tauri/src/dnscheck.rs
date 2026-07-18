@@ -16,6 +16,8 @@ use rand_core::{OsRng, RngCore};
 use std::time::Duration;
 use tokio::net::UdpSocket;
 
+const MAX_DOH_RESPONSE_BYTES: usize = 64 * 1024;
+
 // Собирает DNS A-query wire-packet для host. Transaction ID случайный: фиксированный
 // ID позволял постороннему/запоздалому UDP-пакету предсказуемо пройти первую проверку.
 fn build_dns_query(host: &str) -> Result<Vec<u8>, String> {
@@ -230,7 +232,7 @@ async fn probe_doh(url: &str, query: &[u8], timeout: Duration) -> Result<(), Str
     if !status.is_success() {
         return Err(format!("HTTP {status}"));
     }
-    let body = resp.bytes().await.map_err(|e| format!("body: {e}"))?;
+    let body = crate::util::read_response_capped(resp, MAX_DOH_RESPONSE_BYTES, "DoH").await?;
     validate_dns_response(&body, query)
 }
 

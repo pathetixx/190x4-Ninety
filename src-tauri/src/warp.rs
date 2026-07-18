@@ -21,6 +21,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 const CF_API_BASE: &str = "https://api.cloudflareclient.com/v0a2158";
 const CF_UA: &str = "okhttp/3.12.1";
 const CF_CLIENT_VERSION: &str = "a-6.10-2158";
+const MAX_CF_API_RESPONSE_BYTES: usize = 1024 * 1024;
 static WARP_OPERATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -223,7 +224,8 @@ async fn cf_register(public_key_b64: &str) -> Result<CfRegResp, String> {
         .await
         .map_err(|e| format!("cf reg: {e}"))?;
     let status = resp.status();
-    let text = resp.text().await.unwrap_or_default();
+    let text =
+        crate::util::read_response_text_capped(resp, MAX_CF_API_RESPONSE_BYTES, "cf reg").await?;
     if !status.is_success() {
         return Err(format!("cf reg {}: {}", status, text));
     }
@@ -246,7 +248,8 @@ async fn cf_patch_account(
         .await
         .map_err(|e| format!("cf patch: {e}"))?;
     let status = resp.status();
-    let text = resp.text().await.unwrap_or_default();
+    let text =
+        crate::util::read_response_text_capped(resp, MAX_CF_API_RESPONSE_BYTES, "cf patch").await?;
     if !status.is_success() {
         return Err(format!("cf patch {}: {}", status, text));
     }
@@ -262,15 +265,14 @@ async fn cf_delete(id: &str, token: &str) -> Result<(), String> {
         .send()
         .await
         .map_err(|e| format!("cf delete: {e}"))?;
+    let status = resp.status();
     // 204 No Content / 200 ok / 404 (уже удалён) — всё считаем успехом
-    if resp.status().is_success() || resp.status() == 404 {
+    if status.is_success() || status == 404 {
         return Ok(());
     }
-    Err(format!(
-        "cf delete {}: {}",
-        resp.status(),
-        resp.text().await.unwrap_or_default()
-    ))
+    let text = crate::util::read_response_text_capped(resp, MAX_CF_API_RESPONSE_BYTES, "cf delete")
+        .await?;
+    Err(format!("cf delete {}: {}", status, text))
 }
 
 /// Регистрирует новое WARP-устройство. license=None — бесплатный WARP, при
