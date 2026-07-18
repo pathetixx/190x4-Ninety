@@ -16,6 +16,7 @@ function makeStorage() {
 const localStorage = makeStorage();
 const sessionStorage = makeStorage();
 let savedSnapshot = null;
+let saveCalls = 0;
 
 globalThis.localStorage = localStorage;
 globalThis.sessionStorage = sessionStorage;
@@ -24,6 +25,7 @@ globalThis.window = {
     core: {
       invoke: async (cmd, args) => {
         if (cmd === "state_backup_save") {
+          saveCalls++;
           savedSnapshot = args.json;
           return;
         }
@@ -35,6 +37,18 @@ globalThis.window = {
 };
 
 const { backupForUpdate, backupNow, restoreIfEmpty, validateSnapshot } = await import("/lib/state-backup.js");
+
+test("пустой localStorage не перетирает существующий дисковый снимок", async () => {
+  localStorage.clear();
+  sessionStorage.clear();
+  savedSnapshot = "preserved-backup";
+  const before = saveCalls;
+
+  await backupNow();
+
+  assert.equal(saveCalls, before);
+  assert.equal(savedSnapshot, "preserved-backup");
+});
 
 test("OTA-снимок возвращает активный профиль и resume-маркер", async () => {
   localStorage.clear();
