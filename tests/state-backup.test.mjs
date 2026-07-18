@@ -38,7 +38,13 @@ globalThis.window = {
   },
 };
 
-const { backupForUpdate, backupNow, restoreIfEmpty, validateSnapshot } = await import("/lib/state-backup.js");
+const {
+  backupForUpdate,
+  backupNow,
+  restoreIfEmpty,
+  unwrapSnapshotEnvelope,
+  validateSnapshot,
+} = await import("/lib/state-backup.js");
 
 test("обычный backup остаётся best-effort, а OTA backup пробрасывает ошибку записи", async () => {
   localStorage.clear();
@@ -110,6 +116,19 @@ test("дисковый снимок сохраняет активный исто
   assert.equal(localStorage.getItem("ninety.subscriptions.active"), "sub-last");
   assert.equal(JSON.parse(localStorage.getItem("ninety.proxy.selection.v1"))["sub:sub-last"], "node-last");
   assert.equal(localStorage.getItem("ninety.dpi.enabled"), "true");
+});
+
+test("backup envelope принимает только object в поле keys", () => {
+  const keys = {
+    __schemaVersion: 2,
+    "ninety.options.v1": "{}",
+    "ninety.profiles.v1": "[]",
+    "ninety.subscriptions.v1": "[]",
+  };
+  assert.equal(unwrapSnapshotEnvelope(keys), keys);
+  assert.equal(unwrapSnapshotEnvelope({ keys }), keys);
+  assert.equal(unwrapSnapshotEnvelope({ keys: [] }), null);
+  assert.equal(unwrapSnapshotEnvelope({ keys: "invalid" }), null);
 });
 
 test("partial/corrupt backup отклоняется до записи", () => {

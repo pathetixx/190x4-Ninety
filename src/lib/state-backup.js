@@ -84,6 +84,13 @@ export function backupSoon(delayMs = 5000) {
   backupTimer = setTimeout(() => { backupTimer = null; backupNow(); }, delayMs);
 }
 
+export function unwrapSnapshotEnvelope(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return parsed;
+  if (!Object.prototype.hasOwnProperty.call(parsed, "keys")) return parsed;
+  const keys = parsed.keys;
+  return keys && typeof keys === "object" && !Array.isArray(keys) ? keys : null;
+}
+
 // true → ключи восстановлены; вызывающий делает location.reload(), чтобы все
 // модули перечитали localStorage с нуля (тема/язык/опции читаются при загрузке).
 export async function restoreIfEmpty() {
@@ -99,7 +106,7 @@ export async function restoreIfEmpty() {
   if (!raw) return false;
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return false; }
-  const snap = parsed?.keys && typeof parsed.keys === "object" ? parsed.keys : parsed;
+  const snap = unwrapSnapshotEnvelope(parsed);
   if (!validateSnapshot(snap)) return false;
   const entries = Object.entries(snap).filter(([k, v]) =>
     !k.startsWith("__")
