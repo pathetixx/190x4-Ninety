@@ -51,9 +51,8 @@ pub async fn read_response_capped(
         .await
         .map_err(|e| format!("{label}: body read: {e}"))?
     {
-        let next = checked_body_len(body.len(), chunk.len(), max_bytes)
+        checked_body_len(body.len(), chunk.len(), max_bytes)
             .map_err(|e| format!("{label}: {e}"))?;
-        body.reserve(next.saturating_sub(body.capacity()));
         body.extend_from_slice(&chunk);
     }
     Ok(body)
