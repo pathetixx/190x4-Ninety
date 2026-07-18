@@ -856,10 +856,7 @@ mod tests {
         };
         assert_eq!(rollback.settings, immediate);
         assert_ne!(rollback.settings, original);
-        assert_eq!(
-            rollback.active_server.as_deref(),
-            Some("127.0.0.1:7890")
-        );
+        assert_eq!(rollback.active_server.as_deref(), Some("127.0.0.1:7890"));
         assert!(rollback.had_saved_snapshot);
     }
 
