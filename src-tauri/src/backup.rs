@@ -63,8 +63,9 @@ pub fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
 fn snapshot_keys(value: &serde_json::Value) -> Option<&serde_json::Map<String, serde_json::Value>> {
     let root = value.as_object()?;
     match root.get("keys") {
+        None => Some(root),
         Some(serde_json::Value::Object(keys)) => Some(keys),
-        _ => Some(root),
+        Some(_) => None,
     }
 }
 
@@ -241,6 +242,19 @@ mod tests {
         })
         .to_string();
         assert!(valid_snapshot_json(wrapped).is_some());
+    }
+
+    #[test]
+    fn malformed_keys_wrapper_is_rejected() {
+        let wrapped = serde_json::json!({
+            "keys": [],
+            "__schemaVersion": 2,
+            "ninety.options.v1": "{}",
+            "ninety.profiles.v1": "[]",
+            "ninety.subscriptions.v1": "[]"
+        })
+        .to_string();
+        assert!(valid_snapshot_json(wrapped).is_none());
     }
 
     #[test]
