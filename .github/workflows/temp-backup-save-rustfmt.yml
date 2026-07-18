@@ -1,0 +1,28 @@
+name: Temporary backup save rustfmt
+
+on:
+  push:
+    branches: [agent/backup-save-validation]
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/backup-save-validation
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml
+      - run: rm .github/workflows/temp-backup-save-rustfmt.yml .github/.backup-save-fmt-trigger
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src-tauri/src/backup.rs .github/workflows/temp-backup-save-rustfmt.yml .github/.backup-save-fmt-trigger
+          git commit -m "style: format backup save validation"
+          git push origin HEAD:agent/backup-save-validation
