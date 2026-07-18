@@ -4,6 +4,8 @@
 use serde_json::Value;
 use std::sync::OnceLock;
 
+const MAX_IP_RESPONSE_BYTES: usize = 64 * 1024;
+
 // Секрет clash-API: генерируется один раз за жизнь процесса, инжектится в
 // конфиг sing-box (vpn::harden_config) и отправляется в каждом запросе как
 // Bearer. Без него любой локальный процесс мог бы рулить ядром через 9090
@@ -140,8 +142,19 @@ pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
             let c = c.clone();
             async move {
                 tokio::time::sleep(std::time::Duration::from_millis(STAGGER_MS * i as u64)).await;
-                let v = c.get(url).send().await.ok()?.json::<Value>().await.ok()?;
-                normalize_ip(&v)
+                let response = c.get(url).send().await.ok()?;
+                if !response.status().is_success() {
+                    return None;
+                }
+                let body = crate::util::read_response_capped(
+                    response,
+                    MAX_IP_RESPONSE_BYTES,
+                    "public IP provider",
+                )
+                .await
+                .ok()?;
+                let value = serde_json::from_slice::<Value>(&body).ok()?;
+                normalize_ip(&value)
             }
         })
         .collect();
