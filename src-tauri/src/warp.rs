@@ -224,12 +224,8 @@ async fn cf_register(public_key_b64: &str) -> Result<CfRegResp, String> {
         .await
         .map_err(|e| format!("cf reg: {e}"))?;
     let status = resp.status();
-    let text = crate::util::read_response_text_capped(
-        resp,
-        MAX_CF_API_RESPONSE_BYTES,
-        "cf reg",
-    )
-    .await?;
+    let text =
+        crate::util::read_response_text_capped(resp, MAX_CF_API_RESPONSE_BYTES, "cf reg").await?;
     if !status.is_success() {
         return Err(format!("cf reg {}: {}", status, text));
     }
@@ -252,12 +248,8 @@ async fn cf_patch_account(
         .await
         .map_err(|e| format!("cf patch: {e}"))?;
     let status = resp.status();
-    let text = crate::util::read_response_text_capped(
-        resp,
-        MAX_CF_API_RESPONSE_BYTES,
-        "cf patch",
-    )
-    .await?;
+    let text =
+        crate::util::read_response_text_capped(resp, MAX_CF_API_RESPONSE_BYTES, "cf patch").await?;
     if !status.is_success() {
         return Err(format!("cf patch {}: {}", status, text));
     }
@@ -278,12 +270,8 @@ async fn cf_delete(id: &str, token: &str) -> Result<(), String> {
     if status.is_success() || status == 404 {
         return Ok(());
     }
-    let text = crate::util::read_response_text_capped(
-        resp,
-        MAX_CF_API_RESPONSE_BYTES,
-        "cf delete",
-    )
-    .await?;
+    let text = crate::util::read_response_text_capped(resp, MAX_CF_API_RESPONSE_BYTES, "cf delete")
+        .await?;
     Err(format!("cf delete {}: {}", status, text))
 }
 
