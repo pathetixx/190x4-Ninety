@@ -720,7 +720,13 @@ pub fn run() {
                     // Реальная запись через production-path helper: ловит и
                     // случайный AppData, и DPAPI, который сделал бы Full
                     // Portable нечитаемым после переноса на другой ПК.
-                    backup::state_backup_save(app.handle().clone(), "{}".into())?;
+                    let smoke_snapshot = serde_json::json!({
+                        "__schemaVersion": 2,
+                        "ninety.options.v1": "{}",
+                        "ninety.profiles.v1": "[]",
+                        "ninety.subscriptions.v1": "[]"
+                    });
+                    backup::state_backup_save(app.handle().clone(), smoke_snapshot.to_string())?;
                     let snapshot = std::fs::read(
                         app_paths::portable_root()?
                             .join("config")
