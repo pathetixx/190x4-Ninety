@@ -4,6 +4,7 @@
 import { t } from "/lib/i18n/index.js";
 
 const SKIP_KEY = "ninety.update.skip";
+const RESUME_KEY = "ninety.update.resume";
 const RELEASE_BASE_URL = "https://github.com/pathetixx/190x4-Ninety/releases/tag";
 
 export function portableReleaseUrl(version) {
@@ -25,16 +26,50 @@ export function buildUpdateJournal({ targetVersion, stage, sourceFingerprint, mo
 
 export function persistUpdateJournal(journal, storage = localStorage) {
   const encoded = JSON.stringify(journal);
-  storage.setItem("ninety.update.resume", encoded);
-  if (storage.getItem("ninety.update.resume") !== encoded) {
+  storage.setItem(RESUME_KEY, encoded);
+  if (storage.getItem(RESUME_KEY) !== encoded) {
     throw new Error("OTA resume journal verification failed");
   }
   return encoded;
 }
 
-export function resumeRuntimeReady(resume, { vpnReady, dpiReady }) {
+export function clearUpdateJournal(storage = localStorage) {
+  storage.removeItem(RESUME_KEY);
+  if (storage.getItem(RESUME_KEY) !== null) {
+    throw new Error("OTA resume journal cleanup verification failed");
+  }
+}
+
+export function resumeRuntimeReady(resume, { vpnReady, dpiReady }, storage = globalThis.localStorage) {
   const desired = resume?.schemaVersion === 2 ? resume.desired : resume;
-  return (!desired?.vpn || vpnReady === true) && (!desired?.dpi || dpiReady === true);
+  const ready = (!desired?.vpn || vpnReady === true) && (!desired?.dpi || dpiReady === true);
+  if (!ready || !storage) return ready;
+  try {
+    if (storage.getItem(RESUME_KEY) != null) clearUpdateJournal(storage);
+    return true;
+  } catch (e) {
+    console.warn("OTA resume journal cleanup failed", e);
+    return false;
+  }
+}
+
+export async function updateRecoveryRequired(journal, invoke, runtimeStopAttempted = false) {
+  if (!journal || !runtimeStopAttempted || typeof invoke !== "function") return false;
+  const desired = journal?.schemaVersion === 2 ? journal.desired : journal;
+  try {
+    const snapshot = desired?.vpn ? await invoke("runtime_snapshot") : null;
+    const vpnReady = !desired?.vpn || (
+      snapshot?.running === true
+      && snapshot?.clashReady !== false
+      && snapshot?.sidecars?.xray !== "died"
+      && snapshot?.sidecars?.clients !== "died"
+    );
+    const dpiReady = !desired?.dpi || !!(await invoke("dpi_running"));
+    return !(vpnReady && dpiReady);
+  } catch {
+    // После начатой остановки неизвестное состояние нельзя выдавать за рабочее.
+    return true;
+  }
 }
 
 function $(id) { return document.getElementById(id); }
@@ -200,8 +235,9 @@ export function openUpdateModal(update, opts = {}) {
       let vpnWasOn = false;
       if (invoke) { try { vpnWasOn = !!(await invoke("singbox_running")); } catch {} }
       let journal = null;
+      let runtimeStopAttempted = false;
       const journalAttempt = (() => {
-        try { return (Number(JSON.parse(localStorage.getItem("ninety.update.resume") || "null")?.attempts) || 0) + 1; }
+        try { return (Number(JSON.parse(localStorage.getItem(RESUME_KEY) || "null")?.attempts) || 0) + 1; }
         catch { return 1; }
       })();
       const writeResume = (stage) => {
@@ -218,6 +254,33 @@ export function openUpdateModal(update, opts = {}) {
         persistUpdateJournal(journal);
       };
 
+      const recoverOrCloseJournal = async (error) => {
+        if (!journal) return false;
+        const needsRecovery = await updateRecoveryRequired(journal, invoke, runtimeStopAttempted);
+        if (!needsRecovery) {
+          clearUpdateJournal();
+          return true;
+        }
+
+        // Recovery получает journal аргументом, поэтому marker можно закрыть до
+        // хука. Тогда main.js::markUpdateRuntimeReady зафиксирует его отсутствие
+        // через state-backup. При провале recovery marker возвращаем.
+        let markerCleared = false;
+        try {
+          clearUpdateJournal();
+          markerCleared = true;
+        } catch (clearError) {
+          console.warn("OTA resume journal pre-recovery cleanup failed", clearError);
+        }
+        let recovered = false;
+        try { recovered = (await opts.onRecovery?.(journal, error)) === true; }
+        catch (recoveryError) { console.warn("update recovery failed", recoveryError); }
+        if (!recovered && markerCleared) persistUpdateJournal(journal);
+        if (!recovered) return false;
+        try { return localStorage.getItem(RESUME_KEY) === null; }
+        catch { return false; }
+      };
+
       // Гасим ядра ПЕРЕД установкой, но ПОСЛЕ скачивания: разлоченные бинарники
       // нужны NSIS только на этапе install, а пока качаем — туннель жив (и
       // download через check({proxy}) идёт по нему; гасить раньше = качать
@@ -228,6 +291,7 @@ export function openUpdateModal(update, opts = {}) {
       const stopEngines = async () => {
         opts.onBeforeRuntimeStop?.();
         if (!invoke) return null;
+        runtimeStopAttempted = true;
         const result = await invoke("stop_singbox");
         if (!result || result.portsReleased === false
           || result.processesExited === false
@@ -301,7 +365,7 @@ export function openUpdateModal(update, opts = {}) {
           console.warn("relaunch failed, running recovery", e);
           writeResume("relaunch_failed");
           let recovered = false;
-          try { recovered = (await opts.onRecovery?.(journal, e)) === true; }
+          try { recovered = await recoverOrCloseJournal(e); }
           catch (recoveryError) { console.warn("relaunch recovery failed", recoveryError); }
           installing = false;
           opts.onInstalling?.(false);
@@ -326,9 +390,10 @@ export function openUpdateModal(update, opts = {}) {
         installBtn.addEventListener("click", close, { once: true });
       } catch (e) {
         console.error("update failed", e);
-        // Journal сохраняется до подтверждённого RuntimeReady: при ошибке
-        // восстанавливаем сессию сейчас либо честно остаёмся выключенными.
-        try { await opts.onRecovery?.(journal, e); } catch (recoveryError) {
+        // До остановки runtime рабочую сессию не трогаем и закрываем только
+        // незавершённый OTA marker. После начатого stop recovery запускается лишь
+        // когда желаемые движки реально уже не готовы.
+        try { await recoverOrCloseJournal(e); } catch (recoveryError) {
           console.warn("update recovery failed", recoveryError);
         }
         installing = false;
