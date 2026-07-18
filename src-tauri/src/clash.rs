@@ -1,4 +1,4 @@
-// Тонкий клиент к sing-box clash-API на 127.0.0.1:9090.
+// Тонкий клиент к sing-box clash-API на 127.0.0.1.
 // Через Rust, чтобы избежать CORS-ограничений WebView2.
 
 use serde_json::Value;
@@ -185,33 +185,37 @@ fn base(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
-fn clash_port_from_config(raw: &str) -> Option<u16> {
-    serde_json::from_str::<Value>(raw)
-        .ok()?
-        .pointer("/experimental/clash_api/external_controller")?
-        .as_str()?
-        .rsplit(':')
-        .next()?
-        .parse()
-        .ok()
-}
-
-fn configured_clash_port(app: &tauri::AppHandle) -> Result<u16, String> {
-    let path = crate::app_paths::config_dir(app)?.join("singbox-current.json");
-    let raw = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Clash API runtime config unavailable: {e}"))?;
-    clash_port_from_config(&raw).ok_or_else(|| "Clash API port missing in runtime config".into())
-}
-
-fn validate_clash_port(app: &tauri::AppHandle, port: u16) -> Result<(), String> {
-    let active = configured_clash_port(app)?;
-    if active == port {
-        Ok(())
-    } else {
-        Err(format!(
-            "Clash API port mismatch: active={active}, requested={port}"
-        ))
+fn validate_clash_snapshot(snapshot: &Value, port: u16) -> Result<(), String> {
+    if snapshot.get("running").and_then(Value::as_bool) != Some(true) {
+        return Err("Clash API runtime is not running".into());
     }
+    if snapshot.get("clashReady").and_then(Value::as_bool) != Some(true) {
+        return Err("Clash API runtime is not ready".into());
+    }
+    let active = snapshot
+        .get("clashPort")
+        .and_then(Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+        .ok_or("Clash API port missing in live runtime")?;
+    if active != port {
+        return Err(format!(
+            "Clash API port mismatch: active={active}, requested={port}"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_clash_port(
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
+    port: u16,
+) -> Result<(), String> {
+    // Источник истины — RuntimeRecord в памяти vpn.rs, а не последний файл
+    // singbox-current.json: файл может остаться после stop или исчезнуть при
+    // живой сессии. Сериализация обходит приватные поля RuntimeSnapshot.
+    let snapshot = serde_json::to_value(crate::vpn::runtime_snapshot(state, kill_switch))
+        .map_err(|e| format!("Clash API runtime snapshot: {e}"))?;
+    validate_clash_snapshot(&snapshot, port)
 }
 
 async fn json_response(
@@ -246,8 +250,12 @@ pub(crate) async fn clash_get_proxies_unchecked(port: u16) -> Result<Value, Stri
 }
 
 #[tauri::command]
-pub async fn clash_get_proxies(app: tauri::AppHandle, port: u16) -> Result<Value, String> {
-    validate_clash_port(&app, port)?;
+pub async fn clash_get_proxies(
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
+    port: u16,
+) -> Result<Value, String> {
+    validate_clash_port(state, kill_switch, port)?;
     clash_get_proxies_unchecked(port).await
 }
 
@@ -255,8 +263,12 @@ pub async fn clash_get_proxies(app: tauri::AppHandle, port: u16) -> Result<Value
 // downloadTotal (байты). Сбрасывается при перезапуске sing-box — накопление между
 // сессиями ведёт фронт (traffic-meter.js, дельты в localStorage per-source).
 #[tauri::command]
-pub async fn clash_traffic_total(app: tauri::AppHandle, port: u16) -> Result<Value, String> {
-    validate_clash_port(&app, port)?;
+pub async fn clash_traffic_total(
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
+    port: u16,
+) -> Result<Value, String> {
+    validate_clash_port(state, kill_switch, port)?;
     let c = client()?;
     let r = c
         .get(format!("{}/connections", base(port)))
@@ -287,8 +299,12 @@ pub async fn clash_traffic_total(app: tauri::AppHandle, port: u16) -> Result<Val
 // processPath. Если процесс не определился (системный сокет и т.п.) — process=null,
 // путь пуст.
 #[tauri::command]
-pub async fn clash_get_connections(app: tauri::AppHandle, port: u16) -> Result<Value, String> {
-    validate_clash_port(&app, port)?;
+pub async fn clash_get_connections(
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
+    port: u16,
+) -> Result<Value, String> {
+    validate_clash_port(state, kill_switch, port)?;
     let c = client()?;
     let r = c
         .get(format!("{}/connections", base(port)))
@@ -363,13 +379,14 @@ pub async fn clash_get_connections(app: tauri::AppHandle, port: u16) -> Result<V
 
 #[tauri::command]
 pub async fn clash_test_node(
-    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
     name: String,
     url: Option<String>,
     timeout_ms: Option<u32>,
 ) -> Result<Value, String> {
-    validate_clash_port(&app, port)?;
+    validate_clash_port(state, kill_switch, port)?;
     let c = client()?;
     let test_url = url.unwrap_or_else(|| "https://www.gstatic.com/generate_204".to_string());
     let t = timeout_ms.unwrap_or(5000);
@@ -395,13 +412,14 @@ pub async fn clash_test_node(
 
 #[tauri::command]
 pub async fn clash_test_group(
-    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
     group: String,
     url: Option<String>,
     timeout_ms: Option<u32>,
 ) -> Result<Value, String> {
-    validate_clash_port(&app, port)?;
+    validate_clash_port(state, kill_switch, port)?;
     let c = client()?;
     let test_url = url.unwrap_or_else(|| "https://www.gstatic.com/generate_204".to_string());
     let t = timeout_ms.unwrap_or(5000);
@@ -430,12 +448,13 @@ pub async fn clash_test_group(
 // В sing-box clash-API это работает только для Selector (не URLTest).
 #[tauri::command]
 pub async fn clash_select_proxy(
-    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
     group: String,
     name: String,
 ) -> Result<(), String> {
-    validate_clash_port(&app, port)?;
+    validate_clash_port(state, kill_switch, port)?;
     let c = client()?;
     let body = serde_json::json!({ "name": name });
     let path = format!("{}/proxies/{}", base(port), urlencoding::encode(&group));
@@ -461,11 +480,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn runtime_config_port_is_parsed_from_loopback_controller() {
-        let raw = r#"{"experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}}}"#;
-        assert_eq!(clash_port_from_config(raw), Some(9191));
-        assert_eq!(clash_port_from_config("{}"), None);
-        assert_eq!(clash_port_from_config("not-json"), None);
+    fn live_runtime_snapshot_controls_clash_port_access() {
+        let ready = serde_json::json!({
+            "running": true,
+            "clashReady": true,
+            "clashPort": 9191
+        });
+        assert!(validate_clash_snapshot(&ready, 9191).is_ok());
+        assert!(validate_clash_snapshot(&ready, 9090).is_err());
+        assert!(validate_clash_snapshot(
+            &serde_json::json!({ "running": false, "clashReady": true, "clashPort": 9191 }),
+            9191
+        )
+        .is_err());
+        assert!(validate_clash_snapshot(
+            &serde_json::json!({ "running": true, "clashReady": false, "clashPort": 9191 }),
+            9191
+        )
+        .is_err());
     }
 
     #[test]
