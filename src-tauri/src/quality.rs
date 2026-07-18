@@ -296,19 +296,13 @@ mod tests {
 
     #[test]
     fn endpoints_require_bounded_absolute_https_urls() {
-        assert!(
-            validate_endpoints(vec![
-                "https://speed.cloudflare.com/__down?bytes=262144".into()
-            ])
-            .is_ok()
-        );
+        assert!(validate_endpoints(vec![
+            "https://speed.cloudflare.com/__down?bytes=262144".into()
+        ])
+        .is_ok());
         assert!(validate_endpoints(vec!["http://example.com/file".into()]).is_err());
         assert!(validate_endpoints(vec!["file:///etc/passwd".into()]).is_err());
-        assert!(
-            validate_endpoints(vec!["https://user:pass@example.com/file".into()]).is_err()
-        );
-        assert!(
-            validate_endpoints(vec!["https://example.com".into(); MAX_ENDPOINTS + 1]).is_err()
-        );
+        assert!(validate_endpoints(vec!["https://user:pass@example.com/file".into()]).is_err());
+        assert!(validate_endpoints(vec!["https://example.com".into(); MAX_ENDPOINTS + 1]).is_err());
     }
 }
