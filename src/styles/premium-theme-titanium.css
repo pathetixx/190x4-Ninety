@@ -1,0 +1,82 @@
+/* ══════════════════════════════════════════════════════════════
+   TITANIUM SIGNAL — gunmetal instrument panel, precise blue signal
+   ══════════════════════════════════════════════════════════════ */
+:root[data-theme="titanium"],
+.app[data-theme="titanium"] {
+  color-scheme: dark;
+  --ink-0: #070B0F;
+  --ink-1: #0D141B;
+  --ink-2: #17212A;
+  --ink-3: #25323D;
+  --ink-4: #34434F;
+  --line-1: rgba(212, 225, 234, 0.035);
+  --line-2: rgba(212, 225, 234, 0.085);
+  --line-3: rgba(212, 225, 234, 0.15);
+  --overlay-1: rgba(222, 238, 247, 0.02);
+  --overlay-2: rgba(222, 238, 247, 0.045);
+  --overlay-3: rgba(222, 238, 247, 0.075);
+  --overlay-4: rgba(222, 238, 247, 0.12);
+  --shine-1: rgba(232, 244, 251, 0.055);
+  --shine-2: rgba(232, 244, 251, 0.10);
+  --shadow-strong: rgba(0, 0, 0, 0.82);
+  --text-hi: #EDF3F7;
+  --text-mid: #A8B4BD;
+  --text-lo: #687782;
+  --text-faint: #3F4C56;
+  --accent: #4EB8FF;
+  --accent-bright: #8DD2FF;
+  --accent-deep: #17699E;
+  --accent-soft: rgba(78, 184, 255, 0.12);
+  --accent-glow: rgba(78, 184, 255, 0.34);
+  --ok: #5DD58C;
+  --premium-secondary: #C7D5DF;
+  --premium-status: #5DD58C;
+  --premium-card: linear-gradient(150deg, rgba(32, 42, 52, 0.98), rgba(10, 16, 22, 0.99));
+  --premium-card-hover: linear-gradient(150deg, rgba(42, 54, 66, 0.99), rgba(13, 21, 28, 1));
+  --premium-disc: radial-gradient(circle at 48% 38%, #2A3540 0%, #111922 62%, #070B0F 100%);
+  --premium-border: rgba(199, 213, 223, 0.14);
+  --premium-shadow: 0 20px 54px -34px rgba(0,0,0,.94), inset 0 1px rgba(232,244,251,.07);
+  --premium-mask-idle: grayscale(0.72) hue-rotate(168deg) saturate(0.74) brightness(0.82) contrast(1.18);
+  --premium-mask-secured: grayscale(0.52) hue-rotate(168deg) saturate(1.2) brightness(1.03) contrast(1.16) drop-shadow(0 0 15px rgba(78,184,255,.26));
+  --sidebar-surface-top: #1B222A;
+  --sidebar-surface-bottom: #090D12;
+  --sidebar-row-start: #0D1318;
+  --sidebar-row-middle: #151E25;
+  --sidebar-row-hover: #202C35;
+  --sidebar-row-active: #263743;
+  --sidebar-border-soft: rgba(199,213,223,.055);
+  --sidebar-border-strong: rgba(199,213,223,.11);
+  --sidebar-text: #A0ADB6;
+  --sidebar-text-active: #F2F6F8;
+  --sidebar-mark-filter: grayscale(.62) hue-rotate(168deg) saturate(.86) brightness(.92) contrast(1.16) drop-shadow(0 10px 18px rgba(0,0,0,.72));
+  --edge-top: linear-gradient(180deg, rgba(232,244,251,.09), rgba(232,244,251,0) 58%);
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+}
+
+html[data-theme="titanium"] .app::before {
+  background:
+    linear-gradient(rgba(117, 143, 158, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(117, 143, 158, 0.035) 1px, transparent 1px),
+    repeating-linear-gradient(126deg, transparent 0 31px, rgba(212,225,234,.012) 32px, transparent 33px 65px),
+    radial-gradient(ellipse 68% 54% at 68% 108%, rgba(78, 184, 255, 0.10), transparent 70%),
+    #070B0F;
+  background-size: 48px 48px, 48px 48px, auto, auto, auto;
+}
+html[data-theme="titanium"] .app::after { opacity: 0.045; }
+html[data-theme="titanium"] .sidebar::before {
+  opacity: 0.22;
+  background:
+    repeating-linear-gradient(126deg, transparent 0 28px, rgba(212,225,234,.028) 29px, transparent 30px 58px),
+    linear-gradient(180deg, rgba(255,255,255,.025), transparent 36%);
+}
+html[data-theme="titanium"] .nav__item--active {
+  clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+  background: linear-gradient(90deg, #1A2730, #263A48 64%, #18242C);
+}
+html[data-theme="titanium"] .hero[data-state="secured"] .hero__title {
+  color: var(--premium-status);
+  text-shadow: 0 0 20px rgba(93, 213, 140, 0.18);
+}
