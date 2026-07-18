@@ -60,9 +60,7 @@ pub fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
     Ok(())
 }
 
-fn snapshot_keys(
-    value: &serde_json::Value,
-) -> Option<&serde_json::Map<String, serde_json::Value>> {
+fn snapshot_keys(value: &serde_json::Value) -> Option<&serde_json::Map<String, serde_json::Value>> {
     let root = value.as_object()?;
     match root.get("keys") {
         Some(serde_json::Value::Object(keys)) => Some(keys),
@@ -79,9 +77,9 @@ fn embedded_json(
 }
 
 fn active_id_exists(items: &[serde_json::Value], active: &str) -> bool {
-    items.iter().any(|item| {
-        item.get("id").and_then(serde_json::Value::as_str) == Some(active)
-    })
+    items
+        .iter()
+        .any(|item| item.get("id").and_then(serde_json::Value::as_str) == Some(active))
 }
 
 fn valid_snapshot_value(value: &serde_json::Value) -> bool {
