@@ -18,14 +18,22 @@ const invoke = window.__TAURI__?.core?.invoke
 
 function snapshot({ includeUpdateResume = false } = {}) {
   const out = { __schemaVersion: BACKUP_SCHEMA_VERSION, __createdAt: Date.now() };
+  let storedKeys = 0;
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     // Маркер возврата сессии нужен только в снимке, который делаем прямо перед
     // OTA. В обычном бэкапе он не должен переживать произвольный перезапуск.
     if (!shouldBackupStorageKey(k) && !(includeUpdateResume && k === STORAGE_KEYS.updateResume)) continue;
     const v = localStorage.getItem(k);
-    if (v != null) out[k] = v;
+    if (v != null) {
+      out[k] = v;
+      storedKeys++;
+    }
   }
+  // Дефолтные CORE-ключи нужны только чтобы частичный, но реальный storage дал
+  // валидный snapshot. Полностью пустое хранилище не должно перетирать полезный
+  // дисковый backup искусственными {}, [], [].
+  if (storedKeys === 0) return null;
   if (out["ninety.options.v1"] == null) out["ninety.options.v1"] = "{}";
   if (out["ninety.profiles.v1"] == null) out["ninety.profiles.v1"] = "[]";
   if (out["ninety.subscriptions.v1"] == null) out["ninety.subscriptions.v1"] = "[]";
@@ -34,15 +42,22 @@ function snapshot({ includeUpdateResume = false } = {}) {
 
 let backupInFlight = Promise.resolve();
 
-export function backupNow({ includeUpdateResume = false } = {}) {
+export function backupNow({ includeUpdateResume = false, strict = false } = {}) {
   // Каждая заявка получает собственный Promise: OTA не начнёт установку, пока
   // именно её снимок не записан после возможного обычного бэкапа в очереди.
   backupInFlight = backupInFlight.catch(() => {}).then(async () => {
     const snap = snapshot({ includeUpdateResume });
     // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой.
-    if (!Object.keys(snap).some(k => !k.startsWith("__"))) return;
-    try { await invoke("state_backup_save", { json: JSON.stringify(snap) }); }
-    catch (e) { console.warn("state backup failed", e); }
+    if (!snap) return;
+    try {
+      await invoke("state_backup_save", { json: JSON.stringify(snap) });
+    } catch (e) {
+      console.warn("state backup failed", e);
+      // Фоновые снимки остаются best-effort, но OTA обязан остановиться до
+      // shutdown/install: иначе UI обещает восстановление состояния, которого
+      // фактически нет на диске.
+      if (strict) throw e;
+    }
   });
   return backupInFlight;
 }
@@ -50,7 +65,7 @@ export function backupNow({ includeUpdateResume = false } = {}) {
 // Перед OTA сохраняем единый снимок профиля и флага возврата сессии. Сам флаг
 // одноразовый: main.js удалит его сразу после следующего успешного старта.
 export function backupForUpdate() {
-  return backupNow({ includeUpdateResume: true });
+  return backupNow({ includeUpdateResume: true, strict: true });
 }
 
 let backupTimer = null;
