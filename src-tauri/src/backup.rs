@@ -59,14 +59,26 @@ pub fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
     Ok(())
 }
 
+fn valid_snapshot_json(raw: String) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    if !value.is_object() {
+        return None;
+    }
+    Some(raw)
+}
+
 // Чтение одного файла снапшота: DPAPI-блоб либо легаси plaintext-JSON.
-// None — файла нет / не расшифровался / битая кодировка.
+// None — файла нет / не расшифровался / битая кодировка / невалидный JSON.
 fn read_snapshot(path: &std::path::Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
-    if crate::secrets::is_plaintext_json(&bytes) {
-        return String::from_utf8(bytes).ok();
-    }
-    String::from_utf8(crate::secrets::unseal(&bytes).ok()?).ok()
+    let raw = if crate::secrets::is_plaintext_json(&bytes) {
+        String::from_utf8(bytes).ok()?
+    } else {
+        String::from_utf8(crate::secrets::unseal(&bytes).ok()?).ok()?
+    };
+    // Читаемый UTF-8 ещё не означает пригодный snapshot: обрезанный portable JSON
+    // раньше возвращался фронту и блокировал fallback на целый .bak.
+    valid_snapshot_json(raw)
 }
 
 fn remove_file_if_exists(path: &Path) -> Result<bool, String> {
@@ -108,4 +120,23 @@ pub fn state_backup_clear(app: AppHandle) -> Result<u32, String> {
         }
     }
     Ok(removed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_primary_allows_valid_backup_fallback() {
+        let primary = valid_snapshot_json(r#"{"ninety.profiles.v1":"[]""#.to_string());
+        let backup = valid_snapshot_json(r#"{"ninety.profiles.v1":"[]"}"#.to_string());
+        let selected = primary.or(backup);
+        assert_eq!(selected.as_deref(), Some(r#"{"ninety.profiles.v1":"[]"}"#));
+    }
+
+    #[test]
+    fn non_object_json_is_not_a_snapshot() {
+        assert!(valid_snapshot_json("[]".to_string()).is_none());
+        assert!(valid_snapshot_json("null".to_string()).is_none());
+    }
 }
