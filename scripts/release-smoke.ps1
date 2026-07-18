@@ -125,6 +125,21 @@ function Invoke-Setup([string[]]$InstallerArgs, [int]$TimeoutMs = 120000) {
   return $setup.ExitCode
 }
 
+function Invoke-SetupAfterSequentialCleanup([string[]]$InstallerArgs, [int]$TimeoutMs = 12000) {
+  $deadline = (Get-Date).AddMilliseconds($TimeoutMs)
+  do {
+    $exit = Invoke-Setup $InstallerArgs
+    if ($exit -ne 4) {
+      return $exit
+    }
+    # NSIS removal may finish from a short-lived temporary child after the
+    # install directory is already gone. Retry only the sequential handoff;
+    # the dedicated overlap check above still expects code 4 immediately.
+    Start-Sleep -Milliseconds 500
+  } while ((Get-Date) -lt $deadline)
+  return $exit
+}
+
 function Get-InstallManifest([string]$Root) {
   return @(
     Get-ChildItem -LiteralPath $Root -File -Recurse |
@@ -260,7 +275,7 @@ Remove-Item -LiteralPath $ninetyUserRegistry -Recurse -Force -ErrorAction Silent
 Assert-Release (-not (Test-Path -LiteralPath $programFilesInstall)) `
   "fresh-install smoke requires an empty Program Files target"
 try {
-  $exit = Invoke-Setup @("/S", "/CurrentUser")
+  $exit = Invoke-SetupAfterSequentialCleanup @("/S", "/CurrentUser")
   Assert-Release ($exit -eq 0) "fresh Program Files install завершился с кодом $exit"
   Assert-Release (Test-Path -LiteralPath (Join-Path $programFilesInstall "Ninety.exe") -PathType Leaf) `
     "fresh install не выбрал Program Files"
