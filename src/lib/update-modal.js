@@ -23,6 +23,15 @@ export function buildUpdateJournal({ targetVersion, stage, sourceFingerprint, mo
   };
 }
 
+export function persistUpdateJournal(journal, storage = localStorage) {
+  const encoded = JSON.stringify(journal);
+  storage.setItem("ninety.update.resume", encoded);
+  if (storage.getItem("ninety.update.resume") !== encoded) {
+    throw new Error("OTA resume journal verification failed");
+  }
+  return encoded;
+}
+
 export function resumeRuntimeReady(resume, { vpnReady, dpiReady }) {
   const desired = resume?.schemaVersion === 2 ? resume.desired : resume;
   return (!desired?.vpn || vpnReady === true) && (!desired?.dpi || dpiReady === true);
@@ -206,7 +215,7 @@ export function openUpdateModal(update, opts = {}) {
           dpi: dpiWasOn,
           attempts: journalAttempt,
         });
-        try { localStorage.setItem("ninety.update.resume", JSON.stringify(journal)); } catch {}
+        persistUpdateJournal(journal);
       };
 
       // Гасим ядра ПЕРЕД установкой, но ПОСЛЕ скачивания: разлоченные бинарники
