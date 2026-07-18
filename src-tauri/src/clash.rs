@@ -1,4 +1,4 @@
-// Тонкий клиент к sing-box clash-API на 127.0.0.1:9090.
+// Тонкий клиент к sing-box clash-API на 127.0.0.1.
 // Через Rust, чтобы избежать CORS-ограничений WebView2.
 
 use serde_json::Value;
@@ -9,8 +9,7 @@ const MAX_CLASH_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
 // Секрет clash-API: генерируется один раз за жизнь процесса, инжектится в
 // конфиг sing-box (vpn::harden_config) и отправляется в каждом запросе как
-// Bearer. Без него любой локальный процесс мог бы рулить ядром через 9090
-// (смена ноды, чтение конфига, статистика). 127.0.0.1 + секрет закрывают это.
+// Bearer. 127.0.0.1 + секрет закрывают управление ядром от чужих процессов.
 pub fn clash_secret() -> &'static str {
     static SECRET: OnceLock<String> = OnceLock::new();
     SECRET.get_or_init(|| {
@@ -22,24 +21,12 @@ pub fn clash_secret() -> &'static str {
 }
 
 // ── Public IP info (через прокси, если активен) ────────────
-// Возвращает нормализованный {ip, country, country_code, asn, connection:{asn},
-// success}. Один провайдер — единая точка отказа (free-tier лимиты, досягаемость
-// из-под конкретного exit): перебираем несколько, у каждого свой формат ответа,
-// сводим к общему виду. Фронт (ip-info.js) и localAsn читают именно эти поля.
-// Все эндпоинты — HTTPS: fetch_public_ip зовётся и напрямую (localAsn, мимо
-// туннеля), plaintext-HTTP там дал бы ISP/ТСПУ видеть и подменять IP-lookup.
-// ip-api.com в пул НЕ входит намеренно — у него только http-эндпоинт (https за
-// платой), а plaintext здесь неприемлем. Его формат (query/as/countryCode) в
-// normalize_ip/extract_asn всё же разобран: это резерв на случай возврата и
-// покрыто юнит-тестами (normalize_ipapi_com) — сама ветка в проде не срабатывает.
 const IP_PROVIDERS: &[&str] = &[
     "https://ipwho.is/",
     "https://api.ip.sb/geoip",
     "https://ipapi.co/json/",
 ];
 
-// Достаёт номер ASN из любого формата провайдера: ipwho.is — connection.asn
-// (число); ipapi.co — "asn":"AS13335"; ip-api.com — "as":"AS13335 Cloudflare".
 fn extract_asn(v: &Value) -> Value {
     if let Some(a) = v.get("connection").and_then(|c| c.get("asn")) {
         if a.is_number() || a.is_string() {
@@ -48,8 +35,6 @@ fn extract_asn(v: &Value) -> Value {
     }
     for key in ["asn", "as"] {
         let Some(val) = v.get(key) else { continue };
-        // Числовой ASN (api.ip.sb: "asn":13335) — берём как есть; строковый
-        // ("AS13335"/"AS13335 Cloudflare") — выдираем цифры.
         if val.is_number() {
             return val.clone();
         }
@@ -67,28 +52,21 @@ fn extract_asn(v: &Value) -> Value {
     Value::Null
 }
 
-// Сводит ответ конкретного провайдера к единому виду. None — провайдер явно
-// сигналит неуспех (ipwho success:false, ip-api status:"fail") или нет IP →
-// пробуем следующего.
 fn normalize_ip(v: &Value) -> Option<Value> {
-    if v.get("success").and_then(|x| x.as_bool()) == Some(false) {
-        return None;
-    }
-    if v.get("status").and_then(|x| x.as_str()) == Some("fail") {
+    if v.get("success").and_then(|x| x.as_bool()) == Some(false)
+        || v.get("status").and_then(|x| x.as_str()) == Some("fail")
+    {
         return None;
     }
     let ip = v
         .get("ip")
         .and_then(|x| x.as_str())
         .or_else(|| v.get("query").and_then(|x| x.as_str()))?;
-    // Полное имя страны: ipapi.co кладёт его в country_name, остальные — в country.
     let country = v
         .get("country_name")
         .and_then(|x| x.as_str())
         .or_else(|| v.get("country").and_then(|x| x.as_str()))
         .unwrap_or("");
-    // 2-буквенный код: ipwho — country_code, ip-api — countryCode, ipapi.co —
-    // country (там country это как раз код).
     let country_code = v
         .get("country_code")
         .and_then(|x| x.as_str())
@@ -114,8 +92,6 @@ fn normalize_ip(v: &Value) -> Option<Value> {
 pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
     let mut b = reqwest::Client::builder()
         .user_agent("Ninety/0.1")
-        // connect_timeout отдельно от общего: недосягаемый провайдер отваливается
-        // за 3с вместо того чтобы съесть весь бюджет запроса.
         .connect_timeout(std::time::Duration::from_secs(3))
         .timeout(std::time::Duration::from_secs(6));
     if let Some(p) = proxy {
@@ -127,13 +103,6 @@ pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
     }
     let c = b.build().map_err(|e| format!("client: {e}"))?;
 
-    // Ступенчатая гонка: приоритетный провайдер стартует сразу, каждый следующий
-    // — через STAGGER_MS (успеет только если предыдущие молчат). Первый
-    // нормализовавшийся ответ побеждает; остальные фьючи дропаются вместе со
-    // стримом — их запросы отменяются. Прежний join_all бил ВСЕ три эндпоинта
-    // на каждый вызов (по одному GEO-сервису каждые 5 минут сессии — лишние
-    // метаданные третьим сторонам) и ждал самого медленного даже при мгновенном
-    // ответе первого.
     use futures_util::StreamExt;
     const STAGGER_MS: u64 = 800;
     let mut requests: futures_util::stream::FuturesUnordered<_> = IP_PROVIDERS
@@ -168,8 +137,6 @@ pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
 }
 
 fn client() -> Result<reqwest::Client, String> {
-    // Клиент один на процесс (внутри Arc, clone дешёвый): не пересоздаём
-    // TLS-конфиг и пул соединений на каждый запрос UI к clash-API.
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     if let Some(c) = CLIENT.get() {
         return Ok(c.clone());
@@ -185,33 +152,37 @@ fn base(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
-fn clash_port_from_config(raw: &str) -> Option<u16> {
-    serde_json::from_str::<Value>(raw)
-        .ok()?
-        .pointer("/experimental/clash_api/external_controller")?
-        .as_str()?
-        .rsplit(':')
-        .next()?
-        .parse()
-        .ok()
-}
-
-fn configured_clash_port(app: &tauri::AppHandle) -> Result<u16, String> {
-    let path = crate::app_paths::config_dir(app)?.join("singbox-current.json");
-    let raw = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Clash API runtime config unavailable: {e}"))?;
-    clash_port_from_config(&raw).ok_or_else(|| "Clash API port missing in runtime config".into())
-}
-
-fn validate_clash_port(app: &tauri::AppHandle, port: u16) -> Result<(), String> {
-    let active = configured_clash_port(app)?;
-    if active == port {
-        Ok(())
-    } else {
-        Err(format!(
-            "Clash API port mismatch: active={active}, requested={port}"
-        ))
+fn validate_clash_snapshot(snapshot: &Value, port: u16) -> Result<(), String> {
+    if snapshot.get("running").and_then(Value::as_bool) != Some(true) {
+        return Err("Clash API runtime is not running".into());
     }
+    if snapshot.get("clashReady").and_then(Value::as_bool) != Some(true) {
+        return Err("Clash API runtime is not ready".into());
+    }
+    let active = snapshot
+        .get("clashPort")
+        .and_then(Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+        .ok_or("Clash API port missing in live runtime")?;
+    if active != port {
+        return Err(format!(
+            "Clash API port mismatch: active={active}, requested={port}"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_clash_port(
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
+    port: u16,
+) -> Result<(), String> {
+    // Источник истины — RuntimeRecord в памяти vpn.rs, а не последний файл
+    // singbox-current.json: файл может остаться после stop или исчезнуть при
+    // живой сессии. Сериализация обходит приватные поля RuntimeSnapshot.
+    let snapshot = serde_json::to_value(crate::vpn::runtime_snapshot(state, kill_switch))
+        .map_err(|e| format!("Clash API runtime snapshot: {e}"))?;
+    validate_clash_snapshot(&snapshot, port)
 }
 
 async fn json_response(
@@ -246,17 +217,22 @@ pub(crate) async fn clash_get_proxies_unchecked(port: u16) -> Result<Value, Stri
 }
 
 #[tauri::command]
-pub async fn clash_get_proxies(app: tauri::AppHandle, port: u16) -> Result<Value, String> {
-    validate_clash_port(&app, port)?;
+pub async fn clash_get_proxies(
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
+    port: u16,
+) -> Result<Value, String> {
+    validate_clash_port(state, kill_switch, port)?;
     clash_get_proxies_unchecked(port).await
 }
 
-// Кумулятивный трафик с момента старта ядра: /connections отдаёт uploadTotal/
-// downloadTotal (байты). Сбрасывается при перезапуске sing-box — накопление между
-// сессиями ведёт фронт (traffic-meter.js, дельты в localStorage per-source).
 #[tauri::command]
-pub async fn clash_traffic_total(app: tauri::AppHandle, port: u16) -> Result<Value, String> {
-    validate_clash_port(&app, port)?;
+pub async fn clash_traffic_total(
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
+    port: u16,
+) -> Result<Value, String> {
+    validate_clash_port(state, kill_switch, port)?;
     let c = client()?;
     let r = c
         .get(format!("{}/connections", base(port)))
@@ -276,19 +252,13 @@ pub async fn clash_traffic_total(app: tauri::AppHandle, port: u16) -> Result<Val
     Ok(serde_json::json!({ "up": up, "down": down }))
 }
 
-// Живые соединения с привязкой к процессу и outbound'у — для монитора правил
-// маршрутизации (что куда сейчас идёт: напрямую/через VPN/блок). Возвращаем
-// компактный список [{ process, processPath, host, destinationIP, outbound }];
-// outbound нормализован в "direct"|"proxy"|"block" по chains (block — если в
-// цепочке reject/block). processPath заполняется, т.к. в конфиге есть
-// форсирующее process-правило (buildRoute в singbox.js) — sing-box резолвит
-// сокет→PID→exe у КАЖДОГО соединения (route.go: processSearcher!=nil ⇒ резолв на
-// каждом коннекте). process (имя) выводим тут как basename пути: форк отдаёт лишь
-// processPath. Если процесс не определился (системный сокет и т.п.) — process=null,
-// путь пуст.
 #[tauri::command]
-pub async fn clash_get_connections(app: tauri::AppHandle, port: u16) -> Result<Value, String> {
-    validate_clash_port(&app, port)?;
+pub async fn clash_get_connections(
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
+    port: u16,
+) -> Result<Value, String> {
+    validate_clash_port(state, kill_switch, port)?;
     let c = client()?;
     let r = c
         .get(format!("{}/connections", base(port)))
@@ -310,14 +280,6 @@ pub async fn clash_get_connections(app: tauri::AppHandle, port: u16) -> Result<V
                     .unwrap_or("")
                     .to_string()
             };
-            // Имя процесса. Форк (hiddify-sing-box v1.13.0.h5) НЕ эмитит поле
-            // metadata.process — в clashapi/trafficontrol/tracker.go::MarshalJSON
-            // отдаётся ТОЛЬКО processPath (полный путь к exe). Поэтому имя выводим
-            // как basename пути (как Throne/metacubexd): C:\...\AyuGram.exe →
-            // "AyuGram.exe". На Windows processPath = чистый путь (ConnectionOwner
-            // UserId=-1, без " (user)"-суффикса). Если форк когда-нибудь начнёт
-            // слать process — берём его. rsplit по обоим разделителям — не зависит
-            // от платформы сборки.
             let process_path = field("processPath");
             let process = {
                 let direct = field("process");
@@ -363,13 +325,14 @@ pub async fn clash_get_connections(app: tauri::AppHandle, port: u16) -> Result<V
 
 #[tauri::command]
 pub async fn clash_test_node(
-    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
     name: String,
     url: Option<String>,
     timeout_ms: Option<u32>,
 ) -> Result<Value, String> {
-    validate_clash_port(&app, port)?;
+    validate_clash_port(state, kill_switch, port)?;
     let c = client()?;
     let test_url = url.unwrap_or_else(|| "https://www.gstatic.com/generate_204".to_string());
     let t = timeout_ms.unwrap_or(5000);
@@ -395,13 +358,14 @@ pub async fn clash_test_node(
 
 #[tauri::command]
 pub async fn clash_test_group(
-    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
     group: String,
     url: Option<String>,
     timeout_ms: Option<u32>,
 ) -> Result<Value, String> {
-    validate_clash_port(&app, port)?;
+    validate_clash_port(state, kill_switch, port)?;
     let c = client()?;
     let test_url = url.unwrap_or_else(|| "https://www.gstatic.com/generate_204".to_string());
     let t = timeout_ms.unwrap_or(5000);
@@ -425,17 +389,15 @@ pub async fn clash_test_group(
     Ok(value)
 }
 
-// Переключение активной ноды Selector-группы.
-// PUT /proxies/{group}  body: {"name": "<node-tag>"}
-// В sing-box clash-API это работает только для Selector (не URLTest).
 #[tauri::command]
 pub async fn clash_select_proxy(
-    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
     group: String,
     name: String,
 ) -> Result<(), String> {
-    validate_clash_port(&app, port)?;
+    validate_clash_port(state, kill_switch, port)?;
     let c = client()?;
     let body = serde_json::json!({ "name": name });
     let path = format!("{}/proxies/{}", base(port), urlencoding::encode(&group));
@@ -461,11 +423,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn runtime_config_port_is_parsed_from_loopback_controller() {
-        let raw = r#"{"experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}}}"#;
-        assert_eq!(clash_port_from_config(raw), Some(9191));
-        assert_eq!(clash_port_from_config("{}"), None);
-        assert_eq!(clash_port_from_config("not-json"), None);
+    fn live_runtime_snapshot_controls_clash_port_access() {
+        let ready = serde_json::json!({
+            "running": true,
+            "clashReady": true,
+            "clashPort": 9191
+        });
+        assert!(validate_clash_snapshot(&ready, 9191).is_ok());
+        assert!(validate_clash_snapshot(&ready, 9090).is_err());
+        assert!(validate_clash_snapshot(
+            &serde_json::json!({ "running": false, "clashReady": true, "clashPort": 9191 }),
+            9191
+        )
+        .is_err());
+        assert!(validate_clash_snapshot(
+            &serde_json::json!({ "running": true, "clashReady": false, "clashPort": 9191 }),
+            9191
+        )
+        .is_err());
     }
 
     #[test]
@@ -483,7 +458,6 @@ mod tests {
 
     #[test]
     fn normalize_ipapi_com() {
-        // ip-api.com: query=ip, countryCode, as="AS13335 Cloudflare"
         let v = serde_json::json!({
             "status": "success", "query": "9.9.9.9", "country": "United States",
             "countryCode": "US", "as": "AS13335 Cloudflare, Inc."
@@ -496,7 +470,6 @@ mod tests {
 
     #[test]
     fn normalize_ipapi_co() {
-        // ipapi.co: country=код, country_name=полное, asn="AS15169"
         let v = serde_json::json!({
             "ip": "8.8.8.8", "country": "US", "country_name": "United States",
             "asn": "AS15169"
@@ -510,7 +483,6 @@ mod tests {
 
     #[test]
     fn normalize_ip_sb() {
-        // api.ip.sb/geoip: country_code + числовой asn на верхнем уровне.
         let v = serde_json::json!({
             "ip": "1.1.1.1", "country": "Australia",
             "country_code": "AU", "asn": 13335
