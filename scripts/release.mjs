@@ -180,6 +180,36 @@ if (end === -1) end = lines.length;
 const notes = lines.slice(headIdx + 1, end).join("\n").trim();
 if (!notes) die(`секция ${tag} в CHANGELOG.md пустая`);
 
+// Релизные заметки должны быть двуязычными: OTA и GitHub Release читают одну
+// и ту же аннотацию тега, поэтому забытый английский текст уже нельзя
+// исправить после публикации без выпуска новой версии.
+const noteLines = notes.split("\n").map((line) => line.trim()).filter(Boolean);
+const englishMarkers = new Set([
+  "added", "adds", "allows", "available", "client", "connection", "distinct",
+  "each", "english", "fixed", "fixes", "for", "from", "improved", "improves",
+  "in", "installation", "introduced", "keeps", "language", "new", "now", "of",
+  "on", "prevents", "release", "removed", "removes", "settings", "support",
+  "supports", "theme", "themes", "the", "to", "updated", "updates", "users",
+  "version", "with",
+]);
+const hasRussianNotes = noteLines.some((line) => /[\u0400-\u04FF]/u.test(line));
+const hasEnglishNotes = noteLines.some((line) => {
+  if (/[\u0400-\u04FF]/u.test(line)) return false;
+  const words = line.toLowerCase().match(/\b[a-z]{2,}\b/g) ?? [];
+  const markers = words.filter((word, index) =>
+    englishMarkers.has(word) && words.indexOf(word) === index,
+  );
+  return words.length >= 3 && markers.length >= 2;
+});
+const missingLanguages = [
+  !hasRussianNotes && "русский",
+  !hasEnglishNotes && "английский",
+].filter(Boolean);
+if (missingLanguages.length) {
+  die(`секция ${tag} должна содержать отдельные заметки на русском и английском; `
+    + `отсутствует: ${missingLanguages.join(" и ")}.`);
+}
+
 const today = new Date().toISOString().slice(0, 10);
 const needDate = !/—\s*\d{4}-\d{2}-\d{2}/.test(lines[headIdx]);
 
