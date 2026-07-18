@@ -42,15 +42,22 @@ function snapshot({ includeUpdateResume = false } = {}) {
 
 let backupInFlight = Promise.resolve();
 
-export function backupNow({ includeUpdateResume = false } = {}) {
+export function backupNow({ includeUpdateResume = false, strict = false } = {}) {
   // Каждая заявка получает собственный Promise: OTA не начнёт установку, пока
   // именно её снимок не записан после возможного обычного бэкапа в очереди.
   backupInFlight = backupInFlight.catch(() => {}).then(async () => {
     const snap = snapshot({ includeUpdateResume });
     // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой.
     if (!snap) return;
-    try { await invoke("state_backup_save", { json: JSON.stringify(snap) }); }
-    catch (e) { console.warn("state backup failed", e); }
+    try {
+      await invoke("state_backup_save", { json: JSON.stringify(snap) });
+    } catch (e) {
+      console.warn("state backup failed", e);
+      // Фоновые снимки остаются best-effort, но OTA обязан остановиться до
+      // shutdown/install: иначе UI обещает восстановление состояния, которого
+      // фактически нет на диске.
+      if (strict) throw e;
+    }
   });
   return backupInFlight;
 }
@@ -58,7 +65,7 @@ export function backupNow({ includeUpdateResume = false } = {}) {
 // Перед OTA сохраняем единый снимок профиля и флага возврата сессии. Сам флаг
 // одноразовый: main.js удалит его сразу после следующего успешного старта.
 export function backupForUpdate() {
-  return backupNow({ includeUpdateResume: true });
+  return backupNow({ includeUpdateResume: true, strict: true });
 }
 
 let backupTimer = null;

@@ -16,6 +16,7 @@ function makeStorage() {
 const localStorage = makeStorage();
 const sessionStorage = makeStorage();
 let savedSnapshot = null;
+let saveError = null;
 let saveCalls = 0;
 
 globalThis.localStorage = localStorage;
@@ -25,6 +26,7 @@ globalThis.window = {
     core: {
       invoke: async (cmd, args) => {
         if (cmd === "state_backup_save") {
+          if (saveError) throw saveError;
           saveCalls++;
           savedSnapshot = args.json;
           return;
@@ -37,6 +39,19 @@ globalThis.window = {
 };
 
 const { backupForUpdate, backupNow, restoreIfEmpty, validateSnapshot } = await import("/lib/state-backup.js");
+
+test("обычный backup остаётся best-effort, а OTA backup пробрасывает ошибку записи", async () => {
+  localStorage.clear();
+  sessionStorage.clear();
+  localStorage.setItem("ninety.options.v1", "{}");
+  saveError = new Error("disk full");
+  try {
+    await assert.doesNotReject(backupNow());
+    await assert.rejects(backupForUpdate(), /disk full/);
+  } finally {
+    saveError = null;
+  }
+});
 
 test("пустой localStorage не перетирает существующий дисковый снимок", async () => {
   localStorage.clear();
