@@ -18,14 +18,22 @@ const invoke = window.__TAURI__?.core?.invoke
 
 function snapshot({ includeUpdateResume = false } = {}) {
   const out = { __schemaVersion: BACKUP_SCHEMA_VERSION, __createdAt: Date.now() };
+  let storedKeys = 0;
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     // Маркер возврата сессии нужен только в снимке, который делаем прямо перед
     // OTA. В обычном бэкапе он не должен переживать произвольный перезапуск.
     if (!shouldBackupStorageKey(k) && !(includeUpdateResume && k === STORAGE_KEYS.updateResume)) continue;
     const v = localStorage.getItem(k);
-    if (v != null) out[k] = v;
+    if (v != null) {
+      out[k] = v;
+      storedKeys++;
+    }
   }
+  // Дефолтные CORE-ключи нужны только чтобы частичный, но реальный storage дал
+  // валидный snapshot. Полностью пустое хранилище не должно перетирать полезный
+  // дисковый backup искусственными {}, [], [].
+  if (storedKeys === 0) return null;
   if (out["ninety.options.v1"] == null) out["ninety.options.v1"] = "{}";
   if (out["ninety.profiles.v1"] == null) out["ninety.profiles.v1"] = "[]";
   if (out["ninety.subscriptions.v1"] == null) out["ninety.subscriptions.v1"] = "[]";
@@ -40,7 +48,7 @@ export function backupNow({ includeUpdateResume = false } = {}) {
   backupInFlight = backupInFlight.catch(() => {}).then(async () => {
     const snap = snapshot({ includeUpdateResume });
     // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой.
-    if (!Object.keys(snap).some(k => !k.startsWith("__"))) return;
+    if (!snap) return;
     try { await invoke("state_backup_save", { json: JSON.stringify(snap) }); }
     catch (e) { console.warn("state backup failed", e); }
   });
