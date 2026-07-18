@@ -24,6 +24,15 @@ use std::time::{Duration, Instant};
 const STALL_BYTES: u64 = 65_536; // 64 КиБ: до этого порога пауза = занавес
 const STALL_GAP_MS: u64 = 800; // нет нового чанка дольше — это stall
 
+// IPC-граничные значения: frontend-настройки считаются недоверенными. Без clamp
+// произвольный invoke мог запросить гигабайтную выборку, много URL и минутный
+// runtime, удерживая сеть/память процесса.
+const MIN_SAMPLE_BYTES: u64 = 64 * 1024;
+const MAX_SAMPLE_BYTES: u64 = 4 * 1024 * 1024;
+const MIN_BUDGET_MS: u64 = 500;
+const MAX_BUDGET_MS: u64 = 15_000;
+const MAX_ENDPOINTS: usize = 8;
+
 #[derive(Serialize)]
 pub struct ProbeResult {
     pub ok: bool,
@@ -49,6 +58,44 @@ impl ProbeResult {
             error: Some(err),
         }
     }
+}
+
+fn normalize_limits(sample_bytes: Option<u64>, budget_ms: Option<u64>) -> (u64, Duration) {
+    let sample = sample_bytes
+        .unwrap_or(262_144)
+        .clamp(MIN_SAMPLE_BYTES, MAX_SAMPLE_BYTES);
+    let budget = budget_ms
+        .unwrap_or(4_000)
+        .clamp(MIN_BUDGET_MS, MAX_BUDGET_MS);
+    (sample, Duration::from_millis(budget))
+}
+
+fn validate_endpoints(endpoints: Vec<String>) -> Result<Vec<String>, String> {
+    if endpoints.is_empty() {
+        return Err("no endpoints".into());
+    }
+    if endpoints.len() > MAX_ENDPOINTS {
+        return Err(format!("too many quality endpoints: maximum {MAX_ENDPOINTS}"));
+    }
+
+    endpoints
+        .into_iter()
+        .map(|endpoint| {
+            let endpoint = endpoint.trim();
+            if endpoint.is_empty() {
+                return Err("quality endpoint is empty".into());
+            }
+            let parsed = reqwest::Url::parse(endpoint)
+                .map_err(|e| format!("invalid quality endpoint: {e}"))?;
+            if parsed.scheme() != "https" || parsed.host_str().is_none() {
+                return Err("quality endpoint must be an absolute HTTPS URL".into());
+            }
+            if !parsed.username().is_empty() || parsed.password().is_some() {
+                return Err("quality endpoint credentials are not allowed".into());
+            }
+            Ok(endpoint.to_string())
+        })
+        .collect()
 }
 
 // Клиент пробы. port=Some(p>0) → через mixed-inbound (proxy/systemProxy);
@@ -81,13 +128,9 @@ pub async fn probe_quality(
     sample_bytes: Option<u64>,
     budget_ms: Option<u64>,
 ) -> Result<ProbeResult, String> {
-    let sample_bytes = sample_bytes.unwrap_or(262_144);
-    let budget = Duration::from_millis(budget_ms.unwrap_or(4000));
+    let (sample_bytes, budget) = normalize_limits(sample_bytes, budget_ms);
+    let endpoints = validate_endpoints(endpoints)?;
     let client = build_client(port)?;
-
-    if endpoints.is_empty() {
-        return Ok(ProbeResult::fail(String::new(), 0, "no endpoints".into()));
-    }
 
     let mut last_err = ProbeResult::fail(String::new(), 0, "no endpoints".into());
     let overall = Instant::now();
@@ -231,10 +274,30 @@ fn calculate_goodput_bps(bytes: u64, elapsed_ms: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::calculate_goodput_bps;
+    use super::*;
 
     #[test]
     fn sub_millisecond_goodput_uses_one_millisecond_floor() {
         assert_eq!(calculate_goodput_bps(1024, 0), 8_192_000);
+    }
+
+    #[test]
+    fn ipc_limits_are_clamped() {
+        let (small_sample, short_budget) = normalize_limits(Some(1), Some(1));
+        assert_eq!(small_sample, MIN_SAMPLE_BYTES);
+        assert_eq!(short_budget, Duration::from_millis(MIN_BUDGET_MS));
+
+        let (large_sample, long_budget) = normalize_limits(Some(u64::MAX), Some(u64::MAX));
+        assert_eq!(large_sample, MAX_SAMPLE_BYTES);
+        assert_eq!(long_budget, Duration::from_millis(MAX_BUDGET_MS));
+    }
+
+    #[test]
+    fn endpoints_require_bounded_absolute_https_urls() {
+        assert!(validate_endpoints(vec!["https://speed.cloudflare.com/__down?bytes=262144".into()]).is_ok());
+        assert!(validate_endpoints(vec!["http://example.com/file".into()]).is_err());
+        assert!(validate_endpoints(vec!["file:///etc/passwd".into()]).is_err());
+        assert!(validate_endpoints(vec!["https://user:pass@example.com/file".into()]).is_err());
+        assert!(validate_endpoints(vec!["https://example.com".into(); MAX_ENDPOINTS + 1]).is_err());
     }
 }
