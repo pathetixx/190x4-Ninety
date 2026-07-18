@@ -140,7 +140,7 @@ fn proxy_recovery_action(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ProxySnapshot {
     enable: u32,
     server: Option<String>,
@@ -172,6 +172,18 @@ fn read_proxy_snapshot(nk: &RegKey) -> Option<ProxySnapshot> {
         enable,
         server,
         proxy_override,
+    })
+}
+
+fn capture_proxy_settings(inet: &RegKey) -> Result<ProxySnapshot, String> {
+    let enable: u32 = inet.get_value("ProxyEnable").unwrap_or(0);
+    if enable > 1 {
+        return Err(format!("неожиданное значение ProxyEnable={enable}"));
+    }
+    Ok(ProxySnapshot {
+        enable,
+        server: inet.get_value::<String, _>("ProxyServer").ok(),
+        proxy_override: inet.get_value::<String, _>("ProxyOverride").ok(),
     })
 }
 
@@ -230,40 +242,68 @@ fn save_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> Result<(), String> {
     Ok(())
 }
 
-// Восстановить полностью проверенное прежнее состояние из snapshot.
+fn restore_optional_string(key: &RegKey, name: &str, value: Option<&str>) -> Result<(), String> {
+    if let Some(value) = value {
+        key.set_value(name, &value.to_string())
+            .map_err(|e| format!("restore {name}: {e}"))
+    } else {
+        match key.delete_value(name) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("delete {name}: {e}")),
+        }
+    }
+}
+
+fn restore_proxy_settings(inet: &RegKey, snapshot: &ProxySnapshot) -> Result<(), String> {
+    restore_optional_string(inet, "ProxyServer", snapshot.server.as_deref())?;
+    restore_optional_string(inet, "ProxyOverride", snapshot.proxy_override.as_deref())?;
+    // ProxyEnable is the commit marker visible to WinINet. Restore all
+    // dependent values first so a partial registry failure never activates a
+    // half-restored proxy configuration.
+    inet.set_value("ProxyEnable", &snapshot.enable)
+        .map_err(|e| format!("restore ProxyEnable: {e}"))
+}
+
+// Восстановить полностью проверенное исходное состояние при обычном disable.
 fn restore_proxy_snapshot(
     nk: &RegKey,
     inet: &RegKey,
     snapshot: ProxySnapshot,
 ) -> Result<(), String> {
-    if let Some(saved_server) = snapshot.server {
-        inet.set_value("ProxyServer", &saved_server)
-            .map_err(|e| format!("restore ProxyServer: {e}"))?;
-    } else {
-        match inet.delete_value("ProxyServer") {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(format!("delete ProxyServer: {e}")),
-        }
-    }
-    if let Some(saved_override) = snapshot.proxy_override {
-        inet.set_value("ProxyOverride", &saved_override)
-            .map_err(|e| format!("restore ProxyOverride: {e}"))?;
-    } else {
-        match inet.delete_value("ProxyOverride") {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(format!("delete ProxyOverride: {e}")),
-        }
-    }
-    // ProxyEnable is the commit marker visible to WinINet. Restore all
-    // dependent values first so a partial registry failure never activates a
-    // half-restored proxy configuration.
-    inet.set_value("ProxyEnable", &snapshot.enable)
-        .map_err(|e| format!("restore ProxyEnable: {e}"))?;
+    restore_proxy_settings(inet, &snapshot)?;
     nk.set_value("SavedProxyValid", &0u32)
         .map_err(|e| format!("clear proxy snapshot: {e}"))?;
     let _ = nk.delete_value("ActiveProxyServer");
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EnableRollbackSnapshot {
+    settings: ProxySnapshot,
+    active_server: Option<String>,
+    had_saved_snapshot: bool,
+}
+
+fn capture_enable_rollback(nk: &RegKey, inet: &RegKey) -> Result<EnableRollbackSnapshot, String> {
+    Ok(EnableRollbackSnapshot {
+        settings: capture_proxy_settings(inet)?,
+        active_server: nk.get_value::<String, _>("ActiveProxyServer").ok(),
+        had_saved_snapshot: read_proxy_snapshot(nk).is_some(),
+    })
+}
+
+fn rollback_failed_enable(
+    nk: &RegKey,
+    inet: &RegKey,
+    snapshot: EnableRollbackSnapshot,
+) -> Result<(), String> {
+    restore_proxy_settings(inet, &snapshot.settings)?;
+    restore_optional_string(nk, "ActiveProxyServer", snapshot.active_server.as_deref())?;
+    if !snapshot.had_saved_snapshot {
+        nk.set_value("SavedProxyValid", &0u32)
+            .map_err(|e| format!("clear failed enable snapshot: {e}"))?;
+    }
     Ok(())
 }
 
@@ -294,13 +334,15 @@ pub fn set_system_proxy(
         .map_err(|e| format!("open Internet Settings: {e}"))?;
 
     if enable {
-        save_proxy_snapshot(&hkcu, &key)?;
         let hp = host_port.unwrap_or("127.0.0.1:7890");
         let (ninety, _) = hkcu
             .create_subkey(NINETY_KEY)
             .map_err(|e| format!("open Ninety proxy state: {e}"))?;
-        let snapshot = read_proxy_snapshot(&ninety)
-            .ok_or("proxy snapshot disappeared before enable transaction")?;
+        // SavedProxy* остаётся исходным состоянием до первого enable и нужен для
+        // окончательного disable. Этот отдельный snapshot относится только к
+        // текущему вызову: повторная настройка A → B при ошибке должна вернуть A.
+        let rollback = capture_enable_rollback(&ninety, &key)?;
+        save_proxy_snapshot(&hkcu, &key)?;
         let override_list = if bypass_lan.unwrap_or(true) {
             PROXY_OVERRIDE
         } else {
@@ -308,8 +350,8 @@ pub fn set_system_proxy(
         };
 
         // Все записи до ProxyEnable — подготовка, ProxyEnable — commit. Любая
-        // ошибка возвращает точный прежний registry snapshot и очищает ownership
-        // marker, чтобы последующий recovery не работал с полу-применённым state.
+        // ошибка возвращает состояние до текущего вызова, не исходный snapshot
+        // первой сессии Ninety.
         if let Err(e) = apply_with_rollback(
             || {
                 ninety
@@ -323,7 +365,7 @@ pub fn set_system_proxy(
                     .map_err(|e| format!("set ProxyEnable: {e}"))?;
                 Ok(())
             },
-            || restore_proxy_snapshot(&ninety, &key, snapshot),
+            || rollback_failed_enable(&ninety, &key, rollback),
         ) {
             // Даже после успешного rollback часть WinINet-клиентов могла увидеть
             // промежуточные значения; заставляем их перечитать восстановленный state.
@@ -474,7 +516,10 @@ pub fn relaunch_self_elevated(extra_args: &[&str]) -> Result<bool, String> {
             ShellLaunchStatus::FileNotFound => {
                 Err("Windows не нашла исполняемый файл Ninety".into())
             }
-            ShellLaunchStatus::Failed { shell_code, last_error } => Err(format!(
+            ShellLaunchStatus::Failed {
+                shell_code,
+                last_error,
+            } => Err(format!(
                 "не удалось запустить Ninety с правами администратора (ShellExecute={shell_code}, Win32={last_error})"
             )),
         }
@@ -790,6 +835,32 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("set ProxyEnable failed"));
         assert!(err.contains("restore ProxyServer failed"));
+    }
+
+    #[test]
+    fn reenable_rollback_snapshot_keeps_immediate_owned_state() {
+        let original = ProxySnapshot {
+            enable: 0,
+            server: Some("corp.example:8080".into()),
+            proxy_override: None,
+        };
+        let immediate = ProxySnapshot {
+            enable: 1,
+            server: Some("127.0.0.1:7890".into()),
+            proxy_override: Some(PROXY_OVERRIDE.into()),
+        };
+        let rollback = EnableRollbackSnapshot {
+            settings: immediate.clone(),
+            active_server: Some("127.0.0.1:7890".into()),
+            had_saved_snapshot: true,
+        };
+        assert_eq!(rollback.settings, immediate);
+        assert_ne!(rollback.settings, original);
+        assert_eq!(
+            rollback.active_server.as_deref(),
+            Some("127.0.0.1:7890")
+        );
+        assert!(rollback.had_saved_snapshot);
     }
 
     #[test]
