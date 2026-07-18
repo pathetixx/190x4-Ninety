@@ -70,13 +70,18 @@ fn snapshot_keys(
     }
 }
 
-fn embedded_json(keys: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<serde_json::Value> {
+fn embedded_json(
+    keys: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<serde_json::Value> {
     let raw = keys.get(key)?.as_str()?;
     serde_json::from_str(raw).ok()
 }
 
 fn active_id_exists(items: &[serde_json::Value], active: &str) -> bool {
-    items.iter().any(|item| item.get("id").and_then(serde_json::Value::as_str) == Some(active))
+    items.iter().any(|item| {
+        item.get("id").and_then(serde_json::Value::as_str) == Some(active)
+    })
 }
 
 fn valid_snapshot_value(value: &serde_json::Value) -> bool {
@@ -202,17 +207,19 @@ mod tests {
     #[test]
     fn malformed_primary_allows_valid_backup_fallback() {
         let primary = valid_snapshot_json(r#"{"ninety.profiles.v1":"[]""#.to_string());
-        let backup = valid_snapshot_json(valid_snapshot());
+        let expected = valid_snapshot();
+        let backup = valid_snapshot_json(expected.clone());
         let selected = primary.or(backup);
-        assert_eq!(selected.as_deref(), Some(valid_snapshot().as_str()));
+        assert_eq!(selected.as_deref(), Some(expected.as_str()));
     }
 
     #[test]
     fn semantic_corruption_allows_valid_backup_fallback() {
         let primary = valid_snapshot_json(r#"{"__schemaVersion":2}"#.to_string());
-        let backup = valid_snapshot_json(valid_snapshot());
+        let expected = valid_snapshot();
+        let backup = valid_snapshot_json(expected.clone());
         assert!(primary.is_none());
-        assert_eq!(primary.or(backup).as_deref(), Some(valid_snapshot().as_str()));
+        assert_eq!(primary.or(backup).as_deref(), Some(expected.as_str()));
     }
 
     #[test]
