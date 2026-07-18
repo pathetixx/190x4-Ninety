@@ -17,6 +17,7 @@ use tauri::AppHandle;
 
 static BACKUP_LOCK: Mutex<()> = Mutex::new(());
 const BACKUP_SCHEMA_VERSION: u64 = 2;
+const MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
 
 fn backup_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = crate::app_paths::config_dir(app)?;
@@ -28,6 +29,9 @@ fn backup_path(app: &AppHandle) -> Result<PathBuf, String> {
 /// битый бэкап — прежний файл до rename остаётся целым.
 #[tauri::command]
 pub fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
+    // Валидация обязана быть ДО seal/tmp/rotation. Иначе две подряд невалидные
+    // записи сначала вытеснят рабочий primary в .bak, а затем удалят и его.
+    validate_snapshot_for_save(&json)?;
     let _guard = BACKUP_LOCK
         .lock()
         .map_err(|_| "state backup lock poisoned")?;
@@ -63,8 +67,9 @@ pub fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
 fn snapshot_keys(value: &serde_json::Value) -> Option<&serde_json::Map<String, serde_json::Value>> {
     let root = value.as_object()?;
     match root.get("keys") {
+        None => Some(root),
         Some(serde_json::Value::Object(keys)) => Some(keys),
-        _ => Some(root),
+        Some(_) => None,
     }
 }
 
@@ -127,9 +132,24 @@ fn valid_snapshot_value(value: &serde_json::Value) -> bool {
     }
 }
 
+fn valid_snapshot_str(raw: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .is_some_and(|value| valid_snapshot_value(&value))
+}
+
+fn validate_snapshot_for_save(raw: &str) -> Result<(), String> {
+    if raw.len() > MAX_SNAPSHOT_BYTES {
+        return Err(format!("state backup exceeds {MAX_SNAPSHOT_BYTES} bytes"));
+    }
+    if !valid_snapshot_str(raw) {
+        return Err("state backup snapshot is invalid".into());
+    }
+    Ok(())
+}
+
 fn valid_snapshot_json(raw: String) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    valid_snapshot_value(&value).then_some(raw)
+    valid_snapshot_str(&raw).then_some(raw)
 }
 
 // Чтение одного файла снапшота: DPAPI-блоб либо легаси plaintext-JSON.
@@ -221,6 +241,14 @@ mod tests {
     }
 
     #[test]
+    fn invalid_or_oversized_save_is_rejected_before_rotation() {
+        assert!(validate_snapshot_for_save(&valid_snapshot()).is_ok());
+        assert!(validate_snapshot_for_save(r#"{"__schemaVersion":2}"#).is_err());
+        let oversized = "x".repeat(MAX_SNAPSHOT_BYTES + 1);
+        assert!(validate_snapshot_for_save(&oversized).is_err());
+    }
+
+    #[test]
     fn active_id_must_exist_in_selected_collection() {
         let invalid = serde_json::json!({
             "__schemaVersion": 2,
@@ -241,6 +269,19 @@ mod tests {
         })
         .to_string();
         assert!(valid_snapshot_json(wrapped).is_some());
+    }
+
+    #[test]
+    fn malformed_keys_wrapper_is_rejected() {
+        let wrapped = serde_json::json!({
+            "keys": [],
+            "__schemaVersion": 2,
+            "ninety.options.v1": "{}",
+            "ninety.profiles.v1": "[]",
+            "ninety.subscriptions.v1": "[]"
+        })
+        .to_string();
+        assert!(valid_snapshot_json(wrapped).is_none());
     }
 
     #[test]
