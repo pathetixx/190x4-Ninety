@@ -71,11 +71,11 @@ test("OTA-снимок возвращает активный профиль и r
   localStorage.setItem("ninety.profiles.v1", JSON.stringify([{ id: "p-last", name: "Последний" }]));
   localStorage.setItem("ninety.profiles.active", "p-last");
   localStorage.setItem("ninety.active.kind", "single");
-  localStorage.setItem("ninety.update.resume", JSON.stringify({ vpn: true, dpi: false }));
 
   await backupNow();
   assert.equal(JSON.parse(savedSnapshot)["ninety.update.resume"], undefined);
 
+  localStorage.setItem("ninety.update.resume", JSON.stringify({ vpn: true, dpi: false }));
   await backupForUpdate();
   const otaSnapshot = JSON.parse(savedSnapshot);
   assert.equal(otaSnapshot["ninety.profiles.active"], "p-last");

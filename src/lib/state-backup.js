@@ -46,6 +46,14 @@ export function backupNow({ includeUpdateResume = false, strict = false } = {}) 
   // Каждая заявка получает собственный Promise: OTA не начнёт установку, пока
   // именно её снимок не записан после возможного обычного бэкапа в очереди.
   backupInFlight = backupInFlight.catch(() => {}).then(async () => {
+    // Resume-журнал — durable lock, который переживает relaunch. Пока он жив,
+    // debounce/periodic backup не имеет права перезаписать OTA-снимок версией
+    // без ninety.update.resume. RuntimeReady удаляет журнал перед обычным backup.
+    if (!includeUpdateResume) {
+      try {
+        if (localStorage.getItem(STORAGE_KEYS.updateResume) != null) return;
+      } catch {}
+    }
     const snap = snapshot({ includeUpdateResume });
     // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой.
     if (!snap) return;
