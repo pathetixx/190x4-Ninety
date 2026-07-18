@@ -12,29 +12,51 @@
 // local/system → "skip" (пробу не умеем — не считаем мёртвым, чтобы watchdog не
 // переключал зря). Проверяем именно РЕЗОЛЮЦИЮ (ANCOUNT>0), не просто доступность.
 
+use rand_core::{OsRng, RngCore};
 use std::time::Duration;
 use tokio::net::UdpSocket;
 
-// Собирает DNS A-query wire-packet для host. id фиксирован — проба не
-// конкурентная, на один запрос один сокет/клиент.
-fn build_dns_query(host: &str) -> Vec<u8> {
-    let host = host.trim_end_matches('.');
-    let mut p = Vec::with_capacity(host.len() + 18);
-    p.extend_from_slice(&0x1234u16.to_be_bytes()); // id
+// Собирает DNS A-query wire-packet для host. Transaction ID случайный: фиксированный
+// ID позволял постороннему/запоздалому UDP-пакету предсказуемо пройти первую проверку.
+fn build_dns_query(host: &str) -> Result<Vec<u8>, String> {
+    let host = host.trim().trim_end_matches('.');
+    if host.is_empty() {
+        return Err("DNS probe host пуст".into());
+    }
+
+    let labels: Vec<&str> = host.split('.').collect();
+    let encoded_name_len = labels.iter().try_fold(1usize, |total, label| {
+        if label.is_empty() {
+            return Err("DNS probe host содержит пустой label".to_string());
+        }
+        let len = label.len();
+        if len > 63 {
+            return Err(format!("DNS label длиннее 63 байт: {len}"));
+        }
+        total
+            .checked_add(1 + len)
+            .ok_or_else(|| "DNS probe host слишком длинный".to_string())
+    })?;
+    if encoded_name_len > 255 {
+        return Err("DNS probe host длиннее 255 байт в wire-формате".into());
+    }
+
+    let mut p = Vec::with_capacity(12 + encoded_name_len + 4);
+    let mut id = [0u8; 2];
+    OsRng.fill_bytes(&mut id);
+    p.extend_from_slice(&id);
     p.extend_from_slice(&0x0100u16.to_be_bytes()); // flags: RD
     p.extend_from_slice(&1u16.to_be_bytes()); // qdcount
     p.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // an/ns/ar count = 0
-    for label in host.split('.') {
-        // label >63 байт невалиден — обрезаем (защита от кривого host).
+    for label in labels {
         let bytes = label.as_bytes();
-        let len = bytes.len().min(63);
-        p.push(len as u8);
-        p.extend_from_slice(&bytes[..len]);
+        p.push(bytes.len() as u8);
+        p.extend_from_slice(bytes);
     }
     p.push(0); // корневой label
     p.extend_from_slice(&1u16.to_be_bytes()); // qtype A
     p.extend_from_slice(&1u16.to_be_bytes()); // qclass IN
-    p
+    Ok(p)
 }
 
 // ANCOUNT из заголовка DNS-ответа (байты 6..8). >0 = резолвер реально ответил
@@ -47,9 +69,33 @@ fn answer_count(resp: &[u8]) -> u16 {
 }
 
 fn validate_dns_response(resp: &[u8], query: &[u8]) -> Result<(), String> {
-    if resp.len() < 12 || query.len() < 2 || resp[..2] != query[..2] || resp[2] & 0x80 == 0 {
-        Err("невалидный DNS-ответ (id/QR не совпали)".into())
-    } else if answer_count(resp) > 0 {
+    if resp.len() < 12 || query.len() < 17 {
+        return Err("невалидный DNS-ответ (короткий пакет)".into());
+    }
+    if resp[..2] != query[..2] || resp[2] & 0x80 == 0 {
+        return Err("невалидный DNS-ответ (id/QR не совпали)".into());
+    }
+    let rcode = resp[3] & 0x0f;
+    if rcode != 0 {
+        return Err(format!("DNS-ответ вернул RCODE={rcode}"));
+    }
+    let qdcount = u16::from_be_bytes([resp[4], resp[5]]);
+    if qdcount != 1 {
+        return Err(format!("DNS-ответ содержит QDCOUNT={qdcount}, ожидался 1"));
+    }
+
+    // Ответ должен эхо-нуть тот же question (QNAME/QTYPE/QCLASS). Одного ID мало:
+    // при повторном использовании сокета/запоздалом пакете можно получить ответ
+    // на другой hostname и ошибочно признать текущий direct-DNS рабочим.
+    let question = &query[12..];
+    let question_end = 12usize
+        .checked_add(question.len())
+        .ok_or_else(|| "DNS question overflow".to_string())?;
+    if resp.len() < question_end || resp[12..question_end] != *question {
+        return Err("DNS-ответ относится к другому question".into());
+    }
+
+    if answer_count(resp) > 0 {
         Ok(())
     } else {
         Err("ответ без записей (ANCOUNT=0)".into())
@@ -147,9 +193,9 @@ async fn probe_udp_addr(address: std::net::SocketAddr, query: &[u8]) -> Result<(
     match sock.recv(&mut buf).await {
         Ok(n) => {
             let resp = &buf[..n];
-            // Ответ обязан эхо-нуть наш transaction id и нести QR-бит (это
-            // ответ, а не запрос) — иначе любой залётный UDP-пакет с ненулевым
-            // ANCOUNT «оживлял» бы мёртвый резолвер.
+            // Ответ обязан эхо-нуть transaction id и исходный question, нести
+            // QR-бит и успешный RCODE — иначе залётный/ошибочный пакет не должен
+            // «оживлять» мёртвый резолвер.
             validate_dns_response(resp, query)
         }
         Err(e) => Err(format!("recv: {e}")),
@@ -206,7 +252,7 @@ pub async fn dns_probe(
     timeout_ms: Option<u64>,
 ) -> Result<DnsProbeResult, String> {
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(4000).clamp(300, 10_000));
-    let query = build_dns_query(&host);
+    let query = build_dns_query(&host)?;
     let res = match parse_target(&dns) {
         Target::Skip => {
             return Ok(DnsProbeResult {
@@ -233,13 +279,30 @@ pub async fn dns_probe(
 mod tests {
     use super::*;
 
+    fn valid_response(query: &[u8]) -> Vec<u8> {
+        let mut response = vec![0u8; 12];
+        response[..2].copy_from_slice(&query[..2]);
+        response[2] = 0x80; // QR
+        response[4..6].copy_from_slice(&1u16.to_be_bytes()); // QDCOUNT
+        response[6..8].copy_from_slice(&1u16.to_be_bytes()); // ANCOUNT
+        response.extend_from_slice(&query[12..]);
+        response
+    }
+
     #[test]
     fn dns_query_shape() {
-        let q = build_dns_query("example.com");
+        let q = build_dns_query("example.com").unwrap();
         // header(12) + 7(example) + 3(com) + 1(root) + qtype(2) + qclass(2)
         assert_eq!(q.len(), 12 + (1 + 7) + (1 + 3) + 1 + 2 + 2);
         assert_eq!(&q[4..6], &1u16.to_be_bytes()); // qdcount=1
         assert_eq!(q[12], 7); // первый label "example"
+    }
+
+    #[test]
+    fn invalid_dns_names_are_rejected_instead_of_truncated() {
+        assert!(build_dns_query("").is_err());
+        assert!(build_dns_query("a..example").is_err());
+        assert!(build_dns_query(&format!("{}.example", "a".repeat(64))).is_err());
     }
 
     #[test]
@@ -277,14 +340,27 @@ mod tests {
     }
 
     #[test]
-    fn dns_response_requires_matching_id_and_qr() {
-        let query = build_dns_query("example.com");
-        let mut response = vec![0u8; 12];
-        response[..2].copy_from_slice(&query[..2]);
-        response[2] = 0x80;
-        response[7] = 1;
+    fn dns_response_requires_matching_id_qr_and_question() {
+        let query = build_dns_query("example.com").unwrap();
+        let mut response = valid_response(&query);
         assert!(validate_dns_response(&response, &query).is_ok());
+
         response[0] ^= 1;
+        assert!(validate_dns_response(&response, &query).is_err());
+        response = valid_response(&query);
+        response[12] ^= 1;
+        assert!(validate_dns_response(&response, &query).is_err());
+    }
+
+    #[test]
+    fn dns_response_rejects_error_rcode_and_wrong_qdcount() {
+        let query = build_dns_query("example.com").unwrap();
+        let mut response = valid_response(&query);
+        response[3] = 3; // NXDOMAIN
+        assert!(validate_dns_response(&response, &query).is_err());
+
+        response = valid_response(&query);
+        response[4..6].copy_from_slice(&0u16.to_be_bytes());
         assert!(validate_dns_response(&response, &query).is_err());
     }
 }
