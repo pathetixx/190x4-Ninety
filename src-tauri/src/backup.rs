@@ -12,10 +12,14 @@
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::AppHandle;
 
 static BACKUP_LOCK: Mutex<()> = Mutex::new(());
+// Clear повышает поколение под BACKUP_LOCK. Save запоминает его при входе и
+// после получения lock отказывается писать, если очистка успела пройти раньше.
+static BACKUP_GENERATION: AtomicU64 = AtomicU64::new(0);
 const BACKUP_SCHEMA_VERSION: u64 = 2;
 const MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
 
@@ -25,16 +29,27 @@ fn backup_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("state-backup.json"))
 }
 
+fn backup_generation_matches(generation: &AtomicU64, captured: u64) -> bool {
+    generation.load(Ordering::Acquire) == captured
+}
+
 /// Атомарная запись снапшота: tmp + rename. Краш посреди записи не оставит
 /// битый бэкап — прежний файл до rename остаётся целым.
 #[tauri::command]
 pub fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
+    // Захватываем поколение ДО потенциально дорогой JSON-валидации/DPAPI. Если
+    // параллельный state_backup_clear завершится раньше получения lock, старый
+    // запрос не имеет права воскресить уже удалённые профили.
+    let generation = BACKUP_GENERATION.load(Ordering::Acquire);
     // Валидация обязана быть ДО seal/tmp/rotation. Иначе две подряд невалидные
     // записи сначала вытеснят рабочий primary в .bak, а затем удалят и его.
     validate_snapshot_for_save(&json)?;
     let _guard = BACKUP_LOCK
         .lock()
         .map_err(|_| "state backup lock poisoned")?;
+    if !backup_generation_matches(&BACKUP_GENERATION, generation) {
+        return Err("state backup save invalidated by sensitive-data clear".into());
+    }
     let path = backup_path(&app)?;
     let tmp = path.with_extension("json.tmp");
     let sealed = crate::secrets::seal_for_app(&app, json.as_bytes())?;
@@ -194,6 +209,9 @@ pub fn state_backup_clear(app: AppHandle) -> Result<u32, String> {
     let _guard = BACKUP_LOCK
         .lock()
         .map_err(|_| "state backup lock poisoned")?;
+    // Инвалидация идёт до удаления файлов: даже если remove завершится ошибкой,
+    // запросы save, начатые до clear, уже не смогут записать старый snapshot.
+    BACKUP_GENERATION.fetch_add(1, Ordering::AcqRel);
     let path = backup_path(&app)?;
     let mut removed = 0;
     for p in [
@@ -220,6 +238,19 @@ mod tests {
             "ninety.subscriptions.v1": "[]"
         })
         .to_string()
+    }
+
+    #[test]
+    fn clear_generation_invalidates_older_save_request() {
+        let generation = AtomicU64::new(7);
+        let captured = generation.load(Ordering::Acquire);
+        assert!(backup_generation_matches(&generation, captured));
+        generation.fetch_add(1, Ordering::AcqRel);
+        assert!(!backup_generation_matches(&generation, captured));
+        assert!(backup_generation_matches(
+            &generation,
+            generation.load(Ordering::Acquire)
+        ));
     }
 
     #[test]
