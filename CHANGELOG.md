@@ -5,6 +5,7 @@
 ## v0.2.39 — 2026-07-18
 
 - Добавлены четыре премиальные темы оформления: Kintsugi Noir, Aurora Glass, Porcelain Zero и Titanium Signal — с отдельными материалами, цветами, световыми акцентами и превью в настройках внешнего вида.
+- Added four premium appearance themes: Kintsugi Noir, Aurora Glass, Porcelain Zero and Titanium Signal, each with distinct materials, colors, light accents and previews in Appearance settings.
 
 ## v0.2.38 — 2026-07-18
 
