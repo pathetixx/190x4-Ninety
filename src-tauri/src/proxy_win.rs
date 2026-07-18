@@ -267,6 +267,22 @@ fn restore_proxy_snapshot(
     Ok(())
 }
 
+fn apply_with_rollback<A, R>(apply: A, rollback: R) -> Result<(), String>
+where
+    A: FnOnce() -> Result<(), String>,
+    R: FnOnce() -> Result<(), String>,
+{
+    match apply() {
+        Ok(()) => Ok(()),
+        Err(apply_error) => match rollback() {
+            Ok(()) => Err(apply_error),
+            Err(rollback_error) => Err(format!(
+                "{apply_error}; rollback системного proxy тоже не удался: {rollback_error}"
+            )),
+        },
+    }
+}
+
 pub fn set_system_proxy(
     enable: bool,
     host_port: Option<&str>,
@@ -283,20 +299,37 @@ pub fn set_system_proxy(
         let (ninety, _) = hkcu
             .create_subkey(NINETY_KEY)
             .map_err(|e| format!("open Ninety proxy state: {e}"))?;
-        ninety
-            .set_value("ActiveProxyServer", &hp.to_string())
-            .map_err(|e| format!("save active proxy: {e}"))?;
-        key.set_value("ProxyServer", &hp.to_string())
-            .map_err(|e| format!("set ProxyServer: {e}"))?;
+        let snapshot = read_proxy_snapshot(&ninety)
+            .ok_or("proxy snapshot disappeared before enable transaction")?;
         let override_list = if bypass_lan.unwrap_or(true) {
             PROXY_OVERRIDE
         } else {
             PROXY_OVERRIDE_LOOPBACK_ONLY
         };
-        key.set_value("ProxyOverride", &override_list.to_string())
-            .map_err(|e| format!("set ProxyOverride: {e}"))?;
-        key.set_value("ProxyEnable", &1u32)
-            .map_err(|e| format!("set ProxyEnable: {e}"))?;
+
+        // Все записи до ProxyEnable — подготовка, ProxyEnable — commit. Любая
+        // ошибка возвращает точный прежний registry snapshot и очищает ownership
+        // marker, чтобы последующий recovery не работал с полу-применённым state.
+        if let Err(e) = apply_with_rollback(
+            || {
+                ninety
+                    .set_value("ActiveProxyServer", &hp.to_string())
+                    .map_err(|e| format!("save active proxy: {e}"))?;
+                key.set_value("ProxyServer", &hp.to_string())
+                    .map_err(|e| format!("set ProxyServer: {e}"))?;
+                key.set_value("ProxyOverride", &override_list.to_string())
+                    .map_err(|e| format!("set ProxyOverride: {e}"))?;
+                key.set_value("ProxyEnable", &1u32)
+                    .map_err(|e| format!("set ProxyEnable: {e}"))?;
+                Ok(())
+            },
+            || restore_proxy_snapshot(&ninety, &key, snapshot),
+        ) {
+            // Даже после успешного rollback часть WinINet-клиентов могла увидеть
+            // промежуточные значения; заставляем их перечитать восстановленный state.
+            notify_proxy_change();
+            return Err(e);
+        }
     } else {
         let current: String = key.get_value("ProxyServer").unwrap_or_default();
         let current_enable: u32 = key.get_value("ProxyEnable").unwrap_or(0);
@@ -647,6 +680,7 @@ pub fn autostart_refresh_path() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     fn recovery_action(
         server: &str,
@@ -730,6 +764,46 @@ mod tests {
             ),
             ProxyRecoveryAction::LeaveUntouched
         );
+    }
+
+    #[test]
+    fn failed_enable_runs_rollback_and_preserves_apply_error() {
+        let rolled_back = Cell::new(false);
+        let err = apply_with_rollback(
+            || Err("set ProxyOverride failed".into()),
+            || {
+                rolled_back.set(true);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert!(rolled_back.get());
+        assert_eq!(err, "set ProxyOverride failed");
+    }
+
+    #[test]
+    fn rollback_failure_reports_both_errors() {
+        let err = apply_with_rollback(
+            || Err("set ProxyEnable failed".into()),
+            || Err("restore ProxyServer failed".into()),
+        )
+        .unwrap_err();
+        assert!(err.contains("set ProxyEnable failed"));
+        assert!(err.contains("restore ProxyServer failed"));
+    }
+
+    #[test]
+    fn successful_enable_does_not_run_rollback() {
+        let rolled_back = Cell::new(false);
+        assert!(apply_with_rollback(
+            || Ok(()),
+            || {
+                rolled_back.set(true);
+                Ok(())
+            },
+        )
+        .is_ok());
+        assert!(!rolled_back.get());
     }
 
     #[test]
