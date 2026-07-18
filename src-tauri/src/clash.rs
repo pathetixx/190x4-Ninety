@@ -5,6 +5,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 const MAX_IP_RESPONSE_BYTES: usize = 64 * 1024;
+const MAX_CLASH_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
 // Секрет clash-API: генерируется один раз за жизнь процесса, инжектится в
 // конфиг sing-box (vpn::harden_config) и отправляется в каждом запросе как
@@ -184,24 +185,52 @@ fn base(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
+fn clash_port_from_config(raw: &str) -> Option<u16> {
+    serde_json::from_str::<Value>(raw)
+        .ok()?
+        .pointer("/experimental/clash_api/external_controller")?
+        .as_str()?
+        .rsplit(':')
+        .next()?
+        .parse()
+        .ok()
+}
+
+fn configured_clash_port(app: &tauri::AppHandle) -> Result<u16, String> {
+    let path = crate::app_paths::config_dir(app)?.join("singbox-current.json");
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Clash API runtime config unavailable: {e}"))?;
+    clash_port_from_config(&raw).ok_or_else(|| "Clash API port missing in runtime config".into())
+}
+
+fn validate_clash_port(app: &tauri::AppHandle, port: u16) -> Result<(), String> {
+    let active = configured_clash_port(app)?;
+    if active == port {
+        Ok(())
+    } else {
+        Err(format!(
+            "Clash API port mismatch: active={active}, requested={port}"
+        ))
+    }
+}
+
 async fn json_response(
     operation: &str,
     port: u16,
     response: reqwest::Response,
 ) -> Result<Value, String> {
     let status = response.status();
+    let body =
+        crate::util::read_response_capped(response, MAX_CLASH_RESPONSE_BYTES, "Clash API").await?;
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!("{operation} port={port}: HTTP {status}: {body}"));
+        let text = String::from_utf8_lossy(&body);
+        return Err(format!("{operation} port={port}: HTTP {status}: {text}"));
     }
-    response
-        .json::<Value>()
-        .await
+    serde_json::from_slice::<Value>(&body)
         .map_err(|e| format!("{operation} port={port}: decode: {e}"))
 }
 
-#[tauri::command]
-pub async fn clash_get_proxies(port: u16) -> Result<Value, String> {
+pub(crate) async fn clash_get_proxies_unchecked(port: u16) -> Result<Value, String> {
     let c = client()?;
     let r = c
         .get(format!("{}/proxies", base(port)))
@@ -216,11 +245,18 @@ pub async fn clash_get_proxies(port: u16) -> Result<Value, String> {
     Ok(value)
 }
 
+#[tauri::command]
+pub async fn clash_get_proxies(app: tauri::AppHandle, port: u16) -> Result<Value, String> {
+    validate_clash_port(&app, port)?;
+    clash_get_proxies_unchecked(port).await
+}
+
 // Кумулятивный трафик с момента старта ядра: /connections отдаёт uploadTotal/
 // downloadTotal (байты). Сбрасывается при перезапуске sing-box — накопление между
 // сессиями ведёт фронт (traffic-meter.js, дельты в localStorage per-source).
 #[tauri::command]
-pub async fn clash_traffic_total(port: u16) -> Result<Value, String> {
+pub async fn clash_traffic_total(app: tauri::AppHandle, port: u16) -> Result<Value, String> {
+    validate_clash_port(&app, port)?;
     let c = client()?;
     let r = c
         .get(format!("{}/connections", base(port)))
@@ -251,7 +287,8 @@ pub async fn clash_traffic_total(port: u16) -> Result<Value, String> {
 // processPath. Если процесс не определился (системный сокет и т.п.) — process=null,
 // путь пуст.
 #[tauri::command]
-pub async fn clash_get_connections(port: u16) -> Result<Value, String> {
+pub async fn clash_get_connections(app: tauri::AppHandle, port: u16) -> Result<Value, String> {
+    validate_clash_port(&app, port)?;
     let c = client()?;
     let r = c
         .get(format!("{}/connections", base(port)))
@@ -326,11 +363,13 @@ pub async fn clash_get_connections(port: u16) -> Result<Value, String> {
 
 #[tauri::command]
 pub async fn clash_test_node(
+    app: tauri::AppHandle,
     port: u16,
     name: String,
     url: Option<String>,
     timeout_ms: Option<u32>,
 ) -> Result<Value, String> {
+    validate_clash_port(&app, port)?;
     let c = client()?;
     let test_url = url.unwrap_or_else(|| "https://www.gstatic.com/generate_204".to_string());
     let t = timeout_ms.unwrap_or(5000);
@@ -356,11 +395,13 @@ pub async fn clash_test_node(
 
 #[tauri::command]
 pub async fn clash_test_group(
+    app: tauri::AppHandle,
     port: u16,
     group: String,
     url: Option<String>,
     timeout_ms: Option<u32>,
 ) -> Result<Value, String> {
+    validate_clash_port(&app, port)?;
     let c = client()?;
     let test_url = url.unwrap_or_else(|| "https://www.gstatic.com/generate_204".to_string());
     let t = timeout_ms.unwrap_or(5000);
@@ -388,7 +429,13 @@ pub async fn clash_test_group(
 // PUT /proxies/{group}  body: {"name": "<node-tag>"}
 // В sing-box clash-API это работает только для Selector (не URLTest).
 #[tauri::command]
-pub async fn clash_select_proxy(port: u16, group: String, name: String) -> Result<(), String> {
+pub async fn clash_select_proxy(
+    app: tauri::AppHandle,
+    port: u16,
+    group: String,
+    name: String,
+) -> Result<(), String> {
+    validate_clash_port(&app, port)?;
     let c = client()?;
     let body = serde_json::json!({ "name": name });
     let path = format!("{}/proxies/{}", base(port), urlencoding::encode(&group));
@@ -401,7 +448,9 @@ pub async fn clash_select_proxy(port: u16, group: String, name: String) -> Resul
         .map_err(|e| format!("request: {e}"))?;
     let status = r.status();
     if !status.is_success() {
-        let text = r.text().await.unwrap_or_default();
+        let body =
+            crate::util::read_response_capped(r, MAX_CLASH_RESPONSE_BYTES, "Clash API").await?;
+        let text = String::from_utf8_lossy(&body);
         return Err(format!("select_proxy port={port}: HTTP {status}: {text}"));
     }
     Ok(())
@@ -410,6 +459,14 @@ pub async fn clash_select_proxy(port: u16, group: String, name: String) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_config_port_is_parsed_from_loopback_controller() {
+        let raw = r#"{"experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}}}"#;
+        assert_eq!(clash_port_from_config(raw), Some(9191));
+        assert_eq!(clash_port_from_config("{}"), None);
+        assert_eq!(clash_port_from_config("not-json"), None);
+    }
 
     #[test]
     fn normalize_ipwho() {
