@@ -22,3 +22,60 @@ impl<T> MutexExt<T> for Mutex<T> {
         self.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
+
+fn checked_body_len(current: usize, incoming: usize, max_bytes: usize) -> Result<usize, String> {
+    let next = current
+        .checked_add(incoming)
+        .ok_or_else(|| "HTTP response size overflow".to_string())?;
+    if next > max_bytes {
+        return Err(format!("HTTP response exceeds {max_bytes} bytes"));
+    }
+    Ok(next)
+}
+
+/// Читает HTTP body потоково с реальным лимитом, не доверяя Content-Length.
+pub async fn read_response_capped(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    if let Some(len) = response.content_length() {
+        if len > max_bytes as u64 {
+            return Err(format!("{label}: response exceeds {max_bytes} bytes"));
+        }
+    }
+
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| format!("{label}: body read: {e}"))?
+    {
+        let next = checked_body_len(body.len(), chunk.len(), max_bytes)
+            .map_err(|e| format!("{label}: {e}"))?;
+        body.reserve(next.saturating_sub(body.capacity()));
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+pub async fn read_response_text_capped(
+    response: reqwest::Response,
+    max_bytes: usize,
+    label: &str,
+) -> Result<String, String> {
+    let body = read_response_capped(response, max_bytes, label).await?;
+    String::from_utf8(body).map_err(|e| format!("{label}: invalid UTF-8: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn response_size_guard_rejects_overflow_and_limit_excess() {
+        assert_eq!(checked_body_len(10, 5, 20).unwrap(), 15);
+        assert!(checked_body_len(10, 11, 20).is_err());
+        assert!(checked_body_len(usize::MAX, 1, usize::MAX).is_err());
+    }
+}
