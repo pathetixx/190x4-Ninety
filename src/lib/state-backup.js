@@ -41,6 +41,18 @@ function snapshot({ includeUpdateResume = false } = {}) {
 }
 
 let backupInFlight = Promise.resolve();
+// Значение журнала запоминаем и в старом процессе после strict OTA-save, и в
+// новом процессе при импорте модуля. Это позволяет распознать переход
+// «resume был → RuntimeReady удалил его» без изменений в main.js.
+let pendingResumeValue = (() => {
+  try { return localStorage.getItem(STORAGE_KEYS.updateResume); }
+  catch { return null; }
+})();
+
+function restorePendingResume() {
+  if (pendingResumeValue == null) return;
+  try { localStorage.setItem(STORAGE_KEYS.updateResume, pendingResumeValue); } catch {}
+}
 
 export function backupNow({ includeUpdateResume = false, strict = false } = {}) {
   // Каждая заявка получает собственный Promise: OTA не начнёт установку, пока
@@ -49,22 +61,43 @@ export function backupNow({ includeUpdateResume = false, strict = false } = {}) 
     // Resume-журнал — durable lock, который переживает relaunch. Пока он жив,
     // debounce/periodic backup не имеет права перезаписать OTA-снимок версией
     // без ninety.update.resume. RuntimeReady удаляет журнал перед обычным backup.
+    let closingResume = false;
     if (!includeUpdateResume) {
       try {
-        if (localStorage.getItem(STORAGE_KEYS.updateResume) != null) return;
+        const current = localStorage.getItem(STORAGE_KEYS.updateResume);
+        if (current != null) {
+          pendingResumeValue = current;
+          return;
+        }
       } catch {}
+      // Журнал существовал в этой OTA-сессии, но теперь удалён RuntimeReady:
+      // следующая запись обязана строго зафиксировать его отсутствие на диске.
+      closingResume = pendingResumeValue != null;
     }
     const snap = snapshot({ includeUpdateResume });
-    // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой.
-    if (!snap) return;
+    // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой. Но при
+    // закрытии OTA-журнала это не успех: старый дисковый resume остался бы жив.
+    if (!snap) {
+      if (closingResume) {
+        restorePendingResume();
+        throw new Error("cannot close OTA resume journal with empty state");
+      }
+      return;
+    }
     try {
       await invoke("state_backup_save", { json: JSON.stringify(snap) });
+      if (includeUpdateResume) {
+        pendingResumeValue = snap[STORAGE_KEYS.updateResume] ?? pendingResumeValue;
+      } else if (closingResume) {
+        pendingResumeValue = null;
+      }
     } catch (e) {
+      if (closingResume) restorePendingResume();
       console.warn("state backup failed", e);
       // Фоновые снимки остаются best-effort, но OTA обязан остановиться до
-      // shutdown/install: иначе UI обещает восстановление состояния, которого
-      // фактически нет на диске.
-      if (strict) throw e;
+      // shutdown/install. Закрытие resume-журнала тоже strict: иначе старый
+      // marker останется на диске и воскреснет при будущей потере WebView2.
+      if (strict || closingResume) throw e;
     }
   });
   return backupInFlight;
