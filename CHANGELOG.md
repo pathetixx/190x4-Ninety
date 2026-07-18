@@ -2,9 +2,31 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.39 — 2026-07-18
+
+- OTA recovery is now phase-aware: Ninety re-checks VPN and DPI state, avoids restarting a working connection unnecessarily, and verifies the resume journal before declaring recovery complete.
+- State backups reject malformed, oversized and stale writes; after sensitive-data cleanup, an older save cannot restore removed profiles.
+- Local request hardening now restricts the system proxy to loopback endpoints, validates Clash commands against the live runtime and caps response bodies.
+- Quality probes allow only the official Cloudflare endpoint and safe HTTPS redirects; DNS responses are checked against the original question.
+- The Windows release gate now validates portable backup data and waits for the short sequential NSIS cleanup tail while still rejecting real parallel installers.
+- Восстановление после неудачного OTA-обновления стало фазовым: Ninety перепроверяет состояние VPN и DPI, не перезапускает рабочее соединение без необходимости и подтверждает журнал восстановления перед завершением.
+- Резервные копии настроек отклоняют битые, слишком большие и устаревшие записи; после очистки чувствительных данных старая операция сохранения не может вернуть удалённые профили.
+- Локальные запросы защищены строже: системный proxy принимает только loopback-адреса, команды Clash сверяют живое состояние runtime, а ответы ограничены по размеру.
+- Проверки качества соединения разрешают только официальный endpoint Cloudflare и безопасные HTTPS-переходы; ответы DNS сверяются с исходным запросом.
+- Windows-релиз теперь проверяет данные переносной копии и дожидается короткого служебного хвоста последовательного удаления, сохраняя отказ при настоящем параллельном запуске.
+
 ## v0.2.38 — 2026-07-18
 
-- Проверка последовательной установки и удаления теперь корректно дожидается завершения короткого служебного хвоста установщика, сохраняя отказ при настоящем параллельном запуске.
+- OTA recovery is now phase-aware: Ninety re-checks VPN and DPI state, avoids restarting a working connection unnecessarily, and verifies the resume journal before declaring recovery complete.
+- State backups reject malformed, oversized and stale writes; after sensitive-data cleanup, an older save cannot restore removed profiles.
+- Local request hardening now restricts the system proxy to loopback endpoints, validates Clash commands against the live runtime and caps response bodies.
+- Quality probes allow only the official Cloudflare endpoint and safe HTTPS redirects; DNS responses are checked against the original question.
+- The Windows release gate now validates portable backup data and waits for the short sequential NSIS cleanup tail while still rejecting real parallel installers.
+- Восстановление после неудачного OTA-обновления стало фазовым: Ninety перепроверяет состояние VPN и DPI, не перезапускает рабочее соединение без необходимости и подтверждает журнал восстановления перед завершением.
+- Резервные копии настроек отклоняют битые, слишком большие и устаревшие записи; после очистки чувствительных данных старая операция сохранения не может вернуть удалённые профили.
+- Локальные запросы защищены строже: системный proxy принимает только loopback-адреса, команды Clash сверяют живое состояние runtime, а ответы ограничены по размеру.
+- Проверки качества соединения разрешают только официальный endpoint Cloudflare и безопасные HTTPS-переходы; ответы DNS сверяются с исходным запросом.
+- Windows-релиз теперь проверяет данные переносной копии и дожидается короткого служебного хвоста последовательного удаления, сохраняя отказ при настоящем параллельном запуске.
 
 ## v0.2.37 — 2026-07-18
 
