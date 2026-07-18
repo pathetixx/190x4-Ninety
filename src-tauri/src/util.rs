@@ -23,7 +23,11 @@ impl<T> MutexExt<T> for Mutex<T> {
     }
 }
 
-fn checked_body_len(current: usize, incoming: usize, max_bytes: usize) -> Result<usize, String> {
+fn checked_body_len(
+    current: usize,
+    incoming: usize,
+    max_bytes: usize,
+) -> Result<usize, String> {
     let next = current
         .checked_add(incoming)
         .ok_or_else(|| "HTTP response size overflow".to_string())?;
