@@ -876,7 +876,7 @@ async fn wait_clash_ready(port: u16, state: &SingboxState, start_epoch: u64) -> 
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
         ensure_start_current(state, start_epoch)?;
-        match crate::clash::clash_get_proxies(port).await {
+        match crate::clash::clash_get_proxies_unchecked(port).await {
             Ok(_) => return Ok(()),
             Err(e) if tokio::time::Instant::now() >= deadline => {
                 return Err(format!("Clash API port={port} не готов: {e}"))
