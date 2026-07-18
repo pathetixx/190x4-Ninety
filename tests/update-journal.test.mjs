@@ -2,7 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 globalThis.window = {};
-const { buildUpdateJournal, portableReleaseUrl, resumeRuntimeReady } = await import("/lib/update-modal.js");
+const {
+  buildUpdateJournal,
+  persistUpdateJournal,
+  portableReleaseUrl,
+  resumeRuntimeReady,
+} = await import("/lib/update-modal.js");
 
 test("portable release URL targets the exact encoded tag", () => {
   assert.equal(
@@ -22,6 +27,29 @@ test("OTA journal versioned и хранит fingerprint/mode/desired state", () 
   assert.equal(j.stage, "runtime_stopped");
   assert.deepEqual(j.desired, { vpn: true, dpi: true });
   assert.equal(j.attempts, 2);
+});
+
+test("OTA journal persistence is verified before runtime shutdown", () => {
+  const data = new Map();
+  const storage = {
+    setItem: (key, value) => data.set(key, String(value)),
+    getItem: (key) => data.get(key) ?? null,
+  };
+  const journal = buildUpdateJournal({ stage: "backup_ready", vpn: true, dpi: false });
+  const encoded = persistUpdateJournal(journal, storage);
+  assert.equal(storage.getItem("ninety.update.resume"), encoded);
+});
+
+test("OTA journal storage failures abort instead of being ignored", () => {
+  const journal = buildUpdateJournal({ stage: "backup_ready", vpn: true, dpi: false });
+  assert.throws(() => persistUpdateJournal(journal, {
+    setItem: () => { throw new Error("quota exceeded"); },
+    getItem: () => null,
+  }), /quota exceeded/);
+  assert.throws(() => persistUpdateJournal(journal, {
+    setItem: () => {},
+    getItem: () => "truncated",
+  }), /verification failed/);
 });
 
 test("UAC cancel / неготовый VPN не разрешает удалить resume journal", () => {
