@@ -650,6 +650,22 @@ export const uk = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "Суворий тунель працює лише в режимі VPN · TUN.",
+    enableCancelled: "Суворий тунель не ввімкнено: потрібні права адміністратора.",
+    nodeRequired: "Виберіть конкретний сервер. У суворому тунелі режим «Авто» недоступний.",
+    nodeUnavailable: "Вибраний сервер недоступний. Суворий тунель не підключено.",
+    bootstrapUnsafe: "Цій ноді потрібен прямий DNS-bootstrap, який суворий тунель не дозволяє. Виберіть ноду, де сервер указано IP-адресою.",
+    guardLost: "Захисний мережевий фільтр Windows вимкнувся. Ninety намагається відновити його; не відключайте VPN.",
+    guardRestored: "Захисний мережевий фільтр Windows відновлено.",
+    browserNeedConnection: "Спочатку підключіть Ninety у режимі VPN · TUN, щоб браузер не вийшов у мережу напряму.",
+    browserLaunched: "Захищений сеанс відкрито в Mullvad Browser.",
+    browserMissing: "Mullvad Browser не знайдено на цьому комп’ютері.",
+    browserFailed: "Не вдалося відкрити Mullvad Browser.",
+    downloadOpened: "Відкрито офіційну сторінку безкоштовного завантаження Mullvad Browser.",
+    downloadFailed: "Не вдалося відкрити сторінку завантаження Mullvad Browser.",
+  },
+
   settings: {
     language: "Мова інтерфейсу",
     languageHint: "Переклад застосовується одразу, без перезапуску.",
@@ -659,6 +675,7 @@ export const uk = {
 
     sec: {
       general:    { title: "Загальні",          hint: "Автозапуск, права адміністратора, Wi-Fi-захист, Kill Switch, логи" },
+      privacy:    { title: "Приватність",        hint: "Суворий тунель і захищений браузер" },
       appearance: { title: "Оформлення",        hint: "Мова інтерфейсу та вибір теми" },
       routing:    { title: "Маршрутизація",     hint: "Регіон, обхід локальної мережі, блокування реклами, IPv6" },
       dns:        { title: "DNS",               hint: "Remote- та Direct-DNS, кеш, fake-DNS" },
@@ -718,6 +735,25 @@ export const uk = {
       logOffTitle: "Повністю вимкнути логи",
       logOffHint: "Жоден компонент (sing-box, xray, NaiveProxy, TrustTunnel, DPI) не пише логи — діагностика стане неможливою. Вмикайте, лише якщо логи точно не потрібні.",
       adminSaveErr: "Не вдалося зберегти налаштування: {err}",
+    },
+
+    privacy: {
+      banner: "Суворий тунель закриває прямі маршрути та випадкові витоки, але не перетворює IP VPN-сервера на домашній. Сайти все одно можуть розпізнати адресу дата-центру або відомого VPN.",
+      strictTitle: "Суворий тунель",
+      strictHint: "Примусово використовує VPN · TUN і один вибраний сервер без автоматичної зміни. Прямі винятки, обхід LAN, IPv6, WARP та автооптимізація вимикаються; DNS сайтів залишається всередині тунелю.",
+      browserGroup: "Захищений браузер",
+      browserHint: "Безкоштовний Mullvad Browser забезпечує узгоджений, менш унікальний відбиток браузера. Запускайте його лише після підключення Ninety у режимі VPN · TUN: браузер не змінює IP і не виправляє репутацію VPN-сервера.",
+      statusChecking: "Перевіряю встановлення…",
+      statusAvailable: "Mullvad Browser встановлено",
+      statusAvailableVersion: "Mullvad Browser встановлено · {version}",
+      statusMissing: "Mullvad Browser не знайдено",
+      statusError: "Не вдалося перевірити Mullvad Browser",
+      launch: "Відкрити захищений сеанс",
+      check: "Перевірити захист",
+      download: "Завантажити безкоштовно",
+      autoTitle: "Відкривати після підключення",
+      autoHint: "Один раз запускає Mullvad Browser після успішного підключення. Автоматичні перепідключення не створюють додаткових вікон.",
+      free: "Mullvad Browser безкоштовний і не потребує підписки Mullvad VPN.",
     },
 
     appearance: {

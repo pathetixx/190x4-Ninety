@@ -650,6 +650,22 @@ export const en = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "Strict tunnel works only in VPN · TUN mode.",
+    enableCancelled: "Strict tunnel was not enabled: administrator rights are required.",
+    nodeRequired: "Choose a specific server. Auto mode is unavailable with strict tunnel.",
+    nodeUnavailable: "The selected server is unavailable. Strict tunnel was not connected.",
+    bootstrapUnsafe: "This node requires direct DNS bootstrap, which strict tunnel does not allow. Choose a node whose server is specified by IP address.",
+    guardLost: "The Windows network guard stopped. Ninety is trying to restore it; do not disconnect the VPN.",
+    guardRestored: "The Windows network guard was restored.",
+    browserNeedConnection: "Connect Ninety in VPN · TUN mode first so the browser cannot go online directly.",
+    browserLaunched: "Protected session opened in Mullvad Browser.",
+    browserMissing: "Mullvad Browser was not found on this computer.",
+    browserFailed: "Could not open Mullvad Browser.",
+    downloadOpened: "Opened the official free Mullvad Browser download page.",
+    downloadFailed: "Could not open the Mullvad Browser download page.",
+  },
+
   settings: {
     language: "Interface language",
     languageHint: "Applies instantly — no restart needed.",
@@ -659,6 +675,7 @@ export const en = {
 
     sec: {
       general:    { title: "General",        hint: "Autostart, administrator rights, Wi-Fi protection, kill switch, logs" },
+      privacy:    { title: "Privacy",        hint: "Strict tunnel and protected browser" },
       appearance: { title: "Appearance",     hint: "Interface language and theme selection" },
       routing:    { title: "Routing",        hint: "Region, LAN bypass, ad blocking, IPv6" },
       dns:        { title: "DNS",            hint: "Remote and Direct DNS, cache, fake-DNS" },
@@ -718,6 +735,25 @@ export const en = {
       logOffTitle: "Disable logging completely",
       logOffHint: "No component (sing-box, xray, NaiveProxy, TrustTunnel, DPI) writes logs — diagnostics become impossible. Enable only if you're sure you don't need logs.",
       adminSaveErr: "Failed to save the setting: {err}",
+    },
+
+    privacy: {
+      banner: "Strict tunnel closes direct routes and accidental leaks, but it cannot make a VPN server IP look residential. Sites may still recognize a datacenter address or a known VPN.",
+      strictTitle: "Strict tunnel",
+      strictHint: "Forces VPN · TUN and one selected server with no automatic failover. Direct exceptions, LAN bypass, IPv6, WARP and automatic quality tuning are disabled; website DNS stays inside the tunnel.",
+      browserGroup: "Protected browser",
+      browserHint: "Free Mullvad Browser provides a consistent, less unique browser fingerprint. Launch it only after Ninety connects in VPN · TUN mode: the browser does not change your IP or repair a VPN server's reputation.",
+      statusChecking: "Checking installation…",
+      statusAvailable: "Mullvad Browser is installed",
+      statusAvailableVersion: "Mullvad Browser is installed · {version}",
+      statusMissing: "Mullvad Browser was not found",
+      statusError: "Could not check Mullvad Browser",
+      launch: "Open protected session",
+      check: "Check protection",
+      download: "Download for free",
+      autoTitle: "Open after connecting",
+      autoHint: "Launches Mullvad Browser once after a successful connection. Automatic reconnects do not create extra windows.",
+      free: "Mullvad Browser is free and does not require a Mullvad VPN subscription.",
     },
 
     appearance: {

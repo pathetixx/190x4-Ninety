@@ -650,6 +650,22 @@ export const pt = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "O túnel estrito funciona apenas no modo VPN · TUN.",
+    enableCancelled: "O túnel estrito não foi ativado: são necessários direitos de administrador.",
+    nodeRequired: "Escolha um servidor específico. O modo Auto não está disponível com o túnel estrito.",
+    nodeUnavailable: "O servidor escolhido está indisponível. O túnel estrito não foi conectado.",
+    bootstrapUnsafe: "Este nó exige inicialização DNS direta, que o túnel estrito não permite. Escolha um nó cujo servidor esteja indicado por um endereço IP.",
+    guardLost: "O filtro de rede do Windows parou. O Ninety está tentando restaurá-lo; não desconecte a VPN.",
+    guardRestored: "O filtro de rede do Windows foi restaurado.",
+    browserNeedConnection: "Conecte primeiro o Ninety no modo VPN · TUN para impedir que o navegador acesse a Internet diretamente.",
+    browserLaunched: "Sessão protegida aberta no Mullvad Browser.",
+    browserMissing: "O Mullvad Browser não foi encontrado neste computador.",
+    browserFailed: "Não foi possível abrir o Mullvad Browser.",
+    downloadOpened: "A página oficial de download gratuito do Mullvad Browser foi aberta.",
+    downloadFailed: "Não foi possível abrir a página de download do Mullvad Browser.",
+  },
+
   settings: {
     language: "Idioma da interface",
     languageHint: "Aplica-se de imediato — sem reinício necessário.",
@@ -659,6 +675,7 @@ export const pt = {
 
     sec: {
       general:    { title: "Geral",          hint: "Início automático, direitos de administrador, proteção Wi-Fi, kill switch, logs" },
+      privacy:    { title: "Privacidade",     hint: "Túnel estrito e navegador protegido" },
       appearance: { title: "Aparência",      hint: "Idioma da interface e escolha do tema" },
       routing:    { title: "Encaminhamento", hint: "Região, contorno de LAN, bloqueio de anúncios, IPv6" },
       dns:        { title: "DNS",            hint: "DNS remoto e direto, cache, fake-DNS" },
@@ -718,6 +735,25 @@ export const pt = {
       logOffTitle: "Desativar completamente o registo",
       logOffHint: "Nenhum componente (sing-box, xray, NaiveProxy, TrustTunnel, DPI) escreve registos — o diagnóstico torna-se impossível. Ative apenas se tiver a certeza de que não precisa.",
       adminSaveErr: "Não foi possível guardar a definição: {err}",
+    },
+
+    privacy: {
+      banner: "O túnel estrito fecha rotas diretas e fugas acidentais, mas não consegue fazer o IP de um servidor VPN parecer residencial. Os sites ainda podem reconhecer um endereço de centro de dados ou de uma VPN conhecida.",
+      strictTitle: "Túnel estrito",
+      strictHint: "Força VPN · TUN e um servidor escolhido, sem troca automática. Exceções diretas, bypass da LAN, IPv6, WARP e otimização automática são desativados; o DNS dos sites permanece dentro do túnel.",
+      browserGroup: "Navegador protegido",
+      browserHint: "O Mullvad Browser é gratuito e fornece uma impressão digital do navegador coerente e menos única. Abra-o apenas depois de conectar o Ninety no modo VPN · TUN: o navegador não altera o seu IP nem a reputação do servidor VPN.",
+      statusChecking: "A verificar a instalação…",
+      statusAvailable: "O Mullvad Browser está instalado",
+      statusAvailableVersion: "O Mullvad Browser está instalado · {version}",
+      statusMissing: "O Mullvad Browser não foi encontrado",
+      statusError: "Não foi possível verificar o Mullvad Browser",
+      launch: "Abrir sessão protegida",
+      check: "Verificar proteção",
+      download: "Transferir gratuitamente",
+      autoTitle: "Abrir após conectar",
+      autoHint: "Abre o Mullvad Browser uma vez após uma ligação bem-sucedida. As religações automáticas não criam janelas adicionais.",
+      free: "O Mullvad Browser é gratuito e não requer uma subscrição do Mullvad VPN.",
     },
 
     appearance: {

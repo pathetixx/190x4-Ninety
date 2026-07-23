@@ -15,8 +15,20 @@ test("пустой/неизвестный path — консервативно р
 });
 
 test("Windows-state и kill switch не трогают ядро", () => {
-  for (const p of ["general.autostart", "general.startMinimized", "general.linkHandlers", "general.killSwitch"]) {
+  for (const p of [
+    "general.autostart",
+    "general.startMinimized",
+    "general.linkHandlers",
+    "general.killSwitch",
+    "privacy.protectedBrowserAutoLaunch",
+  ]) {
     assert.equal(pathNeedsRestart(p, warpOn, "tun"), false, p);
+  }
+});
+
+test("строгий туннель всегда пересобирает сетевой runtime", () => {
+  for (const mode of ["proxy", "systemProxy", "tun"]) {
+    assert.equal(pathNeedsRestart("privacy.strictTunnel", {}, mode), true, mode);
   }
 });
 

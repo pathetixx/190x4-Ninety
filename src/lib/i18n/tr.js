@@ -650,6 +650,22 @@ export const tr = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "Sıkı tünel yalnızca VPN · TUN modunda çalışır.",
+    enableCancelled: "Sıkı tünel etkinleştirilmedi: yönetici hakları gerekiyor.",
+    nodeRequired: "Belirli bir sunucu seçin. Sıkı tünelde Otomatik modu kullanılamaz.",
+    nodeUnavailable: "Seçilen sunucu kullanılamıyor. Sıkı tünel bağlanmadı.",
+    bootstrapUnsafe: "Bu düğüm, sıkı tünelin izin vermediği doğrudan DNS önyüklemesi gerektiriyor. Sunucusu IP adresiyle belirtilen bir düğüm seçin.",
+    guardLost: "Windows ağ filtresi durdu. Ninety filtreyi geri yüklemeye çalışıyor; VPN bağlantısını kesmeyin.",
+    guardRestored: "Windows ağ filtresi geri yüklendi.",
+    browserNeedConnection: "Tarayıcının doğrudan İnternet'e çıkmaması için önce Ninety'yi VPN · TUN modunda bağlayın.",
+    browserLaunched: "Korunan oturum Mullvad Browser'da açıldı.",
+    browserMissing: "Bu bilgisayarda Mullvad Browser bulunamadı.",
+    browserFailed: "Mullvad Browser açılamadı.",
+    downloadOpened: "Mullvad Browser'ın resmi ücretsiz indirme sayfası açıldı.",
+    downloadFailed: "Mullvad Browser indirme sayfası açılamadı.",
+  },
+
   settings: {
     language: "Arayüz dili",
     languageHint: "Anında uygulanır — yeniden başlatmaya gerek yok.",
@@ -659,6 +675,7 @@ export const tr = {
 
     sec: {
       general:    { title: "Genel",         hint: "Otomatik başlatma, yönetici hakları, Wi-Fi koruması, kill switch, günlükler" },
+      privacy:    { title: "Gizlilik",       hint: "Sıkı tünel ve korunan tarayıcı" },
       appearance: { title: "Görünüm",       hint: "Arayüz dili ve tema seçimi" },
       routing:    { title: "Yönlendirme",   hint: "Bölge, LAN atlatma, reklam engelleme, IPv6" },
       dns:        { title: "DNS",           hint: "Uzak ve doğrudan DNS, önbellek, fake-DNS" },
@@ -718,6 +735,25 @@ export const tr = {
       logOffTitle: "Günlük kaydını tamamen devre dışı bırak",
       logOffHint: "Hiçbir bileşen (sing-box, xray, NaiveProxy, TrustTunnel, DPI) günlük yazmaz — tanılama imkânsız hale gelir. Yalnızca gerekmediğinden eminseniz etkinleştirin.",
       adminSaveErr: "Ayar kaydedilemedi: {err}",
+    },
+
+    privacy: {
+      banner: "Sıkı tünel doğrudan rotaları ve kazara sızıntıları kapatır, ancak bir VPN sunucusunun IP'sini ev bağlantısı gibi gösteremez. Siteler veri merkezi veya bilinen VPN adreslerini yine de tanıyabilir.",
+      strictTitle: "Sıkı tünel",
+      strictHint: "VPN · TUN ve otomatik geçiş olmadan seçilmiş tek bir sunucuyu zorunlu kılar. Doğrudan istisnalar, LAN atlatma, IPv6, WARP ve otomatik kalite ayarı kapatılır; sitelerin DNS trafiği tünelin içinde kalır.",
+      browserGroup: "Korunan tarayıcı",
+      browserHint: "Ücretsiz Mullvad Browser tutarlı ve daha az benzersiz bir tarayıcı parmak izi sağlar. Yalnızca Ninety VPN · TUN modunda bağlandıktan sonra açın: tarayıcı IP'nizi veya VPN sunucusunun itibarını değiştirmez.",
+      statusChecking: "Kurulum kontrol ediliyor…",
+      statusAvailable: "Mullvad Browser yüklü",
+      statusAvailableVersion: "Mullvad Browser yüklü · {version}",
+      statusMissing: "Mullvad Browser bulunamadı",
+      statusError: "Mullvad Browser kontrol edilemedi",
+      launch: "Korunan oturumu aç",
+      check: "Korumayı kontrol et",
+      download: "Ücretsiz indir",
+      autoTitle: "Bağlandıktan sonra aç",
+      autoHint: "Başarılı bağlantıdan sonra Mullvad Browser'ı bir kez açar. Otomatik yeniden bağlantılar ek pencere oluşturmaz.",
+      free: "Mullvad Browser ücretsizdir ve Mullvad VPN aboneliği gerektirmez.",
     },
 
     appearance: {

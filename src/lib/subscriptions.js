@@ -207,7 +207,9 @@ async function fetchInfo(url) {
     info = await invoke("fetch_subscription", { url, proxy });
   } catch (e) {
     if (!proxy) throw e;
-    const allowDirectFallback = !!loadOptions().general?.allowDirectSubscriptionFallback;
+    const options = loadOptions();
+    const allowDirectFallback = !options.privacy?.strictTunnel
+      && !!options.general?.allowDirectSubscriptionFallback;
     if (!allowDirectFallback) {
       throw new Error(t("subs.proxyFallbackDisabled"), { cause: e });
     }

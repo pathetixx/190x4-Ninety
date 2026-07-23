@@ -37,6 +37,15 @@ export const DEFAULT_OPTIONS = {
     // не повторять запрос напрямую. Иначе можно раскрыть реальный IP и URL панели.
     allowDirectSubscriptionFallback: false,
   },
+  privacy: {
+    // Высокоуровневая runtime-политика: не перезаписывает ручные настройки
+    // маршрутизации, а на время соединения форсирует TUN без direct-исключений,
+    // WARP, авто-ротации и обходных DNS-маршрутов.
+    strictTunnel: false,
+    // После первого успешного подключения в пользовательской сессии открыть
+    // бесплатный Mullvad Browser. Повторные авто-реконнекты новых окон не плодят.
+    protectedBrowserAutoLaunch: false,
+  },
   warp: {
     // Включает выбор WARP в селекторе outbound (UI). Сама регистрация делается
     // отдельной кнопкой, ключи лежат в writable config dir/warp.json (Rust-сторона).
@@ -217,6 +226,7 @@ const BOOLEAN_PATHS = [
   "blockAds", "general.autostart", "general.startMinimized", "general.linkHandlers",
   "general.autoProtectWifi", "general.killSwitch", "general.disableGeoLookup",
   "general.allowDirectSubscriptionFallback", "warp.enabled", "warp.deepScan",
+  "privacy.strictTunnel", "privacy.protectedBrowserAutoLaunch",
   "warp.autoRescan", "log.disabled", "dns.independentCache", "dns.enableFakeDns",
   "route.bypassLan", "route.resolveDestination", "route.tunSplitDiscord",
   "route.processLookup", "inbound.strictRoute", "inbound.allowConnectionFromLan",

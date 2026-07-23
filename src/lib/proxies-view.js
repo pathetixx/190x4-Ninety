@@ -10,7 +10,10 @@ import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { FLAGS_BASE, flagIsoFromName, stripFlag } from "/lib/flags.js";
 import { escapeHtml, escapeAttr } from "/lib/esc.js";
 import { t } from "/lib/i18n/index.js";
-import { rememberProxySelection } from "/lib/proxy-selection.js";
+import {
+  getRememberedProxySelection,
+  rememberProxySelection,
+} from "/lib/proxy-selection.js";
 
 function $(id) { return document.getElementById(id); }
 
@@ -27,6 +30,33 @@ let optimisticUntilTs = 0;
 // Запомненный effective node — чтобы диспатчить ninety:node-changed только при реальном изменении
 let lastEffectiveTag = null;
 let sourceGeneration = 0;
+let isStrictPrivacy = () => false;
+let onStrictNodeSelected = null;
+
+function strictPrivacyEnabled() {
+  try { return isStrictPrivacy() === true; }
+  catch { return false; }
+}
+
+function strictSelectedTag(nodes) {
+  const remembered = getRememberedProxySelection(getActiveSource());
+  if (nodes.length === 1) {
+    const onlyTag = nodes[0]?.clashTag || null;
+    // Новая singleton-подписка безопасно выбирается сама. Но если источник
+    // раньше был multi-node и хранит Auto/исчезнувший pin, не рисуем ложную
+    // активность: клик по единственной карточке явно закрепит её.
+    return !remembered || remembered === "proxy" || remembered === onlyTag
+      ? onlyTag
+      : null;
+  }
+  if (!remembered || remembered === "auto" || remembered === "lowest") return null;
+  return nodes.some((node) => node.clashTag === remembered) ? remembered : null;
+}
+
+function setRetestVisible(visible) {
+  const fab = $("proxies-fab");
+  if (fab) fab.hidden = !visible;
+}
 
 function dispatchNodeChanged(tag, node) {
   window.dispatchEvent(new CustomEvent("ninety:node-changed", {
@@ -215,7 +245,7 @@ function autoCardHtml(isActive, effectiveTag, allNodes, clashData) {
   `;
 }
 
-function render(nodes, selectorTag, effectiveTag, clashData) {
+function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } = {}) {
   const grid = $("proxies-grid");
   const metaEl = $("proxies-meta");
   if (!grid) return;
@@ -235,11 +265,15 @@ function render(nodes, selectorTag, effectiveTag, clashData) {
     const activeLabel = selectorTag === "auto"
       ? t("proxies.auto")
       : (selectorTag ? (nodes.find(n => n.clashTag === selectorTag)?.name?.slice(0, 24) || selectorTag) : "—");
-    metaEl.textContent = t("proxies.meta", { total: nodes.length, alive, mode: activeLabel });
+    metaEl.textContent = t("proxies.meta", {
+      total: nodes.length,
+      alive: strict ? "—" : alive,
+      mode: activeLabel,
+    });
   }
 
   const sorted = sortNodes(nodes, clashData);
-  const multi = nodes.length >= 2;
+  const multi = nodes.length >= 2 && !strict;
 
   let html = "";
   if (multi) {
@@ -256,12 +290,29 @@ function render(nodes, selectorTag, effectiveTag, clashData) {
 }
 
 function renderApplying(nodes) {
+  if (strictPrivacyEnabled()) {
+    renderStrict(nodes);
+    return;
+  }
   render(nodes, null, null, null);
   const metaEl = $("proxies-meta");
   if (metaEl) metaEl.textContent = t("conn.applyingSettings");
 }
 
+function renderStrict(nodes = nodesFromSource()) {
+  const selectedTag = strictSelectedTag(nodes);
+  lastClashSnapshot = null;
+  lastEffectiveTag = selectedTag;
+  setRetestVisible(false);
+  render(nodes, selectedTag, selectedTag, null, { strict: true });
+}
+
 async function refresh({ retry = false } = {}) {
+  if (strictPrivacyEnabled()) {
+    renderStrict();
+    return;
+  }
+  setRetestVisible(true);
   const generation = sourceGeneration;
   const nodes = nodesFromSource();
   const data = await readMatchingSnapshot(nodes, {
@@ -292,6 +343,20 @@ async function handleNodeClick(card, onToast) {
   const tag = card.dataset.tag;
   if (!tag) return;
   const nodes = nodesFromSource();
+  if (strictPrivacyEnabled()) {
+    const node = nodes.find((candidate) => candidate.clashTag === tag);
+    if (!node) return;
+    rememberProxySelection(getActiveSource(), tag);
+    optimisticActiveTag = null;
+    optimisticUntilTs = 0;
+    renderStrict(nodes);
+    try {
+      await onStrictNodeSelected?.(tag, node);
+    } catch (e) {
+      onToast?.(t("proxies.toastSwitchErr", { err: e?.message || e }), "error", 2500);
+    }
+    return;
+  }
   // Одиночный source не имеет Selector: карточка уже является активным
   // конечным outbound, поэтому PUT /proxies/proxy здесь недопустим.
   if (nodes.length < 2) return;
@@ -334,6 +399,11 @@ async function handleNodeClick(card, onToast) {
 }
 
 export function onProxiesViewEnter() {
+  if (strictPrivacyEnabled()) {
+    stopPoll();
+    renderStrict();
+    return;
+  }
   refresh({ retry: true }).then(() => kickstartAutoIfNeeded());
   stopPoll();
   pollTimer = setInterval(refresh, POLL_MS);
@@ -343,6 +413,7 @@ export function onProxiesViewEnter() {
 // delay'ев и фолбэчится к первой ноде. Форсим URLTest "lowest" (он наполняет
 // monitoring) — после первого теста Balancer возьмёт реального лидера.
 async function kickstartAutoIfNeeded() {
+  if (strictPrivacyEnabled()) return;
   const data = lastClashSnapshot;
   if (!data) return;
   const selNow = pickSelectorNow(data);
@@ -366,7 +437,8 @@ export function resetProxiesViewForSourceChange() {
   optimisticUntilTs = 0;
   lastEffectiveTag = null;
   const nodes = nodesFromSource();
-  renderApplying(nodes);
+  if (strictPrivacyEnabled()) renderStrict(nodes);
+  else renderApplying(nodes);
   if (pollTimer) void refresh({ retry: true });
 }
 
@@ -378,11 +450,21 @@ function stopPoll() {
 // снапшот clash; если его нет, render отрисует пустое состояние.
 export function rerenderProxiesView() {
   if (!$("proxies-grid")) return;
+  if (strictPrivacyEnabled()) {
+    renderStrict();
+    return;
+  }
   const data = lastClashSnapshot;
   render(nodesFromSource(), effectiveSelectorTag(data), pickEffectiveNode(data), data);
 }
 
-export function mountProxiesView({ onToast } = {}) {
+export function mountProxiesView({
+  onToast,
+  isStrictPrivacy: strictPrivacyGetter,
+  onStrictNodeSelected: strictNodeSelected,
+} = {}) {
+  if (typeof strictPrivacyGetter === "function") isStrictPrivacy = strictPrivacyGetter;
+  onStrictNodeSelected = typeof strictNodeSelected === "function" ? strictNodeSelected : null;
   const grid = $("proxies-grid");
   grid?.addEventListener("click", (e) => {
     const card = e.target.closest(".prox");
@@ -400,6 +482,7 @@ export function mountProxiesView({ onToast } = {}) {
   // FAB test-all
   const fab = $("proxies-fab");
   fab?.addEventListener("click", async () => {
+    if (strictPrivacyEnabled()) return;
     if (testingAll) return;
     testingAll = true;
     const generation = sourceGeneration;

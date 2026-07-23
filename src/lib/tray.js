@@ -26,8 +26,9 @@ const invoke = window.__TAURI__?.core?.invoke
 //   onSetMode(mode)      — смена режима подключения (= changeMode)
 //   onToggleVpn()        — подключить/отключить (= клик по hero-диску)
 //   onUpdateClick()      — клик «Обновить до vX» (= flushPendingUpdate)
-//   onServerSelected(tag, node) — успешный выбор сервера: main обновляет
-//                          эффективную ноду и hero/локацию
+//   isStrictPrivacy()     — строгий runtime не имеет selector и требует reconnect
+//   onServerSelected(tag, node, { reconnect }) — успешный выбор сервера:
+//                          main обновляет hero либо переподключает строгий runtime
 let ctx = null;
 
 // Список серверов — только для подписки с >=2 нодами (у одиночного конфига
@@ -110,13 +111,21 @@ export function initTray(context) {
         const tag = e?.payload;
         if (!tag || ctx.getState() !== "connected") return;
         try {
-          const selected = await selectProxy("proxy", tag);
-          if (selected?.stale) return;
           const src = getActiveSource();
-          rememberProxySelection(src, tag);
           const node = src?.kind === "sub" ? (src.nodes.find((n, i) => nodeTag(i, n) === tag) || null) : null;
-          ctx.onServerSelected(tag, node);
-          toast(t("conn.serverSwitched"), "success", 1200);
+          if (!node) return;
+          const strict = ctx.isStrictPrivacy?.() === true;
+          if (!strict) {
+            const selected = await selectProxy("proxy", tag);
+            if (selected?.stale) return;
+          }
+          rememberProxySelection(src, tag);
+          ctx.onServerSelected(tag, node, { reconnect: strict });
+          toast(
+            strict ? t("conn.applyingSettings") : t("conn.serverSwitched"),
+            strict ? "info" : "success",
+            strict ? 1800 : 1200,
+          );
           syncTrayMenu();
         } catch (err) {
           toast(t("conn.switchErr", { err: err?.message || err }), "error", 2500);

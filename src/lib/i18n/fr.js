@@ -650,6 +650,22 @@ export const fr = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "Le tunnel strict fonctionne uniquement en mode VPN · TUN.",
+    enableCancelled: "Le tunnel strict n'a pas été activé : les droits administrateur sont requis.",
+    nodeRequired: "Choisissez un serveur précis. Le mode Auto n'est pas disponible avec le tunnel strict.",
+    nodeUnavailable: "Le serveur choisi est indisponible. Le tunnel strict n'a pas été connecté.",
+    bootstrapUnsafe: "Ce nœud exige un amorçage DNS direct, interdit par le tunnel strict. Choisissez un nœud dont le serveur est indiqué par une adresse IP.",
+    guardLost: "Le filtre réseau Windows s'est arrêté. Ninety tente de le restaurer ; ne déconnectez pas le VPN.",
+    guardRestored: "Le filtre réseau Windows a été restauré.",
+    browserNeedConnection: "Connectez d'abord Ninety en mode VPN · TUN pour éviter que le navigateur accède directement à Internet.",
+    browserLaunched: "Session protégée ouverte dans Mullvad Browser.",
+    browserMissing: "Mullvad Browser est introuvable sur cet ordinateur.",
+    browserFailed: "Impossible d'ouvrir Mullvad Browser.",
+    downloadOpened: "La page officielle de téléchargement gratuit de Mullvad Browser a été ouverte.",
+    downloadFailed: "Impossible d'ouvrir la page de téléchargement de Mullvad Browser.",
+  },
+
   settings: {
     language: "Langue de l’interface",
     languageHint: "S’applique instantanément — aucun redémarrage nécessaire.",
@@ -659,6 +675,7 @@ export const fr = {
 
     sec: {
       general:    { title: "Général",       hint: "Démarrage auto, droits administrateur, protection Wi-Fi, kill switch, journaux" },
+      privacy:    { title: "Confidentialité", hint: "Tunnel strict et navigateur protégé" },
       appearance: { title: "Apparence",     hint: "Langue de l'interface et choix du thème" },
       routing:    { title: "Routage",       hint: "Région, contournement LAN, blocage des pubs, IPv6" },
       dns:        { title: "DNS",           hint: "DNS distant et direct, cache, fake-DNS" },
@@ -718,6 +735,25 @@ export const fr = {
       logOffTitle: "Désactiver complètement la journalisation",
       logOffHint: "Aucun composant (sing-box, xray, NaiveProxy, TrustTunnel, DPI) n’écrit de journaux — le diagnostic devient impossible. N’activez que si vous êtes sûr de ne pas en avoir besoin.",
       adminSaveErr: "Échec de l’enregistrement du paramètre : {err}",
+    },
+
+    privacy: {
+      banner: "Le tunnel strict ferme les routes directes et les fuites accidentelles, mais il ne peut pas faire passer l'IP d'un serveur VPN pour une adresse résidentielle. Les sites peuvent toujours reconnaître une adresse de centre de données ou de VPN connue.",
+      strictTitle: "Tunnel strict",
+      strictHint: "Impose VPN · TUN et un seul serveur choisi, sans basculement automatique. Les exceptions directes, le contournement du LAN, IPv6, WARP et l'optimisation automatique sont désactivés ; le DNS des sites reste dans le tunnel.",
+      browserGroup: "Navigateur protégé",
+      browserHint: "Mullvad Browser, gratuit, fournit une empreinte de navigateur cohérente et moins unique. Lancez-le uniquement après la connexion de Ninety en mode VPN · TUN : le navigateur ne change ni votre IP ni la réputation du serveur VPN.",
+      statusChecking: "Vérification de l'installation…",
+      statusAvailable: "Mullvad Browser est installé",
+      statusAvailableVersion: "Mullvad Browser est installé · {version}",
+      statusMissing: "Mullvad Browser est introuvable",
+      statusError: "Impossible de vérifier Mullvad Browser",
+      launch: "Ouvrir une session protégée",
+      check: "Vérifier la protection",
+      download: "Télécharger gratuitement",
+      autoTitle: "Ouvrir après la connexion",
+      autoHint: "Lance Mullvad Browser une fois après une connexion réussie. Les reconnexions automatiques n'ouvrent pas de fenêtres supplémentaires.",
+      free: "Mullvad Browser est gratuit et ne nécessite aucun abonnement Mullvad VPN.",
     },
 
     appearance: {

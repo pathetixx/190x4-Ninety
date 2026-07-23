@@ -4,7 +4,7 @@
 //
 // Публичное API:
 //   mountDpiView({ onToast, switchView, ensureElevated }) — навесить на DOM
-//   setDpiVpnMode(mode)  — синхронизировать режим VPN (TUN→пауза)
+//   setDpiVpnMode(mode, { reevaluate }) — синхронизировать режим VPN (TUN→пауза)
 //   excludeVpnNode(host) — внести сервер активной ноды в exclude winws
 
 import { loadOptions } from "/lib/options.js";
@@ -19,7 +19,12 @@ const tauriListen = window.__TAURI__?.event?.listen;
 // Split-routing Discord активен: в TUN, и опция включена. Тогда winws НЕ паузим
 // в TUN — он десинхрит direct-Discord на реальном интерфейсе (голос low-ping).
 function splitDiscordActive() {
-  try { return S.vpnMode === "tun" && !!loadOptions()?.route?.tunSplitDiscord; }
+  try {
+    const options = loadOptions();
+    return S.vpnMode === "tun"
+      && !options?.privacy?.strictTunnel
+      && !!options?.route?.tunSplitDiscord;
+  }
   catch { return false; }
 }
 
@@ -394,12 +399,27 @@ async function pauseEngineForTun() {
 
 // Возврат из TUN: поднять движок, если DPI был включён до паузы. Процесс в этот
 // момент уже elevated (TUN требовал прав), поэтому UAC обычно не всплывёт.
+let dpiResumeInFlight = null;
 async function resumeEngineAfterTun() {
   if (lsGet(LS.enabled, "false") !== "true") return;
   if (S.base === "running" || S.base === "starting") return;
-  const ok = await ensureElevated();
-  if (!ok) return;
-  await startEngine();
+  if (dpiResumeInFlight) return dpiResumeInFlight;
+  const run = (async () => {
+    const ok = await ensureElevated();
+    // Пока ждали UAC, strict/split или пользовательское намерение могли
+    // измениться. Повторная проверка не даёт позднему resume запустить winws
+    // в обычном TUN и одновременно закрывает двойной dpi_start.
+    if (!ok || lsGet(LS.enabled, "false") !== "true") return;
+    if (S.base === "running" || S.base === "starting") return;
+    if (S.vpnMode === "tun" && !splitDiscordActive()) return;
+    await startEngine();
+  })();
+  dpiResumeInFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (dpiResumeInFlight === run) dpiResumeInFlight = null;
+  }
 }
 
 export async function toggleDpi() {
@@ -763,8 +783,8 @@ function onClick(e) {
 }
 
 /* ═══════════ PUBLIC API ═══════════ */
-export function setDpiVpnMode(mode) {
-  if (!mode || mode === S.vpnMode) return;
+export function setDpiVpnMode(mode, { reevaluate = false } = {}) {
+  if (!mode) return;
   const prev = S.vpnMode;
   S.vpnMode = mode;
   renderAll();
@@ -772,7 +792,11 @@ export function setDpiVpnMode(mode) {
   // трафик в туннеле, winws иначе жуёт зашифрованный VLESS).
   if (mode === "tun") {
     // split-Discord: оставляем winws работать (десинхрит direct-Discord в TUN).
-    if (!loadOptions()?.route?.tunSplitDiscord && (S.base === "running" || S.base === "starting")) {
+    // Повторный вызов с тем же TUN нужен при выключении strict: сохранённый
+    // split снова становится активным и должен реально вернуть winws.
+    if (reevaluate && splitDiscordActive()) {
+      resumeEngineAfterTun();
+    } else if (S.base === "running" || S.base === "starting") {
       pauseEngineForTun();
     }
   } else if (prev === "tun") {

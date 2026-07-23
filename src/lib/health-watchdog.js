@@ -2,6 +2,8 @@
 // Пока connected — раз в 5с дёргаем health_snapshot:
 //   sing-box упал → туннель закрыт: снять прокси, idle, нотифай с причиной, логи.
 //   xray/naive/TT-мост упал → авто-реконнект (пересобирает конфиг и поднимает ядра).
+// После аварийного fail-closed shutdown тот же таймер остаётся в guard-only
+// режиме и следит только за WFP, пока пользователь явно не снимет блок.
 // Всё, что тянется из main (текущее состояние, флаг установки апдейта, гашение ядра,
 // реконнект, переключение вью, движок качества), инжектится — тот же паттерн, что у
 // /lib/warp-rescan.js, /lib/dns-guard.js, /lib/wifi-guard.js.
@@ -32,6 +34,10 @@ export function initHealthWatchdog({
   reconnectForSourceChange,
   switchView,
   getQualityEngine,
+  shouldPreserveKillSwitch = () => false,
+  isKillSwitchRequired = () => false,
+  rearmKillSwitch = async () => false,
+  reconcileKillSwitch = async () => true,
   invoke: invokeFn = invoke,
   toast: toastFn = toast,
   notify: notifyFn = notify,
@@ -43,10 +49,10 @@ export function initHealthWatchdog({
   let busy = false;
   let bridgeReconnects = [];
   let generation = 0;
+  let killSwitchAlerted = false;
 
-  const active = (run) => run === generation
-    && getState() === "connected"
-    && !isUpdateInstalling();
+  const current = (run) => run === generation && !isUpdateInstalling();
+  const active = (run) => current(run) && getState() === "connected";
 
   function bridgeReconnectAllowed() {
     const cut = Date.now() - BRIDGE_RECONNECT_WINDOW_MS;
@@ -60,7 +66,7 @@ export function initHealthWatchdog({
   // целиком (как при смерти sing-box): честная ошибка вместо вечного цикла.
   async function stopForBridgeLoop(run) {
     if (!active(run)) return;
-    await shutdownCore();
+    if (!(await shutdownCore({ preserveKillSwitch: shouldPreserveKillSwitch() }))) return;
     toastFn(tr("conn.bridgeLoop"), "error", 8000, { group: "conn", desc: tr("conn.bridgeLoopDesc") });
     notifyFn(tr("conn.notifyClosedTitle"), tr("conn.bridgeLoopDesc"));
     switchView("logs");
@@ -69,34 +75,100 @@ export function initHealthWatchdog({
   function start() {
     if (timer) return;
     generation++;
+    killSwitchAlerted = false;
     timer = setIntervalFn(tick, HEALTH_TICK_MS);
   }
 
   function stop() {
     generation++;
+    killSwitchAlerted = false;
     if (timer) { clearIntervalFn(timer); timer = null; }
   }
 
+  async function verifyKillSwitch(run, snap, { connected = false } = {}) {
+    const stillCurrent = connected ? active : current;
+    if (!isKillSwitchRequired()) {
+      killSwitchAlerted = false;
+      return true;
+    }
+    if (snap.kill_switch_active === true) {
+      if (killSwitchAlerted) {
+        toastFn(tr("privacyToast.guardRestored"), "success", 2400, {
+          group: "privacy-guard",
+        });
+      }
+      killSwitchAlerted = false;
+      return true;
+    }
+
+    const restored = await rearmKillSwitch();
+    // Настройку или transition-latch могли снять, пока IPC-rearm уже стоял в
+    // очереди. Side effect к этому моменту мог успеть вернуть старый block-all,
+    // поэтому одной проверки флага недостаточно: последней queued операцией
+    // обязана стать актуальная policy.
+    if (!isKillSwitchRequired()) {
+      await reconcileKillSwitch();
+      killSwitchAlerted = false;
+      return true;
+    }
+    if (!stillCurrent(run)) return false;
+    if (!restored) {
+      if (!killSwitchAlerted) {
+        killSwitchAlerted = true;
+        toastFn(tr("privacyToast.guardLost"), "error", 0, { group: "privacy-guard" });
+        notifyFn("Ninety", tr("privacyToast.guardLost"));
+        switchView("logs");
+      }
+      return false;
+    }
+    if (killSwitchAlerted) {
+      toastFn(tr("privacyToast.guardRestored"), "success", 2400, {
+        group: "privacy-guard",
+      });
+    }
+    killSwitchAlerted = false;
+    return true;
+  }
+
   async function tick() {
-    if (getState() !== "connected" || busy || isUpdateInstalling()) return;
+    const connectedAtStart = getState() === "connected";
+    const guardOnly = !connectedAtStart && isKillSwitchRequired();
+    if ((!connectedAtStart && !guardOnly) || busy || isUpdateInstalling()) return;
     const run = generation;
     busy = true;
     try {
       // Один агрегирующий вызов вместо четырёх (singbox_running/vpn_last_error/
       // xray_status/sidecar_status) — снимает лишний IPC-трафик на каждом тике.
       const snap = await invokeFn("health_snapshot");
+      if (!current(run)) return;
+
+      // После аварийного shutdown state уже idle/cleanup_error, но сохранённый
+      // fail-closed WFP должен жить до явного disconnect/выключения настройки.
+      // В этом режиме не проверяем умершее ядро — только dynamic WFP objects.
+      if (guardOnly) {
+        await verifyKillSwitch(run, snap);
+        return;
+      }
+
       if (!active(run)) return;
       if (!snap.singbox_running) {
         // Причину смерти snapshot читает синхронно с running-статусом (до
         // shutdownCore, который сбрасывает флаги).
         const why = snap.last_error;
-        await shutdownCore();
+        if (!(await shutdownCore({ preserveKillSwitch: shouldPreserveKillSwitch() }))) return;
         toastFn(tr("conn.coreStopped"), "error", 7000, { group: "conn", desc: tr("conn.coreStoppedDesc") });
         notifyFn(tr("conn.notifyClosedTitle"), tr("conn.notifyClosedBody"));
         if (why) console.warn("sing-box died:", why);
         switchView("logs");
         return;
       }
+      // BFE/Windows Firewall может быть перезапущен независимо от Ninety:
+      // dynamic WFP objects тогда исчезнут, хотя ядро и TUN останутся живы.
+      // На каждом liveness-тике подтверждаем два block-фильтра и атомарно
+      // переармируем policy. Пока восстановление не удалось, не запускаем
+      // автоматические реконнекты: остановка живого TUN без WFP только увеличила
+      // бы риск выхода приложений через физический интерфейс.
+      if (!(await verifyKillSwitch(run, snap, { connected: true }))) return;
       // sing-box жив — проверяем xray-мост (xhttp).
       if (snap.xray === "died") {
         if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(run); return; }

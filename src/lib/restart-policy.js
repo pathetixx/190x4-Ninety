@@ -9,6 +9,10 @@ export function pathNeedsRestart(path, opts, mode) {
   if (path === "general.autostart") return false;
   if (path === "general.startMinimized") return false;
   if (path === "general.linkHandlers") return false;
+  // Автозапуск защищённого браузера не меняет сетевой runtime.
+  if (path === "privacy.protectedBrowserAutoLaunch") return false;
+  // Строгий туннель меняет режим, DNS, маршруты, outbound и TUN strict_route.
+  if (path === "privacy.strictTunnel") return true;
   // Kill switch — WFP-фильтр, применяется вживую (см. onChange); ядро не трогает.
   if (path === "general.killSwitch") return false;
   // WARP register/reset — переразложить config нужно только если WARP активен

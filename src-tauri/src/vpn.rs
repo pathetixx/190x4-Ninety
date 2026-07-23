@@ -256,6 +256,8 @@ struct RuntimeRecord {
     source_fingerprint: Option<String>,
     config_hash: Option<String>,
     mode: String,
+    strict_privacy: bool,
+    pinned_node_tag: Option<String>,
     clash_port: u16,
     clash_ready: bool,
 }
@@ -826,6 +828,8 @@ pub struct RuntimeSnapshot {
     source_fingerprint: Option<String>,
     config_hash: Option<String>,
     mode: Option<String>,
+    strict_privacy: bool,
+    pinned_node_tag: Option<String>,
     clash_port: u16,
     clash_ready: bool,
     sidecars: serde_json::Value,
@@ -1000,6 +1004,8 @@ fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> Run
         source_fingerprint: record.as_ref().and_then(|r| r.source_fingerprint.clone()),
         config_hash: record.as_ref().and_then(|r| r.config_hash.clone()),
         mode: record.as_ref().map(|r| r.mode.clone()),
+        strict_privacy: record.as_ref().is_some_and(|r| r.strict_privacy),
+        pinned_node_tag: record.as_ref().and_then(|r| r.pinned_node_tag.clone()),
         clash_port: record.as_ref().map(|r| r.clash_port).unwrap_or(9090),
         clash_ready: running && record.as_ref().is_some_and(|r| r.clash_ready),
         sidecars: serde_json::json!({ "xray": compute_xray_status(state), "clients": compute_sidecar_status(state) }),
@@ -1024,8 +1030,11 @@ pub async fn start_singbox(
     logs_disabled: Option<bool>,
     source_fingerprint: Option<String>,
     config_hash: Option<String>,
+    strict_privacy: Option<bool>,
+    pinned_node_tag: Option<String>,
 ) -> Result<RuntimeSnapshot, String> {
     let logs_disabled = logs_disabled.unwrap_or(false);
+    let strict_privacy = strict_privacy.unwrap_or(false);
     let (start_epoch, process_generation) = {
         // Короткий синхронный gate делает старт/стоп линейными в точке смены
         // поколения; сам долгий запуск под ним не выполняется.
@@ -1149,6 +1158,8 @@ pub async fn start_singbox(
         source_fingerprint,
         config_hash,
         mode,
+        strict_privacy,
+        pinned_node_tag,
         clash_port,
         clash_ready: true,
     });
@@ -1521,6 +1532,17 @@ pub fn singbox_running(state: State<'_, SingboxState>) -> bool {
     compute_singbox_running(&state)
 }
 
+pub(crate) fn protected_browser_tun_ready(state: &SingboxState) -> bool {
+    if !compute_singbox_running(state) || state.starting.load(Ordering::SeqCst) {
+        return false;
+    }
+    state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .is_some_and(|runtime| runtime.mode == "tun" && runtime.clash_ready)
+}
+
 #[tauri::command]
 pub fn runtime_snapshot(
     state: State<'_, SingboxState>,
@@ -1540,15 +1562,20 @@ pub struct HealthSnapshot {
     pub xray: &'static str,
     pub sidecar: &'static str,
     pub last_error: Option<String>,
+    pub kill_switch_active: bool,
 }
 
 #[tauri::command]
-pub fn health_snapshot(state: State<'_, SingboxState>) -> HealthSnapshot {
+pub fn health_snapshot(
+    state: State<'_, SingboxState>,
+    kill_switch: State<'_, crate::killswitch::KillSwitchState>,
+) -> HealthSnapshot {
     HealthSnapshot {
         singbox_running: compute_singbox_running(&state),
         xray: compute_xray_status(&state),
         sidecar: compute_sidecar_status(&state),
         last_error: compute_last_error(&state),
+        kill_switch_active: crate::killswitch::is_active(&kill_switch),
     }
 }
 

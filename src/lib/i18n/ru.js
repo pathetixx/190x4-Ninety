@@ -650,6 +650,22 @@ export const ru = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "Строгий туннель работает только в режиме VPN · TUN.",
+    enableCancelled: "Строгий туннель не включён: нужны права администратора.",
+    nodeRequired: "Выберите конкретный сервер. В строгом туннеле режим «Авто» недоступен.",
+    nodeUnavailable: "Выбранный сервер недоступен. Строгий туннель не подключён.",
+    bootstrapUnsafe: "Этой ноде нужен прямой DNS-bootstrap, который строгий туннель не разрешает. Выберите ноду, где сервер указан IP-адресом.",
+    guardLost: "Защитный сетевой фильтр Windows отключился. Ninety пытается восстановить его; не отключайте VPN.",
+    guardRestored: "Защитный сетевой фильтр Windows восстановлен.",
+    browserNeedConnection: "Сначала подключите Ninety в режиме VPN · TUN, чтобы браузер не вышел в сеть напрямую.",
+    browserLaunched: "Защищённая сессия открыта в Mullvad Browser.",
+    browserMissing: "Mullvad Browser не найден на этом компьютере.",
+    browserFailed: "Не удалось открыть Mullvad Browser.",
+    downloadOpened: "Открыта официальная страница бесплатной загрузки Mullvad Browser.",
+    downloadFailed: "Не удалось открыть страницу загрузки Mullvad Browser.",
+  },
+
   settings: {
     language: "Язык интерфейса",
     languageHint: "Перевод применяется сразу, без перезапуска.",
@@ -659,6 +675,7 @@ export const ru = {
 
     sec: {
       general:    { title: "Общие",            hint: "Автозапуск, права администратора, Wi-Fi-защита, Kill Switch, логи" },
+      privacy:    { title: "Приватность",       hint: "Строгий туннель и защищённый браузер" },
       appearance: { title: "Оформление",       hint: "Язык интерфейса и выбор темы" },
       routing:    { title: "Маршрутизация",     hint: "Регион, обход локальной сети, блокировка рекламы, IPv6" },
       dns:        { title: "DNS",               hint: "Remote- и Direct-DNS, кэш, fake-DNS" },
@@ -718,6 +735,25 @@ export const ru = {
       logOffTitle: "Полностью отключить логи",
       logOffHint: "Ни один компонент (sing-box, xray, NaiveProxy, TrustTunnel, DPI) не пишет логи — диагностика станет невозможна. Включайте, только если логи точно не нужны.",
       adminSaveErr: "Не удалось сохранить настройку: {err}",
+    },
+
+    privacy: {
+      banner: "Строгий туннель закрывает прямые маршруты и случайные утечки, но не превращает IP VPN-сервера в домашний. Сайты всё равно могут распознать адрес дата-центра или известного VPN.",
+      strictTitle: "Строгий туннель",
+      strictHint: "Принудительно использует VPN · TUN и один выбранный сервер без автоматической смены. Прямые исключения, локальная сеть, IPv6, WARP и автооптимизация отключаются; DNS сайтов идёт внутри туннеля.",
+      browserGroup: "Защищённый браузер",
+      browserHint: "Бесплатный Mullvad Browser даёт согласованный, менее уникальный отпечаток браузера. Запускайте его только после подключения Ninety в режиме VPN · TUN: браузер не меняет IP и не исправляет репутацию VPN-сервера.",
+      statusChecking: "Проверяю установку…",
+      statusAvailable: "Mullvad Browser установлен",
+      statusAvailableVersion: "Mullvad Browser установлен · {version}",
+      statusMissing: "Mullvad Browser не найден",
+      statusError: "Не удалось проверить Mullvad Browser",
+      launch: "Открыть защищённую сессию",
+      check: "Проверить защиту",
+      download: "Скачать бесплатно",
+      autoTitle: "Открывать после подключения",
+      autoHint: "Один раз запускает Mullvad Browser после успешного подключения. При автоматическом переподключении новые окна не создаются.",
+      free: "Mullvad Browser бесплатный и не требует подписки Mullvad VPN.",
     },
 
     appearance: {

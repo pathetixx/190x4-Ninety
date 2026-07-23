@@ -650,6 +650,22 @@ export const fa = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "تونل سخت‌گیرانه فقط در حالت VPN · TUN کار می‌کند.",
+    enableCancelled: "تونل سخت‌گیرانه فعال نشد: دسترسی مدیر لازم است.",
+    nodeRequired: "یک سرور مشخص انتخاب کنید. حالت خودکار در تونل سخت‌گیرانه در دسترس نیست.",
+    nodeUnavailable: "سرور انتخاب‌شده در دسترس نیست. تونل سخت‌گیرانه متصل نشد.",
+    bootstrapUnsafe: "این نود به راه‌اندازی مستقیم DNS نیاز دارد که تونل سخت‌گیرانه اجازه نمی‌دهد. نودی را انتخاب کنید که نشانی سرورش به‌صورت IP باشد.",
+    guardLost: "فیلتر شبکهٔ Windows متوقف شد. Ninety در حال بازیابی آن است؛ اتصال VPN را قطع نکنید.",
+    guardRestored: "فیلتر شبکهٔ Windows بازیابی شد.",
+    browserNeedConnection: "ابتدا Ninety را در حالت VPN · TUN متصل کنید تا مرورگر مستقیماً به اینترنت نرود.",
+    browserLaunched: "نشست محافظت‌شده در Mullvad Browser باز شد.",
+    browserMissing: "Mullvad Browser در این رایانه پیدا نشد.",
+    browserFailed: "Mullvad Browser باز نشد.",
+    downloadOpened: "صفحهٔ رسمی دانلود رایگان Mullvad Browser باز شد.",
+    downloadFailed: "صفحهٔ دانلود Mullvad Browser باز نشد.",
+  },
+
   settings: {
     language: "زبان رابط",
     languageHint: "بی‌درنگ اعمال می‌شود — نیازی به بازراه‌اندازی نیست.",
@@ -659,6 +675,7 @@ export const fa = {
 
     sec: {
       general:    { title: "عمومی",        hint: "شروع خودکار، دسترسی مدیر، محافظت Wi-Fi، کلید قطع اضطراری، گزارش‌ها" },
+      privacy:    { title: "حریم خصوصی",    hint: "تونل سخت‌گیرانه و مرورگر محافظت‌شده" },
       appearance: { title: "ظاهر",         hint: "زبان رابط و انتخاب پوسته" },
       routing:    { title: "مسیریابی",     hint: "منطقه، دور زدن شبکهٔ محلی، مسدودسازی تبلیغات، IPv6" },
       dns:        { title: "DNS",          hint: "DNS دور و مستقیم، کش، fake-DNS" },
@@ -718,6 +735,25 @@ export const fa = {
       logOffTitle: "غیرفعال کردن کامل گزارش‌گیری",
       logOffHint: "هیچ مؤلفه‌ای (sing-box، xray، NaiveProxy، TrustTunnel، DPI) گزارش نمی‌نویسد — عیب‌یابی ناممکن می‌شود. فقط اگر مطمئنید گزارش لازم ندارید روشن کنید.",
       adminSaveErr: "ذخیرهٔ تنظیم ممکن نشد: {err}",
+    },
+
+    privacy: {
+      banner: "تونل سخت‌گیرانه مسیرهای مستقیم و نشت‌های ناخواسته را می‌بندد، اما نمی‌تواند IP سرور VPN را مانند اینترنت خانگی نشان دهد. سایت‌ها همچنان ممکن است نشانی مرکز داده یا VPN شناخته‌شده را تشخیص دهند.",
+      strictTitle: "تونل سخت‌گیرانه",
+      strictHint: "حالت VPN · TUN و یک سرور انتخاب‌شده را بدون جابه‌جایی خودکار اجباری می‌کند. استثناهای مستقیم، دور زدن LAN، ‏IPv6، ‏WARP و بهینه‌سازی خودکار غیرفعال می‌شوند؛ DNS وب‌سایت‌ها داخل تونل می‌ماند.",
+      browserGroup: "مرورگر محافظت‌شده",
+      browserHint: "Mullvad Browser رایگان، اثرانگشت مرورگر هماهنگ و کم‌تمایزتری فراهم می‌کند. آن را فقط پس از اتصال Ninety در حالت VPN · TUN اجرا کنید: مرورگر IP یا اعتبار سرور VPN را تغییر نمی‌دهد.",
+      statusChecking: "در حال بررسی نصب…",
+      statusAvailable: "Mullvad Browser نصب است",
+      statusAvailableVersion: "Mullvad Browser نصب است · {version}",
+      statusMissing: "Mullvad Browser پیدا نشد",
+      statusError: "بررسی Mullvad Browser ممکن نشد",
+      launch: "باز کردن نشست محافظت‌شده",
+      check: "بررسی محافظت",
+      download: "دانلود رایگان",
+      autoTitle: "باز کردن پس از اتصال",
+      autoHint: "پس از اتصال موفق، Mullvad Browser را یک‌بار اجرا می‌کند. اتصال‌های مجدد خودکار پنجرهٔ دیگری باز نمی‌کنند.",
+      free: "Mullvad Browser رایگان است و به اشتراک Mullvad VPN نیاز ندارد.",
     },
 
     appearance: {

@@ -7,6 +7,12 @@ import { t } from "/lib/i18n/index.js";
 import { uid } from "/lib/uid.js";
 import { hashRuntimeValue, stableNodeId } from "/lib/runtime-identity.js";
 import {
+  createStrictPrivacyPolicy,
+  resolveRuntimePrivacyPolicy,
+  selectStrictPrivacyCandidate,
+  StrictPrivacyPolicyError,
+} from "/lib/strict-privacy-policy.js";
+import {
   parsePort,
   safeAtob,
   splitHostPort,
@@ -330,6 +336,59 @@ function buildOutbound(p, options) {
   return out;
 }
 
+function isIpLiteral(value) {
+  const host = String(value || "").trim().replace(/^\[|\]$/g, "");
+  if (!host) return false;
+  if (host.includes(":")) {
+    try {
+      return new URL(`http://[${host}]/`).hostname.length > 0;
+    } catch {
+      return false;
+    }
+  }
+  const parts = host.split(".");
+  return parts.length === 4 && parts.every((part) =>
+    /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255
+  );
+}
+
+function endpointContainsIp(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  if (raw.startsWith("[")) {
+    const close = raw.indexOf("]");
+    return close > 0 && isIpLiteral(raw.slice(1, close));
+  }
+  const colons = (raw.match(/:/g) || []).length;
+  if (colons === 1) return isIpLiteral(raw.slice(0, raw.lastIndexOf(":")));
+  return isIpLiteral(raw);
+}
+
+function assertStrictBootstrapSafe(node) {
+  const proto = profileProto(node);
+  if (node?.type === "xhttp" && !isIpLiteral(node.host)) {
+    throw new StrictPrivacyPolicyError(
+      "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
+      "XHTTP-клиенту нужен прямой DNS для адреса сервера. В строгом режиме выберите XHTTP-ноду с IP-адресом.",
+    );
+  }
+  if (proto === "naive" && !isIpLiteral(node.host)) {
+    throw new StrictPrivacyPolicyError(
+      "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
+      "Naive-клиенту нужен прямой DNS для адреса сервера. В строгом режиме выберите ноду с IP-адресом.",
+    );
+  }
+  if (proto === "trusttunnel") {
+    const addresses = Array.isArray(node.addresses) ? node.addresses : [];
+    if (!addresses.length || addresses.some((address) => !endpointContainsIp(address))) {
+      throw new StrictPrivacyPolicyError(
+        "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
+        "TrustTunnel-клиенту нужны IP-адреса endpoint в строгом режиме.",
+      );
+    }
+  }
+}
+
 // ── rule_sets для региона + block_ads ───────────────────────
 function buildRuleSets(options, mode, downloadDetour = "proxy") {
   const sets = [];
@@ -519,7 +578,7 @@ function customRulesToSingbox(customRules, protectedOutbound = "proxy") {
   return out;
 }
 
-function buildRoute(options, mode, protectedOutbound = "proxy") {
+function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = false) {
   const rules = [
     { action: "sniff" },
     { protocol: "dns", action: "hijack-dns" },
@@ -557,8 +616,11 @@ function buildRoute(options, mode, protectedOutbound = "proxy") {
     rules.push({ inbound: ["probe-in"], outbound: protectedOutbound });
     // Список обязан покрывать ВСЕ движки, дозванивающиеся наружу (= ENGINES в
     // killswitch.rs + Ninety.exe) — пропущенный sidecar зацикливается сам в себя.
+    // В обычном TUN собственные HTTP-запросы Ninety идут напрямую. Строгая
+    // сессия исключает только движки: контроллер тоже обязан идти через TUN,
+    // иначе updater/служебный fetch мог бы раскрыть реальный адрес.
     rules.push({
-      process_name: ["Ninety.exe", ...ENGINE_PROCESS_NAMES],
+      process_name: strictPrivacy ? ENGINE_PROCESS_NAMES : ["Ninety.exe", ...ENGINE_PROCESS_NAMES],
       outbound: "direct",
     });
   }
@@ -922,8 +984,27 @@ function nodeToXrayOutbound(p, tag) {
 // warpInfo: опциональный объект WarpInfo от warp_status команды.
 //   Если options.warp.enabled === true и warpInfo передан с валидными ключами —
 //   добавляется WireGuard endpoint и route.final переключается на "warp".
-export function buildConfig({ profile, source, mode, options, warpInfo, xray = false, bridgePorts }) {
-  const opts = options || DEFAULT_OPTIONS;
+//
+// runtimePolicy: чистая runtime-политика из strict-privacy-policy.js. Строгая
+// политика всегда переводит builder в TUN, применяет безопасную копию options и
+// для multi-node подписки требует один конкретный selectedNodeTag.
+export function buildConfig({
+  profile,
+  source,
+  mode,
+  options,
+  runtimePolicy,
+  warpInfo,
+  xray = false,
+  bridgePorts,
+}) {
+  const runtime = resolveRuntimePrivacyPolicy({
+    mode,
+    options: options || DEFAULT_OPTIONS,
+    runtimePolicy,
+  });
+  const opts = runtime.options || DEFAULT_OPTIONS;
+  const effectiveMode = runtime.mode;
   const src = source ?? (profile ? { kind: "single", profile } : null);
 
   const warpEndpoint = buildWarpEndpoint(opts.warp, warpInfo);
@@ -945,15 +1026,31 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
   const intervalSec = Number(opts.urlTest?.intervalSec) > 0 ? Number(opts.urlTest.intervalSec) : 600;
   const testInterval = `${intervalSec}s`;
 
-  const nodes = warpOnly ? [] : (src.kind === "sub" ? src.nodes : [src.profile]);
+  let nodes = warpOnly ? [] : (src.kind === "sub" ? src.nodes : [src.profile]);
   if (!warpOnly && !nodes?.length) throw new Error(t("sb.err.buildNoNodes"));
+  let pinnedNodeTag = null;
+  if (runtime.strictPrivacy && nodes.length) {
+    const selected = selectStrictPrivacyCandidate(
+      nodes.map((node, index) => ({ tag: nodeTag(index, node), value: node })),
+      runtime.selectedNodeTag,
+    );
+    nodes = [selected.value];
+    pinnedNodeTag = selected.tag;
+    assertStrictBootstrapSafe(selected.value);
+  }
 
   const protectedOutbound = warpEndpoint ? "warp" : "proxy";
-  const route = buildRoute(opts, mode, protectedOutbound);
+  const route = buildRoute(opts, effectiveMode, protectedOutbound, runtime.strictPrivacy);
   const useUrltest = nodes.length >= 2;
   const vlessOutbounds = nodes.map((n, i) => {
     const ob = buildOutbound(n, opts);
     ob.tag = useUrltest ? nodeTag(i, n) : "proxy";
+    // Адрес самого VPN-сервера неизбежно резолвится до готовности туннеля.
+    // В strict используем отдельный IP-hosted DoH без detour; DNS пользовательских
+    // назначений по-прежнему идёт через dns-remote внутри proxy.
+    if (runtime.strictPrivacy && !isIpLiteral(ob.server)) {
+      ob.domain_resolver = "dns-direct";
+    }
     return ob;
   });
 
@@ -1085,7 +1182,7 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
       ...(opts.log?.disabled ? { disabled: true } : {}),
     },
     dns: buildDns(opts, warpEndpoint ? "warp" : "proxy"),
-    inbounds: buildInbounds(mode, opts),
+    inbounds: buildInbounds(effectiveMode, opts),
     outbounds,
     route,
     experimental: {
@@ -1108,29 +1205,50 @@ export function buildConfig({ profile, source, mode, options, warpInfo, xray = f
   // /delay), и на balancer "auto". Точно как в Hiddify (box.go:144).
   config.experimental.unified_delay = { enabled: true };
 
-  // Monitoring: активный health-чек, из которого balancer "auto" берёт живые
-  // задержки. При ошибке дозвона balancer зовёт InvalidateTest → priority
-  // ре-тест → мгновенное переключение на живой сервер (фейловер по таймауту).
-  // Без явного блока ядро поднимает monitoring на грубых дефолтах (5 мин/gstatic).
-  // URL-список и debounce — как в Hiddify (builder.go:382-413).
-  config.experimental.monitoring = {
-    urls: [...new Set([
-      testUrl,
-      "https://www.google.com/generate_204",
-      "http://captive.apple.com/generate_204",
-      "https://cp.cloudflare.com",
-    ])],
-    interval: testInterval,
-    debounce_window: "500ms",
-    idle_timeout: `${intervalSec * 3}s`,
-  };
+  if (!runtime.strictPrivacy) {
+    // Monitoring: активный health-чек, из которого balancer "auto" берёт живые
+    // задержки. При ошибке дозвона balancer зовёт InvalidateTest → priority
+    // ре-тест → мгновенное переключение на живой сервер (фейловер по таймауту).
+    // В строгом runtime он не нужен: outbound закреплён, фоновый scoring отключён.
+    // URL-список и debounce — как в Hiddify (builder.go:382-413).
+    config.experimental.monitoring = {
+      urls: [...new Set([
+        testUrl,
+        "https://www.google.com/generate_204",
+        "http://captive.apple.com/generate_204",
+        "https://cp.cloudflare.com",
+      ])],
+      interval: testInterval,
+      debounce_window: "500ms",
+      idle_timeout: `${intervalSec * 3}s`,
+    };
+  }
 
   // TLS-tricks (фрагментация/padding/mixedcase) более НЕ пишутся глобально:
   // в hiddify-sing-box v1.13.0.h5 experimental.tls_tricks удалён. Теперь они
   // применяются per-outbound в applyTlsTricks() при сборке прокси-outbound.
 
   validateConfigReferences(config);
-  return { config, xray: xrayConfig, sidecars };
+  return {
+    config,
+    xray: xrayConfig,
+    sidecars,
+    runtime: {
+      mode: effectiveMode,
+      strictPrivacy: runtime.strictPrivacy,
+      pinnedNodeTag,
+      options: opts,
+    },
+  };
+}
+
+// Явный API для будущего переключателя. selectedNodeTag обязателен для
+// multi-node подписки; builder не создаёт Auto и не выбирает ноду молча.
+export function buildStrictPrivacyConfig({ selectedNodeTag = null, ...args }) {
+  return buildConfig({
+    ...args,
+    runtimePolicy: createStrictPrivacyPolicy({ selectedNodeTag }),
+  });
 }
 
 // Semantic guard поверх JSON-схемы: sing-box принимает ссылки на теги строками,
@@ -1162,6 +1280,7 @@ export function validateConfigReferences(config) {
     }
     requireOutbound(outbound?.default, `outbounds[${i}].default`);
     requireOutbound(outbound?.detour, `outbounds[${i}].detour`);
+    requireDns(outbound?.domain_resolver, `outbounds[${i}].domain_resolver`);
   }
   for (const [i, server] of (config.dns?.servers || []).entries()) {
     requireOutbound(server?.detour, `dns.servers[${i}].detour`);

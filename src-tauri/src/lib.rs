@@ -7,6 +7,7 @@ mod dnscheck;
 mod dpi;
 mod killswitch;
 mod netproc;
+mod protected_browser;
 mod quality;
 mod scanner;
 mod secrets;
@@ -762,6 +763,9 @@ pub fn run() {
             startup_deep_links,
             is_elevated,
             relaunch_elevated,
+            protected_browser::protected_browser_status,
+            protected_browser::protected_browser_launch,
+            protected_browser::protected_browser_open_download,
             is_always_admin,
             set_always_admin,
             autostart_is_enabled,

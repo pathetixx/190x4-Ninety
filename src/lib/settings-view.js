@@ -1,4 +1,4 @@
-// Ninety · Settings view — 6 разделов навигатором, как в Hiddify.
+// Ninety · Settings view — разделы навигатором, как в Hiddify.
 // Не SPA-роутер: внутренний state хранится в this view (sectionKey).
 
 import {
@@ -25,6 +25,7 @@ const warpNoiseLabels = () => ({
 
 const SECTIONS = [
   { key: "general",    icon: iconGeneral },
+  { key: "privacy",    icon: iconShield },
   { key: "appearance", icon: iconTheme },
   { key: "routing",    icon: iconRouting },
   { key: "dns",        icon: iconDns },
@@ -89,6 +90,13 @@ export function mountSettings(root, opts = {}) {
   const onChange = opts.onChange || (() => {});
   const onRender = opts.onRender || (() => {});
   const onSensitiveDataClear = opts.onSensitiveDataClear || (async () => {});
+  const getProtectedBrowserStatus = opts.getProtectedBrowserStatus || (async () => ({
+    ok: false,
+    error: { code: "unavailable" },
+  }));
+  const onProtectedBrowserLaunch = opts.onProtectedBrowserLaunch || (async () => {});
+  const onProtectedBrowserCheck = opts.onProtectedBrowserCheck || (async () => {});
+  const onProtectedBrowserDownload = opts.onProtectedBrowserDownload || (async () => {});
   // Живой инстанс под-экрана «Правила маршрутизации» — чтобы погасить его
   // монитор-таймер при уходе назад.
   let routingRulesInstance = null;
@@ -244,6 +252,53 @@ export function mountSettings(root, opts = {}) {
     bindAppearanceSection(el, sec);
     bindAboutSection(el, sec);
     bindRoutingSection(el, sec, onChange);
+    bindPrivacySection(el, sec);
+  }
+
+  function bindPrivacySection(el, sec) {
+    if (sec.key !== "privacy") return;
+    const statusEl = el.querySelector("#protected-browser-status");
+    const launchBtn = el.querySelector("[data-action='protected-browser-launch']");
+    const checkBtn = el.querySelector("[data-action='protected-browser-check']");
+    const downloadBtn = el.querySelector("[data-action='protected-browser-download']");
+    const buttons = [launchBtn, checkBtn, downloadBtn].filter(Boolean);
+
+    const run = async (button, action) => {
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      try { await action(); }
+      finally {
+        if (button.isConnected) {
+          button.disabled = false;
+          button.removeAttribute("aria-busy");
+        }
+      }
+    };
+    launchBtn?.addEventListener("click", () => run(launchBtn, onProtectedBrowserLaunch));
+    checkBtn?.addEventListener("click", () => run(checkBtn, onProtectedBrowserCheck));
+    downloadBtn?.addEventListener("click", () => run(downloadBtn, onProtectedBrowserDownload));
+
+    void (async () => {
+      buttons.forEach(button => { button.disabled = true; });
+      const result = await getProtectedBrowserStatus();
+      if (!statusEl?.isConnected) return;
+      const available = !!result?.ok && !!result.data?.available;
+      if (!result?.ok) {
+        statusEl.textContent = t("settings.privacy.statusError");
+      } else if (available && result.data.version) {
+        statusEl.textContent = t("settings.privacy.statusAvailableVersion", {
+          version: result.data.version,
+        });
+      } else {
+        statusEl.textContent = t(available
+          ? "settings.privacy.statusAvailable"
+          : "settings.privacy.statusMissing");
+      }
+      if (launchBtn) launchBtn.hidden = !available;
+      if (checkBtn) checkBtn.hidden = !available;
+      if (downloadBtn) downloadBtn.hidden = available;
+      buttons.forEach(button => { button.disabled = false; });
+    })();
   }
 
   // Секция «Маршрутизация»: строка-ссылка в под-экран «Правила маршрутизации».
@@ -636,6 +691,7 @@ function renderSection(sec) {
 function renderSectionBody(sec, o) {
   switch (sec.key) {
     case "general":    return renderGeneral(o);
+    case "privacy":    return renderPrivacy(o);
     case "appearance": return renderAppearance(o);
     case "routing":    return renderRouting(o);
     case "dns":        return renderDns(o);
@@ -661,6 +717,49 @@ function renderQuality(o) {
     <div class="settings-section">
       ${row(iconTarget(), t("settings.quality.thrTitle"), t("settings.quality.thrHint"), select("quality.goodBps", String(q.goodBps ?? 1500000), ["750000", "1500000", "3000000", "6000000"], { "750000": t("settings.enums.qualityGood.750000"), "1500000": t("settings.enums.qualityGood.1500000"), "3000000": t("settings.enums.qualityGood.3000000"), "6000000": t("settings.enums.qualityGood.6000000") }))}
       ${row(iconClock(), t("settings.quality.intTitle"), t("settings.quality.intHint"), inputText("quality.idleProbeSec", q.idleProbeSec ?? 300, "number", 'min="60" max="900"'))}
+    </div>
+  `;
+}
+
+function groupHead(title, hint) {
+  return `
+    <div class="set-group__head">
+      <div class="set-group__title">${title}</div>
+      ${hint ? `<div class="set-group__hint">${hint}</div>` : ""}
+    </div>`;
+}
+
+function renderPrivacy(o) {
+  const privacy = o.privacy || {};
+  return `
+    <div class="settings-banner">${escapeHtml(t("settings.privacy.banner"))}</div>
+    <div class="settings-section">
+      ${row(
+        iconShield(),
+        t("settings.privacy.strictTitle"),
+        t("settings.privacy.strictHint"),
+        toggle("privacy.strictTunnel", !!privacy.strictTunnel),
+      )}
+    </div>
+    <div class="set-group">
+      ${groupHead(t("settings.privacy.browserGroup"), t("settings.privacy.browserHint"))}
+      <div class="warp-status-row">
+        <div>
+          <div class="warp-status-row__t" id="protected-browser-status">${escapeHtml(t("settings.privacy.statusChecking"))}</div>
+          <div class="warp-status-row__sub">${escapeHtml(t("settings.privacy.free"))}</div>
+        </div>
+        <div class="set-row__ctl">
+          <button class="btn btn--sm btn--primary" data-action="protected-browser-launch" type="button" hidden>${escapeHtml(t("settings.privacy.launch"))}</button>
+          <button class="btn btn--sm" data-action="protected-browser-check" type="button" hidden>${escapeHtml(t("settings.privacy.check"))}</button>
+          <button class="btn btn--sm" data-action="protected-browser-download" type="button" hidden>${escapeHtml(t("settings.privacy.download"))}</button>
+        </div>
+      </div>
+      ${row(
+        iconRocket(),
+        t("settings.privacy.autoTitle"),
+        t("settings.privacy.autoHint"),
+        toggle("privacy.protectedBrowserAutoLaunch", !!privacy.protectedBrowserAutoLaunch),
+      )}
     </div>
   `;
 }
@@ -975,11 +1074,6 @@ function aboutIconHeart() { return aboutSvg(11, '<path d="M19 14c1.49-1.46 3-3.2
 
 function renderWarp(o) {
   const w = o.warp || {};
-  const groupHead = (title, hint) => `
-    <div class="set-group__head">
-      <div class="set-group__title">${title}</div>
-      ${hint ? `<div class="set-group__hint">${hint}</div>` : ""}
-    </div>`;
   return `
     <div class="settings-banner">${t("settings.warp.banner")}</div>
 

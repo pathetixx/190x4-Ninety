@@ -28,7 +28,7 @@ export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
   function updateBadge() {
     if (!locWarpRow || !locWarpEndpoint) return;
     const o = loadOptions();
-    const enabled = !!o.warp?.enabled;
+    const enabled = !o.privacy?.strictTunnel && !!o.warp?.enabled;
     const connected = getState() === "connected";
     if (!enabled || !connected) { locWarpRow.hidden = true; return; }
     locWarpEndpoint.textContent = o.warp?.endpoint || "—";
@@ -51,7 +51,7 @@ export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
   function startLoop() {
     stopLoop();
     const opts = loadOptions();
-    if (!opts.warp?.enabled || !opts.warp?.autoRescan) return;
+    if (opts.privacy?.strictTunnel || !opts.warp?.enabled || !opts.warp?.autoRescan) return;
     if (getState() !== "connected") return;
     const minutes = Math.max(5, Math.min(360, Number(opts.warp?.autoRescanIntervalMin) || 30));
     timer = setInterval(tick, minutes * 60_000);
@@ -67,7 +67,7 @@ export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
     if (inFlight) return;
     if (getState() !== "connected") return;
     const opts = loadOptions();
-    if (!opts.warp?.enabled || !opts.warp?.autoRescan) return;
+    if (opts.privacy?.strictTunnel || !opts.warp?.enabled || !opts.warp?.autoRescan) return;
     const threshold = Math.max(100, Number(opts.warp?.autoRescanThresholdMs) || 300);
     const token = runtime?.capture?.() || null;
     if (runtime && !runtime.isCurrent(token)) return;
@@ -87,7 +87,8 @@ export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
         results = await invoke("warp_scan_endpoints", { topN: 5, deep: false, mode: "wg" });
       } catch { return; }
       if (runtime && !runtime.isCurrent(token)) return;
-      if (getState() !== "connected" || !loadOptions().warp?.enabled) return;
+      if (getState() !== "connected" || loadOptions().privacy?.strictTunnel
+        || !loadOptions().warp?.enabled) return;
       const best = Array.isArray(results) && results.length ? results[0] : null;
       if (!best) return;
       // Применяем только если новый лучше на ≥50мс, чтобы не дёргаться от шума.

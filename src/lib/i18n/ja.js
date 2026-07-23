@@ -650,6 +650,22 @@ export const ja = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "厳格トンネルは VPN · TUN モードでのみ動作します。",
+    enableCancelled: "厳格トンネルは有効になりませんでした。管理者権限が必要です。",
+    nodeRequired: "特定のサーバーを選択してください。厳格トンネルでは自動モードを使用できません。",
+    nodeUnavailable: "選択したサーバーを利用できません。厳格トンネルは接続されませんでした。",
+    bootstrapUnsafe: "このノードには直接 DNS ブートストラップが必要ですが、厳格トンネルでは許可されません。サーバーが IP アドレスで指定されたノードを選択してください。",
+    guardLost: "Windows のネットワーク保護フィルターが停止しました。Ninety が復旧を試みています。VPN を切断しないでください。",
+    guardRestored: "Windows のネットワーク保護フィルターを復旧しました。",
+    browserNeedConnection: "ブラウザが直接通信しないよう、先に Ninety を VPN · TUN モードで接続してください。",
+    browserLaunched: "Mullvad Browser で保護されたセッションを開きました。",
+    browserMissing: "このコンピューターに Mullvad Browser が見つかりません。",
+    browserFailed: "Mullvad Browser を開けませんでした。",
+    downloadOpened: "Mullvad Browser の公式無料ダウンロードページを開きました。",
+    downloadFailed: "Mullvad Browser のダウンロードページを開けませんでした。",
+  },
+
   settings: {
     language: "インターフェース言語",
     languageHint: "即座に適用されます — 再起動は不要です。",
@@ -659,6 +675,7 @@ export const ja = {
 
     sec: {
       general:    { title: "全般",          hint: "自動起動、管理者権限、Wi-Fi 保護、キルスイッチ、ログ" },
+      privacy:    { title: "プライバシー",   hint: "厳格トンネルと保護ブラウザ" },
       appearance: { title: "外観",          hint: "インターフェース言語とテーマの選択" },
       routing:    { title: "ルーティング",   hint: "地域、LAN回避、広告ブロック、IPv6" },
       dns:        { title: "DNS",           hint: "リモートおよびダイレクトDNS、キャッシュ、fake-DNS" },
@@ -718,6 +735,25 @@ export const ja = {
       logOffTitle: "ログ記録を完全に無効化",
       logOffHint: "どのコンポーネント（sing-box、xray、NaiveProxy、TrustTunnel、DPI）もログを書き込まなくなり、診断が不可能になります。ログが不要だと確信できる場合のみ有効にしてください。",
       adminSaveErr: "設定を保存できませんでした: {err}",
+    },
+
+    privacy: {
+      banner: "厳格トンネルは直接経路と偶発的な漏えいを防ぎますが、VPN サーバーの IP を家庭用回線に見せることはできません。サイトはデータセンターや既知の VPN アドレスを引き続き検出できます。",
+      strictTitle: "厳格トンネル",
+      strictHint: "VPN · TUN と選択した1台のサーバーを強制し、自動切替は行いません。直接通信の例外、LAN 回避、IPv6、WARP、自動品質調整は無効になり、Web サイトの DNS はトンネル内に留まります。",
+      browserGroup: "保護ブラウザ",
+      browserHint: "無料の Mullvad Browser は、一貫性があり識別されにくいブラウザ指紋を提供します。Ninety を VPN · TUN モードで接続した後にのみ起動してください。ブラウザは IP や VPN サーバーの評判を変更しません。",
+      statusChecking: "インストールを確認中…",
+      statusAvailable: "Mullvad Browser はインストール済みです",
+      statusAvailableVersion: "Mullvad Browser はインストール済みです · {version}",
+      statusMissing: "Mullvad Browser が見つかりません",
+      statusError: "Mullvad Browser を確認できませんでした",
+      launch: "保護されたセッションを開く",
+      check: "保護を確認",
+      download: "無料でダウンロード",
+      autoTitle: "接続後に開く",
+      autoHint: "接続成功後に Mullvad Browser を一度だけ起動します。自動再接続で追加のウィンドウは開きません。",
+      free: "Mullvad Browser は無料で、Mullvad VPN の契約は不要です。",
     },
 
     appearance: {

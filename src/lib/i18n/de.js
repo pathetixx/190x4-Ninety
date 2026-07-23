@@ -650,6 +650,22 @@ export const de = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "Der strikte Tunnel funktioniert nur im Modus VPN · TUN.",
+    enableCancelled: "Strikter Tunnel wurde nicht aktiviert: Administratorrechte sind erforderlich.",
+    nodeRequired: "Wähle einen bestimmten Server. Der Auto-Modus ist im strikten Tunnel nicht verfügbar.",
+    nodeUnavailable: "Der gewählte Server ist nicht verfügbar. Der strikte Tunnel wurde nicht verbunden.",
+    bootstrapUnsafe: "Dieser Knoten benötigt einen direkten DNS-Bootstrap, den der strikte Tunnel nicht zulässt. Wähle einen Knoten mit einer IP-Adresse als Serveradresse.",
+    guardLost: "Der Windows-Netzwerkfilter ist ausgefallen. Ninety versucht, ihn wiederherzustellen; trenne das VPN nicht.",
+    guardRestored: "Der Windows-Netzwerkfilter wurde wiederhergestellt.",
+    browserNeedConnection: "Verbinde Ninety zuerst im Modus VPN · TUN, damit der Browser nicht direkt ins Netz geht.",
+    browserLaunched: "Geschützte Sitzung in Mullvad Browser geöffnet.",
+    browserMissing: "Mullvad Browser wurde auf diesem Computer nicht gefunden.",
+    browserFailed: "Mullvad Browser konnte nicht geöffnet werden.",
+    downloadOpened: "Die offizielle Seite zum kostenlosen Download von Mullvad Browser wurde geöffnet.",
+    downloadFailed: "Die Download-Seite von Mullvad Browser konnte nicht geöffnet werden.",
+  },
+
   settings: {
     language: "Oberflächensprache",
     languageHint: "Wird sofort angewendet — kein Neustart nötig.",
@@ -659,6 +675,7 @@ export const de = {
 
     sec: {
       general:    { title: "Allgemein",          hint: "Autostart, Administratorrechte, WLAN-Schutz, Kill Switch, Logs" },
+      privacy:    { title: "Privatsphäre",        hint: "Strikter Tunnel und geschützter Browser" },
       appearance: { title: "Darstellung",        hint: "Sprache der Oberfläche und Designauswahl" },
       routing:    { title: "Routing",            hint: "Region, LAN-Umgehung, Werbeblockierung, IPv6" },
       dns:        { title: "DNS",                hint: "Remote- und Direct-DNS, Cache, fake-DNS" },
@@ -718,6 +735,25 @@ export const de = {
       logOffTitle: "Protokollierung vollständig deaktivieren",
       logOffHint: "Keine Komponente (sing-box, xray, NaiveProxy, TrustTunnel, DPI) schreibt Protokolle — eine Diagnose wird unmöglich. Nur aktivieren, wenn du sicher bist, dass du keine Protokolle brauchst.",
       adminSaveErr: "Einstellung konnte nicht gespeichert werden: {err}",
+    },
+
+    privacy: {
+      banner: "Der strikte Tunnel schließt direkte Routen und unbeabsichtigte Lecks, kann eine VPN-Server-IP aber nicht wie einen Privatanschluss aussehen lassen. Websites können Rechenzentrums- oder bekannte VPN-Adressen weiterhin erkennen.",
+      strictTitle: "Strikter Tunnel",
+      strictHint: "Erzwingt VPN · TUN und einen ausgewählten Server ohne automatischen Wechsel. Direkte Ausnahmen, LAN-Umgehung, IPv6, WARP und automatische Qualitätsoptimierung werden deaktiviert; Website-DNS bleibt im Tunnel.",
+      browserGroup: "Geschützter Browser",
+      browserHint: "Der kostenlose Mullvad Browser bietet einen einheitlichen, weniger einzigartigen Browser-Fingerabdruck. Starte ihn erst, wenn Ninety im Modus VPN · TUN verbunden ist: Der Browser ändert weder deine IP noch die Reputation des VPN-Servers.",
+      statusChecking: "Installation wird geprüft…",
+      statusAvailable: "Mullvad Browser ist installiert",
+      statusAvailableVersion: "Mullvad Browser ist installiert · {version}",
+      statusMissing: "Mullvad Browser wurde nicht gefunden",
+      statusError: "Mullvad Browser konnte nicht geprüft werden",
+      launch: "Geschützte Sitzung öffnen",
+      check: "Schutz prüfen",
+      download: "Kostenlos herunterladen",
+      autoTitle: "Nach dem Verbinden öffnen",
+      autoHint: "Startet Mullvad Browser einmal nach erfolgreicher Verbindung. Automatische Neuverbindungen öffnen keine weiteren Fenster.",
+      free: "Mullvad Browser ist kostenlos und erfordert kein Mullvad-VPN-Abo.",
     },
 
     appearance: {

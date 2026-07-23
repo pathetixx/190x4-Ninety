@@ -650,6 +650,22 @@ export const ar = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "يعمل النفق الصارم فقط في وضع VPN · TUN.",
+    enableCancelled: "لم يُفعّل النفق الصارم: صلاحيات المسؤول مطلوبة.",
+    nodeRequired: "اختر خادمًا محددًا. الوضع التلقائي غير متاح مع النفق الصارم.",
+    nodeUnavailable: "الخادم المختار غير متاح. لم يتصل النفق الصارم.",
+    bootstrapUnsafe: "تتطلب هذه العقدة تمهيد DNS مباشرًا، وهو غير مسموح في النفق الصارم. اختر عقدة يكون عنوان خادمها عنوان IP.",
+    guardLost: "توقف مرشح شبكة Windows. يحاول Ninety استعادته؛ لا تفصل اتصال VPN.",
+    guardRestored: "تمت استعادة مرشح شبكة Windows.",
+    browserNeedConnection: "اتصل أولًا عبر Ninety في وضع VPN · TUN كي لا يصل المتصفح إلى الإنترنت مباشرة.",
+    browserLaunched: "فُتحت جلسة محمية في Mullvad Browser.",
+    browserMissing: "لم يُعثر على Mullvad Browser في هذا الكمبيوتر.",
+    browserFailed: "تعذر فتح Mullvad Browser.",
+    downloadOpened: "فُتحت صفحة التنزيل المجاني الرسمية لـ Mullvad Browser.",
+    downloadFailed: "تعذر فتح صفحة تنزيل Mullvad Browser.",
+  },
+
   settings: {
     language: "لغة الواجهة",
     languageHint: "يُطبَّق فورًا — لا حاجة لإعادة التشغيل.",
@@ -659,6 +675,7 @@ export const ar = {
 
     sec: {
       general:    { title: "عام",          hint: "التشغيل التلقائي، صلاحيات المسؤول، حماية Wi-Fi، مفتاح القطع، السجلات" },
+      privacy:    { title: "الخصوصية",      hint: "نفق صارم ومتصفح محمي" },
       appearance: { title: "المظهر",       hint: "لغة الواجهة واختيار المظهر" },
       routing:    { title: "التوجيه",      hint: "المنطقة، تجاوز الشبكة المحلية، حجب الإعلانات، IPv6" },
       dns:        { title: "DNS",          hint: "DNS البعيد والمباشر، التخزين المؤقت، fake-DNS" },
@@ -718,6 +735,25 @@ export const ar = {
       logOffTitle: "تعطيل التسجيل بالكامل",
       logOffHint: "لا مكوّن (sing-box، xray، NaiveProxy، TrustTunnel، DPI) يكتب سجلات — يصبح التشخيص مستحيلًا. فعِّله فقط إن كنت متأكدًا أنك لا تحتاج السجلات.",
       adminSaveErr: "تعذّر حفظ الإعداد: {err}",
+    },
+
+    privacy: {
+      banner: "يغلق النفق الصارم المسارات المباشرة والتسريبات العرضية، لكنه لا يستطيع جعل عنوان IP لخادم VPN يبدو منزليًا. قد تظل المواقع قادرة على تمييز عنوان مركز بيانات أو VPN معروف.",
+      strictTitle: "النفق الصارم",
+      strictHint: "يفرض VPN · TUN وخادمًا واحدًا محددًا دون تبديل تلقائي. تُعطّل الاستثناءات المباشرة وتجاوز LAN وIPv6 وWARP والتحسين التلقائي؛ ويبقى DNS الخاص بالمواقع داخل النفق.",
+      browserGroup: "المتصفح المحمي",
+      browserHint: "يوفر Mullvad Browser المجاني بصمة متصفح متناسقة وأقل تميزًا. شغّله فقط بعد اتصال Ninety في وضع VPN · TUN: لا يغيّر المتصفح عنوان IP ولا سمعة خادم VPN.",
+      statusChecking: "جارٍ فحص التثبيت…",
+      statusAvailable: "Mullvad Browser مثبّت",
+      statusAvailableVersion: "Mullvad Browser مثبّت · {version}",
+      statusMissing: "لم يُعثر على Mullvad Browser",
+      statusError: "تعذر فحص Mullvad Browser",
+      launch: "فتح جلسة محمية",
+      check: "فحص الحماية",
+      download: "تنزيل مجانًا",
+      autoTitle: "الفتح بعد الاتصال",
+      autoHint: "يشغّل Mullvad Browser مرة واحدة بعد نجاح الاتصال. لا تفتح عمليات إعادة الاتصال التلقائية نوافذ إضافية.",
+      free: "Mullvad Browser مجاني ولا يتطلب اشتراك Mullvad VPN.",
     },
 
     appearance: {

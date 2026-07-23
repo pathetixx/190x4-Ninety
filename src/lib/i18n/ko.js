@@ -650,6 +650,22 @@ export const ko = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "엄격한 터널은 VPN · TUN 모드에서만 작동합니다.",
+    enableCancelled: "엄격한 터널이 활성화되지 않았습니다. 관리자 권한이 필요합니다.",
+    nodeRequired: "특정 서버를 선택하세요. 엄격한 터널에서는 자동 모드를 사용할 수 없습니다.",
+    nodeUnavailable: "선택한 서버를 사용할 수 없습니다. 엄격한 터널이 연결되지 않았습니다.",
+    bootstrapUnsafe: "이 노드는 엄격한 터널에서 허용하지 않는 직접 DNS 부트스트랩이 필요합니다. 서버가 IP 주소로 지정된 노드를 선택하세요.",
+    guardLost: "Windows 네트워크 보호 필터가 중지되었습니다. Ninety가 복구를 시도하고 있으니 VPN 연결을 끊지 마세요.",
+    guardRestored: "Windows 네트워크 보호 필터가 복구되었습니다.",
+    browserNeedConnection: "브라우저가 직접 인터넷에 접속하지 않도록 먼저 Ninety를 VPN · TUN 모드로 연결하세요.",
+    browserLaunched: "Mullvad Browser에서 보호된 세션을 열었습니다.",
+    browserMissing: "이 컴퓨터에서 Mullvad Browser를 찾을 수 없습니다.",
+    browserFailed: "Mullvad Browser를 열 수 없습니다.",
+    downloadOpened: "Mullvad Browser 공식 무료 다운로드 페이지를 열었습니다.",
+    downloadFailed: "Mullvad Browser 다운로드 페이지를 열 수 없습니다.",
+  },
+
   settings: {
     language: "인터페이스 언어",
     languageHint: "즉시 적용됩니다 — 다시 시작할 필요가 없습니다.",
@@ -659,6 +675,7 @@ export const ko = {
 
     sec: {
       general:    { title: "일반",          hint: "자동 시작, 관리자 권한, Wi-Fi 보호, 킬 스위치, 로그" },
+      privacy:    { title: "개인정보 보호",  hint: "엄격한 터널 및 보호 브라우저" },
       appearance: { title: "외관",          hint: "인터페이스 언어 및 테마 선택" },
       routing:    { title: "라우팅",        hint: "지역, LAN 우회, 광고 차단, IPv6" },
       dns:        { title: "DNS",          hint: "원격 및 직접 DNS, 캐시, fake-DNS" },
@@ -718,6 +735,25 @@ export const ko = {
       logOffTitle: "로그 기록 완전 비활성화",
       logOffHint: "어떤 구성 요소(sing-box, xray, NaiveProxy, TrustTunnel, DPI)도 로그를 기록하지 않아 진단이 불가능해집니다. 로그가 필요 없다고 확신할 때만 활성화하세요.",
       adminSaveErr: "설정을 저장할 수 없습니다: {err}",
+    },
+
+    privacy: {
+      banner: "엄격한 터널은 직접 경로와 우발적인 유출을 차단하지만 VPN 서버 IP를 가정용 주소처럼 보이게 할 수는 없습니다. 사이트는 여전히 데이터 센터나 알려진 VPN 주소를 식별할 수 있습니다.",
+      strictTitle: "엄격한 터널",
+      strictHint: "VPN · TUN과 선택한 서버 하나를 강제로 사용하며 자동 전환은 하지 않습니다. 직접 연결 예외, LAN 우회, IPv6, WARP 및 자동 품질 최적화가 비활성화되고 웹사이트 DNS는 터널 안에 유지됩니다.",
+      browserGroup: "보호 브라우저",
+      browserHint: "무료 Mullvad Browser는 일관되고 덜 고유한 브라우저 지문을 제공합니다. Ninety가 VPN · TUN 모드로 연결된 후에만 실행하세요. 브라우저는 IP나 VPN 서버의 평판을 바꾸지 않습니다.",
+      statusChecking: "설치 확인 중…",
+      statusAvailable: "Mullvad Browser가 설치되어 있습니다",
+      statusAvailableVersion: "Mullvad Browser가 설치되어 있습니다 · {version}",
+      statusMissing: "Mullvad Browser를 찾을 수 없습니다",
+      statusError: "Mullvad Browser를 확인할 수 없습니다",
+      launch: "보호된 세션 열기",
+      check: "보호 상태 확인",
+      download: "무료 다운로드",
+      autoTitle: "연결 후 열기",
+      autoHint: "연결에 성공하면 Mullvad Browser를 한 번 실행합니다. 자동 재연결 시 추가 창을 열지 않습니다.",
+      free: "Mullvad Browser는 무료이며 Mullvad VPN 구독이 필요하지 않습니다.",
     },
 
     appearance: {

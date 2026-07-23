@@ -57,7 +57,12 @@ import { bus } from "/lib/bus.js";
 import { openQualityScope } from "/lib/quality-scope.js";
 import { initHeroHud } from "/lib/hero-hud.js";
 import { parseDeepLink } from "/lib/deeplink.js";
-import { applyKillSwitch, maybeWarnKillSwitchProxy } from "/lib/kill-switch.js";
+import {
+  applyKillSwitch,
+  maybeWarnKillSwitchProxy,
+  snapshotConfirmsOrdinaryKillSwitch,
+  snapshotConfirmsStrictKillSwitch,
+} from "/lib/kill-switch.js";
 import { initWifiGuard, forgetWifiAutoRestore } from "/lib/wifi-guard.js";
 import { initWarpRescan } from "/lib/warp-rescan.js";
 import { initHealthWatchdog } from "/lib/health-watchdog.js";
@@ -74,9 +79,14 @@ import { createBootstrapCoordinator } from "/lib/bootstrap-coordinator.js";
 import { createNetworkIntentArbiter, repeatedConnectionIntentAction } from "/lib/network-intent.js";
 import { createLatestWinsReconnectQueue } from "/lib/reconnect-queue.js";
 import { shouldShowOnboarding } from "/lib/onboarding-state.js";
-import { restoreRememberedProxySelection } from "/lib/proxy-selection.js";
+import { getRememberedProxySelection, restoreRememberedProxySelection } from "/lib/proxy-selection.js";
 import { startupRuntimePlan } from "/lib/startup-runtime-policy.js";
 import { persistDpiIntentForRelaunch } from "/lib/dpi-elevation-intent.js";
+import {
+  prepareStrictPrivacyRuntime,
+  selectStrictPrivacyCandidate,
+} from "/lib/strict-privacy-policy.js";
+import { createProtectedBrowserService } from "/lib/protected-browser.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -86,6 +96,69 @@ const invoke = window.__TAURI__?.core?.invoke
     console.warn("Tauri invoke недоступен:", cmd, args);
     return Promise.reject(new Error("Tauri invoke недоступен (web preview)"));
   });
+const protectedBrowser = createProtectedBrowserService({ invoke });
+
+function strictPrivacyRequested() {
+  return !!loadOptions().privacy?.strictTunnel;
+}
+
+let protectedBrowserAutoLaunched = false;
+
+async function requestProtectedBrowserLaunch(url = null, { automatic = false } = {}) {
+  if (state !== "connected" || getMode() !== "tun") {
+    if (!automatic || state === "connected") {
+      toast(t("privacyToast.browserNeedConnection"), "warn", 4200);
+    }
+    return { ok: false, error: { code: "tun_not_connected" } };
+  }
+  const launchEpoch = networkIntentEpoch;
+  const runtimeToken = runtimeIdentity.capture();
+  const status = await protectedBrowser.status();
+  if (!status.ok) {
+    if (!automatic) toast(t("privacyToast.browserFailed"), "error", 4200);
+    return status;
+  }
+  if (!status.data.available) {
+    toast(t("privacyToast.browserMissing"), "warn", 5000);
+    return { ok: false, error: { code: "browser_missing" } };
+  }
+  // Проверка установки — IPC и может завершиться уже после disconnect/reconnect.
+  // Перед фактическим spawn подтверждаем тот же runtime и сетевое намерение.
+  if (state !== "connected"
+    || getMode() !== "tun"
+    || !isCurrentNetworkIntent(launchEpoch, "connected")
+    || !runtimeIdentity.isCurrent(runtimeToken)) {
+    if (!automatic) toast(t("privacyToast.browserNeedConnection"), "warn", 4200);
+    return { ok: false, error: { code: "stale_tun_runtime" } };
+  }
+  const result = await protectedBrowser.launch(url ? { url } : undefined);
+  if (!result.ok) {
+    toast(t("privacyToast.browserFailed"), "error", 5000);
+  } else if (!automatic) {
+    toast(t("privacyToast.browserLaunched"), "success", 2200);
+  }
+  return result;
+}
+
+async function openProtectedBrowserDownload() {
+  if (state !== "connected" || getMode() !== "tun") {
+    toast(t("privacyToast.browserNeedConnection"), "warn", 4200);
+    return { ok: false, error: { code: "tun_not_connected" } };
+  }
+  const result = await protectedBrowser.openOfficialDownload();
+  toast(
+    t(result.ok ? "privacyToast.downloadOpened" : "privacyToast.downloadFailed"),
+    result.ok ? "info" : "error",
+    3500,
+  );
+  return result;
+}
+
+function maybeAutoLaunchProtectedBrowser() {
+  if (protectedBrowserAutoLaunched || !loadOptions().privacy?.protectedBrowserAutoLaunch) return;
+  protectedBrowserAutoLaunched = true;
+  void requestProtectedBrowserLaunch(null, { automatic: true });
+}
 
 // ── Восстановление состояния из бэкапа ──────────────────────
 // Профиль WebView2 (EBWebView) могли снести чистилки диска/антивирус: если
@@ -182,6 +255,9 @@ function applyModeToUI(m) {
   // DPI-обход слушает режим: вход в TUN → пауза, выход → восстановление.
   setDpiVpnMode(m);
 }
+// Строгая политика никогда не существует в proxy/systemProxy: восстанавливаем
+// согласованный режим ещё до первого рендера и bootstrap runtime.
+if (strictPrivacyRequested() && getMode() !== "tun") setMode("tun");
 applyModeToUI(getMode());
 
 // WARP switch в popover'е
@@ -226,17 +302,43 @@ modeSeg?.addEventListener("click", async (e) => {
 // Единая смена режима подключения — из сегмента на главной И из меню трея.
 // auto=true — переключение сделала Wi-Fi-авто-защита (см. /lib/wifi-guard.js);
 // ручной выбор юзера отменяет её авто-возврат прежнего режима.
-async function changeMode(requested, { auto = false } = {}) {
-  if (!["proxy", "systemProxy", "tun"].includes(requested)) return;
+async function changeMode(requested, { auto = false, reconnect = true } = {}) {
+  if (!["proxy", "systemProxy", "tun"].includes(requested)) return false;
+  if (strictPrivacyRequested() && requested !== "tun") {
+    applyModeToUI("tun");
+    if (!auto) toast(t("privacyToast.modeLocked"), "warn", 4200);
+    return false;
+  }
   if (!auto) forgetWifiAutoRestore();
+  const prevMode = getMode();
   // TUN (Throne-style) требует чтобы всё приложение было запущено от админа.
   // Если мы не elevated — ensureElevatedForTun перезапустит Ninety с UAC
   // (и вернёт false: текущий процесс умирает, дальше идти незачем).
   if (requested === "tun") {
     const ok = await ensureElevatedForTun();
-    if (!ok) return;
+    if (!ok) return false;
   }
-  const prevMode = getMode();
+  // Обычный Kill Switch относится к proxy/systemProxy, но его заслон должен
+  // пережить и переход через границу TUN. До записи нового mode подтверждаем
+  // старую policy либо заранее ставим block-all для целевого non-TUN режима.
+  // Иначе reconnect увидел бы уже новый mode и снял фильтр до готовности ядра.
+  if (reconnect
+    && requested !== prevMode
+    && (state === "connected" || state === "connecting")
+    && loadOptions().general?.killSwitch
+    && (prevMode !== "tun" || requested !== "tun")) {
+    const ordinaryPolicyMode = prevMode !== "tun" ? prevMode : requested;
+    const barrierReady = await applyKillSwitch(false, {
+      preserve: true,
+      policyMode: ordinaryPolicyMode,
+    });
+    if (!barrierReady) {
+      toast(t("privacyToast.guardLost"), "error", 0, { group: "privacy-guard" });
+      return false;
+    }
+    strictFailClosedLatched = false;
+    ordinaryFailClosedLatched = true;
+  }
   setMode(requested);
   applyModeToUI(requested);
   updateHeroHint();
@@ -245,7 +347,8 @@ async function changeMode(requested, { auto = false } = {}) {
   // надо пересобрать конфиг. reconnectForSourceChange сам уходит в idle (сбросит
   // системный прокси старого режима) и поднимается заново. Если не connected —
   // no-op, режим применится при следующем connect.
-  if (requested !== prevMode) reconnectForSourceChange(t("conn.switchMode"));
+  if (reconnect && requested !== prevMode) reconnectForSourceChange(t("conn.switchMode"));
+  return true;
 }
 
 // ── Авто-защита на чужих Wi-Fi (III.3) — /lib/wifi-guard.js ──
@@ -263,7 +366,9 @@ initWifiGuard({ changeMode });
 // инстанс читает mode=tun из localStorage и авто-подключается (--elevated).
 // Возврат: true — можно продолжать в текущем (уже admin) процессе; false —
 // идёт перезапуск ИЛИ юзер отказался от UAC.
+let elevationRelaunchPending = false;
 async function ensureElevatedForTun() {
+  elevationRelaunchPending = false;
   const prevMode = getMode();
   let modeStoredForRelaunch = false;
   try {
@@ -282,9 +387,11 @@ async function ensureElevatedForTun() {
       toast(t("elev.tunCancelled"), "error", 3000);
       return false;
     }
+    elevationRelaunchPending = true;
     toast(t("elev.relaunching"), "info", 2500);
     return false; // текущий процесс вот-вот завершится — не продолжаем
   } catch (e) {
+    elevationRelaunchPending = false;
     if (modeStoredForRelaunch) {
       setMode(prevMode);
       applyModeToUI(prevMode);
@@ -367,7 +474,9 @@ function refreshProfilesSummary() {
 
 function warpOnlyEnabled() {
   const opts = loadOptions();
-  return !!opts.warp?.enabled && opts.warp?.mode === "direct";
+  return !opts.privacy?.strictTunnel
+    && !!opts.warp?.enabled
+    && opts.warp?.mode === "direct";
 }
 
 function hasConnectSource() {
@@ -498,8 +607,20 @@ subCardEl?.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchView("profiles"); }
 });
 
-// Mount Proxies view (FAB-молния → перетест группы)
-mountProxiesView({ onToast: toast });
+// В строгом runtime остаётся только один физический outbound: смена узла
+// сохраняет новый pin и пересобирает соединение вместо Clash hot-switch.
+mountProxiesView({
+  onToast: toast,
+  isStrictPrivacy: strictPrivacyRequested,
+  onStrictNodeSelected: (_tag, _node) => {
+    if (state === "connected" || state === "connecting") {
+      reconnectForSourceChange(t("conn.applyingSettings"));
+      toast(t("conn.applyingSettings"), "info", 1800);
+    } else {
+      toast(t("conn.serverSwitched"), "success", 1400);
+    }
+  },
+});
 
 // Mount DPI-обход (экран + чип на главной). Синхронизируем режим VPN сразу:
 // в TUN обход авто-паузится (см. dpi-view.js::effState).
@@ -511,16 +632,103 @@ const settingsRoot = document.getElementById("settings-root");
 let settingsCtl = null;
 if (settingsRoot) {
   let killSwitchToggleEpoch = 0;
+  let strictTunnelToggleEpoch = 0;
   settingsCtl = mountSettings(settingsRoot, {
     onChange: async (path, value) => {
       backupSoon(); // настройки изменились — обновить снапшот-бэкап состояния
+      if (path === "privacy.strictTunnel") {
+        const toggleEpoch = ++strictTunnelToggleEpoch;
+        const stillCurrent = () => toggleEpoch === strictTunnelToggleEpoch
+          && !!loadOptions().privacy?.strictTunnel === !!value;
+        if (value) {
+          const previousMode = getMode();
+          const modeReady = await changeMode("tun", { reconnect: false });
+          if (!stillCurrent()) return;
+          // При успешном UAC-relaunch текущий процесс уже завершается, а новый
+          // прочитает сохранённый strict=true. При отмене/ошибке явно откатываем
+          // свитчер даже если прежний сохранённый режим уже был TUN.
+          if (!modeReady) {
+            if (elevationRelaunchPending) return;
+            updateOption(path, false);
+            strictTunnelToggleEpoch++;
+            settingsCtl?.refresh();
+            await applyKillSwitch(false);
+            toast(t("privacyToast.enableCancelled"), "warn", 4200);
+            return;
+          }
+          if (state === "connected" || state === "connecting") {
+            // Закрываем окно между остановкой обычного runtime и стартом strict:
+            // barrier ставится ДО reconnect, а latch заставляет shutdown
+            // сохранить его до готовности нового TUN.
+            const guardReady = await applyKillSwitch(true, { phase: "preconnect" });
+            if (!stillCurrent()) return;
+            if (!guardReady) {
+              updateOption(path, false);
+              const rollbackEpoch = ++strictTunnelToggleEpoch;
+              settingsCtl?.refresh();
+              await changeMode(previousMode, { reconnect: false });
+              if (rollbackEpoch !== strictTunnelToggleEpoch) return;
+              strictFailClosedLatched = false;
+              await applyKillSwitch(state === "connected");
+              if (rollbackEpoch !== strictTunnelToggleEpoch) return;
+              toast(t("conn.startFail"), "error", 5000, {
+                desc: t("elev.killSwitchHint"),
+              });
+              return;
+            }
+            ordinaryFailClosedLatched = false;
+            strictFailClosedLatched = true;
+          }
+        } else if (state === "idle") {
+          // Мог остаться fail-closed WFP после аварии предыдущей строгой сессии.
+          const disarmed = await applyKillSwitch(false);
+          if (!stillCurrent()) return;
+          if (disarmed) {
+            strictFailClosedLatched = false;
+            ordinaryFailClosedLatched = false;
+          } else {
+            // UI не должен обещать снятую защиту, если WFP lease не удалось
+            // отпустить. Возвращаем настройку и guard-only retry; выйти из
+            // приложения (dynamic session) остаётся гарантированным recovery.
+            updateOption(path, true);
+            strictTunnelToggleEpoch++;
+            ordinaryFailClosedLatched = false;
+            strictFailClosedLatched = true;
+            settingsCtl?.refresh();
+            syncHealthWatchdogForState();
+            toast(t("conn.cleanupFail"), "error", 6000, {
+              desc: t("conn.cleanupFailDesc"),
+            });
+            return;
+          }
+        }
+        if (!stillCurrent()) return;
+        syncHealthWatchdogForState();
+        // setDpiVpnMode умеет переоценивать тот же TUN-режим: при выключении
+        // strict возвращает split-Discord/winws согласно сохранённой опции.
+        setDpiVpnMode(getMode(), { reevaluate: true });
+        if (state === "connected" || state === "connecting") {
+          scheduleAutoReconnect();
+        } else {
+          updateHeroHint();
+        }
+        settingsCtl?.refresh();
+        return;
+      }
       // Kill switch — чистый WFP-фильтр, конфиг sing-box не трогает: применяем
       // вживую (arm/disarm по текущему состоянию), БЕЗ реконнекта туннеля (прежде
       // тоггл ронял и поднимал VPN зря). В режиме «Прокси» — разовое предупреждение.
       if (path === "general.killSwitch") {
         const toggleEpoch = ++killSwitchToggleEpoch;
         maybeWarnKillSwitchProxy();
-        const ready = await applyKillSwitch(state === "connected");
+        const shouldArm = state === "connected";
+        const ready = await applyKillSwitch(shouldArm);
+        if (toggleEpoch === killSwitchToggleEpoch && ready !== false) {
+          ordinaryFailClosedLatched = !!value
+            && shouldArm
+            && state === "connected"
+            && getMode() !== "tun";
+        }
         // Армирование WFP — часть контракта настройки, а не fire-and-forget.
         // Если ядро уже поднято, не оставляем переключатель включённым при
         // фактически неактивной защите: откатываем запись и DOM к безопасному
@@ -529,9 +737,16 @@ if (settingsRoot) {
           const revertedValue = !value;
           updateOption(path, revertedValue);
           settingsCtl?.refresh();
-          await applyKillSwitch(state === "connected" && revertedValue);
+          const restored = await applyKillSwitch(state === "connected" && revertedValue);
+          if (toggleEpoch === killSwitchToggleEpoch) {
+            ordinaryFailClosedLatched = !!revertedValue
+              && state === "connected"
+              && getMode() !== "tun"
+              && restored === true;
+          }
           toast(t("conn.startFail"), "error", 5000, { desc: t("elev.killSwitchHint") });
         }
+        if (toggleEpoch === killSwitchToggleEpoch) syncHealthWatchdogForState();
         return;
       }
       // Тогглы periodic re-scan и его интервал — не трогают sing-box, только
@@ -550,7 +765,10 @@ if (settingsRoot) {
       // через setOptions; вкл/выкл прячет/показывает индикатор «КАНАЛ».
       if (path.startsWith("quality.")) {
         qualityEngine.setOptions(loadOptions().quality);
-        if (path === "quality.enabled" && state === "connected") {
+        if (activeStrictPrivacyRuntime) {
+          qualityEngine.onIdle();
+          showQualityChip(false);
+        } else if (path === "quality.enabled" && state === "connected") {
           showQualityChip(loadOptions().quality?.enabled !== false);
         }
         return;
@@ -580,6 +798,10 @@ if (settingsRoot) {
       syncTrayMenu();
       toast(t("settings.general.clearSensitiveDone"), "success", 2400);
     },
+    getProtectedBrowserStatus: () => protectedBrowser.status(),
+    onProtectedBrowserLaunch: () => requestProtectedBrowserLaunch(),
+    onProtectedBrowserCheck: () => requestProtectedBrowserLaunch("https://mullvad.net/en/check"),
+    onProtectedBrowserDownload: openProtectedBrowserDownload,
     onRender: () => applySettingsVersion(),
   });
 }
@@ -589,6 +811,51 @@ let pendingReconnectTimer = null;
 const coreStartBarrier = createCoreStartBarrier();
 const networkIntent = createNetworkIntentArbiter("idle");
 let networkIntentEpoch = 0;
+let activeStrictPrivacyRuntime = false;
+let strictFailClosedLatched = false;
+let ordinaryFailClosedLatched = false;
+
+function killSwitchMustSurviveRuntimeStop() {
+  return preservedKillSwitchPolicyMode() != null;
+}
+
+function preservedKillSwitchPolicyMode() {
+  const opts = loadOptions();
+  if (strictFailClosedLatched && opts.privacy?.strictTunnel) return "tun";
+  // Latch описывает уже подтверждённый ordinary barrier. Во время
+  // proxy↔TUN-transition текущий сохранённый mode может быть TUN, но старый
+  // block-all всё равно обязан дожить до final readiness нового runtime.
+  if (ordinaryFailClosedLatched && opts.general?.killSwitch) return "systemProxy";
+  return null;
+}
+
+function syncHealthWatchdogForState() {
+  if (state === "connected" || killSwitchMustSurviveRuntimeStop()) {
+    startHealthWatchdog();
+  } else {
+    stopHealthWatchdog();
+  }
+}
+
+// WebView может перезагрузиться уже после смерти ядра. Backend snapshot тогда
+// сообщает running=false, но WFP и RuntimeRecord всё ещё подтверждают активную
+// fail-closed policy. Восстанавливаем потерянный JS-latch до любых ранних
+// return и оставляем watchdog в guard-only режиме.
+function restoreFailClosedLatch(snapshot, opts = loadOptions()) {
+  if (snapshotConfirmsStrictKillSwitch(snapshot, opts)) {
+    ordinaryFailClosedLatched = false;
+    strictFailClosedLatched = true;
+    syncHealthWatchdogForState();
+    return "tun";
+  }
+  if (snapshotConfirmsOrdinaryKillSwitch(snapshot, opts)) {
+    strictFailClosedLatched = false;
+    ordinaryFailClosedLatched = true;
+    syncHealthWatchdogForState();
+    return snapshot.mode;
+  }
+  return null;
+}
 
 function beginNetworkIntent(desired) {
   networkIntentEpoch = networkIntent.begin(desired);
@@ -611,8 +878,19 @@ function cancelPendingReconnect() {
 // Единое гашение ядра: системный прокси → ядро → UI в idle. Все пути
 // отключения (ручное, авто-реконнект, watchdog, отказ моста, фейл старта)
 // идут через него, чтобы сброс системного прокси не потерялся ни в одном.
-async function shutdownCore({ finalize = true } = {}) {
-  setState("disconnecting");
+async function shutdownCore({ finalize = true, preserveKillSwitch = false } = {}) {
+  if (preserveKillSwitch) {
+    const guardReady = await applyKillSwitch(false, {
+      preserve: true,
+      policyMode: preservedKillSwitchPolicyMode(),
+    });
+    if (!guardReady) {
+      console.error("WFP fail-closed barrier could not be preserved; runtime shutdown postponed");
+      toast(t("privacyToast.guardLost"), "error", 0, { group: "privacy-guard" });
+      return false;
+    }
+  }
+  setState("disconnecting", { preserveKillSwitch });
   runtimeIdentity.invalidate();
   cancelPendingSelections();
   connectAttempts.cancel();
@@ -626,11 +904,37 @@ async function shutdownCore({ finalize = true } = {}) {
     && result.systemProxy !== "failed";
   if (!stopped) {
     console.error("runtime cleanup not confirmed", result);
-    setState("cleanup_error");
+    setState("cleanup_error", { preserveKillSwitch });
     return false;
   }
-  if (finalize) setState("idle");
+  if (finalize) setState("idle", { preserveKillSwitch });
   return true;
+}
+
+// Любой уже запущенный runtime, который не совпадает с сохранённой политикой,
+// гасится только после fail-closed barrier. Это покрывает startup/WebView reload
+// посередине активации, когда JS-latch ещё не восстановлен.
+async function shutdownRuntimeForPolicyReplacement(snapshot = null) {
+  const preserveStrict = strictPrivacyRequested();
+  const opts = loadOptions();
+  restoreFailClosedLatch(snapshot, opts);
+  const preserveOrdinary = !preserveStrict
+    && !!opts.general?.killSwitch
+    && (getMode() !== "tun" || ordinaryFailClosedLatched);
+  if (preserveStrict) {
+    const guardReady = await applyKillSwitch(true, { phase: "preconnect" });
+    if (!guardReady) {
+      toast(t("privacyToast.guardLost"), "error", 0, { group: "privacy-guard" });
+      return false;
+    }
+    ordinaryFailClosedLatched = false;
+    strictFailClosedLatched = true;
+  }
+  if (preserveOrdinary) {
+    strictFailClosedLatched = false;
+    ordinaryFailClosedLatched = true;
+  }
+  return shutdownCore({ preserveKillSwitch: preserveStrict || preserveOrdinary });
 }
 
 function scheduleAutoReconnect() {
@@ -653,6 +957,7 @@ function performAutoReconnect(reason = t("conn.applyingSettings"), parentEpoch =
 
 async function performAutoReconnectOnce(reason, epoch) {
   let reconnectToastId = null;
+  const preserveGuard = killSwitchMustSurviveRuntimeStop();
   try {
     pendingReconnectTimer = null;
     if (!needsReconnect || !isCurrentNetworkIntent(epoch, "connected")) return;
@@ -660,13 +965,31 @@ async function performAutoReconnectOnce(reason, epoch) {
     connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
     reconnectToastId = toast(reason, "info", 0, { group: "conn", connecting: true });
     const nativeStartWasPending = coreStartBarrier.isPending();
-    if (!(await shutdownCore()) || !isCurrentNetworkIntent(epoch, "connected")) return;
+    if (!(await shutdownCore({ preserveKillSwitch: preserveGuard }))) {
+      if (preserveGuard && isCurrentNetworkIntent(epoch, "connected")) {
+        pendingReconnectTimer = setTimeout(
+          () => performAutoReconnect(reason, epoch),
+          5000,
+        );
+      }
+      return;
+    }
+    if (!isCurrentNetworkIntent(epoch, "connected")) return;
     // stop_singbox не может отменить IPC-start, который ещё находится в settle-
     // фазе и не записал child. Ждём его физического завершения, затем повторно
     // гасим поздно поднявшийся комплект. Только после этого стартует новый source.
     if (nativeStartWasPending) {
       await coreStartBarrier.wait();
-      if (!isCurrentNetworkIntent(epoch, "connected") || !(await shutdownCore())) return;
+      if (!isCurrentNetworkIntent(epoch, "connected")) return;
+      if (!(await shutdownCore({ preserveKillSwitch: preserveGuard }))) {
+        if (preserveGuard && isCurrentNetworkIntent(epoch, "connected")) {
+          pendingReconnectTimer = setTimeout(
+            () => performAutoReconnect(reason, epoch),
+            5000,
+          );
+        }
+        return;
+      }
     }
     needsReconnect = false;
     applyReconnectUI();
@@ -688,6 +1011,13 @@ const healthWatchdog = initHealthWatchdog({
   reconnectForSourceChange,
   switchView,
   getQualityEngine: () => qualityEngine,
+  shouldPreserveKillSwitch: killSwitchMustSurviveRuntimeStop,
+  isKillSwitchRequired: killSwitchMustSurviveRuntimeStop,
+  rearmKillSwitch: () => applyKillSwitch(true, {
+    phase: state === "connected" ? "connected" : "preconnect",
+    policyMode: preservedKillSwitchPolicyMode(),
+  }),
+  reconcileKillSwitch: () => applyKillSwitch(state === "connected"),
 });
 const startHealthWatchdog = healthWatchdog.start;
 const stopHealthWatchdog = healthWatchdog.stop;
@@ -821,7 +1151,7 @@ const qualityEngine = createQualityEngine({
       // Приватность: этот запрос идёт НАПРЯМУЮ (мимо туннеля) и раскрыл бы
       // реальный IP geo-сервису. Если юзер отключил geo-lookup — не ходим,
       // движок качества обучается по глобальному профилю (ASN "unknown").
-      if (loadOptions().general?.disableGeoLookup) return "unknown";
+      if (strictPrivacyRequested() || loadOptions().general?.disableGeoLookup) return "unknown";
       try {
         const info = await invoke("fetch_public_ip", {});
         const asn = info?.connection?.asn ?? info?.asn;
@@ -1627,7 +1957,7 @@ async function refreshPublicIp(epoch = connectAttempts.current()) {
   if (state !== "connected" || !connectAttempts.isCurrent(epoch)) return;
   // Приватность: юзер отключил geo-запросы → не дёргаем внешние IP-сервисы
   // вовсе, IP-плитка гаснет с поясняющим тултипом.
-  if (loadOptions().general?.disableGeoLookup) {
+  if (activeStrictPrivacyRuntime || loadOptions().general?.disableGeoLookup) {
     lastPublicIp = null;
     if (locIpRow) locIpRow.hidden = false;
     if (locIp) {
@@ -1849,12 +2179,20 @@ function setState(next, opts = {}) {
   if (next === "idle") {
     needsReconnect = false;
     if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
-    stopHealthWatchdog();
     stopWarpRescanLoop();
     clearVpnNodeExclusion();
     invoke("warp_scan_cancel").catch(() => {});
     stopDnsGuard();
-    applyKillSwitch(false); // снять WFP-блок при отключении
+    applyKillSwitch(false, {
+      preserve: !!opts.preserveKillSwitch,
+      policyMode: opts.preserveKillSwitch ? preservedKillSwitchPolicyMode() : null,
+    });
+    activeStrictPrivacyRuntime = false;
+    if (!opts.preserveKillSwitch) {
+      strictFailClosedLatched = false;
+      ordinaryFailClosedLatched = false;
+    }
+    syncHealthWatchdogForState();
     qualityEngine.onIdle();
     showQualityChip(false);
     applyReconnectUI();
@@ -1883,7 +2221,8 @@ function setState(next, opts = {}) {
     if (heroDisc) heroDisc.setAttribute("aria-label", t("heroAria.cancelConnect"));
     if (heroMask) heroMask.playbackRate = 1.4;
   } else if (next === "disconnecting") {
-    stopHealthWatchdog();
+    if (opts.preserveKillSwitch) syncHealthWatchdogForState();
+    else stopHealthWatchdog();
     stopWarpRescanLoop();
     clearVpnNodeExclusion();
     invoke("warp_scan_cancel").catch(() => {});
@@ -1898,13 +2237,20 @@ function setState(next, opts = {}) {
     setHeroHintText(STATE_KICKER.disconnecting);
     if (heroDisc) heroDisc.disabled = true;
   } else if (next === "cleanup_error") {
-    stopHealthWatchdog();
     stopWarpRescanLoop();
     invoke("warp_scan_cancel").catch(() => {});
     stopDnsGuard();
     stopClashStream();
     stopMeter();
-    applyKillSwitch(false);
+    applyKillSwitch(false, {
+      preserve: !!opts.preserveKillSwitch,
+      policyMode: opts.preserveKillSwitch ? preservedKillSwitchPolicyMode() : null,
+    });
+    if (!opts.preserveKillSwitch) {
+      strictFailClosedLatched = false;
+      ordinaryFailClosedLatched = false;
+    }
+    syncHealthWatchdogForState();
     qualityEngine.onIdle();
     if (heroLabel) heroLabel.textContent = t("conn.cleanupFail");
     if (heroDisc && !networkBootstrapInProgress) heroDisc.disabled = false;
@@ -1931,23 +2277,35 @@ function setState(next, opts = {}) {
       token: runtimeIdentity.capture(),
       onUpdate: refreshSubCardFromActive,
     });
-    startWarpRescanLoop();
+    if (!activeStrictPrivacyRuntime) startWarpRescanLoop();
+    else stopWarpRescanLoop();
     startHealthWatchdog();
     // DNS-watchdog: если direct-DNS ляжет в середине сессии — переключит на резерв
     // и реконнектит (sing-box перечитает DNS из свежего конфига).
-    startDnsGuard({
-      toast,
-      isConnected: () => state === "connected",
-      onDnsSwitched: () => reconnectForSourceChange(t("dns.reconnect")),
-    });
+    if (!activeStrictPrivacyRuntime) {
+      startDnsGuard({
+        toast,
+        isConnected: () => state === "connected",
+        onDnsSwitched: () => reconnectForSourceChange(t("dns.reconnect")),
+      });
+    } else {
+      // Строгий runtime использует собственный фиксированный IP-hosted DoH.
+      // Watchdog читает/меняет сохранённый direct-DNS и потому здесь не нужен.
+      stopDnsGuard();
+    }
     // Проба всегда через локальный инбаунд sing-box: mixed-in (proxy/systemProxy)
     // либо probe-in (TUN, тот же порт). «Напрямую» в TUN нельзя — bypass-правило
     // Ninety.exe увело бы пробу в direct, и мерился бы голый канал, а не туннель.
-    qualityEngine.onConnected({
-      port: loadOptions().inbound.mixedPort || 7890,
-      ...loadOptions().quality,
-    });
-    showQualityChip(loadOptions().quality?.enabled !== false);
+    if (activeStrictPrivacyRuntime) {
+      qualityEngine.onIdle();
+      showQualityChip(false);
+    } else {
+      qualityEngine.onConnected({
+        port: loadOptions().inbound.mixedPort || 7890,
+        ...loadOptions().quality,
+      });
+      showQualityChip(loadOptions().quality?.enabled !== false);
+    }
     updateWarpBadge();
     // DPI-обход: вносим сервер активной ноды в исключения winws, чтобы он не
     // трогал зашифрованный трафик к VPN-серверу (главный риск из спайка).
@@ -1957,6 +2315,7 @@ function setState(next, opts = {}) {
     updateCheckIfStale();
     // Wizard: подключились — переходим на финальный шаг.
     if (wizardActive && wizardStepNum === 2) showOnbStep(3);
+    maybeAutoLaunchProtectedBrowser();
   }
 
   syncTrayMenu();
@@ -2136,30 +2495,66 @@ initTray({
   getState: () => state,
   getEffectiveTag: () => currentEffectiveTag,
   getUpdateVersion: () => pendingUpdate?.version || null,
+  isStrictPrivacy: strictPrivacyRequested,
   onSetMode: (m) => changeMode(m),
   onToggleVpn: () => handleConnectionIntent(),
   onUpdateClick: () => flushPendingUpdate(),
   // Успешный выбор сервера из трея: обновить эффективную ноду + hero/локацию.
-  onServerSelected: (tag) => syncEffectiveFromClash({ knownTag: tag }),
+  onServerSelected: (tag, _node, { reconnect = false } = {}) => {
+    if (reconnect) reconnectForSourceChange(t("conn.applyingSettings"));
+    else syncEffectiveFromClash({ knownTag: tag });
+  },
 });
 
 function runtimeSnapshotMatchesExpected(snapshot, source = activeDisplaySource()) {
   const options = loadOptions();
-  const killSwitchExpected = !!options.general?.killSwitch && getMode() !== "tun";
+  const strictPrivacyExpected = !!options.privacy?.strictTunnel;
+  let expectedPinnedNodeTag = null;
+  if (strictPrivacyExpected) {
+    const nodes = source?.kind === "sub"
+      ? (source.nodes || [])
+      : source?.kind === "single" && source.profile
+        ? [source.profile]
+        : [];
+    try {
+      expectedPinnedNodeTag = selectStrictPrivacyCandidate(
+        nodes.map((node, index) => ({ tag: nodeTag(index, node), value: node })),
+        getRememberedProxySelection(source),
+      ).tag;
+    } catch {
+      return false;
+    }
+  }
+  const killSwitchExpected = strictPrivacyExpected
+    || (!!options.general?.killSwitch && getMode() !== "tun");
   return !!snapshot?.running
     && snapshot.clashReady === true
     && snapshot.sourceFingerprint === sourceFingerprint(source)
     && snapshot.mode === getMode()
+    && snapshot.strictPrivacy === strictPrivacyExpected
+    && (!strictPrivacyExpected || snapshot.pinnedNodeTag === expectedPinnedNodeTag)
     && Number(snapshot.clashPort) === Number(options.experimental?.clashApiPort || 9090)
     && (getMode() !== "systemProxy" || snapshot.systemProxyOwnership === "owned")
-    && (!killSwitchExpected || snapshot.killSwitchActive === true);
+    && (killSwitchExpected
+      ? snapshot.killSwitchActive === true
+      : snapshot.killSwitchActive !== true);
 }
 
-function finalizeConnected(snapshot, { epoch, source = activeDisplaySource(), token } = {}) {
+function finalizeConnected(snapshot, {
+  epoch,
+  source = activeDisplaySource(),
+  token,
+} = {}) {
   if (!isCurrentNetworkIntent(epoch, "connected")) return false;
   if (!runtimeSnapshotMatchesExpected(snapshot, source)) return false;
   if (token && !runtimeIdentity.isCurrent(token)) return false;
   runtimeIdentity.adopt(snapshot, { source });
+  activeStrictPrivacyRuntime = snapshot.strictPrivacy === true;
+  strictFailClosedLatched = snapshot.strictPrivacy === true;
+  ordinaryFailClosedLatched = snapshot.strictPrivacy !== true
+    && !!loadOptions().general?.killSwitch
+    && snapshot.mode !== "tun"
+    && snapshot.killSwitchActive === true;
   setState("connected", { ping: null });
   return true;
 }
@@ -2188,75 +2583,125 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
       observed = await invoke("runtime_snapshot");
     } catch (e) {
       console.warn("runtime snapshot before start failed", e);
-      setState("cleanup_error");
+      setState("cleanup_error", {
+        preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
+      });
       return;
     }
     if (!isCurrentNetworkIntent(epoch, "connected")) return false;
+    restoreFailClosedLatch(observed);
     if (observed?.running) {
       if (runtimeSnapshotMatchesExpected(observed)
         && adoptRuntimeSnapshot(observed, activeDisplaySource(), { epoch })) return true;
-      await shutdownCore();
+      await shutdownRuntimeForPolicyReplacement(observed);
       return false;
     }
+    if (getMode() === "tun") {
+      const elevated = await ensureElevatedForTun();
+      if (!elevated) return false;
+    }
+    if (!isCurrentNetworkIntent(epoch, "connected")) return false;
     const src = getActiveSource();
-    const options = loadOptions();
-    const warpOnly = !src && warpOnlyEnabled();
+    const savedOptions = loadOptions();
+    const strictPrivacy = !!savedOptions.privacy?.strictTunnel;
+    const runtimeSource = src || activeDisplaySource();
+    const preparedRuntime = strictPrivacy
+      ? prepareStrictPrivacyRuntime({
+          options: savedOptions,
+          selectedNodeTag: getRememberedProxySelection(runtimeSource),
+        })
+      : {
+          mode: getMode(),
+          options: savedOptions,
+          runtimePolicy: null,
+        };
+    const { mode, options, runtimePolicy } = preparedRuntime;
+    const warpOnly = !strictPrivacy && !src && warpOnlyEnabled();
     if (!src && !warpOnly) { toast(t("conn.needSource"), "error"); return; }
-    const mode = getMode();
     // Владение попыткой захватываем ДО первого await: DNS/WARP/port preflight
     // больше не оставляет state=idle, поэтому второй клик отменяет эту попытку,
     // а не запускает параллельный start_singbox.
     const attemptEpoch = connectAttempts.begin();
     setState("connecting");
     try {
-    // DNS-watchdog: имя сервера ноды резолвится через direct-DNS ДО туннеля —
-    // если он мёртв (Google/Cloudflare DoH в РФ), старт падает с невнятным
-    // «i/o timeout». Пробуем и при отказе переключаем на резерв ДО buildConfig,
-    // чтобы конфиг собрался уже с рабочим резолвером. Только пока юзер не ушёл.
-    await ensureWorkingDirectDns({ toast, onlyIf: () => state === "connecting" && connectAttempts.isCurrent(attemptEpoch) });
-    if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
-    // Если WARP включён — тянем регистрацию из writable config dir/warp.json
-    // и передаём в builder. Без warpInfo builder тихо пропустит warp endpoint.
-    let warpInfo = null;
-    if (options.warp?.enabled) {
-      try { warpInfo = await invoke("warp_status"); } catch {}
-      if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
-      if (!warpInfo) {
-        setState("idle");
-        toast(t("conn.warpUnreg"), "error", 3500);
-        return;
+      if (strictPrivacy) {
+        const preflightProtected = await applyKillSwitch(true, { phase: "preconnect" });
+        if (!preflightProtected) {
+          const error = new Error("строгий WFP не подтвердил fail-closed preflight");
+          error.code = "STRICT_PRIVACY_GUARD_FAILED";
+          throw error;
+        }
+        ordinaryFailClosedLatched = false;
+        strictFailClosedLatched = true;
+        startHealthWatchdog();
       }
-    }
-    // Порты loopback-мостов (xhttp/naive/TT): дефолтные базы 31100+ может
-    // занять чужой процесс — Rust подбирает свободные диапазоны bind-пробой.
-    // Ошибка планирования не блокирует старт: билдер упадёт на статические
-    // дефолты, а занятый порт поймает fail-fast в start_singbox.
-    let bridgePorts = null;
-    const needs = bridgeNeeds(src ? (src.kind === "sub" ? src.nodes : [src.profile]) : []);
-    if (needs.xray || needs.naive || needs.trusttunnel) {
-      try { bridgePorts = await invoke("plan_bridge_ports", { needs }); }
-      catch (e) { console.warn("plan_bridge_ports failed", e); }
+      // DNS-watchdog: имя сервера ноды резолвится через direct-DNS ДО туннеля —
+      // если он мёртв (Google/Cloudflare DoH в РФ), старт падает с невнятным
+      // «i/o timeout». Пробуем и при отказе переключаем на резерв ДО buildConfig,
+      // чтобы конфиг собрался уже с рабочим резолвером. Только пока юзер не ушёл.
+      if (!strictPrivacy) {
+        await ensureWorkingDirectDns({
+          toast,
+          onlyIf: () => state === "connecting" && connectAttempts.isCurrent(attemptEpoch),
+        });
+      }
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
-    }
-    // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
-    // socks-перенаправление. xray=null когда xhttp в источнике нет.
-      const { config, xray, sidecars } = buildConfig({ source: src, mode, options, warpInfo, xray: true, bridgePorts });
+      // Если WARP включён — тянем регистрацию из writable config dir/warp.json
+      // и передаём в builder. Без warpInfo builder тихо пропустит warp endpoint.
+      let warpInfo = null;
+      if (options.warp?.enabled) {
+        try { warpInfo = await invoke("warp_status"); } catch {}
+        if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
+        if (!warpInfo) {
+          setState("idle");
+          toast(t("conn.warpUnreg"), "error", 3500);
+          return;
+        }
+      }
+      // Порты loopback-мостов (xhttp/naive/TT): дефолтные базы 31100+ может
+      // занять чужой процесс — Rust подбирает свободные диапазоны bind-пробой.
+      // Ошибка планирования не блокирует старт: билдер упадёт на статические
+      // дефолты, а занятый порт поймает fail-fast в start_singbox.
+      let bridgePorts = null;
+      const needs = bridgeNeeds(src ? (src.kind === "sub" ? src.nodes : [src.profile]) : []);
+      if (needs.xray || needs.naive || needs.trusttunnel) {
+        try { bridgePorts = await invoke("plan_bridge_ports", { needs }); }
+        catch (e) { console.warn("plan_bridge_ports failed", e); }
+        if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
+      }
+      // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
+      // socks-перенаправление. xray=null когда xhttp в источнике нет.
+      const {
+        config,
+        xray,
+        sidecars,
+        runtime: runtimeInfo,
+      } = buildConfig({
+        source: src,
+        mode,
+        options,
+        runtimePolicy,
+        warpInfo,
+        xray: true,
+        bridgePorts,
+      });
       const configJson = JSON.stringify(config);
-      const runtimeSource = activeDisplaySource();
       let runtimeToken = runtimeIdentity.begin({
-        source: runtimeSource, mode, configJson,
-        clashPort: options.experimental?.clashApiPort || 9090,
+        source: runtimeSource, mode: runtimeInfo.mode, configJson,
+        clashPort: runtimeInfo.options.experimental?.clashApiPort || 9090,
       });
       const runtimeSnapshot = await coreStartBarrier.track(invoke("start_singbox", {
         configJson,
-        mode,
+        mode: runtimeInfo.mode,
         xrayJson: xray ? JSON.stringify(xray) : null,
         // naive/trusttunnel клиенты (по одному на ноду); null когда таких нод нет.
         sidecarsJson: sidecars && sidecars.length ? JSON.stringify(sidecars) : null,
         // «Полностью отключить логи» → Rust не пишет файлы ни одного компонента.
-        logsDisabled: !!options.log?.disabled,
+        logsDisabled: !!runtimeInfo.options.log?.disabled,
         sourceFingerprint: runtimeToken.sourceFingerprint,
         configHash: runtimeToken.configHash,
+        strictPrivacy: !!runtimeInfo.strictPrivacy,
+        pinnedNodeTag: runtimeInfo.pinnedNodeTag,
       }));
       if (!runtimeSnapshot?.running || !Number(runtimeSnapshot.processGeneration)) {
         throw new Error("start_singbox не вернул подтверждённый runtime snapshot");
@@ -2279,28 +2724,39 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         try { await invoke("stop_singbox"); } catch {}
         return;
       }
-      if (!warpOnly && !snapshotMatchesSource(topology, nodesFromSource())) {
+      if (!runtimeInfo.strictPrivacy && !warpOnly
+        && !snapshotMatchesSource(topology, nodesFromSource())) {
         throw new Error("Clash topology не соответствует активному источнику");
       }
-      const restoredSelection = await restoreRememberedProxySelection({
-        source: runtimeSource,
-        topology,
-        apply: (tag) => selectProxy("proxy", tag, { token: runtimeToken }),
-        isCurrent: () => runtimeIdentity.isCurrent(runtimeToken)
-          && isCurrentNetworkIntent(epoch, "connected")
-          && connectAttempts.isCurrent(attemptEpoch),
-      });
-      if (restoredSelection.status === "stale") {
-        await shutdownCore();
-        return;
-      }
-      // Никогда не маскируем потерю ручного выбора тихим переходом на Auto.
-      // Если сервер действительно исчез из подписки, безопаснее не поднимать
-      // VPN, чем незаметно отправить трафик через другой маршрут.
-      if (restoredSelection.status === "unavailable" && restoredSelection.tag !== "auto") {
-        const error = new Error("Remembered server is no longer present in the active subscription");
-        error.code = "REMEMBERED_SELECTION_UNAVAILABLE";
-        throw error;
+      if (runtimeInfo.strictPrivacy) {
+        const pinned = runtimeSource?.kind === "sub"
+          ? runtimeSource.nodes?.find((node, index) => nodeTag(index, node) === runtimeInfo.pinnedNodeTag)
+          : runtimeSource?.profile;
+        currentEffectiveNode = pinned || null;
+        currentEffectiveTag = runtimeInfo.pinnedNodeTag;
+      } else {
+        const restoredSelection = await restoreRememberedProxySelection({
+          source: runtimeSource,
+          topology,
+          apply: (tag) => selectProxy("proxy", tag, { token: runtimeToken }),
+          isCurrent: () => runtimeIdentity.isCurrent(runtimeToken)
+            && isCurrentNetworkIntent(epoch, "connected")
+            && connectAttempts.isCurrent(attemptEpoch),
+        });
+        if (restoredSelection.status === "stale") {
+          await shutdownCore({
+            preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
+          });
+          return;
+        }
+        // Никогда не маскируем потерю ручного выбора тихим переходом на Auto.
+        // Если сервер действительно исчез из подписки, безопаснее не поднимать
+        // VPN, чем незаметно отправить трафик через другой маршрут.
+        if (restoredSelection.status === "unavailable" && restoredSelection.tag !== "auto") {
+          const error = new Error("Remembered server is no longer present in the active subscription");
+          error.code = "REMEMBERED_SELECTION_UNAVAILABLE";
+          throw error;
+        }
       }
       // Системный прокси выставляем ТОЛЬКО для mode=systemProxy. Для голого
       // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт
@@ -2318,9 +2774,19 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         }
       }
       if (!isCurrentNetworkIntent(epoch, "connected") || !runtimeIdentity.isCurrent(runtimeToken)) {
-        await shutdownCore();
+        await shutdownCore({
+          preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
+        });
         return;
       }
+      // При proxy→TUN старый ordinary barrier жил до полной готовности TUN.
+      // Останавливаем guard-only watcher до финального disarm: stop инвалидирует
+      // snapshot в полёте, а уже queued rearm сериализован раньше следующего
+      // apply и потому не сможет остаться последней операцией.
+      const retiringOrdinaryBarrier = ordinaryFailClosedLatched
+        && !runtimeInfo.strictPrivacy
+        && mode === "tun";
+      if (retiringOrdinaryBarrier) stopHealthWatchdog();
       // Kill switch — часть readiness, а не фоновый best-effort после connected.
       const killSwitchReady = await applyKillSwitch(true);
       if (!isCurrentNetworkIntent(epoch, "connected") || !runtimeIdentity.isCurrent(runtimeToken)) {
@@ -2328,10 +2794,13 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         return;
       }
       if (killSwitchReady === false) {
-        await shutdownCore();
-        toast(t("conn.startFail"), "error", 5000, { desc: t("conn.startFailDesc") });
-        return;
+        const error = new Error("WFP readiness не подтверждена");
+        if (runtimeInfo.strictPrivacy) error.code = "STRICT_PRIVACY_GUARD_FAILED";
+        throw error;
       }
+      ordinaryFailClosedLatched = !runtimeInfo.strictPrivacy
+        && !!loadOptions().general?.killSwitch
+        && getMode() !== "tun";
       // Фейл финальной проверки при ЖИВОМ намерении — это фейл старта: бросаем
       // в catch (shutdownCore → idle + тост). Тихий стоп оставлял UI навсегда
       // в «connecting» при уже погашенном ядре. Тихо выходим только при отмене —
@@ -2345,7 +2814,11 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         }
         throw new Error(`финальный runtime snapshot не получен: ${e}`, { cause: e });
       }
-      if (!finalizeConnected(finalSnapshot, { epoch, source: runtimeSource, token: runtimeToken })) {
+      if (!finalizeConnected(finalSnapshot, {
+        epoch,
+        source: runtimeSource,
+        token: runtimeToken,
+      })) {
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)
           || !runtimeIdentity.isCurrent(runtimeToken)) {
           try { await invoke("stop_singbox"); } catch {}
@@ -2354,7 +2827,10 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         throw new Error("финальный runtime snapshot не прошёл проверку готовности");
       }
       const src0 = activeDisplaySource();
-      const isMultiSub = src0?.kind === "sub" && Array.isArray(src0.nodes) && src0.nodes.length >= 2;
+      const isMultiSub = !runtimeInfo.strictPrivacy
+        && src0?.kind === "sub"
+        && Array.isArray(src0.nodes)
+        && src0.nodes.length >= 2;
       // In-app тост сразу. Для подписки нода ещё не выбрана балансировщиком —
       // показываем имя подписки (не врём конкретным сервером), затем
       // notifyConnectedWithRealNode догонит тост фактическим сервером. Для
@@ -2379,9 +2855,35 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         return;
       }
       console.error("start failed", e);
-      await shutdownCore();
-      toast(t("conn.startFail"), "error", 4500, { desc: t("conn.startFailDesc") });
-      switchView("logs");
+      const preserveGuard = killSwitchMustSurviveRuntimeStop();
+      const cleaned = await shutdownCore({
+        preserveKillSwitch: preserveGuard,
+      });
+      if (!cleaned) {
+        // При недоступном BFE не останавливаем ещё живой runtime без barrier.
+        // Выходим из вечного connecting в recoverable error; setState заодно
+        // ещё раз ставит preserve-reconcile в очередь. Явный disconnect остаётся
+        // доступен пользователю и снимает session-scoped policy.
+        if (state !== "cleanup_error") {
+          setState("cleanup_error", { preserveKillSwitch: preserveGuard });
+        }
+        return;
+      }
+      if (e?.code === "STRICT_PRIVACY_NODE_REQUIRED") {
+        toast(t("privacyToast.nodeRequired"), "warn", 6000);
+        switchView("proxies");
+      } else if (e?.code === "STRICT_PRIVACY_NODE_UNAVAILABLE") {
+        toast(t("privacyToast.nodeUnavailable"), "error", 6000);
+        switchView("proxies");
+      } else if (e?.code === "STRICT_PRIVACY_BOOTSTRAP_UNSAFE") {
+        toast(t("privacyToast.nodeUnavailable"), "error", 7500, {
+          desc: t("privacyToast.bootstrapUnsafe"),
+        });
+        switchView("proxies");
+      } else {
+        toast(t("conn.startFail"), "error", 4500, { desc: t("conn.startFailDesc") });
+        switchView("logs");
+      }
     }
   }
   return false;
@@ -2412,8 +2914,22 @@ async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
     setState("cleanup_error");
     return false;
   }
+  // Ручное «Отключить» обязано подтвердить не только смерть runtime, но и
+  // освобождение WFP lease. Иначе UI показывал бы idle, watchdog уже молчал,
+  // а сохранённая Rust-сессия продолжала блокировать весь компьютер.
+  const killSwitchReleased = await applyKillSwitch(false);
+  if (!isCurrentNetworkIntent(epoch, "idle")) return false;
+  if (!killSwitchReleased) {
+    setState("cleanup_error", {
+      preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
+    });
+    return false;
+  }
+  strictFailClosedLatched = false;
+  ordinaryFailClosedLatched = false;
   setState("idle");
   if (userInitiated) {
+    protectedBrowserAutoLaunched = false;
     toast(t("conn.disconnected"), "info", 2000, { group: "conn", desc: t("conn.disconnectedDesc") });
     notify(t("conn.notifyDisconnected"), t("conn.notifyDisconnectedBody"));
   }
@@ -2509,6 +3025,7 @@ setInterval(backupNow, 10 * 60_000);
 async function reconcileNetworkRuntime() {
   try {
     const snapshot = await invoke("runtime_snapshot");
+    restoreFailClosedLatch(snapshot);
     if (!snapshot?.running) return;
     const source = activeDisplaySource();
     if (runtimeSnapshotMatchesExpected(snapshot, source)) {
@@ -2518,24 +3035,31 @@ async function reconcileNetworkRuntime() {
     }
     // Старый runtime не соответствует текущему источнику/режиму: сначала
     // подтверждённо гасим его, затем autostart решит, нужен ли новый запуск.
-    if (!(await shutdownCore())) throw new Error("не удалось очистить старый runtime");
+    if (!(await shutdownRuntimeForPolicyReplacement(snapshot))) {
+      throw new Error("не удалось очистить старый runtime");
+    }
   } catch (e) {
     console.warn("startup runtime reconcile failed", e);
+    let retrySnapshot = null;
     try {
-      const retry = await invoke("runtime_snapshot");
-      if (retry?.running) console.warn("startup snapshot retry still running; stopping runtime");
+      retrySnapshot = await invoke("runtime_snapshot");
+      if (retrySnapshot?.running) console.warn("startup snapshot retry still running; stopping runtime");
     } catch (retryError) {
       console.warn("startup runtime snapshot retry failed", retryError);
     }
     try {
-      const cleaned = await shutdownCore();
+      const cleaned = await shutdownRuntimeForPolicyReplacement(retrySnapshot);
       if (!cleaned) {
         console.warn("startup runtime cleanup not confirmed");
-        setState("cleanup_error");
+        setState("cleanup_error", {
+          preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
+        });
       }
     } catch (cleanupError) {
       console.warn("startup runtime cleanup failed", cleanupError);
-      setState("cleanup_error");
+      setState("cleanup_error", {
+        preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
+      });
     }
   }
 }
@@ -2578,7 +3102,9 @@ async function autostartNetworkRuntime() {
     })();
     const autoconnect = await invoke("should_autoconnect");
     const mode = getMode();
-    const splitDiscord = mode === "tun" && !!loadOptions()?.route?.tunSplitDiscord;
+    const splitDiscord = mode === "tun"
+      && !strictPrivacyRequested()
+      && !!loadOptions()?.route?.tunSplitDiscord;
     const plan = startupRuntimePlan({
       autoconnect,
       resume,
@@ -2603,7 +3129,7 @@ async function autostartNetworkRuntime() {
       if (runtimeSnapshotMatchesExpected(runningSnapshot)) {
         const epoch = beginNetworkIntent("connected");
         adoptRuntimeSnapshot(runningSnapshot, activeDisplaySource(), { epoch });
-      } else if (!(await shutdownCore())) {
+      } else if (!(await shutdownRuntimeForPolicyReplacement(runningSnapshot))) {
         throw new Error("не удалось очистить runtime перед autostart");
       }
       runningSnapshot = null;
@@ -2616,7 +3142,9 @@ async function autostartNetworkRuntime() {
           const epoch = beginNetworkIntent("connected");
           adoptRuntimeSnapshot(beforeStart, activeDisplaySource(), { epoch });
         }
-        else if (!(await shutdownCore())) throw new Error("runtime занято и cleanup не подтверждён");
+        else if (!(await shutdownRuntimeForPolicyReplacement(beforeStart))) {
+          throw new Error("runtime занято и cleanup не подтверждён");
+        }
       } else if (state === "idle") {
         const epoch = beginNetworkIntent("connected");
         await connectNetwork({ epoch });
@@ -2651,10 +3179,16 @@ const bootstrapCoordinator = createBootstrapCoordinator({
       console.warn("autostart failed", e);
       try {
         const snapshot = await invoke("runtime_snapshot");
-        if (snapshot?.running && !(await shutdownCore())) setState("cleanup_error");
+        if (snapshot?.running && !(await shutdownRuntimeForPolicyReplacement(snapshot))) {
+          setState("cleanup_error", {
+            preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
+          });
+        }
       } catch (cleanupError) {
         console.warn("autostart cleanup failed", cleanupError);
-        setState("cleanup_error");
+        setState("cleanup_error", {
+          preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
+        });
       }
     }
   },
@@ -2762,7 +3296,8 @@ async function showUpdateModal(update, opts = {}) {
         if (desired.dpi) {
           try {
             await autostartDpiIfEnabled();
-            const tunPaused = getMode() === "tun" && !loadOptions()?.route?.tunSplitDiscord;
+            const tunPaused = getMode() === "tun"
+              && (strictPrivacyRequested() || !loadOptions()?.route?.tunSplitDiscord);
             if (!tunPaused && !(await invoke("dpi_running"))) recovered = false;
           } catch { recovered = false; }
         }

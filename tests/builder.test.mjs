@@ -1,7 +1,15 @@
 // buildConfig: смоук всей сборки + two-core разводка мостов и TOML-экранирование.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildConfig, bridgeNeeds, ENGINE_PROCESS_NAMES, parseVless, validateConfigReferences } from "/lib/singbox.js";
+import {
+  buildConfig,
+  buildStrictPrivacyConfig,
+  bridgeNeeds,
+  ENGINE_PROCESS_NAMES,
+  nodeTag,
+  parseVless,
+  validateConfigReferences,
+} from "/lib/singbox.js";
 import { DEFAULT_OPTIONS } from "/lib/options.js";
 
 const vlessNode = (over = {}) => ({
@@ -36,6 +44,178 @@ test("подписка из 2+ нод: selector/balancer/urltest", () => {
   assert.equal(byTag.auto.type, "balancer");
   assert.equal(byTag.lowest.type, "urltest");
   assert.equal(byTag.proxy.default, "auto");
+});
+
+test("строгая приватность: TUN без direct-исключений и одна закреплённая нода", () => {
+  const nodes = [
+    vlessNode({ name: "A", host: "a.example.com" }),
+    vlessNode({ name: "B", host: "b.example.com" }),
+  ];
+  const opts = structuredClone(DEFAULT_OPTIONS);
+  opts.region = "ru";
+  opts.general.disableGeoLookup = false;
+  opts.general.allowDirectSubscriptionFallback = true;
+  opts.warp.enabled = true;
+  opts.warp.autoRescan = true;
+  opts.dns.remoteAddress = "https://dns.example/dns-query";
+  opts.dns.enableFakeDns = true;
+  opts.route.bypassLan = true;
+  opts.route.resolveDestination = false;
+  opts.route.ipv6Mode = "only";
+  opts.route.tunSplitDiscord = true;
+  opts.route.customRules = [
+    {
+      id: "direct",
+      enabled: true,
+      type: "domain",
+      match: "suffix",
+      values: ["direct.example"],
+      action: "direct",
+    },
+    {
+      id: "proxy",
+      enabled: true,
+      type: "domain",
+      match: "suffix",
+      values: ["protected.example"],
+      action: "proxy",
+    },
+    {
+      id: "block",
+      enabled: true,
+      type: "domain",
+      match: "suffix",
+      values: ["blocked.example"],
+      action: "block",
+    },
+  ];
+  opts.inbound.strictRoute = false;
+  const selectedNodeTag = nodeTag(1, nodes[1]);
+
+  const { config, runtime } = buildStrictPrivacyConfig({
+    source: { kind: "sub", subscription: { name: "S" }, nodes },
+    mode: "systemProxy",
+    options: opts,
+    selectedNodeTag,
+    warpInfo: {
+      private_key: "priv",
+      peer_public_key: "peer",
+      client_id: "AAAA",
+      local_ipv4: "172.16.0.2",
+    },
+  });
+
+  assert.equal(runtime.mode, "tun");
+  assert.equal(runtime.strictPrivacy, true);
+  assert.equal(runtime.pinnedNodeTag, selectedNodeTag);
+  assert.equal(runtime.options.region, "other");
+  assert.equal(runtime.options.general.disableGeoLookup, true);
+  assert.equal(runtime.options.general.allowDirectSubscriptionFallback, false);
+  assert.equal(runtime.options.warp.enabled, false);
+  assert.equal(runtime.options.dns.remoteAddress, DEFAULT_OPTIONS.dns.remoteAddress);
+  assert.equal(runtime.options.dns.directAddress, DEFAULT_OPTIONS.dns.remoteAddress);
+  assert.equal(runtime.options.route.ipv6Mode, "disable");
+  assert.equal(config.inbounds[0].type, "tun");
+  assert.equal(config.inbounds[0].strict_route, true);
+  assert.equal(config.route.default_domain_resolver.server, "dns-remote");
+  assert.deepEqual(config.outbounds.map((outbound) => outbound.tag), ["proxy", "direct"]);
+  assert.equal(config.outbounds[0].server, "b.example.com");
+  assert.equal(config.outbounds[0].domain_resolver, "dns-direct");
+  assert.equal(config.endpoints, undefined, "WARP не должен попасть в строгий runtime");
+  assert.equal(config.experimental.monitoring, undefined, "фоновый scoring ноды отключён");
+
+  const directRules = config.route.rules.filter((rule) => rule.outbound === "direct");
+  assert.equal(directRules.length, 1, "разрешён только обязательный loop-avoidance");
+  assert.equal(
+    directRules[0].process_name.includes("Ninety.exe"),
+    false,
+    "служебный трафик Ninety тоже должен идти через строгий туннель",
+  );
+  for (const exe of ENGINE_PROCESS_NAMES) {
+    assert.ok(directRules[0].process_name.includes(exe), `нет loop-avoidance для ${exe}`);
+  }
+  assert.equal(
+    config.route.rules.some((rule) => rule.domain_suffix?.includes("direct.example")),
+    false,
+  );
+  assert.equal(
+    config.route.rules.find((rule) => rule.domain_suffix?.includes("protected.example"))?.outbound,
+    "proxy",
+  );
+  assert.equal(
+    config.route.rules.find((rule) => rule.domain_suffix?.includes("blocked.example"))?.action,
+    "reject",
+  );
+  assert.equal(config.route.rules.some((rule) => rule.ip_is_private), false);
+  assert.equal(config.route.rules.some((rule) => rule.domain_suffix?.includes(".ru")), false);
+  assert.equal(config.route.rule_set.some((ruleSet) => /-(?:ru|discord)$/.test(ruleSet.tag)), false);
+  assert.equal(config.dns.rules.some((rule) => rule.domain_suffix?.includes(".ru")), false);
+});
+
+test("строгая приватность не допускает Auto или исчезнувшую ноду", () => {
+  const nodes = [
+    vlessNode({ name: "A", host: "a.example.com" }),
+    vlessNode({ name: "B", host: "b.example.com" }),
+  ];
+  const build = (selectedNodeTag) => buildStrictPrivacyConfig({
+    source: { kind: "sub", subscription: { name: "S" }, nodes },
+    mode: "tun",
+    options: DEFAULT_OPTIONS,
+    selectedNodeTag,
+  });
+
+  assert.throws(build, (error) => error?.code === "STRICT_PRIVACY_NODE_REQUIRED");
+  assert.throws(
+    () => build("auto"),
+    (error) => error?.code === "STRICT_PRIVACY_NODE_REQUIRED",
+  );
+  assert.throws(
+    () => build("node-gone"),
+    (error) => error?.code === "STRICT_PRIVACY_NODE_UNAVAILABLE",
+  );
+  assert.throws(
+    () => buildStrictPrivacyConfig({
+      source: { kind: "sub", subscription: { name: "S" }, nodes: [nodes[0]] },
+      mode: "tun",
+      options: DEFAULT_OPTIONS,
+      selectedNodeTag: nodeTag(1, nodes[1]),
+    }),
+    (error) => error?.code === "STRICT_PRIVACY_NODE_UNAVAILABLE",
+    "исчезновение pinned-ноды не должно молча переключать singleton",
+  );
+});
+
+test("строгая приватность отклоняет hostname во внешнем bridge-клиенте", () => {
+  const unsafeNodes = [
+    vlessNode({ type: "xhttp", host: "xhttp.example.com" }),
+    {
+      proto: "naive",
+      host: "naive.example.com",
+      port: 443,
+      username: "u",
+      password: "p",
+      scheme: "https",
+    },
+    {
+      proto: "trusttunnel",
+      host: "tt.example.com",
+      hostname: "tt.example.com",
+      addresses: ["edge.example.com:443"],
+      username: "u",
+      password: "p",
+    },
+  ];
+
+  for (const profile of unsafeNodes) {
+    assert.throws(
+      () => buildStrictPrivacyConfig({
+        source: { kind: "single", profile },
+        mode: "tun",
+        options: DEFAULT_OPTIONS,
+      }),
+      (error) => error?.code === "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
+    );
+  }
 });
 
 test("two-core: xhttp-нода уходит в xray, в sing-box — socks-мост", () => {

@@ -41,7 +41,7 @@ When something breaks, you get diagnostics instead of guesswork.
 | **Routing** | LAN bypass, regional routing, custom rules for domains, IP addresses and processes, plus ad, malware and phishing rule sets. Active connections can be inspected from the app. |
 | **Quality engine** | Measures real throughput instead of treating ping as the whole story. It can re-test the channel, change nodes, apply masking, rescan WARP or recommend reconnecting. |
 | **DPI tools** | A separate section for DPI compatibility tools, strategy and list updates, driver cleanup and automatic exclusions for VPN node addresses. |
-| **Privacy** | No ads or bundled analytics. Logs use conservative defaults, WARP state and backups are encrypted with Windows DPAPI where supported, and runtime configs are removed after use. |
+| **Privacy** | Strict TUN can pin one server, remove direct exceptions and hold a session-scoped WFP block if the tunnel dies. Ninety can also launch the free Mullvad Browser after connection. |
 | **Desktop UX** | Tray controls, in-app updates, session restore after an update, themes, onboarding, 15 languages and RTL layouts for فارسی / العربية. |
 
 ## Screenshots
@@ -92,6 +92,7 @@ For users:
 - [Modes](./docs/modes.md) — Proxy, System proxy, VPN · TUN, WARP-only mode, DPI tools and the kill switch.
 - [Troubleshooting](./docs/troubleshooting.md) — checks you can run, logs worth collecting and information that should never be posted publicly.
 - [Privacy](./docs/privacy.md) — local data, sensitive fields, logs, WARP state and known limitations.
+- [Strict tunnel and protected browser](./docs/strict-privacy.md) — fail-closed routing, Mullvad Browser integration and the limits of VPN/IP reputation hiding.
 - [Routing](./docs/routing.md) — LAN bypass, regional rules, custom routing, DNS and the connection monitor.
 
 About the project:

@@ -650,6 +650,22 @@ export const zh = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "严格隧道仅能在 VPN · TUN 模式下工作。",
+    enableCancelled: "未启用严格隧道：需要管理员权限。",
+    nodeRequired: "请选择一个具体服务器。严格隧道不支持自动模式。",
+    nodeUnavailable: "所选服务器不可用，严格隧道未连接。",
+    bootstrapUnsafe: "此节点需要直接 DNS 引导，而严格隧道不允许这样做。请选择以 IP 地址指定服务器的节点。",
+    guardLost: "Windows 网络保护筛选器已停止。Ninety 正在尝试恢复，请勿断开 VPN。",
+    guardRestored: "Windows 网络保护筛选器已恢复。",
+    browserNeedConnection: "请先以 VPN · TUN 模式连接 Ninety，避免浏览器直接访问互联网。",
+    browserLaunched: "已在 Mullvad Browser 中打开受保护会话。",
+    browserMissing: "此电脑上未找到 Mullvad Browser。",
+    browserFailed: "无法打开 Mullvad Browser。",
+    downloadOpened: "已打开 Mullvad Browser 官方免费下载页面。",
+    downloadFailed: "无法打开 Mullvad Browser 下载页面。",
+  },
+
   settings: {
     language: "界面语言",
     languageHint: "立即生效——无需重启。",
@@ -659,6 +675,7 @@ export const zh = {
 
     sec: {
       general:    { title: "通用",        hint: "自动启动、管理员权限、Wi-Fi 保护、紧急阻断、日志" },
+      privacy:    { title: "隐私",        hint: "严格隧道与受保护浏览器" },
       appearance: { title: "外观",        hint: "界面语言和主题选择" },
       routing:    { title: "路由",        hint: "地区、局域网绕过、广告拦截、IPv6" },
       dns:        { title: "DNS",         hint: "远程与直连 DNS、缓存、fake-DNS" },
@@ -718,6 +735,25 @@ export const zh = {
       logOffTitle: "完全关闭日志",
       logOffHint: "任何组件（sing-box、xray、NaiveProxy、TrustTunnel、DPI）都不写日志——将无法诊断。仅在确定不需要日志时开启。",
       adminSaveErr: "保存设置失败：{err}",
+    },
+
+    privacy: {
+      banner: "严格隧道会关闭直连路由并防止意外泄漏，但无法让 VPN 服务器 IP 看起来像住宅地址。网站仍可能识别数据中心地址或已知 VPN。",
+      strictTitle: "严格隧道",
+      strictHint: "强制使用 VPN · TUN 和一个指定服务器，不进行自动切换。直连例外、局域网绕过、IPv6、WARP 和自动质量优化都会关闭；网站 DNS 始终留在隧道内。",
+      browserGroup: "受保护浏览器",
+      browserHint: "免费的 Mullvad Browser 提供一致、较不独特的浏览器指纹。请仅在 Ninety 以 VPN · TUN 模式连接后启动：浏览器不会改变你的 IP，也无法改善 VPN 服务器的信誉。",
+      statusChecking: "正在检查安装…",
+      statusAvailable: "已安装 Mullvad Browser",
+      statusAvailableVersion: "已安装 Mullvad Browser · {version}",
+      statusMissing: "未找到 Mullvad Browser",
+      statusError: "无法检查 Mullvad Browser",
+      launch: "打开受保护会话",
+      check: "检查保护",
+      download: "免费下载",
+      autoTitle: "连接后打开",
+      autoHint: "成功连接后仅启动一次 Mullvad Browser。自动重连不会创建额外窗口。",
+      free: "Mullvad Browser 完全免费，无需订阅 Mullvad VPN。",
     },
 
     appearance: {

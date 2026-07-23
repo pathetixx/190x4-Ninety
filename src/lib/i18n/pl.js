@@ -650,6 +650,22 @@ export const pl = {
     },
   },
 
+  privacyToast: {
+    modeLocked: "Tryb ścisłego tunelu działa tylko w trybie VPN · TUN.",
+    enableCancelled: "Ścisły tunel nie został włączony: wymagane są uprawnienia administratora.",
+    nodeRequired: "Wybierz konkretny serwer. Tryb Auto jest niedostępny przy ścisłym tunelu.",
+    nodeUnavailable: "Wybrany serwer jest niedostępny. Ścisły tunel nie został połączony.",
+    bootstrapUnsafe: "Ten węzeł wymaga bezpośredniego rozruchu DNS, na który ścisły tunel nie zezwala. Wybierz węzeł, którego serwer podano jako adres IP.",
+    guardLost: "Filtr sieciowy Windows przestał działać. Ninety próbuje go przywrócić; nie rozłączaj VPN.",
+    guardRestored: "Filtr sieciowy Windows został przywrócony.",
+    browserNeedConnection: "Najpierw połącz Ninety w trybie VPN · TUN, aby przeglądarka nie wyszła do Internetu bezpośrednio.",
+    browserLaunched: "Chroniona sesja została otwarta w Mullvad Browser.",
+    browserMissing: "Nie znaleziono Mullvad Browser na tym komputerze.",
+    browserFailed: "Nie udało się otworzyć Mullvad Browser.",
+    downloadOpened: "Otwarto oficjalną stronę bezpłatnego pobierania Mullvad Browser.",
+    downloadFailed: "Nie udało się otworzyć strony pobierania Mullvad Browser.",
+  },
+
   settings: {
     language: "Język interfejsu",
     languageHint: "Stosuje się natychmiast — bez ponownego uruchamiania.",
@@ -659,6 +675,7 @@ export const pl = {
 
     sec: {
       general:    { title: "Ogólne",        hint: "Autostart, uprawnienia administratora, ochrona Wi-Fi, kill switch, logi" },
+      privacy:    { title: "Prywatność",     hint: "Ścisły tunel i chroniona przeglądarka" },
       appearance: { title: "Wygląd",        hint: "Język interfejsu i wybór motywu" },
       routing:    { title: "Routing",       hint: "Region, omijanie LAN, blokowanie reklam, IPv6" },
       dns:        { title: "DNS",           hint: "Zdalny i bezpośredni DNS, pamięć podręczna, fake-DNS" },
@@ -718,6 +735,25 @@ export const pl = {
       logOffTitle: "Całkowicie wyłącz rejestrowanie",
       logOffHint: "Żaden komponent (sing-box, xray, NaiveProxy, TrustTunnel, DPI) nie zapisuje dzienników — diagnostyka staje się niemożliwa. Włącz tylko, jeśli masz pewność, że ich nie potrzebujesz.",
       adminSaveErr: "Nie udało się zapisać ustawienia: {err}",
+    },
+
+    privacy: {
+      banner: "Ścisły tunel zamyka trasy bezpośrednie i przypadkowe wycieki, ale nie sprawi, że adres IP serwera VPN będzie wyglądał jak domowy. Strony nadal mogą rozpoznać adres centrum danych lub znanej usługi VPN.",
+      strictTitle: "Ścisły tunel",
+      strictHint: "Wymusza VPN · TUN i jeden wybrany serwer bez automatycznego przełączania. Wyjątki bezpośrednie, omijanie LAN, IPv6, WARP i automatyczna optymalizacja są wyłączone; DNS witryn pozostaje w tunelu.",
+      browserGroup: "Chroniona przeglądarka",
+      browserHint: "Bezpłatny Mullvad Browser zapewnia spójny, mniej unikatowy odcisk przeglądarki. Uruchamiaj go dopiero po połączeniu Ninety w trybie VPN · TUN: przeglądarka nie zmienia IP ani reputacji serwera VPN.",
+      statusChecking: "Sprawdzanie instalacji…",
+      statusAvailable: "Mullvad Browser jest zainstalowany",
+      statusAvailableVersion: "Mullvad Browser jest zainstalowany · {version}",
+      statusMissing: "Nie znaleziono Mullvad Browser",
+      statusError: "Nie udało się sprawdzić Mullvad Browser",
+      launch: "Otwórz chronioną sesję",
+      check: "Sprawdź ochronę",
+      download: "Pobierz bezpłatnie",
+      autoTitle: "Otwórz po połączeniu",
+      autoHint: "Uruchamia Mullvad Browser raz po udanym połączeniu. Automatyczne ponowne połączenia nie otwierają dodatkowych okien.",
+      free: "Mullvad Browser jest bezpłatny i nie wymaga subskrypcji Mullvad VPN.",
     },
 
     appearance: {
