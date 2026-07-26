@@ -7,13 +7,13 @@
 //      clock y=60→106, INTEGRITY y=330→298, ERR y=350→372.  (раньше всё было свалено
 //      в один 20px-пятак внизу + часы лезли на дугу SYSTEM STATUS).
 //   2) Анимация HUD больше НЕ глушится prefers-reduced-motion: вращение колец, глитч,
-//      INTEGRITY/ERR/blink работают всегда. HUD — смысловой центр экрана, а не декор;
-//      при выключенных в Windows анимациях он раньше полностью замерзал (играла только
-//      видео-маска). Если нужна строгая a11y — погасите .hud__outer/seg/ticks в app.css.
+//      INTEGRITY/ERR/blink работают всегда, пока окно действительно видно. В трее
+//      визуальная телеметрия полностью ставится на паузу через activity-controller.
 //   3) Вращение колец перенесено с rAF+setAttribute('transform') на CSS-анимацию,
 //      идущую на компоновщике (GPU): слой растрится один раз, дальше только крутится.
-//      Это убирает покадровую перерисовку всего SVG (была причина высокой нагрузки на
-//      GPU-процесс WebView2 на главном экране). Скорости/направления не изменились.
+
+import { activityController } from "/lib/activity-controller.js";
+import { perfObserver } from "/lib/performance-observer.js";
 
 const CX = 200, CY = 200;
 const P = (deg, r) => [CX + Math.cos((deg * Math.PI) / 180) * r, CY + Math.sin((deg * Math.PI) / 180) * r];
@@ -96,14 +96,23 @@ const ERR_OFFLINE = ["NO LINK", "SEARCHING…", "ERR_ON_KNW"];
 const pad = (n) => String(n).padStart(2, "0");
 
 // getState() → 'secured' | 'linking' | 'standby'.  getTarget() → строка-тег сервера или null.
-export function initHeroHud(svg, { getState, getTarget } = {}) {
+export function initHeroHud(svg, { getState, getTarget, activity = activityController } = {}) {
   if (!svg) return { destroy() {} };
   svg.innerHTML = buildHud();
   const els = {};
   svg.querySelectorAll("[data-hud]").forEach((el) => { els[el.dataset.hud] = el; });
 
   const st = () => (getState?.() || "standby");
-  let timers = [], intgVal = 0, ei = 0, clockStr = "";
+  let timers = [], transientTimers = [], intgVal = 0, ei = 0, clockStr = "";
+  let running = false;
+
+  function later(fn, ms) {
+    const id = setTimeout(() => {
+      transientTimers = transientTimers.filter((value) => value !== id);
+      if (running) fn();
+    }, ms);
+    transientTimers.push(id);
+  }
 
   function updClock() {
     const d = new Date();
@@ -121,7 +130,7 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
   function blink() {
     if (!els.sys) return;
     els.sys.setAttribute("opacity", "0.18");
-    setTimeout(() => els.sys && els.sys.setAttribute("opacity", "1"), 105);
+    later(() => els.sys?.setAttribute("opacity", "1"), 105);
   }
   function cycleErr() {
     if (!els.err) return;
@@ -132,15 +141,13 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
     els.err.style.fill = sec ? "var(--text-lo)" : "var(--err)";
   }
   function glitch() {
-    // Для светлых тем аберрация и резкое затемнение SVG выглядят как артефакт,
-    // а не как телеметрия. Кольца и живые показатели при этом остаются.
     if (["shiro", "sakura"].includes(document.documentElement.dataset.theme)) return;
     if (Math.random() > 0.6) return;
     const g = els.ca; if (!g) return;
     g.setAttribute("transform", "translate(3,-1) skewX(-3)");
     svg.style.opacity = "0.55";
-    setTimeout(() => g && g.setAttribute("transform", "translate(-2,1)"), 65);
-    setTimeout(() => { if (g) g.setAttribute("transform", ""); svg.style.opacity = ""; }, 150);
+    later(() => g?.setAttribute("transform", "translate(-2,1)"), 65);
+    later(() => { if (g) g.setAttribute("transform", ""); svg.style.opacity = ""; }, 150);
   }
 
   function sync() {
@@ -153,22 +160,49 @@ export function initHeroHud(svg, { getState, getTarget } = {}) {
     cycleErr();
   }
 
-  // Вращение колец (outer/seg/ticks) теперь живёт в CSS на компоновщике
-  // (см. .hud__outer/seg/ticks + @keyframes hud-spin в app.css) — без покадровой
-  // перерисовки SVG. Здесь остаются только редкие точечные обновления
-  // (часы/INTEGRITY/ERR/глитч) на setInterval. HUD анимируется ВСЕГДА.
-  updClock(); sync();
-  timers.push(setInterval(updClock, 1000));
-  timers.push(setInterval(updIntegrity, 1600));
-  timers.push(setInterval(blink, 1500));
-  timers.push(setInterval(cycleErr, 2400));
-  timers.push(setInterval(glitch, 4000));
+  function setCssAnimationState(value) {
+    for (const key of ["outer", "seg", "ticks"]) {
+      if (els[key]) els[key].style.animationPlayState = value;
+    }
+  }
+
+  function stopTimers() {
+    if (!running) return;
+    running = false;
+    timers.forEach(clearInterval);
+    timers = [];
+    transientTimers.forEach(clearTimeout);
+    transientTimers = [];
+    setCssAnimationState("paused");
+    perfObserver.increment("hud.pauses");
+  }
+
+  function startTimers() {
+    if (running) return;
+    running = true;
+    setCssAnimationState("running");
+    updClock();
+    sync();
+    timers.push(setInterval(updClock, 1000));
+    timers.push(setInterval(updIntegrity, 1600));
+    timers.push(setInterval(blink, 1500));
+    timers.push(setInterval(cycleErr, 2400));
+    timers.push(setInterval(glitch, 4000));
+    perfObserver.increment("hud.resumes");
+  }
+
+  const unsubscribe = activity?.subscribe?.((snapshot) => {
+    if (snapshot.visible) startTimers();
+    else stopTimers();
+  }) || (() => {});
+
+  if (!activity?.subscribe) startTimers();
 
   return {
     sync,
     destroy() {
-      timers.forEach(clearInterval);
-      timers = [];
+      unsubscribe();
+      stopTimers();
     },
   };
 }
