@@ -1,6 +1,8 @@
 // Ninety · BuildOptions — зеркало HiddifyOptions
 // Все настройки пользователя в одном объекте, сохраняется в localStorage.
 
+import { perfObserver } from "/lib/performance-observer.js";
+
 const OPTIONS_KEY = "ninety.options.v1";
 // Флаг разовой миграции log.level info→warn (см. loadOptions).
 const LOG_WARN_MIGRATED_KEY = OPTIONS_KEY + ".logWarnMigrated";
@@ -22,66 +24,35 @@ export const DEFAULT_OPTIONS = {
     // sub://, tt://, naive+https://, naive+quic://.
     linkHandlers: false,
     // III.3: авто-включение TUN при подключении к ОТКРЫТОЙ (нешифрованной) Wi-Fi.
-    // Защищённые сети (дом/офис) не трогаются. Доверенные открытые сети — в
-    // localStorage ninety.wifi.trusted.
     autoProtectWifi: false,
-    // I.2 (ЭКСПЕРИМЕНТАЛЬНО): WFP kill switch. В режимах proxy/systemProxy блокирует
-    // весь исходящий, кроме loopback и sing-box.exe → при падении ядра трафик не
-    // утекает мимо туннеля. В TUN утечки держит strict_route, kill switch не нужен.
+    // I.2 (ЭКСПЕРИМЕНТАЛЬНО): WFP kill switch.
     killSwitch: false,
-    // Приватность: не обращаться к внешним geo/ASN-сервисам. localAsn (обучение
-    // движка качества ISP×час) ходит НАПРЯМУЮ, мимо туннеля — раскрывает реальный
-    // IP третьим сторонам. true → localAsn=unknown, IP-плитка на главной гаснет.
+    // Приватность: не обращаться к внешним geo/ASN-сервисам.
     disableGeoLookup: false,
-    // Приватность подписок: если обновление через локальный туннель не удалось,
-    // не повторять запрос напрямую. Иначе можно раскрыть реальный IP и URL панели.
+    // Не повторять неудачный subscription refresh напрямую.
     allowDirectSubscriptionFallback: false,
   },
   privacy: {
-    // Высокоуровневая runtime-политика: не перезаписывает ручные настройки
-    // маршрутизации, а на время соединения форсирует TUN без direct-исключений,
-    // WARP, авто-ротации и обходных DNS-маршрутов.
     strictTunnel: false,
-    // После первого успешного подключения в пользовательской сессии открыть
-    // бесплатный Mullvad Browser. Повторные авто-реконнекты новых окон не плодят.
     protectedBrowserAutoLaunch: false,
   },
   warp: {
-    // Включает выбор WARP в селекторе outbound (UI). Сама регистрация делается
-    // отдельной кнопкой, ключи лежат в writable config dir/warp.json (Rust-сторона).
     enabled: false,
-    // "direct" — WARP как единственный outbound (без прокси)
-    // "chain"  — WARP как detour поверх активной ноды (proxy → WARP → internet)
     mode: "direct",
-    // Endpoint policy: "auto4" / "auto6" / "auto" / конкретный IP:port.
-    // CF возвращает peer.endpoint, мы по умолчанию используем engage.cloudflareclient.com.
     endpoint: "engage.cloudflareclient.com:2408",
     mtu: 1280,
-    // AmneziaWG fake-packet обфускация. Пресеты:
-    //   off        — никаких junk-пакетов, обычный WG
-    //   default    — лёгкая обфускация (1-3 пакета, 10-30 байт, 10-30мс задержка)
-    //   aggressive — больше шума (3-8 пакетов, 30-90 байт, 5-15мс задержка)
-    //   custom     — берёт значения из warp.customNoise (см. ниже)
-    // Передаётся в endpoint.noise.fake_packet (см. hiddify/wireguard-go).
     noisePreset: "off",
-    // Параметры custom-пресета (только если noisePreset === "custom")
     customNoise: {
       count: { from: 2, to: 5 },
       size:  { from: 20, to: 60 },
       delay: { from: 8, to: 20 },
     },
-    // Расширенный пул подсетей в Endpoint Scanner.
     deepScan: false,
-    // Periodic re-scan: следим за latency текущего WARP-endpoint через
-    // clash-API, при росте выше порога — запускаем scan и применяем лучший.
     autoRescan: false,
-    autoRescanIntervalMin: 30,    // как часто опрашивать (минуты)
-    autoRescanThresholdMs: 300,   // если latency выше — пересканировать
+    autoRescanIntervalMin: 30,
+    autoRescanThresholdMs: 300,
   },
-  // Дефолт warn, не info: на info sing-box пишет в singbox.log домен каждого
-  // соединения — история браузинга на диске между сессиями (конфиги с кредами
-  // при этом целенаправленно стираются после сессии, см. purge_* в vpn.rs).
-  // info — осознанный выбор в настройках на время отладки.
+  // Дефолт warn, не info: info пишет историю доменов в singbox.log.
   log: { level: "warn", disabled: false },
   urlTest: {
     connectionTestUrl: "http://cp.cloudflare.com/generate_204",
@@ -97,22 +68,9 @@ export const DEFAULT_OPTIONS = {
     bypassLan: true,
     resolveDestination: false,
     ipv6Mode: "disable",
-    // TUN + split-routing: Discord идёт мимо туннеля (direct), чтобы DPI-обход
-    // (winws) десинхрил его на реальном интерфейсе — голос low-ping одновременно
-    // с полным TUN. Opt-in: в полном TUN весь трафик в туннеле, обход не нужен.
     tunSplitDiscord: false,
-    // Форс process-lookup: sing-box резолвит сокет→PID→exe у КАЖДОГО соединения,
-    // чтобы монитор соединений показывал имя приложения (см. buildRoute). Цена —
-    // один lookup на коннект всю сессию. false по умолчанию убирает этот налог;
-    // пользователь включает lookup, когда действительно нужен монитор с
-    // именами процессов. Сохранённое true у существующих профилей не меняем.
+    // Process lookup opt-in: socket→PID→exe lookup имеет цену на каждом connect.
     processLookup: false,
-    // Пользовательские правила маршрутизации (гибкие, как в Throne). Каждое:
-    //   { id, enabled, type:"domain"|"ip"|"process", match:"suffix"|"exact"|"keyword",
-    //     values:[…], action:"proxy"|"direct"|"block" }
-    // Применяются в buildRoute ПОСЛЕ служебных правил и ВЫШЕ региона/рекламы
-    // (кастом приоритетнее региональной базы — точечная настройка поверх).
-    // deepMerge берёт массив целиком → миграция у существующих юзеров без потерь.
     customRules: [],
   },
   inbound: {
@@ -123,11 +81,6 @@ export const DEFAULT_OPTIONS = {
     allowConnectionFromLan: false,
   },
   tlsTricks: {
-    // hiddify-sing-box v1.13.0.h5 (upstream 1.12+): фрагментация и tls_tricks
-    // переехали из experimental.tls_tricks в per-outbound tls{} и применяются
-    // к прокси-outbound. fragmentMode: "record" (record_fragment, рекоменд.
-    // upstream — производительнее, мягче к Reality) | "tcp" (fragment, TCP-
-    // сегменты + fragment_fallback_delay). Поля взаимоисключающие.
     enableFragment: false,
     fragmentMode: "record",
     fragmentFallbackDelay: "500ms",
@@ -142,28 +95,16 @@ export const DEFAULT_OPTIONS = {
     padding: false,
   },
   experimental: {
-    // Включён по умолчанию: используется для view Proxies (список нод + ping)
-    // и для real-time RX/TX. Доступен только на 127.0.0.1.
     enableClashApi: true,
     clashApiPort: 9090,
   },
-  // Движок качества связи — детект троттла/деградации (не только liveness) +
-  // авто-лечение лесенкой. Проба тащит >16 КБ через туннель и меряет goodput:
-  // latency этого не видит, т.к. ТСПУ режет отдачу ПОСЛЕ первых ~16 КБ.
   quality: {
     enabled: true,
-    // aggressive=true: реконнект-ступени лесенки (R3+) применяются автоматом.
-    // false (дефолт): перед реконнектом — мягкий промпт «оптимизировать?».
     aggressive: false,
-    // lowDataMode: выключает фоновый idle-heartbeat (пробы только по подозрению
-    // из пассивного трафика), экономит трафик на лимитных тарифах.
     lowDataMode: false,
-    idleProbeSec: 300,        // как часто пробовать вхолостую (если не lowData)
-    goodBps: 1_500_000,       // ≥ этого (бит/с, ~183 КиБ/с) = GOOD
-    probeBytes: 262_144,      // выборка пробы (256 КиБ, > 16-КБ занавес)
-    // Эндпоинт пробы (через туннель). Официальный speed-test CF — нашу инфру
-    // НЕ светит (никаких своих доменов/IP в публичном клиенте). Если недоступен
-    // с какого-то exit — проба = UNKNOWN, движок просто бездействует.
+    idleProbeSec: 300,
+    goodBps: 1_500_000,
+    probeBytes: 262_144,
     endpoints: [
       "https://speed.cloudflare.com/__down?bytes=262144",
     ],
@@ -171,14 +112,10 @@ export const DEFAULT_OPTIONS = {
 };
 
 // Массивы НЕ мёржатся: сохранённый массив целиком побеждает дефолтный.
-// Изменение массива в DEFAULT_OPTIONS (напр. quality.endpoints) не доедет до
-// существующих установок — нужна разовая миграция по образцу LOG_WARN_MIGRATED_KEY.
 function deepMerge(target, source) {
   if (typeof source !== "object" || source === null) return target;
   const out = Array.isArray(target) ? [...target] : { ...target };
   for (const k of Object.keys(source)) {
-    // localStorage может быть изменён извне/в devtools. Не позволяем ключам
-    // JSON менять prototype объектов, которые затем уходят в config builder.
     if (k === "__proto__" || k === "prototype" || k === "constructor") continue;
     if (source[k] && typeof source[k] === "object" && !Array.isArray(source[k]) && typeof target[k] === "object") {
       out[k] = deepMerge(target[k], source[k]);
@@ -293,38 +230,90 @@ export function normalizeOptions(input) {
   return out;
 }
 
+let cacheInitialized = false;
+let cachedRaw = null;
+let cachedOptions = null;
+
+function deepFreeze(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  Object.freeze(value);
+  for (const child of Object.values(value)) deepFreeze(child);
+  return value;
+}
+
+function cloneOptions(value) {
+  return structuredClone(value || DEFAULT_OPTIONS);
+}
+
+function commitCache(raw, normalized) {
+  cachedRaw = raw;
+  cachedOptions = deepFreeze(normalized);
+  cacheInitialized = true;
+}
+
+export function invalidateOptionsCache() {
+  cacheInitialized = false;
+  cachedRaw = null;
+  cachedOptions = null;
+}
+
+function loadNormalizedSnapshot() {
+  const raw = localStorage.getItem(OPTIONS_KEY);
+  if (cacheInitialized && raw === cachedRaw && cachedOptions) {
+    perfObserver.increment("options.cache.hits");
+    return cachedOptions;
+  }
+  perfObserver.increment("options.cache.misses");
+
+  if (!raw) {
+    localStorage.setItem(LOG_WARN_MIGRATED_KEY, "1");
+    const defaults = normalizeOptions(DEFAULT_OPTIONS);
+    commitCache(null, defaults);
+    return cachedOptions;
+  }
+
+  const parsed = JSON.parse(raw);
+  const opts = normalizeOptions(parsed);
+  if (!localStorage.getItem(LOG_WARN_MIGRATED_KEY)) {
+    localStorage.setItem(LOG_WARN_MIGRATED_KEY, "1");
+    if (opts.log?.level === "info") {
+      opts.log.level = "warn";
+      const migratedRaw = JSON.stringify(opts);
+      localStorage.setItem(OPTIONS_KEY, migratedRaw);
+      commitCache(migratedRaw, opts);
+      return cachedOptions;
+    }
+  }
+  commitCache(raw, opts);
+  return cachedOptions;
+}
+
+// Совместимый API: callers получают независимый mutable clone, поэтому старый
+// паттерн `const o=loadOptions(); o.x=...; saveOptions(o)` остаётся безопасным.
 export function loadOptions() {
   try {
-    const raw = localStorage.getItem(OPTIONS_KEY);
-    if (!raw) {
-      // Свежий профиль: мигрировать нечего, но флаг ставим сразу — если юзер
-      // потом осознанно выберет info, миграция ниже его уже не перетрёт.
-      localStorage.setItem(LOG_WARN_MIGRATED_KEY, "1");
-      return structuredClone(DEFAULT_OPTIONS);
-    }
-    const parsed = JSON.parse(raw);
-    const opts = normalizeOptions(parsed);
-    // Разовая миграция: прежний дефолт log.level="info" писал домены всех
-    // соединений в singbox.log. Сохранённый info — почти наверняка старый
-    // дефолт (saveOptions хранит объект целиком), а не выбор юзера → один раз
-    // переводим на warn; вернуть можно в настройках, повторно не трогаем.
-    if (!localStorage.getItem(LOG_WARN_MIGRATED_KEY)) {
-      localStorage.setItem(LOG_WARN_MIGRATED_KEY, "1");
-      if (opts.log?.level === "info") {
-        opts.log.level = "warn";
-        saveOptions(opts);
-      }
-    }
-    return opts;
+    return cloneOptions(loadNormalizedSnapshot());
   } catch {
+    invalidateOptionsCache();
     return structuredClone(DEFAULT_OPTIONS);
+  }
+}
+
+// Read-only shared snapshot для горячих путей, которым не нужна локальная мутация.
+export function getOptionsSnapshot() {
+  try { return loadNormalizedSnapshot(); }
+  catch {
+    invalidateOptionsCache();
+    return deepFreeze(normalizeOptions(DEFAULT_OPTIONS));
   }
 }
 
 export function saveOptions(opts) {
   const normalized = normalizeOptions(opts);
-  localStorage.setItem(OPTIONS_KEY, JSON.stringify(normalized));
-  return normalized;
+  const raw = JSON.stringify(normalized);
+  localStorage.setItem(OPTIONS_KEY, raw);
+  commitCache(raw, normalized);
+  return cloneOptions(cachedOptions);
 }
 
 export function updateOption(path, value) {
@@ -337,10 +326,6 @@ export function updateOption(path, value) {
   }
   cur[keys[keys.length - 1]] = value;
   const normalized = saveOptions(opts);
-  // Одна опция может быть представлена несколькими контролами в разных местах
-  // UI (warp.enabled: поповер «Режим» + Настройки → WARP). Контролы не
-  // перерисовываются при чужой записи — подписка на это событие обязана
-  // обновлять DOM всех дублей. Только DOM: запись опций из слушателя = цикл.
   try {
     window.dispatchEvent(new CustomEvent("ninety:option-changed", {
       detail: { path, value: valueAt(normalized, path) },
@@ -362,3 +347,7 @@ export function getOption(opts, path, fallback) {
 export function resetOptions() {
   saveOptions(structuredClone(DEFAULT_OPTIONS));
 }
+
+globalThis.window?.addEventListener?.("storage", (event) => {
+  if (event?.key === OPTIONS_KEY) invalidateOptionsCache();
+});
