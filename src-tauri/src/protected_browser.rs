@@ -632,7 +632,9 @@ mod windows_impl {
                 // Mullvad Browser должен получить обычный профиль и контекст
                 // реестра интерактивного пользователя. Без флага запуск из
                 // elevated Ninety может отличаться от ручного запуска.
-                CREATE_PROCESS_LOGON_FLAGS::LOGON_WITH_PROFILE,
+                // Win32 LOGON_WITH_PROFILE = 0x00000001; windows-rs 0.62 не
+                // экспонирует этот флаг как associated constant.
+                CREATE_PROCESS_LOGON_FLAGS(0x0000_0001),
                 PCWSTR(executable_wide.as_ptr()),
                 Some(PWSTR(command_line_wide.as_mut_ptr())),
                 PROCESS_CREATION_FLAGS(0),
