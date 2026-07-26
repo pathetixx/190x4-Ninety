@@ -2,6 +2,17 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.40 — 2026-07-26
+
+- Добавлен «Строгий туннель»: Ninety закрепляет один выбранный сервер, направляет DNS сайтов через VPN и отключает прямые исключения, локальную сеть, IPv6, WARP и автоматическую смену сервера; при падении туннеля сессионный защитный фильтр Windows не даёт приложениям незаметно перейти на обычное соединение.
+- В разделе «Приватность» появилась интеграция с бесплатным Mullvad Browser: проверка установки, безопасный запуск и страница проверки после подключения VPN · TUN, автоматический запуск по желанию и переход на официальную загрузку.
+- Набор DPI-стратегий и списков обновлён до Flowseal 1.10.0; восстановлены автоматические подписанные обновления без переустановки Ninety, а новая стратегия EXP доступна для ручного выбора и исключена из автоподбора.
+- В DPI-инструменты добавлены раздельные шаблоны подмены UDP для Discord и игр, а также безопасная очистка кэша Discord и Discord PTB без удаления настроек, истории и личных данных.
+- Added Strict Tunnel: Ninety pins one selected server, routes website DNS through the VPN, disables direct exceptions, LAN, IPv6, WARP and automatic server changes, and keeps a session-scoped Windows network guard active if the tunnel fails.
+- Added free Mullvad Browser integration to Privacy settings with installation detection, safe launch and browser check after a VPN TUN connection, optional auto-launch and access to the official download.
+- Updated DPI strategies and lists to Flowseal 1.10.0 and restored automatic signed updates without reinstalling Ninety; the new EXP strategy remains available manually and is excluded from automatic selection.
+- Added separate UDP disguise payload selection for Discord and games, plus safe Discord and Discord PTB cache cleanup without removing settings, history or personal data.
+
 ## v0.2.39 — 2026-07-18
 
 - Добавлены четыре премиальные темы оформления: Kintsugi Noir, Aurora Glass, Porcelain Zero и Titanium Signal — с отдельными материалами, цветами, световыми акцентами и превью в настройках внешнего вида.
