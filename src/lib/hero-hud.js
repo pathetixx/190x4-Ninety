@@ -192,7 +192,7 @@ export function initHeroHud(svg, { getState, getTarget, activity = activityContr
   }
 
   const unsubscribe = activity?.subscribe?.((snapshot) => {
-    if (snapshot.visible) startTimers();
+    if (snapshot.visible && snapshot.focused) startTimers();
     else stopTimers();
   }) || (() => {});
 

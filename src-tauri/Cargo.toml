@@ -13,6 +13,13 @@ edition = "2021"
 name = "ninety_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

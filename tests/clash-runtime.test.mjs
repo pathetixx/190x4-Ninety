@@ -19,7 +19,8 @@ globalThis.window = {
 
 const { configureClashRuntime, getProxies, selectProxy } = await import("/lib/clash-api.js");
 const token = Object.freeze({ clashPort: 9191, processGeneration: 7 });
-configureClashRuntime({ capture: () => token, assertCurrent: t => assert.equal(t, token) });
+let current = token;
+configureClashRuntime({ capture: () => current, assertCurrent: t => assert.equal(t, current) });
 
 test("custom Clash port применяется ко всем вызовам", async () => {
   await getProxies();
@@ -36,4 +37,12 @@ test("X → Y сериализуется latest-wins и подтверждает
   assert.equal(yr.stale, false);
   assert.equal(selected, "Y");
   assert.deepEqual(calls.filter(([cmd]) => cmd === "clash_select_proxy").map(([, a]) => a.name), ["X", "Y"]);
+});
+
+test("новый process generation не получает telemetry snapshot старого runtime", async () => {
+  const before = calls.filter(([cmd]) => cmd === "clash_get_proxies").length;
+  current = Object.freeze({ clashPort: 9191, processGeneration: 8 });
+  await getProxies();
+  const after = calls.filter(([cmd]) => cmd === "clash_get_proxies").length;
+  assert.equal(after, before + 1);
 });

@@ -87,6 +87,7 @@ import {
   selectStrictPrivacyCandidate,
 } from "/lib/strict-privacy-policy.js";
 import { createProtectedBrowserService } from "/lib/protected-browser.js";
+import { activityController } from "/lib/activity-controller.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -582,6 +583,7 @@ const navItems = document.querySelectorAll(".nav__item[data-view]");
 const views = document.querySelectorAll("section.screen[data-view]");
 
 function switchView(target) {
+  activityController.setView(target);
   navItems.forEach((n) => n.classList.toggle("nav__item--active", n.dataset.view === target));
   views.forEach((v) => { v.hidden = v.dataset.view !== target; });
   // Видео-маска декодится только пока главный экран виден — оффскрин обнуляем декод.
@@ -2417,6 +2419,7 @@ async function startTrafficStream() {
   try {
     await startClashStream({
       port: token.clashPort,
+      token,
       onTraffic: (v) => { if (runtimeIdentity.isCurrent(token)) applyTrafficValues(v); },
       onPing: (v) => { if (runtimeIdentity.isCurrent(token)) applyPingValue(v); },
       onNodeChange: ({ tag }) => {
@@ -3437,6 +3440,7 @@ window.addEventListener("online", () => updateCheckIfStale(60_000));
 (async () => {
   try {
     await tauriWin?.onFocusChanged?.(({ payload: focused }) => {
+      activityController.setFocused(!!focused);
       if (!focused) return;
       flushPendingUpdate();
       updateCheckIfStale();

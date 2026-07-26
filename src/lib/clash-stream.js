@@ -44,7 +44,7 @@ function stopPingPolling() {
 }
 
 function startPingPolling() {
-  if (!pingPollOnce || pingTimer || !activityController.isVisible()) return;
+  if (!pingPollOnce || pingTimer || !activityController.isInteractive()) return;
   pingPollOnce();
   pingTimer = setInterval(pingPollOnce, PING_POLL_MS);
 }
@@ -63,7 +63,7 @@ async function reconcileStream(revision) {
   if (revision !== streamRevision) return;
   await stopCurrentStream();
   if (revision !== streamRevision || !desiredStream) return;
-  const { port, onTraffic, onPing, onNodeChange } = desiredStream;
+  const { port, token, onTraffic, onPing, onNodeChange } = desiredStream;
   // подписка на WS-event остаётся активной в трее: она питает traffic meter и
   // quality engine. Пауза относится только к визуальному ping-поллингу.
   if (eventApi?.listen && onTraffic) {
@@ -92,10 +92,10 @@ async function reconcileStream(revision) {
     };
 
     pingPollOnce = createSingleFlightRunner(async () => {
-      if (revision !== streamRevision || !activityController.isVisible()) return;
+      if (revision !== streamRevision || !activityController.isInteractive()) return;
       try {
-        const data = await getProxies(port);
-        if (revision !== streamRevision || !activityController.isVisible()) return;
+        const data = await getProxies(port, { token });
+        if (revision !== streamRevision || !activityController.isInteractive()) return;
         const effective = pickEffectiveNode(data);
         const obj = effective ? data?.proxies?.[effective] : null;
         const d = lastDelay(obj);
@@ -106,9 +106,9 @@ async function reconcileStream(revision) {
         const due = effective && (now - lastForceTestTs) > (dead ? DEAD_RETEST_MS : WARM_REFRESH_MS);
         if (due) {
           lastForceTestTs = now;
-          refreshEffectiveDelay({ port, timeoutMs: 4000 })
+          refreshEffectiveDelay({ port, timeoutMs: 4000, token })
             .then((r) => {
-              if (revision === streamRevision && activityController.isVisible()
+              if (revision === streamRevision && activityController.isInteractive()
                 && r?.delay > 0 && r.delay < 65000) {
                 emitPing({ delay: r.delay, nodeTag: r.tag });
               }
@@ -121,15 +121,15 @@ async function reconcileStream(revision) {
         }
         emitPing({ delay: d, nodeTag: effective });
       } catch {
-        if (revision === streamRevision && activityController.isVisible()) {
+        if (revision === streamRevision && activityController.isInteractive()) {
           emitPing({ delay: 0, nodeTag: null });
         }
       }
     });
 
-    unlistenActivity = activityController.subscribe(({ visible }) => {
+    unlistenActivity = activityController.subscribe(({ visible, focused }) => {
       if (revision !== streamRevision) return;
-      if (visible) startPingPolling();
+      if (visible && focused) startPingPolling();
       else {
         stopPingPolling();
         perfObserver.increment("clash.ui.ping.pauses");
@@ -138,8 +138,8 @@ async function reconcileStream(revision) {
   }
 }
 
-export function startClashStream({ port = DEFAULT_PORT, onTraffic, onPing, onNodeChange } = {}) {
-  desiredStream = { port, onTraffic, onPing, onNodeChange };
+export function startClashStream({ port = DEFAULT_PORT, token, onTraffic, onPing, onNodeChange } = {}) {
+  desiredStream = { port, token, onTraffic, onPing, onNodeChange };
   const revision = ++streamRevision;
   streamQueue = streamQueue.then(() => reconcileStream(revision), () => reconcileStream(revision));
   return streamQueue;

@@ -606,23 +606,6 @@ pub fn run() {
                 }
             }
 
-            // Миграция прежнего автозапуска (Run-ключ плагина) на задачу
-            // Планировщика. В elevated-инстансе заводит задачу и сносит ключ —
-            // после этого вход в Windows перестаёт дёргать UAC.
-            #[cfg(target_os = "windows")]
-            {
-                // Portable не должен мигрировать или перепривязывать задачу
-                // установленной Ninety. Своя задача появится только если юзер
-                // явно включит автозапуск в настройках.
-                if !portable {
-                    elevation::migrate_legacy_autostart();
-                }
-                // Подхватываем актуальный путь exe: у установленной версии —
-                // после OTA, у Portable — после переноса папки. Имена задач
-                // разные, поэтому сборки не перепривязывают друг друга.
-                elevation::autostart_refresh_path();
-            }
-
             // Окно по умолчанию скрыто (visible:false). Показываем сейчас, кроме
             // автозапуска при входе в Windows — там оставляем в трее.
             if let Some(w) = app.get_webview_window("main") {
@@ -632,6 +615,23 @@ pub fn run() {
                 } else {
                     let _ = w.show();
                 }
+            }
+
+            // schtasks /query и /create могут холодно стартовать сотни миллисекунд.
+            // Они не нужны для создания WebView/tray и поэтому выполняются после
+            // показа окна на отдельном named thread. Сетевой runtime и proxy recovery
+            // остаются в синхронном fail-safe critical path выше.
+            #[cfg(target_os = "windows")]
+            {
+                let migrate_installed = !portable;
+                let _ = std::thread::Builder::new()
+                    .name("ninety-startup-maintenance".into())
+                    .spawn(move || {
+                        if migrate_installed {
+                            elevation::migrate_legacy_autostart();
+                        }
+                        elevation::autostart_refresh_path();
+                    });
             }
 
             // Регистрация ninety:// в HKCR при первом запуске. На NSIS-инсталле

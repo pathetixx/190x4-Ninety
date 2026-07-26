@@ -44,3 +44,30 @@ test("prefix invalidation only removes matching telemetry", async () => {
   assert.equal(cache.peek("proxies:9090"), undefined);
   assert.equal(cache.peek("connections:9090"), "c");
 });
+
+test("invalidation prevents an old in-flight result from resurrecting the cache", async () => {
+  const cache = createTelemetryCache();
+  let releaseOld;
+  const old = cache.get("proxies:9090", () => new Promise((resolve) => { releaseOld = resolve; }), { ttlMs: 1000 });
+  await Promise.resolve();
+
+  cache.invalidate("proxies:");
+  const fresh = cache.get("proxies:9090", async () => "fresh", { ttlMs: 1000 });
+  releaseOld("stale");
+
+  assert.equal(await old, "stale");
+  assert.equal(await fresh, "fresh");
+  assert.equal(cache.peek("proxies:9090"), "fresh");
+});
+
+test("clear invalidates pending loaders as well as stored values", async () => {
+  const cache = createTelemetryCache();
+  let release;
+  const pending = cache.get("traffic:9090", () => new Promise((resolve) => { release = resolve; }), { ttlMs: 1000 });
+  await Promise.resolve();
+
+  cache.clear();
+  release("stale");
+  assert.equal(await pending, "stale");
+  assert.equal(cache.peek("traffic:9090"), undefined);
+});
