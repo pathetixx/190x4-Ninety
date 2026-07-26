@@ -2,6 +2,17 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.41 — 2026-07-26
+
+- Ускорен запуск Ninety: тяжёлые служебные операции больше не блокируют первое отображение окна.
+- Интерфейс быстрее обновляет состояние подключения, показатели трафика и сведения о серверах после переподключения.
+- Исправлены редкие задержки и устаревшие данные после возвращения из трея, смены источника логов и перезапуска VPN.
+- Повышена надёжность автозапуска Windows и фонового обновления состояния.
+- Ninety now starts faster: heavy maintenance work no longer blocks the first window display.
+- The interface updates connection state, traffic figures and server information faster after reconnects.
+- Fixed rare delays and stale data after returning from the tray, switching log sources and restarting the VPN.
+- Improved the reliability of Windows autostart and background state updates.
+
 ## v0.2.40 — 2026-07-26
 
 - Добавлен «Строгий туннель»: Ninety закрепляет один выбранный сервер, направляет DNS сайтов через VPN и отключает прямые исключения, локальную сеть, IPv6, WARP и автоматическую смену сервера; при падении туннеля сессионный защитный фильтр Windows не даёт приложениям незаметно перейти на обычное соединение.
