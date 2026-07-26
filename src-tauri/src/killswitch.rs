@@ -284,7 +284,9 @@ mod win {
         allow_lan: bool,
         tun_interface: Option<&str>,
     ) -> Result<super::KillSwitchLease, String> {
-        let tun_luid = tun_interface.map(interface_luid).transpose()?;
+        let tun_luid = tun_interface
+            .map(|alias| unsafe { interface_luid(alias) })
+            .transpose()?;
         let sublayer_id = random_sublayer_id()?;
         let sublayer = GUID::from_u128(sublayer_id);
         let mut engine = HANDLE::default();
