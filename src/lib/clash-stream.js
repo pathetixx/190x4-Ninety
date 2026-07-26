@@ -2,6 +2,9 @@
 // (байт/сек). Также exposed legacy poll-функция для пинга /proxies.
 
 import { getProxies, lastDelay, pickEffectiveNode, refreshEffectiveDelay } from "/lib/clash-api.js";
+import { activityController } from "/lib/activity-controller.js";
+import { createDistinctEmitter } from "/lib/distinct-emitter.js";
+import { perfObserver } from "/lib/performance-observer.js";
 import { t } from "/lib/i18n/index.js";
 
 const invoke = window.__TAURI__?.core?.invoke
@@ -14,7 +17,9 @@ const DEAD_RETEST_MS = 4000;        // мёртвый/0 замер — ожив�
 const WARM_REFRESH_MS = 10000;      // живой замер — периодически освежаем (auto-refresh)
 
 let unlistenTraffic = null;
+let unlistenActivity = null;
 let pingTimer = null;
+let pingPollOnce = null;
 let lastEffectiveTag = null;
 let lastForceTestTs = 0;
 let streamRevision = 0;
@@ -34,9 +39,21 @@ export function createSingleFlightRunner(task) {
   };
 }
 
+function stopPingPolling() {
+  if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+}
+
+function startPingPolling() {
+  if (!pingPollOnce || pingTimer || !activityController.isVisible()) return;
+  pingPollOnce();
+  pingTimer = setInterval(pingPollOnce, PING_POLL_MS);
+}
+
 async function stopCurrentStream() {
   if (unlistenTraffic) { try { unlistenTraffic(); } catch {} unlistenTraffic = null; }
-  if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+  if (unlistenActivity) { try { unlistenActivity(); } catch {} unlistenActivity = null; }
+  stopPingPolling();
+  pingPollOnce = null;
   lastEffectiveTag = null;
   lastForceTestTs = 0;
   try { await invoke("clash_traffic_stop"); } catch {}
@@ -47,7 +64,8 @@ async function reconcileStream(revision) {
   await stopCurrentStream();
   if (revision !== streamRevision || !desiredStream) return;
   const { port, onTraffic, onPing, onNodeChange } = desiredStream;
-  // подписка на WS-event
+  // подписка на WS-event остаётся активной в трее: она питает traffic meter и
+  // quality engine. Пауза относится только к визуальному ping-поллингу.
   if (eventApi?.listen && onTraffic) {
     const unlisten = await eventApi.listen("clash:traffic", (ev) => {
       if (revision !== streamRevision) return;
@@ -66,20 +84,23 @@ async function reconcileStream(revision) {
   try { await invoke("clash_traffic_start", { port }); } catch (e) {
     console.warn("clash_traffic_start failed", e);
   }
-  // параллельно — пинг-поллинг /proxies для location-card (Hiddify-style: 3с)
+
   if (onPing) {
-    const pollOnce = createSingleFlightRunner(async () => {
-      if (revision !== streamRevision) return;
+    const distinctPing = createDistinctEmitter(onPing, ({ delay, nodeTag }) => `${delay}|${nodeTag || ""}`);
+    const emitPing = (payload) => {
+      if (!distinctPing(payload)) perfObserver.increment("clash.ui.ping.suppressed");
+    };
+
+    pingPollOnce = createSingleFlightRunner(async () => {
+      if (revision !== streamRevision || !activityController.isVisible()) return;
       try {
         const data = await getProxies(port);
-        if (revision !== streamRevision) return;
+        if (revision !== streamRevision || !activityController.isVisible()) return;
         const effective = pickEffectiveNode(data);
         const obj = effective ? data?.proxies?.[effective] : null;
         const d = lastDelay(obj);
-        // Авто-обновление: периодически в ФОНЕ перемеряем эффективную ноду
-        // (refreshEffectiveDelay → одиночный /proxies/{name}/delay, пропатчен на
-        // unified → совпадает со списком), результат отдаём через onPing; сам
-        // поллинг не блокируется. Мёртвое освежаем чаще, живое — раз в WARM_REFRESH_MS.
+        // Авто-обновление: периодически в ФОНЕ перемеряем эффективную ноду.
+        // Когда окно скрыто, визуальная проба не нужна и не запускается.
         const now = Date.now();
         const dead = !d || d <= 0 || d >= 65000;
         const due = effective && (now - lastForceTestTs) > (dead ? DEAD_RETEST_MS : WARM_REFRESH_MS);
@@ -87,7 +108,10 @@ async function reconcileStream(revision) {
           lastForceTestTs = now;
           refreshEffectiveDelay({ port, timeoutMs: 4000 })
             .then((r) => {
-              if (revision === streamRevision && r?.delay > 0 && r.delay < 65000) onPing({ delay: r.delay, nodeTag: r.tag });
+              if (revision === streamRevision && activityController.isVisible()
+                && r?.delay > 0 && r.delay < 65000) {
+                emitPing({ delay: r.delay, nodeTag: r.tag });
+              }
             })
             .catch(() => {});
         }
@@ -95,13 +119,22 @@ async function reconcileStream(revision) {
           lastEffectiveTag = effective;
           try { onNodeChange?.({ tag: effective }); } catch {}
         }
-        onPing({ delay: d, nodeTag: effective });
+        emitPing({ delay: d, nodeTag: effective });
       } catch {
-        if (revision === streamRevision) onPing({ delay: 0, nodeTag: null });
+        if (revision === streamRevision && activityController.isVisible()) {
+          emitPing({ delay: 0, nodeTag: null });
+        }
       }
     });
-    pollOnce();
-    pingTimer = setInterval(pollOnce, PING_POLL_MS);
+
+    unlistenActivity = activityController.subscribe(({ visible }) => {
+      if (revision !== streamRevision) return;
+      if (visible) startPingPolling();
+      else {
+        stopPingPolling();
+        perfObserver.increment("clash.ui.ping.pauses");
+      }
+    });
   }
 }
 
