@@ -232,17 +232,26 @@ mod windows_impl {
 
     pub(super) fn launch(target: &str) -> Result<(), String> {
         let browser = discover().ok_or("Mullvad Browser не найден")?;
-        let working_dir = browser
-            .path
+        // std::fs::canonicalize() на Windows обычно возвращает extended-length
+        // путь (\\?\C:\...). Он подходит для проверки файла, но некоторые
+        // CreateProcessWithTokenW/installer-комбинации не принимают такой путь
+        // как application name или current directory.
+        let elevated = crate::elevation::is_elevated();
+        let executable = if elevated {
+            without_extended_prefix(&browser.path)
+        } else {
+            browser.path.clone()
+        };
+        let working_dir = executable
             .parent()
             .ok_or("не удалось определить папку Mullvad Browser")?;
 
-        if crate::elevation::is_elevated() {
+        if elevated {
             // TUN обычно запускает Ninety от администратора. Браузеру этот
             // токен передавать нельзя: берём medium-integrity token Explorer.
-            spawn_as_interactive_user(&browser.path, &[target], working_dir)
+            spawn_as_interactive_user(&executable, &[target], working_dir)
         } else {
-            Command::new(&browser.path)
+            Command::new(&executable)
                 .arg(target)
                 .current_dir(working_dir)
                 .spawn()
@@ -421,6 +430,21 @@ mod windows_impl {
         }
         let metadata = canonical.metadata().ok()?;
         (metadata.is_file() && metadata.len() > 0).then_some(canonical)
+    }
+
+    fn without_extended_prefix(path: &Path) -> PathBuf {
+        let value = path.to_string_lossy();
+        if let Some(local) = value.strip_prefix(r"\\?\") {
+            let bytes = local.as_bytes();
+            if bytes.len() >= 3
+                && bytes[0].is_ascii_alphabetic()
+                && bytes[1] == b':'
+                && matches!(bytes[2], b'\\' | b'/')
+            {
+                return PathBuf::from(local);
+            }
+        }
+        path.to_path_buf()
     }
 
     fn is_local_absolute_path(path: &Path) -> bool {
@@ -605,7 +629,10 @@ mod windows_impl {
         unsafe {
             CreateProcessWithTokenW(
                 token,
-                CREATE_PROCESS_LOGON_FLAGS(0),
+                // Mullvad Browser должен получить обычный профиль и контекст
+                // реестра интерактивного пользователя. Без флага запуск из
+                // elevated Ninety может отличаться от ручного запуска.
+                CREATE_PROCESS_LOGON_FLAGS::LOGON_WITH_PROFILE,
                 PCWSTR(executable_wide.as_ptr()),
                 Some(PWSTR(command_line_wide.as_mut_ptr())),
                 PROCESS_CREATION_FLAGS(0),
@@ -682,6 +709,18 @@ mod windows_impl {
             assert!(is_local_absolute_path(Path::new(
                 r"\\?\C:\Mullvad\mullvadbrowser.exe"
             )));
+        }
+
+        #[test]
+        fn strips_extended_prefix_for_process_creation() {
+            assert_eq!(
+                without_extended_prefix(Path::new(r"\\?\C:\Mullvad\mullvadbrowser.exe")),
+                PathBuf::from(r"C:\Mullvad\mullvadbrowser.exe")
+            );
+            assert_eq!(
+                without_extended_prefix(Path::new(r"C:\Mullvad\mullvadbrowser.exe")),
+                PathBuf::from(r"C:\Mullvad\mullvadbrowser.exe")
+            );
         }
     }
 }

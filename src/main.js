@@ -86,6 +86,11 @@ import {
   prepareStrictPrivacyRuntime,
   selectStrictPrivacyCandidate,
 } from "/lib/strict-privacy-policy.js";
+import {
+  clearStrictTunnelPreviousMode,
+  readStrictTunnelPreviousMode,
+  rememberStrictTunnelPreviousMode,
+} from "/lib/strict-privacy-mode.js";
 import { createProtectedBrowserService } from "/lib/protected-browser.js";
 import { activityController } from "/lib/activity-controller.js";
 
@@ -645,6 +650,11 @@ if (settingsRoot) {
           && !!loadOptions().privacy?.strictTunnel === !!value;
         if (value) {
           const previousMode = getMode();
+          // Строгая политика — runtime-overlay: после её выключения надо
+          // вернуть пользовательский режим, который был до принудительного TUN.
+          // Записываем до ensureElevatedForTun(), потому что успешный UAC-relaunch
+          // завершает текущий процесс прямо внутри backend-команды.
+          rememberStrictTunnelPreviousMode(previousMode);
           const modeReady = await changeMode("tun", { reconnect: false });
           if (!stillCurrent()) return;
           // При успешном UAC-relaunch текущий процесс уже завершается, а новый
@@ -653,6 +663,7 @@ if (settingsRoot) {
           if (!modeReady) {
             if (elevationRelaunchPending) return;
             updateOption(path, false);
+            clearStrictTunnelPreviousMode();
             strictTunnelToggleEpoch++;
             settingsCtl?.refresh();
             await applyKillSwitch(false);
@@ -667,6 +678,7 @@ if (settingsRoot) {
             if (!stillCurrent()) return;
             if (!guardReady) {
               updateOption(path, false);
+              clearStrictTunnelPreviousMode();
               const rollbackEpoch = ++strictTunnelToggleEpoch;
               settingsCtl?.refresh();
               await changeMode(previousMode, { reconnect: false });
@@ -706,11 +718,23 @@ if (settingsRoot) {
           }
         }
         if (!stillCurrent()) return;
+        let restoredPreviousMode = false;
+        if (!value) {
+          const previousMode = readStrictTunnelPreviousMode();
+          if (previousMode && previousMode !== getMode()) {
+            restoredPreviousMode = await changeMode(previousMode);
+            if (!stillCurrent()) return;
+            if (!restoredPreviousMode) return;
+          }
+          // Для прежнего TUN ничего переключать не нужно, но stale-маркер всё
+          // равно удаляем: следующее включение должно запомнить свежий режим.
+          clearStrictTunnelPreviousMode();
+        }
         syncHealthWatchdogForState();
         // setDpiVpnMode умеет переоценивать тот же TUN-режим: при выключении
         // strict возвращает split-Discord/winws согласно сохранённой опции.
         setDpiVpnMode(getMode(), { reevaluate: true });
-        if (state === "connected" || state === "connecting") {
+        if ((state === "connected" || state === "connecting") && !restoredPreviousMode) {
           scheduleAutoReconnect();
         } else {
           updateHeroHint();

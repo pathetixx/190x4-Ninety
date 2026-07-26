@@ -15,6 +15,7 @@ export const STORAGE_KEYS = {
   activeKind: "ninety.active.kind",
   mode: "ninety.mode",
   modeMigrated: "ninety.mode.migrated",
+  strictTunnelPreviousMode: "ninety.privacy.strictTunnel.previousMode",
   theme: "ninety.theme",
   lang: "ninety.lang",
   onboardingStep: "ninety.onboarding.step",
