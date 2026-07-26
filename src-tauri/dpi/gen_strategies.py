@@ -9,6 +9,13 @@
 # Движок (winws.exe/WinDivert/.bin) обновляется отдельно — см. RELEASING/память.
 import os, re, json, glob, sys
 
+# Windows GitHub runners may expose stdout/stderr as cp1252. Keep diagnostic
+# output non-fatal there: unsupported Russian text is escaped, while JSON is
+# still written explicitly as UTF-8.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(errors="backslashreplace")
+
 SRC = sys.argv[1]   # каталог с .bat (клон Flowseal)
 OUT = sys.argv[2]   # путь к strategies.json
 

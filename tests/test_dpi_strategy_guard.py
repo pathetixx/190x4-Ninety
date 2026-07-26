@@ -1,3 +1,4 @@
+import os
 import json
 import subprocess
 import sys
@@ -35,6 +36,9 @@ class DpiStrategyGuardTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
+            # Reproduce the Windows runner console that cannot encode the
+            # generator's Russian diagnostics and previously crashed post-write.
+            env={**os.environ, "PYTHONIOENCODING": "cp1252"},
         )
 
     def test_core_allowlist_generates_only_reviewed_autopick_profiles(self):
