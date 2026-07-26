@@ -1,14 +1,21 @@
 // Тонкий JS-wrapper над Tauri-командами clash-API.
 
+import { perfObserver } from "/lib/performance-observer.js";
+import { createTelemetryCache } from "/lib/telemetry-cache.js";
+
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 const DEFAULT_PORT = 9090;
 const DEFAULT_URL = "https://www.gstatic.com/generate_204";
+const PROXIES_TTL_MS = 1200;
+const CONNECTIONS_TTL_MS = 800;
+const TRAFFIC_TTL_MS = 800;
 
 let runtimeProvider = null;
 let selectionRevision = 0;
 let selectionQueue = Promise.resolve();
+const telemetryCache = createTelemetryCache();
 
 export class ClashApiError extends Error {
   constructor(operation, message, { port, processGeneration } = {}) {
@@ -23,6 +30,7 @@ export class ClashApiError extends Error {
 
 export function configureClashRuntime(provider) {
   runtimeProvider = provider || null;
+  telemetryCache.clear();
 }
 
 function captureRuntime(explicitToken) {
@@ -37,9 +45,20 @@ function assertRuntime(token, operation) {
   if (token && runtimeProvider?.assertCurrent) runtimeProvider.assertCurrent(token, operation);
 }
 
+function telemetryKey(operation, port, token) {
+  return `${operation}:${port}:${token?.processGeneration ?? "none"}`;
+}
+
+export function invalidateClashTelemetry(scope = null) {
+  if (!scope) telemetryCache.invalidate();
+  else telemetryCache.invalidate(`${scope}:`);
+}
+
 async function call(operation, command, args, { token } = {}) {
   const captured = captureRuntime(token);
   const port = runtimePort(args.port, captured);
+  const finish = perfObserver.time("clash.ipc.ms", { operation, port });
+  perfObserver.increment("clash.ipc.calls");
   try {
     assertRuntime(captured, operation);
     const value = await invoke(command, { ...args, port });
@@ -51,13 +70,29 @@ async function call(operation, command, args, { token } = {}) {
       port,
       processGeneration: captured?.processGeneration,
     });
+  } finally {
+    finish();
   }
 }
 
+async function cachedCall(operation, command, args, options, ttlMs) {
+  const captured = captureRuntime(options?.token);
+  const port = runtimePort(args.port, captured);
+  const key = telemetryKey(operation, port, captured);
+  const cached = telemetryCache.peek(key);
+  if (!options?.fresh && cached !== undefined) perfObserver.increment(`clash.cache.peek.${operation}`);
+  return telemetryCache.get(
+    key,
+    () => call(operation, command, { ...args, port }, { token: captured }),
+    { ttlMs, force: options?.fresh === true },
+  );
+}
+
 export async function getProxies(port, options = {}) {
-  const value = await call("getProxies", "clash_get_proxies", { port }, options);
+  const value = await cachedCall("proxies", "clash_get_proxies", { port }, options, PROXIES_TTL_MS);
   if (!value || typeof value !== "object" || !value.proxies || typeof value.proxies !== "object") {
     const token = captureRuntime(options.token);
+    invalidateClashTelemetry("proxies");
     throw new ClashApiError("getProxies", "невалидная структура ответа", {
       port: runtimePort(port, token), processGeneration: token?.processGeneration,
     });
@@ -67,16 +102,43 @@ export async function getProxies(port, options = {}) {
 
 // Живые соединения для монитора правил маршрутизации:
 // [{ process, processPath, host, destinationIP, outbound:"direct"|"proxy"|"block" }].
-// Процесс резолвится у каждого соединения (в конфиге есть форсирующее
-// process-правило → sing-box ищет владельца сокета на каждом коннекте). Форк шлёт
-// только processPath; имя (process) Rust выводит как basename пути. process=null
-// лишь для соединений, у которых ОС не отдала владельца сокета (системные и т.п.).
+// Все одновременные consumers делят один IPC/HTTP snapshot в пределах TTL.
 export async function getConnections(port, options = {}) {
-  const value = await call("getConnections", "clash_get_connections", { port }, options);
-  if (!Array.isArray(value)) throw new ClashApiError("getConnections", "ожидался массив", {
-    port: runtimePort(port, captureRuntime(options.token)),
-  });
+  const value = await cachedCall(
+    "connections",
+    "clash_get_connections",
+    { port },
+    options,
+    CONNECTIONS_TTL_MS,
+  );
+  if (!Array.isArray(value)) {
+    invalidateClashTelemetry("connections");
+    throw new ClashApiError("getConnections", "ожидался массив", {
+      port: runtimePort(port, captureRuntime(options.token)),
+    });
+  }
   return value;
+}
+
+// Кумулятивные totals ядра. traffic-meter использует тот же single-flight слой,
+// поэтому параллельный тик не создаёт второй /connections request.
+export async function getTrafficTotal(port, options = {}) {
+  const value = await cachedCall(
+    "traffic",
+    "clash_traffic_total",
+    { port },
+    options,
+    TRAFFIC_TTL_MS,
+  );
+  const up = Number(value?.up);
+  const down = Number(value?.down);
+  if (!Number.isFinite(up) || !Number.isFinite(down)) {
+    invalidateClashTelemetry("traffic");
+    throw new ClashApiError("getTrafficTotal", "ожидались числовые up/down", {
+      port: runtimePort(port, captureRuntime(options.token)),
+    });
+  }
+  return { up, down };
 }
 
 // Процессы с исходящей сетевой активностью (для выбора при создании правила):
@@ -86,11 +148,15 @@ export async function listNetworkProcesses() {
 }
 
 export async function testNode(name, { port, url = DEFAULT_URL, timeoutMs = 5000, token } = {}) {
-  return call("testNode", "clash_test_node", { port, name, url, timeoutMs }, { token });
+  const value = await call("testNode", "clash_test_node", { port, name, url, timeoutMs }, { token });
+  invalidateClashTelemetry("proxies");
+  return value;
 }
 
 export async function testGroup(group, { port, url = DEFAULT_URL, timeoutMs = 5000, token } = {}) {
-  return call("testGroup", "clash_test_group", { port, group, url, timeoutMs }, { token });
+  const value = await call("testGroup", "clash_test_group", { port, group, url, timeoutMs }, { token });
+  invalidateClashTelemetry("proxies");
+  return value;
 }
 
 // Замер задержки эффективной ноды для hero/location-card.
@@ -98,12 +164,7 @@ export async function testGroup(group, { port, url = DEFAULT_URL, timeoutMs = 50
 // Корень бага «в списке 30мс, на главной 100+»: апстрим-форк в обработчике
 // одиночного GET /proxies/{name}/delay меряет через context.Background(), который
 // НЕ несёт box-ctx → IsUnifiedDelayFromContext=false → один HEAD с полным dial+TLS
-// (завышение ~3x). Групповой /group/{name}/delay меряет через r.Context() → unified
-// (чистый второй RTT) → 30мс. min-из-N не спасал: каждый /delay — холодный.
-// Перейти на групповой нельзя — он interval-gated (молчит 600с, не перемеряет) →
-// заморозка. Поэтому в CI одиночный обработчик пропатчен на r.Context() (build.yml):
-// теперь /proxies/{name}/delay тоже unified И перемеряет каждый вызов (без gate) →
-// число совпадает со списком, автозамер и клик живые. Это и есть единый путь здесь.
+// (завышение ~3x). В CI одиночный handler патчится на unified context.
 export async function refreshEffectiveDelay({ port, url = DEFAULT_URL, timeoutMs = 5000, token } = {}) {
   let data;
   try { data = await getProxies(port, { token }); } catch (e) {
@@ -126,8 +187,9 @@ export function selectProxy(group, name, { port, token } = {}) {
     if (revision !== selectionRevision) return { stale: true };
     const captured = captureRuntime(token);
     await call("selectProxy", "clash_select_proxy", { port, group, name }, { token: captured });
+    invalidateClashTelemetry("proxies");
     if (revision !== selectionRevision) return { stale: true };
-    const confirmed = await getProxies(port, { token: captured });
+    const confirmed = await getProxies(port, { token: captured, fresh: true });
     if (revision !== selectionRevision) return { stale: true };
     const actual = confirmed?.proxies?.[group]?.now;
     if (actual !== name) {
@@ -161,7 +223,6 @@ export function pickEffectiveNode(proxiesResp) {
   const sel = proxies.proxy;
   if (!sel) return null;
   if (!sel.now) {
-    // single-mode: "proxy" — это и есть конечный outbound, а не Selector
     return sel.type && sel.type.toLowerCase() === "selector" ? null : "proxy";
   }
   if (sel.now === "auto") {
@@ -170,12 +231,10 @@ export function pickEffectiveNode(proxiesResp) {
   return sel.now;
 }
 
-// Совместимая точка для старого кода — теперь == pickSelectorNow.
 export function pickActiveNode(proxiesResp) {
   return pickSelectorNow(proxiesResp);
 }
 
-// Последний delay по истории
 export function lastDelay(proxyObj) {
   if (!proxyObj) return 0;
   const hist = proxyObj.history;
@@ -186,8 +245,6 @@ export function lastDelay(proxyObj) {
   return 0;
 }
 
-// Hiddify-UX: 0 или >65000 трактуем как "не дотянулись" — "Connecting"/dead.
-// Прочее — числовая градация.
 export function gradeDelay(ms) {
   if (!ms || ms <= 0) return "dead";
   if (ms >= 65000) return "dead";
