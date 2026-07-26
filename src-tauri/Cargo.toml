@@ -33,7 +33,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # http2 ОБЯЗАТЕЛЕН: DoH-серверы (Quad9/Yandex) отвергают HTTP/1.1 (505/обрыв),
 # без него dns_probe считал живой DoH-резолвер мёртвым — watchdog спамил фолбэком.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json", "http2"] }
-base64 = "0.22"
+base64 = { version = "0.23", default-features = false, features = ["std"] }
 # Проверка подписи канала стратегий (minisign — тот же ключ, что у OTA-апдейтера).
 minisign-verify = "0.2"
 # Распаковка подписанного бандла канала (после верификации байтов).
