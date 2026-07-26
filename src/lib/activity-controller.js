@@ -77,6 +77,14 @@ export function createActivityController({
     if (typeof view === "string" && view) patch({ view });
   }
 
+  function setVisible(visible) {
+    patch({ visible: !!visible });
+  }
+
+  function setFocused(focused) {
+    patch({ focused: !!focused });
+  }
+
   function isInteractive(view = null) {
     return state.visible && state.focused && (!view || state.view === view);
   }
@@ -86,6 +94,8 @@ export function createActivityController({
     destroy,
     subscribe,
     setView,
+    setVisible,
+    setFocused,
     snapshot: () => state,
     isVisible: () => state.visible,
     isFocused: () => state.focused,

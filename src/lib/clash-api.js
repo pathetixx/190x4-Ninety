@@ -16,6 +16,7 @@ let runtimeProvider = null;
 let selectionRevision = 0;
 let selectionQueue = Promise.resolve();
 const telemetryCache = createTelemetryCache();
+let telemetryRuntimeKey = null;
 
 export class ClashApiError extends Error {
   constructor(operation, message, { port, processGeneration } = {}) {
@@ -31,6 +32,7 @@ export class ClashApiError extends Error {
 export function configureClashRuntime(provider) {
   runtimeProvider = provider || null;
   telemetryCache.clear();
+  telemetryRuntimeKey = null;
 }
 
 function captureRuntime(explicitToken) {
@@ -52,6 +54,13 @@ function telemetryKey(operation, port, token) {
 export function invalidateClashTelemetry(scope = null) {
   if (!scope) telemetryCache.invalidate();
   else telemetryCache.invalidate(`${scope}:`);
+}
+
+function ensureTelemetryRuntime(captured, port) {
+  const key = `${port}:${captured?.processGeneration ?? "none"}`;
+  if (key === telemetryRuntimeKey) return;
+  telemetryCache.clear();
+  telemetryRuntimeKey = key;
 }
 
 async function call(operation, command, args, { token } = {}) {
@@ -78,6 +87,7 @@ async function call(operation, command, args, { token } = {}) {
 async function cachedCall(operation, command, args, options, ttlMs) {
   const captured = captureRuntime(options?.token);
   const port = runtimePort(args.port, captured);
+  ensureTelemetryRuntime(captured, port);
   const key = telemetryKey(operation, port, captured);
   const cached = telemetryCache.peek(key);
   if (!options?.fresh && cached !== undefined) perfObserver.increment(`clash.cache.peek.${operation}`);

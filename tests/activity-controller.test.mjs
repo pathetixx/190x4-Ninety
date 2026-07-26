@@ -30,6 +30,10 @@ test("controller follows visibility, focus and active view", () => {
   controller.setView("logs");
   assert.equal(controller.isInteractive("home"), false);
   assert.equal(controller.isInteractive("logs"), true);
+  controller.setFocused(false);
+  assert.equal(controller.isInteractive("logs"), false);
+  controller.setFocused(true);
+  assert.equal(controller.isInteractive("logs"), true);
 
   doc.visibilityState = "hidden";
   doc.emit("visibilitychange");

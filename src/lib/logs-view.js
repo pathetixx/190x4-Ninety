@@ -30,6 +30,7 @@ let logsFilterQuery = "";
 let logsFilterLevel = "";
 let searchDebounceTimer = null;
 let unlistenActivity = null;
+let logsRequestId = 0;
 
 function currentLogSource() { return logsSource?.value || "singbox"; }
 
@@ -166,11 +167,14 @@ function applyLogsRender({ keepScroll = false, force = false } = {}) {
 }
 
 async function refreshLogs({ keepScroll = false } = {}) {
-  if (!logsView || !activityController.isVisible()) return;
+  if (!logsView || !activityController.isInteractive()) return;
+  const requestId = ++logsRequestId;
+  const source = currentLogSource();
   try {
-    const finish = perfObserver.time("logs.read.ms", { source: currentLogSource() });
-    const text = await invoke("read_log", { source: currentLogSource(), tailBytes: 256 * 1024 });
+    const finish = perfObserver.time("logs.read.ms", { source });
+    const text = await invoke("read_log", { source, tailBytes: 256 * 1024 });
     finish();
+    if (requestId !== logsRequestId || source !== currentLogSource()) return;
     if (text === logsLastValue) return;
     logsLastValue = text;
     logsEntries = parseLogEntries(text);
@@ -181,6 +185,7 @@ async function refreshLogs({ keepScroll = false } = {}) {
     }
     applyLogsRender({ keepScroll });
   } catch (e) {
+    if (requestId !== logsRequestId || source !== currentLogSource()) return;
     logsView.innerHTML = `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--err">ERR</span><span class="log-line__m">${escapeLog(t("logs.readErr", { err: e?.message || e }))}</span></div>`;
   }
 }
@@ -199,7 +204,7 @@ async function refreshLogsPath() {
 
 function startLogsAuto() {
   stopLogsAuto();
-  if (!logsAuto?.checked || !logsActive || !activityController.isVisible()) return;
+  if (!logsAuto?.checked || !logsActive || !activityController.isInteractive()) return;
   logsTimer = setInterval(() => refreshLogs({ keepScroll: true }), 2000);
 }
 
@@ -232,9 +237,9 @@ export function mountLogsView() {
   logsKicker = document.getElementById("logs-kicker");
 
   if (!unlistenActivity) {
-    unlistenActivity = activityController.subscribe(({ visible }) => {
+    unlistenActivity = activityController.subscribe(({ visible, focused }) => {
       if (!logsActive) return;
-      if (visible) {
+      if (visible && focused) {
         refreshLogs({ keepScroll: true });
         startLogsAuto();
       } else {
@@ -266,6 +271,7 @@ export function mountLogsView() {
   });
 
   logsSource?.addEventListener("change", () => {
+    logsRequestId++;
     applyKicker();
     resetLogCache();
     refreshLogs();
@@ -284,8 +290,11 @@ export function mountLogsView() {
   });
 
   logsClearBtn?.addEventListener("click", async () => {
+    logsRequestId++;
+    const source = currentLogSource();
     try {
-      await invoke("clear_log", { source: currentLogSource() });
+      await invoke("clear_log", { source });
+      if (source !== currentLogSource()) return;
       resetLogCache();
       await refreshLogs();
       toast(t("logs.cleared"), "info", 1400);
@@ -309,6 +318,7 @@ export function onLogsViewEnter() {
 
 export function onLogsViewLeave() {
   logsActive = false;
+  logsRequestId++;
   stopLogsAuto();
   if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
 }

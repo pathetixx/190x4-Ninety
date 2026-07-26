@@ -3,6 +3,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, HWND};
 use windows::Win32::Networking::WinInet::{
@@ -32,6 +33,11 @@ const NINETY_KEY: &str = r"Software\Ninety";
 const PROXY_OVERRIDE: &str = "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>";
 const PROXY_OVERRIDE_LOOPBACK_ONLY: &str = "localhost;127.*";
 static PROXY_NOTIFY_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static AUTOSTART_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn autostart_lock() -> &'static Mutex<()> {
+    AUTOSTART_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 // InternetSetOptionW с NULL-handle работает синхронно. На части Windows
 // SETTINGS_CHANGED/REFRESH ждут зависшие WinINet-клиенты десятки секунд. Реестр
@@ -654,13 +660,13 @@ fn wait_for_task_state(expected: bool) -> bool {
     wait_for_task_state_with(
         expected,
         AUTOSTART_BACKOFF_MS,
-        autostart_is_enabled,
+        autostart_is_enabled_unlocked,
         |delay| std::thread::sleep(std::time::Duration::from_millis(delay)),
     )
 }
 
 // True если задача автозапуска зарегистрирована. Query прав не требует.
-pub fn autostart_is_enabled() -> bool {
+fn autostart_is_enabled_unlocked() -> bool {
     Command::new(schtasks_exe())
         .args(["/query", "/tn", task_name()])
         .creation_flags(CREATE_NO_WINDOW)
@@ -669,9 +675,28 @@ pub fn autostart_is_enabled() -> bool {
         .unwrap_or(false)
 }
 
+fn legacy_autostart_present() -> bool {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let Ok(run) = hkcu.open_subkey_with_flags(RUN_KEY, KEY_READ) else {
+        return false;
+    };
+    ["Ninety", "ninety"]
+        .iter()
+        .any(|name| run.get_raw_value(name).is_ok())
+}
+
+pub fn autostart_is_enabled() -> bool {
+    let _guard = autostart_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Пока фоновая миграция ещё не успела заменить старый Run-ключ задачей,
+    // UI должен видеть фактический legacy-autostart, а не временный false.
+    autostart_is_enabled_unlocked() || legacy_autostart_present()
+}
+
 // Создаёт/обновляет задачу. Если процесс уже elevated — напрямую (без UAC);
 // иначе поднимает права только для schtasks (один UAC) и ждёт появления задачи.
-pub fn autostart_enable() -> Result<(), String> {
+fn autostart_enable_unlocked() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let cmdline = create_task_cmdline(&exe.to_string_lossy());
     if is_elevated() {
@@ -694,9 +719,16 @@ pub fn autostart_enable() -> Result<(), String> {
     Err("задача автозапуска не появилась за 8,5 секунд".into())
 }
 
+pub fn autostart_enable() -> Result<(), String> {
+    let _guard = autostart_lock()
+        .lock()
+        .map_err(|_| "блокировка автозапуска повреждена".to_string())?;
+    autostart_enable_unlocked()
+}
+
 // Удаляет задачу автозапуска (симметрично enable — direct если elevated).
-pub fn autostart_disable() -> Result<(), String> {
-    if !autostart_is_enabled() {
+fn autostart_disable_unlocked() -> Result<(), String> {
+    if !autostart_is_enabled_unlocked() {
         return Ok(());
     }
     let cmdline = format!("/delete /tn {} /f", schtasks_name_arg(task_name()));
@@ -720,12 +752,22 @@ pub fn autostart_disable() -> Result<(), String> {
     Err("задача автозапуска не удалилась за 8,5 секунд".into())
 }
 
+pub fn autostart_disable() -> Result<(), String> {
+    let _guard = autostart_lock()
+        .lock()
+        .map_err(|_| "блокировка автозапуска повреждена".to_string())?;
+    autostart_disable_unlocked()
+}
+
 // Миграция с прежнего автозапуска (Run-ключ реестра плагина autostart). Тот
 // стартовал не-elevated инстанс → relaunch через UAC на каждый логин. Сносим
 // ключ и, если мы в elevated-инстансе, заводим задачу планировщика взамен.
 // Удаляем Run-ключ ТОЛЬКО при успешном создании задачи — иначе у юзера без
 // always-admin (которому хватает не-elevated автозапуска) автозапуск бы пропал.
 pub fn migrate_legacy_autostart() {
+    let _guard = autostart_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let Ok(run) = hkcu.open_subkey_with_flags(RUN_KEY, KEY_READ | KEY_WRITE) else {
         return;
@@ -737,7 +779,7 @@ pub fn migrate_legacy_autostart() {
     if !legacy {
         return;
     }
-    if is_elevated() && autostart_enable().is_ok() {
+    if is_elevated() && autostart_enable_unlocked().is_ok() {
         for n in names {
             let _ = run.delete_value(n);
         }
@@ -748,8 +790,11 @@ pub fn migrate_legacy_autostart() {
 // каталог /create /f перезапишет команду). Только если задача уже есть и мы
 // elevated — иначе пропускаем: создание не-elevated дёрнуло бы лишний UAC.
 pub fn autostart_refresh_path() {
-    if is_elevated() && autostart_is_enabled() {
-        let _ = autostart_enable();
+    let _guard = autostart_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if is_elevated() && autostart_is_enabled_unlocked() {
+        let _ = autostart_enable_unlocked();
     }
 }
 
