@@ -53,7 +53,7 @@ pub fn protected_browser_launch(
 
     #[cfg(target_os = "windows")]
     {
-        return windows_impl::launch(&target);
+        windows_impl::launch(&target)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -74,7 +74,7 @@ pub fn protected_browser_open_download(
     }
     #[cfg(target_os = "windows")]
     {
-        return windows_impl::open_official_download();
+        windows_impl::open_official_download()
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -596,8 +596,10 @@ mod windows_impl {
         if command_line_wide.len() > MAX_TOKEN_COMMAND_LINE_UNITS {
             return Err("адрес и путь к браузеру образуют слишком длинную командную строку".into());
         }
-        let mut startup_info = STARTUPINFOW::default();
-        startup_info.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+        let startup_info = STARTUPINFOW {
+            cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+            ..Default::default()
+        };
         let mut process_info = PROCESS_INFORMATION::default();
 
         unsafe {
