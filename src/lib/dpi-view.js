@@ -11,6 +11,7 @@ import { loadOptions } from "/lib/options.js";
 import { escapeAttr, escapeHtml as esc } from "/lib/esc.js";
 import { a11ySwitchAll } from "/lib/switch-a11y.js";
 import { t, getLang } from "/lib/i18n/index.js";
+import { openConfirmModal } from "/lib/confirm-modal.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -48,6 +49,7 @@ const I = {
   search:   '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
   sliders:  '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>',
+  trash:    '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 15H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>',
 };
 function ic(name, size = 16, stroke = 1.5) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round">${I[name] || ""}</svg>`;
@@ -62,6 +64,7 @@ let STRATEGIES = [{ id: "alt11", name: "ALT11", desc: "Самый стойкий
 const stratDesc = (d) => (getLang() === "ru" && d ? esc(d) : "");
 const stratByName = (n) =>
   STRATEGIES.find((s) => s.name === n) || STRATEGIES.find((s) => s.id === n) || STRATEGIES[0];
+const autopickCount = () => STRATEGIES.filter((s) => !s.experimental).length;
 
 // kicker — декоративный английский (не локализуем); title/desc — через t() в рантайме.
 const MASTER = {
@@ -104,6 +107,17 @@ const S = {
   hosts: { applied: false, entries: 0, busy: false },
   ipsetList: { count: null, busy: false },
   ipsetOpen: false,
+  fakes: {
+    options: [],
+    discord: null,
+    game: null,
+    discordSupported: false,
+    gameSupported: false,
+    busy: null,
+  },
+  cacheBusy: false,
+  updateCheck: "idle", // idle | checking | ok | error
+  updateError: "",
   autopick: { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" },
   updating: null,       // id строки, которая сейчас обновляется
 };
@@ -132,6 +146,7 @@ function renderBody() {
   const switchOn = st === "running" || st === "starting";
   const cur = stratByName(S.strategy);
   const p = S.autopick;
+  const dataBusy = p.phase === "running" || S.updating != null || S.fakes.busy != null;
 
   let banner = "";
   if (st === "paused") {
@@ -152,10 +167,10 @@ function renderBody() {
 
   let autopick = "";
   if (p.phase === "idle") {
-    autopick = `<div class="dpi-autopick__lead">${t("dpi.autopick.lead", { n: STRATEGIES.length })}</div>
-      <div class="dpi-autopick__actions"><button class="btn btn--primary btn--sm" data-dpi-pick-start>${ic("target", 13)} ${t("dpi.autopick.start")}</button></div>`;
+    autopick = `<div class="dpi-autopick__lead">${t("dpi.autopick.lead", { n: autopickCount() })}</div>
+      <div class="dpi-autopick__actions"><button class="btn btn--primary btn--sm" data-dpi-pick-start ${dataBusy ? "disabled" : ""}>${ic("target", 13)} ${t("dpi.autopick.start")}</button></div>`;
   } else if (p.phase === "running") {
-    const total = p.total || STRATEGIES.length;
+    const total = p.total || autopickCount();
     const pct = total ? (p.i / total * 100).toFixed(1) : 0;
     autopick = `<div class="dpi-autopick__prog">
         <div class="dpi-autopick__prog-top"><span class="dpi-autopick__prog-now">${t("dpi.autopick.checking", { name: esc(p.name || "…") })}</span></div>
@@ -182,10 +197,18 @@ function renderBody() {
   ];
   const updRows = UPD.map((row) => {
     const isUpd = S.updating === row.id;
-    const right = row.upd
-      ? `<span class="dpi-pill" data-kind="update">${t("dpi.updates.pillUpdate")}</span>
-         <button class="btn btn--sm btn--primary" data-dpi-update="${escapeAttr(row.id)}" ${isUpd ? "disabled" : ""}>${isUpd ? "…" : esc(t("dpi.updates.btnUpdate"))}</button>`
-      : `<span class="dpi-pill" data-kind="ok">${row.note || t("dpi.updates.pillOk")}</span>`;
+    let right;
+    if (row.id === "strategies" && S.updateCheck === "checking") {
+      right = `<span class="dpi-pill" data-kind="idle">${t("dpi.updates.pillChecking")}</span>`;
+    } else if (row.id === "strategies" && S.updateCheck === "error") {
+      right = `<span class="dpi-pill" data-kind="update" title="${escapeAttr(S.updateError)}">${t("dpi.updates.pillUnknown")}</span>
+        <button class="btn btn--sm" data-dpi-update-check>${t("dpi.updates.btnRetry")}</button>`;
+    } else if (row.upd) {
+      right = `<span class="dpi-pill" data-kind="update">${t("dpi.updates.pillUpdate")}</span>
+        <button class="btn btn--sm btn--primary" data-dpi-update="${escapeAttr(row.id)}" ${dataBusy ? "disabled" : ""}>${isUpd ? "…" : esc(t("dpi.updates.btnUpdate"))}</button>`;
+    } else {
+      right = `<span class="dpi-pill" data-kind="ok">${row.note || t("dpi.updates.pillOk")}</span>`;
+    }
     return `<div class="dpi-upd-row" data-updating="${isUpd}">
         <span class="dpi-upd-row__icon">${ic(row.icon, 15)}</span>
         <div class="dpi-upd-row__main"><span class="dpi-upd-row__name">${row.name}</span><span class="dpi-upd-row__ver">${esc(row.ver)}</span></div>
@@ -196,6 +219,17 @@ function renderBody() {
 
   const ipsetHint = { any: t("dpi.ipset.hintAny"), loaded: t("dpi.ipset.hintLoaded"), off: t("dpi.ipset.hintOff") }[S.ipset];
   const domainsTxt = S.domains == null ? "…" : S.domains.toLocaleString("ru-RU");
+  const fakeOptions = (kind) => {
+    const current = S.fakes[kind];
+    const options = S.fakes.options.map((file) =>
+      `<option value="${escapeAttr(file)}" ${file === current ? "selected" : ""}>${esc(file)}</option>`).join("");
+    const fallback = current
+      ? ""
+      : `<option value="" selected disabled>${t("dpi.fakes.default")}</option>`;
+    return fallback + options;
+  };
+  const fakeDisabled = (kind) =>
+    !S.fakes[`${kind}Supported`] || !S.fakes.options.length || dataBusy;
 
   body.innerHTML = `
     ${banner}
@@ -232,7 +266,7 @@ function renderBody() {
         <article class="dpi-card dpi-autopick">
           <div class="dpi-card__head">
             <div class="dpi-card__label">${ic("target", 13)}${t("dpi.autopick.cardLabel")}</div>
-            ${p.phase === "running" ? `<span class="dpi-autopick__prog-count">${p.i} / ${p.total || STRATEGIES.length}</span>` : ""}
+            ${p.phase === "running" ? `<span class="dpi-autopick__prog-count">${p.i} / ${p.total || autopickCount()}</span>` : ""}
           </div>
           ${autopick}
         </article>
@@ -248,6 +282,28 @@ function renderBody() {
               <button class="seg__btn" data-on="${S.gameFilter === "tcpudp"}" data-dpi-game="tcpudp">${t("dpi.game.tcpudp")}</button>
             </div>
           </div>
+        </article>
+
+        <article class="dpi-card dpi-fakes">
+          <div class="dpi-card__head">
+            <div class="dpi-card__label">${ic("sliders", 13)}${t("dpi.fakes.label")}</div>
+          </div>
+          <div class="dpi-row__d" style="max-width:none">${t("dpi.fakes.desc")}</div>
+          <label class="dpi-fake-row">
+            <span class="dpi-fake-row__label">${t("dpi.fakes.discord")}</span>
+            <select class="dpi-fake-select" data-dpi-fake="discord" ${fakeDisabled("discord") ? "disabled" : ""}>
+              ${fakeOptions("discord")}
+            </select>
+          </label>
+          <label class="dpi-fake-row">
+            <span class="dpi-fake-row__label">${t("dpi.fakes.game")}</span>
+            <select class="dpi-fake-select" data-dpi-fake="game" ${fakeDisabled("game") ? "disabled" : ""}>
+              ${fakeOptions("game")}
+            </select>
+          </label>
+          ${(!S.fakes.discordSupported || !S.fakes.gameSupported)
+            ? `<div class="dpi-fakes__hint">${t("dpi.fakes.unavailable")}</div>`
+            : ""}
         </article>
 
         <article class="dpi-card dpi-hosts">
@@ -289,6 +345,18 @@ function renderBody() {
         <article class="dpi-card dpi-updates">
           <div class="dpi-card__head"><div class="dpi-card__label">${ic("download", 13)}${t("dpi.updates.label")}</div></div>
           <div class="dpi-upd">${updRows}</div>
+        </article>
+
+        <article class="dpi-card dpi-cache">
+          <div class="dpi-card__head">
+            <div class="dpi-card__label">${ic("trash", 13)}${t("dpi.cache.label")}</div>
+          </div>
+          <div class="dpi-row__d" style="max-width:none">${t("dpi.cache.desc")}</div>
+          <div class="dpi-cache__actions">
+            <button class="btn btn--sm" data-dpi-cache-clear ${S.cacheBusy ? "disabled" : ""}>
+              ${ic("trash", 13)} ${S.cacheBusy ? t("dpi.cache.busy") : t("dpi.cache.button")}
+            </button>
+          </div>
         </article>
 
         <article class="dpi-card dpi-ipset" data-open="${S.ipsetOpen}">
@@ -494,10 +562,93 @@ async function loadVersions() {
 async function loadDomains() {
   try { S.domains = await invoke("dpi_domains_count"); } catch { S.domains = 0; }
 }
-async function checkUpdate() {
+async function loadFakePayloads() {
+  try {
+    const r = await invoke("dpi_fake_payloads");
+    S.fakes.options = Array.isArray(r?.options) ? r.options : [];
+    S.fakes.discord = r?.discord || null;
+    S.fakes.game = r?.game || null;
+    S.fakes.discordSupported = !!r?.discord_supported;
+    S.fakes.gameSupported = !!r?.game_supported;
+  } catch {
+    S.fakes.options = [];
+    S.fakes.discordSupported = false;
+    S.fakes.gameSupported = false;
+  }
+}
+
+let updateCheckPromise = null;
+let lastUpdateCheckAt = 0;
+async function checkUpdate(force = false) {
   // port>0 при активном VPN (proxy/systemProxy) → проверка версии канала идёт
   // через туннель: version.txt на github, из РФ напрямую режется ТСПУ.
-  try { const r = await invoke("dpi_check_update", { port: await listFetchPort() }); S.hasUpdate = !!r?.available; } catch {}
+  if (updateCheckPromise) return updateCheckPromise;
+  if (!force && lastUpdateCheckAt && Date.now() - lastUpdateCheckAt < 60_000) return;
+  S.updateCheck = "checking";
+  S.updateError = "";
+  renderAll();
+  const run = (async () => {
+    try {
+      const r = await invoke("dpi_check_update", { port: await listFetchPort() });
+      S.hasUpdate = !!r?.available;
+      S.updateCheck = "ok";
+    } catch (e) {
+      S.hasUpdate = false;
+      S.updateCheck = "error";
+      S.updateError = String(e?.message || e);
+    }
+  })();
+  updateCheckPromise = run;
+  try {
+    await run;
+  } finally {
+    if (updateCheckPromise === run) updateCheckPromise = null;
+    lastUpdateCheckAt = Date.now();
+    renderAll();
+  }
+}
+
+async function setActiveFake(kind, file) {
+  if (!file || S.fakes.busy || S.autopick.phase === "running" || S.updating) return;
+  S.fakes.busy = kind;
+  renderBody();
+  try {
+    await invoke("dpi_set_active_fake", { kind, file });
+    S.fakes[kind] = file;
+    await restartIfRunning();
+    toast(t("dpi.fakes.toastDone"), "info", 2000);
+  } catch (e) {
+    await loadFakePayloads();
+    toast(t("dpi.fakes.toastErr", { err: e?.message || e }), "error", 4000);
+  }
+  S.fakes.busy = null;
+  renderAll();
+}
+
+async function clearDiscordCache() {
+  if (S.cacheBusy) return;
+  const ok = await openConfirmModal({
+    title: t("dpi.cache.confirmTitle"),
+    message: t("dpi.cache.confirmMessage"),
+    confirmLabel: t("dpi.cache.confirmButton"),
+    cancelLabel: t("dpi.editor.cancel"),
+    danger: true,
+  });
+  if (!ok) return;
+  S.cacheBusy = true;
+  renderBody();
+  try {
+    const r = await invoke("discord_cache_clear");
+    if ((r?.clients_found || 0) === 0) {
+      toast(t("dpi.cache.toastNone"), "info", 2200);
+    } else {
+      toast(t("dpi.cache.toastDone", { n: r?.dirs_removed || 0 }), "info", 2600);
+    }
+  } catch (e) {
+    toast(t("dpi.cache.toastErr", { err: e?.message || e }), "error", 4500);
+  }
+  S.cacheBusy = false;
+  renderAll();
 }
 async function loadHosts() {
   try { const r = await invoke("dpi_hosts_status"); S.hosts.applied = !!r?.applied; S.hosts.entries = r?.entries || 0; } catch {}
@@ -560,7 +711,7 @@ async function updateIpset() {
 }
 
 async function runUpdate(id) {
-  if (id !== "strategies") return;
+  if (id !== "strategies" || S.autopick.phase === "running" || S.fakes.busy) return;
   S.updating = id;
   renderBody();
   try {
@@ -570,11 +721,21 @@ async function runUpdate(id) {
     const r = await invoke("dpi_sync_channel", { port: await listFetchPort() });
     if (r?.version) S.versions.strategies = r.version;
     S.hasUpdate = false;
+    S.updateCheck = "ok";
     await loadStrategies(); // перечитать обновлённые определения стратегий
+    await loadFakePayloads();
     await loadVersions();
     await loadDomains();
     await restartIfRunning(); // применить свежий набор к запущенному winws
-    toast(t("dpi.updates.toastDone"), "info", 1800);
+    const reset = Array.isArray(r?.fake_selection_reset)
+      ? r.fake_selection_reset.filter((kind) => kind === "discord" || kind === "game")
+      : [];
+    if (reset.length) {
+      const slots = reset.map((kind) => t(`dpi.fakes.${kind}`)).join(", ");
+      toast(t("dpi.fakes.toastReset", { slots }), "info", 3600);
+    } else {
+      toast(t("dpi.updates.toastDone"), "info", 1800);
+    }
   } catch (e) {
     toast(t("dpi.updates.toastErr", { err: e?.message || e }), "error", 3500);
   }
@@ -584,9 +745,9 @@ async function runUpdate(id) {
 
 /* ── Авто-подбор ── */
 async function pickStart() {
-  if (S.autopick.phase === "running") return;
+  if (S.autopick.phase === "running" || S.updating || S.fakes.busy) return;
   const epoch = ++dpiAutopickEpoch;
-  S.autopick = { phase: "running", i: 0, total: STRATEGIES.length, name: "", best: null, meta: "" };
+  S.autopick = { phase: "running", i: 0, total: autopickCount(), name: "", best: null, meta: "" };
   renderBody();
   const ok = await ensureElevated();
   if (!ok || epoch !== dpiAutopickEpoch) { S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" }; return; }
@@ -772,6 +933,8 @@ function onClick(e) {
   }
   const upd = t.closest("[data-dpi-update]");
   if (upd) { runUpdate(upd.dataset.dpiUpdate); return; }
+  if (t.closest("[data-dpi-update-check]")) { checkUpdate(true); return; }
+  if (t.closest("[data-dpi-cache-clear]")) { clearDiscordCache(); return; }
   const dom = t.closest("[data-dpi-domains]");
   if (dom) { openListEditor(dom.dataset.dpiDomains); return; }
   if (t.closest("[data-dpi-hosts-apply]")) { applyHosts(); return; }
@@ -780,6 +943,12 @@ function onClick(e) {
   if (t.closest("[data-dpi-editor-close]") || t.closest("[data-dpi-editor-bg]")) { closeListEditor(); return; }
   const save = t.closest("[data-dpi-editor-save]");
   if (save) { saveListEditor(save.dataset.dpiEditorSave); return; }
+}
+
+function onChange(e) {
+  const select = e.target.closest?.("[data-dpi-fake]");
+  if (!select) return;
+  setActiveFake(select.dataset.dpiFake, select.value);
 }
 
 /* ═══════════ PUBLIC API ═══════════ */
@@ -831,6 +1000,10 @@ export function clearVpnNodeExclusion() {
   return setActiveVpnEndpoint(null);
 }
 
+export function onDpiViewEnter() {
+  checkUpdate().catch(() => {});
+}
+
 export async function mountDpiView({ onToast, switchView, ensureElevated: ee } = {}) {
   if (typeof onToast === "function") toast = onToast;
   if (typeof switchView === "function") goView = switchView;
@@ -840,6 +1013,7 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
   // вне #app-root, поэтому его клики — закрытие/фон/выбор стратегии — должны
   // ловиться на уровне документа.
   document.addEventListener("click", onClick);
+  document.addEventListener("change", onChange);
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (editorEl) closeListEditor();
@@ -872,6 +1046,13 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
       S.base = "off";
     }
   } catch {}
-  await Promise.all([loadVersions(), loadDomains(), checkUpdate(), loadHosts(), loadIpsetCount()]);
+  await Promise.all([
+    loadVersions(),
+    loadDomains(),
+    loadFakePayloads(),
+    checkUpdate(),
+    loadHosts(),
+    loadIpsetCount(),
+  ]);
   renderAll();
 }

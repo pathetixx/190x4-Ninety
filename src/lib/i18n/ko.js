@@ -169,6 +169,31 @@ export const ko = {
       off: "꺼짐", tcpudp: "TCP + UDP",
     },
 
+    fakes: {
+      label: "UDP packet disguise",
+      desc: "Choose the payloads the engine uses to disguise Discord and game UDP traffic. Changes apply immediately.",
+      discord: "Discord UDP",
+      game: "Game UDP",
+      default: "Default",
+      unavailable: "Available after updating the strategy set to version 1.10.0",
+      toastDone: "Disguise payload applied",
+      toastReset: "UDP disguise reset to default after the update: {slots}",
+      toastErr: "Couldn't apply the payload: {err}",
+    },
+
+    cache: {
+      label: "Discord cache",
+      desc: "Closes Discord and clears only Cache, Code Cache and GPUCache for the stable and PTB versions.",
+      button: "Clear cache",
+      busy: "Clearing…",
+      confirmTitle: "Clear Discord cache?",
+      confirmMessage: "Discord will be closed. Your personal data, settings and history won't be removed.",
+      confirmButton: "Clear",
+      toastNone: "No Discord cache found",
+      toastDone: "Discord cache cleared · {n} folders",
+      toastErr: "Couldn't clear the cache: {err}",
+    },
+
     hosts: {
       label: "hosts 파일",
       applied: "적용됨", notApplied: "적용 안 됨",
@@ -193,6 +218,9 @@ export const ko = {
       appName: "애플리케이션", engineName: "우회 엔진", strategiesName: "전략 세트",
       engineNote: "앱 내", pillUpdate: "업데이트", pillOk: "최신",
       btnUpdate: "업데이트",
+      pillChecking: "checking…",
+      pillUnknown: "not checked",
+      btnRetry: "Retry",
       toastDone: "전략 세트를 업데이트했습니다",
       toastErr: "업데이트 실패: {err}",
     },

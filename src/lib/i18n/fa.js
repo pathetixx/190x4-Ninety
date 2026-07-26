@@ -169,6 +169,31 @@ export const fa = {
       off: "خاموش", tcpudp: "TCP + UDP",
     },
 
+    fakes: {
+      label: "UDP packet disguise",
+      desc: "Choose the payloads the engine uses to disguise Discord and game UDP traffic. Changes apply immediately.",
+      discord: "Discord UDP",
+      game: "Game UDP",
+      default: "Default",
+      unavailable: "Available after updating the strategy set to version 1.10.0",
+      toastDone: "Disguise payload applied",
+      toastReset: "UDP disguise reset to default after the update: {slots}",
+      toastErr: "Couldn't apply the payload: {err}",
+    },
+
+    cache: {
+      label: "Discord cache",
+      desc: "Closes Discord and clears only Cache, Code Cache and GPUCache for the stable and PTB versions.",
+      button: "Clear cache",
+      busy: "Clearing…",
+      confirmTitle: "Clear Discord cache?",
+      confirmMessage: "Discord will be closed. Your personal data, settings and history won't be removed.",
+      confirmButton: "Clear",
+      toastNone: "No Discord cache found",
+      toastDone: "Discord cache cleared · {n} folders",
+      toastErr: "Couldn't clear the cache: {err}",
+    },
+
     hosts: {
       label: "فایل hosts",
       applied: "اعمال‌شده", notApplied: "اعمال‌نشده",
@@ -193,6 +218,9 @@ export const fa = {
       appName: "برنامه", engineName: "موتور دور زدن", strategiesName: "مجموعهٔ استراتژی",
       engineNote: "در برنامه", pillUpdate: "به‌روزرسانی", pillOk: "به‌روز",
       btnUpdate: "به‌روزرسانی",
+      pillChecking: "checking…",
+      pillUnknown: "not checked",
+      btnRetry: "Retry",
       toastDone: "مجموعهٔ استراتژی به‌روزرسانی شد",
       toastErr: "به‌روزرسانی نشد: {err}",
     },

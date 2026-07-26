@@ -169,6 +169,31 @@ export const zh = {
       off: "关", tcpudp: "TCP + UDP",
     },
 
+    fakes: {
+      label: "UDP packet disguise",
+      desc: "Choose the payloads the engine uses to disguise Discord and game UDP traffic. Changes apply immediately.",
+      discord: "Discord UDP",
+      game: "Game UDP",
+      default: "Default",
+      unavailable: "Available after updating the strategy set to version 1.10.0",
+      toastDone: "Disguise payload applied",
+      toastReset: "UDP disguise reset to default after the update: {slots}",
+      toastErr: "Couldn't apply the payload: {err}",
+    },
+
+    cache: {
+      label: "Discord cache",
+      desc: "Closes Discord and clears only Cache, Code Cache and GPUCache for the stable and PTB versions.",
+      button: "Clear cache",
+      busy: "Clearing…",
+      confirmTitle: "Clear Discord cache?",
+      confirmMessage: "Discord will be closed. Your personal data, settings and history won't be removed.",
+      confirmButton: "Clear",
+      toastNone: "No Discord cache found",
+      toastDone: "Discord cache cleared · {n} folders",
+      toastErr: "Couldn't clear the cache: {err}",
+    },
+
     hosts: {
       label: "hosts 文件",
       applied: "已应用", notApplied: "未应用",
@@ -193,6 +218,9 @@ export const zh = {
       appName: "应用", engineName: "绕过引擎", strategiesName: "策略集",
       engineNote: "在应用内", pillUpdate: "更新", pillOk: "已是最新",
       btnUpdate: "更新",
+      pillChecking: "checking…",
+      pillUnknown: "not checked",
+      btnRetry: "Retry",
       toastDone: "策略集已更新",
       toastErr: "更新失败：{err}",
     },

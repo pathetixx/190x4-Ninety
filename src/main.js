@@ -39,7 +39,7 @@ import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, nodesFromSource, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView, resetProxiesViewForSourceChange, snapshotMatchesSource } from "/lib/proxies-view.js";
 import { applyActiveSourceTransaction } from "/lib/source-activation.js";
-import { mountDpiView, setDpiVpnMode, excludeVpnNode, clearVpnNodeExclusion, autostartDpiIfEnabled, rerenderDpiView } from "/lib/dpi-view.js";
+import { mountDpiView, setDpiVpnMode, excludeVpnNode, clearVpnNodeExclusion, autostartDpiIfEnabled, rerenderDpiView, onDpiViewEnter } from "/lib/dpi-view.js";
 import { mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
 import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
@@ -590,6 +590,7 @@ function switchView(target) {
   else onLogsViewLeave();
   if (target === "proxies") onProxiesViewEnter();
   else onProxiesViewLeave();
+  if (target === "dpi") onDpiViewEnter();
   if (target === "settings") setTimeout(applySettingsVersion, 0);
 }
 

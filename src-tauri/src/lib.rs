@@ -4,6 +4,7 @@ mod backup;
 mod clash;
 mod clash_stream;
 mod dnscheck;
+mod discord_cache;
 mod dpi;
 mod killswitch;
 mod netproc;
@@ -810,6 +811,8 @@ pub fn run() {
             dnscheck::dns_probe,
             dpi::dpi_strategies,
             dpi::dpi_domains_count,
+            dpi::dpi_fake_payloads,
+            dpi::dpi_set_active_fake,
             dpi::dpi_start,
             dpi::dpi_stop,
             dpi::dpi_running,
@@ -829,6 +832,7 @@ pub fn run() {
             dpi::dpi_hosts_clear,
             dpi::dpi_ipset_count,
             dpi::dpi_update_ipset,
+            discord_cache::discord_cache_clear,
             netproc::list_network_processes,
             wifi::current_wifi,
             killswitch::killswitch_arm,

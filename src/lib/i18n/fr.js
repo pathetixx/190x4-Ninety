@@ -169,6 +169,31 @@ export const fr = {
       off: "Désactivé", tcpudp: "TCP + UDP",
     },
 
+    fakes: {
+      label: "UDP packet disguise",
+      desc: "Choose the payloads the engine uses to disguise Discord and game UDP traffic. Changes apply immediately.",
+      discord: "Discord UDP",
+      game: "Game UDP",
+      default: "Default",
+      unavailable: "Available after updating the strategy set to version 1.10.0",
+      toastDone: "Disguise payload applied",
+      toastReset: "UDP disguise reset to default after the update: {slots}",
+      toastErr: "Couldn't apply the payload: {err}",
+    },
+
+    cache: {
+      label: "Discord cache",
+      desc: "Closes Discord and clears only Cache, Code Cache and GPUCache for the stable and PTB versions.",
+      button: "Clear cache",
+      busy: "Clearing…",
+      confirmTitle: "Clear Discord cache?",
+      confirmMessage: "Discord will be closed. Your personal data, settings and history won't be removed.",
+      confirmButton: "Clear",
+      toastNone: "No Discord cache found",
+      toastDone: "Discord cache cleared · {n} folders",
+      toastErr: "Couldn't clear the cache: {err}",
+    },
+
     hosts: {
       label: "fichier hosts",
       applied: "appliqué", notApplied: "non appliqué",
@@ -193,6 +218,9 @@ export const fr = {
       appName: "Application", engineName: "Moteur de contournement", strategiesName: "Jeu de stratégies",
       engineNote: "dans l’appli", pillUpdate: "mise à jour", pillOk: "à jour",
       btnUpdate: "Mettre à jour",
+      pillChecking: "checking…",
+      pillUnknown: "not checked",
+      btnRetry: "Retry",
       toastDone: "Jeu de stratégies mis à jour",
       toastErr: "Échec de la mise à jour : {err}",
     },

@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use crate::atomic_file::{copy_replace, write_bytes_replace, write_replace};
 use crate::util::MutexExt;
 use reqwest::Response;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -43,6 +43,10 @@ pub struct DpiState {
     // Службы, чей ImagePath был проверен как принадлежащий каталогу Ninety.
     // Никогда не останавливаем глобальные WinDivert/WinDivert14 вслепую.
     owned_services: Mutex<Vec<String>>,
+    // Мутации подписанного DPI-набора и ACTIVE_*.bin должны быть линейными:
+    // параллельный sync + смена fake иначе могли записать marker от одного
+    // выбора, а активный файл — от другого.
+    data: tokio::sync::Mutex<()>,
 }
 
 #[derive(Default)]
@@ -171,6 +175,8 @@ struct Strategy {
     id: String,
     #[serde(default)]
     name: String,
+    #[serde(default)]
+    experimental: bool,
     args: Vec<String>,
 }
 
@@ -288,29 +294,260 @@ fn bindata_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-// Засеять bin-data из ресурсного движка, если ещё нет ни одного .bin (первый
-// запуск / до первого синка канала). Канал потом перезатирает/добавляет файлы.
+// Поддерживать writable bin-data в рабочем состоянии. Без channel-overlay
+// встроенный набор приложения является источником истины: это важно при
+// обновлении Ninety с Flowseal <1.10, где bin-data уже не пуст, но ACTIVE_*.bin
+// ещё отсутствуют. При наличии overlay его подписанный набор является
+// единственным источником истины: удалённые каналом файлы не воскрешаем из app.
 fn ensure_bindata(app: &AppHandle) -> Result<PathBuf, String> {
     let dst = bindata_dir(app)?;
-    let has_bin = std::fs::read_dir(&dst)
-        .map(|it| {
-            it.flatten()
-                .any(|e| e.path().extension().is_some_and(|x| x == "bin"))
-        })
-        .unwrap_or(false);
-    if !has_bin {
-        if let Ok(rd) = std::fs::read_dir(bin_dir(app, false)?) {
-            for e in rd.flatten() {
-                let p = e.path();
-                if p.extension().is_some_and(|x| x == "bin") {
-                    if let Some(name) = p.file_name() {
-                        let _ = std::fs::copy(&p, dst.join(name));
-                    }
-                }
-            }
+    sync_bundled_bindata(app, &dst)?;
+    let _ = reapply_fake_selection(app, &dst)?;
+    Ok(dst)
+}
+
+const ACTIVE_DISCORD_FAKE: &str = "ACTIVE_DISCORD_UDP.bin";
+const ACTIVE_GAME_FAKE: &str = "ACTIVE_GAME_UDP.bin";
+const MAX_DPI_PAYLOAD_BYTES: u64 = 1024 * 1024;
+
+#[derive(Default, Deserialize, Serialize)]
+struct FakeSelection {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    discord: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    game: Option<String>,
+}
+
+fn fake_selection_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(crate::app_paths::data_dir(app)?
+        .join("dpi")
+        .join("fake-selection.json"))
+}
+
+fn valid_fake_filename(name: &str) -> bool {
+    valid_bin_filename(name) && !name.to_ascii_lowercase().starts_with("active_")
+}
+
+fn valid_bin_filename(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    !name.is_empty()
+        && name.len() <= 128
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains(':')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        && lower.ends_with(".bin")
+}
+
+fn fake_target(kind: &str) -> Result<&'static str, String> {
+    match kind {
+        "discord" => Ok(ACTIVE_DISCORD_FAKE),
+        "game" => Ok(ACTIVE_GAME_FAKE),
+        _ => Err("неизвестный тип UDP-подмены".into()),
+    }
+}
+
+fn fake_options(dir: &Path) -> Result<Vec<String>, String> {
+    let mut options = Vec::new();
+    let rd = std::fs::read_dir(dir).map_err(|e| format!("read bin-data: {e}"))?;
+    for item in rd {
+        let entry = item.map_err(|e| format!("read bin-data entry: {e}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("fake file type: {e}"))?;
+        if !file_type.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !valid_fake_filename(&name) {
+            continue;
+        }
+        let size = entry
+            .metadata()
+            .map_err(|e| format!("fake metadata: {e}"))?
+            .len();
+        if (1..=MAX_DPI_PAYLOAD_BYTES).contains(&size) {
+            options.push(name);
         }
     }
-    Ok(dst)
+    options.sort_by_key(|name| name.to_ascii_lowercase());
+    Ok(options)
+}
+
+fn load_fake_selection(app: &AppHandle) -> FakeSelection {
+    let Ok(path) = fake_selection_path(app) else {
+        return FakeSelection::default();
+    };
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return FakeSelection::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn save_fake_selection(app: &AppHandle, selection: &FakeSelection) -> Result<(), String> {
+    let path = fake_selection_path(app)?;
+    let raw = serde_json::to_string_pretty(selection)
+        .map_err(|e| format!("serialize fake selection: {e}"))?;
+    write_replace(&path, &format!("{raw}\n"), "fake selection")
+}
+
+fn files_equal(left: &Path, right: &Path) -> bool {
+    let Ok(left_meta) = std::fs::metadata(left) else {
+        return false;
+    };
+    let Ok(right_meta) = std::fs::metadata(right) else {
+        return false;
+    };
+    if !left_meta.is_file()
+        || !right_meta.is_file()
+        || left_meta.len() == 0
+        || left_meta.len() != right_meta.len()
+        || left_meta.len() > MAX_DPI_PAYLOAD_BYTES
+    {
+        return false;
+    }
+    match (std::fs::read(left), std::fs::read(right)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+fn sync_bundled_bindata(app: &AppHandle, dst: &Path) -> Result<(), String> {
+    let src = bin_dir(app, false)?;
+    let authoritative = crate::app_paths::data_dir(app)
+        .map(|dir| !dir.join("dpi").join("strategies.json").is_file())
+        .unwrap_or(true);
+    if !authoritative {
+        return Ok(());
+    }
+    let mut bundled = std::collections::HashSet::new();
+    let rd = std::fs::read_dir(&src).map_err(|e| format!("read bundled bin: {e}"))?;
+    for item in rd {
+        let entry = item.map_err(|e| format!("read bundled bin entry: {e}"))?;
+        if !entry
+            .file_type()
+            .map_err(|e| format!("bundled bin file type: {e}"))?
+            .is_file()
+        {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !valid_bin_filename(&name) {
+            continue;
+        }
+        bundled.insert(name.clone());
+        let from = entry.path();
+        let to = dst.join(&name);
+        if !to.exists() || !files_equal(&from, &to) {
+            copy_replace(&from, &to, &format!("bundled bin {name}"))?;
+        }
+    }
+
+    // Без channel-overlay удаляем только устаревшие валидные .bin из нашего
+    // управляемого каталога. Так исчезнувший upstream-кандидат не остаётся
+    // доступным под старым именем после обновления приложения.
+    let rd = std::fs::read_dir(dst).map_err(|e| format!("read bin-data: {e}"))?;
+    for item in rd {
+        let entry = item.map_err(|e| format!("read bin-data entry: {e}"))?;
+        if !entry
+            .file_type()
+            .map_err(|e| format!("bin-data file type: {e}"))?
+            .is_file()
+        {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if valid_bin_filename(&name) && !bundled.contains(&name) {
+            std::fs::remove_file(entry.path())
+                .map_err(|e| format!("remove stale bin {name}: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
+fn current_fake_name(
+    dir: &Path,
+    active_name: &str,
+    options: &[String],
+    preferred: Option<&str>,
+) -> Option<String> {
+    let active = dir.join(active_name);
+    if let Some(name) = preferred.filter(|name| valid_fake_filename(name)) {
+        if files_equal(&active, &dir.join(name)) {
+            return Some(name.to_string());
+        }
+    }
+    options
+        .iter()
+        .find(|name| files_equal(&active, &dir.join(name)))
+        .cloned()
+}
+
+fn apply_fake_file(dir: &Path, kind: &str, file: &str) -> Result<(), String> {
+    if !valid_fake_filename(file) {
+        return Err("недопустимое имя fake-файла".into());
+    }
+    let source = dir.join(file);
+    let meta =
+        std::fs::symlink_metadata(&source).map_err(|e| format!("fake '{file}' не найден: {e}"))?;
+    if !meta.file_type().is_file() || meta.len() == 0 || meta.len() > MAX_DPI_PAYLOAD_BYTES {
+        return Err("fake-файл пуст, слишком велик или не является обычным файлом".into());
+    }
+    let target = dir.join(fake_target(kind)?);
+    copy_replace(&source, &target, &format!("{kind} UDP fake"))
+}
+
+fn fake_source_usable(dir: &Path, file: &str) -> bool {
+    if !valid_fake_filename(file) {
+        return false;
+    }
+    std::fs::symlink_metadata(dir.join(file))
+        .map(|meta| meta.file_type().is_file() && (1..=MAX_DPI_PAYLOAD_BYTES).contains(&meta.len()))
+        .unwrap_or(false)
+}
+
+// После обновления канала upstream ACTIVE_*.bin заменяются дефолтами. Явный
+// выбор пользователя хранится отдельно и накладывается поверх свежего набора.
+// Если выбранный upstream-файл исчез, сбрасываем только этот слот на новый
+// дефолт — весь sync из-за устаревшего выбора не блокируем.
+fn reapply_fake_selection_with_inventory(
+    app: &AppHandle,
+    dir: &Path,
+    inventory: Option<&std::collections::HashSet<String>>,
+) -> Result<Vec<String>, String> {
+    let mut selection = load_fake_selection(app);
+    let mut reset = Vec::new();
+    for kind in ["discord", "game"] {
+        let selected = match kind {
+            "discord" => selection.discord.clone(),
+            _ => selection.game.clone(),
+        };
+        let Some(file) = selected else {
+            continue;
+        };
+        if inventory.is_some_and(|files| !files.contains(&file)) || !fake_source_usable(dir, &file)
+        {
+            match kind {
+                "discord" => selection.discord = None,
+                _ => selection.game = None,
+            }
+            reset.push(kind.to_string());
+            continue;
+        }
+        // Ошибка записи ACTIVE_* — реальный сбой I/O, а не устаревший выбор:
+        // не скрываем её сбросом маркера и не продолжаем с частично применённым sync.
+        apply_fake_file(dir, kind, &file)?;
+    }
+    if !reset.is_empty() {
+        save_fake_selection(app, &selection)?;
+    }
+    Ok(reset)
+}
+
+fn reapply_fake_selection(app: &AppHandle, dir: &Path) -> Result<Vec<String>, String> {
+    reapply_fake_selection_with_inventory(app, dir, None)
 }
 
 // Путь к strategies.json: оверлей канала (<app_data>/dpi/strategies.json) имеет
@@ -533,6 +770,89 @@ pub fn dpi_domains_count(app: AppHandle) -> Result<usize, String> {
     Ok(n)
 }
 
+/// Доступные `.bin` для двух активных UDP-слотов из Flowseal 1.10+.
+/// Возвращаем только обычные файлы из writable bin-data; пути фронт не задаёт.
+#[tauri::command]
+pub async fn dpi_fake_payloads(
+    app: AppHandle,
+    state: State<'_, DpiState>,
+) -> Result<serde_json::Value, String> {
+    let _data = state.data.lock().await;
+    let dir = ensure_bindata(&app)?;
+    let options = fake_options(&dir)?;
+    let selection = load_fake_selection(&app);
+    let referenced = referenced_bins(&read_strategies(&app)?);
+    let discord_supported =
+        referenced.contains(ACTIVE_DISCORD_FAKE) && dir.join(ACTIVE_DISCORD_FAKE).is_file();
+    let game_supported =
+        referenced.contains(ACTIVE_GAME_FAKE) && dir.join(ACTIVE_GAME_FAKE).is_file();
+    let discord = current_fake_name(
+        &dir,
+        ACTIVE_DISCORD_FAKE,
+        &options,
+        selection.discord.as_deref(),
+    );
+    let game = current_fake_name(&dir, ACTIVE_GAME_FAKE, &options, selection.game.as_deref());
+    Ok(serde_json::json!({
+        "options": options,
+        "discord": discord,
+        "game": game,
+        "discord_supported": discord_supported,
+        "game_supported": game_supported,
+    }))
+}
+
+/// Атомарно заменить ACTIVE_DISCORD_UDP.bin или ACTIVE_GAME_UDP.bin выбранным
+/// файлом из текущего подписанного набора и сохранить выбор поверх будущих sync.
+#[tauri::command]
+pub async fn dpi_set_active_fake(
+    app: AppHandle,
+    state: State<'_, DpiState>,
+    kind: String,
+    file: String,
+) -> Result<serde_json::Value, String> {
+    let _data = state.data.lock().await;
+    let dir = ensure_bindata(&app)?;
+    let options = fake_options(&dir)?;
+    if !options.contains(&file) {
+        return Err("fake-файл отсутствует в текущем подписанном наборе".into());
+    }
+    let target = dir.join(fake_target(&kind)?);
+    let previous = match std::fs::symlink_metadata(&target) {
+        Ok(meta) if meta.file_type().is_file() && meta.len() <= MAX_DPI_PAYLOAD_BYTES => Some(
+            std::fs::read(&target)
+                .map_err(|e| format!("не удалось сохранить текущий UDP fake: {e}"))?,
+        ),
+        Ok(_) => return Err("текущий ACTIVE-файл небезопасен или слишком велик".into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("не удалось сохранить текущий UDP fake: {e}")),
+    };
+    apply_fake_file(&dir, &kind, &file)?;
+    let mut selection = load_fake_selection(&app);
+    match kind.as_str() {
+        "discord" => selection.discord = Some(file.clone()),
+        "game" => selection.game = Some(file.clone()),
+        _ => return Err("неизвестный тип UDP-подмены".into()),
+    }
+    if let Err(marker_error) = save_fake_selection(&app, &selection) {
+        let rollback = match previous {
+            Some(bytes) => write_bytes_replace(&target, &bytes, "rollback UDP fake"),
+            None => match std::fs::remove_file(&target) {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(format!("remove rollback UDP fake: {e}")),
+            },
+        };
+        return match rollback {
+            Ok(()) => Err(marker_error),
+            Err(rollback_error) => Err(format!(
+                "{marker_error}; откат ACTIVE-файла тоже не удался: {rollback_error}"
+            )),
+        };
+    }
+    Ok(serde_json::json!({ "kind": kind, "file": file }))
+}
+
 const DPI_LOG_CAP_BYTES: u64 = 8 * 1024 * 1024;
 
 struct DpiLogWriter {
@@ -665,6 +985,7 @@ pub async fn dpi_start(
         }
     }
 
+    let _data = state.data.lock().await;
     let strategies = read_strategies(&app)?;
     let strat = strategies
         .into_iter()
@@ -1435,11 +1756,13 @@ async fn fetch_channel_service(
 #[tauri::command]
 pub async fn dpi_sync_channel(
     app: AppHandle,
+    state: State<'_, DpiState>,
     port: Option<u16>,
 ) -> Result<serde_json::Value, String> {
     // 1–3. Скачать + проверить подпись + распаковать в стейджинг (общий хелпер).
     let dpi_data = crate::app_paths::data_dir(&app)?.join("dpi");
     let staging = stage_verified_bundle(&app, port).await?;
+    let _data = state.data.lock().await;
 
     let result = (|| -> Result<serde_json::Value, String> {
         std::fs::create_dir_all(&dpi_data).map_err(|e| format!("mkdir dpi data: {e}"))?;
@@ -1450,11 +1773,56 @@ pub async fn dpi_sync_channel(
             .map_err(|e| format!("staged strategies.json: {e}"))?;
         let strategies: Vec<Strategy> =
             serde_json::from_str(&strat_raw).map_err(|e| format!("parse strategies: {e}"))?;
-        // все ли нужные .bin есть в бандле (или уже в bin-data)?
+        // Бандл обязан быть самодостаточным: нельзя принять новую стратегию,
+        // которая случайно работает лишь пока в bin-data лежит старый payload.
         let staged_bin = staging.join("bin");
         let existing = bindata_dir(&app)?;
+        if !staged_bin.is_dir() {
+            return Err("в бандле отсутствует каталог bin".into());
+        }
+        let mut payloads = Vec::new();
+        let mut incoming = std::collections::HashSet::new();
+        let rd = std::fs::read_dir(&staged_bin).map_err(|e| format!("read staged bin: {e}"))?;
+        for item in rd {
+            let entry = item.map_err(|e| format!("read staged bin entry: {e}"))?;
+            let path = entry.path();
+            if path.extension().is_none_or(|extension| extension != "bin") {
+                continue;
+            }
+            if !entry
+                .file_type()
+                .map_err(|e| format!("staged bin file type: {e}"))?
+                .is_file()
+            {
+                return Err("payload канала не является обычным файлом".into());
+            }
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| "имя .bin в канале не является UTF-8".to_string())?;
+            if !valid_bin_filename(&name) {
+                return Err(format!("недопустимое имя .bin в канале: {name}"));
+            }
+            let size = entry
+                .metadata()
+                .map_err(|e| format!("staged bin metadata: {e}"))?
+                .len();
+            if !(1..=MAX_DPI_PAYLOAD_BYTES).contains(&size) {
+                return Err(format!(
+                    "недопустимый размер .bin в канале: {name} ({size})"
+                ));
+            }
+            incoming.insert(name.clone());
+            payloads.push((path, name));
+        }
+        if payloads.is_empty() || payloads.len() > 256 {
+            return Err(format!(
+                "недопустимое количество .bin в канале: {}",
+                payloads.len()
+            ));
+        }
         for name in referenced_bins(&strategies) {
-            if !staged_bin.join(&name).exists() && !existing.join(&name).exists() {
+            if !incoming.contains(&name) {
                 return Err(format!("в бандле нет .bin: {name}"));
             }
         }
@@ -1475,21 +1843,8 @@ pub async fn dpi_sync_channel(
             }
         }
 
-        if staged_bin.exists() {
-            let rd = std::fs::read_dir(&staged_bin).map_err(|e| format!("read staged bin: {e}"))?;
-            for item in rd {
-                let entry = item.map_err(|e| format!("read staged bin entry: {e}"))?;
-                let p = entry.path();
-                if p.extension().is_some_and(|x| x == "bin") {
-                    if let Some(n) = p.file_name() {
-                        copy_replace(
-                            &p,
-                            &existing.join(n),
-                            &format!("bin {}", n.to_string_lossy()),
-                        )?;
-                    }
-                }
-            }
+        for (path, name) in payloads {
+            copy_replace(&path, &existing.join(&name), &format!("bin {name}"))?;
         }
 
         // Подписанные service-файлы (hosts-пин + база ipset) — в кеш канала: hosts/ipset
@@ -1522,7 +1877,52 @@ pub async fn dpi_sync_channel(
             )?;
         }
 
-        Ok(serde_json::json!({ "version": ver, "applied": true }))
+        // Только после commit record чистим старые payload. При ошибке любой
+        // предыдущей записи старые strategies всё ещё находят все свои .bin.
+        // Ошибка самой уборки не ломает уже применённый новый набор: лишний
+        // файл не участвует в новых стратегиях и будет повторно удалён позже.
+        let mut cleanup_warnings = Vec::new();
+        match std::fs::read_dir(&existing) {
+            Ok(rd) => {
+                for item in rd {
+                    let entry = match item {
+                        Ok(entry) => entry,
+                        Err(e) => {
+                            cleanup_warnings.push(format!("read bin-data entry: {e}"));
+                            continue;
+                        }
+                    };
+                    let is_file = match entry.file_type() {
+                        Ok(kind) => kind.is_file(),
+                        Err(e) => {
+                            cleanup_warnings.push(format!("bin-data file type: {e}"));
+                            continue;
+                        }
+                    };
+                    if !is_file {
+                        continue;
+                    }
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if valid_bin_filename(&name) && !incoming.contains(&name) {
+                        if let Err(e) = std::fs::remove_file(entry.path()) {
+                            cleanup_warnings.push(format!("remove stale channel bin {name}: {e}"));
+                        }
+                    }
+                }
+            }
+            Err(e) => cleanup_warnings.push(format!("read existing bin-data: {e}")),
+        }
+        // Даже если ОС не дала удалить stale-файл, исчезнувший из подписанного
+        // inventory пользовательский выбор не должен быть применён повторно.
+        let fake_selection_reset =
+            reapply_fake_selection_with_inventory(&app, &existing, Some(&incoming))?;
+
+        Ok(serde_json::json!({
+            "version": ver,
+            "applied": true,
+            "fake_selection_reset": fake_selection_reset,
+            "cleanup_warnings": cleanup_warnings,
+        }))
     })();
     let _ = std::fs::remove_dir_all(&staging);
     result
@@ -1806,7 +2206,13 @@ pub async fn dpi_autotest(
     stop_managed_child(&state, "winws")?;
     let url = test_url.unwrap_or_else(|| "https://www.youtube.com/".into());
 
-    let strategies = read_strategies(&app)?;
+    let _data = state.data.lock().await;
+    // EXP доступна для ручного выбора, но экспериментальный профиль не должен
+    // автоматически становиться рекомендацией автотеста.
+    let strategies: Vec<Strategy> = read_strategies(&app)?
+        .into_iter()
+        .filter(|strategy| !strategy.experimental)
+        .collect();
     let bin = bin_dir(&app, monkey)?;
     let exe = bin.join("winws.exe");
     if !exe.exists() {
@@ -2100,6 +2506,7 @@ mod tests {
             Strategy {
                 id: "a".into(),
                 name: String::new(),
+                experimental: false,
                 args: vec![
                     "--fake-tls=%BIN%tls_clienthello_www_google_com.bin".into(),
                     "--dpi-desync-fake-quic=%BIN%quic_initial_www_google_com.bin".into(),
@@ -2109,6 +2516,7 @@ mod tests {
             Strategy {
                 id: "b".into(),
                 name: String::new(),
+                experimental: false,
                 // %LISTS% и голый %BIN% без .bin не должны попасть в набор.
                 args: vec!["%LISTS%list-general.txt".into(), "%BIN%".into()],
             },
@@ -2117,6 +2525,28 @@ mod tests {
         assert_eq!(need.len(), 2);
         assert!(need.contains("tls_clienthello_www_google_com.bin"));
         assert!(need.contains("quic_initial_www_google_com.bin"));
+    }
+
+    #[test]
+    fn fake_filename_validation_rejects_paths_and_active_slots() {
+        assert!(valid_fake_filename("quic_initial_example_com.bin"));
+        assert!(valid_fake_filename("stun2.bin"));
+        for invalid in [
+            "",
+            "ACTIVE_DISCORD_UDP.bin",
+            "active_game_udp.bin",
+            "../fake.bin",
+            r"..\fake.bin",
+            r"C:\fake.bin",
+            "/tmp/fake.bin",
+            "fake.txt",
+            "fake payload.bin",
+        ] {
+            assert!(!valid_fake_filename(invalid), "{invalid}");
+        }
+        assert_eq!(fake_target("discord").unwrap(), ACTIVE_DISCORD_FAKE);
+        assert_eq!(fake_target("game").unwrap(), ACTIVE_GAME_FAKE);
+        assert!(fake_target("other").is_err());
     }
 
     #[test]

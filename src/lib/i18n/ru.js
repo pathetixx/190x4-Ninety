@@ -169,6 +169,31 @@ export const ru = {
       off: "Выкл", tcpudp: "TCP + UDP",
     },
 
+    fakes: {
+      label: "Подмена UDP-пакетов",
+      desc: "Выберите шаблоны, которыми движок маскирует UDP-трафик Discord и игр. Изменение применяется сразу.",
+      discord: "Discord UDP",
+      game: "Игровой UDP",
+      default: "Стандартный",
+      unavailable: "Доступно после обновления стратегий до версии 1.10.0",
+      toastDone: "Шаблон подмены применён",
+      toastReset: "После обновления UDP-подмена сброшена на стандартную: {slots}",
+      toastErr: "Не удалось применить шаблон: {err}",
+    },
+
+    cache: {
+      label: "Кэш Discord",
+      desc: "Закрывает Discord и очищает только Cache, Code Cache и GPUCache у обычной и PTB-версии.",
+      button: "Очистить кэш",
+      busy: "Очищаю…",
+      confirmTitle: "Очистить кэш Discord?",
+      confirmMessage: "Discord будет закрыт. Личные данные, настройки и история не удалятся.",
+      confirmButton: "Очистить",
+      toastNone: "Кэш Discord не найден",
+      toastDone: "Кэш Discord очищен · {n} папок",
+      toastErr: "Не удалось очистить кэш: {err}",
+    },
+
     hosts: {
       label: "Файл hosts",
       applied: "применён", notApplied: "не применён",
@@ -193,6 +218,9 @@ export const ru = {
       appName: "Приложение", engineName: "Движок обхода", strategiesName: "Набор стратегий",
       engineNote: "в приложении", pillUpdate: "обновление", pillOk: "актуально",
       btnUpdate: "Обновить",
+      pillChecking: "проверка…",
+      pillUnknown: "не проверено",
+      btnRetry: "Повторить",
       toastDone: "Набор стратегий обновлён",
       toastErr: "Обновление не удалось: {err}",
     },

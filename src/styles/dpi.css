@@ -553,6 +553,70 @@
 }
 
 /* ═══════════════════════════════════════════
+   UDP FAKE PAYLOADS + DISCORD CACHE
+═══════════════════════════════════════════ */
+.dpi-fake-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.7fr) minmax(0, 1.3fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--ink-2);
+  border: 1px solid var(--line-1);
+}
+.dpi-fake-row__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-hi);
+}
+.dpi-fake-select {
+  min-width: 0;
+  width: 100%;
+  padding: 8px 30px 8px 10px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line-2);
+  background: var(--ink-3);
+  color: var(--text-hi);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  outline: none;
+  transition: border-color 160ms var(--ease-out), opacity 160ms var(--ease-out);
+}
+.dpi-fake-select:hover:not(:disabled),
+.dpi-fake-select:focus {
+  border-color: var(--line-3);
+}
+.dpi-fake-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.dpi-fakes__hint {
+  padding: 9px 11px;
+  border-radius: var(--r-xs);
+  background: var(--overlay-1);
+  color: var(--text-faint);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.dpi-cache__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 560px) {
+  .dpi-fake-row {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+  .dpi-cache__actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ═══════════════════════════════════════════
    IPSET CARD — collapsible
 ═══════════════════════════════════════════ */
 .dpi-ipset__head {

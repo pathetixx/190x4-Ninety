@@ -169,6 +169,31 @@ export const ja = {
       off: "オフ", tcpudp: "TCP + UDP",
     },
 
+    fakes: {
+      label: "UDP packet disguise",
+      desc: "Choose the payloads the engine uses to disguise Discord and game UDP traffic. Changes apply immediately.",
+      discord: "Discord UDP",
+      game: "Game UDP",
+      default: "Default",
+      unavailable: "Available after updating the strategy set to version 1.10.0",
+      toastDone: "Disguise payload applied",
+      toastReset: "UDP disguise reset to default after the update: {slots}",
+      toastErr: "Couldn't apply the payload: {err}",
+    },
+
+    cache: {
+      label: "Discord cache",
+      desc: "Closes Discord and clears only Cache, Code Cache and GPUCache for the stable and PTB versions.",
+      button: "Clear cache",
+      busy: "Clearing…",
+      confirmTitle: "Clear Discord cache?",
+      confirmMessage: "Discord will be closed. Your personal data, settings and history won't be removed.",
+      confirmButton: "Clear",
+      toastNone: "No Discord cache found",
+      toastDone: "Discord cache cleared · {n} folders",
+      toastErr: "Couldn't clear the cache: {err}",
+    },
+
     hosts: {
       label: "hosts ファイル",
       applied: "適用済み", notApplied: "未適用",
@@ -193,6 +218,9 @@ export const ja = {
       appName: "アプリケーション", engineName: "回避エンジン", strategiesName: "戦略セット",
       engineNote: "アプリ内", pillUpdate: "更新あり", pillOk: "最新",
       btnUpdate: "更新",
+      pillChecking: "checking…",
+      pillUnknown: "not checked",
+      btnRetry: "Retry",
       toastDone: "戦略セットを更新しました",
       toastErr: "更新に失敗しました: {err}",
     },
