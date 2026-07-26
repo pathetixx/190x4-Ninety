@@ -9,8 +9,9 @@
 // по каждому источнику — «использовано за N дней» переживает реконнекты и
 // перезапуски приложения.
 
+import { getTrafficTotal } from "/lib/clash-api.js";
+
 const KEY_PREFIX = "ninety.traffic.";
-const invoke = window.__TAURI__?.core?.invoke;
 
 function load(sourceKey) {
   try {
@@ -61,10 +62,10 @@ async function poll() {
   const runId = meterRunId;
   const key = curKey;
   const token = runtimeToken;
-  if (!invoke || !key) return;
+  if (!key) return;
   if (token && runtimeProvider?.isCurrent && !runtimeProvider.isCurrent(token)) return;
   let t;
-  try { t = await invoke("clash_traffic_total", { port: clashPort }); }
+  try { t = await getTrafficTotal(clashPort, { token }); }
   catch { return; } // ядро ещё не подняло clash-API / уже умерло — пропускаем тик
   if (runId !== meterRunId || key !== curKey || token !== runtimeToken) return;
   if (token && runtimeProvider?.isCurrent && !runtimeProvider.isCurrent(token)) return;
