@@ -148,3 +148,99 @@ test("disconnect отменяет выполняющуюся remediation-лес�
   assert.equal(gaveUp, false, "старая сессия не должна продолжать лесенку после disconnect");
   assert.equal(engine.isRemediating, false);
 });
+
+test("R3 переносит remediation на новую сессию и сохраняет результат проверки", async () => {
+  const store = installStorage();
+  let probeCount = 0;
+  let reconnects = 0;
+  const clock = 1_000_000;
+  let engine;
+  engine = createQualityEngine({
+    invoke: async (cmd) => {
+      if (cmd !== "probe_quality") return undefined;
+      probeCount++;
+      return probeCount <= 2 ? STALLED : GOOD;
+    },
+    actions: {
+      onState: () => {},
+      selectNextNode: async () => false,
+      excludeWorstNode: async () => false,
+      applyFragmentation: async () => {
+        reconnects++;
+        engine.onIdle();
+        engine.onConnected({ enabled: true, aggressive: true });
+        return true;
+      },
+      getContext: () => ({ tlsTrick: "record" }),
+      localAsn: async () => "12345",
+      giveUp: () => { throw new Error("R3 должна пройти верификацию"); },
+      notify: () => {}, toast: () => {}, log: () => {},
+    },
+    sleep: async () => {},
+    now: () => clock,
+    opts: { enabled: true, aggressive: true },
+  });
+
+  engine.onConnected({});
+  armSuspect(engine);
+  await engine.tick();
+  await engine.tick();
+
+  assert.equal(reconnects, 1);
+  const learned = JSON.parse(store.get("ninety.quality.profile"));
+  assert.equal(Object.values(learned)[0].stepId, "R3");
+  assert.equal(engine.state, "GOOD");
+});
+
+test("часовой лимит реконнектов сохраняется между VPN-сессиями", async () => {
+  installStorage();
+  let clock = 1_000_000;
+  let reconnects = 0;
+  let engine;
+  engine = createQualityEngine({
+    invoke: async (cmd) => (cmd === "probe_quality" ? STALLED : undefined),
+    actions: {
+      onState: () => {},
+      selectNextNode: async () => false,
+      excludeWorstNode: async () => false,
+      applyFragmentation: async () => {
+        reconnects++;
+        engine.onIdle();
+        engine.onConnected({ enabled: true, aggressive: true });
+        return true;
+      },
+      localAsn: async () => "12345",
+      giveUp: () => {},
+      notify: () => {}, toast: () => {}, log: () => {},
+    },
+    sleep: async () => {},
+    now: () => clock,
+    opts: { enabled: true, aggressive: true },
+  });
+
+  engine.onConnected({});
+  for (let i = 0; i < 6; i++) {
+    armSuspect(engine);
+    await engine.tick();
+    await engine.tick();
+    clock += 121_000; // cooldown прошёл, но все попытки всё ещё внутри одного часа
+  }
+
+  assert.equal(reconnects, 4, "пятая и последующие попытки должны блокироваться часовым капом");
+});
+
+test("выключенный quality engine не прогревает локальный ASN", async () => {
+  installStorage();
+  let asnCalls = 0;
+  const engine = createQualityEngine({
+    invoke: async () => GOOD,
+    actions: {
+      localAsn: async () => { asnCalls++; return "12345"; },
+    },
+    opts: { enabled: false },
+  });
+
+  engine.onConnected({ enabled: false });
+  await Promise.resolve();
+  assert.equal(asnCalls, 0);
+});

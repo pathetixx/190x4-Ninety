@@ -50,7 +50,13 @@ const stepLabel = (step) => t("qEngine.steps." + step.id);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sleepFn = sleep } = {}) {
+export function createQualityEngine({
+  invoke,
+  actions = {},
+  opts = {},
+  sleep: sleepFn = sleep,
+  now = Date.now,
+} = {}) {
   // opts: { enabled, aggressive, lowDataMode, idleProbeSec, goodBps, probeBytes, endpoints }
   let cfg = normalizeOpts(opts);
   let running = false;          // connected + движок активен
@@ -64,6 +70,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
   let lastProbeAt = 0;
   let lastLadderAt = 0;
   let reconnectTimes = [];      // timestamps реконнектов для часового капа
+  let reconnectHandoff = false; // R3/R4 ждёт новую VPN-сессию
   let lastState = "UNKNOWN";
   const passive = [];           // [{t, down}] скользящее окно
   const sessionActive = (epoch) => running && epoch === sessionEpoch;
@@ -86,9 +93,9 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
 
   // ── Пассивный сигнал из clash:traffic ──────────────────
   function updatePassive({ down } = {}) {
-    const now = Date.now();
-    passive.push({ t: now, down: Number(down) || 0 });
-    while (passive.length && now - passive[0].t > PASSIVE_WINDOW_MS) passive.shift();
+    const timestamp = now();
+    passive.push({ t: timestamp, down: Number(down) || 0 });
+    while (passive.length && timestamp - passive[0].t > PASSIVE_WINDOW_MS) passive.shift();
   }
   function passiveView() {
     if (!passive.length) return { peak: 0, last: 0 };
@@ -103,7 +110,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
   function recordSample(r, rung) {
     if (!r) return;
     const sample = {
-      t: Date.now(),
+      t: now(),
       bps: Number(r.goodput_bps) || 0,
       q: classify(r),
       rung: rung || null,
@@ -118,7 +125,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
   async function probe(rung = null, epoch = sessionEpoch) {
     if (!sessionActive(epoch) || probingEpoch === epoch) return null;
     probingEpoch = epoch;
-    lastProbeAt = Date.now();
+    lastProbeAt = now();
     try {
       const r = await invoke("probe_quality", {
         port: cfg.port,
@@ -153,18 +160,18 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
   // ── Тик (зовётся из healthTick после liveness-OK) ──────
   async function tick() {
     const epoch = sessionEpoch;
-    if (!sessionActive(epoch) || !cfg.enabled || remediatingEpoch === epoch || probingEpoch === epoch) return;
-    const now = Date.now();
+    if (!sessionActive(epoch) || !cfg.enabled || reconnectHandoff || remediatingEpoch === epoch || probingEpoch === epoch) return;
+    const timestamp = now();
 
     const { peak, last } = passiveView();
     // Подозрение: в окне была активность (юзер качал), а сейчас поток схлопнулся
     // — классика занавеса. Тогда пробуем немедленно.
     const suspect = peak >= ACTIVITY_BPS && last < FLATLINE_BPS;
     const heartbeatDue = !cfg.lowDataMode &&
-      now - lastProbeAt >= cfg.idleProbeSec * 1000;
+      timestamp - lastProbeAt >= cfg.idleProbeSec * 1000;
 
     if (!suspect && !heartbeatDue) return;
-    if (now - lastProbeAt < PROBE_MIN_GAP_MS && !suspect) return;
+    if (timestamp - lastProbeAt < PROBE_MIN_GAP_MS && !suspect) return;
 
     const r = await probe(null, epoch);
     if (!sessionActive(epoch)) return;
@@ -180,23 +187,24 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
     // SLOW / STALLED
     goodStreak = 0;
     badStreak += 1;
-    if (badStreak >= BAD_STREAK && now - lastLadderAt >= LADDER_COOLDOWN_MS) {
+    if (badStreak >= BAD_STREAK && timestamp - lastLadderAt >= LADDER_COOLDOWN_MS) {
       await runLadder(st, epoch);
     }
   }
 
   // ── Бюджет реконнектов (кап блипов) ────────────────────
   function canReconnect() {
-    const cut = Date.now() - 3600_000;
+    const cut = now() - 3600_000;
     reconnectTimes = reconnectTimes.filter((t) => t > cut);
     return reconnectTimes.length < MAX_RECONNECTS_PER_HOUR;
   }
 
   // ── Лесенка ────────────────────────────────────────────
-  async function runLadder(triggerState, epoch = sessionEpoch) {
-    if (!sessionActive(epoch) || remediatingEpoch === epoch) return;
+  async function runLadder(triggerState, initialEpoch = sessionEpoch) {
+    if (!sessionActive(initialEpoch) || remediatingEpoch === initialEpoch) return;
+    let epoch = initialEpoch;
     remediatingEpoch = epoch;
-    lastLadderAt = Date.now();
+    lastLadderAt = now();
     badStreak = 0;
     actions.notify?.(t("qEngine.notifyTitle"), t("qEngine.notifySlow"));
 
@@ -225,12 +233,21 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
         }
 
         let applied = false;
+        if (step.reconnect) reconnectHandoff = true;
         try { applied = (await fn()) !== false; }
         catch (e) { actions.log?.(`ladder ${step.id} failed: ${e}`); applied = false; }
+        // R3/R4 физически пересобирают runtime. Успешное action завершается уже
+        // после onIdle→onConnected, поэтому переносим remediation на новый epoch
+        // вместо того, чтобы принять ожидаемый reconnect за ручной disconnect.
+        if (step.reconnect && applied && running && sessionEpoch !== epoch) {
+          epoch = sessionEpoch;
+          remediatingEpoch = epoch;
+        }
+        if (step.reconnect) reconnectHandoff = false;
         if (!sessionActive(epoch)) return;
         if (!applied) continue;
 
-        if (step.reconnect) reconnectTimes.push(Date.now());
+        if (step.reconnect) reconnectTimes.push(now());
         await sleepFn(step.reconnect ? SETTLE_RECONNECT_MS : SETTLE_CHEAP_MS);
         if (!sessionActive(epoch)) return;
 
@@ -265,8 +282,9 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
     } finally {
       if (remediatingEpoch === epoch) {
         remediatingEpoch = null;
-        lastProbeAt = Date.now(); // не долбить пробой сразу после лесенки
+        lastProbeAt = now(); // не долбить пробой сразу после лесенки
       }
+      reconnectHandoff = false;
     }
   }
 
@@ -290,7 +308,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
         tlsTrick: ctx.tlsTrick || null,
         warpEndpoint: ctx.warpEndpoint || null,
         goodput_bps: Number(r?.goodput_bps) || 0,
-        ts: Date.now(),
+        ts: now(),
       };
       saveProfile(store);
     } catch (e) { actions.log?.("learn save failed: " + e); }
@@ -300,7 +318,7 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
     try {
       const store = loadProfile();
       const rec = store[learnKeySync()];
-      if (!rec || Date.now() - rec.ts > PROFILE_TTL_MS) return 0;
+      if (!rec || now() - rec.ts > PROFILE_TTL_MS) return 0;
       const idx = LADDER.findIndex((s) => s.id === rec.stepId);
       return idx > 0 ? idx : 0; // стартуем с выученной ступени (она помогала)
     } catch { return 0; }
@@ -326,9 +344,9 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
   }
   function saveProfile(store) {
     // Чистим протухшие записи заодно.
-    const now = Date.now();
+    const timestamp = now();
     for (const k of Object.keys(store)) {
-      if (now - (store[k]?.ts || 0) > PROFILE_TTL_MS) delete store[k];
+      if (timestamp - (store[k]?.ts || 0) > PROFILE_TTL_MS) delete store[k];
     }
     try { localStorage.setItem(PROFILE_KEY, JSON.stringify(store)); } catch {}
   }
@@ -341,18 +359,18 @@ export function createQualityEngine({ invoke, actions = {}, opts = {}, sleep: sl
     running = true;
     badStreak = 0; goodStreak = 0; lastState = "UNKNOWN";
     passive.length = 0;
-    lastProbeAt = Date.now(); // дать туннелю осесть перед первой пробой
+    lastProbeAt = now(); // дать туннелю осесть перед первой пробой
     cachedAsn = null;
-    reconnectTimes = [];
-    lastLadderAt = 0;
     // Прогрев ASN сразу: learnedStartIndex читает ключ обучения СИНХРОННО в
     // начале лесенки (learnKeySync), а cachedAsn раньше заполнялся только в
     // commitWin — первая лесенка каждой сессии искала запись под "unknown:час"
     // и выученная ступень не применялась. Fire-and-forget: до первой лесенки
     // (минимум BAD_STREAK проб) ответ успевает осесть в кэше.
-    actions.localAsn?.().then((a) => {
-      if (sessionActive(epoch)) cachedAsn = a || "unknown";
-    }).catch(() => {});
+    if (cfg.enabled) {
+      actions.localAsn?.().then((a) => {
+        if (sessionActive(epoch)) cachedAsn = a || "unknown";
+      }).catch(() => {});
+    }
   }
   function onIdle() {
     sessionEpoch++;

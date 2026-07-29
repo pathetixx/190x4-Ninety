@@ -39,7 +39,7 @@ import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, nodesFromSource, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView, resetProxiesViewForSourceChange, snapshotMatchesSource } from "/lib/proxies-view.js";
 import { applyActiveSourceTransaction } from "/lib/source-activation.js";
-import { mountDpiView, setDpiVpnMode, excludeVpnNode, clearVpnNodeExclusion, autostartDpiIfEnabled, rerenderDpiView, onDpiViewEnter } from "/lib/dpi-view.js";
+import { mountDpiView, prepareDpiVpnMode, setDpiVpnMode, excludeVpnNode, clearVpnNodeExclusion, autostartDpiIfEnabled, rerenderDpiView, onDpiViewEnter } from "/lib/dpi-view.js";
 import { mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
 import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
@@ -259,7 +259,7 @@ function applyModeToUI(m) {
   }
   if (modeHint) modeHint.innerHTML = t("mode.hint." + (MODE_KEYS.includes(m) ? m : "systemProxy"));
   // DPI-обход слушает режим: вход в TUN → пауза, выход → восстановление.
-  setDpiVpnMode(m);
+  void setDpiVpnMode(m);
 }
 // Строгая политика никогда не существует в proxy/systemProxy: восстанавливаем
 // согласованный режим ещё до первого рендера и bootstrap runtime.
@@ -323,6 +323,9 @@ async function changeMode(requested, { auto = false, reconnect = true } = {}) {
   if (requested === "tun") {
     const ok = await ensureElevatedForTun();
     if (!ok) return false;
+    // До записи mode и реконнекта обязаны подтвердить остановку winws. Иначе
+    // TUN поднимется поверх всё ещё активного перехвата пакетов.
+    if (!(await prepareDpiVpnMode(requested))) return false;
   }
   // Обычный Kill Switch относится к proxy/systemProxy, но его заслон должен
   // пережить и переход через границу TUN. До записи нового mode подтверждаем
@@ -633,7 +636,7 @@ mountProxiesView({
 // Mount DPI-обход (экран + чип на главной). Синхронизируем режим VPN сразу:
 // в TUN обход авто-паузится (см. dpi-view.js::effState).
 mountDpiView({ onToast: toast, switchView, ensureElevated: ensureElevatedForDpi });
-setDpiVpnMode(getMode());
+void setDpiVpnMode(getMode());
 
 // ── Settings view ──────────────────────────────────────────
 const settingsRoot = document.getElementById("settings-root");
@@ -733,7 +736,7 @@ if (settingsRoot) {
         syncHealthWatchdogForState();
         // setDpiVpnMode умеет переоценивать тот же TUN-режим: при выключении
         // strict возвращает split-Discord/winws согласно сохранённой опции.
-        setDpiVpnMode(getMode(), { reevaluate: true });
+        if (!(await setDpiVpnMode(getMode(), { reevaluate: true }))) return;
         if ((state === "connected" || state === "connecting") && !restoredPreviousMode) {
           scheduleAutoReconnect();
         } else {
@@ -799,6 +802,11 @@ if (settingsRoot) {
           showQualityChip(loadOptions().quality?.enabled !== false);
         }
         return;
+      }
+      if (path === "route.tunSplitDiscord" && getMode() === "tun") {
+        // Выключение split должно подтвердить остановку winws до реконнекта;
+        // включение — вернуть его только после успешного старта.
+        if (!(await setDpiVpnMode(getMode(), { reevaluate: true }))) return;
       }
       if (!pathNeedsRestart(path, loadOptions(), getMode())) return;
       if (state === "connected" || state === "connecting") {
@@ -987,8 +995,8 @@ async function performAutoReconnectOnce(reason, epoch) {
   const preserveGuard = killSwitchMustSurviveRuntimeStop();
   try {
     pendingReconnectTimer = null;
-    if (!needsReconnect || !isCurrentNetworkIntent(epoch, "connected")) return;
-    if (state !== "connected" && state !== "connecting") return;
+    if (!needsReconnect || !isCurrentNetworkIntent(epoch, "connected")) return false;
+    if (state !== "connected" && state !== "connecting") return false;
     connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
     reconnectToastId = toast(reason, "info", 0, { group: "conn", connecting: true });
     const nativeStartWasPending = coreStartBarrier.isPending();
@@ -999,15 +1007,15 @@ async function performAutoReconnectOnce(reason, epoch) {
           5000,
         );
       }
-      return;
+      return false;
     }
-    if (!isCurrentNetworkIntent(epoch, "connected")) return;
+    if (!isCurrentNetworkIntent(epoch, "connected")) return false;
     // stop_singbox не может отменить IPC-start, который ещё находится в settle-
     // фазе и не записал child. Ждём его физического завершения, затем повторно
     // гасим поздно поднявшийся комплект. Только после этого стартует новый source.
     if (nativeStartWasPending) {
       await coreStartBarrier.wait();
-      if (!isCurrentNetworkIntent(epoch, "connected")) return;
+      if (!isCurrentNetworkIntent(epoch, "connected")) return false;
       if (!(await shutdownCore({ preserveKillSwitch: preserveGuard }))) {
         if (preserveGuard && isCurrentNetworkIntent(epoch, "connected")) {
           pendingReconnectTimer = setTimeout(
@@ -1015,12 +1023,12 @@ async function performAutoReconnectOnce(reason, epoch) {
             5000,
           );
         }
-        return;
+        return false;
       }
     }
     needsReconnect = false;
     applyReconnectUI();
-    await connectNetwork({ epoch });
+    return (await connectNetwork({ epoch })) === true;
   } finally {
     if (reconnectToastId) toast.dismiss(reconnectToastId);
   }
@@ -1100,7 +1108,7 @@ const qualityEngine = createQualityEngine({
       } else {
         updateOption("tlsTricks.fragmentMode", tricks.fragmentMode === "record" ? "tcp" : "record");
       }
-      return reconnectForSourceChange(t("qToast.masking"));
+      return reconnectForQualityRemediation(t("qToast.masking"));
     },
     // R4 — пересканировать WARP-endpoint и применить лучший (реконнект). Только
     // если WARP включён, иначе ступень неприменима → false (движок пропустит).
@@ -1117,7 +1125,7 @@ const qualityEngine = createQualityEngine({
         const best = Array.isArray(res) ? res[0] : null;
         if (!best?.ip || !best?.port) return false;
         updateOption("warp.endpoint", `${best.ip}:${best.port}`);
-        return reconnectForSourceChange(t("qToast.backup"));
+        return reconnectForQualityRemediation(t("qToast.backup"));
       } catch { return false; }
     },
     // R5 — перейти на ноду ДРУГОГО транспорта/протокола (proto:type), лучшую по
@@ -1268,13 +1276,32 @@ function applyReconnectUI() {
 // в отличие от scheduleAutoReconnect для правок настроек. Реконнект уходит в
 // idle (сбросит currentEffectiveNode) → buildConfig читает свежий getActiveSource()
 // → AUTO-селектор по новым нодам, они пингуются URLTest'ом.
-function reconnectForSourceChange(reason) {
+function beginSourceReconnect(reason) {
   if (state !== "connected" && state !== "connecting") return false;
   const epoch = beginNetworkIntent("connected");
   needsReconnect = true;
   if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
-  performAutoReconnect(reason, epoch);
-  return true;
+  return { epoch, completion: performAutoReconnect(reason, epoch) };
+}
+
+function reconnectForSourceChange(reason) {
+  const request = beginSourceReconnect(reason);
+  return !!request;
+}
+
+// Quality engine обязан получить результат уже НОВОЙ сессии: только после
+// подтверждённого connect можно учитывать дорогую ступень и проверять эффект.
+async function reconnectForQualityRemediation(reason) {
+  const request = beginSourceReconnect(reason);
+  if (!request) return false;
+  try {
+    const connected = await request.completion;
+    return connected === true
+      && state === "connected"
+      && isCurrentNetworkIntent(request.epoch, "connected");
+  } catch {
+    return false;
+  }
 }
 
 // Единая активация источника (подписка/профиль). Зовётся И из pmenu «Сделать
@@ -3368,13 +3395,10 @@ async function runUpdateCheck({ silent = true } = {}) {
   let update;
   try {
     const proxy = updaterProxy();
-    try {
-      update = await checkForUpdate({ proxy });
-    } catch (e) {
-      if (!proxy) throw e;
-      // Туннель мог умереть в момент проверки — повтор напрямую.
-      update = await checkForUpdate();
-    }
+    // При активном VPN не откатываемся на прямой запрос: обычный TUN специально
+    // выпускает Ninety.exe через direct, а proxy/systemProxy reqwest не подхватывает.
+    // Ошибка уйдёт в штатный backoff и повторится через туннель после восстановления.
+    update = await checkForUpdate({ proxy });
   } catch (e) {
     console.warn("update check failed", e);
     if (!silent) toast(t("update.checkFailed"), "error", 4000);

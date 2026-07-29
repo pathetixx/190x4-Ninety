@@ -47,6 +47,13 @@ fn deep_link_scheme(s: &str) -> Option<&str> {
     Some(&s[..idx])
 }
 
+fn handler_is_owned(actual: Option<&str>, expected: &str, last_owned: Option<&str>) -> bool {
+    actual.is_some_and(|value| {
+        value.eq_ignore_ascii_case(expected)
+            || last_owned.is_some_and(|owned| value.eq_ignore_ascii_case(owned))
+    })
+}
+
 pub fn extract_deep_link_urls<I, S>(args: I) -> Vec<String>
 where
     I: IntoIterator<Item = S>,
@@ -92,32 +99,38 @@ pub fn register_url_handler(scheme: String) -> Result<(), String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let base = format!("Software\\Classes\\{scheme}");
     let command_path = format!("{base}\\shell\\open\\command");
+    let backup_path = format!("Software\\Ninety\\UrlHandlers\\{scheme}");
 
-    // Первый opt-in сохраняет прежний command, чтобы disable мог вернуть
-    // обработчик другого клиента. Повторная регистрация Ninety backup не трогает.
+    // Перед КАЖДЫМ захватом чужой регистрации сохраняем её текущее значение.
+    // Другой VPN-клиент мог стать владельцем уже после первого opt-in Ninety;
+    // disable обязан вернуть именно его, а не исторический stale backup.
     let previous = hkcu
         .open_subkey(&command_path)
         .ok()
         .and_then(|k| k.get_value::<String, _>("").ok());
-    if previous
-        .as_deref()
-        .is_none_or(|value| !value.eq_ignore_ascii_case(&expected))
-    {
-        let backup_path = format!("Software\\Ninety\\UrlHandlers\\{scheme}");
+    let last_owned = hkcu
+        .open_subkey(&backup_path)
+        .ok()
+        .and_then(|backup| backup.get_value::<String, _>("OwnedCommand").ok());
+    if !handler_is_owned(previous.as_deref(), &expected, last_owned.as_deref()) {
         let (backup, _) = hkcu
             .create_subkey(&backup_path)
             .map_err(|e| format!("create URL handler backup: {e}"))?;
-        if backup.get_value::<u32, _>("Saved").unwrap_or(0) != 1 {
-            backup
-                .set_value("PreviousCommand", &previous.clone().unwrap_or_default())
-                .map_err(|e| format!("save previous URL handler: {e}"))?;
-            backup
-                .set_value("PreviousCommandPresent", &u32::from(previous.is_some()))
-                .map_err(|e| format!("save previous URL handler flag: {e}"))?;
-            backup
-                .set_value("Saved", &1u32)
-                .map_err(|e| format!("commit URL handler backup: {e}"))?;
-        }
+        // Saved — commit marker. Сначала снимаем его, чтобы crash между
+        // отдельными registry writes не оставил частично обновлённый backup
+        // выглядеть завершённым.
+        backup
+            .set_value("Saved", &0u32)
+            .map_err(|e| format!("begin URL handler backup: {e}"))?;
+        backup
+            .set_value("PreviousCommand", &previous.clone().unwrap_or_default())
+            .map_err(|e| format!("save previous URL handler: {e}"))?;
+        backup
+            .set_value("PreviousCommandPresent", &u32::from(previous.is_some()))
+            .map_err(|e| format!("save previous URL handler flag: {e}"))?;
+        backup
+            .set_value("Saved", &1u32)
+            .map_err(|e| format!("commit URL handler backup: {e}"))?;
     }
 
     let (key, _) = hkcu
@@ -133,6 +146,14 @@ pub fn register_url_handler(scheme: String) -> Result<(), String> {
         .map_err(|e| format!("create command subkey: {e}"))?;
     cmd.set_value("", &expected)
         .map_err(|e| format!("set command: {e}"))?;
+    // Отдельно помечаем последний command Ninety. После OTA exe может переехать:
+    // старый путь остаётся нашим и не должен затереть backup чужого клиента.
+    let (backup, _) = hkcu
+        .create_subkey(&backup_path)
+        .map_err(|e| format!("create URL handler ownership marker: {e}"))?;
+    backup
+        .set_value("OwnedCommand", &expected)
+        .map_err(|e| format!("save URL handler ownership marker: {e}"))?;
     Ok(())
 }
 
@@ -274,5 +295,15 @@ mod tests {
                 "naive+https://u:p@example.com:443",
             ]
         );
+    }
+
+    #[test]
+    fn handler_ownership_survives_executable_path_change() {
+        let old = r#""C:\Program Files\Ninety\Ninety.exe" "%1""#;
+        let current = r#""D:\Apps\Ninety\Ninety.exe" "%1""#;
+        let other = r#""C:\Program Files\Other VPN\other.exe" "%1""#;
+        assert!(handler_is_owned(Some(old), current, Some(old)));
+        assert!(!handler_is_owned(Some(other), current, Some(old)));
+        assert!(!handler_is_owned(None, current, Some(old)));
     }
 }

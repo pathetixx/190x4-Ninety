@@ -13,7 +13,7 @@
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use rand_core::{OsRng, RngCore};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::AppHandle;
 use x25519_dalek::{PublicKey, StaticSecret};
@@ -201,6 +201,21 @@ fn http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("reqwest: {e}"))
 }
 
+fn parse_cf_response<T: DeserializeOwned>(label: &str, text: &str) -> Result<T, String> {
+    // Ответ регистрации содержит access token и WireGuard-конфигурацию, PATCH
+    // может содержать данные лицензии. Никогда не добавляем response body в IPC-
+    // ошибку: её показывает WebView, и секреты попали бы в alert/скриншот.
+    serde_json::from_str(text).map_err(|e| {
+        // Даже Display у serde может включить ошибочное значение из JSON.
+        // Наружу отдаём только позицию, полностью независимую от содержимого.
+        format!(
+            "{label} parse error at line {}, column {}",
+            e.line(),
+            e.column()
+        )
+    })
+}
+
 async fn cf_register(public_key_b64: &str) -> Result<CfRegResp, String> {
     let client = http_client()?;
     // install_id и fcm_token — псевдо-id мобильного устройства; CF не валидирует
@@ -227,9 +242,9 @@ async fn cf_register(public_key_b64: &str) -> Result<CfRegResp, String> {
     let text =
         crate::util::read_response_text_capped(resp, MAX_CF_API_RESPONSE_BYTES, "cf reg").await?;
     if !status.is_success() {
-        return Err(format!("cf reg {}: {}", status, text));
+        return Err(format!("cf reg {status}"));
     }
-    serde_json::from_str::<CfRegResp>(&text).map_err(|e| format!("cf reg parse: {e} (body={text})"))
+    parse_cf_response("cf reg", &text)
 }
 
 async fn cf_patch_account(
@@ -251,9 +266,9 @@ async fn cf_patch_account(
     let text =
         crate::util::read_response_text_capped(resp, MAX_CF_API_RESPONSE_BYTES, "cf patch").await?;
     if !status.is_success() {
-        return Err(format!("cf patch {}: {}", status, text));
+        return Err(format!("cf patch {status}"));
     }
-    serde_json::from_str(&text).map_err(|e| format!("cf patch parse: {e} (body={text})"))
+    parse_cf_response("cf patch", &text)
 }
 
 async fn cf_delete(id: &str, token: &str) -> Result<(), String> {
@@ -270,9 +285,9 @@ async fn cf_delete(id: &str, token: &str) -> Result<(), String> {
     if status.is_success() || status == 404 {
         return Ok(());
     }
-    let text = crate::util::read_response_text_capped(resp, MAX_CF_API_RESPONSE_BYTES, "cf delete")
+    let _ = crate::util::read_response_text_capped(resp, MAX_CF_API_RESPONSE_BYTES, "cf delete")
         .await?;
-    Err(format!("cf delete {}: {}", status, text))
+    Err(format!("cf delete {status}"))
 }
 
 /// Регистрирует новое WARP-устройство. license=None — бесплатный WARP, при
@@ -442,5 +457,14 @@ mod tests {
         let info: WarpInfo = serde_json::from_str(json).unwrap();
         assert!(info.registration_id.is_empty());
         assert_eq!(info.account_id, "legacy-account");
+    }
+
+    #[test]
+    fn cloudflare_parse_errors_never_echo_response_secrets() {
+        let secret = "access-token-that-must-not-leak";
+        let body = format!(r#"{{"id":"registration-id","token":"{secret}"}}"#);
+        let error = parse_cf_response::<CfRegResp>("cf reg", &body).unwrap_err();
+        assert!(!error.contains(secret));
+        assert!(!error.contains(&body));
     }
 }

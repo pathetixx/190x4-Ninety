@@ -243,8 +243,8 @@ pub struct SingboxState {
     start_epoch: AtomicU64,
     runtime: Mutex<Option<RuntimeRecord>>,
     runtime_ports: Mutex<Vec<u16>>,
-    // После неподтверждённого stop сохраняем физические PID/порты. Следующий
-    // stop повторяет очистку, а start не имеет права затереть этот runtime.
+    // После неподтверждённого stop сохраняем identity процессов и порты.
+    // Следующий stop повторяет очистку, а start не имеет права затереть runtime.
     pending_cleanup: Mutex<Option<PendingCleanup>>,
     live_processes: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
@@ -264,19 +264,30 @@ struct RuntimeRecord {
 
 #[derive(Clone, Default)]
 struct PendingCleanup {
-    pids: Vec<u32>,
+    processes: Vec<TrackedProcess>,
     ports: Vec<u16>,
 }
 
-fn cleanup_targets(runtime_ports: &[u16], pending: PendingCleanup) -> (Vec<u16>, Vec<u32>) {
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TrackedProcess {
+    pid: u32,
+    // Windows может переиспользовать PID после завершения процесса. Creation
+    // time отличает исходный process object от нового процесса с тем же PID.
+    creation_time: Option<u64>,
+}
+
+fn cleanup_targets(
+    runtime_ports: &[u16],
+    pending: PendingCleanup,
+) -> (Vec<u16>, Vec<TrackedProcess>) {
     let mut ports = runtime_ports.to_vec();
     ports.extend(pending.ports);
     ports.sort_unstable();
     ports.dedup();
-    let mut pids = pending.pids;
-    pids.sort_unstable();
-    pids.dedup();
-    (ports, pids)
+    let mut processes = pending.processes;
+    processes.sort_unstable_by_key(|process| process.pid);
+    processes.dedup_by_key(|process| process.pid);
+    (ports, processes)
 }
 
 impl Default for SingboxState {
@@ -894,23 +905,86 @@ async fn wait_clash_ready(port: u16, state: &SingboxState, start_epoch: u64) -> 
 // независимых 5-секундных ожидания шли последовательно, а при отмене start в
 // полёте stop вызывался дважды — защитные дедлайны складывались почти в 30 с.
 #[cfg(target_os = "windows")]
-fn process_has_exited(pid: u32) -> bool {
+fn process_creation_time(handle: windows::Win32::Foundation::HANDLE) -> Option<u64> {
+    use windows::Win32::Foundation::FILETIME;
+    use windows::Win32::System::Threading::GetProcessTimes;
+
+    let mut creation = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    unsafe {
+        GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user).ok()?;
+    }
+    Some(((creation.dwHighDateTime as u64) << 32) | creation.dwLowDateTime as u64)
+}
+
+#[cfg(target_os = "windows")]
+fn track_process(pid: u32) -> TrackedProcess {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    };
+
+    let creation_time = unsafe {
+        let handle = OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+            false,
+            pid,
+        )
+        .ok();
+        handle.and_then(|handle| {
+            let creation_time = process_creation_time(handle);
+            let _ = CloseHandle(handle);
+            creation_time
+        })
+    };
+    TrackedProcess { pid, creation_time }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn track_process(pid: u32) -> TrackedProcess {
+    TrackedProcess {
+        pid,
+        creation_time: None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn process_has_exited(process: &TrackedProcess) -> bool {
     use windows::Win32::Foundation::{
         CloseHandle, GetLastError, ERROR_INVALID_PARAMETER, WAIT_OBJECT_0,
     };
     use windows::Win32::System::Threading::{
-        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+        OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
     };
 
     unsafe {
-        // PID принадлежит только что взятому из state child'у. Держать clone
-        // CommandChild нельзя (kill его consume'ит), поэтому после kill
-        // подтверждаем завершение непосредственно по process object Windows.
-        // ERROR_INVALID_PARAMETER означает, что PID уже исчез. Другую ошибку
-        // (например ACCESS_DENIED) нельзя выдавать за подтверждённый exit.
-        let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else {
+        let access = if process.creation_time.is_some() {
+            PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+        } else {
+            PROCESS_SYNCHRONIZE
+        };
+        // ERROR_INVALID_PARAMETER означает, что исходный PID уже исчез. Другую
+        // ошибку (например ACCESS_DENIED) нельзя выдавать за подтверждённый exit.
+        let Ok(handle) = OpenProcess(access, false, process.pid) else {
             return GetLastError() == ERROR_INVALID_PARAMETER;
         };
+        // Новый process object с тем же PID не является нашим runtime: исходный
+        // процесс уже завершён, а новый нельзя ни ждать, ни тем более убивать.
+        if let Some(expected) = process.creation_time {
+            match process_creation_time(handle) {
+                Some(actual) if actual != expected => {
+                    let _ = CloseHandle(handle);
+                    return true;
+                }
+                None => {
+                    let _ = CloseHandle(handle);
+                    return false;
+                }
+                Some(_) => {}
+            }
+        }
         let exited = WaitForSingleObject(handle, 0) == WAIT_OBJECT_0;
         let _ = CloseHandle(handle);
         exited
@@ -918,57 +992,71 @@ fn process_has_exited(pid: u32) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn terminate_pid(pid: u32) {
+fn terminate_tracked_process(process: &TrackedProcess) {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Threading::{
-        OpenProcess, TerminateProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
+        OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+        PROCESS_TERMINATE,
     };
 
+    let Some(expected) = process.creation_time else {
+        // Без устойчивой identity повторно завершать голый PID небезопасно.
+        return;
+    };
     unsafe {
-        if let Ok(handle) = OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, false, pid) {
-            let _ = TerminateProcess(handle, 1);
+        if let Ok(handle) = OpenProcess(
+            PROCESS_TERMINATE | PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+            false,
+            process.pid,
+        ) {
+            // Проверяем identity на том же handle, который передаём в
+            // TerminateProcess: между проверкой и kill PID уже не переедет.
+            if process_creation_time(handle) == Some(expected) {
+                let _ = TerminateProcess(handle, 1);
+            }
             let _ = CloseHandle(handle);
         }
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn terminate_pid(_pid: u32) {}
+fn terminate_tracked_process(_process: &TrackedProcess) {}
 
 #[cfg(not(target_os = "windows"))]
-fn killed_processes_exited(state: &SingboxState, _pids: &[u32]) -> bool {
+fn killed_processes_exited(state: &SingboxState, _processes: &[TrackedProcess]) -> bool {
     state.live_processes.load(Ordering::SeqCst) == 0
 }
 
 #[cfg(target_os = "windows")]
-fn killed_processes_exited(_state: &SingboxState, pids: &[u32]) -> bool {
-    pids.iter().all(|pid| process_has_exited(*pid))
+fn killed_processes_exited(_state: &SingboxState, processes: &[TrackedProcess]) -> bool {
+    processes.iter().all(process_has_exited)
 }
 
 #[cfg(target_os = "windows")]
-fn unresolved_pids(pids: &[u32]) -> Vec<u32> {
-    pids.iter()
-        .copied()
-        .filter(|pid| !process_has_exited(*pid))
+fn unresolved_processes(processes: &[TrackedProcess]) -> Vec<TrackedProcess> {
+    processes
+        .iter()
+        .filter(|process| process.creation_time.is_some() && !process_has_exited(process))
+        .cloned()
         .collect()
 }
 
 #[cfg(not(target_os = "windows"))]
-fn unresolved_pids(pids: &[u32]) -> Vec<u32> {
-    pids.to_vec()
+fn unresolved_processes(processes: &[TrackedProcess]) -> Vec<TrackedProcess> {
+    processes.to_vec()
 }
 
 async fn wait_runtime_released(
     state: &SingboxState,
     ports: &[u16],
-    killed_pids: &[u32],
+    killed_processes: &[TrackedProcess],
 ) -> (bool, Vec<u16>) {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
         // live_processes — это счётчик доставки CommandEvent::Terminated в
         // монитор логов, а не состояние ОС. Событие идёт за stdout/stderr и
         // может запоздать после успешного kill. На Windows ждём реальные PID.
-        let processes_exited = killed_processes_exited(state, killed_pids);
+        let processes_exited = killed_processes_exited(state, killed_processes);
         // Проверяем именно возможность следующего bind, а не connect. На
         // Windows connect к уже закрытому, но фильтруемому WFP/WinDivert порту
         // может ждать TCP retransmit 15–30 секунд и тем самым пробивать внешний
@@ -1386,11 +1474,12 @@ pub async fn stop_singbox(
         .clone()
         .unwrap_or_default();
     let runtime_ports = state.runtime_ports.lock_recover().clone();
-    let (ports, mut killed_pids) = cleanup_targets(&runtime_ports, pending);
+    let (ports, mut killed_processes) = cleanup_targets(&runtime_ports, pending);
     // CommandChild уже потреблён прошлой попыткой. Повторный stop всё равно
-    // должен физически добить оставшийся PID, а не «успешно» забыть его.
-    for pid in &killed_pids {
-        terminate_pid(*pid);
+    // должен физически добить оставшийся process object, но только если его
+    // creation time всё ещё совпадает — голый PID Windows мог переиспользовать.
+    for process in &killed_processes {
+        terminate_tracked_process(process);
     }
     let taken = state.child.lock_recover().take();
     let had_singbox = taken.is_some();
@@ -1398,29 +1487,29 @@ pub async fn stop_singbox(
         // child.kill() гасит sing-box; wintun-адаптер (non-persistent) снимается
         // системой вместе со смертью процесса, державшего его — отдельная чистка
         // TUN-интерфейса не нужна.
-        killed_pids.push(child.pid());
+        killed_processes.push(track_process(child.pid()));
         let _ = child.kill();
     }
     let xray_child = state.xray_child.lock_recover().take();
     let had_xray = xray_child.is_some();
     if let Some(child) = xray_child {
-        killed_pids.push(child.pid());
+        killed_processes.push(track_process(child.pid()));
         let _ = child.kill();
     }
     let sidecar_children: Vec<_> = state.sidecars.lock_recover().drain(..).collect();
     let had_sidecars = !sidecar_children.is_empty();
     for child in sidecar_children {
-        killed_pids.push(child.pid());
+        killed_processes.push(track_process(child.pid()));
         let _ = child.kill();
     }
-    killed_pids.sort_unstable();
-    killed_pids.dedup();
+    killed_processes.sort_unstable_by_key(|process| process.pid);
+    killed_processes.dedup_by_key(|process| process.pid);
     let killed_at = std::time::Instant::now();
     let proxy_was_owned = proxy::system_proxy_owned();
     let proxy_ok = proxy::set_system_proxy(false, None, None).is_ok();
     let proxy_done_at = std::time::Instant::now();
     let (processes_exited, remaining_ports) =
-        wait_runtime_released(&state, &ports, &killed_pids).await;
+        wait_runtime_released(&state, &ports, &killed_processes).await;
     let ports_released = remaining_ports.is_empty();
     let confirmed_at = std::time::Instant::now();
     let proxy_confirmed = !proxy_was_owned || proxy_ok;
@@ -1434,7 +1523,7 @@ pub async fn stop_singbox(
         *state.pending_cleanup.lock_recover() = None;
     } else {
         *state.pending_cleanup.lock_recover() = Some(PendingCleanup {
-            pids: unresolved_pids(&killed_pids),
+            processes: unresolved_processes(&killed_processes),
             // Храним весь набор, а не только занятые порты: повторная проверка
             // должна подтверждать освобождение полного runtime-контракта.
             ports: ports.clone(),
@@ -1935,11 +2024,36 @@ mod tests {
     #[test]
     fn repeated_stop_keeps_and_deduplicates_pending_targets() {
         let pending = PendingCleanup {
-            pids: vec![20, 10, 20],
+            processes: vec![
+                TrackedProcess {
+                    pid: 20,
+                    creation_time: Some(200),
+                },
+                TrackedProcess {
+                    pid: 10,
+                    creation_time: Some(100),
+                },
+                TrackedProcess {
+                    pid: 20,
+                    creation_time: Some(200),
+                },
+            ],
             ports: vec![9090, 31100],
         };
-        let (ports, pids) = cleanup_targets(&[7890, 9090], pending);
+        let (ports, processes) = cleanup_targets(&[7890, 9090], pending);
         assert_eq!(ports, vec![7890, 9090, 31100]);
-        assert_eq!(pids, vec![10, 20]);
+        assert_eq!(
+            processes,
+            vec![
+                TrackedProcess {
+                    pid: 10,
+                    creation_time: Some(100),
+                },
+                TrackedProcess {
+                    pid: 20,
+                    creation_time: Some(200),
+                },
+            ]
+        );
     }
 }

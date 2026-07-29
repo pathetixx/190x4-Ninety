@@ -4,6 +4,7 @@
 //
 // Публичное API:
 //   mountDpiView({ onToast, switchView, ensureElevated }) — навесить на DOM
+//   prepareDpiVpnMode(mode) — fail-closed подготовка перед входом в TUN
 //   setDpiVpnMode(mode, { reevaluate }) — синхронизировать режим VPN (TUN→пауза)
 //   excludeVpnNode(host) — внести сервер активной ноды в exclude winws
 
@@ -17,16 +18,18 @@ const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 const tauriListen = window.__TAURI__?.event?.listen;
 
-// Split-routing Discord активен: в TUN, и опция включена. Тогда winws НЕ паузим
-// в TUN — он десинхрит direct-Discord на реальном интерфейсе (голос low-ping).
-function splitDiscordActive() {
+// Split-routing Discord разрешает оставить winws в TUN: он десинхрит
+// direct-Discord на реальном интерфейсе (голос low-ping).
+function splitDiscordAllowedInTun() {
   try {
     const options = loadOptions();
-    return S.vpnMode === "tun"
-      && !options?.privacy?.strictTunnel
+    return !options?.privacy?.strictTunnel
       && !!options?.route?.tunSplitDiscord;
   }
   catch { return false; }
+}
+function splitDiscordActive() {
+  return S.vpnMode === "tun" && splitDiscordAllowedInTun();
 }
 
 /* ═══════════ ICONS (inner SVG, стиль Lucide 1.5px) ═══════════ */
@@ -128,6 +131,7 @@ let dpiAutopickEpoch = 0;
 // но если DPI логически включён (LS.enabled) — показываем «На паузе», а не «Выключен»:
 // при выходе из TUN он восстановится. Вне TUN — реальное состояние движка.
 function effState() {
+  if (S.base === "error") return "error";
   // В split-Discord движок реально работает и в TUN → отдаём реальное S.base.
   if (S.vpnMode === "tun" && !splitDiscordActive() && lsGet(LS.enabled, "false") === "true") return "paused";
   return S.base;
@@ -434,53 +438,74 @@ async function startEngine() {
   S.lastError = "";
   try {
     await invoke("dpi_start", { strategyId: stratByName(S.strategy).id, gameFilter: S.gameFilter, ipset: S.ipset, monkey: S.monkey, logsDisabled: !!loadOptions()?.log?.disabled });
-    if (epoch !== dpiOperationEpoch) return;
+    if (epoch !== dpiOperationEpoch) return false;
     S.base = "running";
     localStorage.setItem(LS.enabled, "true");
     emitDpiChanged();
+    renderAll();
+    return true;
   } catch (e) {
-    if (epoch !== dpiOperationEpoch) return;
+    if (epoch !== dpiOperationEpoch) return false;
     S.base = "error";
     S.lastError = String(e?.message || e);
     toast(t("dpi.toast.startFail"), "error", 5000);
+    renderAll();
+    return false;
   }
+}
+
+function reportDpiRuntimeError(error) {
+  S.base = "error";
+  S.lastError = String(error?.message || error);
+  toast(t("prof.toastErr", { err: S.lastError }), "error", 5000);
   renderAll();
 }
 
-async function stopEngine() {
+async function stopDpiRuntime({ disableDesired = false, markOff = true } = {}) {
   dpiOperationEpoch++;
-  try { await invoke("dpi_stop"); } catch {}
-  S.base = "off";
-  localStorage.setItem(LS.enabled, "false");
-  emitDpiChanged();
+  try {
+    await invoke("dpi_stop");
+  } catch (e) {
+    reportDpiRuntimeError(e);
+    return false;
+  }
+  if (markOff) S.base = "off";
+  S.lastError = "";
+  if (disableDesired) {
+    localStorage.setItem(LS.enabled, "false");
+    emitDpiChanged();
+  }
   renderAll();
+  return true;
+}
+
+async function stopEngine() {
+  return stopDpiRuntime({ disableDesired: true });
 }
 
 // Пауза движка при входе в TUN: реально глушим winws, НО LS.enabled оставляем
 // "true" — это «логическое желание», по которому восстановимся при выходе.
 async function pauseEngineForTun() {
-  dpiOperationEpoch++;
-  try { await invoke("dpi_stop"); } catch {}
-  S.base = "off";        // движок реально остановлен; effState даст "paused" по LS.enabled
-  renderAll();
+  return stopDpiRuntime();
 }
 
 // Возврат из TUN: поднять движок, если DPI был включён до паузы. Процесс в этот
 // момент уже elevated (TUN требовал прав), поэтому UAC обычно не всплывёт.
 let dpiResumeInFlight = null;
 async function resumeEngineAfterTun() {
-  if (lsGet(LS.enabled, "false") !== "true") return;
-  if (S.base === "running" || S.base === "starting") return;
+  if (lsGet(LS.enabled, "false") !== "true") return true;
+  if (S.base === "running" || S.base === "starting") return true;
   if (dpiResumeInFlight) return dpiResumeInFlight;
   const run = (async () => {
     const ok = await ensureElevated();
     // Пока ждали UAC, strict/split или пользовательское намерение могли
     // измениться. Повторная проверка не даёт позднему resume запустить winws
     // в обычном TUN и одновременно закрывает двойной dpi_start.
-    if (!ok || lsGet(LS.enabled, "false") !== "true") return;
-    if (S.base === "running" || S.base === "starting") return;
-    if (S.vpnMode === "tun" && !splitDiscordActive()) return;
-    await startEngine();
+    if (!ok) return false;
+    if (lsGet(LS.enabled, "false") !== "true") return true;
+    if (S.base === "running" || S.base === "starting") return true;
+    if (S.vpnMode === "tun" && !splitDiscordActive()) return true;
+    return startEngine();
   })();
   dpiResumeInFlight = run;
   try {
@@ -499,6 +524,13 @@ export async function toggleDpi() {
     emitDpiChanged();
     renderAll();
     toast(want ? t("dpi.toast.willEnable") : t("dpi.toast.disabled"), "info", 2200);
+    return;
+  }
+  // После неподтверждённого stop backend сохраняет живой child, а UI находится
+  // в error. Повторный клик должен ещё раз остановить его, а не запускать второй
+  // winws поверх первого. Ошибка старта, напротив, не выставляет desired=true.
+  if (S.base === "error" && lsGet(LS.enabled, "false") === "true") {
+    await stopEngine();
     return;
   }
   if (S.base === "running" || S.base === "starting") { await stopEngine(); return; }
@@ -523,9 +555,10 @@ export async function autostartDpiIfEnabled() {
 // Применить смену настройки на лету: если движок запущен — перезапустить.
 async function restartIfRunning() {
   if (S.base === "running" || S.base === "starting") {
-    try { await invoke("dpi_stop"); } catch {}
-    await startEngine();
+    if (!(await stopDpiRuntime())) return false;
+    return startEngine();
   }
+  return true;
 }
 
 // Смена режима драйвера (WinDivert↔Monkey): меняется имя kernel-службы и файла
@@ -533,10 +566,15 @@ async function restartIfRunning() {
 // иначе в ядре повиснут обе службы. Аппа elevated (DPI запущен) → dpi_unload_driver
 // снимает WinDivert/WinDivert14/Monkey. Если выключен — просто применится при старте.
 async function restartWithDriverSwap() {
-  if (S.base !== "running" && S.base !== "starting") return;
-  try { await invoke("dpi_stop"); } catch {}
-  try { await invoke("dpi_unload_driver"); } catch {}
-  await startEngine();
+  if (S.base !== "running" && S.base !== "starting") return true;
+  if (!(await stopDpiRuntime())) return false;
+  try {
+    await invoke("dpi_unload_driver");
+  } catch (e) {
+    reportDpiRuntimeError(e);
+    return false;
+  }
+  return startEngine();
 }
 
 async function setStrategy(s) {
@@ -774,7 +812,7 @@ async function pickStart() {
 
 async function pickCancel() {
   dpiAutopickEpoch++;
-  try { await invoke("dpi_stop"); } catch {}
+  if (!(await stopDpiRuntime({ markOff: false }))) return;
   S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" };
   renderAll();
 }
@@ -952,8 +990,14 @@ function onChange(e) {
 }
 
 /* ═══════════ PUBLIC API ═══════════ */
-export function setDpiVpnMode(mode, { reevaluate = false } = {}) {
-  if (!mode) return;
+export async function prepareDpiVpnMode(mode) {
+  if (mode !== "tun" || splitDiscordAllowedInTun()) return true;
+  if (!["running", "starting", "error"].includes(S.base)) return true;
+  return pauseEngineForTun();
+}
+
+export async function setDpiVpnMode(mode, { reevaluate = false } = {}) {
+  if (!mode) return false;
   const prev = S.vpnMode;
   S.vpnMode = mode;
   renderAll();
@@ -964,13 +1008,14 @@ export function setDpiVpnMode(mode, { reevaluate = false } = {}) {
     // Повторный вызов с тем же TUN нужен при выключении strict: сохранённый
     // split снова становится активным и должен реально вернуть winws.
     if (reevaluate && splitDiscordActive()) {
-      resumeEngineAfterTun();
-    } else if (S.base === "running" || S.base === "starting") {
-      pauseEngineForTun();
+      return resumeEngineAfterTun();
+    } else if (["running", "starting", "error"].includes(S.base)) {
+      return pauseEngineForTun();
     }
   } else if (prev === "tun") {
-    resumeEngineAfterTun();
+    return resumeEngineAfterTun();
   }
+  return true;
 }
 
 // Внести сервер активной VPN-ноды в exclude winws (главный риск из спайка —
