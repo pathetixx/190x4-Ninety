@@ -43,9 +43,8 @@ pub struct DpiState {
     // Службы, чей ImagePath был проверен как принадлежащий каталогу Ninety.
     // Никогда не останавливаем глобальные WinDivert/WinDivert14 вслепую.
     owned_services: Mutex<Vec<String>>,
-    // Мутации подписанного DPI-набора и ACTIVE_*.bin должны быть линейными:
-    // параллельный sync + смена fake иначе могли записать marker от одного
-    // выбора, а активный файл — от другого.
+    // Мутации подписанного DPI-набора, локальных списков и ACTIVE_*.bin должны
+    // быть линейными: sync переносит их в новое поколение перед commit pointer.
     data: tokio::sync::Mutex<()>,
 }
 
@@ -194,6 +193,24 @@ const MAX_CHANNEL_ENTRIES: usize = 2048;
 const MAX_CHANNEL_ENTRY_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_CHANNEL_UNPACKED_BYTES: u64 = 256 * 1024 * 1024;
 static TEMP_FILE_SEQ: AtomicU64 = AtomicU64::new(0);
+const CHANNEL_POINTER_FILE: &str = "channel-current";
+const CHANNEL_GENERATIONS_DIR: &str = "channel-generations";
+const CHANNEL_LIST_FILES: [&str; 4] = [
+    "list-general.txt",
+    "list-google.txt",
+    "list-exclude.txt",
+    "ipset-exclude.txt",
+];
+const LOCAL_LIST_FILES: [&str; 7] = [
+    "list-general-user.txt",
+    "list-exclude-user.txt",
+    "ipset-exclude-user.txt",
+    "active-vpn-domain.txt",
+    "active-vpn-ip.txt",
+    "ipset-all.txt",
+    "ipset-all.base.txt",
+];
+const CHANNEL_SERVICE_FILES: [&str; 2] = ["hosts", "ipset-service.txt"];
 
 struct StagingDirGuard {
     path: PathBuf,
@@ -238,9 +255,107 @@ fn bin_dir(app: &AppHandle, monkey: bool) -> Result<PathBuf, String> {
 fn res_lists(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(res_dpi(app)?.join("lists"))
 }
-// Writable-каталог списков: <app_data>/dpi/lists.
+
+fn valid_channel_generation_name(name: &str) -> bool {
+    name.starts_with("gen-")
+        && name.len() <= 128
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+fn validate_channel_generation(path: &Path) -> Result<(), String> {
+    let required_files = [
+        path.join("strategies.json"),
+        path.join("version.txt"),
+        path.join("lists").join(CHANNEL_LIST_FILES[0]),
+        path.join("lists").join(CHANNEL_LIST_FILES[1]),
+        path.join("lists").join(CHANNEL_LIST_FILES[2]),
+        path.join("lists").join(CHANNEL_LIST_FILES[3]),
+        path.join("service").join(CHANNEL_SERVICE_FILES[0]),
+        path.join("service").join(CHANNEL_SERVICE_FILES[1]),
+    ];
+    for file in required_files {
+        let metadata = std::fs::symlink_metadata(&file).map_err(|e| {
+            format!(
+                "DPI channel generation incomplete ({}): {e}",
+                file.display()
+            )
+        })?;
+        if !metadata.file_type().is_file() {
+            return Err(format!(
+                "DPI channel generation contains a non-file: {}",
+                file.display()
+            ));
+        }
+    }
+    let bin = path.join("bin-data");
+    let metadata = std::fs::symlink_metadata(&bin)
+        .map_err(|e| format!("DPI channel generation has no bin-data: {e}"))?;
+    if !metadata.file_type().is_dir() {
+        return Err("DPI channel generation bin-data is not a directory".into());
+    }
+    Ok(())
+}
+
+fn active_channel_generation_from_dpi(dpi_data: &Path) -> Result<Option<PathBuf>, String> {
+    let pointer = dpi_data.join(CHANNEL_POINTER_FILE);
+    let raw = match std::fs::read_to_string(&pointer) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("read DPI channel pointer: {e}")),
+    };
+    let name = raw.trim();
+    if !valid_channel_generation_name(name) {
+        return Err("DPI channel pointer is invalid".into());
+    }
+    let generation = dpi_data.join(CHANNEL_GENERATIONS_DIR).join(name);
+    validate_channel_generation(&generation)?;
+    Ok(Some(generation))
+}
+
+fn active_channel_generation(app: &AppHandle) -> Result<Option<PathBuf>, String> {
+    let dpi_data = crate::app_paths::data_dir(app)?.join("dpi");
+    active_channel_generation_from_dpi(&dpi_data)
+}
+
+fn channel_generation_name() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let seq = TEMP_FILE_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("gen-{nanos}-{}-{seq}", std::process::id())
+}
+
+#[cfg(target_os = "windows")]
+fn finalize_channel_generation(from: &Path, to: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_WRITE_THROUGH};
+
+    let source: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+    unsafe {
+        MoveFileExW(
+            PCWSTR(source.as_ptr()),
+            PCWSTR(destination.as_ptr()),
+            MOVEFILE_WRITE_THROUGH,
+        )
+        .map_err(|e| format!("finalize DPI channel generation: {e}"))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn finalize_channel_generation(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::rename(from, to).map_err(|e| format!("finalize DPI channel generation: {e}"))
+}
+
+// Writable-каталог списков: активное поколение канала либо legacy dpi/lists
+// до первой успешной поколенческой синхронизации.
 fn lists_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = crate::app_paths::data_dir(app)?.join("dpi").join("lists");
+    let dir = match active_channel_generation(app)? {
+        Some(generation) => generation.join("lists"),
+        None => crate::app_paths::data_dir(app)?.join("dpi").join("lists"),
+    };
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir lists: {e}"))?;
     Ok(dir)
 }
@@ -282,14 +397,16 @@ fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dst)
 }
 
-// Writable-каталог .bin-пейлоадов: <app_data>/dpi/bin-data. Движок (winws.exe +
-// драйвер) остаётся read-only в ресурсе, а .bin выносим сюда, чтобы канал мог их
-// обновлять без переустановки. winws читает .bin по абсолютному пути (%BIN%),
-// независимо от cwd — поэтому свойство «движок из read-only» не нарушается.
+// Writable-каталог .bin-пейлоадов: bin-data активного поколения либо legacy
+// <app_data>/dpi/bin-data. Движок (winws.exe + драйвер) остаётся read-only в
+// ресурсе. winws читает .bin по абсолютному пути (%BIN%), независимо от cwd.
 fn bindata_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = crate::app_paths::data_dir(app)?
-        .join("dpi")
-        .join("bin-data");
+    let dir = match active_channel_generation(app)? {
+        Some(generation) => generation.join("bin-data"),
+        None => crate::app_paths::data_dir(app)?
+            .join("dpi")
+            .join("bin-data"),
+    };
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir bin-data: {e}"))?;
     Ok(dir)
 }
@@ -319,9 +436,12 @@ struct FakeSelection {
 }
 
 fn fake_selection_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(crate::app_paths::data_dir(app)?
-        .join("dpi")
-        .join("fake-selection.json"))
+    Ok(match active_channel_generation(app)? {
+        Some(generation) => generation.join("fake-selection.json"),
+        None => crate::app_paths::data_dir(app)?
+            .join("dpi")
+            .join("fake-selection.json"),
+    })
 }
 
 fn valid_fake_filename(name: &str) -> bool {
@@ -388,9 +508,13 @@ fn load_fake_selection(app: &AppHandle) -> FakeSelection {
 
 fn save_fake_selection(app: &AppHandle, selection: &FakeSelection) -> Result<(), String> {
     let path = fake_selection_path(app)?;
+    save_fake_selection_at(&path, selection)
+}
+
+fn save_fake_selection_at(path: &Path, selection: &FakeSelection) -> Result<(), String> {
     let raw = serde_json::to_string_pretty(selection)
         .map_err(|e| format!("serialize fake selection: {e}"))?;
-    write_replace(&path, &format!("{raw}\n"), "fake selection")
+    write_replace(path, &format!("{raw}\n"), "fake selection")
 }
 
 fn files_equal(left: &Path, right: &Path) -> bool {
@@ -416,6 +540,9 @@ fn files_equal(left: &Path, right: &Path) -> bool {
 
 fn sync_bundled_bindata(app: &AppHandle, dst: &Path) -> Result<(), String> {
     let src = bin_dir(app, false)?;
+    if active_channel_generation(app)?.is_some() {
+        return Ok(());
+    }
     let authoritative = crate::app_paths::data_dir(app)
         .map(|dir| !dir.join("dpi").join("strategies.json").is_file())
         .unwrap_or(true);
@@ -518,6 +645,18 @@ fn reapply_fake_selection_with_inventory(
     inventory: Option<&std::collections::HashSet<String>>,
 ) -> Result<Vec<String>, String> {
     let mut selection = load_fake_selection(app);
+    let reset = reapply_fake_selection_value(dir, inventory, &mut selection)?;
+    if !reset.is_empty() {
+        save_fake_selection(app, &selection)?;
+    }
+    Ok(reset)
+}
+
+fn reapply_fake_selection_value(
+    dir: &Path,
+    inventory: Option<&std::collections::HashSet<String>>,
+    selection: &mut FakeSelection,
+) -> Result<Vec<String>, String> {
     let mut reset = Vec::new();
     for kind in ["discord", "game"] {
         let selected = match kind {
@@ -540,9 +679,6 @@ fn reapply_fake_selection_with_inventory(
         // не скрываем её сбросом маркера и не продолжаем с частично применённым sync.
         apply_fake_file(dir, kind, &file)?;
     }
-    if !reset.is_empty() {
-        save_fake_selection(app, &selection)?;
-    }
     Ok(reset)
 }
 
@@ -550,19 +686,18 @@ fn reapply_fake_selection(app: &AppHandle, dir: &Path) -> Result<Vec<String>, St
     reapply_fake_selection_with_inventory(app, dir, None)
 }
 
-// Путь к strategies.json: оверлей канала (<app_data>/dpi/strategies.json) имеет
-// приоритет над забандленным ресурсом. Так обновлённые стратегии применяются без
-// переустановки приложения.
-fn strategies_path(app: &AppHandle) -> PathBuf {
-    if let Ok(dir) = crate::app_paths::data_dir(app) {
-        let p = dir.join("dpi").join("strategies.json");
-        if p.exists() {
-            return p;
-        }
+// Путь к strategies.json: активное поколение → legacy overlay → ресурс.
+// Поколение выбирается тем же единым pointer, что списки и .bin.
+fn strategies_path(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(generation) = active_channel_generation(app)? {
+        return Ok(generation.join("strategies.json"));
     }
-    res_dpi(app)
-        .map(|d| d.join("strategies.json"))
-        .unwrap_or_default()
+    let dir = crate::app_paths::data_dir(app)?;
+    let p = dir.join("dpi").join("strategies.json");
+    if p.exists() {
+        return Ok(p);
+    }
+    Ok(res_dpi(app)?.join("strategies.json"))
 }
 
 // Режим ipset → содержимое ipset-all.txt (как в service.bat Flowseal):
@@ -581,14 +716,13 @@ fn write_ipset_mode(app: &AppHandle, lists: &Path, mode: &str) -> Result<(), Str
             } else {
                 res_lists(app)?.join("ipset-all.base.txt")
             };
-            std::fs::copy(&base, &target).map_err(|e| format!("ipset loaded: {e}"))?;
+            copy_replace(&base, &target, "ipset loaded")?;
         }
         "off" => {
-            std::fs::write(&target, b"203.0.113.113/32\n")
-                .map_err(|e| format!("ipset off: {e}"))?;
+            write_replace(&target, "203.0.113.113/32\n", "ipset off")?;
         }
         _ => {
-            std::fs::write(&target, b"").map_err(|e| format!("ipset any: {e}"))?;
+            write_replace(&target, "", "ipset any")?;
         }
     }
     Ok(())
@@ -622,7 +756,7 @@ pub fn dpi_read_log(app: AppHandle) -> Result<String, String> {
 }
 
 fn read_strategies(app: &AppHandle) -> Result<Vec<Strategy>, String> {
-    let path = strategies_path(app);
+    let path = strategies_path(app)?;
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("read strategies.json: {e}"))?;
     serde_json::from_str(&raw).map_err(|e| format!("parse strategies.json: {e}"))
 }
@@ -743,7 +877,7 @@ fn kill_stray_winws(_dpi_root: &Path) -> bool {
 /// Сырой strategies.json — фронт рендерит список стратегий из него.
 #[tauri::command]
 pub fn dpi_strategies(app: AppHandle) -> Result<String, String> {
-    let path = strategies_path(&app);
+    let path = strategies_path(&app)?;
     std::fs::read_to_string(&path).map_err(|e| format!("read strategies.json: {e}"))
 }
 
@@ -1140,11 +1274,13 @@ pub fn dpi_running(state: State<'_, DpiState>) -> bool {
 /// winws не трогал зашифрованный трафик к серверу (главный риск из спайка).
 /// Дедуп; домен — в list-exclude-user.txt, IP — в ipset-exclude-user.txt.
 #[tauri::command]
-pub fn dpi_set_node_exclude(
+pub async fn dpi_set_node_exclude(
     app: AppHandle,
+    state: State<'_, DpiState>,
     ip: Option<String>,
     domain: Option<String>,
 ) -> Result<(), String> {
+    let _data = state.data.lock().await;
     let lists = ensure_lists(&app)?;
     if let Some(d) = domain.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         append_unique(&lists.join("list-exclude-user.txt"), d)?;
@@ -1160,11 +1296,13 @@ pub fn dpi_set_node_exclude(
 /// Атомарно заменить исключение активного VPN endpoint. В отличие от
 /// dpi_set_node_exclude это session-managed state, а не пользовательский список.
 #[tauri::command]
-pub fn dpi_set_active_vpn_endpoint(
+pub async fn dpi_set_active_vpn_endpoint(
     app: AppHandle,
+    state: State<'_, DpiState>,
     ip: Option<String>,
     domain: Option<String>,
 ) -> Result<(), String> {
+    let _data = state.data.lock().await;
     let lists = ensure_lists(&app)?;
     let domain_value = domain
         .as_deref()
@@ -1207,7 +1345,13 @@ pub fn dpi_read_list(app: AppHandle, kind: String) -> Result<String, String> {
 /// trim каждой строки, выкидывает пустые и дубли (комментарии # и // сохраняет).
 /// Возвращает число записей-доменов (без комментариев) для обновления счётчика.
 #[tauri::command]
-pub fn dpi_write_list(app: AppHandle, kind: String, content: String) -> Result<usize, String> {
+pub async fn dpi_write_list(
+    app: AppHandle,
+    state: State<'_, DpiState>,
+    kind: String,
+    content: String,
+) -> Result<usize, String> {
+    let _data = state.data.lock().await;
     let lists = ensure_lists(&app)?;
     let mut seen = std::collections::BTreeSet::new();
     let mut out = String::new();
@@ -1228,8 +1372,11 @@ pub fn dpi_write_list(app: AppHandle, kind: String, content: String) -> Result<u
             n += 1;
         }
     }
-    std::fs::write(lists.join(user_list_name(&kind)), out)
-        .map_err(|e| format!("write {}: {e}", user_list_name(&kind)))?;
+    write_replace(
+        &lists.join(user_list_name(&kind)),
+        &out,
+        &format!("write {}", user_list_name(&kind)),
+    )?;
     Ok(n)
 }
 
@@ -1244,7 +1391,7 @@ fn append_unique(path: &Path, line: &str) -> Result<(), String> {
     }
     out.push_str(line);
     out.push('\n');
-    std::fs::write(path, out).map_err(|e| format!("write exclude: {e}"))
+    write_replace(path, &out, "write exclude")
 }
 
 fn normalize_ipset_entry(raw: &str) -> Result<String, String> {
@@ -1276,23 +1423,32 @@ fn normalize_ipset_entry(raw: &str) -> Result<String, String> {
 }
 
 // ── Версии / обновление списков ─────────────────────────────────────
-// Версия набора стратегий: app_data-маркер (после обновления) приоритетнее
-// ресурсной (bundled). Так UI отражает обновления и гасит badge.
-fn strat_version(app: &AppHandle) -> String {
-    if let Ok(dir) = crate::app_paths::data_dir(app) {
-        let marker = dir.join("dpi").join("strategies-version.txt");
-        if let Ok(v) = std::fs::read_to_string(&marker) {
-            let v = v.trim().to_string();
-            if !v.is_empty() {
-                return v;
-            }
+// Версия набора стратегий: активное поколение → legacy marker → ресурс.
+// Так UI не может увидеть версию, не совпадающую с активными данными.
+fn strat_version(app: &AppHandle) -> Result<String, String> {
+    if let Some(generation) = active_channel_generation(app)? {
+        let version = std::fs::read_to_string(generation.join("version.txt"))
+            .map_err(|e| format!("read DPI channel version: {e}"))?
+            .trim()
+            .to_string();
+        if version.is_empty() {
+            return Err("DPI channel version is empty".into());
+        }
+        return Ok(version);
+    }
+    let dir = crate::app_paths::data_dir(app)?;
+    let marker = dir.join("dpi").join("strategies-version.txt");
+    if let Ok(v) = std::fs::read_to_string(&marker) {
+        let v = v.trim().to_string();
+        if !v.is_empty() {
+            return Ok(v);
         }
     }
-    res_dpi(app)
+    Ok(res_dpi(app)
         .ok()
         .and_then(|d| std::fs::read_to_string(d.join("version.txt")).ok())
         .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "—".into())
+        .unwrap_or_else(|| "—".into()))
 }
 
 // Распарсить версию движка из вывода `winws --version` (баннер вида
@@ -1386,13 +1542,13 @@ fn engine_version(app: &AppHandle) -> String {
 /// Движок едет в составе приложения (app-OTA), поэтому отдельной кнопки обновления
 /// у него нет — обновляется вместе с Ninety.
 #[tauri::command]
-pub fn dpi_versions(app: AppHandle) -> serde_json::Value {
-    let strat = strat_version(&app);
-    serde_json::json!({
+pub fn dpi_versions(app: AppHandle) -> Result<serde_json::Value, String> {
+    let strat = strat_version(&app)?;
+    Ok(serde_json::json!({
         "app": app.package_info().version.to_string(),
         "engine": engine_version(&app),
         "strategies": strat,
-    })
+    }))
 }
 
 fn no_proxy_client() -> Result<reqwest::Client, String> {
@@ -1529,7 +1685,7 @@ pub async fn dpi_check_update(
     app: AppHandle,
     port: Option<u16>,
 ) -> Result<serde_json::Value, String> {
-    let local = strat_version(&app);
+    let local = strat_version(&app)?;
     // port>0 (VPN в proxy/systemProxy) → проверка идёт через туннель: version.txt
     // релиза dpi-channel лежит на github, а он из РФ режется ТСПУ напрямую.
     let remote = fetch_list_text(&format!("{CHANNEL_BASE}/version.txt"), port)
@@ -1621,8 +1777,10 @@ fn referenced_bins(strategies: &[Strategy]) -> std::collections::HashSet<String>
 // Каталог последнего применённого подписанного service-набора (hosts/ipset) —
 // оффлайн-фолбэк, когда сеть недоступна, но канал уже синкали хоть раз.
 fn channel_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = crate::app_paths::data_dir(app)?.join("dpi").join("channel");
-    Ok(dir)
+    Ok(match active_channel_generation(app)? {
+        Some(generation) => generation.join("service"),
+        None => crate::app_paths::data_dir(app)?.join("dpi").join("channel"),
+    })
 }
 
 // Скачать ПОДПИСАННЫЙ бандл канала, проверить minisign-подпись ДО распаковки и
@@ -1719,10 +1877,10 @@ fn read_cached_service(app: &AppHandle, name: &str) -> Result<String, String> {
 }
 
 // Взять service-файл канала (hosts / ipset-service.txt) из ПОДПИСАННОГО бандла.
-// Сеть → стейджим свежий bundle (verify), извлекаем service/<name>, кешируем в
-// channel/. Нет сети → фолбэк на последнюю применённую подпись. Раньше hosts/ipset
-// тянулись напрямую с raw.githubusercontent.com/Flowseal без подписи и писались в
-// системный hosts — этот путь закрыт: доверяем только minisign-верифицированным данным.
+// Сеть → стейджим свежий bundle (verify), извлекаем service/<name>. Нет сети →
+// фолбэк на service из активного поколения (или legacy-кеш до первой миграции).
+// Раньше hosts/ipset тянулись напрямую с raw.githubusercontent.com/Flowseal без
+// подписи — этот путь закрыт: доверяем только minisign-верифицированным данным.
 async fn fetch_channel_service(
     app: &AppHandle,
     port: Option<u16>,
@@ -1730,29 +1888,96 @@ async fn fetch_channel_service(
 ) -> Result<String, String> {
     match stage_verified_bundle(app, port).await {
         Ok(staging) => {
-            let src = staging.join("service").join(name);
-            if !src.exists() {
-                // Бандл ещё не несёт service/* (канал не пересобран роботом) —
-                // не падаем сразу, пробуем ранее применённую подписанную копию.
-                let _ = std::fs::remove_dir_all(&staging);
-                return read_cached_service(app, name);
-            }
-            let body = std::fs::read_to_string(&src).map_err(|e| format!("read {name}: {e}"))?;
-            if let Ok(dir) = channel_cache_dir(app) {
-                let _ = std::fs::create_dir_all(&dir);
-                let _ = std::fs::write(dir.join(name), &body);
-            }
+            let result = (|| -> Result<String, String> {
+                let src = staging.join("service").join(name);
+                if !src.exists() {
+                    // Старые установки могут иметь кеш от переходного bundle.
+                    return read_cached_service(app, name);
+                }
+                let body =
+                    std::fs::read_to_string(&src).map_err(|e| format!("read {name}: {e}"))?;
+                // До первой полной синхронизации сохраняем совместимый legacy-кеш.
+                // Активное поколение не меняем по одному service-файлу: оно является
+                // снимком подписанного bundle и переключается только целиком.
+                if active_channel_generation(app)?.is_none() {
+                    let dir = channel_cache_dir(app)?;
+                    std::fs::create_dir_all(&dir)
+                        .map_err(|e| format!("mkdir channel cache: {e}"))?;
+                    write_replace(&dir.join(name), &body, &format!("service {name}"))?;
+                }
+                Ok(body)
+            })();
             let _ = std::fs::remove_dir_all(&staging);
-            Ok(body)
+            result
         }
         // Сеть недоступна → отдаём кешированную подпись, если есть; иначе сетевую ошибку.
         Err(net) => read_cached_service(app, name).map_err(|_| net),
     }
 }
 
+fn require_regular_file(path: &Path, label: &str) -> Result<(), String> {
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|e| format!("{label} отсутствует: {e}"))?;
+    if !metadata.file_type().is_file() {
+        return Err(format!("{label} не является обычным файлом"));
+    }
+    Ok(())
+}
+
+fn valid_channel_version(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= 128
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '+'))
+}
+
+fn cleanup_channel_generations(
+    generations: &Path,
+    active: &str,
+    previous: Option<&str>,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let entries = match std::fs::read_dir(generations) {
+        Ok(entries) => entries,
+        Err(e) => {
+            warnings.push(format!("read DPI channel generations: {e}"));
+            return warnings;
+        }
+    };
+    for item in entries {
+        let entry = match item {
+            Ok(entry) => entry,
+            Err(e) => {
+                warnings.push(format!("read DPI channel generation entry: {e}"));
+                continue;
+            }
+        };
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == active || previous == Some(name.as_str()) {
+            continue;
+        }
+        let is_dir = match entry.file_type() {
+            Ok(kind) => kind.is_dir(),
+            Err(e) => {
+                warnings.push(format!("DPI channel generation type ({name}): {e}"));
+                continue;
+            }
+        };
+        if !is_dir {
+            continue;
+        }
+        if let Err(e) = std::fs::remove_dir_all(entry.path()) {
+            warnings.push(format!("remove stale DPI channel generation {name}: {e}"));
+        }
+    }
+    warnings
+}
+
 /// Синхронизировать канал стратегий: скачать подписанный бандл, проверить подпись
 /// ДО распаковки, провалидировать (strategies.json парсится, все .bin на месте) и
-/// атомарно применить в app_data. Возвращает {version, applied}. Движок НЕ трогает.
+/// собрать полное поколение в app_data. Единственная commit-точка — атомарная
+/// замена channel-current после финализации каталога. Движок НЕ трогает.
 #[tauri::command]
 pub async fn dpi_sync_channel(
     app: AppHandle,
@@ -1766,17 +1991,28 @@ pub async fn dpi_sync_channel(
 
     let result = (|| -> Result<serde_json::Value, String> {
         std::fs::create_dir_all(&dpi_data).map_err(|e| format!("mkdir dpi data: {e}"))?;
+        let current_generation = active_channel_generation_from_dpi(&dpi_data)?;
+        let previous_name = current_generation
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            .map(str::to_string);
+        let current_lists = ensure_lists(&app)?;
+        let mut fake_selection = load_fake_selection(&app);
 
         // strategies.json валиден?
         let strat_path = staging.join("strategies.json");
+        require_regular_file(&strat_path, "staged strategies.json")?;
         let strat_raw = std::fs::read_to_string(&strat_path)
             .map_err(|e| format!("staged strategies.json: {e}"))?;
         let strategies: Vec<Strategy> =
             serde_json::from_str(&strat_raw).map_err(|e| format!("parse strategies: {e}"))?;
+        if strategies.is_empty() {
+            return Err("в бандле нет стратегий".into());
+        }
         // Бандл обязан быть самодостаточным: нельзя принять новую стратегию,
         // которая случайно работает лишь пока в bin-data лежит старый payload.
         let staged_bin = staging.join("bin");
-        let existing = bindata_dir(&app)?;
         if !staged_bin.is_dir() {
             return Err("в бандле отсутствует каталог bin".into());
         }
@@ -1827,95 +2063,127 @@ pub async fn dpi_sync_channel(
             }
         }
 
-        // 4. Применить: сначала зависимости, strategies.json последним. Так новая
-        // стратегия не сможет сослаться на .bin/список, который не скопировался.
-        let lists = lists_dir(&app)?;
-        let staged_lists = staging.join("lists");
-        for name in [
-            "list-general.txt",
-            "list-google.txt",
-            "list-exclude.txt",
-            "ipset-exclude.txt",
-        ] {
-            let from = staged_lists.join(name);
-            if from.exists() {
-                copy_replace(&from, &lists.join(name), &format!("list {name}"))?;
-            }
-        }
-
-        for (path, name) in payloads {
-            copy_replace(&path, &existing.join(&name), &format!("bin {name}"))?;
-        }
-
-        // Подписанные service-файлы (hosts-пин + база ipset) — в кеш канала: hosts/ipset
-        // берут их отсюда как оффлайн-фолбэк, когда сеть недоступна.
-        let staged_service = staging.join("service");
-        if staged_service.exists() {
-            let chan = channel_cache_dir(&app)?;
-            std::fs::create_dir_all(&chan).map_err(|e| format!("mkdir channel cache: {e}"))?;
-            for name in ["hosts", "ipset-service.txt"] {
-                let from = staged_service.join(name);
-                if from.exists() {
-                    copy_replace(&from, &chan.join(name), &format!("service {name}"))?;
-                }
-            }
-        }
-
         let ver = std::fs::read_to_string(staging.join("version.txt"))
-            .unwrap_or_default()
+            .map_err(|e| format!("staged version.txt: {e}"))?
             .trim()
             .to_string();
-        // user-списки и ipset-all.txt НЕ трогаем: они на стороне клиента / задаются режимом.
-        copy_replace(&strat_path, &dpi_data.join("strategies.json"), "strategies")?;
-        // Marker — commit record. Пишем строго последним: если strategies не
-        // применились, UI не должен считать неудачную версию установленной.
-        if !ver.is_empty() {
-            write_replace(
-                &dpi_data.join("strategies-version.txt"),
-                &ver,
-                "strategies version",
+        if !valid_channel_version(&ver) {
+            return Err("недопустимая версия DPI-канала".into());
+        }
+
+        let staged_lists = staging.join("lists");
+        for name in CHANNEL_LIST_FILES {
+            let from = staged_lists.join(name);
+            require_regular_file(&from, &format!("staged list {name}"))?;
+        }
+        let staged_service = staging.join("service");
+        for name in CHANNEL_SERVICE_FILES {
+            require_regular_file(
+                &staged_service.join(name),
+                &format!("staged service {name}"),
             )?;
         }
 
-        // Только после commit record чистим старые payload. При ошибке любой
-        // предыдущей записи старые strategies всё ещё находят все свои .bin.
-        // Ошибка самой уборки не ломает уже применённый новый набор: лишний
-        // файл не участвует в новых стратегиях и будет повторно удалён позже.
-        let mut cleanup_warnings = Vec::new();
-        match std::fs::read_dir(&existing) {
-            Ok(rd) => {
-                for item in rd {
-                    let entry = match item {
-                        Ok(entry) => entry,
-                        Err(e) => {
-                            cleanup_warnings.push(format!("read bin-data entry: {e}"));
-                            continue;
-                        }
-                    };
-                    let is_file = match entry.file_type() {
-                        Ok(kind) => kind.is_file(),
-                        Err(e) => {
-                            cleanup_warnings.push(format!("bin-data file type: {e}"));
-                            continue;
-                        }
-                    };
-                    if !is_file {
-                        continue;
+        // Собираем новое поколение отдельно от активного. Пока channel-current
+        // указывает на старое, ни один читатель не увидит эти файлы.
+        let generations = dpi_data.join(CHANNEL_GENERATIONS_DIR);
+        std::fs::create_dir_all(&generations)
+            .map_err(|e| format!("mkdir DPI channel generations: {e}"))?;
+        let generation_name = channel_generation_name();
+        let pending = generations.join(format!(".{generation_name}.pending"));
+        let finalized = generations.join(&generation_name);
+        std::fs::create_dir(&pending)
+            .map_err(|e| format!("create pending DPI channel generation: {e}"))?;
+
+        let build_result = (|| -> Result<Vec<String>, String> {
+            let lists = pending.join("lists");
+            let bin = pending.join("bin-data");
+            let service = pending.join("service");
+            std::fs::create_dir_all(&lists).map_err(|e| format!("mkdir pending DPI lists: {e}"))?;
+            std::fs::create_dir_all(&bin)
+                .map_err(|e| format!("mkdir pending DPI bin-data: {e}"))?;
+            std::fs::create_dir_all(&service)
+                .map_err(|e| format!("mkdir pending DPI service: {e}"))?;
+
+            // Локальные пользовательские/session-файлы переносятся в снимок,
+            // но четыре базовых списка всегда берутся из подписанного bundle.
+            for name in LOCAL_LIST_FILES {
+                let from = current_lists.join(name);
+                let to = lists.join(name);
+                if from.is_file() {
+                    copy_replace(&from, &to, &format!("local list {name}"))?;
+                } else if name == "ipset-all.base.txt" {
+                    let bundled = res_lists(&app)?.join(name);
+                    if bundled.is_file() {
+                        copy_replace(&bundled, &to, "bundled ipset base")?;
+                    } else {
+                        write_replace(&to, "", "empty ipset base")?;
                     }
-                    let name = entry.file_name().to_string_lossy().into_owned();
-                    if valid_bin_filename(&name) && !incoming.contains(&name) {
-                        if let Err(e) = std::fs::remove_file(entry.path()) {
-                            cleanup_warnings.push(format!("remove stale channel bin {name}: {e}"));
-                        }
-                    }
+                } else {
+                    write_replace(&to, "", &format!("empty local list {name}"))?;
                 }
             }
-            Err(e) => cleanup_warnings.push(format!("read existing bin-data: {e}")),
-        }
-        // Даже если ОС не дала удалить stale-файл, исчезнувший из подписанного
-        // inventory пользовательский выбор не должен быть применён повторно.
-        let fake_selection_reset =
-            reapply_fake_selection_with_inventory(&app, &existing, Some(&incoming))?;
+            for name in CHANNEL_LIST_FILES {
+                copy_replace(
+                    &staged_lists.join(name),
+                    &lists.join(name),
+                    &format!("channel list {name}"),
+                )?;
+            }
+            for (path, name) in &payloads {
+                copy_replace(path, &bin.join(name), &format!("channel bin {name}"))?;
+            }
+            for name in CHANNEL_SERVICE_FILES {
+                copy_replace(
+                    &staged_service.join(name),
+                    &service.join(name),
+                    &format!("channel service {name}"),
+                )?;
+            }
+            copy_replace(
+                &strat_path,
+                &pending.join("strategies.json"),
+                "channel strategies",
+            )?;
+            write_replace(
+                &pending.join("version.txt"),
+                &format!("{ver}\n"),
+                "channel version",
+            )?;
+
+            // Выбор UDP fake тоже входит в новое поколение. Исчезнувший payload
+            // сбрасывается внутри pending, не меняя активный набор до commit.
+            let fake_selection_reset =
+                reapply_fake_selection_value(&bin, Some(&incoming), &mut fake_selection)?;
+            save_fake_selection_at(&pending.join("fake-selection.json"), &fake_selection)?;
+            validate_channel_generation(&pending)?;
+
+            // Сначала атомарно финализируем полный каталог, затем одним
+            // crash-safe replace переключаем читателей на него.
+            finalize_channel_generation(&pending, &finalized)?;
+            validate_channel_generation(&finalized)?;
+            write_replace(
+                &dpi_data.join(CHANNEL_POINTER_FILE),
+                &format!("{generation_name}\n"),
+                "DPI channel pointer",
+            )?;
+            Ok(fake_selection_reset)
+        })();
+
+        let fake_selection_reset = match build_result {
+            Ok(reset) => reset,
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&pending);
+                let _ = std::fs::remove_dir_all(&finalized);
+                return Err(error);
+            }
+        };
+
+        // Предыдущее поколение оставляем: уже запущенный winws может ещё читать
+        // старые пути до frontend-restart. Более старые/осиротевшие поколения
+        // удаляем best-effort; они не участвуют в выборе активного набора.
+        let cleanup_warnings =
+            cleanup_channel_generations(&generations, &generation_name, previous_name.as_deref());
 
         Ok(serde_json::json!({
             "version": ver,
@@ -2159,7 +2427,12 @@ pub fn dpi_ipset_count(app: AppHandle) -> Result<usize, String> {
 /// движок запущен в этом режиме, перезапуск winws — на стороне фронта.
 /// Возвращает число загруженных IP.
 #[tauri::command]
-pub async fn dpi_update_ipset(app: AppHandle, port: Option<u16>) -> Result<usize, String> {
+pub async fn dpi_update_ipset(
+    app: AppHandle,
+    state: State<'_, DpiState>,
+    port: Option<u16>,
+) -> Result<usize, String> {
+    let _data = state.data.lock().await;
     let lists = ensure_lists(&app)?;
     // База ipset — тоже из подписанного канала (было: прямой fetch с Flowseal raw).
     let raw = fetch_channel_service(&app, port, "ipset-service.txt")
@@ -2170,8 +2443,11 @@ pub async fn dpi_update_ipset(app: AppHandle, port: Option<u16>) -> Result<usize
     if n == 0 {
         return Err("в источнике нет IP-записей".into());
     }
-    std::fs::write(lists.join("ipset-all.base.txt"), body.as_bytes())
-        .map_err(|e| format!("запись ipset base: {e}"))?;
+    write_replace(
+        &lists.join("ipset-all.base.txt"),
+        &body,
+        "запись ipset base",
+    )?;
     Ok(n)
 }
 
@@ -2553,6 +2829,76 @@ mod tests {
     fn embedded_channel_public_keys_decode_after_exactly_one_base64_layer() {
         assert!(decode_channel_public_key(CHANNEL_DEDICATED_PUBKEY_B64).is_ok());
         assert!(decode_channel_public_key(CHANNEL_LEGACY_PUBKEY_B64).is_ok());
+    }
+
+    fn create_test_channel_generation(dpi_data: &Path, name: &str, version: &str) -> PathBuf {
+        let generation = dpi_data.join(CHANNEL_GENERATIONS_DIR).join(name);
+        std::fs::create_dir_all(generation.join("lists")).unwrap();
+        std::fs::create_dir_all(generation.join("bin-data")).unwrap();
+        std::fs::create_dir_all(generation.join("service")).unwrap();
+        std::fs::write(generation.join("strategies.json"), b"[]\n").unwrap();
+        std::fs::write(generation.join("version.txt"), format!("{version}\n")).unwrap();
+        for file in CHANNEL_LIST_FILES {
+            std::fs::write(generation.join("lists").join(file), b"data\n").unwrap();
+        }
+        for file in CHANNEL_SERVICE_FILES {
+            std::fs::write(generation.join("service").join(file), b"data\n").unwrap();
+        }
+        generation
+    }
+
+    #[test]
+    fn channel_generation_is_visible_only_after_pointer_commit() {
+        let root = std::env::temp_dir().join(format!(
+            "ninety-dpi-generation-test-{}-{}",
+            std::process::id(),
+            TEMP_FILE_SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let old = create_test_channel_generation(&root, "gen-100-1-0", "old");
+        write_replace(
+            &root.join(CHANNEL_POINTER_FILE),
+            "gen-100-1-0\n",
+            "test channel pointer",
+        )
+        .unwrap();
+        assert_eq!(
+            active_channel_generation_from_dpi(&root).unwrap(),
+            Some(old.clone())
+        );
+
+        // Полностью собранное новое поколение ещё не активно без commit pointer.
+        let new = create_test_channel_generation(&root, "gen-200-1-0", "new");
+        assert_eq!(
+            active_channel_generation_from_dpi(&root).unwrap(),
+            Some(old)
+        );
+
+        write_replace(
+            &root.join(CHANNEL_POINTER_FILE),
+            "gen-200-1-0\n",
+            "test channel pointer",
+        )
+        .unwrap();
+        assert_eq!(
+            active_channel_generation_from_dpi(&root).unwrap(),
+            Some(new.clone())
+        );
+
+        // Повреждённое committed-поколение не откатывается молча к смеси legacy.
+        std::fs::remove_file(new.join("strategies.json")).unwrap();
+        assert!(active_channel_generation_from_dpi(&root).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn channel_pointer_rejects_path_traversal() {
+        for invalid in ["", "../gen-1", "gen-1/other", r"gen-1\other", ".gen-1"] {
+            assert!(!valid_channel_generation_name(invalid), "{invalid}");
+        }
+        assert!(valid_channel_generation_name("gen-123-456-0"));
     }
 
     #[test]
