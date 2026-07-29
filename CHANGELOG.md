@@ -2,6 +2,24 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.42 — 2026-07-29
+
+## English
+
+- Fixed Strict Tunnel so disabling it reliably restores the previous Proxy, System Proxy or TUN mode; Mullvad Browser now launches correctly as the standard Windows user from elevated TUN sessions.
+- Hardened VPN and DPI process lifecycle: reconnects and mode changes wait for confirmed cleanup, repeated cleanup cannot terminate unrelated processes, and a failed DPI stop blocks TUN or restart instead of starting a duplicate bypass engine.
+- Connection quality remediation now continues across reconnects, preserves its hourly retry limit, and does not collect local ASN data when diagnostics are disabled.
+- Improved privacy and recovery: WARP errors no longer expose server response data, update checks no longer fall back to a direct connection after a tunneled failure, and URL handler backups preserve other installed clients.
+- Signed DPI channel updates are now transactional: strategies, lists, payloads, service data and local selections switch as one verified generation, while an interrupted update leaves the previous working set active.
+
+## Русский
+
+- Исправлен «Строгий туннель»: после его выключения надёжно восстанавливается прежний режим «Прокси», «Системный прокси» или TUN; Mullvad Browser теперь корректно запускается от обычного пользователя Windows из TUN-сессии с повышенными правами.
+- Усилен жизненный цикл процессов VPN и DPI: переподключение и смена режима дожидаются подтверждённой очистки, повторная очистка не может завершить посторонний процесс, а ошибка остановки DPI блокирует TUN или перезапуск вместо запуска второго движка обхода.
+- Восстановление качества соединения теперь продолжается после переподключения, сохраняет часовой лимит повторов и не собирает локальный ASN при отключённой диагностике.
+- Улучшены приватность и восстановление: ошибки WARP больше не раскрывают ответ сервера, проверка обновлений не переходит на прямое соединение после ошибки туннеля, а резервная копия обработчика ссылок сохраняет другие установленные клиенты.
+- Обновление подписанного DPI-канала стало транзакционным: стратегии, списки, файлы подмены, служебные данные и локальный выбор переключаются одним проверенным поколением, а прерванное обновление оставляет активным прежний рабочий набор.
+
 ## v0.2.41 — 2026-07-26
 
 - Ускорен запуск Ninety: тяжёлые служебные операции больше не блокируют первое отображение окна.
