@@ -1,9 +1,8 @@
 use serde::Serialize;
 
 const OFFICIAL_DOWNLOAD_URL: &str = "https://mullvad.net/en/download/browser/windows";
-const DEFAULT_START_PAGE: &str = "about:blank";
-// CreateProcessWithTokenW (нужен для de-elevation из TUN-режима) ограничивает
-// всю командную строку 1024 символами. Оставляем запас под путь к exe.
+// Для IPC и запуска оставляем консервативную границу, хотя ShellExecute из
+// Explorer допускает более длинную командную строку.
 const MAX_URL_LENGTH: usize = 768;
 const MAX_VERSION_LENGTH: usize = 64;
 
@@ -36,8 +35,8 @@ pub fn protected_browser_status() -> ProtectedBrowserStatus {
 }
 
 /// Переданный адрес намеренно ограничен обычными web-схемами. При отсутствии
-/// адреса открывается пустая вкладка; произвольные browser-флаги из frontend
-/// никогда не попадают в командную строку.
+/// адреса браузер запускается без параметров; произвольные browser-флаги из
+/// frontend никогда не попадают в командную строку.
 #[tauri::command]
 pub fn protected_browser_launch(
     state: tauri::State<'_, crate::vpn::SingboxState>,
@@ -46,14 +45,11 @@ pub fn protected_browser_launch(
     if !crate::vpn::protected_browser_tun_ready(&state) {
         return Err("Mullvad Browser можно запустить только при активном VPN · TUN".into());
     }
-    let target = match url {
-        Some(url) => validate_launch_url(&url)?,
-        None => DEFAULT_START_PAGE.to_string(),
-    };
+    let target = url.map(|url| validate_launch_url(&url)).transpose()?;
 
     #[cfg(target_os = "windows")]
     {
-        windows_impl::launch(&target)
+        windows_impl::launch(target.as_deref())
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -100,7 +96,7 @@ fn validate_launch_url(raw: &str) -> Result<String, String> {
     }
 
     let normalized = parsed.to_string();
-    if normalized.len() > MAX_URL_LENGTH {
+    if normalized.len() > MAX_URL_LENGTH || normalized.chars().any(char::is_whitespace) {
         return Err("адрес слишком длинный".into());
     }
     Ok(normalized)
@@ -147,24 +143,20 @@ mod windows_impl {
     use std::ffi::{OsStr, OsString};
     use std::fs::File;
     use std::io::Read;
-    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
     use std::process::Command;
-    use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::{CloseHandle, HANDLE};
-    use windows::Win32::Security::{
-        GetTokenInformation, TokenElevation, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE,
-        TOKEN_ELEVATION, TOKEN_QUERY,
+    use windows::core::{Interface, BSTR, PCWSTR};
+    use windows::Win32::System::Com::{
+        CoAllowSetForegroundWindow, CoCreateInstance, CoInitializeEx, CoUninitialize, IDispatch,
+        IServiceProvider, CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
     };
-    use windows::Win32::System::Threading::{
-        CreateProcessWithTokenW, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW,
-        CREATE_PROCESS_LOGON_FLAGS, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION,
-        PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, STARTUPINFOW,
+    use windows::Win32::System::Variant::VARIANT;
+    use windows::Win32::UI::Shell::{
+        IShellBrowser, IShellDispatch2, IShellFolderViewDual, IShellWindows, SID_STopLevelBrowser,
+        ShellExecuteW, ShellWindows, SVGIO_BACKGROUND, SWC_DESKTOP, SWFO_NEEDDISPATCH,
     };
-    use windows::Win32::UI::Shell::ShellExecuteW;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetShellWindow, GetWindowThreadProcessId, SW_SHOWNORMAL,
-    };
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     use winreg::enums::{
         HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY, KEY_WOW64_64KEY,
     };
@@ -175,7 +167,6 @@ mod windows_impl {
     const UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall";
     const MAX_UNINSTALL_KEYS: usize = 1_024;
     const MAX_APPLICATION_INI_BYTES: u64 = 64 * 1024;
-    const MAX_TOKEN_COMMAND_LINE_UNITS: usize = 1_024;
 
     #[derive(Debug, Clone)]
     pub(super) struct InstalledBrowser {
@@ -187,18 +178,6 @@ mod windows_impl {
     struct BrowserCandidate {
         path: PathBuf,
         version: Option<String>,
-    }
-
-    struct OwnedHandle(HANDLE);
-
-    impl Drop for OwnedHandle {
-        fn drop(&mut self) {
-            if !self.0.is_invalid() {
-                unsafe {
-                    let _ = CloseHandle(self.0);
-                }
-            }
-        }
     }
 
     pub(super) fn discover() -> Option<InstalledBrowser> {
@@ -230,12 +209,11 @@ mod windows_impl {
             .to_string()
     }
 
-    pub(super) fn launch(target: &str) -> Result<(), String> {
+    pub(super) fn launch(target: Option<&str>) -> Result<(), String> {
         let browser = discover().ok_or("Mullvad Browser не найден")?;
         // std::fs::canonicalize() на Windows обычно возвращает extended-length
-        // путь (\\?\C:\...). Он подходит для проверки файла, но некоторые
-        // CreateProcessWithTokenW/installer-комбинации не принимают такой путь
-        // как application name или current directory.
+        // путь (\\?\C:\...). Он подходит для проверки файла, но Windows Shell
+        // и некоторые installers не принимают такую форму при запуске.
         let elevated = crate::elevation::is_elevated();
         let executable = if elevated {
             without_extended_prefix(&browser.path)
@@ -244,16 +222,25 @@ mod windows_impl {
         };
         let working_dir = executable
             .parent()
-            .ok_or("не удалось определить папку Mullvad Browser")?;
+            .ok_or("не удалось определить папку Mullvad Browser")?
+            .to_path_buf();
 
         if elevated {
-            // TUN обычно запускает Ninety от администратора. Браузеру этот
-            // токен передавать нельзя: берём medium-integrity token Explorer.
-            spawn_as_interactive_user(&executable, &[target], working_dir)
+            // TUN обычно запускает Ninety от администратора. Просим обычный
+            // Explorer выполнить ShellExecute: это официальный Windows-путь
+            // запуска без повышения и не требует SeImpersonatePrivilege.
+            shell_execute_as_interactive_user(
+                executable.into_os_string(),
+                target.map(browser_url_shell_arguments),
+                Some(working_dir.into_os_string()),
+            )
         } else {
-            Command::new(&executable)
-                .arg(target)
-                .current_dir(working_dir)
+            let mut command = Command::new(&executable);
+            if let Some(target) = target {
+                command.args(["-osint", "-url", target]);
+            }
+            command
+                .current_dir(&working_dir)
                 .spawn()
                 .map(|_| ())
                 .map_err(|e| format!("не удалось запустить Mullvad Browser: {e}"))
@@ -262,24 +249,10 @@ mod windows_impl {
 
     pub(super) fn open_official_download() -> Result<(), String> {
         if crate::elevation::is_elevated() {
-            let (token, shell_executable) = interactive_shell_token()?;
-            let is_explorer = shell_executable
-                .file_name()
-                .is_some_and(|name| name.eq_ignore_ascii_case("explorer.exe"));
-            if !is_explorer {
-                return Err(
-                    "не удалось безопасно открыть страницу: интерактивная оболочка Windows не найдена"
-                        .into(),
-                );
-            }
-            let working_dir = shell_executable
-                .parent()
-                .ok_or("не удалось определить папку оболочки Windows")?;
-            return spawn_with_token(
-                token.0,
-                &shell_executable,
-                &[OFFICIAL_DOWNLOAD_URL],
-                working_dir,
+            return shell_execute_as_interactive_user(
+                OsString::from(OFFICIAL_DOWNLOAD_URL),
+                None,
+                None,
             );
         }
 
@@ -525,143 +498,116 @@ mod windows_impl {
         parse_application_ini_version(std::str::from_utf8(&contents).ok()?)
     }
 
-    fn spawn_as_interactive_user(
-        executable: &Path,
-        arguments: &[&str],
-        working_dir: &Path,
+    struct ComApartment;
+
+    impl Drop for ComApartment {
+        fn drop(&mut self) {
+            unsafe {
+                CoUninitialize();
+            }
+        }
+    }
+
+    fn shell_execute_as_interactive_user(
+        file: OsString,
+        arguments: Option<OsString>,
+        working_dir: Option<OsString>,
     ) -> Result<(), String> {
-        let (token, _) = interactive_shell_token()?;
-        spawn_with_token(token.0, executable, arguments, working_dir)
-    }
+        let thread = std::thread::Builder::new()
+            .name("ninety-explorer-shell".into())
+            .spawn(move || {
+                shell_execute_from_explorer(
+                    file.as_os_str(),
+                    arguments.as_deref(),
+                    working_dir.as_deref(),
+                )
+            })
+            .map_err(|e| format!("не удалось создать поток запуска браузера: {e}"))?;
 
-    fn interactive_shell_token() -> Result<(OwnedHandle, PathBuf), String> {
-        unsafe {
-            let shell_window = GetShellWindow();
-            if shell_window.0.is_null() {
-                return Err("интерактивная оболочка Windows не найдена".into());
-            }
-
-            let mut process_id = 0;
-            GetWindowThreadProcessId(shell_window, Some(&mut process_id));
-            if process_id == 0 {
-                return Err("не удалось определить процесс оболочки Windows".into());
-            }
-
-            let process = OwnedHandle(
-                OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id)
-                    .map_err(|e| format!("не удалось открыть процесс оболочки Windows: {e}"))?,
-            );
-            let shell_executable = process_image_path(process.0)?;
-
-            let mut token = HANDLE::default();
-            OpenProcessToken(
-                process.0,
-                TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY,
-                &mut token,
-            )
-            .map_err(|e| format!("не удалось получить обычный пользовательский токен: {e}"))?;
-            let token = OwnedHandle(token);
-            if token_is_elevated(token.0)? {
-                return Err(
-                    "оболочка Windows тоже запущена от администратора; безопасный запуск браузера отменён"
-                        .into(),
-                );
-            }
-            Ok((token, shell_executable))
+        match thread.join() {
+            Ok(result) => result,
+            Err(_) => Err("поток запуска браузера завершился аварийно".into()),
         }
     }
 
-    fn token_is_elevated(token: HANDLE) -> Result<bool, String> {
-        let mut elevation = TOKEN_ELEVATION::default();
-        let mut returned_length = 0;
-        unsafe {
-            GetTokenInformation(
-                token,
-                TokenElevation,
-                Some(&mut elevation as *mut _ as *mut core::ffi::c_void),
-                std::mem::size_of::<TOKEN_ELEVATION>() as u32,
-                &mut returned_length,
-            )
-            .map_err(|e| format!("не удалось проверить права пользовательского токена: {e}"))?;
-        }
-        Ok(elevation.TokenIsElevated != 0)
-    }
-
-    fn process_image_path(process: HANDLE) -> Result<PathBuf, String> {
-        let mut buffer = vec![0u16; 32_768];
-        let mut length = buffer.len() as u32;
-        unsafe {
-            QueryFullProcessImageNameW(
-                process,
-                PROCESS_NAME_WIN32,
-                PWSTR(buffer.as_mut_ptr()),
-                &mut length,
-            )
-            .map_err(|e| format!("не удалось определить путь оболочки Windows: {e}"))?;
-        }
-        if length == 0 || length as usize > buffer.len() {
-            return Err("Windows вернула некорректный путь оболочки".into());
-        }
-        Ok(PathBuf::from(OsString::from_wide(
-            &buffer[..length as usize],
-        )))
-    }
-
-    fn spawn_with_token(
-        token: HANDLE,
-        executable: &Path,
-        arguments: &[&str],
-        working_dir: &Path,
+    fn shell_execute_from_explorer(
+        file: &OsStr,
+        arguments: Option<&OsStr>,
+        working_dir: Option<&OsStr>,
     ) -> Result<(), String> {
-        let executable_wide = to_wide(executable.as_os_str());
-        let working_dir_wide = to_wide(working_dir.as_os_str());
-        let command_line = windows_command_line(executable.as_os_str(), arguments);
-        let mut command_line_wide = to_wide(OsStr::new(&command_line));
-        if command_line_wide.len() > MAX_TOKEN_COMMAND_LINE_UNITS {
-            return Err("адрес и путь к браузеру образуют слишком длинную командную строку".into());
+        unsafe {
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)
+                .ok()
+                .map_err(|e| format!("не удалось инициализировать Windows COM: {e}"))?;
         }
-        let startup_info = STARTUPINFOW {
-            cb: std::mem::size_of::<STARTUPINFOW>() as u32,
-            ..Default::default()
-        };
-        let mut process_info = PROCESS_INFORMATION::default();
+        let _apartment = ComApartment;
 
         unsafe {
-            CreateProcessWithTokenW(
-                token,
-                // Mullvad Browser должен получить обычный профиль и контекст
-                // реестра интерактивного пользователя. Без флага запуск из
-                // elevated Ninety может отличаться от ручного запуска.
-                // Win32 LOGON_WITH_PROFILE = 0x00000001; windows-rs 0.62 не
-                // экспонирует этот флаг как associated constant.
-                CREATE_PROCESS_LOGON_FLAGS(0x0000_0001),
-                PCWSTR(executable_wide.as_ptr()),
-                Some(PWSTR(command_line_wide.as_mut_ptr())),
-                PROCESS_CREATION_FLAGS(0),
-                None,
-                PCWSTR(working_dir_wide.as_ptr()),
-                &startup_info,
-                &mut process_info,
-            )
-            .map_err(|e| format!("не удалось запустить процесс без прав администратора: {e}"))?;
+            let shell_windows: IShellWindows =
+                CoCreateInstance(&ShellWindows, None, CLSCTX_LOCAL_SERVER)
+                    .map_err(|e| format!("не удалось подключиться к Windows Explorer: {e}"))?;
 
-            let process = OwnedHandle(process_info.hProcess);
-            let thread = OwnedHandle(process_info.hThread);
-            drop((process, thread));
+            let empty = VARIANT::default();
+            let mut desktop_hwnd = 0;
+            let desktop = shell_windows
+                .FindWindowSW(
+                    &empty,
+                    &empty,
+                    SWC_DESKTOP,
+                    &mut desktop_hwnd,
+                    SWFO_NEEDDISPATCH,
+                )
+                .map_err(|e| format!("не удалось найти рабочий стол Windows Explorer: {e}"))?;
+            let services: IServiceProvider = desktop
+                .cast()
+                .map_err(|e| format!("рабочий стол Windows не отдал системные службы: {e}"))?;
+            let shell_browser: IShellBrowser = services
+                .QueryService(&SID_STopLevelBrowser)
+                .map_err(|e| format!("не удалось получить окно Windows Explorer: {e}"))?;
+            let shell_view = shell_browser
+                .QueryActiveShellView()
+                .map_err(|e| format!("не удалось получить представление рабочего стола: {e}"))?;
+            let background: IDispatch = shell_view
+                .GetItemObject(SVGIO_BACKGROUND)
+                .map_err(|e| format!("не удалось получить оболочку рабочего стола: {e}"))?;
+            let folder_view: IShellFolderViewDual = background
+                .cast()
+                .map_err(|e| format!("рабочий стол не поддерживает Windows Automation: {e}"))?;
+            let application = folder_view
+                .Application()
+                .map_err(|e| format!("не удалось получить приложение Windows Explorer: {e}"))?;
+            let shell: IShellDispatch2 = application
+                .cast()
+                .map_err(|e| format!("Windows Explorer не поддерживает ShellExecute: {e}"))?;
+            // Firefox/Mullvad делает тот же best-effort вызов перед запуском,
+            // чтобы новое окно могло выйти на передний план.
+            let _ = CoAllowSetForegroundWindow(&shell, None);
+
+            let file = bstr_from_os(file);
+            let arguments = variant_string(arguments);
+            let working_dir = variant_string(working_dir);
+            let operation = VARIANT::from("open");
+            let show = VARIANT::from(SW_SHOWNORMAL.0);
+            shell
+                .ShellExecute(&file, &arguments, &working_dir, &operation, &show)
+                .map_err(|e| format!("Windows Explorer не смог запустить браузер: {e}"))
         }
-        Ok(())
     }
 
-    fn windows_command_line(executable: &OsStr, arguments: &[&str]) -> OsString {
-        let mut command = OsString::from("\"");
-        command.push(executable);
-        command.push("\"");
-        for argument in arguments {
-            command.push(" \"");
-            command.push(argument);
-            command.push("\"");
-        }
-        command
+    fn bstr_from_os(value: &OsStr) -> BSTR {
+        BSTR::from_wide(&value.encode_wide().collect::<Vec<_>>())
+    }
+
+    fn variant_string(value: Option<&OsStr>) -> VARIANT {
+        value
+            .map(|value| VARIANT::from(bstr_from_os(value)))
+            .unwrap_or_default()
+    }
+
+    fn browser_url_shell_arguments(target: &str) -> OsString {
+        let mut arguments = OsString::from("-osint -url ");
+        arguments.push(target);
+        arguments
     }
 
     fn to_wide(value: &OsStr) -> Vec<u16> {
@@ -714,7 +660,7 @@ mod windows_impl {
         }
 
         #[test]
-        fn strips_extended_prefix_for_process_creation() {
+        fn strips_extended_prefix_for_shell_launch() {
             assert_eq!(
                 without_extended_prefix(Path::new(r"\\?\C:\Mullvad\mullvadbrowser.exe")),
                 PathBuf::from(r"C:\Mullvad\mullvadbrowser.exe")
@@ -722,6 +668,14 @@ mod windows_impl {
             assert_eq!(
                 without_extended_prefix(Path::new(r"C:\Mullvad\mullvadbrowser.exe")),
                 PathBuf::from(r"C:\Mullvad\mullvadbrowser.exe")
+            );
+        }
+
+        #[test]
+        fn builds_official_delegated_url_arguments() {
+            assert_eq!(
+                browser_url_shell_arguments("https://mullvad.net/en/check"),
+                OsString::from("-osint -url https://mullvad.net/en/check")
             );
         }
     }

@@ -70,8 +70,7 @@ export function normalizeProtectedBrowserUrl(value) {
   if (typeof value !== "string") return { ok: false, value: null };
 
   const input = value.trim();
-  // Синхронно с backend: CreateProcessWithTokenW ограничивает общую командную
-  // строку, поэтому заранее оставляем безопасный запас.
+  // Синхронно с backend оставляем консервативную границу для IPC и запуска.
   if (!input || input.length > 768) return { ok: false, value: null };
 
   try {

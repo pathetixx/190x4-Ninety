@@ -66,7 +66,7 @@ test("protected browser: launch передаёт только проверенн
   });
 });
 
-test("protected browser: launch без URL открывает пустую защищённую сессию", async () => {
+test("protected browser: launch без URL запускает сессию без целевого адреса", async () => {
   const calls = [];
   const service = createProtectedBrowserService({
     invoke: async (...args) => { calls.push(args); },
@@ -105,7 +105,7 @@ test("protected browser: опасный URL отклоняется до IPC", as
 });
 
 test("protected browser: сырая системная ошибка не попадает в пользовательский result", async () => {
-  const technical = new Error("CreateProcess failed: C:\\Users\\Dima\\private\\firefox.exe");
+  const technical = new Error("ShellExecute failed: C:\\Users\\Dima\\private\\firefox.exe");
   const warnings = [];
   const service = createProtectedBrowserService({
     invoke: async () => { throw technical; },
