@@ -534,6 +534,7 @@ export const en = {
     relaunching: "Restarting…",
     done: "DONE",
     failed: "Update failed: {err}",
+    versionChanged: "Version {version} is now available. Review the changes and press Update again.",
     retry: "RETRY",
     available: "UPDATE AVAILABLE",
     whatsNew: "What's new",

@@ -15,6 +15,7 @@ import { selectProxy } from "/lib/clash-api.js";
 import { toggleDpi } from "/lib/dpi-view.js";
 import { flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
 import { rememberProxySelection } from "/lib/proxy-selection.js";
+import { createLatestRunner } from "/lib/async-control.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -26,6 +27,7 @@ const invoke = window.__TAURI__?.core?.invoke
 //   onSetMode(mode)      — смена режима подключения (= changeMode)
 //   onToggleVpn()        — подключить/отключить (= клик по hero-диску)
 //   onUpdateClick()      — клик «Обновить до vX» (= flushPendingUpdate)
+//   isUpdateBusy()       — скачивание/установка OTA; сетевые действия блокируются
 //   isStrictPrivacy()     — строгий runtime не имеет selector и требует reconnect
 //   onServerSelected(tag, node, { reconnect }) — успешный выбор сервера:
 //                          main обновляет hero либо переподключает строгий runtime
@@ -44,10 +46,8 @@ function buildTrayServers() {
   });
 }
 
-let trayMenuBusy = false;
-export async function syncTrayMenu() {
-  if (!ctx || trayMenuBusy) return;
-  trayMenuBusy = true;
+const trayMenuSync = createLatestRunner(async () => {
+  if (!ctx) return;
   try {
     let dpiActive = false;
     try { dpiActive = localStorage.getItem("ninety.dpi.enabled") === "true"; } catch {}
@@ -56,6 +56,7 @@ export async function syncTrayMenu() {
         connected: ctx.getState() === "connected", mode: getMode(),
         servers: buildTrayServers(), dpiActive,
         updateVersion: ctx.getUpdateVersion() || null,
+        updateBusy: ctx.isUpdateBusy?.() === true,
         // Строки меню/tooltip — на языке интерфейса (Rust держит русский
         // фолбэк только до первого вызова). Пересборка на смену языка —
         // syncTrayMenu в onLangChange.
@@ -83,9 +84,12 @@ export async function syncTrayMenu() {
     });
   } catch (e) {
     console.warn("syncTrayMenu failed", e);
-  } finally {
-    trayMenuBusy = false;
   }
+});
+
+export function syncTrayMenu() {
+  if (!ctx) return Promise.resolve();
+  return trayMenuSync.request();
 }
 
 // События из Rust-меню трея: смена режима и выбор сервера (только при VPN on).
@@ -96,18 +100,25 @@ export function initTray(context) {
     if (!ev?.listen) return;
     try {
       await ev.listen("tray:set-mode", (e) => {
+        if (ctx.isUpdateBusy?.()) return;
         if (typeof e?.payload === "string") ctx.onSetMode(e.payload);
       });
       // Подключиться/Отключиться из трея — тот же путь, что клик по hero-диску.
-      await ev.listen("tray:toggle-vpn", () => { ctx.onToggleVpn(); });
+      await ev.listen("tray:toggle-vpn", () => {
+        if (!ctx.isUpdateBusy?.()) ctx.onToggleVpn();
+      });
       // «Обновить до vX» из трея → окно уже показано Rust-обработчиком, открываем модалку.
-      await ev.listen("tray:update", () => { ctx.onUpdateClick(); });
+      await ev.listen("tray:update", () => {
+        if (!ctx.isUpdateBusy?.()) ctx.onUpdateClick();
+      });
       // DPI-обход вкл/выкл из трея — тот же toggleDpi, что в UI; затем рефреш меню.
       await ev.listen("tray:toggle-dpi", async () => {
+        if (ctx.isUpdateBusy?.()) return;
         try { await toggleDpi(); } catch (err) { console.warn("tray dpi toggle failed", err); }
         syncTrayMenu();
       });
       await ev.listen("tray:select-server", async (e) => {
+        if (ctx.isUpdateBusy?.()) return;
         const tag = e?.payload;
         if (!tag || ctx.getState() !== "connected") return;
         try {

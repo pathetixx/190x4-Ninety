@@ -534,6 +534,7 @@ export const tr = {
     relaunching: "Yeniden başlatılıyor…",
     done: "TAMAM",
     failed: "Güncelleme başarısız: {err}",
+    versionChanged: "{version} sürümü artık kullanılabilir. Değişiklikleri inceleyip Güncelle'ye tekrar basın.",
     retry: "TEKRAR DENE",
     available: "GÜNCELLEME MEVCUT",
     whatsNew: "Yenilikler",

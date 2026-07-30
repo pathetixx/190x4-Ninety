@@ -93,6 +93,13 @@ import {
 } from "/lib/strict-privacy-mode.js";
 import { createProtectedBrowserService } from "/lib/protected-browser.js";
 import { activityController } from "/lib/activity-controller.js";
+import { createPromotableSingleFlight } from "/lib/async-control.js";
+import {
+  acquireUpdateForCurrentRoute,
+  closeUpdateResource,
+  drainUpdateResourceCleanup,
+  snapshotUpdate,
+} from "/lib/update-resource.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -2546,10 +2553,14 @@ window.addEventListener("ninety:proxy-selection-saved", () => { void backupNow()
 // pendingUpdate уже на старте — если оставить let в секции Auto-update ниже,
 // первый syncTrayMenu падает в TDZ.
 let pendingUpdate = null;
+// Объявлено рядом с pendingUpdate: первый bootstrap syncTrayMenu читает этот
+// флаг раньше секции Auto-update внизу файла.
+let updateInstalling = false;
 initTray({
   getState: () => state,
   getEffectiveTag: () => currentEffectiveTag,
   getUpdateVersion: () => pendingUpdate?.version || null,
+  isUpdateBusy: () => updateInstalling,
   isStrictPrivacy: strictPrivacyRequested,
   onSetMode: (m) => changeMode(m),
   onToggleVpn: () => handleConnectionIntent(),
@@ -3291,8 +3302,7 @@ bootstrapNetworkRuntime();
 // pendingUpdate (объявлен выше, до syncTrayMenu). Окно модалкой не выдёргиваем —
 // показываем когда юзер вернётся (фокус окна / клик по пункту трея).
 let updateModalShowing = false;
-// Идёт скачивание/установка апдейта (модалка) — health-watchdog молчит.
-let updateInstalling = false;
+let activeUpdateVersion = null;
 // OS-уведомление об апдейте — один раз на версию за сессию: фоновые проверки
 // повторяются, без дедупа юзер в трее ловил бы тост о той же версии каждый тик.
 let lastNotifiedUpdateVersion = null;
@@ -3305,26 +3315,47 @@ async function markUpdateRuntimeReady() {
   await backupNow();
 }
 
-// Окно «на виду»? (видимо и не свёрнуто). В трее hide() → isVisible()=false.
+// Окно действительно перед пользователем? Проверяем focus последним: это
+// закрывает окно гонки, когда CloseRequested/hide приходит между двумя IPC.
 async function windowIsForeground() {
   if (!tauriWin) return true;
   try {
     const visible = await tauriWin.isVisible?.();
     if (visible === false) return false;
     const min = await tauriWin.isMinimized?.();
-    return !min;
+    if (min) return false;
+    const focused = await tauriWin.isFocused?.();
+    return focused !== false;
   } catch { return true; }
 }
 
 async function showUpdateModal(update, opts = {}) {
+  if (!update) return;
+  if (updateModalShowing) {
+    if (String(update.version) !== String(activeUpdateVersion)) {
+      pendingUpdate = update;
+      syncTrayMenu();
+    }
+    return;
+  }
   updateModalShowing = true;
+  activeUpdateVersion = update.version;
   try {
     let portable = false;
     try { portable = !!(await invoke("is_portable")); } catch {}
     await openUpdateModal(update, {
       ...opts,
       portable,
-      onInstalling: (v) => { updateInstalling = v; },
+      acquireUpdate: () => acquireUpdateForCurrentRoute({
+        check: ({ proxy }) => checkForUpdate({ proxy }),
+        getProxy: updaterProxy,
+        unstableMessage: t("update.checkFailed"),
+      }),
+      onVersionChanged: (version) => { activeUpdateVersion = version; },
+      onInstalling: (v) => {
+        updateInstalling = v;
+        syncTrayMenu();
+      },
       onBeforeInstall: backupForUpdate,
       onBeforeRuntimeStop: () => {
         beginNetworkIntent("idle");
@@ -3363,13 +3394,21 @@ async function showUpdateModal(update, opts = {}) {
     });
   } finally {
     updateModalShowing = false;
+    activeUpdateVersion = null;
     updateInstalling = false;
+    syncTrayMenu();
+    if (pendingUpdate) {
+      queueMicrotask(() => { void flushPendingUpdate({ requireForeground: true }); });
+    }
   }
 }
 
 // Показать отложенное обновление (юзер вернулся к окну). respectSkip=false —
 // он сам открыл приложение, значит готов смотреть; «Позже» внутри модалки.
-async function flushPendingUpdate() {
+async function flushPendingUpdate({ requireForeground = false } = {}) {
+  if (!pendingUpdate || updateModalShowing) return;
+  if (requireForeground && !(await windowIsForeground())) return;
+  // Пока ждали IPC окна, OTA мог забрать focus/tray-handler.
   if (!pendingUpdate || updateModalShowing) return;
   const u = pendingUpdate;
   pendingUpdate = null;
@@ -3387,9 +3426,15 @@ function updaterProxy() {
 
 // true — проверка ДОСТИГЛА сервера (апдейт есть или его нет); false — не смогли
 // проверить (нет сети / эндпоинты недоступны) → скедулер уходит в бэкоф-ретрай.
-async function runUpdateCheck({ silent = true } = {}) {
+async function performUpdateCheck(request) {
   if (!updaterAvailable()) {
-    if (!silent) toast(t("update.unavailable"), "error", 2500);
+    if (request.interactive) toast(t("update.unavailable"), "error", 2500);
+    return false;
+  }
+  // Не создаём новый Rust Update, пока не закрыт Resource от предыдущей
+  // неудачной cleanup-попытки.
+  if (!(await drainUpdateResourceCleanup())) {
+    if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
     return false;
   }
   let update;
@@ -3401,31 +3446,72 @@ async function runUpdateCheck({ silent = true } = {}) {
     update = await checkForUpdate({ proxy });
   } catch (e) {
     console.warn("update check failed", e);
-    if (!silent) toast(t("update.checkFailed"), "error", 4000);
+    if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
     return false;
   }
   if (!update) {
-    if (!silent) toast(t("update.none"), "info", 2400);
+    if (pendingUpdate) {
+      pendingUpdate = null;
+      syncTrayMenu();
+    }
+    if (request.interactive) toast(t("update.none"), "info", 2400);
     return true;
   }
-  // Юзер сам нажал «Проверить» → показываем модалку немедленно, skip игнорим.
-  if (!silent) { await showUpdateModal(update, { respectSkip: false }); return true; }
+
+  // Для ожидания в трее оставляем plain metadata. Нативный Update держит Rust
+  // Resource и HTTP client/proxy момента check(), поэтому сразу освобождаем его.
+  const metadata = snapshotUpdate(update);
+  if (!(await closeUpdateResource(update))) {
+    if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
+    return false;
+  }
+
   // Фоновая проверка: уважаем «Позже» по этой версии — не навязываемся.
-  if (updateShouldSkip(update.version)) return true;
-  // Окно на виду → обычная модалка. Свёрнуто в трей → не выдёргиваем: OS-
-  // уведомление + пункт в трее, модалка откроется когда юзер вернётся.
-  if (await windowIsForeground()) {
-    await showUpdateModal(update, { respectSkip: true });
+  if (!request.interactive && updateShouldSkip(metadata.version)) {
+    if (String(pendingUpdate?.version) === String(metadata.version)) {
+      pendingUpdate = null;
+      syncTrayMenu();
+    }
+    return true;
+  }
+
+  // Повторный ответ той же версии, пока её модалка уже открыта, не создаёт
+  // второй набор DOM-обработчиков. Более новый релиз остаётся pending.
+  if (updateModalShowing && String(activeUpdateVersion) === String(metadata.version)) {
+    return true;
+  }
+
+  // Pending публикуется ДО async-проверки окна: focus-event на любом await уже
+  // увидит OTA и сможет атомарно забрать его через flushPendingUpdate().
+  pendingUpdate = metadata;
+  syncTrayMenu();
+
+  // Ручной запрос повышает уже идущую фоновую проверку и игнорирует skip.
+  if (request.interactive) {
+    await flushPendingUpdate();
   } else {
-    pendingUpdate = update;
-    syncTrayMenu();
-    if (lastNotifiedUpdateVersion !== update.version) {
-      lastNotifiedUpdateVersion = update.version;
+    const foreground = await windowIsForeground();
+    // Ручной клик мог присоединиться, пока фоновый flight ждал оконный IPC.
+    // Проверяем promotion ещё раз, иначе в скрытом окне ручной запрос
+    // завершился бы только уведомлением без обещанной модалки.
+    if (request.interactive) {
+      await flushPendingUpdate();
+    } else if (foreground && pendingUpdate === metadata) {
+      await flushPendingUpdate({ requireForeground: true });
+    } else if (!foreground && pendingUpdate === metadata
+      && lastNotifiedUpdateVersion !== metadata.version) {
+      lastNotifiedUpdateVersion = metadata.version;
       notify(t("update.notifyTitle"),
-        t("update.notifyBody", { version: update.version }));
+        t("update.notifyBody", { version: metadata.version }));
     }
   }
   return true;
+}
+
+const updateChecks = createPromotableSingleFlight(performUpdateCheck);
+
+function runUpdateCheck({ silent = true } = {}) {
+  return updateChecks.run({ interactive: !silent });
 }
 
 // ── Расписание проверок — по таймстампам, не по setInterval ──
@@ -3446,7 +3532,6 @@ const UPDATE_STALE_MS = 30 * 60_000; // «давно не проверялись
 let updateNextCheckAt = Date.now() + 3000; // первая — через 3с после старта
 let updateLastSuccessAt = 0;
 let updateRetryIdx = 0;
-let updateCheckBusy = false;
 
 function updateCheckSucceeded() {
   updateLastSuccessAt = Date.now();
@@ -3456,18 +3541,13 @@ function updateCheckSucceeded() {
 
 async function scheduledUpdateCheck() {
   // Модалка открыта — не дёргаем проверку под ней (и не сбиваем установку).
-  if (updateCheckBusy || updateModalShowing) return;
-  updateCheckBusy = true;
-  try {
-    if (await runUpdateCheck({ silent: true })) {
-      updateCheckSucceeded();
-    } else {
-      const step = UPDATE_RETRY_STEPS_MS[Math.min(updateRetryIdx, UPDATE_RETRY_STEPS_MS.length - 1)];
-      updateRetryIdx++;
-      updateNextCheckAt = Date.now() + step;
-    }
-  } finally {
-    updateCheckBusy = false;
+  if (updateChecks.isRunning() || updateModalShowing) return;
+  if (await runUpdateCheck({ silent: true })) {
+    updateCheckSucceeded();
+  } else {
+    const step = UPDATE_RETRY_STEPS_MS[Math.min(updateRetryIdx, UPDATE_RETRY_STEPS_MS.length - 1)];
+    updateRetryIdx++;
+    updateNextCheckAt = Date.now() + step;
   }
 }
 

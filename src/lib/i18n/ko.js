@@ -534,6 +534,7 @@ export const ko = {
     relaunching: "다시 시작 중…",
     done: "완료",
     failed: "업데이트 실패: {err}",
+    versionChanged: "버전 {version}을 사용할 수 있습니다. 변경 사항을 확인한 후 업데이트를 다시 누르세요.",
     retry: "재시도",
     available: "업데이트 사용 가능",
     whatsNew: "새로운 기능",

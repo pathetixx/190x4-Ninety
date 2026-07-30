@@ -534,6 +534,7 @@ export const fr = {
     relaunching: "Redémarrage…",
     done: "TERMINÉ",
     failed: "Échec de la mise à jour : {err}",
+    versionChanged: "La version {version} est maintenant disponible. Vérifiez les changements et relancez la mise à jour.",
     retry: "RÉESSAYER",
     available: "MISE À JOUR DISPONIBLE",
     whatsNew: "Nouveautés",

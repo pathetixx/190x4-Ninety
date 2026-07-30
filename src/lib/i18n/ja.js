@@ -534,6 +534,7 @@ export const ja = {
     relaunching: "再起動中…",
     done: "完了",
     failed: "更新に失敗しました: {err}",
+    versionChanged: "バージョン {version} が利用可能です。変更内容を確認して、もう一度更新を押してください。",
     retry: "再試行",
     available: "更新があります",
     whatsNew: "新着情報",

@@ -534,6 +534,7 @@ export const ru = {
     relaunching: "Перезапуск…",
     done: "ГОТОВО",
     failed: "Не удалось обновить: {err}",
+    versionChanged: "Доступна уже версия {version}. Проверьте изменения и нажмите «Обновить» ещё раз.",
     retry: "ПОВТОРИТЬ",
     available: "ОБНОВЛЕНИЕ ДОСТУПНО",
     whatsNew: "Что нового",

@@ -534,6 +534,7 @@ export const uk = {
     relaunching: "Перезапуск…",
     done: "ГОТОВО",
     failed: "Не вдалося оновити: {err}",
+    versionChanged: "Вже доступна версія {version}. Перегляньте зміни й натисніть «Оновити» ще раз.",
     retry: "ПОВТОРИТИ",
     available: "ОНОВЛЕННЯ ДОСТУПНЕ",
     whatsNew: "Що нового",

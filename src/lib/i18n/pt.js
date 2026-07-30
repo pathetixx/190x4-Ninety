@@ -534,6 +534,7 @@ export const pt = {
     relaunching: "A reiniciar…",
     done: "CONCLUÍDO",
     failed: "Falha na atualização: {err}",
+    versionChanged: "A versão {version} já está disponível. Reveja as alterações e pressione Atualizar novamente.",
     retry: "TENTAR DE NOVO",
     available: "ATUALIZAÇÃO DISPONÍVEL",
     whatsNew: "Novidades",

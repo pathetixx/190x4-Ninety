@@ -310,6 +310,11 @@ struct TrayMenuPayload {
     /// трее. Some → показываем выделенный пункт «Обновить до vX». None → нет.
     #[serde(default, rename = "updateVersion")]
     update_version: Option<String>,
+    /// Пока OTA скачивается/устанавливается, сетевые действия в нативном меню
+    /// блокируются: иначе пользователь может погасить proxy посреди download
+    /// либо запустить reconnect одновременно с остановкой runtime.
+    #[serde(default, rename = "updateBusy")]
+    update_busy: bool,
     #[serde(default)]
     labels: TrayLabels,
 }
@@ -330,14 +335,21 @@ fn build_tray_menu(
     } else {
         &l.connect
     };
-    let conn_item = MenuItem::with_id(app, "toggle-vpn", toggle_label, true, None::<&str>)?;
+    let runtime_actions_enabled = !payload.update_busy;
+    let conn_item = MenuItem::with_id(
+        app,
+        "toggle-vpn",
+        toggle_label,
+        runtime_actions_enabled,
+        None::<&str>,
+    )?;
 
     // Режим подключения
     let m_proxy = CheckMenuItem::with_id(
         app,
         "mode:proxy",
         &l.mode_proxy,
-        true,
+        runtime_actions_enabled,
         payload.mode == "proxy",
         None::<&str>,
     )?;
@@ -345,7 +357,7 @@ fn build_tray_menu(
         app,
         "mode:systemProxy",
         &l.mode_system,
-        true,
+        runtime_actions_enabled,
         payload.mode == "systemProxy",
         None::<&str>,
     )?;
@@ -353,16 +365,21 @@ fn build_tray_menu(
         app,
         "mode:tun",
         &l.mode_tun,
-        true,
+        runtime_actions_enabled,
         payload.mode == "tun",
         None::<&str>,
     )?;
-    let mode_sub = Submenu::with_items(app, &l.mode_title, true, &[&m_proxy, &m_sys, &m_tun])?;
+    let mode_sub = Submenu::with_items(
+        app,
+        &l.mode_title,
+        runtime_actions_enabled,
+        &[&m_proxy, &m_sys, &m_tun],
+    )?;
 
     // Выбор сервера — активен только когда VPN поднят. Иконка — флаг страны
     // (IconMenuItem); выбранный сервер помечаем «●», т.к. у IconMenuItem нет
     // чек-состояния.
-    let srv_enabled = payload.connected && !payload.servers.is_empty();
+    let srv_enabled = runtime_actions_enabled && payload.connected && !payload.servers.is_empty();
     let server_sub = if payload.servers.is_empty() {
         let none = MenuItem::with_id(app, "srv:none", &l.no_servers, false, None::<&str>)?;
         Submenu::with_items(app, &l.server, false, &[&none])?
@@ -411,10 +428,15 @@ fn build_tray_menu(
         } else {
             &l.dpi_enable
         },
-        true,
+        runtime_actions_enabled,
         None::<&str>,
     )?;
-    let dpi_sub = Submenu::with_items(app, &l.dpi_title, true, &[&dpi_status, &dpi_toggle])?;
+    let dpi_sub = Submenu::with_items(
+        app,
+        &l.dpi_title,
+        runtime_actions_enabled,
+        &[&dpi_status, &dpi_toggle],
+    )?;
 
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
@@ -427,7 +449,7 @@ fn build_tray_menu(
             app,
             "update:install",
             format!("⤓  {}", l.update_to.replace("{ver}", ver)),
-            true,
+            !payload.update_busy,
             None::<&str>,
         )?;
         let sep0 = PredefinedMenuItem::separator(app)?;

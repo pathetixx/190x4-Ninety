@@ -534,6 +534,7 @@ export const zh = {
     relaunching: "重启中…",
     done: "完成",
     failed: "更新失败：{err}",
+    versionChanged: "版本 {version} 现已可用。请查看更改后再次点击更新。",
     retry: "重试",
     available: "有可用更新",
     whatsNew: "更新内容",

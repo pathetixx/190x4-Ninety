@@ -2,10 +2,12 @@
 // Кастомная модалка вместо нативного dialog.ask — в стиле hub190x4-app Android.
 
 import { t } from "/lib/i18n/index.js";
+import { closeUpdateResource, snapshotUpdate } from "/lib/update-resource.js";
 
 const SKIP_KEY = "ninety.update.skip";
 const RESUME_KEY = "ninety.update.resume";
 const RELEASE_BASE_URL = "https://github.com/pathetixx/190x4-Ninety/releases/tag";
+export const UPDATE_DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
 
 export function portableReleaseUrl(version) {
   return `${RELEASE_BASE_URL}/v${encodeURIComponent(String(version || ""))}`;
@@ -143,7 +145,10 @@ function markSkipped(version) {
  */
 export function openUpdateModal(update, opts = {}) {
   if (!update) return Promise.resolve();
-  if (opts.respectSkip && shouldSkip(update.version)) return Promise.resolve();
+  if (opts.respectSkip && shouldSkip(update.version)) {
+    void closeUpdateResource(update);
+    return Promise.resolve();
+  }
 
   const modal = $("update-modal");
   const backdrop = $("update-backdrop");
@@ -154,15 +159,39 @@ export function openUpdateModal(update, opts = {}) {
   const laterBtn = $("update-later");
   const installBtn = $("update-install");
 
-  if (!modal || !installBtn) return Promise.resolve();
+  if (!modal || !installBtn) {
+    void closeUpdateResource(update);
+    return Promise.resolve();
+  }
 
-  currentEl.textContent = update.currentVersion ?? "—";
-  latestEl.textContent = update.version ?? "—";
-  const body = (update.body || "").trim();
-  // Если notes — наш дефолт-заглушка из workflow, заменяем на дружелюбное
-  changelogEl.textContent = body && !/См\. полные заметки в GitHub Release/.test(body)
-    ? body
-    : t("updModal.notesUnavailable");
+  let activeUpdate = update;
+  let activeUpdateConsumed = false;
+  const releaseActiveResource = async () => {
+    if (typeof activeUpdate?.close !== "function") return true;
+    const resource = activeUpdate;
+    const metadata = snapshotUpdate(resource);
+    // updater.install()/downloadAndInstall() уже удаляют update RID на Rust-
+    // стороне. Повторный Resource.close() дал бы invalid-resource и ошибочно
+    // отравил cleanup quarantine.
+    if (activeUpdateConsumed) {
+      activeUpdate = metadata;
+      activeUpdateConsumed = false;
+      return true;
+    }
+    const released = await closeUpdateResource(resource);
+    if (released) activeUpdate = metadata;
+    return released;
+  };
+  const renderMetadata = () => {
+    currentEl.textContent = activeUpdate.currentVersion ?? "—";
+    latestEl.textContent = activeUpdate.version ?? "—";
+    const body = (activeUpdate.body || "").trim();
+    // Если notes — наш дефолт-заглушка из workflow, заменяем на дружелюбное
+    changelogEl.textContent = body && !/См\. полные заметки в GitHub Release/.test(body)
+      ? body
+      : t("updModal.notesUnavailable");
+  };
+  renderMetadata();
 
   progressBox.hidden = true;
   showError(null);
@@ -176,6 +205,7 @@ export function openUpdateModal(update, opts = {}) {
 
   return new Promise((resolve) => {
     let installing = false;
+    let preparing = false;
 
     const cleanup = () => {
       installBtn.removeEventListener("click", onInstall);
@@ -186,12 +216,13 @@ export function openUpdateModal(update, opts = {}) {
     const close = () => {
       modal.hidden = true;
       cleanup();
+      void releaseActiveResource();
       resolve();
     };
 
     const onLater = () => {
-      if (installing) return;
-      markSkipped(update.version);
+      if (installing || preparing) return;
+      markSkipped(activeUpdate.version);
       close();
     };
 
@@ -202,21 +233,65 @@ export function openUpdateModal(update, opts = {}) {
     };
 
     const onInstall = async () => {
-      if (installing) return;
+      if (installing || preparing) return;
       if (opts.portable) {
         try {
           const open = window.__TAURI__?.shell?.open;
           if (typeof open !== "function") throw new Error(t("updModal.browserUnavailable"));
-          await open(portableReleaseUrl(update.version));
-          markSkipped(update.version);
+          await open(portableReleaseUrl(activeUpdate.version));
+          markSkipped(activeUpdate.version);
           close();
         } catch (e) {
           showError(t("updModal.failed", { err: e?.message || e }));
         }
         return;
       }
-      installing = true;
+
+      // Pending в трее хранит только metadata. Настоящий Tauri Update получаем
+      // непосредственно перед download: его HTTP client тогда использует
+      // актуальное состояние VPN/proxy, а не маршрут часовой давности.
+      preparing = true;
       opts.onInstalling?.(true);
+      installBtn.disabled = true;
+      showError(null);
+      try {
+        if (typeof opts.acquireUpdate === "function") {
+          // Retry никогда не переиспользует старый HTTP client/download buffer.
+          // Освобождаем его до fresh-check, сохраняя metadata для модалки.
+          if (!(await releaseActiveResource())) {
+            throw new Error(t("update.unavailable"));
+          }
+          const acquired = await opts.acquireUpdate();
+          if (!acquired) throw new Error(t("update.none"));
+          if (String(acquired.version) !== String(activeUpdate.version)) {
+            activeUpdate = acquired;
+            renderMetadata();
+            opts.onVersionChanged?.(activeUpdate.version);
+            await releaseActiveResource();
+            showError(t("updModal.versionChanged", { version: activeUpdate.version }));
+            preparing = false;
+            opts.onInstalling?.(false);
+            installBtn.disabled = false;
+            installBtn.textContent = t("updModal.install");
+            return;
+          }
+          activeUpdate = acquired;
+          activeUpdateConsumed = false;
+        }
+        if (typeof activeUpdate.download !== "function"
+          && typeof activeUpdate.downloadAndInstall !== "function") {
+          throw new Error(t("update.unavailable"));
+        }
+      } catch (e) {
+        await releaseActiveResource();
+        preparing = false;
+        opts.onInstalling?.(false);
+        installBtn.disabled = false;
+        showError(t("updModal.failed", { err: e?.message || e }));
+        return;
+      }
+      preparing = false;
+      installing = true;
       showError(null);
       installBtn.disabled = true;
       laterBtn.hidden = true;
@@ -243,7 +318,7 @@ export function openUpdateModal(update, opts = {}) {
       const writeResume = (stage) => {
         if (!vpnWasOn && !dpiWasOn) return;
         journal = buildUpdateJournal({
-          targetVersion: update.version,
+          targetVersion: activeUpdate.version,
           stage,
           sourceFingerprint: opts.resumeContext?.sourceFingerprint || null,
           mode: opts.resumeContext?.mode || null,
@@ -331,8 +406,12 @@ export function openUpdateModal(update, opts = {}) {
       };
 
       try {
-        if (typeof update.download === "function" && typeof update.install === "function") {
-          await update.download(onEvent);
+        const downloadOptions = {
+          timeout: opts.downloadTimeoutMs || UPDATE_DOWNLOAD_TIMEOUT_MS,
+        };
+        if (typeof activeUpdate.download === "function"
+          && typeof activeUpdate.install === "function") {
+          await activeUpdate.download(onEvent, downloadOptions);
           writeResume("downloaded");
           setProgressLabel(t("updModal.installing"));
           setBarIndeterminate();
@@ -341,14 +420,18 @@ export function openUpdateModal(update, opts = {}) {
           await stopEngines();
           writeResume("runtime_stopped");
           writeResume("installing");
-          await update.install();
+          // На Windows успешный install() не возвращается: plugin передаёт
+          // управление NSIS (/P /R) и завершает процесс. Всё durable уже записано.
+          await activeUpdate.install();
+          activeUpdateConsumed = true;
         } else {
           // Урезанный API (нет раздельных download/install) — прежний порядок.
           writeResume("backup_ready");
           await opts.onBeforeInstall?.();
           await stopEngines();
           writeResume("installing");
-          await update.downloadAndInstall(onEvent);
+          await activeUpdate.downloadAndInstall(onEvent, downloadOptions);
+          activeUpdateConsumed = true;
         }
 
         setProgressLabel(t("updModal.relaunching"));
@@ -396,6 +479,9 @@ export function openUpdateModal(update, opts = {}) {
         try { await recoverOrCloseJournal(e); } catch (recoveryError) {
           console.warn("update recovery failed", recoveryError);
         }
+        // Retry всё равно делает fresh-check: не держим старый client и
+        // installer-sized DownloadedBytes между попытками.
+        await releaseActiveResource();
         installing = false;
         opts.onInstalling?.(false);
         progressBox.hidden = true;

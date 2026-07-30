@@ -534,6 +534,7 @@ export const pl = {
     relaunching: "Ponowne uruchamianie…",
     done: "GOTOWE",
     failed: "Aktualizacja nie powiodła się: {err}",
+    versionChanged: "Dostępna jest już wersja {version}. Sprawdź zmiany i ponownie wybierz Aktualizuj.",
     retry: "PONÓW",
     available: "DOSTĘPNA AKTUALIZACJA",
     whatsNew: "Co nowego",

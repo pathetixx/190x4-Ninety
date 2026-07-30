@@ -534,6 +534,7 @@ export const ar = {
     relaunching: "إعادة التشغيل…",
     done: "تم",
     failed: "فشل التحديث: {err}",
+    versionChanged: "يتوفر الآن الإصدار {version}. راجع التغييرات واضغط على تحديث مرة أخرى.",
     retry: "إعادة المحاولة",
     available: "يتوفر تحديث",
     whatsNew: "الجديد",
