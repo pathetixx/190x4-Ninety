@@ -29,7 +29,7 @@
     "@eslint/js": "10.0.1",
     "@tauri-apps/cli": "2.11.4",
     "eslint": "10.7.0",
-    "globals": "17.7.0"
+    "globals": "17.8.0"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",
