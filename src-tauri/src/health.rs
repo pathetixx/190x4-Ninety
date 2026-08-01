@@ -1098,6 +1098,7 @@ mod tests {
             health.recovery_decision(Instant::now()),
             RecoveryDecision::Allowed
         );
+        health.native_recovery_failed(42, "test_failure");
         assert_eq!(
             health.recovery_decision(Instant::now()),
             RecoveryDecision::Cooldown
