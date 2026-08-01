@@ -269,3 +269,120 @@ test("pressure mode не запускает recovery и гасит фонову�
   assert.equal(recoveries, 0);
   assert.equal(qualityTicks, 0);
 });
+
+test("cooldown не превращается в terminal exhaustion", async () => {
+  let now = 0;
+  let recoveries = 0;
+  let terminal = 0;
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    recoverDataplane: async () => { recoveries++; return false; },
+    onDataplaneFailed: async () => { terminal++; return true; },
+    now: () => now,
+    invoke: async () => ({
+      singbox_running: true,
+      xray: "none",
+      sidecar: "none",
+      dataplane: { state: "failed", hostPressure: false },
+    }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  now = 1000;
+  await watchdog.tick();
+  assert.equal(recoveries, 1, "cooldown не должен запускать второй recovery");
+  assert.equal(terminal, 0, "cooldown не является terminal состоянием");
+  now = 61_000;
+  await watchdog.tick();
+  assert.equal(recoveries, 2);
+});
+
+test("terminal latch появляется только после подтверждённого cleanup", async () => {
+  let now = 0;
+  let recoveries = 0;
+  let terminalAttempts = 0;
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => false,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    recoverDataplane: async () => { recoveries++; return false; },
+    onDataplaneFailed: async () => { terminalAttempts++; return false; },
+    now: () => now,
+    invoke: async () => ({
+      singbox_running: true,
+      xray: "none",
+      sidecar: "none",
+      dataplane: { state: "failed", hostPressure: false },
+    }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await watchdog.tick();
+    if (attempt < 3) now += 60_000;
+  }
+  assert.equal(recoveries, 3);
+  assert.equal(terminalAttempts, 1);
+  await watchdog.tick();
+  assert.equal(terminalAttempts, 1, "неудачный cleanup не должен спамить вызовами");
+});
+
+test("native owner не запускает frontend recovery даже при failed dataplane", async () => {
+  let recoveries = 0;
+  let pauses = 0;
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => ({
+      setHostPressure: () => {},
+      pauseForEmergency: () => { pauses++; },
+      tick: async () => {},
+    }),
+    recoverDataplane: async () => { recoveries++; return true; },
+    invoke: async () => ({
+      singbox_running: true,
+      xray: "none",
+      sidecar: "none",
+      dataplane: {
+        state: "failed",
+        dataplaneState: "failed",
+        nativeRecoveryOwner: "native",
+        nativeRecoveryState: "recovering",
+        hostPressure: true,
+      },
+    }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  await watchdog.tick();
+  assert.equal(recoveries, 0);
+  assert.equal(pauses, 1);
+});

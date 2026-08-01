@@ -45,7 +45,7 @@ import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
 import { createCoreStartBarrier } from "/lib/connection-start-barrier.js";
-import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testNode } from "/lib/clash-api.js";
+import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, pickSelectorNow, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
@@ -1041,20 +1041,12 @@ async function performAutoReconnectOnce(reason, epoch) {
   }
 }
 
-const EMERGENCY_PROBE_ENDPOINT = "https://speed.cloudflare.com/__down?bytes=65536";
-
 async function verifyEmergencyDataplane() {
   const options = loadOptions();
   const port = Number(options.inbound?.mixedPort) || 7890;
   try {
-    const result = await invoke("probe_quality", {
-      port,
-      endpoints: [EMERGENCY_PROBE_ENDPOINT],
-      sampleBytes: 64 * 1024,
-      budgetMs: 2500,
-    });
-    return result?.ok === true && result?.stalled !== true
-      && Number(result?.bytes) >= 64 * 1024;
+    const result = await invoke("probe_health", { port });
+    return result?.ok === true;
   } catch {
     return false;
   }
@@ -1077,9 +1069,18 @@ async function recoverDataplane() {
     } catch {
       proxies = {};
     }
-    const current = currentEffectiveTag || pickEffectiveNode({ proxies });
+    const originalSelector = pickSelectorNow(proxies) || "auto";
+    const originalEffective = currentEffectiveTag || pickEffectiveNode({ proxies });
+    const sourceScope = `${token.sourceKey || "source"}:${token.sourceRevision || 0}`;
+    const now = Date.now();
+    for (const [key, expiry] of dataplaneCandidateCooldown) {
+      if (expiry <= now) dataplaneCandidateCooldown.delete(key);
+    }
+    const current = originalEffective;
     const candidates = rankByDelay(
-      nodes.filter((node) => node.clashTag && node.clashTag !== current),
+      nodes.filter((node) => node.clashTag
+        && node.clashTag !== current
+        && !dataplaneCandidateCooldown.has(`${sourceScope}:${node.clashTag}`)),
       proxies,
     ).slice(0, 3);
 
@@ -1092,8 +1093,22 @@ async function recoverDataplane() {
         const selected = await selectProxy("proxy", candidate.clashTag, { token });
         if (selected?.stale || !runtimeIdentity.isCurrent(token)) continue;
         if (await verifyEmergencyDataplane()) return true;
+        dataplaneCandidateCooldown.set(`${sourceScope}:${candidate.clashTag}`, Date.now() + DATAPLANE_CANDIDATE_COOLDOWN_MS);
       } catch {
         // Следующая candidate либо полный reconnect — ниже.
+        dataplaneCandidateCooldown.set(`${sourceScope}:${candidate.clashTag}`, Date.now() + DATAPLANE_CANDIDATE_COOLDOWN_MS);
+      }
+    }
+
+    // Candidate validation may have changed Clash's selector. Restore the
+    // original selector before falling back to a full lifecycle reconnect;
+    // never leave a failed emergency candidate active by accident.
+    if (runtimeIdentity.isCurrent(token) && originalSelector) {
+      try {
+        const restored = await selectProxy("proxy", originalSelector, { token });
+        if (!restored?.stale && originalEffective) currentEffectiveTag = originalEffective;
+      } catch {
+        // Full reconnect below will still rebuild the original runtime policy.
       }
     }
   }
@@ -1293,6 +1308,8 @@ const qualityEngine = createQualityEngine({
 // Cooldown нод, забракованных R2 — чтобы не выбирать их снова сразу.
 const QUALITY_EXCLUDE_MS = 5 * 60_000;
 const qualityExcluded = new Map(); // clashTag → expiry ts
+const DATAPLANE_CANDIDATE_COOLDOWN_MS = 5 * 60_000;
+const dataplaneCandidateCooldown = new Map(); // source/revision/tag → expiry ts
 // Ноды активного источника с clash-тэгами (зеркало proxies-view.nodesFromSource).
 function qualityNodesFromSource() {
   const src = getActiveSource();
@@ -2845,6 +2862,9 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         configHash: runtimeToken.configHash,
         strictPrivacy: !!runtimeInfo.strictPrivacy,
         pinnedNodeTag: runtimeInfo.pinnedNodeTag,
+        systemProxyBypassLan: options.route?.bypassLan !== false,
+        killSwitchExpected: !!runtimeInfo.strictPrivacy
+          || (!!options.general?.killSwitch && runtimeInfo.mode !== "tun"),
       }));
       if (!runtimeSnapshot?.running || !Number(runtimeSnapshot.processGeneration)) {
         throw new Error("start_singbox не вернул подтверждённый runtime snapshot");

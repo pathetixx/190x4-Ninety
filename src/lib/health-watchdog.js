@@ -51,6 +51,7 @@ export function initHealthWatchdog({
   toast: toastFn = toast,
   notify: notifyFn = notify,
   t: tr = t,
+  now: nowFn = Date.now,
   setInterval: setIntervalFn = setInterval,
   clearInterval: clearIntervalFn = clearInterval,
 }) {
@@ -63,53 +64,124 @@ export function initHealthWatchdog({
   let dataplaneRecoveryBusy = false;
   let dataplaneRecoveryGraceUntil = 0;
   let dataplaneTerminal = false;
+  let dataplaneTerminalBusy = false;
+  let dataplaneTerminalRetryAt = 0;
+  let dataplaneTerminalAttempts = [];
+  let dataplaneEmergencyPaused = false;
 
   const current = (run) => run === generation && !isUpdateInstalling();
   const active = (run) => current(run) && getState() === "connected";
 
   function bridgeReconnectAllowed() {
-    const cut = Date.now() - BRIDGE_RECONNECT_WINDOW_MS;
+    const cut = nowFn() - BRIDGE_RECONNECT_WINDOW_MS;
     bridgeReconnects = bridgeReconnects.filter((ts) => ts > cut);
     if (bridgeReconnects.length >= BRIDGE_RECONNECT_MAX) return false;
-    bridgeReconnects.push(Date.now());
+    bridgeReconnects.push(nowFn());
     return true;
   }
 
-  function dataplaneRecoveryAllowed() {
-    const now = Date.now();
+  function dataplaneRecoveryDecision() {
+    const now = nowFn();
     const cut = now - DATAPLANE_RECOVERY_WINDOW_MS;
     dataplaneRecoveries = dataplaneRecoveries.filter((ts) => ts > cut);
-    const last = dataplaneRecoveries.at(-1) || 0;
-    return dataplaneRecoveries.length < DATAPLANE_RECOVERY_MAX
-      && now - last >= DATAPLANE_RECOVERY_COOLDOWN_MS;
+    const last = dataplaneRecoveries.at(-1);
+    if (dataplaneRecoveries.length >= DATAPLANE_RECOVERY_MAX) {
+      return { state: "exhausted", attempts: dataplaneRecoveries.length, retryAt: null };
+    }
+    if (last !== undefined && now - last < DATAPLANE_RECOVERY_COOLDOWN_MS) {
+      return {
+        state: "cooldown",
+        attempts: dataplaneRecoveries.length,
+        retryAt: last + DATAPLANE_RECOVERY_COOLDOWN_MS,
+      };
+    }
+    return { state: "allowed", attempts: dataplaneRecoveries.length, retryAt: null };
+  }
+
+  function resetEmergencyPause() {
+    if (!dataplaneEmergencyPaused) return;
+    dataplaneEmergencyPaused = false;
+    getQualityEngine()?.resumeAfterEmergency?.();
+  }
+
+  async function failClosedAfterExhaustion(run, dataplane) {
+    const now = nowFn();
+    const cut = now - DATAPLANE_RECOVERY_WINDOW_MS;
+    dataplaneTerminalAttempts = dataplaneTerminalAttempts.filter((ts) => ts > cut);
+    if (dataplaneTerminal || dataplaneTerminalBusy
+      || now < dataplaneTerminalRetryAt
+      || dataplaneTerminalAttempts.length >= DATAPLANE_RECOVERY_MAX
+      || !active(run)) return true;
+
+    dataplaneTerminalAttempts.push(now);
+    dataplaneTerminalBusy = true;
+    try {
+      // A failed shutdown is not terminal: cleanup_error remains retryable, but
+      // retries are bounded and delayed so a stuck process cannot cause a loop.
+      const confirmed = await onDataplaneFailed(dataplane);
+      if (confirmed === true) {
+        dataplaneTerminal = true;
+        dataplaneTerminalRetryAt = 0;
+      } else {
+        dataplaneTerminalRetryAt = nowFn() + DATAPLANE_RECOVERY_COOLDOWN_MS;
+      }
+    } finally {
+      dataplaneTerminalBusy = false;
+    }
+    return true;
   }
 
   async function handleDataplaneHealth(run, snap) {
     const dataplane = snap?.dataplane;
     if (!dataplane) return false;
     if (dataplane.state === "inactive") return false;
+    const dataplaneState = dataplane.dataplaneState || dataplane.state;
     const pressure = dataplane.hostPressure === true || dataplane.state === "pressure";
     getQualityEngine()?.setHostPressure?.(pressure);
 
-    if (dataplane.state === "healthy") {
+    if (dataplaneState === "healthy" || dataplaneState === "unmonitoredPrivacyMode") {
       dataplaneRecoveryGraceUntil = 0;
       dataplaneTerminal = false;
+      dataplaneTerminalRetryAt = 0;
+      dataplaneTerminalAttempts = [];
+      resetEmergencyPause();
       return false;
     }
-    if (pressure || dataplane.state !== "failed") return true;
-    if (!active(run)) return true;
-    if (Date.now() < dataplaneRecoveryGraceUntil || dataplaneRecoveryBusy) return true;
+    if (dataplaneState !== "failed") return true;
 
-    if (!dataplaneRecoveryAllowed()) {
-      if (!dataplaneTerminal) {
-        dataplaneTerminal = true;
-        await onDataplaneFailed(dataplane);
+    // Native health owns every real runtime. The WebView may display the
+    // evidence and pause quality work, but it must never race native restart or
+    // turn a native cooldown into a frontend node switch.
+    const nativeOwner = dataplane.nativeRecoveryOwner === "native"
+      || ["recovering", "cooldown", "pressure_wait", "exhausted", "terminal", "cleanup_error"]
+        .includes(dataplane.nativeRecoveryState);
+    if (nativeOwner) {
+      if (dataplane.nativeRecoveryState === "terminal" && active(run) && !dataplaneTerminal) {
+        const confirmed = await onDataplaneFailed(dataplane);
+        if (confirmed === true) dataplaneTerminal = true;
+      }
+      if (!dataplaneEmergencyPaused) {
+        dataplaneEmergencyPaused = true;
+        getQualityEngine()?.pauseForEmergency?.();
       }
       return true;
     }
 
-    dataplaneRecoveries.push(Date.now());
+    // Legacy/fallback snapshots without a native owner still fail closed under
+    // pressure; pressure is not evidence that the dataplane recovered.
+    if (pressure) return true;
+    if (!active(run)) return true;
+    if (nowFn() < dataplaneRecoveryGraceUntil || dataplaneRecoveryBusy) return true;
+
+    const decision = dataplaneRecoveryDecision();
+    if (decision.state === "cooldown") return true;
+    if (decision.state === "exhausted") {
+      return failClosedAfterExhaustion(run, dataplane);
+    }
+
+    dataplaneRecoveries.push(nowFn());
     dataplaneRecoveryBusy = true;
+    dataplaneEmergencyPaused = true;
     getQualityEngine()?.pauseForEmergency?.();
     toastFn(tr("conn.applyingSettings"), "warn", 5000, { group: "conn", connecting: true });
     try {
@@ -118,14 +190,14 @@ export function initHealthWatchdog({
         snapshot: dataplane,
       });
       if (recovered) {
-        dataplaneRecoveryGraceUntil = Date.now() + DATAPLANE_RECOVERY_GRACE_MS;
+        dataplaneRecoveryGraceUntil = nowFn() + DATAPLANE_RECOVERY_GRACE_MS;
         dataplaneTerminal = false;
       }
     } catch (error) {
       console.warn("dataplane recovery failed", error);
     } finally {
       dataplaneRecoveryBusy = false;
-      getQualityEngine()?.resumeAfterEmergency?.();
+      resetEmergencyPause();
     }
     return true;
   }
@@ -147,6 +219,10 @@ export function initHealthWatchdog({
     dataplaneRecoveryBusy = false;
     dataplaneRecoveryGraceUntil = 0;
     dataplaneTerminal = false;
+    dataplaneTerminalBusy = false;
+    dataplaneTerminalRetryAt = 0;
+    dataplaneTerminalAttempts = [];
+    dataplaneEmergencyPaused = false;
     timer = setIntervalFn(tick, HEALTH_TICK_MS);
   }
 
@@ -156,6 +232,10 @@ export function initHealthWatchdog({
     dataplaneRecoveryBusy = false;
     dataplaneRecoveryGraceUntil = 0;
     dataplaneTerminal = false;
+    dataplaneTerminalBusy = false;
+    dataplaneTerminalRetryAt = 0;
+    dataplaneTerminalAttempts = [];
+    dataplaneEmergencyPaused = false;
     if (timer) { clearIntervalFn(timer); timer = null; }
   }
 
@@ -226,6 +306,13 @@ export function initHealthWatchdog({
 
       if (!active(run)) return;
       if (!snap.singbox_running) {
+        // Native health owns the runtime lifecycle. A process death is still
+        // evidence for its local recovery/terminal path; do not let this older
+        // WebView branch race native stop/start between two health snapshots.
+        if (snap.dataplane?.nativeRecoveryOwner === "native") {
+          await handleDataplaneHealth(run, snap);
+          return;
+        }
         // Причину смерти snapshot читает синхронно с running-статусом (до
         // shutdownCore, который сбрасывает флаги).
         const why = snap.last_error;

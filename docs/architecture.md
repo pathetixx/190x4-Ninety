@@ -78,16 +78,58 @@ This keeps the repository smaller and makes release inputs explicit in CI:
 
 `connected` is a UI state, while the native runtime health is tracked separately.
 The Rust backend monitors the actual proxy/TUN datapath through the local
-`probe-in`/mixed inbound, in addition to process liveness. It reports bounded
-states such as `unknown`, `healthy`, `suspect`, `pressure` and `failed`, with a
-runtime generation and a non-sensitive reason code.
+`probe-in`/mixed inbound, in addition to process liveness and the local Clash
+control API. Liveness has its own fixed HTTPS policy (two independent
+allowlisted endpoints, 16 KiB sample, 6 s total budget and 2.5 s inactivity
+window); it never reuses the quality engine's 64 KiB/800 ms shaping thresholds.
 
-When the host is under CPU or memory pressure, Ninety pauses background quality
-remediation instead of switching nodes blindly. A confirmed dataplane failure
-uses a bounded recovery policy: validate an alternative node, switch to it when
-the dataplane probe succeeds, or use the existing controlled runtime reconnect.
-The frontend remains the recovery coordinator for now because it owns the
-profile/config selection; a future Windows service can move that ownership out
-of the WebView.
+The dataplane decision is a bounded rolling window of three observations:
+
+```text
+new generation → unknown
+two successes in the window → healthy
+two failures in the window → failed
+otherwise → suspect
+```
+
+Therefore `F,S,F` is failed, while `S,S` is healthy. A stale monitor cannot
+write a newer process generation. Host pressure is a separate hysteretic signal
+based on physical/commit memory and scheduler heartbeat lateness. It changes
+the polling interval and pauses quality remediation, but it never clears a
+dataplane failure or authorizes mass node switching.
+
+The native monitor has the following lifecycle states:
+
+```text
+inactive → unknown → suspect → healthy
+                    └──────→ failed → recovering → unknown (new generation)
+                                      └──────────→ cooldown/pressure_wait
+                                      └──────────→ terminal or cleanup_error
+```
+
+Recovery is owned by one native controller. It retains the in-memory launch
+specification, performs a controlled same-config dependency restart, verifies
+processes, Clash, the real dataplane, system-proxy ownership and (when
+required) the WFP barrier, then publishes a new generation. It does not ask
+WebView2 to rebuild a profile or silently select a different server. The
+attempt budget is three per fifteen minutes with a sixty-second cooldown;
+cooldown is retryable and is not terminal. Terminal state is published only
+after fail-closed cleanup is confirmed. A failed cleanup remains
+`cleanup_error`, preserves the kill switch barrier and is retried only within a
+bounded budget.
+
+Strict privacy never silently disables health. It switches to explicit
+`unmonitoredPrivacyMode`/`privacy_passive`: only native process, sidecar, local
+Clash and host-pressure evidence is used, and no direct external probe is made
+that could reveal the user's address. The bounded incident ring contains only
+relative ages, generations, safe reason codes, scheduler/resource evidence and
+recovery outcomes; it never stores URLs, IPs, credentials, subscription data or
+traffic metadata.
+
+The WebView watchdog remains a UI/guard-only observer. It can pause the quality
+engine and reconcile WFP, but it does not race native recovery. Its legacy
+frontend candidate path is retained only as an explicit fallback for snapshots
+without a native owner; candidate validation uses the fixed dataplane probe,
+preserves the original selector and rolls back before full reconnect.
 
 For the release ritual, see [RELEASING.md](../RELEASING.md).
