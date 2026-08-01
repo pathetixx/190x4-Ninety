@@ -82,6 +82,7 @@ impl MonitorSpec {
 
 struct MonitorGeneration {
     current: Arc<AtomicU64>,
+    expected_exit: Arc<AtomicU64>,
     value: u64,
 }
 
@@ -129,7 +130,6 @@ fn spawn_log_monitor(
     live_processes: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
     generation: MonitorGeneration,
-    expected_exit_generation: Arc<AtomicU64>,
     spec: MonitorSpec,
 ) {
     live_processes.fetch_add(1, Ordering::SeqCst);
@@ -190,7 +190,7 @@ fn spawn_log_monitor(
                     let current_generation = generation.current.load(Ordering::SeqCst);
                     let expected = monitor_exit_expected(
                         current_generation,
-                        expected_exit_generation.load(Ordering::SeqCst),
+                        generation.expected_exit.load(Ordering::SeqCst),
                         generation.value,
                     );
                     let msg = if expected {
@@ -642,9 +642,9 @@ async fn spawn_xray(
         state.process_exit_notify.clone(),
         MonitorGeneration {
             current: state.process_generation.clone(),
+            expected_exit: state.expected_exit_generation.clone(),
             value: process_generation,
         },
-        state.expected_exit_generation.clone(),
         MonitorSpec::bridge(
             format!("=== xray start · generation {process_generation} ==="),
             "xray",
@@ -755,9 +755,9 @@ async fn spawn_sidecars(
             state.process_exit_notify.clone(),
             MonitorGeneration {
                 current: state.process_generation.clone(),
+                expected_exit: state.expected_exit_generation.clone(),
                 value: process_generation,
             },
-            state.expected_exit_generation.clone(),
             MonitorSpec::bridge(
                 format!("=== {label} start · generation {process_generation} ==="),
                 label.clone(),
@@ -1566,9 +1566,9 @@ async fn spawn_singbox_core(
         state.process_exit_notify.clone(),
         MonitorGeneration {
             current: state.process_generation.clone(),
+            expected_exit: state.expected_exit_generation.clone(),
             value: process_generation,
         },
-        state.expected_exit_generation.clone(),
         MonitorSpec::core(
             format!("=== sing-box start · generation {process_generation} ==="),
             "sing-box",
