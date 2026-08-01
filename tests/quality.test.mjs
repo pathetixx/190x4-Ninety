@@ -47,6 +47,34 @@ test("классификация: GOOD-проба → onState GOOD, лесенк
   assert.equal(ladderRan, false, "на GOOD лесенка запускаться не должна");
 });
 
+test("native healthy ускоряет первую quality-пробу после settle", async () => {
+  installStorage();
+  let clock = 1_000_000;
+  let probes = 0;
+  const states = [];
+  const engine = createQualityEngine({
+    invoke: async (cmd) => {
+      if (cmd === "probe_quality") probes++;
+      return GOOD;
+    },
+    actions: { onState: (state) => states.push(state) },
+    now: () => clock,
+    opts: { enabled: true, idleProbeSec: 300 },
+  });
+
+  engine.onConnected({});
+  await engine.tick();
+  assert.equal(probes, 0, "до native healthy сохраняется settle-пауза");
+  assert.equal(engine.requestProbeSoon(), true);
+  await engine.tick();
+  assert.equal(probes, 1);
+  assert.equal(states.at(-1), "GOOD");
+
+  clock += 1000;
+  await engine.tick();
+  assert.equal(probes, 1, "ускорение не превращается в probe-loop");
+});
+
 test("классификация: STALLED-проба → onState STALLED", async () => {
   installStorage();
   const states = [];

@@ -396,6 +396,14 @@ export function createQualityEngine({
     // idle-интервала, но не запускаем её в тот же момент, что native watchdog.
     lastProbeAt = next ? now() : now() - PROBE_MIN_GAP_MS;
   }
+  function requestProbeSoon() {
+    if (!running || !cfg.enabled || cfg.lowDataMode) return false;
+    // Health-watchdog вызывает это только на переходе в healthy. Следующий tick
+    // выполнит одну полноценную пробу немедленно, но обычный min-gap и single-
+    // flight продолжат защищать от параллельных запросов.
+    lastProbeAt = now() - Math.max(cfg.idleProbeSec * 1000, PROBE_MIN_GAP_MS);
+    return true;
+  }
   function pauseForEmergency() {
     // Инвалидируем уже выполняющуюся quality-лесенку/пробу, не переводя UI в
     // idle: аварийный coordinator сам решит, будет ли простой switch или restart.
@@ -417,7 +425,7 @@ export function createQualityEngine({
 
   return {
     onConnected, onIdle, tick, updatePassive, setOptions,
-    setHostPressure, pauseForEmergency, resumeAfterEmergency,
+    setHostPressure, requestProbeSoon, pauseForEmergency, resumeAfterEmergency,
     getSamples: () => samples.slice(), // снимок ring-буфера для осциллограммы
     get state() { return lastState; },
     get isRemediating() { return remediatingEpoch === sessionEpoch; },

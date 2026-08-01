@@ -47,6 +47,7 @@ export function initHealthWatchdog({
   reconcileKillSwitch = async () => true,
   recoverDataplane = async () => false,
   onDataplaneFailed = async () => false,
+  onDataplaneState = () => {},
   invoke: invokeFn = invoke,
   toast: toastFn = toast,
   notify: notifyFn = notify,
@@ -68,6 +69,8 @@ export function initHealthWatchdog({
   let dataplaneTerminalRetryAt = 0;
   let dataplaneTerminalAttempts = [];
   let dataplaneEmergencyPaused = false;
+  let lastDataplaneState = null;
+  let frontendHandoffAttempted = false;
 
   const current = (run) => run === generation && !isUpdateInstalling();
   const active = (run) => current(run) && getState() === "connected";
@@ -131,6 +134,40 @@ export function initHealthWatchdog({
     return true;
   }
 
+  async function runFrontendHandoff(run, dataplane) {
+    if (!active(run) || frontendHandoffAttempted
+      || dataplaneRecoveryBusy || nowFn() < dataplaneRecoveryGraceUntil) {
+      return true;
+    }
+    const decision = dataplaneRecoveryDecision();
+    // Native controller держит fail-closed deadline. Здесь нужен один быстрый
+    // handoff на знающий профили WebView, а не второй независимый retry-loop.
+    if (decision.state !== "allowed") return true;
+
+    frontendHandoffAttempted = true;
+    dataplaneRecoveries.push(nowFn());
+    dataplaneRecoveryBusy = true;
+    dataplaneEmergencyPaused = true;
+    getQualityEngine()?.pauseForEmergency?.();
+    toastFn(tr("conn.applyingSettings"), "warn", 5000, { group: "conn", connecting: true });
+    try {
+      const recovered = await recoverDataplane({
+        reason: dataplane.reason || "dataplane_failed",
+        snapshot: dataplane,
+      });
+      if (recovered && current(run)) {
+        dataplaneRecoveryGraceUntil = nowFn() + DATAPLANE_RECOVERY_GRACE_MS;
+        dataplaneTerminal = false;
+        resetEmergencyPause();
+      }
+    } catch (error) {
+      console.warn("frontend dataplane handoff failed", error);
+    } finally {
+      dataplaneRecoveryBusy = false;
+    }
+    return true;
+  }
+
   async function handleDataplaneHealth(run, snap) {
     const dataplane = snap?.dataplane;
     if (!dataplane) return false;
@@ -138,6 +175,16 @@ export function initHealthWatchdog({
     const dataplaneState = dataplane.dataplaneState || dataplane.state;
     const pressure = dataplane.hostPressure === true || dataplane.state === "pressure";
     getQualityEngine()?.setHostPressure?.(pressure);
+    if (dataplaneState !== lastDataplaneState) {
+      lastDataplaneState = dataplaneState;
+      onDataplaneState(dataplaneState, dataplane);
+      if (dataplaneState === "healthy") {
+        frontendHandoffAttempted = false;
+        // Native liveness уже дала туннелю settle-time. Теперь нужна одна
+        // настоящая quality-проба, чтобы UI не висел в «Проверка» пять минут.
+        getQualityEngine()?.requestProbeSoon?.();
+      }
+    }
 
     if (dataplaneState === "healthy" || dataplaneState === "unmonitoredPrivacyMode") {
       dataplaneRecoveryGraceUntil = 0;
@@ -153,9 +200,12 @@ export function initHealthWatchdog({
     // evidence and pause quality work, but it must never race native restart or
     // turn a native cooldown into a frontend node switch.
     const nativeOwner = dataplane.nativeRecoveryOwner === "native"
-      || ["recovering", "cooldown", "pressure_wait", "exhausted", "terminal", "cleanup_error"]
+      || ["recovering", "cooldown", "pressure_wait", "handoff", "exhausted", "terminal", "cleanup_error"]
         .includes(dataplane.nativeRecoveryState);
     if (nativeOwner) {
+      if (dataplane.nativeRecoveryState === "handoff") {
+        return runFrontendHandoff(run, dataplane);
+      }
       if (dataplane.nativeRecoveryState === "terminal" && active(run) && !dataplaneTerminal) {
         // The native monitor normally performs this action itself. If a
         // terminal snapshot reaches WebView2, keep the same confirmation,
@@ -226,6 +276,9 @@ export function initHealthWatchdog({
     dataplaneTerminalRetryAt = 0;
     dataplaneTerminalAttempts = [];
     dataplaneEmergencyPaused = false;
+    dataplaneRecoveries = [];
+    lastDataplaneState = null;
+    frontendHandoffAttempted = false;
     timer = setIntervalFn(tick, HEALTH_TICK_MS);
   }
 
@@ -239,6 +292,9 @@ export function initHealthWatchdog({
     dataplaneTerminalRetryAt = 0;
     dataplaneTerminalAttempts = [];
     dataplaneEmergencyPaused = false;
+    dataplaneRecoveries = [];
+    lastDataplaneState = null;
+    frontendHandoffAttempted = false;
     if (timer) { clearIntervalFn(timer); timer = null; }
   }
 

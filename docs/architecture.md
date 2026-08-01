@@ -103,19 +103,24 @@ The native monitor has the following lifecycle states:
 ```text
 inactive → unknown → suspect → healthy
                     └──────→ failed → recovering → unknown (new generation)
-                                      └──────────→ cooldown/pressure_wait
-                                      └──────────→ terminal_cleanup → terminal
-                                                    └──────────────→ cleanup_error
+                                      ├──────────→ pressure_wait
+                                      └──────────→ handoff → healthy (candidate switched)
+                                                   └──→ terminal_cleanup → terminal
+                                                          └──→ cleanup_error
 ```
 
 Recovery is owned by one native controller. It retains the in-memory launch
 specification, performs a controlled same-config dependency restart, verifies
 processes, Clash, the real dataplane, system-proxy ownership and (when
 required) the WFP barrier, then publishes a new generation. It does not ask
-WebView2 to rebuild a profile or silently select a different server. The
-attempt budget is three per fifteen minutes with a sixty-second cooldown;
-cooldown is retryable and is not terminal. Terminal state is published only
-after fail-closed cleanup is confirmed. A failed cleanup remains
+WebView2 to rebuild a profile during that restart or silently select a different
+server. There is one same-config restart per fifteen-minute recovery window. If
+the new generation still fails, the native owner publishes `handoff`; a
+responsive WebView immediately validates up to three alternative nodes and can
+fall back to one full lifecycle reconnect. The native owner keeps a sixty-second
+fail-closed deadline, so a hung WebView cannot leave a black-hole runtime alive.
+Terminal state is published only after fail-closed cleanup is confirmed. A
+failed cleanup remains
 `cleanup_error`, preserves the kill switch barrier and is retried only within a
 bounded budget.
 
@@ -127,12 +132,20 @@ relative ages, generations, safe reason codes, scheduler/resource evidence and
 recovery outcomes; it never stores URLs, IPs, credentials, subscription data or
 traffic metadata.
 
-The WebView watchdog remains a UI/guard-only observer. It can pause the quality
-engine and reconcile WFP, but it does not race native recovery. After native
-fail-closed cleanup has been confirmed, a responsive WebView may use the
-existing bounded candidate/reconnect fallback; a hung WebView leaves the native
-barrier in place. Candidate validation uses the fixed dataplane probe, preserves
-the original selector and rolls back before full reconnect. Strict privacy keeps
-its pinned-node policy and skips candidate switching.
+The WebView watchdog remains a UI/guard observer until native recovery explicitly
+publishes `handoff`; this makes one controller own every lifecycle phase while
+still allowing the profile-aware frontend to choose a different node. A manual
+disconnect or profile change invalidates an in-flight native start immediately,
+then waits for the same owner lock before starting the requested runtime.
+Candidate validation uses the fixed dataplane probe, preserves the original
+selector and rolls back before full reconnect. Strict privacy keeps its
+pinned-node policy and skips candidate switching. Native `healthy` transitions
+also request one real quality probe so the channel indicator leaves
+`Checking` promptly without treating liveness alone as a quality grade.
+
+Every engine log segment includes its runtime generation. Planned stops and
+late termination events from older generations are recorded as `stopped`; only
+an unexpected exit of the current generation is recorded as `died` and exposed
+as the runtime failure reason.
 
 For the release ritual, see [RELEASING.md](../RELEASING.md).

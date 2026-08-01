@@ -85,6 +85,14 @@ struct MonitorGeneration {
     value: u64,
 }
 
+fn monitor_exit_expected(
+    current_generation: u64,
+    expected_exit_generation: u64,
+    monitor_generation: u64,
+) -> bool {
+    expected_exit_generation == monitor_generation || current_generation != monitor_generation
+}
+
 // Кап размера одного лог-файла движка. Логи sing-box/xray при уровне info и
 // активном трафике (особенно при DNS-retry-шторме: каждая неудачная резолюция —
 // строка) разрастались до сотен МБ (наблюдали singbox.log на 518 МБ). Кап держит
@@ -121,6 +129,7 @@ fn spawn_log_monitor(
     live_processes: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
     generation: MonitorGeneration,
+    expected_exit_generation: Arc<AtomicU64>,
     spec: MonitorSpec,
 ) {
     live_processes.fetch_add(1, Ordering::SeqCst);
@@ -178,20 +187,34 @@ fn spawn_log_monitor(
                     push(&mut last, text);
                 }
                 CommandEvent::Terminated(payload) => {
-                    let msg = format!(
-                        "{} died (code {:?}). {}\n{}",
-                        spec.death_label,
-                        payload.code,
-                        spec.death_suffix,
-                        last.make_contiguous().join("\n")
+                    let current_generation = generation.current.load(Ordering::SeqCst);
+                    let expected = monitor_exit_expected(
+                        current_generation,
+                        expected_exit_generation.load(Ordering::SeqCst),
+                        generation.value,
                     );
+                    let msg = if expected {
+                        format!(
+                            "{} stopped (code {:?}, generation {}).",
+                            spec.death_label, payload.code, generation.value
+                        )
+                    } else {
+                        format!(
+                            "{} died (code {:?}, generation {}). {}\n{}",
+                            spec.death_label,
+                            payload.code,
+                            generation.value,
+                            spec.death_suffix,
+                            last.make_contiguous().join("\n")
+                        )
+                    };
                     if let Some(w) = writer.as_mut() {
                         write_capped(w, &mut written, &msg);
                     }
                     // Terminated старого комплекта может прийти уже после
                     // быстрого stop и старта нового. Не позволяем запоздалому
                     // событию пометить новое ядро умершим.
-                    if generation.current.load(Ordering::SeqCst) == generation.value {
+                    if !expected && current_generation == generation.value {
                         *died_flag.lock_recover() = Some(msg);
                     }
                     live_processes.fetch_sub(1, Ordering::SeqCst);
@@ -249,6 +272,7 @@ pub struct SingboxState {
     pending_cleanup: Mutex<Option<PendingCleanup>>,
     live_processes: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
+    expected_exit_generation: Arc<AtomicU64>,
     // Native dataplane watchdog. It is owned by the runtime state so a stale
     // monitor can be cancelled before the next runtime generation starts.
     dataplane_health: Arc<health::DataplaneHealthState>,
@@ -343,6 +367,7 @@ impl Default for SingboxState {
             pending_cleanup: Mutex::new(None),
             live_processes: Arc::new(AtomicU64::new(0)),
             process_exit_notify: Arc::new(Notify::new()),
+            expected_exit_generation: Arc::new(AtomicU64::new(0)),
             dataplane_health: Arc::new(health::DataplaneHealthState::default()),
             dataplane_generation: Arc::new(AtomicU64::new(0)),
             native_recovery_lock: tokio::sync::Mutex::new(()),
@@ -619,7 +644,11 @@ async fn spawn_xray(
             current: state.process_generation.clone(),
             value: process_generation,
         },
-        MonitorSpec::bridge("=== xray start ===", "xray"),
+        state.expected_exit_generation.clone(),
+        MonitorSpec::bridge(
+            format!("=== xray start · generation {process_generation} ==="),
+            "xray",
+        ),
     );
 
     // Дать xray подняться и забиндить socks-инбаунды до старта sing-box,
@@ -728,7 +757,11 @@ async fn spawn_sidecars(
                 current: state.process_generation.clone(),
                 value: process_generation,
             },
-            MonitorSpec::bridge(format!("=== {label} start ==="), label.clone()),
+            state.expected_exit_generation.clone(),
+            MonitorSpec::bridge(
+                format!("=== {label} start · generation {process_generation} ==="),
+                label.clone(),
+            ),
         );
     }
 
@@ -1535,7 +1568,11 @@ async fn spawn_singbox_core(
             current: state.process_generation.clone(),
             value: process_generation,
         },
-        MonitorSpec::core("=== sing-box start ===", "sing-box"),
+        state.expected_exit_generation.clone(),
+        MonitorSpec::core(
+            format!("=== sing-box start · generation {process_generation} ==="),
+            "sing-box",
+        ),
     );
 
     // даём sing-box 800мс чтобы упасть с ошибкой парсинга / биндинга
@@ -1711,6 +1748,10 @@ async fn stop_singbox_inner(
         state.start_epoch.fetch_add(1, Ordering::SeqCst);
     }
     let _stopping = StoppingGuard(&state.stopping);
+    state.expected_exit_generation.store(
+        state.process_generation.load(Ordering::SeqCst),
+        Ordering::SeqCst,
+    );
     let started_at = std::time::Instant::now();
     let pending = state
         .pending_cleanup
@@ -1830,6 +1871,10 @@ pub async fn stop_singbox(
     state
         .native_recovery_cancelled
         .store(true, Ordering::SeqCst);
+    // Не ждём до конца 800ms/Clash-readiness окна нативного restart: ручное
+    // намерение сразу инвалидирует его start epoch, и ближайшая bounded-проверка
+    // освобождает owner lock. Новый профиль после этого получает чистый lifecycle.
+    state.start_epoch.fetch_add(1, Ordering::SeqCst);
     let _recovery_lock = state.native_recovery_lock.lock().await;
     let result = stop_singbox_inner(&app, &state, true, false).await;
     state
@@ -2146,6 +2191,10 @@ pub fn vpn_last_error(state: State<'_, SingboxState>) -> Option<String> {
 
 pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
     health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
+    state.expected_exit_generation.store(
+        state.process_generation.load(Ordering::SeqCst),
+        Ordering::SeqCst,
+    );
     if let Some(child) = state.child.lock_recover().take() {
         let _ = child.kill();
     }
@@ -2244,6 +2293,14 @@ mod tests {
         assert_eq!(strip_ansi(""), "");
         // ESC без CSI просто выпадает
         assert_eq!(strip_ansi("a\x1bZb"), "aZb");
+    }
+
+    #[test]
+    fn monitor_exit_classifies_planned_stale_and_unexpected_generations() {
+        assert!(monitor_exit_expected(7, 7, 7));
+        assert!(monitor_exit_expected(8, 0, 7));
+        assert!(!monitor_exit_expected(7, 0, 7));
+        assert!(!monitor_exit_expected(8, 7, 8));
     }
 
     #[test]

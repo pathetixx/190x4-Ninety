@@ -28,9 +28,16 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
 const HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(6);
 const CONTROL_API_TIMEOUT: Duration = Duration::from_millis(1_200);
 const PRESSURE_RECOVERY_WAIT: Duration = Duration::from_secs(20);
-const NATIVE_RECOVERY_COOLDOWN: Duration = Duration::from_secs(60);
 const NATIVE_RECOVERY_WINDOW: Duration = Duration::from_secs(15 * 60);
-const NATIVE_RECOVERY_MAX: usize = 3;
+// Один быстрый same-config restart полезен при зависшем userspace datapath.
+// Повторять тот же конфиг на той же мёртвой ноде бессмысленно: после первой
+// попытки отдаём восстановление WebView, который знает альтернативные ноды.
+const NATIVE_RECOVERY_MAX: usize = 1;
+// Если WebView завис и handoff никто не принял, native controller всё равно
+// обязан завершить неисправный runtime fail-closed. Минуты хватает на три
+// candidate probe и один полный reconnect, но она не оставляет чёрную дыру
+// бесконечно.
+const FRONTEND_HANDOFF_WAIT: Duration = Duration::from_secs(60);
 const TERMINAL_CLEANUP_COOLDOWN: Duration = Duration::from_secs(60);
 const TERMINAL_CLEANUP_WINDOW: Duration = Duration::from_secs(15 * 60);
 const TERMINAL_CLEANUP_MAX: usize = 3;
@@ -229,6 +236,7 @@ struct HealthInner {
     native_recovery_state: String,
     native_recovery_attempts: u32,
     native_recovery_times: VecDeque<Instant>,
+    frontend_handoff_since: Option<Instant>,
     terminal_cleanup_times: VecDeque<Instant>,
 }
 
@@ -258,6 +266,7 @@ impl Default for HealthInner {
             native_recovery_state: "idle".into(),
             native_recovery_attempts: 0,
             native_recovery_times: VecDeque::new(),
+            frontend_handoff_since: None,
             terminal_cleanup_times: VecDeque::new(),
         }
     }
@@ -486,6 +495,10 @@ impl DataplaneHealthState {
         if inner.consecutive_successes >= 2 {
             inner.dataplane_state = "healthy".into();
             inner.reason = None;
+            inner.frontend_handoff_since = None;
+            if inner.native_recovery_state == "handoff" {
+                inner.native_recovery_state = "idle".into();
+            }
         } else if failure_count >= 2 {
             inner.dataplane_state = "failed".into();
             inner.reason = reason.map(str::to_owned);
@@ -613,16 +626,6 @@ impl DataplaneHealthState {
         if inner.native_recovery_state == "recovering" {
             return RecoveryDecision::Busy;
         }
-        if inner.native_recovery_times.len() >= NATIVE_RECOVERY_MAX {
-            inner.native_recovery_state = "exhausted".into();
-            return RecoveryDecision::Exhausted;
-        }
-        if let Some(last) = inner.native_recovery_times.back() {
-            if now.saturating_duration_since(*last) < NATIVE_RECOVERY_COOLDOWN {
-                inner.native_recovery_state = "cooldown".into();
-                return RecoveryDecision::Cooldown;
-            }
-        }
         if inner.host_pressure {
             if let Some(since) = inner.pressure_since {
                 if now.saturating_duration_since(since) < PRESSURE_RECOVERY_WAIT {
@@ -633,6 +636,31 @@ impl DataplaneHealthState {
                 inner.native_recovery_state = "pressure_wait".into();
                 return RecoveryDecision::PressureWait;
             }
+        }
+        if inner.native_recovery_times.len() >= NATIVE_RECOVERY_MAX {
+            let since = *inner.frontend_handoff_since.get_or_insert(now);
+            if now.saturating_duration_since(since) < FRONTEND_HANDOFF_WAIT {
+                let entering = inner.native_recovery_state != "handoff";
+                inner.native_recovery_state = "handoff".into();
+                if entering {
+                    let generation = inner.generation;
+                    let incident_reason = inner.reason.clone();
+                    let scheduler_lateness = inner.scheduler_lateness_ms;
+                    record_incident(
+                        &mut inner,
+                        generation,
+                        "handoff",
+                        incident_reason.as_deref(),
+                        scheduler_lateness,
+                        None,
+                        Some("frontend_candidate_recovery"),
+                        Some("requested"),
+                    );
+                }
+                return RecoveryDecision::FrontendHandoff;
+            }
+            inner.native_recovery_state = "exhausted".into();
+            return RecoveryDecision::Exhausted;
         }
         inner.native_recovery_times.push_back(now);
         inner.native_recovery_attempts = inner.native_recovery_attempts.saturating_add(1);
@@ -696,12 +724,10 @@ impl DataplaneHealthState {
         if inner.generation != generation {
             return;
         }
-        inner.native_recovery_state = if inner.native_recovery_times.len() >= NATIVE_RECOVERY_MAX {
-            "exhausted"
-        } else {
-            "cooldown"
-        }
-        .into();
+        inner
+            .frontend_handoff_since
+            .get_or_insert_with(Instant::now);
+        inner.native_recovery_state = "handoff".into();
         inner.state = if inner.dataplane_state == "failed" {
             "failed"
         } else {
@@ -773,8 +799,8 @@ impl DataplaneHealthState {
 enum RecoveryDecision {
     Allowed,
     Busy,
-    Cooldown,
     PressureWait,
+    FrontendHandoff,
     Exhausted,
 }
 
@@ -798,6 +824,9 @@ fn prune_recovery_times(inner: &mut HealthInner, now: Instant) {
         .is_some_and(|at| now.saturating_duration_since(*at) >= NATIVE_RECOVERY_WINDOW)
     {
         inner.native_recovery_times.pop_front();
+    }
+    if inner.native_recovery_times.is_empty() {
+        inner.frontend_handoff_since = None;
     }
 }
 
@@ -1129,9 +1158,14 @@ pub fn start_dataplane_watchdog(
                             | TerminalCleanupDecision::Exhausted => {}
                         }
                     }
-                    RecoveryDecision::Busy
-                    | RecoveryDecision::Cooldown
-                    | RecoveryDecision::PressureWait => {}
+                    RecoveryDecision::FrontendHandoff => {
+                        // WebView получает явный handoff через snapshot/event и
+                        // пробует альтернативную ноду. Если он завис, по
+                        // FRONTEND_HANDOFF_WAIT этот же coordinator перейдёт в
+                        // bounded terminal cleanup.
+                        publish(&app, &health);
+                    }
+                    RecoveryDecision::Busy | RecoveryDecision::PressureWait => {}
                 }
             }
 
@@ -1305,7 +1339,7 @@ mod tests {
     }
 
     #[test]
-    fn recovery_budget_distinguishes_cooldown_and_exhaustion() {
+    fn one_native_restart_hands_off_before_terminal_cleanup() {
         let health = DataplaneHealthState::default();
         health.reset_active_for_runtime(42, false, false);
         sample(&health, 42, false);
@@ -1317,17 +1351,14 @@ mod tests {
         health.native_recovery_failed(42, "test_failure");
         assert_eq!(
             health.recovery_decision(Instant::now()),
-            RecoveryDecision::Cooldown
+            RecoveryDecision::FrontendHandoff
         );
-        {
-            let mut inner = health.inner.lock_recover();
-            inner.native_recovery_times.clear();
-            inner.native_recovery_times.extend(
-                (0..NATIVE_RECOVERY_MAX).map(|_| Instant::now() - NATIVE_RECOVERY_COOLDOWN),
-            );
-        }
+        let terminal_at = {
+            let inner = health.inner.lock_recover();
+            inner.frontend_handoff_since.unwrap() + FRONTEND_HANDOFF_WAIT
+        };
         assert_eq!(
-            health.recovery_decision(Instant::now()),
+            health.recovery_decision(terminal_at),
             RecoveryDecision::Exhausted
         );
     }

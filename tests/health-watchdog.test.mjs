@@ -463,6 +463,100 @@ test("native owner не запускает frontend recovery даже при fai
   assert.equal(pauses, 1);
 });
 
+test("native handoff сразу передаёт failed dataplane переключению ноды", async () => {
+  let now = 0;
+  let recoveries = 0;
+  let pauses = 0;
+  let resumes = 0;
+  const states = [];
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => ({
+      setHostPressure: () => {},
+      pauseForEmergency: () => { pauses++; },
+      resumeAfterEmergency: () => { resumes++; },
+      tick: async () => {},
+    }),
+    recoverDataplane: async () => { recoveries++; return true; },
+    onDataplaneState: (state) => states.push(state),
+    now: () => now,
+    invoke: async () => ({
+      singbox_running: true,
+      xray: "none",
+      sidecar: "none",
+      dataplane: {
+        state: "failed",
+        dataplaneState: "failed",
+        nativeRecoveryOwner: "native",
+        nativeRecoveryState: "handoff",
+        hostPressure: false,
+      },
+    }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  await watchdog.tick();
+  now = 60_000;
+  await watchdog.tick();
+  assert.equal(recoveries, 1, "handoff не должен ждать три одинаковых restart");
+  assert.equal(pauses, 1);
+  assert.equal(resumes, 1);
+  assert.deepEqual(states, ["failed"]);
+});
+
+test("переход native health в healthy запрашивает одну немедленную quality-пробу", async () => {
+  let requested = 0;
+  let qualityTicks = 0;
+  const states = [];
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => ({
+      setHostPressure: () => {},
+      requestProbeSoon: () => { requested++; },
+      tick: async () => { qualityTicks++; },
+    }),
+    onDataplaneState: (state) => states.push(state),
+    invoke: async () => ({
+      singbox_running: true,
+      xray: "none",
+      sidecar: "none",
+      dataplane: {
+        state: "healthy",
+        dataplaneState: "healthy",
+        nativeRecoveryOwner: "native",
+        nativeRecoveryState: "idle",
+        hostPressure: false,
+      },
+    }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  await watchdog.tick();
+  assert.equal(requested, 1);
+  assert.equal(qualityTicks, 2);
+  assert.deepEqual(states, ["healthy"]);
+});
+
 test("native terminal cleanup остаётся подтверждаемым и bounded", async () => {
   let now = 0;
   let terminalAttempts = 0;

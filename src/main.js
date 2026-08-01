@@ -1168,6 +1168,10 @@ const healthWatchdog = initHealthWatchdog({
   reconcileKillSwitch: () => applyKillSwitch(state === "connected"),
   recoverDataplane,
   onDataplaneFailed: failDataplane,
+  onDataplaneState: (dataplaneState) => {
+    if (dataplaneState === "inactive") return;
+    setChannelState(dataplaneState === "failed" ? "DEAD" : "UNKNOWN");
+  },
 });
 const startHealthWatchdog = healthWatchdog.start;
 const stopHealthWatchdog = healthWatchdog.stop;

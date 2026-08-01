@@ -51,6 +51,31 @@ const GL_LATEST =
 let failed = 0;
 const check = (ok, label) => { console.log(`  ${ok ? "✓" : "✗"} ${label}`); if (!ok) failed++; };
 
+const englishMarkers = new Set([
+  "added", "adds", "allows", "available", "client", "connection", "distinct",
+  "each", "english", "fixed", "fixes", "for", "from", "improved", "improves",
+  "in", "installation", "introduced", "keeps", "language", "new", "now", "of",
+  "on", "prevents", "release", "removed", "removes", "settings", "support",
+  "supports", "theme", "themes", "the", "to", "updated", "updates", "users",
+  "version", "with",
+]);
+const noteLines = (value) => String(value ?? "")
+  .split("\n").map((line) => line.trim()).filter(Boolean);
+const hasRussianNotes = (value) => noteLines(value)
+  .some((line) => /[\u0400-\u04FF]/u.test(line));
+const hasEnglishNotes = (value) => noteLines(value).some((line) => {
+  if (/[\u0400-\u04FF]/u.test(line)) return false;
+  const words = line.toLowerCase().match(/\b[a-z]{2,}\b/g) ?? [];
+  const markers = words.filter((word, index) =>
+    englishMarkers.has(word) && words.indexOf(word) === index,
+  );
+  return words.length >= 3 && markers.length >= 2;
+});
+const hasBilingualNotes = (value) => hasRussianNotes(value) && hasEnglishNotes(value);
+const normalizedNotes = (value) => noteLines(value)
+  .filter((line) => !/^#{1,6}\s+/u.test(line))
+  .join("\n");
+
 // Поднять fn() до истины с ретраями — OTA-эндпоинты/CDN могут догонять пару секунд.
 async function retry(fn, tries = 8, delayMs = 5000) {
   for (let i = 0; i < tries; i++) {
@@ -68,13 +93,14 @@ async function verifyRelease(version) {
   let rel;
   try {
     rel = JSON.parse(cap("gh", ["release", "view", tag,
-      "--json", "isDraft,isPrerelease,assets"]));
+      "--json", "isDraft,isPrerelease,assets,body"]));
   } catch {
     check(false, "gh release view — релиз не найден");
     return;
   }
   check(!rel.isDraft, "опубликован (не draft)");
   check(!rel.isPrerelease, "не prerelease (иначе выпадет из Latest → OTA сломан)");
+  check(hasBilingualNotes(rel.body), "GitHub Release notes сохранили UTF-8 и оба языка");
   const names = rel.assets.map((a) => a.name);
   check(names.some((n) => /-setup\.exe$/.test(n)), "ассет установщика (.exe)");
   check(names.some((n) => /-setup\.exe\.sig$/.test(n)), "подпись установщика (.sig)");
@@ -109,6 +135,14 @@ async function verifyRelease(version) {
     return true;
   });
   check(glOk, `GitLab OTA (первичный): latest.json = ${version}, immutable URL и подпись есть`);
+  check(!!ghMetadata && hasBilingualNotes(ghMetadata.notes),
+    "GitHub OTA notes сохранили UTF-8 и оба языка");
+  check(!!glMetadata && hasBilingualNotes(glMetadata.notes),
+    "GitLab OTA notes сохранили UTF-8 и оба языка");
+  check(!!ghMetadata && !!glMetadata && ghMetadata.notes === glMetadata.notes,
+    "GitHub/GitLab OTA используют одинаковые notes");
+  check(!!ghMetadata && normalizedNotes(rel.body) === normalizedNotes(ghMetadata.notes),
+    "GitHub Release body совпадает с OTA notes");
   check(
     !!ghMetadata && !!glMetadata
       && ghMetadata.platforms["windows-x86_64"].signature
@@ -183,27 +217,9 @@ if (!notes) die(`секция ${tag} в CHANGELOG.md пустая`);
 // Релизные заметки должны быть двуязычными: OTA и GitHub Release читают одну
 // и ту же аннотацию тега, поэтому забытый английский текст уже нельзя
 // исправить после публикации без выпуска новой версии.
-const noteLines = notes.split("\n").map((line) => line.trim()).filter(Boolean);
-const englishMarkers = new Set([
-  "added", "adds", "allows", "available", "client", "connection", "distinct",
-  "each", "english", "fixed", "fixes", "for", "from", "improved", "improves",
-  "in", "installation", "introduced", "keeps", "language", "new", "now", "of",
-  "on", "prevents", "release", "removed", "removes", "settings", "support",
-  "supports", "theme", "themes", "the", "to", "updated", "updates", "users",
-  "version", "with",
-]);
-const hasRussianNotes = noteLines.some((line) => /[\u0400-\u04FF]/u.test(line));
-const hasEnglishNotes = noteLines.some((line) => {
-  if (/[\u0400-\u04FF]/u.test(line)) return false;
-  const words = line.toLowerCase().match(/\b[a-z]{2,}\b/g) ?? [];
-  const markers = words.filter((word, index) =>
-    englishMarkers.has(word) && words.indexOf(word) === index,
-  );
-  return words.length >= 3 && markers.length >= 2;
-});
 const missingLanguages = [
-  !hasRussianNotes && "русский",
-  !hasEnglishNotes && "английский",
+  !hasRussianNotes(notes) && "русский",
+  !hasEnglishNotes(notes) && "английский",
 ].filter(Boolean);
 if (missingLanguages.length) {
   die(`секция ${tag} должна содержать отдельные заметки на русском и английском; `
@@ -253,7 +269,9 @@ const dir = mkdtempSync(join(tmpdir(), "ninety-rel-"));
 const notesFile = join(dir, "notes.md");
 writeFileSync(notesFile, notes + "\n");           // те же байты, что в CHANGELOG
 
-run("git", ["tag", "-a", tag, "-F", notesFile]);
+// Без verbatim Git считает Markdown-заголовки комментариями и выкидывает их
+// из аннотации. Именно аннотация становится OTA notes на Windows-раннере.
+run("git", ["tag", "-a", "--cleanup=verbatim", tag, "-F", notesFile]);
 run("git", ["push", "origin", "main"]);
 run("git", ["push", "origin", tag]);
 run("gh", ["release", "create", tag, "--draft", "--title", `Ninety ${tag}`,
