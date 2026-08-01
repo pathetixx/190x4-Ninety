@@ -7,7 +7,7 @@ use tokio::sync::Notify;
 
 use crate::health;
 use crate::util::MutexExt;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
