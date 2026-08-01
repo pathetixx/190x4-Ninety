@@ -2,6 +2,22 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.43 — 2026-08-01
+
+## English
+
+- Added a native Windows VPN dataplane watchdog with real health probes, rolling decisions, guarded recovery and bounded terminal cleanup.
+- Separated health and quality monitoring so host CPU, memory, commit and scheduler pressure pauses background quality probes without causing mass node switching.
+- Hardened recovery ownership with generation guards, cooldowns, consecutive-success confirmation, manual-disconnect cancellation and fail-closed WFP protection.
+- Kept sing-box cache state inside the application data directory instead of the process working directory, and added diagnostics that avoid sensitive VPN configuration data.
+
+## Русский
+
+- Добавлен нативный Windows-watchdog VPN-dataplane с реальными health-probe, rolling-решением, защищённым восстановлением и ограниченной terminal cleanup.
+- Разделены health- и quality-мониторинг: давление CPU, памяти, commit и планировщика приостанавливает фоновые quality-probe и не вызывает массовое переключение нод.
+- Усилено владение восстановлением: generation guard, cooldown, подтверждение двумя последовательными успехами, отмена при ручном отключении и fail-closed-защита через WFP.
+- Кэш sing-box перенесён в каталог данных приложения вместо рабочей директории процесса; диагностические записи не содержат чувствительных данных VPN-конфигурации.
+
 ## v0.2.42 — 2026-07-29
 
 ## English
