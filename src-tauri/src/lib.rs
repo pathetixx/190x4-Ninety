@@ -6,6 +6,7 @@ mod clash_stream;
 mod discord_cache;
 mod dnscheck;
 mod dpi;
+mod health;
 mod killswitch;
 mod netproc;
 mod protected_browser;

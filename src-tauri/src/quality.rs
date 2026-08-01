@@ -167,8 +167,7 @@ fn build_client(port: Option<u16>) -> Result<reqwest::Client, String> {
 /// Перебирает endpoints до первого, отдавшего тело; стримит до sample_bytes или
 /// budget_ms; по дороге ловит stall. Возвращает метрики первого успешного (или
 /// последнюю ошибку, если все легли).
-#[tauri::command]
-pub async fn probe_quality(
+pub(crate) async fn probe_quality_inner(
     port: Option<u16>,
     endpoints: Vec<String>,
     sample_bytes: Option<u64>,
@@ -191,6 +190,16 @@ pub async fn probe_quality(
         }
     }
     Ok(last_err)
+}
+
+#[tauri::command]
+pub async fn probe_quality(
+    port: Option<u16>,
+    endpoints: Vec<String>,
+    sample_bytes: Option<u64>,
+    budget_ms: Option<u64>,
+) -> Result<ProbeResult, String> {
+    probe_quality_inner(port, endpoints, sample_bytes, budget_ms).await
 }
 
 // Одна проба. Ok = тело пошло (метрики валидны, даже если потом stalled);

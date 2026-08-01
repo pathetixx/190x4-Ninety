@@ -45,7 +45,7 @@ import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
 import { createCoreStartBarrier } from "/lib/connection-start-barrier.js";
-import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
+import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
@@ -1041,8 +1041,83 @@ async function performAutoReconnectOnce(reason, epoch) {
   }
 }
 
+const EMERGENCY_PROBE_ENDPOINT = "https://speed.cloudflare.com/__down?bytes=65536";
+
+async function verifyEmergencyDataplane() {
+  const options = loadOptions();
+  const port = Number(options.inbound?.mixedPort) || 7890;
+  try {
+    const result = await invoke("probe_quality", {
+      port,
+      endpoints: [EMERGENCY_PROBE_ENDPOINT],
+      sampleBytes: 64 * 1024,
+      budgetMs: 2500,
+    });
+    return result?.ok === true && result?.stalled !== true
+      && Number(result?.bytes) >= 64 * 1024;
+  } catch {
+    return false;
+  }
+}
+
+// Аварийный путь отделён от anti-throttle лесенки: он не спрашивает юзера,
+// не использует её часовой бюджет и сначала пробует дешёвое переключение на
+// проверенную альтернативу. Если локальный Clash API завис, сразу сработает
+// controlled full reconnect через уже существующий lifecycle-барьер.
+async function recoverDataplane() {
+  if (state !== "connected") return false;
+  const token = runtimeIdentity.capture();
+  if (!token) return false;
+
+  const nodes = qualityNodesFromSource();
+  if (nodes.length >= 2) {
+    let proxies;
+    try {
+      proxies = (await getProxies(undefined, { token, fresh: true }))?.proxies || {};
+    } catch {
+      proxies = {};
+    }
+    const current = currentEffectiveTag || pickEffectiveNode({ proxies });
+    const candidates = rankByDelay(
+      nodes.filter((node) => node.clashTag && node.clashTag !== current),
+      proxies,
+    ).slice(0, 3);
+
+    for (const candidate of candidates) {
+      if (!runtimeIdentity.isCurrent(token) || state !== "connected") return false;
+      try {
+        const tested = await testNode(candidate.clashTag, { token, timeoutMs: 3000 });
+        const delay = Number(tested?.delay) || 0;
+        if (delay <= 0 || delay >= 65_000) continue;
+        const selected = await selectProxy("proxy", candidate.clashTag, { token });
+        if (selected?.stale || !runtimeIdentity.isCurrent(token)) continue;
+        if (await verifyEmergencyDataplane()) return true;
+      } catch {
+        // Следующая candidate либо полный reconnect — ниже.
+      }
+    }
+  }
+
+  const request = beginSourceReconnect(t("conn.applyingSettings"));
+  if (!request) return false;
+  const connected = await request.completion;
+  return connected === true && state === "connected"
+    && await verifyEmergencyDataplane();
+}
+
+async function failDataplane() {
+  const preserved = killSwitchMustSurviveRuntimeStop();
+  const closed = await shutdownCore({ preserveKillSwitch: preserved });
+  if (!closed) return false;
+  toast(t("conn.coreStopped"), "error", 7000, { group: "conn", desc: t("conn.coreStoppedDesc") });
+  notify(t("conn.notifyClosedTitle"), t("conn.notifyClosedBody"));
+  switchView("logs");
+  return true;
+}
+
 // ── health-watchdog — /lib/health-watchdog.js ──────────────
-// Liveness ядер + bridge-reconnect вынесены в модуль; здесь инстанс с инжектом
+// Liveness ядер, native dataplane recovery и bridge-reconnect вынесены в модуль;
+// здесь инстанс с инжектом
 // состояния/реконнекта/движка качества. Алиасы сохраняют имена вызовов из setState
 // (start/stopHealthWatchdog) — их не трогаем. getQualityEngine — геттер, т.к.
 // qualityEngine определяется ниже по файлу; вызывается только в runtime-тике.
@@ -1060,6 +1135,8 @@ const healthWatchdog = initHealthWatchdog({
     policyMode: preservedKillSwitchPolicyMode(),
   }),
   reconcileKillSwitch: () => applyKillSwitch(state === "connected"),
+  recoverDataplane,
+  onDataplaneFailed: failDataplane,
 });
 const startHealthWatchdog = healthWatchdog.start;
 const stopHealthWatchdog = healthWatchdog.stop;

@@ -33,6 +33,7 @@ The backend lives under `src-tauri/src/`. It exposes Tauri commands and events f
 The backend is responsible for:
 
 - starting and stopping local engine processes;
+- native dataplane health checks and host-pressure classification;
 - Windows system proxy changes;
 - TUN elevation and autostart behavior;
 - WARP/WireGuard state;
@@ -72,5 +73,21 @@ This keeps the repository smaller and makes release inputs explicit in CI:
 - place binaries where Tauri expects sidecars;
 - build and sign Windows artifacts;
 - generate and publish `latest.json`.
+
+## Runtime health and recovery
+
+`connected` is a UI state, while the native runtime health is tracked separately.
+The Rust backend monitors the actual proxy/TUN datapath through the local
+`probe-in`/mixed inbound, in addition to process liveness. It reports bounded
+states such as `unknown`, `healthy`, `suspect`, `pressure` and `failed`, with a
+runtime generation and a non-sensitive reason code.
+
+When the host is under CPU or memory pressure, Ninety pauses background quality
+remediation instead of switching nodes blindly. A confirmed dataplane failure
+uses a bounded recovery policy: validate an alternative node, switch to it when
+the dataplane probe succeeds, or use the existing controlled runtime reconnect.
+The frontend remains the recovery coordinator for now because it owns the
+profile/config selection; a future Windows service can move that ownership out
+of the WebView.
 
 For the release ritual, see [RELEASING.md](../RELEASING.md).

@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
+use crate::health;
 use crate::util::MutexExt;
 use tauri::{AppHandle, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -248,6 +249,10 @@ pub struct SingboxState {
     pending_cleanup: Mutex<Option<PendingCleanup>>,
     live_processes: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
+    // Native dataplane watchdog. It is owned by the runtime state so a stale
+    // monitor can be cancelled before the next runtime generation starts.
+    dataplane_health: Arc<health::DataplaneHealthState>,
+    dataplane_generation: Arc<AtomicU64>,
 }
 
 #[derive(Clone)]
@@ -310,6 +315,8 @@ impl Default for SingboxState {
             pending_cleanup: Mutex::new(None),
             live_processes: Arc::new(AtomicU64::new(0)),
             process_exit_notify: Arc::new(Notify::new()),
+            dataplane_health: Arc::new(health::DataplaneHealthState::default()),
+            dataplane_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -475,6 +482,34 @@ fn xray_log_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("xray.log"))
 }
 
+// При высокой загрузке Windows не гарантирует, что userspace datapath будет
+// получать CPU вовремя. Поднимаем только критичные сетевые children до
+// ABOVE_NORMAL: HIGH/REALTIME намеренно не используем, чтобы не превращать
+// Ninety в источник starvation для всей системы.
+fn prioritize_datapath_process(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{
+            OpenProcess, SetPriorityClass, ABOVE_NORMAL_PRIORITY_CLASS, PROCESS_SET_INFORMATION,
+        };
+
+        unsafe {
+            match OpenProcess(PROCESS_SET_INFORMATION, false, pid) {
+                Ok(handle) => {
+                    if let Err(error) = SetPriorityClass(handle, ABOVE_NORMAL_PRIORITY_CLASS) {
+                        eprintln!("datapath priority failed for pid {pid}: {error}");
+                    }
+                    let _ = CloseHandle(handle);
+                }
+                Err(error) => eprintln!("datapath priority open failed for pid {pid}: {error}"),
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = pid;
+}
+
 // Поднимает xray-core sidecar для xhttp-нод (two-core). Всегда user-level,
 // слушает 127.0.0.1; sing-box (свой child или сервис под LocalSystem) ходит
 // к нему через loopback socks-мосты из конфига. Spawn до sing-box.
@@ -499,6 +534,7 @@ async fn spawn_xray(
         .env("NO_COLOR", "1")
         .spawn()
         .map_err(|e| format!("spawn xray: {e}"))?;
+    prioritize_datapath_process(child.pid());
     *state.xray_child.lock_recover() = Some(child);
 
     let died_flag = state.xray_died.clone();
@@ -604,6 +640,7 @@ async fn spawn_sidecars(
             .env("NO_COLOR", "1")
             .spawn()
             .map_err(|e| format!("spawn {bin}: {e}"))?;
+        prioritize_datapath_process(child.pid());
         state.sidecars.lock_recover().push(child);
 
         let died_flag = state.sidecar_died.clone();
@@ -887,6 +924,25 @@ fn runtime_ports_from_config(raw: &str) -> Result<(u16, Vec<u16>), String> {
     Ok((clash, ports))
 }
 
+fn probe_port_from_config(raw: &str) -> Option<u16> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    value
+        .get("inbounds")
+        .and_then(|v| v.as_array())
+        .and_then(|inbounds| {
+            inbounds.iter().find_map(|inbound| {
+                let tag = inbound.get("tag").and_then(|v| v.as_str())?;
+                if tag != "probe-in" && tag != "mixed-in" {
+                    return None;
+                }
+                inbound
+                    .get("listen_port")
+                    .and_then(|v| v.as_u64())
+                    .and_then(|port| u16::try_from(port).ok())
+            })
+        })
+}
+
 async fn wait_clash_ready(port: u16, state: &SingboxState, start_epoch: u64) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
@@ -1157,6 +1213,7 @@ pub async fn start_singbox(
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
     let config_json = harden_config(&config_json);
     let (clash_port, runtime_ports) = runtime_ports_from_config(&config_json)?;
+    let probe_port = probe_port_from_config(&config_json);
     *state.runtime_ports.lock_recover() = runtime_ports;
     let sidecar_specs: Option<Vec<SidecarSpec>> = sidecars_json
         .as_ref()
@@ -1251,6 +1308,19 @@ pub async fn start_singbox(
         clash_port,
         clash_ready: true,
     });
+    if strict_privacy {
+        health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
+    } else if let Some(probe_port) = probe_port {
+        health::start_dataplane_watchdog(
+            app.clone(),
+            state.dataplane_health.clone(),
+            state.dataplane_generation.clone(),
+            process_generation,
+            probe_port,
+        );
+    } else {
+        health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
+    }
     Ok(runtime_snapshot_value(&state, false))
 }
 
@@ -1278,6 +1348,7 @@ async fn spawn_singbox_core(
         .env("NO_COLOR", "1")
         .spawn()
         .map_err(|e| format!("spawn sing-box: {e}"))?;
+    prioritize_datapath_process(child.pid());
 
     *state.child.lock_recover() = Some(child);
 
@@ -1459,6 +1530,7 @@ pub async fn stop_singbox(
     state: State<'_, SingboxState>,
 ) -> Result<StopResult, String> {
     let _stop = state.stop_lock.lock().await;
+    health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
     {
         let _gate = state.lifecycle_gate.lock_recover();
         state.stopping.store(true, Ordering::SeqCst);
@@ -1652,6 +1724,7 @@ pub struct HealthSnapshot {
     pub sidecar: &'static str,
     pub last_error: Option<String>,
     pub kill_switch_active: bool,
+    pub dataplane: health::DataplaneHealthSnapshot,
 }
 
 #[tauri::command]
@@ -1665,6 +1738,7 @@ pub fn health_snapshot(
         sidecar: compute_sidecar_status(&state),
         last_error: compute_last_error(&state),
         kill_switch_active: crate::killswitch::is_active(&kill_switch),
+        dataplane: state.dataplane_health.snapshot(),
     }
 }
 
@@ -1707,6 +1781,7 @@ pub fn vpn_last_error(state: State<'_, SingboxState>) -> Option<String> {
 }
 
 pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
+    health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
     if let Some(child) = state.child.lock_recover().take() {
         let _ = child.kill();
     }
@@ -1821,6 +1896,16 @@ mod tests {
     #[test]
     fn harden_config_passes_invalid_json_through() {
         assert_eq!(harden_config("not json"), "not json");
+    }
+
+    #[test]
+    fn probe_port_follows_the_runtime_probe_inbound() {
+        let tun = r#"{"inbounds":[{"type":"tun","tag":"tun-in"},{"type":"mixed","tag":"probe-in","listen_port":8787}]}"#;
+        let proxy = r#"{"inbounds":[{"type":"mixed","tag":"mixed-in","listen_port":9898}]}"#;
+        let unrelated = r#"{"inbounds":[{"type":"mixed","tag":"other","listen_port":7777}]}"#;
+        assert_eq!(probe_port_from_config(tun), Some(8787));
+        assert_eq!(probe_port_from_config(proxy), Some(9898));
+        assert_eq!(probe_port_from_config(unrelated), None);
     }
 
     #[test]

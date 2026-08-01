@@ -1,7 +1,10 @@
-// Ninety · health-watchdog (liveness ядер + bridge-reconnect). Вынесено из main.js.
+// Ninety · health-watchdog (liveness ядер + dataplane recovery + bridge-reconnect).
+// Вынесено из main.js.
 // Пока connected — раз в 5с дёргаем health_snapshot:
 //   sing-box упал → туннель закрыт: снять прокси, idle, нотифай с причиной, логи.
 //   xray/naive/TT-мост упал → авто-реконнект (пересобирает конфиг и поднимает ядра).
+//   native dataplane failed → bounded node switch/full reconnect; pressure не
+//   запускает quality-лесенку и ждёт восстановления ресурсов.
 // После аварийного fail-closed shutdown тот же таймер остаётся в guard-only
 // режиме и следит только за WFP, пока пользователь явно не снимет блок.
 // Всё, что тянется из main (текущее состояние, флаг установки апдейта, гашение ядра,
@@ -16,6 +19,10 @@ const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 const HEALTH_TICK_MS = 5000;
+const DATAPLANE_RECOVERY_COOLDOWN_MS = 60_000;
+const DATAPLANE_RECOVERY_WINDOW_MS = 15 * 60_000;
+const DATAPLANE_RECOVERY_MAX = 3;
+const DATAPLANE_RECOVERY_GRACE_MS = 30_000;
 // Кап догоняющих реконнектов мостов (xray/naive/TT). Смерть моста сразу на старте
 // фейлит start_singbox (fail-fast в Rust), но смерть в середине сессии лечится
 // реконнектом — без капа стабильно падающий мост зациклил бы «упал → реконнект →
@@ -38,6 +45,8 @@ export function initHealthWatchdog({
   isKillSwitchRequired = () => false,
   rearmKillSwitch = async () => false,
   reconcileKillSwitch = async () => true,
+  recoverDataplane = async () => false,
+  onDataplaneFailed = async () => false,
   invoke: invokeFn = invoke,
   toast: toastFn = toast,
   notify: notifyFn = notify,
@@ -50,6 +59,10 @@ export function initHealthWatchdog({
   let bridgeReconnects = [];
   let generation = 0;
   let killSwitchAlerted = false;
+  let dataplaneRecoveries = [];
+  let dataplaneRecoveryBusy = false;
+  let dataplaneRecoveryGraceUntil = 0;
+  let dataplaneTerminal = false;
 
   const current = (run) => run === generation && !isUpdateInstalling();
   const active = (run) => current(run) && getState() === "connected";
@@ -59,6 +72,61 @@ export function initHealthWatchdog({
     bridgeReconnects = bridgeReconnects.filter((ts) => ts > cut);
     if (bridgeReconnects.length >= BRIDGE_RECONNECT_MAX) return false;
     bridgeReconnects.push(Date.now());
+    return true;
+  }
+
+  function dataplaneRecoveryAllowed() {
+    const now = Date.now();
+    const cut = now - DATAPLANE_RECOVERY_WINDOW_MS;
+    dataplaneRecoveries = dataplaneRecoveries.filter((ts) => ts > cut);
+    const last = dataplaneRecoveries.at(-1) || 0;
+    return dataplaneRecoveries.length < DATAPLANE_RECOVERY_MAX
+      && now - last >= DATAPLANE_RECOVERY_COOLDOWN_MS;
+  }
+
+  async function handleDataplaneHealth(run, snap) {
+    const dataplane = snap?.dataplane;
+    if (!dataplane) return false;
+    if (dataplane.state === "inactive") return false;
+    const pressure = dataplane.hostPressure === true || dataplane.state === "pressure";
+    getQualityEngine()?.setHostPressure?.(pressure);
+
+    if (dataplane.state === "healthy") {
+      dataplaneRecoveryGraceUntil = 0;
+      dataplaneTerminal = false;
+      return false;
+    }
+    if (pressure || dataplane.state !== "failed") return true;
+    if (!active(run)) return true;
+    if (Date.now() < dataplaneRecoveryGraceUntil || dataplaneRecoveryBusy) return true;
+
+    if (!dataplaneRecoveryAllowed()) {
+      if (!dataplaneTerminal) {
+        dataplaneTerminal = true;
+        await onDataplaneFailed(dataplane);
+      }
+      return true;
+    }
+
+    dataplaneRecoveries.push(Date.now());
+    dataplaneRecoveryBusy = true;
+    getQualityEngine()?.pauseForEmergency?.();
+    toastFn(tr("conn.applyingSettings"), "warn", 5000, { group: "conn", connecting: true });
+    try {
+      const recovered = await recoverDataplane({
+        reason: dataplane.reason || "dataplane_failed",
+        snapshot: dataplane,
+      });
+      if (recovered) {
+        dataplaneRecoveryGraceUntil = Date.now() + DATAPLANE_RECOVERY_GRACE_MS;
+        dataplaneTerminal = false;
+      }
+    } catch (error) {
+      console.warn("dataplane recovery failed", error);
+    } finally {
+      dataplaneRecoveryBusy = false;
+      getQualityEngine()?.resumeAfterEmergency?.();
+    }
     return true;
   }
 
@@ -76,12 +144,18 @@ export function initHealthWatchdog({
     if (timer) return;
     generation++;
     killSwitchAlerted = false;
+    dataplaneRecoveryBusy = false;
+    dataplaneRecoveryGraceUntil = 0;
+    dataplaneTerminal = false;
     timer = setIntervalFn(tick, HEALTH_TICK_MS);
   }
 
   function stop() {
     generation++;
     killSwitchAlerted = false;
+    dataplaneRecoveryBusy = false;
+    dataplaneRecoveryGraceUntil = 0;
+    dataplaneTerminal = false;
     if (timer) { clearIntervalFn(timer); timer = null; }
   }
 
@@ -189,6 +263,7 @@ export function initHealthWatchdog({
         reconnectForSourceChange(tr("conn.clientReconnect"));
         return;
       }
+      if (await handleDataplaneHealth(run, snap)) return;
       // Liveness OK — отдаём ход движку качества (детект троттла/деградации).
       // Fire-and-forget: проба до 4с не должна держать busy и тормозить следующий
       // liveness-тик; у движка свои guard'ы probing/remediating.

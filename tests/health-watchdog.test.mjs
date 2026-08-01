@@ -185,3 +185,87 @@ test("поздний rearm отменённой policy завершается а
 
   assert.equal(reconciles, 1);
 });
+
+test("dataplane failed запускает bounded recovery и блокирует quality engine", async () => {
+  let recoveries = 0;
+  let pauses = 0;
+  let resumes = 0;
+  let qualityTicks = 0;
+  const quality = {
+    setHostPressure: () => {},
+    pauseForEmergency: () => { pauses++; },
+    resumeAfterEmergency: () => { resumes++; },
+    tick: async () => { qualityTicks++; },
+  };
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => quality,
+    recoverDataplane: async () => { recoveries++; return true; },
+    invoke: async () => ({
+      singbox_running: true,
+      xray: "none",
+      sidecar: "none",
+      kill_switch_active: false,
+      dataplane: {
+        state: "failed",
+        reason: "dataplane_stalled",
+        hostPressure: false,
+      },
+    }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  await watchdog.tick();
+
+  assert.equal(recoveries, 1);
+  assert.equal(pauses, 1);
+  assert.equal(resumes, 1);
+  assert.equal(qualityTicks, 0, "обычный quality engine не должен вмешиваться");
+});
+
+test("pressure mode не запускает recovery и гасит фоновую quality-пробу", async () => {
+  let recoveries = 0;
+  let pressure = false;
+  let qualityTicks = 0;
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => ({
+      setHostPressure: (value) => { pressure = value; },
+      tick: async () => { qualityTicks++; },
+    }),
+    recoverDataplane: async () => { recoveries++; return true; },
+    invoke: async () => ({
+      singbox_running: true,
+      xray: "none",
+      sidecar: "none",
+      kill_switch_active: false,
+      dataplane: { state: "pressure", hostPressure: true },
+    }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+
+  assert.equal(pressure, true);
+  assert.equal(recoveries, 0);
+  assert.equal(qualityTicks, 0);
+});

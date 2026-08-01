@@ -244,3 +244,53 @@ test("выключенный quality engine не прогревает локал
   await Promise.resolve();
   assert.equal(asnCalls, 0);
 });
+
+test("pressure mode временно отключает фоновые quality probes", async () => {
+  installStorage();
+  let probes = 0;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => {
+      if (cmd === "probe_quality") probes++;
+      return GOOD;
+    },
+    actions: {},
+    opts: { enabled: true },
+  });
+
+  engine.onConnected({ idleProbeSec: 60 });
+  armSuspect(engine);
+  engine.setHostPressure(true);
+  await engine.tick();
+  assert.equal(probes, 0);
+
+  engine.setHostPressure(false);
+  await engine.tick();
+  assert.equal(probes, 1, "после выхода из pressure mode probe должен вернуться");
+});
+
+test("emergency pause инвалидирует текущую quality remediation", async () => {
+  installStorage();
+  let probeRelease;
+  const probe = new Promise((resolve) => { probeRelease = resolve; });
+  let probes = 0;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => {
+      if (cmd !== "probe_quality") return undefined;
+      probes++;
+      return probe;
+    },
+    actions: {},
+    opts: { enabled: true },
+  });
+
+  engine.onConnected({ idleProbeSec: 60 });
+  armSuspect(engine);
+  const running = engine.tick();
+  while (probes === 0) await Promise.resolve();
+  engine.pauseForEmergency();
+  probeRelease(GOOD);
+  await running;
+
+  assert.equal(engine.isRemediating, false);
+  assert.equal(engine.state, "UNKNOWN");
+});
