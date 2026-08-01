@@ -258,6 +258,10 @@ pub struct SingboxState {
     // and readiness.
     native_recovery_lock: tokio::sync::Mutex<()>,
     native_recovery_active: AtomicBool,
+    // A manual disconnect may arrive while native recovery owns the lifecycle.
+    // It cancels the restart before the next generation is published; the
+    // caller then acquires the same owner lock and performs the verified stop.
+    native_recovery_cancelled: AtomicBool,
     // In-memory launch material is retained only for the current runtime. It
     // enables a bounded native restart without asking WebView2 to rebuild or
     // resend a profile containing credentials.
@@ -343,6 +347,7 @@ impl Default for SingboxState {
             dataplane_generation: Arc::new(AtomicU64::new(0)),
             native_recovery_lock: tokio::sync::Mutex::new(()),
             native_recovery_active: AtomicBool::new(false),
+            native_recovery_cancelled: AtomicBool::new(false),
             runtime_launch: Mutex::new(None),
         }
     }
@@ -1785,10 +1790,19 @@ pub async fn stop_singbox(
     app: AppHandle,
     state: State<'_, SingboxState>,
 ) -> Result<StopResult, String> {
-    if state.native_recovery_active.load(Ordering::SeqCst) {
-        return Err("нативное восстановление ещё выполняется".into());
-    }
-    stop_singbox_inner(&app, &state, true, false).await
+    // Manual disconnect wins over native recovery. Set the cancellation bit
+    // before waiting for the owner lock, then perform the same verified stop
+    // after the native action has released it. This avoids both a restart after
+    // the user's disconnect and a parallel cleanup of the dependency graph.
+    state
+        .native_recovery_cancelled
+        .store(true, Ordering::SeqCst);
+    let _recovery_lock = state.native_recovery_lock.lock().await;
+    let result = stop_singbox_inner(&app, &state, true, false).await;
+    state
+        .native_recovery_cancelled
+        .store(false, Ordering::SeqCst);
+    result
 }
 
 struct NativeRecoveryOwner<'a>(&'a AtomicBool);
@@ -1803,9 +1817,31 @@ fn native_recovery_result_is_ready(result: &StopResult) -> bool {
     result.processes_exited && result.ports_released && result.system_proxy != "failed"
 }
 
+fn native_rearm_saved_kill_switch(app: &AppHandle, spec: &RuntimeLaunchSpec) -> Result<(), String> {
+    if !spec.kill_switch_expected {
+        return Ok(());
+    }
+    let Some(kill_switch) = app.try_state::<crate::killswitch::KillSwitchState>() else {
+        return Err("kill switch state недоступен для native recovery".into());
+    };
+    crate::killswitch::arm_policy(
+        &kill_switch,
+        Some(if spec.strict_privacy {
+            false
+        } else {
+            spec.system_proxy_bypass_lan
+        }),
+        spec.strict_privacy.then(|| "ninety-tun".to_string()),
+        Some(spec.strict_privacy),
+    )?;
+    if !crate::killswitch::is_active(&kill_switch) {
+        return Err("kill switch readiness не подтверждена после native recovery".into());
+    }
+    Ok(())
+}
+
 async fn native_reapply_runtime_policy(
     app: &AppHandle,
-    state: &SingboxState,
     spec: &RuntimeLaunchSpec,
     snapshot: &RuntimeSnapshot,
 ) -> Result<(), String> {
@@ -1819,30 +1855,12 @@ async fn native_reapply_runtime_policy(
         }
     }
 
-    if spec.kill_switch_expected {
-        let Some(kill_switch) = app.try_state::<crate::killswitch::KillSwitchState>() else {
-            return Err("kill switch state недоступен для native recovery".into());
-        };
-        crate::killswitch::arm_policy(
-            &kill_switch,
-            Some(if spec.strict_privacy {
-                false
-            } else {
-                spec.system_proxy_bypass_lan
-            }),
-            spec.strict_privacy.then(|| "ninety-tun".to_string()),
-            Some(spec.strict_privacy),
-        )?;
-        if !crate::killswitch::is_active(&kill_switch) {
-            return Err("kill switch readiness не подтверждена после native recovery".into());
-        }
-    }
+    native_rearm_saved_kill_switch(app, spec)?;
 
     let current = native_runtime_status(app, snapshot.process_generation);
     if !current.running || !current.clash_ready {
         return Err("native recovery runtime не прошёл readiness".into());
     }
-    let _ = state;
     Ok(())
 }
 
@@ -1860,6 +1878,12 @@ pub(crate) async fn native_recover_current_runtime(
     let Ok(_owner_lock) = state.native_recovery_lock.try_lock() else {
         return false;
     };
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
+        return false;
+    }
+    state
+        .native_recovery_cancelled
+        .store(false, Ordering::SeqCst);
     if state.native_recovery_active.swap(true, Ordering::SeqCst) {
         return false;
     }
@@ -1879,19 +1903,35 @@ pub(crate) async fn native_recover_current_runtime(
         return false;
     }
 
+    if state.native_recovery_cancelled.load(Ordering::SeqCst)
+        || native_rearm_saved_kill_switch(app, &spec).is_err()
+    {
+        return false;
+    }
+
     let Ok(stopped) = stop_singbox_inner(app, &state, false, true).await else {
         return false;
     };
-    if !native_recovery_result_is_ready(&stopped) {
+    if !native_recovery_result_is_ready(&stopped)
+        || state.native_recovery_cancelled.load(Ordering::SeqCst)
+    {
         return false;
     }
 
     let Ok(snapshot) = start_singbox_inner(app.clone(), &state, spec.clone(), true).await else {
         return false;
     };
-    if let Err(error) = native_reapply_runtime_policy(app, &state, &spec, &snapshot).await {
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
+        let _ = stop_singbox_inner(app, &state, false, false).await;
+        return false;
+    }
+    if let Err(error) = native_reapply_runtime_policy(app, &spec, &snapshot).await {
         let _ = stop_singbox_inner(app, &state, false, false).await;
         let _ = error;
+        return false;
+    }
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
+        let _ = stop_singbox_inner(app, &state, false, false).await;
         return false;
     }
     true
@@ -1908,6 +1948,9 @@ pub(crate) async fn native_terminal_fail_closed(app: &AppHandle, expected_genera
     let Ok(_owner_lock) = state.native_recovery_lock.try_lock() else {
         return false;
     };
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
+        return false;
+    }
     if state.native_recovery_active.swap(true, Ordering::SeqCst) {
         return false;
     }
@@ -1919,22 +1962,8 @@ pub(crate) async fn native_terminal_fail_closed(app: &AppHandle, expected_genera
         }
     }
 
-    if let Some(spec) = spec.as_ref().filter(|spec| spec.kill_switch_expected) {
-        let Some(kill_switch) = app.try_state::<crate::killswitch::KillSwitchState>() else {
-            return false;
-        };
-        if crate::killswitch::arm_policy(
-            &kill_switch,
-            Some(if spec.strict_privacy {
-                false
-            } else {
-                spec.system_proxy_bypass_lan
-            }),
-            spec.strict_privacy.then(|| "ninety-tun".to_string()),
-            Some(spec.strict_privacy),
-        )
-        .is_err()
-        {
+    if let Some(spec) = spec.as_ref() {
+        if native_rearm_saved_kill_switch(app, spec).is_err() {
             return false;
         }
     }

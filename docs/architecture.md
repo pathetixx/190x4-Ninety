@@ -104,7 +104,8 @@ The native monitor has the following lifecycle states:
 inactive → unknown → suspect → healthy
                     └──────→ failed → recovering → unknown (new generation)
                                       └──────────→ cooldown/pressure_wait
-                                      └──────────→ terminal or cleanup_error
+                                      └──────────→ terminal_cleanup → terminal
+                                                    └──────────────→ cleanup_error
 ```
 
 Recovery is owned by one native controller. It retains the in-memory launch
@@ -127,9 +128,11 @@ recovery outcomes; it never stores URLs, IPs, credentials, subscription data or
 traffic metadata.
 
 The WebView watchdog remains a UI/guard-only observer. It can pause the quality
-engine and reconcile WFP, but it does not race native recovery. Its legacy
-frontend candidate path is retained only as an explicit fallback for snapshots
-without a native owner; candidate validation uses the fixed dataplane probe,
-preserves the original selector and rolls back before full reconnect.
+engine and reconcile WFP, but it does not race native recovery. After native
+fail-closed cleanup has been confirmed, a responsive WebView may use the
+existing bounded candidate/reconnect fallback; a hung WebView leaves the native
+barrier in place. Candidate validation uses the fixed dataplane probe, preserves
+the original selector and rolls back before full reconnect. Strict privacy keeps
+its pinned-node policy and skips candidate switching.
 
 For the release ritual, see [RELEASING.md](../RELEASING.md).

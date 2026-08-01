@@ -31,6 +31,9 @@ const PRESSURE_RECOVERY_WAIT: Duration = Duration::from_secs(20);
 const NATIVE_RECOVERY_COOLDOWN: Duration = Duration::from_secs(60);
 const NATIVE_RECOVERY_WINDOW: Duration = Duration::from_secs(15 * 60);
 const NATIVE_RECOVERY_MAX: usize = 3;
+const TERMINAL_CLEANUP_COOLDOWN: Duration = Duration::from_secs(60);
+const TERMINAL_CLEANUP_WINDOW: Duration = Duration::from_secs(15 * 60);
+const TERMINAL_CLEANUP_MAX: usize = 3;
 const PROBE_WINDOW_SIZE: usize = 3;
 const INCIDENT_RING_SIZE: usize = 32;
 
@@ -64,8 +67,14 @@ pub struct IncidentSnapshot {
     pub state: String,
     pub reason: Option<String>,
     pub scheduler_lateness_ms: u64,
+    pub probe_duration_ms: Option<u64>,
     pub probe_outcome: Option<String>,
     pub host_pressure: bool,
+    pub memory_load_percent: Option<u32>,
+    pub available_memory_bytes: Option<u64>,
+    pub available_commit_bytes: Option<u64>,
+    pub available_pagefile_bytes: Option<u64>,
+    pub cpu_load_percent: Option<u32>,
     pub recovery_action: Option<String>,
     pub recovery_outcome: Option<String>,
 }
@@ -184,8 +193,14 @@ struct Incident {
     state: String,
     reason: Option<String>,
     scheduler_lateness_ms: u64,
+    probe_duration_ms: Option<u64>,
     probe_outcome: Option<String>,
     host_pressure: bool,
+    memory_load_percent: Option<u32>,
+    available_memory_bytes: Option<u64>,
+    available_commit_bytes: Option<u64>,
+    available_pagefile_bytes: Option<u64>,
+    cpu_load_percent: Option<u32>,
     recovery_action: Option<String>,
     recovery_outcome: Option<String>,
 }
@@ -214,6 +229,7 @@ struct HealthInner {
     native_recovery_state: String,
     native_recovery_attempts: u32,
     native_recovery_times: VecDeque<Instant>,
+    terminal_cleanup_times: VecDeque<Instant>,
 }
 
 impl Default for HealthInner {
@@ -242,6 +258,7 @@ impl Default for HealthInner {
             native_recovery_state: "idle".into(),
             native_recovery_attempts: 0,
             native_recovery_times: VecDeque::new(),
+            terminal_cleanup_times: VecDeque::new(),
         }
     }
 }
@@ -371,8 +388,14 @@ impl DataplaneHealthState {
                     state: incident.state.clone(),
                     reason: incident.reason.clone(),
                     scheduler_lateness_ms: incident.scheduler_lateness_ms,
+                    probe_duration_ms: incident.probe_duration_ms,
                     probe_outcome: incident.probe_outcome.clone(),
                     host_pressure: incident.host_pressure,
+                    memory_load_percent: incident.memory_load_percent,
+                    available_memory_bytes: incident.available_memory_bytes,
+                    available_commit_bytes: incident.available_commit_bytes,
+                    available_pagefile_bytes: incident.available_pagefile_bytes,
+                    cpu_load_percent: incident.cpu_load_percent,
                     recovery_action: incident.recovery_action.clone(),
                     recovery_outcome: incident.recovery_outcome.clone(),
                 })
@@ -385,9 +408,22 @@ impl DataplaneHealthState {
         if inner.generation != generation {
             return;
         }
+        let pressure_was_active = inner.host_pressure;
         update_pressure(&mut inner, resources, scheduler);
         inner.scheduler_lateness_ms = scheduler;
         inner.resources = resources;
+        if !pressure_was_active && inner.host_pressure {
+            record_incident(
+                &mut inner,
+                generation,
+                "pressure",
+                Some("host_resource_pressure"),
+                scheduler,
+                Some("pressure_entered"),
+                None,
+                None,
+            );
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -405,9 +441,22 @@ impl DataplaneHealthState {
         if inner.generation != generation {
             return;
         }
+        let pressure_was_active = inner.host_pressure;
         update_pressure(&mut inner, resources, scheduler);
         inner.scheduler_lateness_ms = scheduler;
         inner.resources = resources;
+        if !pressure_was_active && inner.host_pressure {
+            record_incident(
+                &mut inner,
+                generation,
+                "pressure",
+                Some("host_resource_pressure"),
+                scheduler,
+                Some("pressure_entered"),
+                None,
+                None,
+            );
+        }
         inner.last_probe_at = Some(Instant::now());
         inner.last_probe_ms = duration_ms;
         if success {
@@ -429,13 +478,12 @@ impl DataplaneHealthState {
             bytes,
         });
 
-        let success_count = inner
+        let failure_count = inner
             .probe_window
             .iter()
-            .filter(|sample| sample.success)
+            .filter(|sample| !sample.success)
             .count();
-        let failure_count = inner.probe_window.len().saturating_sub(success_count);
-        if success_count >= 2 {
+        if inner.consecutive_successes >= 2 {
             inner.dataplane_state = "healthy".into();
             inner.reason = None;
         } else if failure_count >= 2 {
@@ -480,22 +528,67 @@ impl DataplaneHealthState {
         if inner.generation != generation {
             return;
         }
+        let pressure_was_active = inner.host_pressure;
         update_pressure(&mut inner, resources, scheduler);
         inner.scheduler_lateness_ms = scheduler;
         inner.resources = resources;
+        if !pressure_was_active && inner.host_pressure {
+            record_incident(
+                &mut inner,
+                generation,
+                "pressure",
+                Some("host_resource_pressure"),
+                scheduler,
+                Some("pressure_entered"),
+                None,
+                None,
+            );
+        }
         inner.last_probe_at = Some(Instant::now());
         inner.last_probe_ms = duration_ms;
+        if local_ok {
+            inner.last_successful_probe_at = inner.last_probe_at;
+            inner.consecutive_successes = inner.consecutive_successes.saturating_add(1);
+            inner.consecutive_failures = 0;
+        } else {
+            inner.consecutive_failures = inner.consecutive_failures.saturating_add(1);
+            inner.consecutive_successes = 0;
+        }
         inner.unmonitored_privacy_mode = true;
         inner.monitoring_mode = "privacy_passive".into();
-        if local_ok {
+        if inner.probe_window.len() == PROBE_WINDOW_SIZE {
+            inner.probe_window.pop_front();
+        }
+        inner.probe_window.push_back(ProbeSample {
+            at: Instant::now(),
+            success: local_ok,
+            reason: reason.map(str::to_owned),
+            duration_ms,
+            bytes: 0,
+        });
+        let failure_count = inner
+            .probe_window
+            .iter()
+            .filter(|sample| !sample.success)
+            .count();
+        if inner.consecutive_successes >= 2 {
             inner.dataplane_state = "unmonitoredPrivacyMode".into();
-            inner.state = "unmonitoredPrivacyMode".into();
             inner.reason = None;
-        } else {
+        } else if failure_count >= 2 {
             inner.dataplane_state = "failed".into();
-            inner.state = "failed".into();
+            inner.reason = reason.map(str::to_owned);
+        } else {
+            inner.dataplane_state = "suspect".into();
             inner.reason = reason.map(str::to_owned);
         }
+        inner.state = if inner.dataplane_state == "failed" {
+            "failed"
+        } else if inner.host_pressure {
+            "pressure"
+        } else {
+            inner.dataplane_state.as_str()
+        }
+        .into();
         let incident_state = inner.state.clone();
         let incident_reason = inner.reason.clone();
         record_incident(
@@ -558,6 +651,44 @@ impl DataplaneHealthState {
             Some("started"),
         );
         RecoveryDecision::Allowed
+    }
+
+    fn terminal_cleanup_decision(&self, now: Instant) -> TerminalCleanupDecision {
+        let mut inner = self.inner.lock_recover();
+        while inner
+            .terminal_cleanup_times
+            .front()
+            .is_some_and(|at| now.saturating_duration_since(*at) >= TERMINAL_CLEANUP_WINDOW)
+        {
+            inner.terminal_cleanup_times.pop_front();
+        }
+        if inner.native_recovery_state == "terminal"
+            || inner.terminal_cleanup_times.len() >= TERMINAL_CLEANUP_MAX
+        {
+            return TerminalCleanupDecision::Exhausted;
+        }
+        if let Some(last) = inner.terminal_cleanup_times.back() {
+            if now.saturating_duration_since(*last) < TERMINAL_CLEANUP_COOLDOWN {
+                return TerminalCleanupDecision::Cooldown;
+            }
+        }
+
+        inner.terminal_cleanup_times.push_back(now);
+        inner.native_recovery_state = "terminal_cleanup".into();
+        let generation = inner.generation;
+        let incident_reason = inner.reason.clone();
+        let scheduler_lateness = inner.scheduler_lateness_ms;
+        record_incident(
+            &mut inner,
+            generation,
+            "cleanup_error",
+            incident_reason.as_deref(),
+            scheduler_lateness,
+            None,
+            Some("fail_closed_cleanup"),
+            Some("started"),
+        );
+        TerminalCleanupDecision::Allowed
     }
 
     pub fn native_recovery_failed(&self, generation: u64, reason: &str) {
@@ -647,6 +778,13 @@ enum RecoveryDecision {
     Exhausted,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TerminalCleanupDecision {
+    Allowed,
+    Cooldown,
+    Exhausted,
+}
+
 fn elapsed_ms(now: Instant, then: Instant) -> u64 {
     now.saturating_duration_since(then)
         .as_millis()
@@ -726,8 +864,14 @@ fn record_incident(
         state: state.into(),
         reason: reason.map(str::to_owned),
         scheduler_lateness_ms,
+        probe_duration_ms: inner.last_probe_at.map(|_| inner.last_probe_ms),
         probe_outcome: probe_outcome.map(str::to_owned),
         host_pressure: inner.host_pressure,
+        memory_load_percent: inner.resources.memory_load_percent,
+        available_memory_bytes: inner.resources.available_memory_bytes,
+        available_commit_bytes: inner.resources.available_commit_bytes,
+        available_pagefile_bytes: inner.resources.available_pagefile_bytes,
+        cpu_load_percent: inner.resources.cpu_load_percent,
         recovery_action: recovery_action.map(str::to_owned),
         recovery_outcome: recovery_outcome.map(str::to_owned),
     });
@@ -939,7 +1083,7 @@ pub fn start_dataplane_watchdog(
 
             let snapshot = health.snapshot();
             let failed = snapshot.dataplane_state == "failed";
-            if failed && !strict_privacy {
+            if failed {
                 match health.recovery_decision(Instant::now()) {
                     RecoveryDecision::Allowed => {
                         publish(&app, &health);
@@ -954,35 +1098,19 @@ pub fn start_dataplane_watchdog(
                         publish(&app, &health);
                     }
                     RecoveryDecision::Exhausted => {
-                        let cleanup_confirmed =
-                            crate::vpn::native_terminal_fail_closed(&app, generation).await;
-                        health.native_terminal_result(generation, cleanup_confirmed);
-                        publish(&app, &health);
-                        break;
-                    }
-                    RecoveryDecision::Busy
-                    | RecoveryDecision::Cooldown
-                    | RecoveryDecision::PressureWait => {}
-                }
-            } else if failed && strict_privacy {
-                // Strict privacy never creates an external probe. Local/API
-                // failure is still recoverable natively, with the same budget.
-                match health.recovery_decision(Instant::now()) {
-                    RecoveryDecision::Allowed => {
-                        let recovered =
-                            crate::vpn::native_recover_current_runtime(&app, generation).await;
-                        if recovered {
-                            break;
+                        match health.terminal_cleanup_decision(Instant::now()) {
+                            TerminalCleanupDecision::Allowed => {
+                                let cleanup_confirmed =
+                                    crate::vpn::native_terminal_fail_closed(&app, generation).await;
+                                health.native_terminal_result(generation, cleanup_confirmed);
+                                publish(&app, &health);
+                                if cleanup_confirmed {
+                                    break;
+                                }
+                            }
+                            TerminalCleanupDecision::Cooldown
+                            | TerminalCleanupDecision::Exhausted => {}
                         }
-                        health.native_recovery_failed(generation, "native_recovery_failed");
-                        publish(&app, &health);
-                    }
-                    RecoveryDecision::Exhausted => {
-                        let cleanup_confirmed =
-                            crate::vpn::native_terminal_fail_closed(&app, generation).await;
-                        health.native_terminal_result(generation, cleanup_confirmed);
-                        publish(&app, &health);
-                        break;
                     }
                     RecoveryDecision::Busy
                     | RecoveryDecision::Cooldown
@@ -1056,6 +1184,18 @@ mod tests {
     }
 
     #[test]
+    fn rolling_window_requires_consecutive_successes_for_healthy() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        sample(&health, 42, true);
+        sample(&health, 42, false);
+        sample(&health, 42, true);
+        assert_eq!(health.snapshot().dataplane_state, "suspect");
+        sample(&health, 42, true);
+        assert_eq!(health.snapshot().dataplane_state, "healthy");
+    }
+
+    #[test]
     fn pressure_does_not_erase_dataplane_failure() {
         let health = DataplaneHealthState::default();
         health.reset_active_for_runtime(42, false, false);
@@ -1076,6 +1216,67 @@ mod tests {
         let snapshot = health.snapshot();
         assert_eq!(snapshot.dataplane_state, "failed");
         assert!(snapshot.host_pressure);
+    }
+
+    #[test]
+    fn pressure_incident_keeps_safe_resource_evidence() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        health.set_resources(
+            42,
+            ResourceSample {
+                memory_load_percent: Some(99),
+                available_memory_bytes: Some(128 * 1024 * 1024),
+                available_commit_bytes: Some(256 * 1024 * 1024),
+                available_pagefile_bytes: Some(512 * 1024 * 1024),
+                cpu_load_percent: Some(97),
+            },
+            2_000,
+        );
+        let incident = health
+            .snapshot()
+            .incidents
+            .pop()
+            .expect("pressure incident");
+        assert_eq!(incident.reason.as_deref(), Some("host_resource_pressure"));
+        assert_eq!(incident.probe_duration_ms, None);
+        assert_eq!(incident.memory_load_percent, Some(99));
+        assert_eq!(incident.available_memory_bytes, Some(128 * 1024 * 1024));
+        assert_eq!(incident.available_commit_bytes, Some(256 * 1024 * 1024));
+        assert_eq!(incident.available_pagefile_bytes, Some(512 * 1024 * 1024));
+        assert_eq!(incident.cpu_load_percent, Some(97));
+    }
+
+    #[test]
+    fn strict_privacy_uses_explicit_passive_state() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, true, false);
+        let initial = health.snapshot();
+        assert_eq!(initial.state, "unmonitoredPrivacyMode");
+        assert!(initial.unmonitored_privacy_mode);
+        assert_eq!(initial.monitoring_mode, "privacy_passive");
+
+        health.record_passive(
+            42,
+            false,
+            Some("control_api_unreachable"),
+            12,
+            ResourceSample::default(),
+            0,
+        );
+        assert_eq!(health.snapshot().dataplane_state, "suspect");
+        health.record_passive(
+            42,
+            false,
+            Some("control_api_unreachable"),
+            12,
+            ResourceSample::default(),
+            0,
+        );
+        let failed = health.snapshot();
+        assert_eq!(failed.dataplane_state, "failed");
+        assert_eq!(failed.reason.as_deref(), Some("control_api_unreachable"));
+        assert!(failed.unmonitored_privacy_mode);
     }
 
     #[test]
@@ -1112,6 +1313,41 @@ mod tests {
             health.recovery_decision(Instant::now()),
             RecoveryDecision::Exhausted
         );
+    }
+
+    #[test]
+    fn terminal_cleanup_is_retryable_but_bounded() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        let first = Instant::now();
+        assert_eq!(
+            health.terminal_cleanup_decision(first),
+            TerminalCleanupDecision::Allowed
+        );
+        health.native_terminal_result(42, false);
+        assert_eq!(
+            health.terminal_cleanup_decision(first + Duration::from_secs(1)),
+            TerminalCleanupDecision::Cooldown
+        );
+
+        let second = first + TERMINAL_CLEANUP_COOLDOWN;
+        assert_eq!(
+            health.terminal_cleanup_decision(second),
+            TerminalCleanupDecision::Allowed
+        );
+        health.native_terminal_result(42, false);
+        let third = second + TERMINAL_CLEANUP_COOLDOWN;
+        assert_eq!(
+            health.terminal_cleanup_decision(third),
+            TerminalCleanupDecision::Allowed
+        );
+        health.native_terminal_result(42, false);
+
+        assert_eq!(
+            health.terminal_cleanup_decision(third + TERMINAL_CLEANUP_COOLDOWN),
+            TerminalCleanupDecision::Exhausted
+        );
+        assert_eq!(health.snapshot().native_recovery_state, "cleanup_error");
     }
 
     #[test]

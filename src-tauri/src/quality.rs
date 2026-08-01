@@ -479,6 +479,30 @@ mod tests {
     }
 
     #[test]
+    fn health_probe_has_independent_allowlist_and_liveness_thresholds() {
+        assert_eq!(HEALTH_SAMPLE_BYTES, 16 * 1024);
+        assert_eq!(HEALTH_BUDGET_MS, 6_000);
+        assert_eq!(HEALTH_CHUNK_GAP_MS, 2_500);
+        assert_ne!(HEALTH_SAMPLE_BYTES, STALL_BYTES);
+        assert_ne!(HEALTH_CHUNK_GAP_MS, STALL_GAP_MS);
+        assert!(validate_endpoints_with_allowlist(
+            HEALTH_ENDPOINTS
+                .iter()
+                .map(|endpoint| (*endpoint).into())
+                .collect(),
+            ALLOWED_HEALTH_HOSTS,
+            "health",
+        )
+        .is_ok());
+        assert!(validate_endpoints_with_allowlist(
+            vec!["https://example.com/health".into()],
+            ALLOWED_HEALTH_HOSTS,
+            "health",
+        )
+        .is_err());
+    }
+
+    #[test]
     fn redirects_stay_on_the_same_https_origin() {
         let initial = reqwest::Url::parse("https://example.com/probe").unwrap();
         assert!(redirect_target_allowed(

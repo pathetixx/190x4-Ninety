@@ -157,8 +157,11 @@ export function initHealthWatchdog({
         .includes(dataplane.nativeRecoveryState);
     if (nativeOwner) {
       if (dataplane.nativeRecoveryState === "terminal" && active(run) && !dataplaneTerminal) {
-        const confirmed = await onDataplaneFailed(dataplane);
-        if (confirmed === true) dataplaneTerminal = true;
+        // The native monitor normally performs this action itself. If a
+        // terminal snapshot reaches WebView2, keep the same confirmation,
+        // retry delay, and bounded budget instead of calling cleanup on every
+        // five-second health tick after a failed shutdown.
+        await failClosedAfterExhaustion(run, dataplane);
       }
       if (!dataplaneEmergencyPaused) {
         dataplaneEmergencyPaused = true;

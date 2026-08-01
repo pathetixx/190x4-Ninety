@@ -1120,7 +1120,23 @@ async function recoverDataplane() {
     && await verifyEmergencyDataplane();
 }
 
-async function failDataplane() {
+async function failDataplane(dataplane = {}) {
+  // Native recovery has already failed closed by the time this callback is
+  // reached. If WebView2 is responsive, give the existing bounded candidate /
+  // reconnect path one chance to recover the session. The native path remains
+  // the safety net when the frontend is hung, and strict privacy keeps its
+  // pinned-node policy instead of trying alternate candidates here.
+  const strictRuntime = strictPrivacyRequested() || dataplane?.unmonitoredPrivacyMode === true;
+  if (!strictRuntime) {
+    try {
+      if (await recoverDataplane({
+        reason: dataplane.reason || "all_candidates_failed",
+        snapshot: dataplane,
+      })) return true;
+    } catch (error) {
+      console.warn("frontend dataplane fallback failed", error);
+    }
+  }
   const preserved = killSwitchMustSurviveRuntimeStop();
   const closed = await shutdownCore({ preserveKillSwitch: preserved });
   if (!closed) return false;
