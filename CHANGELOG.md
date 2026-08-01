@@ -2,6 +2,22 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.44 — 2026-08-01
+
+## English
+
+- Fixed unstable VPN recovery: after one safe restart Ninety immediately tests alternative servers or reconnects instead of repeatedly retrying an unavailable server.
+- Manual profile and server switching now takes priority over automatic recovery and no longer fails because a background restart is still running.
+- Connection quality now leaves Checking promptly after a real measurement and reports a failed channel without waiting for the long background interval.
+- Engine logs now distinguish planned stops from unexpected crashes, and release publishing preserves bilingual notes end to end.
+
+## Русский
+
+- Исправлено восстановление VPN: после одного безопасного перезапуска Ninety сразу проверяет другие серверы или переподключается, не зацикливаясь на недоступном сервере.
+- Ручное переключение профиля или сервера теперь важнее автоматического восстановления и не завершается ошибкой из-за фонового перезапуска.
+- Статус канала быстро выходит из «Проверка» после реального измерения и без долгого ожидания показывает обрыв связи.
+- В логах плановая остановка больше не выглядит как авария, а заметки обновления сохраняют русский и английский текст.
+
 ## v0.2.43 — 2026-08-01
 
 ## English
