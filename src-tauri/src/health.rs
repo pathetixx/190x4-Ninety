@@ -73,6 +73,15 @@ struct HealthInner {
     available_memory_bytes: Option<u64>,
 }
 
+struct HealthRecord {
+    state: &'static str,
+    reason: Option<&'static str>,
+    consecutive_failures: u32,
+    probe_ms: u64,
+    scheduler_lateness_ms: u64,
+    resources: ResourceSample,
+}
+
 impl Default for HealthInner {
     fn default() -> Self {
         Self {
@@ -132,29 +141,20 @@ impl DataplaneHealthState {
         }
     }
 
-    fn record(
-        &self,
-        generation: u64,
-        state: &str,
-        reason: Option<&str>,
-        consecutive_failures: u32,
-        probe_ms: u64,
-        scheduler_lateness_ms: u64,
-        resources: ResourceSample,
-    ) {
+    fn record(&self, generation: u64, update: HealthRecord) {
         let mut inner = self.0.lock_recover();
         if inner.generation != generation {
             return;
         }
-        inner.state = state.into();
-        inner.reason = reason.map(str::to_owned);
-        inner.consecutive_failures = consecutive_failures;
+        inner.state = update.state.into();
+        inner.reason = update.reason.map(str::to_owned);
+        inner.consecutive_failures = update.consecutive_failures;
         inner.last_probe_at = Some(Instant::now());
-        inner.last_probe_ms = probe_ms;
-        inner.scheduler_lateness_ms = scheduler_lateness_ms;
-        inner.host_pressure = resources.pressure;
-        inner.memory_load_percent = resources.memory_load_percent;
-        inner.available_memory_bytes = resources.available_memory_bytes;
+        inner.last_probe_ms = update.probe_ms;
+        inner.scheduler_lateness_ms = update.scheduler_lateness_ms;
+        inner.host_pressure = update.resources.pressure;
+        inner.memory_load_percent = update.resources.memory_load_percent;
+        inner.available_memory_bytes = update.resources.available_memory_bytes;
     }
 }
 
@@ -299,14 +299,16 @@ pub fn start_dataplane_watchdog(
 
             health.record(
                 generation,
-                state,
-                reason,
-                current_failures,
-                probe_ms,
-                lateness,
-                ResourceSample {
-                    pressure,
-                    ..resources
+                HealthRecord {
+                    state,
+                    reason,
+                    consecutive_failures: current_failures,
+                    probe_ms,
+                    scheduler_lateness_ms: lateness,
+                    resources: ResourceSample {
+                        pressure,
+                        ..resources
+                    },
                 },
             );
             publish(&app, &health);
@@ -350,12 +352,14 @@ mod tests {
         health.reset_active(42);
         health.record(
             41,
-            "failed",
-            Some("stale"),
-            2,
-            100,
-            0,
-            ResourceSample::default(),
+            HealthRecord {
+                state: "failed",
+                reason: Some("stale"),
+                consecutive_failures: 2,
+                probe_ms: 100,
+                scheduler_lateness_ms: 0,
+                resources: ResourceSample::default(),
+            },
         );
         assert_eq!(health.snapshot().state, "unknown");
     }
