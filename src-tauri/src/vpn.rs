@@ -1,6 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
@@ -462,7 +462,7 @@ fn prune_sidecar_logs(dir: &std::path::Path, kind: SidecarLogKind, protected: &H
 //  - принудительно держим external_controller на 127.0.0.1 (даже если фронт
 //    зачем-то выставил 0.0.0.0) — управление ядром не должно торчать в сеть.
 // При невалидном JSON возвращаем как есть: пусть sing-box сам ругнётся.
-fn harden_config(raw: &str) -> String {
+fn harden_config(raw: &str, cache_path: Option<&Path>) -> String {
     let mut v: serde_json::Value = match serde_json::from_str(raw) {
         Ok(v) => v,
         Err(_) => return raw.to_string(),
@@ -487,7 +487,39 @@ fn harden_config(raw: &str) -> String {
             serde_json::Value::String(format!("127.0.0.1:{port}")),
         );
     }
+    if let Some(cache_path) = cache_path {
+        if let Some(root) = v.as_object_mut() {
+            let experimental = root
+                .entry("experimental")
+                .or_insert_with(|| serde_json::json!({}));
+            if !experimental.is_object() {
+                *experimental = serde_json::json!({});
+            }
+            let experimental = experimental
+                .as_object_mut()
+                .expect("experimental object was just initialized");
+            let cache_file = experimental
+                .entry("cache_file")
+                .or_insert_with(|| serde_json::json!({}));
+            if !cache_file.is_object() {
+                *cache_file = serde_json::json!({});
+            }
+            cache_file
+                .as_object_mut()
+                .expect("cache_file object was just initialized")
+                .insert(
+                    "path".into(),
+                    serde_json::Value::String(cache_path.to_string_lossy().into_owned()),
+                );
+        }
+    }
     serde_json::to_string(&v).unwrap_or_else(|_| raw.to_string())
+}
+
+fn singbox_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = crate::app_paths::data_dir(app)?.join("singbox");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir singbox data: {e}"))?;
+    Ok(dir.join("cache.db"))
 }
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -1296,7 +1328,8 @@ async fn start_singbox_inner(
     };
     let _starting = StartingGuard(&state.starting);
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
-    let config_json = harden_config(&raw_config_json);
+    let cache_path = singbox_cache_path(&app)?;
+    let config_json = harden_config(&raw_config_json, Some(&cache_path));
     let (clash_port, runtime_ports) = runtime_ports_from_config(&config_json)?;
     let probe_port = probe_port_from_config(&config_json);
     *state.runtime_ports.lock_recover() = runtime_ports;
@@ -2216,7 +2249,7 @@ mod tests {
     #[test]
     fn harden_config_injects_secret_and_loopback() {
         let raw = r#"{"experimental":{"clash_api":{"external_controller":"0.0.0.0:9090"}}}"#;
-        let out = harden_config(raw);
+        let out = harden_config(raw, None);
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let api = &v["experimental"]["clash_api"];
         assert_eq!(api["external_controller"], "127.0.0.1:9090");
@@ -2225,8 +2258,20 @@ mod tests {
     }
 
     #[test]
+    fn harden_config_pins_cache_path_outside_the_working_directory() {
+        let raw = r#"{"experimental":{"cache_file":{"enabled":true,"store_rdrc":true}}}"#;
+        let cache_path = Path::new(r"C:\Users\test\AppData\Local\Ninety\data\singbox\cache.db");
+        let out = harden_config(raw, Some(cache_path));
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            v["experimental"]["cache_file"]["path"],
+            cache_path.to_string_lossy().as_ref()
+        );
+    }
+
+    #[test]
     fn harden_config_passes_invalid_json_through() {
-        assert_eq!(harden_config("not json"), "not json");
+        assert_eq!(harden_config("not json", None), "not json");
     }
 
     #[test]
