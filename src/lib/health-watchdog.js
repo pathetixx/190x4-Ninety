@@ -1,7 +1,10 @@
-// Ninety · health-watchdog (liveness ядер + bridge-reconnect). Вынесено из main.js.
+// Ninety · health-watchdog (liveness ядер + dataplane recovery + bridge-reconnect).
+// Вынесено из main.js.
 // Пока connected — раз в 5с дёргаем health_snapshot:
 //   sing-box упал → туннель закрыт: снять прокси, idle, нотифай с причиной, логи.
 //   xray/naive/TT-мост упал → авто-реконнект (пересобирает конфиг и поднимает ядра).
+//   native dataplane failed → bounded node switch/full reconnect; pressure не
+//   запускает quality-лесенку и ждёт восстановления ресурсов.
 // После аварийного fail-closed shutdown тот же таймер остаётся в guard-only
 // режиме и следит только за WFP, пока пользователь явно не снимет блок.
 // Всё, что тянется из main (текущее состояние, флаг установки апдейта, гашение ядра,
@@ -16,6 +19,10 @@ const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 const HEALTH_TICK_MS = 5000;
+const DATAPLANE_RECOVERY_COOLDOWN_MS = 60_000;
+const DATAPLANE_RECOVERY_WINDOW_MS = 15 * 60_000;
+const DATAPLANE_RECOVERY_MAX = 3;
+const DATAPLANE_RECOVERY_GRACE_MS = 30_000;
 // Кап догоняющих реконнектов мостов (xray/naive/TT). Смерть моста сразу на старте
 // фейлит start_singbox (fail-fast в Rust), но смерть в середине сессии лечится
 // реконнектом — без капа стабильно падающий мост зациклил бы «упал → реконнект →
@@ -38,10 +45,13 @@ export function initHealthWatchdog({
   isKillSwitchRequired = () => false,
   rearmKillSwitch = async () => false,
   reconcileKillSwitch = async () => true,
+  recoverDataplane = async () => false,
+  onDataplaneFailed = async () => false,
   invoke: invokeFn = invoke,
   toast: toastFn = toast,
   notify: notifyFn = notify,
   t: tr = t,
+  now: nowFn = Date.now,
   setInterval: setIntervalFn = setInterval,
   clearInterval: clearIntervalFn = clearInterval,
 }) {
@@ -50,15 +60,148 @@ export function initHealthWatchdog({
   let bridgeReconnects = [];
   let generation = 0;
   let killSwitchAlerted = false;
+  let dataplaneRecoveries = [];
+  let dataplaneRecoveryBusy = false;
+  let dataplaneRecoveryGraceUntil = 0;
+  let dataplaneTerminal = false;
+  let dataplaneTerminalBusy = false;
+  let dataplaneTerminalRetryAt = 0;
+  let dataplaneTerminalAttempts = [];
+  let dataplaneEmergencyPaused = false;
 
   const current = (run) => run === generation && !isUpdateInstalling();
   const active = (run) => current(run) && getState() === "connected";
 
   function bridgeReconnectAllowed() {
-    const cut = Date.now() - BRIDGE_RECONNECT_WINDOW_MS;
+    const cut = nowFn() - BRIDGE_RECONNECT_WINDOW_MS;
     bridgeReconnects = bridgeReconnects.filter((ts) => ts > cut);
     if (bridgeReconnects.length >= BRIDGE_RECONNECT_MAX) return false;
-    bridgeReconnects.push(Date.now());
+    bridgeReconnects.push(nowFn());
+    return true;
+  }
+
+  function dataplaneRecoveryDecision() {
+    const now = nowFn();
+    const cut = now - DATAPLANE_RECOVERY_WINDOW_MS;
+    dataplaneRecoveries = dataplaneRecoveries.filter((ts) => ts > cut);
+    const last = dataplaneRecoveries.at(-1);
+    if (dataplaneRecoveries.length >= DATAPLANE_RECOVERY_MAX) {
+      return { state: "exhausted", attempts: dataplaneRecoveries.length, retryAt: null };
+    }
+    if (last !== undefined && now - last < DATAPLANE_RECOVERY_COOLDOWN_MS) {
+      return {
+        state: "cooldown",
+        attempts: dataplaneRecoveries.length,
+        retryAt: last + DATAPLANE_RECOVERY_COOLDOWN_MS,
+      };
+    }
+    return { state: "allowed", attempts: dataplaneRecoveries.length, retryAt: null };
+  }
+
+  function resetEmergencyPause() {
+    if (!dataplaneEmergencyPaused) return;
+    dataplaneEmergencyPaused = false;
+    getQualityEngine()?.resumeAfterEmergency?.();
+  }
+
+  async function failClosedAfterExhaustion(run, dataplane) {
+    const now = nowFn();
+    const cut = now - DATAPLANE_RECOVERY_WINDOW_MS;
+    dataplaneTerminalAttempts = dataplaneTerminalAttempts.filter((ts) => ts > cut);
+    if (dataplaneTerminal || dataplaneTerminalBusy
+      || now < dataplaneTerminalRetryAt
+      || dataplaneTerminalAttempts.length >= DATAPLANE_RECOVERY_MAX
+      || !active(run)) return true;
+
+    dataplaneTerminalAttempts.push(now);
+    dataplaneTerminalBusy = true;
+    try {
+      // A failed shutdown is not terminal: cleanup_error remains retryable, but
+      // retries are bounded and delayed so a stuck process cannot cause a loop.
+      const confirmed = await onDataplaneFailed(dataplane);
+      if (confirmed === true) {
+        dataplaneTerminal = true;
+        dataplaneTerminalRetryAt = 0;
+      } else {
+        dataplaneTerminalRetryAt = nowFn() + DATAPLANE_RECOVERY_COOLDOWN_MS;
+      }
+    } finally {
+      dataplaneTerminalBusy = false;
+    }
+    return true;
+  }
+
+  async function handleDataplaneHealth(run, snap) {
+    const dataplane = snap?.dataplane;
+    if (!dataplane) return false;
+    if (dataplane.state === "inactive") return false;
+    const dataplaneState = dataplane.dataplaneState || dataplane.state;
+    const pressure = dataplane.hostPressure === true || dataplane.state === "pressure";
+    getQualityEngine()?.setHostPressure?.(pressure);
+
+    if (dataplaneState === "healthy" || dataplaneState === "unmonitoredPrivacyMode") {
+      dataplaneRecoveryGraceUntil = 0;
+      dataplaneTerminal = false;
+      dataplaneTerminalRetryAt = 0;
+      dataplaneTerminalAttempts = [];
+      resetEmergencyPause();
+      return false;
+    }
+    if (dataplaneState !== "failed") return true;
+
+    // Native health owns every real runtime. The WebView may display the
+    // evidence and pause quality work, but it must never race native restart or
+    // turn a native cooldown into a frontend node switch.
+    const nativeOwner = dataplane.nativeRecoveryOwner === "native"
+      || ["recovering", "cooldown", "pressure_wait", "exhausted", "terminal", "cleanup_error"]
+        .includes(dataplane.nativeRecoveryState);
+    if (nativeOwner) {
+      if (dataplane.nativeRecoveryState === "terminal" && active(run) && !dataplaneTerminal) {
+        // The native monitor normally performs this action itself. If a
+        // terminal snapshot reaches WebView2, keep the same confirmation,
+        // retry delay, and bounded budget instead of calling cleanup on every
+        // five-second health tick after a failed shutdown.
+        await failClosedAfterExhaustion(run, dataplane);
+      }
+      if (!dataplaneEmergencyPaused) {
+        dataplaneEmergencyPaused = true;
+        getQualityEngine()?.pauseForEmergency?.();
+      }
+      return true;
+    }
+
+    // Legacy/fallback snapshots without a native owner still fail closed under
+    // pressure; pressure is not evidence that the dataplane recovered.
+    if (pressure) return true;
+    if (!active(run)) return true;
+    if (nowFn() < dataplaneRecoveryGraceUntil || dataplaneRecoveryBusy) return true;
+
+    const decision = dataplaneRecoveryDecision();
+    if (decision.state === "cooldown") return true;
+    if (decision.state === "exhausted") {
+      return failClosedAfterExhaustion(run, dataplane);
+    }
+
+    dataplaneRecoveries.push(nowFn());
+    dataplaneRecoveryBusy = true;
+    dataplaneEmergencyPaused = true;
+    getQualityEngine()?.pauseForEmergency?.();
+    toastFn(tr("conn.applyingSettings"), "warn", 5000, { group: "conn", connecting: true });
+    try {
+      const recovered = await recoverDataplane({
+        reason: dataplane.reason || "dataplane_failed",
+        snapshot: dataplane,
+      });
+      if (recovered) {
+        dataplaneRecoveryGraceUntil = nowFn() + DATAPLANE_RECOVERY_GRACE_MS;
+        dataplaneTerminal = false;
+      }
+    } catch (error) {
+      console.warn("dataplane recovery failed", error);
+    } finally {
+      dataplaneRecoveryBusy = false;
+      resetEmergencyPause();
+    }
     return true;
   }
 
@@ -76,12 +219,26 @@ export function initHealthWatchdog({
     if (timer) return;
     generation++;
     killSwitchAlerted = false;
+    dataplaneRecoveryBusy = false;
+    dataplaneRecoveryGraceUntil = 0;
+    dataplaneTerminal = false;
+    dataplaneTerminalBusy = false;
+    dataplaneTerminalRetryAt = 0;
+    dataplaneTerminalAttempts = [];
+    dataplaneEmergencyPaused = false;
     timer = setIntervalFn(tick, HEALTH_TICK_MS);
   }
 
   function stop() {
     generation++;
     killSwitchAlerted = false;
+    dataplaneRecoveryBusy = false;
+    dataplaneRecoveryGraceUntil = 0;
+    dataplaneTerminal = false;
+    dataplaneTerminalBusy = false;
+    dataplaneTerminalRetryAt = 0;
+    dataplaneTerminalAttempts = [];
+    dataplaneEmergencyPaused = false;
     if (timer) { clearIntervalFn(timer); timer = null; }
   }
 
@@ -152,6 +309,13 @@ export function initHealthWatchdog({
 
       if (!active(run)) return;
       if (!snap.singbox_running) {
+        // Native health owns the runtime lifecycle. A process death is still
+        // evidence for its local recovery/terminal path; do not let this older
+        // WebView branch race native stop/start between two health snapshots.
+        if (snap.dataplane?.nativeRecoveryOwner === "native") {
+          await handleDataplaneHealth(run, snap);
+          return;
+        }
         // Причину смерти snapshot читает синхронно с running-статусом (до
         // shutdownCore, который сбрасывает флаги).
         const why = snap.last_error;
@@ -189,6 +353,7 @@ export function initHealthWatchdog({
         reconnectForSourceChange(tr("conn.clientReconnect"));
         return;
       }
+      if (await handleDataplaneHealth(run, snap)) return;
       // Liveness OK — отдаём ход движку качества (детект троттла/деградации).
       // Fire-and-forget: проба до 4с не должна держать busy и тормозить следующий
       // liveness-тик; у движка свои guard'ы probing/remediating.

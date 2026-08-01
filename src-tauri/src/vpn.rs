@@ -1,12 +1,13 @@
 use std::collections::{HashSet, VecDeque};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
+use crate::health;
 use crate::util::MutexExt;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -248,6 +249,23 @@ pub struct SingboxState {
     pending_cleanup: Mutex<Option<PendingCleanup>>,
     live_processes: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
+    // Native dataplane watchdog. It is owned by the runtime state so a stale
+    // monitor can be cancelled before the next runtime generation starts.
+    dataplane_health: Arc<health::DataplaneHealthState>,
+    dataplane_generation: Arc<AtomicU64>,
+    // Native recovery is a single owner. Frontend reconnects must not race a
+    // same-config stop/start in the short window between dependency teardown
+    // and readiness.
+    native_recovery_lock: tokio::sync::Mutex<()>,
+    native_recovery_active: AtomicBool,
+    // A manual disconnect may arrive while native recovery owns the lifecycle.
+    // It cancels the restart before the next generation is published; the
+    // caller then acquires the same owner lock and performs the verified stop.
+    native_recovery_cancelled: AtomicBool,
+    // In-memory launch material is retained only for the current runtime. It
+    // enables a bounded native restart without asking WebView2 to rebuild or
+    // resend a profile containing credentials.
+    runtime_launch: Mutex<Option<RuntimeLaunchSpec>>,
 }
 
 #[derive(Clone)]
@@ -260,6 +278,21 @@ struct RuntimeRecord {
     pinned_node_tag: Option<String>,
     clash_port: u16,
     clash_ready: bool,
+}
+
+#[derive(Clone)]
+struct RuntimeLaunchSpec {
+    config_json: String,
+    mode: String,
+    xray_json: Option<String>,
+    sidecars_json: Option<String>,
+    logs_disabled: bool,
+    source_fingerprint: Option<String>,
+    config_hash: Option<String>,
+    strict_privacy: bool,
+    pinned_node_tag: Option<String>,
+    system_proxy_bypass_lan: bool,
+    kill_switch_expected: bool,
 }
 
 #[derive(Clone, Default)]
@@ -310,6 +343,12 @@ impl Default for SingboxState {
             pending_cleanup: Mutex::new(None),
             live_processes: Arc::new(AtomicU64::new(0)),
             process_exit_notify: Arc::new(Notify::new()),
+            dataplane_health: Arc::new(health::DataplaneHealthState::default()),
+            dataplane_generation: Arc::new(AtomicU64::new(0)),
+            native_recovery_lock: tokio::sync::Mutex::new(()),
+            native_recovery_active: AtomicBool::new(false),
+            native_recovery_cancelled: AtomicBool::new(false),
+            runtime_launch: Mutex::new(None),
         }
     }
 }
@@ -423,7 +462,7 @@ fn prune_sidecar_logs(dir: &std::path::Path, kind: SidecarLogKind, protected: &H
 //  - принудительно держим external_controller на 127.0.0.1 (даже если фронт
 //    зачем-то выставил 0.0.0.0) — управление ядром не должно торчать в сеть.
 // При невалидном JSON возвращаем как есть: пусть sing-box сам ругнётся.
-fn harden_config(raw: &str) -> String {
+fn harden_config(raw: &str, cache_path: Option<&Path>) -> String {
     let mut v: serde_json::Value = match serde_json::from_str(raw) {
         Ok(v) => v,
         Err(_) => return raw.to_string(),
@@ -448,7 +487,39 @@ fn harden_config(raw: &str) -> String {
             serde_json::Value::String(format!("127.0.0.1:{port}")),
         );
     }
+    if let Some(cache_path) = cache_path {
+        if let Some(root) = v.as_object_mut() {
+            let experimental = root
+                .entry("experimental")
+                .or_insert_with(|| serde_json::json!({}));
+            if !experimental.is_object() {
+                *experimental = serde_json::json!({});
+            }
+            let experimental = experimental
+                .as_object_mut()
+                .expect("experimental object was just initialized");
+            let cache_file = experimental
+                .entry("cache_file")
+                .or_insert_with(|| serde_json::json!({}));
+            if !cache_file.is_object() {
+                *cache_file = serde_json::json!({});
+            }
+            cache_file
+                .as_object_mut()
+                .expect("cache_file object was just initialized")
+                .insert(
+                    "path".into(),
+                    serde_json::Value::String(cache_path.to_string_lossy().into_owned()),
+                );
+        }
+    }
     serde_json::to_string(&v).unwrap_or_else(|_| raw.to_string())
+}
+
+fn singbox_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = crate::app_paths::data_dir(app)?.join("singbox");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir singbox data: {e}"))?;
+    Ok(dir.join("cache.db"))
 }
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -475,6 +546,34 @@ fn xray_log_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("xray.log"))
 }
 
+// При высокой загрузке Windows не гарантирует, что userspace datapath будет
+// получать CPU вовремя. Поднимаем только критичные сетевые children до
+// ABOVE_NORMAL: HIGH/REALTIME намеренно не используем, чтобы не превращать
+// Ninety в источник starvation для всей системы.
+fn prioritize_datapath_process(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{
+            OpenProcess, SetPriorityClass, ABOVE_NORMAL_PRIORITY_CLASS, PROCESS_SET_INFORMATION,
+        };
+
+        unsafe {
+            match OpenProcess(PROCESS_SET_INFORMATION, false, pid) {
+                Ok(handle) => {
+                    if let Err(error) = SetPriorityClass(handle, ABOVE_NORMAL_PRIORITY_CLASS) {
+                        eprintln!("datapath priority failed for pid {pid}: {error}");
+                    }
+                    let _ = CloseHandle(handle);
+                }
+                Err(error) => eprintln!("datapath priority open failed for pid {pid}: {error}"),
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = pid;
+}
+
 // Поднимает xray-core sidecar для xhttp-нод (two-core). Всегда user-level,
 // слушает 127.0.0.1; sing-box (свой child или сервис под LocalSystem) ходит
 // к нему через loopback socks-мосты из конфига. Spawn до sing-box.
@@ -499,6 +598,7 @@ async fn spawn_xray(
         .env("NO_COLOR", "1")
         .spawn()
         .map_err(|e| format!("spawn xray: {e}"))?;
+    prioritize_datapath_process(child.pid());
     *state.xray_child.lock_recover() = Some(child);
 
     let died_flag = state.xray_died.clone();
@@ -604,6 +704,7 @@ async fn spawn_sidecars(
             .env("NO_COLOR", "1")
             .spawn()
             .map_err(|e| format!("spawn {bin}: {e}"))?;
+        prioritize_datapath_process(child.pid());
         state.sidecars.lock_recover().push(child);
 
         let died_flag = state.sidecar_died.clone();
@@ -846,6 +947,17 @@ pub struct RuntimeSnapshot {
     sidecars: serde_json::Value,
     system_proxy_ownership: &'static str,
     kill_switch_active: bool,
+    native_recovery_owner: String,
+    native_recovery_state: String,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct NativeRuntimeStatus {
+    pub running: bool,
+    pub xray_alive: bool,
+    pub sidecars_alive: bool,
+    pub clash_ready: bool,
+    pub clash_port: u16,
 }
 
 fn runtime_ports_from_config(raw: &str) -> Result<(u16, Vec<u16>), String> {
@@ -885,6 +997,25 @@ fn runtime_ports_from_config(raw: &str) -> Result<(u16, Vec<u16>), String> {
     ports.sort_unstable();
     ports.dedup();
     Ok((clash, ports))
+}
+
+fn probe_port_from_config(raw: &str) -> Option<u16> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    value
+        .get("inbounds")
+        .and_then(|v| v.as_array())
+        .and_then(|inbounds| {
+            inbounds.iter().find_map(|inbound| {
+                let tag = inbound.get("tag").and_then(|v| v.as_str())?;
+                if tag != "probe-in" && tag != "mixed-in" {
+                    return None;
+                }
+                inbound
+                    .get("listen_port")
+                    .and_then(|v| v.as_u64())
+                    .and_then(|port| u16::try_from(port).ok())
+            })
+        })
 }
 
 async fn wait_clash_ready(port: u16, state: &SingboxState, start_epoch: u64) -> Result<(), String> {
@@ -1085,6 +1216,7 @@ async fn wait_runtime_released(
 fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> RuntimeSnapshot {
     let running = compute_singbox_running(state);
     let record = state.runtime.lock_recover().clone();
+    let health = state.dataplane_health.snapshot();
     RuntimeSnapshot {
         running,
         starting: state.starting.load(Ordering::SeqCst),
@@ -1103,32 +1235,73 @@ fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> Run
             "not_owned"
         },
         kill_switch_active,
+        native_recovery_owner: health.native_recovery_owner,
+        native_recovery_state: health.native_recovery_state,
     }
 }
 
-#[tauri::command]
-#[allow(clippy::too_many_arguments)] // Tauri IPC: именованные поля сохраняют совместимый wire contract.
-pub async fn start_singbox(
+pub(crate) fn native_runtime_status(
+    app: &AppHandle,
+    expected_generation: u64,
+) -> NativeRuntimeStatus {
+    let Some(state) = app.try_state::<SingboxState>() else {
+        return NativeRuntimeStatus::default();
+    };
+    let record = state.runtime.lock_recover().clone();
+    let process_generation = record
+        .as_ref()
+        .map(|runtime| runtime.process_generation)
+        .unwrap_or(0);
+    let generation_matches = expected_generation == 0 || process_generation == expected_generation;
+    NativeRuntimeStatus {
+        running: generation_matches && compute_singbox_running(&state),
+        xray_alive: if state.xray_child.lock_recover().is_none() {
+            true
+        } else {
+            state.xray_died.lock_recover().is_none()
+        },
+        sidecars_alive: if state.sidecars.lock_recover().is_empty() {
+            true
+        } else {
+            state.sidecar_died.lock_recover().is_none()
+        },
+        clash_ready: generation_matches
+            && record.as_ref().is_some_and(|runtime| runtime.clash_ready),
+        clash_port: record
+            .as_ref()
+            .map(|runtime| runtime.clash_port)
+            .unwrap_or(0),
+    }
+}
+
+async fn start_singbox_inner(
     app: AppHandle,
-    state: State<'_, SingboxState>,
-    config_json: String,
-    mode: String,
-    xray_json: Option<String>,
-    sidecars_json: Option<String>,
-    logs_disabled: Option<bool>,
-    source_fingerprint: Option<String>,
-    config_hash: Option<String>,
-    strict_privacy: Option<bool>,
-    pinned_node_tag: Option<String>,
+    state: &SingboxState,
+    spec: RuntimeLaunchSpec,
+    preserve_recovery_budget: bool,
 ) -> Result<RuntimeSnapshot, String> {
-    let logs_disabled = logs_disabled.unwrap_or(false);
-    let strict_privacy = strict_privacy.unwrap_or(false);
+    let RuntimeLaunchSpec {
+        config_json: raw_config_json,
+        mode,
+        xray_json,
+        sidecars_json,
+        logs_disabled,
+        source_fingerprint,
+        config_hash,
+        strict_privacy,
+        pinned_node_tag,
+        system_proxy_bypass_lan,
+        kill_switch_expected,
+    } = spec;
     let (start_epoch, process_generation) = {
         // Короткий синхронный gate делает старт/стоп линейными в точке смены
         // поколения; сам долгий запуск под ним не выполняется.
         let _gate = state.lifecycle_gate.lock_recover();
         if state.stopping.load(Ordering::SeqCst) {
             return Err("остановка ещё выполняется".into());
+        }
+        if state.native_recovery_active.load(Ordering::SeqCst) && !preserve_recovery_budget {
+            return Err("нативное восстановление ещё выполняется".into());
         }
         // Sentinel ДО child-проверки: второй конкурентный вызов отсекается,
         // пока первый ещё находится в await до публикации child.
@@ -1155,8 +1328,10 @@ pub async fn start_singbox(
     };
     let _starting = StartingGuard(&state.starting);
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
-    let config_json = harden_config(&config_json);
+    let cache_path = singbox_cache_path(&app)?;
+    let config_json = harden_config(&raw_config_json, Some(&cache_path));
     let (clash_port, runtime_ports) = runtime_ports_from_config(&config_json)?;
+    let probe_port = probe_port_from_config(&config_json);
     *state.runtime_ports.lock_recover() = runtime_ports;
     let sidecar_specs: Option<Vec<SidecarSpec>> = sidecars_json
         .as_ref()
@@ -1169,7 +1344,7 @@ pub async fn start_singbox(
     if let Some(xj) = xray_json.as_ref().filter(|s| !s.trim().is_empty()) {
         if let Err(e) = spawn_xray(
             &app,
-            &state,
+            state,
             xj,
             logs_disabled,
             start_epoch,
@@ -1177,17 +1352,17 @@ pub async fn start_singbox(
         )
         .await
         {
-            kill_xray(&state);
+            kill_xray(state);
             return Err(e);
         }
-        ensure_start_current(&state, start_epoch)?;
+        ensure_start_current(state, start_epoch)?;
     }
 
     // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
     if let Some(specs) = sidecar_specs.as_ref() {
         if let Err(e) = spawn_sidecars(
             &app,
-            &state,
+            state,
             specs,
             logs_disabled,
             start_epoch,
@@ -1195,11 +1370,11 @@ pub async fn start_singbox(
         )
         .await
         {
-            kill_xray(&state);
-            kill_sidecars(&state);
+            kill_xray(state);
+            kill_sidecars(state);
             return Err(e);
         }
-        ensure_start_current(&state, start_epoch)?;
+        ensure_start_current(state, start_epoch)?;
     }
 
     // Режим (proxy/systemProxy/tun) больше не влияет на запуск ядра в Rust:
@@ -1214,7 +1389,7 @@ pub async fn start_singbox(
     // xray_child.is_some() блокировал бы следующий старт до явного stop).
     if let Err(e) = spawn_singbox_core(
         &app,
-        &state,
+        state,
         &config_json,
         logs_disabled,
         start_epoch,
@@ -1226,32 +1401,96 @@ pub async fn start_singbox(
         if let Some(child) = state.child.lock_recover().take() {
             let _ = child.kill();
         }
-        kill_xray(&state);
-        kill_sidecars(&state);
+        kill_xray(state);
+        kill_sidecars(state);
         return Err(e);
     }
-    ensure_start_current(&state, start_epoch)?;
+    ensure_start_current(state, start_epoch)?;
 
-    if let Err(e) = wait_clash_ready(clash_port, &state, start_epoch).await {
+    if let Err(e) = wait_clash_ready(clash_port, state, start_epoch).await {
         if let Some(child) = state.child.lock_recover().take() {
             let _ = child.kill();
         }
-        kill_xray(&state);
-        kill_sidecars(&state);
+        kill_xray(state);
+        kill_sidecars(state);
         *state.runtime_ports.lock_recover() = Vec::new();
         return Err(e);
     }
     *state.runtime.lock_recover() = Some(RuntimeRecord {
         process_generation,
-        source_fingerprint,
-        config_hash,
-        mode,
+        source_fingerprint: source_fingerprint.clone(),
+        config_hash: config_hash.clone(),
+        mode: mode.clone(),
         strict_privacy,
-        pinned_node_tag,
+        pinned_node_tag: pinned_node_tag.clone(),
         clash_port,
         clash_ready: true,
     });
-    Ok(runtime_snapshot_value(&state, false))
+    *state.runtime_launch.lock_recover() = Some(RuntimeLaunchSpec {
+        config_json: config_json.clone(),
+        mode: mode.clone(),
+        xray_json: xray_json.clone(),
+        sidecars_json: sidecars_json.clone(),
+        logs_disabled,
+        source_fingerprint: source_fingerprint.clone(),
+        config_hash: config_hash.clone(),
+        strict_privacy,
+        pinned_node_tag: pinned_node_tag.clone(),
+        system_proxy_bypass_lan,
+        kill_switch_expected,
+    });
+    if strict_privacy || probe_port.is_some() {
+        health::start_dataplane_watchdog(
+            app.clone(),
+            state.dataplane_health.clone(),
+            state.dataplane_generation.clone(),
+            process_generation,
+            probe_port,
+            strict_privacy,
+            preserve_recovery_budget,
+        );
+    } else {
+        health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
+    }
+    Ok(runtime_snapshot_value(state, false))
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri IPC: именованные поля сохраняют совместимый wire contract.
+pub async fn start_singbox(
+    app: AppHandle,
+    state: State<'_, SingboxState>,
+    config_json: String,
+    mode: String,
+    xray_json: Option<String>,
+    sidecars_json: Option<String>,
+    logs_disabled: Option<bool>,
+    source_fingerprint: Option<String>,
+    config_hash: Option<String>,
+    strict_privacy: Option<bool>,
+    pinned_node_tag: Option<String>,
+    system_proxy_bypass_lan: Option<bool>,
+    kill_switch_expected: Option<bool>,
+) -> Result<RuntimeSnapshot, String> {
+    start_singbox_inner(
+        app,
+        &state,
+        RuntimeLaunchSpec {
+            config_json,
+            mode,
+            xray_json,
+            sidecars_json,
+            logs_disabled: logs_disabled.unwrap_or(false),
+            source_fingerprint,
+            config_hash,
+            strict_privacy: strict_privacy.unwrap_or(false),
+            pinned_node_tag,
+            system_proxy_bypass_lan: system_proxy_bypass_lan.unwrap_or(true),
+            kill_switch_expected: kill_switch_expected.unwrap_or(false),
+        },
+        false,
+    )
+    .await
 }
 
 // Запись конфига + спавн sing-box + fail-fast-окно. Вынесено из start_singbox,
@@ -1278,6 +1517,7 @@ async fn spawn_singbox_core(
         .env("NO_COLOR", "1")
         .spawn()
         .map_err(|e| format!("spawn sing-box: {e}"))?;
+    prioritize_datapath_process(child.pid());
 
     *state.child.lock_recover() = Some(child);
 
@@ -1453,12 +1693,16 @@ struct StopTimings {
     total_ms: u64,
 }
 
-#[tauri::command]
-pub async fn stop_singbox(
-    app: AppHandle,
-    state: State<'_, SingboxState>,
+async fn stop_singbox_inner(
+    app: &AppHandle,
+    state: &SingboxState,
+    stop_watchdog: bool,
+    retain_launch: bool,
 ) -> Result<StopResult, String> {
     let _stop = state.stop_lock.lock().await;
+    if stop_watchdog {
+        health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
+    }
     {
         let _gate = state.lifecycle_gate.lock_recover();
         state.stopping.store(true, Ordering::SeqCst);
@@ -1509,18 +1753,21 @@ pub async fn stop_singbox(
     let proxy_ok = proxy::set_system_proxy(false, None, None).is_ok();
     let proxy_done_at = std::time::Instant::now();
     let (processes_exited, remaining_ports) =
-        wait_runtime_released(&state, &ports, &killed_processes).await;
+        wait_runtime_released(state, &ports, &killed_processes).await;
     let ports_released = remaining_ports.is_empty();
     let confirmed_at = std::time::Instant::now();
     let proxy_confirmed = !proxy_was_owned || proxy_ok;
     let cleanup_confirmed = processes_exited && ports_released && proxy_confirmed;
     if cleanup_confirmed {
-        purge_bridge_configs(&app);
-        purge_current_configs(&app);
-        clear_death_flags(&state);
+        purge_bridge_configs(app);
+        purge_current_configs(app);
+        clear_death_flags(state);
         *state.runtime.lock_recover() = None;
         *state.runtime_ports.lock_recover() = Vec::new();
         *state.pending_cleanup.lock_recover() = None;
+        if !retain_launch {
+            *state.runtime_launch.lock_recover() = None;
+        }
     } else {
         *state.pending_cleanup.lock_recover() = Some(PendingCleanup {
             processes: unresolved_processes(&killed_processes),
@@ -1569,6 +1816,195 @@ pub async fn stop_singbox(
             total_ms: started_at.elapsed().as_millis() as u64,
         },
     })
+}
+
+#[tauri::command]
+pub async fn stop_singbox(
+    app: AppHandle,
+    state: State<'_, SingboxState>,
+) -> Result<StopResult, String> {
+    // Manual disconnect wins over native recovery. Set the cancellation bit
+    // before waiting for the owner lock, then perform the same verified stop
+    // after the native action has released it. This avoids both a restart after
+    // the user's disconnect and a parallel cleanup of the dependency graph.
+    state
+        .native_recovery_cancelled
+        .store(true, Ordering::SeqCst);
+    let _recovery_lock = state.native_recovery_lock.lock().await;
+    let result = stop_singbox_inner(&app, &state, true, false).await;
+    state
+        .native_recovery_cancelled
+        .store(false, Ordering::SeqCst);
+    result
+}
+
+struct NativeRecoveryOwner<'a>(&'a AtomicBool);
+
+impl Drop for NativeRecoveryOwner<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+fn native_recovery_result_is_ready(result: &StopResult) -> bool {
+    result.processes_exited && result.ports_released && result.system_proxy != "failed"
+}
+
+fn native_rearm_saved_kill_switch(app: &AppHandle, spec: &RuntimeLaunchSpec) -> Result<(), String> {
+    if !spec.kill_switch_expected {
+        return Ok(());
+    }
+    let Some(kill_switch) = app.try_state::<crate::killswitch::KillSwitchState>() else {
+        return Err("kill switch state недоступен для native recovery".into());
+    };
+    crate::killswitch::arm_policy(
+        &kill_switch,
+        Some(if spec.strict_privacy {
+            false
+        } else {
+            spec.system_proxy_bypass_lan
+        }),
+        spec.strict_privacy.then(|| "ninety-tun".to_string()),
+        Some(spec.strict_privacy),
+    )?;
+    if !crate::killswitch::is_active(&kill_switch) {
+        return Err("kill switch readiness не подтверждена после native recovery".into());
+    }
+    Ok(())
+}
+
+async fn native_reapply_runtime_policy(
+    app: &AppHandle,
+    spec: &RuntimeLaunchSpec,
+    snapshot: &RuntimeSnapshot,
+) -> Result<(), String> {
+    if spec.mode == "systemProxy" {
+        let port = probe_port_from_config(&spec.config_json)
+            .ok_or_else(|| "после native recovery не найден mixed-in порт".to_string())?;
+        let host_port = format!("127.0.0.1:{port}");
+        proxy::set_system_proxy(true, Some(&host_port), Some(spec.system_proxy_bypass_lan))?;
+        if !proxy::system_proxy_owned() {
+            return Err("system proxy ownership не подтверждена после native recovery".into());
+        }
+    }
+
+    native_rearm_saved_kill_switch(app, spec)?;
+
+    let current = native_runtime_status(app, snapshot.process_generation);
+    if !current.running || !current.clash_ready {
+        return Err("native recovery runtime не прошёл readiness".into());
+    }
+    Ok(())
+}
+
+/// Controlled same-config restart. This path never asks WebView2 for a new
+/// profile and never chooses a different node. It is guarded by both an async
+/// owner lock and a runtime-level active flag, so frontend stop/reconnect calls
+/// cannot interleave with the dependency graph restart.
+pub(crate) async fn native_recover_current_runtime(
+    app: &AppHandle,
+    expected_generation: u64,
+) -> bool {
+    let Some(state) = app.try_state::<SingboxState>() else {
+        return false;
+    };
+    let Ok(_owner_lock) = state.native_recovery_lock.try_lock() else {
+        return false;
+    };
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
+        return false;
+    }
+    state
+        .native_recovery_cancelled
+        .store(false, Ordering::SeqCst);
+    if state.native_recovery_active.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    let _owner = NativeRecoveryOwner(&state.native_recovery_active);
+
+    let Some(spec) = state.runtime_launch.lock_recover().clone() else {
+        return false;
+    };
+    let Some(runtime) = state.runtime.lock_recover().clone() else {
+        return false;
+    };
+    if runtime.process_generation != expected_generation
+        || !compute_singbox_running(&state)
+        || state.starting.load(Ordering::SeqCst)
+        || state.stopping.load(Ordering::SeqCst)
+    {
+        return false;
+    }
+
+    if state.native_recovery_cancelled.load(Ordering::SeqCst)
+        || native_rearm_saved_kill_switch(app, &spec).is_err()
+    {
+        return false;
+    }
+
+    let Ok(stopped) = stop_singbox_inner(app, &state, false, true).await else {
+        return false;
+    };
+    if !native_recovery_result_is_ready(&stopped)
+        || state.native_recovery_cancelled.load(Ordering::SeqCst)
+    {
+        return false;
+    }
+
+    let Ok(snapshot) = start_singbox_inner(app.clone(), &state, spec.clone(), true).await else {
+        return false;
+    };
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
+        let _ = stop_singbox_inner(app, &state, false, false).await;
+        return false;
+    }
+    if let Err(error) = native_reapply_runtime_policy(app, &spec, &snapshot).await {
+        let _ = stop_singbox_inner(app, &state, false, false).await;
+        let _ = error;
+        return false;
+    }
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
+        let _ = stop_singbox_inner(app, &state, false, false).await;
+        return false;
+    }
+    true
+}
+
+/// Last-resort native fail-closed cleanup after the bounded same-config budget
+/// is exhausted. WFP is armed/re-armed before the dependency stop whenever the
+/// saved runtime policy requires it; a failed cleanup is reported as retryable
+/// and never latched as a confirmed terminal state.
+pub(crate) async fn native_terminal_fail_closed(app: &AppHandle, expected_generation: u64) -> bool {
+    let Some(state) = app.try_state::<SingboxState>() else {
+        return false;
+    };
+    let Ok(_owner_lock) = state.native_recovery_lock.try_lock() else {
+        return false;
+    };
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
+        return false;
+    }
+    if state.native_recovery_active.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    let _owner = NativeRecoveryOwner(&state.native_recovery_active);
+    let spec = state.runtime_launch.lock_recover().clone();
+    if let Some(runtime) = state.runtime.lock_recover().clone() {
+        if runtime.process_generation != expected_generation {
+            return false;
+        }
+    }
+
+    if let Some(spec) = spec.as_ref() {
+        if native_rearm_saved_kill_switch(app, spec).is_err() {
+            return false;
+        }
+    }
+
+    let Ok(result) = stop_singbox_inner(app, &state, false, false).await else {
+        return false;
+    };
+    native_recovery_result_is_ready(&result)
 }
 
 // Внутренние вычисления статусов — переиспользуются одиночными командами и
@@ -1652,6 +2088,7 @@ pub struct HealthSnapshot {
     pub sidecar: &'static str,
     pub last_error: Option<String>,
     pub kill_switch_active: bool,
+    pub dataplane: health::DataplaneHealthSnapshot,
 }
 
 #[tauri::command]
@@ -1665,6 +2102,7 @@ pub fn health_snapshot(
         sidecar: compute_sidecar_status(&state),
         last_error: compute_last_error(&state),
         kill_switch_active: crate::killswitch::is_active(&kill_switch),
+        dataplane: state.dataplane_health.snapshot(),
     }
 }
 
@@ -1707,6 +2145,7 @@ pub fn vpn_last_error(state: State<'_, SingboxState>) -> Option<String> {
 }
 
 pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
+    health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
     if let Some(child) = state.child.lock_recover().take() {
         let _ = child.kill();
     }
@@ -1810,7 +2249,7 @@ mod tests {
     #[test]
     fn harden_config_injects_secret_and_loopback() {
         let raw = r#"{"experimental":{"clash_api":{"external_controller":"0.0.0.0:9090"}}}"#;
-        let out = harden_config(raw);
+        let out = harden_config(raw, None);
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let api = &v["experimental"]["clash_api"];
         assert_eq!(api["external_controller"], "127.0.0.1:9090");
@@ -1819,8 +2258,30 @@ mod tests {
     }
 
     #[test]
+    fn harden_config_pins_cache_path_outside_the_working_directory() {
+        let raw = r#"{"experimental":{"cache_file":{"enabled":true,"store_rdrc":true}}}"#;
+        let cache_path = Path::new(r"C:\Users\test\AppData\Local\Ninety\data\singbox\cache.db");
+        let out = harden_config(raw, Some(cache_path));
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            v["experimental"]["cache_file"]["path"],
+            cache_path.to_string_lossy().as_ref()
+        );
+    }
+
+    #[test]
     fn harden_config_passes_invalid_json_through() {
-        assert_eq!(harden_config("not json"), "not json");
+        assert_eq!(harden_config("not json", None), "not json");
+    }
+
+    #[test]
+    fn probe_port_follows_the_runtime_probe_inbound() {
+        let tun = r#"{"inbounds":[{"type":"tun","tag":"tun-in"},{"type":"mixed","tag":"probe-in","listen_port":8787}]}"#;
+        let proxy = r#"{"inbounds":[{"type":"mixed","tag":"mixed-in","listen_port":9898}]}"#;
+        let unrelated = r#"{"inbounds":[{"type":"mixed","tag":"other","listen_port":7777}]}"#;
+        assert_eq!(probe_port_from_config(tun), Some(8787));
+        assert_eq!(probe_port_from_config(proxy), Some(9898));
+        assert_eq!(probe_port_from_config(unrelated), None);
     }
 
     #[test]

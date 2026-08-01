@@ -64,14 +64,10 @@ struct KillSwitchLease {
 #[derive(Default)]
 pub struct KillSwitchState(Mutex<Vec<KillSwitchLease>>);
 
-/// Включить или безопасно переармить kill switch. Новая WFP-сессия собирается
-/// транзакционно до закрытия предыдущей. Permit получают все движки Ninety,
-/// найденные рядом с нашим бинарём (Tauri кладёт сайдкары туда же): permit для
-/// не запущенного exe инертен, а пропущенный permit глушит протокол намертво —
-/// поэтому не гадаем, какие ноды в активном конфиге.
-#[tauri::command]
-pub fn killswitch_arm(
-    state: tauri::State<'_, KillSwitchState>,
+/// Внутренний вариант arm для нативного recovery. Он намеренно принимает тот
+/// же policy-контракт, что IPC-команда, чтобы recovery не обходил WFP-barrier.
+pub(crate) fn arm_policy(
+    state: &KillSwitchState,
     allow_lan: Option<bool>,
     tun_interface: Option<String>,
     strict_tunnel: Option<bool>,
@@ -128,6 +124,21 @@ pub fn killswitch_arm(
         let _ = (allow_lan, tun_interface, strict_tunnel);
         Err("kill switch доступен только на Windows".into())
     }
+}
+
+/// Включить или безопасно переармить kill switch. Новая WFP-сессия собирается
+/// транзакционно до закрытия предыдущей. Permit получают все движки Ninety,
+/// найденные рядом с нашим бинарём (Tauri кладёт сайдкары туда же): permit для
+/// не запущенного exe инертен, а пропущенный permit глушит протокол намертво —
+/// поэтому не гадаем, какие ноды в активном конфиге.
+#[tauri::command]
+pub fn killswitch_arm(
+    state: tauri::State<'_, KillSwitchState>,
+    allow_lan: Option<bool>,
+    tun_interface: Option<String>,
+    strict_tunnel: Option<bool>,
+) -> Result<(), String> {
+    arm_policy(&state, allow_lan, tun_interface, strict_tunnel)
 }
 
 /// Выключить kill switch (снять все фильтры). Идемпотентно.

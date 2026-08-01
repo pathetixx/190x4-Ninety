@@ -6,6 +6,7 @@ mod clash_stream;
 mod discord_cache;
 mod dnscheck;
 mod dpi;
+mod health;
 mod killswitch;
 mod netproc;
 mod protected_browser;
@@ -811,6 +812,7 @@ pub fn run() {
             vpn::clear_log,
             vpn::singbox_log_path,
             vpn::open_log_dir,
+            quality::probe_health,
             subscription::fetch_subscription,
             clash::clash_get_proxies,
             clash::clash_get_connections,
