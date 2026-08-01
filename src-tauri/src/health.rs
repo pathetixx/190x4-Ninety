@@ -158,13 +158,13 @@ impl ResourceSample {
 
     fn pressure_recovered(self, scheduler_lateness_ms: u64) -> bool {
         self.memory_load_percent
-            .map_or(true, |value| value <= PRESSURE_MEMORY_LOAD_EXIT_PERCENT)
-            && self.available_memory_bytes.map_or(true, |value| {
-                value >= PRESSURE_AVAILABLE_PHYSICAL_EXIT_BYTES
-            })
+            .is_none_or(|value| value <= PRESSURE_MEMORY_LOAD_EXIT_PERCENT)
+            && self
+                .available_memory_bytes
+                .is_none_or(|value| value >= PRESSURE_AVAILABLE_PHYSICAL_EXIT_BYTES)
             && self
                 .available_commit_bytes
-                .map_or(true, |value| value >= PRESSURE_AVAILABLE_COMMIT_EXIT_BYTES)
+                .is_none_or(|value| value >= PRESSURE_AVAILABLE_COMMIT_EXIT_BYTES)
             && scheduler_lateness_ms <= PRESSURE_SCHEDULER_EXIT_MS
     }
 }
@@ -263,10 +263,6 @@ impl Default for DataplaneHealthState {
 }
 
 impl DataplaneHealthState {
-    pub fn reset_active(&self, generation: u64) {
-        self.reset_active_for_runtime(generation, false, false);
-    }
-
     pub fn reset_active_for_runtime(
         &self,
         generation: u64,
@@ -394,6 +390,7 @@ impl DataplaneHealthState {
         inner.resources = resources;
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn record_probe(
         &self,
         generation: u64,
@@ -709,6 +706,7 @@ fn pressure_reason(resources: ResourceSample, scheduler: u64) -> &'static str {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn record_incident(
     inner: &mut HealthInner,
     generation: u64,
@@ -1037,7 +1035,7 @@ mod tests {
     #[test]
     fn active_health_starts_unknown_and_keeps_generation() {
         let health = DataplaneHealthState::default();
-        health.reset_active(42);
+        health.reset_active_for_runtime(42, false, false);
         let snapshot = health.snapshot();
         assert_eq!(snapshot.state, "unknown");
         assert_eq!(snapshot.generation, 42);
@@ -1046,7 +1044,7 @@ mod tests {
     #[test]
     fn rolling_window_marks_fsf_failed_and_two_successes_healthy() {
         let health = DataplaneHealthState::default();
-        health.reset_active(42);
+        health.reset_active_for_runtime(42, false, false);
         sample(&health, 42, false);
         sample(&health, 42, true);
         sample(&health, 42, false);
@@ -1060,7 +1058,7 @@ mod tests {
     #[test]
     fn pressure_does_not_erase_dataplane_failure() {
         let health = DataplaneHealthState::default();
-        health.reset_active(42);
+        health.reset_active_for_runtime(42, false, false);
         sample(&health, 42, false);
         sample(&health, 42, false);
         {
@@ -1083,7 +1081,7 @@ mod tests {
     #[test]
     fn stale_generation_cannot_overwrite_new_runtime_health() {
         let health = DataplaneHealthState::default();
-        health.reset_active(42);
+        health.reset_active_for_runtime(42, false, false);
         sample(&health, 41, false);
         assert_eq!(health.snapshot().state, "unknown");
     }
@@ -1091,7 +1089,7 @@ mod tests {
     #[test]
     fn recovery_budget_distinguishes_cooldown_and_exhaustion() {
         let health = DataplaneHealthState::default();
-        health.reset_active(42);
+        health.reset_active_for_runtime(42, false, false);
         sample(&health, 42, false);
         sample(&health, 42, false);
         assert_eq!(
@@ -1119,7 +1117,7 @@ mod tests {
     #[test]
     fn incident_ring_is_bounded() {
         let health = DataplaneHealthState::default();
-        health.reset_active(42);
+        health.reset_active_for_runtime(42, false, false);
         for _ in 0..(INCIDENT_RING_SIZE + 5) {
             sample(&health, 42, false);
         }

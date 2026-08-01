@@ -1306,7 +1306,7 @@ async fn start_singbox_inner(
     if let Some(xj) = xray_json.as_ref().filter(|s| !s.trim().is_empty()) {
         if let Err(e) = spawn_xray(
             &app,
-            &state,
+            state,
             xj,
             logs_disabled,
             start_epoch,
@@ -1314,17 +1314,17 @@ async fn start_singbox_inner(
         )
         .await
         {
-            kill_xray(&state);
+            kill_xray(state);
             return Err(e);
         }
-        ensure_start_current(&state, start_epoch)?;
+        ensure_start_current(state, start_epoch)?;
     }
 
     // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
     if let Some(specs) = sidecar_specs.as_ref() {
         if let Err(e) = spawn_sidecars(
             &app,
-            &state,
+            state,
             specs,
             logs_disabled,
             start_epoch,
@@ -1332,11 +1332,11 @@ async fn start_singbox_inner(
         )
         .await
         {
-            kill_xray(&state);
-            kill_sidecars(&state);
+            kill_xray(state);
+            kill_sidecars(state);
             return Err(e);
         }
-        ensure_start_current(&state, start_epoch)?;
+        ensure_start_current(state, start_epoch)?;
     }
 
     // Режим (proxy/systemProxy/tun) больше не влияет на запуск ядра в Rust:
@@ -1351,7 +1351,7 @@ async fn start_singbox_inner(
     // xray_child.is_some() блокировал бы следующий старт до явного stop).
     if let Err(e) = spawn_singbox_core(
         &app,
-        &state,
+        state,
         &config_json,
         logs_disabled,
         start_epoch,
@@ -1363,18 +1363,18 @@ async fn start_singbox_inner(
         if let Some(child) = state.child.lock_recover().take() {
             let _ = child.kill();
         }
-        kill_xray(&state);
-        kill_sidecars(&state);
+        kill_xray(state);
+        kill_sidecars(state);
         return Err(e);
     }
-    ensure_start_current(&state, start_epoch)?;
+    ensure_start_current(state, start_epoch)?;
 
-    if let Err(e) = wait_clash_ready(clash_port, &state, start_epoch).await {
+    if let Err(e) = wait_clash_ready(clash_port, state, start_epoch).await {
         if let Some(child) = state.child.lock_recover().take() {
             let _ = child.kill();
         }
-        kill_xray(&state);
-        kill_sidecars(&state);
+        kill_xray(state);
+        kill_sidecars(state);
         *state.runtime_ports.lock_recover() = Vec::new();
         return Err(e);
     }
@@ -1414,7 +1414,7 @@ async fn start_singbox_inner(
     } else {
         health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
     }
-    Ok(runtime_snapshot_value(&state, false))
+    Ok(runtime_snapshot_value(state, false))
 }
 
 #[tauri::command]
@@ -1715,15 +1715,15 @@ async fn stop_singbox_inner(
     let proxy_ok = proxy::set_system_proxy(false, None, None).is_ok();
     let proxy_done_at = std::time::Instant::now();
     let (processes_exited, remaining_ports) =
-        wait_runtime_released(&state, &ports, &killed_processes).await;
+        wait_runtime_released(state, &ports, &killed_processes).await;
     let ports_released = remaining_ports.is_empty();
     let confirmed_at = std::time::Instant::now();
     let proxy_confirmed = !proxy_was_owned || proxy_ok;
     let cleanup_confirmed = processes_exited && ports_released && proxy_confirmed;
     if cleanup_confirmed {
-        purge_bridge_configs(&app);
-        purge_current_configs(&app);
-        clear_death_flags(&state);
+        purge_bridge_configs(app);
+        purge_current_configs(app);
+        clear_death_flags(state);
         *state.runtime.lock_recover() = None;
         *state.runtime_ports.lock_recover() = Vec::new();
         *state.pending_cleanup.lock_recover() = None;

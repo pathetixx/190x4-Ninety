@@ -49,10 +49,6 @@ fn host_allowed(host: &str, allowlist: &[&str]) -> bool {
         .any(|allowed| host.eq_ignore_ascii_case(allowed))
 }
 
-fn quality_host_allowed(host: &str) -> bool {
-    host_allowed(host, ALLOWED_QUALITY_HOSTS)
-}
-
 #[derive(Serialize)]
 pub struct ProbeResult {
     pub ok: bool,
@@ -473,10 +469,13 @@ mod tests {
 
     #[test]
     fn quality_host_allowlist_is_exact_and_case_insensitive() {
-        assert!(quality_host_allowed("speed.cloudflare.com"));
-        assert!(quality_host_allowed("SPEED.CLOUDFLARE.COM"));
-        assert!(!quality_host_allowed("localhost"));
-        assert!(!quality_host_allowed("speed.cloudflare.com.evil.example"));
+        assert!(host_allowed("speed.cloudflare.com", ALLOWED_QUALITY_HOSTS));
+        assert!(host_allowed("SPEED.CLOUDFLARE.COM", ALLOWED_QUALITY_HOSTS));
+        assert!(!host_allowed("localhost", ALLOWED_QUALITY_HOSTS));
+        assert!(!host_allowed(
+            "speed.cloudflare.com.evil.example",
+            ALLOWED_QUALITY_HOSTS
+        ));
     }
 
     #[test]
