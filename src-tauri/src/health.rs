@@ -879,6 +879,7 @@ fn record_incident(
 
 #[cfg(target_os = "windows")]
 fn resource_sample() -> ResourceSample {
+    use windows::Win32::System::ProcessStatus::{GetPerformanceInfo, PERFORMANCE_INFORMATION};
     use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
     let mut status = MEMORYSTATUSEX {
@@ -888,10 +889,26 @@ fn resource_sample() -> ResourceSample {
     let Ok(()) = (unsafe { GlobalMemoryStatusEx(&mut status) }) else {
         return ResourceSample::default();
     };
+    let mut performance = PERFORMANCE_INFORMATION {
+        cb: std::mem::size_of::<PERFORMANCE_INFORMATION>() as u32,
+        ..Default::default()
+    };
+    let performance_cb = performance.cb;
+    let available_commit_bytes =
+        if unsafe { GetPerformanceInfo(&mut performance, performance_cb) }.is_ok() {
+            Some(
+                (performance
+                    .CommitLimit
+                    .saturating_sub(performance.CommitTotal) as u64)
+                    .saturating_mul(performance.PageSize as u64),
+            )
+        } else {
+            None
+        };
     ResourceSample {
         memory_load_percent: Some(status.dwMemoryLoad),
         available_memory_bytes: Some(status.ullAvailPhys),
-        available_commit_bytes: Some(status.ullAvailPageFile),
+        available_commit_bytes,
         available_pagefile_bytes: Some(status.ullAvailPageFile),
         cpu_load_percent: None,
     }
