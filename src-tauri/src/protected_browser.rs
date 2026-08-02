@@ -501,7 +501,7 @@ mod windows_impl {
             ..Default::default()
         };
         let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-        let verified = unsafe {
+        unsafe {
             let status = WinVerifyTrust(
                 HWND::default(),
                 &mut action,
@@ -534,8 +534,7 @@ mod windows_impl {
                 &mut data as *mut WINTRUST_DATA as *mut core::ffi::c_void,
             );
             allowed
-        };
-        verified
+        }
     }
 
     fn without_extended_prefix(path: &Path) -> PathBuf {

@@ -173,10 +173,6 @@ fn validate_snapshot_for_save(raw: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn valid_snapshot_json(raw: String) -> Option<String> {
-    valid_snapshot_str(&raw).then_some(raw)
-}
-
 fn migrate_plaintext_backup_if_needed(app: &AppHandle, path: &Path) -> Result<(), String> {
     let Ok(previous) = std::fs::read(path) else {
         return Ok(());
@@ -289,6 +285,10 @@ mod tests {
             "ninety.subscriptions.v1": "[]"
         })
         .to_string()
+    }
+
+    fn valid_snapshot_json(raw: String) -> Option<String> {
+        super::valid_snapshot_str(&raw).then_some(raw)
     }
 
     #[test]

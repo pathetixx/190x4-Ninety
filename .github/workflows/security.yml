@@ -39,6 +39,9 @@ jobs:
     name: RustSec and cargo-deny
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,11 +103,11 @@ jobs:
           set -euo pipefail
           git clone --depth 1 --branch v1.13.0.h5 https://github.com/hiddify/hiddify-sing-box.git hsb
           test "$(git -C hsb rev-parse HEAD)" = 9b6b004adfb079db2134b682f9b4ff42434c2f38
-          (cd hsb && govulncheck ./...)
+          (cd hsb && govulncheck -mode=mod ./...)
       - name: Audit pinned Xray core
         shell: bash
         run: |
           set -euo pipefail
           git clone --depth 1 --branch v25.12.8 https://github.com/XTLS/Xray-core.git xray-core
           test "$(git -C xray-core rev-parse HEAD)" = 81f8f398c7b2b845853b1e85087c6122acc6db0b
-          (cd xray-core && govulncheck ./...)
+          (cd xray-core && govulncheck -mode=mod ./...)
