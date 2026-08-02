@@ -2,6 +2,26 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.46 — 2026-08-02
+
+## Русский
+
+- Профили, подписки и выбранные серверы теперь хранятся в защищённом Rust-хранилище с безопасной миграцией и восстановлением после сбоя.
+- В Portable добавлено шифрование данных по паролю; незашифрованное сохранение включается только отдельным подтверждением.
+- Усилена защита загрузки подписок: заблокированы локальные и специальные адреса, опасные перенаправления и DNS-подмена.
+- Защищённый Mullvad Browser запускается только после проверки подлинной подписи приложения.
+- В CI добавлены обязательные проверки безопасности, зависимостей, качества кода и состава релизных артефактов.
+- Исправлены неизвестные deep-link-команды, восстановление настроек при сбое IPC и синхронизация версии package-lock в релизном коммите.
+
+## English
+
+- Profiles, subscriptions and remembered servers now use protected Rust-owned storage with safe migration and crash recovery.
+- Portable data can now be encrypted with a passphrase; plaintext persistence requires a separate explicit confirmation.
+- Subscription downloads now block local and special-purpose addresses, unsafe redirects and DNS rebinding.
+- Protected Mullvad Browser launches only after the application signature has been verified.
+- CI now enforces security, dependency, code-quality and release-artifact checks.
+- Fixed unknown deep-link actions, settings recovery when Rust IPC is unavailable and package-lock version synchronization in release commits.
+
 ## v0.2.45 — 2026-08-02
 
 ## Русский
