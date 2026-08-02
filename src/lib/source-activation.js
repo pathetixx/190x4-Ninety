@@ -126,7 +126,7 @@ export function createSourceSwitchController({
 
     applySource(fallback);
     await persist(fallback);
-    let restored = false;
+    let restored;
     try {
       restored = await reconnect(options.rollbackReason, {
         phase: "rollback",

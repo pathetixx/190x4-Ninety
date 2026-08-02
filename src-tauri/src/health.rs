@@ -993,16 +993,26 @@ async fn control_api_ok(port: u16) -> bool {
 /// Starts a monitor for one runtime generation. `probe_port=None` is still a
 /// valid runtime: the native status/control checks remain useful, but no
 /// arbitrary direct endpoint is introduced.
+pub struct DataplaneWatchdogConfig {
+    pub probe_port: Option<u16>,
+    pub strict_privacy: bool,
+    pub preserve_recovery_budget: bool,
+    pub logs_disabled: bool,
+}
+
 pub fn start_dataplane_watchdog(
     app: AppHandle,
     health: Arc<DataplaneHealthState>,
     generation_token: Arc<AtomicU64>,
     generation: u64,
-    probe_port: Option<u16>,
-    strict_privacy: bool,
-    preserve_recovery_budget: bool,
-    logs_disabled: bool,
+    config: DataplaneWatchdogConfig,
 ) {
+    let DataplaneWatchdogConfig {
+        probe_port,
+        strict_privacy,
+        preserve_recovery_budget,
+        logs_disabled,
+    } = config;
     generation_token.store(generation, Ordering::SeqCst);
     health.reset_active_for_runtime(generation, strict_privacy, preserve_recovery_budget);
     publish(&app, &health);

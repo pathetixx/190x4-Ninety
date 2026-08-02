@@ -1450,7 +1450,6 @@ function activeSourceRef() {
 }
 
 function commitActiveSource(kind, id) {
-  const isSub = kind === "sub";
   return applyActiveSourceTransaction({ kind, id }, {
     setActiveKind,
     setActiveProfileId,

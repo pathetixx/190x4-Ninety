@@ -1499,10 +1499,12 @@ async fn start_singbox_inner(
             state.dataplane_health.clone(),
             state.dataplane_generation.clone(),
             process_generation,
-            probe_port,
-            strict_privacy,
-            preserve_recovery_budget,
-            logs_disabled,
+            health::DataplaneWatchdogConfig {
+                probe_port,
+                strict_privacy,
+                preserve_recovery_budget,
+                logs_disabled,
+            },
         );
     } else {
         health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
