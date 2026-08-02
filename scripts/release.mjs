@@ -8,13 +8,11 @@
 // (→ latest.json/OTA) и в тело релиза.
 //
 // Компиляция — в CI (локально не собираем): push тега запускает сборку/подпись/
-// публикацию/зеркала. С --watch скрипт доводит до конца: ждёт CI-ран и проверяет,
-// что релиз опубликован, ассеты на месте и latest.json реально раздаётся с
-// GitHub и GitLab. CI сначала продвигает проверенный GitLab metadata и только
-// затем публикует draft как GitHub Latest.
+// публикацию/зеркала. После запуска CI скрипт сразу завершается и не следит за
+// раном. Проверка уже завершённого релиза остаётся отдельным режимом --verify.
 //
 // Использование:
-//   node scripts/release.mjs X.Y.Z [--watch] [--dry-run] [--yes]
+//   node scripts/release.mjs X.Y.Z [--dry-run] [--yes]
 //   node scripts/release.mjs X.Y.Z --verify        # только проверить уже вышедший релиз
 // Перед запуском: добавить секцию "## vX.Y.Z — YYYY-MM-DD" в НАЧАЛО CHANGELOG.md.
 
@@ -85,7 +83,7 @@ async function retry(fn, tries = 8, delayMs = 5000) {
   return false;
 }
 
-// Проверка, что релиз реально встал и раздаётся. Используется --watch и --verify.
+// Проверка, что релиз реально встал и раздаётся. Используется режимом --verify.
 async function verifyRelease(version) {
   const tag = `v${version}`;
   console.log(`\nПроверка релиза ${tag}:`);
@@ -157,7 +155,10 @@ const flags = new Set(argv.filter((a) => a.startsWith("--")));
 const version = argv.find((a) => !a.startsWith("--"));
 const dryRun = flags.has("--dry-run");
 const autoYes = flags.has("--yes");
-const watch = flags.has("--watch");
+const supportedFlags = new Set(["--allow-branch", "--dry-run", "--verify", "--yes"]);
+const unknownFlags = [...flags].filter((flag) => !supportedFlags.has(flag));
+
+if (unknownFlags.length) die(`неизвестный флаг: ${unknownFlags.join(", ")}`);
 
 if (!version || !/^\d+\.\d+\.\d+$/.test(version))
   die(`нужна версия X.Y.Z (получено: ${version ?? "<none>"})`);
@@ -237,9 +238,7 @@ console.log(`  заметки (${notes.split("\n").length} стр. из CHANGELO
 console.log(notes.split("\n").map((l) => "    " + l).join("\n"));
 console.log(`\n  дальше: commit main · git tag -a ${tag} -F · `
   + `push origin main ${tag} · gh release create --draft`);
-console.log(watch
-  ? "  затем слежу за CI (компиляция→подпись→публикация) и проверяю OTA. Это уедет пользователям."
-  : "  затем CI собирает/подписывает/публикует сам. Это уедет пользователям.");
+console.log("  затем CI собирает/подписывает/публикует сам; скрипт не следит за его статусом.");
 
 if (dryRun) { console.log("\n(dry-run: ничего не записано)"); process.exit(0); }
 
@@ -263,7 +262,6 @@ run("git", ["add", "package.json", "src-tauri/tauri.conf.json",
   "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "site/app.js",
   "site/index.html", "CHANGELOG.md"]);
 run("git", ["commit", "-m", tag]);
-const sha = cap("git", ["rev-parse", "HEAD"]);
 
 const dir = mkdtempSync(join(tmpdir(), "ninety-rel-"));
 const notesFile = join(dir, "notes.md");
@@ -278,37 +276,4 @@ run("gh", ["release", "create", tag, "--draft", "--title", `Ninety ${tag}`,
   "-F", notesFile]);
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n✓ ${tag} запушен, тег на месте, draft создан.`);
-
-if (!watch) {
-  console.log("CI собирает. Следить: gh run watch  (или перезапусти с --watch/--verify)");
-  process.exit(0);
-}
-
-// --- дождаться CI и проверить исход ---
-console.log(`\nЖду CI-ран для ${sha.slice(0, 7)}…`);
-let runId;
-for (let i = 0; i < 20 && !runId; i++) {
-  let runs = [];
-  try {
-    runs = JSON.parse(cap("gh", ["run", "list", "--workflow", "build.yml",
-      "--json", "databaseId,headSha", "--limit", "20"]));
-  } catch { /* ран ещё не зарегистрирован */ }
-  const r = runs.find((x) => x.headSha === sha);
-  if (r) runId = r.databaseId; else await sleep(3000);
-}
-if (!runId) die("CI-ран не появился за ~60с. Проверь: gh run list; потом --verify " + version);
-
-console.log(`Ран ${runId}: компиляция → подпись → публикация. Слежу…`);
-try {
-  execFileSync("gh", ["run", "watch", String(runId), "--exit-status"],
-    { cwd: root, stdio: "inherit" });
-} catch {
-  die("CI упал. Draft остался неопубликованным — OTA не тронута. "
-    + "Разбери лог (gh run view " + runId + " --log-failed) и катни fix-forward следующим тегом.");
-}
-
-await verifyRelease(version);
-console.log(failed
-  ? `\n✗ ${tag} собрался, но проверка нашла ${failed} проблем(у) — глянь вручную`
-  : `\n✓ ${tag} собран, опубликован и раздаётся по OTA (GitHub + GitLab)`);
-process.exit(failed ? 1 : 0);
+console.log("CI запущен; скрипт завершает работу без отслеживания результата.");
