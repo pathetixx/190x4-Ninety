@@ -1910,13 +1910,12 @@ async fn start_singbox_inner(
     {
         return Err("runtime endpoint metadata changed during recovery".into());
     }
-    if operation_token.kind == RuntimeOperationKind::SourceSwitch {
-        if operation_token.expected_source_fingerprint.is_none()
+    if operation_token.kind == RuntimeOperationKind::SourceSwitch
+        && (operation_token.expected_source_fingerprint.is_none()
             || operation_token.expected_source_fingerprint.as_deref()
-                != source_fingerprint.as_deref()
-        {
-            return Err("source identity changed during source switch".into());
-        }
+                != source_fingerprint.as_deref())
+    {
+        return Err("source identity changed during source switch".into());
     }
     let probe_endpoint = endpoints.probe_proxy.clone();
     *state.runtime_ports.lock_recover() = runtime_ports;
