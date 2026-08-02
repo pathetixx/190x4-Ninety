@@ -53,7 +53,72 @@ class FakeClient:
         return True
 
 
+class FakeResponse:
+    def __init__(self, body=b"", status=200):
+        self.body = body
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def read(self):
+        return self.body
+
+
 class GitLabMirrorTests(unittest.TestCase):
+    def test_download_retries_transient_timeout(self):
+        client = mirror.GitLabClient("https://gitlab.test/api/v4", "42", "token")
+        outcomes = [TimeoutError("timed out"), FakeResponse(b"metadata")]
+        calls = []
+        delays = []
+        original_urlopen = mirror.urllib.request.urlopen
+        original_sleep = mirror.time.sleep
+
+        def fake_urlopen(request, timeout):
+            calls.append((request.full_url, timeout))
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        try:
+            mirror.urllib.request.urlopen = fake_urlopen
+            mirror.time.sleep = delays.append
+            self.assertEqual(client.download("1.2.3", "latest.json"), b"metadata")
+        finally:
+            mirror.urllib.request.urlopen = original_urlopen
+            mirror.time.sleep = original_sleep
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][1], mirror.DOWNLOAD_TIMEOUT)
+        self.assertEqual(delays, [2])
+
+    def test_download_timeout_exhaustion_is_mirror_error(self):
+        client = mirror.GitLabClient("https://gitlab.test/api/v4", "42", "token")
+        calls = []
+        delays = []
+        original_urlopen = mirror.urllib.request.urlopen
+        original_sleep = mirror.time.sleep
+
+        def fake_urlopen(request, timeout):
+            calls.append((request.full_url, timeout))
+            raise TimeoutError("timed out")
+
+        try:
+            mirror.urllib.request.urlopen = fake_urlopen
+            mirror.time.sleep = delays.append
+            with self.assertRaisesRegex(mirror.MirrorError, "timed out"):
+                client.download("1.2.3", "latest.json")
+        finally:
+            mirror.urllib.request.urlopen = original_urlopen
+            mirror.time.sleep = original_sleep
+
+        self.assertEqual(len(calls), mirror.REQUEST_ATTEMPTS)
+        self.assertEqual(delays, [2, 5])
+
     def test_package_url_quotes_components(self):
         self.assertEqual(
             mirror.package_url("https://gitlab.test/api/v4/", "42", "1.2.3", "Ninety setup.exe"),

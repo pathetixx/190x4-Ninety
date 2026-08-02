@@ -26,6 +26,11 @@ from pathlib import Path
 PKG = "ninety"
 PLATFORM = "windows-x86_64"
 METADATA_NAME = "latest.json"
+DOWNLOAD_TIMEOUT = 60
+UPLOAD_TIMEOUT = 180
+REQUEST_ATTEMPTS = 3
+RETRY_DELAYS = (2, 5)
+RETRYABLE_HTTP_CODES = frozenset({408, 425, 429})
 
 
 class MirrorError(RuntimeError):
@@ -41,6 +46,10 @@ def package_url(api: str, project_id: str, version: str, filename: str) -> str:
 
 def sha256_hex(body: bytes) -> str:
     return hashlib.sha256(body).hexdigest()
+
+
+def is_retryable_http(code: int) -> bool:
+    return code in RETRYABLE_HTTP_CODES or 500 <= code < 600
 
 
 def validate_metadata(data: object, expected_version: str, expected_url: str) -> dict:
@@ -93,35 +102,73 @@ class GitLabClient:
     def url(self, version: str, filename: str) -> str:
         return package_url(self.api, self.project_id, version, filename)
 
+    @staticmethod
+    def retry_delay(attempt: int) -> int:
+        return RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
+
+    def wait_before_retry(self, operation: str, attempt: int, error: Exception) -> None:
+        delay = self.retry_delay(attempt)
+        print(
+            f"GitLab {operation} transient failure ({type(error).__name__}: {error}); "
+            f"retrying in {delay}s",
+            file=sys.stderr,
+        )
+        time.sleep(delay)
+
     def download(self, version: str, filename: str) -> bytes | None:
-        req = urllib.request.Request(self.url(version, filename), method="GET")
-        try:
-            with urllib.request.urlopen(req, timeout=180) as response:
-                if response.status != 200:
+        for attempt in range(REQUEST_ATTEMPTS):
+            req = urllib.request.Request(self.url(version, filename), method="GET")
+            try:
+                with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as response:
+                    if response.status != 200:
+                        raise MirrorError(
+                            f"GitLab download {filename}: HTTP {response.status}"
+                        )
+                    return response.read()
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    return None
+                if not is_retryable_http(exc.code) or attempt == REQUEST_ATTEMPTS - 1:
                     raise MirrorError(
-                        f"GitLab download {filename}: HTTP {response.status}"
-                    )
-                return response.read()
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                return None
-            raise MirrorError(f"GitLab download {filename}: HTTP {exc.code}") from exc
+                        f"GitLab download {filename}: HTTP {exc.code}"
+                    ) from exc
+                self.wait_before_retry(f"download {filename}", attempt, exc)
+            except (TimeoutError, urllib.error.URLError, OSError) as exc:
+                if attempt == REQUEST_ATTEMPTS - 1:
+                    raise MirrorError(
+                        f"GitLab download {filename}: {exc}"
+                    ) from exc
+                self.wait_before_retry(f"download {filename}", attempt, exc)
+
+        raise AssertionError("unreachable")
 
     def upload(self, version: str, filename: str, body: bytes, content_type: str) -> None:
-        req = urllib.request.Request(
-            self.url(version, filename),
-            data=body,
-            method="PUT",
-            headers={"PRIVATE-TOKEN": self.token, "Content-Type": content_type},
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=180) as response:
-                if response.status not in (200, 201):
+        for attempt in range(REQUEST_ATTEMPTS):
+            req = urllib.request.Request(
+                self.url(version, filename),
+                data=body,
+                method="PUT",
+                headers={"PRIVATE-TOKEN": self.token, "Content-Type": content_type},
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=UPLOAD_TIMEOUT) as response:
+                    if response.status not in (200, 201):
+                        raise MirrorError(
+                            f"GitLab upload {filename}: HTTP {response.status}"
+                        )
+                    return
+            except urllib.error.HTTPError as exc:
+                if not is_retryable_http(exc.code) or attempt == REQUEST_ATTEMPTS - 1:
                     raise MirrorError(
-                        f"GitLab upload {filename}: HTTP {response.status}"
-                    )
-        except urllib.error.HTTPError as exc:
-            raise MirrorError(f"GitLab upload {filename}: HTTP {exc.code}") from exc
+                        f"GitLab upload {filename}: HTTP {exc.code}"
+                    ) from exc
+                self.wait_before_retry(f"upload {filename}", attempt, exc)
+            except (TimeoutError, urllib.error.URLError, OSError) as exc:
+                if attempt == REQUEST_ATTEMPTS - 1:
+                    raise MirrorError(f"GitLab upload {filename}: {exc}") from exc
+                self.wait_before_retry(f"upload {filename}", attempt, exc)
+
+        raise AssertionError("unreachable")
 
     def exists(self, url: str) -> bool:
         req = urllib.request.Request(url, method="HEAD")
@@ -163,14 +210,39 @@ class GitLabClient:
             raise MirrorError(
                 f"immutable GitLab asset {version}/{filename} уже существует с другим содержимым"
             )
-        self.upload(version, filename, body, content_type)
+        try:
+            self.upload(version, filename, body, content_type)
+        except MirrorError as upload_error:
+            # A PUT may have reached GitLab even when the runner timed out waiting
+            # for its response. Recover the idempotent success before failing.
+            try:
+                existing = self.download(version, filename)
+            except MirrorError:
+                raise upload_error
+            if existing is not None:
+                if len(existing) == len(body) and sha256_hex(existing) == sha256_hex(body):
+                    return existing
+                raise MirrorError(
+                    f"immutable GitLab asset {version}/{filename} уже существует с другим содержимым"
+                ) from upload_error
+            raise upload_error
         return self.verify_blob(version, filename, body)
 
     def promote_stable(self, body: bytes) -> bytes:
         current = self.download("stable", METADATA_NAME)
         if current == body:
             return current
-        self.upload("stable", METADATA_NAME, body, "application/json")
+        try:
+            self.upload("stable", METADATA_NAME, body, "application/json")
+        except MirrorError as upload_error:
+            # As above, preserve a successful PUT if only its response was lost.
+            try:
+                current = self.download("stable", METADATA_NAME)
+            except MirrorError:
+                raise upload_error
+            if current == body:
+                return current
+            raise upload_error
         return self.verify_blob("stable", METADATA_NAME, body)
 
 
