@@ -47,6 +47,8 @@ export function initHealthWatchdog({
   reconcileKillSwitch = async () => true,
   recoverDataplane = async () => false,
   onDataplaneFailed = async () => false,
+  beginRuntimeOperation = null,
+  completeRuntimeOperation = async () => false,
   onDataplaneState = () => {},
   invoke: invokeFn = invoke,
   toast: toastFn = toast,
@@ -74,6 +76,22 @@ export function initHealthWatchdog({
 
   const current = (run) => run === generation && !isUpdateInstalling();
   const active = (run) => current(run) && getState() === "connected";
+
+  async function withFrontendRecovery(dataplane, run) {
+    const token = typeof beginRuntimeOperation === "function"
+      ? await beginRuntimeOperation("frontendRecovery", dataplane)
+      : null;
+    if (typeof beginRuntimeOperation === "function" && !token) return false;
+    try {
+      return await run(token);
+    } finally {
+      if (token) await completeRuntimeOperation(token);
+    }
+  }
+
+  function withOperationToken(payload, operationToken) {
+    return operationToken ? { ...payload, operationToken } : payload;
+  }
 
   function bridgeReconnectAllowed() {
     const cut = nowFn() - BRIDGE_RECONNECT_WINDOW_MS;
@@ -116,12 +134,31 @@ export function initHealthWatchdog({
       || dataplaneTerminalAttempts.length >= DATAPLANE_RECOVERY_MAX
       || !active(run)) return true;
 
-    dataplaneTerminalAttempts.push(now);
     dataplaneTerminalBusy = true;
     try {
+      let operationToken = null;
+      if (typeof beginRuntimeOperation === "function") {
+        try {
+          operationToken = await beginRuntimeOperation("frontendRecovery", dataplane);
+        } catch {
+          operationToken = null;
+        }
+        if (!operationToken) {
+          // Coordinator contention is not a cleanup attempt.  Leave the
+          // bounded budget untouched and let the current owner finish.
+          dataplaneTerminalRetryAt = nowFn() + 5000;
+          return true;
+        }
+      }
+      dataplaneTerminalAttempts.push(now);
       // A failed shutdown is not terminal: cleanup_error remains retryable, but
       // retries are bounded and delayed so a stuck process cannot cause a loop.
-      const confirmed = await onDataplaneFailed(dataplane);
+      let confirmed;
+      try {
+        confirmed = await onDataplaneFailed(dataplane, operationToken);
+      } finally {
+        if (operationToken) await completeRuntimeOperation(operationToken);
+      }
       if (confirmed === true) {
         dataplaneTerminal = true;
         dataplaneTerminalRetryAt = 0;
@@ -144,6 +181,15 @@ export function initHealthWatchdog({
     // handoff на знающий профили WebView, а не второй независимый retry-loop.
     if (decision.state !== "allowed") return true;
 
+    let operationToken = null;
+    if (typeof beginRuntimeOperation === "function") {
+      try {
+        operationToken = await beginRuntimeOperation("frontendRecovery", dataplane);
+      } catch {
+        operationToken = null;
+      }
+      if (!operationToken) return true;
+    }
     frontendHandoffAttempted = true;
     dataplaneRecoveries.push(nowFn());
     dataplaneRecoveryBusy = true;
@@ -151,10 +197,10 @@ export function initHealthWatchdog({
     getQualityEngine()?.pauseForEmergency?.();
     toastFn(tr("conn.applyingSettings"), "warn", 5000, { group: "conn", connecting: true });
     try {
-      const recovered = await recoverDataplane({
+      const recovered = await recoverDataplane(withOperationToken({
         reason: dataplane.reason || "dataplane_failed",
         snapshot: dataplane,
-      });
+      }, operationToken));
       if (recovered && current(run)) {
         dataplaneRecoveryGraceUntil = nowFn() + DATAPLANE_RECOVERY_GRACE_MS;
         dataplaneTerminal = false;
@@ -163,6 +209,7 @@ export function initHealthWatchdog({
     } catch (error) {
       console.warn("frontend dataplane handoff failed", error);
     } finally {
+      if (operationToken) await completeRuntimeOperation(operationToken);
       dataplaneRecoveryBusy = false;
     }
     return true;
@@ -250,10 +297,11 @@ export function initHealthWatchdog({
     getQualityEngine()?.pauseForEmergency?.();
     toastFn(tr("conn.applyingSettings"), "warn", 5000, { group: "conn", connecting: true });
     try {
-      const recovered = await recoverDataplane({
-        reason: dataplane.reason || "dataplane_failed",
-        snapshot: dataplane,
-      });
+      const recovered = await withFrontendRecovery(dataplane, (operationToken) =>
+        recoverDataplane(withOperationToken({
+          reason: dataplane.reason || "dataplane_failed",
+          snapshot: dataplane,
+        }, operationToken)));
       if (recovered) {
         dataplaneRecoveryGraceUntil = nowFn() + DATAPLANE_RECOVERY_GRACE_MS;
         dataplaneTerminal = false;
@@ -271,7 +319,13 @@ export function initHealthWatchdog({
   // целиком (как при смерти sing-box): честная ошибка вместо вечного цикла.
   async function stopForBridgeLoop(run) {
     if (!active(run)) return;
-    if (!(await shutdownCore({ preserveKillSwitch: shouldPreserveKillSwitch() }))) return;
+    const stopped = await withFrontendRecovery(
+      { reason: "bridge_reconnect_budget_exhausted" },
+      (operationToken) => shutdownCore(withOperationToken({
+        preserveKillSwitch: shouldPreserveKillSwitch(),
+      }, operationToken)),
+    );
+    if (!stopped) return;
     toastFn(tr("conn.bridgeLoop"), "error", 8000, { group: "conn", desc: tr("conn.bridgeLoopDesc") });
     notifyFn(tr("conn.notifyClosedTitle"), tr("conn.bridgeLoopDesc"));
     switchView("logs");
@@ -387,7 +441,13 @@ export function initHealthWatchdog({
         // Причину смерти snapshot читает синхронно с running-статусом (до
         // shutdownCore, который сбрасывает флаги).
         const why = snap.last_error;
-        if (!(await shutdownCore({ preserveKillSwitch: shouldPreserveKillSwitch() }))) return;
+        const stopped = await withFrontendRecovery(
+          { reason: "process_dead" },
+          (operationToken) => shutdownCore(withOperationToken({
+            preserveKillSwitch: shouldPreserveKillSwitch(),
+          }, operationToken)),
+        );
+        if (!stopped) return;
         toastFn(tr("conn.coreStopped"), "error", 7000, { group: "conn", desc: tr("conn.coreStoppedDesc") });
         notifyFn(tr("conn.notifyClosedTitle"), tr("conn.notifyClosedBody"));
         if (why) console.warn("sing-box died:", why);
@@ -409,7 +469,13 @@ export function initHealthWatchdog({
         notifyFn("Ninety", tr("conn.xhttpNotify"));
         // reconnectForSourceChange сам ставит needsReconnect и зовёт реконнект,
         // который поднимет sing-box И xray заново из свежего конфига.
-        reconnectForSourceChange(tr("conn.xhttpReconnect"));
+        void withFrontendRecovery(
+          { reason: "xhttp_bridge_dead" },
+          (operationToken) => reconnectForSourceChange(
+            tr("conn.xhttpReconnect"),
+            withOperationToken({}, operationToken),
+          ),
+        ).catch((error) => console.warn("xhttp bridge recovery failed", error));
         return;
       }
       // sidecar-клиенты naive/trusttunnel — та же логика, что у xray-моста.
@@ -418,7 +484,13 @@ export function initHealthWatchdog({
         if (!active(run)) return;
         toastFn(tr("conn.clientDown"), "warn", 4000, { group: "conn", connecting: true });
         notifyFn("Ninety", tr("conn.clientNotify"));
-        reconnectForSourceChange(tr("conn.clientReconnect"));
+        void withFrontendRecovery(
+          { reason: "sidecar_bridge_dead" },
+          (operationToken) => reconnectForSourceChange(
+            tr("conn.clientReconnect"),
+            withOperationToken({}, operationToken),
+          ),
+        ).catch((error) => console.warn("sidecar bridge recovery failed", error));
         return;
       }
       if (await handleDataplaneHealth(run, snap)) return;

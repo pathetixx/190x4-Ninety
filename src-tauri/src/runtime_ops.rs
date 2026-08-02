@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 
 use crate::util::MutexExt;
 
@@ -178,28 +178,80 @@ impl RuntimeOperationCoordinator {
 
 #[tauri::command]
 pub fn begin_frontend_runtime_operation(
+    app: tauri::AppHandle,
     coordinator: tauri::State<'_, RuntimeOperationCoordinator>,
     kind: RuntimeOperationKind,
     generation: Option<u64>,
     source_fingerprint: Option<String>,
 ) -> Result<RuntimeOperationToken, String> {
-    coordinator.begin(kind, generation.unwrap_or(0), source_fingerprint.as_deref())
+    let previous = coordinator.snapshot();
+    let result = coordinator.begin(kind, generation.unwrap_or(0), source_fingerprint.as_deref());
+    match &result {
+        Ok(token) => {
+            if let Some(previous) = previous {
+                if previous.id != token.id {
+                    append_operation_diagnostic(
+                        &app,
+                        previous.id,
+                        previous.kind,
+                        previous.generation,
+                        previous.source_fingerprint_hash.as_deref(),
+                        "superseded",
+                        None,
+                    );
+                }
+            }
+            append_operation_diagnostic(
+                &app,
+                token.id,
+                token.kind,
+                token.generation,
+                token.source_fingerprint_hash.as_deref(),
+                "acquired",
+                None,
+            );
+        }
+        Err(_) => append_operation_attempt_diagnostic(&app, kind, "coordinator_busy"),
+    }
+    result
 }
 
 #[tauri::command]
 pub fn complete_frontend_runtime_operation(
+    app: tauri::AppHandle,
     coordinator: tauri::State<'_, RuntimeOperationCoordinator>,
     token: RuntimeOperationToken,
 ) -> bool {
-    coordinator.complete(&token)
+    let completed = coordinator.complete(&token);
+    append_operation_diagnostic(
+        &app,
+        token.id,
+        token.kind,
+        token.generation,
+        token.source_fingerprint_hash.as_deref(),
+        if completed { "completed" } else { "failed" },
+        (!completed).then_some("stale_or_cancelled"),
+    );
+    completed
 }
 
 #[tauri::command]
 pub fn cancel_frontend_runtime_operation(
+    app: tauri::AppHandle,
     coordinator: tauri::State<'_, RuntimeOperationCoordinator>,
     token: RuntimeOperationToken,
 ) -> bool {
-    coordinator.cancel(&token)
+    let cancelled = coordinator.cancel(&token);
+    append_operation_diagnostic(
+        &app,
+        token.id,
+        token.kind,
+        token.generation,
+        token.source_fingerprint_hash.as_deref(),
+        if cancelled { "cancelled" } else { "failed" },
+        (!cancelled).then_some("stale_or_superseded"),
+    );
+    cancelled
 }
 
 #[tauri::command]
@@ -207,6 +259,36 @@ pub fn runtime_operation_snapshot(
     coordinator: tauri::State<'_, RuntimeOperationCoordinator>,
 ) -> Option<RuntimeOperationSnapshot> {
     coordinator.snapshot()
+}
+
+fn append_operation_attempt_diagnostic(
+    app: &tauri::AppHandle,
+    kind: RuntimeOperationKind,
+    reason: &str,
+) {
+    crate::vpn::append_runtime_diagnostic(
+        app,
+        &format!("runtime_operation kind={kind:?} event=failed reason={reason}"),
+    );
+}
+
+fn append_operation_diagnostic(
+    app: &tauri::AppHandle,
+    id: u64,
+    kind: RuntimeOperationKind,
+    generation: u64,
+    source_hash: Option<&str>,
+    event: &str,
+    reason: Option<&str>,
+) {
+    crate::vpn::append_runtime_diagnostic(
+        app,
+        &format!(
+            "runtime_operation id={id} kind={kind:?} generation={generation} source_hash={} event={event} reason={}",
+            source_hash.unwrap_or("none"),
+            reason.unwrap_or("none"),
+        ),
+    );
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -229,6 +311,26 @@ pub enum ProbeAcquireError {
 pub struct DataplaneProbeCoordinator {
     generation: AtomicU64,
     permit: Arc<Semaphore>,
+    waiters: Mutex<Vec<ProbeWaiter>>,
+    next_waiter: AtomicU64,
+    notify: Arc<Notify>,
+}
+
+#[derive(Clone, Copy)]
+struct ProbeWaiter {
+    ticket: u64,
+    generation: u64,
+    kind: DataplaneProbeKind,
+}
+
+impl DataplaneProbeKind {
+    fn priority(self) -> u8 {
+        match self {
+            Self::SourceVerification => 3,
+            Self::HealthProbe => 2,
+            Self::QualityProbe => 1,
+        }
+    }
 }
 
 impl Default for DataplaneProbeCoordinator {
@@ -236,55 +338,138 @@ impl Default for DataplaneProbeCoordinator {
         Self {
             generation: AtomicU64::new(0),
             permit: Arc::new(Semaphore::new(1)),
+            waiters: Mutex::new(Vec::new()),
+            next_waiter: AtomicU64::new(0),
+            notify: Arc::new(Notify::new()),
         }
     }
 }
 
 pub struct DataplaneProbePermit {
     generation: u64,
-    _permit: OwnedSemaphorePermit,
+    _permit: Option<OwnedSemaphorePermit>,
+    notify: Arc<Notify>,
+}
+
+impl Drop for DataplaneProbePermit {
+    fn drop(&mut self) {
+        // Release before waking contenders.  If Notify fired while the
+        // semaphore was still occupied, a waiter could consume the wake-up
+        // and sleep forever until its bounded deadline.
+        self._permit.take();
+        self.notify.notify_waiters();
+    }
 }
 
 impl DataplaneProbeCoordinator {
     pub fn reset_generation(&self, generation: u64) {
         self.generation.store(generation, Ordering::SeqCst);
+        self.notify.notify_waiters();
     }
 
     pub fn invalidate(&self) {
         self.generation.store(0, Ordering::SeqCst);
+        self.notify.notify_waiters();
     }
 
     pub async fn acquire(
         &self,
-        _kind: DataplaneProbeKind,
+        kind: DataplaneProbeKind,
         generation: u64,
         wait_for: Option<std::time::Duration>,
     ) -> Result<DataplaneProbePermit, ProbeAcquireError> {
         if self.generation.load(Ordering::SeqCst) != generation {
             return Err(ProbeAcquireError::StaleGeneration);
         }
-        let acquired = match wait_for {
-            Some(wait) => tokio::time::timeout(wait, self.permit.clone().acquire_owned())
-                .await
-                .ok()
-                .and_then(Result::ok),
-            None => self.permit.clone().try_acquire_owned().ok(),
+        let Some(wait) = wait_for else {
+            // Health and quality probes are deliberately non-blocking.  A
+            // queued source verification (or any other queued probe) wins
+            // admission instead of allowing a low-priority caller to starve it.
+            {
+                let mut waiters = self.waiters.lock_recover();
+                waiters.retain(|waiter| waiter.generation == generation);
+                if !waiters.is_empty() {
+                    return Err(ProbeAcquireError::Busy);
+                }
+            }
+            let Some(permit) = self.permit.clone().try_acquire_owned().ok() else {
+                return Err(ProbeAcquireError::Busy);
+            };
+            if self.generation.load(Ordering::SeqCst) != generation {
+                drop(permit);
+                return Err(ProbeAcquireError::StaleGeneration);
+            }
+            return Ok(DataplaneProbePermit {
+                generation,
+                _permit: Some(permit),
+                notify: self.notify.clone(),
+            });
         };
-        let Some(permit) = acquired else {
-            return Err(ProbeAcquireError::Busy);
-        };
-        if self.generation.load(Ordering::SeqCst) != generation {
-            drop(permit);
-            return Err(ProbeAcquireError::StaleGeneration);
-        }
-        Ok(DataplaneProbePermit {
+
+        let ticket = self.next_waiter.fetch_add(1, Ordering::SeqCst) + 1;
+        self.waiters.lock_recover().push(ProbeWaiter {
+            ticket,
             generation,
-            _permit: permit,
-        })
+            kind,
+        });
+        let deadline = tokio::time::Instant::now() + wait;
+
+        loop {
+            if self.generation.load(Ordering::SeqCst) != generation {
+                self.remove_waiter(ticket);
+                return Err(ProbeAcquireError::StaleGeneration);
+            }
+
+            let admitted = {
+                let mut waiters = self.waiters.lock_recover();
+                waiters.retain(|waiter| waiter.generation == generation);
+                let best = waiters.iter().copied().max_by(|left, right| {
+                    left.kind
+                        .priority()
+                        .cmp(&right.kind.priority())
+                        .then_with(|| right.ticket.cmp(&left.ticket))
+                });
+                best.is_some_and(|candidate| candidate.ticket == ticket)
+                    && self.permit.available_permits() > 0
+            };
+
+            if admitted {
+                if let Ok(permit) = self.permit.clone().try_acquire_owned() {
+                    self.remove_waiter(ticket);
+                    if self.generation.load(Ordering::SeqCst) != generation {
+                        drop(permit);
+                        return Err(ProbeAcquireError::StaleGeneration);
+                    }
+                    return Ok(DataplaneProbePermit {
+                        generation,
+                        _permit: Some(permit),
+                        notify: self.notify.clone(),
+                    });
+                }
+            }
+
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                self.remove_waiter(ticket);
+                return Err(ProbeAcquireError::Busy);
+            }
+            let notified = self.notify.notified();
+            if tokio::time::timeout(remaining, notified).await.is_err() {
+                self.remove_waiter(ticket);
+                return Err(ProbeAcquireError::Busy);
+            }
+        }
     }
 
     pub fn is_current(&self, permit: &DataplaneProbePermit) -> bool {
         self.generation.load(Ordering::SeqCst) == permit.generation
+    }
+
+    fn remove_waiter(&self, ticket: u64) {
+        self.waiters
+            .lock_recover()
+            .retain(|waiter| waiter.ticket != ticket);
+        self.notify.notify_waiters();
     }
 }
 
@@ -346,5 +531,64 @@ mod tests {
         assert!(coordinator.cancel(&token));
         assert!(!coordinator.authorize(&token));
         assert!(coordinator.snapshot().is_none());
+    }
+
+    #[tokio::test]
+    async fn source_verification_has_priority_over_queued_health_and_quality() {
+        let coordinator = Arc::new(DataplaneProbeCoordinator::default());
+        coordinator.reset_generation(7);
+        let quality = coordinator
+            .acquire(DataplaneProbeKind::QualityProbe, 7, None)
+            .await
+            .unwrap();
+        let source_coordinator = coordinator.clone();
+        let source = tokio::spawn(async move {
+            source_coordinator
+                .acquire(
+                    DataplaneProbeKind::SourceVerification,
+                    7,
+                    Some(std::time::Duration::from_millis(250)),
+                )
+                .await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        assert!(matches!(
+            coordinator
+                .acquire(DataplaneProbeKind::HealthProbe, 7, None)
+                .await,
+            Err(ProbeAcquireError::Busy)
+        ));
+        drop(quality);
+        let source_permit = source.await.unwrap().unwrap();
+        assert!(coordinator.is_current(&source_permit));
+    }
+
+    #[tokio::test]
+    async fn queued_probe_becomes_stale_when_generation_changes() {
+        let coordinator = Arc::new(DataplaneProbeCoordinator::default());
+        coordinator.reset_generation(3);
+        let held = coordinator
+            .acquire(DataplaneProbeKind::QualityProbe, 3, None)
+            .await
+            .unwrap();
+        let waiter = {
+            let coordinator = coordinator.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .acquire(
+                        DataplaneProbeKind::SourceVerification,
+                        3,
+                        Some(std::time::Duration::from_secs(1)),
+                    )
+                    .await
+            })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        coordinator.reset_generation(4);
+        drop(held);
+        assert!(matches!(
+            waiter.await.unwrap(),
+            Err(ProbeAcquireError::StaleGeneration)
+        ));
     }
 }

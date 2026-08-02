@@ -550,6 +550,53 @@ test("native handoff сразу передаёт failed dataplane переклю
   assert.deepEqual(states, ["failed"]);
 });
 
+test("frontend handoff owns a coordinator token through recovery", async () => {
+  let begun = 0;
+  const completed = [];
+  let received = null;
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    beginRuntimeOperation: async (kind) => {
+      begun++;
+      return { id: 77, kind };
+    },
+    completeRuntimeOperation: async (token) => completed.push(token.id),
+    recoverDataplane: async (options) => {
+      received = options.operationToken;
+      return true;
+    },
+    invoke: async () => ({
+      singbox_running: true,
+      xray: "none",
+      sidecar: "none",
+      kill_switch_active: false,
+      dataplane: {
+        state: "failed",
+        dataplaneState: "failed",
+        nativeRecoveryOwner: "native",
+        nativeRecoveryState: "handoff",
+        hostPressure: false,
+      },
+    }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  assert.equal(begun, 1);
+  assert.equal(received?.id, 77);
+  assert.deepEqual(completed, [77]);
+});
+
 test("переход native health в healthy запрашивает одну немедленную quality-пробу", async () => {
   let requested = 0;
   let qualityTicks = 0;

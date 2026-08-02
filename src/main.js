@@ -49,6 +49,7 @@ import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
 import { createCoreStartBarrier } from "/lib/connection-start-barrier.js";
+import { createRuntimeIdleGate } from "/lib/runtime-idle-gate.js";
 import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, pickSelectorNow, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
@@ -884,6 +885,10 @@ let networkIntentEpoch = 0;
 let activeStrictPrivacyRuntime = false;
 let strictFailClosedLatched = false;
 let ordinaryFailClosedLatched = false;
+const runtimeIdleGate = createRuntimeIdleGate({
+  getState: () => state,
+  isCurrent: (epoch, desired) => networkIntent.isCurrent(epoch, desired),
+});
 
 function killSwitchMustSurviveRuntimeStop() {
   return preservedKillSwitchPolicyMode() != null;
@@ -929,6 +934,10 @@ function restoreFailClosedLatch(snapshot, opts = loadOptions()) {
 
 function beginNetworkIntent(desired) {
   networkIntentEpoch = networkIntent.begin(desired);
+  // A newer intent invalidates any disconnecting waiter owned by the previous
+  // request.  The current request, if still relevant, will register its own
+  // waiter after this point.
+  runtimeIdleGate.notify();
   return networkIntentEpoch;
 }
 
@@ -939,6 +948,7 @@ function isCurrentNetworkIntent(epoch, desired) {
 function cancelPendingReconnect() {
   needsReconnect = false;
   reconnectQueue.cancel();
+  runtimeIdleGate.cancel();
   if (pendingReconnectTimer) {
     clearTimeout(pendingReconnectTimer);
     pendingReconnectTimer = null;
@@ -1028,10 +1038,27 @@ function performAutoReconnect(reason = t("conn.applyingSettings"), parentEpoch =
 
 async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
   let reconnectToastId = null;
+  let ownedOperationToken = null;
   const preserveGuard = killSwitchMustSurviveRuntimeStop();
   try {
     pendingReconnectTimer = null;
     if (!needsReconnect || !isCurrentNetworkIntent(epoch, "connected")) return false;
+    if (!operationToken) {
+      ownedOperationToken = await beginRuntimeOperation("qualityRemediation");
+      if (!ownedOperationToken) return false;
+      operationToken = ownedOperationToken;
+    }
+    if (state === "disconnecting") {
+      // shutdownCore owns the backend stop and publishes idle only after
+      // processes, ports and proxy ownership are confirmed.  Waiting here is
+      // event/Promise-based: a source intent is neither dropped nor retried by
+      // a polling loop while the previous lifecycle owner is still unwinding.
+      if (!(await runtimeIdleGate.wait(epoch, "connected"))) return false;
+      if (!isCurrentNetworkIntent(epoch, "connected")) return false;
+      // setState("idle") clears this UI latch as part of the ordinary stop;
+      // the still-current source intent must restore it before connecting.
+      needsReconnect = true;
+    }
     // Более новый source intent мог прийти, пока предыдущий reconnect уже был в
     // disconnecting. После его подтверждённого stop очередь просыпается в idle —
     // это штатная точка старта latest-профиля, а не причина потерять запрос.
@@ -1074,6 +1101,7 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
     applyReconnectUI();
     return (await connectNetwork({ epoch, operationToken })) === true;
   } finally {
+    if (ownedOperationToken) await completeRuntimeOperation(ownedOperationToken);
     if (reconnectToastId) toast.dismiss(reconnectToastId);
   }
 }
@@ -1093,8 +1121,9 @@ async function verifyEmergencyDataplane() {
 // не использует её часовой бюджет и сначала пробует дешёвое переключение на
 // проверенную альтернативу. Если локальный Clash API завис, сразу сработает
 // controlled full reconnect через уже существующий lifecycle-барьер.
-async function recoverDataplane() {
+async function recoverDataplane({ operationToken = null } = {}) {
   if (state !== "connected") return false;
+  if (!(await runtimeOperationIsCurrent(operationToken))) return false;
   const token = runtimeIdentity.capture();
   if (!token) return false;
 
@@ -1106,6 +1135,7 @@ async function recoverDataplane() {
     } catch {
       proxies = {};
     }
+    if (!(await runtimeOperationIsCurrent(operationToken))) return false;
     const originalSelector = pickSelectorNow(proxies) || "auto";
     const originalEffective = currentEffectiveTag || pickEffectiveNode({ proxies });
     const sourceScope = `${token.sourceKey || "source"}:${token.sourceRevision || 0}`;
@@ -1122,14 +1152,19 @@ async function recoverDataplane() {
     ).slice(0, 3);
 
     for (const candidate of candidates) {
-      if (!runtimeIdentity.isCurrent(token) || state !== "connected") return false;
+      if (!(await runtimeOperationIsCurrent(operationToken))
+        || !runtimeIdentity.isCurrent(token) || state !== "connected") return false;
       try {
         const tested = await testNode(candidate.clashTag, { token, timeoutMs: 3000 });
+        if (!(await runtimeOperationIsCurrent(operationToken))) return false;
         const delay = Number(tested?.delay) || 0;
         if (delay <= 0 || delay >= 65_000) continue;
         const selected = await selectProxy("proxy", candidate.clashTag, { token });
+        if (!(await runtimeOperationIsCurrent(operationToken))) return false;
         if (selected?.stale || !runtimeIdentity.isCurrent(token)) continue;
-        if (await verifyEmergencyDataplane()) return true;
+        if (operationToken
+          ? await verifyRuntimeOperationDataplane(operationToken)
+          : await verifyEmergencyDataplane()) return true;
         dataplaneCandidateCooldown.set(`${sourceScope}:${candidate.clashTag}`, Date.now() + DATAPLANE_CANDIDATE_COOLDOWN_MS);
       } catch {
         // Следующая candidate либо полный reconnect — ниже.
@@ -1140,9 +1175,11 @@ async function recoverDataplane() {
     // Candidate validation may have changed Clash's selector. Restore the
     // original selector before falling back to a full lifecycle reconnect;
     // never leave a failed emergency candidate active by accident.
-    if (runtimeIdentity.isCurrent(token) && originalSelector) {
+    if ((await runtimeOperationIsCurrent(operationToken))
+      && runtimeIdentity.isCurrent(token) && originalSelector) {
       try {
         const restored = await selectProxy("proxy", originalSelector, { token });
+        if (!(await runtimeOperationIsCurrent(operationToken))) return false;
         if (!restored?.stale && originalEffective) currentEffectiveTag = originalEffective;
       } catch {
         // Full reconnect below will still rebuild the original runtime policy.
@@ -1150,14 +1187,18 @@ async function recoverDataplane() {
     }
   }
 
-  const request = beginSourceReconnect(t("conn.applyingSettings"));
+  if (!(await runtimeOperationIsCurrent(operationToken))) return false;
+  const request = beginSourceReconnect(t("conn.applyingSettings"), operationToken);
   if (!request) return false;
   const connected = await request.completion;
-  return reconnectCompleted(connected) && state === "connected"
-    && await verifyEmergencyDataplane();
+  if (!(await runtimeOperationIsCurrent(operationToken))) return false;
+  if (!reconnectCompleted(connected) || state !== "connected") return false;
+  return operationToken
+    ? verifyRuntimeOperationDataplane(operationToken)
+    : verifyEmergencyDataplane();
 }
 
-async function failDataplane(dataplane = {}) {
+async function failDataplane(dataplane = {}, operationToken = null) {
   // Native recovery has already failed closed by the time this callback is
   // reached. If WebView2 is responsive, give the existing bounded candidate /
   // reconnect path one chance to recover the session. The native path remains
@@ -1169,13 +1210,14 @@ async function failDataplane(dataplane = {}) {
       if (await recoverDataplane({
         reason: dataplane.reason || "all_candidates_failed",
         snapshot: dataplane,
+        operationToken,
       })) return true;
     } catch (error) {
       console.warn("frontend dataplane fallback failed", error);
     }
   }
   const preserved = killSwitchMustSurviveRuntimeStop();
-  const closed = await shutdownCore({ preserveKillSwitch: preserved });
+  const closed = await shutdownCore({ preserveKillSwitch: preserved, operationToken });
   if (!closed) return false;
   toast(t("conn.coreStopped"), "error", 7000, { group: "conn", desc: t("conn.coreStoppedDesc") });
   notify(t("conn.notifyClosedTitle"), t("conn.notifyClosedBody"));
@@ -1193,7 +1235,7 @@ const healthWatchdog = initHealthWatchdog({
   getState: () => state,
   isUpdateInstalling: () => updateInstalling,
   shutdownCore,
-  reconnectForSourceChange,
+  reconnectForSourceChange: reconnectCommittedSource,
   switchView,
   getQualityEngine: () => qualityEngine,
   shouldPreserveKillSwitch: killSwitchMustSurviveRuntimeStop,
@@ -1205,6 +1247,8 @@ const healthWatchdog = initHealthWatchdog({
   reconcileKillSwitch: () => applyKillSwitch(state === "connected"),
   recoverDataplane,
   onDataplaneFailed: failDataplane,
+  beginRuntimeOperation: (kind) => beginRuntimeOperation(kind),
+  completeRuntimeOperation,
   onDataplaneState: (dataplaneState) => {
     if (dataplaneState === "inactive") return;
     setChannelState(dataplaneState === "failed" ? "DEAD" : "UNKNOWN");
@@ -1450,15 +1494,21 @@ function reconnectForSourceChange(reason, context = {}) {
 // Quality engine обязан получить результат уже НОВОЙ сессии: только после
 // подтверждённого connect можно учитывать дорогую ступень и проверять эффект.
 async function reconnectForQualityRemediation(reason) {
-  const request = beginSourceReconnect(reason);
-  if (!request) return false;
+  const operationToken = await beginRuntimeOperation("qualityRemediation");
+  if (!operationToken) return false;
   try {
+    if (networkIntent.desired() !== "connected" || state !== "connected") return false;
+    const request = beginSourceReconnect(reason, operationToken);
+    if (!request) return false;
     const connected = await request.completion;
-    return reconnectCompleted(connected)
-      && state === "connected"
-      && isCurrentNetworkIntent(request.epoch, "connected");
+    if (!reconnectCompleted(connected)
+      || state !== "connected"
+      || !isCurrentNetworkIntent(request.epoch, "connected")) return false;
+    return verifyRuntimeOperationDataplane(operationToken);
   } catch {
     return false;
+  } finally {
+    await completeRuntimeOperation(operationToken);
   }
 }
 
@@ -1492,6 +1542,56 @@ function commitActiveSource(kind, id) {
     getState: () => state,
     reconnectForSourceChange: () => false,
   }, { reconnect: false, silent: true });
+}
+
+async function beginRuntimeOperation(kind, source = activeSourceRef()) {
+  const snapshot = await invoke("runtime_snapshot").catch(() => null);
+  try {
+    return await invoke("begin_frontend_runtime_operation", {
+      kind,
+      generation: Number(snapshot?.processGeneration) || 0,
+      sourceFingerprint: source ? `${source.kind}:${source.id}` : null,
+    });
+  } catch (error) {
+    console.warn(`unable to begin ${kind} runtime operation`, error);
+    return null;
+  }
+}
+
+async function completeRuntimeOperation(token) {
+  if (!token) return false;
+  try {
+    return await invoke("complete_frontend_runtime_operation", { token });
+  } catch {
+    return false;
+  }
+}
+
+async function verifyRuntimeOperationDataplane(operationToken) {
+  if (!operationToken) return false;
+  try {
+    const snapshot = await invoke("runtime_snapshot");
+    if (!snapshot?.running || !Number(snapshot.processGeneration)) return false;
+    const verdict = await invoke("verify_runtime_dataplane", {
+      operationToken,
+      expectedGeneration: snapshot.processGeneration,
+      expectedSourceFingerprint: snapshot.sourceFingerprint || null,
+    });
+    return verdict?.status === "ready";
+  } catch {
+    return false;
+  }
+}
+
+async function runtimeOperationIsCurrent(operationToken) {
+  if (networkIntent.desired() !== "connected" || state !== "connected") return false;
+  if (!operationToken) return true;
+  try {
+    const active = await invoke("runtime_operation_snapshot");
+    return active?.id === operationToken.id && active.cancelled !== true;
+  } catch {
+    return false;
+  }
 }
 
 async function confirmActiveSourceDataplane(target, { token, isCurrent }) {
@@ -1592,14 +1692,7 @@ sourceSwitchController = createSourceSwitchController({
     toast(t("conn.switchFailed"), "error", 6000, { group: "conn", desc: t("conn.switchFailedDesc") });
     switchView("logs");
   },
-  beginOperation: async (target) => {
-    const snapshot = await invoke("runtime_snapshot").catch(() => null);
-    return invoke("begin_frontend_runtime_operation", {
-      kind: "sourceSwitch",
-      generation: Number(snapshot?.processGeneration) || 0,
-      sourceFingerprint: `${target.kind}:${target.id}`,
-    });
-  },
+  beginOperation: (target) => beginRuntimeOperation("sourceSwitch", target),
   completeOperation: (token) => invoke("complete_frontend_runtime_operation", { token }),
   cancelOperation: (token) => invoke("cancel_frontend_runtime_operation", { token }),
 });
@@ -2613,6 +2706,7 @@ function setState(next, opts = {}) {
   }
 
   syncTrayMenu();
+  runtimeIdleGate.notify();
 }
 
 // Единый рендерер пинга: ячейка «Пинг» телеметрии + location-card.
@@ -3202,6 +3296,10 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
 let connectionIntentInFlight = null;
 async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
   cancelPendingReconnect();
+  // Manual disconnect is the highest-priority lifecycle intent.  Cancel the
+  // source transaction itself so a late target/rollback completion cannot
+  // re-arm reconnect after the verified stop.
+  sourceSwitchController?.cancel?.();
   connectAttempts.cancel();
   const lateStart = coreStartBarrier.isPending();
   if (!(await shutdownCore({ finalize: false }))) return false;

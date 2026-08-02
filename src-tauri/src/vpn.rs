@@ -1454,7 +1454,12 @@ async fn verify_runtime_dataplane_inner(
     if !operation_is_current(app, &operation_token) {
         return RuntimeDataplaneVerification::Cancelled;
     }
-    if operation_token.kind != RuntimeOperationKind::SourceSwitch {
+    if !matches!(
+        operation_token.kind,
+        RuntimeOperationKind::SourceSwitch
+            | RuntimeOperationKind::FrontendRecovery
+            | RuntimeOperationKind::QualityRemediation
+    ) {
         return RuntimeDataplaneVerification::Cancelled;
     }
     if !runtime_identity_matches(
@@ -1476,7 +1481,24 @@ async fn verify_runtime_dataplane_inner(
             reason: "required_sidecar_dead".into(),
         };
     }
-    if !status.clash_ready || !local_clash_listener_ready(status.clash_port).await {
+    let local_ready = if status.clash_ready {
+        local_clash_listener_ready(status.clash_port).await
+    } else {
+        false
+    };
+    // The listener check is an await boundary.  Never classify a stale
+    // generation as a hard failure after it completes.
+    if !operation_is_current(app, &operation_token) {
+        return RuntimeDataplaneVerification::Cancelled;
+    }
+    if !runtime_identity_matches(
+        state,
+        expected_generation,
+        expected_source_fingerprint.as_deref(),
+    ) {
+        return RuntimeDataplaneVerification::Stale;
+    }
+    if !status.clash_ready || !local_ready {
         return RuntimeDataplaneVerification::HardFailed {
             reason: "local_control_unavailable".into(),
         };
@@ -1546,10 +1568,43 @@ async fn verify_runtime_dataplane_inner(
         {
             return RuntimeDataplaneVerification::Stale;
         }
-        match crate::quality::probe_health_inner(Some(status.clash_port)).await {
+        let result = crate::quality::probe_health_inner(Some(status.clash_port)).await;
+        // A probe may finish after a superseding source switch, generation
+        // replacement, or pressure transition.  Its result is not allowed to
+        // release a transition barrier for the newer runtime.
+        if !operation_is_current(app, &operation_token) {
+            return RuntimeDataplaneVerification::Cancelled;
+        }
+        if !state.dataplane_probe.is_current(&permit)
+            || !runtime_identity_matches(
+                state,
+                expected_generation,
+                expected_source_fingerprint.as_deref(),
+            )
+        {
+            return RuntimeDataplaneVerification::Stale;
+        }
+        if state.dataplane_health.snapshot().host_pressure {
+            return RuntimeDataplaneVerification::Unverified {
+                reason: "host_pressure".into(),
+            };
+        }
+        match result {
             Ok(result) if result.ok => return verified_runtime_ready(app),
             Ok(_) if round == 0 => {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                if !operation_is_current(app, &operation_token) {
+                    return RuntimeDataplaneVerification::Cancelled;
+                }
+                if !state.dataplane_probe.is_current(&permit)
+                    || !runtime_identity_matches(
+                        state,
+                        expected_generation,
+                        expected_source_fingerprint.as_deref(),
+                    )
+                {
+                    return RuntimeDataplaneVerification::Stale;
+                }
                 if state.dataplane_health.snapshot().host_pressure {
                     return RuntimeDataplaneVerification::Unverified {
                         reason: "host_pressure".into(),
@@ -2258,7 +2313,11 @@ async fn native_reapply_runtime_policy(
     app: &AppHandle,
     spec: &RuntimeLaunchSpec,
     snapshot: &RuntimeSnapshot,
+    operation_token: &RuntimeOperationToken,
 ) -> Result<(), String> {
+    if !operation_is_current(app, operation_token) {
+        return Err("native recovery operation became stale".into());
+    }
     if spec.mode == "systemProxy" {
         let port = probe_port_from_config(&spec.config_json)
             .ok_or_else(|| "после native recovery не найден mixed-in порт".to_string())?;
@@ -2277,6 +2336,9 @@ async fn native_reapply_runtime_policy(
     }
     if !local_clash_listener_ready(current.clash_port).await {
         return Err("native recovery local listener is unavailable".into());
+    }
+    if !operation_is_current(app, operation_token) {
+        return Err("native recovery operation became stale".into());
     }
     if spec.strict_privacy {
         return Ok(());
@@ -2302,7 +2364,7 @@ async fn native_reapply_runtime_policy(
             }
         })?;
     let result = crate::quality::probe_health_inner(Some(current.clash_port)).await?;
-    if !state.dataplane_probe.is_current(&permit) {
+    if !operation_is_current(app, operation_token) || !state.dataplane_probe.is_current(&permit) {
         return Err("native recovery generation became stale".into());
     }
     if !result.ok {
@@ -2358,11 +2420,41 @@ fn native_transition_barrier(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn release_transition_barrier(app: &AppHandle) -> Result<(), String> {
+pub(crate) fn release_transition_barrier(app: &AppHandle) -> Result<(), String> {
     let kill_switch = app
         .try_state::<crate::killswitch::KillSwitchState>()
         .ok_or("kill switch state unavailable for transition barrier")?;
     crate::killswitch::transition_release(&kill_switch)
+}
+
+/// A source verification may be deliberately `Unverified` while host
+/// pressure suppresses external probes.  Once a later native health sample
+/// proves the runtime healthy and no lifecycle owner is active, it is safe to
+/// retire the leftover temporary barrier without weakening the user's policy.
+pub(crate) fn release_transition_barrier_if_idle(app: &AppHandle) {
+    if app
+        .try_state::<RuntimeOperationCoordinator>()
+        .and_then(|coordinator| coordinator.active_kind())
+        .is_some()
+    {
+        return;
+    }
+    let Some(kill_switch) = app.try_state::<crate::killswitch::KillSwitchState>() else {
+        return;
+    };
+    if !crate::killswitch::transition_active(&kill_switch) {
+        return;
+    }
+    // Re-check immediately before the synchronous release to avoid dropping
+    // a barrier for an operation that acquired the coordinator after the
+    // first snapshot.
+    if app
+        .try_state::<RuntimeOperationCoordinator>()
+        .and_then(|coordinator| coordinator.active_kind())
+        .is_none()
+    {
+        let _ = release_transition_barrier(app);
+    }
 }
 
 /// Controlled same-config restart.  Coordinator outcomes deliberately keep
@@ -2448,6 +2540,9 @@ pub(crate) async fn native_recover_current_runtime(
         .dataplane_health
         .native_recovery_started(expected_generation)
     {
+        if coordinator.authorize(&token) {
+            let _ = release_transition_barrier(app);
+        }
         return NativeRecoveryOutcome::Busy {
             active_operation: coordinator.active_kind(),
         };
@@ -2481,7 +2576,7 @@ pub(crate) async fn native_recover_current_runtime(
         let _ = stop_singbox_inner(app, &state, false, false).await;
         return NativeRecoveryOutcome::Cancelled;
     }
-    if let Err(error) = native_reapply_runtime_policy(app, &spec, &snapshot).await {
+    if let Err(error) = native_reapply_runtime_policy(app, &spec, &snapshot, &token).await {
         let _ = stop_singbox_inner(app, &state, false, false).await;
         return NativeRecoveryOutcome::AttemptFailed { reason: error };
     }
@@ -2555,6 +2650,9 @@ pub(crate) async fn native_terminal_fail_closed(
         .dataplane_health
         .terminal_cleanup_started(expected_generation)
     {
+        if coordinator.authorize(&token) {
+            let _ = release_transition_barrier(app);
+        }
         return TerminalCleanupOutcome::Busy;
     }
 

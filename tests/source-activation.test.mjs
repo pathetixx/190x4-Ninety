@@ -119,7 +119,9 @@ test("нерабочий профиль откатывается на после
       phases.push(context.phase);
       return context.phase === "rollback";
     },
-    confirm: async () => false,
+    confirm: async (target) => target.id === "A"
+      ? { status: "ready" }
+      : { status: "hardFailed" },
     canContinue: () => true,
     persist: async (source) => { persisted = source.id; },
     onRollback: () => { rollbackNotified++; },
@@ -194,7 +196,9 @@ test("source switch удерживает один operation token через tar
       tokens.push(context.operationToken.id);
       return context.phase === "rollback";
     },
-    confirm: async () => ({ status: "hardFailed", reason: "external_route_failure" }),
+    confirm: async (target) => target.id === "A"
+      ? { status: "ready" }
+      : { status: "hardFailed", reason: "external_route_failure" },
     canContinue: () => true,
   });
 
@@ -202,6 +206,47 @@ test("source switch удерживает один operation token через tar
   assert.equal(result.restored, true);
   assert.deepEqual(tokens, ["switch-1", "switch-1"]);
   assert.deepEqual(completed, ["switch-1"]);
+});
+
+test("busy runtime coordinator rejects source switch without mutating active source", async () => {
+  let active = { kind: "sub", id: "A" };
+  let applied = 0;
+  let reconnects = 0;
+  const controller = createSourceSwitchController({
+    getActiveSource: () => active,
+    applySource: (source) => { applied++; active = source; },
+    beginOperation: async () => null,
+    reconnect: async () => { reconnects++; return true; },
+  });
+
+  const result = await controller.activate({ kind: "sub", id: "B" });
+  assert.equal(result.busy, true);
+  assert.equal(applied, 0);
+  assert.equal(reconnects, 0);
+  assert.deepEqual(active, { kind: "sub", id: "A" });
+});
+
+test("rollback without a Ready verdict remains failed", async () => {
+  let active = { kind: "sub", id: "A" };
+  let rollbackChecks = 0;
+  let persisted = 0;
+  const controller = createSourceSwitchController({
+    getActiveSource: () => active,
+    applySource: (source) => { active = source; },
+    reconnect: async () => true,
+    confirm: async (target) => {
+      if (target.id === "A") rollbackChecks++;
+      return { status: target.id === "A" ? "unverified" : "hardFailed" };
+    },
+    canContinue: () => true,
+    persist: async () => { persisted++; },
+  });
+
+  const result = await controller.activate({ kind: "sub", id: "B" });
+  assert.equal(rollbackChecks, 1);
+  assert.equal(persisted, 0);
+  assert.equal(result.restored, false);
+  assert.deepEqual(active, { kind: "sub", id: "A" });
 });
 
 test("pressure verdict не откатывает target source", async () => {

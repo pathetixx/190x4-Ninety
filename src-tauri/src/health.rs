@@ -551,7 +551,24 @@ impl DataplaneHealthState {
         // failure window while the host is overloaded.
         let monitor_error = reason
             .is_some_and(|value| value.starts_with("probe_monitor_error") || value == "probe_busy");
-        if inner.host_pressure && !success {
+        // A probe that was already in flight when pressure was entered must
+        // not become evidence in either direction.  Once the hysteresis exits
+        // pressure, the next watchdog tick is the required fresh probe.
+        if matches!(transition, PressureTransition::Exited) {
+            inner.state = "unknown".into();
+            record_incident(
+                &mut inner,
+                generation,
+                "unknown",
+                Some("pressure_exited_probe_ignored"),
+                scheduler,
+                Some("probe_skipped_pressure"),
+                None,
+                None,
+            );
+            return;
+        }
+        if inner.host_pressure {
             record_incident(
                 &mut inner,
                 generation,
@@ -1470,6 +1487,9 @@ pub fn start_dataplane_watchdog(
             publish(&app, &health);
 
             let snapshot = health.snapshot();
+            if snapshot.dataplane_state == "healthy" {
+                crate::vpn::release_transition_barrier_if_idle(&app);
+            }
             if !logs_disabled && snapshot.dataplane_state != logged_state {
                 crate::vpn::append_runtime_diagnostic(
                     &app,
@@ -1496,6 +1516,7 @@ pub fn start_dataplane_watchdog(
                             crate::runtime_ops::RuntimeOperationKind::SourceSwitch
                                 | crate::runtime_ops::RuntimeOperationKind::UserConnect
                                 | crate::runtime_ops::RuntimeOperationKind::UserDisconnect
+                                | crate::runtime_ops::RuntimeOperationKind::NativeRecovery
                                 | crate::runtime_ops::RuntimeOperationKind::FrontendRecovery
                                 | crate::runtime_ops::RuntimeOperationKind::QualityRemediation
                         )
@@ -1766,6 +1787,48 @@ mod tests {
         let snapshot = health.snapshot();
         assert!(snapshot.host_pressure);
         assert_eq!(snapshot.consecutive_failures, 0);
+        assert!(snapshot.probe_window.is_empty());
+    }
+
+    #[test]
+    fn pressure_ignores_in_flight_external_success_until_fresh_probe() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        let pressure = ResourceSample {
+            memory_load_percent: Some(99),
+            ..ResourceSample::default()
+        };
+        health.set_resources(42, pressure, 0);
+        health.record_probe(42, true, None, 10, 1024, pressure, 0);
+        let snapshot = health.snapshot();
+        assert!(snapshot.host_pressure);
+        assert_eq!(snapshot.dataplane_state, "unknown");
+        assert_eq!(snapshot.consecutive_successes, 0);
+        assert!(snapshot.probe_window.is_empty());
+    }
+
+    #[test]
+    fn pressure_exit_discards_probe_that_completed_on_exit_sample() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        health.set_resources(
+            42,
+            ResourceSample {
+                cpu_load_percent: Some(99),
+                ..ResourceSample::default()
+            },
+            0,
+        );
+        for _ in 0..2 {
+            health.set_resources(42, ResourceSample::default(), 0);
+        }
+        // The third clean sample exits pressure; this result is still from the
+        // pre-pressure probe and must not establish liveness.
+        health.record_probe(42, true, None, 10, 1024, ResourceSample::default(), 0);
+        let snapshot = health.snapshot();
+        assert!(!snapshot.host_pressure);
+        assert_eq!(snapshot.dataplane_state, "unknown");
+        assert_eq!(snapshot.consecutive_successes, 0);
         assert!(snapshot.probe_window.is_empty());
     }
 

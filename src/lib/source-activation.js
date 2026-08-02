@@ -115,6 +115,10 @@ export function createSourceSwitchController({
       if (operationToken) await cancelOperation(operationToken);
       return { changed: true, stale: true, target };
     }
+    if (typeof beginOperation === "function" && !operationToken) {
+      pending = null;
+      return { changed: false, busy: true, target, fallback };
+    }
     pending.operationToken = operationToken;
     applySource(target);
 
@@ -181,20 +185,29 @@ export function createSourceSwitchController({
     }
 
     applySource(fallback);
-    await persist(fallback);
-    let restored;
+    let restored = false;
     try {
-      restored = await reconnect(options.rollbackReason, {
+      const rollbackConnected = await reconnect(options.rollbackReason, {
         phase: "rollback",
         target: fallback,
         failedTarget: target,
         operationToken,
-      }) === true;
+      });
+      if (rollbackConnected === true && canContinue()) {
+        // Rollback is still part of the same SourceSwitch transaction.  A
+        // successful reconnect alone is not proof that the fallback runtime
+        // owns the expected generation/source or that its dataplane is live.
+        restored = verdictKind(await confirm(fallback, {
+          token: operationToken,
+          isCurrent: () => current(token, target),
+        })) === "ready";
+      }
     } catch {
       restored = false;
     }
     if (!current(token, target)) return { changed: true, stale: true, target };
     pending = null;
+    if (restored) await persist(fallback);
     await finish(operationToken);
     if (restored) onRollback(fallback, target, options);
     else onRollbackFailed(fallback, target, options);
