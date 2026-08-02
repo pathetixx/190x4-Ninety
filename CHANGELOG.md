@@ -2,6 +2,22 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.47 — 2026-08-02
+
+## Русский
+
+- Исправлены красные Windows-проверки: устранены ошибки Clippy в резервных копиях и проверке подписи браузера.
+- RustSec-зависимости обновлены до безопасных версий, включая quick-xml, quinn-proto, anyhow и event-listener.
+- Аудит pinned Go-sidecars переведён в режим проверки графа модулей, совместимый с их release build tags.
+- RustSec-проверка получила минимальное право на публикацию Check Run.
+
+## English
+
+- Fixed the red Windows checks by resolving Clippy errors in backup validation and browser signature verification.
+- Updated RustSec dependencies to safe versions, including quick-xml, quinn-proto, anyhow and event-listener.
+- Switched pinned Go-sidecar auditing to module-graph mode, compatible with their release build tags.
+- Granted the RustSec job the minimal permission required to publish its Check Run.
+
 ## v0.2.46 — 2026-08-02
 
 ## Русский
