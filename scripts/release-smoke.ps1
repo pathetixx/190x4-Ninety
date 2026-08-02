@@ -12,10 +12,10 @@ $config = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
 $version = [string]$config.version
 $releaseDir = "src-tauri/target/release"
 $app = Get-Item "$releaseDir/ninety.exe"
-$nsis = @(Get-ChildItem "$releaseDir/bundle/nsis/*-setup.exe")
-$msi = @(Get-ChildItem "$releaseDir/bundle/msi/*.msi")
-$sigs = @(Get-ChildItem "$releaseDir/bundle/nsis/*-setup.exe.sig")
-$portableZips = @(Get-ChildItem "$releaseDir/portable/*_windows-x64-portable.zip")
+$nsis = @(Get-ChildItem "$releaseDir/bundle/nsis/*$version*-setup.exe")
+$msi = @(Get-ChildItem "$releaseDir/bundle/msi/*$version*.msi")
+$sigs = @(Get-ChildItem "$releaseDir/bundle/nsis/*$version*-setup.exe.sig")
+$portableZips = @(Get-ChildItem "$releaseDir/portable/*$version*_windows-x64-portable.zip")
 $portableDir = Join-Path $releaseDir "portable/Ninety"
 $portableApp = Get-Item (Join-Path $portableDir "Ninety.exe")
 
@@ -54,9 +54,11 @@ foreach ($name in $portableFiles) {
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [System.IO.Compression.ZipFile]::OpenRead($portableZips[0].FullName)
 try {
-  $entries = @($archive.Entries | ForEach-Object FullName)
+  $entries = @($archive.Entries | ForEach-Object {
+    $_.FullName.Replace([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+  })
   foreach ($name in $portableFiles) {
-    $entry = "Ninety/$($name.Replace('\\', '/'))"
+    $entry = "Ninety/$name"
     Assert-Release ($entries -contains $entry) "в Portable ZIP отсутствует $entry"
   }
 } finally {
@@ -145,7 +147,10 @@ function Get-InstallManifest([string]$Root) {
     Get-ChildItem -LiteralPath $Root -File -Recurse |
       Sort-Object FullName |
       ForEach-Object {
-        $relative = [IO.Path]::GetRelativePath($Root, $_.FullName).Replace('\\', '/')
+        $relative = [IO.Path]::GetRelativePath($Root, $_.FullName).Replace(
+          [IO.Path]::DirectorySeparatorChar,
+          [IO.Path]::AltDirectorySeparatorChar
+        )
         "$relative|$($_.Length)|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)"
       }
   )
