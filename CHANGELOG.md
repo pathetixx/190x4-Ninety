@@ -2,6 +2,18 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.48 — 2026-08-02
+
+## Русский
+
+- Исправлены красные CI-проверки безопасности: обновлены уязвимые зависимости Xray и Hiddify, а Go-аудит теперь сканирует фактически собираемые release entrypoint’ы.
+- Синхронизированы security-gates и Windows release-сборка; политика cargo-deny обновлена под текущую версию инструмента.
+
+## English
+
+- Fixed red CI security checks by updating vulnerable Xray and Hiddify dependencies; Go auditing now scans the actual release entrypoints.
+- Synchronized security gates with the Windows release build and updated the cargo-deny policy for the current tool version.
+
 ## v0.2.47 — 2026-08-02
 
 ## Русский
