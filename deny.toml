@@ -1,7 +1,8 @@
 # cargo-deny policy for the Rust client. Advisory failures and unknown sources
 # are hard failures. cargo-deny 0.19 removed the old warn/deny switches for
-# vulnerability, unsound and notice advisories; those advisories now fail by
-# default. Unmaintained crates fail only when directly used by this workspace.
+# vulnerability, unsound and notice advisories, as well as the old license
+# category switches; those checks now fail unless explicitly allowed. Unmaintained
+# crates fail only when directly used by this workspace.
 
 [advisories]
 unmaintained = "workspace"
@@ -9,8 +10,6 @@ yanked = "deny"
 
 [licenses]
 confidence-threshold = 0.8
-unlicensed = "deny"
-copyleft = "deny"
 allow = [
   "0BSD",
   "Apache-2.0",
