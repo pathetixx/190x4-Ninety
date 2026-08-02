@@ -490,16 +490,23 @@ impl DataplaneHealthState {
         let failure_count = inner
             .probe_window
             .iter()
-            .filter(|sample| !sample.success)
+            .filter(|sample| {
+                !sample.success && sample.reason.as_deref() != Some("probe_monitor_error")
+            })
             .count();
-        if inner.consecutive_successes >= 2 {
+        // Одна реальная передача данных уже доказывает liveness. Для fail-closed
+        // решения, наоборот, требуем всё полное окно: два кратких сбоя внешних
+        // endpoint'ов не должны ронять рабочий VPN через 15–20 секунд.
+        if inner.consecutive_successes >= 1 {
             inner.dataplane_state = "healthy".into();
             inner.reason = None;
             inner.frontend_handoff_since = None;
             if inner.native_recovery_state == "handoff" {
                 inner.native_recovery_state = "idle".into();
             }
-        } else if failure_count >= 2 {
+        } else if inner.consecutive_failures >= PROBE_WINDOW_SIZE as u32
+            && failure_count == PROBE_WINDOW_SIZE
+        {
             inner.dataplane_state = "failed".into();
             inner.reason = reason.map(str::to_owned);
         } else {
@@ -584,10 +591,12 @@ impl DataplaneHealthState {
             .iter()
             .filter(|sample| !sample.success)
             .count();
-        if inner.consecutive_successes >= 2 {
+        if inner.consecutive_successes >= 1 {
             inner.dataplane_state = "unmonitoredPrivacyMode".into();
             inner.reason = None;
-        } else if failure_count >= 2 {
+        } else if inner.consecutive_failures >= PROBE_WINDOW_SIZE as u32
+            && failure_count == PROBE_WINDOW_SIZE
+        {
             inner.dataplane_state = "failed".into();
             inner.reason = reason.map(str::to_owned);
         } else {
@@ -992,6 +1001,7 @@ pub fn start_dataplane_watchdog(
     probe_port: Option<u16>,
     strict_privacy: bool,
     preserve_recovery_budget: bool,
+    logs_disabled: bool,
 ) {
     generation_token.store(generation, Ordering::SeqCst);
     health.reset_active_for_runtime(generation, strict_privacy, preserve_recovery_budget);
@@ -1020,9 +1030,24 @@ pub fn start_dataplane_watchdog(
         }
     });
 
+    if !logs_disabled {
+        crate::vpn::append_runtime_diagnostic(
+            &app,
+            &format!(
+                "monitoring: dataplane watchdog started generation={generation} mode={}",
+                if strict_privacy {
+                    "privacy_passive"
+                } else {
+                    "active"
+                }
+            ),
+        );
+    }
+
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(INITIAL_DELAY).await;
         let mut next = Instant::now();
+        let mut logged_state = String::from("unknown");
 
         loop {
             if generation_token.load(Ordering::SeqCst) != generation {
@@ -1095,29 +1120,51 @@ pub fn start_dataplane_watchdog(
                         resources,
                         scheduler_lateness,
                     ),
+                    // HTTP-ответ с ошибочным статусом всё равно доказывает, что
+                    // DNS/TCP/TLS и маршрут через активный outbound работают.
+                    // Это отказ конкретного сервиса, а не мёртвый VPN.
+                    Ok(Ok(result))
+                        if result
+                            .error
+                            .as_deref()
+                            .is_some_and(|error| error.starts_with("HTTP")) =>
+                    {
+                        health.record_probe(
+                            generation,
+                            true,
+                            Some("probe_endpoint_rejected"),
+                            result.ms,
+                            result.bytes,
+                            resources,
+                            scheduler_lateness,
+                        )
+                    }
                     Ok(Ok(result)) => health.record_probe(
                         generation,
                         false,
-                        Some(
-                            if result
-                                .error
-                                .as_deref()
-                                .is_some_and(|error| error.starts_with("HTTP"))
-                            {
-                                "probe_endpoint_failed"
-                            } else {
-                                "active_outbound_failed"
-                            },
-                        ),
+                        Some("active_outbound_failed"),
                         result.ms,
                         result.bytes,
                         resources,
                         scheduler_lateness,
                     ),
-                    Ok(Err(_)) | Err(_) => health.record_probe(
+                    // Ошибка сборки локального probe-клиента не является
+                    // доказательством обрыва пользовательского dataplane.
+                    Ok(Err(_)) => health.record_probe(
                         generation,
                         false,
-                        Some("probe_endpoint_failed"),
+                        Some("probe_monitor_error"),
+                        started.elapsed().as_millis() as u64,
+                        0,
+                        resources,
+                        scheduler_lateness,
+                    ),
+                    // Полный timeout обоих endpoint'ов — уже сигнал маршрута,
+                    // но terminal решение всё равно потребует три подряд.
+                    Err(_) => health.record_probe(
+                        generation,
+                        false,
+                        Some("active_outbound_timeout"),
                         started.elapsed().as_millis() as u64,
                         0,
                         resources,
@@ -1128,17 +1175,57 @@ pub fn start_dataplane_watchdog(
             publish(&app, &health);
 
             let snapshot = health.snapshot();
+            if !logs_disabled && snapshot.dataplane_state != logged_state {
+                crate::vpn::append_runtime_diagnostic(
+                    &app,
+                    &format!(
+                        "monitoring: dataplane generation={} state={} reason={} failures={} successes={} probe_ms={}",
+                        snapshot.generation,
+                        snapshot.dataplane_state,
+                        snapshot.reason.as_deref().unwrap_or("none"),
+                        snapshot.consecutive_failures,
+                        snapshot.consecutive_successes,
+                        snapshot.last_probe_ms,
+                    ),
+                );
+                logged_state = snapshot.dataplane_state.clone();
+            }
             let failed = snapshot.dataplane_state == "failed";
             if failed {
                 match health.recovery_decision(Instant::now()) {
                     RecoveryDecision::Allowed => {
+                        if !logs_disabled {
+                            crate::vpn::append_runtime_diagnostic(
+                                &app,
+                                &format!(
+                                    "monitoring: dataplane generation={generation} action=native_same_config_restart reason={}",
+                                    snapshot.reason.as_deref().unwrap_or("unknown")
+                                ),
+                            );
+                        }
                         publish(&app, &health);
                         let recovered =
                             crate::vpn::native_recover_current_runtime(&app, generation).await;
                         if recovered {
+                            if !logs_disabled {
+                                crate::vpn::append_runtime_diagnostic(
+                                    &app,
+                                    &format!(
+                                        "monitoring: dataplane generation={generation} recovery=started_new_generation"
+                                    ),
+                                );
+                            }
                             // A successful same-config restart starts a new
                             // monitor generation. The old coordinator exits.
                             break;
+                        }
+                        if !logs_disabled {
+                            crate::vpn::append_runtime_diagnostic(
+                                &app,
+                                &format!(
+                                    "monitoring: dataplane generation={generation} recovery=failed handoff=frontend"
+                                ),
+                            );
                         }
                         health.native_recovery_failed(generation, "native_recovery_failed");
                         publish(&app, &health);
@@ -1221,35 +1308,52 @@ mod tests {
     }
 
     #[test]
-    fn rolling_window_marks_fsf_failed_and_two_successes_healthy() {
+    fn rolling_window_requires_three_consecutive_failures_and_one_success_recovers() {
         let health = DataplaneHealthState::default();
         health.reset_active_for_runtime(42, false, false);
         sample(&health, 42, false);
         sample(&health, 42, true);
         sample(&health, 42, false);
+        assert_eq!(health.snapshot().dataplane_state, "suspect");
+        sample(&health, 42, false);
+        sample(&health, 42, false);
         assert_eq!(health.snapshot().dataplane_state, "failed");
-        sample(&health, 42, true);
         sample(&health, 42, true);
         assert_eq!(health.snapshot().dataplane_state, "healthy");
         assert_eq!(health.snapshot().probe_window.len(), PROBE_WINDOW_SIZE);
     }
 
     #[test]
-    fn rolling_window_requires_consecutive_successes_for_healthy() {
+    fn one_success_is_enough_to_confirm_liveness() {
         let health = DataplaneHealthState::default();
         health.reset_active_for_runtime(42, false, false);
         sample(&health, 42, true);
-        sample(&health, 42, false);
-        sample(&health, 42, true);
-        assert_eq!(health.snapshot().dataplane_state, "suspect");
-        sample(&health, 42, true);
         assert_eq!(health.snapshot().dataplane_state, "healthy");
+    }
+
+    #[test]
+    fn monitor_errors_never_become_dataplane_failure() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        for _ in 0..4 {
+            health.record_probe(
+                42,
+                false,
+                Some("probe_monitor_error"),
+                10,
+                0,
+                ResourceSample::default(),
+                0,
+            );
+        }
+        assert_eq!(health.snapshot().dataplane_state, "suspect");
     }
 
     #[test]
     fn pressure_does_not_erase_dataplane_failure() {
         let health = DataplaneHealthState::default();
         health.reset_active_for_runtime(42, false, false);
+        sample(&health, 42, false);
         sample(&health, 42, false);
         sample(&health, 42, false);
         {
@@ -1324,6 +1428,15 @@ mod tests {
             ResourceSample::default(),
             0,
         );
+        assert_eq!(health.snapshot().dataplane_state, "suspect");
+        health.record_passive(
+            42,
+            false,
+            Some("control_api_unreachable"),
+            12,
+            ResourceSample::default(),
+            0,
+        );
         let failed = health.snapshot();
         assert_eq!(failed.dataplane_state, "failed");
         assert_eq!(failed.reason.as_deref(), Some("control_api_unreachable"));
@@ -1342,6 +1455,7 @@ mod tests {
     fn one_native_restart_hands_off_before_terminal_cleanup() {
         let health = DataplaneHealthState::default();
         health.reset_active_for_runtime(42, false, false);
+        sample(&health, 42, false);
         sample(&health, 42, false);
         sample(&health, 42, false);
         assert_eq!(

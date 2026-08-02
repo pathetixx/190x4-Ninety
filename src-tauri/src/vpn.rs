@@ -559,6 +559,27 @@ fn log_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("singbox.log"))
 }
 
+// Короткие безопасные lifecycle-записи из health controller должны попадать в
+// тот же журнал, который пользователь видит в UI. Здесь нет URL, IP, конфигов
+// или имён нод — только поколение, состояние и фиксированный reason-code.
+pub(crate) fn append_runtime_diagnostic(app: &AppHandle, line: &str) {
+    let Some(path) = log_path(app) else {
+        return;
+    };
+    let bounded: String = line
+        .chars()
+        .filter(|c| !c.is_control() || *c == '\t')
+        .take(512)
+        .collect();
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{bounded}");
+    }
+}
+
 fn xray_config_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = crate::app_paths::config_dir(app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
@@ -1481,6 +1502,7 @@ async fn start_singbox_inner(
             probe_port,
             strict_privacy,
             preserve_recovery_budget,
+            logs_disabled,
         );
     } else {
         health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);

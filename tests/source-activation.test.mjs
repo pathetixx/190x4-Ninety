@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyActiveSourceTransaction } from "/lib/source-activation.js";
+import {
+  applyActiveSourceTransaction,
+  createSourceSwitchController,
+} from "/lib/source-activation.js";
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
 
 function harness(initialState) {
@@ -101,4 +104,79 @@ test("standalone после подписки всегда получает яв�
     { reconnect: true, silent: true },
   );
   assert.deepEqual(h.calls.slice(0, 2), [["profile", "profile-new"], ["kind", "single"]]);
+});
+
+test("нерабочий профиль откатывается на последний подтверждённый источник", async () => {
+  let active = { kind: "sub", id: "A" };
+  const applied = [];
+  const phases = [];
+  let persisted = null;
+  let rollbackNotified = 0;
+  const controller = createSourceSwitchController({
+    getActiveSource: () => active,
+    applySource: (source) => { active = source; applied.push(source.id); },
+    reconnect: async (_reason, context) => {
+      phases.push(context.phase);
+      return context.phase === "rollback";
+    },
+    confirm: async () => false,
+    canContinue: () => true,
+    persist: async (source) => { persisted = source.id; },
+    onRollback: () => { rollbackNotified++; },
+  });
+
+  const result = await controller.activate({ kind: "sub", id: "B" }, {
+    reason: "switch",
+    rollbackReason: "restore",
+  });
+
+  assert.deepEqual(applied, ["B", "A"]);
+  assert.deepEqual(phases, ["target", "rollback"]);
+  assert.deepEqual(active, { kind: "sub", id: "A" });
+  assert.equal(persisted, "A");
+  assert.equal(result.restored, true);
+  assert.equal(rollbackNotified, 1);
+});
+
+test("быстрое B → C не позволяет позднему B откатить подтверждённый C", async () => {
+  let resolveB;
+  const b = new Promise((resolve) => { resolveB = resolve; });
+  let active = { kind: "sub", id: "A" };
+  const applied = [];
+  const controller = createSourceSwitchController({
+    getActiveSource: () => active,
+    applySource: (source) => { active = source; applied.push(source.id); },
+    reconnect: async (_reason, { target }) => target.id === "B" ? b : true,
+    confirm: async (target) => target.id === "C",
+    canContinue: () => true,
+  });
+
+  const switchingB = controller.activate({ kind: "sub", id: "B" });
+  const switchingC = controller.activate({ kind: "sub", id: "C" });
+  const cResult = await switchingC;
+  resolveB(false);
+  const bResult = await switchingB;
+
+  assert.equal(cResult.ready, true);
+  assert.equal(bResult.stale, true);
+  assert.deepEqual(active, { kind: "sub", id: "C" });
+  assert.deepEqual(applied, ["B", "C"]);
+});
+
+test("ручное отключение во время проверки сохраняет выбранный профиль без автозапуска", async () => {
+  let active = { kind: "single", id: "A" };
+  let desired = true;
+  let reconnects = 0;
+  const controller = createSourceSwitchController({
+    getActiveSource: () => active,
+    applySource: (source) => { active = source; },
+    reconnect: async () => { reconnects++; desired = false; return true; },
+    confirm: async () => false,
+    canContinue: () => desired,
+  });
+
+  const result = await controller.activate({ kind: "single", id: "B" });
+  assert.equal(result.cancelled, true);
+  assert.equal(reconnects, 1);
+  assert.deepEqual(active, { kind: "single", id: "B" });
 });

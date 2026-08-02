@@ -41,6 +41,50 @@ test("reconnect A → reconnect B: latest request starts after A", async () => {
   assert.equal(queue.hasPending(), false);
 });
 
+test("каждый queued reconnect получает результат именно своего запуска", async () => {
+  const a = deferred();
+  const b = deferred();
+  const calls = [];
+  const queue = createLatestWinsReconnectQueue({
+    run: async ({ id }) => {
+      calls.push(id);
+      return id === "A" ? a.promise : b.promise;
+    },
+  });
+
+  const resultA = queue.enqueue({ id: "A" });
+  const resultB = queue.enqueue({ id: "B" });
+  a.resolve(true);
+  assert.equal(await resultA, true);
+  await flush();
+  assert.deepEqual(calls, ["A", "B"]);
+  b.resolve(false);
+  assert.equal(await resultB, false);
+});
+
+test("заменённый pending reconnect завершается false и не наследует результат in-flight", async () => {
+  const a = deferred();
+  const c = deferred();
+  const calls = [];
+  const queue = createLatestWinsReconnectQueue({
+    run: async ({ id }) => {
+      calls.push(id);
+      return id === "A" ? a.promise : c.promise;
+    },
+  });
+
+  const resultA = queue.enqueue({ id: "A" });
+  const resultB = queue.enqueue({ id: "B" });
+  const resultC = queue.enqueue({ id: "C" });
+  assert.equal(await resultB, false);
+  a.resolve(true);
+  assert.equal(await resultA, true);
+  await flush();
+  assert.deepEqual(calls, ["A", "C"]);
+  c.resolve(true);
+  assert.equal(await resultC, true);
+});
+
 test("reconnect A → user disconnect: pending request is cancelled by idle epoch", async () => {
   const arbiter = createNetworkIntentArbiter("idle");
   const a = deferred();

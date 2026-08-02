@@ -7,30 +7,47 @@ export function createLatestWinsReconnectQueue({ run, canRun = () => true } = {}
   let inFlight = null;
   let pending = null;
 
-  function start(request) {
-    const current = Promise.resolve().then(() => run(request));
-    inFlight = current;
-    void current.then(finalize, finalize);
-    return current;
+  function entry(request) {
+    let resolve;
+    const completion = new Promise((done) => { resolve = done; });
+    return { request, completion, resolve };
   }
 
-  function finalize() {
-    if (!inFlight) return;
+  function start(next) {
+    const execution = Promise.resolve().then(() => run(next.request));
+    const active = { entry: next, execution };
+    inFlight = active;
+    void execution.then(
+      (value) => { next.resolve(value); finalize(active); },
+      () => { next.resolve(false); finalize(active); },
+    );
+    return next.completion;
+  }
+
+  function finalize(active) {
+    if (inFlight !== active) return;
     inFlight = null;
     const next = pending;
     pending = null;
-    if (next && canRun(next)) void start(next);
+    if (!next) return;
+    if (canRun(next.request)) void start(next);
+    else next.resolve(false);
   }
 
   function enqueue(request) {
+    const next = entry(request);
     if (inFlight) {
-      pending = request;
-      return inFlight.catch(() => {});
+      // Заменённый pending-запрос никогда не будет выполнен и обязан завершить
+      // именно свой Promise, а не ждать/наследовать результат текущего запуска.
+      pending?.resolve(false);
+      pending = next;
+      return next.completion;
     }
-    return start(request);
+    return start(next);
   }
 
   function cancel() {
+    pending?.resolve(false);
     pending = null;
   }
 

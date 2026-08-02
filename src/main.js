@@ -38,7 +38,11 @@ import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, nodesFromSource, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView, resetProxiesViewForSourceChange, snapshotMatchesSource } from "/lib/proxies-view.js";
-import { applyActiveSourceTransaction } from "/lib/source-activation.js";
+import {
+  applyActiveSourceTransaction,
+  createSourceSwitchController,
+  sameSourceRef,
+} from "/lib/source-activation.js";
 import { mountDpiView, prepareDpiVpnMode, setDpiVpnMode, excludeVpnNode, clearVpnNodeExclusion, autostartDpiIfEnabled, rerenderDpiView, onDpiViewEnter } from "/lib/dpi-view.js";
 import { mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
 import { initTray, syncTrayMenu } from "/lib/tray.js";
@@ -1003,6 +1007,14 @@ async function performAutoReconnectOnce(reason, epoch) {
   try {
     pendingReconnectTimer = null;
     if (!needsReconnect || !isCurrentNetworkIntent(epoch, "connected")) return false;
+    // Более новый source intent мог прийти, пока предыдущий reconnect уже был в
+    // disconnecting. После его подтверждённого stop очередь просыпается в idle —
+    // это штатная точка старта latest-профиля, а не причина потерять запрос.
+    if (state === "idle") {
+      needsReconnect = false;
+      applyReconnectUI();
+      return (await connectNetwork({ epoch })) === true;
+    }
     if (state !== "connected" && state !== "connecting") return false;
     connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
     reconnectToastId = toast(reason, "info", 0, { group: "conn", connecting: true });
@@ -1398,7 +1410,7 @@ function applyReconnectUI() {
 // idle (сбросит currentEffectiveNode) → buildConfig читает свежий getActiveSource()
 // → AUTO-селектор по новым нодам, они пингуются URLTest'ом.
 function beginSourceReconnect(reason) {
-  if (state !== "connected" && state !== "connecting") return false;
+  if (state !== "connected" && state !== "connecting" && state !== "disconnecting") return false;
   const epoch = beginNetworkIntent("connected");
   needsReconnect = true;
   if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
@@ -1429,14 +1441,17 @@ async function reconnectForQualityRemediation(reason) {
 // активным», И из клика по телу карточки — раньше реконнект был только в pmenu,
 // поэтому клик по карточке менял активный источник, а VPN оставался на старом
 // конфиге. При поднятом VPN и реальной смене источника — немедленный реконнект.
-function applyActiveSource(kind, id, options = {}) {
+let sourceSwitchController = null;
+
+function activeSourceRef() {
+  const kind = getActiveKind() === "sub" ? "sub" : "single";
+  const id = kind === "sub" ? getActiveSubscriptionId() : getActiveProfileId();
+  return id ? { kind, id } : null;
+}
+
+function commitActiveSource(kind, id) {
   const isSub = kind === "sub";
-  const wasActive = isSub
-    ? (getActiveKind() === "sub" && getActiveSubscriptionId() === id)
-    : (getActiveKind() === "single" && getActiveProfileId() === id);
-  const reason = options.reason || (isSub ? t("conn.switchSub") : t("conn.switchProfile"));
-  if (wasActive) return { kind, id, state, reconnected: false };
-  const result = applyActiveSourceTransaction({ kind, id }, {
+  return applyActiveSourceTransaction({ kind, id }, {
     setActiveKind,
     setActiveProfileId,
     setActiveSubscriptionId,
@@ -1451,17 +1466,63 @@ function applyActiveSource(kind, id, options = {}) {
     refreshProfiles: refreshProfilesSummary,
     syncTray: syncTrayMenu,
     getState: () => state,
-    reconnectForSourceChange: (why) => wasActive ? false : reconnectForSourceChange(why),
-    notifyActivated: (activeKind) => toast(
-      activeKind === "sub" ? t("conn.subActivated") : t("conn.profileActivated"),
-      "success",
-      1800,
-    ),
-  }, { ...options, reason });
-  // Активный профиль/подписка должны переживать и восстановление WebView2 из
-  // дискового снапшота, а не только обычный перезапуск localStorage.
-  void backupNow();
-  return result;
+    reconnectForSourceChange: () => false,
+  }, { reconnect: false, silent: true });
+}
+
+async function confirmActiveSourceDataplane(target, { isCurrent }) {
+  const deadline = Date.now() + 45_000;
+  while (Date.now() < deadline && isCurrent() && sameSourceRef(activeSourceRef(), target)) {
+    if (networkIntent.desired() !== "connected") return false;
+    let snapshot;
+    try { snapshot = await invoke("health_snapshot"); }
+    catch { snapshot = null; }
+    if (!isCurrent() || !sameSourceRef(activeSourceRef(), target)) return false;
+    if (!snapshot?.singbox_running || state !== "connected") return false;
+    const dataplane = snapshot.dataplane;
+    const dataplaneState = dataplane?.dataplaneState || dataplane?.state;
+    // Не у каждого режима есть активный probe-inbound. Локальная readiness уже
+    // подтверждена connectNetwork, поэтому inactive здесь — валидный runtime.
+    if (!dataplane || dataplaneState === "inactive"
+      || dataplaneState === "healthy" || dataplaneState === "unmonitoredPrivacyMode") {
+      return true;
+    }
+    if (dataplaneState === "failed") return false;
+    await new Promise(resolve => setTimeout(resolve, 750));
+  }
+  return false;
+}
+
+async function reconnectCommittedSource(reason) {
+  if (networkIntent.desired() !== "connected") return false;
+  if (state === "connected" || state === "connecting" || state === "disconnecting") {
+    const request = beginSourceReconnect(reason);
+    return request ? (await request.completion) === true : false;
+  }
+  if (state !== "idle") return false;
+  const epoch = beginNetworkIntent("connected");
+  const toastId = toast(reason || t("conn.applyingSettings"), "info", 0, {
+    group: "conn",
+    connecting: true,
+  });
+  try { return (await connectNetwork({ epoch })) === true; }
+  finally { if (toastId) toast.dismiss(toastId); }
+}
+
+function applyActiveSource(kind, id, options = {}) {
+  const target = { kind: kind === "sub" ? "sub" : "single", id };
+  if (sameSourceRef(activeSourceRef(), target)) {
+    return Promise.resolve({ changed: false, ready: true, target });
+  }
+  const shouldReconnect = options.reconnect !== false
+    && networkIntent.desired() === "connected";
+  const isSub = target.kind === "sub";
+  return sourceSwitchController.activate(target, {
+    reconnect: shouldReconnect,
+    silent: !!options.silent,
+    reason: options.reason || (isSub ? t("conn.switchSub") : t("conn.switchProfile")),
+    rollbackReason: t("conn.restorePrevious"),
+  });
 }
 
 function activateSource(kind, id) {
@@ -1484,6 +1545,32 @@ const runtimeIdentity = createRuntimeIdentityController({
 });
 configureClashRuntime(runtimeIdentity);
 configureTrafficRuntime(runtimeIdentity);
+
+sourceSwitchController = createSourceSwitchController({
+  getActiveSource: activeSourceRef,
+  applySource: (source) => commitActiveSource(source.kind, source.id),
+  reconnect: reconnectCommittedSource,
+  confirm: confirmActiveSourceDataplane,
+  canContinue: () => networkIntent.desired() === "connected",
+  persist: () => backupNow(),
+  onActivated: (source, options) => {
+    if (!options?.silent && options?.reconnect === false) {
+      toast(source.kind === "sub" ? t("conn.subActivated") : t("conn.profileActivated"), "success", 1800);
+    }
+  },
+  onRollback: () => toast(t("conn.previousRestored"), "warn", 6500, {
+    group: "conn",
+    desc: t("conn.previousRestoredDesc"),
+  }),
+  onRollbackFailed: () => {
+    toast(t("conn.restoreFailed"), "error", 7500, { group: "conn", desc: t("conn.restoreFailedDesc") });
+    switchView("logs");
+  },
+  onFailure: () => {
+    toast(t("conn.switchFailed"), "error", 6000, { group: "conn", desc: t("conn.switchFailedDesc") });
+    switchView("logs");
+  },
+});
 
 const sourceMutations = createSourceMutationController({
   getActiveSource,
