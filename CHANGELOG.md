@@ -2,6 +2,22 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.50 — 2026-08-02
+
+## English
+
+- Improved VPN source switching: readiness checks now use the control API only for control traffic and a dedicated dataplane endpoint for connectivity probes, preventing a healthy new connection from being mistaken for a failure and rolled back.
+- Bound health and quality checks to the active runtime generation, so stale probes cannot affect a newer connection; recovery and reconnection now behave more predictably.
+- Enabled process lookup by default so application-specific routing works out of the box, while preserving an explicit opt-out.
+- Improved update delivery during brief mirror failures by retrying transient transfer errors.
+
+## Русский
+
+- Улучшено переключение VPN-источников: проверки готовности используют Clash API только для управления, а отдельную точку dataplane — для проверки соединения; здоровое новое подключение больше не ошибочно считается сломанным и не откатывается.
+- Проверки здоровья и качества привязаны к текущему поколению runtime, поэтому устаревшая проба не влияет на новое подключение; восстановление и реконнекты стали предсказуемее.
+- Поиск процессов включён по умолчанию, поэтому маршрутизация по приложениям работает сразу; явное отключение сохранено.
+- Доставка обновлений стала устойчивее к кратковременным сбоям зеркала.
+
 ## v0.2.49 — 2026-08-02
 
 ## Русский
