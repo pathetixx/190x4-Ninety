@@ -68,6 +68,7 @@ export function createQualityEngine({
   let badStreak = 0;
   let goodStreak = 0;
   let lastProbeAt = 0;
+  let nextEligibleProbeAt = 0;
   let lastLadderAt = 0;
   let reconnectTimes = [];      // timestamps реконнектов для часового капа
   let reconnectHandoff = false; // R3/R4 ждёт новую VPN-сессию
@@ -165,6 +166,7 @@ export function createQualityEngine({
     if (!sessionActive(epoch) || !cfg.enabled || hostPressure || emergencyLocked
       || reconnectHandoff || remediatingEpoch === epoch || probingEpoch === epoch) return;
     const timestamp = now();
+    if (timestamp < nextEligibleProbeAt) return;
 
     const { peak, last } = passiveView();
     // Подозрение: в окне была активность (юзер качал), а сейчас поток схлопнулся
@@ -401,6 +403,7 @@ export function createQualityEngine({
     // Health-watchdog вызывает это только на переходе в healthy. Следующий tick
     // выполнит одну полноценную пробу немедленно, но обычный min-gap и single-
     // flight продолжат защищать от параллельных запросов.
+    nextEligibleProbeAt = now() + 2_000;
     lastProbeAt = now() - Math.max(cfg.idleProbeSec * 1000, PROBE_MIN_GAP_MS);
     return true;
   }

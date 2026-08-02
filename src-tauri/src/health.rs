@@ -16,18 +16,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::quality;
+use crate::runtime_ops::{DataplaneProbeKind, ProbeAcquireError};
 use crate::util::MutexExt;
 
 const INITIAL_DELAY: Duration = Duration::from_secs(4);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(10);
 const PRESSURE_INTERVAL: Duration = Duration::from_secs(15);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
-const HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(6);
-const CONTROL_API_TIMEOUT: Duration = Duration::from_millis(1_200);
-const PRESSURE_RECOVERY_WAIT: Duration = Duration::from_secs(20);
 const NATIVE_RECOVERY_WINDOW: Duration = Duration::from_secs(15 * 60);
 // Один быстрый same-config restart полезен при зависшем userspace datapath.
 // Повторять тот же конфиг на той же мёртвой ноде бессмысленно: после первой
@@ -52,6 +50,8 @@ const PRESSURE_AVAILABLE_COMMIT_BYTES: u64 = 512 * 1024 * 1024;
 const PRESSURE_AVAILABLE_COMMIT_EXIT_BYTES: u64 = 1024 * 1024 * 1024;
 const PRESSURE_SCHEDULER_MS: u64 = 1_500;
 const PRESSURE_SCHEDULER_EXIT_MS: u64 = 500;
+const PRESSURE_CPU_LOAD_PERCENT: u32 = 95;
+const PRESSURE_CPU_LOAD_EXIT_PERCENT: u32 = 85;
 const PRESSURE_EXIT_SAMPLES: u8 = 3;
 
 const HEALTH_EVENT: &str = "ninety:dataplane-health";
@@ -159,6 +159,34 @@ struct ResourceSample {
     cpu_load_percent: Option<u32>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CpuCounters {
+    idle: u64,
+    kernel: u64,
+    user: u64,
+}
+
+/// Pure delta calculation used by the Windows sampler and unit tests.  Kernel
+/// time includes idle time, so busy is `kernel + user - idle`.  Invalid or
+/// wrapped counters intentionally yield no sample rather than manufacturing a
+/// pressure signal.
+fn cpu_load_from_deltas(previous: CpuCounters, current: CpuCounters) -> Option<u32> {
+    let idle = current.idle.checked_sub(previous.idle)?;
+    let kernel = current.kernel.checked_sub(previous.kernel)?;
+    let user = current.user.checked_sub(previous.user)?;
+    let total = kernel.checked_add(user)?;
+    if total == 0 || idle > total {
+        return None;
+    }
+    let busy = total - idle;
+    Some(
+        busy.saturating_mul(100)
+            .checked_div(total)
+            .unwrap_or(0)
+            .min(100) as u32,
+    )
+}
+
 impl ResourceSample {
     fn pressure_entered(self, scheduler_lateness_ms: u64) -> bool {
         self.memory_load_percent
@@ -169,6 +197,9 @@ impl ResourceSample {
             || self
                 .available_commit_bytes
                 .is_some_and(|value| value <= PRESSURE_AVAILABLE_COMMIT_BYTES)
+            || self
+                .cpu_load_percent
+                .is_some_and(|value| value >= PRESSURE_CPU_LOAD_PERCENT)
             || scheduler_lateness_ms >= PRESSURE_SCHEDULER_MS
     }
 
@@ -181,6 +212,9 @@ impl ResourceSample {
             && self
                 .available_commit_bytes
                 .is_none_or(|value| value >= PRESSURE_AVAILABLE_COMMIT_EXIT_BYTES)
+            && self
+                .cpu_load_percent
+                .is_none_or(|value| value <= PRESSURE_CPU_LOAD_EXIT_PERCENT)
             && scheduler_lateness_ms <= PRESSURE_SCHEDULER_EXIT_MS
     }
 }
@@ -306,6 +340,21 @@ impl DataplaneHealthState {
         } else {
             VecDeque::new()
         };
+        // A hard same-config restart does not make the host less pressured.
+        // Carry the signal and evidence to the new generation, but require a
+        // new three-sample clean hysteresis before external probes resume.
+        let inherited_pressure = preserve_recovery_budget && inner.host_pressure;
+        let inherited_pressure_since = inherited_pressure.then_some(inner.pressure_since).flatten();
+        let inherited_pressure_reason = if inherited_pressure {
+            inner.pressure_reason.clone()
+        } else {
+            None
+        };
+        let inherited_resources = if inherited_pressure {
+            inner.resources
+        } else {
+            ResourceSample::default()
+        };
         let passive = strict_privacy;
         *inner = HealthInner {
             state: if passive {
@@ -328,6 +377,11 @@ impl DataplaneHealthState {
             native_recovery_owner: "native".into(),
             native_recovery_attempts: old_attempts,
             native_recovery_times: old_times,
+            host_pressure: inherited_pressure,
+            pressure_since: inherited_pressure_since,
+            pressure_reason: inherited_pressure_reason,
+            resources: inherited_resources,
+            pressure_exit_samples: 0,
             ..HealthInner::default()
         };
     }
@@ -418,7 +472,7 @@ impl DataplaneHealthState {
             return;
         }
         let pressure_was_active = inner.host_pressure;
-        update_pressure(&mut inner, resources, scheduler);
+        let transition = update_pressure(&mut inner, resources, scheduler);
         inner.scheduler_lateness_ms = scheduler;
         inner.resources = resources;
         if !pressure_was_active && inner.host_pressure {
@@ -429,6 +483,19 @@ impl DataplaneHealthState {
                 Some("host_resource_pressure"),
                 scheduler,
                 Some("pressure_entered"),
+                None,
+                None,
+            );
+        }
+        if matches!(transition, PressureTransition::Exited) {
+            clear_external_failure_window(&mut inner);
+            record_incident(
+                &mut inner,
+                generation,
+                "healthy",
+                Some("pressure_exited"),
+                scheduler,
+                Some("pressure_exited"),
                 None,
                 None,
             );
@@ -451,7 +518,7 @@ impl DataplaneHealthState {
             return;
         }
         let pressure_was_active = inner.host_pressure;
-        update_pressure(&mut inner, resources, scheduler);
+        let transition = update_pressure(&mut inner, resources, scheduler);
         inner.scheduler_lateness_ms = scheduler;
         inner.resources = resources;
         if !pressure_was_active && inner.host_pressure {
@@ -466,15 +533,60 @@ impl DataplaneHealthState {
                 None,
             );
         }
+        if matches!(transition, PressureTransition::Exited) {
+            clear_external_failure_window(&mut inner);
+            record_incident(
+                &mut inner,
+                generation,
+                "healthy",
+                Some("pressure_exited"),
+                scheduler,
+                Some("pressure_exited"),
+                None,
+                None,
+            );
+        }
+        // Suppressed and monitor-only outcomes are operational diagnostics, not
+        // dataplane evidence.  In particular they must never grow the rolling
+        // failure window while the host is overloaded.
+        let monitor_error = reason
+            .is_some_and(|value| value.starts_with("probe_monitor_error") || value == "probe_busy");
+        if inner.host_pressure && !success {
+            record_incident(
+                &mut inner,
+                generation,
+                "pressure",
+                Some("pressure_suppressed"),
+                scheduler,
+                Some("probe_skipped_pressure"),
+                None,
+                None,
+            );
+            inner.state = "pressure".into();
+            return;
+        }
         inner.last_probe_at = Some(Instant::now());
         inner.last_probe_ms = duration_ms;
         if success {
             inner.last_successful_probe_at = inner.last_probe_at;
             inner.consecutive_successes = inner.consecutive_successes.saturating_add(1);
             inner.consecutive_failures = 0;
-        } else {
+        } else if !monitor_error {
             inner.consecutive_failures = inner.consecutive_failures.saturating_add(1);
             inner.consecutive_successes = 0;
+        }
+        if monitor_error {
+            record_incident(
+                &mut inner,
+                generation,
+                "suspect",
+                reason,
+                scheduler,
+                Some("monitor_error"),
+                None,
+                None,
+            );
+            return;
         }
         if inner.probe_window.len() == PROBE_WINDOW_SIZE {
             inner.probe_window.pop_front();
@@ -549,7 +661,7 @@ impl DataplaneHealthState {
             return;
         }
         let pressure_was_active = inner.host_pressure;
-        update_pressure(&mut inner, resources, scheduler);
+        let transition = update_pressure(&mut inner, resources, scheduler);
         inner.scheduler_lateness_ms = scheduler;
         inner.resources = resources;
         if !pressure_was_active && inner.host_pressure {
@@ -563,6 +675,9 @@ impl DataplaneHealthState {
                 None,
                 None,
             );
+        }
+        if matches!(transition, PressureTransition::Exited) {
+            clear_external_failure_window(&mut inner);
         }
         inner.last_probe_at = Some(Instant::now());
         inner.last_probe_ms = duration_ms;
@@ -629,22 +744,81 @@ impl DataplaneHealthState {
         );
     }
 
+    fn record_confirmed_process_failure(
+        &self,
+        generation: u64,
+        reason: &'static str,
+        resources: ResourceSample,
+        scheduler: u64,
+    ) {
+        let mut inner = self.inner.lock_recover();
+        if inner.generation != generation {
+            return;
+        }
+        update_pressure(&mut inner, resources, scheduler);
+        inner.scheduler_lateness_ms = scheduler;
+        inner.resources = resources;
+        inner.last_probe_at = Some(Instant::now());
+        inner.last_probe_ms = 0;
+        inner.consecutive_successes = 0;
+        inner.consecutive_failures = PROBE_WINDOW_SIZE as u32;
+        inner.probe_window.clear();
+        inner.probe_window.push_back(ProbeSample {
+            at: Instant::now(),
+            success: false,
+            reason: Some(reason.into()),
+            duration_ms: 0,
+            bytes: 0,
+        });
+        inner.dataplane_state = "failed".into();
+        inner.state = "failed".into();
+        inner.reason = Some(reason.into());
+        record_incident(
+            &mut inner,
+            generation,
+            "failed",
+            Some(reason),
+            scheduler,
+            Some("confirmed_process_failure"),
+            None,
+            None,
+        );
+    }
+
+    fn record_probe_busy(&self, generation: u64, resources: ResourceSample, scheduler: u64) {
+        let mut inner = self.inner.lock_recover();
+        if inner.generation != generation {
+            return;
+        }
+        inner.scheduler_lateness_ms = scheduler;
+        inner.resources = resources;
+        let current_state = inner.state.clone();
+        record_incident(
+            &mut inner,
+            generation,
+            &current_state,
+            Some("probe_busy"),
+            scheduler,
+            Some("probe_busy"),
+            None,
+            None,
+        );
+    }
+
     fn recovery_decision(&self, now: Instant) -> RecoveryDecision {
         let mut inner = self.inner.lock_recover();
         prune_recovery_times(&mut inner, now);
         if inner.native_recovery_state == "recovering" {
             return RecoveryDecision::Busy;
         }
-        if inner.host_pressure {
-            if let Some(since) = inner.pressure_since {
-                if now.saturating_duration_since(since) < PRESSURE_RECOVERY_WAIT {
-                    inner.native_recovery_state = "pressure_wait".into();
-                    return RecoveryDecision::PressureWait;
-                }
-            } else {
-                inner.native_recovery_state = "pressure_wait".into();
-                return RecoveryDecision::PressureWait;
-            }
+        if inner.host_pressure
+            && !matches!(
+                inner.reason.as_deref(),
+                Some("process_dead") | Some("required_sidecar_dead")
+            )
+        {
+            inner.native_recovery_state = "pressure_wait".into();
+            return RecoveryDecision::PressureWait;
         }
         if inner.native_recovery_times.len() >= NATIVE_RECOVERY_MAX {
             let since = *inner.frontend_handoff_since.get_or_insert(now);
@@ -671,10 +845,22 @@ impl DataplaneHealthState {
             inner.native_recovery_state = "exhausted".into();
             return RecoveryDecision::Exhausted;
         }
+        RecoveryDecision::Allowed
+    }
+
+    pub(crate) fn native_recovery_started(&self, generation: u64) -> bool {
+        let mut inner = self.inner.lock_recover();
+        if inner.generation != generation || inner.native_recovery_state == "recovering" {
+            return false;
+        }
+        let now = Instant::now();
+        prune_recovery_times(&mut inner, now);
+        if inner.native_recovery_times.len() >= NATIVE_RECOVERY_MAX {
+            return false;
+        }
         inner.native_recovery_times.push_back(now);
         inner.native_recovery_attempts = inner.native_recovery_attempts.saturating_add(1);
         inner.native_recovery_state = "recovering".into();
-        let generation = inner.generation;
         let incident_reason = inner.reason.clone();
         let scheduler_lateness = inner.scheduler_lateness_ms;
         record_incident(
@@ -685,9 +871,9 @@ impl DataplaneHealthState {
             scheduler_lateness,
             None,
             Some("native_same_config_restart"),
-            Some("started"),
+            Some("physically_started"),
         );
-        RecoveryDecision::Allowed
+        true
     }
 
     fn terminal_cleanup_decision(&self, now: Instant) -> TerminalCleanupDecision {
@@ -710,6 +896,29 @@ impl DataplaneHealthState {
             }
         }
 
+        inner.native_recovery_state = "terminal_cleanup_pending".into();
+        TerminalCleanupDecision::Allowed
+    }
+
+    pub(crate) fn terminal_cleanup_started(&self, generation: u64) -> bool {
+        self.terminal_cleanup_started_at(generation, Instant::now())
+    }
+
+    fn terminal_cleanup_started_at(&self, generation: u64, now: Instant) -> bool {
+        let mut inner = self.inner.lock_recover();
+        if inner.generation != generation {
+            return false;
+        }
+        while inner
+            .terminal_cleanup_times
+            .front()
+            .is_some_and(|at| now.saturating_duration_since(*at) >= TERMINAL_CLEANUP_WINDOW)
+        {
+            inner.terminal_cleanup_times.pop_front();
+        }
+        if inner.terminal_cleanup_times.len() >= TERMINAL_CLEANUP_MAX {
+            return false;
+        }
         inner.terminal_cleanup_times.push_back(now);
         inner.native_recovery_state = "terminal_cleanup".into();
         let generation = inner.generation;
@@ -725,7 +934,7 @@ impl DataplaneHealthState {
             Some("fail_closed_cleanup"),
             Some("started"),
         );
-        TerminalCleanupDecision::Allowed
+        true
     }
 
     pub fn native_recovery_failed(&self, generation: u64, reason: &str) {
@@ -839,14 +1048,37 @@ fn prune_recovery_times(inner: &mut HealthInner, now: Instant) {
     }
 }
 
-fn update_pressure(inner: &mut HealthInner, resources: ResourceSample, scheduler: u64) {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PressureTransition {
+    None,
+    Entered,
+    Exited,
+}
+
+fn clear_external_failure_window(inner: &mut HealthInner) {
+    inner.probe_window.clear();
+    inner.consecutive_failures = 0;
+    inner.consecutive_successes = 0;
+    // The next actual (not monitor/suppressed) external probe opens a fresh
+    // window.  Do not let stale pre-pressure samples trigger recovery.
+    inner.reason = None;
+    if inner.dataplane_state == "failed" || inner.dataplane_state == "suspect" {
+        inner.dataplane_state = "unknown".into();
+    }
+}
+
+fn update_pressure(
+    inner: &mut HealthInner,
+    resources: ResourceSample,
+    scheduler: u64,
+) -> PressureTransition {
     let entered = resources.pressure_entered(scheduler);
     if !inner.host_pressure && entered {
         inner.host_pressure = true;
         inner.pressure_since = Some(Instant::now());
         inner.pressure_exit_samples = 0;
         inner.pressure_reason = Some(pressure_reason(resources, scheduler).into());
-        return;
+        return PressureTransition::Entered;
     }
     if inner.host_pressure {
         if resources.pressure_recovered(scheduler) {
@@ -856,12 +1088,14 @@ fn update_pressure(inner: &mut HealthInner, resources: ResourceSample, scheduler
                 inner.pressure_since = None;
                 inner.pressure_reason = None;
                 inner.pressure_exit_samples = 0;
+                return PressureTransition::Exited;
             }
         } else {
             inner.pressure_exit_samples = 0;
             inner.pressure_reason = Some(pressure_reason(resources, scheduler).into());
         }
     }
+    PressureTransition::None
 }
 
 fn pressure_reason(resources: ResourceSample, scheduler: u64) -> &'static str {
@@ -877,6 +1111,11 @@ fn pressure_reason(resources: ResourceSample, scheduler: u64) -> &'static str {
         .is_some_and(|value| value <= PRESSURE_AVAILABLE_COMMIT_BYTES)
     {
         "commit_available"
+    } else if resources
+        .cpu_load_percent
+        .is_some_and(|value| value >= PRESSURE_CPU_LOAD_PERCENT)
+    {
+        "cpu_load"
     } else {
         "physical_memory_available"
     }
@@ -917,8 +1156,16 @@ fn record_incident(
 
 #[cfg(target_os = "windows")]
 fn resource_sample() -> ResourceSample {
+    use windows::Win32::Foundation::FILETIME;
     use windows::Win32::System::ProcessStatus::{GetPerformanceInfo, PERFORMANCE_INFORMATION};
     use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    use windows::Win32::System::Threading::GetSystemTimes;
+
+    static PREVIOUS_CPU: Mutex<Option<CpuCounters>> = Mutex::new(None);
+
+    fn filetime(value: FILETIME) -> u64 {
+        (u64::from(value.dwHighDateTime) << 32) | u64::from(value.dwLowDateTime)
+    }
 
     let mut status = MEMORYSTATUSEX {
         dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
@@ -943,12 +1190,29 @@ fn resource_sample() -> ResourceSample {
         } else {
             None
         };
+    let mut idle = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    let cpu_load_percent =
+        if unsafe { GetSystemTimes(Some(&mut idle), Some(&mut kernel), Some(&mut user)) }.is_ok() {
+            let current = CpuCounters {
+                idle: filetime(idle),
+                kernel: filetime(kernel),
+                user: filetime(user),
+            };
+            let mut previous = PREVIOUS_CPU.lock_recover();
+            let load = (*previous).and_then(|old| cpu_load_from_deltas(old, current));
+            *previous = Some(current);
+            load
+        } else {
+            None
+        };
     ResourceSample {
         memory_load_percent: Some(status.dwMemoryLoad),
         available_memory_bytes: Some(status.ullAvailPhys),
         available_commit_bytes,
         available_pagefile_bytes: Some(status.ullAvailPageFile),
-        cpu_load_percent: None,
+        cpu_load_percent,
     }
 }
 
@@ -966,28 +1230,33 @@ fn local_reason(
     control_ok: bool,
 ) -> Option<&'static str> {
     if !status.running {
-        Some("unknown_datapath_failure")
+        Some("process_dead")
     } else if !status.xray_alive || !status.sidecars_alive {
-        Some("required_sidecar_failed")
+        Some("required_sidecar_dead")
     } else if !status.clash_ready || !control_ok {
-        Some("control_api_unreachable")
+        Some("local_control_unavailable")
     } else {
         None
     }
 }
 
-async fn control_api_ok(port: u16) -> bool {
+async fn control_listener_ok(port: u16) -> bool {
     if port == 0 {
         return false;
     }
     matches!(
         tokio::time::timeout(
-            CONTROL_API_TIMEOUT,
-            crate::clash::clash_get_proxies_unchecked(port),
+            Duration::from_millis(500),
+            tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)),
         )
         .await,
         Ok(Ok(_))
     )
+}
+
+fn permit_is_current(app: &AppHandle, permit: &crate::runtime_ops::DataplaneProbePermit) -> bool {
+    app.try_state::<crate::vpn::SingboxState>()
+        .is_some_and(|state| state.dataplane_probe.is_current(permit))
 }
 
 /// Starts a monitor for one runtime generation. `probe_port=None` is still a
@@ -1079,22 +1348,45 @@ pub fn start_dataplane_watchdog(
             health.set_resources(generation, resources, scheduler_lateness);
             let status = crate::vpn::native_runtime_status(&app, generation);
             let control_ok = if status.clash_ready {
-                control_api_ok(status.clash_port).await
+                control_listener_ok(status.clash_port).await
             } else {
                 false
             };
 
-            if strict_privacy {
-                let reason = local_reason(&status, control_ok);
+            let local_failure = local_reason(&status, control_ok);
+            if matches!(
+                local_failure,
+                Some("process_dead") | Some("required_sidecar_dead")
+            ) {
+                health.record_confirmed_process_failure(
+                    generation,
+                    local_failure.unwrap_or("process_dead"),
+                    resources,
+                    scheduler_lateness,
+                );
+            } else if strict_privacy {
                 health.record_passive(
                     generation,
-                    reason.is_none(),
-                    reason,
+                    local_failure.is_none(),
+                    local_failure,
                     started.elapsed().as_millis() as u64,
                     resources,
                     scheduler_lateness,
                 );
-            } else if let Some(reason) = local_reason(&status, control_ok) {
+            } else if health.snapshot().host_pressure {
+                // Pressure is a suppression state, not a delayed permission to
+                // run HTTPS.  Local failures stay visible but cannot become a
+                // restart trigger while the host remains overloaded.
+                health.record_probe(
+                    generation,
+                    false,
+                    Some("pressure_suppressed"),
+                    started.elapsed().as_millis() as u64,
+                    0,
+                    resources,
+                    scheduler_lateness,
+                );
+            } else if let Some(reason) = local_failure {
                 health.record_probe(
                     generation,
                     false,
@@ -1104,63 +1396,57 @@ pub fn start_dataplane_watchdog(
                     resources,
                     scheduler_lateness,
                 );
-            } else if probe_port.is_none() {
-                health.record_probe(
-                    generation,
-                    false,
-                    Some("probe_inbound_unreachable"),
-                    started.elapsed().as_millis() as u64,
-                    0,
-                    resources,
-                    scheduler_lateness,
-                );
-            } else {
-                let probe = tokio::time::timeout(
-                    HEALTH_PROBE_TIMEOUT,
-                    quality::probe_health_inner(probe_port),
-                )
-                .await;
-                match probe {
-                    Ok(Ok(result)) if result.ok => health.record_probe(
-                        generation,
-                        true,
-                        None,
-                        result.ms,
-                        result.bytes,
-                        resources,
-                        scheduler_lateness,
-                    ),
-                    // HTTP-ответ с ошибочным статусом всё равно доказывает, что
-                    // DNS/TCP/TLS и маршрут через активный outbound работают.
-                    // Это отказ конкретного сервиса, а не мёртвый VPN.
-                    Ok(Ok(result))
-                        if result
-                            .error
-                            .as_deref()
-                            .is_some_and(|error| error.starts_with("HTTP")) =>
+            } else if let Some(port) = probe_port {
+                let probe_coordinator = app
+                    .try_state::<crate::vpn::SingboxState>()
+                    .map(|state| state.dataplane_probe.clone());
+                match probe_coordinator {
+                    Some(probe_coordinator) => match probe_coordinator
+                        .acquire(DataplaneProbeKind::HealthProbe, generation, None)
+                        .await
                     {
-                        health.record_probe(
-                            generation,
-                            true,
-                            Some("probe_endpoint_rejected"),
-                            result.ms,
-                            result.bytes,
-                            resources,
-                            scheduler_lateness,
-                        )
-                    }
-                    Ok(Ok(result)) => health.record_probe(
-                        generation,
-                        false,
-                        Some("active_outbound_failed"),
-                        result.ms,
-                        result.bytes,
-                        resources,
-                        scheduler_lateness,
-                    ),
-                    // Ошибка сборки локального probe-клиента не является
-                    // доказательством обрыва пользовательского dataplane.
-                    Ok(Err(_)) => health.record_probe(
+                        Ok(permit) => {
+                            let probe = quality::probe_health_inner(Some(port)).await;
+                            if !permit_is_current(&app, &permit) {
+                                health.record_probe_busy(generation, resources, scheduler_lateness);
+                            } else {
+                                match probe {
+                                    Ok(result) if result.ok => health.record_probe(
+                                        generation,
+                                        true,
+                                        result.error.as_deref(),
+                                        result.ms,
+                                        result.bytes,
+                                        resources,
+                                        scheduler_lateness,
+                                    ),
+                                    Ok(result) => health.record_probe(
+                                        generation,
+                                        false,
+                                        Some("external_route_failure"),
+                                        result.ms,
+                                        result.bytes,
+                                        resources,
+                                        scheduler_lateness,
+                                    ),
+                                    Err(_) => health.record_probe(
+                                        generation,
+                                        false,
+                                        Some("probe_monitor_error"),
+                                        started.elapsed().as_millis() as u64,
+                                        0,
+                                        resources,
+                                        scheduler_lateness,
+                                    ),
+                                }
+                            }
+                        }
+                        Err(ProbeAcquireError::Busy) => {
+                            health.record_probe_busy(generation, resources, scheduler_lateness)
+                        }
+                        Err(ProbeAcquireError::StaleGeneration) => break,
+                    },
+                    None => health.record_probe(
                         generation,
                         false,
                         Some("probe_monitor_error"),
@@ -1169,18 +1455,17 @@ pub fn start_dataplane_watchdog(
                         resources,
                         scheduler_lateness,
                     ),
-                    // Полный timeout обоих endpoint'ов — уже сигнал маршрута,
-                    // но terminal решение всё равно потребует три подряд.
-                    Err(_) => health.record_probe(
-                        generation,
-                        false,
-                        Some("active_outbound_timeout"),
-                        started.elapsed().as_millis() as u64,
-                        0,
-                        resources,
-                        scheduler_lateness,
-                    ),
                 }
+            } else {
+                health.record_probe(
+                    generation,
+                    false,
+                    Some("local_control_unavailable"),
+                    started.elapsed().as_millis() as u64,
+                    0,
+                    resources,
+                    scheduler_lateness,
+                );
             }
             publish(&app, &health);
 
@@ -1202,6 +1487,24 @@ pub fn start_dataplane_watchdog(
             }
             let failed = snapshot.dataplane_state == "failed";
             if failed {
+                let lifecycle_owned_by_user = app
+                    .try_state::<crate::runtime_ops::RuntimeOperationCoordinator>()
+                    .and_then(|coordinator| coordinator.active_kind())
+                    .is_some_and(|kind| {
+                        matches!(
+                            kind,
+                            crate::runtime_ops::RuntimeOperationKind::SourceSwitch
+                                | crate::runtime_ops::RuntimeOperationKind::UserConnect
+                                | crate::runtime_ops::RuntimeOperationKind::UserDisconnect
+                                | crate::runtime_ops::RuntimeOperationKind::FrontendRecovery
+                                | crate::runtime_ops::RuntimeOperationKind::QualityRemediation
+                        )
+                    });
+                if lifecycle_owned_by_user {
+                    publish(&app, &health);
+                    next = Instant::now() + HEALTH_INTERVAL;
+                    continue;
+                }
                 match health.recovery_decision(Instant::now()) {
                     RecoveryDecision::Allowed => {
                         if !logs_disabled {
@@ -1214,41 +1517,61 @@ pub fn start_dataplane_watchdog(
                             );
                         }
                         publish(&app, &health);
-                        let recovered =
-                            crate::vpn::native_recover_current_runtime(&app, generation).await;
-                        if recovered {
-                            if !logs_disabled {
-                                crate::vpn::append_runtime_diagnostic(
-                                    &app,
-                                    &format!(
-                                        "monitoring: dataplane generation={generation} recovery=started_new_generation"
-                                    ),
-                                );
+                        match crate::vpn::native_recover_current_runtime(&app, generation).await {
+                            crate::vpn::NativeRecoveryOutcome::StartedNewGeneration { .. } => {
+                                if !logs_disabled {
+                                    crate::vpn::append_runtime_diagnostic(
+                                        &app,
+                                        &format!(
+                                            "monitoring: dataplane generation={generation} recovery=started_new_generation"
+                                        ),
+                                    );
+                                }
+                                // A successful same-config restart starts a new
+                                // monitor generation. The old coordinator exits.
+                                break;
                             }
-                            // A successful same-config restart starts a new
-                            // monitor generation. The old coordinator exits.
-                            break;
+                            crate::vpn::NativeRecoveryOutcome::AttemptFailed { reason } => {
+                                if !logs_disabled {
+                                    crate::vpn::append_runtime_diagnostic(
+                                        &app,
+                                        &format!(
+                                            "monitoring: dataplane generation={generation} recovery=failed handoff=frontend"
+                                        ),
+                                    );
+                                }
+                                health.native_recovery_failed(generation, &reason);
+                                publish(&app, &health);
+                            }
+                            // Contention, cancellation, stale identity and
+                            // changed preconditions have not physically begun a
+                            // recovery attempt and therefore never hand off.
+                            crate::vpn::NativeRecoveryOutcome::Busy { .. }
+                            | crate::vpn::NativeRecoveryOutcome::Cancelled
+                            | crate::vpn::NativeRecoveryOutcome::StaleGeneration
+                            | crate::vpn::NativeRecoveryOutcome::PreconditionsChanged => {}
                         }
-                        if !logs_disabled {
-                            crate::vpn::append_runtime_diagnostic(
-                                &app,
-                                &format!(
-                                    "monitoring: dataplane generation={generation} recovery=failed handoff=frontend"
-                                ),
-                            );
-                        }
-                        health.native_recovery_failed(generation, "native_recovery_failed");
-                        publish(&app, &health);
                     }
                     RecoveryDecision::Exhausted => {
                         match health.terminal_cleanup_decision(Instant::now()) {
                             TerminalCleanupDecision::Allowed => {
-                                let cleanup_confirmed =
-                                    crate::vpn::native_terminal_fail_closed(&app, generation).await;
-                                health.native_terminal_result(generation, cleanup_confirmed);
-                                publish(&app, &health);
-                                if cleanup_confirmed {
-                                    break;
+                                match crate::vpn::native_terminal_fail_closed(&app, generation)
+                                    .await
+                                {
+                                    crate::vpn::TerminalCleanupOutcome::Confirmed => {
+                                        health.native_terminal_result(generation, true);
+                                        publish(&app, &health);
+                                        break;
+                                    }
+                                    crate::vpn::TerminalCleanupOutcome::AttemptFailed {
+                                        ..
+                                    } => {
+                                        health.native_terminal_result(generation, false);
+                                        publish(&app, &health);
+                                    }
+                                    crate::vpn::TerminalCleanupOutcome::Busy
+                                    | crate::vpn::TerminalCleanupOutcome::Cancelled
+                                    | crate::vpn::TerminalCleanupOutcome::StaleGeneration => {}
                                 }
                             }
                             TerminalCleanupDecision::Cooldown
@@ -1356,7 +1679,7 @@ mod tests {
                 0,
             );
         }
-        assert_eq!(health.snapshot().dataplane_state, "suspect");
+        assert_eq!(health.snapshot().dataplane_state, "unknown");
     }
 
     #[test]
@@ -1381,6 +1704,195 @@ mod tests {
         let snapshot = health.snapshot();
         assert_eq!(snapshot.dataplane_state, "failed");
         assert!(snapshot.host_pressure);
+    }
+
+    #[test]
+    fn pressure_never_allows_external_failure_recovery() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        for _ in 0..3 {
+            sample(&health, 42, false);
+        }
+        health.set_resources(
+            42,
+            ResourceSample {
+                memory_load_percent: Some(99),
+                ..ResourceSample::default()
+            },
+            0,
+        );
+        assert_eq!(
+            health.recovery_decision(Instant::now()),
+            RecoveryDecision::PressureWait
+        );
+    }
+
+    #[test]
+    fn pressure_allows_recovery_only_for_process_death() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        health.set_resources(
+            42,
+            ResourceSample {
+                memory_load_percent: Some(99),
+                ..ResourceSample::default()
+            },
+            0,
+        );
+        health.record_confirmed_process_failure(42, "process_dead", ResourceSample::default(), 0);
+        assert_eq!(
+            health.recovery_decision(Instant::now()),
+            RecoveryDecision::Allowed
+        );
+    }
+
+    #[test]
+    fn pressure_skips_external_probe_failure_accounting() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        let pressure = ResourceSample {
+            memory_load_percent: Some(99),
+            ..ResourceSample::default()
+        };
+        health.record_probe(
+            42,
+            false,
+            Some("external_route_failure"),
+            10,
+            0,
+            pressure,
+            0,
+        );
+        let snapshot = health.snapshot();
+        assert!(snapshot.host_pressure);
+        assert_eq!(snapshot.consecutive_failures, 0);
+        assert!(snapshot.probe_window.is_empty());
+    }
+
+    #[test]
+    fn pressure_exit_requires_three_clean_samples() {
+        let mut inner = HealthInner::default();
+        update_pressure(
+            &mut inner,
+            ResourceSample {
+                cpu_load_percent: Some(99),
+                ..ResourceSample::default()
+            },
+            0,
+        );
+        for _ in 0..2 {
+            assert_eq!(
+                update_pressure(&mut inner, ResourceSample::default(), 0),
+                PressureTransition::None
+            );
+            assert!(inner.host_pressure);
+        }
+        assert_eq!(
+            update_pressure(&mut inner, ResourceSample::default(), 0),
+            PressureTransition::Exited
+        );
+        assert!(!inner.host_pressure);
+    }
+
+    #[test]
+    fn pressure_exit_resets_external_failure_window() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        sample(&health, 42, false);
+        sample(&health, 42, false);
+        let pressure = ResourceSample {
+            memory_load_percent: Some(99),
+            ..ResourceSample::default()
+        };
+        health.set_resources(42, pressure, 0);
+        for _ in 0..3 {
+            health.set_resources(42, ResourceSample::default(), 0);
+        }
+        let snapshot = health.snapshot();
+        assert!(!snapshot.host_pressure);
+        assert!(snapshot.probe_window.is_empty());
+        assert_eq!(snapshot.consecutive_failures, 0);
+    }
+
+    #[test]
+    fn internal_hard_failure_recovery_preserves_pressure() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        health.set_resources(
+            42,
+            ResourceSample {
+                cpu_load_percent: Some(99),
+                ..ResourceSample::default()
+            },
+            0,
+        );
+        health.reset_active_for_runtime(43, false, true);
+        let snapshot = health.snapshot();
+        assert!(snapshot.host_pressure);
+        assert_eq!(snapshot.generation, 43);
+    }
+
+    #[test]
+    fn cpu_sampler_computes_windows_delta() {
+        let initial = CpuCounters {
+            idle: 100,
+            kernel: 500,
+            user: 500,
+        };
+        assert_eq!(
+            cpu_load_from_deltas(
+                initial,
+                CpuCounters {
+                    idle: 200,
+                    kernel: 1_000,
+                    user: 1_000
+                }
+            ),
+            Some(90)
+        );
+        assert_eq!(
+            cpu_load_from_deltas(
+                initial,
+                CpuCounters {
+                    idle: 100,
+                    kernel: 1_000,
+                    user: 1_000
+                }
+            ),
+            Some(100)
+        );
+        assert_eq!(
+            cpu_load_from_deltas(
+                initial,
+                CpuCounters {
+                    idle: 99,
+                    kernel: 1_000,
+                    user: 1_000
+                }
+            ),
+            None
+        );
+        assert_eq!(cpu_load_from_deltas(initial, initial), None);
+        assert_eq!(
+            cpu_load_from_deltas(
+                initial,
+                CpuCounters {
+                    idle: 2_000,
+                    kernel: 1_000,
+                    user: 1_000
+                }
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn busy_probe_permit_never_becomes_dataplane_failure() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        health.record_probe_busy(42, ResourceSample::default(), 0);
+        assert_eq!(health.snapshot().consecutive_failures, 0);
+        assert_ne!(health.snapshot().dataplane_state, "failed");
     }
 
     #[test]
@@ -1472,6 +1984,7 @@ mod tests {
             health.recovery_decision(Instant::now()),
             RecoveryDecision::Allowed
         );
+        assert!(health.native_recovery_started(42));
         health.native_recovery_failed(42, "test_failure");
         assert_eq!(
             health.recovery_decision(Instant::now()),
@@ -1496,6 +2009,7 @@ mod tests {
             health.terminal_cleanup_decision(first),
             TerminalCleanupDecision::Allowed
         );
+        assert!(health.terminal_cleanup_started_at(42, first));
         health.native_terminal_result(42, false);
         assert_eq!(
             health.terminal_cleanup_decision(first + Duration::from_secs(1)),
@@ -1507,12 +2021,14 @@ mod tests {
             health.terminal_cleanup_decision(second),
             TerminalCleanupDecision::Allowed
         );
+        assert!(health.terminal_cleanup_started_at(42, second));
         health.native_terminal_result(42, false);
         let third = second + TERMINAL_CLEANUP_COOLDOWN;
         assert_eq!(
             health.terminal_cleanup_decision(third),
             TerminalCleanupDecision::Allowed
         );
+        assert!(health.terminal_cleanup_started_at(42, third));
         health.native_terminal_result(42, false);
 
         assert_eq!(
@@ -1520,6 +2036,25 @@ mod tests {
             TerminalCleanupDecision::Exhausted
         );
         assert_eq!(health.snapshot().native_recovery_state, "cleanup_error");
+    }
+
+    #[test]
+    fn busy_terminal_cleanup_does_not_consume_cleanup_budget() {
+        let health = DataplaneHealthState::default();
+        health.reset_active_for_runtime(42, false, false);
+        let now = Instant::now();
+        for _ in 0..3 {
+            assert_eq!(
+                health.terminal_cleanup_decision(now),
+                TerminalCleanupDecision::Allowed
+            );
+        }
+        assert!(health.terminal_cleanup_started_at(42, now));
+        health.native_terminal_result(42, false);
+        assert_eq!(
+            health.terminal_cleanup_decision(now + TERMINAL_CLEANUP_COOLDOWN),
+            TerminalCleanupDecision::Allowed
+        );
     }
 
     #[test]

@@ -180,3 +180,82 @@ test("ручное отключение во время проверки сох�
   assert.equal(reconnects, 1);
   assert.deepEqual(active, { kind: "single", id: "B" });
 });
+
+test("source switch удерживает один operation token через target и rollback", async () => {
+  let active = { kind: "sub", id: "A" };
+  const tokens = [];
+  const completed = [];
+  const controller = createSourceSwitchController({
+    getActiveSource: () => active,
+    applySource: (source) => { active = source; },
+    beginOperation: async () => ({ id: "switch-1", kind: "sourceSwitch" }),
+    completeOperation: async (token) => completed.push(token.id),
+    reconnect: async (_reason, context) => {
+      tokens.push(context.operationToken.id);
+      return context.phase === "rollback";
+    },
+    confirm: async () => ({ status: "hardFailed", reason: "external_route_failure" }),
+    canContinue: () => true,
+  });
+
+  const result = await controller.activate({ kind: "sub", id: "B" });
+  assert.equal(result.restored, true);
+  assert.deepEqual(tokens, ["switch-1", "switch-1"]);
+  assert.deepEqual(completed, ["switch-1"]);
+});
+
+test("pressure verdict не откатывает target source", async () => {
+  let active = { kind: "sub", id: "A" };
+  const phases = [];
+  const controller = createSourceSwitchController({
+    getActiveSource: () => active,
+    applySource: (source) => { active = source; },
+    reconnect: async (_reason, context) => { phases.push(context.phase); return true; },
+    confirm: async () => ({ status: "unverified", reason: "host_pressure" }),
+    canContinue: () => true,
+  });
+  const result = await controller.activate({ kind: "sub", id: "B" });
+  assert.equal(result.unverified, true);
+  assert.deepEqual(phases, ["target"]);
+  assert.deepEqual(active, { kind: "sub", id: "B" });
+});
+
+test("monitor error verdict не откатывает target source", async () => {
+  let active = { kind: "single", id: "A" };
+  let reconnects = 0;
+  const controller = createSourceSwitchController({
+    getActiveSource: () => active,
+    applySource: (source) => { active = source; },
+    reconnect: async () => { reconnects++; return true; },
+    confirm: async () => ({ status: "unverified", reason: "monitor_error" }),
+    canContinue: () => true,
+  });
+  const result = await controller.activate({ kind: "single", id: "B" });
+  assert.equal(result.unverified, true);
+  assert.equal(reconnects, 1);
+  assert.deepEqual(active, { kind: "single", id: "B" });
+});
+
+test("latest source switch отменяет previous operation без false failure", async () => {
+  let active = { kind: "sub", id: "A" };
+  const cancelled = [];
+  let releaseB;
+  const waitB = new Promise((resolve) => { releaseB = resolve; });
+  const controller = createSourceSwitchController({
+    getActiveSource: () => active,
+    applySource: (source) => { active = source; },
+    beginOperation: async (target) => ({ id: target.id }),
+    cancelOperation: async (token) => cancelled.push(token.id),
+    reconnect: async (_reason, context) => context.target.id === "B" ? waitB : true,
+    confirm: async () => ({ status: "ready" }),
+    canContinue: () => true,
+  });
+  const first = controller.activate({ kind: "sub", id: "B" });
+  const second = controller.activate({ kind: "sub", id: "C" });
+  await second;
+  releaseB(true);
+  const firstResult = await first;
+  assert.equal(firstResult.stale, true);
+  assert.deepEqual(cancelled, ["B"]);
+  assert.deepEqual(active, { kind: "sub", id: "C" });
+});

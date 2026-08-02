@@ -948,7 +948,7 @@ function cancelPendingReconnect() {
 // Единое гашение ядра: системный прокси → ядро → UI в idle. Все пути
 // отключения (ручное, авто-реконнект, watchdog, отказ моста, фейл старта)
 // идут через него, чтобы сброс системного прокси не потерялся ни в одном.
-async function shutdownCore({ finalize = true, preserveKillSwitch = false } = {}) {
+async function shutdownCore({ finalize = true, preserveKillSwitch = false, operationToken = null } = {}) {
   if (preserveKillSwitch) {
     const guardReady = await applyKillSwitch(false, {
       preserve: true,
@@ -965,7 +965,7 @@ async function shutdownCore({ finalize = true, preserveKillSwitch = false } = {}
   cancelPendingSelections();
   connectAttempts.cancel();
   let result = null;
-  try { result = await invoke("stop_singbox"); }
+  try { result = await invoke("stop_singbox", operationToken ? { operationToken } : {}); }
   catch (e) { console.warn("stop failed", e); }
   if (result?.timings) console.info("runtime shutdown timings", result.timings);
   const componentFailed = result && [result.singbox, result.xray, result.sidecars].includes("failed");
@@ -1017,15 +1017,16 @@ function scheduleAutoReconnect() {
 }
 
 const reconnectQueue = createLatestWinsReconnectQueue({
-  run: ({ reason, epoch }) => performAutoReconnectOnce(reason, epoch),
+  run: ({ reason, epoch, operationToken }) => performAutoReconnectOnce(reason, epoch, operationToken),
   canRun: ({ epoch }) => isCurrentNetworkIntent(epoch, "connected") && needsReconnect,
 });
+const reconnectCompleted = (result) => result?.status === "completed" && result.value === true;
 
-function performAutoReconnect(reason = t("conn.applyingSettings"), parentEpoch = networkIntentEpoch) {
-  return reconnectQueue.enqueue({ reason, epoch: parentEpoch });
+function performAutoReconnect(reason = t("conn.applyingSettings"), parentEpoch = networkIntentEpoch, operationToken = null) {
+  return reconnectQueue.enqueue({ reason, epoch: parentEpoch, operationToken });
 }
 
-async function performAutoReconnectOnce(reason, epoch) {
+async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
   let reconnectToastId = null;
   const preserveGuard = killSwitchMustSurviveRuntimeStop();
   try {
@@ -1037,16 +1038,16 @@ async function performAutoReconnectOnce(reason, epoch) {
     if (state === "idle") {
       needsReconnect = false;
       applyReconnectUI();
-      return (await connectNetwork({ epoch })) === true;
+      return (await connectNetwork({ epoch, operationToken })) === true;
     }
     if (state !== "connected" && state !== "connecting") return false;
     connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
     reconnectToastId = toast(reason, "info", 0, { group: "conn", connecting: true });
     const nativeStartWasPending = coreStartBarrier.isPending();
-    if (!(await shutdownCore({ preserveKillSwitch: preserveGuard }))) {
+    if (!(await shutdownCore({ preserveKillSwitch: preserveGuard, operationToken }))) {
       if (preserveGuard && isCurrentNetworkIntent(epoch, "connected")) {
         pendingReconnectTimer = setTimeout(
-          () => performAutoReconnect(reason, epoch),
+          () => performAutoReconnect(reason, epoch, operationToken),
           5000,
         );
       }
@@ -1059,10 +1060,10 @@ async function performAutoReconnectOnce(reason, epoch) {
     if (nativeStartWasPending) {
       await coreStartBarrier.wait();
       if (!isCurrentNetworkIntent(epoch, "connected")) return false;
-      if (!(await shutdownCore({ preserveKillSwitch: preserveGuard }))) {
+      if (!(await shutdownCore({ preserveKillSwitch: preserveGuard, operationToken }))) {
         if (preserveGuard && isCurrentNetworkIntent(epoch, "connected")) {
           pendingReconnectTimer = setTimeout(
-            () => performAutoReconnect(reason, epoch),
+            () => performAutoReconnect(reason, epoch, operationToken),
             5000,
           );
         }
@@ -1071,7 +1072,7 @@ async function performAutoReconnectOnce(reason, epoch) {
     }
     needsReconnect = false;
     applyReconnectUI();
-    return (await connectNetwork({ epoch })) === true;
+    return (await connectNetwork({ epoch, operationToken })) === true;
   } finally {
     if (reconnectToastId) toast.dismiss(reconnectToastId);
   }
@@ -1152,7 +1153,7 @@ async function recoverDataplane() {
   const request = beginSourceReconnect(t("conn.applyingSettings"));
   if (!request) return false;
   const connected = await request.completion;
-  return connected === true && state === "connected"
+  return reconnectCompleted(connected) && state === "connected"
     && await verifyEmergencyDataplane();
 }
 
@@ -1433,16 +1434,16 @@ function applyReconnectUI() {
 // в отличие от scheduleAutoReconnect для правок настроек. Реконнект уходит в
 // idle (сбросит currentEffectiveNode) → buildConfig читает свежий getActiveSource()
 // → AUTO-селектор по новым нодам, они пингуются URLTest'ом.
-function beginSourceReconnect(reason) {
+function beginSourceReconnect(reason, operationToken = null) {
   if (state !== "connected" && state !== "connecting" && state !== "disconnecting") return false;
   const epoch = beginNetworkIntent("connected");
   needsReconnect = true;
   if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
-  return { epoch, completion: performAutoReconnect(reason, epoch) };
+  return { epoch, completion: performAutoReconnect(reason, epoch, operationToken) };
 }
 
-function reconnectForSourceChange(reason) {
-  const request = beginSourceReconnect(reason);
+function reconnectForSourceChange(reason, context = {}) {
+  const request = beginSourceReconnect(reason, context.operationToken || null);
   return !!request;
 }
 
@@ -1453,7 +1454,7 @@ async function reconnectForQualityRemediation(reason) {
   if (!request) return false;
   try {
     const connected = await request.completion;
-    return connected === true
+    return reconnectCompleted(connected)
       && state === "connected"
       && isCurrentNetworkIntent(request.epoch, "connected");
   } catch {
@@ -1493,34 +1494,32 @@ function commitActiveSource(kind, id) {
   }, { reconnect: false, silent: true });
 }
 
-async function confirmActiveSourceDataplane(target, { isCurrent }) {
-  const deadline = Date.now() + 45_000;
-  while (Date.now() < deadline && isCurrent() && sameSourceRef(activeSourceRef(), target)) {
-    if (networkIntent.desired() !== "connected") return false;
-    let snapshot;
-    try { snapshot = await invoke("health_snapshot"); }
-    catch { snapshot = null; }
-    if (!isCurrent() || !sameSourceRef(activeSourceRef(), target)) return false;
-    if (!snapshot?.singbox_running || state !== "connected") return false;
-    const dataplane = snapshot.dataplane;
-    const dataplaneState = dataplane?.dataplaneState || dataplane?.state;
-    // Не у каждого режима есть активный probe-inbound. Локальная readiness уже
-    // подтверждена connectNetwork, поэтому inactive здесь — валидный runtime.
-    if (!dataplane || dataplaneState === "inactive"
-      || dataplaneState === "healthy" || dataplaneState === "unmonitoredPrivacyMode") {
-      return true;
-    }
-    if (dataplaneState === "failed") return false;
-    await new Promise(resolve => setTimeout(resolve, 750));
+async function confirmActiveSourceDataplane(target, { token, isCurrent }) {
+  if (!token || !isCurrent() || !sameSourceRef(activeSourceRef(), target)
+    || networkIntent.desired() !== "connected" || state !== "connected") {
+    return { status: "cancelled" };
   }
-  return false;
+  try {
+    const snapshot = await invoke("runtime_snapshot");
+    if (!isCurrent() || !sameSourceRef(activeSourceRef(), target)) return { status: "stale" };
+    if (!snapshot?.running || !Number(snapshot.processGeneration)) {
+      return { status: "hardFailed", reason: "runtime_not_running" };
+    }
+    return await invoke("verify_runtime_dataplane", {
+      operationToken: token,
+      expectedGeneration: snapshot.processGeneration,
+      expectedSourceFingerprint: snapshot.sourceFingerprint || null,
+    });
+  } catch {
+    return { status: "unverified", reason: "monitor_error" };
+  }
 }
 
-async function reconnectCommittedSource(reason) {
+async function reconnectCommittedSource(reason, context = {}) {
   if (networkIntent.desired() !== "connected") return false;
   if (state === "connected" || state === "connecting" || state === "disconnecting") {
-    const request = beginSourceReconnect(reason);
-    return request ? (await request.completion) === true : false;
+    const request = beginSourceReconnect(reason, context.operationToken || null);
+    return request ? reconnectCompleted(await request.completion) : false;
   }
   if (state !== "idle") return false;
   const epoch = beginNetworkIntent("connected");
@@ -1528,7 +1527,7 @@ async function reconnectCommittedSource(reason) {
     group: "conn",
     connecting: true,
   });
-  try { return (await connectNetwork({ epoch })) === true; }
+  try { return (await connectNetwork({ epoch, operationToken: context.operationToken || null })) === true; }
   finally { if (toastId) toast.dismiss(toastId); }
 }
 
@@ -1593,6 +1592,16 @@ sourceSwitchController = createSourceSwitchController({
     toast(t("conn.switchFailed"), "error", 6000, { group: "conn", desc: t("conn.switchFailedDesc") });
     switchView("logs");
   },
+  beginOperation: async (target) => {
+    const snapshot = await invoke("runtime_snapshot").catch(() => null);
+    return invoke("begin_frontend_runtime_operation", {
+      kind: "sourceSwitch",
+      generation: Number(snapshot?.processGeneration) || 0,
+      sourceFingerprint: `${target.kind}:${target.id}`,
+    });
+  },
+  completeOperation: (token) => invoke("complete_frontend_runtime_operation", { token }),
+  cancelOperation: (token) => invoke("cancel_frontend_runtime_operation", { token }),
 });
 
 const sourceMutations = createSourceMutationController({
@@ -2853,9 +2862,13 @@ function adoptRuntimeSnapshot(snapshot, source = activeDisplaySource(), context 
   return finalizeConnected(snapshot, { ...context, source });
 }
 
-async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
+async function connectNetwork({ epoch = networkIntentEpoch, operationToken = null } = {}) {
   if (!isCurrentNetworkIntent(epoch, "connected")) return false;
   if (state !== "idle") return state === "connected";
+  const stopCurrentOperation = () => invoke(
+    "stop_singbox",
+    operationToken ? { operationToken } : {},
+  );
   // Click ripple — расходится от центра диска (anim 520ms)
   const stage = heroDisc.closest(".hero__stage");
   if (stage) {
@@ -2995,6 +3008,7 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         systemProxyBypassLan: options.route?.bypassLan !== false,
         killSwitchExpected: !!runtimeInfo.strictPrivacy
           || (!!options.general?.killSwitch && runtimeInfo.mode !== "tun"),
+        operationToken,
       }));
       if (!runtimeSnapshot?.running || !Number(runtimeSnapshot.processGeneration)) {
         throw new Error("start_singbox не вернул подтверждённый runtime snapshot");
@@ -3004,7 +3018,7 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
       // и гасим только что поднятое ядро — иначе UI мигал «отключено» и
       // возвращался в «Защищено».
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
-        try { await invoke("stop_singbox"); } catch {}
+        try { await stopCurrentOperation(); } catch {}
         try { await invoke("set_system_proxy", { enable: false }); } catch {}
         return;
       }
@@ -3014,7 +3028,7 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
       runtimeToken = runtimeIdentity.adopt(runtimeSnapshot, { source: runtimeSource });
       const topology = await getProxies(undefined, { token: runtimeToken });
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
-        try { await invoke("stop_singbox"); } catch {}
+        try { await stopCurrentOperation(); } catch {}
         return;
       }
       if (!runtimeInfo.strictPrivacy && !warpOnly
@@ -3039,6 +3053,7 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         if (restoredSelection.status === "stale") {
           await shutdownCore({
             preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
+            operationToken,
           });
           return;
         }
@@ -3062,13 +3077,14 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
         });
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
           try { await invoke("set_system_proxy", { enable: false }); } catch {}
-          try { await invoke("stop_singbox"); } catch {}
+          try { await stopCurrentOperation(); } catch {}
           return;
         }
       }
       if (!isCurrentNetworkIntent(epoch, "connected") || !runtimeIdentity.isCurrent(runtimeToken)) {
         await shutdownCore({
           preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
+          operationToken,
         });
         return;
       }
@@ -3083,7 +3099,7 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
       // Kill switch — часть readiness, а не фоновый best-effort после connected.
       const killSwitchReady = await applyKillSwitch(true);
       if (!isCurrentNetworkIntent(epoch, "connected") || !runtimeIdentity.isCurrent(runtimeToken)) {
-        try { await invoke("stop_singbox"); } catch {}
+        try { await stopCurrentOperation(); } catch {}
         return;
       }
       if (killSwitchReady === false) {
@@ -3102,7 +3118,7 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
       try { finalSnapshot = await invoke("runtime_snapshot"); }
       catch (e) {
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
-          try { await invoke("stop_singbox"); } catch {}
+          try { await stopCurrentOperation(); } catch {}
           return;
         }
         throw new Error(`финальный runtime snapshot не получен: ${e}`, { cause: e });
@@ -3114,7 +3130,7 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
       })) {
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)
           || !runtimeIdentity.isCurrent(runtimeToken)) {
-          try { await invoke("stop_singbox"); } catch {}
+          try { await stopCurrentOperation(); } catch {}
           return;
         }
         throw new Error("финальный runtime snapshot не прошёл проверку готовности");
@@ -3143,7 +3159,7 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
         // Юзер уже отменил подключение — состояние/тосты выставил его клик,
         // здесь только страховочный стоп без перетирания UI.
-        try { await invoke("stop_singbox"); } catch {}
+        try { await stopCurrentOperation(); } catch {}
         try { await invoke("set_system_proxy", { enable: false }); } catch {}
         return;
       }
@@ -3151,6 +3167,7 @@ async function connectNetwork({ epoch = networkIntentEpoch } = {}) {
       const preserveGuard = killSwitchMustSurviveRuntimeStop();
       const cleaned = await shutdownCore({
         preserveKillSwitch: preserveGuard,
+        operationToken,
       });
       if (!cleaned) {
         // При недоступном BFE не останавливаем ещё живой runtime без barrier.

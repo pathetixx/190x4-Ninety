@@ -6,6 +6,10 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
 use crate::health;
+use crate::runtime_ops::{
+    DataplaneProbeCoordinator, DataplaneProbeKind, ProbeAcquireError, RuntimeOperationCoordinator,
+    RuntimeOperationKind, RuntimeOperationToken,
+};
 use crate::util::MutexExt;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -277,6 +281,7 @@ pub struct SingboxState {
     // monitor can be cancelled before the next runtime generation starts.
     dataplane_health: Arc<health::DataplaneHealthState>,
     dataplane_generation: Arc<AtomicU64>,
+    pub(crate) dataplane_probe: Arc<DataplaneProbeCoordinator>,
     // Native recovery is a single owner. Frontend reconnects must not race a
     // same-config stop/start in the short window between dependency teardown
     // and readiness.
@@ -370,6 +375,7 @@ impl Default for SingboxState {
             expected_exit_generation: Arc::new(AtomicU64::new(0)),
             dataplane_health: Arc::new(health::DataplaneHealthState::default()),
             dataplane_generation: Arc::new(AtomicU64::new(0)),
+            dataplane_probe: Arc::new(DataplaneProbeCoordinator::default()),
             native_recovery_lock: tokio::sync::Mutex::new(()),
             native_recovery_active: AtomicBool::new(false),
             native_recovery_cancelled: AtomicBool::new(false),
@@ -1328,11 +1334,251 @@ pub(crate) fn native_runtime_status(
     }
 }
 
+pub(crate) fn runtime_generation_for_probe(state: &SingboxState, port: Option<u16>) -> Option<u64> {
+    let requested_port = port.unwrap_or(0);
+    state.runtime.lock_recover().as_ref().and_then(|runtime| {
+        (requested_port == 0 || runtime.clash_port == requested_port)
+            .then_some(runtime.process_generation)
+    })
+}
+
+async fn local_clash_listener_ready(port: u16) -> bool {
+    if port == 0 {
+        return false;
+    }
+    matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)),
+        )
+        .await,
+        Ok(Ok(_))
+    )
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum RuntimeDataplaneVerification {
+    Ready,
+    HardFailed { reason: String },
+    Unverified { reason: String },
+    Cancelled,
+    Stale,
+}
+
+fn operation_is_current(app: &AppHandle, token: &RuntimeOperationToken) -> bool {
+    app.try_state::<RuntimeOperationCoordinator>()
+        .is_some_and(|coordinator| coordinator.authorize(token))
+}
+
+fn lifecycle_operation(
+    app: &AppHandle,
+    supplied: Option<RuntimeOperationToken>,
+    fallback_kind: RuntimeOperationKind,
+    generation: u64,
+    source_fingerprint: Option<&str>,
+) -> Result<(RuntimeOperationToken, bool), String> {
+    let coordinator = app
+        .try_state::<RuntimeOperationCoordinator>()
+        .ok_or("runtime operation coordinator unavailable")?;
+    match supplied {
+        Some(token) if coordinator.authorize(&token) => Ok((token, false)),
+        Some(_) => Err("stale or cancelled runtime operation token".into()),
+        None => coordinator
+            .begin(fallback_kind, generation, source_fingerprint)
+            .map(|token| (token, true)),
+    }
+}
+
+fn finish_implicit_operation(app: &AppHandle, token: &RuntimeOperationToken, implicit: bool) {
+    if implicit {
+        if let Some(coordinator) = app.try_state::<RuntimeOperationCoordinator>() {
+            let _ = coordinator.complete(token);
+        }
+    }
+}
+
+fn runtime_identity_matches(
+    state: &SingboxState,
+    generation: u64,
+    source_fingerprint: Option<&str>,
+) -> bool {
+    state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .is_some_and(|runtime| {
+            runtime.process_generation == generation
+                && source_fingerprint
+                    .is_none_or(|expected| runtime.source_fingerprint.as_deref() == Some(expected))
+        })
+}
+
+fn verified_runtime_ready(app: &AppHandle) -> RuntimeDataplaneVerification {
+    match release_transition_barrier(app) {
+        Ok(()) => RuntimeDataplaneVerification::Ready,
+        Err(_) => RuntimeDataplaneVerification::Unverified {
+            reason: "transition_barrier_preserved".into(),
+        },
+    }
+}
+
+/// One-shot source-switch verifier.  It intentionally does not consult the
+/// rolling watchdog state: a transaction proves *this* runtime generation or
+/// returns a structured non-destructive verdict.
+#[tauri::command]
+pub async fn verify_runtime_dataplane(
+    app: AppHandle,
+    state: State<'_, SingboxState>,
+    operation_token: RuntimeOperationToken,
+    expected_generation: u64,
+    expected_source_fingerprint: Option<String>,
+) -> Result<RuntimeDataplaneVerification, String> {
+    Ok(verify_runtime_dataplane_inner(
+        &app,
+        &state,
+        operation_token,
+        expected_generation,
+        expected_source_fingerprint,
+    )
+    .await)
+}
+
+async fn verify_runtime_dataplane_inner(
+    app: &AppHandle,
+    state: &SingboxState,
+    operation_token: RuntimeOperationToken,
+    expected_generation: u64,
+    expected_source_fingerprint: Option<String>,
+) -> RuntimeDataplaneVerification {
+    if !operation_is_current(app, &operation_token) {
+        return RuntimeDataplaneVerification::Cancelled;
+    }
+    if operation_token.kind != RuntimeOperationKind::SourceSwitch {
+        return RuntimeDataplaneVerification::Cancelled;
+    }
+    if !runtime_identity_matches(
+        state,
+        expected_generation,
+        expected_source_fingerprint.as_deref(),
+    ) {
+        return RuntimeDataplaneVerification::Stale;
+    }
+
+    let status = native_runtime_status(app, expected_generation);
+    if !status.running {
+        return RuntimeDataplaneVerification::HardFailed {
+            reason: "process_dead".into(),
+        };
+    }
+    if !status.xray_alive || !status.sidecars_alive {
+        return RuntimeDataplaneVerification::HardFailed {
+            reason: "required_sidecar_dead".into(),
+        };
+    }
+    if !status.clash_ready || !local_clash_listener_ready(status.clash_port).await {
+        return RuntimeDataplaneVerification::HardFailed {
+            reason: "local_control_unavailable".into(),
+        };
+    }
+    if !operation_is_current(app, &operation_token) {
+        return RuntimeDataplaneVerification::Cancelled;
+    }
+    if !runtime_identity_matches(
+        state,
+        expected_generation,
+        expected_source_fingerprint.as_deref(),
+    ) {
+        return RuntimeDataplaneVerification::Stale;
+    }
+    if state.dataplane_health.snapshot().host_pressure {
+        return RuntimeDataplaneVerification::Unverified {
+            reason: "host_pressure".into(),
+        };
+    }
+
+    let strict_privacy = state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .is_some_and(|runtime| runtime.strict_privacy);
+    if strict_privacy {
+        let wfp_ready = app
+            .try_state::<crate::killswitch::KillSwitchState>()
+            .is_some_and(|kill_switch| crate::killswitch::is_active(&kill_switch));
+        return if wfp_ready {
+            verified_runtime_ready(app)
+        } else {
+            RuntimeDataplaneVerification::Unverified {
+                reason: "wfp_policy_unconfirmed".into(),
+            }
+        };
+    }
+
+    let permit = match state
+        .dataplane_probe
+        .acquire(
+            DataplaneProbeKind::SourceVerification,
+            expected_generation,
+            Some(std::time::Duration::from_secs(1)),
+        )
+        .await
+    {
+        Ok(permit) => permit,
+        Err(ProbeAcquireError::Busy) => {
+            return RuntimeDataplaneVerification::Unverified {
+                reason: "probe_busy".into(),
+            }
+        }
+        Err(ProbeAcquireError::StaleGeneration) => return RuntimeDataplaneVerification::Stale,
+    };
+
+    for round in 0..2 {
+        if !operation_is_current(app, &operation_token) {
+            return RuntimeDataplaneVerification::Cancelled;
+        }
+        if !state.dataplane_probe.is_current(&permit)
+            || !runtime_identity_matches(
+                state,
+                expected_generation,
+                expected_source_fingerprint.as_deref(),
+            )
+        {
+            return RuntimeDataplaneVerification::Stale;
+        }
+        match crate::quality::probe_health_inner(Some(status.clash_port)).await {
+            Ok(result) if result.ok => return verified_runtime_ready(app),
+            Ok(_) if round == 0 => {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                if state.dataplane_health.snapshot().host_pressure {
+                    return RuntimeDataplaneVerification::Unverified {
+                        reason: "host_pressure".into(),
+                    };
+                }
+            }
+            Ok(_) => {
+                return RuntimeDataplaneVerification::HardFailed {
+                    reason: "external_route_failure".into(),
+                }
+            }
+            Err(_) => {
+                return RuntimeDataplaneVerification::Unverified {
+                    reason: "monitor_error".into(),
+                }
+            }
+        }
+    }
+    RuntimeDataplaneVerification::Unverified {
+        reason: "verification_incomplete".into(),
+    }
+}
+
 async fn start_singbox_inner(
     app: AppHandle,
     state: &SingboxState,
     spec: RuntimeLaunchSpec,
     preserve_recovery_budget: bool,
+    operation_token: &RuntimeOperationToken,
 ) -> Result<RuntimeSnapshot, String> {
     let RuntimeLaunchSpec {
         config_json: raw_config_json,
@@ -1347,6 +1593,9 @@ async fn start_singbox_inner(
         system_proxy_bypass_lan,
         kill_switch_expected,
     } = spec;
+    if !operation_is_current(&app, operation_token) {
+        return Err("stale or cancelled runtime operation token".into());
+    }
     let (start_epoch, process_generation) = {
         // Короткий синхронный gate делает старт/стоп линейными в точке смены
         // поколения; сам долгий запуск под ним не выполняется.
@@ -1410,6 +1659,9 @@ async fn start_singbox_inner(
             return Err(e);
         }
         ensure_start_current(state, start_epoch)?;
+        if !operation_is_current(&app, operation_token) {
+            return Err("stale or cancelled runtime operation token".into());
+        }
     }
 
     // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
@@ -1429,6 +1681,9 @@ async fn start_singbox_inner(
             return Err(e);
         }
         ensure_start_current(state, start_epoch)?;
+        if !operation_is_current(&app, operation_token) {
+            return Err("stale or cancelled runtime operation token".into());
+        }
     }
 
     // Режим (proxy/systemProxy/tun) больше не влияет на запуск ядра в Rust:
@@ -1460,6 +1715,9 @@ async fn start_singbox_inner(
         return Err(e);
     }
     ensure_start_current(state, start_epoch)?;
+    if !operation_is_current(&app, operation_token) {
+        return Err("stale or cancelled runtime operation token".into());
+    }
 
     if let Err(e) = wait_clash_ready(clash_port, state, start_epoch).await {
         if let Some(child) = state.child.lock_recover().take() {
@@ -1469,6 +1727,9 @@ async fn start_singbox_inner(
         kill_sidecars(state);
         *state.runtime_ports.lock_recover() = Vec::new();
         return Err(e);
+    }
+    if !operation_is_current(&app, operation_token) {
+        return Err("stale or cancelled runtime operation token".into());
     }
     *state.runtime.lock_recover() = Some(RuntimeRecord {
         process_generation,
@@ -1480,6 +1741,7 @@ async fn start_singbox_inner(
         clash_port,
         clash_ready: true,
     });
+    state.dataplane_probe.reset_generation(process_generation);
     *state.runtime_launch.lock_recover() = Some(RuntimeLaunchSpec {
         config_json: config_json.clone(),
         mode: mode.clone(),
@@ -1528,9 +1790,17 @@ pub async fn start_singbox(
     pinned_node_tag: Option<String>,
     system_proxy_bypass_lan: Option<bool>,
     kill_switch_expected: Option<bool>,
+    operation_token: Option<RuntimeOperationToken>,
 ) -> Result<RuntimeSnapshot, String> {
-    start_singbox_inner(
-        app,
+    let (operation_token, implicit) = lifecycle_operation(
+        &app,
+        operation_token,
+        RuntimeOperationKind::UserConnect,
+        0,
+        source_fingerprint.as_deref(),
+    )?;
+    let result = start_singbox_inner(
+        app.clone(),
         &state,
         RuntimeLaunchSpec {
             config_json,
@@ -1546,8 +1816,11 @@ pub async fn start_singbox(
             kill_switch_expected: kill_switch_expected.unwrap_or(false),
         },
         false,
+        &operation_token,
     )
-    .await
+    .await;
+    finish_implicit_operation(&app, &operation_token, implicit);
+    result
 }
 
 // Запись конфига + спавн sing-box + fail-fast-окно. Вынесено из start_singbox,
@@ -1764,6 +2037,7 @@ async fn stop_singbox_inner(
     if stop_watchdog {
         health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
     }
+    state.dataplane_probe.invalidate();
     {
         let _gate = state.lifecycle_gate.lock_recover();
         state.stopping.store(true, Ordering::SeqCst);
@@ -1887,11 +2161,26 @@ async fn stop_singbox_inner(
 pub async fn stop_singbox(
     app: AppHandle,
     state: State<'_, SingboxState>,
+    operation_token: Option<RuntimeOperationToken>,
 ) -> Result<StopResult, String> {
     // Manual disconnect wins over native recovery. Set the cancellation bit
     // before waiting for the owner lock, then perform the same verified stop
     // after the native action has released it. This avoids both a restart after
     // the user's disconnect and a parallel cleanup of the dependency graph.
+    let generation = state.process_generation.load(Ordering::SeqCst);
+    let (operation_token, implicit) = lifecycle_operation(
+        &app,
+        operation_token,
+        RuntimeOperationKind::UserDisconnect,
+        generation,
+        None,
+    )?;
+    if !operation_is_current(&app, &operation_token) {
+        return Err("stale or cancelled runtime operation token".into());
+    }
+    if operation_token.kind.needs_transition_barrier() {
+        native_transition_barrier(&app)?;
+    }
     state
         .native_recovery_cancelled
         .store(true, Ordering::SeqCst);
@@ -1900,10 +2189,14 @@ pub async fn stop_singbox(
     // освобождает owner lock. Новый профиль после этого получает чистый lifecycle.
     state.start_epoch.fetch_add(1, Ordering::SeqCst);
     let _recovery_lock = state.native_recovery_lock.lock().await;
+    if !operation_is_current(&app, &operation_token) {
+        return Err("stale or cancelled runtime operation token".into());
+    }
     let result = stop_singbox_inner(&app, &state, true, false).await;
     state
         .native_recovery_cancelled
         .store(false, Ordering::SeqCst);
+    finish_implicit_operation(&app, &operation_token, implicit);
     result
 }
 
@@ -1912,6 +2205,20 @@ struct NativeRecoveryOwner<'a>(&'a AtomicBool);
 impl Drop for NativeRecoveryOwner<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Every native recovery exit must release its operation token. Otherwise a
+/// failed/cancelled owner could indefinitely suppress the frontend handoff.
+/// Completion is safe after supersession because it is token-id scoped.
+struct OperationCompletion<'a> {
+    coordinator: &'a RuntimeOperationCoordinator,
+    token: RuntimeOperationToken,
+}
+
+impl Drop for OperationCompletion<'_> {
+    fn drop(&mut self) {
+        let _ = self.coordinator.complete(&self.token);
     }
 }
 
@@ -1963,117 +2270,305 @@ async fn native_reapply_runtime_policy(
     if !current.running || !current.clash_ready {
         return Err("native recovery runtime не прошёл readiness".into());
     }
+    if !local_clash_listener_ready(current.clash_port).await {
+        return Err("native recovery local listener is unavailable".into());
+    }
+    if spec.strict_privacy {
+        return Ok(());
+    }
+    let state = app
+        .try_state::<SingboxState>()
+        .ok_or("runtime state unavailable for recovery verification")?;
+    if state.dataplane_health.snapshot().host_pressure {
+        return Err("native recovery remains under host pressure".into());
+    }
+    let permit = state
+        .dataplane_probe
+        .acquire(
+            DataplaneProbeKind::SourceVerification,
+            snapshot.process_generation,
+            Some(std::time::Duration::from_secs(1)),
+        )
+        .await
+        .map_err(|error| match error {
+            ProbeAcquireError::Busy => "native recovery probe busy".to_string(),
+            ProbeAcquireError::StaleGeneration => {
+                "native recovery generation became stale".to_string()
+            }
+        })?;
+    let result = crate::quality::probe_health_inner(Some(current.clash_port)).await?;
+    if !state.dataplane_probe.is_current(&permit) {
+        return Err("native recovery generation became stale".into());
+    }
+    if !result.ok {
+        return Err("native recovery dataplane verification failed".into());
+    }
     Ok(())
 }
 
-/// Controlled same-config restart. This path never asks WebView2 for a new
-/// profile and never chooses a different node. It is guarded by both an async
-/// owner lock and a runtime-level active flag, so frontend stop/reconnect calls
-/// cannot interleave with the dependency graph restart.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum NativeRecoveryOutcome {
+    StartedNewGeneration {
+        generation: u64,
+    },
+    Busy {
+        active_operation: Option<RuntimeOperationKind>,
+    },
+    Cancelled,
+    StaleGeneration,
+    PreconditionsChanged,
+    AttemptFailed {
+        reason: String,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum TerminalCleanupOutcome {
+    Confirmed,
+    Busy,
+    Cancelled,
+    StaleGeneration,
+    AttemptFailed { reason: String },
+}
+
+fn native_transition_barrier(app: &AppHandle) -> Result<(), String> {
+    debug_assert!(RuntimeOperationKind::NativeRecovery.needs_transition_barrier());
+    let kill_switch = app
+        .try_state::<crate::killswitch::KillSwitchState>()
+        .ok_or("kill switch state unavailable for transition barrier")?;
+    let strict_tunnel = app
+        .try_state::<SingboxState>()
+        .and_then(|state| {
+            state
+                .runtime
+                .lock_recover()
+                .as_ref()
+                .map(|runtime| runtime.strict_privacy)
+        })
+        .unwrap_or(false);
+    crate::killswitch::transition_arm(&kill_switch, strict_tunnel)?;
+    if !crate::killswitch::transition_active(&kill_switch) {
+        return Err("transition barrier was not confirmed active".into());
+    }
+    Ok(())
+}
+
+fn release_transition_barrier(app: &AppHandle) -> Result<(), String> {
+    let kill_switch = app
+        .try_state::<crate::killswitch::KillSwitchState>()
+        .ok_or("kill switch state unavailable for transition barrier")?;
+    crate::killswitch::transition_release(&kill_switch)
+}
+
+/// Controlled same-config restart.  Coordinator outcomes deliberately keep
+/// busy/cancelled/stale paths out of the recovery budget and frontend handoff.
 pub(crate) async fn native_recover_current_runtime(
     app: &AppHandle,
     expected_generation: u64,
-) -> bool {
+) -> NativeRecoveryOutcome {
     let Some(state) = app.try_state::<SingboxState>() else {
-        return false;
+        return NativeRecoveryOutcome::PreconditionsChanged;
+    };
+    let Some(coordinator) = app.try_state::<RuntimeOperationCoordinator>() else {
+        return NativeRecoveryOutcome::PreconditionsChanged;
+    };
+    let source_fingerprint = state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .and_then(|runtime| runtime.source_fingerprint.clone());
+    let token = match coordinator.begin(
+        RuntimeOperationKind::NativeRecovery,
+        expected_generation,
+        source_fingerprint.as_deref(),
+    ) {
+        Ok(token) => token,
+        Err(_) => {
+            return NativeRecoveryOutcome::Busy {
+                active_operation: coordinator.active_kind(),
+            }
+        }
+    };
+    let _operation_completion = OperationCompletion {
+        coordinator: &coordinator,
+        token: token.clone(),
     };
     let Ok(_owner_lock) = state.native_recovery_lock.try_lock() else {
-        return false;
+        let _ = coordinator.complete(&token);
+        return NativeRecoveryOutcome::Busy {
+            active_operation: coordinator.active_kind(),
+        };
     };
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
-        return false;
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
+        return NativeRecoveryOutcome::Cancelled;
     }
     state
         .native_recovery_cancelled
         .store(false, Ordering::SeqCst);
     if state.native_recovery_active.swap(true, Ordering::SeqCst) {
-        return false;
+        return NativeRecoveryOutcome::Busy {
+            active_operation: coordinator.active_kind(),
+        };
     }
     let _owner = NativeRecoveryOwner(&state.native_recovery_active);
 
     let Some(spec) = state.runtime_launch.lock_recover().clone() else {
-        return false;
+        let _ = coordinator.complete(&token);
+        return NativeRecoveryOutcome::PreconditionsChanged;
     };
     let Some(runtime) = state.runtime.lock_recover().clone() else {
-        return false;
+        let _ = coordinator.complete(&token);
+        return NativeRecoveryOutcome::PreconditionsChanged;
     };
-    if runtime.process_generation != expected_generation
-        || !compute_singbox_running(&state)
+    if runtime.process_generation != expected_generation {
+        let _ = coordinator.complete(&token);
+        return NativeRecoveryOutcome::StaleGeneration;
+    }
+    if !compute_singbox_running(&state)
         || state.starting.load(Ordering::SeqCst)
         || state.stopping.load(Ordering::SeqCst)
     {
-        return false;
+        let _ = coordinator.complete(&token);
+        return NativeRecoveryOutcome::PreconditionsChanged;
     }
 
-    if state.native_recovery_cancelled.load(Ordering::SeqCst)
-        || native_rearm_saved_kill_switch(app, &spec).is_err()
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
+        return NativeRecoveryOutcome::Cancelled;
+    }
+    if let Err(error) = native_transition_barrier(app) {
+        let _ = coordinator.complete(&token);
+        return NativeRecoveryOutcome::AttemptFailed { reason: error };
+    }
+    if !state
+        .dataplane_health
+        .native_recovery_started(expected_generation)
     {
-        return false;
+        return NativeRecoveryOutcome::Busy {
+            active_operation: coordinator.active_kind(),
+        };
     }
 
     let Ok(stopped) = stop_singbox_inner(app, &state, false, true).await else {
-        return false;
+        return NativeRecoveryOutcome::AttemptFailed {
+            reason: "stop_failed".into(),
+        };
     };
     if !native_recovery_result_is_ready(&stopped)
         || state.native_recovery_cancelled.load(Ordering::SeqCst)
+        || !coordinator.authorize(&token)
     {
-        return false;
+        return if coordinator.authorize(&token) {
+            NativeRecoveryOutcome::AttemptFailed {
+                reason: "stop_unconfirmed".into(),
+            }
+        } else {
+            NativeRecoveryOutcome::Cancelled
+        };
     }
 
-    let Ok(snapshot) = start_singbox_inner(app.clone(), &state, spec.clone(), true).await else {
-        return false;
+    let Ok(snapshot) = start_singbox_inner(app.clone(), &state, spec.clone(), true, &token).await
+    else {
+        return NativeRecoveryOutcome::AttemptFailed {
+            reason: "start_failed".into(),
+        };
     };
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
         let _ = stop_singbox_inner(app, &state, false, false).await;
-        return false;
+        return NativeRecoveryOutcome::Cancelled;
     }
     if let Err(error) = native_reapply_runtime_policy(app, &spec, &snapshot).await {
         let _ = stop_singbox_inner(app, &state, false, false).await;
-        let _ = error;
-        return false;
+        return NativeRecoveryOutcome::AttemptFailed { reason: error };
     }
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
         let _ = stop_singbox_inner(app, &state, false, false).await;
-        return false;
+        return NativeRecoveryOutcome::Cancelled;
     }
-    true
+    if let Err(error) = release_transition_barrier(app) {
+        return NativeRecoveryOutcome::AttemptFailed { reason: error };
+    }
+    let generation = snapshot.process_generation;
+    let _ = coordinator.complete(&token);
+    NativeRecoveryOutcome::StartedNewGeneration { generation }
 }
 
 /// Last-resort native fail-closed cleanup after the bounded same-config budget
 /// is exhausted. WFP is armed/re-armed before the dependency stop whenever the
 /// saved runtime policy requires it; a failed cleanup is reported as retryable
 /// and never latched as a confirmed terminal state.
-pub(crate) async fn native_terminal_fail_closed(app: &AppHandle, expected_generation: u64) -> bool {
+pub(crate) async fn native_terminal_fail_closed(
+    app: &AppHandle,
+    expected_generation: u64,
+) -> TerminalCleanupOutcome {
     let Some(state) = app.try_state::<SingboxState>() else {
-        return false;
+        return TerminalCleanupOutcome::StaleGeneration;
+    };
+    let Some(coordinator) = app.try_state::<RuntimeOperationCoordinator>() else {
+        return TerminalCleanupOutcome::Busy;
+    };
+    let token = match coordinator.begin(
+        RuntimeOperationKind::NativeRecovery,
+        expected_generation,
+        None,
+    ) {
+        Ok(token) => token,
+        Err(_) => return TerminalCleanupOutcome::Busy,
+    };
+    let _operation_completion = OperationCompletion {
+        coordinator: &coordinator,
+        token: token.clone(),
     };
     let Ok(_owner_lock) = state.native_recovery_lock.try_lock() else {
-        return false;
+        let _ = coordinator.complete(&token);
+        return TerminalCleanupOutcome::Busy;
     };
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) {
-        return false;
+    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
+        return TerminalCleanupOutcome::Cancelled;
     }
     if state.native_recovery_active.swap(true, Ordering::SeqCst) {
-        return false;
+        return TerminalCleanupOutcome::Busy;
     }
     let _owner = NativeRecoveryOwner(&state.native_recovery_active);
     let spec = state.runtime_launch.lock_recover().clone();
     if let Some(runtime) = state.runtime.lock_recover().clone() {
         if runtime.process_generation != expected_generation {
-            return false;
+            let _ = coordinator.complete(&token);
+            return TerminalCleanupOutcome::StaleGeneration;
         }
     }
 
+    if let Err(error) = native_transition_barrier(app) {
+        let _ = coordinator.complete(&token);
+        return TerminalCleanupOutcome::AttemptFailed { reason: error };
+    }
     if let Some(spec) = spec.as_ref() {
-        if native_rearm_saved_kill_switch(app, spec).is_err() {
-            return false;
+        if let Err(error) = native_rearm_saved_kill_switch(app, spec) {
+            return TerminalCleanupOutcome::AttemptFailed { reason: error };
         }
+    }
+    if !state
+        .dataplane_health
+        .terminal_cleanup_started(expected_generation)
+    {
+        return TerminalCleanupOutcome::Busy;
     }
 
     let Ok(result) = stop_singbox_inner(app, &state, false, false).await else {
-        return false;
+        return TerminalCleanupOutcome::AttemptFailed {
+            reason: "stop_failed".into(),
+        };
     };
-    native_recovery_result_is_ready(&result)
+    if !coordinator.authorize(&token) {
+        return TerminalCleanupOutcome::Cancelled;
+    }
+    if native_recovery_result_is_ready(&result) {
+        let _ = coordinator.complete(&token);
+        TerminalCleanupOutcome::Confirmed
+    } else {
+        TerminalCleanupOutcome::AttemptFailed {
+            reason: "cleanup_unconfirmed".into(),
+        }
+    }
 }
 
 // Внутренние вычисления статусов — переиспользуются одиночными командами и
@@ -2158,12 +2653,14 @@ pub struct HealthSnapshot {
     pub last_error: Option<String>,
     pub kill_switch_active: bool,
     pub dataplane: health::DataplaneHealthSnapshot,
+    pub runtime_operation: Option<crate::runtime_ops::RuntimeOperationSnapshot>,
 }
 
 #[tauri::command]
 pub fn health_snapshot(
     state: State<'_, SingboxState>,
     kill_switch: State<'_, crate::killswitch::KillSwitchState>,
+    coordinator: State<'_, RuntimeOperationCoordinator>,
 ) -> HealthSnapshot {
     HealthSnapshot {
         singbox_running: compute_singbox_running(&state),
@@ -2172,6 +2669,7 @@ pub fn health_snapshot(
         last_error: compute_last_error(&state),
         kill_switch_active: crate::killswitch::is_active(&kill_switch),
         dataplane: state.dataplane_health.snapshot(),
+        runtime_operation: coordinator.snapshot(),
     }
 }
 

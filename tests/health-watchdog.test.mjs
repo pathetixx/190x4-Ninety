@@ -463,6 +463,42 @@ test("native owner не запускает frontend recovery даже при fai
   assert.equal(pauses, 1);
 });
 
+test("source switch suppresses frontend watchdog handoff and quality remediation", async () => {
+  let recoveries = 0;
+  let qualityTicks = 0;
+  let pauses = 0;
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => ({
+      setHostPressure: () => {},
+      pauseForEmergency: () => { pauses++; },
+      tick: async () => { qualityTicks++; },
+    }),
+    recoverDataplane: async () => { recoveries++; return true; },
+    invoke: async () => ({
+      singbox_running: true,
+      xray: "none",
+      sidecar: "none",
+      runtimeOperation: { kind: "sourceSwitch" },
+      dataplane: { state: "failed", dataplaneState: "failed", hostPressure: false },
+    }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  watchdog.start();
+  await watchdog.tick();
+  assert.equal(recoveries, 0);
+  assert.equal(qualityTicks, 0);
+  assert.equal(pauses, 1);
+});
+
 test("native handoff сразу передаёт failed dataplane переключению ноды", async () => {
   let now = 0;
   let recoveries = 0;

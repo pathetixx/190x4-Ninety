@@ -171,10 +171,22 @@ export function initHealthWatchdog({
   async function handleDataplaneHealth(run, snap) {
     const dataplane = snap?.dataplane;
     if (!dataplane) return false;
+    const operationKind = snap?.runtimeOperation?.kind;
+    const lifecycleOperationActive = [
+      "sourceSwitch", "userConnect", "userDisconnect", "nativeRecovery",
+      "frontendRecovery", "qualityRemediation",
+    ].includes(operationKind);
     if (dataplane.state === "inactive") return false;
     const dataplaneState = dataplane.dataplaneState || dataplane.state;
     const pressure = dataplane.hostPressure === true || dataplane.state === "pressure";
     getQualityEngine()?.setHostPressure?.(pressure);
+    if (lifecycleOperationActive) {
+      // Rust owns the token and will reject stale callbacks.  Frontend only
+      // renders health evidence while a switch/recovery/connect/disconnect is
+      // active; it must not create a second handoff or remediation owner.
+      getQualityEngine()?.pauseForEmergency?.();
+      return true;
+    }
     if (dataplaneState !== lastDataplaneState) {
       lastDataplaneState = dataplaneState;
       onDataplaneState(dataplaneState, dataplane);

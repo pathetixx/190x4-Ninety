@@ -1,6 +1,6 @@
-// Latest-wins arbitration for reconnect requests. A request already running
-// cannot be interrupted safely, so a newer request replaces the pending one
-// and starts immediately after the current run settles.
+// Latest-wins arbitration for reconnect requests. Every caller receives a
+// structured result, so replacement/cancellation is never misreported as a
+// normal connection failure.
 export function createLatestWinsReconnectQueue({ run, canRun = () => true } = {}) {
   if (typeof run !== "function") throw new TypeError("reconnect queue requires run");
 
@@ -18,8 +18,8 @@ export function createLatestWinsReconnectQueue({ run, canRun = () => true } = {}
     const active = { entry: next, execution };
     inFlight = active;
     void execution.then(
-      (value) => { next.resolve(value); finalize(active); },
-      () => { next.resolve(false); finalize(active); },
+      (value) => { next.resolve({ status: "completed", value }); finalize(active); },
+      (error) => { next.resolve({ status: "failed", error }); finalize(active); },
     );
     return next.completion;
   }
@@ -31,7 +31,7 @@ export function createLatestWinsReconnectQueue({ run, canRun = () => true } = {}
     pending = null;
     if (!next) return;
     if (canRun(next.request)) void start(next);
-    else next.resolve(false);
+    else next.resolve({ status: "cancelled" });
   }
 
   function enqueue(request) {
@@ -39,7 +39,7 @@ export function createLatestWinsReconnectQueue({ run, canRun = () => true } = {}
     if (inFlight) {
       // Заменённый pending-запрос никогда не будет выполнен и обязан завершить
       // именно свой Promise, а не ждать/наследовать результат текущего запуска.
-      pending?.resolve(false);
+      pending?.resolve({ status: "superseded" });
       pending = next;
       return next.completion;
     }
@@ -47,7 +47,7 @@ export function createLatestWinsReconnectQueue({ run, canRun = () => true } = {}
   }
 
   function cancel() {
-    pending?.resolve(false);
+    pending?.resolve({ status: "cancelled" });
     pending = null;
   }
 

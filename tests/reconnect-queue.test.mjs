@@ -55,14 +55,14 @@ test("каждый queued reconnect получает результат имен
   const resultA = queue.enqueue({ id: "A" });
   const resultB = queue.enqueue({ id: "B" });
   a.resolve(true);
-  assert.equal(await resultA, true);
+  assert.deepEqual(await resultA, { status: "completed", value: true });
   await flush();
   assert.deepEqual(calls, ["A", "B"]);
   b.resolve(false);
-  assert.equal(await resultB, false);
+  assert.deepEqual(await resultB, { status: "completed", value: false });
 });
 
-test("заменённый pending reconnect завершается false и не наследует результат in-flight", async () => {
+test("заменённый pending reconnect завершается Superseded и не наследует результат in-flight", async () => {
   const a = deferred();
   const c = deferred();
   const calls = [];
@@ -76,13 +76,13 @@ test("заменённый pending reconnect завершается false и н�
   const resultA = queue.enqueue({ id: "A" });
   const resultB = queue.enqueue({ id: "B" });
   const resultC = queue.enqueue({ id: "C" });
-  assert.equal(await resultB, false);
+  assert.deepEqual(await resultB, { status: "superseded" });
   a.resolve(true);
-  assert.equal(await resultA, true);
+  assert.deepEqual(await resultA, { status: "completed", value: true });
   await flush();
   assert.deepEqual(calls, ["A", "C"]);
   c.resolve(true);
-  assert.equal(await resultC, true);
+  assert.deepEqual(await resultC, { status: "completed", value: true });
 });
 
 test("reconnect A → user disconnect: pending request is cancelled by idle epoch", async () => {

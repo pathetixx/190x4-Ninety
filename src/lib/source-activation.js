@@ -59,6 +59,9 @@ export function createSourceSwitchController({
   onRollback = () => {},
   onRollbackFailed = () => {},
   onFailure = () => {},
+  beginOperation = null,
+  completeOperation = async () => {},
+  cancelOperation = async () => {},
 } = {}) {
   if (typeof getActiveSource !== "function" || typeof applySource !== "function"
     || typeof reconnect !== "function") {
@@ -71,6 +74,22 @@ export function createSourceSwitchController({
   const current = (token, target) => pending?.token === token
     && sameSourceRef(pending.target, target);
 
+  const verdictKind = (verdict) => {
+    if (verdict === true) return "ready";
+    if (verdict === false || verdict == null) return "hardFailed";
+    const status = String(verdict.status || verdict.kind || "").toLowerCase();
+    if (status === "ready") return "ready";
+    if (status === "hardfailed" || status === "hard_failed") return "hardFailed";
+    if (status === "unverified") return "unverified";
+    if (status === "cancelled") return "cancelled";
+    if (status === "stale") return "stale";
+    return "unverified";
+  };
+
+  async function finish(operationToken) {
+    if (operationToken) await completeOperation(operationToken);
+  }
+
   async function activate(source, options = {}) {
     const target = normalizeSourceRef(source);
     if (!target) throw new Error("Active source id is required");
@@ -81,45 +100,82 @@ export function createSourceSwitchController({
 
     // Если B ещё не подтверждён и пользователь выбрал C, fallback остаётся A —
     // последним доказанно рабочим источником, а не промежуточным B.
-    const fallback = pending?.fallback || selected;
+    const superseded = pending;
+    if (superseded?.operationToken) void cancelOperation(superseded.operationToken);
+    const fallback = superseded?.fallback || selected;
     const token = ++sequence;
+    // Reserve ownership before awaiting IPC for the native token.  Without
+    // this placeholder, two rapid clicks could both pass `pending === null`
+    // and the older async begin would later overwrite the newer intent.
+    pending = { token, target, fallback, operationToken: null };
+    const operationToken = typeof beginOperation === "function"
+      ? await beginOperation(target, { fallback, token })
+      : null;
+    if (!current(token, target)) {
+      if (operationToken) await cancelOperation(operationToken);
+      return { changed: true, stale: true, target };
+    }
+    pending.operationToken = operationToken;
     applySource(target);
 
     if (options.reconnect === false) {
       pending = null;
       await persist(target);
+      await finish(operationToken);
       onActivated(target, options);
       return { changed: true, ready: true, target, reconnected: false };
     }
 
-    pending = { token, target, fallback };
-    let ready = false;
+    let verdict = "hardFailed";
     try {
-      const connected = await reconnect(options.reason, { phase: "target", target, fallback });
+      const connected = await reconnect(options.reason, {
+        phase: "target", target, fallback, operationToken,
+      });
       if (!current(token, target)) return { changed: true, stale: true, target };
       if (connected === true && canContinue()) {
-        ready = await confirm(target, { token, isCurrent: () => current(token, target) });
+        verdict = verdictKind(await confirm(target, {
+          token: operationToken,
+          isCurrent: () => current(token, target),
+        }));
       }
     } catch {
-      ready = false;
+      verdict = "hardFailed";
     }
 
     if (!current(token, target)) return { changed: true, stale: true, target };
     if (!canContinue()) {
       pending = null;
       await persist(target);
+      await cancelOperation(operationToken);
       return { changed: true, cancelled: true, target };
     }
-    if (ready === true) {
+    if (verdict === "ready") {
       pending = null;
       await persist(target);
+      await finish(operationToken);
       onActivated(target, options);
       return { changed: true, ready: true, target, reconnected: true };
+    }
+
+    // Pressure, a busy permit and monitor/internal errors say nothing about
+    // whether the newly started subscription is bad.  Keep it selected and
+    // let the regular native watchdog observe it once verification is useful.
+    if (verdict === "unverified") {
+      pending = null;
+      await persist(target);
+      await finish(operationToken);
+      return { changed: true, ready: false, unverified: true, target, restored: false };
+    }
+    if (verdict === "cancelled" || verdict === "stale") {
+      pending = null;
+      await cancelOperation(operationToken);
+      return { changed: true, [verdict]: true, target };
     }
 
     if (!fallback || sameSourceRef(fallback, target)) {
       pending = null;
       await persist(target);
+      await finish(operationToken);
       onFailure(target, options);
       return { changed: true, ready: false, target, restored: false };
     }
@@ -132,12 +188,14 @@ export function createSourceSwitchController({
         phase: "rollback",
         target: fallback,
         failedTarget: target,
+        operationToken,
       }) === true;
     } catch {
       restored = false;
     }
     if (!current(token, target)) return { changed: true, stale: true, target };
     pending = null;
+    await finish(operationToken);
     if (restored) onRollback(fallback, target, options);
     else onRollbackFailed(fallback, target, options);
     return { changed: true, ready: false, target, restored, fallback };
@@ -145,6 +203,7 @@ export function createSourceSwitchController({
 
   function cancel() {
     sequence++;
+    if (pending?.operationToken) void cancelOperation(pending.operationToken);
     pending = null;
   }
 

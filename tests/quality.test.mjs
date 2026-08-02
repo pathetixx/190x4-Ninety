@@ -67,6 +67,8 @@ test("native healthy ускоряет первую quality-пробу после
   assert.equal(probes, 0, "до native healthy сохраняется settle-пауза");
   assert.equal(engine.requestProbeSoon(), true);
   await engine.tick();
+  clock += 2_000;
+  await engine.tick();
   assert.equal(probes, 1);
   assert.equal(states.at(-1), "GOOD");
 
@@ -294,6 +296,24 @@ test("pressure mode временно отключает фоновые quality p
   engine.setHostPressure(false);
   await engine.tick();
   assert.equal(probes, 1, "после выхода из pressure mode probe должен вернуться");
+});
+
+test("quality probe waits for shared probe coordinator", async () => {
+  installStorage();
+  let ladderRan = false;
+  const engine = createQualityEngine({
+    invoke: async () => ({ ok: false, skipped: true, error: "probe_busy" }),
+    actions: {
+      selectNextNode: async () => { ladderRan = true; return true; },
+      onState: () => {},
+    },
+    opts: { enabled: true },
+  });
+  engine.onConnected({});
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(engine.state, "UNKNOWN");
+  assert.equal(ladderRan, false);
 });
 
 test("emergency pause инвалидирует текущую quality remediation", async () => {

@@ -12,6 +12,7 @@ mod netproc;
 mod profile_store;
 mod protected_browser;
 mod quality;
+mod runtime_ops;
 mod scanner;
 mod secrets;
 mod subscription;
@@ -580,6 +581,7 @@ pub fn run() {
         .manage(dpi::DpiState::default())
         .manage(clash_stream::ClashStreamState::default())
         .manage(killswitch::KillSwitchState::default())
+        .manage(runtime_ops::RuntimeOperationCoordinator::default())
         .manage(scanner::WarpScanState::default())
         .setup(move |app| {
             if portable {
@@ -850,6 +852,11 @@ pub fn run() {
             set_tray_menu,
             vpn::start_singbox,
             vpn::stop_singbox,
+            vpn::verify_runtime_dataplane,
+            runtime_ops::begin_frontend_runtime_operation,
+            runtime_ops::complete_frontend_runtime_operation,
+            runtime_ops::cancel_frontend_runtime_operation,
+            runtime_ops::runtime_operation_snapshot,
             vpn::plan_bridge_ports,
             vpn::singbox_running,
             vpn::runtime_snapshot,

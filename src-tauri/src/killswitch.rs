@@ -56,6 +56,10 @@ struct KillSwitchLease {
     sublayer: u128,
     /// Два критических block-all фильтра (IPv4/IPv6) для health-check.
     block_filters: [u64; 2],
+    /// A transition lease is an additional, temporary fail-closed barrier. It
+    /// must remain armed after a failed restart; only verified final runtime
+    /// policy is allowed to release it.
+    transition: bool,
 }
 
 /// Активные dynamic-session WFP. Обычно элемент один. Если Windows отказалась
@@ -100,7 +104,8 @@ pub(crate) fn arm_policy(
         // Сначала целиком собираем новую dynamic-session. Если любой фильтр не
         // добавился, win::arm закроет только новую сессию, а старая продолжит
         // блокировать сеть. После успеха swap и закрытие старой уже безопасны.
-        let lease = unsafe { win::arm(&exes, allow_lan, tun_interface)? };
+        let mut lease = unsafe { win::arm(&exes, allow_lan, tun_interface)? };
+        lease.transition = false;
         let previous: Vec<_> = guard.drain(..).collect();
         guard.push(lease);
         let mut close_errors = Vec::new();
@@ -123,6 +128,71 @@ pub(crate) fn arm_policy(
     {
         let _ = (allow_lan, tun_interface, strict_tunnel);
         Err("kill switch доступен только на Windows".into())
+    }
+}
+
+/// Arms a separate fail-closed WFP transition barrier.  This intentionally
+/// does not replace the user's persistent policy: both leases coexist until a
+/// new runtime has been verified and its final policy is confirmed.
+pub(crate) fn transition_arm(state: &KillSwitchState, strict_tunnel: bool) -> Result<(), String> {
+    let mut guard = state.0.lock_recover();
+    #[cfg(target_os = "windows")]
+    {
+        if guard.iter().any(|lease| lease.transition) {
+            return Ok(());
+        }
+        let exes = engine_exe_paths(false)?;
+        // In strict TUN mode users' sockets are intentionally bound to the
+        // virtual interface.  Keep that permit while replacing the runtime;
+        // without it a temporary block-all would turn a safe transition into a
+        // needless outage even though traffic cannot escape the TUN.
+        let tun_interface = strict_tunnel.then_some("ninety-tun");
+        let mut lease = unsafe { win::arm(&exes, false, tun_interface)? };
+        lease.transition = true;
+        guard.push(lease);
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = &mut guard;
+        Err("transition barrier доступен только на Windows".into())
+    }
+}
+
+pub(crate) fn transition_active(state: &KillSwitchState) -> bool {
+    state.0.lock_recover().iter().any(|lease| lease.transition)
+}
+
+/// Releases only temporary transition leases.  Call this solely after the
+/// replacement runtime, identity, listener, dataplane and final user policy
+/// have all been verified; failures deliberately preserve the barrier.
+pub(crate) fn transition_release(state: &KillSwitchState) -> Result<(), String> {
+    let mut guard = state.0.lock_recover();
+    #[cfg(target_os = "windows")]
+    {
+        let transitions: Vec<_> = guard
+            .iter()
+            .copied()
+            .filter(|lease| lease.transition)
+            .collect();
+        let mut errors = Vec::new();
+        for lease in transitions {
+            if let Err(error) = unsafe { win::disarm(lease) } {
+                errors.push(error);
+            } else if let Some(index) = guard.iter().position(|item| item.handle == lease.handle) {
+                guard.remove(index);
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = &mut guard;
+        Ok(())
     }
 }
 
@@ -332,6 +402,7 @@ mod win {
                     handle: engine.0 as isize,
                     sublayer: sublayer_id,
                     block_filters,
+                    transition: false,
                 })
             }
             Err(e) => {
