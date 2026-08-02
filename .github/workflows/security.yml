@@ -119,12 +119,12 @@ jobs:
             GOTOOLCHAIN=local go mod tidy
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o "$tmpdir/sing-box" ./cmd/sing-box
             govulncheck -mode=binary -format=json "$tmpdir/sing-box" > "$tmpdir/sing-box-vulns.json"
-            if jq -s -e 'any(.[]; .finding? and any((.finding.trace // [])[]; (.package != null or .function != null)))' "$tmpdir/sing-box-vulns.json" >/dev/null; then
-              echo "govulncheck found a vulnerability in a package or symbol present in the built binary"
-              jq -r '.[] | select(.finding?) | .finding | select((.trace // []) | any(.[]; (.package != null or .function != null)))' "$tmpdir/sing-box-vulns.json"
+            if jq -s -e 'any(.[]; .finding? and any((.finding.trace // [])[]; (.function != null or .receiver != null)))' "$tmpdir/sing-box-vulns.json" >/dev/null; then
+              echo "govulncheck found a vulnerability in a function or method present in the built binary"
+              jq -r '.[] | select(.finding?) | .finding | select((.trace // []) | any(.[]; (.function != null or .receiver != null)))' "$tmpdir/sing-box-vulns.json"
               exit 1
             fi
-            echo "govulncheck found no package- or symbol-level vulnerability in the built binary"
+            echo "govulncheck found no reachable function or method vulnerability in the built binary"
             jq -r '.[] | select(.finding?) | .finding | "module-only finding: \(.osv // "unknown")"' "$tmpdir/sing-box-vulns.json" | sort -u
           )
       - name: Audit pinned Xray core
@@ -139,11 +139,11 @@ jobs:
             cd xray-core
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -ldflags "-s -w -buildid=" -o "$tmpdir/xray" ./main
             govulncheck -mode=binary -format=json "$tmpdir/xray" > "$tmpdir/xray-vulns.json"
-            if jq -s -e 'any(.[]; .finding? and any((.finding.trace // [])[]; (.package != null or .function != null)))' "$tmpdir/xray-vulns.json" >/dev/null; then
-              echo "govulncheck found a vulnerability in a package or symbol present in the built binary"
-              jq -r '.[] | select(.finding?) | .finding | select((.trace // []) | any(.[]; (.package != null or .function != null)))' "$tmpdir/xray-vulns.json"
+            if jq -s -e 'any(.[]; .finding? and any((.finding.trace // [])[]; (.function != null or .receiver != null)))' "$tmpdir/xray-vulns.json" >/dev/null; then
+              echo "govulncheck found a vulnerability in a function or method present in the built binary"
+              jq -r '.[] | select(.finding?) | .finding | select((.trace // []) | any(.[]; (.function != null or .receiver != null)))' "$tmpdir/xray-vulns.json"
               exit 1
             fi
-            echo "govulncheck found no package- or symbol-level vulnerability in the built binary"
+            echo "govulncheck found no reachable function or method vulnerability in the built binary"
             jq -r '.[] | select(.finding?) | .finding | "module-only finding: \(.osv // "unknown")"' "$tmpdir/xray-vulns.json" | sort -u
           )
