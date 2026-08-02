@@ -1624,6 +1624,11 @@ async fn start_singbox_inner(
         // Сначала меняем поколение, затем чистим death-флаги. Иначе запоздалый
         // Terminated старого runtime мог попасть в окно и отравить новую сессию.
         let process_generation = state.process_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        // `expected_exit_generation` относится только к уже остановленному
+        // runtime. После нового start он не должен совпасть с новым generation:
+        // иначе первый реальный crash после отменённого disconnect будет
+        // ошибочно классифицирован как штатный stop.
+        state.expected_exit_generation.store(0, Ordering::SeqCst);
         *state.died.lock_recover() = None;
         *state.xray_died.lock_recover() = None;
         *state.sidecar_died.lock_recover() = None;
