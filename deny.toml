@@ -1,13 +1,11 @@
 # cargo-deny policy for the Rust client. Advisory failures and unknown sources
-# are hard failures; duplicate versions and unmaintained crates are surfaced as
-# warnings so an upstream graph cleanup can be reviewed without blocking every
-# unrelated patch.
+# are hard failures. cargo-deny 0.19 removed the old warn/deny switches for
+# vulnerability, unsound and notice advisories; those advisories now fail by
+# default. Unmaintained crates fail only when directly used by this workspace.
 
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
+unmaintained = "workspace"
 yanked = "deny"
-notice = "warn"
 
 [licenses]
 confidence-threshold = 0.8
