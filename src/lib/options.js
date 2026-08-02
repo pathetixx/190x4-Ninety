@@ -319,6 +319,11 @@ export function saveOptions(opts) {
 export function updateOption(path, value) {
   const opts = loadOptions();
   const keys = path.split(".");
+  for (const key of keys) {
+    if (key === "__proto__" || key === "prototype" || key === "constructor") {
+      throw new TypeError("Unsafe option path");
+    }
+  }
   let cur = opts;
   for (let i = 0; i < keys.length - 1; i++) {
     if (typeof cur[keys[i]] !== "object" || cur[keys[i]] === null) cur[keys[i]] = {};

@@ -393,7 +393,7 @@ test("WARP direct: custom action proxy идёт в warp, а не мимо нег
     warpInfo,
   });
   assert.equal(config.route.final, "warp");
-  const rule = config.route.rules.find((r) => r.domain_suffix?.includes("example.com"));
+  const rule = config.route.rules.find((r) => r.domain_suffix?.some((suffix) => suffix === "example.com"));
   assert.equal(rule.outbound, "warp");
   assert.ok(config.route.rule_set.every((rs) => rs.download_detour === "warp"));
 });

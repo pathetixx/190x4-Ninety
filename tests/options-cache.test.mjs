@@ -52,3 +52,20 @@ test("save and update atomically replace cached snapshot", async () => {
   assert.equal(events.at(-1).type, "ninety:option-changed");
   assert.deepEqual(events.at(-1).detail, { path: "warp.enabled", value: true });
 });
+
+test("updateOption rejects prototype-pollution paths", async () => {
+  globalThis.localStorage = storage();
+  globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+  globalThis.CustomEvent = class CustomEvent { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
+
+  const options = await import("../src/lib/options.js?options-cache-3");
+  assert.throws(
+    () => options.updateOption("__proto__.ninetyPolluted", true),
+    /unsafe option path/i,
+  );
+  assert.throws(
+    () => options.updateOption("constructor.prototype.ninetyPolluted", true),
+    /unsafe option path/i,
+  );
+  assert.equal(({}).ninetyPolluted, undefined);
+});

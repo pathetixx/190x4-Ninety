@@ -71,7 +71,7 @@ test("refreshAllSubscriptions ограничивает concurrency и не ва�
   assert.ok(maxActive <= 3, `одновременно было ${maxActive}, ожидали не больше 3`);
   assert.equal(res.length, 7);
   assert.deepEqual(res.map((r) => r.id), ["s0", "s1", "s2", "s3", "s4", "s5", "s6"]);
-  assert.ok(seenUrls.includes("https://sub3.example/3"), "ручной refreshAll должен обновлять autoUpdate=false");
+  assert.ok(seenUrls.some((url) => url === "https://sub3.example/3"), "ручной refreshAll должен обновлять autoUpdate=false");
   assert.equal(res.filter((r) => r.ok).length, 6);
   assert.equal(res.find((r) => r.id === "s4")?.ok, false);
   assert.match(res.find((r) => r.id === "s4")?.error || "", /boom/);
