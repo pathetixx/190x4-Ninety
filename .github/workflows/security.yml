@@ -108,6 +108,15 @@ jobs:
           test "$(git -C hsb rev-parse HEAD)" = 9b6b004adfb079db2134b682f9b4ff42434c2f38
           (
             cd hsb
+            GOTOOLCHAIN=local go get \
+              filippo.io/edwards25519@v1.1.1 \
+              github.com/go-chi/chi/v5@v5.3.0 \
+              github.com/klauspost/compress@v1.18.7 \
+              golang.org/x/crypto@v0.53.0 \
+              golang.org/x/net@v0.56.0 \
+              golang.org/x/text@v0.39.0 \
+              google.golang.org/grpc@v1.82.1
+            GOTOOLCHAIN=local go mod tidy
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o "$tmpdir/sing-box" ./cmd/sing-box
             govulncheck -mode=binary "$tmpdir/sing-box"
           )
