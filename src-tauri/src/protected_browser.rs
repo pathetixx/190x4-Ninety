@@ -147,6 +147,20 @@ mod windows_impl {
     use std::path::{Path, PathBuf};
     use std::process::Command;
     use windows::core::{Interface, BSTR, PCWSTR};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Security::Cryptography::{
+        CertGetNameStringW, CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE,
+    };
+    use windows::Win32::Security::WinTrust::{
+        WTHelperGetProvCertFromChain, WTHelperGetProvSignerFromChain,
+        WTHelperProvDataFromStateData, WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2,
+        WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO, WTD_CHOICE_FILE,
+        WTD_REVOCATION_CHECK_CHAIN, WTD_REVOKE_WHOLECHAIN, WTD_STATEACTION_CLOSE,
+        WTD_STATEACTION_VERIFY, WTD_UICONTEXT_EXECUTE, WTD_UI_NONE,
+    };
+    use windows::Win32::Storage::FileSystem::{
+        GetFileAttributesW, FILE_ATTRIBUTE_REPARSE_POINT, INVALID_FILE_ATTRIBUTES,
+    };
     use windows::Win32::System::Com::{
         CoAllowSetForegroundWindow, CoCreateInstance, CoInitializeEx, CoUninitialize, IDispatch,
         IServiceProvider, CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
@@ -210,15 +224,22 @@ mod windows_impl {
     }
 
     pub(super) fn launch(target: Option<&str>) -> Result<(), String> {
-        let browser = discover().ok_or("Mullvad Browser не найден")?;
+        let browser =
+            discover().ok_or("защищённый браузер не найден или не прошёл проверку подписи")?;
+        // Re-canonicalize, reject reparse points and verify Authenticode again
+        // immediately before spawning. Discovery is intentionally not treated as
+        // a durable trust decision because a user-writable path can change after
+        // status discovery.
+        let verified = verified_executable_path(&browser.path)
+            .ok_or("защищённый браузер не прошёл проверку подписи")?;
         // std::fs::canonicalize() на Windows обычно возвращает extended-length
         // путь (\\?\C:\...). Он подходит для проверки файла, но Windows Shell
         // и некоторые installers не принимают такую форму при запуске.
         let elevated = crate::elevation::is_elevated();
         let executable = if elevated {
-            without_extended_prefix(&browser.path)
+            without_extended_prefix(&verified)
         } else {
-            browser.path.clone()
+            verified
         };
         let working_dir = executable
             .parent()
@@ -402,7 +423,119 @@ mod windows_impl {
             return None;
         }
         let metadata = canonical.metadata().ok()?;
-        (metadata.is_file() && metadata.len() > 0).then_some(canonical)
+        if !metadata.is_file()
+            || metadata.len() == 0
+            // Проверяем и исходный путь, и canonical target: canonicalize
+            // follows junctions, поэтому проверка только target уже не видит
+            // reparse-компонент, через который к нему пришли.
+            || has_reparse_point(path)
+            || has_reparse_point(&canonical)
+        {
+            return None;
+        }
+        verify_authenticode(&canonical).then_some(canonical)
+    }
+
+    fn has_reparse_point(path: &Path) -> bool {
+        let mut current = path.to_path_buf();
+        loop {
+            let wide = to_wide(current.as_os_str());
+            let attributes = unsafe { GetFileAttributesW(PCWSTR(wide.as_ptr())) };
+            if attributes == INVALID_FILE_ATTRIBUTES
+                || (attributes & FILE_ATTRIBUTE_REPARSE_POINT.0) != 0
+            {
+                return true;
+            }
+            let Some(parent) = current.parent() else {
+                break;
+            };
+            if parent == current || parent.as_os_str().is_empty() {
+                break;
+            }
+            current = parent.to_path_buf();
+        }
+        false
+    }
+
+    fn certificate_subject(cert: *const CERT_CONTEXT) -> Option<String> {
+        if cert.is_null() {
+            return None;
+        }
+        unsafe {
+            let required =
+                CertGetNameStringW(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, None, None) as usize;
+            if !(2..=4096).contains(&required) {
+                return None;
+            }
+            let mut buffer = vec![0u16; required];
+            let written = CertGetNameStringW(
+                cert,
+                CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                0,
+                None,
+                Some(&mut buffer),
+            ) as usize;
+            let end = written.saturating_sub(1).min(buffer.len());
+            (end > 0).then(|| String::from_utf16_lossy(&buffer[..end]))
+        }
+    }
+
+    fn verify_authenticode(path: &Path) -> bool {
+        let wide = to_wide(path.as_os_str());
+        let mut file_info = WINTRUST_FILE_INFO {
+            cbStruct: std::mem::size_of::<WINTRUST_FILE_INFO>() as u32,
+            pcwszFilePath: PCWSTR(wide.as_ptr()),
+            ..Default::default()
+        };
+        let mut data = WINTRUST_DATA {
+            cbStruct: std::mem::size_of::<WINTRUST_DATA>() as u32,
+            dwUIChoice: WTD_UI_NONE,
+            fdwRevocationChecks: WTD_REVOKE_WHOLECHAIN,
+            dwUnionChoice: WTD_CHOICE_FILE,
+            Anonymous: WINTRUST_DATA_0 {
+                pFile: &mut file_info,
+            },
+            dwStateAction: WTD_STATEACTION_VERIFY,
+            dwProvFlags: WTD_REVOCATION_CHECK_CHAIN,
+            dwUIContext: WTD_UICONTEXT_EXECUTE,
+            ..Default::default()
+        };
+        let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+        let verified = unsafe {
+            let status = WinVerifyTrust(
+                HWND::default(),
+                &mut action,
+                &mut data as *mut WINTRUST_DATA as *mut core::ffi::c_void,
+            );
+            let mut allowed = status == 0;
+            if allowed {
+                let provider = WTHelperProvDataFromStateData(data.hWVTStateData);
+                let signer = if provider.is_null() {
+                    std::ptr::null_mut()
+                } else {
+                    WTHelperGetProvSignerFromChain(provider, 0, false, 0)
+                };
+                if signer.is_null() || (*signer).dwError != 0 || (*signer).csCertChain == 0 {
+                    allowed = false;
+                } else {
+                    let cert = WTHelperGetProvCertFromChain(signer, 0);
+                    allowed = !cert.is_null()
+                        && (*cert).dwError == 0
+                        && certificate_subject((*cert).pCert)
+                            .is_some_and(|subject| super::allowlisted_publisher(&subject));
+                }
+            }
+            // WinVerifyTrust keeps provider state alive until CLOSE. Always
+            // close it, including failed and unallowlisted signatures.
+            data.dwStateAction = WTD_STATEACTION_CLOSE;
+            let _ = WinVerifyTrust(
+                HWND::default(),
+                &mut action,
+                &mut data as *mut WINTRUST_DATA as *mut core::ffi::c_void,
+            );
+            allowed
+        };
+        verified
     }
 
     fn without_extended_prefix(path: &Path) -> PathBuf {
@@ -681,6 +814,18 @@ mod windows_impl {
     }
 }
 
+fn allowlisted_publisher(raw: &str) -> bool {
+    let normalized: String = raw
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    matches!(normalized.as_str(), "mullvad vpn ab")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -723,5 +868,14 @@ mod tests {
             parse_application_ini_version("[App]\nVersion=bad value"),
             None
         );
+    }
+
+    #[test]
+    fn publisher_allowlist_is_exact() {
+        assert!(allowlisted_publisher("Mullvad VPN AB"));
+        assert!(allowlisted_publisher("Mullvad VPN AB."));
+        assert!(!allowlisted_publisher("The Tor Project, Inc."));
+        assert!(!allowlisted_publisher("Mullvad Browser"));
+        assert!(!allowlisted_publisher("Fake Mullvad VPN AB"));
     }
 }

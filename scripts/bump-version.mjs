@@ -6,7 +6,7 @@
 //     version → бинарь, build-info.js, latest.json для OTA);
 //   src-tauri/Cargo.toml      — версия крейта;
 //   src-tauri/Cargo.lock      — пакет `ninety` (иначе cargo переписывал бы lock);
-//   package.json              — версия npm-обёртки;
+//   package.json + package-lock.json — версия npm-обёртки и lock metadata;
 //   site/app.js + index.html  — offline fallback версии сайта.
 //
 // Механизм чтения версии Tauri НЕ трогаем (напр. "version": "../package.json"):
@@ -43,6 +43,16 @@ function edit(rel, re, replacement) {
 // package.json + tauri.conf.json: первое "version": "X.Y.Z".
 const jsonRe = /("version"\s*:\s*")\d+\.\d+\.\d+(")/;
 edit("package.json", jsonRe, `$1${version}$2`);
+edit(
+  "package-lock.json",
+  /(\{\s*"name":\s*"ninety",\s*"version":\s*")\d+\.\d+\.\d+("\s*,)/s,
+  `$1${version}$2`,
+);
+edit(
+  "package-lock.json",
+  /("packages"\s*:\s*\{\s*""\s*:\s*\{\s*"name":\s*"ninety",\s*"version":\s*")\d+\.\d+\.\d+("\s*,)/s,
+  `$1${version}$2`,
+);
 edit("src-tauri/tauri.conf.json", jsonRe, `$1${version}$2`);
 
 // Cargo.toml: version = "X.Y.Z" в начале строки ([package] — зависимости идут с

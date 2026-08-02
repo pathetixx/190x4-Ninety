@@ -64,6 +64,16 @@ test("чужие схемы и мусор → null", () => {
   assert.equal(parseDeepLink("garbage"), null);
 });
 
+test("неизвестный action отклоняется до декодирования payload", () => {
+  assert.equal(parseDeepLink("ninety://evil/https%3A%2F%2Fexample.com%2Fsub"), null);
+  assert.equal(parseDeepLink("ninety://ImPoRt/https%3A%2F%2Fexample.com%2Fsub").url, "https://example.com/sub");
+});
+
+test("deep-link payload с control chars отклоняется, malformed encoding не вызывает exception", () => {
+  assert.equal(parseDeepLink("ninety://import/https%3A%2F%2Fexample.com%2F%00"), null);
+  assert.deepEqual(parseDeepLink("ninety://import/%E0%A4%A"), { url: "%E0%A4%A", name: "" });
+});
+
 test("safeAtobUrl: url-алфавит и паддинг", () => {
   assert.equal(safeAtobUrl(b64url("hello?x=1&y=2")), "hello?x=1&y=2");
   assert.equal(safeAtobUrl("%%%"), "");

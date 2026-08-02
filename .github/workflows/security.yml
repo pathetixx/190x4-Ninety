@@ -1,0 +1,110 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '29 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Node preflight
+        run: npm run preflight
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Audit production and development dependency tree
+        run: npm audit --audit-level=high
+
+  rustsec-and-policy:
+    name: RustSec and cargo-deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - name: RustSec advisory audit
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: src-tauri
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@67729d5c413db75907f0ad1e39bb04b9c868ff60 # v2
+        with:
+          tool: cargo-deny@0.19.0
+          fallback: cargo-install
+      - name: Check dependency policy
+        working-directory: src-tauri
+        run: cargo deny check --workspace --all-features --config ../deny.toml
+
+  codeql:
+    name: CodeQL JavaScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@717e230604b28efc38d8b4d3737d0611b16bc19a # v3.30.0
+        with:
+          languages: javascript
+          build-mode: none
+      - name: Analyze with CodeQL
+        uses: github/codeql-action/analyze@717e230604b28efc38d8b4d3737d0611b16bc19a # v3.30.0
+        with:
+          category: /language:javascript
+
+  go-sidecars:
+    name: Go sidecar dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25'
+          cache: false
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+      - name: Audit pinned sing-box fork
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v1.13.0.h5 https://github.com/hiddify/hiddify-sing-box.git hsb
+          test "$(git -C hsb rev-parse HEAD)" = 9b6b004adfb079db2134b682f9b4ff42434c2f38
+          (cd hsb && govulncheck ./...)
+      - name: Audit pinned Xray core
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v25.12.8 https://github.com/XTLS/Xray-core.git xray-core
+          test "$(git -C xray-core rev-parse HEAD)" = 81f8f398c7b2b845853b1e85087c6122acc6db0b
+          (cd xray-core && govulncheck ./...)

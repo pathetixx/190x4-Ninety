@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install NSIS
         shell: pwsh
@@ -88,14 +90,30 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # node --test glob args require Node 21+
-          node-version: 22
+          node-version-file: .nvmrc
+
+      - name: Node preflight
+        run: npm run preflight
+
+      - name: Install deps without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Run JS tests
-        run: npm test && npm run check:versions && npm run check:actions-pinned && npm run check:dpi-key-rotation
+        run: npm test && npm run test:coverage && npm run check:versions && npm run check:actions-pinned && npm run check:dpi-key-rotation
+
+      - name: Upload JS coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: js-coverage-${{ github.sha }}
+          path: coverage/lcov.info
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Test release scripts
         run: python3 -m unittest discover -s tests -p 'test_*.py'
@@ -105,10 +123,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version-file: .nvmrc
+
+      - name: Node preflight
+        run: npm run preflight
 
       # package-lock.json закоммичен → детерминированная установка через npm ci.
       - name: Install deps
@@ -124,6 +147,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable

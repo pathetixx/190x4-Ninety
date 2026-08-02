@@ -18,6 +18,16 @@ import {
   splitHostPort,
 } from "/lib/url-helpers.js";
 import { parseLink, parseTrustTunnelToml, profileProto } from "/lib/protocol-parsers.js";
+import {
+  getActiveKindFromStore,
+  getActiveProfileIdFromStore,
+  getActiveSubscriptionIdFromStore,
+  loadProfilesFromStore,
+  loadSubscriptionsFromStore,
+  saveProfilesToStore,
+  setActiveKindInStore,
+  setActiveProfileIdInStore,
+} from "/lib/profile-store.js";
 
 export {
   parseHysteria2,
@@ -33,10 +43,6 @@ export {
   profileProto,
 } from "/lib/protocol-parsers.js";
 
-const PROFILES_KEY = "ninety.profiles.v1";
-const ACTIVE_KEY = "ninety.profiles.active";
-const ACTIVE_KIND_KEY = "ninety.active.kind";   // "single" | "sub"
-const ACTIVE_SUB_KEY = "ninety.subscriptions.active";
 const MODE_KEY = "ninety.mode";
 export const ENGINE_PROCESS_NAMES = [
   "sing-box.exe",
@@ -1307,23 +1313,19 @@ export function nodeTag(i, node) {
 
 // ── профили (storage) ──────────────────────────────────────
 export function loadProfiles() {
-  try {
-    const raw = localStorage.getItem(PROFILES_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+  return loadProfilesFromStore();
 }
 
 export function saveProfiles(list) {
-  localStorage.setItem(PROFILES_KEY, JSON.stringify(list));
+  saveProfilesToStore(list);
 }
 
 export function getActiveProfileId() {
-  return localStorage.getItem(ACTIVE_KEY);
+  return getActiveProfileIdFromStore();
 }
 
 export function setActiveProfileId(id) {
-  if (id) localStorage.setItem(ACTIVE_KEY, id);
-  else localStorage.removeItem(ACTIVE_KEY);
+  setActiveProfileIdInStore(id);
 }
 
 export function getActiveProfile() {
@@ -1356,16 +1358,15 @@ export function addTrustTunnelFromToml(tomlText, displayName) {
 
 // ── unified active source (profile | subscription) ─────────
 export function getActiveKind() {
-  return localStorage.getItem(ACTIVE_KIND_KEY) || "single";
+  return getActiveKindFromStore();
 }
 
 export function setActiveKind(kind) {
-  localStorage.setItem(ACTIVE_KIND_KEY, kind === "sub" ? "sub" : "single");
+  setActiveKindInStore(kind);
 }
 
 function loadSubsRaw() {
-  try { return JSON.parse(localStorage.getItem("ninety.subscriptions.v1")) || []; }
-  catch { return []; }
+  return loadSubscriptionsFromStore();
 }
 
 /**
@@ -1377,7 +1378,7 @@ function loadSubsRaw() {
 export function getActiveSource() {
   const kind = getActiveKind();
   if (kind === "sub") {
-    const subId = localStorage.getItem(ACTIVE_SUB_KEY);
+    const subId = getActiveSubscriptionIdFromStore();
     if (!subId) return null;
     const sub = loadSubsRaw().find(s => s.id === subId);
     if (!sub || !sub.profiles?.length) return null;
@@ -1388,9 +1389,10 @@ export function getActiveSource() {
 }
 
 export function removeProfile(id) {
+  const wasActive = getActiveProfileId() === id;
   const list = loadProfiles().filter(p => p.id !== id);
   saveProfiles(list);
-  if (getActiveProfileId() === id) {
+  if (wasActive) {
     setActiveProfileId(list[0]?.id ?? null);
   }
 }

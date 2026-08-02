@@ -4,9 +4,10 @@
 
 ## Sensitive storage
 
-Живые данные сейчас остаются в `localStorage`, а зашифрованный Rust/DPAPI backup
-только страхует их от потери. Автоматически удалять данные нельзя: это сломает
-профили пользователей.
+Живые профили и подписки теперь находятся в Rust-owned `profile-store.v1`, а
+зашифрованный Rust/DPAPI backup страхует их от потери. Legacy-ключи WebView
+удаляются только после успешного read-back/commit; при ошибке миграции они
+остаются fallback, чтобы не сломать профили пользователя.
 
 Чувствительные или потенциально чувствительные ключи:
 
@@ -26,16 +27,21 @@
   `ninety.traffic.*`, `ninety.sub.*.peakDays`, update resume, WARP history,
   quality profile и Wi-Fi trust/runtime state.
 - В `Настройки -> Общие` добавлена явная очистка профилей/подписок: она
-  останавливает VPN/DPI, чистит profile/subscription localStorage, отключает
-  логический DPI autostart и удаляет `state-backup.json/.bak/.tmp`. Runtime-
+  останавливает VPN/DPI, чистит Rust profile-store и legacy localStorage,
+  отключает логический DPI autostart и удаляет `state-backup.json/.bak/.tmp`.
+  Runtime-
   конфиги `singbox-current.json`, `xray-current.json` и bridge configs удаляет
   уже существующий `stop_singbox`.
+- `src-tauri/src/profile_store.rs` валидирует schema/ID/active-ссылки, делает
+  ревизионную optimistic-lock запись с `.bak`, fallback на backup и очищает
+  временные артефакты.
+- `src/lib/profile-store.js` сохраняет синхронный domain-фасад для UI, выполняет
+  legacy migration и удаляет чувствительные WebView-ключи только после успешной
+  записи Rust.
 
-Оставшийся безопасный порядок миграции:
-
-1. Вынести профили/подписки в Rust-side encrypted store. Frontend API оставить
-   похожим (`load/save`), миграция должна читать старый `localStorage`, записывать
-   DPAPI-store и оставлять rollback до подтверждённого успешного старта.
+Остаётся проверить на Windows: DPAPI/portable read-back, повреждение primary с
+восстановлением из `.bak`, перенос Portable-папки и downgrade-матрицу. Локальный
+VPS намеренно не запускает тяжёлые Rust/Tauri проверки.
 
 ## TrustTunnel TOML
 

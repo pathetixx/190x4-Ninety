@@ -106,24 +106,44 @@ fn storage_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("warp.json"))
 }
 
-// В установленной версии warp.json хранится DPAPI-блобом (см. secrets.rs).
-// Full Portable хранит JSON рядом с переносимым WebView-профилем: DPAPI сделал
-// бы его нечитаемым после переноса на другой ПК. Легаси plaintext читается как есть.
+// В установленной версии warp.json хранится versioned DPAPI-envelope (см.
+// secrets.rs). Full Portable по умолчанию не записывает новый секрет; после
+// явного пароля используется переносимый Argon2id/XChaCha envelope. Легаси
+// plaintext читается для миграции, но не остаётся форматом новых записей.
 fn read_info(app: &AppHandle) -> Option<WarpInfo> {
     let p = storage_path(app).ok()?;
-    let bytes = std::fs::read(&p).ok()?;
-    if crate::secrets::is_plaintext_json(&bytes) {
-        let info: WarpInfo = serde_json::from_slice(&bytes).ok()?;
-        // Миграция установленной версии на DPAPI (best-effort). Portable
-        // намеренно оставляет переносимый plaintext без бессмысленной перезаписи.
-        #[cfg(target_os = "windows")]
-        if !crate::app_paths::is_portable() {
-            let _ = write_info(app, &info);
+    for candidate in [
+        p.clone(),
+        p.with_extension("json.bak"),
+        p.with_extension("json.legacy.bak"),
+    ] {
+        let Ok(bytes) = std::fs::read(&candidate) else {
+            continue;
+        };
+        let legacy_plaintext = crate::secrets::is_plaintext_json(&bytes);
+        let Ok(plain) = crate::secrets::open_for_app(app, &bytes) else {
+            continue;
+        };
+        let Ok(info) = serde_json::from_slice::<WarpInfo>(&plain) else {
+            continue;
+        };
+        if legacy_plaintext && crate::secrets::can_persist_secrets() {
+            match crate::secrets::seal_for_app(app, &plain) {
+                Ok(sealed) => {
+                    if let Err(error) = crate::secrets::migrate_legacy_blob(
+                        &candidate,
+                        &sealed,
+                        "WARP legacy migration",
+                    ) {
+                        eprintln!("WARP legacy migration failed: {error}");
+                    }
+                }
+                Err(error) => eprintln!("WARP legacy sealing failed: {error}"),
+            }
         }
         return Some(info);
     }
-    let plain = crate::secrets::unseal(&bytes).ok()?;
-    serde_json::from_slice(&plain).ok()
+    None
 }
 
 fn write_info(app: &AppHandle, info: &WarpInfo) -> Result<(), String> {
@@ -139,6 +159,7 @@ fn delete_info(app: &AppHandle) -> Result<(), String> {
         p.clone(),
         p.with_extension("json.new"),
         p.with_extension("json.bak"),
+        p.with_extension("json.legacy.bak"),
     ] {
         if file.exists() {
             std::fs::remove_file(&file).map_err(|e| format!("remove {}: {e}", file.display()))?;

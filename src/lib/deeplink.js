@@ -19,6 +19,14 @@
 // ninety://import?url=...). Прежний паттерн (?:\/(.*))? требовал "/" — query-style
 // не матчился вовсе и молча игнорировался (поймано тестом).
 const NINETY_RE = /^ninety:\/\/([a-z]+)([/?].*)?$/i;
+export const ALLOWED_ACTIONS = new Set(["import", "config", "add"]);
+const MAX_DEEPLINK_LENGTH = 64 * 1024;
+const MAX_DEEPLINK_PAYLOAD_LENGTH = 48 * 1024;
+const MAX_DEEPLINK_NAME_LENGTH = 256;
+const hasControlChars = (value) => [...String(value)].some((char) => {
+  const code = char.codePointAt(0);
+  return code < 0x20 || code === 0x7f;
+});
 const TOP_LEVEL_PROTOS = [
   "vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "tuic", "sub",
   "tt", "naive+https", "naive+quic",
@@ -26,6 +34,7 @@ const TOP_LEVEL_PROTOS = [
 
 export function safeAtobUrl(s) {
   try {
+    if (String(s).length > MAX_DEEPLINK_PAYLOAD_LENGTH) return "";
     const cleaned = String(s).replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
     const padded = cleaned + "=".repeat((4 - cleaned.length % 4) % 4);
     return atob(padded);
@@ -34,7 +43,7 @@ export function safeAtobUrl(s) {
 
 export function parseDeepLink(rawUrl) {
   const raw = String(rawUrl || "").trim();
-  if (!raw) return null;
+  if (!raw || raw.length > MAX_DEEPLINK_LENGTH || raw.includes("\0")) return null;
 
   // top-level proto:// (vless/vmess/...) — opt-in
   const protoIdx = raw.indexOf("://");
@@ -54,7 +63,12 @@ export function parseDeepLink(rawUrl) {
   const m = raw.match(NINETY_RE);
   if (!m) return null;
   const action = m[1].toLowerCase();
+  // Проверяем действие до разбора query и декодирования payload. Иначе любой
+  // неизвестный action превращался в «обычный импорт» и мог получить новое
+  // значение, если handler когда-нибудь добавит action-specific поведение.
+  if (!ALLOWED_ACTIONS.has(action)) return null;
   let rest = m[2] || "";
+  if (rest.length > MAX_DEEPLINK_PAYLOAD_LENGTH) return null;
   if (rest.startsWith("/")) rest = rest.slice(1); // path-style; query-style оставляем с "?"
 
   // Хвост ?name=... — общий для import/config
@@ -67,7 +81,7 @@ export function parseDeepLink(rawUrl) {
     try {
       const params = new URLSearchParams(tail);
       const n = params.get("name");
-      if (n) name = n;
+      if (n && n.length <= MAX_DEEPLINK_NAME_LENGTH && !hasControlChars(n)) name = n;
       const u = params.get("url");
       if (u) queryUrl = u;
     } catch {}
@@ -75,9 +89,14 @@ export function parseDeepLink(rawUrl) {
   // ninety://import?url=... — путь пустой, URL пришёл в query
   if (!rest && queryUrl) rest = queryUrl;
 
+  // Сохраняем legacy-поведение для add/import с обычным сырым payload, но
+  // контролируем результат ниже: control chars и oversized payload всё равно
+  // отклоняются.
   try { rest = decodeURIComponent(rest); } catch {}
 
-  if (!rest) return null;
+  if (!rest || rest.length > MAX_DEEPLINK_PAYLOAD_LENGTH || hasControlChars(rest)) {
+    return null;
+  }
 
   if (action === "add") {
     // ninety://add/<base64-url> — раскрываем base64

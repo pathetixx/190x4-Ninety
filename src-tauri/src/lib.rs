@@ -9,6 +9,7 @@ mod dpi;
 mod health;
 mod killswitch;
 mod netproc;
+mod profile_store;
 mod protected_browser;
 mod quality;
 mod scanner;
@@ -737,6 +738,45 @@ pub fn run() {
                     return Err("backend ping failed during CI smoke".into());
                 }
                 if portable {
+                    // The portable profile store must use the same explicit
+                    // in-memory passphrase policy as state-backup.
+                    secrets::configure_portable_passphrase(
+                        "ci-smoke-only-passphrase-2026".to_string(),
+                    )?;
+                }
+                let profile_store_before = profile_store::profile_store_load(app.handle().clone())?;
+                let smoke_store = profile_store::ProfileStore {
+                    schema_version: 1,
+                    revision: profile_store_before.revision,
+                    profiles: vec![serde_json::json!({
+                        "id": "ci-smoke-profile",
+                        "proto": "vless",
+                        "host": "smoke.invalid"
+                    })],
+                    subscriptions: vec![],
+                    active: profile_store::ActiveSelection {
+                        kind: "single".into(),
+                        profile_id: Some("ci-smoke-profile".into()),
+                        subscription_id: None,
+                    },
+                    proxy_selection: std::collections::BTreeMap::from([(
+                        "single:ci-smoke-profile".into(),
+                        "node-smoke".into(),
+                    )]),
+                };
+                let _ = profile_store::profile_store_replace(
+                    app.handle().clone(),
+                    profile_store_before.revision,
+                    smoke_store,
+                )?;
+                let profile_store_after = profile_store::profile_store_load(app.handle().clone())?;
+                if profile_store_after.store.is_none()
+                    || profile_store_after.revision <= profile_store_before.revision
+                {
+                    return Err("profile store roundtrip failed during CI smoke".into());
+                }
+                profile_store::profile_store_clear(app.handle().clone(), None)?;
+                if portable {
                     for name in ["config", "data", "logs", "webview"] {
                         if !app_paths::portable_root()?.join(name).is_dir() {
                             return Err(format!("portable directory missing: {name}").into());
@@ -751,14 +791,18 @@ pub fn run() {
                         "ninety.profiles.v1": "[]",
                         "ninety.subscriptions.v1": "[]"
                     });
+                    // CI smoke intentionally exercises the portable encrypted
+                    // path with an ephemeral in-memory passphrase. Production
+                    // portable runs start in NoPersistentSecrets until the
+                    // user explicitly configures one from Settings.
                     backup::state_backup_save(app.handle().clone(), smoke_snapshot.to_string())?;
                     let snapshot = std::fs::read(
                         app_paths::portable_root()?
                             .join("config")
                             .join("state-backup.json"),
                     )?;
-                    if !secrets::is_plaintext_json(&snapshot) {
-                        return Err("portable state backup is not transferable".into());
+                    if !secrets::is_portable_envelope(&snapshot) {
+                        return Err("portable state backup is not encrypted envelope".into());
                     }
                 }
                 let handle = app.handle().clone();
@@ -782,6 +826,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ping,
             is_portable,
+            secrets::portable_secrets_status,
+            secrets::portable_secrets_set_passphrase,
+            secrets::portable_secrets_clear_passphrase,
+            secrets::portable_secrets_confirm_plaintext,
+            profile_store::profile_store_status,
+            profile_store::profile_store_load,
+            profile_store::profile_store_replace,
+            profile_store::profile_store_clear,
             is_autostarted,
             should_autoconnect,
             startup_deep_links,

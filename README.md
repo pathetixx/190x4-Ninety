@@ -101,6 +101,7 @@ About the project:
 - [Security](./SECURITY.md) — how to report vulnerabilities and other sensitive problems.
 - [Code signing policy](./CODE_SIGNING_POLICY.md) — release provenance, signing roles and which artifacts are covered.
 - [Contributing](./CONTRIBUTING.md) — what to include in issues and pull requests.
+- [CI and security-gates](./docs/CI.md) — required checks, permissions, audits and SBOM.
 
 Release development:
 
@@ -112,7 +113,7 @@ Ninety is open source, but the components it controls can change system-wide net
 
 - Imported profiles and subscription URLs may contain credentials.
 - Remove secrets from logs and screenshots before posting them publicly.
-- WARP keys and state backups use Windows DPAPI where the backend supports it.
+- Installed Windows builds store live profiles/subscriptions, WARP keys and recovery snapshots in versioned Rust/DPAPI envelopes; legacy WebView keys are removed after a successful migration. Full Portable backend persistence defaults to `NoPersistentSecrets`; an explicit passphrase enables Argon2id + XChaCha20-Poly1305 and is kept only in memory. If Portable storage cannot be unlocked or migration fails, the legacy WebView copy is retained as a migration fallback. `PlaintextExplicitlyConfirmed` is available only after a separate warning and confirmation.
 - TUN mode, DPI tools and the kill switch modify Windows networking. Check the selected settings before enabling them.
 - Ninety does not guarantee anonymity.
 
@@ -131,11 +132,12 @@ The full breakdown is available in [Architecture](./docs/architecture.md).
 Requirements:
 
 - Rust stable.
-- Node.js 18 or newer.
+- Node.js 20.19 or newer. Node.js 22 LTS is recommended.
 - MSVC build tools.
 - A Windows environment for complete Tauri builds.
 
 ```powershell
+npm run preflight
 npm install
 npm run tauri dev
 npm run tauri build

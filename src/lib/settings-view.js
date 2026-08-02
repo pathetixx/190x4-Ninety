@@ -247,6 +247,7 @@ export function mountSettings(root, opts = {}) {
       });
     });
     bindAlwaysAdmin(el, sec);
+    bindPortableSecrets(el, sec);
     bindWarpSection(el, sec, onChange);
     bindSensitiveDataClear(el, sec, onSensitiveDataClear);
     bindAppearanceSection(el, sec);
@@ -363,6 +364,79 @@ export function mountSettings(root, opts = {}) {
         alert(t("settings.general.adminSaveErr", { err: e?.message || e }));
       }
     });
+  }
+
+  async function bindPortableSecrets(el, sec) {
+    if (sec.key !== "general") return;
+    const invoke = window.__TAURI__?.core?.invoke;
+    const rowEl = el.querySelector("[data-portable-secrets-row]");
+    const setBtn = el.querySelector("[data-action='portable-secrets-set']");
+    const clearBtn = el.querySelector("[data-action='portable-secrets-clear']");
+    const plainBtn = el.querySelector("[data-action='portable-secrets-plain']");
+    if (!invoke || !rowEl || !setBtn || !clearBtn || !plainBtn) return;
+
+    const copy = getLang() === "ru"
+      ? {
+          prompt: "Введите passphrase для portable-хранилища (не короче 12 символов). Он не будет сохранён.",
+          configured: "Portable-хранилище защищено до завершения этого запуска.",
+          cleared: "Portable-пароль удалён из памяти.",
+          plaintextConfirm: "Разрешить запись секретов без шифрования? Это оставит ключи и пароли в NinetyData. Продолжить только если вы осознанно принимаете этот риск.",
+          plaintextEnabled: "Разрешён явный plaintext-режим portable-хранилища.",
+        }
+      : {
+          prompt: "Enter a passphrase for Portable storage (at least 12 characters). It will not be saved.",
+          configured: "Portable storage is protected for this run.",
+          cleared: "The Portable passphrase was removed from memory.",
+          plaintextConfirm: "Allow secrets to be stored without encryption? Keys and passwords will remain in NinetyData. Continue only if you explicitly accept this risk.",
+          plaintextEnabled: "Explicit plaintext mode is enabled for Portable storage.",
+        };
+    try {
+      const status = await invoke("portable_secrets_status");
+      if (!status?.portable || !rowEl.isConnected) return;
+      rowEl.hidden = false;
+      const sync = (next) => {
+        clearBtn.hidden = !next?.configured;
+        plainBtn.hidden = !!next?.configured;
+        setBtn.textContent = next?.configured ? (getLang() === "ru" ? "Сменить пароль" : "Change passphrase") : (getLang() === "ru" ? "Задать пароль" : "Set passphrase");
+      };
+      sync(status);
+      setBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const passphrase = window.prompt(copy.prompt);
+        if (passphrase == null) return;
+        try {
+          await invoke("portable_secrets_set_passphrase", { passphrase });
+          sync({ configured: true });
+          toast(copy.configured, "success", 3000);
+        } catch (error) {
+          alert(error?.message || String(error));
+        }
+      });
+      clearBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        try {
+          await invoke("portable_secrets_clear_passphrase");
+          sync({ configured: false });
+          toast(copy.cleared, "info", 2600);
+        } catch (error) {
+          alert(error?.message || String(error));
+        }
+      });
+      plainBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!window.confirm(copy.plaintextConfirm)) return;
+        try {
+          await invoke("portable_secrets_confirm_plaintext");
+          sync({ configured: true });
+          toast(copy.plaintextEnabled, "warn", 4200);
+        } catch (error) {
+          alert(error?.message || String(error));
+        }
+      });
+    } catch {}
   }
 
   function bindSensitiveDataClear(el, sec, onClear) {
@@ -847,6 +921,21 @@ function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
 // ── Разделы ────────────────────────────────────────────────
 function renderGeneral(o) {
   const g = o.general || {};
+  const portableCopy = getLang() === "ru"
+    ? {
+        title: "Portable-хранилище",
+        hint: "Профили и подписки хранятся в Rust-owned profile-store. В Portable passphrase включает Argon2id + XChaCha20-Poly1305; пароль не сохраняется. Без него новые секреты не записываются, а legacy-копия WebView остаётся только как fallback миграции. Plaintext backend-хранилище доступно лишь после отдельного подтверждения.",
+        set: "Задать пароль",
+        clear: "Забыть пароль",
+        plain: "Разрешить plaintext",
+      }
+    : {
+        title: "Portable storage",
+        hint: "Profiles and subscriptions use the Rust-owned profile store. In Portable mode a passphrase enables Argon2id + XChaCha20-Poly1305; it is never saved. Without it, new secrets are not persisted and legacy WebView data remains only as a migration fallback. Plaintext backend storage is available only after explicit confirmation.",
+        set: "Set passphrase",
+        clear: "Forget passphrase",
+        plain: "Allow plaintext",
+      };
   return `
     <div class="settings-section">
       ${row(iconShield(), t("settings.general.adminTitle"), t("settings.general.adminHint"), `<span class="switch" id="always-admin-switch" data-on="false"></span>`)}
@@ -857,6 +946,9 @@ function renderGeneral(o) {
       ${row(iconShield(), t("settings.general.killTitle"), t("settings.general.killHint"), toggle("general.killSwitch", !!g.killSwitch))}
       ${row(iconEyeOff(), t("settings.general.geoTitle"), t("settings.general.geoHint"), toggle("general.disableGeoLookup", !!g.disableGeoLookup))}
       ${row(iconLock(), t("settings.general.subPrivacyTitle"), t("settings.general.subPrivacyHint"), toggle("general.allowDirectSubscriptionFallback", !!g.allowDirectSubscriptionFallback))}
+    </div>
+    <div class="settings-section" data-portable-secrets-row hidden>
+      ${row(iconLock(), portableCopy.title, portableCopy.hint, `<button class="btn btn--sm" data-action="portable-secrets-set" type="button">${escapeHtml(portableCopy.set)}</button><button class="btn btn--sm btn--danger" data-action="portable-secrets-clear" type="button" hidden>${escapeHtml(portableCopy.clear)}</button><button class="btn btn--sm btn--danger" data-action="portable-secrets-plain" type="button">${escapeHtml(portableCopy.plain)}</button>`)}
     </div>
     <div class="settings-section">
       ${row(iconUrl(), t("settings.general.testUrlTitle"), t("settings.general.testUrlHint"), inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}

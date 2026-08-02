@@ -1,8 +1,9 @@
 // Ninety · единая политика localStorage-ключей.
 //
-// В localStorage остаются живые настройки и импортированные профили. Rust-side
-// backup шифруется DPAPI, но не должен раздуваться runtime-телеметрией и
-// временными маркерами.
+// В localStorage остаются настройки и UI-состояние. Профили/подписки читаются
+// из Rust-owned profile-store; перечисленные ниже ключи нужны только для
+// legacy migration/recovery fallback. Rust-side backup шифруется DPAPI и не
+// должен раздуваться runtime-телеметрией и временными маркерами.
 
 const PREFIX = "ninety.";
 
@@ -13,6 +14,7 @@ export const STORAGE_KEYS = {
   subscriptions: "ninety.subscriptions.v1",
   subscriptionActive: "ninety.subscriptions.active",
   activeKind: "ninety.active.kind",
+  proxySelection: "ninety.proxy.selection.v1",
   mode: "ninety.mode",
   modeMigrated: "ninety.mode.migrated",
   strictTunnelPreviousMode: "ninety.privacy.strictTunnel.previousMode",
@@ -52,6 +54,7 @@ const PROFILE_STORAGE_KEYS = new Set([
   STORAGE_KEYS.subscriptions,
   STORAGE_KEYS.subscriptionActive,
   STORAGE_KEYS.activeKind,
+  STORAGE_KEYS.proxySelection,
 ]);
 
 const PROFILE_STORAGE_PREFIXES = [

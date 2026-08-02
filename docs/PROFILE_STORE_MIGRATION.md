@@ -2,17 +2,24 @@
 
 ## Status
 
-Design contract for moving sensitive profiles and subscriptions out of WebView `localStorage` into a Rust-owned encrypted store. This document intentionally makes no runtime changes by itself.
+Runtime implementation is now present: `profile-store.v1` is a Rust-owned,
+validated envelope protected by the existing DPAPI/portable policy. The
+frontend keeps a legacy fallback only until the first successful load/migration
+commit; after that commit the profile/subscription keys are removed from WebView
+`localStorage`. Windows runtime validation and the manual downgrade matrix still
+belong to the release gate.
 
 ## Problem
 
-The live copies of the following values are currently readable from the WebView profile:
+Legacy versions and an intentionally failed Portable migration may leave the
+following fallback copies readable from the WebView profile:
 
 - `ninety.profiles.v1` — node URLs, UUIDs, passwords and protocol keys;
 - `ninety.subscriptions.v1` — subscription URLs, imported nodes and credentials;
 - active profile/subscription identifiers and remembered node selection.
 
-The existing DPAPI backup protects recovery data on disk, but it does not protect the live `localStorage` copy from a future WebView XSS, injected frontend code or local inspection of the WebView profile.
+The Rust-owned store and DPAPI/portable envelope protect the normal live copy;
+the legacy fallback is retained only when migration cannot be committed.
 
 ## Goals
 
@@ -74,14 +81,32 @@ Requirements:
 
 ## Portable-mode decision
 
-Portable mode currently keeps the WebView profile and WARP state portable. DPAPI would break that contract after moving the folder to another PC.
+Portable mode keeps the WebView profile and WARP state portable. DPAPI would break
+that contract after moving the folder to another PC. The implemented storage
+policy is explicit: new secret writes are disabled until the user sets an
+in-memory passphrase; the passphrase envelope uses Argon2id and
+XChaCha20-Poly1305.
 
-The first implementation must choose one explicit behaviour and expose it in UI/documentation:
+The runtime exposes three explicit portable modes:
 
-1. **Compatibility-first:** portable profile-store remains plaintext and `NinetyData` is documented as sensitive; or
-2. **Passphrase mode:** derive an encryption key from a user passphrase with a memory-hard KDF and store only salt/parameters.
+1. **NoPersistentSecrets:** the default; without another choice, new secret writes fail closed;
+2. **PassphraseEncrypted:** derive an encryption key from a user passphrase with Argon2id and store only a versioned salt/nonce/encrypted envelope;
+3. **PlaintextExplicitlyConfirmed:** an additional UI warning creates a versioned confirmation marker and permits plaintext writes for users who explicitly accept that risk.
+
+Setting a passphrase removes the plaintext confirmation marker. Clearing the
+portable protection removes both choices and returns to `NoPersistentSecrets`.
+Legacy plaintext is readable for migration, but it never enables the third mode
+by itself.
 
 Do not silently use DPAPI in Full Portable mode.
+
+Portable backup policy: every new backup is written through the crash-safe
+same-directory temporary-file + fsync + replace helper. The previous snapshot is
+kept as `.bak`; failed replacement restores the previous primary. Legacy primary
+and `.bak` snapshots are validated independently and migrated only after a valid
+read. If the passphrase is absent, encrypted portable data stays untouched and
+the load fails closed instead of overwriting it. Crash dumps and diagnostics must
+not include passphrases, plaintext snapshots, URLs, keys or serialized payloads.
 
 ## Rust API contract
 
@@ -122,11 +147,16 @@ When no confirmed Rust store exists:
 5. Rust reads the file back, unseals it and verifies an exact normalized round trip;
 6. frontend loads the store through the normal Rust command and compares a non-secret digest.
 
-At this point `localStorage` remains intact.
+At this point `localStorage` is removed only after Rust has accepted the complete
+envelope and returned the committed revision. If IPC, validation, protection or
+atomic write fails, the legacy keys remain intact and the frontend continues in
+fallback mode.
 
 ### Phase 2 — shadow operation
 
-For at least one release, mutations are written to Rust first and mirrored to legacy `localStorage` only after Rust commit succeeds.
+After initialization, mutations update the in-memory domain state and are
+serialized through a Rust write queue. They are not mirrored back to
+`localStorage`; the encrypted recovery backup is the rollback copy.
 
 Read order:
 
@@ -139,14 +169,10 @@ A Rust write failure must not update the legacy mirror, active selection or UI s
 
 ### Phase 3 — runtime confirmation
 
-Migration is confirmed only after:
-
-- the selected source can be loaded from the Rust store;
-- config building succeeds;
-- when autoconnect was requested, the runtime reaches a confirmed connected snapshot;
-- the app records the running application version and store revision in the journal.
-
-Only then may the frontend remove sensitive legacy keys.
+The current implementation waits for the profile-store initialization before
+network bootstrap and removes legacy keys after a successful store
+load/migration commit. A later release can add a separate connected-runtime
+journal if the downgrade window requires it.
 
 ### Phase 4 — legacy cleanup
 
@@ -160,7 +186,9 @@ Remove only the migrated sensitive keys:
 
 Do not call `localStorage.clear()`.
 
-Keep a rollback export for one compatibility window. It must be generated from the confirmed Rust store and written only through the already encrypted backup path, not restored as a live localStorage copy during normal startup.
+Keep the recovery backup for the compatibility window. It is generated from the
+Rust store and written only through the encrypted backup path, not restored as a
+live localStorage copy when the Rust store is available.
 
 ## Failure and rollback matrix
 

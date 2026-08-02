@@ -21,6 +21,7 @@ Thumbs.db
 
 # Build outputs
 dist/
+coverage/
 *.msi
 *.exe.tmp
 src-tauri/windows/kurogane/kurogane-language.exe

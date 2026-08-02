@@ -1,13 +1,19 @@
-// Ninety · бэкап/восстановление localStorage через writable config dir.
+// Ninety · бэкап/восстановление UI-state и Rust-owned profile-store через
+// writable config dir.
 //
 // localStorage живёт в профиле WebView2 (каталог EBWebView): его сносят
 // чистилки диска, антивирусы и переустановка системы — юзер молча теряет
-// профили/подписки/настройки. Держим шифрованный снапшот
+// настройки. Профили/подписки берём из Rust-owned store. Держим шифрованный снапшот
 // восстанавливаемых ninety.*-ключей рядом с конфигами
 // (Rust: state_backup_save/load, файл state-backup.json) и на старте
 // восстанавливаем, если хранилище пусто.
 
 import { STORAGE_KEYS, shouldBackupStorageKey, shouldRestoreStorageKey } from "/lib/storage-policy.js";
+import {
+  profileStoreBackupEntries,
+  profileStoreIsPersisted,
+  restoreProfileStoreFromBackup,
+} from "/lib/profile-store.js";
 
 // Маркеры «хранилище живое»: есть хоть один — восстановление не нужно.
 const CORE_KEYS = ["ninety.options.v1", "ninety.profiles.v1", "ninety.subscriptions.v1"];
@@ -29,6 +35,24 @@ function snapshot({ includeUpdateResume = false } = {}) {
       out[k] = v;
       storedKeys++;
     }
+  }
+  // Профили теперь живут в Rust-owned store. В recovery backup сохраняем тот
+  // же совместимый набор строковых полей, но берём его из памяти, а не из
+  // WebView localStorage.
+  const profileEntries = profileStoreBackupEntries();
+  let profileData = false;
+  try {
+    profileData = JSON.parse(profileEntries[STORAGE_KEYS.profiles] || "[]").length > 0
+      || JSON.parse(profileEntries[STORAGE_KEYS.subscriptions] || "[]").length > 0
+      || !!profileEntries[STORAGE_KEYS.profileActive]
+      || !!profileEntries[STORAGE_KEYS.subscriptionActive]
+      || Object.keys(JSON.parse(profileEntries[STORAGE_KEYS.proxySelection] || "{}")).length > 0;
+  } catch {}
+  if (profileData || storedKeys > 0) {
+    for (const [key, value] of Object.entries(profileEntries)) {
+      if (out[key] == null) out[key] = value;
+    }
+    if (profileData) storedKeys += Object.keys(profileEntries).length;
   }
   // Дефолтные CORE-ключи нужны только чтобы частичный, но реальный storage дал
   // валидный snapshot. Полностью пустое хранилище не должно перетирать полезный
@@ -141,9 +165,16 @@ export async function restoreIfEmpty() {
   try { parsed = JSON.parse(raw); } catch { return false; }
   const snap = unwrapSnapshotEnvelope(parsed);
   if (!validateSnapshot(snap)) return false;
+  const profileKeys = new Set(Object.keys(profileStoreBackupEntries()));
+  const profileRestored = await restoreProfileStoreFromBackup(snap);
   const entries = Object.entries(snap).filter(([k, v]) =>
     !k.startsWith("__")
     && (shouldRestoreStorageKey(k) || k === STORAGE_KEYS.updateResume)
+    // If the Rust store accepted the snapshot, its profile fields have
+    // already been restored and must not be copied back into WebView storage.
+    // If IPC failed, keep the legacy fallback path alive instead of dropping
+    // the only recoverable copy of profiles/subscriptions.
+    && (!profileRestored || !profileKeys.has(k))
     && typeof v === "string");
   if (!entries.length) return false;
 
@@ -203,8 +234,21 @@ export function validateSnapshot(snap) {
 
 function storageIsCompleteAndValid() {
   const snap = Object.fromEntries(CORE_KEYS.map(k => [k, localStorage.getItem(k)]));
-  snap["ninety.active.kind"] = localStorage.getItem("ninety.active.kind") || "single";
-  snap["ninety.profiles.active"] = localStorage.getItem("ninety.profiles.active");
-  snap["ninety.subscriptions.active"] = localStorage.getItem("ninety.subscriptions.active");
+  const liveProfileEntries = profileStoreBackupEntries();
+  let hasLiveProfileData = false;
+  try {
+    hasLiveProfileData = JSON.parse(liveProfileEntries[STORAGE_KEYS.profiles] || "[]").length > 0
+      || JSON.parse(liveProfileEntries[STORAGE_KEYS.subscriptions] || "[]").length > 0
+      || !!liveProfileEntries[STORAGE_KEYS.profileActive]
+      || !!liveProfileEntries[STORAGE_KEYS.subscriptionActive]
+      || Object.keys(JSON.parse(liveProfileEntries[STORAGE_KEYS.proxySelection] || "{}")).length > 0;
+  } catch {}
+  if (snap[STORAGE_KEYS.options] == null && (profileStoreIsPersisted() || hasLiveProfileData)) {
+    // loadOptions() intentionally keeps defaults in memory without writing a
+    // plaintext options blob. A valid Rust profile store is enough to prevent
+    // an older recovery backup from overwriting newer live profiles.
+    snap[STORAGE_KEYS.options] = "{}";
+  }
+  Object.assign(snap, liveProfileEntries);
   return validateSnapshot(snap);
 }

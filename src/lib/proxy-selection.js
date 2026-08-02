@@ -1,4 +1,4 @@
-const STORAGE_KEY = "ninety.proxy.selection.v1";
+import { getProxySelectionFromStore, saveProxySelectionToStore } from "/lib/profile-store.js";
 
 export function selectionSourceKey(source) {
   if (source?.kind === "sub" && source.subscription?.id) return `sub:${source.subscription.id}`;
@@ -7,12 +7,7 @@ export function selectionSourceKey(source) {
 }
 
 function loadSelections() {
-  try {
-    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  } catch {
-    return {};
-  }
+  return getProxySelectionFromStore();
 }
 
 export function getRememberedProxySelection(source) {
@@ -27,7 +22,7 @@ export function rememberProxySelection(source, tag) {
   if (!key || typeof tag !== "string" || !tag) return false;
   const selections = loadSelections();
   selections[key] = tag;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(selections));
+  saveProxySelectionToStore(selections);
   // Критическое пользовательское состояние: main.js по событию сразу
   // зеркалирует localStorage в дисковый backup.
   try { window.dispatchEvent(new CustomEvent("ninety:proxy-selection-saved")); } catch {}

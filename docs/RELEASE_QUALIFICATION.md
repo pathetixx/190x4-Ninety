@@ -31,7 +31,8 @@ Windows, драйверов, UAC, обновления и SmartScreen.
 | Повторная установка после uninstall | [ ] | [ ] |
 | Путь установки с пробелами и Unicode | [ ] | [ ] |
 
-Проверить сохранение настроек/localStorage, WARP и state backup. После uninstall
+Проверить сохранение настроек, Rust profile-store, WARP и state backup; отдельно
+проверить миграцию legacy localStorage и Portable passphrase. После uninstall
 не должны оставаться процессы Ninety, sing-box, xray, naive, TrustTunnel или
 активные сетевые правила Ninety.
 

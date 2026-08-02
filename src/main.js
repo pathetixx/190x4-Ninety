@@ -56,6 +56,11 @@ import { toast } from "/lib/toast.js";
 import { FLAGS_BASE, flagIsoFromName as isoFromNodeName, stripFlag } from "/lib/flags.js";
 import { configureTrafficRuntime, startMeter, stopMeter, getMeasured, resetMeasured, sourceKeyOf } from "/lib/traffic-meter.js";
 import { clearProfileStorage } from "/lib/storage-policy.js";
+import {
+  clearProfileStore,
+  hasLegacySensitiveData,
+  initializeProfileStore,
+} from "/lib/profile-store.js";
 import { createQualityEngine } from "/lib/quality-engine.js";
 import { bus } from "/lib/bus.js";
 import { openQualityScope } from "/lib/quality-scope.js";
@@ -182,8 +187,26 @@ function maybeAutoLaunchProtectedBrowser() {
 // localStorage пуст, а снапшот в writable config dir есть — возвращаем ключи и
 // перезагружаем webview, чтобы все модули перечитали хранилище с нуля
 // (тема/язык/опции уже прочитаны дефолтами к этому моменту).
+async function unlockPortableSecretsForRecovery() {
+  try {
+    const status = await invoke("portable_secrets_status");
+    if (!status?.portable || status.configured
+      || (!status.hasPersistedSecrets && !hasLegacySensitiveData())) return;
+    const prompt = getLang() === "ru"
+      ? "В Ninety уже есть данные профилей. Введите passphrase portable-хранилища для защищённого переноса (он не будет сохранён):"
+      : "Ninety already has profile data. Enter the Portable storage passphrase for protected storage (it will not be saved):";
+    const passphrase = window.prompt(prompt);
+    if (passphrase == null || passphrase === "") return;
+    await invoke("portable_secrets_set_passphrase", { passphrase });
+  } catch (error) {
+    console.warn("portable secret unlock failed", error);
+  }
+}
+
 const restoreStateOnLaunch = (async () => {
   try {
+    await unlockPortableSecretsForRecovery();
+    await initializeProfileStore({ invoke, storage: localStorage });
     if (await restoreIfEmpty()) {
       location.reload();
       return true;
@@ -836,6 +859,7 @@ if (settingsRoot) {
         throw new Error(`остановка DPI не подтверждена: ${e?.message || e}`, { cause: e });
       }
       try { localStorage.setItem("ninety.dpi.enabled", "false"); } catch {}
+      await clearProfileStore();
       clearProfileStorage();
       await invoke("state_backup_clear");
       try { sessionStorage.removeItem("ninety.restore.attempted"); } catch {}
@@ -3273,6 +3297,10 @@ heroDisc?.addEventListener("click", () => handleConnectionIntent());
 
 // ── Bootstrap ──────────────────────────────────────────────
 if (locPing) locPing.textContent = `— ${t("units.ms")}`;
+window.addEventListener("ninety:profile-store-ready", () => {
+  refreshProfilesSummary();
+  syncTrayMenu();
+});
 refreshProfilesSummary();
 updateHeroHint();
 syncTrayMenu();

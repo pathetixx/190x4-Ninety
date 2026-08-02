@@ -41,6 +41,9 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # без него dns_probe считал живой DoH-резолвер мёртвым — watchdog спамил фолбэком.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json", "http2"] }
 base64 = { version = "0.23", default-features = false, features = ["std"] }
+argon2 = "0.5"
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc", "getrandom"] }
+zeroize = "1"
 # Проверка подписи канала стратегий (minisign — тот же ключ, что у OTA-апдейтера).
 minisign-verify = "0.2"
 # Распаковка подписанного бандла канала (после верификации байтов).
@@ -68,6 +71,10 @@ windows = { version = "0.62", features = [
     "Win32_Security",
     # DPAPI (CryptProtectData) — шифрование warp.json / state-backup.json (secrets.rs).
     "Win32_Security_Cryptography",
+    "Win32_Security_Cryptography_Catalog",
+    "Win32_Security_Cryptography_Sip",
+    # Authenticode / WinVerifyTrust для Protected Browser.
+    "Win32_Security_WinTrust",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
     "Win32_System_Ole",

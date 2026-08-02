@@ -46,14 +46,15 @@ Prefer:
 
 Requirements:
 
-- Node.js 18 or newer;
+- Node.js 20.19 or newer (Node.js 22 LTS is recommended);
 - Rust stable;
 - MSVC build tools;
 - Windows for full Tauri builds and Windows API behavior.
 
-Install JavaScript dependencies:
+Check the Node.js version and install JavaScript dependencies:
 
 ```powershell
+npm run preflight
 npm install
 ```
 

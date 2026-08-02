@@ -8,13 +8,17 @@ import { loadOptions } from "/lib/options.js";
 import { safeDecodeBase64 } from "/lib/url-helpers.js";
 import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
+import {
+  getActiveSubscriptionIdFromStore,
+  loadSubscriptionsFromStore,
+  saveSubscriptionsToStore,
+  setActiveSubscriptionIdInStore,
+} from "/lib/profile-store.js";
 
 export { safeDecodeBase64 };
 
 const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt):\/\/|naive\+[a-z]+:\/\/)/i;
 
-const SUBS_KEY = "ninety.subscriptions.v1";
-const ACTIVE_SUB_KEY = "ninety.subscriptions.active";
 const REFRESH_ALL_CONCURRENCY = 3;
 
 const invoke = window.__TAURI__?.core?.invoke
@@ -109,14 +113,11 @@ export function detectAddInput(raw) {
 
 // ── storage ────────────────────────────────────────────────
 export function loadSubscriptions() {
-  try {
-    const raw = localStorage.getItem(SUBS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+  return loadSubscriptionsFromStore();
 }
 
 export function saveSubscriptions(list) {
-  localStorage.setItem(SUBS_KEY, JSON.stringify(list));
+  saveSubscriptionsToStore(list);
 }
 
 // Stable ID переживает rename/reorder и повторный refresh. Для новых одинаковых
@@ -159,12 +160,11 @@ function migrateRememberedSelection(id, previous = [], next = []) {
 }
 
 export function getActiveSubscriptionId() {
-  return localStorage.getItem(ACTIVE_SUB_KEY);
+  return getActiveSubscriptionIdFromStore();
 }
 
 export function setActiveSubscriptionId(id) {
-  if (id) localStorage.setItem(ACTIVE_SUB_KEY, id);
-  else localStorage.removeItem(ACTIVE_SUB_KEY);
+  setActiveSubscriptionIdInStore(id);
 }
 
 export function getActiveSubscription() {
@@ -174,9 +174,10 @@ export function getActiveSubscription() {
 }
 
 export function removeSubscription(id) {
+  const wasActive = getActiveSubscriptionId() === id;
   const list = loadSubscriptions().filter(s => s.id !== id);
   saveSubscriptions(list);
-  if (getActiveSubscriptionId() === id) {
+  if (wasActive) {
     setActiveSubscriptionId(list[0]?.id ?? null);
   }
 }
