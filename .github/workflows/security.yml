@@ -102,13 +102,25 @@ jobs:
         run: |
           set -euo pipefail
           tags="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,badlinkname,tfogo_checklinkname0,with_grpc,with_awg"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
           git clone --depth 1 --branch v1.13.0.h5 https://github.com/hiddify/hiddify-sing-box.git hsb
           test "$(git -C hsb rev-parse HEAD)" = 9b6b004adfb079db2134b682f9b4ff42434c2f38
-          (cd hsb && CGO_ENABLED=0 govulncheck -tags "$tags" ./cmd/sing-box)
+          (
+            cd hsb
+            CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o "$tmpdir/sing-box" ./cmd/sing-box
+            govulncheck -mode=binary "$tmpdir/sing-box"
+          )
       - name: Audit pinned Xray core
         shell: bash
         run: |
           set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
           git clone --depth 1 --branch v25.12.8 https://github.com/XTLS/Xray-core.git xray-core
           test "$(git -C xray-core rev-parse HEAD)" = 81f8f398c7b2b845853b1e85087c6122acc6db0b
-          (cd xray-core && CGO_ENABLED=0 govulncheck ./main)
+          (
+            cd xray-core
+            CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -ldflags "-s -w -buildid=" -o "$tmpdir/xray" ./main
+            govulncheck -mode=binary "$tmpdir/xray"
+          )
