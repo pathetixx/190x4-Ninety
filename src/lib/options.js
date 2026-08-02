@@ -316,35 +316,82 @@ export function saveOptions(opts) {
   return cloneOptions(cachedOptions);
 }
 
+// Keep option writes explicit.  A generic deep setter would turn a caller-
+// controlled path into a prototype-pollution primitive even when it filters a
+// few well-known property names.
+const OPTION_SETTERS = new Map([
+  ["region", (opts, value) => { opts.region = value; }],
+  ["blockAds", (opts, value) => { opts.blockAds = value; }],
+  ["general.autostart", (opts, value) => { opts.general.autostart = value; }],
+  ["general.startMinimized", (opts, value) => { opts.general.startMinimized = value; }],
+  ["general.linkHandlers", (opts, value) => { opts.general.linkHandlers = value; }],
+  ["general.autoProtectWifi", (opts, value) => { opts.general.autoProtectWifi = value; }],
+  ["general.killSwitch", (opts, value) => { opts.general.killSwitch = value; }],
+  ["general.disableGeoLookup", (opts, value) => { opts.general.disableGeoLookup = value; }],
+  ["general.allowDirectSubscriptionFallback", (opts, value) => { opts.general.allowDirectSubscriptionFallback = value; }],
+  ["privacy.strictTunnel", (opts, value) => { opts.privacy.strictTunnel = value; }],
+  ["privacy.protectedBrowserAutoLaunch", (opts, value) => { opts.privacy.protectedBrowserAutoLaunch = value; }],
+  ["warp.enabled", (opts, value) => { opts.warp.enabled = value; }],
+  ["warp.mode", (opts, value) => { opts.warp.mode = value; }],
+  ["warp.endpoint", (opts, value) => { opts.warp.endpoint = value; }],
+  ["warp.mtu", (opts, value) => { opts.warp.mtu = value; }],
+  ["warp.noisePreset", (opts, value) => { opts.warp.noisePreset = value; }],
+  ["warp.customNoise.count.from", (opts, value) => { opts.warp.customNoise.count.from = value; }],
+  ["warp.customNoise.count.to", (opts, value) => { opts.warp.customNoise.count.to = value; }],
+  ["warp.customNoise.size.from", (opts, value) => { opts.warp.customNoise.size.from = value; }],
+  ["warp.customNoise.size.to", (opts, value) => { opts.warp.customNoise.size.to = value; }],
+  ["warp.customNoise.delay.from", (opts, value) => { opts.warp.customNoise.delay.from = value; }],
+  ["warp.customNoise.delay.to", (opts, value) => { opts.warp.customNoise.delay.to = value; }],
+  ["warp.deepScan", (opts, value) => { opts.warp.deepScan = value; }],
+  ["warp.autoRescan", (opts, value) => { opts.warp.autoRescan = value; }],
+  ["warp.autoRescanIntervalMin", (opts, value) => { opts.warp.autoRescanIntervalMin = value; }],
+  ["warp.autoRescanThresholdMs", (opts, value) => { opts.warp.autoRescanThresholdMs = value; }],
+  ["log.level", (opts, value) => { opts.log.level = value; }],
+  ["log.disabled", (opts, value) => { opts.log.disabled = value; }],
+  ["urlTest.connectionTestUrl", (opts, value) => { opts.urlTest.connectionTestUrl = value; }],
+  ["urlTest.intervalSec", (opts, value) => { opts.urlTest.intervalSec = value; }],
+  ["dns.remoteAddress", (opts, value) => { opts.dns.remoteAddress = value; }],
+  ["dns.directAddress", (opts, value) => { opts.dns.directAddress = value; }],
+  ["dns.independentCache", (opts, value) => { opts.dns.independentCache = value; }],
+  ["dns.enableFakeDns", (opts, value) => { opts.dns.enableFakeDns = value; }],
+  ["route.bypassLan", (opts, value) => { opts.route.bypassLan = value; }],
+  ["route.resolveDestination", (opts, value) => { opts.route.resolveDestination = value; }],
+  ["route.ipv6Mode", (opts, value) => { opts.route.ipv6Mode = value; }],
+  ["route.tunSplitDiscord", (opts, value) => { opts.route.tunSplitDiscord = value; }],
+  ["route.processLookup", (opts, value) => { opts.route.processLookup = value; }],
+  ["route.customRules", (opts, value) => { opts.route.customRules = value; }],
+  ["inbound.mixedPort", (opts, value) => { opts.inbound.mixedPort = value; }],
+  ["inbound.mtu", (opts, value) => { opts.inbound.mtu = value; }],
+  ["inbound.tunStack", (opts, value) => { opts.inbound.tunStack = value; }],
+  ["inbound.strictRoute", (opts, value) => { opts.inbound.strictRoute = value; }],
+  ["inbound.allowConnectionFromLan", (opts, value) => { opts.inbound.allowConnectionFromLan = value; }],
+  ["tlsTricks.enableFragment", (opts, value) => { opts.tlsTricks.enableFragment = value; }],
+  ["tlsTricks.fragmentMode", (opts, value) => { opts.tlsTricks.fragmentMode = value; }],
+  ["tlsTricks.fragmentFallbackDelay", (opts, value) => { opts.tlsTricks.fragmentFallbackDelay = value; }],
+  ["tlsTricks.mixedSniCase", (opts, value) => { opts.tlsTricks.mixedSniCase = value; }],
+  ["tlsTricks.enablePadding", (opts, value) => { opts.tlsTricks.enablePadding = value; }],
+  ["tlsTricks.paddingSize.from", (opts, value) => { opts.tlsTricks.paddingSize.from = value; }],
+  ["tlsTricks.paddingSize.to", (opts, value) => { opts.tlsTricks.paddingSize.to = value; }],
+  ["mux.enable", (opts, value) => { opts.mux.enable = value; }],
+  ["mux.protocol", (opts, value) => { opts.mux.protocol = value; }],
+  ["mux.maxStreams", (opts, value) => { opts.mux.maxStreams = value; }],
+  ["mux.padding", (opts, value) => { opts.mux.padding = value; }],
+  ["experimental.enableClashApi", (opts, value) => { opts.experimental.enableClashApi = value; }],
+  ["experimental.clashApiPort", (opts, value) => { opts.experimental.clashApiPort = value; }],
+  ["quality.enabled", (opts, value) => { opts.quality.enabled = value; }],
+  ["quality.aggressive", (opts, value) => { opts.quality.aggressive = value; }],
+  ["quality.lowDataMode", (opts, value) => { opts.quality.lowDataMode = value; }],
+  ["quality.idleProbeSec", (opts, value) => { opts.quality.idleProbeSec = value; }],
+  ["quality.goodBps", (opts, value) => { opts.quality.goodBps = value; }],
+  ["quality.probeBytes", (opts, value) => { opts.quality.probeBytes = value; }],
+  ["quality.endpoints", (opts, value) => { opts.quality.endpoints = value; }],
+]);
+
 export function updateOption(path, value) {
-  const keys = path.split(".");
-  for (const key of keys) {
-    if (key === "__proto__" || key === "prototype" || key === "constructor") {
-      throw new TypeError("Unsafe option path");
-    }
-  }
+  const setter = OPTION_SETTERS.get(path);
+  if (!setter) throw new TypeError("Unsafe option path");
   const opts = loadOptions();
-  let cur = opts;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i];
-    if (!Object.prototype.hasOwnProperty.call(cur, key)
-        || typeof cur[key] !== "object"
-        || cur[key] === null) {
-      cur[key] = {};
-    }
-    cur = cur[key];
-  }
-  const leafKey = keys[keys.length - 1];
-  if (Object.prototype.hasOwnProperty.call(cur, leafKey)) {
-    cur[leafKey] = value;
-  } else {
-    Object.defineProperty(cur, leafKey, {
-      configurable: true,
-      enumerable: true,
-      value,
-      writable: true,
-    });
-  }
+  setter(opts, value);
   const normalized = saveOptions(opts);
   try {
     window.dispatchEvent(new CustomEvent("ninety:option-changed", {

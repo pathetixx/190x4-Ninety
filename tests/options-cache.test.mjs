@@ -67,5 +67,9 @@ test("updateOption rejects prototype-pollution paths", async () => {
     () => options.updateOption("constructor.prototype.ninetyPolluted", true),
     /unsafe option path/i,
   );
+  assert.throws(
+    () => options.updateOption("unknown.path", true),
+    /unsafe option path/i,
+  );
   assert.equal(({}).ninetyPolluted, undefined);
 });

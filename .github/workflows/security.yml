@@ -82,17 +82,6 @@ jobs:
         uses: github/codeql-action/analyze@f52b05f4acaaa234e44466e66d29050e135ea9ef # v4.36.0
         with:
           category: /language:javascript
-      - name: Inspect code scanning alert 4
-        if: always()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if ! gh api "/repos/${GITHUB_REPOSITORY}/code-scanning/alerts/4" \
-            --jq '{number, state, rule: {id, name, security_severity_level}, location: .most_recent_instance.location}'; then
-            echo "Code scanning alert 4 is not available to this workflow run."
-          fi
 
   go-sidecars:
     name: Go sidecar dependency audit
