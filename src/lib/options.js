@@ -317,19 +317,34 @@ export function saveOptions(opts) {
 }
 
 export function updateOption(path, value) {
-  const opts = loadOptions();
   const keys = path.split(".");
   for (const key of keys) {
     if (key === "__proto__" || key === "prototype" || key === "constructor") {
       throw new TypeError("Unsafe option path");
     }
   }
+  const opts = loadOptions();
   let cur = opts;
   for (let i = 0; i < keys.length - 1; i++) {
-    if (typeof cur[keys[i]] !== "object" || cur[keys[i]] === null) cur[keys[i]] = {};
-    cur = cur[keys[i]];
+    const key = keys[i];
+    if (!Object.prototype.hasOwnProperty.call(cur, key)
+        || typeof cur[key] !== "object"
+        || cur[key] === null) {
+      cur[key] = {};
+    }
+    cur = cur[key];
   }
-  cur[keys[keys.length - 1]] = value;
+  const leafKey = keys[keys.length - 1];
+  if (Object.prototype.hasOwnProperty.call(cur, leafKey)) {
+    cur[leafKey] = value;
+  } else {
+    Object.defineProperty(cur, leafKey, {
+      configurable: true,
+      enumerable: true,
+      value,
+      writable: true,
+    });
+  }
   const normalized = saveOptions(opts);
   try {
     window.dispatchEvent(new CustomEvent("ninety:option-changed", {
