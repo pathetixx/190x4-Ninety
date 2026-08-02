@@ -2,6 +2,18 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.49 — 2026-08-02
+
+## Русский
+
+- Устранено последнее предупреждение CodeQL о prototype pollution: запись настроек теперь выполняется только через явный список разрешённых путей, а неизвестные пути отклоняются.
+- Усилены проверки безопасности и надёжности перед выпуском; весь security-run проходит зелёным.
+
+## English
+
+- Fixed the final CodeQL prototype-pollution finding: option writes now use an explicit allowlist of supported paths and reject unknown paths.
+- Strengthened the pre-release security and reliability checks; the full security run is green.
+
 ## v0.2.48 — 2026-08-02
 
 ## Русский

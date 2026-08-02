@@ -62,7 +62,7 @@ edit("src-tauri/Cargo.toml", /^version = "\d+\.\d+\.\d+"/m, `version = "${versio
 // Cargo.lock: блок пакета ninety (version сразу под его name).
 edit(
   "src-tauri/Cargo.lock",
-  /(name = "ninety"\nversion = ")\d+\.\d+\.\d+(")/,
+  /(name = "ninety"\r?\nversion = ")\d+\.\d+\.\d+(")/,
   `$1${version}$2`,
 );
 
