@@ -46,12 +46,17 @@ impl RuntimeOperationKind {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeOperationToken {
     pub id: u64,
     pub kind: RuntimeOperationKind,
     pub generation: u64,
+    /// Safe identity supplied by the operation owner. This is deliberately
+    /// kept separate from the diagnostic hash: a verifier must compare the
+    /// active runtime with the exact source selected by the operation, not
+    /// with a value read back from RuntimeSnapshot.
+    pub expected_source_fingerprint: Option<String>,
     pub source_fingerprint_hash: Option<String>,
 }
 
@@ -61,6 +66,7 @@ pub struct RuntimeOperationSnapshot {
     pub id: u64,
     pub kind: RuntimeOperationKind,
     pub generation: u64,
+    pub expected_source_fingerprint: Option<String>,
     pub source_fingerprint_hash: Option<String>,
     pub started_at_ms: u64,
     pub cancelled: bool,
@@ -106,6 +112,7 @@ impl RuntimeOperationCoordinator {
             id: self.next_id.fetch_add(1, Ordering::SeqCst) + 1,
             kind,
             generation,
+            expected_source_fingerprint: source_fingerprint.map(str::to_string),
             source_fingerprint_hash: source_fingerprint.map(fingerprint_hash),
         };
         *active = Some(ActiveOperation {
@@ -121,6 +128,9 @@ impl RuntimeOperationCoordinator {
         active.as_ref().is_some_and(|current| {
             current.token.id == token.id
                 && current.token.kind == token.kind
+                && current.token.generation == token.generation
+                && current.token.expected_source_fingerprint == token.expected_source_fingerprint
+                && current.token.source_fingerprint_hash == token.source_fingerprint_hash
                 && !current.cancelled.load(Ordering::SeqCst)
         })
     }
@@ -130,7 +140,7 @@ impl RuntimeOperationCoordinator {
         let Some(current) = active.as_ref() else {
             return false;
         };
-        if current.token.id != token.id {
+        if current.token != *token {
             return false;
         }
         current.cancelled.store(true, Ordering::SeqCst);
@@ -144,7 +154,7 @@ impl RuntimeOperationCoordinator {
     pub fn complete(&self, token: &RuntimeOperationToken) -> bool {
         let mut active = self.active.lock_recover();
         if active.as_ref().is_some_and(|current| {
-            current.token.id == token.id && !current.cancelled.load(Ordering::SeqCst)
+            current.token == *token && !current.cancelled.load(Ordering::SeqCst)
         }) {
             *active = None;
             true
@@ -161,6 +171,7 @@ impl RuntimeOperationCoordinator {
                 id: current.token.id,
                 kind: current.token.kind,
                 generation: current.token.generation,
+                expected_source_fingerprint: current.token.expected_source_fingerprint.clone(),
                 source_fingerprint_hash: current.token.source_fingerprint_hash.clone(),
                 started_at_ms: current.started_at_ms,
                 cancelled: current.cancelled.load(Ordering::SeqCst),
@@ -531,6 +542,27 @@ mod tests {
         assert!(coordinator.cancel(&token));
         assert!(!coordinator.authorize(&token));
         assert!(coordinator.snapshot().is_none());
+    }
+
+    #[test]
+    fn operation_token_keeps_owner_identity_and_rejects_tampering() {
+        let coordinator = RuntimeOperationCoordinator::default();
+        let token = coordinator
+            .begin(
+                RuntimeOperationKind::SourceSwitch,
+                7,
+                Some("target-fingerprint"),
+            )
+            .unwrap();
+        assert_eq!(
+            token.expected_source_fingerprint.as_deref(),
+            Some("target-fingerprint")
+        );
+        assert!(coordinator.authorize(&token));
+
+        let mut forged = token.clone();
+        forged.expected_source_fingerprint = Some("other-fingerprint".into());
+        assert!(!coordinator.authorize(&forged));
     }
 
     #[tokio::test]

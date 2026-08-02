@@ -248,16 +248,28 @@ fn process_name_value(process: &str, process_path: &str) -> Value {
 }
 
 pub(crate) async fn clash_get_proxies_unchecked(port: u16) -> Result<Value, String> {
+    clash_get_proxies_unchecked_endpoint(&crate::vpn::ControlEndpoint {
+        address: std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+    })
+    .await
+}
+
+pub(crate) async fn clash_get_proxies_unchecked_endpoint(
+    endpoint: &crate::vpn::ControlEndpoint,
+) -> Result<Value, String> {
     let c = client()?;
     let r = c
-        .get(format!("{}/proxies", base(port)))
+        .get(format!("http://{}/proxies", endpoint.address))
         .bearer_auth(clash_secret())
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;
-    let value = json_response("get_proxies", port, r).await?;
+    let value = json_response("get_proxies", endpoint.address.port(), r).await?;
     if !value.get("proxies").is_some_and(Value::is_object) {
-        return Err(format!("get_proxies port={port}: invalid payload"));
+        return Err(format!(
+            "get_proxies port={}: invalid payload",
+            endpoint.address.port()
+        ));
     }
     Ok(value)
 }

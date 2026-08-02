@@ -226,6 +226,7 @@ export function initHealthWatchdog({
     if (dataplane.state === "inactive") return false;
     const dataplaneState = dataplane.dataplaneState || dataplane.state;
     const pressure = dataplane.hostPressure === true || dataplane.state === "pressure";
+    getQualityEngine()?.setExpectedGeneration?.(dataplane.generation);
     getQualityEngine()?.setHostPressure?.(pressure);
     if (lifecycleOperationActive) {
       // Rust owns the token and will reject stale callbacks.  Frontend only

@@ -183,14 +183,14 @@ test("ручное отключение во время проверки сох�
   assert.deepEqual(active, { kind: "single", id: "B" });
 });
 
-test("source switch удерживает один operation token через target и rollback", async () => {
+test("source switch creates a fresh identity-bound operation token for rollback", async () => {
   let active = { kind: "sub", id: "A" };
   const tokens = [];
   const completed = [];
   const controller = createSourceSwitchController({
     getActiveSource: () => active,
     applySource: (source) => { active = source; },
-    beginOperation: async () => ({ id: "switch-1", kind: "sourceSwitch" }),
+    beginOperation: async (target) => ({ id: target.id === "A" ? "switch-2" : "switch-1", kind: "sourceSwitch" }),
     completeOperation: async (token) => completed.push(token.id),
     reconnect: async (_reason, context) => {
       tokens.push(context.operationToken.id);
@@ -204,8 +204,8 @@ test("source switch удерживает один operation token через tar
 
   const result = await controller.activate({ kind: "sub", id: "B" });
   assert.equal(result.restored, true);
-  assert.deepEqual(tokens, ["switch-1", "switch-1"]);
-  assert.deepEqual(completed, ["switch-1"]);
+  assert.deepEqual(tokens, ["switch-1", "switch-2"]);
+  assert.deepEqual(completed, ["switch-2"]);
 });
 
 test("busy runtime coordinator rejects source switch without mutating active source", async () => {

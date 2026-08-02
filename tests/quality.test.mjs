@@ -20,6 +20,24 @@ function installStorage() {
 const GOOD = { ok: true, stalled: false, goodput_bps: 5_000_000, ttfb_ms: 40, bytes: 262144, ms: 500 };
 const STALLED = { ok: false, stalled: true, goodput_bps: 0, ttfb_ms: 30, bytes: 8192, ms: 900 };
 
+test("quality probe is bound to the expected runtime generation, never to a frontend port", async () => {
+  installStorage();
+  let received;
+  const engine = createQualityEngine({
+    invoke: async (command, args) => {
+      if (command === "probe_quality") received = args;
+      return GOOD;
+    },
+    actions: {},
+    opts: { enabled: true, expectedGeneration: 41 },
+  });
+  engine.onConnected({ expectedGeneration: 42 });
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(received.expectedGeneration, 42);
+  assert.equal(Object.hasOwn(received, "port"), false);
+});
+
 // Приводит движок в состояние «есть подозрение» (был поток → схлопнулся), чтобы
 // tick пробовал немедленно, не дожидаясь idle-heartbeat.
 function armSuspect(engine) {

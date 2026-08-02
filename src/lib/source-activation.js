@@ -185,20 +185,44 @@ export function createSourceSwitchController({
     }
 
     applySource(fallback);
+    let rollbackOperationToken = operationToken;
+    if (typeof beginOperation === "function") {
+      try {
+        rollbackOperationToken = await beginOperation(fallback, {
+          fallback: target,
+          token,
+          phase: "rollback",
+        });
+      } catch {
+        rollbackOperationToken = null;
+      }
+      if (!current(token, target)) {
+        if (rollbackOperationToken) await cancelOperation(rollbackOperationToken);
+        return { changed: true, stale: true, target };
+      }
+      if (!rollbackOperationToken) {
+        pending = null;
+        await cancelOperation(operationToken);
+        onRollbackFailed(fallback, target, options);
+        return { changed: true, ready: false, target, restored: false, fallback };
+      }
+      pending.operationToken = rollbackOperationToken;
+    }
     let restored = false;
     try {
       const rollbackConnected = await reconnect(options.rollbackReason, {
         phase: "rollback",
         target: fallback,
         failedTarget: target,
-        operationToken,
+        operationToken: rollbackOperationToken,
       });
       if (rollbackConnected === true && canContinue()) {
-        // Rollback is still part of the same SourceSwitch transaction.  A
+        // Rollback is part of the same user-visible SourceSwitch transaction,
+        // but it has its own identity-bound native operation token. A
         // successful reconnect alone is not proof that the fallback runtime
         // owns the expected generation/source or that its dataplane is live.
         restored = verdictKind(await confirm(fallback, {
-          token: operationToken,
+          token: rollbackOperationToken,
           isCurrent: () => current(token, target),
         })) === "ready";
       }
@@ -208,7 +232,7 @@ export function createSourceSwitchController({
     if (!current(token, target)) return { changed: true, stale: true, target };
     pending = null;
     if (restored) await persist(fallback);
-    await finish(operationToken);
+    await finish(rollbackOperationToken);
     if (restored) onRollback(fallback, target, options);
     else onRollbackFailed(fallback, target, options);
     return { changed: true, ready: false, target, restored, fallback };

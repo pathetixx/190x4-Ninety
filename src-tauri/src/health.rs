@@ -1257,14 +1257,11 @@ fn local_reason(
     }
 }
 
-async fn control_listener_ok(port: u16) -> bool {
-    if port == 0 {
-        return false;
-    }
+async fn control_listener_ok(endpoint: &crate::vpn::ControlEndpoint) -> bool {
     matches!(
         tokio::time::timeout(
             Duration::from_millis(500),
-            tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)),
+            tokio::net::TcpStream::connect(endpoint.address),
         )
         .await,
         Ok(Ok(_))
@@ -1276,11 +1273,11 @@ fn permit_is_current(app: &AppHandle, permit: &crate::runtime_ops::DataplaneProb
         .is_some_and(|state| state.dataplane_probe.is_current(permit))
 }
 
-/// Starts a monitor for one runtime generation. `probe_port=None` is still a
-/// valid runtime: the native status/control checks remain useful, but no
-/// arbitrary direct endpoint is introduced.
+/// Starts a monitor for one runtime generation. `probe_endpoint=None` is valid
+/// only for strict-privacy/passive monitoring: no arbitrary direct endpoint is
+/// introduced for external liveness checks.
 pub struct DataplaneWatchdogConfig {
-    pub probe_port: Option<u16>,
+    pub probe_endpoint: Option<crate::vpn::ProbeProxyEndpoint>,
     pub strict_privacy: bool,
     pub preserve_recovery_budget: bool,
     pub logs_disabled: bool,
@@ -1294,7 +1291,7 @@ pub fn start_dataplane_watchdog(
     config: DataplaneWatchdogConfig,
 ) {
     let DataplaneWatchdogConfig {
-        probe_port,
+        probe_endpoint,
         strict_privacy,
         preserve_recovery_budget,
         logs_disabled,
@@ -1365,7 +1362,10 @@ pub fn start_dataplane_watchdog(
             health.set_resources(generation, resources, scheduler_lateness);
             let status = crate::vpn::native_runtime_status(&app, generation);
             let control_ok = if status.clash_ready {
-                control_listener_ok(status.clash_port).await
+                match status.control_endpoint.as_ref() {
+                    Some(endpoint) => control_listener_ok(endpoint).await,
+                    None => false,
+                }
             } else {
                 false
             };
@@ -1413,7 +1413,7 @@ pub fn start_dataplane_watchdog(
                     resources,
                     scheduler_lateness,
                 );
-            } else if let Some(port) = probe_port {
+            } else if let Some(endpoint) = probe_endpoint.as_ref() {
                 let probe_coordinator = app
                     .try_state::<crate::vpn::SingboxState>()
                     .map(|state| state.dataplane_probe.clone());
@@ -1423,7 +1423,7 @@ pub fn start_dataplane_watchdog(
                         .await
                     {
                         Ok(permit) => {
-                            let probe = quality::probe_health_inner(Some(port)).await;
+                            let probe = quality::probe_health_inner(Some(endpoint)).await;
                             if !permit_is_current(&app, &permit) {
                                 health.record_probe_busy(generation, resources, scheduler_lateness);
                             } else {

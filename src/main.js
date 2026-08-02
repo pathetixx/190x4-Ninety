@@ -1107,10 +1107,12 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
 }
 
 async function verifyEmergencyDataplane() {
-  const options = loadOptions();
-  const port = Number(options.inbound?.mixedPort) || 7890;
   try {
-    const result = await invoke("probe_health", { port });
+    const snapshot = await invoke("runtime_snapshot");
+    runtimeSnapshotCache = snapshot;
+    const expectedGeneration = Number(snapshot?.processGeneration) || 0;
+    if (!snapshot?.running || !expectedGeneration) return false;
+    const result = await invoke("probe_health", { expectedGeneration });
     return result?.ok === true;
   } catch {
     return false;
@@ -1546,11 +1548,14 @@ function commitActiveSource(kind, id) {
 
 async function beginRuntimeOperation(kind, source = activeSourceRef()) {
   const snapshot = await invoke("runtime_snapshot").catch(() => null);
+  const identitySource = kind === "sourceSwitch"
+    ? sourceById(source?.kind, source?.id)
+    : (getActiveSource() || activeDisplaySource());
   try {
     return await invoke("begin_frontend_runtime_operation", {
       kind,
       generation: Number(snapshot?.processGeneration) || 0,
-      sourceFingerprint: source ? `${source.kind}:${source.id}` : null,
+      sourceFingerprint: sourceFingerprint(identitySource),
     });
   } catch (error) {
     console.warn(`unable to begin ${kind} runtime operation`, error);
@@ -1571,11 +1576,11 @@ async function verifyRuntimeOperationDataplane(operationToken) {
   if (!operationToken) return false;
   try {
     const snapshot = await invoke("runtime_snapshot");
+    runtimeSnapshotCache = snapshot;
     if (!snapshot?.running || !Number(snapshot.processGeneration)) return false;
     const verdict = await invoke("verify_runtime_dataplane", {
       operationToken,
       expectedGeneration: snapshot.processGeneration,
-      expectedSourceFingerprint: snapshot.sourceFingerprint || null,
     });
     return verdict?.status === "ready";
   } catch {
@@ -1601,6 +1606,7 @@ async function confirmActiveSourceDataplane(target, { token, isCurrent }) {
   }
   try {
     const snapshot = await invoke("runtime_snapshot");
+    runtimeSnapshotCache = snapshot;
     if (!isCurrent() || !sameSourceRef(activeSourceRef(), target)) return { status: "stale" };
     if (!snapshot?.running || !Number(snapshot.processGeneration)) {
       return { status: "hardFailed", reason: "runtime_not_running" };
@@ -1608,7 +1614,6 @@ async function confirmActiveSourceDataplane(target, { token, isCurrent }) {
     return await invoke("verify_runtime_dataplane", {
       operationToken: token,
       expectedGeneration: snapshot.processGeneration,
-      expectedSourceFingerprint: snapshot.sourceFingerprint || null,
     });
   } catch {
     return { status: "unverified", reason: "monitor_error" };
@@ -2361,8 +2366,8 @@ async function refreshPublicIp(epoch = connectAttempts.current()) {
   //   tun — probe-in слушает тот же порт; «напрямую» нельзя, т.к. собственный
   //     трафик Ninety.exe в TUN уходит в direct bypass-правилом (защита от петли)
   //     и IP-сервис увидел бы реальный IP, а не exit.
-  const port = loadOptions().inbound.mixedPort || 7890;
-  const proxyHostPort = `127.0.0.1:${port}`;
+  const proxyHostPort = runtimeProbeHostPort();
+  if (!proxyHostPort) return;
   try {
     const info = await fetchPublicIp({ proxyHostPort });
     if (state !== "connected" || !connectAttempts.isCurrent(epoch)) return;
@@ -2409,6 +2414,12 @@ let state = "idle";
 let networkBootstrapInProgress = true;
 let needsReconnect = false;
 let publicIpTimer = null;
+let runtimeSnapshotCache = null;
+
+function runtimeProbeHostPort(snapshot = runtimeSnapshotCache) {
+  const address = snapshot?.probeProxyEndpoint?.address;
+  return typeof address === "string" && address ? address : null;
+}
 // Поколение попытки подключения: «Отключить» во время старта ядра инкрементит
 // его, и завершившийся start_singbox видит отмену (см. heroDisc-обработчик) —
 // раньше быстрый connect→cancel всё равно заканчивался «Защищено».
@@ -2564,6 +2575,7 @@ function setState(next, opts = {}) {
   applyHomeBottom(next);
 
   if (next === "idle") {
+    runtimeSnapshotCache = null;
     needsReconnect = false;
     if (pendingReconnectTimer) { clearTimeout(pendingReconnectTimer); pendingReconnectTimer = null; }
     stopWarpRescanLoop();
@@ -2688,8 +2700,8 @@ function setState(next, opts = {}) {
       showQualityChip(false);
     } else {
       qualityEngine.onConnected({
-        port: loadOptions().inbound.mixedPort || 7890,
         ...loadOptions().quality,
+        expectedGeneration: runtimeIdentity.capture()?.processGeneration || null,
       });
       showQualityChip(loadOptions().quality?.enabled !== false);
     }
@@ -2925,8 +2937,9 @@ function runtimeSnapshotMatchesExpected(snapshot, source = activeDisplaySource()
     && snapshot.sourceFingerprint === sourceFingerprint(source)
     && snapshot.mode === getMode()
     && snapshot.strictPrivacy === strictPrivacyExpected
+    && typeof snapshot.controlEndpoint?.address === "string"
+    && (strictPrivacyExpected || typeof snapshot.probeProxyEndpoint?.address === "string")
     && (!strictPrivacyExpected || snapshot.pinnedNodeTag === expectedPinnedNodeTag)
-    && Number(snapshot.clashPort) === Number(options.experimental?.clashApiPort || 9090)
     && (getMode() !== "systemProxy" || snapshot.systemProxyOwnership === "owned")
     && (killSwitchExpected
       ? snapshot.killSwitchActive === true
@@ -2942,6 +2955,7 @@ function finalizeConnected(snapshot, {
   if (!runtimeSnapshotMatchesExpected(snapshot, source)) return false;
   if (token && !runtimeIdentity.isCurrent(token)) return false;
   runtimeIdentity.adopt(snapshot, { source });
+  runtimeSnapshotCache = snapshot;
   activeStrictPrivacyRuntime = snapshot.strictPrivacy === true;
   strictFailClosedLatched = snapshot.strictPrivacy === true;
   ordinaryFailClosedLatched = snapshot.strictPrivacy !== true
@@ -3164,9 +3178,13 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт
       // полный intercept через TUN-интерфейс.
       if (mode === "systemProxy") {
+        const probeHostPort = runtimeSnapshot.probeProxyEndpoint?.address;
+        if (typeof probeHostPort !== "string" || !probeHostPort) {
+          throw new Error("runtime snapshot не содержит probe endpoint для system proxy");
+        }
         await invoke("set_system_proxy", {
           enable: true,
-          hostPort: `127.0.0.1:${options.inbound.mixedPort || 7890}`,
+          hostPort: probeHostPort,
           bypassLan: options.route?.bypassLan !== false,
         });
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
@@ -3424,7 +3442,9 @@ syncTrayMenu();
 // probe-in на том же порту): панель не видит реальный IP. Если через прокси
 // не вышло, subscriptions.js повторяет напрямую.
 setSubscriptionProxy(() =>
-  state === "connected" ? `http://127.0.0.1:${loadOptions().inbound.mixedPort || 7890}` : null
+  state === "connected" && runtimeProbeHostPort()
+    ? `http://${runtimeProbeHostPort()}`
+    : null
 );
 
 // ── Бэкап состояния (localStorage → writable config dir) ────
@@ -3767,7 +3787,8 @@ async function flushPendingUpdate({ requireForeground = false } = {}) {
 // (reqwest не чтит системный прокси, в TUN трафик Ninety.exe уходит в direct
 // bypass-правилом) — у части провайдеров эндпоинты так недоступны вовсе.
 function updaterProxy() {
-  return state === "connected" ? `http://127.0.0.1:${loadOptions().inbound.mixedPort || 7890}` : null;
+  const hostPort = state === "connected" ? runtimeProbeHostPort() : null;
+  return hostPort ? `http://${hostPort}` : null;
 }
 
 // true — проверка ДОСТИГЛА сервера (апдейт есть или его нет); false — не смогли

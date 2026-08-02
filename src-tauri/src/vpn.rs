@@ -305,8 +305,30 @@ struct RuntimeRecord {
     mode: String,
     strict_privacy: bool,
     pinned_node_tag: Option<String>,
+    endpoints: RuntimeEndpoints,
     clash_port: u16,
     clash_ready: bool,
+}
+
+/// Control and dataplane addresses are intentionally different types.  A
+/// caller that has a ControlEndpoint cannot accidentally pass it to the HTTP
+/// proxy builder, and vice versa.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ControlEndpoint {
+    pub(crate) address: std::net::SocketAddr,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProbeProxyEndpoint {
+    pub(crate) address: std::net::SocketAddr,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RuntimeEndpoints {
+    pub(crate) control: ControlEndpoint,
+    pub(crate) probe_proxy: Option<ProbeProxyEndpoint>,
 }
 
 #[derive(Clone)]
@@ -322,6 +344,7 @@ struct RuntimeLaunchSpec {
     pinned_node_tag: Option<String>,
     system_proxy_bypass_lan: bool,
     kill_switch_expected: bool,
+    endpoints: Option<RuntimeEndpoints>,
 }
 
 #[derive(Clone, Default)]
@@ -1002,6 +1025,8 @@ pub struct RuntimeSnapshot {
     mode: Option<String>,
     strict_privacy: bool,
     pinned_node_tag: Option<String>,
+    control_endpoint: Option<ControlEndpoint>,
+    probe_proxy_endpoint: Option<ProbeProxyEndpoint>,
     clash_port: u16,
     clash_ready: bool,
     sidecars: serde_json::Value,
@@ -1017,18 +1042,115 @@ pub(crate) struct NativeRuntimeStatus {
     pub xray_alive: bool,
     pub sidecars_alive: bool,
     pub clash_ready: bool,
-    pub clash_port: u16,
+    pub control_endpoint: Option<ControlEndpoint>,
+    pub probe_proxy_endpoint: Option<ProbeProxyEndpoint>,
 }
 
-fn runtime_ports_from_config(raw: &str) -> Result<(u16, Vec<u16>), String> {
-    let value: serde_json::Value =
-        serde_json::from_str(raw).map_err(|e| format!("config json: {e}"))?;
-    let clash = value
+fn parse_endpoint_address(
+    raw: &str,
+    configured_port: Option<u16>,
+    label: &str,
+) -> Result<std::net::SocketAddr, String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err(format!("{label} address is empty"));
+    }
+    let address = if let Ok(address) = raw.parse::<std::net::SocketAddr>() {
+        if let Some(port) = configured_port {
+            if port == 0 || address.port() != port {
+                return Err(format!("{label} address/port mismatch"));
+            }
+        }
+        address
+    } else {
+        let ip = raw
+            .parse::<std::net::IpAddr>()
+            .map_err(|_| format!("{label} address is not a numeric IP address"))?;
+        let port = configured_port.ok_or_else(|| format!("{label} port is missing"))?;
+        if port == 0 {
+            return Err(format!("{label} port must be non-zero"));
+        }
+        std::net::SocketAddr::new(ip, port)
+    };
+    if address.port() == 0 {
+        return Err(format!("{label} port must be non-zero"));
+    }
+    Ok(address)
+}
+
+fn runtime_endpoints_from_value(value: &serde_json::Value) -> Result<RuntimeEndpoints, String> {
+    let control_raw = value
         .pointer("/experimental/clash_api/external_controller")
         .and_then(|v| v.as_str())
-        .and_then(|s| s.rsplit(':').next())
-        .and_then(|s| s.parse::<u16>().ok())
-        .ok_or_else(|| "Clash API не настроен".to_string())?;
+        .ok_or_else(|| "Clash control endpoint is not configured".to_string())?;
+    let control = parse_endpoint_address(control_raw, None, "Clash control endpoint")?;
+    if !control.ip().is_loopback() {
+        return Err("Clash control endpoint must be loopback".into());
+    }
+
+    let selected = value
+        .get("inbounds")
+        .and_then(|v| v.as_array())
+        .and_then(|inbounds| {
+            inbounds
+                .iter()
+                .find(|inbound| inbound.get("tag").and_then(|v| v.as_str()) == Some("probe-in"))
+                .or_else(|| {
+                    inbounds.iter().find(|inbound| {
+                        inbound.get("tag").and_then(|v| v.as_str()) == Some("mixed-in")
+                    })
+                })
+        });
+    let probe_proxy = if let Some(inbound) = selected {
+        if !matches!(
+            inbound.get("type").and_then(|v| v.as_str()),
+            Some("mixed") | Some("http")
+        ) {
+            return Err("probe inbound must use the mixed or http protocol".into());
+        }
+        let listen = inbound
+            .get("listen")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "probe inbound listen address is missing".to_string())?;
+        let listen_port = inbound
+            .get("listen_port")
+            .and_then(|v| v.as_u64())
+            .and_then(|port| u16::try_from(port).ok())
+            .ok_or_else(|| "probe inbound listen port is invalid".to_string())?;
+        let address = parse_endpoint_address(listen, Some(listen_port), "probe endpoint")?;
+        if !(address.ip().is_loopback() || address.ip().is_unspecified()) {
+            return Err("probe endpoint must be loopback or unspecified".into());
+        }
+        let address = if address.ip().is_unspecified() {
+            match address {
+                std::net::SocketAddr::V4(_) => std::net::SocketAddr::new(
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+                    address.port(),
+                ),
+                std::net::SocketAddr::V6(_) => std::net::SocketAddr::new(
+                    std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
+                    address.port(),
+                ),
+            }
+        } else {
+            address
+        };
+        Some(ProbeProxyEndpoint { address })
+    } else {
+        None
+    };
+
+    Ok(RuntimeEndpoints {
+        control: ControlEndpoint { address: control },
+        probe_proxy,
+    })
+}
+
+fn runtime_ports_from_value(
+    value: &serde_json::Value,
+    endpoints: &RuntimeEndpoints,
+) -> Result<(u16, Vec<u16>), String> {
+    let clash = endpoints.control.address.port();
     let mut ports = vec![clash];
     if let Some(inbounds) = value.get("inbounds").and_then(|v| v.as_array()) {
         for inbound in inbounds {
@@ -1059,33 +1181,31 @@ fn runtime_ports_from_config(raw: &str) -> Result<(u16, Vec<u16>), String> {
     Ok((clash, ports))
 }
 
-fn probe_port_from_config(raw: &str) -> Option<u16> {
-    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
-    value
-        .get("inbounds")
-        .and_then(|v| v.as_array())
-        .and_then(|inbounds| {
-            inbounds.iter().find_map(|inbound| {
-                let tag = inbound.get("tag").and_then(|v| v.as_str())?;
-                if tag != "probe-in" && tag != "mixed-in" {
-                    return None;
-                }
-                inbound
-                    .get("listen_port")
-                    .and_then(|v| v.as_u64())
-                    .and_then(|port| u16::try_from(port).ok())
-            })
-        })
+fn runtime_config_metadata_from_config(
+    raw: &str,
+) -> Result<(RuntimeEndpoints, u16, Vec<u16>), String> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| format!("config json: {e}"))?;
+    let endpoints = runtime_endpoints_from_value(&value)?;
+    let (clash_port, runtime_ports) = runtime_ports_from_value(&value, &endpoints)?;
+    Ok((endpoints, clash_port, runtime_ports))
 }
 
-async fn wait_clash_ready(port: u16, state: &SingboxState, start_epoch: u64) -> Result<(), String> {
+async fn wait_clash_ready(
+    control: &ControlEndpoint,
+    state: &SingboxState,
+    start_epoch: u64,
+) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
         ensure_start_current(state, start_epoch)?;
-        match crate::clash::clash_get_proxies_unchecked(port).await {
+        match crate::clash::clash_get_proxies_unchecked_endpoint(control).await {
             Ok(_) => return Ok(()),
             Err(e) if tokio::time::Instant::now() >= deadline => {
-                return Err(format!("Clash API port={port} не готов: {e}"))
+                return Err(format!(
+                    "Clash control endpoint port={} is not ready: {e}",
+                    control.address.port()
+                ))
             }
             Err(_) => tokio::time::sleep(std::time::Duration::from_millis(150)).await,
         }
@@ -1286,7 +1406,11 @@ fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> Run
         mode: record.as_ref().map(|r| r.mode.clone()),
         strict_privacy: record.as_ref().is_some_and(|r| r.strict_privacy),
         pinned_node_tag: record.as_ref().and_then(|r| r.pinned_node_tag.clone()),
-        clash_port: record.as_ref().map(|r| r.clash_port).unwrap_or(9090),
+        control_endpoint: record.as_ref().map(|r| r.endpoints.control.clone()),
+        probe_proxy_endpoint: record
+            .as_ref()
+            .and_then(|r| r.endpoints.probe_proxy.clone()),
+        clash_port: record.as_ref().map(|r| r.clash_port).unwrap_or(0),
         clash_ready: running && record.as_ref().is_some_and(|r| r.clash_ready),
         sidecars: serde_json::json!({ "xray": compute_xray_status(state), "clients": compute_sidecar_status(state) }),
         system_proxy_ownership: if proxy::system_proxy_owned() {
@@ -1327,29 +1451,47 @@ pub(crate) fn native_runtime_status(
         },
         clash_ready: generation_matches
             && record.as_ref().is_some_and(|runtime| runtime.clash_ready),
-        clash_port: record
-            .as_ref()
-            .map(|runtime| runtime.clash_port)
-            .unwrap_or(0),
+        control_endpoint: if generation_matches {
+            record
+                .as_ref()
+                .map(|runtime| runtime.endpoints.control.clone())
+        } else {
+            None
+        },
+        probe_proxy_endpoint: if generation_matches {
+            record
+                .as_ref()
+                .and_then(|runtime| runtime.endpoints.probe_proxy.clone())
+        } else {
+            None
+        },
     }
 }
 
-pub(crate) fn runtime_generation_for_probe(state: &SingboxState, port: Option<u16>) -> Option<u64> {
-    let requested_port = port.unwrap_or(0);
-    state.runtime.lock_recover().as_ref().and_then(|runtime| {
-        (requested_port == 0 || runtime.clash_port == requested_port)
-            .then_some(runtime.process_generation)
-    })
+pub(crate) fn probe_endpoint_for_generation(
+    state: &SingboxState,
+    expected_generation: Option<u64>,
+) -> Result<(u64, ProbeProxyEndpoint), &'static str> {
+    let runtime = state.runtime.lock_recover();
+    let runtime = runtime.as_ref().ok_or("runtime_unavailable")?;
+    if let Some(expected_generation) = expected_generation.filter(|generation| *generation != 0) {
+        if runtime.process_generation != expected_generation {
+            return Err("stale_generation");
+        }
+    }
+    let endpoint = runtime
+        .endpoints
+        .probe_proxy
+        .clone()
+        .ok_or("endpoint_unavailable")?;
+    Ok((runtime.process_generation, endpoint))
 }
 
-async fn local_clash_listener_ready(port: u16) -> bool {
-    if port == 0 {
-        return false;
-    }
+async fn local_clash_listener_ready(control: &ControlEndpoint) -> bool {
     matches!(
         tokio::time::timeout(
             std::time::Duration::from_millis(500),
-            tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)),
+            tokio::net::TcpStream::connect(control.address),
         )
         .await,
         Ok(Ok(_))
@@ -1432,16 +1574,8 @@ pub async fn verify_runtime_dataplane(
     state: State<'_, SingboxState>,
     operation_token: RuntimeOperationToken,
     expected_generation: u64,
-    expected_source_fingerprint: Option<String>,
 ) -> Result<RuntimeDataplaneVerification, String> {
-    Ok(verify_runtime_dataplane_inner(
-        &app,
-        &state,
-        operation_token,
-        expected_generation,
-        expected_source_fingerprint,
-    )
-    .await)
+    Ok(verify_runtime_dataplane_inner(&app, &state, operation_token, expected_generation).await)
 }
 
 async fn verify_runtime_dataplane_inner(
@@ -1449,8 +1583,88 @@ async fn verify_runtime_dataplane_inner(
     state: &SingboxState,
     operation_token: RuntimeOperationToken,
     expected_generation: u64,
-    expected_source_fingerprint: Option<String>,
 ) -> RuntimeDataplaneVerification {
+    let operation_id = operation_token.id;
+    let operation_kind = operation_token.kind;
+    let started = std::time::Instant::now();
+    let verdict =
+        verify_runtime_dataplane_unlogged(app, state, operation_token, expected_generation).await;
+    log_runtime_verification(
+        app,
+        state,
+        operation_id,
+        operation_kind,
+        expected_generation,
+        &verdict,
+        started.elapsed().as_millis() as u64,
+    );
+    verdict
+}
+
+fn log_runtime_verification(
+    app: &AppHandle,
+    state: &SingboxState,
+    operation_id: u64,
+    operation_kind: RuntimeOperationKind,
+    expected_generation: u64,
+    verdict: &RuntimeDataplaneVerification,
+    duration_ms: u64,
+) {
+    if state
+        .runtime_launch
+        .lock_recover()
+        .as_ref()
+        .is_some_and(|spec| spec.logs_disabled)
+    {
+        return;
+    }
+    let (control_port, probe_port) = state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .map(|runtime| {
+            (
+                runtime.endpoints.control.address.port(),
+                runtime
+                    .endpoints
+                    .probe_proxy
+                    .as_ref()
+                    .map(|endpoint| endpoint.address.port()),
+            )
+        })
+        .unwrap_or((0, None));
+    let (verdict_name, reason) = match verdict {
+        RuntimeDataplaneVerification::Ready => ("ready", None),
+        RuntimeDataplaneVerification::HardFailed { reason } => {
+            ("hard_failed", Some(reason.as_str()))
+        }
+        RuntimeDataplaneVerification::Unverified { reason } => {
+            ("unverified", Some(reason.as_str()))
+        }
+        RuntimeDataplaneVerification::Cancelled => ("cancelled", None),
+        RuntimeDataplaneVerification::Stale => ("stale", None),
+    };
+    append_runtime_diagnostic(
+        app,
+        &format!(
+            "source_verification operation_id={} kind={operation_kind:?} expected_generation={} control_role=clash_api control_port={} probe_role=dataplane_proxy probe_port={} verdict={} reason={} duration_ms={duration_ms}",
+            operation_id,
+            expected_generation,
+            control_port,
+            probe_port.map_or_else(|| "none".to_string(), |port| port.to_string()),
+            verdict_name,
+            reason.unwrap_or("none"),
+        ),
+    );
+}
+
+async fn verify_runtime_dataplane_unlogged(
+    app: &AppHandle,
+    state: &SingboxState,
+    operation_token: RuntimeOperationToken,
+    expected_generation: u64,
+) -> RuntimeDataplaneVerification {
+    let expected_source_fingerprint = operation_token.expected_source_fingerprint.as_deref();
     if !operation_is_current(app, &operation_token) {
         return RuntimeDataplaneVerification::Cancelled;
     }
@@ -1462,11 +1676,14 @@ async fn verify_runtime_dataplane_inner(
     ) {
         return RuntimeDataplaneVerification::Cancelled;
     }
-    if !runtime_identity_matches(
-        state,
-        expected_generation,
-        expected_source_fingerprint.as_deref(),
-    ) {
+    if operation_token.kind == RuntimeOperationKind::SourceSwitch
+        && expected_source_fingerprint.is_none()
+    {
+        return RuntimeDataplaneVerification::Unverified {
+            reason: "source_identity_unavailable".into(),
+        };
+    }
+    if !runtime_identity_matches(state, expected_generation, expected_source_fingerprint) {
         return RuntimeDataplaneVerification::Stale;
     }
 
@@ -1482,7 +1699,10 @@ async fn verify_runtime_dataplane_inner(
         };
     }
     let local_ready = if status.clash_ready {
-        local_clash_listener_ready(status.clash_port).await
+        match status.control_endpoint.as_ref() {
+            Some(control) => local_clash_listener_ready(control).await,
+            None => false,
+        }
     } else {
         false
     };
@@ -1491,11 +1711,7 @@ async fn verify_runtime_dataplane_inner(
     if !operation_is_current(app, &operation_token) {
         return RuntimeDataplaneVerification::Cancelled;
     }
-    if !runtime_identity_matches(
-        state,
-        expected_generation,
-        expected_source_fingerprint.as_deref(),
-    ) {
+    if !runtime_identity_matches(state, expected_generation, expected_source_fingerprint) {
         return RuntimeDataplaneVerification::Stale;
     }
     if !status.clash_ready || !local_ready {
@@ -1506,11 +1722,7 @@ async fn verify_runtime_dataplane_inner(
     if !operation_is_current(app, &operation_token) {
         return RuntimeDataplaneVerification::Cancelled;
     }
-    if !runtime_identity_matches(
-        state,
-        expected_generation,
-        expected_source_fingerprint.as_deref(),
-    ) {
+    if !runtime_identity_matches(state, expected_generation, expected_source_fingerprint) {
         return RuntimeDataplaneVerification::Stale;
     }
     if state.dataplane_health.snapshot().host_pressure {
@@ -1560,15 +1772,16 @@ async fn verify_runtime_dataplane_inner(
             return RuntimeDataplaneVerification::Cancelled;
         }
         if !state.dataplane_probe.is_current(&permit)
-            || !runtime_identity_matches(
-                state,
-                expected_generation,
-                expected_source_fingerprint.as_deref(),
-            )
+            || !runtime_identity_matches(state, expected_generation, expected_source_fingerprint)
         {
             return RuntimeDataplaneVerification::Stale;
         }
-        let result = crate::quality::probe_health_inner(Some(status.clash_port)).await;
+        let Some(probe_endpoint) = status.probe_proxy_endpoint.as_ref() else {
+            return RuntimeDataplaneVerification::Unverified {
+                reason: "endpoint_unavailable".into(),
+            };
+        };
+        let result = crate::quality::probe_health_inner(Some(probe_endpoint)).await;
         // A probe may finish after a superseding source switch, generation
         // replacement, or pressure transition.  Its result is not allowed to
         // release a transition barrier for the newer runtime.
@@ -1576,11 +1789,7 @@ async fn verify_runtime_dataplane_inner(
             return RuntimeDataplaneVerification::Cancelled;
         }
         if !state.dataplane_probe.is_current(&permit)
-            || !runtime_identity_matches(
-                state,
-                expected_generation,
-                expected_source_fingerprint.as_deref(),
-            )
+            || !runtime_identity_matches(state, expected_generation, expected_source_fingerprint)
         {
             return RuntimeDataplaneVerification::Stale;
         }
@@ -1600,7 +1809,7 @@ async fn verify_runtime_dataplane_inner(
                     || !runtime_identity_matches(
                         state,
                         expected_generation,
-                        expected_source_fingerprint.as_deref(),
+                        expected_source_fingerprint,
                     )
                 {
                     return RuntimeDataplaneVerification::Stale;
@@ -1647,6 +1856,7 @@ async fn start_singbox_inner(
         pinned_node_tag,
         system_proxy_bypass_lan,
         kill_switch_expected,
+        endpoints: expected_endpoints,
     } = spec;
     if !operation_is_current(&app, operation_token) {
         return Err("stale or cancelled runtime operation token".into());
@@ -1693,8 +1903,22 @@ async fn start_singbox_inner(
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
     let cache_path = singbox_cache_path(&app)?;
     let config_json = harden_config(&raw_config_json, Some(&cache_path));
-    let (clash_port, runtime_ports) = runtime_ports_from_config(&config_json)?;
-    let probe_port = probe_port_from_config(&config_json);
+    let (endpoints, clash_port, runtime_ports) = runtime_config_metadata_from_config(&config_json)?;
+    if expected_endpoints
+        .as_ref()
+        .is_some_and(|expected| expected != &endpoints)
+    {
+        return Err("runtime endpoint metadata changed during recovery".into());
+    }
+    if operation_token.kind == RuntimeOperationKind::SourceSwitch {
+        if operation_token.expected_source_fingerprint.is_none()
+            || operation_token.expected_source_fingerprint.as_deref()
+                != source_fingerprint.as_deref()
+        {
+            return Err("source identity changed during source switch".into());
+        }
+    }
+    let probe_endpoint = endpoints.probe_proxy.clone();
     *state.runtime_ports.lock_recover() = runtime_ports;
     let sidecar_specs: Option<Vec<SidecarSpec>> = sidecars_json
         .as_ref()
@@ -1779,7 +2003,7 @@ async fn start_singbox_inner(
         return Err("stale or cancelled runtime operation token".into());
     }
 
-    if let Err(e) = wait_clash_ready(clash_port, state, start_epoch).await {
+    if let Err(e) = wait_clash_ready(&endpoints.control, state, start_epoch).await {
         if let Some(child) = state.child.lock_recover().take() {
             let _ = child.kill();
         }
@@ -1798,6 +2022,7 @@ async fn start_singbox_inner(
         mode: mode.clone(),
         strict_privacy,
         pinned_node_tag: pinned_node_tag.clone(),
+        endpoints: endpoints.clone(),
         clash_port,
         clash_ready: true,
     });
@@ -1814,15 +2039,16 @@ async fn start_singbox_inner(
         pinned_node_tag: pinned_node_tag.clone(),
         system_proxy_bypass_lan,
         kill_switch_expected,
+        endpoints: Some(endpoints.clone()),
     });
-    if strict_privacy || probe_port.is_some() {
+    if strict_privacy || probe_endpoint.is_some() {
         health::start_dataplane_watchdog(
             app.clone(),
             state.dataplane_health.clone(),
             state.dataplane_generation.clone(),
             process_generation,
             health::DataplaneWatchdogConfig {
-                probe_port,
+                probe_endpoint,
                 strict_privacy,
                 preserve_recovery_budget,
                 logs_disabled,
@@ -1874,6 +2100,7 @@ pub async fn start_singbox(
             pinned_node_tag,
             system_proxy_bypass_lan: system_proxy_bypass_lan.unwrap_or(true),
             kill_switch_expected: kill_switch_expected.unwrap_or(false),
+            endpoints: None,
         },
         false,
         &operation_token,
@@ -2319,9 +2546,11 @@ async fn native_reapply_runtime_policy(
         return Err("native recovery operation became stale".into());
     }
     if spec.mode == "systemProxy" {
-        let port = probe_port_from_config(&spec.config_json)
-            .ok_or_else(|| "после native recovery не найден mixed-in порт".to_string())?;
-        let host_port = format!("127.0.0.1:{port}");
+        let probe_endpoint = snapshot
+            .probe_proxy_endpoint
+            .as_ref()
+            .ok_or_else(|| "native recovery probe endpoint is unavailable".to_string())?;
+        let host_port = probe_endpoint.address.to_string();
         proxy::set_system_proxy(true, Some(&host_port), Some(spec.system_proxy_bypass_lan))?;
         if !proxy::system_proxy_owned() {
             return Err("system proxy ownership не подтверждена после native recovery".into());
@@ -2334,7 +2563,10 @@ async fn native_reapply_runtime_policy(
     if !current.running || !current.clash_ready {
         return Err("native recovery runtime не прошёл readiness".into());
     }
-    if !local_clash_listener_ready(current.clash_port).await {
+    let Some(control_endpoint) = current.control_endpoint.as_ref() else {
+        return Err("native recovery control endpoint is unavailable".into());
+    };
+    if !local_clash_listener_ready(control_endpoint).await {
         return Err("native recovery local listener is unavailable".into());
     }
     if !operation_is_current(app, operation_token) {
@@ -2363,7 +2595,10 @@ async fn native_reapply_runtime_policy(
                 "native recovery generation became stale".to_string()
             }
         })?;
-    let result = crate::quality::probe_health_inner(Some(current.clash_port)).await?;
+    let Some(probe_endpoint) = current.probe_proxy_endpoint.as_ref() else {
+        return Err("native recovery probe endpoint is unavailable".into());
+    };
+    let result = crate::quality::probe_health_inner(Some(probe_endpoint)).await?;
     if !operation_is_current(app, operation_token) || !state.dataplane_probe.is_current(&permit) {
         return Err("native recovery generation became stale".into());
     }
@@ -2957,13 +3192,79 @@ mod tests {
     }
 
     #[test]
-    fn probe_port_follows_the_runtime_probe_inbound() {
-        let tun = r#"{"inbounds":[{"type":"tun","tag":"tun-in"},{"type":"mixed","tag":"probe-in","listen_port":8787}]}"#;
-        let proxy = r#"{"inbounds":[{"type":"mixed","tag":"mixed-in","listen_port":9898}]}"#;
-        let unrelated = r#"{"inbounds":[{"type":"mixed","tag":"other","listen_port":7777}]}"#;
-        assert_eq!(probe_port_from_config(tun), Some(8787));
-        assert_eq!(probe_port_from_config(proxy), Some(9898));
-        assert_eq!(probe_port_from_config(unrelated), None);
+    fn runtime_endpoints_prioritize_probe_in_and_keep_dynamic_roles_separate() {
+        let control = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let probe = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let raw = format!(
+            r#"{{
+                "experimental":{{"clash_api":{{"external_controller":"{control}"}}}},
+                "inbounds":[
+                    {{"type":"tun","tag":"tun-in"}},
+                    {{"type":"mixed","tag":"mixed-in","listen":"127.0.0.1","listen_port":{}}},
+                    {{"type":"mixed","tag":"probe-in","listen":"127.0.0.1","listen_port":{}}}
+                ]
+            }}"#,
+            control.port(),
+            probe.port()
+        );
+        let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let endpoints = runtime_endpoints_from_value(&value).unwrap();
+        assert_eq!(endpoints.control.address, control);
+        assert_eq!(
+            endpoints.probe_proxy.unwrap().address,
+            std::net::SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+                probe.port()
+            )
+        );
+        assert_ne!(endpoints.control.address, probe);
+    }
+
+    #[test]
+    fn runtime_endpoints_fallback_to_structurally_valid_mixed_in() {
+        let raw = r#"{
+            "experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}},
+            "inbounds":[{"type":"mixed","tag":"mixed-in","listen":"127.0.0.1","listen_port":9898}]
+        }"#;
+        let value: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let endpoints = runtime_endpoints_from_value(&value).unwrap();
+        assert_eq!(endpoints.control.address.port(), 9191);
+        assert_eq!(endpoints.probe_proxy.unwrap().address.port(), 9898);
+    }
+
+    #[test]
+    fn runtime_endpoints_do_not_fallback_to_control_or_unrelated_inbounds() {
+        let raw = r#"{
+            "experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}},
+            "inbounds":[{"type":"mixed","tag":"other","listen":"127.0.0.1","listen_port":7777}]
+        }"#;
+        let value: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let endpoints = runtime_endpoints_from_value(&value).unwrap();
+        assert_eq!(endpoints.control.address.port(), 9191);
+        assert!(endpoints.probe_proxy.is_none());
+    }
+
+    #[test]
+    fn runtime_endpoints_reject_non_local_or_wrong_probe_protocol() {
+        let non_local = r#"{
+            "experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}},
+            "inbounds":[{"type":"mixed","tag":"probe-in","listen":"192.0.2.1","listen_port":9898}]
+        }"#;
+        let non_local_value: serde_json::Value = serde_json::from_str(non_local).unwrap();
+        assert!(runtime_endpoints_from_value(&non_local_value).is_err());
+
+        let wrong_protocol = r#"{
+            "experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}},
+            "inbounds":[{"type":"socks","tag":"probe-in","listen":"127.0.0.1","listen_port":9898}]
+        }"#;
+        let wrong_protocol_value: serde_json::Value = serde_json::from_str(wrong_protocol).unwrap();
+        assert!(runtime_endpoints_from_value(&wrong_protocol_value).is_err());
     }
 
     #[test]
@@ -3150,7 +3451,9 @@ mod tests {
             {"server":"vpn.example","server_port":443}
           ]
         }"#;
-        let (clash, ports) = runtime_ports_from_config(raw).unwrap();
+        let value: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let endpoints = runtime_endpoints_from_value(&value).unwrap();
+        let (clash, ports) = runtime_ports_from_value(&value, &endpoints).unwrap();
         assert_eq!(clash, 9191);
         assert_eq!(ports, vec![7899, 9191, 31100]);
     }

@@ -89,8 +89,7 @@ export function createQualityEngine({
       endpoints: Array.isArray(o.endpoints) && o.endpoints.length
         ? o.endpoints
         : ["https://speed.cloudflare.com/__down?bytes=262144"],
-      // 0 = direct (TUN-режим); >0 = mixed-inbound порт. ?? сохраняет 0.
-      port: o.port ?? 7890,
+      expectedGeneration: Number(o.expectedGeneration) || 0,
     };
   }
 
@@ -131,7 +130,7 @@ export function createQualityEngine({
     lastProbeAt = now();
     try {
       const r = await invoke("probe_quality", {
-        port: cfg.port,
+        expectedGeneration: cfg.expectedGeneration || null,
         endpoints: cfg.endpoints,
         sampleBytes: cfg.probeBytes,
         budgetMs: 4000,
@@ -387,6 +386,10 @@ export function createQualityEngine({
     passive.length = 0;
   }
   function setOptions(o) { cfg = normalizeOpts({ ...cfg, ...o }); }
+  function setExpectedGeneration(generation) {
+    const value = Number(generation) || 0;
+    if (value > 0) cfg = normalizeOpts({ ...cfg, expectedGeneration: value });
+  }
   function setHostPressure(active) {
     const next = !!active;
     if (hostPressure === next) return;
@@ -428,7 +431,7 @@ export function createQualityEngine({
 
   return {
     onConnected, onIdle, tick, updatePassive, setOptions,
-    setHostPressure, requestProbeSoon, pauseForEmergency, resumeAfterEmergency,
+    setHostPressure, setExpectedGeneration, requestProbeSoon, pauseForEmergency, resumeAfterEmergency,
     getSamples: () => samples.slice(), // снимок ring-буфера для осциллограммы
     get state() { return lastState; },
     get isRemediating() { return remediatingEpoch === sessionEpoch; },

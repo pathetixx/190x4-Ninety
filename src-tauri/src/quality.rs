@@ -13,7 +13,8 @@
 //     bypass-правилом (защита от петли), и проба мерила бы голый канал, а не
 //     туннель. Правило inbound=probe-in → proxy/warp в buildRoute стоит ВЫШЕ
 //     bypass и гонит пробу сквозь аутбаунд.
-// port=None/0 (direct-клиент) оставлен для совместимости/отладки.
+// endpoint=None (direct-клиент) оставлен для внутренних strict/passive-путей и
+// отладки; пользовательские probe-команды получают endpoint от runtime.
 // В обоих режимах меряется плечо аутбаунда юзер→exit, где сидит ТСПУ.
 
 use serde::Serialize;
@@ -21,6 +22,7 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
 
 use crate::runtime_ops::{DataplaneProbeKind, ProbeAcquireError};
+use crate::vpn::ProbeProxyEndpoint;
 
 // Пороги детекта stall (подпись ТСПУ-занавеса). Держим РЯДОМ с дефолтами
 // quality-engine.js — если меняешь там, выровняй здесь.
@@ -175,11 +177,12 @@ fn quality_redirect_policy() -> reqwest::redirect::Policy {
     })
 }
 
-// Клиент пробы. port=Some(p>0) → через mixed-inbound (proxy/systemProxy);
-// иначе direct (tun — трафик и так в туннеле). БЕЗ общего .timeout(): тело
+// Клиент пробы. Some(ProbeProxyEndpoint) → через явный loopback mixed/probe
+// inbound (proxy/systemProxy); None оставляет direct только для внутренних
+// passive/strict-privacy путей. БЕЗ общего .timeout(): тело
 // стримим до budget_ms вручную, иначе reqwest оборвёт долгую (но живую) выборку
 // как ошибку. connect_timeout отдельный — мёртвый аутбаунд не висит весь бюджет.
-fn build_client(port: Option<u16>) -> Result<reqwest::Client, String> {
+fn build_client(endpoint: Option<&ProbeProxyEndpoint>) -> Result<reqwest::Client, String> {
     let mut b = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
         // Проверка исходного endpoint бессмысленна, если reqwest затем молча
@@ -188,12 +191,10 @@ fn build_client(port: Option<u16>) -> Result<reqwest::Client, String> {
         // корректно перейдёт к следующему endpoint.
         .redirect(quality_redirect_policy())
         .no_gzip(); // считаем сырые байты на проводе, не распакованные
-    if let Some(p) = port {
-        if p > 0 {
-            let proxy = reqwest::Proxy::all(format!("http://127.0.0.1:{p}"))
-                .map_err(|e| format!("proxy: {e}"))?;
-            b = b.proxy(proxy);
-        }
+    if let Some(endpoint) = endpoint {
+        let proxy = reqwest::Proxy::all(format!("http://{}", endpoint.address))
+            .map_err(|e| format!("proxy: {e}"))?;
+        b = b.proxy(proxy);
     }
     b.build().map_err(|e| format!("client: {e}"))
 }
@@ -204,14 +205,14 @@ fn build_client(port: Option<u16>) -> Result<reqwest::Client, String> {
 /// budget_ms; по дороге ловит stall. Возвращает метрики первого успешного (или
 /// последнюю ошибку, если все легли).
 pub(crate) async fn probe_quality_inner(
-    port: Option<u16>,
+    endpoint: Option<&ProbeProxyEndpoint>,
     endpoints: Vec<String>,
     sample_bytes: Option<u64>,
     budget_ms: Option<u64>,
 ) -> Result<ProbeResult, String> {
     let (sample_bytes, budget) = normalize_limits(sample_bytes, budget_ms);
     let endpoints = validate_endpoints(endpoints)?;
-    let client = build_client(port)?;
+    let client = build_client(endpoint)?;
 
     let mut last_err = ProbeResult::fail(String::new(), 0, "no endpoints".into());
     let overall = Instant::now();
@@ -232,7 +233,9 @@ pub(crate) async fn probe_quality_inner(
 /// have independent six-second timeouts and a seven-second coordinator budget:
 /// the primary starts immediately, the secondary starts after 750ms only if
 /// liveness is still unproven, and the losing request is aborted on success.
-pub(crate) async fn probe_health_inner(port: Option<u16>) -> Result<ProbeResult, String> {
+pub(crate) async fn probe_health_inner(
+    endpoint: Option<&ProbeProxyEndpoint>,
+) -> Result<ProbeResult, String> {
     let endpoints = validate_endpoints_with_allowlist(
         HEALTH_ENDPOINTS
             .iter()
@@ -241,7 +244,7 @@ pub(crate) async fn probe_health_inner(port: Option<u16>) -> Result<ProbeResult,
         ALLOWED_HEALTH_HOSTS,
         "health",
     )?;
-    let client = build_client(port)?;
+    let client = build_client(endpoint)?;
     let mut tasks = JoinSet::new();
     tasks.spawn(probe_health_endpoint(client.clone(), endpoints[0].clone()));
     let mut secondary_started = false;
@@ -285,17 +288,11 @@ fn is_false(value: &bool) -> bool {
 async fn probe_health_endpoint(client: reqwest::Client, endpoint: String) -> ProbeResult {
     let started = Instant::now();
     match tokio::time::timeout(HEALTH_ENDPOINT_TIMEOUT, client.get(&endpoint).send()).await {
-        Ok(Ok(response)) => ProbeResult {
-            ok: true,
-            goodput_bps: 0,
-            ttfb_ms: started.elapsed().as_millis() as u64,
-            bytes: 0,
-            ms: started.elapsed().as_millis() as u64,
-            stalled: false,
+        Ok(Ok(response)) => health_http_result(
             endpoint,
-            error: (!response.status().is_success()).then_some("probe_endpoint_rejected".into()),
-            skipped: false,
-        },
+            response.status(),
+            started.elapsed().as_millis() as u64,
+        ),
         Ok(Err(error)) => ProbeResult::fail(
             endpoint,
             started.elapsed().as_millis() as u64,
@@ -309,14 +306,40 @@ async fn probe_health_endpoint(client: reqwest::Client, endpoint: String) -> Pro
     }
 }
 
+fn health_http_result(
+    endpoint: String,
+    status: reqwest::StatusCode,
+    elapsed_ms: u64,
+) -> ProbeResult {
+    ProbeResult {
+        // Any valid HTTP response proves that the request reached the remote
+        // side.  HTTP status semantics belong to quality, not liveness.
+        ok: true,
+        goodput_bps: 0,
+        ttfb_ms: elapsed_ms,
+        bytes: 0,
+        ms: elapsed_ms,
+        stalled: false,
+        endpoint,
+        error: Some(format!("remote_http_response:{}", status.as_u16())),
+        skipped: false,
+    }
+}
+
 #[tauri::command]
 pub async fn probe_health(
     state: tauri::State<'_, crate::vpn::SingboxState>,
-    port: Option<u16>,
+    expected_generation: Option<u64>,
 ) -> Result<ProbeResult, String> {
-    let Some(generation) = crate::vpn::runtime_generation_for_probe(&state, port) else {
-        return probe_health_inner(port).await;
+    let Some(expected_generation) = expected_generation.filter(|generation| *generation != 0)
+    else {
+        return Ok(ProbeResult::skipped("generation_required"));
     };
+    let (generation, endpoint) =
+        match crate::vpn::probe_endpoint_for_generation(&state, Some(expected_generation)) {
+            Ok(value) => value,
+            Err(reason) => return Ok(ProbeResult::skipped(reason)),
+        };
     let permit = match state
         .dataplane_probe
         .acquire(DataplaneProbeKind::HealthProbe, generation, None)
@@ -328,7 +351,7 @@ pub async fn probe_health(
             return Ok(ProbeResult::skipped("stale_generation"))
         }
     };
-    let result = probe_health_inner(port).await?;
+    let result = probe_health_inner(Some(&endpoint)).await?;
     if !state.dataplane_probe.is_current(&permit) {
         return Ok(ProbeResult::skipped("stale_generation"));
     }
@@ -338,14 +361,20 @@ pub async fn probe_health(
 #[tauri::command]
 pub async fn probe_quality(
     state: tauri::State<'_, crate::vpn::SingboxState>,
-    port: Option<u16>,
+    expected_generation: Option<u64>,
     endpoints: Vec<String>,
     sample_bytes: Option<u64>,
     budget_ms: Option<u64>,
 ) -> Result<ProbeResult, String> {
-    let Some(generation) = crate::vpn::runtime_generation_for_probe(&state, port) else {
-        return probe_quality_inner(port, endpoints, sample_bytes, budget_ms).await;
+    let Some(expected_generation) = expected_generation.filter(|generation| *generation != 0)
+    else {
+        return Ok(ProbeResult::skipped("generation_required"));
     };
+    let (generation, endpoint) =
+        match crate::vpn::probe_endpoint_for_generation(&state, Some(expected_generation)) {
+            Ok(value) => value,
+            Err(reason) => return Ok(ProbeResult::skipped(reason)),
+        };
     let permit = match state
         .dataplane_probe
         .acquire(DataplaneProbeKind::QualityProbe, generation, None)
@@ -357,7 +386,7 @@ pub async fn probe_quality(
             return Ok(ProbeResult::skipped("stale_generation"))
         }
     };
-    let result = probe_quality_inner(port, endpoints, sample_bytes, budget_ms).await?;
+    let result = probe_quality_inner(Some(&endpoint), endpoints, sample_bytes, budget_ms).await?;
     if !state.dataplane_probe.is_current(&permit) {
         return Ok(ProbeResult::skipped("stale_generation"));
     }
@@ -535,6 +564,9 @@ fn calculate_goodput_bps(bytes: u64, elapsed_ms: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
     fn sub_millisecond_goodput_uses_one_millisecond_floor() {
@@ -628,5 +660,121 @@ mod tests {
             &initial,
             &reqwest::Url::parse("https://user@example.com/next").unwrap()
         ));
+    }
+
+    #[test]
+    fn every_valid_http_status_is_liveness_success() {
+        for status in [
+            reqwest::StatusCode::OK,
+            reqwest::StatusCode::NO_CONTENT,
+            reqwest::StatusCode::MOVED_PERMANENTLY,
+            reqwest::StatusCode::NOT_FOUND,
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+        ] {
+            let result = health_http_result("https://health.example/probe".into(), status, 12);
+            assert!(result.ok, "status {status} must prove reachability");
+            let expected = format!("remote_http_response:{}", status.as_u16());
+            assert_eq!(result.error.as_deref(), Some(expected.as_str()));
+        }
+    }
+
+    #[tokio::test]
+    async fn control_readiness_never_uses_control_endpoint_as_http_proxy() {
+        let control_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let control_address = control_listener.local_addr().unwrap();
+        let unexpected_proxy_requests = Arc::new(AtomicUsize::new(0));
+        let unexpected_proxy_requests_server = unexpected_proxy_requests.clone();
+        let control_server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut socket, _) = control_listener.accept().await.unwrap();
+                let mut request = vec![0u8; 4096];
+                let size = socket.read(&mut request).await.unwrap();
+                let request = String::from_utf8_lossy(&request[..size]);
+                if request.starts_with("CONNECT ") {
+                    unexpected_proxy_requests_server.fetch_add(1, Ordering::SeqCst);
+                    socket
+                        .write_all(b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n")
+                        .await
+                        .unwrap();
+                } else {
+                    socket
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{\"proxies\":{}}",
+                        )
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+
+        let control_client = reqwest::Client::new();
+        let readiness = control_client
+            .get(format!("http://{control_address}/proxies"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(readiness.status(), reqwest::StatusCode::OK);
+
+        let control_as_probe = ProbeProxyEndpoint {
+            address: control_address,
+        };
+        let client = build_client(Some(&control_as_probe)).unwrap();
+        assert!(client
+            .get("https://speed.cloudflare.com/")
+            .send()
+            .await
+            .is_err());
+        control_server.await.unwrap();
+        assert_eq!(unexpected_proxy_requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn probe_proxy_supports_positive_and_transport_failure_paths() {
+        let probe_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let probe_address = probe_listener.local_addr().unwrap();
+        let proxy_server = tokio::spawn(async move {
+            let (mut socket, _) = probe_listener.accept().await.unwrap();
+            let mut request = vec![0u8; 4096];
+            let size = socket.read(&mut request).await.unwrap();
+            assert!(String::from_utf8_lossy(&request[..size]).starts_with("GET http://"));
+            socket
+                .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let endpoint = ProbeProxyEndpoint {
+            address: probe_address,
+        };
+        let client = build_client(Some(&endpoint)).unwrap();
+        let response = client
+            .get("http://remote.example/health")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::NO_CONTENT);
+        proxy_server.await.unwrap();
+
+        let broken_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let broken_address = broken_listener.local_addr().unwrap();
+        let broken_server = tokio::spawn(async move {
+            let (socket, _) = broken_listener.accept().await.unwrap();
+            drop(socket);
+        });
+        let broken_endpoint = ProbeProxyEndpoint {
+            address: broken_address,
+        };
+        let broken_client = build_client(Some(&broken_endpoint)).unwrap();
+        assert!(broken_client
+            .get("http://remote.example/health")
+            .send()
+            .await
+            .is_err());
+        broken_server.await.unwrap();
     }
 }
