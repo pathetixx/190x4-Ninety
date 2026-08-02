@@ -258,9 +258,9 @@ if (needDate) {
 
 run("node", ["scripts/bump-version.mjs", version]);
 run("node", ["scripts/check-version.mjs"]);
-run("git", ["add", "package.json", "src-tauri/tauri.conf.json",
-  "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "site/app.js",
-  "site/index.html", "CHANGELOG.md"]);
+run("git", ["add", "package.json", "package-lock.json",
+  "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock",
+  "site/app.js", "site/index.html", "CHANGELOG.md"]);
 run("git", ["commit", "-m", tag]);
 
 const dir = mkdtempSync(join(tmpdir(), "ninety-rel-"));
