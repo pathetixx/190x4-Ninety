@@ -234,6 +234,19 @@ async fn json_response(
         .map_err(|e| format!("{operation} port={port}: decode: {e}"))
 }
 
+fn process_name_value(process: &str, process_path: &str) -> Value {
+    let name = if !process.is_empty() {
+        process
+    } else {
+        process_path.rsplit(['\\', '/']).next().unwrap_or("")
+    };
+    if name.is_empty() {
+        Value::Null
+    } else {
+        Value::String(name.to_string())
+    }
+}
+
 pub(crate) async fn clash_get_proxies_unchecked(port: u16) -> Result<Value, String> {
     let c = client()?;
     let r = c
@@ -335,23 +348,7 @@ pub async fn clash_get_connections(
             // слать process — берём его. rsplit по обоим разделителям — не зависит
             // от платформы сборки.
             let process_path = field("processPath");
-            let process = {
-                let direct = field("process");
-                let name = if !direct.is_empty() {
-                    direct
-                } else {
-                    process_path
-                        .rsplit(['\\', '/'])
-                        .next()
-                        .unwrap_or("")
-                        .to_string()
-                };
-                if name.is_empty() {
-                    Value::Null
-                } else {
-                    Value::String(name)
-                }
-            };
+            let process = process_name_value(&field("process"), &process_path);
             let chains = conn.get("chains").and_then(|x| x.as_array());
             let has = |tag: &str| {
                 chains
@@ -478,6 +475,23 @@ pub async fn clash_select_proxy(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn process_name_uses_process_path_basename_and_preserves_unknown() {
+        assert_eq!(
+            process_name_value("", r"C:\Apps\ChatGPT\ChatGPT.exe"),
+            serde_json::json!("ChatGPT.exe")
+        );
+        assert_eq!(
+            process_name_value("", "/opt/codex/codex.exe"),
+            serde_json::json!("codex.exe")
+        );
+        assert_eq!(process_name_value("", ""), Value::Null);
+        assert_eq!(
+            process_name_value("explicit.exe", r"C:\ignored.exe"),
+            serde_json::json!("explicit.exe")
+        );
+    }
 
     #[test]
     fn live_runtime_snapshot_controls_clash_port_access() {

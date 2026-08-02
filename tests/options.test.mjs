@@ -1,6 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_OPTIONS, normalizeOptions } from "/lib/options.js";
+import {
+  DEFAULT_OPTIONS,
+  OPTIONS_SCHEMA_VERSION,
+  normalizeOptions,
+} from "/lib/options.js";
+
+test("process lookup is enabled by default and preserves a versioned opt-out", () => {
+  assert.equal(DEFAULT_OPTIONS.route.processLookup, true);
+  assert.equal(normalizeOptions({}).route.processLookup, true);
+  assert.equal(
+    normalizeOptions({
+      schemaVersion: OPTIONS_SCHEMA_VERSION,
+      route: { processLookup: false },
+    }).route.processLookup,
+    false,
+  );
+});
 
 test("normalizeOptions чинит повреждённые enum, boolean, port и URL", () => {
   const out = normalizeOptions({

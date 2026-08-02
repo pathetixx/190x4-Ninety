@@ -32,6 +32,36 @@ test("одиночный профиль: outbound proxy + direct, mixed-inbound"
   assert.equal(config.inbounds[0].type, "mixed");
 });
 
+test("process lookup: default route contains a non-routing sentinel", () => {
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+  });
+  const sentinel = config.route.rules.find((rule) =>
+    rule.process_name?.includes("\u0000ninety-force-process-lookup"));
+  assert.deepEqual(sentinel, {
+    process_name: ["\u0000ninety-force-process-lookup"],
+    outbound: "direct",
+  });
+  assert.equal(config.route.final, "proxy");
+});
+
+test("process lookup: explicit false omits the sentinel rule", () => {
+  const options = structuredClone(DEFAULT_OPTIONS);
+  options.route.processLookup = false;
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "proxy",
+    options,
+  });
+  assert.equal(
+    config.route.rules.some((rule) => rule.process_name?.includes("\u0000ninety-force-process-lookup")),
+    false,
+  );
+  assert.equal(config.route.final, "proxy");
+});
+
 test("подписка из 2+ нод: selector/balancer/urltest", () => {
   const nodes = [vlessNode({ name: "A" }), vlessNode({ name: "B" })];
   const { config } = buildConfig({
@@ -124,7 +154,9 @@ test("строгая приватность: TUN без direct-исключен�
   assert.equal(config.endpoints, undefined, "WARP не должен попасть в строгий runtime");
   assert.equal(config.experimental.monitoring, undefined, "фоновый scoring ноды отключён");
 
-  const directRules = config.route.rules.filter((rule) => rule.outbound === "direct");
+  const directRules = config.route.rules.filter((rule) =>
+    rule.outbound === "direct"
+      && !rule.process_name?.includes("\u0000ninety-force-process-lookup"));
   assert.equal(directRules.length, 1, "разрешён только обязательный loop-avoidance");
   assert.equal(
     directRules[0].process_name.includes("Ninety.exe"),

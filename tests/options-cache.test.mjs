@@ -26,6 +26,8 @@ test("options cache exposes frozen snapshot and mutable compatibility clones", a
   assert.equal(Object.isFrozen(sharedA.inbound), true);
   assert.equal(sharedA.region, "cn");
   assert.equal(sharedA.inbound.mixedPort, 8080);
+  assert.equal(sharedA.route.processLookup, true);
+  assert.equal(JSON.parse(localStorage.getItem("ninety.options.v1")).schemaVersion, options.OPTIONS_SCHEMA_VERSION);
 
   const cloneA = options.loadOptions();
   const cloneB = options.loadOptions();
@@ -72,4 +74,26 @@ test("updateOption rejects prototype-pollution paths", async () => {
     /unsafe option path/i,
   );
   assert.equal(({}).ninetyPolluted, undefined);
+});
+
+test("legacy regression false is migrated, while a versioned opt-out remains false", async () => {
+  globalThis.localStorage = storage({
+    "ninety.options.v1": JSON.stringify({ route: { processLookup: false } }),
+  });
+  globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+  globalThis.CustomEvent = class CustomEvent { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
+
+  const options = await import("../src/lib/options.js?options-cache-process-lookup");
+  assert.equal(options.loadOptions().route.processLookup, true);
+  const migrated = JSON.parse(localStorage.getItem("ninety.options.v1"));
+  assert.equal(migrated.schemaVersion, options.OPTIONS_SCHEMA_VERSION);
+  assert.equal(migrated.route.processLookup, true);
+
+  const explicit = options.loadOptions();
+  explicit.route.processLookup = false;
+  options.saveOptions(explicit);
+  assert.equal(options.loadOptions().route.processLookup, false);
+  const saved = JSON.parse(localStorage.getItem("ninety.options.v1"));
+  assert.equal(saved.schemaVersion, options.OPTIONS_SCHEMA_VERSION);
+  assert.equal(saved.route.processLookup, false);
 });

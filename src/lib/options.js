@@ -6,6 +6,7 @@ import { perfObserver } from "/lib/performance-observer.js";
 const OPTIONS_KEY = "ninety.options.v1";
 // Флаг разовой миграции log.level info→warn (см. loadOptions).
 const LOG_WARN_MIGRATED_KEY = OPTIONS_KEY + ".logWarnMigrated";
+export const OPTIONS_SCHEMA_VERSION = 2;
 
 export const REGIONS = ["other", "ru", "cn", "ir", "tr", "by"];
 export const IPV6_MODES = ["disable", "enable", "prefer", "only"];
@@ -14,6 +15,7 @@ export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"];
 export const MUX_PROTOCOLS = ["h2mux", "smux", "yamux"];
 
 export const DEFAULT_OPTIONS = {
+  schemaVersion: OPTIONS_SCHEMA_VERSION,
   region: "ru",
   blockAds: false,
   general: {
@@ -69,8 +71,9 @@ export const DEFAULT_OPTIONS = {
     resolveDestination: false,
     ipv6Mode: "disable",
     tunSplitDiscord: false,
-    // Process lookup opt-in: socket→PID→exe lookup имеет цену на каждом connect.
-    processLookup: false,
+    // Process lookup включён по умолчанию: socket→PID→exe нужен монитору
+    // соединений, чтобы показывать executable каждого процесса.
+    processLookup: true,
     customRules: [],
   },
   inbound: {
@@ -227,6 +230,7 @@ export function normalizeOptions(input) {
       || !/^\d+(?:\.\d+)?(?:ms|s)$/.test(out.tlsTricks.fragmentFallbackDelay.trim())) {
     out.tlsTricks.fragmentFallbackDelay = DEFAULT_OPTIONS.tlsTricks.fragmentFallbackDelay;
   }
+  out.schemaVersion = OPTIONS_SCHEMA_VERSION;
   return out;
 }
 
@@ -273,16 +277,30 @@ function loadNormalizedSnapshot() {
   }
 
   const parsed = JSON.parse(raw);
+  const rawSchemaVersion = Number(parsed?.schemaVersion);
+  const isLegacySchema = !Number.isInteger(rawSchemaVersion)
+    || rawSchemaVersion < OPTIONS_SCHEMA_VERSION;
   const opts = normalizeOptions(parsed);
+  // v0.2.47+ storage was written after the process-lookup default regressed to
+  // false. Without a marker that value is indistinguishable from an opt-out,
+  // so migrate only unversioned/older snapshots once and mark the result. A
+  // false value written with the current schema is an intentional opt-out.
+  if (isLegacySchema && parsed?.route?.processLookup === false) {
+    opts.route.processLookup = true;
+  }
+  let migrated = isLegacySchema;
   if (!localStorage.getItem(LOG_WARN_MIGRATED_KEY)) {
     localStorage.setItem(LOG_WARN_MIGRATED_KEY, "1");
     if (opts.log?.level === "info") {
       opts.log.level = "warn";
-      const migratedRaw = JSON.stringify(opts);
-      localStorage.setItem(OPTIONS_KEY, migratedRaw);
-      commitCache(migratedRaw, opts);
-      return cachedOptions;
+      migrated = true;
     }
+  }
+  if (migrated) {
+    const migratedRaw = JSON.stringify(opts);
+    localStorage.setItem(OPTIONS_KEY, migratedRaw);
+    commitCache(migratedRaw, opts);
+    return cachedOptions;
   }
   commitCache(raw, opts);
   return cachedOptions;
