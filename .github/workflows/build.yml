@@ -194,6 +194,18 @@ jobs:
           $env:GOTOOLCHAIN = "local"
           $env:CGO_ENABLED = "0"
           $env:GOPROXY = "https://proxy.golang.org|direct"
+          # The pinned upstream snapshot predates current Go advisories. Keep
+          # the shipped binary on the first fixed versions and mirror this
+          # patch in security.yml, where the resulting binary is audited.
+          go get `
+            github.com/klauspost/compress@v1.18.7 `
+            golang.org/x/crypto@v0.53.0 `
+            golang.org/x/net@v0.56.0 `
+            golang.org/x/text@v0.39.0 `
+            google.golang.org/grpc@v1.82.1
+          if ($LASTEXITCODE -ne 0) { Write-Error "xray dependency security patch failed"; exit 1 }
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { Write-Error "xray go mod tidy failed after dependency security patch"; exit 1 }
           $built = $false
           for ($attempt = 1; $attempt -le 3; $attempt++) {
             go build -trimpath -ldflags "-s -w -buildid=" -o xray.exe ./main

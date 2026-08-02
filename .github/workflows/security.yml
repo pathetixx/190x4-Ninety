@@ -140,6 +140,13 @@ jobs:
           test "$(git -C xray-core rev-parse HEAD)" = 81f8f398c7b2b845853b1e85087c6122acc6db0b
           (
             cd xray-core
+            GOTOOLCHAIN=local go get \
+              github.com/klauspost/compress@v1.18.7 \
+              golang.org/x/crypto@v0.53.0 \
+              golang.org/x/net@v0.56.0 \
+              golang.org/x/text@v0.39.0 \
+              google.golang.org/grpc@v1.82.1
+            GOTOOLCHAIN=local go mod tidy
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -ldflags "-s -w -buildid=" -o "$tmpdir/xray" ./main
             govulncheck -mode=binary -format=json "$tmpdir/xray" > "$tmpdir/xray-vulns.json"
             if jq -s -e '[ .[] | .finding? | select(. != null) | (.trace // [])[] | select(.function? != null or .receiver? != null) ] | length > 0' "$tmpdir/xray-vulns.json" >/dev/null; then
