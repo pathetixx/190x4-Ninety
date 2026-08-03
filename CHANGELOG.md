@@ -2,6 +2,20 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.54 — 2026-08-03
+
+## English
+
+- Switching the connection mode or the active source no longer cuts other applications off the network while the tunnel is being replaced. The block was applied even when leak protection was turned off.
+- IPv6 traffic now goes through the tunnel in TUN mode. Applications that resolve names themselves could previously reach the internet over IPv6 outside the tunnel and expose the real address.
+- The connection log now records why a disconnect could not be completed, so a "cleanup not confirmed" message can be traced to the component that held it up.
+
+## Русский
+
+- Переключение режима подключения и смена активного источника больше не отрезают остальные приложения от сети на время замены туннеля. Блокировка ставилась даже при выключенной защите от утечек.
+- Трафик IPv6 в режиме TUN теперь идёт через туннель. Приложения с собственным резолвером могли выходить в интернет по IPv6 мимо туннеля и раскрывать реальный адрес.
+- Журнал подключения теперь фиксирует, почему не удалось завершить отключение: сообщение о неподтверждённой очистке можно связать с конкретным компонентом.
+
 ## v0.2.53 — 2026-08-03
 
 ## Русский
