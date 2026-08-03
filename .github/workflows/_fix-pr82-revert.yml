@@ -1,0 +1,97 @@
+name: Fix PR 82 revert integration
+
+on:
+  push:
+    branches:
+      - revert/pr75-dataplane-watchdog
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: revert/pr75-dataplane-watchdog
+
+      - name: Preserve post-PR75 lifecycle helpers without restoring dataplane recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(f"{path}: expected one occurrence, got {text.count(old)}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "src/lib/health-watchdog.js",
+              "  reconcileKillSwitch = async () => true,\n  invoke: invokeFn = invoke,",
+              "  reconcileKillSwitch = async () => true,\n  beginRuntimeOperation = null,\n  completeRuntimeOperation = async () => false,\n  invoke: invokeFn = invoke,",
+          )
+
+          replace_once(
+              "src/main.js",
+              'import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";',
+              'import { createRuntimeIdleGate } from "/lib/runtime-idle-gate.js";\n'
+              'import { completeSuccessfulConnect, runReconnectAttempt } from "/lib/connect-network-result.js";\n'
+              'import { waitForMatchingSourceTopology } from "/lib/source-switch-readiness.js";\n'
+              'import { runtimeEndpointMatchesGeneration, runtimeSnapshotReadyForMode } from "/lib/runtime-lifecycle.js";\n'
+              'import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testGroup } from "/lib/clash-api.js";',
+          )
+
+          replace_once(
+              "src/main.js",
+              '  reconcileKillSwitch: () => applyKillSwitch(state === "connected"),\n});',
+              '  reconcileKillSwitch: () => applyKillSwitch(state === "connected"),\n'
+              '  beginRuntimeOperation: (kind) => beginRuntimeOperation(kind),\n'
+              '  completeRuntimeOperation,\n});',
+          )
+
+          replace_once(
+              "src/main.js",
+              '        pinnedNodeTag: runtimeInfo.pinnedNodeTag,\n      }));',
+              '        pinnedNodeTag: runtimeInfo.pinnedNodeTag,\n'
+              '        operationToken,\n'
+              '      }));',
+          )
+
+          main = Path("src/main.js")
+          text = main.read_text(encoding="utf-8")
+          pattern = re.compile(
+              r'\nasync function verifyRuntimeOperationDataplane\(operationToken\) \{.*?\n\}\n\n'
+              r'async function runtimeOperationIsCurrent\(operationToken\) \{.*?\n\}\n(?=\nfunction safeSourceSwitchReason)',
+              re.S,
+          )
+          text, count = pattern.subn("\n", text, count=1)
+          if count != 1:
+              raise SystemExit(f"src/main.js: expected to remove runtime dataplane helpers once, got {count}")
+          main.write_text(text, encoding="utf-8")
+
+          tests = Path("tests/quality.test.mjs")
+          text = tests.read_text(encoding="utf-8")
+          pattern = re.compile(
+              r'\ntest\("native healthy ускоряет первую quality-пробу после settle", async \(\) => \{.*?\n\}\);\n',
+              re.S,
+          )
+          text, count = pattern.subn("\n", text, count=1)
+          if count != 1:
+              raise SystemExit(f"tests/quality.test.mjs: expected one native-health test, got {count}")
+          tests.write_text(text, encoding="utf-8")
+          PY
+
+          rm -f .github/workflows/_fix-pr82-revert.yml
+          git add -A
+          git commit -m "fix: preserve post-watchdog lifecycle helpers"
+          git push origin HEAD:revert/pr75-dataplane-watchdog
