@@ -2,6 +2,20 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.51 — 2026-08-03
+
+## Русский
+
+- Усилена проверка готовности runtime: proxy endpoint принимается только после подтверждения готовности и привязывается к конкретному поколению runtime.
+- Исправлено переключение VPN-источника при активном соединении: успешный reconnect теперь корректно передаёт результат через очередь до проверки dataplane, поэтому рабочий целевой runtime не откатывается ошибочно.
+- Добавлены regression-тесты для цепочки reconnect → verifier → rollback и безопасное логирование переключения источника без чувствительных данных.
+
+## English
+
+- Strengthened runtime readiness validation: the proxy endpoint is accepted only after readiness is confirmed and is bound to the specific runtime generation.
+- Fixed VPN source switching while already connected: successful reconnects now propagate their result through the queue before dataplane verification, preventing healthy target runtimes from being rolled back incorrectly.
+- Added regression coverage for reconnect → verifier → rollback orchestration and privacy-safe source-switch diagnostics.
+
 ## v0.2.50 — 2026-08-02
 
 ## English
