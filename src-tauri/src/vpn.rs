@@ -1025,7 +1025,6 @@ pub(crate) struct NativeRuntimeStatus {
     pub clash_ready: bool,
     pub control_endpoint: Option<ControlEndpoint>,
     pub probe_proxy_endpoint: Option<ProbeProxyEndpoint>,
-    pub listener_ready: bool,
 }
 
 fn parse_endpoint_address(
@@ -1508,10 +1507,6 @@ pub(crate) fn native_runtime_status(
         } else {
             None
         },
-        listener_ready: generation_matches
-            && record
-                .as_ref()
-                .is_some_and(|runtime| runtime.listener_ready),
     }
 }
 
@@ -2538,7 +2533,6 @@ pub async fn stop_singbox(
 }
 
 fn native_transition_barrier(app: &AppHandle) -> Result<(), String> {
-    debug_assert!(RuntimeOperationKind::NativeRecovery.needs_transition_barrier());
     let kill_switch = app
         .try_state::<crate::killswitch::KillSwitchState>()
         .ok_or("kill switch state unavailable for transition barrier")?;
@@ -2564,36 +2558,6 @@ pub(crate) fn release_transition_barrier(app: &AppHandle) -> Result<(), String> 
         .try_state::<crate::killswitch::KillSwitchState>()
         .ok_or("kill switch state unavailable for transition barrier")?;
     crate::killswitch::transition_release(&kill_switch)
-}
-
-/// A source verification may be deliberately `Unverified` while host
-/// pressure suppresses external probes.  Once a later native health sample
-/// proves the runtime healthy and no lifecycle owner is active, it is safe to
-/// retire the leftover temporary barrier without weakening the user's policy.
-pub(crate) fn release_transition_barrier_if_idle(app: &AppHandle) {
-    if app
-        .try_state::<RuntimeOperationCoordinator>()
-        .and_then(|coordinator| coordinator.active_kind())
-        .is_some()
-    {
-        return;
-    }
-    let Some(kill_switch) = app.try_state::<crate::killswitch::KillSwitchState>() else {
-        return;
-    };
-    if !crate::killswitch::transition_active(&kill_switch) {
-        return;
-    }
-    // Re-check immediately before the synchronous release to avoid dropping
-    // a barrier for an operation that acquired the coordinator after the
-    // first snapshot.
-    if app
-        .try_state::<RuntimeOperationCoordinator>()
-        .and_then(|coordinator| coordinator.active_kind())
-        .is_none()
-    {
-        let _ = release_transition_barrier(app);
-    }
 }
 
 // Внутренние вычисления статусов — переиспользуются одиночными командами и
@@ -3027,6 +2991,7 @@ mod tests {
             mode: "systemProxy".into(),
             strict_privacy: false,
             pinned_node_tag: None,
+            logs_disabled: false,
             endpoints: RuntimeEndpoints {
                 control: ControlEndpoint {
                     address: "127.0.0.1:9090".parse().unwrap(),
