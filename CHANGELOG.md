@@ -2,6 +2,20 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.52 — 2026-08-03
+
+## Русский
+
+- Переключение активного источника стало стабильнее: Ninety ждёт полной готовности нового runtime и его топологии, корректно переживает задержку URLTest и больше не откатывает рабочее подключение из-за первой неполной проверки.
+- Исправлено восстановление выбранного сервера после обновления подписки: старые значения `proxy`/`auto` безопасно приводятся к текущей структуре подписки без неожиданной подмены ручного выбора.
+- Мониторинг соединений снова показывает данные Clash без ложных системных соединений; предупреждения об ограничениях внешнего geo-провайдера не выдаются за ошибку подключения.
+
+## English
+
+- Active source switching is more reliable: Ninety waits for the new runtime and its complete topology, handles delayed URLTest convergence, and no longer rolls back a healthy connection because of an incomplete first check.
+- Fixed remembered server restoration after subscription updates: legacy `proxy`/`auto` values are safely normalized to the current subscription shape without unexpectedly replacing a manual choice.
+- The connection monitor is back to showing Clash connections without misleading OS-only entries; external geo-provider rate limits are kept as non-fatal log noise instead of connection failures.
+
 ## v0.2.51 — 2026-08-03
 
 ## Русский
