@@ -2,7 +2,7 @@ name: Apply source-switch reliability patch
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, reopened]
     branches: [main]
 
 permissions:
@@ -37,6 +37,28 @@ jobs:
 
       - name: Apply reviewed patch
         run: python scripts/apply_source_switch_reliability.py
+
+      - name: Remove superseded log severity helper
+        shell: pwsh
+        run: |
+          $path = 'src/lib/logs-view.js'
+          $content = Get-Content $path -Raw
+          $old = @'
+          function levelGrade(lvl) {
+            const l = lvl.toUpperCase();
+            if (l === "ERROR" || l === "FATAL" || l === "PANIC") return "err";
+            if (l === "WARN" || l === "WARNING") return "warn";
+            if (l === "TRACE" || l === "DEBUG") return "ok";
+            return "info";
+          }
+
+          '@
+          if (-not $content.Contains($old)) {
+            Write-Error 'Expected legacy levelGrade helper was not found exactly once'
+            exit 1
+          }
+          $content = $content.Replace($old, '')
+          Set-Content $path $content -NoNewline
 
       - name: Remove one-shot patch infrastructure
         shell: pwsh
