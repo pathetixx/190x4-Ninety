@@ -36,12 +36,12 @@ jobs:
           components: rustfmt, clippy
 
       - name: Apply reviewed patch
-        run: python scripts/apply_stale_source_selection_fix.py
+        run: python scripts/apply_post_watchdog_source_mode_fix.py
 
       - name: Remove one-shot infrastructure
         shell: pwsh
         run: |
-          Remove-Item scripts/apply_stale_source_selection_fix.py
+          Remove-Item scripts/apply_post_watchdog_source_mode_fix.py
           Remove-Item .github/workflows/fix-stale-source-selection.yml
 
       - name: Install frontend dependencies
