@@ -1,10 +1,9 @@
 name: Apply source-switch reliability patch
 
 on:
-  push:
+  pull_request:
+    types: [opened]
     branches: [main]
-    paths:
-      - .source-switch-reliability-trigger
 
 permissions:
   contents: write
@@ -15,13 +14,14 @@ concurrency:
 
 jobs:
   patch-test-commit:
-    if: github.event.head_commit.message == 'chore: run source-switch reliability patch'
+    if: github.head_ref == 'fix/source-switch-reliability'
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
-      - name: Checkout current main
+      - name: Checkout source branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           persist-credentials: true
 
@@ -90,11 +90,11 @@ jobs:
             exit 1
           }
 
-      - name: Commit tested patch to main
+      - name: Commit tested patch to source branch
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'fix: stabilize active source switching'
-          git push origin HEAD:main
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
