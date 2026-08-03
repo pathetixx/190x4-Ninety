@@ -26,6 +26,15 @@ test("выбранный сервер хранится отдельно для �
   assert.equal(selectionSourceKey(first), "sub:first");
 });
 
+test("повреждённое хранилище безопасно игнорируется", () => {
+  installStorage();
+  localStorage.setItem("ninety.proxy.selection.v1", "{");
+  assert.equal(
+    getRememberedProxySelection({ kind: "sub", subscription: { id: "first" } }),
+    null,
+  );
+});
+
 test("сохранённая нода восстанавливается после временных ошибок API", async () => {
   installStorage();
   const source = { kind: "sub", subscription: { id: "stable" } };
