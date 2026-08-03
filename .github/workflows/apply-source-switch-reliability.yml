@@ -102,11 +102,12 @@ jobs:
         shell: pwsh
         run: |
           git diff --check
-          git status --short
-          if (git diff --quiet) {
+          $status = @(git status --porcelain)
+          if ($status.Count -eq 0) {
             Write-Error 'Patch produced no changes'
             exit 1
           }
+          $status | ForEach-Object { Write-Host $_ }
 
       - name: Commit tested patch to source branch
         shell: pwsh
