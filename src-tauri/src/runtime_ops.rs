@@ -19,7 +19,6 @@ pub enum RuntimeOperationKind {
     UserConnect,
     UserDisconnect,
     SourceSwitch,
-    NativeRecovery,
     FrontendRecovery,
     QualityRemediation,
 }
@@ -29,7 +28,6 @@ impl RuntimeOperationKind {
         match self {
             Self::UserDisconnect => 5,
             Self::SourceSwitch | Self::UserConnect => 4,
-            Self::NativeRecovery => 3,
             Self::FrontendRecovery => 2,
             Self::QualityRemediation => 1,
         }
@@ -38,10 +36,7 @@ impl RuntimeOperationKind {
     pub fn needs_transition_barrier(self) -> bool {
         matches!(
             self,
-            Self::SourceSwitch
-                | Self::NativeRecovery
-                | Self::FrontendRecovery
-                | Self::QualityRemediation
+            Self::SourceSwitch | Self::FrontendRecovery | Self::QualityRemediation
         )
     }
 }
@@ -176,14 +171,6 @@ impl RuntimeOperationCoordinator {
                 started_at_ms: current.started_at_ms,
                 cancelled: current.cancelled.load(Ordering::SeqCst),
             })
-    }
-
-    pub fn active_kind(&self) -> Option<RuntimeOperationKind> {
-        self.active
-            .lock_recover()
-            .as_ref()
-            .filter(|current| !current.cancelled.load(Ordering::SeqCst))
-            .map(|current| current.token.kind)
     }
 }
 
@@ -415,7 +402,6 @@ fn append_operation_diagnostic(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DataplaneProbeKind {
     SourceVerification,
-    HealthProbe,
     QualityProbe,
 }
 
@@ -448,7 +434,6 @@ impl DataplaneProbeKind {
     fn priority(self) -> u8 {
         match self {
             Self::SourceVerification => 3,
-            Self::HealthProbe => 2,
             Self::QualityProbe => 1,
         }
     }
@@ -503,7 +488,7 @@ impl DataplaneProbeCoordinator {
             return Err(ProbeAcquireError::StaleGeneration);
         }
         let Some(wait) = wait_for else {
-            // Health and quality probes are deliberately non-blocking.  A
+            // Quality probes are deliberately non-blocking.  A
             // queued source verification (or any other queued probe) wins
             // admission instead of allowing a low-priority caller to starve it.
             {
@@ -644,10 +629,10 @@ mod tests {
     }
 
     #[test]
-    fn cancelling_operation_releases_watchdog_ownership() {
+    fn cancelling_operation_releases_frontend_recovery_ownership() {
         let coordinator = RuntimeOperationCoordinator::default();
         let token = coordinator
-            .begin(RuntimeOperationKind::NativeRecovery, 1, None)
+            .begin(RuntimeOperationKind::FrontendRecovery, 1, None)
             .unwrap();
         assert!(coordinator.cancel(&token));
         assert!(!coordinator.authorize(&token));
@@ -687,7 +672,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn source_verification_has_priority_over_queued_health_and_quality() {
+    async fn source_verification_has_priority_over_queued_quality() {
         let coordinator = Arc::new(DataplaneProbeCoordinator::default());
         coordinator.reset_generation(7);
         let quality = coordinator
@@ -707,7 +692,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         assert!(matches!(
             coordinator
-                .acquire(DataplaneProbeKind::HealthProbe, 7, None)
+                .acquire(DataplaneProbeKind::QualityProbe, 7, None)
                 .await,
             Err(ProbeAcquireError::Busy)
         ));
