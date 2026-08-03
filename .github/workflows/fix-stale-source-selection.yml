@@ -1,0 +1,75 @@
+name: Validate stale source selection recovery
+
+on:
+  pull_request:
+    types: [opened, reopened]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stale-source-selection-recovery
+  cancel-in-progress: false
+
+jobs:
+  patch-test-commit:
+    if: github.head_ref == 'fix/stale-source-selection'
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout source branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .nvmrc
+
+      - name: Apply reviewed patch
+        run: python scripts/apply_stale_source_selection_fix.py
+
+      - name: Remove one-shot infrastructure
+        shell: pwsh
+        run: |
+          Remove-Item scripts/apply_stale_source_selection_fix.py
+          Remove-Item .github/workflows/fix-stale-source-selection.yml
+
+      - name: Install frontend dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Frontend preflight
+        run: npm run preflight
+
+      - name: Frontend lint
+        run: npm run lint
+
+      - name: Frontend tests
+        run: npm test
+
+      - name: Frontend selected-module coverage
+        run: npm run test:coverage
+
+      - name: Diff hygiene
+        shell: pwsh
+        run: |
+          git diff --check
+          $status = @(git status --porcelain)
+          if ($status.Count -eq 0) {
+            Write-Error 'Patch produced no changes'
+            exit 1
+          }
+          $status | ForEach-Object { Write-Host $_ }
+
+      - name: Commit tested patch to source branch
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: recover from stale remembered source selection'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
