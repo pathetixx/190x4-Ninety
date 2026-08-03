@@ -31,8 +31,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          set +e
           git revert --no-commit -m 1 3513add89f62cafc9d43031dcad5cd5438e073f1
           status=$?
+          set -e
           echo "status=$status" >> "$GITHUB_OUTPUT"
 
           if [ "$status" -ne 0 ]; then
