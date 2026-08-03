@@ -2509,16 +2509,6 @@ pub async fn stop_singbox(
 ) -> Result<StopResult, String> {
     // Manual disconnect owns the lifecycle token and performs one verified stop.
     let generation = state.process_generation.load(Ordering::SeqCst);
-    let (operation_token, implicit) = lifecycle_operation(
-        &app,
-        operation_token,
-        RuntimeOperationKind::UserDisconnect,
-        generation,
-        None,
-    )?;
-    if !operation_is_current(&app, &operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
-    }
     // logs_disabled живёт в RuntimeRecord, а подтверждённый stop его обнуляет.
     // Читаем настройку до остановки, иначе итоговая запись ушла бы в файл даже
     // при полностью отключённых логах.
@@ -2527,6 +2517,35 @@ pub async fn stop_singbox(
         .lock_recover()
         .as_ref()
         .is_some_and(|runtime| runtime.logs_disabled);
+    // Отказ владения — тоже исход остановки, и на UI он выглядит ровно тем же
+    // «очистка не подтверждена», что и незавершённый процесс. Без этих записей
+    // в журнале оставалась дыра: неудачный stop не оставлял следа вообще, и
+    // отличить отнятый токен от реальной проблемы очистки было нечем.
+    let requested_kind = operation_token.as_ref().map(|token| token.kind);
+    let (operation_token, implicit) = match lifecycle_operation(
+        &app,
+        operation_token,
+        RuntimeOperationKind::UserDisconnect,
+        generation,
+        None,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            log_stop_refusal(&app, logs_disabled, requested_kind, generation, &error);
+            return Err(error);
+        }
+    };
+    if !operation_is_current(&app, &operation_token) {
+        let error = "stale or cancelled runtime operation token".to_string();
+        log_stop_refusal(
+            &app,
+            logs_disabled,
+            Some(operation_token.kind),
+            generation,
+            &error,
+        );
+        return Err(error);
+    }
     if operation_token.kind.needs_transition_barrier() {
         match native_transition_barrier(&app) {
             Ok(barrier) => log_stop_diagnostic(
@@ -2554,7 +2573,15 @@ pub async fn stop_singbox(
     // Manual intent invalidates any start still crossing an await boundary.
     state.start_epoch.fetch_add(1, Ordering::SeqCst);
     if !operation_is_current(&app, &operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
+        let error = "stale or cancelled runtime operation token".to_string();
+        log_stop_refusal(
+            &app,
+            logs_disabled,
+            Some(operation_token.kind),
+            generation,
+            &error,
+        );
+        return Err(error);
     }
     let result = stop_singbox_inner(&app, &state).await;
     log_stop_result(
@@ -2579,6 +2606,27 @@ fn log_stop_diagnostic(app: &AppHandle, logs_disabled: bool, line: &str) {
         return;
     }
     append_runtime_diagnostic(app, line);
+}
+
+// Остановка, отклонённая координатором операций: сюда попадают отнятый/устаревший
+// токен и занятый lifecycle. Формат совпадает с обычным runtime_stop, чтобы в
+// журнале обе ветки читались одним грепом.
+fn log_stop_refusal(
+    app: &AppHandle,
+    logs_disabled: bool,
+    kind: Option<RuntimeOperationKind>,
+    generation: u64,
+    reason: &str,
+) {
+    let kind = match kind {
+        Some(kind) => format!("{kind:?}"),
+        None => "none".to_string(),
+    };
+    log_stop_diagnostic(
+        app,
+        logs_disabled,
+        &format!("runtime_stop kind={kind} generation={generation} result=refused reason={reason}"),
+    );
 }
 
 fn log_stop_result(
