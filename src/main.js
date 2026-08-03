@@ -49,7 +49,11 @@ import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
 import { createCoreStartBarrier } from "/lib/connection-start-barrier.js";
-import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
+import { createRuntimeIdleGate } from "/lib/runtime-idle-gate.js";
+import { completeSuccessfulConnect, runReconnectAttempt } from "/lib/connect-network-result.js";
+import { waitForMatchingSourceTopology } from "/lib/source-switch-readiness.js";
+import { runtimeEndpointMatchesGeneration, runtimeSnapshotReadyForMode } from "/lib/runtime-lifecycle.js";
+import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testGroup } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
@@ -1124,6 +1128,8 @@ const healthWatchdog = initHealthWatchdog({
     policyMode: preservedKillSwitchPolicyMode(),
   }),
   reconcileKillSwitch: () => applyKillSwitch(state === "connected"),
+  beginRuntimeOperation: (kind) => beginRuntimeOperation(kind),
+  completeRuntimeOperation,
 });
 const startHealthWatchdog = healthWatchdog.start;
 const stopHealthWatchdog = healthWatchdog.stop;
@@ -1445,32 +1451,6 @@ async function completeRuntimeOperation(token) {
   }
 }
 
-async function verifyRuntimeOperationDataplane(operationToken) {
-  if (!operationToken) return false;
-  try {
-    const snapshot = await invoke("runtime_snapshot");
-    runtimeSnapshotCache = runtimeEndpointMatchesGeneration(snapshot) ? snapshot : null;
-    if (!snapshot?.running || !Number(snapshot.processGeneration)) return false;
-    const verdict = await invoke("verify_runtime_dataplane", {
-      operationToken,
-      expectedGeneration: snapshot.processGeneration,
-    });
-    return verdict?.status === "ready";
-  } catch {
-    return false;
-  }
-}
-
-async function runtimeOperationIsCurrent(operationToken) {
-  if (networkIntent.desired() !== "connected" || state !== "connected") return false;
-  if (!operationToken) return true;
-  try {
-    const active = await invoke("runtime_operation_snapshot");
-    return active?.id === operationToken.id && active.cancelled !== true;
-  } catch {
-    return false;
-  }
-}
 
 function safeSourceSwitchReason(reason) {
   return String(reason || "unknown")
@@ -3065,6 +3045,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         configHash: runtimeToken.configHash,
         strictPrivacy: !!runtimeInfo.strictPrivacy,
         pinnedNodeTag: runtimeInfo.pinnedNodeTag,
+        operationToken,
       }));
       if (!runtimeSnapshot?.running || !Number(runtimeSnapshot.processGeneration)) {
         throw new Error("start_singbox не вернул подтверждённый runtime snapshot");

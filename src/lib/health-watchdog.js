@@ -38,6 +38,8 @@ export function initHealthWatchdog({
   isKillSwitchRequired = () => false,
   rearmKillSwitch = async () => false,
   reconcileKillSwitch = async () => true,
+  beginRuntimeOperation = null,
+  completeRuntimeOperation = async () => false,
   invoke: invokeFn = invoke,
   toast: toastFn = toast,
   notify: notifyFn = notify,
