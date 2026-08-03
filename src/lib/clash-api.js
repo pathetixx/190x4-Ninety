@@ -157,6 +157,13 @@ export async function listNetworkProcesses() {
   return invoke("list_network_processes");
 }
 
+// Native Windows TCP rows are deliberately kept outside Clash telemetry: an
+// OS-only row can be SYN-SENT to a dead local proxy and therefore never exist
+// in /connections.
+export async function snapshotNetworkTcp() {
+  return invoke("snapshot_network_tcp");
+}
+
 export async function testNode(name, { port, url = DEFAULT_URL, timeoutMs = 5000, token } = {}) {
   const value = await call("testNode", "clash_test_node", { port, name, url, timeoutMs }, { token });
   invalidateClashTelemetry("proxies");

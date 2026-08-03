@@ -645,6 +645,7 @@ export const tr = {
     noConns: "Henüz aktif bağlantı yok",
     activeConns: "Aktif bağlantılar",
     noProcess: "Süreç yok",
+    bypassesNinety: "Ninety'yi atlıyor",
     pluralRules: { one: "kural", few: "kural", many: "kural" },
     pluralApps: { one: "uygulama", few: "uygulama", many: "uygulama" },
     pluralConns: { one: "bağlantı", few: "bağlantı", many: "bağlantı" },

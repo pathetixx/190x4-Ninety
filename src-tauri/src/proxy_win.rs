@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, HWND};
@@ -33,7 +33,16 @@ const NINETY_KEY: &str = r"Software\Ninety";
 const PROXY_OVERRIDE: &str = "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>";
 const PROXY_OVERRIDE_LOOPBACK_ONLY: &str = "localhost;127.*";
 static PROXY_NOTIFY_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static PROXY_NOTIFY_REQUESTED: AtomicU64 = AtomicU64::new(0);
+static PROXY_NOTIFY_APPLIED: AtomicU64 = AtomicU64::new(0);
 static AUTOSTART_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SystemProxyState {
+    pub proxy_enable: bool,
+    pub proxy_server: Option<String>,
+    pub owned: bool,
+}
 
 fn autostart_lock() -> &'static Mutex<()> {
     AUTOSTART_LOCK.get_or_init(|| Mutex::new(()))
@@ -42,24 +51,55 @@ fn autostart_lock() -> &'static Mutex<()> {
 // InternetSetOptionW с NULL-handle работает синхронно. На части Windows
 // SETTINGS_CHANGED/REFRESH ждут зависшие WinINet-клиенты десятки секунд. Реестр
 // к этому моменту уже атомарно обновлён, поэтому оповещение выполняем вне IPC-
-// shutdown. Single-flight достаточно: notification сообщает «перечитай текущее
-// состояние», а не конкретное значение enable/disable.
-fn notify_proxy_change() {
-    if PROXY_NOTIFY_IN_FLIGHT.swap(true, Ordering::SeqCst) {
-        return;
+// shutdown. Generation-coalescing не даёт потерять последний запрос, пока
+// предыдущий SETTINGS_CHANGED/REFRESH ещё выполняется.
+fn run_proxy_notify_worker() {
+    loop {
+        let target = PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire);
+        if PROXY_NOTIFY_APPLIED.load(Ordering::Acquire) >= target {
+            break;
+        }
+        unsafe {
+            let _ = InternetSetOptionW(None, INTERNET_OPTION_SETTINGS_CHANGED, None, 0);
+            let _ = InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0);
+        }
+        PROXY_NOTIFY_APPLIED.store(target, Ordering::Release);
     }
-    let spawned = std::thread::Builder::new()
-        .name("ninety-proxy-notify".into())
-        .spawn(|| {
-            unsafe {
-                let _ = InternetSetOptionW(None, INTERNET_OPTION_SETTINGS_CHANGED, None, 0);
-                let _ = InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0);
-            }
-            PROXY_NOTIFY_IN_FLIGHT.store(false, Ordering::SeqCst);
-        });
-    if spawned.is_err() {
-        PROXY_NOTIFY_IN_FLIGHT.store(false, Ordering::SeqCst);
+
+    PROXY_NOTIFY_IN_FLIGHT.store(false, Ordering::Release);
+    // Close the race between the last loop check and clearing in-flight. A
+    // caller that arrived in that window may have observed true and returned.
+    if PROXY_NOTIFY_APPLIED.load(Ordering::Acquire) < PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire)
+        && PROXY_NOTIFY_IN_FLIGHT
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    {
+        run_proxy_notify_worker();
     }
+}
+
+fn notify_proxy_change() -> u64 {
+    let generation = PROXY_NOTIFY_REQUESTED.fetch_add(1, Ordering::AcqRel) + 1;
+    if PROXY_NOTIFY_IN_FLIGHT
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        let spawned = std::thread::Builder::new()
+            .name("ninety-proxy-notify".into())
+            .spawn(run_proxy_notify_worker);
+        if spawned.is_err() {
+            // Keep the contract even if thread creation is unavailable.
+            run_proxy_notify_worker();
+        }
+    }
+    generation
+}
+
+pub fn proxy_notification_generations() -> (u64, u64) {
+    (
+        PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire),
+        PROXY_NOTIFY_APPLIED.load(Ordering::Acquire),
+    )
 }
 
 fn to_wide(s: &str) -> Vec<u16> {
@@ -462,7 +502,7 @@ pub fn recover_stale_system_proxy() -> Result<(), String> {
     set_system_proxy(false, None, None)
 }
 
-pub fn system_proxy_owned() -> bool {
+pub fn system_proxy_state() -> SystemProxyState {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let current = hkcu
         .open_subkey_with_flags(INET_SETTINGS_KEY, KEY_READ)
@@ -478,7 +518,21 @@ pub fn system_proxy_owned() -> bool {
     let active = ninety
         .as_ref()
         .and_then(|k| k.get_value::<String, _>("ActiveProxyServer").ok());
-    enabled && server.is_some() && server == active
+    let owned = enabled && server.is_some() && server == active;
+    SystemProxyState {
+        proxy_enable: enabled,
+        proxy_server: server,
+        owned,
+    }
+}
+
+pub fn system_proxy_owned() -> bool {
+    system_proxy_state().owned
+}
+
+pub fn system_proxy_matches(expected: &str) -> bool {
+    let state = system_proxy_state();
+    state.proxy_enable && state.owned && state.proxy_server.as_deref() == Some(expected)
 }
 
 // True если текущий процесс запущен с правами администратора (elevated token).
@@ -975,6 +1029,25 @@ mod tests {
         )
         .is_ok());
         assert!(!rolled_back.get());
+    }
+
+    #[test]
+    fn latest_proxy_notification_generation_is_not_lost() {
+        let first = notify_proxy_change();
+        let latest = notify_proxy_change();
+        assert!(latest > first);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let (requested, applied) = proxy_notification_generations();
+            if requested >= latest && applied >= latest {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "proxy notification worker stalled"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
     }
 
     #[test]

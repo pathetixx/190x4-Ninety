@@ -1,3 +1,10 @@
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SystemProxyState {
+    pub proxy_enable: bool,
+    pub proxy_server: Option<String>,
+    pub owned: bool,
+}
+
 pub fn set_system_proxy(
     _enable: bool,
     _host_port: Option<&str>,
@@ -12,6 +19,18 @@ pub fn recover_stale_system_proxy() -> Result<(), String> {
 
 pub fn system_proxy_owned() -> bool {
     false
+}
+
+pub fn system_proxy_state() -> SystemProxyState {
+    SystemProxyState::default()
+}
+
+pub fn system_proxy_matches(_expected: &str) -> bool {
+    false
+}
+
+pub fn proxy_notification_generations() -> (u64, u64) {
+    (0, 0)
 }
 
 // Не-Windows: понятия elevated-токена/UAC нет. Считаем что прав достаточно

@@ -645,6 +645,7 @@ export const fa = {
     noConns: "هنوز اتصال فعالی نیست",
     activeConns: "اتصال‌های فعال",
     noProcess: "بدون فرایند",
+    bypassesNinety: "دور زدن Ninety",
     pluralRules: { one: "قانون", few: "قانون", many: "قانون" },
     pluralApps: { one: "برنامه", few: "برنامه", many: "برنامه" },
     pluralConns: { one: "اتصال", few: "اتصال", many: "اتصال" },

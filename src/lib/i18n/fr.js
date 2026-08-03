@@ -645,6 +645,7 @@ export const fr = {
     noConns: "Aucune connexion active pour le moment",
     activeConns: "Connexions actives",
     noProcess: "Aucun processus",
+    bypassesNinety: "Contourne Ninety",
     pluralRules: { one: "règle", few: "règles", many: "règles" },
     pluralApps: { one: "appli", few: "applis", many: "applis" },
     pluralConns: { one: "connexion", few: "connexions", many: "connexions" },

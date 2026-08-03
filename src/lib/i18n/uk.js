@@ -645,6 +645,7 @@ export const uk = {
     noConns: "Поки немає активних з'єднань",
     activeConns: "Активних з'єднань",
     noProcess: "Без процесу",
+    bypassesNinety: "Оминає Ninety",
     pluralRules: { one: "правило", few: "правила", many: "правил" },
     pluralApps: { one: "застосунок", few: "застосунки", many: "застосунків" },
     pluralConns: { one: "з'єднання", few: "з'єднання", many: "з'єднань" },

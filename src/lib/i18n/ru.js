@@ -645,6 +645,7 @@ export const ru = {
     noConns: "Пока нет активных соединений",
     activeConns: "Активных соединений",
     noProcess: "Без процесса",
+    bypassesNinety: "Обходит Ninety",
     pluralRules: { one: "правило", few: "правила", many: "правил" },
     pluralApps: { one: "приложение", few: "приложения", many: "приложений" },
     pluralConns: { one: "соединение", few: "соединения", many: "соединений" },

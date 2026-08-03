@@ -645,6 +645,7 @@ export const ar = {
     noConns: "لا اتصالات نشطة بعد",
     activeConns: "الاتصالات النشطة",
     noProcess: "بلا عملية",
+    bypassesNinety: "يتجاوز Ninety",
     pluralRules: { one: "قاعدة", few: "قواعد", many: "قاعدة" },
     pluralApps: { one: "تطبيق", few: "تطبيقات", many: "تطبيق" },
     pluralConns: { one: "اتصال", few: "اتصالات", many: "اتصال" },

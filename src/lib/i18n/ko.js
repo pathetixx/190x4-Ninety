@@ -645,6 +645,7 @@ export const ko = {
     noConns: "아직 활성 연결이 없습니다",
     activeConns: "활성 연결",
     noProcess: "프로세스 없음",
+    bypassesNinety: "Ninety 우회",
     pluralRules: { one: "규칙", few: "규칙", many: "규칙" },
     pluralApps: { one: "앱", few: "앱", many: "앱" },
     pluralConns: { one: "연결", few: "연결", many: "연결" },

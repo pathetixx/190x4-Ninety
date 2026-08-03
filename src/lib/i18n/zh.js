@@ -645,6 +645,7 @@ export const zh = {
     noConns: "暂无活动连接",
     activeConns: "活动连接",
     noProcess: "无进程",
+    bypassesNinety: "绕过 Ninety",
     pluralRules: { one: "条规则", few: "条规则", many: "条规则" },
     pluralApps: { one: "个应用", few: "个应用", many: "个应用" },
     pluralConns: { one: "个连接", few: "个连接", many: "个连接" },

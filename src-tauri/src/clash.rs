@@ -347,9 +347,13 @@ pub async fn clash_get_connections(
             let md = conn.get("metadata");
             let field = |k: &str| {
                 md.and_then(|m| m.get(k))
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string()
+                    .map(|x| {
+                        x.as_str()
+                            .map(ToOwned::to_owned)
+                            .or_else(|| x.as_u64().map(|value| value.to_string()))
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default()
             };
             // Имя процесса. Форк (hiddify-sing-box v1.13.0.h5) НЕ эмитит поле
             // metadata.process — в clashapi/trafficontrol/tracker.go::MarshalJSON
@@ -378,7 +382,10 @@ pub async fn clash_get_connections(
                 "process": process,
                 "processPath": process_path,
                 "host": field("host"),
+                "sourceIP": field("sourceIP"),
+                "sourcePort": field("sourcePort"),
                 "destinationIP": field("destinationIP"),
+                "destinationPort": field("destinationPort"),
                 "outbound": outbound,
             }));
         }

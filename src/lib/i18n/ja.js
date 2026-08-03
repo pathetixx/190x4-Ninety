@@ -645,6 +645,7 @@ export const ja = {
     noConns: "アクティブな接続はまだありません",
     activeConns: "アクティブな接続",
     noProcess: "プロセスなし",
+    bypassesNinety: "Ninetyを経由しない接続",
     pluralRules: { one: "ルール", few: "ルール", many: "ルール" },
     pluralApps: { one: "アプリ", few: "アプリ", many: "アプリ" },
     pluralConns: { one: "接続", few: "接続", many: "接続" },

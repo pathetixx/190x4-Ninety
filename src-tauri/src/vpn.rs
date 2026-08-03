@@ -306,6 +306,7 @@ struct RuntimeRecord {
     strict_privacy: bool,
     pinned_node_tag: Option<String>,
     endpoints: RuntimeEndpoints,
+    listener_ready: bool,
     clash_port: u16,
     clash_ready: bool,
 }
@@ -1027,13 +1028,33 @@ pub struct RuntimeSnapshot {
     pinned_node_tag: Option<String>,
     control_endpoint: Option<ControlEndpoint>,
     probe_proxy_endpoint: Option<ProbeProxyEndpoint>,
+    listener_ready: bool,
     clash_port: u16,
     clash_ready: bool,
+    proxy_enable: bool,
+    proxy_server: Option<String>,
+    notification_generation: u64,
+    notification_applied_generation: u64,
+    runtime_diagnostic: RuntimeDiagnostic,
     sidecars: serde_json::Value,
     system_proxy_ownership: &'static str,
     kill_switch_active: bool,
     native_recovery_owner: String,
     native_recovery_state: String,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDiagnostic {
+    pub mode: Option<String>,
+    pub generation: u64,
+    pub configured_endpoint: Option<String>,
+    pub published_endpoint: Option<String>,
+    pub listener_ready: bool,
+    pub proxy_enable: bool,
+    pub proxy_server: Option<String>,
+    pub notification_generation: u64,
+    pub notification_applied_generation: u64,
 }
 
 #[derive(Clone, Default)]
@@ -1044,6 +1065,7 @@ pub(crate) struct NativeRuntimeStatus {
     pub clash_ready: bool,
     pub control_endpoint: Option<ControlEndpoint>,
     pub probe_proxy_endpoint: Option<ProbeProxyEndpoint>,
+    pub listener_ready: bool,
 }
 
 fn parse_endpoint_address(
@@ -1209,6 +1231,41 @@ async fn wait_clash_ready(
             }
             Err(_) => tokio::time::sleep(std::time::Duration::from_millis(150)).await,
         }
+    }
+}
+
+async fn local_probe_listener_ready(endpoint: &ProbeProxyEndpoint) -> bool {
+    matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            tokio::net::TcpStream::connect(endpoint.address),
+        )
+        .await,
+        Ok(Ok(_))
+    )
+}
+
+async fn wait_probe_listener_ready(
+    endpoint: Option<&ProbeProxyEndpoint>,
+    state: &SingboxState,
+    start_epoch: u64,
+) -> Result<(), String> {
+    let Some(endpoint) = endpoint else {
+        return Ok(());
+    };
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
+    loop {
+        ensure_start_current(state, start_epoch)?;
+        if local_probe_listener_ready(endpoint).await {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!(
+                "runtime probe endpoint {} has no live listener",
+                endpoint.address
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 }
 
@@ -1397,23 +1454,52 @@ fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> Run
     let running = compute_singbox_running(state);
     let record = state.runtime.lock_recover().clone();
     let health = state.dataplane_health.snapshot();
+    let proxy_state = proxy::system_proxy_state();
+    let (notification_generation, notification_applied_generation) =
+        proxy::proxy_notification_generations();
+    let generation = record.as_ref().map(|r| r.process_generation).unwrap_or(0);
+    let mode = record.as_ref().map(|r| r.mode.clone());
+    let configured_endpoint = record.as_ref().and_then(|r| {
+        r.endpoints
+            .probe_proxy
+            .as_ref()
+            .map(|endpoint| endpoint.address.to_string())
+    });
+    let listener_ready = running && record.as_ref().is_some_and(|r| r.listener_ready);
+    let runtime_diagnostic = RuntimeDiagnostic {
+        mode: mode.clone(),
+        generation,
+        configured_endpoint,
+        published_endpoint: proxy_state.proxy_server.clone(),
+        listener_ready,
+        proxy_enable: proxy_state.proxy_enable,
+        proxy_server: proxy_state.proxy_server.clone(),
+        notification_generation,
+        notification_applied_generation,
+    };
     RuntimeSnapshot {
         running,
         starting: state.starting.load(Ordering::SeqCst),
-        process_generation: record.as_ref().map(|r| r.process_generation).unwrap_or(0),
+        process_generation: generation,
         source_fingerprint: record.as_ref().and_then(|r| r.source_fingerprint.clone()),
         config_hash: record.as_ref().and_then(|r| r.config_hash.clone()),
-        mode: record.as_ref().map(|r| r.mode.clone()),
+        mode,
         strict_privacy: record.as_ref().is_some_and(|r| r.strict_privacy),
         pinned_node_tag: record.as_ref().and_then(|r| r.pinned_node_tag.clone()),
         control_endpoint: record.as_ref().map(|r| r.endpoints.control.clone()),
         probe_proxy_endpoint: record
             .as_ref()
             .and_then(|r| r.endpoints.probe_proxy.clone()),
+        listener_ready,
         clash_port: record.as_ref().map(|r| r.clash_port).unwrap_or(0),
         clash_ready: running && record.as_ref().is_some_and(|r| r.clash_ready),
+        proxy_enable: proxy_state.proxy_enable,
+        proxy_server: proxy_state.proxy_server,
+        notification_generation,
+        notification_applied_generation,
+        runtime_diagnostic,
         sidecars: serde_json::json!({ "xray": compute_xray_status(state), "clients": compute_sidecar_status(state) }),
-        system_proxy_ownership: if proxy::system_proxy_owned() {
+        system_proxy_ownership: if proxy_state.owned {
             "owned"
         } else {
             "not_owned"
@@ -1465,6 +1551,10 @@ pub(crate) fn native_runtime_status(
         } else {
             None
         },
+        listener_ready: generation_matches
+            && record
+                .as_ref()
+                .is_some_and(|runtime| runtime.listener_ready),
     }
 }
 
@@ -1496,6 +1586,80 @@ async fn local_clash_listener_ready(control: &ControlEndpoint) -> bool {
         .await,
         Ok(Ok(_))
     )
+}
+
+async fn validate_runtime_probe_endpoint(
+    state: &SingboxState,
+    expected_generation: Option<u64>,
+    expected_endpoint: Option<&str>,
+) -> Result<(u64, ProbeProxyEndpoint), String> {
+    let (generation, endpoint) = probe_endpoint_for_generation(state, expected_generation)
+        .map_err(|reason| format!("runtime probe endpoint is {reason}"))?;
+    if let Some(expected_endpoint) = expected_endpoint {
+        let expected = parse_endpoint_address(expected_endpoint, None, "published proxy endpoint")?;
+        if expected != endpoint.address {
+            return Err(format!(
+                "stale proxy endpoint: expected {}, current generation {} owns {}",
+                expected, generation, endpoint.address
+            ));
+        }
+    }
+    if !compute_singbox_running(state) {
+        return Err(format!(
+            "runtime generation {generation} is not running for {}",
+            endpoint.address
+        ));
+    }
+    if !state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .is_some_and(|runtime| runtime.listener_ready)
+    {
+        return Err(format!(
+            "runtime generation {generation} has not published listener readiness for {}",
+            endpoint.address
+        ));
+    }
+    if !local_probe_listener_ready(&endpoint).await {
+        return Err(format!(
+            "runtime generation {generation} has no live listener at {}",
+            endpoint.address
+        ));
+    }
+    Ok((generation, endpoint))
+}
+
+async fn enable_system_proxy_for_runtime(
+    state: &SingboxState,
+    host_port: &str,
+    bypass_lan: Option<bool>,
+    expected_generation: Option<u64>,
+) -> Result<(), String> {
+    let (_generation, endpoint) =
+        validate_runtime_probe_endpoint(state, expected_generation, Some(host_port)).await?;
+    let canonical_endpoint = endpoint.address.to_string();
+    proxy::set_system_proxy(true, Some(&canonical_endpoint), bypass_lan)?;
+    let proxy_state = proxy::system_proxy_state();
+    if !proxy::system_proxy_matches(&canonical_endpoint)
+        || !proxy_state.proxy_enable
+        || !proxy_state.owned
+        || proxy_state.proxy_server.as_deref() != Some(canonical_endpoint.as_str())
+    {
+        let _ = proxy::set_system_proxy(false, None, None);
+        return Err(format!(
+            "system proxy readback mismatch: enable={} server={:?}, expected {}",
+            proxy_state.proxy_enable, proxy_state.proxy_server, canonical_endpoint
+        ));
+    }
+    if !local_probe_listener_ready(&endpoint).await {
+        let _ = proxy::set_system_proxy(false, None, None);
+        return Err(format!(
+            "probe listener disappeared after system proxy enable at {}",
+            canonical_endpoint
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -2009,6 +2173,21 @@ async fn start_singbox_inner(
         kill_xray(state);
         kill_sidecars(state);
         *state.runtime_ports.lock_recover() = Vec::new();
+        *state.runtime.lock_recover() = None;
+        return Err(e);
+    }
+    // Clash control readiness is not sufficient for System Proxy/TUN. The
+    // endpoint published to Windows and to the health probe must be the
+    // listener owned by this freshly spawned sing-box generation.
+    if let Err(e) = wait_probe_listener_ready(probe_endpoint.as_ref(), state, start_epoch).await {
+        if let Some(child) = state.child.lock_recover().take() {
+            let _ = child.kill();
+        }
+        kill_xray(state);
+        kill_sidecars(state);
+        let _ = proxy::set_system_proxy(false, None, None);
+        *state.runtime_ports.lock_recover() = Vec::new();
+        *state.runtime.lock_recover() = None;
         return Err(e);
     }
     if !operation_is_current(&app, operation_token) {
@@ -2022,6 +2201,7 @@ async fn start_singbox_inner(
         strict_privacy,
         pinned_node_tag: pinned_node_tag.clone(),
         endpoints: endpoints.clone(),
+        listener_ready: true,
         clash_port,
         clash_ready: true,
     });
@@ -2202,6 +2382,7 @@ fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> 
     kill_xray(state);
     kill_sidecars(state);
     *state.runtime_ports.lock_recover() = Vec::new();
+    *state.runtime.lock_recover() = None;
     Err("запуск отменён новым сетевым намерением".into())
 }
 
@@ -2544,13 +2725,23 @@ async fn native_reapply_runtime_policy(
     if !operation_is_current(app, operation_token) {
         return Err("native recovery operation became stale".into());
     }
+    let runtime_state = app
+        .try_state::<SingboxState>()
+        .ok_or("runtime state unavailable for recovery policy")?;
     if spec.mode == "systemProxy" {
         let probe_endpoint = snapshot
             .probe_proxy_endpoint
             .as_ref()
             .ok_or_else(|| "native recovery probe endpoint is unavailable".to_string())?;
         let host_port = probe_endpoint.address.to_string();
-        proxy::set_system_proxy(true, Some(&host_port), Some(spec.system_proxy_bypass_lan))?;
+        enable_system_proxy_for_runtime(
+            &runtime_state,
+            &host_port,
+            Some(spec.system_proxy_bypass_lan),
+            Some(snapshot.process_generation),
+        )
+        .await
+        .map_err(|error| format!("native recovery system proxy readiness failed: {error}"))?;
         if !proxy::system_proxy_owned() {
             return Err("system proxy ownership не подтверждена после native recovery".into());
         }
@@ -2559,7 +2750,7 @@ async fn native_reapply_runtime_policy(
     native_rearm_saved_kill_switch(app, spec)?;
 
     let current = native_runtime_status(app, snapshot.process_generation);
-    if !current.running || !current.clash_ready {
+    if !current.running || !current.clash_ready || !current.listener_ready {
         return Err("native recovery runtime не прошёл readiness".into());
     }
     let Some(control_endpoint) = current.control_endpoint.as_ref() else {
@@ -2977,6 +3168,14 @@ pub fn runtime_snapshot(
     runtime_snapshot_value(&state, crate::killswitch::is_active(&kill_switch))
 }
 
+#[tauri::command]
+pub fn runtime_diagnostic(
+    state: State<'_, SingboxState>,
+    kill_switch: State<'_, crate::killswitch::KillSwitchState>,
+) -> RuntimeDiagnostic {
+    runtime_snapshot_value(&state, crate::killswitch::is_active(&kill_switch)).runtime_diagnostic
+}
+
 // Агрегат статусов ядер за один вызов — watchdog фронта раньше дёргал
 // singbox_running / xray_status / sidecar_status / vpn_last_error четырьмя
 // отдельными invoke на каждом тике (раз в 5с всю сессию). last_error читаем
@@ -3012,11 +3211,53 @@ pub fn health_snapshot(
 
 #[tauri::command]
 pub async fn set_system_proxy(
+    app: AppHandle,
+    state: State<'_, SingboxState>,
     enable: bool,
     host_port: Option<String>,
     bypass_lan: Option<bool>,
+    expected_generation: Option<u64>,
 ) -> Result<(), String> {
-    proxy::set_system_proxy(enable, host_port.as_deref(), bypass_lan)
+    if !enable {
+        return proxy::set_system_proxy(false, None, None);
+    }
+    let Some(host_port) = host_port.as_deref() else {
+        return Err("system proxy enable requires the current probe endpoint".into());
+    };
+    let Some(expected_generation) = expected_generation.filter(|generation| *generation != 0)
+    else {
+        return Err("system proxy enable requires the current process generation".into());
+    };
+    if let Err(error) =
+        enable_system_proxy_for_runtime(&state, host_port, bypass_lan, Some(expected_generation))
+            .await
+    {
+        let cleanup = stop_singbox_inner(&app, &state, true, false).await;
+        return Err(match cleanup {
+            Ok(_) => format!("{error}; runtime stopped after proxy readiness failure"),
+            Err(cleanup_error) => {
+                format!(
+                    "{error}; runtime stop after proxy readiness failure failed: {cleanup_error}"
+                )
+            }
+        });
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn verify_runtime_endpoint(
+    state: State<'_, SingboxState>,
+    kill_switch: State<'_, crate::killswitch::KillSwitchState>,
+    expected_generation: Option<u64>,
+    expected_endpoint: Option<String>,
+) -> Result<RuntimeSnapshot, String> {
+    validate_runtime_probe_endpoint(&state, expected_generation, expected_endpoint.as_deref())
+        .await?;
+    Ok(runtime_snapshot_value(
+        &state,
+        crate::killswitch::is_active(&kill_switch),
+    ))
 }
 
 pub fn recover_stale_system_proxy() -> Result<(), String> {
@@ -3264,6 +3505,52 @@ mod tests {
         }"#;
         let wrong_protocol_value: serde_json::Value = serde_json::from_str(wrong_protocol).unwrap();
         assert!(runtime_endpoints_from_value(&wrong_protocol_value).is_err());
+    }
+
+    #[tokio::test]
+    async fn probe_listener_readiness_tracks_the_exact_runtime_endpoint() {
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let endpoint = ProbeProxyEndpoint {
+            address: listener.local_addr().unwrap(),
+        };
+        assert!(local_probe_listener_ready(&endpoint).await);
+        drop(listener);
+        assert!(!local_probe_listener_ready(&endpoint).await);
+    }
+
+    #[test]
+    fn probe_endpoint_generation_rejects_stale_snapshots() {
+        let state = SingboxState::default();
+        let endpoint = ProbeProxyEndpoint {
+            address: "127.0.0.1:2080".parse().unwrap(),
+        };
+        *state.runtime.lock_recover() = Some(RuntimeRecord {
+            process_generation: 42,
+            source_fingerprint: None,
+            config_hash: None,
+            mode: "systemProxy".into(),
+            strict_privacy: false,
+            pinned_node_tag: None,
+            endpoints: RuntimeEndpoints {
+                control: ControlEndpoint {
+                    address: "127.0.0.1:9090".parse().unwrap(),
+                },
+                probe_proxy: Some(endpoint),
+            },
+            listener_ready: true,
+            clash_port: 9090,
+            clash_ready: true,
+        });
+        assert_eq!(
+            probe_endpoint_for_generation(&state, Some(42)).unwrap().0,
+            42
+        );
+        assert_eq!(
+            probe_endpoint_for_generation(&state, Some(41)).unwrap_err(),
+            "stale_generation"
+        );
     }
 
     #[test]

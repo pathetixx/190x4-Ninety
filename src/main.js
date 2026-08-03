@@ -50,6 +50,7 @@ import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
 import { createCoreStartBarrier } from "/lib/connection-start-barrier.js";
 import { createRuntimeIdleGate } from "/lib/runtime-idle-gate.js";
+import { runtimeEndpointMatchesGeneration, runtimeSnapshotReadyForMode } from "/lib/runtime-lifecycle.js";
 import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, pickSelectorNow, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
@@ -1109,7 +1110,7 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
 async function verifyEmergencyDataplane() {
   try {
     const snapshot = await invoke("runtime_snapshot");
-    runtimeSnapshotCache = snapshot;
+    runtimeSnapshotCache = runtimeEndpointMatchesGeneration(snapshot) ? snapshot : null;
     const expectedGeneration = Number(snapshot?.processGeneration) || 0;
     if (!snapshot?.running || !expectedGeneration) return false;
     const result = await invoke("probe_health", { expectedGeneration });
@@ -1576,7 +1577,7 @@ async function verifyRuntimeOperationDataplane(operationToken) {
   if (!operationToken) return false;
   try {
     const snapshot = await invoke("runtime_snapshot");
-    runtimeSnapshotCache = snapshot;
+    runtimeSnapshotCache = runtimeEndpointMatchesGeneration(snapshot) ? snapshot : null;
     if (!snapshot?.running || !Number(snapshot.processGeneration)) return false;
     const verdict = await invoke("verify_runtime_dataplane", {
       operationToken,
@@ -1606,7 +1607,7 @@ async function confirmActiveSourceDataplane(target, { token, isCurrent }) {
   }
   try {
     const snapshot = await invoke("runtime_snapshot");
-    runtimeSnapshotCache = snapshot;
+    runtimeSnapshotCache = runtimeEndpointMatchesGeneration(snapshot) ? snapshot : null;
     if (!isCurrent() || !sameSourceRef(activeSourceRef(), target)) return { status: "stale" };
     if (!snapshot?.running || !Number(snapshot.processGeneration)) {
       return { status: "hardFailed", reason: "runtime_not_running" };
@@ -2417,6 +2418,7 @@ let publicIpTimer = null;
 let runtimeSnapshotCache = null;
 
 function runtimeProbeHostPort(snapshot = runtimeSnapshotCache) {
+  if (!runtimeEndpointMatchesGeneration(snapshot)) return null;
   const address = snapshot?.probeProxyEndpoint?.address;
   return typeof address === "string" && address ? address : null;
 }
@@ -2934,13 +2936,14 @@ function runtimeSnapshotMatchesExpected(snapshot, source = activeDisplaySource()
     || (!!options.general?.killSwitch && getMode() !== "tun");
   return !!snapshot?.running
     && snapshot.clashReady === true
+    && runtimeEndpointMatchesGeneration(snapshot)
     && snapshot.sourceFingerprint === sourceFingerprint(source)
     && snapshot.mode === getMode()
     && snapshot.strictPrivacy === strictPrivacyExpected
     && typeof snapshot.controlEndpoint?.address === "string"
     && (strictPrivacyExpected || typeof snapshot.probeProxyEndpoint?.address === "string")
     && (!strictPrivacyExpected || snapshot.pinnedNodeTag === expectedPinnedNodeTag)
-    && (getMode() !== "systemProxy" || snapshot.systemProxyOwnership === "owned")
+    && runtimeSnapshotReadyForMode(snapshot, getMode())
     && (killSwitchExpected
       ? snapshot.killSwitchActive === true
       : snapshot.killSwitchActive !== true);
@@ -3002,7 +3005,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
     if (!isCurrentNetworkIntent(epoch, "connected")) return false;
     restoreFailClosedLatch(observed);
     if (observed?.running) {
-      if (runtimeSnapshotMatchesExpected(observed)
+      if (await runtimeSnapshotIsLive(observed)
         && adoptRuntimeSnapshot(observed, activeDisplaySource(), { epoch })) return true;
       await shutdownRuntimeForPolicyReplacement(observed);
       return false;
@@ -3186,6 +3189,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
           enable: true,
           hostPort: probeHostPort,
           bypassLan: options.route?.bypassLan !== false,
+          expectedGeneration: runtimeSnapshot.processGeneration,
         });
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
           try { await invoke("set_system_proxy", { enable: false }); } catch {}
@@ -3234,6 +3238,9 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
           return;
         }
         throw new Error(`финальный runtime snapshot не получен: ${e}`, { cause: e });
+      }
+      if (!(await runtimeSnapshotIsLive(finalSnapshot, runtimeSource))) {
+        throw new Error("финальный runtime endpoint не прошёл live-проверку");
       }
       if (!finalizeConnected(finalSnapshot, {
         epoch,
@@ -3426,6 +3433,21 @@ async function handleConnectionIntent({ internal = false } = {}) {
   }
 }
 
+async function runtimeSnapshotIsLive(snapshot, source = activeDisplaySource()) {
+  if (!runtimeSnapshotMatchesExpected(snapshot, source)) return false;
+  try {
+    const verified = await invoke("verify_runtime_endpoint", {
+      expectedGeneration: Number(snapshot.processGeneration),
+      expectedEndpoint: snapshot.probeProxyEndpoint?.address || null,
+    });
+    return runtimeSnapshotMatchesExpected(verified, source)
+      && Number(verified.processGeneration) === Number(snapshot.processGeneration)
+      && verified.probeProxyEndpoint?.address === snapshot.probeProxyEndpoint?.address;
+  } catch {
+    return false;
+  }
+}
+
 heroDisc?.addEventListener("click", () => handleConnectionIntent());
 
 // ── Bootstrap ──────────────────────────────────────────────
@@ -3460,7 +3482,7 @@ async function reconcileNetworkRuntime() {
     restoreFailClosedLatch(snapshot);
     if (!snapshot?.running) return;
     const source = activeDisplaySource();
-    if (runtimeSnapshotMatchesExpected(snapshot, source)) {
+    if (await runtimeSnapshotIsLive(snapshot, source)) {
       const epoch = beginNetworkIntent("connected");
       adoptRuntimeSnapshot(snapshot, source, { epoch });
       return;
@@ -3558,7 +3580,7 @@ async function autostartNetworkRuntime() {
     // никакой frontend idle не является доказательством, что backend idle.
     let runningSnapshot = await invoke("runtime_snapshot");
     if (runningSnapshot?.running) {
-      if (runtimeSnapshotMatchesExpected(runningSnapshot)) {
+      if (await runtimeSnapshotIsLive(runningSnapshot)) {
         const epoch = beginNetworkIntent("connected");
         adoptRuntimeSnapshot(runningSnapshot, activeDisplaySource(), { epoch });
       } else if (!(await shutdownRuntimeForPolicyReplacement(runningSnapshot))) {
@@ -3570,7 +3592,7 @@ async function autostartNetworkRuntime() {
       await new Promise(r => setTimeout(r, 600)); // дать UI домонтироваться
       const beforeStart = await invoke("runtime_snapshot");
       if (beforeStart?.running) {
-        if (runtimeSnapshotMatchesExpected(beforeStart)) {
+        if (await runtimeSnapshotIsLive(beforeStart)) {
           const epoch = beginNetworkIntent("connected");
           adoptRuntimeSnapshot(beforeStart, activeDisplaySource(), { epoch });
         }
