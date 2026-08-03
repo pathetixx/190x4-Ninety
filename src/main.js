@@ -2941,6 +2941,10 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       observed = await invoke("runtime_snapshot");
     } catch (e) {
       console.warn("runtime snapshot before start failed", e);
+      // Эта ветка тоже выводит «не удалось отключить», но не проходит ни через
+      // stop, ни через catch старта — без записи она выглядела бы в журнале как
+      // подтверждённая остановка, за которой не следует ничего.
+      logSourceSwitchReconnect("preflight", operationToken, "failed", "runtime_snapshot_unavailable");
       setState("cleanup_error", {
         preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
       });
