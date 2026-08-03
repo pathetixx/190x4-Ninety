@@ -1,0 +1,100 @@
+name: Apply source-switch reliability patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .source-switch-reliability-trigger
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-source-switch-reliability
+  cancel-in-progress: false
+
+jobs:
+  patch-test-commit:
+    if: github.event.head_commit.message == 'chore: run source-switch reliability patch'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          components: rustfmt, clippy
+
+      - name: Apply reviewed patch
+        run: python scripts/apply_source_switch_reliability.py
+
+      - name: Remove one-shot patch infrastructure
+        shell: pwsh
+        run: |
+          Remove-Item scripts/apply_source_switch_reliability.py
+          Remove-Item .source-switch-reliability-trigger
+          Remove-Item .github/workflows/apply-source-switch-reliability.yml
+
+      - name: Install frontend dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Frontend preflight
+        run: npm run preflight
+
+      - name: Frontend lint
+        run: npm run lint
+
+      - name: Frontend tests
+        run: npm test
+
+      - name: Prepare sidecar placeholders
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
+          foreach ($name in @(
+            'sing-box-x86_64-pc-windows-msvc.exe',
+            'xray-x86_64-pc-windows-msvc.exe',
+            'naive-x86_64-pc-windows-msvc.exe',
+            'trusttunnel_client-x86_64-pc-windows-msvc.exe',
+            'wintun.dll'
+          )) {
+            New-Item -ItemType File -Force -Path "src-tauri/binaries/$name" | Out-Null
+          }
+
+      - name: Rust format
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Rust check
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Diff hygiene
+        shell: pwsh
+        run: |
+          git diff --check
+          git status --short
+          if (git diff --quiet) {
+            Write-Error 'Patch produced no changes'
+            exit 1
+          }
+
+      - name: Commit tested patch to main
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: stabilize active source switching'
+          git push origin HEAD:main
