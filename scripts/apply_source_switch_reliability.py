@@ -1,0 +1,732 @@
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def write(path: str, content: str) -> None:
+    target = ROOT / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8", newline="\n")
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    content = read(path)
+    count = content.count(old)
+    if count != 1:
+        raise RuntimeError(
+            f"{path}: expected exactly one replacement, found {count}: {old[:140]!r}"
+        )
+    write(path, content.replace(old, new, 1))
+
+
+# ---------------------------------------------------------------------------
+# 1. Bounded source topology readiness
+# ---------------------------------------------------------------------------
+write(
+    "src/lib/source-switch-readiness.js",
+    r'''const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Clash can accept requests before the complete selector/outbound graph is
+// visible through /proxies. A source switch therefore waits for a bounded,
+// fresh, generation-scoped topology instead of destroying the target runtime
+// after a single transient snapshot.
+export async function waitForMatchingSourceTopology({
+  read,
+  matches,
+  isCurrent = () => true,
+  attempts = 6,
+  retryDelayMs = 120,
+  wait = sleep,
+} = {}) {
+  if (typeof read !== "function" || typeof matches !== "function") {
+    throw new TypeError("source topology readiness requires read and matches");
+  }
+
+  const maxAttempts = Math.max(1, Number(attempts) || 1);
+  let lastTopology = null;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (!isCurrent()) return { status: "stale", topology: lastTopology };
+    try {
+      lastTopology = await read();
+      if (!isCurrent()) return { status: "stale", topology: lastTopology };
+      if (matches(lastTopology)) {
+        return { status: "ready", topology: lastTopology, attempts: attempt + 1 };
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt + 1 < maxAttempts) {
+      await wait(retryDelayMs * (attempt + 1));
+    }
+  }
+
+  return {
+    status: "unavailable",
+    topology: lastTopology,
+    attempts: maxAttempts,
+    reason: lastError ? "clash_api_error" : "topology_mismatch",
+  };
+}
+''',
+)
+
+write(
+    "tests/source-switch-readiness.test.mjs",
+    r'''import test from "node:test";
+import assert from "node:assert/strict";
+import { waitForMatchingSourceTopology } from "../src/lib/source-switch-readiness.js";
+
+test("source topology waits for the complete target selector instead of failing the first snapshot", async () => {
+  let reads = 0;
+  const result = await waitForMatchingSourceTopology({
+    read: async () => ({ ready: ++reads >= 3 }),
+    matches: value => value.ready,
+    wait: async () => {},
+  });
+  assert.equal(result.status, "ready");
+  assert.equal(result.attempts, 3);
+  assert.equal(reads, 3);
+});
+
+test("source topology stops immediately when the target operation becomes stale", async () => {
+  let current = true;
+  let reads = 0;
+  const result = await waitForMatchingSourceTopology({
+    read: async () => {
+      reads++;
+      current = false;
+      return { ready: false };
+    },
+    matches: value => value.ready,
+    isCurrent: () => current,
+    wait: async () => {},
+  });
+  assert.equal(result.status, "stale");
+  assert.equal(reads, 1);
+});
+
+test("source topology returns a bounded unavailable verdict", async () => {
+  let reads = 0;
+  const result = await waitForMatchingSourceTopology({
+    read: async () => {
+      reads++;
+      return { ready: false };
+    },
+    matches: value => value.ready,
+    attempts: 4,
+    wait: async () => {},
+  });
+  assert.equal(result.status, "unavailable");
+  assert.equal(result.reason, "topology_mismatch");
+  assert.equal(reads, 4);
+});
+''',
+)
+
+
+# ---------------------------------------------------------------------------
+# 2. Migrate legacy selector sentinels instead of treating them as missing
+#    user-pinned nodes.
+# ---------------------------------------------------------------------------
+replace_once(
+    "src/lib/proxy-selection.js",
+    '''  const tag = getRememberedProxySelection(source);
+  if (!tag) return { status: "none", tag: null };
+
+  const selector = topology?.proxies?.proxy;
+  const selectableTags = Array.isArray(selector?.all) ? selector.all : [];
+  if (!selectableTags.includes(tag)) return { status: "unavailable", tag };
+  if (selector?.now === tag) return { status: "current", tag };
+''',
+    '''  let tag = getRememberedProxySelection(source);
+  if (!tag) return { status: "none", tag: null };
+
+  const selector = topology?.proxies?.proxy;
+  const selectableTags = Array.isArray(selector?.all) ? selector.all : [];
+  const selectorType = String(selector?.type || "").toLowerCase();
+  const isSelector = selectorType === "selector" || selectableTags.length > 0;
+
+  // A subscription that used to contain one node may have persisted "proxy".
+  // In a multi-node runtime "proxy" is the selector group name, not a child.
+  // It represents the old automatic/single route, so migrate it to "auto";
+  // never misclassify it as a deleted manually pinned server.
+  if (isSelector && tag === "proxy" && selectableTags.includes("auto")) {
+    tag = "auto";
+    rememberProxySelection(source, tag);
+  }
+
+  // The inverse transition is valid too: a source may shrink to one node.
+  // auto/proxy both mean the only available route and need no Clash PUT.
+  if (!isSelector && (tag === "auto" || tag === "proxy")) {
+    if (tag !== "proxy") rememberProxySelection(source, "proxy");
+    return { status: "current", tag: "proxy" };
+  }
+
+  if (!selectableTags.includes(tag)) return { status: "unavailable", tag };
+  if (selector?.now === tag) return { status: "current", tag };
+''',
+)
+
+replace_once(
+    "tests/proxy-selection.test.mjs",
+    '''test("удалённая из подписки нода не подменяется произвольной и остаётся запомненной", async () => {
+''',
+    '''test("legacy singleton proxy мигрирует в auto у многонодовой подписки", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "expanded" } };
+  rememberProxySelection(source, "proxy");
+  let calls = 0;
+  const result = await restoreRememberedProxySelection({
+    source,
+    topology: {
+      proxies: {
+        proxy: { type: "Selector", now: "auto", all: ["auto", "lowest", "node-a"] },
+      },
+    },
+    apply: async () => { calls++; },
+  });
+  assert.deepEqual(result, { status: "current", tag: "auto" });
+  assert.equal(getRememberedProxySelection(source), "auto");
+  assert.equal(calls, 0);
+});
+
+test("auto безопасно нормализуется в proxy когда источник стал одиночным", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "shrunk" } };
+  rememberProxySelection(source, "auto");
+  let calls = 0;
+  const result = await restoreRememberedProxySelection({
+    source,
+    topology: { proxies: { proxy: { type: "VLESS" } } },
+    apply: async () => { calls++; },
+  });
+  assert.deepEqual(result, { status: "current", tag: "proxy" });
+  assert.equal(getRememberedProxySelection(source), "proxy");
+  assert.equal(calls, 0);
+});
+
+test("удалённая из подписки нода не подменяется произвольной и остаётся запомненной", async () => {
+''',
+)
+
+
+# ---------------------------------------------------------------------------
+# 3. Bind SourceSwitch to the native generation atomically and persist safe
+#    frontend transaction stages in runtime.log.
+# ---------------------------------------------------------------------------
+replace_once(
+    "src-tauri/src/vpn.rs",
+    '''#[derive(Clone)]
+struct RuntimeRecord {
+''',
+    '''pub(crate) fn active_runtime_generation(state: &SingboxState) -> Result<u64, String> {
+    let child_running = state.child.lock_recover().is_some();
+    let generation = state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .map(|runtime| runtime.process_generation)
+        .unwrap_or(0);
+    if child_running && generation == 0 {
+        return Err("running runtime has no published generation".into());
+    }
+    Ok(if child_running { generation } else { 0 })
+}
+
+#[derive(Clone)]
+struct RuntimeRecord {
+''',
+)
+
+replace_once(
+    "src-tauri/src/runtime_ops.rs",
+    '''#[tauri::command]
+pub fn complete_frontend_runtime_operation(
+''',
+    r'''#[tauri::command]
+pub fn begin_source_switch_operation(
+    app: tauri::AppHandle,
+    coordinator: tauri::State<'_, RuntimeOperationCoordinator>,
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    source_fingerprint: String,
+) -> Result<RuntimeOperationToken, String> {
+    let source_fingerprint = source_fingerprint.trim();
+    if source_fingerprint.is_empty() {
+        return Err("source switch requires a target fingerprint".into());
+    }
+
+    // RuntimeRecord and child ownership are read in the native process. The
+    // frontend can no longer race a separate runtime_snapshot IPC and create a
+    // SourceSwitch token with generation=0 while a live runtime exists.
+    let generation = crate::vpn::active_runtime_generation(&state)?;
+    let previous = coordinator.snapshot();
+    let result = coordinator.begin(
+        RuntimeOperationKind::SourceSwitch,
+        generation,
+        Some(source_fingerprint),
+    );
+    match &result {
+        Ok(token) => {
+            if let Some(previous) = previous {
+                if previous.id != token.id {
+                    append_operation_diagnostic(
+                        &app,
+                        previous.id,
+                        previous.kind,
+                        previous.generation,
+                        previous.source_fingerprint_hash.as_deref(),
+                        "superseded",
+                        None,
+                    );
+                }
+            }
+            append_operation_diagnostic(
+                &app,
+                token.id,
+                token.kind,
+                token.generation,
+                token.source_fingerprint_hash.as_deref(),
+                "acquired",
+                None,
+            );
+        }
+        Err(_) => append_operation_attempt_diagnostic(
+            &app,
+            RuntimeOperationKind::SourceSwitch,
+            "coordinator_busy",
+        ),
+    }
+    result
+}
+
+fn safe_diagnostic_value(value: &str) -> Result<String, String> {
+    let value = value.trim().to_ascii_lowercase();
+    if value.is_empty() || value.len() > 80 {
+        return Err("invalid runtime diagnostic value".into());
+    }
+    if !value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
+    {
+        return Err("unsafe runtime diagnostic value".into());
+    }
+    Ok(value)
+}
+
+#[tauri::command]
+pub fn record_frontend_runtime_event(
+    app: tauri::AppHandle,
+    token: Option<RuntimeOperationToken>,
+    phase: String,
+    result: String,
+    reason: Option<String>,
+    generation: Option<u64>,
+) -> Result<(), String> {
+    let phase = safe_diagnostic_value(&phase)?;
+    let result = safe_diagnostic_value(&result)?;
+    let reason = reason
+        .as_deref()
+        .map(safe_diagnostic_value)
+        .transpose()?
+        .unwrap_or_else(|| "none".into());
+    let (id, kind, operation_generation, source_hash) = token
+        .as_ref()
+        .map(|token| {
+            (
+                token.id,
+                format!("{:?}", token.kind),
+                token.generation,
+                token
+                    .source_fingerprint_hash
+                    .clone()
+                    .unwrap_or_else(|| "none".into()),
+            )
+        })
+        .unwrap_or_else(|| (0, "None".into(), 0, "none".into()));
+    crate::vpn::append_runtime_diagnostic(
+        &app,
+        &format!(
+            "source_switch_event operation_id={id} kind={kind} operation_generation={operation_generation} runtime_generation={} source_hash={source_hash} phase={phase} result={result} reason={reason}",
+            generation.unwrap_or(0),
+        ),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub fn complete_frontend_runtime_operation(
+''',
+)
+
+replace_once(
+    "src-tauri/src/runtime_ops.rs",
+    '''    #[tokio::test]
+    async fn source_verification_has_priority_over_queued_health_and_quality() {
+''',
+    '''    #[test]
+    fn runtime_diagnostic_values_reject_sensitive_or_free_form_text() {
+        assert_eq!(
+            safe_diagnostic_value("Topology_Ready").unwrap(),
+            "topology_ready"
+        );
+        assert!(safe_diagnostic_value("https://secret.example/sub").is_err());
+        assert!(safe_diagnostic_value("contains spaces").is_err());
+        assert!(safe_diagnostic_value("").is_err());
+    }
+
+    #[tokio::test]
+    async fn source_verification_has_priority_over_queued_health_and_quality() {
+''',
+)
+
+replace_once(
+    "src-tauri/src/lib.rs",
+    '''            runtime_ops::begin_frontend_runtime_operation,
+            runtime_ops::complete_frontend_runtime_operation,
+''',
+    '''            runtime_ops::begin_frontend_runtime_operation,
+            runtime_ops::begin_source_switch_operation,
+            runtime_ops::record_frontend_runtime_event,
+            runtime_ops::complete_frontend_runtime_operation,
+''',
+)
+
+
+# ---------------------------------------------------------------------------
+# 4. Main lifecycle orchestration
+# ---------------------------------------------------------------------------
+replace_once(
+    "src/main.js",
+    '''import { completeSuccessfulConnect, runReconnectAttempt } from "/lib/connect-network-result.js";
+import { runtimeEndpointMatchesGeneration, runtimeSnapshotReadyForMode } from "/lib/runtime-lifecycle.js";
+''',
+    '''import { completeSuccessfulConnect, runReconnectAttempt } from "/lib/connect-network-result.js";
+import { waitForMatchingSourceTopology } from "/lib/source-switch-readiness.js";
+import { runtimeEndpointMatchesGeneration, runtimeSnapshotReadyForMode } from "/lib/runtime-lifecycle.js";
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, pickSelectorNow, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testNode } from "/lib/clash-api.js";
+''',
+    '''import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, pickSelectorNow, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testGroup, testNode } from "/lib/clash-api.js";
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''async function beginRuntimeOperation(kind, source = activeSourceRef()) {
+  const snapshot = await invoke("runtime_snapshot").catch(() => null);
+  const identitySource = kind === "sourceSwitch"
+    ? sourceById(source?.kind, source?.id)
+    : (getActiveSource() || activeDisplaySource());
+  try {
+    return await invoke("begin_frontend_runtime_operation", {
+      kind,
+      generation: Number(snapshot?.processGeneration) || 0,
+      sourceFingerprint: sourceFingerprint(identitySource),
+    });
+  } catch (error) {
+    console.warn(`unable to begin ${kind} runtime operation`, error);
+    return null;
+  }
+}
+''',
+    '''async function beginRuntimeOperation(kind, source = activeSourceRef()) {
+  const identitySource = kind === "sourceSwitch"
+    ? sourceById(source?.kind, source?.id)
+    : (getActiveSource() || activeDisplaySource());
+  const identityFingerprint = sourceFingerprint(identitySource);
+  try {
+    if (kind === "sourceSwitch") {
+      return await invoke("begin_source_switch_operation", {
+        sourceFingerprint: identityFingerprint,
+      });
+    }
+    const snapshot = await invoke("runtime_snapshot").catch(() => null);
+    return await invoke("begin_frontend_runtime_operation", {
+      kind,
+      generation: Number(snapshot?.processGeneration) || 0,
+      sourceFingerprint: identityFingerprint,
+    });
+  } catch (error) {
+    console.warn(`unable to begin ${kind} runtime operation`, error);
+    return null;
+  }
+}
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''function logSourceSwitchReconnect(phase, operationToken, result, reason = null) {
+  const payload = {
+    phase,
+    operation_id: Number(operationToken?.id) || "none",
+    result: safeSourceSwitchReason(result),
+  };
+  const generation = Number(runtimeIdentity.capture()?.processGeneration) || 0;
+  if (generation) payload.generation = generation;
+  if (reason) payload.reason = safeSourceSwitchReason(reason);
+  console.info("source_switch_reconnect", payload);
+}
+''',
+    '''function logSourceSwitchReconnect(phase, operationToken, result, reason = null) {
+  const payload = {
+    phase: safeSourceSwitchReason(phase),
+    operation_id: Number(operationToken?.id) || "none",
+    result: safeSourceSwitchReason(result),
+  };
+  const generation = Number(runtimeIdentity.capture()?.processGeneration) || 0;
+  if (generation) payload.generation = generation;
+  if (reason) payload.reason = safeSourceSwitchReason(reason);
+  console.info("source_switch_reconnect", payload);
+  void invoke("record_frontend_runtime_event", {
+    token: operationToken || null,
+    phase: payload.phase,
+    result: payload.result,
+    reason: payload.reason || null,
+    generation: generation || null,
+  }).catch(error => console.warn("source switch diagnostic failed", error));
+}
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''    logSourceSwitchReconnect("verifier", token, "started");
+    const verdict = await invoke("verify_runtime_dataplane", {
+''',
+    '''    const targetSource = sourceById(target.kind, target.id);
+    const runtimeToken = runtimeIdentity.capture();
+    if (targetSource?.kind === "sub" && targetSource.nodes?.length >= 2
+      && runtimeToken && runtimeIdentity.isCurrent(runtimeToken)) {
+      // A fresh lowest-delay balancer falls back to the first node until its
+      // URLTest group publishes delays. Force one bounded initial pass so one
+      // dead first node cannot make a healthy multi-node subscription appear
+      // offline to the source verifier.
+      try {
+        await testGroup("lowest", { token: runtimeToken, timeoutMs: 4500 });
+      } catch {
+        logSourceSwitchReconnect("selector", token, "unverified", "urltest_not_converged");
+      }
+      if (!isCurrent() || !runtimeIdentity.isCurrent(runtimeToken)) {
+        return { status: "stale" };
+      }
+    }
+    logSourceSwitchReconnect("verifier", token, "started");
+    const verdict = await invoke("verify_runtime_dataplane", {
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''    const attemptEpoch = connectAttempts.begin();
+    setState("connecting");
+    try {
+''',
+    '''    const attemptEpoch = connectAttempts.begin();
+    let connectStage = "preflight";
+    setState("connecting");
+    try {
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''      const runtimeSnapshot = await coreStartBarrier.track(invoke("start_singbox", {
+''',
+    '''      connectStage = "runtime_start";
+      const runtimeSnapshot = await coreStartBarrier.track(invoke("start_singbox", {
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''      runtimeToken = runtimeIdentity.adopt(runtimeSnapshot, { source: runtimeSource });
+      const topology = await getProxies(undefined, { token: runtimeToken });
+      if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
+        try { await stopCurrentOperation(); } catch {}
+        return false;
+      }
+      if (!runtimeInfo.strictPrivacy && !warpOnly
+        && !snapshotMatchesSource(topology, nodesFromSource())) {
+        throw new Error("Clash topology не соответствует активному источнику");
+      }
+''',
+    '''      runtimeToken = runtimeIdentity.adopt(runtimeSnapshot, { source: runtimeSource });
+      connectStage = "topology";
+      const topologyReadiness = await waitForMatchingSourceTopology({
+        read: () => getProxies(undefined, { token: runtimeToken, fresh: true }),
+        matches: topology => runtimeInfo.strictPrivacy || warpOnly
+          || snapshotMatchesSource(topology, nodesFromSource()),
+        isCurrent: () => isCurrentNetworkIntent(epoch, "connected")
+          && connectAttempts.isCurrent(attemptEpoch)
+          && runtimeIdentity.isCurrent(runtimeToken),
+      });
+      if (topologyReadiness.status === "stale") {
+        try { await stopCurrentOperation(); } catch {}
+        return false;
+      }
+      if (topologyReadiness.status !== "ready") {
+        const error = new Error("Clash topology не успела подтвердить активный источник");
+        error.code = topologyReadiness.reason === "clash_api_error"
+          ? "SOURCE_TOPOLOGY_API_UNAVAILABLE"
+          : "SOURCE_TOPOLOGY_NOT_READY";
+        throw error;
+      }
+      const topology = topologyReadiness.topology;
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''      if (runtimeInfo.strictPrivacy) {
+''',
+    '''      connectStage = "selection";
+      if (runtimeInfo.strictPrivacy) {
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''      if (mode === "systemProxy") {
+''',
+    '''      connectStage = "system_proxy";
+      if (mode === "systemProxy") {
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''      const killSwitchReady = await applyKillSwitch(true);
+''',
+    '''      connectStage = "kill_switch";
+      const killSwitchReady = await applyKillSwitch(true);
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''      let finalSnapshot;
+      try { finalSnapshot = await invoke("runtime_snapshot"); }
+''',
+    '''      connectStage = "final_snapshot";
+      let finalSnapshot;
+      try { finalSnapshot = await invoke("runtime_snapshot"); }
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''      if (!(await runtimeSnapshotIsLive(finalSnapshot, runtimeSource))) {
+''',
+    '''      connectStage = "endpoint_verification";
+      if (!(await runtimeSnapshotIsLive(finalSnapshot, runtimeSource))) {
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''      const connected = completeSuccessfulConnect({
+''',
+    '''      connectStage = "finalize";
+      const connected = completeSuccessfulConnect({
+''',
+)
+
+replace_once(
+    "src/main.js",
+    '''      console.error("start failed", e);
+      const preserveGuard = killSwitchMustSurviveRuntimeStop();
+''',
+    '''      console.error("start failed", e);
+      if (operationToken?.kind === "sourceSwitch") {
+        const code = safeSourceSwitchReason(e?.code || e?.name || "error");
+        logSourceSwitchReconnect("connect", operationToken, "failed", `${connectStage}_${code}`);
+      }
+      const preserveGuard = killSwitchMustSurviveRuntimeStop();
+''',
+)
+
+
+# ---------------------------------------------------------------------------
+# 5. Render third-party geo/IP provider rate limits as informational noise.
+#    They remain visible and searchable but are not painted as a VPN failure.
+# ---------------------------------------------------------------------------
+write(
+    "src/lib/log-severity.js",
+    r'''export function classifyEngineLogSeverity(level, message) {
+  const normalizedLevel = String(level || "").toUpperCase();
+  const text = String(message || "");
+  const geoLookup = /monitoring:\s*Failed try \d+ to get IP info:/i.test(text);
+  const expectedProviderFailure = /(\b429\b|\b404\b|non-200 response|EOF|server gave HTTP response to HTTPS client)/i.test(text);
+  if ((normalizedLevel === "WARN" || normalizedLevel === "WARNING")
+    && geoLookup && expectedProviderFailure) {
+    return { level: "INFO", grade: "info", nonFatal: true };
+  }
+  const grade = normalizedLevel === "ERROR" || normalizedLevel === "FATAL" || normalizedLevel === "PANIC"
+    ? "err"
+    : normalizedLevel === "WARN" || normalizedLevel === "WARNING"
+      ? "warn"
+      : normalizedLevel === "TRACE" || normalizedLevel === "DEBUG"
+        ? "ok"
+        : "info";
+  return { level: normalizedLevel, grade, nonFatal: false };
+}
+''',
+)
+
+replace_once(
+    "src/lib/logs-view.js",
+    '''import { FLAGS_BASE, flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
+''',
+    '''import { FLAGS_BASE, flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
+import { classifyEngineLogSeverity } from "/lib/log-severity.js";
+''',
+)
+
+replace_once(
+    "src/lib/logs-view.js",
+    '''      const lvl = level.toUpperCase();
+      cur = { t: tm, lvl, grade: levelGrade(lvl), msg: rest, cont: [] };
+''',
+    '''      const classified = classifyEngineLogSeverity(level, rest);
+      cur = { t: tm, lvl: classified.level, grade: classified.grade, msg: rest, cont: [] };
+''',
+)
+
+write(
+    "tests/log-severity.test.mjs",
+    r'''import test from "node:test";
+import assert from "node:assert/strict";
+import { classifyEngineLogSeverity } from "../src/lib/log-severity.js";
+
+test("sing-box geo provider 429 remains visible but is classified non-fatal", () => {
+  assert.deepEqual(
+    classifyEngineLogSeverity(
+      "WARN",
+      "monitoring: Failed try 2 to get IP info: https://example.invalid non-200 response: 429",
+    ),
+    { level: "INFO", grade: "info", nonFatal: true },
+  );
+});
+
+test("real URL-test transport warnings retain warning severity", () => {
+  assert.deepEqual(
+    classifyEngineLogSeverity("WARN", "outbound node URL test failed: i/o timeout"),
+    { level: "WARN", grade: "warn", nonFatal: false },
+  );
+});
+''',
+)
+
+print("Source-switch reliability patch applied successfully")
