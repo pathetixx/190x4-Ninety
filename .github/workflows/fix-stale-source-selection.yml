@@ -1,43 +1,39 @@
-name: Validate stale source selection recovery
+name: Validate stale selection and proxy mode fixes
 
 on:
   pull_request:
-    types: [opened, reopened]
+    types: [opened, reopened, synchronize]
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: stale-source-selection-recovery
-  cancel-in-progress: false
+  group: stale-selection-proxy-mode-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
-  patch-test-commit:
+  validate:
     if: github.head_ref == 'fix/stale-source-selection'
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - name: Checkout source branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version-file: .nvmrc
 
-      - name: Apply reviewed patch
-        run: python scripts/apply_stale_source_selection_fix.py
-
-      - name: Remove one-shot infrastructure
-        shell: pwsh
-        run: |
-          Remove-Item scripts/apply_stale_source_selection_fix.py
-          Remove-Item .github/workflows/fix-stale-source-selection.yml
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          components: rustfmt, clippy
 
       - name: Install frontend dependencies
         run: npm ci --no-audit --no-fund
@@ -54,22 +50,32 @@ jobs:
       - name: Frontend selected-module coverage
         run: npm run test:coverage
 
+      - name: Prepare sidecar placeholders
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
+          foreach ($name in @(
+            'sing-box-x86_64-pc-windows-msvc.exe',
+            'xray-x86_64-pc-windows-msvc.exe',
+            'naive-x86_64-pc-windows-msvc.exe',
+            'trusttunnel_client-x86_64-pc-windows-msvc.exe',
+            'wintun.dll'
+          )) {
+            New-Item -ItemType File -Force -Path "src-tauri/binaries/$name" | Out-Null
+          }
+
+      - name: Rust format
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Rust check
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
+      - name: Rust clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
       - name: Diff hygiene
         shell: pwsh
-        run: |
-          git diff --check
-          $status = @(git status --porcelain)
-          if ($status.Count -eq 0) {
-            Write-Error 'Patch produced no changes'
-            exit 1
-          }
-          $status | ForEach-Object { Write-Host $_ }
-
-      - name: Commit tested patch to source branch
-        shell: pwsh
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git commit -m 'fix: recover from stale remembered source selection'
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+        run: git diff --check origin/main...HEAD
