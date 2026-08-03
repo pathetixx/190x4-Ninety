@@ -51,8 +51,9 @@ import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
 import { createCoreStartBarrier } from "/lib/connection-start-barrier.js";
 import { createRuntimeIdleGate } from "/lib/runtime-idle-gate.js";
 import { completeSuccessfulConnect, runReconnectAttempt } from "/lib/connect-network-result.js";
+import { waitForMatchingSourceTopology } from "/lib/source-switch-readiness.js";
 import { runtimeEndpointMatchesGeneration, runtimeSnapshotReadyForMode } from "/lib/runtime-lifecycle.js";
-import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, pickSelectorNow, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testNode } from "/lib/clash-api.js";
+import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, pickSelectorNow, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testGroup, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
@@ -1549,15 +1550,21 @@ function commitActiveSource(kind, id) {
 }
 
 async function beginRuntimeOperation(kind, source = activeSourceRef()) {
-  const snapshot = await invoke("runtime_snapshot").catch(() => null);
   const identitySource = kind === "sourceSwitch"
     ? sourceById(source?.kind, source?.id)
     : (getActiveSource() || activeDisplaySource());
+  const identityFingerprint = sourceFingerprint(identitySource);
   try {
+    if (kind === "sourceSwitch") {
+      return await invoke("begin_source_switch_operation", {
+        sourceFingerprint: identityFingerprint,
+      });
+    }
+    const snapshot = await invoke("runtime_snapshot").catch(() => null);
     return await invoke("begin_frontend_runtime_operation", {
       kind,
       generation: Number(snapshot?.processGeneration) || 0,
-      sourceFingerprint: sourceFingerprint(identitySource),
+      sourceFingerprint: identityFingerprint,
     });
   } catch (error) {
     console.warn(`unable to begin ${kind} runtime operation`, error);
@@ -1610,7 +1617,7 @@ function safeSourceSwitchReason(reason) {
 
 function logSourceSwitchReconnect(phase, operationToken, result, reason = null) {
   const payload = {
-    phase,
+    phase: safeSourceSwitchReason(phase),
     operation_id: Number(operationToken?.id) || "none",
     result: safeSourceSwitchReason(result),
   };
@@ -1618,6 +1625,13 @@ function logSourceSwitchReconnect(phase, operationToken, result, reason = null) 
   if (generation) payload.generation = generation;
   if (reason) payload.reason = safeSourceSwitchReason(reason);
   console.info("source_switch_reconnect", payload);
+  void invoke("record_frontend_runtime_event", {
+    token: operationToken || null,
+    phase: payload.phase,
+    result: payload.result,
+    reason: payload.reason || null,
+    generation: generation || null,
+  }).catch(error => console.warn("source switch diagnostic failed", error));
 }
 
 async function confirmActiveSourceDataplane(target, { token, isCurrent }) {
@@ -1631,6 +1645,23 @@ async function confirmActiveSourceDataplane(target, { token, isCurrent }) {
     if (!isCurrent() || !sameSourceRef(activeSourceRef(), target)) return { status: "stale" };
     if (!snapshot?.running || !Number(snapshot.processGeneration)) {
       return { status: "hardFailed", reason: "runtime_not_running" };
+    }
+    const targetSource = sourceById(target.kind, target.id);
+    const runtimeToken = runtimeIdentity.capture();
+    if (targetSource?.kind === "sub" && targetSource.nodes?.length >= 2
+      && runtimeToken && runtimeIdentity.isCurrent(runtimeToken)) {
+      // A fresh lowest-delay balancer falls back to the first node until its
+      // URLTest group publishes delays. Force one bounded initial pass so one
+      // dead first node cannot make a healthy multi-node subscription appear
+      // offline to the source verifier.
+      try {
+        await testGroup("lowest", { token: runtimeToken, timeoutMs: 4500 });
+      } catch {
+        logSourceSwitchReconnect("selector", token, "unverified", "urltest_not_converged");
+      }
+      if (!isCurrent() || !runtimeIdentity.isCurrent(runtimeToken)) {
+        return { status: "stale" };
+      }
     }
     logSourceSwitchReconnect("verifier", token, "started");
     const verdict = await invoke("verify_runtime_dataplane", {
@@ -3088,6 +3119,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
     // больше не оставляет state=idle, поэтому второй клик отменяет эту попытку,
     // а не запускает параллельный start_singbox.
     const attemptEpoch = connectAttempts.begin();
+    let connectStage = "preflight";
     setState("connecting");
     try {
       if (strictPrivacy) {
@@ -3156,6 +3188,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         source: runtimeSource, mode: runtimeInfo.mode, configJson,
         clashPort: runtimeInfo.options.experimental?.clashApiPort || 9090,
       });
+      connectStage = "runtime_start";
       const runtimeSnapshot = await coreStartBarrier.track(invoke("start_singbox", {
         configJson,
         mode: runtimeInfo.mode,
@@ -3189,15 +3222,28 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       // токен нужен только чтобы передать ожидаемый identity в start_singbox,
       // после актуальной проверки дальше работаем с подтверждённым snapshot Rust.
       runtimeToken = runtimeIdentity.adopt(runtimeSnapshot, { source: runtimeSource });
-      const topology = await getProxies(undefined, { token: runtimeToken });
-      if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
+      connectStage = "topology";
+      const topologyReadiness = await waitForMatchingSourceTopology({
+        read: () => getProxies(undefined, { token: runtimeToken, fresh: true }),
+        matches: topology => runtimeInfo.strictPrivacy || warpOnly
+          || snapshotMatchesSource(topology, nodesFromSource()),
+        isCurrent: () => isCurrentNetworkIntent(epoch, "connected")
+          && connectAttempts.isCurrent(attemptEpoch)
+          && runtimeIdentity.isCurrent(runtimeToken),
+      });
+      if (topologyReadiness.status === "stale") {
         try { await stopCurrentOperation(); } catch {}
         return false;
       }
-      if (!runtimeInfo.strictPrivacy && !warpOnly
-        && !snapshotMatchesSource(topology, nodesFromSource())) {
-        throw new Error("Clash topology не соответствует активному источнику");
+      if (topologyReadiness.status !== "ready") {
+        const error = new Error("Clash topology не успела подтвердить активный источник");
+        error.code = topologyReadiness.reason === "clash_api_error"
+          ? "SOURCE_TOPOLOGY_API_UNAVAILABLE"
+          : "SOURCE_TOPOLOGY_NOT_READY";
+        throw error;
       }
+      const topology = topologyReadiness.topology;
+      connectStage = "selection";
       if (runtimeInfo.strictPrivacy) {
         const pinned = runtimeSource?.kind === "sub"
           ? runtimeSource.nodes?.find((node, index) => nodeTag(index, node) === runtimeInfo.pinnedNodeTag)
@@ -3232,6 +3278,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       // Системный прокси выставляем ТОЛЬКО для mode=systemProxy. Для голого
       // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт
       // полный intercept через TUN-интерфейс.
+      connectStage = "system_proxy";
       if (mode === "systemProxy") {
         const probeHostPort = runtimeSnapshot.probeProxyEndpoint?.address;
         if (typeof probeHostPort !== "string" || !probeHostPort) {
@@ -3265,6 +3312,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         && mode === "tun";
       if (retiringOrdinaryBarrier) stopHealthWatchdog();
       // Kill switch — часть readiness, а не фоновый best-effort после connected.
+      connectStage = "kill_switch";
       const killSwitchReady = await applyKillSwitch(true);
       if (!isCurrentNetworkIntent(epoch, "connected") || !runtimeIdentity.isCurrent(runtimeToken)) {
         try { await stopCurrentOperation(); } catch {}
@@ -3282,6 +3330,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       // в catch (shutdownCore → idle + тост). Тихий стоп оставлял UI навсегда
       // в «connecting» при уже погашенном ядре. Тихо выходим только при отмене —
       // статус юзеру выставил его собственный клик.
+      connectStage = "final_snapshot";
       let finalSnapshot;
       try { finalSnapshot = await invoke("runtime_snapshot"); }
       catch (e) {
@@ -3291,9 +3340,11 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         }
         throw new Error(`финальный runtime snapshot не получен: ${e}`, { cause: e });
       }
+      connectStage = "endpoint_verification";
       if (!(await runtimeSnapshotIsLive(finalSnapshot, runtimeSource))) {
         throw new Error("финальный runtime endpoint не прошёл live-проверку");
       }
+      connectStage = "finalize";
       const connected = completeSuccessfulConnect({
         finalizeConnected: () => finalizeConnected(finalSnapshot, {
           epoch,
@@ -3341,6 +3392,10 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         return false;
       }
       console.error("start failed", e);
+      if (operationToken?.kind === "sourceSwitch") {
+        const code = safeSourceSwitchReason(e?.code || e?.name || "error");
+        logSourceSwitchReconnect("connect", operationToken, "failed", `${connectStage}_${code}`);
+      }
       const preserveGuard = killSwitchMustSurviveRuntimeStop();
       const cleaned = await shutdownCore({
         preserveKillSwitch: preserveGuard,

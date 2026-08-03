@@ -9,6 +9,7 @@ import { perfObserver } from "/lib/performance-observer.js";
 import { t } from "/lib/i18n/index.js";
 import { toast } from "/lib/toast.js";
 import { FLAGS_BASE, flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
+import { classifyEngineLogSeverity } from "/lib/log-severity.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -48,14 +49,6 @@ const LOG_LINE_RE = /^(?:([+-]\d{4})\s+)?(?:(\d{4}-\d{2}-\d{2})\s+)?(\d{1,2}:\d{
 const LOG_ANSI_RE = /\x1b\[[0-9;]*m/g;        // eslint-disable-line no-control-regex
 const LOG_STD_PREFIX_RE = /^(?:STDERR|STDOUT):\s*/;
 function cleanLogLine(s) { return s.replace(LOG_ANSI_RE, "").replace(LOG_STD_PREFIX_RE, ""); }
-
-function levelGrade(lvl) {
-  const l = lvl.toUpperCase();
-  if (l === "ERROR" || l === "FATAL" || l === "PANIC") return "err";
-  if (l === "WARN" || l === "WARNING") return "warn";
-  if (l === "TRACE" || l === "DEBUG") return "ok";
-  return "info";
-}
 
 function escapeLog(s) {
   return s.replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
@@ -100,8 +93,8 @@ export function parseLogEntries(text) {
     if (m) {
       const [, , date, time, level, rest] = m;
       const tm = time || (date ? date.slice(5) : "—");
-      const lvl = level.toUpperCase();
-      cur = { t: tm, lvl, grade: levelGrade(lvl), msg: rest, cont: [] };
+      const classified = classifyEngineLogSeverity(level, rest);
+      cur = { t: tm, lvl: classified.level, grade: classified.grade, msg: rest, cont: [] };
       entries.push(cur);
     } else if (cur) {
       cur.cont.push(raw);

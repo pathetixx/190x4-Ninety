@@ -297,6 +297,20 @@ pub struct SingboxState {
     runtime_launch: Mutex<Option<RuntimeLaunchSpec>>,
 }
 
+pub(crate) fn active_runtime_generation(state: &SingboxState) -> Result<u64, String> {
+    let child_running = state.child.lock_recover().is_some();
+    let generation = state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .map(|runtime| runtime.process_generation)
+        .unwrap_or(0);
+    if child_running && generation == 0 {
+        return Err("running runtime has no published generation".into());
+    }
+    Ok(if child_running { generation } else { 0 })
+}
+
 #[derive(Clone)]
 struct RuntimeRecord {
     process_generation: u64,

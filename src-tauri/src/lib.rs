@@ -854,6 +854,8 @@ pub fn run() {
             vpn::stop_singbox,
             vpn::verify_runtime_dataplane,
             runtime_ops::begin_frontend_runtime_operation,
+            runtime_ops::begin_source_switch_operation,
+            runtime_ops::record_frontend_runtime_event,
             runtime_ops::complete_frontend_runtime_operation,
             runtime_ops::cancel_frontend_runtime_operation,
             runtime_ops::runtime_operation_snapshot,

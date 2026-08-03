@@ -43,11 +43,30 @@ export async function restoreRememberedProxySelection({
   retryDelayMs = 140,
   wait = sleep,
 }) {
-  const tag = getRememberedProxySelection(source);
+  let tag = getRememberedProxySelection(source);
   if (!tag) return { status: "none", tag: null };
 
   const selector = topology?.proxies?.proxy;
   const selectableTags = Array.isArray(selector?.all) ? selector.all : [];
+  const selectorType = String(selector?.type || "").toLowerCase();
+  const isSelector = selectorType === "selector" || selectableTags.length > 0;
+
+  // A subscription that used to contain one node may have persisted "proxy".
+  // In a multi-node runtime "proxy" is the selector group name, not a child.
+  // It represents the old automatic/single route, so migrate it to "auto";
+  // never misclassify it as a deleted manually pinned server.
+  if (isSelector && tag === "proxy" && selectableTags.includes("auto")) {
+    tag = "auto";
+    rememberProxySelection(source, tag);
+  }
+
+  // The inverse transition is valid too: a source may shrink to one node.
+  // auto/proxy both mean the only available route and need no Clash PUT.
+  if (!isSelector && (tag === "auto" || tag === "proxy")) {
+    if (tag !== "proxy") rememberProxySelection(source, "proxy");
+    return { status: "current", tag: "proxy" };
+  }
+
   if (!selectableTags.includes(tag)) return { status: "unavailable", tag };
   if (selector?.now === tag) return { status: "current", tag };
 
