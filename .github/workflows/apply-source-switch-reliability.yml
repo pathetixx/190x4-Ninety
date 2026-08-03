@@ -42,23 +42,19 @@ jobs:
         shell: pwsh
         run: |
           $path = 'src/lib/logs-view.js'
-          $content = Get-Content $path -Raw
-          $old = @'
-          function levelGrade(lvl) {
-            const l = lvl.toUpperCase();
-            if (l === "ERROR" || l === "FATAL" || l === "PANIC") return "err";
-            if (l === "WARN" || l === "WARNING") return "warn";
-            if (l === "TRACE" || l === "DEBUG") return "ok";
-            return "info";
-          }
-
-          '@
-          if (-not $content.Contains($old)) {
-            Write-Error 'Expected legacy levelGrade helper was not found exactly once'
+          $content = [System.IO.File]::ReadAllText($path)
+          $pattern = '(?ms)^function levelGrade\(lvl\) \{\r?\n.*?^\}\r?\n\r?\n'
+          $matches = [regex]::Matches($content, $pattern)
+          if ($matches.Count -ne 1) {
+            Write-Error "Expected one legacy levelGrade helper, found $($matches.Count)"
             exit 1
           }
-          $content = $content.Replace($old, '')
-          Set-Content $path $content -NoNewline
+          $content = [regex]::Replace($content, $pattern, '', 1)
+          [System.IO.File]::WriteAllText(
+            $path,
+            $content,
+            [System.Text.UTF8Encoding]::new($false)
+          )
 
       - name: Remove one-shot patch infrastructure
         shell: pwsh
