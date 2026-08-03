@@ -2,6 +2,22 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.53 — 2026-08-03
+
+## Русский
+
+- Переключение источника и режимов подключения стало устойчивее после обновления подписки: исчезнувшая запомненная нода сбрасывается только на явный Auto или единственный доступный маршрут, без подмены произвольной нодой.
+- Включение System Proxy теперь проверяет актуальную точку runtime и поколение процесса, а выключение не зависит от endpoint.
+- Таймаут внешнего geo-сервиса больше не превращается в ложную ошибку подключения.
+- Убрано агрессивное автоматическое восстановление dataplane: Ninety больше не перезапускает ту же конфигурацию и не инициирует скрытую смену узла при проблемах соединения; защита WFP, System Proxy и TUN сохранена.
+
+## English
+
+- Source switching and connection modes are more reliable after a subscription refresh: a missing remembered node falls back only to explicit Auto or the sole available route, never to an arbitrary node.
+- Enabling System Proxy now validates the current runtime endpoint and process generation, while disabling it no longer depends on an endpoint.
+- External geo-service timeouts no longer appear as false connection failures.
+- Removed aggressive automatic dataplane recovery: Ninety no longer restarts the same configuration or silently switches nodes when a connection has problems; WFP, System Proxy, and TUN protection remain in place.
+
 ## v0.2.52 — 2026-08-03
 
 ## Русский
