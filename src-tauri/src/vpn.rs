@@ -1,17 +1,12 @@
 use std::collections::{HashSet, VecDeque};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
-use crate::health;
-use crate::runtime_ops::{
-    DataplaneProbeCoordinator, DataplaneProbeKind, ProbeAcquireError, RuntimeOperationCoordinator,
-    RuntimeOperationKind, RuntimeOperationToken,
-};
 use crate::util::MutexExt;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -276,25 +271,6 @@ pub struct SingboxState {
     pending_cleanup: Mutex<Option<PendingCleanup>>,
     live_processes: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
-    expected_exit_generation: Arc<AtomicU64>,
-    // Native dataplane watchdog. It is owned by the runtime state so a stale
-    // monitor can be cancelled before the next runtime generation starts.
-    dataplane_health: Arc<health::DataplaneHealthState>,
-    dataplane_generation: Arc<AtomicU64>,
-    pub(crate) dataplane_probe: Arc<DataplaneProbeCoordinator>,
-    // Native recovery is a single owner. Frontend reconnects must not race a
-    // same-config stop/start in the short window between dependency teardown
-    // and readiness.
-    native_recovery_lock: tokio::sync::Mutex<()>,
-    native_recovery_active: AtomicBool,
-    // A manual disconnect may arrive while native recovery owns the lifecycle.
-    // It cancels the restart before the next generation is published; the
-    // caller then acquires the same owner lock and performs the verified stop.
-    native_recovery_cancelled: AtomicBool,
-    // In-memory launch material is retained only for the current runtime. It
-    // enables a bounded native restart without asking WebView2 to rebuild or
-    // resend a profile containing credentials.
-    runtime_launch: Mutex<Option<RuntimeLaunchSpec>>,
 }
 
 pub(crate) fn active_runtime_generation(state: &SingboxState) -> Result<u64, String> {
@@ -323,43 +299,6 @@ struct RuntimeRecord {
     listener_ready: bool,
     clash_port: u16,
     clash_ready: bool,
-}
-
-/// Control and dataplane addresses are intentionally different types.  A
-/// caller that has a ControlEndpoint cannot accidentally pass it to the HTTP
-/// proxy builder, and vice versa.
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ControlEndpoint {
-    pub(crate) address: std::net::SocketAddr,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ProbeProxyEndpoint {
-    pub(crate) address: std::net::SocketAddr,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct RuntimeEndpoints {
-    pub(crate) control: ControlEndpoint,
-    pub(crate) probe_proxy: Option<ProbeProxyEndpoint>,
-}
-
-#[derive(Clone)]
-struct RuntimeLaunchSpec {
-    config_json: String,
-    mode: String,
-    xray_json: Option<String>,
-    sidecars_json: Option<String>,
-    logs_disabled: bool,
-    source_fingerprint: Option<String>,
-    config_hash: Option<String>,
-    strict_privacy: bool,
-    pinned_node_tag: Option<String>,
-    system_proxy_bypass_lan: bool,
-    kill_switch_expected: bool,
-    endpoints: Option<RuntimeEndpoints>,
 }
 
 #[derive(Clone, Default)]
@@ -410,14 +349,6 @@ impl Default for SingboxState {
             pending_cleanup: Mutex::new(None),
             live_processes: Arc::new(AtomicU64::new(0)),
             process_exit_notify: Arc::new(Notify::new()),
-            expected_exit_generation: Arc::new(AtomicU64::new(0)),
-            dataplane_health: Arc::new(health::DataplaneHealthState::default()),
-            dataplane_generation: Arc::new(AtomicU64::new(0)),
-            dataplane_probe: Arc::new(DataplaneProbeCoordinator::default()),
-            native_recovery_lock: tokio::sync::Mutex::new(()),
-            native_recovery_active: AtomicBool::new(false),
-            native_recovery_cancelled: AtomicBool::new(false),
-            runtime_launch: Mutex::new(None),
         }
     }
 }
@@ -531,7 +462,7 @@ fn prune_sidecar_logs(dir: &std::path::Path, kind: SidecarLogKind, protected: &H
 //  - принудительно держим external_controller на 127.0.0.1 (даже если фронт
 //    зачем-то выставил 0.0.0.0) — управление ядром не должно торчать в сеть.
 // При невалидном JSON возвращаем как есть: пусть sing-box сам ругнётся.
-fn harden_config(raw: &str, cache_path: Option<&Path>) -> String {
+fn harden_config(raw: &str) -> String {
     let mut v: serde_json::Value = match serde_json::from_str(raw) {
         Ok(v) => v,
         Err(_) => return raw.to_string(),
@@ -556,39 +487,7 @@ fn harden_config(raw: &str, cache_path: Option<&Path>) -> String {
             serde_json::Value::String(format!("127.0.0.1:{port}")),
         );
     }
-    if let Some(cache_path) = cache_path {
-        if let Some(root) = v.as_object_mut() {
-            let experimental = root
-                .entry("experimental")
-                .or_insert_with(|| serde_json::json!({}));
-            if !experimental.is_object() {
-                *experimental = serde_json::json!({});
-            }
-            let experimental = experimental
-                .as_object_mut()
-                .expect("experimental object was just initialized");
-            let cache_file = experimental
-                .entry("cache_file")
-                .or_insert_with(|| serde_json::json!({}));
-            if !cache_file.is_object() {
-                *cache_file = serde_json::json!({});
-            }
-            cache_file
-                .as_object_mut()
-                .expect("cache_file object was just initialized")
-                .insert(
-                    "path".into(),
-                    serde_json::Value::String(cache_path.to_string_lossy().into_owned()),
-                );
-        }
-    }
     serde_json::to_string(&v).unwrap_or_else(|_| raw.to_string())
-}
-
-fn singbox_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = crate::app_paths::data_dir(app)?.join("singbox");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir singbox data: {e}"))?;
-    Ok(dir.join("cache.db"))
 }
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -636,34 +535,6 @@ fn xray_log_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("xray.log"))
 }
 
-// При высокой загрузке Windows не гарантирует, что userspace datapath будет
-// получать CPU вовремя. Поднимаем только критичные сетевые children до
-// ABOVE_NORMAL: HIGH/REALTIME намеренно не используем, чтобы не превращать
-// Ninety в источник starvation для всей системы.
-fn prioritize_datapath_process(pid: u32) {
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{
-            OpenProcess, SetPriorityClass, ABOVE_NORMAL_PRIORITY_CLASS, PROCESS_SET_INFORMATION,
-        };
-
-        unsafe {
-            match OpenProcess(PROCESS_SET_INFORMATION, false, pid) {
-                Ok(handle) => {
-                    if let Err(error) = SetPriorityClass(handle, ABOVE_NORMAL_PRIORITY_CLASS) {
-                        eprintln!("datapath priority failed for pid {pid}: {error}");
-                    }
-                    let _ = CloseHandle(handle);
-                }
-                Err(error) => eprintln!("datapath priority open failed for pid {pid}: {error}"),
-            }
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    let _ = pid;
-}
-
 // Поднимает xray-core sidecar для xhttp-нод (two-core). Всегда user-level,
 // слушает 127.0.0.1; sing-box (свой child или сервис под LocalSystem) ходит
 // к нему через loopback socks-мосты из конфига. Spawn до sing-box.
@@ -688,7 +559,6 @@ async fn spawn_xray(
         .env("NO_COLOR", "1")
         .spawn()
         .map_err(|e| format!("spawn xray: {e}"))?;
-    prioritize_datapath_process(child.pid());
     *state.xray_child.lock_recover() = Some(child);
 
     let died_flag = state.xray_died.clone();
@@ -798,7 +668,6 @@ async fn spawn_sidecars(
             .env("NO_COLOR", "1")
             .spawn()
             .map_err(|e| format!("spawn {bin}: {e}"))?;
-        prioritize_datapath_process(child.pid());
         state.sidecars.lock_recover().push(child);
 
         let died_flag = state.sidecar_died.clone();
@@ -1053,33 +922,6 @@ pub struct RuntimeSnapshot {
     sidecars: serde_json::Value,
     system_proxy_ownership: &'static str,
     kill_switch_active: bool,
-    native_recovery_owner: String,
-    native_recovery_state: String,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeDiagnostic {
-    pub mode: Option<String>,
-    pub generation: u64,
-    pub configured_endpoint: Option<String>,
-    pub published_endpoint: Option<String>,
-    pub listener_ready: bool,
-    pub proxy_enable: bool,
-    pub proxy_server: Option<String>,
-    pub notification_generation: u64,
-    pub notification_applied_generation: u64,
-}
-
-#[derive(Clone, Default)]
-pub(crate) struct NativeRuntimeStatus {
-    pub running: bool,
-    pub xray_alive: bool,
-    pub sidecars_alive: bool,
-    pub clash_ready: bool,
-    pub control_endpoint: Option<ControlEndpoint>,
-    pub probe_proxy_endpoint: Option<ProbeProxyEndpoint>,
-    pub listener_ready: bool,
 }
 
 fn parse_endpoint_address(
@@ -1217,21 +1059,7 @@ fn runtime_ports_from_value(
     Ok((clash, ports))
 }
 
-fn runtime_config_metadata_from_config(
-    raw: &str,
-) -> Result<(RuntimeEndpoints, u16, Vec<u16>), String> {
-    let value: serde_json::Value =
-        serde_json::from_str(raw).map_err(|e| format!("config json: {e}"))?;
-    let endpoints = runtime_endpoints_from_value(&value)?;
-    let (clash_port, runtime_ports) = runtime_ports_from_value(&value, &endpoints)?;
-    Ok((endpoints, clash_port, runtime_ports))
-}
-
-async fn wait_clash_ready(
-    control: &ControlEndpoint,
-    state: &SingboxState,
-    start_epoch: u64,
-) -> Result<(), String> {
+async fn wait_clash_ready(port: u16, state: &SingboxState, start_epoch: u64) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
         ensure_start_current(state, start_epoch)?;
@@ -1467,30 +1295,6 @@ async fn wait_runtime_released(
 fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> RuntimeSnapshot {
     let running = compute_singbox_running(state);
     let record = state.runtime.lock_recover().clone();
-    let health = state.dataplane_health.snapshot();
-    let proxy_state = proxy::system_proxy_state();
-    let (notification_generation, notification_applied_generation) =
-        proxy::proxy_notification_generations();
-    let generation = record.as_ref().map(|r| r.process_generation).unwrap_or(0);
-    let mode = record.as_ref().map(|r| r.mode.clone());
-    let configured_endpoint = record.as_ref().and_then(|r| {
-        r.endpoints
-            .probe_proxy
-            .as_ref()
-            .map(|endpoint| endpoint.address.to_string())
-    });
-    let listener_ready = running && record.as_ref().is_some_and(|r| r.listener_ready);
-    let runtime_diagnostic = RuntimeDiagnostic {
-        mode: mode.clone(),
-        generation,
-        configured_endpoint,
-        published_endpoint: proxy_state.proxy_server.clone(),
-        listener_ready,
-        proxy_enable: proxy_state.proxy_enable,
-        proxy_server: proxy_state.proxy_server.clone(),
-        notification_generation,
-        notification_applied_generation,
-    };
     RuntimeSnapshot {
         running,
         starting: state.starting.load(Ordering::SeqCst),
@@ -1519,535 +1323,32 @@ fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> Run
             "not_owned"
         },
         kill_switch_active,
-        native_recovery_owner: health.native_recovery_owner,
-        native_recovery_state: health.native_recovery_state,
     }
 }
 
-pub(crate) fn native_runtime_status(
-    app: &AppHandle,
-    expected_generation: u64,
-) -> NativeRuntimeStatus {
-    let Some(state) = app.try_state::<SingboxState>() else {
-        return NativeRuntimeStatus::default();
-    };
-    let record = state.runtime.lock_recover().clone();
-    let process_generation = record
-        .as_ref()
-        .map(|runtime| runtime.process_generation)
-        .unwrap_or(0);
-    let generation_matches = expected_generation == 0 || process_generation == expected_generation;
-    NativeRuntimeStatus {
-        running: generation_matches && compute_singbox_running(&state),
-        xray_alive: if state.xray_child.lock_recover().is_none() {
-            true
-        } else {
-            state.xray_died.lock_recover().is_none()
-        },
-        sidecars_alive: if state.sidecars.lock_recover().is_empty() {
-            true
-        } else {
-            state.sidecar_died.lock_recover().is_none()
-        },
-        clash_ready: generation_matches
-            && record.as_ref().is_some_and(|runtime| runtime.clash_ready),
-        control_endpoint: if generation_matches {
-            record
-                .as_ref()
-                .map(|runtime| runtime.endpoints.control.clone())
-        } else {
-            None
-        },
-        probe_proxy_endpoint: if generation_matches {
-            record
-                .as_ref()
-                .and_then(|runtime| runtime.endpoints.probe_proxy.clone())
-        } else {
-            None
-        },
-        listener_ready: generation_matches
-            && record
-                .as_ref()
-                .is_some_and(|runtime| runtime.listener_ready),
-    }
-}
-
-pub(crate) fn probe_endpoint_for_generation(
-    state: &SingboxState,
-    expected_generation: Option<u64>,
-) -> Result<(u64, ProbeProxyEndpoint), &'static str> {
-    let runtime = state.runtime.lock_recover();
-    let runtime = runtime.as_ref().ok_or("runtime_unavailable")?;
-    if let Some(expected_generation) = expected_generation.filter(|generation| *generation != 0) {
-        if runtime.process_generation != expected_generation {
-            return Err("stale_generation");
-        }
-    }
-    let endpoint = runtime
-        .endpoints
-        .probe_proxy
-        .clone()
-        .ok_or("endpoint_unavailable")?;
-    Ok((runtime.process_generation, endpoint))
-}
-
-async fn local_clash_listener_ready(control: &ControlEndpoint) -> bool {
-    matches!(
-        tokio::time::timeout(
-            std::time::Duration::from_millis(500),
-            tokio::net::TcpStream::connect(control.address),
-        )
-        .await,
-        Ok(Ok(_))
-    )
-}
-
-async fn validate_runtime_probe_endpoint(
-    state: &SingboxState,
-    expected_generation: Option<u64>,
-    expected_endpoint: Option<&str>,
-) -> Result<(u64, ProbeProxyEndpoint), String> {
-    let (generation, endpoint) = probe_endpoint_for_generation(state, expected_generation)
-        .map_err(|reason| format!("runtime probe endpoint is {reason}"))?;
-    if let Some(expected_endpoint) = expected_endpoint {
-        let expected = parse_endpoint_address(expected_endpoint, None, "published proxy endpoint")?;
-        if expected != endpoint.address {
-            return Err(format!(
-                "stale proxy endpoint: expected {}, current generation {} owns {}",
-                expected, generation, endpoint.address
-            ));
-        }
-    }
-    if !compute_singbox_running(state) {
-        return Err(format!(
-            "runtime generation {generation} is not running for {}",
-            endpoint.address
-        ));
-    }
-    if !state
-        .runtime
-        .lock_recover()
-        .as_ref()
-        .is_some_and(|runtime| runtime.listener_ready)
-    {
-        return Err(format!(
-            "runtime generation {generation} has not published listener readiness for {}",
-            endpoint.address
-        ));
-    }
-    if !local_probe_listener_ready(&endpoint).await {
-        return Err(format!(
-            "runtime generation {generation} has no live listener at {}",
-            endpoint.address
-        ));
-    }
-    Ok((generation, endpoint))
-}
-
-async fn enable_system_proxy_for_runtime(
-    state: &SingboxState,
-    host_port: &str,
-    bypass_lan: Option<bool>,
-    expected_generation: Option<u64>,
-) -> Result<(), String> {
-    let (_generation, endpoint) =
-        validate_runtime_probe_endpoint(state, expected_generation, Some(host_port)).await?;
-    let canonical_endpoint = endpoint.address.to_string();
-    proxy::set_system_proxy(true, Some(&canonical_endpoint), bypass_lan)?;
-    let proxy_state = proxy::system_proxy_state();
-    if !proxy::system_proxy_matches(&canonical_endpoint)
-        || !proxy_state.proxy_enable
-        || !proxy_state.owned
-        || proxy_state.proxy_server.as_deref() != Some(canonical_endpoint.as_str())
-    {
-        let _ = proxy::set_system_proxy(false, None, None);
-        return Err(format!(
-            "system proxy readback mismatch: enable={} server={:?}, expected {}",
-            proxy_state.proxy_enable, proxy_state.proxy_server, canonical_endpoint
-        ));
-    }
-    if !local_probe_listener_ready(&endpoint).await {
-        let _ = proxy::set_system_proxy(false, None, None);
-        return Err(format!(
-            "probe listener disappeared after system proxy enable at {}",
-            canonical_endpoint
-        ));
-    }
-    Ok(())
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-#[serde(tag = "status", rename_all = "camelCase")]
-pub enum RuntimeDataplaneVerification {
-    Ready,
-    HardFailed { reason: String },
-    Unverified { reason: String },
-    Cancelled,
-    Stale,
-}
-
-fn operation_is_current(app: &AppHandle, token: &RuntimeOperationToken) -> bool {
-    app.try_state::<RuntimeOperationCoordinator>()
-        .is_some_and(|coordinator| coordinator.authorize(token))
-}
-
-fn lifecycle_operation(
-    app: &AppHandle,
-    supplied: Option<RuntimeOperationToken>,
-    fallback_kind: RuntimeOperationKind,
-    generation: u64,
-    source_fingerprint: Option<&str>,
-) -> Result<(RuntimeOperationToken, bool), String> {
-    let coordinator = app
-        .try_state::<RuntimeOperationCoordinator>()
-        .ok_or("runtime operation coordinator unavailable")?;
-    match supplied {
-        Some(token) if coordinator.authorize(&token) => Ok((token, false)),
-        Some(_) => Err("stale or cancelled runtime operation token".into()),
-        None => coordinator
-            .begin(fallback_kind, generation, source_fingerprint)
-            .map(|token| (token, true)),
-    }
-}
-
-fn finish_implicit_operation(app: &AppHandle, token: &RuntimeOperationToken, implicit: bool) {
-    if implicit {
-        if let Some(coordinator) = app.try_state::<RuntimeOperationCoordinator>() {
-            let _ = coordinator.complete(token);
-        }
-    }
-}
-
-fn runtime_identity_matches(
-    state: &SingboxState,
-    generation: u64,
-    source_fingerprint: Option<&str>,
-) -> bool {
-    state
-        .runtime
-        .lock_recover()
-        .as_ref()
-        .is_some_and(|runtime| {
-            runtime.process_generation == generation
-                && source_fingerprint
-                    .is_none_or(|expected| runtime.source_fingerprint.as_deref() == Some(expected))
-        })
-}
-
-fn verified_runtime_ready(app: &AppHandle) -> RuntimeDataplaneVerification {
-    match release_transition_barrier(app) {
-        Ok(()) => RuntimeDataplaneVerification::Ready,
-        Err(_) => RuntimeDataplaneVerification::Unverified {
-            reason: "transition_barrier_preserved".into(),
-        },
-    }
-}
-
-/// One-shot source-switch verifier.  It intentionally does not consult the
-/// rolling watchdog state: a transaction proves *this* runtime generation or
-/// returns a structured non-destructive verdict.
 #[tauri::command]
-pub async fn verify_runtime_dataplane(
+#[allow(clippy::too_many_arguments)] // Tauri IPC: именованные поля сохраняют совместимый wire contract.
+pub async fn start_singbox(
     app: AppHandle,
     state: State<'_, SingboxState>,
-    operation_token: RuntimeOperationToken,
-    expected_generation: u64,
-) -> Result<RuntimeDataplaneVerification, String> {
-    Ok(verify_runtime_dataplane_inner(&app, &state, operation_token, expected_generation).await)
-}
-
-async fn verify_runtime_dataplane_inner(
-    app: &AppHandle,
-    state: &SingboxState,
-    operation_token: RuntimeOperationToken,
-    expected_generation: u64,
-) -> RuntimeDataplaneVerification {
-    let operation_id = operation_token.id;
-    let operation_kind = operation_token.kind;
-    let started = std::time::Instant::now();
-    let verdict =
-        verify_runtime_dataplane_unlogged(app, state, operation_token, expected_generation).await;
-    log_runtime_verification(
-        app,
-        state,
-        operation_id,
-        operation_kind,
-        expected_generation,
-        &verdict,
-        started.elapsed().as_millis() as u64,
-    );
-    verdict
-}
-
-fn log_runtime_verification(
-    app: &AppHandle,
-    state: &SingboxState,
-    operation_id: u64,
-    operation_kind: RuntimeOperationKind,
-    expected_generation: u64,
-    verdict: &RuntimeDataplaneVerification,
-    duration_ms: u64,
-) {
-    if state
-        .runtime_launch
-        .lock_recover()
-        .as_ref()
-        .is_some_and(|spec| spec.logs_disabled)
-    {
-        return;
-    }
-    let (control_port, probe_port) = state
-        .runtime
-        .lock_recover()
-        .as_ref()
-        .map(|runtime| {
-            (
-                runtime.endpoints.control.address.port(),
-                runtime
-                    .endpoints
-                    .probe_proxy
-                    .as_ref()
-                    .map(|endpoint| endpoint.address.port()),
-            )
-        })
-        .unwrap_or((0, None));
-    let (verdict_name, reason) = match verdict {
-        RuntimeDataplaneVerification::Ready => ("ready", None),
-        RuntimeDataplaneVerification::HardFailed { reason } => {
-            ("hard_failed", Some(reason.as_str()))
-        }
-        RuntimeDataplaneVerification::Unverified { reason } => {
-            ("unverified", Some(reason.as_str()))
-        }
-        RuntimeDataplaneVerification::Cancelled => ("cancelled", None),
-        RuntimeDataplaneVerification::Stale => ("stale", None),
-    };
-    append_runtime_diagnostic(
-        app,
-        &format!(
-            "source_verification operation_id={} kind={operation_kind:?} expected_generation={} control_role=clash_api control_port={} probe_role=dataplane_proxy probe_port={} verdict={} reason={} duration_ms={duration_ms}",
-            operation_id,
-            expected_generation,
-            control_port,
-            probe_port.map_or_else(|| "none".to_string(), |port| port.to_string()),
-            verdict_name,
-            reason.unwrap_or("none"),
-        ),
-    );
-}
-
-async fn verify_runtime_dataplane_unlogged(
-    app: &AppHandle,
-    state: &SingboxState,
-    operation_token: RuntimeOperationToken,
-    expected_generation: u64,
-) -> RuntimeDataplaneVerification {
-    let expected_source_fingerprint = operation_token.expected_source_fingerprint.as_deref();
-    if !operation_is_current(app, &operation_token) {
-        return RuntimeDataplaneVerification::Cancelled;
-    }
-    if !matches!(
-        operation_token.kind,
-        RuntimeOperationKind::SourceSwitch
-            | RuntimeOperationKind::FrontendRecovery
-            | RuntimeOperationKind::QualityRemediation
-    ) {
-        return RuntimeDataplaneVerification::Cancelled;
-    }
-    if operation_token.kind == RuntimeOperationKind::SourceSwitch
-        && expected_source_fingerprint.is_none()
-    {
-        return RuntimeDataplaneVerification::Unverified {
-            reason: "source_identity_unavailable".into(),
-        };
-    }
-    if !runtime_identity_matches(state, expected_generation, expected_source_fingerprint) {
-        return RuntimeDataplaneVerification::Stale;
-    }
-
-    let status = native_runtime_status(app, expected_generation);
-    if !status.running {
-        return RuntimeDataplaneVerification::HardFailed {
-            reason: "process_dead".into(),
-        };
-    }
-    if !status.xray_alive || !status.sidecars_alive {
-        return RuntimeDataplaneVerification::HardFailed {
-            reason: "required_sidecar_dead".into(),
-        };
-    }
-    let local_ready = if status.clash_ready {
-        match status.control_endpoint.as_ref() {
-            Some(control) => local_clash_listener_ready(control).await,
-            None => false,
-        }
-    } else {
-        false
-    };
-    // The listener check is an await boundary.  Never classify a stale
-    // generation as a hard failure after it completes.
-    if !operation_is_current(app, &operation_token) {
-        return RuntimeDataplaneVerification::Cancelled;
-    }
-    if !runtime_identity_matches(state, expected_generation, expected_source_fingerprint) {
-        return RuntimeDataplaneVerification::Stale;
-    }
-    if !status.clash_ready || !local_ready {
-        return RuntimeDataplaneVerification::HardFailed {
-            reason: "local_control_unavailable".into(),
-        };
-    }
-    if !operation_is_current(app, &operation_token) {
-        return RuntimeDataplaneVerification::Cancelled;
-    }
-    if !runtime_identity_matches(state, expected_generation, expected_source_fingerprint) {
-        return RuntimeDataplaneVerification::Stale;
-    }
-    if state.dataplane_health.snapshot().host_pressure {
-        return RuntimeDataplaneVerification::Unverified {
-            reason: "host_pressure".into(),
-        };
-    }
-
-    let strict_privacy = state
-        .runtime
-        .lock_recover()
-        .as_ref()
-        .is_some_and(|runtime| runtime.strict_privacy);
-    if strict_privacy {
-        let wfp_ready = app
-            .try_state::<crate::killswitch::KillSwitchState>()
-            .is_some_and(|kill_switch| crate::killswitch::is_active(&kill_switch));
-        return if wfp_ready {
-            verified_runtime_ready(app)
-        } else {
-            RuntimeDataplaneVerification::Unverified {
-                reason: "wfp_policy_unconfirmed".into(),
-            }
-        };
-    }
-
-    let permit = match state
-        .dataplane_probe
-        .acquire(
-            DataplaneProbeKind::SourceVerification,
-            expected_generation,
-            Some(std::time::Duration::from_secs(1)),
-        )
-        .await
-    {
-        Ok(permit) => permit,
-        Err(ProbeAcquireError::Busy) => {
-            return RuntimeDataplaneVerification::Unverified {
-                reason: "probe_busy".into(),
-            }
-        }
-        Err(ProbeAcquireError::StaleGeneration) => return RuntimeDataplaneVerification::Stale,
-    };
-
-    for round in 0..2 {
-        if !operation_is_current(app, &operation_token) {
-            return RuntimeDataplaneVerification::Cancelled;
-        }
-        if !state.dataplane_probe.is_current(&permit)
-            || !runtime_identity_matches(state, expected_generation, expected_source_fingerprint)
-        {
-            return RuntimeDataplaneVerification::Stale;
-        }
-        let Some(probe_endpoint) = status.probe_proxy_endpoint.as_ref() else {
-            return RuntimeDataplaneVerification::Unverified {
-                reason: "endpoint_unavailable".into(),
-            };
-        };
-        let result = crate::quality::probe_health_inner(Some(probe_endpoint)).await;
-        // A probe may finish after a superseding source switch, generation
-        // replacement, or pressure transition.  Its result is not allowed to
-        // release a transition barrier for the newer runtime.
-        if !operation_is_current(app, &operation_token) {
-            return RuntimeDataplaneVerification::Cancelled;
-        }
-        if !state.dataplane_probe.is_current(&permit)
-            || !runtime_identity_matches(state, expected_generation, expected_source_fingerprint)
-        {
-            return RuntimeDataplaneVerification::Stale;
-        }
-        if state.dataplane_health.snapshot().host_pressure {
-            return RuntimeDataplaneVerification::Unverified {
-                reason: "host_pressure".into(),
-            };
-        }
-        match result {
-            Ok(result) if result.ok => return verified_runtime_ready(app),
-            Ok(_) if round == 0 => {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                if !operation_is_current(app, &operation_token) {
-                    return RuntimeDataplaneVerification::Cancelled;
-                }
-                if !state.dataplane_probe.is_current(&permit)
-                    || !runtime_identity_matches(
-                        state,
-                        expected_generation,
-                        expected_source_fingerprint,
-                    )
-                {
-                    return RuntimeDataplaneVerification::Stale;
-                }
-                if state.dataplane_health.snapshot().host_pressure {
-                    return RuntimeDataplaneVerification::Unverified {
-                        reason: "host_pressure".into(),
-                    };
-                }
-            }
-            Ok(_) => {
-                return RuntimeDataplaneVerification::HardFailed {
-                    reason: "external_route_failure".into(),
-                }
-            }
-            Err(_) => {
-                return RuntimeDataplaneVerification::Unverified {
-                    reason: "monitor_error".into(),
-                }
-            }
-        }
-    }
-    RuntimeDataplaneVerification::Unverified {
-        reason: "verification_incomplete".into(),
-    }
-}
-
-async fn start_singbox_inner(
-    app: AppHandle,
-    state: &SingboxState,
-    spec: RuntimeLaunchSpec,
-    preserve_recovery_budget: bool,
-    operation_token: &RuntimeOperationToken,
+    config_json: String,
+    mode: String,
+    xray_json: Option<String>,
+    sidecars_json: Option<String>,
+    logs_disabled: Option<bool>,
+    source_fingerprint: Option<String>,
+    config_hash: Option<String>,
+    strict_privacy: Option<bool>,
+    pinned_node_tag: Option<String>,
 ) -> Result<RuntimeSnapshot, String> {
-    let RuntimeLaunchSpec {
-        config_json: raw_config_json,
-        mode,
-        xray_json,
-        sidecars_json,
-        logs_disabled,
-        source_fingerprint,
-        config_hash,
-        strict_privacy,
-        pinned_node_tag,
-        system_proxy_bypass_lan,
-        kill_switch_expected,
-        endpoints: expected_endpoints,
-    } = spec;
-    if !operation_is_current(&app, operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
-    }
+    let logs_disabled = logs_disabled.unwrap_or(false);
+    let strict_privacy = strict_privacy.unwrap_or(false);
     let (start_epoch, process_generation) = {
         // Короткий синхронный gate делает старт/стоп линейными в точке смены
         // поколения; сам долгий запуск под ним не выполняется.
         let _gate = state.lifecycle_gate.lock_recover();
         if state.stopping.load(Ordering::SeqCst) {
             return Err("остановка ещё выполняется".into());
-        }
-        if state.native_recovery_active.load(Ordering::SeqCst) && !preserve_recovery_budget {
-            return Err("нативное восстановление ещё выполняется".into());
         }
         // Sentinel ДО child-проверки: второй конкурентный вызов отсекается,
         // пока первый ещё находится в await до публикации child.
@@ -2079,23 +1380,8 @@ async fn start_singbox_inner(
     };
     let _starting = StartingGuard(&state.starting);
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
-    let cache_path = singbox_cache_path(&app)?;
-    let config_json = harden_config(&raw_config_json, Some(&cache_path));
-    let (endpoints, clash_port, runtime_ports) = runtime_config_metadata_from_config(&config_json)?;
-    if expected_endpoints
-        .as_ref()
-        .is_some_and(|expected| expected != &endpoints)
-    {
-        return Err("runtime endpoint metadata changed during recovery".into());
-    }
-    if operation_token.kind == RuntimeOperationKind::SourceSwitch
-        && (operation_token.expected_source_fingerprint.is_none()
-            || operation_token.expected_source_fingerprint.as_deref()
-                != source_fingerprint.as_deref())
-    {
-        return Err("source identity changed during source switch".into());
-    }
-    let probe_endpoint = endpoints.probe_proxy.clone();
+    let config_json = harden_config(&config_json);
+    let (clash_port, runtime_ports) = runtime_ports_from_config(&config_json)?;
     *state.runtime_ports.lock_recover() = runtime_ports;
     let sidecar_specs: Option<Vec<SidecarSpec>> = sidecars_json
         .as_ref()
@@ -2108,7 +1394,7 @@ async fn start_singbox_inner(
     if let Some(xj) = xray_json.as_ref().filter(|s| !s.trim().is_empty()) {
         if let Err(e) = spawn_xray(
             &app,
-            state,
+            &state,
             xj,
             logs_disabled,
             start_epoch,
@@ -2116,20 +1402,17 @@ async fn start_singbox_inner(
         )
         .await
         {
-            kill_xray(state);
+            kill_xray(&state);
             return Err(e);
         }
-        ensure_start_current(state, start_epoch)?;
-        if !operation_is_current(&app, operation_token) {
-            return Err("stale or cancelled runtime operation token".into());
-        }
+        ensure_start_current(&state, start_epoch)?;
     }
 
     // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
     if let Some(specs) = sidecar_specs.as_ref() {
         if let Err(e) = spawn_sidecars(
             &app,
-            state,
+            &state,
             specs,
             logs_disabled,
             start_epoch,
@@ -2137,14 +1420,11 @@ async fn start_singbox_inner(
         )
         .await
         {
-            kill_xray(state);
-            kill_sidecars(state);
+            kill_xray(&state);
+            kill_sidecars(&state);
             return Err(e);
         }
-        ensure_start_current(state, start_epoch)?;
-        if !operation_is_current(&app, operation_token) {
-            return Err("stale or cancelled runtime operation token".into());
-        }
+        ensure_start_current(&state, start_epoch)?;
     }
 
     // Режим (proxy/systemProxy/tun) больше не влияет на запуск ядра в Rust:
@@ -2159,7 +1439,7 @@ async fn start_singbox_inner(
     // xray_child.is_some() блокировал бы следующий старт до явного stop).
     if let Err(e) = spawn_singbox_core(
         &app,
-        state,
+        &state,
         &config_json,
         logs_disabled,
         start_epoch,
@@ -2171,21 +1451,18 @@ async fn start_singbox_inner(
         if let Some(child) = state.child.lock_recover().take() {
             let _ = child.kill();
         }
-        kill_xray(state);
-        kill_sidecars(state);
+        kill_xray(&state);
+        kill_sidecars(&state);
         return Err(e);
     }
-    ensure_start_current(state, start_epoch)?;
-    if !operation_is_current(&app, operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
-    }
+    ensure_start_current(&state, start_epoch)?;
 
-    if let Err(e) = wait_clash_ready(&endpoints.control, state, start_epoch).await {
+    if let Err(e) = wait_clash_ready(clash_port, &state, start_epoch).await {
         if let Some(child) = state.child.lock_recover().take() {
             let _ = child.kill();
         }
-        kill_xray(state);
-        kill_sidecars(state);
+        kill_xray(&state);
+        kill_sidecars(&state);
         *state.runtime_ports.lock_recover() = Vec::new();
         *state.runtime.lock_recover() = None;
         return Err(e);
@@ -2209,98 +1486,15 @@ async fn start_singbox_inner(
     }
     *state.runtime.lock_recover() = Some(RuntimeRecord {
         process_generation,
-        source_fingerprint: source_fingerprint.clone(),
-        config_hash: config_hash.clone(),
-        mode: mode.clone(),
+        source_fingerprint,
+        config_hash,
+        mode,
         strict_privacy,
-        pinned_node_tag: pinned_node_tag.clone(),
-        endpoints: endpoints.clone(),
-        listener_ready: true,
+        pinned_node_tag,
         clash_port,
         clash_ready: true,
     });
-    state.dataplane_probe.reset_generation(process_generation);
-    *state.runtime_launch.lock_recover() = Some(RuntimeLaunchSpec {
-        config_json: config_json.clone(),
-        mode: mode.clone(),
-        xray_json: xray_json.clone(),
-        sidecars_json: sidecars_json.clone(),
-        logs_disabled,
-        source_fingerprint: source_fingerprint.clone(),
-        config_hash: config_hash.clone(),
-        strict_privacy,
-        pinned_node_tag: pinned_node_tag.clone(),
-        system_proxy_bypass_lan,
-        kill_switch_expected,
-        endpoints: Some(endpoints.clone()),
-    });
-    if strict_privacy || probe_endpoint.is_some() {
-        health::start_dataplane_watchdog(
-            app.clone(),
-            state.dataplane_health.clone(),
-            state.dataplane_generation.clone(),
-            process_generation,
-            health::DataplaneWatchdogConfig {
-                probe_endpoint,
-                strict_privacy,
-                preserve_recovery_budget,
-                logs_disabled,
-            },
-        );
-    } else {
-        health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
-    }
-    Ok(runtime_snapshot_value(state, false))
-}
-
-#[tauri::command]
-#[allow(clippy::too_many_arguments)] // Tauri IPC: именованные поля сохраняют совместимый wire contract.
-pub async fn start_singbox(
-    app: AppHandle,
-    state: State<'_, SingboxState>,
-    config_json: String,
-    mode: String,
-    xray_json: Option<String>,
-    sidecars_json: Option<String>,
-    logs_disabled: Option<bool>,
-    source_fingerprint: Option<String>,
-    config_hash: Option<String>,
-    strict_privacy: Option<bool>,
-    pinned_node_tag: Option<String>,
-    system_proxy_bypass_lan: Option<bool>,
-    kill_switch_expected: Option<bool>,
-    operation_token: Option<RuntimeOperationToken>,
-) -> Result<RuntimeSnapshot, String> {
-    let (operation_token, implicit) = lifecycle_operation(
-        &app,
-        operation_token,
-        RuntimeOperationKind::UserConnect,
-        0,
-        source_fingerprint.as_deref(),
-    )?;
-    let result = start_singbox_inner(
-        app.clone(),
-        &state,
-        RuntimeLaunchSpec {
-            config_json,
-            mode,
-            xray_json,
-            sidecars_json,
-            logs_disabled: logs_disabled.unwrap_or(false),
-            source_fingerprint,
-            config_hash,
-            strict_privacy: strict_privacy.unwrap_or(false),
-            pinned_node_tag,
-            system_proxy_bypass_lan: system_proxy_bypass_lan.unwrap_or(true),
-            kill_switch_expected: kill_switch_expected.unwrap_or(false),
-            endpoints: None,
-        },
-        false,
-        &operation_token,
-    )
-    .await;
-    finish_implicit_operation(&app, &operation_token, implicit);
-    result
+    Ok(runtime_snapshot_value(&state, false))
 }
 
 // Запись конфига + спавн sing-box + fail-fast-окно. Вынесено из start_singbox,
@@ -2327,7 +1521,6 @@ async fn spawn_singbox_core(
         .env("NO_COLOR", "1")
         .spawn()
         .map_err(|e| format!("spawn sing-box: {e}"))?;
-    prioritize_datapath_process(child.pid());
 
     *state.child.lock_recover() = Some(child);
 
@@ -2508,17 +1701,12 @@ struct StopTimings {
     total_ms: u64,
 }
 
-async fn stop_singbox_inner(
-    app: &AppHandle,
-    state: &SingboxState,
-    stop_watchdog: bool,
-    retain_launch: bool,
+#[tauri::command]
+pub async fn stop_singbox(
+    app: AppHandle,
+    state: State<'_, SingboxState>,
 ) -> Result<StopResult, String> {
     let _stop = state.stop_lock.lock().await;
-    if stop_watchdog {
-        health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
-    }
-    state.dataplane_probe.invalidate();
     {
         let _gate = state.lifecycle_gate.lock_recover();
         state.stopping.store(true, Ordering::SeqCst);
@@ -2573,21 +1761,18 @@ async fn stop_singbox_inner(
     let proxy_ok = proxy::set_system_proxy(false, None, None).is_ok();
     let proxy_done_at = std::time::Instant::now();
     let (processes_exited, remaining_ports) =
-        wait_runtime_released(state, &ports, &killed_processes).await;
+        wait_runtime_released(&state, &ports, &killed_processes).await;
     let ports_released = remaining_ports.is_empty();
     let confirmed_at = std::time::Instant::now();
     let proxy_confirmed = !proxy_was_owned || proxy_ok;
     let cleanup_confirmed = processes_exited && ports_released && proxy_confirmed;
     if cleanup_confirmed {
-        purge_bridge_configs(app);
-        purge_current_configs(app);
-        clear_death_flags(state);
+        purge_bridge_configs(&app);
+        purge_current_configs(&app);
+        clear_death_flags(&state);
         *state.runtime.lock_recover() = None;
         *state.runtime_ports.lock_recover() = Vec::new();
         *state.pending_cleanup.lock_recover() = None;
-        if !retain_launch {
-            *state.runtime_launch.lock_recover() = None;
-        }
     } else {
         *state.pending_cleanup.lock_recover() = Some(PendingCleanup {
             processes: unresolved_processes(&killed_processes),
@@ -2636,481 +1821,6 @@ async fn stop_singbox_inner(
             total_ms: started_at.elapsed().as_millis() as u64,
         },
     })
-}
-
-#[tauri::command]
-pub async fn stop_singbox(
-    app: AppHandle,
-    state: State<'_, SingboxState>,
-    operation_token: Option<RuntimeOperationToken>,
-) -> Result<StopResult, String> {
-    // Manual disconnect wins over native recovery. Set the cancellation bit
-    // before waiting for the owner lock, then perform the same verified stop
-    // after the native action has released it. This avoids both a restart after
-    // the user's disconnect and a parallel cleanup of the dependency graph.
-    let generation = state.process_generation.load(Ordering::SeqCst);
-    let (operation_token, implicit) = lifecycle_operation(
-        &app,
-        operation_token,
-        RuntimeOperationKind::UserDisconnect,
-        generation,
-        None,
-    )?;
-    if !operation_is_current(&app, &operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
-    }
-    if operation_token.kind.needs_transition_barrier() {
-        native_transition_barrier(&app)?;
-    }
-    state
-        .native_recovery_cancelled
-        .store(true, Ordering::SeqCst);
-    // Не ждём до конца 800ms/Clash-readiness окна нативного restart: ручное
-    // намерение сразу инвалидирует его start epoch, и ближайшая bounded-проверка
-    // освобождает owner lock. Новый профиль после этого получает чистый lifecycle.
-    state.start_epoch.fetch_add(1, Ordering::SeqCst);
-    let _recovery_lock = state.native_recovery_lock.lock().await;
-    if !operation_is_current(&app, &operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
-    }
-    let result = stop_singbox_inner(&app, &state, true, false).await;
-    state
-        .native_recovery_cancelled
-        .store(false, Ordering::SeqCst);
-    finish_implicit_operation(&app, &operation_token, implicit);
-    result
-}
-
-struct NativeRecoveryOwner<'a>(&'a AtomicBool);
-
-impl Drop for NativeRecoveryOwner<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::SeqCst);
-    }
-}
-
-/// Every native recovery exit must release its operation token. Otherwise a
-/// failed/cancelled owner could indefinitely suppress the frontend handoff.
-/// Completion is safe after supersession because it is token-id scoped.
-struct OperationCompletion<'a> {
-    coordinator: &'a RuntimeOperationCoordinator,
-    token: RuntimeOperationToken,
-}
-
-impl Drop for OperationCompletion<'_> {
-    fn drop(&mut self) {
-        let _ = self.coordinator.complete(&self.token);
-    }
-}
-
-fn native_recovery_result_is_ready(result: &StopResult) -> bool {
-    result.processes_exited && result.ports_released && result.system_proxy != "failed"
-}
-
-fn native_rearm_saved_kill_switch(app: &AppHandle, spec: &RuntimeLaunchSpec) -> Result<(), String> {
-    if !spec.kill_switch_expected {
-        return Ok(());
-    }
-    let Some(kill_switch) = app.try_state::<crate::killswitch::KillSwitchState>() else {
-        return Err("kill switch state недоступен для native recovery".into());
-    };
-    crate::killswitch::arm_policy(
-        &kill_switch,
-        Some(if spec.strict_privacy {
-            false
-        } else {
-            spec.system_proxy_bypass_lan
-        }),
-        spec.strict_privacy.then(|| "ninety-tun".to_string()),
-        Some(spec.strict_privacy),
-    )?;
-    if !crate::killswitch::is_active(&kill_switch) {
-        return Err("kill switch readiness не подтверждена после native recovery".into());
-    }
-    Ok(())
-}
-
-async fn native_reapply_runtime_policy(
-    app: &AppHandle,
-    spec: &RuntimeLaunchSpec,
-    snapshot: &RuntimeSnapshot,
-    operation_token: &RuntimeOperationToken,
-) -> Result<(), String> {
-    if !operation_is_current(app, operation_token) {
-        return Err("native recovery operation became stale".into());
-    }
-    let runtime_state = app
-        .try_state::<SingboxState>()
-        .ok_or("runtime state unavailable for recovery policy")?;
-    if spec.mode == "systemProxy" {
-        let probe_endpoint = snapshot
-            .probe_proxy_endpoint
-            .as_ref()
-            .ok_or_else(|| "native recovery probe endpoint is unavailable".to_string())?;
-        let host_port = probe_endpoint.address.to_string();
-        enable_system_proxy_for_runtime(
-            &runtime_state,
-            &host_port,
-            Some(spec.system_proxy_bypass_lan),
-            Some(snapshot.process_generation),
-        )
-        .await
-        .map_err(|error| format!("native recovery system proxy readiness failed: {error}"))?;
-        if !proxy::system_proxy_owned() {
-            return Err("system proxy ownership не подтверждена после native recovery".into());
-        }
-    }
-
-    native_rearm_saved_kill_switch(app, spec)?;
-
-    let current = native_runtime_status(app, snapshot.process_generation);
-    if !current.running || !current.clash_ready || !current.listener_ready {
-        return Err("native recovery runtime не прошёл readiness".into());
-    }
-    let Some(control_endpoint) = current.control_endpoint.as_ref() else {
-        return Err("native recovery control endpoint is unavailable".into());
-    };
-    if !local_clash_listener_ready(control_endpoint).await {
-        return Err("native recovery local listener is unavailable".into());
-    }
-    if !operation_is_current(app, operation_token) {
-        return Err("native recovery operation became stale".into());
-    }
-    if spec.strict_privacy {
-        return Ok(());
-    }
-    let state = app
-        .try_state::<SingboxState>()
-        .ok_or("runtime state unavailable for recovery verification")?;
-    if state.dataplane_health.snapshot().host_pressure {
-        return Err("native recovery remains under host pressure".into());
-    }
-    let permit = state
-        .dataplane_probe
-        .acquire(
-            DataplaneProbeKind::SourceVerification,
-            snapshot.process_generation,
-            Some(std::time::Duration::from_secs(1)),
-        )
-        .await
-        .map_err(|error| match error {
-            ProbeAcquireError::Busy => "native recovery probe busy".to_string(),
-            ProbeAcquireError::StaleGeneration => {
-                "native recovery generation became stale".to_string()
-            }
-        })?;
-    let Some(probe_endpoint) = current.probe_proxy_endpoint.as_ref() else {
-        return Err("native recovery probe endpoint is unavailable".into());
-    };
-    let result = crate::quality::probe_health_inner(Some(probe_endpoint)).await?;
-    if !operation_is_current(app, operation_token) || !state.dataplane_probe.is_current(&permit) {
-        return Err("native recovery generation became stale".into());
-    }
-    if !result.ok {
-        return Err("native recovery dataplane verification failed".into());
-    }
-    Ok(())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum NativeRecoveryOutcome {
-    StartedNewGeneration {
-        generation: u64,
-    },
-    Busy {
-        active_operation: Option<RuntimeOperationKind>,
-    },
-    Cancelled,
-    StaleGeneration,
-    PreconditionsChanged,
-    AttemptFailed {
-        reason: String,
-    },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum TerminalCleanupOutcome {
-    Confirmed,
-    Busy,
-    Cancelled,
-    StaleGeneration,
-    AttemptFailed { reason: String },
-}
-
-fn native_transition_barrier(app: &AppHandle) -> Result<(), String> {
-    debug_assert!(RuntimeOperationKind::NativeRecovery.needs_transition_barrier());
-    let kill_switch = app
-        .try_state::<crate::killswitch::KillSwitchState>()
-        .ok_or("kill switch state unavailable for transition barrier")?;
-    let strict_tunnel = app
-        .try_state::<SingboxState>()
-        .and_then(|state| {
-            state
-                .runtime
-                .lock_recover()
-                .as_ref()
-                .map(|runtime| runtime.strict_privacy)
-        })
-        .unwrap_or(false);
-    crate::killswitch::transition_arm(&kill_switch, strict_tunnel)?;
-    if !crate::killswitch::transition_active(&kill_switch) {
-        return Err("transition barrier was not confirmed active".into());
-    }
-    Ok(())
-}
-
-pub(crate) fn release_transition_barrier(app: &AppHandle) -> Result<(), String> {
-    let kill_switch = app
-        .try_state::<crate::killswitch::KillSwitchState>()
-        .ok_or("kill switch state unavailable for transition barrier")?;
-    crate::killswitch::transition_release(&kill_switch)
-}
-
-/// A source verification may be deliberately `Unverified` while host
-/// pressure suppresses external probes.  Once a later native health sample
-/// proves the runtime healthy and no lifecycle owner is active, it is safe to
-/// retire the leftover temporary barrier without weakening the user's policy.
-pub(crate) fn release_transition_barrier_if_idle(app: &AppHandle) {
-    if app
-        .try_state::<RuntimeOperationCoordinator>()
-        .and_then(|coordinator| coordinator.active_kind())
-        .is_some()
-    {
-        return;
-    }
-    let Some(kill_switch) = app.try_state::<crate::killswitch::KillSwitchState>() else {
-        return;
-    };
-    if !crate::killswitch::transition_active(&kill_switch) {
-        return;
-    }
-    // Re-check immediately before the synchronous release to avoid dropping
-    // a barrier for an operation that acquired the coordinator after the
-    // first snapshot.
-    if app
-        .try_state::<RuntimeOperationCoordinator>()
-        .and_then(|coordinator| coordinator.active_kind())
-        .is_none()
-    {
-        let _ = release_transition_barrier(app);
-    }
-}
-
-/// Controlled same-config restart.  Coordinator outcomes deliberately keep
-/// busy/cancelled/stale paths out of the recovery budget and frontend handoff.
-pub(crate) async fn native_recover_current_runtime(
-    app: &AppHandle,
-    expected_generation: u64,
-) -> NativeRecoveryOutcome {
-    let Some(state) = app.try_state::<SingboxState>() else {
-        return NativeRecoveryOutcome::PreconditionsChanged;
-    };
-    let Some(coordinator) = app.try_state::<RuntimeOperationCoordinator>() else {
-        return NativeRecoveryOutcome::PreconditionsChanged;
-    };
-    let source_fingerprint = state
-        .runtime
-        .lock_recover()
-        .as_ref()
-        .and_then(|runtime| runtime.source_fingerprint.clone());
-    let token = match coordinator.begin(
-        RuntimeOperationKind::NativeRecovery,
-        expected_generation,
-        source_fingerprint.as_deref(),
-    ) {
-        Ok(token) => token,
-        Err(_) => {
-            return NativeRecoveryOutcome::Busy {
-                active_operation: coordinator.active_kind(),
-            }
-        }
-    };
-    let _operation_completion = OperationCompletion {
-        coordinator: &coordinator,
-        token: token.clone(),
-    };
-    let Ok(_owner_lock) = state.native_recovery_lock.try_lock() else {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::Busy {
-            active_operation: coordinator.active_kind(),
-        };
-    };
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
-        return NativeRecoveryOutcome::Cancelled;
-    }
-    state
-        .native_recovery_cancelled
-        .store(false, Ordering::SeqCst);
-    if state.native_recovery_active.swap(true, Ordering::SeqCst) {
-        return NativeRecoveryOutcome::Busy {
-            active_operation: coordinator.active_kind(),
-        };
-    }
-    let _owner = NativeRecoveryOwner(&state.native_recovery_active);
-
-    let Some(spec) = state.runtime_launch.lock_recover().clone() else {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::PreconditionsChanged;
-    };
-    let Some(runtime) = state.runtime.lock_recover().clone() else {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::PreconditionsChanged;
-    };
-    if runtime.process_generation != expected_generation {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::StaleGeneration;
-    }
-    if !compute_singbox_running(&state)
-        || state.starting.load(Ordering::SeqCst)
-        || state.stopping.load(Ordering::SeqCst)
-    {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::PreconditionsChanged;
-    }
-
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
-        return NativeRecoveryOutcome::Cancelled;
-    }
-    if let Err(error) = native_transition_barrier(app) {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::AttemptFailed { reason: error };
-    }
-    if !state
-        .dataplane_health
-        .native_recovery_started(expected_generation)
-    {
-        if coordinator.authorize(&token) {
-            let _ = release_transition_barrier(app);
-        }
-        return NativeRecoveryOutcome::Busy {
-            active_operation: coordinator.active_kind(),
-        };
-    }
-
-    let Ok(stopped) = stop_singbox_inner(app, &state, false, true).await else {
-        return NativeRecoveryOutcome::AttemptFailed {
-            reason: "stop_failed".into(),
-        };
-    };
-    if !native_recovery_result_is_ready(&stopped)
-        || state.native_recovery_cancelled.load(Ordering::SeqCst)
-        || !coordinator.authorize(&token)
-    {
-        return if coordinator.authorize(&token) {
-            NativeRecoveryOutcome::AttemptFailed {
-                reason: "stop_unconfirmed".into(),
-            }
-        } else {
-            NativeRecoveryOutcome::Cancelled
-        };
-    }
-
-    let Ok(snapshot) = start_singbox_inner(app.clone(), &state, spec.clone(), true, &token).await
-    else {
-        return NativeRecoveryOutcome::AttemptFailed {
-            reason: "start_failed".into(),
-        };
-    };
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
-        let _ = stop_singbox_inner(app, &state, false, false).await;
-        return NativeRecoveryOutcome::Cancelled;
-    }
-    if let Err(error) = native_reapply_runtime_policy(app, &spec, &snapshot, &token).await {
-        let _ = stop_singbox_inner(app, &state, false, false).await;
-        return NativeRecoveryOutcome::AttemptFailed { reason: error };
-    }
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
-        let _ = stop_singbox_inner(app, &state, false, false).await;
-        return NativeRecoveryOutcome::Cancelled;
-    }
-    if let Err(error) = release_transition_barrier(app) {
-        return NativeRecoveryOutcome::AttemptFailed { reason: error };
-    }
-    let generation = snapshot.process_generation;
-    let _ = coordinator.complete(&token);
-    NativeRecoveryOutcome::StartedNewGeneration { generation }
-}
-
-/// Last-resort native fail-closed cleanup after the bounded same-config budget
-/// is exhausted. WFP is armed/re-armed before the dependency stop whenever the
-/// saved runtime policy requires it; a failed cleanup is reported as retryable
-/// and never latched as a confirmed terminal state.
-pub(crate) async fn native_terminal_fail_closed(
-    app: &AppHandle,
-    expected_generation: u64,
-) -> TerminalCleanupOutcome {
-    let Some(state) = app.try_state::<SingboxState>() else {
-        return TerminalCleanupOutcome::StaleGeneration;
-    };
-    let Some(coordinator) = app.try_state::<RuntimeOperationCoordinator>() else {
-        return TerminalCleanupOutcome::Busy;
-    };
-    let token = match coordinator.begin(
-        RuntimeOperationKind::NativeRecovery,
-        expected_generation,
-        None,
-    ) {
-        Ok(token) => token,
-        Err(_) => return TerminalCleanupOutcome::Busy,
-    };
-    let _operation_completion = OperationCompletion {
-        coordinator: &coordinator,
-        token: token.clone(),
-    };
-    let Ok(_owner_lock) = state.native_recovery_lock.try_lock() else {
-        let _ = coordinator.complete(&token);
-        return TerminalCleanupOutcome::Busy;
-    };
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
-        return TerminalCleanupOutcome::Cancelled;
-    }
-    if state.native_recovery_active.swap(true, Ordering::SeqCst) {
-        return TerminalCleanupOutcome::Busy;
-    }
-    let _owner = NativeRecoveryOwner(&state.native_recovery_active);
-    let spec = state.runtime_launch.lock_recover().clone();
-    if let Some(runtime) = state.runtime.lock_recover().clone() {
-        if runtime.process_generation != expected_generation {
-            let _ = coordinator.complete(&token);
-            return TerminalCleanupOutcome::StaleGeneration;
-        }
-    }
-
-    if let Err(error) = native_transition_barrier(app) {
-        let _ = coordinator.complete(&token);
-        return TerminalCleanupOutcome::AttemptFailed { reason: error };
-    }
-    if let Some(spec) = spec.as_ref() {
-        if let Err(error) = native_rearm_saved_kill_switch(app, spec) {
-            return TerminalCleanupOutcome::AttemptFailed { reason: error };
-        }
-    }
-    if !state
-        .dataplane_health
-        .terminal_cleanup_started(expected_generation)
-    {
-        if coordinator.authorize(&token) {
-            let _ = release_transition_barrier(app);
-        }
-        return TerminalCleanupOutcome::Busy;
-    }
-
-    let Ok(result) = stop_singbox_inner(app, &state, false, false).await else {
-        return TerminalCleanupOutcome::AttemptFailed {
-            reason: "stop_failed".into(),
-        };
-    };
-    if !coordinator.authorize(&token) {
-        return TerminalCleanupOutcome::Cancelled;
-    }
-    if native_recovery_result_is_ready(&result) {
-        let _ = coordinator.complete(&token);
-        TerminalCleanupOutcome::Confirmed
-    } else {
-        TerminalCleanupOutcome::AttemptFailed {
-            reason: "cleanup_unconfirmed".into(),
-        }
-    }
 }
 
 // Внутренние вычисления статусов — переиспользуются одиночными командами и
@@ -3202,8 +1912,6 @@ pub struct HealthSnapshot {
     pub sidecar: &'static str,
     pub last_error: Option<String>,
     pub kill_switch_active: bool,
-    pub dataplane: health::DataplaneHealthSnapshot,
-    pub runtime_operation: Option<crate::runtime_ops::RuntimeOperationSnapshot>,
 }
 
 #[tauri::command]
@@ -3218,8 +1926,6 @@ pub fn health_snapshot(
         sidecar: compute_sidecar_status(&state),
         last_error: compute_last_error(&state),
         kill_switch_active: crate::killswitch::is_active(&kill_switch),
-        dataplane: state.dataplane_health.snapshot(),
-        runtime_operation: coordinator.snapshot(),
     }
 }
 
@@ -3304,11 +2010,6 @@ pub fn vpn_last_error(state: State<'_, SingboxState>) -> Option<String> {
 }
 
 pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
-    health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
-    state.expected_exit_generation.store(
-        state.process_generation.load(Ordering::SeqCst),
-        Ordering::SeqCst,
-    );
     if let Some(child) = state.child.lock_recover().take() {
         let _ = child.kill();
     }
@@ -3420,7 +2121,7 @@ mod tests {
     #[test]
     fn harden_config_injects_secret_and_loopback() {
         let raw = r#"{"experimental":{"clash_api":{"external_controller":"0.0.0.0:9090"}}}"#;
-        let out = harden_config(raw, None);
+        let out = harden_config(raw);
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let api = &v["experimental"]["clash_api"];
         assert_eq!(api["external_controller"], "127.0.0.1:9090");
@@ -3429,142 +2130,8 @@ mod tests {
     }
 
     #[test]
-    fn harden_config_pins_cache_path_outside_the_working_directory() {
-        let raw = r#"{"experimental":{"cache_file":{"enabled":true,"store_rdrc":true}}}"#;
-        let cache_path = Path::new(r"C:\Users\test\AppData\Local\Ninety\data\singbox\cache.db");
-        let out = harden_config(raw, Some(cache_path));
-        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(
-            v["experimental"]["cache_file"]["path"],
-            cache_path.to_string_lossy().as_ref()
-        );
-    }
-
-    #[test]
     fn harden_config_passes_invalid_json_through() {
-        assert_eq!(harden_config("not json", None), "not json");
-    }
-
-    #[test]
-    fn runtime_endpoints_prioritize_probe_in_and_keep_dynamic_roles_separate() {
-        let control = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .unwrap()
-            .local_addr()
-            .unwrap();
-        let probe = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .unwrap()
-            .local_addr()
-            .unwrap();
-        let raw = format!(
-            r#"{{
-                "experimental":{{"clash_api":{{"external_controller":"{control}"}}}},
-                "inbounds":[
-                    {{"type":"tun","tag":"tun-in"}},
-                    {{"type":"mixed","tag":"mixed-in","listen":"127.0.0.1","listen_port":{}}},
-                    {{"type":"mixed","tag":"probe-in","listen":"127.0.0.1","listen_port":{}}}
-                ]
-            }}"#,
-            control.port(),
-            probe.port()
-        );
-        let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
-        let endpoints = runtime_endpoints_from_value(&value).unwrap();
-        assert_eq!(endpoints.control.address, control);
-        assert_eq!(
-            endpoints.probe_proxy.unwrap().address,
-            std::net::SocketAddr::new(
-                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-                probe.port()
-            )
-        );
-        assert_ne!(endpoints.control.address, probe);
-    }
-
-    #[test]
-    fn runtime_endpoints_fallback_to_structurally_valid_mixed_in() {
-        let raw = r#"{
-            "experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}},
-            "inbounds":[{"type":"mixed","tag":"mixed-in","listen":"127.0.0.1","listen_port":9898}]
-        }"#;
-        let value: serde_json::Value = serde_json::from_str(raw).unwrap();
-        let endpoints = runtime_endpoints_from_value(&value).unwrap();
-        assert_eq!(endpoints.control.address.port(), 9191);
-        assert_eq!(endpoints.probe_proxy.unwrap().address.port(), 9898);
-    }
-
-    #[test]
-    fn runtime_endpoints_do_not_fallback_to_control_or_unrelated_inbounds() {
-        let raw = r#"{
-            "experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}},
-            "inbounds":[{"type":"mixed","tag":"other","listen":"127.0.0.1","listen_port":7777}]
-        }"#;
-        let value: serde_json::Value = serde_json::from_str(raw).unwrap();
-        let endpoints = runtime_endpoints_from_value(&value).unwrap();
-        assert_eq!(endpoints.control.address.port(), 9191);
-        assert!(endpoints.probe_proxy.is_none());
-    }
-
-    #[test]
-    fn runtime_endpoints_reject_non_local_or_wrong_probe_protocol() {
-        let non_local = r#"{
-            "experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}},
-            "inbounds":[{"type":"mixed","tag":"probe-in","listen":"192.0.2.1","listen_port":9898}]
-        }"#;
-        let non_local_value: serde_json::Value = serde_json::from_str(non_local).unwrap();
-        assert!(runtime_endpoints_from_value(&non_local_value).is_err());
-
-        let wrong_protocol = r#"{
-            "experimental":{"clash_api":{"external_controller":"127.0.0.1:9191"}},
-            "inbounds":[{"type":"socks","tag":"probe-in","listen":"127.0.0.1","listen_port":9898}]
-        }"#;
-        let wrong_protocol_value: serde_json::Value = serde_json::from_str(wrong_protocol).unwrap();
-        assert!(runtime_endpoints_from_value(&wrong_protocol_value).is_err());
-    }
-
-    #[tokio::test]
-    async fn probe_listener_readiness_tracks_the_exact_runtime_endpoint() {
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let endpoint = ProbeProxyEndpoint {
-            address: listener.local_addr().unwrap(),
-        };
-        assert!(local_probe_listener_ready(&endpoint).await);
-        drop(listener);
-        assert!(!local_probe_listener_ready(&endpoint).await);
-    }
-
-    #[test]
-    fn probe_endpoint_generation_rejects_stale_snapshots() {
-        let state = SingboxState::default();
-        let endpoint = ProbeProxyEndpoint {
-            address: "127.0.0.1:2080".parse().unwrap(),
-        };
-        *state.runtime.lock_recover() = Some(RuntimeRecord {
-            process_generation: 42,
-            source_fingerprint: None,
-            config_hash: None,
-            mode: "systemProxy".into(),
-            strict_privacy: false,
-            pinned_node_tag: None,
-            endpoints: RuntimeEndpoints {
-                control: ControlEndpoint {
-                    address: "127.0.0.1:9090".parse().unwrap(),
-                },
-                probe_proxy: Some(endpoint),
-            },
-            listener_ready: true,
-            clash_port: 9090,
-            clash_ready: true,
-        });
-        assert_eq!(
-            probe_endpoint_for_generation(&state, Some(42)).unwrap().0,
-            42
-        );
-        assert_eq!(
-            probe_endpoint_for_generation(&state, Some(41)).unwrap_err(),
-            "stale_generation"
-        );
+        assert_eq!(harden_config("not json"), "not json");
     }
 
     #[test]

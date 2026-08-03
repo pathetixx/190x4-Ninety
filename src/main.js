@@ -49,11 +49,7 @@ import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
 import { createCoreStartBarrier } from "/lib/connection-start-barrier.js";
-import { createRuntimeIdleGate } from "/lib/runtime-idle-gate.js";
-import { completeSuccessfulConnect, runReconnectAttempt } from "/lib/connect-network-result.js";
-import { waitForMatchingSourceTopology } from "/lib/source-switch-readiness.js";
-import { runtimeEndpointMatchesGeneration, runtimeSnapshotReadyForMode } from "/lib/runtime-lifecycle.js";
-import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, pickSelectorNow, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testGroup, testNode } from "/lib/clash-api.js";
+import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
@@ -1109,130 +1105,8 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
   }
 }
 
-async function verifyEmergencyDataplane() {
-  try {
-    const snapshot = await invoke("runtime_snapshot");
-    runtimeSnapshotCache = runtimeEndpointMatchesGeneration(snapshot) ? snapshot : null;
-    const expectedGeneration = Number(snapshot?.processGeneration) || 0;
-    if (!snapshot?.running || !expectedGeneration) return false;
-    const result = await invoke("probe_health", { expectedGeneration });
-    return result?.ok === true;
-  } catch {
-    return false;
-  }
-}
-
-// Аварийный путь отделён от anti-throttle лесенки: он не спрашивает юзера,
-// не использует её часовой бюджет и сначала пробует дешёвое переключение на
-// проверенную альтернативу. Если локальный Clash API завис, сразу сработает
-// controlled full reconnect через уже существующий lifecycle-барьер.
-async function recoverDataplane({ operationToken = null } = {}) {
-  if (state !== "connected") return false;
-  if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-  const token = runtimeIdentity.capture();
-  if (!token) return false;
-
-  const nodes = qualityNodesFromSource();
-  if (nodes.length >= 2) {
-    let proxies;
-    try {
-      proxies = (await getProxies(undefined, { token, fresh: true }))?.proxies || {};
-    } catch {
-      proxies = {};
-    }
-    if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-    const originalSelector = pickSelectorNow(proxies) || "auto";
-    const originalEffective = currentEffectiveTag || pickEffectiveNode({ proxies });
-    const sourceScope = `${token.sourceKey || "source"}:${token.sourceRevision || 0}`;
-    const now = Date.now();
-    for (const [key, expiry] of dataplaneCandidateCooldown) {
-      if (expiry <= now) dataplaneCandidateCooldown.delete(key);
-    }
-    const current = originalEffective;
-    const candidates = rankByDelay(
-      nodes.filter((node) => node.clashTag
-        && node.clashTag !== current
-        && !dataplaneCandidateCooldown.has(`${sourceScope}:${node.clashTag}`)),
-      proxies,
-    ).slice(0, 3);
-
-    for (const candidate of candidates) {
-      if (!(await runtimeOperationIsCurrent(operationToken))
-        || !runtimeIdentity.isCurrent(token) || state !== "connected") return false;
-      try {
-        const tested = await testNode(candidate.clashTag, { token, timeoutMs: 3000 });
-        if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-        const delay = Number(tested?.delay) || 0;
-        if (delay <= 0 || delay >= 65_000) continue;
-        const selected = await selectProxy("proxy", candidate.clashTag, { token });
-        if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-        if (selected?.stale || !runtimeIdentity.isCurrent(token)) continue;
-        if (operationToken
-          ? await verifyRuntimeOperationDataplane(operationToken)
-          : await verifyEmergencyDataplane()) return true;
-        dataplaneCandidateCooldown.set(`${sourceScope}:${candidate.clashTag}`, Date.now() + DATAPLANE_CANDIDATE_COOLDOWN_MS);
-      } catch {
-        // Следующая candidate либо полный reconnect — ниже.
-        dataplaneCandidateCooldown.set(`${sourceScope}:${candidate.clashTag}`, Date.now() + DATAPLANE_CANDIDATE_COOLDOWN_MS);
-      }
-    }
-
-    // Candidate validation may have changed Clash's selector. Restore the
-    // original selector before falling back to a full lifecycle reconnect;
-    // never leave a failed emergency candidate active by accident.
-    if ((await runtimeOperationIsCurrent(operationToken))
-      && runtimeIdentity.isCurrent(token) && originalSelector) {
-      try {
-        const restored = await selectProxy("proxy", originalSelector, { token });
-        if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-        if (!restored?.stale && originalEffective) currentEffectiveTag = originalEffective;
-      } catch {
-        // Full reconnect below will still rebuild the original runtime policy.
-      }
-    }
-  }
-
-  if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-  const request = beginSourceReconnect(t("conn.applyingSettings"), operationToken);
-  if (!request) return false;
-  const connected = await request.completion;
-  if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-  if (!reconnectCompleted(connected) || state !== "connected") return false;
-  return operationToken
-    ? verifyRuntimeOperationDataplane(operationToken)
-    : verifyEmergencyDataplane();
-}
-
-async function failDataplane(dataplane = {}, operationToken = null) {
-  // Native recovery has already failed closed by the time this callback is
-  // reached. If WebView2 is responsive, give the existing bounded candidate /
-  // reconnect path one chance to recover the session. The native path remains
-  // the safety net when the frontend is hung, and strict privacy keeps its
-  // pinned-node policy instead of trying alternate candidates here.
-  const strictRuntime = strictPrivacyRequested() || dataplane?.unmonitoredPrivacyMode === true;
-  if (!strictRuntime) {
-    try {
-      if (await recoverDataplane({
-        reason: dataplane.reason || "all_candidates_failed",
-        snapshot: dataplane,
-        operationToken,
-      })) return true;
-    } catch (error) {
-      console.warn("frontend dataplane fallback failed", error);
-    }
-  }
-  const preserved = killSwitchMustSurviveRuntimeStop();
-  const closed = await shutdownCore({ preserveKillSwitch: preserved, operationToken });
-  if (!closed) return false;
-  toast(t("conn.coreStopped"), "error", 7000, { group: "conn", desc: t("conn.coreStoppedDesc") });
-  notify(t("conn.notifyClosedTitle"), t("conn.notifyClosedBody"));
-  switchView("logs");
-  return true;
-}
-
 // ── health-watchdog — /lib/health-watchdog.js ──────────────
-// Liveness ядер, native dataplane recovery и bridge-reconnect вынесены в модуль;
-// здесь инстанс с инжектом
+// Liveness ядер + bridge-reconnect вынесены в модуль; здесь инстанс с инжектом
 // состояния/реконнекта/движка качества. Алиасы сохраняют имена вызовов из setState
 // (start/stopHealthWatchdog) — их не трогаем. getQualityEngine — геттер, т.к.
 // qualityEngine определяется ниже по файлу; вызывается только в runtime-тике.
@@ -1250,14 +1124,6 @@ const healthWatchdog = initHealthWatchdog({
     policyMode: preservedKillSwitchPolicyMode(),
   }),
   reconcileKillSwitch: () => applyKillSwitch(state === "connected"),
-  recoverDataplane,
-  onDataplaneFailed: failDataplane,
-  beginRuntimeOperation: (kind) => beginRuntimeOperation(kind),
-  completeRuntimeOperation,
-  onDataplaneState: (dataplaneState) => {
-    if (dataplaneState === "inactive") return;
-    setChannelState(dataplaneState === "failed" ? "DEAD" : "UNKNOWN");
-  },
 });
 const startHealthWatchdog = healthWatchdog.start;
 const stopHealthWatchdog = healthWatchdog.stop;
@@ -1414,8 +1280,6 @@ const qualityEngine = createQualityEngine({
 // Cooldown нод, забракованных R2 — чтобы не выбирать их снова сразу.
 const QUALITY_EXCLUDE_MS = 5 * 60_000;
 const qualityExcluded = new Map(); // clashTag → expiry ts
-const DATAPLANE_CANDIDATE_COOLDOWN_MS = 5 * 60_000;
-const dataplaneCandidateCooldown = new Map(); // source/revision/tag → expiry ts
 // Ноды активного источника с clash-тэгами (зеркало proxies-view.nodesFromSource).
 function qualityNodesFromSource() {
   const src = getActiveSource();
@@ -3201,10 +3065,6 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         configHash: runtimeToken.configHash,
         strictPrivacy: !!runtimeInfo.strictPrivacy,
         pinnedNodeTag: runtimeInfo.pinnedNodeTag,
-        systemProxyBypassLan: options.route?.bypassLan !== false,
-        killSwitchExpected: !!runtimeInfo.strictPrivacy
-          || (!!options.general?.killSwitch && runtimeInfo.mode !== "tun"),
-        operationToken,
       }));
       if (!runtimeSnapshot?.running || !Number(runtimeSnapshot.processGeneration)) {
         throw new Error("start_singbox не вернул подтверждённый runtime snapshot");

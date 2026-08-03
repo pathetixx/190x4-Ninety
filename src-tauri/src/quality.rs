@@ -39,17 +39,9 @@ const MAX_BUDGET_MS: u64 = 15_000;
 const MAX_ENDPOINTS: usize = 8;
 const MAX_REDIRECTS: usize = 3;
 const ALLOWED_QUALITY_HOSTS: &[&str] = &["speed.cloudflare.com"];
-const ALLOWED_HEALTH_HOSTS: &[&str] = &["speed.cloudflare.com", "www.gstatic.com"];
-const HEALTH_ENDPOINTS: &[&str] = &[
-    "https://speed.cloudflare.com/__down?bytes=16384",
-    "https://www.gstatic.com/generate_204",
-];
-const HEALTH_ENDPOINT_TIMEOUT: Duration = Duration::from_secs(6);
-const HEALTH_HEDGE_DELAY: Duration = Duration::from_millis(750);
-const HEALTH_COORDINATOR_TIMEOUT: Duration = Duration::from_secs(7);
 
-fn host_allowed(host: &str, allowlist: &[&str]) -> bool {
-    allowlist
+fn quality_host_allowed(host: &str) -> bool {
+    ALLOWED_QUALITY_HOSTS
         .iter()
         .any(|allowed| host.eq_ignore_ascii_case(allowed))
 }
@@ -109,20 +101,12 @@ fn normalize_limits(sample_bytes: Option<u64>, budget_ms: Option<u64>) -> (u64, 
 }
 
 fn validate_endpoints(endpoints: Vec<String>) -> Result<Vec<String>, String> {
-    validate_endpoints_with_allowlist(endpoints, ALLOWED_QUALITY_HOSTS, "quality")
-}
-
-fn validate_endpoints_with_allowlist(
-    endpoints: Vec<String>,
-    allowlist: &[&str],
-    label: &str,
-) -> Result<Vec<String>, String> {
     if endpoints.is_empty() {
-        return Err(format!("no {label} endpoints"));
+        return Err("no endpoints".into());
     }
     if endpoints.len() > MAX_ENDPOINTS {
         return Err(format!(
-            "too many {label} endpoints: maximum {MAX_ENDPOINTS}"
+            "too many quality endpoints: maximum {MAX_ENDPOINTS}"
         ));
     }
 
@@ -131,21 +115,21 @@ fn validate_endpoints_with_allowlist(
         .map(|endpoint| {
             let endpoint = endpoint.trim();
             if endpoint.is_empty() {
-                return Err(format!("{label} endpoint is empty"));
+                return Err("quality endpoint is empty".into());
             }
             let parsed = reqwest::Url::parse(endpoint)
-                .map_err(|e| format!("invalid {label} endpoint: {e}"))?;
+                .map_err(|e| format!("invalid quality endpoint: {e}"))?;
             if parsed.scheme() != "https" || parsed.host_str().is_none() {
-                return Err(format!("{label} endpoint must be an absolute HTTPS URL"));
+                return Err("quality endpoint must be an absolute HTTPS URL".into());
             }
             if !parsed.username().is_empty() || parsed.password().is_some() {
-                return Err(format!("{label} endpoint credentials are not allowed"));
+                return Err("quality endpoint credentials are not allowed".into());
             }
             let host = parsed
                 .host_str()
-                .ok_or_else(|| format!("{label} endpoint host is missing"))?;
-            if !host_allowed(host, allowlist) {
-                return Err(format!("{label} endpoint host is not allowed: {host}"));
+                .ok_or("quality endpoint host is missing")?;
+            if !quality_host_allowed(host) {
+                return Err(format!("quality endpoint host is not allowed: {host}"));
             }
             Ok(endpoint.to_string())
         })
@@ -204,8 +188,9 @@ fn build_client(endpoint: Option<&ProbeProxyEndpoint>) -> Result<reqwest::Client
 /// Перебирает endpoints до первого, отдавшего тело; стримит до sample_bytes или
 /// budget_ms; по дороге ловит stall. Возвращает метрики первого успешного (или
 /// последнюю ошибку, если все легли).
-pub(crate) async fn probe_quality_inner(
-    endpoint: Option<&ProbeProxyEndpoint>,
+#[tauri::command]
+pub async fn probe_quality(
+    port: Option<u16>,
     endpoints: Vec<String>,
     sample_bytes: Option<u64>,
     budget_ms: Option<u64>,
@@ -229,170 +214,6 @@ pub(crate) async fn probe_quality_inner(
     Ok(last_err)
 }
 
-/// Conservative dataplane liveness probe with a bounded hedge.  The endpoints
-/// have independent six-second timeouts and a seven-second coordinator budget:
-/// the primary starts immediately, the secondary starts after 750ms only if
-/// liveness is still unproven, and the losing request is aborted on success.
-pub(crate) async fn probe_health_inner(
-    endpoint: Option<&ProbeProxyEndpoint>,
-) -> Result<ProbeResult, String> {
-    let endpoints = validate_endpoints_with_allowlist(
-        HEALTH_ENDPOINTS
-            .iter()
-            .map(|endpoint| (*endpoint).into())
-            .collect(),
-        ALLOWED_HEALTH_HOSTS,
-        "health",
-    )?;
-    let client = build_client(endpoint)?;
-    let mut tasks = JoinSet::new();
-    tasks.spawn(probe_health_endpoint(client.clone(), endpoints[0].clone()));
-    let mut secondary_started = false;
-    let mut last = ProbeResult::fail(String::new(), 0, "no health endpoints".into());
-    let hedge = tokio::time::sleep(HEALTH_HEDGE_DELAY);
-    let deadline = tokio::time::sleep(HEALTH_COORDINATOR_TIMEOUT);
-    tokio::pin!(hedge);
-    tokio::pin!(deadline);
-
-    loop {
-        tokio::select! {
-            _ = &mut deadline => break,
-            _ = &mut hedge, if !secondary_started => {
-                secondary_started = true;
-                tasks.spawn(probe_health_endpoint(client.clone(), endpoints[1].clone()));
-            }
-            joined = tasks.join_next(), if !tasks.is_empty() => {
-                match joined {
-                    Some(Ok(result)) if result.ok => {
-                        tasks.abort_all();
-                        return Ok(result);
-                    }
-                    Some(Ok(result)) => last = result,
-                    Some(Err(_)) => last = ProbeResult::fail(String::new(), 0, "monitor task failed".into()),
-                    None => {}
-                }
-                if secondary_started && tasks.is_empty() {
-                    return Ok(last);
-                }
-            }
-        }
-    }
-    tasks.abort_all();
-    Ok(last)
-}
-
-fn is_false(value: &bool) -> bool {
-    !*value
-}
-
-async fn probe_health_endpoint(client: reqwest::Client, endpoint: String) -> ProbeResult {
-    let started = Instant::now();
-    match tokio::time::timeout(HEALTH_ENDPOINT_TIMEOUT, client.get(&endpoint).send()).await {
-        Ok(Ok(response)) => health_http_result(
-            endpoint,
-            response.status(),
-            started.elapsed().as_millis() as u64,
-        ),
-        Ok(Err(error)) => ProbeResult::fail(
-            endpoint,
-            started.elapsed().as_millis() as u64,
-            format!("transport: {error}"),
-        ),
-        Err(_) => ProbeResult::fail(
-            endpoint,
-            started.elapsed().as_millis() as u64,
-            "timeout".into(),
-        ),
-    }
-}
-
-fn health_http_result(
-    endpoint: String,
-    status: reqwest::StatusCode,
-    elapsed_ms: u64,
-) -> ProbeResult {
-    ProbeResult {
-        // Any valid HTTP response proves that the request reached the remote
-        // side.  HTTP status semantics belong to quality, not liveness.
-        ok: true,
-        goodput_bps: 0,
-        ttfb_ms: elapsed_ms,
-        bytes: 0,
-        ms: elapsed_ms,
-        stalled: false,
-        endpoint,
-        error: Some(format!("remote_http_response:{}", status.as_u16())),
-        skipped: false,
-    }
-}
-
-#[tauri::command]
-pub async fn probe_health(
-    state: tauri::State<'_, crate::vpn::SingboxState>,
-    expected_generation: Option<u64>,
-) -> Result<ProbeResult, String> {
-    let Some(expected_generation) = expected_generation.filter(|generation| *generation != 0)
-    else {
-        return Ok(ProbeResult::skipped("generation_required"));
-    };
-    let (generation, endpoint) =
-        match crate::vpn::probe_endpoint_for_generation(&state, Some(expected_generation)) {
-            Ok(value) => value,
-            Err(reason) => return Ok(ProbeResult::skipped(reason)),
-        };
-    let permit = match state
-        .dataplane_probe
-        .acquire(DataplaneProbeKind::HealthProbe, generation, None)
-        .await
-    {
-        Ok(permit) => permit,
-        Err(ProbeAcquireError::Busy) => return Ok(ProbeResult::skipped("probe_busy")),
-        Err(ProbeAcquireError::StaleGeneration) => {
-            return Ok(ProbeResult::skipped("stale_generation"))
-        }
-    };
-    let result = probe_health_inner(Some(&endpoint)).await?;
-    if !state.dataplane_probe.is_current(&permit) {
-        return Ok(ProbeResult::skipped("stale_generation"));
-    }
-    Ok(result)
-}
-
-#[tauri::command]
-pub async fn probe_quality(
-    state: tauri::State<'_, crate::vpn::SingboxState>,
-    expected_generation: Option<u64>,
-    endpoints: Vec<String>,
-    sample_bytes: Option<u64>,
-    budget_ms: Option<u64>,
-) -> Result<ProbeResult, String> {
-    let Some(expected_generation) = expected_generation.filter(|generation| *generation != 0)
-    else {
-        return Ok(ProbeResult::skipped("generation_required"));
-    };
-    let (generation, endpoint) =
-        match crate::vpn::probe_endpoint_for_generation(&state, Some(expected_generation)) {
-            Ok(value) => value,
-            Err(reason) => return Ok(ProbeResult::skipped(reason)),
-        };
-    let permit = match state
-        .dataplane_probe
-        .acquire(DataplaneProbeKind::QualityProbe, generation, None)
-        .await
-    {
-        Ok(permit) => permit,
-        Err(ProbeAcquireError::Busy) => return Ok(ProbeResult::skipped("probe_busy")),
-        Err(ProbeAcquireError::StaleGeneration) => {
-            return Ok(ProbeResult::skipped("stale_generation"))
-        }
-    };
-    let result = probe_quality_inner(Some(&endpoint), endpoints, sample_bytes, budget_ms).await?;
-    if !state.dataplane_probe.is_current(&permit) {
-        return Ok(ProbeResult::skipped("stale_generation"));
-    }
-    Ok(result)
-}
-
 // Одна проба. Ok = тело пошло (метрики валидны, даже если потом stalled);
 // Err = соединение/запрос не состоялись → пробуем следующий endpoint.
 async fn probe_one(
@@ -400,34 +221,6 @@ async fn probe_one(
     endpoint: &str,
     sample_bytes: u64,
     budget: Duration,
-) -> Result<ProbeResult, ProbeResult> {
-    probe_one_with_policy(
-        client,
-        endpoint,
-        sample_bytes,
-        budget,
-        ProbePolicy {
-            stall_before_bytes: STALL_BYTES,
-            chunk_gap: Duration::from_millis(STALL_GAP_MS),
-            allow_empty_body: false,
-        },
-    )
-    .await
-}
-
-#[derive(Clone, Copy)]
-struct ProbePolicy {
-    stall_before_bytes: u64,
-    chunk_gap: Duration,
-    allow_empty_body: bool,
-}
-
-async fn probe_one_with_policy(
-    client: &reqwest::Client,
-    endpoint: &str,
-    sample_bytes: u64,
-    budget: Duration,
-    policy: ProbePolicy,
 ) -> Result<ProbeResult, ProbeResult> {
     let started = Instant::now();
 
@@ -460,7 +253,6 @@ async fn probe_one_with_policy(
 
     // Стримим тело по чанкам. Каждый chunk() гейтим на STALL_GAP_MS — этот гейт
     // и есть детектор занавеса: до STALL_BYTES долгая пауза = троттл.
-    let status = resp.status();
     let mut resp = resp;
     let mut bytes: u64 = 0;
     let mut ttfb_ms: u64 = 0;
@@ -475,7 +267,7 @@ async fn probe_one_with_policy(
         }
         let remaining = budget - elapsed;
         // Гейт чанка = min(остаток бюджета, окно stall).
-        let chunk_gate = remaining.min(policy.chunk_gap);
+        let chunk_gate = remaining.min(Duration::from_millis(STALL_GAP_MS));
 
         match tokio::time::timeout(chunk_gate, resp.chunk()).await {
             Ok(Ok(Some(chunk))) => {
@@ -503,7 +295,7 @@ async fn probe_one_with_policy(
             }
             Err(_) => {
                 // Гейт сработал — пауза в потоке. До 64 КБ это подпись занавеса.
-                if bytes < policy.stall_before_bytes {
+                if bytes < STALL_BYTES {
                     stalled = true;
                 }
                 break;
@@ -515,19 +307,6 @@ async fn probe_one_with_policy(
 
     // Тело так и не пошло — не успех, дайм шанс следующему endpoint.
     let Some(fb) = first_byte_at else {
-        if policy.allow_empty_body && status == reqwest::StatusCode::NO_CONTENT {
-            return Ok(ProbeResult {
-                ok: true,
-                goodput_bps: 0,
-                ttfb_ms: started.elapsed().as_millis() as u64,
-                bytes: 0,
-                ms,
-                stalled: false,
-                endpoint: endpoint.into(),
-                error: None,
-                skipped: false,
-            });
-        }
         return Err(ProbeResult::fail(
             endpoint.into(),
             ms,
@@ -606,35 +385,10 @@ mod tests {
 
     #[test]
     fn quality_host_allowlist_is_exact_and_case_insensitive() {
-        assert!(host_allowed("speed.cloudflare.com", ALLOWED_QUALITY_HOSTS));
-        assert!(host_allowed("SPEED.CLOUDFLARE.COM", ALLOWED_QUALITY_HOSTS));
-        assert!(!host_allowed("localhost", ALLOWED_QUALITY_HOSTS));
-        assert!(!host_allowed(
-            "speed.cloudflare.com.evil.example",
-            ALLOWED_QUALITY_HOSTS
-        ));
-    }
-
-    #[test]
-    fn health_probe_has_independent_allowlist_and_liveness_thresholds() {
-        assert_eq!(HEALTH_ENDPOINT_TIMEOUT, Duration::from_secs(6));
-        assert_eq!(HEALTH_HEDGE_DELAY, Duration::from_millis(750));
-        assert_eq!(HEALTH_COORDINATOR_TIMEOUT, Duration::from_secs(7));
-        assert!(validate_endpoints_with_allowlist(
-            HEALTH_ENDPOINTS
-                .iter()
-                .map(|endpoint| (*endpoint).into())
-                .collect(),
-            ALLOWED_HEALTH_HOSTS,
-            "health",
-        )
-        .is_ok());
-        assert!(validate_endpoints_with_allowlist(
-            vec!["https://example.com/health".into()],
-            ALLOWED_HEALTH_HOSTS,
-            "health",
-        )
-        .is_err());
+        assert!(quality_host_allowed("speed.cloudflare.com"));
+        assert!(quality_host_allowed("SPEED.CLOUDFLARE.COM"));
+        assert!(!quality_host_allowed("localhost"));
+        assert!(!quality_host_allowed("speed.cloudflare.com.evil.example"));
     }
 
     #[test]
