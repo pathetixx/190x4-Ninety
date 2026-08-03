@@ -273,20 +273,6 @@ pub struct SingboxState {
     process_exit_notify: Arc<Notify>,
 }
 
-pub(crate) fn active_runtime_generation(state: &SingboxState) -> Result<u64, String> {
-    let child_running = state.child.lock_recover().is_some();
-    let generation = state
-        .runtime
-        .lock_recover()
-        .as_ref()
-        .map(|runtime| runtime.process_generation)
-        .unwrap_or(0);
-    if child_running && generation == 0 {
-        return Err("running runtime has no published generation".into());
-    }
-    Ok(if child_running { generation } else { 0 })
-}
-
 #[derive(Clone)]
 struct RuntimeRecord {
     process_generation: u64,
@@ -924,38 +910,6 @@ pub struct RuntimeSnapshot {
     kill_switch_active: bool,
 }
 
-fn parse_endpoint_address(
-    raw: &str,
-    configured_port: Option<u16>,
-    label: &str,
-) -> Result<std::net::SocketAddr, String> {
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return Err(format!("{label} address is empty"));
-    }
-    let address = if let Ok(address) = raw.parse::<std::net::SocketAddr>() {
-        if let Some(port) = configured_port {
-            if port == 0 || address.port() != port {
-                return Err(format!("{label} address/port mismatch"));
-            }
-        }
-        address
-    } else {
-        let ip = raw
-            .parse::<std::net::IpAddr>()
-            .map_err(|_| format!("{label} address is not a numeric IP address"))?;
-        let port = configured_port.ok_or_else(|| format!("{label} port is missing"))?;
-        if port == 0 {
-            return Err(format!("{label} port must be non-zero"));
-        }
-        std::net::SocketAddr::new(ip, port)
-    };
-    if address.port() == 0 {
-        return Err(format!("{label} port must be non-zero"));
-    }
-    Ok(address)
-}
-
 fn runtime_endpoints_from_value(value: &serde_json::Value) -> Result<RuntimeEndpoints, String> {
     let control_raw = value
         .pointer("/experimental/clash_api/external_controller")
@@ -1463,20 +1417,6 @@ pub async fn start_singbox(
         }
         kill_xray(&state);
         kill_sidecars(&state);
-        *state.runtime_ports.lock_recover() = Vec::new();
-        *state.runtime.lock_recover() = None;
-        return Err(e);
-    }
-    // Clash control readiness is not sufficient for System Proxy/TUN. The
-    // endpoint published to Windows and to the health probe must be the
-    // listener owned by this freshly spawned sing-box generation.
-    if let Err(e) = wait_probe_listener_ready(probe_endpoint.as_ref(), state, start_epoch).await {
-        if let Some(child) = state.child.lock_recover().take() {
-            let _ = child.kill();
-        }
-        kill_xray(state);
-        kill_sidecars(state);
-        let _ = proxy::set_system_proxy(false, None, None);
         *state.runtime_ports.lock_recover() = Vec::new();
         *state.runtime.lock_recover() = None;
         return Err(e);
