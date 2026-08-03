@@ -337,6 +337,9 @@ test("tun-режим: tun-inbound + probe-in, правило пробы выше
   });
   assert.equal(config.inbounds.length, 2);
   assert.equal(config.inbounds[0].type, "tun");
+  // Оба семейства адресов: без IPv6-адреса auto_route не строит IPv6-маршрут и
+  // трафик приложений с собственным резолвером утекает мимо туннеля.
+  assert.deepEqual(config.inbounds[0].address, ["172.19.0.1/30", "fdfe:dcba:9876::1/126"]);
   const probe = config.inbounds[1];
   assert.equal(probe.tag, "probe-in");
   assert.equal(probe.type, "mixed");

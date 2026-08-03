@@ -690,7 +690,13 @@ function buildInbounds(mode, options) {
         type: "tun",
         tag: "tun-in",
         interface_name: "ninety-tun",
-        address: ["172.19.0.1/30"],
+        // IPv4 + IPv6 обязательны оба: auto_route строит маршруты только для тех
+        // семейств, чей адрес есть на интерфейсе. С одним IPv4-адресом весь
+        // нативный IPv6-трафик уходил мимо туннеля физическим интерфейсом —
+        // приложения со своим резолвером (Chromium/Electron с DoH получают AAAA
+        // в обход hijack-dns) утекали с реальным адресом даже в TUN. ULA-префикс,
+        // как в hiddify/Throne: в публичную маршрутизацию не попадает.
+        address: ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
         mtu: options.inbound.mtu || 9000,
         auto_route: true,
         strict_route: !!options.inbound.strictRoute,

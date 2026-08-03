@@ -2519,8 +2519,37 @@ pub async fn stop_singbox(
     if !operation_is_current(&app, &operation_token) {
         return Err("stale or cancelled runtime operation token".into());
     }
+    // logs_disabled живёт в RuntimeRecord, а подтверждённый stop его обнуляет.
+    // Читаем настройку до остановки, иначе итоговая запись ушла бы в файл даже
+    // при полностью отключённых логах.
+    let logs_disabled = state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .is_some_and(|runtime| runtime.logs_disabled);
     if operation_token.kind.needs_transition_barrier() {
-        native_transition_barrier(&app)?;
+        match native_transition_barrier(&app) {
+            Ok(barrier) => log_stop_diagnostic(
+                &app,
+                logs_disabled,
+                &format!(
+                    "runtime_stop_barrier kind={:?} generation={generation} state={}",
+                    operation_token.kind,
+                    if barrier { "armed" } else { "not_required" },
+                ),
+            ),
+            Err(error) => {
+                log_stop_diagnostic(
+                    &app,
+                    logs_disabled,
+                    &format!(
+                        "runtime_stop_barrier kind={:?} generation={generation} state=failed reason={error}",
+                        operation_token.kind,
+                    ),
+                );
+                return Err(error);
+            }
+        }
     }
     // Manual intent invalidates any start still crossing an await boundary.
     state.start_epoch.fetch_add(1, Ordering::SeqCst);
@@ -2528,11 +2557,80 @@ pub async fn stop_singbox(
         return Err("stale or cancelled runtime operation token".into());
     }
     let result = stop_singbox_inner(&app, &state).await;
+    log_stop_result(
+        &app,
+        logs_disabled,
+        operation_token.kind,
+        generation,
+        &result,
+    );
     finish_implicit_operation(&app, &operation_token, implicit);
     result
 }
 
-fn native_transition_barrier(app: &AppHandle) -> Result<(), String> {
+// Итог остановки уходил только в console.error WebView, недоступную пользователю:
+// по сообщению «очистка не подтверждена» нельзя было отличить незавершённый
+// процесс от занятого порта или от неснятого системного прокси. Пишем разбор в
+// тот же singbox.log, который открывается во вкладке «Логи». Здесь нет URL, IP,
+// имён нод и конфигов — только статусы компонентов, номера runtime-портов и
+// тайминги стадий.
+fn log_stop_diagnostic(app: &AppHandle, logs_disabled: bool, line: &str) {
+    if logs_disabled {
+        return;
+    }
+    append_runtime_diagnostic(app, line);
+}
+
+fn log_stop_result(
+    app: &AppHandle,
+    logs_disabled: bool,
+    kind: RuntimeOperationKind,
+    generation: u64,
+    result: &Result<StopResult, String>,
+) {
+    if logs_disabled {
+        return;
+    }
+    let line = match result {
+        Ok(stop) => format!(
+            "runtime_stop kind={kind:?} generation={generation} singbox={} xray={} sidecars={} \
+             processes_exited={} ports_released={} remaining_ports={:?} pending_exit_events={} \
+             system_proxy={} kill_ms={} proxy_ms={} confirm_ms={} total_ms={}",
+            stop.singbox,
+            stop.xray,
+            stop.sidecars,
+            stop.processes_exited,
+            stop.ports_released,
+            stop.remaining_ports,
+            stop.pending_exit_events,
+            stop.system_proxy,
+            stop.timings.kill_ms,
+            stop.timings.proxy_ms,
+            stop.timings.confirm_ms,
+            stop.timings.total_ms,
+        ),
+        Err(error) => {
+            format!(
+                "runtime_stop kind={kind:?} generation={generation} result=error reason={error}"
+            )
+        }
+    };
+    append_runtime_diagnostic(app, &line);
+}
+
+// Транзитный барьер имеет смысл ТОЛЬКО поверх уже действующей fail-closed
+// политики: строгая приватность или армированный kill switch. Пользователю с
+// выключенным Kill Switch он не даёт ничего, зато на каждой смене режима и на
+// каждом восстановлении watchdog'а рубит все новые соединения приложений
+// (block-all разрешает лишь loopback, DHCP и exe движков) — вопреки явно
+// выключенной настройке. Барьер снимается только успешной верификацией нового
+// runtime, которой на пути смены режима нет вовсе.
+fn transition_barrier_required(strict_tunnel: bool, kill_switch_active: bool) -> bool {
+    strict_tunnel || kill_switch_active
+}
+
+/// Возвращает true, если барьер армирован, false — если политика его не требует.
+fn native_transition_barrier(app: &AppHandle) -> Result<bool, String> {
     let kill_switch = app
         .try_state::<crate::killswitch::KillSwitchState>()
         .ok_or("kill switch state unavailable for transition barrier")?;
@@ -2546,11 +2644,14 @@ fn native_transition_barrier(app: &AppHandle) -> Result<(), String> {
                 .map(|runtime| runtime.strict_privacy)
         })
         .unwrap_or(false);
+    if !transition_barrier_required(strict_tunnel, crate::killswitch::is_active(&kill_switch)) {
+        return Ok(false);
+    }
     crate::killswitch::transition_arm(&kill_switch, strict_tunnel)?;
     if !crate::killswitch::transition_active(&kill_switch) {
         return Err("transition barrier was not confirmed active".into());
     }
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn release_transition_barrier(app: &AppHandle) -> Result<(), String> {
@@ -2723,6 +2824,18 @@ mod system_proxy_command_tests {
         assert!(validate_system_proxy_enable_request("", 1).is_err());
         assert!(validate_system_proxy_enable_request("127.0.0.1:7890", 0).is_err());
         assert!(validate_system_proxy_enable_request("127.0.0.1:7890", 1).is_ok());
+    }
+
+    #[test]
+    fn transition_barrier_follows_the_active_fail_closed_policy() {
+        use super::transition_barrier_required;
+
+        // Ни строгой приватности, ни армированного kill switch: блокировать сеть
+        // на время замены runtime нельзя — пользователь fail-closed не просил.
+        assert!(!transition_barrier_required(false, false));
+        assert!(transition_barrier_required(false, true));
+        assert!(transition_barrier_required(true, false));
+        assert!(transition_barrier_required(true, true));
     }
 }
 
