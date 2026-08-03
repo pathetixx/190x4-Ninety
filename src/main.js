@@ -1069,7 +1069,11 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
     if (state === "idle") {
       needsReconnect = false;
       applyReconnectUI();
-      return runReconnectAttempt(connectNetwork, { epoch, operationToken });
+      // await обязателен: без него return завершает try, finally немедленно
+      // освобождает токен операции, и connectNetwork уходит в start_singbox
+      // с уже отпущенным владением. Rust отвечает «stale or cancelled runtime
+      // operation token» — на экране это «Не удалось отключить».
+      return await runReconnectAttempt(connectNetwork, { epoch, operationToken });
     }
     if (state !== "connected" && state !== "connecting") return false;
     connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
@@ -1103,7 +1107,9 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
     }
     needsReconnect = false;
     applyReconnectUI();
-    return runReconnectAttempt(connectNetwork, { epoch, operationToken });
+    // await по той же причине, что и в idle-ветке выше: владение операцией
+    // должно дожить до конца подключения, а не до момента return.
+    return await runReconnectAttempt(connectNetwork, { epoch, operationToken });
   } finally {
     if (ownedOperationToken) await completeRuntimeOperation(ownedOperationToken);
     if (reconnectToastId) toast.dismiss(reconnectToastId);
@@ -1380,7 +1386,10 @@ async function reconnectForQualityRemediation(reason) {
     if (!reconnectCompleted(connected)
       || state !== "connected"
       || !isCurrentNetworkIntent(request.epoch, "connected")) return false;
-    return verifyRuntimeOperationDataplane(operationToken);
+    // await: иначе finally отпускает токен раньше проверки, и Rust отдаёт
+    // Cancelled на живом канале — движок качества считал бы ступень
+    // неподтверждённой всегда.
+    return await verifyRuntimeOperationDataplane(operationToken);
   } catch {
     return false;
   } finally {
