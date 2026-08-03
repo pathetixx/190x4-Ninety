@@ -3,6 +3,7 @@
 
 import { t } from "/lib/i18n/index.js";
 import { closeUpdateResource, snapshotUpdate } from "/lib/update-resource.js";
+import { formatReleaseNotes } from "/lib/release-notes.js";
 
 const SKIP_KEY = "ninety.update.skip";
 const RESUME_KEY = "ninety.update.resume";
@@ -188,7 +189,7 @@ export function openUpdateModal(update, opts = {}) {
     const body = (activeUpdate.body || "").trim();
     // Если notes — наш дефолт-заглушка из workflow, заменяем на дружелюбное
     changelogEl.textContent = body && !/См\. полные заметки в GitHub Release/.test(body)
-      ? body
+      ? formatReleaseNotes(body)
       : t("updModal.notesUnavailable");
   };
   renderMetadata();
