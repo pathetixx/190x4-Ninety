@@ -66,37 +66,120 @@ test("legacy singleton proxy мигрирует в auto у многонодов�
     },
     apply: async () => { calls++; },
   });
-  assert.deepEqual(result, { status: "current", tag: "auto" });
+  assert.deepEqual(result, {
+    status: "reset",
+    tag: "auto",
+    previousTag: "proxy",
+    reason: "legacy_singleton_selection",
+  });
   assert.equal(getRememberedProxySelection(source), "auto");
   assert.equal(calls, 0);
 });
 
-test("auto безопасно нормализуется в proxy когда источник стал одиночным", async () => {
+test("устаревшая ручная нода сбрасывается на auto и не блокирует смену подписки", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "rotated" } };
+  rememberProxySelection(source, "node-provider-removed");
+  let calls = 0;
+  const result = await restoreRememberedProxySelection({
+    source,
+    topology: {
+      proxies: {
+        proxy: { type: "Selector", now: "auto", all: ["auto", "lowest", "node-new"] },
+      },
+    },
+    apply: async () => { calls++; },
+  });
+  assert.deepEqual(result, {
+    status: "reset",
+    tag: "auto",
+    previousTag: "node-provider-removed",
+    reason: "remembered_selection_unavailable",
+  });
+  assert.equal(getRememberedProxySelection(source), "auto");
+  assert.equal(calls, 0);
+});
+
+test("сброс на auto сначала подтверждается Clash и только затем сохраняется", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "rotated-apply" } };
+  rememberProxySelection(source, "node-provider-removed");
+  let calls = 0;
+  const result = await restoreRememberedProxySelection({
+    source,
+    topology: {
+      proxies: {
+        proxy: { type: "Selector", now: "lowest", all: ["auto", "lowest", "node-new"] },
+      },
+    },
+    apply: async (tag) => {
+      calls++;
+      assert.equal(getRememberedProxySelection(source), "node-provider-removed");
+      assert.equal(tag, "auto");
+      return { stale: false };
+    },
+  });
+  assert.equal(result.status, "reset");
+  assert.equal(result.tag, "auto");
+  assert.equal(getRememberedProxySelection(source), "auto");
+  assert.equal(calls, 1);
+});
+
+test("ошибка применения fallback не уничтожает старое сохранённое предпочтение", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "rotated-fail" } };
+  rememberProxySelection(source, "node-provider-removed");
+  await assert.rejects(
+    restoreRememberedProxySelection({
+      source,
+      topology: {
+        proxies: {
+          proxy: { type: "Selector", now: "lowest", all: ["auto", "lowest", "node-new"] },
+        },
+      },
+      attempts: 1,
+      apply: async () => { throw new Error("Clash unavailable"); },
+    }),
+    /Clash unavailable/,
+  );
+  assert.equal(getRememberedProxySelection(source), "node-provider-removed");
+});
+
+test("многонодовый selector без auto не подменяет удалённую ноду произвольным маршрутом", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "malformed" } };
+  rememberProxySelection(source, "node-removed");
+  let calls = 0;
+  const result = await restoreRememberedProxySelection({
+    source,
+    topology: {
+      proxies: {
+        proxy: { type: "Selector", now: "node-new", all: ["lowest", "node-new"] },
+      },
+    },
+    apply: async () => { calls++; },
+  });
+  assert.deepEqual(result, { status: "unavailable", tag: "node-removed" });
+  assert.equal(getRememberedProxySelection(source), "node-removed");
+  assert.equal(calls, 0);
+});
+
+test("любой старый selector tag нормализуется в proxy когда источник стал одиночным", async () => {
   installStorage();
   const source = { kind: "sub", subscription: { id: "shrunk" } };
-  rememberProxySelection(source, "auto");
+  rememberProxySelection(source, "node-old");
   let calls = 0;
   const result = await restoreRememberedProxySelection({
     source,
     topology: { proxies: { proxy: { type: "VLESS" } } },
     apply: async () => { calls++; },
   });
-  assert.deepEqual(result, { status: "current", tag: "proxy" });
-  assert.equal(getRememberedProxySelection(source), "proxy");
-  assert.equal(calls, 0);
-});
-
-test("удалённая из подписки нода не подменяется произвольной и остаётся запомненной", async () => {
-  installStorage();
-  const source = { kind: "sub", subscription: { id: "stable" } };
-  rememberProxySelection(source, "node-removed");
-  let calls = 0;
-  const result = await restoreRememberedProxySelection({
-    source,
-    topology: { proxies: { proxy: { now: "auto", all: ["auto", "node-new"] } } },
-    apply: async () => { calls++; },
+  assert.deepEqual(result, {
+    status: "reset",
+    tag: "proxy",
+    previousTag: "node-old",
+    reason: "single_route_normalized",
   });
-  assert.deepEqual(result, { status: "unavailable", tag: "node-removed" });
-  assert.equal(getRememberedProxySelection(source), "node-removed");
+  assert.equal(getRememberedProxySelection(source), "proxy");
   assert.equal(calls, 0);
 });

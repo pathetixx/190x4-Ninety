@@ -51,24 +51,56 @@ export async function restoreRememberedProxySelection({
   const selectorType = String(selector?.type || "").toLowerCase();
   const isSelector = selectorType === "selector" || selectableTags.length > 0;
 
-  // A subscription that used to contain one node may have persisted "proxy".
-  // In a multi-node runtime "proxy" is the selector group name, not a child.
-  // It represents the old automatic/single route, so migrate it to "auto";
-  // never misclassify it as a deleted manually pinned server.
-  if (isSelector && tag === "proxy" && selectableTags.includes("auto")) {
+  // A source which now has one physical route cannot restore an old selector
+  // child. Normalise stale auto/manual state to the only runtime tag.
+  if (!isSelector) {
+    if (tag === "proxy") return { status: "current", tag };
+    if (!isCurrent()) return { status: "stale", tag };
+    const previousTag = tag;
+    rememberProxySelection(source, "proxy");
+    return {
+      status: "reset",
+      tag: "proxy",
+      previousTag,
+      reason: "single_route_normalized",
+    };
+  }
+
+  let previousTag = null;
+  let resetReason = null;
+
+  // Legacy singleton runtimes stored "proxy" as the effective outbound. In a
+  // multi-node runtime it is the selector group name, not a selectable child.
+  if (tag === "proxy" && selectableTags.includes("auto")) {
+    previousTag = tag;
+    resetReason = "legacy_singleton_selection";
     tag = "auto";
+  }
+
+  // Subscription refresh/provider rotation may remove or re-key a previously
+  // selected node. This must not make the whole subscription unusable. The
+  // only permitted automatic recovery is the explicit app policy "auto"; no
+  // arbitrary node is silently substituted.
+  if (!selectableTags.includes(tag)) {
+    if (!selectableTags.includes("auto")) {
+      return { status: "unavailable", tag };
+    }
+    previousTag = tag;
+    resetReason = "remembered_selection_unavailable";
+    tag = "auto";
+  }
+
+  if (selector?.now === tag) {
+    if (previousTag == null) return { status: "current", tag };
+    if (!isCurrent()) return { status: "stale", tag };
     rememberProxySelection(source, tag);
+    return {
+      status: "reset",
+      tag,
+      previousTag,
+      reason: resetReason,
+    };
   }
-
-  // The inverse transition is valid too: a source may shrink to one node.
-  // auto/proxy both mean the only available route and need no Clash PUT.
-  if (!isSelector && (tag === "auto" || tag === "proxy")) {
-    if (tag !== "proxy") rememberProxySelection(source, "proxy");
-    return { status: "current", tag: "proxy" };
-  }
-
-  if (!selectableTags.includes(tag)) return { status: "unavailable", tag };
-  if (selector?.now === tag) return { status: "current", tag };
 
   let lastError = null;
   const maxAttempts = Math.max(1, Number(attempts) || 1);
@@ -77,6 +109,17 @@ export async function restoreRememberedProxySelection({
     try {
       const result = await apply(tag);
       if (result?.stale || !isCurrent()) return { status: "stale", tag };
+      if (previousTag != null) {
+        // Persist only after Clash confirms the fallback. A failed or stale
+        // apply keeps the previous preference transactionally intact.
+        rememberProxySelection(source, tag);
+        return {
+          status: "reset",
+          tag,
+          previousTag,
+          reason: resetReason,
+        };
+      }
       return { status: "restored", tag };
     } catch (error) {
       lastError = error;
