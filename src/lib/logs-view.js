@@ -9,7 +9,7 @@ import { perfObserver } from "/lib/performance-observer.js";
 import { t } from "/lib/i18n/index.js";
 import { toast } from "/lib/toast.js";
 import { FLAGS_BASE, flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
-import { classifyEngineLogSeverity } from "/lib/log-severity.js";
+import { classifyEngineLogSeverity, healthProbeNodeTag } from "/lib/log-severity.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -34,6 +34,15 @@ let unlistenActivity = null;
 let logsRequestId = 0;
 
 function currentLogSource() { return logsSource?.value || "singbox"; }
+
+// Тег активной ноды знает только main.js (эффективный сервер приходит из clash).
+// Без него журнал прячет все отчёты health-checker'а — они и относятся к нодам,
+// через которые трафик не идёт.
+let getActiveNodeTag = () => null;
+
+export function configureLogsRuntime({ getActiveNodeTag: getter } = {}) {
+  if (typeof getter === "function") getActiveNodeTag = getter;
+}
 
 function formatBytes(n) {
   if (n < 1024) return `${n} ${t("logs.bytesB")}`;
@@ -82,23 +91,29 @@ const LOG_LEVEL_GROUP = {
 
 // Парс выполняется только при получении нового file tail. Изменение search/level
 // фильтрует уже готовые entries и больше не split/regex-парсит 800 строк заново.
-export function parseLogEntries(text) {
+export function parseLogEntries(text, activeNodeTag = getActiveNodeTag()) {
   const lines = String(text || "").split(/\r?\n/).slice(-LOG_RENDER_MAX_LINES);
   const entries = [];
   let cur = null;
+  // Отброшенная запись забирает с собой и свои продолжения: иначе хвост
+  // многострочной ошибки прилип бы к предыдущей, ни к чему не относящейся.
+  let dropped = false;
   for (const raw0 of lines) {
     const raw = cleanLogLine(raw0);
     if (!raw) { if (cur) cur.cont.push(""); continue; }
     const m = LOG_LINE_RE.exec(raw);
     if (m) {
       const [, , date, time, level, rest] = m;
+      const probeTag = healthProbeNodeTag(rest);
+      if (probeTag && probeTag !== activeNodeTag) { cur = null; dropped = true; continue; }
+      dropped = false;
       const tm = time || (date ? date.slice(5) : "—");
       const classified = classifyEngineLogSeverity(level, rest);
       cur = { t: tm, lvl: classified.level, grade: classified.grade, msg: rest, cont: [] };
       entries.push(cur);
     } else if (cur) {
       cur.cont.push(raw);
-    } else {
+    } else if (!dropped) {
       cur = { t: "—", lvl: "", grade: "info", msg: raw, cont: [] };
       entries.push(cur);
     }

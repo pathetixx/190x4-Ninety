@@ -44,7 +44,7 @@ import {
   sameSourceRef,
 } from "/lib/source-activation.js";
 import { mountDpiView, prepareDpiVpnMode, setDpiVpnMode, excludeVpnNode, clearVpnNodeExclusion, autostartDpiIfEnabled, rerenderDpiView, onDpiViewEnter } from "/lib/dpi-view.js";
-import { mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
+import { configureLogsRuntime, mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
 import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
@@ -1749,6 +1749,10 @@ navItems.forEach((item) => {
 });
 
 // ── Logs view — вынесен в /lib/logs-view.js ────────────────
+// Активная нода нужна журналу, чтобы не показывать отчёты health-checker'а по
+// остальным нодам подписки. Геттер, а не значение: currentEffectiveTag меняется
+// при переключении сервера и объявлен ниже по файлу.
+configureLogsRuntime({ getActiveNodeTag: () => currentEffectiveTag });
 mountLogsView();
 
 // ── Profiles view ──────────────────────────────────────────
