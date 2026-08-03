@@ -13,7 +13,7 @@ import { loadOptions, updateOption } from "/lib/options.js";
 import {
   newRule, normalizeValue, isValidValue, sanitizeRule,
 } from "/lib/routing-rules.js";
-import { listNetworkProcesses, getConnections, snapshotNetworkTcp } from "/lib/clash-api.js";
+import { listNetworkProcesses, getConnections } from "/lib/clash-api.js";
 import { toast } from "/lib/toast.js";
 import { escapeAttr, escapeHtml as esc } from "/lib/esc.js";
 import { t, getLang } from "/lib/i18n/index.js";
@@ -82,7 +82,6 @@ export function mountRoutingRules(rootEl, opts = {}) {
   let tab = "rules";
   let monitorPaused = false;
   let monConns = [];
-  let monOsConns = [];
   let monTimer = null;
   let monExpanded = new Set(); // раскрытые группы приложений (по имени процесса)
   let dragId = null;
@@ -547,56 +546,6 @@ export function mountRoutingRules(rootEl, opts = {}) {
       return (a.process || "").localeCompare(b.process || "");
     });
   }
-
-  function endpointParts(value) {
-    const raw = String(value || "");
-    if (raw.startsWith("[")) {
-      const end = raw.indexOf("]:");
-      if (end > 0) return { host: raw.slice(1, end), port: raw.slice(end + 2) };
-    }
-    const split = raw.lastIndexOf(":");
-    return split > 0 ? { host: raw.slice(0, split), port: raw.slice(split + 1) } : { host: raw, port: "" };
-  }
-
-  function normalizedProcess(value) {
-    return String(value || "").replaceAll("\\", "/").split("/").pop().toLowerCase();
-  }
-
-  function clashOwnsOsConnection(os, clash) {
-    const local = endpointParts(os.localAddress);
-    const remote = endpointParts(os.remoteAddress);
-    return clash.some((c) => {
-      const cRemoteMatches = !c.destinationIP || c.destinationIP === remote.host;
-      const cSourcePresent = c.sourceIP && c.sourcePort;
-      const cSourceMatches = !cSourcePresent
-        || (c.sourceIP === local.host && String(c.sourcePort) === local.port);
-      if (!cRemoteMatches || !cSourceMatches) return false;
-      if (cSourcePresent) return true;
-      const cProcess = normalizedProcess(c.processPath || c.process);
-      return !!cProcess && cProcess === normalizedProcess(os.processPath || os.process);
-    });
-  }
-
-  function osOnlyConnections(os, clash) {
-    return (Array.isArray(os) ? os : []).filter((connection) =>
-      !clashOwnsOsConnection(connection, Array.isArray(clash) ? clash : []));
-  }
-
-  function groupOsConns(conns) {
-    const map = new Map();
-    for (const c of conns) {
-      const key = c.process || UNKNOWN_KEY;
-      let g = map.get(key);
-      if (!g) {
-        g = { process: c.process || null, path: c.processPath || "", conns: [] };
-        map.set(key, g);
-      }
-      if (!g.path && c.processPath) g.path = c.processPath;
-      g.conns.push(c);
-    }
-    return [...map.values()].sort((a, b) => b.conns.length - a.conns.length);
-  }
-
   function connSubRow(c) {
     const r = el("div", "rr-csub");
     const host = c.host || c.destinationIP || "—";
@@ -604,16 +553,6 @@ export function mountRoutingRules(rootEl, opts = {}) {
     r.innerHTML =
       '<span class="rr-csub__dest"><span class="rr-csub__host">' + esc(host) + "</span>" + ipLine + "</span>" +
       routeChip(c.outbound);
-    return r;
-  }
-
-  function osConnSubRow(c) {
-    const r = el("div", "rr-csub rr-os-only__row");
-    r.innerHTML =
-      '<span class="rr-csub__dest"><span class="rr-csub__host">' + esc(c.remoteAddress || "—") + "</span>" +
-      '<span class="rr-csub__ip">' + esc(c.state || "TCP") + " · " + esc(c.localAddress || "") + "</span></span>" +
-      '<span class="rr-action rr-action--direct"><span class="rr-action__dot"></span>' +
-      esc(t("rr.bypassesNinety")) + "</span>";
     return r;
   }
   function appGroup(g) {
@@ -658,8 +597,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
         '<span class="rr-mon-count" id="rr-moncount"></span>' +
         '<button class="btn btn--sm" id="rr-pausebtn" type="button">' + (monitorPaused ? I.play + esc(t("rr.resume")) : I.pause + esc(t("rr.pause"))) + "</button>" +
       "</div>" +
-      '<div class="rr-appgroups" id="rr-conns"></div>' +
-      '<div id="rr-os-only"></div>';
+      '<div class="rr-appgroups" id="rr-conns"></div>';
     host.appendChild(wrap);
     wrap.querySelector("#rr-pausebtn").addEventListener("click", () => { monitorPaused = !monitorPaused; if (monitorPaused) stopMonTimer(); else startMonTimer(); renderMonitor(); });
     paintConns();
@@ -677,49 +615,18 @@ export function mountRoutingRules(rootEl, opts = {}) {
     }
     const cnt = $("#rr-moncount");
     if (cnt) cnt.textContent = monConns.length + " " + plural(monConns.length, "pluralConns");
-    const osHost = $("#rr-os-only");
-    if (osHost) {
-      osHost.innerHTML = "";
-      if (monOsConns.length) {
-        const section = el("section", "rr-os-only");
-        section.innerHTML = '<div class="rr-os-only__title">' +
-          esc(t("rr.bypassesNinety")) + " · " + monOsConns.length + "</div>";
-        for (const group of groupOsConns(monOsConns)) {
-          const groupEl = el("div", "rr-os-only__group");
-          const name = group.process || t("rr.noProcess");
-          const path = group.path && group.path !== group.process
-            ? '<span class="rr-appgrp__path">' + esc(group.path) + "</span>" : "";
-          groupEl.innerHTML = '<div class="rr-os-only__head"><span class="rr-appgrp__ico">' + I.app +
-            '</span><span class="rr-appgrp__meta"><span class="rr-appgrp__name">' + esc(name) +
-            "</span>" + path + '</span><span class="rr-appgrp__count">' + group.conns.length + "</span></div>";
-          const rows = el("div", "rr-appgrp__conns rr-os-only__conns");
-          group.conns.forEach((connection) => rows.appendChild(osConnSubRow(connection)));
-          groupEl.appendChild(rows);
-          section.appendChild(groupEl);
-        }
-        osHost.appendChild(section);
-      }
-    }
   }
   async function pollConns() {
     // Стоп, если секцию перерисовали/ушли с монитора.
     if (!rootEl.isConnected || tab !== "monitor") { stopMonTimer(); return; }
     try {
-      const [clashResult, osResult] = await Promise.allSettled([
-        getConnections(),
-        snapshotNetworkTcp(),
-      ]);
+      const list = await getConnections();
       if (!rootEl.isConnected || tab !== "monitor") return;
-      monConns = clashResult.status === "fulfilled" && Array.isArray(clashResult.value)
-        ? clashResult.value : [];
-      const osList = osResult.status === "fulfilled" && Array.isArray(osResult.value)
-        ? osResult.value : [];
-      monOsConns = osOnlyConnections(osList, monConns);
+      monConns = Array.isArray(list) ? list : [];
       paintConns();
     } catch {
       // ядро может быть offline (idle) — просто молчим, покажем пусто
       monConns = [];
-      monOsConns = [];
       paintConns();
     }
   }
