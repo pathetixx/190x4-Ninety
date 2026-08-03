@@ -1,0 +1,56 @@
+name: Fix PR 82 quality verifier
+
+on:
+  push:
+    branches:
+      - revert/pr75-dataplane-watchdog
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: revert/pr75-dataplane-watchdog
+      - name: Restore independent quality remediation verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/main.js")
+          text = path.read_text(encoding="utf-8")
+          marker = "\nfunction safeSourceSwitchReason(reason) {"
+          if text.count(marker) != 1:
+              raise SystemExit("safeSourceSwitchReason marker not unique")
+          helper = r'''
+
+async function verifyRuntimeOperationDataplane(operationToken) {
+  if (!operationToken) return false;
+  try {
+    const snapshot = await invoke("runtime_snapshot");
+    runtimeSnapshotCache = runtimeEndpointMatchesGeneration(snapshot) ? snapshot : null;
+    if (!snapshot?.running || !Number(snapshot.processGeneration)) return false;
+    const verdict = await invoke("verify_runtime_dataplane", {
+      operationToken,
+      expectedGeneration: snapshot.processGeneration,
+    });
+    return verdict?.status === "ready";
+  } catch {
+    return false;
+  }
+}
+'''
+          path.write_text(text.replace(marker, helper + marker, 1), encoding="utf-8")
+          PY
+          rm -f .github/workflows/_fix-pr82-quality-verifier.yml
+          git add -A
+          git commit -m "fix: retain quality remediation verifier"
+          git push origin HEAD:revert/pr75-dataplane-watchdog
