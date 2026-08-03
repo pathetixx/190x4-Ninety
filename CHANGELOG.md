@@ -2,6 +2,20 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.56 — 2026-08-03
+
+## English
+
+- Switching the connection mode or changing a setting while the VPN is on no longer ends with "Could not disconnect / network cleanup was not confirmed". The reconnect used to lose ownership of the operation the moment the old connection was stopped, so the new one was refused before it could start. Automatic recovery after a core failure was failing for the same reason and now goes through as well.
+- The connection log no longer fills up with availability reports for servers you are not connected through. Only the active server is shown; the full log file on disk is unchanged and "Copy" still returns all of it.
+- Release notes in the update window are shown as clean text instead of raw markup.
+
+## Русский
+
+- Смена режима подключения и изменение настроек при включённом VPN больше не заканчиваются ошибкой «Не удалось отключить / Очистка сетевых компонентов не подтверждена». Переподключение теряло право на операцию сразу после остановки прежнего соединения, и новое отклонялось, не успев начаться. По той же причине не срабатывало автоматическое восстановление после сбоя ядра — теперь оно тоже проходит.
+- Журнал подключения больше не забивается отчётами о доступности серверов, через которые вы не подключены. Показывается только активный сервер; сам файл журнала на диске не изменился, и кнопка «Копировать» по-прежнему отдаёт его целиком.
+- Заметки к обновлению в окне обновления показываются обычным текстом, без символов разметки.
+
 ## v0.2.55 — 2026-08-03
 
 ## English
