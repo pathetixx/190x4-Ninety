@@ -95,19 +95,23 @@ if (Test-Path $LatestJson) {
 
 # Полный boot Tauri без сети/VPN. --ci-smoke проверяет backend ping и сам
 # вызывает app.exit(0) через три секунды; зависание или мгновенный crash валят CI.
+# Лимит ожидания измеряет холодный старт, а не выход: на свежем раннере первый
+# запуск WebView2 и сканирование неподписанного exe Defender'ом съедали почти
+# все 30 секунд и валили сборку на здоровом бинаре. 90 секунд по-прежнему ловят
+# реальное зависание, но не гонку с первым запуском.
 $process = Start-Process -FilePath $app.FullName -ArgumentList "--ci-smoke" -PassThru
-if (-not $process.WaitForExit(30000)) {
+if (-not $process.WaitForExit(90000)) {
   Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-  throw "Ninety.exe не завершил CI smoke за 30 секунд"
+  throw "Ninety.exe не завершил CI smoke за 90 секунд"
 }
 Assert-Release ($process.ExitCode -eq 0) "Ninety.exe CI smoke завершился с кодом $($process.ExitCode)"
 
 # Тот же boot из реально подготовленного Portable layout. Маркер рядом с EXE
 # включает безопасное portable-поведение updater'а.
 $portableProcess = Start-Process -FilePath $portableApp.FullName -ArgumentList "--ci-smoke" -PassThru
-if (-not $portableProcess.WaitForExit(30000)) {
+if (-not $portableProcess.WaitForExit(90000)) {
   Stop-Process -Id $portableProcess.Id -Force -ErrorAction SilentlyContinue
-  throw "Portable Ninety.exe не завершил CI smoke за 30 секунд"
+  throw "Portable Ninety.exe не завершил CI smoke за 90 секунд"
 }
 Assert-Release ($portableProcess.ExitCode -eq 0) `
   "Portable Ninety.exe CI smoke завершился с кодом $($portableProcess.ExitCode)"
