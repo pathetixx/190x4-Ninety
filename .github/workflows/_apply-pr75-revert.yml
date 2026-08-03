@@ -23,28 +23,51 @@ jobs:
           fetch-depth: 0
           ref: revert/pr75-dataplane-watchdog
 
-      - name: Revert PR 75 merge commit
+      - name: Attempt PR 75 revert
+        id: revert
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          rm -f .github/workflows/_apply-pr75-revert.yml
-          git add -A
-
-          set +e
           git revert --no-commit -m 1 3513add89f62cafc9d43031dcad5cd5438e073f1
           status=$?
-          set -e
+          echo "status=$status" >> "$GITHUB_OUTPUT"
 
           if [ "$status" -ne 0 ]; then
-            echo "PR 75 revert has conflicts:"
-            git status --short
-            git diff --name-only --diff-filter=U
-            exit "$status"
+            mkdir -p /tmp/pr75-conflicts
+            git status --short > /tmp/pr75-conflicts/status.txt
+            git diff --cc > /tmp/pr75-conflicts/combined.diff || true
+            while IFS= read -r file; do
+              safe=$(printf '%s' "$file" | tr '/' '_')
+              cp "$file" "/tmp/pr75-conflicts/${safe}.working" 2>/dev/null || true
+              git show ":1:$file" > "/tmp/pr75-conflicts/${safe}.base" 2>/dev/null || true
+              git show ":2:$file" > "/tmp/pr75-conflicts/${safe}.ours" 2>/dev/null || true
+              git show ":3:$file" > "/tmp/pr75-conflicts/${safe}.theirs" 2>/dev/null || true
+            done < <(git diff --name-only --diff-filter=U)
           fi
+          exit 0
 
+      - name: Upload conflict bundle
+        if: steps.revert.outputs.status != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr75-revert-conflicts
+          path: /tmp/pr75-conflicts
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Commit clean revert
+        if: steps.revert.outputs.status == '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/_apply-pr75-revert.yml
           git add -A
           git commit -m "revert: remove aggressive dataplane watchdog"
           git push origin HEAD:revert/pr75-dataplane-watchdog
+
+      - name: Fail on conflicts
+        if: steps.revert.outputs.status != '0'
+        run: exit 1
