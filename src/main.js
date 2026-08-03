@@ -3255,10 +3255,13 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         return false;
       }
       console.error("start failed", e);
-      if (operationToken?.kind === "sourceSwitch") {
-        const code = safeSourceSwitchReason(e?.code || e?.name || "error");
-        logSourceSwitchReconnect("connect", operationToken, "failed", `${connectStage}_${code}`);
-      }
+      // Диагностика провалившегося старта раньше писалась только для смены
+      // источника. Смена режима переподключается по токену qualityRemediation,
+      // поэтому её отказ не оставлял в журнале ничего: после подтверждённой
+      // остановки лог просто обрывался, а на экране появлялась ошибка. Стадия и
+      // код нужны для любой операции, включая реконнект вообще без токена.
+      const code = safeSourceSwitchReason(e?.code || e?.name || "error");
+      logSourceSwitchReconnect("connect", operationToken, "failed", `${connectStage}_${code}`);
       const preserveGuard = killSwitchMustSurviveRuntimeStop();
       const cleaned = await shutdownCore({
         preserveKillSwitch: preserveGuard,
