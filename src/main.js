@@ -1452,6 +1452,22 @@ async function completeRuntimeOperation(token) {
 }
 
 
+async function verifyRuntimeOperationDataplane(operationToken) {
+  if (!operationToken) return false;
+  try {
+    const snapshot = await invoke("runtime_snapshot");
+    runtimeSnapshotCache = runtimeEndpointMatchesGeneration(snapshot) ? snapshot : null;
+    if (!snapshot?.running || !Number(snapshot.processGeneration)) return false;
+    const verdict = await invoke("verify_runtime_dataplane", {
+      operationToken,
+      expectedGeneration: snapshot.processGeneration,
+    });
+    return verdict?.status === "ready";
+  } catch {
+    return false;
+  }
+}
+
 function safeSourceSwitchReason(reason) {
   return String(reason || "unknown")
     .toLowerCase()
