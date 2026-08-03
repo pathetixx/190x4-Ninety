@@ -50,6 +50,7 @@ import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
 import { createCoreStartBarrier } from "/lib/connection-start-barrier.js";
 import { createRuntimeIdleGate } from "/lib/runtime-idle-gate.js";
+import { completeSuccessfulConnect, runReconnectAttempt } from "/lib/connect-network-result.js";
 import { runtimeEndpointMatchesGeneration, runtimeSnapshotReadyForMode } from "/lib/runtime-lifecycle.js";
 import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, pickSelectorNow, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
@@ -1066,7 +1067,7 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
     if (state === "idle") {
       needsReconnect = false;
       applyReconnectUI();
-      return (await connectNetwork({ epoch, operationToken })) === true;
+      return runReconnectAttempt(connectNetwork, { epoch, operationToken });
     }
     if (state !== "connected" && state !== "connecting") return false;
     connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
@@ -1100,7 +1101,7 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
     }
     needsReconnect = false;
     applyReconnectUI();
-    return (await connectNetwork({ epoch, operationToken })) === true;
+    return runReconnectAttempt(connectNetwork, { epoch, operationToken });
   } finally {
     if (ownedOperationToken) await completeRuntimeOperation(ownedOperationToken);
     if (reconnectToastId) toast.dismiss(reconnectToastId);
@@ -1600,6 +1601,25 @@ async function runtimeOperationIsCurrent(operationToken) {
   }
 }
 
+function safeSourceSwitchReason(reason) {
+  return String(reason || "unknown")
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]/g, "_")
+    .slice(0, 80);
+}
+
+function logSourceSwitchReconnect(phase, operationToken, result, reason = null) {
+  const payload = {
+    phase,
+    operation_id: Number(operationToken?.id) || "none",
+    result: safeSourceSwitchReason(result),
+  };
+  const generation = Number(runtimeIdentity.capture()?.processGeneration) || 0;
+  if (generation) payload.generation = generation;
+  if (reason) payload.reason = safeSourceSwitchReason(reason);
+  console.info("source_switch_reconnect", payload);
+}
+
 async function confirmActiveSourceDataplane(target, { token, isCurrent }) {
   if (!token || !isCurrent() || !sameSourceRef(activeSourceRef(), target)
     || networkIntent.desired() !== "connected" || state !== "connected") {
@@ -1612,29 +1632,55 @@ async function confirmActiveSourceDataplane(target, { token, isCurrent }) {
     if (!snapshot?.running || !Number(snapshot.processGeneration)) {
       return { status: "hardFailed", reason: "runtime_not_running" };
     }
-    return await invoke("verify_runtime_dataplane", {
+    logSourceSwitchReconnect("verifier", token, "started");
+    const verdict = await invoke("verify_runtime_dataplane", {
       operationToken: token,
       expectedGeneration: snapshot.processGeneration,
     });
+    logSourceSwitchReconnect("verifier", token, verdict?.status || "unknown", verdict?.reason);
+    return verdict;
   } catch {
+    logSourceSwitchReconnect("verifier", token, "failed", "monitor_error");
     return { status: "unverified", reason: "monitor_error" };
   }
 }
 
 async function reconnectCommittedSource(reason, context = {}) {
-  if (networkIntent.desired() !== "connected") return false;
-  if (state === "connected" || state === "connecting" || state === "disconnecting") {
-    const request = beginSourceReconnect(reason, context.operationToken || null);
-    return request ? reconnectCompleted(await request.completion) : false;
+  const operationToken = context.operationToken || null;
+  if (networkIntent.desired() !== "connected") {
+    logSourceSwitchReconnect("target", operationToken, "failed", "network_intent_not_connected");
+    return false;
   }
-  if (state !== "idle") return false;
+  if (state === "connected" || state === "connecting" || state === "disconnecting") {
+    const request = beginSourceReconnect(reason, operationToken);
+    if (!request) {
+      logSourceSwitchReconnect("target", operationToken, "failed", "reconnect_request_unavailable");
+      return false;
+    }
+    const result = await request.completion;
+    const connected = reconnectCompleted(result);
+    logSourceSwitchReconnect(
+      "target",
+      operationToken,
+      connected ? "connected" : "failed",
+      connected ? null : (result?.status === "completed" ? "connect_pipeline_false" : result?.status),
+    );
+    return connected;
+  }
+  if (state !== "idle") {
+    logSourceSwitchReconnect("target", operationToken, "failed", "reconnect_state_unavailable");
+    return false;
+  }
   const epoch = beginNetworkIntent("connected");
   const toastId = toast(reason || t("conn.applyingSettings"), "info", 0, {
     group: "conn",
     connecting: true,
   });
-  try { return (await connectNetwork({ epoch, operationToken: context.operationToken || null })) === true; }
-  finally { if (toastId) toast.dismiss(toastId); }
+  try {
+    const connected = await runReconnectAttempt(connectNetwork, { epoch, operationToken });
+    logSourceSwitchReconnect("target", operationToken, connected ? "connected" : "failed", connected ? null : "connect_pipeline_false");
+    return connected;
+  } finally { if (toastId) toast.dismiss(toastId); }
 }
 
 function applyActiveSource(kind, id, options = {}) {
@@ -1681,20 +1727,26 @@ sourceSwitchController = createSourceSwitchController({
   confirm: confirmActiveSourceDataplane,
   canContinue: () => networkIntent.desired() === "connected",
   persist: () => backupNow(),
-  onActivated: (source, options) => {
+  onActivated: (source, options, operationToken) => {
+    if (options?.reconnect !== false) logSourceSwitchReconnect("commit", operationToken, "committed");
     if (!options?.silent && options?.reconnect === false) {
       toast(source.kind === "sub" ? t("conn.subActivated") : t("conn.profileActivated"), "success", 1800);
     }
   },
-  onRollback: () => toast(t("conn.previousRestored"), "warn", 6500, {
-    group: "conn",
-    desc: t("conn.previousRestoredDesc"),
-  }),
-  onRollbackFailed: () => {
+  onRollback: (_fallback, _target, _options, operationToken) => {
+    logSourceSwitchReconnect("rollback", operationToken, "committed");
+    toast(t("conn.previousRestored"), "warn", 6500, {
+      group: "conn",
+      desc: t("conn.previousRestoredDesc"),
+    });
+  },
+  onRollbackFailed: (_fallback, _target, _options, operationToken) => {
+    logSourceSwitchReconnect("rollback", operationToken, "failed", "restore_failed");
     toast(t("conn.restoreFailed"), "error", 7500, { group: "conn", desc: t("conn.restoreFailedDesc") });
     switchView("logs");
   },
-  onFailure: () => {
+  onFailure: (_target, _options, operationToken) => {
+    logSourceSwitchReconnect("target", operationToken, "failed", "verifier_hard_failed");
     toast(t("conn.switchFailed"), "error", 6000, { group: "conn", desc: t("conn.switchFailedDesc") });
     switchView("logs");
   },
@@ -3000,7 +3052,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       setState("cleanup_error", {
         preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
       });
-      return;
+      return false;
     }
     if (!isCurrentNetworkIntent(epoch, "connected")) return false;
     restoreFailClosedLatch(observed);
@@ -3031,7 +3083,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         };
     const { mode, options, runtimePolicy } = preparedRuntime;
     const warpOnly = !strictPrivacy && !src && warpOnlyEnabled();
-    if (!src && !warpOnly) { toast(t("conn.needSource"), "error"); return; }
+    if (!src && !warpOnly) { toast(t("conn.needSource"), "error"); return false; }
     // Владение попыткой захватываем ДО первого await: DNS/WARP/port preflight
     // больше не оставляет state=idle, поэтому второй клик отменяет эту попытку,
     // а не запускает параллельный start_singbox.
@@ -3059,17 +3111,17 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
           onlyIf: () => state === "connecting" && connectAttempts.isCurrent(attemptEpoch),
         });
       }
-      if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
+      if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
       // Если WARP включён — тянем регистрацию из writable config dir/warp.json
       // и передаём в builder. Без warpInfo builder тихо пропустит warp endpoint.
       let warpInfo = null;
       if (options.warp?.enabled) {
         try { warpInfo = await invoke("warp_status"); } catch {}
-        if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
+        if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
         if (!warpInfo) {
           setState("idle");
           toast(t("conn.warpUnreg"), "error", 3500);
-          return;
+          return false;
         }
       }
       // Порты loopback-мостов (xhttp/naive/TT): дефолтные базы 31100+ может
@@ -3081,7 +3133,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       if (needs.xray || needs.naive || needs.trusttunnel) {
         try { bridgePorts = await invoke("plan_bridge_ports", { needs }); }
         catch (e) { console.warn("plan_bridge_ports failed", e); }
-        if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return;
+        if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
       }
       // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
       // socks-перенаправление. xray=null когда xhttp в источнике нет.
@@ -3131,7 +3183,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
         try { await stopCurrentOperation(); } catch {}
         try { await invoke("set_system_proxy", { enable: false }); } catch {}
-        return;
+        return false;
       }
       // Backend является источником истины для processGeneration: локальный
       // токен нужен только чтобы передать ожидаемый identity в start_singbox,
@@ -3140,7 +3192,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       const topology = await getProxies(undefined, { token: runtimeToken });
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
         try { await stopCurrentOperation(); } catch {}
-        return;
+        return false;
       }
       if (!runtimeInfo.strictPrivacy && !warpOnly
         && !snapshotMatchesSource(topology, nodesFromSource())) {
@@ -3166,7 +3218,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
             preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
             operationToken,
           });
-          return;
+          return false;
         }
         // Никогда не маскируем потерю ручного выбора тихим переходом на Auto.
         // Если сервер действительно исчез из подписки, безопаснее не поднимать
@@ -3194,7 +3246,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
           try { await invoke("set_system_proxy", { enable: false }); } catch {}
           try { await stopCurrentOperation(); } catch {}
-          return;
+          return false;
         }
       }
       if (!isCurrentNetworkIntent(epoch, "connected") || !runtimeIdentity.isCurrent(runtimeToken)) {
@@ -3202,7 +3254,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
           preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
           operationToken,
         });
-        return;
+        return false;
       }
       // При proxy→TUN старый ordinary barrier жил до полной готовности TUN.
       // Останавливаем guard-only watcher до финального disarm: stop инвалидирует
@@ -3216,7 +3268,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       const killSwitchReady = await applyKillSwitch(true);
       if (!isCurrentNetworkIntent(epoch, "connected") || !runtimeIdentity.isCurrent(runtimeToken)) {
         try { await stopCurrentOperation(); } catch {}
-        return;
+        return false;
       }
       if (killSwitchReady === false) {
         const error = new Error("WFP readiness не подтверждена");
@@ -3235,52 +3287,58 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       catch (e) {
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
           try { await stopCurrentOperation(); } catch {}
-          return;
+          return false;
         }
         throw new Error(`финальный runtime snapshot не получен: ${e}`, { cause: e });
       }
       if (!(await runtimeSnapshotIsLive(finalSnapshot, runtimeSource))) {
         throw new Error("финальный runtime endpoint не прошёл live-проверку");
       }
-      if (!finalizeConnected(finalSnapshot, {
-        epoch,
-        source: runtimeSource,
-        token: runtimeToken,
-      })) {
+      const connected = completeSuccessfulConnect({
+        finalizeConnected: () => finalizeConnected(finalSnapshot, {
+          epoch,
+          source: runtimeSource,
+          token: runtimeToken,
+        }),
+        onConnected: () => {
+          const src0 = activeDisplaySource();
+          const isMultiSub = !runtimeInfo.strictPrivacy
+            && src0?.kind === "sub"
+            && Array.isArray(src0.nodes)
+            && src0.nodes.length >= 2;
+          // In-app тост сразу. Для подписки нода ещё не выбрана балансировщиком —
+          // показываем имя подписки (не врём конкретным сервером), затем
+          // notifyConnectedWithRealNode догонит тост фактическим сервером. Для
+          // одиночного профиля сразу его имя.
+          const initLabel = isMultiSub
+            ? (src0.subscription?.name || t("conn.subFallback"))
+            : nodeDisplayLabel(activeNodeForDisplay());
+          toast(t("conn.protected"), "connected", 2200, {
+            group: "conn",
+            desc: initLabel || t("conn.tunnelUp"),
+          });
+          syncTrayMenu(); // трей → «Отключиться» (для sub ещё раз обновится после sync)
+          // Effective node + OS-уведомление с именем фактического сервера (внутри
+          // делает syncEffectiveFromClash → обновляет hero/локацию/трей).
+          notifyConnectedWithRealNode(isMultiSub);
+        },
+      });
+      if (!connected) {
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)
           || !runtimeIdentity.isCurrent(runtimeToken)) {
           try { await stopCurrentOperation(); } catch {}
-          return;
+          return false;
         }
         throw new Error("финальный runtime snapshot не прошёл проверку готовности");
       }
-      const src0 = activeDisplaySource();
-      const isMultiSub = !runtimeInfo.strictPrivacy
-        && src0?.kind === "sub"
-        && Array.isArray(src0.nodes)
-        && src0.nodes.length >= 2;
-      // In-app тост сразу. Для подписки нода ещё не выбрана балансировщиком —
-      // показываем имя подписки (не врём конкретным сервером), затем
-      // notifyConnectedWithRealNode догонит тост фактическим сервером. Для
-      // одиночного профиля сразу его имя.
-      const initLabel = isMultiSub
-        ? (src0.subscription?.name || t("conn.subFallback"))
-        : nodeDisplayLabel(activeNodeForDisplay());
-      toast(t("conn.protected"), "connected", 2200, {
-        group: "conn",
-        desc: initLabel || t("conn.tunnelUp"),
-      });
-      syncTrayMenu(); // трей → «Отключиться» (для sub ещё раз обновится после sync)
-      // Effective node + OS-уведомление с именем фактического сервера (внутри
-      // делает syncEffectiveFromClash → обновляет hero/локацию/трей).
-      notifyConnectedWithRealNode(isMultiSub);
+      return true;
     } catch (e) {
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
         // Юзер уже отменил подключение — состояние/тосты выставил его клик,
         // здесь только страховочный стоп без перетирания UI.
         try { await stopCurrentOperation(); } catch {}
         try { await invoke("set_system_proxy", { enable: false }); } catch {}
-        return;
+        return false;
       }
       console.error("start failed", e);
       const preserveGuard = killSwitchMustSurviveRuntimeStop();
@@ -3296,7 +3354,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         if (state !== "cleanup_error") {
           setState("cleanup_error", { preserveKillSwitch: preserveGuard });
         }
-        return;
+        return false;
       }
       if (e?.code === "STRICT_PRIVACY_NODE_REQUIRED") {
         toast(t("privacyToast.nodeRequired"), "warn", 6000);

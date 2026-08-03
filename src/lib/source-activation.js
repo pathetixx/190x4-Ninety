@@ -126,7 +126,7 @@ export function createSourceSwitchController({
       pending = null;
       await persist(target);
       await finish(operationToken);
-      onActivated(target, options);
+      onActivated(target, options, operationToken);
       return { changed: true, ready: true, target, reconnected: false };
     }
 
@@ -157,7 +157,7 @@ export function createSourceSwitchController({
       pending = null;
       await persist(target);
       await finish(operationToken);
-      onActivated(target, options);
+      onActivated(target, options, operationToken);
       return { changed: true, ready: true, target, reconnected: true };
     }
 
@@ -180,7 +180,7 @@ export function createSourceSwitchController({
       pending = null;
       await persist(target);
       await finish(operationToken);
-      onFailure(target, options);
+      onFailure(target, options, operationToken);
       return { changed: true, ready: false, target, restored: false };
     }
 
@@ -203,7 +203,7 @@ export function createSourceSwitchController({
       if (!rollbackOperationToken) {
         pending = null;
         await cancelOperation(operationToken);
-        onRollbackFailed(fallback, target, options);
+        onRollbackFailed(fallback, target, options, rollbackOperationToken);
         return { changed: true, ready: false, target, restored: false, fallback };
       }
       pending.operationToken = rollbackOperationToken;
@@ -233,8 +233,8 @@ export function createSourceSwitchController({
     pending = null;
     if (restored) await persist(fallback);
     await finish(rollbackOperationToken);
-    if (restored) onRollback(fallback, target, options);
-    else onRollbackFailed(fallback, target, options);
+    if (restored) onRollback(fallback, target, options, rollbackOperationToken);
+    else onRollbackFailed(fallback, target, options, rollbackOperationToken);
     return { changed: true, ready: false, target, restored, fallback };
   }
 
