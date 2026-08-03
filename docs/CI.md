@@ -4,7 +4,6 @@
 
 Перед слиянием должны быть зелёными следующие статус-проверки:
 
-- `Checks / installer-preview` — smoke-проверка Windows-инсталлятора;
 - `Checks / js-tests` — JS-тесты, coverage-gate, синхронизация версий и pinning Actions;
 - `Checks / js-lint` — ESLint;
 - `Checks / rust-tests` — `cargo test`, `cargo fmt --check`, `cargo clippy -D warnings` на Windows;
