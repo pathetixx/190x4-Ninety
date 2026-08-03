@@ -2668,40 +2668,62 @@ pub fn health_snapshot(
     }
 }
 
+fn validate_system_proxy_enable_request(
+    host_port: &str,
+    expected_generation: u64,
+) -> Result<(), String> {
+    if host_port.trim().is_empty() {
+        return Err("system proxy enable requires the current probe endpoint".into());
+    }
+    if expected_generation == 0 {
+        return Err("system proxy enable requires the current process generation".into());
+    }
+    Ok(())
+}
+
 #[tauri::command]
-pub async fn set_system_proxy(
+pub async fn enable_system_proxy(
     app: AppHandle,
     state: State<'_, SingboxState>,
-    enable: bool,
-    host_port: Option<String>,
+    host_port: String,
     bypass_lan: Option<bool>,
-    expected_generation: Option<u64>,
+    expected_generation: u64,
 ) -> Result<(), String> {
-    if !enable {
-        return proxy::set_system_proxy(false, None, None);
-    }
-    let Some(host_port) = host_port.as_deref() else {
-        return Err("system proxy enable requires the current probe endpoint".into());
-    };
-    let Some(expected_generation) = expected_generation.filter(|generation| *generation != 0)
-    else {
-        return Err("system proxy enable requires the current process generation".into());
-    };
-    if let Err(error) =
-        enable_system_proxy_for_runtime(&state, host_port, bypass_lan, Some(expected_generation))
-            .await
+    validate_system_proxy_enable_request(&host_port, expected_generation)?;
+    if let Err(error) = enable_system_proxy_for_runtime(
+        &state,
+        host_port.trim(),
+        bypass_lan,
+        Some(expected_generation),
+    )
+    .await
     {
         let cleanup = stop_singbox_inner(&app, &state).await;
         return Err(match cleanup {
             Ok(_) => format!("{error}; runtime stopped after proxy readiness failure"),
-            Err(cleanup_error) => {
-                format!(
-                    "{error}; runtime stop after proxy readiness failure failed: {cleanup_error}"
-                )
-            }
+            Err(cleanup_error) => format!(
+                "{error}; runtime stop after proxy readiness failure failed: {cleanup_error}"
+            ),
         });
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn disable_system_proxy() -> Result<(), String> {
+    proxy::set_system_proxy(false, None, None)
+}
+
+#[cfg(test)]
+mod system_proxy_command_tests {
+    use super::validate_system_proxy_enable_request;
+
+    #[test]
+    fn enable_contract_requires_endpoint_and_generation() {
+        assert!(validate_system_proxy_enable_request("", 1).is_err());
+        assert!(validate_system_proxy_enable_request("127.0.0.1:7890", 0).is_err());
+        assert!(validate_system_proxy_enable_request("127.0.0.1:7890", 1).is_ok());
+    }
 }
 
 #[tauri::command]

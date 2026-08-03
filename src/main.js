@@ -93,6 +93,7 @@ import { createNetworkIntentArbiter, repeatedConnectionIntentAction } from "/lib
 import { createLatestWinsReconnectQueue } from "/lib/reconnect-queue.js";
 import { shouldShowOnboarding } from "/lib/onboarding-state.js";
 import { getRememberedProxySelection, restoreRememberedProxySelection } from "/lib/proxy-selection.js";
+import { disableSystemProxy, enableSystemProxy } from "/lib/system-proxy-runtime.js";
 import { startupRuntimePlan } from "/lib/startup-runtime-policy.js";
 import { persistDpiIntentForRelaunch } from "/lib/dpi-elevation-intent.js";
 import {
@@ -3072,7 +3073,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       // возвращался в «Защищено».
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
         try { await stopCurrentOperation(); } catch {}
-        try { await invoke("set_system_proxy", { enable: false }); } catch {}
+        try { await disableSystemProxy(invoke); } catch {}
         return false;
       }
       // Backend является источником истины для processGeneration: локальный
@@ -3123,12 +3124,18 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
           });
           return false;
         }
-        // Никогда не маскируем потерю ручного выбора тихим переходом на Auto.
-        // Если сервер действительно исчез из подписки, безопаснее не поднимать
-        // VPN, чем незаметно отправить трафик через другой маршрут.
-        if (restoredSelection.status === "unavailable" && restoredSelection.tag !== "auto") {
-          const error = new Error("Remembered server is no longer present in the active subscription");
-          error.code = "REMEMBERED_SELECTION_UNAVAILABLE";
+        if (restoredSelection.status === "reset") {
+          const reason = restoredSelection.reason || "remembered_selection_reset";
+          console.warn("remembered proxy selection reset", reason);
+          if (operationToken?.kind === "sourceSwitch") {
+            logSourceSwitchReconnect("selection", operationToken, "reset", reason);
+          }
+        }
+        // Fatal only when the selector has no explicit automatic recovery
+        // route. Ordinary mode never substitutes an arbitrary child node.
+        if (restoredSelection.status === "unavailable") {
+          const error = new Error("Active selector has no valid recovery route");
+          error.code = "SELECTION_POLICY_UNAVAILABLE";
           throw error;
         }
       }
@@ -3141,14 +3148,13 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         if (typeof probeHostPort !== "string" || !probeHostPort) {
           throw new Error("runtime snapshot не содержит probe endpoint для system proxy");
         }
-        await invoke("set_system_proxy", {
-          enable: true,
+        await enableSystemProxy(invoke, {
           hostPort: probeHostPort,
           bypassLan: options.route?.bypassLan !== false,
           expectedGeneration: runtimeSnapshot.processGeneration,
         });
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
-          try { await invoke("set_system_proxy", { enable: false }); } catch {}
+          try { await disableSystemProxy(invoke); } catch {}
           try { await stopCurrentOperation(); } catch {}
           return false;
         }
@@ -3245,7 +3251,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         // Юзер уже отменил подключение — состояние/тосты выставил его клик,
         // здесь только страховочный стоп без перетирания UI.
         try { await stopCurrentOperation(); } catch {}
-        try { await invoke("set_system_proxy", { enable: false }); } catch {}
+        try { await disableSystemProxy(invoke); } catch {}
         return false;
       }
       console.error("start failed", e);
