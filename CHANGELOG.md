@@ -2,6 +2,18 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.55 — 2026-08-03
+
+## English
+
+- The connection log now records why a reconnect failed and at which stage. Switching the connection mode and automatic reconnects previously left no trace when the new connection could not be brought up, so an error on screen had nothing behind it in the log.
+- A stop that was handed over to another operation is recorded as such instead of being reported as an unconfirmed cleanup.
+
+## Русский
+
+- Журнал подключения теперь фиксирует, почему и на каком этапе не удалось переподключиться. Смена режима подключения и автоматические переподключения раньше не оставляли следа, если новое соединение не удавалось поднять, и ошибка на экране ничем не подкреплялась в журнале.
+- Остановка, перехваченная другой операцией, записывается именно так, а не выдаётся за неподтверждённую очистку.
+
 ## v0.2.54 — 2026-08-03
 
 ## English

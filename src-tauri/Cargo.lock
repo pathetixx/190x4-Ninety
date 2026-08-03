@@ -2567,7 +2567,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "ninety"
-version = "0.2.54"
+version = "0.2.55"
 dependencies = [
  "argon2",
  "base64 0.23.0",
