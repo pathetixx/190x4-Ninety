@@ -228,6 +228,116 @@ pub fn begin_frontend_runtime_operation(
 }
 
 #[tauri::command]
+pub fn begin_source_switch_operation(
+    app: tauri::AppHandle,
+    coordinator: tauri::State<'_, RuntimeOperationCoordinator>,
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    source_fingerprint: String,
+) -> Result<RuntimeOperationToken, String> {
+    let source_fingerprint = source_fingerprint.trim();
+    if source_fingerprint.is_empty() {
+        return Err("source switch requires a target fingerprint".into());
+    }
+
+    // RuntimeRecord and child ownership are read in the native process. The
+    // frontend can no longer race a separate runtime_snapshot IPC and create a
+    // SourceSwitch token with generation=0 while a live runtime exists.
+    let generation = crate::vpn::active_runtime_generation(&state)?;
+    let previous = coordinator.snapshot();
+    let result = coordinator.begin(
+        RuntimeOperationKind::SourceSwitch,
+        generation,
+        Some(source_fingerprint),
+    );
+    match &result {
+        Ok(token) => {
+            if let Some(previous) = previous {
+                if previous.id != token.id {
+                    append_operation_diagnostic(
+                        &app,
+                        previous.id,
+                        previous.kind,
+                        previous.generation,
+                        previous.source_fingerprint_hash.as_deref(),
+                        "superseded",
+                        None,
+                    );
+                }
+            }
+            append_operation_diagnostic(
+                &app,
+                token.id,
+                token.kind,
+                token.generation,
+                token.source_fingerprint_hash.as_deref(),
+                "acquired",
+                None,
+            );
+        }
+        Err(_) => append_operation_attempt_diagnostic(
+            &app,
+            RuntimeOperationKind::SourceSwitch,
+            "coordinator_busy",
+        ),
+    }
+    result
+}
+
+fn safe_diagnostic_value(value: &str) -> Result<String, String> {
+    let value = value.trim().to_ascii_lowercase();
+    if value.is_empty() || value.len() > 80 {
+        return Err("invalid runtime diagnostic value".into());
+    }
+    if !value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
+    {
+        return Err("unsafe runtime diagnostic value".into());
+    }
+    Ok(value)
+}
+
+#[tauri::command]
+pub fn record_frontend_runtime_event(
+    app: tauri::AppHandle,
+    token: Option<RuntimeOperationToken>,
+    phase: String,
+    result: String,
+    reason: Option<String>,
+    generation: Option<u64>,
+) -> Result<(), String> {
+    let phase = safe_diagnostic_value(&phase)?;
+    let result = safe_diagnostic_value(&result)?;
+    let reason = reason
+        .as_deref()
+        .map(safe_diagnostic_value)
+        .transpose()?
+        .unwrap_or_else(|| "none".into());
+    let (id, kind, operation_generation, source_hash) = token
+        .as_ref()
+        .map(|token| {
+            (
+                token.id,
+                format!("{:?}", token.kind),
+                token.generation,
+                token
+                    .source_fingerprint_hash
+                    .clone()
+                    .unwrap_or_else(|| "none".into()),
+            )
+        })
+        .unwrap_or_else(|| (0, "None".into(), 0, "none".into()));
+    crate::vpn::append_runtime_diagnostic(
+        &app,
+        &format!(
+            "source_switch_event operation_id={id} kind={kind} operation_generation={operation_generation} runtime_generation={} source_hash={source_hash} phase={phase} result={result} reason={reason}",
+            generation.unwrap_or(0),
+        ),
+    );
+    Ok(())
+}
+
+#[tauri::command]
 pub fn complete_frontend_runtime_operation(
     app: tauri::AppHandle,
     coordinator: tauri::State<'_, RuntimeOperationCoordinator>,
@@ -563,6 +673,17 @@ mod tests {
         let mut forged = token.clone();
         forged.expected_source_fingerprint = Some("other-fingerprint".into());
         assert!(!coordinator.authorize(&forged));
+    }
+
+    #[test]
+    fn runtime_diagnostic_values_reject_sensitive_or_free_form_text() {
+        assert_eq!(
+            safe_diagnostic_value("Topology_Ready").unwrap(),
+            "topology_ready"
+        );
+        assert!(safe_diagnostic_value("https://secret.example/sub").is_err());
+        assert!(safe_diagnostic_value("contains spaces").is_err());
+        assert!(safe_diagnostic_value("").is_err());
     }
 
     #[tokio::test]

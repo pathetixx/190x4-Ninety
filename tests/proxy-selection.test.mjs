@@ -52,6 +52,40 @@ test("сохранённая нода восстанавливается пос�
   assert.equal(calls, 3);
 });
 
+test("legacy singleton proxy мигрирует в auto у многонодовой подписки", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "expanded" } };
+  rememberProxySelection(source, "proxy");
+  let calls = 0;
+  const result = await restoreRememberedProxySelection({
+    source,
+    topology: {
+      proxies: {
+        proxy: { type: "Selector", now: "auto", all: ["auto", "lowest", "node-a"] },
+      },
+    },
+    apply: async () => { calls++; },
+  });
+  assert.deepEqual(result, { status: "current", tag: "auto" });
+  assert.equal(getRememberedProxySelection(source), "auto");
+  assert.equal(calls, 0);
+});
+
+test("auto безопасно нормализуется в proxy когда источник стал одиночным", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "shrunk" } };
+  rememberProxySelection(source, "auto");
+  let calls = 0;
+  const result = await restoreRememberedProxySelection({
+    source,
+    topology: { proxies: { proxy: { type: "VLESS" } } },
+    apply: async () => { calls++; },
+  });
+  assert.deepEqual(result, { status: "current", tag: "proxy" });
+  assert.equal(getRememberedProxySelection(source), "proxy");
+  assert.equal(calls, 0);
+});
+
 test("удалённая из подписки нода не подменяется произвольной и остаётся запомненной", async () => {
   installStorage();
   const source = { kind: "sub", subscription: { id: "stable" } };
