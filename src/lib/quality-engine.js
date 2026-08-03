@@ -73,8 +73,6 @@ export function createQualityEngine({
   let reconnectTimes = [];      // timestamps реконнектов для часового капа
   let reconnectHandoff = false; // R3/R4 ждёт новую VPN-сессию
   let lastState = "UNKNOWN";
-  let hostPressure = false;     // native watchdog заметил starvation/low memory
-  let emergencyLocked = false;  // аварийный recovery владеет runtime
   const passive = [];           // [{t, down}] скользящее окно
   const sessionActive = (epoch) => running && epoch === sessionEpoch;
 
@@ -162,8 +160,7 @@ export function createQualityEngine({
   // ── Тик (зовётся из healthTick после liveness-OK) ──────
   async function tick() {
     const epoch = sessionEpoch;
-    if (!sessionActive(epoch) || !cfg.enabled || hostPressure || emergencyLocked
-      || reconnectHandoff || remediatingEpoch === epoch || probingEpoch === epoch) return;
+    if (!sessionActive(epoch) || !cfg.enabled || reconnectHandoff || remediatingEpoch === epoch || probingEpoch === epoch) return;
     const timestamp = now();
     if (timestamp < nextEligibleProbeAt) return;
 
@@ -361,8 +358,6 @@ export function createQualityEngine({
     const epoch = sessionEpoch;
     cfg = normalizeOpts({ ...cfg, ...o });
     running = true;
-    hostPressure = false;
-    emergencyLocked = false;
     badStreak = 0; goodStreak = 0; lastState = "UNKNOWN";
     passive.length = 0;
     lastProbeAt = now(); // дать туннелю осесть перед первой пробой
@@ -381,57 +376,12 @@ export function createQualityEngine({
   function onIdle() {
     sessionEpoch++;
     running = false;
-    hostPressure = false;
-    emergencyLocked = false;
     passive.length = 0;
   }
   function setOptions(o) { cfg = normalizeOpts({ ...cfg, ...o }); }
-  function setExpectedGeneration(generation) {
-    const value = Number(generation) || 0;
-    if (value > 0) cfg = normalizeOpts({ ...cfg, expectedGeneration: value });
-  }
-  function setHostPressure(active) {
-    const next = !!active;
-    if (hostPressure === next) return;
-    hostPressure = next;
-    badStreak = 0;
-    goodStreak = 0;
-    lastState = next ? "PRESSURE" : "UNKNOWN";
-    // После выхода из pressure mode разрешаем одну пробу без ожидания полного
-    // idle-интервала, но не запускаем её в тот же момент, что native watchdog.
-    lastProbeAt = next ? now() : now() - PROBE_MIN_GAP_MS;
-  }
-  function requestProbeSoon() {
-    if (!running || !cfg.enabled || cfg.lowDataMode) return false;
-    // Health-watchdog вызывает это только на переходе в healthy. Следующий tick
-    // выполнит одну полноценную пробу немедленно, но обычный min-gap и single-
-    // flight продолжат защищать от параллельных запросов.
-    nextEligibleProbeAt = now() + 2_000;
-    lastProbeAt = now() - Math.max(cfg.idleProbeSec * 1000, PROBE_MIN_GAP_MS);
-    return true;
-  }
-  function pauseForEmergency() {
-    // Инвалидируем уже выполняющуюся quality-лесенку/пробу, не переводя UI в
-    // idle: аварийный coordinator сам решит, будет ли простой switch или restart.
-    sessionEpoch++;
-    emergencyLocked = true;
-    badStreak = 0;
-    goodStreak = 0;
-    probingEpoch = null;
-    remediatingEpoch = null;
-    reconnectHandoff = false;
-  }
-  function resumeAfterEmergency() {
-    emergencyLocked = false;
-    badStreak = 0;
-    goodStreak = 0;
-    lastState = "UNKNOWN";
-    lastProbeAt = now();
-  }
 
   return {
     onConnected, onIdle, tick, updatePassive, setOptions,
-    setHostPressure, setExpectedGeneration, requestProbeSoon, pauseForEmergency, resumeAfterEmergency,
     getSamples: () => samples.slice(), // снимок ring-буфера для осциллограммы
     get state() { return lastState; },
     get isRemediating() { return remediatingEpoch === sessionEpoch; },

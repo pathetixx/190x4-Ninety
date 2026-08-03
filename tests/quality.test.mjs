@@ -65,35 +65,6 @@ test("классификация: GOOD-проба → onState GOOD, лесенк
   assert.equal(ladderRan, false, "на GOOD лесенка запускаться не должна");
 });
 
-test("native healthy ускоряет первую quality-пробу после settle", async () => {
-  installStorage();
-  let clock = 1_000_000;
-  let probes = 0;
-  const states = [];
-  const engine = createQualityEngine({
-    invoke: async (cmd) => {
-      if (cmd === "probe_quality") probes++;
-      return GOOD;
-    },
-    actions: { onState: (state) => states.push(state) },
-    now: () => clock,
-    opts: { enabled: true, idleProbeSec: 300 },
-  });
-
-  engine.onConnected({});
-  await engine.tick();
-  assert.equal(probes, 0, "до native healthy сохраняется settle-пауза");
-  assert.equal(engine.requestProbeSoon(), true);
-  await engine.tick();
-  clock += 2_000;
-  await engine.tick();
-  assert.equal(probes, 1);
-  assert.equal(states.at(-1), "GOOD");
-
-  clock += 1000;
-  await engine.tick();
-  assert.equal(probes, 1, "ускорение не превращается в probe-loop");
-});
 
 test("классификация: STALLED-проба → onState STALLED", async () => {
   installStorage();
@@ -291,72 +262,4 @@ test("выключенный quality engine не прогревает локал
   engine.onConnected({ enabled: false });
   await Promise.resolve();
   assert.equal(asnCalls, 0);
-});
-
-test("pressure mode временно отключает фоновые quality probes", async () => {
-  installStorage();
-  let probes = 0;
-  const engine = createQualityEngine({
-    invoke: async (cmd) => {
-      if (cmd === "probe_quality") probes++;
-      return GOOD;
-    },
-    actions: {},
-    opts: { enabled: true },
-  });
-
-  engine.onConnected({ idleProbeSec: 60 });
-  armSuspect(engine);
-  engine.setHostPressure(true);
-  await engine.tick();
-  assert.equal(probes, 0);
-
-  engine.setHostPressure(false);
-  await engine.tick();
-  assert.equal(probes, 1, "после выхода из pressure mode probe должен вернуться");
-});
-
-test("quality probe waits for shared probe coordinator", async () => {
-  installStorage();
-  let ladderRan = false;
-  const engine = createQualityEngine({
-    invoke: async () => ({ ok: false, skipped: true, error: "probe_busy" }),
-    actions: {
-      selectNextNode: async () => { ladderRan = true; return true; },
-      onState: () => {},
-    },
-    opts: { enabled: true },
-  });
-  engine.onConnected({});
-  armSuspect(engine);
-  await engine.tick();
-  assert.equal(engine.state, "UNKNOWN");
-  assert.equal(ladderRan, false);
-});
-
-test("emergency pause инвалидирует текущую quality remediation", async () => {
-  installStorage();
-  let probeRelease;
-  const probe = new Promise((resolve) => { probeRelease = resolve; });
-  let probes = 0;
-  const engine = createQualityEngine({
-    invoke: async (cmd) => {
-      if (cmd !== "probe_quality") return undefined;
-      probes++;
-      return probe;
-    },
-    actions: {},
-    opts: { enabled: true },
-  });
-
-  engine.onConnected({ idleProbeSec: 60 });
-  armSuspect(engine);
-  const running = engine.tick();
-  while (probes === 0) await Promise.resolve();
-  engine.pauseForEmergency();
-  probeRelease(GOOD);
-  await running;
-
-  assert.equal(engine.isRemediating, false);
-  assert.equal(engine.state, "UNKNOWN");
 });
