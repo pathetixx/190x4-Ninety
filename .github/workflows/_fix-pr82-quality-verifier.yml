@@ -35,24 +35,23 @@ jobs:
           marker = "\nfunction safeSourceSwitchReason(reason) {"
           if text.count(marker) != 1:
               raise SystemExit("safeSourceSwitchReason marker not unique")
-          helper = r'''
-
-async function verifyRuntimeOperationDataplane(operationToken) {
-  if (!operationToken) return false;
-  try {
-    const snapshot = await invoke("runtime_snapshot");
-    runtimeSnapshotCache = runtimeEndpointMatchesGeneration(snapshot) ? snapshot : null;
-    if (!snapshot?.running || !Number(snapshot.processGeneration)) return false;
-    const verdict = await invoke("verify_runtime_dataplane", {
-      operationToken,
-      expectedGeneration: snapshot.processGeneration,
-    });
-    return verdict?.status === "ready";
-  } catch {
-    return false;
-  }
-}
-'''
+          helper = "".join([
+              "\nasync function verifyRuntimeOperationDataplane(operationToken) {\n",
+              "  if (!operationToken) return false;\n",
+              "  try {\n",
+              "    const snapshot = await invoke(\"runtime_snapshot\");\n",
+              "    runtimeSnapshotCache = runtimeEndpointMatchesGeneration(snapshot) ? snapshot : null;\n",
+              "    if (!snapshot?.running || !Number(snapshot.processGeneration)) return false;\n",
+              "    const verdict = await invoke(\"verify_runtime_dataplane\", {\n",
+              "      operationToken,\n",
+              "      expectedGeneration: snapshot.processGeneration,\n",
+              "    });\n",
+              "    return verdict?.status === \"ready\";\n",
+              "  } catch {\n",
+              "    return false;\n",
+              "  }\n",
+              "}\n",
+          ])
           path.write_text(text.replace(marker, helper + marker, 1), encoding="utf-8")
           PY
           rm -f .github/workflows/_fix-pr82-quality-verifier.yml
