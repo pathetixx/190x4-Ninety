@@ -4,12 +4,17 @@ on:
   push:
     branches:
       - revert/pr75-dataplane-watchdog-v2
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   revert:
+    if: github.event_name == 'push' || github.head_ref == 'revert/pr75-dataplane-watchdog-v2'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
