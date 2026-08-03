@@ -35,14 +35,15 @@ jobs:
           set -e
 
           if [ "$status" -ne 0 ]; then
-            while IFS= read -r file; do
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            for file in "${conflicts[@]}"; do
               if [ "$file" = "src-tauri/src/health.rs" ]; then
                 git rm -f -- "$file"
               else
                 git checkout --ours -- "$file"
                 git add -- "$file"
               fi
-            done < <(git diff --name-only --diff-filter=U)
+            done
           fi
 
           if git diff --name-only --diff-filter=U | grep -q .; then
