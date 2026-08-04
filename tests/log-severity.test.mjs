@@ -1,24 +1,31 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyEngineLogSeverity, healthProbeNodeTag } from "../src/lib/log-severity.js";
+import { classifyEngineLogSeverity, healthProbeNodeTag, isGeoLookupNoise } from "../src/lib/log-severity.js";
 
-test("sing-box geo provider 429 remains visible but is classified non-fatal", () => {
-  assert.deepEqual(
-    classifyEngineLogSeverity(
-      "WARN",
-      "monitoring: Failed try 2 to get IP info: https://example.invalid non-200 response: 429",
-    ),
-    { level: "INFO", grade: "info", nonFatal: true },
+test("гео-пробы hiddify опознаются как чужая телеметрия", () => {
+  assert.equal(
+    isGeoLookupNoise("monitoring: Failed try 2 to get IP info: https://example.invalid non-200 response: 429"),
+    true,
   );
+  assert.equal(
+    isGeoLookupNoise('monitoring: Failed try 0 to get IP info: https://api.country.is/ Get "https://api.country.is/": EOF'),
+    true,
+  );
+  assert.equal(isGeoLookupNoise("monitoring: outbound node-aaa URL test failed: i/o timeout"), false);
+  assert.equal(isGeoLookupNoise(""), false);
 });
 
-test("sing-box geo provider deadline timeout is non-fatal", () => {
+test("обрыв локального клиента не считается ошибкой туннеля", () => {
   assert.deepEqual(
     classifyEngineLogSeverity(
-      "WARN",
-      "monitoring: Failed try 2 to get IP info: https://api.my-ip.io/v2/ip.json: context deadline exceeded",
+      "ERROR",
+      "inbound/mixed[mixed-in]: process connection from 127.0.0.1:51234: write tcp 127.0.0.1:7890->127.0.0.1:51234: wsasend: An established connection was aborted by the software in your host machine.",
     ),
-    { level: "INFO", grade: "info", nonFatal: true },
+    { level: "DEBUG", grade: "ok", nonFatal: true },
+  );
+  assert.deepEqual(
+    classifyEngineLogSeverity("ERROR", "connection: use of closed network connection"),
+    { level: "DEBUG", grade: "ok", nonFatal: true },
   );
 });
 
@@ -26,6 +33,13 @@ test("real URL-test transport warnings retain warning severity", () => {
   assert.deepEqual(
     classifyEngineLogSeverity("WARN", "outbound node URL test failed: i/o timeout"),
     { level: "WARN", grade: "warn", nonFatal: false },
+  );
+});
+
+test("настоящий отказ соединения остаётся ошибкой", () => {
+  assert.deepEqual(
+    classifyEngineLogSeverity("ERROR", "outbound/vless[proxy]: dial tcp 1.2.3.4:443: i/o timeout"),
+    { level: "ERROR", grade: "err", nonFatal: false },
   );
 });
 

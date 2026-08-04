@@ -314,8 +314,9 @@ pub fn record_frontend_runtime_event(
             )
         })
         .unwrap_or_else(|| (0, "None".into(), 0, "none".into()));
-    crate::vpn::append_runtime_diagnostic(
+    crate::vpn::append_runtime_diagnostic_at(
         &app,
+        crate::vpn::diagnostic_level_for_result(&result),
         &format!(
             "source_switch_event operation_id={id} kind={kind} operation_generation={operation_generation} runtime_generation={} source_hash={source_hash} phase={phase} result={result} reason={reason}",
             generation.unwrap_or(0),
@@ -374,8 +375,9 @@ fn append_operation_attempt_diagnostic(
     kind: RuntimeOperationKind,
     reason: &str,
 ) {
-    crate::vpn::append_runtime_diagnostic(
+    crate::vpn::append_runtime_diagnostic_at(
         app,
+        crate::vpn::DiagnosticLevel::Warn,
         &format!("runtime_operation kind={kind:?} event=failed reason={reason}"),
     );
 }
@@ -389,8 +391,9 @@ fn append_operation_diagnostic(
     event: &str,
     reason: Option<&str>,
 ) {
-    crate::vpn::append_runtime_diagnostic(
+    crate::vpn::append_runtime_diagnostic_at(
         app,
+        crate::vpn::diagnostic_level_for_result(event),
         &format!(
             "runtime_operation id={id} kind={kind:?} generation={generation} source_hash={} event={event} reason={}",
             source_hash.unwrap_or("none"),

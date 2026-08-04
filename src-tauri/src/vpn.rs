@@ -107,13 +107,80 @@ const DEFAULT_LOG_TAIL_BYTES: u64 = 128 * 1024;
 const MAX_LOG_TAIL_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_SIDECAR_LOG_FILES: usize = 16;
 
+// Уровень собственной строки приложения в журнале движка. Движки пишут в тот же
+// файл и тем же форматом, поэтому lifecycle-диагностика обязана иметь уровень:
+// без него экран «Логи» не покажет её ни в фильтре «Ошибки», ни в «Инфо».
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DiagnosticLevel {
+    Info,
+    Warn,
+    Error,
+}
+
+impl DiagnosticLevel {
+    fn tag(self) -> &'static str {
+        match self {
+            DiagnosticLevel::Info => "INFO",
+            DiagnosticLevel::Warn => "WARN",
+            DiagnosticLevel::Error => "ERROR",
+        }
+    }
+}
+
+// Результаты фронтовых событий, которые означают отказ, а не ход дела. Всё
+// остальное (none/available/completed/cancelled) — обычная хроника.
+const DIAGNOSTIC_FAILURE_RESULTS: &[&str] = &[
+    "failed",
+    "error",
+    "degraded",
+    "refused",
+    "timeout",
+    "unreachable",
+    "unverified",
+];
+
+pub(crate) fn diagnostic_level_for_result(result: &str) -> DiagnosticLevel {
+    if DIAGNOSTIC_FAILURE_RESULTS
+        .iter()
+        .any(|marker| result.eq_ignore_ascii_case(marker))
+    {
+        DiagnosticLevel::Warn
+    } else {
+        DiagnosticLevel::Info
+    }
+}
+
+// Собственные строки приложения ложатся в файл движка, и экран «Логи» разбирает
+// их тем же парсером. Голая строка без метки времени и уровня прилипала к
+// предыдущей записи движка как её продолжение: своего времени нет, фильтр по
+// уровню мимо, поиск находит её в чужой записи. Формат ровно как у sing-box при
+// log.timestamp=true — `-0700 2006-01-02 15:04:05 LEVEL message`.
+fn stamped_diagnostic(
+    now: &chrono::DateTime<chrono::Local>,
+    level: DiagnosticLevel,
+    body: &str,
+) -> String {
+    format!(
+        "{} {} {body}",
+        now.format("%z %Y-%m-%d %H:%M:%S"),
+        level.tag()
+    )
+}
+
+fn diagnostic_line(level: DiagnosticLevel, body: &str) -> String {
+    stamped_diagnostic(&chrono::Local::now(), level, body)
+}
+
 // Запись строки в лог с учётом капа. Файл открыт в append-режиме, поэтому при
 // переполнении достаточно set_len(0): следующая O_APPEND-запись уйдёт с позиции 0.
 fn write_capped(writer: &mut std::fs::File, written: &mut u64, line: &str) {
     if *written > LOG_CAP_BYTES && writer.set_len(0).is_ok() {
         let marker = format!(
-            "[log truncated at {} MB cap]\n",
-            LOG_CAP_BYTES / 1024 / 1024
+            "{}\n",
+            diagnostic_line(
+                DiagnosticLevel::Warn,
+                &format!("[log truncated at {} MB cap]", LOG_CAP_BYTES / 1024 / 1024),
+            )
         );
         let _ = writer.write_all(marker.as_bytes());
         *written = marker.len() as u64;
@@ -167,7 +234,8 @@ fn spawn_log_monitor(
             .map(|m| m.len())
             .unwrap_or(0);
         if let Some(w) = writer.as_mut() {
-            write_capped(w, &mut written, &format!("\n{}", spec.start_banner));
+            let banner = diagnostic_line(DiagnosticLevel::Info, &spec.start_banner);
+            write_capped(w, &mut written, &format!("\n{banner}"));
         }
         // Кольцо последних строк для death-диагностики. VecDeque, а не Vec:
         // при переполнении срезаем голову за O(1) (pop_front) — Vec::remove(0)
@@ -224,7 +292,14 @@ fn spawn_log_monitor(
                         )
                     };
                     if let Some(w) = writer.as_mut() {
-                        write_capped(w, &mut written, &msg);
+                        // В журнал — с меткой и уровнем, во фронт (died_flag) —
+                        // как есть: там это текст ошибки, а не строка лога.
+                        let level = if expected {
+                            DiagnosticLevel::Info
+                        } else {
+                            DiagnosticLevel::Error
+                        };
+                        write_capped(w, &mut written, &diagnostic_line(level, &msg));
                     }
                     // Terminated старого комплекта может прийти уже после
                     // быстрого stop и старта нового. Не позволяем запоздалому
@@ -610,6 +685,10 @@ fn log_path(app: &AppHandle) -> Option<PathBuf> {
 // тот же журнал, который пользователь видит в UI. Здесь нет URL, IP, конфигов
 // или имён нод — только поколение, состояние и фиксированный reason-code.
 pub(crate) fn append_runtime_diagnostic(app: &AppHandle, line: &str) {
+    append_runtime_diagnostic_at(app, DiagnosticLevel::Info, line);
+}
+
+pub(crate) fn append_runtime_diagnostic_at(app: &AppHandle, level: DiagnosticLevel, line: &str) {
     let Some(path) = log_path(app) else {
         return;
     };
@@ -623,7 +702,7 @@ pub(crate) fn append_runtime_diagnostic(app: &AppHandle, line: &str) {
         .append(true)
         .open(path)
     {
-        let _ = writeln!(file, "{bounded}");
+        let _ = writeln!(file, "{}", diagnostic_line(level, &bounded));
     }
 }
 
@@ -1850,8 +1929,16 @@ fn log_runtime_verification(
         RuntimeDataplaneVerification::Cancelled => ("cancelled", None),
         RuntimeDataplaneVerification::Stale => ("stale", None),
     };
-    append_runtime_diagnostic(
+    // Отменённая и устаревшая проверки — штатный ход смены источника, а вот
+    // отказ дата-плейна пользователь должен видеть как ошибку.
+    let level = match verdict {
+        RuntimeDataplaneVerification::HardFailed { .. } => DiagnosticLevel::Error,
+        RuntimeDataplaneVerification::Unverified { .. } => DiagnosticLevel::Warn,
+        _ => DiagnosticLevel::Info,
+    };
+    append_runtime_diagnostic_at(
         app,
+        level,
         &format!(
             "source_verification operation_id={} kind={operation_kind:?} expected_generation={} control_role=clash_api control_port={} probe_role=dataplane_proxy probe_port={} verdict={} reason={} duration_ms={duration_ms}",
             operation_id,
@@ -2715,6 +2802,7 @@ pub async fn stop_singbox(
             Ok(barrier) => log_stop_diagnostic(
                 &app,
                 logs_disabled,
+                DiagnosticLevel::Info,
                 &format!(
                     "runtime_stop_barrier kind={:?} generation={generation} state={}",
                     operation_token.kind,
@@ -2725,6 +2813,7 @@ pub async fn stop_singbox(
                 log_stop_diagnostic(
                     &app,
                     logs_disabled,
+                    DiagnosticLevel::Warn,
                     &format!(
                         "runtime_stop_barrier kind={:?} generation={generation} state=failed reason={error}",
                         operation_token.kind,
@@ -2765,11 +2854,11 @@ pub async fn stop_singbox(
 // тот же singbox.log, который открывается во вкладке «Логи». Здесь нет URL, IP,
 // имён нод и конфигов — только статусы компонентов, номера runtime-портов и
 // тайминги стадий.
-fn log_stop_diagnostic(app: &AppHandle, logs_disabled: bool, line: &str) {
+fn log_stop_diagnostic(app: &AppHandle, logs_disabled: bool, level: DiagnosticLevel, line: &str) {
     if logs_disabled {
         return;
     }
-    append_runtime_diagnostic(app, line);
+    append_runtime_diagnostic_at(app, level, line);
 }
 
 // Остановка, отклонённая координатором операций: сюда попадают отнятый/устаревший
@@ -2789,6 +2878,7 @@ fn log_stop_refusal(
     log_stop_diagnostic(
         app,
         logs_disabled,
+        DiagnosticLevel::Warn,
         &format!("runtime_stop kind={kind} generation={generation} result=refused reason={reason}"),
     );
 }
@@ -2803,6 +2893,13 @@ fn log_stop_result(
     if logs_disabled {
         return;
     }
+    // Неподтверждённая очистка — не хроника, а повод разбираться: процессы или
+    // порты остались за нами. В журнале она должна попадать в фильтр
+    // предупреждений, а не теряться среди обычных строк остановки.
+    let level = match result {
+        Ok(stop) if stop.processes_exited && stop.ports_released => DiagnosticLevel::Info,
+        _ => DiagnosticLevel::Warn,
+    };
     let line = match result {
         Ok(stop) => format!(
             "runtime_stop kind={kind:?} generation={generation} singbox={} xray={} sidecars={} \
@@ -2828,7 +2925,7 @@ fn log_stop_result(
             )
         }
     };
-    append_runtime_diagnostic(app, &line);
+    append_runtime_diagnostic_at(app, level, &line);
 }
 
 // Транзитный барьер имеет смысл ТОЛЬКО поверх уже действующей fail-closed
@@ -3185,6 +3282,7 @@ pub async fn plan_bridge_ports(needs: BridgeNeeds) -> Result<BridgePorts, String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     fn test_dir(label: &str) -> PathBuf {
         let nonce = std::time::SystemTime::now()
@@ -3195,6 +3293,48 @@ mod tests {
             std::env::temp_dir().join(format!("ninety-vpn-{label}-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    // Парсер экрана «Логи» узнаёт запись по `[offset] [дата] время УРОВЕНЬ` —
+    // без этого префикса строка приложения станет продолжением чужой записи.
+    #[test]
+    fn diagnostics_carry_a_singbox_shaped_timestamp_and_level() {
+        let stamped = stamped_diagnostic(
+            &chrono::Local
+                .with_ymd_and_hms(2026, 8, 4, 19, 55, 27)
+                .unwrap(),
+            DiagnosticLevel::Warn,
+            "runtime_stop kind=Disconnect generation=7 result=refused",
+        );
+        let (offset, rest) = stamped.split_once(' ').expect("offset segment");
+        assert!(
+            offset.len() == 5
+                && matches!(offset.as_bytes()[0], b'+' | b'-')
+                && offset[1..].bytes().all(|b| b.is_ascii_digit()),
+            "unexpected offset segment: {stamped}"
+        );
+        assert_eq!(
+            rest,
+            "2026-08-04 19:55:27 WARN runtime_stop kind=Disconnect generation=7 result=refused"
+        );
+    }
+
+    #[test]
+    fn only_failing_results_are_raised_above_info() {
+        for result in ["failed", "error", "degraded", "unreachable", "UNVERIFIED"] {
+            assert_eq!(
+                diagnostic_level_for_result(result),
+                DiagnosticLevel::Warn,
+                "{result} should read as a failure"
+            );
+        }
+        for result in ["none", "completed", "cancelled", "available", "update"] {
+            assert_eq!(
+                diagnostic_level_for_result(result),
+                DiagnosticLevel::Info,
+                "{result} is ordinary lifecycle chatter"
+            );
+        }
     }
 
     #[test]

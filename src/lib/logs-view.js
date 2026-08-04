@@ -9,7 +9,7 @@ import { perfObserver } from "/lib/performance-observer.js";
 import { t } from "/lib/i18n/index.js";
 import { toast } from "/lib/toast.js";
 import { FLAGS_BASE, flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
-import { classifyEngineLogSeverity, healthProbeNodeTag } from "/lib/log-severity.js";
+import { classifyEngineLogSeverity, healthProbeNodeTag, isGeoLookupNoise } from "/lib/log-severity.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -106,6 +106,7 @@ export function parseLogEntries(text, activeNodeTag = getActiveNodeTag()) {
       const [, , date, time, level, rest] = m;
       const probeTag = healthProbeNodeTag(rest);
       if (probeTag && probeTag !== activeNodeTag) { cur = null; dropped = true; continue; }
+      if (isGeoLookupNoise(rest)) { cur = null; dropped = true; continue; }
       dropped = false;
       const tm = time || (date ? date.slice(5) : "—");
       const classified = classifyEngineLogSeverity(level, rest);
