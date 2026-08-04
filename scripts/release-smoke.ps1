@@ -4,6 +4,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# --ci-smoke пишет и стирает боевой profile store, поэтому в самом приложении
+# он включается только этим opt-in'ом (см. ci_smoke_requested в lib.rs). Без
+# переменной релизный бинарь игнорирует флаг и стартует как обычно.
+$env:NINETY_CI_SMOKE = "1"
+
 function Assert-Release([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
 }

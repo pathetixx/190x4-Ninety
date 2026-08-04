@@ -162,9 +162,12 @@ async fn autostart_is_enabled() -> Result<bool, String> {
         .map_err(|e| format!("проверка автозапуска прервана: {e}"))
 }
 
-/// Включает автозапуск через задачу Планировщика с правами администратора
-/// (RunLevel=highest) — старт без UAC на каждый логин. Если процесс ещё не
-/// elevated, поднимет права только ради создания задачи (один UAC).
+/// Включает автозапуск через задачу Планировщика. RunLevel=highest (старт от
+/// администратора без UAC на каждый логин) выдаётся только установке в Program
+/// Files: для Full Portable и per-user установки exe лежит в user-writable
+/// каталоге, и там такая задача превратила бы подмену файла в тихое повышение
+/// прав. Если процесс ещё не elevated, поднимет права только ради создания
+/// задачи (один UAC).
 #[tauri::command]
 async fn autostart_enable() -> Result<(), String> {
     tokio::task::spawn_blocking(elevation::autostart_enable)
@@ -178,6 +181,55 @@ async fn autostart_disable() -> Result<(), String> {
     tokio::task::spawn_blocking(elevation::autostart_disable)
         .await
         .map_err(|e| format!("отключение автозапуска прервано: {e}"))?
+}
+
+/// CI smoke — сборочная проверка релизного артефакта, а не пользовательский
+/// режим: она пишет и затем стирает боевой profile store, а в portable ещё и
+/// перезаписывает state backup. Одного argv-флага для такого мало — случайный
+/// `Ninety.exe --ci-smoke` (ярлык, .bat, чужая инструкция) уничтожил бы
+/// единственную копию нод и подписок. Требуем явный opt-in переменной
+/// окружения, который выставляет только scripts/release-smoke.ps1.
+const CI_SMOKE_ENV: &str = "NINETY_CI_SMOKE";
+
+fn ci_smoke_opt_in(has_flag: bool, env_value: Option<&str>) -> bool {
+    has_flag && env_value == Some("1")
+}
+
+fn ci_smoke_requested(argv: &[String]) -> bool {
+    let has_flag = argv.iter().any(|a| a == "--ci-smoke");
+    let enabled = ci_smoke_opt_in(has_flag, std::env::var(CI_SMOKE_ENV).ok().as_deref());
+    if has_flag && !enabled {
+        eprintln!("--ci-smoke игнорируется: это сборочная проверка, она требует {CI_SMOKE_ENV}=1");
+    }
+    enabled
+}
+
+// Имена файлов, в которых лежит единственная копия профилей/подписок и ключей.
+const CI_SMOKE_PROTECTED_FILES: &[&str] = &[
+    "profile-store.v1",
+    "profile-store.v1.bak",
+    "profile-store.v1.legacy.bak",
+    "state-backup.json",
+    "state-backup.json.bak",
+    "state-backup.json.legacy.bak",
+];
+
+/// Второй барьер: даже с opt-in smoke не трогает уже существующее состояние.
+/// На чистом раннере его нет, поэтому проверка в CI выполняется полностью, а на
+/// машине с данными деструктивная часть просто пропускается.
+fn ci_smoke_state_is_empty_in(dir: &std::path::Path) -> bool {
+    !CI_SMOKE_PROTECTED_FILES
+        .iter()
+        .any(|name| dir.join(name).exists())
+}
+
+fn ci_smoke_state_is_empty(app: &tauri::AppHandle) -> bool {
+    match app_paths::config_dir(app) {
+        Ok(dir) => ci_smoke_state_is_empty_in(&dir),
+        // Каталог не определился — считаем состояние непустым: пропустить
+        // проверку безопаснее, чем писать неизвестно куда.
+        Err(_) => false,
+    }
 }
 
 fn main_window_icon() -> Option<tauri::image::Image<'static>> {
@@ -617,7 +669,7 @@ pub fn run() {
 
             let argv: Vec<String> = std::env::args().collect();
             let autostarted = argv.iter().any(|a| a == "--autostarted");
-            let ci_smoke = argv.iter().any(|a| a == "--ci-smoke");
+            let ci_smoke = ci_smoke_requested(&argv);
             vpn::purge_stale_runtime_configs(app.handle());
             if let Err(e) = vpn::recover_stale_system_proxy() {
                 eprintln!("stale system proxy recovery: {e}");
@@ -768,71 +820,87 @@ pub fn run() {
                     return Err("backend ping failed during CI smoke".into());
                 }
                 if portable {
+                    for name in ["config", "data", "logs", "webview"] {
+                        if !app_paths::portable_root()?.join(name).is_dir() {
+                            return Err(format!("portable directory missing: {name}").into());
+                        }
+                    }
+                }
+                // Ниже — единственная часть smoke, которая пишет в боевое
+                // состояние. На машине с уже существующими профилями её
+                // пропускаем целиком: проверка сборки не стоит данных.
+                let state_is_empty = ci_smoke_state_is_empty(app.handle());
+                if !state_is_empty {
+                    eprintln!("CI smoke: пропускаю проверку хранилища — в конфиге уже есть данные");
+                }
+                if state_is_empty && portable {
                     // The portable profile store must use the same explicit
                     // in-memory passphrase policy as state-backup.
                     secrets::configure_portable_passphrase(
                         "ci-smoke-only-passphrase-2026".to_string(),
                     )?;
                 }
-                let profile_store_before = profile_store::profile_store_load(app.handle().clone())?;
-                let smoke_store = profile_store::ProfileStore {
-                    schema_version: 1,
-                    revision: profile_store_before.revision,
-                    profiles: vec![serde_json::json!({
-                        "id": "ci-smoke-profile",
-                        "proto": "vless",
-                        "host": "smoke.invalid"
-                    })],
-                    subscriptions: vec![],
-                    active: profile_store::ActiveSelection {
-                        kind: "single".into(),
-                        profile_id: Some("ci-smoke-profile".into()),
-                        subscription_id: None,
-                    },
-                    proxy_selection: std::collections::BTreeMap::from([(
-                        "single:ci-smoke-profile".into(),
-                        "node-smoke".into(),
-                    )]),
-                };
-                let _ = profile_store::profile_store_replace(
-                    app.handle().clone(),
-                    profile_store_before.revision,
-                    smoke_store,
-                )?;
-                let profile_store_after = profile_store::profile_store_load(app.handle().clone())?;
-                if profile_store_after.store.is_none()
-                    || profile_store_after.revision <= profile_store_before.revision
-                {
-                    return Err("profile store roundtrip failed during CI smoke".into());
-                }
-                profile_store::profile_store_clear(app.handle().clone(), None)?;
-                if portable {
-                    for name in ["config", "data", "logs", "webview"] {
-                        if !app_paths::portable_root()?.join(name).is_dir() {
-                            return Err(format!("portable directory missing: {name}").into());
-                        }
-                    }
-                    // Реальная запись через production-path helper: ловит и
-                    // случайный AppData, и DPAPI, который сделал бы Full
-                    // Portable нечитаемым после переноса на другой ПК.
-                    let smoke_snapshot = serde_json::json!({
-                        "__schemaVersion": 2,
-                        "ninety.options.v1": "{}",
-                        "ninety.profiles.v1": "[]",
-                        "ninety.subscriptions.v1": "[]"
-                    });
-                    // CI smoke intentionally exercises the portable encrypted
-                    // path with an ephemeral in-memory passphrase. Production
-                    // portable runs start in NoPersistentSecrets until the
-                    // user explicitly configures one from Settings.
-                    backup::state_backup_save(app.handle().clone(), smoke_snapshot.to_string())?;
-                    let snapshot = std::fs::read(
-                        app_paths::portable_root()?
-                            .join("config")
-                            .join("state-backup.json"),
+                if state_is_empty {
+                    let profile_store_before =
+                        profile_store::profile_store_load(app.handle().clone())?;
+                    let smoke_store = profile_store::ProfileStore {
+                        schema_version: 1,
+                        revision: profile_store_before.revision,
+                        profiles: vec![serde_json::json!({
+                            "id": "ci-smoke-profile",
+                            "proto": "vless",
+                            "host": "smoke.invalid"
+                        })],
+                        subscriptions: vec![],
+                        active: profile_store::ActiveSelection {
+                            kind: "single".into(),
+                            profile_id: Some("ci-smoke-profile".into()),
+                            subscription_id: None,
+                        },
+                        proxy_selection: std::collections::BTreeMap::from([(
+                            "single:ci-smoke-profile".into(),
+                            "node-smoke".into(),
+                        )]),
+                    };
+                    let _ = profile_store::profile_store_replace(
+                        app.handle().clone(),
+                        profile_store_before.revision,
+                        smoke_store,
                     )?;
-                    if !secrets::is_portable_envelope(&snapshot) {
-                        return Err("portable state backup is not encrypted envelope".into());
+                    let profile_store_after =
+                        profile_store::profile_store_load(app.handle().clone())?;
+                    if profile_store_after.store.is_none()
+                        || profile_store_after.revision <= profile_store_before.revision
+                    {
+                        return Err("profile store roundtrip failed during CI smoke".into());
+                    }
+                    profile_store::profile_store_clear(app.handle().clone(), None)?;
+                    if portable {
+                        // Реальная запись через production-path helper: ловит и
+                        // случайный AppData, и DPAPI, который сделал бы Full
+                        // Portable нечитаемым после переноса на другой ПК.
+                        let smoke_snapshot = serde_json::json!({
+                            "__schemaVersion": 2,
+                            "ninety.options.v1": "{}",
+                            "ninety.profiles.v1": "[]",
+                            "ninety.subscriptions.v1": "[]"
+                        });
+                        // CI smoke intentionally exercises the portable encrypted
+                        // path with an ephemeral in-memory passphrase. Production
+                        // portable runs start in NoPersistentSecrets until the
+                        // user explicitly configures one from Settings.
+                        backup::state_backup_save(
+                            app.handle().clone(),
+                            smoke_snapshot.to_string(),
+                        )?;
+                        let snapshot = std::fs::read(
+                            app_paths::portable_root()?
+                                .join("config")
+                                .join("state-backup.json"),
+                        )?;
+                        if !secrets::is_portable_envelope(&snapshot) {
+                            return Err("portable state backup is not encrypted envelope".into());
+                        }
                     }
                 }
                 let handle = app.handle().clone();
@@ -1003,6 +1071,38 @@ mod tests {
         let connected = tray_tooltip(&labels, true, "tun", Some("0.2.57"));
         assert!(connected.contains(&labels.mode_tun));
         assert!(connected.contains("0.2.57"));
+    }
+
+    // Один argv-флаг не должен запускать сборочную проверку: она стирает
+    // profile store и перезаписывает state backup, а флаг легко попадает в
+    // ярлык или .bat.
+    #[test]
+    fn ci_smoke_needs_both_the_flag_and_the_explicit_environment_opt_in() {
+        assert!(ci_smoke_opt_in(true, Some("1")));
+        assert!(!ci_smoke_opt_in(true, None));
+        assert!(!ci_smoke_opt_in(true, Some("0")));
+        assert!(!ci_smoke_opt_in(true, Some("true")));
+        assert!(!ci_smoke_opt_in(false, Some("1")));
+    }
+
+    #[test]
+    fn ci_smoke_never_touches_an_existing_store() {
+        let dir = std::env::temp_dir().join(format!(
+            "ninety-ci-smoke-guard-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(ci_smoke_state_is_empty_in(&dir));
+        for name in CI_SMOKE_PROTECTED_FILES {
+            std::fs::write(dir.join(name), b"user data").unwrap();
+            assert!(!ci_smoke_state_is_empty_in(&dir), "{name} не защищён");
+            std::fs::remove_file(dir.join(name)).unwrap();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
