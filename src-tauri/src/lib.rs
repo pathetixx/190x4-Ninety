@@ -712,7 +712,7 @@ pub fn run() {
                 .unwrap_or_else(|| app.default_window_icon().unwrap().clone());
             let _tray = TrayIconBuilder::with_id("main")
                 .icon(init_icon)
-                .tooltip(tray_tooltip(&init_payload.labels, false, ""))
+                .tooltip(tray_tooltip(&init_payload.labels, false, "", None))
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {
