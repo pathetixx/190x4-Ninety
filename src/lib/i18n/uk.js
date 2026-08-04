@@ -790,6 +790,7 @@ export const uk = {
       statusAvailable: "Mullvad Browser встановлено",
       statusAvailableVersion: "Mullvad Browser встановлено · {version}",
       statusMissing: "Mullvad Browser не знайдено",
+      statusUnverified: "Mullvad Browser знайдено, але він не пройшов перевірку безпеки",
       statusError: "Не вдалося перевірити Mullvad Browser",
       launch: "Відкрити захищений сеанс",
       check: "Перевірити захист",

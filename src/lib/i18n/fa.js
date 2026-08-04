@@ -790,6 +790,7 @@ export const fa = {
       statusAvailable: "Mullvad Browser نصب است",
       statusAvailableVersion: "Mullvad Browser نصب است · {version}",
       statusMissing: "Mullvad Browser پیدا نشد",
+      statusUnverified: "Mullvad Browser پیدا شد، اما بررسی ایمنی را رد نکرد",
       statusError: "بررسی Mullvad Browser ممکن نشد",
       launch: "باز کردن نشست محافظت‌شده",
       check: "بررسی محافظت",

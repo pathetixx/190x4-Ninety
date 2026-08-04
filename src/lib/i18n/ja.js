@@ -790,6 +790,7 @@ export const ja = {
       statusAvailable: "Mullvad Browser はインストール済みです",
       statusAvailableVersion: "Mullvad Browser はインストール済みです · {version}",
       statusMissing: "Mullvad Browser が見つかりません",
+      statusUnverified: "Mullvad Browser は見つかりましたが、安全性の検証に失敗しました",
       statusError: "Mullvad Browser を確認できませんでした",
       launch: "保護されたセッションを開く",
       check: "保護を確認",

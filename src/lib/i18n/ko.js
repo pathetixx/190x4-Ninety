@@ -790,6 +790,7 @@ export const ko = {
       statusAvailable: "Mullvad Browser가 설치되어 있습니다",
       statusAvailableVersion: "Mullvad Browser가 설치되어 있습니다 · {version}",
       statusMissing: "Mullvad Browser를 찾을 수 없습니다",
+      statusUnverified: "Mullvad Browser를 찾았지만 보안 검증에 실패했습니다",
       statusError: "Mullvad Browser를 확인할 수 없습니다",
       launch: "보호된 세션 열기",
       check: "보호 상태 확인",

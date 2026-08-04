@@ -790,6 +790,7 @@ export const ru = {
       statusAvailable: "Mullvad Browser установлен",
       statusAvailableVersion: "Mullvad Browser установлен · {version}",
       statusMissing: "Mullvad Browser не найден",
+      statusUnverified: "Mullvad Browser найден, но не прошёл проверку безопасности",
       statusError: "Не удалось проверить Mullvad Browser",
       launch: "Открыть защищённую сессию",
       check: "Проверить защиту",

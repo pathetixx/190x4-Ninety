@@ -12,18 +12,35 @@ pub struct ProtectedBrowserStatus {
     pub available: bool,
     pub path: Option<String>,
     pub version: Option<String>,
+    /// Почему найденный файл всё-таки отклонён: "signature" (подпись или
+    /// издатель) либо "link" (в пути есть junction/симлинк). None — браузера
+    /// на месте просто нет. Без этого поля пользователь видел «не найден» на
+    /// установленном браузере и не имел ни одной зацепки.
+    pub reason: Option<&'static str>,
 }
 
 #[tauri::command]
 pub fn protected_browser_status() -> ProtectedBrowserStatus {
     #[cfg(target_os = "windows")]
     {
-        if let Some(browser) = windows_impl::discover() {
-            return ProtectedBrowserStatus {
-                available: true,
-                path: Some(windows_impl::display_path(&browser.path)),
-                version: browser.version,
-            };
+        match windows_impl::discover() {
+            windows_impl::Discovery::Found(browser) => {
+                return ProtectedBrowserStatus {
+                    available: true,
+                    path: Some(windows_impl::display_path(&browser.path)),
+                    version: browser.version,
+                    reason: None,
+                };
+            }
+            windows_impl::Discovery::Rejected { path, reason } => {
+                return ProtectedBrowserStatus {
+                    available: false,
+                    path: Some(windows_impl::display_path(&path)),
+                    version: None,
+                    reason: Some(reason.as_str()),
+                };
+            }
+            windows_impl::Discovery::Absent => {}
         }
     }
 
@@ -31,6 +48,7 @@ pub fn protected_browser_status() -> ProtectedBrowserStatus {
         available: false,
         path: None,
         version: None,
+        reason: None,
     }
 }
 
@@ -155,7 +173,7 @@ mod windows_impl {
         WTHelperGetProvCertFromChain, WTHelperGetProvSignerFromChain,
         WTHelperProvDataFromStateData, WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2,
         WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO, WTD_CHOICE_FILE,
-        WTD_REVOCATION_CHECK_CHAIN, WTD_REVOKE_WHOLECHAIN, WTD_STATEACTION_CLOSE,
+        WTD_REVOCATION_CHECK_CHAIN, WTD_REVOKE_NONE, WTD_REVOKE_WHOLECHAIN, WTD_STATEACTION_CLOSE,
         WTD_STATEACTION_VERIFY, WTD_UICONTEXT_EXECUTE, WTD_UI_NONE,
     };
     use windows::Win32::Storage::FileSystem::{
@@ -194,23 +212,55 @@ mod windows_impl {
         version: Option<String>,
     }
 
-    pub(super) fn discover() -> Option<InstalledBrowser> {
+    /// Почему кандидат отклонён. Файл на месте — значит пользователю нельзя
+    /// говорить «не найден»: он смотрит на установленный браузер.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(super) enum Rejection {
+        Signature,
+        Link,
+    }
+
+    impl Rejection {
+        pub(super) fn as_str(self) -> &'static str {
+            match self {
+                Self::Signature => "signature",
+                Self::Link => "link",
+            }
+        }
+    }
+
+    pub(super) enum Discovery {
+        Found(InstalledBrowser),
+        Rejected { path: PathBuf, reason: Rejection },
+        Absent,
+    }
+
+    pub(super) fn discover() -> Discovery {
         let mut candidates = registry_candidates();
         candidates.extend(common_location_candidates());
 
         let mut seen = HashSet::new();
+        let mut rejected: Option<(PathBuf, Rejection)> = None;
         for candidate in candidates {
-            let Some(path) = verified_executable_path(&candidate.path) else {
-                continue;
+            let path = match inspect_executable_path(&candidate.path) {
+                Ok(path) => path,
+                Err(Some(reason)) => {
+                    rejected.get_or_insert((candidate.path.clone(), reason));
+                    continue;
+                }
+                Err(None) => continue,
             };
             let path_key = path.to_string_lossy().to_ascii_lowercase();
             if !seen.insert(path_key) {
                 continue;
             }
             let version = candidate.version.or_else(|| application_ini_version(&path));
-            return Some(InstalledBrowser { path, version });
+            return Discovery::Found(InstalledBrowser { path, version });
         }
-        None
+        match rejected {
+            Some((path, reason)) => Discovery::Rejected { path, reason },
+            None => Discovery::Absent,
+        }
     }
 
     pub(super) fn display_path(path: &Path) -> String {
@@ -224,8 +274,13 @@ mod windows_impl {
     }
 
     pub(super) fn launch(target: Option<&str>) -> Result<(), String> {
-        let browser =
-            discover().ok_or("защищённый браузер не найден или не прошёл проверку подписи")?;
+        let browser = match discover() {
+            Discovery::Found(browser) => browser,
+            Discovery::Rejected { .. } => {
+                return Err("защищённый браузер не прошёл проверку подписи".into())
+            }
+            Discovery::Absent => return Err("Mullvad Browser не найден".into()),
+        };
         // Re-canonicalize, reject reparse points and verify Authenticode again
         // immediately before spawning. Discovery is intentionally not treated as
         // a durable trust decision because a user-writable path can change after
@@ -407,33 +462,41 @@ mod windows_impl {
     }
 
     fn verified_executable_path(path: &Path) -> Option<PathBuf> {
+        inspect_executable_path(path).ok()
+    }
+
+    /// Ok — путь можно запускать. Err(Some) — файл есть, но не прошёл проверку.
+    /// Err(None) — кандидата просто нет (не тот файл, нет на диске).
+    fn inspect_executable_path(path: &Path) -> Result<PathBuf, Option<Rejection>> {
         if !is_local_absolute_path(path)
             || !path
                 .file_name()
                 .is_some_and(|name| name.eq_ignore_ascii_case("mullvadbrowser.exe"))
         {
-            return None;
+            return Err(None);
         }
-        let canonical = std::fs::canonicalize(path).ok()?;
+        let canonical = std::fs::canonicalize(path).map_err(|_| None)?;
         if !is_local_absolute_path(&canonical)
             || !canonical
                 .file_name()
                 .is_some_and(|name| name.eq_ignore_ascii_case("mullvadbrowser.exe"))
         {
-            return None;
+            return Err(None);
         }
-        let metadata = canonical.metadata().ok()?;
-        if !metadata.is_file()
-            || metadata.len() == 0
-            // Проверяем и исходный путь, и canonical target: canonicalize
-            // follows junctions, поэтому проверка только target уже не видит
-            // reparse-компонент, через который к нему пришли.
-            || has_reparse_point(path)
-            || has_reparse_point(&canonical)
-        {
-            return None;
+        let metadata = canonical.metadata().map_err(|_| None)?;
+        if !metadata.is_file() || metadata.len() == 0 {
+            return Err(None);
         }
-        verify_authenticode(&canonical).then_some(canonical)
+        // Проверяем и исходный путь, и canonical target: canonicalize
+        // follows junctions, поэтому проверка только target уже не видит
+        // reparse-компонент, через который к нему пришли.
+        if has_reparse_point(path) || has_reparse_point(&canonical) {
+            return Err(Some(Rejection::Link));
+        }
+        if !verify_authenticode(&canonical) {
+            return Err(Some(Rejection::Signature));
+        }
+        Ok(canonical)
     }
 
     fn has_reparse_point(path: &Path) -> bool {
@@ -480,7 +543,35 @@ mod windows_impl {
         }
     }
 
+    // Отзыв сертификата проверяется по сети (CRL/OCSP). У приложения, которое
+    // включают ИМЕННО когда сеть режут, это первый кандидат на ложное «браузер
+    // не найден»: WinVerifyTrust возвращает revocation-ошибку, и совершенно
+    // валидная подпись читается как чужая. Недоступность списков отзыва — не
+    // приговор подписи, поэтому такой ответ повторяем без revocation.
+    const CERT_E_REVOCATION_FAILURE: i32 = 0x800B_010Eu32 as i32;
+    const CRYPT_E_REVOCATION_OFFLINE: i32 = 0x8009_2013u32 as i32;
+    const CRYPT_E_NO_REVOCATION_CHECK: i32 = 0x8009_2012u32 as i32;
+
+    enum SignatureVerdict {
+        Trusted,
+        RevocationUnavailable,
+        Untrusted,
+    }
+
     fn verify_authenticode(path: &Path) -> bool {
+        match verify_signature_once(path, true) {
+            SignatureVerdict::Trusted => true,
+            SignatureVerdict::RevocationUnavailable => {
+                matches!(
+                    verify_signature_once(path, false),
+                    SignatureVerdict::Trusted
+                )
+            }
+            SignatureVerdict::Untrusted => false,
+        }
+    }
+
+    fn verify_signature_once(path: &Path, check_revocation: bool) -> SignatureVerdict {
         let wide = to_wide(path.as_os_str());
         let mut file_info = WINTRUST_FILE_INFO {
             cbStruct: std::mem::size_of::<WINTRUST_FILE_INFO>() as u32,
@@ -490,13 +581,21 @@ mod windows_impl {
         let mut data = WINTRUST_DATA {
             cbStruct: std::mem::size_of::<WINTRUST_DATA>() as u32,
             dwUIChoice: WTD_UI_NONE,
-            fdwRevocationChecks: WTD_REVOKE_WHOLECHAIN,
+            fdwRevocationChecks: if check_revocation {
+                WTD_REVOKE_WHOLECHAIN
+            } else {
+                WTD_REVOKE_NONE
+            },
             dwUnionChoice: WTD_CHOICE_FILE,
             Anonymous: WINTRUST_DATA_0 {
                 pFile: &mut file_info,
             },
             dwStateAction: WTD_STATEACTION_VERIFY,
-            dwProvFlags: WTD_REVOCATION_CHECK_CHAIN,
+            dwProvFlags: if check_revocation {
+                WTD_REVOCATION_CHECK_CHAIN
+            } else {
+                Default::default()
+            },
             dwUIContext: WTD_UICONTEXT_EXECUTE,
             ..Default::default()
         };
@@ -507,6 +606,13 @@ mod windows_impl {
                 &mut action,
                 &mut data as *mut WINTRUST_DATA as *mut core::ffi::c_void,
             );
+            let revocation_unavailable = check_revocation
+                && matches!(
+                    status,
+                    CERT_E_REVOCATION_FAILURE
+                        | CRYPT_E_REVOCATION_OFFLINE
+                        | CRYPT_E_NO_REVOCATION_CHECK
+                );
             let mut allowed = status == 0;
             if allowed {
                 let provider = WTHelperProvDataFromStateData(data.hWVTStateData);
@@ -533,7 +639,13 @@ mod windows_impl {
                 &mut action,
                 &mut data as *mut WINTRUST_DATA as *mut core::ffi::c_void,
             );
-            allowed
+            if allowed {
+                SignatureVerdict::Trusted
+            } else if revocation_unavailable {
+                SignatureVerdict::RevocationUnavailable
+            } else {
+                SignatureVerdict::Untrusted
+            }
         }
     }
 

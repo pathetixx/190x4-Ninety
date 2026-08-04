@@ -790,6 +790,7 @@ export const zh = {
       statusAvailable: "已安装 Mullvad Browser",
       statusAvailableVersion: "已安装 Mullvad Browser · {version}",
       statusMissing: "未找到 Mullvad Browser",
+      statusUnverified: "已找到 Mullvad Browser，但未通过安全校验",
       statusError: "无法检查 Mullvad Browser",
       launch: "打开受保护会话",
       check: "检查保护",

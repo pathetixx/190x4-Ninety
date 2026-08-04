@@ -48,13 +48,19 @@ function cleanText(value, maxLength) {
   return text ? text.slice(0, maxLength) : null;
 }
 
+// Браузер найден, но забракован проверкой. Причина нужна интерфейсу: «не
+// найден» на установленном браузере — тупик, из которого пользователю некуда
+// идти. Набор закрытый: чужие строки в UI не пропускаем.
+const REJECTION_REASONS = new Set(["signature", "link"]);
+
 export function normalizeProtectedBrowserStatus(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || typeof raw.available !== "boolean") {
     return null;
   }
 
   const available = raw.available;
-  const path = available ? cleanText(raw.path, 4096) : null;
+  const reason = !available && REJECTION_REASONS.has(raw.reason) ? raw.reason : null;
+  const path = available || reason ? cleanText(raw.path, 4096) : null;
   if (available && !path) return null;
   if (raw.version != null && typeof raw.version !== "string") return null;
 
@@ -62,6 +68,7 @@ export function normalizeProtectedBrowserStatus(raw) {
     available,
     path,
     version: available ? cleanText(raw.version, 120) : null,
+    reason,
   };
 }
 

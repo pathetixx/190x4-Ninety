@@ -790,6 +790,7 @@ export const tr = {
       statusAvailable: "Mullvad Browser yüklü",
       statusAvailableVersion: "Mullvad Browser yüklü · {version}",
       statusMissing: "Mullvad Browser bulunamadı",
+      statusUnverified: "Mullvad Browser bulundu ancak güvenlik denetimini geçemedi",
       statusError: "Mullvad Browser kontrol edilemedi",
       launch: "Korunan oturumu aç",
       check: "Korumayı kontrol et",

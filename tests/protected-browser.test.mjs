@@ -32,6 +32,7 @@ test("protected browser: status нормализует DTO и вызывает �
       available: true,
       path: "C:\\Program Files\\Mullvad Browser\\Browser\\mullvadbrowser.exe",
       version: "155.0",
+      reason: null,
     },
   });
 });
@@ -44,6 +45,34 @@ test("protected browser: отсутствие Mullvad Browser является �
     available: false,
     path: null,
     version: null,
+    reason: null,
+  });
+});
+
+// Установленный браузер, забракованный проверкой, — не «не найден». Причина и
+// путь доезжают до UI, иначе пользователю нечего чинить.
+test("protected browser: отклонённая установка сохраняет причину и путь", () => {
+  assert.deepEqual(normalizeProtectedBrowserStatus({
+    available: false,
+    path: "  C:\\Users\\u\\Desktop\\Mullvad Browser\\Browser\\mullvadbrowser.exe  ",
+    reason: "signature",
+  }), {
+    available: false,
+    path: "C:\\Users\\u\\Desktop\\Mullvad Browser\\Browser\\mullvadbrowser.exe",
+    version: null,
+    reason: "signature",
+  });
+
+  // Неизвестную причину в интерфейс не пускаем — это обычное «не найден».
+  assert.deepEqual(normalizeProtectedBrowserStatus({
+    available: false,
+    path: "C:\\x\\mullvadbrowser.exe",
+    reason: "whatever",
+  }), {
+    available: false,
+    path: null,
+    version: null,
+    reason: null,
   });
 });
 

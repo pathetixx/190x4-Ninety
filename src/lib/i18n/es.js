@@ -790,6 +790,7 @@ export const es = {
       statusAvailable: "Mullvad Browser está instalado",
       statusAvailableVersion: "Mullvad Browser está instalado · {version}",
       statusMissing: "No se encontró Mullvad Browser",
+      statusUnverified: "Mullvad Browser encontrado, pero no pasó la comprobación de seguridad",
       statusError: "No se pudo comprobar Mullvad Browser",
       launch: "Abrir sesión protegida",
       check: "Comprobar protección",

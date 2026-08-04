@@ -790,6 +790,7 @@ export const ar = {
       statusAvailable: "Mullvad Browser مثبّت",
       statusAvailableVersion: "Mullvad Browser مثبّت · {version}",
       statusMissing: "لم يُعثر على Mullvad Browser",
+      statusUnverified: "تم العثور على Mullvad Browser لكنه لم يجتز فحص الأمان",
       statusError: "تعذر فحص Mullvad Browser",
       launch: "فتح جلسة محمية",
       check: "فحص الحماية",
