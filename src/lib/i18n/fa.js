@@ -310,6 +310,7 @@ export const fa = {
     err: {
       notVless: "لینک vless:// نیست",
       noHostPort: "@host:port موجود نیست",
+      vlessUuid: "vless: شناسه UUID وجود ندارد",
       badIpv6: "IPv6 نامعتبر",
       noPort: "پورت موجود نیست",
       badPort: "پورت نامعتبر",
@@ -440,6 +441,8 @@ export const fa = {
     emptyTitle: "پروفایلی نیست",
     emptySub: "یک اشتراک با URL یا یک vless:// مستقل بیفزایید — با «+» بالا، دکمهٔ مثبت در صفحهٔ اصلی، یا از منو.",
     badgeActive: "فعال",
+    badgeInsecure: "بدون بررسی TLS",
+    badgeInsecureHint: "این پیوند بررسی گواهی سرور را خاموش می‌کند — اتصال قابل شنود است. فقط در صورت اعتماد به منبع نگه دارید.",
     statNodes: "گره‌ها", statTraffic: "ترافیک", statExpires: "انقضا",
     statUpdated: "به‌روزرسانی", statProto: "پروتکل", statTls: "TLS",
     daysUnit: "روز", menuAria: "منو",
@@ -742,7 +745,7 @@ export const fa = {
       adminTitle: "همیشه به‌عنوان مدیر اجرا شود",
       adminHint: "برای حالت VPN · TUN لازم است. Ninety با دسترسی مدیر راه می‌افتد (UAC هنگام اجرا) — با روشن کردن TUN دیگر این پرسش نمی‌آید.",
       autostartTitle: "اجرا هنگام ورود به سیستم",
-      autostartHint: "Ninety هنگام ورود به ویندوز با دسترسی مدیر اجرا می‌شود (وظیفهٔ Task Scheduler) — بدون پیام UAC هنگام ورود",
+      autostartHint: "Ninety هنگام ورود به ویندوز اجرا می‌شود (وظیفهٔ Task Scheduler). نسخهٔ نصب‌شده در Program Files افزون بر آن با دسترسی مدیر و بدون پیام UAC اجرا می‌شود؛ نسخهٔ قابل حمل به‌صورت فرایند معمولی",
       startMinTitle: "اجرا به‌صورت کوچک‌شده",
       startMinHint: "هنگام اجرا پنجره مستقیم به سینی پنهان می‌شود — آیکن در پایین سمت راست می‌ماند",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -827,7 +830,7 @@ export const fa = {
       cacheTitle: "کش DNS مستقل",
       cacheHint: "کش جداگانه برای remote و direct",
       fakeTitle: "Fake-DNS",
-      fakeHint: "بازگرداندن IP جعلی، نگاشت در حافظه. هنگام TUN مفید است",
+      fakeHint: "بازگرداندن IP جعلی، نگاشت در حافظه. فقط در حالت VPN · TUN اعمال می‌شود و در حالت‌های پراکسی نادیده گرفته می‌شود",
     },
 
     inbound: {

@@ -310,6 +310,7 @@ export const it = {
     err: {
       notVless: "Non è un link vless://",
       noHostPort: "@host:port mancante",
+      vlessUuid: "vless: UUID mancante",
       badIpv6: "IPv6 malformato",
       noPort: "Porta mancante",
       badPort: "Porta non valida",
@@ -440,6 +441,8 @@ export const it = {
     emptyTitle: "Nessun profilo",
     emptySub: "Aggiungi un abbonamento tramite URL o un singolo vless:// — con il «+» in alto, il pulsante più nella schermata principale, o nel menu.",
     badgeActive: "ATTIVO",
+    badgeInsecure: "Senza verifica TLS",
+    badgeInsecureHint: "Questo link disattiva la verifica del certificato del server: la connessione può essere intercettata. Tienilo solo se ti fidi della fonte.",
     statNodes: "NODI", statTraffic: "TRAFFICO", statExpires: "SCADE",
     statUpdated: "AGGIORNATO", statProto: "PROTOCOLLO", statTls: "TLS",
     daysUnit: "g", menuAria: "Menu",
@@ -742,7 +745,7 @@ export const it = {
       adminTitle: "Esegui sempre come amministratore",
       adminHint: "Richiesto per la modalità VPN · TUN. Ninety si avvierà con i diritti di amministratore (UAC all’avvio) — la richiesta non comparirà più quando attivi TUN.",
       autostartTitle: "Avvia all’accesso al sistema",
-      autostartHint: "Ninety si avvia all'accesso a Windows con privilegi di amministratore (attività dell'Utilità di pianificazione) — senza richiesta UAC al login",
+      autostartHint: "Ninety si avvia all'accesso a Windows (attività dell'Utilità di pianificazione). L'installazione in Program Files parte anche con privilegi di amministratore senza richiesta UAC; la copia portatile parte come processo normale",
       startMinTitle: "Avvia ridotto a icona",
       startMinHint: "All’avvio la finestra si nasconde direttamente nell’area di notifica — l’icona resta in basso a destra",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -827,7 +830,7 @@ export const it = {
       cacheTitle: "Cache DNS indipendente",
       cacheHint: "Cache separata per remoto e diretto",
       fakeTitle: "Fake-DNS",
-      fakeHint: "Restituisce un IP falso, mappato in memoria. Utile con TUN",
+      fakeHint: "Restituisce un IP falso, mappato in memoria. Si applica solo nella modalità VPN · TUN; nelle modalità proxy l'opzione viene ignorata",
     },
 
     inbound: {

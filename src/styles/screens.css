@@ -165,6 +165,12 @@
   text-transform: uppercase;
   font-weight: 600;
 }
+/* Ссылка сама может отключить проверку TLS-сертификата (hysteria2 insecure=1,
+   TrustTunnel skip_verification). Такой профиль обязан выглядеть иначе. */
+.prof-card__badge--warn {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn);
+}
 .prof-card__url {
   font-family: var(--font-mono);
   font-size: 11px;

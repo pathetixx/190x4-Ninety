@@ -310,6 +310,7 @@ export const pl = {
     err: {
       notVless: "To nie jest link vless://",
       noHostPort: "Brak @host:port",
+      vlessUuid: "vless: brak UUID",
       badIpv6: "Błędny IPv6",
       noPort: "Brak portu",
       badPort: "Nieprawidłowy port",
@@ -440,6 +441,8 @@ export const pl = {
     emptyTitle: "Brak profili",
     emptySub: "Dodaj subskrypcję przez URL lub pojedynczy vless:// — przyciskiem „+” u góry, przyciskiem plus na ekranie głównym lub w menu.",
     badgeActive: "AKTYWNY",
+    badgeInsecure: "Bez kontroli TLS",
+    badgeInsecureHint: "Ten link wyłącza sprawdzanie certyfikatu serwera — połączenie może zostać przechwycone. Zachowaj tylko, jeśli ufasz źródłu.",
     statNodes: "WĘZŁY", statTraffic: "RUCH", statExpires: "WYGASA",
     statUpdated: "ZAKTUALIZOWANO", statProto: "PROTOKÓŁ", statTls: "TLS",
     daysUnit: "dni", menuAria: "Menu",
@@ -742,7 +745,7 @@ export const pl = {
       adminTitle: "Zawsze uruchamiaj jako administrator",
       adminHint: "Wymagane dla trybu VPN · TUN. Ninety uruchomi się z uprawnieniami administratora (UAC przy starcie) — pytanie nie pojawi się ponownie przy włączaniu TUN.",
       autostartTitle: "Uruchamiaj przy logowaniu do systemu",
-      autostartHint: "Ninety uruchamia się przy logowaniu do Windows z uprawnieniami administratora (zadanie Harmonogramu) — bez monitu UAC przy logowaniu",
+      autostartHint: "Ninety uruchamia się przy logowaniu do Windows (zadanie Harmonogramu). Instalacja w Program Files startuje dodatkowo z uprawnieniami administratora bez monitu UAC; kopia przenośna startuje jako zwykły proces",
       startMinTitle: "Uruchamiaj zminimalizowany",
       startMinHint: "Przy starcie okno chowa się od razu do zasobnika — ikona pozostaje w prawym dolnym rogu",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -827,7 +830,7 @@ export const pl = {
       cacheTitle: "Niezależna pamięć podręczna DNS",
       cacheHint: "Osobna pamięć podręczna dla zdalnego i bezpośredniego",
       fakeTitle: "Fake-DNS",
-      fakeHint: "Zwraca fałszywy adres IP, mapowany w pamięci. Przydatne przy TUN",
+      fakeHint: "Zwraca fałszywy adres IP, mapowany w pamięci. Działa tylko w trybie VPN · TUN, w trybach proxy opcja jest ignorowana",
     },
 
     inbound: {

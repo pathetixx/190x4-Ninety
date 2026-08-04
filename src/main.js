@@ -1784,6 +1784,13 @@ const ICON_QR      = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 const ICON_GLOBE   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/></svg>`;
 const ICON_FILE    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg>`;
 
+// Импортированная ссылка может сама выключить проверку TLS-сертификата
+// (hysteria2 `insecure=1`, TrustTunnel `skip_verification`). Это тихо снимает
+// защиту от подмены сервера, поэтому такой профиль помечаем в списке.
+function tlsVerificationDisabled(profile) {
+  return profile?.insecure === true || profile?.skipVerification === true;
+}
+
 function renderProfilesView() {
   if (!profilesList) return;
   const profsList = loadProfiles();
@@ -1857,6 +1864,9 @@ function renderProfilesView() {
           <div class="prof-card__head">
             <span class="prof-card__name">${escapeHtml(p.name)}</span>
             ${isActive ? `<span class="prof-card__badge">${t("prof.badgeActive")}</span>` : ""}
+            ${tlsVerificationDisabled(p)
+              ? `<span class="prof-card__badge prof-card__badge--warn" title="${escapeAttr(t("prof.badgeInsecureHint"))}">${t("prof.badgeInsecure")}</span>`
+              : ""}
           </div>
           <div class="prof-card__url">${escapeHtml(`${p.host}:${p.port}`)}</div>
         </div>

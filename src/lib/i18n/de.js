@@ -310,6 +310,7 @@ export const de = {
     err: {
       notVless: "Kein vless://-Link",
       noHostPort: "@host:port fehlt",
+      vlessUuid: "vless: UUID fehlt",
       badIpv6: "Fehlerhaftes IPv6",
       noPort: "Port fehlt",
       badPort: "Ungültiger Port",
@@ -440,6 +441,8 @@ export const de = {
     emptyTitle: "Keine Profile",
     emptySub: "Füge ein Abo per URL oder ein einzelnes vless:// hinzu — mit dem „+“ oben, dem Plus-Button auf dem Hauptbildschirm oder im Menü.",
     badgeActive: "AKTIV",
+    badgeInsecure: "Keine TLS-Prüfung",
+    badgeInsecureHint: "Dieser Link deaktiviert die Prüfung des Serverzertifikats — die Verbindung kann abgefangen werden. Nur behalten, wenn du der Quelle vertraust.",
     statNodes: "KNOTEN", statTraffic: "TRAFFIC", statExpires: "LÄUFT AB",
     statUpdated: "AKTUALISIERT", statProto: "PROTOKOLL", statTls: "TLS",
     daysUnit: "T", menuAria: "Menü",
@@ -742,7 +745,7 @@ export const de = {
       adminTitle: "Immer als Administrator ausführen",
       adminHint: "Erforderlich für den Modus VPN · TUN. Ninety startet mit Admin-Rechten (UAC beim Start) — die Abfrage erscheint beim Aktivieren von TUN nicht mehr.",
       autostartTitle: "Beim Systemstart starten",
-      autostartHint: "Ninety startet bei der Windows-Anmeldung mit Administratorrechten (Aufgabenplanungs-Task) — ohne UAC-Abfrage beim Login",
+      autostartHint: "Ninety startet bei der Windows-Anmeldung (Aufgabenplanungs-Task). Eine Installation in Program Files startet zusätzlich mit Administratorrechten ohne UAC-Abfrage; eine portable Kopie startet als normaler Prozess",
       startMinTitle: "Minimiert starten",
       startMinHint: "Beim Start versteckt sich das Fenster direkt in der Taskleiste — das Symbol bleibt unten rechts",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -827,7 +830,7 @@ export const de = {
       cacheTitle: "Unabhängiger DNS-Cache",
       cacheHint: "Getrennter Cache für remote und direct",
       fakeTitle: "Fake-DNS",
-      fakeHint: "Eine gefälschte IP zurückgeben, im Speicher abgebildet. Nützlich bei TUN",
+      fakeHint: "Eine gefälschte IP zurückgeben, im Speicher abgebildet. Wirkt nur im Modus VPN · TUN, in den Proxy-Modi wird die Option ignoriert",
     },
 
     inbound: {

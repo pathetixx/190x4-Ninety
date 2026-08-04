@@ -310,6 +310,7 @@ export const ko = {
     err: {
       notVless: "vless:// 링크가 아닙니다",
       noHostPort: "@host:port 가 없습니다",
+      vlessUuid: "vless: UUID 없음",
       badIpv6: "잘못된 IPv6 형식",
       noPort: "포트가 없습니다",
       badPort: "잘못된 포트",
@@ -440,6 +441,8 @@ export const ko = {
     emptyTitle: "프로필 없음",
     emptySub: "URL로 구독을, 또는 단일 vless:// 를 추가하세요 — 상단의 「+」, 메인 화면의 플러스 버튼, 또는 메뉴에서.",
     badgeActive: "활성",
+    badgeInsecure: "TLS 검증 없음",
+    badgeInsecureHint: "이 링크는 서버 인증서 검증을 끕니다. 연결이 가로채질 수 있으므로 신뢰하는 출처일 때만 사용하세요.",
     statNodes: "노드", statTraffic: "트래픽", statExpires: "만료",
     statUpdated: "업데이트", statProto: "프로토콜", statTls: "TLS",
     daysUnit: "일", menuAria: "메뉴",
@@ -742,7 +745,7 @@ export const ko = {
       adminTitle: "항상 관리자 권한으로 실행",
       adminHint: "VPN · TUN 모드에 필요합니다. Ninety가 관리자 권한으로 시작됩니다(시작 시 UAC) — TUN을 켤 때 확인이 다시 나타나지 않습니다.",
       autostartTitle: "시스템 로그인 시 시작",
-      autostartHint: "Windows 로그인 시 Ninety가 관리자 권한으로 자동 시작됩니다(작업 스케줄러 작업) — 로그인 시 UAC 창이 뜨지 않습니다",
+      autostartHint: "Windows 로그인 시 Ninety가 자동 시작됩니다(작업 스케줄러 작업). Program Files에 설치한 경우 UAC 창 없이 관리자 권한으로도 시작하며, 포터블 사본은 일반 프로세스로 시작합니다",
       startMinTitle: "최소화하여 시작",
       startMinHint: "시작 시 창이 바로 트레이로 숨겨집니다 — 아이콘은 오른쪽 아래에 남습니다",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -827,7 +830,7 @@ export const ko = {
       cacheTitle: "독립 DNS 캐시",
       cacheHint: "원격과 직접에 대해 별도 캐시",
       fakeTitle: "Fake-DNS",
-      fakeHint: "가짜 IP를 반환하고 메모리에 매핑합니다. TUN에서 유용",
+      fakeHint: "가짜 IP를 반환하고 메모리에 매핑합니다. VPN · TUN 모드에서만 적용되며 프록시 모드에서는 무시됩니다",
     },
 
     inbound: {
