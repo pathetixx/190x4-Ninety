@@ -2,6 +2,30 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.59 — 2026-08-04
+
+## English
+
+- A new version is now visible while the window sits in the tray: the tray icon gets a mark, hovering over it or right-clicking checks for an update straight away, and the scheduled check runs every half hour instead of every two hours. Before that a release could stay unnoticed for hours with the window minimised.
+- Mullvad Browser is recognised again. Since v0.2.45 the privacy screen said the browser was not found even when it was installed: Ninety demanded a digital signature on a file that Mullvad ships without one. If a found install is still rejected, the screen now says so instead of claiming the browser is missing.
+- A TrustTunnel server added from a tt:// link keeps its certificate. Without it the connection failed on the security check, while the same server imported from a .toml file worked.
+- The connect button no longer gets stuck on "Disconnecting". If a reconnection arrived at the very moment of a stop, the interface could stay in that state until the next click.
+- Escape or a click outside the update window closes it for now instead of hiding that version for good. Only the "Later" button remembers the choice between launches.
+- The DPI bypass auto-test no longer freezes the rest of its screen while it runs, and the strategy set cannot be replaced underneath it.
+- Updating the hosts list and the ipset database no longer downloads the whole strategy package when the current one is already up to date.
+- The connection log keeps to its size limit even while the VPN is off, and the app no longer refuses to start over a missing tray icon.
+
+## Русский
+
+- Новую версию теперь видно, когда окно свёрнуто в трей: на значке появляется метка, наведение на него и правый клик проверяют обновление сразу, а плановая проверка идёт раз в полчаса вместо двух часов. Раньше со свёрнутым окном релиз мог оставаться незамеченным часами.
+- Mullvad Browser снова определяется. С версии 0.2.45 раздел «Приватность» писал «не найден» даже на установленном браузере: Ninety требовал цифровую подпись у файла, который Mullvad выпускает без неё. Если найденная установка всё же отклонена, экран теперь так и говорит, а не выдаёт её за отсутствующую.
+- Сервер TrustTunnel, добавленный по ссылке tt://, сохраняет свой сертификат. Без него подключение падало на проверке безопасности, тогда как тот же сервер из файла .toml работал.
+- Кнопка подключения больше не залипает в состоянии «Отключение». Если переподключение приходило ровно в момент остановки, интерфейс мог остаться в нём до следующего клика.
+- Escape и клик мимо окна обновления закрывают его на сейчас, а не прячут эту версию навсегда. Запоминает выбор между запусками только кнопка «Позже».
+- Автотест DPI-обхода больше не подвешивает остальную часть своего раздела на время прогона, а набор стратегий нельзя подменить прямо под ним.
+- Обновление списка hosts и базы ipset больше не скачивает весь пакет стратегий, если текущий уже актуален.
+- Журнал подключения соблюдает свой предел размера и при выключенном VPN, а отсутствие значка в трее больше не мешает приложению запуститься.
+
 ## v0.2.58 — 2026-08-04
 
 ## English
