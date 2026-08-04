@@ -68,7 +68,11 @@ export function createQualityEngine({
   let badStreak = 0;
   let goodStreak = 0;
   let lastProbeAt = 0;
+  // Ближайший момент, когда пробовать снова осмысленно. Двигается после
+  // пропущенных проб и после лесенки: иначе движок бил бы IPC на каждом тике
+  // сторожа, получая тот же отказ.
   let nextEligibleProbeAt = 0;
+  let skippedReason = null;
   let lastLadderAt = 0;
   let reconnectTimes = [];      // timestamps реконнектов для часового капа
   let reconnectHandoff = false; // R3/R4 ждёт новую VPN-сессию
@@ -135,6 +139,19 @@ export function createQualityEngine({
         budgetMs: 4000,
       });
       if (!sessionActive(epoch)) return null;
+      // skipped = проба вообще не выполнялась (нет поколения, датаплейн занят,
+      // runtime уже сменился). Это отказ гейта, а не измерение канала: в
+      // осциллограмму он не идёт, но и молчать нельзя — без записи отказ
+      // подсистемы выглядит ровно как «всё хорошо».
+      if (r?.skipped) {
+        const reason = r.error || "unknown";
+        skippedReason = reason;
+        nextEligibleProbeAt = now() + PROBE_MIN_GAP_MS;
+        actions.log?.("quality probe skipped: " + reason);
+        actions.onSkipped?.(reason);
+        return r;
+      }
+      skippedReason = null;
       recordSample(r, rung);
       return r;
     } catch (e) {
@@ -289,6 +306,7 @@ export function createQualityEngine({
       if (remediatingEpoch === epoch) {
         remediatingEpoch = null;
         lastProbeAt = now(); // не долбить пробой сразу после лесенки
+        nextEligibleProbeAt = now() + PROBE_MIN_GAP_MS;
       }
       reconnectHandoff = false;
     }
@@ -365,6 +383,8 @@ export function createQualityEngine({
     running = true;
     hostPressure = false;
     badStreak = 0; goodStreak = 0; lastState = "UNKNOWN";
+    skippedReason = null;
+    nextEligibleProbeAt = 0;
     passive.length = 0;
     lastProbeAt = now(); // дать туннелю осесть перед первой пробой
     cachedAsn = null;
@@ -383,6 +403,8 @@ export function createQualityEngine({
     sessionEpoch++;
     running = false;
     hostPressure = false;
+    skippedReason = null;
+    nextEligibleProbeAt = 0;
     passive.length = 0;
   }
   function setOptions(o) { cfg = normalizeOpts({ ...cfg, ...o }); }
@@ -405,6 +427,9 @@ export function createQualityEngine({
     onConnected, onIdle, tick, updatePassive, setOptions, setHostPressure,
     getSamples: () => samples.slice(), // снимок ring-буфера для осциллограммы
     get state() { return lastState; },
+    // Причина последнего пропуска пробы (null — последняя проба состоялась).
+    // Отличает «канал в порядке» от «движок не измеряет ничего».
+    get skipReason() { return skippedReason; },
     get isRemediating() { return remediatingEpoch === sessionEpoch; },
   };
 }

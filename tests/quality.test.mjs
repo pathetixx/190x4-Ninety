@@ -45,6 +45,53 @@ function armSuspect(engine) {
   engine.updatePassive({ down: 100 });    // ниже FLATLINE_BPS
 }
 
+// Пропущенная проба ничего не измеряет. Без записи и паузы отказ гейта
+// (нет поколения, занят датаплейн) выглядел бы как «канал в порядке», а движок
+// бил бы IPC на каждом тике сторожа.
+test("skipped-проба логируется, не идёт в осциллограмму и держит паузу", async () => {
+  installStorage();
+  let calls = 0;
+  const logs = [];
+  const skips = [];
+  const samples = [];
+  let clock = 1_000_000;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => {
+      if (cmd !== "probe_quality") return undefined;
+      calls += 1;
+      return { ok: false, skipped: true, error: "generation_required", goodput_bps: 0 };
+    },
+    actions: {
+      log: (line) => logs.push(line),
+      onSkipped: (reason) => skips.push(reason),
+      onSample: (sample) => samples.push(sample),
+    },
+    opts: { enabled: true },
+    now: () => clock,
+  });
+  engine.onConnected({});
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(calls, 1);
+  assert.deepEqual(skips, ["generation_required"]);
+  assert.equal(engine.skipReason, "generation_required");
+  assert.equal(engine.getSamples().length, 0, "пропуск не является измерением");
+  assert.equal(samples.length, 0);
+  assert.ok(logs.some((line) => line.includes("generation_required")));
+
+  // Следующий тик в пределах паузы новой пробы не запускает.
+  clock += 1_000;
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(calls, 1, "движок не должен долбить пробой на каждом тике");
+
+  // После паузы — снова пробует.
+  clock += 10_000;
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(calls, 2);
+});
+
 test("классификация: GOOD-проба → onState GOOD, лесенка молчит", async () => {
   installStorage();
   const states = [];
