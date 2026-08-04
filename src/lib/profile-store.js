@@ -233,8 +233,12 @@ function checkRevision(value) {
 
 async function replaceBackend(payload, expectedRevision) {
   if (!backendEnabled || typeof invokeRef !== "function") return { revision: expectedRevision, persisted: false };
+  // Ключи аргументов Tauri-команд — camelCase (макрос переводит имя параметра
+  // Rust в lowerCamelCase). snake_case здесь не находился, команда отвечала
+  // «missing required key expectedRevision», и защищённый store не записывался
+  // никогда: приложение молча работало на legacy-localStorage.
   const response = await invokeRef("profile_store_replace", {
-    expected_revision: expectedRevision,
+    expectedRevision,
     store: { ...clone(payload), revision: expectedRevision },
   });
   const nextRevision = checkRevision(response?.revision);
@@ -467,7 +471,7 @@ export async function clearProfileStore() {
     .catch(() => {})
     .then(async () => {
       if (backendEnabled && typeof invokeRef === "function") {
-        await invokeRef("profile_store_clear", { expected_revision: null });
+        await invokeRef("profile_store_clear", { expectedRevision: null });
       }
       state = defaultStore();
       revision = 0;
