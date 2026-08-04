@@ -51,7 +51,11 @@ export function parseVless(raw) {
 
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.noHostPort"));
-  const uuid = head.slice(0, atIdx);
+  // UUID приходит percent-encoded так же, как пароли остальных схем: панели
+  // экранируют его наравне с прочим userinfo. Пустой UUID собрал бы конфиг,
+  // который падает уже в ядре на аутентификации — ловим здесь.
+  const uuid = safeDecode(head.slice(0, atIdx)).trim();
+  if (!uuid) throw new Error(t("sb.err.vlessUuid"));
   const hostPort = head.slice(atIdx + 1);
 
   const { host, port } = splitHostPort(hostPort, "sb.err.badPort");

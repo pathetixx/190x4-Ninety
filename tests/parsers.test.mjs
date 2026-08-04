@@ -61,6 +61,15 @@ test("vless: IPv6-хост в скобках", () => {
   assert.equal(p.port, 443);
 });
 
+// Панели экранируют userinfo целиком, а пустой UUID собрал бы конфиг, который
+// падает уже в ядре на аутентификации — без внятного сообщения.
+test("vless: UUID декодируется, пустой отвергается", () => {
+  const p = parseVless("vless://uuid%2Dwith%2Ddash@example.com:443");
+  assert.equal(p.uuid, "uuid-with-dash");
+  assert.throws(() => parseVless("vless://@example.com:443"));
+  assert.throws(() => parseVless("vless://%20@example.com:443"));
+});
+
 test("vless: битый порт кидает", () => {
   assert.throws(() => parseVless("vless://uuid@example.com:99999"));
   assert.throws(() => parseVless("vless://uuid@example.com:0"));
