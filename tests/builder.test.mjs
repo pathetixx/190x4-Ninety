@@ -62,6 +62,29 @@ test("process lookup: explicit false omits the sentinel rule", () => {
   assert.equal(config.route.final, "proxy");
 });
 
+// Перехватить выданный FakeIP может только TUN-инбаунд. В proxy/systemProxy тот
+// же ответ уходит в direct-маршруты и соединение не встаёт, а выглядит это как
+// «отдельные приложения не работают», не как проблема DNS.
+test("FakeIP применяется только в TUN", () => {
+  const options = structuredClone(DEFAULT_OPTIONS);
+  options.dns.enableFakeDns = true;
+  const source = { kind: "single", profile: vlessNode() };
+
+  for (const mode of ["proxy", "systemProxy"]) {
+    const { config } = buildConfig({ source, mode, options });
+    assert.equal(
+      config.dns.servers.some((server) => server.type === "fakeip"),
+      false,
+      `FakeIP не должен появляться в режиме ${mode}`,
+    );
+    assert.equal(config.dns.rules.some((rule) => rule.server === "dns-fake"), false);
+  }
+
+  const { config } = buildConfig({ source, mode: "tun", options });
+  assert.ok(config.dns.servers.some((server) => server.type === "fakeip"));
+  assert.ok(config.dns.rules.some((rule) => rule.server === "dns-fake"));
+});
+
 test("подписка из 2+ нод: selector/balancer/urltest", () => {
   const nodes = [vlessNode({ name: "A" }), vlessNode({ name: "B" })];
   const { config } = buildConfig({

@@ -492,7 +492,13 @@ function parseOptionalHostPort(rest) {
   return { host: s };
 }
 
-function buildDns(options, protectedOutbound = "proxy") {
+// mode — фактический режим runtime. FakeIP имеет смысл ТОЛЬКО в TUN: перехватить
+// выданный 198.18.x.x адрес может лишь TUN-инбаунд. В proxy/systemProxy тот же
+// ответ уезжает в direct-маршруты (bypass, process_name, пользовательские
+// правила direct) и соединение не встаёт — при этом симптом выглядит как
+// «отдельные приложения не работают», а не как проблема DNS. Неизвестный режим
+// трактуем консервативно: без FakeIP.
+function buildDns(options, protectedOutbound = "proxy", mode = "") {
   const ipv6Strategy = IPV6_STRATEGY_MAP[options.route.ipv6Mode] || "prefer_ipv4";
 
   const remoteSrv = {
@@ -531,7 +537,7 @@ function buildDns(options, protectedOutbound = "proxy") {
     });
   }
 
-  if (options.dns.enableFakeDns) {
+  if (options.dns.enableFakeDns && mode === "tun") {
     dns.servers.push({
       tag: "dns-fake",
       type: "fakeip",
@@ -1193,7 +1199,7 @@ export function buildConfig({
       timestamp: true, // нужен для парсера/фильтра экрана Логи
       ...(opts.log?.disabled ? { disabled: true } : {}),
     },
-    dns: buildDns(opts, warpEndpoint ? "warp" : "proxy"),
+    dns: buildDns(opts, warpEndpoint ? "warp" : "proxy", effectiveMode),
     inbounds: buildInbounds(effectiveMode, opts),
     outbounds,
     route,
