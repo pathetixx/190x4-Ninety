@@ -162,7 +162,13 @@ impl HostPressureState {
                 }
             } else {
                 inner.exit_samples = 0;
-                inner.snapshot.reason = Some(resources.reason(scheduler_lateness_ms));
+                // В полосе гистерезиса (ниже порога входа, но выше порога
+                // выхода) причину не переписываем: reason() осмыслен только
+                // когда хоть одна метрика реально за порогом, иначе в журнал
+                // уехал бы фолбэк «мало памяти» на ровном месте.
+                if over {
+                    inner.snapshot.reason = Some(resources.reason(scheduler_lateness_ms));
+                }
             }
         } else if over {
             inner.enter_samples = inner.enter_samples.saturating_add(1);
@@ -346,6 +352,8 @@ mod tests {
         for _ in 0..5 {
             assert!(state.observe(cpu(90), 0));
         }
+        // Причина осталась той, из-за которой вошли, а не фолбэком reason().
+        assert_eq!(state.snapshot().reason, Some("cpu_load"));
     }
 
     #[test]
