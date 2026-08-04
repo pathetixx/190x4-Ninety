@@ -131,6 +131,7 @@ fn spawn_log_monitor(
     log_file: Option<PathBuf>,
     died_flag: Arc<Mutex<Option<String>>>,
     live_processes: Arc<AtomicU64>,
+    unconfirmed_exits: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
     generation: MonitorGeneration,
     spec: MonitorSpec,
@@ -222,15 +223,27 @@ fn spawn_log_monitor(
                     }
                     live_processes.fetch_sub(1, Ordering::SeqCst);
                     process_exit_notify.notify_waiters();
-                    break;
+                    return;
                 }
                 _ => {}
             }
         }
-        // Без Terminated нет формального подтверждения завершения процесса
-        // (например, wait() мог вернуть ошибку). Оставляем счётчик живым:
-        // stop_singbox вернёт processesExited=false и UI уйдёт в cleanup_error,
-        // а не объявит физически не подтверждённый child остановленным.
+        // Поток событий закончился без Terminated: формального подтверждения
+        // завершения процесса нет (например, wait() вернул ошибку). Снимаем
+        // процесс с «живого» счётчика, но переносим его в отдельный
+        // unconfirmed: иначе pending_exit_events оставался бы ненулевым до
+        // конца сессии и в журнале выглядел как висящий процесс. Ни один из
+        // счётчиков при этом не объявляет child остановленным — на Windows это
+        // решают реальные PID, а на прочих платформах требуются оба нуля.
+        if live_processes
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+                value.checked_sub(1)
+            })
+            .is_ok()
+        {
+            unconfirmed_exits.fetch_add(1, Ordering::SeqCst);
+        }
+        process_exit_notify.notify_waiters();
     });
 }
 
@@ -274,6 +287,10 @@ pub struct SingboxState {
     // Следующий stop повторяет очистку, а start не имеет права затереть runtime.
     pending_cleanup: Mutex<Option<PendingCleanup>>,
     live_processes: Arc<AtomicU64>,
+    // Мониторы, чей поток событий закончился без Terminated: процесс не
+    // подтверждён завершённым, но и «живым» его считать нельзя. Отдельный
+    // счётчик держит журнал остановки честным.
+    unconfirmed_exits: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
     expected_exit_generation: Arc<AtomicU64>,
     pub(crate) dataplane_probe: Arc<DataplaneProbeCoordinator>,
@@ -389,6 +406,7 @@ impl Default for SingboxState {
             runtime_ports: Mutex::new(Vec::new()),
             pending_cleanup: Mutex::new(None),
             live_processes: Arc::new(AtomicU64::new(0)),
+            unconfirmed_exits: Arc::new(AtomicU64::new(0)),
             process_exit_notify: Arc::new(Notify::new()),
             expected_exit_generation: Arc::new(AtomicU64::new(0)),
             dataplane_probe: Arc::new(DataplaneProbeCoordinator::default()),
@@ -681,6 +699,7 @@ async fn spawn_xray(
         log_file,
         died_flag,
         state.live_processes.clone(),
+        state.unconfirmed_exits.clone(),
         state.process_exit_notify.clone(),
         MonitorGeneration {
             current: state.process_generation.clone(),
@@ -794,6 +813,7 @@ async fn spawn_sidecars(
             log_file,
             died_flag,
             state.live_processes.clone(),
+            state.unconfirmed_exits.clone(),
             state.process_exit_notify.clone(),
             MonitorGeneration {
                 current: state.process_generation.clone(),
@@ -1380,7 +1400,10 @@ fn terminate_tracked_process(_process: &TrackedProcess) {}
 
 #[cfg(not(target_os = "windows"))]
 fn killed_processes_exited(state: &SingboxState, _processes: &[TrackedProcess]) -> bool {
+    // Монитор без Terminated ушёл в unconfirmed: подтверждением выхода он не
+    // является, поэтому здесь нужны оба нуля.
     state.live_processes.load(Ordering::SeqCst) == 0
+        && state.unconfirmed_exits.load(Ordering::SeqCst) == 0
 }
 
 #[cfg(target_os = "windows")]
@@ -1746,6 +1769,34 @@ async fn verify_runtime_dataplane_inner(
     verdict
 }
 
+fn runtime_logs_disabled(state: &SingboxState) -> bool {
+    state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .is_some_and(|runtime| runtime.logs_disabled)
+}
+
+// Чем именно подтверждена достижимость. Liveness-проба считает успехом ЛЮБОЙ
+// валидный HTTP-ответ (за ним стоит успешный TLS с разрешённым хостом), поэтому
+// в журнале должно быть видно, что это был за ответ: «ready» без этой строки не
+// отличить от 204 и от 500 удалённой стороны.
+fn log_verification_evidence(app: &AppHandle, state: &SingboxState, evidence: Option<&str>) {
+    if runtime_logs_disabled(state) {
+        return;
+    }
+    let evidence: String = evidence
+        .unwrap_or("none")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '_' | '-' | '.'))
+        .take(64)
+        .collect();
+    append_runtime_diagnostic(
+        app,
+        &format!("source_verification_evidence probe=health result={evidence}"),
+    );
+}
+
 fn log_runtime_verification(
     app: &AppHandle,
     state: &SingboxState,
@@ -1755,12 +1806,7 @@ fn log_runtime_verification(
     verdict: &RuntimeDataplaneVerification,
     duration_ms: u64,
 ) {
-    if state
-        .runtime
-        .lock_recover()
-        .as_ref()
-        .is_some_and(|runtime| runtime.logs_disabled)
-    {
+    if runtime_logs_disabled(state) {
         return;
     }
     let (control_port, probe_port) = state
@@ -1934,7 +1980,10 @@ async fn verify_runtime_dataplane_unlogged(
             return RuntimeDataplaneVerification::Stale;
         }
         match result {
-            Ok(result) if result.ok => return verified_runtime_ready(app),
+            Ok(result) if result.ok => {
+                log_verification_evidence(app, state, result.error.as_deref());
+                return verified_runtime_ready(app);
+            }
             Ok(_) if round == 0 => {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 if !operation_is_current(app, &operation_token) {
@@ -2280,6 +2329,7 @@ async fn spawn_singbox_core(
         log_file,
         died_flag,
         state.live_processes.clone(),
+        state.unconfirmed_exits.clone(),
         state.process_exit_notify.clone(),
         MonitorGeneration {
             current: state.process_generation.clone(),
@@ -2460,6 +2510,10 @@ pub struct StopResult {
     remaining_ports: Vec<u16>,
     processes_exited: bool,
     pending_exit_events: u64,
+    // Мониторы, закончившиеся без Terminated. Ненулевое значение объясняет,
+    // почему остановка не подтверждена событиями, и не выдаёт себя за живой
+    // процесс.
+    unconfirmed_monitor_exits: u64,
     system_proxy: &'static str,
     timings: StopTimings,
 }
@@ -2539,6 +2593,7 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
         purge_bridge_configs(app);
         purge_current_configs(app);
         clear_death_flags(state);
+        state.unconfirmed_exits.store(0, Ordering::SeqCst);
         *state.runtime.lock_recover() = None;
         *state.runtime_ports.lock_recover() = Vec::new();
         *state.pending_cleanup.lock_recover() = None;
@@ -2576,6 +2631,7 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
         remaining_ports,
         processes_exited,
         pending_exit_events: state.live_processes.load(Ordering::SeqCst),
+        unconfirmed_monitor_exits: state.unconfirmed_exits.load(Ordering::SeqCst),
         system_proxy: if !proxy_was_owned {
             "not_owned"
         } else if proxy_ok {
@@ -2734,7 +2790,7 @@ fn log_stop_result(
         Ok(stop) => format!(
             "runtime_stop kind={kind:?} generation={generation} singbox={} xray={} sidecars={} \
              processes_exited={} ports_released={} remaining_ports={:?} pending_exit_events={} \
-             system_proxy={} kill_ms={} proxy_ms={} confirm_ms={} total_ms={}",
+             unconfirmed_monitor_exits={} system_proxy={} kill_ms={} proxy_ms={} confirm_ms={} total_ms={}",
             stop.singbox,
             stop.xray,
             stop.sidecars,
@@ -2742,6 +2798,7 @@ fn log_stop_result(
             stop.ports_released,
             stop.remaining_ports,
             stop.pending_exit_events,
+            stop.unconfirmed_monitor_exits,
             stop.system_proxy,
             stop.timings.kill_ms,
             stop.timings.proxy_ms,
