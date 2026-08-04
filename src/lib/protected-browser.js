@@ -51,7 +51,7 @@ function cleanText(value, maxLength) {
 // Браузер найден, но забракован проверкой. Причина нужна интерфейсу: «не
 // найден» на установленном браузере — тупик, из которого пользователю некуда
 // идти. Набор закрытый: чужие строки в UI не пропускаем.
-const REJECTION_REASONS = new Set(["signature", "link"]);
+const REJECTION_REASONS = new Set(["signature", "link", "layout"]);
 
 export function normalizeProtectedBrowserStatus(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || typeof raw.available !== "boolean") {
