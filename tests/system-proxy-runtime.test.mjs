@@ -14,13 +14,31 @@ test("enable system proxy sends the complete generation-bound contract", async (
     hostPort: " 127.0.0.1:7890 ",
     bypassLan: false,
     expectedGeneration: 12,
+    operationToken: { id: 7, kind: "UserConnect" },
   });
   assert.equal(result, "ok");
   assert.deepEqual(calls, [["enable_system_proxy", {
     hostPort: "127.0.0.1:7890",
     bypassLan: false,
     expectedGeneration: 12,
+    operationToken: { id: 7, kind: "UserConnect" },
   }]]);
+});
+
+// Токен нужен аварийной остановке при провале готовности прокси: без него Rust
+// берёт implicit-операцию, а не гасит чужой runtime вслепую.
+test("enable system proxy passes an explicit null when the caller owns no token", async () => {
+  const calls = [];
+  await enableSystemProxy(async (...args) => { calls.push(args); }, {
+    hostPort: "127.0.0.1:7890",
+    expectedGeneration: 3,
+  });
+  assert.deepEqual(calls[0][1], {
+    hostPort: "127.0.0.1:7890",
+    bypassLan: true,
+    expectedGeneration: 3,
+    operationToken: null,
+  });
 });
 
 test("disable system proxy has a zero-argument IPC contract", async () => {

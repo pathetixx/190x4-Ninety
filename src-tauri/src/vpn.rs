@@ -171,19 +171,25 @@ fn diagnostic_line(level: DiagnosticLevel, body: &str) -> String {
     stamped_diagnostic(&chrono::Local::now(), level, body)
 }
 
+fn truncation_marker() -> String {
+    diagnostic_line(
+        DiagnosticLevel::Warn,
+        &format!("[log truncated at {} MB cap]", LOG_CAP_BYTES / 1024 / 1024),
+    )
+}
+
 // Запись строки в лог с учётом капа. Файл открыт в append-режиме, поэтому при
 // переполнении достаточно set_len(0): следующая O_APPEND-запись уйдёт с позиции 0.
 fn write_capped(writer: &mut std::fs::File, written: &mut u64, line: &str) {
     if *written > LOG_CAP_BYTES && writer.set_len(0).is_ok() {
-        let marker = format!(
-            "{}\n",
-            diagnostic_line(
-                DiagnosticLevel::Warn,
-                &format!("[log truncated at {} MB cap]", LOG_CAP_BYTES / 1024 / 1024),
-            )
-        );
+        let marker = format!("{}\n", truncation_marker());
         let _ = writer.write_all(marker.as_bytes());
-        *written = marker.len() as u64;
+        // Счётчик синхронизируем с диском, а не с собственной суммой: в тот же
+        // файл пишет append_runtime_diagnostic_at, и его строк монитор не видит.
+        *written = writer
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(marker.len() as u64);
     }
     if writeln!(writer, "{line}").is_ok() {
         *written += line.len() as u64 + 1;
@@ -579,7 +585,19 @@ fn sidecar_log_entries(dir: &std::path::Path, kind: SidecarLogKind) -> Vec<std::
 
 fn prune_sidecar_logs(dir: &std::path::Path, kind: SidecarLogKind, protected: &HashSet<String>) {
     let mut entries = sidecar_log_entries(dir, kind);
-    if entries.len().saturating_add(protected.len()) <= MAX_SIDECAR_LOG_FILES {
+    let is_protected = |entry: &std::fs::DirEntry| {
+        protected.contains(&entry.file_name().to_string_lossy().into_owned())
+    };
+    // Место под логи будущего runtime резервируем заранее. Складывать длины
+    // entries и protected нельзя: файлы с теми же портами уже могут лежать на
+    // диске и тогда считались бы дважды — счёт выходил завышенным.
+    let keep_existing = MAX_SIDECAR_LOG_FILES.saturating_sub(protected.len());
+    let removable = entries
+        .iter()
+        .filter(|entry| !is_protected(entry))
+        .count()
+        .saturating_sub(keep_existing);
+    if removable == 0 {
         return;
     }
     entries.sort_by_key(|entry| {
@@ -588,15 +606,9 @@ fn prune_sidecar_logs(dir: &std::path::Path, kind: SidecarLogKind, protected: &H
             .and_then(|m| m.modified())
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
     });
-    let keep_existing = MAX_SIDECAR_LOG_FILES.saturating_sub(protected.len());
-    let removable = entries
-        .iter()
-        .filter(|entry| !protected.contains(&entry.file_name().to_string_lossy().into_owned()))
-        .count()
-        .saturating_sub(keep_existing);
     for entry in entries
         .into_iter()
-        .filter(|entry| !protected.contains(&entry.file_name().to_string_lossy().into_owned()))
+        .filter(|entry| !is_protected(entry))
         .take(removable)
     {
         let _ = std::fs::remove_file(entry.path());
@@ -702,6 +714,13 @@ pub(crate) fn append_runtime_diagnostic_at(app: &AppHandle, level: DiagnosticLev
         .append(true)
         .open(path)
     {
+        // Тот же кап, что у монитора движка. С выключенным runtime монитора
+        // нет вовсе, и диагностика остаётся единственным писателем: без
+        // проверки здесь журнал рос бы без ограничения.
+        if file.metadata().map(|m| m.len()).unwrap_or(0) > LOG_CAP_BYTES && file.set_len(0).is_ok()
+        {
+            let _ = writeln!(file, "{}", truncation_marker());
+        }
         let _ = writeln!(file, "{}", diagnostic_line(level, &bounded));
     }
 }
@@ -2186,12 +2205,15 @@ async fn start_singbox_inner(
         return Err("source identity changed during source switch".into());
     }
     let probe_endpoint = endpoints.probe_proxy.clone();
-    *state.runtime_ports.lock_recover() = runtime_ports;
+    // Разбор спецификации мостов — до публикации портов: при битом JSON ничего
+    // не запускалось, а список портов уже уехал бы в state и следующий stop
+    // проверял бы освобождение портов несуществовавшего runtime.
     let sidecar_specs: Option<Vec<SidecarSpec>> = sidecars_json
         .as_ref()
         .filter(|s| !s.trim().is_empty())
         .map(|sj| serde_json::from_str(sj).map_err(|e| format!("sidecars json: {e}")))
         .transpose()?;
+    *state.runtime_ports.lock_recover() = runtime_ports;
 
     // Two-core: если в конфиге есть xhttp-ноды, поднимаем xray ДО sing-box
     // (в любом режиме). При ошибке спавна — не стартуем VPN вовсе.
@@ -3097,6 +3119,31 @@ fn validate_system_proxy_enable_request(
     Ok(())
 }
 
+// Остановка runtime под токеном операции: свой токен вызывающего авторизуем,
+// без него берём implicit FrontendRecovery. Занятый более приоритетной
+// операцией lifecycle останавливать нельзя — это не наш runtime.
+async fn stop_owned_runtime(
+    app: &AppHandle,
+    state: &SingboxState,
+    operation_token: Option<RuntimeOperationToken>,
+    generation: u64,
+) -> Result<StopResult, String> {
+    let (token, implicit) = lifecycle_operation(
+        app,
+        operation_token,
+        RuntimeOperationKind::FrontendRecovery,
+        generation,
+        None,
+    )?;
+    let result = if operation_is_current(app, &token) {
+        stop_singbox_inner(app, state).await
+    } else {
+        Err("stale or cancelled runtime operation token".to_string())
+    };
+    finish_implicit_operation(app, &token, implicit);
+    result
+}
+
 #[tauri::command]
 pub async fn enable_system_proxy(
     app: AppHandle,
@@ -3104,6 +3151,7 @@ pub async fn enable_system_proxy(
     host_port: String,
     bypass_lan: Option<bool>,
     expected_generation: u64,
+    operation_token: Option<RuntimeOperationToken>,
 ) -> Result<(), String> {
     validate_system_proxy_enable_request(&host_port, expected_generation)?;
     if let Err(error) = enable_system_proxy_for_runtime(
@@ -3114,7 +3162,11 @@ pub async fn enable_system_proxy(
     )
     .await
     {
-        let cleanup = stop_singbox_inner(&app, &state).await;
+        // Аварийная остановка после провала готовности прокси — такая же
+        // операция жизненного цикла, как ручное «Отключить». Без владения она
+        // гасила runtime вслепую: за время IPC им мог завладеть более новый
+        // connect, и тот получал внезапно убитое ядро.
+        let cleanup = stop_owned_runtime(&app, &state, operation_token, expected_generation).await;
         return Err(match cleanup {
             Ok(_) => format!("{error}; runtime stopped after proxy readiness failure"),
             Err(cleanup_error) => format!(
@@ -3627,6 +3679,40 @@ mod tests {
         }
         prune_sidecar_logs(&dir, SidecarLogKind::Naive, &HashSet::new());
         assert!(sidecar_log_entries(&dir, SidecarLogKind::Naive).len() <= MAX_SIDECAR_LOG_FILES);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    // Логи будущего runtime уже могут лежать на диске: если считать их и в
+    // entries, и в protected, лимит выглядит исчерпанным раньше времени.
+    #[test]
+    fn prune_reserves_space_without_double_counting_reused_ports() {
+        let dir = test_dir("prune-reuse");
+        for port in 31000..31000 + MAX_SIDECAR_LOG_FILES as u16 {
+            std::fs::write(
+                dir.join(sidecar_log_name(SidecarLogKind::Naive, port)),
+                b"log",
+            )
+            .unwrap();
+        }
+        // Порты те же, что уже на диске: чистить нечего, файлов ровно лимит.
+        let reused: HashSet<String> = (31000..31002)
+            .map(|port| sidecar_log_name(SidecarLogKind::Naive, port))
+            .collect();
+        prune_sidecar_logs(&dir, SidecarLogKind::Naive, &reused);
+        assert_eq!(
+            sidecar_log_entries(&dir, SidecarLogKind::Naive).len(),
+            MAX_SIDECAR_LOG_FILES
+        );
+
+        // Новые порты — место под них освобождается за счёт самых старых.
+        let fresh: HashSet<String> = (32000..32002)
+            .map(|port| sidecar_log_name(SidecarLogKind::Naive, port))
+            .collect();
+        prune_sidecar_logs(&dir, SidecarLogKind::Naive, &fresh);
+        assert_eq!(
+            sidecar_log_entries(&dir, SidecarLogKind::Naive).len(),
+            MAX_SIDECAR_LOG_FILES - fresh.len()
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

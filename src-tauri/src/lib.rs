@@ -564,6 +564,83 @@ fn tray_state_icon(connected: bool, mode: &str) -> Option<tauri::image::Image<'s
     tauri::image::Image::from_bytes(bytes).ok()
 }
 
+// Метка «есть обновление» поверх значка трея. Пункт меню и подсказка видны
+// только после наведения/ПКМ, поэтому свёрнутое в трей приложение молчало о
+// найденной версии до тех пор, пока пользователь сам не полез в меню. Метку
+// рисуем в рантайме поверх декодированного RGBA — держать в бинаре вторую
+// тройку PNG ради одного кружка незачем.
+const BADGE_FILL: [f32; 3] = [255.0, 77.0, 109.0]; // неоновый акцент
+const BADGE_RING: [f32; 3] = [10.0, 8.0, 12.0]; // тёмная обводка под любой значок
+
+/// Рисует кружок-метку в правом нижнем углу RGBA-буфера (straight alpha,
+/// source-over). Субпиксельная выборка обязательна: на 32px без сглаживания
+/// метка выглядит рваным квадратом.
+fn paint_update_badge(rgba: &mut [u8], width: u32, height: u32) {
+    let (w, h) = (width as i64, height as i64);
+    if w < 8 || h < 8 || rgba.len() < (w * h * 4) as usize {
+        return;
+    }
+    let side = w.min(h) as f32;
+    let r_out = side * 0.21;
+    let r_in = (r_out - (side * 0.06).max(1.0)).max(1.0);
+    let cx = w as f32 - r_out - side * 0.02;
+    let cy = h as f32 - r_out - side * 0.02;
+    const SUB: i64 = 4;
+    let x0 = ((cx - r_out).floor() as i64).max(0);
+    let x1 = ((cx + r_out).ceil() as i64).min(w - 1);
+    let y0 = ((cy - r_out).floor() as i64).max(0);
+    let y1 = ((cy + r_out).ceil() as i64).min(h - 1);
+    for py in y0..=y1 {
+        for px in x0..=x1 {
+            let (mut fill_cov, mut ring_cov) = (0.0f32, 0.0f32);
+            for sy in 0..SUB {
+                for sx in 0..SUB {
+                    let dx = px as f32 + (sx as f32 + 0.5) / SUB as f32 - cx;
+                    let dy = py as f32 + (sy as f32 + 0.5) / SUB as f32 - cy;
+                    let d = (dx * dx + dy * dy).sqrt();
+                    if d <= r_in {
+                        fill_cov += 1.0;
+                    } else if d <= r_out {
+                        ring_cov += 1.0;
+                    }
+                }
+            }
+            let total = (SUB * SUB) as f32;
+            let (fill_cov, ring_cov) = (fill_cov / total, ring_cov / total);
+            let src_a = fill_cov + ring_cov;
+            if src_a <= 0.0 {
+                continue;
+            }
+            let idx = ((py * w + px) * 4) as usize;
+            let dst_a = rgba[idx + 3] as f32 / 255.0;
+            let out_a = src_a + dst_a * (1.0 - src_a);
+            for (offset, (fill, ring)) in BADGE_FILL.iter().zip(BADGE_RING.iter()).enumerate() {
+                let src = (fill * fill_cov + ring * ring_cov) / src_a;
+                let dst = rgba[idx + offset] as f32;
+                let out = (src * src_a + dst * dst_a * (1.0 - src_a)) / out_a;
+                rgba[idx + offset] = out.round().clamp(0.0, 255.0) as u8;
+            }
+            rgba[idx + 3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+}
+
+/// Значок трея под состояние + метка отложенного обновления.
+fn tray_icon(
+    connected: bool,
+    mode: &str,
+    update_pending: bool,
+) -> Option<tauri::image::Image<'static>> {
+    let icon = tray_state_icon(connected, mode)?;
+    if !update_pending {
+        return Some(icon);
+    }
+    let (w, h) = (icon.width(), icon.height());
+    let mut rgba = icon.rgba().to_vec();
+    paint_update_badge(&mut rgba, w, h);
+    Some(tauri::image::Image::new_owned(rgba, w, h))
+}
+
 // Tooltip трея — даёт точный режим (иконка только сигналит статус/тип).
 // Строки локализованы фронтом; имя режима — тот же лейбл, что в меню.
 fn tray_tooltip(
@@ -593,7 +670,11 @@ fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), 
     let menu = build_tray_menu(&app, &payload).map_err(|e| e.to_string())?;
     if let Some(tray) = app.tray_by_id("main") {
         tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
-        if let Some(icon) = tray_state_icon(payload.connected, &payload.mode) {
+        if let Some(icon) = tray_icon(
+            payload.connected,
+            &payload.mode,
+            payload.update_version.is_some(),
+        ) {
             let _ = tray.set_icon(Some(icon));
         }
         let _ = tray.set_tooltip(Some(tray_tooltip(
@@ -760,8 +841,16 @@ pub fn run() {
             // Старт всегда в состоянии «отключено» — серый значок; фронт после
             // загрузки/автоконнекта пришлёт set_tray_menu с актуальным режимом
             // и локализованными строками (до этого — русский фолбэк labels).
-            let init_icon = tray_state_icon(false, "")
-                .unwrap_or_else(|| app.default_window_icon().unwrap().clone());
+            let init_icon = match tray_state_icon(false, "") {
+                Some(icon) => icon,
+                // default_window_icon() пуст в headless-конфигурациях; трей без
+                // значка Windows не создаёт, но паниковать в setup() нельзя —
+                // приложение обязано дойти до окна и сказать об этом словами.
+                None => app
+                    .default_window_icon()
+                    .cloned()
+                    .ok_or("tray icon is unavailable")?,
+            };
             let _tray = TrayIconBuilder::with_id("main")
                 .icon(init_icon)
                 .tooltip(tray_tooltip(&init_payload.labels, false, "", None))
@@ -800,15 +889,26 @@ pub fn run() {
                         _ => {}
                     }
                 })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
+                .on_tray_icon_event(|tray, event| match event {
+                    TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
-                    } = event
-                    {
-                        show_main(tray.app_handle());
+                    } => show_main(tray.app_handle()),
+                    // Пользователь потянулся к значку — единственный момент,
+                    // когда точно известно, что он сейчас смотрит на трей.
+                    // Свёрнутое окно узнаёт о новой версии только по
+                    // расписанию, поэтому здесь просим фронт дочекать OTA:
+                    // меню собирается заново на set_tray_menu, и к следующему
+                    // открытию пункт «Обновить» уже на месте.
+                    TrayIconEvent::Enter { .. }
+                    | TrayIconEvent::Click {
+                        button: MouseButton::Right,
+                        ..
+                    } => {
+                        let _ = tray.app_handle().emit("tray:activity", ());
                     }
+                    _ => {}
                 })
                 .build(app)?;
 
@@ -1071,6 +1171,49 @@ mod tests {
         let connected = tray_tooltip(&labels, true, "tun", Some("0.2.57"));
         assert!(connected.contains(&labels.mode_tun));
         assert!(connected.contains("0.2.57"));
+    }
+
+    // Метка апдейта обязана быть видна на самом значке: подсказку и меню
+    // пользователь открывает сам, а свёрнутое приложение должно сигналить о
+    // новой версии без единого клика.
+    #[test]
+    fn update_badge_marks_only_the_corner_of_the_icon() {
+        let (w, h) = (32u32, 32u32);
+        let mut rgba = vec![0u8; (w * h * 4) as usize];
+        paint_update_badge(&mut rgba, w, h);
+
+        let px = |x: u32, y: u32| {
+            let i = ((y * w + x) * 4) as usize;
+            (rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3])
+        };
+        // Центр метки — непрозрачный акцент, левый верхний угол не тронут.
+        let (r, _, _, a) = px(25, 25);
+        assert_eq!(a, 255);
+        assert!(r > 200, "ожидали акцентный кружок, получили r={r}");
+        assert_eq!(px(0, 0), (0, 0, 0, 0));
+        assert_eq!(px(2, 20), (0, 0, 0, 0));
+    }
+
+    // Значок без апдейта менять нельзя: иначе метка «залипнет» после установки.
+    #[test]
+    fn tray_icon_is_badged_only_when_an_update_is_pending() {
+        let plain = tray_icon(false, "", false).expect("значок трея встроен в бинарь");
+        let badged = tray_icon(false, "", true).expect("значок трея встроен в бинарь");
+        assert_eq!(plain.width(), badged.width());
+        assert_ne!(plain.rgba(), badged.rgba());
+        assert_eq!(plain.rgba(), tray_state_icon(false, "").unwrap().rgba());
+    }
+
+    // Буфер меньше метки (или битые размеры) не должен паниковать по индексу.
+    #[test]
+    fn update_badge_ignores_degenerate_buffers() {
+        let mut tiny = vec![0u8; 4 * 4 * 4];
+        paint_update_badge(&mut tiny, 4, 4);
+        assert!(tiny.iter().all(|b| *b == 0));
+
+        let mut truncated = vec![0u8; 8];
+        paint_update_badge(&mut truncated, 32, 32);
+        assert!(truncated.iter().all(|b| *b == 0));
     }
 
     // Один argv-флаг не должен запускать сборочную проверку: она стирает

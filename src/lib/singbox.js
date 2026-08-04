@@ -1211,11 +1211,14 @@ export function buildConfig({
     config.endpoints = [warpEndpoint];
   }
 
-  if (opts.experimental?.enableClashApi) {
-    config.experimental.clash_api = {
-      external_controller: `127.0.0.1:${opts.experimental.clashApiPort || 9090}`,
-    };
-  }
+  // clash_api — не опция, а панель управления рантаймом: через него идут выбор
+  // ноды, пинги, трафик и вся диагностика, а Rust вообще отказывается стартовать
+  // без external_controller. Раньше это стояло под флагом, и снятый флаг (руками
+  // или из старого бэкапа) давал конфиг, с которым подключение не поднималось
+  // ни в одном режиме. Порт остаётся настраиваемым; loopback дожимает Rust.
+  config.experimental.clash_api = {
+    external_controller: `127.0.0.1:${opts.experimental?.clashApiPort || 9090}`,
+  };
 
   // Unified delay: ядро делает второй замер по уже поднятому соединению и отдаёт
   // чистый RTT без TCP/TLS-хендшейка. Без него пинг для VLESS+Reality раздут в

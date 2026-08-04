@@ -98,7 +98,8 @@ export const DEFAULT_OPTIONS = {
     padding: false,
   },
   experimental: {
-    enableClashApi: true,
+    // enableClashApi здесь больше нет: контроллер обязателен для рантайма
+    // (выбор ноды, пинги, трафик), и выключенный флаг просто ломал старт.
     clashApiPort: 9090,
   },
   quality: {
@@ -171,7 +172,7 @@ const BOOLEAN_PATHS = [
   "route.bypassLan", "route.resolveDestination", "route.tunSplitDiscord",
   "route.processLookup", "inbound.strictRoute", "inbound.allowConnectionFromLan",
   "tlsTricks.enableFragment", "tlsTricks.mixedSniCase", "tlsTricks.enablePadding",
-  "mux.enable", "mux.padding", "experimental.enableClashApi", "quality.enabled",
+  "mux.enable", "mux.padding", "quality.enabled",
   "quality.aggressive", "quality.lowDataMode",
 ];
 
@@ -394,7 +395,6 @@ const OPTION_SETTERS = new Map([
   ["mux.protocol", (opts, value) => { opts.mux.protocol = value; }],
   ["mux.maxStreams", (opts, value) => { opts.mux.maxStreams = value; }],
   ["mux.padding", (opts, value) => { opts.mux.padding = value; }],
-  ["experimental.enableClashApi", (opts, value) => { opts.experimental.enableClashApi = value; }],
   ["experimental.clashApiPort", (opts, value) => { opts.experimental.clashApiPort = value; }],
   ["quality.enabled", (opts, value) => { opts.quality.enabled = value; }],
   ["quality.aggressive", (opts, value) => { opts.quality.aggressive = value; }],

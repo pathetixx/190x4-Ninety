@@ -340,6 +340,30 @@ test("TrustTunnel sidecar: TOML-экранирование управляющи�
   assert.ok(toml.includes(`address = "127.0.0.1:${sidecars[0].port}"`));
 });
 
+// Пиннинг приватного CA — единственное, что отличает рабочий endpoint от
+// «Auth Required»: сертификат обязан доехать из профиля в конфиг моста.
+test("TrustTunnel sidecar: PEM-сертификат уезжает в конфиг", () => {
+  const pem = "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----\n";
+  const { sidecars } = buildConfig({
+    source: {
+      kind: "single",
+      profile: {
+        proto: "trusttunnel",
+        hostname: "tt.example.com",
+        addresses: ["1.2.3.4:443"],
+        username: "u",
+        password: "p",
+        certificate: pem,
+      },
+    },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+  });
+  assert.ok(sidecars[0].config.includes(
+    'certificate = "-----BEGIN CERTIFICATE-----\\nQUJD\\n-----END CERTIFICATE-----\\n"',
+  ));
+});
+
 test("naive sidecar: креды url-энкодятся в proxy-URL", () => {
   const nv = { proto: "naive", host: "n.example.com", port: 443, username: "u@x", password: "p:w", scheme: "https" };
   const { sidecars } = buildConfig({
@@ -416,14 +440,27 @@ test("proxy-режим: единственный inbound — mixed (без probe
   assert.equal(config.inbounds[0].type, "mixed");
 });
 
-test("clash-api включается опцией experimental.enableClashApi", () => {
-  const opts = { ...DEFAULT_OPTIONS, experimental: { ...DEFAULT_OPTIONS.experimental, enableClashApi: true } };
+// Контроллер обязателен: без external_controller Rust отказывается стартовать
+// («Clash control endpoint is not configured»), поэтому выключить его нечем —
+// ни опцией, ни пустым/битым experimental из старого бэкапа.
+test("clash-api есть всегда, порт берётся из настроек", () => {
+  const withoutExperimental = { ...DEFAULT_OPTIONS, experimental: undefined };
+  for (const opts of [DEFAULT_OPTIONS, withoutExperimental]) {
+    const { config } = buildConfig({
+      source: { kind: "single", profile: vlessNode() },
+      mode: "proxy",
+      options: opts,
+    });
+    assert.equal(config.experimental.clash_api.external_controller, "127.0.0.1:9090");
+  }
+
+  const custom = { ...DEFAULT_OPTIONS, experimental: { clashApiPort: 9191 } };
   const { config } = buildConfig({
     source: { kind: "single", profile: vlessNode() },
     mode: "proxy",
-    options: opts,
+    options: custom,
   });
-  assert.ok(config.experimental.clash_api.external_controller.startsWith("127.0.0.1:"));
+  assert.equal(config.experimental.clash_api.external_controller, "127.0.0.1:9191");
 });
 
 test("WARP direct: custom action proxy идёт в warp, а не мимо него", () => {

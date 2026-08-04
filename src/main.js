@@ -2888,6 +2888,10 @@ initTray({
   onSetMode: (m) => changeMode(m),
   onToggleVpn: () => handleConnectionIntent(),
   onUpdateClick: () => flushPendingUpdate(),
+  // Свёрнутое окно не получает ни focus, ни online — до наведения на значок
+  // единственный источник проверок это расписание. Порог в минуту не даёт
+  // случайному проходу мыши над треем дёргать эндпоинты.
+  onTrayActivity: () => updateCheckIfStale(60_000),
   // Успешный выбор сервера из трея: обновить эффективную ноду + hero/локацию.
   onServerSelected: (tag, _node, { reconnect = false } = {}) => {
     if (reconnect) reconnectForSourceChange(t("conn.applyingSettings"));
@@ -2962,8 +2966,10 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
     "stop_singbox",
     operationToken ? { operationToken } : {},
   );
-  // Click ripple — расходится от центра диска (anim 520ms)
-  const stage = heroDisc.closest(".hero__stage");
+  // Click ripple — расходится от центра диска (anim 520ms). Диска может не быть
+  // (автозапуск дошёл сюда раньше разметки, чужой view) — украшение не имеет
+  // права ронять подключение.
+  const stage = heroDisc?.closest(".hero__stage");
   if (stage) {
     const ripple = document.createElement("div");
     ripple.className = "hero__ripple";
@@ -3194,6 +3200,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
           hostPort: probeHostPort,
           bypassLan: options.route?.bypassLan !== false,
           expectedGeneration: runtimeSnapshot.processGeneration,
+          operationToken,
         });
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
           try { await disableSystemProxy(invoke); } catch {}
@@ -3340,6 +3347,16 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
 }
 
 let connectionIntentInFlight = null;
+// Более новый intent (реконнект, смена источника) может забрать владение прямо
+// посреди отключения. Состояние при этом обязан закрыть тот, кто его выставил:
+// runtime к этому моменту уже подтверждённо остановлен, а «disconnecting» ждут
+// и hero-диск, и runtimeIdleGate — без idle очередь реконнекта висит вечно, и
+// UI выходит из залипания только следующим кликом пользователя.
+function finalizeStoppedRuntime() {
+  if (state === "disconnecting") setState("idle");
+  return false;
+}
+
 async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
   cancelPendingReconnect();
   // Manual disconnect is the highest-priority lifecycle intent.  Cancel the
@@ -3354,7 +3371,7 @@ async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
     if (!isCurrentNetworkIntent(epoch, "idle")) return false;
     if (!(await shutdownCore({ finalize: false }))) return false;
   }
-  if (!isCurrentNetworkIntent(epoch, "idle")) return false;
+  if (!isCurrentNetworkIntent(epoch, "idle")) return finalizeStoppedRuntime();
   let snapshot = null;
   let snapshotConfirmed = false;
   try { snapshot = await invoke("runtime_snapshot"); snapshotConfirmed = true; }
@@ -3372,13 +3389,15 @@ async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
   // освобождение WFP lease. Иначе UI показывал бы idle, watchdog уже молчал,
   // а сохранённая Rust-сессия продолжала блокировать весь компьютер.
   const killSwitchReleased = await applyKillSwitch(false);
-  if (!isCurrentNetworkIntent(epoch, "idle")) return false;
+  // Неосвобождённый lease важнее чужого intent: чей бы ни был следующий шаг,
+  // WFP всё ещё блокирует весь компьютер, и это состояние надо показать.
   if (!killSwitchReleased) {
     setState("cleanup_error", {
       preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
     });
     return false;
   }
+  if (!isCurrentNetworkIntent(epoch, "idle")) return finalizeStoppedRuntime();
   strictFailClosedLatched = false;
   ordinaryFailClosedLatched = false;
   setState("idle");
@@ -3954,14 +3973,19 @@ function runUpdateCheck({ silent = true } = {}) {
 // первая проверка через 3с стабильно умирала об ещё не поднятую сеть, и до
 // следующей было 6 часов тишины; (2) сон/гибернация — интервальный таймер не
 // тикает во сне, реальный период уплывал далеко за 6ч. Теперь:
-//   успех  → следующая через 2ч (проверка = один JSON ~1КБ, дёшево);
+//   успех  → следующая через 30м (проверка = один JSON ~1КБ, дёшево);
 //   провал → бэкоф 30с → 2м → 5м → 15м (дальше по 15м) до первого успеха;
 //   лёгкий тик раз в 60с сравнивает часы (переживает сон и троттлинг скрытого
 //   окна — Chromium в трее коалесцирует таймеры как раз до 1/мин);
 //   внеплановые триггеры: появилась сеть (online), развернули окно, поднялся
-//   VPN (эндпоинты станут доступны через туннель). Всё это работает и в трее:
-//   апдейт доедет OS-уведомлением + пунктом «Обновить до vX» в меню трея.
-const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000;
+//   VPN (эндпоинты станут доступны через туннель), наведение/ПКМ по значку в
+//   трее. Всё это работает и в трее: апдейт доедет OS-уведомлением, меткой на
+//   значке и пунктом «Обновить до vX» в меню.
+//
+// Период — 30 минут, а не два часа: у свёрнутого окна нет ни focus, ни online,
+// и между релизом и появлением признака в трее стояла случайная пауза до двух
+// часов. Стоимость проверки — один JSON, эта частота ничего не стоит.
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 const UPDATE_RETRY_STEPS_MS = [30_000, 2 * 60_000, 5 * 60_000, 15 * 60_000];
 const UPDATE_STALE_MS = 30 * 60_000; // «давно не проверялись» для focus/connect
 let updateNextCheckAt = Date.now() + 3000; // первая — через 3с после старта

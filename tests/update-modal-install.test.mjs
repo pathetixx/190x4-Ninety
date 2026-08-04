@@ -92,6 +92,7 @@ globalThis.window = {
 
 const {
   openUpdateModal,
+  shouldSkip,
   UPDATE_DOWNLOAD_TIMEOUT_MS,
 } = await import("/lib/update-modal.js");
 
@@ -106,6 +107,29 @@ function resetUi() {
   }
   documentListeners.clear();
 }
+
+// Esc и клик мимо окна — это «убрать с глаз», а не «эту версию не показывать».
+// Раньше оба пути вели в «Позже» и писали версию в localStorage навсегда.
+test("Esc закрывает окно, но не отказывается от версии навсегда", async () => {
+  resetUi();
+  const modal = openUpdateModal({ currentVersion: "0.2.42", version: "0.3.10", body: "notes" });
+  for (const listener of [...(documentListeners.get("keydown") || [])]) {
+    listener({ key: "Escape" });
+  }
+  await modal;
+  assert.equal(elements.get("update-modal").hidden, true);
+  assert.equal(localStorage.getItem("ninety.update.skip"), null);
+  // В этой сессии не навязываемся — но апдейт остаётся в трее и после рестарта.
+  assert.equal(shouldSkip("0.3.10"), true);
+});
+
+test("«Позже» помнит отказ и между запусками", async () => {
+  resetUi();
+  const modal = openUpdateModal({ currentVersion: "0.2.42", version: "0.3.11", body: "notes" });
+  await elements.get("update-later").dispatch("click");
+  await modal;
+  assert.equal(localStorage.getItem("ninety.update.skip"), "0.3.11");
+});
 
 test("install получает свежий Update и передаёт bounded download timeout", async () => {
   resetUi();

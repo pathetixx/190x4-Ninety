@@ -203,6 +203,44 @@ test("trusttunnel deeplink: malformed TLV даёт нормальную ошиб
   );
 });
 
+// Сертификат в deep-link едет сырым DER, а trusttunnel_client принимает только
+// PEM: без конверсии узел из tt:// уходил в мост без своего CA (тот же endpoint
+// из .toml при этом работал), а Uint8Array ещё и сохранялся в JSON как {"0":..}.
+test("trusttunnel deeplink: DER-сертификат превращается в PEM", () => {
+  const tlv = (type, value) => {
+    const len = value.length;
+    return [type, ...(len < 64 ? [len] : [0x40 | (len >> 8), len & 0xff]), ...value];
+  };
+  const utf8 = (s) => [...Buffer.from(s, "utf8")];
+  const der = Array.from({ length: 70 }, (_, i) => (i * 7) & 0xff); // > 64 байт base64 → перенос строки
+  const payload = [
+    ...tlv(0x01, utf8("tt.example.com")),
+    ...tlv(0x02, utf8("1.2.3.4:443")),
+    ...tlv(0x05, utf8("user")),
+    ...tlv(0x06, utf8("pass")),
+    ...tlv(0x08, der),
+  ];
+
+  const p = parseTrustTunnelDeepLink(`tt://?${b64urlBytes(payload)}`);
+  const lines = p.certificate.trimEnd().split("\n");
+  assert.equal(lines[0], "-----BEGIN CERTIFICATE-----");
+  assert.equal(lines.at(-1), "-----END CERTIFICATE-----");
+  assert.ok(lines.slice(1, -1).every((l) => l.length <= 64), "PEM переносится по 64 символа");
+  assert.deepEqual([...Buffer.from(lines.slice(1, -1).join(""), "base64")], der);
+  // Сырой DER в профиль не уезжает — его некому прочитать, а JSON он портит.
+  assert.equal("certificateDer" in p, false);
+});
+
+test("trusttunnel deeplink: без сертификата поле пустое, а не мусорное", () => {
+  const bytes = [
+    0x01, 14, ...Buffer.from("tt.example.com", "utf8"),
+    0x02, 11, ...Buffer.from("1.2.3.4:443", "utf8"),
+    0x05, 4, ...Buffer.from("user", "utf8"),
+    0x06, 4, ...Buffer.from("pass", "utf8"),
+  ];
+  assert.equal(parseTrustTunnelDeepLink(`tt://?${b64urlBytes(bytes)}`).certificate, "");
+});
+
 test("trusttunnel toml: happy path + certificate + массив с запятой внутри строки", () => {
   const p = parseTrustTunnelToml(`
 hostname = "tt.example.com"

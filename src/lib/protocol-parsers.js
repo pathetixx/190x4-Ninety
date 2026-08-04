@@ -339,6 +339,19 @@ function parseTrustTunnelTlv(buf) {
   return f;
 }
 
+// Deep-link отдаёт сертификат сырым DER (TLV 0x08), .toml — готовым PEM.
+// trusttunnel_client понимает только PEM, поэтому конвертируем здесь: иначе
+// узел из tt:// уходил в мост вообще без своего CA и падал на TLS, тогда как
+// тот же endpoint из .toml работал. Uint8Array в профиле не оставляем — в
+// JSON-хранилище он превращается в {"0":..,"1":..}.
+function pemFromDer(der) {
+  if (!der || !der.length) return "";
+  let bin = "";
+  for (let i = 0; i < der.length; i++) bin += String.fromCharCode(der[i]);
+  const b64 = btoa(bin).replace(/(.{64})/g, "$1\n").replace(/\n$/, "");
+  return `-----BEGIN CERTIFICATE-----\n${b64}\n-----END CERTIFICATE-----\n`;
+}
+
 // Сборка профиля trusttunnel из полей (общая для deep-link и .toml).
 function ttProfile(f, rawForStorage) {
   const first = f.addresses[0] || "";
@@ -360,8 +373,7 @@ function ttProfile(f, rawForStorage) {
     customSni: f.customSni || "",
     hasIpv6: f.hasIpv6 !== false,
     clientRandom: f.clientRandom || "",
-    certificate: f.certificate || "",      // PEM (из .toml); из deep-link DER -> ниже
-    certificateDer: f.certificateDer || null,
+    certificate: f.certificate || pemFromDer(f.certificateDer), // PEM: .toml как есть, deep-link из DER
     dnsUpstreams: (f.dnsUpstreams || []).slice(),
   };
 }
