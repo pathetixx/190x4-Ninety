@@ -2,6 +2,34 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.58 — 2026-08-04
+
+## English
+
+- The connection log reads as one list again. Lines written by the app itself — mode switches, stops, restarts of the core — had no time and no level of their own and were stuck onto the previous line from the engine. They are now ordinary entries: with a timestamp, with a level, and picked up by the level filter.
+- The log no longer fills up with reports about connections that your own programs closed. A browser or a game that drops a connection first is normal and is no longer shown as an error.
+- Country lookups that the core makes for itself are hidden from the log together with their responses (the stray "429" and "404" lines). Ninety determines the IP and the country on its own, so those attempts changed nothing.
+- Profiles that switch off the server certificate check are marked in the list, with an explanation of what exactly is disabled.
+- Fake DNS is applied only in TUN mode. In the proxy modes it used to be written into the configuration as well, where it could break the opening of sites.
+- Autostart no longer starts the app with administrator rights when the app lives in a folder any user can write to — a portable copy or an install "for me only". For those copies a TUN connection now asks for the Windows confirmation.
+- The system hosts file is edited in place: its access rights and your line endings are preserved, and nothing is left next to it.
+- A vless:// link without an identifier is rejected with a clear error instead of being saved as a profile that cannot connect.
+- Skipped connection quality checks are recorded in the log, are kept out of the graph, and are not repeated more often than intended.
+- A service command-line key can no longer erase saved profiles and the settings backup.
+
+## Русский
+
+- Журнал подключения снова читается одним списком. Строки самого приложения — смена режима, остановки, перезапуски ядра — не имели ни своего времени, ни уровня и прилипали к предыдущей строке движка. Теперь это обычные записи: со временем, с уровнем и с работающим фильтром по уровню.
+- Журнал больше не забивается сообщениями о соединениях, которые закрыли ваши же программы. Браузер или игра, оборвавшие соединение первыми, — это норма, и ошибкой это больше не показывается.
+- Запросы страны, которые ядро делает для себя, скрыты из журнала вместе с их ответами (одиночные строки «429» и «404»). IP и страну Ninety определяет сам, и на эти попытки ничего не завязано.
+- Профили с отключённой проверкой сертификата сервера помечены в списке, с пояснением, что именно отключено.
+- Fake DNS применяется только в режиме TUN. В режимах прокси он тоже попадал в конфигурацию, где мог ломать открытие сайтов.
+- Автозапуск больше не поднимает приложение с правами администратора, если оно лежит в папке, доступной на запись обычному пользователю, — портативная копия или установка «только для меня». Для таких копий подключение в режиме TUN теперь спрашивает подтверждение Windows.
+- Системный файл hosts правится на месте: сохраняются его права доступа и ваши переводы строк, рядом ничего не остаётся.
+- Ссылка vless:// без идентификатора отклоняется с понятной ошибкой, а не сохраняется профилем, который не может подключиться.
+- Пропущенные проверки качества связи попадают в журнал, не искажают график и не повторяются чаще, чем задумано.
+- Служебный ключ командной строки больше не может стереть сохранённые профили и резервную копию настроек.
+
 ## v0.2.57 — 2026-08-04
 
 ## English
