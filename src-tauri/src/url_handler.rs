@@ -83,6 +83,23 @@ fn scheme_handler_path(exe: &str) -> String {
     format!("\"{exe}\" \"%1\"")
 }
 
+#[cfg(target_os = "windows")]
+fn handler_backup_path(scheme: &str) -> String {
+    format!("Software\\Ninety\\UrlHandlers\\{scheme}")
+}
+
+// Последний command, который Ninety записал для схемы. После переустановки в
+// другой каталог (или перехода installed ↔ portable) актуальный exe уже не
+// совпадает с записью в реестре, но владельцем остаёмся мы: без этого маркера
+// disable молча ничего не снимал, а статус показывал «выключено» при живой
+// регистрации на несуществующий путь.
+#[cfg(target_os = "windows")]
+fn owned_command_marker(hkcu: &winreg::RegKey, scheme: &str) -> Option<String> {
+    hkcu.open_subkey(handler_backup_path(scheme))
+        .ok()
+        .and_then(|backup| backup.get_value::<String, _>("OwnedCommand").ok())
+}
+
 #[tauri::command]
 #[cfg(target_os = "windows")]
 pub fn register_url_handler(scheme: String) -> Result<(), String> {
@@ -99,7 +116,7 @@ pub fn register_url_handler(scheme: String) -> Result<(), String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let base = format!("Software\\Classes\\{scheme}");
     let command_path = format!("{base}\\shell\\open\\command");
-    let backup_path = format!("Software\\Ninety\\UrlHandlers\\{scheme}");
+    let backup_path = handler_backup_path(&scheme);
 
     // Перед КАЖДЫМ захватом чужой регистрации сохраняем её текущее значение.
     // Другой VPN-клиент мог стать владельцем уже после первого opt-in Ninety;
@@ -108,10 +125,7 @@ pub fn register_url_handler(scheme: String) -> Result<(), String> {
         .open_subkey(&command_path)
         .ok()
         .and_then(|k| k.get_value::<String, _>("").ok());
-    let last_owned = hkcu
-        .open_subkey(&backup_path)
-        .ok()
-        .and_then(|backup| backup.get_value::<String, _>("OwnedCommand").ok());
+    let last_owned = owned_command_marker(&hkcu, &scheme);
     if !handler_is_owned(previous.as_deref(), &expected, last_owned.as_deref()) {
         let (backup, _) = hkcu
             .create_subkey(&backup_path)
@@ -176,15 +190,15 @@ pub fn unregister_url_handler(scheme: String) -> Result<(), String> {
         .open_subkey(&command_path)
         .ok()
         .and_then(|k| k.get_value::<String, _>("").ok());
-    // Другой клиент уже стал владельцем — его регистрацию не трогаем.
-    if actual
-        .as_deref()
-        .is_none_or(|value| !value.eq_ignore_ascii_case(&expected))
-    {
+    // Другой клиент уже стал владельцем — его регистрацию не трогаем. Свою
+    // прежнюю (записанную ещё по старому пути exe) снимать обязаны: иначе
+    // выключение опции ничего не делает, а схема остаётся за мёртвым путём.
+    let last_owned = owned_command_marker(&hkcu, &scheme);
+    if !handler_is_owned(actual.as_deref(), &expected, last_owned.as_deref()) {
         return Ok(());
     }
 
-    let backup_path = format!("Software\\Ninety\\UrlHandlers\\{scheme}");
+    let backup_path = handler_backup_path(&scheme);
     let previous = hkcu.open_subkey(&backup_path).ok().and_then(|backup| {
         if backup.get_value::<u32, _>("Saved").unwrap_or(0) != 1
             || backup
@@ -243,10 +257,17 @@ pub fn is_url_handler_registered(scheme: String) -> Result<bool, String> {
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = format!("Software\\Classes\\{scheme}\\shell\\open\\command");
+    let last_owned = owned_command_marker(&hkcu, &scheme);
     match hkcu.open_subkey(&path) {
         Ok(k) => {
             let actual: String = k.get_value("").unwrap_or_default();
-            Ok(actual.eq_ignore_ascii_case(&expected))
+            // Регистрация по прежнему пути exe остаётся нашей: статус обязан
+            // это показывать, иначе UI предлагает включить уже включённое.
+            Ok(handler_is_owned(
+                Some(actual.as_str()),
+                &expected,
+                last_owned.as_deref(),
+            ))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(e) => Err(format!("open {path}: {e}")),
@@ -303,7 +324,11 @@ mod tests {
         let current = r#""D:\Apps\Ninety\Ninety.exe" "%1""#;
         let other = r#""C:\Program Files\Other VPN\other.exe" "%1""#;
         assert!(handler_is_owned(Some(old), current, Some(old)));
+        assert!(handler_is_owned(Some(current), current, Some(old)));
         assert!(!handler_is_owned(Some(other), current, Some(old)));
         assert!(!handler_is_owned(None, current, Some(old)));
+        assert!(!handler_is_owned(Some(""), current, Some(old)));
+        // Без маркера владения прежний путь чужой: снимать его нельзя.
+        assert!(!handler_is_owned(Some(old), current, None));
     }
 }

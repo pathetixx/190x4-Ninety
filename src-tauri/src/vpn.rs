@@ -2030,9 +2030,7 @@ async fn start_singbox_inner(
             return Err(e);
         }
         ensure_start_current(state, start_epoch)?;
-        if !operation_is_current(&app, operation_token) {
-            return Err("stale or cancelled runtime operation token".into());
-        }
+        ensure_operation_current(&app, state, operation_token)?;
     }
 
     // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
@@ -2052,9 +2050,7 @@ async fn start_singbox_inner(
             return Err(e);
         }
         ensure_start_current(state, start_epoch)?;
-        if !operation_is_current(&app, operation_token) {
-            return Err("stale or cancelled runtime operation token".into());
-        }
+        ensure_operation_current(&app, state, operation_token)?;
     }
 
     // Режим (proxy/systemProxy/tun) больше не влияет на запуск ядра в Rust:
@@ -2086,9 +2082,7 @@ async fn start_singbox_inner(
         return Err(e);
     }
     ensure_start_current(state, start_epoch)?;
-    if !operation_is_current(&app, operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
-    }
+    ensure_operation_current(&app, state, operation_token)?;
 
     if let Err(e) = wait_clash_ready(&endpoints.control, state, start_epoch).await {
         if let Some(child) = state.child.lock_recover().take() {
@@ -2114,9 +2108,7 @@ async fn start_singbox_inner(
         *state.runtime.lock_recover() = None;
         return Err(e);
     }
-    if !operation_is_current(&app, operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
-    }
+    ensure_operation_current(&app, state, operation_token)?;
     *state.runtime.lock_recover() = Some(RuntimeRecord {
         process_generation,
         source_fingerprint: source_fingerprint.clone(),
@@ -2260,10 +2252,12 @@ fn kill_sidecars(state: &SingboxState) -> bool {
     ok
 }
 
-fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> {
-    if state.start_epoch.load(Ordering::SeqCst) == epoch {
-        return Ok(());
-    }
+// Зачистка незавершённого запуска. Отмена по epoch и отмена по владению
+// операцией — один и тот же исход: поднятый комплект больше никому не
+// принадлежит. Оставлять его живым нельзя: guard `child.is_some()` заблокировал
+// бы следующий старт, а compute_singbox_running продолжал бы отдавать
+// running=true при пустом RuntimeRecord.
+fn abort_started_runtime(state: &SingboxState) {
     if let Some(child) = state.child.lock_recover().take() {
         let _ = child.kill();
     }
@@ -2271,7 +2265,30 @@ fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> 
     kill_sidecars(state);
     *state.runtime_ports.lock_recover() = Vec::new();
     *state.runtime.lock_recover() = None;
+}
+
+fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> {
+    if state.start_epoch.load(Ordering::SeqCst) == epoch {
+        return Ok(());
+    }
+    abort_started_runtime(state);
     Err("запуск отменён новым сетевым намерением".into())
+}
+
+// Отнятый/устаревший токен на любом шаге старта. В отличие от epoch-проверки
+// координатор мог сменить владельца без нового start_epoch (latest-wins смена
+// источника), поэтому чистить обязана именно эта ветка: у stop_singbox с тем же
+// токеном владения уже нет, и он вернёт refused, не тронув процессы.
+fn ensure_operation_current(
+    app: &AppHandle,
+    state: &SingboxState,
+    token: &RuntimeOperationToken,
+) -> Result<(), String> {
+    if operation_is_current(app, token) {
+        return Ok(());
+    }
+    abort_started_runtime(state);
+    Err("stale or cancelled runtime operation token".into())
 }
 
 async fn wait_start_delay(
@@ -3393,6 +3410,39 @@ mod tests {
         assert!(ensure_start_current(&state, epoch).is_ok());
         state.start_epoch.fetch_add(1, Ordering::SeqCst);
         assert!(ensure_start_current(&state, epoch).is_err());
+    }
+
+    // Отмена владения операцией (latest-wins смена источника) обязана оставлять
+    // ровно то же состояние, что и отмена по epoch: без этого stop_singbox с уже
+    // отнятым токеном возвращает refused, а поднятый комплект остаётся жить.
+    #[test]
+    fn cancelled_start_clears_published_runtime_state() {
+        let state = SingboxState::default();
+        *state.runtime_ports.lock_recover() = vec![7890, 9090];
+        *state.runtime.lock_recover() = Some(RuntimeRecord {
+            process_generation: 5,
+            source_fingerprint: Some("fingerprint".into()),
+            config_hash: None,
+            mode: "systemProxy".into(),
+            strict_privacy: false,
+            pinned_node_tag: None,
+            logs_disabled: false,
+            endpoints: RuntimeEndpoints {
+                control: ControlEndpoint {
+                    address: "127.0.0.1:9090".parse().unwrap(),
+                },
+                probe_proxy: None,
+            },
+            listener_ready: true,
+            clash_port: 9090,
+            clash_ready: true,
+        });
+
+        abort_started_runtime(&state);
+
+        assert!(state.runtime.lock_recover().is_none());
+        assert!(state.runtime_ports.lock_recover().is_empty());
+        assert!(!compute_singbox_running(&state));
     }
 
     #[test]

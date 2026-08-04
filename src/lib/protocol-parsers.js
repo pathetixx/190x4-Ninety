@@ -12,6 +12,31 @@ import {
   splitTrailingHashName,
 } from "/lib/url-helpers.js";
 
+// Разрез `method:password` / `uuid:password` по ПЕРВОМУ двоеточию.
+// `split(":", 2)` здесь неверен: второй аргумент JS-split ограничивает длину
+// результата, а не число разрезов, поэтому пароль с двоеточием молча терялся
+// хвостом (`pa:ss` → `pa`). Конфиг при этом собирался, ядро стартовало, и нода
+// падала только на аутентификации — без единого сообщения.
+// Отсутствие разделителя даёт undefined, как и прежний split: пустое поле не
+// должно превращаться в JSON `null` внутри конфига движка.
+function splitFirstColon(value) {
+  const s = String(value ?? "");
+  const sep = s.indexOf(":");
+  return sep < 0 ? [s, undefined] : [s.slice(0, sep), s.slice(sep + 1)];
+}
+
+// Булев query-параметр ссылки. Спека hysteria2 описывает `insecure=1`, но
+// панели одинаково часто отдают `insecure=true`; TUIC-ссылки — наоборот.
+// Принимаем обе формы: иначе нода с самоподписанным сертификатом не встаёт,
+// а причина («сертификат не проверился») пользователю нигде не видна.
+function boolParam(value, fallback = false) {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (!v) return fallback;
+  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return fallback;
+}
+
 // ── vless парсер ────────────────────────────────────────────
 export function parseVless(raw) {
   const url = String(raw || "").trim();
@@ -135,7 +160,7 @@ export function parseShadowsocks(raw) {
     const at2 = decoded.lastIndexOf("@");
     if (at2 < 0) throw new Error(t("sb.err.ssHostPort"));
     const credsRaw = decoded.slice(0, at2);
-    const [method, password] = credsRaw.split(":", 2);
+    const [method, password] = splitFirstColon(credsRaw);
     const { host, port } = splitHostPort(decoded.slice(at2 + 1), "sb.err.ssHostPort");
     return { raw: url, proto: "shadowsocks", name, host, port, method, password };
   }
@@ -143,7 +168,7 @@ export function parseShadowsocks(raw) {
   // SIP002: userinfo может быть как раз base64url(method:password)
   let method, password;
   if (credsRaw.includes(":")) {
-    [method, password] = credsRaw.split(":", 2);
+    [method, password] = splitFirstColon(credsRaw);
     password = decodeURIComponent(password);
   } else {
     const decoded = safeAtob(credsRaw);
@@ -187,7 +212,7 @@ export function parseHysteria2(raw) {
     obfs: get("obfs", ""),
     obfsPassword: get("obfs-password") || get("obfsPassword", ""),
     alpn: get("alpn", "h3"),
-    insecure: get("insecure", "0") === "1",
+    insecure: boolParam(get("insecure")),
     pinSHA256: get("pinSHA256", ""),
     upMbps: parseInt(get("up") || "0", 10) || undefined,
     downMbps: parseInt(get("down") || "0", 10) || undefined,
@@ -204,7 +229,7 @@ export function parseTuic(raw) {
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.tuicHostPort"));
   const auth = head.slice(0, atIdx);
-  const [uuid, passwordRaw] = auth.split(":", 2);
+  const [uuid, passwordRaw] = splitFirstColon(auth);
   const password = decodeURIComponent(passwordRaw || "");
   const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.tuicHostPort");
   const get = (k, def = "") => query.get(k) ?? def;
@@ -215,8 +240,8 @@ export function parseTuic(raw) {
     alpn: get("alpn", "h3"),
     congestionControl: get("congestion_control") || get("congestionControl", "bbr"),
     udpRelayMode: get("udp_relay_mode") || get("udpRelayMode", "native"),
-    zeroRttHandshake: get("zero_rtt_handshake", "false") === "true",
-    disableSni: get("disable_sni", "false") === "true",
+    zeroRttHandshake: boolParam(get("zero_rtt_handshake")),
+    disableSni: boolParam(get("disable_sni")),
   };
 }
 

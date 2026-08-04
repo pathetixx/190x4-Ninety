@@ -54,27 +54,36 @@ fn autostart_lock() -> &'static Mutex<()> {
 // shutdown. Generation-coalescing не даёт потерять последний запрос, пока
 // предыдущий SETTINGS_CHANGED/REFRESH ещё выполняется.
 fn run_proxy_notify_worker() {
+    // Внешний цикл вместо самовызова: подхват «догнавшего» запроса не должен
+    // наращивать стек — Rust не гарантирует хвостовую оптимизацию, а частота
+    // вызовов задаётся снаружи и ничем не ограничена.
     loop {
-        let target = PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire);
-        if PROXY_NOTIFY_APPLIED.load(Ordering::Acquire) >= target {
-            break;
+        loop {
+            let target = PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire);
+            if PROXY_NOTIFY_APPLIED.load(Ordering::Acquire) >= target {
+                break;
+            }
+            unsafe {
+                let _ = InternetSetOptionW(None, INTERNET_OPTION_SETTINGS_CHANGED, None, 0);
+                let _ = InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0);
+            }
+            PROXY_NOTIFY_APPLIED.store(target, Ordering::Release);
         }
-        unsafe {
-            let _ = InternetSetOptionW(None, INTERNET_OPTION_SETTINGS_CHANGED, None, 0);
-            let _ = InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0);
-        }
-        PROXY_NOTIFY_APPLIED.store(target, Ordering::Release);
-    }
 
-    PROXY_NOTIFY_IN_FLIGHT.store(false, Ordering::Release);
-    // Close the race between the last loop check and clearing in-flight. A
-    // caller that arrived in that window may have observed true and returned.
-    if PROXY_NOTIFY_APPLIED.load(Ordering::Acquire) < PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire)
-        && PROXY_NOTIFY_IN_FLIGHT
+        PROXY_NOTIFY_IN_FLIGHT.store(false, Ordering::Release);
+        // Close the race between the last loop check and clearing in-flight. A
+        // caller that arrived in that window may have observed true and returned.
+        if PROXY_NOTIFY_APPLIED.load(Ordering::Acquire)
+            >= PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire)
+        {
+            return;
+        }
+        if PROXY_NOTIFY_IN_FLIGHT
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-    {
-        run_proxy_notify_worker();
+            .is_err()
+        {
+            return;
+        }
     }
 }
 

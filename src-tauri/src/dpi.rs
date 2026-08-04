@@ -1249,9 +1249,19 @@ pub async fn dpi_start(
     Ok(())
 }
 
+// Остановка winws подтверждается физически: kill + try_wait до 2с, ожидание
+// отменяемой операции до 2с и финальный повторный stop. Синхронная команда
+// держала бы всё это на главном потоке — при зависшем winws окно переставало
+// отвечать на несколько секунд. Ожидание уходит в blocking-пул, контракт IPC
+// не меняется (аргументов у команды нет).
 #[tauri::command]
-pub fn dpi_stop(state: State<'_, DpiState>) -> Result<(), String> {
-    stop_dpi_runtime(&state, "winws")
+pub async fn dpi_stop(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DpiState>();
+        stop_dpi_runtime(&state, "winws")
+    })
+    .await
+    .map_err(|e| format!("не удалось дождаться остановки winws: {e}"))?
 }
 
 #[tauri::command]
@@ -2723,8 +2733,17 @@ pub fn cleanup_on_exit(state: &DpiState) {
 /// Monkey). Тонкая обёртка над full_unload — оставлена как #[tauri::command] под
 /// invoke("dpi_unload_driver").
 #[tauri::command]
-pub fn dpi_unload_driver(state: State<'_, DpiState>) -> Result<(), String> {
-    full_unload(&state)
+pub async fn dpi_unload_driver(app: AppHandle) -> Result<(), String> {
+    // Как и dpi_stop: подтверждённая остановка winws плюс блокирующие `sc
+    // stop/delete` (на kernel-драйвере sc возвращает управление только после
+    // выгрузки) складываются в секунды. Фронт зовёт это перед OTA — замирать
+    // окну на время выгрузки незачем.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DpiState>();
+        full_unload(&state)
+    })
+    .await
+    .map_err(|e| format!("не удалось дождаться выгрузки DPI-драйвера: {e}"))?
 }
 
 #[cfg(test)]

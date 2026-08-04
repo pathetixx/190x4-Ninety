@@ -135,6 +135,42 @@ test("tuic: uuid:password и congestion_control", () => {
   assert.equal(p.alpn, "h3");
 });
 
+// Незакодированное двоеточие в пароле встречается в ссылках руками собранных
+// панелей. Обрезка хвоста тут не даёт ошибки нигде: конфиг валиден, ядро
+// стартует, нода отваливается на аутентификации.
+test("ss: пароль с двоеточием не теряет хвост (SIP002 и legacy base64)", () => {
+  const sip002 = parseShadowsocks("ss://aes-256-gcm:pa:ss@ss.example.com:8388#SS");
+  assert.equal(sip002.method, "aes-256-gcm");
+  assert.equal(sip002.password, "pa:ss");
+
+  const legacy = parseShadowsocks(`ss://${b64("aes-256-gcm:pa:ss@legacy.example.com:8389")}`);
+  assert.equal(legacy.method, "aes-256-gcm");
+  assert.equal(legacy.password, "pa:ss");
+  assert.equal(legacy.host, "legacy.example.com");
+});
+
+test("tuic: пароль с двоеточием сохраняется целиком", () => {
+  const p = parseTuic("tuic://uuid-1:pa:ss@t.example.com:443#T");
+  assert.equal(p.uuid, "uuid-1");
+  assert.equal(p.password, "pa:ss");
+});
+
+test("булевы параметры ссылок принимают и 1, и true", () => {
+  const base = "hy2://pass@h2.example.com:443";
+  assert.equal(parseHysteria2(`${base}?insecure=true`).insecure, true);
+  assert.equal(parseHysteria2(`${base}?insecure=1`).insecure, true);
+  assert.equal(parseHysteria2(`${base}?insecure=false`).insecure, false);
+  assert.equal(parseHysteria2(`${base}?insecure=0`).insecure, false);
+  assert.equal(parseHysteria2(base).insecure, false);
+
+  const tuic = parseTuic("tuic://uuid:pw@t.example.com:443?zero_rtt_handshake=1&disable_sni=true");
+  assert.equal(tuic.zeroRttHandshake, true);
+  assert.equal(tuic.disableSni, true);
+  const tuicOff = parseTuic("tuic://uuid:pw@t.example.com:443");
+  assert.equal(tuicOff.zeroRttHandshake, false);
+  assert.equal(tuicOff.disableSni, false);
+});
+
 test("naive: https-схема и креды", () => {
   const p = parseNaive("naive+https://user:p%40ss@n.example.com:443#NV");
   assert.equal(p.proto, "naive");

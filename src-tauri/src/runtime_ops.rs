@@ -521,6 +521,16 @@ impl DataplaneProbeCoordinator {
         let deadline = tokio::time::Instant::now() + wait;
 
         loop {
+            // Регистрируем интерес к пробуждению ДО проверки условия и до
+            // первого await: `Notified` встаёт в очередь только при первом
+            // poll, поэтому release соседнего пермита, попавший между проверкой
+            // `available_permits` и `timeout`, иначе теряется — и ожидающая
+            // source verification спала бы до своего дедлайна при свободном
+            // семафоре, возвращая probe_busy вместо готовности.
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            let _ = notified.as_mut().enable();
+
             if self.generation.load(Ordering::SeqCst) != generation {
                 self.remove_waiter(ticket);
                 return Err(ProbeAcquireError::StaleGeneration);
@@ -559,8 +569,10 @@ impl DataplaneProbeCoordinator {
                 self.remove_waiter(ticket);
                 return Err(ProbeAcquireError::Busy);
             }
-            let notified = self.notify.notified();
-            if tokio::time::timeout(remaining, notified).await.is_err() {
+            if tokio::time::timeout(remaining, notified.as_mut())
+                .await
+                .is_err()
+            {
                 self.remove_waiter(ticket);
                 return Err(ProbeAcquireError::Busy);
             }
@@ -699,6 +711,39 @@ mod tests {
         drop(quality);
         let source_permit = source.await.unwrap().unwrap();
         assert!(coordinator.is_current(&source_permit));
+    }
+
+    // Освобождённый пермит обязан будить очередь сразу. Регрессия здесь не
+    // выглядит поломкой: verification просто досиживает свой дедлайн и отдаёт
+    // probe_busy, из-за чего исправная смена источника считается неподтверждённой.
+    #[tokio::test]
+    async fn released_permit_wakes_the_queued_waiter_before_its_deadline() {
+        let coordinator = Arc::new(DataplaneProbeCoordinator::default());
+        coordinator.reset_generation(11);
+        let held = coordinator
+            .acquire(DataplaneProbeKind::QualityProbe, 11, None)
+            .await
+            .unwrap();
+        let waiter_coordinator = coordinator.clone();
+        let waiter = tokio::spawn(async move {
+            let started = tokio::time::Instant::now();
+            let permit = waiter_coordinator
+                .acquire(
+                    DataplaneProbeKind::SourceVerification,
+                    11,
+                    Some(std::time::Duration::from_secs(5)),
+                )
+                .await;
+            (permit.is_ok(), started.elapsed())
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        drop(held);
+        let (acquired, elapsed) = waiter.await.unwrap();
+        assert!(acquired, "освобождённый пермит должен достаться ожидающему");
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "ожидающий проснулся только по дедлайну: {elapsed:?}"
+        );
     }
 
     #[tokio::test]
