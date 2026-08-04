@@ -374,6 +374,8 @@ export const ar = {
     switchMode: "جارٍ تبديل الوضع…",
     coreStopped: "توقّفت النواة",
     coreStoppedDesc: "أُغلق النفق · خرج sing-box بشكل غير متوقع",
+    coreRestoring: "تعطّلت النواة — جارٍ استعادة الاتصال",
+    coreRestored: "تمت استعادة الاتصال",
     notifyClosedTitle: "Ninety · أُغلق النفق",
     notifyClosedBody: "توقّفت نواة sing-box",
     xhttpDown: "تعطّلت نواة xhttp — جارٍ إعادة الاتصال",

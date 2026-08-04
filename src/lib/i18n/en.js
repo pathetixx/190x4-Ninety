@@ -374,6 +374,8 @@ export const en = {
     switchMode: "Switching mode…",
     coreStopped: "The core stopped",
     coreStoppedDesc: "Tunnel closed · sing-box exited unexpectedly",
+    coreRestoring: "The core crashed — restoring the connection",
+    coreRestored: "Connection restored",
     notifyClosedTitle: "Ninety · tunnel closed",
     notifyClosedBody: "The sing-box core stopped",
     xhttpDown: "xhttp core crashed — reconnecting",

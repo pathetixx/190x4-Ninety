@@ -73,6 +73,7 @@ export function createQualityEngine({
   let reconnectTimes = [];      // timestamps реконнектов для часового капа
   let reconnectHandoff = false; // R3/R4 ждёт новую VPN-сессию
   let lastState = "UNKNOWN";
+  let hostPressure = false;     // хосту не хватает CPU/памяти (сэмплер в Rust)
   const passive = [];           // [{t, down}] скользящее окно
   const sessionActive = (epoch) => running && epoch === sessionEpoch;
 
@@ -160,7 +161,11 @@ export function createQualityEngine({
   // ── Тик (зовётся из healthTick после liveness-OK) ──────
   async function tick() {
     const epoch = sessionEpoch;
-    if (!sessionActive(epoch) || !cfg.enabled || reconnectHandoff || remediatingEpoch === epoch || probingEpoch === epoch) return;
+    // hostPressure гейтит ВЕСЬ тик, а не только лесенку: под голоданием CPU
+    // проба меряет не канал, а планировщик, и её результат отравил бы и
+    // статистику, и обучение ISP×час ложным «плохо».
+    if (!sessionActive(epoch) || !cfg.enabled || hostPressure || reconnectHandoff
+      || remediatingEpoch === epoch || probingEpoch === epoch) return;
     const timestamp = now();
     if (timestamp < nextEligibleProbeAt) return;
 
@@ -358,6 +363,7 @@ export function createQualityEngine({
     const epoch = sessionEpoch;
     cfg = normalizeOpts({ ...cfg, ...o });
     running = true;
+    hostPressure = false;
     badStreak = 0; goodStreak = 0; lastState = "UNKNOWN";
     passive.length = 0;
     lastProbeAt = now(); // дать туннелю осесть перед первой пробой
@@ -376,12 +382,27 @@ export function createQualityEngine({
   function onIdle() {
     sessionEpoch++;
     running = false;
+    hostPressure = false;
     passive.length = 0;
   }
   function setOptions(o) { cfg = normalizeOpts({ ...cfg, ...o }); }
+  // Зовётся сторожем на каждом тике из health_snapshot.host_pressure.
+  function setHostPressure(active) {
+    const next = !!active;
+    if (hostPressure === next) return;
+    hostPressure = next;
+    // Серии обнуляем в обе стороны: пробы, снятые на границе давления, не
+    // должны ни досчитать лесенку после выхода, ни зачесть выздоровление.
+    badStreak = 0;
+    goodStreak = 0;
+    lastState = next ? "PRESSURE" : "UNKNOWN";
+    // При выходе не бьём пробой сразу в тот же миг, когда хост только отпустило:
+    // даём каналу осесть обычный минимальный зазор.
+    lastProbeAt = next ? now() : now() - PROBE_MIN_GAP_MS;
+  }
 
   return {
-    onConnected, onIdle, tick, updatePassive, setOptions,
+    onConnected, onIdle, tick, updatePassive, setOptions, setHostPressure,
     getSamples: () => samples.slice(), // снимок ring-буфера для осциллограммы
     get state() { return lastState; },
     get isRemediating() { return remediatingEpoch === sessionEpoch; },

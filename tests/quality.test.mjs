@@ -263,3 +263,83 @@ test("выключенный quality engine не прогревает локал
   await Promise.resolve();
   assert.equal(asnCalls, 0);
 });
+
+// Давление хоста — не свойство канала. Под нехваткой CPU/памяти проба меряет
+// планировщик, а лесенка (смена ноды → реконнект) платит самым дорогим
+// действием ровно тогда, когда машине и так плохо.
+test("под давлением хоста движок не пробует канал и не лечит его", async () => {
+  installStorage();
+  let probes = 0;
+  let ladderRan = false;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => {
+      if (cmd === "probe_quality") { probes++; return STALLED; }
+      return undefined;
+    },
+    actions: {
+      selectNextNode: async () => { ladderRan = true; return true; },
+      giveUp: () => { ladderRan = true; },
+    },
+    opts: { enabled: true },
+  });
+
+  engine.onConnected({});
+  engine.setHostPressure(true);
+  for (let i = 0; i < 4; i++) {
+    armSuspect(engine);
+    await engine.tick();
+  }
+
+  assert.equal(probes, 0, "проба под давлением хоста меряет не канал");
+  assert.equal(ladderRan, false);
+});
+
+test("после снятия давления движок снова пробует канал", async () => {
+  installStorage();
+  let probes = 0;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => {
+      if (cmd === "probe_quality") { probes++; return GOOD; }
+      return undefined;
+    },
+    actions: {},
+    opts: { enabled: true },
+  });
+
+  engine.onConnected({});
+  engine.setHostPressure(true);
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(probes, 0);
+
+  engine.setHostPressure(false);
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(probes, 1);
+});
+
+test("вход в давление обнуляет накопленную серию плохих проб", async () => {
+  installStorage();
+  let ladderRan = false;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => (cmd === "probe_quality" ? STALLED : undefined),
+    actions: {
+      selectNextNode: async () => { ladderRan = true; return true; },
+      giveUp: () => { ladderRan = true; },
+    },
+    opts: { enabled: true },
+  });
+
+  engine.onConnected({});
+  armSuspect(engine);
+  await engine.tick(); // одна плохая проба — до BAD_STREAK не хватает одной
+  assert.equal(ladderRan, false);
+
+  engine.setHostPressure(true);
+  engine.setHostPressure(false);
+  armSuspect(engine);
+  await engine.tick();
+  // Серия начата заново, поэтому лесенка ещё не имеет права стартовать: иначе
+  // проба, снятая на границе давления, досчитала бы чужой стрик.
+  assert.equal(ladderRan, false);
+});

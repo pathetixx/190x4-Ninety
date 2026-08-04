@@ -374,6 +374,8 @@ export const tr = {
     switchMode: "Mod değiştiriliyor…",
     coreStopped: "Çekirdek durdu",
     coreStoppedDesc: "Tünel kapandı · sing-box beklenmedik şekilde sonlandı",
+    coreRestoring: "Çekirdek çöktü — bağlantı geri yükleniyor",
+    coreRestored: "Bağlantı geri yüklendi",
     notifyClosedTitle: "Ninety · tünel kapandı",
     notifyClosedBody: "sing-box çekirdeği durdu",
     xhttpDown: "xhttp çekirdeği çöktü — yeniden bağlanılıyor",

@@ -374,6 +374,8 @@ export const fr = {
     switchMode: "Changement de mode…",
     coreStopped: "Le cœur s’est arrêté",
     coreStoppedDesc: "Tunnel fermé · sing-box s’est arrêté inopinément",
+    coreRestoring: "Le cœur s’est arrêté — reconnexion en cours",
+    coreRestored: "Connexion rétablie",
     notifyClosedTitle: "Ninety · tunnel fermé",
     notifyClosedBody: "Le cœur sing-box s’est arrêté",
     xhttpDown: "Le cœur xhttp a planté — reconnexion",

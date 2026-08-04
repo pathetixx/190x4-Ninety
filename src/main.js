@@ -1137,6 +1137,20 @@ const healthWatchdog = initHealthWatchdog({
   reconcileKillSwitch: () => applyKillSwitch(state === "connected"),
   beginRuntimeOperation: (kind) => beginRuntimeOperation(kind),
   completeRuntimeOperation,
+  // Восстановление после краха ядра: намерение пользователя всё ещё
+  // «подключено» (intent сбрасывают только явный disconnect и bootstrap),
+  // поэтому идём тем же путём, что и реконнект при смене источника.
+  restoreAfterCoreDeath: (reason, context) => reconnectCommittedSource(reason, context),
+  subscribeCoreDeath: (handler) => window.__TAURI__?.event?.listen?.("vpn:core-died", handler),
+  recordDiagnostic: (phase, result, reason) => {
+    void invoke("record_frontend_runtime_event", {
+      token: null,
+      phase,
+      result,
+      reason: reason || null,
+      generation: Number(runtimeIdentity.capture()?.processGeneration) || null,
+    }).catch(error => console.warn("watchdog diagnostic failed", error));
+  },
 });
 const startHealthWatchdog = healthWatchdog.start;
 const stopHealthWatchdog = healthWatchdog.stop;

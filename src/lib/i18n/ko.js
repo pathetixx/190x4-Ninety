@@ -374,6 +374,8 @@ export const ko = {
     switchMode: "모드 전환 중…",
     coreStopped: "코어가 중지되었습니다",
     coreStoppedDesc: "터널 닫힘 · sing-box가 예기치 않게 종료되었습니다",
+    coreRestoring: "코어가 중지됨 — 연결을 복구하는 중",
+    coreRestored: "연결이 복구되었습니다",
     notifyClosedTitle: "Ninety · 터널 닫힘",
     notifyClosedBody: "sing-box 코어가 중지되었습니다",
     xhttpDown: "xhttp 코어가 충돌했습니다 — 재연결 중",

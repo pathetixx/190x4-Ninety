@@ -374,6 +374,8 @@ export const de = {
     switchMode: "Wechsle Modus…",
     coreStopped: "Der Kern wurde gestoppt",
     coreStoppedDesc: "Tunnel geschlossen · sing-box unerwartet beendet",
+    coreRestoring: "Kern abgestürzt – Verbindung wird wiederhergestellt",
+    coreRestored: "Verbindung wiederhergestellt",
     notifyClosedTitle: "Ninety · Tunnel geschlossen",
     notifyClosedBody: "Der sing-box-Kern wurde gestoppt",
     xhttpDown: "xhttp-Kern abgestürzt — verbinde neu",

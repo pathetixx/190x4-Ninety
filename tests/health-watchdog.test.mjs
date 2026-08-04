@@ -185,3 +185,234 @@ test("поздний rearm отменённой policy завершается а
 
   assert.equal(reconciles, 1);
 });
+
+// Смерть ядра под нагрузкой — тот отказ, ради которого сторож и существует.
+// Погасить и написать «ядро остановилось» это не отказоустойчивость: юзер в
+// другом приложении и увидит тост в лучшем случае через минуты.
+test("сторож поднимает runtime заново после смерти ядра", async () => {
+  let state = "connected";
+  const order = [];
+  const watchdog = initHealthWatchdog({
+    getState: () => state,
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => { order.push("stop"); state = "idle"; return true; },
+    restoreAfterCoreDeath: async () => { order.push("restore"); state = "connected"; return true; },
+    reconnectForSourceChange: () => {},
+    switchView: () => { order.push("logs"); },
+    getQualityEngine: () => null,
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+
+  assert.deepEqual(order, ["stop", "restore"]);
+});
+
+test("восстановление живёт внутри одной операции со shutdown", async () => {
+  let state = "connected";
+  const tokens = [];
+  const watchdog = initHealthWatchdog({
+    getState: () => state,
+    isUpdateInstalling: () => false,
+    shutdownCore: async (options) => {
+      tokens.push(options.operationToken);
+      state = "idle";
+      return true;
+    },
+    restoreAfterCoreDeath: async (_reason, context) => {
+      tokens.push(context.operationToken);
+      state = "connected";
+      return true;
+    },
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    beginRuntimeOperation: async () => ({ id: 7 }),
+    completeRuntimeOperation: async () => true,
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+
+  // Один и тот же токен: между остановкой и повторным стартом не должна
+  // вклиниться чужая операция, иначе fail-closed окно останется без владельца.
+  assert.equal(tokens.length, 2);
+  assert.deepEqual(tokens[0], { id: 7 });
+  assert.deepEqual(tokens[1], { id: 7 });
+});
+
+test("бюджет восстановления не даёт зациклиться на падающем ядре", async () => {
+  let state = "connected";
+  let restores = 0;
+  let clock = 0;
+  const watchdog = initHealthWatchdog({
+    getState: () => state,
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => { state = "idle"; return true; },
+    restoreAfterCoreDeath: async () => { restores++; state = "connected"; return true; },
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+    now: () => clock,
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  state = "connected";
+  clock += 60_000;
+  await watchdog.tick();
+
+  assert.equal(restores, 1, "вторая смерть в том же окне лечится не перезапуском");
+
+  state = "connected";
+  clock += 16 * 60_000; // окно бюджета истекло
+  await watchdog.tick();
+  assert.equal(restores, 2);
+});
+
+test("неудачное восстановление закрывает туннель честной ошибкой", async () => {
+  let state = "connected";
+  let errorToasts = 0;
+  let switched = null;
+  const watchdog = initHealthWatchdog({
+    getState: () => state,
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => { state = "idle"; return true; },
+    restoreAfterCoreDeath: async () => false,
+    reconnectForSourceChange: () => {},
+    switchView: (view) => { switched = view; },
+    getQualityEngine: () => null,
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
+    toast: (_msg, kind) => { if (kind === "error") errorToasts++; },
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+
+  assert.equal(errorToasts, 1);
+  assert.equal(switched, "logs");
+});
+
+test("событие смерти ядра из Rust вызывает проверку немедленно", async () => {
+  let state = "connected";
+  let handler = null;
+  let unsubscribed = 0;
+  let shutdowns = 0;
+  const watchdog = initHealthWatchdog({
+    getState: () => state,
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => { shutdowns++; state = "idle"; return true; },
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    subscribeCoreDeath: (fn) => { handler = fn; return () => { unsubscribed++; }; },
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    // Таймер намеренно мёртвый: детект обязан работать и тогда, когда WebView
+    // в трее задушен Chromium и тик приходит раз в минуту.
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  assert.equal(typeof handler, "function");
+  handler({ payload: { generation: 3, reason: "crashed" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(shutdowns, 1);
+
+  watchdog.stop();
+  assert.equal(unsubscribed, 1);
+});
+
+test("опоздавший тик попадает в журнал, а не остаётся незамеченным", async () => {
+  let clock = 1_700_000_000_000; // реальная эпоха: нулевой старт скрыл бы первый замер
+  let timerCallback = null;
+  const diagnostics = [];
+  const watchdog = initHealthWatchdog({
+    getState: () => "idle",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => {},
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    recordDiagnostic: (phase, result, reason) => diagnostics.push([phase, result, reason]),
+    invoke: async () => ({ singbox_running: true, xray: "none", sidecar: "none" }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: (fn) => { timerCallback = fn; return 1; },
+    clearInterval: () => {},
+    perf: { gauge: () => {}, increment: () => {} },
+    now: () => clock,
+  });
+
+  watchdog.start();
+  clock += 5_000; // штатный интервал
+  timerCallback();
+  assert.deepEqual(diagnostics, []);
+
+  clock += 65_000; // страница скрыта, Chromium разбудил таймер раз в минуту
+  timerCallback();
+  assert.deepEqual(diagnostics, [["watchdog_tick", "degraded", "gap_65000ms"]]);
+});
+
+test("перезапуск сторожа не копит слушателей события", async () => {
+  const live = new Set();
+  let issued = 0;
+  const pending = [];
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    // Подписка приезжает асинхронно — как настоящий listen() из Tauri.
+    subscribeCoreDeath: () => {
+      const id = ++issued;
+      live.add(id);
+      const promise = Promise.resolve(() => live.delete(id));
+      pending.push(promise);
+      return promise;
+    },
+    invoke: async () => ({ singbox_running: true, xray: "none", sidecar: "none" }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  watchdog.stop();
+  watchdog.start();
+  await Promise.all(pending);
+  watchdog.stop();
+
+  assert.equal(issued, 2);
+  assert.equal(live.size, 0, "обе подписки обязаны быть сняты");
+});

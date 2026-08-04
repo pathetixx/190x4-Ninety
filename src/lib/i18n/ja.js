@@ -374,6 +374,8 @@ export const ja = {
     switchMode: "モードを切り替え中…",
     coreStopped: "コアが停止しました",
     coreStoppedDesc: "トンネル終了 · sing-box が予期せず終了しました",
+    coreRestoring: "コアが停止しました — 接続を復元しています",
+    coreRestored: "接続を復元しました",
     notifyClosedTitle: "Ninety · トンネル終了",
     notifyClosedBody: "sing-box コアが停止しました",
     xhttpDown: "xhttp コアがクラッシュしました — 再接続中",

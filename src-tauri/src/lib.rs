@@ -6,6 +6,7 @@ mod clash_stream;
 mod discord_cache;
 mod dnscheck;
 mod dpi;
+mod host_pressure;
 mod killswitch;
 mod netproc;
 mod profile_store;
@@ -578,6 +579,7 @@ pub fn run() {
         // от него отказались, миграция в setup() (migrate_legacy_autostart).
         .manage(SingboxState::default())
         .manage(dpi::DpiState::default())
+        .manage(host_pressure::HostPressureState::default())
         .manage(clash_stream::ClashStreamState::default())
         .manage(killswitch::KillSwitchState::default())
         .manage(runtime_ops::RuntimeOperationCoordinator::default())
@@ -630,6 +632,17 @@ pub fn run() {
                     }
                 }
             }
+
+            // Сэмплер давления хоста поднимаем сразу и на всё время жизни
+            // процесса: ему нужна предыдущая выборка CPU-счётчиков, чтобы
+            // посчитать первую дельту, а к моменту подключения ответ на вопрос
+            // «виноват ли хост» должен быть уже готов. Прав на runtime у него
+            // нет — только цифры для движка качества.
+            host_pressure::start(
+                app.state::<host_pressure::HostPressureState>()
+                    .inner()
+                    .clone(),
+            );
 
             // Окно по умолчанию скрыто (visible:false). Показываем сейчас, кроме
             // автозапуска при входе в Windows — там оставляем в трее.

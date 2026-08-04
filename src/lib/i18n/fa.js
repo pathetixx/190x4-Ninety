@@ -374,6 +374,8 @@ export const fa = {
     switchMode: "در حال تعویض حالت…",
     coreStopped: "هسته متوقف شد",
     coreStoppedDesc: "تونل بسته شد · sing-box به‌طور غیرمنتظره خارج شد",
+    coreRestoring: "هسته از کار افتاد — در حال بازیابی اتصال",
+    coreRestored: "اتصال بازیابی شد",
     notifyClosedTitle: "Ninety · تونل بسته شد",
     notifyClosedBody: "هستهٔ sing-box متوقف شد",
     xhttpDown: "هستهٔ xhttp از کار افتاد — در حال اتصال مجدد",

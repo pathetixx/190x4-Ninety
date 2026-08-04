@@ -374,6 +374,8 @@ export const es = {
     switchMode: "Cambiando de modo…",
     coreStopped: "El núcleo se detuvo",
     coreStoppedDesc: "Túnel cerrado · sing-box salió de forma inesperada",
+    coreRestoring: "El núcleo falló: restaurando la conexión",
+    coreRestored: "Conexión restaurada",
     notifyClosedTitle: "Ninety · túnel cerrado",
     notifyClosedBody: "El núcleo sing-box se detuvo",
     xhttpDown: "El núcleo xhttp falló — reconectando",

@@ -374,6 +374,8 @@ export const ru = {
     switchMode: "Переключаю режим…",
     coreStopped: "Ядро остановилось",
     coreStoppedDesc: "Туннель закрыт · sing-box завершился неожиданно",
+    coreRestoring: "Ядро упало — восстанавливаю подключение",
+    coreRestored: "Подключение восстановлено",
     notifyClosedTitle: "Ninety · туннель закрыт",
     notifyClosedBody: "Ядро sing-box остановилось",
     xhttpDown: "xhttp-ядро упало — переподключаюсь",

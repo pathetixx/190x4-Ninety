@@ -374,6 +374,8 @@ export const uk = {
     switchMode: "Перемикаю режим…",
     coreStopped: "Ядро зупинилося",
     coreStoppedDesc: "Тунель закрито · sing-box завершився несподівано",
+    coreRestoring: "Ядро впало — відновлюю підключення",
+    coreRestored: "Підключення відновлено",
     notifyClosedTitle: "Ninety · тунель закрито",
     notifyClosedBody: "Ядро sing-box зупинилося",
     xhttpDown: "xhttp-ядро впало — перепідключаюся",

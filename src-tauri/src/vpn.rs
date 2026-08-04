@@ -10,7 +10,7 @@ use crate::runtime_ops::{
     RuntimeOperationKind, RuntimeOperationToken,
 };
 use crate::util::MutexExt;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -611,9 +611,36 @@ fn xray_log_path(app: &AppHandle) -> Option<PathBuf> {
 }
 
 // При высокой загрузке Windows не гарантирует, что userspace datapath будет
-// получать CPU вовремя. Поднимаем только критичные сетевые children до
-// ABOVE_NORMAL: HIGH/REALTIME намеренно не используем, чтобы не превращать
-// Ninety в источник starvation для всей системы.
+// получать CPU вовремя (рендер видео, компиляция, игра — ядро голодает, TUN-
+// очереди не разгребаются, хендшейки истекают, и юзер видит «VPN упал», хотя
+// процесс жив). Поднимаем только критичные сетевые children до ABOVE_NORMAL:
+// HIGH/REALTIME намеренно не используем, чтобы не превращать Ninety в источник
+// starvation для всей системы. Неудача не фатальна — датаплейн просто остаётся
+// на NORMAL, поэтому ошибку только логируем.
+fn prioritize_datapath_process(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{
+            OpenProcess, SetPriorityClass, ABOVE_NORMAL_PRIORITY_CLASS, PROCESS_SET_INFORMATION,
+        };
+
+        unsafe {
+            match OpenProcess(PROCESS_SET_INFORMATION, false, pid) {
+                Ok(handle) => {
+                    if let Err(error) = SetPriorityClass(handle, ABOVE_NORMAL_PRIORITY_CLASS) {
+                        eprintln!("datapath priority failed for pid {pid}: {error}");
+                    }
+                    let _ = CloseHandle(handle);
+                }
+                Err(error) => eprintln!("datapath priority open failed for pid {pid}: {error}"),
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = pid;
+}
+
 // Поднимает xray-core sidecar для xhttp-нод (two-core). Всегда user-level,
 // слушает 127.0.0.1; sing-box (свой child или сервис под LocalSystem) ходит
 // к нему через loopback socks-мосты из конфига. Spawn до sing-box.
@@ -638,6 +665,7 @@ async fn spawn_xray(
         .env("NO_COLOR", "1")
         .spawn()
         .map_err(|e| format!("spawn xray: {e}"))?;
+    prioritize_datapath_process(child.pid());
     *state.xray_child.lock_recover() = Some(child);
 
     let died_flag = state.xray_died.clone();
@@ -747,6 +775,7 @@ async fn spawn_sidecars(
             .env("NO_COLOR", "1")
             .spawn()
             .map_err(|e| format!("spawn {bin}: {e}"))?;
+        prioritize_datapath_process(child.pid());
         state.sidecars.lock_recover().push(child);
 
         let died_flag = state.sidecar_died.clone();
@@ -2123,7 +2152,51 @@ async fn start_singbox_inner(
         clash_ready: true,
     });
     state.dataplane_probe.reset_generation(process_generation);
+    spawn_core_death_watcher(app.clone(), state, process_generation);
     Ok(runtime_snapshot_value(state, false))
+}
+
+// Имя события смерти ядра. Полезная нагрузка — только поколение и текст
+// причины из лога движка: ни адресов, ни конфига.
+pub const CORE_DIED_EVENT: &str = "vpn:core-died";
+
+#[derive(Clone, serde::Serialize)]
+pub struct CoreDiedEvent {
+    pub generation: u64,
+    pub reason: Option<String>,
+}
+
+// Rust узнаёт о смерти ядра мгновенно: монитор процесса ловит Terminated и
+// дёргает `process_exit_notify`. До этого сторожа событие никто не потреблял —
+// фронт обнаруживал труп только на очередном 5-секундном тике, то есть детект
+// зависел от таймера WebView. В трее Chromium режет таймеры скрытой страницы, а
+// под полной загрузкой CPU рендерер планируется последним, — ровно в тех
+// случаях, где отказоустойчивость и нужна. Сторож НИЧЕГО не останавливает и не
+// поднимает: политику (гасить, восстанавливать, что показать) по-прежнему решает
+// фронт, здесь только доставка факта без задержки.
+fn spawn_core_death_watcher(app: AppHandle, state: &SingboxState, generation: u64) {
+    let died = state.died.clone();
+    let current_generation = state.process_generation.clone();
+    let notify = state.process_exit_notify.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            // Регистрируем ожидание ДО проверки условия: иначе смерть, попавшая
+            // в окно между проверкой и await, потеряла бы пробуждение, и сторож
+            // висел бы до чужого exit'а.
+            let notified = notify.notified();
+            tokio::pin!(notified);
+            let _ = notified.as_mut().enable();
+            if current_generation.load(Ordering::SeqCst) != generation {
+                return; // поколение сменилось — этот runtime уже не наш
+            }
+            let reason = died.lock_recover().clone();
+            if reason.is_some() {
+                let _ = app.emit(CORE_DIED_EVENT, CoreDiedEvent { generation, reason });
+                return;
+            }
+            notified.await;
+        }
+    });
 }
 
 #[tauri::command]
@@ -2195,6 +2268,7 @@ async fn spawn_singbox_core(
         .spawn()
         .map_err(|e| format!("spawn sing-box: {e}"))?;
 
+    prioritize_datapath_process(child.pid());
     *state.child.lock_recover() = Some(child);
 
     let died_flag = state.died.clone();
@@ -2816,6 +2890,9 @@ pub struct HealthSnapshot {
     pub last_error: Option<String>,
     pub kill_switch_active: bool,
     pub runtime_operation: Option<crate::runtime_ops::RuntimeOperationSnapshot>,
+    // Виноват ли хост, а не сеть. Едет тем же снимком, чтобы движок качества
+    // узнавал о нехватке CPU/памяти без отдельного round-trip'а.
+    pub host_pressure: crate::host_pressure::HostPressureSnapshot,
 }
 
 #[tauri::command]
@@ -2823,6 +2900,7 @@ pub fn health_snapshot(
     state: State<'_, SingboxState>,
     kill_switch: State<'_, crate::killswitch::KillSwitchState>,
     coordinator: State<'_, RuntimeOperationCoordinator>,
+    pressure: State<'_, crate::host_pressure::HostPressureState>,
 ) -> HealthSnapshot {
     HealthSnapshot {
         singbox_running: compute_singbox_running(&state),
@@ -2831,6 +2909,7 @@ pub fn health_snapshot(
         last_error: compute_last_error(&state),
         kill_switch_active: crate::killswitch::is_active(&kill_switch),
         runtime_operation: coordinator.snapshot(),
+        host_pressure: pressure.snapshot(),
     }
 }
 

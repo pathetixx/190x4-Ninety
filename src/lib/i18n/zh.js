@@ -374,6 +374,8 @@ export const zh = {
     switchMode: "正在切换模式…",
     coreStopped: "内核已停止",
     coreStoppedDesc: "隧道已关闭 · sing-box 意外退出",
+    coreRestoring: "内核已崩溃 — 正在恢复连接",
+    coreRestored: "连接已恢复",
     notifyClosedTitle: "Ninety · 隧道已关闭",
     notifyClosedBody: "sing-box 内核已停止",
     xhttpDown: "xhttp 内核崩溃——正在重连",

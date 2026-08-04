@@ -374,6 +374,8 @@ export const pt = {
     switchMode: "A mudar de modo…",
     coreStopped: "O núcleo parou",
     coreStoppedDesc: "Túnel fechado · o sing-box terminou inesperadamente",
+    coreRestoring: "O núcleo falhou — a restaurar a ligação",
+    coreRestored: "Ligação restaurada",
     notifyClosedTitle: "Ninety · túnel fechado",
     notifyClosedBody: "O núcleo sing-box parou",
     xhttpDown: "O núcleo xhttp falhou — a reconectar",

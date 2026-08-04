@@ -374,6 +374,8 @@ export const it = {
     switchMode: "Cambio modalità…",
     coreStopped: "Il core si è arrestato",
     coreStoppedDesc: "Tunnel chiuso · sing-box è uscito inaspettatamente",
+    coreRestoring: "Il core è andato in crash: ripristino la connessione",
+    coreRestored: "Connessione ripristinata",
     notifyClosedTitle: "Ninety · tunnel chiuso",
     notifyClosedBody: "Il core sing-box si è arrestato",
     xhttpDown: "Il core xhttp è andato in crash — riconnessione",

@@ -374,6 +374,8 @@ export const pl = {
     switchMode: "Przełączanie trybu…",
     coreStopped: "Rdzeń zatrzymał się",
     coreStoppedDesc: "Tunel zamknięty · sing-box zakończył działanie nieoczekiwanie",
+    coreRestoring: "Rdzeń padł — przywracam połączenie",
+    coreRestored: "Połączenie przywrócone",
     notifyClosedTitle: "Ninety · tunel zamknięty",
     notifyClosedBody: "Rdzeń sing-box zatrzymał się",
     xhttpDown: "Rdzeń xhttp uległ awarii — ponowne łączenie",
