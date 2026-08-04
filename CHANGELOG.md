@@ -2,6 +2,42 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.57 — 2026-08-04
+
+## Что нового
+
+- Подключение восстанавливается само, если ядро упало. Раньше туннель просто закрывался и подключаться приходилось вручную.
+- Под полной загрузкой компьютера (рендер видео, игра, сборка проекта) приложение больше не лечит связь сменой сервера и переподключением: нехватка ресурсов компьютера и проблемы сети теперь различаются. Сетевым процессам поднят приоритет, чтобы им хватало процессора.
+- Обновление снова заметно, когда окно свёрнуто в трей: пункт в меню и версия в подсказке при наведении на иконку. «Позже» больше не прячет обновление насовсем — оно остаётся доступным в трее.
+
+## Исправлено
+
+- Профили и подписки действительно попадают в защищённое хранилище. Запись в него не работала, и данные оставались в открытом виде; при первом запуске этой версии они переносятся, а открытые копии удаляются.
+- Отмена подключения могла оставить рабочие процессы запущенными — после этого приложение отказывалось подключаться снова.
+- Пароли с двоеточием в ссылках Shadowsocks и TUIC.
+- Параметр insecure в ссылках Hysteria2 больше не игнорируется.
+- Выключение обхода блокировок больше не подвешивает окно на несколько секунд.
+- Ссылки vless:// и остальные освобождаются корректно, если приложение переместили в другую папку.
+- Проверка обновлений больше не выключается до перезапуска приложения из-за внутренней ошибки.
+
+---
+
+## What's new
+
+- The connection now restores itself when the core crashes. Previously the tunnel simply closed and had to be started again by hand.
+- Under a fully loaded computer (video rendering, a game, a build) the app no longer treats the situation as a network problem and no longer answers it with server switches and reconnects. Network processes also get a higher priority so they are not starved of CPU.
+- An available update is visible again while the window sits in the tray: a menu entry plus the version in the icon tooltip. Later no longer hides the update for good — it stays available from the tray.
+
+## Fixed
+
+- Profiles and subscriptions now really reach the protected storage. Writing to it did not work and the data stayed in the clear; the first launch of this version migrates it and removes the plain copies.
+- Cancelling a connection could leave engine processes running, after which the app refused to connect again.
+- Passwords containing a colon in Shadowsocks and TUIC links.
+- The insecure parameter in Hysteria2 links is no longer ignored.
+- Turning the blocking bypass off no longer freezes the window for several seconds.
+- vless:// and the other links are released correctly when the app is moved to another folder.
+- The update check no longer stays disabled until the app is restarted because of an internal error.
+
 ## v0.2.56 — 2026-08-03
 
 ## English
