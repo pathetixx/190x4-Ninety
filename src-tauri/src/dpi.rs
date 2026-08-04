@@ -15,7 +15,7 @@ use std::process::Child;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::atomic_file::{copy_replace, write_bytes_replace, write_replace};
+use crate::atomic_file::{copy_replace, overwrite_in_place, write_bytes_replace, write_replace};
 use crate::util::MutexExt;
 use reqwest::Response;
 use serde::{Deserialize, Serialize};
@@ -2265,6 +2265,17 @@ fn strip_managed_block(content: &str) -> Result<String, String> {
     Ok(out)
 }
 
+// Сохранить перенос строки исходного hosts. strip_managed_block работает через
+// lines() и отдаёт текст с LF, поэтому CRLF-файл пользователя иначе молча
+// нормализуется целиком — включая чужие строки, которых мы не касались.
+fn apply_hosts_line_endings(rendered: &str, original: &str) -> String {
+    if original.contains("\r\n") {
+        rendered.replace('\n', "\r\n")
+    } else {
+        rendered.to_string()
+    }
+}
+
 // Сколько валидных записей «IP домен» в тексте (без пустых строк и комментариев).
 fn count_hosts_entries(body: &str) -> usize {
     body.lines()
@@ -2368,7 +2379,12 @@ pub async fn dpi_hosts_apply(
     out.push_str(HOSTS_END);
     out.push('\n');
 
-    write_bytes_replace(&path, out.as_bytes(), "system hosts").map_err(|e| {
+    // Системный hosts перезаписываем НА МЕСТЕ, а не подменяем: замена файла
+    // отдала бы цели DACL временного объекта, а Controlled Folder Access и часть
+    // антивирусов блокируют именно подмену. Откат при сбое — проверенный
+    // hosts.backup выше.
+    let out = apply_hosts_line_endings(&out, &current);
+    overwrite_in_place(&path, out.as_bytes(), "system hosts").map_err(|e| {
         format!(
             "запись hosts ({}): нужны права администратора — {e}",
             path.display()
@@ -2390,7 +2406,8 @@ pub fn dpi_hosts_clear(_app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let stripped = format!("{}\n", strip_managed_block(&current)?.trim_end());
-    write_bytes_replace(&path, stripped.as_bytes(), "system hosts")
+    let stripped = apply_hosts_line_endings(&stripped, &current);
+    overwrite_in_place(&path, stripped.as_bytes(), "system hosts")
         .map_err(|e| format!("запись hosts: нужны права администратора — {e}"))?;
     flush_dns();
     Ok(())
@@ -2918,6 +2935,14 @@ mod tests {
             assert!(!valid_channel_generation_name(invalid), "{invalid}");
         }
         assert!(valid_channel_generation_name("gen-123-456-0"));
+    }
+
+    #[test]
+    fn hosts_keeps_the_original_line_endings() {
+        let crlf = "# base\r\n127.0.0.1 localhost\r\n";
+        let rendered = "# base\n127.0.0.1 localhost\n";
+        assert_eq!(apply_hosts_line_endings(rendered, crlf), crlf);
+        assert_eq!(apply_hosts_line_endings(rendered, "# base\n"), rendered);
     }
 
     #[test]

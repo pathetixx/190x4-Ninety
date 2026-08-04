@@ -66,6 +66,27 @@ pub fn write_bytes_replace(to: &Path, body: &[u8], label: &str) -> Result<(), St
     result
 }
 
+/// Перезапись содержимого уже существующего файла на месте.
+///
+/// Для системных файлов (в первую очередь `System32\drivers\etc\hosts`) это
+/// правильнее замены через `MoveFileEx`: replace создаёт НОВЫЙ объект файла, и
+/// цель получает DACL/владельца временного файла вместо исходных прав, а
+/// Controlled Folder Access и часть антивирусов блокируют именно подмену
+/// системного файла, пропуская перезапись содержимого. Атомарности здесь нет —
+/// вызывающий обязан держать проверенный backup (см. `dpi::dpi_hosts_apply`).
+pub fn overwrite_in_place(path: &Path, body: &[u8], label: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
+        .map_err(|e| format!("open {label}: {e}"))?;
+    file.write_all(body)
+        .map_err(|e| format!("write {label}: {e}"))?;
+    file.sync_all().map_err(|e| format!("sync {label}: {e}"))
+}
+
 pub fn copy_replace(from: &Path, to: &Path, label: &str) -> Result<(), String> {
     let body = std::fs::read(from).map_err(|e| format!("read {label}: {e}"))?;
     write_bytes_replace(to, &body, label)
@@ -78,6 +99,25 @@ pub fn write_replace(to: &Path, body: &str, label: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn in_place_overwrite_keeps_the_same_file_object() {
+        let dir = std::env::temp_dir().join(format!("ninety-inplace-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("hosts");
+        std::fs::write(&file, b"# original\n127.0.0.1 localhost\n").unwrap();
+        overwrite_in_place(&file, b"# managed\n", "test hosts").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "# managed\n");
+        // Никаких временных файлов рядом с целью: в System32\drivers\etc такой
+        // мусор остаётся после падения процесса.
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        // Файла может не быть — тогда он создаётся.
+        let fresh = dir.join("fresh");
+        overwrite_in_place(&fresh, b"new\n", "test fresh").unwrap();
+        assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "new\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn replacement_overwrites_without_leaving_temp_file() {
