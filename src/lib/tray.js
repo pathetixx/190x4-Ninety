@@ -79,6 +79,7 @@ const trayMenuSync = createLatestRunner(async () => {
           updateTo: t("tray.updateTo"),
           tipOff: t("tray.tipOff"),
           tipConnected: t("tray.tipConnected"),
+          tipUpdate: t("tray.tipUpdate"),
         },
       },
     });

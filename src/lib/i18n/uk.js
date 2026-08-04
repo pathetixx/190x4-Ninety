@@ -78,6 +78,7 @@ export const uk = {
     updateTo: "Оновити до v{ver}",
     tipOff: "Ninety · відключено",
     tipConnected: "Ninety · {mode} · підключено",
+    tipUpdate: "Доступне оновлення v{ver}",
   },
 
   mode: {

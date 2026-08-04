@@ -78,6 +78,7 @@ export const fa = {
     updateTo: "به‌روزرسانی به v{ver}",
     tipOff: "Ninety · قطع",
     tipConnected: "Ninety · {mode} · متصل",
+    tipUpdate: "به‌روزرسانی v{ver} در دسترس است",
   },
 
   mode: {

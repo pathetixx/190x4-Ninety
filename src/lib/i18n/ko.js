@@ -78,6 +78,7 @@ export const ko = {
     updateTo: "v{ver}(으)로 업데이트",
     tipOff: "Ninety · 연결 안 됨",
     tipConnected: "Ninety · {mode} · 연결됨",
+    tipUpdate: "업데이트 v{ver} 사용 가능",
   },
 
   mode: {

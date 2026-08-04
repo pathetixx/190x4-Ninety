@@ -78,6 +78,7 @@ export const pt = {
     updateTo: "Atualizar para v{ver}",
     tipOff: "Ninety · desconectado",
     tipConnected: "Ninety · {mode} · conectado",
+    tipUpdate: "Atualização v{ver} disponível",
   },
 
   mode: {

@@ -34,6 +34,7 @@ import { a11ySwitch } from "/lib/switch-a11y.js";
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
 import { openUpdateModal, resumeRuntimeReady, shouldSkip as updateShouldSkip } from "/lib/update-modal.js";
+import { planUpdateNotice, UPDATE_NOTICE } from "/lib/update-notice.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
@@ -3796,15 +3797,21 @@ async function showUpdateModal(update, opts = {}) {
     updateInstalling = false;
     syncTrayMenu();
     if (pendingUpdate) {
-      queueMicrotask(() => { void flushPendingUpdate({ requireForeground: true }); });
+      queueMicrotask(() => {
+        void flushPendingUpdate({ requireForeground: true, respectSkip: true });
+      });
     }
   }
 }
 
-// Показать отложенное обновление (юзер вернулся к окну). respectSkip=false —
-// он сам открыл приложение, значит готов смотреть; «Позже» внутри модалки.
-async function flushPendingUpdate({ requireForeground = false } = {}) {
+// Показать отложенное обновление. respectSkip=false (по умолчанию) — вызов
+// пришёл от явного действия пользователя (пункт трея, кнопка «Проверить»), и
+// прежнее «Позже» он этим действием и переспросил. respectSkip=true — вызов
+// автоматический (фокус окна, хвост закрытой модалки): пропущенную версию не
+// навязываем, но из трея она никуда не девается.
+async function flushPendingUpdate({ requireForeground = false, respectSkip = false } = {}) {
   if (!pendingUpdate || updateModalShowing) return;
+  if (respectSkip && updateShouldSkip(pendingUpdate.version)) return;
   if (requireForeground && !(await windowIsForeground())) return;
   // Пока ждали IPC окна, OTA мог забрать focus/tray-handler.
   if (!pendingUpdate || updateModalShowing) return;
@@ -3823,6 +3830,20 @@ function updaterProxy() {
   return hostPort ? `http://${hostPort}` : null;
 }
 
+// OTA в трее раньше не оставляла ни следа: любой отказ (нет сети, заблокирован
+// эндпоинт, не закрылся Resource) молчал в консоли WebView, и снаружи это было
+// неотличимо от «обновлений нет». Пишем исход каждой проверки в рантайм-журнал —
+// он виден в разделе «Логи».
+function recordUpdateEvent(phase, result, reason = null) {
+  void invoke("record_frontend_runtime_event", {
+    token: null,
+    phase,
+    result,
+    reason,
+    generation: null,
+  }).catch(error => console.warn("update diagnostic failed", error));
+}
+
 // true — проверка ДОСТИГЛА сервера (апдейт есть или его нет); false — не смогли
 // проверить (нет сети / эндпоинты недоступны) → скедулер уходит в бэкоф-ретрай.
 async function performUpdateCheck(request) {
@@ -3833,6 +3854,7 @@ async function performUpdateCheck(request) {
   // Не создаём новый Rust Update, пока не закрыт Resource от предыдущей
   // неудачной cleanup-попытки.
   if (!(await drainUpdateResourceCleanup())) {
+    recordUpdateEvent("update_check", "failed", "cleanup_pending");
     if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
     return false;
   }
@@ -3845,6 +3867,9 @@ async function performUpdateCheck(request) {
     update = await checkForUpdate({ proxy });
   } catch (e) {
     console.warn("update check failed", e);
+    // Причина — только транспорт: адреса эндпоинтов и текст ошибки в журнал не
+    // уезжают, там и так фиксируется сам факт недостижимости.
+    recordUpdateEvent("update_check", "failed", updaterProxy() ? "unreachable_via_tunnel" : "unreachable_direct");
     if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
     return false;
   }
@@ -3853,6 +3878,10 @@ async function performUpdateCheck(request) {
       pendingUpdate = null;
       syncTrayMenu();
     }
+    // Фиксируем и пустой результат: без него «OTA молчит, потому что нечего
+    // ставить» неотличимо от «проверки вообще не идут» — а в трее это разные
+    // диагнозы с разным лечением.
+    recordUpdateEvent("update_check", "none", null);
     if (request.interactive) toast(t("update.none"), "info", 2400);
     return true;
   }
@@ -3860,49 +3889,46 @@ async function performUpdateCheck(request) {
   // Для ожидания в трее оставляем plain metadata. Нативный Update держит Rust
   // Resource и HTTP client/proxy момента check(), поэтому сразу освобождаем его.
   const metadata = snapshotUpdate(update);
+
+  // Pending публикуется ПЕРВЫМ делом — до уборки ресурса и до оконного IPC.
+  // Апдейт уже найден, и пункт трея с подсказкой не должны зависеть ни от
+  // успеха close(), ни от гонки с focus-обработчиком: раньше неудачная уборка
+  // выбрасывала полностью валидную находку, и в трее не появлялось ничего.
+  if (!(updateModalShowing && String(activeUpdateVersion) === String(metadata.version))) {
+    pendingUpdate = metadata;
+    syncTrayMenu();
+  }
+
+  // Неудачная уборка Rust-ресурса — проблема утечки, а не проверки. Гейт на
+  // создание новых Update стоит в начале функции (drainUpdateResourceCleanup),
+  // здесь же важно не превратить это в «обновлений нет»: проверка сервер
+  // достигла, и скедулер не должен уходить в бэкоф-цикл.
   if (!(await closeUpdateResource(update))) {
+    recordUpdateEvent("update_resource", "degraded", "close_failed");
     if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
-    return false;
   }
 
-  // Фоновая проверка: уважаем «Позже» по этой версии — не навязываемся.
-  if (!request.interactive && updateShouldSkip(metadata.version)) {
-    if (String(pendingUpdate?.version) === String(metadata.version)) {
-      pendingUpdate = null;
-      syncTrayMenu();
-    }
-    return true;
-  }
+  const plan = planUpdateNotice({
+    interactive: request.interactive,
+    skipped: updateShouldSkip(metadata.version),
+    foreground: request.interactive ? true : await windowIsForeground(),
+    alreadyNotified: lastNotifiedUpdateVersion === metadata.version,
+    modalBusy: updateModalShowing && String(activeUpdateVersion) === String(metadata.version),
+  });
+  recordUpdateEvent("update_found", plan.action, plan.reason);
 
-  // Повторный ответ той же версии, пока её модалка уже открыта, не создаёт
-  // второй набор DOM-обработчиков. Более новый релиз остаётся pending.
-  if (updateModalShowing && String(activeUpdateVersion) === String(metadata.version)) {
-    return true;
-  }
-
-  // Pending публикуется ДО async-проверки окна: focus-event на любом await уже
-  // увидит OTA и сможет атомарно забрать его через flushPendingUpdate().
-  pendingUpdate = metadata;
-  syncTrayMenu();
-
-  // Ручной запрос повышает уже идущую фоновую проверку и игнорирует skip.
+  // Ручной клик мог присоединиться к фоновому flight, пока тот ждал оконный
+  // IPC: тогда обещанная модалка важнее плана, составленного для фона.
   if (request.interactive) {
     await flushPendingUpdate();
-  } else {
-    const foreground = await windowIsForeground();
-    // Ручной клик мог присоединиться, пока фоновый flight ждал оконный IPC.
-    // Проверяем promotion ещё раз, иначе в скрытом окне ручной запрос
-    // завершился бы только уведомлением без обещанной модалки.
-    if (request.interactive) {
-      await flushPendingUpdate();
-    } else if (foreground && pendingUpdate === metadata) {
-      await flushPendingUpdate({ requireForeground: true });
-    } else if (!foreground && pendingUpdate === metadata
-      && lastNotifiedUpdateVersion !== metadata.version) {
-      lastNotifiedUpdateVersion = metadata.version;
-      notify(t("update.notifyTitle"),
-        t("update.notifyBody", { version: metadata.version }));
-    }
+    return true;
+  }
+  if (plan.action === UPDATE_NOTICE.MODAL && pendingUpdate === metadata) {
+    await flushPendingUpdate({ requireForeground: true });
+  } else if (plan.action === UPDATE_NOTICE.NOTIFY && pendingUpdate === metadata) {
+    lastNotifiedUpdateVersion = metadata.version;
+    notify(t("update.notifyTitle"),
+      t("update.notifyBody", { version: metadata.version }));
   }
   return true;
 }
@@ -3969,7 +3995,8 @@ window.addEventListener("online", () => updateCheckIfStale(60_000));
     await tauriWin?.onFocusChanged?.(({ payload: focused }) => {
       activityController.setFocused(!!focused);
       if (!focused) return;
-      flushPendingUpdate();
+      // Фокус — не согласие смотреть пропущенную версию: она остаётся в трее.
+      flushPendingUpdate({ respectSkip: true });
       updateCheckIfStale();
     });
   } catch (e) { console.warn("focus listener failed", e); }

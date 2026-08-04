@@ -78,6 +78,7 @@ export const zh = {
     updateTo: "更新到 v{ver}",
     tipOff: "Ninety · 已断开",
     tipConnected: "Ninety · {mode} · 已连接",
+    tipUpdate: "有可用更新 v{ver}",
   },
 
   mode: {

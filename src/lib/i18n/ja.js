@@ -78,6 +78,7 @@ export const ja = {
     updateTo: "v{ver} に更新",
     tipOff: "Ninety · 切断中",
     tipConnected: "Ninety · {mode} · 接続中",
+    tipUpdate: "アップデート v{ver} が利用可能",
   },
 
   mode: {

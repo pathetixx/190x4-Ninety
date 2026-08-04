@@ -78,6 +78,7 @@ export const ar = {
     updateTo: "التحديث إلى v{ver}",
     tipOff: "Ninety · غير متصل",
     tipConnected: "Ninety · {mode} · متصل",
+    tipUpdate: "التحديث v{ver} متاح",
   },
 
   mode: {

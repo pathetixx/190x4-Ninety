@@ -272,6 +272,10 @@ struct TrayLabels {
     tip_off: String,
     /// Шаблон с {mode} — «Ninety · {mode} · подключено».
     tip_connected: String,
+    /// Шаблон с {ver}. Вторая строка подсказки, когда найден апдейт: в трее это
+    /// единственный признак, который не зависит от OS-уведомлений (те на
+    /// Windows молча теряются, если у сборки нет ярлыка с AppUserModelID).
+    tip_update: String,
 }
 
 impl Default for TrayLabels {
@@ -295,6 +299,7 @@ impl Default for TrayLabels {
             update_to: "Обновить до v{ver}".into(),
             tip_off: "Ninety · отключено".into(),
             tip_connected: "Ninety · {mode} · подключено".into(),
+            tip_update: "Доступно обновление v{ver}".into(),
         }
     }
 }
@@ -509,16 +514,26 @@ fn tray_state_icon(connected: bool, mode: &str) -> Option<tauri::image::Image<'s
 
 // Tooltip трея — даёт точный режим (иконка только сигналит статус/тип).
 // Строки локализованы фронтом; имя режима — тот же лейбл, что в меню.
-fn tray_tooltip(labels: &TrayLabels, connected: bool, mode: &str) -> String {
-    if !connected {
-        return labels.tip_off.clone();
-    }
-    let m = match mode {
-        "tun" => &labels.mode_tun,
-        "systemProxy" => &labels.mode_system,
-        _ => &labels.mode_proxy,
+fn tray_tooltip(
+    labels: &TrayLabels,
+    connected: bool,
+    mode: &str,
+    update_version: Option<&str>,
+) -> String {
+    let state = if connected {
+        let m = match mode {
+            "tun" => &labels.mode_tun,
+            "systemProxy" => &labels.mode_system,
+            _ => &labels.mode_proxy,
+        };
+        labels.tip_connected.replace("{mode}", m)
+    } else {
+        labels.tip_off.clone()
     };
-    labels.tip_connected.replace("{mode}", m)
+    match update_version {
+        Some(ver) => format!("{state}\n{}", labels.tip_update.replace("{ver}", ver)),
+        None => state,
+    }
 }
 
 #[tauri::command]
@@ -533,6 +548,7 @@ fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), 
             &payload.labels,
             payload.connected,
             &payload.mode,
+            payload.update_version.as_deref(),
         )));
     }
     Ok(())
@@ -968,4 +984,34 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Подсказка трея — единственный признак апдейта, который не зависит от
+    // OS-уведомлений: на Windows тост молча теряется, если у сборки нет ярлыка
+    // с AppUserModelID (портативная копия), и тогда в трее не остаётся ничего.
+    #[test]
+    fn tooltip_shows_the_pending_update_in_both_states() {
+        let labels = TrayLabels::default();
+        let idle = tray_tooltip(&labels, false, "proxy", Some("0.2.57"));
+        assert!(idle.starts_with(&labels.tip_off));
+        assert!(idle.contains("0.2.57"));
+
+        let connected = tray_tooltip(&labels, true, "tun", Some("0.2.57"));
+        assert!(connected.contains(&labels.mode_tun));
+        assert!(connected.contains("0.2.57"));
+    }
+
+    #[test]
+    fn tooltip_without_update_keeps_the_plain_state_line() {
+        let labels = TrayLabels::default();
+        assert_eq!(tray_tooltip(&labels, false, "proxy", None), labels.tip_off);
+        assert_eq!(
+            tray_tooltip(&labels, true, "systemProxy", None),
+            labels.tip_connected.replace("{mode}", &labels.mode_system)
+        );
+    }
 }

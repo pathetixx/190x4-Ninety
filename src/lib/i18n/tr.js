@@ -78,6 +78,7 @@ export const tr = {
     updateTo: "v{ver} sürümüne güncelle",
     tipOff: "Ninety · bağlı değil",
     tipConnected: "Ninety · {mode} · bağlı",
+    tipUpdate: "v{ver} güncellemesi mevcut",
   },
 
   mode: {
