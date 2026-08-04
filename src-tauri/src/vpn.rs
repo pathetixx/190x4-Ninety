@@ -126,16 +126,27 @@ fn write_capped(writer: &mut std::fs::File, written: &mut u64, line: &str) {
 // Монитор процесса-движка: льёт stdout/stderr в файл (если задан), копит
 // последние строки в кольце на 40 и при Terminated выставляет died_flag с
 // причиной. Один хелпер на все три движка.
+// Счётчики жизни движков: сколько мониторов ещё ждёт Terminated и сколько
+// закончилось без него. Едут вместе, потому что описывают одно состояние.
+struct MonitorCounters {
+    live: Arc<AtomicU64>,
+    unconfirmed: Arc<AtomicU64>,
+    exit_notify: Arc<Notify>,
+}
+
 fn spawn_log_monitor(
     mut rx: tauri::async_runtime::Receiver<CommandEvent>,
     log_file: Option<PathBuf>,
     died_flag: Arc<Mutex<Option<String>>>,
-    live_processes: Arc<AtomicU64>,
-    unconfirmed_exits: Arc<AtomicU64>,
-    process_exit_notify: Arc<Notify>,
+    counters: MonitorCounters,
     generation: MonitorGeneration,
     spec: MonitorSpec,
 ) {
+    let MonitorCounters {
+        live: live_processes,
+        unconfirmed: unconfirmed_exits,
+        exit_notify: process_exit_notify,
+    } = counters;
     live_processes.fetch_add(1, Ordering::SeqCst);
     tauri::async_runtime::spawn(async move {
         let mut writer = log_file.as_ref().and_then(|p| {
@@ -698,9 +709,11 @@ async fn spawn_xray(
         rx,
         log_file,
         died_flag,
-        state.live_processes.clone(),
-        state.unconfirmed_exits.clone(),
-        state.process_exit_notify.clone(),
+        MonitorCounters {
+            live: state.live_processes.clone(),
+            unconfirmed: state.unconfirmed_exits.clone(),
+            exit_notify: state.process_exit_notify.clone(),
+        },
         MonitorGeneration {
             current: state.process_generation.clone(),
             expected_exit: state.expected_exit_generation.clone(),
@@ -812,9 +825,11 @@ async fn spawn_sidecars(
             rx,
             log_file,
             died_flag,
-            state.live_processes.clone(),
-            state.unconfirmed_exits.clone(),
-            state.process_exit_notify.clone(),
+            MonitorCounters {
+                live: state.live_processes.clone(),
+                unconfirmed: state.unconfirmed_exits.clone(),
+                exit_notify: state.process_exit_notify.clone(),
+            },
             MonitorGeneration {
                 current: state.process_generation.clone(),
                 expected_exit: state.expected_exit_generation.clone(),
@@ -2328,9 +2343,11 @@ async fn spawn_singbox_core(
         rx,
         log_file,
         died_flag,
-        state.live_processes.clone(),
-        state.unconfirmed_exits.clone(),
-        state.process_exit_notify.clone(),
+        MonitorCounters {
+            live: state.live_processes.clone(),
+            unconfirmed: state.unconfirmed_exits.clone(),
+            exit_notify: state.process_exit_notify.clone(),
+        },
         MonitorGeneration {
             current: state.process_generation.clone(),
             expected_exit: state.expected_exit_generation.clone(),

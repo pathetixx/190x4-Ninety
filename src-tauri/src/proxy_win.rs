@@ -639,8 +639,8 @@ fn schtasks_exe() -> String {
 // exe оттуда задача автозапуска имеет право работать с RunLevel=highest.
 fn program_files_roots() -> Vec<PathBuf> {
     ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"]
-        .iter()
-        .filter_map(|name| std::env::var_os(name))
+        .into_iter()
+        .filter_map(std::env::var_os)
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
         .collect()
