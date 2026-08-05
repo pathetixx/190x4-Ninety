@@ -1196,6 +1196,20 @@ mod tests {
         assert!(connected.contains("0.2.57"));
     }
 
+    // Подсказка уходит в NOTIFYICONDATAW.szTip: 128 UTF-16 единиц вместе с нулём,
+    // хвост Windows срезает молча — и первым теряется номер версии во второй
+    // строке. Эти лейблы — фолбэк на случай, когда фронт ещё не прислал свои;
+    // тот же предел по всем 15 каталогам проверяет tests/i18n.test.mjs.
+    #[test]
+    fn tooltip_fits_the_windows_tray_tip_buffer() {
+        let labels = TrayLabels::default();
+        for mode in ["proxy", "systemProxy", "tun"] {
+            let tip = tray_tooltip(&labels, true, mode, Some("99.99.999"));
+            let units = tip.encode_utf16().count();
+            assert!(units <= 127, "{mode}: {units} UTF-16 единиц — {tip}");
+        }
+    }
+
     // Метка апдейта обязана быть видна на самом значке: подсказку и меню
     // пользователь открывает сам, а свёрнутое приложение должно сигналить о
     // новой версии без единого клика.

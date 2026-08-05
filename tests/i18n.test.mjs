@@ -52,3 +52,25 @@ for (const code of CODES.filter((c) => c !== "ru")) {
     assert.deepEqual(bad, [], bad.slice(0, 5).join("; "));
   });
 }
+
+// Windows кладёт подсказку трея в NOTIFYICONDATAW.szTip — 128 UTF-16 единиц
+// вместе с завершающим нулём — и всё лишнее молча срезает. Резалась именно
+// вторая строка, с номером версии: до tray-icon 0.24.2 предел был 64, и на нём
+// ru/uk/es/it/pt/pl в режиме «Системный прокси» теряли часть номера.
+// Считаем в .length (UTF-16), а не в кодовых точках: в szTip уходят эти единицы.
+for (const code of CODES) {
+  test(`${code}: подсказка трея влезает в szTip`, () => {
+    const t = catalogs[code];
+    const version = "99.99.999";                     // с запасом на рост номера
+    const states = [
+      t["tray.tipOff"],
+      ...["mode.proxy", "mode.systemProxy", "mode.tun"]
+        .map((m) => t["tray.tipConnected"].replace("{mode}", t[m])),
+    ];
+    const tooLong = states
+      .map((state) => `${state}\n${t["tray.tipUpdate"].replace("{ver}", version)}`)
+      .filter((tip) => tip.length > 127)
+      .map((tip) => `${tip.length}: ${tip.replace("\n", " / ")}`);
+    assert.deepEqual(tooLong, [], tooLong.join("; "));
+  });
+}
