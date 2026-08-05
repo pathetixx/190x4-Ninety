@@ -207,13 +207,26 @@ fn validate_clash_snapshot(snapshot: &Value, port: u16) -> Result<(), String> {
 
 fn validate_clash_port(
     state: tauri::State<'_, crate::vpn::SingboxState>,
-    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
+    port: u16,
+) -> Result<(), String> {
+    validate_clash_port_ref(&state, port)
+}
+
+/// Тот же гейт по ссылке — для вызывающих без `State` (фоновый WS-стрим).
+///
+/// 🔴 Состояние kill switch сюда НЕ передаётся намеренно. `validate_clash_snapshot`
+/// читает только running/clashReady/clashPort, а `killswitch::is_active` при
+/// холодном кэше делает синхронный RPC к службе BFE, держа мьютекс с WFP-хэндлами.
+/// Этот путь зовут async-команды clash — при «обновить все пинги» фронт гонит их
+/// пулом по 8 штук, и каждая блокировала worker-поток tokio на время RPC.
+pub(crate) fn validate_clash_port_ref(
+    state: &crate::vpn::SingboxState,
     port: u16,
 ) -> Result<(), String> {
     // Источник истины — RuntimeRecord в памяти vpn.rs, а не последний файл
     // singbox-current.json: файл может остаться после stop или исчезнуть при
     // живой сессии. Сериализация обходит приватные поля RuntimeSnapshot.
-    let snapshot = serde_json::to_value(crate::vpn::runtime_snapshot(state, kill_switch))
+    let snapshot = serde_json::to_value(crate::vpn::runtime_snapshot_value(state, false))
         .map_err(|e| format!("Clash API runtime snapshot: {e}"))?;
     validate_clash_snapshot(&snapshot, port)
 }
@@ -277,10 +290,9 @@ pub(crate) async fn clash_get_proxies_unchecked_endpoint(
 #[tauri::command]
 pub async fn clash_get_proxies(
     state: tauri::State<'_, crate::vpn::SingboxState>,
-    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
 ) -> Result<Value, String> {
-    validate_clash_port(state, kill_switch, port)?;
+    validate_clash_port(state, port)?;
     clash_get_proxies_unchecked(port).await
 }
 
@@ -290,10 +302,9 @@ pub async fn clash_get_proxies(
 #[tauri::command]
 pub async fn clash_traffic_total(
     state: tauri::State<'_, crate::vpn::SingboxState>,
-    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
 ) -> Result<Value, String> {
-    validate_clash_port(state, kill_switch, port)?;
+    validate_clash_port(state, port)?;
     let c = client()?;
     let r = c
         .get(format!("{}/connections", base(port)))
@@ -326,10 +337,9 @@ pub async fn clash_traffic_total(
 #[tauri::command]
 pub async fn clash_get_connections(
     state: tauri::State<'_, crate::vpn::SingboxState>,
-    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
 ) -> Result<Value, String> {
-    validate_clash_port(state, kill_switch, port)?;
+    validate_clash_port(state, port)?;
     let c = client()?;
     let r = c
         .get(format!("{}/connections", base(port)))
@@ -396,13 +406,12 @@ pub async fn clash_get_connections(
 #[tauri::command]
 pub async fn clash_test_node(
     state: tauri::State<'_, crate::vpn::SingboxState>,
-    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
     name: String,
     url: Option<String>,
     timeout_ms: Option<u32>,
 ) -> Result<Value, String> {
-    validate_clash_port(state, kill_switch, port)?;
+    validate_clash_port(state, port)?;
     let c = client()?;
     let test_url = url.unwrap_or_else(|| "https://www.gstatic.com/generate_204".to_string());
     let t = timeout_ms.unwrap_or(5000);
@@ -429,13 +438,12 @@ pub async fn clash_test_node(
 #[tauri::command]
 pub async fn clash_test_group(
     state: tauri::State<'_, crate::vpn::SingboxState>,
-    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
     group: String,
     url: Option<String>,
     timeout_ms: Option<u32>,
 ) -> Result<Value, String> {
-    validate_clash_port(state, kill_switch, port)?;
+    validate_clash_port(state, port)?;
     let c = client()?;
     let test_url = url.unwrap_or_else(|| "https://www.gstatic.com/generate_204".to_string());
     let t = timeout_ms.unwrap_or(5000);
@@ -465,12 +473,11 @@ pub async fn clash_test_group(
 #[tauri::command]
 pub async fn clash_select_proxy(
     state: tauri::State<'_, crate::vpn::SingboxState>,
-    kill_switch: tauri::State<'_, crate::killswitch::KillSwitchState>,
     port: u16,
     group: String,
     name: String,
 ) -> Result<(), String> {
-    validate_clash_port(state, kill_switch, port)?;
+    validate_clash_port(state, port)?;
     let c = client()?;
     let body = serde_json::json!({ "name": name });
     let path = format!("{}/proxies/{}", base(port), urlencoding::encode(&group));

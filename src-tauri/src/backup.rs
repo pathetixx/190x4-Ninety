@@ -36,8 +36,20 @@ fn backup_generation_matches(generation: &AtomicU64, captured: u64) -> bool {
 
 /// Атомарная запись снапшота: tmp + rename. Краш посреди записи не оставит
 /// битый бэкап — прежний файл до rename остаётся целым.
+///
+/// async + spawn_blocking намеренно: тело валидирует JSON до 8 МБ, а
+/// `seal_for_app` в portable с паролем прогоняет Argon2id (19 МиБ × 3
+/// итерации — по определению медленный KDF) и делает `sync_all()`. Синхронная
+/// команда выполнялась бы на главном потоке, а фронт зовёт её на каждое
+/// изменение профиля и раз в 10 минут по таймеру — окно вставало бы регулярно.
 #[tauri::command]
-pub fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
+pub async fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || state_backup_save_blocking(app, json))
+        .await
+        .map_err(|e| format!("не удалось дождаться записи бэкапа состояния: {e}"))?
+}
+
+pub(crate) fn state_backup_save_blocking(app: AppHandle, json: String) -> Result<(), String> {
     // Захватываем поколение ДО потенциально дорогой JSON-валидации/DPAPI. Если
     // параллельный state_backup_clear завершится раньше получения lock, старый
     // запрос не имеет права воскресить уже удалённые профили.

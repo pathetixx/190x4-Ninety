@@ -1293,7 +1293,10 @@ pub async fn dpi_set_node_exclude(
     let _data = state.data.lock().await;
     let lists = ensure_lists(&app)?;
     if let Some(d) = domain.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        append_unique(&lists.join("list-exclude-user.txt"), d)?;
+        append_unique(
+            &lists.join("list-exclude-user.txt"),
+            &normalize_exclude_domain(d)?,
+        )?;
     }
     if let Some(i) = ip.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         // ipset ждёт CIDR: одиночный IPv4 → /32, одиночный IPv6 → /128.
@@ -1314,18 +1317,17 @@ pub async fn dpi_set_active_vpn_endpoint(
 ) -> Result<(), String> {
     let _data = state.data.lock().await;
     let lists = ensure_lists(&app)?;
-    let domain_value = domain
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("");
+    let domain_value = match domain.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(value) => normalize_exclude_domain(value)?,
+        None => String::new(),
+    };
     let ip_value = match ip.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(value) => normalize_ipset_entry(value)?,
         None => String::new(),
     };
     write_replace(
         &lists.join("active-vpn-domain.txt"),
-        domain_value,
+        &domain_value,
         "active VPN domain",
     )?;
     write_replace(&lists.join("active-vpn-ip.txt"), &ip_value, "active VPN IP")?;
@@ -1388,6 +1390,25 @@ pub async fn dpi_write_list(
         &format!("write {}", user_list_name(&kind)),
     )?;
     Ok(n)
+}
+
+// Домен, уходящий в hostlist winws. IP-ветка нормализуется отдельно
+// (normalize_ipset_entry), а домен раньше писался как есть после trim: значение
+// с переводом строки вставляло в список произвольное число записей, и дедуп
+// append_unique (сравнение целой строки) на нём не срабатывал никогда — файл
+// рос при каждом вызове.
+fn normalize_exclude_domain(raw: &str) -> Result<String, String> {
+    let value = raw.trim();
+    if value.is_empty() || value.len() > 253 {
+        return Err("недопустимая длина домена для списка исключений".into());
+    }
+    if !value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '*'))
+    {
+        return Err("домен для списка исключений содержит недопустимые символы".into());
+    }
+    Ok(value.to_ascii_lowercase())
 }
 
 fn append_unique(path: &Path, line: &str) -> Result<(), String> {
@@ -2435,8 +2456,18 @@ pub async fn dpi_hosts_apply(
 }
 
 /// Удалить наш managed-блок из системного hosts (полный откат). Требует админ-прав.
+///
+/// async + spawn_blocking: тело читает и переписывает файл в System32 (под
+/// перехватом Defender), а затем ждёт завершения `ipconfig /flushdns`. На
+/// главном потоке это уносило окно в «не отвечает» на секунды.
 #[tauri::command]
-pub fn dpi_hosts_clear(_app: AppHandle) -> Result<(), String> {
+pub async fn dpi_hosts_clear(_app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(dpi_hosts_clear_blocking)
+        .await
+        .map_err(|e| format!("не удалось дождаться очистки hosts: {e}"))?
+}
+
+fn dpi_hosts_clear_blocking() -> Result<(), String> {
     let path = system_hosts_path();
     let current = std::fs::read_to_string(&path)
         .map_err(|e| format!("чтение hosts ({}): {e}", path.display()))?;
@@ -3083,6 +3114,35 @@ mod tests {
         );
         assert_eq!(parse_engine_version("no digits here"), None);
         assert_eq!(parse_engine_version(""), None);
+    }
+
+    // Домен уходит в hostlist winws построчно: значение с переводом строки
+    // вставляло бы произвольные записи, а дедуп по целой строке их не ловил.
+    #[test]
+    fn exclude_domain_rejects_multiline_and_control_input() {
+        assert_eq!(
+            normalize_exclude_domain("  Example.COM "),
+            Ok("example.com".to_string())
+        );
+        assert_eq!(
+            normalize_exclude_domain("*.example.com"),
+            Ok("*.example.com".to_string())
+        );
+        for bad in [
+            "example.com\nevil.com",
+            "example.com\r\nevil.com",
+            "exa mple.com",
+            "example.com\t",
+            "",
+            "   ",
+            "прим.рф",
+        ] {
+            assert!(
+                normalize_exclude_domain(bad).is_err(),
+                "{bad:?} обязан отвергаться"
+            );
+        }
+        assert!(normalize_exclude_domain(&"a".repeat(254)).is_err());
     }
 
     #[test]

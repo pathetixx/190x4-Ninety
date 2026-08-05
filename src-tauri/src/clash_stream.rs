@@ -4,6 +4,8 @@
 
 use futures_util::StreamExt;
 use serde_json::Value;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
@@ -25,7 +27,12 @@ fn parse_traffic_message(text: &str) -> Option<Value> {
     Some(value)
 }
 
-async fn run_stream(app: AppHandle, port: u16) {
+async fn run_stream(
+    app: AppHandle,
+    port: u16,
+    generation: u64,
+    current_generation: Arc<AtomicU64>,
+) {
     // token в query — так clash-API авторизует websocket (браузерный WS-клиент не
     // умеет слать заголовки, поэтому сервер принимает и query-token). Соединение —
     // 127.0.0.1, секрет виден только этому процессу, поэтому token в URL безопасен.
@@ -35,12 +42,19 @@ async fn run_stream(app: AppHandle, port: u16) {
         "ws://127.0.0.1:{port}/traffic?token={}",
         crate::clash::clash_secret()
     );
+    let is_current = || current_generation.load(Ordering::SeqCst) == generation;
     // Простой reconnect-цикл: если ядро перезапустилось / ещё не подняло WS — ждём.
-    loop {
+    // 🔴 Цикл ОБЯЗАН умереть вместе со своим поколением: после stop порт может
+    // занять любой другой локальный процесс, а в URL уходит секрет clash-API —
+    // бесконечный reconnect отдал бы ему полное управление ядром.
+    while is_current() {
         match connect_async(&url).await {
             Ok((ws, _)) => {
                 let (_, mut read) = ws.split();
                 while let Some(msg) = read.next().await {
+                    if !is_current() {
+                        return;
+                    }
                     match msg {
                         Ok(Message::Text(t)) => {
                             if let Some(v) = parse_traffic_message(&t) {
@@ -75,7 +89,22 @@ mod tests {
 }
 
 #[tauri::command]
-pub async fn clash_traffic_start(app: AppHandle, port: u16) -> Result<(), String> {
+pub async fn clash_traffic_start(
+    app: AppHandle,
+    runtime: State<'_, crate::vpn::SingboxState>,
+    port: u16,
+) -> Result<(), String> {
+    // Тот же гейт, что у остальных clash-команд (clash.rs::validate_clash_port).
+    // Без него фронт мог назвать ЛЮБОЙ порт, и секрет clash-API уезжал бы в
+    // query-строке произвольному локальному слушателю — вместе с полным
+    // управлением ядром (смена ноды, чтение конфига с UUID/паролями нод).
+    crate::clash::validate_clash_port_ref(&runtime, port)?;
+    let generation = crate::vpn::active_runtime_generation(&runtime)?;
+    if generation == 0 {
+        return Err("clash traffic stream requires a running runtime".into());
+    }
+    let current_generation = crate::vpn::process_generation_handle(&runtime);
+
     let state = app
         .try_state::<ClashStreamState>()
         .ok_or_else(|| "ClashStreamState not managed".to_string())?;
@@ -85,7 +114,7 @@ pub async fn clash_traffic_start(app: AppHandle, port: u16) -> Result<(), String
     }
     let app_clone = app.clone();
     let task = tauri::async_runtime::spawn(async move {
-        run_stream(app_clone, port).await;
+        run_stream(app_clone, port, generation, current_generation).await;
     });
     *h = Some(task);
     Ok(())

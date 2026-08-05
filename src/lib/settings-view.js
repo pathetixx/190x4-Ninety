@@ -112,8 +112,21 @@ export function mountSettings(root, opts = {}) {
       warpScanCleanup = null;
     }
   }
+  // Инстанс под-экрана живёт ровно столько, сколько его DOM. Раньше destroy()
+  // висел только на кнопке «назад», а любой другой уход (клик по «Настройки» в
+  // навигации → goMenu, смена секции, refresh) просто затирал innerHTML: на
+  // document оставался keydown-обработчик модалки, activeInstance в
+  // routing-view.js продолжал ссылаться на мёртвый DOM, а монитор соединений
+  // ещё до 2 секунд бил в clash_get_connections.
+  function destroyRoutingRules() {
+    if (!routingRulesInstance) return;
+    routingRulesInstance.destroy?.();
+    routingRulesInstance = null;
+  }
+
   function render() {
     cleanupTransientBindings();
+    destroyRoutingRules();
     if (!currentSection) {
       root.innerHTML = renderMenu();
       bindMenu(root);
@@ -144,7 +157,8 @@ export function mountSettings(root, opts = {}) {
   }
   function bindRoutingRulesSub(el, onChange) {
     el.querySelector("[data-back-sub]")?.addEventListener("click", () => {
-      if (routingRulesInstance) { routingRulesInstance.destroy?.(); routingRulesInstance = null; }
+      // Уничтожение — в render(): оно обязано случаться на любом уходе, а не
+      // только по этой кнопке.
       currentSubsection = null;
       render();
     });

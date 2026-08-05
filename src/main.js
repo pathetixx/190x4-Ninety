@@ -1462,7 +1462,17 @@ async function beginRuntimeOperation(kind, source = activeSourceRef()) {
       sourceFingerprint: identityFingerprint,
     });
   } catch (error) {
+    // Отказ координатора раньше уходил только в console.warn — в журнале, который
+    // пользователь открывает на экране «Логи», не оставалось ничего, и «занят
+    // другой операцией» было не отличить от реального отказа старта.
     console.warn(`unable to begin ${kind} runtime operation`, error);
+    // Rust режет reason на 80 символах и отвергает всё, что длиннее.
+    logSourceSwitchReconnect(
+      "operation_begin",
+      null,
+      "refused",
+      `${kind}_${safeSourceSwitchReason(error?.message || error)}`.slice(0, 80),
+    );
     return null;
   }
 }

@@ -188,23 +188,90 @@ enum Target {
     Skip,        // формат, который не пробуем
 }
 
-fn parse_target(dns: &str) -> Target {
+// Адрес резолвера приходит из фронта, поэтому цель пробы нужно ограничивать.
+// НО политика здесь намеренно мягче, чем у подписок (subscription.rs): в отличие
+// от URL подписки, адрес DNS — это настройка, которую пользователь вводит сам, и
+// локальный резолвер тут норма (роутер 192.168.x.1, Pi-hole/AdGuard на LAN или
+// loopback, собственный резолвер sing-box). Блокировать их значило бы сломать
+// рабочую конфигурацию.
+//
+// Отвергаем только то, что резолвером быть не может и служит классической целью
+// SSRF: link-local (включая cloud-metadata 169.254.169.254), unspecified,
+// multicast и документационные/бенчмарочные диапазоны.
+fn is_impossible_resolver_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => {
+            let octets = ip.octets();
+            ip.is_unspecified()
+                || ip.is_link_local()
+                || ip.is_multicast()
+                || ip.is_broadcast()
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+                || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
+                || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+                || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+                || octets[0] >= 240
+        }
+        std::net::IpAddr::V6(ip) => {
+            let segments = ip.segments();
+            ip.is_unspecified()
+                || ip.is_multicast()
+                || ip.is_unicast_link_local()
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+                || ip
+                    .to_ipv4()
+                    .is_some_and(|mapped| is_impossible_resolver_ip(std::net::IpAddr::V4(mapped)))
+        }
+    }
+}
+
+fn reject_forbidden_host(host: &str) -> Result<(), String> {
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        if is_impossible_resolver_ip(ip) {
+            return Err("этот адрес не может быть DNS-резолвером".into());
+        }
+    }
+    Ok(())
+}
+
+fn host_of(host_port: &str) -> &str {
+    if let Some(rest) = host_port.strip_prefix('[') {
+        return rest.split(']').next().unwrap_or(rest);
+    }
+    match host_port.rsplit_once(':') {
+        Some((host, _)) => host,
+        None => host_port,
+    }
+}
+
+fn parse_target(dns: &str) -> Result<Target, String> {
     let s = dns.trim();
     if s.is_empty() || s == "local" || s == "system" {
-        return Target::Skip;
+        return Ok(Target::Skip);
     }
     if s.starts_with("https://") {
-        return Target::Doh(s.to_string());
+        let url = reqwest::Url::parse(s).map_err(|_| "недопустимый адрес DoH-резолвера")?;
+        let host = url
+            .host_str()
+            .ok_or("у DoH-резолвера отсутствует имя хоста")?
+            .to_string();
+        reject_forbidden_host(&host)?;
+        return Ok(Target::Doh(url.to_string()));
     }
     if let Some(rest) = s.strip_prefix("udp://") {
-        return Target::Udp(ensure_port(rest, 53));
+        let host_port = ensure_port(rest, 53);
+        reject_forbidden_host(host_of(&host_port))?;
+        return Ok(Target::Udp(host_port));
     }
     // tls/tcp/quic — не пробуем (пробу wire-протокола для них не делаем).
     if s.contains("://") {
-        return Target::Skip;
+        return Ok(Target::Skip);
     }
     // Голый host/IP → UDP:53 (как parseDnsAddress в singbox.js).
-    Target::Udp(ensure_port(s, 53))
+    let host_port = ensure_port(s, 53);
+    reject_forbidden_host(host_of(&host_port))?;
+    Ok(Target::Udp(host_port))
 }
 
 // Ok = резолвер ответил записями; Err = причина смерти (уходит фронту в detail
@@ -221,6 +288,17 @@ async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> Result<(
         .collect();
     if addresses.is_empty() {
         return Err(format!("resolve {host_port}: no addresses"));
+    }
+    // Имя могло разрешиться в диапазон, где резолвера быть не может (например в
+    // cloud-metadata 169.254.169.254). Отвергаем весь ответ, а не только первый
+    // адрес: иначе достаточно подмешать один такой A-record.
+    if addresses
+        .iter()
+        .any(|address| is_impossible_resolver_ip(address.ip()))
+    {
+        return Err(format!(
+            "resolve {host_port}: этот адрес не может быть DNS-резолвером"
+        ));
     }
     let mut errors = Vec::new();
     for address in addresses {
@@ -281,6 +359,10 @@ async fn probe_doh(url: &str, query: &[u8], timeout: Duration) -> Result<(), Str
         // connect не длиннее общего бюджета (раньше connect 3с > timeout 2.5с).
         .connect_timeout(timeout.min(Duration::from_secs(3)))
         .timeout(timeout)
+        // DoH-резолверу нечего перенаправлять. Автоматические редиректы reqwest
+        // обходили бы проверку адреса: следующий хоп никем не валидируется и
+        // может увести пробу во внутреннюю сеть.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| format!("client: {e}"))?;
     let resp = client
@@ -316,7 +398,7 @@ pub async fn dns_probe(
 ) -> Result<DnsProbeResult, String> {
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(4000).clamp(300, 10_000));
     let query = build_dns_query(&host)?;
-    let res = match parse_target(&dns) {
+    let res = match parse_target(&dns)? {
         Target::Skip => {
             return Ok(DnsProbeResult {
                 status: "skip",
@@ -379,18 +461,63 @@ mod tests {
 
     #[test]
     fn parse_target_variants() {
-        assert!(matches!(parse_target("udp://77.88.8.8"), Target::Udp(hp) if hp == "77.88.8.8:53"));
-        assert!(matches!(parse_target("77.88.8.8"), Target::Udp(hp) if hp == "77.88.8.8:53"));
         assert!(
-            matches!(parse_target("udp://1.1.1.1:5353"), Target::Udp(hp) if hp == "1.1.1.1:5353")
+            matches!(parse_target("udp://77.88.8.8"), Ok(Target::Udp(hp)) if hp == "77.88.8.8:53")
+        );
+        assert!(matches!(parse_target("77.88.8.8"), Ok(Target::Udp(hp)) if hp == "77.88.8.8:53"));
+        assert!(
+            matches!(parse_target("udp://1.1.1.1:5353"), Ok(Target::Udp(hp)) if hp == "1.1.1.1:5353")
         );
         assert!(matches!(
             parse_target("https://149.112.112.112/dns-query"),
-            Target::Doh(_)
+            Ok(Target::Doh(_))
         ));
-        assert!(matches!(parse_target("tls://8.8.8.8"), Target::Skip));
-        assert!(matches!(parse_target("local"), Target::Skip));
-        assert!(matches!(parse_target(""), Target::Skip));
+        assert!(matches!(parse_target("tls://8.8.8.8"), Ok(Target::Skip)));
+        assert!(matches!(parse_target("local"), Ok(Target::Skip)));
+        assert!(matches!(parse_target(""), Ok(Target::Skip)));
+    }
+
+    // Гейт цели обязан резать классические SSRF-адреса, но НЕ трогать локальные
+    // резолверы: роутер и Pi-hole/AdGuard на LAN — рабочая пользовательская
+    // настройка, а не атака.
+    #[test]
+    fn probe_target_refuses_only_impossible_resolvers() {
+        for dns in [
+            "169.254.169.254",
+            "udp://169.254.169.254:53",
+            "0.0.0.0",
+            "224.0.0.1",
+            "255.255.255.255",
+            "203.0.113.5",
+            "https://169.254.169.254/dns-query",
+            "https://[fe80::1]/dns-query",
+        ] {
+            assert!(
+                parse_target(dns).is_err(),
+                "{dns} не может быть резолвером и обязан отвергаться"
+            );
+        }
+        // И публичные, и локальные резолверы остаются рабочими.
+        for dns in [
+            "1.1.1.1",
+            "udp://77.88.8.8:53",
+            "127.0.0.1",
+            "udp://127.0.0.1:5353",
+            "192.168.1.1",
+            "udp://10.0.0.1",
+            "https://dns.quad9.net/dns-query",
+            "https://[2606:4700:4700::1111]/dns-query",
+            "https://192.168.0.1/dns-query",
+        ] {
+            assert!(parse_target(dns).is_ok(), "{dns} обязан оставаться рабочим");
+        }
+    }
+
+    #[test]
+    fn host_of_handles_bare_ipv6_and_ports() {
+        assert_eq!(host_of("1.1.1.1:53"), "1.1.1.1");
+        assert_eq!(host_of("[2606:4700:4700::1111]:53"), "2606:4700:4700::1111");
+        assert_eq!(host_of("dns.example"), "dns.example");
     }
 
     #[test]

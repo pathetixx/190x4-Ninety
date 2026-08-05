@@ -73,10 +73,26 @@ struct ActiveOperation {
     cancelled: Arc<AtomicBool>,
 }
 
+/// Потолок жизни аренды. Владение lifecycle держит фронт: он вызывает `begin`
+/// и обязан вызвать `complete`/`cancel`. Если WebView перезагрузился
+/// (`location.reload()` после восстановления state-backup), упал или потерял
+/// таск между этими вызовами, аренда без срока висела бы вечно — а `begin` для
+/// равного приоритета отвергает всё, кроме SourceSwitch↔SourceSwitch. То есть
+/// один повисший UserConnect навсегда блокировал и ручное подключение, и
+/// авто-восстановление watchdog'а, до перезапуска приложения.
+///
+/// Значение — с запасом над самой долгой легальной операцией (старт ядра со
+/// всеми settle-паузами мостов, топология clash и верификация датаплейна).
+const OPERATION_LEASE_MS: u64 = 90_000;
+
 #[derive(Default)]
 pub struct RuntimeOperationCoordinator {
     next_id: AtomicU64,
     active: Mutex<Option<ActiveOperation>>,
+}
+
+fn lease_expired(started_at_ms: u64, now_ms: u64) -> bool {
+    now_ms.saturating_sub(started_at_ms) > OPERATION_LEASE_MS
 }
 
 impl RuntimeOperationCoordinator {
@@ -92,7 +108,12 @@ impl RuntimeOperationCoordinator {
     ) -> Result<RuntimeOperationToken, String> {
         let mut active = self.active.lock_recover();
         if let Some(current) = active.as_ref() {
-            let supersedes = kind.priority() > current.token.kind.priority()
+            // Владелец, переживший свой lease, потерян вместе с WebView.
+            // Держать им lifecycle нельзя: подключение не восстановится до
+            // перезапуска приложения.
+            let expired = lease_expired(current.started_at_ms, now_ms());
+            let supersedes = expired
+                || kind.priority() > current.token.kind.priority()
                 || (kind == RuntimeOperationKind::SourceSwitch
                     && current.token.kind == RuntimeOperationKind::SourceSwitch)
                 || (kind == RuntimeOperationKind::UserDisconnect
@@ -641,6 +662,43 @@ mod tests {
             .unwrap();
         assert!(!coordinator.authorize(&first));
         assert!(coordinator.authorize(&second));
+    }
+
+    // Равный приоритет обычно отвергается — но не тогда, когда прежний владелец
+    // потерян вместе с WebView. Без этого один повисший UserConnect навсегда
+    // блокировал подключение до перезапуска приложения.
+    #[test]
+    fn expired_lease_is_superseded_by_an_equal_priority_owner() {
+        let coordinator = RuntimeOperationCoordinator::default();
+        let stale = coordinator
+            .begin(RuntimeOperationKind::UserConnect, 1, Some("a"))
+            .unwrap();
+        // Свежая аренда того же приоритета уступает действующему владельцу.
+        assert!(coordinator
+            .begin(RuntimeOperationKind::UserConnect, 1, Some("b"))
+            .is_err());
+
+        // Отматываем начало аренды за потолок — владелец считается потерянным.
+        {
+            let mut active = coordinator.active.lock_recover();
+            let current = active.as_mut().expect("active operation");
+            current.started_at_ms = current.started_at_ms.saturating_sub(OPERATION_LEASE_MS + 1);
+        }
+        let fresh = coordinator
+            .begin(RuntimeOperationKind::UserConnect, 1, Some("b"))
+            .expect("истёкшая аренда обязана освобождать lifecycle");
+        assert!(!coordinator.authorize(&stale));
+        assert!(coordinator.authorize(&fresh));
+    }
+
+    #[test]
+    fn lease_expiry_is_bounded_and_monotonic_safe() {
+        assert!(!lease_expired(1_000, 1_000));
+        assert!(!lease_expired(1_000, 1_000 + OPERATION_LEASE_MS));
+        assert!(lease_expired(1_000, 1_000 + OPERATION_LEASE_MS + 1));
+        // Часы могли уехать назад: отрицательная дельта не должна читаться как
+        // «истекло» и обнулять владение действующей операции.
+        assert!(!lease_expired(10_000, 1_000));
     }
 
     #[test]

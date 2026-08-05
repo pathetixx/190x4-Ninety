@@ -18,7 +18,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
-panic = "abort"
+# unwind, а НЕ abort. Отказоустойчивость сетевого бэкенда построена на раскрутке
+# стека: netproc.rs ловит панику снимка TCP-таблицы через catch_unwind (иначе
+# IPC-промис не settl-ится), util.rs::MutexExt восстанавливает отравленные локи
+# с хэндлами движков, а tokio изолирует панику внутри отдельного таска. При
+# `panic = "abort"` весь этот код — no-op: процесс умирает на месте, минуя
+# RunEvent::Exit, и системный прокси остаётся на мёртвом порту.
+panic = "unwind"
 strip = "symbols"
 
 [build-dependencies]

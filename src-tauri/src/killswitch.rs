@@ -24,6 +24,8 @@
 
 use std::sync::Mutex;
 
+use tauri::Manager;
+
 use crate::util::MutexExt;
 
 const ENGINE_NAMES: [&str; 8] = [
@@ -259,19 +261,39 @@ pub(crate) fn transition_release(state: &KillSwitchState) -> Result<(), String> 
 /// найденные рядом с нашим бинарём (Tauri кладёт сайдкары туда же): permit для
 /// не запущенного exe инертен, а пропущенный permit глушит протокол намертво —
 /// поэтому не гадаем, какие ноды в активном конфиге.
+///
+/// Команда async + spawn_blocking намеренно: сборка сессии — это открытие
+/// движка, sublayer и ~20 FwpmFilterAdd0 с транзакцией, и всё это синхронные
+/// RPC к службе BFE. Синхронная команда исполнялась бы на главном потоке, то
+/// есть морозила окно и IPC WebView2 ровно на переходе состояний.
 #[tauri::command]
-pub fn killswitch_arm(
-    state: tauri::State<'_, KillSwitchState>,
+pub async fn killswitch_arm(
+    app: tauri::AppHandle,
     allow_lan: Option<bool>,
     tun_interface: Option<String>,
     strict_tunnel: Option<bool>,
 ) -> Result<(), String> {
-    arm_policy(&state, allow_lan, tun_interface, strict_tunnel)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<KillSwitchState>();
+        arm_policy(&state, allow_lan, tun_interface, strict_tunnel)
+    })
+    .await
+    .map_err(|e| format!("не удалось дождаться включения kill switch: {e}"))?
 }
 
 /// Выключить kill switch (снять все фильтры). Идемпотентно.
+/// async + spawn_blocking по той же причине, что и `killswitch_arm`.
 #[tauri::command]
-pub fn killswitch_disarm(state: tauri::State<'_, KillSwitchState>) -> Result<(), String> {
+pub async fn killswitch_disarm(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<KillSwitchState>();
+        disarm_policy(&state)
+    })
+    .await
+    .map_err(|e| format!("не удалось дождаться выключения kill switch: {e}"))?
+}
+
+fn disarm_policy(state: &KillSwitchState) -> Result<(), String> {
     state.bump_version();
     let mut guard = state.leases.lock_recover();
     #[cfg(target_os = "windows")]
@@ -296,9 +318,16 @@ pub fn killswitch_disarm(state: tauri::State<'_, KillSwitchState>) -> Result<(),
 }
 
 /// Активен ли kill switch (для синхронизации UI).
+/// async + spawn_blocking: на холодном кэше `is_active` идёт в BFE тремя
+/// запросами на каждую сессию — это не работа для главного потока.
 #[tauri::command]
-pub fn killswitch_active(state: tauri::State<'_, KillSwitchState>) -> bool {
-    is_active(&state)
+pub async fn killswitch_active(app: tauri::AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<KillSwitchState>();
+        is_active(&state)
+    })
+    .await
+    .map_err(|e| format!("не удалось прочитать состояние kill switch: {e}"))
 }
 
 pub fn is_active(state: &KillSwitchState) -> bool {

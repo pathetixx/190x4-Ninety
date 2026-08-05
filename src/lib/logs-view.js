@@ -26,7 +26,7 @@ let logsTimer = null;
 let logsActive = false;
 let logsLastValue = "";
 let logsEntries = [];
-let logsLastRenderedHtml = null;
+let logsLastRenderKey = null;
 let logsFilterQuery = "";
 let logsFilterLevel = "";
 let searchDebounceTimer = null;
@@ -63,16 +63,21 @@ function escapeLog(s) {
   return s.replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
 }
 
+// Порядок подстановок значим. IP и URL подсвечиваем ПЕРВЫМИ — по плоскому
+// экранированному тексту. Если делать наоборот, жадный `[^\s]+` URL-регэкспа
+// захватывает уже вставленную разметку (`https://x]</b>` внутри `[tag]`) и
+// ломает вложенность тегов: браузер закрывает <b> не там, и остаток строки
+// уезжает по стилю. Классы символов сужены так, чтобы совпадение не могло
+// перешагнуть в тег: `[^\s<]` для URL, `[^\]<]` для тега.
 function highlightMessage(msg) {
-  const safe = escapeLog(msg);
-  return safe
-    .replace(/\[([^\]]+)\]/g, (_m, tag) => {
+  return escapeLog(msg)
+    .replace(/\b(\d+\.\d+\.\d+\.\d+)(?::\d+)?\b/g, '<span class="acc">$&</span>')
+    .replace(/\b(?:wss?|https?):\/\/[^\s<]+/gi, '<span class="acc">$&</span>')
+    .replace(/\[([^\]<]+)\]/g, (_m, tag) => {
       const iso = isoFromNodeName(tag);
       const flag = iso ? `<img class="log-flag" src="${FLAGS_BASE}/${iso}.svg" alt="">` : "";
       return `<b>[${flag}${tag}]</b>`;
-    })
-    .replace(/\b(\d+\.\d+\.\d+\.\d+)(?::\d+)?\b/g, '<span class="acc">$&</span>')
-    .replace(/\b(?:wss?|https?):\/\/[^\s]+/gi, '<span class="acc">$&</span>');
+    });
 }
 
 function attachLogFlagFallbacks(root) {
@@ -150,28 +155,40 @@ function logsInfoLine(text) {
   return `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--info">···</span><span class="log-line__m" style="font-style:italic;color:var(--text-faint)">${escapeLog(text)}</span></div>`;
 }
 
+// Дешёвый ключ вместо сравнения собранного HTML целиком. Прежняя проверка
+// требовала сначала склеить всю разметку и только затем сравнить её посимвольно
+// с прошлым результатом — и то и другое на каждом тике таймера, даже когда
+// показывать нечего нового.
+function logsRenderKey(count) {
+  return `${currentLogSource()} ${logsLastValue.length} ${count} ${logsFilterQuery} ${logsFilterLevel}`;
+}
+
 function applyLogsRender({ keepScroll = false, force = false } = {}) {
   if (!logsView) return;
   const text = logsLastValue && logsLastValue !== "__force__" ? logsLastValue : "";
   const atBottom = !keepScroll || (logsView.scrollTop + logsView.clientHeight >= logsView.scrollHeight - 24);
+
+  const filtered = text ? filterLogEntries(logsEntries) : [];
+  const key = text ? logsRenderKey(filtered.length) : `empty ${currentLogSource()}`;
+  if (!force && key === logsLastRenderKey) {
+    perfObserver.increment("logs.render.suppressed");
+    if (atBottom) logsView.scrollTop = logsView.scrollHeight;
+    return;
+  }
+
   let html;
   if (!text) {
     const label = LOG_SOURCE_LABEL[currentLogSource()] || t("logs.compFallback");
     html = logsInfoLine(t("logs.empty", { comp: label }));
   } else {
-    const filtered = filterLogEntries(logsEntries);
     html = filtered.length ? renderLogEntries(filtered) : logsInfoLine(t("logs.notFound"));
   }
 
-  if (force || html !== logsLastRenderedHtml) {
-    const finish = perfObserver.time("logs.render.ms", { entries: logsEntries.length });
-    logsView.innerHTML = html;
-    logsLastRenderedHtml = html;
-    attachLogFlagFallbacks(logsView);
-    finish();
-  } else {
-    perfObserver.increment("logs.render.suppressed");
-  }
+  const finish = perfObserver.time("logs.render.ms", { entries: logsEntries.length });
+  logsView.innerHTML = html;
+  logsLastRenderKey = key;
+  attachLogFlagFallbacks(logsView);
+  finish();
   if (atBottom) logsView.scrollTop = logsView.scrollHeight;
 }
 
@@ -187,9 +204,12 @@ async function refreshLogs({ keepScroll = false } = {}) {
     if (text === logsLastValue) return;
     logsLastValue = text;
     logsEntries = parseLogEntries(text);
-    logsLastRenderedHtml = null;
+    logsLastRenderKey = null;
     if (logsSize) {
-      const bytes = new TextEncoder().encode(text || "").length;
+      // Blob().size даёт длину в байтах без второй копии всего хвоста в памяти:
+      // TextEncoder().encode() аллоцировал ещё 256 КБ каждые 2 секунды только
+      // ради одного числа.
+      const bytes = text ? new Blob([text]).size : 0;
       logsSize.textContent = text ? formatBytes(bytes) : t("logs.sizeEmpty");
     }
     applyLogsRender({ keepScroll });
@@ -228,7 +248,7 @@ function applyKicker() {
 function resetLogCache() {
   logsLastValue = "__force__";
   logsEntries = [];
-  logsLastRenderedHtml = null;
+  logsLastRenderKey = null;
 }
 
 export function mountLogsView() {
@@ -336,7 +356,7 @@ export function onLogsViewLeave() {
 export function rerenderLogsView() {
   if (!logsActive) return;
   applyKicker();
-  logsLastRenderedHtml = null;
+  logsLastRenderKey = null;
   applyLogsRender({ keepScroll: true, force: true });
   refreshLogsPath();
 }

@@ -178,18 +178,32 @@ fn truncation_marker() -> String {
     )
 }
 
+// Журнал движка пишут ДВА независимых источника: монитор процесса (держит файл
+// открытым всю сессию) и append_runtime_diagnostic_at (открывает файл на каждую
+// строку). Оба проверяют кап и оба вызывают set_len(0). Без общего лока они
+// обрезают файл друг под другом: локальный счётчик монитора разъезжается с
+// реальным размером, кап перестаёт держать границу, а записи перемешиваются.
+static LOG_WRITE_LOCK: Mutex<()> = Mutex::new(());
+
 // Запись строки в лог с учётом капа. Файл открыт в append-режиме, поэтому при
 // переполнении достаточно set_len(0): следующая O_APPEND-запись уйдёт с позиции 0.
 fn write_capped(writer: &mut std::fs::File, written: &mut u64, line: &str) {
-    if *written > LOG_CAP_BYTES && writer.set_len(0).is_ok() {
-        let marker = format!("{}\n", truncation_marker());
-        let _ = writer.write_all(marker.as_bytes());
-        // Счётчик синхронизируем с диском, а не с собственной суммой: в тот же
-        // файл пишет append_runtime_diagnostic_at, и его строк монитор не видит.
-        *written = writer
-            .metadata()
-            .map(|m| m.len())
-            .unwrap_or(marker.len() as u64);
+    let _guard = LOG_WRITE_LOCK.lock_recover();
+    if *written > LOG_CAP_BYTES {
+        // Только на подозрении о переполнении сверяемся с диском: локальный
+        // счётчик мог отстать (в тот же файл пишет append_runtime_diagnostic_at),
+        // а stat на каждую строку был бы лишним syscall'ом в горячем пути движка.
+        let size = writer.metadata().map(|m| m.len()).unwrap_or(*written);
+        if size > LOG_CAP_BYTES && writer.set_len(0).is_ok() {
+            let marker = format!("{}\n", truncation_marker());
+            let _ = writer.write_all(marker.as_bytes());
+            *written = writer
+                .metadata()
+                .map(|m| m.len())
+                .unwrap_or(marker.len() as u64);
+        } else {
+            *written = size;
+        }
     }
     if writeln!(writer, "{line}").is_ok() {
         *written += line.len() as u64 + 1;
@@ -386,6 +400,13 @@ pub struct SingboxState {
     process_exit_notify: Arc<Notify>,
     expected_exit_generation: Arc<AtomicU64>,
     pub(crate) dataplane_probe: Arc<DataplaneProbeCoordinator>,
+}
+
+/// Счётчик поколений runtime для фоновых тасков. Таск, привязавшийся к
+/// поколению, обязан сам завершиться, когда ядро сменилось: иначе он переживает
+/// stop и продолжает работать против уже чужого порта.
+pub(crate) fn process_generation_handle(state: &SingboxState) -> Arc<AtomicU64> {
+    state.process_generation.clone()
 }
 
 pub(crate) fn active_runtime_generation(state: &SingboxState) -> Result<u64, String> {
@@ -635,12 +656,16 @@ fn harden_config(raw: &str, cache_path: Option<&Path>) -> String {
             "secret".into(),
             serde_json::Value::String(crate::clash::clash_secret().to_string()),
         );
-        let port = api
+        // Порт обязан быть числом: `rsplit(':')` на значении без порта
+        // («0.0.0.0») отдавал сам адрес, и в конфиг уезжал мусор вида
+        // «127.0.0.1:0.0.0.0» — старт падал позже и с невнятной причиной.
+        let port: u16 = api
             .get("external_controller")
             .and_then(|c| c.as_str())
             .and_then(|s| s.rsplit(':').next())
-            .unwrap_or("9090")
-            .to_string();
+            .and_then(|s| s.parse().ok())
+            .filter(|port| *port != 0)
+            .unwrap_or(9090);
         api.insert(
             "external_controller".into(),
             serde_json::Value::String(format!("127.0.0.1:{port}")),
@@ -714,9 +739,12 @@ pub(crate) fn append_runtime_diagnostic_at(app: &AppHandle, level: DiagnosticLev
         .append(true)
         .open(path)
     {
-        // Тот же кап, что у монитора движка. С выключенным runtime монитора
-        // нет вовсе, и диагностика остаётся единственным писателем: без
-        // проверки здесь журнал рос бы без ограничения.
+        // Тот же кап и тот же лок, что у монитора движка (см. LOG_WRITE_LOCK):
+        // ротация должна быть одна на файл, иначе два писателя обрезают его
+        // друг под другом. С выключенным runtime монитора нет вовсе, и
+        // диагностика остаётся единственным писателем: без проверки здесь
+        // журнал рос бы без ограничения.
+        let _guard = LOG_WRITE_LOCK.lock_recover();
         if file.metadata().map(|m| m.len()).unwrap_or(0) > LOG_CAP_BYTES && file.set_len(0).is_ok()
         {
             let _ = writeln!(file, "{}", truncation_marker());
@@ -1341,7 +1369,7 @@ async fn wait_clash_ready(
 ) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
-        ensure_start_current(state, start_epoch)?;
+        ensure_start_current(state, start_epoch).await?;
         match crate::clash::clash_get_proxies_unchecked_endpoint(control).await {
             Ok(_) => return Ok(()),
             Err(e) if tokio::time::Instant::now() >= deadline => {
@@ -1376,7 +1404,7 @@ async fn wait_probe_listener_ready(
     };
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
-        ensure_start_current(state, start_epoch)?;
+        ensure_start_current(state, start_epoch).await?;
         if local_probe_listener_ready(endpoint).await {
             return Ok(());
         }
@@ -1574,7 +1602,10 @@ async fn wait_runtime_released(
     }
 }
 
-fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> RuntimeSnapshot {
+pub(crate) fn runtime_snapshot_value(
+    state: &SingboxState,
+    kill_switch_active: bool,
+) -> RuntimeSnapshot {
     let running = compute_singbox_running(state);
     let record = state.runtime.lock_recover().clone();
     let proxy_state = proxy::system_proxy_state();
@@ -2231,8 +2262,8 @@ async fn start_singbox_inner(
             kill_xray(state);
             return Err(e);
         }
-        ensure_start_current(state, start_epoch)?;
-        ensure_operation_current(&app, state, operation_token)?;
+        ensure_start_current(state, start_epoch).await?;
+        ensure_operation_current(&app, state, operation_token).await?;
     }
 
     // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
@@ -2251,8 +2282,8 @@ async fn start_singbox_inner(
             kill_sidecars(state);
             return Err(e);
         }
-        ensure_start_current(state, start_epoch)?;
-        ensure_operation_current(&app, state, operation_token)?;
+        ensure_start_current(state, start_epoch).await?;
+        ensure_operation_current(&app, state, operation_token).await?;
     }
 
     // Режим (proxy/systemProxy/tun) больше не влияет на запуск ядра в Rust:
@@ -2283,8 +2314,8 @@ async fn start_singbox_inner(
         kill_sidecars(state);
         return Err(e);
     }
-    ensure_start_current(state, start_epoch)?;
-    ensure_operation_current(&app, state, operation_token)?;
+    ensure_start_current(state, start_epoch).await?;
+    ensure_operation_current(&app, state, operation_token).await?;
 
     if let Err(e) = wait_clash_ready(&endpoints.control, state, start_epoch).await {
         if let Some(child) = state.child.lock_recover().take() {
@@ -2310,7 +2341,7 @@ async fn start_singbox_inner(
         *state.runtime.lock_recover() = None;
         return Err(e);
     }
-    ensure_operation_current(&app, state, operation_token)?;
+    ensure_operation_current(&app, state, operation_token).await?;
     *state.runtime.lock_recover() = Some(RuntimeRecord {
         process_generation,
         source_fingerprint: source_fingerprint.clone(),
@@ -2507,21 +2538,66 @@ fn kill_sidecars(state: &SingboxState) -> bool {
 // принадлежит. Оставлять его живым нельзя: guard `child.is_some()` заблокировал
 // бы следующий старт, а compute_singbox_running продолжал бы отдавать
 // running=true при пустом RuntimeRecord.
-fn abort_started_runtime(state: &SingboxState) {
+//
+// 🔴 Отмена обязана давать те же гарантии, что stop_singbox_inner. Раньше здесь
+// был голый `let _ = child.kill()` без tracked PID, без проверки освобождения
+// портов и без pending_cleanup: если kill не проходил (процесс завис в
+// TUN-инициализации, отказ доступа), state обнулялся, следующий start проходил
+// guard `child.is_some()` и поднимал ВТОРОЙ комплект на тех же портах — два
+// sing-box дрались за clash-API и mixed-in, а осиротевший держал TUN-адаптер.
+async fn abort_started_runtime(state: &SingboxState) {
+    // Отмена — плановое завершение ЭТОГО поколения. Без пометки монитор
+    // классифицирует наш собственный kill как краш и пишет в журнал ERROR
+    // «sing-box died» с дампом строк — пользователь видит отказ ядра там, где
+    // сработала его же отмена.
+    state.expected_exit_generation.store(
+        state.process_generation.load(Ordering::SeqCst),
+        Ordering::SeqCst,
+    );
+    // Identity снимаем ДО kill: голый PID Windows переиспользует, а повторной
+    // очистке нужно доказательство, что добивают именно наш process object.
+    let mut killed = Vec::new();
     if let Some(child) = state.child.lock_recover().take() {
+        killed.push(track_process(child.pid()));
         let _ = child.kill();
     }
-    kill_xray(state);
-    kill_sidecars(state);
-    *state.runtime_ports.lock_recover() = Vec::new();
+    if let Some(child) = state.xray_child.lock_recover().take() {
+        killed.push(track_process(child.pid()));
+        let _ = child.kill();
+    }
+    for child in state.sidecars.lock_recover().drain(..) {
+        killed.push(track_process(child.pid()));
+        let _ = child.kill();
+    }
+    killed.sort_unstable_by_key(|process| process.pid);
+    killed.dedup_by_key(|process| process.pid);
+    let ports = {
+        let mut guard = state.runtime_ports.lock_recover();
+        std::mem::take(&mut *guard)
+    };
+    let _ = proxy::set_system_proxy(false, None, None);
     *state.runtime.lock_recover() = None;
+
+    // Тот же короткий барьер подтверждения, что у stop_singbox_inner.
+    let (processes_exited, remaining_ports) = wait_runtime_released(state, &ports, &killed).await;
+    if processes_exited && remaining_ports.is_empty() {
+        clear_death_flags(state);
+        *state.pending_cleanup.lock_recover() = None;
+    } else {
+        // Очистка не подтверждена — фиксируем долг. Следующий start откажет с
+        // «повторите отключение», а следующий stop физически добьёт остаток.
+        *state.pending_cleanup.lock_recover() = Some(PendingCleanup {
+            processes: unresolved_processes(&killed),
+            ports,
+        });
+    }
 }
 
-fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> {
+async fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> {
     if state.start_epoch.load(Ordering::SeqCst) == epoch {
         return Ok(());
     }
-    abort_started_runtime(state);
+    abort_started_runtime(state).await;
     Err("запуск отменён новым сетевым намерением".into())
 }
 
@@ -2529,7 +2605,7 @@ fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> 
 // координатор мог сменить владельца без нового start_epoch (latest-wins смена
 // источника), поэтому чистить обязана именно эта ветка: у stop_singbox с тем же
 // токеном владения уже нет, и он вернёт refused, не тронув процессы.
-fn ensure_operation_current(
+async fn ensure_operation_current(
     app: &AppHandle,
     state: &SingboxState,
     token: &RuntimeOperationToken,
@@ -2537,7 +2613,7 @@ fn ensure_operation_current(
     if operation_is_current(app, token) {
         return Ok(());
     }
-    abort_started_runtime(state);
+    abort_started_runtime(state).await;
     Err("stale or cancelled runtime operation token".into())
 }
 
@@ -2548,7 +2624,7 @@ async fn wait_start_delay(
 ) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + duration;
     loop {
-        ensure_start_current(state, epoch)?;
+        ensure_start_current(state, epoch).await?;
         let now = tokio::time::Instant::now();
         if now >= deadline {
             return Ok(());
@@ -3054,20 +3130,31 @@ pub(crate) fn protected_browser_tun_ready(state: &SingboxState) -> bool {
         .is_some_and(|runtime| runtime.mode == "tun" && runtime.clash_ready)
 }
 
+// Снимки состояния читают реестр и (на холодном кэше) опрашивают BFE — то есть
+// синхронный RPC к службе. Фронт зовёт их на каждой перерисовке и на каждом
+// тике сторожа, поэтому на главном потоке они регулярно морозили окно.
+// spawn_blocking переносит работу в blocking-пул, wire contract не меняется.
 #[tauri::command]
-pub fn runtime_snapshot(
-    state: State<'_, SingboxState>,
-    kill_switch: State<'_, crate::killswitch::KillSwitchState>,
-) -> RuntimeSnapshot {
-    runtime_snapshot_value(&state, crate::killswitch::is_active(&kill_switch))
+pub async fn runtime_snapshot(app: AppHandle) -> Result<RuntimeSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<SingboxState>();
+        let kill_switch = app.state::<crate::killswitch::KillSwitchState>();
+        runtime_snapshot_value(&state, crate::killswitch::is_active(&kill_switch))
+    })
+    .await
+    .map_err(|e| format!("не удалось получить снимок runtime: {e}"))
 }
 
 #[tauri::command]
-pub fn runtime_diagnostic(
-    state: State<'_, SingboxState>,
-    kill_switch: State<'_, crate::killswitch::KillSwitchState>,
-) -> RuntimeDiagnostic {
-    runtime_snapshot_value(&state, crate::killswitch::is_active(&kill_switch)).runtime_diagnostic
+pub async fn runtime_diagnostic(app: AppHandle) -> Result<RuntimeDiagnostic, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<SingboxState>();
+        let kill_switch = app.state::<crate::killswitch::KillSwitchState>();
+        runtime_snapshot_value(&state, crate::killswitch::is_active(&kill_switch))
+            .runtime_diagnostic
+    })
+    .await
+    .map_err(|e| format!("не удалось получить диагностику runtime: {e}"))
 }
 
 // Агрегат статусов ядер за один вызов — watchdog фронта раньше дёргал
@@ -3089,21 +3176,24 @@ pub struct HealthSnapshot {
 }
 
 #[tauri::command]
-pub fn health_snapshot(
-    state: State<'_, SingboxState>,
-    kill_switch: State<'_, crate::killswitch::KillSwitchState>,
-    coordinator: State<'_, RuntimeOperationCoordinator>,
-    pressure: State<'_, crate::host_pressure::HostPressureState>,
-) -> HealthSnapshot {
-    HealthSnapshot {
-        singbox_running: compute_singbox_running(&state),
-        xray: compute_xray_status(&state),
-        sidecar: compute_sidecar_status(&state),
-        last_error: compute_last_error(&state),
-        kill_switch_active: crate::killswitch::is_active(&kill_switch),
-        runtime_operation: coordinator.snapshot(),
-        host_pressure: pressure.snapshot(),
-    }
+pub async fn health_snapshot(app: AppHandle) -> Result<HealthSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<SingboxState>();
+        let kill_switch = app.state::<crate::killswitch::KillSwitchState>();
+        let coordinator = app.state::<RuntimeOperationCoordinator>();
+        let pressure = app.state::<crate::host_pressure::HostPressureState>();
+        HealthSnapshot {
+            singbox_running: compute_singbox_running(&state),
+            xray: compute_xray_status(&state),
+            sidecar: compute_sidecar_status(&state),
+            last_error: compute_last_error(&state),
+            kill_switch_active: crate::killswitch::is_active(&kill_switch),
+            runtime_operation: coordinator.snapshot(),
+            host_pressure: pressure.snapshot(),
+        }
+    })
+    .await
+    .map_err(|e| format!("не удалось получить снимок здоровья: {e}"))
 }
 
 fn validate_system_proxy_enable_request(
@@ -3263,8 +3353,19 @@ pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
     purge_bridge_configs(app);
     purge_current_configs(app);
     clear_death_flags(state);
+    // Последний рубеж перед выходом. Проглатывать здесь ошибку нельзя: если
+    // прокси не снялся, у пользователя после закрытия Ninety нет интернета во
+    // всём, что читает WinINet, и в журнале не остаётся ни одной подсказки —
+    // «сломанный режим прокси» выглядит как отказ Windows на пустом месте.
     #[cfg(target_os = "windows")]
-    let _ = proxy::set_system_proxy(false, None, None);
+    if let Err(error) = proxy::set_system_proxy(false, None, None) {
+        append_runtime_diagnostic_at(
+            app,
+            DiagnosticLevel::Error,
+            &format!("exit_cleanup system_proxy=failed reason={error}"),
+        );
+        eprintln!("exit cleanup: system proxy not restored: {error}");
+    }
 }
 
 // ── Планирование портов loopback-мостов ─────────────────────
@@ -3782,23 +3883,17 @@ mod tests {
         assert_eq!(ports, vec![7899, 9191, 31100]);
     }
 
-    #[test]
-    fn stop_epoch_invalidates_an_in_flight_start() {
+    #[tokio::test]
+    async fn stop_epoch_invalidates_an_in_flight_start() {
         let state = SingboxState::default();
         let epoch = state.start_epoch.fetch_add(1, Ordering::SeqCst) + 1;
-        assert!(ensure_start_current(&state, epoch).is_ok());
+        assert!(ensure_start_current(&state, epoch).await.is_ok());
         state.start_epoch.fetch_add(1, Ordering::SeqCst);
-        assert!(ensure_start_current(&state, epoch).is_err());
+        assert!(ensure_start_current(&state, epoch).await.is_err());
     }
 
-    // Отмена владения операцией (latest-wins смена источника) обязана оставлять
-    // ровно то же состояние, что и отмена по epoch: без этого stop_singbox с уже
-    // отнятым токеном возвращает refused, а поднятый комплект остаётся жить.
-    #[test]
-    fn cancelled_start_clears_published_runtime_state() {
-        let state = SingboxState::default();
-        *state.runtime_ports.lock_recover() = vec![7890, 9090];
-        *state.runtime.lock_recover() = Some(RuntimeRecord {
+    fn published_runtime_record() -> RuntimeRecord {
+        RuntimeRecord {
             process_generation: 5,
             source_fingerprint: Some("fingerprint".into()),
             config_hash: None,
@@ -3815,13 +3910,57 @@ mod tests {
             listener_ready: true,
             clash_port: 9090,
             clash_ready: true,
-        });
+        }
+    }
 
-        abort_started_runtime(&state);
+    // Отмена владения операцией (latest-wins смена источника) обязана оставлять
+    // ровно то же состояние, что и отмена по epoch: без этого stop_singbox с уже
+    // отнятым токеном возвращает refused, а поднятый комплект остаётся жить.
+    // Портов не публикуем: исход bind-пробы зависит от машины, а здесь
+    // проверяется именно очистка опубликованного состояния.
+    #[tokio::test]
+    async fn cancelled_start_clears_published_runtime_state() {
+        let state = SingboxState::default();
+        *state.runtime.lock_recover() = Some(published_runtime_record());
+
+        abort_started_runtime(&state).await;
 
         assert!(state.runtime.lock_recover().is_none());
         assert!(state.runtime_ports.lock_recover().is_empty());
         assert!(!compute_singbox_running(&state));
+        // Без живых child'ов и без портов очистка подтверждается сразу.
+        assert!(state.pending_cleanup.lock_recover().is_none());
+        // Отмена помечена как плановый выход этого поколения — иначе монитор
+        // запишет собственный kill как краш ядра.
+        assert_eq!(
+            state.expected_exit_generation.load(Ordering::SeqCst),
+            state.process_generation.load(Ordering::SeqCst)
+        );
+    }
+
+    // Главное, ради чего отмена перестала быть голым kill: неподтверждённая
+    // очистка обязана оставлять долг. Иначе следующий start проходит guard
+    // `child.is_some()` и поднимает второй комплект на всё ещё занятых портах.
+    #[tokio::test]
+    async fn cancelled_start_records_unreleased_ports_as_pending_cleanup() {
+        let held = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .expect("занять порт под тест");
+        let port = held.local_addr().expect("адрес слушателя").port();
+
+        let state = SingboxState::default();
+        *state.runtime_ports.lock_recover() = vec![port];
+        *state.runtime.lock_recover() = Some(published_runtime_record());
+
+        abort_started_runtime(&state).await;
+
+        let pending = state.pending_cleanup.lock_recover().clone();
+        let pending = pending.expect("занятый порт обязан оставить долг очистки");
+        assert!(pending.ports.contains(&port));
+        // Опубликованное состояние всё равно снято: держать его нельзя,
+        // долг живёт отдельно в pending_cleanup.
+        assert!(state.runtime.lock_recover().is_none());
+        assert!(state.runtime_ports.lock_recover().is_empty());
+        drop(held);
     }
 
     #[test]

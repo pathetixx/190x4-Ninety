@@ -687,8 +687,30 @@ fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), 
     Ok(())
 }
 
+/// Последний рубеж перед аварийным завершением. Штатная очистка висит на
+/// `RunEvent::Exit`, но паника до event loop не доходит: паникующий поток не
+/// обязан быть тем, который крутит event loop, и раскрутка до Tauri может не
+/// добраться вовсе. Итог один — в реестре остаётся `ProxyEnable=1` на мёртвый
+/// loopback-порт, и у пользователя пропадает интернет во всём, что читает
+/// WinINet. Hook выполняется ДО раскрутки/abort, поэтому снять прокси можно
+/// только здесь.
+///
+/// Внутри — только запись в реестр: без тяжёлых аллокаций, без await и без
+/// обращения к Tauri state (его в этот момент может уже не быть).
+fn install_failsafe_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        #[cfg(target_os = "windows")]
+        if let Err(error) = elevation::set_system_proxy(false, None, None) {
+            eprintln!("panic cleanup: system proxy not restored: {error}");
+        }
+        default_hook(info);
+    }));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_failsafe_panic_hook();
     let portable = app_paths::is_portable();
     let mut context = tauri::generate_context!();
     if portable {
@@ -989,7 +1011,8 @@ pub fn run() {
                         // path with an ephemeral in-memory passphrase. Production
                         // portable runs start in NoPersistentSecrets until the
                         // user explicitly configures one from Settings.
-                        backup::state_backup_save(
+                        // Синхронный вариант: setup() не является async-контекстом.
+                        backup::state_backup_save_blocking(
                             app.handle().clone(),
                             smoke_snapshot.to_string(),
                         )?;
