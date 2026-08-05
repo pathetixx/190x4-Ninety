@@ -52,7 +52,14 @@ jobs:
             cp "new/$f" "src-tauri/dpi/bin/$f"
           done
           # engine-version.txt is only a fallback (runtime reads `winws --version`).
-          date -u +'zapret engine %Y-%m-%d (bol-van)' > src-tauri/dpi/engine-version.txt
+          # The version is embedded in winws.exe — the banner is "github version %s"
+          # and the token is e.g. v72.12. Take it from the binary so the fallback
+          # matches what the runtime prints; a build date is not a version. If the
+          # token cannot be read, keep the previous value instead of overwriting it.
+          ver=$(strings -a new/winws.exe | grep -oxE 'v[0-9]+(\.[0-9]+)+' | head -1 || true)
+          if [ -n "$ver" ]; then
+            printf 'zapret %s\n' "$ver" > src-tauri/dpi/engine-version.txt
+          fi
           branch="engine-bump-$(date -u +%Y%m%d-%H%M)"
           git config user.name "ninety-bot"
           git config user.email "noreply@190x4.pw"
