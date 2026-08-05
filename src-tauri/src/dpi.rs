@@ -3128,11 +3128,18 @@ mod tests {
             normalize_exclude_domain("*.example.com"),
             Ok("*.example.com".to_string())
         );
+        // Обрамляющий whitespace — мусор ввода, а не инъекция: trim снимает его, и
+        // в файл уходит уже чистая запись. Отвергаем только то, что осталось внутри.
+        assert_eq!(
+            normalize_exclude_domain("example.com\t"),
+            Ok("example.com".to_string())
+        );
         for bad in [
             "example.com\nevil.com",
             "example.com\r\nevil.com",
             "exa mple.com",
-            "example.com\t",
+            "exa\tmple.com",
+            "example\u{0}.com",
             "",
             "   ",
             "прим.рф",
