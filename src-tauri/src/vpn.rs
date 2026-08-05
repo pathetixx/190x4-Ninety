@@ -5,13 +5,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
-use crate::health;
 use crate::runtime_ops::{
     DataplaneProbeCoordinator, DataplaneProbeKind, ProbeAcquireError, RuntimeOperationCoordinator,
     RuntimeOperationKind, RuntimeOperationToken,
 };
 use crate::util::MutexExt;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -108,16 +107,89 @@ const DEFAULT_LOG_TAIL_BYTES: u64 = 128 * 1024;
 const MAX_LOG_TAIL_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_SIDECAR_LOG_FILES: usize = 16;
 
+// Уровень собственной строки приложения в журнале движка. Движки пишут в тот же
+// файл и тем же форматом, поэтому lifecycle-диагностика обязана иметь уровень:
+// без него экран «Логи» не покажет её ни в фильтре «Ошибки», ни в «Инфо».
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DiagnosticLevel {
+    Info,
+    Warn,
+    Error,
+}
+
+impl DiagnosticLevel {
+    fn tag(self) -> &'static str {
+        match self {
+            DiagnosticLevel::Info => "INFO",
+            DiagnosticLevel::Warn => "WARN",
+            DiagnosticLevel::Error => "ERROR",
+        }
+    }
+}
+
+// Результаты фронтовых событий, которые означают отказ, а не ход дела. Всё
+// остальное (none/available/completed/cancelled) — обычная хроника.
+const DIAGNOSTIC_FAILURE_RESULTS: &[&str] = &[
+    "failed",
+    "error",
+    "degraded",
+    "refused",
+    "timeout",
+    "unreachable",
+    "unverified",
+];
+
+pub(crate) fn diagnostic_level_for_result(result: &str) -> DiagnosticLevel {
+    if DIAGNOSTIC_FAILURE_RESULTS
+        .iter()
+        .any(|marker| result.eq_ignore_ascii_case(marker))
+    {
+        DiagnosticLevel::Warn
+    } else {
+        DiagnosticLevel::Info
+    }
+}
+
+// Собственные строки приложения ложатся в файл движка, и экран «Логи» разбирает
+// их тем же парсером. Голая строка без метки времени и уровня прилипала к
+// предыдущей записи движка как её продолжение: своего времени нет, фильтр по
+// уровню мимо, поиск находит её в чужой записи. Формат ровно как у sing-box при
+// log.timestamp=true — `-0700 2006-01-02 15:04:05 LEVEL message`.
+fn stamped_diagnostic(
+    now: &chrono::DateTime<chrono::Local>,
+    level: DiagnosticLevel,
+    body: &str,
+) -> String {
+    format!(
+        "{} {} {body}",
+        now.format("%z %Y-%m-%d %H:%M:%S"),
+        level.tag()
+    )
+}
+
+fn diagnostic_line(level: DiagnosticLevel, body: &str) -> String {
+    stamped_diagnostic(&chrono::Local::now(), level, body)
+}
+
+fn truncation_marker() -> String {
+    diagnostic_line(
+        DiagnosticLevel::Warn,
+        &format!("[log truncated at {} MB cap]", LOG_CAP_BYTES / 1024 / 1024),
+    )
+}
+
 // Запись строки в лог с учётом капа. Файл открыт в append-режиме, поэтому при
 // переполнении достаточно set_len(0): следующая O_APPEND-запись уйдёт с позиции 0.
 fn write_capped(writer: &mut std::fs::File, written: &mut u64, line: &str) {
     if *written > LOG_CAP_BYTES && writer.set_len(0).is_ok() {
-        let marker = format!(
-            "[log truncated at {} MB cap]\n",
-            LOG_CAP_BYTES / 1024 / 1024
-        );
+        let marker = format!("{}\n", truncation_marker());
         let _ = writer.write_all(marker.as_bytes());
-        *written = marker.len() as u64;
+        // Счётчик синхронизируем с диском, а не с собственной суммой: в тот же
+        // файл пишет append_runtime_diagnostic_at, и его строк монитор не видит.
+        *written = writer
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(marker.len() as u64);
     }
     if writeln!(writer, "{line}").is_ok() {
         *written += line.len() as u64 + 1;
@@ -127,15 +199,27 @@ fn write_capped(writer: &mut std::fs::File, written: &mut u64, line: &str) {
 // Монитор процесса-движка: льёт stdout/stderr в файл (если задан), копит
 // последние строки в кольце на 40 и при Terminated выставляет died_flag с
 // причиной. Один хелпер на все три движка.
+// Счётчики жизни движков: сколько мониторов ещё ждёт Terminated и сколько
+// закончилось без него. Едут вместе, потому что описывают одно состояние.
+struct MonitorCounters {
+    live: Arc<AtomicU64>,
+    unconfirmed: Arc<AtomicU64>,
+    exit_notify: Arc<Notify>,
+}
+
 fn spawn_log_monitor(
     mut rx: tauri::async_runtime::Receiver<CommandEvent>,
     log_file: Option<PathBuf>,
     died_flag: Arc<Mutex<Option<String>>>,
-    live_processes: Arc<AtomicU64>,
-    process_exit_notify: Arc<Notify>,
+    counters: MonitorCounters,
     generation: MonitorGeneration,
     spec: MonitorSpec,
 ) {
+    let MonitorCounters {
+        live: live_processes,
+        unconfirmed: unconfirmed_exits,
+        exit_notify: process_exit_notify,
+    } = counters;
     live_processes.fetch_add(1, Ordering::SeqCst);
     tauri::async_runtime::spawn(async move {
         let mut writer = log_file.as_ref().and_then(|p| {
@@ -156,7 +240,8 @@ fn spawn_log_monitor(
             .map(|m| m.len())
             .unwrap_or(0);
         if let Some(w) = writer.as_mut() {
-            write_capped(w, &mut written, &format!("\n{}", spec.start_banner));
+            let banner = diagnostic_line(DiagnosticLevel::Info, &spec.start_banner);
+            write_capped(w, &mut written, &format!("\n{banner}"));
         }
         // Кольцо последних строк для death-диагностики. VecDeque, а не Vec:
         // при переполнении срезаем голову за O(1) (pop_front) — Vec::remove(0)
@@ -213,7 +298,14 @@ fn spawn_log_monitor(
                         )
                     };
                     if let Some(w) = writer.as_mut() {
-                        write_capped(w, &mut written, &msg);
+                        // В журнал — с меткой и уровнем, во фронт (died_flag) —
+                        // как есть: там это текст ошибки, а не строка лога.
+                        let level = if expected {
+                            DiagnosticLevel::Info
+                        } else {
+                            DiagnosticLevel::Error
+                        };
+                        write_capped(w, &mut written, &diagnostic_line(level, &msg));
                     }
                     // Terminated старого комплекта может прийти уже после
                     // быстрого stop и старта нового. Не позволяем запоздалому
@@ -223,15 +315,27 @@ fn spawn_log_monitor(
                     }
                     live_processes.fetch_sub(1, Ordering::SeqCst);
                     process_exit_notify.notify_waiters();
-                    break;
+                    return;
                 }
                 _ => {}
             }
         }
-        // Без Terminated нет формального подтверждения завершения процесса
-        // (например, wait() мог вернуть ошибку). Оставляем счётчик живым:
-        // stop_singbox вернёт processesExited=false и UI уйдёт в cleanup_error,
-        // а не объявит физически не подтверждённый child остановленным.
+        // Поток событий закончился без Terminated: формального подтверждения
+        // завершения процесса нет (например, wait() вернул ошибку). Снимаем
+        // процесс с «живого» счётчика, но переносим его в отдельный
+        // unconfirmed: иначе pending_exit_events оставался бы ненулевым до
+        // конца сессии и в журнале выглядел как висящий процесс. Ни один из
+        // счётчиков при этом не объявляет child остановленным — на Windows это
+        // решают реальные PID, а на прочих платформах требуются оба нуля.
+        if live_processes
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+                value.checked_sub(1)
+            })
+            .is_ok()
+        {
+            unconfirmed_exits.fetch_add(1, Ordering::SeqCst);
+        }
+        process_exit_notify.notify_waiters();
     });
 }
 
@@ -275,26 +379,13 @@ pub struct SingboxState {
     // Следующий stop повторяет очистку, а start не имеет права затереть runtime.
     pending_cleanup: Mutex<Option<PendingCleanup>>,
     live_processes: Arc<AtomicU64>,
+    // Мониторы, чей поток событий закончился без Terminated: процесс не
+    // подтверждён завершённым, но и «живым» его считать нельзя. Отдельный
+    // счётчик держит журнал остановки честным.
+    unconfirmed_exits: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
     expected_exit_generation: Arc<AtomicU64>,
-    // Native dataplane watchdog. It is owned by the runtime state so a stale
-    // monitor can be cancelled before the next runtime generation starts.
-    dataplane_health: Arc<health::DataplaneHealthState>,
-    dataplane_generation: Arc<AtomicU64>,
     pub(crate) dataplane_probe: Arc<DataplaneProbeCoordinator>,
-    // Native recovery is a single owner. Frontend reconnects must not race a
-    // same-config stop/start in the short window between dependency teardown
-    // and readiness.
-    native_recovery_lock: tokio::sync::Mutex<()>,
-    native_recovery_active: AtomicBool,
-    // A manual disconnect may arrive while native recovery owns the lifecycle.
-    // It cancels the restart before the next generation is published; the
-    // caller then acquires the same owner lock and performs the verified stop.
-    native_recovery_cancelled: AtomicBool,
-    // In-memory launch material is retained only for the current runtime. It
-    // enables a bounded native restart without asking WebView2 to rebuild or
-    // resend a profile containing credentials.
-    runtime_launch: Mutex<Option<RuntimeLaunchSpec>>,
 }
 
 pub(crate) fn active_runtime_generation(state: &SingboxState) -> Result<u64, String> {
@@ -319,6 +410,7 @@ struct RuntimeRecord {
     mode: String,
     strict_privacy: bool,
     pinned_node_tag: Option<String>,
+    logs_disabled: bool,
     endpoints: RuntimeEndpoints,
     listener_ready: bool,
     clash_port: u16,
@@ -357,9 +449,6 @@ struct RuntimeLaunchSpec {
     config_hash: Option<String>,
     strict_privacy: bool,
     pinned_node_tag: Option<String>,
-    system_proxy_bypass_lan: bool,
-    kill_switch_expected: bool,
-    endpoints: Option<RuntimeEndpoints>,
 }
 
 #[derive(Clone, Default)]
@@ -409,15 +498,10 @@ impl Default for SingboxState {
             runtime_ports: Mutex::new(Vec::new()),
             pending_cleanup: Mutex::new(None),
             live_processes: Arc::new(AtomicU64::new(0)),
+            unconfirmed_exits: Arc::new(AtomicU64::new(0)),
             process_exit_notify: Arc::new(Notify::new()),
             expected_exit_generation: Arc::new(AtomicU64::new(0)),
-            dataplane_health: Arc::new(health::DataplaneHealthState::default()),
-            dataplane_generation: Arc::new(AtomicU64::new(0)),
             dataplane_probe: Arc::new(DataplaneProbeCoordinator::default()),
-            native_recovery_lock: tokio::sync::Mutex::new(()),
-            native_recovery_active: AtomicBool::new(false),
-            native_recovery_cancelled: AtomicBool::new(false),
-            runtime_launch: Mutex::new(None),
         }
     }
 }
@@ -501,7 +585,19 @@ fn sidecar_log_entries(dir: &std::path::Path, kind: SidecarLogKind) -> Vec<std::
 
 fn prune_sidecar_logs(dir: &std::path::Path, kind: SidecarLogKind, protected: &HashSet<String>) {
     let mut entries = sidecar_log_entries(dir, kind);
-    if entries.len().saturating_add(protected.len()) <= MAX_SIDECAR_LOG_FILES {
+    let is_protected = |entry: &std::fs::DirEntry| {
+        protected.contains(&entry.file_name().to_string_lossy().into_owned())
+    };
+    // Место под логи будущего runtime резервируем заранее. Складывать длины
+    // entries и protected нельзя: файлы с теми же портами уже могут лежать на
+    // диске и тогда считались бы дважды — счёт выходил завышенным.
+    let keep_existing = MAX_SIDECAR_LOG_FILES.saturating_sub(protected.len());
+    let removable = entries
+        .iter()
+        .filter(|entry| !is_protected(entry))
+        .count()
+        .saturating_sub(keep_existing);
+    if removable == 0 {
         return;
     }
     entries.sort_by_key(|entry| {
@@ -510,15 +606,9 @@ fn prune_sidecar_logs(dir: &std::path::Path, kind: SidecarLogKind, protected: &H
             .and_then(|m| m.modified())
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
     });
-    let keep_existing = MAX_SIDECAR_LOG_FILES.saturating_sub(protected.len());
-    let removable = entries
-        .iter()
-        .filter(|entry| !protected.contains(&entry.file_name().to_string_lossy().into_owned()))
-        .count()
-        .saturating_sub(keep_existing);
     for entry in entries
         .into_iter()
-        .filter(|entry| !protected.contains(&entry.file_name().to_string_lossy().into_owned()))
+        .filter(|entry| !is_protected(entry))
         .take(removable)
     {
         let _ = std::fs::remove_file(entry.path());
@@ -607,6 +697,10 @@ fn log_path(app: &AppHandle) -> Option<PathBuf> {
 // тот же журнал, который пользователь видит в UI. Здесь нет URL, IP, конфигов
 // или имён нод — только поколение, состояние и фиксированный reason-code.
 pub(crate) fn append_runtime_diagnostic(app: &AppHandle, line: &str) {
+    append_runtime_diagnostic_at(app, DiagnosticLevel::Info, line);
+}
+
+pub(crate) fn append_runtime_diagnostic_at(app: &AppHandle, level: DiagnosticLevel, line: &str) {
     let Some(path) = log_path(app) else {
         return;
     };
@@ -620,7 +714,14 @@ pub(crate) fn append_runtime_diagnostic(app: &AppHandle, line: &str) {
         .append(true)
         .open(path)
     {
-        let _ = writeln!(file, "{bounded}");
+        // Тот же кап, что у монитора движка. С выключенным runtime монитора
+        // нет вовсе, и диагностика остаётся единственным писателем: без
+        // проверки здесь журнал рос бы без ограничения.
+        if file.metadata().map(|m| m.len()).unwrap_or(0) > LOG_CAP_BYTES && file.set_len(0).is_ok()
+        {
+            let _ = writeln!(file, "{}", truncation_marker());
+        }
+        let _ = writeln!(file, "{}", diagnostic_line(level, &bounded));
     }
 }
 
@@ -637,9 +738,12 @@ fn xray_log_path(app: &AppHandle) -> Option<PathBuf> {
 }
 
 // При высокой загрузке Windows не гарантирует, что userspace datapath будет
-// получать CPU вовремя. Поднимаем только критичные сетевые children до
-// ABOVE_NORMAL: HIGH/REALTIME намеренно не используем, чтобы не превращать
-// Ninety в источник starvation для всей системы.
+// получать CPU вовремя (рендер видео, компиляция, игра — ядро голодает, TUN-
+// очереди не разгребаются, хендшейки истекают, и юзер видит «VPN упал», хотя
+// процесс жив). Поднимаем только критичные сетевые children до ABOVE_NORMAL:
+// HIGH/REALTIME намеренно не используем, чтобы не превращать Ninety в источник
+// starvation для всей системы. Неудача не фатальна — датаплейн просто остаётся
+// на NORMAL, поэтому ошибку только логируем.
 fn prioritize_datapath_process(pid: u32) {
     #[cfg(target_os = "windows")]
     {
@@ -703,8 +807,11 @@ async fn spawn_xray(
         rx,
         log_file,
         died_flag,
-        state.live_processes.clone(),
-        state.process_exit_notify.clone(),
+        MonitorCounters {
+            live: state.live_processes.clone(),
+            unconfirmed: state.unconfirmed_exits.clone(),
+            exit_notify: state.process_exit_notify.clone(),
+        },
         MonitorGeneration {
             current: state.process_generation.clone(),
             expected_exit: state.expected_exit_generation.clone(),
@@ -816,8 +923,11 @@ async fn spawn_sidecars(
             rx,
             log_file,
             died_flag,
-            state.live_processes.clone(),
-            state.process_exit_notify.clone(),
+            MonitorCounters {
+                live: state.live_processes.clone(),
+                unconfirmed: state.unconfirmed_exits.clone(),
+                exit_notify: state.process_exit_notify.clone(),
+            },
             MonitorGeneration {
                 current: state.process_generation.clone(),
                 expected_exit: state.expected_exit_generation.clone(),
@@ -1053,8 +1163,6 @@ pub struct RuntimeSnapshot {
     sidecars: serde_json::Value,
     system_proxy_ownership: &'static str,
     kill_switch_active: bool,
-    native_recovery_owner: String,
-    native_recovery_state: String,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
@@ -1079,7 +1187,6 @@ pub(crate) struct NativeRuntimeStatus {
     pub clash_ready: bool,
     pub control_endpoint: Option<ControlEndpoint>,
     pub probe_proxy_endpoint: Option<ProbeProxyEndpoint>,
-    pub listener_ready: bool,
 }
 
 fn parse_endpoint_address(
@@ -1406,7 +1513,10 @@ fn terminate_tracked_process(_process: &TrackedProcess) {}
 
 #[cfg(not(target_os = "windows"))]
 fn killed_processes_exited(state: &SingboxState, _processes: &[TrackedProcess]) -> bool {
+    // Монитор без Terminated ушёл в unconfirmed: подтверждением выхода он не
+    // является, поэтому здесь нужны оба нуля.
     state.live_processes.load(Ordering::SeqCst) == 0
+        && state.unconfirmed_exits.load(Ordering::SeqCst) == 0
 }
 
 #[cfg(target_os = "windows")]
@@ -1467,7 +1577,6 @@ async fn wait_runtime_released(
 fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> RuntimeSnapshot {
     let running = compute_singbox_running(state);
     let record = state.runtime.lock_recover().clone();
-    let health = state.dataplane_health.snapshot();
     let proxy_state = proxy::system_proxy_state();
     let (notification_generation, notification_applied_generation) =
         proxy::proxy_notification_generations();
@@ -1519,8 +1628,6 @@ fn runtime_snapshot_value(state: &SingboxState, kill_switch_active: bool) -> Run
             "not_owned"
         },
         kill_switch_active,
-        native_recovery_owner: health.native_recovery_owner,
-        native_recovery_state: health.native_recovery_state,
     }
 }
 
@@ -1565,10 +1672,6 @@ pub(crate) fn native_runtime_status(
         } else {
             None
         },
-        listener_ready: generation_matches
-            && record
-                .as_ref()
-                .is_some_and(|runtime| runtime.listener_ready),
     }
 }
 
@@ -1744,7 +1847,7 @@ fn verified_runtime_ready(app: &AppHandle) -> RuntimeDataplaneVerification {
 }
 
 /// One-shot source-switch verifier.  It intentionally does not consult the
-/// rolling watchdog state: a transaction proves *this* runtime generation or
+/// background watchdog state: a transaction proves *this* runtime generation or
 /// returns a structured non-destructive verdict.
 #[tauri::command]
 pub async fn verify_runtime_dataplane(
@@ -1779,6 +1882,34 @@ async fn verify_runtime_dataplane_inner(
     verdict
 }
 
+fn runtime_logs_disabled(state: &SingboxState) -> bool {
+    state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .is_some_and(|runtime| runtime.logs_disabled)
+}
+
+// Чем именно подтверждена достижимость. Liveness-проба считает успехом ЛЮБОЙ
+// валидный HTTP-ответ (за ним стоит успешный TLS с разрешённым хостом), поэтому
+// в журнале должно быть видно, что это был за ответ: «ready» без этой строки не
+// отличить от 204 и от 500 удалённой стороны.
+fn log_verification_evidence(app: &AppHandle, state: &SingboxState, evidence: Option<&str>) {
+    if runtime_logs_disabled(state) {
+        return;
+    }
+    let evidence: String = evidence
+        .unwrap_or("none")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '_' | '-' | '.'))
+        .take(64)
+        .collect();
+    append_runtime_diagnostic(
+        app,
+        &format!("source_verification_evidence probe=health result={evidence}"),
+    );
+}
+
 fn log_runtime_verification(
     app: &AppHandle,
     state: &SingboxState,
@@ -1788,12 +1919,7 @@ fn log_runtime_verification(
     verdict: &RuntimeDataplaneVerification,
     duration_ms: u64,
 ) {
-    if state
-        .runtime_launch
-        .lock_recover()
-        .as_ref()
-        .is_some_and(|spec| spec.logs_disabled)
-    {
+    if runtime_logs_disabled(state) {
         return;
     }
     let (control_port, probe_port) = state
@@ -1822,8 +1948,16 @@ fn log_runtime_verification(
         RuntimeDataplaneVerification::Cancelled => ("cancelled", None),
         RuntimeDataplaneVerification::Stale => ("stale", None),
     };
-    append_runtime_diagnostic(
+    // Отменённая и устаревшая проверки — штатный ход смены источника, а вот
+    // отказ дата-плейна пользователь должен видеть как ошибку.
+    let level = match verdict {
+        RuntimeDataplaneVerification::HardFailed { .. } => DiagnosticLevel::Error,
+        RuntimeDataplaneVerification::Unverified { .. } => DiagnosticLevel::Warn,
+        _ => DiagnosticLevel::Info,
+    };
+    append_runtime_diagnostic_at(
         app,
+        level,
         &format!(
             "source_verification operation_id={} kind={operation_kind:?} expected_generation={} control_role=clash_api control_port={} probe_role=dataplane_proxy probe_port={} verdict={} reason={} duration_ms={duration_ms}",
             operation_id,
@@ -1903,11 +2037,6 @@ async fn verify_runtime_dataplane_unlogged(
     if !runtime_identity_matches(state, expected_generation, expected_source_fingerprint) {
         return RuntimeDataplaneVerification::Stale;
     }
-    if state.dataplane_health.snapshot().host_pressure {
-        return RuntimeDataplaneVerification::Unverified {
-            reason: "host_pressure".into(),
-        };
-    }
 
     let strict_privacy = state
         .runtime
@@ -1971,13 +2100,11 @@ async fn verify_runtime_dataplane_unlogged(
         {
             return RuntimeDataplaneVerification::Stale;
         }
-        if state.dataplane_health.snapshot().host_pressure {
-            return RuntimeDataplaneVerification::Unverified {
-                reason: "host_pressure".into(),
-            };
-        }
         match result {
-            Ok(result) if result.ok => return verified_runtime_ready(app),
+            Ok(result) if result.ok => {
+                log_verification_evidence(app, state, result.error.as_deref());
+                return verified_runtime_ready(app);
+            }
             Ok(_) if round == 0 => {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 if !operation_is_current(app, &operation_token) {
@@ -1991,11 +2118,6 @@ async fn verify_runtime_dataplane_unlogged(
                     )
                 {
                     return RuntimeDataplaneVerification::Stale;
-                }
-                if state.dataplane_health.snapshot().host_pressure {
-                    return RuntimeDataplaneVerification::Unverified {
-                        reason: "host_pressure".into(),
-                    };
                 }
             }
             Ok(_) => {
@@ -2019,7 +2141,6 @@ async fn start_singbox_inner(
     app: AppHandle,
     state: &SingboxState,
     spec: RuntimeLaunchSpec,
-    preserve_recovery_budget: bool,
     operation_token: &RuntimeOperationToken,
 ) -> Result<RuntimeSnapshot, String> {
     let RuntimeLaunchSpec {
@@ -2032,9 +2153,6 @@ async fn start_singbox_inner(
         config_hash,
         strict_privacy,
         pinned_node_tag,
-        system_proxy_bypass_lan,
-        kill_switch_expected,
-        endpoints: expected_endpoints,
     } = spec;
     if !operation_is_current(&app, operation_token) {
         return Err("stale or cancelled runtime operation token".into());
@@ -2045,9 +2163,6 @@ async fn start_singbox_inner(
         let _gate = state.lifecycle_gate.lock_recover();
         if state.stopping.load(Ordering::SeqCst) {
             return Err("остановка ещё выполняется".into());
-        }
-        if state.native_recovery_active.load(Ordering::SeqCst) && !preserve_recovery_budget {
-            return Err("нативное восстановление ещё выполняется".into());
         }
         // Sentinel ДО child-проверки: второй конкурентный вызов отсекается,
         // пока первый ещё находится в await до публикации child.
@@ -2082,12 +2197,6 @@ async fn start_singbox_inner(
     let cache_path = singbox_cache_path(&app)?;
     let config_json = harden_config(&raw_config_json, Some(&cache_path));
     let (endpoints, clash_port, runtime_ports) = runtime_config_metadata_from_config(&config_json)?;
-    if expected_endpoints
-        .as_ref()
-        .is_some_and(|expected| expected != &endpoints)
-    {
-        return Err("runtime endpoint metadata changed during recovery".into());
-    }
     if operation_token.kind == RuntimeOperationKind::SourceSwitch
         && (operation_token.expected_source_fingerprint.is_none()
             || operation_token.expected_source_fingerprint.as_deref()
@@ -2096,12 +2205,15 @@ async fn start_singbox_inner(
         return Err("source identity changed during source switch".into());
     }
     let probe_endpoint = endpoints.probe_proxy.clone();
-    *state.runtime_ports.lock_recover() = runtime_ports;
+    // Разбор спецификации мостов — до публикации портов: при битом JSON ничего
+    // не запускалось, а список портов уже уехал бы в state и следующий stop
+    // проверял бы освобождение портов несуществовавшего runtime.
     let sidecar_specs: Option<Vec<SidecarSpec>> = sidecars_json
         .as_ref()
         .filter(|s| !s.trim().is_empty())
         .map(|sj| serde_json::from_str(sj).map_err(|e| format!("sidecars json: {e}")))
         .transpose()?;
+    *state.runtime_ports.lock_recover() = runtime_ports;
 
     // Two-core: если в конфиге есть xhttp-ноды, поднимаем xray ДО sing-box
     // (в любом режиме). При ошибке спавна — не стартуем VPN вовсе.
@@ -2120,9 +2232,7 @@ async fn start_singbox_inner(
             return Err(e);
         }
         ensure_start_current(state, start_epoch)?;
-        if !operation_is_current(&app, operation_token) {
-            return Err("stale or cancelled runtime operation token".into());
-        }
+        ensure_operation_current(&app, state, operation_token)?;
     }
 
     // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
@@ -2142,9 +2252,7 @@ async fn start_singbox_inner(
             return Err(e);
         }
         ensure_start_current(state, start_epoch)?;
-        if !operation_is_current(&app, operation_token) {
-            return Err("stale or cancelled runtime operation token".into());
-        }
+        ensure_operation_current(&app, state, operation_token)?;
     }
 
     // Режим (proxy/systemProxy/tun) больше не влияет на запуск ядра в Rust:
@@ -2176,9 +2284,7 @@ async fn start_singbox_inner(
         return Err(e);
     }
     ensure_start_current(state, start_epoch)?;
-    if !operation_is_current(&app, operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
-    }
+    ensure_operation_current(&app, state, operation_token)?;
 
     if let Err(e) = wait_clash_ready(&endpoints.control, state, start_epoch).await {
         if let Some(child) = state.child.lock_recover().take() {
@@ -2191,7 +2297,7 @@ async fn start_singbox_inner(
         return Err(e);
     }
     // Clash control readiness is not sufficient for System Proxy/TUN. The
-    // endpoint published to Windows and to the health probe must be the
+    // endpoint published to Windows and to the dataplane probe must be the
     // listener owned by this freshly spawned sing-box generation.
     if let Err(e) = wait_probe_listener_ready(probe_endpoint.as_ref(), state, start_epoch).await {
         if let Some(child) = state.child.lock_recover().take() {
@@ -2204,9 +2310,7 @@ async fn start_singbox_inner(
         *state.runtime.lock_recover() = None;
         return Err(e);
     }
-    if !operation_is_current(&app, operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
-    }
+    ensure_operation_current(&app, state, operation_token)?;
     *state.runtime.lock_recover() = Some(RuntimeRecord {
         process_generation,
         source_fingerprint: source_fingerprint.clone(),
@@ -2214,43 +2318,58 @@ async fn start_singbox_inner(
         mode: mode.clone(),
         strict_privacy,
         pinned_node_tag: pinned_node_tag.clone(),
+        logs_disabled,
         endpoints: endpoints.clone(),
         listener_ready: true,
         clash_port,
         clash_ready: true,
     });
     state.dataplane_probe.reset_generation(process_generation);
-    *state.runtime_launch.lock_recover() = Some(RuntimeLaunchSpec {
-        config_json: config_json.clone(),
-        mode: mode.clone(),
-        xray_json: xray_json.clone(),
-        sidecars_json: sidecars_json.clone(),
-        logs_disabled,
-        source_fingerprint: source_fingerprint.clone(),
-        config_hash: config_hash.clone(),
-        strict_privacy,
-        pinned_node_tag: pinned_node_tag.clone(),
-        system_proxy_bypass_lan,
-        kill_switch_expected,
-        endpoints: Some(endpoints.clone()),
-    });
-    if strict_privacy || probe_endpoint.is_some() {
-        health::start_dataplane_watchdog(
-            app.clone(),
-            state.dataplane_health.clone(),
-            state.dataplane_generation.clone(),
-            process_generation,
-            health::DataplaneWatchdogConfig {
-                probe_endpoint,
-                strict_privacy,
-                preserve_recovery_budget,
-                logs_disabled,
-            },
-        );
-    } else {
-        health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
-    }
+    spawn_core_death_watcher(app.clone(), state, process_generation);
     Ok(runtime_snapshot_value(state, false))
+}
+
+// Имя события смерти ядра. Полезная нагрузка — только поколение и текст
+// причины из лога движка: ни адресов, ни конфига.
+pub const CORE_DIED_EVENT: &str = "vpn:core-died";
+
+#[derive(Clone, serde::Serialize)]
+pub struct CoreDiedEvent {
+    pub generation: u64,
+    pub reason: Option<String>,
+}
+
+// Rust узнаёт о смерти ядра мгновенно: монитор процесса ловит Terminated и
+// дёргает `process_exit_notify`. До этого сторожа событие никто не потреблял —
+// фронт обнаруживал труп только на очередном 5-секундном тике, то есть детект
+// зависел от таймера WebView. В трее Chromium режет таймеры скрытой страницы, а
+// под полной загрузкой CPU рендерер планируется последним, — ровно в тех
+// случаях, где отказоустойчивость и нужна. Сторож НИЧЕГО не останавливает и не
+// поднимает: политику (гасить, восстанавливать, что показать) по-прежнему решает
+// фронт, здесь только доставка факта без задержки.
+fn spawn_core_death_watcher(app: AppHandle, state: &SingboxState, generation: u64) {
+    let died = state.died.clone();
+    let current_generation = state.process_generation.clone();
+    let notify = state.process_exit_notify.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            // Регистрируем ожидание ДО проверки условия: иначе смерть, попавшая
+            // в окно между проверкой и await, потеряла бы пробуждение, и сторож
+            // висел бы до чужого exit'а.
+            let notified = notify.notified();
+            tokio::pin!(notified);
+            let _ = notified.as_mut().enable();
+            if current_generation.load(Ordering::SeqCst) != generation {
+                return; // поколение сменилось — этот runtime уже не наш
+            }
+            let reason = died.lock_recover().clone();
+            if reason.is_some() {
+                let _ = app.emit(CORE_DIED_EVENT, CoreDiedEvent { generation, reason });
+                return;
+            }
+            notified.await;
+        }
+    });
 }
 
 #[tauri::command]
@@ -2267,8 +2386,6 @@ pub async fn start_singbox(
     config_hash: Option<String>,
     strict_privacy: Option<bool>,
     pinned_node_tag: Option<String>,
-    system_proxy_bypass_lan: Option<bool>,
-    kill_switch_expected: Option<bool>,
     operation_token: Option<RuntimeOperationToken>,
 ) -> Result<RuntimeSnapshot, String> {
     let (operation_token, implicit) = lifecycle_operation(
@@ -2291,11 +2408,7 @@ pub async fn start_singbox(
             config_hash,
             strict_privacy: strict_privacy.unwrap_or(false),
             pinned_node_tag,
-            system_proxy_bypass_lan: system_proxy_bypass_lan.unwrap_or(true),
-            kill_switch_expected: kill_switch_expected.unwrap_or(false),
-            endpoints: None,
         },
-        false,
         &operation_token,
     )
     .await;
@@ -2327,8 +2440,8 @@ async fn spawn_singbox_core(
         .env("NO_COLOR", "1")
         .spawn()
         .map_err(|e| format!("spawn sing-box: {e}"))?;
-    prioritize_datapath_process(child.pid());
 
+    prioritize_datapath_process(child.pid());
     *state.child.lock_recover() = Some(child);
 
     let died_flag = state.died.clone();
@@ -2339,8 +2452,11 @@ async fn spawn_singbox_core(
         rx,
         log_file,
         died_flag,
-        state.live_processes.clone(),
-        state.process_exit_notify.clone(),
+        MonitorCounters {
+            live: state.live_processes.clone(),
+            unconfirmed: state.unconfirmed_exits.clone(),
+            exit_notify: state.process_exit_notify.clone(),
+        },
         MonitorGeneration {
             current: state.process_generation.clone(),
             expected_exit: state.expected_exit_generation.clone(),
@@ -2386,10 +2502,12 @@ fn kill_sidecars(state: &SingboxState) -> bool {
     ok
 }
 
-fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> {
-    if state.start_epoch.load(Ordering::SeqCst) == epoch {
-        return Ok(());
-    }
+// Зачистка незавершённого запуска. Отмена по epoch и отмена по владению
+// операцией — один и тот же исход: поднятый комплект больше никому не
+// принадлежит. Оставлять его живым нельзя: guard `child.is_some()` заблокировал
+// бы следующий старт, а compute_singbox_running продолжал бы отдавать
+// running=true при пустом RuntimeRecord.
+fn abort_started_runtime(state: &SingboxState) {
     if let Some(child) = state.child.lock_recover().take() {
         let _ = child.kill();
     }
@@ -2397,7 +2515,30 @@ fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> 
     kill_sidecars(state);
     *state.runtime_ports.lock_recover() = Vec::new();
     *state.runtime.lock_recover() = None;
+}
+
+fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> {
+    if state.start_epoch.load(Ordering::SeqCst) == epoch {
+        return Ok(());
+    }
+    abort_started_runtime(state);
     Err("запуск отменён новым сетевым намерением".into())
+}
+
+// Отнятый/устаревший токен на любом шаге старта. В отличие от epoch-проверки
+// координатор мог сменить владельца без нового start_epoch (latest-wins смена
+// источника), поэтому чистить обязана именно эта ветка: у stop_singbox с тем же
+// токеном владения уже нет, и он вернёт refused, не тронув процессы.
+fn ensure_operation_current(
+    app: &AppHandle,
+    state: &SingboxState,
+    token: &RuntimeOperationToken,
+) -> Result<(), String> {
+    if operation_is_current(app, token) {
+        return Ok(());
+    }
+    abort_started_runtime(state);
+    Err("stale or cancelled runtime operation token".into())
 }
 
 async fn wait_start_delay(
@@ -2495,6 +2636,10 @@ pub struct StopResult {
     remaining_ports: Vec<u16>,
     processes_exited: bool,
     pending_exit_events: u64,
+    // Мониторы, закончившиеся без Terminated. Ненулевое значение объясняет,
+    // почему остановка не подтверждена событиями, и не выдаёт себя за живой
+    // процесс.
+    unconfirmed_monitor_exits: u64,
     system_proxy: &'static str,
     timings: StopTimings,
 }
@@ -2508,16 +2653,8 @@ struct StopTimings {
     total_ms: u64,
 }
 
-async fn stop_singbox_inner(
-    app: &AppHandle,
-    state: &SingboxState,
-    stop_watchdog: bool,
-    retain_launch: bool,
-) -> Result<StopResult, String> {
+async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<StopResult, String> {
     let _stop = state.stop_lock.lock().await;
-    if stop_watchdog {
-        health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
-    }
     state.dataplane_probe.invalidate();
     {
         let _gate = state.lifecycle_gate.lock_recover();
@@ -2582,12 +2719,10 @@ async fn stop_singbox_inner(
         purge_bridge_configs(app);
         purge_current_configs(app);
         clear_death_flags(state);
+        state.unconfirmed_exits.store(0, Ordering::SeqCst);
         *state.runtime.lock_recover() = None;
         *state.runtime_ports.lock_recover() = Vec::new();
         *state.pending_cleanup.lock_recover() = None;
-        if !retain_launch {
-            *state.runtime_launch.lock_recover() = None;
-        }
     } else {
         *state.pending_cleanup.lock_recover() = Some(PendingCleanup {
             processes: unresolved_processes(&killed_processes),
@@ -2622,6 +2757,7 @@ async fn stop_singbox_inner(
         remaining_ports,
         processes_exited,
         pending_exit_events: state.live_processes.load(Ordering::SeqCst),
+        unconfirmed_monitor_exits: state.unconfirmed_exits.load(Ordering::SeqCst),
         system_proxy: if !proxy_was_owned {
             "not_owned"
         } else if proxy_ok {
@@ -2644,201 +2780,189 @@ pub async fn stop_singbox(
     state: State<'_, SingboxState>,
     operation_token: Option<RuntimeOperationToken>,
 ) -> Result<StopResult, String> {
-    // Manual disconnect wins over native recovery. Set the cancellation bit
-    // before waiting for the owner lock, then perform the same verified stop
-    // after the native action has released it. This avoids both a restart after
-    // the user's disconnect and a parallel cleanup of the dependency graph.
+    // Manual disconnect owns the lifecycle token and performs one verified stop.
     let generation = state.process_generation.load(Ordering::SeqCst);
-    let (operation_token, implicit) = lifecycle_operation(
+    // logs_disabled живёт в RuntimeRecord, а подтверждённый stop его обнуляет.
+    // Читаем настройку до остановки, иначе итоговая запись ушла бы в файл даже
+    // при полностью отключённых логах.
+    let logs_disabled = state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .is_some_and(|runtime| runtime.logs_disabled);
+    // Отказ владения — тоже исход остановки, и на UI он выглядит ровно тем же
+    // «очистка не подтверждена», что и незавершённый процесс. Без этих записей
+    // в журнале оставалась дыра: неудачный stop не оставлял следа вообще, и
+    // отличить отнятый токен от реальной проблемы очистки было нечем.
+    let requested_kind = operation_token.as_ref().map(|token| token.kind);
+    let (operation_token, implicit) = match lifecycle_operation(
         &app,
         operation_token,
         RuntimeOperationKind::UserDisconnect,
         generation,
         None,
-    )?;
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            log_stop_refusal(&app, logs_disabled, requested_kind, generation, &error);
+            return Err(error);
+        }
+    };
     if !operation_is_current(&app, &operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
+        let error = "stale or cancelled runtime operation token".to_string();
+        log_stop_refusal(
+            &app,
+            logs_disabled,
+            Some(operation_token.kind),
+            generation,
+            &error,
+        );
+        return Err(error);
     }
     if operation_token.kind.needs_transition_barrier() {
-        native_transition_barrier(&app)?;
+        match native_transition_barrier(&app) {
+            Ok(barrier) => log_stop_diagnostic(
+                &app,
+                logs_disabled,
+                DiagnosticLevel::Info,
+                &format!(
+                    "runtime_stop_barrier kind={:?} generation={generation} state={}",
+                    operation_token.kind,
+                    if barrier { "armed" } else { "not_required" },
+                ),
+            ),
+            Err(error) => {
+                log_stop_diagnostic(
+                    &app,
+                    logs_disabled,
+                    DiagnosticLevel::Warn,
+                    &format!(
+                        "runtime_stop_barrier kind={:?} generation={generation} state=failed reason={error}",
+                        operation_token.kind,
+                    ),
+                );
+                return Err(error);
+            }
+        }
     }
-    state
-        .native_recovery_cancelled
-        .store(true, Ordering::SeqCst);
-    // Не ждём до конца 800ms/Clash-readiness окна нативного restart: ручное
-    // намерение сразу инвалидирует его start epoch, и ближайшая bounded-проверка
-    // освобождает owner lock. Новый профиль после этого получает чистый lifecycle.
+    // Manual intent invalidates any start still crossing an await boundary.
     state.start_epoch.fetch_add(1, Ordering::SeqCst);
-    let _recovery_lock = state.native_recovery_lock.lock().await;
     if !operation_is_current(&app, &operation_token) {
-        return Err("stale or cancelled runtime operation token".into());
+        let error = "stale or cancelled runtime operation token".to_string();
+        log_stop_refusal(
+            &app,
+            logs_disabled,
+            Some(operation_token.kind),
+            generation,
+            &error,
+        );
+        return Err(error);
     }
-    let result = stop_singbox_inner(&app, &state, true, false).await;
-    state
-        .native_recovery_cancelled
-        .store(false, Ordering::SeqCst);
+    let result = stop_singbox_inner(&app, &state).await;
+    log_stop_result(
+        &app,
+        logs_disabled,
+        operation_token.kind,
+        generation,
+        &result,
+    );
     finish_implicit_operation(&app, &operation_token, implicit);
     result
 }
 
-struct NativeRecoveryOwner<'a>(&'a AtomicBool);
-
-impl Drop for NativeRecoveryOwner<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::SeqCst);
+// Итог остановки уходил только в console.error WebView, недоступную пользователю:
+// по сообщению «очистка не подтверждена» нельзя было отличить незавершённый
+// процесс от занятого порта или от неснятого системного прокси. Пишем разбор в
+// тот же singbox.log, который открывается во вкладке «Логи». Здесь нет URL, IP,
+// имён нод и конфигов — только статусы компонентов, номера runtime-портов и
+// тайминги стадий.
+fn log_stop_diagnostic(app: &AppHandle, logs_disabled: bool, level: DiagnosticLevel, line: &str) {
+    if logs_disabled {
+        return;
     }
+    append_runtime_diagnostic_at(app, level, line);
 }
 
-/// Every native recovery exit must release its operation token. Otherwise a
-/// failed/cancelled owner could indefinitely suppress the frontend handoff.
-/// Completion is safe after supersession because it is token-id scoped.
-struct OperationCompletion<'a> {
-    coordinator: &'a RuntimeOperationCoordinator,
-    token: RuntimeOperationToken,
-}
-
-impl Drop for OperationCompletion<'_> {
-    fn drop(&mut self) {
-        let _ = self.coordinator.complete(&self.token);
-    }
-}
-
-fn native_recovery_result_is_ready(result: &StopResult) -> bool {
-    result.processes_exited && result.ports_released && result.system_proxy != "failed"
-}
-
-fn native_rearm_saved_kill_switch(app: &AppHandle, spec: &RuntimeLaunchSpec) -> Result<(), String> {
-    if !spec.kill_switch_expected {
-        return Ok(());
-    }
-    let Some(kill_switch) = app.try_state::<crate::killswitch::KillSwitchState>() else {
-        return Err("kill switch state недоступен для native recovery".into());
-    };
-    crate::killswitch::arm_policy(
-        &kill_switch,
-        Some(if spec.strict_privacy {
-            false
-        } else {
-            spec.system_proxy_bypass_lan
-        }),
-        spec.strict_privacy.then(|| "ninety-tun".to_string()),
-        Some(spec.strict_privacy),
-    )?;
-    if !crate::killswitch::is_active(&kill_switch) {
-        return Err("kill switch readiness не подтверждена после native recovery".into());
-    }
-    Ok(())
-}
-
-async fn native_reapply_runtime_policy(
+// Остановка, отклонённая координатором операций: сюда попадают отнятый/устаревший
+// токен и занятый lifecycle. Формат совпадает с обычным runtime_stop, чтобы в
+// журнале обе ветки читались одним грепом.
+fn log_stop_refusal(
     app: &AppHandle,
-    spec: &RuntimeLaunchSpec,
-    snapshot: &RuntimeSnapshot,
-    operation_token: &RuntimeOperationToken,
-) -> Result<(), String> {
-    if !operation_is_current(app, operation_token) {
-        return Err("native recovery operation became stale".into());
+    logs_disabled: bool,
+    kind: Option<RuntimeOperationKind>,
+    generation: u64,
+    reason: &str,
+) {
+    let kind = match kind {
+        Some(kind) => format!("{kind:?}"),
+        None => "none".to_string(),
+    };
+    log_stop_diagnostic(
+        app,
+        logs_disabled,
+        DiagnosticLevel::Warn,
+        &format!("runtime_stop kind={kind} generation={generation} result=refused reason={reason}"),
+    );
+}
+
+fn log_stop_result(
+    app: &AppHandle,
+    logs_disabled: bool,
+    kind: RuntimeOperationKind,
+    generation: u64,
+    result: &Result<StopResult, String>,
+) {
+    if logs_disabled {
+        return;
     }
-    let runtime_state = app
-        .try_state::<SingboxState>()
-        .ok_or("runtime state unavailable for recovery policy")?;
-    if spec.mode == "systemProxy" {
-        let probe_endpoint = snapshot
-            .probe_proxy_endpoint
-            .as_ref()
-            .ok_or_else(|| "native recovery probe endpoint is unavailable".to_string())?;
-        let host_port = probe_endpoint.address.to_string();
-        enable_system_proxy_for_runtime(
-            &runtime_state,
-            &host_port,
-            Some(spec.system_proxy_bypass_lan),
-            Some(snapshot.process_generation),
-        )
-        .await
-        .map_err(|error| format!("native recovery system proxy readiness failed: {error}"))?;
-        if !proxy::system_proxy_owned() {
-            return Err("system proxy ownership не подтверждена после native recovery".into());
+    // Неподтверждённая очистка — не хроника, а повод разбираться: процессы или
+    // порты остались за нами. В журнале она должна попадать в фильтр
+    // предупреждений, а не теряться среди обычных строк остановки.
+    let level = match result {
+        Ok(stop) if stop.processes_exited && stop.ports_released => DiagnosticLevel::Info,
+        _ => DiagnosticLevel::Warn,
+    };
+    let line = match result {
+        Ok(stop) => format!(
+            "runtime_stop kind={kind:?} generation={generation} singbox={} xray={} sidecars={} \
+             processes_exited={} ports_released={} remaining_ports={:?} pending_exit_events={} \
+             unconfirmed_monitor_exits={} system_proxy={} kill_ms={} proxy_ms={} confirm_ms={} total_ms={}",
+            stop.singbox,
+            stop.xray,
+            stop.sidecars,
+            stop.processes_exited,
+            stop.ports_released,
+            stop.remaining_ports,
+            stop.pending_exit_events,
+            stop.unconfirmed_monitor_exits,
+            stop.system_proxy,
+            stop.timings.kill_ms,
+            stop.timings.proxy_ms,
+            stop.timings.confirm_ms,
+            stop.timings.total_ms,
+        ),
+        Err(error) => {
+            format!(
+                "runtime_stop kind={kind:?} generation={generation} result=error reason={error}"
+            )
         }
-    }
-
-    native_rearm_saved_kill_switch(app, spec)?;
-
-    let current = native_runtime_status(app, snapshot.process_generation);
-    if !current.running || !current.clash_ready || !current.listener_ready {
-        return Err("native recovery runtime не прошёл readiness".into());
-    }
-    let Some(control_endpoint) = current.control_endpoint.as_ref() else {
-        return Err("native recovery control endpoint is unavailable".into());
     };
-    if !local_clash_listener_ready(control_endpoint).await {
-        return Err("native recovery local listener is unavailable".into());
-    }
-    if !operation_is_current(app, operation_token) {
-        return Err("native recovery operation became stale".into());
-    }
-    if spec.strict_privacy {
-        return Ok(());
-    }
-    let state = app
-        .try_state::<SingboxState>()
-        .ok_or("runtime state unavailable for recovery verification")?;
-    if state.dataplane_health.snapshot().host_pressure {
-        return Err("native recovery remains under host pressure".into());
-    }
-    let permit = state
-        .dataplane_probe
-        .acquire(
-            DataplaneProbeKind::SourceVerification,
-            snapshot.process_generation,
-            Some(std::time::Duration::from_secs(1)),
-        )
-        .await
-        .map_err(|error| match error {
-            ProbeAcquireError::Busy => "native recovery probe busy".to_string(),
-            ProbeAcquireError::StaleGeneration => {
-                "native recovery generation became stale".to_string()
-            }
-        })?;
-    let Some(probe_endpoint) = current.probe_proxy_endpoint.as_ref() else {
-        return Err("native recovery probe endpoint is unavailable".into());
-    };
-    let result = crate::quality::probe_health_inner(Some(probe_endpoint)).await?;
-    if !operation_is_current(app, operation_token) || !state.dataplane_probe.is_current(&permit) {
-        return Err("native recovery generation became stale".into());
-    }
-    if !result.ok {
-        return Err("native recovery dataplane verification failed".into());
-    }
-    Ok(())
+    append_runtime_diagnostic_at(app, level, &line);
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum NativeRecoveryOutcome {
-    StartedNewGeneration {
-        generation: u64,
-    },
-    Busy {
-        active_operation: Option<RuntimeOperationKind>,
-    },
-    Cancelled,
-    StaleGeneration,
-    PreconditionsChanged,
-    AttemptFailed {
-        reason: String,
-    },
+// Транзитный барьер имеет смысл ТОЛЬКО поверх уже действующей fail-closed
+// политики: строгая приватность или армированный kill switch. Пользователю с
+// выключенным Kill Switch он не даёт ничего, зато на каждой смене режима и на
+// каждом восстановлении watchdog'а рубит все новые соединения приложений
+// (block-all разрешает лишь loopback, DHCP и exe движков) — вопреки явно
+// выключенной настройке. Барьер снимается только успешной верификацией нового
+// runtime, которой на пути смены режима нет вовсе.
+fn transition_barrier_required(strict_tunnel: bool, kill_switch_active: bool) -> bool {
+    strict_tunnel || kill_switch_active
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum TerminalCleanupOutcome {
-    Confirmed,
-    Busy,
-    Cancelled,
-    StaleGeneration,
-    AttemptFailed { reason: String },
-}
-
-fn native_transition_barrier(app: &AppHandle) -> Result<(), String> {
-    debug_assert!(RuntimeOperationKind::NativeRecovery.needs_transition_barrier());
+/// Возвращает true, если барьер армирован, false — если политика его не требует.
+fn native_transition_barrier(app: &AppHandle) -> Result<bool, String> {
     let kill_switch = app
         .try_state::<crate::killswitch::KillSwitchState>()
         .ok_or("kill switch state unavailable for transition barrier")?;
@@ -2852,11 +2976,14 @@ fn native_transition_barrier(app: &AppHandle) -> Result<(), String> {
                 .map(|runtime| runtime.strict_privacy)
         })
         .unwrap_or(false);
+    if !transition_barrier_required(strict_tunnel, crate::killswitch::is_active(&kill_switch)) {
+        return Ok(false);
+    }
     crate::killswitch::transition_arm(&kill_switch, strict_tunnel)?;
     if !crate::killswitch::transition_active(&kill_switch) {
         return Err("transition barrier was not confirmed active".into());
     }
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn release_transition_barrier(app: &AppHandle) -> Result<(), String> {
@@ -2864,253 +2991,6 @@ pub(crate) fn release_transition_barrier(app: &AppHandle) -> Result<(), String> 
         .try_state::<crate::killswitch::KillSwitchState>()
         .ok_or("kill switch state unavailable for transition barrier")?;
     crate::killswitch::transition_release(&kill_switch)
-}
-
-/// A source verification may be deliberately `Unverified` while host
-/// pressure suppresses external probes.  Once a later native health sample
-/// proves the runtime healthy and no lifecycle owner is active, it is safe to
-/// retire the leftover temporary barrier without weakening the user's policy.
-pub(crate) fn release_transition_barrier_if_idle(app: &AppHandle) {
-    if app
-        .try_state::<RuntimeOperationCoordinator>()
-        .and_then(|coordinator| coordinator.active_kind())
-        .is_some()
-    {
-        return;
-    }
-    let Some(kill_switch) = app.try_state::<crate::killswitch::KillSwitchState>() else {
-        return;
-    };
-    if !crate::killswitch::transition_active(&kill_switch) {
-        return;
-    }
-    // Re-check immediately before the synchronous release to avoid dropping
-    // a barrier for an operation that acquired the coordinator after the
-    // first snapshot.
-    if app
-        .try_state::<RuntimeOperationCoordinator>()
-        .and_then(|coordinator| coordinator.active_kind())
-        .is_none()
-    {
-        let _ = release_transition_barrier(app);
-    }
-}
-
-/// Controlled same-config restart.  Coordinator outcomes deliberately keep
-/// busy/cancelled/stale paths out of the recovery budget and frontend handoff.
-pub(crate) async fn native_recover_current_runtime(
-    app: &AppHandle,
-    expected_generation: u64,
-) -> NativeRecoveryOutcome {
-    let Some(state) = app.try_state::<SingboxState>() else {
-        return NativeRecoveryOutcome::PreconditionsChanged;
-    };
-    let Some(coordinator) = app.try_state::<RuntimeOperationCoordinator>() else {
-        return NativeRecoveryOutcome::PreconditionsChanged;
-    };
-    let source_fingerprint = state
-        .runtime
-        .lock_recover()
-        .as_ref()
-        .and_then(|runtime| runtime.source_fingerprint.clone());
-    let token = match coordinator.begin(
-        RuntimeOperationKind::NativeRecovery,
-        expected_generation,
-        source_fingerprint.as_deref(),
-    ) {
-        Ok(token) => token,
-        Err(_) => {
-            return NativeRecoveryOutcome::Busy {
-                active_operation: coordinator.active_kind(),
-            }
-        }
-    };
-    let _operation_completion = OperationCompletion {
-        coordinator: &coordinator,
-        token: token.clone(),
-    };
-    let Ok(_owner_lock) = state.native_recovery_lock.try_lock() else {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::Busy {
-            active_operation: coordinator.active_kind(),
-        };
-    };
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
-        return NativeRecoveryOutcome::Cancelled;
-    }
-    state
-        .native_recovery_cancelled
-        .store(false, Ordering::SeqCst);
-    if state.native_recovery_active.swap(true, Ordering::SeqCst) {
-        return NativeRecoveryOutcome::Busy {
-            active_operation: coordinator.active_kind(),
-        };
-    }
-    let _owner = NativeRecoveryOwner(&state.native_recovery_active);
-
-    let Some(spec) = state.runtime_launch.lock_recover().clone() else {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::PreconditionsChanged;
-    };
-    let Some(runtime) = state.runtime.lock_recover().clone() else {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::PreconditionsChanged;
-    };
-    if runtime.process_generation != expected_generation {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::StaleGeneration;
-    }
-    if !compute_singbox_running(&state)
-        || state.starting.load(Ordering::SeqCst)
-        || state.stopping.load(Ordering::SeqCst)
-    {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::PreconditionsChanged;
-    }
-
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
-        return NativeRecoveryOutcome::Cancelled;
-    }
-    if let Err(error) = native_transition_barrier(app) {
-        let _ = coordinator.complete(&token);
-        return NativeRecoveryOutcome::AttemptFailed { reason: error };
-    }
-    if !state
-        .dataplane_health
-        .native_recovery_started(expected_generation)
-    {
-        if coordinator.authorize(&token) {
-            let _ = release_transition_barrier(app);
-        }
-        return NativeRecoveryOutcome::Busy {
-            active_operation: coordinator.active_kind(),
-        };
-    }
-
-    let Ok(stopped) = stop_singbox_inner(app, &state, false, true).await else {
-        return NativeRecoveryOutcome::AttemptFailed {
-            reason: "stop_failed".into(),
-        };
-    };
-    if !native_recovery_result_is_ready(&stopped)
-        || state.native_recovery_cancelled.load(Ordering::SeqCst)
-        || !coordinator.authorize(&token)
-    {
-        return if coordinator.authorize(&token) {
-            NativeRecoveryOutcome::AttemptFailed {
-                reason: "stop_unconfirmed".into(),
-            }
-        } else {
-            NativeRecoveryOutcome::Cancelled
-        };
-    }
-
-    let Ok(snapshot) = start_singbox_inner(app.clone(), &state, spec.clone(), true, &token).await
-    else {
-        return NativeRecoveryOutcome::AttemptFailed {
-            reason: "start_failed".into(),
-        };
-    };
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
-        let _ = stop_singbox_inner(app, &state, false, false).await;
-        return NativeRecoveryOutcome::Cancelled;
-    }
-    if let Err(error) = native_reapply_runtime_policy(app, &spec, &snapshot, &token).await {
-        let _ = stop_singbox_inner(app, &state, false, false).await;
-        return NativeRecoveryOutcome::AttemptFailed { reason: error };
-    }
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
-        let _ = stop_singbox_inner(app, &state, false, false).await;
-        return NativeRecoveryOutcome::Cancelled;
-    }
-    if let Err(error) = release_transition_barrier(app) {
-        return NativeRecoveryOutcome::AttemptFailed { reason: error };
-    }
-    let generation = snapshot.process_generation;
-    let _ = coordinator.complete(&token);
-    NativeRecoveryOutcome::StartedNewGeneration { generation }
-}
-
-/// Last-resort native fail-closed cleanup after the bounded same-config budget
-/// is exhausted. WFP is armed/re-armed before the dependency stop whenever the
-/// saved runtime policy requires it; a failed cleanup is reported as retryable
-/// and never latched as a confirmed terminal state.
-pub(crate) async fn native_terminal_fail_closed(
-    app: &AppHandle,
-    expected_generation: u64,
-) -> TerminalCleanupOutcome {
-    let Some(state) = app.try_state::<SingboxState>() else {
-        return TerminalCleanupOutcome::StaleGeneration;
-    };
-    let Some(coordinator) = app.try_state::<RuntimeOperationCoordinator>() else {
-        return TerminalCleanupOutcome::Busy;
-    };
-    let token = match coordinator.begin(
-        RuntimeOperationKind::NativeRecovery,
-        expected_generation,
-        None,
-    ) {
-        Ok(token) => token,
-        Err(_) => return TerminalCleanupOutcome::Busy,
-    };
-    let _operation_completion = OperationCompletion {
-        coordinator: &coordinator,
-        token: token.clone(),
-    };
-    let Ok(_owner_lock) = state.native_recovery_lock.try_lock() else {
-        let _ = coordinator.complete(&token);
-        return TerminalCleanupOutcome::Busy;
-    };
-    if state.native_recovery_cancelled.load(Ordering::SeqCst) || !coordinator.authorize(&token) {
-        return TerminalCleanupOutcome::Cancelled;
-    }
-    if state.native_recovery_active.swap(true, Ordering::SeqCst) {
-        return TerminalCleanupOutcome::Busy;
-    }
-    let _owner = NativeRecoveryOwner(&state.native_recovery_active);
-    let spec = state.runtime_launch.lock_recover().clone();
-    if let Some(runtime) = state.runtime.lock_recover().clone() {
-        if runtime.process_generation != expected_generation {
-            let _ = coordinator.complete(&token);
-            return TerminalCleanupOutcome::StaleGeneration;
-        }
-    }
-
-    if let Err(error) = native_transition_barrier(app) {
-        let _ = coordinator.complete(&token);
-        return TerminalCleanupOutcome::AttemptFailed { reason: error };
-    }
-    if let Some(spec) = spec.as_ref() {
-        if let Err(error) = native_rearm_saved_kill_switch(app, spec) {
-            return TerminalCleanupOutcome::AttemptFailed { reason: error };
-        }
-    }
-    if !state
-        .dataplane_health
-        .terminal_cleanup_started(expected_generation)
-    {
-        if coordinator.authorize(&token) {
-            let _ = release_transition_barrier(app);
-        }
-        return TerminalCleanupOutcome::Busy;
-    }
-
-    let Ok(result) = stop_singbox_inner(app, &state, false, false).await else {
-        return TerminalCleanupOutcome::AttemptFailed {
-            reason: "stop_failed".into(),
-        };
-    };
-    if !coordinator.authorize(&token) {
-        return TerminalCleanupOutcome::Cancelled;
-    }
-    if native_recovery_result_is_ready(&result) {
-        let _ = coordinator.complete(&token);
-        TerminalCleanupOutcome::Confirmed
-    } else {
-        TerminalCleanupOutcome::AttemptFailed {
-            reason: "cleanup_unconfirmed".into(),
-        }
-    }
 }
 
 // Внутренние вычисления статусов — переиспользуются одиночными командами и
@@ -3202,8 +3082,10 @@ pub struct HealthSnapshot {
     pub sidecar: &'static str,
     pub last_error: Option<String>,
     pub kill_switch_active: bool,
-    pub dataplane: health::DataplaneHealthSnapshot,
     pub runtime_operation: Option<crate::runtime_ops::RuntimeOperationSnapshot>,
+    // Виноват ли хост, а не сеть. Едет тем же снимком, чтобы движок качества
+    // узнавал о нехватке CPU/памяти без отдельного round-trip'а.
+    pub host_pressure: crate::host_pressure::HostPressureSnapshot,
 }
 
 #[tauri::command]
@@ -3211,6 +3093,7 @@ pub fn health_snapshot(
     state: State<'_, SingboxState>,
     kill_switch: State<'_, crate::killswitch::KillSwitchState>,
     coordinator: State<'_, RuntimeOperationCoordinator>,
+    pressure: State<'_, crate::host_pressure::HostPressureState>,
 ) -> HealthSnapshot {
     HealthSnapshot {
         singbox_running: compute_singbox_running(&state),
@@ -3218,45 +3101,109 @@ pub fn health_snapshot(
         sidecar: compute_sidecar_status(&state),
         last_error: compute_last_error(&state),
         kill_switch_active: crate::killswitch::is_active(&kill_switch),
-        dataplane: state.dataplane_health.snapshot(),
         runtime_operation: coordinator.snapshot(),
+        host_pressure: pressure.snapshot(),
     }
 }
 
+fn validate_system_proxy_enable_request(
+    host_port: &str,
+    expected_generation: u64,
+) -> Result<(), String> {
+    if host_port.trim().is_empty() {
+        return Err("system proxy enable requires the current probe endpoint".into());
+    }
+    if expected_generation == 0 {
+        return Err("system proxy enable requires the current process generation".into());
+    }
+    Ok(())
+}
+
+// Остановка runtime под токеном операции: свой токен вызывающего авторизуем,
+// без него берём implicit FrontendRecovery. Занятый более приоритетной
+// операцией lifecycle останавливать нельзя — это не наш runtime.
+async fn stop_owned_runtime(
+    app: &AppHandle,
+    state: &SingboxState,
+    operation_token: Option<RuntimeOperationToken>,
+    generation: u64,
+) -> Result<StopResult, String> {
+    let (token, implicit) = lifecycle_operation(
+        app,
+        operation_token,
+        RuntimeOperationKind::FrontendRecovery,
+        generation,
+        None,
+    )?;
+    let result = if operation_is_current(app, &token) {
+        stop_singbox_inner(app, state).await
+    } else {
+        Err("stale or cancelled runtime operation token".to_string())
+    };
+    finish_implicit_operation(app, &token, implicit);
+    result
+}
+
 #[tauri::command]
-pub async fn set_system_proxy(
+pub async fn enable_system_proxy(
     app: AppHandle,
     state: State<'_, SingboxState>,
-    enable: bool,
-    host_port: Option<String>,
+    host_port: String,
     bypass_lan: Option<bool>,
-    expected_generation: Option<u64>,
+    expected_generation: u64,
+    operation_token: Option<RuntimeOperationToken>,
 ) -> Result<(), String> {
-    if !enable {
-        return proxy::set_system_proxy(false, None, None);
-    }
-    let Some(host_port) = host_port.as_deref() else {
-        return Err("system proxy enable requires the current probe endpoint".into());
-    };
-    let Some(expected_generation) = expected_generation.filter(|generation| *generation != 0)
-    else {
-        return Err("system proxy enable requires the current process generation".into());
-    };
-    if let Err(error) =
-        enable_system_proxy_for_runtime(&state, host_port, bypass_lan, Some(expected_generation))
-            .await
+    validate_system_proxy_enable_request(&host_port, expected_generation)?;
+    if let Err(error) = enable_system_proxy_for_runtime(
+        &state,
+        host_port.trim(),
+        bypass_lan,
+        Some(expected_generation),
+    )
+    .await
     {
-        let cleanup = stop_singbox_inner(&app, &state, true, false).await;
+        // Аварийная остановка после провала готовности прокси — такая же
+        // операция жизненного цикла, как ручное «Отключить». Без владения она
+        // гасила runtime вслепую: за время IPC им мог завладеть более новый
+        // connect, и тот получал внезапно убитое ядро.
+        let cleanup = stop_owned_runtime(&app, &state, operation_token, expected_generation).await;
         return Err(match cleanup {
             Ok(_) => format!("{error}; runtime stopped after proxy readiness failure"),
-            Err(cleanup_error) => {
-                format!(
-                    "{error}; runtime stop after proxy readiness failure failed: {cleanup_error}"
-                )
-            }
+            Err(cleanup_error) => format!(
+                "{error}; runtime stop after proxy readiness failure failed: {cleanup_error}"
+            ),
         });
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn disable_system_proxy() -> Result<(), String> {
+    proxy::set_system_proxy(false, None, None)
+}
+
+#[cfg(test)]
+mod system_proxy_command_tests {
+    use super::validate_system_proxy_enable_request;
+
+    #[test]
+    fn enable_contract_requires_endpoint_and_generation() {
+        assert!(validate_system_proxy_enable_request("", 1).is_err());
+        assert!(validate_system_proxy_enable_request("127.0.0.1:7890", 0).is_err());
+        assert!(validate_system_proxy_enable_request("127.0.0.1:7890", 1).is_ok());
+    }
+
+    #[test]
+    fn transition_barrier_follows_the_active_fail_closed_policy() {
+        use super::transition_barrier_required;
+
+        // Ни строгой приватности, ни армированного kill switch: блокировать сеть
+        // на время замены runtime нельзя — пользователь fail-closed не просил.
+        assert!(!transition_barrier_required(false, false));
+        assert!(transition_barrier_required(false, true));
+        assert!(transition_barrier_required(true, false));
+        assert!(transition_barrier_required(true, true));
+    }
 }
 
 #[tauri::command]
@@ -3304,7 +3251,6 @@ pub fn vpn_last_error(state: State<'_, SingboxState>) -> Option<String> {
 }
 
 pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
-    health::stop_dataplane_watchdog(&state.dataplane_health, &state.dataplane_generation);
     state.expected_exit_generation.store(
         state.process_generation.load(Ordering::SeqCst),
         Ordering::SeqCst,
@@ -3388,6 +3334,7 @@ pub async fn plan_bridge_ports(needs: BridgeNeeds) -> Result<BridgePorts, String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     fn test_dir(label: &str) -> PathBuf {
         let nonce = std::time::SystemTime::now()
@@ -3398,6 +3345,48 @@ mod tests {
             std::env::temp_dir().join(format!("ninety-vpn-{label}-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    // Парсер экрана «Логи» узнаёт запись по `[offset] [дата] время УРОВЕНЬ` —
+    // без этого префикса строка приложения станет продолжением чужой записи.
+    #[test]
+    fn diagnostics_carry_a_singbox_shaped_timestamp_and_level() {
+        let stamped = stamped_diagnostic(
+            &chrono::Local
+                .with_ymd_and_hms(2026, 8, 4, 19, 55, 27)
+                .unwrap(),
+            DiagnosticLevel::Warn,
+            "runtime_stop kind=Disconnect generation=7 result=refused",
+        );
+        let (offset, rest) = stamped.split_once(' ').expect("offset segment");
+        assert!(
+            offset.len() == 5
+                && matches!(offset.as_bytes()[0], b'+' | b'-')
+                && offset[1..].bytes().all(|b| b.is_ascii_digit()),
+            "unexpected offset segment: {stamped}"
+        );
+        assert_eq!(
+            rest,
+            "2026-08-04 19:55:27 WARN runtime_stop kind=Disconnect generation=7 result=refused"
+        );
+    }
+
+    #[test]
+    fn only_failing_results_are_raised_above_info() {
+        for result in ["failed", "error", "degraded", "unreachable", "UNVERIFIED"] {
+            assert_eq!(
+                diagnostic_level_for_result(result),
+                DiagnosticLevel::Warn,
+                "{result} should read as a failure"
+            );
+        }
+        for result in ["none", "completed", "cancelled", "available", "update"] {
+            assert_eq!(
+                diagnostic_level_for_result(result),
+                DiagnosticLevel::Info,
+                "{result} is ordinary lifecycle chatter"
+            );
+        }
     }
 
     #[test]
@@ -3547,6 +3536,7 @@ mod tests {
             mode: "systemProxy".into(),
             strict_privacy: false,
             pinned_node_tag: None,
+            logs_disabled: false,
             endpoints: RuntimeEndpoints {
                 control: ControlEndpoint {
                     address: "127.0.0.1:9090".parse().unwrap(),
@@ -3692,6 +3682,40 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    // Логи будущего runtime уже могут лежать на диске: если считать их и в
+    // entries, и в protected, лимит выглядит исчерпанным раньше времени.
+    #[test]
+    fn prune_reserves_space_without_double_counting_reused_ports() {
+        let dir = test_dir("prune-reuse");
+        for port in 31000..31000 + MAX_SIDECAR_LOG_FILES as u16 {
+            std::fs::write(
+                dir.join(sidecar_log_name(SidecarLogKind::Naive, port)),
+                b"log",
+            )
+            .unwrap();
+        }
+        // Порты те же, что уже на диске: чистить нечего, файлов ровно лимит.
+        let reused: HashSet<String> = (31000..31002)
+            .map(|port| sidecar_log_name(SidecarLogKind::Naive, port))
+            .collect();
+        prune_sidecar_logs(&dir, SidecarLogKind::Naive, &reused);
+        assert_eq!(
+            sidecar_log_entries(&dir, SidecarLogKind::Naive).len(),
+            MAX_SIDECAR_LOG_FILES
+        );
+
+        // Новые порты — место под них освобождается за счёт самых старых.
+        let fresh: HashSet<String> = (32000..32002)
+            .map(|port| sidecar_log_name(SidecarLogKind::Naive, port))
+            .collect();
+        prune_sidecar_logs(&dir, SidecarLogKind::Naive, &fresh);
+        assert_eq!(
+            sidecar_log_entries(&dir, SidecarLogKind::Naive).len(),
+            MAX_SIDECAR_LOG_FILES - fresh.len()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn runtime_config_matcher_only_targets_ephemeral_files() {
         for name in [
@@ -3765,6 +3789,39 @@ mod tests {
         assert!(ensure_start_current(&state, epoch).is_ok());
         state.start_epoch.fetch_add(1, Ordering::SeqCst);
         assert!(ensure_start_current(&state, epoch).is_err());
+    }
+
+    // Отмена владения операцией (latest-wins смена источника) обязана оставлять
+    // ровно то же состояние, что и отмена по epoch: без этого stop_singbox с уже
+    // отнятым токеном возвращает refused, а поднятый комплект остаётся жить.
+    #[test]
+    fn cancelled_start_clears_published_runtime_state() {
+        let state = SingboxState::default();
+        *state.runtime_ports.lock_recover() = vec![7890, 9090];
+        *state.runtime.lock_recover() = Some(RuntimeRecord {
+            process_generation: 5,
+            source_fingerprint: Some("fingerprint".into()),
+            config_hash: None,
+            mode: "systemProxy".into(),
+            strict_privacy: false,
+            pinned_node_tag: None,
+            logs_disabled: false,
+            endpoints: RuntimeEndpoints {
+                control: ControlEndpoint {
+                    address: "127.0.0.1:9090".parse().unwrap(),
+                },
+                probe_proxy: None,
+            },
+            listener_ready: true,
+            clash_port: 9090,
+            clash_ready: true,
+        });
+
+        abort_started_runtime(&state);
+
+        assert!(state.runtime.lock_recover().is_none());
+        assert!(state.runtime_ports.lock_recover().is_empty());
+        assert!(!compute_singbox_running(&state));
     }
 
     #[test]

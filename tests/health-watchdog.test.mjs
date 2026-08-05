@@ -186,110 +186,21 @@ test("поздний rearm отменённой policy завершается а
   assert.equal(reconciles, 1);
 });
 
-test("dataplane failed запускает bounded recovery и блокирует quality engine", async () => {
-  let recoveries = 0;
-  let pauses = 0;
-  let resumes = 0;
-  let qualityTicks = 0;
-  const quality = {
-    setHostPressure: () => {},
-    pauseForEmergency: () => { pauses++; },
-    resumeAfterEmergency: () => { resumes++; },
-    tick: async () => { qualityTicks++; },
-  };
+// Смерть ядра под нагрузкой — тот отказ, ради которого сторож и существует.
+// Погасить и написать «ядро остановилось» это не отказоустойчивость: юзер в
+// другом приложении и увидит тост в лучшем случае через минуты.
+test("сторож поднимает runtime заново после смерти ядра", async () => {
+  let state = "connected";
+  const order = [];
   const watchdog = initHealthWatchdog({
-    getState: () => "connected",
+    getState: () => state,
     isUpdateInstalling: () => false,
-    shutdownCore: async () => true,
+    shutdownCore: async () => { order.push("stop"); state = "idle"; return true; },
+    restoreAfterCoreDeath: async () => { order.push("restore"); state = "connected"; return true; },
     reconnectForSourceChange: () => {},
-    switchView: () => {},
-    getQualityEngine: () => quality,
-    recoverDataplane: async () => { recoveries++; return true; },
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      kill_switch_active: false,
-      dataplane: {
-        state: "failed",
-        reason: "dataplane_stalled",
-        hostPressure: false,
-      },
-    }),
-    toast: () => {},
-    notify: () => {},
-    t: (key) => key,
-    setInterval: () => 1,
-    clearInterval: () => {},
-  });
-
-  watchdog.start();
-  await watchdog.tick();
-  await watchdog.tick();
-
-  assert.equal(recoveries, 1);
-  assert.equal(pauses, 1);
-  assert.equal(resumes, 1);
-  assert.equal(qualityTicks, 0, "обычный quality engine не должен вмешиваться");
-});
-
-test("pressure mode не запускает recovery и гасит фоновую quality-пробу", async () => {
-  let recoveries = 0;
-  let pressure = false;
-  let qualityTicks = 0;
-  const watchdog = initHealthWatchdog({
-    getState: () => "connected",
-    isUpdateInstalling: () => false,
-    shutdownCore: async () => true,
-    reconnectForSourceChange: () => {},
-    switchView: () => {},
-    getQualityEngine: () => ({
-      setHostPressure: (value) => { pressure = value; },
-      tick: async () => { qualityTicks++; },
-    }),
-    recoverDataplane: async () => { recoveries++; return true; },
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      kill_switch_active: false,
-      dataplane: { state: "pressure", hostPressure: true },
-    }),
-    toast: () => {},
-    notify: () => {},
-    t: (key) => key,
-    setInterval: () => 1,
-    clearInterval: () => {},
-  });
-
-  watchdog.start();
-  await watchdog.tick();
-
-  assert.equal(pressure, true);
-  assert.equal(recoveries, 0);
-  assert.equal(qualityTicks, 0);
-});
-
-test("cooldown не превращается в terminal exhaustion", async () => {
-  let now = 0;
-  let recoveries = 0;
-  let terminal = 0;
-  const watchdog = initHealthWatchdog({
-    getState: () => "connected",
-    isUpdateInstalling: () => false,
-    shutdownCore: async () => true,
-    reconnectForSourceChange: () => {},
-    switchView: () => {},
+    switchView: () => { order.push("logs"); },
     getQualityEngine: () => null,
-    recoverDataplane: async () => { recoveries++; return false; },
-    onDataplaneFailed: async () => { terminal++; return true; },
-    now: () => now,
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      dataplane: { state: "failed", hostPressure: false },
-    }),
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
     toast: () => {},
     notify: () => {},
     t: (key) => key,
@@ -299,290 +210,32 @@ test("cooldown не превращается в terminal exhaustion", async () =
 
   watchdog.start();
   await watchdog.tick();
-  now = 1000;
-  await watchdog.tick();
-  assert.equal(recoveries, 1, "cooldown не должен запускать второй recovery");
-  assert.equal(terminal, 0, "cooldown не является terminal состоянием");
-  now = 61_000;
-  await watchdog.tick();
-  assert.equal(recoveries, 2);
+
+  assert.deepEqual(order, ["stop", "restore"]);
 });
 
-test("recovery budget считает три попытки и очищает старые попытки по окну", async () => {
-  let now = 0;
-  let recoveries = 0;
-  let terminal = 0;
+test("восстановление живёт внутри одной операции со shutdown", async () => {
+  let state = "connected";
+  const tokens = [];
   const watchdog = initHealthWatchdog({
-    getState: () => "connected",
+    getState: () => state,
     isUpdateInstalling: () => false,
-    shutdownCore: async () => true,
-    reconnectForSourceChange: () => {},
-    switchView: () => {},
-    getQualityEngine: () => null,
-    recoverDataplane: async () => { recoveries++; return false; },
-    onDataplaneFailed: async () => { terminal++; return false; },
-    now: () => now,
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      dataplane: { state: "failed", hostPressure: false },
-    }),
-    toast: () => {},
-    notify: () => {},
-    t: (key) => key,
-    setInterval: () => 1,
-    clearInterval: () => {},
-  });
-
-  watchdog.start();
-  await watchdog.tick();
-  now = 60_000;
-  await watchdog.tick();
-  now = 120_000;
-  await watchdog.tick();
-  assert.equal(recoveries, 3);
-  now = 900_001;
-  await watchdog.tick();
-  assert.equal(recoveries, 4, "попытки старше recovery window больше не блокируют recovery");
-  assert.equal(terminal, 0);
-});
-
-test("успешное recovery получает grace и не запускается повторно до его окончания", async () => {
-  let now = 0;
-  let recoveries = 0;
-  const watchdog = initHealthWatchdog({
-    getState: () => "connected",
-    isUpdateInstalling: () => false,
-    shutdownCore: async () => true,
-    reconnectForSourceChange: () => {},
-    switchView: () => {},
-    getQualityEngine: () => null,
-    recoverDataplane: async () => { recoveries++; return true; },
-    onDataplaneFailed: async () => true,
-    now: () => now,
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      dataplane: { state: "failed", hostPressure: false },
-    }),
-    toast: () => {},
-    notify: () => {},
-    t: (key) => key,
-    setInterval: () => 1,
-    clearInterval: () => {},
-  });
-
-  watchdog.start();
-  await watchdog.tick();
-  now = 30_000;
-  await watchdog.tick();
-  assert.equal(recoveries, 1, "stale failure во время grace не должен запускать новый action");
-  now = 30_001;
-  await watchdog.tick();
-  assert.equal(recoveries, 1, "после grace ещё действует cooldown первой попытки");
-});
-
-test("terminal latch появляется только после подтверждённого cleanup", async () => {
-  let now = 0;
-  let recoveries = 0;
-  let terminalAttempts = 0;
-  const watchdog = initHealthWatchdog({
-    getState: () => "connected",
-    isUpdateInstalling: () => false,
-    shutdownCore: async () => false,
-    reconnectForSourceChange: () => {},
-    switchView: () => {},
-    getQualityEngine: () => null,
-    recoverDataplane: async () => { recoveries++; return false; },
-    onDataplaneFailed: async () => { terminalAttempts++; return false; },
-    now: () => now,
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      dataplane: { state: "failed", hostPressure: false },
-    }),
-    toast: () => {},
-    notify: () => {},
-    t: (key) => key,
-    setInterval: () => 1,
-    clearInterval: () => {},
-  });
-
-  watchdog.start();
-  for (let attempt = 0; attempt < 4; attempt++) {
-    await watchdog.tick();
-    if (attempt < 3) now += 60_000;
-  }
-  assert.equal(recoveries, 3);
-  assert.equal(terminalAttempts, 1);
-  await watchdog.tick();
-  assert.equal(terminalAttempts, 1, "неудачный cleanup не должен спамить вызовами");
-});
-
-test("native owner не запускает frontend recovery даже при failed dataplane", async () => {
-  let recoveries = 0;
-  let pauses = 0;
-  const watchdog = initHealthWatchdog({
-    getState: () => "connected",
-    isUpdateInstalling: () => false,
-    shutdownCore: async () => true,
-    reconnectForSourceChange: () => {},
-    switchView: () => {},
-    getQualityEngine: () => ({
-      setHostPressure: () => {},
-      pauseForEmergency: () => { pauses++; },
-      tick: async () => {},
-    }),
-    recoverDataplane: async () => { recoveries++; return true; },
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      dataplane: {
-        state: "failed",
-        dataplaneState: "failed",
-        nativeRecoveryOwner: "native",
-        nativeRecoveryState: "recovering",
-        hostPressure: true,
-      },
-    }),
-    toast: () => {},
-    notify: () => {},
-    t: (key) => key,
-    setInterval: () => 1,
-    clearInterval: () => {},
-  });
-
-  watchdog.start();
-  await watchdog.tick();
-  await watchdog.tick();
-  assert.equal(recoveries, 0);
-  assert.equal(pauses, 1);
-});
-
-test("source switch suppresses frontend watchdog handoff and quality remediation", async () => {
-  let recoveries = 0;
-  let qualityTicks = 0;
-  let pauses = 0;
-  const watchdog = initHealthWatchdog({
-    getState: () => "connected",
-    isUpdateInstalling: () => false,
-    shutdownCore: async () => true,
-    reconnectForSourceChange: () => {},
-    switchView: () => {},
-    getQualityEngine: () => ({
-      setHostPressure: () => {},
-      pauseForEmergency: () => { pauses++; },
-      tick: async () => { qualityTicks++; },
-    }),
-    recoverDataplane: async () => { recoveries++; return true; },
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      runtimeOperation: { kind: "sourceSwitch" },
-      dataplane: { state: "failed", dataplaneState: "failed", hostPressure: false },
-    }),
-    toast: () => {},
-    notify: () => {},
-    t: (key) => key,
-    setInterval: () => 1,
-    clearInterval: () => {},
-  });
-  watchdog.start();
-  await watchdog.tick();
-  assert.equal(recoveries, 0);
-  assert.equal(qualityTicks, 0);
-  assert.equal(pauses, 1);
-});
-
-test("native handoff сразу передаёт failed dataplane переключению ноды", async () => {
-  let now = 0;
-  let recoveries = 0;
-  let pauses = 0;
-  let resumes = 0;
-  const states = [];
-  const watchdog = initHealthWatchdog({
-    getState: () => "connected",
-    isUpdateInstalling: () => false,
-    shutdownCore: async () => true,
-    reconnectForSourceChange: () => {},
-    switchView: () => {},
-    getQualityEngine: () => ({
-      setHostPressure: () => {},
-      pauseForEmergency: () => { pauses++; },
-      resumeAfterEmergency: () => { resumes++; },
-      tick: async () => {},
-    }),
-    recoverDataplane: async () => { recoveries++; return true; },
-    onDataplaneState: (state) => states.push(state),
-    now: () => now,
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      dataplane: {
-        state: "failed",
-        dataplaneState: "failed",
-        nativeRecoveryOwner: "native",
-        nativeRecoveryState: "handoff",
-        hostPressure: false,
-      },
-    }),
-    toast: () => {},
-    notify: () => {},
-    t: (key) => key,
-    setInterval: () => 1,
-    clearInterval: () => {},
-  });
-
-  watchdog.start();
-  await watchdog.tick();
-  await watchdog.tick();
-  now = 60_000;
-  await watchdog.tick();
-  assert.equal(recoveries, 1, "handoff не должен ждать три одинаковых restart");
-  assert.equal(pauses, 1);
-  assert.equal(resumes, 1);
-  assert.deepEqual(states, ["failed"]);
-});
-
-test("frontend handoff owns a coordinator token through recovery", async () => {
-  let begun = 0;
-  const completed = [];
-  let received = null;
-  const watchdog = initHealthWatchdog({
-    getState: () => "connected",
-    isUpdateInstalling: () => false,
-    shutdownCore: async () => true,
-    reconnectForSourceChange: () => {},
-    switchView: () => {},
-    getQualityEngine: () => null,
-    beginRuntimeOperation: async (kind) => {
-      begun++;
-      return { id: 77, kind };
-    },
-    completeRuntimeOperation: async (token) => completed.push(token.id),
-    recoverDataplane: async (options) => {
-      received = options.operationToken;
+    shutdownCore: async (options) => {
+      tokens.push(options.operationToken);
+      state = "idle";
       return true;
     },
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      kill_switch_active: false,
-      dataplane: {
-        state: "failed",
-        dataplaneState: "failed",
-        nativeRecoveryOwner: "native",
-        nativeRecoveryState: "handoff",
-        hostPressure: false,
-      },
-    }),
+    restoreAfterCoreDeath: async (_reason, context) => {
+      tokens.push(context.operationToken);
+      state = "connected";
+      return true;
+    },
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    beginRuntimeOperation: async () => ({ id: 7 }),
+    completeRuntimeOperation: async () => true,
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
     toast: () => {},
     notify: () => {},
     t: (key) => key,
@@ -592,77 +245,161 @@ test("frontend handoff owns a coordinator token through recovery", async () => {
 
   watchdog.start();
   await watchdog.tick();
-  assert.equal(begun, 1);
-  assert.equal(received?.id, 77);
-  assert.deepEqual(completed, [77]);
+
+  // Один и тот же токен: между остановкой и повторным стартом не должна
+  // вклиниться чужая операция, иначе fail-closed окно останется без владельца.
+  assert.equal(tokens.length, 2);
+  assert.deepEqual(tokens[0], { id: 7 });
+  assert.deepEqual(tokens[1], { id: 7 });
 });
 
-test("переход native health в healthy запрашивает одну немедленную quality-пробу", async () => {
-  let requested = 0;
-  let qualityTicks = 0;
-  const states = [];
+test("бюджет восстановления не даёт зациклиться на падающем ядре", async () => {
+  let state = "connected";
+  let restores = 0;
+  let clock = 0;
+  const watchdog = initHealthWatchdog({
+    getState: () => state,
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => { state = "idle"; return true; },
+    restoreAfterCoreDeath: async () => { restores++; state = "connected"; return true; },
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+    now: () => clock,
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  state = "connected";
+  clock += 60_000;
+  await watchdog.tick();
+
+  assert.equal(restores, 1, "вторая смерть в том же окне лечится не перезапуском");
+
+  state = "connected";
+  clock += 16 * 60_000; // окно бюджета истекло
+  await watchdog.tick();
+  assert.equal(restores, 2);
+});
+
+test("неудачное восстановление закрывает туннель честной ошибкой", async () => {
+  let state = "connected";
+  let errorToasts = 0;
+  let switched = null;
+  const watchdog = initHealthWatchdog({
+    getState: () => state,
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => { state = "idle"; return true; },
+    restoreAfterCoreDeath: async () => false,
+    reconnectForSourceChange: () => {},
+    switchView: (view) => { switched = view; },
+    getQualityEngine: () => null,
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
+    toast: (_msg, kind) => { if (kind === "error") errorToasts++; },
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+
+  assert.equal(errorToasts, 1);
+  assert.equal(switched, "logs");
+});
+
+test("событие смерти ядра из Rust вызывает проверку немедленно", async () => {
+  let state = "connected";
+  let handler = null;
+  let unsubscribed = 0;
+  let shutdowns = 0;
+  const watchdog = initHealthWatchdog({
+    getState: () => state,
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => { shutdowns++; state = "idle"; return true; },
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    subscribeCoreDeath: (fn) => { handler = fn; return () => { unsubscribed++; }; },
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    // Таймер намеренно мёртвый: детект обязан работать и тогда, когда WebView
+    // в трее задушен Chromium и тик приходит раз в минуту.
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  assert.equal(typeof handler, "function");
+  handler({ payload: { generation: 3, reason: "crashed" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(shutdowns, 1);
+
+  watchdog.stop();
+  assert.equal(unsubscribed, 1);
+});
+
+test("опоздавший тик попадает в журнал, а не остаётся незамеченным", async () => {
+  let clock = 1_700_000_000_000; // реальная эпоха: нулевой старт скрыл бы первый замер
+  let timerCallback = null;
+  const diagnostics = [];
+  const watchdog = initHealthWatchdog({
+    getState: () => "idle",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => {},
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    recordDiagnostic: (phase, result, reason) => diagnostics.push([phase, result, reason]),
+    invoke: async () => ({ singbox_running: true, xray: "none", sidecar: "none" }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: (fn) => { timerCallback = fn; return 1; },
+    clearInterval: () => {},
+    perf: { gauge: () => {}, increment: () => {} },
+    now: () => clock,
+  });
+
+  watchdog.start();
+  clock += 5_000; // штатный интервал
+  timerCallback();
+  assert.deepEqual(diagnostics, []);
+
+  clock += 65_000; // страница скрыта, Chromium разбудил таймер раз в минуту
+  timerCallback();
+  assert.deepEqual(diagnostics, [["watchdog_tick", "degraded", "gap_65000ms"]]);
+});
+
+test("перезапуск сторожа не копит слушателей события", async () => {
+  const live = new Set();
+  let issued = 0;
+  const pending = [];
   const watchdog = initHealthWatchdog({
     getState: () => "connected",
     isUpdateInstalling: () => false,
     shutdownCore: async () => true,
     reconnectForSourceChange: () => {},
     switchView: () => {},
-    getQualityEngine: () => ({
-      setHostPressure: () => {},
-      requestProbeSoon: () => { requested++; },
-      tick: async () => { qualityTicks++; },
-    }),
-    onDataplaneState: (state) => states.push(state),
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      dataplane: {
-        state: "healthy",
-        dataplaneState: "healthy",
-        nativeRecoveryOwner: "native",
-        nativeRecoveryState: "idle",
-        hostPressure: false,
-      },
-    }),
-    toast: () => {},
-    notify: () => {},
-    t: (key) => key,
-    setInterval: () => 1,
-    clearInterval: () => {},
-  });
-
-  watchdog.start();
-  await watchdog.tick();
-  await watchdog.tick();
-  assert.equal(requested, 1);
-  assert.equal(qualityTicks, 2);
-  assert.deepEqual(states, ["healthy"]);
-});
-
-test("native terminal cleanup остаётся подтверждаемым и bounded", async () => {
-  let now = 0;
-  let terminalAttempts = 0;
-  const watchdog = initHealthWatchdog({
-    getState: () => "connected",
-    isUpdateInstalling: () => false,
-    shutdownCore: async () => false,
-    reconnectForSourceChange: () => {},
-    switchView: () => {},
     getQualityEngine: () => null,
-    onDataplaneFailed: async () => { terminalAttempts++; return false; },
-    now: () => now,
-    invoke: async () => ({
-      singbox_running: true,
-      xray: "none",
-      sidecar: "none",
-      dataplane: {
-        state: "failed",
-        dataplaneState: "failed",
-        nativeRecoveryOwner: "native",
-        nativeRecoveryState: "terminal",
-      },
-    }),
+    // Подписка приезжает асинхронно — как настоящий listen() из Tauri.
+    subscribeCoreDeath: () => {
+      const id = ++issued;
+      live.add(id);
+      const promise = Promise.resolve(() => live.delete(id));
+      pending.push(promise);
+      return promise;
+    },
+    invoke: async () => ({ singbox_running: true, xray: "none", sidecar: "none" }),
     toast: () => {},
     notify: () => {},
     t: (key) => key,
@@ -671,10 +408,11 @@ test("native terminal cleanup остаётся подтверждаемым и b
   });
 
   watchdog.start();
-  await watchdog.tick();
-  await watchdog.tick();
-  assert.equal(terminalAttempts, 1, "terminal snapshot должен запускать cleanup один раз");
-  now = 60_000;
-  await watchdog.tick();
-  assert.equal(terminalAttempts, 2, "после cooldown cleanup может быть повторён");
+  watchdog.stop();
+  watchdog.start();
+  await Promise.all(pending);
+  watchdog.stop();
+
+  assert.equal(issued, 2);
+  assert.equal(live.size, 0, "обе подписки обязаны быть сняты");
 });

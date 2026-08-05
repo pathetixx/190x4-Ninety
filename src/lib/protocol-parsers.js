@@ -12,6 +12,31 @@ import {
   splitTrailingHashName,
 } from "/lib/url-helpers.js";
 
+// Разрез `method:password` / `uuid:password` по ПЕРВОМУ двоеточию.
+// `split(":", 2)` здесь неверен: второй аргумент JS-split ограничивает длину
+// результата, а не число разрезов, поэтому пароль с двоеточием молча терялся
+// хвостом (`pa:ss` → `pa`). Конфиг при этом собирался, ядро стартовало, и нода
+// падала только на аутентификации — без единого сообщения.
+// Отсутствие разделителя даёт undefined, как и прежний split: пустое поле не
+// должно превращаться в JSON `null` внутри конфига движка.
+function splitFirstColon(value) {
+  const s = String(value ?? "");
+  const sep = s.indexOf(":");
+  return sep < 0 ? [s, undefined] : [s.slice(0, sep), s.slice(sep + 1)];
+}
+
+// Булев query-параметр ссылки. Спека hysteria2 описывает `insecure=1`, но
+// панели одинаково часто отдают `insecure=true`; TUIC-ссылки — наоборот.
+// Принимаем обе формы: иначе нода с самоподписанным сертификатом не встаёт,
+// а причина («сертификат не проверился») пользователю нигде не видна.
+function boolParam(value, fallback = false) {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (!v) return fallback;
+  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return fallback;
+}
+
 // ── vless парсер ────────────────────────────────────────────
 export function parseVless(raw) {
   const url = String(raw || "").trim();
@@ -26,7 +51,11 @@ export function parseVless(raw) {
 
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.noHostPort"));
-  const uuid = head.slice(0, atIdx);
+  // UUID приходит percent-encoded так же, как пароли остальных схем: панели
+  // экранируют его наравне с прочим userinfo. Пустой UUID собрал бы конфиг,
+  // который падает уже в ядре на аутентификации — ловим здесь.
+  const uuid = safeDecode(head.slice(0, atIdx)).trim();
+  if (!uuid) throw new Error(t("sb.err.vlessUuid"));
   const hostPort = head.slice(atIdx + 1);
 
   const { host, port } = splitHostPort(hostPort, "sb.err.badPort");
@@ -135,7 +164,7 @@ export function parseShadowsocks(raw) {
     const at2 = decoded.lastIndexOf("@");
     if (at2 < 0) throw new Error(t("sb.err.ssHostPort"));
     const credsRaw = decoded.slice(0, at2);
-    const [method, password] = credsRaw.split(":", 2);
+    const [method, password] = splitFirstColon(credsRaw);
     const { host, port } = splitHostPort(decoded.slice(at2 + 1), "sb.err.ssHostPort");
     return { raw: url, proto: "shadowsocks", name, host, port, method, password };
   }
@@ -143,7 +172,7 @@ export function parseShadowsocks(raw) {
   // SIP002: userinfo может быть как раз base64url(method:password)
   let method, password;
   if (credsRaw.includes(":")) {
-    [method, password] = credsRaw.split(":", 2);
+    [method, password] = splitFirstColon(credsRaw);
     password = decodeURIComponent(password);
   } else {
     const decoded = safeAtob(credsRaw);
@@ -187,7 +216,7 @@ export function parseHysteria2(raw) {
     obfs: get("obfs", ""),
     obfsPassword: get("obfs-password") || get("obfsPassword", ""),
     alpn: get("alpn", "h3"),
-    insecure: get("insecure", "0") === "1",
+    insecure: boolParam(get("insecure")),
     pinSHA256: get("pinSHA256", ""),
     upMbps: parseInt(get("up") || "0", 10) || undefined,
     downMbps: parseInt(get("down") || "0", 10) || undefined,
@@ -204,7 +233,7 @@ export function parseTuic(raw) {
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.tuicHostPort"));
   const auth = head.slice(0, atIdx);
-  const [uuid, passwordRaw] = auth.split(":", 2);
+  const [uuid, passwordRaw] = splitFirstColon(auth);
   const password = decodeURIComponent(passwordRaw || "");
   const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.tuicHostPort");
   const get = (k, def = "") => query.get(k) ?? def;
@@ -215,8 +244,8 @@ export function parseTuic(raw) {
     alpn: get("alpn", "h3"),
     congestionControl: get("congestion_control") || get("congestionControl", "bbr"),
     udpRelayMode: get("udp_relay_mode") || get("udpRelayMode", "native"),
-    zeroRttHandshake: get("zero_rtt_handshake", "false") === "true",
-    disableSni: get("disable_sni", "false") === "true",
+    zeroRttHandshake: boolParam(get("zero_rtt_handshake")),
+    disableSni: boolParam(get("disable_sni")),
   };
 }
 
@@ -310,6 +339,19 @@ function parseTrustTunnelTlv(buf) {
   return f;
 }
 
+// Deep-link отдаёт сертификат сырым DER (TLV 0x08), .toml — готовым PEM.
+// trusttunnel_client понимает только PEM, поэтому конвертируем здесь: иначе
+// узел из tt:// уходил в мост вообще без своего CA и падал на TLS, тогда как
+// тот же endpoint из .toml работал. Uint8Array в профиле не оставляем — в
+// JSON-хранилище он превращается в {"0":..,"1":..}.
+function pemFromDer(der) {
+  if (!der || !der.length) return "";
+  let bin = "";
+  for (let i = 0; i < der.length; i++) bin += String.fromCharCode(der[i]);
+  const b64 = btoa(bin).replace(/(.{64})/g, "$1\n").replace(/\n$/, "");
+  return `-----BEGIN CERTIFICATE-----\n${b64}\n-----END CERTIFICATE-----\n`;
+}
+
 // Сборка профиля trusttunnel из полей (общая для deep-link и .toml).
 function ttProfile(f, rawForStorage) {
   const first = f.addresses[0] || "";
@@ -331,8 +373,7 @@ function ttProfile(f, rawForStorage) {
     customSni: f.customSni || "",
     hasIpv6: f.hasIpv6 !== false,
     clientRandom: f.clientRandom || "",
-    certificate: f.certificate || "",      // PEM (из .toml); из deep-link DER -> ниже
-    certificateDer: f.certificateDer || null,
+    certificate: f.certificate || pemFromDer(f.certificateDer), // PEM: .toml как есть, deep-link из DER
     dnsUpstreams: (f.dnsUpstreams || []).slice(),
   };
 }

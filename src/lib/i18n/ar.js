@@ -78,6 +78,7 @@ export const ar = {
     updateTo: "التحديث إلى v{ver}",
     tipOff: "Ninety · غير متصل",
     tipConnected: "Ninety · {mode} · متصل",
+    tipUpdate: "التحديث v{ver} متاح",
   },
 
   mode: {
@@ -309,6 +310,7 @@ export const ar = {
     err: {
       notVless: "ليس رابط vless://",
       noHostPort: "لا يوجد @host:port",
+      vlessUuid: "vless: معرّف UUID مفقود",
       badIpv6: "IPv6 تالف",
       noPort: "لا يوجد منفذ",
       badPort: "منفذ غير صالح",
@@ -374,6 +376,8 @@ export const ar = {
     switchMode: "جارٍ تبديل الوضع…",
     coreStopped: "توقّفت النواة",
     coreStoppedDesc: "أُغلق النفق · خرج sing-box بشكل غير متوقع",
+    coreRestoring: "تعطّلت النواة — جارٍ استعادة الاتصال",
+    coreRestored: "تمت استعادة الاتصال",
     notifyClosedTitle: "Ninety · أُغلق النفق",
     notifyClosedBody: "توقّفت نواة sing-box",
     xhttpDown: "تعطّلت نواة xhttp — جارٍ إعادة الاتصال",
@@ -437,6 +441,8 @@ export const ar = {
     emptyTitle: "لا توجد ملفات",
     emptySub: "أضف اشتراكًا عبر رابط أو vless:// مفردًا — بزر «+» في الأعلى، أو زر الجمع في الشاشة الرئيسية، أو من القائمة.",
     badgeActive: "نشط",
+    badgeInsecure: "بدون فحص TLS",
+    badgeInsecureHint: "يعطّل هذا الرابط فحص شهادة الخادم — يمكن اعتراض الاتصال. احتفظ به فقط إذا كنت تثق بالمصدر.",
     statNodes: "عُقد", statTraffic: "البيانات", statExpires: "ينتهي",
     statUpdated: "حُدِّث", statProto: "البروتوكول", statTls: "TLS",
     daysUnit: "يوم", menuAria: "قائمة",
@@ -739,7 +745,7 @@ export const ar = {
       adminTitle: "التشغيل كمسؤول دائمًا",
       adminHint: "لازم لوضع VPN · TUN. سيبدأ Ninety بصلاحيات المسؤول (UAC عند التشغيل) — لن يظهر الطلب مجددًا عند تفعيل TUN.",
       autostartTitle: "التشغيل عند تسجيل الدخول",
-      autostartHint: "يبدأ Ninety عند تسجيل الدخول إلى Windows بصلاحيات المسؤول (مهمة مجدول المهام) — دون مطالبة UAC عند الدخول",
+      autostartHint: "يبدأ Ninety عند تسجيل الدخول إلى Windows (مهمة مجدول المهام). النسخة المثبّتة في Program Files تبدأ أيضًا بصلاحيات المسؤول دون مطالبة UAC؛ أما النسخة المحمولة فتعمل كعملية عادية",
       startMinTitle: "البدء مُصغَّرًا",
       startMinHint: "عند التشغيل تختفي النافذة مباشرة إلى علبة النظام — تبقى الأيقونة أسفل اليمين",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -784,6 +790,7 @@ export const ar = {
       statusAvailable: "Mullvad Browser مثبّت",
       statusAvailableVersion: "Mullvad Browser مثبّت · {version}",
       statusMissing: "لم يُعثر على Mullvad Browser",
+      statusUnverified: "تم العثور على Mullvad Browser لكنه لم يجتز فحص الأمان",
       statusError: "تعذر فحص Mullvad Browser",
       launch: "فتح جلسة محمية",
       check: "فحص الحماية",
@@ -824,7 +831,7 @@ export const ar = {
       cacheTitle: "تخزين DNS مؤقت مستقل",
       cacheHint: "تخزين مؤقت منفصل لـ remote وdirect",
       fakeTitle: "Fake-DNS",
-      fakeHint: "إرجاع IP مزيّف، تعيين في الذاكرة. مفيد مع TUN",
+      fakeHint: "إرجاع IP مزيّف، تعيين في الذاكرة. يعمل فقط في وضع VPN · TUN ويُتجاهل في أوضاع الوكيل",
     },
 
     inbound: {

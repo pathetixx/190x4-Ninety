@@ -3,6 +3,7 @@
 
 import { t } from "/lib/i18n/index.js";
 import { closeUpdateResource, snapshotUpdate } from "/lib/update-resource.js";
+import { formatReleaseNotes } from "/lib/release-notes.js";
 
 const SKIP_KEY = "ninety.update.skip";
 const RESUME_KEY = "ninety.update.resume";
@@ -120,13 +121,26 @@ function showError(msg) {
   }
 }
 
+// Закрытие по Escape/клику мимо окна — не решение «эту версию не показывать».
+// Раньше оба пути шли через «Позже» и писали версию в localStorage навсегда:
+// один случайный Esc — и модалка по этой версии не появлялась уже никогда,
+// хотя пользователь просто убрал окно с глаз. Держим такой отказ в памяти
+// процесса: до перезапуска не навязываемся, после — предлагаем снова.
+const dismissedThisSession = new Set();
+
 export function shouldSkip(version) {
-  try { return localStorage.getItem(SKIP_KEY) === String(version); }
+  const v = String(version);
+  if (dismissedThisSession.has(v)) return true;
+  try { return localStorage.getItem(SKIP_KEY) === v; }
   catch { return false; }
 }
 
 function markSkipped(version) {
   try { localStorage.setItem(SKIP_KEY, String(version)); } catch {}
+}
+
+function markDismissed(version) {
+  dismissedThisSession.add(String(version));
 }
 
 /**
@@ -188,7 +202,7 @@ export function openUpdateModal(update, opts = {}) {
     const body = (activeUpdate.body || "").trim();
     // Если notes — наш дефолт-заглушка из workflow, заменяем на дружелюбное
     changelogEl.textContent = body && !/См\. полные заметки в GitHub Release/.test(body)
-      ? body
+      ? formatReleaseNotes(body)
       : t("updModal.notesUnavailable");
   };
   renderMetadata();
@@ -226,10 +240,17 @@ export function openUpdateModal(update, opts = {}) {
       close();
     };
 
-    const onBackdrop = () => { if (!installing) onLater(); };
+    // Esc/фон закрывают окно, но не отказываются от версии насовсем.
+    const onDismiss = () => {
+      if (installing || preparing) return;
+      markDismissed(activeUpdate.version);
+      close();
+    };
+
+    const onBackdrop = () => { if (!installing) onDismiss(); };
 
     const onKey = (e) => {
-      if (e.key === "Escape" && !installing) onLater();
+      if (e.key === "Escape" && !installing) onDismiss();
     };
 
     const onInstall = async () => {

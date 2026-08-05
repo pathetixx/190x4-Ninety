@@ -29,10 +29,13 @@ test("выбранный сервер хранится отдельно для �
 test("повреждённое хранилище безопасно игнорируется", () => {
   installStorage();
   localStorage.setItem("ninety.proxy.selection.v1", "{");
-  assert.equal(getRememberedProxySelection({ kind: "sub", subscription: { id: "first" } }), null);
+  assert.equal(
+    getRememberedProxySelection({ kind: "sub", subscription: { id: "first" } }),
+    null,
+  );
 });
 
-test("сохранённая нода восстанавливается после временных ошибок API, не оставаясь на Авто", async () => {
+test("сохранённая нода восстанавливается после временных ошибок API", async () => {
   installStorage();
   const source = { kind: "sub", subscription: { id: "stable" } };
   rememberProxySelection(source, "node-last");
@@ -56,47 +59,109 @@ test("legacy singleton proxy мигрирует в auto у многонодов�
   installStorage();
   const source = { kind: "sub", subscription: { id: "expanded" } };
   rememberProxySelection(source, "proxy");
-  let calls = 0;
   const result = await restoreRememberedProxySelection({
     source,
-    topology: {
-      proxies: {
-        proxy: { type: "Selector", now: "auto", all: ["auto", "lowest", "node-a"] },
-      },
-    },
-    apply: async () => { calls++; },
+    topology: { proxies: { proxy: { type: "Selector", now: "auto", all: ["auto", "lowest", "node-a"] } } },
+    apply: async () => assert.fail("apply не должен вызываться"),
   });
-  assert.deepEqual(result, { status: "current", tag: "auto" });
+  assert.deepEqual(result, {
+    status: "reset",
+    tag: "auto",
+    previousTag: "proxy",
+    reason: "legacy_singleton_selection",
+  });
   assert.equal(getRememberedProxySelection(source), "auto");
-  assert.equal(calls, 0);
 });
 
-test("auto безопасно нормализуется в proxy когда источник стал одиночным", async () => {
+test("устаревшая ручная нода сбрасывается на auto и не блокирует SourceSwitch", async () => {
   installStorage();
-  const source = { kind: "sub", subscription: { id: "shrunk" } };
-  rememberProxySelection(source, "auto");
-  let calls = 0;
+  const source = { kind: "sub", subscription: { id: "rotated" } };
+  rememberProxySelection(source, "node-provider-removed");
   const result = await restoreRememberedProxySelection({
     source,
-    topology: { proxies: { proxy: { type: "VLESS" } } },
-    apply: async () => { calls++; },
+    topology: { proxies: { proxy: { type: "Selector", now: "auto", all: ["auto", "lowest", "node-new"] } } },
+    apply: async () => assert.fail("apply не должен вызываться"),
   });
-  assert.deepEqual(result, { status: "current", tag: "proxy" });
-  assert.equal(getRememberedProxySelection(source), "proxy");
-  assert.equal(calls, 0);
+  assert.deepEqual(result, {
+    status: "reset",
+    tag: "auto",
+    previousTag: "node-provider-removed",
+    reason: "remembered_selection_unavailable",
+  });
+  assert.equal(getRememberedProxySelection(source), "auto");
 });
 
-test("удалённая из подписки нода не подменяется произвольной и остаётся запомненной", async () => {
+test("fallback сохраняется только после подтверждённого Clash apply", async () => {
   installStorage();
-  const source = { kind: "sub", subscription: { id: "stable" } };
-  rememberProxySelection(source, "node-removed");
-  let calls = 0;
+  const source = { kind: "sub", subscription: { id: "rotated-apply" } };
+  rememberProxySelection(source, "node-old");
   const result = await restoreRememberedProxySelection({
     source,
-    topology: { proxies: { proxy: { now: "auto", all: ["auto", "node-new"] } } },
-    apply: async () => { calls++; },
+    topology: { proxies: { proxy: { type: "Selector", now: "lowest", all: ["auto", "lowest", "node-new"] } } },
+    apply: async (tag) => {
+      assert.equal(tag, "auto");
+      assert.equal(getRememberedProxySelection(source), "node-old");
+      return { stale: false };
+    },
+  });
+  assert.equal(result.status, "reset");
+  assert.equal(getRememberedProxySelection(source), "auto");
+});
+
+test("ошибка fallback не уничтожает старое предпочтение", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "rotated-fail" } };
+  rememberProxySelection(source, "node-old");
+  await assert.rejects(restoreRememberedProxySelection({
+    source,
+    topology: { proxies: { proxy: { type: "Selector", now: "lowest", all: ["auto", "lowest", "node-new"] } } },
+    attempts: 1,
+    apply: async () => { throw new Error("Clash unavailable"); },
+  }), /Clash unavailable/);
+  assert.equal(getRememberedProxySelection(source), "node-old");
+});
+
+test("selector без auto не подменяет удалённую ноду произвольным маршрутом", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "malformed" } };
+  rememberProxySelection(source, "node-removed");
+  const result = await restoreRememberedProxySelection({
+    source,
+    topology: { proxies: { proxy: { type: "Selector", now: "node-new", all: ["lowest", "node-new"] } } },
+    apply: async () => assert.fail("apply не должен вызываться"),
   });
   assert.deepEqual(result, { status: "unavailable", tag: "node-removed" });
   assert.equal(getRememberedProxySelection(source), "node-removed");
-  assert.equal(calls, 0);
+});
+
+test("старый selector tag нормализуется в proxy когда источник стал одиночным", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "shrunk" } };
+  rememberProxySelection(source, "node-old");
+  const result = await restoreRememberedProxySelection({
+    source,
+    topology: { proxies: { proxy: { type: "VLESS" } } },
+    apply: async () => assert.fail("apply не должен вызываться"),
+  });
+  assert.deepEqual(result, {
+    status: "reset",
+    tag: "proxy",
+    previousTag: "node-old",
+    reason: "single_route_normalized",
+  });
+  assert.equal(getRememberedProxySelection(source), "proxy");
+});
+
+test("stale операция не сохраняет fallback", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "stale" } };
+  rememberProxySelection(source, "node-old");
+  const result = await restoreRememberedProxySelection({
+    source,
+    topology: { proxies: { proxy: { type: "Selector", now: "auto", all: ["auto", "node-new"] } } },
+    isCurrent: () => false,
+    apply: async () => assert.fail("apply не должен вызываться"),
+  });
+  assert.equal(result.status, "stale");
+  assert.equal(getRememberedProxySelection(source), "node-old");
 });

@@ -45,6 +45,53 @@ function armSuspect(engine) {
   engine.updatePassive({ down: 100 });    // ниже FLATLINE_BPS
 }
 
+// Пропущенная проба ничего не измеряет. Без записи и паузы отказ гейта
+// (нет поколения, занят датаплейн) выглядел бы как «канал в порядке», а движок
+// бил бы IPC на каждом тике сторожа.
+test("skipped-проба логируется, не идёт в осциллограмму и держит паузу", async () => {
+  installStorage();
+  let calls = 0;
+  const logs = [];
+  const skips = [];
+  const samples = [];
+  let clock = 1_000_000;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => {
+      if (cmd !== "probe_quality") return undefined;
+      calls += 1;
+      return { ok: false, skipped: true, error: "generation_required", goodput_bps: 0 };
+    },
+    actions: {
+      log: (line) => logs.push(line),
+      onSkipped: (reason) => skips.push(reason),
+      onSample: (sample) => samples.push(sample),
+    },
+    opts: { enabled: true },
+    now: () => clock,
+  });
+  engine.onConnected({});
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(calls, 1);
+  assert.deepEqual(skips, ["generation_required"]);
+  assert.equal(engine.skipReason, "generation_required");
+  assert.equal(engine.getSamples().length, 0, "пропуск не является измерением");
+  assert.equal(samples.length, 0);
+  assert.ok(logs.some((line) => line.includes("generation_required")));
+
+  // Следующий тик в пределах паузы новой пробы не запускает.
+  clock += 1_000;
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(calls, 1, "движок не должен долбить пробой на каждом тике");
+
+  // После паузы — снова пробует.
+  clock += 10_000;
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(calls, 2);
+});
+
 test("классификация: GOOD-проба → onState GOOD, лесенка молчит", async () => {
   installStorage();
   const states = [];
@@ -65,35 +112,6 @@ test("классификация: GOOD-проба → onState GOOD, лесенк
   assert.equal(ladderRan, false, "на GOOD лесенка запускаться не должна");
 });
 
-test("native healthy ускоряет первую quality-пробу после settle", async () => {
-  installStorage();
-  let clock = 1_000_000;
-  let probes = 0;
-  const states = [];
-  const engine = createQualityEngine({
-    invoke: async (cmd) => {
-      if (cmd === "probe_quality") probes++;
-      return GOOD;
-    },
-    actions: { onState: (state) => states.push(state) },
-    now: () => clock,
-    opts: { enabled: true, idleProbeSec: 300 },
-  });
-
-  engine.onConnected({});
-  await engine.tick();
-  assert.equal(probes, 0, "до native healthy сохраняется settle-пауза");
-  assert.equal(engine.requestProbeSoon(), true);
-  await engine.tick();
-  clock += 2_000;
-  await engine.tick();
-  assert.equal(probes, 1);
-  assert.equal(states.at(-1), "GOOD");
-
-  clock += 1000;
-  await engine.tick();
-  assert.equal(probes, 1, "ускорение не превращается в probe-loop");
-});
 
 test("классификация: STALLED-проба → onState STALLED", async () => {
   installStorage();
@@ -293,70 +311,82 @@ test("выключенный quality engine не прогревает локал
   assert.equal(asnCalls, 0);
 });
 
-test("pressure mode временно отключает фоновые quality probes", async () => {
+// Давление хоста — не свойство канала. Под нехваткой CPU/памяти проба меряет
+// планировщик, а лесенка (смена ноды → реконнект) платит самым дорогим
+// действием ровно тогда, когда машине и так плохо.
+test("под давлением хоста движок не пробует канал и не лечит его", async () => {
+  installStorage();
+  let probes = 0;
+  let ladderRan = false;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => {
+      if (cmd === "probe_quality") { probes++; return STALLED; }
+      return undefined;
+    },
+    actions: {
+      selectNextNode: async () => { ladderRan = true; return true; },
+      giveUp: () => { ladderRan = true; },
+    },
+    opts: { enabled: true },
+  });
+
+  engine.onConnected({});
+  engine.setHostPressure(true);
+  for (let i = 0; i < 4; i++) {
+    armSuspect(engine);
+    await engine.tick();
+  }
+
+  assert.equal(probes, 0, "проба под давлением хоста меряет не канал");
+  assert.equal(ladderRan, false);
+});
+
+test("после снятия давления движок снова пробует канал", async () => {
   installStorage();
   let probes = 0;
   const engine = createQualityEngine({
     invoke: async (cmd) => {
-      if (cmd === "probe_quality") probes++;
-      return GOOD;
+      if (cmd === "probe_quality") { probes++; return GOOD; }
+      return undefined;
     },
     actions: {},
     opts: { enabled: true },
   });
 
-  engine.onConnected({ idleProbeSec: 60 });
-  armSuspect(engine);
+  engine.onConnected({});
   engine.setHostPressure(true);
+  armSuspect(engine);
   await engine.tick();
   assert.equal(probes, 0);
 
   engine.setHostPressure(false);
+  armSuspect(engine);
   await engine.tick();
-  assert.equal(probes, 1, "после выхода из pressure mode probe должен вернуться");
+  assert.equal(probes, 1);
 });
 
-test("quality probe waits for shared probe coordinator", async () => {
+test("вход в давление обнуляет накопленную серию плохих проб", async () => {
   installStorage();
   let ladderRan = false;
   const engine = createQualityEngine({
-    invoke: async () => ({ ok: false, skipped: true, error: "probe_busy" }),
+    invoke: async (cmd) => (cmd === "probe_quality" ? STALLED : undefined),
     actions: {
       selectNextNode: async () => { ladderRan = true; return true; },
-      onState: () => {},
+      giveUp: () => { ladderRan = true; },
     },
     opts: { enabled: true },
   });
+
   engine.onConnected({});
   armSuspect(engine);
-  await engine.tick();
-  assert.equal(engine.state, "UNKNOWN");
+  await engine.tick(); // одна плохая проба — до BAD_STREAK не хватает одной
   assert.equal(ladderRan, false);
-});
 
-test("emergency pause инвалидирует текущую quality remediation", async () => {
-  installStorage();
-  let probeRelease;
-  const probe = new Promise((resolve) => { probeRelease = resolve; });
-  let probes = 0;
-  const engine = createQualityEngine({
-    invoke: async (cmd) => {
-      if (cmd !== "probe_quality") return undefined;
-      probes++;
-      return probe;
-    },
-    actions: {},
-    opts: { enabled: true },
-  });
-
-  engine.onConnected({ idleProbeSec: 60 });
+  engine.setHostPressure(true);
+  engine.setHostPressure(false);
   armSuspect(engine);
-  const running = engine.tick();
-  while (probes === 0) await Promise.resolve();
-  engine.pauseForEmergency();
-  probeRelease(GOOD);
-  await running;
-
-  assert.equal(engine.isRemediating, false);
-  assert.equal(engine.state, "UNKNOWN");
+  await engine.tick();
+  // Серия начата заново, поэтому лесенка ещё не имеет права стартовать: иначе
+  // проба, снятая на границе давления, досчитала бы чужой стрик.
+  assert.equal(ladderRan, false);
 });

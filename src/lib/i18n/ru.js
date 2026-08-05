@@ -78,6 +78,7 @@ export const ru = {
     updateTo: "Обновить до v{ver}",
     tipOff: "Ninety · отключено",
     tipConnected: "Ninety · {mode} · подключено",
+    tipUpdate: "Доступно обновление v{ver}",
   },
 
   mode: {
@@ -309,6 +310,7 @@ export const ru = {
     err: {
       notVless: "Не vless:// ссылка",
       noHostPort: "Нет @host:port",
+      vlessUuid: "vless: отсутствует UUID",
       badIpv6: "Битый IPv6",
       noPort: "Нет порта",
       badPort: "Некорректный порт",
@@ -374,6 +376,8 @@ export const ru = {
     switchMode: "Переключаю режим…",
     coreStopped: "Ядро остановилось",
     coreStoppedDesc: "Туннель закрыт · sing-box завершился неожиданно",
+    coreRestoring: "Ядро упало — восстанавливаю подключение",
+    coreRestored: "Подключение восстановлено",
     notifyClosedTitle: "Ninety · туннель закрыт",
     notifyClosedBody: "Ядро sing-box остановилось",
     xhttpDown: "xhttp-ядро упало — переподключаюсь",
@@ -437,6 +441,8 @@ export const ru = {
     emptyTitle: "Нет профилей",
     emptySub: "Добавьте подписку по URL или одиночный vless:// — кнопкой «+» сверху, плюс-кнопкой на главном или в меню.",
     badgeActive: "АКТИВНЫЙ",
+    badgeInsecure: "Без проверки TLS",
+    badgeInsecureHint: "Ссылка отключает проверку сертификата сервера — соединение можно перехватить. Оставляйте только если доверяете источнику.",
     statNodes: "УЗЛОВ", statTraffic: "ТРАФИК", statExpires: "ИСТЕКАЕТ",
     statUpdated: "ОБНОВЛЕНО", statProto: "ПРОТОКОЛ", statTls: "TLS",
     daysUnit: "дн", menuAria: "Меню",
@@ -739,7 +745,7 @@ export const ru = {
       adminTitle: "Всегда запускать от администратора",
       adminHint: "Нужно для режима VPN · TUN. Ninety будет стартовать с правами админа (UAC при запуске) — при включении TUN запрос больше не появится.",
       autostartTitle: "Запускать при входе в систему",
-      autostartHint: "Ninety стартует при входе в Windows с правами администратора (задача Планировщика) — UAC при входе не появляется",
+      autostartHint: "Ninety стартует при входе в Windows (задача Планировщика). Установленная в Program Files версия дополнительно стартует с правами администратора без запроса UAC; портативная копия — как обычный процесс",
       startMinTitle: "Запускать свернутым",
       startMinHint: "На старте окно сразу прячется в трей — иконка остаётся справа внизу",
       linkHandlersTitle: "Открывать VPN-ссылки в Ninety",
@@ -784,6 +790,7 @@ export const ru = {
       statusAvailable: "Mullvad Browser установлен",
       statusAvailableVersion: "Mullvad Browser установлен · {version}",
       statusMissing: "Mullvad Browser не найден",
+      statusUnverified: "Mullvad Browser найден, но не прошёл проверку безопасности",
       statusError: "Не удалось проверить Mullvad Browser",
       launch: "Открыть защищённую сессию",
       check: "Проверить защиту",
@@ -824,7 +831,7 @@ export const ru = {
       cacheTitle: "Независимый DNS-кэш",
       cacheHint: "Раздельный кэш для remote и direct",
       fakeTitle: "Fake-DNS",
-      fakeHint: "Возвращать поддельный IP, маппинг в памяти. Полезно при TUN",
+      fakeHint: "Возвращать поддельный IP, маппинг в памяти. Работает только в режиме VPN · TUN, в режимах прокси настройка игнорируется",
     },
 
     inbound: {

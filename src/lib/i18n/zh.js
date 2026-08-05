@@ -78,6 +78,7 @@ export const zh = {
     updateTo: "更新到 v{ver}",
     tipOff: "Ninety · 已断开",
     tipConnected: "Ninety · {mode} · 已连接",
+    tipUpdate: "有可用更新 v{ver}",
   },
 
   mode: {
@@ -309,6 +310,7 @@ export const zh = {
     err: {
       notVless: "不是 vless:// 链接",
       noHostPort: "缺少 @host:port",
+      vlessUuid: "vless：缺少 UUID",
       badIpv6: "IPv6 格式错误",
       noPort: "缺少端口",
       badPort: "端口无效",
@@ -374,6 +376,8 @@ export const zh = {
     switchMode: "正在切换模式…",
     coreStopped: "内核已停止",
     coreStoppedDesc: "隧道已关闭 · sing-box 意外退出",
+    coreRestoring: "内核已崩溃 — 正在恢复连接",
+    coreRestored: "连接已恢复",
     notifyClosedTitle: "Ninety · 隧道已关闭",
     notifyClosedBody: "sing-box 内核已停止",
     xhttpDown: "xhttp 内核崩溃——正在重连",
@@ -437,6 +441,8 @@ export const zh = {
     emptyTitle: "无配置",
     emptySub: "通过 URL 添加订阅，或添加单个 vless://——使用顶部的“+”、主屏的加号按钮，或菜单中添加。",
     badgeActive: "当前",
+    badgeInsecure: "未校验 TLS",
+    badgeInsecureHint: "该链接关闭了服务器证书校验，连接可能被拦截。仅在信任来源时保留。",
     statNodes: "节点", statTraffic: "流量", statExpires: "到期",
     statUpdated: "已更新", statProto: "协议", statTls: "TLS",
     daysUnit: "天", menuAria: "菜单",
@@ -739,7 +745,7 @@ export const zh = {
       adminTitle: "始终以管理员身份运行",
       adminHint: "VPN · TUN 模式所必需。Ninety 将以管理员权限启动（启动时弹出 UAC）——开启 TUN 时不再出现该提示。",
       autostartTitle: "登录系统时启动",
-      autostartHint: "登录 Windows 时 Ninety 以管理员权限自动启动（任务计划程序任务）— 登录时不会出现 UAC 提示",
+      autostartHint: "登录 Windows 时 Ninety 自动启动（任务计划程序任务）。安装在 Program Files 的版本还会以管理员权限启动且不显示 UAC 提示；便携版则以普通进程启动",
       startMinTitle: "启动时最小化",
       startMinHint: "启动时窗口直接隐藏到托盘——图标停留在右下角",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -784,6 +790,7 @@ export const zh = {
       statusAvailable: "已安装 Mullvad Browser",
       statusAvailableVersion: "已安装 Mullvad Browser · {version}",
       statusMissing: "未找到 Mullvad Browser",
+      statusUnverified: "已找到 Mullvad Browser，但未通过安全校验",
       statusError: "无法检查 Mullvad Browser",
       launch: "打开受保护会话",
       check: "检查保护",
@@ -824,7 +831,7 @@ export const zh = {
       cacheTitle: "独立 DNS 缓存",
       cacheHint: "为远程与直连分别缓存",
       fakeTitle: "Fake-DNS",
-      fakeHint: "返回伪造 IP，在内存中映射。配合 TUN 时有用",
+      fakeHint: "返回伪造 IP，在内存中映射。仅在 VPN · TUN 模式下生效，代理模式下该选项会被忽略",
     },
 
     inbound: {

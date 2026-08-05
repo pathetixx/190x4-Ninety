@@ -78,6 +78,7 @@ export const fr = {
     updateTo: "Mettre à jour vers v{ver}",
     tipOff: "Ninety · déconnecté",
     tipConnected: "Ninety · {mode} · connecté",
+    tipUpdate: "Mise à jour v{ver} disponible",
   },
 
   mode: {
@@ -309,6 +310,7 @@ export const fr = {
     err: {
       notVless: "Pas un lien vless://",
       noHostPort: "@host:port manquant",
+      vlessUuid: "vless : UUID manquant",
       badIpv6: "IPv6 mal formé",
       noPort: "Port manquant",
       badPort: "Port invalide",
@@ -374,6 +376,8 @@ export const fr = {
     switchMode: "Changement de mode…",
     coreStopped: "Le cœur s’est arrêté",
     coreStoppedDesc: "Tunnel fermé · sing-box s’est arrêté inopinément",
+    coreRestoring: "Le cœur s’est arrêté — reconnexion en cours",
+    coreRestored: "Connexion rétablie",
     notifyClosedTitle: "Ninety · tunnel fermé",
     notifyClosedBody: "Le cœur sing-box s’est arrêté",
     xhttpDown: "Le cœur xhttp a planté — reconnexion",
@@ -437,6 +441,8 @@ export const fr = {
     emptyTitle: "Aucun profil",
     emptySub: "Ajoutez un abonnement par URL ou un seul vless:// — avec le « + » en haut, le bouton plus sur l’écran principal, ou dans le menu.",
     badgeActive: "ACTIF",
+    badgeInsecure: "Sans contrôle TLS",
+    badgeInsecureHint: "Ce lien désactive la vérification du certificat du serveur : la connexion peut être interceptée. À conserver uniquement si vous faites confiance à la source.",
     statNodes: "NŒUDS", statTraffic: "TRAFIC", statExpires: "EXPIRE",
     statUpdated: "MIS À JOUR", statProto: "PROTOCOLE", statTls: "TLS",
     daysUnit: "j", menuAria: "Menu",
@@ -739,7 +745,7 @@ export const fr = {
       adminTitle: "Toujours exécuter en tant qu’administrateur",
       adminHint: "Requis pour le mode VPN · TUN. Ninety démarrera avec les droits admin (UAC au lancement) — l’invite ne réapparaîtra plus quand vous activez TUN.",
       autostartTitle: "Démarrer à l’ouverture de session",
-      autostartHint: "Ninety démarre à l'ouverture de session Windows avec les droits administrateur (tâche du Planificateur) — sans invite UAC à la connexion",
+      autostartHint: "Ninety démarre à l'ouverture de session Windows (tâche du Planificateur). Une installation dans Program Files démarre en plus avec les droits administrateur, sans invite UAC ; une copie portable démarre comme un processus normal",
       startMinTitle: "Démarrer réduit",
       startMinHint: "Au lancement, la fenêtre se cache directement dans la barre d’état système — l’icône reste en bas à droite",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -784,6 +790,7 @@ export const fr = {
       statusAvailable: "Mullvad Browser est installé",
       statusAvailableVersion: "Mullvad Browser est installé · {version}",
       statusMissing: "Mullvad Browser est introuvable",
+      statusUnverified: "Mullvad Browser trouvé, mais il a échoué au contrôle de sécurité",
       statusError: "Impossible de vérifier Mullvad Browser",
       launch: "Ouvrir une session protégée",
       check: "Vérifier la protection",
@@ -824,7 +831,7 @@ export const fr = {
       cacheTitle: "Cache DNS indépendant",
       cacheHint: "Cache séparé pour distant et direct",
       fakeTitle: "Fake-DNS",
-      fakeHint: "Renvoie une fausse IP, mappée en mémoire. Utile avec TUN",
+      fakeHint: "Renvoie une fausse IP, mappée en mémoire. Ne s'applique qu'en mode VPN · TUN ; dans les modes proxy l'option est ignorée",
     },
 
     inbound: {

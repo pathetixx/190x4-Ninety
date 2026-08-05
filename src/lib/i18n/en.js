@@ -78,6 +78,7 @@ export const en = {
     updateTo: "Update to v{ver}",
     tipOff: "Ninety · disconnected",
     tipConnected: "Ninety · {mode} · connected",
+    tipUpdate: "Update v{ver} available",
   },
 
   mode: {
@@ -309,6 +310,7 @@ export const en = {
     err: {
       notVless: "Not a vless:// link",
       noHostPort: "Missing @host:port",
+      vlessUuid: "vless: missing UUID",
       badIpv6: "Malformed IPv6",
       noPort: "Missing port",
       badPort: "Invalid port",
@@ -374,6 +376,8 @@ export const en = {
     switchMode: "Switching mode…",
     coreStopped: "The core stopped",
     coreStoppedDesc: "Tunnel closed · sing-box exited unexpectedly",
+    coreRestoring: "The core crashed — restoring the connection",
+    coreRestored: "Connection restored",
     notifyClosedTitle: "Ninety · tunnel closed",
     notifyClosedBody: "The sing-box core stopped",
     xhttpDown: "xhttp core crashed — reconnecting",
@@ -437,6 +441,8 @@ export const en = {
     emptyTitle: "No profiles",
     emptySub: "Add a subscription by URL or a single vless:// — with the “+” at the top, the plus button on the main screen, or in the menu.",
     badgeActive: "ACTIVE",
+    badgeInsecure: "No TLS check",
+    badgeInsecureHint: "This link turns off the server certificate check — the connection can be intercepted. Keep it only if you trust the source.",
     statNodes: "NODES", statTraffic: "TRAFFIC", statExpires: "EXPIRES",
     statUpdated: "UPDATED", statProto: "PROTOCOL", statTls: "TLS",
     daysUnit: "d", menuAria: "Menu",
@@ -739,7 +745,7 @@ export const en = {
       adminTitle: "Always run as administrator",
       adminHint: "Required for VPN · TUN mode. Ninety will start with admin rights (UAC at launch) — the prompt won't appear again when you enable TUN.",
       autostartTitle: "Start at system login",
-      autostartHint: "Ninety starts when you log in to Windows with administrator rights (Task Scheduler task) — no UAC prompt at login",
+      autostartHint: "Ninety starts when you log in to Windows (Task Scheduler task). An installation in Program Files also starts with administrator rights and no UAC prompt; a portable copy starts as a regular process",
       startMinTitle: "Start minimized",
       startMinHint: "On launch the window hides straight to the tray — the icon stays in the bottom-right",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -784,6 +790,7 @@ export const en = {
       statusAvailable: "Mullvad Browser is installed",
       statusAvailableVersion: "Mullvad Browser is installed · {version}",
       statusMissing: "Mullvad Browser was not found",
+      statusUnverified: "Mullvad Browser found, but it failed the safety check",
       statusError: "Could not check Mullvad Browser",
       launch: "Open protected session",
       check: "Check protection",
@@ -824,7 +831,7 @@ export const en = {
       cacheTitle: "Independent DNS cache",
       cacheHint: "Separate cache for remote and direct",
       fakeTitle: "Fake-DNS",
-      fakeHint: "Return a fake IP, mapped in memory. Useful with TUN",
+      fakeHint: "Return a fake IP, mapped in memory. Applies only in VPN · TUN mode; in the proxy modes the option is ignored",
     },
 
     inbound: {

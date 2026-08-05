@@ -6,7 +6,7 @@ mod clash_stream;
 mod discord_cache;
 mod dnscheck;
 mod dpi;
-mod health;
+mod host_pressure;
 mod killswitch;
 mod netproc;
 mod profile_store;
@@ -162,9 +162,12 @@ async fn autostart_is_enabled() -> Result<bool, String> {
         .map_err(|e| format!("проверка автозапуска прервана: {e}"))
 }
 
-/// Включает автозапуск через задачу Планировщика с правами администратора
-/// (RunLevel=highest) — старт без UAC на каждый логин. Если процесс ещё не
-/// elevated, поднимет права только ради создания задачи (один UAC).
+/// Включает автозапуск через задачу Планировщика. RunLevel=highest (старт от
+/// администратора без UAC на каждый логин) выдаётся только установке в Program
+/// Files: для Full Portable и per-user установки exe лежит в user-writable
+/// каталоге, и там такая задача превратила бы подмену файла в тихое повышение
+/// прав. Если процесс ещё не elevated, поднимет права только ради создания
+/// задачи (один UAC).
 #[tauri::command]
 async fn autostart_enable() -> Result<(), String> {
     tokio::task::spawn_blocking(elevation::autostart_enable)
@@ -178,6 +181,55 @@ async fn autostart_disable() -> Result<(), String> {
     tokio::task::spawn_blocking(elevation::autostart_disable)
         .await
         .map_err(|e| format!("отключение автозапуска прервано: {e}"))?
+}
+
+/// CI smoke — сборочная проверка релизного артефакта, а не пользовательский
+/// режим: она пишет и затем стирает боевой profile store, а в portable ещё и
+/// перезаписывает state backup. Одного argv-флага для такого мало — случайный
+/// `Ninety.exe --ci-smoke` (ярлык, .bat, чужая инструкция) уничтожил бы
+/// единственную копию нод и подписок. Требуем явный opt-in переменной
+/// окружения, который выставляет только scripts/release-smoke.ps1.
+const CI_SMOKE_ENV: &str = "NINETY_CI_SMOKE";
+
+fn ci_smoke_opt_in(has_flag: bool, env_value: Option<&str>) -> bool {
+    has_flag && env_value == Some("1")
+}
+
+fn ci_smoke_requested(argv: &[String]) -> bool {
+    let has_flag = argv.iter().any(|a| a == "--ci-smoke");
+    let enabled = ci_smoke_opt_in(has_flag, std::env::var(CI_SMOKE_ENV).ok().as_deref());
+    if has_flag && !enabled {
+        eprintln!("--ci-smoke игнорируется: это сборочная проверка, она требует {CI_SMOKE_ENV}=1");
+    }
+    enabled
+}
+
+// Имена файлов, в которых лежит единственная копия профилей/подписок и ключей.
+const CI_SMOKE_PROTECTED_FILES: &[&str] = &[
+    "profile-store.v1",
+    "profile-store.v1.bak",
+    "profile-store.v1.legacy.bak",
+    "state-backup.json",
+    "state-backup.json.bak",
+    "state-backup.json.legacy.bak",
+];
+
+/// Второй барьер: даже с opt-in smoke не трогает уже существующее состояние.
+/// На чистом раннере его нет, поэтому проверка в CI выполняется полностью, а на
+/// машине с данными деструктивная часть просто пропускается.
+fn ci_smoke_state_is_empty_in(dir: &std::path::Path) -> bool {
+    !CI_SMOKE_PROTECTED_FILES
+        .iter()
+        .any(|name| dir.join(name).exists())
+}
+
+fn ci_smoke_state_is_empty(app: &tauri::AppHandle) -> bool {
+    match app_paths::config_dir(app) {
+        Ok(dir) => ci_smoke_state_is_empty_in(&dir),
+        // Каталог не определился — считаем состояние непустым: пропустить
+        // проверку безопаснее, чем писать неизвестно куда.
+        Err(_) => false,
+    }
 }
 
 fn main_window_icon() -> Option<tauri::image::Image<'static>> {
@@ -272,6 +324,10 @@ struct TrayLabels {
     tip_off: String,
     /// Шаблон с {mode} — «Ninety · {mode} · подключено».
     tip_connected: String,
+    /// Шаблон с {ver}. Вторая строка подсказки, когда найден апдейт: в трее это
+    /// единственный признак, который не зависит от OS-уведомлений (те на
+    /// Windows молча теряются, если у сборки нет ярлыка с AppUserModelID).
+    tip_update: String,
 }
 
 impl Default for TrayLabels {
@@ -295,6 +351,7 @@ impl Default for TrayLabels {
             update_to: "Обновить до v{ver}".into(),
             tip_off: "Ninety · отключено".into(),
             tip_connected: "Ninety · {mode} · подключено".into(),
+            tip_update: "Доступно обновление v{ver}".into(),
         }
     }
 }
@@ -507,18 +564,105 @@ fn tray_state_icon(connected: bool, mode: &str) -> Option<tauri::image::Image<'s
     tauri::image::Image::from_bytes(bytes).ok()
 }
 
+// Метка «есть обновление» поверх значка трея. Пункт меню и подсказка видны
+// только после наведения/ПКМ, поэтому свёрнутое в трей приложение молчало о
+// найденной версии до тех пор, пока пользователь сам не полез в меню. Метку
+// рисуем в рантайме поверх декодированного RGBA — держать в бинаре вторую
+// тройку PNG ради одного кружка незачем.
+const BADGE_FILL: [f32; 3] = [255.0, 77.0, 109.0]; // неоновый акцент
+const BADGE_RING: [f32; 3] = [10.0, 8.0, 12.0]; // тёмная обводка под любой значок
+
+/// Рисует кружок-метку в правом нижнем углу RGBA-буфера (straight alpha,
+/// source-over). Субпиксельная выборка обязательна: на 32px без сглаживания
+/// метка выглядит рваным квадратом.
+fn paint_update_badge(rgba: &mut [u8], width: u32, height: u32) {
+    let (w, h) = (width as i64, height as i64);
+    if w < 8 || h < 8 || rgba.len() < (w * h * 4) as usize {
+        return;
+    }
+    let side = w.min(h) as f32;
+    let r_out = side * 0.21;
+    let r_in = (r_out - (side * 0.06).max(1.0)).max(1.0);
+    let cx = w as f32 - r_out - side * 0.02;
+    let cy = h as f32 - r_out - side * 0.02;
+    const SUB: i64 = 4;
+    let x0 = ((cx - r_out).floor() as i64).max(0);
+    let x1 = ((cx + r_out).ceil() as i64).min(w - 1);
+    let y0 = ((cy - r_out).floor() as i64).max(0);
+    let y1 = ((cy + r_out).ceil() as i64).min(h - 1);
+    for py in y0..=y1 {
+        for px in x0..=x1 {
+            let (mut fill_cov, mut ring_cov) = (0.0f32, 0.0f32);
+            for sy in 0..SUB {
+                for sx in 0..SUB {
+                    let dx = px as f32 + (sx as f32 + 0.5) / SUB as f32 - cx;
+                    let dy = py as f32 + (sy as f32 + 0.5) / SUB as f32 - cy;
+                    let d = (dx * dx + dy * dy).sqrt();
+                    if d <= r_in {
+                        fill_cov += 1.0;
+                    } else if d <= r_out {
+                        ring_cov += 1.0;
+                    }
+                }
+            }
+            let total = (SUB * SUB) as f32;
+            let (fill_cov, ring_cov) = (fill_cov / total, ring_cov / total);
+            let src_a = fill_cov + ring_cov;
+            if src_a <= 0.0 {
+                continue;
+            }
+            let idx = ((py * w + px) * 4) as usize;
+            let dst_a = rgba[idx + 3] as f32 / 255.0;
+            let out_a = src_a + dst_a * (1.0 - src_a);
+            for (offset, (fill, ring)) in BADGE_FILL.iter().zip(BADGE_RING.iter()).enumerate() {
+                let src = (fill * fill_cov + ring * ring_cov) / src_a;
+                let dst = rgba[idx + offset] as f32;
+                let out = (src * src_a + dst * dst_a * (1.0 - src_a)) / out_a;
+                rgba[idx + offset] = out.round().clamp(0.0, 255.0) as u8;
+            }
+            rgba[idx + 3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+}
+
+/// Значок трея под состояние + метка отложенного обновления.
+fn tray_icon(
+    connected: bool,
+    mode: &str,
+    update_pending: bool,
+) -> Option<tauri::image::Image<'static>> {
+    let icon = tray_state_icon(connected, mode)?;
+    if !update_pending {
+        return Some(icon);
+    }
+    let (w, h) = (icon.width(), icon.height());
+    let mut rgba = icon.rgba().to_vec();
+    paint_update_badge(&mut rgba, w, h);
+    Some(tauri::image::Image::new_owned(rgba, w, h))
+}
+
 // Tooltip трея — даёт точный режим (иконка только сигналит статус/тип).
 // Строки локализованы фронтом; имя режима — тот же лейбл, что в меню.
-fn tray_tooltip(labels: &TrayLabels, connected: bool, mode: &str) -> String {
-    if !connected {
-        return labels.tip_off.clone();
-    }
-    let m = match mode {
-        "tun" => &labels.mode_tun,
-        "systemProxy" => &labels.mode_system,
-        _ => &labels.mode_proxy,
+fn tray_tooltip(
+    labels: &TrayLabels,
+    connected: bool,
+    mode: &str,
+    update_version: Option<&str>,
+) -> String {
+    let state = if connected {
+        let m = match mode {
+            "tun" => &labels.mode_tun,
+            "systemProxy" => &labels.mode_system,
+            _ => &labels.mode_proxy,
+        };
+        labels.tip_connected.replace("{mode}", m)
+    } else {
+        labels.tip_off.clone()
     };
-    labels.tip_connected.replace("{mode}", m)
+    match update_version {
+        Some(ver) => format!("{state}\n{}", labels.tip_update.replace("{ver}", ver)),
+        None => state,
+    }
 }
 
 #[tauri::command]
@@ -526,13 +670,18 @@ fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), 
     let menu = build_tray_menu(&app, &payload).map_err(|e| e.to_string())?;
     if let Some(tray) = app.tray_by_id("main") {
         tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
-        if let Some(icon) = tray_state_icon(payload.connected, &payload.mode) {
+        if let Some(icon) = tray_icon(
+            payload.connected,
+            &payload.mode,
+            payload.update_version.is_some(),
+        ) {
             let _ = tray.set_icon(Some(icon));
         }
         let _ = tray.set_tooltip(Some(tray_tooltip(
             &payload.labels,
             payload.connected,
             &payload.mode,
+            payload.update_version.as_deref(),
         )));
     }
     Ok(())
@@ -579,6 +728,7 @@ pub fn run() {
         // от него отказались, миграция в setup() (migrate_legacy_autostart).
         .manage(SingboxState::default())
         .manage(dpi::DpiState::default())
+        .manage(host_pressure::HostPressureState::default())
         .manage(clash_stream::ClashStreamState::default())
         .manage(killswitch::KillSwitchState::default())
         .manage(runtime_ops::RuntimeOperationCoordinator::default())
@@ -600,7 +750,7 @@ pub fn run() {
 
             let argv: Vec<String> = std::env::args().collect();
             let autostarted = argv.iter().any(|a| a == "--autostarted");
-            let ci_smoke = argv.iter().any(|a| a == "--ci-smoke");
+            let ci_smoke = ci_smoke_requested(&argv);
             vpn::purge_stale_runtime_configs(app.handle());
             if let Err(e) = vpn::recover_stale_system_proxy() {
                 eprintln!("stale system proxy recovery: {e}");
@@ -631,6 +781,17 @@ pub fn run() {
                     }
                 }
             }
+
+            // Сэмплер давления хоста поднимаем сразу и на всё время жизни
+            // процесса: ему нужна предыдущая выборка CPU-счётчиков, чтобы
+            // посчитать первую дельту, а к моменту подключения ответ на вопрос
+            // «виноват ли хост» должен быть уже готов. Прав на runtime у него
+            // нет — только цифры для движка качества.
+            host_pressure::start(
+                app.state::<host_pressure::HostPressureState>()
+                    .inner()
+                    .clone(),
+            );
 
             // Окно по умолчанию скрыто (visible:false). Показываем сейчас, кроме
             // автозапуска при входе в Windows — там оставляем в трее.
@@ -680,11 +841,19 @@ pub fn run() {
             // Старт всегда в состоянии «отключено» — серый значок; фронт после
             // загрузки/автоконнекта пришлёт set_tray_menu с актуальным режимом
             // и локализованными строками (до этого — русский фолбэк labels).
-            let init_icon = tray_state_icon(false, "")
-                .unwrap_or_else(|| app.default_window_icon().unwrap().clone());
+            let init_icon = match tray_state_icon(false, "") {
+                Some(icon) => icon,
+                // default_window_icon() пуст в headless-конфигурациях; трей без
+                // значка Windows не создаёт, но паниковать в setup() нельзя —
+                // приложение обязано дойти до окна и сказать об этом словами.
+                None => app
+                    .default_window_icon()
+                    .cloned()
+                    .ok_or("tray icon is unavailable")?,
+            };
             let _tray = TrayIconBuilder::with_id("main")
                 .icon(init_icon)
-                .tooltip(tray_tooltip(&init_payload.labels, false, ""))
+                .tooltip(tray_tooltip(&init_payload.labels, false, "", None))
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {
@@ -720,15 +889,26 @@ pub fn run() {
                         _ => {}
                     }
                 })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
+                .on_tray_icon_event(|tray, event| match event {
+                    TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
-                    } = event
-                    {
-                        show_main(tray.app_handle());
+                    } => show_main(tray.app_handle()),
+                    // Пользователь потянулся к значку — единственный момент,
+                    // когда точно известно, что он сейчас смотрит на трей.
+                    // Свёрнутое окно узнаёт о новой версии только по
+                    // расписанию, поэтому здесь просим фронт дочекать OTA:
+                    // меню собирается заново на set_tray_menu, и к следующему
+                    // открытию пункт «Обновить» уже на месте.
+                    TrayIconEvent::Enter { .. }
+                    | TrayIconEvent::Click {
+                        button: MouseButton::Right,
+                        ..
+                    } => {
+                        let _ = tray.app_handle().emit("tray:activity", ());
                     }
+                    _ => {}
                 })
                 .build(app)?;
 
@@ -740,71 +920,87 @@ pub fn run() {
                     return Err("backend ping failed during CI smoke".into());
                 }
                 if portable {
+                    for name in ["config", "data", "logs", "webview"] {
+                        if !app_paths::portable_root()?.join(name).is_dir() {
+                            return Err(format!("portable directory missing: {name}").into());
+                        }
+                    }
+                }
+                // Ниже — единственная часть smoke, которая пишет в боевое
+                // состояние. На машине с уже существующими профилями её
+                // пропускаем целиком: проверка сборки не стоит данных.
+                let state_is_empty = ci_smoke_state_is_empty(app.handle());
+                if !state_is_empty {
+                    eprintln!("CI smoke: пропускаю проверку хранилища — в конфиге уже есть данные");
+                }
+                if state_is_empty && portable {
                     // The portable profile store must use the same explicit
                     // in-memory passphrase policy as state-backup.
                     secrets::configure_portable_passphrase(
                         "ci-smoke-only-passphrase-2026".to_string(),
                     )?;
                 }
-                let profile_store_before = profile_store::profile_store_load(app.handle().clone())?;
-                let smoke_store = profile_store::ProfileStore {
-                    schema_version: 1,
-                    revision: profile_store_before.revision,
-                    profiles: vec![serde_json::json!({
-                        "id": "ci-smoke-profile",
-                        "proto": "vless",
-                        "host": "smoke.invalid"
-                    })],
-                    subscriptions: vec![],
-                    active: profile_store::ActiveSelection {
-                        kind: "single".into(),
-                        profile_id: Some("ci-smoke-profile".into()),
-                        subscription_id: None,
-                    },
-                    proxy_selection: std::collections::BTreeMap::from([(
-                        "single:ci-smoke-profile".into(),
-                        "node-smoke".into(),
-                    )]),
-                };
-                let _ = profile_store::profile_store_replace(
-                    app.handle().clone(),
-                    profile_store_before.revision,
-                    smoke_store,
-                )?;
-                let profile_store_after = profile_store::profile_store_load(app.handle().clone())?;
-                if profile_store_after.store.is_none()
-                    || profile_store_after.revision <= profile_store_before.revision
-                {
-                    return Err("profile store roundtrip failed during CI smoke".into());
-                }
-                profile_store::profile_store_clear(app.handle().clone(), None)?;
-                if portable {
-                    for name in ["config", "data", "logs", "webview"] {
-                        if !app_paths::portable_root()?.join(name).is_dir() {
-                            return Err(format!("portable directory missing: {name}").into());
-                        }
-                    }
-                    // Реальная запись через production-path helper: ловит и
-                    // случайный AppData, и DPAPI, который сделал бы Full
-                    // Portable нечитаемым после переноса на другой ПК.
-                    let smoke_snapshot = serde_json::json!({
-                        "__schemaVersion": 2,
-                        "ninety.options.v1": "{}",
-                        "ninety.profiles.v1": "[]",
-                        "ninety.subscriptions.v1": "[]"
-                    });
-                    // CI smoke intentionally exercises the portable encrypted
-                    // path with an ephemeral in-memory passphrase. Production
-                    // portable runs start in NoPersistentSecrets until the
-                    // user explicitly configures one from Settings.
-                    backup::state_backup_save(app.handle().clone(), smoke_snapshot.to_string())?;
-                    let snapshot = std::fs::read(
-                        app_paths::portable_root()?
-                            .join("config")
-                            .join("state-backup.json"),
+                if state_is_empty {
+                    let profile_store_before =
+                        profile_store::profile_store_load(app.handle().clone())?;
+                    let smoke_store = profile_store::ProfileStore {
+                        schema_version: 1,
+                        revision: profile_store_before.revision,
+                        profiles: vec![serde_json::json!({
+                            "id": "ci-smoke-profile",
+                            "proto": "vless",
+                            "host": "smoke.invalid"
+                        })],
+                        subscriptions: vec![],
+                        active: profile_store::ActiveSelection {
+                            kind: "single".into(),
+                            profile_id: Some("ci-smoke-profile".into()),
+                            subscription_id: None,
+                        },
+                        proxy_selection: std::collections::BTreeMap::from([(
+                            "single:ci-smoke-profile".into(),
+                            "node-smoke".into(),
+                        )]),
+                    };
+                    let _ = profile_store::profile_store_replace(
+                        app.handle().clone(),
+                        profile_store_before.revision,
+                        smoke_store,
                     )?;
-                    if !secrets::is_portable_envelope(&snapshot) {
-                        return Err("portable state backup is not encrypted envelope".into());
+                    let profile_store_after =
+                        profile_store::profile_store_load(app.handle().clone())?;
+                    if profile_store_after.store.is_none()
+                        || profile_store_after.revision <= profile_store_before.revision
+                    {
+                        return Err("profile store roundtrip failed during CI smoke".into());
+                    }
+                    profile_store::profile_store_clear(app.handle().clone(), None)?;
+                    if portable {
+                        // Реальная запись через production-path helper: ловит и
+                        // случайный AppData, и DPAPI, который сделал бы Full
+                        // Portable нечитаемым после переноса на другой ПК.
+                        let smoke_snapshot = serde_json::json!({
+                            "__schemaVersion": 2,
+                            "ninety.options.v1": "{}",
+                            "ninety.profiles.v1": "[]",
+                            "ninety.subscriptions.v1": "[]"
+                        });
+                        // CI smoke intentionally exercises the portable encrypted
+                        // path with an ephemeral in-memory passphrase. Production
+                        // portable runs start in NoPersistentSecrets until the
+                        // user explicitly configures one from Settings.
+                        backup::state_backup_save(
+                            app.handle().clone(),
+                            smoke_snapshot.to_string(),
+                        )?;
+                        let snapshot = std::fs::read(
+                            app_paths::portable_root()?
+                                .join("config")
+                                .join("state-backup.json"),
+                        )?;
+                        if !secrets::is_portable_envelope(&snapshot) {
+                            return Err("portable state backup is not encrypted envelope".into());
+                        }
                     }
                 }
                 let handle = app.handle().clone();
@@ -868,14 +1064,14 @@ pub fn run() {
             vpn::xray_status,
             vpn::sidecar_status,
             vpn::vpn_last_error,
-            vpn::set_system_proxy,
+            vpn::enable_system_proxy,
+            vpn::disable_system_proxy,
             vpn::read_singbox_log,
             vpn::clear_singbox_log,
             vpn::read_log,
             vpn::clear_log,
             vpn::singbox_log_path,
             vpn::open_log_dir,
-            quality::probe_health,
             subscription::fetch_subscription,
             clash::clash_get_proxies,
             clash::clash_get_connections,
@@ -956,4 +1152,109 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Подсказка трея — единственный признак апдейта, который не зависит от
+    // OS-уведомлений: на Windows тост молча теряется, если у сборки нет ярлыка
+    // с AppUserModelID (портативная копия), и тогда в трее не остаётся ничего.
+    #[test]
+    fn tooltip_shows_the_pending_update_in_both_states() {
+        let labels = TrayLabels::default();
+        let idle = tray_tooltip(&labels, false, "proxy", Some("0.2.57"));
+        assert!(idle.starts_with(&labels.tip_off));
+        assert!(idle.contains("0.2.57"));
+
+        let connected = tray_tooltip(&labels, true, "tun", Some("0.2.57"));
+        assert!(connected.contains(&labels.mode_tun));
+        assert!(connected.contains("0.2.57"));
+    }
+
+    // Метка апдейта обязана быть видна на самом значке: подсказку и меню
+    // пользователь открывает сам, а свёрнутое приложение должно сигналить о
+    // новой версии без единого клика.
+    #[test]
+    fn update_badge_marks_only_the_corner_of_the_icon() {
+        let (w, h) = (32u32, 32u32);
+        let mut rgba = vec![0u8; (w * h * 4) as usize];
+        paint_update_badge(&mut rgba, w, h);
+
+        let px = |x: u32, y: u32| {
+            let i = ((y * w + x) * 4) as usize;
+            (rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3])
+        };
+        // Центр метки — непрозрачный акцент, левый верхний угол не тронут.
+        let (r, _, _, a) = px(25, 25);
+        assert_eq!(a, 255);
+        assert!(r > 200, "ожидали акцентный кружок, получили r={r}");
+        assert_eq!(px(0, 0), (0, 0, 0, 0));
+        assert_eq!(px(2, 20), (0, 0, 0, 0));
+    }
+
+    // Значок без апдейта менять нельзя: иначе метка «залипнет» после установки.
+    #[test]
+    fn tray_icon_is_badged_only_when_an_update_is_pending() {
+        let plain = tray_icon(false, "", false).expect("значок трея встроен в бинарь");
+        let badged = tray_icon(false, "", true).expect("значок трея встроен в бинарь");
+        assert_eq!(plain.width(), badged.width());
+        assert_ne!(plain.rgba(), badged.rgba());
+        assert_eq!(plain.rgba(), tray_state_icon(false, "").unwrap().rgba());
+    }
+
+    // Буфер меньше метки (или битые размеры) не должен паниковать по индексу.
+    #[test]
+    fn update_badge_ignores_degenerate_buffers() {
+        let mut tiny = vec![0u8; 4 * 4 * 4];
+        paint_update_badge(&mut tiny, 4, 4);
+        assert!(tiny.iter().all(|b| *b == 0));
+
+        let mut truncated = vec![0u8; 8];
+        paint_update_badge(&mut truncated, 32, 32);
+        assert!(truncated.iter().all(|b| *b == 0));
+    }
+
+    // Один argv-флаг не должен запускать сборочную проверку: она стирает
+    // profile store и перезаписывает state backup, а флаг легко попадает в
+    // ярлык или .bat.
+    #[test]
+    fn ci_smoke_needs_both_the_flag_and_the_explicit_environment_opt_in() {
+        assert!(ci_smoke_opt_in(true, Some("1")));
+        assert!(!ci_smoke_opt_in(true, None));
+        assert!(!ci_smoke_opt_in(true, Some("0")));
+        assert!(!ci_smoke_opt_in(true, Some("true")));
+        assert!(!ci_smoke_opt_in(false, Some("1")));
+    }
+
+    #[test]
+    fn ci_smoke_never_touches_an_existing_store() {
+        let dir = std::env::temp_dir().join(format!(
+            "ninety-ci-smoke-guard-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(ci_smoke_state_is_empty_in(&dir));
+        for name in CI_SMOKE_PROTECTED_FILES {
+            std::fs::write(dir.join(name), b"user data").unwrap();
+            assert!(!ci_smoke_state_is_empty_in(&dir), "{name} не защищён");
+            std::fs::remove_file(dir.join(name)).unwrap();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tooltip_without_update_keeps_the_plain_state_line() {
+        let labels = TrayLabels::default();
+        assert_eq!(tray_tooltip(&labels, false, "proxy", None), labels.tip_off);
+        assert_eq!(
+            tray_tooltip(&labels, true, "systemProxy", None),
+            labels.tip_connected.replace("{mode}", &labels.mode_system)
+        );
+    }
 }

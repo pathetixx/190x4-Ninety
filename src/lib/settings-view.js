@@ -284,12 +284,18 @@ export function mountSettings(root, opts = {}) {
       const result = await getProtectedBrowserStatus();
       if (!statusEl?.isConnected) return;
       const available = !!result?.ok && !!result.data?.available;
+      // Браузер на месте, но проверка его забраковала: «не найден» здесь —
+      // тупик, пользователь смотрит на установленное приложение.
+      const rejected = !!result?.ok && !available && !!result.data?.reason;
       if (!result?.ok) {
         statusEl.textContent = t("settings.privacy.statusError");
       } else if (available && result.data.version) {
         statusEl.textContent = t("settings.privacy.statusAvailableVersion", {
           version: result.data.version,
         });
+      } else if (rejected) {
+        statusEl.textContent = t("settings.privacy.statusUnverified");
+        console.warn("[protected-browser] rejected", result.data.reason, result.data.path);
       } else {
         statusEl.textContent = t(available
           ? "settings.privacy.statusAvailable"

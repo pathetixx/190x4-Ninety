@@ -2,6 +2,142 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.59 — 2026-08-04
+
+## English
+
+- A new version is now visible while the window sits in the tray: the tray icon gets a mark, hovering over it or right-clicking checks for an update straight away, and the scheduled check runs every half hour instead of every two hours. Before that a release could stay unnoticed for hours with the window minimised.
+- Mullvad Browser is recognised again. Since v0.2.45 the privacy screen said the browser was not found even when it was installed: Ninety demanded a digital signature on a file that Mullvad ships without one. If a found install is still rejected, the screen now says so instead of claiming the browser is missing.
+- A TrustTunnel server added from a tt:// link keeps its certificate. Without it the connection failed on the security check, while the same server imported from a .toml file worked.
+- The connect button no longer gets stuck on "Disconnecting". If a reconnection arrived at the very moment of a stop, the interface could stay in that state until the next click.
+- Escape or a click outside the update window closes it for now instead of hiding that version for good. Only the "Later" button remembers the choice between launches.
+- The DPI bypass auto-test no longer freezes the rest of its screen while it runs, and the strategy set cannot be replaced underneath it.
+- Updating the hosts list and the ipset database no longer downloads the whole strategy package when the current one is already up to date.
+- The connection log keeps to its size limit even while the VPN is off, and the app no longer refuses to start over a missing tray icon.
+
+## Русский
+
+- Новую версию теперь видно, когда окно свёрнуто в трей: на значке появляется метка, наведение на него и правый клик проверяют обновление сразу, а плановая проверка идёт раз в полчаса вместо двух часов. Раньше со свёрнутым окном релиз мог оставаться незамеченным часами.
+- Mullvad Browser снова определяется. С версии 0.2.45 раздел «Приватность» писал «не найден» даже на установленном браузере: Ninety требовал цифровую подпись у файла, который Mullvad выпускает без неё. Если найденная установка всё же отклонена, экран теперь так и говорит, а не выдаёт её за отсутствующую.
+- Сервер TrustTunnel, добавленный по ссылке tt://, сохраняет свой сертификат. Без него подключение падало на проверке безопасности, тогда как тот же сервер из файла .toml работал.
+- Кнопка подключения больше не залипает в состоянии «Отключение». Если переподключение приходило ровно в момент остановки, интерфейс мог остаться в нём до следующего клика.
+- Escape и клик мимо окна обновления закрывают его на сейчас, а не прячут эту версию навсегда. Запоминает выбор между запусками только кнопка «Позже».
+- Автотест DPI-обхода больше не подвешивает остальную часть своего раздела на время прогона, а набор стратегий нельзя подменить прямо под ним.
+- Обновление списка hosts и базы ipset больше не скачивает весь пакет стратегий, если текущий уже актуален.
+- Журнал подключения соблюдает свой предел размера и при выключенном VPN, а отсутствие значка в трее больше не мешает приложению запуститься.
+
+## v0.2.58 — 2026-08-04
+
+## English
+
+- The connection log reads as one list again. Lines written by the app itself — mode switches, stops, restarts of the core — had no time and no level of their own and were stuck onto the previous line from the engine. They are now ordinary entries: with a timestamp, with a level, and picked up by the level filter.
+- The log no longer fills up with reports about connections that your own programs closed. A browser or a game that drops a connection first is normal and is no longer shown as an error.
+- Country lookups that the core makes for itself are hidden from the log together with their responses (the stray "429" and "404" lines). Ninety determines the IP and the country on its own, so those attempts changed nothing.
+- Profiles that switch off the server certificate check are marked in the list, with an explanation of what exactly is disabled.
+- Fake DNS is applied only in TUN mode. In the proxy modes it used to be written into the configuration as well, where it could break the opening of sites.
+- Autostart no longer starts the app with administrator rights when the app lives in a folder any user can write to — a portable copy or an install "for me only". For those copies a TUN connection now asks for the Windows confirmation.
+- The system hosts file is edited in place: its access rights and your line endings are preserved, and nothing is left next to it.
+- A vless:// link without an identifier is rejected with a clear error instead of being saved as a profile that cannot connect.
+- Skipped connection quality checks are recorded in the log, are kept out of the graph, and are not repeated more often than intended.
+- A service command-line key can no longer erase saved profiles and the settings backup.
+
+## Русский
+
+- Журнал подключения снова читается одним списком. Строки самого приложения — смена режима, остановки, перезапуски ядра — не имели ни своего времени, ни уровня и прилипали к предыдущей строке движка. Теперь это обычные записи: со временем, с уровнем и с работающим фильтром по уровню.
+- Журнал больше не забивается сообщениями о соединениях, которые закрыли ваши же программы. Браузер или игра, оборвавшие соединение первыми, — это норма, и ошибкой это больше не показывается.
+- Запросы страны, которые ядро делает для себя, скрыты из журнала вместе с их ответами (одиночные строки «429» и «404»). IP и страну Ninety определяет сам, и на эти попытки ничего не завязано.
+- Профили с отключённой проверкой сертификата сервера помечены в списке, с пояснением, что именно отключено.
+- Fake DNS применяется только в режиме TUN. В режимах прокси он тоже попадал в конфигурацию, где мог ломать открытие сайтов.
+- Автозапуск больше не поднимает приложение с правами администратора, если оно лежит в папке, доступной на запись обычному пользователю, — портативная копия или установка «только для меня». Для таких копий подключение в режиме TUN теперь спрашивает подтверждение Windows.
+- Системный файл hosts правится на месте: сохраняются его права доступа и ваши переводы строк, рядом ничего не остаётся.
+- Ссылка vless:// без идентификатора отклоняется с понятной ошибкой, а не сохраняется профилем, который не может подключиться.
+- Пропущенные проверки качества связи попадают в журнал, не искажают график и не повторяются чаще, чем задумано.
+- Служебный ключ командной строки больше не может стереть сохранённые профили и резервную копию настроек.
+
+## v0.2.57 — 2026-08-04
+
+## English
+
+- The connection now restores itself when the core crashes. Previously the tunnel simply closed and had to be started again by hand.
+- Under a fully loaded computer (video rendering, a game, a build) the app no longer mistakes a local resource shortage for a network problem and no longer answers it with server switches and reconnects. Network processes also get a higher priority so they are not starved of CPU.
+- An available update is visible again while the window sits in the tray: an entry in the tray menu and the version in the icon tooltip. "Later" no longer hides the update for good — it stays available from the tray.
+- Profiles and subscriptions now really reach the protected storage. Writing to it did not work and the data stayed in the clear; the first launch of this version migrates it and removes the plain copies.
+- Cancelling a connection could leave engine processes running, after which the app refused to connect again.
+- Passwords containing a colon in Shadowsocks and TUIC links are read correctly.
+- The insecure parameter in Hysteria2 links is no longer ignored.
+- Turning the blocking bypass off no longer freezes the window for several seconds.
+- vless:// and the other links are released correctly when the app is moved to another folder.
+- The update check no longer stays disabled until the app is restarted because of an internal error.
+
+## Русский
+
+- Подключение восстанавливается само, если ядро упало. Раньше туннель просто закрывался и подключаться приходилось вручную.
+- Под полной загрузкой компьютера (рендер видео, игра, сборка проекта) приложение больше не принимает нехватку ресурсов компьютера за проблему сети и не лечит её сменой сервера и переподключением. Сетевым процессам поднят приоритет, чтобы им хватало процессора.
+- Обновление снова заметно, когда окно свёрнуто в трей: пункт в меню трея и версия в подсказке при наведении на иконку. «Позже» больше не прячет обновление насовсем — оно остаётся доступным в трее.
+- Профили и подписки действительно попадают в защищённое хранилище. Запись в него не работала, и данные оставались в открытом виде; при первом запуске этой версии они переносятся, а открытые копии удаляются.
+- Отмена подключения могла оставить рабочие процессы запущенными — после этого приложение отказывалось подключаться снова.
+- Пароли с двоеточием в ссылках Shadowsocks и TUIC читаются корректно.
+- Параметр insecure в ссылках Hysteria2 больше не игнорируется.
+- Выключение обхода блокировок больше не подвешивает окно на несколько секунд.
+- Ссылки vless:// и остальные освобождаются корректно, если приложение переместили в другую папку.
+- Проверка обновлений больше не выключается до перезапуска приложения из-за внутренней ошибки.
+
+## v0.2.56 — 2026-08-03
+
+## English
+
+- Switching the connection mode or changing a setting while the VPN is on no longer ends with "Could not disconnect / network cleanup was not confirmed". The reconnect used to lose ownership of the operation the moment the old connection was stopped, so the new one was refused before it could start. Automatic recovery after a core failure was failing for the same reason and now goes through as well.
+- The connection log no longer fills up with availability reports for servers you are not connected through. Only the active server is shown; the full log file on disk is unchanged and "Copy" still returns all of it.
+- Release notes in the update window are shown as clean text instead of raw markup.
+
+## Русский
+
+- Смена режима подключения и изменение настроек при включённом VPN больше не заканчиваются ошибкой «Не удалось отключить / Очистка сетевых компонентов не подтверждена». Переподключение теряло право на операцию сразу после остановки прежнего соединения, и новое отклонялось, не успев начаться. По той же причине не срабатывало автоматическое восстановление после сбоя ядра — теперь оно тоже проходит.
+- Журнал подключения больше не забивается отчётами о доступности серверов, через которые вы не подключены. Показывается только активный сервер; сам файл журнала на диске не изменился, и кнопка «Копировать» по-прежнему отдаёт его целиком.
+- Заметки к обновлению в окне обновления показываются обычным текстом, без символов разметки.
+
+## v0.2.55 — 2026-08-03
+
+## English
+
+- The connection log now records why a reconnect failed and at which stage. Switching the connection mode and automatic reconnects previously left no trace when the new connection could not be brought up, so an error on screen had nothing behind it in the log.
+- A stop that was handed over to another operation is recorded as such instead of being reported as an unconfirmed cleanup.
+
+## Русский
+
+- Журнал подключения теперь фиксирует, почему и на каком этапе не удалось переподключиться. Смена режима подключения и автоматические переподключения раньше не оставляли следа, если новое соединение не удавалось поднять, и ошибка на экране ничем не подкреплялась в журнале.
+- Остановка, перехваченная другой операцией, записывается именно так, а не выдаётся за неподтверждённую очистку.
+
+## v0.2.54 — 2026-08-03
+
+## English
+
+- Switching the connection mode or the active source no longer cuts other applications off the network while the tunnel is being replaced. The block was applied even when leak protection was turned off.
+- IPv6 traffic now goes through the tunnel in TUN mode. Applications that resolve names themselves could previously reach the internet over IPv6 outside the tunnel and expose the real address.
+- The connection log now records why a disconnect could not be completed, so a "cleanup not confirmed" message can be traced to the component that held it up.
+
+## Русский
+
+- Переключение режима подключения и смена активного источника больше не отрезают остальные приложения от сети на время замены туннеля. Блокировка ставилась даже при выключенной защите от утечек.
+- Трафик IPv6 в режиме TUN теперь идёт через туннель. Приложения с собственным резолвером могли выходить в интернет по IPv6 мимо туннеля и раскрывать реальный адрес.
+- Журнал подключения теперь фиксирует, почему не удалось завершить отключение: сообщение о неподтверждённой очистке можно связать с конкретным компонентом.
+
+## v0.2.53 — 2026-08-03
+
+## Русский
+
+- Переключение источника и режимов подключения стало устойчивее после обновления подписки: исчезнувшая запомненная нода сбрасывается только на явный Auto или единственный доступный маршрут, без подмены произвольной нодой.
+- Включение System Proxy теперь проверяет актуальную точку runtime и поколение процесса, а выключение не зависит от endpoint.
+- Таймаут внешнего geo-сервиса больше не превращается в ложную ошибку подключения.
+- Убрано агрессивное автоматическое восстановление dataplane: Ninety больше не перезапускает ту же конфигурацию и не инициирует скрытую смену узла при проблемах соединения; защита WFP, System Proxy и TUN сохранена.
+
+## English
+
+- Source switching and connection modes are more reliable after a subscription refresh: a missing remembered node falls back only to explicit Auto or the sole available route, never to an arbitrary node.
+- Enabling System Proxy now validates the current runtime endpoint and process generation, while disabling it no longer depends on an endpoint.
+- External geo-service timeouts no longer appear as false connection failures.
+- Removed aggressive automatic dataplane recovery: Ninety no longer restarts the same configuration or silently switches nodes when a connection has problems; WFP, System Proxy, and TUN protection remain in place.
+
 ## v0.2.52 — 2026-08-03
 
 ## Русский

@@ -1,6 +1,7 @@
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -54,27 +55,36 @@ fn autostart_lock() -> &'static Mutex<()> {
 // shutdown. Generation-coalescing не даёт потерять последний запрос, пока
 // предыдущий SETTINGS_CHANGED/REFRESH ещё выполняется.
 fn run_proxy_notify_worker() {
+    // Внешний цикл вместо самовызова: подхват «догнавшего» запроса не должен
+    // наращивать стек — Rust не гарантирует хвостовую оптимизацию, а частота
+    // вызовов задаётся снаружи и ничем не ограничена.
     loop {
-        let target = PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire);
-        if PROXY_NOTIFY_APPLIED.load(Ordering::Acquire) >= target {
-            break;
+        loop {
+            let target = PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire);
+            if PROXY_NOTIFY_APPLIED.load(Ordering::Acquire) >= target {
+                break;
+            }
+            unsafe {
+                let _ = InternetSetOptionW(None, INTERNET_OPTION_SETTINGS_CHANGED, None, 0);
+                let _ = InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0);
+            }
+            PROXY_NOTIFY_APPLIED.store(target, Ordering::Release);
         }
-        unsafe {
-            let _ = InternetSetOptionW(None, INTERNET_OPTION_SETTINGS_CHANGED, None, 0);
-            let _ = InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0);
-        }
-        PROXY_NOTIFY_APPLIED.store(target, Ordering::Release);
-    }
 
-    PROXY_NOTIFY_IN_FLIGHT.store(false, Ordering::Release);
-    // Close the race between the last loop check and clearing in-flight. A
-    // caller that arrived in that window may have observed true and returned.
-    if PROXY_NOTIFY_APPLIED.load(Ordering::Acquire) < PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire)
-        && PROXY_NOTIFY_IN_FLIGHT
+        PROXY_NOTIFY_IN_FLIGHT.store(false, Ordering::Release);
+        // Close the race between the last loop check and clearing in-flight. A
+        // caller that arrived in that window may have observed true and returned.
+        if PROXY_NOTIFY_APPLIED.load(Ordering::Acquire)
+            >= PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire)
+        {
+            return;
+        }
+        if PROXY_NOTIFY_IN_FLIGHT
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-    {
-        run_proxy_notify_worker();
+            .is_err()
+        {
+            return;
+        }
     }
 }
 
@@ -625,14 +635,39 @@ fn schtasks_exe() -> String {
         .unwrap_or_else(|_| "schtasks.exe".into())
 }
 
+// Системные корни, запись в которые уже требует прав администратора. Только для
+// exe оттуда задача автозапуска имеет право работать с RunLevel=highest.
+fn program_files_roots() -> Vec<PathBuf> {
+    ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .collect()
+}
+
+// Задача с /rl highest стартует exe от администратора без UAC на каждый логин.
+// Если сам exe лежит там, куда обычный пользователь может писать (Full Portable
+// из ZIP, per-user установка в AppData), подмена файла превращается в тихое
+// повышение прав. В таком размещении автозапуск остаётся обычного уровня: TUN
+// при необходимости запросит UAC штатно.
+fn autostart_uses_highest_run_level(exe: &Path, roots: &[PathBuf]) -> bool {
+    let exe = exe.to_string_lossy().to_lowercase();
+    roots.iter().any(|root| {
+        let root = root.to_string_lossy().to_lowercase();
+        !root.is_empty() && exe.starts_with(&root) && exe[root.len()..].starts_with(['\\', '/'])
+    })
+}
+
 // Хвост команды создания задачи. /tr с кавычками внутри (путь exe может
 // содержать пробелы) экранируется как \" — это документированный способ
-// schtasks. RunLevel=highest + триггер onlogon → старт от админа без UAC.
-fn create_task_cmdline(exe: &str) -> String {
+// schtasks. Триггер onlogon; RunLevel=highest — только для системного каталога.
+fn create_task_cmdline(exe: &str, highest: bool) -> String {
     format!(
-        r#"/create /tn {} /tr "\"{}\" --autostarted --elevated" /sc onlogon /rl highest /f"#,
+        r#"/create /tn {} /tr "\"{}\" --autostarted --elevated" /sc onlogon{} /f"#,
         schtasks_name_arg(task_name()),
-        exe
+        exe,
+        if highest { " /rl highest" } else { "" }
     )
 }
 
@@ -752,7 +787,8 @@ pub fn autostart_is_enabled() -> bool {
 // иначе поднимает права только для schtasks (один UAC) и ждёт появления задачи.
 fn autostart_enable_unlocked() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
-    let cmdline = create_task_cmdline(&exe.to_string_lossy());
+    let highest = autostart_uses_highest_run_level(&exe, &program_files_roots());
+    let cmdline = create_task_cmdline(&exe.to_string_lossy(), highest);
     if is_elevated() {
         let ok = Command::new(schtasks_exe())
             .raw_arg(&cmdline)
@@ -1052,11 +1088,47 @@ mod tests {
 
     #[test]
     fn schtasks_command_quotes_spaces_and_unicode() {
-        let cmd = create_task_cmdline(r"C:\Program Files\Найнти\Ninety.exe");
+        let cmd = create_task_cmdline(r"C:\Program Files\Найнти\Ninety.exe", true);
         assert_eq!(
             cmd,
             r#"/create /tn Ninety /tr "\"C:\Program Files\Найнти\Ninety.exe\" --autostarted --elevated" /sc onlogon /rl highest /f"#
         );
+    }
+
+    // Автозапуск с highest на user-writable exe — это тихое повышение прав для
+    // любого процесса пользователя, который может перезаписать файл.
+    #[test]
+    fn autostart_highest_only_for_admin_owned_locations() {
+        let roots = vec![
+            PathBuf::from(r"C:\Program Files"),
+            PathBuf::from(r"C:\Program Files (x86)"),
+        ];
+        assert!(autostart_uses_highest_run_level(
+            Path::new(r"C:\Program Files\Ninety\Ninety.exe"),
+            &roots
+        ));
+        assert!(autostart_uses_highest_run_level(
+            Path::new(r"c:\program files (x86)\Ninety\Ninety.exe"),
+            &roots
+        ));
+        for user_writable in [
+            r"C:\Users\dima\Downloads\Ninety\Ninety.exe",
+            r"C:\Users\dima\AppData\Local\Ninety\Ninety.exe",
+            // Совпадение префикса без границы каталога не делает путь системным.
+            r"C:\Program Files Portable\Ninety\Ninety.exe",
+        ] {
+            assert!(
+                !autostart_uses_highest_run_level(Path::new(user_writable), &roots),
+                "{user_writable} не должен получать highest"
+            );
+        }
+    }
+
+    #[test]
+    fn portable_autostart_command_has_no_highest_run_level() {
+        let cmd = create_task_cmdline(r"D:\Ninety\Ninety.exe", false);
+        assert!(!cmd.contains("/rl highest"), "{cmd}");
+        assert!(cmd.contains("/sc onlogon /f"), "{cmd}");
     }
 
     #[test]

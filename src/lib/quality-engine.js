@@ -68,13 +68,16 @@ export function createQualityEngine({
   let badStreak = 0;
   let goodStreak = 0;
   let lastProbeAt = 0;
+  // Ближайший момент, когда пробовать снова осмысленно. Двигается после
+  // пропущенных проб и после лесенки: иначе движок бил бы IPC на каждом тике
+  // сторожа, получая тот же отказ.
   let nextEligibleProbeAt = 0;
+  let skippedReason = null;
   let lastLadderAt = 0;
   let reconnectTimes = [];      // timestamps реконнектов для часового капа
   let reconnectHandoff = false; // R3/R4 ждёт новую VPN-сессию
   let lastState = "UNKNOWN";
-  let hostPressure = false;     // native watchdog заметил starvation/low memory
-  let emergencyLocked = false;  // аварийный recovery владеет runtime
+  let hostPressure = false;     // хосту не хватает CPU/памяти (сэмплер в Rust)
   const passive = [];           // [{t, down}] скользящее окно
   const sessionActive = (epoch) => running && epoch === sessionEpoch;
 
@@ -136,6 +139,19 @@ export function createQualityEngine({
         budgetMs: 4000,
       });
       if (!sessionActive(epoch)) return null;
+      // skipped = проба вообще не выполнялась (нет поколения, датаплейн занят,
+      // runtime уже сменился). Это отказ гейта, а не измерение канала: в
+      // осциллограмму он не идёт, но и молчать нельзя — без записи отказ
+      // подсистемы выглядит ровно как «всё хорошо».
+      if (r?.skipped) {
+        const reason = r.error || "unknown";
+        skippedReason = reason;
+        nextEligibleProbeAt = now() + PROBE_MIN_GAP_MS;
+        actions.log?.("quality probe skipped: " + reason);
+        actions.onSkipped?.(reason);
+        return r;
+      }
+      skippedReason = null;
       recordSample(r, rung);
       return r;
     } catch (e) {
@@ -162,8 +178,11 @@ export function createQualityEngine({
   // ── Тик (зовётся из healthTick после liveness-OK) ──────
   async function tick() {
     const epoch = sessionEpoch;
-    if (!sessionActive(epoch) || !cfg.enabled || hostPressure || emergencyLocked
-      || reconnectHandoff || remediatingEpoch === epoch || probingEpoch === epoch) return;
+    // hostPressure гейтит ВЕСЬ тик, а не только лесенку: под голоданием CPU
+    // проба меряет не канал, а планировщик, и её результат отравил бы и
+    // статистику, и обучение ISP×час ложным «плохо».
+    if (!sessionActive(epoch) || !cfg.enabled || hostPressure || reconnectHandoff
+      || remediatingEpoch === epoch || probingEpoch === epoch) return;
     const timestamp = now();
     if (timestamp < nextEligibleProbeAt) return;
 
@@ -287,6 +306,7 @@ export function createQualityEngine({
       if (remediatingEpoch === epoch) {
         remediatingEpoch = null;
         lastProbeAt = now(); // не долбить пробой сразу после лесенки
+        nextEligibleProbeAt = now() + PROBE_MIN_GAP_MS;
       }
       reconnectHandoff = false;
     }
@@ -362,8 +382,9 @@ export function createQualityEngine({
     cfg = normalizeOpts({ ...cfg, ...o });
     running = true;
     hostPressure = false;
-    emergencyLocked = false;
     badStreak = 0; goodStreak = 0; lastState = "UNKNOWN";
+    skippedReason = null;
+    nextEligibleProbeAt = 0;
     passive.length = 0;
     lastProbeAt = now(); // дать туннелю осесть перед первой пробой
     cachedAsn = null;
@@ -382,58 +403,33 @@ export function createQualityEngine({
     sessionEpoch++;
     running = false;
     hostPressure = false;
-    emergencyLocked = false;
+    skippedReason = null;
+    nextEligibleProbeAt = 0;
     passive.length = 0;
   }
   function setOptions(o) { cfg = normalizeOpts({ ...cfg, ...o }); }
-  function setExpectedGeneration(generation) {
-    const value = Number(generation) || 0;
-    if (value > 0) cfg = normalizeOpts({ ...cfg, expectedGeneration: value });
-  }
+  // Зовётся сторожем на каждом тике из health_snapshot.host_pressure.
   function setHostPressure(active) {
     const next = !!active;
     if (hostPressure === next) return;
     hostPressure = next;
+    // Серии обнуляем в обе стороны: пробы, снятые на границе давления, не
+    // должны ни досчитать лесенку после выхода, ни зачесть выздоровление.
     badStreak = 0;
     goodStreak = 0;
     lastState = next ? "PRESSURE" : "UNKNOWN";
-    // После выхода из pressure mode разрешаем одну пробу без ожидания полного
-    // idle-интервала, но не запускаем её в тот же момент, что native watchdog.
+    // При выходе не бьём пробой сразу в тот же миг, когда хост только отпустило:
+    // даём каналу осесть обычный минимальный зазор.
     lastProbeAt = next ? now() : now() - PROBE_MIN_GAP_MS;
-  }
-  function requestProbeSoon() {
-    if (!running || !cfg.enabled || cfg.lowDataMode) return false;
-    // Health-watchdog вызывает это только на переходе в healthy. Следующий tick
-    // выполнит одну полноценную пробу немедленно, но обычный min-gap и single-
-    // flight продолжат защищать от параллельных запросов.
-    nextEligibleProbeAt = now() + 2_000;
-    lastProbeAt = now() - Math.max(cfg.idleProbeSec * 1000, PROBE_MIN_GAP_MS);
-    return true;
-  }
-  function pauseForEmergency() {
-    // Инвалидируем уже выполняющуюся quality-лесенку/пробу, не переводя UI в
-    // idle: аварийный coordinator сам решит, будет ли простой switch или restart.
-    sessionEpoch++;
-    emergencyLocked = true;
-    badStreak = 0;
-    goodStreak = 0;
-    probingEpoch = null;
-    remediatingEpoch = null;
-    reconnectHandoff = false;
-  }
-  function resumeAfterEmergency() {
-    emergencyLocked = false;
-    badStreak = 0;
-    goodStreak = 0;
-    lastState = "UNKNOWN";
-    lastProbeAt = now();
   }
 
   return {
-    onConnected, onIdle, tick, updatePassive, setOptions,
-    setHostPressure, setExpectedGeneration, requestProbeSoon, pauseForEmergency, resumeAfterEmergency,
+    onConnected, onIdle, tick, updatePassive, setOptions, setHostPressure,
     getSamples: () => samples.slice(), // снимок ring-буфера для осциллограммы
     get state() { return lastState; },
+    // Причина последнего пропуска пробы (null — последняя проба состоялась).
+    // Отличает «канал в порядке» от «движок не измеряет ничего».
+    get skipReason() { return skippedReason; },
     get isRemediating() { return remediatingEpoch === sessionEpoch; },
   };
 }

@@ -15,7 +15,7 @@ use std::process::Child;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::atomic_file::{copy_replace, write_bytes_replace, write_replace};
+use crate::atomic_file::{copy_replace, overwrite_in_place, write_bytes_replace, write_replace};
 use crate::util::MutexExt;
 use reqwest::Response;
 use serde::{Deserialize, Serialize};
@@ -1249,9 +1249,19 @@ pub async fn dpi_start(
     Ok(())
 }
 
+// Остановка winws подтверждается физически: kill + try_wait до 2с, ожидание
+// отменяемой операции до 2с и финальный повторный stop. Синхронная команда
+// держала бы всё это на главном потоке — при зависшем winws окно переставало
+// отвечать на несколько секунд. Ожидание уходит в blocking-пул, контракт IPC
+// не меняется (аргументов у команды нет).
 #[tauri::command]
-pub fn dpi_stop(state: State<'_, DpiState>) -> Result<(), String> {
-    stop_dpi_runtime(&state, "winws")
+pub async fn dpi_stop(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DpiState>();
+        stop_dpi_runtime(&state, "winws")
+    })
+    .await
+    .map_err(|e| format!("не удалось дождаться остановки winws: {e}"))?
 }
 
 #[tauri::command]
@@ -1876,6 +1886,26 @@ fn read_cached_service(app: &AppHandle, name: &str) -> Result<String, String> {
     }
 }
 
+// Service-файл активного поколения, если канал уже стоит на опубликованной
+// версии. Тогда качать бандл незачем: service/<name> в поколении — тот же самый
+// подписанный файл, что лежит в zip. Любая осечка (нет поколения, нет файла,
+// версии разошлись, сеть молчит) — None, и вызывающий идёт обычным путём.
+async fn current_channel_service(app: &AppHandle, port: Option<u16>, name: &str) -> Option<String> {
+    let generation = active_channel_generation(app).ok().flatten()?;
+    let path = generation.join("service").join(name);
+    if !path.is_file() {
+        return None;
+    }
+    let local = strat_version(app).ok()?;
+    let remote = fetch_list_text(&format!("{CHANNEL_BASE}/version.txt"), port)
+        .await
+        .ok()?;
+    if remote.trim().is_empty() || remote.trim() != local {
+        return None;
+    }
+    std::fs::read_to_string(&path).ok()
+}
+
 // Взять service-файл канала (hosts / ipset-service.txt) из ПОДПИСАННОГО бандла.
 // Сеть → стейджим свежий bundle (verify), извлекаем service/<name>. Нет сети →
 // фолбэк на service из активного поколения (или legacy-кеш до первой миграции).
@@ -1886,6 +1916,11 @@ async fn fetch_channel_service(
     port: Option<u16>,
     name: &str,
 ) -> Result<String, String> {
+    // Бандл канала весит десятки мегабайт, а нужен из него один файл. Пока
+    // поколение совпадает с опубликованной версией, ограничиваемся version.txt.
+    if let Some(current) = current_channel_service(app, port, name).await {
+        return Ok(current);
+    }
     match stage_verified_bundle(app, port).await {
         Ok(staging) => {
             let result = (|| -> Result<String, String> {
@@ -1987,6 +2022,21 @@ pub async fn dpi_sync_channel(
     // 1–3. Скачать + проверить подпись + распаковать в стейджинг (общий хелпер).
     let dpi_data = crate::app_paths::data_dir(&app)?.join("dpi");
     let staging = stage_verified_bundle(&app, port).await?;
+    // Смена поколения канала — операция жизненного цикла DPI, а не просто
+    // запись файлов: старое поколение чистится, и подменять его под работающим
+    // start/autotest нельзя (winws запущен ровно из этого каталога). Гард
+    // берём после скачивания, чтобы длинная загрузка не держала запуск обхода.
+    let generation = match begin_dpi_operation(&state, "sync_channel") {
+        Ok(generation) => generation,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+    };
+    let _operation = DpiOperationGuard {
+        state: &state,
+        generation,
+    };
     let _data = state.data.lock().await;
 
     let result = (|| -> Result<serde_json::Value, String> {
@@ -2255,6 +2305,17 @@ fn strip_managed_block(content: &str) -> Result<String, String> {
     Ok(out)
 }
 
+// Сохранить перенос строки исходного hosts. strip_managed_block работает через
+// lines() и отдаёт текст с LF, поэтому CRLF-файл пользователя иначе молча
+// нормализуется целиком — включая чужие строки, которых мы не касались.
+fn apply_hosts_line_endings(rendered: &str, original: &str) -> String {
+    if original.contains("\r\n") {
+        rendered.replace('\n', "\r\n")
+    } else {
+        rendered.to_string()
+    }
+}
+
 // Сколько валидных записей «IP домен» в тексте (без пустых строк и комментариев).
 fn count_hosts_entries(body: &str) -> usize {
     body.lines()
@@ -2358,7 +2419,12 @@ pub async fn dpi_hosts_apply(
     out.push_str(HOSTS_END);
     out.push('\n');
 
-    write_bytes_replace(&path, out.as_bytes(), "system hosts").map_err(|e| {
+    // Системный hosts перезаписываем НА МЕСТЕ, а не подменяем: замена файла
+    // отдала бы цели DACL временного объекта, а Controlled Folder Access и часть
+    // антивирусов блокируют именно подмену. Откат при сбое — проверенный
+    // hosts.backup выше.
+    let out = apply_hosts_line_endings(&out, &current);
+    overwrite_in_place(&path, out.as_bytes(), "system hosts").map_err(|e| {
         format!(
             "запись hosts ({}): нужны права администратора — {e}",
             path.display()
@@ -2380,7 +2446,8 @@ pub fn dpi_hosts_clear(_app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let stripped = format!("{}\n", strip_managed_block(&current)?.trim_end());
-    write_bytes_replace(&path, stripped.as_bytes(), "system hosts")
+    let stripped = apply_hosts_line_endings(&stripped, &current);
+    overwrite_in_place(&path, stripped.as_bytes(), "system hosts")
         .map_err(|e| format!("запись hosts: нужны права администратора — {e}"))?;
     flush_dns();
     Ok(())
@@ -2482,23 +2549,29 @@ pub async fn dpi_autotest(
     stop_managed_child(&state, "winws")?;
     let url = test_url.unwrap_or_else(|| "https://www.youtube.com/".into());
 
-    let _data = state.data.lock().await;
-    // EXP доступна для ручного выбора, но экспериментальный профиль не должен
-    // автоматически становиться рекомендацией автотеста.
-    let strategies: Vec<Strategy> = read_strategies(&app)?
-        .into_iter()
-        .filter(|strategy| !strategy.experimental)
-        .collect();
-    let bin = bin_dir(&app, monkey)?;
-    let exe = bin.join("winws.exe");
-    if !exe.exists() {
-        return Err(format!("winws.exe не найден: {}", exe.display()));
-    }
-    let lists = ensure_lists(&app)?;
-    write_ipset_mode(&app, &lists, "any")?;
-    let bindata = ensure_bindata(&app)?;
-    let bindata_s = strip_verbatim(&bindata.to_string_lossy());
-    let lists_s = strip_verbatim(&lists.to_string_lossy());
+    // Мьютекс данных держим только на подготовке файлов. Прогон стратегий идёт
+    // минутами, и под общим локом он замораживал весь DPI-раздел вместе с
+    // dpi_set_active_vpn_endpoint — а его ждёт автозапуск VPN.
+    let (strategies, bin, exe, bindata_s, lists_s) = {
+        let _data = state.data.lock().await;
+        // EXP доступна для ручного выбора, но экспериментальный профиль не должен
+        // автоматически становиться рекомендацией автотеста.
+        let strategies: Vec<Strategy> = read_strategies(&app)?
+            .into_iter()
+            .filter(|strategy| !strategy.experimental)
+            .collect();
+        let bin = bin_dir(&app, monkey)?;
+        let exe = bin.join("winws.exe");
+        if !exe.exists() {
+            return Err(format!("winws.exe не найден: {}", exe.display()));
+        }
+        let lists = ensure_lists(&app)?;
+        write_ipset_mode(&app, &lists, "any")?;
+        let bindata = ensure_bindata(&app)?;
+        let bindata_s = strip_verbatim(&bindata.to_string_lossy());
+        let lists_s = strip_verbatim(&lists.to_string_lossy());
+        (strategies, bin, exe, bindata_s, lists_s)
+    };
     let client = no_proxy_client()?;
     let total = strategies.len();
 
@@ -2723,8 +2796,17 @@ pub fn cleanup_on_exit(state: &DpiState) {
 /// Monkey). Тонкая обёртка над full_unload — оставлена как #[tauri::command] под
 /// invoke("dpi_unload_driver").
 #[tauri::command]
-pub fn dpi_unload_driver(state: State<'_, DpiState>) -> Result<(), String> {
-    full_unload(&state)
+pub async fn dpi_unload_driver(app: AppHandle) -> Result<(), String> {
+    // Как и dpi_stop: подтверждённая остановка winws плюс блокирующие `sc
+    // stop/delete` (на kernel-драйвере sc возвращает управление только после
+    // выгрузки) складываются в секунды. Фронт зовёт это перед OTA — замирать
+    // окну на время выгрузки незачем.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DpiState>();
+        full_unload(&state)
+    })
+    .await
+    .map_err(|e| format!("не удалось дождаться выгрузки DPI-драйвера: {e}"))?
 }
 
 #[cfg(test)]
@@ -2899,6 +2981,14 @@ mod tests {
             assert!(!valid_channel_generation_name(invalid), "{invalid}");
         }
         assert!(valid_channel_generation_name("gen-123-456-0"));
+    }
+
+    #[test]
+    fn hosts_keeps_the_original_line_endings() {
+        let crlf = "# base\r\n127.0.0.1 localhost\r\n";
+        let rendered = "# base\n127.0.0.1 localhost\n";
+        assert_eq!(apply_hosts_line_endings(rendered, crlf), crlf);
+        assert_eq!(apply_hosts_line_endings(rendered, "# base\n"), rendered);
     }
 
     #[test]

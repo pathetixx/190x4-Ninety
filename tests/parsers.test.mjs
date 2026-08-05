@@ -61,6 +61,15 @@ test("vless: IPv6-хост в скобках", () => {
   assert.equal(p.port, 443);
 });
 
+// Панели экранируют userinfo целиком, а пустой UUID собрал бы конфиг, который
+// падает уже в ядре на аутентификации — без внятного сообщения.
+test("vless: UUID декодируется, пустой отвергается", () => {
+  const p = parseVless("vless://uuid%2Dwith%2Ddash@example.com:443");
+  assert.equal(p.uuid, "uuid-with-dash");
+  assert.throws(() => parseVless("vless://@example.com:443"));
+  assert.throws(() => parseVless("vless://%20@example.com:443"));
+});
+
 test("vless: битый порт кидает", () => {
   assert.throws(() => parseVless("vless://uuid@example.com:99999"));
   assert.throws(() => parseVless("vless://uuid@example.com:0"));
@@ -135,6 +144,42 @@ test("tuic: uuid:password и congestion_control", () => {
   assert.equal(p.alpn, "h3");
 });
 
+// Незакодированное двоеточие в пароле встречается в ссылках руками собранных
+// панелей. Обрезка хвоста тут не даёт ошибки нигде: конфиг валиден, ядро
+// стартует, нода отваливается на аутентификации.
+test("ss: пароль с двоеточием не теряет хвост (SIP002 и legacy base64)", () => {
+  const sip002 = parseShadowsocks("ss://aes-256-gcm:pa:ss@ss.example.com:8388#SS");
+  assert.equal(sip002.method, "aes-256-gcm");
+  assert.equal(sip002.password, "pa:ss");
+
+  const legacy = parseShadowsocks(`ss://${b64("aes-256-gcm:pa:ss@legacy.example.com:8389")}`);
+  assert.equal(legacy.method, "aes-256-gcm");
+  assert.equal(legacy.password, "pa:ss");
+  assert.equal(legacy.host, "legacy.example.com");
+});
+
+test("tuic: пароль с двоеточием сохраняется целиком", () => {
+  const p = parseTuic("tuic://uuid-1:pa:ss@t.example.com:443#T");
+  assert.equal(p.uuid, "uuid-1");
+  assert.equal(p.password, "pa:ss");
+});
+
+test("булевы параметры ссылок принимают и 1, и true", () => {
+  const base = "hy2://pass@h2.example.com:443";
+  assert.equal(parseHysteria2(`${base}?insecure=true`).insecure, true);
+  assert.equal(parseHysteria2(`${base}?insecure=1`).insecure, true);
+  assert.equal(parseHysteria2(`${base}?insecure=false`).insecure, false);
+  assert.equal(parseHysteria2(`${base}?insecure=0`).insecure, false);
+  assert.equal(parseHysteria2(base).insecure, false);
+
+  const tuic = parseTuic("tuic://uuid:pw@t.example.com:443?zero_rtt_handshake=1&disable_sni=true");
+  assert.equal(tuic.zeroRttHandshake, true);
+  assert.equal(tuic.disableSni, true);
+  const tuicOff = parseTuic("tuic://uuid:pw@t.example.com:443");
+  assert.equal(tuicOff.zeroRttHandshake, false);
+  assert.equal(tuicOff.disableSni, false);
+});
+
 test("naive: https-схема и креды", () => {
   const p = parseNaive("naive+https://user:p%40ss@n.example.com:443#NV");
   assert.equal(p.proto, "naive");
@@ -156,6 +201,44 @@ test("trusttunnel deeplink: malformed TLV даёт нормальную ошиб
     () => parseTrustTunnelDeepLink(malformed),
     (err) => err instanceof Error && err.name !== "TypeError" && /ttTlvOOB|TLV|границ/i.test(err.message)
   );
+});
+
+// Сертификат в deep-link едет сырым DER, а trusttunnel_client принимает только
+// PEM: без конверсии узел из tt:// уходил в мост без своего CA (тот же endpoint
+// из .toml при этом работал), а Uint8Array ещё и сохранялся в JSON как {"0":..}.
+test("trusttunnel deeplink: DER-сертификат превращается в PEM", () => {
+  const tlv = (type, value) => {
+    const len = value.length;
+    return [type, ...(len < 64 ? [len] : [0x40 | (len >> 8), len & 0xff]), ...value];
+  };
+  const utf8 = (s) => [...Buffer.from(s, "utf8")];
+  const der = Array.from({ length: 70 }, (_, i) => (i * 7) & 0xff); // > 64 байт base64 → перенос строки
+  const payload = [
+    ...tlv(0x01, utf8("tt.example.com")),
+    ...tlv(0x02, utf8("1.2.3.4:443")),
+    ...tlv(0x05, utf8("user")),
+    ...tlv(0x06, utf8("pass")),
+    ...tlv(0x08, der),
+  ];
+
+  const p = parseTrustTunnelDeepLink(`tt://?${b64urlBytes(payload)}`);
+  const lines = p.certificate.trimEnd().split("\n");
+  assert.equal(lines[0], "-----BEGIN CERTIFICATE-----");
+  assert.equal(lines.at(-1), "-----END CERTIFICATE-----");
+  assert.ok(lines.slice(1, -1).every((l) => l.length <= 64), "PEM переносится по 64 символа");
+  assert.deepEqual([...Buffer.from(lines.slice(1, -1).join(""), "base64")], der);
+  // Сырой DER в профиль не уезжает — его некому прочитать, а JSON он портит.
+  assert.equal("certificateDer" in p, false);
+});
+
+test("trusttunnel deeplink: без сертификата поле пустое, а не мусорное", () => {
+  const bytes = [
+    0x01, 14, ...Buffer.from("tt.example.com", "utf8"),
+    0x02, 11, ...Buffer.from("1.2.3.4:443", "utf8"),
+    0x05, 4, ...Buffer.from("user", "utf8"),
+    0x06, 4, ...Buffer.from("pass", "utf8"),
+  ];
+  assert.equal(parseTrustTunnelDeepLink(`tt://?${b64urlBytes(bytes)}`).certificate, "");
 });
 
 test("trusttunnel toml: happy path + certificate + массив с запятой внутри строки", () => {

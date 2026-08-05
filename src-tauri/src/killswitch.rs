@@ -65,8 +65,59 @@ struct KillSwitchLease {
 /// Активные dynamic-session WFP. Обычно элемент один. Если Windows отказалась
 /// закрыть предыдущую сессию после атомарной замены, сохраняем её handle для
 /// повторного disarm вместо необратимой потери управления фильтрами.
+///
+/// `health` — короткий кэш ответа `is_active`. Проверка бьёт в BFE тремя
+/// запросами на каждую сессию, а спрашивают её и `runtime_snapshot` (UI), и
+/// `health_snapshot` (сторож, раз в 5 с), и верификатор датаплейна. Кэш живёт
+/// доли секунды и сбрасывается при любом изменении набора lease, поэтому
+/// «переармировали → сразу спросили» по-прежнему видит свежий ответ.
 #[derive(Default)]
-pub struct KillSwitchState(Mutex<Vec<KillSwitchLease>>);
+pub struct KillSwitchState {
+    leases: Mutex<Vec<KillSwitchLease>>,
+    health: Mutex<Option<HealthCache>>,
+    version: std::sync::atomic::AtomicU64,
+}
+
+const HEALTH_CACHE: std::time::Duration = std::time::Duration::from_millis(1_500);
+
+struct HealthCache {
+    checked_at: std::time::Instant,
+    active: bool,
+    version: u64,
+}
+
+impl KillSwitchState {
+    fn version(&self) -> u64 {
+        self.version.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    // Любая мутация набора lease отменяет кэш: ответ, снятый до неё, больше не
+    // описывает действующую политику.
+    fn bump_version(&self) {
+        self.version
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        *self.health.lock_recover() = None;
+    }
+
+    fn cached_health(&self, version: u64) -> Option<bool> {
+        self.health
+            .lock_recover()
+            .as_ref()
+            .filter(|cache| cache.version == version && cache.checked_at.elapsed() < HEALTH_CACHE)
+            .map(|cache| cache.active)
+    }
+
+    fn store_health(&self, active: bool, version: u64) {
+        if self.version() != version {
+            return; // набор lease сменился, пока шла проверка
+        }
+        *self.health.lock_recover() = Some(HealthCache {
+            checked_at: std::time::Instant::now(),
+            active,
+            version,
+        });
+    }
+}
 
 /// Внутренний вариант arm для нативного recovery. Он намеренно принимает тот
 /// же policy-контракт, что IPC-команда, чтобы recovery не обходил WFP-barrier.
@@ -82,7 +133,8 @@ pub(crate) fn arm_policy(
     // сеть «непонятно почему». В обычном TUN WFP не нужен; строгий TUN передаёт
     // strict_tunnel=true и всегда ставит фильтр.
     let allow_lan = allow_lan.unwrap_or(true);
-    let mut guard = state.0.lock_recover();
+    state.bump_version();
+    let mut guard = state.leases.lock_recover();
     #[cfg(target_os = "windows")]
     {
         let strict_tunnel = strict_tunnel.unwrap_or(false);
@@ -135,7 +187,8 @@ pub(crate) fn arm_policy(
 /// does not replace the user's persistent policy: both leases coexist until a
 /// new runtime has been verified and its final policy is confirmed.
 pub(crate) fn transition_arm(state: &KillSwitchState, strict_tunnel: bool) -> Result<(), String> {
-    let mut guard = state.0.lock_recover();
+    state.bump_version();
+    let mut guard = state.leases.lock_recover();
     #[cfg(target_os = "windows")]
     {
         if guard.iter().any(|lease| lease.transition) {
@@ -160,14 +213,19 @@ pub(crate) fn transition_arm(state: &KillSwitchState, strict_tunnel: bool) -> Re
 }
 
 pub(crate) fn transition_active(state: &KillSwitchState) -> bool {
-    state.0.lock_recover().iter().any(|lease| lease.transition)
+    state
+        .leases
+        .lock_recover()
+        .iter()
+        .any(|lease| lease.transition)
 }
 
 /// Releases only temporary transition leases.  Call this solely after the
 /// replacement runtime, identity, listener, dataplane and final user policy
 /// have all been verified; failures deliberately preserve the barrier.
 pub(crate) fn transition_release(state: &KillSwitchState) -> Result<(), String> {
-    let mut guard = state.0.lock_recover();
+    state.bump_version();
+    let mut guard = state.leases.lock_recover();
     #[cfg(target_os = "windows")]
     {
         let transitions: Vec<_> = guard
@@ -214,7 +272,8 @@ pub fn killswitch_arm(
 /// Выключить kill switch (снять все фильтры). Идемпотентно.
 #[tauri::command]
 pub fn killswitch_disarm(state: tauri::State<'_, KillSwitchState>) -> Result<(), String> {
-    let mut guard = state.0.lock_recover();
+    state.bump_version();
+    let mut guard = state.leases.lock_recover();
     #[cfg(target_os = "windows")]
     {
         let leases: Vec<_> = guard.drain(..).collect();
@@ -243,7 +302,18 @@ pub fn killswitch_active(state: tauri::State<'_, KillSwitchState>) -> bool {
 }
 
 pub fn is_active(state: &KillSwitchState) -> bool {
-    let mut guard = state.0.lock_recover();
+    let version = state.version();
+    if let Some(cached) = state.cached_health(version) {
+        return cached;
+    }
+    let active = probe_active(state);
+    state.store_health(active, version);
+    active
+}
+
+// Живая проверка: подтверждает sublayer и оба block-фильтра каждой сессии в BFE.
+fn probe_active(state: &KillSwitchState) -> bool {
+    let mut guard = state.leases.lock_recover();
     if guard.is_empty() {
         return false;
     }
@@ -275,7 +345,8 @@ pub fn is_active(state: &KillSwitchState) -> bool {
 // Снять движок при выходе аппы (на случай, если фронт не успел) — фильтры и так
 // уйдут с процессом (dynamic-session), но закрываем явно.
 pub fn force_disarm(state: &KillSwitchState) {
-    let mut guard = state.0.lock_recover();
+    state.bump_version();
+    let mut guard = state.leases.lock_recover();
     for lease in guard.drain(..) {
         #[cfg(target_os = "windows")]
         let _ = unsafe { win::disarm(lease) };
@@ -315,6 +386,28 @@ fn engine_exe_paths(include_controller: bool) -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
 
+    // Кэш обязан отражать ровно тот набор lease, на котором был снят: иначе
+    // после переармирования UI и верификатор увидели бы прежний ответ.
+    #[test]
+    fn health_cache_is_scoped_to_the_lease_version() {
+        let state = KillSwitchState::default();
+        let version = state.version();
+        assert_eq!(state.cached_health(version), None);
+        state.store_health(true, version);
+        assert_eq!(state.cached_health(version), Some(true));
+
+        state.bump_version();
+        assert_eq!(
+            state.cached_health(state.version()),
+            None,
+            "мутация набора lease обязана сбрасывать кэш"
+        );
+
+        // Ответ, посчитанный до мутации, записывать уже нельзя.
+        state.store_health(true, version);
+        assert_eq!(state.cached_health(state.version()), None);
+    }
+
     #[test]
     fn engine_discovery_only_returns_known_existing_binaries() {
         let dir =
@@ -341,7 +434,7 @@ mod win {
 
     const AUTHN_DEFAULT: u32 = 0xFFFF_FFFF; // RPC_C_AUTHN_DEFAULT
 
-    // FwpmEngineOpen0 нет в биндингах windows-rs 0.58 (её сигнатура тянет
+    // FwpmEngineOpen0 нет в биндингах windows-rs (её сигнатура тянет
     // SEC_WINNT_AUTH_IDENTITY_W, добавление фичи не помогло) — импортируем символ
     // напрямую из fwpuclnt.dll через raw-dylib (не зависит от механизма линковки
     // windows-rs). authidentity передаём null.

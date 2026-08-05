@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "ninety"
-version = "0.2.52"
+version = "0.2.59"
 description = "Ninety — VPN client in 190x4 aesthetic"
 authors = ["pathetixx"]
 license = "MIT"
@@ -79,6 +79,8 @@ windows = { version = "0.62", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
     "Win32_System_Ole",
+    # GetPerformanceInfo / GlobalMemoryStatusEx — сэмплер давления хоста
+    # (host_pressure.rs).
     "Win32_System_ProcessStatus",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",

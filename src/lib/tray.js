@@ -27,6 +27,7 @@ const invoke = window.__TAURI__?.core?.invoke
 //   onSetMode(mode)      — смена режима подключения (= changeMode)
 //   onToggleVpn()        — подключить/отключить (= клик по hero-диску)
 //   onUpdateClick()      — клик «Обновить до vX» (= flushPendingUpdate)
+//   onTrayActivity()     — наведение/ПКМ по значку (= дочекать OTA)
 //   isUpdateBusy()       — скачивание/установка OTA; сетевые действия блокируются
 //   isStrictPrivacy()     — строгий runtime не имеет selector и требует reconnect
 //   onServerSelected(tag, node, { reconnect }) — успешный выбор сервера:
@@ -79,6 +80,7 @@ const trayMenuSync = createLatestRunner(async () => {
           updateTo: t("tray.updateTo"),
           tipOff: t("tray.tipOff"),
           tipConnected: t("tray.tipConnected"),
+          tipUpdate: t("tray.tipUpdate"),
         },
       },
     });
@@ -111,6 +113,11 @@ export function initTray(context) {
       await ev.listen("tray:update", () => {
         if (!ctx.isUpdateBusy?.()) ctx.onUpdateClick();
       });
+      // Наведение/ПКМ по значку: пользователь смотрит на трей прямо сейчас.
+      // Свёрнутое окно узнаёт об апдейте только по расписанию, поэтому просим
+      // main дочекать OTA — к следующему открытию меню пункт «Обновить» и
+      // метка на значке будут на месте.
+      await ev.listen("tray:activity", () => { ctx.onTrayActivity?.(); });
       // DPI-обход вкл/выкл из трея — тот же toggleDpi, что в UI; затем рефреш меню.
       await ev.listen("tray:toggle-dpi", async () => {
         if (ctx.isUpdateBusy?.()) return;

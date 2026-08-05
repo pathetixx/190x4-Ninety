@@ -3,11 +3,16 @@
 
 const closed = new WeakSet();
 const closing = new WeakMap();
-// Сильные ссылки на Resource, которые не удалось закрыть. Пока quarantine не
-// очищен, новые updater.check() запрещены — иначе Rust resource table росла бы
-// по одному объекту на каждый scheduler retry.
-const quarantined = new Set();
+// Сильные ссылки на Resource, которые не удалось закрыть, со счётчиком раундов
+// уборки. Пока quarantine не очищен, новые updater.check() запрещены — иначе
+// Rust resource table росла бы по одному объекту на каждый scheduler retry.
+const quarantined = new Map();
 const CLOSE_ATTEMPTS = 2;
+// Сколько раундов уборки терпим, прежде чем отпустить безнадёжный Resource.
+// Типичная причина вечного отказа — rid на Rust-стороне уже освобождён, то есть
+// утечки на самом деле нет, а держать из-за неё ВСЮ проверку обновлений
+// выключенной до перезапуска приложения — цена несоизмеримо выше.
+const QUARANTINE_ROUNDS = 3;
 
 export function snapshotUpdate(update) {
   if (!update) return null;
@@ -43,7 +48,7 @@ export function closeUpdateResource(update) {
         }
       }
     }
-    quarantined.add(update);
+    quarantined.set(update, (quarantined.get(update) ?? 0) + 1);
     return false;
   })()
     .finally(() => {
@@ -55,7 +60,10 @@ export function closeUpdateResource(update) {
 
 export async function drainUpdateResourceCleanup() {
   if (quarantined.size === 0) return true;
-  await Promise.all([...quarantined].map((update) => closeUpdateResource(update)));
+  await Promise.all([...quarantined.keys()].map((update) => closeUpdateResource(update)));
+  for (const [update, rounds] of [...quarantined.entries()]) {
+    if (rounds >= QUARANTINE_ROUNDS) quarantined.delete(update);
+  }
   return quarantined.size === 0;
 }
 

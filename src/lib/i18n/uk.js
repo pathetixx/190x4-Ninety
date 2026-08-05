@@ -78,6 +78,7 @@ export const uk = {
     updateTo: "Оновити до v{ver}",
     tipOff: "Ninety · відключено",
     tipConnected: "Ninety · {mode} · підключено",
+    tipUpdate: "Доступне оновлення v{ver}",
   },
 
   mode: {
@@ -309,6 +310,7 @@ export const uk = {
     err: {
       notVless: "Не vless:// посилання",
       noHostPort: "Немає @host:port",
+      vlessUuid: "vless: відсутній UUID",
       badIpv6: "Пошкоджений IPv6",
       noPort: "Немає порту",
       badPort: "Некоректний порт",
@@ -374,6 +376,8 @@ export const uk = {
     switchMode: "Перемикаю режим…",
     coreStopped: "Ядро зупинилося",
     coreStoppedDesc: "Тунель закрито · sing-box завершився несподівано",
+    coreRestoring: "Ядро впало — відновлюю підключення",
+    coreRestored: "Підключення відновлено",
     notifyClosedTitle: "Ninety · тунель закрито",
     notifyClosedBody: "Ядро sing-box зупинилося",
     xhttpDown: "xhttp-ядро впало — перепідключаюся",
@@ -437,6 +441,8 @@ export const uk = {
     emptyTitle: "Немає профілів",
     emptySub: "Додайте підписку за URL або одиночний vless:// — кнопкою «+» згори, плюс-кнопкою на головному або в меню.",
     badgeActive: "АКТИВНИЙ",
+    badgeInsecure: "Без перевірки TLS",
+    badgeInsecureHint: "Посилання вимикає перевірку сертифіката сервера — з'єднання можна перехопити. Залишайте, лише якщо довіряєте джерелу.",
     statNodes: "ВУЗЛІВ", statTraffic: "ТРАФІК", statExpires: "СПЛИВАЄ",
     statUpdated: "ОНОВЛЕНО", statProto: "ПРОТОКОЛ", statTls: "TLS",
     daysUnit: "дн", menuAria: "Меню",
@@ -739,7 +745,7 @@ export const uk = {
       adminTitle: "Завжди запускати від адміністратора",
       adminHint: "Потрібно для режиму VPN · TUN. Ninety стартуватиме з правами адміна (UAC при запуску) — при увімкненні TUN запит більше не з'явиться.",
       autostartTitle: "Запускати при вході в систему",
-      autostartHint: "Ninety стартує під час входу у Windows із правами адміністратора (завдання Планувальника) — без запиту UAC при вході",
+      autostartHint: "Ninety стартує під час входу у Windows (завдання Планувальника). Версія, встановлена в Program Files, додатково стартує з правами адміністратора без запиту UAC; портативна копія — як звичайний процес",
       startMinTitle: "Запускати згорнутим",
       startMinHint: "На старті вікно одразу ховається в трей — іконка залишається справа внизу",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -784,6 +790,7 @@ export const uk = {
       statusAvailable: "Mullvad Browser встановлено",
       statusAvailableVersion: "Mullvad Browser встановлено · {version}",
       statusMissing: "Mullvad Browser не знайдено",
+      statusUnverified: "Mullvad Browser знайдено, але він не пройшов перевірку безпеки",
       statusError: "Не вдалося перевірити Mullvad Browser",
       launch: "Відкрити захищений сеанс",
       check: "Перевірити захист",
@@ -824,7 +831,7 @@ export const uk = {
       cacheTitle: "Незалежний DNS-кеш",
       cacheHint: "Окремий кеш для remote та direct",
       fakeTitle: "Fake-DNS",
-      fakeHint: "Повертати підроблений IP, маппінг у пам'яті. Корисно при TUN",
+      fakeHint: "Повертати підроблений IP, маппінг у пам'яті. Працює лише в режимі VPN · TUN, у режимах проксі налаштування ігнорується",
     },
 
     inbound: {

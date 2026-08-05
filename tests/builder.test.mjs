@@ -62,6 +62,29 @@ test("process lookup: explicit false omits the sentinel rule", () => {
   assert.equal(config.route.final, "proxy");
 });
 
+// Перехватить выданный FakeIP может только TUN-инбаунд. В proxy/systemProxy тот
+// же ответ уходит в direct-маршруты и соединение не встаёт, а выглядит это как
+// «отдельные приложения не работают», не как проблема DNS.
+test("FakeIP применяется только в TUN", () => {
+  const options = structuredClone(DEFAULT_OPTIONS);
+  options.dns.enableFakeDns = true;
+  const source = { kind: "single", profile: vlessNode() };
+
+  for (const mode of ["proxy", "systemProxy"]) {
+    const { config } = buildConfig({ source, mode, options });
+    assert.equal(
+      config.dns.servers.some((server) => server.type === "fakeip"),
+      false,
+      `FakeIP не должен появляться в режиме ${mode}`,
+    );
+    assert.equal(config.dns.rules.some((rule) => rule.server === "dns-fake"), false);
+  }
+
+  const { config } = buildConfig({ source, mode: "tun", options });
+  assert.ok(config.dns.servers.some((server) => server.type === "fakeip"));
+  assert.ok(config.dns.rules.some((rule) => rule.server === "dns-fake"));
+});
+
 test("подписка из 2+ нод: selector/balancer/urltest", () => {
   const nodes = [vlessNode({ name: "A" }), vlessNode({ name: "B" })];
   const { config } = buildConfig({
@@ -317,6 +340,30 @@ test("TrustTunnel sidecar: TOML-экранирование управляющи�
   assert.ok(toml.includes(`address = "127.0.0.1:${sidecars[0].port}"`));
 });
 
+// Пиннинг приватного CA — единственное, что отличает рабочий endpoint от
+// «Auth Required»: сертификат обязан доехать из профиля в конфиг моста.
+test("TrustTunnel sidecar: PEM-сертификат уезжает в конфиг", () => {
+  const pem = "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----\n";
+  const { sidecars } = buildConfig({
+    source: {
+      kind: "single",
+      profile: {
+        proto: "trusttunnel",
+        hostname: "tt.example.com",
+        addresses: ["1.2.3.4:443"],
+        username: "u",
+        password: "p",
+        certificate: pem,
+      },
+    },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+  });
+  assert.ok(sidecars[0].config.includes(
+    'certificate = "-----BEGIN CERTIFICATE-----\\nQUJD\\n-----END CERTIFICATE-----\\n"',
+  ));
+});
+
 test("naive sidecar: креды url-энкодятся в proxy-URL", () => {
   const nv = { proto: "naive", host: "n.example.com", port: 443, username: "u@x", password: "p:w", scheme: "https" };
   const { sidecars } = buildConfig({
@@ -337,6 +384,9 @@ test("tun-режим: tun-inbound + probe-in, правило пробы выше
   });
   assert.equal(config.inbounds.length, 2);
   assert.equal(config.inbounds[0].type, "tun");
+  // Оба семейства адресов: без IPv6-адреса auto_route не строит IPv6-маршрут и
+  // трафик приложений с собственным резолвером утекает мимо туннеля.
+  assert.deepEqual(config.inbounds[0].address, ["172.19.0.1/30", "fdfe:dcba:9876::1/126"]);
   const probe = config.inbounds[1];
   assert.equal(probe.tag, "probe-in");
   assert.equal(probe.type, "mixed");
@@ -390,14 +440,27 @@ test("proxy-режим: единственный inbound — mixed (без probe
   assert.equal(config.inbounds[0].type, "mixed");
 });
 
-test("clash-api включается опцией experimental.enableClashApi", () => {
-  const opts = { ...DEFAULT_OPTIONS, experimental: { ...DEFAULT_OPTIONS.experimental, enableClashApi: true } };
+// Контроллер обязателен: без external_controller Rust отказывается стартовать
+// («Clash control endpoint is not configured»), поэтому выключить его нечем —
+// ни опцией, ни пустым/битым experimental из старого бэкапа.
+test("clash-api есть всегда, порт берётся из настроек", () => {
+  const withoutExperimental = { ...DEFAULT_OPTIONS, experimental: undefined };
+  for (const opts of [DEFAULT_OPTIONS, withoutExperimental]) {
+    const { config } = buildConfig({
+      source: { kind: "single", profile: vlessNode() },
+      mode: "proxy",
+      options: opts,
+    });
+    assert.equal(config.experimental.clash_api.external_controller, "127.0.0.1:9090");
+  }
+
+  const custom = { ...DEFAULT_OPTIONS, experimental: { clashApiPort: 9191 } };
   const { config } = buildConfig({
     source: { kind: "single", profile: vlessNode() },
     mode: "proxy",
-    options: opts,
+    options: custom,
   });
-  assert.ok(config.experimental.clash_api.external_controller.startsWith("127.0.0.1:"));
+  assert.equal(config.experimental.clash_api.external_controller, "127.0.0.1:9191");
 });
 
 test("WARP direct: custom action proxy идёт в warp, а не мимо него", () => {

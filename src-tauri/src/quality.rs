@@ -327,38 +327,6 @@ fn health_http_result(
 }
 
 #[tauri::command]
-pub async fn probe_health(
-    state: tauri::State<'_, crate::vpn::SingboxState>,
-    expected_generation: Option<u64>,
-) -> Result<ProbeResult, String> {
-    let Some(expected_generation) = expected_generation.filter(|generation| *generation != 0)
-    else {
-        return Ok(ProbeResult::skipped("generation_required"));
-    };
-    let (generation, endpoint) =
-        match crate::vpn::probe_endpoint_for_generation(&state, Some(expected_generation)) {
-            Ok(value) => value,
-            Err(reason) => return Ok(ProbeResult::skipped(reason)),
-        };
-    let permit = match state
-        .dataplane_probe
-        .acquire(DataplaneProbeKind::HealthProbe, generation, None)
-        .await
-    {
-        Ok(permit) => permit,
-        Err(ProbeAcquireError::Busy) => return Ok(ProbeResult::skipped("probe_busy")),
-        Err(ProbeAcquireError::StaleGeneration) => {
-            return Ok(ProbeResult::skipped("stale_generation"))
-        }
-    };
-    let result = probe_health_inner(Some(&endpoint)).await?;
-    if !state.dataplane_probe.is_current(&permit) {
-        return Ok(ProbeResult::skipped("stale_generation"));
-    }
-    Ok(result)
-}
-
-#[tauri::command]
 pub async fn probe_quality(
     state: tauri::State<'_, crate::vpn::SingboxState>,
     expected_generation: Option<u64>,

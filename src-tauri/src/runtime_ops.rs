@@ -19,7 +19,6 @@ pub enum RuntimeOperationKind {
     UserConnect,
     UserDisconnect,
     SourceSwitch,
-    NativeRecovery,
     FrontendRecovery,
     QualityRemediation,
 }
@@ -29,7 +28,6 @@ impl RuntimeOperationKind {
         match self {
             Self::UserDisconnect => 5,
             Self::SourceSwitch | Self::UserConnect => 4,
-            Self::NativeRecovery => 3,
             Self::FrontendRecovery => 2,
             Self::QualityRemediation => 1,
         }
@@ -38,10 +36,7 @@ impl RuntimeOperationKind {
     pub fn needs_transition_barrier(self) -> bool {
         matches!(
             self,
-            Self::SourceSwitch
-                | Self::NativeRecovery
-                | Self::FrontendRecovery
-                | Self::QualityRemediation
+            Self::SourceSwitch | Self::FrontendRecovery | Self::QualityRemediation
         )
     }
 }
@@ -176,14 +171,6 @@ impl RuntimeOperationCoordinator {
                 started_at_ms: current.started_at_ms,
                 cancelled: current.cancelled.load(Ordering::SeqCst),
             })
-    }
-
-    pub fn active_kind(&self) -> Option<RuntimeOperationKind> {
-        self.active
-            .lock_recover()
-            .as_ref()
-            .filter(|current| !current.cancelled.load(Ordering::SeqCst))
-            .map(|current| current.token.kind)
     }
 }
 
@@ -327,8 +314,9 @@ pub fn record_frontend_runtime_event(
             )
         })
         .unwrap_or_else(|| (0, "None".into(), 0, "none".into()));
-    crate::vpn::append_runtime_diagnostic(
+    crate::vpn::append_runtime_diagnostic_at(
         &app,
+        crate::vpn::diagnostic_level_for_result(&result),
         &format!(
             "source_switch_event operation_id={id} kind={kind} operation_generation={operation_generation} runtime_generation={} source_hash={source_hash} phase={phase} result={result} reason={reason}",
             generation.unwrap_or(0),
@@ -387,8 +375,9 @@ fn append_operation_attempt_diagnostic(
     kind: RuntimeOperationKind,
     reason: &str,
 ) {
-    crate::vpn::append_runtime_diagnostic(
+    crate::vpn::append_runtime_diagnostic_at(
         app,
+        crate::vpn::DiagnosticLevel::Warn,
         &format!("runtime_operation kind={kind:?} event=failed reason={reason}"),
     );
 }
@@ -402,8 +391,9 @@ fn append_operation_diagnostic(
     event: &str,
     reason: Option<&str>,
 ) {
-    crate::vpn::append_runtime_diagnostic(
+    crate::vpn::append_runtime_diagnostic_at(
         app,
+        crate::vpn::diagnostic_level_for_result(event),
         &format!(
             "runtime_operation id={id} kind={kind:?} generation={generation} source_hash={} event={event} reason={}",
             source_hash.unwrap_or("none"),
@@ -415,7 +405,6 @@ fn append_operation_diagnostic(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DataplaneProbeKind {
     SourceVerification,
-    HealthProbe,
     QualityProbe,
 }
 
@@ -448,7 +437,6 @@ impl DataplaneProbeKind {
     fn priority(self) -> u8 {
         match self {
             Self::SourceVerification => 3,
-            Self::HealthProbe => 2,
             Self::QualityProbe => 1,
         }
     }
@@ -503,7 +491,7 @@ impl DataplaneProbeCoordinator {
             return Err(ProbeAcquireError::StaleGeneration);
         }
         let Some(wait) = wait_for else {
-            // Health and quality probes are deliberately non-blocking.  A
+            // Quality probes are deliberately non-blocking.  A
             // queued source verification (or any other queued probe) wins
             // admission instead of allowing a low-priority caller to starve it.
             {
@@ -536,6 +524,16 @@ impl DataplaneProbeCoordinator {
         let deadline = tokio::time::Instant::now() + wait;
 
         loop {
+            // Регистрируем интерес к пробуждению ДО проверки условия и до
+            // первого await: `Notified` встаёт в очередь только при первом
+            // poll, поэтому release соседнего пермита, попавший между проверкой
+            // `available_permits` и `timeout`, иначе теряется — и ожидающая
+            // source verification спала бы до своего дедлайна при свободном
+            // семафоре, возвращая probe_busy вместо готовности.
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            let _ = notified.as_mut().enable();
+
             if self.generation.load(Ordering::SeqCst) != generation {
                 self.remove_waiter(ticket);
                 return Err(ProbeAcquireError::StaleGeneration);
@@ -574,8 +572,10 @@ impl DataplaneProbeCoordinator {
                 self.remove_waiter(ticket);
                 return Err(ProbeAcquireError::Busy);
             }
-            let notified = self.notify.notified();
-            if tokio::time::timeout(remaining, notified).await.is_err() {
+            if tokio::time::timeout(remaining, notified.as_mut())
+                .await
+                .is_err()
+            {
                 self.remove_waiter(ticket);
                 return Err(ProbeAcquireError::Busy);
             }
@@ -644,10 +644,10 @@ mod tests {
     }
 
     #[test]
-    fn cancelling_operation_releases_watchdog_ownership() {
+    fn cancelling_operation_releases_frontend_recovery_ownership() {
         let coordinator = RuntimeOperationCoordinator::default();
         let token = coordinator
-            .begin(RuntimeOperationKind::NativeRecovery, 1, None)
+            .begin(RuntimeOperationKind::FrontendRecovery, 1, None)
             .unwrap();
         assert!(coordinator.cancel(&token));
         assert!(!coordinator.authorize(&token));
@@ -687,7 +687,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn source_verification_has_priority_over_queued_health_and_quality() {
+    async fn source_verification_has_priority_over_queued_quality() {
         let coordinator = Arc::new(DataplaneProbeCoordinator::default());
         coordinator.reset_generation(7);
         let quality = coordinator
@@ -707,13 +707,46 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         assert!(matches!(
             coordinator
-                .acquire(DataplaneProbeKind::HealthProbe, 7, None)
+                .acquire(DataplaneProbeKind::QualityProbe, 7, None)
                 .await,
             Err(ProbeAcquireError::Busy)
         ));
         drop(quality);
         let source_permit = source.await.unwrap().unwrap();
         assert!(coordinator.is_current(&source_permit));
+    }
+
+    // Освобождённый пермит обязан будить очередь сразу. Регрессия здесь не
+    // выглядит поломкой: verification просто досиживает свой дедлайн и отдаёт
+    // probe_busy, из-за чего исправная смена источника считается неподтверждённой.
+    #[tokio::test]
+    async fn released_permit_wakes_the_queued_waiter_before_its_deadline() {
+        let coordinator = Arc::new(DataplaneProbeCoordinator::default());
+        coordinator.reset_generation(11);
+        let held = coordinator
+            .acquire(DataplaneProbeKind::QualityProbe, 11, None)
+            .await
+            .unwrap();
+        let waiter_coordinator = coordinator.clone();
+        let waiter = tokio::spawn(async move {
+            let started = tokio::time::Instant::now();
+            let permit = waiter_coordinator
+                .acquire(
+                    DataplaneProbeKind::SourceVerification,
+                    11,
+                    Some(std::time::Duration::from_secs(5)),
+                )
+                .await;
+            (permit.is_ok(), started.elapsed())
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        drop(held);
+        let (acquired, elapsed) = waiter.await.unwrap();
+        assert!(acquired, "освобождённый пермит должен достаться ожидающему");
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "ожидающий проснулся только по дедлайну: {elapsed:?}"
+        );
     }
 
     #[tokio::test]

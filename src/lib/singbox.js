@@ -492,7 +492,13 @@ function parseOptionalHostPort(rest) {
   return { host: s };
 }
 
-function buildDns(options, protectedOutbound = "proxy") {
+// mode — фактический режим runtime. FakeIP имеет смысл ТОЛЬКО в TUN: перехватить
+// выданный 198.18.x.x адрес может лишь TUN-инбаунд. В proxy/systemProxy тот же
+// ответ уезжает в direct-маршруты (bypass, process_name, пользовательские
+// правила direct) и соединение не встаёт — при этом симптом выглядит как
+// «отдельные приложения не работают», а не как проблема DNS. Неизвестный режим
+// трактуем консервативно: без FakeIP.
+function buildDns(options, protectedOutbound = "proxy", mode = "") {
   const ipv6Strategy = IPV6_STRATEGY_MAP[options.route.ipv6Mode] || "prefer_ipv4";
 
   const remoteSrv = {
@@ -531,7 +537,7 @@ function buildDns(options, protectedOutbound = "proxy") {
     });
   }
 
-  if (options.dns.enableFakeDns) {
+  if (options.dns.enableFakeDns && mode === "tun") {
     dns.servers.push({
       tag: "dns-fake",
       type: "fakeip",
@@ -690,7 +696,13 @@ function buildInbounds(mode, options) {
         type: "tun",
         tag: "tun-in",
         interface_name: "ninety-tun",
-        address: ["172.19.0.1/30"],
+        // IPv4 + IPv6 обязательны оба: auto_route строит маршруты только для тех
+        // семейств, чей адрес есть на интерфейсе. С одним IPv4-адресом весь
+        // нативный IPv6-трафик уходил мимо туннеля физическим интерфейсом —
+        // приложения со своим резолвером (Chromium/Electron с DoH получают AAAA
+        // в обход hijack-dns) утекали с реальным адресом даже в TUN. ULA-префикс,
+        // как в hiddify/Throne: в публичную маршрутизацию не попадает.
+        address: ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
         mtu: options.inbound.mtu || 9000,
         auto_route: true,
         strict_route: !!options.inbound.strictRoute,
@@ -1187,7 +1199,7 @@ export function buildConfig({
       timestamp: true, // нужен для парсера/фильтра экрана Логи
       ...(opts.log?.disabled ? { disabled: true } : {}),
     },
-    dns: buildDns(opts, warpEndpoint ? "warp" : "proxy"),
+    dns: buildDns(opts, warpEndpoint ? "warp" : "proxy", effectiveMode),
     inbounds: buildInbounds(effectiveMode, opts),
     outbounds,
     route,
@@ -1199,11 +1211,14 @@ export function buildConfig({
     config.endpoints = [warpEndpoint];
   }
 
-  if (opts.experimental?.enableClashApi) {
-    config.experimental.clash_api = {
-      external_controller: `127.0.0.1:${opts.experimental.clashApiPort || 9090}`,
-    };
-  }
+  // clash_api — не опция, а панель управления рантаймом: через него идут выбор
+  // ноды, пинги, трафик и вся диагностика, а Rust вообще отказывается стартовать
+  // без external_controller. Раньше это стояло под флагом, и снятый флаг (руками
+  // или из старого бэкапа) давал конфиг, с которым подключение не поднималось
+  // ни в одном режиме. Порт остаётся настраиваемым; loopback дожимает Rust.
+  config.experimental.clash_api = {
+    external_controller: `127.0.0.1:${opts.experimental?.clashApiPort || 9090}`,
+  };
 
   // Unified delay: ядро делает второй замер по уже поднятому соединению и отдаёт
   // чистый RTT без TCP/TLS-хендшейка. Без него пинг для VLESS+Reality раздут в

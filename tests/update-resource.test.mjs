@@ -132,3 +132,30 @@ test("стабильный маршрут выполняет только оди
   assert.equal(result, update);
   assert.equal(checks, 1);
 });
+
+// Ресурс, который не закрывается никогда (типично — rid уже освобождён на
+// Rust-стороне), раньше выключал ВСЮ проверку обновлений до перезапуска
+// приложения: каждый следующий check упирался в незакрытый quarantine и молча
+// возвращал «не смогли проверить».
+test("безнадёжный Resource отпускается и не глушит проверки навсегда", async () => {
+  let closes = 0;
+  const update = {
+    close: async () => { closes++; throw new Error("resource id not found"); },
+  };
+
+  // Сам неудачный close — первый раунд, дальше два раунда уборки.
+  assert.equal(await closeUpdateResource(update), false);
+  assert.equal(await drainUpdateResourceCleanup(), false);
+  // Третий раунд — последний: дальше уборка перестаёт держать OTA заложником.
+  assert.equal(await drainUpdateResourceCleanup(), true);
+  assert.equal(closes, 6, "три раунда по два бортовых ретрая");
+
+  // И следующий check действительно проходит.
+  let checks = 0;
+  const fresh = await acquireUpdateForCurrentRoute({
+    getProxy: () => null,
+    check: async () => { checks++; return { version: "0.2.58", close: async () => {} }; },
+  });
+  assert.equal(checks, 1);
+  assert.equal(fresh.version, "0.2.58");
+});

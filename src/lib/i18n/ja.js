@@ -78,6 +78,7 @@ export const ja = {
     updateTo: "v{ver} に更新",
     tipOff: "Ninety · 切断中",
     tipConnected: "Ninety · {mode} · 接続中",
+    tipUpdate: "アップデート v{ver} が利用可能",
   },
 
   mode: {
@@ -309,6 +310,7 @@ export const ja = {
     err: {
       notVless: "vless:// リンクではありません",
       noHostPort: "@host:port がありません",
+      vlessUuid: "vless: UUID がありません",
       badIpv6: "IPv6 の形式が不正です",
       noPort: "ポートがありません",
       badPort: "ポートが不正です",
@@ -374,6 +376,8 @@ export const ja = {
     switchMode: "モードを切り替え中…",
     coreStopped: "コアが停止しました",
     coreStoppedDesc: "トンネル終了 · sing-box が予期せず終了しました",
+    coreRestoring: "コアが停止しました — 接続を復元しています",
+    coreRestored: "接続を復元しました",
     notifyClosedTitle: "Ninety · トンネル終了",
     notifyClosedBody: "sing-box コアが停止しました",
     xhttpDown: "xhttp コアがクラッシュしました — 再接続中",
@@ -437,6 +441,8 @@ export const ja = {
     emptyTitle: "プロファイルがありません",
     emptySub: "URLでサブスクリプションを、または単体の vless:// を追加します — 上部の「+」、メイン画面のプラスボタン、またはメニューから。",
     badgeActive: "アクティブ",
+    badgeInsecure: "TLS 検証なし",
+    badgeInsecureHint: "このリンクはサーバー証明書の検証を無効にします。通信を傍受される可能性があるため、信頼できる提供元の場合のみ使用してください。",
     statNodes: "ノード", statTraffic: "通信量", statExpires: "期限",
     statUpdated: "更新", statProto: "プロトコル", statTls: "TLS",
     daysUnit: "日", menuAria: "メニュー",
@@ -739,7 +745,7 @@ export const ja = {
       adminTitle: "常に管理者として実行",
       adminHint: "VPN · TUN モードに必要です。Ninety は管理者権限で起動します（起動時に UAC）— TUN を有効にするときに確認は表示されなくなります。",
       autostartTitle: "システムログイン時に起動",
-      autostartHint: "Windows サインイン時に Ninety が管理者権限で自動起動します（タスク スケジューラのタスク）— ログイン時に UAC は表示されません",
+      autostartHint: "Windows サインイン時に Ninety が自動起動します（タスク スケジューラのタスク）。Program Files にインストールした場合は管理者権限で UAC 表示なしに起動し、ポータブル版は通常のプロセスとして起動します",
       startMinTitle: "最小化して起動",
       startMinHint: "起動時にウィンドウは直接トレイに隠れます — アイコンは右下に残ります",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -784,6 +790,7 @@ export const ja = {
       statusAvailable: "Mullvad Browser はインストール済みです",
       statusAvailableVersion: "Mullvad Browser はインストール済みです · {version}",
       statusMissing: "Mullvad Browser が見つかりません",
+      statusUnverified: "Mullvad Browser は見つかりましたが、安全性の検証に失敗しました",
       statusError: "Mullvad Browser を確認できませんでした",
       launch: "保護されたセッションを開く",
       check: "保護を確認",
@@ -824,7 +831,7 @@ export const ja = {
       cacheTitle: "独立した DNS キャッシュ",
       cacheHint: "リモートとダイレクトで別々のキャッシュ",
       fakeTitle: "Fake-DNS",
-      fakeHint: "偽の IP を返し、メモリ上でマッピングします。TUN で有用",
+      fakeHint: "偽の IP を返し、メモリ上でマッピングします。VPN · TUN モードでのみ適用され、プロキシモードでは無視されます",
     },
 
     inbound: {

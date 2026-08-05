@@ -78,6 +78,7 @@ export const tr = {
     updateTo: "v{ver} sürümüne güncelle",
     tipOff: "Ninety · bağlı değil",
     tipConnected: "Ninety · {mode} · bağlı",
+    tipUpdate: "v{ver} güncellemesi mevcut",
   },
 
   mode: {
@@ -309,6 +310,7 @@ export const tr = {
     err: {
       notVless: "vless:// bağlantısı değil",
       noHostPort: "@host:port eksik",
+      vlessUuid: "vless: UUID eksik",
       badIpv6: "Hatalı IPv6",
       noPort: "Port eksik",
       badPort: "Geçersiz port",
@@ -374,6 +376,8 @@ export const tr = {
     switchMode: "Mod değiştiriliyor…",
     coreStopped: "Çekirdek durdu",
     coreStoppedDesc: "Tünel kapandı · sing-box beklenmedik şekilde sonlandı",
+    coreRestoring: "Çekirdek çöktü — bağlantı geri yükleniyor",
+    coreRestored: "Bağlantı geri yüklendi",
     notifyClosedTitle: "Ninety · tünel kapandı",
     notifyClosedBody: "sing-box çekirdeği durdu",
     xhttpDown: "xhttp çekirdeği çöktü — yeniden bağlanılıyor",
@@ -437,6 +441,8 @@ export const tr = {
     emptyTitle: "Profil yok",
     emptySub: "URL ile bir abonelik veya tek bir vless:// ekleyin — üstteki “+”, ana ekrandaki artı düğmesi veya menü ile.",
     badgeActive: "AKTİF",
+    badgeInsecure: "TLS doğrulaması yok",
+    badgeInsecureHint: "Bu bağlantı sunucu sertifikası doğrulamasını kapatır — bağlantı ele geçirilebilir. Yalnızca kaynağa güveniyorsanız saklayın.",
     statNodes: "DÜĞÜMLER", statTraffic: "TRAFİK", statExpires: "BİTİŞ",
     statUpdated: "GÜNCELLENDİ", statProto: "PROTOKOL", statTls: "TLS",
     daysUnit: "g", menuAria: "Menü",
@@ -739,7 +745,7 @@ export const tr = {
       adminTitle: "Her zaman yönetici olarak çalıştır",
       adminHint: "VPN · TUN modu için gerekli. Ninety yönetici haklarıyla başlar (başlangıçta UAC) — TUN'u etkinleştirdiğinizde istem tekrar görünmez.",
       autostartTitle: "Sistem oturumu açılışında başlat",
-      autostartHint: "Ninety, Windows oturumu açıldığında yönetici haklarıyla başlar (Görev Zamanlayıcı görevi) — girişte UAC istemi görünmez",
+      autostartHint: "Ninety, Windows oturumu açıldığında başlar (Görev Zamanlayıcı görevi). Program Files'a kurulum ayrıca yönetici haklarıyla ve UAC istemi olmadan başlar; taşınabilir kopya normal bir işlem olarak başlar",
       startMinTitle: "Simge durumunda başlat",
       startMinHint: "Başlangıçta pencere doğrudan sistem tepsisine gizlenir — simge sağ altta kalır",
       linkHandlersTitle: "Open VPN links in Ninety",
@@ -784,6 +790,7 @@ export const tr = {
       statusAvailable: "Mullvad Browser yüklü",
       statusAvailableVersion: "Mullvad Browser yüklü · {version}",
       statusMissing: "Mullvad Browser bulunamadı",
+      statusUnverified: "Mullvad Browser bulundu ancak güvenlik denetimini geçemedi",
       statusError: "Mullvad Browser kontrol edilemedi",
       launch: "Korunan oturumu aç",
       check: "Korumayı kontrol et",
@@ -824,7 +831,7 @@ export const tr = {
       cacheTitle: "Bağımsız DNS önbelleği",
       cacheHint: "Uzak ve doğrudan için ayrı önbellek",
       fakeTitle: "Fake-DNS",
-      fakeHint: "Bellekte eşlenen sahte bir IP döndürür. TUN ile kullanışlı",
+      fakeHint: "Bellekte eşlenen sahte bir IP döndürür. Yalnızca VPN · TUN modunda geçerlidir, proxy modlarında yoksayılır",
     },
 
     inbound: {

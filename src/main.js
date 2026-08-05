@@ -34,6 +34,7 @@ import { a11ySwitch } from "/lib/switch-a11y.js";
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
 import { openUpdateModal, resumeRuntimeReady, shouldSkip as updateShouldSkip } from "/lib/update-modal.js";
+import { planUpdateNotice, UPDATE_NOTICE } from "/lib/update-notice.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
@@ -44,7 +45,7 @@ import {
   sameSourceRef,
 } from "/lib/source-activation.js";
 import { mountDpiView, prepareDpiVpnMode, setDpiVpnMode, excludeVpnNode, clearVpnNodeExclusion, autostartDpiIfEnabled, rerenderDpiView, onDpiViewEnter } from "/lib/dpi-view.js";
-import { mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
+import { configureLogsRuntime, mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
 import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
 import { createConnectionAttemptGate } from "/lib/connection-attempt.js";
@@ -53,7 +54,7 @@ import { createRuntimeIdleGate } from "/lib/runtime-idle-gate.js";
 import { completeSuccessfulConnect, runReconnectAttempt } from "/lib/connect-network-result.js";
 import { waitForMatchingSourceTopology } from "/lib/source-switch-readiness.js";
 import { runtimeEndpointMatchesGeneration, runtimeSnapshotReadyForMode } from "/lib/runtime-lifecycle.js";
-import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, pickSelectorNow, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testGroup, testNode } from "/lib/clash-api.js";
+import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testGroup } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
@@ -93,6 +94,7 @@ import { createNetworkIntentArbiter, repeatedConnectionIntentAction } from "/lib
 import { createLatestWinsReconnectQueue } from "/lib/reconnect-queue.js";
 import { shouldShowOnboarding } from "/lib/onboarding-state.js";
 import { getRememberedProxySelection, restoreRememberedProxySelection } from "/lib/proxy-selection.js";
+import { disableSystemProxy, enableSystemProxy } from "/lib/system-proxy-runtime.js";
 import { startupRuntimePlan } from "/lib/startup-runtime-policy.js";
 import { persistDpiIntentForRelaunch } from "/lib/dpi-elevation-intent.js";
 import {
@@ -1068,7 +1070,11 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
     if (state === "idle") {
       needsReconnect = false;
       applyReconnectUI();
-      return runReconnectAttempt(connectNetwork, { epoch, operationToken });
+      // await обязателен: без него return завершает try, finally немедленно
+      // освобождает токен операции, и connectNetwork уходит в start_singbox
+      // с уже отпущенным владением. Rust отвечает «stale or cancelled runtime
+      // operation token» — на экране это «Не удалось отключить».
+      return await runReconnectAttempt(connectNetwork, { epoch, operationToken });
     }
     if (state !== "connected" && state !== "connecting") return false;
     connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
@@ -1102,137 +1108,17 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
     }
     needsReconnect = false;
     applyReconnectUI();
-    return runReconnectAttempt(connectNetwork, { epoch, operationToken });
+    // await по той же причине, что и в idle-ветке выше: владение операцией
+    // должно дожить до конца подключения, а не до момента return.
+    return await runReconnectAttempt(connectNetwork, { epoch, operationToken });
   } finally {
     if (ownedOperationToken) await completeRuntimeOperation(ownedOperationToken);
     if (reconnectToastId) toast.dismiss(reconnectToastId);
   }
 }
 
-async function verifyEmergencyDataplane() {
-  try {
-    const snapshot = await invoke("runtime_snapshot");
-    runtimeSnapshotCache = runtimeEndpointMatchesGeneration(snapshot) ? snapshot : null;
-    const expectedGeneration = Number(snapshot?.processGeneration) || 0;
-    if (!snapshot?.running || !expectedGeneration) return false;
-    const result = await invoke("probe_health", { expectedGeneration });
-    return result?.ok === true;
-  } catch {
-    return false;
-  }
-}
-
-// Аварийный путь отделён от anti-throttle лесенки: он не спрашивает юзера,
-// не использует её часовой бюджет и сначала пробует дешёвое переключение на
-// проверенную альтернативу. Если локальный Clash API завис, сразу сработает
-// controlled full reconnect через уже существующий lifecycle-барьер.
-async function recoverDataplane({ operationToken = null } = {}) {
-  if (state !== "connected") return false;
-  if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-  const token = runtimeIdentity.capture();
-  if (!token) return false;
-
-  const nodes = qualityNodesFromSource();
-  if (nodes.length >= 2) {
-    let proxies;
-    try {
-      proxies = (await getProxies(undefined, { token, fresh: true }))?.proxies || {};
-    } catch {
-      proxies = {};
-    }
-    if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-    const originalSelector = pickSelectorNow(proxies) || "auto";
-    const originalEffective = currentEffectiveTag || pickEffectiveNode({ proxies });
-    const sourceScope = `${token.sourceKey || "source"}:${token.sourceRevision || 0}`;
-    const now = Date.now();
-    for (const [key, expiry] of dataplaneCandidateCooldown) {
-      if (expiry <= now) dataplaneCandidateCooldown.delete(key);
-    }
-    const current = originalEffective;
-    const candidates = rankByDelay(
-      nodes.filter((node) => node.clashTag
-        && node.clashTag !== current
-        && !dataplaneCandidateCooldown.has(`${sourceScope}:${node.clashTag}`)),
-      proxies,
-    ).slice(0, 3);
-
-    for (const candidate of candidates) {
-      if (!(await runtimeOperationIsCurrent(operationToken))
-        || !runtimeIdentity.isCurrent(token) || state !== "connected") return false;
-      try {
-        const tested = await testNode(candidate.clashTag, { token, timeoutMs: 3000 });
-        if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-        const delay = Number(tested?.delay) || 0;
-        if (delay <= 0 || delay >= 65_000) continue;
-        const selected = await selectProxy("proxy", candidate.clashTag, { token });
-        if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-        if (selected?.stale || !runtimeIdentity.isCurrent(token)) continue;
-        if (operationToken
-          ? await verifyRuntimeOperationDataplane(operationToken)
-          : await verifyEmergencyDataplane()) return true;
-        dataplaneCandidateCooldown.set(`${sourceScope}:${candidate.clashTag}`, Date.now() + DATAPLANE_CANDIDATE_COOLDOWN_MS);
-      } catch {
-        // Следующая candidate либо полный reconnect — ниже.
-        dataplaneCandidateCooldown.set(`${sourceScope}:${candidate.clashTag}`, Date.now() + DATAPLANE_CANDIDATE_COOLDOWN_MS);
-      }
-    }
-
-    // Candidate validation may have changed Clash's selector. Restore the
-    // original selector before falling back to a full lifecycle reconnect;
-    // never leave a failed emergency candidate active by accident.
-    if ((await runtimeOperationIsCurrent(operationToken))
-      && runtimeIdentity.isCurrent(token) && originalSelector) {
-      try {
-        const restored = await selectProxy("proxy", originalSelector, { token });
-        if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-        if (!restored?.stale && originalEffective) currentEffectiveTag = originalEffective;
-      } catch {
-        // Full reconnect below will still rebuild the original runtime policy.
-      }
-    }
-  }
-
-  if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-  const request = beginSourceReconnect(t("conn.applyingSettings"), operationToken);
-  if (!request) return false;
-  const connected = await request.completion;
-  if (!(await runtimeOperationIsCurrent(operationToken))) return false;
-  if (!reconnectCompleted(connected) || state !== "connected") return false;
-  return operationToken
-    ? verifyRuntimeOperationDataplane(operationToken)
-    : verifyEmergencyDataplane();
-}
-
-async function failDataplane(dataplane = {}, operationToken = null) {
-  // Native recovery has already failed closed by the time this callback is
-  // reached. If WebView2 is responsive, give the existing bounded candidate /
-  // reconnect path one chance to recover the session. The native path remains
-  // the safety net when the frontend is hung, and strict privacy keeps its
-  // pinned-node policy instead of trying alternate candidates here.
-  const strictRuntime = strictPrivacyRequested() || dataplane?.unmonitoredPrivacyMode === true;
-  if (!strictRuntime) {
-    try {
-      if (await recoverDataplane({
-        reason: dataplane.reason || "all_candidates_failed",
-        snapshot: dataplane,
-        operationToken,
-      })) return true;
-    } catch (error) {
-      console.warn("frontend dataplane fallback failed", error);
-    }
-  }
-  const preserved = killSwitchMustSurviveRuntimeStop();
-  const closed = await shutdownCore({ preserveKillSwitch: preserved, operationToken });
-  if (!closed) return false;
-  toast(t("conn.coreStopped"), "error", 7000, { group: "conn", desc: t("conn.coreStoppedDesc") });
-  notify(t("conn.notifyClosedTitle"), t("conn.notifyClosedBody"));
-  switchView("logs");
-  return true;
-}
-
 // ── health-watchdog — /lib/health-watchdog.js ──────────────
-// Liveness ядер, native dataplane recovery и bridge-reconnect вынесены в модуль;
-// здесь инстанс с инжектом
+// Liveness ядер + bridge-reconnect вынесены в модуль; здесь инстанс с инжектом
 // состояния/реконнекта/движка качества. Алиасы сохраняют имена вызовов из setState
 // (start/stopHealthWatchdog) — их не трогаем. getQualityEngine — геттер, т.к.
 // qualityEngine определяется ниже по файлу; вызывается только в runtime-тике.
@@ -1250,13 +1136,21 @@ const healthWatchdog = initHealthWatchdog({
     policyMode: preservedKillSwitchPolicyMode(),
   }),
   reconcileKillSwitch: () => applyKillSwitch(state === "connected"),
-  recoverDataplane,
-  onDataplaneFailed: failDataplane,
   beginRuntimeOperation: (kind) => beginRuntimeOperation(kind),
   completeRuntimeOperation,
-  onDataplaneState: (dataplaneState) => {
-    if (dataplaneState === "inactive") return;
-    setChannelState(dataplaneState === "failed" ? "DEAD" : "UNKNOWN");
+  // Восстановление после краха ядра: намерение пользователя всё ещё
+  // «подключено» (intent сбрасывают только явный disconnect и bootstrap),
+  // поэтому идём тем же путём, что и реконнект при смене источника.
+  restoreAfterCoreDeath: (reason, context) => reconnectCommittedSource(reason, context),
+  subscribeCoreDeath: (handler) => window.__TAURI__?.event?.listen?.("vpn:core-died", handler),
+  recordDiagnostic: (phase, result, reason) => {
+    void invoke("record_frontend_runtime_event", {
+      token: null,
+      phase,
+      result,
+      reason: reason || null,
+      generation: Number(runtimeIdentity.capture()?.processGeneration) || null,
+    }).catch(error => console.warn("watchdog diagnostic failed", error));
   },
 });
 const startHealthWatchdog = healthWatchdog.start;
@@ -1414,8 +1308,6 @@ const qualityEngine = createQualityEngine({
 // Cooldown нод, забракованных R2 — чтобы не выбирать их снова сразу.
 const QUALITY_EXCLUDE_MS = 5 * 60_000;
 const qualityExcluded = new Map(); // clashTag → expiry ts
-const DATAPLANE_CANDIDATE_COOLDOWN_MS = 5 * 60_000;
-const dataplaneCandidateCooldown = new Map(); // source/revision/tag → expiry ts
 // Ноды активного источника с clash-тэгами (зеркало proxies-view.nodesFromSource).
 function qualityNodesFromSource() {
   const src = getActiveSource();
@@ -1509,7 +1401,10 @@ async function reconnectForQualityRemediation(reason) {
     if (!reconnectCompleted(connected)
       || state !== "connected"
       || !isCurrentNetworkIntent(request.epoch, "connected")) return false;
-    return verifyRuntimeOperationDataplane(operationToken);
+    // await: иначе finally отпускает токен раньше проверки, и Rust отдаёт
+    // Cancelled на живом канале — движок качества считал бы ступень
+    // неподтверждённой всегда.
+    return await verifyRuntimeOperationDataplane(operationToken);
   } catch {
     return false;
   } finally {
@@ -1581,6 +1476,7 @@ async function completeRuntimeOperation(token) {
   }
 }
 
+
 async function verifyRuntimeOperationDataplane(operationToken) {
   if (!operationToken) return false;
   try {
@@ -1592,17 +1488,6 @@ async function verifyRuntimeOperationDataplane(operationToken) {
       expectedGeneration: snapshot.processGeneration,
     });
     return verdict?.status === "ready";
-  } catch {
-    return false;
-  }
-}
-
-async function runtimeOperationIsCurrent(operationToken) {
-  if (networkIntent.desired() !== "connected" || state !== "connected") return false;
-  if (!operationToken) return true;
-  try {
-    const active = await invoke("runtime_operation_snapshot");
-    return active?.id === operationToken.id && active.cancelled !== true;
   } catch {
     return false;
   }
@@ -1879,6 +1764,10 @@ navItems.forEach((item) => {
 });
 
 // ── Logs view — вынесен в /lib/logs-view.js ────────────────
+// Активная нода нужна журналу, чтобы не показывать отчёты health-checker'а по
+// остальным нодам подписки. Геттер, а не значение: currentEffectiveTag меняется
+// при переключении сервера и объявлен ниже по файлу.
+configureLogsRuntime({ getActiveNodeTag: () => currentEffectiveTag });
 mountLogsView();
 
 // ── Profiles view ──────────────────────────────────────────
@@ -1894,6 +1783,13 @@ const ICON_COPY    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 const ICON_QR      = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/><path d="M20 14v3"/><path d="M14 20h3"/><path d="M17 17v4"/><path d="M21 21h-1"/></svg>`;
 const ICON_GLOBE   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/></svg>`;
 const ICON_FILE    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg>`;
+
+// Импортированная ссылка может сама выключить проверку TLS-сертификата
+// (hysteria2 `insecure=1`, TrustTunnel `skip_verification`). Это тихо снимает
+// защиту от подмены сервера, поэтому такой профиль помечаем в списке.
+function tlsVerificationDisabled(profile) {
+  return profile?.insecure === true || profile?.skipVerification === true;
+}
 
 function renderProfilesView() {
   if (!profilesList) return;
@@ -1968,6 +1864,9 @@ function renderProfilesView() {
           <div class="prof-card__head">
             <span class="prof-card__name">${escapeHtml(p.name)}</span>
             ${isActive ? `<span class="prof-card__badge">${t("prof.badgeActive")}</span>` : ""}
+            ${tlsVerificationDisabled(p)
+              ? `<span class="prof-card__badge prof-card__badge--warn" title="${escapeAttr(t("prof.badgeInsecureHint"))}">${t("prof.badgeInsecure")}</span>`
+              : ""}
           </div>
           <div class="prof-card__url">${escapeHtml(`${p.host}:${p.port}`)}</div>
         </div>
@@ -2989,6 +2888,10 @@ initTray({
   onSetMode: (m) => changeMode(m),
   onToggleVpn: () => handleConnectionIntent(),
   onUpdateClick: () => flushPendingUpdate(),
+  // Свёрнутое окно не получает ни focus, ни online — до наведения на значок
+  // единственный источник проверок это расписание. Порог в минуту не даёт
+  // случайному проходу мыши над треем дёргать эндпоинты.
+  onTrayActivity: () => updateCheckIfStale(60_000),
   // Успешный выбор сервера из трея: обновить эффективную ноду + hero/локацию.
   onServerSelected: (tag, _node, { reconnect = false } = {}) => {
     if (reconnect) reconnectForSourceChange(t("conn.applyingSettings"));
@@ -3063,8 +2966,10 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
     "stop_singbox",
     operationToken ? { operationToken } : {},
   );
-  // Click ripple — расходится от центра диска (anim 520ms)
-  const stage = heroDisc.closest(".hero__stage");
+  // Click ripple — расходится от центра диска (anim 520ms). Диска может не быть
+  // (автозапуск дошёл сюда раньше разметки, чужой view) — украшение не имеет
+  // права ронять подключение.
+  const stage = heroDisc?.closest(".hero__stage");
   if (stage) {
     const ripple = document.createElement("div");
     ripple.className = "hero__ripple";
@@ -3080,6 +2985,10 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       observed = await invoke("runtime_snapshot");
     } catch (e) {
       console.warn("runtime snapshot before start failed", e);
+      // Эта ветка тоже выводит «не удалось отключить», но не проходит ни через
+      // stop, ни через catch старта — без записи она выглядела бы в журнале как
+      // подтверждённая остановка, за которой не следует ничего.
+      logSourceSwitchReconnect("preflight", operationToken, "failed", "runtime_snapshot_unavailable");
       setState("cleanup_error", {
         preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
       });
@@ -3201,9 +3110,6 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         configHash: runtimeToken.configHash,
         strictPrivacy: !!runtimeInfo.strictPrivacy,
         pinnedNodeTag: runtimeInfo.pinnedNodeTag,
-        systemProxyBypassLan: options.route?.bypassLan !== false,
-        killSwitchExpected: !!runtimeInfo.strictPrivacy
-          || (!!options.general?.killSwitch && runtimeInfo.mode !== "tun"),
         operationToken,
       }));
       if (!runtimeSnapshot?.running || !Number(runtimeSnapshot.processGeneration)) {
@@ -3215,7 +3121,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       // возвращался в «Защищено».
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
         try { await stopCurrentOperation(); } catch {}
-        try { await invoke("set_system_proxy", { enable: false }); } catch {}
+        try { await disableSystemProxy(invoke); } catch {}
         return false;
       }
       // Backend является источником истины для processGeneration: локальный
@@ -3266,12 +3172,18 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
           });
           return false;
         }
-        // Никогда не маскируем потерю ручного выбора тихим переходом на Auto.
-        // Если сервер действительно исчез из подписки, безопаснее не поднимать
-        // VPN, чем незаметно отправить трафик через другой маршрут.
-        if (restoredSelection.status === "unavailable" && restoredSelection.tag !== "auto") {
-          const error = new Error("Remembered server is no longer present in the active subscription");
-          error.code = "REMEMBERED_SELECTION_UNAVAILABLE";
+        if (restoredSelection.status === "reset") {
+          const reason = restoredSelection.reason || "remembered_selection_reset";
+          console.warn("remembered proxy selection reset", reason);
+          if (operationToken?.kind === "sourceSwitch") {
+            logSourceSwitchReconnect("selection", operationToken, "reset", reason);
+          }
+        }
+        // Fatal only when the selector has no explicit automatic recovery
+        // route. Ordinary mode never substitutes an arbitrary child node.
+        if (restoredSelection.status === "unavailable") {
+          const error = new Error("Active selector has no valid recovery route");
+          error.code = "SELECTION_POLICY_UNAVAILABLE";
           throw error;
         }
       }
@@ -3284,14 +3196,14 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         if (typeof probeHostPort !== "string" || !probeHostPort) {
           throw new Error("runtime snapshot не содержит probe endpoint для system proxy");
         }
-        await invoke("set_system_proxy", {
-          enable: true,
+        await enableSystemProxy(invoke, {
           hostPort: probeHostPort,
           bypassLan: options.route?.bypassLan !== false,
           expectedGeneration: runtimeSnapshot.processGeneration,
+          operationToken,
         });
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
-          try { await invoke("set_system_proxy", { enable: false }); } catch {}
+          try { await disableSystemProxy(invoke); } catch {}
           try { await stopCurrentOperation(); } catch {}
           return false;
         }
@@ -3388,14 +3300,17 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         // Юзер уже отменил подключение — состояние/тосты выставил его клик,
         // здесь только страховочный стоп без перетирания UI.
         try { await stopCurrentOperation(); } catch {}
-        try { await invoke("set_system_proxy", { enable: false }); } catch {}
+        try { await disableSystemProxy(invoke); } catch {}
         return false;
       }
       console.error("start failed", e);
-      if (operationToken?.kind === "sourceSwitch") {
-        const code = safeSourceSwitchReason(e?.code || e?.name || "error");
-        logSourceSwitchReconnect("connect", operationToken, "failed", `${connectStage}_${code}`);
-      }
+      // Диагностика провалившегося старта раньше писалась только для смены
+      // источника. Смена режима переподключается по токену qualityRemediation,
+      // поэтому её отказ не оставлял в журнале ничего: после подтверждённой
+      // остановки лог просто обрывался, а на экране появлялась ошибка. Стадия и
+      // код нужны для любой операции, включая реконнект вообще без токена.
+      const code = safeSourceSwitchReason(e?.code || e?.name || "error");
+      logSourceSwitchReconnect("connect", operationToken, "failed", `${connectStage}_${code}`);
       const preserveGuard = killSwitchMustSurviveRuntimeStop();
       const cleaned = await shutdownCore({
         preserveKillSwitch: preserveGuard,
@@ -3432,6 +3347,16 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
 }
 
 let connectionIntentInFlight = null;
+// Более новый intent (реконнект, смена источника) может забрать владение прямо
+// посреди отключения. Состояние при этом обязан закрыть тот, кто его выставил:
+// runtime к этому моменту уже подтверждённо остановлен, а «disconnecting» ждут
+// и hero-диск, и runtimeIdleGate — без idle очередь реконнекта висит вечно, и
+// UI выходит из залипания только следующим кликом пользователя.
+function finalizeStoppedRuntime() {
+  if (state === "disconnecting") setState("idle");
+  return false;
+}
+
 async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
   cancelPendingReconnect();
   // Manual disconnect is the highest-priority lifecycle intent.  Cancel the
@@ -3446,7 +3371,7 @@ async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
     if (!isCurrentNetworkIntent(epoch, "idle")) return false;
     if (!(await shutdownCore({ finalize: false }))) return false;
   }
-  if (!isCurrentNetworkIntent(epoch, "idle")) return false;
+  if (!isCurrentNetworkIntent(epoch, "idle")) return finalizeStoppedRuntime();
   let snapshot = null;
   let snapshotConfirmed = false;
   try { snapshot = await invoke("runtime_snapshot"); snapshotConfirmed = true; }
@@ -3464,13 +3389,15 @@ async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
   // освобождение WFP lease. Иначе UI показывал бы idle, watchdog уже молчал,
   // а сохранённая Rust-сессия продолжала блокировать весь компьютер.
   const killSwitchReleased = await applyKillSwitch(false);
-  if (!isCurrentNetworkIntent(epoch, "idle")) return false;
+  // Неосвобождённый lease важнее чужого intent: чей бы ни был следующий шаг,
+  // WFP всё ещё блокирует весь компьютер, и это состояние надо показать.
   if (!killSwitchReleased) {
     setState("cleanup_error", {
       preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
     });
     return false;
   }
+  if (!isCurrentNetworkIntent(epoch, "idle")) return finalizeStoppedRuntime();
   strictFailClosedLatched = false;
   ordinaryFailClosedLatched = false;
   setState("idle");
@@ -3899,15 +3826,21 @@ async function showUpdateModal(update, opts = {}) {
     updateInstalling = false;
     syncTrayMenu();
     if (pendingUpdate) {
-      queueMicrotask(() => { void flushPendingUpdate({ requireForeground: true }); });
+      queueMicrotask(() => {
+        void flushPendingUpdate({ requireForeground: true, respectSkip: true });
+      });
     }
   }
 }
 
-// Показать отложенное обновление (юзер вернулся к окну). respectSkip=false —
-// он сам открыл приложение, значит готов смотреть; «Позже» внутри модалки.
-async function flushPendingUpdate({ requireForeground = false } = {}) {
+// Показать отложенное обновление. respectSkip=false (по умолчанию) — вызов
+// пришёл от явного действия пользователя (пункт трея, кнопка «Проверить»), и
+// прежнее «Позже» он этим действием и переспросил. respectSkip=true — вызов
+// автоматический (фокус окна, хвост закрытой модалки): пропущенную версию не
+// навязываем, но из трея она никуда не девается.
+async function flushPendingUpdate({ requireForeground = false, respectSkip = false } = {}) {
   if (!pendingUpdate || updateModalShowing) return;
+  if (respectSkip && updateShouldSkip(pendingUpdate.version)) return;
   if (requireForeground && !(await windowIsForeground())) return;
   // Пока ждали IPC окна, OTA мог забрать focus/tray-handler.
   if (!pendingUpdate || updateModalShowing) return;
@@ -3926,6 +3859,20 @@ function updaterProxy() {
   return hostPort ? `http://${hostPort}` : null;
 }
 
+// OTA в трее раньше не оставляла ни следа: любой отказ (нет сети, заблокирован
+// эндпоинт, не закрылся Resource) молчал в консоли WebView, и снаружи это было
+// неотличимо от «обновлений нет». Пишем исход каждой проверки в рантайм-журнал —
+// он виден в разделе «Логи».
+function recordUpdateEvent(phase, result, reason = null) {
+  void invoke("record_frontend_runtime_event", {
+    token: null,
+    phase,
+    result,
+    reason,
+    generation: null,
+  }).catch(error => console.warn("update diagnostic failed", error));
+}
+
 // true — проверка ДОСТИГЛА сервера (апдейт есть или его нет); false — не смогли
 // проверить (нет сети / эндпоинты недоступны) → скедулер уходит в бэкоф-ретрай.
 async function performUpdateCheck(request) {
@@ -3936,6 +3883,7 @@ async function performUpdateCheck(request) {
   // Не создаём новый Rust Update, пока не закрыт Resource от предыдущей
   // неудачной cleanup-попытки.
   if (!(await drainUpdateResourceCleanup())) {
+    recordUpdateEvent("update_check", "failed", "cleanup_pending");
     if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
     return false;
   }
@@ -3948,6 +3896,9 @@ async function performUpdateCheck(request) {
     update = await checkForUpdate({ proxy });
   } catch (e) {
     console.warn("update check failed", e);
+    // Причина — только транспорт: адреса эндпоинтов и текст ошибки в журнал не
+    // уезжают, там и так фиксируется сам факт недостижимости.
+    recordUpdateEvent("update_check", "failed", updaterProxy() ? "unreachable_via_tunnel" : "unreachable_direct");
     if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
     return false;
   }
@@ -3956,6 +3907,10 @@ async function performUpdateCheck(request) {
       pendingUpdate = null;
       syncTrayMenu();
     }
+    // Фиксируем и пустой результат: без него «OTA молчит, потому что нечего
+    // ставить» неотличимо от «проверки вообще не идут» — а в трее это разные
+    // диагнозы с разным лечением.
+    recordUpdateEvent("update_check", "none", null);
     if (request.interactive) toast(t("update.none"), "info", 2400);
     return true;
   }
@@ -3963,49 +3918,46 @@ async function performUpdateCheck(request) {
   // Для ожидания в трее оставляем plain metadata. Нативный Update держит Rust
   // Resource и HTTP client/proxy момента check(), поэтому сразу освобождаем его.
   const metadata = snapshotUpdate(update);
+
+  // Pending публикуется ПЕРВЫМ делом — до уборки ресурса и до оконного IPC.
+  // Апдейт уже найден, и пункт трея с подсказкой не должны зависеть ни от
+  // успеха close(), ни от гонки с focus-обработчиком: раньше неудачная уборка
+  // выбрасывала полностью валидную находку, и в трее не появлялось ничего.
+  if (!(updateModalShowing && String(activeUpdateVersion) === String(metadata.version))) {
+    pendingUpdate = metadata;
+    syncTrayMenu();
+  }
+
+  // Неудачная уборка Rust-ресурса — проблема утечки, а не проверки. Гейт на
+  // создание новых Update стоит в начале функции (drainUpdateResourceCleanup),
+  // здесь же важно не превратить это в «обновлений нет»: проверка сервер
+  // достигла, и скедулер не должен уходить в бэкоф-цикл.
   if (!(await closeUpdateResource(update))) {
+    recordUpdateEvent("update_resource", "degraded", "close_failed");
     if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
-    return false;
   }
 
-  // Фоновая проверка: уважаем «Позже» по этой версии — не навязываемся.
-  if (!request.interactive && updateShouldSkip(metadata.version)) {
-    if (String(pendingUpdate?.version) === String(metadata.version)) {
-      pendingUpdate = null;
-      syncTrayMenu();
-    }
-    return true;
-  }
+  const plan = planUpdateNotice({
+    interactive: request.interactive,
+    skipped: updateShouldSkip(metadata.version),
+    foreground: request.interactive ? true : await windowIsForeground(),
+    alreadyNotified: lastNotifiedUpdateVersion === metadata.version,
+    modalBusy: updateModalShowing && String(activeUpdateVersion) === String(metadata.version),
+  });
+  recordUpdateEvent("update_found", plan.action, plan.reason);
 
-  // Повторный ответ той же версии, пока её модалка уже открыта, не создаёт
-  // второй набор DOM-обработчиков. Более новый релиз остаётся pending.
-  if (updateModalShowing && String(activeUpdateVersion) === String(metadata.version)) {
-    return true;
-  }
-
-  // Pending публикуется ДО async-проверки окна: focus-event на любом await уже
-  // увидит OTA и сможет атомарно забрать его через flushPendingUpdate().
-  pendingUpdate = metadata;
-  syncTrayMenu();
-
-  // Ручной запрос повышает уже идущую фоновую проверку и игнорирует skip.
+  // Ручной клик мог присоединиться к фоновому flight, пока тот ждал оконный
+  // IPC: тогда обещанная модалка важнее плана, составленного для фона.
   if (request.interactive) {
     await flushPendingUpdate();
-  } else {
-    const foreground = await windowIsForeground();
-    // Ручной клик мог присоединиться, пока фоновый flight ждал оконный IPC.
-    // Проверяем promotion ещё раз, иначе в скрытом окне ручной запрос
-    // завершился бы только уведомлением без обещанной модалки.
-    if (request.interactive) {
-      await flushPendingUpdate();
-    } else if (foreground && pendingUpdate === metadata) {
-      await flushPendingUpdate({ requireForeground: true });
-    } else if (!foreground && pendingUpdate === metadata
-      && lastNotifiedUpdateVersion !== metadata.version) {
-      lastNotifiedUpdateVersion = metadata.version;
-      notify(t("update.notifyTitle"),
-        t("update.notifyBody", { version: metadata.version }));
-    }
+    return true;
+  }
+  if (plan.action === UPDATE_NOTICE.MODAL && pendingUpdate === metadata) {
+    await flushPendingUpdate({ requireForeground: true });
+  } else if (plan.action === UPDATE_NOTICE.NOTIFY && pendingUpdate === metadata) {
+    lastNotifiedUpdateVersion = metadata.version;
+    notify(t("update.notifyTitle"),
+      t("update.notifyBody", { version: metadata.version }));
   }
   return true;
 }
@@ -4021,14 +3973,19 @@ function runUpdateCheck({ silent = true } = {}) {
 // первая проверка через 3с стабильно умирала об ещё не поднятую сеть, и до
 // следующей было 6 часов тишины; (2) сон/гибернация — интервальный таймер не
 // тикает во сне, реальный период уплывал далеко за 6ч. Теперь:
-//   успех  → следующая через 2ч (проверка = один JSON ~1КБ, дёшево);
+//   успех  → следующая через 30м (проверка = один JSON ~1КБ, дёшево);
 //   провал → бэкоф 30с → 2м → 5м → 15м (дальше по 15м) до первого успеха;
 //   лёгкий тик раз в 60с сравнивает часы (переживает сон и троттлинг скрытого
 //   окна — Chromium в трее коалесцирует таймеры как раз до 1/мин);
 //   внеплановые триггеры: появилась сеть (online), развернули окно, поднялся
-//   VPN (эндпоинты станут доступны через туннель). Всё это работает и в трее:
-//   апдейт доедет OS-уведомлением + пунктом «Обновить до vX» в меню трея.
-const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000;
+//   VPN (эндпоинты станут доступны через туннель), наведение/ПКМ по значку в
+//   трее. Всё это работает и в трее: апдейт доедет OS-уведомлением, меткой на
+//   значке и пунктом «Обновить до vX» в меню.
+//
+// Период — 30 минут, а не два часа: у свёрнутого окна нет ни focus, ни online,
+// и между релизом и появлением признака в трее стояла случайная пауза до двух
+// часов. Стоимость проверки — один JSON, эта частота ничего не стоит.
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 const UPDATE_RETRY_STEPS_MS = [30_000, 2 * 60_000, 5 * 60_000, 15 * 60_000];
 const UPDATE_STALE_MS = 30 * 60_000; // «давно не проверялись» для focus/connect
 let updateNextCheckAt = Date.now() + 3000; // первая — через 3с после старта
@@ -4072,7 +4029,8 @@ window.addEventListener("online", () => updateCheckIfStale(60_000));
     await tauriWin?.onFocusChanged?.(({ payload: focused }) => {
       activityController.setFocused(!!focused);
       if (!focused) return;
-      flushPendingUpdate();
+      // Фокус — не согласие смотреть пропущенную версию: она остаётся в трее.
+      flushPendingUpdate({ respectSkip: true });
       updateCheckIfStale();
     });
   } catch (e) { console.warn("focus listener failed", e); }
