@@ -2,6 +2,36 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.2.60 — 2026-08-05
+
+## English
+
+- If the app terminates abnormally, the system proxy is switched off on the way out. Before that a crash could leave Windows pointing at a port nobody listens on, and the computer stayed without internet until the setting was cleared by hand.
+- A connection cancelled halfway now really stops everything it had already started. Engine processes left running and ports still held by them used to make the next attempt fail.
+- The connect button can no longer stay blocked for good. If an operation was lost — the window closed or froze at the wrong moment — the lock is released after a minute and a half instead of holding until a restart.
+- The window no longer freezes while the app takes stock of itself: reading the connection state, the diagnostics and the kill switch moved off the interface thread. Refreshing all pings with the kill switch on gained the most — that is where the delay was visible.
+- The traffic counter stops together with the connection instead of reconnecting to whatever occupies the port afterwards.
+- The connection log costs less while it is open: it is not rebuilt every two seconds when nothing has changed, addresses in it are highlighted without breaking the markup, and the file no longer gets tangled when the app and the engine write to it at the same time.
+- Opening the routing rules again no longer leaves the previous copy of that screen in memory.
+- The DNS check no longer sends requests to service addresses that cannot be a resolver.
+- A domain added to the bypass exclusions is checked: a multi-line value can no longer add entries you did not type.
+- A failure to switch the system proxy off on exit is recorded in the log instead of being lost silently.
+- The blocking bypass engine is updated, and its version is now read from the engine file itself.
+
+## Русский
+
+- При аварийном завершении приложения системный прокси снимается на выходе. Раньше падение могло оставить Windows с настройкой на порт, который никто не слушает, и компьютер оставался без интернета, пока её не уберут вручную.
+- Отменённое на полпути подключение действительно останавливает всё, что успело запуститься. Оставшиеся процессы движка и занятые ими порты раньше роняли следующую попытку.
+- Кнопка подключения больше не может заблокироваться навсегда. Если операция потерялась — окно закрыли или подвесили в неудачный момент — блокировка снимается через полторы минуты, а не держится до перезапуска.
+- Окно больше не подвисает, пока приложение снимает своё состояние: опрос подключения, диагностики и kill switch ушёл с потока интерфейса. Больше всего выиграло обновление всех пингов при включённом kill switch — именно там задержка была заметна.
+- Счётчик трафика останавливается вместе с подключением, а не переподключается к тому, что заняло порт после него.
+- Открытый журнал подключения обходится дешевле: он не перестраивается каждые две секунды, если ничего не изменилось, адреса в нём подсвечиваются без порчи разметки, а сам файл больше не путается, когда в него пишут приложение и движок одновременно.
+- Повторное открытие правил маршрутизации больше не оставляет в памяти прошлую копию этого экрана.
+- Проверка DNS больше не отправляет запросы на служебные адреса, которые резолвером быть не могут.
+- Домен, добавленный в исключения обхода, проверяется: многострочным значением уже нельзя добавить записи, которых вы не вводили.
+- Неудачное снятие системного прокси при выходе попадает в журнал, а не теряется молча.
+- Обновлён движок обхода блокировок, а его версия теперь читается из самого файла движка.
+
 ## v0.2.59 — 2026-08-04
 
 ## English
