@@ -12,6 +12,14 @@
 // от Yandex, не искажает urltest-проверку нод (Yandex резолвит часть серверов в
 // адреса, которые тест ложно метит недоступными). Yandex DoH — крайний резерв:
 // максимально устойчив, но с той же оговоркой про ложные failed.
+//
+// За DoH обязательно идут plain-DNS ступени. ТСПУ режет DoH КЛАССОМ, а не по
+// одному адресу: 06.08.2026 разом легли :443 у Quad9, Yandex, Google и Cloudflare
+// при живом UDP:53 и живом обычном TCP:443. Цепочка из одних DoH в такой день
+// вырождается — все кандидаты мертвы, guard уходит в all-dead и НЕ лечит, хотя
+// рабочий резолвер под рукой. Plain-DNS слабее (открытый запрос, подмена
+// провайдером), поэтому он ниже DoH, но он последняя ступень, на которой
+// туннель вообще поднимается.
 
 import { loadOptions, updateOption } from "/lib/options.js";
 import { t } from "/lib/i18n/index.js";
@@ -23,11 +31,14 @@ const invoke = window.__TAURI__?.core?.invoke
 // не привязываясь к конкретной ноде/инфре.
 const CONTROL_HOST = "example.com";
 
-// Цепочка резервов (Quad9 DoH → Yandex DoH). Дефолтный direct-DNS (Yandex UDP)
-// сюда не включаем как приоритетный — если упал именно он, Quad9 надёжнее.
+// Цепочка резервов: DoH (Quad9 → Yandex), затем plain-DNS теми же операторами.
+// Дефолтный direct-DNS (Yandex UDP) в вершину не ставим — если упал именно он,
+// Quad9 надёжнее; но ниже он обязан быть, иначе уход с UDP на DoH необратим.
 const FALLBACKS = [
   "https://149.112.112.112/dns-query", // Quad9 secondary DoH
-  "https://77.88.8.8/dns-query",        // Yandex DoH (крайний резерв)
+  "https://77.88.8.8/dns-query",        // Yandex DoH (крайний DoH-резерв)
+  "udp://149.112.112.112",              // Quad9 plain — когда DoH срезан классом
+  "udp://77.88.8.8",                    // Yandex plain — дефолт, самый живучий в РФ
 ];
 
 const PROBE_TIMEOUT_MS = 4000;

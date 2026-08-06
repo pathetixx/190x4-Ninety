@@ -801,6 +801,27 @@ fn active_vpn_exclusion_args(lists: &Path) -> [String; 2] {
     ]
 }
 
+/// Раздать исключение активного VPN endpoint по ВСЕМ секциям стратегии.
+///
+/// В синтаксисе winws `--new` открывает новую секцию, и фильтры действуют только
+/// внутри своей. Дописывание исключения в хвост строки покрывало ровно одну —
+/// последнюю — секцию, а VLESS к серверу идёт по TCP:443, то есть по чужой.
+/// Защита «winws не жуёт зашифрованный трафик к своему же серверу» при этом
+/// выглядела включённой и молча не работала там, где нужна. Вставляем перед
+/// каждым `--new` (закрывая предыдущую секцию) и в конец — за последнюю.
+fn spread_exclusion_across_sections(args: Vec<String>, exclusion: &[String; 2]) -> Vec<String> {
+    let sections = args.iter().filter(|a| a.as_str() == "--new").count() + 1;
+    let mut out = Vec::with_capacity(args.len() + sections * exclusion.len());
+    for arg in args {
+        if arg == "--new" {
+            out.extend(exclusion.iter().cloned());
+        }
+        out.push(arg);
+    }
+    out.extend(exclusion.iter().cloned());
+    out
+}
+
 // Абсолютный путь к утилите в System32. Не полагаемся на PATH: DPI-команды
 // исполняются в elevated-процессе, где PATH-hijack (подсунутый taskkill.exe/sc.exe
 // в каталоге раньше System32) выполнялся бы с правами администратора. SystemRoot —
@@ -1144,14 +1165,14 @@ pub async fn dpi_start(
     let bindata = ensure_bindata(&app)?;
     let bindata_s = strip_verbatim(&bindata.to_string_lossy());
     let lists_s = strip_verbatim(&lists.to_string_lossy());
-    let mut args: Vec<String> = strat
+    let args: Vec<String> = strat
         .args
         .iter()
         .map(|a| subst(a, &bindata_s, &lists_s, g_tcp, g_udp))
         .collect();
     // Активный VPN endpoint — отдельные managed-файлы: смена ноды заменяет
     // значение, не накапливает старые адреса и не трогает user exclusions.
-    args.extend(active_vpn_exclusion_args(&lists));
+    let args = spread_exclusion_across_sections(args, &active_vpn_exclusion_args(&lists));
 
     if !dpi_operation_current(&state, generation) {
         return Err("DPI start отменён".into());
@@ -2887,6 +2908,68 @@ mod tests {
     fn active_vpn_exclusion_paths_use_windows_separator() {
         let args = active_vpn_exclusion_args(Path::new(r"C:\Ninety Data\dpi\lists"));
         assert!(args[1].ends_with(r"lists\active-vpn-ip.txt"));
+    }
+
+    // Регресс: исключение активной ноды дописывалось в хвост строки и накрывало
+    // только последнюю секцию. VLESS идёт по TCP:443 — то есть по другой секции,
+    // и winws десинхрил трафик к собственному серверу.
+    #[test]
+    fn active_vpn_exclusion_lands_in_every_section() {
+        let exclusion = [
+            "--hostlist-exclude=D".to_string(),
+            "--ipset-exclude=I".to_string(),
+        ];
+        let args = vec![
+            "--filter-udp=443".to_string(),
+            "--dpi-desync=fake".to_string(),
+            "--new".to_string(),
+            "--filter-tcp=443".to_string(),
+            "--new".to_string(),
+            "--filter-tcp=1024-65535".to_string(),
+        ];
+        let out = spread_exclusion_across_sections(args, &exclusion);
+
+        // Три секции → исключение трижды, по разу в каждой.
+        assert_eq!(
+            out.iter()
+                .filter(|a| a.as_str() == "--hostlist-exclude=D")
+                .count(),
+            3
+        );
+        assert_eq!(
+            out.iter()
+                .filter(|a| a.as_str() == "--ipset-exclude=I")
+                .count(),
+            3
+        );
+
+        // И именно ПЕРЕД разделителем, иначе исключение утечёт в чужую секцию.
+        for (i, a) in out.iter().enumerate() {
+            if a == "--new" {
+                assert_eq!(out[i - 2], "--hostlist-exclude=D");
+                assert_eq!(out[i - 1], "--ipset-exclude=I");
+            }
+        }
+        assert_eq!(out.last().unwrap(), "--ipset-exclude=I");
+    }
+
+    // Стратегия без --new — одна секция, исключение ровно один раз.
+    #[test]
+    fn active_vpn_exclusion_single_section_is_not_duplicated() {
+        let exclusion = [
+            "--hostlist-exclude=D".to_string(),
+            "--ipset-exclude=I".to_string(),
+        ];
+        let out =
+            spread_exclusion_across_sections(vec!["--filter-tcp=443".to_string()], &exclusion);
+        assert_eq!(
+            out,
+            vec![
+                "--filter-tcp=443",
+                "--hostlist-exclude=D",
+                "--ipset-exclude=I"
+            ]
+        );
     }
 
     #[test]
