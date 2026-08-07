@@ -77,7 +77,7 @@ jobs:
           cd core
           for attempt in 1 2 3; do
             if go build -trimpath -tags "$BUILD_TAGS" \
-                 -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" \
+                 -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0 -X github.com/sagernet/sing-box/constant.Version=${CORE_TAG#v}" \
                  -o sing-box.exe ./cmd/sing-box; then
               break
             fi
