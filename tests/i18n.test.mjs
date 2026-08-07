@@ -70,7 +70,7 @@ for (const code of CODES) {
     const tooLong = states
       .map((state) => `${state}\n${t["tray.tipUpdate"].replace("{ver}", version)}`)
       .filter((tip) => tip.length > 127)
-      .map((tip) => `${tip.length}: ${tip.replace("\n", " / ")}`);
+      .map((tip) => `${tip.length}: ${tip.replaceAll("\n", " / ")}`);
     assert.deepEqual(tooLong, [], tooLong.join("; "));
   });
 }
