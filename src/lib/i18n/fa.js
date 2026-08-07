@@ -936,7 +936,7 @@ export const fa = {
       grpMask: "استتار (AmneziaWG)",
       grpMaskHint: "بسته‌های زائد پیش از دست‌دهی WG — دور زدن ML-DPI که امضای WG را می‌گیرد (مرتبط با TSPU روسیه از آوریل ۲۰۲۶).",
       noiseTitle: "پروفایل مبهم‌سازی",
-      noiseHint: "یک پیش‌تنظیم (off/default/aggressive) یا custom — پارامترها در پایین. فقط در فورک sing-box (ساخته‌شده با <code>with_awg</code>) کار می‌کند.",
+      noiseHint: "یک پیش‌تنظیم (off/default/aggressive) یا custom — پارامترها در پایین.",
       grpRot: "چرخش خودکار اندپوینت",
       grpRotHint: "وقتی تأخیر اندپوینت فعلی از آستانه بالاتر رود، Ninety به‌طور خودکار دوباره اسکن و به بهترین مورد تعویض می‌کند. هنگام اتصال استفاده می‌شود.",
       rotTitle: "چرخش خودکار اندپوینت",

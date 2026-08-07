@@ -936,7 +936,7 @@ export const fr = {
       grpMask: "Masquage (AmneziaWG)",
       grpMaskHint: "Paquets parasites avant le handshake WG — contournement pour le ML-DPI qui détecte la signature WG (pertinent pour le TSPU russe depuis avril 2026).",
       noiseTitle: "Profil d’obfuscation",
-      noiseHint: "Un préréglage (off/default/aggressive) ou personnalisé — paramètres ci-dessous. Fonctionne uniquement dans le fork sing-box (compilé avec <code>with_awg</code>).",
+      noiseHint: "Un préréglage (off/default/aggressive) ou personnalisé — paramètres ci-dessous.",
       grpRot: "Rotation auto du point d’accès",
       grpRotHint: "Quand la latence du point d’accès actuel dépasse le seuil, Ninety re-scanne automatiquement et bascule vers le meilleur. Utilisé pendant la connexion.",
       rotTitle: "Rotation auto du point d’accès",

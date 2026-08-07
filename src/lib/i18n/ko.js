@@ -936,7 +936,7 @@ export const ko = {
       grpMask: "마스킹(AmneziaWG)",
       grpMaskHint: "WG 핸드셰이크 전의 정크 패킷 — WG 시그니처를 잡아내는 ML-DPI용 우회(2026년 4월 이후 러시아 TSPU에 관련).",
       noiseTitle: "난독화 프로필",
-      noiseHint: "프리셋(off/default/aggressive) 또는 사용자 지정 — 아래 매개변수. <code>with_awg</code>로 빌드한 sing-box 포크에서만 동작합니다.",
+      noiseHint: "프리셋(off/default/aggressive) 또는 사용자 지정 — 아래 매개변수.",
       grpRot: "엔드포인트 자동 전환",
       grpRotHint: "현재 엔드포인트의 지연 시간이 임계값을 넘으면 Ninety가 자동으로 다시 스캔하여 최적의 것으로 전환합니다. 연결 중에 사용됩니다.",
       rotTitle: "엔드포인트 자동 전환",

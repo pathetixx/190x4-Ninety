@@ -936,7 +936,7 @@ export const de = {
       grpMask: "Tarnung (AmneziaWG)",
       grpMaskHint: "Junk-Pakete vor dem WG-Handshake — Umgehung für ML-DPI, das die WG-Signatur erkennt (relevant für das RU-TSPU seit April 2026).",
       noiseTitle: "Verschleierungsprofil",
-      noiseHint: "Ein Preset (off/default/aggressive) oder custom — Parameter unten. Funktioniert nur im sing-box-Fork (mit <code>with_awg</code> gebaut).",
+      noiseHint: "Ein Preset (off/default/aggressive) oder custom — Parameter unten.",
       grpRot: "Endpoint-Auto-Rotation",
       grpRotHint: "Wenn die Latenz des aktuellen Endpoints über der Schwelle liegt, scannt Ninety automatisch neu und wechselt zum besten. Wird im verbundenen Zustand genutzt.",
       rotTitle: "Endpoint-Auto-Rotation",

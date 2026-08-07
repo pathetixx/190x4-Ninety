@@ -936,7 +936,7 @@ export const zh = {
       grpMask: "伪装（AmneziaWG）",
       grpMaskHint: "在 WG 握手前发送垃圾包——绕过会捕捉 WG 特征的 ML-DPI（自 2026 年 4 月起对俄罗斯 TSPU 有意义）。",
       noiseTitle: "混淆配置",
-      noiseHint: "预设（off/default/aggressive）或 custom——参数见下方。仅在 sing-box 分支（以 <code>with_awg</code> 构建）中有效。",
+      noiseHint: "预设（off/default/aggressive）或 custom——参数见下方。",
       grpRot: "端点自动轮换",
       grpRotHint: "当前端点延迟高于阈值时，Ninety 会自动重新扫描并切换到最佳端点。连接时使用。",
       rotTitle: "端点自动轮换",

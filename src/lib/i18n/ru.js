@@ -936,7 +936,7 @@ export const ru = {
       grpMask: "Маскировка (AmneziaWG)",
       grpMaskHint: "Junk-пакеты перед WG-хендшейком — обход ML-DPI, который ловит WG-сигнатуру (актуально для РФ-ТСПУ с апреля 2026).",
       noiseTitle: "Профиль обфускации",
-      noiseHint: "Готовый набор (off/default/aggressive) или custom — параметры ниже. Работает только в форке sing-box (собран с <code>with_awg</code>).",
+      noiseHint: "Готовый набор (off/default/aggressive) или custom — параметры ниже.",
       grpRot: "Авто-ротация endpoint",
       grpRotHint: "Когда задержка текущего endpoint выше порога — Ninety автоматически пересканирует и переключится на лучший. Используется при connected.",
       rotTitle: "Авто-ротация endpoint",

@@ -110,7 +110,7 @@ jobs:
           # the signed installer and runs under LocalSystem — supply chain is
           # critical. If upstream moves the tag, the SHA mismatch fails the build.
           $pinnedSha = "9b6b004adfb079db2134b682f9b4ff42434c2f38"
-          $tags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,badlinkname,tfogo_checklinkname0,with_grpc,with_awg"
+          $tags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,badlinkname,tfogo_checklinkname0,with_grpc"
           Write-Host "Cloning hiddify-sing-box $tag…"
           git clone --depth 1 --branch $tag https://github.com/hiddify/hiddify-sing-box.git hsb
           if (-not $?) { Write-Error "git clone failed"; exit 1 }

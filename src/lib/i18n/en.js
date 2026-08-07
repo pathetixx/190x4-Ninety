@@ -936,7 +936,7 @@ export const en = {
       grpMask: "Masking (AmneziaWG)",
       grpMaskHint: "Junk packets before the WG handshake — bypass for ML-DPI that catches the WG signature (relevant for RU TSPU since April 2026).",
       noiseTitle: "Obfuscation profile",
-      noiseHint: "A preset (off/default/aggressive) or custom — parameters below. Works only in the sing-box fork (built with <code>with_awg</code>).",
+      noiseHint: "A preset (off/default/aggressive) or custom — parameters below.",
       grpRot: "Endpoint auto-rotation",
       grpRotHint: "When the current endpoint's latency is above the threshold, Ninety automatically rescans and switches to the best one. Used while connected.",
       rotTitle: "Endpoint auto-rotation",

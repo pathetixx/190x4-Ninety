@@ -936,7 +936,7 @@ export const ja = {
       grpMask: "マスキング（AmneziaWG）",
       grpMaskHint: "WG ハンドシェイク前のジャンクパケット — WG のシグネチャを検出する ML-DPI 向けの回避（2026年4月以降の RU TSPU に関連）。",
       noiseTitle: "難読化プロファイル",
-      noiseHint: "プリセット（off/default/aggressive）またはカスタム — 下のパラメータ。<code>with_awg</code> でビルドした sing-box フォークでのみ動作します。",
+      noiseHint: "プリセット（off/default/aggressive）またはカスタム — 下のパラメータ。",
       grpRot: "エンドポイントの自動切り替え",
       grpRotHint: "現在のエンドポイントの遅延がしきい値を超えると、Ninety は自動的に再スキャンして最良のものに切り替えます。接続中に使われます。",
       rotTitle: "エンドポイントの自動切り替え",

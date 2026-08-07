@@ -936,7 +936,7 @@ export const ar = {
       grpMask: "التمويه (AmneziaWG)",
       grpMaskHint: "حزم زائدة قبل مصافحة WG — تجاوز ML-DPI الذي يلتقط توقيع WG (مهم لـ TSPU الروسي منذ أبريل ٢٠٢٦).",
       noiseTitle: "ملف التمويه",
-      noiseHint: "إعداد جاهز (off/default/aggressive) أو custom — المعاملات أدناه. يعمل فقط في فرع sing-box (المبني بـ <code>with_awg</code>).",
+      noiseHint: "إعداد جاهز (off/default/aggressive) أو custom — المعاملات أدناه.",
       grpRot: "تدوير النقطة تلقائيًا",
       grpRotHint: "عندما يتجاوز زمن استجابة النقطة الحالية العتبة، يعيد Ninety المسح تلقائيًا ويبدّل إلى الأفضل. يُستخدم أثناء الاتصال.",
       rotTitle: "تدوير النقطة تلقائيًا",

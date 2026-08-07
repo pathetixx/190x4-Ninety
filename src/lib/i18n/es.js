@@ -936,7 +936,7 @@ export const es = {
       grpMask: "Enmascaramiento (AmneziaWG)",
       grpMaskHint: "Paquetes basura antes del handshake WG — evasión para el ML-DPI que detecta la firma de WG (relevante para el TSPU de RU desde abril de 2026).",
       noiseTitle: "Perfil de ofuscación",
-      noiseHint: "Un preajuste (off/default/aggressive) o custom — parámetros abajo. Solo funciona en el fork de sing-box (compilado con <code>with_awg</code>).",
+      noiseHint: "Un preajuste (off/default/aggressive) o custom — parámetros abajo.",
       grpRot: "Auto-rotación de endpoint",
       grpRotHint: "Cuando la latencia del endpoint actual supera el umbral, Ninety reescanea automáticamente y cambia al mejor. Se usa mientras está conectado.",
       rotTitle: "Auto-rotación de endpoint",

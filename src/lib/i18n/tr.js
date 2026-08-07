@@ -936,7 +936,7 @@ export const tr = {
       grpMask: "Maskeleme (AmneziaWG)",
       grpMaskHint: "WG el sıkışmasından önce çöp paketler — WG imzasını yakalayan ML-DPI için atlatma (Nisan 2026'dan beri Rus TSPU için geçerli).",
       noiseTitle: "Gizleme profili",
-      noiseHint: "Bir ön ayar (off/default/aggressive) veya özel — aşağıdaki parametreler. Yalnızca sing-box çatalında çalışır (<code>with_awg</code> ile derlenmiş).",
+      noiseHint: "Bir ön ayar (off/default/aggressive) veya özel — aşağıdaki parametreler.",
       grpRot: "Uç nokta otomatik geçişi",
       grpRotHint: "Geçerli uç noktanın gecikmesi eşiği aştığında Ninety otomatik olarak yeniden tarar ve en iyisine geçer. Bağlantı sırasında kullanılır.",
       rotTitle: "Uç nokta otomatik geçişi",
