@@ -49,7 +49,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: false
 
       - name: Install npm deps
@@ -160,13 +160,12 @@ jobs:
       - name: Build xray-core from source (two-core — xhttp)
         shell: pwsh
         run: |
-          # xhttp in the sing-box fork (packet-up) only sustains pings; real
-          # streams fall apart. The reference implementation is xray-core, so
-          # xhttp nodes go through it (two-core: sing-box → loopback socks
-          # bridge → xray). Same mature xhttp as in Throne; the newest tag that
-          # builds on Go 1.25 (v26.* require go 1.26). Pure Go, static, no cronet.
-          $tag = "v25.12.8"
-          $pinnedSha = "81f8f398c7b2b845853b1e85087c6122acc6db0b"
+          # xhttp nodes go through xray-core, the reference implementation of
+          # that transport (two-core: sing-box → loopback socks bridge → xray).
+          # Pure Go, static, no cronet. XTLS marks every 26.x as a prerelease;
+          # this is the tag we build and audit, not whatever "latest" resolves to.
+          $tag = "v26.7.28"
+          $pinnedSha = "5ca6f4b7d4dc20a881d4330e498892697627ec0c"
           Write-Host "Cloning Xray-core $tag…"
           git clone --depth 1 --branch $tag https://github.com/XTLS/Xray-core.git xray-core
           if (-not $?) { Write-Error "git clone xray failed"; exit 1 }
@@ -177,17 +176,11 @@ jobs:
           $env:GOTOOLCHAIN = "local"
           $env:CGO_ENABLED = "0"
           $env:GOPROXY = "https://proxy.golang.org|direct"
-          # The pinned upstream snapshot predates current Go advisories. Keep
-          # the shipped binary on the first fixed versions and mirror this
-          # patch in security.yml, where the resulting binary is audited.
-          go get `
-            github.com/klauspost/compress@v1.18.7 `
-            github.com/quic-go/quic-go@v0.59.1 `
-            github.com/refraction-networking/utls@v1.8.2 `
-            golang.org/x/crypto@v0.53.0 `
-            golang.org/x/net@v0.56.0 `
-            golang.org/x/text@v0.39.0 `
-            google.golang.org/grpc@v1.82.1
+          # Only what this snapshot still ships behind a fixed version. The rest
+          # of the list this used to carry is now newer upstream than the pins
+          # were, so re-applying it would downgrade. Mirrored in security.yml,
+          # where the resulting binary is audited.
+          go get github.com/klauspost/compress@v1.18.7
           if ($LASTEXITCODE -ne 0) { Write-Error "xray dependency security patch failed"; exit 1 }
           go mod tidy
           if ($LASTEXITCODE -ne 0) { Write-Error "xray go mod tidy failed after dependency security patch"; exit 1 }

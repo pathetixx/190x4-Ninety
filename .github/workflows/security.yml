@@ -93,7 +93,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: false
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
@@ -127,18 +127,11 @@ jobs:
           set -euo pipefail
           tmpdir="$(mktemp -d)"
           trap 'rm -rf "$tmpdir"' EXIT
-          git clone --depth 1 --branch v25.12.8 https://github.com/XTLS/Xray-core.git xray-core
-          test "$(git -C xray-core rev-parse HEAD)" = 81f8f398c7b2b845853b1e85087c6122acc6db0b
+          git clone --depth 1 --branch v26.7.28 https://github.com/XTLS/Xray-core.git xray-core
+          test "$(git -C xray-core rev-parse HEAD)" = 5ca6f4b7d4dc20a881d4330e498892697627ec0c
           (
             cd xray-core
-            GOTOOLCHAIN=local go get \
-              github.com/klauspost/compress@v1.18.7 \
-              github.com/quic-go/quic-go@v0.59.1 \
-              github.com/refraction-networking/utls@v1.8.2 \
-              golang.org/x/crypto@v0.53.0 \
-              golang.org/x/net@v0.56.0 \
-              golang.org/x/text@v0.39.0 \
-              google.golang.org/grpc@v1.82.1
+            GOTOOLCHAIN=local go get github.com/klauspost/compress@v1.18.7
             GOTOOLCHAIN=local go mod tidy
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -ldflags "-s -w -buildid=" -o "$tmpdir/xray" ./main
             govulncheck -mode=binary -format=json "$tmpdir/xray" > "$tmpdir/xray-vulns.json"
