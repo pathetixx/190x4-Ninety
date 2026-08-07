@@ -21,9 +21,115 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build-cores:
+    # Both cores are pure Go with cgo off, so windows/amd64 cross-compiles here
+    # exactly as it would on a Windows runner - and off the critical path of the
+    # expensive one. The pins live here as job env: the cache key and the build
+    # scripts then read them from one place.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CORE_REPO: https://github.com/pathetixx/ninety-core.git
+      CORE_TAG: v1.13.16-ninety.1
+      CORE_SHA: 55815e1339ff2f858ad43e847a223341aab07dd7
+      XRAY_REPO: https://github.com/XTLS/Xray-core.git
+      XRAY_TAG: v26.7.28
+      XRAY_SHA: 5ca6f4b7d4dc20a881d4330e498892697627ec0c
+      BUILD_TAGS: with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,badlinkname,tfogo_checklinkname0,with_grpc
+      GOOS: windows
+      GOARCH: amd64
+      CGO_ENABLED: "0"
+      GOTOOLCHAIN: local
+      # Fall back to the module origin on proxy transport errors and retry
+      # incomplete downloads. go.sum still verifies every fetched module.
+      GOPROXY: https://proxy.golang.org|direct
+    steps:
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          # The built-in cache keys off a go.sum in this repository, and there is
+          # none: the cores are cloned inside the job. Cached below instead.
+          cache: false
+
+      - name: Cache Go modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/go/pkg/mod
+          # Keyed by the pins themselves: the module graph can only change when
+          # one of them does, so the cache is never stale and never silently wrong.
+          key: go-mod-${{ env.CORE_SHA }}-${{ env.XRAY_SHA }}
+
+      - name: Build the sing-box core from source
+        run: |
+          set -euo pipefail
+          # Pin to an exact commit: git tags are movable. The binary ships in the
+          # signed installer and runs under LocalSystem - supply chain is critical.
+          echo "Cloning ninety-core $CORE_TAG…"
+          git clone --depth 1 --branch "$CORE_TAG" "$CORE_REPO" core
+          head="$(git -C core rev-parse HEAD)"
+          if [ "$head" != "$CORE_SHA" ]; then
+            echo "ninety-core $CORE_TAG = $head, expected $CORE_SHA (tag moved?)" >&2
+            exit 1
+          fi
+          echo "Verified ninety-core commit $head."
+          mkdir -p binaries
+          cd core
+          for attempt in 1 2 3; do
+            if go build -trimpath -tags "$BUILD_TAGS" \
+                 -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" \
+                 -o sing-box.exe ./cmd/sing-box; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then echo "go build failed after 3 attempts" >&2; exit 1; fi
+            sleep $((15 * attempt))
+          done
+          cp sing-box.exe ../binaries/sing-box-x86_64-pc-windows-msvc.exe
+          echo "Built ninety-core $CORE_TAG ($(du -m sing-box.exe | cut -f1) MB)."
+
+      - name: Build xray-core from source (xhttp bridge)
+        run: |
+          set -euo pipefail
+          # xhttp nodes go through xray-core, the reference implementation of that
+          # transport (two-core: sing-box -> loopback socks bridge -> xray). Pure
+          # Go, static, no cronet. XTLS marks every 26.x as a prerelease; this is
+          # the tag we build and audit, not whatever "latest" resolves to.
+          echo "Cloning Xray-core $XRAY_TAG…"
+          git clone --depth 1 --branch "$XRAY_TAG" "$XRAY_REPO" xray-core
+          head="$(git -C xray-core rev-parse HEAD)"
+          if [ "$head" != "$XRAY_SHA" ]; then
+            echo "Xray-core $XRAY_TAG = $head, expected $XRAY_SHA (tag moved?)" >&2
+            exit 1
+          fi
+          echo "Verified Xray-core commit $head."
+          cd xray-core
+          # Only what this snapshot still ships behind a fixed version. The rest of
+          # the list this used to carry is now newer upstream than the pins were,
+          # so re-applying it would downgrade. Mirrored in security.yml, where the
+          # resulting binary is audited.
+          go get github.com/klauspost/compress@v1.18.7
+          go mod tidy
+          for attempt in 1 2 3; do
+            if go build -trimpath -ldflags "-s -w -buildid=" -o xray.exe ./main; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then echo "xray build failed after 3 attempts" >&2; exit 1; fi
+            sleep $((15 * attempt))
+          done
+          cp xray.exe ../binaries/xray-x86_64-pc-windows-msvc.exe
+          echo "Built Xray-core $XRAY_TAG ($(du -m xray.exe | cut -f1) MB)."
+
+      - name: Upload engine binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: engines
+          path: binaries
+          retention-days: 1
+
   build-windows:
+    needs: build-cores
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,12 +152,6 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: '1.26'
-          cache: false
-
       - name: Install npm deps
         run: npm ci --no-audit --no-fund
 
@@ -66,9 +166,6 @@ jobs:
 
       - name: Lint frontend
         run: npm run lint
-
-      - name: Test frontend
-        run: npm test
 
       - name: Test selected-module coverage
         run: npm run test:coverage
@@ -102,43 +199,11 @@ jobs:
       - name: Clippy Rust
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
-      - name: Build the sing-box core from source
-        shell: pwsh
-        run: |
-          $tag = "v1.13.16-ninety.1"
-          # Pin to an exact commit: git tags are movable. The binary ships in the
-          # signed installer and runs under LocalSystem — supply chain is critical.
-          # If the tag moves, the SHA mismatch fails the build.
-          $pinnedSha = "55815e1339ff2f858ad43e847a223341aab07dd7"
-          $tags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,badlinkname,tfogo_checklinkname0,with_grpc"
-          Write-Host "Cloning ninety-core $tag…"
-          git clone --depth 1 --branch $tag https://github.com/pathetixx/ninety-core.git core
-          if (-not $?) { Write-Error "git clone failed"; exit 1 }
-          Push-Location core
-          $head = (git rev-parse HEAD).Trim()
-          if ($head -ne $pinnedSha) { Write-Error "ninety-core $tag = $head, expected $pinnedSha (tag moved?)"; exit 1 }
-          Write-Host "Verified ninety-core commit $head."
-          $env:GOTOOLCHAIN = "local"
-          $env:CGO_ENABLED = "0"
-          # Fall back to the module origin on proxy transport errors and retry
-          # incomplete downloads. go.sum still verifies every fetched module.
-          $env:GOPROXY = "https://proxy.golang.org|direct"
-          $built = $false
-          for ($attempt = 1; $attempt -le 3; $attempt++) {
-            go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o sing-box.exe ./cmd/sing-box
-            if ($LASTEXITCODE -eq 0) { $built = $true; break }
-            if ($attempt -lt 3) {
-              $delay = 15 * $attempt
-              Write-Warning "go build failed on attempt $attempt; retrying in ${delay}s…"
-              Start-Sleep -Seconds $delay
-            }
-          }
-          if (-not $built) { Write-Error "go build failed after 3 attempts"; exit 1 }
-          Pop-Location
-          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
-          Copy-Item core/sing-box.exe "src-tauri/binaries/sing-box-x86_64-pc-windows-msvc.exe" -Force
-          $size = (Get-Item "src-tauri/binaries/sing-box-x86_64-pc-windows-msvc.exe").Length
-          Write-Host "Built ninety-core $tag ($([math]::Round($size/1MB,1)) MB)."
+      - name: Restore engine binaries
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: engines
+          path: src-tauri/binaries
 
       - name: Check generated configs against the core
         shell: pwsh
@@ -156,49 +221,6 @@ jobs:
           }
           if ($failed.Count -gt 0) { Write-Error "core rejected: $($failed -join ', ')"; exit 1 }
           Write-Host "Core accepted all $((Get-ChildItem sample-configs -Filter *.json).Count) sample configs."
-
-      - name: Build xray-core from source (xhttp bridge)
-        shell: pwsh
-        run: |
-          # xhttp nodes go through xray-core, the reference implementation of
-          # that transport (two-core: sing-box → loopback socks bridge → xray).
-          # Pure Go, static, no cronet. XTLS marks every 26.x as a prerelease;
-          # this is the tag we build and audit, not whatever "latest" resolves to.
-          $tag = "v26.7.28"
-          $pinnedSha = "5ca6f4b7d4dc20a881d4330e498892697627ec0c"
-          Write-Host "Cloning Xray-core $tag…"
-          git clone --depth 1 --branch $tag https://github.com/XTLS/Xray-core.git xray-core
-          if (-not $?) { Write-Error "git clone xray failed"; exit 1 }
-          Push-Location xray-core
-          $head = (git rev-parse HEAD).Trim()
-          if ($head -ne $pinnedSha) { Write-Error "Xray-core $tag = $head, expected $pinnedSha (tag moved?)"; exit 1 }
-          Write-Host "Verified Xray-core commit $head."
-          $env:GOTOOLCHAIN = "local"
-          $env:CGO_ENABLED = "0"
-          $env:GOPROXY = "https://proxy.golang.org|direct"
-          # Only what this snapshot still ships behind a fixed version. The rest
-          # of the list this used to carry is now newer upstream than the pins
-          # were, so re-applying it would downgrade. Mirrored in security.yml,
-          # where the resulting binary is audited.
-          go get github.com/klauspost/compress@v1.18.7
-          if ($LASTEXITCODE -ne 0) { Write-Error "xray dependency security patch failed"; exit 1 }
-          go mod tidy
-          if ($LASTEXITCODE -ne 0) { Write-Error "xray go mod tidy failed after dependency security patch"; exit 1 }
-          $built = $false
-          for ($attempt = 1; $attempt -le 3; $attempt++) {
-            go build -trimpath -ldflags "-s -w -buildid=" -o xray.exe ./main
-            if ($LASTEXITCODE -eq 0) { $built = $true; break }
-            if ($attempt -lt 3) {
-              $delay = 15 * $attempt
-              Write-Warning "xray build failed on attempt $attempt; retrying in ${delay}s…"
-              Start-Sleep -Seconds $delay
-            }
-          }
-          if (-not $built) { Write-Error "xray build failed after 3 attempts"; exit 1 }
-          Pop-Location
-          Copy-Item xray-core/xray.exe "src-tauri/binaries/xray-x86_64-pc-windows-msvc.exe" -Force
-          $size = (Get-Item "src-tauri/binaries/xray-x86_64-pc-windows-msvc.exe").Length
-          Write-Host "Built Xray-core $tag ($([math]::Round($size/1MB,1)) MB)."
 
       - name: Download wintun.dll
         shell: pwsh
