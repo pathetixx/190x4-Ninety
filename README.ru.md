@@ -142,7 +142,7 @@ npm run tauri dev
 npm run tauri build
 ```
 
-Необходимые движки — `sing-box`, `xray-core`, NaiveProxy и TrustTunnel — вместе с `wintun.dll` загружаются во время работы CI. Настройка находится в [`.github/workflows/build.yml`](./.github/workflows/build.yml).
+`sing-box` и `xray-core` CI собирает из исходников по закреплённым тегу и коммиту, а NaiveProxy, TrustTunnel и `wintun.dll` скачивает по закреплённым версии и SHA-256. Настройка находится в [`.github/workflows/build.yml`](./.github/workflows/build.yml).
 
 Для обычных проверок во время разработки:
 

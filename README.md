@@ -143,7 +143,7 @@ npm run tauri dev
 npm run tauri build
 ```
 
-CI downloads the required engines — `sing-box`, `xray-core`, NaiveProxy and TrustTunnel — along with `wintun.dll`. The setup is defined in [`.github/workflows/build.yml`](./.github/workflows/build.yml).
+CI builds `sing-box` and `xray-core` from source at a pinned tag and commit, and downloads NaiveProxy, TrustTunnel and `wintun.dll` at a pinned version and SHA-256. The setup is defined in [`.github/workflows/build.yml`](./.github/workflows/build.yml).
 
 For day-to-day development checks:
 
