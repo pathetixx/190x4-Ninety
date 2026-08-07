@@ -157,7 +157,7 @@ jobs:
           if ($failed.Count -gt 0) { Write-Error "core rejected: $($failed -join ', ')"; exit 1 }
           Write-Host "Core accepted all $((Get-ChildItem sample-configs -Filter *.json).Count) sample configs."
 
-      - name: Build xray-core from source (two-core — xhttp)
+      - name: Build xray-core from source (xhttp bridge)
         shell: pwsh
         run: |
           # xhttp nodes go through xray-core, the reference implementation of
