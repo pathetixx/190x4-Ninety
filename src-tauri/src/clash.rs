@@ -365,12 +365,12 @@ pub async fn clash_get_connections(
                     })
                     .unwrap_or_default()
             };
-            // Имя процесса. Форк (hiddify-sing-box v1.13.0.h5) НЕ эмитит поле
+            // Имя процесса. Ядро НЕ эмитит поле
             // metadata.process — в clashapi/trafficontrol/tracker.go::MarshalJSON
             // отдаётся ТОЛЬКО processPath (полный путь к exe). Поэтому имя выводим
-            // как basename пути (как Throne/metacubexd): C:\...\AyuGram.exe →
+            // как basename пути: C:\...\AyuGram.exe →
             // "AyuGram.exe". На Windows processPath = чистый путь (ConnectionOwner
-            // UserId=-1, без " (user)"-суффикса). Если форк когда-нибудь начнёт
+            // UserId=-1, без " (user)"-суффикса). Если ядро когда-нибудь начнёт
             // слать process — берём его. rsplit по обоим разделителям — не зависит
             // от платформы сборки.
             let process_path = field("processPath");

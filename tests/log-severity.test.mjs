@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { classifyEngineLogSeverity, healthProbeNodeTag, isGeoLookupNoise } from "../src/lib/log-severity.js";
 
-test("гео-пробы hiddify опознаются как чужая телеметрия", () => {
+test("гео-пробы прежнего ядра опознаются как чужая телеметрия", () => {
   assert.equal(
     isGeoLookupNoise("monitoring: Failed try 2 to get IP info: https://example.invalid non-200 response: 429"),
     true,

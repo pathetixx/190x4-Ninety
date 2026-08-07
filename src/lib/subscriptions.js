@@ -24,7 +24,7 @@ const REFRESH_ALL_CONCURRENCY = 3;
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-// ── base64 detection (Hiddify-style: try-and-see) ──────────
+// ── base64 detection (try-and-see) ─────────────────────────
 // Никаких regex-проверок «похоже на base64». Просто пытаемся decode —
 // если успешно и есть осмысленные ссылки, берём декод; иначе оригинал.
 const KNOWN_PROTO_RE = /vless:\/\/|vmess:\/\/|trojan:\/\/|ss:\/\/|hysteria2?:\/\/|hy2:\/\/|tuic:\/\/|tt:\/\/|naive\+[a-z]+:\/\//i;
@@ -38,7 +38,7 @@ function looksLikeTrustTunnelToml(s) {
 
 /**
  * Парсит тело подписки в массив vless-профилей.
- * Hiddify подход: decode base64 → если содержит протоколы, используем декод.
+ * Подход: decode base64 → если содержит протоколы, используем декод.
  * Поддерживает: plain newline-список, base64-encoded список.
  */
 export function parseSubscriptionBody(body) {
@@ -65,7 +65,7 @@ export function parseSubscriptionBody(body) {
   return profiles;
 }
 
-// ── Hiddify-style LinkParser: распознаёт что юзер вставил ──
+// ── LinkParser: распознаёт что юзер вставил ────────────────
 //   { kind: "url", url }              — подписка по http(s) URL
 //   { kind: "config", content }       — одиночная vless:// ссылка
 //   { kind: "list", content }         — несколько vless:// (raw или base64)
@@ -81,7 +81,7 @@ export function detectAddInput(raw) {
     return { kind: "config", content: s };
   }
 
-  // Hiddify-style deeplink: hiddify://import/<url> или ?url=
+  // Deeplink чужих клиентов: <схема>://import/<url> или ?url=
   const dl = s.match(/^(?:hiddify|v2ray|v2rayn|v2rayng|clash|clashmeta|sing-box):\/\/(.+)$/i);
   if (dl) {
     const rest = dl[1];

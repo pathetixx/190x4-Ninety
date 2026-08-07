@@ -1,5 +1,4 @@
 // Ninety · sing-box 1.13.x config builder
-// Архитектура — зеркало Hiddify HiddifyOptions → builder.go.
 // Protocol parsers живут в protocol-parsers.js; здесь builder + storage-фасад.
 
 import { DEFAULT_OPTIONS } from "/lib/options.js";
@@ -206,7 +205,7 @@ function buildTransport(p) {
           if (ex && typeof ex === "object") mergeXhttpExtra(t, ex);
         } catch { /* битый extra — игнорируем, базовых полей достаточно */ }
       }
-      // hiddify-sing-box требует непустой mode, иначе падает весь конфиг
+      // Ядро требует непустой mode, иначе падает весь конфиг
       // ("mode is not set" на этапе загрузки). auto — безопасный дефолт.
       if (!t.mode) t.mode = "auto";
       return t;
@@ -226,7 +225,7 @@ function applyMux(out, options) {
   };
 }
 
-// TLS-фрагментация + tls_tricks форка hiddify-sing-box (v1.13.0.h5).
+// TLS-фрагментация + tls_tricks.
 // ВАЖНО: upstream 1.12 убрал experimental.tls_tricks и перенёс эти трюки в
 // per-outbound tls{}: fragment / record_fragment / fragment_fallback_delay +
 // tls.tls_tricks{ mixedcase_sni, padding_size }. Парсер 1.12+ строгий — любое
@@ -638,7 +637,6 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
   // всех мостов (xray, naive, trusttunnel_client — каждый сам дозванивается до
   // реального сервера) петлял бы обратно в TUN-интерфейс: коннект к endpoint'у
   // ловит TUN → final:proxy → socks-мост → снова тот же клиент, рекурсия.
-  // Аналог Hiddify tunnel_service.go:80-95.
   // В proxy/systemProxy это bypass-правило не нужно: свой трафик Ninety туда не
   // петляет (no_proxy reqwest + нет auto_route, перехватывающего всё), поэтому
   // добавляем только в TUN. ВАЖНО: сам process-матчинг работает во ВСЕХ режимах
@@ -726,7 +724,7 @@ function buildInbounds(mode, options) {
         // нативный IPv6-трафик уходил мимо туннеля физическим интерфейсом —
         // приложения со своим резолвером (Chromium/Electron с DoH получают AAAA
         // в обход hijack-dns) утекали с реальным адресом даже в TUN. ULA-префикс,
-        // как в hiddify/Throne: в публичную маршрутизацию не попадает.
+        // в публичную маршрутизацию не попадает.
         address: ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
         mtu: options.inbound.mtu || 9000,
         auto_route: true,
@@ -803,9 +801,9 @@ function buildWarpEndpoint(warpOpts, warpInfo) {
     ],
   };
 
-  // AmneziaWG обфускация (hiddify/wireguard-go fork). Поле noise.fake_packet
+  // AmneziaWG-обфускация. Поле noise.fake_packet
   // вписывается прямо в WG-endpoint sing-box форка (см. hsb/option/wireguard.go).
-  // Range сериализуется как "from-to" string (Range.MarshalJSON в hiddify/wireguard-go).
+  // Range сериализуется как "from-to" string (Range.MarshalJSON в ядре).
   const noisePreset = warpOpts.noisePreset || "off";
   let noise = WARP_NOISE_PRESETS[noisePreset];
   if (noisePreset === "custom") {
@@ -1063,7 +1061,7 @@ export function buildConfig({
   };
 
   // URL/интервал теста соединения — из настроек (ключи connectionTestUrl/intervalSec,
-  // ровно как у Hiddify). Раньше buildConfig читал несуществующие url/interval и
+  // Раньше buildConfig читал несуществующие url/interval и
   // конфиг юзера игнорировался.
   const testUrl = opts.urlTest?.connectionTestUrl || "https://www.gstatic.com/generate_204";
   const intervalSec = Number(opts.urlTest?.intervalSec) > 0 ? Number(opts.urlTest.intervalSec) : 600;
@@ -1153,7 +1151,7 @@ export function buildConfig({
       { type: "direct", tag: "direct" },
     ];
   } else if (useUrltest) {
-    // Hiddify-схема (builder.go:269-301): "Auto" — это НЕ URLTest, а Balancer
+    // "Auto" — это НЕ URLTest, а Balancer
     // со strategy=lowest-delay. Balancer на каждом новом connection выбирает
     // outbound с минимальным delay из monitoring + interrupt_exist_connections
     // обрывает старые соединения когда лидер меняется → реальное "live"
@@ -1190,7 +1188,7 @@ export function buildConfig({
       default: "auto",
       // Главный фикс hot-switch: с false старые соединения держатся
       // на прошлом outbound — браузер качает страницу через старый сервер
-      // даже после переключения. Hiddify ставит true для всех селекторов.
+      // даже после переключения. Поэтому true для всех селекторов.
       interrupt_exist_connections: true,
     };
     outbounds = [
@@ -1248,7 +1246,7 @@ export function buildConfig({
   // Unified delay: ядро делает второй замер по уже поднятому соединению и отдаёт
   // чистый RTT без TCP/TLS-хендшейка. Без него пинг для VLESS+Reality раздут в
   // 2-3 раза. Глобальный флаг — влияет и на UI-пинг (urltest history + ручной
-  // /delay), и на balancer "auto". Точно как в Hiddify (box.go:144).
+  // /delay), и на balancer "auto".
   config.experimental.unified_delay = { enabled: true };
 
   if (!runtime.strictPrivacy) {
@@ -1256,7 +1254,6 @@ export function buildConfig({
     // задержки. При ошибке дозвона balancer зовёт InvalidateTest → priority
     // ре-тест → мгновенное переключение на живой сервер (фейловер по таймауту).
     // В строгом runtime он не нужен: outbound закреплён, фоновый scoring отключён.
-    // URL-список и debounce — как в Hiddify (builder.go:382-413).
     config.experimental.monitoring = {
       urls: [...new Set([
         testUrl,
@@ -1271,7 +1268,7 @@ export function buildConfig({
   }
 
   // TLS-tricks (фрагментация/padding/mixedcase) более НЕ пишутся глобально:
-  // в hiddify-sing-box v1.13.0.h5 experimental.tls_tricks удалён. Теперь они
+  // experimental.tls_tricks в ядре нет. Теперь они
   // применяются per-outbound в applyTlsTricks() при сборке прокси-outbound.
 
   validateConfigReferences(config);
@@ -1438,11 +1435,11 @@ export function updateProfile(id, patch) {
   return list[idx];
 }
 
-// 3 режима как у Hiddify (ServiceMode enum):
+// 3 режима:
 //   proxy       — sing-box локально на 127.0.0.1:mixedPort, системный прокси НЕ
 //                 трогаем. Юзер сам направляет браузер/приложения в SOCKS+HTTP.
 //   systemProxy — sing-box + автоматически выставляем HKCU Internet Settings.
-//                 Это default на desktop (как у Hiddify).
+//                 Это default на desktop.
 //   tun         — TUN intercept всего трафика. sing-box поднимает TUN-интерфейс
 //                 как наш child (Ninety запущен от админа, Throne-style).
 //

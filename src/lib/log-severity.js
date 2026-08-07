@@ -6,7 +6,7 @@
 // отдаёт его как есть.
 const NODE_PROBE_RE = /^(?:monitoring:\s*)?outbound\s+(\S+)\s+URL test\b/i;
 
-// Health-модуль hiddify-форка ходит за внешним IP и страной к своим публичным
+// Health-модуль прежнего ядра ходил за внешним IP и страной к сторонним публичным
 // провайдерам (api.country.is, myip.expert, ipapi.co). Ninety этот результат не
 // использует — IP, страну и ASN отдаёт собственный fetch_public_ip (clash.rs) со
 // своим пулом. То есть в журнале это чужая телеметрия: её 429 (free-tier лимит),

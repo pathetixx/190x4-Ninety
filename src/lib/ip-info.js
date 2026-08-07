@@ -14,7 +14,7 @@ export async function fetchPublicIp({ proxyHostPort } = {}) {
   return info;
 }
 
-// 1.2.3.4 → 1.2.*.* (Hiddify-style маскировка)
+// 1.2.3.4 → 1.2.*.* (маскируем два последних октета)
 export function maskIp(ip) {
   if (!ip || typeof ip !== "string") return "—";
   if (ip.includes(":")) {

@@ -139,7 +139,7 @@ async fn tcp_ping(addr: SocketAddr, timeout: Duration) -> Option<u64> {
 //
 // reserved-bytes: для оригинального WG там [0,0,0] (часть LE-кодирования
 // message_type=1). CF использует их как routing key для multi-tenant. См.
-// hiddify/wireguard-go field Reserved [3]byte.
+// поле Reserved [3]byte в wireguard-go.
 
 use boringtun::noise::{Tunn, TunnResult};
 use boringtun::x25519::{PublicKey, StaticSecret};

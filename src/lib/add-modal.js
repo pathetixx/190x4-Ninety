@@ -1,5 +1,5 @@
 // Ninety · Add Profile Modal controller
-// Hiddify-style: единый flow для clipboard / URL / vless://.
+// Единый flow для clipboard / URL / vless://.
 
 import { detectAddInput, addSubscriptionFromUrl, parseSubscriptionBody } from "/lib/subscriptions.js";
 import { addProfileFromVless, addTrustTunnelFromToml } from "/lib/singbox.js";

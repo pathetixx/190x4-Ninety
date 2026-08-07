@@ -16,7 +16,7 @@ export function safeAtob(s) {
   } catch { return ""; }
 }
 
-// Hiddify-style: пробуем decode как base64/base64url; если не вышло — пусто.
+// Пробуем decode как base64/base64url; если не вышло — пусто.
 export function safeDecodeBase64(s) {
   try {
     const bin = safeAtob(s);

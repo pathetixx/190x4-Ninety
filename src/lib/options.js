@@ -1,4 +1,4 @@
-// Ninety · BuildOptions — зеркало HiddifyOptions
+// Ninety · BuildOptions — пользовательские настройки, из которых собирается конфиг ядра.
 // Все настройки пользователя в одном объекте, сохраняется в localStorage.
 
 import { perfObserver } from "/lib/performance-observer.js";

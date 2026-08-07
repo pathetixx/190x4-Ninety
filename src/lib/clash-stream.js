@@ -12,7 +12,7 @@ const invoke = window.__TAURI__?.core?.invoke
 const eventApi = window.__TAURI__?.event;
 
 const DEFAULT_PORT = 9090;
-const PING_POLL_MS = 3000;          // как в Hiddify — частый поллинг свежего delay
+const PING_POLL_MS = 3000;          // частый поллинг: пинг в UI должен быть свежим
 const DEAD_RETEST_MS = 4000;        // мёртвый/0 замер — оживляем тёплым тестом часто
 const WARM_REFRESH_MS = 10000;      // живой замер — периодически освежаем (auto-refresh)
 

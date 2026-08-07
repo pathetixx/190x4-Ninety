@@ -1,4 +1,4 @@
-// Ninety · Settings view — разделы навигатором, как в Hiddify.
+// Ninety · Settings view — разделы навигатором.
 // Не SPA-роутер: внутренний state хранится в this view (sectionKey).
 
 import {
@@ -249,7 +249,7 @@ export function mountSettings(root, opts = {}) {
     el.querySelectorAll("[data-action='check-updates']").forEach(btn => {
       btn.addEventListener("click", () => window.__ninetyUpdateCheck?.());
     });
-    // Строка-настройка с тумблером кликабельна целиком (как в Hiddify), не
+    // Строка-настройка с тумблером кликабельна целиком, не
     // только сам тумблер. Только там, где тумблер — единственный контрол.
     el.querySelectorAll(".set-row").forEach(rowEl => {
       const sw = rowEl.querySelector(".switch");

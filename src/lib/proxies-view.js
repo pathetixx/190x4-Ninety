@@ -1,4 +1,4 @@
-// Ninety · Proxies view — Hiddify-style: SVG-флаги, авто-сортировка по пингу,
+// Ninety · Proxies view — SVG-флаги, авто-сортировка по пингу,
 // клик-выбор через Selector, AUTO-режим сверху, FAB-молния перетеста.
 
 import {
@@ -98,11 +98,11 @@ export function nodesFromSource() {
   const src = getActiveSource();
   if (!src) return [];
   const raw = src.kind === "sub" ? src.nodes : [src.profile];
-  // С форком hiddify-sing-box xhttp поддерживается — больше не фильтруем.
-  const filtered = raw;
-  return filtered.map((n, i) => ({
+  // Ноды не фильтруем: транспорты, которых ядро не умеет само, приложение
+  // обслуживает отдельным ядром на локальном мосту — в списке они полноценны.
+  return raw.map((n, i) => ({
     ...n,
-    clashTag: filtered.length >= 2 ? nodeTag(i, n) : "proxy",
+    clashTag: raw.length >= 2 ? nodeTag(i, n) : "proxy",
   }));
 }
 

@@ -281,7 +281,7 @@ fillAppVersion();
 initTitlebar(tauriWin);
 const { closeAll: closeAllPopovers } = initPopovers();
 
-// ── Mode segmented (3 режима как у Hiddify) ─────────────────
+// ── Mode segmented (3 режима) ───────────────────────────────
 const modeSeg = document.getElementById("mode-seg");
 const modeHint = document.getElementById("mode-hint");
 const warpSwitch = document.getElementById("warp-switch");
@@ -480,7 +480,7 @@ async function ensureElevatedForDpi() {
   }
 }
 
-// ── Add Profile Modal — Hiddify-style ──────────────────────
+// ── Add Profile Modal ──────────────────────────────────────
 const profilesSummary = document.getElementById("profiles-summary");
 
 mountAddModal({
@@ -648,7 +648,7 @@ navItems.forEach((item) => {
   item.addEventListener("click", () => switchView(item.dataset.view));
 });
 
-// Карточка активной подписки на главной → открыть «Профили» (как в hiddify):
+// Карточка активной подписки на главной → открыть «Профили»:
 // явная кнопка-шеврон + клик/Enter по самой карточке.
 const subCardEl = document.querySelector(".sub-card");
 const subOpenBtn = document.getElementById("sub-open-profiles");
@@ -1981,7 +1981,7 @@ document.getElementById("onboarding-screen")?.addEventListener("click", async (e
     openAddModal();
   }
 });
-// ── Онбординг · пикеры язык/регион/тема (Hiddify-style welcome) ──────────────
+// ── Онбординг · пикеры язык/регион/тема ─────────────────────────────────────
 // Подписи локализованы (t / availableLangs), тема и регион применяются сразу.
 function populateOnbPrefs() {
   const langSel = document.getElementById("onb-lang");
@@ -2233,7 +2233,7 @@ profilesView?.addEventListener("click", async (e) => {
     return;
   }
 
-  // Клик по телу карточки → активация (Hiddify-стиль)
+  // Клик по телу карточки → активация
   const subActivate = e.target.closest("[data-sub-activate]");
   if (subActivate) {
     activateSource("sub", subActivate.dataset.subActivate);
@@ -2790,7 +2790,7 @@ telePing?.addEventListener("click", async () => {
   telePing.dataset.testing = "true";
   if (statsPing) statsPing.textContent = "···";
   try {
-    // Hiddify-style: клик = тест URLTest-ГРУППЫ (как urlTest("")), а не одиночный
+    // Клик = тест URLTest-ГРУППЫ (как urlTest("")), а не одиночный
     // /proxies/{name}/delay. Число читается из history эффективной ноды → совпадает
     // со списком нод. Подробности в refreshEffectiveDelay.
     const { delay } = await refreshEffectiveDelay({ timeoutMs: 5000, token });

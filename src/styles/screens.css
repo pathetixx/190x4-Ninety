@@ -598,7 +598,7 @@
 }
 .onb__cta { display: flex; gap: 10px; margin-top: 6px; }
 
-/* Welcome · быстрые пикеры язык/регион/тема (Hiddify-style) */
+/* Welcome · быстрые пикеры язык/регион/тема */
 .onb-prefs {
   width: 100%;
   max-width: 380px;
