@@ -7,7 +7,6 @@ import { t } from "/lib/i18n/index.js";
 import { uid } from "/lib/uid.js";
 import { hashRuntimeValue, stableNodeId } from "/lib/runtime-identity.js";
 import {
-  createStrictPrivacyPolicy,
   resolveRuntimePrivacyPolicy,
   selectStrictPrivacyCandidate,
   StrictPrivacyPolicyError,
@@ -1287,15 +1286,6 @@ export function buildConfig({
       options: opts,
     },
   };
-}
-
-// Явный API для будущего переключателя. selectedNodeTag обязателен для
-// multi-node подписки; builder не создаёт Auto и не выбирает ноду молча.
-export function buildStrictPrivacyConfig({ selectedNodeTag = null, ...args }) {
-  return buildConfig({
-    ...args,
-    runtimePolicy: createStrictPrivacyPolicy({ selectedNodeTag }),
-  });
 }
 
 // Semantic guard поверх JSON-схемы: sing-box принимает ссылки на теги строками,

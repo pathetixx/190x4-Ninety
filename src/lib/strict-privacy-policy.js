@@ -1,9 +1,10 @@
 // Ninety · строгая runtime-политика приватности.
 //
 // Модуль намеренно чистый: не читает localStorage, не меняет сохранённые
-// настройки и не зависит от DOM/Tauri. UI может подготовить безопасные runtime-
-// аргументы через prepareStrictPrivacyRuntime(), а builder повторно применяет
-// ту же политику как fail-safe перед сборкой sing-box config.
+// настройки и не зависит от DOM/Tauri. UI готовит безопасные runtime-аргументы
+// через prepareStrictPrivacyRuntime(), а builder повторно применяет ту же
+// политику как fail-safe перед сборкой sing-box config — чтобы её нельзя было
+// обойти мимо UI.
 
 import { DEFAULT_OPTIONS } from "/lib/options.js";
 
@@ -97,9 +98,9 @@ export function resolveRuntimePrivacyPolicy({ mode, options, runtimePolicy } = {
   };
 }
 
-// Удобный вход для будущего UI/runtime-контроллера. Возвращённые options —
-// отдельная копия; их можно использовать не только в builder, но и в сетевых
-// действиях вокруг него (geo lookup, обновление подписки, выбор режима).
+// Вход, которым пользуется main.js при включённом строгом туннеле. Возвращённые
+// options — отдельная копия; они идут не только в builder, но и в сетевые
+// действия вокруг него (geo lookup, обновление подписки, выбор режима).
 export function prepareStrictPrivacyRuntime({ options, selectedNodeTag = null } = {}) {
   const runtimePolicy = createStrictPrivacyPolicy({ selectedNodeTag });
   const runtime = resolveRuntimePrivacyPolicy({

@@ -3,7 +3,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildConfig,
-  buildStrictPrivacyConfig,
   bridgeNeeds,
   ENGINE_PROCESS_NAMES,
   nodeTag,
@@ -11,6 +10,12 @@ import {
   validateConfigReferences,
 } from "/lib/singbox.js";
 import { DEFAULT_OPTIONS, REGIONS } from "/lib/options.js";
+import { createStrictPrivacyPolicy } from "/lib/strict-privacy-policy.js";
+
+// Строгий туннель включается ровно так же в бою: main.js готовит политику
+// через prepareStrictPrivacyRuntime и отдаёт её builder'у как runtimePolicy.
+const strictBuild = ({ selectedNodeTag = null, ...args }) =>
+  buildConfig({ ...args, runtimePolicy: createStrictPrivacyPolicy({ selectedNodeTag }) });
 
 const vlessNode = (over = {}) => ({
   ...parseVless("vless://uuid@srv.example.com:443?security=tls&sni=s.example.com"),
@@ -145,7 +150,7 @@ test("строгая приватность: TUN без direct-исключен�
   opts.inbound.strictRoute = false;
   const selectedNodeTag = nodeTag(1, nodes[1]);
 
-  const { config, runtime } = buildStrictPrivacyConfig({
+  const { config, runtime } = strictBuild({
     source: { kind: "sub", subscription: { name: "S" }, nodes },
     mode: "systemProxy",
     options: opts,
@@ -212,7 +217,7 @@ test("строгая приватность не допускает Auto или 
     vlessNode({ name: "A", host: "a.example.com" }),
     vlessNode({ name: "B", host: "b.example.com" }),
   ];
-  const build = (selectedNodeTag) => buildStrictPrivacyConfig({
+  const build = (selectedNodeTag) => strictBuild({
     source: { kind: "sub", subscription: { name: "S" }, nodes },
     mode: "tun",
     options: DEFAULT_OPTIONS,
@@ -229,7 +234,7 @@ test("строгая приватность не допускает Auto или 
     (error) => error?.code === "STRICT_PRIVACY_NODE_UNAVAILABLE",
   );
   assert.throws(
-    () => buildStrictPrivacyConfig({
+    () => strictBuild({
       source: { kind: "sub", subscription: { name: "S" }, nodes: [nodes[0]] },
       mode: "tun",
       options: DEFAULT_OPTIONS,
@@ -263,7 +268,7 @@ test("строгая приватность отклоняет hostname во в�
 
   for (const profile of unsafeNodes) {
     assert.throws(
-      () => buildStrictPrivacyConfig({
+      () => strictBuild({
         source: { kind: "single", profile },
         mode: "tun",
         options: DEFAULT_OPTIONS,
