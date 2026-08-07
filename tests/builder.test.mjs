@@ -10,7 +10,7 @@ import {
   parseVless,
   validateConfigReferences,
 } from "/lib/singbox.js";
-import { DEFAULT_OPTIONS } from "/lib/options.js";
+import { DEFAULT_OPTIONS, REGIONS } from "/lib/options.js";
 
 const vlessNode = (over = {}) => ({
   ...parseVless("vless://uuid@srv.example.com:443?security=tls&sni=s.example.com"),
@@ -526,4 +526,40 @@ test("semantic validator отклоняет ссылки на отсутству
     dns: { servers: [{ tag: "dns", type: "local" }], final: "dns", rules: [] },
   };
   assert.throws(() => validateConfigReferences(broken), /route\.final -> missing/);
+});
+
+// Страновой geosite есть не для каждого региона (см. COUNTRY_GEOSITE). Правило,
+// ссылающееся на невыпущенный rule-set, ядро не примет, поэтому проверяем
+// целостность ссылок для каждого региона, который можно выбрать в настройках.
+test("rule-set ссылки целы для всех регионов", () => {
+  for (const region of REGIONS) {
+    const { config } = buildConfig({
+      source: { kind: "single", profile: vlessNode() },
+      mode: "proxy",
+      options: { ...DEFAULT_OPTIONS, region, blockAds: true },
+    });
+    const declared = new Set((config.route.rule_set || []).map((set) => set.tag));
+    const referenced = [
+      ...(config.dns?.rules || []),
+      ...(config.route?.rules || []),
+    ].flatMap((rule) => rule.rule_set || []);
+    for (const tag of referenced) {
+      assert.ok(declared.has(tag), `${region}: правило ссылается на ${tag}, которого нет в route.rule_set`);
+    }
+  }
+});
+
+// Страновые списки берём у первоисточников. Зеркало, которое здесь стояло
+// раньше, для tr отдавало файл с доменами госсайтов РФ, а для by — 404.
+test("страновые rule-set'ы ведут на канонические источники", () => {
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "proxy",
+    options: { ...DEFAULT_OPTIONS, region: "tr" },
+  });
+  const sets = config.route.rule_set || [];
+  assert.equal(sets.some((set) => set.tag === "geosite-tr"), false);
+  const geoip = sets.find((set) => set.tag === "geoip-tr");
+  assert.ok(geoip, "geoip-tr должен выпускаться");
+  assert.match(geoip.url, /SagerNet\/sing-geoip/);
 });

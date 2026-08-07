@@ -55,18 +55,31 @@ export const ENGINE_PROCESS_NAMES = [
   "trusttunnel_client-x86_64-pc-windows-msvc.exe",
 ];
 
-const HIDDIFY_GEO_BASE = "https://raw.githubusercontent.com/hiddify/hiddify-geo/rule-set";
+// Списки правил — из первоисточников, а не из чужих зеркал.
+const GEOSITE_BASE = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set";
+const GEOIP_BASE = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set";
+// Списки вредоносного/фишинга/майнеров ведёт отдельный проект: ни в sing-geosite,
+// ни в sing-geoip таких категорий нет.
+const SECURITY_BASE = "https://raw.githubusercontent.com/Chocolate4U/Iran-sing-box-rules/rule-set";
+
 const BLOCK_AD_SETS = [
-  ["geosite-ads", `${HIDDIFY_GEO_BASE}/block/geosite-category-ads-all.srs`],
-  ["geosite-malware", `${HIDDIFY_GEO_BASE}/block/geosite-malware.srs`],
-  ["geosite-phishing", `${HIDDIFY_GEO_BASE}/block/geosite-phishing.srs`],
-  ["geosite-cryptominers", `${HIDDIFY_GEO_BASE}/block/geosite-cryptominers.srs`],
-  ["geoip-malware", `${HIDDIFY_GEO_BASE}/block/geoip-malware.srs`],
-  ["geoip-phishing", `${HIDDIFY_GEO_BASE}/block/geoip-phishing.srs`],
+  ["geosite-ads", `${GEOSITE_BASE}/geosite-category-ads-all.srs`],
+  ["geosite-malware", `${SECURITY_BASE}/geosite-malware.srs`],
+  ["geosite-phishing", `${SECURITY_BASE}/geosite-phishing.srs`],
+  ["geosite-cryptominers", `${SECURITY_BASE}/geosite-cryptominers.srs`],
+  ["geoip-malware", `${SECURITY_BASE}/geoip-malware.srs`],
+  ["geoip-phishing", `${SECURITY_BASE}/geoip-phishing.srs`],
 ];
 
-// SagerNet sing-geosite — у hiddify-geo нет geosite-discord, берём отсюда.
-const DISCORD_GEO_BASE = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set";
+// Страновой geosite существует не для каждого региона — только эти три.
+// Для остальных правило по доменам не выпускаем вовсе: маршрутизация опирается
+// на geoip. Раньше сюда подставлялось зеркало, где для tr лежал файл с доменами
+// госсайтов РФ, а для by не лежало ничего — правило молча не работало.
+const COUNTRY_GEOSITE = {
+  ru: "geosite-category-ru",
+  cn: "geosite-cn",
+  ir: "geosite-category-ir",
+};
 // Доменные суффиксы Discord — дублируют geosite-discord на случай, если правило
 // не подтянулось, и ловят по sniffed-SNI. Только домены Discord уходят в direct
 // (без IP-листа: кривой CIDR увёл бы чужой трафик мимо VPN = утечка).
@@ -408,7 +421,7 @@ function buildRuleSets(options, mode, downloadDetour = "proxy") {
   if (mode === "tun" && options.route?.tunSplitDiscord) {
     sets.push({
       type: "remote", tag: "geosite-discord", format: "binary",
-      url: `${DISCORD_GEO_BASE}/geosite-discord.srs`,
+      url: `${GEOSITE_BASE}/geosite-discord.srs`,
       update_interval: "120h", download_detour: downloadDetour,
     });
   }
@@ -416,14 +429,17 @@ function buildRuleSets(options, mode, downloadDetour = "proxy") {
   if (region && region !== "other") {
     sets.push({
       type: "remote", tag: `geoip-${region}`, format: "binary",
-      url: `${HIDDIFY_GEO_BASE}/country/geoip-${region}.srs`,
+      url: `${GEOIP_BASE}/geoip-${region}.srs`,
       update_interval: "120h", download_detour: downloadDetour,
     });
-    sets.push({
-      type: "remote", tag: `geosite-${region}`, format: "binary",
-      url: `${HIDDIFY_GEO_BASE}/country/geosite-${region}.srs`,
-      update_interval: "120h", download_detour: downloadDetour,
-    });
+    const geositeName = COUNTRY_GEOSITE[region];
+    if (geositeName) {
+      sets.push({
+        type: "remote", tag: `geosite-${region}`, format: "binary",
+        url: `${GEOSITE_BASE}/${geositeName}.srs`,
+        update_interval: "120h", download_detour: downloadDetour,
+      });
+    }
   }
   if (options.blockAds) {
     for (const [tag, url] of BLOCK_AD_SETS) {
@@ -536,11 +552,13 @@ function buildDns(options, protectedOutbound = "proxy", mode = "") {
       server: "dns-direct",
       rewrite_ttl: 86400,
     });
-    dns.rules.push({
-      rule_set: [`geosite-${options.region}`],
-      server: "dns-direct",
-      rewrite_ttl: 86400,
-    });
+    if (COUNTRY_GEOSITE[options.region]) {
+      dns.rules.push({
+        rule_set: [`geosite-${options.region}`],
+        server: "dns-direct",
+        rewrite_ttl: 86400,
+      });
+    }
   }
 
   if (options.dns.enableFakeDns && mode === "tun") {
@@ -664,7 +682,9 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
   if (options.region && options.region !== "other") {
     rules.push({ domain_suffix: [`.${options.region}`], outbound: "direct" });
     rules.push({
-      rule_set: [`geosite-${options.region}`, `geoip-${options.region}`],
+      rule_set: COUNTRY_GEOSITE[options.region]
+        ? [`geosite-${options.region}`, `geoip-${options.region}`]
+        : [`geoip-${options.region}`],
       outbound: "direct",
     });
   }
