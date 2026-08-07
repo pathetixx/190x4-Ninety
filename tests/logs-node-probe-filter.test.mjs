@@ -46,19 +46,6 @@ test("строки приложения читаются как самостоя
   ]);
 });
 
-// Тело ответа гео-провайдера («429», «404») sing-box печатает отдельной строкой,
-// и оно оставалось в журнале висеть без записи-хозяина.
-test("гео-пробы уходят из журнала вместе с телом ответа", () => {
-  const entries = parseLogEntries([
-    "+0300 2026-08-04 19:55:58 WARN monitoring: Failed try 1 to get IP info: https://myip.expert/api/ non-200 response from [https://myip.expert/api/]:",
-    "404",
-    "+0300 2026-08-04 19:55:59 INFO inbound/mixed[mixed-in]: tcp connection from 127.0.0.1",
-  ].join("\n"), null);
-  assert.deepEqual(entries.map((entry) => entry.msg), [
-    "inbound/mixed[mixed-in]: tcp connection from 127.0.0.1",
-  ]);
-});
-
 test("продолжение отброшенной записи не прилипает к соседней", () => {
   const entries = parseLogEntries([
     "+0300 2026-08-03 22:19:18 INFO router: loaded rule-set",

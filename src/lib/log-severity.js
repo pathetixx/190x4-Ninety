@@ -6,15 +6,6 @@
 // отдаёт его как есть.
 const NODE_PROBE_RE = /^(?:monitoring:\s*)?outbound\s+(\S+)\s+URL test\b/i;
 
-// Health-модуль прежнего ядра ходил за внешним IP и страной к сторонним публичным
-// провайдерам (api.country.is, myip.expert, ipapi.co). Ninety этот результат не
-// использует — IP, страну и ASN отдаёт собственный fetch_public_ip (clash.rs) со
-// своим пулом. То есть в журнале это чужая телеметрия: её 429 (free-tier лимит),
-// 404 и EOF ни на что не влияют, но идут пачками по числу провайдеров и попыток,
-// да ещё и с телом ответа на отдельной строке. Прячем весь класс целиком —
-// вместе с продолжением, иначе в журнале остаются висячие «429»/«404».
-const GEO_LOOKUP_RE = /^monitoring:\s*Failed try \d+ to get IP info:/i;
-
 // WSAECONNABORTED и его Go-эквиваленты: локальное приложение (браузер, Steam,
 // игра) закрыло сокет раньше, чем ядро дописало ответ. Инициатор — клиент на
 // этой же машине, туннель тут ни при чём, но sing-box печатает такое уровнем
@@ -23,19 +14,22 @@ const GEO_LOOKUP_RE = /^monitoring:\s*Failed try \d+ to get IP info:/i;
 // сессии, ядро перезапустилось) — понижаем до отладочного уровня.
 const LOCAL_ABORT_RE = /(aborted by the software in your host machine|use of closed network connection)/i;
 
+// Тот же случай, но Windows отдаёт другой код: приложение не «прервало», а
+// сбросило соединение (WSAECONNRESET). «remote host» в тексте — это тот же
+// 127.0.0.1, то есть локальный клиент, поэтому якорь стоит на адресе источника,
+// а не на формулировке: reset от настоящего удалённого пира обязан остаться
+// ошибкой.
+const LOOPBACK_RESET_RE = /^inbound\/\S+:\s*process connection from 127\.0\.0\.1:\d+:.*forcibly closed by the remote host/i;
+
 export function healthProbeNodeTag(message) {
   const match = NODE_PROBE_RE.exec(String(message || "").trim());
   return match ? match[1] : null;
 }
 
-export function isGeoLookupNoise(message) {
-  return GEO_LOOKUP_RE.test(String(message || "").trim());
-}
-
 export function classifyEngineLogSeverity(level, message) {
   const normalizedLevel = String(level || "").toUpperCase();
   const text = String(message || "");
-  if (LOCAL_ABORT_RE.test(text)) {
+  if (LOCAL_ABORT_RE.test(text) || LOOPBACK_RESET_RE.test(text)) {
     return { level: "DEBUG", grade: "ok", nonFatal: true };
   }
   const grade = normalizedLevel === "ERROR" || normalizedLevel === "FATAL" || normalizedLevel === "PANIC"

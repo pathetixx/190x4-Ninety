@@ -1,19 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyEngineLogSeverity, healthProbeNodeTag, isGeoLookupNoise } from "../src/lib/log-severity.js";
-
-test("гео-пробы прежнего ядра опознаются как чужая телеметрия", () => {
-  assert.equal(
-    isGeoLookupNoise("monitoring: Failed try 2 to get IP info: https://example.invalid non-200 response: 429"),
-    true,
-  );
-  assert.equal(
-    isGeoLookupNoise('monitoring: Failed try 0 to get IP info: https://api.country.is/ Get "https://api.country.is/": EOF'),
-    true,
-  );
-  assert.equal(isGeoLookupNoise("monitoring: outbound node-aaa URL test failed: i/o timeout"), false);
-  assert.equal(isGeoLookupNoise(""), false);
-});
+import { classifyEngineLogSeverity, healthProbeNodeTag } from "../src/lib/log-severity.js";
 
 test("обрыв локального клиента не считается ошибкой туннеля", () => {
   assert.deepEqual(
@@ -26,6 +13,22 @@ test("обрыв локального клиента не считается о�
   assert.deepEqual(
     classifyEngineLogSeverity("ERROR", "connection: use of closed network connection"),
     { level: "DEBUG", grade: "ok", nonFatal: true },
+  );
+  // WSAECONNRESET от локального клиента: «remote host» здесь — сам 127.0.0.1.
+  assert.deepEqual(
+    classifyEngineLogSeverity(
+      "ERROR",
+      "inbound/mixed[mixed-in]: process connection from 127.0.0.1:55975: write tcp 127.0.0.1:7890->127.0.0.1:55975: wsasend: An existing connection was forcibly closed by the remote host.",
+    ),
+    { level: "DEBUG", grade: "ok", nonFatal: true },
+  );
+  // А вот тот же reset от настоящего удалённого пира обязан остаться ошибкой.
+  assert.equal(
+    classifyEngineLogSeverity(
+      "ERROR",
+      "connection: open connection to example.com:443 using outbound/vless[node-a]: read tcp 192.168.3.2:51000->185.215.186.126:443: wsarecv: An existing connection was forcibly closed by the remote host.",
+    ).grade,
+    "err",
   );
 });
 
