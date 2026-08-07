@@ -409,9 +409,9 @@ export function onProxiesViewEnter() {
   pollTimer = setInterval(refresh, POLL_MS);
 }
 
-// Если active = "auto" но monitoring ещё пустой — Balancer "auto" не знает
-// delay'ев и фолбэчится к первой ноде. Форсим URLTest "lowest" (он наполняет
-// monitoring) — после первого теста Balancer возьмёт реального лидера.
+// Если active = "auto", но замеров ещё нет — Balancer не знает задержек и
+// остаётся на первой ноде. Форсим URLTest "lowest" (он наполняет общую историю
+// замеров) — после первого прохода Balancer возьмёт реального лидера.
 async function kickstartAutoIfNeeded() {
   if (strictPrivacyEnabled()) return;
   const data = lastClashSnapshot;

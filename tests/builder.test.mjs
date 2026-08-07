@@ -180,7 +180,6 @@ test("строгая приватность: TUN без direct-исключен�
   assert.equal(config.outbounds[0].server, "b.example.com");
   assert.equal(config.outbounds[0].domain_resolver, "dns-direct");
   assert.equal(config.endpoints, undefined, "WARP не должен попасть в строгий runtime");
-  assert.equal(config.experimental.monitoring, undefined, "фоновый scoring ноды отключён");
 
   const directRules = config.route.rules.filter((rule) =>
     rule.outbound === "direct"

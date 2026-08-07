@@ -1151,13 +1151,12 @@ export function buildConfig({
       { type: "direct", tag: "direct" },
     ];
   } else if (useUrltest) {
-    // "Auto" — это НЕ URLTest, а Balancer
-    // со strategy=lowest-delay. Balancer на каждом новом connection выбирает
-    // outbound с минимальным delay из monitoring + interrupt_exist_connections
-    // обрывает старые соединения когда лидер меняется → реальное "live"
-    // переключение. URLTest рядом нужен ТОЛЬКО для health-чека: он сам тестит
-    // каждые N минут и наполняет monitoring, который читает Balancer.
-    // Без URLTest balancer не знает delay'ев и фолбэчится к первой ноде.
+    // "Auto" — это НЕ URLTest, а Balancer со strategy=lowest-delay. Он выбирает
+    // outbound с минимальной задержкой, а interrupt_exist_connections обрывает
+    // старые соединения при смене лидера → реальное "live" переключение.
+    // Сам он ничего не измеряет: задержки берёт из общей URLTest-истории,
+    // которую наполняет health-чекер "lowest" рядом. Без него balancer не знает
+    // задержек и остаётся на первой ноде.
     const nodeTags = vlessOutbounds.map(o => o.tag);
 
     // Health-checker (скрыт из proxies UI, юзер про него не знает).
@@ -1178,7 +1177,6 @@ export function buildConfig({
       tag: "auto",
       outbounds: nodeTags,
       strategy: "lowest-delay",
-      delay_acceptable_ratio: 2,
       interrupt_exist_connections: true,
     };
     const selector = {
@@ -1248,24 +1246,6 @@ export function buildConfig({
   // 2-3 раза. Глобальный флаг — влияет и на UI-пинг (urltest history + ручной
   // /delay), и на balancer "auto".
   config.experimental.unified_delay = { enabled: true };
-
-  if (!runtime.strictPrivacy) {
-    // Monitoring: активный health-чек, из которого balancer "auto" берёт живые
-    // задержки. При ошибке дозвона balancer зовёт InvalidateTest → priority
-    // ре-тест → мгновенное переключение на живой сервер (фейловер по таймауту).
-    // В строгом runtime он не нужен: outbound закреплён, фоновый scoring отключён.
-    config.experimental.monitoring = {
-      urls: [...new Set([
-        testUrl,
-        "https://www.google.com/generate_204",
-        "http://captive.apple.com/generate_204",
-        "https://cp.cloudflare.com",
-      ])],
-      interval: testInterval,
-      debounce_window: "500ms",
-      idle_timeout: `${intervalSec * 3}s`,
-    };
-  }
 
   // TLS-tricks (фрагментация/padding/mixedcase) более НЕ пишутся глобально:
   // experimental.tls_tricks в ядре нет. Теперь они
