@@ -4,7 +4,7 @@
 // версия всё равно берётся из рантайма (__TAURI__.app.getVersion), а паспорт
 // показывает «—»/«local», чтобы не врать фиктивными значениями.
 export const BUILD_INFO = {
-  version: "0.1.85",          // дублирует tauri.conf; рантайм getVersion первичен
+  version: "0.3.0",           // дублирует tauri.conf; рантайм getVersion первичен
   commit: "local",            // git rev-parse --short HEAD (перезапишет CI)
   date: "—",                  // DD.MM.YYYY, дата сборки UTC (перезапишет CI)
   core: "sing-box 1.13.16",   // ядро ninety-core (тег v1.13.16-ninety.1)
