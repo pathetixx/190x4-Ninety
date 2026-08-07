@@ -2,6 +2,34 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.3.0 — 2026-08-07
+
+## English
+
+- Ninety has moved to its own core. It used to run a third-party build of sing-box that had fallen half a year behind the original; the core is now built from our branch of the current 1.13.16, and the engine for xhttp nodes was updated to 26.7.28. The exact core version is shown in "About".
+- The "Add extra bytes" and "Vary the case of the site name" switches in the blocking bypass section now actually do something. The previous core did not understand that setting and silently ignored it: the switch looked enabled while the server received exactly what it would have without it. They are still not applied to Reality nodes, where they break the connection.
+- The "Register" button in the WARP section works with providers that do not let requests reach Cloudflare directly. Before it silently did nothing, and WARP stayed out of reach for everyone without a registration from an earlier version. After a successful registration the button disappears; entering a WARP+ key brings it back.
+- Excluding the active server from the blocking bypass finally takes effect. It used to apply only to the last part of the strategy, while the connection to the server runs through a different one — the protection looked enabled and did nothing.
+- The connection comes up even when a provider cuts off encrypted DNS as a class rather than one address at a time. Plain name servers now sit below the encrypted ones: less private, but much harder to kill.
+- Country site lists are taken from their original source. In the previous mirror the Turkish list mistakenly held Russian government domains, and the Belarusian one did not exist at all — the app had been downloading a file that was never there. Ready-made country lists now cover Russia, China and Iran; for Turkey and Belarus, routing by top-level domain remains.
+- When a configuration is exported, nodes that only work through the built-in bridge are skipped with a message saying how many and why. They used to drop out silently and the exported file came out incomplete.
+- Settings section names and every hint were rewritten in plain language. "TLS fragmentation" became "Bypass blocking by domain", "Multiplexer" became "Combining connections", and the descriptions lost the terms that told nothing to the person deciding whether to flip a switch.
+- The log no longer reports as tunnel errors the disconnects caused by a program on the same computer — a browser or a game that closed a connection early.
+- The tray icon tooltip is no longer cut off in the middle.
+
+## Русский
+
+- Ninety перешёл на собственное ядро. Раньше использовалась чужая сборка sing-box, которая отстала от оригинала на полгода; теперь ядро собирается из нашей ветки актуальной версии 1.13.16, а движок для xhttp-узлов обновлён до 26.7.28. Точная версия ядра видна в разделе «О программе».
+- Переключатели «Добавлять лишние байты» и «Менять регистр в имени сайта» в разделе обхода блокировок теперь действительно работают. Прежнее ядро эту настройку не понимало и молча игнорировало: переключатель стоял включённым, а к серверу уходило то же самое, что и без него. К узлам Reality эти два приёма по-прежнему не применяются — там они ломают соединение.
+- Кнопка «Зарегистрировать» в разделе WARP работает у провайдеров, которые не пропускают запросы к Cloudflare напрямую. Раньше она молча ничего не делала, и WARP оставался недоступен всем, у кого не было регистрации с прошлых версий. После успешной регистрации кнопка исчезает; вернуть её можно, введя ключ WARP+.
+- Исключение активного сервера из обхода блокировок наконец действует. Раньше оно применялось только к последней части стратегии, а соединение с сервером идёт через другую — защита выглядела включённой и при этом не работала.
+- Подключение поднимается даже тогда, когда провайдер отрезает шифрованный DNS целиком, а не по одному адресу. Ниже шифрованных серверов имён добавлены обычные: они менее скрытны, зато живучее.
+- Списки сайтов по странам берутся из первоисточника. В прежнем зеркале турецкий список по ошибке содержал российские государственные домены, а белорусского не существовало вовсе — приложение качало файл, которого там никогда не было. Готовые страновые списки теперь есть для России, Китая и Ирана; для Турции и Беларуси остаётся отправка по домену верхнего уровня.
+- При выгрузке конфигурации узлы, работающие только через встроенный мост, пропускаются с сообщением, сколько их и почему. Раньше они молча выпадали, и выгруженный файл оказывался неполным.
+- Названия разделов настроек и все подсказки переписаны обычным языком. Вместо «TLS-фрагментация» — «Обход блокировки по домену», вместо «Мультиплексор» — «Объединение соединений»; из описаний ушли термины, которые ничего не говорили тому, кто решает, включать переключатель или нет.
+- В журнале больше не показываются как ошибки туннеля обрывы, которые устроила программа на этом же компьютере — браузер или игра, закрывшая соединение раньше времени.
+- Подсказка значка в трее больше не обрезается на середине.
+
 ## v0.2.60 — 2026-08-05
 
 ## English
