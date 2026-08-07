@@ -235,6 +235,12 @@ function applyTlsTricks(out, options) {
       out.tls.record_fragment = true;
     }
   }
+  // Дальше — только tls_tricks. Фрагментация выше применима и к Reality, а вот
+  // сами трюки переписывают ClientHello, который Reality собирает сам и поверх
+  // которого запечатывает аутентификацию. При этом Reality и так шлёт побайтовый
+  // отпечаток браузера с настоящим SNI — ради этого он и существует. Ядро на
+  // такой конфиг отвечает ошибкой, поэтому не шлём.
+  if (out.tls.reality?.enabled) return;
   const tricks = {};
   if (t.enablePadding) {
     const ps = t.paddingSize || { from: 100, to: 900 };
