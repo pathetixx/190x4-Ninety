@@ -518,6 +518,26 @@ export function mountSettings(root, opts = {}) {
     const registerBtn = el.querySelector("[data-action='warp-register']");
     const resetBtn = el.querySelector("[data-action='warp-reset']");
 
+    // Последний известный ответ warp_status: по нему решается, показывать ли
+    // кнопку регистрации.
+    let lastInfo = null;
+
+    // «Зарегистрировать» исчезает после успешной регистрации: раньше она
+    // оставалась на месте с той же подписью, и успех был неотличим от
+    // проглоченной ошибки. Возвращается она только когда есть что применить —
+    // введён новый 26-символьный ключ WARP+ (регистрация с ключом — это всегда
+    // новый device в CF, отдельной команды «применить лицензию» нет).
+    const syncRegisterBtn = () => {
+      if (!registerBtn) return;
+      const typed = licenseInput?.value?.trim() || "";
+      const applied = lastInfo?.license || "";
+      const wantsLicense = !!lastInfo && typed.length === 26 && typed !== applied;
+      registerBtn.hidden = !!lastInfo && !wantsLicense;
+      registerBtn.textContent = wantsLicense
+        ? t("settings.warp.applyLicense")
+        : t("settings.warp.register");
+    };
+
     const formatStatus = (info) => {
       if (!info) return { status: t("settings.warp.statusUnreg"), ipv4: "—", license: "" };
       const plus = info.warp_plus ? " · WARP+" : "";
@@ -536,13 +556,19 @@ export function mountSettings(root, opts = {}) {
         if (statusEl) statusEl.textContent = v.status;
         if (ipv4El) ipv4El.textContent = v.ipv4;
         if (licenseInput) licenseInput.value = v.license;
+        lastInfo = info || null;
+        syncRegisterBtn();
       } catch (e) {
         if (statusEl) statusEl.textContent = t("settings.warp.statusErr", { err: e?.message || e });
+        // Кнопка стартует скрытой, поэтому её обязательно нужно вернуть и на
+        // ошибке статуса — иначе зарегистрироваться станет нечем.
+        syncRegisterBtn();
       }
     };
 
+    licenseInput?.addEventListener("input", syncRegisterBtn);
+
     registerBtn?.addEventListener("click", async () => {
-      const orig = registerBtn.textContent;
       registerBtn.disabled = true;
       registerBtn.textContent = t("settings.warp.registering");
       try {
@@ -560,7 +586,9 @@ export function mountSettings(root, opts = {}) {
         alert(t("settings.warp.registerErr", { err: e?.message || e }));
       } finally {
         registerBtn.disabled = false;
-        registerBtn.textContent = orig;
+        // Подпись восстанавливает sync, а не сохранённая копия: после успеха
+        // кнопка обязана исчезнуть, а не вернуть прежний текст.
+        syncRegisterBtn();
       }
     });
 
@@ -1219,7 +1247,7 @@ function renderWarp(o) {
           <div class="set-row__d">${t("settings.warp.manageHint")}</div>
         </div>
         <div class="set-row__ctl">
-          <button class="btn btn--sm" data-action="warp-register" type="button">${t("settings.warp.register")}</button>
+          <button class="btn btn--sm" data-action="warp-register" type="button" hidden>${t("settings.warp.register")}</button>
           <button class="btn btn--sm btn--danger" data-action="warp-reset" type="button">${t("settings.warp.reset")}</button>
         </div>
       </div>
