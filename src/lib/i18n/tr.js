@@ -568,6 +568,8 @@ export const tr = {
     noSource: "Aktif kaynak yok",
     exported: "sing-box yapılandırması kopyalandı ({kb} KB)",
     exportError: "Dışa aktarma hatası: {err}",
+    exportedSkipped: "sing-box yapılandırması kopyalandı ({kb} KB). {n} düğüm atlandı — yalnızca uygulama içinde çalışıyorlar.",
+    exportNoNodes: "Dışa aktarılacak bir şey yok: tüm düğümler yalnızca uygulama içinde çalışıyor.",
   },
 
   confirm: {

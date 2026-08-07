@@ -568,6 +568,8 @@ export const ja = {
     noSource: "アクティブなソースがありません",
     exported: "sing-box 設定をコピーしました（{kb} KB）",
     exportError: "エクスポートエラー: {err}",
+    exportedSkipped: "sing-box 設定をコピーしました（{kb} KB）。{n} 個のノードをスキップしました — アプリ内でのみ動作します。",
+    exportNoNodes: "エクスポートするものがありません: すべてのノードはアプリ内でのみ動作します。",
   },
 
   confirm: {

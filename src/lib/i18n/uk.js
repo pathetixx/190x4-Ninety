@@ -568,6 +568,8 @@ export const uk = {
     noSource: "Немає активного джерела",
     exported: "sing-box config скопійовано ({kb} КБ)",
     exportError: "Помилка експорту: {err}",
+    exportedSkipped: "sing-box config скопійовано ({kb} КБ). Пропущено вузлів: {n} — вони працюють лише всередині застосунку.",
+    exportNoNodes: "Нічого експортувати: усі вузли працюють лише всередині застосунку.",
   },
 
   confirm: {

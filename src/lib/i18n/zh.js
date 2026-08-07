@@ -568,6 +568,8 @@ export const zh = {
     noSource: "没有活动来源",
     exported: "sing-box 配置已复制（{kb} KB）",
     exportError: "导出出错：{err}",
+    exportedSkipped: "已复制 sing-box 配置（{kb} KB）。已跳过 {n} 个节点——它们只能在应用内使用。",
+    exportNoNodes: "没有可导出的内容：所有节点都只能在应用内使用。",
   },
 
   confirm: {

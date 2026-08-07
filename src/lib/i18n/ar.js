@@ -568,6 +568,8 @@ export const ar = {
     noSource: "لا مصدر نشط",
     exported: "نُسخ إعداد sing-box ({kb} KB)",
     exportError: "خطأ في التصدير: {err}",
+    exportedSkipped: "تم نسخ إعداد sing-box ({kb} كيلوبايت). تم تخطي {n} عقدة — تعمل داخل التطبيق فقط.",
+    exportNoNodes: "لا يوجد ما يمكن تصديره: كل العقد تعمل داخل التطبيق فقط.",
   },
 
   confirm: {

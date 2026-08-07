@@ -568,6 +568,8 @@ export const de = {
     noSource: "Keine aktive Quelle",
     exported: "sing-box-Konfig kopiert ({kb} KB)",
     exportError: "Exportfehler: {err}",
+    exportedSkipped: "sing-box-Config kopiert ({kb} KB). {n} Knoten übersprungen — sie funktionieren nur in der App.",
+    exportNoNodes: "Nichts zu exportieren: Alle Knoten funktionieren nur in der App.",
   },
 
   confirm: {

@@ -568,6 +568,8 @@ export const ko = {
     noSource: "활성 소스가 없습니다",
     exported: "sing-box 설정을 복사했습니다({kb} KB)",
     exportError: "내보내기 오류: {err}",
+    exportedSkipped: "sing-box 설정을 복사했습니다({kb} KB). {n}개 노드를 건너뛰었습니다 — 앱 안에서만 동작합니다.",
+    exportNoNodes: "내보낼 것이 없습니다: 모든 노드가 앱 안에서만 동작합니다.",
   },
 
   confirm: {

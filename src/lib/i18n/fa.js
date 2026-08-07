@@ -568,6 +568,8 @@ export const fa = {
     noSource: "منبع فعالی نیست",
     exported: "پیکربندی sing-box کپی شد ({kb} KB)",
     exportError: "خطای خروجی: {err}",
+    exportedSkipped: "پیکربندی sing-box کپی شد ({kb} کیلوبایت). {n} گره نادیده گرفته شد — آن‌ها فقط داخل برنامه کار می‌کنند.",
+    exportNoNodes: "چیزی برای خروجی گرفتن نیست: همه گره‌ها فقط داخل برنامه کار می‌کنند.",
   },
 
   confirm: {

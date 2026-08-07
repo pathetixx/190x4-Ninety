@@ -568,6 +568,8 @@ export const fr = {
     noSource: "Aucune source active",
     exported: "Config sing-box copiée ({kb} KB)",
     exportError: "Erreur d’export : {err}",
+    exportedSkipped: "Config sing-box copiée ({kb} Ko). {n} nœud(s) ignoré(s) — ils ne fonctionnent que dans l'application.",
+    exportNoNodes: "Rien à exporter : tous les nœuds ne fonctionnent que dans l'application.",
   },
 
   confirm: {

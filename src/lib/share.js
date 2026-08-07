@@ -82,22 +82,40 @@ function onQRKey(e) {
   if (e.key === "Escape") closeQRModal();
 }
 
+// Транспорты, которые приложение обслуживает отдельным ядром на локальном
+// socks-мосту: в одиночном конфиге их воспроизвести нечем.
+const BRIDGE_ONLY_TYPES = new Set(["xhttp"]);
+
 export async function exportSingboxJson(source, toast) {
   if (!source) {
     toast?.(t("share.noSource"), "error", 1800);
     return;
   }
   try {
-    // Шаринг — самодостаточный sing-box (xhttp транслируется в-движок,
-    // без xray-моста), поэтому xray не запрашиваем.
+    // Экспорт — самодостаточный конфиг, без loopback-мостов, которые поднимает
+    // само приложение. Узлы, живущие только за таким мостом, в него не попадут:
+    // ядро их транспорт не поддерживает, и конфиг с ними просто не запустился бы.
+    // Пропускаем их и говорим об этом, а не отдаём молча нерабочий файл.
+    const all = source.kind === "sub" ? (source.nodes || []) : [source.profile];
+    const exportable = all.filter((node) => !BRIDGE_ONLY_TYPES.has(node?.type));
+    const skipped = all.length - exportable.length;
+    if (!exportable.length) {
+      toast?.(t("share.exportNoNodes"), "error", 2500);
+      return;
+    }
     const { config } = buildConfig({
-      source,
+      source: source.kind === "sub" ? { ...source, nodes: exportable } : source,
       mode: getMode(),
       options: loadOptions(),
     });
     const json = JSON.stringify(config, null, 2);
     await navigator.clipboard.writeText(json);
-    toast?.(t("share.exported", { kb: (json.length / 1024).toFixed(1) }), "success", 2000);
+    const kb = (json.length / 1024).toFixed(1);
+    if (skipped) {
+      toast?.(t("share.exportedSkipped", { kb, n: skipped }), "success", 3000);
+    } else {
+      toast?.(t("share.exported", { kb }), "success", 2000);
+    }
   } catch (e) {
     toast?.(t("share.exportError", { err: e?.message || e }), "error", 2500);
   }

@@ -568,6 +568,8 @@ export const pt = {
     noSource: "Sem origem ativa",
     exported: "Config sing-box copiada ({kb} KB)",
     exportError: "Erro de exportação: {err}",
+    exportedSkipped: "Config do sing-box copiada ({kb} KB). {n} nó(s) ignorado(s) — só funcionam dentro do app.",
+    exportNoNodes: "Nada a exportar: todos os nós só funcionam dentro do app.",
   },
 
   confirm: {

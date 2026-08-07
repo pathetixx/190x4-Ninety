@@ -568,6 +568,8 @@ export const en = {
     noSource: "No active source",
     exported: "sing-box config copied ({kb} KB)",
     exportError: "Export error: {err}",
+    exportedSkipped: "sing-box config copied ({kb} KB). Skipped {n} node(s) — they only work inside the app.",
+    exportNoNodes: "Nothing to export: every node only works inside the app.",
   },
 
   confirm: {

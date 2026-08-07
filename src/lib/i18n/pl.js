@@ -568,6 +568,8 @@ export const pl = {
     noSource: "Brak aktywnego źródła",
     exported: "Konfig sing-box skopiowany ({kb} KB)",
     exportError: "Błąd eksportu: {err}",
+    exportedSkipped: "Config sing-box skopiowany ({kb} KB). Pominięto węzłów: {n} — działają tylko w aplikacji.",
+    exportNoNodes: "Nie ma czego eksportować: wszystkie węzły działają tylko w aplikacji.",
   },
 
   confirm: {

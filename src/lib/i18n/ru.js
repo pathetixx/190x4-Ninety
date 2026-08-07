@@ -568,6 +568,8 @@ export const ru = {
     noSource: "Нет активного источника",
     exported: "sing-box config скопирован ({kb} КБ)",
     exportError: "Ошибка экспорта: {err}",
+    exportedSkipped: "sing-box config скопирован ({kb} КБ). Пропущено узлов: {n} — они работают только внутри приложения.",
+    exportNoNodes: "Нечего экспортировать: все узлы работают только внутри приложения.",
   },
 
   confirm: {

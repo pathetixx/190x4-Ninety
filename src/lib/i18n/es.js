@@ -568,6 +568,8 @@ export const es = {
     noSource: "Sin origen activo",
     exported: "config sing-box copiada ({kb} KB)",
     exportError: "Error de exportación: {err}",
+    exportedSkipped: "Config de sing-box copiada ({kb} KB). {n} nodo(s) omitido(s): solo funcionan dentro de la aplicación.",
+    exportNoNodes: "Nada que exportar: todos los nodos solo funcionan dentro de la aplicación.",
   },
 
   confirm: {
