@@ -15,8 +15,10 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use rand_core::{OsRng, RngCore};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use x25519_dalek::{PublicKey, StaticSecret};
+
+use crate::vpn::ProbeProxyEndpoint;
 
 const CF_API_BASE: &str = "https://api.cloudflareclient.com/v0a2158";
 const CF_UA: &str = "okhttp/3.12.1";
@@ -214,12 +216,34 @@ fn validate_registration(reg: &CfRegResp) -> Result<(), String> {
     Ok(())
 }
 
-fn http_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+// Регистрация ходит в CF через поднятый туннель, а не напрямую: у части
+// провайдеров api.cloudflareclient.com напрямую просто не отвечает (TCP
+// открывается, запрос виснет до таймаута), и кнопка «Зарегистрировать» тогда
+// не работает вообще. Явный proxy, а не системный: в режиме «Прокси» системных
+// настроек нет, а полагаться на них — значит работать только в одном режиме
+// из трёх.
+fn http_client(via: Option<&ProbeProxyEndpoint>) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder()
         .user_agent(CF_UA)
-        .timeout(std::time::Duration::from_secs(20))
-        .build()
-        .map_err(|e| format!("reqwest: {e}"))
+        .timeout(std::time::Duration::from_secs(20));
+    builder = match via {
+        Some(endpoint) => builder.proxy(
+            reqwest::Proxy::all(format!("http://{}", endpoint.address))
+                .map_err(|e| format!("proxy: {e}"))?,
+        ),
+        // Без туннеля — строго напрямую. Системный прокси может указывать на наш
+        // же инбаунд, которого сейчас нет, и тогда ошибка была бы про него.
+        None => builder.no_proxy(),
+    };
+    builder.build().map_err(|e| format!("reqwest: {e}"))
+}
+
+// Локальный инбаунд работающего рантайма, если он есть.
+fn tunnel_endpoint(app: &AppHandle) -> Option<ProbeProxyEndpoint> {
+    let state = app.try_state::<crate::vpn::SingboxState>()?;
+    crate::vpn::probe_endpoint_for_generation(&state, None)
+        .ok()
+        .map(|(_, endpoint)| endpoint)
 }
 
 fn parse_cf_response<T: DeserializeOwned>(label: &str, text: &str) -> Result<T, String> {
@@ -237,8 +261,11 @@ fn parse_cf_response<T: DeserializeOwned>(label: &str, text: &str) -> Result<T, 
     })
 }
 
-async fn cf_register(public_key_b64: &str) -> Result<CfRegResp, String> {
-    let client = http_client()?;
+async fn cf_register(
+    public_key_b64: &str,
+    via: Option<&ProbeProxyEndpoint>,
+) -> Result<CfRegResp, String> {
+    let client = http_client(via)?;
     // install_id и fcm_token — псевдо-id мобильного устройства; CF не валидирует
     // их строго, но проверяет факт наличия и UA.
     let install_id = format!("ninety-{}", chrono::Utc::now().timestamp_millis());
@@ -272,8 +299,9 @@ async fn cf_patch_account(
     id: &str,
     token: &str,
     license: &str,
+    via: Option<&ProbeProxyEndpoint>,
 ) -> Result<CfPatchAccountResp, String> {
-    let client = http_client()?;
+    let client = http_client(via)?;
     let body = serde_json::json!({ "license": license });
     let resp = client
         .patch(format!("{CF_API_BASE}/reg/{id}/account"))
@@ -292,8 +320,8 @@ async fn cf_patch_account(
     parse_cf_response("cf patch", &text)
 }
 
-async fn cf_delete(id: &str, token: &str) -> Result<(), String> {
-    let client = http_client()?;
+async fn cf_delete(id: &str, token: &str, via: Option<&ProbeProxyEndpoint>) -> Result<(), String> {
+    let client = http_client(via)?;
     let resp = client
         .delete(format!("{CF_API_BASE}/reg/{id}"))
         .header("Authorization", format!("Bearer {token}"))
@@ -317,6 +345,7 @@ async fn cf_delete(id: &str, token: &str) -> Result<(), String> {
 #[tauri::command]
 pub async fn warp_register(app: AppHandle, license: Option<String>) -> Result<WarpInfo, String> {
     let _operation = WARP_OPERATION_LOCK.lock().await;
+    let via = tunnel_endpoint(&app);
     // Ключ WARP+ — ровно 26 символов. Раньше ключ иной длины молча уходил в
     // ветку бесплатного WARP (юзер думал, что активировал WARP+) — теперь это
     // честная ошибка ДО регистрации. UI дублирует проверку локализованно.
@@ -339,19 +368,19 @@ pub async fn warp_register(app: AppHandle, license: Option<String>) -> Result<Wa
     let (priv_b64, pub_b64) = gen_wg_keypair();
 
     // 3) POST /reg
-    let reg = cf_register(&pub_b64).await?;
+    let reg = cf_register(&pub_b64, via.as_ref()).await?;
     if let Err(e) = validate_registration(&reg) {
-        let _ = cf_delete(&reg.id, &reg.token).await;
+        let _ = cf_delete(&reg.id, &reg.token, via.as_ref()).await;
         return Err(e);
     }
 
     // 4) Опциональная активация WARP+ (длина ключа уже провалидирована выше).
     let (warp_plus, account_type, license_used) = match &license {
         Some(l) => {
-            let patch = match cf_patch_account(&reg.id, &reg.token, l).await {
+            let patch = match cf_patch_account(&reg.id, &reg.token, l, via.as_ref()).await {
                 Ok(patch) => patch,
                 Err(e) => {
-                    let _ = cf_delete(&reg.id, &reg.token).await;
+                    let _ = cf_delete(&reg.id, &reg.token, via.as_ref()).await;
                     return Err(e);
                 }
             };
@@ -396,12 +425,12 @@ pub async fn warp_register(app: AppHandle, license: Option<String>) -> Result<Wa
     };
 
     if let Err(e) = write_info(&app, &info) {
-        let _ = cf_delete(&reg.id, &reg.token).await;
+        let _ = cf_delete(&reg.id, &reg.token, via.as_ref()).await;
         return Err(e);
     }
     // Commit состоялся — только теперь старая registration больше не нужна.
     if let Some(old) = old.filter(|o| !o.registration_id.trim().is_empty()) {
-        if let Err(e) = cf_delete(&old.registration_id, &old.access_token).await {
+        if let Err(e) = cf_delete(&old.registration_id, &old.access_token, via.as_ref()).await {
             eprintln!("WARP old registration cleanup failed: {e}");
         }
     }
@@ -420,9 +449,10 @@ pub fn warp_status(app: AppHandle) -> Result<Option<WarpInfo>, String> {
 #[tauri::command]
 pub async fn warp_reset(app: AppHandle) -> Result<(), String> {
     let _operation = WARP_OPERATION_LOCK.lock().await;
+    let via = tunnel_endpoint(&app);
     if let Some(old) = read_info(&app) {
         if !old.registration_id.trim().is_empty() {
-            let _ = cf_delete(&old.registration_id, &old.access_token).await;
+            let _ = cf_delete(&old.registration_id, &old.access_token, via.as_ref()).await;
         }
     }
     delete_info(&app)?;
