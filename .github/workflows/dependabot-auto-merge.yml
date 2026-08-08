@@ -1,0 +1,32 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+# Dependabot's own pull_request runs get a read-only token, so the enable step
+# has to live on pull_request_target, which runs in the base-branch context with
+# a real write token. Nothing from the PR head is checked out or executed here —
+# the job only talks to the API — so the usual pull_request_target injection
+# risk does not apply.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Enable auto-merge
+        # Auto-merge waits for every required check on main to pass, so a bump
+        # that breaks the build stays open for a human instead of landing.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
