@@ -264,9 +264,11 @@ fn seal_portable(data: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
     let key = derive_portable_key(passphrase, &salt)?;
     let cipher = XChaCha20Poly1305::new_from_slice(&key[..])
         .map_err(|_| "не удалось создать portable-шифр".to_string())?;
+    let nonce_arg = XNonce::try_from(&nonce[..])
+        .map_err(|_| "не удалось подготовить nonce portable-шифра".to_string())?;
     let encrypted = cipher
         .encrypt(
-            XNonce::from_slice(&nonce),
+            &nonce_arg,
             Payload {
                 msg: data,
                 aad: PORTABLE_MAGIC,
@@ -295,9 +297,11 @@ fn unseal_portable(bytes: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
     let key = derive_portable_key(passphrase, &bytes[salt_start..nonce_start])?;
     let cipher = XChaCha20Poly1305::new_from_slice(&key[..])
         .map_err(|_| "не удалось создать portable-шифр".to_string())?;
+    let nonce_arg = XNonce::try_from(&bytes[nonce_start..ciphertext_start])
+        .map_err(|_| "portable-секрет имеет неизвестный формат".to_string())?;
     cipher
         .decrypt(
-            XNonce::from_slice(&bytes[nonce_start..ciphertext_start]),
+            &nonce_arg,
             Payload {
                 msg: &bytes[ciphertext_start..],
                 aad: PORTABLE_MAGIC,
