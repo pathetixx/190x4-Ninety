@@ -53,7 +53,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: src-tauri
       - name: Install cargo-deny
-        uses: taiki-e/install-action@67729d5c413db75907f0ad1e39bb04b9c868ff60 # v2
+        uses: taiki-e/install-action@cb33e69fad06166ca28a42b2575e4dadabf62ee8 # v2
         with:
           tool: cargo-deny@0.19.0
           fallback: cargo-install
@@ -74,12 +74,12 @@ jobs:
         with:
           persist-credentials: false
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@f52b05f4acaaa234e44466e66d29050e135ea9ef # v4.36.0
+        uses: github/codeql-action/init@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           languages: javascript
           build-mode: none
       - name: Analyze with CodeQL
-        uses: github/codeql-action/analyze@f52b05f4acaaa234e44466e66d29050e135ea9ef # v4.36.0
+        uses: github/codeql-action/analyze@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           category: /language:javascript
 
