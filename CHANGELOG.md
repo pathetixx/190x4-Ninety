@@ -2,6 +2,46 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.3.1 — 2026-08-09
+
+## English
+
+- Nodes with non-Latin names and passwords arrive intact. In VMess and Shadowsocks links the name used to turn into mojibake, and a password with non-Latin characters was mangled byte by byte — the node then failed authentication without a word.
+- TUIC nodes with a self-signed certificate connect. The link says the certificate is not to be verified; the app simply did not read that field.
+- VMess nodes that use the xhttp transport work. They were assembled as a different protocol, so both engines started, the interface showed a connection, and the node stayed dead.
+- NaiveProxy nodes addressed by IPv6 connect — the address for the client was built without brackets and could not be parsed.
+- Routing rules keep national domains. A rule for a .рф address — and for any other non-Latin or digit-bearing zone — silently disappeared on save. "Keyword" now accepts a word instead of demanding a full domain, which is what that mode is for.
+- The active server is excluded from the blocking bypass before the connection starts, not after it succeeds: the very first handshake with a new server is no longer mangled. A server whose name consists of hex letters is no longer mistaken for an address, which used to leave the previous server excluded instead of the current one.
+- Portable: changing the storage passphrase re-encrypts everything it protects. Profiles, the recovery copy and the WARP registration used to stay locked under the old passphrase and became unreachable. A wrong passphrase is now rejected on entry instead of quietly starting a second key.
+- Settings come back when the browser-engine storage is wiped but the profiles survive. The connection mode, strict tunnel, kill switch, routing rules, bypass settings and theme were silently replaced by defaults — including on autostart.
+- Strict mode refuses a node whose separate download channel is given by name rather than by address. That name was resolved through the system DNS, outside the tunnel.
+- A subscription refreshed through the tunnel no longer asks the system DNS for the panel address: the refresh works where DNS is blocked, and the panel is not exposed to the provider.
+- Declining the administrator prompt at startup switches to system proxy mode. The app used to stay in TUN, which cannot work without those rights, so the autostart ended in silence or in a second prompt.
+- An update restores the connection even when it was still coming up at the moment the update started.
+- Profiles survive damage better: a corrupt file no longer overwrites the only good backup, and a node added in the first moments after launch no longer disappears.
+- The window no longer freezes while saving in a Portable build protected by a passphrase.
+- The blocking bypass is steadier: toggling "Discord past the VPN" twice in a row no longer leaves it switched off, and turning it off while its lists are updating no longer reports an error that did not happen.
+- Smaller fixes: the DNS watchdog no longer overwrites an address you have just set by hand; the local proxy port and the control port can no longer be given the same value, which used to fail with no explanation; the channel indicator says the computer is busy instead of freezing on its last measurement; and traffic is counted per source instead of being pooled together.
+
+## Русский
+
+- Узлы с не-латинскими именами и паролями приезжают целыми. В ссылках VMess и Shadowsocks имя превращалось в крякозябры, а пароль с не-латинскими символами перевирался побайтово — после этого узел не проходил проверку пароля и молчал о причине.
+- Узлы TUIC с самоподписанным сертификатом подключаются. В ссылке написано, что сертификат проверять не нужно, — приложение просто не читало это поле.
+- Работают узлы VMess с транспортом xhttp. Раньше они собирались как другой протокол: оба движка запускались, интерфейс показывал подключение, а узел был мёртв.
+- Подключаются узлы NaiveProxy с адресом IPv6 — адрес для клиента собирался без скобок и не разбирался.
+- Правила маршрутизации сохраняют национальные домены. Правило для адреса в зоне .рф — как и для любой другой не-латинской зоны или зоны с цифрой — молча пропадало при сохранении. «Ключевое слово» теперь принимает слово, а не требует полный домен, ради чего этот режим и нужен.
+- Активный сервер исключается из обхода блокировок до начала подключения, а не после его успеха: первое же соединение с новым сервером больше не портится. Сервер, чьё имя состоит из hex-букв, больше не принимается за адрес — из-за этого в исключениях оставался предыдущий сервер вместо текущего.
+- Портативная версия: смена пароля хранилища перешифровывает всё, что им защищено. Раньше профили, резервная копия и регистрация WARP оставались под старым паролем и становились недоступны. Неверный пароль теперь отклоняется при вводе, а не заводит молча второй ключ.
+- Настройки возвращаются, если хранилище браузерного движка стёрли, а профили уцелели. Режим подключения, строгий туннель, kill switch, правила маршрутизации, настройки обхода и тема молча заменялись значениями по умолчанию — в том числе при автозапуске.
+- Строгий режим отклоняет узел, у которого отдельный канал загрузки задан именем, а не адресом. Это имя резолвилось через системный DNS, мимо туннеля.
+- Обновление подписки через туннель больше не спрашивает адрес панели у системного DNS: обновление работает там, где DNS блокируют, и сама панель не показывается провайдеру.
+- Отказ от запроса прав администратора при запуске переводит в режим системного прокси. Раньше приложение оставалось в TUN, который без этих прав не работает, и автозапуск заканчивался тишиной или вторым запросом.
+- Обновление приложения возвращает соединение, даже если в момент запуска обновления оно ещё только устанавливалось.
+- Профили лучше переживают повреждения: испорченный файл больше не затирает единственную рабочую копию, а узел, добавленный в первые мгновения после запуска, не исчезает.
+- Окно не подвисает при сохранении в портативной версии, защищённой паролем.
+- Обход блокировок устойчивее: двойное переключение «Discord мимо VPN» больше не оставляет его выключенным, а выключение обхода во время обновления его списков больше не показывает ошибку, которой не было.
+- Мелочи: сторож DNS больше не перетирает адрес, который вы только что задали вручную; порт локального прокси и порт панели управления больше нельзя сделать одинаковыми — раньше это давало отказ без объяснения; индикатор канала сообщает, что компьютер загружен, вместо того чтобы замереть на прошлом измерении; трафик считается по каждому источнику отдельно.
+
 ## v0.3.0 — 2026-08-07
 
 ## English
