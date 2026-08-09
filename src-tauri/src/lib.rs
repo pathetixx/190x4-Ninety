@@ -964,7 +964,7 @@ pub fn run() {
                 }
                 if state_is_empty {
                     let profile_store_before =
-                        profile_store::profile_store_load(app.handle().clone())?;
+                        profile_store::profile_store_load_blocking(app.handle().clone())?;
                     let smoke_store = profile_store::ProfileStore {
                         schema_version: 1,
                         revision: profile_store_before.revision,
@@ -984,19 +984,19 @@ pub fn run() {
                             "node-smoke".into(),
                         )]),
                     };
-                    let _ = profile_store::profile_store_replace(
+                    let _ = profile_store::profile_store_replace_blocking(
                         app.handle().clone(),
                         profile_store_before.revision,
                         smoke_store,
                     )?;
                     let profile_store_after =
-                        profile_store::profile_store_load(app.handle().clone())?;
+                        profile_store::profile_store_load_blocking(app.handle().clone())?;
                     if profile_store_after.store.is_none()
                         || profile_store_after.revision <= profile_store_before.revision
                     {
                         return Err("profile store roundtrip failed during CI smoke".into());
                     }
-                    profile_store::profile_store_clear(app.handle().clone(), None)?;
+                    profile_store::profile_store_clear_blocking(app.handle().clone(), None)?;
                     if portable {
                         // Реальная запись через production-path helper: ловит и
                         // случайный AppData, и DPAPI, который сделал бы Full

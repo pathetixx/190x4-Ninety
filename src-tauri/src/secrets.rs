@@ -296,7 +296,7 @@ fn portable_secrets_set_passphrase_blocking(passphrase: String) -> Result<(), St
 
 #[tauri::command]
 pub async fn portable_secrets_clear_passphrase() -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || portable_secrets_clear_passphrase_blocking())
+    tauri::async_runtime::spawn_blocking(portable_secrets_clear_passphrase_blocking)
         .await
         .map_err(|error| format!("portable_secrets_clear_passphrase: {error}"))?
 }
@@ -317,7 +317,7 @@ fn portable_secrets_clear_passphrase_blocking() -> Result<(), String> {
 /// предупреждением в UI. Сам по себе legacy plaintext такой режим не включает.
 #[tauri::command]
 pub async fn portable_secrets_confirm_plaintext() -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || portable_secrets_confirm_plaintext_blocking())
+    tauri::async_runtime::spawn_blocking(portable_secrets_confirm_plaintext_blocking)
         .await
         .map_err(|error| format!("portable_secrets_confirm_plaintext: {error}"))?
 }

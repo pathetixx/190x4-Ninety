@@ -297,7 +297,7 @@ pub async fn profile_store_status(app: AppHandle) -> Result<ProfileStoreStatus, 
         .map_err(|error| format!("profile_store_status: {error}"))?
 }
 
-fn profile_store_status_blocking(app: AppHandle) -> Result<ProfileStoreStatus, String> {
+pub(crate) fn profile_store_status_blocking(app: AppHandle) -> Result<ProfileStoreStatus, String> {
     let path = store_path(&app)?;
     let exists = [path.clone(), backup_path(&path), legacy_backup_path(&path)]
         .iter()
@@ -323,7 +323,9 @@ pub async fn profile_store_load(app: AppHandle) -> Result<ProfileStoreLoadRespon
         .map_err(|error| format!("profile_store_load: {error}"))?
 }
 
-fn profile_store_load_blocking(app: AppHandle) -> Result<ProfileStoreLoadResponse, String> {
+pub(crate) fn profile_store_load_blocking(
+    app: AppHandle,
+) -> Result<ProfileStoreLoadResponse, String> {
     let path = store_path(&app)?;
     let loaded = load_store(&app, &path)?;
     Ok(match loaded {
@@ -359,7 +361,7 @@ pub async fn profile_store_replace(
     .map_err(|error| format!("profile_store_replace: {error}"))?
 }
 
-fn profile_store_replace_blocking(
+pub(crate) fn profile_store_replace_blocking(
     app: AppHandle,
     expected_revision: u64,
     mut store: ProfileStore,
@@ -397,7 +399,7 @@ pub async fn profile_store_clear(
     .map_err(|error| format!("profile_store_clear: {error}"))?
 }
 
-fn profile_store_clear_blocking(
+pub(crate) fn profile_store_clear_blocking(
     app: AppHandle,
     expected_revision: Option<u64>,
 ) -> Result<ProfileStoreClearResponse, String> {
