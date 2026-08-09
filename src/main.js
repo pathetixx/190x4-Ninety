@@ -1797,8 +1797,8 @@ const ICON_TRASH   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 const ICON_CHECK   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="m5 12 5 5L20 7"/></svg>`;
 const ICON_COPY    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 const ICON_QR      = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/><path d="M20 14v3"/><path d="M14 20h3"/><path d="M17 17v4"/><path d="M21 21h-1"/></svg>`;
+const ICON_WARN    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
 const ICON_GLOBE   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/></svg>`;
-const ICON_FILE    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg>`;
 
 // Импортированная ссылка может сама выключить проверку TLS-сертификата
 // (hysteria2 `insecure=1`, TrustTunnel `skip_verification`). Это тихо снимает
@@ -1814,98 +1814,106 @@ function renderProfilesView() {
   const activeProfileId = getActiveProfileId();
   const activeKind = getActiveKind();
   const activeSubId = getActiveSubscriptionId();
+  const summaryLine = document.getElementById("profiles-summary-line");
 
   if (profsList.length === 0 && subsList.length === 0) {
+    if (summaryLine) summaryLine.textContent = "";
     profilesList.innerHTML = `
-      <div class="onb" style="margin: 32px auto 0; text-align: center;">
-        <div class="onb__kicker">SUBSCRIPTIONS · EMPTY</div>
-        <h2 class="onb__title" style="font-size:20px">${t("prof.emptyTitle")}</h2>
-        <p class="onb__sub">${t("prof.emptySub")}</p>
+      <div class="n-empty">
+        <span class="n-empty__i">${ICON_GLOBE}</span>
+        <h3>${escapeHtml(t("prof.emptyTitle"))}</h3>
+        <p>${escapeHtml(t("prof.emptySub"))}</p>
       </div>
     `;
     return;
   }
 
-  const subItems = subsList.map(s => {
+  const activeName = activeKind === "sub"
+    ? (subsList.find(s => s.id === activeSubId)?.name || "—")
+    : (profsList.find(p => p.id === activeProfileId)?.name || "—");
+  if (summaryLine) {
+    summaryLine.textContent = t("prof.summary", {
+      subs: subsList.length, configs: profsList.length, active: activeName,
+    });
+  }
+
+  const subRow = (s) => {
     const isActive = activeKind === "sub" && s.id === activeSubId;
     const days = subscriptionDaysLeft(s);
     const used = subscriptionUsedBytes(s);
     const limit = subscriptionLimitBytes(s); // null = безлимит (total=0)
     const updated = relativeTime(s.lastUpdate) || "—";
     const nodesCount = s.profiles?.length || 0;
-    const trafficStr = limit != null
-      ? `${fmtTraffic(used)} / ${fmtTraffic(limit)}`
-      : `${fmtTraffic(getMeasured(`sub:${s.id}`).total)} · ∞`;
+    const ratio = limit ? Math.max(0, Math.min(1, used / limit)) : 0;
+    const meterState = !limit ? "idle" : ratio > 0.9 ? "err" : ratio > 0.75 ? "warn" : "ok";
+    const daysState = days == null ? "" : days <= 3 ? "pf__val--err" : days <= 7 ? "pf__val--warn" : "";
     return `
-      <article class="prof-card" data-active="${isActive}" data-sub-id="${escapeAttr(s.id)}">
-        <div class="prof-card__icon">${ICON_GLOBE}</div>
-        <div class="prof-card__main" data-sub-activate="${escapeAttr(s.id)}">
-          <div class="prof-card__head">
-            <span class="prof-card__name">${escapeHtml(s.name)}</span>
-            ${isActive ? `<span class="prof-card__badge">${t("prof.badgeActive")}</span>` : ""}
+      <div class="n-row pf" data-active="${isActive}" data-sub-id="${escapeAttr(s.id)}" role="button" tabindex="0">
+        <div class="pf__main" data-sub-activate="${escapeAttr(s.id)}">
+          <div class="pf__name">
+            <span class="n-primary">${escapeHtml(s.name)}</span>
+            ${isActive ? `<span class="pf__tag">${escapeHtml(t("prof.badgeActive"))}</span>` : ""}
           </div>
-          <div class="prof-card__url">${escapeHtml(s.url || "")}</div>
+          <div class="n-meta">${escapeHtml(s.host || hostOfUrl(s.url))}<s>·</s>${t("prof.nodesN", { n: nodesCount })}<s>·</s>${escapeHtml(updated)}</div>
         </div>
-        <div class="prof-card__stats">
-          <div class="prof-card__stat">
-            <span class="prof-card__stat-val tnum">${nodesCount}</span>
-            <span class="prof-card__stat-lbl">${t("prof.statNodes")}</span>
+        <div class="pf__col pf__col--traffic">
+          <div class="pf__val">
+            <span class="n-num">${escapeHtml(fmtTraffic(used))}</span>
+            <span class="pf__unit-lg">${limit != null ? `/ ${escapeHtml(fmtTraffic(limit))}` : escapeHtml(t("prof.unlimited"))}</span>
           </div>
-          <div class="prof-card__stat">
-            <span class="prof-card__stat-val tnum">${trafficStr}</span>
-            <span class="prof-card__stat-lbl">${t("prof.statTraffic")}</span>
-          </div>
-          <div class="prof-card__stat">
-            <span class="prof-card__stat-val tnum">${days == null ? "—" : days}${days != null ? `<span style="color:var(--text-faint);font-size:9px;margin-left:3px;">${t("prof.daysUnit")}</span>` : ""}</span>
-            <span class="prof-card__stat-lbl">${t("prof.statExpires")}</span>
-          </div>
-          <div class="prof-card__stat">
-            <span class="prof-card__stat-val" style="font-size:11px;color:var(--text-mid);">${escapeHtml(updated)}</span>
-            <span class="prof-card__stat-lbl">${t("prof.statUpdated")}</span>
-          </div>
+          ${limit != null
+            ? `<div class="n-meter pf__meter" data-state="${meterState}"><div class="n-meter__f" style="width:${(ratio * 100).toFixed(1)}%"></div></div>`
+            : `<span class="n-lbl">${escapeHtml(t("prof.statTraffic"))}</span>`}
         </div>
-        <button class="prof-card__menu" data-menu-sub="${escapeAttr(s.id)}" type="button" aria-label="${escapeAttr(t("prof.menuAria"))}">${ICON_DOTS}</button>
-      </article>
-    `;
-  }).join("");
+        <div class="pf__col">
+          ${days == null ? "" : `
+            <div class="pf__val ${daysState}"><span class="n-num">${days}</span><span class="n-unit">${escapeHtml(t("prof.daysUnit"))}</span></div>
+            <span class="n-lbl">${escapeHtml(t("prof.statExpires"))}</span>`}
+        </div>
+        <button class="n-icon" data-menu-sub="${escapeAttr(s.id)}" type="button" aria-label="${escapeAttr(t("prof.menuAria"))}">${ICON_DOTS}</button>
+      </div>`;
+  };
 
-  const profileItems = profsList.map(p => {
+  const cfgRow = (p) => {
     const isActive = activeKind === "single" && p.id === activeProfileId;
     const proto = (p.proto || "vless").toUpperCase();
     const security = (p.security || "tcp").toUpperCase();
     return `
-      <article class="prof-card" data-active="${isActive}" data-id="${escapeAttr(p.id)}">
-        <div class="prof-card__icon">${ICON_FILE}</div>
-        <div class="prof-card__main" data-profile-activate="${escapeAttr(p.id)}">
-          <div class="prof-card__head">
-            <span class="prof-card__name">${escapeHtml(p.name)}</span>
-            ${isActive ? `<span class="prof-card__badge">${t("prof.badgeActive")}</span>` : ""}
+      <div class="n-row pf" data-active="${isActive}" data-id="${escapeAttr(p.id)}" role="button" tabindex="0">
+        <div class="pf__main" data-profile-activate="${escapeAttr(p.id)}">
+          <div class="pf__name">
+            <span class="n-primary">${escapeHtml(p.name)}</span>
+            ${isActive ? `<span class="pf__tag">${escapeHtml(t("prof.badgeActive"))}</span>` : ""}
             ${tlsVerificationDisabled(p)
-              ? `<span class="prof-card__badge prof-card__badge--warn" title="${escapeAttr(t("prof.badgeInsecureHint"))}">${t("prof.badgeInsecure")}</span>`
+              ? `<span class="pf__warn" title="${escapeAttr(t("prof.badgeInsecureHint"))}">${ICON_WARN}${escapeHtml(t("prof.badgeInsecure"))}</span>`
               : ""}
           </div>
-          <div class="prof-card__url">${escapeHtml(`${p.host}:${p.port}`)}</div>
+          <div class="n-meta">${escapeHtml(`${p.host}:${p.port}`)}<s>·</s>${escapeHtml(proto)} · ${escapeHtml(security)}</div>
         </div>
-        <div class="prof-card__stats">
-          <div class="prof-card__stat">
-            <span class="prof-card__stat-val" style="font-size:11px;">${escapeHtml(proto)}</span>
-            <span class="prof-card__stat-lbl">${t("prof.statProto")}</span>
+        <div class="pf__col pf__col--traffic">
+          <div class="pf__val">
+            <span class="n-num">${escapeHtml(fmtTraffic(getMeasured(`profile:${p.id}`).total))}</span>
           </div>
-          <div class="prof-card__stat">
-            <span class="prof-card__stat-val" style="font-size:11px;">${escapeHtml(security)}</span>
-            <span class="prof-card__stat-lbl">TLS</span>
-          </div>
-          <div class="prof-card__stat">
-            <span class="prof-card__stat-val tnum">${fmtTraffic(getMeasured(`profile:${p.id}`).total)}</span>
-            <span class="prof-card__stat-lbl">${t("prof.statTraffic")}</span>
-          </div>
+          <span class="n-lbl">${escapeHtml(t("prof.statTraffic"))}</span>
         </div>
-        <button class="prof-card__menu" data-menu-profile="${escapeAttr(p.id)}" type="button" aria-label="${escapeAttr(t("prof.menuAria"))}">${ICON_DOTS}</button>
-      </article>
-    `;
-  }).join("");
+        <div class="pf__col"></div>
+        <button class="n-icon" data-menu-profile="${escapeAttr(p.id)}" type="button" aria-label="${escapeAttr(t("prof.menuAria"))}">${ICON_DOTS}</button>
+      </div>`;
+  };
 
-  profilesList.innerHTML = `${subItems}${profileItems}`;
+  const group = (label, n, rows) => !rows.length ? "" : `
+    <div class="n-group"><span class="n-lbl">${escapeHtml(label)}</span>
+      <span class="n-group__n">${n}</span><span class="n-group__line"></span></div>
+    <div class="pf-list">${rows.join("")}</div>`;
+
+  profilesList.innerHTML =
+    group(t("prof.groupSubs"), subsList.length, subsList.map(subRow)) +
+    group(t("prof.groupConfigs"), profsList.length, profsList.map(cfgRow));
+}
+
+// Хост подписки для мета-строки: полный URL несёт токен и в списке не нужен.
+function hostOfUrl(url) {
+  try { return new URL(url).host; } catch { return String(url || ""); }
 }
 
 // Кнопки header'а profiles экрана

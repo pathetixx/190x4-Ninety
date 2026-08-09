@@ -3,6 +3,7 @@
    ══════════════════════════════════════════════════════════════ */
 :root[data-theme="kintsugi"],
 .app[data-theme="kintsugi"] {
+  --on-accent: var(--ink-0);
   color-scheme: dark;
   --ink-0: #050404;
   --ink-1: #0C0909;

@@ -6,6 +6,7 @@
     <title>Ninety · 190x4</title>
     <link rel="stylesheet" href="/styles/tokens.css" />
     <link rel="stylesheet" href="/styles/app.css" />
+    <link rel="stylesheet" href="/styles/system.css" />
     <link rel="stylesheet" href="/styles/screens.css" />
     <link rel="stylesheet" href="/styles/modals.css" />
     <link rel="stylesheet" href="/styles/settings-extras.css" />
@@ -308,7 +309,7 @@
               <div class="screen__head-main">
                 <div class="screen__kicker">SUBSCRIPTIONS</div>
                 <h2 class="screen__title" data-i18n="profiles.title">Профили</h2>
-                <div class="screen__sub" data-i18n-html="profiles.sub">Подписки и одиночные конфиги. Активный профиль помечен <span style="color:var(--accent-bright)">точкой</span> — используется при подключении.</div>
+                <div class="screen__sub" id="profiles-summary-line"></div>
               </div>
               <div class="screen__actions">
                 <button class="btn btn--ghost btn--sm" id="profiles-refresh-all" type="button">
@@ -322,7 +323,7 @@
               </div>
             </div>
             <div class="screen__body">
-              <div class="prof-list" id="profiles-list"></div>
+              <div id="profiles-list"></div>
             </div>
           </section>
 
@@ -330,17 +331,36 @@
           <section class="screen" data-view="proxies" hidden>
             <div class="screen__head">
               <div class="screen__head-main">
-                <div class="screen__kicker">NODES · 190X4</div>
-                <h2 class="screen__title" data-i18n="proxies.title">Ноды</h2>
+                <div class="screen__kicker" id="proxies-kicker">SERVERS</div>
+                <h2 class="screen__title" data-i18n="proxies.title">Серверы</h2>
                 <div class="screen__sub" id="proxies-meta" data-i18n="proxies.metaNone">Подписка не выбрана</div>
+              </div>
+              <div class="screen__actions">
+                <div class="n-seg" id="proxies-group" role="group" data-i18n-aria-label="proxies.groupAria" aria-label="Группировка">
+                  <button type="button" data-g="country" aria-pressed="true" data-i18n="proxies.groupCountry" data-i18n-title="proxies.groupCountryHint" title="Группировать по странам">Страны</button>
+                  <button type="button" data-g="flat" aria-pressed="false" data-i18n="proxies.groupFlat" data-i18n-title="proxies.groupFlatHint" title="Один общий список">Список</button>
+                </div>
+                <div class="n-search">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                  <input id="proxies-q" type="search" autocomplete="off" spellcheck="false"
+                         data-i18n-placeholder="proxies.searchPh" placeholder="Поиск по серверам"
+                         data-i18n-aria-label="proxies.searchAria" aria-label="Поиск по серверам"
+                         data-i18n-title="proxies.searchTitle" title="Ищет по названию, адресу, транспорту и стране" />
+                  <button class="n-search__x" id="proxies-q-clear" type="button" data-i18n-aria-label="proxies.searchClear" aria-label="Очистить" hidden>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg>
+                  </button>
+                  <kbd class="n-search__k">/</kbd>
+                </div>
+                <button class="btn btn--sm" id="proxies-test" type="button" data-i18n-aria-label="proxies.fabAria" aria-label="Измерить задержку всех серверов">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+                  <span data-i18n="proxies.testAll">Измерить все</span>
+                </button>
               </div>
             </div>
             <div class="screen__body">
-              <div class="prox-grid" id="proxies-grid"></div>
+              <div class="rec" id="proxies-rec"></div>
+              <div class="nt" id="proxies-grid"></div>
             </div>
-            <button class="prox-fab" id="proxies-fab" type="button" data-i18n-aria-label="proxies.fabAria" aria-label="Проверить задержку всех нод">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
-            </button>
           </section>
 
           <!-- DPI BYPASS screen — рендерится из src/lib/dpi-view.js -->
@@ -528,67 +548,59 @@
           <div class="add-modal__head">
             <div class="add-modal__kicker" id="add-modal-title" data-i18n="add.title">ДОБАВИТЬ ПРОФИЛЬ</div>
             <button class="add-modal__close" id="add-modal-close" type="button" data-i18n-aria-label="add.close" aria-label="Закрыть">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg>
             </button>
           </div>
 
-          <div class="add-modal__page add-modal__page--options" id="add-modal-page-options">
-            <div class="add-modal__hint" data-i18n="add.hint">
-              Вставь подписку по URL, vless://-ссылку или их список — мы разберёмся сами.
-            </div>
-            <div class="add-modal__tiles">
-              <button class="add-modal__tile" data-action="clipboard" type="button">
-                <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="8" y="2" width="8" height="4" rx="1"/>
-                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
-                </svg>
-                <span class="add-modal__tile-title" data-i18n="add.tileClipboard">Из буфера</span>
-                <span class="add-modal__tile-sub" data-i18n="add.tileClipboardSub">Распознаёт URL и vless://</span>
-              </button>
-              <button class="add-modal__tile" data-action="manual" type="button">
-                <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 5v14"/><path d="M5 12h14"/>
-                </svg>
-                <span class="add-modal__tile-title" data-i18n="add.tileManual">Вручную</span>
-                <span class="add-modal__tile-sub" data-i18n="add.tileManualSub">URL + название + интервал</span>
-              </button>
-              <button class="add-modal__tile" data-action="file" type="button">
-                <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>
-                </svg>
-                <span class="add-modal__tile-title" data-i18n="add.tileFile">Файл .toml</span>
-                <span class="add-modal__tile-sub" data-i18n="add.tileFileSub">TrustTunnel endpoint-конфиг</span>
-              </button>
-            </div>
-            <input id="add-modal-file" type="file" accept=".toml,text/plain" hidden/>
+          <textarea class="md__in" id="add-modal-url" spellcheck="false" autocomplete="off"
+            data-i18n-placeholder="add.inputPh"
+            placeholder="Ссылка на подписку, vless://, список конфигов или содержимое .toml"></textarea>
+
+          <div class="md__aux">
+            <button class="btn btn--sm" id="add-modal-paste" type="button">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+              <span data-i18n="add.paste">Вставить</span><span class="md__kbd">Ctrl V</span>
+            </button>
+            <button class="btn btn--sm" id="add-modal-file-btn" type="button">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg>
+              <span data-i18n="add.tileFile">Файл .toml</span>
+            </button>
+            <input id="add-modal-file" type="file" accept=".toml,text/plain" hidden />
           </div>
 
-          <div class="add-modal__page add-modal__page--manual" id="add-modal-page-manual" hidden>
-            <div class="add-modal__field">
-              <label class="add-modal__label" for="add-modal-name" data-i18n="add.labelName">Название</label>
-              <input class="add-modal__input" id="add-modal-name" type="text" data-i18n-placeholder="add.phName" placeholder="Моя подписка" autocomplete="off"/>
+          <div class="det" id="add-modal-det" data-kind="empty">
+            <div class="det__l1">
+              <span class="det__ico" id="add-modal-det-ico"></span>
+              <span class="det__k" id="add-modal-det-kind"></span>
             </div>
-            <div class="add-modal__field">
-              <label class="add-modal__label" for="add-modal-url">URL, vless://, naive+https://, tt://…</label>
-              <input class="add-modal__input" id="add-modal-url" type="text" placeholder="https://example.com/sub  ·  vless://…  ·  naive+https://…  ·  tt://…" autocomplete="off"/>
-            </div>
-            <div class="add-modal__field">
-              <div class="add-modal__row">
-                <label class="add-modal__label" for="add-modal-interval" data-i18n="add.labelAuto">Авто-обновление</label>
-                <span class="add-modal__interval-val" id="add-modal-interval-val">12 ч</span>
+            <div class="det__l2" id="add-modal-det-info"></div>
+            <div class="det__bar" id="add-modal-det-bar" hidden><div class="det__prog"></div></div>
+          </div>
+
+          <div class="adv">
+            <button class="adv__t" id="add-modal-adv" type="button" aria-expanded="false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              <span data-i18n="add.advanced">Название и автообновление</span>
+              <span class="n-meta" id="add-modal-adv-hint"></span>
+            </button>
+            <div class="adv__body"><div class="adv__inner"><div class="adv__pad">
+              <div class="fld">
+                <label class="n-lbl" for="add-modal-name" data-i18n="add.labelName">Название</label>
+                <input type="text" id="add-modal-name" data-i18n-placeholder="add.phNameAuto" placeholder="Определится из ссылки" autocomplete="off" />
               </div>
-              <input class="add-modal__slider" id="add-modal-interval" type="range" min="0" max="96" step="1" value="12"/>
-            </div>
-            <div class="add-modal__error" id="add-modal-error" hidden></div>
-            <div class="add-modal__actions">
-              <button class="add-modal__btn add-modal__btn--ghost" id="add-modal-back" type="button" data-i18n="add.back">НАЗАД</button>
-              <button class="add-modal__btn add-modal__btn--primary" id="add-modal-submit" type="button" data-i18n="add.submit">ДОБАВИТЬ</button>
-            </div>
+              <div class="fld">
+                <div class="fld__row">
+                  <span class="n-lbl" data-i18n="add.labelAuto">Авто-обновление</span>
+                  <span class="n-num" id="add-modal-interval-val">12<span class="n-unit">ч</span></span>
+                </div>
+                <input type="range" id="add-modal-interval" min="0" max="96" step="1" value="12" />
+              </div>
+            </div></div></div>
           </div>
 
-          <div class="add-modal__page add-modal__page--loading" id="add-modal-page-loading" hidden>
-            <div class="add-modal__spinner" aria-hidden="true"></div>
-            <div class="add-modal__loading-text" id="add-modal-loading-text">Загружаю подписку…</div>
+          <div class="md__foot">
+            <button class="btn btn--sm" id="add-modal-cancel" type="button" data-i18n="add.cancel">Отмена</button>
+            <button class="btn btn--sm btn--primary" id="add-modal-submit" type="button" data-i18n="add.submit" disabled>Добавить</button>
           </div>
         </div>
       </div>

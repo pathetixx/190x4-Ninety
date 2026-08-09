@@ -173,242 +173,130 @@
   border-color: rgba(255, 120, 140, 0.72);
 }
 
-/* ═══ ADD-PROFILE MODAL ═════════════════════════════════════ */
+/* ═══ ADD-PROFILE MODAL ═════════════════════════════════════
+   Одна карточка, которая растёт. Выбор режима убран: в подавляющем
+   большинстве случаев ответ один — «я вставлю ссылку», а тип ввода
+   приложение определяет само и показывает ДО нажатия «Добавить».
+   ══════════════════════════════════════════════════════════ */
 .add-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 9000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 22px;
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center; padding: 28px;
 }
+.add-modal[hidden] { display: none; }
 .add-modal__backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(5, 5, 7, 0.62);
-  backdrop-filter: blur(8px) saturate(120%);
-  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  position: absolute; inset: 0;
+  background: color-mix(in srgb, var(--ink-0) 74%, transparent);
+  backdrop-filter: blur(3px);
 }
 .add-modal__card {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  max-width: 520px;
-  background: var(--ink-1);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-lg);
-  padding: 20px 22px 18px;
-  box-shadow:
-    0 28px 60px -16px var(--shadow-strong),
-    0 1px 0 var(--overlay-2) inset;
-  animation: modal-card-in 0.22s var(--ease-emph);
+  position: relative; z-index: 1; width: 100%; max-width: 520px;
+  background: var(--ink-1); border: 1px solid var(--line-2); border-radius: var(--r-lg);
+  padding: 18px 20px 16px;
+  box-shadow: 0 30px 64px -18px var(--shadow-strong);
+  animation: modal-card-in .22s var(--ease-emph);
 }
+/* Верхний блик остаётся только у поднятых поверхностей — модалки и поповера.
+   На каждой карточке списка он перестаёт что-либо значить. */
 .add-modal__card::before {
-  content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; pointer-events: none;
   background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
-  pointer-events: none;
 }
 .add-modal__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
 }
 .add-modal__kicker {
-  font-family: var(--font-mono);
-  font-weight: 500;
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--text-faint);
+  font-family: var(--font-mono); font-weight: 500; font-size: 10px;
+  letter-spacing: .18em; text-transform: uppercase; color: var(--text-faint);
 }
 .add-modal__close {
-  width: 32px; height: 32px;
-  display: grid; place-items: center;
-  border-radius: var(--r-xs);
-  color: var(--text-mid);
-  transition: background 160ms var(--ease-out), color 160ms var(--ease-out);
+  width: 26px; height: 26px; display: grid; place-items: center; border-radius: var(--r-xs);
+  background: none; border: 0; color: var(--text-faint); cursor: pointer;
 }
-.add-modal__close:hover { color: var(--text-hi); background: var(--overlay-2); }
+.add-modal__close svg { width: 15px; height: 15px; }
+.add-modal__close:hover { color: var(--text-hi); background: var(--overlay-3); }
 
-.add-modal__page[hidden] { display: none; }
-.add-modal__page--options { display: flex; flex-direction: column; gap: 14px; }
-.add-modal__page--manual  { display: flex; flex-direction: column; gap: 14px; }
-.add-modal__page--loading {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 16px; padding: 36px 0 24px;
+.md__in {
+  width: 100%; min-height: 74px; resize: none; padding: 11px 12px; border-radius: var(--r-sm);
+  background: var(--ink-0); border: 1px solid var(--line-2); color: var(--text-hi);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.6; letter-spacing: -.02em;
+  transition: border-color .16s var(--ease-out), background .16s var(--ease-out); outline: 0;
 }
-
-.add-modal__hint {
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--text-mid);
-}
-.add-modal__tiles {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.add-modal__tile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 22px 14px;
-  border-radius: var(--r-md);
-  background: var(--ink-2);
-  border: 1px solid var(--line-2);
-  color: var(--text-hi);
-  transition: background 200ms var(--ease-out), border-color 200ms var(--ease-out), transform 160ms var(--ease-out);
-}
-.add-modal__tile:hover {
-  background: var(--ink-3);
-  border-color: var(--line-3);
-  transform: translateY(-1px);
-}
-.add-modal__tile svg { color: var(--accent-bright); }
-.add-modal__tile-title {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 14px;
-  letter-spacing: -0.01em;
-}
-.add-modal__tile-sub {
-  font-size: 11.5px;
-  color: var(--text-lo);
-  text-align: center;
-  line-height: 1.45;
+.md__in::placeholder { color: var(--text-faint); }
+.md__in:focus { border-color: color-mix(in srgb, var(--accent) 52%, var(--line-3)); background: var(--ink-1); }
+.md__aux { display: flex; align-items: center; gap: 4px; margin-top: 7px; }
+.md__aux .btn { height: 26px; font-size: 11.5px; border-color: transparent; }
+.md__aux .btn:hover { border-color: transparent; background: var(--overlay-2); }
+.md__kbd {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: .06em; color: var(--text-faint);
+  border: 1px solid var(--line-2); border-radius: 3px; padding: 1px 4px; margin-inline-start: 2px;
 }
 
-.add-modal__field { display: flex; flex-direction: column; gap: 6px; }
-.add-modal__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+/* Полоса распознавания — сердце экрана: говорит, что именно будет создано. */
+.det { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line-1); min-height: 62px; }
+.det__l1 { display: flex; align-items: center; gap: 8px; min-height: 16px; }
+.det__ico { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-faint); }
+.det__ico svg { width: 100%; height: 100%; }
+.det[data-kind="url"] .det__ico, .det[data-kind="config"] .det__ico,
+.det[data-kind="list"] .det__ico, .det[data-kind="tt-toml"] .det__ico { color: var(--accent-bright); }
+.det[data-kind="unknown"] .det__ico { color: var(--err); }
+.det__k {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--text-mid);
 }
-.add-modal__label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  color: var(--text-faint);
-  text-transform: uppercase;
+.det[data-kind="unknown"] .det__k { color: var(--err); }
+.det[data-kind="empty"] .det__k { color: var(--text-faint); }
+.det__l2 {
+  margin-top: 5px; font-family: var(--font-mono); font-size: 11px; color: var(--text-lo);
+  line-height: 1.55; letter-spacing: -.01em;
 }
-.add-modal__input {
-  width: 100%;
-  padding: 10px 12px;
-  background: var(--ink-2);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  color: var(--text-hi);
-  font: inherit;
-  font-size: 13px;
-  outline: 0;
-  transition: border-color 160ms var(--ease-out), background 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+.det__l2 s { text-decoration: none; color: var(--text-faint); padding: 0 4px; }
+.det__l2 b { color: var(--text-mid); font-weight: 500; }
+.det__bar { margin-top: 9px; }
+.det__bar[hidden] { display: none; }
+.det__prog { position: relative; height: 2px; border-radius: 2px; background: var(--overlay-3); overflow: hidden; }
+.det__prog::after {
+  content: ""; position: absolute; inset-block: 0; inset-inline-start: 0; width: 38%;
+  background: var(--accent); border-radius: 2px; animation: det-run 1.15s var(--ease-emph) infinite;
 }
-.add-modal__input::placeholder { color: var(--text-faint); }
-.add-modal__input:focus {
-  border-color: var(--accent);
-  background: var(--ink-3);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-.add-modal__interval-val {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--accent-bright);
-  font-variant-numeric: tabular-nums;
-}
-.add-modal__slider {
-  width: 100%;
-  -webkit-appearance: none;
-  appearance: none;
-  height: 4px;
-  background: var(--line-2);
-  border-radius: 999px;
-  outline: 0;
-}
-.add-modal__slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-bright), 0 0 10px var(--accent-glow);
-  cursor: pointer;
-}
-.add-modal__slider::-moz-range-thumb {
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: 1px solid var(--accent-bright);
-  cursor: pointer;
-}
+@keyframes det-run { 0% { inset-inline-start: -38%; } 100% { inset-inline-start: 100%; } }
 
-.add-modal__error {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--err);
-  background: rgba(229, 72, 77, 0.08);
-  border: 1px solid rgba(229, 72, 77, 0.3);
-  border-radius: var(--r-xs);
-  padding: 8px 10px;
+/* Раскрытие на месте вместо смены страницы */
+.adv { margin-top: 13px; border-top: 1px solid var(--line-1); padding-top: 11px; }
+.adv__t {
+  display: flex; align-items: center; gap: 7px; width: 100%; background: none; border: 0; padding: 0;
+  cursor: pointer; font-family: var(--font-display); font-size: 12.5px; font-weight: 500;
+  color: var(--text-mid); text-align: start;
 }
-.add-modal__error[hidden] { display: none; }
-
-.add-modal__actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 4px;
+.adv__t:hover { color: var(--text-hi); }
+.adv__t svg { width: 12px; height: 12px; color: var(--text-faint); transition: transform .2s var(--ease-out); }
+.adv__t[aria-expanded="true"] svg { transform: rotate(90deg); }
+.adv__t .n-meta { margin-inline-start: auto; }
+.adv__body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .26s var(--ease-emph); }
+.adv__t[aria-expanded="true"] + .adv__body { grid-template-rows: 1fr; }
+.adv__inner { overflow: hidden; min-height: 0; }
+.adv__pad { padding-top: 12px; display: flex; flex-direction: column; gap: 12px; }
+.fld { display: flex; flex-direction: column; gap: 6px; }
+.fld__row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.fld input[type="text"] {
+  height: 32px; padding: 0 11px; border-radius: var(--r-sm); background: var(--ink-0);
+  border: 1px solid var(--line-2); color: var(--text-hi);
+  font-family: var(--font-body); font-size: 12.5px; outline: 0;
+  transition: border-color .16s var(--ease-out);
+  font-variant-ligatures: none; font-feature-settings: "calt" 0;
 }
-.add-modal__btn {
-  flex: 1;
-  height: 38px;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  border-radius: var(--r-sm);
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: background 160ms var(--ease-out), border-color 160ms var(--ease-out), transform 120ms var(--ease-out), color 160ms var(--ease-out);
+.fld input[type="text"]::placeholder { color: var(--text-faint); }
+.fld input[type="text"]:focus { border-color: color-mix(in srgb, var(--accent) 52%, var(--line-3)); }
+.fld input[type="range"] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 14px; background: transparent; cursor: pointer;
 }
-.add-modal__btn:disabled { cursor: not-allowed; opacity: 0.5; }
-.add-modal__btn--ghost {
-  background: transparent;
-  border-color: var(--line-2);
-  color: var(--text-mid);
+.fld input[type="range"]::-webkit-slider-runnable-track { height: 2px; border-radius: 2px; background: var(--overlay-3); }
+.fld input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--accent); margin-top: -5px; border: 0;
 }
-.add-modal__btn--ghost:hover:not(:disabled) {
-  border-color: var(--line-3);
-  color: var(--text-hi);
-  background: var(--ink-2);
-}
-.add-modal__btn--primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  box-shadow: 0 0 24px var(--accent-glow), 0 1px 0 rgba(255,255,255,0.18) inset;
-}
-.add-modal__btn--primary:hover:not(:disabled) {
-  background: var(--accent-bright);
-  border-color: var(--accent-bright);
-}
-.add-modal__btn--primary:active:not(:disabled) { transform: translateY(1px); }
-
-.add-modal__spinner {
-  width: 38px; height: 38px;
-  border-radius: 50%;
-  border: 3px solid var(--accent-soft);
-  border-top-color: var(--accent);
-  animation: modal-spin 0.85s linear infinite;
-}
-.add-modal__loading-text {
-  font-size: 12px;
-  color: var(--text-mid);
-  letter-spacing: -0.005em;
-}
-@keyframes modal-spin { to { transform: rotate(360deg); } }
+.fld input[type="range"]::-moz-range-track { height: 2px; border-radius: 2px; background: var(--overlay-3); }
+.fld input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); border: 0; }
+.md__foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; }
 
 /* ═══ EDIT MODAL (rename / interval / auto-update) ══════════ */
 .edit-modal {

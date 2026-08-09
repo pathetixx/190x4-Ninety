@@ -1,172 +1,153 @@
 /* ─────────────────────────────────────────────────────────────
-   Ninety — Proxies screen (full-width grid 268×72)
-   Премиум-токены: ink-1 фон, top edge highlight, accent-soft active.
-   Подключается отдельно от основной системы стилей.
+   Ninety — экран «Серверы»
+   Рекомендации сверху, плотная таблица 36 px снизу.
+   Сетка карточек 268×72 заменена таблицей: при ширине контента
+   760 px она давала две колонки, и 40 серверов превращались в
+   20 экранов прокрутки без вертикального ритма.
    ───────────────────────────────────────────────────────────── */
 
-.prox-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
-  gap: 10px;
-  align-content: start;
-  padding-bottom: 18px;
-}
-
-.prox {
-  position: relative;
-  display: grid;
-  grid-template-columns: 28px 1fr auto;
-  align-items: center;
-  gap: 12px;
-  height: 72px;
-  padding: 0 14px;
-  border-radius: var(--r-md);
-  background: var(--ink-1);
-  border: 1px solid var(--line-2);
-  cursor: pointer;
-  overflow: hidden;
-  transition: background 180ms var(--ease-out), border-color 180ms var(--ease-out);
-}
-.prox::before {
-  content: "";
-  position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
-  pointer-events: none;
-}
-.prox:hover { background: var(--ink-2); border-color: var(--line-3); }
-.prox:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-
-.prox[data-active="true"] {
-  background: linear-gradient(180deg, var(--accent-soft) 0%, transparent 50%), var(--ink-1);
-  border-color: var(--overlay-2);
-  box-shadow: 0 0 0 1px var(--accent-soft) inset;
-}
-.prox[data-active="true"]::before {
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  opacity: 0.55;
-}
-
-.prox__flag {
-  width: 28px; height: 20px;
-  border-radius: 3px;
-  overflow: hidden;
-  border: 1px solid rgba(0,0,0,0.4);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.4);
-  display: grid;
-  place-items: center;
-  background: var(--ink-2);
-}
-.prox__flag img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.prox__flag-fallback {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--text-faint);
-}
-
-.prox__main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.prox__name {
-  font-family: var(--font-display);
-  font-weight: 500;
-  font-size: 13px;
-  letter-spacing: -0.005em;
-  color: var(--text-hi);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.prox__sub {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--text-lo);
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.prox__sub-type {
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-.prox__ping {
-  display: flex;
-  align-items: baseline;
-  gap: 3px;
-  font-family: var(--font-mono);
-  font-weight: 500;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-mid);
-  min-width: 56px;
-  justify-content: flex-end;
-}
-.prox__ping[data-grade="good"] { color: var(--ok); }
-.prox__ping[data-grade="mid"]  { color: var(--warn); }
-.prox__ping[data-grade="bad"]  { color: var(--err); }
-.prox__ping[data-grade="dead"] { color: var(--text-faint); }
-.prox__ping-unit {
-  font-size: 9px;
-  color: var(--text-faint);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-/* AUTO-карточка — особая, иконка-молния вместо флага */
-.prox--auto .prox__flag {
-  background: var(--accent-soft);
-  border-color: transparent;
-  color: var(--accent-bright);
-  display: grid;
-  place-items: center;
-}
-.prox--auto .prox__flag svg { width: 14px; height: 14px; }
-.prox--auto .prox__name { color: var(--accent-bright); }
-
-/* ───────── FAB test-all ───────── */
-.prox-fab {
-  /* fixed (не absolute): .screen[data-view=proxies] сам скроллится внутри
-     .content (overflow-y:auto), поэтому absolute+bottom уезжал вместе с экраном.
-     fixed привязывает FAB к окну (предки без transform/filter → containing block
-     = viewport). Прячется вместе с экраном через [hidden]{display:none}. */
-  position: fixed;
-  bottom: 24px; inset-inline-end: 28px;
-  width: 48px; height: 48px;
-  border-radius: 50%;
-  background: var(--ink-2);
-  border: 1px solid var(--accent);
-  display: grid;
-  place-items: center;
-  color: var(--accent-bright);
-  cursor: pointer;
-  box-shadow:
-    0 0 0 1px var(--line-1) inset,
-    0 12px 32px -10px rgba(0,0,0,0.6),
-    0 0 24px var(--accent-glow);
-  transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out), background 220ms var(--ease-out);
-  z-index: 5;
-}
-.prox-fab:hover {
-  transform: scale(1.04);
-  background: var(--ink-3);
-  box-shadow:
-    0 0 0 1px var(--line-1) inset,
-    0 16px 40px -10px var(--shadow-strong),
-    0 0 36px var(--accent-glow);
-}
-.prox-fab:active { transform: scale(0.96); }
-.prox-fab svg { width: 20px; height: 20px; transition: transform 360ms var(--ease-out); }
-.prox-fab[data-testing="true"] svg {
-  animation: prox-fab-spin 1.1s linear infinite;
-}
-@keyframes prox-fab-spin { to { transform: rotate(360deg); } }
-
-/* Главный контейнер screen[data-view=proxies] должен иметь position:relative
-   чтобы FAB корректно прижался в правый нижний угол области контента */
 .screen[data-view="proxies"] { position: relative; }
+
+/* ── рекомендации ── */
+.rec { margin-bottom: 18px; }
+.rec__head { display: flex; align-items: center; gap: 9px; padding: 0 2px 7px; }
+.rec__fold {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: none; border: 0; padding: 2px 4px; border-radius: 4px; cursor: pointer;
+  color: var(--text-faint);
+}
+.rec__fold:hover { background: var(--overlay-2); }
+.rec__fold:hover .n-lbl { color: var(--text-lo); }
+.rec__fold svg { width: 12px; height: 12px; transition: transform .2s var(--ease-out); }
+.rec__fold[aria-expanded="false"] svg { transform: rotate(-90deg); }
+.rec__why {
+  margin-inline-start: auto; display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-faint); background: none; border: 0; cursor: pointer; padding: 2px 4px; border-radius: 4px;
+}
+.rec__why:hover { color: var(--text-mid); background: var(--overlay-2); }
+.rec__why svg { width: 12px; height: 12px; }
+.rec__body[hidden] { display: none; }
+
+.rec-row {
+  grid-template-columns: 20px minmax(0, 1fr) 52px 58px;
+  gap: 12px; height: 46px; padding: 0 14px 0 16px;
+}
+.rec-row + .rec-row { box-shadow: 0 -1px 0 var(--line-1); }
+.rec-row__main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.rec-row__name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rec-row__reason {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-lo);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rec-row__reason svg { width: 11px; height: 11px; flex-shrink: 0; color: var(--text-faint); }
+.rec-row__bolt { color: var(--accent-bright); background: var(--accent-soft); }
+.rec-row__bolt svg { width: 12px; height: 12px; object-fit: contain; }
+
+/* первый запуск — состояние, с которого начинается каждый новый пользователь */
+.first { display: flex; align-items: center; gap: 14px; padding: 16px; }
+.first__t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.first__t .n-primary { white-space: normal; color: var(--text-hi); }
+.first .n-meta { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.5; }
+.first__bar { display: flex; align-items: center; gap: 10px; }
+.first__bar .n-meter { flex: 1; }
+.first__n {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-lo);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* ── таблица ── */
+.nt { display: flex; flex-direction: column; }
+.nt__head {
+  position: sticky; top: 0; z-index: 6; display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 128px 78px 52px 62px 24px 28px;
+  gap: 12px; align-items: center; height: 28px; padding: 0 12px 0 16px;
+  background: var(--ink-0); border-bottom: 1px solid var(--line-2);
+}
+.nt__h {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--text-faint);
+  transition: color .14s var(--ease-out);
+}
+.nt__h:hover, .nt__h[data-sorted="true"] { color: var(--text-mid); }
+.nt__h svg { width: 10px; height: 10px; opacity: 0; margin-inline-start: 1px;
+  transition: opacity .14s var(--ease-out), transform .18s var(--ease-out); }
+.nt__h[data-sorted="true"] svg { opacity: 1; }
+.nt__h[data-dir="asc"] svg { transform: rotate(180deg); }
+.nt__h--end { justify-content: flex-end; padding-inline-end: 2px; }
+.nt__h--trend { justify-content: center; }
+
+.nt__grp {
+  display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 12px 0 16px;
+  background: none; border: 0; width: 100%; cursor: pointer; text-align: start;
+}
+.nt__grp:hover .n-lbl { color: var(--text-lo); }
+.nt__grp--static { cursor: default; }
+.nt__grp-line { flex: 1; height: 1px; background: var(--line-1); }
+.nt__grp-chev { width: 12px; height: 12px; color: var(--text-faint); flex-shrink: 0;
+  transition: transform .2s var(--ease-out); }
+.nt__grp[aria-expanded="false"] .nt__grp-chev { transform: rotate(-90deg); }
+.nt__grp-fav { background: var(--accent-soft); color: var(--accent-bright); }
+.nt__grp-fav svg { width: 11px; height: 11px; }
+
+.nt-row {
+  grid-template-columns: 20px minmax(0, 1fr) 128px 78px 52px 62px 24px 28px;
+  gap: 12px; height: 36px; padding: 0 12px 0 16px; border-radius: var(--r-xs);
+}
+.nt-row + .nt-row { box-shadow: 0 -1px 0 var(--line-1); }
+.nt-row__name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.nt-row__host {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-lo); letter-spacing: -.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nt-row__tr {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 500; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--text-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nt-row[data-pending="true"] .n-primary,
+.nt-row[data-pending="true"] .nt-row__host,
+.nt-row[data-pending="true"] .nt-row__tr { opacity: .5; }
+.nt-row:hover .n-star, .nt-row:focus-within .n-star { opacity: .72; }
+.nt-row .n-star[aria-pressed="true"], .nt-row .n-star:hover { opacity: 1; }
+.nt-body { padding-bottom: 6px; }
+.nt-body[hidden] { display: none; }
+
+/* Поповер разбора индекса */
+.rec-pop {
+  position: fixed; z-index: 9500; width: 322px; padding: 14px 15px 13px;
+  border-radius: var(--r-md); background: var(--ink-2); border: 1px solid var(--line-3);
+  box-shadow: 0 24px 56px -14px var(--shadow-strong);
+}
+.rec-pop[hidden] { display: none; }
+.rec-pop__t { font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--text-hi); margin-bottom: 3px; }
+.rec-pop__d { font-size: 11.5px; color: var(--text-lo); line-height: 1.5; margin-bottom: 11px; }
+.rec-pop__f { display: flex; flex-direction: column; gap: 8px; }
+.rec-pop__r { display: grid; grid-template-columns: 106px 1fr 26px; align-items: center; gap: 10px; }
+.rec-pop__r .n-lbl { font-size: 8.5px; line-height: 1.35; }
+.rec-pop__r .n-num { font-size: 11px; text-align: end; }
+.rec-pop__note {
+  margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line-1);
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); line-height: 1.55;
+}
+
+/* ── узкое окно: жертвуем колонками по возрастанию ценности,
+      имя сервера не сокращаем никогда ── */
+.content { container-type: inline-size; container-name: app; }
+@container app (max-width: 620px) {
+  .nt__head, .nt-row { grid-template-columns: 20px minmax(0,1fr) 78px 52px 62px 24px 28px; }
+  .nt__h[data-k="host"], .nt-row__host { display: none; }
+  .n-search { flex: 1 1 120px; }
+  .n-search__k { display: none; }
+  #proxies-test span { display: none; }
+  #proxies-test { padding: 0 9px; }
+}
+@container app (max-width: 470px) {
+  .nt__head, .nt-row { grid-template-columns: 20px minmax(0,1fr) 52px 62px 24px 28px; }
+  .nt__h[data-k="tr"], .nt-row__tr { display: none; }
+  .rec-row { grid-template-columns: 20px minmax(0,1fr) 58px; }
+  .rec-row .n-spark { display: none; }
+}

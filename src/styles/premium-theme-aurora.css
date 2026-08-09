@@ -3,6 +3,7 @@
    ══════════════════════════════════════════════════════════════ */
 :root[data-theme="aurora"],
 .app[data-theme="aurora"] {
+  --on-accent: var(--ink-0);
   color-scheme: dark;
   --ink-0: #02070D;
   --ink-1: #071421;
