@@ -419,7 +419,7 @@ export const fa = {
   },
 
   qToast: {
-    channel: { unknown: "بررسی", good: "عالی", slow: "کند", stalled: "گیر کرده", dead: "بدون اتصال" },
+    channel: { unknown: "بررسی", good: "عالی", slow: "کند", stalled: "گیر کرده", dead: "بدون اتصال", pressure: "رایانه پرمشغله" },
     masking: "در حال روشن کردن استتار ترافیک…",
     backup: "در حال تعویض کانال پشتیبان…",
     confirmSpeedup: "اتصال کند شد. تلاش برای تندتر کردن — «{label}»؟ یک اتصال مجدد کوتاه لازم است.",
@@ -488,7 +488,7 @@ export const fa = {
   },
 
   qScope: {
-    label: { unknown: "بررسی", good: "عالی", slow: "کند", stalled: "گیر کرده", dead: "بدون اتصال" },
+    label: { unknown: "بررسی", good: "عالی", slow: "کند", stalled: "گیر کرده", dead: "بدون اتصال", pressure: "رایانه پرمشغله" },
     title: "کیفیت کانال",
     legend: "آستانهٔ «عالی» · {mbps} Mbps",
     hint: "با اجرای بررسی‌های سرعت به‌روز می‌شود",

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeIp, sanitizeRule } from "/lib/routing-rules.js";
+import { isValidValue, normalizeIp, normalizeValue, sanitizeRule } from "/lib/routing-rules.js";
 
 test("routing rules: IPv6 validation accepts real addresses only", () => {
   assert.equal(normalizeIp("2001:db8::1"), "2001:db8::1/128");
@@ -21,4 +21,56 @@ test("routing rules: sanitizeRule drops invalid IP values", () => {
   });
   assert.equal(dropped, 2);
   assert.deepEqual(rule.values, ["1.2.3.4/32", "2001:db8::1/128"]);
+});
+
+// Прежняя регулярка требовала TLD из одних букв и молча выбрасывала весь
+// punycode: правило для .рф исчезало из списка, а UI показывал только счётчик
+// отброшенных значений.
+test("routing rules: IDN и punycode-домены сохраняются в A-label", () => {
+  const { rule, dropped } = sanitizeRule({
+    type: "domain",
+    match: "suffix",
+    values: ["почта.рф", "site.xn--p1ai", "münchen.de", "abc.p2p"],
+    action: "direct",
+  });
+  assert.equal(dropped, 0);
+  assert.deepEqual(rule.values, [
+    "xn--80a1acny.xn--p1ai",
+    "site.xn--p1ai",
+    "xn--mnchen-3ya.de",
+    "abc.p2p",
+  ]);
+});
+
+test("routing rules: домен обязан иметь метки и нечисловой TLD", () => {
+  const { rule, dropped } = sanitizeRule({
+    type: "domain",
+    match: "suffix",
+    values: ["gosuslugi.ru", "google", "1.2.3.4", "-bad.com", "bad-.com"],
+    action: "proxy",
+  });
+  assert.deepEqual(rule.values, ["gosuslugi.ru"]);
+  assert.equal(dropped, 4);
+});
+
+// domain_keyword в sing-box — подстрока имени хоста. Проверка «полный домен с
+// TLD» делала режим «ключевое слово» нерабочим: youtube/google отбрасывались.
+test("routing rules: keyword принимает подстроку и не режет её как URL", () => {
+  const { rule, dropped } = sanitizeRule({
+    type: "domain",
+    match: "keyword",
+    values: ["youtube", "google", "с пробелом"],
+    action: "proxy",
+  });
+  assert.deepEqual(rule.values, ["youtube", "google"]);
+  assert.equal(dropped, 1);
+});
+
+test("routing rules: keyword и suffix валидируются по-разному", () => {
+  assert.equal(isValidValue("domain", "youtube", "keyword"), true);
+  assert.equal(isValidValue("domain", "youtube", "suffix"), false);
+  assert.equal(isValidValue("domain", "youtube.com", "suffix"), true);
+  // Для suffix путь и порт срезаются, для keyword — нет: там это часть искомого.
+  assert.equal(normalizeValue("domain", "https://x.com/ads", "suffix"), "x.com");
+  assert.equal(normalizeValue("domain", "x.com/ads", "keyword"), "x.com/ads");
 });

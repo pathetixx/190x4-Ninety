@@ -1334,7 +1334,13 @@ function rankByDelay(nodes, proxies) {
 // ── Индикатор качества канала (ячейка «Канал» в телеметрии-полосе) ──
 // Состояние правит движок через onState; ячейка живёт в stats-strip (secured),
 // показывается/прячается вместе с полосой. Человеческий язык, без техножаргона.
-const qChannelLabel = (st) => t("qToast.channel." + String(st).toLowerCase());
+// Состояния движка качества, у которых есть подпись. Неизвестное значение
+// печаталось бы в чип сырым ключом каталога, поэтому сводим его к «проверке».
+const CHANNEL_STATES = new Set(["unknown", "good", "slow", "stalled", "dead", "pressure"]);
+const qChannelLabel = (st) => {
+  const key = String(st).toLowerCase();
+  return t("qToast.channel." + (CHANNEL_STATES.has(key) ? key : "unknown"));
+};
 const qualityDot = document.getElementById("tele-channel"); // #tele-channel (data-q/data-active)
 const qualityState = document.getElementById("stats-channel");
 let lastChannelState = "UNKNOWN";

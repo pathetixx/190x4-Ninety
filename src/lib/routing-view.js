@@ -90,6 +90,9 @@ export function mountRoutingRules(rootEl, opts = {}) {
   let draft = null;
   let procMode = "pick";
   let escHandler = null;
+  // Валидность значения зависит от режима совпадения (keyword ≠ полный домен),
+  // поэтому переключатель режима обязан перерисовать чипы и пересчитать превью.
+  let repaintValueChips = () => {};
 
   function loadRules() {
     const r = loadOptions().route?.customRules;
@@ -268,6 +271,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
   function closeModal() {
     const m = document.getElementById("rr-modal");
     if (m) m.remove();
+    repaintValueChips = () => {};
     if (escHandler) { document.removeEventListener("keydown", escHandler); escHandler = null; }
     draft = null;
   }
@@ -324,7 +328,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const repaint = () => {
       wrap.querySelectorAll(".rr-ichip").forEach((c) => c.remove());
       draft.values.forEach((v, i) => {
-        const bad = !isValidValue(type, v);
+        const bad = !isValidValue(type, v, draft.match);
         const c = el("span", "rr-ichip" + (bad ? " is-bad" : ""), esc(v) + '<button class="rr-ichip__x" type="button" aria-label="' + esc(t("rr.remove")) + '">' + I.x + "</button>");
         c.querySelector(".rr-ichip__x").addEventListener("click", (ev) => { ev.stopPropagation(); draft.values.splice(i, 1); repaint(); updatePreview(); updateSave(); });
         wrap.insertBefore(c, entry);
@@ -344,6 +348,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     wrap.addEventListener("click", () => entry.focus());
     wrap.appendChild(entry);
     repaint();
+    repaintValueChips = repaint;
     return wrap;
   }
 
@@ -361,7 +366,11 @@ export function mountRoutingRules(rootEl, opts = {}) {
       p.classList.remove("rr-preview--warn");
       return;
     }
-    const norm = draft.values.map((v) => ({ raw: v, n: normalizeValue(type, v), ok: isValidValue(type, v) }));
+    const norm = draft.values.map((v) => ({
+      raw: v,
+      n: normalizeValue(type, v, draft.match),
+      ok: isValidValue(type, v, draft.match),
+    }));
     const good = norm.filter((x) => x.ok);
     const bad = norm.filter((x) => !x.ok);
     let html = good.length ? esc(t("rr.previewSavedAs")) + good.map((x) => "<b>" + esc(x.n) + "</b>").join(", ") : esc(t("rr.previewNone"));
@@ -379,7 +388,13 @@ export function mountRoutingRules(rootEl, opts = {}) {
       const b = el("button", "rr-seg__btn", "<span>" + esc(MATCH_LABELS()[m]) + "</span>");
       b.type = "button";
       b.dataset.on = String(draft.match === m);
-      b.addEventListener("click", () => { draft.match = m; seg.querySelectorAll(".rr-seg__btn").forEach((x, i) => { x.dataset.on = String(["suffix", "exact", "keyword"][i] === m); }); });
+      b.addEventListener("click", () => {
+        draft.match = m;
+        seg.querySelectorAll(".rr-seg__btn").forEach((x, i) => { x.dataset.on = String(["suffix", "exact", "keyword"][i] === m); });
+        repaintValueChips();
+        updatePreview();
+        updateSave();
+      });
       seg.appendChild(b);
     });
     f.appendChild(seg);
@@ -503,7 +518,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
   function updateSave() {
     const save = document.getElementById("rr-save");
     if (!save) return;
-    save.disabled = !draft.values.some((v) => isValidValue(draft.type, v));
+    save.disabled = !draft.values.some((v) => isValidValue(draft.type, v, draft.match));
   }
 
   function saveDraft() {

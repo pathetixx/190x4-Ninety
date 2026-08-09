@@ -264,9 +264,13 @@ export function initHealthWatchdog({
         // shutdownCore, который сбрасывает флаги).
         const why = snap.last_error;
         if (why) console.warn("sing-box died:", why);
-        // Бюджет считаем ДО остановки: после неё state уже idle, и повторный
-        // вход сюда невозможен, а списывать попытку надо один раз.
-        const mayRestore = coreRestoreAllowed();
+        // Бюджет списываем ПОСЛЕ подтверждённой остановки. Раньше он считался
+        // до неё, и неудачный stop (очистка не подтверждена — процесс завис,
+        // порт не освободился) съедал единственную попытку окна, ни разу не
+        // дойдя до восстановления: следующие 15 минут ядро уже не поднималось.
+        // Повторного списывания это не даёт — после подтверждённого stop state
+        // уже не connected, и второй раз в эту ветку тик не заходит.
+        let restoreAttempted = false;
         const outcome = await withFrontendRecovery(
           { reason: "process_dead" },
           async (operationToken) => {
@@ -274,7 +278,8 @@ export function initHealthWatchdog({
               preserveKillSwitch: shouldPreserveKillSwitch(),
             }, operationToken));
             if (!stopped) return "stop_failed";
-            if (!mayRestore) return "stopped";
+            if (!coreRestoreAllowed()) return "stopped";
+            restoreAttempted = true;
             // Восстановление держим внутри ТОЙ ЖЕ операции: между остановкой и
             // повторным стартом никакая другая операция не должна вклиниться, а
             // fail-closed WFP всё это время сохранён shutdownCore'ом.
@@ -287,7 +292,7 @@ export function initHealthWatchdog({
           },
         );
         if (!outcome || outcome === "stop_failed") return;
-        recordDiagnostic("core_death", outcome, mayRestore ? "restore_attempted" : "restore_budget");
+        recordDiagnostic("core_death", outcome, restoreAttempted ? "restore_attempted" : "restore_budget");
         if (outcome === "restored") {
           toastFn(tr("conn.coreRestored"), "success", 5000, { group: "conn" });
           notifyFn("Ninety", tr("conn.coreRestored"));

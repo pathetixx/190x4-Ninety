@@ -36,10 +36,13 @@ export function resetMeasured(sourceKey) {
 }
 
 // Ключ источника для getActiveSource()-объекта.
+// Ключ обязан быть либо конкретным, либо отсутствовать. Раньше источник без id
+// давал строку "sub:undefined", и трафик всех таких источников копился в один
+// общий счётчик, а «Сбросить» чистил его сразу у всех.
 export function sourceKeyOf(src) {
   if (!src) return null;
-  if (src.kind === "sub") return `sub:${src.subscription?.id}`;
-  if (src.kind === "single") return `profile:${src.profile?.id}`;
+  if (src.kind === "sub") return src.subscription?.id ? `sub:${src.subscription.id}` : null;
+  if (src.kind === "single") return src.profile?.id ? `profile:${src.profile.id}` : null;
   if (src.kind === "warp") return "warp";
   return null;
 }

@@ -31,19 +31,62 @@ export function newRule(partial = {}) {
 }
 
 // ── Нормализация значений по типу ───────────────────────────────────
+// Unicode-домен → punycode (A-label). sing-box матчит домены в том виде, в каком
+// их видит резолвер, то есть в punycode: правило, сохранённое как «почта.рф», не
+// совпало бы никогда. Конверсию делает сам WHATWG-URL — без внешних зависимостей.
+// Трогаем ТОЛЬКО строки с не-ASCII: для чистого ASCII парсер URL заодно
+// нормализовал бы «0x7f.1» в IP-адрес, чего пользователь не просил.
+function hasNonAscii(s) {
+  for (const ch of s) if (ch.codePointAt(0) > 0x7f) return true;
+  return false;
+}
+
+function toPunycode(host) {
+  if (!hasNonAscii(host)) return host;
+  try {
+    const { hostname } = new URL(`http://${host}/`);
+    return hostname || host;
+  } catch { return host; }
+}
+
 // Домен: срезаем схему/путь/порт/ведущий "*.", нижний регистр.
-export function normalizeDomain(v) {
+// match="keyword" — это подстрока имени, а не домен: срез схемы/пути/порта там
+// менял бы сам искомый фрагмент, поэтому для него только trim/lowercase/punycode.
+export function normalizeDomain(v, match = "suffix") {
   let s = String(v || "").trim().toLowerCase();
   if (!s) return "";
+  if (match === "keyword") return toPunycode(s);
   s = s.replace(/^[a-z]+:\/\//, ""); // https:// и т.п.
   s = s.split("/")[0]; // путь
   s = s.split("?")[0];
   s = s.replace(/^\*\./, ""); // *.youtube.com → youtube.com (suffix покрывает поддомены)
   s = s.replace(/:\d+$/, ""); // :443
-  return s;
+  return toPunycode(s);
 }
 
-const RE_DOMAIN = /^(?=.{1,253}$)([a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?\.)+[a-z]{2,63}$/i;
+// Метка LDH: 1..63 символа, не начинается и не заканчивается дефисом.
+// Подчёркивание оставлено намеренно (служебные имена вида _acme-challenge).
+const RE_LABEL = /^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?$/;
+
+// Валидный домен. Прежняя регулярка требовала TLD из одних букв ([a-z]{2,63}) и
+// молча выбрасывала весь punycode (xn--p1ai, то есть любой .рф/.中国) и TLD с
+// цифрой (.p2p, .b2b): правило исчезало из списка, а причина нигде не всплывала.
+function isValidDomainName(s) {
+  if (!s || s.length > 253) return false;
+  const labels = s.split(".");
+  if (labels.length < 2) return false;
+  if (!labels.every((label) => RE_LABEL.test(label))) return false;
+  const tld = labels[labels.length - 1];
+  // Чисто числовой TLD запрещён — иначе "1.2.3.4" прошёл бы как домен.
+  return tld.length >= 2 && !/^\d+$/.test(tld);
+}
+
+// Ключевое слово — подстрока имени хоста, а не домен: точка и TLD не нужны.
+// Проверяем только длину и алфавит имени хоста.
+function isValidDomainKeyword(s) {
+  return !!s && s.length <= 253 && /^[a-z0-9_.-]+$/.test(s);
+}
+
 const RE_IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
 function validIpv4(s) {
@@ -88,17 +131,19 @@ export function normalizeProcess(v) {
 }
 
 // Нормализовать одно значение по типу. "" = невалидно.
-export function normalizeValue(type, v) {
+export function normalizeValue(type, v, match = "suffix") {
   if (type === "ip") return normalizeIp(v);
   if (type === "process") return normalizeProcess(v);
-  return normalizeDomain(v); // domain
+  return normalizeDomain(v, match); // domain
 }
 
 // Валидно ли значение (для подсветки поля в UI).
-export function isValidValue(type, v) {
-  const n = normalizeValue(type, v);
+export function isValidValue(type, v, match = "suffix") {
+  const n = normalizeValue(type, v, match);
   if (!n) return false;
-  if (type === "domain") return RE_DOMAIN.test(n);
+  if (type === "domain") {
+    return match === "keyword" ? isValidDomainKeyword(n) : isValidDomainName(n);
+  }
   return true; // ip/process уже выверены нормализацией
 }
 
@@ -113,11 +158,11 @@ export function sanitizeRule(rule) {
   const values = [];
   let dropped = 0;
   for (const raw of Array.isArray(rule?.values) ? rule.values : []) {
-    if (!isValidValue(type, raw)) {
+    if (!isValidValue(type, raw, match)) {
       if (String(raw || "").trim()) dropped++;
       continue;
     }
-    const n = normalizeValue(type, raw);
+    const n = normalizeValue(type, raw, match);
     if (seen.has(n)) continue;
     seen.add(n);
     values.push(n);

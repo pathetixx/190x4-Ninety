@@ -7,6 +7,7 @@ import {
   ENGINE_PROCESS_NAMES,
   nodeTag,
   parseVless,
+  parseVmess,
   validateConfigReferences,
 } from "/lib/singbox.js";
 import { DEFAULT_OPTIONS, REGIONS } from "/lib/options.js";
@@ -566,4 +567,89 @@ test("страновые rule-set'ы ведут на канонические и
   const geoip = sets.find((set) => set.tag === "geoip-tr");
   assert.ok(geoip, "geoip-tr должен выпускаться");
   assert.match(geoip.url, /SagerNet\/sing-geoip/);
+});
+
+// Мост брал в xray любую ноду с type=xhttp, а собирал из неё vless-outbound:
+// vmess-нода получала чужой протокол с собственным uuid. Конфиг при этом
+// валиден, оба ядра стартуют, и нода просто не работает — молча.
+test("two-core: vmess+xhttp собирается как vmess, а не как vless", () => {
+  const vmess = parseVmess("vmess://" + Buffer.from(JSON.stringify({
+    add: "vm.example.com", port: "443", id: "vmess-uuid", net: "xhttp",
+    tls: "tls", sni: "s.example.com", path: "/x", ps: "VM",
+  }), "utf8").toString("base64"));
+  const { config, xray } = buildConfig({
+    source: { kind: "single", profile: vmess },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+    xray: true,
+  });
+  assert.ok(xray, "xray-конфиг должен собраться");
+  assert.equal(xray.outbounds[0].protocol, "vmess");
+  assert.equal(xray.outbounds[0].settings.vnext[0].address, "vm.example.com");
+  assert.equal(xray.outbounds[0].settings.vnext[0].users[0].id, "vmess-uuid");
+  assert.equal(xray.outbounds[0].streamSettings.network, "xhttp");
+  assert.equal(bridgeNeeds([vmess]).xray, 1);
+  const bridge = config.outbounds.find((o) => o.tag === "proxy");
+  assert.equal(bridge.type, "socks");
+  assert.equal(bridge.server_port, 31100);
+});
+
+// Счётчик портов и сборка обязаны решать одинаково: разойдись они — мост занял
+// бы порт, которого никто не планировал.
+test("two-core: xhttp у неподдерживаемого протокола не идёт в мост", () => {
+  const ss = {
+    proto: "shadowsocks", host: "ss.example.com", port: 8388,
+    method: "aes-256-gcm", password: "pw", type: "xhttp",
+  };
+  assert.equal(bridgeNeeds([ss]).xray, 0);
+  const { config, xray } = buildConfig({
+    source: { kind: "single", profile: ss },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+    xray: true,
+  });
+  assert.equal(xray, null);
+  const proxy = config.outbounds.find((o) => o.tag === "proxy");
+  assert.equal(proxy.type, "shadowsocks");
+});
+
+// rule_set и endpoints раньше валидатор не смотрел вовсе: правило, ссылающееся
+// на невыпущенный набор, и WARP-chain с опечаткой в detour доходили до ядра.
+test("semantic validator ловит rule_set и endpoints[].detour", () => {
+  const base = {
+    outbounds: [{ tag: "direct", type: "direct" }],
+    dns: { servers: [{ tag: "dns", type: "local" }], final: "dns", rules: [] },
+  };
+  assert.throws(() => validateConfigReferences({
+    ...base,
+    route: { final: "direct", rules: [{ rule_set: ["geosite-nope"], outbound: "direct" }], rule_set: [] },
+  }), /route\.rules\[0\]\.rule_set\[0\] -> geosite-nope/);
+
+  assert.throws(() => validateConfigReferences({
+    ...base,
+    dns: { ...base.dns, rules: [{ rule_set: ["geosite-nope"], server: "dns" }] },
+    route: { final: "direct", rules: [], rule_set: [] },
+  }), /dns\.rules\[0\]\.rule_set\[0\] -> geosite-nope/);
+
+  assert.throws(() => validateConfigReferences({
+    ...base,
+    endpoints: [{ tag: "warp", type: "wireguard", detour: "proxy" }],
+    route: { final: "warp", rules: [], rule_set: [] },
+  }), /endpoints\[0\]\.detour -> proxy/);
+});
+
+// WARP chain — рабочая конфигурация, а не ошибка: detour ведёт в реальный selector.
+test("semantic validator пропускает WARP chain поверх selector", () => {
+  const { config } = buildConfig({
+    source: { kind: "sub", nodes: [vlessNode(), vlessNode({ host: "b.example.com" })] },
+    mode: "proxy",
+    options: { ...DEFAULT_OPTIONS, warp: { ...DEFAULT_OPTIONS.warp, enabled: true, mode: "chain" } },
+    warpInfo: {
+      private_key: "priv", peer_public_key: "peer", client_id: "AAAA",
+      local_ipv4: "172.16.0.2", local_ipv6: "2606:4700:110::1",
+    },
+  });
+  assert.equal(config.endpoints[0].detour, "proxy");
+  assert.equal(config.route.final, "warp");
+  assert.equal(validateConfigReferences(config), true);
 });

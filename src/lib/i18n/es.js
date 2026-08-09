@@ -419,7 +419,7 @@ export const es = {
   },
 
   qToast: {
-    channel: { unknown: "Comprobando", good: "Excelente", slow: "Lento", stalled: "Atascado", dead: "Sin conexión" },
+    channel: { unknown: "Comprobando", good: "Excelente", slow: "Lento", stalled: "Atascado", dead: "Sin conexión", pressure: "PC sobrecargado" },
     masking: "Activando el enmascaramiento del tráfico…",
     backup: "Cambiando al canal de respaldo…",
     confirmSpeedup: "La conexión se ralentizó. ¿Intentar acelerarla — «{label}»? Hace falta una reconexión breve.",
@@ -488,7 +488,7 @@ export const es = {
   },
 
   qScope: {
-    label: { unknown: "COMPROBANDO", good: "EXCELENTE", slow: "LENTO", stalled: "ATASCADO", dead: "SIN CONEXIÓN" },
+    label: { unknown: "COMPROBANDO", good: "EXCELENTE", slow: "LENTO", stalled: "ATASCADO", dead: "SIN CONEXIÓN", pressure: "PC SOBRECARGADO" },
     title: "Calidad del canal",
     legend: "umbral «excelente» · {mbps} Mbps",
     hint: "se actualiza con cada comprobación de velocidad",

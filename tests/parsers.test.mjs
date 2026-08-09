@@ -144,6 +144,49 @@ test("tuic: uuid:password и congestion_control", () => {
   assert.equal(p.alpn, "h3");
 });
 
+// base64-пейлоады несут UTF-8. Декод через atob отдавал latin1-строку, и любое
+// не-ASCII (имя ноды из RU/CN-панели, пароль) приезжало побайтово перевранным:
+// имя — мохибаке в UI, пароль — отказ аутентификации без единого сообщения.
+test("vmess: UTF-8 в имени и host_header переживает base64", () => {
+  const j = {
+    add: "vm.example.com", port: "443", id: "uuid-here",
+    ps: "Москва · 🇷🇺", host: "фронт.example.com",
+  };
+  const p = parseVmess("vmess://" + b64(JSON.stringify(j)));
+  assert.equal(p.name, "Москва · 🇷🇺");
+  assert.equal(p.host_header, "фронт.example.com");
+});
+
+test("ss: UTF-8 пароль переживает base64 (SIP002 и legacy)", () => {
+  const userinfo = Buffer.from("aes-256-gcm:пароль", "utf8")
+    .toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const sip002 = parseShadowsocks(`ss://${userinfo}@ss.example.com:8388`);
+  assert.equal(sip002.method, "aes-256-gcm");
+  assert.equal(sip002.password, "пароль");
+
+  const legacy = parseShadowsocks("ss://" + b64("aes-256-gcm:пароль@legacy.example.com:8389"));
+  assert.equal(legacy.password, "пароль");
+  assert.equal(legacy.host, "legacy.example.com");
+});
+
+test("ss: percent-encoded метод и битый escape не роняют импорт", () => {
+  const p = parseShadowsocks("ss://aes-256-gcm:p%40ss@ss.example.com:8388");
+  assert.equal(p.method, "aes-256-gcm");
+  assert.equal(p.password, "p@ss");
+  // Битый %-escape раньше кидал из decodeURIComponent и убивал всю ссылку.
+  const broken = parseShadowsocks("ss://aes-256-gcm:100%pw@ss.example.com:8388");
+  assert.equal(broken.password, "100%pw");
+});
+
+// buildOutbound читает p.insecure для tls.insecure. Парсер это поле не выставлял
+// вовсе, поэтому TUIC-нода с самоподписанным сертификатом молча не поднималась.
+test("tuic: insecure и allow_insecure доезжают до профиля", () => {
+  assert.equal(parseTuic("tuic://u:p@t.example.com:443?insecure=1").insecure, true);
+  assert.equal(parseTuic("tuic://u:p@t.example.com:443?allow_insecure=true").insecure, true);
+  assert.equal(parseTuic("tuic://u:p@t.example.com:443?insecure=0").insecure, false);
+  assert.equal(parseTuic("tuic://u:p@t.example.com:443").insecure, false);
+});
+
 // Незакодированное двоеточие в пароле встречается в ссылках руками собранных
 // панелей. Обрезка хвоста тут не даёт ошибки нигде: конфиг валиден, ядро
 // стартует, нода отваливается на аутентификации.

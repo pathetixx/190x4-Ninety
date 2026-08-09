@@ -419,7 +419,7 @@ export const ja = {
   },
 
   qToast: {
-    channel: { unknown: "確認中", good: "非常に良好", slow: "低速", stalled: "停滞", dead: "接続なし" },
+    channel: { unknown: "確認中", good: "非常に良好", slow: "低速", stalled: "停滞", dead: "接続なし", pressure: "PCが高負荷" },
     masking: "通信のマスキングを有効化中…",
     backup: "バックアップ回線に切り替え中…",
     confirmSpeedup: "接続が遅くなりました。高速化を試しますか —「{label}」？ 短い再接続が必要です。",
@@ -488,7 +488,7 @@ export const ja = {
   },
 
   qScope: {
-    label: { unknown: "確認中", good: "非常に良好", slow: "低速", stalled: "停滞", dead: "接続なし" },
+    label: { unknown: "確認中", good: "非常に良好", slow: "低速", stalled: "停滞", dead: "接続なし", pressure: "PCが高負荷" },
     title: "回線品質",
     legend: "「非常に良好」のしきい値 · {mbps} Mbps",
     hint: "速度チェックに合わせて更新されます",

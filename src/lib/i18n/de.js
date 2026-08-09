@@ -419,7 +419,7 @@ export const de = {
   },
 
   qToast: {
-    channel: { unknown: "Prüfe", good: "Ausgezeichnet", slow: "Langsam", stalled: "Stockt", dead: "Keine Verbindung" },
+    channel: { unknown: "Prüfe", good: "Ausgezeichnet", slow: "Langsam", stalled: "Stockt", dead: "Keine Verbindung", pressure: "PC ausgelastet" },
     masking: "Aktiviere Traffic-Tarnung…",
     backup: "Wechsle Reservekanal…",
     confirmSpeedup: "Die Verbindung ist langsamer geworden. Beschleunigen versuchen — „{label}“? Ein kurzer Neuaufbau ist nötig.",
@@ -488,7 +488,7 @@ export const de = {
   },
 
   qScope: {
-    label: { unknown: "PRÜFE", good: "AUSGEZEICHNET", slow: "LANGSAM", stalled: "STOCKT", dead: "KEINE VERBINDUNG" },
+    label: { unknown: "PRÜFE", good: "AUSGEZEICHNET", slow: "LANGSAM", stalled: "STOCKT", dead: "KEINE VERBINDUNG", pressure: "PC AUSGELASTET" },
     title: "Kanalqualität",
     legend: "Schwelle „ausgezeichnet“ · {mbps} Mbit/s",
     hint: "wird mit jeder Geschwindigkeitsprüfung aktualisiert",

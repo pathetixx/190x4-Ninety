@@ -95,8 +95,15 @@ fn stop_managed_child(state: &DpiState, label: &str) -> Result<(), String> {
 }
 
 fn stop_dpi_runtime(state: &DpiState, label: &str) -> Result<(), String> {
-    cancel_dpi_operation(state);
+    let cancelled = cancel_dpi_operation(state);
     stop_managed_child(state, label)?;
+    // sync_channel процессов не порождает — он переносит файлы поколения, и на
+    // медленном диске это заметно дольше двух секунд. Ожидание такой операции
+    // превращало обычное отключение обхода в ошибку «отменяемая операция не
+    // завершилась», хотя winws к этому моменту уже физически остановлен.
+    if !operation_can_spawn(cancelled) {
+        return Ok(());
+    }
     let deadline = Instant::now() + CHILD_STOP_TIMEOUT;
     while state.operation_active.load(Ordering::SeqCst) {
         if Instant::now() >= deadline {
@@ -148,10 +155,17 @@ async fn dpi_sleep_or_cancel(
     }
 }
 
-fn cancel_dpi_operation(state: &DpiState) {
+fn cancel_dpi_operation(state: &DpiState) -> Option<&'static str> {
     let mut control = state.control.lock_recover();
     control.generation = control.generation.wrapping_add(1);
-    control.operation = None;
+    control.operation.take()
+}
+
+// Операции, которые сами поднимают winws. Только их stop обязан дожидаться:
+// такая операция может спавнить процесс уже после того, как stop забрал хэндл,
+// и без ожидания остановка вернула бы успех на живом процессе.
+fn operation_can_spawn(name: Option<&str>) -> bool {
+    matches!(name, Some("start") | Some("autotest"))
 }
 
 struct DpiOperationGuard<'a> {
@@ -1140,7 +1154,13 @@ pub async fn dpi_start(
         }
     }
 
-    let _data = state.data.lock().await;
+    // Лок сериализует мутации DPI-набора, и его может держать долгая
+    // sync_channel. Ждём его отменяемо: иначе stop, пришедший в этот момент,
+    // упирался бы в start, который ещё даже не начал проверять отмену.
+    let _data = tokio::select! {
+        guard = state.data.lock() => guard,
+        _ = wait_dpi_cancelled(&state, generation) => return Err("DPI start отменён".into()),
+    };
     let strategies = read_strategies(&app)?;
     let strat = strategies
         .into_iter()
@@ -3253,7 +3273,7 @@ mod tests {
         assert!(dpi_operation_current(&state, first));
         assert!(begin_dpi_operation(&state, "autotest").is_err());
 
-        cancel_dpi_operation(&state);
+        assert_eq!(cancel_dpi_operation(&state), Some("start"));
         assert!(!dpi_operation_current(&state, first));
         assert!(begin_dpi_operation(&state, "autotest").is_err());
         drop(first_guard);
@@ -3261,5 +3281,28 @@ mod tests {
         let second = begin_dpi_operation(&state, "autotest").unwrap();
         assert_ne!(first, second);
         assert!(dpi_operation_current(&state, second));
+    }
+
+    // Ждать завершения имеет смысл только для операций, способных поднять winws.
+    #[test]
+    fn only_spawning_operations_hold_up_stop() {
+        assert!(operation_can_spawn(Some("start")));
+        assert!(operation_can_spawn(Some("autotest")));
+        assert!(!operation_can_spawn(Some("sync_channel")));
+        assert!(!operation_can_spawn(None));
+    }
+
+    #[test]
+    fn cancel_reports_which_operation_it_took() {
+        let state = DpiState::default();
+        let generation = begin_dpi_operation(&state, "sync_channel").unwrap();
+        let guard = DpiOperationGuard {
+            state: &state,
+            generation,
+        };
+        assert_eq!(cancel_dpi_operation(&state), Some("sync_channel"));
+        // Повторная отмена уже нечего забирать — stop не должен ждать пустоту.
+        assert_eq!(cancel_dpi_operation(&state), None);
+        drop(guard);
     }
 }

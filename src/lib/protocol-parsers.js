@@ -5,8 +5,8 @@ import { t } from "/lib/i18n/index.js";
 import {
   bytesFromB64url,
   parsePort,
-  safeAtob,
   safeDecode,
+  safeDecodeBase64,
   splitHostPort,
   splitQuery,
   splitTrailingHashName,
@@ -92,7 +92,11 @@ export function parseVmess(raw) {
   if (!url.startsWith("vmess://")) throw new Error(t("sb.err.notVmess"));
   const payload = url.slice("vmess://".length);
   const { name: hashName, main } = splitTrailingHashName(payload, null);
-  const decoded = safeAtob(main);
+  // Декодируем как UTF-8, а не через голый atob: тот отдаёт latin1-строку,
+  // где каждый байт стал отдельным кодпоинтом. Пейлоад vmess — UTF-8 JSON,
+  // поэтому имя ноды (ps) из любой неанглоязычной панели приезжало мохибаке,
+  // а вместе с ним host и пароль с не-ASCII.
+  const decoded = safeDecodeBase64(main);
   if (!decoded) throw new Error(t("sb.err.vmessB64"));
   let j;
   try { j = JSON.parse(decoded); } catch { throw new Error(t("sb.err.vmessJson")); }
@@ -159,7 +163,9 @@ export function parseShadowsocks(raw) {
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) {
     // Legacy form: base64(method:password@host:port)
-    const decoded = safeAtob(head);
+    // UTF-8-декод по той же причине, что в parseVmess: пароль с не-ASCII иначе
+    // уезжает в конфиг побайтово перевранным и нода падает на аутентификации.
+    const decoded = safeDecodeBase64(head);
     if (!decoded) throw new Error(t("sb.err.ssB64"));
     const at2 = decoded.lastIndexOf("@");
     if (at2 < 0) throw new Error(t("sb.err.ssHostPort"));
@@ -173,9 +179,12 @@ export function parseShadowsocks(raw) {
   let method, password;
   if (credsRaw.includes(":")) {
     [method, password] = splitFirstColon(credsRaw);
-    password = decodeURIComponent(password);
+    // safeDecode на обеих половинах: метод панели тоже экранируют, а битый
+    // %-escape в пароле раньше ронял decodeURIComponent и весь импорт ссылки.
+    method = safeDecode(method);
+    password = safeDecode(password);
   } else {
-    const decoded = safeAtob(credsRaw);
+    const decoded = safeDecodeBase64(credsRaw);
     const sep = decoded.indexOf(":");
     if (sep < 0) throw new Error("ss: bad userinfo");
     method = decoded.slice(0, sep);
@@ -246,6 +255,10 @@ export function parseTuic(raw) {
     udpRelayMode: get("udp_relay_mode") || get("udpRelayMode", "native"),
     zeroRttHandshake: boolParam(get("zero_rtt_handshake")),
     disableSni: boolParam(get("disable_sni")),
+    // Поле читает buildOutbound (tls.insecure). Без него нода TUIC с
+    // самоподписанным сертификатом молча не вставала: ссылка про это говорила,
+    // парсер — нет. Панели пишут и `insecure`, и `allow_insecure`.
+    insecure: boolParam(get("insecure") || get("allow_insecure")),
   };
 }
 

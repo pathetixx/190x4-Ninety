@@ -419,7 +419,7 @@ export const ko = {
   },
 
   qToast: {
-    channel: { unknown: "확인 중", good: "매우 좋음", slow: "느림", stalled: "정체", dead: "연결 없음" },
+    channel: { unknown: "확인 중", good: "매우 좋음", slow: "느림", stalled: "정체", dead: "연결 없음", pressure: "PC 과부하" },
     masking: "트래픽 마스킹 활성화 중…",
     backup: "백업 채널로 전환 중…",
     confirmSpeedup: "연결이 느려졌습니다. 속도를 높여볼까요 — 「{label}」? 짧은 재연결이 필요합니다.",
@@ -488,7 +488,7 @@ export const ko = {
   },
 
   qScope: {
-    label: { unknown: "확인 중", good: "매우 좋음", slow: "느림", stalled: "정체", dead: "연결 없음" },
+    label: { unknown: "확인 중", good: "매우 좋음", slow: "느림", stalled: "정체", dead: "연결 없음", pressure: "PC 과부하" },
     title: "채널 품질",
     legend: "「매우 좋음」 기준 · {mbps} Mbps",
     hint: "속도 확인이 실행될 때마다 갱신됩니다",

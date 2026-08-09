@@ -416,3 +416,77 @@ test("перезапуск сторожа не копит слушателей �
   assert.equal(issued, 2);
   assert.equal(live.size, 0, "обе подписки обязаны быть сняты");
 });
+
+// Бюджет восстановления один на 15 минут. Списанный до остановки, он сгорал на
+// неподтверждённой очистке: попытки поднять ядро не было, а следующая смерть
+// уже упиралась в исчерпанный бюджет.
+test("неудачная остановка не съедает бюджет восстановления", async () => {
+  let state = "connected";
+  let restores = 0;
+  let stopOk = false;
+  const diagnostics = [];
+  const watchdog = initHealthWatchdog({
+    getState: () => state,
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => {
+      if (!stopOk) return false; // очистка не подтверждена — state остаётся прежним
+      state = "idle";
+      return true;
+    },
+    restoreAfterCoreDeath: async () => { restores++; state = "connected"; return true; },
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    recordDiagnostic: (phase, result, reason) => diagnostics.push([phase, result, reason]),
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  assert.equal(restores, 0, "неподтверждённый stop до восстановления не доходит");
+  assert.deepEqual(diagnostics, [], "провал остановки не пишется как исход смерти ядра");
+
+  stopOk = true;
+  state = "connected";
+  await watchdog.tick();
+  assert.equal(restores, 1, "бюджет должен был остаться нетронутым");
+  assert.deepEqual(diagnostics, [["core_death", "restored", "restore_attempted"]]);
+});
+
+test("исчерпанный бюджет отмечается в журнале как restore_budget", async () => {
+  let state = "connected";
+  let restores = 0;
+  const diagnostics = [];
+  const watchdog = initHealthWatchdog({
+    getState: () => state,
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => { state = "idle"; return true; },
+    restoreAfterCoreDeath: async () => { restores++; state = "connected"; return true; },
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    recordDiagnostic: (phase, result, reason) => diagnostics.push([phase, result, reason]),
+    invoke: async () => ({ singbox_running: false, last_error: "crashed" }),
+    toast: () => {},
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  state = "connected";
+  await watchdog.tick();
+
+  assert.equal(restores, 1);
+  assert.deepEqual(diagnostics, [
+    ["core_death", "restored", "restore_attempted"],
+    ["core_death", "stopped", "restore_budget"],
+  ]);
+});

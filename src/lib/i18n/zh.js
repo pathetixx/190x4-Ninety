@@ -419,7 +419,7 @@ export const zh = {
   },
 
   qToast: {
-    channel: { unknown: "检测中", good: "极佳", slow: "较慢", stalled: "卡顿", dead: "无连接" },
+    channel: { unknown: "检测中", good: "极佳", slow: "较慢", stalled: "卡顿", dead: "无连接", pressure: "电脑繁忙" },
     masking: "正在开启流量伪装…",
     backup: "正在切换备用通道…",
     confirmSpeedup: "连接变慢了。尝试提速——“{label}”？需要短暂重连。",
@@ -488,7 +488,7 @@ export const zh = {
   },
 
   qScope: {
-    label: { unknown: "检测中", good: "极佳", slow: "较慢", stalled: "卡顿", dead: "无连接" },
+    label: { unknown: "检测中", good: "极佳", slow: "较慢", stalled: "卡顿", dead: "无连接", pressure: "电脑繁忙" },
     title: "通道质量",
     legend: "“极佳”阈值 · {mbps} Mbps",
     hint: "随速度检测更新",

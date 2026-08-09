@@ -419,7 +419,7 @@ export const en = {
   },
 
   qToast: {
-    channel: { unknown: "Checking", good: "Excellent", slow: "Slow", stalled: "Stalling", dead: "No connection" },
+    channel: { unknown: "Checking", good: "Excellent", slow: "Slow", stalled: "Stalling", dead: "No connection", pressure: "PC busy" },
     masking: "Turning on traffic masking…",
     backup: "Switching the backup channel…",
     confirmSpeedup: "The connection slowed down. Try to speed it up — “{label}”? A short reconnect is needed.",
@@ -488,7 +488,7 @@ export const en = {
   },
 
   qScope: {
-    label: { unknown: "CHECKING", good: "EXCELLENT", slow: "SLOW", stalled: "STALLING", dead: "NO CONNECTION" },
+    label: { unknown: "CHECKING", good: "EXCELLENT", slow: "SLOW", stalled: "STALLING", dead: "NO CONNECTION", pressure: "PC BUSY" },
     title: "Channel quality",
     legend: "“excellent” threshold · {mbps} Mbps",
     hint: "updates as speed checks run",

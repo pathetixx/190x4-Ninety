@@ -212,6 +212,17 @@ export function normalizeOptions(input) {
     : [];
   if (!out.quality.endpoints.length) out.quality.endpoints = [...DEFAULT_OPTIONS.quality.endpoints];
   if (!Array.isArray(out.route.customRules)) out.route.customRules = [];
+  // Локальный inbound и clash-API слушают один и тот же loopback. Совпавшие
+  // порты (оба настраиваются вручную и диапазоны у них общие) давали отказ
+  // бинда уже внутри ядра — на экране это «не удалось подключиться» без
+  // единого намёка на причину. Уступает clash-API: mixed-порт юзер выбирает
+  // осознанно (в него ходят браузер и приложения), панель управления — нет.
+  if (out.experimental.clashApiPort === out.inbound.mixedPort) {
+    out.experimental.clashApiPort = DEFAULT_OPTIONS.experimental.clashApiPort;
+    if (out.experimental.clashApiPort === out.inbound.mixedPort) {
+      out.inbound.mixedPort = DEFAULT_OPTIONS.inbound.mixedPort;
+    }
+  }
   for (const pair of [
     out.tlsTricks.paddingSize,
     out.warp.customNoise.count,

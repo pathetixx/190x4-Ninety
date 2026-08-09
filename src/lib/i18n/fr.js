@@ -419,7 +419,7 @@ export const fr = {
   },
 
   qToast: {
-    channel: { unknown: "Vérification", good: "Excellent", slow: "Lent", stalled: "Au point mort", dead: "Aucune connexion" },
+    channel: { unknown: "Vérification", good: "Excellent", slow: "Lent", stalled: "Au point mort", dead: "Aucune connexion", pressure: "PC surchargé" },
     masking: "Activation du masquage du trafic…",
     backup: "Bascule sur le canal de secours…",
     confirmSpeedup: "La connexion a ralenti. Tenter de l’accélérer — « {label} » ? Une courte reconnexion est nécessaire.",
@@ -488,7 +488,7 @@ export const fr = {
   },
 
   qScope: {
-    label: { unknown: "VÉRIFICATION", good: "EXCELLENT", slow: "LENT", stalled: "AU POINT MORT", dead: "AUCUNE CONNEXION" },
+    label: { unknown: "VÉRIFICATION", good: "EXCELLENT", slow: "LENT", stalled: "AU POINT MORT", dead: "AUCUNE CONNEXION", pressure: "PC SURCHARGÉ" },
     title: "Qualité du canal",
     legend: "seuil « excellent » · {mbps} Mbps",
     hint: "se met à jour au fil des tests de vitesse",

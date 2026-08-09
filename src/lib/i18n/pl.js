@@ -419,7 +419,7 @@ export const pl = {
   },
 
   qToast: {
-    channel: { unknown: "Sprawdzanie", good: "Doskonała", slow: "Wolna", stalled: "Zatrzymana", dead: "Brak połączenia" },
+    channel: { unknown: "Sprawdzanie", good: "Doskonała", slow: "Wolna", stalled: "Zatrzymana", dead: "Brak połączenia", pressure: "Komputer obciążony" },
     masking: "Włączanie maskowania ruchu…",
     backup: "Przełączanie na kanał zapasowy…",
     confirmSpeedup: "Połączenie zwolniło. Spróbować je przyspieszyć — „{label}”? Potrzebne jest krótkie ponowne połączenie.",
@@ -488,7 +488,7 @@ export const pl = {
   },
 
   qScope: {
-    label: { unknown: "SPRAWDZANIE", good: "DOSKONAŁA", slow: "WOLNA", stalled: "ZATRZYMANA", dead: "BRAK POŁĄCZENIA" },
+    label: { unknown: "SPRAWDZANIE", good: "DOSKONAŁA", slow: "WOLNA", stalled: "ZATRZYMANA", dead: "BRAK POŁĄCZENIA", pressure: "KOMPUTER OBCIĄŻONY" },
     title: "Jakość kanału",
     legend: "próg „doskonała” · {mbps} Mbps",
     hint: "aktualizuje się w miarę testów prędkości",

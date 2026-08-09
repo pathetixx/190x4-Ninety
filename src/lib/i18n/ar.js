@@ -419,7 +419,7 @@ export const ar = {
   },
 
   qToast: {
-    channel: { unknown: "فحص", good: "ممتاز", slow: "بطيء", stalled: "متعثّر", dead: "لا اتصال" },
+    channel: { unknown: "فحص", good: "ممتاز", slow: "بطيء", stalled: "متعثّر", dead: "لا اتصال", pressure: "الحاسوب مشغول" },
     masking: "جارٍ تفعيل تمويه البيانات…",
     backup: "جارٍ تبديل القناة الاحتياطية…",
     confirmSpeedup: "تباطأ الاتصال. أتريد محاولة تسريعه — «{label}»؟ يلزم إعادة اتصال قصيرة.",
@@ -488,7 +488,7 @@ export const ar = {
   },
 
   qScope: {
-    label: { unknown: "فحص", good: "ممتاز", slow: "بطيء", stalled: "متعثّر", dead: "لا اتصال" },
+    label: { unknown: "فحص", good: "ممتاز", slow: "بطيء", stalled: "متعثّر", dead: "لا اتصال", pressure: "الحاسوب مشغول" },
     title: "جودة القناة",
     legend: "عتبة «ممتاز» · {mbps} Mbps",
     hint: "يُحدَّث مع إجراء فحوص السرعة",

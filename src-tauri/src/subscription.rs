@@ -73,6 +73,10 @@ fn is_forbidden_target_ip(ip: IpAddr) -> bool {
                 || ip.is_private()
                 || ip.is_link_local()
                 || ip.is_multicast()
+                // "This network" (0.0.0.0/8, RFC 1122). Only 0.0.0.0 itself is
+                // covered by is_unspecified, and the rest of the block is not a
+                // routable subscription host either.
+                || octets[0] == 0
                 // Shared carrier NAT, benchmarking, documentation and special
                 // purpose ranges are not valid public subscription targets.
                 || (octets[0] == 100 && (64..=127).contains(&octets[1]))
@@ -370,6 +374,7 @@ mod tests {
             "192.88.99.1",
             "255.255.255.255",
             "0.0.0.0",
+            "0.1.2.3",
             "::1",
             "fc00::1",
             "fec0::1",

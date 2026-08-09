@@ -46,3 +46,21 @@ test("normalizeOptions игнорирует prototype-pollution ключи из 
   assert.equal(out.polluted, undefined);
   assert.equal({}.polluted, undefined);
 });
+
+// mixed-inbound и clash-API слушают один loopback: совпавшие порты роняли бинд
+// уже в ядре, а UI показывал безымянное «не удалось подключиться».
+test("options: порт clash-API не может совпасть с mixed-портом", () => {
+  const clashCollision = normalizeOptions({
+    inbound: { mixedPort: 7890 },
+    experimental: { clashApiPort: 7890 },
+  });
+  assert.equal(clashCollision.inbound.mixedPort, 7890);
+  assert.notEqual(clashCollision.experimental.clashApiPort, 7890);
+
+  // Юзер занял под mixed сам дефолт clash-API — тогда уступает mixed-порт.
+  const bothDefaults = normalizeOptions({
+    inbound: { mixedPort: 9090 },
+    experimental: { clashApiPort: 9090 },
+  });
+  assert.notEqual(bothDefaults.inbound.mixedPort, bothDefaults.experimental.clashApiPort);
+});

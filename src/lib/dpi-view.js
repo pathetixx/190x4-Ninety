@@ -13,6 +13,7 @@ import { escapeAttr, escapeHtml as esc } from "/lib/esc.js";
 import { a11ySwitchAll } from "/lib/switch-a11y.js";
 import { t, getLang } from "/lib/i18n/index.js";
 import { openConfirmModal } from "/lib/confirm-modal.js";
+import { normalizeIp } from "/lib/routing-rules.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -1024,7 +1025,14 @@ let activeEndpointRevision = 0;
 let activeEndpointQueue = Promise.resolve();
 function setActiveVpnEndpoint(host) {
   const revision = ++activeEndpointRevision;
-  const isIp = host && /^[0-9a-fA-F:.]+$/.test(host) && (host.includes(".") || host.includes(":"));
+  // Различение «адрес или имя» — через тот же валидатор, что у правил
+  // маршрутизации. Прежняя проверка (/^[0-9a-fA-F:.]+$/ + наличие точки)
+  // объявляла IP-адресом любой домен из hex-букв: abc.def, dead.cf, de.ad.
+  // Такой «IP» не проходил normalize_ipset_entry в Rust, команда падала
+  // целиком (оба файла пишутся только после нормализации обоих значений), и в
+  // списках оставалось исключение ПРЕДЫДУЩЕЙ ноды — winws продолжал жевать
+  // зашифрованный трафик к текущему серверу, а исключение выглядело активным.
+  const isIp = !!host && !!normalizeIp(host);
   const args = !host ? { ip: null, domain: null }
     : isIp ? { ip: host, domain: null } : { ip: null, domain: host };
   const apply = async () => {

@@ -876,7 +876,7 @@ const TT_BRIDGE_BASE_PORT = 31300;
 export function bridgeNeeds(nodes) {
   const needs = { xray: 0, naive: 0, trusttunnel: 0 };
   for (const n of nodes || []) {
-    if (n?.type === "xhttp") needs.xray++;
+    if (needsXrayBridge(n)) needs.xray++;
     const proto = profileProto(n);
     if (proto === "naive") needs.naive++;
     else if (proto === "trusttunnel") needs.trusttunnel++;
@@ -998,11 +998,32 @@ function nodeToXrayStream(p) {
   return ss;
 }
 
+// Протоколы, которые локальный xray-мост умеет поднять для xhttp. Раньше сюда
+// проваливалось ВСЁ, что не trojan: vmess+xhttp собирался как vless-outbound с
+// его же uuid — конфиг валиден, ядро стартует, нода мертва без единой строки в
+// логе. Предикат один на bridgeNeeds и на сборку конфига: расхождение этих двух
+// мест означало бы, что портов запланировано не столько, сколько занято.
+const XRAY_BRIDGE_PROTOS = new Set(["vless", "vmess", "trojan"]);
+export function needsXrayBridge(node) {
+  return node?.type === "xhttp" && XRAY_BRIDGE_PROTOS.has(profileProto(node));
+}
+
 function nodeToXrayOutbound(p, tag) {
-  if (profileProto(p) === "trojan") {
+  const proto = profileProto(p);
+  if (proto === "trojan") {
     return {
       tag, protocol: "trojan",
       settings: { servers: [{ address: p.host, port: p.port, password: p.password }] },
+      streamSettings: nodeToXrayStream(p),
+    };
+  }
+  if (proto === "vmess") {
+    // alterId>0 — это legacy MD5-аутентификация, которой в текущем xray-core уже
+    // нет; шлём 0, как это делают все актуальные панели.
+    const user = { id: p.uuid, alterId: 0, security: p.security || "auto" };
+    return {
+      tag, protocol: "vmess",
+      settings: { vnext: [{ address: p.host, port: p.port, users: [user] }] },
       streamSettings: nodeToXrayStream(p),
     };
   }
@@ -1100,7 +1121,7 @@ export function buildConfig({
   if (xray) {
     const xIn = [], xOut = [], xRules = [];
     nodes.forEach((n, i) => {
-      if (n.type !== "xhttp") return;
+      if (!needsXrayBridge(n)) return;
       const idx = xOut.length;
       const port = basePorts.xray + idx;
       const inTag = `in-${idx}`, outTag = `out-${idx}`;
@@ -1273,6 +1294,9 @@ export function validateConfigReferences(config) {
     ...(config.endpoints || []).map((o) => o?.tag),
   ].filter(Boolean));
   const dnsTags = new Set((config.dns?.servers || []).map((s) => s?.tag).filter(Boolean));
+  // rule_set-ссылки ядро резолвит так же строго, как outbound-теги: правило,
+  // указывающее на невыпущенный набор, роняет старт целиком.
+  const ruleSetTags = new Set((config.route?.rule_set || []).map((s) => s?.tag).filter(Boolean));
   const missing = [];
   const requireOutbound = (tag, path) => {
     if (tag && !outboundTags.has(tag)) missing.push(`${path} -> ${tag}`);
@@ -1280,10 +1304,17 @@ export function validateConfigReferences(config) {
   const requireDns = (tag, path) => {
     if (tag && !dnsTags.has(tag)) missing.push(`${path} -> ${tag}`);
   };
+  const requireRuleSets = (value, path) => {
+    const tags = Array.isArray(value) ? value : value ? [value] : [];
+    for (const [i, tag] of tags.entries()) {
+      if (tag && !ruleSetTags.has(tag)) missing.push(`${path}[${i}] -> ${tag}`);
+    }
+  };
 
   requireOutbound(config.route?.final, "route.final");
   for (const [i, rule] of (config.route?.rules || []).entries()) {
     requireOutbound(rule?.outbound, `route.rules[${i}].outbound`);
+    requireRuleSets(rule?.rule_set, `route.rules[${i}].rule_set`);
   }
   for (const [i, set] of (config.route?.rule_set || []).entries()) {
     requireOutbound(set?.download_detour, `route.rule_set[${i}].download_detour`);
@@ -1296,6 +1327,12 @@ export function validateConfigReferences(config) {
     requireOutbound(outbound?.detour, `outbounds[${i}].detour`);
     requireDns(outbound?.domain_resolver, `outbounds[${i}].domain_resolver`);
   }
+  // endpoints (WARP) участвуют в маршрутизации наравне с outbound'ами: в chain
+  // WARP уходит detour'ом в selector, и опечатка там так же не даёт ядру встать.
+  for (const [i, endpoint] of (config.endpoints || []).entries()) {
+    requireOutbound(endpoint?.detour, `endpoints[${i}].detour`);
+    requireDns(endpoint?.domain_resolver, `endpoints[${i}].domain_resolver`);
+  }
   for (const [i, server] of (config.dns?.servers || []).entries()) {
     requireOutbound(server?.detour, `dns.servers[${i}].detour`);
     requireDns(server?.domain_resolver, `dns.servers[${i}].domain_resolver`);
@@ -1303,6 +1340,7 @@ export function validateConfigReferences(config) {
   requireDns(config.dns?.final, "dns.final");
   for (const [i, rule] of (config.dns?.rules || []).entries()) {
     requireDns(rule?.server, `dns.rules[${i}].server`);
+    requireRuleSets(rule?.rule_set, `dns.rules[${i}].rule_set`);
   }
 
   if (missing.length) {

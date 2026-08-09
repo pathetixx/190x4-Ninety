@@ -2259,7 +2259,7 @@ async fn start_singbox_inner(
         )
         .await
         {
-            kill_xray(state);
+            abort_started_runtime_scoped(state, PortDebt::Unproven).await;
             return Err(e);
         }
         ensure_start_current(state, start_epoch).await?;
@@ -2278,8 +2278,7 @@ async fn start_singbox_inner(
         )
         .await
         {
-            kill_xray(state);
-            kill_sidecars(state);
+            abort_started_runtime_scoped(state, PortDebt::Unproven).await;
             return Err(e);
         }
         ensure_start_current(state, start_epoch).await?;
@@ -2306,39 +2305,21 @@ async fn start_singbox_inner(
     )
     .await
     {
-        // kill по уже мёртвому child безвреден (Err игнорируем).
-        if let Some(child) = state.child.lock_recover().take() {
-            let _ = child.kill();
-        }
-        kill_xray(state);
-        kill_sidecars(state);
+        abort_started_runtime_scoped(state, PortDebt::Unproven).await;
         return Err(e);
     }
     ensure_start_current(state, start_epoch).await?;
     ensure_operation_current(&app, state, operation_token).await?;
 
     if let Err(e) = wait_clash_ready(&endpoints.control, state, start_epoch).await {
-        if let Some(child) = state.child.lock_recover().take() {
-            let _ = child.kill();
-        }
-        kill_xray(state);
-        kill_sidecars(state);
-        *state.runtime_ports.lock_recover() = Vec::new();
-        *state.runtime.lock_recover() = None;
+        abort_started_runtime_scoped(state, PortDebt::Unproven).await;
         return Err(e);
     }
     // Clash control readiness is not sufficient for System Proxy/TUN. The
     // endpoint published to Windows and to the dataplane probe must be the
     // listener owned by this freshly spawned sing-box generation.
     if let Err(e) = wait_probe_listener_ready(probe_endpoint.as_ref(), state, start_epoch).await {
-        if let Some(child) = state.child.lock_recover().take() {
-            let _ = child.kill();
-        }
-        kill_xray(state);
-        kill_sidecars(state);
-        let _ = proxy::set_system_proxy(false, None, None);
-        *state.runtime_ports.lock_recover() = Vec::new();
-        *state.runtime.lock_recover() = None;
+        abort_started_runtime_scoped(state, PortDebt::Unproven).await;
         return Err(e);
     }
     ensure_operation_current(&app, state, operation_token).await?;
@@ -2546,6 +2527,24 @@ fn kill_sidecars(state: &SingboxState) -> bool {
 // guard `child.is_some()` и поднимал ВТОРОЙ комплект на тех же портах — два
 // sing-box дрались за clash-API и mixed-in, а осиротевший держал TUN-адаптер.
 async fn abort_started_runtime(state: &SingboxState) {
+    abort_started_runtime_scoped(state, PortDebt::Ours).await;
+}
+
+/// Кому принадлежат порты незавершённого запуска.
+///
+/// Отмена (новый epoch, отнятый токен) снимает уже поднятый комплект: порт,
+/// оставшийся занятым, почти наверняка держит наш же процесс, и долг обязателен.
+/// Провал спавна — другой случай: порт мог быть занят ЧУЖИМ процессом, ровно
+/// из-за него запуск и не состоялся. Вечный долг по такому порту запирает обе
+/// двери — start отвечает «повторите отключение», а stop не может подтвердить
+/// освобождение чужого порта и оставляет долг снова.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PortDebt {
+    Ours,
+    Unproven,
+}
+
+async fn abort_started_runtime_scoped(state: &SingboxState, port_debt: PortDebt) {
     // Отмена — плановое завершение ЭТОГО поколения. Без пометки монитор
     // классифицирует наш собственный kill как краш и пишет в журнал ERROR
     // «sing-box died» с дампом строк — пользователь видит отказ ядра там, где
@@ -2580,7 +2579,8 @@ async fn abort_started_runtime(state: &SingboxState) {
 
     // Тот же короткий барьер подтверждения, что у stop_singbox_inner.
     let (processes_exited, remaining_ports) = wait_runtime_released(state, &ports, &killed).await;
-    if processes_exited && remaining_ports.is_empty() {
+    let ports_confirmed = remaining_ports.is_empty() || port_debt == PortDebt::Unproven;
+    if processes_exited && ports_confirmed {
         clear_death_flags(state);
         *state.pending_cleanup.lock_recover() = None;
     } else {
@@ -2588,7 +2588,10 @@ async fn abort_started_runtime(state: &SingboxState) {
         // «повторите отключение», а следующий stop физически добьёт остаток.
         *state.pending_cleanup.lock_recover() = Some(PendingCleanup {
             processes: unresolved_processes(&killed),
-            ports,
+            ports: match port_debt {
+                PortDebt::Ours => ports,
+                PortDebt::Unproven => Vec::new(),
+            },
         });
     }
 }
@@ -3958,6 +3961,29 @@ mod tests {
         assert!(pending.ports.contains(&port));
         // Опубликованное состояние всё равно снято: держать его нельзя,
         // долг живёт отдельно в pending_cleanup.
+        assert!(state.runtime.lock_recover().is_none());
+        assert!(state.runtime_ports.lock_recover().is_empty());
+        drop(held);
+    }
+
+    // Провал спавна — не доказательство владения портом: чужой процесс на нашем
+    // порту как раз и валит старт. Долг по такому порту запер бы обе двери —
+    // start отвечал бы «повторите отключение», а stop не может освободить чужой
+    // порт и оставлял бы долг снова, до перезапуска приложения.
+    #[tokio::test]
+    async fn failed_start_does_not_turn_a_foreign_port_into_a_debt() {
+        let held = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .expect("занять порт под тест");
+        let port = held.local_addr().expect("адрес слушателя").port();
+
+        let state = SingboxState::default();
+        *state.runtime_ports.lock_recover() = vec![port];
+        *state.runtime.lock_recover() = Some(published_runtime_record());
+
+        abort_started_runtime_scoped(&state, PortDebt::Unproven).await;
+
+        assert!(state.pending_cleanup.lock_recover().is_none());
+        // Опубликованное состояние снято в обоих режимах: держать его нельзя.
         assert!(state.runtime.lock_recover().is_none());
         assert!(state.runtime_ports.lock_recover().is_empty());
         drop(held);

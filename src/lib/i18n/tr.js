@@ -419,7 +419,7 @@ export const tr = {
   },
 
   qToast: {
-    channel: { unknown: "Kontrol ediliyor", good: "Mükemmel", slow: "Yavaş", stalled: "Takıldı", dead: "Bağlantı yok" },
+    channel: { unknown: "Kontrol ediliyor", good: "Mükemmel", slow: "Yavaş", stalled: "Takıldı", dead: "Bağlantı yok", pressure: "Bilgisayar meşgul" },
     masking: "Trafik maskeleme etkinleştiriliyor…",
     backup: "Yedek kanala geçiliyor…",
     confirmSpeedup: "Bağlantı yavaşladı. Hızlandırmayı deneyelim mi — “{label}”? Kısa bir yeniden bağlantı gerekiyor.",
@@ -488,7 +488,7 @@ export const tr = {
   },
 
   qScope: {
-    label: { unknown: "KONTROL", good: "MÜKEMMEL", slow: "YAVAŞ", stalled: "TAKILDI", dead: "BAĞLANTI YOK" },
+    label: { unknown: "KONTROL", good: "MÜKEMMEL", slow: "YAVAŞ", stalled: "TAKILDI", dead: "BAĞLANTI YOK", pressure: "BİLGİSAYAR MEŞGUL" },
     title: "Kanal kalitesi",
     legend: "“mükemmel” eşiği · {mbps} Mbps",
     hint: "hız kontrolleri çalıştıkça güncellenir",

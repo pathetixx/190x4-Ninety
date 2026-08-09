@@ -10,8 +10,12 @@ import { bus } from "/lib/bus.js";
 import { escapeHtml } from "/lib/esc.js";
 import { t } from "/lib/i18n/index.js";
 
-const qLabel = (q) => t("qScope.label." + String(q).toLowerCase());
-const Q_VAR = { UNKNOWN: "--text-mid", GOOD: "--ok", SLOW: "--warn", STALLED: "--err", DEAD: "--err" };
+const Q_VAR = {
+  UNKNOWN: "--text-mid", GOOD: "--ok", SLOW: "--warn", STALLED: "--err", DEAD: "--err",
+  PRESSURE: "--warn",
+};
+// Неизвестное состояние сводим к «проверке»: иначе в пилюлю попадал сырой ключ.
+const qLabel = (q) => t("qScope.label." + (Q_VAR[q] ? String(q).toLowerCase() : "unknown"));
 const MAX_POINTS = 60;
 const W = 320, H = 96, PAD = 6;
 const GAP = 10; // отступ поповера от якоря
