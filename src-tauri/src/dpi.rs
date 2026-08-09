@@ -836,20 +836,26 @@ fn spread_exclusion_across_sections(args: Vec<String>, exclusion: &[String; 2]) 
     out
 }
 
-// Абсолютный путь к утилите в System32. Не полагаемся на PATH: DPI-команды
-// исполняются в elevated-процессе, где PATH-hijack (подсунутый taskkill.exe/sc.exe
-// в каталоге раньше System32) выполнялся бы с правами администратора. SystemRoot —
-// из окружения, фолбэк C:\Windows на случай пустой переменной.
+// Абсолютный путь к утилите в System32. Не полагаемся ни на PATH, ни на
+// %SystemRoot%: DPI-команды исполняются в elevated-процессе, а обе величины
+// пользователь может переопределить без прав администратора (PATH-hijack,
+// HKCU\Environment). Каталог спрашиваем у самой Windows.
 #[cfg(target_os = "windows")]
 fn system32(exe: &str) -> String {
-    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-    format!(r"{root}\System32\{exe}")
+    crate::util::system_directory()
+        .join(exe)
+        .to_string_lossy()
+        .into_owned()
 }
 // powershell.exe лежит в отдельном подкаталоге System32 (не в самом System32).
 #[cfg(target_os = "windows")]
 fn powershell_exe() -> String {
-    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-    format!(r"{root}\System32\WindowsPowerShell\v1.0\powershell.exe")
+    crate::util::system_directory()
+        .join("WindowsPowerShell")
+        .join("v1.0")
+        .join("powershell.exe")
+        .to_string_lossy()
+        .into_owned()
 }
 
 // Снять winws.exe-СИРОТУ ОТ ДРУГОГО ИНСТАНСА Ninety. Возвращает true, если хоть

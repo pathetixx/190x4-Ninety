@@ -630,9 +630,10 @@ pub fn relaunch_self_elevated(extra_args: &[&str]) -> Result<bool, String> {
 // ── Автозапуск через Планировщик заданий ──────────────────────────────────
 // schtasks.exe — полный путь, чтобы не зависеть от PATH/cwd elevated-контекста.
 fn schtasks_exe() -> String {
-    std::env::var("SystemRoot")
-        .map(|r| format!(r"{r}\System32\schtasks.exe"))
-        .unwrap_or_else(|_| "schtasks.exe".into())
+    crate::util::system_directory()
+        .join("schtasks.exe")
+        .to_string_lossy()
+        .into_owned()
 }
 
 // Системные корни, запись в которые уже требует прав администратора. Только для

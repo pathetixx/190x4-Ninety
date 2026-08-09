@@ -87,6 +87,10 @@ export async function ensureWorkingDirectDns({ toast, onlyIf } = {}) {
     if (cand === cur) continue;
     if ((await probe(cand)) !== "ok") continue;
     if (onlyIf && !onlyIf()) return null;
+    // Пробы занимают секунды, и за это время пользователь мог задать DNS сам.
+    // onlyIf сторожит актуальность операции, но не значение настройки: без этой
+    // сверки сторож молча возвращал свой резерв поверх свежего ручного выбора.
+    if ((loadOptions().dns?.directAddress || "") !== cur) return null;
     updateOption("dns.directAddress", cand);
     toast?.(t("dns.switched", { dns: prettyDns(cand) }), "warn", 6000, {
       desc: t("dns.switchedDesc"),

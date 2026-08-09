@@ -100,23 +100,93 @@ fn clear_plaintext_confirmation() -> Result<(), String> {
     }
 }
 
-fn portable_has_persisted_secrets() -> bool {
+/// Все контейнеры, которые проходят через `seal_for_app`. Резервные копии тоже
+/// в списке: файл, оставшийся под прежним ключом, — это данные, которые уже
+/// нечем открыть.
+const PORTABLE_SECRET_FILES: [&str; 9] = [
+    "config/state-backup.json",
+    "config/state-backup.json.bak",
+    "config/state-backup.json.legacy.bak",
+    "config/profile-store.v1",
+    "config/profile-store.v1.bak",
+    "config/profile-store.v1.legacy.bak",
+    "config/warp.json",
+    "config/warp.json.bak",
+    "config/warp.json.legacy.bak",
+];
+
+fn portable_secret_files() -> Vec<PathBuf> {
     let Ok(root) = crate::app_paths::portable_root() else {
-        return false;
+        return Vec::new();
     };
-    [
-        "config/state-backup.json",
-        "config/state-backup.json.bak",
-        "config/state-backup.json.legacy.bak",
-        "config/profile-store.v1",
-        "config/profile-store.v1.bak",
-        "config/profile-store.v1.legacy.bak",
-        "config/warp.json",
-        "config/warp.json.bak",
-        "config/warp.json.legacy.bak",
-    ]
-    .iter()
-    .any(|name| root.join(name).is_file())
+    PORTABLE_SECRET_FILES
+        .iter()
+        .map(|name| root.join(name))
+        .filter(|path| path.is_file())
+        .collect()
+}
+
+fn portable_has_persisted_secrets() -> bool {
+    !portable_secret_files().is_empty()
+}
+
+/// Проверка пароля по уже существующему контейнеру. Без неё опечатка при вводе
+/// молча заводила второй ключ: старые файлы переставали открываться, а новые
+/// записи уходили под неверный пароль — восстановить данные было уже нечем.
+/// Отсутствие envelope на диске — не ошибка: это первый запуск portable.
+fn verify_portable_passphrase(passphrase: &str) -> Result<(), String> {
+    for path in portable_secret_files() {
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        if !is_portable_envelope(&bytes) {
+            continue;
+        }
+        return unseal_portable(&bytes, passphrase).map(|_| ());
+    }
+    Ok(())
+}
+
+/// Перешифровка всех контейнеров под новый пароль.
+///
+/// Сначала читаем и перешифровываем ВСЁ в память и только потом пишем: частично
+/// сменённый ключ означал бы, что часть профилей открывается старым паролем,
+/// часть новым, и ни один из них не открывает всё. Если запись всё же оборвётся
+/// на середине, откатываем уже заменённые файлы к исходным байтам.
+fn rekey_portable_secrets(current: &str, next: &str) -> Result<(), String> {
+    let mut staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)> = Vec::new();
+    for path in portable_secret_files() {
+        let bytes = std::fs::read(&path)
+            .map_err(|error| format!("не удалось прочитать {}: {error}", path.display()))?;
+        let plain = if is_portable_envelope(&bytes) {
+            Zeroizing::new(unseal_portable(&bytes, current)?)
+        } else if is_plaintext_json(&bytes) {
+            Zeroizing::new(bytes.clone())
+        } else {
+            // DPAPI-блоб рядом с portable-хранилищем не наш: чужой ключ мы не
+            // перевыпускаем и файл не трогаем.
+            continue;
+        };
+        staged.push((path, bytes, seal_portable(&plain, next)?));
+    }
+
+    let mut written: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    for (path, previous, sealed) in staged {
+        if let Err(error) =
+            crate::atomic_file::write_bytes_replace(&path, &sealed, "portable secret rekey")
+        {
+            for (done, original) in written {
+                let _ = crate::atomic_file::write_bytes_replace(
+                    &done,
+                    &original,
+                    "portable secret rekey rollback",
+                );
+            }
+            return Err(format!("смена пароля отменена: {error}"));
+        }
+        written.push((path, previous));
+    }
+    Ok(())
 }
 
 pub fn can_persist_secrets() -> bool {
@@ -192,6 +262,16 @@ pub fn configure_portable_passphrase(passphrase: String) -> Result<(), String> {
     // marker не удаётся убрать, не меняем текущий режим и не создаём новый
     // секретный файл с неоднозначной политикой.
     clear_plaintext_confirmation()?;
+    // Два разных действия под одной командой. Ключа в памяти нет — это
+    // разблокировка сессии, и пароль обязан открыть то, что уже лежит на диске.
+    // Ключ есть — это смена пароля, и она обязана перевыпустить ВСЕ контейнеры
+    // до того, как старый ключ будет забыт: иначе профили, backup и WARP просто
+    // перестают открываться, а UI при этом обещает «Сменить пароль».
+    match current_passphrase()? {
+        None => verify_portable_passphrase(&passphrase)?,
+        Some(current) if current.as_str() == passphrase => {}
+        Some(current) => rekey_portable_secrets(current.as_str(), &passphrase)?,
+    }
     let mut guard = passphrase_slot()
         .lock()
         .map_err(|_| "хранилище portable-пароля заблокировано".to_string())?;
@@ -199,13 +279,29 @@ pub fn configure_portable_passphrase(passphrase: String) -> Result<(), String> {
     Ok(())
 }
 
+// Смена пароля перевыпускает все контейнеры (Argon2id на каждый) — это
+// заведомо не работа для главного потока.
 #[tauri::command]
-pub fn portable_secrets_set_passphrase(passphrase: String) -> Result<(), String> {
+pub async fn portable_secrets_set_passphrase(passphrase: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        portable_secrets_set_passphrase_blocking(passphrase)
+    })
+    .await
+    .map_err(|error| format!("portable_secrets_set_passphrase: {error}"))?
+}
+
+fn portable_secrets_set_passphrase_blocking(passphrase: String) -> Result<(), String> {
     configure_portable_passphrase(passphrase)
 }
 
 #[tauri::command]
-pub fn portable_secrets_clear_passphrase() -> Result<(), String> {
+pub async fn portable_secrets_clear_passphrase() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || portable_secrets_clear_passphrase_blocking())
+        .await
+        .map_err(|error| format!("portable_secrets_clear_passphrase: {error}"))?
+}
+
+fn portable_secrets_clear_passphrase_blocking() -> Result<(), String> {
     if !crate::app_paths::is_portable() {
         return Err("пароль нужен только для portable-режима".into());
     }
@@ -220,7 +316,13 @@ pub fn portable_secrets_clear_passphrase() -> Result<(), String> {
 /// Разрешает portable plaintext только отдельным действием пользователя с
 /// предупреждением в UI. Сам по себе legacy plaintext такой режим не включает.
 #[tauri::command]
-pub fn portable_secrets_confirm_plaintext() -> Result<(), String> {
+pub async fn portable_secrets_confirm_plaintext() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || portable_secrets_confirm_plaintext_blocking())
+        .await
+        .map_err(|error| format!("portable_secrets_confirm_plaintext: {error}"))?
+}
+
+fn portable_secrets_confirm_plaintext_blocking() -> Result<(), String> {
     if !crate::app_paths::is_portable() {
         return Err("plaintext-режим нужен только для portable-сборки".into());
     }

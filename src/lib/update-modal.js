@@ -387,6 +387,16 @@ export function openUpdateModal(update, opts = {}) {
       const stopEngines = async () => {
         opts.onBeforeRuntimeStop?.();
         if (!invoke) return null;
+        // Состояние VPN перечитываем прямо здесь. Первый снимок берётся при
+        // клике «Обновить», а между ним и остановкой проходит всё скачивание:
+        // подключение, которое в тот момент только устанавливалось, попадало в
+        // журнал как выключенное и после перезапуска не возвращалось.
+        try {
+          if (!vpnWasOn && await invoke("singbox_running")) {
+            vpnWasOn = true;
+            writeResume(journal?.stage || "download");
+          }
+        } catch {}
         runtimeStopAttempted = true;
         const result = await invoke("stop_singbox");
         if (!result || result.portsReleased === false

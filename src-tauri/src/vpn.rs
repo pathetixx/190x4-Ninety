@@ -472,7 +472,7 @@ struct RuntimeLaunchSpec {
     pinned_node_tag: Option<String>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct PendingCleanup {
     processes: Vec<TrackedProcess>,
     ports: Vec<u16>,
@@ -2545,6 +2545,20 @@ enum PortDebt {
 }
 
 async fn abort_started_runtime_scoped(state: &SingboxState, port_debt: PortDebt) {
+    // Повторный вход на уже зачищенном состоянии. Внутренние шаги старта
+    // (wait_start_delay → ensure_start_current, wait_clash_ready) сами вызывают
+    // отмену, а внешний обработчик их ошибки вызывает её ещё раз. Второму
+    // проходу подтверждать нечего: он видит пустые цели, объявил бы очистку
+    // успешной и стёр долг, записанный первым, — осиротевший движок и занятые
+    // порты остались бы без единой попытки восстановления.
+    let nothing_to_abort = state.child.lock_recover().is_none()
+        && state.xray_child.lock_recover().is_none()
+        && state.sidecars.lock_recover().is_empty()
+        && state.runtime_ports.lock_recover().is_empty()
+        && state.runtime.lock_recover().is_none();
+    if nothing_to_abort {
+        return;
+    }
     // Отмена — плановое завершение ЭТОГО поколения. Без пометки монитор
     // классифицирует наш собственный kill как краш и пишет в журнал ERROR
     // «sing-box died» с дампом строк — пользователь видит отказ ядра там, где
@@ -2582,18 +2596,45 @@ async fn abort_started_runtime_scoped(state: &SingboxState, port_debt: PortDebt)
     let ports_confirmed = remaining_ports.is_empty() || port_debt == PortDebt::Unproven;
     if processes_exited && ports_confirmed {
         clear_death_flags(state);
-        *state.pending_cleanup.lock_recover() = None;
+        // Ранее зарегистрированный долг НЕ снимаем: в отличие от
+        // stop_singbox_inner, отмена не подмешивает pending_cleanup в свои
+        // цели, то есть эти процессы и порты никто не проверял. Списать долг
+        // имеет право только stop, который его действительно добивает.
     } else {
         // Очистка не подтверждена — фиксируем долг. Следующий start откажет с
         // «повторите отключение», а следующий stop физически добьёт остаток.
-        *state.pending_cleanup.lock_recover() = Some(PendingCleanup {
+        let incoming = PendingCleanup {
             processes: unresolved_processes(&killed),
             ports: match port_debt {
                 PortDebt::Ours => ports,
                 PortDebt::Unproven => Vec::new(),
             },
-        });
+        };
+        let mut guard = state.pending_cleanup.lock_recover();
+        *guard = merge_pending_cleanup(guard.clone(), incoming);
     }
+}
+
+/// Слияние долгов очистки. Новый незавершённый комплект не заменяет прежний:
+/// каждая запись — это ещё не добитый process object или не освобождённый порт,
+/// и потеря любой из них означает сироту без последующей попытки.
+fn merge_pending_cleanup(
+    existing: Option<PendingCleanup>,
+    incoming: PendingCleanup,
+) -> Option<PendingCleanup> {
+    let existing = existing.unwrap_or_default();
+    let mut processes = existing.processes;
+    processes.extend(incoming.processes);
+    processes.sort_unstable_by_key(|process| process.pid);
+    processes.dedup_by_key(|process| process.pid);
+    let mut ports = existing.ports;
+    ports.extend(incoming.ports);
+    ports.sort_unstable();
+    ports.dedup();
+    if processes.is_empty() && ports.is_empty() {
+        return None;
+    }
+    Some(PendingCleanup { processes, ports })
 }
 
 async fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), String> {
@@ -3987,6 +4028,63 @@ mod tests {
         assert!(state.runtime.lock_recover().is_none());
         assert!(state.runtime_ports.lock_recover().is_empty());
         drop(held);
+    }
+
+    // Шаги старта отменяют запуск сами (wait_start_delay → ensure_start_current),
+    // а внешний обработчик их ошибки вызывает отмену повторно. Второй проход
+    // обязан быть пустым: иначе он «подтверждает» уже снятое состояние и стирает
+    // долг, оставленный первым.
+    #[tokio::test]
+    async fn second_abort_does_not_erase_the_debt_left_by_the_first() {
+        let held = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .expect("занять порт под тест");
+        let port = held.local_addr().expect("адрес слушателя").port();
+
+        let state = SingboxState::default();
+        *state.runtime_ports.lock_recover() = vec![port];
+        *state.runtime.lock_recover() = Some(published_runtime_record());
+
+        abort_started_runtime(&state).await;
+        let after_first = state.pending_cleanup.lock_recover().clone();
+        assert!(after_first
+            .as_ref()
+            .is_some_and(|pending| pending.ports.contains(&port)));
+
+        abort_started_runtime_scoped(&state, PortDebt::Unproven).await;
+        assert_eq!(state.pending_cleanup.lock_recover().clone(), after_first);
+        drop(held);
+    }
+
+    #[test]
+    fn pending_cleanup_merges_instead_of_replacing() {
+        let existing = PendingCleanup {
+            processes: vec![TrackedProcess {
+                pid: 10,
+                creation_time: Some(100),
+            }],
+            ports: vec![7890],
+        };
+        let incoming = PendingCleanup {
+            processes: vec![
+                TrackedProcess {
+                    pid: 10,
+                    creation_time: Some(100),
+                },
+                TrackedProcess {
+                    pid: 20,
+                    creation_time: Some(200),
+                },
+            ],
+            ports: vec![9090, 7890],
+        };
+        let merged =
+            merge_pending_cleanup(Some(existing), incoming).expect("долг не должен исчезать");
+        assert_eq!(merged.ports, vec![7890, 9090]);
+        assert_eq!(
+            merged.processes.iter().map(|p| p.pid).collect::<Vec<_>>(),
+            vec![10, 20]
+        );
+        assert!(merge_pending_cleanup(None, PendingCleanup::default()).is_none());
     }
 
     #[test]

@@ -243,8 +243,16 @@ fn remove_file_if_exists(path: &Path) -> Result<bool, String> {
 
 /// Содержимое бэкапа либо None, если его ещё не делали. Битый/пропавший
 /// основной файл фолбэчится на .bak (прошлый снапшот, см. save).
+// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
+// на главном потоке и морозила бы окно на каждом сохранении профиля.
 #[tauri::command]
-pub fn state_backup_load(app: AppHandle) -> Result<Option<String>, String> {
+pub async fn state_backup_load(app: AppHandle) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || state_backup_load_blocking(app))
+        .await
+        .map_err(|error| format!("state_backup_load: {error}"))?
+}
+
+fn state_backup_load_blocking(app: AppHandle) -> Result<Option<String>, String> {
     let _guard = BACKUP_LOCK
         .lock()
         .map_err(|_| "state backup lock poisoned")?;
@@ -262,8 +270,16 @@ pub fn state_backup_load(app: AppHandle) -> Result<Option<String>, String> {
 /// Явная приватная очистка: фронт уже удалил localStorage-профили, здесь стираем
 /// encrypted snapshot и временные файлы, чтобы старые ноды не восстановились
 /// после следующего старта WebView2.
+// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
+// на главном потоке и морозила бы окно на каждом сохранении профиля.
 #[tauri::command]
-pub fn state_backup_clear(app: AppHandle) -> Result<u32, String> {
+pub async fn state_backup_clear(app: AppHandle) -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(move || state_backup_clear_blocking(app))
+        .await
+        .map_err(|error| format!("state_backup_clear: {error}"))?
+}
+
+fn state_backup_clear_blocking(app: AppHandle) -> Result<u32, String> {
     let _guard = BACKUP_LOCK
         .lock()
         .map_err(|_| "state backup lock poisoned")?;

@@ -2706,8 +2706,9 @@ function setState(next, opts = {}) {
       showQualityChip(loadOptions().quality?.enabled !== false);
     }
     updateWarpBadge();
-    // DPI-обход: вносим сервер активной ноды в исключения winws, чтобы он не
-    // трогал зашифрованный трафик к VPN-серверу (главный риск из спайка).
+    // Повтор исключения после подтверждённого подключения: обычный путь ставит
+    // его ДО старта ядра, но сюда приходят и adopt чужого runtime, и смена ноды
+    // балансировщиком — там раннего вызова не было.
     try { excludeVpnNode(activeNodeForDisplay()?.host); } catch {}
     // Эндпоинты апдейта стали достижимы через туннель — дочекать, если прямые
     // проверки не проходили (у части провайдеров gitlab/github режутся напрямую).
@@ -3109,6 +3110,13 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         bridgePorts,
       });
       const configJson = JSON.stringify(config);
+      // Сервер активной ноды — в exclude winws ДО запуска ядра. Раньше
+      // исключение ставилось только по факту connected, то есть уже после
+      // первого TLS/VLESS-handshake к серверу: именно его winws и мог
+      // покорёжить, а симптом выглядел как «первый коннект не встаёт».
+      // Ошибку не считаем фатальной: DPI-обход может быть вовсе выключен.
+      try { await excludeVpnNode(activeNodeForDisplay()?.host); } catch {}
+      if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
       let runtimeToken = runtimeIdentity.begin({
         source: runtimeSource, mode: runtimeInfo.mode, configJson,
         clashPort: runtimeInfo.options.experimental?.clashApiPort || 9090,
@@ -3629,7 +3637,15 @@ async function autostartNetworkRuntime() {
       if (tunWanted) setMode("tun"); // перезапущенный admin-инстанс поднимется в TUN
       const started = await invoke("relaunch_elevated");
       if (started) return; // текущий процесс вот-вот завершится
-      // элевация не удалась — продолжаем тем, что доступно без прав (VPN proxy)
+      // Элевация не удалась (отказ UAC, политика). Обещанный fallback обязан
+      // быть настоящим: раньше режим оставался tun, sing-box без прав интерфейс
+      // не поднимал, и автозапуск заканчивался вторым запросом UAC или молчаливым
+      // «не подключается». Опускаемся до режима, который работает без прав.
+      if (tunWanted && getMode() === "tun") {
+        setMode("systemProxy");
+        console.warn("elevation refused: autostart falls back to system proxy");
+        toast(t("elev.tunCancelled"), "warn", 6000, { group: "conn" });
+      }
     }
 
     // Второй snapshot после reconcile — последний fail-safe перед стартом:

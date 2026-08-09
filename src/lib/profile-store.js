@@ -154,6 +154,10 @@ let invokeRef = globalThis.window?.__TAURI__?.core?.invoke ?? null;
 let state = readLegacy(storageRef, { preserveDangling: true }).store;
 let revision = 0;
 let initialized = false;
+// Мутация, пришедшая до ответа Rust-хранилища (deep-link/автоимпорт на старте).
+// Такая запись существует только в памяти: legacy-зеркало снимет
+// removeLegacySensitiveKeys(), а backend-снимок её не содержит.
+let pendingLocalMutation = false;
 let backendEnabled = typeof invokeRef === "function";
 let persistedStore = false;
 let initPromise = null;
@@ -263,6 +267,26 @@ function enqueuePersist({ notify = true } = {}) {
   return task;
 }
 
+// Слияние снимка хранилища с локальными записями, сделанными до его загрузки.
+// Backend — база, локальные элементы дописываются по id; активный источник
+// берём локальный, если он ещё существует после слияния.
+function mergeStoreStates(backendState, localState, revision) {
+  const mergeById = (base, local) => {
+    const known = new Set(base.map(item => item.id));
+    return base.concat(local.filter(item => item && !known.has(item.id)));
+  };
+  return normalizeStore({
+    profiles: mergeById(backendState.profiles, localState.profiles || []),
+    subscriptions: mergeById(backendState.subscriptions, localState.subscriptions || []),
+    active: {
+      kind: localState.active?.kind || backendState.active.kind,
+      profileId: localState.active?.profileId || backendState.active.profileId,
+      subscriptionId: localState.active?.subscriptionId || backendState.active.subscriptionId,
+    },
+    proxySelection: { ...backendState.proxySelection, ...(localState.proxySelection || {}) },
+  }, revision);
+}
+
 function publish(next) {
   state = normalizeStore(next, revision);
   if (!initialized && next?.active && typeof next.active === "object") {
@@ -270,7 +294,10 @@ function publish(next) {
     if (validId(next.active.subscriptionId)) state.active.subscriptionId = next.active.subscriptionId;
   }
   if (initialized && backendEnabled) enqueuePersist();
-  else mirrorLegacyState();
+  else {
+    if (!initialized) pendingLocalMutation = true;
+    mirrorLegacyState();
+  }
   emit("ninety:profile-store-changed", { revision });
 }
 
@@ -296,6 +323,7 @@ export async function initializeProfileStore({ invoke = null, storage = null } =
     state = legacy.store;
     if (!backendEnabled) {
       initialized = true;
+      pendingLocalMutation = false;
       emit("ninety:profile-store-ready", { source: "legacy", persisted: false, revision });
       return { source: "legacy", persisted: false, revision };
     }
@@ -313,10 +341,21 @@ export async function initializeProfileStore({ invoke = null, storage = null } =
 
     if (loaded?.store) {
       revision = checkRevision(loaded.revision);
-      state = normalizeStore(loaded.store, revision);
+      const backendState = normalizeStore(loaded.store, revision);
+      // Профиль, добавленный до ответа хранилища, backend-снимок не содержит.
+      // Раньше он просто затирался, а removeLegacySensitiveKeys() удалял и
+      // зеркало в localStorage — запись исчезала бесследно.
+      const merged = pendingLocalMutation
+        ? mergeStoreStates(backendState, state, revision)
+        : backendState;
+      state = merged;
       persistedStore = true;
       initialized = true;
       removeLegacySensitiveKeys();
+      if (pendingLocalMutation) {
+        pendingLocalMutation = false;
+        enqueuePersist({ notify: false });
+      }
       emit("ninety:profile-store-ready", {
         source: loaded.recoveredFromBackup ? "backup" : "rust",
         persisted: true,

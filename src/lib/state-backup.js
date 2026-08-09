@@ -151,7 +151,8 @@ export function unwrapSnapshotEnvelope(parsed) {
 // true → ключи восстановлены; вызывающий делает location.reload(), чтобы все
 // модули перечитали localStorage с нуля (тема/язык/опции читаются при загрузке).
 export async function restoreIfEmpty() {
-  if (storageIsCompleteAndValid()) return false;
+  const integrity = storageIntegrity();
+  if (integrity.profiles && integrity.settings) return false;
   // Гвард от вечного цикла: снапшот с ninety.*-ключами, но без единого CORE_KEY
   // (например, только тема) давал restore → reload → хранилище «всё ещё пусто» →
   // restore → reload… sessionStorage переживает reload, но не перезапуск аппы —
@@ -166,7 +167,11 @@ export async function restoreIfEmpty() {
   const snap = unwrapSnapshotEnvelope(parsed);
   if (!validateSnapshot(snap)) return false;
   const profileKeys = new Set(Object.keys(profileStoreBackupEntries()));
-  const profileRestored = await restoreProfileStoreFromBackup(snap);
+  // Профили целы — трогать их нельзя: бэкап может быть старше живого стора.
+  // Восстанавливаем тогда только настройки, ради которых сюда и зашли.
+  const profileRestored = integrity.profiles
+    ? true
+    : await restoreProfileStoreFromBackup(snap);
   const entries = Object.entries(snap).filter(([k, v]) =>
     !k.startsWith("__")
     && (shouldRestoreStorageKey(k) || k === STORAGE_KEYS.updateResume)
@@ -232,7 +237,14 @@ export function validateSnapshot(snap) {
   return true;
 }
 
-function storageIsCompleteAndValid() {
+// Профили и настройки теряются независимо: профили живут в Rust-owned store,
+// настройки — только в localStorage WebView2. Очистка профиля WebView (чистилка
+// диска, антивирус, переустановка) оставляет профили нетронутыми, и общая
+// проверка «хранилище целое» объявляла состояние полным: режим подключения,
+// строгий туннель, Kill Switch, маршрутизация, DPI и тема не возвращались, а
+// автозапуск поднимался с настройками по умолчанию. Поэтому отвечаем на два
+// вопроса раздельно.
+export function storageIntegrity() {
   const snap = Object.fromEntries(CORE_KEYS.map(k => [k, localStorage.getItem(k)]));
   const liveProfileEntries = profileStoreBackupEntries();
   let hasLiveProfileData = false;
@@ -243,12 +255,13 @@ function storageIsCompleteAndValid() {
       || !!liveProfileEntries[STORAGE_KEYS.subscriptionActive]
       || Object.keys(JSON.parse(liveProfileEntries[STORAGE_KEYS.proxySelection] || "{}")).length > 0;
   } catch {}
-  if (snap[STORAGE_KEYS.options] == null && (profileStoreIsPersisted() || hasLiveProfileData)) {
-    // loadOptions() intentionally keeps defaults in memory without writing a
-    // plaintext options blob. A valid Rust profile store is enough to prevent
-    // an older recovery backup from overwriting newer live profiles.
-    snap[STORAGE_KEYS.options] = "{}";
-  }
+  const profiles = profileStoreIsPersisted() || hasLiveProfileData;
+  // loadOptions() намеренно держит дефолты в памяти и не пишет plaintext-blob,
+  // поэтому отсутствие ключа настроек само по себе ещё не означает потерю — но
+  // при живых профилях это ровно она: рабочая сессия всегда сохраняет options.
+  const settings = localStorage.getItem(STORAGE_KEYS.options) != null;
+  if (!settings && profiles) snap[STORAGE_KEYS.options] = "{}";
   Object.assign(snap, liveProfileEntries);
-  return validateSnapshot(snap);
+  return { profiles: profiles && validateSnapshot(snap), settings };
 }
+

@@ -169,7 +169,27 @@ async fn resolve_public_target(url: &reqwest::Url) -> Result<ResolvedTarget, Str
     })
 }
 
-fn make_client(proxy: Option<&str>, target: &ResolvedTarget) -> Result<reqwest::Client, String> {
+/// Проверка адреса, когда запрос уходит через локальный прокси Ninety. Имя
+/// резолвит уже сам туннель, поэтому локальный DNS не трогаем: иначе домен
+/// панели уезжает системному резолверу и обновление подписки ломается ровно
+/// там, где DNS и блокируют, — а именно ради этого её и обновляют «через VPN».
+/// IP-литерал всё равно отсекаем: он никуда не резолвится и виден сразу.
+fn reject_forbidden_literal(url: &reqwest::Url) -> Result<(), String> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| "у подписки отсутствует имя хоста".to_string())?;
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if is_forbidden_target_ip(ip) {
+            return Err("адрес подписки указывает в локальную или специальную сеть".into());
+        }
+    }
+    Ok(())
+}
+
+fn make_client(
+    proxy: Option<&str>,
+    target: Option<&ResolvedTarget>,
+) -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
         .user_agent("v2rayN/6.42")
         .timeout(std::time::Duration::from_secs(20))
@@ -178,7 +198,7 @@ fn make_client(proxy: Option<&str>, target: &ResolvedTarget) -> Result<reqwest::
         // cannot provide DNS-rebinding protection for each hop.
         .redirect(reqwest::redirect::Policy::none())
         .gzip(true);
-    if !target.is_ip_literal {
+    if let Some(target) = target.filter(|target| !target.is_ip_literal) {
         // Connect to the checked address while retaining the URL hostname for
         // TLS SNI and HTTP Host. This closes the resolve-then-connect race for
         // the target used by this request.
@@ -218,8 +238,16 @@ pub async fn fetch_subscription(
 
     let mut redirects = 0usize;
     let resp = loop {
-        let target = resolve_public_target(&current).await?;
-        let client = make_client(proxy, &target)?;
+        // Прямой запрос сам резолвит и пиннит адрес; проксированный отдаёт
+        // разрешение имени туннелю и локальный DNS не трогает вовсе.
+        let target = match proxy {
+            Some(_) => {
+                reject_forbidden_literal(&current)?;
+                None
+            }
+            None => Some(resolve_public_target(&current).await?),
+        };
+        let client = make_client(proxy, target.as_ref())?;
         let response = client
             .get(current.clone())
             .header("Accept", "*/*")
@@ -398,6 +426,22 @@ mod tests {
             SocketAddr::from(([127, 0, 0, 1], 443)),
         ];
         assert!(validate_resolved_addresses(&answer).is_err());
+    }
+
+    // Проксированный запрос уходит в туннель: локальный резолв домена панели
+    // раскрыл бы его системному DNS и ломал обновление там, где DNS блокируют.
+    // IP-литерал в локальную сеть отсекается и в этом режиме.
+    #[test]
+    fn proxied_requests_still_reject_local_ip_literals() {
+        let local = reqwest::Url::parse("http://127.0.0.1:8080/sub").unwrap();
+        assert!(reject_forbidden_literal(&local).is_err());
+        let private = reqwest::Url::parse("http://192.168.1.10/sub").unwrap();
+        assert!(reject_forbidden_literal(&private).is_err());
+        let public = reqwest::Url::parse("https://1.1.1.1/sub").unwrap();
+        assert!(reject_forbidden_literal(&public).is_ok());
+        // Имя не резолвим вовсе — это и есть смысл режима.
+        let host = reqwest::Url::parse("https://panel.example/sub").unwrap();
+        assert!(reject_forbidden_literal(&host).is_ok());
     }
 
     #[test]

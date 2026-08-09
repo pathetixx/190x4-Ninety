@@ -251,7 +251,13 @@ fn write_store(app: &AppHandle, path: &Path, store: &ProfileStore) -> Result<(),
                 )?;
             }
         }
-        crate::atomic_file::copy_replace(path, &backup, "profile store backup")?;
+        // Ротация бэкапа — только если текущий primary читается. После
+        // восстановления из .bak повреждённый primary ещё лежит на месте, и
+        // слепое копирование затирало им единственную исправную копию: сбой
+        // следующей записи оставлял пользователя вообще без профилей.
+        if read_store_file(app, path).is_ok() {
+            crate::atomic_file::copy_replace(path, &backup, "profile store backup")?;
+        }
     }
     crate::atomic_file::write_bytes_replace(path, &sealed, "profile store")
 }
@@ -282,8 +288,16 @@ fn cleanup_temp_files(path: &Path) -> Result<u32, String> {
     Ok(removed)
 }
 
+// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
+// на главном потоке и морозила бы окно на каждом сохранении профиля.
 #[tauri::command]
-pub fn profile_store_status(app: AppHandle) -> Result<ProfileStoreStatus, String> {
+pub async fn profile_store_status(app: AppHandle) -> Result<ProfileStoreStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || profile_store_status_blocking(app))
+        .await
+        .map_err(|error| format!("profile_store_status: {error}"))?
+}
+
+fn profile_store_status_blocking(app: AppHandle) -> Result<ProfileStoreStatus, String> {
     let path = store_path(&app)?;
     let exists = [path.clone(), backup_path(&path), legacy_backup_path(&path)]
         .iter()
@@ -300,8 +314,16 @@ pub fn profile_store_status(app: AppHandle) -> Result<ProfileStoreStatus, String
     })
 }
 
+// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
+// на главном потоке и морозила бы окно на каждом сохранении профиля.
 #[tauri::command]
-pub fn profile_store_load(app: AppHandle) -> Result<ProfileStoreLoadResponse, String> {
+pub async fn profile_store_load(app: AppHandle) -> Result<ProfileStoreLoadResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || profile_store_load_blocking(app))
+        .await
+        .map_err(|error| format!("profile_store_load: {error}"))?
+}
+
+fn profile_store_load_blocking(app: AppHandle) -> Result<ProfileStoreLoadResponse, String> {
     let path = store_path(&app)?;
     let loaded = load_store(&app, &path)?;
     Ok(match loaded {
@@ -322,8 +344,22 @@ pub fn profile_store_load(app: AppHandle) -> Result<ProfileStoreLoadResponse, St
     })
 }
 
+// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
+// на главном потоке и морозила бы окно на каждом сохранении профиля.
 #[tauri::command]
-pub fn profile_store_replace(
+pub async fn profile_store_replace(
+    app: AppHandle,
+    expected_revision: u64,
+    store: ProfileStore,
+) -> Result<ProfileStoreReplaceResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        profile_store_replace_blocking(app, expected_revision, store)
+    })
+    .await
+    .map_err(|error| format!("profile_store_replace: {error}"))?
+}
+
+fn profile_store_replace_blocking(
     app: AppHandle,
     expected_revision: u64,
     mut store: ProfileStore,
@@ -347,8 +383,21 @@ pub fn profile_store_replace(
     })
 }
 
+// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
+// на главном потоке и морозила бы окно на каждом сохранении профиля.
 #[tauri::command]
-pub fn profile_store_clear(
+pub async fn profile_store_clear(
+    app: AppHandle,
+    expected_revision: Option<u64>,
+) -> Result<ProfileStoreClearResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        profile_store_clear_blocking(app, expected_revision)
+    })
+    .await
+    .map_err(|error| format!("profile_store_clear: {error}"))?
+}
+
+fn profile_store_clear_blocking(
     app: AppHandle,
     expected_revision: Option<u64>,
 ) -> Result<ProfileStoreClearResponse, String> {

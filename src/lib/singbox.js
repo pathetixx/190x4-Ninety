@@ -387,12 +387,30 @@ function endpointContainsIp(value) {
   return isIpLiteral(raw);
 }
 
+// Все адреса, к которым реально подключается xhttp-клиент. Кроме самого сервера
+// это отдельный download-канал из `extra` (Xray StreamSettings): его адрес
+// уезжает в конфиг xray как есть, а xray в строгом режиме ходит мимо туннеля
+// (process-правило direct) — значит доменное имя оттуда резолвится системным
+// DNS в обход всей политики. Проверка только node.host этого не ловила.
+function xhttpEndpointHosts(node) {
+  const hosts = [node?.host];
+  if (!node?.extra) return hosts;
+  try {
+    const extra = JSON.parse(node.extra);
+    const download = extra?.downloadSettings;
+    if (download && typeof download === "object" && download.address) {
+      hosts.push(String(download.address));
+    }
+  } catch { /* битый extra — до конфига он всё равно не доедет */ }
+  return hosts;
+}
+
 function assertStrictBootstrapSafe(node) {
   const proto = profileProto(node);
-  if (node?.type === "xhttp" && !isIpLiteral(node.host)) {
+  if (node?.type === "xhttp" && xhttpEndpointHosts(node).some((host) => !isIpLiteral(host))) {
     throw new StrictPrivacyPolicyError(
       "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
-      "XHTTP-клиенту нужен прямой DNS для адреса сервера. В строгом режиме выберите XHTTP-ноду с IP-адресом.",
+      "XHTTP-клиенту нужен прямой DNS для адресов сервера и download-канала. В строгом режиме выберите XHTTP-ноду, у которой оба адреса заданы IP.",
     );
   }
   if (proto === "naive" && !isIpLiteral(node.host)) {
@@ -885,13 +903,21 @@ export function bridgeNeeds(nodes) {
 }
 
 // config.json клиента naive (klzgrad): один proxy → один локальный SOCKS5.
+// IPv6-литерал в authority URL обязан быть в скобках: парсер снимает их при
+// разборе ссылки, и без обратной сборки получался `https://u:p@2001:db8::1:443`,
+// который klzgrad-клиент не разбирает — нода молча не поднималась.
+function urlAuthorityHost(host) {
+  const value = String(host || "");
+  return value.includes(":") && !value.startsWith("[") ? `[${value}]` : value;
+}
+
 function naiveSidecarConfig(p, port) {
   const u = encodeURIComponent(p.username);
   const pw = encodeURIComponent(p.password);
   const scheme = p.scheme === "quic" ? "quic" : "https";
   return JSON.stringify({
     listen: `socks://127.0.0.1:${port}`,
-    proxy: `${scheme}://${u}:${pw}@${p.host}:${p.port}`,
+    proxy: `${scheme}://${u}:${pw}@${urlAuthorityHost(p.host)}:${p.port}`,
   }, null, 2);
 }
 

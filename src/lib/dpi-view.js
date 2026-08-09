@@ -486,6 +486,18 @@ async function stopEngine() {
 
 // Пауза движка при входе в TUN: реально глушим winws, НО LS.enabled оставляем
 // "true" — это «логическое желание», по которому восстановимся при выходе.
+// Пауза и возврат движка идут по одной очереди. Без неё быстрый цикл
+// «выключить split → включить обратно» разъезжался: resume проверяет S.base, а
+// stopDpiRuntime ставит "off" только ПОСЛЕ await, поэтому второй вызов видел
+// ещё живой процесс, выходил с успехом, а первый следом гасил winws — split
+// оставался включённым в настройках при выключенном движке.
+let dpiModeQueue = Promise.resolve(true);
+function queueDpiModeChange(run) {
+  const next = dpiModeQueue.then(run, run);
+  dpiModeQueue = next.catch(() => false);
+  return next;
+}
+
 async function pauseEngineForTun() {
   return stopDpiRuntime();
 }
@@ -991,13 +1003,19 @@ function onChange(e) {
 }
 
 /* ═══════════ PUBLIC API ═══════════ */
-export async function prepareDpiVpnMode(mode) {
-  if (mode !== "tun" || splitDiscordAllowedInTun()) return true;
-  if (!["running", "starting", "error"].includes(S.base)) return true;
-  return pauseEngineForTun();
+export function prepareDpiVpnMode(mode) {
+  return queueDpiModeChange(async () => {
+    if (mode !== "tun" || splitDiscordAllowedInTun()) return true;
+    if (!["running", "starting", "error"].includes(S.base)) return true;
+    return pauseEngineForTun();
+  });
 }
 
-export async function setDpiVpnMode(mode, { reevaluate = false } = {}) {
+export function setDpiVpnMode(mode, options = {}) {
+  return queueDpiModeChange(() => applyDpiVpnMode(mode, options));
+}
+
+async function applyDpiVpnMode(mode, { reevaluate = false } = {}) {
   if (!mode) return false;
   const prev = S.vpnMode;
   S.vpnMode = mode;

@@ -653,3 +653,35 @@ test("semantic validator пропускает WARP chain поверх selector",
   assert.equal(config.route.final, "warp");
   assert.equal(validateConfigReferences(config), true);
 });
+
+// extra.downloadSettings.address уезжает в конфиг xray как есть, а xray в
+// строгом режиме ходит мимо туннеля: доменное имя оттуда резолвилось системным
+// DNS, хотя сам node.host был IP и проверку проходил.
+test("строгая приватность отклоняет домен в download-канале xhttp", () => {
+  const node = vlessNode({
+    host: "203.0.113.7",
+    type: "xhttp",
+    extra: JSON.stringify({ downloadSettings: { address: "leak.example", port: 443 } }),
+  });
+  assert.throws(
+    () => strictBuild({
+      source: { kind: "single", profile: node },
+      mode: "tun",
+      options: DEFAULT_OPTIONS,
+    }),
+    (error) => error?.code === "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
+  );
+
+  // Оба адреса IP — нода остаётся допустимой.
+  const safe = vlessNode({
+    host: "203.0.113.7",
+    type: "xhttp",
+    extra: JSON.stringify({ downloadSettings: { address: "203.0.113.8", port: 443 } }),
+  });
+  const { config } = strictBuild({
+    source: { kind: "single", profile: safe },
+    mode: "tun",
+    options: DEFAULT_OPTIONS,
+  });
+  assert.ok(config.outbounds.some((o) => o.tag === "proxy"));
+});

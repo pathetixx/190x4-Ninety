@@ -23,6 +23,25 @@ impl<T> MutexExt<T> for Mutex<T> {
     }
 }
 
+/// Абсолютный путь к системному каталогу Windows (`...\System32`).
+///
+/// `%SystemRoot%` — переменная окружения процесса, и писать её может в том числе
+/// `HKCU\Environment`, то есть обычный пользователь без прав администратора.
+/// Отсюда берутся пути к `schtasks.exe`, `sc.exe`, `taskkill.exe` и
+/// `powershell.exe`, которые запускаются через `runas`: подменённая переменная
+/// превращала бы UAC-подтверждение пользователя в запуск чужого бинаря от
+/// администратора. `GetSystemDirectoryW` окружение не читает.
+#[cfg(target_os = "windows")]
+pub fn system_directory() -> std::path::PathBuf {
+    use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
+    let mut buffer = [0u16; 260];
+    let len = unsafe { GetSystemDirectoryW(Some(&mut buffer)) } as usize;
+    if len == 0 || len > buffer.len() {
+        return std::path::PathBuf::from(r"C:\Windows\System32");
+    }
+    std::path::PathBuf::from(String::from_utf16_lossy(&buffer[..len]))
+}
+
 fn checked_body_len(current: usize, incoming: usize, max_bytes: usize) -> Result<usize, String> {
     let next = current
         .checked_add(incoming)
