@@ -6,7 +6,7 @@ export const tr = {
   nav: {
     home: "Ana sayfa",
     profiles: "Profiller",
-    proxies: "Düğümler",
+    proxies: "Sunucular",
     dpi: "DPI atlatma",
     logs: "Günlükler",
     settings: "Ayarlar",
@@ -168,7 +168,7 @@ export const tr = {
     scoreNoneBody: "The index is built from probes the app has already taken. Before the first pass there are none — so there are no recommendations either, rather than made-up ones.",
     menuPin: "Pin this server",
     menuTestOne: "Measure only this one",
-    title: "Düğümler",
+    title: "Sunucular",
     metaNone: "Abonelik seçilmedi",
     fabAria: "Tüm düğümlerin gecikmesini test et",
     auto: "Oto",
@@ -502,7 +502,25 @@ export const tr = {
   },
 
   prof: {
-    summary: "{subs} subscriptions · {configs} configs · active “{active}”",
+    subsN: {
+      one: "{n} subscription",
+      few: "{n} subscriptions",
+      many: "{n} subscriptions",
+      other: "{n} subscriptions",
+    },
+    configsN: {
+      one: "{n} config",
+      few: "{n} configs",
+      many: "{n} configs",
+      other: "{n} configs",
+    },
+    srvN: {
+      one: "{n} server",
+      few: "{n} servers",
+      many: "{n} servers",
+      other: "{n} servers",
+    },
+    summary: "{subs} · {configs} · active “{active}”",
     nodesN: "{n} servers",
     unlimited: "unlimited",
     groupSubs: "Subscriptions",

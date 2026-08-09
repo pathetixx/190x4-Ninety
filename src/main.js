@@ -83,7 +83,7 @@ import { initHealthWatchdog } from "/lib/health-watchdog.js";
 import { initTitlebar } from "/lib/titlebar.js";
 import { initPopovers } from "/lib/popovers.js";
 import { ensureWorkingDirectDns, startDnsGuard, stopDnsGuard } from "/lib/dns-guard.js";
-import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t } from "/lib/i18n/index.js";
+import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t, tn } from "/lib/i18n/index.js";
 import { detectRegion } from "/lib/i18n/region-detect.js";
 import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
@@ -1833,7 +1833,9 @@ function renderProfilesView() {
     : (profsList.find(p => p.id === activeProfileId)?.name || "—");
   if (summaryLine) {
     summaryLine.textContent = t("prof.summary", {
-      subs: subsList.length, configs: profsList.length, active: activeName,
+      subs: tn("prof.subsN", subsList.length),
+      configs: tn("prof.configsN", profsList.length),
+      active: activeName,
     });
   }
 
@@ -1854,12 +1856,12 @@ function renderProfilesView() {
             <span class="n-primary">${escapeHtml(s.name)}</span>
             ${isActive ? `<span class="pf__tag">${escapeHtml(t("prof.badgeActive"))}</span>` : ""}
           </div>
-          <div class="n-meta">${escapeHtml(s.host || hostOfUrl(s.url))}<s>·</s>${t("prof.nodesN", { n: nodesCount })}<s>·</s>${escapeHtml(updated)}</div>
+          <div class="n-meta">${escapeHtml(s.host || hostOfUrl(s.url))}<s>·</s>${escapeHtml(tn("prof.srvN", nodesCount))}<s>·</s>${escapeHtml(updated)}</div>
         </div>
         <div class="pf__col pf__col--traffic">
           <div class="pf__val">
             <span class="n-num">${escapeHtml(fmtTraffic(used))}</span>
-            <span class="pf__unit-lg">${limit != null ? `/ ${escapeHtml(fmtTraffic(limit))}` : escapeHtml(t("prof.unlimited"))}</span>
+            <span class="pf__unit-lg">${limit != null ? `/ ${escapeHtml(fmtTraffic(limit))}` : `· ${escapeHtml(t("prof.unlimited"))}`}</span>
           </div>
           ${limit != null
             ? `<div class="n-meter pf__meter" data-state="${meterState}"><div class="n-meter__f" style="width:${(ratio * 100).toFixed(1)}%"></div></div>`

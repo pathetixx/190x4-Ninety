@@ -6,7 +6,7 @@ export const ru = {
   nav: {
     home: "Главная",
     profiles: "Профили",
-    proxies: "Ноды",
+    proxies: "Серверы",
     dpi: "DPI-обход",
     logs: "Логи",
     settings: "Настройки",
@@ -168,7 +168,7 @@ export const ru = {
     scoreNoneBody: "Индекс собирается из замеров, которые приложение уже сделало. До первого прохода их нет — поэтому рекомендаций нет тоже, а не подставлены наугад.",
     menuPin: "Закрепить этот сервер",
     menuTestOne: "Измерить только его",
-    title: "Ноды",
+    title: "Серверы",
     metaNone: "Подписка не выбрана",
     fabAria: "Проверить задержку всех нод",
     auto: "Авто",
@@ -502,7 +502,25 @@ export const ru = {
   },
 
   prof: {
-    summary: "{subs} подписок · {configs} конфигов · активен «{active}»",
+    subsN: {
+      one: "{n} подписка",
+      few: "{n} подписки",
+      many: "{n} подписок",
+      other: "{n} подписки",
+    },
+    configsN: {
+      one: "{n} конфиг",
+      few: "{n} конфига",
+      many: "{n} конфигов",
+      other: "{n} конфига",
+    },
+    srvN: {
+      one: "{n} сервер",
+      few: "{n} сервера",
+      many: "{n} серверов",
+      other: "{n} сервера",
+    },
+    summary: "{subs} · {configs} · активен «{active}»",
     nodesN: "{n} серверов",
     unlimited: "без лимита",
     groupSubs: "Подписки",

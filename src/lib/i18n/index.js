@@ -108,6 +108,25 @@ export function getLang() {
   return _lang;
 }
 
+// Склонение по числу: «1 подписка», «2 подписки», «5 подписок».
+// Формы лежат под `${key}.${form}` (one/few/many/other) — набор форм у каждого
+// языка свой, поэтому берём его у Intl, а не хардкодим славянское правило.
+const _pluralRules = new Map();
+export function tn(key, n, vars) {
+  let form;
+  try {
+    let rules = _pluralRules.get(_lang);
+    if (!rules) { rules = new Intl.PluralRules(_lang); _pluralRules.set(_lang, rules); }
+    form = rules.select(n);
+  } catch { form = "other"; }
+  const flat = _flat[_lang] || _flat.en || {};
+  const picked = flat[`${key}.${form}`] ?? flat[`${key}.other`] ?? _flat.en?.[`${key}.other`] ?? key;
+  let out = picked;
+  const all = { n, ...(vars || {}) };
+  for (const k in all) out = out.replaceAll(`{${k}}`, all[k]);
+  return out;
+}
+
 // Системная локаль → доступный код (zh-CN→zh, pt-BR→pt). Сохранённый выбор приоритетнее.
 function detectLang() {
   const ready = availableLangs().map(l => l.code);

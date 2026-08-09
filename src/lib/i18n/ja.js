@@ -6,7 +6,7 @@ export const ja = {
   nav: {
     home: "ホーム",
     profiles: "プロファイル",
-    proxies: "ノード",
+    proxies: "サーバー",
     dpi: "DPI回避",
     logs: "ログ",
     settings: "設定",
@@ -168,7 +168,7 @@ export const ja = {
     scoreNoneBody: "The index is built from probes the app has already taken. Before the first pass there are none — so there are no recommendations either, rather than made-up ones.",
     menuPin: "Pin this server",
     menuTestOne: "Measure only this one",
-    title: "ノード",
+    title: "サーバー",
     metaNone: "サブスクリプション未選択",
     fabAria: "すべてのノードの遅延をテスト",
     auto: "自動",
@@ -502,7 +502,25 @@ export const ja = {
   },
 
   prof: {
-    summary: "{subs} subscriptions · {configs} configs · active “{active}”",
+    subsN: {
+      one: "{n} subscription",
+      few: "{n} subscriptions",
+      many: "{n} subscriptions",
+      other: "{n} subscriptions",
+    },
+    configsN: {
+      one: "{n} config",
+      few: "{n} configs",
+      many: "{n} configs",
+      other: "{n} configs",
+    },
+    srvN: {
+      one: "{n} server",
+      few: "{n} servers",
+      many: "{n} servers",
+      other: "{n} servers",
+    },
+    summary: "{subs} · {configs} · active “{active}”",
     nodesN: "{n} servers",
     unlimited: "unlimited",
     groupSubs: "Subscriptions",

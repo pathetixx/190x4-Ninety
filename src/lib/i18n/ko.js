@@ -6,7 +6,7 @@ export const ko = {
   nav: {
     home: "홈",
     profiles: "프로필",
-    proxies: "노드",
+    proxies: "서버",
     dpi: "DPI 우회",
     logs: "로그",
     settings: "설정",
@@ -168,7 +168,7 @@ export const ko = {
     scoreNoneBody: "The index is built from probes the app has already taken. Before the first pass there are none — so there are no recommendations either, rather than made-up ones.",
     menuPin: "Pin this server",
     menuTestOne: "Measure only this one",
-    title: "노드",
+    title: "서버",
     metaNone: "선택된 구독 없음",
     fabAria: "모든 노드의 지연 시간 테스트",
     auto: "자동",
@@ -502,7 +502,25 @@ export const ko = {
   },
 
   prof: {
-    summary: "{subs} subscriptions · {configs} configs · active “{active}”",
+    subsN: {
+      one: "{n} subscription",
+      few: "{n} subscriptions",
+      many: "{n} subscriptions",
+      other: "{n} subscriptions",
+    },
+    configsN: {
+      one: "{n} config",
+      few: "{n} configs",
+      many: "{n} configs",
+      other: "{n} configs",
+    },
+    srvN: {
+      one: "{n} server",
+      few: "{n} servers",
+      many: "{n} servers",
+      other: "{n} servers",
+    },
+    summary: "{subs} · {configs} · active “{active}”",
     nodesN: "{n} servers",
     unlimited: "unlimited",
     groupSubs: "Subscriptions",

@@ -9,7 +9,7 @@ import {
 import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { FLAGS_BASE, flagIsoFromName, stripFlag } from "/lib/flags.js";
 import { escapeHtml, escapeAttr } from "/lib/esc.js";
-import { t } from "/lib/i18n/index.js";
+import { t, getLang } from "/lib/i18n/index.js";
 import {
   getRememberedProxySelection,
   rememberProxySelection,
@@ -349,10 +349,21 @@ function nodeRowHtml(n, ctx) {
     </div>`;
 }
 
+// Название страны словом: Intl.DisplayNames уже локализован под язык интерфейса,
+// поэтому таблицу из 200 стран заводить не нужно. Нет ISO — группируем по имени.
+let regionNames = null;
 function countryOf(n) {
   const iso = flagIsoFromName(n.name);
-  return iso ? iso.toUpperCase() : (stripFlag(n.name) || n.host);
+  if (!iso) return stripFlag(n.name) || n.host;
+  const code = iso.toUpperCase();
+  try {
+    if (!regionNames) {
+      regionNames = new Intl.DisplayNames([getLang()], { type: "region" });
+    }
+    return regionNames.of(code) || code;
+  } catch { return code; }
 }
+export function resetCountryNames() { regionNames = null; }
 
 // ── блок рекомендаций ───────────────────────────────────────
 function recHtml(nodes, ctx) {
@@ -743,6 +754,8 @@ function stopPoll() {
 // снапшот clash; если его нет, render отрисует пустое состояние.
 export function rerenderProxiesView() {
   if (!$("proxies-grid")) return;
+  regionNames = null;      // язык мог смениться — названия стран пересобрать
+  lastSignature = "";
   if (strictPrivacyEnabled()) {
     renderStrict();
     return;

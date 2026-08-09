@@ -6,7 +6,7 @@ export const en = {
   nav: {
     home: "Home",
     profiles: "Profiles",
-    proxies: "Nodes",
+    proxies: "Servers",
     dpi: "DPI Bypass",
     logs: "Logs",
     settings: "Settings",
@@ -168,7 +168,7 @@ export const en = {
     scoreNoneBody: "The index is built from probes the app has already taken. Before the first pass there are none — so there are no recommendations either, rather than made-up ones.",
     menuPin: "Pin this server",
     menuTestOne: "Measure only this one",
-    title: "Nodes",
+    title: "Servers",
     metaNone: "No subscription selected",
     fabAria: "Test latency of all nodes",
     auto: "Auto",
@@ -502,7 +502,25 @@ export const en = {
   },
 
   prof: {
-    summary: "{subs} subscriptions · {configs} configs · active “{active}”",
+    subsN: {
+      one: "{n} subscription",
+      few: "{n} subscriptions",
+      many: "{n} subscriptions",
+      other: "{n} subscriptions",
+    },
+    configsN: {
+      one: "{n} config",
+      few: "{n} configs",
+      many: "{n} configs",
+      other: "{n} configs",
+    },
+    srvN: {
+      one: "{n} server",
+      few: "{n} servers",
+      many: "{n} servers",
+      other: "{n} servers",
+    },
+    summary: "{subs} · {configs} · active “{active}”",
     nodesN: "{n} servers",
     unlimited: "unlimited",
     groupSubs: "Subscriptions",
