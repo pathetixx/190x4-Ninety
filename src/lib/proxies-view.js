@@ -218,8 +218,16 @@ function scoreNode(node, clashData) {
   const med = medianOf(L);
   const jit = L.length >= 2 ? stdevOf(L) : null;
   const latency = clamp01(1 - (med - 25) / 275);
-  const stability = jit == null ? 0.5 : clamp01(1 - jit / 55);
-  const liveness = L.length / hs.length;
+
+  // По двум замерам разброс и доступность — крайне шумные оценки: один неудачный
+  // сэмпл обнулял стабильность, и самый быстрый сервер вылетал из рекомендаций.
+  // Поэтому производные компоненты набирают вес по мере накопления замеров, а
+  // пока доказательств мало, индекс опирается на то, что измерено напрямую —
+  // на задержку.
+  const evidence = clamp01((hs.length - 1) / 4);
+  const shrink = (v) => 0.5 + (v - 0.5) * evidence;
+  const stability = jit == null ? 0.5 : shrink(clamp01(1 - jit / 55));
+  const liveness = shrink(L.length / hs.length);
   const transport = transportWeight(node);
   return {
     total: 0.45 * latency + 0.30 * stability + 0.15 * liveness + 0.10 * transport,
@@ -362,6 +370,13 @@ function nodeRowHtml(n, ctx) {
 // Название страны словом: Intl.DisplayNames уже локализован под язык интерфейса,
 // поэтому таблицу из 200 стран заводить не нужно. Нет ISO — группируем по имени.
 let regionNames = null;
+// Имена у провайдеров бывают с украшениями («Estonia #2 ⚡ 10 Gbit ⚡ Low Ping»)
+// и в одну строку подзаголовка не помещаются.
+function shortName(node, max = 24) {
+  const name = stripFlag(node?.name) || node?.host || "";
+  return name.length > max ? name.slice(0, max - 1).trimEnd() + "…" : name;
+}
+
 function countryOf(n) {
   const iso = flagIsoFromName(n.name);
   // У служебных записей провайдера («22 октября 2026», баннеры) страны нет.
@@ -516,8 +531,8 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
     } else {
       const liveNode = nodes.find(n => n.clashTag === liveTag);
       const pin = selectorTag === "auto"
-        ? (liveNode ? t("proxies.pinAuto", { name: stripFlag(liveNode.name) || liveNode.host }) : t("proxies.auto"))
-        : t("proxies.pinNode", { name: selectorTag ? (stripFlag(nodes.find(n => n.clashTag === selectorTag)?.name || "") || "—") : "—" });
+        ? (liveNode ? t("proxies.pinAuto", { name: shortName(liveNode) }) : t("proxies.auto"))
+        : t("proxies.pinNode", { name: selectorTag ? shortName(nodes.find(n => n.clashTag === selectorTag)) || "—" : "—" });
       metaEl.textContent = t("proxies.metaLine", { pin, alive: tn("proxies.metaAlive", alive, { total: nodes.length }) });
     }
   }
