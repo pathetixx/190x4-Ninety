@@ -138,13 +138,6 @@
   background: var(--line-1);
 }
 .about-tags__group { display: flex; flex-direction: column; gap: 9px; align-items: center; }
-.about-tags__label {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
 .about-tags__row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .about-chip {
   font-family: var(--font-mono);
@@ -171,15 +164,7 @@
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
   background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
 }
-.about-spec__head {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  padding: 13px 18px 11px;
-  border-bottom: 1px solid var(--line-1);
-}
+.about-spec__head { padding: 13px 18px 11px; border-bottom: 1px solid var(--line-1); }
 .about-spec__grid { display: grid; grid-template-columns: 1fr 1fr; }
 .about-spec__cell {
   display: flex;

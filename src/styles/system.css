@@ -1,8 +1,13 @@
 /* ─────────────────────────────────────────────────────────────
-   Ninety — общие примитивы списков
-   Один словарь для «Профилей», «Серверов» и «Добавить профиль».
-   Кнопки, заголовки экранов и токены берутся из app.css / screens.css /
-   tokens.css — здесь только то, чего там не было.
+   Ninety — общие примитивы
+   Один словарь для всех экранов. Кнопки, заголовки и цвета берутся
+   из app.css / screens.css / tokens.css — здесь только то, чего там нет.
+
+   Роли ниже перечисляют и «чужие» селекторы (.stats__label, .screen__kicker,
+   …). Это сделано намеренно: те же самые надписи раньше описывались заново
+   в каждом файле, и описания разъезжались — трекинг у одной и той же по
+   смыслу метки гулял от .05em до .28em. Список селекторов у одного правила
+   схлопывает дубли, не трогая разметку.
    ───────────────────────────────────────────────────────────── */
 
 /* ── типографические роли ── */
@@ -15,8 +20,25 @@
      letter-spacing:-.02em;color:var(--text-hi)}
 .n-unit{font-family:var(--font-mono);font-size:9px;font-weight:400;letter-spacing:.05em;
      text-transform:uppercase;color:var(--text-faint);margin-inline-start:3px}
-.n-lbl{font-family:var(--font-mono);font-size:9px;font-weight:500;letter-spacing:.14em;
+/* Метка — подпись под числом или над группой. */
+.n-lbl,
+.stats__label, .loc-card__metric-lbl, .sub-card__expire-lbl, .traffic__label,
+.nt__h, .rr-base__k, .popover__kicker, .drawer__section,
+.update-modal__section-label, .about-spec__head, .about-tags__label,
+.dpi-card__label, .dpi-result__label{
+     font-family:var(--font-mono);font-size:9px;font-weight:500;letter-spacing:.15em;
      text-transform:uppercase;color:var(--text-faint)}
+/* Метка, которая должна читаться заметнее соседних — не тише текста строки. */
+.dpi-result__label, .theme-card__kicker{color:var(--text-lo)}
+
+/* Кикер — разрежённая надпись над заголовком экрана или модалки. */
+.n-kicker,
+.screen__kicker, .onb__kicker, .add-modal__kicker, .update-modal__kicker,
+.qr-modal__kicker, .confirm-modal__kicker, .rr-modal__kicker, .drawer__kicker{
+     font-family:var(--font-mono);font-size:10px;font-weight:500;letter-spacing:.18em;
+     text-transform:uppercase;color:var(--text-faint)}
+/* Кикер подтверждения предупреждает — потому и акцентный. */
+.confirm-modal__kicker{color:var(--accent-bright)}
 
 /* Контекстные альтернативы Inter превращают x между цифрами в знак умножения:
    «190x4» становится «190×4». Для имён, хостов и полей ввода это ложь. */

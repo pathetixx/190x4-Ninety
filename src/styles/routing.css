@@ -83,13 +83,6 @@
   color: var(--text-mid);
   white-space: nowrap;
 }
-.rr-base__k {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
 .rr-base__flag {
   width: 17px; height: 12px; border-radius: 2px; overflow: hidden;
   border: 1px solid rgba(0,0,0,0.4); flex-shrink: 0;
@@ -341,13 +334,7 @@
   padding: 16px 20px 13px;
   border-bottom: 1px solid var(--line-1);
 }
-.rr-modal__kicker {
-  font-family: var(--font-mono);
-  font-size: 10px; font-weight: 500;
-  letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--text-faint);
-  margin-bottom: 5px;
-}
+.rr-modal__kicker { margin-bottom: 5px; }
 .rr-modal__title {
   margin: 0;
   font-family: var(--font-display);

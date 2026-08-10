@@ -22,14 +22,6 @@
   padding-bottom: 2px;
 }
 .screen__head-main { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.screen__kicker {
-  font-family: var(--font-mono);
-  font-weight: 500;
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
 .screen__title {
   margin: 0;
   font-family: var(--font-display);
@@ -441,14 +433,6 @@
   background: var(--theme-accent);
   box-shadow: 0 0 10px var(--theme-glow);
 }
-.theme-card__kicker {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-lo);
-  font-weight: 500;
-}
 .theme-card__name {
   font-family: var(--font-display);
   font-weight: 600;
@@ -508,14 +492,6 @@
     0 0 32px var(--accent-glow);
 }
 .onb__mark img { width: 90%; height: 90%; object-fit: contain; }
-.onb__kicker {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  font-weight: 500;
-}
 .onb__title {
   margin: 0;
   font-family: var(--font-display);
@@ -627,15 +603,7 @@
   opacity: 1; pointer-events: auto;
   transform: translateY(0) scale(1);
 }
-.popover__kicker {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  font-weight: 500;
-  margin-bottom: 10px;
-}
+.popover__kicker { margin-bottom: 10px; }
 .popover .seg { margin-bottom: 12px; }
 .popover .seg__btn { padding: 7px 8px; font-size: 11px; }
 .popover__hint {
