@@ -18,7 +18,7 @@ const CAP = 12;                  // столько точек рисует сп�
 let _cacheRaw = null;
 let _cacheVal = null;
 function readAll() {
-  let raw = null;
+  let raw;
   try { raw = localStorage.getItem(KEY); } catch { raw = null; }
   if (raw === _cacheRaw && _cacheVal) return _cacheVal;
   let parsed;
