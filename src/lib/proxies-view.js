@@ -9,7 +9,7 @@ import {
 import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { FLAGS_BASE, flagIsoFromName, stripFlag } from "/lib/flags.js";
 import { escapeHtml, escapeAttr } from "/lib/esc.js";
-import { t, getLang } from "/lib/i18n/index.js";
+import { t, tn, getLang } from "/lib/i18n/index.js";
 import {
   getRememberedProxySelection,
   rememberProxySelection,
@@ -236,7 +236,7 @@ const REASON_KEYS = ["latency", "stability", "liveness", "transport"];
 function reasonFor(key, s, node) {
   if (key === "latency")   return { icon: ICON_GAUGE,  text: t("proxies.whyLatency", { ms: Math.round(s.med) }) };
   if (key === "stability") return { icon: ICON_PULSE,  text: t("proxies.whyStable", { ms: Math.round(s.jit ?? 0) }) };
-  if (key === "liveness")  return { icon: ICON_SHIELD, text: t("proxies.whyLive", { ok: s.okN, all: s.allN }) };
+  if (key === "liveness")  return { icon: ICON_SHIELD, text: tn("proxies.whyLive", s.okN, { all: s.allN }) };
   return { icon: ICON_SERVER, text: t("proxies.whyTransport", { name: transportLabel(node) }) };
 }
 // Причина выбирается по тому, чем нода сильнее всего ОТРЫВАЕТСЯ от поля,
@@ -375,7 +375,6 @@ function countryOf(n) {
     return regionNames.of(code) || code;
   } catch { return code; }
 }
-export function resetCountryNames() { regionNames = null; }
 
 // ── блок рекомендаций ───────────────────────────────────────
 function recHtml(nodes, ctx) {
@@ -455,7 +454,7 @@ function recHtml(nodes, ctx) {
       </div>`;
   }).join("");
 
-  box.innerHTML = head(`<span class="n-group__n">${t("proxies.byProbesN", { n: ranked[0].s.allN })}</span>`) +
+  box.innerHTML = head(`<span class="n-group__n">${tn("proxies.byProbesN", ranked[0].s.allN)}</span>`) +
     `<div class="n-plate rec__body" id="rec-body"${recOpen ? "" : " hidden"}>${autoRow}${rows}</div>`;
 
 }
@@ -511,7 +510,7 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
 
   if (metaEl) {
     if (terms.length) {
-      metaEl.textContent = t("proxies.metaFound", { n: pool.length, total: nodes.length });
+      metaEl.textContent = tn("proxies.metaFound", pool.length, { total: nodes.length });
     } else if (strict) {
       metaEl.textContent = t("proxies.meta", { total: nodes.length, alive: "—", mode: t("proxies.strictPinned") });
     } else {
@@ -519,7 +518,7 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
       const pin = selectorTag === "auto"
         ? (liveNode ? t("proxies.pinAuto", { name: stripFlag(liveNode.name) || liveNode.host }) : t("proxies.auto"))
         : t("proxies.pinNode", { name: selectorTag ? (stripFlag(nodes.find(n => n.clashTag === selectorTag)?.name || "") || "—") : "—" });
-      metaEl.textContent = t("proxies.metaLine", { pin, alive, total: nodes.length });
+      metaEl.textContent = t("proxies.metaLine", { pin, alive: tn("proxies.metaAlive", alive, { total: nodes.length }) });
     }
   }
 
@@ -599,8 +598,15 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
     }).join("");
   }
 
+  // Новый замер перерисовывает таблицу целиком. Без этого фокус строки слетал
+  // бы на каждом обновлении и клавиатурная навигация ломалась каждые 4 секунды.
+  const focusedTag = document.activeElement?.closest?.(".nt-row, .rec-row")?.dataset.tag || null;
   grid.innerHTML = head + favBlock + body;
   attachFlagFallbacks(grid);
+  if (focusedTag) {
+    const again = grid.querySelector(`.nt-row[data-tag="${CSS.escape(focusedTag)}"]`);
+    if (again) again.focus({ preventScroll: true });
+  }
 }
 
 // ── render: сопутствующие состояния ─────────────────────────
@@ -616,7 +622,7 @@ function renderApplying(nodes) {
   render(nodes, null, null, null);
   const metaEl = $("proxies-meta");
   if (metaEl) {
-    metaEl.textContent = t("proxies.metaIdle", { total: nodes.length });
+    metaEl.textContent = t("proxies.metaIdle", { srv: tn("prof.srvN", nodes.length) });
   }
 }
 
@@ -953,10 +959,16 @@ export function mountProxiesView({
 }
 
 // ── поповер «как считается» ─────────────────────────────────
-function hideScorePopover() { const p = $("rec-pop"); if (p) p.hidden = true; }
+function hideScorePopover() { document.getElementById("rec-pop")?.remove(); }
 function showScorePopover(anchor) {
-  const p = $("rec-pop");
-  if (!p) return;
+  // Создаём по месту, как меню строки: в index.html элемента нет, и раньше
+  // «как считается» молча не открывалось.
+  hideScorePopover();
+  const p = document.createElement("div");
+  p.className = "rec-pop";
+  p.id = "rec-pop";
+  p.setAttribute("role", "dialog");
+  document.body.appendChild(p);
   const ranked = rankNodes(nodesFromSource(), lastClashSnapshot);
   if (!ranked.length) {
     p.innerHTML = `<div class="rec-pop__t">${escapeHtml(t("proxies.scoreNoneTitle"))}</div>
@@ -975,7 +987,6 @@ function showScorePopover(anchor) {
       <div class="rec-pop__note">${escapeHtml(t("proxies.scoreNote", {
         med: Math.round(s.med), jit: Math.round(s.jit), ok: s.okN, all: s.allN }))}</div>`;
   }
-  p.hidden = false;
   const ar = anchor.getBoundingClientRect();
   p.style.top = Math.min(ar.bottom + 6, window.innerHeight - p.offsetHeight - 10) + "px";
   p.style.left = Math.max(10, Math.min(ar.right - p.offsetWidth, window.innerWidth - p.offsetWidth - 10)) + "px";

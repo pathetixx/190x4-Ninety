@@ -64,6 +64,9 @@
   grid-template-columns: 20px minmax(0, 1fr) 128px 78px 52px 62px 24px 28px;
   gap: 12px; align-items: center; height: 28px; padding: 0 12px 0 16px;
   background: var(--ink-0); border-bottom: 1px solid var(--line-2);
+  /* .content прокручивается и имеет верхний padding: без этой заливки строки
+     проезжали бы в щель НАД липкой шапкой. */
+  box-shadow: 0 -18px 0 0 var(--ink-0);
 }
 .nt__h {
   background: none; border: 0; padding: 0; cursor: pointer;
@@ -151,3 +154,8 @@
   .rec-row { grid-template-columns: 20px minmax(0,1fr) 58px; }
   .rec-row .n-spark { display: none; }
 }
+
+/* .prox, .prox__flag-img, .prox__flag-fallback стилей не имеют намеренно:
+   первый — хук для делегированных обработчиков (closest(".prox")), два других —
+   якоря для подмены битого флага (attachFlagFallbacks). Оформление приходит
+   от .n-flag; удалять классы как «мёртвые» нельзя. */

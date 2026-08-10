@@ -4,7 +4,7 @@
 
 import { detectAddInput, addSubscriptionFromUrl, parseSubscriptionBody } from "/lib/subscriptions.js";
 import { addProfileFromVless, addTrustTunnelFromToml } from "/lib/singbox.js";
-import { t } from "/lib/i18n/index.js";
+import { t, tn } from "/lib/i18n/index.js";
 import { escapeHtml } from "/lib/esc.js";
 import { toast } from "/lib/toast.js";
 
@@ -76,7 +76,7 @@ function describeInput(raw) {
     hits.forEach(u => { const p = u.replace("://", "").toUpperCase(); by[p] = (by[p] || 0) + 1; });
     const parts = Object.entries(by).map(([p, c]) => `${p} ${c}`).join(" · ");
     setDetection("list", "add.detListK",
-      `<b>${hits.length}</b> ${escapeHtml(t("add.detListD"))}${parts ? `<s>·</s>${escapeHtml(parts)}` : ""}`);
+      `<b>${escapeHtml(tn("add.detListN", hits.length))}</b>${parts ? `<s>·</s>${escapeHtml(parts)}` : ""}`);
     return { ok: true, kind: "list", host: "" };
   }
   if (d.kind === "tt-toml") {

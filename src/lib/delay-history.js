@@ -9,13 +9,20 @@
 const KEY = "ninety.delayHistory.v1";
 const CAP = 12;                  // столько точек рисует спарклайн
 
+// getProbeHistory зовут на каждую строку каждого рендера, а рендер идёт по
+// поллингу раз в 4 с. Парсить весь JSON столько раз незачем — держим разбор
+// в памяти и сбрасываем его только на запись.
+let _cache = null;
 function readAll() {
+  if (_cache) return _cache;
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || "{}");
-    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-  } catch { return {}; }
+    _cache = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  } catch { _cache = {}; }
+  return _cache;
 }
 function writeAll(map) {
+  _cache = map;
   try { localStorage.setItem(KEY, JSON.stringify(map)); } catch {}
 }
 function scopeKey(source) {
