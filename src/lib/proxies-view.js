@@ -326,6 +326,13 @@ function sparkHtml(hs) {
   return `<svg class="n-spark" viewBox="-1 0 55 15" role="img"><title>${escapeHtml(title)}</title><polyline points="${pts}"/><circle cx="52" cy="${lastY.toFixed(1)}" r="1.5"/></svg>`;
 }
 
+function currentDelay(clashData, tag) {
+  const live = lastDelay(clashData?.proxies?.[tag]);
+  if (live > 0 && live < 65000) return live;
+  const own = liveDelays(historyOf(clashData, tag));
+  return own.length ? own[own.length - 1] : 0;
+}
+
 function pingHtml(delay, grade) {
   if (delay > 0 && delay < 65000) {
     return `<div class="n-ping" data-grade="${grade}">${delay}<span class="n-unit">${t("proxies.pingUnit")}</span></div>`;
@@ -342,7 +349,7 @@ function starHtml(tag, on) {
 // ── строка таблицы ──────────────────────────────────────────
 function nodeRowHtml(n, ctx) {
   const hs = historyOf(ctx.clashData, n.clashTag);
-  const delay = lastDelay(ctx.clashData?.proxies?.[n.clashTag]);
+  const delay = currentDelay(ctx.clashData, n.clashTag);
   const iso = flagIsoFromName(n.name);
   const cleanName = stripFlag(n.name) || n.host;
   const fallback = iso ? iso.toUpperCase() : (cleanName.slice(0, 2).toUpperCase() || "?");
@@ -372,7 +379,7 @@ function nodeRowHtml(n, ctx) {
 let regionNames = null;
 // Имена у провайдеров бывают с украшениями («Estonia #2 ⚡ 10 Gbit ⚡ Low Ping»)
 // и в одну строку подзаголовка не помещаются.
-function shortName(node, max = 24) {
+function shortName(node, max = 16) {
   const name = stripFlag(node?.name) || node?.host || "";
   return name.length > max ? name.slice(0, max - 1).trimEnd() + "…" : name;
 }
@@ -409,7 +416,7 @@ function recHtml(nodes, ctx) {
 
   const ranked = rankNodes(nodes, ctx.clashData);
   const autoPick = ranked.length ? ranked[0].n : null;
-  const autoDelay = autoPick ? lastDelay(ctx.clashData?.proxies?.[autoPick.clashTag]) : 0;
+  const autoDelay = autoPick ? currentDelay(ctx.clashData, autoPick.clashTag) : 0;
   const autoSub = !autoPick
     ? t("proxies.autoIdle")
     : ctx.selectorTag === "auto"
@@ -451,7 +458,7 @@ function recHtml(nodes, ctx) {
     const iso = flagIsoFromName(n.name);
     const cleanName = stripFlag(n.name) || n.host;
     const fallback = iso ? iso.toUpperCase() : (cleanName.slice(0, 2).toUpperCase() || "?");
-    const delay = lastDelay(ctx.clashData?.proxies?.[n.clashTag]);
+    const delay = currentDelay(ctx.clashData, n.clashTag);
     const isLive = n.clashTag === ctx.liveTag;
     return `
       <div class="n-row rec-row prox" data-active="${n.clashTag === ctx.selectorTag && ctx.selectorTag !== "auto"}"
@@ -518,10 +525,7 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
   if (signature === lastSignature) return;
   lastSignature = signature;
 
-  const alive = nodes.filter(n => {
-    const d = lastDelay(clashData?.proxies?.[n.clashTag]);
-    return d > 0 && d < 65000;
-  }).length;
+  const alive = nodes.filter(n => currentDelay(clashData, n.clashTag) > 0).length;
 
   if (metaEl) {
     if (terms.length) {
@@ -543,7 +547,7 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
     name: n => stripFlag(n.name) || n.host,
     host: n => n.host,
     tr:   n => transportLabel(n),
-    ping: n => { const d = lastDelay(clashData?.proxies?.[n.clashTag]); return d > 0 && d < 65000 ? d : 1e9; },
+    ping: n => currentDelay(clashData, n.clashTag) || 1e9,
   };
   const dir = sortState.dir === "asc" ? 1 : -1;
   const raw = (x, y) => typeof x === "number" ? x - y : String(x).localeCompare(String(y), "ru");
