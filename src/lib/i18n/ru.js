@@ -131,7 +131,7 @@ export const ru = {
     menuAlready: "Уже выбран",
     autoIdle: "подберёт сервер после первого замера",
     groupOther: "Прочее",
-    metaIdle: "{srv} · задержка появится после подключения",
+    metaIdle: "{srv} · нет подключения",
     recommended: "Рекомендованные",
     howScored: "как считается",
     byProbes: "по 12 замерам",

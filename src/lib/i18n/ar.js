@@ -131,7 +131,7 @@ export const ar = {
     menuAlready: "Already selected",
     autoIdle: "will pick a server after the first probe",
     groupOther: "Other",
-    metaIdle: "{srv} · latency appears once connected",
+    metaIdle: "{srv} · not connected",
     recommended: "Recommended",
     howScored: "how it is scored",
     byProbes: "from 12 probes",
