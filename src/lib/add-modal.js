@@ -204,7 +204,7 @@ export async function importAddInput(raw, userOverride = {}) {
   if (/^http:\/\//i.test(decision.url)) toast(t("add.httpWarn"), "warn", 6000);
   return {
     type: "sub",
-    message: t("add.msgSub", { name: sub.name, n: sub.profiles.length }),
+    message: t("add.msgSub", { name: sub.name, srv: tn("prof.srvN", sub.profiles.length) }),
     source: { kind: "sub", id: sub.id },
   };
 }

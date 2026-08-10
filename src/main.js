@@ -2190,7 +2190,7 @@ profilesView?.addEventListener("click", async (e) => {
         try {
           const tx = await mutateSource("sub", id, () => refreshSubscription(id), t("conn.applyingSettings"));
           const r = tx.result;
-          toast(t("prof.toastUpdated", { n: r.profiles.length }), "success", 1800);
+          toast(t("prof.toastUpdated", { srv: tn("prof.srvN", r.profiles.length) }), "success", 1800);
         } catch (err) {
           toast(t("prof.toastErr", { err: err?.message || err }), "error", 2800);
         }

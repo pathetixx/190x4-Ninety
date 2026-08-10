@@ -569,7 +569,7 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
     if (terms.length) {
       metaEl.textContent = tn("proxies.metaFound", pool.length, { total: nodes.length });
     } else if (strict) {
-      metaEl.textContent = t("proxies.meta", { total: nodes.length, alive: "—", mode: t("proxies.strictPinned") });
+      metaEl.textContent = t("proxies.meta", { srv: tn("prof.srvN", nodes.length), alive: "—", mode: t("proxies.strictPinned") });
     } else {
       const liveNode = nodes.find(n => n.clashTag === liveTag);
       const pin = selectorTag === "auto"

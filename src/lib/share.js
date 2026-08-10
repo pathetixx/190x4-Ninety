@@ -3,7 +3,7 @@
 import { buildConfig, getMode } from "/lib/singbox.js";
 import { loadOptions } from "/lib/options.js";
 import qrcode from "/vendor/qrcode.mjs";
-import { t } from "/lib/i18n/index.js";
+import { t, tn } from "/lib/i18n/index.js";
 import { escapeAttr } from "/lib/esc.js";
 
 export async function copySubscriptionUrl(sub, toast) {
@@ -112,7 +112,7 @@ export async function exportSingboxJson(source, toast) {
     await navigator.clipboard.writeText(json);
     const kb = (json.length / 1024).toFixed(1);
     if (skipped) {
-      toast?.(t("share.exportedSkipped", { kb, n: skipped }), "success", 3000);
+      toast?.(t("share.exportedSkipped", { kb, srv: tn("prof.srvN", skipped) }), "success", 3000);
     } else {
       toast?.(t("share.exported", { kb }), "success", 2000);
     }
