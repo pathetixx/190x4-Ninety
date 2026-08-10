@@ -54,6 +54,68 @@ class DpiStrategyGuardTests(unittest.TestCase):
             self.assertEqual(len(strategies), 20)
             self.assertTrue(all(not item["experimental"] for item in strategies))
 
+    def test_reviewed_fake_unknown_payloads_are_accepted(self):
+        # Flowseal 1.10.1 добавил --dpi-desync-fake-unknown (%BIN%-файл или hex).
+        with tempfile.TemporaryDirectory() as raw:
+            source = Path(raw)
+            output = source / "strategies.json"
+            write_core_strategies(source)
+            (source / "general.bat").write_text(
+                '@echo off\nstart "" "%~dp0bin\\winws.exe" '
+                "--dpi-desync-fake-unknown=%BIN%stun.bin ^\n"
+                "--dpi-desync-fake-unknown=0x00000000 ^\n"
+                "--new\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_generator(source, output)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            strategies = json.loads(output.read_text(encoding="utf-8"))
+            general = next(item for item in strategies if item["id"] == "general")
+            self.assertIn("--dpi-desync-fake-unknown=%BIN%stun.bin", general["args"])
+
+    def test_fake_unknown_rejects_paths_outside_the_bundle(self):
+        with tempfile.TemporaryDirectory() as raw:
+            source = Path(raw)
+            output = source / "strategies.json"
+            write_core_strategies(source)
+            (source / "general.bat").write_text(
+                '@echo off\nstart "" "%~dp0bin\\winws.exe" '
+                "--dpi-desync-fake-unknown=C:\\Windows\\win.ini ^\n"
+                "--new\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_generator(source, output)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unsafe/unknown winws argument", result.stderr + result.stdout)
+            self.assertFalse(output.exists())
+
+    def test_every_unknown_flag_is_reported_in_one_run(self):
+        # Один прогон канала должен показывать весь новый апстрим-набор,
+        # иначе allowlist чинится вслепую по одному флагу за сборку.
+        with tempfile.TemporaryDirectory() as raw:
+            source = Path(raw)
+            output = source / "strategies.json"
+            write_core_strategies(source)
+            (source / "general.bat").write_text(
+                '@echo off\nstart "" "%~dp0bin\\winws.exe" '
+                "--dpi-desync-unknown-one=1 ^\n"
+                "--dpi-desync-unknown-two=2 ^\n"
+                "--new\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_generator(source, output)
+
+            self.assertNotEqual(result.returncode, 0)
+            report = result.stderr + result.stdout
+            self.assertIn("--dpi-desync-unknown-one=1", report)
+            self.assertIn("--dpi-desync-unknown-two=2", report)
+            self.assertFalse(output.exists())
+
     def test_unknown_elevated_winws_flag_is_rejected(self):
         with tempfile.TemporaryDirectory() as raw:
             source = Path(raw)

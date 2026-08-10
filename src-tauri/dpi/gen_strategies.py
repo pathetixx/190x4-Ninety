@@ -122,8 +122,10 @@ def valid_ports(value, placeholder):
     return True
 
 def validate_arg(arg, stem):
+    # Возвращает текст нарушения или None. Не падает сама: вызывающий код
+    # собирает все проблемы и завершает работу одним сводным отчётом.
     if len(arg) > 4096 or "\0" in arg or "\r" in arg or "\n" in arg:
-        raise SystemExit(f"REJECT {stem}: oversized/control-character argument")
+        return f"REJECT {stem}: oversized/control-character argument"
     flag, sep, value = arg.partition("=")
     if flag == "--new":
         ok = not sep
@@ -141,6 +143,11 @@ def validate_arg(arg, stem):
         ok = bool(SAFE_BIN.fullmatch(value))
     elif flag == "--dpi-desync-fake-tls":
         ok = value == "!" or bool(SAFE_BIN.fullmatch(value)) or bool(SAFE_HEX.fullmatch(value))
+    elif flag == "--dpi-desync-fake-unknown":
+        # Fake-пейлоад для неопознанного TCP (Flowseal 1.10.1+). Поверхность та
+        # же, что у --dpi-desync-fake-tls: наш %BIN%-файл или инлайн-hex;
+        # авто-ClientHello ("!") для неизвестного протокола не применяется.
+        ok = bool(SAFE_BIN.fullmatch(value)) or bool(SAFE_HEX.fullmatch(value))
     elif flag == "--dpi-desync-fakedsplit-pattern":
         ok = bool(SAFE_HEX.fullmatch(value))
     elif flag == "--dpi-desync-fooling":
@@ -180,7 +187,8 @@ def validate_arg(arg, stem):
     else:
         ok = False
     if not ok:
-        raise SystemExit(f"REJECT {stem}: unsafe/unknown winws argument {arg!r}")
+        return f"REJECT {stem}: unsafe/unknown winws argument {arg!r}"
+    return None
 
 def make_id(stem):
     # "general" → general; "general (ALT11)" → alt11;
@@ -224,6 +232,7 @@ def parse_args(text):
     return args
 
 strategies = []
+rejects = []
 for path in sorted(glob.glob(os.path.join(SRC, "general*.bat"))):
     stem = os.path.splitext(os.path.basename(path))[0]
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -235,7 +244,9 @@ for path in sorted(glob.glob(os.path.join(SRC, "general*.bat"))):
     if len(args) > 512:
         raise SystemExit(f"REJECT {stem}: too many winws arguments ({len(args)})")
     for arg in args:
-        validate_arg(arg, stem)
+        problem = validate_arg(arg, stem)
+        if problem:
+            rejects.append(problem)
     sid, name = make_id(stem)
     strategies.append({
         "id": sid,
@@ -246,6 +257,16 @@ for path in sorted(glob.glob(os.path.join(SRC, "general*.bat"))):
         "experimental": sid not in AUTO_PICK_IDS,
         "args": args,
     })
+
+# Fail-closed: ни один аргумент вне allowlist не доходит до strategies.json,
+# который канал подписывает и отдаёт elevated winws.exe.
+if rejects:
+    for problem in rejects:
+        print(problem, file=sys.stderr)
+    raise SystemExit(
+        f"REJECT: {len(rejects)} winws argument(s) outside the reviewed allowlist; "
+        "review them and extend validate_arg() in gen_strategies.py"
+    )
 
 ids = [strategy["id"] for strategy in strategies]
 if len(ids) != len(set(ids)):
