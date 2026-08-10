@@ -265,6 +265,9 @@
 /* ────── Тема Kurogane (default) — благородный crimson ────── */
 :root,
 [data-theme="kurogane"] {
+  /* Текст поверх акцентной заливки. Выбран по контрасту WCAG: белый там,
+     где акцент тёмный, и --ink-0 там, где акцент светлый. */
+  --on-accent: #FFFFFF;
   --accent:        #C0304A;
   --accent-bright: #DE5772;
   --accent-deep:   #6E1A28;
@@ -274,6 +277,7 @@
 
 /* ────── Shiro Light — светлый лак, не инверсия ────── */
 [data-theme="shiro"] {
+  --on-accent: #FFFFFF;
   --ink-0: #FAFAF8;
   --ink-1: #F5F4F0;
   --ink-2: #EEECE6;
@@ -310,6 +314,7 @@
 
 /* ────── Sakura Haze — светлая розовая дымка ────── */
 [data-theme="sakura"] {
+  --on-accent: var(--ink-0);
   --ink-0: #F4EEF2;
   --ink-1: #ECE2E8;
   --ink-2: #E3D5DD;
@@ -348,6 +353,7 @@
    Холодный электрический cyan: усиленный glow (0.42) — спокойный «безопасный»
    контр-полюс к багровому Kurogane. Хорошо читается на HUD главного экрана. */
 [data-theme="cyan"] {
+  --on-accent: var(--ink-0);
   --accent:        #1FD6D6;
   --accent-bright: #6CF2F2;
   --accent-deep:   #0C7373;
@@ -357,6 +363,7 @@
 
 /* ────── Glacier — холодный стальной cyan ────── */
 [data-theme="glacier"] {
+  --on-accent: var(--ink-0);
   --ink-0: #061014;
   --ink-1: #0B181E;
   --ink-2: #11242B;
@@ -383,6 +390,7 @@
 
 /* ────── Midnight Indigo — глубокий индиго ────── */
 [data-theme="midnight"] {
+  --on-accent: var(--ink-0);
   --ink-0: #070911;
   --ink-1: #0D1120;
   --ink-2: #141B31;
@@ -409,6 +417,7 @@
 
 /* ────── Тема Synthwave — мягкий фиолетовый (наш текущий) ────── */
 [data-theme="synthwave"] {
+  --on-accent: var(--ink-0);
   --accent:        #C77DFF;
   --accent-bright: #E0A6FF;
   --accent-deep:   #7A3FA0;
@@ -418,6 +427,7 @@
 
 /* ────── Ronin Violet — noir violet ────── */
 [data-theme="ronin"] {
+  --on-accent: var(--ink-0);
   --ink-0: #09070E;
   --ink-1: #100D17;
   --ink-2: #1A1424;
@@ -444,6 +454,7 @@
 
 /* ────── Тема Matrix — изумруд (наш текущий) ────── */
 [data-theme="matrix"] {
+  --on-accent: var(--ink-0);
   --accent:        #2BD66A;
   --accent-bright: #5CEE92;
   --accent-deep:   #1A8C45;
@@ -453,6 +464,7 @@
 
 /* ────── Amber Glass — black and gold ────── */
 [data-theme="amber"] {
+  --on-accent: var(--ink-0);
   --ink-0: #0A0805;
   --ink-1: #12100B;
   --ink-2: #1B160E;
@@ -479,6 +491,7 @@
 
 /* ────── Тема Mono — монохром, акцент = чистый свет (наш текущий) ────── */
 [data-theme="mono"] {
+  --on-accent: var(--ink-0);
   --accent:        #E8E8EE;
   --accent-bright: #FFFFFF;
   --accent-deep:   #9A9AA6;

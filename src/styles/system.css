@@ -1,0 +1,160 @@
+/* ─────────────────────────────────────────────────────────────
+   Ninety — общие примитивы списков
+   Один словарь для «Профилей», «Серверов» и «Добавить профиль».
+   Кнопки, заголовки экранов и токены берутся из app.css / screens.css /
+   tokens.css — здесь только то, чего там не было.
+   ───────────────────────────────────────────────────────────── */
+
+/* ── типографические роли ── */
+.n-primary{font-family:var(--font-display);font-size:13.5px;font-weight:500;letter-spacing:-.008em;
+     color:var(--text-mid);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n-meta{font-family:var(--font-mono);font-size:10.5px;color:var(--text-lo);letter-spacing:-.01em;
+     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n-meta s{text-decoration:none;color:var(--text-faint);padding:0 4px}
+.n-num{font-family:var(--font-mono);font-size:12.5px;font-weight:500;font-variant-numeric:tabular-nums;
+     letter-spacing:-.02em;color:var(--text-hi)}
+.n-unit{font-family:var(--font-mono);font-size:9px;font-weight:400;letter-spacing:.05em;
+     text-transform:uppercase;color:var(--text-faint);margin-inline-start:3px}
+.n-lbl{font-family:var(--font-mono);font-size:9px;font-weight:500;letter-spacing:.14em;
+     text-transform:uppercase;color:var(--text-faint)}
+
+/* Контекстные альтернативы Inter превращают x между цифрами в знак умножения:
+   «190x4» становится «190×4». Для имён, хостов и полей ввода это ложь. */
+.n-primary,.n-meta,.nt-row__host,.md__in,.det__l2,.screen__sub{
+  font-variant-ligatures:none;font-feature-settings:"calt" 0}
+/* Латиница внутри RTL-предложения не должна переставляться */
+.n-primary,.n-meta,.nt-row__host,.nt-row__tr,.det__l2,.rec-row__reason,.n-ping,.n-num{unicode-bidi:isolate}
+
+/* ── строка: одна модель взаимодействия для всех списков ── */
+.n-row{position:relative;display:grid;align-items:center;cursor:pointer;
+     background:transparent;border:0;width:100%;text-align:start;padding:0;
+     transition:background .14s var(--ease-out)}
+.n-row::before{content:"";position:absolute;inset-block:16%;inset-inline-start:0;width:2px;
+     border-start-end-radius:2px;border-end-end-radius:2px;background:var(--accent);
+     opacity:0;transform:scaleY(.4);transform-origin:center;
+     transition:opacity .18s var(--ease-out),transform .18s var(--ease-emph)}
+.n-row:hover{background:var(--overlay-1)}
+.n-row:focus-visible{outline:1px solid var(--accent);outline-offset:-1px;background:var(--overlay-2)}
+.n-row[data-active="true"]::before{opacity:1;transform:scaleY(1)}
+.n-row[data-active="true"]{background:var(--accent-soft)}
+.n-row[data-active="true"] .n-primary{color:var(--text-hi)}
+
+/* ── метр: любая величина 0…1 ── */
+.n-meter{position:relative;height:3px;border-radius:2px;background:var(--overlay-3);overflow:hidden}
+.n-meter__f{position:absolute;inset-block:0;inset-inline-start:0;background:var(--accent);
+     border-radius:2px;transition:width .45s var(--ease-emph)}
+.n-meter[data-state="warn"] .n-meter__f{background:var(--warn)}
+.n-meter[data-state="err"]  .n-meter__f{background:var(--err)}
+.n-meter[data-state="idle"] .n-meter__f{background:var(--overlay-4)}
+
+/* ── разброс: 12 последних замеров ── */
+.n-spark{display:block;width:52px;height:15px;overflow:visible}
+.n-spark polyline{fill:none;stroke:currentColor;stroke-width:1.25;stroke-linejoin:round;
+     stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:.62}
+.n-spark circle{fill:currentColor}
+.n-spark--flat{color:var(--text-faint)}
+
+/* ── задержка: цвет только когда это проблема ── */
+.n-ping{display:flex;align-items:baseline;justify-content:flex-end;
+     font-family:var(--font-mono);font-size:12.5px;font-weight:500;font-variant-numeric:tabular-nums;
+     letter-spacing:-.02em;color:var(--text-hi)}
+.n-ping[data-grade="mid"]{color:var(--warn)}
+.n-ping[data-grade="bad"]{color:var(--err)}
+.n-ping[data-grade="dead"]{color:var(--text-faint)}
+
+/* ── флаг: геометрия, без теней и рамок ── */
+.n-flag{width:20px;height:14px;border-radius:2px;overflow:hidden;display:grid;place-items:center;
+     background:var(--ink-3);flex-shrink:0;font-family:var(--font-mono);font-size:8px;font-weight:500;
+     color:var(--text-lo);box-shadow:0 0 0 1px var(--overlay-2) inset}
+.n-flag img,.n-flag svg{width:100%;height:100%;object-fit:cover;display:block}
+
+/* ── «через этот сервер сейчас идёт трафик» ── */
+.n-live{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--accent);position:relative;
+     box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+.n-live::after{content:"";position:absolute;inset:-3px;border-radius:50%;
+     border:1px solid var(--accent);opacity:.55;animation:n-live-ring 2.4s var(--ease-out) infinite}
+@keyframes n-live-ring{0%{transform:scale(.7);opacity:.6}70%,100%{transform:scale(1.9);opacity:0}}
+
+/* ── избранное ── */
+.n-star{width:24px;height:24px;display:grid;place-items:center;border:0;background:none;padding:0;
+     border-radius:4px;cursor:pointer;color:var(--text-faint);opacity:.3;
+     transition:opacity .14s var(--ease-out),color .14s var(--ease-out),background .14s var(--ease-out)}
+.n-star svg{width:14px;height:14px}
+.n-star:hover{opacity:1;color:var(--text-hi);background:var(--overlay-3)}
+.n-star:focus-visible{opacity:1;outline:1px solid var(--accent);outline-offset:-1px}
+.n-star[aria-pressed="true"]{opacity:1;color:var(--accent-bright)}
+.n-star[aria-pressed="true"] svg{fill:currentColor}
+
+/* ── поверхность ── */
+.n-plate{background:var(--ink-1);border:1px solid var(--line-2);border-radius:var(--r-md);overflow:hidden}
+
+/* ── постоянно видимая иконка-действие (не hover-only) ── */
+.n-icon{width:28px;height:28px;display:grid;place-items:center;border-radius:var(--r-xs);
+     background:transparent;border:0;color:var(--text-faint);cursor:pointer;flex-shrink:0;
+     transition:color .14s var(--ease-out),background .14s var(--ease-out)}
+.n-icon svg{width:15px;height:15px}
+.n-icon:hover{color:var(--text-hi);background:var(--overlay-3)}
+.n-icon:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+
+/* ── ожидание первого замера ── */
+.n-wait{position:relative;overflow:hidden;height:3px;border-radius:2px;background:var(--overlay-3);width:100%}
+.n-wait::after{content:"";position:absolute;inset-block:0;inset-inline-start:0;width:42%;border-radius:2px;
+     background:color-mix(in srgb,var(--accent) 70%,transparent);animation:n-wait-run 1.25s var(--ease-emph) infinite}
+@keyframes n-wait-run{0%{inset-inline-start:-42%}100%{inset-inline-start:100%}}
+.n-dash{font-family:var(--font-mono);font-size:12.5px;color:var(--text-faint);text-align:end}
+
+/* ── пустое состояние ── */
+.n-empty{margin:44px auto 0;max-width:400px;text-align:center;display:flex;flex-direction:column;
+     align-items:center;gap:9px}
+.n-empty__i{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;
+     background:var(--ink-2);border:1px solid var(--line-2);color:var(--text-faint);flex-shrink:0}
+.n-empty__i svg{width:17px;height:17px}
+.n-empty h3{font-family:var(--font-display);font-size:15px;font-weight:600;color:var(--text-hi);margin:2px 0 0}
+.n-empty p{font-size:12.5px;color:var(--text-lo);margin:0;line-height:1.55}
+
+/* ── поиск ── */
+.n-search{position:relative;display:flex;align-items:center;gap:7px;height:30px;
+     padding:0 8px 0 9px;min-width:0;flex:0 1 184px;
+     border:1px solid var(--line-2);border-radius:var(--r-xs);background:var(--ink-1);
+     transition:border-color .15s var(--ease-out),background .15s var(--ease-out)}
+.n-search:focus-within{border-color:color-mix(in srgb,var(--accent) 52%,var(--line-3));background:var(--ink-2)}
+.n-search>svg{width:13px;height:13px;flex-shrink:0;color:var(--text-faint)}
+.n-search:focus-within>svg{color:var(--accent-bright)}
+.n-search input{flex:1 1 auto;min-width:0;height:100%;border:0;background:none;outline:0;
+     color:var(--text-hi);font-family:var(--font-body);font-size:12px;letter-spacing:-.005em}
+.n-search input::placeholder{color:var(--text-faint)}
+.n-search input::-webkit-search-cancel-button{display:none}
+.n-search__x{width:17px;height:17px;flex-shrink:0;display:grid;place-items:center;border:0;padding:0;
+     border-radius:3px;background:var(--overlay-3);color:var(--text-mid);cursor:pointer}
+.n-search__x svg{width:10px;height:10px}
+.n-search__x:hover{background:var(--overlay-4);color:var(--text-hi)}
+.n-search__x[hidden]{display:none}
+.n-search__k{flex-shrink:0;font-family:var(--font-mono);font-size:9px;line-height:1;color:var(--text-faint);
+     border:1px solid var(--line-2);border-radius:3px;padding:2px 4px}
+.n-search:focus-within .n-search__k,.n-search[data-filled="true"] .n-search__k{display:none}
+mark{background:color-mix(in srgb,var(--accent) 17%,transparent);color:inherit;border-radius:2px;padding:0 1px}
+
+/* ── сегментный переключатель ── */
+.n-seg{display:flex;gap:2px;padding:2px;height:30px;flex-shrink:0;
+     border:1px solid var(--line-2);border-radius:var(--r-xs);background:var(--ink-1)}
+.n-seg button{border:0;background:none;cursor:pointer;padding:0 8px;border-radius:4px;
+     font-family:var(--font-display);font-size:11.5px;font-weight:500;color:var(--text-lo);white-space:nowrap;
+     transition:background .14s var(--ease-out),color .14s var(--ease-out)}
+.n-seg button:hover{color:var(--text-hi)}
+.n-seg button[aria-pressed="true"]{background:var(--ink-3);color:var(--text-hi)}
+.n-seg button:focus-visible{outline:1px solid var(--accent);outline-offset:1px}
+.n-seg[data-forced="true"]{opacity:.55;pointer-events:none}
+
+/* ── группа-заголовок ── */
+.n-group{display:flex;align-items:center;gap:9px;padding:0 2px 7px;margin-top:16px}
+.n-group:first-child{margin-top:0}
+.n-group__line{flex:1;height:1px;background:var(--line-1)}
+.n-group__n{font-family:var(--font-mono);font-size:9.5px;color:var(--text-faint);font-variant-numeric:tabular-nums}
+
+@media (prefers-reduced-motion:reduce){
+  .n-row::before,.n-meter__f{transition-duration:.01ms}
+  .n-live::after,.n-wait::after{animation:none}
+}
+/* Меньше двух замеров — линию строить не из чего */
+.n-spark-none{display:block;width:52px;text-align:center;font-family:var(--font-mono);
+     font-size:12px;color:var(--text-faint)}

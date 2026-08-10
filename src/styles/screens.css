@@ -79,10 +79,12 @@
 .btn--primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
-  box-shadow: 0 0 24px var(--accent-glow), 0 1px 0 rgba(255,255,255,0.18) inset;
+  color: var(--on-accent);
+  /* Свечение вокруг кнопки убрано: оно ничего не сообщало, а на светлых
+     палитрах читалось грязью. Остался только верхний блик. */
+  box-shadow: 0 1px 0 var(--shine-2) inset;
 }
-.btn--primary:hover { background: var(--accent-bright); border-color: var(--accent-bright); color: #fff; }
+.btn--primary:hover { background: var(--accent-bright); border-color: var(--accent-bright); color: var(--on-accent); }
 .btn--ghost { background: transparent; }
 .btn__kbd {
   font-family: var(--font-mono);
@@ -97,117 +99,49 @@
 /* ═══════════════════════════════════════════
    PROFILES SCREEN
 ═══════════════════════════════════════════ */
-.prof-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.prof-card {
-  position: relative;
-  display: grid;
-  grid-template-columns: 44px 1fr auto auto;
-  align-items: center;
-  gap: 16px;
-  padding: 16px 18px;
+.pf-list { display: flex; flex-direction: column; gap: 7px; }
+
+/* Строка профиля: главная метрика — трафик. Колонка, которой нечего сказать,
+   молчит, а не печатает «—». Плашка-иконка убрана: тип профиля читается
+   из группировки и мета-строки. */
+.pf {
+  grid-template-columns: minmax(0, 1fr) 150px 62px 28px;
+  gap: 18px;
+  height: 64px;
+  padding: 0 14px 0 16px;
   border-radius: var(--r-md);
   background: var(--ink-1);
   border: 1px solid var(--line-2);
-  cursor: pointer;
-  overflow: hidden;
-  transition: background 200ms var(--ease-out), border-color 200ms var(--ease-out);
+  transition: background .14s var(--ease-out), border-color .14s var(--ease-out);
 }
-.prof-card::before {
-  content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
+.pf:hover { background: var(--ink-2); border-color: var(--line-3); }
+.pf[data-active="true"] {
+  background: color-mix(in srgb, var(--accent-soft) 62%, var(--ink-1));
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line-2));
 }
-.prof-card:hover { background: var(--ink-2); border-color: var(--line-3); }
-.prof-card[data-active="true"] {
-  border-color: var(--overlay-2);
-  background: linear-gradient(180deg, var(--accent-soft) 0%, transparent 40%), var(--ink-1);
+.pf__main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pf__name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pf__tag {
+  font-family: var(--font-mono); font-size: 8.5px; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--accent-bright); flex-shrink: 0;
 }
-.prof-card[data-active="true"]::before {
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  opacity: 0.6;
+.pf__warn {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--warn); flex-shrink: 0;
 }
-.prof-card__icon {
-  width: 44px; height: 44px;
-  border-radius: 10px;
-  background: var(--ink-2);
-  border: 1px solid var(--line-1);
-  display: grid; place-items: center;
-  color: var(--text-mid);
+.pf__warn svg { width: 11px; height: 11px; }
+.pf__col { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; min-width: 0; }
+.pf__col--traffic { gap: 4px; }
+.pf__val { display: flex; align-items: baseline; white-space: nowrap; }
+.pf__val--warn .n-num { color: var(--warn); }
+.pf__val--err  .n-num { color: var(--err); }
+.pf__meter { width: 100%; margin-top: 1px; }
+.pf__unit-lg {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+  letter-spacing: -.01em; color: var(--text-lo); margin-inline-start: 3px;
 }
-.prof-card__icon svg { width: 18px; height: 18px; }
-.prof-card[data-active="true"] .prof-card__icon {
-  background: var(--accent-soft);
-  border-color: transparent;
-  color: var(--accent-bright);
-}
-.prof-card__main { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.prof-card__head {
-  display: flex; align-items: center; gap: 10px;
-}
-.prof-card__name {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 15px;
-  letter-spacing: -0.01em;
-  color: var(--text-hi);
-}
-.prof-card__badge {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  padding: 2px 6px;
-  border-radius: 3px;
-  background: var(--accent-soft);
-  color: var(--accent-bright);
-  text-transform: uppercase;
-  font-weight: 600;
-}
-/* Ссылка сама может отключить проверку TLS-сертификата (hysteria2 insecure=1,
-   TrustTunnel skip_verification). Такой профиль обязан выглядеть иначе. */
-.prof-card__badge--warn {
-  background: color-mix(in srgb, var(--warn) 18%, transparent);
-  color: var(--warn);
-}
-.prof-card__url {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-lo);
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 320px;
-}
-.prof-card__stats { display: flex; gap: 18px; }
-.prof-card__stat { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
-.prof-card__stat-val {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-hi);
-  font-variant-numeric: tabular-nums;
-}
-.prof-card__stat-lbl {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  color: var(--text-faint);
-  text-transform: uppercase;
-}
-.prof-card__menu {
-  width: 32px; height: 32px;
-  display: grid; place-items: center;
-  border-radius: var(--r-xs);
-  color: var(--text-faint);
-}
-.prof-card__menu:hover { color: var(--text-mid); background: var(--overlay-2); }
 
-/* Попап-меню действий по профилю/подписке (⋯).
-   Стили потерялись при premium-редизайне (alpha35) — без них .pmenu
-   рендерился position:static в конце <body>, невидимым → клик «не реагировал». */
 .pmenu {
   position: fixed;
   z-index: 9500;
@@ -792,3 +726,10 @@
 
 /* The Mono swatch card's check tick (white-on-near-white regardless of active theme) */
 .theme-card[data-theme="mono"] .theme-card__check { color: var(--ink-0); }
+/* Пункт-состояние: сообщает, а не предлагает */
+.pmenu__item--state {
+  color: var(--text-faint);
+  cursor: default;
+}
+.pmenu__item--state:hover { background: transparent; color: var(--text-faint); }
+.pmenu__item--state svg { color: var(--accent-bright); opacity: 1; }
