@@ -2,6 +2,36 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.3.2 — 2026-08-10
+
+## English
+
+- "Nodes" is now "Servers", and the screen was rebuilt around reading it quickly. Instead of cards there is a dense list: country, name, address, transport and latency line up in columns, so a long list can be scanned by eye. Any column sorts, including across countries — you can line up every server by latency or by transport at once, regardless of where it is.
+- Search over servers. It covers the name, the address, the transport and the country, and it says how many of the whole list matched.
+- Servers can be grouped by country or shown as one flat list. In the flat list sorting applies to everything at once; grouped by country, each country carries its own best latency.
+- Favourite servers. The star pins a server to the top of the list, and favourites are kept per subscription, so two subscriptions do not mix.
+- Recommendations appear right after the first measurement pass and explain themselves: lowest latency, steady channel, resilient transport. "Auto" shows which server it would pick. The scoring uses only the measurements the app has taken itself — the panel explaining it says so plainly, and before the first pass it says there is nothing to score yet rather than inventing a ranking.
+- A spread graph per server. The app now keeps the history of its own probes, so the line shows whether a server holds a steady latency or jumps around — the engine itself only ever reports the last result.
+- Before the first measurement the screen says so and offers to measure, instead of showing a list of dashes.
+- The list is fully keyboard-driven: arrows move between servers, Enter selects, F toggles the favourite. Pressing Enter on the star or on the row menu no longer switches the server by accident.
+- Profiles were rebuilt to match: one row per profile, with traffic, expiry and server count where they can be compared at a glance. Clicking anywhere on the row activates the profile.
+- Adding a profile is now a single field. Paste a subscription link, a protocol link, a list of configs or the contents of a .toml — the type is recognised as you type and shown right there; nothing has to be chosen by hand. Name and auto-update moved under an "advanced" line, out of the way.
+- The interface of all this speaks all 15 languages, not just Russian and English.
+
+## Русский
+
+- «Ноды» стали «Серверами», а сам раздел перестроен под быстрое чтение. Вместо карточек — плотный список: страна, имя, адрес, транспорт и задержка стоят по столбцам, и длинный список можно просматривать глазами. Сортировка работает по любому столбцу, в том числе поперёк стран: можно выстроить все серверы по задержке или по транспорту сразу, независимо от того, где они находятся.
+- Поиск по серверам. Ищет по имени, адресу, транспорту и стране и показывает, сколько из всего списка подошло.
+- Серверы можно группировать по странам или показать одним сплошным списком. В сплошном сортировка действует на всё сразу, в группировке у каждой страны своя лучшая задержка.
+- Избранные серверы. Звезда поднимает сервер наверх списка, и избранное хранится отдельно для каждой подписки — две подписки не перемешиваются.
+- Рекомендации появляются сразу после первого прохода замеров и объясняют себя: самая низкая задержка, ровный канал, устойчивый транспорт. «Авто» показывает, какой сервер выбрал бы он. Оценка строится только на замерах, которые приложение сделало само, — об этом прямо написано в поясняющей панели, а до первого прохода она честно говорит, что оценивать нечего, вместо выдуманного рейтинга.
+- График разброса у каждого сервера. Приложение теперь хранит историю собственных замеров, поэтому линия показывает, держит ли сервер ровную задержку или скачет, — сам движок сообщает только последний результат.
+- До первого замера раздел так и говорит и предлагает замерить, а не показывает список прочерков.
+- Списком можно управлять с клавиатуры: стрелки ходят между серверами, Enter выбирает, F ставит звезду. Enter на звезде или на меню строки больше не переключает сервер по случайности.
+- Раздел «Профили» перестроен так же: одна строка на профиль, а трафик, срок и число серверов стоят там, где их можно сравнить взглядом. Нажатие в любом месте строки делает профиль активным.
+- Добавление профиля свелось к одному полю. Вставьте ссылку на подписку, ссылку протокола, список конфигов или содержимое .toml — тип распознаётся по мере ввода и показывается тут же, выбирать его руками не нужно. Название и автообновление ушли под строку «дополнительно», чтобы не мешать.
+- Всё это говорит на всех 15 языках, а не только на русском и английском.
+
 ## v0.3.1 — 2026-08-09
 
 ## English
