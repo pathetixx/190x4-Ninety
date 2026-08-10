@@ -243,7 +243,7 @@ function rankNodes(nodes, clashData) {
 const REASON_KEYS = ["latency", "stability", "liveness", "transport"];
 function reasonFor(key, s, node) {
   if (key === "latency")   return { icon: ICON_GAUGE,  text: t("proxies.whyLatency", { ms: Math.round(s.med) }) };
-  if (key === "stability") return { icon: ICON_PULSE,  text: t("proxies.whyStable", { ms: Math.round(s.jit ?? 0) }) };
+  if (key === "stability") return { icon: ICON_PULSE,  text: t("proxies.whyStable", { ms: Math.round(s.jit || 0) }) };
   if (key === "liveness")  return { icon: ICON_SHIELD, text: tn("proxies.whyLive", s.okN, { all: s.allN }) };
   return { icon: ICON_SERVER, text: t("proxies.whyTransport", { name: transportLabel(node) }) };
 }
@@ -259,7 +259,7 @@ function reasonsFor(top, field) {
     // тривиально равна единице — такие причины ничего не объясняют.
     const usable = REASON_KEYS.filter(k =>
       !(k === "stability" && s.jit == null) && !(k === "liveness" && s.allN < 2));
-    const pool2 = usable.length ? usable : REASON_KEYS;
+    const pool2 = usable.length ? usable : REASON_KEYS.filter(k => k !== "stability" || s.jit != null);
     const order = [...pool2].sort((a, b) => (s[b] - med[b]) - (s[a] - med[a]));
     const key = order.find(k => !used.has(k)) || order[0];
     used.add(key);
@@ -336,20 +336,24 @@ function sparkHtml(hs) {
     ok: L.length, all: hs.length, min: mn, max: mx,
     med: medianOf(L), jit: Math.round(stdevOf(L)),
   });
-  const pts = hs.map((d, i) => {
-    const x = (i / Math.max(1, hs.length - 1)) * 52;
-    const y = d > 0 ? 13 - ((d - mn) / sp) * 11 : 13;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
-  const lastY = hs.at(-1) > 0 ? 13 - ((hs.at(-1) - mn) / sp) * 11 : 13;
+  // Тот же фильтр живого значения, что и в liveDelays: 65535-сентинел таймаута
+  // иначе уезжал далеко за пределы viewBox и ломал график.
+  const alive = (d) => d > 0 && d < 65000;
+  const yOf = (d) => alive(d) ? 13 - ((d - mn) / sp) * 11 : 13;
+  const pts = hs.map((d, i) => `${((i / Math.max(1, hs.length - 1)) * 52).toFixed(1)},${yOf(d).toFixed(1)}`).join(" ");
+  const lastY = yOf(hs.at(-1));
   return `<svg class="n-spark" viewBox="-1 0 55 15" role="img"><title>${escapeHtml(title)}</title><polyline points="${pts}"/><circle cx="52" cy="${lastY.toFixed(1)}" r="1.5"/></svg>`;
 }
 
 function currentDelay(clashData, tag) {
   const live = lastDelay(clashData?.proxies?.[tag]);
   if (live > 0 && live < 65000) return live;
-  const own = liveDelays(historyOf(clashData, tag));
-  return own.length ? own[own.length - 1] : 0;
+  // Берём последнюю ЗАПИСАННУЮ точку, включая нулевую: откат на последний
+  // удачный замер оставлял мёртвый сервер со старым зелёным числом, считал
+  // его отвечающим и пускал в сортировку живых.
+  const own = historyOf(clashData, tag);
+  const lastOwn = own.length ? own[own.length - 1] : 0;
+  return lastOwn > 0 && lastOwn < 65000 ? lastOwn : 0;
 }
 
 function pingHtml(delay, grade) {
@@ -560,6 +564,7 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
     }
   }
 
+  const focusedTag = document.activeElement?.closest?.(".nt-row, .rec-row")?.dataset.tag || null;
   recHtml(nodes, ctx);
 
   const val = {
@@ -638,11 +643,11 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
 
   // Новый замер перерисовывает таблицу целиком. Без этого фокус строки слетал
   // бы на каждом обновлении и клавиатурная навигация ломалась каждые 4 секунды.
-  const focusedTag = document.activeElement?.closest?.(".nt-row, .rec-row")?.dataset.tag || null;
   grid.innerHTML = head + favBlock + body;
   attachFlagFallbacks(grid);
   if (focusedTag) {
-    const again = grid.querySelector(`.nt-row[data-tag="${CSS.escape(focusedTag)}"]`);
+    const sel = `[data-tag="${CSS.escape(focusedTag)}"]`;
+    const again = grid.querySelector(`.nt-row${sel}`) || $("proxies-rec")?.querySelector(`.rec-row${sel}`);
     if (again) again.focus({ preventScroll: true });
   }
 }
@@ -908,7 +913,11 @@ export function mountProxiesView({
     else if (e.key === "ArrowUp") { e.preventDefault(); i <= 0 ? input?.focus() : go(i - 1); }
     else if (e.key === "Home" && cur) { e.preventDefault(); go(0); }
     else if (e.key === "End" && cur) { e.preventDefault(); go(rows.length - 1); }
-    else if ((e.key === "Enter" || e.key === " ") && cur) { e.preventDefault(); handleNodeClick(cur, onToast); }
+    else if ((e.key === "Enter" || e.key === " ") && cur) {
+      // Внутри строки есть свои кнопки (★, ⋯) — им нужен их собственный Enter.
+      if (e.target.closest("button")) return;
+      e.preventDefault(); handleNodeClick(cur, onToast);
+    }
     else if (e.key.toLowerCase() === "f" && cur && !e.ctrlKey && !e.metaKey && cur.dataset.tag !== "auto") {
       e.preventDefault();
       const on = toggleFavourite(getActiveSource(), cur.dataset.tag);

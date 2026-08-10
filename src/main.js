@@ -1919,6 +1919,14 @@ function hostOfUrl(url) {
 }
 
 // Кнопки header'а profiles экрана
+profilesList?.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const row = e.target.closest(".pf");
+  if (!row || e.target.closest("button")) return;
+  e.preventDefault();
+  row.click();
+});
+
 document.getElementById("profiles-add")?.addEventListener("click", () => openAddModal());
 
 // ── Onboarding wizard (импорт → подключение → готово) ───────
@@ -2249,16 +2257,13 @@ profilesView?.addEventListener("click", async (e) => {
     return;
   }
 
-  // Клик по телу карточки → активация
-  const subActivate = e.target.closest("[data-sub-activate]");
-  if (subActivate) {
-    activateSource("sub", subActivate.dataset.subActivate);
-    return;
-  }
-  const profileActivate = e.target.closest("[data-profile-activate]");
-  if (profileActivate) {
-    activateSource("single", profileActivate.dataset.profileActivate);
-    return;
+  // Клик по строке → активация. Ловим на всей строке, а не только на левом
+  // блоке: строка объявлена role="button", и колонки трафика/срока обязаны
+  // реагировать так же.
+  const row = e.target.closest(".pf");
+  if (row) {
+    if (row.dataset.subId) { activateSource("sub", row.dataset.subId); return; }
+    if (row.dataset.id) { activateSource("single", row.dataset.id); return; }
   }
 });
 

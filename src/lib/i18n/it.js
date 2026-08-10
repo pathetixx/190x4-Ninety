@@ -189,7 +189,7 @@ export const it = {
     scoreStability: "Stability ·30%",
     scoreLiveness: "Availability ·15%",
     scoreTransport: "Transport ·10%",
-    scoreNote: "median {med} ms · spread ±{jit} ms · {ok} of {all} probes. A server without 4 successful probes is not ranked.",
+    scoreNote: "median {med} ms · spread ±{jit} ms · {ok} of {all} probes. The more probes accumulate, the more the estimate can be trusted.",
     scoreNoneTitle: "Nothing to score yet",
     scoreNoneBody: "The index is built from probes the app has already taken. Before the first pass there are none — so there are no recommendations either, rather than made-up ones.",
     menuPin: "Select this server",

@@ -16,7 +16,11 @@ const {
   recordProbes, getProbeHistory, pruneProbeHistory, clearProbeHistory,
 } = await import("/lib/delay-history.js");
 
-const SRC = { kind: "sub", id: "s1" };
+// Форма источника — ровно та, что возвращает getActiveSource(): {kind, subscription}
+// / {kind, profile}. Прошлая версия теста выдумывала {kind, id} и потому не
+// заметила, что ключ считался по несуществующему полю и все подписки
+// сваливались в одно ведро.
+const SRC = { kind: "sub", subscription: { id: "s1" }, nodes: [] };
 const snap = (tag, time, delay) => ({ proxies: { [tag]: { history: [{ time, delay }] } } });
 
 test("копит точки по мере новых замеров", () => {
@@ -53,12 +57,31 @@ test("буфер ограничен 12 точками и хранит после
 });
 
 test("источники не перемешиваются", () => {
-  const other = { kind: "sub", id: "s2" };
+  const other = { kind: "sub", subscription: { id: "s2" }, nodes: [] };
   clearProbeHistory(SRC); clearProbeHistory(other);
   recordProbes(SRC, snap("n0", "t1", 41), ["n0"]);
   recordProbes(other, snap("n0", "t1", 900), ["n0"]);
   assert.deepEqual(getProbeHistory(SRC, "n0"), [41]);
   assert.deepEqual(getProbeHistory(other, "n0"), [900]);
+});
+
+test("одиночный профиль — свой бакет, не пересекается с подпиской", () => {
+  const single = { kind: "single", profile: { id: "p1" } };
+  clearProbeHistory(SRC); clearProbeHistory(single);
+  recordProbes(SRC, snap("proxy", "t1", 41), ["proxy"]);
+  recordProbes(single, snap("proxy", "t1", 777), ["proxy"]);
+  assert.deepEqual(getProbeHistory(SRC, "proxy"), [41]);
+  assert.deepEqual(getProbeHistory(single, "proxy"), [777]);
+});
+
+test("чистка тегов одной подписки не трогает историю другой", () => {
+  const other = { kind: "sub", subscription: { id: "s2" }, nodes: [] };
+  clearProbeHistory(SRC); clearProbeHistory(other);
+  recordProbes(SRC, snap("n0", "t1", 41), ["n0"]);
+  recordProbes(other, snap("n0", "t1", 62), ["n0"]);
+  pruneProbeHistory(SRC, []);                 // у первой подписки нод не осталось
+  assert.deepEqual(getProbeHistory(SRC, "n0"), []);
+  assert.deepEqual(getProbeHistory(other, "n0"), [62], "соседняя подписка не должна пострадать");
 });
 
 test("исчезнувшие теги вычищаются при обновлении подписки", () => {

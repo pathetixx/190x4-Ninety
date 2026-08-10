@@ -6,6 +6,8 @@
 // не посчитать в принципе. Историю копит приложение: на каждом опросе сверяем
 // отметку времени последнего замера и дописываем новую точку.
 
+import { selectionSourceKey } from "/lib/proxy-selection.js";
+
 const KEY = "ninety.delayHistory.v1";
 const CAP = 12;                  // столько точек рисует спарклайн
 
@@ -25,9 +27,7 @@ function writeAll(map) {
   _cache = map;
   try { localStorage.setItem(KEY, JSON.stringify(map)); } catch {}
 }
-function scopeKey(source) {
-  return source ? `${source.kind}:${source.id ?? ""}` : "none";
-}
+
 
 // Точка записывается, только когда ядро реально перемерило: отметка времени
 // последнего замера отличается от уже сохранённой. Иначе поллинг раз в 4 с
@@ -36,7 +36,7 @@ export function recordProbes(source, clashData, tags) {
   const proxies = clashData?.proxies;
   if (!proxies || !Array.isArray(tags) || !tags.length) return false;
   const map = readAll();
-  const key = scopeKey(source);
+  const key = selectionSourceKey(source) || "none";
   const scope = map[key] && typeof map[key] === "object" ? map[key] : {};
   let changed = false;
 
@@ -63,7 +63,7 @@ export function recordProbes(source, clashData, tags) {
 }
 
 export function getProbeHistory(source, tag) {
-  const scope = readAll()[scopeKey(source)];
+  const scope = readAll()[selectionSourceKey(source) || "none"];
   const entry = scope && scope[tag];
   return entry && Array.isArray(entry.d) ? entry.d.slice(-CAP) : [];
 }
@@ -71,7 +71,7 @@ export function getProbeHistory(source, tag) {
 // Смена набора нод (обновление подписки) делает старые теги мусором.
 export function pruneProbeHistory(source, validTags) {
   const map = readAll();
-  const key = scopeKey(source);
+  const key = selectionSourceKey(source) || "none";
   const scope = map[key];
   if (!scope) return;
   const keep = new Set(validTags || []);
@@ -84,6 +84,6 @@ export function pruneProbeHistory(source, validTags) {
 
 export function clearProbeHistory(source) {
   const map = readAll();
-  delete map[scopeKey(source)];
+  delete map[selectionSourceKey(source) || "none"];
   writeAll(map);
 }

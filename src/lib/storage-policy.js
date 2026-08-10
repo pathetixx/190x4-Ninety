@@ -15,6 +15,8 @@ export const STORAGE_KEYS = {
   subscriptionActive: "ninety.subscriptions.active",
   activeKind: "ninety.active.kind",
   proxySelection: "ninety.proxy.selection.v1",
+  favourites: "ninety.favourites",
+  delayHistory: "ninety.delayHistory.v1",
   mode: "ninety.mode",
   modeMigrated: "ninety.mode.migrated",
   strictTunnelPreviousMode: "ninety.privacy.strictTunnel.previousMode",
@@ -38,6 +40,8 @@ const BACKUP_EXACT_EXCLUDE = new Set([
   STORAGE_KEYS.qualityProfile,
   STORAGE_KEYS.wifiTrusted,
   STORAGE_KEYS.wifiPrevMode,
+  // Замеры задержки — рантайм-телеметрия, в бэкап состояния ей не место.
+  STORAGE_KEYS.delayHistory,
 ]);
 
 const BACKUP_PREFIX_EXCLUDE = [
@@ -55,6 +59,10 @@ const PROFILE_STORAGE_KEYS = new Set([
   STORAGE_KEYS.subscriptionActive,
   STORAGE_KEYS.activeKind,
   STORAGE_KEYS.proxySelection,
+  // Привязаны к подписке: чистятся вместе с профилями, иначе теги серверов
+  // остаются на диске после «очистить данные».
+  STORAGE_KEYS.favourites,
+  STORAGE_KEYS.delayHistory,
 ]);
 
 const PROFILE_STORAGE_PREFIXES = [
