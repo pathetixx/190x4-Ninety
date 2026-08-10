@@ -282,6 +282,25 @@ const ICON_SEARCH = SVG('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"
 const ICON_CHECK = SVG('<path d="M20 6 9 17l-5-5"/>', 1.9);
 const ICON_REFRESH = SVG('<path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/>');
 
+const _isoMemo = new Map();
+function isoOf(name) {
+  const key = String(name || "");
+  if (_isoMemo.has(key)) return _isoMemo.get(key);
+  const v = flagIsoFromName(key);
+  if (_isoMemo.size > 512) _isoMemo.clear();
+  _isoMemo.set(key, v);
+  return v;
+}
+const _cleanMemo = new Map();
+function cleanNameOf(name) {
+  const key = String(name || "");
+  if (_cleanMemo.has(key)) return _cleanMemo.get(key);
+  const v = stripFlag(key);
+  if (_cleanMemo.size > 512) _cleanMemo.clear();
+  _cleanMemo.set(key, v);
+  return v;
+}
+
 function transportLabel(n) {
   const PROTO_LABEL = { naive: "Naive", trusttunnel: "TrustTunnel" };
   if (PROTO_LABEL[n?.proto]) return PROTO_LABEL[n.proto];
@@ -350,8 +369,8 @@ function starHtml(tag, on) {
 function nodeRowHtml(n, ctx) {
   const hs = historyOf(ctx.clashData, n.clashTag);
   const delay = currentDelay(ctx.clashData, n.clashTag);
-  const iso = flagIsoFromName(n.name);
-  const cleanName = stripFlag(n.name) || n.host;
+  const iso = isoOf(n.name);
+  const cleanName = cleanNameOf(n.name) || n.host;
   const fallback = iso ? iso.toUpperCase() : (cleanName.slice(0, 2).toUpperCase() || "?");
   const isPinned = n.clashTag === ctx.selectorTag && ctx.selectorTag !== "auto";
   const isLive = n.clashTag === ctx.liveTag;
@@ -380,12 +399,12 @@ let regionNames = null;
 // Имена у провайдеров бывают с украшениями («Estonia #2 ⚡ 10 Gbit ⚡ Low Ping»)
 // и в одну строку подзаголовка не помещаются.
 function shortName(node, max = 16) {
-  const name = stripFlag(node?.name) || node?.host || "";
+  const name = cleanNameOf(node?.name) || node?.host || "";
   return name.length > max ? name.slice(0, max - 1).trimEnd() + "…" : name;
 }
 
 function countryOf(n) {
-  const iso = flagIsoFromName(n.name);
+  const iso = isoOf(n.name);
   // У служебных записей провайдера («22 октября 2026», баннеры) страны нет.
   // Раньше каждая заводила свою группу и засоряла список.
   if (!iso) return t("proxies.groupOther");
@@ -420,8 +439,8 @@ function recHtml(nodes, ctx) {
   const autoSub = !autoPick
     ? t("proxies.autoIdle")
     : ctx.selectorTag === "auto"
-      ? t("proxies.autoNow", { name: stripFlag(autoPick.name) || autoPick.host })
-      : t("proxies.autoWould", { name: stripFlag(autoPick.name) || autoPick.host });
+      ? t("proxies.autoNow", { name: cleanNameOf(autoPick.name) || autoPick.host })
+      : t("proxies.autoWould", { name: cleanNameOf(autoPick.name) || autoPick.host });
 
   const autoRow = `
     <div class="n-row rec-row prox" data-active="${ctx.selectorTag === "auto"}" data-tag="auto" role="button" tabindex="-1">
@@ -455,8 +474,8 @@ function recHtml(nodes, ctx) {
   const why = reasonsFor(top, ranked);
 
   const rows = top.map(({ n }, i) => {
-    const iso = flagIsoFromName(n.name);
-    const cleanName = stripFlag(n.name) || n.host;
+    const iso = isoOf(n.name);
+    const cleanName = cleanNameOf(n.name) || n.host;
     const fallback = iso ? iso.toUpperCase() : (cleanName.slice(0, 2).toUpperCase() || "?");
     const delay = currentDelay(ctx.clashData, n.clashTag);
     const isLive = n.clashTag === ctx.liveTag;
@@ -511,7 +530,7 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
 
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const matches = (n) => terms.every(term =>
-    `${stripFlag(n.name)} ${n.host} ${transportLabel(n)} ${countryOf(n)}`.toLowerCase().includes(term));
+    `${cleanNameOf(n.name)} ${n.host} ${transportLabel(n)} ${countryOf(n)}`.toLowerCase().includes(term));
   const pool = terms.length ? nodes.filter(matches) : nodes;
   const flat = !grouped || terms.length > 0;
 
@@ -544,7 +563,7 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
   recHtml(nodes, ctx);
 
   const val = {
-    name: n => stripFlag(n.name) || n.host,
+    name: n => cleanNameOf(n.name) || n.host,
     host: n => n.host,
     tr:   n => transportLabel(n),
     ping: n => currentDelay(clashData, n.clashTag) || 1e9,
@@ -605,7 +624,7 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
       const never = list.every(x => !historyOf(clashData, x.clashTag).length);
       const note = mins.length ? t("proxies.groupFrom", { ms: Math.min(...mins) })
                  : never ? t("proxies.groupNever") : t("proxies.groupDead");
-      const iso = flagIsoFromName(list[0].name);
+      const iso = isoOf(list[0].name);
       return `
         <button class="nt__grp" type="button" data-c="${escapeAttr(c)}" aria-expanded="${open}">
           <span class="nt__grp-chev">${ICON_CHEV}</span>
@@ -729,8 +748,13 @@ async function handleNodeClick(card, onToast) {
   });
   try {
     const selected = await selectProxy("proxy", tag);
-    if (generation !== sourceGeneration || selected?.stale) return;
+    if (selected?.stale) return;
+    // Ядро выбор уже приняло — запоминаем его ДО проверки поколения. Иначе уход
+    // с экрана сразу после клика (onProxiesViewLeave поднимает поколение)
+    // оставлял ядро с новым сервером, а приложение — со старым в памяти, и
+    // следующий реконнект возвращал прежний.
     rememberProxySelection(getActiveSource(), tag);
+    if (generation !== sourceGeneration) return;
     onToast?.(tag === "auto" ? t("proxies.toastAuto") : t("proxies.toastSwitched"), "success", 1200);
     // Для "auto" реальный исходящий определит URLTest — узнаем после refresh.
     // Для ручного выбора — сразу синхронизируем hero/location/IP.
@@ -997,7 +1021,7 @@ function showScorePopover(anchor) {
     const bar = (lbl, v) => `<div class="rec-pop__r"><span class="n-lbl">${escapeHtml(lbl)}</span>
       <div class="n-meter"><div class="n-meter__f" style="width:${(v * 100).toFixed(0)}%"></div></div>
       <span class="n-num">${(v * 100).toFixed(0)}</span></div>`;
-    p.innerHTML = `<div class="rec-pop__t">${escapeHtml(t("proxies.scoreTitle", { name: stripFlag(n.name) || n.host }))}</div>
+    p.innerHTML = `<div class="rec-pop__t">${escapeHtml(t("proxies.scoreTitle", { name: cleanNameOf(n.name) || n.host }))}</div>
       <div class="rec-pop__d">${escapeHtml(t("proxies.scoreBody"))}</div>
       <div class="rec-pop__f">
         ${bar(t("proxies.scoreLatency"), s.latency)}${bar(t("proxies.scoreStability"), s.stability)}
