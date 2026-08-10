@@ -106,26 +106,18 @@ export const en = {
   proxies: {
     whyLive: {
       one: "{n} of {all} probes succeeded",
-      few: "{n} of {all} probes succeeded",
-      many: "{n} of {all} probes succeeded",
       other: "{n} of {all} probes succeeded",
     },
     metaAlive: {
       one: "{n} of {total} responding",
-      few: "{n} of {total} responding",
-      many: "{n} of {total} responding",
       other: "{n} of {total} responding",
     },
     metaFound: {
       one: "found {n} of {total}",
-      few: "found {n} of {total}",
-      many: "found {n} of {total}",
       other: "found {n} of {total}",
     },
     byProbesN: {
       one: "from {n} probe",
-      few: "from {n} probes",
-      many: "from {n} probes",
       other: "from {n} probes",
     },
     menuAlready: "Already selected",
@@ -530,20 +522,14 @@ export const en = {
   prof: {
     subsN: {
       one: "{n} subscription",
-      few: "{n} subscriptions",
-      many: "{n} subscriptions",
       other: "{n} subscriptions",
     },
     configsN: {
       one: "{n} config",
-      few: "{n} configs",
-      many: "{n} configs",
       other: "{n} configs",
     },
     srvN: {
       one: "{n} server",
-      few: "{n} servers",
-      many: "{n} servers",
       other: "{n} servers",
     },
     summary: "{subs} · {configs} · active “{active}”",
@@ -611,8 +597,6 @@ export const en = {
   add: {
     detListN: {
       one: "{n} config",
-      few: "{n} configs",
-      many: "{n} configs",
       other: "{n} configs",
     },
     inputPh: "Subscription link, vless://, a list of configs or .toml contents",
