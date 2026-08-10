@@ -104,6 +104,10 @@ export const zh = {
   },
 
   proxies: {
+    autoIdle: "will pick a server after the first probe",
+    byProbesN: "from {n} probes",
+    groupOther: "Other",
+    metaIdle: "{total} servers · core is not running, latency is not measured",
     recommended: "Recommended",
     howScored: "how it is scored",
     byProbes: "from 12 probes",
@@ -152,7 +156,7 @@ export const zh = {
     pinNode: "Pinned {name}",
     strictPinned: "pinned manually",
     firstIdle: "Servers have not been measured yet",
-    firstHint: "Recommendations appear after the first pass — at least 4 successful probes per server are needed",
+    firstHint: "One pass is enough — press “Measure now”",
     firstMeasuring: "Measuring server latency",
     firstWait: "The list fills in as probes arrive",
     testAll: "Measure all",

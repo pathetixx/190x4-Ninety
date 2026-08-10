@@ -212,11 +212,13 @@ function transportWeight(node) {
 function scoreNode(node, clashData) {
   const hs = historyOf(clashData, node.clashTag);
   const L = liveDelays(hs);
-  // Меньше четырёх успешных замеров — доказательств мало, в рекомендации не берём.
-  if (L.length < 4) return null;
-  const med = medianOf(L), jit = stdevOf(L);
+  // Хватает одного успешного замера: один прогон «Измерить все» даёт ровно один
+  // замер на сервер, и порог выше этого делал рекомендации недостижимыми.
+  if (!L.length) return null;
+  const med = medianOf(L);
+  const jit = L.length >= 2 ? stdevOf(L) : null;
   const latency = clamp01(1 - (med - 25) / 275);
-  const stability = clamp01(1 - jit / 55);
+  const stability = jit == null ? 0.5 : clamp01(1 - jit / 55);
   const liveness = L.length / hs.length;
   const transport = transportWeight(node);
   return {
@@ -233,7 +235,7 @@ function rankNodes(nodes, clashData) {
 const REASON_KEYS = ["latency", "stability", "liveness", "transport"];
 function reasonFor(key, s, node) {
   if (key === "latency")   return { icon: ICON_GAUGE,  text: t("proxies.whyLatency", { ms: Math.round(s.med) }) };
-  if (key === "stability") return { icon: ICON_PULSE,  text: t("proxies.whyStable", { ms: Math.round(s.jit) }) };
+  if (key === "stability") return { icon: ICON_PULSE,  text: t("proxies.whyStable", { ms: Math.round(s.jit ?? 0) }) };
   if (key === "liveness")  return { icon: ICON_SHIELD, text: t("proxies.whyLive", { ok: s.okN, all: s.allN }) };
   return { icon: ICON_SERVER, text: t("proxies.whyTransport", { name: transportLabel(node) }) };
 }
@@ -245,7 +247,12 @@ function reasonsFor(top, field) {
   REASON_KEYS.forEach(k => { med[k] = medianOf(field.map(x => Math.round(x.s[k] * 100))) / 100; });
   const used = new Set();
   return top.map(({ n, s }) => {
-    const order = [...REASON_KEYS].sort((a, b) => (s[b] - med[b]) - (s[a] - med[a]));
+    // Разброс без второго замера не измерен, доступность при единственном замере
+    // тривиально равна единице — такие причины ничего не объясняют.
+    const usable = REASON_KEYS.filter(k =>
+      !(k === "stability" && s.jit == null) && !(k === "liveness" && s.allN < 2));
+    const pool2 = usable.length ? usable : REASON_KEYS;
+    const order = [...pool2].sort((a, b) => (s[b] - med[b]) - (s[a] - med[a]));
     const key = order.find(k => !used.has(k)) || order[0];
     used.add(key);
     return reasonFor(key, s, n);
@@ -292,7 +299,9 @@ function sparkHtml(hs) {
     const title = !hs.length ? t("proxies.sparkNever")
       : L.length ? t("proxies.sparkOne", { all: hs.length })
                  : t("proxies.sparkDead", { all: hs.length });
-    return `<svg class="n-spark n-spark--flat" viewBox="0 0 52 15" role="img"><title>${escapeHtml(title)}</title><polyline points="0,7.5 52,7.5"/></svg>`;
+    // Двух точек ещё нет — рисовать линию нечем. Прочерк честнее плоской черты,
+    // которую легко принять за сломанный график.
+    return `<span class="n-spark-none" title="${escapeAttr(title)}">—</span>`;
   }
   const mn = Math.min(...L), mx = Math.max(...L), sp = Math.max(1, mx - mn);
   const title = t("proxies.sparkTip", {
@@ -354,7 +363,9 @@ function nodeRowHtml(n, ctx) {
 let regionNames = null;
 function countryOf(n) {
   const iso = flagIsoFromName(n.name);
-  if (!iso) return stripFlag(n.name) || n.host;
+  // У служебных записей провайдера («22 октября 2026», баннеры) страны нет.
+  // Раньше каждая заводила свою группу и засоряла список.
+  if (!iso) return t("proxies.groupOther");
   const code = iso.toUpperCase();
   try {
     if (!regionNames) {
@@ -382,11 +393,30 @@ function recHtml(nodes, ctx) {
     </div>`;
 
   const ranked = rankNodes(nodes, ctx.clashData);
-  // Первый запуск: истории ещё нет. Экран обязан объяснить себя, а не выглядеть
-  // сломанным — это первое, что видит новый пользователь.
+  const autoPick = ranked.length ? ranked[0].n : null;
+  const autoDelay = autoPick ? lastDelay(ctx.clashData?.proxies?.[autoPick.clashTag]) : 0;
+  const autoSub = !autoPick
+    ? t("proxies.autoIdle")
+    : ctx.selectorTag === "auto"
+      ? t("proxies.autoNow", { name: stripFlag(autoPick.name) || autoPick.host })
+      : t("proxies.autoWould", { name: stripFlag(autoPick.name) || autoPick.host });
+
+  const autoRow = `
+    <div class="n-row rec-row prox" data-active="${ctx.selectorTag === "auto"}" data-tag="auto" role="button" tabindex="-1">
+      <span class="n-flag rec-row__bolt">${ICON_BOLT}</span>
+      <div class="rec-row__main">
+        <span class="rec-row__name"><span class="n-primary">${t("proxies.auto")}</span></span>
+        <span class="rec-row__reason">${ICON_PULSE}${escapeHtml(autoSub)}</span>
+      </div>
+      ${autoPick ? sparkHtml(historyOf(ctx.clashData, autoPick.clashTag)) : `<span></span>`}
+      ${autoPick ? pingHtml(autoDelay, gradeDelay(autoDelay)) : `<span class="n-ping" data-grade="dead">—</span>`}
+    </div>`;
+
+  // Замеров ещё нет: «Авто» остаётся, а вместо списка — объяснение и действие.
   if (!ranked.length) {
     box.innerHTML = head("") + `
-      <div class="n-plate rec__body" id="rec-body">
+      <div class="n-plate rec__body" id="rec-body"${recOpen ? "" : " hidden"}>
+        ${autoRow}
         <div class="first">
           <span class="n-empty__i">${ctx.testing ? ICON_GAUGE : ICON_PULSE}</span>
           <div class="first__t">
@@ -401,22 +431,6 @@ function recHtml(nodes, ctx) {
 
   const top = ranked.slice(0, 3);
   const why = reasonsFor(top, ranked);
-  const autoPick = ranked[0].n;
-  const autoDelay = lastDelay(ctx.clashData?.proxies?.[autoPick.clashTag]);
-  const autoSub = ctx.selectorTag === "auto"
-    ? t("proxies.autoNow", { name: stripFlag(autoPick.name) || autoPick.host })
-    : t("proxies.autoWould", { name: stripFlag(autoPick.name) || autoPick.host });
-
-  const autoRow = `
-    <div class="n-row rec-row prox" data-active="${ctx.selectorTag === "auto"}" data-tag="auto" role="button" tabindex="-1">
-      <span class="n-flag rec-row__bolt">${ICON_BOLT}</span>
-      <div class="rec-row__main">
-        <span class="rec-row__name"><span class="n-primary">${t("proxies.auto")}</span></span>
-        <span class="rec-row__reason">${ICON_PULSE}${escapeHtml(autoSub)}</span>
-      </div>
-      ${sparkHtml(historyOf(ctx.clashData, autoPick.clashTag))}
-      ${pingHtml(autoDelay, gradeDelay(autoDelay))}
-    </div>`;
 
   const rows = top.map(({ n }, i) => {
     const iso = flagIsoFromName(n.name);
@@ -440,8 +454,9 @@ function recHtml(nodes, ctx) {
       </div>`;
   }).join("");
 
-  box.innerHTML = head(`<span class="n-group__n">${t("proxies.byProbes")}</span>`) +
+  box.innerHTML = head(`<span class="n-group__n">${t("proxies.byProbesN", { n: ranked[0].s.allN })}</span>`) +
     `<div class="n-plate rec__body" id="rec-body"${recOpen ? "" : " hidden"}>${autoRow}${rows}</div>`;
+
 }
 
 // ── таблица ─────────────────────────────────────────────────
@@ -599,7 +614,9 @@ function renderApplying(nodes) {
   lastSignature = "";
   render(nodes, null, null, null);
   const metaEl = $("proxies-meta");
-  if (metaEl) metaEl.textContent = t("conn.applyingSettings");
+  if (metaEl) {
+    metaEl.textContent = t("proxies.metaIdle", { total: nodes.length });
+  }
 }
 
 function renderStrict(nodes = nodesFromSource()) {

@@ -155,3 +155,6 @@ mark{background:color-mix(in srgb,var(--accent) 17%,transparent);color:inherit;b
   .n-row::before,.n-meter__f{transition-duration:.01ms}
   .n-live::after,.n-wait::after{animation:none}
 }
+/* Меньше двух замеров — линию строить не из чего */
+.n-spark-none{display:block;width:52px;text-align:center;font-family:var(--font-mono);
+     font-size:12px;color:var(--text-faint)}
