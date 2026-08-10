@@ -118,3 +118,16 @@ test("усадка: при малом числе замеров стабильн
   assert.ok(stabilityFor(5, 500) < 0.05, "пять замеров уже наказывают разброс");
   assert.ok(stabilityFor(5, 0) > 0.95, "ровный канал на пяти замерах оценивается высоко");
 });
+
+test("осиротевшие ведра сломанного ключа вычищаются при записи", () => {
+  // Сборки до исправления ключа писали всё в "sub:" — эти записи ничьи и
+  // держат теги серверов на диске.
+  storage.set("ninety.delayHistory.v1", JSON.stringify({
+    "sub:": { n0: { at: "t0", d: [999] } },
+    "sub:s1": { n0: { at: "t0", d: [41] } },
+  }));
+  clearProbeHistory({ kind: "sub", subscription: { id: "zzz" }, nodes: [] });
+  const raw = JSON.parse(storage.get("ninety.delayHistory.v1"));
+  assert.equal(Object.prototype.hasOwnProperty.call(raw, "sub:"), false, "старое ведро должно исчезнуть");
+  assert.ok(raw["sub:s1"], "чужие корректные ведра трогать нельзя");
+});

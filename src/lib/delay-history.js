@@ -12,22 +12,43 @@ const KEY = "ninety.delayHistory.v1";
 const CAP = 12;                  // столько точек рисует спарклайн
 
 // getProbeHistory зовут на каждую строку каждого рендера, а рендер идёт по
-// поллингу раз в 4 с. Парсить весь JSON столько раз незачем — держим разбор
-// в памяти и сбрасываем его только на запись.
-let _cache = null;
+// поллингу раз в 4 с. Дорогая часть — JSON.parse, поэтому кэшируем разбор, но
+// сверяем исходную строку: иначе внешняя запись (очистка данных, восстановление
+// из бэкапа) осталась бы незамеченной и модуль воскрешал бы стёртое.
+let _cacheRaw = null;
+let _cacheVal = null;
 function readAll() {
-  if (_cache) return _cache;
+  let raw = null;
+  try { raw = localStorage.getItem(KEY); } catch { raw = null; }
+  if (raw === _cacheRaw && _cacheVal) return _cacheVal;
+  let parsed;
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY) || "{}");
-    _cache = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-  } catch { _cache = {}; }
-  return _cache;
+    const o = JSON.parse(raw || "{}");
+    parsed = o && typeof o === "object" && !Array.isArray(o) ? o : {};
+  } catch { parsed = {}; }
+  _cacheRaw = raw;
+  _cacheVal = parsed;
+  return parsed;
 }
 function writeAll(map) {
-  _cache = map;
-  try { localStorage.setItem(KEY, JSON.stringify(map)); } catch {}
+  dropLegacyBuckets(map);
+  let raw = "{}";
+  try { raw = JSON.stringify(map); localStorage.setItem(KEY, raw); } catch {}
+  _cacheRaw = raw;
+  _cacheVal = map;
 }
 
+
+// Сборки до исправления ключа писали всё в одно ведро с пустым id («sub:»).
+// Эти записи никому не принадлежат и держат теги серверов на диске — чистим
+// при первой же записи.
+function dropLegacyBuckets(map) {
+  let changed = false;
+  for (const k of Object.keys(map)) {
+    if (k === "none" || k.endsWith(":")) { delete map[k]; changed = true; }
+  }
+  return changed;
+}
 
 // Точка записывается, только когда ядро реально перемерило: отметка времени
 // последнего замера отличается от уже сохранённой. Иначе поллинг раз в 4 с

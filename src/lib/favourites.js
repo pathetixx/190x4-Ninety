@@ -6,18 +6,45 @@ import { selectionSourceKey } from "/lib/proxy-selection.js";
 
 const KEY = "ninety.favourites";
 
+// getProbeHistory зовут на каждую строку каждого рендера, а рендер идёт по
+// поллингу раз в 4 с. Дорогая часть — JSON.parse, поэтому кэшируем разбор, но
+// сверяем исходную строку: иначе внешняя запись (очистка данных, восстановление
+// из бэкапа) осталась бы незамеченной и модуль воскрешал бы стёртое.
+let _cacheRaw = null;
+let _cacheVal = null;
 function readAll() {
+  let raw = null;
+  try { raw = localStorage.getItem(KEY); } catch { raw = null; }
+  if (raw === _cacheRaw && _cacheVal) return _cacheVal;
+  let parsed;
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY) || "{}");
-    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-  } catch { return {}; }
+    const o = JSON.parse(raw || "{}");
+    parsed = o && typeof o === "object" && !Array.isArray(o) ? o : {};
+  } catch { parsed = {}; }
+  _cacheRaw = raw;
+  _cacheVal = parsed;
+  return parsed;
 }
-
 function writeAll(map) {
-  try { localStorage.setItem(KEY, JSON.stringify(map)); } catch {}
+  dropLegacyBuckets(map);
+  let raw = "{}";
+  try { raw = JSON.stringify(map); localStorage.setItem(KEY, raw); } catch {}
+  _cacheRaw = raw;
+  _cacheVal = map;
 }
 
 
+
+// Сборки до исправления ключа писали всё в одно ведро с пустым id («sub:»).
+// Эти записи никому не принадлежат и держат теги серверов на диске — чистим
+// при первой же записи.
+function dropLegacyBuckets(map) {
+  let changed = false;
+  for (const k of Object.keys(map)) {
+    if (k === "none" || k.endsWith(":")) { delete map[k]; changed = true; }
+  }
+  return changed;
+}
 
 export function getFavourites(source) {
   const list = readAll()[selectionSourceKey(source) || "none"];
