@@ -161,7 +161,16 @@
    от .n-flag; удалять классы как «мёртвые» нельзя. */
 
 /* Подзаголовок экрана — одна строка: имена у провайдеров длинные, а перенос
-   растил шапку и сдвигал таблицу. */
+   растил шапку и сдвигал таблицу. Ширину берём всю доступную (max-width из
+   .screen__sub тут не нужен — шапка уже делится с кнопками через flex), а
+   обрезаем по факту нехватки места: сжимается только имя сервера, счётчик
+   отвечающих остаётся целым. */
 .screen[data-view="proxies"] .screen__sub {
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: flex; align-items: baseline; min-width: 0; max-width: none;
+  white-space: nowrap;
 }
+/* pre, а не nowrap: разделитель приходит из каталога вместе с пробелами
+   («{pin} · {alive}»), а ведущий пробел в начале flex-элемента схлопнулся бы,
+   склеив имя с точкой. */
+.screen__sub-pin { overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.screen__sub-rest { flex: none; white-space: pre; }

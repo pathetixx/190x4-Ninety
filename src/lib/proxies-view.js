@@ -400,11 +400,26 @@ function nodeRowHtml(n, ctx) {
 // Название страны словом: Intl.DisplayNames уже локализован под язык интерфейса,
 // поэтому таблицу из 200 стран заводить не нужно. Нет ISO — группируем по имени.
 let regionNames = null;
-// Имена у провайдеров бывают с украшениями («Estonia #2 ⚡ 10 Gbit ⚡ Low Ping»)
-// и в одну строку подзаголовка не помещаются.
-function shortName(node, max = 16) {
-  const name = cleanNameOf(node?.name) || node?.host || "";
-  return name.length > max ? name.slice(0, max - 1).trimEnd() + "…" : name;
+function fullName(node) {
+  return cleanNameOf(node?.name) || node?.host || "";
+}
+
+// Подзаголовок «Выбран {имя} · {n} из {total} отвечают». Имена у провайдеров
+// бывают с украшениями («Estonia #2 ⚡ 10 Gbit ⚡ Low Ping»), поэтому режем их
+// не по числу символов, а по факту нехватки места: имя обрезается через CSS,
+// а счётчик отвечающих остаётся целым (он короткий и важнее хвоста имени).
+// Раньше имя резалось в JS на 16 символах и оставалось обрезанным даже на
+// весь экран.
+function metaLineHtml(pin, alive) {
+  const SLOT_PIN = "\u0001", SLOT_ALIVE = "\u0002";
+  const line = t("proxies.metaLine", { pin: SLOT_PIN, alive: SLOT_ALIVE });
+  const at = line.indexOf(SLOT_PIN);
+  // Разделитель из шаблона уезжает в хвост, а не остаётся отдельным текстовым
+  // узлом между flex-элементами: иначе пробелы вокруг него рискуют схлопнуться.
+  const head = at < 0 ? "" : line.slice(0, at);
+  const tail = at < 0 ? line : line.slice(at + SLOT_PIN.length);
+  return `<span class="screen__sub-pin">${escapeHtml(head + pin)}</span>`
+    + `<span class="screen__sub-rest">${escapeHtml(tail).replace(SLOT_ALIVE, escapeHtml(alive))}</span>`;
 }
 
 function countryOf(n) {
@@ -558,9 +573,9 @@ function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } 
     } else {
       const liveNode = nodes.find(n => n.clashTag === liveTag);
       const pin = selectorTag === "auto"
-        ? (liveNode ? t("proxies.pinAuto", { name: shortName(liveNode) }) : t("proxies.auto"))
-        : t("proxies.pinNode", { name: selectorTag ? shortName(nodes.find(n => n.clashTag === selectorTag)) || "—" : "—" });
-      metaEl.textContent = t("proxies.metaLine", { pin, alive: tn("proxies.metaAlive", alive, { total: nodes.length }) });
+        ? (liveNode ? t("proxies.pinAuto", { name: fullName(liveNode) }) : t("proxies.auto"))
+        : t("proxies.pinNode", { name: selectorTag ? fullName(nodes.find(n => n.clashTag === selectorTag)) || "—" : "—" });
+      metaEl.innerHTML = metaLineHtml(pin, tn("proxies.metaAlive", alive, { total: nodes.length }));
     }
   }
 
