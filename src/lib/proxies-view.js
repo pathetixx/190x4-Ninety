@@ -15,6 +15,7 @@ import {
   rememberProxySelection,
 } from "/lib/proxy-selection.js";
 import { getFavourites, toggleFavourite } from "/lib/favourites.js";
+import { recordProbes, getProbeHistory, pruneProbeHistory } from "/lib/delay-history.js";
 
 function $(id) { return document.getElementById(id); }
 
@@ -175,10 +176,9 @@ function saveUi(k, v) {
 }
 
 // ── статистика по истории замеров clash ─────────────────────
-function historyOf(clashData, tag) {
-  const h = clashData?.proxies?.[tag]?.history;
-  if (!Array.isArray(h)) return [];
-  return h.slice(-12).map(x => Number(x?.delay) || 0);
+// Историю ведёт приложение: у ядра её нет (см. lib/delay-history.js).
+function historyOf(_clashData, tag) {
+  return getProbeHistory(getActiveSource(), tag);
 }
 const liveDelays = (hs) => hs.filter(d => d > 0 && d < 65000);
 function medianOf(a) {
@@ -271,6 +271,7 @@ const ICON_DOTS   = SVG('<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" 
 const ICON_CHEV   = SVG('<path d="m6 9 6 6 6-6"/>', 1.9);
 const ICON_INFO   = SVG('<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>');
 const ICON_SEARCH = SVG('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>');
+const ICON_CHECK = SVG('<path d="M20 6 9 17l-5-5"/>', 1.9);
 const ICON_REFRESH = SVG('<path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/>');
 
 function transportLabel(n) {
@@ -647,6 +648,9 @@ async function refresh({ retry = false } = {}) {
     return;
   }
   lastClashSnapshot = data;
+  const tags = nodes.map(n => n.clashTag);
+  pruneProbeHistory(getActiveSource(), tags);
+  if (recordProbes(getActiveSource(), data, tags)) lastSignature = "";
   const selectorTag = effectiveSelectorTag(data);
   const effectiveTag = pickEffectiveNode(data);
   // URLTest сам мог перевыбрать ноду — синхронизируем хедер и IP
@@ -984,11 +988,16 @@ function openNodeMenu(anchor, tag, onToast) {
   if (!node) return;
   document.getElementById("prox-menu")?.remove();
   const fav = getFavourites(getActiveSource()).has(tag);
+  // Действие, которое ничего не изменит, не должно выглядеть кликабельным:
+  // на уже выбранном сервере пункт показывает состояние, а не предложение.
+  const current = effectiveSelectorTag(lastClashSnapshot) === tag;
   const menu = document.createElement("div");
   menu.className = "pmenu";
   menu.id = "prox-menu";
   menu.innerHTML = `
-    <button class="pmenu__item" type="button" data-a="pin">${ICON_BOLT}${escapeHtml(t("proxies.menuPin"))}</button>
+    ${current
+      ? `<div class="pmenu__item pmenu__item--state">${ICON_CHECK}${escapeHtml(t("proxies.menuAlready"))}</div>`
+      : `<button class="pmenu__item" type="button" data-a="pin">${ICON_BOLT}${escapeHtml(t("proxies.menuPin"))}</button>`}
     <button class="pmenu__item" type="button" data-a="fav">${ICON_STAR}${escapeHtml(fav ? t("proxies.favOff") : t("proxies.favOn"))}</button>
     <button class="pmenu__item" type="button" data-a="test">${ICON_GAUGE}${escapeHtml(t("proxies.menuTestOne"))}</button>`;
   document.body.appendChild(menu);

@@ -726,3 +726,10 @@
 
 /* The Mono swatch card's check tick (white-on-near-white regardless of active theme) */
 .theme-card[data-theme="mono"] .theme-card__check { color: var(--ink-0); }
+/* Пункт-состояние: сообщает, а не предлагает */
+.pmenu__item--state {
+  color: var(--text-faint);
+  cursor: default;
+}
+.pmenu__item--state:hover { background: transparent; color: var(--text-faint); }
+.pmenu__item--state svg { color: var(--accent-bright); opacity: 1; }

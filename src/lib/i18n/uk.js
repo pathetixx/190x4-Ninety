@@ -104,6 +104,7 @@ export const uk = {
   },
 
   proxies: {
+    menuAlready: "Already selected",
     autoIdle: "will pick a server after the first probe",
     byProbesN: "from {n} probes",
     groupOther: "Other",
@@ -153,8 +154,8 @@ export const uk = {
     metaFound: "found {n} of {total}",
     metaLine: "{pin} · {alive} of {total} responding",
     pinAuto: "Auto → {name}",
-    pinNode: "Pinned {name}",
-    strictPinned: "pinned manually",
+    pinNode: "Selected {name}",
+    strictPinned: "selected manually",
     firstIdle: "Servers have not been measured yet",
     firstHint: "One pass is enough — press “Measure now”",
     firstMeasuring: "Measuring server latency",
@@ -170,7 +171,7 @@ export const uk = {
     scoreNote: "median {med} ms · spread ±{jit} ms · {ok} of {all} probes. A server without 4 successful probes is not ranked.",
     scoreNoneTitle: "Nothing to score yet",
     scoreNoneBody: "The index is built from probes the app has already taken. Before the first pass there are none — so there are no recommendations either, rather than made-up ones.",
-    menuPin: "Pin this server",
+    menuPin: "Select this server",
     menuTestOne: "Measure only this one",
     title: "Сервери",
     metaNone: "Підписку не вибрано",
