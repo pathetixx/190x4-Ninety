@@ -124,6 +124,12 @@ LangString KTargetTitle 1033 "Deployment target"
 LangString KTargetSubtitle 1033 "Keep the destination explicit and easy to verify."
 LangString KTargetSignal 1033 "TARGET VECTOR"
 LangString KTargetEyebrow 1033 "SIGNAL MATRIX / TARGET"
+LangString KShortcutsTitle 1033 "Launch point"
+LangString KShortcutsSubtitle 1033 "Where the Ninety shortcut lands in the Start menu."
+LangString KShortcutsSignal 1033 "SHORTCUT VECTOR"
+LangString KShortcutsEyebrow 1033 "SIGNAL MATRIX / SHORTCUTS"
+LangString KShortcutsFolder 1033 "START MENU FOLDER"
+LangString KShortcutsExisting 1033 "EXISTING FOLDERS"
 LangString KTargetPath 1033 "INSTALL PATH"
 LangString KTargetCapacity 1033 "CAPACITY"
 LangString KTargetChange 1033 "CHANGE"
@@ -192,6 +198,12 @@ LangString KTargetTitle 1049 "Точка развёртывания"
 LangString KTargetSubtitle 1049 "Каталог установки должен быть заметным и легко проверяемым."
 LangString KTargetSignal 1049 "ВЕКТОР РАЗВЁРТЫВАНИЯ"
 LangString KTargetEyebrow 1049 "SIGNAL MATRIX / КАТАЛОГ"
+LangString KShortcutsTitle 1049 "Точка запуска"
+LangString KShortcutsSubtitle 1049 "Куда попадёт ярлык Ninety в меню «Пуск»."
+LangString KShortcutsSignal 1049 "ВЕКТОР ЯРЛЫКОВ"
+LangString KShortcutsEyebrow 1049 "SIGNAL MATRIX / ЯРЛЫКИ"
+LangString KShortcutsFolder 1049 "ПАПКА В МЕНЮ «ПУСК»"
+LangString KShortcutsExisting 1049 "СУЩЕСТВУЮЩИЕ ПАПКИ"
 LangString KTargetPath 1049 "КАТАЛОГ УСТАНОВКИ"
 LangString KTargetCapacity 1049 "МЕСТО НА ДИСКЕ"
 LangString KTargetChange 1049 "ИЗМЕНИТЬ"
@@ -1255,6 +1267,60 @@ FunctionEnd
   Call KuroganeApplySignalStates
   !insertmacro KuroganeBringToFront ${PRIMARY}
   !insertmacro KuroganeBringToFront ${SECONDARY}
+!macroend
+
+; A stock edit or list keeps its themed client edge and system colours; strip
+; both and place it inside the frame that was drawn for it.
+!macro KuroganeFlatFieldImpl HWND X Y W H
+  ${If} ${HWND} != 0
+    System::Call 'user32::SetWindowLongW(p ${HWND}, i -20, i 0)'
+    System::Call 'uxtheme::SetWindowTheme(p ${HWND}, w "", w "")'
+    !insertmacro KuroganeMoveWindowDlu $HWNDPARENT ${HWND} ${X} ${Y} ${W} ${H}
+    SetCtlColors ${HWND} ${K_COLOR_TEXT} ${K_COLOR_FIELD}
+    SendMessage ${HWND} ${WM_SETFONT} $KuroganeFontBody 1
+    !insertmacro KuroganeBringToFront ${HWND}
+  ${EndIf}
+!macroend
+
+; The Start menu page belongs to the StartMenu plugin, not to our resource, so
+; it arrives as a stock white wizard page in the middle of a dark one. Its
+; controls still answer SetCtlColors and SetWindowPos, so the page is rebuilt
+; in place: 1002 is the folder name, 1004 the existing folders, 1005 the
+; "no shortcuts" switch, 1001 and 1003 the icon slot and the stock blurb our
+; own header replaces.
+!macro KuroganeStartMenuPageImpl PAGE
+  !insertmacro KuroganePrepareKnownPageImpl "" ${PAGE} Next native
+  StrCpy $KuroganeMatrixParent ${PAGE}
+
+  GetDlgItem $0 ${PAGE} 1001
+  ShowWindow $0 ${SW_HIDE}
+  GetDlgItem $0 ${PAGE} 1003
+  ShowWindow $0 ${SW_HIDE}
+
+  !insertmacro KuroganeMatrixPageHeader "$(KShortcutsEyebrow)" "$(KShortcutsTitle)" "$(KShortcutsSubtitle)" "$(KShortcutsSignal)" "190X4 / 05"
+
+  !insertmacro KuroganeMatrixText 43 121 200 11 "$(KShortcutsFolder)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+  !insertmacro KuroganeMatrixFrame 43 139 259 26 44 140 257 24 ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
+  !insertmacro KuroganeMatrixBox 44 140 5 24 ${K_COLOR_ACCENT}
+  GetDlgItem $1 ${PAGE} 1002
+  !insertmacro KuroganeFlatFieldImpl $1 60 146 230 13
+  SendMessage $1 ${EM_SETSEL} 0 0
+
+  !insertmacro KuroganeMatrixText 43 177 200 11 "$(KShortcutsExisting)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
+  !insertmacro KuroganeMatrixFrame 43 195 259 50 44 196 257 48 ${K_COLOR_BORDER} ${K_COLOR_FIELD}
+  GetDlgItem $1 ${PAGE} 1004
+  !insertmacro KuroganeFlatFieldImpl $1 47 199 251 42
+
+  GetDlgItem $1 ${PAGE} 1005
+  ${If} $1 != 0
+    System::Call 'uxtheme::SetWindowTheme(p r1, w "", w "")'
+    !insertmacro KuroganeMoveWindowDlu $HWNDPARENT $1 43 252 259 12
+    SetCtlColors $1 ${K_COLOR_MUTED} ${K_COLOR_WINDOW}
+    SendMessage $1 ${WM_SETFONT} $KuroganeFontBody 1
+    !insertmacro KuroganeBringToFront $1
+  ${EndIf}
+
+  System::Call 'user32::RedrawWindow(p ${PAGE}, p 0, p 0, i 0x0185)'
 !macroend
 
 !macro KuroganeDirectoryPageImpl PAGE
