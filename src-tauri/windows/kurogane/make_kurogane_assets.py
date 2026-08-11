@@ -6,6 +6,7 @@ import io
 
 from pathlib import Path
 
+import PIL
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 HERE = Path(__file__).resolve().parent
@@ -14,20 +15,55 @@ ROOT = HERE.parents[2]
 SPLIT_ART = ROOT / "src/assets/split-atelier-v2.webp"
 SAMURAI_MARK = ROOT / "src/assets/samurai-mark-v2.webp"
 
+# Rasterisation differs slightly between Pillow releases, so the committed
+# references are byte-comparable only against this one.
+REFERENCE_PILLOW = "12.1.1"
+
 INK = (11, 11, 14)
 PANEL = (11, 11, 14)
 RED = (255, 49, 79)
 
 
+FONTS = HERE / "fonts"
+DISPLAY_FACE = {False: FONTS / "Orbitron-Regular.ttf", True: FONTS / "Orbitron-Bold.ttf"}
+# Orbitron has no Cyrillic and no typographic punctuation; every label that
+# needs them is rendered with this face instead.
+TEXT_FACE = FONTS / "DejaVuSans-Bold.ttf"
+
+
+def _face(path: Path, size: int):
+    if not path.exists():
+        # A system-font fallback once turned every Russian button into empty
+        # boxes on the machine that happened to regenerate the assets.
+        raise SystemExit(f"missing vendored font {path}")
+    return ImageFont.truetype(str(path), size)
+
+
 def font(size: int, bold: bool = False):
-    candidates = [
-        Path("/usr/share/fonts/truetype/orbitron/orbitron_bold.ttf" if bold else "/usr/share/fonts/truetype/orbitron/orbitron_regular.ttf"),
-        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-    ]
-    for path in candidates:
-        if path.exists():
-            return ImageFont.truetype(str(path), size)
-    return ImageFont.load_default()
+    return _face(DISPLAY_FACE[bold], size)
+
+
+def text_font(size: int):
+    return _face(TEXT_FACE, size)
+
+
+def has_glyph(typeface, char: str) -> bool:
+    """True when the face draws `char` itself rather than the .notdef box."""
+    notdef = typeface.getmask("\ue05f")
+    mask = typeface.getmask(char)
+    return (mask.size, bytes(mask)) != (notdef.size, bytes(notdef))
+
+
+def face_for(text: str, size: int, bold: bool = True):
+    """Display face when it covers the string, otherwise the text face."""
+    display = font(size, bold)
+    if all(char == " " or has_glyph(display, char) for char in text):
+        return display
+    face = text_font(size)
+    missing = [char for char in text if char != " " and not has_glyph(face, char)]
+    if missing:
+        raise SystemExit(f"no vendored font covers {missing!r} in {text!r}")
+    return face
 
 
 def bmp_bytes(image: Image.Image) -> bytes:
@@ -41,7 +77,10 @@ def save_or_check(image: Image.Image, name: str, check: bool):
     expected = bmp_bytes(image)
     if check:
         if not path.exists() or path.read_bytes() != expected:
-            raise SystemExit(f"{name} is stale; run {Path(__file__).name}")
+            raise SystemExit(
+                f"{name} is stale; run {Path(__file__).name} "
+                f"(references are rendered with Pillow {REFERENCE_PILLOW}, this is {PIL.__version__})"
+            )
         print(f"OK {name}: {image.size} 24-bit")
         return
     path.write_bytes(expected)
@@ -51,8 +90,11 @@ def save_or_check(image: Image.Image, name: str, check: bool):
 def draw_spaced(draw: ImageDraw.ImageDraw, xy, text, typeface, fill, spacing=5):
     x, y = xy
     for char in text:
-        draw.text((x, y), char, font=typeface, fill=fill)
-        bbox = draw.textbbox((x, y), char, font=typeface)
+        # Separators such as "·" are missing from the display face; fall back
+        # per character so one of them cannot turn the whole line into boxes.
+        face = typeface if char == " " or has_glyph(typeface, char) else text_font(typeface.size)
+        draw.text((x, y), char, font=face, fill=fill)
+        bbox = draw.textbbox((x, y), char, font=face)
         x = bbox[2] + spacing
     return x
 
@@ -117,11 +159,7 @@ def make_button(size, text, *, primary=False, glyph=False):
     draw.rectangle((0, 0, size[0] - 1, size[1] - 1), outline=border)
     draw.line((1, 1, size[0] - 2, 1), fill=(88, 88, 95) if not primary else (255, 102, 122))
 
-    if any("А" <= char <= "я" or char in "Ёё" for char in text):
-        cyrillic = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
-        face = ImageFont.truetype(str(cyrillic), 12) if cyrillic.exists() else font(12, bold=True)
-    else:
-        face = font(15 if glyph else 12, bold=not glyph)
+    face = face_for(text, 15 if glyph else 12, bold=not glyph)
     box = draw.textbbox((0, 0), text, font=face)
     x = (size[0] - (box[2] - box[0])) // 2
     y = (size[1] - (box[3] - box[1])) // 2 - box[1]
