@@ -2,6 +2,30 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.3.3 — 2026-08-11
+
+## English
+
+- The installer can be used again. Choosing the install location buried the wizard under an endless stream of "Distribution corrupted: invalid opcode" boxes that appeared faster than they could be dismissed, and there was no way past that screen. Unattended updates were never affected — they skip those pages.
+- Installation now finishes. Once the files were written the wizard stopped on a full progress bar with nothing to press: the button that completes it was hidden and never came back. It is there again, and the bar states the finished value instead of stopping at 99%.
+- Russian labels on the installer buttons are readable. "Далее", "Установить", "Отмена", "Изменить" and the window controls had turned into rows of empty boxes.
+- On the licence page the reading position marker sits on its track, and the track can be dragged with the mouse — until now the licence could only be moved with the keyboard.
+- The finish page offers its options again: run Ninety and add a desktop shortcut were pushed off the right edge as unreadable slivers.
+- The Start menu page now looks like the rest of the installer instead of a stock white wizard page.
+- A long server name is no longer cut short on the main screen when there is room for it.
+- The licences of the components shipped with Ninety are installed alongside the app.
+
+## Русский
+
+- Установщиком снова можно пользоваться. На выборе места установки окно заваливало бесконечным потоком ошибок «Дистрибутив поврежден: недопустимый код» — они появлялись быстрее, чем закрывались, и пройти этот экран было нельзя. Автоматических обновлений это не касалось: они эти страницы пропускают.
+- Установка доходит до конца. После записи файлов мастер замирал на заполненной шкале, и нажать было нечего: кнопка, которая его завершает, оказывалась скрытой и не возвращалась. Теперь она на месте, а шкала показывает завершённое значение вместо 99%.
+- Русские надписи на кнопках установщика читаются. «Далее», «Установить», «Отмена», «Изменить» и кнопки окна до этого были рядами пустых квадратов.
+- На странице лицензии указатель позиции стоит на своей дорожке, а саму дорожку можно тянуть мышью — до сих пор лицензия листалась только с клавиатуры.
+- Финальная страница снова предлагает свои настройки: «Запустить Ninety» и «Добавить ярлык на рабочий стол» уезжали за правый край нечитаемыми полосками.
+- Страница выбора папки в меню «Пуск» больше не выглядит стоковым белым окном посреди установщика.
+- Длинное имя сервера на главном экране больше не обрезается, когда для него есть место.
+- Лицензии компонентов, которые поставляются с Ninety, теперь ставятся вместе с приложением.
+
 ## v0.3.2 — 2026-08-10
 
 ## English
