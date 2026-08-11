@@ -23,6 +23,7 @@
     "test:coverage": "node scripts/test.mjs --coverage",
     "check:versions": "node scripts/check-version.mjs",
     "check:installer": "node scripts/check-installer.mjs",
+    "check:installer-compile": "python3 scripts/nsis_compile_check.py",
     "check:actions-pinned": "node scripts/check-actions-pinned.mjs",
     "check:dpi-key-rotation": "node scripts/check-dpi-key-rotation.mjs",
     "lint": "eslint --max-warnings 0 src site tests scripts",

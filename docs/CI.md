@@ -7,6 +7,7 @@
 - `Checks / js-tests` — JS-тесты, coverage-gate, синхронизация версий и pinning Actions;
 - `Checks / js-lint` — ESLint;
 - `Checks / rust-tests` — `cargo test`, `cargo fmt --check`, `cargo clippy -D warnings` на Windows;
+- `Checks / installer-shell` — компиляция боевого `installer.nsi` и оболочек Kurogane через makensis, проверка конфигурации установщика и запечённых BMP;
 - `Security / npm audit` — npm advisory audit с порогом `high`;
 - `Security / RustSec and cargo-deny` — RustSec и `deny.toml`;
 - `Security / CodeQL JavaScript` — SAST для frontend;

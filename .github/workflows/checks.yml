@@ -75,6 +75,35 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
+  installer-shell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # makensis runs on Linux, so the shipped installer script can be compiled
+      # on every push instead of only while a release is being built.
+      - name: Install NSIS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nsis
+
+      - name: Compile the shipped installer and the Kurogane shells
+        run: python3 scripts/nsis_compile_check.py
+
+      # The baked BMP labels are compared byte for byte, and rasterisation moves
+      # between Pillow releases, so the check runs against the pinned one.
+      - name: Pin the Pillow used by the asset references
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pillow"
+          "$RUNNER_TEMP/pillow/bin/pip" install --quiet "pillow==12.1.1"
+          echo "$RUNNER_TEMP/pillow/bin" >> "$GITHUB_PATH"
+
+      - name: Check installer configuration and baked assets
+        run: npm run check:installer
+
   rust-tests:
     runs-on: windows-latest
     timeout-minutes: 30
