@@ -1,0 +1,26 @@
+Cygwin runtime library (cygwin1.dll)
+===================================
+
+cygwin1.dll ships next to winws.exe because the DPI-bypass engine from the
+zapret project is built against the Cygwin runtime.
+
+The Cygwin API library is covered by the GNU Lesser General Public License,
+version 3 or later. The full text is in LGPL-3.0.txt, which incorporates the
+GNU General Public License version 3 by reference (GPL-3.0.txt).
+
+Source: https://cygwin.com/git/?p=newlib-cygwin.git
+Licensing terms: https://cygwin.com/licensing.html
+
+
+Cygwin Linking Exception
+------------------------
+
+As quoted from https://cygwin.com/licensing.html:
+
+    As a special exception, the copyright holders of the Cygwin library
+    grant you additional permission to link libcygwin.a, crt0.o, and
+    gcrt0.o with independent modules to produce an executable, and to
+    convey the resulting executable under terms of your choice, without
+    any need to comply with the conditions of LGPLv3 section 4. An
+    independent module is a module which is not itself based on the
+    Cygwin library.

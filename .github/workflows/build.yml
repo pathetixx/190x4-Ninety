@@ -225,7 +225,8 @@ jobs:
       - name: Download wintun.dll
         shell: pwsh
         run: |
-          # Wintun — BSD-licensed user-mode driver by WireGuard. sing-box.exe
+          # Wintun — user-mode driver by WireGuard LLC, shipped under its own
+          # prebuilt-binaries licence (see src-tauri/licenses). sing-box.exe
           # needs it for the TUN inbound (since alpha55 sing-box brings TUN up
           # itself, as a child of elevated Ninety — Throne-style). The DLL sits
           # next to Ninety.exe = next to sing-box.exe in the install dir;

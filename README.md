@@ -160,6 +160,7 @@ Full Rust and Tauri checks are best left to the Windows CI pipeline unless your 
 src/                  Frontend: screens, styles, i18n, config builder
 src-tauri/src/        Rust backend commands and Windows integration
 src-tauri/dpi/        DPI strategies, lists and bundled runtime resources
+src-tauri/licenses/   Third-party notices and full license texts
 docs/                 Screenshots and project images
 site/                 GitHub Pages website
 tests/                JavaScript unit tests
@@ -193,3 +194,14 @@ Thank you 🖤
 ## License
 
 [MIT](./LICENSE)
+
+Ninety bundles third-party engines and drivers that keep their own licenses:
+sing-box (GPL-3.0-or-later), Xray-core (MPL-2.0), NaiveProxy (BSD-3-Clause),
+TrustTunnel Client (Apache-2.0), Wintun (WireGuard LLC prebuilt binaries
+license), zapret/winws (MIT), WinDivert (LGPL-3.0 or GPL-2.0) and the Cygwin
+runtime (LGPL-3.0). Each one runs as a separate process, so Ninety's own code
+stays MIT.
+
+Versions, sources, modifications and full license texts:
+[`src-tauri/licenses/THIRD-PARTY-NOTICES.md`](./src-tauri/licenses/THIRD-PARTY-NOTICES.md).
+The same files are installed to the `licenses` folder next to `Ninety.exe`.

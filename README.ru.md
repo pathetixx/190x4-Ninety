@@ -159,6 +159,7 @@ npm test
 src/                  Фронтенд: экраны, стили, i18n и сборка конфигураций
 src-tauri/src/        Rust-бэкенд и интеграция с Windows
 src-tauri/dpi/        DPI-стратегии, списки и встроенные ресурсы
+src-tauri/licenses/   Сторонние лицензии и полные тексты
 docs/                 Скриншоты и изображения проекта
 site/                 Сайт для GitHub Pages
 tests/                Модульные тесты JavaScript
@@ -192,3 +193,14 @@ TGbdvr1gSYgQciFNRjwdmAmCbNLjK9wgJR
 ## Лицензия
 
 [MIT](./LICENSE)
+
+Вместе с Ninety поставляются сторонние движки и драйверы со своими лицензиями:
+sing-box (GPL-3.0-or-later), Xray-core (MPL-2.0), NaiveProxy (BSD-3-Clause),
+TrustTunnel Client (Apache-2.0), Wintun (лицензия WireGuard LLC на готовые
+бинарники), zapret/winws (MIT), WinDivert (LGPL-3.0 или GPL-2.0) и рантайм
+Cygwin (LGPL-3.0). Каждый работает отдельным процессом, поэтому собственный код
+Ninety остаётся под MIT.
+
+Версии, исходники, внесённые изменения и полные тексты лицензий:
+[`src-tauri/licenses/THIRD-PARTY-NOTICES.md`](./src-tauri/licenses/THIRD-PARTY-NOTICES.md).
+Те же файлы ставятся в папку `licenses` рядом с `Ninety.exe`.

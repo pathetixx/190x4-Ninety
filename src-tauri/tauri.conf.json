@@ -37,6 +37,7 @@
     "externalBin": ["binaries/sing-box", "binaries/xray", "binaries/naive", "binaries/trusttunnel_client"],
     "resources": {
       "binaries/wintun.dll": "wintun.dll",
+      "licenses/*": "licenses/",
       "dpi/bin/*": "dpi/bin/",
       "dpi/bin-monkey/*": "dpi/bin-monkey/",
       "dpi/lists/*": "dpi/lists/",

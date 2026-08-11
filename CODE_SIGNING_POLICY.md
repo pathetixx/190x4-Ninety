@@ -43,9 +43,10 @@ Ninety packages open-source upstream networking components. These components
 are pinned or checksum-verified by the build and remain under their respective
 upstream licenses. They are not to be signed as Ninety-owned binaries with the
 SignPath Foundation certificate. The main runtime components and their roles
-are documented in [Architecture](./docs/architecture.md); the bundled DPI
-component retains its upstream notices in
-[`src-tauri/dpi/LICENSE.flowseal.txt`](./src-tauri/dpi/LICENSE.flowseal.txt).
+are documented in [Architecture](./docs/architecture.md); every bundled
+component keeps its upstream notices in
+[`src-tauri/licenses/`](./src-tauri/licenses/THIRD-PARTY-NOTICES.md), which is
+installed alongside the application.
 
 ## Release integrity
 
