@@ -36,7 +36,7 @@ const translations = {
     "screens.kicker": "Интерфейс",
     "screens.title": "Реальное состояние подключения видно сразу",
     "screens.home": "Главная",
-    "screens.nodes": "Ноды",
+    "screens.nodes": "Серверы",
     "screens.profiles": "Профили",
     "screens.settings": "Настройки",
     "screens.quality": "Качество",
@@ -109,7 +109,7 @@ const translations = {
     "screens.kicker": "Interface",
     "screens.title": "The real connection state is visible at a glance",
     "screens.home": "Home",
-    "screens.nodes": "Nodes",
+    "screens.nodes": "Servers",
     "screens.profiles": "Profiles",
     "screens.settings": "Settings",
     "screens.quality": "Quality",
@@ -168,8 +168,8 @@ const screens = {
   nodes: {
     src: "assets/screen-nodes.webp",
     alt: {
-      ru: "Экран нод Ninety",
-      en: "Ninety nodes screen",
+      ru: "Экран серверов Ninety",
+      en: "Ninety servers screen",
     },
   },
   profiles: {

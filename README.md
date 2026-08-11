@@ -46,9 +46,9 @@ When something breaks, you get diagnostics instead of guesswork.
 
 ## Screenshots
 
-| Nodes | Profiles |
+| Servers | Profiles |
 |------|---------|
-| ![Nodes](./docs/nodes.png) | ![Profiles](./docs/profiles.png) |
+| ![Servers](./docs/nodes.png) | ![Profiles](./docs/profiles.png) |
 | **DPI tools** | **Settings** |
 | ![DPI tools](./docs/dpi.png) | ![Settings](./docs/settings.png) |
 | **Logs** | **Channel quality** |
