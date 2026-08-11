@@ -231,13 +231,15 @@ def main() -> int:
     work = Path(tempfile.mkdtemp(prefix="ninety-nsis-"))
     try:
         script = stage(work)
-        unexpected = report_dead_code(compile_script(script), "installer.nsi")
 
         # The standalone shells share kurogane-ui.nsh with the installer, and the
-        # language selector is shipped as its own executable.
+        # selector has to be compiled first: the installer embeds the resulting
+        # kurogane-language.exe, exactly as the release workflow does.
         for name in ("language-selector.nsi", "smoke.nsi", "concept-gallery.nsi"):
             output = compile_script(script.parent / "kurogane" / name, ["-DVERSION=0.0.0"])
             report_dead_code(output, name)
+
+        unexpected = report_dead_code(compile_script(script), "installer.nsi")
 
         if unexpected:
             print(
