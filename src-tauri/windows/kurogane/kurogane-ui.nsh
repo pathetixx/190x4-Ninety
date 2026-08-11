@@ -60,6 +60,7 @@ Var KuroganeProgressActive
 Var KuroganeCaptionPressed
 Var KuroganeLicenseTextControl
 Var KuroganeLicenseThumbControl
+Var KuroganeLicenseTrackControl
 Var KuroganeLicensePositionControl
 Var KuroganeMaintenancePrimaryTextValue
 Var KuroganeMaintenanceSecondaryTextValue
@@ -75,6 +76,7 @@ LangString KStepDone 1033 "DONE"
 LangString KInstallTitle 1033 "Installing Ninety"
 LangString KInstallSubtitle 1033 "Preparing a protected connection"
 LangString KInstallStatus 1033 "CONFIGURING SECURE COMPONENTS"
+LangString KInstallComplete 1033 "COMPONENTS DEPLOYED"
 LangString KUninstallTitle 1033 "Removing Ninety"
 LangString KUninstallSubtitle 1033 "Cleaning application components"
 LangString KUninstallStatus 1033 "REMOVING SECURE COMPONENTS"
@@ -142,6 +144,7 @@ LangString KStepDone 1049 "ГОТОВО"
 LangString KInstallTitle 1049 "Устанавливаем Ninety"
 LangString KInstallSubtitle 1049 "Подготавливаем защищённое подключение"
 LangString KInstallStatus 1049 "НАСТРАИВАЕМ ЗАЩИЩЁННЫЕ КОМПОНЕНТЫ"
+LangString KInstallComplete 1049 "КОМПОНЕНТЫ РАЗВЁРНУТЫ"
 LangString KUninstallTitle 1049 "Удаляем Ninety"
 LangString KUninstallSubtitle 1049 "Очищаем компоненты приложения"
 LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПОНЕНТЫ"
@@ -307,6 +310,9 @@ LangString KInstallTargetUnavailable 1049 "Ninety не может безопас
   !insertmacro KuroganeMatrixHeader "${SIGNAL}" "${CODE}"
 !macroend
 
+; PARENT is only the dialog whose base units measure the rectangle; the control
+; keeps the parent it was created with. Pass the same one its position was
+; authored against, or it lands somewhere else entirely.
 !macro KuroganeMoveWindowDlu PARENT HWND X Y WIDTH HEIGHT
   IntOp $4 ${X} + ${WIDTH}
   IntOp $5 ${Y} + ${HEIGHT}
@@ -930,7 +936,11 @@ FunctionEnd
   IntOp $2 $0 * 62
   IntOp $2 $2 / 100
   IntOp $2 $2 + 132
-  !insertmacro KuroganeMoveWindowDlu $KuroganePage $KuroganeLicenseThumbControl 291 $2 3 31
+  ; Every Signal Matrix control is laid out in the base units of the main
+  ; resource dialog, whatever page owns it. The licence page belongs to
+  ; nsDialogs, whose own template has different base units, so measuring the
+  ; thumb against the page moved it off its track on the very first tick.
+  !insertmacro KuroganeMoveWindowDlu $HWNDPARENT $KuroganeLicenseThumbControl 291 $2 3 31
 !macroend
 
 Function KuroganeMinimizeShellTick
@@ -1066,6 +1076,7 @@ FunctionEnd
   StrCpy $KuroganeLicenseTextControl $9
 
   !insertmacro KuroganeMatrixBox 291 132 3 93 ${K_COLOR_BORDER}
+  StrCpy $KuroganeLicenseTrackControl $0
   !insertmacro KuroganeMatrixBox 291 132 3 31 ${K_COLOR_ACCENT}
   StrCpy $KuroganeLicenseThumbControl $0
   !insertmacro KuroganeMatrixText 43 247 128 11 "$(KLicenseKeys)" ${K_COLOR_MUTED} ${K_COLOR_WINDOW} $KuroganeFontMono
@@ -1078,10 +1089,70 @@ FunctionEnd
   ${NSD_SetFocus} $KuroganeLicenseTextControl
 !macroend
 
+; The licence is read in a borderless edit, so there is no system scrollbar to
+; grab. Poll the pointer on the same tick that already paints the thumb and let
+; the track itself be dragged; the keyboard keeps working through PAGE UP/DOWN.
+!macro KuroganeLicenseDragImpl
+  Push $0
+  Push $1
+  Push $2
+  Push $3
+  Push $4
+  Push $5
+  Push $6
+  Push $7
+  System::Call 'user32::GetAsyncKeyState(i 1) i .r0'
+  IntOp $0 $0 & 0x8000
+  ${If} $0 != 0
+  ${AndIf} $KuroganeLicenseTrackControl != 0
+    System::Call '*(&i4 0, &i4 0) p .r3'
+    System::Call 'user32::GetCursorPos(p r3)'
+    System::Call '*$3(&i4 .r1, &i4 .r2)'
+    System::Free $3
+    System::Call '*(&i4 0, &i4 0, &i4 0, &i4 0) p .r3'
+    System::Call 'user32::GetWindowRect(p $KuroganeLicenseTrackControl, p r3)'
+    System::Call '*$3(&i4 .r5, &i4 .r4, &i4 .r6, &i4 .r7)'
+    System::Free $3
+    ; Three pixels of track is nothing to aim at: accept a band around it.
+    IntOp $5 $5 - 12
+    IntOp $6 $6 + 12
+    ${If} $1 >= $5
+    ${AndIf} $1 <= $6
+    ${AndIf} $2 >= $4
+    ${AndIf} $2 <= $7
+      IntOp $7 $7 - $4
+      IntOp $2 $2 - $4
+      ${If} $7 > 0
+        SendMessage $KuroganeLicenseTextControl ${EM_GETLINECOUNT} 0 0 $0
+        ; The viewport shows eight lines; the same figure drives the readout.
+        IntOp $0 $0 - 8
+        ${If} $0 > 0
+          IntOp $3 $2 * $0
+          IntOp $3 $3 / $7
+          SendMessage $KuroganeLicenseTextControl ${EM_GETFIRSTVISIBLELINE} 0 0 $1
+          IntOp $3 $3 - $1
+          ${If} $3 <> 0
+            SendMessage $KuroganeLicenseTextControl ${EM_LINESCROLL} 0 $3
+          ${EndIf}
+        ${EndIf}
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+  Pop $7
+  Pop $6
+  Pop $5
+  Pop $4
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
+!macroend
+
 Function KuroganeLicenseTick
   ${If} $KuroganeLicenseTextControl == 0
     Return
   ${EndIf}
+  !insertmacro KuroganeLicenseDragImpl
   !insertmacro KuroganeLicenseTickImpl
 FunctionEnd
 
@@ -1089,6 +1160,7 @@ Function KuroganeLicenseLeave
   ${NSD_KillTimer} KuroganeLicenseTick
   StrCpy $KuroganeLicenseTextControl 0
   StrCpy $KuroganeLicenseThumbControl 0
+  StrCpy $KuroganeLicenseTrackControl 0
   StrCpy $KuroganeLicensePositionControl 0
 FunctionEnd
 
@@ -1211,6 +1283,9 @@ FunctionEnd
   !insertmacro KuroganeMoveWindowDlu ${PAGE} $KuroganeTargetEditControl 60 153 150 14
   SetCtlColors $KuroganeTargetEditControl ${K_COLOR_TEXT} ${K_COLOR_FIELD}
   SendMessage $KuroganeTargetEditControl ${WM_SETFONT} $KuroganeFontBody 1
+  ; MUI hands this control the focus with its whole text selected, and the
+  ; system highlight colour cannot be themed on a plain edit. Leave a caret.
+  SendMessage $KuroganeTargetEditControl ${EM_SETSEL} 0 0
   !insertmacro KuroganeBringToFront $KuroganeTargetEditControl
   System::Call 'user32::RedrawWindow(p ${PAGE}, p 0, p 0, i 0x0185)'
 
@@ -1454,6 +1529,19 @@ Function un.KuroganeProgressTick
   Pop $0
 FunctionEnd
 
+; MUI lays the finish page options out for its own 1044 dialog, so on the
+; Kurogane window they end up past the right edge as unreadable slivers. Move
+; them under the copy and give them the same treatment as every other control.
+!macro KuroganeFinishOptionImpl HWND Y
+  ${If} ${HWND} != 0
+    System::Call 'uxtheme::SetWindowTheme(p ${HWND}, w "", w "")'
+    !insertmacro KuroganeMoveWindowDlu $HWNDPARENT ${HWND} 44 ${Y} 400 14
+    SetCtlColors ${HWND} ${K_COLOR_TEXT} ${K_COLOR_WINDOW}
+    SendMessage ${HWND} ${WM_SETFONT} $KuroganeFontBody 1
+    !insertmacro KuroganeBringToFront ${HWND}
+  ${EndIf}
+!macroend
+
 !macro KuroganeProgressLeaveImpl UNPREFIX
   ${NSD_FreeImage} $KuroganeProgressBitmap
   StrCpy $KuroganeProgressActive 0
@@ -1473,3 +1561,46 @@ FunctionEnd
   ${EndIf}
   Call KuroganeProgressTick
 !macroend
+
+; 🔴 The progress page hides NSIS' own Next button so the wizard cannot be
+; advanced while files are being written, and NSIS re-enables it when the
+; section ends but never shows it again — it was clipped to an empty region by
+; us. Without this the installer stops dead on a full progress bar: the button
+; that finishes it is invisible and unreachable with the mouse. Call it from the
+; post-install and post-uninstall hooks, the last thing either section does.
+!macro KuroganeFinishProgressImpl UNPREFIX STATUS
+  Push $0
+  Push $1
+  Push $2
+  Call ${UNPREFIX}KuroganeProgressTick
+  ; NSIS advances its own bar once more after this hook, and its final position
+  ; is a hair short of the range, so the readout would freeze on 99% with the
+  ; work already done. Nothing repaints the label afterwards — the page has no
+  ; timer — so state the completed value directly.
+  ${If} $KuroganePercentControl != 0
+    SendMessage $KuroganePercentControl ${WM_SETTEXT} 0 "STR:100%"
+  ${EndIf}
+  ; Not KUROGANE_STATUS: that one calls the install-side tick by name and so
+  ; cannot be expanded into the uninstaller.
+  ${If} $KuroganeStatusControl != 0
+    SendMessage $KuroganeStatusControl ${WM_SETTEXT} 0 "STR:${STATUS}"
+  ${EndIf}
+
+  GetDlgItem $0 $HWNDPARENT 1
+  System::Call 'user32::SetWindowRgn(p r0, p 0, i 1)'
+  ShowWindow $0 ${SW_SHOW}
+  !insertmacro KuroganeBringToFront $0
+  System::Call 'user32::RedrawWindow(p $HWNDPARENT, p 0, p 0, i 0x0185)'
+  Pop $2
+  Pop $1
+  Pop $0
+!macroend
+
+Function KuroganeFinishProgress
+  !insertmacro KuroganeFinishProgressImpl "" "$(KInstallComplete)"
+FunctionEnd
+
+Function un.KuroganeFinishProgress
+  !insertmacro KuroganeFinishProgressImpl "un." "$(KInstallComplete)"
+FunctionEnd
+

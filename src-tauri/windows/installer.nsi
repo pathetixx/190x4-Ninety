@@ -518,6 +518,8 @@ FunctionEnd
 !insertmacro MUI_PAGE_FINISH
 Function NinetyFinishShow
   !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.FinishPage $mui.FinishPage.Image $mui.FinishPage.Title $mui.FinishPage.Text Finish
+  !insertmacro KuroganeFinishOptionImpl $mui.FinishPage.Run 214
+  !insertmacro KuroganeFinishOptionImpl $mui.FinishPage.ShowReadme 236
 FunctionEnd
 
 Function RunMainBinary
@@ -876,7 +878,10 @@ Section Install
   ${If} $PassiveMode = 1
     SetAutoClose true
   ${EndIf}
-  Call KuroganeProgressTick
+  ; Last instruction of the section: restores the navigation the progress page
+  ; hid and states the completed percentage. A plain progress tick here would
+  ; report NSIS' own final position, which stops one step short of the range.
+  Call KuroganeFinishProgress
 SectionEnd
 
 Function .onInstSuccess
@@ -1037,7 +1042,7 @@ Section Uninstall
   ${OrIf} $UpdateMode = 1
     SetAutoClose true
   ${EndIf}
-  Call un.KuroganeProgressTick
+  Call un.KuroganeFinishProgress
 SectionEnd
 
 Function RestorePreviousInstallLocation
