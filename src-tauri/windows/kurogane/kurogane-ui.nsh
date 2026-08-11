@@ -66,7 +66,6 @@ Var KuroganeMaintenanceSecondaryTextValue
 Var KuroganeMaintenancePrimaryDescriptionValue
 Var KuroganeMaintenanceSecondaryDescriptionValue
 Var KuroganeTargetEditControl
-Var KuroganeTargetPathDisplayControl
 Var KuroganeForegroundHandoffPending
 Var KuroganeForegroundHandoffAttempts
 
@@ -743,7 +742,6 @@ FunctionEnd
   StrCpy $KuroganeProgressActive 0
   StrCpy $KuroganeCaptionPressed 0
   StrCpy $KuroganeTargetEditControl 0
-  StrCpy $KuroganeTargetPathDisplayControl 0
 !macroend
 
 Function KuroganeGuiInit
@@ -947,11 +945,6 @@ Function KuroganeMinimizeShellTick
   Push $8
   !insertmacro KuroganeShellTickImpl
   Call KuroganeClaimForeground
-  ${If} $KuroganeTargetEditControl != 0
-  ${AndIf} $KuroganeTargetPathDisplayControl != 0
-    ${NSD_GetText} $KuroganeTargetEditControl $0
-    SendMessage $KuroganeTargetPathDisplayControl ${WM_SETTEXT} 0 "STR:$0"
-  ${EndIf}
   Pop $8
   Pop $7
   Pop $6
@@ -1001,36 +994,38 @@ Function un.KuroganeStyleCurrentPage
   !insertmacro KuroganeStyleCurrentPageImpl
 FunctionEnd
 
-Function KuroganePageShow
-  StrCpy $KuroganeProgressActive 0
-  Call KuroganeApplyChromeNext
-  Call KuroganeBindChromeEvents
-  Call KuroganeStartShellTimer
-  Call KuroganeStyleCurrentPage
-FunctionEnd
-
-Function un.KuroganePageShow
-  StrCpy $KuroganeProgressActive 0
-  Call un.KuroganeApplyChromeNext
-  Call un.KuroganeBindChromeEvents
-  Call un.KuroganeStartShellTimer
-  Call un.KuroganeStyleCurrentPage
-FunctionEnd
-
 ; Page-specific show callbacks pass the exact MUI/nsDialogs HWND here. Generic
 ; FindWindow is intentionally avoided: NSIS may keep an older child dialog alive
 ; while the next page is being shown.
-!macro KuroganePrepareKnownPageImpl UNPREFIX PAGE CHROME
+; OWNER says who created the page dialog: `nsdialogs` for pages built by the
+; nsDialogs plugin (welcome, install mode, licence, maintenance, finish) and
+; `native` for the ones NSIS builds itself (directory, start menu, progress,
+; uninstall confirmation).
+;
+; 🔴 Only an nsDialogs page may run the shell timer. nsDialogs hangs its timers
+; on the dialog it created — `SetTimer(g_dialog.hwDialog, our_callback, …)` —
+; and that handle is NULL on a native page, because the plugin clears it when
+; the previous nsDialogs page is left. SetTimer ignores the id when the window
+; is NULL and assigns its own, so nsDialogs' TimerProc then calls
+; ExecuteCodeSegment() on an arbitrary code offset: an endless storm of
+; "Distribution corrupted: invalid opcode", 50 times a second, over a page that
+; otherwise renders correctly. The timer cannot even be stopped afterwards,
+; since KillTimer is handed the same NULL window and never finds it.
+!macro KuroganePrepareKnownPageImpl UNPREFIX PAGE CHROME OWNER
   StrCpy $KuroganeProgressActive 0
   StrCpy $KuroganePage ${PAGE}
   Call ${UNPREFIX}KuroganeApplyChrome${CHROME}
   Call ${UNPREFIX}KuroganeBindChromeEvents
-  Call ${UNPREFIX}KuroganeStartShellTimer
+  !if "${OWNER}" == "nsdialogs"
+    Call ${UNPREFIX}KuroganeStartShellTimer
+  !else if "${OWNER}" != "native"
+    !error "KuroganePrepareKnownPageImpl: OWNER must be nsdialogs or native"
+  !endif
   !insertmacro KuroganeStylePageImpl ${PAGE}
 !macroend
 
 !macro KuroganeLicensePageImpl UNPREFIX PAGE
-  !insertmacro KuroganePrepareKnownPageImpl "${UNPREFIX}" ${PAGE} Next
+  !insertmacro KuroganePrepareKnownPageImpl "${UNPREFIX}" ${PAGE} Next nsdialogs
   StrCpy $KuroganeMatrixParent ${PAGE}
 
   !insertmacro KuroganeMatrixPageHeader "$(KLicenseEyebrow)" "$(KLicenseTitle)" "$(KLicenseSubtitle)" "$(KLicenseSignal)" "190X4 / 04"
@@ -1100,7 +1095,7 @@ FunctionEnd
 ; Rebuild the MultiUser page controls inside the page that the plugin already
 ; owns. Its leave callback continues to read the same handle variables.
 !macro KuroganeInstallModePageImpl
-  !insertmacro KuroganePrepareKnownPageImpl "" $MultiUser.InstallModePage Next
+  !insertmacro KuroganePrepareKnownPageImpl "" $MultiUser.InstallModePage Next nsdialogs
   StrCpy $KuroganeMatrixParent $MultiUser.InstallModePage
   ShowWindow $MultiUser.InstallModePage.Text ${SW_HIDE}
   ShowWindow $MultiUser.InstallModePage.AllUsers ${SW_HIDE}
@@ -1153,7 +1148,7 @@ FunctionEnd
   StrCpy $KuroganeMaintenanceSecondaryTextValue ${SECONDARYTEXT}
   StrCpy $KuroganeMaintenancePrimaryDescriptionValue ${PRIMARYDESC}
   StrCpy $KuroganeMaintenanceSecondaryDescriptionValue ${SECONDARYDESC}
-  !insertmacro KuroganePrepareKnownPageImpl "" ${DIALOG} Next
+  !insertmacro KuroganePrepareKnownPageImpl "" ${DIALOG} Next nsdialogs
   StrCpy $KuroganeMatrixParent ${DIALOG}
   !insertmacro KuroganeMatrixPageHeader "$(KMaintenanceEyebrow)" "$(KMaintenanceTitle)" "$(KMaintenanceSubtitle)" "$(KMaintenanceSignal)" "190X4 / 05"
 
@@ -1191,7 +1186,7 @@ FunctionEnd
 !macroend
 
 !macro KuroganeDirectoryPageImpl PAGE
-  !insertmacro KuroganePrepareKnownPageImpl "" ${PAGE} Next
+  !insertmacro KuroganePrepareKnownPageImpl "" ${PAGE} Next native
   StrCpy $KuroganeMatrixParent ${PAGE}
 
   GetDlgItem $0 ${PAGE} 1006
@@ -1206,13 +1201,18 @@ FunctionEnd
   !insertmacro KuroganeMatrixFrame 43 139 259 43 44 140 257 41 ${K_COLOR_ACCENT} ${K_COLOR_FIELD}
   !insertmacro KuroganeMatrixBox 44 140 5 41 ${K_COLOR_ACCENT}
 
-  ; Keep MUI's edit control as the authoritative value for validation and the
-  ; native folder picker, but never expose its stock Windows border/selection.
+  ; MUI's edit stays the authoritative value for validation and for the native
+  ; folder picker. Strip its themed client edge and recolour it instead of
+  ; hiding it behind a copy: a copy would need a timer to stay in sync, and a
+  ; timer is not available on a page NSIS builds itself.
   GetDlgItem $KuroganeTargetEditControl ${PAGE} 1019
-  ${NSD_GetText} $KuroganeTargetEditControl $1
-  ShowWindow $KuroganeTargetEditControl ${SW_HIDE}
-  !insertmacro KuroganeMatrixPath 60 153 150 14 "$1"
-  StrCpy $KuroganeTargetPathDisplayControl $0
+  System::Call 'user32::SetWindowLongW(p $KuroganeTargetEditControl, i -20, i 0)'
+  System::Call 'uxtheme::SetWindowTheme(p $KuroganeTargetEditControl, w "", w "")'
+  !insertmacro KuroganeMoveWindowDlu ${PAGE} $KuroganeTargetEditControl 60 153 150 14
+  SetCtlColors $KuroganeTargetEditControl ${K_COLOR_TEXT} ${K_COLOR_FIELD}
+  SendMessage $KuroganeTargetEditControl ${WM_SETFONT} $KuroganeFontBody 1
+  !insertmacro KuroganeBringToFront $KuroganeTargetEditControl
+  System::Call 'user32::RedrawWindow(p ${PAGE}, p 0, p 0, i 0x0185)'
 
   GetDlgItem $0 ${PAGE} 1001
   !insertmacro KuroganeMoveWindowDlu ${PAGE} $0 219 151 74 18
@@ -1245,7 +1245,6 @@ FunctionEnd
 
 Function KuroganeDirectoryLeave
   StrCpy $KuroganeTargetEditControl 0
-  StrCpy $KuroganeTargetPathDisplayControl 0
 FunctionEnd
 
 !macro KuroganeMoveWindowDpi HWND X Y WIDTH HEIGHT DPI
@@ -1261,7 +1260,7 @@ FunctionEnd
 !macroend
 
 !macro KuroganeUninstallConfirmPageImpl PAGE CHECKBOX CHECKBOXTEXT
-  !insertmacro KuroganePrepareKnownPageImpl "un." ${PAGE} Remove
+  !insertmacro KuroganePrepareKnownPageImpl "un." ${PAGE} Remove native
   StrCpy $1 ${PAGE}
   StrCpy $KuroganeMatrixParent ${PAGE}
   IntOp $4 278 + 14
@@ -1313,7 +1312,8 @@ FunctionEnd
 ; MUI welcome/finish pages expose their exact HWNDs. Use those directly: after
 ; the progress page, a generic FindWindow can otherwise select a stale dialog.
 !macro KuroganeKnownFullWindowPageShowImpl UNPREFIX PAGE IMAGE TITLE TEXT CHROME
-  !insertmacro KuroganePrepareKnownPageImpl "${UNPREFIX}" ${PAGE} ${CHROME}
+  ; MUI builds welcome and finish with nsDialogs.
+  !insertmacro KuroganePrepareKnownPageImpl "${UNPREFIX}" ${PAGE} ${CHROME} nsdialogs
 
   ShowWindow ${IMAGE} ${SW_HIDE}
   System::Call 'user32::SetWindowPos(p ${TITLE}, p 0, i 44, i 72, i 500, i 72, i 0x14)'
@@ -1341,7 +1341,6 @@ FunctionEnd
   ; Hiding a clipped bitmap button can leave stale pixels in the frameless
   ; footer until Windows happens to repaint its parent. Redraw synchronously.
   System::Call 'user32::RedrawWindow(p $HWNDPARENT, p 0, p 0, i 0x0185)'
-  Call ${UNPREFIX}KuroganeStartShellTimer
   Call ${UNPREFIX}KuroganeStyleCurrentPage
 
   !insertmacro KuroganeSetText 1220 "$(KStepOptions)"
@@ -1393,7 +1392,10 @@ FunctionEnd
 
   GetDlgItem $0 $KuroganePage 1027
   ShowWindow $0 ${SW_HIDE}
-  ${NSD_CreateTimer} ${UNPREFIX}KuroganeProgressTick 80
+  ; The percentage advances from the explicit KuroganeProgressTick calls the
+  ; section makes between steps. A timer is not an option here: NSIS owns this
+  ; page, so nsDialogs has no dialog to hang one on, and it also blocks timers
+  ; while section instructions run.
   Call ${UNPREFIX}KuroganeProgressTick
 !macroend
 
@@ -1453,7 +1455,6 @@ Function un.KuroganeProgressTick
 FunctionEnd
 
 !macro KuroganeProgressLeaveImpl UNPREFIX
-  ${NSD_KillTimer} ${UNPREFIX}KuroganeProgressTick
   ${NSD_FreeImage} $KuroganeProgressBitmap
   StrCpy $KuroganeProgressActive 0
 !macroend

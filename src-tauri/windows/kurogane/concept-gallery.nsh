@@ -119,7 +119,7 @@ LangString CGChange 1049 "ИЗМЕНИТЬ"
 !macro CGBegin EYEBROW TITLE SUBTITLE
   nsDialogs::Create 1018
   Pop $ConceptDialog
-  !insertmacro KuroganePrepareKnownPageImpl "" $ConceptDialog Next
+  !insertmacro KuroganePrepareKnownPageImpl "" $ConceptDialog Next nsdialogs
   Call ConceptEnsureFonts
   !insertmacro CGText 22 14 296 12 "${EYEBROW}" ${K_COLOR_ACCENT} ${K_COLOR_WINDOW} $ConceptFontMono
   !insertmacro CGText 22 34 296 29 "${TITLE}" ${K_COLOR_TEXT} ${K_COLOR_WINDOW} $KuroganeFontTitle

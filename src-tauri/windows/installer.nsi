@@ -493,7 +493,7 @@ Var AppStartMenuFolder
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW KuroganeStartMenuShow
 !insertmacro MUI_PAGE_STARTMENU Application $AppStartMenuFolder
 Function KuroganeStartMenuShow
-  !insertmacro KuroganePrepareKnownPageImpl "" $mui.StartMenuPage Next
+  !insertmacro KuroganePrepareKnownPageImpl "" $mui.StartMenuPage Next native
 FunctionEnd
 
 ; 7. Installation page

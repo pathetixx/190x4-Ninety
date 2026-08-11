@@ -55,8 +55,6 @@ LANGUAGES = ["English", "Russian"]
 EXPECTED_DEAD_CODE = {
     "un.KuroganeApplyChromeInstall",
     "KuroganeApplyChromeRemove",
-    "KuroganePageShow",
-    "un.KuroganePageShow",
     "Skip",
 }
 

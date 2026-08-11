@@ -82,7 +82,7 @@ FunctionEnd
 Function LanguagePage
   nsDialogs::Create 1018
   Pop $LanguageDialog
-  !insertmacro KuroganePrepareKnownPageImpl "" $LanguageDialog Next
+  !insertmacro KuroganePrepareKnownPageImpl "" $LanguageDialog Next nsdialogs
   StrCpy $KuroganeMatrixParent $LanguageDialog
 
   !insertmacro KuroganeMatrixPageHeader "SIGNAL MATRIX / LOCALE" "$(KLanguageTitle)" "$(KLanguageSubtitle)" "LANGUAGE MATRIX" "190X4 / 01"
