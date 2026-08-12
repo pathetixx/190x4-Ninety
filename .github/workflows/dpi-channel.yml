@@ -7,12 +7,18 @@ name: DPI channel (Flowseal sync)
 # then the job collects strategies.json, lists and bounded .bin payloads,
 # signs the bundle and publishes it to the `dpi-channel` prerelease. Ninety pulls
 # this bundle on the fly, verifies the signature and applies it — WITHOUT an app
-# update. System-level service/hosts and service/ipset-service.txt do NOT follow
-# latest automatically: scheduled runs use the Git blobs pinned in
-# dpi-service-manifest.json, so an upstream compromise cannot silently acquire
-# our trusted signature for system hosts data. The engine (winws.exe/WinDivert)
-# is NOT touched here — it ships via the signed OTA release (see
-# engine-watch.yml: watches bol-van/zapret-win-bundle, opens a PR).
+# update. service/hosts and service/ipset-service.txt follow the same immutable
+# release as the strategies: they are read from the commit the release tag peels
+# to, so the whole channel stays current without a manual review step. They used
+# to lag behind on manually reviewed, separately pinned Git blobs. Since hosts
+# data lands in the system hosts file, the freshness is paid for with a
+# fail-closed shape check instead (see "Validate service data"): public unicast
+# targets only, so a compromised upstream cannot point a domain at a machine on
+# the user LAN or blackhole it, and no unbounded or malformed input gets our
+# signature. Hijacking a domain to another public host is NOT covered — that
+# would need a reviewed domain allowlist, which is what pinning used to be.
+# The engine (winws.exe/WinDivert) is NOT touched here — it ships via the signed
+# OTA release (see engine-watch.yml: watches bol-van/zapret-win-bundle, PR).
 #
 # prerelease=true matters: dpi-channel must NOT become "Latest", otherwise it
 # would shadow the app updater endpoint (releases/latest/download/latest.json).
@@ -156,7 +162,7 @@ jobs:
             [ "$first" = "$current" ] || { echo "::error::automatic DPI channel downgrade blocked: $current -> $tag"; exit 1; }
           fi
 
-          service_mode=manifest
+          service_mode=commit
           if [ "$source" = sourceforge ] || [ -n "${SERVICE_ARCHIVE_SHA256:-}" ]; then
             service_mode=archive
           fi
@@ -208,29 +214,30 @@ jobs:
           echo "FL_DIR=$d" >> "$GITHUB_ENV"
           echo "source=$UPSTREAM_SOURCE" >> "$GITHUB_ENV"
 
-      - name: Load reviewed service data from pinned Git blobs
-        if: ${{ steps.fl.outputs.service_mode == 'manifest' }}
+      - name: Load service data from the resolved release commit
+        if: ${{ steps.fl.outputs.service_mode == 'commit' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_COMMIT: ${{ steps.fl.outputs.sha }}
         run: |
           set -euo pipefail
-          manifest=".github/dpi-service-manifest.json"
-          test -s "$manifest" || { echo "::error::missing $manifest"; exit 1; }
-          repo=$(jq -r .repository "$manifest")
-          commit=$(jq -r .commit "$manifest")
-          [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "::error::invalid service repository"; exit 1; }
-          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid service commit"; exit 1; }
+          # .service/ is not shipped inside the release ZIP, so it comes from the
+          # repository at the commit this release tag peels to — the same
+          # immutable point the strategies were built from, never a moving ref.
+          repo="Flowseal/zapret-discord-youtube"
+          commit="$UPSTREAM_COMMIT"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid resolved upstream commit"; exit 1; }
           mkdir -p "$FL_DIR/.service"
           for f in hosts ipset-service.txt; do
-            blob=$(jq -r --arg f "$f" '.files[$f].git_blob_sha' "$manifest")
-            [[ "$blob" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid blob SHA for $f"; exit 1; }
-            tree_blob=$(gh api "repos/$repo/contents/.service/$f?ref=$commit" --jq .sha)
-            [ "$tree_blob" = "$blob" ] || { echo "::error::$f blob is not present at pinned commit"; exit 1; }
+            blob=$(gh api "repos/$repo/contents/.service/$f?ref=$commit" --jq .sha)
+            [[ "$blob" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::$f is missing at $commit"; exit 1; }
             gh api "repos/$repo/git/blobs/$blob" --jq .content | tr -d '\n' | base64 --decode > "$FL_DIR/.service/$f"
+            # Transport integrity: the bytes we wrote must hash back to the blob
+            # the tree points at.
             actual=$(git hash-object "$FL_DIR/.service/$f")
             [ "$actual" = "$blob" ] || { echo "::error::Git blob mismatch for $f"; exit 1; }
           done
-          echo "Pinned service data = $(jq -r '.tag + \" @ \" + .commit' "$manifest")"
+          echo "Service data = $repo @ $commit"
 
       - name: Download reviewed exact-version service archive
         if: ${{ steps.fl.outputs.service_mode == 'archive' }}
@@ -276,6 +283,77 @@ jobs:
           mkdir -p "$FL_DIR/.service"
           cp "$service_root/hosts" "$FL_DIR/.service/hosts"
           cp "$service_root/ipset-service.txt" "$FL_DIR/.service/ipset-service.txt"
+
+      - name: Validate service data
+        run: |
+          set -euo pipefail
+          python3 - "$FL_DIR/.service" <<'PY'
+          # Fail-closed shape check. These two files are the only channel content
+          # that touches the system outside winws: hosts is written into the
+          # Windows hosts file, ipset-service.txt selects which destinations the
+          # service profile desyncs. Upstream is no longer manually reviewed, so
+          # anything that is not plainly a public-unicast bypass entry is refused.
+          import ipaddress, re, sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          HOSTNAME = re.compile(
+              r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+              r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+"
+          )
+
+          def fail(msg):
+              raise SystemExit(f"::error::service data rejected: {msg}")
+
+          def lines(path, limit):
+              data = path.read_bytes()
+              if not 0 < len(data) <= limit:
+                  fail(f"{path.name} size {len(data)} outside 1..{limit}")
+              try:
+                  text = data.decode("utf-8")
+              except UnicodeDecodeError:
+                  fail(f"{path.name} is not UTF-8")
+              for number, raw in enumerate(text.splitlines(), 1):
+                  line = raw.strip()
+                  if line and not line.startswith("#"):
+                      yield number, line
+
+          entries = 0
+          for number, line in lines(root / "hosts", 256 * 1024):
+              parts = line.split()
+              if len(parts) != 2:
+                  fail(f"hosts:{number} expected 'IP hostname', got {line!r}")
+              addr, host = parts
+              try:
+                  ip = ipaddress.ip_address(addr)
+              except ValueError:
+                  fail(f"hosts:{number} invalid address {addr!r}")
+              # Public unicast only: a redirect to loopback/LAN/0.0.0.0 is either
+              # a blackhole or a hijack toward the user's own network.
+              if not ip.is_global:
+                  fail(f"hosts:{number} non-public target {addr}")
+              if len(host) > 253 or not HOSTNAME.fullmatch(host):
+                  fail(f"hosts:{number} invalid hostname {host!r}")
+              entries += 1
+          if not 1 <= entries <= 2000:
+              fail(f"hosts has {entries} entries")
+          print(f"hosts OK: {entries} entries")
+
+          nets = 0
+          for number, line in lines(root / "ipset-service.txt", 8 * 1024 * 1024):
+              try:
+                  net = ipaddress.ip_network(line, strict=False)
+              except ValueError:
+                  fail(f"ipset-service:{number} invalid CIDR {line!r}")
+              # A near-zero prefix would drag the whole internet into the service
+              # profile instead of the blocked services.
+              if net.prefixlen < (8 if net.version == 4 else 16):
+                  fail(f"ipset-service:{number} prefix too broad: {line}")
+              nets += 1
+          if not 1 <= nets <= 300000:
+              fail(f"ipset-service has {nets} entries")
+          print(f"ipset-service OK: {nets} networks")
+          PY
 
       - name: Assemble the channel bundle (data only)
         env:
@@ -461,7 +539,7 @@ jobs:
           BUNDLE_SHA256: ${{ steps.pack.outputs.sha }}
         run: |
           set -euo pipefail
-          notes="flowseal=$UPSTREAM_TAG source=$UPSTREAM_SOURCE upstream_commit=${UPSTREAM_COMMIT:-none} upstream_sha256=$UPSTREAM_SHA256 service_mode=$SERVICE_MODE service_upstream_sha256=${SERVICE_SHA256:-pinned-manifest} sha256=$BUNDLE_SHA256"
+          notes="flowseal=$UPSTREAM_TAG source=$UPSTREAM_SOURCE upstream_commit=${UPSTREAM_COMMIT:-none} upstream_sha256=$UPSTREAM_SHA256 service_mode=$SERVICE_MODE service_upstream_sha256=${SERVICE_SHA256:-release-commit} sha256=$BUNDLE_SHA256"
           if gh release view dpi-channel >/dev/null 2>&1; then
             gh release edit dpi-channel --prerelease --notes "$notes"
           else
