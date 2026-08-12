@@ -85,6 +85,13 @@ const DISCORD_SUFFIXES = [
   "discord.com", "discordapp.com", "discordapp.net", "discord.gg",
   "discord.media", "discord.dev", "discordstatus.com", "dis.gd",
 ];
+// Десктопные клиенты Discord. Голосовой медиа-поток идёт по UDP на голый IP:
+// домена в пакете нет, sniff его не достаёт (там не TLS и не QUIC, а RTP +
+// IP discovery), доменные правила по нему не срабатывают. Матчинг по процессу —
+// единственный способ увести голос в direct, не выдумывая CIDR-лист Discord.
+const DISCORD_PROCESS_NAMES = [
+  "Discord.exe", "DiscordCanary.exe", "DiscordPTB.exe", "DiscordDevelopment.exe",
+];
 
 const IPV6_STRATEGY_MAP = {
   disable: "ipv4_only",
@@ -676,10 +683,16 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
     });
   }
 
-  // TUN + split Discord: домены Discord идут direct (мимо туннеля), чтобы winws
-  // десинхрил их на реальном интерфейсе. winws при этом НЕ паузится в TUN (см.
+  // TUN + split Discord: Discord идёт direct (мимо туннеля), чтобы winws
+  // десинхрил его на реальном интерфейсе. winws при этом НЕ паузится в TUN (см.
   // dpi-view.setDpiVpnMode). VPN-нода уже в exclude winws — её трафик не трогаем.
+  //
+  // Процесс + домены, а не что-то одно: доменные правила покрывают Discord в
+  // браузере, но не голосовой UDP (см. DISCORD_PROCESS_NAMES), а процесс
+  // покрывает десктопный клиент целиком, включая голос. Без процессного правила
+  // голос уходил в туннель — ровно то, что фича должна была убрать.
   if (mode === "tun" && options.route?.tunSplitDiscord) {
+    rules.push({ process_name: DISCORD_PROCESS_NAMES, outbound: "direct" });
     rules.push({ rule_set: ["geosite-discord"], outbound: "direct" });
     rules.push({ domain_suffix: DISCORD_SUFFIXES, outbound: "direct" });
   }

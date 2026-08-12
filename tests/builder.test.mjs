@@ -209,6 +209,12 @@ test("строгая приватность: TUN без direct-исключен�
   assert.equal(config.route.rules.some((rule) => rule.ip_is_private), false);
   assert.equal(config.route.rules.some((rule) => rule.domain_suffix?.includes(".ru")), false);
   assert.equal(config.route.rule_set.some((ruleSet) => /-(?:ru|discord)$/.test(ruleSet.tag)), false);
+  // Процессное правило split-Discord — тоже прямое исключение: в строгой сессии
+  // его быть не должно, иначе весь трафик клиента Discord уходит мимо туннеля.
+  assert.equal(
+    config.route.rules.some((rule) => rule.process_name?.includes("Discord.exe")),
+    false,
+  );
   assert.equal(config.dns.rules.some((rule) => rule.domain_suffix?.includes(".ru")), false);
 });
 
@@ -410,6 +416,40 @@ test("tun-режим: tun-inbound + probe-in, правило пробы выше
   for (const exe of ENGINE_PROCESS_NAMES) {
     assert.ok(rules[bypassIdx].process_name.includes(exe), `нет bypass для ${exe}`);
   }
+});
+
+test("split Discord: процессное правило уводит голосовой UDP мимо туннеля", () => {
+  const opts = structuredClone(DEFAULT_OPTIONS);
+  opts.route.tunSplitDiscord = true;
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "tun",
+    options: opts,
+  });
+  const rules = config.route.rules;
+  // Голос Discord — UDP на голый IP: домена в пакете нет, доменные правила по
+  // нему не срабатывают, и без процессного правила он уходил в final: proxy.
+  const byProcess = rules.find((r) => Array.isArray(r.process_name) && r.process_name.includes("Discord.exe"));
+  assert.ok(byProcess, "нет процессного правила Discord — голос уйдёт в туннель");
+  assert.equal(byProcess.outbound, "direct");
+  // Доменные правила остаются: они покрывают Discord в браузере.
+  assert.ok(rules.some((r) => Array.isArray(r.rule_set) && r.rule_set.includes("geosite-discord")));
+  assert.ok(rules.some((r) => Array.isArray(r.domain_suffix) && r.domain_suffix.includes("discord.media")));
+  // Выше bypass-правила Ninety.exe вставать нельзя — оно защищает от петли,
+  // а ниже пользовательских правил split обязан остаться перекрываемым.
+  const bypassIdx = rules.findIndex((r) => Array.isArray(r.process_name) && r.process_name.includes("Ninety.exe"));
+  assert.ok(bypassIdx >= 0 && bypassIdx < rules.indexOf(byProcess));
+});
+
+test("split Discord выключен: ни процессного, ни доменных правил Discord", () => {
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "tun",
+    options: DEFAULT_OPTIONS,
+  });
+  const rules = config.route.rules;
+  assert.equal(rules.some((r) => Array.isArray(r.process_name) && r.process_name.includes("Discord.exe")), false);
+  assert.equal(rules.some((r) => Array.isArray(r.rule_set) && r.rule_set.includes("geosite-discord")), false);
 });
 
 test("dns parser: IPv4, bracket IPv6, ambiguous IPv6 и DoH", () => {
