@@ -226,7 +226,7 @@ export const ja = {
 
     autopick: {
       cardLabel: "戦略を自動選択",
-      lead: "あなたの接続で<b>全 {n} 個の戦略</b>を実行し、実際にサービスをアンブロックできるものを選びます。<b>VPNをオフにして実行してください。</b>",
+      lead: "この回線で <b>{n} 個の戦略</b> を確認し、Discord と YouTube が実際に開くものを選びます。実験的プロファイルは対象外で、VPN · TUN モードでは利用できません。",
       start: "自分の接続に合わせて調整",
       checking: "戦略 <b>{name}</b> をテスト中",
       progLine: "接続テスト · TLSハンドシェイク · ping&nbsp;&nbsp;<b>{i}</b> / {total}",

@@ -226,7 +226,7 @@ export const ko = {
 
     autopick: {
       cardLabel: "전략 자동 선택",
-      lead: "당신의 연결에서 <b>{n}개 전략 전부</b>를 실행하여 실제로 서비스를 차단 해제하는 것을 선택합니다. <b>VPN을 끄고 실행하세요.</b>",
+      lead: "이 회선에서 <b>전략 {n}개</b>를 확인해 Discord와 YouTube가 실제로 열리는 것을 고릅니다. 실험용 프로필은 제외되며, VPN · TUN 모드에서는 사용할 수 없습니다.",
       start: "내 연결에 맞게 조정",
       checking: "전략 <b>{name}</b> 테스트 중",
       progLine: "연결 테스트 · TLS 핸드셰이크 · 핑&nbsp;&nbsp;<b>{i}</b> / {total}",

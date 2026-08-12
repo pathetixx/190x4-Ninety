@@ -230,7 +230,7 @@ export const en = {
 
     autopick: {
       cardLabel: "Auto-pick strategy",
-      lead: "We'll run <b>all {n} strategies</b> on your connection and pick the one that actually unblocks services. <b>Run with the VPN off.</b>",
+      lead: "We'll check <b>{n} strategies</b> on your connection and pick the one that actually opens Discord and YouTube. Experimental profiles are left out, and the pick is unavailable in VPN · TUN mode.",
       start: "Tune for my connection",
       checking: "Testing strategy <b>{name}</b>",
       progLine: "connection test · TLS handshake · ping&nbsp;&nbsp;<b>{i}</b> of {total}",

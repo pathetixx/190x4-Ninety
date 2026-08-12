@@ -234,7 +234,7 @@ export const es = {
 
     autopick: {
       cardLabel: "Selección automática de estrategia",
-      lead: "Ejecutaremos <b>las {n} estrategias</b> en tu conexión y elegiremos la que realmente desbloquea los servicios. <b>Ejecútalo con la VPN apagada.</b>",
+      lead: "Probaremos <b>{n} estrategias</b> en tu conexión y elegiremos la que realmente abre Discord y YouTube. Los perfiles experimentales quedan fuera y la selección no está disponible en modo VPN · TUN.",
       start: "Ajustar a mi conexión",
       checking: "Probando la estrategia <b>{name}</b>",
       progLine: "prueba de conexión · handshake TLS · ping&nbsp;&nbsp;<b>{i}</b> de {total}",

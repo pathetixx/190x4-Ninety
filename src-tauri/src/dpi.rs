@@ -1687,6 +1687,8 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 // старта. 150 мс подряд 20 раз давали гонку, в которой движок не
 // поднимался, а стратегия выглядела нерабочей.
 const AUTOTEST_ENGINE_SETTLE: Duration = Duration::from_millis(500);
+// Попыток поднять движок на одну стратегию, прежде чем засчитать провал.
+const AUTOTEST_ENGINE_ATTEMPTS: usize = 2;
 
 // Клиент одной пробы автоподбора: без прокси, без переиспользования соединений.
 // Пул соединений здесь — источник ложных успехов, см. dpi_autotest.
@@ -2758,74 +2760,84 @@ pub async fn dpi_autotest(
         // Ровно тот же argv, что соберёт dpi_start: иначе автотест проверяет не
         // то, что потом запустится (исключение ноды меняет матчинг профилей).
         let args = spread_exclusion_across_sections(args, &exclusion);
-        let mut cmd = std::process::Command::new(&exe);
-        cmd.args(&args).current_dir(&bin);
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000);
-        }
-        if let Some(writer) = log_writer.as_ref() {
-            writer
-                .lock_recover()
-                .append(format!("\n=== autotest: {} ===\n", strat.name).as_bytes());
-            cmd.stdout(std::process::Stdio::piped());
-            cmd.stderr(std::process::Stdio::piped());
-        }
-        let mut child = match cmd.spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                if let Some(writer) = log_writer.as_ref() {
-                    writer
-                        .lock_recover()
-                        .append(format!("spawn winws: {e}\n").as_bytes());
+        // Движку даётся вторая попытка: «драйвер занят» — состояние гоночное,
+        // а не свойство стратегии, и один такой промах вычёркивал рабочий
+        // профиль из подбора целиком.
+        let mut alive = false;
+        for attempt in 0..AUTOTEST_ENGINE_ATTEMPTS {
+            let mut cmd = std::process::Command::new(&exe);
+            cmd.args(&args).current_dir(&bin);
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x0800_0000);
+            }
+            if let Some(writer) = log_writer.as_ref() {
+                writer.lock_recover().append(
+                    format!("\n=== autotest: {} (try {}) ===\n", strat.name, attempt + 1)
+                        .as_bytes(),
+                );
+                cmd.stdout(std::process::Stdio::piped());
+                cmd.stderr(std::process::Stdio::piped());
+            }
+            let mut child = match cmd.spawn() {
+                Ok(c) => c,
+                Err(e) => {
+                    if let Some(writer) = log_writer.as_ref() {
+                        writer
+                            .lock_recover()
+                            .append(format!("spawn winws: {e}\n").as_bytes());
+                    }
+                    dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE, "DPI autotest")
+                        .await?;
+                    continue;
                 }
-                engine_failed += 1;
-                continue;
+            };
+            if let Some(writer) = log_writer.as_ref() {
+                if let Some(stdout) = child.stdout.take() {
+                    spawn_dpi_log_pipe(stdout, writer.clone());
+                }
+                if let Some(stderr) = child.stderr.take() {
+                    spawn_dpi_log_pipe(stderr, writer.clone());
+                }
             }
-        };
-        if let Some(writer) = log_writer.as_ref() {
-            if let Some(stdout) = child.stdout.take() {
-                spawn_dpi_log_pipe(stdout, writer.clone());
+            {
+                let control = state.control.lock_recover();
+                if control.generation != generation || control.operation.is_none() {
+                    drop(control);
+                    let _ = terminate_child_bounded(&mut child, "winws autotest");
+                    return Err("DPI autotest отменён".into());
+                }
+                *state.child.lock_recover() = Some(child);
             }
-            if let Some(stderr) = child.stderr.take() {
-                spawn_dpi_log_pipe(stderr, writer.clone());
-            }
-        }
-        {
-            let control = state.control.lock_recover();
-            if control.generation != generation || control.operation.is_none() {
-                drop(control);
-                let mut child = child;
-                let _ = terminate_child_bounded(&mut child, "winws autotest");
-                return Err("DPI autotest отменён".into());
-            }
-            *state.child.lock_recover() = Some(child);
-        }
-        state.driver_loaded.store(true, Ordering::SeqCst);
-        dpi_sleep_or_cancel(
-            &state,
-            generation,
-            Duration::from_millis(700),
-            "DPI autotest",
-        )
-        .await?;
-        remember_owned_driver_services(&state, &bin);
+            state.driver_loaded.store(true, Ordering::SeqCst);
+            dpi_sleep_or_cancel(
+                &state,
+                generation,
+                Duration::from_millis(700),
+                "DPI autotest",
+            )
+            .await?;
+            remember_owned_driver_services(&state, &bin);
 
-        // winws мог умереть на битом аргументе или занятом драйвере. Без этой
-        // проверки мёртвая стратегия засчитывалась как рабочая: запрос всё равно
-        // проходит, если сайт у провайдера и так открыт.
-        let alive = {
-            let mut guard = state.child.lock_recover();
-            match guard.as_mut() {
-                Some(child) => !matches!(child.try_wait(), Ok(Some(_))),
-                None => false,
+            // winws мог умереть на битом аргументе или занятом драйвере. Без этой
+            // проверки мёртвая стратегия засчитывалась как рабочая: запрос всё
+            // равно проходит, если сайт у провайдера и так открыт.
+            alive = {
+                let mut guard = state.child.lock_recover();
+                match guard.as_mut() {
+                    Some(child) => !matches!(child.try_wait(), Ok(Some(_))),
+                    None => false,
+                }
+            };
+            if alive {
+                break;
             }
-        };
-        if !alive {
             *state.child.lock_recover() = None;
-            engine_failed += 1;
             dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE, "DPI autotest").await?;
+        }
+        if !alive {
+            engine_failed += 1;
             continue;
         }
 

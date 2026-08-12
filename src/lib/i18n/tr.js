@@ -230,7 +230,7 @@ export const tr = {
 
     autopick: {
       cardLabel: "Stratejiyi otomatik seç",
-      lead: "Bağlantınızda <b>{n} stratejinin tamamını</b> çalıştırıp hizmetleri gerçekten açan stratejiyi seçeceğiz. <b>VPN kapalıyken çalıştırın.</b>",
+      lead: "Bağlantınızda <b>{n} strateji</b> deneyip Discord ve YouTube'u gerçekten açanı seçeceğiz. Deneysel profiller dışarıda kalır, VPN · TUN modunda seçim kullanılamaz.",
       start: "Bağlantıma göre ayarla",
       checking: "<b>{name}</b> stratejisi test ediliyor",
       progLine: "bağlantı testi · TLS el sıkışması · ping&nbsp;&nbsp;<b>{i}</b> / {total}",

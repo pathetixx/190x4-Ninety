@@ -226,7 +226,7 @@ export const zh = {
 
     autopick: {
       cardLabel: "自动挑选策略",
-      lead: "我们会在你的网络上运行<b>全部 {n} 个策略</b>，挑出真正能解锁服务的那个。<b>请在关闭 VPN 时运行。</b>",
+      lead: "我们会在你的网络上检测 <b>{n} 个策略</b>，挑出真正能打开 Discord 和 YouTube 的那个。实验性配置不参与挑选，VPN · TUN 模式下无法使用。",
       start: "为我的网络调优",
       checking: "正在测试策略 <b>{name}</b>",
       progLine: "连接测试 · TLS 握手 · ping&nbsp;&nbsp;<b>{i}</b> / {total}",

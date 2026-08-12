@@ -230,7 +230,7 @@ export const de = {
 
     autopick: {
       cardLabel: "Strategie automatisch wählen",
-      lead: "Wir testen <b>alle {n} Strategien</b> an deiner Verbindung und wählen die, die Dienste tatsächlich entsperrt. <b>Bei ausgeschaltetem VPN ausführen.</b>",
+      lead: "Wir prüfen <b>{n} Strategien</b> in deinem Netz und wählen die, die Discord und YouTube wirklich öffnet. Experimentelle Profile bleiben außen vor, im Modus VPN · TUN ist die Auswahl nicht verfügbar.",
       start: "Auf meine Verbindung abstimmen",
       checking: "Teste Strategie <b>{name}</b>",
       progLine: "Verbindungstest · TLS-Handshake · Ping&nbsp;&nbsp;<b>{i}</b> von {total}",
