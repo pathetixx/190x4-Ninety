@@ -2,6 +2,26 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.3.4 — 2026-08-12
+
+## English
+
+- Discord voice works again with the DPI bypass on. Joining a channel left the ping stuck at thousands of milliseconds on every strategy, because the bypass was quietly skipping voice traffic — it only ever handled the parts of Discord that carry a site address. Text, the app itself and everything else kept working, which is why it looked like the strategies were fine. This affected users whose VPN server is set by name rather than by address, and it started with v0.3.0.
+- The game filter works again — extra traffic for games was being skipped for the same reason.
+- Protecting the connection to your own VPN server from the bypass now really works. It was set up by server name, and that name never appears in the traffic Ninety sends, so the protection could not match anything. Ninety now looks the address up and protects that.
+- "Discord outside the tunnel" now keeps voice outside the tunnel too. The setting only moved the parts of Discord that carry a site address, while voice went through the VPN — the opposite of what the setting promises.
+- Auto-pick of a strategy now measures what it claims to. After the first working strategy every following one reused an already open connection, so almost everything came back as passed and the recommendation was close to random. Each strategy is now checked from scratch, Discord is checked before YouTube, a strategy whose engine failed to start is no longer counted as working, and the run refuses to start in VPN · TUN mode, where every check would go through the tunnel anyway.
+- Auto-pick puts the bypass back the way it found it. The run stops the bypass to test strategies one by one, and afterwards it stayed off while the app still showed it as running.
+
+## Русский
+
+- Голос в Discord снова работает при включённом DPI-обходе. При заходе в канал пинг застревал на нескольких тысячах миллисекунд, и так на каждой стратегии: обход молча пропускал голосовой трафик мимо себя и обрабатывал только те части Discord, в которых есть адрес сайта. Текст, само приложение и всё остальное при этом работали — поэтому казалось, что со стратегиями всё в порядке. Задевало тех, у кого сервер VPN задан именем, а не адресом; появилось в v0.3.0.
+- Снова работает игровой фильтр — дополнительный обход для игр пропускался по той же причине.
+- Защита соединения с вашим VPN-сервером от обхода теперь действительно работает. Она была настроена по имени сервера, а это имя в отправляемом трафике не появляется, так что защищать ей было нечего. Теперь Ninety определяет адрес сервера и защищает его.
+- «Discord мимо туннеля» уводит мимо туннеля и голос. Раньше настройка уводила только те части Discord, в которых есть адрес сайта, а голос шёл через VPN — то есть ровно наоборот тому, что настройка обещает.
+- Авто-подбор стратегии наконец измеряет то, что заявляет. После первой сработавшей стратегии все следующие пользовались уже открытым соединением, поэтому «проходило» почти всё, а рекомендация была почти случайной. Теперь каждая стратегия проверяется с нуля, Discord проверяется раньше YouTube, стратегия с не запустившимся движком больше не считается рабочей, а сам прогон не начинается в режиме VPN · TUN, где все проверки всё равно ушли бы через туннель.
+- Авто-подбор возвращает обход в то состояние, в котором его застал. Прогон выключает обход, чтобы перебирать стратегии по одной, и после него обход оставался выключенным, хотя приложение показывало его работающим.
+
 ## v0.3.3 — 2026-08-11
 
 ## English
