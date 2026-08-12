@@ -2,6 +2,28 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.3.5 — 2026-08-12
+
+## English
+
+- Auto-pick of a strategy gives a stable answer. Two runs a few minutes apart could report 2 of 20 and then 10 of 20 on the same connection: when the engine lost the race for its driver between runs, a perfectly good strategy was written off. The engine now gets a second attempt, strategies whose engine never came up are counted and named separately instead of being reported as not working, and the run keeps its own log next to the others, so a result can be checked rather than guessed at.
+- Auto-pick checks Discord, not only YouTube. On connections where YouTube opens but Discord does not, it used to approve strategies that leave Discord blocked. All checks now run for every strategy, and a strategy that opens some of them is reported as partial instead of being lumped in with the ones that open nothing.
+- The delay shown next to the recommendation is the delay of a single check again, not the sum of all of them.
+- "Recommended" on the strategy card now marks what auto-pick actually measured on your connection and says so. It used to be pinned to one profile regardless of any measurement. Until the first run it marks the default profile, as before.
+- The auto-pick description says what really happens: which services are checked, that experimental profiles are excluded, and that the run is unavailable in VPN · TUN mode, where every check would go through the tunnel.
+- The EXP profile explains itself — that it is experimental, that auto-pick never tries it, and that it is worth checking by hand. Its description also no longer names a strategy version that has since moved on.
+- Lists for the system hosts entry and for the service mode now update together with the rest of the bypass data instead of staying behind on an older set.
+
+## Русский
+
+- Авто-подбор стратегии даёт устойчивый ответ. Два прогона с разницей в несколько минут на одном и том же интернете могли показать 2 из 20, а затем 10 из 20: если движок проигрывал гонку за свой драйвер между прогонами, вполне рабочая стратегия записывалась в нерабочие. Теперь у движка есть вторая попытка, стратегии с незапустившимся движком считаются и называются отдельно, а не выдаются за неработающие, и у прогона появился собственный журнал рядом с остальными — результат можно проверить, а не додумывать.
+- Авто-подбор проверяет Discord, а не только YouTube. На интернете, где YouTube открывается, а Discord нет, он раньше одобрял стратегии, с которыми Discord остаётся заблокированным. Теперь все проверки проходят для каждой стратегии, а та, что открыла часть из них, так и подписана — вместо того чтобы попасть в одну кучу с теми, что не открыли ничего.
+- Задержка рядом с рекомендацией снова означает задержку одной проверки, а не сумму всех.
+- «Рекоменд.» на карточке стратегии теперь отмечает то, что авто-подбор реально намерил на вашем интернете, и прямо об этом говорит. Раньше метка была прибита к одному профилю независимо от замеров. До первого прогона она, как и прежде, отмечает профиль по умолчанию.
+- Описание авто-подбора говорит, что происходит на самом деле: какие сервисы проверяются, что экспериментальные профили в подбор не входят и что в режиме VPN · TUN подбор недоступен — там все проверки ушли бы через туннель.
+- Профиль EXP объясняет сам себя: что он экспериментальный, что авто-подбор его не пробует и что его стоит проверить вручную. Из описания заодно убрана версия набора стратегий, которая давно сменилась.
+- Списки для записи в системный hosts и для сервисного режима обновляются вместе с остальными данными обхода, а не отстают на более старый набор.
+
 ## v0.3.4 — 2026-08-12
 
 ## English
