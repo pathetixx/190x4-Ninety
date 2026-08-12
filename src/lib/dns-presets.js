@@ -21,9 +21,10 @@ export const DNS_SEPARATOR = "__sep__";
 
 // type: system | doh | dot | plain — влияет только на подпись пункта.
 export const DNS_PRESETS = {
+  // Системного резолвера здесь намеренно нет: remote с "local" резолвит мимо
+  // тоннеля — запросы видит провайдер. Вписать вручную по-прежнему можно, тогда
+  // UI показывает предупреждение.
   remote: [
-    { value: "local", type: "system" },
-    { value: DNS_SEPARATOR },
     { value: "https://1.1.1.1/dns-query", brand: "Cloudflare", type: "doh" },
     { value: "tls://1.1.1.1", brand: "Cloudflare", type: "dot" },
     { value: "https://8.8.8.8/dns-query", brand: "Google", type: "doh" },

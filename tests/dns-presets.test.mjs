@@ -84,3 +84,8 @@ test("каждый пресет проходит собственный вали
     }
   }
 });
+
+test("системный резолвер не предлагается для remote, но остаётся для direct", () => {
+  assert.equal(DNS_PRESETS.remote.some(p => isSystemDns(p.value)), false);
+  assert.ok(DNS_PRESETS.direct.some(p => isSystemDns(p.value)));
+});
