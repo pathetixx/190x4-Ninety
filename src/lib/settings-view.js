@@ -2,7 +2,7 @@
 // Не SPA-роутер: внутренний state хранится в this view (sectionKey).
 
 import {
-  loadOptions, updateOption,
+  loadOptions, updateOption, getOption,
   REGIONS, IPV6_MODES, TUN_STACKS, LOG_LEVELS, MUX_PROTOCOLS,
 } from "/lib/options.js";
 import { BUILD_INFO } from "/lib/build-info.js";
@@ -14,6 +14,10 @@ import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { openConfirmModal } from "/lib/confirm-modal.js";
 import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
 import { toast } from "/lib/toast.js";
+import {
+  DNS_PRESETS, DNS_CUSTOM, DNS_SEPARATOR,
+  dnsPresetLabel, findDnsPreset, isSystemDns, validateDnsAddress,
+} from "/lib/dns-presets.js";
 
 // Label-карты строятся в рантайме: t() зависит от текущего языка, замораживать
 // на import нельзя. SECTIONS держит только key+icon; title/hint берём через t().
@@ -184,6 +188,10 @@ export function mountSettings(root, opts = {}) {
       const path = input.dataset.opt;
       const handler = async () => {
         const value = readInput(input, path);
+        // blur стреляет и на простом «кликнул в поле — кликнул мимо», без правки
+        // значения. Без этой отсечки такой клик доходил до onChange →
+        // pathNeedsRestart → реконнект живого туннеля на ровном месте.
+        if (value === getOption(loadOptions(), path)) return;
         if (input.dataset.action === "autostart") {
           try {
             const invoke = window.__TAURI__?.core?.invoke;
@@ -199,7 +207,13 @@ export function mountSettings(root, opts = {}) {
             return;
           }
         }
-        updateOption(path, value);
+        const normalized = updateOption(path, value);
+        // Поле должно показывать то, что реально сохранено (например, после trim),
+        // иначе следующий blur снова увидит расхождение и снова дёрнет реконнект.
+        const applied = getOption(normalized, path);
+        if (input.type !== "checkbox" && String(applied ?? "") !== input.value) {
+          input.value = String(applied ?? "");
+        }
         onChange(path, value);
         if (input.dataset.affectsView) render();
       };
@@ -262,6 +276,7 @@ export function mountSettings(root, opts = {}) {
     });
     bindAlwaysAdmin(el, sec);
     bindPortableSecrets(el, sec);
+    bindDnsSection(el, onChange);
     bindWarpSection(el, sec, onChange);
     bindSensitiveDataClear(el, sec, onSensitiveDataClear);
     bindAppearanceSection(el, sec);
@@ -503,6 +518,78 @@ export function mountSettings(root, opts = {}) {
         el.querySelectorAll(".theme-card[data-theme]").forEach(c => {
           c.dataset.on = String(c.dataset.theme === id);
         });
+      });
+    });
+  }
+
+  // DNS-комбо. Сохраняем только реально изменившееся и только валидное:
+  // выбор пункта «Свой адрес…» сам по себе ничего не пишет и не перезапускает
+  // ядро, а битый ручной ввод отклоняется здесь, а не падает позже на старте.
+  function bindDnsSection(el, onChange) {
+    el.querySelectorAll(".settings-dns").forEach(box => {
+      const kind = box.dataset.dnsKind;
+      const path = box.dataset.dnsPath;
+      const sel = box.querySelector(".settings-dns__select");
+      const custom = box.querySelector(".settings-dns__custom");
+      const errBox = box.querySelector(".settings-dns__msg--err");
+      const warnBox = box.querySelector(".settings-dns__msg--warn");
+      if (!sel || !custom) return;
+
+      const showError = (key) => {
+        errBox.textContent = key ? t(key) : "";
+        errBox.hidden = !key;
+        custom.classList.toggle("settings-input--bad", !!key);
+      };
+      // «Как в системе» на remote — резолв уходит мимо туннеля; молча такое
+      // подсовывать нельзя, но и запрещать выбор не наше дело.
+      const syncWarn = (value) => {
+        warnBox.hidden = !(kind === "remote" && isSystemDns(value));
+      };
+      const apply = (value) => {
+        if (value === getOption(loadOptions(), path)) return;
+        updateOption(path, value);
+        onChange(path, value);
+      };
+
+      sel.addEventListener("change", () => {
+        showError(null);
+        if (sel.value === DNS_CUSTOM) {
+          custom.hidden = false;
+          custom.focus();
+          custom.select();
+          return; // раскрытие поля — ещё не смена адреса
+        }
+        custom.hidden = true;
+        syncWarn(sel.value);
+        apply(sel.value);
+      });
+
+      const commit = () => {
+        const raw = custom.value.trim();
+        if (raw !== custom.value) custom.value = raw;
+        const check = validateDnsAddress(raw);
+        if (!check.ok) {
+          showError(check.messageKey);
+          return;
+        }
+        showError(null);
+        // Пустое поле = «вернуть как было по умолчанию»: normalizeOptions
+        // подставит дефолт, и селект должен показать его имя, а не «Свой адрес».
+        apply(raw);
+        const applied = getOption(loadOptions(), path);
+        custom.value = raw ? applied : "";
+        syncWarn(applied);
+        if (findDnsPreset(kind, applied)) {
+          sel.value = applied;
+          custom.hidden = true;
+        }
+      };
+      custom.addEventListener("change", commit);
+      custom.addEventListener("blur", commit);
+      custom.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        commit();
       });
     });
   }
@@ -950,6 +1037,30 @@ function inputText(path, value, type = "text", attrs = "") {
   return `<input class="${cls}" type="${escapeAttr(type)}" value="${escapeAttr(value ?? "")}" data-opt="${escapeAttr(path)}" ${attrs}/>`;
 }
 
+// DNS-комбо: список пресетов + пункт «Свой адрес…», раскрывающий поле ввода.
+// data-opt НЕ ставим намеренно — общий обработчик bindSection сохранял бы
+// сырой ввод без проверки; здесь нужна валидация до записи (bindDnsSection).
+function dnsCombo(kind, path, value) {
+  const preset = findDnsPreset(kind, value);
+  const custom = !preset;
+  const opts = (DNS_PRESETS[kind] || []).map(p => (
+    p.value === DNS_SEPARATOR
+      ? `<option disabled>──────────</option>`
+      : `<option value="${escapeAttr(p.value)}" ${p.value === value ? "selected" : ""}>${escapeHtml(dnsPresetLabel(p))}</option>`
+  )).join("");
+  const customOpt = `<option value="${DNS_CUSTOM}" ${custom ? "selected" : ""}>${escapeHtml(t("settings.dns.presetCustom"))}</option>`;
+  const warnHidden = !(kind === "remote" && isSystemDns(value));
+  return `
+    <div class="settings-dns" data-dns-kind="${escapeAttr(kind)}" data-dns-path="${escapeAttr(path)}">
+      <select class="settings-select settings-dns__select">${opts}<option disabled>──────────</option>${customOpt}</select>
+      <input class="settings-input settings-dns__custom" type="text" spellcheck="false"
+             value="${escapeAttr(custom ? value : "")}" placeholder="${escapeAttr(t("settings.dns.customPlaceholder"))}" ${custom ? "" : "hidden"}/>
+      <div class="settings-dns__msg settings-dns__msg--err" hidden></div>
+      <div class="settings-dns__msg settings-dns__msg--warn" ${warnHidden ? "hidden" : ""}>${escapeHtml(t("settings.dns.systemWarn"))}</div>
+    </div>
+  `;
+}
+
 function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
   return `
     <div class="set-row">
@@ -1046,8 +1157,8 @@ function subNavRow(label, hint, subsection) {
 function renderDns(o) {
   return `
     <div class="settings-section">
-      ${row(iconRemote(), t("settings.dns.remoteTitle"), t("settings.dns.remoteHint"), inputText("dns.remoteAddress", o.dns.remoteAddress, "text"))}
-      ${row(iconDirect(), t("settings.dns.directTitle"), t("settings.dns.directHint"), inputText("dns.directAddress", o.dns.directAddress, "text"))}
+      ${row(iconRemote(), t("settings.dns.remoteTitle"), t("settings.dns.remoteHint"), dnsCombo("remote", "dns.remoteAddress", o.dns.remoteAddress))}
+      ${row(iconDirect(), t("settings.dns.directTitle"), t("settings.dns.directHint"), dnsCombo("direct", "dns.directAddress", o.dns.directAddress))}
       ${row(iconCache(), t("settings.dns.cacheTitle"), t("settings.dns.cacheHint"), toggle("dns.independentCache", o.dns.independentCache))}
       ${row(iconMask(), t("settings.dns.fakeTitle"), t("settings.dns.fakeHint"), toggle("dns.enableFakeDns", o.dns.enableFakeDns))}
     </div>

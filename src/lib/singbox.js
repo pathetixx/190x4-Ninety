@@ -484,7 +484,7 @@ function buildRuleSets(options, mode, downloadDetour = "proxy") {
 //   quic://host[:port]  → {type: "quic",  server, server_port?}
 //   1.2.3.4 / host      → {type: "udp",   server} (дефолт)
 //   local | system      → {type: "local"}
-function parseDnsAddress(raw) {
+export function parseDnsAddress(raw) {
   const s = String(raw || "").trim();
   if (!s || s === "local" || s === "system") return { type: "local" };
   const m = s.match(/^([a-z]+):\/\/(.+)$/i);

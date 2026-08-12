@@ -33,6 +33,27 @@
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .settings-input--num { width: 84px; text-align: end; }
+.settings-input--bad,
+.settings-input--bad:hover { border-color: var(--err); }
+.settings-input--bad:focus { border-color: var(--err); box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 22%, transparent); }
+
+/* DNS-комбо: селект пресетов, под ним поле «Свой адрес…» и сообщения. */
+.settings-dns {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.settings-dns__select { max-width: 260px; }
+.settings-dns__custom { width: 240px; }
+.settings-dns__msg {
+  max-width: 260px;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: end;
+}
+.settings-dns__msg--err { color: var(--err); }
+.settings-dns__msg--warn { color: var(--warn); }
 
 .settings-range {
   display: inline-flex;
