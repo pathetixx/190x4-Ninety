@@ -243,11 +243,13 @@ export const it = {
       again: "Di nuovo",
       metaOk: "{passed} di {total} superate · latenza migliore {ms} ms",
       metaNone: "Nessuna strategia superata — assicurati che la VPN sia disattivata.",
+      metaPartial: "Nessuna ha superato tutto · la migliore ha aperto {covered} di {targets} verifiche",
+      metaEngine: "il motore non è partito su {n} — apri i log",
       toastErr: "Scelta auto: {err}",
       toastTun: "La scelta automatica funziona solo con la VPN spenta: in modalità VPN · TUN i test passano dal tunnel e il risultato sarebbe errato.",
     },
 
-    strategy: { label: "Strategia attuale", drawerBtn: "Strategie", recTag: "consigliata" },
+    strategy: { label: "Strategia attuale", drawerBtn: "Strategie", recTag: "consigliata", recTagMeasured: "la migliore da te" },
 
     game: {
       title: "Filtro giochi",

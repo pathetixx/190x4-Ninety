@@ -239,11 +239,13 @@ export const fa = {
       again: "دوباره",
       metaOk: "{passed} از {total} موفق · بهترین تأخیر {ms} ms",
       metaNone: "هیچ استراتژی موفق نشد — مطمئن شوید VPN خاموش است.",
+      metaPartial: "هیچ استراتژی همهٔ بررسی‌ها را رد نکرد · بهترین {covered} از {targets} را باز کرد",
+      metaEngine: "موتور در {n} مورد اجرا نشد — گزارش‌ها را باز کنید",
       toastErr: "انتخاب خودکار: {err}",
       toastTun: "انتخاب خودکار فقط با VPN خاموش کار می‌کند: در حالت VPN · TUN بررسی‌ها از تونل عبور می‌کنند و نتیجه نادرست خواهد بود.",
     },
 
-    strategy: { label: "استراتژی فعلی", drawerBtn: "استراتژی‌ها", recTag: "توصیه‌شده" },
+    strategy: { label: "استراتژی فعلی", drawerBtn: "استراتژی‌ها", recTag: "توصیه‌شده", recTagMeasured: "بهترین در شبکهٔ شما" },
 
     game: {
       title: "فیلتر بازی",

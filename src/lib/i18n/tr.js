@@ -239,11 +239,13 @@ export const tr = {
       again: "Tekrar",
       metaOk: "{passed} / {total} geçti · en iyi gecikme {ms} ms",
       metaNone: "Hiçbir strateji geçemedi — VPN'in kapalı olduğundan emin olun.",
+      metaPartial: "Hiçbiri tümünü geçemedi · en iyisi {targets} kontrolden {covered} tanesini açtı",
+      metaEngine: "motor {n} stratejide başlamadı — günlükleri açın",
       toastErr: "Otomatik seçim: {err}",
       toastTun: "Otomatik seçim yalnızca VPN kapalıyken çalışır: VPN · TUN modunda testler tünelden geçer ve sonuç yanlış olur.",
     },
 
-    strategy: { label: "Geçerli strateji", drawerBtn: "Stratejiler", recTag: "önerilen" },
+    strategy: { label: "Geçerli strateji", drawerBtn: "Stratejiler", recTag: "önerilen", recTagMeasured: "ağınızda en iyisi" },
 
     game: {
       title: "Oyun filtresi",

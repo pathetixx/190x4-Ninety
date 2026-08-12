@@ -235,11 +235,13 @@ export const zh = {
       again: "重试",
       metaOk: "{passed} / {total} 通过 · 最佳延迟 {ms} ms",
       metaNone: "没有策略通过——请确认 VPN 已关闭。",
+      metaPartial: "没有策略通过全部检查 · 最佳策略打开了 {targets} 项中的 {covered} 项",
+      metaEngine: "有 {n} 项策略引擎未启动 — 请查看日志",
       toastErr: "自动挑选：{err}",
       toastTun: "自动挑选仅在关闭 VPN 时有效：在 VPN · TUN 模式下检测会走隧道，结果并不可靠。",
     },
 
-    strategy: { label: "当前策略", drawerBtn: "策略", recTag: "推荐" },
+    strategy: { label: "当前策略", drawerBtn: "策略", recTag: "推荐", recTagMeasured: "你网络上最佳" },
 
     game: {
       title: "游戏过滤",

@@ -62,13 +62,25 @@ function ic(name, size = 16, stroke = 1.5) {
 /* ═══════════ DATA ═══════════ */
 // Реальный список приходит из dpi_strategies() (strategies.json движка).
 // Фолбэк — на случай web-preview / ошибки чтения.
-let STRATEGIES = [{ id: "alt11", name: "ALT11", desc: "Самый стойкий профиль." }];
+const DEFAULT_STRATEGY = "ALT11";
+let STRATEGIES = [{ id: "alt11", name: DEFAULT_STRATEGY, desc: "Самый стойкий профиль." }];
 // Описания стратегий — данные из канала (по-русски), через t() НЕ идут. Для
 // не-русского интерфейса прячем их, оставляя только имя стратегии (вариант B).
 const stratDesc = (d) => (getLang() === "ru" && d ? esc(d) : "");
 const stratByName = (n) =>
   STRATEGIES.find((s) => s.name === n) || STRATEGIES.find((s) => s.id === n) || STRATEGIES[0];
 const autopickCount = () => STRATEGIES.filter((s) => !s.experimental).length;
+
+// Какую стратегию помечать как рекомендованную и на каком основании.
+// measured=true — это результат авто-подбора на сети пользователя; false —
+// профиль по умолчанию, с которым приложение поставляется. Имя из прошлых
+// замеров проверяем по текущему набору: канал мог его переименовать или убрать.
+export function recommendedStrategy(strategies, stored) {
+  const list = Array.isArray(strategies) ? strategies : [];
+  const measured = list.find((s) => s.name === stored);
+  if (measured) return { name: measured.name, measured: true };
+  return { name: DEFAULT_STRATEGY, measured: false };
+}
 
 // kicker — декоративный английский (не локализуем); title/desc — через t() в рантайме.
 const MASTER = {
@@ -94,16 +106,19 @@ const LS = {
   gameFilter: "ninety.dpi.gameFilter",
   ipset: "ninety.dpi.ipset",
   monkey: "ninety.dpi.monkey",
+  recommended: "ninety.dpi.recommended",
 };
 const lsGet = (k, d) => { const v = localStorage.getItem(k); return v == null ? d : v; };
 
 const S = {
   base: "off",          // off | starting | running | error
   vpnMode: "systemProxy",
-  strategy: lsGet(LS.strategy, "ALT11"),
+  strategy: lsGet(LS.strategy, DEFAULT_STRATEGY),
   gameFilter: lsGet(LS.gameFilter, "off"),
   ipset: lsGet(LS.ipset, "any"),
   monkey: lsGet(LS.monkey, "false") === "true",
+  // Победитель последнего авто-подбора. Пусто — замеров ещё не было.
+  recommended: lsGet(LS.recommended, ""),
   hasUpdate: false,
   lastError: "",
   versions: { app: "—", engine: "winws", strategies: "—" },
@@ -150,6 +165,7 @@ function renderBody() {
   const m = MASTER[st] || MASTER.off;
   const switchOn = st === "running" || st === "starting";
   const cur = stratByName(S.strategy);
+  const rec = recommendedStrategy(STRATEGIES, S.recommended);
   const p = S.autopick;
   const dataBusy = p.phase === "running" || S.updating != null || S.fakes.busy != null;
 
@@ -262,7 +278,7 @@ function renderBody() {
           <div class="dpi-strategy">
             <div class="dpi-strategy__row">
               <span class="dpi-strategy__name">${esc(cur.name)}</span>
-              ${S.strategy === "ALT11" ? `<span class="dpi-strategy__tag">${t("dpi.strategy.recTag")}</span>` : ""}
+              ${cur.name === rec.name ? `<span class="dpi-strategy__tag">${t(rec.measured ? "dpi.strategy.recTagMeasured" : "dpi.strategy.recTag")}</span>` : ""}
             </div>
             <div class="dpi-strategy__desc">${stratDesc(cur.desc)}</div>
           </div>
@@ -820,17 +836,35 @@ async function pickStart() {
   const ok = await ensureElevated();
   if (!ok || epoch !== dpiAutopickEpoch) { S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" }; autopickResume = false; return; }
   try {
-    const r = await invoke("dpi_autotest", { monkey: S.monkey });
+    const r = await invoke("dpi_autotest", { monkey: S.monkey, logsDisabled: !!loadOptions()?.log?.disabled });
     if (epoch !== dpiAutopickEpoch) return;
+    // Движок, не поднявшийся из-за гонки за драйвер, — это не «стратегия не
+    // работает». Считаем отдельно и говорим отдельно, иначе цифра врёт.
+    const engineNote = r?.engine_failed
+      ? " · " + t("dpi.autopick.metaEngine", { n: r.engine_failed })
+      : "";
     if (r?.best_id) {
       const best = STRATEGIES.find((s) => s.id === r.best_id);
+      // Замер важнее дефолта: бейдж «рекоменд.» с этого момента стоит на том,
+      // что реально открылось на этой сети, а не на профиле из коробки.
+      S.recommended = best?.name || r.best_name || "";
+      localStorage.setItem(LS.recommended, S.recommended);
+      // passed — сколько стратегий открыли ВСЕ проверки. Если таких нет, но
+      // рекомендация есть, она частичная, и написать «0 из 20 прошли» нельзя.
+      const meta = r.passed > 0
+        ? t("dpi.autopick.metaOk", { passed: r.passed, total: r.total, ms: r.latency_ms })
+        : t("dpi.autopick.metaPartial", { covered: r.best_targets, targets: r.targets });
       S.autopick = {
         phase: "done", i: r.total, total: r.total,
         best: best?.name || r.best_name,
-        meta: t("dpi.autopick.metaOk", { passed: r.passed, total: r.total, ms: r.latency_ms }),
+        meta: meta + engineNote,
       };
     } else {
-      S.autopick = { phase: "done", i: r?.total || 0, total: r?.total || 0, best: null, meta: t("dpi.autopick.metaNone") };
+      // Прогон не нашёл ничего — прошлая рекомендация больше не подтверждена,
+      // держать её на карточке нельзя. Возвращаемся к профилю по умолчанию.
+      S.recommended = "";
+      localStorage.removeItem(LS.recommended);
+      S.autopick = { phase: "done", i: r?.total || 0, total: r?.total || 0, best: null, meta: t("dpi.autopick.metaNone") + engineNote };
     }
   } catch (e) {
     if (epoch !== dpiAutopickEpoch) return;

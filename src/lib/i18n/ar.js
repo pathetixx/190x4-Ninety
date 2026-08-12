@@ -255,11 +255,13 @@ export const ar = {
       again: "من جديد",
       metaOk: "نجح {passed} من {total} · أفضل زمن استجابة {ms} ms",
       metaNone: "لم تنجح أي استراتيجية — تأكد أن الـ VPN مُطفأ.",
+      metaPartial: "لم تجتز أي استراتيجية كل الفحوص · أفضلها فتحت {covered} من {targets}",
+      metaEngine: "لم يبدأ المحرك في {n} — افتح السجلات",
       toastErr: "الاختيار التلقائي: {err}",
       toastTun: "لا يعمل الاختيار التلقائي إلا عند إيقاف VPN: في وضع VPN · TUN تمرّ الفحوص عبر النفق فتكون النتيجة غير صحيحة.",
     },
 
-    strategy: { label: "الاستراتيجية الحالية", drawerBtn: "الاستراتيجيات", recTag: "موصى به" },
+    strategy: { label: "الاستراتيجية الحالية", drawerBtn: "الاستراتيجيات", recTag: "موصى به", recTagMeasured: "الأفضل على شبكتك" },
 
     game: {
       title: "مرشّح الألعاب",

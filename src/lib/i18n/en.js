@@ -239,11 +239,13 @@ export const en = {
       again: "Again",
       metaOk: "{passed} of {total} passed · best latency {ms} ms",
       metaNone: "No strategy passed — make sure the VPN is off.",
+      metaPartial: "None passed everything · the best one opened {covered} of {targets} checks",
+      metaEngine: "the engine did not start on {n} — open the logs",
       toastErr: "Auto-pick: {err}",
       toastTun: "Auto-pick only works with the VPN off: in VPN · TUN mode the checks go through the tunnel, so the result would be wrong.",
     },
 
-    strategy: { label: "Current strategy", drawerBtn: "Strategies", recTag: "recommended" },
+    strategy: { label: "Current strategy", drawerBtn: "Strategies", recTag: "recommended", recTagMeasured: "best on your network" },
 
     game: {
       title: "Game filter",

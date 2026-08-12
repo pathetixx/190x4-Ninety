@@ -235,11 +235,13 @@ export const ko = {
       again: "다시",
       metaOk: "{passed} / {total} 통과 · 최적 지연 {ms} ms",
       metaNone: "통과한 전략이 없습니다 — VPN이 꺼져 있는지 확인하세요.",
+      metaPartial: "모두 통과한 전략이 없습니다 · 최선은 {targets}개 중 {covered}개",
+      metaEngine: "{n}개에서 엔진이 시작되지 않았습니다 — 로그를 확인하세요",
       toastErr: "자동 선택: {err}",
       toastTun: "자동 선택은 VPN을 끈 상태에서만 동작합니다. VPN · TUN 모드에서는 검사가 터널을 통과해 결과가 잘못됩니다.",
     },
 
-    strategy: { label: "현재 전략", drawerBtn: "전략", recTag: "권장" },
+    strategy: { label: "현재 전략", drawerBtn: "전략", recTag: "권장", recTagMeasured: "내 회선에서 최적" },
 
     game: {
       title: "게임 필터",

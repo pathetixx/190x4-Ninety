@@ -247,11 +247,13 @@ export const pl = {
       again: "Ponownie",
       metaOk: "{passed} z {total} zaliczonych · najlepsze opóźnienie {ms} ms",
       metaNone: "Żadna strategia nie przeszła — upewnij się, że VPN jest wyłączony.",
+      metaPartial: "Żadna nie przeszła wszystkiego · najlepsza otworzyła {covered} z {targets} sprawdzeń",
+      metaEngine: "silnik nie wystartował przy {n} — otwórz logi",
       toastErr: "Automatyczny wybór: {err}",
       toastTun: "Automatyczny wybór działa tylko przy wyłączonym VPN: w trybie VPN · TUN testy idą przez tunel i wynik byłby błędny.",
     },
 
-    strategy: { label: "Bieżąca strategia", drawerBtn: "Strategie", recTag: "zalecana" },
+    strategy: { label: "Bieżąca strategia", drawerBtn: "Strategie", recTag: "zalecana", recTagMeasured: "najlepsza u ciebie" },
 
     game: {
       title: "Filtr gier",

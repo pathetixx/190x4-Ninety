@@ -1682,7 +1682,11 @@ const AUTOTEST_TARGETS: [&str; 3] = [
     "https://cdn.discordapp.com/embed/avatars/0.png",
     "https://www.youtube.com/",
 ];
-const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
+// Драйверу WinDivert нужно отцепиться от умершего winws до следующего
+// старта. 150 мс подряд 20 раз давали гонку, в которой движок не
+// поднимался, а стратегия выглядела нерабочей.
+const AUTOTEST_ENGINE_SETTLE: Duration = Duration::from_millis(500);
 
 // Клиент одной пробы автоподбора: без прокси, без переиспользования соединений.
 // Пул соединений здесь — источник ложных успехов, см. dpi_autotest.
@@ -2673,7 +2677,9 @@ pub async fn dpi_autotest(
     state: State<'_, DpiState>,
     test_url: Option<String>,
     monkey: bool,
+    logs_disabled: Option<bool>,
 ) -> Result<serde_json::Value, String> {
+    let logs_disabled = logs_disabled.unwrap_or(false);
     let generation = begin_dpi_operation(&state, "autotest")?;
     let _operation = DpiOperationGuard {
         state: &state,
@@ -2714,11 +2720,23 @@ pub async fn dpi_autotest(
         (strategies, bin, exe, bindata_s, lists, lists_s)
     };
     let exclusion = active_vpn_exclusion_args(&lists);
+    // Вывод winws за прогон. Без него провал стратегии неотличим от того, что
+    // движок вообще не поднялся: в отчёте и то и другое выглядело как «не
+    // прошла», а диагностировать было нечем.
+    let log_writer = if logs_disabled {
+        None
+    } else {
+        dpi_log_file(&app).as_deref().and_then(prepare_dpi_log)
+    };
     let total = strategies.len();
 
     // (id, name, сколько целей открылось, суммарная задержка).
     let mut best: Option<(String, String, usize, u64)> = None;
     let mut passed = 0usize;
+    // Стратегии, на которых движок не поднялся. Это не «стратегия не работает»,
+    // и отчёт обязан их различать, иначе гонка за драйвер читается как провал
+    // половины набора.
+    let mut engine_failed = 0usize;
 
     for (idx, strat) in strategies.iter().enumerate() {
         if !dpi_operation_current(&state, generation) {
@@ -2747,10 +2765,33 @@ pub async fn dpi_autotest(
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x0800_0000);
         }
-        let child = match cmd.spawn() {
+        if let Some(writer) = log_writer.as_ref() {
+            writer
+                .lock_recover()
+                .append(format!("\n=== autotest: {} ===\n", strat.name).as_bytes());
+            cmd.stdout(std::process::Stdio::piped());
+            cmd.stderr(std::process::Stdio::piped());
+        }
+        let mut child = match cmd.spawn() {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(e) => {
+                if let Some(writer) = log_writer.as_ref() {
+                    writer
+                        .lock_recover()
+                        .append(format!("spawn winws: {e}\n").as_bytes());
+                }
+                engine_failed += 1;
+                continue;
+            }
         };
+        if let Some(writer) = log_writer.as_ref() {
+            if let Some(stdout) = child.stdout.take() {
+                spawn_dpi_log_pipe(stdout, writer.clone());
+            }
+            if let Some(stderr) = child.stderr.take() {
+                spawn_dpi_log_pipe(stderr, writer.clone());
+            }
+        }
         {
             let control = state.control.lock_recover();
             if control.generation != generation || control.operation.is_none() {
@@ -2783,13 +2824,8 @@ pub async fn dpi_autotest(
         };
         if !alive {
             *state.child.lock_recover() = None;
-            dpi_sleep_or_cancel(
-                &state,
-                generation,
-                Duration::from_millis(150),
-                "DPI autotest",
-            )
-            .await?;
+            engine_failed += 1;
+            dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE, "DPI autotest").await?;
             continue;
         }
 
@@ -2812,11 +2848,13 @@ pub async fn dpi_autotest(
                     return Err("DPI autotest отменён".into());
                 }
             };
-            if !ok {
-                break;
+            // Цели проверяются все: обрыв на первой неудаче делал оценку
+            // зависимой от порядка — стратегия, которая чинит YouTube, но не
+            // Discord, была неотличима от полностью нерабочей.
+            if ok {
+                ok_count += 1;
+                lat = lat.saturating_add(t0.elapsed().as_millis() as u64);
             }
-            ok_count += 1;
-            lat = lat.saturating_add(t0.elapsed().as_millis() as u64);
         }
 
         if !dpi_operation_current(&state, generation) {
@@ -2825,10 +2863,9 @@ pub async fn dpi_autotest(
         stop_managed_child(&state, "winws autotest")?;
 
         if ok_count > 0 {
-            // Цели идут Discord-first и обрываются на первом провале, поэтому
-            // «прошла» = открылся хотя бы discord.com. Иначе счётчик разошёлся бы
-            // с рекомендацией: показать лучшую стратегию и «0 из 20 прошли».
-            passed += 1;
+            if ok_count == targets.len() {
+                passed += 1;
+            }
             // Сначала охват (сколько целей открылось), при равном — задержка.
             let better = match &best {
                 Some((_, _, bc, bl)) => ok_count > *bc || (ok_count == *bc && lat < *bl),
@@ -2838,22 +2875,20 @@ pub async fn dpi_autotest(
                 best = Some((strat.id.clone(), strat.name.clone(), ok_count, lat));
             }
         }
-        // короткая пауза, чтобы драйвер успел отцепиться между прогонами
-        dpi_sleep_or_cancel(
-            &state,
-            generation,
-            Duration::from_millis(150),
-            "DPI autotest",
-        )
-        .await?;
+        // пауза, чтобы драйвер успел отцепиться между прогонами
+        dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE, "DPI autotest").await?;
     }
 
     match best {
-        Some((id, name, _, lat)) => Ok(serde_json::json!({
-            "best_id": id, "best_name": name, "passed": passed, "total": total, "latency_ms": lat,
+        Some((id, name, covered, lat)) => Ok(serde_json::json!({
+            "best_id": id, "best_name": name, "passed": passed, "total": total,
+            "latency_ms": lat, "targets": targets.len(), "best_targets": covered,
+            "engine_failed": engine_failed,
         })),
         None => Ok(serde_json::json!({
-            "best_id": null, "best_name": null, "passed": 0, "total": total, "latency_ms": null,
+            "best_id": null, "best_name": null, "passed": 0, "total": total,
+            "latency_ms": null, "targets": targets.len(), "best_targets": 0,
+            "engine_failed": engine_failed,
         })),
     }
 }

@@ -235,11 +235,13 @@ export const ja = {
       again: "もう一度",
       metaOk: "{passed} / {total} 成功 · 最良遅延 {ms} ms",
       metaNone: "成功した戦略はありません — VPNがオフか確認してください。",
+      metaPartial: "すべてを通過した戦略はありません · 最良でも {targets} 件中 {covered} 件",
+      metaEngine: "{n} 件でエンジンが起動しませんでした — ログを確認してください",
       toastErr: "自動選択: {err}",
       toastTun: "自動選択は VPN をオフにしたときのみ有効です。VPN · TUN モードでは検査がトンネルを通るため、結果が正しくなりません。",
     },
 
-    strategy: { label: "現在の戦略", drawerBtn: "戦略", recTag: "推奨" },
+    strategy: { label: "現在の戦略", drawerBtn: "戦略", recTag: "推奨", recTagMeasured: "この回線で最良" },
 
     game: {
       title: "ゲームフィルター",
