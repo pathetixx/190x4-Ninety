@@ -800,6 +800,8 @@ fn subst(arg: &str, bin: &str, lists: &str, g_tcp: &str, g_udp: &str) -> String 
         .replace("%GameFilter%", g_tcp)
 }
 
+// [0] — исключение по домену, [1] — по IP. Раздаются по секциям по-разному, см.
+// spread_exclusion_across_sections.
 fn active_vpn_exclusion_args(lists: &Path) -> [String; 2] {
     let active_domain = lists.join("active-vpn-domain.txt");
     let active_ip = lists.join("active-vpn-ip.txt");
@@ -815,24 +817,68 @@ fn active_vpn_exclusion_args(lists: &Path) -> [String; 2] {
     ]
 }
 
-/// Раздать исключение активного VPN endpoint по ВСЕМ секциям стратегии.
+// Аргумент, создающий в профиле winws коллекцию хостлистов. Именно наличие
+// коллекции (а не её содержимое) включает в движке требование известного хоста —
+// см. spread_exclusion_across_sections.
+fn is_hostlist_arg(arg: &str) -> bool {
+    matches!(
+        arg.split('=').next().unwrap_or(arg),
+        "--hostlist"
+            | "--hostlist-domains"
+            | "--hostlist-exclude"
+            | "--hostlist-exclude-domains"
+            | "--hostlist-auto"
+    )
+}
+
+/// Раздать исключение активного VPN endpoint по секциям стратегии.
 ///
 /// В синтаксисе winws `--new` открывает новую секцию, и фильтры действуют только
-/// внутри своей. Дописывание исключения в хвост строки покрывало ровно одну —
-/// последнюю — секцию, а VLESS к серверу идёт по TCP:443, то есть по чужой.
-/// Защита «winws не жуёт зашифрованный трафик к своему же серверу» при этом
-/// выглядела включённой и молча не работала там, где нужна. Вставляем перед
-/// каждым `--new` (закрывая предыдущую секцию) и в конец — за последнюю.
+/// внутри своей: исключение в хвосте строки покрывало ровно последнюю секцию, а
+/// VLESS к серверу идёт по TCP:443, то есть по чужой.
+///
+/// НО раздавать `--hostlist-exclude` во все секции подряд нельзя. В zapret
+/// (`nfq/desync.c`, `dp_match`) профиль с непустой коллекцией хостлистов не
+/// матчится вовсе, если хост неизвестен:
+///
+/// ```text
+/// if (!dp->hostlist_auto && !hostname && !bHostlistsEmpty) return false;
+/// ```
+///
+/// У голосового Discord (`--filter-l7=discord,stun`) и у секций Game Filter
+/// (`--dpi-desync-any-protocol=1`) хоста нет по определению — Flowseal поэтому и
+/// оставил их без хостлистов. Наш аргумент делал коллекцию непустой, профиль
+/// переставал матчиться, десинк голосового UDP не применялся вообще, и пинг в
+/// голосовом канале улетал в потолок. Пустой файл коллекцию не наполняет
+/// (`hostlist_collection_is_empty` смотрит на загруженный пул), поэтому баг ловил
+/// только тех, у кого адрес ноды — домен.
+///
+/// Итог: `--ipset-exclude` уходит в каждую секцию (проверка ipset на хост не
+/// смотрит), `--hostlist-exclude` — только туда, где хостлист уже есть и хост
+/// заведомо нужен. Оба файла остаются в argv всегда, даже пустыми: winws
+/// перечитывает их по mtime, и смена ноды применяется без перезапуска движка.
 fn spread_exclusion_across_sections(args: Vec<String>, exclusion: &[String; 2]) -> Vec<String> {
+    let [hostlist_exclude, ipset_exclude] = exclusion;
     let sections = args.iter().filter(|a| a.as_str() == "--new").count() + 1;
     let mut out = Vec::with_capacity(args.len() + sections * exclusion.len());
+    let mut section: Vec<String> = Vec::new();
+    let flush = |section: &mut Vec<String>, out: &mut Vec<String>| {
+        let hostname_aware = section.iter().any(|a| is_hostlist_arg(a.as_str()));
+        out.append(section);
+        if hostname_aware {
+            out.push(hostlist_exclude.clone());
+        }
+        out.push(ipset_exclude.clone());
+    };
     for arg in args {
         if arg == "--new" {
-            out.extend(exclusion.iter().cloned());
+            flush(&mut section, &mut out);
+            out.push(arg);
+        } else {
+            section.push(arg);
         }
-        out.push(arg);
     }
-    out.extend(exclusion.iter().cloned());
+    flush(&mut section, &mut out);
     out
 }
 
@@ -1368,10 +1414,18 @@ pub async fn dpi_set_active_vpn_endpoint(
         Some(value) => normalize_exclude_domain(value)?,
         None => String::new(),
     };
-    let ip_value = match ip.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let mut ip_value = match ip.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(value) => normalize_ipset_entry(value)?,
         None => String::new(),
     };
+    // Домен ноды на проводе не появляется: VLESS Reality/XHTTP несёт подставной
+    // SNI, поэтому исключение по домену не сматчится ни разу. Реально защищает
+    // только исключение по IP — резолвим адрес сами. Best-effort: DNS в этот
+    // момент может быть уже поломан ТСПУ, и провал резолва не должен ронять
+    // подключение (без него будет ровно то, что было раньше — пустой ipset).
+    if ip_value.is_empty() && !domain_value.is_empty() {
+        ip_value = resolve_endpoint_ipset(&domain_value).await;
+    }
     write_replace(
         &lists.join("active-vpn-domain.txt"),
         &domain_value,
@@ -1379,6 +1433,34 @@ pub async fn dpi_set_active_vpn_endpoint(
     )?;
     write_replace(&lists.join("active-vpn-ip.txt"), &ip_value, "active VPN IP")?;
     Ok(())
+}
+
+const ENDPOINT_RESOLVE_TIMEOUT: Duration = Duration::from_millis(1500);
+
+// Адреса ноды в формате ipset (по строке на CIDR). Пустая строка — не срослось.
+async fn resolve_endpoint_ipset(domain: &str) -> String {
+    let target = format!("{domain}:443");
+    let Ok(Ok(addrs)) = tokio::time::timeout(
+        ENDPOINT_RESOLVE_TIMEOUT,
+        tokio::net::lookup_host(target.as_str()),
+    )
+    .await
+    else {
+        return String::new();
+    };
+    let mut lines: Vec<String> = Vec::new();
+    for addr in addrs {
+        let Ok(entry) = normalize_ipset_entry(&addr.ip().to_string()) else {
+            continue;
+        };
+        if !lines.contains(&entry) {
+            lines.push(entry);
+        }
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    lines.join("\n")
 }
 
 // Имя user-списка по виду: "exclude" → исключения, иначе → пользовательские
@@ -1629,17 +1711,31 @@ pub fn dpi_versions(app: AppHandle) -> Result<serde_json::Value, String> {
     }))
 }
 
-fn no_proxy_client() -> Result<reqwest::Client, String> {
+// Цели автоподбора. Discord — основной сценарий обхода, и одного YouTube не
+// хватало: у части провайдеров YouTube открыт, а Discord режется, и тогда
+// «прошли все» получали даже стратегии, на которых Discord не работает. Каждая
+// цель — свой SNI из наших же списков (list-general.txt).
+const AUTOTEST_TARGETS: [&str; 3] = [
+    "https://discord.com/api/v10/gateway",
+    "https://cdn.discordapp.com/embed/avatars/0.png",
+    "https://www.youtube.com/",
+];
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+// Клиент одной пробы автоподбора: без прокси, без переиспользования соединений.
+// Пул соединений здесь — источник ложных успехов, см. dpi_autotest.
+fn probe_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .no_proxy() // бьём напрямую (мимо системного прокси VPN), иначе тест/апдейт бессмысленны
-        .timeout(Duration::from_secs(8))
+        .no_proxy()
+        .timeout(PROBE_TIMEOUT)
+        .pool_max_idle_per_host(0)
         .build()
         .map_err(|e| format!("http client: {e}"))
 }
 
 // Клиент для ЗАГРУЗКИ СПИСКОВ (hosts/ipset). port=Some(p>0) → через mixed-inbound
 // sing-box (http://127.0.0.1:p), т.е. трафик идёт через обход/VPN; иначе прямой
-// запрос. Отличие от no_proxy_client: прямой запрос к raw.githubusercontent.com
+// запрос. Отличие от probe_client: прямой запрос к raw.githubusercontent.com
 // из РФ режется ТСПУ — поэтому при активном VPN (proxy/systemProxy) тянем через
 // прокси, а на direct падаем фолбэком (паттерн взят у quality::build_client).
 fn list_client(port: Option<u16>) -> Result<reqwest::Client, String> {
@@ -2625,12 +2721,17 @@ pub async fn dpi_autotest(
     // lifecycle и публикует каждый test-child в state, поэтому dpi_stop/exit
     // способны отменить и reap'нуть его.
     stop_managed_child(&state, "winws")?;
-    let url = test_url.unwrap_or_else(|| "https://www.youtube.com/".into());
+    // Один пользовательский URL перекрывает набор целиком: ручная проверка
+    // конкретного сайта — это ровно одна цель, а не добавка к дефолтным.
+    let targets: Vec<String> = match test_url.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(url) => vec![url.to_string()],
+        None => AUTOTEST_TARGETS.iter().map(|u| u.to_string()).collect(),
+    };
 
     // Мьютекс данных держим только на подготовке файлов. Прогон стратегий идёт
     // минутами, и под общим локом он замораживал весь DPI-раздел вместе с
     // dpi_set_active_vpn_endpoint — а его ждёт автозапуск VPN.
-    let (strategies, bin, exe, bindata_s, lists_s) = {
+    let (strategies, bin, exe, bindata_s, lists, lists_s) = {
         let _data = state.data.lock().await;
         // EXP доступна для ручного выбора, но экспериментальный профиль не должен
         // автоматически становиться рекомендацией автотеста.
@@ -2648,12 +2749,13 @@ pub async fn dpi_autotest(
         let bindata = ensure_bindata(&app)?;
         let bindata_s = strip_verbatim(&bindata.to_string_lossy());
         let lists_s = strip_verbatim(&lists.to_string_lossy());
-        (strategies, bin, exe, bindata_s, lists_s)
+        (strategies, bin, exe, bindata_s, lists, lists_s)
     };
-    let client = no_proxy_client()?;
+    let exclusion = active_vpn_exclusion_args(&lists);
     let total = strategies.len();
 
-    let mut best: Option<(String, String, u64)> = None; // (id, name, latency)
+    // (id, name, сколько целей открылось, суммарная задержка).
+    let mut best: Option<(String, String, usize, u64)> = None;
     let mut passed = 0usize;
 
     for (idx, strat) in strategies.iter().enumerate() {
@@ -2673,6 +2775,9 @@ pub async fn dpi_autotest(
             .iter()
             .map(|a| subst(a, &bindata_s, &lists_s, "12", "12"))
             .collect();
+        // Ровно тот же argv, что соберёт dpi_start: иначе автотест проверяет не
+        // то, что потом запустится (исключение ноды меняет матчинг профилей).
+        let args = spread_exclusion_across_sections(args, &exclusion);
         let mut cmd = std::process::Command::new(&exe);
         cmd.args(&args).current_dir(&bin);
         #[cfg(target_os = "windows")]
@@ -2704,31 +2809,71 @@ pub async fn dpi_autotest(
         .await?;
         remember_owned_driver_services(&state, &bin);
 
-        let t0 = Instant::now();
-        let ok = tokio::select! {
-            response = client.get(url.as_str()).send() => match response {
-                Ok(r) => r.status().is_success() || r.status().is_redirection(),
-                Err(_) => false,
-            },
-            _ = wait_dpi_cancelled(&state, generation) => {
-                return Err("DPI autotest отменён".into());
+        // winws мог умереть на битом аргументе или занятом драйвере. Без этой
+        // проверки мёртвая стратегия засчитывалась как рабочая: запрос всё равно
+        // проходит, если сайт у провайдера и так открыт.
+        let alive = {
+            let mut guard = state.child.lock_recover();
+            match guard.as_mut() {
+                Some(child) => !matches!(child.try_wait(), Ok(Some(_))),
+                None => false,
             }
         };
-        let lat = t0.elapsed().as_millis() as u64;
+        if !alive {
+            *state.child.lock_recover() = None;
+            dpi_sleep_or_cancel(
+                &state,
+                generation,
+                Duration::from_millis(150),
+                "DPI autotest",
+            )
+            .await?;
+            continue;
+        }
+
+        let mut ok_count = 0usize;
+        let mut lat = 0u64;
+        for target in &targets {
+            // Новый клиент на каждую цель. Общий reqwest::Client держит пул
+            // соединений: после первого успеха следующие стратегии переиспользуют
+            // уже установленный TCP+TLS, десинк в этом не участвует, и «прошли»
+            // получали все подряд. DPI режет именно установление соединения —
+            // значит замерять надо только свежий handshake.
+            let client = probe_client()?;
+            let t0 = Instant::now();
+            let ok = tokio::select! {
+                response = client.get(target.as_str()).send() => match response {
+                    Ok(r) => r.status().is_success() || r.status().is_redirection(),
+                    Err(_) => false,
+                },
+                _ = wait_dpi_cancelled(&state, generation) => {
+                    return Err("DPI autotest отменён".into());
+                }
+            };
+            if !ok {
+                break;
+            }
+            ok_count += 1;
+            lat = lat.saturating_add(t0.elapsed().as_millis() as u64);
+        }
 
         if !dpi_operation_current(&state, generation) {
             return Err("DPI autotest отменён".into());
         }
         stop_managed_child(&state, "winws autotest")?;
 
-        if ok {
+        if ok_count > 0 {
+            // Цели идут Discord-first и обрываются на первом провале, поэтому
+            // «прошла» = открылся хотя бы discord.com. Иначе счётчик разошёлся бы
+            // с рекомендацией: показать лучшую стратегию и «0 из 20 прошли».
             passed += 1;
+            // Сначала охват (сколько целей открылось), при равном — задержка.
             let better = match &best {
-                Some((_, _, bl)) => lat < *bl,
+                Some((_, _, bc, bl)) => ok_count > *bc || (ok_count == *bc && lat < *bl),
                 None => true,
             };
             if better {
-                best = Some((strat.id.clone(), strat.name.clone(), lat));
+                best = Some((strat.id.clone(), strat.name.clone(), ok_count, lat));
             }
         }
         // короткая пауза, чтобы драйвер успел отцепиться между прогонами
@@ -2742,7 +2887,7 @@ pub async fn dpi_autotest(
     }
 
     match best {
-        Some((id, name, lat)) => Ok(serde_json::json!({
+        Some((id, name, _, lat)) => Ok(serde_json::json!({
             "best_id": id, "best_name": name, "passed": passed, "total": total, "latency_ms": lat,
         })),
         None => Ok(serde_json::json!({
@@ -2947,15 +3092,18 @@ mod tests {
         ];
         let args = vec![
             "--filter-udp=443".to_string(),
+            "--hostlist=G".to_string(),
             "--dpi-desync=fake".to_string(),
             "--new".to_string(),
             "--filter-tcp=443".to_string(),
+            "--hostlist-domains=discord.media".to_string(),
             "--new".to_string(),
             "--filter-tcp=1024-65535".to_string(),
+            "--hostlist-auto=A".to_string(),
         ];
         let out = spread_exclusion_across_sections(args, &exclusion);
 
-        // Три секции → исключение трижды, по разу в каждой.
+        // Три секции, в каждой уже есть хостлист → исключение трижды целиком.
         assert_eq!(
             out.iter()
                 .filter(|a| a.as_str() == "--hostlist-exclude=D")
@@ -2979,6 +3127,60 @@ mod tests {
         assert_eq!(out.last().unwrap(), "--ipset-exclude=I");
     }
 
+    // Секция без хостлистов (голосовой Discord, Game Filter) ловит трафик без
+    // известного хоста. Хостлист в ней запрещает профилю матчиться вообще —
+    // туда уходит только ipset-исключение.
+    #[test]
+    fn active_vpn_exclusion_skips_hostlist_in_hostless_sections() {
+        let exclusion = [
+            "--hostlist-exclude=D".to_string(),
+            "--ipset-exclude=I".to_string(),
+        ];
+        let args = vec![
+            "--filter-udp=443".to_string(),
+            "--hostlist=G".to_string(),
+            "--new".to_string(),
+            "--filter-udp=50000-50100".to_string(),
+            "--filter-l7=discord,stun".to_string(),
+            "--new".to_string(),
+            "--filter-udp=12".to_string(),
+            "--dpi-desync-any-protocol=1".to_string(),
+        ];
+        let out = spread_exclusion_across_sections(args, &exclusion);
+
+        assert_eq!(
+            out,
+            vec![
+                "--filter-udp=443",
+                "--hostlist=G",
+                "--hostlist-exclude=D",
+                "--ipset-exclude=I",
+                "--new",
+                "--filter-udp=50000-50100",
+                "--filter-l7=discord,stun",
+                "--ipset-exclude=I",
+                "--new",
+                "--filter-udp=12",
+                "--dpi-desync-any-protocol=1",
+                "--ipset-exclude=I",
+            ]
+        );
+    }
+
+    // Пара --hostlist-auto-* не создаёт коллекцию хостлистов и не должна
+    // считаться признаком секции с известным хостом.
+    #[test]
+    fn hostlist_arg_detection_ignores_auto_tuning_flags() {
+        assert!(is_hostlist_arg("--hostlist=x"));
+        assert!(is_hostlist_arg("--hostlist-exclude=x"));
+        assert!(is_hostlist_arg("--hostlist-domains=a,b"));
+        assert!(is_hostlist_arg("--hostlist-exclude-domains=a,b"));
+        assert!(is_hostlist_arg("--hostlist-auto=x"));
+        assert!(!is_hostlist_arg("--hostlist-auto-fail-threshold=3"));
+        assert!(!is_hostlist_arg("--hostlist-auto-retrans-threshold=3"));
+        assert!(!is_hostlist_arg("--filter-l7=discord,stun"));
+    }
+
     // Стратегия без --new — одна секция, исключение ровно один раз.
     #[test]
     fn active_vpn_exclusion_single_section_is_not_duplicated() {
@@ -2986,12 +3188,15 @@ mod tests {
             "--hostlist-exclude=D".to_string(),
             "--ipset-exclude=I".to_string(),
         ];
-        let out =
-            spread_exclusion_across_sections(vec!["--filter-tcp=443".to_string()], &exclusion);
+        let out = spread_exclusion_across_sections(
+            vec!["--filter-tcp=443".to_string(), "--hostlist=G".to_string()],
+            &exclusion,
+        );
         assert_eq!(
             out,
             vec![
                 "--filter-tcp=443",
+                "--hostlist=G",
                 "--hostlist-exclude=D",
                 "--ipset-exclude=I"
             ]

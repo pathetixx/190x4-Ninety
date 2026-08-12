@@ -3691,10 +3691,15 @@ async function autostartNetworkRuntime() {
         await connectNetwork({ epoch });
       }
     }
+    // Исключение ноды переживает жёсткое завершение при подключённом VPN: файлы
+    // лежат в app_data, а очистка висит на переходе в idle, которого в таком
+    // сценарии не было. Залипшее значение меняет матчинг профилей winws, поэтому
+    // снимаем его на старте всегда, а не только когда поднимаем DPI.
+    if (state !== "connected") await clearVpnNodeExclusion();
     // DPI запускаем только после завершения VPN bootstrap. Endpoint сначала
     // попадает в managed exclusion, backend всё равно создаёт пустые файлы сам.
     if (dpiWanted) {
-      await excludeVpnNode(state === "connected" ? activeNodeForDisplay()?.host : null);
+      if (state === "connected") await excludeVpnNode(activeNodeForDisplay()?.host);
       await autostartDpiIfEnabled();
     }
     if (resume) {

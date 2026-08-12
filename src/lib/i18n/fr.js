@@ -244,6 +244,7 @@ export const fr = {
       metaOk: "{passed} sur {total} réussies · meilleure latence {ms} ms",
       metaNone: "Aucune stratégie n’a réussi — assurez-vous que le VPN est désactivé.",
       toastErr: "Choix auto : {err}",
+      toastTun: "Le choix auto ne fonctionne qu'avec le VPN désactivé : en mode VPN · TUN, les tests passent par le tunnel et le résultat serait faussé.",
     },
 
     strategy: { label: "Stratégie actuelle", drawerBtn: "Stratégies", recTag: "recommandée" },

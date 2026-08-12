@@ -240,6 +240,7 @@ export const tr = {
       metaOk: "{passed} / {total} geçti · en iyi gecikme {ms} ms",
       metaNone: "Hiçbir strateji geçemedi — VPN'in kapalı olduğundan emin olun.",
       toastErr: "Otomatik seçim: {err}",
+      toastTun: "Otomatik seçim yalnızca VPN kapalıyken çalışır: VPN · TUN modunda testler tünelden geçer ve sonuç yanlış olur.",
     },
 
     strategy: { label: "Geçerli strateji", drawerBtn: "Stratejiler", recTag: "önerilen" },

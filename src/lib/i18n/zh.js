@@ -236,6 +236,7 @@ export const zh = {
       metaOk: "{passed} / {total} 通过 · 最佳延迟 {ms} ms",
       metaNone: "没有策略通过——请确认 VPN 已关闭。",
       toastErr: "自动挑选：{err}",
+      toastTun: "自动挑选仅在关闭 VPN 时有效：在 VPN · TUN 模式下检测会走隧道，结果并不可靠。",
     },
 
     strategy: { label: "当前策略", drawerBtn: "策略", recTag: "推荐" },

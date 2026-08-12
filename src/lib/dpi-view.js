@@ -173,7 +173,7 @@ function renderBody() {
   let autopick = "";
   if (p.phase === "idle") {
     autopick = `<div class="dpi-autopick__lead">${t("dpi.autopick.lead", { n: autopickCount() })}</div>
-      <div class="dpi-autopick__actions"><button class="btn btn--primary btn--sm" data-dpi-pick-start ${dataBusy ? "disabled" : ""}>${ic("target", 13)} ${t("dpi.autopick.start")}</button></div>`;
+      <div class="dpi-autopick__actions"><button class="btn btn--primary btn--sm" data-dpi-pick-start ${dataBusy || S.vpnMode === "tun" ? "disabled" : ""}>${ic("target", 13)} ${t("dpi.autopick.start")}</button></div>`;
   } else if (p.phase === "running") {
     const total = p.total || autopickCount();
     const pct = total ? (p.i / total * 100).toFixed(1) : 0;
@@ -795,13 +795,30 @@ async function runUpdate(id) {
 }
 
 /* ── Авто-подбор ── */
+// Прогон физически глушит текущий winws и поднимает по одному на стратегию.
+// Пока он идёт, движок выключен — состояние возвращаем сами, иначе чип врёт, а
+// «Применить» не перезапустит движок, считая его живым.
+let autopickResume = false;
+
+async function restoreEngineAfterAutopick() {
+  if (!autopickResume) return;
+  autopickResume = false;
+  S.base = "off";
+  await startEngine();
+}
+
 async function pickStart() {
   if (S.autopick.phase === "running" || S.updating || S.fakes.busy) return;
+  // В TUN пробы уходят в туннель: «прошли» получат все стратегии подряд, а
+  // рекомендация будет случайной. Мерить можно только на реальном интерфейсе.
+  if (S.vpnMode === "tun") { toast(t("dpi.autopick.toastTun"), "warn", 5200); return; }
   const epoch = ++dpiAutopickEpoch;
+  autopickResume = S.base === "running" || S.base === "starting";
+  if (autopickResume) S.base = "off";
   S.autopick = { phase: "running", i: 0, total: autopickCount(), name: "", best: null, meta: "" };
-  renderBody();
+  renderAll();
   const ok = await ensureElevated();
-  if (!ok || epoch !== dpiAutopickEpoch) { S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" }; return; }
+  if (!ok || epoch !== dpiAutopickEpoch) { S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" }; autopickResume = false; return; }
   try {
     const r = await invoke("dpi_autotest", { monkey: S.monkey });
     if (epoch !== dpiAutopickEpoch) return;
@@ -820,13 +837,16 @@ async function pickStart() {
     S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" };
     toast(t("dpi.autopick.toastErr", { err: e?.message || e }), "error", 3500);
   }
+  await restoreEngineAfterAutopick();
   renderAll();
 }
 
 async function pickCancel() {
   dpiAutopickEpoch++;
-  if (!(await stopDpiRuntime({ markOff: false }))) return;
+  // Стоп не подтверждён — winws может быть ещё жив, поднимать второй нельзя.
+  if (!(await stopDpiRuntime({ markOff: false }))) { autopickResume = false; return; }
   S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" };
+  await restoreEngineAfterAutopick();
   renderAll();
 }
 

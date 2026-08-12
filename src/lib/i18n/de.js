@@ -240,6 +240,7 @@ export const de = {
       metaOk: "{passed} von {total} bestanden · beste Latenz {ms} ms",
       metaNone: "Keine Strategie bestanden — stelle sicher, dass das VPN aus ist.",
       toastErr: "Auto-Auswahl: {err}",
+      toastTun: "Die Auto-Auswahl funktioniert nur bei ausgeschaltetem VPN: Im Modus VPN · TUN laufen die Tests durch den Tunnel und das Ergebnis wäre falsch.",
     },
 
     strategy: { label: "Aktuelle Strategie", drawerBtn: "Strategien", recTag: "empfohlen" },

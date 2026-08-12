@@ -248,6 +248,7 @@ export const pl = {
       metaOk: "{passed} z {total} zaliczonych · najlepsze opóźnienie {ms} ms",
       metaNone: "Żadna strategia nie przeszła — upewnij się, że VPN jest wyłączony.",
       toastErr: "Automatyczny wybór: {err}",
+      toastTun: "Automatyczny wybór działa tylko przy wyłączonym VPN: w trybie VPN · TUN testy idą przez tunel i wynik byłby błędny.",
     },
 
     strategy: { label: "Bieżąca strategia", drawerBtn: "Strategie", recTag: "zalecana" },

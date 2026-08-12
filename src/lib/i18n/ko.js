@@ -236,6 +236,7 @@ export const ko = {
       metaOk: "{passed} / {total} 통과 · 최적 지연 {ms} ms",
       metaNone: "통과한 전략이 없습니다 — VPN이 꺼져 있는지 확인하세요.",
       toastErr: "자동 선택: {err}",
+      toastTun: "자동 선택은 VPN을 끈 상태에서만 동작합니다. VPN · TUN 모드에서는 검사가 터널을 통과해 결과가 잘못됩니다.",
     },
 
     strategy: { label: "현재 전략", drawerBtn: "전략", recTag: "권장" },

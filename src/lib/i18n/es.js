@@ -244,6 +244,7 @@ export const es = {
       metaOk: "{passed} de {total} pasaron · mejor latencia {ms} ms",
       metaNone: "Ninguna estrategia pasó — asegúrate de que la VPN está apagada.",
       toastErr: "Selección automática: {err}",
+      toastTun: "La selección automática solo funciona con la VPN apagada: en modo VPN · TUN las pruebas pasan por el túnel y el resultado sería incorrecto.",
     },
 
     strategy: { label: "Estrategia actual", drawerBtn: "Estrategias", recTag: "recomendada" },
