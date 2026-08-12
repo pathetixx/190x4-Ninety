@@ -6,8 +6,8 @@
 // списки — writable-копия в app_data (для exclude VPN-нод и режима ipset).
 //
 // Точки интеграции backend↔frontend: dpi_start/stop/running, dpi_strategies,
-// dpi_domains_count, dpi_set_node_exclude (главный риск из спайка — нода VPN
-// в exclude, иначе winws корёжит зашифрованный VLESS).
+// dpi_domains_count, dpi_set_active_vpn_endpoint (главный риск из спайка — нода
+// VPN в exclude, иначе winws корёжит зашифрованный VLESS).
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
@@ -1373,34 +1373,11 @@ pub fn dpi_running(state: State<'_, DpiState>) -> bool {
     }
 }
 
-/// Внести IP и/или домен активной VPN-ноды в exclude-списки запрета, чтобы
-/// winws не трогал зашифрованный трафик к серверу (главный риск из спайка).
-/// Дедуп; домен — в list-exclude-user.txt, IP — в ipset-exclude-user.txt.
-#[tauri::command]
-pub async fn dpi_set_node_exclude(
-    app: AppHandle,
-    state: State<'_, DpiState>,
-    ip: Option<String>,
-    domain: Option<String>,
-) -> Result<(), String> {
-    let _data = state.data.lock().await;
-    let lists = ensure_lists(&app)?;
-    if let Some(d) = domain.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        append_unique(
-            &lists.join("list-exclude-user.txt"),
-            &normalize_exclude_domain(d)?,
-        )?;
-    }
-    if let Some(i) = ip.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        // ipset ждёт CIDR: одиночный IPv4 → /32, одиночный IPv6 → /128.
-        let entry = normalize_ipset_entry(i)?;
-        append_unique(&lists.join("ipset-exclude-user.txt"), &entry)?;
-    }
-    Ok(())
-}
-
-/// Атомарно заменить исключение активного VPN endpoint. В отличие от
-/// dpi_set_node_exclude это session-managed state, а не пользовательский список.
+/// Атомарно заменить исключение активного VPN endpoint. Это session-managed
+/// state, а не пользовательский список: смена ноды заменяет значение целиком и
+/// не трогает правки пользователя в *-user.txt. Прежняя команда дописывала ноду
+/// в пользовательские списки и была снята — адреса всех использованных нод
+/// оставались в исключениях навсегда и перемешивались с правилами пользователя.
 #[tauri::command]
 pub async fn dpi_set_active_vpn_endpoint(
     app: AppHandle,
@@ -1523,9 +1500,8 @@ pub async fn dpi_write_list(
 
 // Домен, уходящий в hostlist winws. IP-ветка нормализуется отдельно
 // (normalize_ipset_entry), а домен раньше писался как есть после trim: значение
-// с переводом строки вставляло в список произвольное число записей, и дедуп
-// append_unique (сравнение целой строки) на нём не срабатывал никогда — файл
-// рос при каждом вызове.
+// с переводом строки вставляло в список произвольное число записей, и дедуп по
+// целой строке на нём не срабатывал никогда — файл рос при каждом вызове.
 fn normalize_exclude_domain(raw: &str) -> Result<String, String> {
     let value = raw.trim();
     if value.is_empty() || value.len() > 253 {
@@ -1538,20 +1514,6 @@ fn normalize_exclude_domain(raw: &str) -> Result<String, String> {
         return Err("домен для списка исключений содержит недопустимые символы".into());
     }
     Ok(value.to_ascii_lowercase())
-}
-
-fn append_unique(path: &Path, line: &str) -> Result<(), String> {
-    let existing = std::fs::read_to_string(path).unwrap_or_default();
-    if existing.lines().any(|l| l.trim() == line) {
-        return Ok(());
-    }
-    let mut out = existing;
-    if !out.is_empty() && !out.ends_with('\n') {
-        out.push('\n');
-    }
-    out.push_str(line);
-    out.push('\n');
-    write_replace(path, &out, "write exclude")
 }
 
 fn normalize_ipset_entry(raw: &str) -> Result<String, String> {

@@ -1122,7 +1122,6 @@ pub fn run() {
             dpi::dpi_start,
             dpi::dpi_stop,
             dpi::dpi_running,
-            dpi::dpi_set_node_exclude,
             dpi::dpi_set_active_vpn_endpoint,
             dpi::dpi_versions,
             dpi::dpi_check_update,
