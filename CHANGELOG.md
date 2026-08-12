@@ -6,6 +6,10 @@
 
 ## English
 
+- Settings no longer reconnect when nothing was changed. Clicking into a text or number field and clicking away restarted the connection, even if the value was left exactly as it was.
+- DNS is chosen from a list instead of being typed from memory. Remote DNS offers Cloudflare, Google, Quad9 and AdGuard over DoH and DoT; direct DNS offers the system resolver and plain or encrypted servers that work before the tunnel is up. Any other address can still be entered by hand.
+- A DNS address that is written incorrectly is refused right there in the settings, with a line saying what is wrong. Until now it was accepted, saved, and broke the connection later, when the reason was no longer obvious.
+- The system resolver is gone from the Remote DNS list: through it queries leave the tunnel and the provider sees all of them. It can still be set by hand, and the warning stays.
 - Auto-pick of a strategy gives a stable answer. Two runs a few minutes apart could report 2 of 20 and then 10 of 20 on the same connection: when the engine lost the race for its driver between runs, a perfectly good strategy was written off. The engine now gets a second attempt, strategies whose engine never came up are counted and named separately instead of being reported as not working, and the run keeps its own log next to the others, so a result can be checked rather than guessed at.
 - Auto-pick checks Discord, not only YouTube. On connections where YouTube opens but Discord does not, it used to approve strategies that leave Discord blocked. All checks now run for every strategy, and a strategy that opens some of them is reported as partial instead of being lumped in with the ones that open nothing.
 - The delay shown next to the recommendation is the delay of a single check again, not the sum of all of them.
@@ -16,6 +20,10 @@
 
 ## Русский
 
+- Настройки больше не переподключают VPN, когда ничего не менялось. Достаточно было щёлкнуть в текстовое или числовое поле и щёлкнуть мимо — соединение перезапускалось, даже если значение осталось прежним.
+- DNS выбирается из списка, а не вписывается по памяти. Для DNS через VPN — Cloudflare, Google, Quad9 и AdGuard по DoH и DoT; для прямого DNS — системный резолвер и обычные или шифрованные серверы, которые работают ещё до поднятия туннеля. Любой другой адрес по-прежнему можно ввести вручную.
+- Неправильно записанный адрес DNS отклоняется прямо в настройках, со строкой о том, что не так. Раньше он спокойно сохранялся и ломал подключение позже, когда связь с причиной уже терялась.
+- Из списка DNS через VPN убран системный резолвер: через него запросы уходят мимо туннеля и провайдер видит их все. Вписать его вручную по-прежнему можно, предупреждение остаётся.
 - Авто-подбор стратегии даёт устойчивый ответ. Два прогона с разницей в несколько минут на одном и том же интернете могли показать 2 из 20, а затем 10 из 20: если движок проигрывал гонку за свой драйвер между прогонами, вполне рабочая стратегия записывалась в нерабочие. Теперь у движка есть вторая попытка, стратегии с незапустившимся движком считаются и называются отдельно, а не выдаются за неработающие, и у прогона появился собственный журнал рядом с остальными — результат можно проверить, а не додумывать.
 - Авто-подбор проверяет Discord, а не только YouTube. На интернете, где YouTube открывается, а Discord нет, он раньше одобрял стратегии, с которыми Discord остаётся заблокированным. Теперь все проверки проходят для каждой стратегии, а та, что открыла часть из них, так и подписана — вместо того чтобы попасть в одну кучу с теми, что не открыли ничего.
 - Задержка рядом с рекомендацией снова означает задержку одной проверки, а не сумму всех.
