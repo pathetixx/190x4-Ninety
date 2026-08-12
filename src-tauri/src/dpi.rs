@@ -749,6 +749,17 @@ fn dpi_log_file(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("dpi.log"))
 }
 
+// Отдельный файл для прогонов авто-подбора. В dpi.log писать нельзя: подбор
+// глушит движок, а восстановление его после прогона зовёт dpi_start, который
+// открывает dpi.log с обнулением — диагностика прогона стиралась ровно в тот
+// момент, когда она понадобилась. «Открыть логи» открывает каталог, так что
+// второй файл виден рядом.
+fn dpi_autotest_log_file(app: &AppHandle) -> Option<PathBuf> {
+    let dir = crate::app_paths::log_dir(app).ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("dpi-autotest.log"))
+}
+
 /// Путь к логу winws (для UI «Открыть логи»).
 #[tauri::command]
 pub fn dpi_log_path(app: AppHandle) -> Result<String, String> {
@@ -2668,11 +2679,16 @@ struct AutotestProgress {
     name: String,
 }
 
-/// Перебирает все стратегии: поднимает winws с каждой, пробит test_url, мерит
-/// задержку, выбирает лучшую по (успех, мин. задержка). Прогресс — событием
-/// "dpi:autotest". winws после теста остаётся выключенным; применяет выбор фронт.
-/// ВАЖНО: запускать при ВЫКЛЮЧЕННОМ VPN (иначе проба идёт через туннель мимо
-/// winws и тест бессмысленен). Требует элевации.
+/// Перебирает неэкспериментальные стратегии: поднимает winws с каждой (до
+/// AUTOTEST_ENGINE_ATTEMPTS попыток — «драйвер занят» гоночно), пробит все цели
+/// свежим соединением на каждую и выбирает лучшую по охвату, при равном — по
+/// задержке. Прогресс — событием "dpi:autotest", вывод winws — в
+/// dpi-autotest.log. winws после теста остаётся выключенным; применяет выбор и
+/// возвращает прежнее состояние движка фронт.
+///
+/// ВАЖНО: бессмысленно в TUN — там проба уходит в туннель мимо winws, и фронт
+/// такой запуск не даёт. В proxy/systemProxy проба идёт мимо системного прокси
+/// (probe_client), поэтому измеряет реальный канал. Требует элевации.
 #[tauri::command]
 pub async fn dpi_autotest(
     app: AppHandle,
@@ -2728,7 +2744,9 @@ pub async fn dpi_autotest(
     let log_writer = if logs_disabled {
         None
     } else {
-        dpi_log_file(&app).as_deref().and_then(prepare_dpi_log)
+        dpi_autotest_log_file(&app)
+            .as_deref()
+            .and_then(prepare_dpi_log)
     };
     let total = strategies.len();
 
@@ -2892,9 +2910,14 @@ pub async fn dpi_autotest(
     }
 
     match best {
+        // lat — сумма по открывшимся целям, а UI подписывает число как задержку.
+        // Отдаём среднее на проверку, иначе три успешные пробы выглядят как одна
+        // втрое более медленная. На ранжирование это не влияет: задержки
+        // сравниваются только внутри одинакового охвата.
         Some((id, name, covered, lat)) => Ok(serde_json::json!({
             "best_id": id, "best_name": name, "passed": passed, "total": total,
-            "latency_ms": lat, "targets": targets.len(), "best_targets": covered,
+            "latency_ms": lat / covered.max(1) as u64,
+            "targets": targets.len(), "best_targets": covered,
             "engine_failed": engine_failed,
         })),
         None => Ok(serde_json::json!({
