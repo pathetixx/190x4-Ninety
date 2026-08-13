@@ -208,6 +208,16 @@ function buildTransport(p) {
       if (p.host_header) t.host = p.host_header.split(",").map(s => s.trim());
       return t;
     }
+    case "httpupgrade": {
+      const t = { type: "httpupgrade" };
+      if (p.host_header || p.sni) t.host = p.host_header || p.sni;
+      if (p.path) t.path = p.path;
+      return t;
+    }
+    case "quic":
+      // У v2ray-QUIC в ядре нет опций: дополнительное шифрование транспорта из
+      // Xray оно не реализует (такие ноды отсеивает nodeConfigIssue).
+      return { type: "quic" };
     case "xhttp": {
       const t = { type: "xhttp" };
       if (p.path) t.path = p.path;
@@ -340,6 +350,41 @@ function buildOutbound(p, options) {
         alpn: (p.alpn || "h3").split(",").map(s => s.trim()).filter(Boolean),
       };
       if (p.pinSHA256) out.tls.certificate_public_key_sha256 = p.pinSHA256;
+      return out;
+    }
+    case "anytls": {
+      out = { ...base, type: "anytls", password: p.password };
+      out.tls = {
+        enabled: true,
+        server_name: p.sni || p.host,
+        insecure: !!p.insecure,
+        utls: { enabled: true, fingerprint: normalizeFingerprint(p.fp) },
+      };
+      const anytlsAlpn = String(p.alpn || "").split(",").map(x => x.trim()).filter(Boolean);
+      if (anytlsAlpn.length) out.tls.alpn = anytlsAlpn;
+      return out;
+    }
+    case "hysteria": {
+      // v1: аутентификация строкой, обфускация — общий секрет (строкой же),
+      // скорости идут в контроллер перегрузки Brutal и потому обязательны.
+      out = { ...base, type: "hysteria" };
+      if (p.authString) out.auth_str = p.authString;
+      if (p.obfs) out.obfs = p.obfs;
+      out.up_mbps = p.upMbps || 50;
+      out.down_mbps = p.downMbps || 100;
+      out.tls = {
+        enabled: true,
+        server_name: p.sni || p.host,
+        insecure: !!p.insecure,
+      };
+      const hyAlpn = String(p.alpn || "").split(",").map(x => x.trim()).filter(Boolean);
+      if (hyAlpn.length) out.tls.alpn = hyAlpn;
+      return out;
+    }
+    case "socks": {
+      out = { ...base, type: "socks", version: p.version === "4" || p.version === "4a" ? "4" : "5" };
+      if (p.username) out.username = p.username;
+      if (p.password) out.password = p.password;
       return out;
     }
     case "tuic": {
@@ -1037,7 +1082,9 @@ function trustTunnelSidecarConfig(p, port, opts) {
 }
 
 function nodeToXrayStream(p) {
-  const ss = { network: "xhttp" };
+  // Мост поднимается не только под xhttp: mKCP ядро не умеет вовсе, а xray умеет.
+  const network = p.type === "kcp" ? "kcp" : "xhttp";
+  const ss = { network };
   const sec = p.tlsMode || p.security;
   if (sec === "reality") {
     ss.security = "reality";
@@ -1054,6 +1101,13 @@ function nodeToXrayStream(p) {
   } else {
     ss.security = "none";
   }
+  if (network === "kcp") {
+    // Остальные параметры mKCP (mtu/tti/окна/congestion) в ссылках не передают —
+    // оставляем дефолты xray, они совпадают с дефолтами серверной стороны.
+    ss.kcpSettings = { header: { type: p.headerType || "none" } };
+    if (p.seed) ss.kcpSettings.seed = p.seed;
+    return ss;
+  }
   const xs = { host: p.host_header || p.sni || "", path: p.path || "/", mode: p.mode || "auto" };
   if (p.extra) {
     try { const ex = JSON.parse(p.extra); if (ex && typeof ex === "object") Object.assign(xs, ex); }
@@ -1069,8 +1123,11 @@ function nodeToXrayStream(p) {
 // логе. Предикат один на bridgeNeeds и на сборку конфига: расхождение этих двух
 // мест означало бы, что портов запланировано не столько, сколько занято.
 const XRAY_BRIDGE_PROTOS = new Set(["vless", "vmess", "trojan"]);
+// Транспорты, которых нет в ядре: их несёт локальный xray, а в sing-box
+// остаётся socks-мост.
+const XRAY_BRIDGE_TYPES = new Set(["xhttp", "kcp"]);
 export function needsXrayBridge(node) {
-  return node?.type === "xhttp" && XRAY_BRIDGE_PROTOS.has(profileProto(node));
+  return XRAY_BRIDGE_TYPES.has(node?.type) && XRAY_BRIDGE_PROTOS.has(profileProto(node));
 }
 
 function nodeToXrayOutbound(p, tag) {

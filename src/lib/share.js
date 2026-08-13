@@ -84,7 +84,7 @@ function onQRKey(e) {
 
 // Транспорты, которые приложение обслуживает отдельным ядром на локальном
 // socks-мосту: в одиночном конфиге их воспроизвести нечем.
-const BRIDGE_ONLY_TYPES = new Set(["xhttp"]);
+const BRIDGE_ONLY_TYPES = new Set(["xhttp", "kcp"]);
 
 export async function exportSingboxJson(source, toast) {
   if (!source) {

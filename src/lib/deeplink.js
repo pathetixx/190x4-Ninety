@@ -28,8 +28,8 @@ const hasControlChars = (value) => [...String(value)].some((char) => {
   return code < 0x20 || code === 0x7f;
 });
 const TOP_LEVEL_PROTOS = [
-  "vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "tuic", "sub",
-  "tt", "naive+https", "naive+quic",
+  "vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "hysteria", "tuic", "sub",
+  "anytls", "tt", "naive+https", "naive+quic",
 ];
 
 export function safeAtobUrl(s) {

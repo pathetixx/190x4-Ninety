@@ -312,7 +312,11 @@ function cleanNameOf(name) {
 }
 
 function transportLabel(n) {
-  const PROTO_LABEL = { naive: "Naive", trusttunnel: "TrustTunnel" };
+  const PROTO_LABEL = {
+    naive: "Naive", trusttunnel: "TrustTunnel", anytls: "AnyTLS",
+    hysteria: "Hysteria", hysteria2: "Hysteria2", tuic: "TUIC",
+    socks: "SOCKS", shadowsocks: "Shadowsocks",
+  };
   if (PROTO_LABEL[n?.proto]) return PROTO_LABEL[n.proto];
   const sec = String(n?.security || "").toLowerCase();
   if (sec === "reality") return "REALITY";

@@ -96,6 +96,18 @@ const SHADOWSOCKS_METHODS = new Set([
 ]);
 const TUIC_CONGESTION = new Set(["", "cubic", "new_reno", "bbr"]);
 
+// Транспорты, которые приложение реально умеет провести: часть несёт само ядро
+// (ws/grpc/http/httpupgrade/quic), xhttp и mKCP — локальный xray-мост. Всё
+// остальное (например, старый v2ray «tcp+http-обфускация» или неизвестные
+// названия) молча собиралось как обычный TCP: конфиг валиден, ядро стартует,
+// нода мертва без единой строки в логе. Такую ноду честнее не брать.
+const TRANSPORT_TYPES = new Set([
+  "", "tcp", "raw", "ws", "grpc", "http", "h2", "httpupgrade", "quic", "xhttp", "kcp",
+]);
+// Транспорт есть только у протоколов v2ray-семейства; у остальных поле означает
+// другое или его нет вовсе.
+const TRANSPORT_PROTOS = new Set(["vless", "vmess", "trojan"]);
+
 function realityRequested(node) {
   const mode = node?.tlsMode || node?.security;
   return String(mode || "").toLowerCase() === "reality";
@@ -149,6 +161,26 @@ function computeNodeConfigIssue(node) {
 
   if (proto === "tuic" && !TUIC_CONGESTION.has(String(node.congestionControl || "").toLowerCase())) {
     return { code: "congestion" };
+  }
+
+  if (TRANSPORT_PROTOS.has(proto)) {
+    const type = String(node.type || "").toLowerCase();
+    if (!TRANSPORT_TYPES.has(type)) return { code: "transport" };
+    // Ядро поднимает «сырой» QUIC; дополнительное шифрование транспорта из Xray
+    // оно не реализует, и такая нода не встанет в любом случае.
+    if (type === "quic") {
+      const quicSecurity = String(node.quicSecurity || "").toLowerCase();
+      if (quicSecurity && quicSecurity !== "none") return { code: "quicSecurity" };
+    }
+  }
+
+  if (proto === "anytls" && !node.password) return { code: "credentials" };
+
+  if (proto === "hysteria") {
+    // Ядро реализует только обычный UDP: faketcp и wechat-video из
+    // оригинального клиента v1 ему неизвестны.
+    const wire = String(node.hysteriaProtocol || "udp").toLowerCase();
+    if (wire !== "udp") return { code: "hysteriaProtocol" };
   }
 
   if (realityRequested(node)) {

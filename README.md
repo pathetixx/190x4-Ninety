@@ -36,7 +36,7 @@ When something breaks, you get diagnostics instead of guesswork.
 | **Connection modes** | Local proxy, Windows system proxy and full **VPN · TUN** mode. UAC appears only when TUN actually needs elevation; Ninety can also start elevated at login. |
 | **Sources** | Imports subscription URLs, individual proxy links and TrustTunnel `.toml` endpoints. Clipboard import is built in, while deep links remain optional. |
 | **Node control** | Server grid with country flags, live delay checks, automatic selection, tray switching and tracking of the node currently used by the connection. |
-| **Protocols** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, NaiveProxy, TrustTunnel and WARP/WireGuard. |
+| **Protocols** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, SOCKS, NaiveProxy, TrustTunnel and WARP/WireGuard. |
 | **Bridges** | XHTTP runs through xray-core. NaiveProxy and TrustTunnel use local SOCKS sidecars, with sing-box remaining the central router. |
 | **Routing** | LAN bypass, regional routing, custom rules for domains, IP addresses and processes, plus ad, malware and phishing rule sets. Active connections can be inspected from the app. |
 | **Quality engine** | Measures real throughput instead of treating ping as the whole story. It can re-test the channel, change nodes, apply masking, rescan WARP or recommend reconnecting. |
@@ -56,9 +56,9 @@ When something breaks, you get diagnostics instead of guesswork.
 
 ## Supported protocols and transports
 
-**Protocols:** VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · NaiveProxy · TrustTunnel · WARP/WireGuard
+**Protocols:** VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · Hysteria · TUIC · AnyTLS · SOCKS · NaiveProxy · TrustTunnel · WARP/WireGuard
 
-**Transports and options:** Reality · TLS with uTLS fingerprints · XHTTP · WebSocket · gRPC · HTTP/2 · TCP · TLS fragmentation · padding · mixed-case SNI · mux
+**Transports and options:** Reality · TLS with uTLS fingerprints · XHTTP · WebSocket · gRPC · HTTP/2 · HTTPUpgrade · QUIC · mKCP · TCP · TLS fragmentation · padding · mixed-case SNI · mux
 
 NaiveProxy and TrustTunnel run through their own local clients and expose SOCKS bridges to sing-box. XHTTP uses xray-core when necessary. In the UI, they still behave like regular profiles with one source and one connection state.
 

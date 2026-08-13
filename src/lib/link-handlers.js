@@ -1,6 +1,6 @@
 export const LINK_HANDLER_SCHEMES = [
-  "vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "tuic", "sub",
-  "tt", "naive+https", "naive+quic",
+  "vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "hysteria", "tuic", "sub",
+  "anytls", "tt", "naive+https", "naive+quic",
 ];
 
 const invoke = window.__TAURI__?.core?.invoke

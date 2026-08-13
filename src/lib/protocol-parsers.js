@@ -83,6 +83,13 @@ export function parseVless(raw) {
     serviceName: get("serviceName", ""),
     mode: get("mode", ""),
     extra: get("extra", ""),
+    // mKCP: маскировка пакетов и общий секрет обфускации. Без них нода с
+    // type=kcp собиралась как обычный TCP и молча не работала.
+    headerType: get("headerType") || get("headertype", ""),
+    seed: get("seed", ""),
+    // v2ray-QUIC: ядро умеет только «сырой» QUIC без дополнительного шифрования
+    // транспорта, поэтому значение проверяется, а не переносится.
+    quicSecurity: get("quicSecurity") || get("quicsecurity", ""),
   };
 }
 
@@ -119,6 +126,10 @@ export function parseVmess(raw) {
     host_header: j.host || "",
     serviceName: j.path || "",
     mode: j.type || "",
+    // В vmess-JSON `type` — это заголовок маскировки, а `path` для mKCP несёт
+    // seed обфускации: у остальных транспортов оба поля значат другое.
+    headerType: j.type || "",
+    seed: j.net === "kcp" ? (j.path || "") : "",
   };
 }
 
@@ -259,6 +270,97 @@ export function parseTuic(raw) {
     // самоподписанным сертификатом молча не вставала: ссылка про это говорила,
     // парсер — нет. Панели пишут и `insecure`, и `allow_insecure`.
     insecure: boolParam(get("insecure") || get("allow_insecure")),
+  };
+}
+
+// ── anytls ──────────────────────────────────────────────────
+// anytls://password@host:port?sni=&insecure=&alpn=#name — формат, на котором
+// сошлись клиенты экосистемы sing-box. Транспорта у протокола нет: он всегда
+// поверх TLS, поэтому type/flow здесь бессмысленны.
+export function parseAnyTls(raw) {
+  const url = String(raw || "").trim();
+  if (!url.startsWith("anytls://")) throw new Error(t("sb.err.notAnyTls"));
+  const rest = url.slice("anytls://".length);
+  const { name, main } = splitTrailingHashName(rest, "AnyTLS");
+  const { head, query } = splitQuery(main);
+  const atIdx = head.lastIndexOf("@");
+  if (atIdx < 0) throw new Error(t("sb.err.anytlsHostPort"));
+  const password = safeDecode(head.slice(0, atIdx));
+  if (!password) throw new Error(t("sb.err.anytlsPassword"));
+  const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.anytlsHostPort");
+  const get = (k, def = "") => query.get(k) ?? def;
+  return {
+    raw: url, proto: "anytls", name,
+    host, port, password,
+    sni: get("sni") || get("peer") || host,
+    fp: get("fp", "chrome"),
+    alpn: get("alpn", ""),
+    insecure: boolParam(get("insecure") || get("allowInsecure") || get("allow_insecure")),
+  };
+}
+
+// ── hysteria v1 ─────────────────────────────────────────────
+// hysteria://host:port?auth=…&peer=…&upmbps=&downmbps=&obfs=…&protocol=udp
+// Первая версия протокола: аутентификация строкой, обфускация — общий секрет
+// (не salamander, как в hysteria2), скорости обязательны для его контроллера.
+export function parseHysteria(raw) {
+  const url = String(raw || "").trim();
+  if (!url.startsWith("hysteria://")) throw new Error(t("sb.err.notHysteria"));
+  const rest = url.slice("hysteria://".length);
+  const { name, main } = splitTrailingHashName(rest, "HYSTERIA");
+  const { head, query } = splitQuery(main);
+  // Учётные данные у v1 живут в query (auth/auth_str), а не в userinfo.
+  const hostPart = head.includes("@") ? head.slice(head.lastIndexOf("@") + 1) : head;
+  const { host, port } = splitHostPort(hostPart, "sb.err.hysteriaHostPort");
+  const get = (k, def = "") => query.get(k) ?? def;
+  return {
+    raw: url, proto: "hysteria", name,
+    host, port,
+    authString: safeDecode(get("auth") || get("auth_str") || get("authStr", "")),
+    sni: get("peer") || get("sni") || host,
+    alpn: get("alpn", ""),
+    obfs: safeDecode(get("obfs", "")),
+    // v1 в sing-box работает только поверх обычного UDP: faketcp и
+    // wechat-video из оригинального клиента ядро не реализует.
+    hysteriaProtocol: get("protocol", "udp"),
+    upMbps: parseInt(get("upmbps") || get("up") || "0", 10) || undefined,
+    downMbps: parseInt(get("downmbps") || get("down") || "0", 10) || undefined,
+    insecure: boolParam(get("insecure") || get("allowInsecure")),
+  };
+}
+
+// ── SOCKS ───────────────────────────────────────────────────
+// socks://[user:pass@]host:port#name (а также socks5/socks5h/socks4/socks4a).
+// Обычный прокси без шифрования: полезен как промежуточное звено или локальный
+// клиент чужого движка. http-прокси-ссылки намеренно не поддержаны: http(s)://
+// в этом же поле означает адрес подписки, и различить их надёжно нельзя.
+const SOCKS_SCHEMES = {
+  "socks://": "5", "socks5://": "5", "socks5h://": "5",
+  "socks4://": "4", "socks4a://": "4a",
+};
+export function parseSocks(raw) {
+  const url = String(raw || "").trim();
+  const scheme = Object.keys(SOCKS_SCHEMES).find(prefix => url.toLowerCase().startsWith(prefix));
+  if (!scheme) throw new Error(t("sb.err.notSocks"));
+  const rest = url.slice(scheme.length);
+  const { name, main } = splitTrailingHashName(rest, "SOCKS");
+  const { head } = splitQuery(main);
+  const atIdx = head.lastIndexOf("@");
+  let username = "", password = "";
+  if (atIdx >= 0) {
+    const cred = head.slice(0, atIdx);
+    // v2rayN пишет userinfo и открытым текстом, и base64url — берём то, что
+    // после декода похоже на пару «логин:пароль».
+    const decoded = cred.includes(":") ? cred : (safeDecodeBase64(cred) || cred);
+    const [user, pass] = splitFirstColon(decoded);
+    username = safeDecode(user || "");
+    password = safeDecode(pass || "");
+  }
+  const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.socksHostPort");
+  return {
+    raw: url, proto: "socks", name,
+    host, port, username, password,
+    version: SOCKS_SCHEMES[scheme],
   };
 }
 
@@ -480,6 +582,9 @@ export function parseLink(raw) {
   if (s.startsWith("trojan://"))    return parseTrojan(s);
   if (s.startsWith("ss://"))        return parseShadowsocks(s);
   if (s.startsWith("hysteria2://") || s.startsWith("hy2://")) return parseHysteria2(s);
+  if (s.startsWith("hysteria://"))  return parseHysteria(s);
+  if (s.startsWith("anytls://"))    return parseAnyTls(s);
+  if (/^socks(5h?|4a?)?:\/\//i.test(s)) return parseSocks(s);
   if (s.startsWith("tuic://"))      return parseTuic(s);
   if (s.startsWith("naive+"))       return parseNaive(s);
   if (s.startsWith("tt://"))        return parseTrustTunnelDeepLink(s);

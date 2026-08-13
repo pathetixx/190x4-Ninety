@@ -36,7 +36,7 @@ Ninety — нативный клиент для Windows, построенный 
 | **Режимы подключения** | Локальный прокси, системный прокси Windows и полноценный **VPN · TUN**. Запрос UAC появляется только тогда, когда TUN действительно нужны права администратора. При желании Ninety может запускаться с повышенными правами вместе с Windows. |
 | **Источники** | Импорт ссылок на подписки, отдельных конфигураций и `.toml`-профилей TrustTunnel. Ссылку можно вставить из буфера, а поддержку deep links — включить отдельно. |
 | **Управление нодами** | Сетка серверов с флагами стран, живая проверка задержки, автоматический выбор, переключение из трея и отображение ноды, которая используется прямо сейчас. |
-| **Протоколы** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, NaiveProxy, TrustTunnel и WARP/WireGuard. |
+| **Протоколы** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, SOCKS, NaiveProxy, TrustTunnel и WARP/WireGuard. |
 | **Мосты** | XHTTP работает через xray-core. NaiveProxy и TrustTunnel подключаются через локальные SOCKS-мосты, а центральным маршрутизатором остаётся sing-box. |
 | **Маршрутизация** | Обход локальной сети, региональные правила, собственные правила для доменов, IP-адресов и процессов. Есть списки для блокировки рекламы, вредоносных и фишинговых доменов, а также просмотр активных соединений. |
 | **Качество соединения** | Проверяется реальная пропускная способность канала, а не один только ping. Ninety может повторить тест, сменить ноду, включить маскировку, заново просканировать WARP или предложить переподключение. |
@@ -56,9 +56,9 @@ Ninety — нативный клиент для Windows, построенный 
 
 ## Поддерживаемые протоколы и транспорты
 
-**Протоколы:** VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · NaiveProxy · TrustTunnel · WARP/WireGuard
+**Протоколы:** VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · Hysteria · TUIC · AnyTLS · SOCKS · NaiveProxy · TrustTunnel · WARP/WireGuard
 
-**Транспорты и опции:** Reality · TLS с uTLS-отпечатками · XHTTP · WebSocket · gRPC · HTTP/2 · TCP · TLS-фрагментация · padding · mixed-case SNI · mux
+**Транспорты и опции:** Reality · TLS с uTLS-отпечатками · XHTTP · WebSocket · gRPC · HTTP/2 · HTTPUpgrade · QUIC · mKCP · TCP · TLS-фрагментация · padding · mixed-case SNI · mux
 
 NaiveProxy и TrustTunnel запускаются через собственные локальные клиенты и передают трафик в sing-box по SOCKS-мостам. Для XHTTP при необходимости используется xray-core.
 
