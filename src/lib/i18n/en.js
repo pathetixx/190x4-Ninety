@@ -492,6 +492,8 @@ export const en = {
     notifyDisconnectedBody: "Tunnel closed",
     startFail: "Couldn't start",
     startFailDesc: "Opening logs — sing-box didn't start",
+    nodeRejected: "Server “{name}” disabled",
+    nodeRejectedDesc: "The core rejected its parameters. Connect again — the other servers are unaffected.",
     cleanupFail: "Couldn't disconnect",
     cleanupFailDesc: "Network component cleanup could not be confirmed",
     needSource: "Import a config or subscription first",

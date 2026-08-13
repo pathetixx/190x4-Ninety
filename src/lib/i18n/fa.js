@@ -492,6 +492,8 @@ export const fa = {
     notifyDisconnectedBody: "تونل بسته شد",
     startFail: "راه‌اندازی نشد",
     startFailDesc: "در حال باز کردن گزارش‌ها — sing-box راه‌اندازی نشد",
+    nodeRejected: "سرور «{name}» غیرفعال شد",
+    nodeRejectedDesc: "هسته پارامترهای آن را نپذیرفت. دوباره وصل شوید — سرورهای دیگر تحت تأثیر نیستند.",
     cleanupFail: "قطع اتصال انجام نشد",
     cleanupFailDesc: "پاک‌سازی اجزای شبکه تأیید نشد",
     needSource: "ابتدا یک پیکربندی یا اشتراک وارد کنید",

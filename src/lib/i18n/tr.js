@@ -492,6 +492,8 @@ export const tr = {
     notifyDisconnectedBody: "Tünel kapandı",
     startFail: "Başlatılamadı",
     startFailDesc: "Günlükler açılıyor — sing-box başlamadı",
+    nodeRejected: "“{name}” sunucusu devre dışı",
+    nodeRejectedDesc: "Çekirdek parametrelerini kabul etmedi. Yeniden bağlanın — diğer sunucular etkilenmedi.",
     cleanupFail: "Bağlantı kesilemedi",
     cleanupFailDesc: "Ağ bileşenlerinin temizlendiği doğrulanamadı",
     needSource: "Önce bir yapılandırma veya abonelik içe aktarın",

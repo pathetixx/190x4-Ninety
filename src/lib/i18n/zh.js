@@ -488,6 +488,8 @@ export const zh = {
     notifyDisconnectedBody: "隧道已关闭",
     startFail: "无法启动",
     startFailDesc: "正在打开日志——sing-box 未启动",
+    nodeRejected: "服务器“{name}”已停用",
+    nodeRejectedDesc: "内核不接受其参数。请重新连接——其他服务器不受影响。",
     cleanupFail: "无法断开连接",
     cleanupFailDesc: "无法确认网络组件已清理",
     needSource: "请先导入配置或订阅",

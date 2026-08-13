@@ -16,8 +16,11 @@ import {
   splitHostPort,
 } from "/lib/url-helpers.js";
 import { parseLink, parseTrustTunnelToml, profileProto } from "/lib/protocol-parsers.js";
+import { isNodeQuarantined } from "/lib/node-quarantine.js";
 import {
   nodeConfigIssue,
+  normalizeFingerprint,
+  normalizeFlow,
   normalizeRealityPublicKey,
   usableNodes,
 } from "/lib/node-validation.js";
@@ -113,7 +116,7 @@ function buildTls(p) {
   const tls = {
     enabled: true,
     server_name: p.sni,
-    utls: { enabled: true, fingerprint: p.fp || "chrome" },
+    utls: { enabled: true, fingerprint: normalizeFingerprint(p.fp) },
   };
   if (p.alpn) tls.alpn = String(p.alpn).split(",").map(s => s.trim()).filter(Boolean);
   if (tlsMode === "reality") {
@@ -144,7 +147,7 @@ function xrayTlsToSingbox(ds) {
   const tls = { enabled: true };
   const sni = ts.serverName || ts.server_name;
   if (sni) tls.server_name = sni;
-  tls.utls = { enabled: true, fingerprint: ts.fingerprint || "chrome" };
+  tls.utls = { enabled: true, fingerprint: normalizeFingerprint(ts.fingerprint) };
   const alpn = ts.alpn;
   if (Array.isArray(alpn) && alpn.length) tls.alpn = alpn;
   else if (typeof alpn === "string" && alpn) tls.alpn = alpn.split(",").map(s => s.trim()).filter(Boolean);
@@ -292,7 +295,9 @@ function buildOutbound(p, options) {
         ...base,
         type: "vmess",
         uuid: p.uuid,
-        security: p.security || "auto",
+        // Реестры ядра регистрозависимы: имя шифра/метода из ссылки приводим к
+        // нижнему регистру, иначе «AES-128-GCM» роняет конфиг как неизвестное.
+        security: String(p.security || "auto").toLowerCase(),
         alter_id: p.alterId || 0,
         packet_encoding: "xudp",
       };
@@ -303,7 +308,12 @@ function buildOutbound(p, options) {
       break;
     }
     case "shadowsocks": {
-      out = { ...base, type: "shadowsocks", method: p.method, password: p.password };
+      out = {
+        ...base,
+        type: "shadowsocks",
+        method: String(p.method || "").toLowerCase(),
+        password: p.password,
+      };
       if (p.plugin) {
         out.plugin = p.plugin;
         if (p.plugin_opts) out.plugin_opts = p.plugin_opts;
@@ -319,7 +329,7 @@ function buildOutbound(p, options) {
       if (p.upMbps) out.up_mbps = p.upMbps;
       if (p.downMbps) out.down_mbps = p.downMbps;
       if (p.obfs) {
-        out.obfs = { type: p.obfs };
+        out.obfs = { type: String(p.obfs).toLowerCase() };
         if (p.obfsPassword) out.obfs.password = p.obfsPassword;
       }
       // hysteria2 всегда поверх QUIC/TLS — TLS обязателен
@@ -338,7 +348,7 @@ function buildOutbound(p, options) {
         type: "tuic",
         uuid: p.uuid,
         password: p.password,
-        congestion_control: p.congestionControl || "bbr",
+        congestion_control: String(p.congestionControl || "bbr").toLowerCase(),
         udp_relay_mode: p.udpRelayMode || "native",
         zero_rtt_handshake: !!p.zeroRttHandshake,
       };
@@ -365,7 +375,10 @@ function buildOutbound(p, options) {
         uuid: p.uuid,
         packet_encoding: "xudp",
       };
-      if (p.flow) out.flow = p.flow;
+      // Xray-суффикс «-udp443» ядро не знает; normalizeFlow приводит flow к
+      // тому, что оно принимает (сам протокол на проводе тот же).
+      const flow = normalizeFlow(p.flow);
+      if (flow) out.flow = flow;
       break;
     }
   }
@@ -1146,7 +1159,7 @@ export function buildConfig({
   // принимает, роняет весь старт. Подписку чистим и работаем на оставшихся,
   // одиночный профиль чистить нечем — отдаём понятную ошибку вместо FATAL ядра.
   if (!warpOnly && src.kind === "sub") {
-    nodes = usableNodes(nodes);
+    nodes = usableNodes(nodes).filter(node => !isNodeQuarantined(node));
     if (!nodes.length) throw new Error(t("sb.err.buildAllNodesInvalid"));
   } else if (!warpOnly && nodeConfigIssue(nodes[0])) {
     throw new Error(t("sb.err.nodeInvalid", { name: nodes[0]?.name || nodes[0]?.host || "" }));
@@ -1334,9 +1347,15 @@ export function buildConfig({
   // применяются per-outbound в applyTlsTricks() при сборке прокси-outbound.
 
   validateConfigReferences(config);
+  // Карта «индекс outbound'а → нода»: именно этим индексом ядро называет
+  // виновника в «initialize outbound[N]». Считать его арифметикой по позиции
+  // селектора нельзя — состав outbound'ов меняется от режима к режиму.
+  const nodeByOutbound = new Map(vlessOutbounds.map((outbound, i) => [outbound, nodes[i]]));
+  const outboundNodes = outbounds.map(outbound => nodeByOutbound.get(outbound) || null);
   return {
     config,
     xray: xrayConfig,
+    outboundNodes,
     sidecars,
     runtime: {
       mode: effectiveMode,
@@ -1483,7 +1502,7 @@ function loadSubsRaw() {
  */
 export function subscriptionSource(sub) {
   if (!sub) return null;
-  const nodes = usableNodes(sub.profiles || []);
+  const nodes = usableNodes(sub.profiles || []).filter(node => !isNodeQuarantined(node));
   if (!nodes.length) return null;
   return { kind: "sub", subscription: sub, nodes };
 }

@@ -35,6 +35,7 @@ import { a11ySwitch } from "/lib/switch-a11y.js";
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { openConfirmModal } from "/lib/confirm-modal.js";
 import { usableNodes } from "/lib/node-validation.js";
+import { clearNodeQuarantine, matchCoreOutboundRejection, quarantineNode } from "/lib/node-quarantine.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
 import { openUpdateModal, resumeRuntimeReady, shouldSkip as updateShouldSkip } from "/lib/update-modal.js";
 import { planUpdateNotice, UPDATE_NOTICE } from "/lib/update-notice.js";
@@ -2214,6 +2215,10 @@ profilesView?.addEventListener("click", async (e) => {
       }
       if (act === "refresh") {
         try {
+          // Ручное обновление — это ещё и «попробуй снова»: снимаем карантин,
+          // иначе выключенный по отказу ядра сервер не вернуть ничем, кроме
+          // очистки данных. Если он всё ещё сломан, ядро скажет это снова.
+          clearNodeQuarantine();
           const tx = await mutateSource("sub", id, () => refreshSubscription(id), t("conn.applyingSettings"));
           const r = tx.result;
           toast(t("prof.toastUpdated", { srv: tn("prof.srvN", r.profiles.length) }), "success", 1800);
@@ -3088,6 +3093,9 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
     // а не запускает параллельный start_singbox.
     const attemptEpoch = connectAttempts.begin();
     let connectStage = "preflight";
+    // Карта «outbound → нода» нужна уже в catch: по ней разбирается отказ ядра
+    // «initialize outbound[N]».
+    let outboundNodes = null;
     setState("connecting");
     try {
       if (strictPrivacy) {
@@ -3141,6 +3149,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         config,
         xray,
         sidecars,
+        outboundNodes: builtOutboundNodes,
         runtime: runtimeInfo,
       } = buildConfig({
         source: src,
@@ -3151,6 +3160,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         xray: true,
         bridgePorts,
       });
+      outboundNodes = builtOutboundNodes;
       const configJson = JSON.stringify(config);
       // Сервер активной ноды — в exclude winws ДО запуска ядра. Раньше
       // исключение ставилось только по факту connected, то есть уже после
@@ -3390,6 +3400,22 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         if (state !== "cleanup_error") {
           setState("cleanup_error", { preserveKillSwitch: preserveGuard });
         }
+        return false;
+      }
+      // Ядро отказалось поднимать конкретный outbound — значит у ноды параметр,
+      // которого статические проверки ещё не знают. Ядро само назвало индекс:
+      // выключаем эту ноду и говорим, какую именно, вместо «старт не удался».
+      const rejected = matchCoreOutboundRejection(
+        `${e?.message || ""}\n${e || ""}`,
+        outboundNodes,
+      );
+      if (rejected) {
+        quarantineNode(rejected.node, rejected.reason);
+        runtimeIdentity.invalidate();
+        refreshProfilesSummary();
+        toast(t("conn.nodeRejected", { name: nodeDisplayLabel(rejected.node) }), "warn", 8000, {
+          desc: `${rejected.reason} · ${t("conn.nodeRejectedDesc")}`,
+        });
         return false;
       }
       if (e?.code === "STRICT_PRIVACY_NODE_REQUIRED") {

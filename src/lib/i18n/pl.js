@@ -500,6 +500,8 @@ export const pl = {
     notifyDisconnectedBody: "Tunel zamknięty",
     startFail: "Nie udało się uruchomić",
     startFailDesc: "Otwieranie dzienników — sing-box nie uruchomił się",
+    nodeRejected: "Serwer „{name}” wyłączony",
+    nodeRejectedDesc: "Rdzeń odrzucił jego parametry. Połącz się ponownie — pozostałe serwery są nienaruszone.",
     cleanupFail: "Nie udało się rozłączyć",
     cleanupFailDesc: "Nie potwierdzono wyczyszczenia składników sieciowych",
     needSource: "Najpierw zaimportuj konfig lub subskrypcję",

@@ -780,3 +780,23 @@ test("reality-ключ в обычном base64 нормализуется дл�
   const proxy = config.outbounds.find((o) => o.tag === "proxy");
   assert.equal(proxy.tls.reality.public_key, REALITY_PBK);
 });
+
+test("flow из xray-ссылки уезжает в конфиг в том виде, который принимает ядро", () => {
+  const node = parseVless(`vless://uuid@ok.example:443?security=reality&sni=a.example&pbk=${REALITY_PBK}&flow=xtls-rprx-vision-udp443`);
+  const { config } = buildConfig({
+    source: { kind: "single", profile: node },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+  });
+  assert.equal(config.outbounds.find((o) => o.tag === "proxy").flow, "xtls-rprx-vision");
+});
+
+test("незнакомый ядру отпечаток uTLS не доходит до конфига", () => {
+  const node = parseVless("vless://uuid@ok.example:443?security=tls&sni=a.example&fp=randomizednoalpn");
+  const { config } = buildConfig({
+    source: { kind: "single", profile: node },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+  });
+  assert.equal(config.outbounds.find((o) => o.tag === "proxy").tls.utls.fingerprint, "chrome");
+});

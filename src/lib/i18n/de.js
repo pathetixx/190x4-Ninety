@@ -492,6 +492,8 @@ export const de = {
     notifyDisconnectedBody: "Tunnel geschlossen",
     startFail: "Start fehlgeschlagen",
     startFailDesc: "Öffne Protokoll — sing-box ist nicht gestartet",
+    nodeRejected: "Server „{name}“ deaktiviert",
+    nodeRejectedDesc: "Der Kern hat seine Parameter abgelehnt. Verbinde dich erneut — die anderen Server sind nicht betroffen.",
     cleanupFail: "Trennen fehlgeschlagen",
     cleanupFailDesc: "Die Bereinigung der Netzwerkkomponenten wurde nicht bestätigt",
     needSource: "Importiere zuerst eine Konfig oder ein Abo",

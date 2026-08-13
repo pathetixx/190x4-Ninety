@@ -500,6 +500,8 @@ export const uk = {
     notifyDisconnectedBody: "Тунель закрито",
     startFail: "Не вдалося запустити",
     startFailDesc: "Відкриваю журнал — sing-box не стартував",
+    nodeRejected: "Сервер «{name}» вимкнено",
+    nodeRejectedDesc: "Ядро не прийняло його параметри. Підключіться ще раз — інші сервери не зачеплені.",
     cleanupFail: "Не вдалося відключити",
     cleanupFailDesc: "Очищення мережевих компонентів не підтверджено",
     needSource: "Спочатку імпортуйте конфіг або підписку",

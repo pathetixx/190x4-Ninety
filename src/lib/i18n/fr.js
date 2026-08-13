@@ -496,6 +496,8 @@ export const fr = {
     notifyDisconnectedBody: "Tunnel fermé",
     startFail: "Démarrage impossible",
     startFailDesc: "Ouverture des journaux — sing-box n’a pas démarré",
+    nodeRejected: "Serveur « {name} » désactivé",
+    nodeRejectedDesc: "Le cœur a refusé ses paramètres. Reconnectez-vous — les autres serveurs ne sont pas touchés.",
     cleanupFail: "Échec de la déconnexion",
     cleanupFailDesc: "Le nettoyage des composants réseau n’a pas pu être confirmé",
     needSource: "Importez d’abord une config ou un abonnement",

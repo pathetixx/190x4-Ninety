@@ -508,6 +508,8 @@ export const ar = {
     notifyDisconnectedBody: "أُغلق النفق",
     startFail: "تعذّر البدء",
     startFailDesc: "جارٍ فتح السجلات — لم يبدأ sing-box",
+    nodeRejected: "تم تعطيل الخادم «{name}»",
+    nodeRejectedDesc: "رفضت النواة معاملاته. أعد الاتصال — الخوادم الأخرى غير متأثرة.",
     cleanupFail: "تعذر قطع الاتصال",
     cleanupFailDesc: "تعذر تأكيد تنظيف مكونات الشبكة",
     needSource: "استورد إعدادًا أو اشتراكًا أولًا",

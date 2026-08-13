@@ -488,6 +488,8 @@ export const ja = {
     notifyDisconnectedBody: "トンネルを閉じました",
     startFail: "起動できませんでした",
     startFailDesc: "ログを開いています — sing-box が起動しませんでした",
+    nodeRejected: "サーバー「{name}」を無効にしました",
+    nodeRejectedDesc: "コアがパラメータを受け付けませんでした。もう一度接続してください — 他のサーバーに影響はありません。",
     cleanupFail: "切断できませんでした",
     cleanupFailDesc: "ネットワークコンポーネントの終了を確認できませんでした",
     needSource: "先に設定またはサブスクリプションをインポートしてください",

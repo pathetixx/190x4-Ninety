@@ -496,6 +496,8 @@ export const it = {
     notifyDisconnectedBody: "Tunnel chiuso",
     startFail: "Impossibile avviare",
     startFailDesc: "Apertura dei log — sing-box non si è avviato",
+    nodeRejected: "Server «{name}» disattivato",
+    nodeRejectedDesc: "Il core ha rifiutato i suoi parametri. Connettiti di nuovo: gli altri server non sono interessati.",
     cleanupFail: "Disconnessione non riuscita",
     cleanupFailDesc: "Impossibile confermare la pulizia dei componenti di rete",
     needSource: "Importa prima una config o un abbonamento",

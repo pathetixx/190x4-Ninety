@@ -68,3 +68,55 @@ test("partitionNodes делит список и сохраняет порядо�
   assert.equal(skipped[0].issue.code, "realityKey");
   assert.equal(usable[0].host, "good.example");
 });
+
+// Значения, которые ядро проверяет строго (списки сняты с его исходников).
+// Любое непринятое значение = FATAL на инициализации = мёртвая подписка целиком.
+const { normalizeFlow, normalizeFingerprint } = await import("/lib/node-validation.js");
+
+test("flow: xray-суффикс -udp443 снимается, всё чужое отбраковывается", () => {
+  assert.equal(normalizeFlow("xtls-rprx-vision-udp443"), "xtls-rprx-vision");
+  assert.equal(normalizeFlow("xtls-rprx-vision"), "xtls-rprx-vision");
+  assert.equal(normalizeFlow(""), "");
+  assert.equal(normalizeFlow("xtls-rprx-direct"), null);
+
+  const node = parseVless("vless://uuid@1.2.3.4:443?security=tls&flow=xtls-rprx-vision-udp443");
+  assert.equal(nodeConfigIssue(node), null, "нода с -udp443 чинится, а не выбрасывается");
+  const alien = parseVless("vless://uuid@1.2.3.4:443?security=tls&flow=xtls-rprx-direct");
+  assert.deepEqual(nodeConfigIssue(alien), { code: "flow" });
+});
+
+test("неизвестный отпечаток uTLS подменяется на chrome, известные не трогаются", () => {
+  assert.equal(normalizeFingerprint("randomizednoalpn"), "chrome");
+  assert.equal(normalizeFingerprint(""), "chrome");
+  assert.equal(normalizeFingerprint("android"), "android");
+  assert.equal(normalizeFingerprint("random"), "random");
+});
+
+test("vmess: ядро знает конечный список шифров", () => {
+  const base = { proto: "vmess", host: "a.example", port: 443, uuid: "u" };
+  assert.equal(nodeConfigIssue({ ...base, security: "AES-128-GCM" }), null);
+  assert.equal(nodeConfigIssue({ ...base, security: "auto" }), null);
+  assert.deepEqual(nodeConfigIssue({ ...base, security: "aes-256-gcm" }), { code: "vmessSecurity" });
+});
+
+test("shadowsocks: метод обязателен и должен быть из списка ядра", () => {
+  const base = { proto: "shadowsocks", host: "a.example", port: 443, password: "p" };
+  assert.equal(nodeConfigIssue({ ...base, method: "2022-blake3-aes-128-gcm" }), null);
+  assert.deepEqual(nodeConfigIssue({ ...base, method: "" }), { code: "ssMethod" });
+  assert.deepEqual(nodeConfigIssue({ ...base, method: "aes-256-gcm-siv" }), { code: "ssMethod" });
+});
+
+test("hysteria2: obfs только salamander и только с паролем", () => {
+  const base = { proto: "hysteria2", host: "a.example", port: 443, password: "p" };
+  assert.equal(nodeConfigIssue({ ...base }), null);
+  assert.equal(nodeConfigIssue({ ...base, obfs: "salamander", obfsPassword: "x" }), null);
+  assert.deepEqual(nodeConfigIssue({ ...base, obfs: "salamander" }), { code: "obfs" });
+  assert.deepEqual(nodeConfigIssue({ ...base, obfs: "other", obfsPassword: "x" }), { code: "obfs" });
+});
+
+test("tuic: неизвестный алгоритм контроля перегрузки отбраковывается", () => {
+  const base = { proto: "tuic", host: "a.example", port: 443, uuid: "u", password: "p" };
+  assert.equal(nodeConfigIssue({ ...base, congestionControl: "bbr" }), null);
+  assert.equal(nodeConfigIssue({ ...base, congestionControl: "" }), null);
+  assert.deepEqual(nodeConfigIssue({ ...base, congestionControl: "reno" }), { code: "congestion" });
+});

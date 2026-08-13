@@ -488,6 +488,8 @@ export const ko = {
     notifyDisconnectedBody: "터널이 닫혔습니다",
     startFail: "시작할 수 없습니다",
     startFailDesc: "로그를 여는 중 — sing-box가 시작되지 않았습니다",
+    nodeRejected: "서버 “{name}” 비활성화",
+    nodeRejectedDesc: "코어가 매개변수를 거부했습니다. 다시 연결하세요 — 다른 서버는 영향을 받지 않습니다.",
     cleanupFail: "연결을 해제하지 못했습니다",
     cleanupFailDesc: "네트워크 구성 요소 정리를 확인하지 못했습니다",
     needSource: "먼저 설정 또는 구독을 가져오세요",

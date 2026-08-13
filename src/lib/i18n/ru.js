@@ -500,6 +500,8 @@ export const ru = {
     notifyDisconnectedBody: "Туннель закрыт",
     startFail: "Не удалось запустить",
     startFailDesc: "Открываю логи — sing-box не стартовал",
+    nodeRejected: "Сервер «{name}» отключён",
+    nodeRejectedDesc: "Ядро не приняло его параметры. Подключитесь ещё раз — остальные серверы не затронуты.",
     cleanupFail: "Не удалось отключить",
     cleanupFailDesc: "Очистка сетевых компонентов не подтверждена",
     needSource: "Сначала импортируйте конфиг или подписку",
