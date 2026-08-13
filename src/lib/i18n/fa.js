@@ -426,6 +426,8 @@ export const fa = {
       unsupported: "پروتکل پشتیبانی‌نشده: {proto}://",
       buildNoSource: "buildConfig: منبعی نیست",
       buildNoNodes: "buildConfig: فهرست سرورها خالی است",
+      nodeInvalid: "سرور «{name}»: هسته پارامترهای آن را نپذیرفت",
+      buildAllNodesInvalid: "این اشتراک سرور قابل استفاده ندارد: هسته پارامترهای آن‌ها را نمی‌پذیرد",
     },
   },
 
@@ -555,6 +557,11 @@ export const fa = {
     toastTrafficReset: "شمارندهٔ ترافیک بازنشانی شد",
     toastSubRemoved: "اشتراک حذف شد",
     toastProfileRemoved: "پروفایل حذف شد",
+    removeSubTitle: "اشتراک حذف شود؟",
+    removeSubMsg: "اشتراک «{name}» و فهرست سرورهایش حذف می‌شود. باید پیوند را دوباره اضافه کنید.",
+    removeProfileTitle: "پروفایل حذف شود؟",
+    removeProfileMsg: "پروفایل «{name}» حذف می‌شود. باید تنظیمات آن را دوباره وارد کنید.",
+    removeConfirm: "حذف",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -698,6 +705,7 @@ export const fa = {
   subs: {
     needHttpUrl: "یک URL با http(s):// لازم است",
     noVless: "اشتراک هیچ پیکربندی پشتیبانی‌شده‌ای ندارد",
+    skippedNote: "سرورهای نادیده‌گرفته‌شده: {n} — هسته پارامترهای آن‌ها را نمی‌پذیرد",
     subFallback: "اشتراک",
     notFound: "اشتراک یافت نشد",
     emptyOrInvalid: "اشتراک خالی یا نامعتبر است",

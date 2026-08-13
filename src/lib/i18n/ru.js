@@ -434,6 +434,8 @@ export const ru = {
       unsupported: "Неподдерживаемый протокол: {proto}://",
       buildNoSource: "buildConfig: нет источника",
       buildNoNodes: "buildConfig: пустой список серверов",
+      nodeInvalid: "Сервер «{name}»: ядро не приняло его параметры",
+      buildAllNodesInvalid: "В подписке нет пригодных серверов: ядро не принимает их параметры",
     },
   },
 
@@ -569,6 +571,11 @@ export const ru = {
     toastTrafficReset: "Счётчик трафика сброшен",
     toastSubRemoved: "Подписка удалена",
     toastProfileRemoved: "Профиль удалён",
+    removeSubTitle: "Удалить подписку?",
+    removeSubMsg: "Подписка «{name}» и её список серверов будут удалены. Ссылку придётся добавлять заново.",
+    removeProfileTitle: "Удалить профиль?",
+    removeProfileMsg: "Профиль «{name}» будет удалён. Его настройки придётся вводить заново.",
+    removeConfirm: "Удалить",
     subsRefreshOk: "Подписки обновлены",
     subsRefreshPartial: "Обновлено: {ok}, ошибок: {fail}",
     subsRefreshFailed: "Не удалось обновить подписки",
@@ -714,6 +721,7 @@ export const ru = {
   subs: {
     needHttpUrl: "Нужен http(s):// URL",
     noVless: "Подписка не содержит поддерживаемых конфигов",
+    skippedNote: "Пропущено серверов: {n} — ядро не принимает их параметры",
     subFallback: "Подписка",
     notFound: "Подписка не найдена",
     emptyOrInvalid: "Подписка пуста или невалидна",

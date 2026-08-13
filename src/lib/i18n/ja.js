@@ -422,6 +422,8 @@ export const ja = {
       unsupported: "未対応のプロトコル: {proto}://",
       buildNoSource: "buildConfig: ソースがありません",
       buildNoNodes: "buildConfig: サーバーリストが空です",
+      nodeInvalid: "サーバー「{name}」: コアがパラメータを受け付けませんでした",
+      buildAllNodesInvalid: "このサブスクリプションに使えるサーバーがありません: コアがパラメータを受け付けません",
     },
   },
 
@@ -548,6 +550,11 @@ export const ja = {
     toastTrafficReset: "通信カウンタをリセットしました",
     toastSubRemoved: "サブスクリプションを削除しました",
     toastProfileRemoved: "プロファイルを削除しました",
+    removeSubTitle: "サブスクリプションを削除しますか？",
+    removeSubMsg: "サブスクリプション「{name}」とそのサーバー一覧を削除します。リンクは追加し直す必要があります。",
+    removeProfileTitle: "プロファイルを削除しますか？",
+    removeProfileMsg: "プロファイル「{name}」を削除します。設定は入力し直す必要があります。",
+    removeConfirm: "削除",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -690,6 +697,7 @@ export const ja = {
   subs: {
     needHttpUrl: "http(s):// のURLが必要です",
     noVless: "サブスクリプションに対応する設定がありません",
+    skippedNote: "スキップしたサーバー: {n} — コアがパラメータを受け付けません",
     subFallback: "サブスクリプション",
     notFound: "サブスクリプションが見つかりません",
     emptyOrInvalid: "サブスクリプションが空か無効です",

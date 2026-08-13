@@ -17,6 +17,11 @@ import {
 } from "/lib/url-helpers.js";
 import { parseLink, parseTrustTunnelToml, profileProto } from "/lib/protocol-parsers.js";
 import {
+  nodeConfigIssue,
+  normalizeRealityPublicKey,
+  usableNodes,
+} from "/lib/node-validation.js";
+import {
   getActiveKindFromStore,
   getActiveProfileIdFromStore,
   getActiveSubscriptionIdFromStore,
@@ -112,7 +117,14 @@ function buildTls(p) {
   };
   if (p.alpn) tls.alpn = String(p.alpn).split(",").map(s => s.trim()).filter(Boolean);
   if (tlsMode === "reality") {
-    tls.reality = { enabled: true, public_key: p.pbk, short_id: p.sid };
+    // Панели отдают ключ и в обычном base64, и с паддингом, а ядро принимает
+    // только base64url без «=». Нормализуем; заведомо нерабочий ключ отсеивает
+    // nodeConfigIssue ещё до сборки.
+    tls.reality = {
+      enabled: true,
+      public_key: normalizeRealityPublicKey(p.pbk) || p.pbk,
+      short_id: p.sid,
+    };
   }
   return tls;
 }
@@ -138,9 +150,10 @@ function xrayTlsToSingbox(ds) {
   else if (typeof alpn === "string" && alpn) tls.alpn = alpn.split(",").map(s => s.trim()).filter(Boolean);
   if (ts.allowInsecure || ts.insecure) tls.insecure = true;
   if (sec === "reality") {
+    const realityKey = ts.publicKey || ts.public_key || "";
     tls.reality = {
       enabled: true,
-      public_key: ts.publicKey || ts.public_key || "",
+      public_key: normalizeRealityPublicKey(realityKey) || realityKey,
       short_id: ts.shortId || ts.short_id || "",
     };
   }
@@ -1129,6 +1142,15 @@ export function buildConfig({
 
   let nodes = warpOnly ? [] : (src.kind === "sub" ? src.nodes : [src.profile]);
   if (!warpOnly && !nodes?.length) throw new Error(t("sb.err.buildNoNodes"));
+  // Ядро инициализирует конфиг целиком: одна нода с параметрами, которых оно не
+  // принимает, роняет весь старт. Подписку чистим и работаем на оставшихся,
+  // одиночный профиль чистить нечем — отдаём понятную ошибку вместо FATAL ядра.
+  if (!warpOnly && src.kind === "sub") {
+    nodes = usableNodes(nodes);
+    if (!nodes.length) throw new Error(t("sb.err.buildAllNodesInvalid"));
+  } else if (!warpOnly && nodeConfigIssue(nodes[0])) {
+    throw new Error(t("sb.err.nodeInvalid", { name: nodes[0]?.name || nodes[0]?.host || "" }));
+  }
   let pinnedNodeTag = null;
   if (runtime.strictPrivacy && nodes.length) {
     const selected = selectStrictPrivacyCandidate(
@@ -1455,6 +1477,18 @@ function loadSubsRaw() {
 }
 
 /**
+ * Источник по записи подписки. Ноды, которые ядро не примет, отсекаются прямо
+ * здесь, а не в сборщике: конфиг, список серверов, clash-теги и fingerprint
+ * обязаны видеть один и тот же набор нод, иначе топология не сойдётся.
+ */
+export function subscriptionSource(sub) {
+  if (!sub) return null;
+  const nodes = usableNodes(sub.profiles || []);
+  if (!nodes.length) return null;
+  return { kind: "sub", subscription: sub, nodes };
+}
+
+/**
  * Возвращает текущий активный источник для коннекта.
  * { kind: "single", profile } — одиночный vless
  * { kind: "sub", subscription, nodes } — подписка (>=1 нод)
@@ -1467,7 +1501,7 @@ export function getActiveSource() {
     if (!subId) return null;
     const sub = loadSubsRaw().find(s => s.id === subId);
     if (!sub || !sub.profiles?.length) return null;
-    return { kind: "sub", subscription: sub, nodes: sub.profiles };
+    return subscriptionSource(sub);
   }
   const p = getActiveProfile();
   return p ? { kind: "single", profile: p } : null;

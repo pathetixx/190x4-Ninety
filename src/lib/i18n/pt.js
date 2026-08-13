@@ -430,6 +430,8 @@ export const pt = {
       unsupported: "Protocolo não suportado: {proto}://",
       buildNoSource: "buildConfig: sem origem",
       buildNoNodes: "buildConfig: lista de servidores vazia",
+      nodeInvalid: "Servidor “{name}”: o núcleo rejeitou os seus parâmetros",
+      buildAllNodesInvalid: "A subscrição não tem servidores utilizáveis: o núcleo rejeita os seus parâmetros",
     },
   },
 
@@ -562,6 +564,11 @@ export const pt = {
     toastTrafficReset: "Contador de tráfego reposto",
     toastSubRemoved: "Subscrição eliminada",
     toastProfileRemoved: "Perfil eliminado",
+    removeSubTitle: "Eliminar a subscrição?",
+    removeSubMsg: "A subscrição “{name}” e a sua lista de servidores serão eliminadas. Terá de adicionar o link novamente.",
+    removeProfileTitle: "Eliminar o perfil?",
+    removeProfileMsg: "O perfil “{name}” será eliminado. Terá de introduzir as suas definições novamente.",
+    removeConfirm: "Eliminar",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -706,6 +713,7 @@ export const pt = {
   subs: {
     needHttpUrl: "É necessário um URL http(s)://",
     noVless: "A assinatura não contém configurações compatíveis",
+    skippedNote: "Servidores ignorados: {n} — o núcleo rejeita os seus parâmetros",
     subFallback: "Subscrição",
     notFound: "Subscrição não encontrada",
     emptyOrInvalid: "Subscrição vazia ou inválida",

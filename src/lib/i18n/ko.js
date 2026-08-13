@@ -422,6 +422,8 @@ export const ko = {
       unsupported: "지원되지 않는 프로토콜: {proto}://",
       buildNoSource: "buildConfig: 소스가 없습니다",
       buildNoNodes: "buildConfig: 서버 목록이 비어 있습니다",
+      nodeInvalid: "서버 “{name}”: 코어가 매개변수를 거부했습니다",
+      buildAllNodesInvalid: "구독에 사용할 수 있는 서버가 없습니다: 코어가 매개변수를 거부합니다",
     },
   },
 
@@ -548,6 +550,11 @@ export const ko = {
     toastTrafficReset: "트래픽 카운터를 초기화했습니다",
     toastSubRemoved: "구독을 삭제했습니다",
     toastProfileRemoved: "프로필을 삭제했습니다",
+    removeSubTitle: "구독을 삭제할까요?",
+    removeSubMsg: "구독 “{name}”과 서버 목록이 삭제됩니다. 링크를 다시 추가해야 합니다.",
+    removeProfileTitle: "프로필을 삭제할까요?",
+    removeProfileMsg: "프로필 “{name}”이 삭제됩니다. 설정을 다시 입력해야 합니다.",
+    removeConfirm: "삭제",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -690,6 +697,7 @@ export const ko = {
   subs: {
     needHttpUrl: "http(s):// URL이 필요합니다",
     noVless: "구독에 지원되는 설정이 없습니다",
+    skippedNote: "건너뛴 서버: {n}개 — 코어가 매개변수를 거부합니다",
     subFallback: "구독",
     notFound: "구독을 찾을 수 없습니다",
     emptyOrInvalid: "구독이 비어 있거나 유효하지 않습니다",

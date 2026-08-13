@@ -7,6 +7,7 @@ import { uid } from "/lib/uid.js";
 import { loadOptions } from "/lib/options.js";
 import { safeDecodeBase64 } from "/lib/url-helpers.js";
 import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
+import { partitionNodes } from "/lib/node-validation.js";
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
 import {
   getActiveSubscriptionIdFromStore,
@@ -37,13 +38,15 @@ function looksLikeTrustTunnelToml(s) {
 }
 
 /**
- * Парсит тело подписки в массив vless-профилей.
- * Подход: decode base64 → если содержит протоколы, используем декод.
+ * Парсит тело подписки. Разбирает строки и сразу отбраковывает ноды, которые
+ * ядро не примет: одна такая нода валит инициализацию всего конфига, то есть
+ * целую подписку. Отброшенные считаем, чтобы честно сказать это пользователю.
  * Поддерживает: plain newline-список, base64-encoded список.
+ * @returns {{profiles: object[], skipped: number}}
  */
-export function parseSubscriptionBody(body) {
+export function parseSubscriptionEntries(body) {
   let text = String(body || "").trim();
-  if (!text) return [];
+  if (!text) return { profiles: [], skipped: 0 };
 
   // Сначала пробуем декодировать как base64 — если в результате есть
   // знакомые протокольные схемы, считаем что это base64-list.
@@ -53,16 +56,29 @@ export function parseSubscriptionBody(body) {
   }
 
   const lines = text.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
-  const profiles = [];
+  const parsed = [];
+  let skipped = 0;
   for (const line of lines) {
     if (!PROTO_PREFIX_RE.test(line)) continue;
     try {
-      profiles.push(parseLink(line));
+      parsed.push(parseLink(line));
     } catch (e) {
+      skipped++;
       console.warn("subscription: skip invalid link", e?.message);
     }
   }
-  return profiles;
+  const { usable, skipped: rejected } = partitionNodes(parsed);
+  for (const { node, issue } of rejected) {
+    console.warn("subscription: skip unusable node", issue.code, node?.host);
+  }
+  return { profiles: usable, skipped: skipped + rejected.length };
+}
+
+/**
+ * Парсит тело подписки в массив профилей (без счётчика отброшенных).
+ */
+export function parseSubscriptionBody(body) {
+  return parseSubscriptionEntries(body).profiles;
 }
 
 // ── LinkParser: распознаёт что юзер вставил ────────────────
@@ -232,7 +248,7 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
   if (!/^https?:\/\//i.test(u)) throw new Error(t("subs.needHttpUrl"));
 
   const info = await fetchInfo(u);
-  const profiles = parseSubscriptionBody(info.body);
+  const { profiles, skipped } = parseSubscriptionEntries(info.body);
   if (profiles.length === 0) throw new Error(t("subs.noVless"));
 
   const id = uid("sub_");
@@ -253,6 +269,7 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
     updateIntervalMode,
     updateIntervalHours: updateIntervalMode === "manual" ? hours : serverUpdateIntervalHours,
     serverUpdateIntervalHours,
+    skipped,
     profiles: assignStableNodeIds(profiles, [], id),
   };
 
@@ -270,7 +287,7 @@ export async function refreshSubscription(id) {
   if (!cur) throw new Error(t("subs.notFound"));
 
   const info = await fetchInfo(cur.url);
-  const profiles = parseSubscriptionBody(info.body);
+  const { profiles, skipped } = parseSubscriptionEntries(info.body);
   if (profiles.length === 0) throw new Error(t("subs.emptyOrInvalid"));
 
   // Список перечитывается ПОСЛЕ await: за время fetch'а юзер мог переименовать
@@ -280,14 +297,14 @@ export async function refreshSubscription(id) {
   const idx = list.findIndex(s => s.id === id);
   if (idx < 0) throw new Error(t("subs.notFound"));
   const fresh = list[idx];
-  const merged = mergeSubscriptionRefresh(fresh, info, profiles);
+  const merged = mergeSubscriptionRefresh(fresh, info, profiles, skipped);
   migrateRememberedSelection(id, fresh.profiles || [], merged.profiles || []);
   list[idx] = merged;
   saveSubscriptions(list);
   return list[idx];
 }
 
-export function mergeSubscriptionRefresh(fresh, info, profiles) {
+export function mergeSubscriptionRefresh(fresh, info, profiles, skipped = 0) {
   const hasServerInterval = info.profile_update_interval_hours != null;
   const serverUpdateIntervalHours = hasServerInterval
     ? info.profile_update_interval_hours
@@ -307,6 +324,7 @@ export function mergeSubscriptionRefresh(fresh, info, profiles) {
     updateIntervalMode: mode,
     updateIntervalHours: updateIntervalHours ?? null,
     serverUpdateIntervalHours,
+    skipped,
     profiles: assignStableNodeIds(profiles, fresh.profiles, fresh.id),
   };
 }

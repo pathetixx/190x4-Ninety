@@ -24,6 +24,9 @@ const SOURCE_READY_RETRIES = 4;
 const SOURCE_READY_BACKOFF_MS = 250;
 
 let pollTimer = null;
+// Экран открыт? В строгом режиме опроса нет, поэтому по pollTimer видимость не
+// определить — держим отдельный флаг.
+let viewActive = false;
 let testingAll = false;
 let lastClashSnapshot = null;
 // Локальный optimistic-active: после клика подсвечиваем сразу, не ждём поллинг.
@@ -177,8 +180,15 @@ function saveUi(k, v) {
 
 // ── статистика по истории замеров clash ─────────────────────
 // Историю ведёт приложение: у ядра её нет (см. lib/delay-history.js).
+// Источник, зафиксированный на время одного прохода рендера. История задержки
+// нужна КАЖДОЙ строке (плюс сигнатура, сортировка и рекомендации), а
+// getActiveSource() достаёт подписку из защищённого хранилища с глубоким
+// копированием: на подписке в три сотни серверов это давало больше тысячи
+// копий за один рендер и секунды заморозки интерфейса.
+let renderSource = null;
+
 function historyOf(_clashData, tag) {
-  return getProbeHistory(getActiveSource(), tag);
+  return getProbeHistory(renderSource || getActiveSource(), tag);
 }
 const liveDelays = (hs) => hs.filter(d => d > 0 && d < 65000);
 function medianOf(a) {
@@ -526,12 +536,21 @@ function sortHeader(key, label, end) {
     data-sorted="${on}" data-dir="${on ? sortState.dir : "desc"}">${escapeHtml(label)}${ICON_CHEV}</button>`;
 }
 
-function render(nodes, selectorTag, effectiveTag, clashData, { strict = false } = {}) {
+function render(nodes, selectorTag, effectiveTag, clashData, options = {}) {
+  const source = getActiveSource();
+  renderSource = source;
+  try {
+    return renderTable(nodes, selectorTag, effectiveTag, clashData, options, source);
+  } finally {
+    renderSource = null;
+  }
+}
+
+function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = false } = {}, source) {
   const grid = $("proxies-grid");
   const metaEl = $("proxies-meta");
   if (!grid) return;
 
-  const source = getActiveSource();
   const favs = getFavourites(source);
   const multi = nodes.length >= 2 && !strict;
   // Закреплено мной ≠ через что реально идёт трафик. В «Авто» это разные строки.
@@ -793,6 +812,7 @@ async function handleNodeClick(card, onToast) {
 }
 
 export function onProxiesViewEnter() {
+  viewActive = true;
   if (strictPrivacyEnabled()) {
     stopPoll();
     renderStrict();
@@ -819,6 +839,7 @@ async function kickstartAutoIfNeeded() {
 }
 
 export function onProxiesViewLeave() {
+  viewActive = false;
   stopPoll();
   sourceGeneration++;
   testingAll = false;
@@ -830,10 +851,18 @@ export function resetProxiesViewForSourceChange() {
   optimisticActiveTag = null;
   optimisticUntilTs = 0;
   lastEffectiveTag = null;
+  // Перерисовывать скрытый экран незачем: на подписке в сотни серверов это
+  // полсекунды блокировки главного потока прямо посреди переключения источника.
+  // Вход на экран всегда начинается с рендера, а сброшенная сигнатура не даст
+  // ему счесть список неизменившимся.
+  if (!viewActive) {
+    lastSignature = "";
+    return;
+  }
   const nodes = nodesFromSource();
   if (strictPrivacyEnabled()) renderStrict(nodes);
   else renderApplying(nodes);
-  if (pollTimer) void refresh({ retry: true });
+  void refresh({ retry: true });
 }
 
 function stopPoll() {
@@ -844,6 +873,13 @@ function stopPoll() {
 // снапшот clash; если его нет, render отрисует пустое состояние.
 export function rerenderProxiesView() {
   if (!$("proxies-grid")) return;
+  // Смена языка на скрытом экране: пересобирать список не нужно, он всё равно
+  // перерисуется при входе — но сигнатуру сбрасываем, чтобы вход это сделал.
+  if (!viewActive) {
+    lastSignature = "";
+    regionNames = null;
+    return;
+  }
   regionNames = null;      // язык мог смениться — названия стран пересобрать
   lastSignature = "";
   if (strictPrivacyEnabled()) {

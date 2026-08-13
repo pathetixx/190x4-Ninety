@@ -430,6 +430,8 @@ export const it = {
       unsupported: "Protocollo non supportato: {proto}://",
       buildNoSource: "buildConfig: nessuna origine",
       buildNoNodes: "buildConfig: elenco server vuoto",
+      nodeInvalid: "Server «{name}»: il core ha rifiutato i suoi parametri",
+      buildAllNodesInvalid: "L’abbonamento non ha server utilizzabili: il core rifiuta i loro parametri",
     },
   },
 
@@ -562,6 +564,11 @@ export const it = {
     toastTrafficReset: "Contatore del traffico azzerato",
     toastSubRemoved: "Abbonamento eliminato",
     toastProfileRemoved: "Profilo eliminato",
+    removeSubTitle: "Eliminare l’abbonamento?",
+    removeSubMsg: "L’abbonamento «{name}» e il suo elenco di server saranno eliminati. Dovrai aggiungere di nuovo il link.",
+    removeProfileTitle: "Eliminare il profilo?",
+    removeProfileMsg: "Il profilo «{name}» sarà eliminato. Dovrai inserire di nuovo le sue impostazioni.",
+    removeConfirm: "Elimina",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -706,6 +713,7 @@ export const it = {
   subs: {
     needHttpUrl: "È richiesto un URL http(s)://",
     noVless: "L'abbonamento non contiene configurazioni supportate",
+    skippedNote: "Server saltati: {n} — il core rifiuta i loro parametri",
     subFallback: "Abbonamento",
     notFound: "Abbonamento non trovato",
     emptyOrInvalid: "Abbonamento vuoto o non valido",

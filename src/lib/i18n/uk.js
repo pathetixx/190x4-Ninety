@@ -434,6 +434,8 @@ export const uk = {
       unsupported: "Непідтримуваний протокол: {proto}://",
       buildNoSource: "buildConfig: немає джерела",
       buildNoNodes: "buildConfig: порожній список серверів",
+      nodeInvalid: "Сервер «{name}»: ядро не прийняло його параметри",
+      buildAllNodesInvalid: "У підписці немає придатних серверів: ядро не приймає їхні параметри",
     },
   },
 
@@ -569,6 +571,11 @@ export const uk = {
     toastTrafficReset: "Лічильник трафіку скинуто",
     toastSubRemoved: "Підписку видалено",
     toastProfileRemoved: "Профіль видалено",
+    removeSubTitle: "Видалити підписку?",
+    removeSubMsg: "Підписку «{name}» та її список серверів буде видалено. Посилання доведеться додавати знову.",
+    removeProfileTitle: "Видалити профіль?",
+    removeProfileMsg: "Профіль «{name}» буде видалено. Його налаштування доведеться вводити знову.",
+    removeConfirm: "Видалити",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -714,6 +721,7 @@ export const uk = {
   subs: {
     needHttpUrl: "Потрібен http(s):// URL",
     noVless: "Підписка не містить підтримуваних конфігурацій",
+    skippedNote: "Пропущено серверів: {n} — ядро не приймає їхні параметри",
     subFallback: "Підписка",
     notFound: "Підписку не знайдено",
     emptyOrInvalid: "Підписка порожня або невалідна",

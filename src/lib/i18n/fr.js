@@ -430,6 +430,8 @@ export const fr = {
       unsupported: "Protocole non pris en charge : {proto}://",
       buildNoSource: "buildConfig : aucune source",
       buildNoNodes: "buildConfig : liste de serveurs vide",
+      nodeInvalid: "Serveur « {name} » : le cœur a refusé ses paramètres",
+      buildAllNodesInvalid: "L’abonnement ne contient aucun serveur exploitable : le cœur refuse leurs paramètres",
     },
   },
 
@@ -562,6 +564,11 @@ export const fr = {
     toastTrafficReset: "Compteur de trafic réinitialisé",
     toastSubRemoved: "Abonnement supprimé",
     toastProfileRemoved: "Profil supprimé",
+    removeSubTitle: "Supprimer l’abonnement ?",
+    removeSubMsg: "L’abonnement « {name} » et sa liste de serveurs seront supprimés. Il faudra rajouter le lien.",
+    removeProfileTitle: "Supprimer le profil ?",
+    removeProfileMsg: "Le profil « {name} » sera supprimé. Il faudra ressaisir ses paramètres.",
+    removeConfirm: "Supprimer",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -706,6 +713,7 @@ export const fr = {
   subs: {
     needHttpUrl: "Une URL http(s):// est requise",
     noVless: "L'abonnement ne contient aucune configuration prise en charge",
+    skippedNote: "Serveurs ignorés : {n} — le cœur refuse leurs paramètres",
     subFallback: "Abonnement",
     notFound: "Abonnement introuvable",
     emptyOrInvalid: "Abonnement vide ou invalide",

@@ -725,3 +725,58 @@ test("строгая приватность отклоняет домен в dow
   });
   assert.ok(config.outbounds.some((o) => o.tag === "proxy"));
 });
+
+// Ядро инициализирует конфиг целиком: нода, чьи параметры оно не принимает,
+// роняла старт всей подписки ("initialize outbound[72]: invalid public_key").
+const REALITY_PBK = "0i4XeZ4CjhIRfQvvyPP6mQR5X5Ov1DKV0KRWFhvQF1s";
+
+test("подписка: нода с непринимаемыми параметрами не попадает в конфиг", () => {
+  const ok1 = parseVless(`vless://uuid@ok1.example:443?security=reality&pbk=${REALITY_PBK}&sni=a.example`);
+  const broken = parseVless("vless://uuid@broken.example:443?security=reality&sni=a.example");
+  const ok2 = parseVless(`vless://uuid@ok2.example:443?security=reality&pbk=${REALITY_PBK}&sni=a.example`);
+
+  const { config } = buildConfig({
+    source: { kind: "sub", subscription: { id: "s1" }, nodes: [ok1, broken, ok2] },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+  });
+
+  const servers = config.outbounds.filter((o) => o.type === "vless").map((o) => o.server);
+  assert.deepEqual(servers, ["ok1.example", "ok2.example"]);
+  // Селектор/urltest/balancer ссылаются только на существующие теги.
+  validateConfigReferences(config);
+  const selector = config.outbounds.find((o) => o.tag === "proxy");
+  assert.deepEqual(selector.outbounds, ["auto", "lowest", nodeTag(0, ok1), nodeTag(1, ok2)]);
+});
+
+test("подписка целиком из непригодных нод падает понятной ошибкой, а не FATAL ядра", () => {
+  const broken = parseVless("vless://uuid@broken.example:443?security=reality&sni=a.example");
+  assert.throws(
+    () => buildConfig({
+      source: { kind: "sub", subscription: { id: "s1" }, nodes: [broken] },
+      mode: "proxy",
+      options: DEFAULT_OPTIONS,
+    }),
+    /reality|прин|core|rejec/i,
+  );
+});
+
+test("одиночный профиль с непринимаемыми параметрами не доходит до ядра", () => {
+  const broken = parseVless("vless://uuid@broken.example:443?security=reality&sni=a.example");
+  assert.throws(
+    () => buildConfig({ source: { kind: "single", profile: broken }, mode: "proxy", options: DEFAULT_OPTIONS }),
+    /broken\.example|прин|rejec/i,
+  );
+});
+
+test("reality-ключ в обычном base64 нормализуется для ядра", () => {
+  const std = REALITY_PBK.replace(/-/g, "+").replace(/_/g, "/") + "=";
+  const node = parseVless(`vless://uuid@ok.example:443?security=reality&sni=a.example&pbk=${encodeURIComponent(std)}`);
+  const { config } = buildConfig({
+    source: { kind: "single", profile: node },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+  });
+  const proxy = config.outbounds.find((o) => o.tag === "proxy");
+  assert.equal(proxy.tls.reality.public_key, REALITY_PBK);
+});

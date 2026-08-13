@@ -426,6 +426,8 @@ export const tr = {
       unsupported: "Desteklenmeyen protokol: {proto}://",
       buildNoSource: "buildConfig: kaynak yok",
       buildNoNodes: "buildConfig: sunucu listesi boş",
+      nodeInvalid: "Sunucu “{name}”: çekirdek parametrelerini kabul etmedi",
+      buildAllNodesInvalid: "Abonelikte kullanılabilir sunucu yok: çekirdek parametrelerini kabul etmiyor",
     },
   },
 
@@ -555,6 +557,11 @@ export const tr = {
     toastTrafficReset: "Trafik sayacı sıfırlandı",
     toastSubRemoved: "Abonelik silindi",
     toastProfileRemoved: "Profil silindi",
+    removeSubTitle: "Abonelik silinsin mi?",
+    removeSubMsg: "“{name}” aboneliği ve sunucu listesi silinecek. Bağlantıyı yeniden eklemeniz gerekir.",
+    removeProfileTitle: "Profil silinsin mi?",
+    removeProfileMsg: "“{name}” profili silinecek. Ayarlarını yeniden girmeniz gerekir.",
+    removeConfirm: "Sil",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -698,6 +705,7 @@ export const tr = {
   subs: {
     needHttpUrl: "http(s):// URL'si gerekli",
     noVless: "Abonelikte desteklenen yapılandırma yok",
+    skippedNote: "Atlanan sunucular: {n} — çekirdek parametrelerini kabul etmiyor",
     subFallback: "Abonelik",
     notFound: "Abonelik bulunamadı",
     emptyOrInvalid: "Abonelik boş veya geçersiz",

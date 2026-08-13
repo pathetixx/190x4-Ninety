@@ -434,6 +434,8 @@ export const pl = {
       unsupported: "Nieobsługiwany protokół: {proto}://",
       buildNoSource: "buildConfig: brak źródła",
       buildNoNodes: "buildConfig: pusta lista serwerów",
+      nodeInvalid: "Serwer „{name}”: rdzeń odrzucił jego parametry",
+      buildAllNodesInvalid: "Subskrypcja nie ma używalnych serwerów: rdzeń odrzuca ich parametry",
     },
   },
 
@@ -569,6 +571,11 @@ export const pl = {
     toastTrafficReset: "Licznik ruchu zresetowany",
     toastSubRemoved: "Subskrypcja usunięta",
     toastProfileRemoved: "Profil usunięty",
+    removeSubTitle: "Usunąć subskrypcję?",
+    removeSubMsg: "Subskrypcja „{name}” i jej lista serwerów zostaną usunięte. Link trzeba będzie dodać ponownie.",
+    removeProfileTitle: "Usunąć profil?",
+    removeProfileMsg: "Profil „{name}” zostanie usunięty. Jego ustawienia trzeba będzie wpisać ponownie.",
+    removeConfirm: "Usuń",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -714,6 +721,7 @@ export const pl = {
   subs: {
     needHttpUrl: "Wymagany jest adres URL http(s)://",
     noVless: "Subskrypcja nie zawiera obsługiwanych konfiguracji",
+    skippedNote: "Pominięte serwery: {n} — rdzeń odrzuca ich parametry",
     subFallback: "Subskrypcja",
     notFound: "Nie znaleziono subskrypcji",
     emptyOrInvalid: "Subskrypcja pusta lub nieprawidłowa",

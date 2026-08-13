@@ -389,9 +389,33 @@ export async function initializeProfileStore({ invoke = null, storage = null } =
   return initPromise;
 }
 
+// Читатели вызываются десятками сотен раз за один рендер списка серверов
+// (история задержки берётся на каждую строку), а глубокая копия подписки на
+// триста нод стоит миллисекунды — на большой подписке это давало секунды
+// заморозки интерфейса. Копию делаем один раз на версию состояния: publish()
+// и bootstrap всегда ставят НОВЫЙ объект state, поэтому сравнение по ссылке —
+// точный признак устаревшего кэша.
+//
+// Элементы snapshot'а общие между вызовами. Мутировать их на месте нельзя (это
+// и раньше не сохранялось бы: запись идёт только через save*ToStore), поэтому
+// вызывающий код заменяет записи целиком — массив отдаём копией, чтобы
+// push/filter/splice над результатом оставались безопасными.
+let readCache = null;
+
+function readSnapshot() {
+  if (!readCache || readCache.state !== state) {
+    readCache = {
+      state,
+      profiles: clone(state.profiles),
+      subscriptions: clone(state.subscriptions),
+    };
+  }
+  return readCache;
+}
+
 export function loadProfilesFromStore() {
   syncLegacyBeforeReady();
-  return clone(state.profiles);
+  return readSnapshot().profiles.slice();
 }
 
 export function saveProfilesToStore(list) {
@@ -414,7 +438,7 @@ export function setActiveProfileIdInStore(id) {
 
 export function loadSubscriptionsFromStore() {
   syncLegacyBeforeReady();
-  return clone(state.subscriptions);
+  return readSnapshot().subscriptions.slice();
 }
 
 export function saveSubscriptionsToStore(list) {

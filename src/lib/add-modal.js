@@ -202,10 +202,15 @@ export async function importAddInput(raw, userOverride = {}) {
   // http:// — адрес и ключи подписки едут открытым текстом (виден провайдеру,
   // и каждый рефреш тоже). Не блокируем (http-панели существуют), но предупреждаем.
   if (/^http:\/\//i.test(decision.url)) toast(t("add.httpWarn"), "warn", 6000);
+  // Часть серверов панели ядро не принимает; они уже отброшены при разборе —
+  // говорим об этом прямо, иначе счётчик молча расходится с содержимым ссылки.
+  if (sub.skipped > 0) toast(t("subs.skippedNote", { n: sub.skipped }), "warn", 6000);
   return {
     type: "sub",
     message: t("add.msgSub", { name: sub.name, srv: tn("prof.srvN", sub.profiles.length) }),
     source: { kind: "sub", id: sub.id },
+    // Добавление ≠ переключение: активную подписку меняет только пользователь.
+    activate: false,
   };
 }
 

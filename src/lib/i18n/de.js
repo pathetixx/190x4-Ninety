@@ -426,6 +426,8 @@ export const de = {
       unsupported: "Nicht unterstütztes Protokoll: {proto}://",
       buildNoSource: "buildConfig: keine Quelle",
       buildNoNodes: "buildConfig: leere Serverliste",
+      nodeInvalid: "Server „{name}“: Der Kern hat seine Parameter abgelehnt",
+      buildAllNodesInvalid: "Das Abo enthält keine nutzbaren Server: Der Kern lehnt ihre Parameter ab",
     },
   },
 
@@ -555,6 +557,11 @@ export const de = {
     toastTrafficReset: "Traffic-Zähler zurückgesetzt",
     toastSubRemoved: "Abo gelöscht",
     toastProfileRemoved: "Profil gelöscht",
+    removeSubTitle: "Abo löschen?",
+    removeSubMsg: "Das Abo „{name}“ und seine Serverliste werden gelöscht. Du musst den Link erneut hinzufügen.",
+    removeProfileTitle: "Profil löschen?",
+    removeProfileMsg: "Das Profil „{name}“ wird gelöscht. Du musst seine Einstellungen erneut eingeben.",
+    removeConfirm: "Löschen",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -698,6 +705,7 @@ export const de = {
   subs: {
     needHttpUrl: "Eine http(s)://-URL ist erforderlich",
     noVless: "Das Abo enthält keine unterstützten Konfigurationen",
+    skippedNote: "Übersprungene Server: {n} — der Kern lehnt ihre Parameter ab",
     subFallback: "Abo",
     notFound: "Abo nicht gefunden",
     emptyOrInvalid: "Abo ist leer oder ungültig",

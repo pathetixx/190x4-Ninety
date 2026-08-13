@@ -426,6 +426,8 @@ export const en = {
       unsupported: "Unsupported protocol: {proto}://",
       buildNoSource: "buildConfig: no source",
       buildNoNodes: "buildConfig: empty server list",
+      nodeInvalid: "Server “{name}”: the core rejected its parameters",
+      buildAllNodesInvalid: "The subscription has no usable servers: the core rejects their parameters",
     },
   },
 
@@ -555,6 +557,11 @@ export const en = {
     toastTrafficReset: "Traffic counter reset",
     toastSubRemoved: "Subscription deleted",
     toastProfileRemoved: "Profile deleted",
+    removeSubTitle: "Delete subscription?",
+    removeSubMsg: "Subscription “{name}” and its server list will be deleted. You will have to add the link again.",
+    removeProfileTitle: "Delete profile?",
+    removeProfileMsg: "Profile “{name}” will be deleted. You will have to enter its settings again.",
+    removeConfirm: "Delete",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -698,6 +705,7 @@ export const en = {
   subs: {
     needHttpUrl: "An http(s):// URL is required",
     noVless: "The subscription contains no supported configs",
+    skippedNote: "Skipped servers: {n} — the core rejects their parameters",
     subFallback: "Subscription",
     notFound: "Subscription not found",
     emptyOrInvalid: "Subscription is empty or invalid",

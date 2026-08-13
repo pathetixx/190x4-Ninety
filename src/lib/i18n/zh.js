@@ -422,6 +422,8 @@ export const zh = {
       unsupported: "不支持的协议：{proto}://",
       buildNoSource: "buildConfig：无来源",
       buildNoNodes: "buildConfig：服务器列表为空",
+      nodeInvalid: "服务器“{name}”：内核不接受其参数",
+      buildAllNodesInvalid: "订阅中没有可用服务器：内核不接受它们的参数",
     },
   },
 
@@ -548,6 +550,11 @@ export const zh = {
     toastTrafficReset: "流量计数已重置",
     toastSubRemoved: "订阅已删除",
     toastProfileRemoved: "配置已删除",
+    removeSubTitle: "删除订阅？",
+    removeSubMsg: "订阅“{name}”及其服务器列表将被删除。你需要重新添加该链接。",
+    removeProfileTitle: "删除配置？",
+    removeProfileMsg: "配置“{name}”将被删除。你需要重新填写它的设置。",
+    removeConfirm: "删除",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -690,6 +697,7 @@ export const zh = {
   subs: {
     needHttpUrl: "需要 http(s):// URL",
     noVless: "订阅中没有受支持的配置",
+    skippedNote: "已跳过 {n} 个服务器：内核不接受它们的参数",
     subFallback: "订阅",
     notFound: "未找到订阅",
     emptyOrInvalid: "订阅为空或无效",

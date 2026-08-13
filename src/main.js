@@ -11,6 +11,7 @@ import {
   setActiveKind,
   getActiveSource,
   nodeTag,
+  subscriptionSource,
 } from "/lib/singbox.js";
 import {
   loadSubscriptions,
@@ -32,6 +33,8 @@ import { mountSettings } from "/lib/settings-view.js";
 import { pathNeedsRestart } from "/lib/restart-policy.js";
 import { a11ySwitch } from "/lib/switch-a11y.js";
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
+import { openConfirmModal } from "/lib/confirm-modal.js";
+import { usableNodes } from "/lib/node-validation.js";
 import { isAvailable as updaterAvailable, checkForUpdate } from "/lib/updater.js";
 import { openUpdateModal, resumeRuntimeReady, shouldSkip as updateShouldSkip } from "/lib/update-modal.js";
 import { planUpdateNotice, UPDATE_NOTICE } from "/lib/update-notice.js";
@@ -486,7 +489,11 @@ const profilesSummary = document.getElementById("profiles-summary");
 mountAddModal({
   onCommit: async (res) => {
     toast(res.message, "success", 2000);
-    if (res.source) {
+    // Импорт подписки её не включает: переключение рвёт живое соединение, а
+    // выбирает источник пользователь. Исключение — когда активного источника
+    // ещё нет: тогда подключать было бы нечего (в том числе в мастере).
+    const activate = res.source && (res.activate !== false || !getActiveSource());
+    if (activate) {
       const reason = res.source.kind === "sub" ? t("conn.switchSub") : t("conn.switchProfile");
       applyActiveSource(res.source.kind, res.source.id, { reconnect: true, silent: true, reason });
     } else {
@@ -1638,7 +1645,7 @@ function activateSource(kind, id) {
 function sourceById(kind, id) {
   if (kind === "sub") {
     const subscription = loadSubscriptions().find(s => s.id === id);
-    return subscription ? { kind: "sub", subscription, nodes: subscription.profiles || [] } : null;
+    return subscription ? subscriptionSource(subscription) : null;
   }
   const profile = loadProfiles().find(p => p.id === id);
   return profile ? { kind: "single", profile } : null;
@@ -1712,6 +1719,23 @@ function mutateSources(items, mutation, reason) {
 }
 
 async function deleteSource(kind, id) {
+  // Удаление подписки необратимо: ссылку панели и накопленные замеры вернуть
+  // неоткуда, а пункт меню стоит рядом с «Обновить». Спрашиваем подтверждение
+  // до любых действий с рантаймом.
+  const name = kind === "sub"
+    ? loadSubscriptions().find(s => s.id === id)?.name
+    : loadProfiles().find(p => p.id === id)?.name;
+  const confirmed = await openConfirmModal({
+    title: kind === "sub" ? t("prof.removeSubTitle") : t("prof.removeProfileTitle"),
+    message: kind === "sub"
+      ? t("prof.removeSubMsg", { name: name || t("subs.subFallback") })
+      : t("prof.removeProfileMsg", { name: name || "" }),
+    confirmLabel: t("prof.removeConfirm"),
+    cancelLabel: t("confirm.cancel"),
+    danger: true,
+  });
+  if (!confirmed) return false;
+
   const plan = planSourceDeletion({
     kind, id, activeKey: sourceKey(getActiveSource()),
     subscriptions: loadSubscriptions(), profiles: loadProfiles(), state,
@@ -1845,7 +1869,9 @@ function renderProfilesView() {
     const used = subscriptionUsedBytes(s);
     const limit = subscriptionLimitBytes(s); // null = безлимит (total=0)
     const updated = relativeTime(s.lastUpdate) || "—";
-    const nodesCount = s.profiles?.length || 0;
+    // Считаем то, что реально пойдёт в ядро: у подписки, сохранённой до
+    // отбраковки, в записи могут лежать ноды, которые ядро не примет.
+    const nodesCount = usableNodes(s.profiles).length;
     const ratio = limit ? Math.max(0, Math.min(1, used / limit)) : 0;
     const meterState = !limit ? "idle" : ratio > 0.9 ? "err" : ratio > 0.75 ? "warn" : "ok";
     const daysState = days == null ? "" : days <= 3 ? "pf__val--err" : days <= 7 ? "pf__val--warn" : "";
@@ -2191,6 +2217,7 @@ profilesView?.addEventListener("click", async (e) => {
           const tx = await mutateSource("sub", id, () => refreshSubscription(id), t("conn.applyingSettings"));
           const r = tx.result;
           toast(t("prof.toastUpdated", { srv: tn("prof.srvN", r.profiles.length) }), "success", 1800);
+          if (r.skipped > 0) toast(t("subs.skippedNote", { n: r.skipped }), "warn", 6000);
         } catch (err) {
           toast(t("prof.toastErr", { err: err?.message || err }), "error", 2800);
         }

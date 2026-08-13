@@ -442,6 +442,8 @@ export const ar = {
       unsupported: "بروتوكول غير مدعوم: {proto}://",
       buildNoSource: "buildConfig: لا يوجد مصدر",
       buildNoNodes: "buildConfig: قائمة الخوادم فارغة",
+      nodeInvalid: "الخادم «{name}»: رفض النواة معاملاته",
+      buildAllNodesInvalid: "لا يحتوي الاشتراك على خوادم صالحة: النواة لا تقبل معاملاتها",
     },
   },
 
@@ -583,6 +585,11 @@ export const ar = {
     toastTrafficReset: "صُفِّر عدّاد البيانات",
     toastSubRemoved: "حُذف الاشتراك",
     toastProfileRemoved: "حُذف الملف",
+    removeSubTitle: "حذف الاشتراك؟",
+    removeSubMsg: "سيُحذف الاشتراك «{name}» وقائمة خوادمه. ستحتاج إلى إضافة الرابط من جديد.",
+    removeProfileTitle: "حذف الملف؟",
+    removeProfileMsg: "سيُحذف الملف «{name}». ستحتاج إلى إدخال إعداداته من جديد.",
+    removeConfirm: "حذف",
     subsRefreshOk: "Subscriptions refreshed",
     subsRefreshPartial: "Updated: {ok}, failed: {fail}",
     subsRefreshFailed: "Failed to refresh subscriptions",
@@ -730,6 +737,7 @@ export const ar = {
   subs: {
     needHttpUrl: "يلزم رابط http(s)://",
     noVless: "لا يحتوي الاشتراك على إعدادات مدعومة",
+    skippedNote: "خوادم متجاهَلة: {n} — النواة لا تقبل معاملاتها",
     subFallback: "اشتراك",
     notFound: "لم يُعثر على الاشتراك",
     emptyOrInvalid: "الاشتراك فارغ أو غير صالح",
