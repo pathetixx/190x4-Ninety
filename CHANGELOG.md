@@ -2,6 +2,26 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.3.6 — 2026-08-13
+
+## English
+
+- A single broken server no longer takes down the whole subscription. If a panel hands out a server whose parameters the core refuses, the core used to fail to start at all — the subscription could not be selected, and none of its hundreds of servers worked. Such servers are now left out, the rest connect as usual, and the app says how many were skipped.
+- Servers whose key is written in a different, equally valid encoding now work instead of being lost. Previously they were among the ones that broke the start.
+- A subscription saved before this release is repaired on its own: you do not need to add the link again, and the server count on its card now shows what actually goes to the core.
+- Large subscriptions no longer freeze the window. With a few hundred servers, switching to a subscription or opening the server list locked the interface for about ten seconds each time; that work is now roughly twenty times cheaper, and a server list that is not on screen is not rebuilt at all.
+- Adding a subscription no longer switches to it. The subscription is simply added — when to move to it is your decision, and a live connection is no longer interrupted by an import.
+- Deleting a subscription or a profile now asks for confirmation. The delete item sits next to "Refresh", and the link and collected measurements could not be brought back.
+
+## Русский
+
+- Один битый сервер больше не роняет всю подписку. Если панель отдаёт сервер с параметрами, которых ядро не принимает, ядро вообще не запускалось: подписку нельзя было выбрать, и не работал ни один из её сотен серверов. Теперь такие серверы исключаются, остальные подключаются как обычно, а приложение говорит, сколько пропущено.
+- Серверы, у которых ключ записан в другой, но столь же корректной форме, теперь работают, а не теряются. Раньше именно они и ломали запуск.
+- Подписка, сохранённая до этого обновления, чинится сама: добавлять ссылку заново не нужно, а счётчик серверов на карточке показывает то, что действительно уходит в ядро.
+- Большие подписки больше не подвешивают окно. На нескольких сотнях серверов переключение на подписку и открытие списка серверов каждый раз замораживали интерфейс примерно на десять секунд; теперь эта работа примерно в двадцать раз дешевле, а список серверов, которого нет на экране, вообще не пересобирается.
+- Добавление подписки больше не переключает на неё. Подписка просто добавляется — когда на неё перейти, решаете вы, и импорт больше не рвёт живое соединение.
+- Удаление подписки или профиля теперь спрашивает подтверждение. Пункт удаления стоит рядом с «Обновить», а ссылку и накопленные замеры вернуть было неоткуда.
+
 ## v0.3.5 — 2026-08-12
 
 ## English
