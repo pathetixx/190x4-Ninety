@@ -112,6 +112,10 @@ jobs:
           test "$(git -C core rev-parse HEAD)" = 55815e1339ff2f858ad43e847a223341aab07dd7
           (
             cd core
+            # То же обновление, что и в build.yml: аудит обязан смотреть на то
+            # дерево зависимостей, из которого собирается релизный бинарь.
+            GOTOOLCHAIN=local go get golang.org/x/mod@v0.40.0
+            GOTOOLCHAIN=local go mod tidy
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o "$tmpdir/sing-box" ./cmd/sing-box
             govulncheck -mode=binary -format=json "$tmpdir/sing-box" > "$tmpdir/sing-box-vulns.json"
             # GO-2026-5932 covers the unmaintained x/crypto/openpgp package. It has no fixed

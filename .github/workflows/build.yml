@@ -79,6 +79,13 @@ jobs:
           echo "Verified ninety-core commit $head."
           mkdir -p binaries
           cd core
+          # x/mod 0.37 несёт GO-2026-6179/6180 (подделка sumdb-тайлов вредоносным
+          # GOPROXY). Пакет попадает в бинарь транзитивно и в самом sing-box не
+          # вызывается, но символы в нём есть — и аудит их видит. 0.40.0 — версия
+          # с фиксом. Тот же go get стоит в security.yml: собирать и проверять
+          # надо одно и то же дерево зависимостей.
+          go get golang.org/x/mod@v0.40.0
+          go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -tags "$BUILD_TAGS" \
                  -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0 -X github.com/sagernet/sing-box/constant.Version=${CORE_TAG#v}" \
