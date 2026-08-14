@@ -1341,9 +1341,11 @@ export function buildConfig({
       tag: "proxy",
       outbounds: ["auto", "lowest", ...nodeTags],
       default: "auto",
-      // Главный фикс hot-switch: с false старые соединения держатся
-      // на прошлом outbound — браузер качает страницу через старый сервер
-      // даже после переключения. Поэтому true для всех селекторов.
+      // Рвёт старые соединения при смене выбора — но только те, которые ядро
+      // само дозвонило через селектор как dialer (dns detour, WARP-цепочка).
+      // Трафик из inbound идёт мимо: Selector.NewConnectionEx отдаёт соединение
+      // прямо в выбранный outbound, и interrupt-группа селектора остаётся
+      // пустой. Его рвёт clash_close_proxy_connections после смены ноды.
       interrupt_exist_connections: true,
     };
     outbounds = [

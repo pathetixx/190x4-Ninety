@@ -260,6 +260,24 @@ fn process_name_value(process: &str, process_path: &str) -> Value {
     }
 }
 
+// Куда соединение реально ушло, по его chains. Цепочка несёт теги всех
+// пройденных outbound'ов, поэтому достаточно проверить наличие терминальных:
+// всё, что не отвергнуто и не ушло напрямую, ушло через прокси.
+fn connection_outbound(chains: Option<&Vec<Value>>) -> &'static str {
+    let has = |tag: &str| {
+        chains
+            .map(|a| a.iter().any(|x| x.as_str() == Some(tag)))
+            .unwrap_or(false)
+    };
+    if has("reject") || has("block") {
+        "block"
+    } else if has("direct") {
+        "direct"
+    } else {
+        "proxy"
+    }
+}
+
 pub(crate) async fn clash_get_proxies_unchecked(port: u16) -> Result<Value, String> {
     clash_get_proxies_unchecked_endpoint(&crate::vpn::ControlEndpoint {
         address: std::net::SocketAddr::from(([127, 0, 0, 1], port)),
@@ -375,19 +393,7 @@ pub async fn clash_get_connections(
             // от платформы сборки.
             let process_path = field("processPath");
             let process = process_name_value(&field("process"), &process_path);
-            let chains = conn.get("chains").and_then(|x| x.as_array());
-            let has = |tag: &str| {
-                chains
-                    .map(|a| a.iter().any(|x| x.as_str() == Some(tag)))
-                    .unwrap_or(false)
-            };
-            let outbound = if has("reject") || has("block") {
-                "block"
-            } else if has("direct") {
-                "direct"
-            } else {
-                "proxy"
-            };
+            let outbound = connection_outbound(conn.get("chains").and_then(|x| x.as_array()));
             out.push(serde_json::json!({
                 "process": process,
                 "processPath": process_path,
@@ -496,6 +502,63 @@ pub async fn clash_select_proxy(
         return Err(format!("select_proxy port={port}: HTTP {status}: {text}"));
     }
     Ok(())
+}
+
+// Разрыв живых прокси-соединений — вторая половина смены ноды.
+//
+// PUT /proxies/{group} решает только то, куда пойдут НОВЫЕ соединения. Рвать
+// старые должен был interrupt_exist_connections на селекторе, но в sing-box 1.13
+// для трафика из inbound он не срабатывает: Selector.NewConnectionEx отдаёт
+// соединение сразу в выбранный outbound, минуя собственную interrupt-группу, и
+// та остаётся пустой. Поэтому keep-alive браузера продолжает течь через прежнюю
+// ноду, и внешний IP не меняется до реконнекта ядра.
+//
+// Закрываем адресно по id, а не одним DELETE /connections: тот рвёт заодно
+// direct-соединения (у Ninety это split-tunnel, например звонок в Discord) и
+// дополнительно делает router.ResetNetwork(). Смена exit-ноды не повод трогать
+// то, что через неё и не шло.
+//
+// Возвращает число закрытых соединений. Пропавшее между снапшотом и DELETE
+// соединение (закрылось само) ошибкой не считается — цель уже достигнута.
+#[tauri::command]
+pub async fn clash_close_proxy_connections(
+    state: tauri::State<'_, crate::vpn::SingboxState>,
+    port: u16,
+) -> Result<usize, String> {
+    validate_clash_port(state, port)?;
+    let c = client()?;
+    let r = c
+        .get(format!("{}/connections", base(port)))
+        .bearer_auth(clash_secret())
+        .send()
+        .await
+        .map_err(|e| format!("request: {e}"))?;
+    let v = json_response("close_proxy_connections", port, r).await?;
+    let Some(conns) = v.get("connections").and_then(|x| x.as_array()) else {
+        return Err(format!(
+            "close_proxy_connections port={port}: connections missing"
+        ));
+    };
+    let ids: Vec<String> = conns
+        .iter()
+        .filter(|conn| {
+            connection_outbound(conn.get("chains").and_then(|x| x.as_array())) == "proxy"
+        })
+        .filter_map(|conn| {
+            conn.get("id")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .collect();
+    let mut closed = 0usize;
+    for id in ids {
+        let path = format!("{}/connections/{}", base(port), urlencoding::encode(&id));
+        let sent = c.delete(path).bearer_auth(clash_secret()).send().await;
+        if sent.is_ok_and(|resp| resp.status().is_success()) {
+            closed += 1;
+        }
+    }
+    Ok(closed)
 }
 
 #[cfg(test)]

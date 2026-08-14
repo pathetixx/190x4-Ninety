@@ -196,9 +196,27 @@ export async function refreshEffectiveDelay({ port, url = DEFAULT_URL, timeoutMs
   } catch { return { delay: 0, tag }; }
 }
 
+// Разрыв живых прокси-соединений. Нужен после смены ноды: сам селектор старые
+// потоки не рвёт (почему — в clash.rs::clash_close_proxy_connections), поэтому
+// keep-alive браузера продолжал бы идти через прежний сервер. direct-соединения
+// не трогает.
+export async function closeProxyConnections({ port, token } = {}) {
+  const closed = await call(
+    "closeProxyConnections",
+    "clash_close_proxy_connections",
+    { port },
+    { token },
+  );
+  invalidateClashTelemetry("connections");
+  return Number(closed) || 0;
+}
+
 // Ручной выбор активной ноды в Selector-группе.
 // PUT /proxies/{group} {"name": tag}. Работает только для type=Selector.
-export function selectProxy(group, name, { port, token } = {}) {
+//
+// closeConnections=false — только для восстановления выбора на свежем runtime:
+// рвать там нечего, ядро секунду как поднялось.
+export function selectProxy(group, name, { port, token, closeConnections = true } = {}) {
   const revision = ++selectionRevision;
   const task = async () => {
     if (revision !== selectionRevision) return { stale: true };
@@ -213,6 +231,17 @@ export function selectProxy(group, name, { port, token } = {}) {
       throw new ClashApiError("selectProxy", `Selector подтвердил ${actual || "пустое значение"}, ожидалось ${name}`, {
         port: runtimePort(port, captured), processGeneration: captured?.processGeneration,
       });
+    }
+    // Выбор подтверждён ядром — теперь уводим с прежней ноды уже открытые потоки.
+    // Неудача здесь не отменяет выбор: новые соединения идут через новую ноду в
+    // любом случае, поэтому ошибку логируем, а не поднимаем в UI.
+    if (closeConnections) {
+      try {
+        await closeProxyConnections({ port, token: captured });
+      } catch (e) {
+        if (e?.code === "STALE_RUNTIME") return { stale: true };
+        console.warn("close proxy connections failed", e);
+      }
     }
     return { stale: false, confirmed };
   };

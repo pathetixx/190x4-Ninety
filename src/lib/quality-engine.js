@@ -40,9 +40,9 @@ const LADDER = [
   { id: "R2", action: "excludeWorstNode", reconnect: false },
   { id: "R3", action: "applyFragmentation", reconnect: true },
   { id: "R4", action: "rescanWarp",       reconnect: true },
-  // R5 — клиентское переключение на ноду другого транспорта; селектор "proxy"
-  // собран с interrupt_exist_connections=true → застрявшие флоу рвутся сами,
-  // полный реконнект ядра не нужен (потому reconnect:false, не гейтим промптом).
+  // R5 — клиентское переключение на ноду другого транспорта; застрявшие флоу
+  // рвёт selectProxy (clash_close_proxy_connections), полный реконнект ядра не
+  // нужен — потому reconnect:false и без промпта.
   { id: "R5", action: "switchTransport",  reconnect: false },
 ];
 

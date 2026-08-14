@@ -1102,6 +1102,7 @@ pub fn run() {
             clash::clash_test_node,
             clash::clash_test_group,
             clash::clash_select_proxy,
+            clash::clash_close_proxy_connections,
             clash::fetch_public_ip,
             clash_stream::clash_traffic_start,
             clash_stream::clash_traffic_stop,

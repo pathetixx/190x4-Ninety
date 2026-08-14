@@ -1190,9 +1190,9 @@ const qualityEngine = createQualityEngine({
       catch { return false; }
     },
     // R2 — увести с конкретной плохой ноды: текущую кладём на cooldown и вручную
-    // выбираем лучшую из оставшихся (selectProxy). Селектор "proxy" собран с
-    // interrupt_exist_connections=true → застрявшие соединения рвутся сами. Без
-    // реконнекта. false (ступень пропускается) если альтернатив нет.
+    // выбираем лучшую из оставшихся (selectProxy — он же рвёт живые соединения
+    // на прежней ноде). Без реконнекта. false (ступень пропускается) если
+    // альтернатив нет.
     excludeWorstNode: async () => {
       const token = runtimeIdentity.capture();
       if (!token) return false;
@@ -1247,9 +1247,9 @@ const qualityEngine = createQualityEngine({
       } catch { return false; }
     },
     // R5 — перейти на ноду ДРУГОГО транспорта/протокола (proto:type), лучшую по
-    // пингу: меняет саму сигнатуру трафика на проводе. selectProxy + interrupt →
-    // застрявшие соединения рвутся, реконнект ядра не нужен. false если ноды
-    // другого транспорта в источнике нет.
+    // пингу: меняет саму сигнатуру трафика на проводе. selectProxy уводит и уже
+    // открытые потоки, реконнект ядра не нужен. false если ноды другого
+    // транспорта в источнике нет.
     switchTransport: async () => {
       const token = runtimeIdentity.capture();
       if (!token) return false;
@@ -3247,7 +3247,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         const restoredSelection = await restoreRememberedProxySelection({
           source: runtimeSource,
           topology,
-          apply: (tag) => selectProxy("proxy", tag, { token: runtimeToken }),
+          apply: (tag) => selectProxy("proxy", tag, { token: runtimeToken, closeConnections: false }),
           isCurrent: () => runtimeIdentity.isCurrent(runtimeToken)
             && isCurrentNetworkIntent(epoch, "connected")
             && connectAttempts.isCurrent(attemptEpoch),
