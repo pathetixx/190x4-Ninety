@@ -2,6 +2,20 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.3.8 — 2026-08-14
+
+## English
+
+- Picking another server now takes effect at once. The app confirmed the choice, but the connections that were already open kept running through the previous server, so a site that checks your address still showed the old country until you turned the VPN off and on again. Those connections are now closed, so everything moves to the server you picked. Whatever you have excluded from the tunnel is left running.
+- The same applies to the server list, to the tray menu and to the automatic switch the app makes when a server starts performing badly.
+- The core was updated to sing-box 1.13.18.
+
+## Русский
+
+- Выбор другого сервера применяется сразу. Приложение подтверждало выбор, но уже открытые соединения продолжали идти через прежний сервер — сайт проверки адреса показывал прежнюю страну, пока вы не выключите и не включите VPN заново. Теперь такие соединения закрываются, и всё уходит на выбранный сервер. То, что вы исключили из туннеля, продолжает работать.
+- Это работает и в списке серверов, и в меню в трее, и при автоматической смене сервера, когда текущий начинает работать плохо.
+- Ядро обновлено до sing-box 1.13.18.
+
 ## v0.3.7 — 2026-08-14
 
 ## English
