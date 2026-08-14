@@ -172,12 +172,18 @@ if (flags.has("--verify")) {
 }
 
 // --- предпроверки (только чтение) ---
+// --allow-branch объявлен в supportedFlags и описан в RELEASING.md, но раньше
+// нигде не читался: скрипт принимал флаг и всё равно падал на проверке ветки.
+const allowBranch = flags.has("--allow-branch");
 const branch = cap("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
-if (branch !== "main") die(`ветка ${branch}, ожидалась main (RELEASING.md)`);
-run("git", ["fetch", "origin", "main"]);
+if (branch !== "main") {
+  if (!allowBranch) die(`ветка ${branch}, ожидалась main (RELEASING.md; --allow-branch снимает проверку)`);
+  console.log(`! релиз не из main: ветка ${branch} (--allow-branch)`);
+}
+run("git", ["fetch", "origin", branch]);
 const head = cap("git", ["rev-parse", "HEAD"]);
-const originMain = cap("git", ["rev-parse", "origin/main"]);
-if (head !== originMain) die("локальный main должен точно совпадать с origin/main перед релизом");
+const originHead = cap("git", ["rev-parse", `origin/${branch}`]);
+if (head !== originHead) die(`локальный ${branch} должен точно совпадать с origin/${branch} перед релизом`);
 
 // Скрипт сам коммитит только release-файлы. Любая другая грязь (особенно уже
 // staged) могла бы незаметно попасть в релизный commit через общий git commit.
@@ -237,7 +243,7 @@ if (needDate) console.log(`  дата в заголовке CHANGELOG → ${toda
 console.log(`  заметки (${notes.split("\n").length} стр. из CHANGELOG.md):`);
 console.log(notes.split("\n").map((l) => "    " + l).join("\n"));
 console.log(`\n  дальше: commit main · git tag -a ${tag} -F · `
-  + `push origin main ${tag} · gh release create --draft`);
+  + `push origin ${branch} ${tag} · gh release create --draft`);
 console.log("  затем CI собирает/подписывает/публикует сам; скрипт не следит за его статусом.");
 
 if (dryRun) { console.log("\n(dry-run: ничего не записано)"); process.exit(0); }
@@ -270,7 +276,7 @@ writeFileSync(notesFile, notes + "\n");           // те же байты, чт�
 // Без verbatim Git считает Markdown-заголовки комментариями и выкидывает их
 // из аннотации. Именно аннотация становится OTA notes на Windows-раннере.
 run("git", ["tag", "-a", "--cleanup=verbatim", tag, "-F", notesFile]);
-run("git", ["push", "origin", "main"]);
+run("git", ["push", "origin", branch]);
 run("git", ["push", "origin", tag]);
 run("gh", ["release", "create", tag, "--draft", "--title", `Ninety ${tag}`,
   "-F", notesFile]);

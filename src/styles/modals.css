@@ -424,7 +424,9 @@
 .edit-modal__save {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  /* Не литеральный белый: в светлых темах (mono — акцент #E8E8EE) подпись на
+     кнопке сливалась с фоном. --on-accent задан в каждой из 16 тем. */
+  color: var(--on-accent);
   box-shadow: 0 0 18px var(--accent-glow);
 }
 .edit-modal__save:hover {
@@ -585,7 +587,7 @@
 .update-modal__btn--primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   box-shadow: 0 0 24px var(--accent-glow), 0 1px 0 rgba(255,255,255,0.18) inset;
 }
 .update-modal__btn--primary:hover:not(:disabled) {

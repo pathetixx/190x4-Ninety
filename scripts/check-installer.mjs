@@ -251,6 +251,12 @@ if (templatePath && existsSync(templatePath)) {
   if (template.includes("Local\\\\pw.x190x4.ninety.installer")) {
     fail("installer.nsi содержит невалидный двойной разделитель namespace в имени mutex");
   }
+  // Запущенный деинсталлятор залочен по построению. Без этого исключения путь
+  // «страница обслуживания → заменить/удалить» (он же выбор по умолчанию при
+  // апгрейде) упирается в собственный образ и отменяет операцию.
+  if (!template.includes('$R9 == "$INSTDIR\\uninstall.exe"')) {
+    fail("un.NinetyProbeWritableFile должен пропускать запущенный uninstall.exe");
+  }
   const mutexAcquisitions = template.match(/!insertmacro NinetyAcquireInstallerMutex/g) ?? [];
   if (mutexAcquisitions.length !== 3) {
     fail(`operation mutex должен захватываться в setup, maintenance и uninstall (получено ${mutexAcquisitions.length})`);

@@ -11,7 +11,9 @@ Linux, so every push can prove the installer still builds.
 Two failure classes are gated:
 
 * any makensis error;
-* any `6010 … zeroing code out` warning that is not in EXPECTED_DEAD_CODE.
+* any `6010 … zeroing code out` warning that is not in EXPECTED_DEAD_CODE for
+  that particular script (the standalone shells share the same UI include, so
+  each has its own expected set).
   NSIS fills a stripped function with zero bytes, and zero is the opcode for
   "invalid opcode": if anything still reaches that address at runtime the user
   gets an endless stream of "Distribution corrupted" boxes instead of a setup.
@@ -52,10 +54,50 @@ LANGUAGES = ["English", "Russian"]
 # Install and uninstall keep their own copy of the chrome helpers, and each side
 # only ever calls its own variants. Nothing may be added here without proving
 # the function is unreachable at runtime.
+#
+# Per script, because the standalone shells include the same `kurogane-ui.nsh`
+# but drive only a few of its pages: what is legitimately unused in the language
+# selector would be a real defect in the production installer.
 EXPECTED_DEAD_CODE = {
-    "un.KuroganeApplyChromeInstall",
-    "KuroganeApplyChromeRemove",
-    "Skip",
+    "installer.nsi": {
+        "un.KuroganeApplyChromeInstall",
+        "KuroganeApplyChromeRemove",
+        "Skip",
+    },
+    # Pre-init locale picker: one custom page, no install/uninstall lifecycle.
+    "language-selector.nsi": {
+        "KuroganeApplyChromeFinish",
+        "KuroganeApplyChromeInstall",
+        "KuroganeApplyChromeRemove",
+        "KuroganeDirectoryLeave",
+        "KuroganeFinishProgress",
+        "KuroganeInstFilesLeave",
+        "KuroganeInstFilesShow",
+        "KuroganeLicenseLeave",
+        "KuroganeSignalPrimaryClick",
+        "KuroganeSignalSecondaryClick",
+    },
+    # Visual smoke shell: install + uninstall, but no Remove-chrome page.
+    "smoke.nsi": {
+        "KuroganeApplyChromeRemove",
+        "KuroganeFinishProgress",
+        "un.KuroganeApplyChromeInstall",
+        "un.KuroganeFinishProgress",
+        "un.MultiUser.InstallMode.CurrentUser",
+    },
+    # Design gallery: zero-side-effect pages only.
+    "concept-gallery.nsi": {
+        "KuroganeApplyChromeFinish",
+        "KuroganeApplyChromeInstall",
+        "KuroganeApplyChromeRemove",
+        "KuroganeDirectoryLeave",
+        "KuroganeFinishProgress",
+        "KuroganeInstFilesLeave",
+        "KuroganeInstFilesShow",
+        "KuroganeLicenseLeave",
+        "KuroganeSignalPrimaryClick",
+        "KuroganeSignalSecondaryClick",
+    },
 }
 
 CONTEXT = {
@@ -213,9 +255,9 @@ def compile_script(script: Path, defines: list[str] | None = None) -> str:
 
 def report_dead_code(output: str, label: str) -> list[str]:
     zeroed = set(re.findall(r'6010: \w+ function "([^"]+)" not referenced', output))
-    unexpected = sorted(zeroed - EXPECTED_DEAD_CODE)
+    unexpected = sorted(zeroed - EXPECTED_DEAD_CODE.get(label, set()))
     print(f"{label}: compiled, {len(zeroed)} stripped function(s)")
-    return unexpected
+    return [f"{label}: {name}" for name in unexpected]
 
 
 def main() -> int:
@@ -233,15 +275,19 @@ def main() -> int:
         # The standalone shells share kurogane-ui.nsh with the installer, and the
         # selector has to be compiled first: the installer embeds the resulting
         # kurogane-language.exe, exactly as the release workflow does.
+        # Their findings count too: kurogane-language.exe ships inside the
+        # installer, so a zero-filled function there reaches the user the same
+        # way. Previously only installer.nsi was gated.
+        unexpected: list[str] = []
         for name in ("language-selector.nsi", "smoke.nsi", "concept-gallery.nsi"):
             output = compile_script(script.parent / "kurogane" / name, ["-DVERSION=0.0.0"])
-            report_dead_code(output, name)
+            unexpected += report_dead_code(output, name)
 
-        unexpected = report_dead_code(compile_script(script), "installer.nsi")
+        unexpected += report_dead_code(compile_script(script), "installer.nsi")
 
         if unexpected:
             print(
-                "NSIS stripped installer code that is not known to be dead: "
+                "NSIS stripped code that is not known to be dead: "
                 + ", ".join(unexpected)
             )
             print(

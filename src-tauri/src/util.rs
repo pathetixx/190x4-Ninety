@@ -42,6 +42,64 @@ pub fn system_directory() -> std::path::PathBuf {
     std::path::PathBuf::from(String::from_utf16_lossy(&buffer[..len]))
 }
 
+/// Абсолютный путь к каталогу Windows (`C:\Windows`), родителю `System32`.
+///
+/// Тот же довод, что и у [`system_directory`]: `explorer.exe` лежит здесь, а не
+/// в `System32`, и запускать его по `%SystemRoot%` нельзя — переменную пишет
+/// `HKCU\Environment`. `GetWindowsDirectoryW` окружение не читает.
+#[cfg(target_os = "windows")]
+pub fn windows_directory() -> std::path::PathBuf {
+    use windows::Win32::System::SystemInformation::GetWindowsDirectoryW;
+    let mut buffer = [0u16; 260];
+    let len = unsafe { GetWindowsDirectoryW(Some(&mut buffer)) } as usize;
+    if len == 0 || len > buffer.len() {
+        return std::path::PathBuf::from(r"C:\Windows");
+    }
+    std::path::PathBuf::from(String::from_utf16_lossy(&buffer[..len]))
+}
+
+/// Системный файл `hosts` (`...\System32\drivers\etc\hosts`).
+///
+/// Собирается от [`system_directory`], а не от `%SystemRoot%`: путь уходит в
+/// перезапись файла из elevated-процесса, и подменённая переменная превратила бы
+/// её в запись в произвольный файл, выбранный обычным пользователем.
+#[cfg(target_os = "windows")]
+pub fn system_hosts_path() -> std::path::PathBuf {
+    system_directory().join("drivers").join("etc").join("hosts")
+}
+
+/// Корни Program Files, запись в которые уже требует прав администратора.
+///
+/// Берутся из `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion` — туда пишет
+/// только администратор. Одноимённые переменные окружения (`%ProgramFiles%` и
+/// соседние) для этого не годятся: их переопределяет `HKCU\Environment`, то есть
+/// обычный пользователь, а решение по этим путям принимается о выдаче задаче
+/// автозапуска уровня `highest` (запуск от администратора без UAC на каждый
+/// логин). Пустой результат безопасен: он означает «не системный каталог».
+#[cfg(target_os = "windows")]
+pub fn program_files_roots() -> Vec<std::path::PathBuf> {
+    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
+    use winreg::RegKey;
+
+    let Ok(current_version) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey_with_flags(
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion",
+        KEY_READ | KEY_WOW64_64KEY,
+    ) else {
+        return Vec::new();
+    };
+    [
+        "ProgramFilesDir",
+        "ProgramFilesDir (x86)",
+        "ProgramW6432Dir",
+    ]
+    .into_iter()
+    .filter_map(|name| current_version.get_value::<String, _>(name).ok())
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty())
+    .map(std::path::PathBuf::from)
+    .collect()
+}
+
 fn checked_body_len(current: usize, incoming: usize, max_bytes: usize) -> Result<usize, String> {
     let next = current
         .checked_add(incoming)

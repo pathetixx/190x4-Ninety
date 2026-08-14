@@ -89,10 +89,20 @@ function isValidDomainKeyword(s) {
 
 const RE_IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
-function validIpv4(s) {
+// Канонический вид IPv4 или "" — ведущие нули снимаются здесь, а не только
+// проверяются. Иначе «192.168.001.100» проходил валидацию и уезжал в конфиг
+// ядра как есть: sing-box такую запись отвергает, и правило пользователя молча
+// не работало (либо весь конфиг не поднимался).
+function canonicalIpv4(s) {
   const m = s.match(RE_IPV4);
-  if (!m) return false;
-  return m.slice(1).every((o) => Number(o) >= 0 && Number(o) <= 255 && String(Number(o)) === o.replace(/^0+(?=\d)/, ""));
+  if (!m) return "";
+  const octets = m.slice(1).map(Number);
+  if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return "";
+  return octets.join(".");
+}
+
+function validIpv4(s) {
+  return canonicalIpv4(s) !== "";
 }
 function validIpv6(s) {
   if (!s.includes(":")) return false;
@@ -112,12 +122,12 @@ export function normalizeIp(v) {
   const [addr, cidrRaw, ...rest] = s.split("/");
   if (rest.length) return "";
   const isV6 = addr.includes(":");
-  const okAddr = isV6 ? validIpv6(addr) : validIpv4(addr);
-  if (!okAddr) return "";
-  if (cidrRaw === undefined) return `${addr}/${isV6 ? 128 : 32}`;
+  const canonical = isV6 ? (validIpv6(addr) ? addr : "") : canonicalIpv4(addr);
+  if (!canonical) return "";
+  if (cidrRaw === undefined) return `${canonical}/${isV6 ? 128 : 32}`;
   const cidr = Number(cidrRaw);
   if (!Number.isInteger(cidr) || cidr < 0 || cidr > (isV6 ? 128 : 32)) return "";
-  return `${addr}/${cidr}`;
+  return `${canonical}/${cidr}`;
 }
 
 // Процесс: имя исполняемого файла. Срезаем путь, добавляем .exe если забыли.

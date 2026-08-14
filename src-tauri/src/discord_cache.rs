@@ -94,10 +94,12 @@ fn remove_cache_dir(roaming: &Path, client_root: &Path, name: &str) -> Result<bo
     Ok(true)
 }
 
+// Абсолютный путь к системному бинарю. Каталог берём у GetSystemDirectoryW, а не
+// из %SystemRoot%: переменную окружения пишет HKCU\Environment, то есть обычный
+// пользователь, а отсюда запускаются taskkill/tasklist в elevated-процессе.
 #[cfg(target_os = "windows")]
 fn system32(exe: &str) -> PathBuf {
-    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
-    PathBuf::from(root).join("System32").join(exe)
+    crate::util::system_directory().join(exe)
 }
 
 #[cfg(target_os = "windows")]

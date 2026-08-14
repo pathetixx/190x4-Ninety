@@ -1,6 +1,6 @@
 // Ninety · «Поделиться» — копирование URL, экспорт sing-box JSON, QR-код.
 
-import { buildConfig, getMode } from "/lib/singbox.js";
+import { buildConfig, getMode, profileProto } from "/lib/singbox.js";
 import { loadOptions } from "/lib/options.js";
 import qrcode from "/vendor/qrcode.mjs";
 import { t, tn } from "/lib/i18n/index.js";
@@ -85,6 +85,15 @@ function onQRKey(e) {
 // Транспорты, которые приложение обслуживает отдельным ядром на локальном
 // socks-мосту: в одиночном конфиге их воспроизвести нечем.
 const BRIDGE_ONLY_TYPES = new Set(["xhttp", "kcp"]);
+// То же самое, но на уровне протокола: naive и TrustTunnel поднимает отдельный
+// sidecar-клиент, а в конфиг уходит socks на 127.0.0.1. Без этой проверки
+// экспорт отдавал внешне валидный файл, который у получателя ведёт в его же
+// localhost — то есть молча нерабочий.
+const BRIDGE_ONLY_PROTOS = new Set(["naive", "trusttunnel"]);
+
+function isBridgeOnly(node) {
+  return BRIDGE_ONLY_TYPES.has(node?.type) || BRIDGE_ONLY_PROTOS.has(profileProto(node));
+}
 
 export async function exportSingboxJson(source, toast) {
   if (!source) {
@@ -97,7 +106,7 @@ export async function exportSingboxJson(source, toast) {
     // ядро их транспорт не поддерживает, и конфиг с ними просто не запустился бы.
     // Пропускаем их и говорим об этом, а не отдаём молча нерабочий файл.
     const all = source.kind === "sub" ? (source.nodes || []) : [source.profile];
-    const exportable = all.filter((node) => !BRIDGE_ONLY_TYPES.has(node?.type));
+    const exportable = all.filter((node) => !isBridgeOnly(node));
     const skipped = all.length - exportable.length;
     if (!exportable.length) {
       toast?.(t("share.exportNoNodes"), "error", 2500);

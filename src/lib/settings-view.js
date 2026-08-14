@@ -410,21 +410,17 @@ export function mountSettings(root, opts = {}) {
     const plainBtn = el.querySelector("[data-action='portable-secrets-plain']");
     if (!invoke || !rowEl || !setBtn || !clearBtn || !plainBtn) return;
 
-    const copy = getLang() === "ru"
-      ? {
-          prompt: "Введите passphrase для portable-хранилища (не короче 12 символов). Он не будет сохранён.",
-          configured: "Portable-хранилище защищено до завершения этого запуска.",
-          cleared: "Portable-пароль удалён из памяти.",
-          plaintextConfirm: "Разрешить запись секретов без шифрования? Это оставит ключи и пароли в NinetyData. Продолжить только если вы осознанно принимаете этот риск.",
-          plaintextEnabled: "Разрешён явный plaintext-режим portable-хранилища.",
-        }
-      : {
-          prompt: "Enter a passphrase for Portable storage (at least 12 characters). It will not be saved.",
-          configured: "Portable storage is protected for this run.",
-          cleared: "The Portable passphrase was removed from memory.",
-          plaintextConfirm: "Allow secrets to be stored without encryption? Keys and passwords will remain in NinetyData. Continue only if you explicitly accept this risk.",
-          plaintextEnabled: "Explicit plaintext mode is enabled for Portable storage.",
-        };
+    // Раньше эти строки собирались тернарником getLang() === "ru" прямо здесь и
+    // потому существовали только на двух языках: у остальных 13 весь раздел
+    // Portable выводился по-английски. Теперь это обычные ключи каталога, и
+    // tests/i18n.test.mjs требует их во всех 15 языках.
+    const copy = {
+      prompt: t("portable.prompt"),
+      configured: t("portable.configured"),
+      cleared: t("portable.cleared"),
+      plaintextConfirm: t("portable.plaintextConfirm"),
+      plaintextEnabled: t("portable.plaintextEnabled"),
+    };
     try {
       const status = await invoke("portable_secrets_status");
       if (!status?.portable || !rowEl.isConnected) return;
@@ -432,7 +428,7 @@ export function mountSettings(root, opts = {}) {
       const sync = (next) => {
         clearBtn.hidden = !next?.configured;
         plainBtn.hidden = !!next?.configured;
-        setBtn.textContent = next?.configured ? (getLang() === "ru" ? "Сменить пароль" : "Change passphrase") : (getLang() === "ru" ? "Задать пароль" : "Set passphrase");
+        setBtn.textContent = next?.configured ? t("portable.setChange") : t("portable.set");
       };
       sync(status);
       setBtn.addEventListener("click", async (event) => {
@@ -1080,21 +1076,13 @@ function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
 // ── Разделы ────────────────────────────────────────────────
 function renderGeneral(o) {
   const g = o.general || {};
-  const portableCopy = getLang() === "ru"
-    ? {
-        title: "Portable-хранилище",
-        hint: "Профили и подписки хранятся в Rust-owned profile-store. В Portable passphrase включает Argon2id + XChaCha20-Poly1305; пароль не сохраняется. Без него новые секреты не записываются, а legacy-копия WebView остаётся только как fallback миграции. Plaintext backend-хранилище доступно лишь после отдельного подтверждения.",
-        set: "Задать пароль",
-        clear: "Забыть пароль",
-        plain: "Разрешить plaintext",
-      }
-    : {
-        title: "Portable storage",
-        hint: "Profiles and subscriptions use the Rust-owned profile store. In Portable mode a passphrase enables Argon2id + XChaCha20-Poly1305; it is never saved. Without it, new secrets are not persisted and legacy WebView data remains only as a migration fallback. Plaintext backend storage is available only after explicit confirmation.",
-        set: "Set passphrase",
-        clear: "Forget passphrase",
-        plain: "Allow plaintext",
-      };
+  const portableCopy = {
+    title: t("portable.title"),
+    hint: t("portable.hint"),
+    set: t("portable.set"),
+    clear: t("portable.clear"),
+    plain: t("portable.plain"),
+  };
   return `
     <div class="settings-section">
       ${row(iconShield(), t("settings.general.adminTitle"), t("settings.general.adminHint"), `<span class="switch" id="always-admin-switch" data-on="false"></span>`)}
@@ -1209,7 +1197,14 @@ function renderMux(o) {
 const REPO_URL = "https://github.com/pathetixx/190x4-Ninety";
 const LICENSE_URL = "https://github.com/pathetixx/190x4-Ninety/blob/main/LICENSE";
 
-const ABOUT_PROTOCOLS = ["VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "TUIC", "NaiveProxy", "TrustTunnel"];
+// Витрина протоколов. Обязана совпадать с ветками buildOutbound в singbox.js —
+// равенство проверяет tests/about-protocols.test.mjs. Раньше список отставал:
+// anytls, Hysteria v1 и SOCKS приложение уже проводило, а «О программе»
+// показывала восемь чипов, противореча абзацу описания над ними.
+const ABOUT_PROTOCOLS = [
+  "VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "Hysteria",
+  "TUIC", "AnyTLS", "SOCKS", "NaiveProxy", "TrustTunnel",
+];
 // Режимы переиспользуют каталог главной (mode.*), чтобы не дублировать переводы.
 const aboutModes = () => [t("mode.proxy"), t("mode.systemProxy"), t("mode.tun")];
 export const ABOUT_MARK_ASSET = "/assets/samurai-mark-v2.webp";

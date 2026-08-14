@@ -65,6 +65,17 @@ function snapshot({ includeUpdateResume = false } = {}) {
 }
 
 let backupInFlight = Promise.resolve();
+// Сколько отказов подряд считаем «страховка мертва». Один сбой бывает
+// транзиентным (файл занят антивирусом), три подряд — уже состояние.
+const BACKUP_FAILURE_ALERT_AT = 3;
+let consecutiveFailures = 0;
+
+function emitBackupEvent(name, detail) {
+  try {
+    if (typeof globalThis.CustomEvent !== "function" || typeof globalThis.dispatchEvent !== "function") return;
+    globalThis.dispatchEvent(new CustomEvent(name, { detail }));
+  } catch {}
+}
 // Значение журнала запоминаем и в старом процессе после strict OTA-save, и в
 // новом процессе при импорте модуля. Это позволяет распознать переход
 // «resume был → RuntimeReady удалил его» без изменений в main.js.
@@ -110,6 +121,7 @@ export function backupNow({ includeUpdateResume = false, strict = false } = {}) 
     }
     try {
       await invoke("state_backup_save", { json: JSON.stringify(snap) });
+      consecutiveFailures = 0;
       if (includeUpdateResume) {
         pendingResumeValue = snap[STORAGE_KEYS.updateResume] ?? pendingResumeValue;
       } else if (closingResume) {
@@ -118,6 +130,16 @@ export function backupNow({ includeUpdateResume = false, strict = false } = {}) 
     } catch (e) {
       if (closingResume) restorePendingResume();
       console.warn("state backup failed", e);
+      // Страховка, которая молча не работает, хуже отсутствующей: серия отказов
+      // означает, что при потере профиля WebView2 восстанавливать будет нечего.
+      // Одно событие на серию — слушатель сам решает, как сказать пользователю.
+      consecutiveFailures += 1;
+      if (consecutiveFailures === BACKUP_FAILURE_ALERT_AT) {
+        emitBackupEvent("ninety:state-backup-error", {
+          failures: consecutiveFailures,
+          reason: String(e?.message || e),
+        });
+      }
       // Фоновые снимки остаются best-effort, но OTA обязан остановиться до
       // shutdown/install. Закрытие resume-журнала тоже strict: иначе старый
       // marker останется на диске и воскреснет при будущей потере WebView2.

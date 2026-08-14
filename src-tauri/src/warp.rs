@@ -155,19 +155,34 @@ fn write_info(app: &AppHandle, info: &WarpInfo) -> Result<(), String> {
     crate::atomic_file::write_bytes_replace(&p, &sealed, "warp state")
 }
 
+// Удаляем ВСЕ копии, а не до первой ошибки. Прежний вариант выходил на первом
+// отказе (файл занят, права), и остальные — включая основной warp.json с
+// приватным ключом — оставались на диске. Приложение продолжало их читать, то
+// есть «Сбросить WARP» отчитывался об ошибке, а секрет никуда не девался.
 fn delete_info(app: &AppHandle) -> Result<(), String> {
     let p = storage_path(app)?;
+    let mut errors = Vec::new();
     for file in [
         p.clone(),
         p.with_extension("json.new"),
         p.with_extension("json.bak"),
         p.with_extension("json.legacy.bak"),
     ] {
-        if file.exists() {
-            std::fs::remove_file(&file).map_err(|e| format!("remove {}: {e}", file.display()))?;
+        if !file.exists() {
+            continue;
+        }
+        if let Err(e) = std::fs::remove_file(&file) {
+            errors.push(format!("{}: {e}", file.display()));
         }
     }
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "не удалось удалить состояние WARP: {}",
+            errors.join("; ")
+        ))
+    }
 }
 
 fn gen_wg_keypair() -> (String, String) {

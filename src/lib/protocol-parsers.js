@@ -29,6 +29,17 @@ function splitFirstColon(value) {
 // панели одинаково часто отдают `insecure=true`; TUIC-ссылки — наоборот.
 // Принимаем обе формы: иначе нода с самоподписанным сертификатом не встаёт,
 // а причина («сертификат не проверился») пользователю нигде не видна.
+// Xray переименовал транспорт дважды: tcp → raw и splithttp → xhttp. Ссылки со
+// старыми именами панели раздают до сих пор. `raw` уже понимали, а `splithttp`
+// проваливал валидацию транспорта, и нода молча выбрасывалась из подписки.
+// Нормализуем на входе, чтобы дальше по коду жило одно имя.
+const TRANSPORT_ALIASES = { splithttp: "xhttp" };
+
+function normalizeTransportType(value) {
+  const type = String(value || "").trim().toLowerCase();
+  return TRANSPORT_ALIASES[type] || type;
+}
+
 function boolParam(value, fallback = false) {
   const v = String(value ?? "").trim().toLowerCase();
   if (!v) return fallback;
@@ -71,7 +82,7 @@ export function parseVless(raw) {
     port,
     security: get("security", "none"),
     encryption: get("encryption", "none"),
-    type: get("type", "tcp"),
+    type: normalizeTransportType(get("type", "tcp")),
     flow: get("flow", ""),
     sni: get("sni") || host,
     fp: get("fp", "chrome"),
@@ -121,7 +132,7 @@ export function parseVmess(raw) {
     sni: j.sni || j.host || j.add,
     fp: j.fp || "chrome",
     alpn: j.alpn || "",
-    type: j.net || "tcp",
+    type: normalizeTransportType(j.net || "tcp"),
     path: j.path || "",
     host_header: j.host || "",
     serviceName: j.path || "",
@@ -152,7 +163,7 @@ export function parseTrojan(raw) {
     host, port,
     password,
     security: get("security", "tls"),
-    type: get("type", "tcp"),
+    type: normalizeTransportType(get("type", "tcp")),
     sni: get("sni") || host,
     fp: get("fp", "chrome"),
     alpn: get("alpn", ""),

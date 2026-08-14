@@ -762,17 +762,22 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
   // браузере, но не голосовой UDP (см. DISCORD_PROCESS_NAMES), а процесс
   // покрывает десктопный клиент целиком, включая голос. Без процессного правила
   // голос уходил в туннель — ровно то, что фича должна была убрать.
+  // Пользовательские правила — ВЫШЕ региона/рекламы/LAN (приоритетнее базы), но
+  // ниже служебных safety-правил. Порядок в массиве = приоритет (первое совпадение
+  // выигрывает): кастом перекрывает регион (напр. «Telegram → через VPN» победит
+  // .ru-direct для трафика Telegram), а весь остальной трафик слушает базу ниже.
+  //
+  // Split-Discord стоит НИЖЕ кастома (а не выше, как было): иначе правило
+  // «discord.com → через VPN», созданное пользователем вручную, молча не
+  // работало — совпадение находилось раньше, в блоке split. Настройка split
+  // остаётся базой, но явное правило пользователя её перекрывает.
+  rules.push(...customRulesToSingbox(options.route?.customRules, protectedOutbound));
+
   if (mode === "tun" && options.route?.tunSplitDiscord) {
     rules.push({ process_name: DISCORD_PROCESS_NAMES, outbound: "direct" });
     rules.push({ rule_set: ["geosite-discord"], outbound: "direct" });
     rules.push({ domain_suffix: DISCORD_SUFFIXES, outbound: "direct" });
   }
-
-  // Пользовательские правила — ВЫШЕ региона/рекламы/LAN (приоритетнее базы), но
-  // ниже служебных safety-правил. Порядок в массиве = приоритет (первое совпадение
-  // выигрывает): кастом перекрывает регион (напр. «Telegram → через VPN» победит
-  // .ru-direct для трафика Telegram), а весь остальной трафик слушает базу ниже.
-  rules.push(...customRulesToSingbox(options.route?.customRules, protectedOutbound));
 
   if (options.route.bypassLan) {
     rules.push({ ip_is_private: true, outbound: "direct" });

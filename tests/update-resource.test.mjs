@@ -159,3 +159,24 @@ test("безнадёжный Resource отпускается и не глуши�
   assert.equal(checks, 1);
   assert.equal(fresh.version, "0.2.58");
 });
+
+// «Обновления нет» — это null, а не Resource. Раньше смена маршрута в этот
+// момент трактовалась как отказ закрытия (закрывать нечего → false → throw), и
+// спокойное «у вас последняя версия» превращалось в ошибку «не удалось
+// проверить обновления».
+test("смена маршрута при отсутствии обновления не превращается в ошибку", async () => {
+  const proxies = ["http://127.0.0.1:7890", null];
+  let proxyReads = 0;
+  const checks = [];
+
+  const result = await acquireUpdateForCurrentRoute({
+    getProxy: () => proxies[Math.min(proxyReads++, proxies.length - 1)],
+    check: async ({ proxy }) => {
+      checks.push(proxy);
+      return null;                       // обновления нет ни на одном маршруте
+    },
+  });
+
+  assert.equal(result, null);
+  assert.deepEqual(checks, ["http://127.0.0.1:7890", null]);
+});

@@ -202,10 +202,7 @@ async function unlockPortableSecretsForRecovery() {
     const status = await invoke("portable_secrets_status");
     if (!status?.portable || status.configured
       || (!status.hasPersistedSecrets && !hasLegacySensitiveData())) return;
-    const prompt = getLang() === "ru"
-      ? "В Ninety уже есть данные профилей. Введите passphrase portable-хранилища для защищённого переноса (он не будет сохранён):"
-      : "Ninety already has profile data. Enter the Portable storage passphrase for protected storage (it will not be saved):";
-    const passphrase = window.prompt(prompt);
+    const passphrase = window.prompt(t("portable.recoveryPrompt"));
     if (passphrase == null || passphrase === "") return;
     await invoke("portable_secrets_set_passphrase", { passphrase });
   } catch (error) {
@@ -429,11 +426,16 @@ async function ensureElevatedForTun() {
     const yes = confirm(t("elev.tunConfirm"));
     if (!yes) return false;
     // Запоминаем режим заранее — перезапущенный admin-инстанс поднимется в TUN.
+    // И в localStorage, и в durable-бэкап: DPI-путь делает ровно так же
+    // (persistDpiIntentForRelaunch), а без backupNow намерение терялось, если
+    // профиль WebView2 не переживал перезапуск с элевацией.
     setMode("tun");
     modeStoredForRelaunch = true;
+    await backupNow();
     const started = await invoke("relaunch_elevated");
     if (!started) {
       setMode(prevMode);
+      await backupNow();
       applyModeToUI(prevMode);
       updateHeroHint();
       syncTrayMenu();
@@ -447,6 +449,7 @@ async function ensureElevatedForTun() {
     elevationRelaunchPending = false;
     if (modeStoredForRelaunch) {
       setMode(prevMode);
+      void backupNow();
       applyModeToUI(prevMode);
       updateHeroHint();
       syncTrayMenu();
@@ -873,8 +876,16 @@ if (settingsRoot) {
         throw new Error(`остановка DPI не подтверждена: ${e?.message || e}`, { cause: e });
       }
       try { localStorage.setItem("ninety.dpi.enabled", "false"); } catch {}
+      // Durable-копия снимается ПЕРВОЙ. Обратный порядок означал, что сбой между
+      // шагами (или падение процесса) оставлял живые копии удалёнными, а бэкап —
+      // нетронутым: следующий запуск восстанавливал из него профили и подписки,
+      // которые пользователь только что попросил стереть. Теперь худший исход —
+      // «не удалилось целиком», и его видно сразу.
+      await invoke("state_backup_clear");
       await clearProfileStore();
       clearProfileStorage();
+      // Повторно — уже после удаления живых копий: между шагами мог сработать
+      // отложенный backupSoon и записать в бэкап то, что мы удаляем.
       await invoke("state_backup_clear");
       try { sessionStorage.removeItem("ninety.restore.attempted"); } catch {}
       refreshProfilesSummary();
@@ -3588,6 +3599,36 @@ window.addEventListener("ninety:profile-store-ready", () => {
   refreshProfilesSummary();
   syncTrayMenu();
 });
+
+// Отказ защищённого хранилища профилей раньше был виден только в консоли
+// WebView: приложение продолжало работать, изменения жили в памяти, и о том,
+// что они не переживут перезапуск, пользователь узнавал по пропавшим профилям.
+// Одно сообщение на сессию — стадии отказа идут пачкой, спамить незачем.
+// Та же логика для резервной копии состояния: три отказа подряд означают, что
+// восстанавливать после потери профиля WebView2 будет нечего.
+let stateBackupErrorShown = false;
+window.addEventListener("ninety:state-backup-error", (ev) => {
+  console.warn("state backup unhealthy:", ev?.detail?.failures, ev?.detail?.reason);
+  if (stateBackupErrorShown) return;
+  stateBackupErrorShown = true;
+  toast(t("store.backupErrorTitle"), "warn", 9000, {
+    group: "state-backup",
+    desc: t("store.backupErrorDesc"),
+  });
+});
+
+let profileStoreErrorShown = false;
+window.addEventListener("ninety:profile-store-error", (ev) => {
+  const stage = ev?.detail?.stage || "";
+  console.warn("profile store error:", stage);
+  if (profileStoreErrorShown) return;
+  profileStoreErrorShown = true;
+  toast(t("store.errorTitle"), "error", 9000, {
+    group: "profile-store",
+    desc: t("store.errorDesc"),
+  });
+  notify(t("store.errorTitle"), t("store.errorDesc"));
+});
 refreshProfilesSummary();
 updateHeroHint();
 syncTrayMenu();
@@ -4185,12 +4226,24 @@ setInterval(refreshSubCardFromActive, 30_000);
 // Windows запускает Ninety с argv, single-instance plugin перехватывает и
 // emit'ит onOpenUrl в первый процесс. Авто-импорта нет — юзер видит prefilled
 // URL в add-modal и подтверждает (защита от malicious links).
-const handledDeepLinks = new Set();
+// Дедупликация нужна только против ОДНОГО события, продублированного разными
+// каналами (listen + onOpenUrl + getCurrent приходят почти одновременно на
+// cold-start). Бессрочная память об URL превращала это в другую проблему:
+// пользователь закрывал модалку, кликал ту же ссылку-приглашение снова — и
+// приложение не делало ничего до перезапуска. Поэтому запоминаем на короткое
+// окно, а не навсегда.
+const DEEP_LINK_DEDUPE_MS = 4000;
+const handledDeepLinks = new Map();
 function handleDeepLinkUrl(rawUrl) {
   try {
     const key = String(rawUrl || "");
-    if (!key || handledDeepLinks.has(key)) return;
-    handledDeepLinks.add(key);
+    if (!key) return;
+    const now = Date.now();
+    for (const [seen, at] of handledDeepLinks) {
+      if (now - at > DEEP_LINK_DEDUPE_MS) handledDeepLinks.delete(seen);
+    }
+    if (handledDeepLinks.has(key)) return;
+    handledDeepLinks.set(key, now);
     const intent = parseDeepLink(rawUrl);
     if (intent) openAddModal({ prefillUrl: intent.url, prefillName: intent.name });
   } catch (e) {

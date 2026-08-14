@@ -159,6 +159,13 @@ let initialized = false;
 // removeLegacySensitiveKeys(), а backend-снимок её не содержит.
 let pendingLocalMutation = false;
 let backendEnabled = typeof invokeRef === "function";
+// Защищённое хранилище БЫЛО доступно, но отвалилось (чтение или миграция).
+// Отличается от штатного legacy-режима (браузерное превью, тесты — там backend
+// не существовал вовсе): в деградации зеркалить состояние в localStorage
+// нельзя, иначе учётные данные нод, которые ушли в шифрованный стор, снова
+// оказались бы на диске открытым текстом. См. docs/PROFILE_STORE_MIGRATION.md:
+// «A Rust write failure must not update the legacy mirror».
+let backendDegraded = false;
 let persistedStore = false;
 let initPromise = null;
 let writeChain = Promise.resolve();
@@ -296,7 +303,9 @@ function publish(next) {
   if (initialized && backendEnabled) enqueuePersist();
   else {
     if (!initialized) pendingLocalMutation = true;
-    mirrorLegacyState();
+    // В деградации мутации остаются только в памяти: открытая копия секретов
+    // на диске — худший исход, чем потеря изменений до перезапуска.
+    if (!backendDegraded) mirrorLegacyState();
   }
   emit("ninety:profile-store-changed", { revision });
 }
@@ -311,6 +320,13 @@ export function profileStoreIsReady() {
 
 export function profileStoreIsPersisted() {
   return persistedStore;
+}
+
+// Защищённое хранилище было доступно и отказало: изменения живут только в
+// памяти и исчезнут при перезапуске. UI обязан сказать об этом пользователю —
+// молча работающее приложение выглядит исправным, пока профили не пропадут.
+export function profileStoreIsDegraded() {
+  return backendDegraded;
 }
 
 export async function initializeProfileStore({ invoke = null, storage = null } = {}) {
@@ -333,6 +349,7 @@ export async function initializeProfileStore({ invoke = null, storage = null } =
       loaded = await invokeRef("profile_store_load");
     } catch {
       backendEnabled = false;
+      backendDegraded = true;
       initialized = true;
       emit("ninety:profile-store-error", { stage: "load" });
       emit("ninety:profile-store-ready", { source: "legacy-fallback", persisted: false, revision });
@@ -378,6 +395,7 @@ export async function initializeProfileStore({ invoke = null, storage = null } =
         return { source: "migrated", persisted: true, revision };
       } catch {
         backendEnabled = false;
+        backendDegraded = true;
         emit("ninety:profile-store-error", { stage: "migration" });
         emit("ninety:profile-store-ready", { source: "legacy-fallback", persisted: false, revision });
         return { source: "legacy-fallback", persisted: false, revision };
@@ -513,7 +531,7 @@ export async function restoreProfileStoreFromBackup(snapshot) {
   state = next;
   try {
     const result = await enqueuePersist({ notify: false });
-    if (!backendEnabled) mirrorLegacyState();
+    if (!backendEnabled && !backendDegraded) mirrorLegacyState();
     if (backendEnabled && !result?.persisted) throw new Error("profile store restore was not persisted");
     emit("ninety:profile-store-changed", { revision });
     return true;

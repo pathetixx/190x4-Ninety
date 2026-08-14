@@ -8,13 +8,17 @@ const updaterKey = JSON.parse(tauriConfigText).plugins?.updater?.pubkey;
 const dedicatedMatch = dpiSource.match(/const CHANNEL_DEDICATED_PUBKEY_B64: &str = "([^"]+)";/);
 const legacyMatch = dpiSource.match(/const CHANNEL_LEGACY_PUBKEY_B64: &str = "([^"]+)";/);
 
-if (!updaterKey || !dedicatedMatch || !legacyMatch) {
+if (!updaterKey || !dedicatedMatch) {
   throw new Error("DPI key rotation constants are missing");
 }
 if (dedicatedMatch[1] === updaterKey) {
   throw new Error("Dedicated DPI public key must not match the OTA updater public key");
 }
-if (legacyMatch[1] !== updaterKey) {
+// Отсутствие legacy-константы — ЗАВЕРШЁННАЯ ротация (шаг 5 в
+// docs/DPI_CHANNEL_KEY_ROTATION.md: «в следующем релизе удалить legacy trust»).
+// Раньше проверка требовала её всегда, и выполнение собственной документированной
+// процедуры валило CI. Пока константа есть — она обязана совпадать с OTA-ключом.
+if (legacyMatch && legacyMatch[1] !== updaterKey) {
   throw new Error("Legacy DPI public key must match the current OTA updater public key during rotation");
 }
 
@@ -31,6 +35,10 @@ function assertMinisignPublicKey(name, encoded) {
 }
 
 assertMinisignPublicKey("Dedicated DPI public key", dedicatedMatch[1]);
-assertMinisignPublicKey("Legacy DPI public key", legacyMatch[1]);
+if (legacyMatch) assertMinisignPublicKey("Legacy DPI public key", legacyMatch[1]);
 
-console.log("DPI key rotation guard OK: dedicated key differs from OTA key");
+console.log(
+  legacyMatch
+    ? "DPI key rotation guard OK: dedicated key differs from OTA key, legacy trust still present"
+    : "DPI key rotation guard OK: rotation complete, legacy trust removed",
+);

@@ -778,7 +778,7 @@
   border-radius: 50%;
   background: var(--accent);
   display: grid; place-items: center;
-  color: #fff;
+  color: var(--on-accent);
   opacity: 0;
   flex-shrink: 0;
 }

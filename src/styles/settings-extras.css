@@ -489,11 +489,14 @@
   opacity: 1;
 }
 #onboarding-screen .onb-brand-panel__lockup {
-  inset: auto 34px 155px auto;
+  /* Логические свойства: базовое правило выше уже на inset-inline, и физический
+     inset здесь возвращал панель на LTR-сторону в فارسی/العربية. */
+  inset-block: auto 155px;
+  inset-inline: auto 34px;
   width: 190px;
   align-items: center;
   gap: 30px;
-  text-align: left;
+  text-align: start;
 }
 #onboarding-screen .onb-brand-panel__signature {
   align-self: center;
@@ -558,7 +561,7 @@
   margin-bottom: 0;
   color: var(--text-mid);
   font-size: 14px;
-  text-align: left;
+  text-align: start;
 }
 #onboarding-screen .onb-import__field input {
   height: 54px;
@@ -606,7 +609,7 @@
 @media (max-width: 940px) {
   #onboarding-screen.onboarding { grid-template-columns: 39% minmax(0, 1fr); }
   #onboarding-screen .onb-brand-panel__art { background-position: 45% center; }
-  #onboarding-screen .onb-brand-panel__lockup { right: 24px; }
+  #onboarding-screen .onb-brand-panel__lockup { inset-inline: auto 24px; }
   #onboarding-screen .onb-flow { padding-inline: 38px; }
 }
 

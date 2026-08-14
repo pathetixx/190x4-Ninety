@@ -2,7 +2,7 @@
 // Одна карточка, которая растёт. Выбор режима убран: тип ввода определяется
 // сам и показывается ДО нажатия «Добавить».
 
-import { detectAddInput, addSubscriptionFromUrl, parseSubscriptionBody } from "/lib/subscriptions.js";
+import { detectAddInput, addSubscriptionFromUrl, parseSubscriptionEntries } from "/lib/subscriptions.js";
 import { addProfileFromVless, addTrustTunnelFromToml } from "/lib/singbox.js";
 import { t, tn } from "/lib/i18n/index.js";
 import { escapeHtml } from "/lib/esc.js";
@@ -184,14 +184,20 @@ export async function importAddInput(raw, userOverride = {}) {
   }
 
   if (decision.kind === "list") {
-    const profiles = parseSubscriptionBody(decision.content);
+    // Счётчик пропущенных берём тем же путём, что и подписка: список ссылок
+    // отбраковывает записи по тем же правилам, и молчать о них — значит
+    // показывать «Импортировано 8 конфигов» там, где пользователь вставил 12.
+    const { profiles, skipped } = parseSubscriptionEntries(decision.content);
     if (profiles.length === 0) throw new Error(t("add.errNoConfigs"));
     const added = profiles.map(p => addProfileFromVless(p.raw));
     // Детерминированно активируем первый профиль именно этого импорта.
     return {
       type: "list",
-      message: t("add.msgList", { n: profiles.length }),
+      message: skipped
+        ? t("add.msgListSkipped", { n: profiles.length, skipped })
+        : t("add.msgList", { n: profiles.length }),
       source: { kind: "single", id: added[0].id },
+      skipped,
     };
   }
 

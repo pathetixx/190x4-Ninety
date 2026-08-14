@@ -37,7 +37,7 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Run JS tests
-        run: npm test && npm run test:coverage && npm run check:versions && npm run check:actions-pinned && npm run check:dpi-key-rotation
+        run: npm test && npm run test:coverage && npm run check:versions && npm run check:actions-pinned && npm run check:privileged-paths && npm run check:dpi-key-rotation
 
       - name: Upload JS coverage report
         if: always()

@@ -1087,6 +1087,11 @@
 #tele-channel[data-q="SLOW"]    .stats__sonar { --q: var(--warn); }
 #tele-channel[data-q="STALLED"] .stats__sonar,
 #tele-channel[data-q="DEAD"]    .stats__sonar { --q: var(--err); }
+/* PRESSURE — движок ПЕРЕСТАЛ измерять из-за нагрузки на ПК, а не «всё хорошо».
+   Без своего правила точка оставалась в цвете предыдущего состояния (обычно
+   зелёном), и индикатор показывал «Отлично» там, где данных вообще нет. */
+#tele-channel[data-q="PRESSURE"] .stats__sonar { --q: var(--text-lo); }
+#tele-channel[data-q="PRESSURE"] .stats__sonar::after { animation: none; opacity: 0; }
 #tele-channel[data-active="false"] .stats__sonar::after { animation: none; opacity: 0; }
 
 /* Сессия — аптайм + тоталы справа от времени (одна базовая линия) */

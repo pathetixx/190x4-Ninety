@@ -543,7 +543,7 @@
 }
 .rr-check svg { width: 11px; height: 11px; }
 .rr-proc[data-checked="true"] .rr-check {
-  background: var(--accent); border-color: var(--accent); color: #fff;
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
 }
 .rr-proc__ico {
   width: 30px; height: 30px;
@@ -618,7 +618,7 @@
   box-shadow: 0 0 22px -6px var(--accent-glow);
 }
 .rr-apick[data-on="true"][data-act="proxy"] .rr-apick__ico {
-  background: var(--accent); border-color: var(--accent); color: #fff;
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
 }
 .rr-apick[data-on="true"][data-act="direct"] {
   background: var(--ink-3);

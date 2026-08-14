@@ -118,3 +118,16 @@ test("новые схемы распознаются полем добавлен
   // http(s) в этом поле по-прежнему означает подписку, а не http-прокси.
   assert.equal(detectAddInput("https://panel.example/sub").kind, "url");
 });
+
+// Xray переименовал splithttp в xhttp; панели раздают ссылки со старым именем до
+// сих пор. Раньше `raw` (бывший tcp) знали, а `splithttp` — нет, и такая нода
+// молча выбрасывалась из подписки как «неизвестный транспорт».
+test("splithttp — это xhttp: нода не выбрасывается и уходит на мост", () => {
+  const legacy = parseVless("vless://uuid@a.example:443?security=tls&type=splithttp&path=%2Fx");
+  assert.equal(legacy.type, "xhttp");
+  assert.equal(nodeConfigIssue(legacy), null);
+  assert.ok(needsXrayBridge(legacy));
+
+  const modern = parseVless("vless://uuid@a.example:443?security=tls&type=xhttp&path=%2Fx");
+  assert.deepEqual(nodeConfigIssue(legacy), nodeConfigIssue(modern));
+});

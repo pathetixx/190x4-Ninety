@@ -77,6 +77,7 @@ LangString KInstallTitle 1033 "Installing Ninety"
 LangString KInstallSubtitle 1033 "Preparing a protected connection"
 LangString KInstallStatus 1033 "CONFIGURING SECURE COMPONENTS"
 LangString KInstallComplete 1033 "COMPONENTS DEPLOYED"
+LangString KUninstallComplete 1033 "COMPONENTS REMOVED"
 LangString KUninstallTitle 1033 "Removing Ninety"
 LangString KUninstallSubtitle 1033 "Cleaning application components"
 LangString KUninstallStatus 1033 "REMOVING SECURE COMPONENTS"
@@ -151,6 +152,7 @@ LangString KInstallTitle 1049 "Устанавливаем Ninety"
 LangString KInstallSubtitle 1049 "Подготавливаем защищённое подключение"
 LangString KInstallStatus 1049 "НАСТРАИВАЕМ ЗАЩИЩЁННЫЕ КОМПОНЕНТЫ"
 LangString KInstallComplete 1049 "КОМПОНЕНТЫ РАЗВЁРНУТЫ"
+LangString KUninstallComplete 1049 "КОМПОНЕНТЫ УДАЛЕНЫ"
 LangString KUninstallTitle 1049 "Удаляем Ninety"
 LangString KUninstallSubtitle 1049 "Очищаем компоненты приложения"
 LangString KUninstallStatus 1049 "УДАЛЯЕМ ЗАЩИЩЁННЫЕ КОМПОНЕНТЫ"
@@ -1667,6 +1669,8 @@ Function KuroganeFinishProgress
 FunctionEnd
 
 Function un.KuroganeFinishProgress
-  !insertmacro KuroganeFinishProgressImpl "un." "$(KInstallComplete)"
+  ; Не KInstallComplete: на финальном экране удаления «компоненты развёрнуты»
+  ; противоречит только что выполненной операции.
+  !insertmacro KuroganeFinishProgressImpl "un." "$(KUninstallComplete)"
 FunctionEnd
 

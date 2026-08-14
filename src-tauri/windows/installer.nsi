@@ -78,6 +78,11 @@ Var NinetyPrevPerMachine
 Var NinetyInstallerMutex
 Var NinetyLockedPath
 Var NinetyWriteProbeAttempts
+; Сравнение версий (1 = апгрейд, 0 = та же, -1 = даунгрейд), посчитанное в
+; .onInit. Silent-установка страниц не исполняет, поэтому $R0 из PageReinstall
+; там навсегда остаётся пустым — и проверка запрета даунгрейда в EarlyChecks
+; сравнивала пустую строку, то есть не срабатывала никогда.
+Var NinetyVersionCompare
 
 ; A flat kernel-object name avoids accidental namespace separators in NSIS
 ; strings. Keep creation in one macro so setup, maintenance and uninstall all
@@ -653,6 +658,17 @@ Function .onInit
       StrCpy $INSTDIR $NinetyPrevPerMachine
     ${EndIf}
   !endif
+
+  ; Сравнение версий считаем здесь, а не на странице обслуживания: страницы в
+  ; silent-режиме не исполняются вовсе, и EarlyChecks сравнивал бы пустую
+  ; переменную. Контекст (SHCTX) к этому моменту уже окончательный.
+  ReadRegStr $0 SHCTX "${UNINSTKEY}" "DisplayVersion"
+  ${If} $0 == ""
+    StrCpy $NinetyVersionCompare 1   ; установленной версии нет — обычная установка
+  ${Else}
+    nsis_tauri_utils::SemverCompare "${VERSION}" $0
+    Pop $NinetyVersionCompare
+  ${EndIf}
 FunctionEnd
 
 
@@ -660,8 +676,8 @@ Section EarlyChecks
   ; Abort silent installer if downgrades is disabled
   !if "${ALLOWDOWNGRADES}" == "false"
   ${If} ${Silent}
-    ; If downgrading
-    ${If} $R0 = -1
+    ; If downgrading (значение посчитано в .onInit — страницы в silent не идут)
+    ${If} $NinetyVersionCompare = -1
       System::Call 'kernel32::AttachConsole(i -1)i.r0'
       ${If} $0 <> 0
         System::Call 'kernel32::GetStdHandle(i -11)i.r0'
@@ -1132,6 +1148,17 @@ Function un.NinetyProbeWritableFile
   ; first destructive uninstall action.
   ${If} $R9 == "$INSTDIR\dpi\bin\WinDivert64.sys"
   ${OrIf} $R9 == "$INSTDIR\dpi\bin-monkey\Monkey64.sys"
+    Push ""
+    Return
+  ${EndIf}
+  ; The running uninstaller is locked by definition and says nothing about the
+  ; directory being ready. Started from Add/Remove Programs NSIS re-runs itself
+  ; from a temporary copy, so uninstall.exe here is idle and opens fine — but the
+  ; maintenance page launches it in place (`_?=$INSTDIR`), and then this probe
+  ; would find its own image locked and abort the whole operation, which is the
+  ; default choice when replacing an existing install.
+  ${If} $R9 == "$INSTDIR\uninstall.exe"
+  ${OrIf} $R9 == "$INSTDIR\Au_.exe"
     Push ""
     Return
   ${EndIf}

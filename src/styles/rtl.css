@@ -15,8 +15,12 @@
 [dir="rtl"] .drawer { box-shadow: 36px 0 80px -20px var(--shadow-strong); }
 [dir="rtl"] .drawer:not([data-open="true"]) { transform: translateX(-100%); }
 
-/* Акцентная риска активного пункта навигации: вынос наружу в зеркальную сторону */
-[dir="rtl"] .nav__item--active::before { transform: translate(12px, -50%); }
+/* Акцентная риска активного пункта навигации горизонталь держит через
+   inset-inline-end, а вертикаль — через top + height. Собственного transform у
+   неё нет (app.css ставит `transform: none`), поэтому и зеркалить здесь нечего.
+   Прежнее правило `translate(12px, -50%)` осталось от старой вёрстки, где риска
+   была короткой полоской с top:50%, и после редизайна сдвигало её внутрь пункта
+   и вверх на половину высоты. */
 
 /* Стежок-акцент уведомления: скругление на противоположной грани */
 [dir="rtl"] .ntf::before { border-radius: 2px 0 0 2px; }
@@ -31,6 +35,11 @@
 [dir="rtl"] .logs__console { direction: ltr; }
 
 /* Disclosure-chevron (›) строк-ссылок: остриём в сторону чтения (влево).
+   Сюда же стрелка «Назад» под-экранов настроек: она указывает направление
+   движения, и в RTL «назад» — это вправо. И шеврон группы приложений в правилах
+   маршрутизации — тот же элемент раскрытия, что и в меню настроек.
    .dpi-ipset__chev НЕ трогаем — у него собственный rotate(90deg) на раскрытии. */
 [dir="rtl"] .settings-menu__chevron svg,
+[dir="rtl"] .settings-back svg,
+[dir="rtl"] .rr-appgrp__chev svg,
 [dir="rtl"] .loc-card__chev svg { transform: scaleX(-1); }

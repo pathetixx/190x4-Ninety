@@ -2398,10 +2398,12 @@ pub async fn dpi_sync_channel(
 const HOSTS_BEGIN: &str = "# >>> 190x4 Ninety (DPI hosts) >>>";
 const HOSTS_END: &str = "# <<< 190x4 Ninety (DPI hosts) <<<";
 
+// Путь собирается от GetSystemDirectoryW (util::system_hosts_path), а не от
+// %SystemRoot%: переменную окружения переопределяет HKCU\Environment, а этот
+// путь уходит в перезапись файла из elevated-процесса.
 #[cfg(target_os = "windows")]
 fn system_hosts_path() -> PathBuf {
-    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
-    PathBuf::from(root).join(r"System32\drivers\etc\hosts")
+    crate::util::system_hosts_path()
 }
 #[cfg(not(target_os = "windows"))]
 fn system_hosts_path() -> PathBuf {
@@ -2469,6 +2471,63 @@ fn count_hosts_entries(body: &str) -> usize {
         .count()
 }
 
+fn valid_hosts_domain(name: &str) -> bool {
+    if name.is_empty() || name.len() > 253 {
+        return false;
+    }
+    name.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    })
+}
+
+// Проверка формы блока, который уйдёт в системный hosts.
+//
+// Подпись канала проверяется при загрузке бандла, но дальше service-файлы живут
+// распакованными в пользовательском каталоге, и оффлайн-фолбэк читает их с
+// диска уже без повторной проверки. Пользователь (или любой код, работающий от
+// его имени) может дописать туда строку — и она попала бы в hosts из
+// elevated-процесса. Поэтому перед записью требуем от каждой строки форму
+// «IP домен [домен…]»: подменённая строка становится отказом, а не записью.
+// Тот же shape-check делает CI перед подписью канала.
+fn sanitize_hosts_body(body: &str) -> Result<String, String> {
+    let mut out = Vec::new();
+    for (index, line) in body.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            out.push(trimmed.to_string());
+            continue;
+        }
+        let mut parts = trimmed.split_whitespace();
+        let address = parts.next().unwrap_or_default();
+        if address.parse::<std::net::IpAddr>().is_err() {
+            return Err(format!(
+                "hosts: строка {} начинается не с IP-адреса: {trimmed}",
+                index + 1
+            ));
+        }
+        let domains: Vec<&str> = parts.take_while(|token| !token.starts_with('#')).collect();
+        if domains.is_empty() {
+            return Err(format!("hosts: строка {} без домена: {trimmed}", index + 1));
+        }
+        for domain in &domains {
+            if !valid_hosts_domain(domain) {
+                return Err(format!(
+                    "hosts: строка {} содержит недопустимое имя «{domain}»",
+                    index + 1
+                ));
+            }
+        }
+        out.push(format!("{address} {}", domains.join(" ")));
+    }
+    Ok(out.join("\n"))
+}
+
 /// Статус системного hosts: применён ли наш блок и сколько в нём записей.
 #[tauri::command]
 pub fn dpi_hosts_status(_app: AppHandle) -> Result<serde_json::Value, String> {
@@ -2520,6 +2579,11 @@ pub async fn dpi_hosts_apply(
     if count_hosts_entries(body) == 0 {
         return Err("в источнике нет записей hosts".into());
     }
+    // Форму проверяем ПЕРЕД записью: оффлайн-фолбэк читает service-файл с диска
+    // без повторной проверки подписи, и дописанная туда строка иначе уехала бы
+    // в системный hosts как есть.
+    let sanitized = sanitize_hosts_body(body)?;
+    let body = sanitized.trim();
 
     let path = system_hosts_path();
     let current = std::fs::read_to_string(&path)
@@ -3067,6 +3131,43 @@ pub async fn dpi_unload_driver(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Подпись канала проверяется при загрузке бандла, но service-файлы потом
+    // лежат распакованными в пользовательском каталоге и читаются оффлайн уже
+    // без проверки. Дописанная туда строка не должна доехать до системного hosts.
+    #[test]
+    fn hosts_body_rejects_anything_but_ip_and_domains() {
+        let good =
+            "# comment\n1.2.3.4 discord.com\n2606:4700::1111 cdn.example.org extra.example\n";
+        assert_eq!(
+            sanitize_hosts_body(good).unwrap(),
+            "# comment\n1.2.3.4 discord.com\n2606:4700::1111 cdn.example.org extra.example"
+        );
+
+        for planted in [
+            "127.0.0.1 bank.example\nnot-an-ip evil.example",
+            "1.2.3.4",
+            "1.2.3.4 -bad-.example",
+            "1.2.3.4 domain with space/slash",
+            "cmd.exe /c whoami",
+        ] {
+            assert!(
+                sanitize_hosts_body(planted).is_err(),
+                "подменённая строка прошла: {planted}"
+            );
+        }
+    }
+
+    #[test]
+    fn hosts_domain_shape() {
+        assert!(valid_hosts_domain("discord.com"));
+        assert!(valid_hosts_domain("a_b.example-1.org"));
+        assert!(!valid_hosts_domain(""));
+        assert!(!valid_hosts_domain("double..dot"));
+        assert!(!valid_hosts_domain("-lead.example"));
+        assert!(!valid_hosts_domain("trail-.example"));
+        assert!(!valid_hosts_domain(&format!("{}.example", "x".repeat(64))));
+    }
 
     #[test]
     fn strip_verbatim_forms() {

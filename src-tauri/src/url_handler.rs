@@ -13,6 +13,10 @@
 //   URL Protocol = ""
 //   \shell\open\command\(Default) = "\"<exe>\" \"%1\""
 
+// Список обязан совпадать с LINK_HANDLER_SCHEMES (src/lib/link-handlers.js) и
+// TOP_LEVEL_PROTOS (src/lib/deeplink.js): фронт регистрирует схемы по своему
+// списку, а любая схема вне этого возвращает Err. Равенство трёх списков
+// проверяет tests/link-schemes.test.mjs.
 pub const SUPPORTED_SCHEMES: &[&str] = &[
     "vless",
     "vmess",
@@ -20,8 +24,10 @@ pub const SUPPORTED_SCHEMES: &[&str] = &[
     "trojan",
     "hysteria2",
     "hy2",
+    "hysteria",
     "tuic",
     "sub",
+    "anytls",
     "tt",
     "naive+https",
     "naive+quic",
@@ -35,8 +41,10 @@ const ALL_DEEP_LINK_SCHEMES: &[&str] = &[
     "trojan",
     "hysteria2",
     "hy2",
+    "hysteria",
     "tuic",
     "sub",
+    "anytls",
     "tt",
     "naive+https",
     "naive+quic",

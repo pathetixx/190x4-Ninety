@@ -638,13 +638,11 @@ fn schtasks_exe() -> String {
 
 // Системные корни, запись в которые уже требует прав администратора. Только для
 // exe оттуда задача автозапуска имеет право работать с RunLevel=highest.
+// Источник — HKLM (см. util::program_files_roots): одноимённые переменные
+// окружения переопределяются из HKCU обычным пользователем, и тогда решение о
+// выдаче highest принималось бы по значению, которое подсунул он сам.
 fn program_files_roots() -> Vec<PathBuf> {
-    ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"]
-        .into_iter()
-        .filter_map(std::env::var_os)
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .collect()
+    crate::util::program_files_roots()
 }
 
 // Задача с /rl highest стартует exe от администратора без UAC на каждый логин.
@@ -1123,6 +1121,33 @@ mod tests {
                 "{user_writable} не должен получать highest"
             );
         }
+    }
+
+    // Тест выше передаёт корни литералом, поэтому подмену САМОГО ИСТОЧНИКА он
+    // увидеть не может. Продакшн берёт их из HKLM: переменные окружения пишет
+    // HKCU\Environment, и через них обычный пользователь объявил бы свой каталог
+    // системным, получив highest на подменяемый exe.
+    #[test]
+    fn program_files_roots_ignore_process_environment() {
+        let planted = r"C:\Users\dima\AppData\Local\NinetyFake";
+        for name in ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
+            std::env::set_var(name, planted);
+        }
+        let roots = program_files_roots();
+        for name in ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
+            std::env::remove_var(name);
+        }
+        assert!(
+            !roots.iter().any(|root| root == Path::new(planted)),
+            "корни Program Files пришли из окружения: {roots:?}"
+        );
+        assert!(
+            !autostart_uses_highest_run_level(
+                Path::new(r"C:\Users\dima\AppData\Local\NinetyFake\Ninety.exe"),
+                &roots
+            ),
+            "подменённое окружение выдало highest на user-writable exe"
+        );
     }
 
     #[test]

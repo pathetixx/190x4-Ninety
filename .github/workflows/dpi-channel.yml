@@ -483,13 +483,22 @@ jobs:
           import re
 
           source = Path("src-tauri/src/dpi.rs").read_text(encoding="utf-8")
+          # Legacy-константа исчезает на последнем шаге ротации ключа
+          # (docs/DPI_CHANNEL_KEY_ROTATION.md, шаг 5) — это штатное конечное
+          # состояние, а не поломка. Обязателен только dedicated key.
+          written = 0
           for index, name in enumerate(("CHANNEL_DEDICATED_PUBKEY_B64", "CHANNEL_LEGACY_PUBKEY_B64")):
               match = re.search(rf'const {name}: &str = "([^"]+)";', source)
               if not match:
-                  raise SystemExit(f"missing {name}")
+                  if name == "CHANNEL_DEDICATED_PUBKEY_B64":
+                      raise SystemExit(f"missing {name}")
+                  continue
               Path(f"previous/channel-{index}.pub").write_bytes(
                   base64.b64decode(match.group(1), validate=True)
               )
+              written += 1
+          if written == 0:
+              raise SystemExit("no DPI channel public keys found")
           PY
               for key in previous/channel-*.pub; do
                 if minisign -Vm previous/dpi-channel.zip \

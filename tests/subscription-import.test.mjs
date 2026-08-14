@@ -101,3 +101,14 @@ test("источник подписки отдаёт только пригодн
   assert.equal(source.nodes.length, 2);
   assert.ok(!source.nodes.some((n) => n.host === "broken.example"));
 });
+
+// Список ссылок отбраковывает записи по тем же правилам, что и подписка, но
+// раньше сообщал только про добавленные: пользователь вставлял 12 ссылок, видел
+// «Импортировано 8 конфигов» и не знал, что четыре ядро не приняло.
+test("импорт списка ссылок сообщает о пропущенных", async () => {
+  localStorage.clear();
+  const res = await importAddInput(BODY);
+  assert.equal(res.type, "list");
+  assert.equal(res.skipped, 1);
+  assert.match(res.message, /1/);
+});

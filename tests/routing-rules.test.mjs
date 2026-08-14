@@ -74,3 +74,23 @@ test("routing rules: keyword и suffix валидируются по-разно�
   assert.equal(normalizeValue("domain", "https://x.com/ads", "suffix"), "x.com");
   assert.equal(normalizeValue("domain", "x.com/ads", "keyword"), "x.com/ads");
 });
+
+// Ведущие нули ядро не принимает: «192.168.001.100» валится на разборе ip_cidr, и
+// правило пользователя молча не работает (а в строгих сборках не поднимается весь
+// конфиг). Раньше валидатор такую запись пропускал и отдавал её без изменений.
+test("routing rules: IPv4 с ведущими нулями канонизируется, а не уезжает как есть", () => {
+  assert.equal(normalizeIp("192.168.001.100"), "192.168.1.100/32");
+  assert.equal(normalizeIp("010.0.0.1"), "10.0.0.1/32");
+  assert.equal(normalizeIp("01.02.03.04/8"), "1.2.3.4/8");
+  assert.equal(normalizeIp("1.2.3.4"), "1.2.3.4/32");
+
+  const { rule, dropped } = sanitizeRule({
+    id: "zeros",
+    enabled: true,
+    type: "ip",
+    values: ["192.168.001.100", "0300.1.1.1"],
+    action: "direct",
+  });
+  assert.equal(dropped, 1, "восьмеричная запись 0300.* должна отбрасываться");
+  assert.deepEqual(rule.values, ["192.168.1.100/32"]);
+});

@@ -142,3 +142,46 @@ for (const code of CODES) {
     assert.deepEqual(tooLong, [], tooLong.join("; "));
   });
 }
+
+// Ключ может присутствовать во всех каталогах и всё равно быть непереведённым:
+// проверки выше видят набор ключей, формы и плейсхолдеры, но не то, что значение
+// дословно скопировано из en. Так целые разделы («Кэш Discord», «Подмена UDP»,
+// приватность подписок, очистка данных, диалог подтверждения) месяцами
+// оставались английскими у всех 13 языков — включая деструктивные подтверждения.
+//
+// ALLOWED — то, что совпадать обязано: названия продуктов и протоколов, единицы,
+// адреса, строки из одних плейсхолдеров.
+const ALLOWED_SAME_AS_EN = new Set([
+  "mode.tun",
+  "dpi.modeTxt.tun",
+  "dpi.game.tcpudp",
+  "dpi.fakes.discord",
+  "add.detTomlK",
+  "proxies.metaLine",
+  "settings.dns.remoteTitle",
+  "settings.dns.directTitle",
+  "settings.dns.customPlaceholder",
+  // Совпадают законно в отдельных языках: заимствованные слова и единицы.
+  // it: «Driver … (standard)», «LOG · SING-BOX»; fr: «strict»; de: «Traffic · live».
+  "dpi.monkey.toastOff",
+  "logs.kickerInit",
+  "proxies.pinAuto",
+  "settings.enums.qualityGood.3000000",
+  "settings.warp.scanRowHint",
+  "traffic.label",
+]);
+
+const wordCount = (value) => String(value).trim().split(/\s+/).filter(Boolean).length;
+
+for (const code of CODES.filter((c) => c !== "en" && c !== "ru")) {
+  test(`${code}: значения не скопированы из en`, () => {
+    const untranslated = Object.keys(catalogs.en).filter((key) => {
+      if (ALLOWED_SAME_AS_EN.has(key) || isPluralForm(key)) return false;
+      const english = catalogs.en[key];
+      if (typeof english !== "string" || catalogs[code][key] !== english) return false;
+      // Одно-двухсловные подписи совпадают законно чаще (термины, «OK», «PTB»).
+      return english.length > 12 && wordCount(english) >= 3;
+    });
+    assert.deepEqual(untranslated, [], `${code}: ${untranslated.slice(0, 5).join(", ")}`);
+  });
+}

@@ -67,8 +67,12 @@ let STRATEGIES = [{ id: "alt11", name: DEFAULT_STRATEGY, desc: "Самый ст�
 // Описания стратегий — данные из канала (по-русски), через t() НЕ идут. Для
 // не-русского интерфейса прячем их, оставляя только имя стратегии (вариант B).
 const stratDesc = (d) => (getLang() === "ru" && d ? esc(d) : "");
-const stratByName = (n) =>
-  STRATEGIES.find((s) => s.name === n) || STRATEGIES.find((s) => s.id === n) || STRATEGIES[0];
+// Точный поиск — без фолбэка: он нужен, чтобы отличить «стратегия исчезла из
+// набора» от «нашлась». stratByName с фолбэком оставлен для мест, где нужен
+// гарантированно валидный объект.
+const stratExact = (n) =>
+  STRATEGIES.find((s) => s.name === n) || STRATEGIES.find((s) => s.id === n) || null;
+const stratByName = (n) => stratExact(n) || STRATEGIES[0];
 const autopickCount = () => STRATEGIES.filter((s) => !s.experimental).length;
 
 // Какую стратегию помечать как рекомендованную и на каком основании.
@@ -619,7 +623,16 @@ async function loadStrategies() {
     const raw = await invoke("dpi_strategies");
     const arr = JSON.parse(raw);
     if (Array.isArray(arr) && arr.length) STRATEGIES = arr;
-    if (!stratByName(S.strategy)) S.strategy = STRATEGIES[0].name;
+    // Канал мог переименовать или убрать стратегию. Чинить надо ИМЕННО здесь и
+    // сохранять в localStorage: чип и кикер печатают сырое S.strategy, а
+    // dpi_start уходит с id фолбэка — иначе на экране два разных имени, а
+    // запускается то, которое пользователь не выбирал. Раньше условие было
+    // написано через stratByName, у которого фолбэк на STRATEGIES[0], поэтому
+    // оно никогда не срабатывало.
+    if (!stratExact(S.strategy)) {
+      S.strategy = STRATEGIES[0].name;
+      try { localStorage.setItem(LS.strategy, S.strategy); } catch {}
+    }
   } catch {}
 }
 
@@ -888,8 +901,28 @@ async function pickApply(name) {
   const s = stratByName(name);
   S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" };
   await setStrategy(s);
-  // если движок был выключен — включим с выбранной стратегией
-  if (S.base === "off" || S.base === "error") await toggleDpi();
+  // Если движок не работает — поднимаем его с выбранной стратегией. Именно
+  // поднимаем, а не «переключаем»: toggleDpi в состоянии error при desired=true
+  // трактует клик как «останови застрявший процесс», и «Применить» после
+  // авто-подбора выключало обход вместо запуска.
+  if (S.base === "off" || S.base === "error") {
+    if (S.vpnMode === "tun" && !splitDiscordActive()) {
+      // В TUN движок на паузе — фиксируем намерение, как это делает toggleDpi.
+      localStorage.setItem(LS.enabled, "true");
+      emitDpiChanged();
+      renderAll();
+      toast(t("dpi.toast.willEnable"), "info", 2200);
+      return;
+    }
+    if (S.base === "error" && lsGet(LS.enabled, "false") === "true") {
+      // Прошлый stop не подтвердился — сначала честно останавливаем, потом
+      // стартуем заново уже с новой стратегией.
+      if (!(await stopDpiRuntime())) return;
+    }
+    const ok = await ensureElevated();
+    if (!ok) return;
+    await startEngine();
+  }
 }
 
 /* ═══════════ STRATEGY DRAWER (динамический) ═══════════ */

@@ -800,3 +800,34 @@ test("незнакомый ядру отпечаток uTLS не доходит 
   });
   assert.equal(config.outbounds.find((o) => o.tag === "proxy").tls.utls.fingerprint, "chrome");
 });
+
+// Явное правило пользователя обязано перекрывать split-Discord: раньше блок
+// split стоял выше кастома, и правило «discord.com → через VPN» молча не
+// работало — совпадение находилось раньше и уводило трафик в direct.
+test("split Discord не перекрывает пользовательское правило на тот же домен", () => {
+  const opts = structuredClone(DEFAULT_OPTIONS);
+  opts.route.tunSplitDiscord = true;
+  opts.route.customRules = [{
+    id: "keep-discord-in-tunnel",
+    enabled: true,
+    type: "domain",
+    match: "suffix",
+    values: ["discord.com"],
+    action: "proxy",
+  }];
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "tun",
+    options: opts,
+  });
+  const rules = config.route.rules;
+  const userIdx = rules.findIndex((r) => r.domain_suffix?.includes("discord.com") && r.outbound === "proxy");
+  const splitIdx = rules.findIndex((r) => Array.isArray(r.rule_set) && r.rule_set.includes("geosite-discord"));
+  assert.ok(userIdx >= 0, "пользовательское правило не собралось");
+  assert.ok(splitIdx >= 0, "split-Discord не собрался");
+  assert.ok(userIdx < splitIdx, "правило пользователя обязано стоять выше split-Discord");
+
+  // Bypass-правило Ninety.exe по-прежнему выше обоих: защита от петли важнее.
+  const bypassIdx = rules.findIndex((r) => Array.isArray(r.process_name) && r.process_name.includes("Ninety.exe"));
+  assert.ok(bypassIdx >= 0 && bypassIdx < userIdx);
+});

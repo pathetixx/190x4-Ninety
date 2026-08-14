@@ -83,7 +83,12 @@ export async function acquireUpdateForCurrentRoute({
     const proxy = getProxy();
     const update = await check({ proxy });
     if (getProxy() === proxy) return update;
-    if (!(await closeUpdateResource(update))) {
+    // Маршрут сменился, пока шла проверка — результат относится к прежнему
+    // маршруту, поэтому пробуем заново. Закрывать при этом нечего, если
+    // обновления нет: `check` вернул null, и closeUpdateResource честно отвечает
+    // «нечего закрывать» (false). Раньше этот ответ считался отказом закрытия, и
+    // спокойное «обновлений нет» превращалось в «не удалось проверить».
+    if (update && !(await closeUpdateResource(update))) {
       throw new Error(unstableMessage);
     }
   }

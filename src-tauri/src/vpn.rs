@@ -1140,11 +1140,11 @@ pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     #[cfg(target_os = "windows")]
     {
-        // Абсолютный путь: explorer.exe лежит в %SystemRoot% (не в System32).
-        // Не полагаемся на PATH — открытие логов может идти из elevated-процесса.
-        let explorer = std::env::var("SystemRoot")
-            .map(|r| format!(r"{r}\explorer.exe"))
-            .unwrap_or_else(|_| r"C:\Windows\explorer.exe".into());
+        // Абсолютный путь: explorer.exe лежит в каталоге Windows (не в System32).
+        // Не полагаемся ни на PATH, ни на %SystemRoot% — открытие логов может идти
+        // из elevated-процесса, а переменную окружения пишет HKCU\Environment,
+        // то есть обычный пользователь. GetWindowsDirectoryW окружение не читает.
+        let explorer = crate::util::windows_directory().join("explorer.exe");
         std::process::Command::new(explorer)
             .arg(&dir)
             .spawn()
@@ -2802,25 +2802,37 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
     for process in &killed_processes {
         terminate_tracked_process(process);
     }
+    // Запоминаем процессы по компонентам: без этого журнал остановки отдавал
+    // всем трём строкам один и тот же общий вердикт, и «failed» не говорил,
+    // какой именно движок не завершился.
+    let mut singbox_processes: Vec<TrackedProcess> = Vec::new();
+    let mut xray_processes: Vec<TrackedProcess> = Vec::new();
+    let mut sidecar_processes: Vec<TrackedProcess> = Vec::new();
     let taken = state.child.lock_recover().take();
     let had_singbox = taken.is_some();
     if let Some(child) = taken {
         // child.kill() гасит sing-box; wintun-адаптер (non-persistent) снимается
         // системой вместе со смертью процесса, державшего его — отдельная чистка
         // TUN-интерфейса не нужна.
-        killed_processes.push(track_process(child.pid()));
+        let tracked = track_process(child.pid());
+        singbox_processes.push(tracked.clone());
+        killed_processes.push(tracked);
         let _ = child.kill();
     }
     let xray_child = state.xray_child.lock_recover().take();
     let had_xray = xray_child.is_some();
     if let Some(child) = xray_child {
-        killed_processes.push(track_process(child.pid()));
+        let tracked = track_process(child.pid());
+        xray_processes.push(tracked.clone());
+        killed_processes.push(tracked);
         let _ = child.kill();
     }
     let sidecar_children: Vec<_> = state.sidecars.lock_recover().drain(..).collect();
     let had_sidecars = !sidecar_children.is_empty();
     for child in sidecar_children {
-        killed_processes.push(track_process(child.pid()));
+        let tracked = track_process(child.pid());
+        sidecar_processes.push(tracked.clone());
+        killed_processes.push(tracked);
         let _ = child.kill();
     }
     killed_processes.sort_unstable_by_key(|process| process.pid);
@@ -2831,6 +2843,10 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
     let proxy_done_at = std::time::Instant::now();
     let (processes_exited, remaining_ports) =
         wait_runtime_released(state, &ports, &killed_processes).await;
+    // Вердикт на компонент считаем по его собственным PID.
+    let singbox_exited = killed_processes_exited(state, &singbox_processes);
+    let xray_exited = killed_processes_exited(state, &xray_processes);
+    let sidecars_exited = killed_processes_exited(state, &sidecar_processes);
     let ports_released = remaining_ports.is_empty();
     let confirmed_at = std::time::Instant::now();
     let proxy_confirmed = !proxy_was_owned || proxy_ok;
@@ -2854,21 +2870,21 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
     Ok(StopResult {
         singbox: if !had_singbox {
             "already_stopped"
-        } else if processes_exited {
+        } else if singbox_exited {
             "stopped"
         } else {
             "failed"
         },
         xray: if !had_xray {
             "already_stopped"
-        } else if processes_exited {
+        } else if xray_exited {
             "stopped"
         } else {
             "failed"
         },
         sidecars: if !had_sidecars {
             "already_stopped"
-        } else if processes_exited {
+        } else if sidecars_exited {
             "stopped"
         } else {
             "failed"

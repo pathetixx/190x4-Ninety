@@ -176,4 +176,6 @@ channel: "Stable",
 ```
 
 Смена канала должна быть отдельным маленьким коммитом. Затем владелец добавляет
-секцию `CHANGELOG.md` и запускает `node scripts/release.mjs X.Y.Z --watch`.
+секцию `CHANGELOG.md` и запускает `node scripts/release.mjs X.Y.Z`. Скрипт
+завершается на создании draft'а и за сборкой не следит; результат билда
+проверяется отдельно — `node scripts/release.mjs X.Y.Z --verify`.
