@@ -47,7 +47,11 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26'
+          # Точный патч, а не '1.26': GOTOOLCHAIN=local запрещает Go подтянуть
+          # более новую toolchain самому, поэтому stdlib ядра — ровно эта версия.
+          # 1.26.6 закрывает GO-2026-5026/6088/6089/6090 (idna, encoding/xml,
+          # net/http, crypto/tls), на которых 1.26.5 валил аудит sing-box.
+          go-version: '1.26.6'
           # The built-in cache keys off a go.sum in this repository, and there is
           # none: the cores are cloned inside the job. Cached below instead.
           cache: false

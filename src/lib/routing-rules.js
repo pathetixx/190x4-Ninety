@@ -101,9 +101,6 @@ function canonicalIpv4(s) {
   return octets.join(".");
 }
 
-function validIpv4(s) {
-  return canonicalIpv4(s) !== "";
-}
 function validIpv6(s) {
   if (!s.includes(":")) return false;
   if (s.includes("%")) return false; // zone-id в sing-box ip_cidr не нужен
