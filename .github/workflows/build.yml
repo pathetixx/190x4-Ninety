@@ -30,8 +30,8 @@ jobs:
     timeout-minutes: 30
     env:
       CORE_REPO: https://github.com/pathetixx/ninety-core.git
-      CORE_TAG: v1.13.16-ninety.1
-      CORE_SHA: 55815e1339ff2f858ad43e847a223341aab07dd7
+      CORE_TAG: v1.13.18-ninety.1
+      CORE_SHA: f7242e40d144b22770cf6db630a5c0294eedbed0
       XRAY_REPO: https://github.com/XTLS/Xray-core.git
       XRAY_TAG: v26.7.28
       XRAY_SHA: 5ca6f4b7d4dc20a881d4330e498892697627ec0c

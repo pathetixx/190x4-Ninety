@@ -77,7 +77,7 @@ export function normalizeFingerprint(raw) {
 }
 
 // Остальные строго проверяемые ядром значения. Списки сняты с исходников самого
-// ядра (ninety-core v1.13.16-ninety.1 и его зависимостей), а не с документации:
+// ядра (ninety-core v1.13.18-ninety.1 и его зависимостей), а не с документации:
 //   vmess security      — sing-vmess/client.go
 //   shadowsocks method  — sing-shadowsocks2 (shadowaead / _2022 / shadowstream / none)
 //   hysteria2 obfs      — protocol/hysteria2/outbound.go (только salamander, пароль обязателен)

@@ -23,7 +23,7 @@ The primary networking engine.
 
 | | |
 | --- | --- |
-| Version | `v1.13.16-ninety.1` (commit `55815e1339ff2f858ad43e847a223341aab07dd7`) |
+| Version | `v1.13.18-ninety.1` (commit `f7242e40d144b22770cf6db630a5c0294eedbed0`) |
 | Source | <https://github.com/pathetixx/ninety-core> |
 | Upstream | <https://github.com/SagerNet/sing-box> |
 | License | GNU General Public License v3.0 or later, with an additional naming clause |
