@@ -2,6 +2,48 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.3.7 — 2026-08-14
+
+## English
+
+- More node types connect: AnyTLS, Hysteria v1 and SOCKS are supported, and transports that used to be quietly simplified to a plain connection are now passed on exactly as the subscription describes them. Nodes on the newer Xray transport name no longer disappear from the list either.
+- Servers whose parameters a panel writes in a different but equally valid form — the flow value and the TLS fingerprint — are accepted instead of being dropped.
+- Your own routing rules work as written. A rule with an address such as `192.168.001.100` used to be handed to the core as typed and could take the whole connection down; and a personal rule for Discord was silently overridden by the built-in Discord split, so the rule existed, showed as enabled and did nothing.
+- Link handlers can be turned on again. The switch in settings never took effect: the app was asking for schemes the system side did not know, and the request stopped at the first one.
+- Clicking the same invite link a second time works without restarting the app, and importing a list of links now says how many entries were skipped instead of dropping them silently.
+- Security: the decision to run with administrator rights, and the paths to the Windows system folders, no longer come from environment variables that any account can rewrite. On a machine where someone had set them, the app could be pointed at a file of their choosing and run it with the rights it holds.
+- Security: every line written into the system hosts file is now checked before it is applied.
+- Security: if the Windows protected store is unavailable, node passwords and keys are no longer mirrored into the app's ordinary storage in plain text — the app reports the failure instead.
+- "Reset WARP" now removes all of its files. It stopped at the first one it could not delete, which left the private key on disk, and the app kept reading it.
+- The connection-quality indicator no longer stays on "Excellent" when it has stopped measuring because the PC is under load. It says that measurement is paused.
+- DPI bypass: a strategy that has disappeared from the channel no longer stays in the interface showing one name while the engine starts another, and "Apply" after auto-pick no longer leaves the bypass switched off while the app shows it as running.
+- "Clear sensitive data" no longer brings the deleted data back on the next start, and a failed state backup or a failed profile-store write is now visible in the app instead of only in a developer console.
+- An update check that runs while the network is changing says there is no update only when there is none; it no longer turns "nothing new" into "could not check".
+- Installer: reinstalling over an existing copy with a downloaded setup.exe no longer cancels itself, the final screen after uninstalling says the app was removed rather than deployed, and the downgrade guard now also works in silent mode.
+- Interface: the portable-storage section, three later settings sections and the confirmation dialog are translated in all 15 languages; labels on accent buttons are readable in light themes; and right-to-left languages mirror the whole interface, including the back arrow and the active menu item.
+- The stop log now names which component failed to exit, instead of reporting the same verdict for all three.
+- Privacy: the document describing what Ninety connects to now also names the Discord checks that DPI auto-pick makes from your real address.
+
+## Русский
+
+- Подключается больше типов нод: поддержаны AnyTLS, Hysteria v1 и SOCKS, а транспорты, которые раньше молча упрощались до обычного соединения, теперь передаются ровно так, как их описывает подписка. Ноды на новом имени транспорта Xray тоже перестали пропадать из списка.
+- Серверы, у которых панель пишет параметры в другой, но столь же корректной форме — значение flow и отпечаток TLS, — принимаются, а не отбрасываются.
+- Собственные правила маршрутизации работают так, как записаны. Правило с адресом вида `192.168.001.100` уходило в ядро как есть и могло положить всё подключение, а личное правило для Discord молча перекрывалось встроенным разделением Discord: правило было, показывалось включённым и не делало ничего.
+- Обработчики ссылок снова включаются. Переключатель в настройках не срабатывал вообще: приложение запрашивало схемы, которых системная часть не знала, и запрос обрывался на первой же.
+- Повторный клик по той же ссылке-приглашению работает без перезапуска приложения, а импорт списка ссылок теперь говорит, сколько записей пропущено, вместо того чтобы молча их выбросить.
+- Безопасность: решение о запуске с правами администратора и пути к системным папкам Windows больше не берутся из переменных окружения, которые может переписать любая учётная запись. На машине, где их подменили, приложение можно было направить на чужой файл и запустить его с теми правами, которые у приложения есть.
+- Безопасность: каждая строка, которая пишется в системный файл hosts, проверяется перед применением.
+- Безопасность: если защищённое хранилище Windows недоступно, пароли и ключи нод больше не дублируются в обычное хранилище приложения открытым текстом — вместо этого приложение сообщает об отказе.
+- «Сбросить WARP» удаляет все свои файлы. Раньше сброс останавливался на первом же файле, который не удалось удалить, — приватный ключ оставался на диске, и приложение продолжало его читать.
+- Индикатор качества канала больше не держит «Отлично», когда измерения остановлены из-за нагрузки на компьютер. Он так и говорит: замеры на паузе.
+- Обход DPI: стратегия, исчезнувшая из канала, больше не остаётся в интерфейсе под одним именем, пока движок запускает другую, а «Применить» после авто-подбора больше не оставляет обход выключенным при включённом виде в приложении.
+- «Очистить конфиденциальные данные» больше не возвращает удалённое при следующем запуске, а сбой резервной копии состояния и сбой записи в хранилище профилей теперь видны в приложении, а не только в консоли разработчика.
+- Проверка обновления во время смены сети говорит «обновления нет» только тогда, когда его действительно нет, и больше не превращает «ничего нового» в «не удалось проверить».
+- Установщик: переустановка поверх уже стоящей копии скачанным setup.exe больше не отменяет сама себя, финальный экран после удаления сообщает, что приложение удалено, а не развёрнуто, и запрет отката на старую версию теперь работает и в тихом режиме.
+- Интерфейс: раздел portable-хранилища, три поздних раздела настроек и диалог подтверждения переведены на все 15 языков; подписи на акцентных кнопках читаются в светлых темах; языки с письмом справа налево зеркалят весь интерфейс, включая стрелку «назад» и активный пункт меню.
+- В журнале остановки видно, какой именно компонент не завершился, — раньше все три получали один и тот же вердикт.
+- Приватность: документ о том, куда обращается Ninety, теперь называет и проверки Discord, которые авто-подбор DPI делает с вашего реального адреса.
+
 ## v0.3.6 — 2026-08-13
 
 ## English
