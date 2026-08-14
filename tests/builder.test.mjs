@@ -821,7 +821,13 @@ test("split Discord не перекрывает пользовательское
     options: opts,
   });
   const rules = config.route.rules;
-  const userIdx = rules.findIndex((r) => r.domain_suffix?.includes("discord.com") && r.outbound === "proxy");
+  // Точное сравнение элементов, а не поиск подстроки: domain_suffix — массив
+  // доменов, и `includes` здесь читается (в том числе статическим анализом) как
+  // проверка URL по подстроке, которой «evil-discord.com.attacker.net» тоже
+  // удовлетворяет.
+  const userIdx = rules.findIndex(
+    (r) => r.domain_suffix?.some((suffix) => suffix === "discord.com") && r.outbound === "proxy",
+  );
   const splitIdx = rules.findIndex((r) => Array.isArray(r.rule_set) && r.rule_set.includes("geosite-discord"));
   assert.ok(userIdx >= 0, "пользовательское правило не собралось");
   assert.ok(splitIdx >= 0, "split-Discord не собрался");
