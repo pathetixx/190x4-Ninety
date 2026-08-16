@@ -12,3 +12,10 @@ updates:
     directory: /
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    groups:
+      # init and analyze run in the same job and share a config file, so a PR
+      # that bumps only one of them fails CodeQL with a version mismatch.
+      codeql-action:
+        patterns:
+          - "github/codeql-action"
+          - "github/codeql-action/*"
