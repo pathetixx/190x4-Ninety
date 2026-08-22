@@ -172,6 +172,14 @@ mark{background:color-mix(in srgb,var(--accent) 17%,transparent);color:inherit;b
 .n-group:first-child{margin-top:0}
 .n-group__line{flex:1;height:1px;background:var(--line-1)}
 .n-group__n{font-family:var(--font-mono);font-size:9.5px;color:var(--text-faint);font-variant-numeric:tabular-nums}
+/* Действие над всей группой (массовое удаление) — тише строки, но кликабельно. */
+.n-group__act{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;padding:2px 6px;
+     border:0;border-radius:var(--r-xs);background:transparent;color:var(--text-faint);cursor:pointer;
+     font-family:var(--font-mono);font-size:9px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
+     transition:color .14s var(--ease-out),background .14s var(--ease-out)}
+.n-group__act svg{width:12px;height:12px}
+.n-group__act:hover{color:var(--err);background:var(--overlay-3)}
+.n-group__act:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
 
 @media (prefers-reduced-motion:reduce){
   .n-row::before,.n-meter__f{transition-duration:.01ms}

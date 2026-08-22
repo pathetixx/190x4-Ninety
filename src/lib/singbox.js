@@ -1599,6 +1599,17 @@ export function removeProfile(id) {
   }
 }
 
+// Массовая очистка одиночных профилей одним стором-коммитом. Цикл по
+// removeProfile здесь не годится: он на каждом шаге переносит активный профиль
+// на следующий из списка, и вызывающий получил бы серию ложных смен источника.
+export function removeAllProfiles() {
+  const removed = loadProfiles().length;
+  if (!removed) return 0;
+  saveProfiles([]);
+  setActiveProfileId(null);
+  return removed;
+}
+
 // Точечное обновление полей одиночного профиля (rename и т.п.).
 export function updateProfile(id, patch) {
   const list = loadProfiles();

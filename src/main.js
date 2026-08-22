@@ -5,6 +5,7 @@ import {
   getActiveProfileId,
   setActiveProfileId,
   removeProfile,
+  removeAllProfiles,
   getMode,
   setMode,
   getActiveKind,
@@ -1795,6 +1796,59 @@ async function deleteSource(kind, id) {
   return true;
 }
 
+// Массовое удаление всех одиночных конфигов. Повторять deleteSource в цикле
+// нельзя: каждый шаг спрашивал бы подтверждение и дёргал активный источник.
+// Активной подписки это не касается — удаляем только группу конфигов.
+async function deleteAllProfiles() {
+  const profs = loadProfiles();
+  if (!profs.length) return false;
+
+  const confirmed = await openConfirmModal({
+    title: t("prof.removeAllProfilesTitle"),
+    message: t("prof.removeAllProfilesMsg", { configs: tn("prof.configsN", profs.length) }),
+    confirmLabel: t("prof.removeConfirm"),
+    cancelLabel: t("confirm.cancel"),
+    danger: true,
+  });
+  if (!confirmed) return false;
+
+  // Активным мог быть один из удаляемых конфигов. Запасной источник ищем среди
+  // подписок: одиночных профилей после очистки не останется ни одного.
+  const wasActiveProfile = getActiveKind() !== "sub" && !!getActiveProfileId();
+  const fallbackSub = loadSubscriptions()[0] || null;
+  if (wasActiveProfile && !fallbackSub && (state === "connected" || state === "connecting")) {
+    connectAttempts.cancel();
+    if (!(await shutdownCore())) return false;
+  }
+
+  const removed = removeAllProfiles();
+
+  if (wasActiveProfile && fallbackSub) {
+    // Тот же приём, что в deleteSource: сбрасываем выбор в противоположный вид,
+    // чтобы applyActiveSource увидел настоящую смену и дал ровно один reconnect.
+    setActiveProfileId(null);
+    setActiveSubscriptionId(null);
+    setActiveKind("single");
+    applyActiveSource("sub", fallbackSub.id, { reason: t("conn.applyingSettings") });
+  } else {
+    if (wasActiveProfile) {
+      setActiveSubscriptionId(null);
+      setActiveProfileId(null);
+      setActiveKind("single");
+      runtimeIdentity.invalidate();
+      cancelPendingSelections();
+      currentEffectiveNode = null;
+      currentEffectiveTag = null;
+      resetProxiesViewForSourceChange();
+    }
+    refreshProfilesSummary();
+    syncTrayMenu();
+  }
+  backupSoon();
+  toast(t("prof.toastProfilesRemoved", { configs: tn("prof.configsN", removed) }), "info", 2000);
+  return true;
+}
+
 // ── WARP UX (hero badge + авто-ротация + история) — /lib/warp-rescan.js ──
 // Подсистема вынесена в модуль; здесь только инстанс с инжектом состояния/реконнекта.
 // Алиасы сохраняют прежние имена вызовов (updateWarpBadge/start/stopWarpRescanLoop),
@@ -1941,14 +1995,20 @@ function renderProfilesView() {
       </div>`;
   };
 
-  const group = (label, n, rows) => !rows.length ? "" : `
+  const group = (label, n, rows, action = "") => !rows.length ? "" : `
     <div class="n-group"><span class="n-lbl">${escapeHtml(label)}</span>
-      <span class="n-group__n">${n}</span><span class="n-group__line"></span></div>
+      <span class="n-group__n">${n}</span><span class="n-group__line"></span>${action}</div>
     <div class="pf-list">${rows.join("")}</div>`;
+
+  // Одиночные конфиги приходят пачками (импорт буфера, deep links), поэтому у
+  // группы есть массовое удаление — построчное меню на десятках строк нечитаемо.
+  const clearConfigs = `
+    <button class="n-group__act" data-profiles-clear type="button"
+      title="${escapeAttr(t("prof.clearConfigsHint"))}">${ICON_TRASH}<span>${escapeHtml(t("prof.clearConfigs"))}</span></button>`;
 
   profilesList.innerHTML =
     group(t("prof.groupSubs"), subsList.length, subsList.map(subRow)) +
-    group(t("prof.groupConfigs"), profsList.length, profsList.map(cfgRow));
+    group(t("prof.groupConfigs"), profsList.length, profsList.map(cfgRow), clearConfigs);
 }
 
 // Хост подписки для мета-строки: полный URL несёт токен и в списке не нужен.
@@ -2259,6 +2319,13 @@ profilesView?.addEventListener("click", async (e) => {
         await deleteSource("sub", id);
       }
     });
+    return;
+  }
+
+  // «Удалить все» в заголовке группы одиночных конфигов
+  if (e.target.closest("[data-profiles-clear]")) {
+    e.stopPropagation();
+    await deleteAllProfiles();
     return;
   }
 
