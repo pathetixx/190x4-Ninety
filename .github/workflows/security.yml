@@ -108,8 +108,8 @@ jobs:
           tags="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,badlinkname,tfogo_checklinkname0,with_grpc"
           tmpdir="$(mktemp -d)"
           trap 'rm -rf "$tmpdir"' EXIT
-          git clone --depth 1 --branch v1.13.18-ninety.1 https://github.com/pathetixx/ninety-core.git core
-          test "$(git -C core rev-parse HEAD)" = f7242e40d144b22770cf6db630a5c0294eedbed0
+          git clone --depth 1 --branch v1.13.18-ninety.2 https://github.com/pathetixx/ninety-core.git core
+          test "$(git -C core rev-parse HEAD)" = 1c5f8768b3873f916af9f583aac13c251eec68aa
           (
             cd core
             # То же обновление, что и в build.yml: аудит обязан смотреть на то

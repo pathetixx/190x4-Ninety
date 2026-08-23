@@ -1203,7 +1203,7 @@ const LICENSE_URL = "https://github.com/pathetixx/190x4-Ninety/blob/main/LICENSE
 // показывала восемь чипов, противореча абзацу описания над ними.
 const ABOUT_PROTOCOLS = [
   "VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "Hysteria",
-  "TUIC", "AnyTLS", "SOCKS", "NaiveProxy", "TrustTunnel",
+  "TUIC", "AnyTLS", "SOCKS", "NaiveProxy", "TrustTunnel", "WireGuard", "AmneziaWG",
 ];
 // Режимы переиспользуют каталог главной (mode.*), чтобы не дублировать переводы.
 const aboutModes = () => [t("mode.proxy"), t("mode.systemProxy"), t("mode.tun")];

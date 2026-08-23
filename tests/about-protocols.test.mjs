@@ -31,6 +31,13 @@ const CHIP_BY_PROTO = {
   trusttunnel: "trusttunnel",
 };
 
+// WireGuard не проходит через buildOutbound: в sing-box 1.13 это endpoint, и
+// билдер собирает его отдельной функцией. Инвариант тот же — витрина обязана
+// показывать то, что клиент действительно поднимает.
+const ENDPOINT_PROTOS = {
+  wireguard: ["wireguard", "amneziawg"],
+};
+
 test("каждый собираемый протокол показан в «О программе»", () => {
   const branches = [...builder.matchAll(/^\s{4}case "([a-z0-9]+)":/gm)]
     .map((m) => m[1])
@@ -41,4 +48,15 @@ test("каждый собираемый протокол показан в «О 
     .map((proto) => CHIP_BY_PROTO[proto])
     .filter((chip) => !listed.includes(chip));
   assert.deepEqual(missing, [], `нет чипа для: ${missing.join(", ")}`);
+});
+
+test("протоколы, собираемые как endpoint, тоже показаны в «О программе»", () => {
+  for (const [proto, chips] of Object.entries(ENDPOINT_PROTOS)) {
+    assert.ok(
+      builder.includes(`profileProto(n) === "${proto}"`),
+      `билдер больше не собирает ${proto} — проверку пора обновить`,
+    );
+    const missing = chips.filter((chip) => !listed.includes(chip));
+    assert.deepEqual(missing, [], `нет чипа для: ${missing.join(", ")}`);
+  }
 });

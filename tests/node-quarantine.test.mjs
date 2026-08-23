@@ -83,3 +83,27 @@ test("карантин привязан к параметрам ноды: поч
   assert.ok(isNodeQuarantined(broken));
   assert.ok(!isNodeQuarantined(fixed));
 });
+
+// WireGuard ядро инициализирует отдельным списком и называет виновника
+// «initialize endpoint[N]». Без своей карты индексов такая нода не попадала бы
+// в карантин вообще: индекс из другого списка указал бы на чужой сервер.
+test("отказ ядра на endpoint находит wireguard-ноду по своей карте индексов", () => {
+  const outboundNodes = [null, { host: "a.example", port: 443 }, null];
+  const endpointNodes = [{ host: "162.159.192.1", port: 2408, proto: "wireguard" }];
+  const hit = matchCoreOutboundRejection(
+    "create service: initialize endpoint[0]: invalid private key",
+    outboundNodes,
+    endpointNodes,
+  );
+  assert.equal(hit.node, endpointNodes[0]);
+  assert.equal(hit.kind, "endpoint");
+  assert.equal(hit.reason, "invalid private key");
+  // Индексы двух списков не пересекаются: outbound[1] по-прежнему свой.
+  const outboundHit = matchCoreOutboundRejection(
+    "create service: initialize outbound[1]: bad flow",
+    outboundNodes,
+    endpointNodes,
+  );
+  assert.equal(outboundHit.node, outboundNodes[1]);
+  assert.equal(outboundHit.kind, "outbound");
+});

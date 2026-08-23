@@ -77,7 +77,7 @@ export function normalizeFingerprint(raw) {
 }
 
 // Остальные строго проверяемые ядром значения. Списки сняты с исходников самого
-// ядра (ninety-core v1.13.18-ninety.1 и его зависимостей), а не с документации:
+// ядра (ninety-core v1.13.18-ninety.2 и его зависимостей), а не с документации:
 //   vmess security      — sing-vmess/client.go
 //   shadowsocks method  — sing-shadowsocks2 (shadowaead / _2022 / shadowstream / none)
 //   hysteria2 obfs      — protocol/hysteria2/outbound.go (только salamander, пароль обязателен)
@@ -130,6 +130,61 @@ export function nodeConfigIssue(node) {
   return issue;
 }
 
+// WireGuard живёт в endpoints, а не в outbounds, но правило то же: ядро
+// инициализирует конфиг целиком, и один битый ключ роняет весь запуск.
+// Проверяем ровно то, что ядро и наш форк wireguard-go отвергают на старте.
+function wireguardKeyValid(value) {
+  return decodedLength(String(value || "").trim().replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")) === 32;
+}
+
+function wireguardIssue(node) {
+  if (!wireguardKeyValid(node.privateKey)) return { code: "wgPrivateKey" };
+  const addresses = Array.isArray(node.addresses) ? node.addresses : [];
+  if (!addresses.length || addresses.some((address) => !/^[0-9a-fA-F.:]+\/\d{1,3}$/.test(String(address).trim()))) {
+    return { code: "wgAddress" };
+  }
+  const peers = Array.isArray(node.peers) && node.peers.length ? node.peers : [];
+  if (!peers.length) return { code: "wgPeer" };
+  for (const peer of peers) {
+    if (!wireguardKeyValid(peer.publicKey)) return { code: "wgPublicKey" };
+    if (peer.presharedKey && !wireguardKeyValid(peer.presharedKey)) return { code: "wgPresharedKey" };
+    const peerPort = Number(peer.port);
+    if (!peer.host || !Number.isInteger(peerPort) || peerPort < 1 || peerPort > 65535) {
+      return { code: "endpoint" };
+    }
+  }
+  const awgIssue = amneziaIssue(node.awg);
+  if (awgIssue) return awgIssue;
+  return null;
+}
+
+// Шейпинг AmneziaWG: те же инварианты, что проверяет ядро (noise/amnezia.go).
+// Ловим их здесь, чтобы нода отсеялась со своей причиной, а не утащила за
+// собой весь конфиг.
+const WG_MESSAGE_SIZES = { initiation: 148, response: 92 };
+
+function amneziaIssue(awg) {
+  if (!awg) return null;
+  const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+  const jc = num(awg.jc), jmin = num(awg.jmin), jmax = num(awg.jmax);
+  if (jc < 0 || jc > 128) return { code: "wgJunkCount" };
+  if (jc > 0 && (jmax <= 0 || jmin > jmax || jmax > 1280)) return { code: "wgJunkSize" };
+  const s1 = num(awg.s1), s2 = num(awg.s2);
+  if (s1 < 0 || s1 > 1280 || s2 < 0 || s2 > 1280) return { code: "wgHandshakeJunk" };
+  // Дополненные init и response не должны совпасть по длине: получатель
+  // различает их сначала по размеру.
+  if (s1 + WG_MESSAGE_SIZES.initiation === s2 + WG_MESSAGE_SIZES.response) {
+    return { code: "wgHandshakeJunk" };
+  }
+  const headers = [num(awg.h1), num(awg.h2), num(awg.h3), num(awg.h4)];
+  const custom = headers.some((value, index) => value && value !== index + 1);
+  if (custom) {
+    const effective = headers.map((value, index) => value || index + 1);
+    if (new Set(effective).size !== effective.length) return { code: "wgMagicHeaders" };
+  }
+  return null;
+}
+
 function computeNodeConfigIssue(node) {
   const proto = profileProto(node);
   // Sidecar-протоколы (naive/trusttunnel) в sing-box уходят socks-мостом:
@@ -140,6 +195,8 @@ function computeNodeConfigIssue(node) {
   if (!node.host || !Number.isInteger(port) || port < 1 || port > 65535) {
     return { code: "endpoint" };
   }
+
+  if (proto === "wireguard") return wireguardIssue(node);
 
   if (proto === "vless" && normalizeFlow(node.flow) === null) {
     return { code: "flow" };

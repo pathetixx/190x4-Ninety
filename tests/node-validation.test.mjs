@@ -120,3 +120,49 @@ test("tuic: неизвестный алгоритм контроля перег�
   assert.equal(nodeConfigIssue({ ...base, congestionControl: "" }), null);
   assert.deepEqual(nodeConfigIssue({ ...base, congestionControl: "reno" }), { code: "congestion" });
 });
+
+// ── WireGuard ──────────────────────────────────────────────
+// Endpoint инициализируется тем же проходом, что и outbound'ы: битый ключ или
+// невозможный шейпинг роняют весь конфиг, а не одну ноду. Инварианты шейпинга
+// повторяют те, что проверяет ядро (noise/amnezia.go).
+const { parseWireguardConf } = await import("/lib/singbox.js");
+
+const WG_PRIVATE = "nlhuTLXG3gAV8AJmw8jYngX3QkwdDoSPi2HxhGGSKrs=";
+const WG_PUBLIC = "zjVMotkY/dyEZygQ7crKvCtV1ODNZkVx1xe/1Bvvo8A=";
+const wgNode = (extra = "") => parseWireguardConf(`[Interface]
+Address = 172.16.0.2/32
+PrivateKey = ${WG_PRIVATE}
+${extra}
+[Peer]
+AllowedIPs = 0.0.0.0/0
+Endpoint = 162.159.192.1:2408
+PublicKey = ${WG_PUBLIC}`, "WG");
+
+test("wireguard: корректный профиль проходит, битые ключи и адреса — нет", () => {
+  assert.equal(nodeConfigIssue(wgNode()), null);
+  assert.deepEqual(nodeConfigIssue({ ...wgNode(), privateKey: "короткий" }), { code: "wgPrivateKey" });
+  assert.deepEqual(nodeConfigIssue({ ...wgNode(), addresses: [] }), { code: "wgAddress" });
+  assert.deepEqual(nodeConfigIssue({ ...wgNode(), addresses: ["172.16.0.2"] }), { code: "wgAddress" });
+  assert.deepEqual(nodeConfigIssue({ ...wgNode(), peers: [] }), { code: "wgPeer" });
+  const node = wgNode();
+  assert.deepEqual(
+    nodeConfigIssue({ ...node, peers: [{ ...node.peers[0], publicKey: "короткий" }] }),
+    { code: "wgPublicKey" },
+  );
+});
+
+test("wireguard: невозможный шейпинг AmneziaWG отбраковывается", () => {
+  assert.equal(nodeConfigIssue(wgNode("Jc = 4\nJmin = 8\nJmax = 80")), null);
+  assert.deepEqual(nodeConfigIssue(wgNode("Jc = 4\nJmin = 80\nJmax = 8")), { code: "wgJunkSize" });
+  assert.deepEqual(nodeConfigIssue(wgNode("Jc = 4")), { code: "wgJunkSize" });
+  assert.deepEqual(nodeConfigIssue(wgNode("Jc = 500\nJmin = 8\nJmax = 80")), { code: "wgJunkCount" });
+  // S1 + 148 == S2 + 92: init и response станут одной длины, и получатель
+  // перестанет их различать.
+  assert.deepEqual(nodeConfigIssue(wgNode("S1 = 0\nS2 = 56")), { code: "wgHandshakeJunk" });
+  assert.equal(nodeConfigIssue(wgNode("S1 = 15\nS2 = 20")), null);
+  assert.deepEqual(
+    nodeConfigIssue(wgNode("H1 = 555\nH2 = 555\nH3 = 777\nH4 = 888")),
+    { code: "wgMagicHeaders" },
+  );
+  assert.equal(nodeConfigIssue(wgNode("H1 = 1\nH2 = 2\nH3 = 3\nH4 = 4")), null);
+});

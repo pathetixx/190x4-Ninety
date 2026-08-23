@@ -8,6 +8,7 @@ import {
   nodeTag,
   parseVless,
   parseVmess,
+  parseWireguardConf,
   validateConfigReferences,
 } from "/lib/singbox.js";
 import { DEFAULT_OPTIONS, REGIONS } from "/lib/options.js";
@@ -836,4 +837,99 @@ test("split Discord не перекрывает пользовательское
   // Bypass-правило Ninety.exe по-прежнему выше обоих: защита от петли важнее.
   const bypassIdx = rules.findIndex((r) => Array.isArray(r.process_name) && r.process_name.includes("Ninety.exe"));
   assert.ok(bypassIdx >= 0 && bypassIdx < userIdx);
+});
+
+// ── WireGuard: endpoints, а не outbounds ───────────────────
+// В sing-box 1.13 wireguard-outbound удалён. Нода уезжает в config.endpoints,
+// но тег остаётся обычным: группы ссылаются на него как на любой outbound,
+// потому что менеджер ядра при промахе ищет тег среди endpoint'ов. Если это
+// разъедется, конфиг соберётся и упадёт уже в ядре ссылкой на несуществующий тег.
+const WG_PRIVATE = "nlhuTLXG3gAV8AJmw8jYngX3QkwdDoSPi2HxhGGSKrs=";
+const WG_PUBLIC = "zjVMotkY/dyEZygQ7crKvCtV1ODNZkVx1xe/1Bvvo8A=";
+const wgConf = (extra = "") => `[Interface]
+Address = 172.16.0.2/32
+MTU = 1280
+PrivateKey = ${WG_PRIVATE}
+${extra}
+[Peer]
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = 162.159.192.1:2408
+PersistentKeepalive = 15
+PublicKey = ${WG_PUBLIC}`;
+
+test("wireguard: одиночный профиль становится endpoint с тегом proxy", () => {
+  const profile = parseWireguardConf(wgConf(), "WG");
+  const { config } = buildConfig({ profile, mode: "tun", options: DEFAULT_OPTIONS });
+  assert.deepEqual(config.outbounds.map(o => o.tag), ["direct"]);
+  assert.equal(config.endpoints.length, 1);
+  const endpoint = config.endpoints[0];
+  assert.equal(endpoint.type, "wireguard");
+  assert.equal(endpoint.tag, "proxy");
+  assert.equal(endpoint.private_key, WG_PRIVATE);
+  assert.equal(endpoint.peers[0].public_key, WG_PUBLIC);
+  assert.equal(endpoint.peers[0].persistent_keepalive_interval, 15);
+  assert.equal(config.route.final, "proxy");
+  validateConfigReferences(config);
+});
+
+test("wireguard: в подписке нода попадает в группы наравне с outbound'ами", () => {
+  const nodes = [
+    parseVless("vless://uuid@a.example.com:443?security=tls"),
+    parseWireguardConf(wgConf(), "WG"),
+  ];
+  const { config } = buildConfig({
+    source: { kind: "sub", subscription: { name: "S" }, nodes },
+    mode: "tun",
+    options: DEFAULT_OPTIONS,
+  });
+  const wgTag = nodeTag(1, nodes[1]);
+  assert.equal(config.endpoints.length, 1);
+  assert.equal(config.endpoints[0].tag, wgTag);
+  assert.equal(config.outbounds.some(o => o.tag === wgTag), false);
+  for (const groupTag of ["proxy", "auto", "lowest"]) {
+    const group = config.outbounds.find(o => o.tag === groupTag);
+    assert.ok(group.outbounds.includes(wgTag), `${groupTag} не видит wireguard-ноду`);
+  }
+  validateConfigReferences(config);
+});
+
+test("wireguard: шейпинг AmneziaWG уходит в ядро, дефолтные H1..H4 — нет", () => {
+  const plain = parseWireguardConf(wgConf("Jc = 4\nJmin = 8\nJmax = 80\nH1 = 1\nH2 = 2\nH3 = 3\nH4 = 4\nI1 = <b 0xc0ffee>"), "WG");
+  const { config: plainConfig } = buildConfig({ profile: plain, mode: "tun", options: DEFAULT_OPTIONS });
+  assert.deepEqual(plainConfig.endpoints[0].noise, {
+    amnezia: { jc: 4, jmin: 8, jmax: 80, i1: "<b 0xc0ffee>" },
+  });
+
+  const shaped = parseWireguardConf(wgConf("S1 = 15\nS2 = 20\nH1 = 1020983529\nH2 = 1449520552\nH3 = 1120404579\nH4 = 1741401686"), "AWG");
+  const { config: shapedConfig } = buildConfig({ profile: shaped, mode: "tun", options: DEFAULT_OPTIONS });
+  assert.deepEqual(shapedConfig.endpoints[0].noise, {
+    amnezia: {
+      s1: 15, s2: 20,
+      h1: 1020983529, h2: 1449520552, h3: 1120404579, h4: 1741401686,
+    },
+  });
+
+  // Обычный WireGuard шума не получает вовсе: пустой блок ядро бы отвергло.
+  const bare = parseWireguardConf(wgConf(), "WG");
+  const { config: bareConfig } = buildConfig({ profile: bare, mode: "tun", options: DEFAULT_OPTIONS });
+  assert.equal("noise" in bareConfig.endpoints[0], false);
+});
+
+test("wireguard: WARP поверх wireguard-ноды не теряет ни один endpoint", () => {
+  const profile = parseWireguardConf(wgConf(), "WG");
+  const { config } = buildConfig({
+    profile,
+    mode: "tun",
+    options: { ...structuredClone(DEFAULT_OPTIONS), warp: { ...DEFAULT_OPTIONS.warp, enabled: true, mode: "chain" } },
+    warpInfo: {
+      private_key: WG_PRIVATE,
+      peer_public_key: WG_PUBLIC,
+      client_id: "AAAA",
+      local_ipv4: "172.16.0.2",
+      local_ipv6: "",
+    },
+  });
+  assert.deepEqual(config.endpoints.map(e => e.tag), ["proxy", "warp"]);
+  assert.equal(config.route.final, "warp");
+  validateConfigReferences(config);
 });

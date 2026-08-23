@@ -1,6 +1,6 @@
 // Ninety · «Поделиться» — копирование URL, экспорт sing-box JSON, QR-код.
 
-import { buildConfig, getMode, profileProto } from "/lib/singbox.js";
+import { buildConfig, getMode, profileProto, wireguardConfText } from "/lib/singbox.js";
 import { loadOptions } from "/lib/options.js";
 import qrcode from "/vendor/qrcode.mjs";
 import { t, tn } from "/lib/i18n/index.js";
@@ -93,6 +93,21 @@ const BRIDGE_ONLY_PROTOS = new Set(["naive", "trusttunnel"]);
 
 function isBridgeOnly(node) {
   return BRIDGE_ONLY_TYPES.has(node?.type) || BRIDGE_ONLY_PROTOS.has(profileProto(node));
+}
+
+// У WireGuard нет share-ссылки — обмениваются файлом. Отдаём тот же .conf,
+// который приняли: с ним профиль открывается и в Amnezia, и в wg-quick.
+export async function copyWireguardConf(profile, toast) {
+  if (profileProto(profile) !== "wireguard") {
+    toast?.(t("share.confNotWireguard"), "error", 2000);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(wireguardConfText(profile));
+    toast?.(t("share.confCopied"), "success", 2000);
+  } catch (e) {
+    toast?.(t("share.exportError", { err: e?.message || e }), "error", 2500);
+  }
 }
 
 export async function exportSingboxJson(source, toast) {

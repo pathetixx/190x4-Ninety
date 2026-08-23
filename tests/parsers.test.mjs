@@ -12,8 +12,10 @@ import {
   parseNaive,
   parseTrustTunnelDeepLink,
   parseTrustTunnelToml,
+  parseWireguardConf,
   parseLink,
   profileProto,
+  wireguardConfText,
 } from "/lib/singbox.js";
 
 const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
@@ -333,4 +335,108 @@ test("парсеры: порт обязан быть 1..65535 и числом", 
       assert.throws(() => parse(bad), undefined, `${name}: ${bad || "empty"} должен падать`);
     }
   }
+});
+
+// ── WireGuard / AmneziaWG .conf ────────────────────────────
+// Файл приходит от пользователя целиком, поэтому здесь проверяется ровно то,
+// из-за чего профиль потом «просто не работает»: потерянный шейпинг, съеденный
+// второй адрес, тихо выброшенная строка.
+const WG_PRIVATE = "nlhuTLXG3gAV8AJmw8jYngX3QkwdDoSPi2HxhGGSKrs=";
+const WG_PUBLIC = "zjVMotkY/dyEZygQ7crKvCtV1ODNZkVx1xe/1Bvvo8A=";
+
+const wgConf = (extra = "", peerExtra = "") => `[Interface]
+Address = 172.16.0.2/32, 2606:4700:110:8edc::1/128
+DNS = 1.1.1.1, 8.8.8.8
+MTU = 1280
+PrivateKey = ${WG_PRIVATE}
+${extra}
+[Peer]
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = 162.159.192.1:2408
+PersistentKeepalive = 15
+PublicKey = ${WG_PUBLIC}
+${peerExtra}`;
+
+test("wg .conf: базовые поля и оба адреса", () => {
+  const p = parseWireguardConf(wgConf(), "Kosmos");
+  assert.equal(p.proto, "wireguard");
+  assert.equal(p.name, "Kosmos");
+  assert.equal(p.host, "162.159.192.1");
+  assert.equal(p.port, 2408);
+  assert.equal(p.mtu, 1280);
+  assert.deepEqual(p.addresses, ["172.16.0.2/32", "2606:4700:110:8edc::1/128"]);
+  assert.equal(p.peers.length, 1);
+  assert.deepEqual(p.peers[0].allowedIps, ["0.0.0.0/0", "::/0"]);
+  assert.equal(p.peers[0].keepalive, 15);
+  // DNS ведёт свой раздел настроек — строка из файла не применяется молча.
+  assert.ok(p.ignored.includes("DNS"));
+});
+
+test("wg .conf: шейпинг AmneziaWG переносится целиком", () => {
+  const p = parseWireguardConf(wgConf(`Jc = 4
+Jmin = 8
+Jmax = 80
+S1 = 15
+S2 = 20
+H1 = 1020983529
+H2 = 1449520552
+H3 = 1120404579
+H4 = 1741401686
+I1 = <b 0xc0ffee>`));
+  assert.deepEqual(
+    [p.awg.jc, p.awg.jmin, p.awg.jmax, p.awg.s1, p.awg.s2],
+    [4, 8, 80, 15, 20],
+  );
+  assert.deepEqual(
+    [p.awg.h1, p.awg.h2, p.awg.h3, p.awg.h4],
+    [1020983529, 1449520552, 1120404579, 1741401686],
+  );
+  assert.equal(p.awg.i1, "<b 0xc0ffee>");
+  assert.equal(p.ignored.includes("Jc"), false);
+});
+
+test("wg .conf: комментарии, регистр ключей и несколько пиров", () => {
+  const p = parseWireguardConf(`# комментарий
+[interface]
+privatekey = ${WG_PRIVATE}
+address = 10.0.0.2/32   ; хвостовой комментарий
+[Peer]
+PublicKey = ${WG_PUBLIC}
+Endpoint = a.example.com:51820
+AllowedIPs = 10.0.0.0/24
+[Peer]
+PublicKey = ${WG_PUBLIC}
+Endpoint = b.example.com:51821
+AllowedIPs = 10.1.0.0/24`);
+  assert.equal(p.peers.length, 2);
+  assert.equal(p.host, "a.example.com");
+  assert.equal(p.port, 51820);
+  assert.equal(p.peers[1].port, 51821);
+  assert.deepEqual(p.peers[1].allowedIps, ["10.1.0.0/24"]);
+});
+
+test("wg .conf: файл без обязательных полей не импортируется", () => {
+  assert.throws(() => parseWireguardConf("[Interface]\nAddress = 10.0.0.2/32"), /conf|WireGuard/i);
+  assert.throws(() => parseWireguardConf(wgConf().replace(WG_PRIVATE, "short")), /PrivateKey/);
+  assert.throws(() => parseWireguardConf(wgConf().replace(/^Address.*$/m, "")), /Address/);
+  assert.throws(() => parseWireguardConf(wgConf().replace(WG_PUBLIC, "short")), /PublicKey/);
+  assert.throws(() => parseWireguardConf(wgConf().replace("Endpoint = 162.159.192.1:2408", "")), /Endpoint/);
+  assert.throws(
+    () => parseWireguardConf(`[Interface]\nPrivateKey = ${WG_PRIVATE}\nAddress = 10.0.0.2/32`),
+    /Peer/,
+  );
+});
+
+test("wg .conf: экспорт возвращает файл, который снова разбирается", () => {
+  const source = parseWireguardConf(wgConf(`Jc = 4
+Jmin = 8
+Jmax = 80
+I1 = <b 0xc0ffee>`), "Round");
+  const again = parseWireguardConf(wireguardConfText(source), "Round");
+  assert.deepEqual(again.addresses, source.addresses);
+  assert.deepEqual(again.awg, source.awg);
+  assert.deepEqual(again.peers, source.peers);
+  assert.equal(again.mtu, source.mtu);
+  // В экспорте нет строк, которых мы не понимаем: он собран из профиля.
+  assert.deepEqual(again.ignored, []);
 });

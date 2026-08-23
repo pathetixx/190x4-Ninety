@@ -131,3 +131,20 @@ test("splithttp — это xhttp: нода не выбрасывается и у
   const modern = parseVless("vless://uuid@a.example:443?security=tls&type=xhttp&path=%2Fx");
   assert.deepEqual(nodeConfigIssue(legacy), nodeConfigIssue(modern));
 });
+
+// .conf вставляют в то же поле, что и ссылки: тип определяется сам. Ошибка
+// распознавания здесь означает «файл не принят» с подписью «не похоже ни на что».
+test("WireGuard .conf распознаётся полем добавления", () => {
+  const conf = `[Interface]
+Address = 172.16.0.2/32
+PrivateKey = nlhuTLXG3gAV8AJmw8jYngX3QkwdDoSPi2HxhGGSKrs=
+
+[Peer]
+PublicKey = zjVMotkY/dyEZygQ7crKvCtV1ODNZkVx1xe/1Bvvo8A=
+Endpoint = 162.159.192.1:2408
+AllowedIPs = 0.0.0.0/0`;
+  assert.equal(detectAddInput(conf).kind, "wg-conf");
+  assert.equal(detectAddInput(`Jc = 4\n${conf}`).kind, "wg-conf");
+  // Без PrivateKey это не профиль, а обрывок: пусть лучше скажет «не распознал».
+  assert.equal(detectAddInput("[Interface]\nAddress = 172.16.0.2/32").kind, "unknown");
+});

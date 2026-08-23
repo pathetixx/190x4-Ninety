@@ -206,11 +206,12 @@ const clamp01 = (v) => Math.max(0, Math.min(1, v));
 // ── движок рекомендаций ─────────────────────────────────────
 // Считает ТОЛЬКО по замерам, которые приложение уже сделало: массив history
 // clash-API и тип транспорта ноды. Никакой внешней телеметрии.
-const TRANSPORT_W = { REALITY: 1, XHTTP: 0.95, TRUSTTUNNEL: 0.9, NAIVE: 0.85, GRPC: 0.8, WS: 0.75 };
+const TRANSPORT_W = { REALITY: 1, XHTTP: 0.95, TRUSTTUNNEL: 0.9, NAIVE: 0.85, WIREGUARD: 0.82, GRPC: 0.8, WS: 0.75 };
 function transportWeight(node) {
   const proto = String(node?.proto || "").toLowerCase();
   if (proto === "trusttunnel") return TRANSPORT_W.TRUSTTUNNEL;
   if (proto === "naive") return TRANSPORT_W.NAIVE;
+  if (proto === "wireguard") return TRANSPORT_W.WIREGUARD;
   const sec = String(node?.security || "").toLowerCase();
   if (sec === "reality") return TRANSPORT_W.REALITY;
   const type = String(node?.type || "").toLowerCase();
@@ -317,6 +318,14 @@ function transportLabel(n) {
     hysteria: "Hysteria", hysteria2: "Hysteria2", tuic: "TUIC",
     socks: "SOCKS", shadowsocks: "Shadowsocks",
   };
+  // Шейпинг AmneziaWG отличает профиль от обычного WireGuard сильнее, чем
+  // транспорт: по этой метке пользователь и узнаёт, что импортировал.
+  if (n?.proto === "wireguard") {
+    const awg = n.awg || {};
+    const shaped = awg.jc > 0 || awg.s1 > 0 || awg.s2 > 0 || awg.i1
+      || [awg.h1, awg.h2, awg.h3, awg.h4].some((value, index) => value && value !== index + 1);
+    return shaped ? "AmneziaWG" : "WireGuard";
+  }
   if (PROTO_LABEL[n?.proto]) return PROTO_LABEL[n.proto];
   const sec = String(n?.security || "").toLowerCase();
   if (sec === "reality") return "REALITY";

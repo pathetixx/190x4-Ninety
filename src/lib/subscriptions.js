@@ -8,6 +8,7 @@ import { loadOptions } from "/lib/options.js";
 import { safeDecodeBase64 } from "/lib/url-helpers.js";
 import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
 import { partitionNodes } from "/lib/node-validation.js";
+import { looksLikeWireguardConf } from "/lib/protocol-parsers.js";
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
 import {
   getActiveSubscriptionIdFromStore,
@@ -123,6 +124,9 @@ export function detectAddInput(raw) {
 
   // TrustTunnel endpoint-.toml (вставлен текстом или загружен файлом)
   if (looksLikeTrustTunnelToml(s)) return { kind: "tt-toml", content: s };
+
+  // WireGuard / AmneziaWG .conf — тоже файл, а не ссылка.
+  if (looksLikeWireguardConf(s)) return { kind: "wg-conf", content: s };
 
   return { kind: "unknown", raw: s };
 }

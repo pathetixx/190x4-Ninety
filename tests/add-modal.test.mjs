@@ -53,3 +53,34 @@ test("импорт списка детерминированно возвращ�
   assert.equal(result.source.id, profiles[0].id);
   assert.equal(localStorage.getItem("ninety.active.kind"), "sub");
 });
+
+test("импорт .conf создаёт профиль и сообщает о непринятых строках", async () => {
+  localStorage.clear();
+  const conf = `[Interface]
+Address = 172.16.0.2/32
+DNS = 1.1.1.1
+Table = off
+MTU = 1280
+Jc = 4
+Jmin = 8
+Jmax = 80
+PrivateKey = nlhuTLXG3gAV8AJmw8jYngX3QkwdDoSPi2HxhGGSKrs=
+
+[Peer]
+PublicKey = zjVMotkY/dyEZygQ7crKvCtV1ODNZkVx1xe/1Bvvo8A=
+Endpoint = 162.159.192.1:2408
+AllowedIPs = 0.0.0.0/0, ::/0
+PersistentKeepalive = 15`;
+  const result = await importAddInput(conf, { name: "Kosmos" });
+  assert.equal(result.type, "config");
+  assert.equal(result.source.kind, "single");
+  assert.deepEqual(result.ignored, ["DNS", "Table"]);
+
+  const { loadProfiles } = await import("/lib/singbox.js");
+  const profile = loadProfiles().find(p => p.id === result.source.id);
+  assert.equal(profile.proto, "wireguard");
+  assert.equal(profile.name, "Kosmos");
+  assert.deepEqual(profile.awg.jc, 4);
+  // DNS и Table в профиль не переносятся — о них предупреждают.
+  assert.deepEqual(profile.ignored, ["DNS", "Table"]);
+});

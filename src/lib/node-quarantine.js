@@ -69,13 +69,21 @@ export function clearNodeQuarantine() {
  * индексу outbound'а. Индекс считает само ядро, поэтому карту индексов даёт
  * сборщик конфига — арифметику по позициям селектора/балансировщика повторять
  * нельзя, она разъедется на первой же смене состава outbound'ов.
- * @returns {{node: object, reason: string, index: number} | null}
+ *
+ * WireGuard-ноды ядро инициализирует отдельным списком и называет их
+ * «initialize endpoint[N]» (box.go), поэтому у них своя карта индексов.
+ * @returns {{node: object, reason: string, index: number, kind: string} | null}
  */
-export function matchCoreOutboundRejection(errorText, outboundNodes) {
-  const match = String(errorText || "").match(/initialize outbound\[(\d+)\]:\s*([^\n\r]*)/);
-  if (!match || !Array.isArray(outboundNodes)) return null;
-  const index = Number(match[1]);
-  const node = outboundNodes[index];
-  if (!node) return null;
-  return { node, reason: match[2].trim(), index };
+export function matchCoreOutboundRejection(errorText, outboundNodes, endpointNodes = null) {
+  const text = String(errorText || "");
+  for (const [kind, nodes] of [["outbound", outboundNodes], ["endpoint", endpointNodes]]) {
+    if (!Array.isArray(nodes)) continue;
+    const match = text.match(new RegExp(`initialize ${kind}\\[(\\d+)\\]:\\s*([^\\n\\r]*)`));
+    if (!match) continue;
+    const index = Number(match[1]);
+    const node = nodes[index];
+    if (!node) continue;
+    return { node, reason: match[2].trim(), index, kind };
+  }
+  return null;
 }

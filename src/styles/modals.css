@@ -225,7 +225,8 @@
 .det__ico { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-faint); }
 .det__ico svg { width: 100%; height: 100%; }
 .det[data-kind="url"] .det__ico, .det[data-kind="config"] .det__ico,
-.det[data-kind="list"] .det__ico, .det[data-kind="tt-toml"] .det__ico { color: var(--accent-bright); }
+.det[data-kind="list"] .det__ico, .det[data-kind="tt-toml"] .det__ico,
+.det[data-kind="wg-conf"] .det__ico { color: var(--accent-bright); }
 .det[data-kind="unknown"] .det__ico { color: var(--err); }
 .det__k {
   font-family: var(--font-mono); font-size: 10px; font-weight: 500;

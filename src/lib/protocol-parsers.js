@@ -583,6 +583,183 @@ export function parseTrustTunnelToml(text, displayName) {
   return ttProfile(f, `tt-toml://${hostname}`); // raw — синтетический маркер для storage
 }
 
+// ── WireGuard / AmneziaWG .conf ────────────────────────────
+// Файл, а не ссылка: пользователь вставляет содержимое .conf текстом или
+// перетаскивает файл. Формат — тот же ini, который читают wg-quick и Amnezia,
+// поэтому разбираем его буквально, включая шейпинг AmneziaWG (Jc/Jmin/Jmax,
+// S1/S2, H1..H4, I1..I5) — иначе платный профиль импортируется в клиент,
+// который говорит с пиром не на том протоколе, и молча не поднимается.
+
+// Ключи, которые мы читаем. Всё остальное попадает в profile.ignored и
+// показывается пользователю: тихо потерянная строка из .conf — это тоннель,
+// который ведёт себя не так, как в Amnezia, без единого слова почему.
+const WG_INTERFACE_KEYS = new Set([
+  "privatekey", "address", "mtu", "listenport",
+  "jc", "jmin", "jmax", "s1", "s2",
+  "h1", "h2", "h3", "h4",
+  "i1", "i2", "i3", "i4", "i5",
+]);
+const WG_PEER_KEYS = new Set([
+  "publickey", "presharedkey", "allowedips", "endpoint", "persistentkeepalive",
+]);
+
+export function looksLikeWireguardConf(text) {
+  const s = String(text || "");
+  return /^\s*\[interface\]/im.test(s) && /^\s*privatekey\s*=/im.test(s);
+}
+
+// Ядро декодирует ключи как обычный base64 и требует ровно 32 байта. Кривой
+// ключ роняет весь конфиг на инициализации, поэтому ловим здесь.
+function wgKeyValid(value) {
+  const s = String(value || "").trim();
+  if (!/^[A-Za-z0-9+/]{42,43}=*$/.test(s)) return false;
+  try {
+    return atob(s.replace(/-/g, "+").replace(/_/g, "/")).length === 32;
+  } catch {
+    return false;
+  }
+}
+
+function wgList(value) {
+  return String(value || "").split(",").map(x => x.trim()).filter(Boolean);
+}
+
+function wgNumber(value) {
+  const n = Number(String(value ?? "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+// [Interface]/[Peer] в ini-стиле: секции, `key = value`, комментарии # и ;.
+// Пиров может быть несколько — храним все, для показа берём первого.
+function parseWireguardIni(text) {
+  const iface = {};
+  const peers = [];
+  const ignored = [];
+  let current = null;
+  for (const rawLine of String(text || "").split(/\r?\n/)) {
+    const line = rawLine.replace(/[#;].*$/, "").trim();
+    if (!line) continue;
+    const section = line.match(/^\[([^\]]+)\]$/);
+    if (section) {
+      const name = section[1].trim().toLowerCase();
+      if (name === "interface") {
+        current = iface;
+      } else if (name === "peer") {
+        current = {};
+        peers.push(current);
+      } else {
+        current = null;
+        ignored.push(`[${section[1].trim()}]`);
+      }
+      continue;
+    }
+    const eq = line.indexOf("=");
+    if (eq < 0 || !current) continue;
+    const key = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).trim();
+    const lower = key.toLowerCase();
+    const known = current === iface ? WG_INTERFACE_KEYS : WG_PEER_KEYS;
+    if (!known.has(lower)) {
+      // DNS из файла тоже сюда: маршрутизацией DNS в Ninety заведует свой
+      // раздел настроек, и подменять его строкой из чужого профиля нельзя.
+      if (!ignored.includes(key)) ignored.push(key);
+      continue;
+    }
+    current[lower] = value;
+  }
+  return { iface, peers, ignored };
+}
+
+export function parseWireguardConf(text, displayName) {
+  const src = String(text || "");
+  if (!looksLikeWireguardConf(src)) throw new Error(t("sb.err.notWgConf"));
+  const { iface, peers, ignored } = parseWireguardIni(src);
+
+  if (!wgKeyValid(iface.privatekey)) throw new Error(t("sb.err.wgPrivateKey"));
+  const addresses = wgList(iface.address);
+  if (!addresses.length) throw new Error(t("sb.err.wgAddress"));
+
+  const parsedPeers = peers.map((peer) => {
+    if (!wgKeyValid(peer.publickey)) throw new Error(t("sb.err.wgPublicKey"));
+    if (peer.presharedkey && !wgKeyValid(peer.presharedkey)) {
+      throw new Error(t("sb.err.wgPresharedKey"));
+    }
+    if (!peer.endpoint) throw new Error(t("sb.err.wgEndpoint"));
+    const { host, port } = splitHostPort(peer.endpoint, "sb.err.wgEndpoint");
+    if (!host || !port) throw new Error(t("sb.err.wgEndpoint"));
+    return {
+      host,
+      port,
+      publicKey: peer.publickey.trim(),
+      presharedKey: (peer.presharedkey || "").trim(),
+      // Клиентский .conf почти всегда весь трафик заворачивает в тоннель;
+      // пустой AllowedIPs ядро отвергает, поэтому подставляем оба дефолта.
+      allowedIps: wgList(peer.allowedips).length ? wgList(peer.allowedips) : ["0.0.0.0/0", "::/0"],
+      keepalive: wgNumber(peer.persistentkeepalive),
+    };
+  });
+  if (!parsedPeers.length) throw new Error(t("sb.err.wgNoPeer"));
+
+  const awg = {
+    jc: wgNumber(iface.jc),
+    jmin: wgNumber(iface.jmin),
+    jmax: wgNumber(iface.jmax),
+    s1: wgNumber(iface.s1),
+    s2: wgNumber(iface.s2),
+    h1: wgNumber(iface.h1),
+    h2: wgNumber(iface.h2),
+    h3: wgNumber(iface.h3),
+    h4: wgNumber(iface.h4),
+    i1: iface.i1 || "",
+    i2: iface.i2 || "",
+    i3: iface.i3 || "",
+    i4: iface.i4 || "",
+    i5: iface.i5 || "",
+  };
+
+  const primary = parsedPeers[0];
+  return {
+    raw: `wg-conf://${primary.host}:${primary.port}`, // синтетический маркер для storage
+    proto: "wireguard",
+    name: displayName || primary.host,
+    host: primary.host,
+    port: primary.port,
+    privateKey: iface.privatekey.trim(),
+    addresses,
+    mtu: wgNumber(iface.mtu) || 0,
+    listenPort: wgNumber(iface.listenport) || 0,
+    peers: parsedPeers,
+    awg,
+    ignored,
+  };
+}
+
+// Обратно в .conf — тем же форматом, каким пришло. Нужен для экспорта профиля
+// в другой клиент: своей share-ссылки у WireGuard нет.
+export function wireguardConfText(profile) {
+  const awg = profile?.awg || {};
+  const lines = ["[Interface]"];
+  lines.push(`PrivateKey = ${profile.privateKey}`);
+  lines.push(`Address = ${(profile.addresses || []).join(", ")}`);
+  if (profile.mtu) lines.push(`MTU = ${profile.mtu}`);
+  if (profile.listenPort) lines.push(`ListenPort = ${profile.listenPort}`);
+  for (const key of ["jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"]) {
+    if (awg[key]) lines.push(`${key.toUpperCase()} = ${awg[key]}`);
+  }
+  for (const key of ["i1", "i2", "i3", "i4", "i5"]) {
+    if (awg[key]) lines.push(`${key.toUpperCase()} = ${awg[key]}`);
+  }
+  for (const peer of profile.peers || []) {
+    lines.push("", "[Peer]");
+    lines.push(`PublicKey = ${peer.publicKey}`);
+    if (peer.presharedKey) lines.push(`PresharedKey = ${peer.presharedKey}`);
+    lines.push(`AllowedIPs = ${(peer.allowedIps || []).join(", ")}`);
+    lines.push(`Endpoint = ${peer.host}:${peer.port}`);
+    if (peer.keepalive) lines.push(`PersistentKeepalive = ${peer.keepalive}`);
+  }
+  return lines.join("\n") + "\n";
+}
+
 // ── главный dispatcher ─────────────────────────────────────
 // Возвращает профиль с .proto полем. Назад-совместимо со старыми vless-only
 // профилями (у тех .proto не было; считаем "vless").

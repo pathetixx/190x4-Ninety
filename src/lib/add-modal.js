@@ -3,7 +3,7 @@
 // сам и показывается ДО нажатия «Добавить».
 
 import { detectAddInput, addSubscriptionFromUrl, parseSubscriptionEntries } from "/lib/subscriptions.js";
-import { addProfileFromVless, addTrustTunnelFromToml } from "/lib/singbox.js";
+import { addProfileFromVless, addTrustTunnelFromToml, addWireguardFromConf } from "/lib/singbox.js";
 import { t, tn } from "/lib/i18n/index.js";
 import { escapeHtml } from "/lib/esc.js";
 import { toast } from "/lib/toast.js";
@@ -28,6 +28,7 @@ const DET_ICONS = {
   list:      SVG('<path d="M3 5h.01M3 12h.01M3 19h.01M8 5h13M8 12h13M8 19h13"/>'),
   "tt-toml": SVG('<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>'),
   unknown:   SVG('<path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),
+  "wg-conf": SVG('<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M9 12h6"/>'),
 };
 DET_ICONS.url = DET_ICONS.empty;
 
@@ -82,6 +83,14 @@ function describeInput(raw) {
   if (d.kind === "tt-toml") {
     setDetection("tt-toml", "add.detTomlK", escapeHtml(t("add.detTomlD")));
     return { ok: true, kind: "tt-toml", host: "" };
+  }
+  if (d.kind === "wg-conf") {
+    // Показываем endpoint пира: по нему пользователь и узнаёт свой файл.
+    const peer = s.match(/^\s*Endpoint\s*=\s*(\S+)/im)?.[1] || "";
+    const amnezia = /^\s*(?:Jc|H1|I1|S1)\s*=/im.test(s);
+    setDetection("wg-conf", amnezia ? "add.detWgAwgK" : "add.detWgK",
+      `${peer ? `<b>${escapeHtml(peer)}</b><s>·</s>` : ""}${escapeHtml(t("add.detWgD"))}`);
+    return { ok: true, kind: "wg-conf", host: peer.split(":")[0] || "" };
   }
   setDetection("unknown", "add.detUnknownK", escapeHtml(t("add.detUnknownD")));
   return { ok: false, kind: "unknown", host: "" };
@@ -183,6 +192,19 @@ export async function importAddInput(raw, userOverride = {}) {
     };
   }
 
+  if (decision.kind === "wg-conf") {
+    const { id, profile, ignored } = addWireguardFromConf(decision.content, userOverride.name || "");
+    return {
+      type: "config",
+      message: t("add.msgWg", { name: profile.name }),
+      source: { kind: "single", id },
+      // Строки, которых нет в профиле, — это разница между тем, как файл
+      // работает здесь и в клиенте, откуда его принесли. Молчать о ней нельзя;
+      // показывает её вызывающий, как и счётчик пропущенных у списка.
+      ignored,
+    };
+  }
+
   if (decision.kind === "list") {
     // Счётчик пропущенных берём тем же путём, что и подписка: список ссылок
     // отбраковывает записи по тем же правилам, и молчать о них — значит
@@ -279,6 +301,9 @@ export function mountAddModal({ onCommit } = {}) {
     setBusy(true, kind === "url" ? "add.detLoadingSub" : "add.detAdding");
     try {
       const res = await importAddInput(raw, { name, intervalHours });
+      if (res.ignored?.length) {
+        toast(t("add.wgIgnored", { keys: res.ignored.join(", ") }), "warn", 8000);
+      }
       await onCommitCb?.(res);
       closeModal();
     } catch (e) {

@@ -7,7 +7,7 @@ export const BUILD_INFO = {
   version: "0.3.0",           // дублирует tauri.conf; рантайм getVersion первичен
   commit: "local",            // git rev-parse --short HEAD (перезапишет CI)
   date: "—",                  // DD.MM.YYYY, дата сборки UTC (перезапишет CI)
-  core: "sing-box 1.13.18",   // ядро ninety-core (тег v1.13.18-ninety.1)
+  core: "sing-box 1.13.18",   // ядро ninety-core (тег v1.13.18-ninety.2)
   channel: "Early access",    // ярлык зрелости (механизма каналов нет — одна линия OTA)
   platform: "Windows · x64",
 };

@@ -42,7 +42,7 @@ import { openUpdateModal, resumeRuntimeReady, shouldSkip as updateShouldSkip } f
 import { planUpdateNotice, UPDATE_NOTICE } from "/lib/update-notice.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
-import { copySubscriptionUrl, exportSingboxJson, openQRModal } from "/lib/share.js";
+import { copySubscriptionUrl, copyWireguardConf, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, nodesFromSource, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView, resetProxiesViewForSourceChange, snapshotMatchesSource } from "/lib/proxies-view.js";
 import {
   applyActiveSourceTransaction,
@@ -2334,8 +2334,13 @@ profilesView?.addEventListener("click", async (e) => {
   if (profileMenuBtn) {
     e.stopPropagation();
     const id = profileMenuBtn.dataset.menuProfile;
+    const menuProfile = loadProfiles().find(x => x.id === id);
     const menu = openPMenu(profileMenuBtn, [
       { id: "edit",     label: t("prof.menu.edit"),    icon: ICON_EDIT },
+      // WireGuard делится файлом, а не ссылкой: пункт есть только у таких профилей.
+      ...(menuProfile?.proto === "wireguard"
+        ? [{ id: "wg-conf", label: t("prof.menu.copyConf"), icon: ICON_COPY }]
+        : []),
       { id: "activate", label: t("prof.menu.activateProfile"), icon: ICON_CHECK },
       { id: "reset-traffic", label: t("prof.menu.resetTraffic"), icon: ICON_REFRESH },
       { id: "remove",   label: t("prof.menu.remove"),          icon: ICON_TRASH, danger: true },
@@ -2351,6 +2356,10 @@ profilesView?.addEventListener("click", async (e) => {
           onSaved: () => mutateSource("single", id, async () => p, t("conn.applyingSettings"), before),
           onToast: toast,
         });
+        return;
+      }
+      if (act === "wg-conf") {
+        await copyWireguardConf(loadProfiles().find(x => x.id === id), toast);
         return;
       }
       if (act === "activate") {
@@ -3174,6 +3183,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
     // Карта «outbound → нода» нужна уже в catch: по ней разбирается отказ ядра
     // «initialize outbound[N]».
     let outboundNodes = null;
+    let endpointNodes = null;
     setState("connecting");
     try {
       if (strictPrivacy) {
@@ -3228,6 +3238,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         xray,
         sidecars,
         outboundNodes: builtOutboundNodes,
+        endpointNodes: builtEndpointNodes,
         runtime: runtimeInfo,
       } = buildConfig({
         source: src,
@@ -3239,6 +3250,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         bridgePorts,
       });
       outboundNodes = builtOutboundNodes;
+      endpointNodes = builtEndpointNodes;
       const configJson = JSON.stringify(config);
       // Сервер активной ноды — в exclude winws ДО запуска ядра. Раньше
       // исключение ставилось только по факту connected, то есть уже после
@@ -3486,6 +3498,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       const rejected = matchCoreOutboundRejection(
         `${e?.message || ""}\n${e || ""}`,
         outboundNodes,
+        endpointNodes,
       );
       if (rejected) {
         quarantineNode(rejected.node, rejected.reason);

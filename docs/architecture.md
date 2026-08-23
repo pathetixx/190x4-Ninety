@@ -46,6 +46,8 @@ JavaScript modules assemble runtime configs for the active source, mode and opti
 
 The builder decides which inbounds, outbounds, DNS settings, routing rules and sidecar bridges are needed. The runtime config is generated for the current connection and should not be treated as a stable user-authored file.
 
+WireGuard and AmneziaWG profiles are emitted as sing-box endpoints rather than outbounds, keeping the same node tag: proxy groups reference an endpoint tag exactly as they reference an outbound. AmneziaWG shaping from the imported `.conf` (Jc/Jmin/Jmax, S1/S2, H1..H4, I1..I5) is carried in the endpoint's `noise.amnezia` block.
+
 ## Sidecars
 
 sing-box remains the central router. Some protocols or transports need helper sidecars:

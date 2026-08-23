@@ -24,6 +24,7 @@ import {
   normalizeRealityPublicKey,
   usableNodes,
 } from "/lib/node-validation.js";
+import { parseWireguardConf } from "/lib/protocol-parsers.js";
 import {
   getActiveKindFromStore,
   getActiveProfileIdFromStore,
@@ -46,7 +47,9 @@ export {
   parseTuic,
   parseVless,
   parseVmess,
+  parseWireguardConf,
   profileProto,
+  wireguardConfText,
 } from "/lib/protocol-parsers.js";
 
 const MODE_KEY = "ninety.mode";
@@ -491,6 +494,15 @@ function assertStrictBootstrapSafe(node) {
       "XHTTP-клиенту нужен прямой DNS для адресов сервера и download-канала. В строгом режиме выберите XHTTP-ноду, у которой оба адреса заданы IP.",
     );
   }
+  if (proto === "wireguard") {
+    const peers = Array.isArray(node.peers) && node.peers.length ? node.peers : [node];
+    if (peers.some((peer) => !isIpLiteral(peer.host))) {
+      throw new StrictPrivacyPolicyError(
+        "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
+        "Адрес пира WireGuard резолвится до того, как тоннель поднят. В строгом режиме выберите профиль, у которого Endpoint задан IP-адресом.",
+      );
+    }
+  }
   if (proto === "naive" && !isIpLiteral(node.host)) {
     throw new StrictPrivacyPolicyError(
       "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
@@ -927,6 +939,72 @@ function buildWarpEndpoint(warpOpts, warpInfo) {
   return endpoint;
 }
 
+// WireGuard-нода пользователя (импорт .conf). В sing-box 1.13 wireguard-outbound
+// удалён, остался endpoint — поэтому нода живёт не в outbounds, а в endpoints.
+// Тег при этом обычный, node-*: группы (селектор, urltest, balancer) ссылаются
+// на него так же, как на любой outbound, потому что менеджер ядра при промахе
+// по outbound-тегам ищет тег среди endpoint'ов (adapter/outbound/manager.go).
+function buildWireguardEndpoint(p, tag, strictPrivacy = false) {
+  const peers = (p.peers?.length ? p.peers : [{
+    host: p.host, port: p.port, publicKey: p.publicKey,
+    allowedIps: ["0.0.0.0/0", "::/0"], keepalive: 0,
+  }]);
+  const endpoint = {
+    type: "wireguard",
+    tag,
+    address: (p.addresses || []).slice(),
+    private_key: p.privateKey,
+    peers: peers.map((peer) => {
+      const out = {
+        address: peer.host,
+        port: peer.port,
+        public_key: peer.publicKey,
+        allowed_ips: peer.allowedIps?.length ? peer.allowedIps : ["0.0.0.0/0", "::/0"],
+      };
+      if (peer.presharedKey) out.pre_shared_key = peer.presharedKey;
+      if (peer.keepalive) out.persistent_keepalive_interval = peer.keepalive;
+      return out;
+    }),
+  };
+  if (p.mtu) endpoint.mtu = p.mtu;
+  if (p.listenPort) endpoint.listen_port = p.listenPort;
+  const amnezia = buildAmneziaNoise(p.awg);
+  if (amnezia) endpoint.noise = { amnezia };
+  // Адрес пира резолвится до того, как тоннель поднят — в строгом режиме это
+  // тот же случай, что и адрес обычного сервера.
+  if (strictPrivacy && peers.some((peer) => !isIpLiteral(peer.host))) {
+    endpoint.domain_resolver = "dns-direct";
+  }
+  return endpoint;
+}
+
+// Шейпинг AmneziaWG едет в ядро именами из .conf (см. noise/amnezia.go в
+// ninety-wireguard-go). Пустой блок не пишем вовсе: обычному WireGuard он не
+// нужен, а ядро отвергает частично заполненный набор H1..H4.
+function buildAmneziaNoise(awg) {
+  if (!awg) return null;
+  const noise = {};
+  if (awg.jc > 0 && awg.jmax > 0) {
+    noise.jc = awg.jc;
+    noise.jmin = awg.jmin || 0;
+    noise.jmax = awg.jmax;
+  }
+  if (awg.s1 > 0) noise.s1 = awg.s1;
+  if (awg.s2 > 0) noise.s2 = awg.s2;
+  // H1..H4 = 1,2,3,4 — это и есть типы сообщений WireGuard: файл повторяет
+  // дефолт, менять протокол не просят.
+  const headers = [awg.h1, awg.h2, awg.h3, awg.h4];
+  if (headers.some((value, index) => value && value !== index + 1)) {
+    headers.forEach((value, index) => {
+      noise[`h${index + 1}`] = value || index + 1;
+    });
+  }
+  for (const key of ["i1", "i2", "i3", "i4", "i5"]) {
+    if (awg[key]) noise[key] = awg[key];
+  }
+  return Object.keys(noise).length ? noise : null;
+}
+
 const WARP_NOISE_PRESETS = {
   off: null,
   default: {
@@ -1240,9 +1318,20 @@ export function buildConfig({
   const protectedOutbound = warpEndpoint ? "warp" : "proxy";
   const route = buildRoute(opts, effectiveMode, protectedOutbound, runtime.strictPrivacy);
   const useUrltest = nodes.length >= 2;
+  // WireGuard-ноды собираются в endpoints, остальные — в outbounds. Массив
+  // общий и по индексам совпадает с nodes: теги, группы и карта «объект → нода»
+  // обязаны видеть один и тот же порядок, иначе диагностика начнёт называть
+  // чужую ноду. Что из этого endpoint, помнит nodeEndpoints.
+  const nodeEndpoints = new Set();
   const vlessOutbounds = nodes.map((n, i) => {
+    const tag = useUrltest ? nodeTag(i, n) : "proxy";
+    if (profileProto(n) === "wireguard") {
+      const endpoint = buildWireguardEndpoint(n, tag, runtime.strictPrivacy);
+      nodeEndpoints.add(endpoint);
+      return endpoint;
+    }
     const ob = buildOutbound(n, opts);
-    ob.tag = useUrltest ? nodeTag(i, n) : "proxy";
+    ob.tag = tag;
     // Адрес самого VPN-сервера неизбежно резолвится до готовности туннеля.
     // В strict используем отдельный IP-hosted DoH без detour; DNS пользовательских
     // назначений по-прежнему идёт через dns-remote внутри proxy.
@@ -1352,7 +1441,13 @@ export function buildConfig({
       selector,
       auto,
       urlTest,
-      ...vlessOutbounds,
+      ...vlessOutbounds.filter((node) => !nodeEndpoints.has(node)),
+      { type: "direct", tag: "direct" },
+    ];
+  } else if (nodeEndpoints.has(vlessOutbounds[0])) {
+    // Единственная нода — WireGuard: в outbounds её нет вовсе, тег "proxy"
+    // принадлежит endpoint'у, на который ссылаются route.final и DNS.
+    outbounds = [
       { type: "direct", tag: "direct" },
     ];
   } else {
@@ -1387,9 +1482,9 @@ export function buildConfig({
       cache_file: { enabled: true, store_rdrc: true },
     },
   };
-  if (warpEndpoint) {
-    config.endpoints = [warpEndpoint];
-  }
+  const endpoints = vlessOutbounds.filter((node) => nodeEndpoints.has(node));
+  if (warpEndpoint) endpoints.push(warpEndpoint);
+  if (endpoints.length) config.endpoints = endpoints;
 
   // clash_api — не опция, а панель управления рантаймом: через него идут выбор
   // ноды, пинги, трафик и вся диагностика, а Rust вообще отказывается стартовать
@@ -1416,10 +1511,14 @@ export function buildConfig({
   // селектора нельзя — состав outbound'ов меняется от режима к режиму.
   const nodeByOutbound = new Map(vlessOutbounds.map((outbound, i) => [outbound, nodes[i]]));
   const outboundNodes = outbounds.map(outbound => nodeByOutbound.get(outbound) || null);
+  // Ядро нумерует endpoints отдельным списком («initialize endpoint[N]»), так
+  // что по outboundNodes виновника WireGuard-ноды не найти.
+  const endpointNodes = endpoints.map(endpoint => nodeByOutbound.get(endpoint) || null);
   return {
     config,
     xray: xrayConfig,
     outboundNodes,
+    endpointNodes,
     sidecars,
     runtime: {
       mode: effectiveMode,
@@ -1544,6 +1643,15 @@ export function addProfileFromLink(raw) {
 // Импорт TrustTunnel из endpoint-.toml (вставлен текстом или загружен файлом).
 export function addTrustTunnelFromToml(tomlText, displayName) {
   return storeProfile(parseTrustTunnelToml(tomlText, displayName));
+}
+
+// Импорт WireGuard / AmneziaWG из .conf. Возвращает ещё и ignored — строки
+// файла, которые в профиль не перенеслись: о них говорят пользователю, иначе
+// тоннель молча ведёт себя не так, как в клиенте, откуда конфиг принесли.
+export function addWireguardFromConf(confText, displayName) {
+  const parsed = parseWireguardConf(confText, displayName);
+  const stored = storeProfile(parsed);
+  return { ...stored, ignored: parsed.ignored || [] };
 }
 
 // ── unified active source (profile | subscription) ─────────
