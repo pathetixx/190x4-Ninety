@@ -115,6 +115,7 @@ jobs:
             # То же обновление, что и в build.yml: аудит обязан смотреть на то
             # дерево зависимостей, из которого собирается релизный бинарь.
             GOTOOLCHAIN=local go get golang.org/x/mod@v0.40.0
+            GOTOOLCHAIN=local go get github.com/insomniacslk/dhcp@v0.0.0-20260719225207-c76316d4aa82
             GOTOOLCHAIN=local go mod tidy
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o "$tmpdir/sing-box" ./cmd/sing-box
             govulncheck -mode=binary -format=json "$tmpdir/sing-box" > "$tmpdir/sing-box-vulns.json"

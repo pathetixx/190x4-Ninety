@@ -85,6 +85,10 @@ jobs:
           # с фиксом. Тот же go get стоит в security.yml: собирать и проверять
           # надо одно и то же дерево зависимостей.
           go get golang.org/x/mod@v0.40.0
+          # GO-2026-6237: nclient4.BroadcastRawUDPConn.ReadFrom паникует на IPv4-кадре,
+          # в котором заявлено меньше восьми байт полезной нагрузки. Символ попадает в
+          # бинарь через with_dhcp, поэтому берём первую версию с фиксом.
+          go get github.com/insomniacslk/dhcp@v0.0.0-20260719225207-c76316d4aa82
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -tags "$BUILD_TAGS" \
