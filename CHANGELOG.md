@@ -9,6 +9,7 @@
 - WireGuard and AmneziaWG profiles can be added. Paste the contents of a `.conf` file into the same field you use for links: it becomes an ordinary profile, appears in the server list, takes part in Auto and shows its ping. For AmneziaWG the traffic masking written in the file is kept, so a paid profile behaves the way it does in the client you brought it from.
 - If the file contains lines the app does not carry over — a DNS line, for example — it says so right after the import instead of leaving you to find out later that the profile behaves differently here.
 - A WireGuard profile can be copied back out as a `.conf` from its menu, to move it to another device or another app.
+- Standalone configs can be deleted all at once: the group header now has a Delete all button, which asks for confirmation and leaves subscriptions untouched.
 - WARP masking traffic did not leave the computer in the shape it was meant to: the first bytes of every masking packet were cut off, and the packet size setting was off by nine bytes. Both fixed.
 
 ## Русский
@@ -16,6 +17,7 @@
 - Профили WireGuard и AmneziaWG теперь можно добавлять. Вставьте содержимое файла `.conf` в то же поле, куда вставляете ссылки: получится обычный профиль — он виден в списке серверов, участвует в «Авто» и показывает пинг. Для AmneziaWG сохраняется маскировка трафика, записанная в файле, поэтому платный профиль ведёт себя так же, как в клиенте, откуда вы его принесли.
 - Если в файле есть строки, которые приложение не переносит — например, строка DNS, — оно скажет об этом сразу после импорта, а не оставит вас выяснять позже, почему профиль ведёт себя иначе.
 - Профиль WireGuard можно скопировать обратно в виде `.conf` из его меню — чтобы перенести на другое устройство или в другое приложение.
+- Отдельные конфиги можно удалить все сразу: в заголовке группы появилась кнопка «Удалить все» — она переспрашивает и не трогает подписки.
 - Маскировочный трафик WARP уходил с компьютера не в том виде, в каком задумано: у каждого маскировочного пакета обрезались первые байты, а настройка размера пакета промахивалась на девять байт. Исправлено.
 
 ## v0.3.8 — 2026-08-14
