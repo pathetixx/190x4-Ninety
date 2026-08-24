@@ -1,0 +1,74 @@
+name: Pinned dependency watch
+
+# Everything Ninety ships but does not build from our own sources arrives by an
+# exact pin: the core by tag and commit, the binaries by URL and sha256. A pin
+# protects the download, but says nothing about a new release existing - that
+# was noticed by accident, if at all. Once a week this job compares every pin
+# with its source and opens a PR that moves the pin, sha256 recomputed from the
+# file it actually downloaded.
+#
+# NO automerge: the installer ships these bytes, so a human reads the diff.
+# winws/WinDivert are not here - engine-watch.yml compares their bytes directly.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1" # weekly, Mon 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    env:
+      # gh resolves the repository from git remotes; pinning it keeps every call
+      # on this repository no matter what remotes a step adds later.
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Compare the pins with their sources
+        id: pins
+        run: node scripts/check-pins.mjs --write
+
+      - name: Open the pull request
+        if: steps.pins.outputs.outdated == 'true'
+        env:
+          SUMMARY: ${{ steps.pins.outputs.summary }}
+        run: |
+          set -euo pipefail
+          branch="pins-bump-$(date -u +%Y%m%d-%H%M)"
+          git config user.name "ninety-bot"
+          git config user.email "noreply@190x4.pw"
+          git checkout -b "$branch"
+          git add .github/workflows/build.yml
+          git commit -m "chore(pins): move pinned dependencies to their latest releases"
+          git push -u origin "$branch"
+          {
+            printf '%s\n' "$SUMMARY" ""
+            printf '%s\n' \
+              "Each sha256 was recomputed from the archive this run downloaded, so the pin" \
+              "still describes the bytes that will ship." \
+              "" \
+              "Merging this changes what the installer bundles: review, then release." \
+              "The core pin only follows the fork's own tag - the upstream merge itself is" \
+              "watched in [ninety-core](https://github.com/pathetixx/ninety-core/actions)."
+          } > /tmp/body.md
+          gh pr create \
+            --base main --head "$branch" \
+            --title "Pinned dependency update" \
+            --body-file /tmp/body.md
+
+      # A source that cannot be reached is not "everything is fine": the script
+      # exits non-zero, and the run must say so rather than going quietly green.
+      - name: Report a blind watch
+        if: failure()
+        run: echo "::error::A pinned dependency could not be checked - see the step log."
