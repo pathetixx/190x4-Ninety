@@ -30,11 +30,7 @@ jobs:
     timeout-minutes: 30
     env:
       CORE_REPO: https://github.com/pathetixx/ninety-core.git
-      CORE_TAG: v1.13.19-ninety.4
-      CORE_SHA: 505a658b77ba7208da17a9f848c3641a897bfeee
       XRAY_REPO: https://github.com/XTLS/Xray-core.git
-      XRAY_TAG: v26.7.28
-      XRAY_SHA: 5ca6f4b7d4dc20a881d4330e498892697627ec0c
       BUILD_TAGS: with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,badlinkname,tfogo_checklinkname0,with_grpc
       GOOS: windows
       GOARCH: amd64
@@ -44,6 +40,26 @@ jobs:
       # incomplete downloads. go.sum still verifies every fetched module.
       GOPROXY: https://proxy.golang.org|direct
     steps:
+      # The versions themselves live in .github/pins.json, not in this file:
+      # GITHUB_TOKEN is not allowed to push changes under .github/workflows, so
+      # a pin kept here could never be bumped by the weekly pins-watch PR.
+      - name: Check out the pins
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/pins.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Load the pins
+        run: |
+          set -euo pipefail
+          jq -r '
+            "CORE_TAG=" + ."ninety-core".tag,
+            "CORE_SHA=" + ."ninety-core".sha,
+            "XRAY_TAG=" + ."xray-core".tag,
+            "XRAY_SHA=" + ."xray-core".sha
+          ' .github/pins.json >> "$GITHUB_ENV"
+
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -246,8 +262,9 @@ jobs:
           # itself, as a child of elevated Ninety — Throne-style). The DLL sits
           # next to Ninety.exe = next to sing-box.exe in the install dir;
           # sing-box loads it by name.
-          $url = "https://www.wintun.net/builds/wintun-0.14.1.zip"
-          $expectedSha = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
+          $pins = Get-Content .github/pins.json -Raw | ConvertFrom-Json
+          $url = $pins.wintun.url
+          $expectedSha = $pins.wintun.sha256
           Write-Host "Downloading $url"
           Invoke-WebRequest -Uri $url -OutFile wintun.zip -UseBasicParsing
           # wintun.dll is loaded under LocalSystem — verify download integrity
@@ -283,13 +300,14 @@ jobs:
             $size = (Get-Item $out).Length
             Write-Host "$exeName bundled ($([math]::Round($size/1MB,1)) MB)."
           }
+          $pins = Get-Content .github/pins.json -Raw | ConvertFrom-Json
           Get-Sidecar `
-            "https://github.com/klzgrad/naiveproxy/releases/download/v148.0.7778.96-5/naiveproxy-v148.0.7778.96-5-win-x64.zip" `
-            "54c7918557a7bd694f86ec7942b85d88b3623b21514ac3160c1e9e0e63175e8e" `
+            $pins.naive.url `
+            $pins.naive.sha256 `
             naive.zip "naive.exe" "src-tauri/binaries/naive-x86_64-pc-windows-msvc.exe"
           Get-Sidecar `
-            "https://github.com/TrustTunnel/TrustTunnelClient/releases/download/v1.0.49/trusttunnel_client-v1.0.49-windows-x86_64.zip" `
-            "0e11150e77c083c828593e6fab7f76a159dd55b9ad9101dd70c4568da3cdf11b" `
+            $pins.trusttunnel_client.url `
+            $pins.trusttunnel_client.sha256 `
             tt.zip "trusttunnel_client.exe" "src-tauri/binaries/trusttunnel_client-x86_64-pc-windows-msvc.exe"
 
       - name: Generate build-info (About page build id)

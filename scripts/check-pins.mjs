@@ -2,7 +2,8 @@
 // Ninety · сторож внешних пинов сборки.
 //
 // Всё, что не собирается из наших исходников, приезжает в инсталлятор по
-// точному пину: ядро — тегом и коммитом, бинари — URL и sha256. Пин защищает
+// точному пину в .github/pins.json: ядро — тегом и коммитом, бинари — URL и
+// sha256. Пин защищает
 // от подмены, но ничего не говорит о том, что вышла новая версия: об этом
 // узнавали случайно. Скрипт сверяет каждый пин с источником и в режиме --write
 // подставляет новые значения, включая пересчитанный sha256 реально скачанного
@@ -11,7 +12,7 @@
 //
 // Использование:
 //   node scripts/check-pins.mjs            # отчёт, ничего не меняет
-//   node scripts/check-pins.mjs --write    # обновить пины в build.yml
+//   node scripts/check-pins.mjs --write    # обновить пины в .github/pins.json
 //
 // winws/WinDivert сюда не входят: их ведёт engine-watch.yml, который сверяет
 // сами байты бинарей, а не версию.
@@ -22,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const buildYmlPath = join(root, ".github/workflows/build.yml");
+const pinsPath = join(root, ".github/pins.json");
 
 const write = process.argv.includes("--write");
 // Модуль импортируется тестом, который проверяет, что описания пинов всё ещё
@@ -82,57 +83,57 @@ const pins = [
     name: "ninety-core",
     // Форк сторожит апстрим сам (upstream-watch.yml в ninety-core); здесь
     // проверяется обратное — не отстал ли Ninety от тега форка.
-    read: (yml) => yml.match(/^      CORE_TAG: (\S+)$/m)?.[1],
+    read: (data) => data["ninety-core"].tag,
     async latest() {
       const tags = await gh("repos/pathetixx/ninety-core/tags?per_page=1");
       if (!tags.length) throw new Error("ninety-core: no tags");
       return { version: tags[0].name, sha: tags[0].commit.sha };
     },
-    apply: (yml, latest) => yml
-      .replace(/^      CORE_TAG: \S+$/m, `      CORE_TAG: ${latest.version}`)
-      .replace(/^      CORE_SHA: \S+$/m, `      CORE_SHA: ${latest.sha}`),
+    apply: (data, latest) => {
+      data["ninety-core"] = { tag: latest.version, sha: latest.sha };
+    },
   },
   {
-    name: "Xray-core",
-    read: (yml) => yml.match(/^      XRAY_TAG: (\S+)$/m)?.[1],
+    name: "xray-core",
+    read: (data) => data["xray-core"].tag,
     async latest() {
       // У XTLS pre-release — обычный режим выпуска, стабильным висит старьё.
       const release = await newestRelease("XTLS/Xray-core", { allowPrerelease: true });
       const commit = await gh(`repos/XTLS/Xray-core/commits/${release.tag_name}`);
       return { version: release.tag_name, sha: commit.sha };
     },
-    apply: (yml, latest) => yml
-      .replace(/^      XRAY_TAG: \S+$/m, `      XRAY_TAG: ${latest.version}`)
-      .replace(/^      XRAY_SHA: \S+$/m, `      XRAY_SHA: ${latest.sha}`),
+    apply: (data, latest) => {
+      data["xray-core"] = { tag: latest.version, sha: latest.sha };
+    },
   },
   {
     name: "naive",
-    read: (yml) => yml.match(/naiveproxy\/releases\/download\/([^/]+)\//)?.[1],
+    read: (data) => data.naive.version,
     async latest() {
       const release = await newestRelease("klzgrad/naiveproxy");
       const url = assetUrl(release, /-win-x64\.zip$/);
       return { version: release.tag_name, url, ...(await sha256(url)) };
     },
-    apply: (yml, latest, current) => yml
-      .replace(currentUrlRe(yml, /https:\/\/github\.com\/klzgrad\/naiveproxy\/releases\/download\/\S+?\.zip/), latest.url)
-      .replace(shaLineRe(yml, current.sha), latest.digest),
+    apply: (data, latest) => {
+      data.naive = { version: latest.version, url: latest.url, sha256: latest.digest };
+    },
   },
   {
     name: "trusttunnel_client",
-    read: (yml) => yml.match(/TrustTunnelClient\/releases\/download\/([^/]+)\//)?.[1],
+    read: (data) => data.trusttunnel_client.version,
     async latest() {
       const release = await newestRelease("TrustTunnel/TrustTunnelClient");
       const url = assetUrl(release, /-windows-x86_64\.zip$/);
       return { version: release.tag_name, url, ...(await sha256(url)) };
     },
-    apply: (yml, latest, current) => yml
-      .replace(currentUrlRe(yml, /https:\/\/github\.com\/TrustTunnel\/TrustTunnelClient\/releases\/download\/\S+?\.zip/), latest.url)
-      .replace(shaLineRe(yml, current.sha), latest.digest),
+    apply: (data, latest) => {
+      data.trusttunnel_client = { version: latest.version, url: latest.url, sha256: latest.digest };
+    },
   },
   {
     name: "wintun",
     // wintun.net — не GitHub и без API: версия живёт в имени файла на странице.
-    read: (yml) => yml.match(/wintun-([0-9.]+)\.zip/)?.[1],
+    read: (data) => data.wintun.version,
     async latest() {
       const response = await fetch("https://www.wintun.net/");
       if (!response.ok) throw new Error(`wintun.net: HTTP ${response.status}`);
@@ -143,9 +144,9 @@ const pins = [
       const url = `https://www.wintun.net/builds/wintun-${version}.zip`;
       return { version, url, ...(await sha256(url)) };
     },
-    apply: (yml, latest, current) => yml
-      .replace(/https:\/\/www\.wintun\.net\/builds\/wintun-[0-9.]+\.zip/, latest.url)
-      .replace(shaLineRe(yml, current.sha), latest.digest),
+    apply: (data, latest) => {
+      data.wintun = { version: latest.version, url: latest.url, sha256: latest.digest };
+    },
   },
 ];
 
@@ -159,43 +160,11 @@ function compareVersions(a, b) {
   return 0;
 }
 
-// sha256 бинаря живёт отдельной строкой рядом с URL; меняем именно его, а не
-// первый попавшийся 64-символьный хеш в файле.
-function shaLineRe(yml, current) {
-  if (!current) throw new Error("current sha256 not found in build.yml");
-  return new RegExp(current, "g");
-}
-
-function currentUrlRe(yml, pattern) {
-  const match = yml.match(pattern);
-  if (!match) throw new Error(`current url not found for ${pattern}`);
-  return match[0];
-}
 
 // sha256, который сейчас стоит рядом с этим URL: строка вида
-// "<sha>" ` идёт следующей за строкой с URL.
-function currentSha(yml, urlPattern) {
-  const lines = yml.split("\n");
-  const index = lines.findIndex((line) => urlPattern.test(line));
-  if (index < 0) return null;
-  for (let i = index; i < Math.min(index + 4, lines.length); i++) {
-    const sha = lines[i].match(/\b([0-9a-f]{64})\b/);
-    if (sha && i !== index) return sha[1];
-    if (i === index) {
-      const inline = lines[i].match(/\b([0-9a-f]{64})\b/);
-      if (inline) return inline[1];
-    }
-  }
-  return null;
-}
 
-const shaSources = {
-  naive: /klzgrad\/naiveproxy\/releases\/download\//,
-  trusttunnel_client: /TrustTunnelClient\/releases\/download\//,
-  wintun: /wintun\.net\/builds\/wintun-/,
-};
 
-export { pins, currentSha, shaSources, compareVersions };
+export { pins, compareVersions, readPins };
 
 if (!isMain) {
   // Импорт — только за описаниями пинов; сеть и запись остаются за запуском.
@@ -204,49 +173,60 @@ if (!isMain) {
 }
 
 async function main() {
-const yml = readFileSync(buildYmlPath, "utf8");
-let updated = yml;
-const report = [];
-let failures = 0;
+  const raw = readFileSync(pinsPath, "utf8");
+  const data = JSON.parse(raw);
+  const report = [];
+  let failures = 0;
+  let changed = false;
 
-for (const pin of pins) {
-  const current = { version: pin.read(yml), sha: null };
-  const source = shaSources[pin.name];
-  if (source) current.sha = currentSha(yml, source);
-  if (!current.version) {
-    console.error(`✗ ${pin.name}: пин не найден в build.yml — сторож ослеп, проверьте формат`);
-    failures++;
-    continue;
+  for (const pin of pins) {
+    let current;
+    try {
+      current = pin.read(data);
+    } catch {
+      current = undefined;
+    }
+    if (!current) {
+      console.error(`✗ ${pin.name}: пин не найден в pins.json — сторож ослеп`);
+      failures++;
+      continue;
+    }
+    let latest;
+    try {
+      latest = await pin.latest();
+    } catch (error) {
+      console.error(`✗ ${pin.name}: ${error.message}`);
+      failures++;
+      continue;
+    }
+    if (latest.version === current) {
+      console.log(`✓ ${pin.name}: ${current}`);
+      continue;
+    }
+    console.log(`→ ${pin.name}: ${current} → ${latest.version}`);
+    report.push(`- \`${pin.name}\`: \`${current}\` → \`${latest.version}\``);
+    if (write) {
+      pin.apply(data, latest);
+      changed = true;
+    }
   }
-  let latest;
-  try {
-    latest = await pin.latest();
-  } catch (error) {
-    console.error(`✗ ${pin.name}: ${error.message}`);
-    failures++;
-    continue;
+
+  if (changed) {
+    writeFileSync(pinsPath, `${JSON.stringify(data, null, 2)}\n`);
+    console.log("pins.json обновлён");
   }
-  if (latest.version === current.version) {
-    console.log(`✓ ${pin.name}: ${current.version}`);
-    continue;
+
+  if (process.env.GITHUB_OUTPUT) {
+    writeFileSync(process.env.GITHUB_OUTPUT,
+      `outdated=${report.length ? "true" : "false"}\nsummary<<EOF\n${report.join("\n")}\nEOF\n`,
+      { flag: "a" });
   }
-  console.log(`→ ${pin.name}: ${current.version} → ${latest.version}`);
-  report.push(`- \`${pin.name}\`: \`${current.version}\` → \`${latest.version}\``);
-  if (write) updated = pin.apply(updated, latest, current);
+
+  // Недоступный источник — это не «всё в порядке»: молчаливый зелёный ран здесь
+  // означал бы, что сторож перестал сторожить.
+  process.exitCode = failures ? 1 : 0;
 }
 
-if (write && updated !== yml) {
-  writeFileSync(buildYmlPath, updated);
-  console.log("build.yml обновлён");
-}
-
-if (process.env.GITHUB_OUTPUT) {
-  const outdated = report.length ? "true" : "false";
-  writeFileSync(process.env.GITHUB_OUTPUT,
-    `outdated=${outdated}\nsummary<<EOF\n${report.join("\n")}\nEOF\n`, { flag: "a" });
-}
-
-// Недоступный источник — это не «всё в порядке»: молчаливый зелёный ран здесь
-// означал бы, что сторож перестал сторожить.
-process.exitCode = failures ? 1 : 0;
+function readPins() {
+  return JSON.parse(readFileSync(pinsPath, "utf8"));
 }
