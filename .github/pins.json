@@ -9,9 +9,9 @@
     "sha": "5ca6f4b7d4dc20a881d4330e498892697627ec0c"
   },
   "naive": {
-    "version": "v148.0.7778.96-5",
-    "url": "https://github.com/klzgrad/naiveproxy/releases/download/v148.0.7778.96-5/naiveproxy-v148.0.7778.96-5-win-x64.zip",
-    "sha256": "54c7918557a7bd694f86ec7942b85d88b3623b21514ac3160c1e9e0e63175e8e"
+    "version": "v150.0.7871.63-1",
+    "url": "https://github.com/klzgrad/naiveproxy/releases/download/v150.0.7871.63-1/naiveproxy-v150.0.7871.63-1-win-x64.zip",
+    "sha256": "d09e35f9fde6206a775a1b930d7d8252053bee1408ee1c910b5681346c68d1a1"
   },
   "trusttunnel_client": {
     "version": "v1.0.49",
