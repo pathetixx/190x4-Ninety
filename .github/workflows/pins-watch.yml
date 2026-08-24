@@ -59,6 +59,8 @@ jobs:
               "still describes the bytes that will ship." \
               "" \
               "Merging this changes what the installer bundles: review, then release." \
+              "Checks do not start themselves on a PR opened by Actions, so this job" \
+              "dispatches Build Ninety on the branch - look for that run, not for a check here." \
               "The core pin only follows the fork's own tag - the upstream merge itself is" \
               "watched in [ninety-core](https://github.com/pathetixx/ninety-core/actions)."
           } > /tmp/body.md
@@ -66,6 +68,14 @@ jobs:
             --base main --head "$branch" \
             --title "Pinned dependency update" \
             --body-file /tmp/body.md
+          # A PR opened with GITHUB_TOKEN starts no workflows - GitHub blocks
+          # that to avoid a run triggering itself. Without this dispatch the PR
+          # sits with no checks at all, which reads as "nobody built it" and is
+          # indistinguishable from a broken bump. Start the build by hand on the
+          # branch; it is not a required check, but it answers whether the new
+          # binaries download and bundle.
+          gh workflow run build.yml --ref "$branch" ||
+            echo "Could not dispatch the build; start it by hand on $branch."
 
       # A source that cannot be reached is not "everything is fine": the script
       # exits non-zero, and the run must say so rather than going quietly green.
