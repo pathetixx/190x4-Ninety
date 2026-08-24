@@ -49,7 +49,7 @@ jobs:
           git config user.name "ninety-bot"
           git config user.email "noreply@190x4.pw"
           git checkout -b "$branch"
-          git add .github/workflows/build.yml
+          git add .github/pins.json
           git commit -m "chore(pins): move pinned dependencies to their latest releases"
           git push -u origin "$branch"
           {
