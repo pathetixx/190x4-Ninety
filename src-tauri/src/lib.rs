@@ -712,7 +712,24 @@ fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), 
         &payload.mode,
         payload.update_version.as_deref(),
     )));
-    let menu = build_tray_menu(&app, &payload).map_err(|e| e.to_string())?;
+    let menu = match build_tray_menu(&app, &payload) {
+        Ok(menu) => menu,
+        Err(e) => {
+            // Значок и подсказка уже применены, а вот меню осталось прежним.
+            // Фронт эту ошибку кладёт в консоль вебвью, куда пользователь не
+            // заглянет; пишем в тот же журнал, что читает экран «Логи», чтобы
+            // в следующий раз причина была на виду, а не выводилась из симптома.
+            crate::vpn::append_runtime_diagnostic_at(
+                &app,
+                crate::vpn::DiagnosticLevel::Warn,
+                &format!(
+                    "tray_menu_rebuild_failed servers={} error={e}",
+                    payload.servers.len()
+                ),
+            );
+            return Err(e.to_string());
+        }
+    };
     tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
     Ok(())
 }
