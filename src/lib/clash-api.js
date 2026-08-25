@@ -13,6 +13,10 @@ const CONNECTIONS_TTL_MS = 800;
 const TRAFFIC_TTL_MS = 800;
 
 let runtimeProvider = null;
+// Цель замера. Балансер в ядре меряет ноды URL'ом из настроек; ручные и
+// фоновые пробы обязаны бить туда же, иначе UI сравнивает задержки до одного
+// хоста с решением ядра, принятым по задержкам до другого.
+let probeUrlProvider = null;
 let selectionRevision = 0;
 let selectionQueue = Promise.resolve();
 const telemetryCache = createTelemetryCache();
@@ -27,6 +31,19 @@ export class ClashApiError extends Error {
     this.port = port;
     this.processGeneration = processGeneration ?? null;
   }
+}
+
+export function configureProbeUrl(getter) {
+  probeUrlProvider = typeof getter === "function" ? getter : null;
+}
+
+function probeUrl(explicit) {
+  if (explicit) return explicit;
+  try {
+    const url = probeUrlProvider?.();
+    if (typeof url === "string" && url) return url;
+  } catch { /* настройки недоступны — падаем на встроенный адрес */ }
+  return DEFAULT_URL;
 }
 
 export function configureClashRuntime(provider) {
@@ -164,14 +181,14 @@ export async function snapshotNetworkTcp() {
   return invoke("snapshot_network_tcp");
 }
 
-export async function testNode(name, { port, url = DEFAULT_URL, timeoutMs = 5000, token } = {}) {
-  const value = await call("testNode", "clash_test_node", { port, name, url, timeoutMs }, { token });
+export async function testNode(name, { port, url, timeoutMs = 5000, token } = {}) {
+  const value = await call("testNode", "clash_test_node", { port, name, url: probeUrl(url), timeoutMs }, { token });
   invalidateClashTelemetry("proxies");
   return value;
 }
 
-export async function testGroup(group, { port, url = DEFAULT_URL, timeoutMs = 5000, token } = {}) {
-  const value = await call("testGroup", "clash_test_group", { port, group, url, timeoutMs }, { token });
+export async function testGroup(group, { port, url, timeoutMs = 5000, token } = {}) {
+  const value = await call("testGroup", "clash_test_group", { port, group, url: probeUrl(url), timeoutMs }, { token });
   invalidateClashTelemetry("proxies");
   return value;
 }
@@ -182,7 +199,7 @@ export async function testGroup(group, { port, url = DEFAULT_URL, timeoutMs = 50
 // одиночного GET /proxies/{name}/delay меряет через context.Background(), который
 // НЕ несёт box-ctx → IsUnifiedDelayFromContext=false → один HEAD с полным dial+TLS
 // (завышение ~3x). В CI одиночный handler патчится на unified context.
-export async function refreshEffectiveDelay({ port, url = DEFAULT_URL, timeoutMs = 5000, token } = {}) {
+export async function refreshEffectiveDelay({ port, url, timeoutMs = 5000, token } = {}) {
   let data;
   try { data = await getProxies(port, { token }); } catch (e) {
     if (e?.code === "STALE_RUNTIME") throw e;

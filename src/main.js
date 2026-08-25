@@ -59,7 +59,7 @@ import { createRuntimeIdleGate } from "/lib/runtime-idle-gate.js";
 import { completeSuccessfulConnect, runReconnectAttempt } from "/lib/connect-network-result.js";
 import { waitForMatchingSourceTopology } from "/lib/source-switch-readiness.js";
 import { runtimeEndpointMatchesGeneration, runtimeSnapshotReadyForMode } from "/lib/runtime-lifecycle.js";
-import { awaitMeasuredLeader, cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testNode } from "/lib/clash-api.js";
+import { awaitMeasuredLeader, cancelPendingSelections, configureClashRuntime, configureProbeUrl, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
@@ -1695,6 +1695,10 @@ const runtimeIdentity = createRuntimeIdentityController({
   getClashPort: () => loadOptions().experimental?.clashApiPort || 9090,
 });
 configureClashRuntime(runtimeIdentity);
+// Ручные и фоновые пробы бьют в ту же цель, что и health-check балансера
+// внутри ядра, — иначе цифры на экране Серверы несопоставимы с тем, по чему
+// ядро выбирает ноду.
+configureProbeUrl(() => loadOptions().urlTest?.connectionTestUrl);
 configureTrafficRuntime(runtimeIdentity);
 
 sourceSwitchController = createSourceSwitchController({
