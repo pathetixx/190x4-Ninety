@@ -70,6 +70,7 @@ export const fa = {
     disconnect: "قطع اتصال",
     server: "سرور",
     noServers: "سروری نیست",
+    serversMore: "…و {n} مورد دیگر در صفحهٔ سرورها",
     dpiStatusOn: "وضعیت: فعال",
     dpiStatusOff: "وضعیت: خاموش",
     dpiEnable: "فعال‌سازی دور زدن DPI",

@@ -70,6 +70,7 @@ export const tr = {
     disconnect: "Bağlantıyı kes",
     server: "Sunucu",
     noServers: "Sunucu yok",
+    serversMore: "…ve Sunucular ekranında {n} tane daha",
     dpiStatusOn: "Durum: etkin",
     dpiStatusOff: "Durum: kapalı",
     dpiEnable: "DPI atlatmayı aç",

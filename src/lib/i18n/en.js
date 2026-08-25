@@ -70,6 +70,7 @@ export const en = {
     disconnect: "Disconnect",
     server: "Server",
     noServers: "No servers",
+    serversMore: "…and {n} more on the Servers screen",
     dpiStatusOn: "Status: active",
     dpiStatusOff: "Status: off",
     dpiEnable: "Enable DPI bypass",

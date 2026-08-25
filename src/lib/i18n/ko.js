@@ -70,6 +70,7 @@ export const ko = {
     disconnect: "연결 해제",
     server: "서버",
     noServers: "서버 없음",
+    serversMore: "…외 {n}개는 서버 화면에",
     dpiStatusOn: "상태: 활성",
     dpiStatusOff: "상태: 꺼짐",
     dpiEnable: "DPI 우회 켜기",

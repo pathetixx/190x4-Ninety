@@ -10,6 +10,11 @@ export const TRAY_SERVER_LIMIT = 24;
 // Порядок: текущая нода, затем избранные, затем всё остальное в порядке
 // подписки. Внутри группы порядок исходного списка сохраняется, чтобы меню не
 // перетасовывалось между пересборками.
+export function hiddenTrayServers(entries, limit = TRAY_SERVER_LIMIT) {
+  if (!Array.isArray(entries)) return 0;
+  return Math.max(0, entries.length - limit);
+}
+
 export function pickTrayServers(entries, favourites, limit = TRAY_SERVER_LIMIT) {
   if (!Array.isArray(entries)) return [];
   if (entries.length <= limit) return entries;

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { pickTrayServers, TRAY_SERVER_LIMIT } = await import("/lib/tray-servers.js");
+const { hiddenTrayServers, pickTrayServers, TRAY_SERVER_LIMIT } = await import("/lib/tray-servers.js");
 
 const make = (n, selectedIndex = -1) =>
   Array.from({ length: n }, (_, i) => ({ id: `node-${i}`, label: `S${i}`, selected: i === selectedIndex, iso: null }));
@@ -39,4 +39,11 @@ test("сломанный источник избранного не роняет
   const broken = { has() { throw new Error("storage gone"); } };
   assert.equal(pickTrayServers(make(268, 1), broken).length, TRAY_SERVER_LIMIT);
   assert.deepEqual(pickTrayServers(null, broken), []);
+});
+
+test("скрытые серверы считаются — меню обязано сказать, сколько их не влезло", () => {
+  assert.equal(hiddenTrayServers(make(268)), 268 - TRAY_SERVER_LIMIT);
+  assert.equal(hiddenTrayServers(make(TRAY_SERVER_LIMIT)), 0);
+  assert.equal(hiddenTrayServers(make(3)), 0);
+  assert.equal(hiddenTrayServers(null), 0);
 });

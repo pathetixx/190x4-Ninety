@@ -70,6 +70,7 @@ export const zh = {
     disconnect: "断开",
     server: "服务器",
     noServers: "没有服务器",
+    serversMore: "…另有 {n} 个在「服务器」页面",
     dpiStatusOn: "状态：已启用",
     dpiStatusOff: "状态：已关闭",
     dpiEnable: "启用 DPI 绕过",

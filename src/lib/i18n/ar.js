@@ -70,6 +70,7 @@ export const ar = {
     disconnect: "قطع الاتصال",
     server: "الخادم",
     noServers: "لا توجد خوادم",
+    serversMore: "…و{n} أخرى في شاشة الخوادم",
     dpiStatusOn: "الحالة: نشط",
     dpiStatusOff: "الحالة: متوقف",
     dpiEnable: "تفعيل تجاوز DPI",

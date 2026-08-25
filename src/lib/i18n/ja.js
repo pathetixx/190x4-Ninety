@@ -70,6 +70,7 @@ export const ja = {
     disconnect: "切断",
     server: "サーバー",
     noServers: "サーバーなし",
+    serversMore: "…ほか {n} 件は「サーバー」画面に",
     dpiStatusOn: "状態: 有効",
     dpiStatusOff: "状態: 無効",
     dpiEnable: "DPI バイパスを有効化",

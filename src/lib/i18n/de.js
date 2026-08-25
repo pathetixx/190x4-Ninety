@@ -70,6 +70,7 @@ export const de = {
     disconnect: "Trennen",
     server: "Server",
     noServers: "Keine Server",
+    serversMore: "…und {n} weitere im Bildschirm „Server“",
     dpiStatusOn: "Status: aktiv",
     dpiStatusOff: "Status: aus",
     dpiEnable: "DPI-Umgehung aktivieren",

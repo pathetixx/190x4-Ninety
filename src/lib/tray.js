@@ -17,7 +17,7 @@ import { toggleDpi } from "/lib/dpi-view.js";
 import { flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
 import { rememberProxySelection } from "/lib/proxy-selection.js";
 import { getFavourites } from "/lib/favourites.js";
-import { pickTrayServers } from "/lib/tray-servers.js";
+import { hiddenTrayServers, pickTrayServers } from "/lib/tray-servers.js";
 import { createLatestRunner } from "/lib/async-control.js";
 
 const invoke = window.__TAURI__?.core?.invoke
@@ -42,7 +42,9 @@ let ctx = null;
 // Полный список живёт на экране Серверы, в меню уходит срез (tray-servers.js).
 function buildTrayServers() {
   const src = getActiveSource();
-  if (!src || src.kind !== "sub" || !Array.isArray(src.nodes) || src.nodes.length < 2) return [];
+  if (!src || src.kind !== "sub" || !Array.isArray(src.nodes) || src.nodes.length < 2) {
+    return { shown: [], hidden: 0 };
+  }
   const effective = ctx?.getEffectiveTag() ?? null;
   let favs;
   try { favs = getFavourites(src); } catch { /* избранное недоступно — отбор обойдётся */ }
@@ -51,7 +53,7 @@ function buildTrayServers() {
     const iso = isoFromNodeName(n.name) || isoFromNodeName(n.host) || null;
     return { id: tag, label: (n.name || n.host || tag).slice(0, 48), selected: tag === effective, iso };
   });
-  return pickTrayServers(entries, favs);
+  return { shown: pickTrayServers(entries, favs), hidden: hiddenTrayServers(entries) };
 }
 
 // Последний УСПЕШНО применённый payload. Трей пересобирается на каждый чих —
@@ -66,9 +68,10 @@ const trayMenuSync = createLatestRunner(async () => {
   try {
     let dpiActive = false;
     try { dpiActive = localStorage.getItem("ninety.dpi.enabled") === "true"; } catch {}
+    const trayServers = buildTrayServers();
     const payload = {
       connected: ctx.getState() === "connected", mode: getMode(),
-      servers: buildTrayServers(), dpiActive,
+      servers: trayServers.shown, serversHidden: trayServers.hidden, dpiActive,
       updateVersion: ctx.getUpdateVersion() || null,
       updateBusy: ctx.isUpdateBusy?.() === true,
       // Строки меню/tooltip — на языке интерфейса (Rust держит русский
@@ -84,6 +87,7 @@ const trayMenuSync = createLatestRunner(async () => {
         modeTun: t("mode.tun"),
         server: t("tray.server"),
         noServers: t("tray.noServers"),
+        serversMore: t("tray.serversMore"),
         dpiTitle: t("dpi.title"),
         dpiStatusOn: t("tray.dpiStatusOn"),
         dpiStatusOff: t("tray.dpiStatusOff"),

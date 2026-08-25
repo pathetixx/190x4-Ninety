@@ -313,6 +313,8 @@ struct TrayLabels {
     mode_tun: String,
     server: String,
     no_servers: String,
+    /// Шаблон с {n} — «…и ещё {n} на экране Серверы».
+    servers_more: String,
     dpi_title: String,
     dpi_status_on: String,
     dpi_status_off: String,
@@ -342,6 +344,7 @@ impl Default for TrayLabels {
             mode_tun: "VPN · TUN".into(),
             server: "Сервер".into(),
             no_servers: "Нет серверов".into(),
+            servers_more: "…и ещё {n} — на экране «Серверы»".into(),
             dpi_title: "DPI-обход".into(),
             dpi_status_on: "Статус: активен".into(),
             dpi_status_off: "Статус: выключен".into(),
@@ -375,6 +378,11 @@ struct TrayMenuPayload {
     /// либо запустить reconnect одновременно с остановкой runtime.
     #[serde(default, rename = "updateBusy")]
     update_busy: bool,
+    /// Сколько серверов подписки не поместилось в подменю. > 0 → в хвост
+    /// списка уходит неактивная строка-указатель на экран «Серверы»: иначе
+    /// обрезанный список читается как пропавшие серверы.
+    #[serde(default, rename = "serversHidden")]
+    servers_hidden: u32,
     #[serde(default)]
     labels: TrayLabels,
 }
@@ -461,10 +469,25 @@ fn build_tray_menu(
                 None::<&str>,
             )?);
         }
-        let refs: Vec<&dyn IsMenuItem<tauri::Wry>> = items
+        let mut refs: Vec<&dyn IsMenuItem<tauri::Wry>> = items
             .iter()
             .map(|i| i as &dyn IsMenuItem<tauri::Wry>)
             .collect();
+        let more = if payload.servers_hidden > 0 {
+            Some(MenuItem::with_id(
+                app,
+                "srv:more",
+                l.servers_more
+                    .replace("{n}", &payload.servers_hidden.to_string()),
+                false,
+                None::<&str>,
+            )?)
+        } else {
+            None
+        };
+        if let Some(item) = more.as_ref() {
+            refs.push(item as &dyn IsMenuItem<tauri::Wry>);
+        }
         Submenu::with_items(app, &l.server, srv_enabled, &refs)?
     };
 

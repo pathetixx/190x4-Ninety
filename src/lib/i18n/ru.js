@@ -70,6 +70,7 @@ export const ru = {
     disconnect: "Отключиться",
     server: "Сервер",
     noServers: "Нет серверов",
+    serversMore: "…и ещё {n} — на экране «Серверы»",
     dpiStatusOn: "Статус: активен",
     dpiStatusOff: "Статус: выключен",
     dpiEnable: "Включить DPI-обход",

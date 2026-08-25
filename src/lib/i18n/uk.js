@@ -70,6 +70,7 @@ export const uk = {
     disconnect: "Відключитися",
     server: "Сервер",
     noServers: "Немає серверів",
+    serversMore: "…і ще {n} на екрані «Сервери»",
     dpiStatusOn: "Статус: активний",
     dpiStatusOff: "Статус: вимкнено",
     dpiEnable: "Увімкнути DPI-обхід",

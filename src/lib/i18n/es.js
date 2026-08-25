@@ -70,6 +70,7 @@ export const es = {
     disconnect: "Desconectar",
     server: "Servidor",
     noServers: "Sin servidores",
+    serversMore: "…y {n} más en la pantalla Servidores",
     dpiStatusOn: "Estado: activo",
     dpiStatusOff: "Estado: apagado",
     dpiEnable: "Activar evasión DPI",
