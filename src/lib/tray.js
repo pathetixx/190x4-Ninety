@@ -6,7 +6,8 @@
 //   initTray(ctx)  — один раз на старте, ДО первого syncTrayMenu.
 //   syncTrayMenu() — пересобрать меню/иконку/tooltip под текущее состояние;
 //                    зовётся из main на каждый чих (connect, смена режима/ноды,
-//                    смена языка, найденный апдейт).
+//                    смена языка, найденный апдейт). Неизменившийся payload
+//                    пропускается; { force: true } применяет его всё равно.
 
 import { t } from "/lib/i18n/index.js";
 import { toast } from "/lib/toast.js";
@@ -105,8 +106,13 @@ const trayMenuSync = createLatestRunner(async () => {
   }
 });
 
-export function syncTrayMenu() {
+// force — применить payload, даже если он не отличается от прошлого. Нужен
+// там, где мы не доверяем состоянию самого значка (пользователь смотрит на
+// трей, окно вернуло фокус): дедуп иначе решил бы, что делать нечего, и
+// оставил бы значок таким, каким его застал сбой.
+export function syncTrayMenu({ force = false } = {}) {
   if (!ctx) return Promise.resolve();
+  if (force) lastTrayPayload = null;
   return trayMenuSync.request();
 }
 
@@ -138,7 +144,7 @@ export function initTray(context) {
         // Пользователь смотрит на значок прямо сейчас — самый подходящий
         // момент вернуть его в согласие с состоянием, если предыдущая
         // пересборка почему-либо не доехала.
-        syncTrayMenu();
+        syncTrayMenu({ force: true });
       });
       // DPI-обход вкл/выкл из трея — тот же toggleDpi, что в UI; затем рефреш меню.
       await ev.listen("tray:toggle-dpi", async () => {

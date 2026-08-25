@@ -4287,10 +4287,10 @@ window.addEventListener("online", () => updateCheckIfStale(60_000));
       // Фокус — не согласие смотреть пропущенную версию: она остаётся в трее.
       flushPendingUpdate({ respectSkip: true });
       updateCheckIfStale();
-      // Дешёвая страховка от рассинхрона значка: payload с прошлого раза не
-      // изменился — вызов ничего не сделает, а если трей отстал, он вернётся
-      // к текущему состоянию.
-      syncTrayMenu();
+      // Страховка от рассинхрона значка: применяем состояние принудительно,
+      // мимо дедупа — именно в случае сбоя payload и не отличается от того,
+      // который до значка не доехал.
+      syncTrayMenu({ force: true });
     });
   } catch (e) { console.warn("focus listener failed", e); }
 })();
