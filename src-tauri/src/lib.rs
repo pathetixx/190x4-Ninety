@@ -667,23 +667,30 @@ fn tray_tooltip(
 
 #[tauri::command]
 fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), String> {
-    let menu = build_tray_menu(&app, &payload).map_err(|e| e.to_string())?;
-    if let Some(tray) = app.tray_by_id("main") {
-        tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
-        if let Some(icon) = tray_icon(
-            payload.connected,
-            &payload.mode,
-            payload.update_version.is_some(),
-        ) {
-            let _ = tray.set_icon(Some(icon));
-        }
-        let _ = tray.set_tooltip(Some(tray_tooltip(
-            &payload.labels,
-            payload.connected,
-            &payload.mode,
-            payload.update_version.as_deref(),
-        )));
+    let Some(tray) = app.tray_by_id("main") else {
+        return Ok(());
+    };
+    // Значок и подсказка ставятся ПЕРВЫМИ и независимо от меню. Они дёшевы и
+    // собраться не могут разве что при битом ресурсе, а меню на большой
+    // подписке — сотни пунктов, каждый со своей иконкой флага. Раньше меню
+    // строилось первым и любая его ошибка выходила из функции раньше, чем
+    // обновлялся значок: трей оставался в стартовом «отключено» при поднятом
+    // VPN, и починить это мог только перезапуск приложения.
+    if let Some(icon) = tray_icon(
+        payload.connected,
+        &payload.mode,
+        payload.update_version.is_some(),
+    ) {
+        let _ = tray.set_icon(Some(icon));
     }
+    let _ = tray.set_tooltip(Some(tray_tooltip(
+        &payload.labels,
+        payload.connected,
+        &payload.mode,
+        payload.update_version.as_deref(),
+    )));
+    let menu = build_tray_menu(&app, &payload).map_err(|e| e.to_string())?;
+    tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
     Ok(())
 }
 

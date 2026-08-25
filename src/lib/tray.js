@@ -15,6 +15,8 @@ import { selectProxy } from "/lib/clash-api.js";
 import { toggleDpi } from "/lib/dpi-view.js";
 import { flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
 import { rememberProxySelection } from "/lib/proxy-selection.js";
+import { getFavourites } from "/lib/favourites.js";
+import { pickTrayServers } from "/lib/tray-servers.js";
 import { createLatestRunner } from "/lib/async-control.js";
 
 const invoke = window.__TAURI__?.core?.invoke
@@ -36,55 +38,69 @@ let ctx = null;
 
 // Список серверов — только для подписки с >=2 нодами (у одиночного конфига
 // и сабов из одной ноды clash-тэг всегда "proxy", переключать нечего).
+// Полный список живёт на экране Серверы, в меню уходит срез (tray-servers.js).
 function buildTrayServers() {
   const src = getActiveSource();
   if (!src || src.kind !== "sub" || !Array.isArray(src.nodes) || src.nodes.length < 2) return [];
   const effective = ctx?.getEffectiveTag() ?? null;
-  return src.nodes.map((n, i) => {
+  let favs;
+  try { favs = getFavourites(src); } catch { /* избранное недоступно — отбор обойдётся */ }
+  const entries = src.nodes.map((n, i) => {
     const tag = nodeTag(i, n);
     const iso = isoFromNodeName(n.name) || isoFromNodeName(n.host) || null;
     return { id: tag, label: (n.name || n.host || tag).slice(0, 48), selected: tag === effective, iso };
   });
+  return pickTrayServers(entries, favs);
 }
+
+// Последний УСПЕШНО применённый payload. Трей пересобирается на каждый чих —
+// смену ноды балансером в том числе, — а payload при этом чаще всего тот же.
+// Пропуск неизменившегося убирает лишние пересборки меню на сотни иконок.
+// Сбрасывается при ошибке: следующий вызов обязан попробовать снова, иначе
+// одна осечка заморозила бы значок до перезапуска.
+let lastTrayPayload = null;
 
 const trayMenuSync = createLatestRunner(async () => {
   if (!ctx) return;
   try {
     let dpiActive = false;
     try { dpiActive = localStorage.getItem("ninety.dpi.enabled") === "true"; } catch {}
-    await invoke("set_tray_menu", {
-      payload: {
-        connected: ctx.getState() === "connected", mode: getMode(),
-        servers: buildTrayServers(), dpiActive,
-        updateVersion: ctx.getUpdateVersion() || null,
-        updateBusy: ctx.isUpdateBusy?.() === true,
-        // Строки меню/tooltip — на языке интерфейса (Rust держит русский
-        // фолбэк только до первого вызова). Пересборка на смену языка —
-        // syncTrayMenu в onLangChange.
-        labels: {
-          show: t("tray.show"),
-          connect: t("tray.connect"),
-          disconnect: t("tray.disconnect"),
-          modeTitle: t("home.modeToggle"),
-          modeProxy: t("mode.proxy"),
-          modeSystem: t("mode.systemProxy"),
-          modeTun: t("mode.tun"),
-          server: t("tray.server"),
-          noServers: t("tray.noServers"),
-          dpiTitle: t("dpi.title"),
-          dpiStatusOn: t("tray.dpiStatusOn"),
-          dpiStatusOff: t("tray.dpiStatusOff"),
-          dpiEnable: t("tray.dpiEnable"),
-          dpiDisable: t("tray.dpiDisable"),
-          quit: t("tray.quit"),
-          updateTo: t("tray.updateTo"),
-          tipOff: t("tray.tipOff"),
-          tipConnected: t("tray.tipConnected"),
-          tipUpdate: t("tray.tipUpdate"),
-        },
+    const payload = {
+      connected: ctx.getState() === "connected", mode: getMode(),
+      servers: buildTrayServers(), dpiActive,
+      updateVersion: ctx.getUpdateVersion() || null,
+      updateBusy: ctx.isUpdateBusy?.() === true,
+      // Строки меню/tooltip — на языке интерфейса (Rust держит русский
+      // фолбэк только до первого вызова). Пересборка на смену языка —
+      // syncTrayMenu в onLangChange.
+      labels: {
+        show: t("tray.show"),
+        connect: t("tray.connect"),
+        disconnect: t("tray.disconnect"),
+        modeTitle: t("home.modeToggle"),
+        modeProxy: t("mode.proxy"),
+        modeSystem: t("mode.systemProxy"),
+        modeTun: t("mode.tun"),
+        server: t("tray.server"),
+        noServers: t("tray.noServers"),
+        dpiTitle: t("dpi.title"),
+        dpiStatusOn: t("tray.dpiStatusOn"),
+        dpiStatusOff: t("tray.dpiStatusOff"),
+        dpiEnable: t("tray.dpiEnable"),
+        dpiDisable: t("tray.dpiDisable"),
+        quit: t("tray.quit"),
+        updateTo: t("tray.updateTo"),
+        tipOff: t("tray.tipOff"),
+        tipConnected: t("tray.tipConnected"),
+        tipUpdate: t("tray.tipUpdate"),
       },
-    });
+    };
+    const signature = JSON.stringify(payload);
+    if (signature === lastTrayPayload) return;
+    await invoke("set_tray_menu", { payload });
+    lastTrayPayload = signature;
   } catch (e) {
+    lastTrayPayload = null;
     console.warn("syncTrayMenu failed", e);
   }
 });
@@ -117,7 +133,13 @@ export function initTray(context) {
       // Свёрнутое окно узнаёт об апдейте только по расписанию, поэтому просим
       // main дочекать OTA — к следующему открытию меню пункт «Обновить» и
       // метка на значке будут на месте.
-      await ev.listen("tray:activity", () => { ctx.onTrayActivity?.(); });
+      await ev.listen("tray:activity", () => {
+        ctx.onTrayActivity?.();
+        // Пользователь смотрит на значок прямо сейчас — самый подходящий
+        // момент вернуть его в согласие с состоянием, если предыдущая
+        // пересборка почему-либо не доехала.
+        syncTrayMenu();
+      });
       // DPI-обход вкл/выкл из трея — тот же toggleDpi, что в UI; затем рефреш меню.
       await ev.listen("tray:toggle-dpi", async () => {
         if (ctx.isUpdateBusy?.()) return;
