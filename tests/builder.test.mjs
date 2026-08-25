@@ -102,8 +102,15 @@ test("подписка из 2+ нод: selector/balancer/urltest", () => {
   const byTag = Object.fromEntries(config.outbounds.map((o) => [o.tag, o]));
   assert.equal(byTag.proxy.type, "selector");
   assert.equal(byTag.auto.type, "balancer");
-  assert.equal(byTag.lowest.type, "urltest");
   assert.equal(byTag.proxy.default, "auto");
+  // Balancer меряет сам: отдельного urltest-чекера рядом больше нет. Его
+  // тикер всё равно не запускался — периодическую проверку urltest-группа
+  // включает только когда трафик идёт через неё саму.
+  assert.equal(byTag.lowest, undefined);
+  assert.equal(byTag.auto.url, DEFAULT_OPTIONS.urlTest.connectionTestUrl);
+  assert.equal(byTag.auto.interval, `${DEFAULT_OPTIONS.urlTest.intervalSec}s`);
+  assert.ok(byTag.auto.tolerance > 0, "без tolerance balancer флапает на шуме");
+  assert.ok(byTag.auto.failure_cooldown, "нода, через которую не дозвониться, обязана выбывать");
 });
 
 test("строгая приватность: TUN без direct-исключений и одна закреплённая нода", () => {
@@ -744,10 +751,10 @@ test("подписка: нода с непринимаемыми парамет�
 
   const servers = config.outbounds.filter((o) => o.type === "vless").map((o) => o.server);
   assert.deepEqual(servers, ["ok1.example", "ok2.example"]);
-  // Селектор/urltest/balancer ссылаются только на существующие теги.
+  // Селектор и balancer ссылаются только на существующие теги.
   validateConfigReferences(config);
   const selector = config.outbounds.find((o) => o.tag === "proxy");
-  assert.deepEqual(selector.outbounds, ["auto", "lowest", nodeTag(0, ok1), nodeTag(1, ok2)]);
+  assert.deepEqual(selector.outbounds, ["auto", nodeTag(0, ok1), nodeTag(1, ok2)]);
 });
 
 test("подписка целиком из непригодных нод падает понятной ошибкой, а не FATAL ядра", () => {
@@ -886,7 +893,7 @@ test("wireguard: в подписке нода попадает в группы �
   assert.equal(config.endpoints.length, 1);
   assert.equal(config.endpoints[0].tag, wgTag);
   assert.equal(config.outbounds.some(o => o.tag === wgTag), false);
-  for (const groupTag of ["proxy", "auto", "lowest"]) {
+  for (const groupTag of ["proxy", "auto"]) {
     const group = config.outbounds.find(o => o.tag === groupTag);
     assert.ok(group.outbounds.includes(wgTag), `${groupTag} не видит wireguard-ноду`);
   }

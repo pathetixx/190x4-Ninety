@@ -59,7 +59,7 @@ import { createRuntimeIdleGate } from "/lib/runtime-idle-gate.js";
 import { completeSuccessfulConnect, runReconnectAttempt } from "/lib/connect-network-result.js";
 import { waitForMatchingSourceTopology } from "/lib/source-switch-readiness.js";
 import { runtimeEndpointMatchesGeneration, runtimeSnapshotReadyForMode } from "/lib/runtime-lifecycle.js";
-import { cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testGroup } from "/lib/clash-api.js";
+import { awaitMeasuredLeader, cancelPendingSelections, configureClashRuntime, gradeDelay, pickEffectiveNode, getProxies, lastDelay, selectProxy, refreshEffectiveDelay, testNode } from "/lib/clash-api.js";
 import { fetchPublicIp, maskIp, bindIpReveal } from "/lib/ip-info.js";
 import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
@@ -1183,12 +1183,30 @@ const stopHealthWatchdog = healthWatchdog.stop;
 const qualityEngine = createQualityEngine({
   invoke,
   actions: {
-    // R1 — перевыбор ноды балансером без реконнекта: форсим re-test группы
-    // lowest, urltest переберёт живые задержки и подвинет эффективную ноду.
+    // R1 — перевыбор ноды балансером без реконнекта: освежаем замеры
+    // КАНДИДАТОВ, и balancer сам переедет на лучшего в течение секунды.
+    //
+    // Раньше здесь стоял refreshEffectiveDelay — замер одного лишь текущего
+    // лидера. На живой, но медленной ноде он давал обратный эффект: свежая
+    // цифра лидера только закрепляла его, и ступень работала вхолостую.
     selectNextNode: async () => {
       const token = runtimeIdentity.capture();
-      try { await refreshEffectiveDelay({ timeoutMs: 5000, token }); return runtimeIdentity.isCurrent(token); }
-      catch { return false; }
+      if (!token) return false;
+      const nodes = qualityNodesFromSource();
+      if (nodes.length < 2) return false;
+      let proxies = {};
+      try { proxies = (await getProxies(undefined, { token }))?.proxies || {}; } catch {}
+      if (!runtimeIdentity.isCurrent(token)) return false;
+      const cur = currentEffectiveTag;
+      const candidates = rankByDelay(nodes.filter(n => n.clashTag && n.clashTag !== cur), proxies)
+        .slice(0, QUALITY_RETEST_LIMIT)
+        .map(n => n.clashTag);
+      if (!candidates.length) return false;
+      let measured = false;
+      await Promise.all(candidates.map(async (tag) => {
+        try { await testNode(tag, { timeoutMs: 4000, token }); measured = true; } catch {}
+      }));
+      return measured && runtimeIdentity.isCurrent(token);
     },
     // R2 — увести с конкретной плохой ноды: текущую кладём на cooldown и вручную
     // выбираем лучшую из оставшихся (selectProxy — он же рвёт живые соединения
@@ -1327,6 +1345,9 @@ const qualityEngine = createQualityEngine({
 // ── Хелперы лесенки качества (R2/R5) ───────────────────────
 // Cooldown нод, забракованных R2 — чтобы не выбирать их снова сразу.
 const QUALITY_EXCLUDE_MS = 5 * 60_000;
+// Сколько кандидатов перемеряет R1. Больше — дольше ступень, меньше — выше
+// шанс, что все выбранные окажутся мёртвыми и лесенка шагнёт дальше зря.
+const QUALITY_RETEST_LIMIT = 8;
 const qualityExcluded = new Map(); // clashTag → expiry ts
 // Ноды активного источника с clash-тэгами (зеркало proxies-view.nodesFromSource).
 function qualityNodesFromSource() {
@@ -1571,14 +1592,18 @@ async function confirmActiveSourceDataplane(target, { token, isCurrent }) {
     const runtimeToken = runtimeIdentity.capture();
     if (targetSource?.kind === "sub" && targetSource.nodes?.length >= 2
       && runtimeToken && runtimeIdentity.isCurrent(runtimeToken)) {
-      // A fresh lowest-delay balancer falls back to the first node until its
-      // URLTest group publishes delays. Force one bounded initial pass so one
-      // dead first node cannot make a healthy multi-node subscription appear
-      // offline to the source verifier.
+      // A fresh balancer falls back to the first node until its own health
+      // check publishes delays, so one dead first node would make a healthy
+      // subscription look offline to the verifier. Wait for a leader the core
+      // has actually measured instead of forcing a probe run: the forced run
+      // used to be cancelled by its own deadline, taking the measurements of
+      // every unfinished probe down with it.
       try {
-        await testGroup("lowest", { token: runtimeToken, timeoutMs: 4500 });
+        if (!await awaitMeasuredLeader({ token: runtimeToken, timeoutMs: 8000 })) {
+          logSourceSwitchReconnect("selector", token, "unverified", "balancer_not_converged");
+        }
       } catch {
-        logSourceSwitchReconnect("selector", token, "unverified", "urltest_not_converged");
+        logSourceSwitchReconnect("selector", token, "unverified", "balancer_not_converged");
       }
       if (!isCurrent() || !runtimeIdentity.isCurrent(runtimeToken)) {
         return { status: "stale" };

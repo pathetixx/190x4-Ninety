@@ -1397,38 +1397,38 @@ export function buildConfig({
       { type: "direct", tag: "direct" },
     ];
   } else if (useUrltest) {
-    // "Auto" — это НЕ URLTest, а Balancer со strategy=lowest-delay. Он выбирает
+    // "Auto" — это НЕ URLTest, а Balancer со strategy=lowest-delay: он выбирает
     // outbound с минимальной задержкой, а interrupt_exist_connections обрывает
     // старые соединения при смене лидера → реальное "live" переключение.
-    // Сам он ничего не измеряет: задержки берёт из общей URLTest-истории,
-    // которую наполняет health-чекер "lowest" рядом. Без него balancer не знает
-    // задержек и остаётся на первой ноде.
+    //
+    // Замеры он ведёт САМ (url/interval ниже). Раньше рядом стоял отдельный
+    // health-чекер "lowest" типа urltest, и это не работало: периодическую
+    // проверку urltest-группа запускает из Touch(), а Touch зовётся только
+    // когда трафик дозванивается через саму группу. Через "lowest" не шло
+    // ничего, тикер не стартовал ни разу, и задержки застывали на единственном
+    // проходе при старте ядра — дальше balancer выбирал из мёртвых цифр.
     const nodeTags = vlessOutbounds.map(o => o.tag);
 
-    // Health-checker (скрыт из proxies UI, юзер про него не знает).
-    const urlTest = {
-      type: "urltest",
-      tag: "lowest",
-      outbounds: nodeTags,
-      url: testUrl,
-      interval: testInterval,
-      tolerance: 50,
-      // false — URLTest сам не должен обрывать TCP. Прерывание — задача
-      // Balancer, иначе sing-box будет дважды дёргать interrupt при rotation.
-      interrupt_exist_connections: false,
-    };
-    // "Авто" в UI — Balancer, lowest-delay per-connection.
     const auto = {
       type: "balancer",
       tag: "auto",
       outbounds: nodeTags,
       strategy: "lowest-delay",
+      url: testUrl,
+      interval: testInterval,
+      // Разброс в пределах шума не стоит обрыва соединений: без tolerance
+      // balancer при опросе раз в секунду скакал бы между соседями по 5 мс.
+      tolerance: 50,
+      // Нода, через которую не удалось дозвониться, выбывает из выборов на это
+      // время (дальше — экспоненциально). Иначе «самая быстрая по замеру, но
+      // мёртвая» переизбирается сразу же после каждого провала.
+      failure_cooldown: "30s",
       interrupt_exist_connections: true,
     };
     const selector = {
       type: "selector",
       tag: "proxy",
-      outbounds: ["auto", "lowest", ...nodeTags],
+      outbounds: ["auto", ...nodeTags],
       default: "auto",
       // Рвёт старые соединения при смене выбора — но только те, которые ядро
       // само дозвонило через селектор как dialer (dns detour, WARP-цепочка).
@@ -1440,7 +1440,6 @@ export function buildConfig({
     outbounds = [
       selector,
       auto,
-      urlTest,
       ...vlessOutbounds.filter((node) => !nodeEndpoints.has(node)),
       { type: "direct", tag: "direct" },
     ];

@@ -61,7 +61,7 @@ test("legacy singleton proxy мигрирует в auto у многонодов�
   rememberProxySelection(source, "proxy");
   const result = await restoreRememberedProxySelection({
     source,
-    topology: { proxies: { proxy: { type: "Selector", now: "auto", all: ["auto", "lowest", "node-a"] } } },
+    topology: { proxies: { proxy: { type: "Selector", now: "auto", all: ["auto", "node-a"] } } },
     apply: async () => assert.fail("apply не должен вызываться"),
   });
   assert.deepEqual(result, {

@@ -83,6 +83,11 @@
 .n-ping[data-grade="mid"]{color:var(--warn)}
 .n-ping[data-grade="bad"]{color:var(--err)}
 .n-ping[data-grade="dead"]{color:var(--text-faint)}
+/* Замер из локального архива: ядро эту ноду в текущей сессии не подтверждало.
+   Цифру оставляем (она полезна), но гасим — иначе мёртвый сервер читается как
+   живой. Штриховая подчёркивание-метка отличает её от «просто тусклой». */
+.n-ping[data-stale="true"]{color:var(--text-faint);text-decoration:underline dotted currentColor;
+     text-underline-offset:3px}
 
 /* ── флаг: геометрия, без теней и рамок ── */
 .n-flag{width:20px;height:14px;border-radius:2px;overflow:hidden;display:grid;place-items:center;

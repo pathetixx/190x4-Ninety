@@ -28,6 +28,8 @@ let pollTimer = null;
 // определить — держим отдельный флаг.
 let viewActive = false;
 let testingAll = false;
+// Прогресс «Измерить все»: { done, total }. null — прогон не идёт.
+let sweep = null;
 let lastClashSnapshot = null;
 // Локальный optimistic-active: после клика подсвечиваем сразу, не ждём поллинг.
 let optimisticActiveTag = null;
@@ -134,7 +136,7 @@ export function snapshotMatchesSource(clashData, nodes) {
   if (proxyType(proxy) !== "selector") return false;
   const expectedTags = nodes.map(n => n.clashTag);
   const members = selectorMembers(proxy);
-  return ["auto", "lowest", ...expectedTags].every(tag =>
+  return ["auto", ...expectedTags].every(tag =>
     members.includes(tag) && proxies[tag]
   );
 }
@@ -368,6 +370,23 @@ function sparkHtml(hs) {
   return `<svg class="n-spark" viewBox="-1 0 55 15" role="img"><title>${escapeHtml(title)}</title><polyline points="${pts}"/><circle cx="52" cy="${lastY.toFixed(1)}" r="1.5"/></svg>`;
 }
 
+// Замер ЯДРА, без отката на локальный архив. Только он отвечает на вопрос
+// «сервер отвечает сейчас»: currentDelay ниже умеет подставлять последнюю
+// сохранённую точку, и счётчик «отвечают», построенный на нём, показывал
+// замеры прошлых сессий — на мёртвой подписке экран рапортовал «88 из 268»
+// и не менялся после «Измерить все».
+function coreDelay(clashData, tag) {
+  const d = lastDelay(clashData?.proxies?.[tag]);
+  return d > 0 && d < 65000 ? d : 0;
+}
+
+// Цифра есть только в локальном архиве — ядро эту ноду в текущей сессии не
+// подтвердило. Такие значения показываем приглушённо, чтобы мёртвый сервер не
+// выглядел как живой.
+function isStaleDelay(clashData, tag) {
+  return !coreDelay(clashData, tag) && currentDelay(clashData, tag) > 0;
+}
+
 function currentDelay(clashData, tag) {
   const live = lastDelay(clashData?.proxies?.[tag]);
   if (live > 0 && live < 65000) return live;
@@ -379,9 +398,10 @@ function currentDelay(clashData, tag) {
   return lastOwn > 0 && lastOwn < 65000 ? lastOwn : 0;
 }
 
-function pingHtml(delay, grade) {
+function pingHtml(delay, grade, stale = false) {
   if (delay > 0 && delay < 65000) {
-    return `<div class="n-ping" data-grade="${grade}">${delay}<span class="n-unit">${t("proxies.pingUnit")}</span></div>`;
+    const attrs = stale ? ` data-stale="true" title="${escapeAttr(t("proxies.staleHint"))}"` : "";
+    return `<div class="n-ping" data-grade="${grade}"${attrs}>${delay}<span class="n-unit">${t("proxies.pingUnit")}</span></div>`;
   }
   return `<div class="n-ping" data-grade="dead">—</div>`;
 }
@@ -413,7 +433,7 @@ function nodeRowHtml(n, ctx) {
       <span class="nt-row__host">${highlight(n.host)}</span>
       <span class="nt-row__tr">${highlight(transportLabel(n))}</span>
       ${pending ? `<span class="n-wait"></span>` : sparkHtml(hs)}
-      ${pending ? `<span class="n-dash">···</span>` : pingHtml(delay, gradeDelay(delay))}
+      ${pending ? `<span class="n-dash">···</span>` : pingHtml(delay, gradeDelay(delay), isStaleDelay(ctx.clashData, n.clashTag))}
       ${starHtml(n.clashTag, ctx.favs.has(n.clashTag))}
       <button class="n-icon" type="button" data-node-menu="${escapeAttr(n.clashTag)}"
         aria-label="${escapeAttr(t("proxies.rowActions"))}">${ICON_DOTS}</button>
@@ -476,7 +496,15 @@ function recHtml(nodes, ctx) {
     </div>`;
 
   const ranked = rankNodes(nodes, ctx.clashData);
-  const autoPick = ranked.length ? ranked[0].n : null;
+  const rankedTop = ranked.length ? ranked[0].n : null;
+  // «Сейчас» обязано называть ноду, через которую ядро реально ведёт трафик
+  // (Balancer.Now() → proxies.auto.now → ctx.liveTag), а НЕ победителя рейтинга.
+  // Раньше обе строки брались из рейтинга, и на мёртвой подписке экран уверял
+  // «Сейчас → Russia [03] 44 мс», пока трафик стоял на первой ноде списка.
+  const leaderNode = ctx.selectorTag === "auto" && ctx.liveTag
+    ? nodes.find(n => n.clashTag === ctx.liveTag) || null
+    : null;
+  const autoPick = ctx.selectorTag === "auto" ? leaderNode : rankedTop;
   const autoDelay = autoPick ? currentDelay(ctx.clashData, autoPick.clashTag) : 0;
   const autoSub = !autoPick
     ? t("proxies.autoIdle")
@@ -492,7 +520,7 @@ function recHtml(nodes, ctx) {
         <span class="rec-row__reason">${ICON_PULSE}${escapeHtml(autoSub)}</span>
       </div>
       ${autoPick ? sparkHtml(historyOf(ctx.clashData, autoPick.clashTag)) : `<span></span>`}
-      ${autoPick ? pingHtml(autoDelay, gradeDelay(autoDelay)) : `<span class="n-ping" data-grade="dead">—</span>`}
+      ${autoPick ? pingHtml(autoDelay, gradeDelay(autoDelay), isStaleDelay(ctx.clashData, autoPick.clashTag)) : `<span class="n-ping" data-grade="dead">—</span>`}
     </div>`;
 
   // Замеров ещё нет: «Авто» остаётся, а вместо списка — объяснение и действие.
@@ -533,7 +561,7 @@ function recHtml(nodes, ctx) {
           <span class="rec-row__reason">${why[i].icon}${escapeHtml(why[i].text)}</span>
         </div>
         ${sparkHtml(historyOf(ctx.clashData, n.clashTag))}
-        ${pingHtml(delay, gradeDelay(delay))}
+        ${pingHtml(delay, gradeDelay(delay), isStaleDelay(ctx.clashData, n.clashTag))}
       </div>`;
   }).join("");
 
@@ -590,12 +618,16 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   const signature = JSON.stringify([
     pool.map(n => [n.clashTag, lastDelay(clashData?.proxies?.[n.clashTag]), historyOf(clashData, n.clashTag).length]),
     selectorTag, effectiveTag, query, sortState, grouped, recOpen, strict,
+    sweep ? [sweep.done, sweep.total] : null,
     [...favs].sort(), [...collapsedGroups].sort(), testingAll,
   ]);
   if (signature === lastSignature) return;
   lastSignature = signature;
 
-  const alive = nodes.filter(n => currentDelay(clashData, n.clashTag) > 0).length;
+  // Считаем по замерам ЯДРА. Прежний счёт через currentDelay откатывался на
+  // локальный архив, поэтому число «отвечают» фиксировалось в первой сессии и
+  // не пересчитывалось ни при «Измерить все», ни когда подписка умирала.
+  const alive = nodes.filter(n => coreDelay(clashData, n.clashTag) > 0).length;
 
   if (metaEl) {
     if (terms.length) {
@@ -607,7 +639,12 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
       const pin = selectorTag === "auto"
         ? (liveNode ? t("proxies.pinAuto", { name: fullName(liveNode) }) : t("proxies.auto"))
         : t("proxies.pinNode", { name: selectorTag ? fullName(nodes.find(n => n.clashTag === selectorTag)) || "—" : "—" });
-      metaEl.innerHTML = metaLineHtml(pin, tn("proxies.metaAlive", alive, { total: nodes.length }));
+      // Во время прогона показываем прогресс, а не итог: иначе счётчик ползёт
+      // вверх от нуля и выглядит как «подписка сдохла».
+      const tail = sweep
+        ? t("proxies.metaTesting", { done: sweep.done, total: sweep.total, alive })
+        : tn("proxies.metaAlive", alive, { total: nodes.length });
+      metaEl.innerHTML = metaLineHtml(pin, tail);
     }
   }
 
@@ -836,19 +873,24 @@ export function onProxiesViewEnter() {
   pollTimer = setInterval(refresh, POLL_MS);
 }
 
-// Если active = "auto", но замеров ещё нет — Balancer не знает задержек и
-// остаётся на первой ноде. Форсим URLTest "lowest" (он наполняет общую историю
-// замеров) — после первого прохода Balancer возьмёт реального лидера.
+// Если active = "auto", но замеров ещё нет — Balancer не на чем выбирать и
+// держит первую ноду списка. Форсим групповой прогон, он наполняет историю.
+//
+// Прежнее условие («выходим, если auto.now непустой») не срабатывало никогда:
+// Balancer.Now() всегда возвращает тег — на пустой истории это фолбэк на
+// первую ноду. Проверять надо не наличие лидера, а наличие ЗАМЕРА у него.
 async function kickstartAutoIfNeeded() {
   if (strictPrivacyEnabled()) return;
   const data = lastClashSnapshot;
   if (!data) return;
-  const selNow = pickSelectorNow(data);
-  if (selNow !== "auto") return;
+  if (pickSelectorNow(data) !== "auto") return;
   const auto = data.proxies?.auto;
   if (!auto) return;
-  if (auto.now && auto.now !== "auto") return;
-  try { await testGroup("lowest"); await refresh(); } catch {}
+  const leader = auto.now && auto.now !== "auto" ? auto.now : null;
+  if (leader && coreDelay(data, leader) > 0) return;
+  // Оборвать этот прогон по таймауту безопасно: ядро больше не стирает
+  // историю нод, чьи пробы не успели завершиться до отмены запроса.
+  try { await testGroup("auto", { timeoutMs: 20000 }); await refresh(); } catch {}
 }
 
 export function onProxiesViewLeave() {
@@ -856,6 +898,7 @@ export function onProxiesViewLeave() {
   stopPoll();
   sourceGeneration++;
   testingAll = false;
+  sweep = null;
 }
 
 export function resetProxiesViewForSourceChange() {
@@ -1050,11 +1093,14 @@ export function mountProxiesView({
       lastClashSnapshot = ready;
       // refresh по ходу — список оживает прогрессивно, не ждёт все ноды
       let last = 0;
-      await testAllNodes(nodes, () => {
+      sweep = { done: 0, total: new Set(nodes.map(n => n.clashTag)).size };
+      await testAllNodes(nodes, (done) => {
         if (generation !== sourceGeneration) return;
+        if (sweep) sweep.done = done;
         const now = Date.now();
         if (now - last > 600) { last = now; refresh(); }
       }, () => generation === sourceGeneration);
+      sweep = null;
       if (generation !== sourceGeneration) return;
       onToast?.(t("proxies.toastRetested"), "success", 1600);
       await refresh();
@@ -1062,6 +1108,7 @@ export function mountProxiesView({
       onToast?.(t("proxies.toastTestErr", { err: e?.message || e }), "error", 2500);
     } finally {
       testingAll = false;
+      sweep = null;
       delete testBtn.dataset.testing;
       testBtn.disabled = false;
       rerender();
@@ -1151,20 +1198,21 @@ function openNodeMenu(anchor, tag, onToast) {
 }
 
 // Перетест ВСЕХ нод по одной через /proxies/{tag}/delay (пропатчен на unified →
-// точно, и перемеряет КАЖДЫЙ вызов). Групповой /group/lowest/delay тут не годится:
-// он interval-gated (urlTest skip нод с history моложе 600с) → «обновить всё»
-// освежало лишь устаревшие, а свежие (включая то, что дёргает автозамер главной)
-// застывали. Пул concurrency=8 — как batch-лимит в самом ядре, без UDP/TCP-всплеска.
+// точно, и перемеряет КАЖДЫЙ вызов). Пул concurrency=8 — как batch-лимит в самом
+// ядре, без UDP/TCP-всплеска. Групповой эндпоинт тоже перемерил бы всё, но по
+// одной ноде видно прогресс, а прогон переживает уход с экрана.
 async function testAllNodes(nodes, onProgress, shouldContinue = () => true) {
   const tags = [...new Set(nodes.map(n => n.clashTag))];
   let i = 0;
+  let done = 0;
   async function worker() {
     while (i < tags.length) {
       if (!shouldContinue()) return;
       const t = tags[i++];
       try { await testNode(t, { timeoutMs: 5000 }); } catch {}
+      done++;
       if (!shouldContinue()) return;
-      try { onProgress?.(); } catch {}
+      try { onProgress?.(done); } catch {}
     }
   }
   await Promise.all(Array.from({ length: Math.min(8, tags.length) }, worker));

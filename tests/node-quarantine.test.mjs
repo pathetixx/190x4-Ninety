@@ -36,10 +36,10 @@ test("индекс outbound'а из ошибки ядра указывает н�
     mode: "proxy",
     options: DEFAULT_OPTIONS,
   });
-  // selector/auto/lowest идут первыми — вторая нода это outbound[4].
-  assert.equal(config.outbounds[4].server, "b.example");
+  // selector/auto идут первыми — вторая нода это outbound[3].
+  assert.equal(config.outbounds[3].server, "b.example");
   const hit = matchCoreOutboundRejection(
-    "sing-box died. Last errors:\nFATAL[0000] create service: initialize outbound[4]: unsupported flow: xtls-rprx-direct",
+    "sing-box died. Last errors:\nFATAL[0000] create service: initialize outbound[3]: unsupported flow: xtls-rprx-direct",
     outboundNodes,
   );
   assert.equal(hit.node.host, "b.example");

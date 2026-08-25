@@ -11,12 +11,11 @@ const nodesB = [
 ];
 
 function snapshot(tags) {
-  const all = ["auto", "lowest", ...tags];
+  const all = ["auto", ...tags];
   return {
     proxies: Object.fromEntries([
       ["proxy", { type: "Selector", all, now: "auto" }],
       ["auto", { type: "Balancer", now: tags[0] }],
-      ["lowest", { type: "URLTest", now: tags[0] }],
       ...tags.map(tag => [tag, { type: "VLESS", history: [] }]),
     ]),
   };
@@ -33,7 +32,7 @@ test("snapshot B готов только с Selector, служебными outbo
   assert.equal(snapshotMatchesSource(ready, nodesB), true);
   assert.equal(snapshotCanSelectTag(ready, nodesB, "node-1-b"), true);
 
-  delete ready.proxies.lowest;
+  delete ready.proxies.auto;
   assert.equal(snapshotMatchesSource(ready, nodesB), false);
 });
 

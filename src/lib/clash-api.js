@@ -196,6 +196,31 @@ export async function refreshEffectiveDelay({ port, url = DEFAULT_URL, timeoutMs
   } catch { return { delay: 0, tag }; }
 }
 
+// Ждёт, пока Balancer выберет ноду с ПОДТВЕРЖДЁННЫМ замером.
+//
+// Ставится там, где раньше стоял форс-прогон группы с коротким дедлайном.
+// Тот прогон делал ровно обратное задуманному: ядро отменяло незавершённые
+// пробы вместе с запросом и стирало их историю, то есть проверка «жива ли
+// подписка» сама же и вычищала замеры, на которые опирается Авто.
+//
+// Возвращает тег лидера либо null, если за отведённое время подтверждения нет.
+export async function awaitMeasuredLeader({ port, timeoutMs = 6000, token } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    let data;
+    try {
+      data = await getProxies(port, { token, fresh: true });
+    } catch (e) {
+      if (e?.code === "STALE_RUNTIME") throw e;
+      return null;
+    }
+    const tag = pickEffectiveNode(data);
+    if (tag && lastDelay(data?.proxies?.[tag]) > 0) return tag;
+    if (Date.now() >= deadline) return null;
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
+}
+
 // Разрыв живых прокси-соединений. Нужен после смены ноды: сам селектор старые
 // потоки не рвёт (почему — в clash.rs::clash_close_proxy_connections), поэтому
 // keep-alive браузера продолжал бы идти через прежний сервер. direct-соединения
