@@ -1212,22 +1212,36 @@ function openNodeMenu(anchor, tag, onToast) {
 }
 
 // Перетест ВСЕХ нод по одной через /proxies/{tag}/delay (пропатчен на unified →
-// точно, и перемеряет КАЖДЫЙ вызов). Пул concurrency=8 — как batch-лимит в самом
-// ядре, без UDP/TCP-всплеска. Групповой эндпоинт тоже перемерил бы всё, но по
-// одной ноде видно прогресс, а прогон переживает уход с экрана.
+// точно, и перемеряет КАЖДЫЙ вызов). Групповой эндпоинт тоже перемерил бы всё,
+// но по одной ноде видно прогресс, а прогон переживает уход с экрана.
+//
+// Время прогона определяют не живые серверы, а мёртвые: почти всё оно уходит на
+// ожидание тех, кто не ответит. Поэтому счёт идёт от того, сколько таких ждём
+// одновременно. Порядок — по последней известной задержке: сервер, который уже
+// был быстрым, проверяется первым, и список оживает с верхних строк, а не в
+// случайном порядке подписки.
+// Замер стоит примерно четыре round trip'а до цели через сервер: даже дальний
+// узел укладывается в пару секунд, поэтому четырёх хватает с запасом, а всё
+// сверх — это ожидание тех, кто не ответит никогда. Тридцать два одновременных
+// соединения домашний канал не замечает (браузер открывает больше), зато
+// прогон на трёхсотнодной подписке укладывается в полминуты вместо трёх.
+const TEST_ALL_CONCURRENCY = 32;
+const TEST_ALL_TIMEOUT_MS = 4000;
+
 async function testAllNodes(nodes, onProgress, shouldContinue = () => true) {
-  const tags = [...new Set(nodes.map(n => n.clashTag))];
+  const tags = [...new Set(nodes.map(n => n.clashTag))]
+    .sort((a, b) => (currentDelay(lastClashSnapshot, a) || 1e9) - (currentDelay(lastClashSnapshot, b) || 1e9));
   let i = 0;
   let done = 0;
   async function worker() {
     while (i < tags.length) {
       if (!shouldContinue()) return;
       const t = tags[i++];
-      try { await testNode(t, { timeoutMs: 5000 }); } catch {}
+      try { await testNode(t, { timeoutMs: TEST_ALL_TIMEOUT_MS }); } catch {}
       done++;
       if (!shouldContinue()) return;
       try { onProgress?.(done); } catch {}
     }
   }
-  await Promise.all(Array.from({ length: Math.min(8, tags.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(TEST_ALL_CONCURRENCY, tags.length) }, worker));
 }

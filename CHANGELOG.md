@@ -8,11 +8,13 @@
 
 - The "best measured" line and the order of the server list no longer treat delays left over from an earlier session as if they were current. A server that does not answer right now cannot be offered as the best one, and its old number sorts below the servers that do answer — it is still shown, dimmed, because it says what that server used to do.
 - When a connection through a server fails, that server is measured again straight away instead of waiting for the next scheduled check. It returns to the running as soon as it works again, and stays out of it while it does not — answering a check is not enough on its own, since a server can pass the check and still refuse to carry traffic.
+- Measuring the servers is quicker. Most of the wait was never the servers that answer — it was the ones that never will, waited on a handful at a time. They are now waited on in far larger batches, so a run over a few hundred servers takes well under a minute instead of several, both for Re-measure all and for the checks the app makes on its own. Re-measure all also starts with the servers that were fastest last time, so the top of the list fills in first.
 
 ## Русский
 
 - Строка «лучший по замерам» и порядок списка серверов больше не считают задержки из прошлой сессии свежими. Сервер, который сейчас не отвечает, не может быть предложен как лучший, а его старая цифра уходит ниже тех, кто отвечает, — она по-прежнему видна, приглушённо, потому что говорит, каким этот сервер был раньше.
 - Если соединение через сервер не удалось, он перемеряется сразу, а не ждёт очередной плановой проверки. Он возвращается в выбор, как только снова заработает, и не участвует в нём, пока не работает: одной пройденной проверки мало — сервер может отвечать на проверку и всё равно не пропускать трафик.
+- Замеры серверов идут заметно быстрее. Почти всё время прогона занимали не те серверы, что отвечают, а те, что не ответят никогда, — и ждали их по нескольку штук за раз. Теперь их ждут куда большими пачками: прогон по нескольким сотням серверов укладывается меньше чем в минуту вместо нескольких — и для кнопки «Измерить все», и для проверок, которые приложение делает само. «Измерить все» вдобавок начинает с тех серверов, что были быстрыми в прошлый раз, поэтому верх списка заполняется первым.
 
 ## v0.4.1 — 2026-08-26
 
