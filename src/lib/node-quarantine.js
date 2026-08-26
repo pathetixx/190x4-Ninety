@@ -16,14 +16,27 @@ import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
 const KEY = "ninety.nodeQuarantine.v1";
 const CAP = 300;
 
+// Разбор держим при исходной строке: список нод проверяется поштучно, то есть
+// на подписке в сотни серверов readAll зовётся сотни раз за один проход, и
+// столько же раз разбирался один и тот же JSON. Сверка со строкой оставляет
+// внешнюю запись (восстановление из бэкапа, очистка данных) замеченной.
+let rawCache = null;
+let valCache = null;
+
 function readAll() {
+  let raw;
+  try { raw = localStorage.getItem(KEY); } catch { raw = null; }
+  if (raw === rawCache && valCache) return valCache;
+  let parsed;
   try {
-    const raw = localStorage.getItem(KEY);
-    const parsed = JSON.parse(raw || "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    const o = JSON.parse(raw || "{}");
+    parsed = o && typeof o === "object" && !Array.isArray(o) ? o : {};
   } catch {
-    return {};
+    parsed = {};
   }
+  rawCache = raw;
+  valCache = parsed;
+  return parsed;
 }
 
 function writeAll(map) {
@@ -37,7 +50,10 @@ function writeAll(map) {
         .slice(0, CAP);
       map = Object.fromEntries(trimmed.map(k => [k, map[k]]));
     }
-    localStorage.setItem(KEY, JSON.stringify(map));
+    const raw = JSON.stringify(map);
+    localStorage.setItem(KEY, raw);
+    rawCache = raw;
+    valCache = map;
   } catch { /* приватный режим/переполнение — карантин не критичен */ }
 }
 

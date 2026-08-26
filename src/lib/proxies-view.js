@@ -172,9 +172,15 @@ let lastSignature = "";
 // Данные строк отдельно от структуры списка: пока меняются только цифры,
 // таблицу можно не пересобирать — см. renderTable.
 let lastDataSignature = "";
-// Порядок строк, зафиксированный на время прогона «Измерить все». Сортировка
-// по задержке иначе переставляла бы список под курсором на каждом замере, а
-// заодно делала бы невозможным точечное обновление ячеек.
+// Порядок строк, зафиксированный на момент последней пересборки списка.
+//
+// Сортировка по задержке — значение, которое меняется само по себе: замеры
+// приходят фоном и во время прогона. Пересортировывать под курсором на каждом
+// таком замере и плохо (строка уезжает из-под мыши), и дорого (перестановка
+// сотен строк — работа по раскладке всего списка). Поэтому порядок держится,
+// пока пользователь не попросит его пересчитать: сменой сортировки, поиском,
+// группировкой, входом на экран или завершением прогона. Цифры при этом
+// обновляются на месте.
 let sortFreeze = null;
 // tag → отпечаток нарисованных ячеек задержки. Позволяет трогать только те
 // строки, где цифра действительно изменилась.
@@ -594,6 +600,38 @@ function recHtml(nodes, ctx) {
 
 }
 
+// Перестановка уже существующих строк в новый порядок. appendChild переносит
+// узел, а не копирует, поэтому цена — перемещение ссылок, без разбора разметки.
+// Если порядок и так совпадает, не трогаем DOM вовсе.
+function reorderRows(container, nodes) {
+  if (!container || !Array.isArray(nodes)) return;
+  const rows = container.querySelectorAll(".nt-row[data-tag]");
+  if (rows.length !== nodes.length) return;
+  let same = true;
+  for (let i = 0; i < nodes.length; i++) {
+    if (rows[i].dataset.tag !== nodes[i].clashTag) { same = false; break; }
+  }
+  if (same) return;
+  // Переставляем только то, что стоит не на месте. Полное переупорядочивание
+  // трогало бы все строки даже когда местами поменялись две, а каждая такая
+  // правка — это работа по раскладке всего списка.
+  const byTag = new Map([...rows].map(el => [el.dataset.tag, el]));
+  let cursor = container.firstElementChild;
+  for (const node of nodes) {
+    const el = byTag.get(node.clashTag);
+    if (!el) continue;
+    if (el === cursor) { cursor = cursor.nextElementSibling; continue; }
+    container.insertBefore(el, cursor);
+  }
+}
+
+function restoreRowFocus(grid, tag) {
+  if (document.activeElement?.closest?.(".nt-row, .rec-row")) return;
+  const sel = `[data-tag="${CSS.escape(tag)}"]`;
+  const again = grid.querySelector(`.nt-row${sel}`) || $("proxies-rec")?.querySelector(`.rec-row${sel}`);
+  if (again) again.focus({ preventScroll: true });
+}
+
 // Точечное обновление ячеек «Разброс» и «Задержка» в уже нарисованных строках.
 // Меняем только те, где отпечаток изменился: за один тик прогона приходит
 // несколько результатов, а не триста, поэтому работы получается на единицы
@@ -713,17 +751,6 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   const focusedTag = document.activeElement?.closest?.(".nt-row, .rec-row")?.dataset.tag || null;
   recHtml(nodes, ctx);
 
-  // Структура та же, изменились только замеры — трогаем ячейки, а не таблицу.
-  // Порядок при этом не должен зависеть от новых цифр: либо он заморожен на
-  // время прогона, либо список отсортирован по столбцу, которого замеры не
-  // касаются. При сортировке по задержке новый замер может переставить строки,
-  // и там пересборка неизбежна.
-  const orderHoldsStill = sortFreeze || sortState.key !== "ping";
-  if (!structureChanged && orderHoldsStill && grid.querySelector(".nt-row[data-tag]")) {
-    patchDelayCells(grid, pool, ctx);
-    return;
-  }
-  rowState.clear();
 
   const val = {
     name: n => cleanNameOf(n.name) || n.host,
@@ -774,6 +801,28 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   // важнее машинного и важнее географии.
   const favList = pool.filter(n => favs.has(n.clashTag)).sort(cmpNode);
   const rest = pool.filter(n => !favs.has(n.clashTag));
+  const restSorted = flat ? rest.slice().sort(cmpNode) : null;
+
+  // Мягкое обновление. Состав списка тот же — изменились цифры и, возможно,
+  // порядок. Строки уже существуют: переставить готовые узлы и заменить в них
+  // две ячейки несравнимо дешевле, чем собрать и распарсить заново пять тысяч
+  // узлов. Полная пересборка при сортировке по задержке случалась на КАЖДОМ
+  // пришедшем замере, то есть каждые несколько секунд, и это она ощущалась
+  // как рывки интерфейса.
+  if (!structureChanged && flat && grid.querySelector(".nt-row[data-tag]")) {
+    const bodies = grid.querySelectorAll(".nt-body");
+    const favBody = favList.length ? bodies[0] : null;
+    const restBody = favList.length ? bodies[1] : bodies[0];
+    if (restBody && (!favList.length || favBody)) {
+      if (favBody) reorderRows(favBody, favList);
+      reorderRows(restBody, restSorted);
+      patchDelayCells(grid, pool, ctx);
+      if (focusedTag) restoreRowFocus(grid, focusedTag);
+      return;
+    }
+  }
+  rowState.clear();
+
   const favBlock = favList.length ? `
     <div class="nt__grp nt__grp--static">
       <span class="nt__grp-chev" style="visibility:hidden">${ICON_CHEV}</span>
@@ -785,7 +834,7 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
 
   let body;
   if (flat) {
-    body = `<div class="nt-body">${rest.slice().sort(cmpNode).map(n => nodeRowHtml(n, ctx)).join("")}</div>`;
+    body = `<div class="nt-body">${restSorted.map(n => nodeRowHtml(n, ctx)).join("")}</div>`;
   } else {
     const byC = {};
     rest.forEach(n => { const c = countryOf(n); (byC[c] ||= []).push(n); });
@@ -817,6 +866,10 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   // бы на каждом обновлении и клавиатурная навигация ломалась каждые 4 секунды.
   grid.innerHTML = head + favBlock + body;
   attachFlagFallbacks(grid);
+  // Нарисованный порядок и становится «замороженным» до следующего явного
+  // запроса на пересортировку.
+  sortFreeze = new Map([...grid.querySelectorAll(".nt-row[data-tag]")]
+    .map((el, i) => [el.dataset.tag, i]));
   // Отпечатки нарисованного — чтобы следующий патч трогал только изменившееся.
   for (const node of pool) {
     const hs = historyOf(clashData, node.clashTag);
@@ -961,6 +1014,9 @@ async function handleNodeClick(card, onToast) {
 
 export function onProxiesViewEnter() {
   viewActive = true;
+  // Вход на экран — законный момент показать актуальный порядок.
+  sortFreeze = null;
+  invalidateRender();
   if (strictPrivacyEnabled()) {
     stopPoll();
     renderStrict();
@@ -1085,6 +1141,8 @@ export function mountProxiesView({
     if (sorter) {
       const k = sorter.dataset.k;
       sortState = { key: k, dir: sortState.key === k && sortState.dir === "asc" ? "desc" : "asc" };
+      // Явный запрос на другой порядок — размораживаем и пересобираем.
+      sortFreeze = null; invalidateRender();
       saveUi("sort", sortState); rerender(); return;
     }
     const grp = e.target.closest(".nt__grp[data-c]");
@@ -1134,6 +1192,7 @@ export function mountProxiesView({
   // ── поиск ──
   function setQuery(v) {
     query = v;
+    sortFreeze = null;
     const input = $("proxies-q");
     if (input && input.value !== v) input.value = v;
     const clear = $("proxies-q-clear");
@@ -1161,6 +1220,7 @@ export function mountProxiesView({
     const b = e.target.closest("[data-g]");
     if (!b) return;
     grouped = b.dataset.g === "country";
+    sortFreeze = null;
     saveUi("grouped", grouped);
     $("proxies-group").querySelectorAll("button").forEach(x =>
       x.setAttribute("aria-pressed", String((x.dataset.g === "country") === grouped)));

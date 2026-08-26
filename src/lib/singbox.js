@@ -1593,10 +1593,21 @@ export function validateConfigReferences(config) {
 
 // Единая логика тэга outbound'а для multi-node подписки.
 // Должна совпадать между builder'ом и proxies-view, иначе селектор будет бить мимо.
+// Тег зависит только от самой ноды, а считается он хешем по её содержимому.
+// Экран серверов, трей и движок качества спрашивают тег для каждой ноды по
+// многу раз в секунду, поэтому результат держим при объекте ноды: на подписке
+// в сотни серверов пересчёт занимал заметную долю каждого обновления списка.
+const nodeTagCache = new WeakMap();
+
 export function nodeTag(i, node) {
   void i; // legacy argument; identity intentionally does not depend on ordering.
-  const stable = hashRuntimeValue(stableNodeId(node, "node"));
-  return `node-${stable}`;
+  if (node && typeof node === "object") {
+    const hit = nodeTagCache.get(node);
+    if (hit) return hit;
+  }
+  const tag = `node-${hashRuntimeValue(stableNodeId(node, "node"))}`;
+  if (node && typeof node === "object") nodeTagCache.set(node, tag);
+  return tag;
 }
 
 // ── профили (storage) ──────────────────────────────────────

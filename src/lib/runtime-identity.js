@@ -55,7 +55,19 @@ function semanticNodeShape(node) {
       && key !== "id" && key !== "raw" && key !== "stableId" && value !== undefined));
 }
 
+// Отпечаток зависит только от самой ноды и считается хешем по её содержимому.
+// Карантин спрашивает его для каждой ноды при каждой сборке списка серверов,
+// поэтому результат держим при объекте.
+const semanticFingerprintCache = new WeakMap();
+
 export function nodeSemanticFingerprint(node) {
+  if (node && typeof node === "object") {
+    const hit = semanticFingerprintCache.get(node);
+    if (hit) return hit;
+    const value = hashRuntimeValue(semanticNodeShape(node));
+    semanticFingerprintCache.set(node, value);
+    return value;
+  }
   return hashRuntimeValue(semanticNodeShape(node));
 }
 
