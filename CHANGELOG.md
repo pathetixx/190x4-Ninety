@@ -2,6 +2,32 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.4.1 — 2026-08-26
+
+## English
+
+- Auto no longer gets stuck on the first server of a subscription. It chooses by measured delay, but those delays were measured once, when the connection came up, and were never refreshed; each failed connection dropped one more of them, and once none were left Auto held the first server in the list even when that server answered nothing. The app now keeps the measurements current by itself, and a server that fails to carry traffic steps out of the running for a while instead of being picked again straight away.
+- The servers screen counted responding servers from measurements saved earlier, so the number was settled in the first session and never recalculated — not even by Re-measure all. It now counts what has just been confirmed, shows how far a measurement run has got, and dims delays left over from an earlier session, so a server that has since died no longer reads as a healthy one.
+- In the recommendations, the line naming the server Auto is on showed the winner of the app's own rating rather than the server the traffic actually goes through. The two could disagree for hours.
+- The tray icon could stay grey and say disconnected while the VPN was up, and only restarting the app put it right.
+- On subscriptions with hundreds of servers the tray menu lists the current server, your favourites and the head of the list, and says how many more are waiting on the Servers screen.
+- Delays measured from the app and delays the core measures on its own now use the same test address, so the two numbers can be compared.
+- The connection test interval in settings finally does what it says: server checks really do repeat on it.
+- The core was updated to sing-box 1.13.19.
+- Wording: the app no longer speaks about itself in the first person.
+
+## Русский
+
+- «Авто» больше не залипает на первом сервере подписки. Он выбирает по замеренной задержке, но замеры делались один раз, при подключении, и дальше не обновлялись; каждое неудачное соединение убирало ещё один, а когда не оставалось ни одного, «Авто» держал первый сервер списка, даже если тот не отвечал вовсе. Теперь приложение обновляет замеры само, а сервер, через который не удалось пройти трафику, на время выбывает из выбора вместо того, чтобы выбираться снова тут же.
+- Экран «Серверы» считал отвечающие серверы по ранее сохранённым замерам, поэтому число определялось в первую сессию и больше не пересчитывалось — даже кнопкой «Измерить все». Теперь считается то, что подтверждено сейчас, во время прогона виден его ход, а задержки, оставшиеся с прошлой сессии, показаны приглушённо: умерший сервер больше не выглядит живым.
+- В рекомендациях строка о том, на каком сервере стоит «Авто», называла победителя собственного рейтинга приложения, а не сервер, через который реально идёт трафик. Расходиться они могли часами.
+- Значок в трее мог оставаться серым и сообщать «отключено» при работающем VPN — помогал только перезапуск приложения.
+- На подписках в сотни серверов меню в трее показывает текущий сервер, избранные и начало списка, а также сообщает, сколько ещё осталось на экране «Серверы».
+- Задержки, которые меряет приложение, и задержки, которые ядро меряет само, теперь измеряются до одного адреса — их наконец можно сравнивать.
+- Интервал проверки соединения в настройках наконец делает то, что обещает: проверки серверов действительно повторяются с ним.
+- Ядро обновлено до sing-box 1.13.19.
+- Формулировки: приложение больше не говорит о себе от первого лица.
+
 ## v0.4.0 — 2026-08-23
 
 ## English
