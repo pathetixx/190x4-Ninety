@@ -7,11 +7,13 @@
 ## English
 
 - The server list no longer stalls the window while measurements arrive. Each incoming measurement used to tear the whole list down and build it again — about five thousand elements on a subscription of a few hundred servers — and that is what you felt as stutter, both during "Re-measure all" and in the background. Rows are now reused: only the two cells that changed are replaced.
+- Auto could quietly stop measuring altogether. A health check that never finished left the group unable to start another one — not on schedule, not on request — so Auto went on choosing between measurements that only got older, and a server that had since died stayed the "fastest" one. Found on a live install, where nothing had been measured for nineteen minutes on a ten minute interval. A check that overruns its time is now abandoned and replaced.
 - Measurements arriving in the background no longer reshuffle the list. The order holds until you ask for a new one — by clicking a column, searching, grouping, or entering the screen again — so rows no longer move out from under the cursor while you are reading them. The numbers still update in place.
 
 ## Русский
 
 - Список серверов больше не подвешивает окно, пока приходят замеры. Каждый пришедший замер пересобирал список целиком — на подписке в несколько сотен серверов это около пяти тысяч элементов, — и именно это ощущалось рывками: и во время «Измерить все», и в фоне. Теперь строки переиспользуются, заменяются только те две ячейки, что изменились.
+- «Авто» могло незаметно перестать мерить вообще. Проверка, которая не дошла до конца, не давала запустить следующую — ни по расписанию, ни по запросу, — и «Авто» продолжало выбирать из замеров, которые только устаревали: умерший сервер так и оставался «самым быстрым». Найдено на живой установке, где не измерялось ничего девятнадцать минут при интервале в десять. Проверка, вышедшая за отведённое время, теперь бросается и заменяется новой.
 - Фоновые замеры больше не переставляют список. Порядок держится, пока вы не попросите другой — кликом по столбцу, поиском, группировкой или повторным входом на экран, — и строки не уезжают из-под курсора, пока вы их читаете. Цифры при этом обновляются на месте.
 
 ## v0.4.3 — 2026-08-26
