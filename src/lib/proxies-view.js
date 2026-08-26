@@ -223,6 +223,12 @@ function transportWeight(node) {
   return 0.8;
 }
 function scoreNode(node, clashData) {
+  // Рекомендация обязана быть про сервер, который отвечает СЕЙЧАС. История
+  // замеров живёт в приложении и переживает и реконнект, и смерть подписки,
+  // поэтому сама по себе она доказывает лишь то, что сервер когда-то работал:
+  // без этой проверки в «лучшие по замерам» выходил сервер, который ядро в
+  // текущей сессии не подтвердило и через который трафик не пошёл бы.
+  if (!coreDelay(clashData, node.clashTag)) return null;
   const hs = historyOf(clashData, node.clashTag);
   const L = liveDelays(hs);
   // Хватает одного успешного замера: один прогон «Измерить все» даёт ровно один
@@ -655,7 +661,15 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
     name: n => cleanNameOf(n.name) || n.host,
     host: n => n.host,
     tr:   n => transportLabel(n),
-    ping: n => currentDelay(clashData, n.clashTag) || 1e9,
+    // Подтверждённые ядром сортируются между собой по задержке, архивные —
+    // следом за ними, без данных — в самом конце. Иначе цифра из прошлой
+    // сессии вклинивается между живыми серверами и выглядит как лучший выбор.
+    ping: n => {
+      const live = coreDelay(clashData, n.clashTag);
+      if (live) return live;
+      const archived = currentDelay(clashData, n.clashTag);
+      return archived ? 1e6 + archived : 1e9;
+    },
   };
   const dir = sortState.dir === "asc" ? 1 : -1;
   const raw = (x, y) => typeof x === "number" ? x - y : String(x).localeCompare(String(y), "ru");

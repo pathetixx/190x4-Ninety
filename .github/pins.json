@@ -1,8 +1,8 @@
 {
   "_comment": "Pins for everything Ninety ships but does not build from its own sources. Kept out of the workflow files on purpose: GITHUB_TOKEN may not push changes under .github/workflows, so the weekly pins-watch could not open its bump PR. scripts/check-pins.mjs reads and updates this file; build.yml and security.yml read it too.",
   "ninety-core": {
-    "tag": "v1.13.19-ninety.5",
-    "sha": "09e924bad9b3c9feff0ace75eeeb61273965c019"
+    "tag": "v1.13.19-ninety.6",
+    "sha": "fe073eb0256a11c00835ba897b3428f404002a59"
   },
   "xray-core": {
     "tag": "v26.7.28",

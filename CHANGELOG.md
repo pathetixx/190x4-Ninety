@@ -2,6 +2,18 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.4.2
+
+## English
+
+- The "best measured" line and the order of the server list no longer treat delays left over from an earlier session as if they were current. A server that does not answer right now cannot be offered as the best one, and its old number sorts below the servers that do answer — it is still shown, dimmed, because it says what that server used to do.
+- When a connection through a server fails, that server is measured again straight away instead of waiting for the next scheduled check. It returns to the running as soon as it works again, and stays out of it while it does not — answering a check is not enough on its own, since a server can pass the check and still refuse to carry traffic.
+
+## Русский
+
+- Строка «лучший по замерам» и порядок списка серверов больше не считают задержки из прошлой сессии свежими. Сервер, который сейчас не отвечает, не может быть предложен как лучший, а его старая цифра уходит ниже тех, кто отвечает, — она по-прежнему видна, приглушённо, потому что говорит, каким этот сервер был раньше.
+- Если соединение через сервер не удалось, он перемеряется сразу, а не ждёт очередной плановой проверки. Он возвращается в выбор, как только снова заработает, и не участвует в нём, пока не работает: одной пройденной проверки мало — сервер может отвечать на проверку и всё равно не пропускать трафик.
+
 ## v0.4.1 — 2026-08-26
 
 ## English
