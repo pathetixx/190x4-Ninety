@@ -2,6 +2,18 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.4.4
+
+## English
+
+- The server list no longer stalls the window while measurements arrive. Each incoming measurement used to tear the whole list down and build it again — about five thousand elements on a subscription of a few hundred servers — and that is what you felt as stutter, both during "Re-measure all" and in the background. Rows are now reused: only the two cells that changed are replaced.
+- Measurements arriving in the background no longer reshuffle the list. The order holds until you ask for a new one — by clicking a column, searching, grouping, or entering the screen again — so rows no longer move out from under the cursor while you are reading them. The numbers still update in place.
+
+## Русский
+
+- Список серверов больше не подвешивает окно, пока приходят замеры. Каждый пришедший замер пересобирал список целиком — на подписке в несколько сотен серверов это около пяти тысяч элементов, — и именно это ощущалось рывками: и во время «Измерить все», и в фоне. Теперь строки переиспользуются, заменяются только те две ячейки, что изменились.
+- Фоновые замеры больше не переставляют список. Порядок держится, пока вы не попросите другой — кликом по столбцу, поиском, группировкой или повторным входом на экран, — и строки не уезжают из-под курсора, пока вы их читаете. Цифры при этом обновляются на месте.
+
 ## v0.4.3 — 2026-08-26
 
 ## English
