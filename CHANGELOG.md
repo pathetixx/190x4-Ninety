@@ -2,6 +2,18 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.4.3
+
+## English
+
+- "Re-measure all" no longer freezes the window for seconds. Every result that came back rebuilt the entire server list — every row, flag and graph of it — and results now arrive several times a second. Only the two cells that actually changed are redrawn.
+- The list also keeps the order it had when the run started, instead of resorting itself on every result. Rows no longer jump out from under the cursor mid-run; the final order is applied once, when the run finishes.
+
+## Русский
+
+- «Измерить все» больше не подвешивает окно на несколько секунд. Каждый пришедший результат пересобирал весь список серверов целиком — все строки, флаги и графики, — а результаты теперь приходят по нескольку раз в секунду. Перерисовываются только те две ячейки, что действительно изменились.
+- Список к тому же держит порядок, который был на момент запуска, вместо того чтобы пересортировываться на каждом замере. Строки больше не выпрыгивают из-под курсора посреди прогона, а итоговый порядок применяется один раз — по завершении.
+
 ## v0.4.2 — 2026-08-26
 
 ## English

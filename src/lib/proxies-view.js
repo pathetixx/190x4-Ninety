@@ -169,6 +169,24 @@ let grouped = loadUi("grouped", true);
 let recOpen = loadUi("recOpen", true);
 const collapsedGroups = new Set();
 let lastSignature = "";
+// Данные строк отдельно от структуры списка: пока меняются только цифры,
+// таблицу можно не пересобирать — см. renderTable.
+let lastDataSignature = "";
+// Порядок строк, зафиксированный на время прогона «Измерить все». Сортировка
+// по задержке иначе переставляла бы список под курсором на каждом замере, а
+// заодно делала бы невозможным точечное обновление ячеек.
+let sortFreeze = null;
+// tag → отпечаток нарисованных ячеек задержки. Позволяет трогать только те
+// строки, где цифра действительно изменилась.
+const rowState = new Map();
+
+// Полная пересборка на следующем рендере: структура списка больше не совпадает
+// с нарисованной.
+function invalidateRender() {
+  lastSignature = "";
+  lastDataSignature = "";
+  rowState.clear();
+}
 
 function loadUi(k, dflt) {
   try {
@@ -576,6 +594,34 @@ function recHtml(nodes, ctx) {
 
 }
 
+// Точечное обновление ячеек «Разброс» и «Задержка» в уже нарисованных строках.
+// Меняем только те, где отпечаток изменился: за один тик прогона приходит
+// несколько результатов, а не триста, поэтому работы получается на единицы
+// строк вместо полной пересборки со всеми флагами и обработчиками.
+function patchDelayCells(grid, pool, ctx) {
+  for (const node of pool) {
+    const tag = node.clashTag;
+    const hs = historyOf(ctx.clashData, tag);
+    const delay = currentDelay(ctx.clashData, tag);
+    const stale = isStaleDelay(ctx.clashData, tag);
+    const pending = ctx.testing && !hs.length;
+    const key = `${delay}|${hs.length}|${pending ? 1 : 0}|${stale ? 1 : 0}`;
+    if (rowState.get(tag) === key) continue;
+    const row = grid.querySelector(`.nt-row[data-tag="${CSS.escape(tag)}"]`);
+    if (!row) continue;
+    rowState.set(tag, key);
+    row.dataset.pending = String(pending);
+    const spark = row.querySelector(".n-spark, .n-spark-none, .n-wait");
+    if (spark) spark.outerHTML = pending ? `<span class="n-wait"></span>` : sparkHtml(hs);
+    const ping = row.querySelector(".n-ping, .n-dash");
+    if (ping) {
+      ping.outerHTML = pending
+        ? `<span class="n-dash">···</span>`
+        : pingHtml(delay, gradeDelay(delay), stale);
+    }
+  }
+}
+
 // ── таблица ─────────────────────────────────────────────────
 function sortHeader(key, label, end) {
   const on = sortState.key === key;
@@ -609,7 +655,7 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
       <h3>${escapeHtml(t("proxies.emptyTitle"))}</h3><p>${escapeHtml(t("proxies.emptySub"))}</p></div>`;
     if (metaEl) metaEl.textContent = t("proxies.metaNone");
     const rec = $("proxies-rec"); if (rec) { rec.hidden = true; rec.innerHTML = ""; }
-    lastSignature = "";
+    invalidateRender();
     return;
   }
 
@@ -620,15 +666,25 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   const flat = !grouped || terms.length > 0;
 
   // Полный innerHTML раз в 4 секунды сбрасывал бы фокус строки и ввод в поиске.
-  // Пересобираем только когда что-то реально изменилось.
+  // Пересобираем только когда что-то реально изменилось — и различаем два
+  // «изменилось»: состав/порядок/фильтры требуют пересборки, а новая цифра
+  // задержки — только замены двух ячеек в готовой строке. Во время прогона
+  // «Измерить все» результаты приходят пачками по несколько раз в секунду, и
+  // пересборка трёхсот строк с флагами на каждую пачку — это и есть те самые
+  // секунды, на которые подвисало окно.
   const signature = JSON.stringify([
-    pool.map(n => [n.clashTag, lastDelay(clashData?.proxies?.[n.clashTag]), historyOf(clashData, n.clashTag).length]),
+    pool.map(n => n.clashTag),
     selectorTag, effectiveTag, query, sortState, grouped, recOpen, strict,
-    sweep ? [sweep.done, sweep.total] : null,
-    [...favs].sort(), [...collapsedGroups].sort(), testingAll,
+    [...favs].sort(), [...collapsedGroups].sort(), testingAll, !!sortFreeze,
   ]);
-  if (signature === lastSignature) return;
+  const dataSignature = JSON.stringify([
+    pool.map(n => [lastDelay(clashData?.proxies?.[n.clashTag]), historyOf(clashData, n.clashTag).length]),
+    sweep ? [sweep.done, sweep.total] : null,
+  ]);
+  if (signature === lastSignature && dataSignature === lastDataSignature) return;
+  const structureChanged = signature !== lastSignature;
   lastSignature = signature;
+  lastDataSignature = dataSignature;
 
   // Считаем по замерам ЯДРА. Прежний счёт через currentDelay откатывался на
   // локальный архив, поэтому число «отвечают» фиксировалось в первой сессии и
@@ -657,6 +713,18 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   const focusedTag = document.activeElement?.closest?.(".nt-row, .rec-row")?.dataset.tag || null;
   recHtml(nodes, ctx);
 
+  // Структура та же, изменились только замеры — трогаем ячейки, а не таблицу.
+  // Порядок при этом не должен зависеть от новых цифр: либо он заморожен на
+  // время прогона, либо список отсортирован по столбцу, которого замеры не
+  // касаются. При сортировке по задержке новый замер может переставить строки,
+  // и там пересборка неизбежна.
+  const orderHoldsStill = sortFreeze || sortState.key !== "ping";
+  if (!structureChanged && orderHoldsStill && grid.querySelector(".nt-row[data-tag]")) {
+    patchDelayCells(grid, pool, ctx);
+    return;
+  }
+  rowState.clear();
+
   const val = {
     name: n => cleanNameOf(n.name) || n.host,
     host: n => n.host,
@@ -676,8 +744,14 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   const cmp = (x, y) => raw(x, y) * dir;
   // При равенстве по основному столбцу — быстрейший выше, затем по имени.
   // Без этого «все REALITY» выпадали в порядке добавления.
-  const cmpNode = (a, b) => cmp(val[sortState.key](a), val[sortState.key](b))
-    || raw(val.ping(a), val.ping(b)) || raw(val.name(a), val.name(b));
+  // Во время прогона порядок заморожен: сортировка по задержке иначе
+  // переставляла бы строки под курсором на каждом пришедшем замере, а список
+  // «прыгал» бы весь прогон. После прогона рендер пересортирует всё разом.
+  const frozenIndex = (n) => (sortFreeze?.has(n.clashTag) ? sortFreeze.get(n.clashTag) : Number.MAX_SAFE_INTEGER);
+  const cmpNode = sortFreeze
+    ? (a, b) => frozenIndex(a) - frozenIndex(b) || raw(val.name(a), val.name(b))
+    : (a, b) => cmp(val[sortState.key](a), val[sortState.key](b))
+      || raw(val.ping(a), val.ping(b)) || raw(val.name(a), val.name(b));
 
   const head = `
     <div class="nt__head">
@@ -743,6 +817,13 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   // бы на каждом обновлении и клавиатурная навигация ломалась каждые 4 секунды.
   grid.innerHTML = head + favBlock + body;
   attachFlagFallbacks(grid);
+  // Отпечатки нарисованного — чтобы следующий патч трогал только изменившееся.
+  for (const node of pool) {
+    const hs = historyOf(clashData, node.clashTag);
+    const pending = ctx.testing && !hs.length;
+    rowState.set(node.clashTag, `${currentDelay(clashData, node.clashTag)}|${hs.length}`
+      + `|${pending ? 1 : 0}|${isStaleDelay(clashData, node.clashTag) ? 1 : 0}`);
+  }
   if (focusedTag) {
     const sel = `[data-tag="${CSS.escape(focusedTag)}"]`;
     const again = grid.querySelector(`.nt-row${sel}`) || $("proxies-rec")?.querySelector(`.rec-row${sel}`);
@@ -759,7 +840,7 @@ function effectiveSelectorTag(clashData) {
 
 function renderApplying(nodes) {
   if (strictPrivacyEnabled()) { renderStrict(nodes); return; }
-  lastSignature = "";
+  invalidateRender();
   render(nodes, null, null, null);
   const metaEl = $("proxies-meta");
   if (metaEl) {
@@ -772,7 +853,7 @@ function renderStrict(nodes = nodesFromSource()) {
   lastClashSnapshot = null;
   lastEffectiveTag = selectedTag;
   setRetestVisible(false);
-  lastSignature = "";
+  invalidateRender();
   render(nodes, selectedTag, selectedTag, null, { strict: true });
 }
 
@@ -797,7 +878,10 @@ async function refresh({ retry = false } = {}) {
   lastClashSnapshot = data;
   const tags = nodes.map(n => n.clashTag);
   pruneProbeHistory(getActiveSource(), tags);
-  if (recordProbes(getActiveSource(), data, tags)) lastSignature = "";
+  // Новую точку в истории раньше сопровождала полная инвалидация рендера —
+  // то есть каждый пришедший замер пересобирал таблицу целиком. Теперь разницу
+  // видит сигнатура данных, и её отрабатывает патч ячеек.
+  recordProbes(getActiveSource(), data, tags);
   const selectorTag = effectiveSelectorTag(data);
   const effectiveTag = pickEffectiveNode(data);
   // URLTest сам мог перевыбрать ноду — синхронизируем хедер и IP
@@ -926,7 +1010,7 @@ export function resetProxiesViewForSourceChange() {
   // Вход на экран всегда начинается с рендера, а сброшенная сигнатура не даст
   // ему счесть список неизменившимся.
   if (!viewActive) {
-    lastSignature = "";
+    invalidateRender();
     return;
   }
   const nodes = nodesFromSource();
@@ -946,12 +1030,12 @@ export function rerenderProxiesView() {
   // Смена языка на скрытом экране: пересобирать список не нужно, он всё равно
   // перерисуется при входе — но сигнатуру сбрасываем, чтобы вход это сделал.
   if (!viewActive) {
-    lastSignature = "";
+    invalidateRender();
     regionNames = null;
     return;
   }
   regionNames = null;      // язык мог смениться — названия стран пересобрать
-  lastSignature = "";
+  invalidateRender();
   if (strictPrivacyEnabled()) {
     renderStrict();
     return;
@@ -969,7 +1053,7 @@ export function mountProxiesView({
   onStrictNodeSelected = typeof strictNodeSelected === "function" ? strictNodeSelected : null;
 
   const rerender = () => {
-    lastSignature = "";
+    invalidateRender();
     if (strictPrivacyEnabled()) renderStrict();
     else render(nodesFromSource(), effectiveSelectorTag(lastClashSnapshot),
                 pickEffectiveNode(lastClashSnapshot), lastClashSnapshot);
@@ -1105,14 +1189,23 @@ export function mountProxiesView({
         return;
       }
       lastClashSnapshot = ready;
+      // Фиксируем порядок, который сейчас видит пользователь: дальше строки
+      // только обновляются на месте. Если таблица ещё не нарисована, морозить
+      // нечего — тогда прогон идёт с обычной пересборкой.
+      const drawn = [...($("proxies-grid")?.querySelectorAll(".nt-row[data-tag]") || [])];
+      sortFreeze = drawn.length ? new Map(drawn.map((el, i) => [el.dataset.tag, i])) : null;
+      invalidateRender();
       // refresh по ходу — список оживает прогрессивно, не ждёт все ноды
       let last = 0;
       sweep = { done: 0, total: new Set(nodes.map(n => n.clashTag)).size };
       await testAllNodes(nodes, (done) => {
         if (generation !== sourceGeneration) return;
         if (sweep) sweep.done = done;
+        // Каждый refresh — это ответ /proxies на все ноды подписки: сотня с
+        // лишним килобайт JSON через IPC. Раз в секунду список обновляется
+        // достаточно живо, а окно не занято разбором ответов.
         const now = Date.now();
-        if (now - last > 600) { last = now; refresh(); }
+        if (now - last > 1000) { last = now; refresh(); }
       }, () => generation === sourceGeneration);
       sweep = null;
       if (generation !== sourceGeneration) return;
@@ -1123,6 +1216,10 @@ export function mountProxiesView({
     } finally {
       testingAll = false;
       sweep = null;
+      // Порядок размораживаем и пересобираем список один раз — с итоговой
+      // сортировкой по свежим замерам.
+      sortFreeze = null;
+      invalidateRender();
       delete testBtn.dataset.testing;
       testBtn.disabled = false;
       rerender();
@@ -1200,12 +1297,12 @@ function openNodeMenu(anchor, tag, onToast) {
     if (b.dataset.a === "pin") { handleNodeClick(anchor.closest(".prox"), onToast); return; }
     if (b.dataset.a === "fav") {
       const on = toggleFavourite(getActiveSource(), tag);
-      lastSignature = "";
+      invalidateRender();
       await refresh();
       onToast?.(on ? t("proxies.favToastOn") : t("proxies.favToastOff"), "success", 1400);
       return;
     }
-    try { await testNode(tag, { timeoutMs: 5000 }); lastSignature = ""; await refresh(); }
+    try { await testNode(tag, { timeoutMs: 5000 }); invalidateRender(); await refresh(); }
     catch (e2) { onToast?.(t("proxies.toastTestErr", { err: e2?.message || e2 }), "error", 2500); }
   });
   setTimeout(() => document.addEventListener("click", close, { once: true }), 0);
@@ -1222,10 +1319,12 @@ function openNodeMenu(anchor, tag, onToast) {
 // случайном порядке подписки.
 // Замер стоит примерно четыре round trip'а до цели через сервер: даже дальний
 // узел укладывается в пару секунд, поэтому четырёх хватает с запасом, а всё
-// сверх — это ожидание тех, кто не ответит никогда. Тридцать два одновременных
-// соединения домашний канал не замечает (браузер открывает больше), зато
-// прогон на трёхсотнодной подписке укладывается в полминуты вместо трёх.
-const TEST_ALL_CONCURRENCY = 32;
+// сверх — это ожидание тех, кто не ответит никогда. Два десятка одновременных
+// соединений домашний канал не замечает (браузер открывает больше), зато
+// прогон на трёхсотнодной подписке укладывается меньше чем в минуту вместо
+// трёх. Выше не поднимаем: выигрыш уже небольшой, а всплеск запросов через
+// IPC заметен на отзывчивости окна.
+const TEST_ALL_CONCURRENCY = 24;
 const TEST_ALL_TIMEOUT_MS = 4000;
 
 async function testAllNodes(nodes, onProgress, shouldContinue = () => true) {
