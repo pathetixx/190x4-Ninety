@@ -16,6 +16,9 @@ import {
 } from "/lib/proxy-selection.js";
 import { getFavourites, toggleFavourite } from "/lib/favourites.js";
 import { recordProbes, getProbeHistory, pruneProbeHistory } from "/lib/delay-history.js";
+import {
+  liveDelays, medianOf, stdevOf, scoreNode, reasonKeys,
+} from "/lib/node-ranking.js";
 
 function $(id) { return document.getElementById(id); }
 
@@ -217,98 +220,27 @@ let renderSource = null;
 function historyOf(_clashData, tag) {
   return getProbeHistory(renderSource || getActiveSource(), tag);
 }
-const liveDelays = (hs) => hs.filter(d => d > 0 && d < 65000);
-function medianOf(a) {
-  if (!a.length) return 0;
-  const s = [...a].sort((x, y) => x - y), m = s.length >> 1;
-  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
-}
-function stdevOf(a) {
-  if (a.length < 2) return 0;
-  const m = a.reduce((x, y) => x + y, 0) / a.length;
-  return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / a.length);
-}
-const clamp01 = (v) => Math.max(0, Math.min(1, v));
-
 // ── движок рекомендаций ─────────────────────────────────────
-// Считает ТОЛЬКО по замерам, которые приложение уже сделало: массив history
-// clash-API и тип транспорта ноды. Никакой внешней телеметрии.
-const TRANSPORT_W = { REALITY: 1, XHTTP: 0.95, TRUSTTUNNEL: 0.9, NAIVE: 0.85, WIREGUARD: 0.82, GRPC: 0.8, WS: 0.75 };
-function transportWeight(node) {
-  const proto = String(node?.proto || "").toLowerCase();
-  if (proto === "trusttunnel") return TRANSPORT_W.TRUSTTUNNEL;
-  if (proto === "naive") return TRANSPORT_W.NAIVE;
-  if (proto === "wireguard") return TRANSPORT_W.WIREGUARD;
-  const sec = String(node?.security || "").toLowerCase();
-  if (sec === "reality") return TRANSPORT_W.REALITY;
-  const type = String(node?.type || "").toLowerCase();
-  if (type === "xhttp") return TRANSPORT_W.XHTTP;
-  if (type === "grpc") return TRANSPORT_W.GRPC;
-  if (type === "ws") return TRANSPORT_W.WS;
-  return 0.8;
-}
-function scoreNode(node, clashData) {
-  // Рекомендация обязана быть про сервер, который отвечает СЕЙЧАС. История
-  // замеров живёт в приложении и переживает и реконнект, и смерть подписки,
-  // поэтому сама по себе она доказывает лишь то, что сервер когда-то работал:
-  // без этой проверки в «лучшие по замерам» выходил сервер, который ядро в
-  // текущей сессии не подтвердило и через который трафик не пошёл бы.
-  if (!coreDelay(clashData, node.clashTag)) return null;
-  const hs = historyOf(clashData, node.clashTag);
-  const L = liveDelays(hs);
-  // Хватает одного успешного замера: один прогон «Измерить все» даёт ровно один
-  // замер на сервер, и порог выше этого делал рекомендации недостижимыми.
-  if (!L.length) return null;
-  const med = medianOf(L);
-  const jit = L.length >= 2 ? stdevOf(L) : null;
-  const latency = clamp01(1 - (med - 25) / 275);
-
-  // По двум замерам разброс и доступность — крайне шумные оценки: один неудачный
-  // сэмпл обнулял стабильность, и самый быстрый сервер вылетал из рекомендаций.
-  // Поэтому производные компоненты набирают вес по мере накопления замеров, а
-  // пока доказательств мало, индекс опирается на то, что измерено напрямую —
-  // на задержку.
-  const evidence = clamp01((hs.length - 1) / 4);
-  const shrink = (v) => 0.5 + (v - 0.5) * evidence;
-  const stability = jit == null ? 0.5 : shrink(clamp01(1 - jit / 55));
-  const liveness = shrink(L.length / hs.length);
-  const transport = transportWeight(node);
-  return {
-    total: 0.45 * latency + 0.30 * stability + 0.15 * liveness + 0.10 * transport,
-    latency, stability, liveness, transport, med, jit, okN: L.length, allN: hs.length,
-  };
-}
 function rankNodes(nodes, clashData) {
   return nodes
-    .map(n => ({ n, s: scoreNode(n, clashData) }))
+    // Рекомендация обязана быть про сервер, который отвечает СЕЙЧАС. История
+    // замеров живёт в приложении и переживает и реконнект, и смерть подписки,
+    // поэтому сама по себе она доказывает лишь то, что сервер когда-то работал:
+    // без этой проверки в «лучшие по замерам» выходил сервер, который ядро в
+    // текущей сессии не подтвердило и через который трафик не пошёл бы.
+    .map(n => ({ n, s: coreDelay(clashData, n.clashTag) ? scoreNode(n, historyOf(clashData, n.clashTag)) : null }))
     .filter(x => x.s)
     .sort((a, b) => b.s.total - a.s.total);
 }
-const REASON_KEYS = ["latency", "stability", "liveness", "transport"];
-function reasonFor(key, s, node) {
-  if (key === "latency")   return { icon: ICON_GAUGE,  text: t("proxies.whyLatency", { ms: Math.round(s.med) }) };
+function reasonFor(key, s, node, superlative) {
+  if (key === "latency")   return { icon: ICON_GAUGE,  text: t(superlative ? "proxies.whyFastest" : "proxies.whyLatency", { ms: Math.round(s.med) }) };
   if (key === "stability") return { icon: ICON_PULSE,  text: t("proxies.whyStable", { ms: Math.round(s.jit || 0) }) };
   if (key === "liveness")  return { icon: ICON_SHIELD, text: tn("proxies.whyLive", s.okN, { all: s.allN }) };
   return { icon: ICON_SERVER, text: t("proxies.whyTransport", { name: transportLabel(node) }) };
 }
-// Причина выбирается по тому, чем нода сильнее всего ОТРЫВАЕТСЯ от поля,
-// а не по максимальному компоненту: иначе все получают «12 из 12 замеров»
-// — правду, которая ничего не объясняет. Две строки не повторяются.
 function reasonsFor(top, field) {
-  const med = {};
-  REASON_KEYS.forEach(k => { med[k] = medianOf(field.map(x => Math.round(x.s[k] * 100))) / 100; });
-  const used = new Set();
-  return top.map(({ n, s }) => {
-    // Разброс без второго замера не измерен, доступность при единственном замере
-    // тривиально равна единице — такие причины ничего не объясняют.
-    const usable = REASON_KEYS.filter(k =>
-      !(k === "stability" && s.jit == null) && !(k === "liveness" && s.allN < 2));
-    const pool2 = usable.length ? usable : REASON_KEYS.filter(k => k !== "stability" || s.jit != null);
-    const order = [...pool2].sort((a, b) => (s[b] - med[b]) - (s[a] - med[a]));
-    const key = order.find(k => !used.has(k)) || order[0];
-    used.add(key);
-    return reasonFor(key, s, n);
-  });
+  return reasonKeys(top, field).map(({ key, superlative }, i) =>
+    reasonFor(key, top[i].s, top[i].n, superlative));
 }
 
 // ── иконки (канонический Lucide, обводка приведена к системе) ──

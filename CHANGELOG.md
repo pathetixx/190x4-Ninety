@@ -2,6 +2,18 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.4.6 — 2026-08-27
+
+## English
+
+- Recommendations are calculated by the ratio between delays, not the difference in milliseconds. The old scale spread 25–300 ms evenly, so two milliseconds counted the same between 26 and 28 as between 260 and 262 — and on a subscription where every live server sits between 26 and 40 ms the whole delay range took up a twentieth of the scale. What was left to decide the order was the spread, so a steady 33 ms server stood in "Recommended" while the list right below it showed 26 ms. At 30 ms a millisecond of delay now weighs about as much as a millisecond of spread; at 300 ms it weighs less, which is what it is worth there.
+- "Lowest latency" is only written where the latency really is the lowest. The line went to any server whose strongest side happened to be its delay — including when a faster server was sitting a few rows below in the same list. Such a server is now described as having low latency, and the superlative is left for the one that has earned it.
+
+## Русский
+
+- Рекомендации считаются по отношению задержек, а не по разнице в миллисекундах. Прежняя шкала растягивала 25–300 мс равномерно, и две миллисекунды весили одинаково на паре 26/28 и на паре 260/262, — а на подписке, где все живые серверы укладываются в 26–40 мс, весь разброс задержки занимал двадцатую часть шкалы. Решал порядок тогда разброс: ровный сервер с 33 мс стоял в «Рекомендованных», пока в списке прямо под ним значилось 26 мс. Теперь на 30 мс миллисекунда задержки весит примерно столько же, сколько миллисекунда разброса, а на 300 мс — меньше, сколько она там и стоит.
+- «Самая низкая задержка» пишется только там, где она действительно самая низкая. Раньше строка доставалась любому серверу, у которого задержка оказалась сильнейшей стороной, — в том числе когда несколькими строками ниже в том же списке стоял сервер быстрее. Про такой сервер теперь написано, что задержка низкая, а превосходная степень остаётся тому, кто её заслужил.
+
 ## v0.4.5 — 2026-08-27
 
 ## English
