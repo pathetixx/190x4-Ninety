@@ -172,15 +172,16 @@ let lastSignature = "";
 // Данные строк отдельно от структуры списка: пока меняются только цифры,
 // таблицу можно не пересобирать — см. renderTable.
 let lastDataSignature = "";
-// Порядок строк, зафиксированный на момент последней пересборки списка.
+// Порядок строк, зафиксированный на время прогона «Измерить все».
 //
-// Сортировка по задержке — значение, которое меняется само по себе: замеры
-// приходят фоном и во время прогона. Пересортировывать под курсором на каждом
-// таком замере и плохо (строка уезжает из-под мыши), и дорого (перестановка
-// сотен строк — работа по раскладке всего списка). Поэтому порядок держится,
-// пока пользователь не попросит его пересчитать: сменой сортировки, поиском,
-// группировкой, входом на экран или завершением прогона. Цифры при этом
-// обновляются на месте.
+// Держать его постоянно нельзя: столбец «Задержка» подсвечен как активная
+// сортировка, и список, который ей не соответствует, читается как поломка —
+// выбранный «Авто» сервер оказывается ниже строк с меньшими числами. Поэтому
+// вне прогона порядок пересчитывается на каждом обновлении; это дёшево, потому
+// что переставляются готовые строки, а не собирается таблица заново.
+//
+// На время прогона порядок всё же замораживаем: там замеры приходят пачками по
+// несколько раз в секунду, и список иначе перетасовывается под курсором.
 let sortFreeze = null;
 // tag → отпечаток нарисованных ячеек задержки. Позволяет трогать только те
 // строки, где цифра действительно изменилась.
@@ -866,10 +867,6 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   // бы на каждом обновлении и клавиатурная навигация ломалась каждые 4 секунды.
   grid.innerHTML = head + favBlock + body;
   attachFlagFallbacks(grid);
-  // Нарисованный порядок и становится «замороженным» до следующего явного
-  // запроса на пересортировку.
-  sortFreeze = new Map([...grid.querySelectorAll(".nt-row[data-tag]")]
-    .map((el, i) => [el.dataset.tag, i]));
   // Отпечатки нарисованного — чтобы следующий патч трогал только изменившееся.
   for (const node of pool) {
     const hs = historyOf(clashData, node.clashTag);
@@ -1014,8 +1011,6 @@ async function handleNodeClick(card, onToast) {
 
 export function onProxiesViewEnter() {
   viewActive = true;
-  // Вход на экран — законный момент показать актуальный порядок.
-  sortFreeze = null;
   invalidateRender();
   if (strictPrivacyEnabled()) {
     stopPoll();
@@ -1141,8 +1136,7 @@ export function mountProxiesView({
     if (sorter) {
       const k = sorter.dataset.k;
       sortState = { key: k, dir: sortState.key === k && sortState.dir === "asc" ? "desc" : "asc" };
-      // Явный запрос на другой порядок — размораживаем и пересобираем.
-      sortFreeze = null; invalidateRender();
+      invalidateRender();
       saveUi("sort", sortState); rerender(); return;
     }
     const grp = e.target.closest(".nt__grp[data-c]");
@@ -1192,7 +1186,6 @@ export function mountProxiesView({
   // ── поиск ──
   function setQuery(v) {
     query = v;
-    sortFreeze = null;
     const input = $("proxies-q");
     if (input && input.value !== v) input.value = v;
     const clear = $("proxies-q-clear");
@@ -1220,7 +1213,6 @@ export function mountProxiesView({
     const b = e.target.closest("[data-g]");
     if (!b) return;
     grouped = b.dataset.g === "country";
-    sortFreeze = null;
     saveUi("grouped", grouped);
     $("proxies-group").querySelectorAll("button").forEach(x =>
       x.setAttribute("aria-pressed", String((x.dataset.g === "country") === grouped)));

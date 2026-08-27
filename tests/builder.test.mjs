@@ -109,7 +109,10 @@ test("подписка из 2+ нод: selector/balancer/urltest", () => {
   assert.equal(byTag.lowest, undefined);
   assert.equal(byTag.auto.url, DEFAULT_OPTIONS.urlTest.connectionTestUrl);
   assert.equal(byTag.auto.interval, `${DEFAULT_OPTIONS.urlTest.intervalSec}s`);
-  assert.ok(byTag.auto.tolerance > 0, "без tolerance balancer флапает на шуме");
+  // Порог обязан быть заметно меньше типичного разброса задержек, иначе
+  // balancer не переключится никогда.
+  assert.ok(byTag.auto.tolerance > 0 && byTag.auto.tolerance <= 20,
+    "tolerance должен быть меньше разброса между серверами");
   assert.ok(byTag.auto.failure_cooldown, "нода, через которую не дозвониться, обязана выбывать");
 });
 

@@ -2,6 +2,18 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.4.5
+
+## English
+
+- The server list is sorted again. In 0.4.4 the order was held still so rows would not jump while measurements came in — but the "Delay" column stays marked as the active sort, so a list that no longer matches it reads as broken: the server Auto had picked sat below rows showing smaller numbers. The order now follows the numbers again, and it is still cheap, because existing rows are moved rather than the table rebuilt. During "Re-measure all" the order is still held, since there results arrive several times a second.
+- Auto switches when another server is genuinely better. The threshold below which a difference was not worth dropping connections was 50 ms — wider than the spread between live servers on a typical subscription, so Auto could not move at all and stayed on a server that was worse than its neighbours. It is now 15 ms.
+
+## Русский
+
+- Список серверов снова отсортирован. В 0.4.4 порядок держался неподвижным, чтобы строки не прыгали, пока приходят замеры, — но столбец «Задержка» остаётся подсвечен как активная сортировка, и список, который ей не соответствует, читается как поломка: выбранный «Авто» сервер оказывался ниже строк с меньшими числами. Теперь порядок снова следует за числами и по-прежнему стоит дёшево — готовые строки переставляются, таблица не пересобирается. На время «Измерить все» порядок всё так же держится неподвижным: там результаты приходят по нескольку раз в секунду.
+- «Авто» переключается, когда другой сервер действительно лучше. Порог, ниже которого разница не стоила обрыва соединений, был 50 мс — шире, чем весь разброс между живыми серверами обычной подписки, поэтому «Авто» не мог переключиться в принципе и оставался на сервере хуже соседей. Теперь порог 15 мс.
+
 ## v0.4.4 — 2026-08-26
 
 ## English
