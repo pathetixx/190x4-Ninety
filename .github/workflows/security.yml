@@ -144,6 +144,7 @@ jobs:
           (
             cd xray-core
             GOTOOLCHAIN=local go get github.com/klauspost/compress@v1.18.7
+            GOTOOLCHAIN=local go get golang.org/x/crypto@v0.55.0
             GOTOOLCHAIN=local go mod tidy
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -ldflags "-s -w -buildid=" -o "$tmpdir/xray" ./main
             govulncheck -mode=binary -format=json "$tmpdir/xray" > "$tmpdir/xray-vulns.json"

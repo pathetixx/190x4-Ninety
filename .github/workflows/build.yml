@@ -144,6 +144,9 @@ jobs:
           # so re-applying it would downgrade. Mirrored in security.yml, where the
           # resulting binary is audited.
           go get github.com/klauspost/compress@v1.18.7
+          # GO-2026-6303, как и в sing-box выше: ssh.NewServerConn попадает и в
+          # этот бинарь, x/crypto здесь прямая зависимость снапшота.
+          go get golang.org/x/crypto@v0.55.0
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -ldflags "-s -w -buildid=" -o xray.exe ./main; then
