@@ -105,6 +105,11 @@ jobs:
           # в котором заявлено меньше восьми байт полезной нагрузки. Символ попадает в
           # бинарь через with_dhcp, поэтому берём первую версию с фиксом.
           go get github.com/insomniacslk/dhcp@v0.0.0-20260719225207-c76316d4aa82
+          # GO-2026-6303: source-address из Permissions не проверялся для
+          # password/keyboard-interactive/GSSAPI-колбэков x/crypto/ssh. Символ
+          # приходит в бинарь через tailscale (with_tailscale) и виден аудиту.
+          # 0.55.0 — первая версия с фиксом. Тот же go get стоит в security.yml.
+          go get golang.org/x/crypto@v0.55.0
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -tags "$BUILD_TAGS" \
