@@ -9,12 +9,13 @@ import {
 import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { FLAGS_BASE, flagIsoFromName, stripFlag } from "/lib/flags.js";
 import { escapeHtml, escapeAttr } from "/lib/esc.js";
-import { t, tn, getLang } from "/lib/i18n/index.js";
+import { t, tn } from "/lib/i18n/index.js";
 import {
   getRememberedProxySelection,
   rememberProxySelection,
 } from "/lib/proxy-selection.js";
 import { getFavourites, toggleFavourite } from "/lib/favourites.js";
+import { countryName } from "/lib/country-names.js";
 import { recordProbes, getProbeHistory, pruneProbeHistory } from "/lib/delay-history.js";
 import {
   liveDelays, medianOf, stdevOf, scoreNode, reasonKeys,
@@ -403,9 +404,6 @@ function nodeRowHtml(n, ctx) {
     </div>`;
 }
 
-// Название страны словом: Intl.DisplayNames уже локализован под язык интерфейса,
-// поэтому таблицу из 200 стран заводить не нужно. Нет ISO — группируем по имени.
-let regionNames = null;
 function fullName(node) {
   return cleanNameOf(node?.name) || node?.host || "";
 }
@@ -433,13 +431,7 @@ function countryOf(n) {
   // У служебных записей провайдера («22 октября 2026», баннеры) страны нет.
   // Раньше каждая заводила свою группу и засоряла список.
   if (!iso) return t("proxies.groupOther");
-  const code = iso.toUpperCase();
-  try {
-    if (!regionNames) {
-      regionNames = new Intl.DisplayNames([getLang()], { type: "region" });
-    }
-    return regionNames.of(code) || code;
-  } catch { return code; }
+  return countryName(iso);
 }
 
 // ── блок рекомендаций ───────────────────────────────────────
@@ -1014,10 +1006,8 @@ export function rerenderProxiesView() {
   // перерисуется при входе — но сигнатуру сбрасываем, чтобы вход это сделал.
   if (!viewActive) {
     invalidateRender();
-    regionNames = null;
     return;
   }
-  regionNames = null;      // язык мог смениться — названия стран пересобрать
   invalidateRender();
   if (strictPrivacyEnabled()) {
     renderStrict();

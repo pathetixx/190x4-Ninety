@@ -17,7 +17,10 @@ import { toggleDpi } from "/lib/dpi-view.js";
 import { flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
 import { rememberProxySelection } from "/lib/proxy-selection.js";
 import { getFavourites } from "/lib/favourites.js";
-import { hiddenTrayServers, pickTrayServers } from "/lib/tray-servers.js";
+import { buildTrayServerMenu } from "/lib/tray-servers.js";
+import { countryName } from "/lib/country-names.js";
+import { getProbeHistory } from "/lib/delay-history.js";
+import { liveDelays, medianOf } from "/lib/node-ranking.js";
 import { createLatestRunner } from "/lib/async-control.js";
 
 const invoke = window.__TAURI__?.core?.invoke
@@ -31,6 +34,7 @@ const invoke = window.__TAURI__?.core?.invoke
 //   onToggleVpn()        — подключить/отключить (= клик по hero-диску)
 //   onUpdateClick()      — клик «Обновить до vX» (= flushPendingUpdate)
 //   onTrayActivity()     — наведение/ПКМ по значку (= дочекать OTA)
+//   onOpenServers()      — «Все серверы…» из меню (= открыть экран Серверы)
 //   isUpdateBusy()       — скачивание/установка OTA; сетевые действия блокируются
 //   isStrictPrivacy()     — строгий runtime не имеет selector и требует reconnect
 //   onServerSelected(tag, node, { reconnect }) — успешный выбор сервера:
@@ -40,10 +44,28 @@ let ctx = null;
 // Список серверов — только для подписки с >=2 нодами (у одиночного конфига
 // и сабов из одной ноды clash-тэг всегда "proxy", переключать нечего).
 // Полный список живёт на экране Серверы, в меню уходит срез (tray-servers.js).
+// Задержка берётся из уже сделанных замеров: меню ничего не измеряет само.
+// Медиана, а не последнее значение, — одиночный выброс не должен двигать ноду
+// в начало списка.
+function delayOf(source, tag) {
+  try {
+    const live = liveDelays(getProbeHistory(source, tag));
+    if (!live.length) return null;
+    return Math.round(medianOf(live));
+  } catch { return null; }
+}
+
+// Имя ноды у провайдеров бывает с украшениями на пол-экрана; в меню оно
+// обрезается, чтобы строка оставалась читаемой вместе с задержкой.
+function serverLabel(name, delay) {
+  const base = String(name || "").slice(0, 40);
+  return delay ? `${base}  ·  ${delay} ${t("units.ms")}` : base;
+}
+
 function buildTrayServers() {
   const src = getActiveSource();
   if (!src || src.kind !== "sub" || !Array.isArray(src.nodes) || src.nodes.length < 2) {
-    return { shown: [], hidden: 0 };
+    return buildTrayServerMenu([]);
   }
   const effective = ctx?.getEffectiveTag() ?? null;
   let favs;
@@ -51,9 +73,20 @@ function buildTrayServers() {
   const entries = src.nodes.map((n, i) => {
     const tag = nodeTag(i, n);
     const iso = isoFromNodeName(n.name) || isoFromNodeName(n.host) || null;
-    return { id: tag, label: (n.name || n.host || tag).slice(0, 48), selected: tag === effective, iso };
+    const delay = delayOf(src, tag);
+    return {
+      id: tag,
+      label: serverLabel(n.name || n.host || tag, delay),
+      selected: tag === effective,
+      iso,
+      delay,
+    };
   });
-  return { shown: pickTrayServers(entries, favs), hidden: hiddenTrayServers(entries) };
+  return buildTrayServerMenu(entries, {
+    favourites: favs,
+    countryLabel: countryName,
+    otherLabel: t("tray.otherCountry"),
+  });
 }
 
 // Последний УСПЕШНО применённый payload. Трей пересобирается на каждый чих —
@@ -77,7 +110,7 @@ const trayMenuSync = createLatestRunner(async () => {
     const trayServers = buildTrayServers();
     const payload = {
       connected: ctx.getState() === "connected", mode: getMode(),
-      servers: trayServers.shown, serversHidden: trayServers.hidden, dpiActive,
+      servers: trayServers, dpiActive,
       updateVersion: ctx.getUpdateVersion() || null,
       updateBusy: ctx.isUpdateBusy?.() === true,
       // Строки меню/tooltip — на языке интерфейса (Rust держит русский
@@ -93,7 +126,9 @@ const trayMenuSync = createLatestRunner(async () => {
         modeTun: t("mode.tun"),
         server: t("tray.server"),
         noServers: t("tray.noServers"),
-        serversMore: t("tray.serversMore"),
+        favourites: t("tray.favourites"),
+        fast: t("tray.fast"),
+        allServers: t("tray.allServers"),
         dpiTitle: t("dpi.title"),
         dpiStatusOn: t("tray.dpiStatusOn"),
         dpiStatusOff: t("tray.dpiStatusOff"),
@@ -171,6 +206,10 @@ export function initTray(context) {
         if (ctx.isUpdateBusy?.()) return;
         try { await toggleDpi(); } catch (err) { console.warn("tray dpi toggle failed", err); }
         syncTrayMenu();
+      });
+      // «Все серверы…»: полный список и поиск живут на экране Серверы.
+      await ev.listen("tray:open-servers", () => {
+        ctx.onOpenServers?.();
       });
       await ev.listen("tray:select-server", async (e) => {
         if (ctx.isUpdateBusy?.()) return;

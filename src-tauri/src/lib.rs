@@ -269,6 +269,40 @@ struct TraySrv {
     iso: Option<String>,
 }
 
+/// Страна и её ноды. Внутри группы флаг у каждой строки не рисуем: он один и
+/// тот же на всю страну, а иконка — самая дорогая часть пункта меню.
+#[derive(serde::Deserialize, Default)]
+struct TrayServerGroup {
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    items: Vec<TraySrv>,
+}
+
+/// Раскладка подменю «Сервер», посчитанная фронтом (tray-servers.js).
+/// `flat` не пуст только на маленькой подписке — там группировать нечего.
+#[derive(serde::Deserialize, Default)]
+struct TrayServers {
+    #[serde(default)]
+    current: Option<TraySrv>,
+    #[serde(default)]
+    flat: Vec<TraySrv>,
+    #[serde(default)]
+    favourites: Vec<TraySrv>,
+    #[serde(default)]
+    fast: Vec<TraySrv>,
+    #[serde(default)]
+    groups: Vec<TrayServerGroup>,
+    #[serde(default)]
+    total: u32,
+}
+
+impl TrayServers {
+    fn is_empty(&self) -> bool {
+        self.total == 0
+    }
+}
+
 /// Грузит флаг страны из ресурсов (flags/<iso>.png, растеризованы из SVG)
 /// для IconMenuItem. Best-effort: нет файла/кода → None (пункт без иконки).
 /// Кэшируем по ISO: меню трея пересобирается на каждое изменение состояния
@@ -314,8 +348,10 @@ struct TrayLabels {
     mode_tun: String,
     server: String,
     no_servers: String,
+    favourites: String,
+    fast: String,
+    all_servers: String,
     /// Шаблон с {n} — «…и ещё {n} на экране Серверы».
-    servers_more: String,
     dpi_title: String,
     dpi_status_on: String,
     dpi_status_off: String,
@@ -345,7 +381,9 @@ impl Default for TrayLabels {
             mode_tun: "VPN · TUN".into(),
             server: "Сервер".into(),
             no_servers: "Нет серверов".into(),
-            servers_more: "…и ещё {n} — на экране «Серверы»".into(),
+            favourites: "Избранные".into(),
+            fast: "Быстрые".into(),
+            all_servers: "Все серверы…".into(),
             dpi_title: "DPI-обход".into(),
             dpi_status_on: "Статус: активен".into(),
             dpi_status_off: "Статус: выключен".into(),
@@ -367,7 +405,7 @@ struct TrayMenuPayload {
     #[serde(default)]
     mode: String,
     #[serde(default)]
-    servers: Vec<TraySrv>,
+    servers: TrayServers,
     #[serde(default, rename = "dpiActive")]
     dpi_active: bool,
     /// Версия доступного обновления, найденного фоновой проверкой пока окно в
@@ -379,13 +417,161 @@ struct TrayMenuPayload {
     /// либо запустить reconnect одновременно с остановкой runtime.
     #[serde(default, rename = "updateBusy")]
     update_busy: bool,
-    /// Сколько серверов подписки не поместилось в подменю. > 0 → в хвост
-    /// списка уходит неактивная строка-указатель на экран «Серверы»: иначе
-    /// обрезанный список читается как пропавшие серверы.
-    #[serde(default, rename = "serversHidden")]
-    servers_hidden: u32,
     #[serde(default)]
     labels: TrayLabels,
+}
+
+/// Строка сервера с флагом страны. Текущий помечается «●»: у IconMenuItem нет
+/// чек-состояния, а отступ у остальных держит подписи на одной вертикали.
+fn server_item(
+    app: &tauri::AppHandle,
+    srv: &TraySrv,
+    enabled: bool,
+    with_icon: bool,
+) -> tauri::Result<IconMenuItem<tauri::Wry>> {
+    let label = if srv.selected {
+        format!("●  {}", srv.label)
+    } else {
+        format!("    {}", srv.label)
+    };
+    let icon = if with_icon {
+        flag_icon(app, &srv.iso)
+    } else {
+        None
+    };
+    IconMenuItem::with_id(
+        app,
+        format!("srv:{}", srv.id),
+        &label,
+        enabled,
+        icon,
+        None::<&str>,
+    )
+}
+
+/// Подменю с готовым списком нод — «Избранные», «Быстрые» и каждая страна.
+/// Флаги рисуются только там, где страны разные: внутри страны иконка у каждой
+/// строки одинаковая, а иконка — самая дорогая часть пункта меню.
+fn server_group_submenu(
+    app: &tauri::AppHandle,
+    title: &str,
+    items: &[TraySrv],
+    enabled: bool,
+    with_icons: bool,
+) -> tauri::Result<Submenu<tauri::Wry>> {
+    let entries: Vec<IconMenuItem<tauri::Wry>> = items
+        .iter()
+        .map(|srv| server_item(app, srv, enabled, with_icons))
+        .collect::<tauri::Result<_>>()?;
+    let refs: Vec<&dyn IsMenuItem<tauri::Wry>> = entries
+        .iter()
+        .map(|i| i as &dyn IsMenuItem<tauri::Wry>)
+        .collect();
+    Submenu::with_items(app, format!("{title}  ·  {}", items.len()), enabled, &refs)
+}
+
+/// Подменю «Сервер». На подписке в сотни нод плоский список нечитаем и дорог,
+/// поэтому большой список приходит от фронта уже разложенным: текущая нода,
+/// избранные, самые быстрые, затем страны. Последняя строка ведёт на экран
+/// «Серверы» — там поиск и полный список, которого в меню быть не может.
+fn build_server_submenu(
+    app: &tauri::AppHandle,
+    payload: &TrayMenuPayload,
+    enabled: bool,
+) -> tauri::Result<Submenu<tauri::Wry>> {
+    let l = &payload.labels;
+    let servers = &payload.servers;
+    if servers.is_empty() {
+        let none = MenuItem::with_id(app, "srv:none", &l.no_servers, false, None::<&str>)?;
+        return Submenu::with_items(app, &l.server, false, &[&none]);
+    }
+
+    // Владельцы пунктов живут до конца сборки: Submenu::with_items берёт ссылки.
+    let mut flat: Vec<IconMenuItem<tauri::Wry>> = Vec::new();
+    let mut current: Option<IconMenuItem<tauri::Wry>> = None;
+    let mut shortcuts: Vec<Submenu<tauri::Wry>> = Vec::new();
+    let mut countries: Vec<Submenu<tauri::Wry>> = Vec::new();
+    let mut separators: Vec<PredefinedMenuItem<tauri::Wry>> = Vec::new();
+
+    if !servers.flat.is_empty() {
+        for srv in &servers.flat {
+            flat.push(server_item(app, srv, enabled, true)?);
+        }
+    } else {
+        if let Some(srv) = servers.current.as_ref() {
+            current = Some(server_item(app, srv, enabled, true)?);
+        }
+        if !servers.favourites.is_empty() {
+            shortcuts.push(server_group_submenu(
+                app,
+                &l.favourites,
+                &servers.favourites,
+                enabled,
+                true,
+            )?);
+        }
+        if !servers.fast.is_empty() {
+            shortcuts.push(server_group_submenu(
+                app,
+                &l.fast,
+                &servers.fast,
+                enabled,
+                true,
+            )?);
+        }
+        for group in &servers.groups {
+            countries.push(server_group_submenu(
+                app,
+                &group.label,
+                &group.items,
+                enabled,
+                false,
+            )?);
+        }
+        // Разделителей ровно столько, сколько понадобится ниже.
+        for _ in 0..3 {
+            separators.push(PredefinedMenuItem::separator(app)?);
+        }
+    }
+
+    let all = MenuItem::with_id(
+        app,
+        "srv:all",
+        format!("{}  ·  {}", l.all_servers, servers.total),
+        true,
+        None::<&str>,
+    )?;
+
+    let mut refs: Vec<&dyn IsMenuItem<tauri::Wry>> = Vec::new();
+    if !flat.is_empty() {
+        for item in &flat {
+            refs.push(item as &dyn IsMenuItem<tauri::Wry>);
+        }
+    } else {
+        let mut separators = separators.iter();
+        if let Some(item) = current.as_ref() {
+            refs.push(item as &dyn IsMenuItem<tauri::Wry>);
+            if let Some(sep) = separators.next() {
+                refs.push(sep as &dyn IsMenuItem<tauri::Wry>);
+            }
+        }
+        if !shortcuts.is_empty() {
+            for item in &shortcuts {
+                refs.push(item as &dyn IsMenuItem<tauri::Wry>);
+            }
+            if let Some(sep) = separators.next() {
+                refs.push(sep as &dyn IsMenuItem<tauri::Wry>);
+            }
+        }
+        for item in &countries {
+            refs.push(item as &dyn IsMenuItem<tauri::Wry>);
+        }
+        if let Some(sep) = separators.next() {
+            refs.push(sep as &dyn IsMenuItem<tauri::Wry>);
+        }
+    }
+    refs.push(&all as &dyn IsMenuItem<tauri::Wry>);
+    Submenu::with_items(app, &l.server, enabled, &refs)
 }
 
 /// Собирает контекстное меню трея под текущее состояние: выбор режима
@@ -445,52 +631,11 @@ fn build_tray_menu(
         &[&m_proxy, &m_sys, &m_tun],
     )?;
 
-    // Выбор сервера — активен только когда VPN поднят. Иконка — флаг страны
-    // (IconMenuItem); выбранный сервер помечаем «●», т.к. у IconMenuItem нет
-    // чек-состояния.
+    // Выбор сервера — активен только когда VPN поднят. Раскладку считает фронт
+    // (tray-servers.js): маленькая подписка приходит плоским списком, большая —
+    // текущим сервером, быстрыми входами и странами.
     let srv_enabled = runtime_actions_enabled && payload.connected && !payload.servers.is_empty();
-    let server_sub = if payload.servers.is_empty() {
-        let none = MenuItem::with_id(app, "srv:none", &l.no_servers, false, None::<&str>)?;
-        Submenu::with_items(app, &l.server, false, &[&none])?
-    } else {
-        let mut items: Vec<IconMenuItem<tauri::Wry>> = Vec::with_capacity(payload.servers.len());
-        for s in &payload.servers {
-            let label = if s.selected {
-                format!("●  {}", s.label)
-            } else {
-                format!("    {}", s.label)
-            };
-            let icon = flag_icon(app, &s.iso);
-            items.push(IconMenuItem::with_id(
-                app,
-                format!("srv:{}", s.id),
-                &label,
-                srv_enabled,
-                icon,
-                None::<&str>,
-            )?);
-        }
-        let mut refs: Vec<&dyn IsMenuItem<tauri::Wry>> = items
-            .iter()
-            .map(|i| i as &dyn IsMenuItem<tauri::Wry>)
-            .collect();
-        let more = if payload.servers_hidden > 0 {
-            Some(MenuItem::with_id(
-                app,
-                "srv:more",
-                l.servers_more
-                    .replace("{n}", &payload.servers_hidden.to_string()),
-                false,
-                None::<&str>,
-            )?)
-        } else {
-            None
-        };
-        if let Some(item) = more.as_ref() {
-            refs.push(item as &dyn IsMenuItem<tauri::Wry>);
-        }
-        Submenu::with_items(app, &l.server, srv_enabled, &refs)?
-    };
+    let server_sub = build_server_submenu(app, payload, srv_enabled)?;
 
     // DPI-обход — статус (disabled, информативный) + переключатель
     let dpi_status = MenuItem::with_id(
@@ -767,7 +912,7 @@ fn set_tray_menu(
                 crate::vpn::DiagnosticLevel::Warn,
                 &format!(
                     "tray_menu_rebuild_failed servers={} error={e}",
-                    payload.servers.len()
+                    payload.servers.total
                 ),
             );
             return Err(e.to_string());
@@ -991,6 +1136,12 @@ pub fn run() {
                         }
                         "mode:tun" => {
                             let _ = app.emit("tray:set-mode", "tun");
+                        }
+                        // Полный список серверов живёт на своём экране: в меню
+                        // он не помещается и там нет поиска.
+                        "srv:all" => {
+                            show_main(app);
+                            let _ = app.emit("tray:open-servers", ());
                         }
                         other if other.starts_with("srv:") => {
                             let tag = other.trim_start_matches("srv:");

@@ -3114,6 +3114,9 @@ initTray({
   // единственный источник проверок это расписание. Порог в минуту не даёт
   // случайному проходу мыши над треем дёргать эндпоинты.
   onTrayActivity: () => updateCheckIfStale(60_000),
+  // «Все серверы…» из трея: окно уже показано Rust-обработчиком, остаётся
+  // открыть экран со списком — там поиск и полный набор нод.
+  onOpenServers: () => switchView("proxies"),
   // Успешный выбор сервера из трея: обновить эффективную ноду + hero/локацию.
   onServerSelected: (tag, _node, { reconnect = false } = {}) => {
     if (reconnect) reconnectForSourceChange(t("conn.applyingSettings"));
