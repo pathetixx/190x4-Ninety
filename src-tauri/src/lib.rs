@@ -689,10 +689,44 @@ fn tray_tooltip(
     }
 }
 
+/// Windows не сообщает, когда меню трея закрылось, но состояние «сейчас
+/// показывается меню» видно у GUI-потока переднего плана.
+fn menu_flags_indicate_open(flags: u32) -> bool {
+    // GUI_INMENUMODE | GUI_POPUPMENUMODE
+    flags & (0x0000_0004 | 0x0000_0010) != 0
+}
+
+/// Пока меню показано, подменять его у значка нельзя: замена рушит уже
+/// открытый popup, и пользователь видит, как меню схлопывается сразу после
+/// правого клика. Такую пересборку откладываем до закрытия меню.
+#[cfg(target_os = "windows")]
+fn menu_mode_active() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO};
+    let mut info = GUITHREADINFO {
+        cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+        ..Default::default()
+    };
+    // idThread = 0 — поток окна переднего плана, а меню трея показывается
+    // именно им.
+    unsafe { GetGUIThreadInfo(0, &mut info).is_ok() && menu_flags_indicate_open(info.flags.0) }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn menu_mode_active() -> bool {
+    false
+}
+
+/// `applied = false` — значок и подсказка обновлены, а меню осталось прежним,
+/// потому что пользователь держит его открытым. Фронт повторит попытку.
+#[derive(serde::Serialize)]
+struct TrayMenuOutcome {
+    applied: bool,
+}
+
 #[tauri::command]
-fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), String> {
+fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<TrayMenuOutcome, String> {
     let Some(tray) = app.tray_by_id("main") else {
-        return Ok(());
+        return Ok(TrayMenuOutcome { applied: true });
     };
     // Значок и подсказка ставятся ПЕРВЫМИ и независимо от меню. Они дёшевы и
     // собраться не могут разве что при битом ресурсе, а меню на большой
@@ -713,6 +747,11 @@ fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), 
         &payload.mode,
         payload.update_version.as_deref(),
     )));
+    // Проверка идёт после значка и подсказки: они меняются независимо от меню
+    // и открытому popup не мешают.
+    if menu_mode_active() {
+        return Ok(TrayMenuOutcome { applied: false });
+    }
     let menu = match build_tray_menu(&app, &payload) {
         Ok(menu) => menu,
         Err(e) => {
@@ -732,7 +771,7 @@ fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<(), 
         }
     };
     tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(TrayMenuOutcome { applied: true })
 }
 
 /// Последний рубеж перед аварийным завершением. Штатная очистка висит на
@@ -1229,6 +1268,20 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Меню трея нельзя подменять, пока оно открыто: замена рушит показанный
+    // popup. Признак «сейчас показывается меню» — эти два бита GUITHREADINFO.
+    #[test]
+    fn open_menu_is_recognised_by_gui_thread_flags() {
+        const GUI_INMENUMODE: u32 = 0x0000_0004;
+        const GUI_POPUPMENUMODE: u32 = 0x0000_0010;
+        const GUI_CARETBLINKING: u32 = 0x0000_0001;
+        assert!(menu_flags_indicate_open(GUI_INMENUMODE));
+        assert!(menu_flags_indicate_open(GUI_POPUPMENUMODE));
+        assert!(menu_flags_indicate_open(GUI_POPUPMENUMODE | GUI_CARETBLINKING));
+        assert!(!menu_flags_indicate_open(0));
+        assert!(!menu_flags_indicate_open(GUI_CARETBLINKING));
+    }
 
     // Подсказка трея — единственный признак апдейта, который не зависит от
     // OS-уведомлений: на Windows тост молча теряется, если у сборки нет ярлыка

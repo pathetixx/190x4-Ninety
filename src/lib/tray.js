@@ -63,6 +63,12 @@ function buildTrayServers() {
 // одна осечка заморозила бы значок до перезапуска.
 let lastTrayPayload = null;
 
+// Пересборка меню, отложенная из-за открытого меню трея. Интервал крупный
+// намеренно: пока меню открыто, payload собирать незачем, а собранное меню
+// пользователь всё равно увидит только при следующем открытии.
+const MENU_BUSY_RETRY_MS = 1500;
+let deferredRetry = null;
+
 const trayMenuSync = createLatestRunner(async () => {
   if (!ctx) return;
   try {
@@ -102,7 +108,16 @@ const trayMenuSync = createLatestRunner(async () => {
     };
     const signature = JSON.stringify(payload);
     if (signature === lastTrayPayload) return;
-    await invoke("set_tray_menu", { payload });
+    const outcome = await invoke("set_tray_menu", { payload });
+    // Меню открыто прямо сейчас — Rust обновил значок и подсказку, но само
+    // меню оставил: подмена схлопнула бы его под курсором. Payload не
+    // запоминаем и возвращаемся к нему, когда пользователь меню закроет.
+    if (outcome?.applied === false) {
+      lastTrayPayload = null;
+      clearTimeout(deferredRetry);
+      deferredRetry = setTimeout(() => trayMenuSync.request(), MENU_BUSY_RETRY_MS);
+      return;
+    }
     lastTrayPayload = signature;
   } catch (e) {
     lastTrayPayload = null;
@@ -145,10 +160,11 @@ export function initTray(context) {
       // метка на значке будут на месте.
       await ev.listen("tray:activity", () => {
         ctx.onTrayActivity?.();
-        // Пользователь смотрит на значок прямо сейчас — самый подходящий
-        // момент вернуть его в согласие с состоянием, если предыдущая
-        // пересборка почему-либо не доехала.
-        syncTrayMenu({ force: true });
+        // Пользователь смотрит на значок прямо сейчас — подходящий момент
+        // вернуть его в согласие с состоянием. Без force: если payload тот же,
+        // пересобирать нечего, а лишний set_tray_menu рискует прийтись ровно
+        // на открытое меню.
+        syncTrayMenu();
       });
       // DPI-обход вкл/выкл из трея — тот же toggleDpi, что в UI; затем рефреш меню.
       await ev.listen("tray:toggle-dpi", async () => {
