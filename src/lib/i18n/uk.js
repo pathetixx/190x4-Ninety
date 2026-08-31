@@ -652,6 +652,9 @@ export const uk = {
     detEmptyD: "Підписка, vless://, список конфігів або .toml/.conf — Ninety сам визначить тип, вам його вибирати не треба.",
     detUrlK: "Підписка",
     detUrlD: "сервери завантажаться після додавання",
+    detDuplicateK: "Вже додано",
+    detDuplicateD: "це посилання вже у списку",
+    msgDuplicateSub: "«{name}» вже додано — другої копії не створено",
     detConfigK: "Окремий конфіг",
     detListK: "Список конфігів",
     detTomlK: "TrustTunnel",
@@ -765,6 +768,7 @@ export const uk = {
 
   subs: {
     needHttpUrl: "Потрібен http(s):// URL",
+    duplicate: "Підписку «{name}» вже додано",
     noVless: "Підписка не містить підтримуваних конфігурацій",
     skippedNote: "Пропущено серверів: {n} — ядро не приймає їхні параметри",
     subFallback: "Підписка",

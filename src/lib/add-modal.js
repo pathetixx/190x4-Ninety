@@ -5,6 +5,8 @@
 import {
   detectAddInput,
   addSubscriptionFromUrl,
+  findSubscriptionByUrl,
+  loadSubscriptions,
   parseSubscriptionEntries,
   refreshSubscription,
   updateSubscription,
@@ -38,6 +40,16 @@ const DET_ICONS = {
   "wg-conf": SVG('<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M9 12h6"/>'),
 };
 DET_ICONS.url = DET_ICONS.empty;
+DET_ICONS.duplicate = DET_ICONS.unknown;
+
+// Список подписок для проверки на повтор снимается при открытии окна: пока оно
+// открыто, он не меняется, а перечитывать хранилище на каждое нажатие клавиши
+// в поле адреса — это разбор всех сохранённых серверов на каждый символ.
+let knownSubscriptions = [];
+function refreshKnownSubscriptions() {
+  try { knownSubscriptions = loadSubscriptions(); }
+  catch { knownSubscriptions = []; }
+}
 
 // Полоса распознавания — сердце экрана: говорит, что именно будет создано.
 function setDetection(kind, kickerKey, infoHtml) {
@@ -66,6 +78,14 @@ function describeInput(raw) {
   const d = detectAddInput(s);
   if (d.kind === "url") {
     const host = hostOf(d.url) || d.url;
+    // Повтор видно до нажатия «Добавить», а не после запроса к панели.
+    const duplicate = findSubscriptionByUrl(d.url, knownSubscriptions);
+    if (duplicate) {
+      const name = duplicate.name || t("subs.subFallback");
+      setDetection("duplicate", "add.detDuplicateK",
+        `<b>${escapeHtml(name)}</b><s>·</s>${escapeHtml(t("add.detDuplicateD"))}`);
+      return { ok: true, kind: "url", host, duplicate: duplicate.id };
+    }
     setDetection("url", "add.detUrlK", `<b>${escapeHtml(host)}</b><s>·</s>${escapeHtml(t("add.detUrlD"))}`);
     return { ok: true, kind: "url", host };
   }
@@ -154,6 +174,7 @@ function openModal() {
   m.hidden = false;
   setBusy(false);
   $("add-modal-adv")?.setAttribute("aria-expanded", "false");
+  refreshKnownSubscriptions();
   refreshDetection();
   updateAdvancedHint();
   document.addEventListener("keydown", onKey);
@@ -230,7 +251,20 @@ export async function importAddInput(raw, userOverride = {}) {
     };
   }
 
-  // kind === "url" → подписка. intervalHours из слайдера «Авто-обновление»
+  // kind === "url" → подписка. Та же ссылка второй раз не создаёт вторую копию:
+  // показываем уже добавленную подписку и честно говорим, что нового ничего нет.
+  const already = findSubscriptionByUrl(decision.url);
+  if (already) {
+    return {
+      type: "sub",
+      duplicate: true,
+      message: t("add.msgDuplicateSub", { name: already.name || t("subs.subFallback") }),
+      source: { kind: "sub", id: already.id },
+      activate: false,
+    };
+  }
+
+  // intervalHours из слайдера «Авто-обновление»
   // (0 = авто/по заголовку панели); передаётся только при ручном добавлении.
   setBusy(true, "add.detLoadingSub");
   let sub;

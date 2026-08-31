@@ -628,6 +628,9 @@ export const ko = {
     detEmptyD: "구독, vless://, 설정 목록 또는 .toml/.conf — 종류는 Ninety가 알아서 판별합니다. 직접 고를 필요 없습니다.",
     detUrlK: "구독",
     detUrlD: "추가한 뒤 서버를 불러옵니다",
+    detDuplicateK: "이미 추가됨",
+    detDuplicateD: "이 링크는 이미 목록에 있습니다",
+    msgDuplicateSub: "{name}은(는) 이미 추가되어 있습니다 — 두 번째 복사본은 만들지 않았습니다",
     detConfigK: "단독 설정",
     detListK: "설정 목록",
     detTomlK: "TrustTunnel",
@@ -741,6 +744,7 @@ export const ko = {
 
   subs: {
     needHttpUrl: "http(s):// URL이 필요합니다",
+    duplicate: "구독 {name}은(는) 이미 추가되어 있습니다",
     noVless: "구독에 지원되는 설정이 없습니다",
     skippedNote: "건너뛴 서버: {n}개 — 코어가 매개변수를 거부합니다",
     subFallback: "구독",

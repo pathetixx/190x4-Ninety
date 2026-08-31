@@ -636,6 +636,9 @@ export const tr = {
     detEmptyD: "Abonelik, vless://, yapılandırma listesi ya da .toml/.conf — türü Ninety kendisi anlar, sizin seçmeniz gerekmez.",
     detUrlK: "Abonelik",
     detUrlD: "sunucular eklendikten sonra yüklenir",
+    detDuplicateK: "Zaten ekli",
+    detDuplicateD: "bu bağlantı listede zaten var",
+    msgDuplicateSub: "{name} zaten ekli — ikinci kopya oluşturulmadı",
     detConfigK: "Tek yapılandırma",
     detListK: "Yapılandırma listesi",
     detTomlK: "TrustTunnel",
@@ -749,6 +752,7 @@ export const tr = {
 
   subs: {
     needHttpUrl: "http(s):// URL'si gerekli",
+    duplicate: "{name} aboneliği zaten ekli",
     noVless: "Abonelikte desteklenen yapılandırma yok",
     skippedNote: "Atlanan sunucular: {n} — çekirdek parametrelerini kabul etmiyor",
     subFallback: "Abonelik",

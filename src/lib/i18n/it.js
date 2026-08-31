@@ -644,6 +644,9 @@ export const it = {
     detEmptyD: "Abbonamento, vless://, un elenco di config o .toml/.conf: Ninety riconosce il tipo da solo, non devi sceglierlo.",
     detUrlK: "Abbonamento",
     detUrlD: "i server si caricano dopo l’aggiunta",
+    detDuplicateK: "Già aggiunto",
+    detDuplicateD: "questo link è già nell'elenco",
+    msgDuplicateSub: "{name} è già aggiunto: non è stata creata una seconda copia",
     detConfigK: "Config singola",
     detListK: "Elenco di config",
     detTomlK: "TrustTunnel",
@@ -757,6 +760,7 @@ export const it = {
 
   subs: {
     needHttpUrl: "È richiesto un URL http(s)://",
+    duplicate: "L'abbonamento {name} è già aggiunto",
     noVless: "L'abbonamento non contiene configurazioni supportate",
     skippedNote: "Server saltati: {n} — il core rifiuta i loro parametri",
     subFallback: "Abbonamento",

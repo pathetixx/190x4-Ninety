@@ -644,6 +644,9 @@ export const pt = {
     detEmptyD: "Subscrição, vless://, uma lista de configs ou .toml/.conf — o Ninety reconhece o tipo sozinho, não tem de o escolher.",
     detUrlK: "Subscrição",
     detUrlD: "os servidores carregam depois de adicionar",
+    detDuplicateK: "Já adicionada",
+    detDuplicateD: "este link já está na lista",
+    msgDuplicateSub: "{name} já está adicionada — nenhuma segunda cópia foi criada",
     detConfigK: "Config avulsa",
     detListK: "Lista de configs",
     detTomlK: "TrustTunnel",
@@ -757,6 +760,7 @@ export const pt = {
 
   subs: {
     needHttpUrl: "É necessário um URL http(s)://",
+    duplicate: "A assinatura {name} já está adicionada",
     noVless: "A assinatura não contém configurações compatíveis",
     skippedNote: "Servidores ignorados: {n} — o núcleo rejeita os seus parâmetros",
     subFallback: "Subscrição",

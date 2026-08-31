@@ -652,6 +652,9 @@ export const ru = {
     detEmptyD: "Подписка, vless://, список конфигов или .toml/.conf — разбираться будет Ninety, выбирать тип не нужно.",
     detUrlK: "Подписка",
     detUrlD: "серверы загрузятся после добавления",
+    detDuplicateK: "Уже добавлена",
+    detDuplicateD: "эта ссылка уже в списке",
+    msgDuplicateSub: "«{name}» уже добавлена — вторая копия не создана",
     detConfigK: "Один конфиг",
     detListK: "Список конфигов",
     detTomlK: "TrustTunnel",
@@ -765,6 +768,7 @@ export const ru = {
 
   subs: {
     needHttpUrl: "Нужен http(s):// URL",
+    duplicate: "Подписка «{name}» уже добавлена",
     noVless: "Подписка не содержит поддерживаемых конфигов",
     skippedNote: "Пропущено серверов: {n} — ядро не принимает их параметры",
     subFallback: "Подписка",

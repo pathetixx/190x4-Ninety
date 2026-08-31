@@ -214,6 +214,31 @@ export function updateSubscription(id, patch) {
   return list[idx];
 }
 
+// ── дубликаты ───────────────────────────────────────────────
+// Одна и та же ссылка, добавленная дважды, даёт две копии одних и тех же
+// серверов: они удваивают список, каждая тянет свой refresh и «Авто» выбирает
+// между клонами. Сравниваем нормализованный адрес: схема и хост
+// регистронезависимы, дефолтный порт и якорь на ответ панели не влияют, а путь
+// и параметры оставляем как есть — ими и различаются подписки одной панели.
+export function normalizeSubscriptionUrl(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) return value;
+    url.hash = "";
+    return `${url.protocol}//${url.host}${url.pathname}${url.search}`;
+  } catch { return value; }
+}
+
+/** Уже добавленная подписка с тем же адресом, иначе null. */
+export function findSubscriptionByUrl(url, list = null) {
+  const key = normalizeSubscriptionUrl(url);
+  if (!key) return null;
+  const subs = list || loadSubscriptions();
+  return subs.find(s => normalizeSubscriptionUrl(s.url) === key) || null;
+}
+
 // ── fetch + merge ───────────────────────────────────────────
 // Прокси для fetch_subscription: main.js подставляет локальный инбаунд при
 // поднятом VPN — запрос к панели уходит через туннель (не светит реальный IP
@@ -258,6 +283,16 @@ async function fetchInfo(url, { hwid = false } = {}) {
 export async function addSubscriptionFromUrl(url, customName = "", intervalHoursOverride = null, { hwid = false } = {}) {
   const u = String(url || "").trim();
   if (!/^https?:\/\//i.test(u)) throw new Error(t("subs.needHttpUrl"));
+
+  // Страховка для всех путей добавления, а не только для окна «Добавить»:
+  // повторная ссылка не должна создавать вторую копию подписки.
+  const duplicate = findSubscriptionByUrl(u);
+  if (duplicate) {
+    const err = new Error(t("subs.duplicate", { name: duplicate.name || t("subs.subFallback") }));
+    err.code = "duplicate";
+    err.subscriptionId = duplicate.id;
+    throw err;
+  }
 
   const info = await fetchInfo(u, { hwid });
   const { profiles, skipped } = parseSubscriptionEntries(info.body);

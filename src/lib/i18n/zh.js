@@ -628,6 +628,9 @@ export const zh = {
     detEmptyD: "订阅、vless://、配置列表或 .toml/.conf — 类型由 Ninety 自己判断，不用你选。",
     detUrlK: "订阅",
     detUrlD: "添加后加载服务器",
+    detDuplicateK: "已添加",
+    detDuplicateD: "该链接已在列表中",
+    msgDuplicateSub: "{name} 已添加，未创建第二份",
     detConfigK: "单个配置",
     detListK: "配置列表",
     detTomlK: "TrustTunnel",
@@ -741,6 +744,7 @@ export const zh = {
 
   subs: {
     needHttpUrl: "需要 http(s):// URL",
+    duplicate: "订阅 {name} 已添加",
     noVless: "订阅中没有受支持的配置",
     skippedNote: "已跳过 {n} 个服务器：内核不接受它们的参数",
     subFallback: "订阅",

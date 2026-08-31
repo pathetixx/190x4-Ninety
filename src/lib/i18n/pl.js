@@ -652,6 +652,9 @@ export const pl = {
     detEmptyD: "Subskrypcja, vless://, lista konfiguracji albo .toml/.conf — Ninety sam rozpozna typ, nie musisz go wybierać.",
     detUrlK: "Subskrypcja",
     detUrlD: "serwery wczytają się po dodaniu",
+    detDuplicateK: "Już dodana",
+    detDuplicateD: "ten link jest już na liście",
+    msgDuplicateSub: "{name} jest już dodana — druga kopia nie powstała",
     detConfigK: "Pojedyncza konfiguracja",
     detListK: "Lista konfiguracji",
     detTomlK: "TrustTunnel",
@@ -765,6 +768,7 @@ export const pl = {
 
   subs: {
     needHttpUrl: "Wymagany jest adres URL http(s)://",
+    duplicate: "Subskrypcja {name} jest już dodana",
     noVless: "Subskrypcja nie zawiera obsługiwanych konfiguracji",
     skippedNote: "Pominięte serwery: {n} — rdzeń odrzuca ich parametry",
     subFallback: "Subskrypcja",

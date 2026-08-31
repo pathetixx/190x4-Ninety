@@ -636,6 +636,9 @@ export const fa = {
     detEmptyD: "اشتراک، ‎vless://‎، فهرست پیکربندی‌ها یا ‎.toml/.conf‎ — نوعش را خود Ninety تشخیص می‌دهد؛ لازم نیست شما برگزینید.",
     detUrlK: "اشتراک",
     detUrlD: "سرورها پس از افزودن بار می‌شوند",
+    detDuplicateK: "قبلاً افزوده شده",
+    detDuplicateD: "این پیوند از قبل در فهرست است",
+    msgDuplicateSub: "{name} قبلاً افزوده شده است — نسخه دومی ساخته نشد",
     detConfigK: "پیکربندی تکی",
     detListK: "فهرست پیکربندی‌ها",
     detTomlK: "TrustTunnel",
@@ -749,6 +752,7 @@ export const fa = {
 
   subs: {
     needHttpUrl: "یک URL با http(s):// لازم است",
+    duplicate: "اشتراک {name} قبلاً افزوده شده است",
     noVless: "اشتراک هیچ پیکربندی پشتیبانی‌شده‌ای ندارد",
     skippedNote: "سرورهای نادیده‌گرفته‌شده: {n} — هسته پارامترهای آن‌ها را نمی‌پذیرد",
     subFallback: "اشتراک",

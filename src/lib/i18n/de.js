@@ -636,6 +636,9 @@ export const de = {
     detEmptyD: "Abo, vless://, eine Liste von Konfigs oder .toml/.conf — Ninety erkennt den Typ selbst, du musst ihn nicht wählen.",
     detUrlK: "Abo",
     detUrlD: "Server werden nach dem Hinzufügen geladen",
+    detDuplicateK: "Bereits hinzugefügt",
+    detDuplicateD: "dieser Link ist schon in der Liste",
+    msgDuplicateSub: "{name} ist bereits hinzugefügt — es wurde keine zweite Kopie angelegt",
     detConfigK: "Einzelne Konfig",
     detListK: "Liste von Konfigs",
     detTomlK: "TrustTunnel",
@@ -749,6 +752,7 @@ export const de = {
 
   subs: {
     needHttpUrl: "Eine http(s)://-URL ist erforderlich",
+    duplicate: "Das Abo {name} ist bereits hinzugefügt",
     noVless: "Das Abo enthält keine unterstützten Konfigurationen",
     skippedNote: "Übersprungene Server: {n} — der Kern lehnt ihre Parameter ab",
     subFallback: "Abo",

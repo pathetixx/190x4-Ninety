@@ -668,6 +668,9 @@ export const ar = {
     detEmptyD: "اشتراك أو vless:// أو قائمة إعدادات أو ‎.toml/.conf — يتعرّف Ninety على النوع بنفسه، ولا حاجة لأن تختاره.",
     detUrlK: "اشتراك",
     detUrlD: "تُحمَّل الخوادم بعد الإضافة",
+    detDuplicateK: "مضاف بالفعل",
+    detDuplicateD: "هذا الرابط موجود في القائمة بالفعل",
+    msgDuplicateSub: "{name} مضاف بالفعل — لم تُنشأ نسخة ثانية",
     detConfigK: "إعداد مفرد",
     detListK: "قائمة إعدادات",
     detTomlK: "TrustTunnel",
@@ -781,6 +784,7 @@ export const ar = {
 
   subs: {
     needHttpUrl: "يلزم رابط http(s)://",
+    duplicate: "الاشتراك {name} مضاف بالفعل",
     noVless: "لا يحتوي الاشتراك على إعدادات مدعومة",
     skippedNote: "خوادم متجاهَلة: {n} — النواة لا تقبل معاملاتها",
     subFallback: "اشتراك",

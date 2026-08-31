@@ -636,6 +636,9 @@ export const en = {
     detEmptyD: "Subscription, vless://, a list of configs or .toml/.conf — Ninety figures out the type, you do not pick it.",
     detUrlK: "Subscription",
     detUrlD: "servers load after adding",
+    detDuplicateK: "Already added",
+    detDuplicateD: "this link is already in the list",
+    msgDuplicateSub: "{name} is already added — no second copy was created",
     detConfigK: "Single config",
     detListK: "List of configs",
     detTomlK: "TrustTunnel",
@@ -749,6 +752,7 @@ export const en = {
 
   subs: {
     needHttpUrl: "An http(s):// URL is required",
+    duplicate: "Subscription {name} is already added",
     noVless: "The subscription contains no supported configs",
     skippedNote: "Skipped servers: {n} — the core rejects their parameters",
     subFallback: "Subscription",

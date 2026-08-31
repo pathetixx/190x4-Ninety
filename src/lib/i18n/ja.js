@@ -628,6 +628,9 @@ export const ja = {
     detEmptyD: "サブスクリプション、vless://、設定の一覧、.toml/.conf — 種類は Ninety が判別します。選ぶ必要はありません。",
     detUrlK: "サブスクリプション",
     detUrlD: "追加後にサーバーを読み込みます",
+    detDuplicateK: "追加済み",
+    detDuplicateD: "このリンクはすでに一覧にあります",
+    msgDuplicateSub: "{name} はすでに追加されています。2 つ目は作成されませんでした",
     detConfigK: "単体の設定",
     detListK: "設定の一覧",
     detTomlK: "TrustTunnel",
@@ -741,6 +744,7 @@ export const ja = {
 
   subs: {
     needHttpUrl: "http(s):// のURLが必要です",
+    duplicate: "サブスクリプション {name} はすでに追加されています",
     noVless: "サブスクリプションに対応する設定がありません",
     skippedNote: "スキップしたサーバー: {n} — コアがパラメータを受け付けません",
     subFallback: "サブスクリプション",

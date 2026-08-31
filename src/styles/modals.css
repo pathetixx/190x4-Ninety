@@ -695,3 +695,8 @@
   background: var(--ink-3);
   border-color: var(--line-3);
 }
+
+/* Повторная ссылка подписки — предупреждение, а не ошибка ввода: адрес
+   разобран верно, просто добавлять нечего. */
+.det[data-kind="duplicate"] .det__ico,
+.det[data-kind="duplicate"] .det__k { color: var(--warn); }
