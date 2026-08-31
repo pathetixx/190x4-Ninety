@@ -2,6 +2,20 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.5.1 — 2026-08-31
+
+## English
+
+- The tray menu opens again. Right-clicking the icon rebuilt the menu at the exact moment Windows was showing it, and the menu closed itself in a few hundredths of a second — measured on a live install, it survived between 13 and 33 ms. A rebuild now waits until the menu is closed, and pointing at the icon no longer rebuilds anything when nothing has changed.
+- The Server section is usable on a large subscription. It opens on the current server, then Favourites and Fastest, then countries with the number of nodes in each; inside a country the servers are ordered by measured latency, and that latency is shown next to the name. The last line, All servers, opens the Servers screen with its search and the full list. A subscription of a dozen servers stays a plain list, as before.
+- The same subscription link can no longer be added twice. The add window names the subscription that already uses that link before you press the button, and adding it again opens that subscription instead of creating a second copy of the same servers.
+
+## Русский
+
+- Меню в трее снова открывается. Правый клик по значку пересобирал меню ровно в тот момент, когда Windows его показывала, и меню закрывалось само за сотые доли секунды — на живой установке оно держалось от 13 до 33 мс. Теперь пересборка ждёт, пока меню закроют, а наведение на значок ничего не пересобирает, если ничего не изменилось.
+- Разделом «Сервер» можно пользоваться на большой подписке. Он открывается текущим сервером, дальше идут «Избранные» и «Самые быстрые», ниже — страны с числом серверов в каждой; внутри страны серверы стоят по возрастанию измеренной задержки, и она же показана рядом с именем. Последняя строка, «Все серверы», открывает экран «Серверы» с поиском и полным списком. Подписка на десяток серверов, как и раньше, остаётся простым списком.
+- Одну и ту же ссылку подписки больше нельзя добавить дважды. Окно добавления называет подписку, которая уже использует эту ссылку, ещё до нажатия кнопки, а повторное добавление открывает её саму вместо второй копии тех же серверов.
+
 ## v0.5.0 — 2026-08-31
 
 ## English
