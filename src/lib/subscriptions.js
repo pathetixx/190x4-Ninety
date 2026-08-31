@@ -10,6 +10,7 @@ import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
 import { partitionNodes } from "/lib/node-validation.js";
 import { looksLikeWireguardConf } from "/lib/protocol-parsers.js";
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
+import { hwidHeaders, hwidSignal } from "/lib/hwid.js";
 import {
   getActiveSubscriptionIdFromStore,
   loadSubscriptionsFromStore,
@@ -220,12 +221,15 @@ export function updateSubscription(id, patch) {
 let subProxyProvider = null;
 export function setSubscriptionProxy(fn) { subProxyProvider = fn; }
 
-async function fetchInfo(url) {
+// HWID уходит только тем подпискам, у которых пользователь его включил:
+// панелям без лимита устройств идентификатор устройства знать незачем.
+async function fetchInfo(url, { hwid = false } = {}) {
   let proxy = null;
   try { proxy = subProxyProvider?.() || null; } catch {}
+  const headers = hwid ? await hwidHeaders() : null;
   let info;
   try {
-    info = await invoke("fetch_subscription", { url, proxy });
+    info = await invoke("fetch_subscription", { url, proxy, hwid: headers });
   } catch (e) {
     if (!proxy) throw e;
     const options = loadOptions();
@@ -235,10 +239,14 @@ async function fetchInfo(url) {
       throw new Error(t("subs.proxyFallbackDisabled"), { cause: e });
     }
     // Туннель мог только что умереть — если юзер явно разрешил, повторяем напрямую.
-    info = await invoke("fetch_subscription", { url, proxy: null });
+    info = await invoke("fetch_subscription", { url, proxy: null, hwid: headers });
   }
   if (info.status >= 400) {
-    throw new Error(`HTTP ${info.status}`);
+    const err = new Error(`HTTP ${info.status}`);
+    // 404 — то, чем панель с включённым лимитом отвечает на запрос без HWID;
+    // подсказку про это несёт сама ошибка, иначе она выглядит как «панель легла».
+    err.hwid = hwidSignal(info, [], { sent: hwid });
+    throw err;
   }
   return info;
 }
@@ -247,13 +255,17 @@ async function fetchInfo(url) {
  * Создаёт новую подписку по URL: тянет, парсит, сохраняет.
  * @returns {object} subscription record
  */
-export async function addSubscriptionFromUrl(url, customName = "", intervalHoursOverride = null) {
+export async function addSubscriptionFromUrl(url, customName = "", intervalHoursOverride = null, { hwid = false } = {}) {
   const u = String(url || "").trim();
   if (!/^https?:\/\//i.test(u)) throw new Error(t("subs.needHttpUrl"));
 
-  const info = await fetchInfo(u);
+  const info = await fetchInfo(u, { hwid });
   const { profiles, skipped } = parseSubscriptionEntries(info.body);
-  if (profiles.length === 0) throw new Error(t("subs.noVless"));
+  if (profiles.length === 0) {
+    const err = new Error(t("subs.noVless"));
+    err.hwid = hwidSignal(info, profiles, { sent: hwid });
+    throw err;
+  }
 
   const id = uid("sub_");
   // Явный выбор слайдера (>0) приоритетнее заголовка панели; 0 = «Авто» → берём
@@ -274,13 +286,16 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
     updateIntervalHours: updateIntervalMode === "manual" ? hours : serverUpdateIntervalHours,
     serverUpdateIntervalHours,
     skipped,
+    hwid: !!hwid,
     profiles: assignStableNodeIds(profiles, [], id),
   };
 
   const list = loadSubscriptions();
   list.push(sub);
   saveSubscriptions(list);
-  return sub;
+  // Сигнал панели про лимит устройств живёт только в ответе: в записи подписки
+  // ему не место — он про этот запрос, а не про саму подписку.
+  return { ...sub, hwidSignal: hwidSignal(info, profiles, { sent: hwid }) };
 }
 
 /**
@@ -290,9 +305,13 @@ export async function refreshSubscription(id) {
   const cur = loadSubscriptions().find(s => s.id === id);
   if (!cur) throw new Error(t("subs.notFound"));
 
-  const info = await fetchInfo(cur.url);
+  const info = await fetchInfo(cur.url, { hwid: !!cur.hwid });
   const { profiles, skipped } = parseSubscriptionEntries(info.body);
-  if (profiles.length === 0) throw new Error(t("subs.emptyOrInvalid"));
+  if (profiles.length === 0) {
+    const err = new Error(t("subs.emptyOrInvalid"));
+    err.hwid = hwidSignal(info, profiles, { sent: !!cur.hwid });
+    throw err;
+  }
 
   // Список перечитывается ПОСЛЕ await: за время fetch'а юзер мог переименовать
   // или удалить подписку, а параллельный refresh — обновить соседнюю. Сохранение
@@ -305,7 +324,7 @@ export async function refreshSubscription(id) {
   migrateRememberedSelection(id, fresh.profiles || [], merged.profiles || []);
   list[idx] = merged;
   saveSubscriptions(list);
-  return list[idx];
+  return { ...list[idx], hwidSignal: hwidSignal(info, profiles, { sent: !!cur.hwid }) };
 }
 
 export function mergeSubscriptionRefresh(fresh, info, profiles, skipped = 0) {

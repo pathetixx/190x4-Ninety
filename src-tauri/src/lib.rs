@@ -7,6 +7,7 @@ mod discord_cache;
 mod dnscheck;
 mod dpi;
 mod host_pressure;
+mod hwid;
 mod killswitch;
 mod netproc;
 mod profile_store;
@@ -1143,6 +1144,7 @@ pub fn run() {
             vpn::singbox_log_path,
             vpn::open_log_dir,
             subscription::fetch_subscription,
+            hwid::device_identity,
             clash::clash_get_proxies,
             clash::clash_get_connections,
             clash::clash_traffic_total,

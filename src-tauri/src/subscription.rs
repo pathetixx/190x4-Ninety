@@ -1,5 +1,5 @@
 use base64::Engine;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::lookup_host;
 
@@ -7,6 +7,72 @@ use tokio::net::lookup_host;
 // либо не подписка, либо злонамеренная панель, и глотать его в память нельзя.
 const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 10;
+
+/// Заголовки устройства для панелей с лимитом устройств (стандарт Happ,
+/// используется Remnawave). Обязателен только `hwid`, остальное — чтобы
+/// устройство было различимо в списке панели.
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HwidHeaders {
+    pub hwid: String,
+    pub device_os: Option<String>,
+    pub ver_os: Option<String>,
+    pub device_model: Option<String>,
+}
+
+/// Remnawave (панель v3+) проверяет HWID регуляркой `^[a-zA-Z0-9=-]{10,64}$` и
+/// молча игнорирует заголовок, который под неё не подходит. Проверяем на своей
+/// стороне, чтобы не отправлять заведомо бесполезный идентификатор.
+fn hwid_is_valid(value: &str) -> bool {
+    (10..=64).contains(&value.len())
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'=' || b == b'-')
+}
+
+/// Описание устройства свободной формы: режем управляющие символы и длину,
+/// чтобы значение из состояния фронтенда не могло разорвать заголовок.
+fn sanitize_device_field(value: Option<&String>) -> Option<String> {
+    let cleaned: String = value?
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(64)
+        .collect();
+    let cleaned = cleaned.trim().to_string();
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
+}
+
+fn apply_hwid_headers(
+    request: reqwest::RequestBuilder,
+    headers: &HwidHeaders,
+) -> reqwest::RequestBuilder {
+    if !hwid_is_valid(&headers.hwid) {
+        return request;
+    }
+    let mut request = request.header("x-hwid", headers.hwid.as_str());
+    if let Some(value) = sanitize_device_field(headers.device_os.as_ref()) {
+        request = request.header("x-device-os", value);
+    }
+    if let Some(value) = sanitize_device_field(headers.ver_os.as_ref()) {
+        request = request.header("x-ver-os", value);
+    }
+    if let Some(value) = sanitize_device_field(headers.device_model.as_ref()) {
+        request = request.header("x-device-model", value);
+    }
+    request
+}
+
+fn header_is_true(headers: &reqwest::header::HeaderMap, name: &str) -> bool {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("true"))
+}
 
 #[derive(Serialize)]
 pub struct SubscriptionInfo {
@@ -18,6 +84,12 @@ pub struct SubscriptionInfo {
     pub profile_title: Option<String>,
     pub profile_update_interval_hours: Option<u32>,
     pub status: u16,
+    /// Панель сообщила, что лимит устройств включён.
+    pub hwid_active: bool,
+    /// Лимит устройств включён, а запрос ушёл без `x-hwid`.
+    pub hwid_not_supported: bool,
+    /// Лимит устройств исчерпан — новые устройства панель не примет.
+    pub hwid_limit_reached: bool,
 }
 
 fn parse_userinfo(header: &str) -> (Option<u64>, Option<u64>, Option<u64>, Option<u64>) {
@@ -225,12 +297,24 @@ fn checked_redirect(current: &reqwest::Url, location: &str) -> Result<reqwest::U
     Ok(next)
 }
 
+/// Идентификатор устройства уходит только на тот хост, который пользователь
+/// добавил сам. Редирект на чужой хост — обычный способ подписочных панелей
+/// раздать трафик по зеркалам, но HWID это уже не его дело.
+fn same_host(a: &reqwest::Url, b: &reqwest::Url) -> bool {
+    match (a.host_str(), b.host_str()) {
+        (Some(left), Some(right)) => left.eq_ignore_ascii_case(right),
+        _ => false,
+    }
+}
+
 #[tauri::command]
 pub async fn fetch_subscription(
     url: String,
     proxy: Option<String>,
+    hwid: Option<HwidHeaders>,
 ) -> Result<SubscriptionInfo, String> {
     let mut current = parse_subscription_url(&url)?;
+    let origin = current.clone();
     let proxy = proxy
         .as_deref()
         .map(str::trim)
@@ -248,9 +332,11 @@ pub async fn fetch_subscription(
             None => Some(resolve_public_target(&current).await?),
         };
         let client = make_client(proxy, target.as_ref())?;
-        let response = client
-            .get(current.clone())
-            .header("Accept", "*/*")
+        let mut request = client.get(current.clone()).header("Accept", "*/*");
+        if let Some(headers) = hwid.as_ref().filter(|_| same_host(&origin, &current)) {
+            request = apply_hwid_headers(request, headers);
+        }
+        let response = request
             .send()
             .await
             .map_err(|_| "не удалось получить подписку".to_string())?;
@@ -329,6 +415,14 @@ pub async fn fetch_subscription(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.trim().parse::<u32>().ok());
 
+    // Панель (Remnawave ≥ 2.7.5) сообщает состояние лимита устройств
+    // заголовками — по ним фронтенд объясняет пустой список подписки вместо
+    // того, чтобы показывать ноду-заглушку панели как настоящий сервер.
+    let hwid_active = header_is_true(&headers, "x-hwid-active");
+    let hwid_not_supported = header_is_true(&headers, "x-hwid-not-supported");
+    let hwid_limit_reached = header_is_true(&headers, "x-hwid-max-devices-reached")
+        || header_is_true(&headers, "x-hwid-limit");
+
     Ok(SubscriptionInfo {
         body,
         upload,
@@ -338,6 +432,9 @@ pub async fn fetch_subscription(
         profile_title,
         profile_update_interval_hours,
         status,
+        hwid_active,
+        hwid_not_supported,
+        hwid_limit_reached,
     })
 }
 
@@ -442,6 +539,41 @@ mod tests {
         // Имя не резолвим вовсе — это и есть смысл режима.
         let host = reqwest::Url::parse("https://panel.example/sub").unwrap();
         assert!(reject_forbidden_literal(&host).is_ok());
+    }
+
+    #[test]
+    fn hwid_matches_the_panel_validation_rule() {
+        assert!(hwid_is_valid("a1b2c3d4e5f60718"));
+        assert!(hwid_is_valid("UE42LJXu4DbiCaBv"));
+        assert!(hwid_is_valid("A-B=C-D=E-F=G-H"));
+        // Короче 10 символов, длиннее 64 и посторонние символы панель игнорирует.
+        assert!(!hwid_is_valid("short1234"));
+        assert!(!hwid_is_valid(&"a".repeat(65)));
+        assert!(!hwid_is_valid("{6b9e0f3a-1c2d-4e5f}"));
+        assert!(!hwid_is_valid("base64_url_style_id"));
+    }
+
+    #[test]
+    fn device_fields_are_trimmed_and_stripped_of_control_characters() {
+        assert_eq!(
+            sanitize_device_field(Some(&"  Windows\r\n".to_string())),
+            Some("Windows".to_string())
+        );
+        assert_eq!(sanitize_device_field(Some(&"   ".to_string())), None);
+        assert_eq!(sanitize_device_field(None), None);
+        let long = sanitize_device_field(Some(&"m".repeat(100))).unwrap();
+        assert_eq!(long.len(), 64);
+    }
+
+    // HWID — идентификатор устройства: он уходит только тому хосту, который
+    // пользователь добавил, и не следует за редиректом на чужой домен.
+    #[test]
+    fn hwid_travels_only_to_the_host_the_user_added() {
+        let origin = reqwest::Url::parse("https://panel.example/sub/key").unwrap();
+        let same = reqwest::Url::parse("https://PANEL.example/sub/key?v=2").unwrap();
+        let other = reqwest::Url::parse("https://mirror.example/sub/key").unwrap();
+        assert!(same_host(&origin, &same));
+        assert!(!same_host(&origin, &other));
     }
 
     #[test]

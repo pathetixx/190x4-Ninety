@@ -95,6 +95,7 @@ export function openEditProfile(profile, { onSaved, onToast } = {}) {
 export function openEditSubscription(sub, { onSaved, onToast } = {}) {
   const interval = sub.updateIntervalMode === "auto" ? 0 : (sub.updateIntervalHours ?? 0);
   const autoUpdate = sub.autoUpdate !== false; // default true
+  const hwid = sub.hwid === true;
   const fields = `
     <label class="edit-modal__field">
       <span class="edit-modal__label">${t("edit.name")}</span>
@@ -110,6 +111,13 @@ export function openEditSubscription(sub, { onSaved, onToast } = {}) {
       <span class="edit-modal__label">${t("edit.interval")} — <span id="edit-interval-val">${escapeHtml(intervalLabel(interval))}</span></span>
       <input type="range" id="edit-interval" min="0" max="96" step="1" value="${interval}">
     </label>
+    <div class="edit-modal__row">
+      <span class="edit-modal__label">${t("edit.hwid")}</span>
+      <span class="switch" id="edit-hwid" role="switch" tabindex="0"
+            data-on="${hwid ? "true" : "false"}"
+            aria-checked="${hwid ? "true" : "false"}"></span>
+    </div>
+    <div class="edit-modal__hint">${t("edit.hwidHint")}</div>
     <div class="edit-modal__hint">${escapeHtml(sub.url || "")}</div>
   `;
   const root = build({
@@ -118,29 +126,37 @@ export function openEditSubscription(sub, { onSaved, onToast } = {}) {
     onSave: (root) => {
       const name = root.querySelector("#edit-name").value.trim() || sub.name;
       const autoUpdate = root.querySelector("#edit-auto").dataset.on === "true";
+      const nextHwid = root.querySelector("#edit-hwid").dataset.on === "true";
       const interval = parseInt(root.querySelector("#edit-interval").value, 10) || 0;
       const updateIntervalMode = interval > 0 ? "manual" : "auto";
       updateSubscription(sub.id, {
         name,
         autoUpdate,
+        hwid: nextHwid,
+        // Отказ от подсказки снимается вместе с ручным решением: следующий
+        // ответ панели снова вправе о нём напомнить.
+        hwidPromptDismissed: nextHwid,
         updateIntervalMode,
         updateIntervalHours: updateIntervalMode === "manual" ? interval : (sub.serverUpdateIntervalHours ?? null),
       });
       onToast?.(t("edit.saved"), "success", 1400);
-      onSaved?.();
+      // Список серверов зависит от того, ушёл ли HWID: смена флага требует
+      // перезагрузки подписки, иначе на экране остаётся ответ старого запроса.
+      onSaved?.({ hwidChanged: nextHwid !== hwid });
     },
   });
   const slider = root.querySelector("#edit-interval");
   const valEl = root.querySelector("#edit-interval-val");
   slider.addEventListener("input", () => { valEl.textContent = intervalLabel(slider.value); });
-  const sw = root.querySelector("#edit-auto");
-  const toggleSw = () => {
-    const next = sw.dataset.on !== "true";
-    sw.dataset.on = String(next);
-    sw.setAttribute("aria-checked", String(next));
-  };
-  sw.addEventListener("click", toggleSw);
-  sw.addEventListener("keydown", (e) => {
-    if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleSw(); }
-  });
+  for (const sw of root.querySelectorAll("#edit-auto, #edit-hwid")) {
+    const toggleSw = () => {
+      const next = sw.dataset.on !== "true";
+      sw.dataset.on = String(next);
+      sw.setAttribute("aria-checked", String(next));
+    };
+    sw.addEventListener("click", toggleSw);
+    sw.addEventListener("keydown", (e) => {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleSw(); }
+    });
+  }
 }

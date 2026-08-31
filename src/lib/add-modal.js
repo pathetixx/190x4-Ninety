@@ -2,7 +2,14 @@
 // Одна карточка, которая растёт. Выбор режима убран: тип ввода определяется
 // сам и показывается ДО нажатия «Добавить».
 
-import { detectAddInput, addSubscriptionFromUrl, parseSubscriptionEntries } from "/lib/subscriptions.js";
+import {
+  detectAddInput,
+  addSubscriptionFromUrl,
+  parseSubscriptionEntries,
+  refreshSubscription,
+  updateSubscription,
+} from "/lib/subscriptions.js";
+import { askEnableHwid } from "/lib/hwid-prompt.js";
 import { addProfileFromVless, addTrustTunnelFromToml, addWireguardFromConf } from "/lib/singbox.js";
 import { t, tn } from "/lib/i18n/index.js";
 import { escapeHtml } from "/lib/esc.js";
@@ -226,7 +233,22 @@ export async function importAddInput(raw, userOverride = {}) {
   // kind === "url" → подписка. intervalHours из слайдера «Авто-обновление»
   // (0 = авто/по заголовку панели); передаётся только при ручном добавлении.
   setBusy(true, "add.detLoadingSub");
-  const sub = await addSubscriptionFromUrl(decision.url, userOverride.name || "", userOverride.intervalHours);
+  let sub;
+  try {
+    sub = await addSubscriptionFromUrl(decision.url, userOverride.name || "", userOverride.intervalHours);
+  } catch (err) {
+    // Панель с лимитом устройств без HWID отдаёт 404 или одну ноду-заглушку:
+    // подписка выглядит битой, хотя ей просто не хватает заголовка.
+    if (!err?.hwid?.required || !(await askEnableHwid())) throw err;
+    sub = await addSubscriptionFromUrl(decision.url, userOverride.name || "", userOverride.intervalHours, { hwid: true });
+  }
+  // Заглушка могла и разобраться как обычный сервер — тогда список «добавился»,
+  // но состоит из неё одной, и спросить всё равно нужно.
+  if (!sub.hwid && sub.hwidSignal?.required && await askEnableHwid()) {
+    updateSubscription(sub.id, { hwid: true, hwidPromptDismissed: true });
+    sub = await refreshSubscription(sub.id);
+  }
+  if (sub.hwidSignal?.limitReached) toast(t("hwid.limitReached"), "warn", 7000);
   // http:// — адрес и ключи подписки едут открытым текстом (виден провайдеру,
   // и каждый рефреш тоже). Не блокируем (http-панели существуют), но предупреждаем.
   if (/^http:\/\//i.test(decision.url)) toast(t("add.httpWarn"), "warn", 6000);

@@ -30,6 +30,9 @@ export const STORAGE_KEYS = {
   warpHistory: "ninety.warp.history",
   qualityProfile: "ninety.quality.profile",
   wifiTrusted: "ninety.wifi.trusted",
+  // Идентификатор устройства для подписок с лимитом устройств. Бэкапится
+  // намеренно: после очистки WebView2 новый HWID занял бы в панели ещё один слот.
+  deviceHwid: "ninety.hwid.v1",
   wifiPrevMode: "ninety.wifi.prevMode",
 };
 

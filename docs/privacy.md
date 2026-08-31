@@ -114,6 +114,14 @@ Subscription refresh is designed with a privacy-safe default: direct fallback is
 
 This matters because subscription URLs are often credentials.
 
+## Subscription device limit (HWID)
+
+Some panels count devices per subscription and return no server list until the client sends a device identifier. Ninety can send one, per subscription, and the switch is off by default.
+
+The identifier is derived from a machine value with a one-way hash, so the original Windows value is not sent and the result does not match what other applications use. It is sent only to subscriptions where the switch is on, only to the host stored for that subscription, and it is dropped on a redirect to a different host. Alongside it Ninety sends the operating system name, its version and a fixed model string (`Ninety`); the computer name is not sent.
+
+The identifier stays the same across refreshes so the panel keeps counting one device. It can be viewed, copied and changed in Settings → General. Changing it makes the panel treat Ninety as a new device, and the previous one stays in the panel list until the subscription owner removes it.
+
 ## Runtime configs
 
 Runtime configs are generated on demand for the active source, mode and options. They can contain credentials needed by local engines.

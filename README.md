@@ -35,6 +35,7 @@ When something breaks, you get diagnostics instead of guesswork.
 | --- | --- |
 | **Connection modes** | Local proxy, Windows system proxy and full **VPN · TUN** mode. UAC appears only when TUN actually needs elevation; Ninety can also start elevated at login. |
 | **Sources** | Imports subscription URLs, individual proxy links, TrustTunnel `.toml` endpoints and WireGuard/AmneziaWG `.conf` files. Clipboard import is built in, while deep links remain optional. |
+| **Device limits** | Subscriptions from panels that count devices can send a per-subscription device identifier. The switch is off by default, the identifier is derived one way from a machine value, and it is shown, copied or changed in Settings. |
 | **Node control** | Server grid with country flags, live delay checks, automatic selection, tray switching and tracking of the node currently used by the connection. |
 | **Protocols** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, SOCKS, NaiveProxy, TrustTunnel, WireGuard/AmneziaWG and WARP. |
 | **Bridges** | XHTTP runs through xray-core. NaiveProxy and TrustTunnel use local SOCKS sidecars, with sing-box remaining the central router. |

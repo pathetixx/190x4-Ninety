@@ -42,6 +42,7 @@ import { openUpdateModal, resumeRuntimeReady, shouldSkip as updateShouldSkip } f
 import { planUpdateNotice, UPDATE_NOTICE } from "/lib/update-notice.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
+import { handleHwidSignal } from "/lib/hwid-prompt.js";
 import { copySubscriptionUrl, copyWireguardConf, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, nodesFromSource, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView, resetProxiesViewForSourceChange, snapshotMatchesSource } from "/lib/proxies-view.js";
 import {
@@ -1760,6 +1761,28 @@ function mutateSources(items, mutation, reason) {
   return sourceMutations.run(items, mutation, { reason });
 }
 
+// Панель с лимитом устройств вместо серверов отдаёт заглушку или 404, пока не
+// получит HWID. Предлагаем включить отправку для этой подписки и сразу
+// перечитываем список — иначе пользователь остаётся с пустым экраном.
+async function offerHwidAndReload(id, signal) {
+  try {
+    const enabled = await handleHwidSignal({
+      subId: id,
+      signal,
+      toast,
+      onEnabled: () => mutateSource("sub", id, () => refreshSubscription(id), t("conn.applyingSettings")),
+    });
+    if (!enabled) return false;
+    renderProfilesView();
+    refreshSubCardFromActive();
+    toast(t("hwid.enabled"), "success", 2200);
+    return true;
+  } catch (err) {
+    toast(t("prof.toastErr", { err: err?.message || err }), "error", 2800);
+    return false;
+  }
+}
+
 async function deleteSource(kind, id) {
   // Удаление подписки необратимо: ссылку панели и накопленные замеры вернуть
   // неоткуда, а пункт меню стоит рядом с «Обновить». Спрашиваем подтверждение
@@ -2308,7 +2331,22 @@ profilesView?.addEventListener("click", async (e) => {
         const sub = loadSubscriptions().find(s => s.id === id);
         const before = sourceFingerprint(sourceById("sub", id));
         if (sub) openEditSubscription(sub, {
-          onSaved: () => mutateSource("sub", id, async () => sub, t("conn.applyingSettings"), before),
+          onSaved: async (changes) => {
+            // Смена отправки HWID меняет сам ответ панели — перечитываем список,
+            // иначе на экране остаётся заглушка предыдущего запроса.
+            const apply = changes?.hwidChanged
+              ? () => refreshSubscription(id)
+              : async () => sub;
+            try {
+              await mutateSource("sub", id, apply, t("conn.applyingSettings"), before);
+            } catch (err) {
+              toast(t("prof.toastErr", { err: err?.message || err }), "error", 2800);
+            }
+            if (changes?.hwidChanged) {
+              renderProfilesView();
+              refreshSubCardFromActive();
+            }
+          },
           onToast: toast,
         });
         return;
@@ -2323,8 +2361,10 @@ profilesView?.addEventListener("click", async (e) => {
           const r = tx.result;
           toast(t("prof.toastUpdated", { srv: tn("prof.srvN", r.profiles.length) }), "success", 1800);
           if (r.skipped > 0) toast(t("subs.skippedNote", { n: r.skipped }), "warn", 6000);
+          await offerHwidAndReload(id, r.hwidSignal);
         } catch (err) {
           toast(t("prof.toastErr", { err: err?.message || err }), "error", 2800);
+          await offerHwidAndReload(id, err?.hwid);
         }
         renderProfilesView();
         refreshSubCardFromActive();

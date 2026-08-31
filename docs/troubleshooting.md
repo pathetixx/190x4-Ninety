@@ -57,6 +57,12 @@ Sanitized logs or screenshots:
 - Direct fallback is opt-in. If it is disabled, Ninety should not silently retry subscription refresh directly.
 - Attach sanitized Logs output.
 
+## Subscription shows only "Enable HWID parameter"
+
+- The panel counts devices and did not get a device identifier. Enable "Send HWID" for that subscription in its edit dialog, or accept the prompt Ninety shows after the refresh, then refresh again.
+- A `404` from a panel that otherwise works is the same case.
+- If the panel reports that the device limit is reached, free a slot in the panel or ask the subscription owner. A new identifier does not help: it takes another slot.
+
 ## Connected but no internet
 
 - Identify the mode: Proxy, System proxy, VPN · TUN or WARP-only.

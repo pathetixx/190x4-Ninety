@@ -14,6 +14,7 @@ import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { openConfirmModal } from "/lib/confirm-modal.js";
 import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
 import { toast } from "/lib/toast.js";
+import { ensureDeviceIdentity, peekDeviceIdentity, regenerateDeviceIdentity } from "/lib/hwid.js";
 import {
   DNS_PRESETS, DNS_CUSTOM, DNS_SEPARATOR,
   dnsPresetLabel, findDnsPreset, isSystemDns, validateDnsAddress,
@@ -279,6 +280,7 @@ export function mountSettings(root, opts = {}) {
     bindDnsSection(el, onChange);
     bindWarpSection(el, sec, onChange);
     bindSensitiveDataClear(el, sec, onSensitiveDataClear);
+    bindDeviceHwid(el, sec);
     bindAppearanceSection(el, sec);
     bindAboutSection(el, sec);
     bindRoutingSection(el, sec, onChange);
@@ -468,6 +470,54 @@ export function mountSettings(root, opts = {}) {
         }
       });
     } catch {}
+  }
+
+  // Идентификатор устройства для подписок с лимитом устройств. Значение
+  // подставляется после рендера: при первом обращении оно заводится в Rust.
+  function bindDeviceHwid(el, sec) {
+    if (sec.key !== "general") return;
+    const valueEl = el.querySelector("[data-hwid-value]");
+    if (!valueEl) return;
+
+    let identity = peekDeviceIdentity();
+    const show = (next) => {
+      identity = next;
+      valueEl.textContent = next?.hwid || "…";
+    };
+    ensureDeviceIdentity().then(show).catch(() => {});
+
+    el.querySelector("[data-action='hwid-copy']")?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const current = identity || await ensureDeviceIdentity();
+        await navigator.clipboard.writeText(current.hwid);
+        toast(t("settings.general.hwidCopied"), "success", 1600);
+      } catch (error) {
+        toast(t("settings.general.hwidCopyErr", { err: error?.message || error }), "error", 2800);
+      }
+    });
+
+    el.querySelector("[data-action='hwid-regenerate']")?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Для панели это другое устройство: старое останется в её списке и,
+      // пока владелец подписки его не удалит, будет занимать слот.
+      const ok = await openConfirmModal({
+        title: t("settings.general.hwidRegenerateTitle"),
+        message: t("settings.general.hwidRegenerateConfirm"),
+        confirmLabel: t("settings.general.hwidRegenerateButton"),
+        cancelLabel: t("settings.general.hwidRegenerateCancel"),
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        show(await regenerateDeviceIdentity());
+        toast(t("settings.general.hwidRegenerated"), "success", 2200);
+      } catch (error) {
+        toast(t("settings.general.hwidCopyErr", { err: error?.message || error }), "error", 2800);
+      }
+    });
   }
 
   function bindSensitiveDataClear(el, sec, onClear) {
@@ -1093,6 +1143,9 @@ function renderGeneral(o) {
       ${row(iconShield(), t("settings.general.killTitle"), t("settings.general.killHint"), toggle("general.killSwitch", !!g.killSwitch))}
       ${row(iconEyeOff(), t("settings.general.geoTitle"), t("settings.general.geoHint"), toggle("general.disableGeoLookup", !!g.disableGeoLookup))}
       ${row(iconLock(), t("settings.general.subPrivacyTitle"), t("settings.general.subPrivacyHint"), toggle("general.allowDirectSubscriptionFallback", !!g.allowDirectSubscriptionFallback))}
+    </div>
+    <div class="settings-section">
+      ${row(iconLock(), t("settings.general.hwidTitle"), t("settings.general.hwidHint"), `<code class="settings-hwid" data-hwid-value>${escapeHtml(peekDeviceIdentity()?.hwid || "…")}</code><button class="btn btn--sm" data-action="hwid-copy" type="button">${escapeHtml(t("settings.general.hwidCopy"))}</button><button class="btn btn--sm btn--danger" data-action="hwid-regenerate" type="button">${escapeHtml(t("settings.general.hwidRegenerate"))}</button>`)}
     </div>
     <div class="settings-section" data-portable-secrets-row hidden>
       ${row(iconLock(), portableCopy.title, portableCopy.hint, `<button class="btn btn--sm" data-action="portable-secrets-set" type="button">${escapeHtml(portableCopy.set)}</button><button class="btn btn--sm btn--danger" data-action="portable-secrets-clear" type="button" hidden>${escapeHtml(portableCopy.clear)}</button><button class="btn btn--sm btn--danger" data-action="portable-secrets-plain" type="button">${escapeHtml(portableCopy.plain)}</button>`)}

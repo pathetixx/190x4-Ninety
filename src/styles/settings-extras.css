@@ -852,3 +852,19 @@
 .logs__console .log-line:nth-child(odd) { background: var(--overlay-1); }
 
 /* Секция «О программе» — стили вынесены в about.css. */
+
+/* Идентификатор устройства для подписок с лимитом устройств: показывается
+   целиком, но не растягивает строку настроек — длинные значения переносятся. */
+.settings-hwid {
+  font-family: var(--font-mono, ui-monospace, "Cascadia Mono", Consolas, monospace);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-2, inherit);
+  background: var(--overlay-1);
+  border: 1px solid var(--overlay-2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  max-width: 220px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
