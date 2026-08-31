@@ -724,7 +724,10 @@ struct TrayMenuOutcome {
 }
 
 #[tauri::command]
-fn set_tray_menu(app: tauri::AppHandle, payload: TrayMenuPayload) -> Result<TrayMenuOutcome, String> {
+fn set_tray_menu(
+    app: tauri::AppHandle,
+    payload: TrayMenuPayload,
+) -> Result<TrayMenuOutcome, String> {
     let Some(tray) = app.tray_by_id("main") else {
         return Ok(TrayMenuOutcome { applied: true });
     };
@@ -1278,7 +1281,9 @@ mod tests {
         const GUI_CARETBLINKING: u32 = 0x0000_0001;
         assert!(menu_flags_indicate_open(GUI_INMENUMODE));
         assert!(menu_flags_indicate_open(GUI_POPUPMENUMODE));
-        assert!(menu_flags_indicate_open(GUI_POPUPMENUMODE | GUI_CARETBLINKING));
+        assert!(menu_flags_indicate_open(
+            GUI_POPUPMENUMODE | GUI_CARETBLINKING
+        ));
         assert!(!menu_flags_indicate_open(0));
         assert!(!menu_flags_indicate_open(GUI_CARETBLINKING));
     }
