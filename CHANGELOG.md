@@ -2,15 +2,21 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
-## v0.4.6 — 2026-08-27
+## v0.5.0 — 2026-08-31
 
 ## English
 
+- Subscriptions from panels that count devices work now. Such a panel limits how many devices one subscription may be used on, and until the app tells it which device is asking, it answers with a single server called "Enable HWID parameter" — or with nothing at all. Ninety can now send that identifier: turn on "Send HWID" in the subscription's edit window, or accept the question that appears right after a refresh, and the real server list comes back.
+- The identifier is per subscription and off by default, so panels that do not count devices never receive it. It is derived from your computer one way — the Windows value behind it is never sent, and the result does not match what other apps use — and it stays the same on every refresh, so the panel keeps seeing one device instead of spending a new slot each time. Settings → General shows it, copies it and can replace it.
+- When the panel reports that the subscription has no free device slots left, Ninety says exactly that, instead of showing an empty subscription and leaving you to guess.
 - Recommendations are calculated by the ratio between delays, not the difference in milliseconds. The old scale spread 25–300 ms evenly, so two milliseconds counted the same between 26 and 28 as between 260 and 262 — and on a subscription where every live server sits between 26 and 40 ms the whole delay range took up a twentieth of the scale. What was left to decide the order was the spread, so a steady 33 ms server stood in "Recommended" while the list right below it showed 26 ms. At 30 ms a millisecond of delay now weighs about as much as a millisecond of spread; at 300 ms it weighs less, which is what it is worth there.
 - "Lowest latency" is only written where the latency really is the lowest. The line went to any server whose strongest side happened to be its delay — including when a faster server was sitting a few rows below in the same list. Such a server is now described as having low latency, and the superlative is left for the one that has earned it.
 
 ## Русский
 
+- Подписки панелей, которые считают устройства, теперь работают. Такая панель ограничивает, на скольких устройствах можно пользоваться одной подпиской, и пока приложение не сообщит ей, какое устройство спрашивает, она отдаёт один сервер с названием «Включите HWID параметр» — или не отдаёт ничего. Ninety умеет отправлять этот идентификатор: включите «Отправлять HWID» в окне подписки или ответьте на вопрос, который появится сразу после обновления, — и вернётся настоящий список серверов.
+- Идентификатор задаётся для каждой подписки отдельно и по умолчанию выключен, поэтому панели, которые устройства не считают, его не получают. Он выводится из вашего компьютера односторонне — исходное значение Windows наружу не уходит, и результат не совпадает с тем, что отправляют другие программы, — и не меняется при обновлениях, так что панель видит одно устройство, а не тратит новое место каждый раз. В «Настройках → Общие» его видно, можно скопировать и заменить.
+- Когда панель сообщает, что свободных мест для устройств у подписки не осталось, Ninety так и говорит, вместо того чтобы показать пустую подписку и оставить вас гадать.
 - Рекомендации считаются по отношению задержек, а не по разнице в миллисекундах. Прежняя шкала растягивала 25–300 мс равномерно, и две миллисекунды весили одинаково на паре 26/28 и на паре 260/262, — а на подписке, где все живые серверы укладываются в 26–40 мс, весь разброс задержки занимал двадцатую часть шкалы. Решал порядок тогда разброс: ровный сервер с 33 мс стоял в «Рекомендованных», пока в списке прямо под ним значилось 26 мс. Теперь на 30 мс миллисекунда задержки весит примерно столько же, сколько миллисекунда разброса, а на 300 мс — меньше, сколько она там и стоит.
 - «Самая низкая задержка» пишется только там, где она действительно самая низкая. Раньше строка доставалась любому серверу, у которого задержка оказалась сильнейшей стороной, — в том числе когда несколькими строками ниже в том же списке стоял сервер быстрее. Про такой сервер теперь написано, что задержка низкая, а превосходная степень остаётся тому, кто её заслужил.
 
