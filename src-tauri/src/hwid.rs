@@ -58,7 +58,10 @@ fn machine_seed() -> Option<String> {
     // KEY_WOW64_64KEY: под WOW64 перенаправление отдало бы другой раздел, и
     // HWID менялся бы вместе с разрядностью процесса.
     let key = RegKey::predef(HKEY_LOCAL_MACHINE)
-        .open_subkey_with_flags(r"SOFTWARE\Microsoft\Cryptography", KEY_READ | KEY_WOW64_64KEY)
+        .open_subkey_with_flags(
+            r"SOFTWARE\Microsoft\Cryptography",
+            KEY_READ | KEY_WOW64_64KEY,
+        )
         .ok()?;
     let guid: String = key.get_value("MachineGuid").ok()?;
     let guid = guid.trim().to_ascii_lowercase();
