@@ -299,14 +299,29 @@ function transportLabel(n) {
 }
 
 // ── подсветка совпадений поиска ─────────────────────────────
+// Подсветка совпадений поиска. Ищем в ИСХОДНОМ тексте и экранируем каждый
+// кусок отдельно. Прежний порядок (сначала escapeHtml, потом regex по готовой
+// разметке) резал HTML-сущности: запрос «amp» превращал `&amp;` в
+// `&<mark>amp</mark>;`, и вместо «&» в имени ноды появлялся сырой текст
+// сущности. Экранирование при этом не ослабло — под escapeHtml проходит и
+// текст между совпадениями, и сами совпадения; литералом остаётся только <mark>.
 function highlight(text) {
-  const safe = escapeHtml(text);
+  const raw = String(text ?? "");
   const q = query.trim();
-  if (!q) return safe;
+  if (!q) return escapeHtml(raw);
   const terms = q.toLowerCase().split(/\s+/).filter(Boolean)
     .map(x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  if (!terms.length) return safe;
-  return safe.replace(new RegExp("(" + terms.join("|") + ")", "gi"), "<mark>$1</mark>");
+  if (!terms.length) return escapeHtml(raw);
+  // Термы непустые (filter(Boolean)), поэтому совпадение нулевой длины и
+  // связанный с ним бесконечный цикл matchAll невозможны.
+  const re = new RegExp("(" + terms.join("|") + ")", "gi");
+  let out = "";
+  let last = 0;
+  for (const m of raw.matchAll(re)) {
+    out += escapeHtml(raw.slice(last, m.index)) + `<mark>${escapeHtml(m[0])}</mark>`;
+    last = m.index + m[0].length;
+  }
+  return out + escapeHtml(raw.slice(last));
 }
 
 // ── разброс: 12 последних замеров ───────────────────────────
