@@ -56,8 +56,14 @@ function dropLegacyBuckets(map) {
 export function recordProbes(source, clashData, tags) {
   const proxies = clashData?.proxies;
   if (!proxies || !Array.isArray(tags) || !tags.length) return false;
+  // Источник без собственного ключа ничего не помнит: ведро "none" всё равно
+  // удаляет dropLegacyBuckets на этой же записи. Прежний фолбэк на "none"
+  // давал холостой цикл — заполнили ведро, тут же стёрли, вернули changed=true.
+  // На каждом опросе (раз в 4 с) это stringify всего архива, запись в
+  // localStorage и лишняя перерисовка таблицы.
+  const key = selectionSourceKey(source);
+  if (!key) return false;
   const map = readAll();
-  const key = selectionSourceKey(source) || "none";
   const scope = map[key] && typeof map[key] === "object" ? map[key] : {};
   let changed = false;
 
@@ -84,15 +90,18 @@ export function recordProbes(source, clashData, tags) {
 }
 
 export function getProbeHistory(source, tag) {
-  const scope = readAll()[selectionSourceKey(source) || "none"];
+  const key = selectionSourceKey(source);
+  if (!key) return [];
+  const scope = readAll()[key];
   const entry = scope && scope[tag];
   return entry && Array.isArray(entry.d) ? entry.d.slice(-CAP) : [];
 }
 
 // Смена набора нод (обновление подписки) делает старые теги мусором.
 export function pruneProbeHistory(source, validTags) {
+  const key = selectionSourceKey(source);
+  if (!key) return;
   const map = readAll();
-  const key = selectionSourceKey(source) || "none";
   const scope = map[key];
   if (!scope) return;
   const keep = new Set(validTags || []);
@@ -104,7 +113,10 @@ export function pruneProbeHistory(source, validTags) {
 }
 
 export function clearProbeHistory(source) {
+  const key = selectionSourceKey(source);
   const map = readAll();
-  delete map[selectionSourceKey(source) || "none"];
+  // Ключа нет — писать было некуда, но легаси-вёдра прошлых сборок ("none" и
+  // "sub:") снимет сам writeAll через dropLegacyBuckets.
+  if (key) delete map[key];
   writeAll(map);
 }

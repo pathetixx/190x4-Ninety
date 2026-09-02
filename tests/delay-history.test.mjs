@@ -131,3 +131,18 @@ test("осиротевшие ведра сломанного ключа вычи
   assert.equal(Object.prototype.hasOwnProperty.call(raw, "sub:"), false, "старое ведро должно исчезнуть");
   assert.ok(raw["sub:s1"], "чужие корректные ведра трогать нельзя");
 });
+
+test("источник без собственного ключа не пишет в архив вовсе", () => {
+  // WARP и любой источник без id ключа не имеют. Раньше запись уходила в ведро
+  // "none", которое dropLegacyBuckets стирал на этой же записи: холостой
+  // stringify + запись в localStorage на каждом опросе, да ещё с changed=true.
+  storage.clear();
+  const orphan = { kind: "warp", nodes: [] };
+  assert.equal(recordProbes(orphan, snap("n0", "t1", 41), ["n0"]), false);
+  assert.equal(storage.has("ninety.delayHistory.v1"), false, "записи быть не должно");
+  assert.deepEqual(getProbeHistory(orphan, "n0"), []);
+  // Соседний источник с ключом продолжает работать.
+  recordProbes(SRC, snap("n0", "t1", 41), ["n0"]);
+  assert.deepEqual(getProbeHistory(SRC, "n0"), [41]);
+  assert.deepEqual(getProbeHistory(orphan, "n0"), []);
+});
