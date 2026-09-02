@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 
 use crate::util::MutexExt;
@@ -69,6 +69,13 @@ pub struct RuntimeOperationSnapshot {
 
 struct ActiveOperation {
     token: RuntimeOperationToken,
+    /// Момент выдачи по МОНОТОННЫМ часам — единственный источник для решения об
+    /// истечении. Стенные часы для этого не годятся: прыжок системного времени
+    /// вперёд (NTP после сна, смена таймзоны, ручная правка) протухал бы живую
+    /// операцию посреди подключения, а прыжок назад делал `saturating_sub`
+    /// нулевым, и повисшая аренда не истекала бы никогда.
+    started_at: Instant,
+    /// То же начало по стенным часам — только для диагностического снимка.
     started_at_ms: u64,
     cancelled: Arc<AtomicBool>,
 }
@@ -91,8 +98,8 @@ pub struct RuntimeOperationCoordinator {
     active: Mutex<Option<ActiveOperation>>,
 }
 
-fn lease_expired(started_at_ms: u64, now_ms: u64) -> bool {
-    now_ms.saturating_sub(started_at_ms) > OPERATION_LEASE_MS
+fn lease_expired(elapsed: Duration) -> bool {
+    elapsed > Duration::from_millis(OPERATION_LEASE_MS)
 }
 
 impl RuntimeOperationCoordinator {
@@ -111,7 +118,7 @@ impl RuntimeOperationCoordinator {
             // Владелец, переживший свой lease, потерян вместе с WebView.
             // Держать им lifecycle нельзя: подключение не восстановится до
             // перезапуска приложения.
-            let expired = lease_expired(current.started_at_ms, now_ms());
+            let expired = lease_expired(current.started_at.elapsed());
             let supersedes = expired
                 || kind.priority() > current.token.kind.priority()
                 || (kind == RuntimeOperationKind::SourceSwitch
@@ -133,6 +140,7 @@ impl RuntimeOperationCoordinator {
         };
         *active = Some(ActiveOperation {
             token: token.clone(),
+            started_at: Instant::now(),
             started_at_ms: now_ms(),
             cancelled: Arc::new(AtomicBool::new(false)),
         });
@@ -682,7 +690,8 @@ mod tests {
         {
             let mut active = coordinator.active.lock_recover();
             let current = active.as_mut().expect("active operation");
-            current.started_at_ms = current.started_at_ms.saturating_sub(OPERATION_LEASE_MS + 1);
+            let aged = Duration::from_millis(OPERATION_LEASE_MS + 1);
+            current.started_at = current.started_at.checked_sub(aged).unwrap();
         }
         let fresh = coordinator
             .begin(RuntimeOperationKind::UserConnect, 1, Some("b"))
@@ -693,12 +702,13 @@ mod tests {
 
     #[test]
     fn lease_expiry_is_bounded_and_monotonic_safe() {
-        assert!(!lease_expired(1_000, 1_000));
-        assert!(!lease_expired(1_000, 1_000 + OPERATION_LEASE_MS));
-        assert!(lease_expired(1_000, 1_000 + OPERATION_LEASE_MS + 1));
-        // Часы могли уехать назад: отрицательная дельта не должна читаться как
-        // «истекло» и обнулять владение действующей операции.
-        assert!(!lease_expired(10_000, 1_000));
+        assert!(!lease_expired(Duration::ZERO));
+        assert!(!lease_expired(Duration::from_millis(OPERATION_LEASE_MS)));
+        assert!(lease_expired(Duration::from_millis(OPERATION_LEASE_MS + 1)));
+        // Источник — Instant::elapsed, поэтому отрицательной дельты не бывает в
+        // принципе: скачок стенных часов больше не может ни протухать живую
+        // аренду, ни продлевать повисшую.
+        assert!(!lease_expired(Duration::from_millis(1)));
     }
 
     #[test]
