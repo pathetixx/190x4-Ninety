@@ -227,18 +227,15 @@
               </div>
             </div>
 
-            <!-- Location card (показывается в standby/linking) -->
+            <!-- Location card: имя, флаг и протокол заполняет updateHeroForActive.
+                 Статических значений здесь быть не должно — карточка скрыта
+                 applyHomeBottom, и любой placeholder уехал бы в публичный исходник. -->
             <article class="loc-card" tabindex="0" id="location-card">
-              <span class="loc-card__flag" aria-label="Польша">
-                <svg viewBox="0 0 8 5" preserveAspectRatio="none">
-                  <rect width="8" height="2.5" fill="#fff"/>
-                  <rect y="2.5" width="8" height="2.5" fill="#dc143c"/>
-                </svg>
-              </span>
+              <span class="loc-card__flag" aria-hidden="true"></span>
               <div class="loc-card__main">
-                <div class="loc-card__name">pl.190x4.pw</div>
+                <div class="loc-card__name">—</div>
                 <div class="loc-card__sub">
-                  <b>VLESS · REALITY · XHTTP</b>
+                  <b>—</b>
                 </div>
                 <div class="loc-card__ip" id="loc-ip-row" hidden>
                   <span class="loc-card__ip-label">IP</span>
