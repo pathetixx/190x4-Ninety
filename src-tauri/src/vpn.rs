@@ -2338,7 +2338,24 @@ async fn start_singbox_inner(
     });
     state.dataplane_probe.reset_generation(process_generation);
     spawn_core_death_watcher(app.clone(), state, process_generation);
-    Ok(runtime_snapshot_value(state, false))
+    // Раньше здесь стоял литеральный `false`, то есть поле уезжало во фронт
+    // заведомо ложным: в строгом режиме kill switch армирован ещё на preflight.
+    // Сейчас снимок старта никто не подставляет в `runtimeSnapshotMatchesExpected`
+    // (тот работает со свежим `runtime_snapshot`), но проверка там строгая
+    // (`killSwitchExpected ? === true : !== true`), и первый же вызов, который
+    // доверится ответу старта, молча ломал бы подключение. Отдаём фактическое
+    // состояние; холодный `is_active` — синхронный RPC к BFE, поэтому он уходит
+    // в blocking-пул, как и в `runtime_snapshot`.
+    let kill_switch_active = {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let kill_switch = app.try_state::<crate::killswitch::KillSwitchState>();
+            kill_switch.is_some_and(|ks| crate::killswitch::is_active(&ks))
+        })
+        .await
+        .map_err(|e| format!("не удалось прочитать состояние kill switch: {e}"))?
+    };
+    Ok(runtime_snapshot_value(state, kill_switch_active))
 }
 
 // Имя события смерти ядра. Полезная нагрузка — только поколение и текст
