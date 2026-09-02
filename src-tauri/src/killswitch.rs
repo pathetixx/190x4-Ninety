@@ -160,7 +160,18 @@ pub(crate) fn arm_policy(
         // блокировать сеть. После успеха swap и закрытие старой уже безопасны.
         let mut lease = unsafe { win::arm(&exes, allow_lan, tun_interface)? };
         lease.transition = false;
-        let previous: Vec<_> = guard.drain(..).collect();
+        // Забираем на замену ТОЛЬКО пользовательскую политику. Транзитный
+        // барьер живёт отдельно: снять его имеет право лишь transition_release
+        // и только после подтверждённой верификации нового runtime. Прежний
+        // `drain(..)` уносил и его, то есть подтверждение приезжало в уже
+        // пустой набор, а фактическая политика на время замены была слабее
+        // барьера (allow_lan и permit контроллера против block-all без них).
+        let previous: Vec<_> = guard
+            .iter()
+            .copied()
+            .filter(|existing| !existing.transition)
+            .collect();
+        guard.retain(|existing| existing.transition);
         guard.push(lease);
         let mut close_errors = Vec::new();
         for previous in previous {
@@ -342,13 +353,14 @@ pub fn is_active(state: &KillSwitchState) -> bool {
 
 // Живая проверка: подтверждает sublayer и оба block-фильтра каждой сессии в BFE.
 fn probe_active(state: &KillSwitchState) -> bool {
-    let mut guard = state.leases.lock_recover();
-    if guard.is_empty() {
-        return false;
-    }
     #[cfg(target_os = "windows")]
     {
+        let mut guard = state.leases.lock_recover();
+        if guard.is_empty() {
+            return false;
+        }
         let leases: Vec<_> = guard.drain(..).collect();
+        let before = leases.len();
         let mut any_alive = false;
         for lease in leases {
             if unsafe { win::session_alive(lease) } {
@@ -363,11 +375,20 @@ fn probe_active(state: &KillSwitchState) -> bool {
                 }
             }
         }
+        let dropped = guard.len() != before;
+        drop(guard);
+        // Снятая мёртвая сессия — такая же мутация набора, как arm/disarm.
+        // Без bump кэш, снятый ДО неё, формально описывал бы уже другой набор:
+        // сейчас ответы совпадают, но инвариант «любая мутация отменяет кэш»
+        // (см. bump_version) держится, только пока соблюдается везде.
+        if dropped {
+            state.bump_version();
+        }
         any_alive
     }
     #[cfg(not(target_os = "windows"))]
     {
-        true
+        !state.leases.lock_recover().is_empty()
     }
 }
 
