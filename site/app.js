@@ -154,7 +154,7 @@ const translations = {
 };
 
 const releaseFallback = {
-  tagName: "v0.5.3",
+  tagName: "v0.5.4",
   htmlUrl: "https://github.com/pathetixx/190x4-Ninety/releases/latest",
   exeUrl: "https://github.com/pathetixx/190x4-Ninety/releases/latest",
   msiUrl: "https://github.com/pathetixx/190x4-Ninety/releases/latest",

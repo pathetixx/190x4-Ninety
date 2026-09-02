@@ -6,6 +6,18 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.5.4 — 2026-09-02
+
+## English
+
+- The game filter now works with any IPset mode, including off.
+- The built-in set of strategies and domain lists was updated to 1.10.2.
+
+## Русский
+
+- Игровой фильтр теперь работает при любом режиме IPset, включая «выкл».
+- Встроенный набор стратегий и списков доменов обновлён до 1.10.2.
+
 ## v0.5.3 — 2026-09-02
 
 ## English
