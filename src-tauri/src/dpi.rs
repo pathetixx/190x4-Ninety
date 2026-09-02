@@ -215,7 +215,7 @@ const CHANNEL_LIST_FILES: [&str; 4] = [
     "list-exclude.txt",
     "ipset-exclude.txt",
 ];
-const LOCAL_LIST_FILES: [&str; 7] = [
+const LOCAL_LIST_FILES: [&str; 8] = [
     "list-general-user.txt",
     "list-exclude-user.txt",
     "ipset-exclude-user.txt",
@@ -223,6 +223,7 @@ const LOCAL_LIST_FILES: [&str; 7] = [
     "active-vpn-ip.txt",
     "ipset-all.txt",
     "ipset-all.base.txt",
+    "ipset-game.txt",
 ];
 const CHANNEL_SERVICE_FILES: [&str; 2] = ["hosts", "ipset-service.txt"];
 
@@ -400,6 +401,9 @@ fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
         "list-general-user.txt",
         "list-exclude-user.txt",
         "ipset-exclude-user.txt",
+        // Пустой всегда: снимает ipset-гейт с секций Game Filter, не завися от
+        // режима IPset (write_ipset_mode пишет только ipset-all.txt).
+        "ipset-game.txt",
         "active-vpn-domain.txt",
         "active-vpn-ip.txt",
     ] {
@@ -893,6 +897,60 @@ fn spread_exclusion_across_sections(args: Vec<String>, exclusion: &[String; 2]) 
     out
 }
 
+/// Игровой фильтр не должен зависеть от переключателя IPset.
+///
+/// Секции Game Filter гейтились общим `ipset-all.txt`, а его содержимое диктует
+/// режим IPset: в «off» туда пишется заведомо несуществующий 203.0.113.113/32,
+/// и десинк игрового трафика не применялся ни к одному пакету — тумблер
+/// «Игровой фильтр» молча не делал ничего. В «loaded» результат тот же по сути:
+/// список заблокированных IP не содержит игровых серверов (Photon, Vivox), под
+/// которые фильтр и включают, так что совпадений снова нет.
+///
+/// Поэтому игровым секциям выдаём собственный ipset-game.txt, всегда пустой:
+/// пустая коллекция ipset у winws означает «не фильтровать по IP», а не «не
+/// совпало» (ровно на этом же свойстве держится режим IPset=Any). Исключения
+/// (`--ipset-exclude`, в том числе активная нода VPN) добавляются отдельно в
+/// spread_exclusion_across_sections и здесь не трогаются — нода остаётся
+/// защищённой.
+///
+/// Секция считается игровой по совпадению `--filter-tcp/udp` с диапазоном,
+/// который подставил game_filter. Зовётся только при включённом фильтре: при
+/// «off» диапазон вырождается в порт-заглушку 12, и подменять там нечего.
+fn ungate_game_ipset(args: Vec<String>, lists: &Path, g_tcp: &str, g_udp: &str) -> Vec<String> {
+    let gated = format!(
+        "--ipset={}",
+        strip_verbatim(&lists.join("ipset-all.txt").to_string_lossy())
+    );
+    let ungated = format!(
+        "--ipset={}",
+        strip_verbatim(&lists.join("ipset-game.txt").to_string_lossy())
+    );
+    let markers = [format!("--filter-tcp={g_tcp}"), format!("--filter-udp={g_udp}")];
+
+    let mut out = Vec::with_capacity(args.len());
+    let mut section: Vec<String> = Vec::new();
+    let flush = |section: &mut Vec<String>, out: &mut Vec<String>| {
+        let is_game = section.iter().any(|a| markers.contains(a));
+        for arg in section.drain(..) {
+            if is_game && arg == gated {
+                out.push(ungated.clone());
+            } else {
+                out.push(arg);
+            }
+        }
+    };
+    for arg in args {
+        if arg == "--new" {
+            flush(&mut section, &mut out);
+            out.push(arg);
+        } else {
+            section.push(arg);
+        }
+    }
+    flush(&mut section, &mut out);
+    out
+}
+
 // Абсолютный путь к утилите в System32. Не полагаемся ни на PATH, ни на
 // %SystemRoot%: DPI-команды исполняются в elevated-процессе, а обе величины
 // пользователь может переопределить без прав администратора (PATH-hijack,
@@ -1272,6 +1330,13 @@ pub async fn dpi_start(
         .collect();
     // Активный VPN endpoint — отдельные managed-файлы: смена ноды заменяет
     // значение, не накапливает старые адреса и не трогает user exclusions.
+    // Игровые секции — до раздачи исключений: снимаем с них ipset-гейт, иначе
+    // при IPset=Off/Loaded игровой фильтр не матчит ничего (см. ungate_game_ipset).
+    let args = if game_filter == "tcpudp" {
+        ungate_game_ipset(args, &lists, g_tcp, g_udp)
+    } else {
+        args
+    };
     let args = spread_exclusion_across_sections(args, &active_vpn_exclusion_args(&lists));
 
     if !dpi_operation_current(&state, generation) {
@@ -3326,6 +3391,62 @@ mod tests {
                 "--ipset-exclude=I",
             ]
         );
+    }
+
+    // Игровой фильтр обязан работать при любом режиме IPset. Секции Game Filter
+    // уходят на собственный пустой ipset-game.txt, остальные остаются на общем
+    // ipset-all.txt, которым управляет переключатель IPset.
+    #[test]
+    fn game_sections_get_their_own_ipset() {
+        let lists = Path::new("L");
+        let all = format!("--ipset={}", lists.join("ipset-all.txt").to_string_lossy());
+        let game = format!("--ipset={}", lists.join("ipset-game.txt").to_string_lossy());
+        let args = vec![
+            "--filter-tcp=80,443".to_string(),
+            all.clone(),
+            "--new".to_string(),
+            "--filter-tcp=1024-65535".to_string(),
+            all.clone(),
+            "--new".to_string(),
+            "--filter-udp=1024-65535".to_string(),
+            all.clone(),
+            "--dpi-desync-any-protocol=1".to_string(),
+        ];
+
+        let out = ungate_game_ipset(args, lists, "1024-65535", "1024-65535");
+
+        assert_eq!(
+            out,
+            vec![
+                "--filter-tcp=80,443".to_string(),
+                all.clone(),
+                "--new".to_string(),
+                "--filter-tcp=1024-65535".to_string(),
+                game.clone(),
+                "--new".to_string(),
+                "--filter-udp=1024-65535".to_string(),
+                game,
+                "--dpi-desync-any-protocol=1".to_string(),
+            ]
+        );
+    }
+
+    // Снятие гейта не должно задевать исключения: активная нода VPN защищена
+    // через --ipset-exclude, и подмена основного ipset её не касается.
+    #[test]
+    fn game_ipset_ungate_keeps_exclusions() {
+        let lists = Path::new("L");
+        let all = format!("--ipset={}", lists.join("ipset-all.txt").to_string_lossy());
+        let game = format!("--ipset={}", lists.join("ipset-game.txt").to_string_lossy());
+        let args = vec![
+            "--filter-udp=1024-65535".to_string(),
+            all,
+            "--ipset-exclude=EXCL".to_string(),
+        ];
+
+        let out = ungate_game_ipset(args, lists, "1024-65535", "1024-65535");
+
+        assert_eq!(out, vec![game, "--ipset-exclude=EXCL".to_string()]);
     }
 
     // Пара --hostlist-auto-* не создаёт коллекцию хостлистов и не должна
