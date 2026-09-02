@@ -915,6 +915,23 @@ fn powershell_exe() -> String {
         .into_owned()
 }
 
+// Лежит ли путь ВНУТРИ каталога, а не просто начинается с той же строки.
+//
+// Голое `starts_with` по строке границу каталога не проверяет: для корня
+// `...\Ninety\dpi` под него подходил и `...\Ninety\dpi-backup\winws.exe`, то
+// есть чужой процесс из соседнего каталога уезжал в `taskkill /F` — ровно то,
+// от чего kill_stray_winws обещает защищать. Тот же барьер стоит в
+// proxy_win::autostart_uses_highest_run_level.
+//
+// Обе строки приходят уже приведёнными к нижнему регистру (пути Windows
+// регистронезависимы). Резать по `root.len()` безопасно: успешный
+// `starts_with` гарантирует, что это граница символа.
+#[cfg(target_os = "windows")]
+fn path_is_inside(path: &str, root: &str) -> bool {
+    let root = root.trim_end_matches(['\\', '/']);
+    !root.is_empty() && path.starts_with(root) && path[root.len()..].starts_with(['\\', '/'])
+}
+
 // Снять winws.exe-СИРОТУ ОТ ДРУГОГО ИНСТАНСА Ninety. Возвращает true, если хоть
 // один был убит. Вызывается из dpi_start перед спавном своего winws: к той точке
 // наш child уже не жив (дедуп вернул бы «уже запущен»), значит живой winws из
@@ -952,7 +969,7 @@ fn kill_stray_winws(dpi_root: &Path) -> bool {
             continue;
         }
         // Не наш каталог движка → чужой winws, не трогаем.
-        if !path.to_lowercase().starts_with(&root) {
+        if !path_is_inside(&path.to_lowercase(), &root) {
             continue;
         }
         let ok = std::process::Command::new(system32("taskkill.exe"))
@@ -2410,6 +2427,15 @@ fn system_hosts_path() -> PathBuf {
     PathBuf::from("/etc/hosts")
 }
 
+// Присутствует ли НАШ managed-блок. Маркер обязан быть отдельной строкой —
+// ровно так его ищут strip_managed_block и разбор блока в dpi_hosts_status.
+// Прежний `content.contains(HOSTS_BEGIN)` был подстрокой по всему файлу:
+// комментарий вида `# <маркер> хвост` давал applied=true при пустом блоке, а в
+// dpi_hosts_apply — ещё и выбор не того тела для первого бэкапа hosts.
+fn has_managed_block(content: &str) -> bool {
+    content.lines().any(|line| line.trim() == HOSTS_BEGIN)
+}
+
 // Удалить наш managed-блок (BEGIN..END включительно) из текста hosts, не трогая
 // остальное. Возвращает текст без блока (с финальным \n у каждой строки).
 fn strip_managed_block(content: &str) -> Result<String, String> {
@@ -2538,11 +2564,13 @@ pub fn dpi_hosts_status(_app: AppHandle) -> Result<serde_json::Value, String> {
     // apply/clear в таком случае тоже остановятся без записи.
     let _ = strip_managed_block(&content)?;
     let mut inside = false;
+    let mut applied = false;
     let mut block = String::new();
     for line in content.lines() {
         let t = line.trim();
         if t == HOSTS_BEGIN {
             inside = true;
+            applied = true;
             continue;
         }
         if t == HOSTS_END {
@@ -2555,7 +2583,7 @@ pub fn dpi_hosts_status(_app: AppHandle) -> Result<serde_json::Value, String> {
         }
     }
     Ok(serde_json::json!({
-        "applied": content.contains(HOSTS_BEGIN),
+        "applied": applied,
         "entries": count_hosts_entries(&block),
     }))
 }
@@ -2598,7 +2626,7 @@ pub async fn dpi_hosts_apply(
     if !backup.exists() {
         // При миграции со старой версии managed-блок уже может быть, а backup —
         // ещё нет. В этом случае сохраняем восстановленную базу без нашего блока.
-        let backup_body = if current.contains(HOSTS_BEGIN) {
+        let backup_body = if has_managed_block(&current) {
             base.as_bytes()
         } else {
             current.as_bytes()
@@ -2657,7 +2685,7 @@ fn dpi_hosts_clear_blocking() -> Result<(), String> {
     let path = system_hosts_path();
     let current = std::fs::read_to_string(&path)
         .map_err(|e| format!("чтение hosts ({}): {e}", path.display()))?;
-    if !current.contains(HOSTS_BEGIN) {
+    if !has_managed_block(&current) {
         // Даже clear не должен молча принимать лишний END-маркер.
         let _ = strip_managed_block(&current)?;
         return Ok(());
@@ -3597,6 +3625,37 @@ mod tests {
             );
         }
         assert!(normalize_exclude_domain(&"a".repeat(254)).is_err());
+    }
+
+    // Соседний каталог с тем же префиксом строки — не наш движок: голое
+    // starts_with уводило taskkill в чужой процесс.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn stray_winws_lookup_respects_the_directory_boundary() {
+        let root = r"c:\app\dpi";
+        let inside = r"c:\app\dpi\bin\winws.exe";
+        let sibling = r"c:\app\dpi-backup\winws.exe";
+        assert!(path_is_inside(inside, root));
+        assert!(!path_is_inside(sibling, root));
+        // Сам корень процессом не является; пустой корень не совпадает ни с чем.
+        assert!(!path_is_inside(root, root));
+        assert!(!path_is_inside(inside, ""));
+        // Хвостовой разделитель у корня границу не ломает.
+        assert!(path_is_inside(inside, "c:\\app\\dpi\\"));
+    }
+
+    // «Блок применён» обязан считаться по отдельной строке-маркеру, как это
+    // делают strip_managed_block и разбор блока в dpi_hosts_status. Подстрока
+    // давала applied=true при пустом блоке и не тот выбор тела для бэкапа.
+    #[test]
+    fn managed_block_is_detected_by_a_whole_marker_line() {
+        let applied = format!("127.0.0.1 localhost\n{HOSTS_BEGIN}\nx\n{HOSTS_END}\n");
+        assert!(has_managed_block(&applied));
+        assert!(has_managed_block(&format!("   {HOSTS_BEGIN}   \n")));
+        // Маркер внутри строки — не наш блок.
+        assert!(!has_managed_block(&format!("{HOSTS_BEGIN} и хвост\n")));
+        assert!(!has_managed_block(&format!("# было: {HOSTS_BEGIN}\n")));
+        assert!(!has_managed_block("127.0.0.1 localhost\n"));
     }
 
     #[test]
