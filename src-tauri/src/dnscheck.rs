@@ -159,10 +159,15 @@ fn validate_dns_response(resp: &[u8], query: &[u8]) -> Result<(), String> {
     }
 
     if answer_count(resp) > 0 {
-        Ok(())
-    } else {
-        Err("ответ без записей (ANCOUNT=0)".into())
+        return Ok(());
     }
+    // TC=1 — «ответ не поместился в UDP, повтори по TCP». Резолвер при этом
+    // ответил, то есть жив; объявлять его мёртвым и уводить watchdog на резерв
+    // из-за размера ответа неправильно.
+    if resp[2] & 0x02 != 0 {
+        return Ok(());
+    }
+    Err("ответ без записей (ANCOUNT=0)".into())
 }
 
 // host[:port] → host:port (добавляет default при отсутствии). IPv6 ожидаем в
@@ -330,7 +335,11 @@ async fn probe_udp_addr(address: std::net::SocketAddr, query: &[u8]) -> Result<(
         .await
         .map_err(|e| format!("connect: {e}"))?;
     sock.send(query).await.map_err(|e| format!("send: {e}"))?;
-    let mut buf = [0u8; 512];
+    // 512 — потолок ответа для запроса БЕЗ EDNS0 (наш случай), но встречаются
+    // резолверы, которые его не соблюдают. На Windows датаграмма больше буфера
+    // не обрезается молча, как на unix, а роняет `recv` в WSAEMSGSIZE — то есть
+    // живой, но многословный резолвер получал вердикт «dead». Берём с запасом.
+    let mut buf = [0u8; 4096];
     match sock.recv(&mut buf).await {
         Ok(n) => {
             let resp = &buf[..n];
@@ -448,6 +457,22 @@ mod tests {
         assert!(build_dns_query("").is_err());
         assert!(build_dns_query("a..example").is_err());
         assert!(build_dns_query(&format!("{}.example", "a".repeat(64))).is_err());
+    }
+
+    // TC=1 значит «не поместилось в UDP, повтори по TCP»: резолвер ответил, то
+    // есть жив. Прежде такой ответ шёл в «dead» и уводил watchdog на резерв.
+    #[test]
+    fn a_truncated_answer_still_proves_the_resolver_is_alive() {
+        let query = build_dns_query("example.com").unwrap();
+        let mut truncated = valid_response(&query);
+        truncated[2] |= 0x02; // TC
+        truncated[6..8].copy_from_slice(&0u16.to_be_bytes()); // ANCOUNT=0
+        assert!(validate_dns_response(&truncated, &query).is_ok());
+
+        // Без TC пустой ответ по-прежнему не является подтверждением.
+        let mut empty = valid_response(&query);
+        empty[6..8].copy_from_slice(&0u16.to_be_bytes());
+        assert!(validate_dns_response(&empty, &query).is_err());
     }
 
     #[test]
