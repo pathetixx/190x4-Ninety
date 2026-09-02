@@ -2,6 +2,26 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.5.2 — 2026-09-02
+
+## English
+
+- Remote and Direct DNS now show each server's address next to its name, and plain servers are marked "UDP".
+- Google · DoT and AdGuard · DoT were added to Remote DNS.
+- In the portable build the password now also encrypts what was saved before it was set.
+- A wrong password no longer turns off saving profiles.
+- Direct DNS no longer switches to a spare server when a working resolver answers at length.
+- Changing the system clock no longer breaks a connection attempt.
+
+## Русский
+
+- В списках Remote и Direct DNS рядом с названием сервиса теперь виден его адрес, а нешифрованные помечены «UDP».
+- В Remote DNS добавлены Google · DoT и AdGuard · DoT.
+- Пароль в портативной сборке теперь шифрует и то, что было сохранено до его включения.
+- Неверный пароль при включении шифрования больше не отключает сохранение профилей.
+- Direct DNS больше не переключается на резервный из-за длинного ответа рабочего резолвера.
+- Перевод системных часов больше не срывает подключение.
+
 ## v0.5.1 — 2026-08-31
 
 ## English
