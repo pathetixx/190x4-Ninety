@@ -1,5 +1,8 @@
 const translations = {
   ru: {
+    "meta.title": "Ninety — сетевой клиент для Windows",
+    "meta.description":
+      "Ninety — сетевой клиент для Windows на Tauri 2 и Rust: sing-box, WARP, TUN-режим, правила маршрутизации, DPI-инструменты и диагностика соединения.",
     "nav.features": "Возможности",
     "nav.screens": "Интерфейс",
     "nav.docs": "Документация",
@@ -73,6 +76,9 @@ const translations = {
     "footer.feedback": "Feedback",
   },
   en: {
+    "meta.title": "Ninety — Windows networking client",
+    "meta.description":
+      "Ninety is a Windows desktop networking client built with Tauri 2 and Rust around sing-box, WARP, TUN mode, routing rules, DPI tools and connection diagnostics.",
     "nav.features": "Features",
     "nav.screens": "Interface",
     "nav.docs": "Docs",
@@ -358,6 +364,14 @@ function setLanguage(language) {
   currentLanguage = translations[language] ? language : "ru";
   document.documentElement.lang = currentLanguage;
   storeLanguage(currentLanguage);
+
+  // Заголовок и описание живут в <head>, где нет data-i18n: без этого страница
+  // на русском отдавала бы английский <title> и такое же превью в соцсетях.
+  document.title = t("meta.title");
+  for (const selector of ['meta[name="description"]', 'meta[property="og:description"]']) {
+    document.querySelector(selector)?.setAttribute("content", t("meta.description"));
+  }
+  document.querySelector('meta[property="og:title"]')?.setAttribute("content", t("meta.title"));
 
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     const value = t(node.dataset.i18n);
