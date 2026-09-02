@@ -245,9 +245,19 @@ pub(crate) async fn probe_health_inner(
         "health",
     )?;
     let client = build_client(endpoint)?;
+    // Адреса берём итератором, а не индексом по константе: `endpoints[1]` был
+    // паникой внутри `select!`, если HEALTH_ENDPOINTS когда-нибудь сократят до
+    // одного элемента. Пустой список отверг уже валидатор выше.
+    let mut available = endpoints.into_iter();
+    let Some(primary) = available.next() else {
+        return Err("health probe has no endpoints".into());
+    };
+    let mut secondary = available.next();
     let mut tasks = JoinSet::new();
-    tasks.spawn(probe_health_endpoint(client.clone(), endpoints[0].clone()));
-    let mut secondary_started = false;
+    tasks.spawn(probe_health_endpoint(client.clone(), primary));
+    // Резерва нет — hedge'у нечего запускать, и ждать его незачем: единственная
+    // проба, закончившись, сразу отдаёт свой результат.
+    let mut secondary_started = secondary.is_none();
     let mut last = ProbeResult::fail(String::new(), 0, "no health endpoints".into());
     let hedge = tokio::time::sleep(HEALTH_HEDGE_DELAY);
     let deadline = tokio::time::sleep(HEALTH_COORDINATOR_TIMEOUT);
@@ -259,7 +269,9 @@ pub(crate) async fn probe_health_inner(
             _ = &mut deadline => break,
             _ = &mut hedge, if !secondary_started => {
                 secondary_started = true;
-                tasks.spawn(probe_health_endpoint(client.clone(), endpoints[1].clone()));
+                if let Some(endpoint) = secondary.take() {
+                    tasks.spawn(probe_health_endpoint(client.clone(), endpoint));
+                }
             }
             joined = tasks.join_next(), if !tasks.is_empty() => {
                 match joined {
