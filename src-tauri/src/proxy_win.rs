@@ -528,7 +528,15 @@ pub fn system_proxy_state() -> SystemProxyState {
     let active = ninety
         .as_ref()
         .and_then(|k| k.get_value::<String, _>("ActiveProxyServer").ok());
-    let owned = enabled && server.is_some() && server == active;
+    // Регистронезависимо — как в proxy_recovery_action. Адрес endpoint'а мы
+    // нормализуем сами, но в ProxyServer могла попасть запись, сделанная вне
+    // Ninety (или прежней сборкой) в другом регистре: строгое сравнение тогда
+    // объявляло наш собственный прокси чужим, и disable оставлял его включённым.
+    let same_endpoint = match (server.as_deref(), active.as_deref()) {
+        (Some(server), Some(active)) => server.eq_ignore_ascii_case(active),
+        _ => false,
+    };
+    let owned = enabled && same_endpoint;
     SystemProxyState {
         proxy_enable: enabled,
         proxy_server: server,
@@ -542,7 +550,11 @@ pub fn system_proxy_owned() -> bool {
 
 pub fn system_proxy_matches(expected: &str) -> bool {
     let state = system_proxy_state();
-    state.proxy_enable && state.owned && state.proxy_server.as_deref() == Some(expected)
+    if !state.proxy_enable || !state.owned {
+        return false;
+    }
+    let actual = state.proxy_server.as_deref();
+    actual.is_some_and(|value| value.eq_ignore_ascii_case(expected))
 }
 
 // True если текущий процесс запущен с правами администратора (elevated token).
