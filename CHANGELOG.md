@@ -2,6 +2,18 @@
 
 Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
 
+## v0.5.3 — 2026-09-02
+
+## English
+
+- Google and AdGuard were added to Direct DNS.
+- New installations now use Google DoH by default.
+
+## Русский
+
+- В Direct DNS добавлены Google и AdGuard.
+- Новые установки по умолчанию используют Google DoH.
+
 ## v0.5.2 — 2026-09-02
 
 ## English
