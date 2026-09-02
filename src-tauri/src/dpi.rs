@@ -925,7 +925,10 @@ fn ungate_game_ipset(args: Vec<String>, lists: &Path, g_tcp: &str, g_udp: &str) 
         "--ipset={}",
         strip_verbatim(&lists.join("ipset-game.txt").to_string_lossy())
     );
-    let markers = [format!("--filter-tcp={g_tcp}"), format!("--filter-udp={g_udp}")];
+    let markers = [
+        format!("--filter-tcp={g_tcp}"),
+        format!("--filter-udp={g_udp}"),
+    ];
 
     let mut out = Vec::with_capacity(args.len());
     let mut section: Vec<String> = Vec::new();
