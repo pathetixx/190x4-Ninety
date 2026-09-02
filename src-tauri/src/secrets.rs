@@ -147,12 +147,34 @@ fn verify_portable_passphrase(passphrase: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Перешифровка всех контейнеров под новый пароль.
+/// Транзакционная запись подготовленного набора контейнеров.
 ///
-/// Сначала читаем и перешифровываем ВСЁ в память и только потом пишем: частично
+/// Вызывающий обязан перешифровать ВСЁ в память до первого вызова: частично
 /// сменённый ключ означал бы, что часть профилей открывается старым паролем,
 /// часть новым, и ни один из них не открывает всё. Если запись всё же оборвётся
 /// на середине, откатываем уже заменённые файлы к исходным байтам.
+fn commit_portable_secrets(
+    staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)>,
+    label: &str,
+) -> Result<(), String> {
+    let mut written: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    for (path, previous, sealed) in staged {
+        if let Err(error) = crate::atomic_file::write_bytes_replace(&path, &sealed, label) {
+            for (done, original) in written {
+                let _ = crate::atomic_file::write_bytes_replace(
+                    &done,
+                    &original,
+                    "portable secret rollback",
+                );
+            }
+            return Err(format!("{label} отменён: {error}"));
+        }
+        written.push((path, previous));
+    }
+    Ok(())
+}
+
+/// Перешифровка всех контейнеров под новый пароль.
 fn rekey_portable_secrets(current: &str, next: &str) -> Result<(), String> {
     let mut staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)> = Vec::new();
     for path in portable_secret_files() {
@@ -169,24 +191,32 @@ fn rekey_portable_secrets(current: &str, next: &str) -> Result<(), String> {
         };
         staged.push((path, bytes, seal_portable(&plain, next)?));
     }
+    commit_portable_secrets(staged, "перевыпуск portable-секретов")
+}
 
-    let mut written: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-    for (path, previous, sealed) in staged {
-        if let Err(error) =
-            crate::atomic_file::write_bytes_replace(&path, &sealed, "portable secret rekey")
-        {
-            for (done, original) in written {
-                let _ = crate::atomic_file::write_bytes_replace(
-                    &done,
-                    &original,
-                    "portable secret rekey rollback",
-                );
-            }
-            return Err(format!("смена пароля отменена: {error}"));
+/// Запечатывание легаси plaintext при ПЕРВОМ включении пароля.
+///
+/// Без этого шага «включить пароль» меняло только режим в статусе: envelope на
+/// диске не появлялся, а UUID/пароли нод, адреса подписок и приватный ключ WARP
+/// оставались открытым текстом до следующей записи КАЖДОГО файла. Часть из них
+/// перезаписывается редко или не перезаписывается вовсе (`warp.json.bak` пишут
+/// только старые сборки, а `read_info` мигрирует лишь первый успешно прочитанный
+/// кандидат), поэтому «сделаю потом, при записи» здесь не работает.
+///
+/// Уже существующие envelope не трогаем: их ключ проверен отдельно
+/// (`verify_portable_passphrase`), перевыпускать нечего.
+fn seal_plaintext_portable_secrets(passphrase: &str) -> Result<(), String> {
+    let mut staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)> = Vec::new();
+    for path in portable_secret_files() {
+        let bytes = std::fs::read(&path)
+            .map_err(|error| format!("не удалось прочитать {}: {error}", path.display()))?;
+        if !is_plaintext_json(&bytes) {
+            continue;
         }
-        written.push((path, previous));
+        let plain = Zeroizing::new(bytes.clone());
+        staged.push((path, bytes, seal_portable(&plain, passphrase)?));
     }
-    Ok(())
+    commit_portable_secrets(staged, "перевод portable-секретов под пароль")
 }
 
 pub fn can_persist_secrets() -> bool {
@@ -258,17 +288,17 @@ pub fn configure_portable_passphrase(passphrase: String) -> Result<(), String> {
         return Err("пароль нужен только для portable-режима".into());
     }
     validate_passphrase(&passphrase)?;
-    // Выбор шифрования отменяет ранее подтверждённый plaintext-режим. Если
-    // marker не удаётся убрать, не меняем текущий режим и не создаём новый
-    // секретный файл с неоднозначной политикой.
-    clear_plaintext_confirmation()?;
     // Два разных действия под одной командой. Ключа в памяти нет — это
-    // разблокировка сессии, и пароль обязан открыть то, что уже лежит на диске.
-    // Ключ есть — это смена пароля, и она обязана перевыпустить ВСЕ контейнеры
-    // до того, как старый ключ будет забыт: иначе профили, backup и WARP просто
-    // перестают открываться, а UI при этом обещает «Сменить пароль».
+    // разблокировка сессии: пароль обязан открыть то, что уже лежит на диске, а
+    // легаси plaintext обязан уехать под этот же ключ прямо сейчас. Ключ есть —
+    // это смена пароля, и она обязана перевыпустить ВСЕ контейнеры до того, как
+    // старый ключ будет забыт: иначе профили, backup и WARP просто перестают
+    // открываться, а UI при этом обещает «Сменить пароль».
     match current_passphrase()? {
-        None => verify_portable_passphrase(&passphrase)?,
+        None => {
+            verify_portable_passphrase(&passphrase)?;
+            seal_plaintext_portable_secrets(&passphrase)?;
+        }
         Some(current) if current.as_str() == passphrase => {}
         Some(current) => rekey_portable_secrets(current.as_str(), &passphrase)?,
     }
@@ -276,7 +306,15 @@ pub fn configure_portable_passphrase(passphrase: String) -> Result<(), String> {
         .lock()
         .map_err(|_| "хранилище portable-пароля заблокировано".to_string())?;
     *guard = Some(Zeroizing::new(passphrase));
-    Ok(())
+    drop(guard);
+    // Маркер plaintext снимаем ПОСЛЕДНИМ и уже после публикации ключа. Прежний
+    // порядок (снять маркер, потом проверять пароль) на опечатке ронял
+    // хранилище из PlaintextExplicitlyConfirmed в NoPersistentSecrets:
+    // неудачная попытка выключала сохранение секретов вообще. Пароль имеет
+    // приоритет над plaintext во всех решениях (seal_for_app,
+    // portable_secrets_status, can_persist_secrets), поэтому оставшийся маркер
+    // ни на что не влияет и сообщается как обычная ошибка удаления файла.
+    clear_plaintext_confirmation()
 }
 
 // Смена пароля перевыпускает все контейнеры (Argon2id на каждый) — это
@@ -612,6 +650,66 @@ mod tests {
         assert!(!is_plaintext_json(&std::fs::read(&path).unwrap()));
         assert!(!is_plaintext_json(&std::fs::read(&rollback).unwrap()));
         assert_eq!(unseal(&std::fs::read(&rollback).unwrap()).unwrap(), legacy);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn scratch_dir(label: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "ninety-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    // Включение пароля обязано запечатать легаси plaintext немедленно, а не
+    // «когда-нибудь при следующей записи»: часть контейнеров (warp.json.bak)
+    // не перезаписывается вовсе, и ключ ноды оставался бы открытым на диске.
+    #[test]
+    fn enabling_a_passphrase_seals_legacy_plaintext_in_one_transaction() {
+        let root = scratch_dir("secret-seal");
+        let plain = root.join("warp.json.bak");
+        let legacy = br#"{"private_key":"abc"}"#;
+        std::fs::write(&plain, legacy).unwrap();
+
+        let sealed = seal_portable(legacy, "correct horse battery staple").unwrap();
+        let staged = vec![(plain.clone(), legacy.to_vec(), sealed)];
+        commit_portable_secrets(staged, "test seal").unwrap();
+
+        let stored = std::fs::read(&plain).unwrap();
+        assert!(is_portable_envelope(&stored));
+        assert!(!is_plaintext_json(&stored));
+        assert_eq!(
+            unseal_portable(&stored, "correct horse battery staple").unwrap(),
+            legacy
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Частично применённый ключ означал бы, что часть контейнеров открывается
+    // старым паролем, часть новым, и ни один не открывает всё.
+    #[test]
+    fn a_failed_write_rolls_every_replaced_container_back() {
+        let root = scratch_dir("secret-commit");
+        let first = root.join("state-backup.json");
+        let original = br#"{"a":1}"#;
+        std::fs::write(&first, original).unwrap();
+        // Второй цели соответствует КАТАЛОГ: запись в него заведомо не пройдёт,
+        // и коммит обязан вернуть первый файл к исходным байтам.
+        let blocked = root.join("profile-store.v1");
+        std::fs::create_dir_all(&blocked).unwrap();
+
+        let staged = vec![
+            (first.clone(), original.to_vec(), b"sealed-one".to_vec()),
+            (blocked, Vec::new(), b"sealed-two".to_vec()),
+        ];
+        assert!(commit_portable_secrets(staged, "test commit").is_err());
+        assert_eq!(std::fs::read(&first).unwrap(), original);
         let _ = std::fs::remove_dir_all(&root);
     }
 }
