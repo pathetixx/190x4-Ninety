@@ -203,9 +203,9 @@ const screens = {
 
 function getStoredLanguage() {
   try {
-    return localStorage.getItem("ninety-site-language") || "ru";
+    return localStorage.getItem("ninety-site-language") || "en";
   } catch {
-    return "ru";
+    return "en";
   }
 }
 
@@ -361,7 +361,7 @@ async function loadReleaseFromGitHubApi() {
 }
 
 function setLanguage(language) {
-  currentLanguage = translations[language] ? language : "ru";
+  currentLanguage = translations[language] ? language : "en";
   document.documentElement.lang = currentLanguage;
   storeLanguage(currentLanguage);
 

@@ -1,19 +1,19 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ninety — сетевой клиент для Windows</title>
+    <title>Ninety — Windows networking client</title>
     <meta
       name="description"
-      content="Ninety — сетевой клиент для Windows на Tauri 2 и Rust: sing-box, WARP, TUN-режим, правила маршрутизации, DPI-инструменты и диагностика соединения."
+      content="Ninety is a Windows desktop networking client built with Tauri 2 and Rust around sing-box, WARP, TUN mode, routing rules, DPI tools and connection diagnostics."
     />
     <meta name="theme-color" content="#0a0a0d" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Ninety — сетевой клиент для Windows" />
+    <meta property="og:title" content="Ninety — Windows networking client" />
     <meta
       property="og:description"
-      content="Ninety — сетевой клиент для Windows на Tauri 2 и Rust: sing-box, WARP, TUN-режим, правила маршрутизации, DPI-инструменты и диагностика соединения."
+      content="Ninety is a Windows desktop networking client built with Tauri 2 and Rust around sing-box, WARP, TUN mode, routing rules, DPI tools and connection diagnostics."
     />
     <meta property="og:image" content="assets/og.png" />
     <meta property="og:url" content="https://pathetixx.github.io/190x4-Ninety/" />
@@ -30,14 +30,14 @@
         <span>Ninety</span>
       </a>
       <nav class="nav" aria-label="Main navigation">
-        <a href="#features" data-i18n="nav.features">Возможности</a>
-        <a href="#screens" data-i18n="nav.screens">Интерфейс</a>
-        <a href="#docs" data-i18n="nav.docs">Документация</a>
-        <a href="#safety" data-i18n="nav.safety">Безопасность</a>
+        <a href="#features" data-i18n="nav.features">Features</a>
+        <a href="#screens" data-i18n="nav.screens">Interface</a>
+        <a href="#docs" data-i18n="nav.docs">Docs</a>
+        <a href="#safety" data-i18n="nav.safety">Safety</a>
       </nav>
       <div class="top-actions" role="group" aria-label="Language">
-        <button class="lang-button is-active" type="button" data-lang="ru">RU</button>
-        <button class="lang-button" type="button" data-lang="en">EN</button>
+        <button class="lang-button is-active" type="button" data-lang="en">EN</button>
+        <button class="lang-button" type="button" data-lang="ru">RU</button>
         <a class="ghost-link" href="https://github.com/pathetixx/190x4-Ninety" data-i18n="nav.github">GitHub</a>
       </div>
     </header>
@@ -53,10 +53,10 @@
           <p class="eyebrow" data-i18n="hero.eyebrow">190X4 · SECURE TUNNEL</p>
           <h1 id="hero-title">Ninety</h1>
           <p class="lead" data-i18n="hero.lead">
-            Desktop-клиент для Windows вокруг sing-box, WARP, правил маршрутизации и диагностики соединения.
+            A Windows desktop networking client built around sing-box, WARP, routing rules and connection diagnostics.
           </p>
           <p class="note" data-i18n="hero.note">
-            Не обещает анонимность. Даёт аккуратное управление подключением, режимами Windows и видимую диагностику.
+            Not an anonymity guarantee. Ninety gives you careful connection control, Windows mode handling and visible diagnostics.
           </p>
           <div class="cta-row">
             <a
@@ -65,23 +65,23 @@
               data-download-link
               data-i18n="hero.download"
             >
-              Скачать
+              Download
             </a>
             <a class="button secondary" href="https://github.com/pathetixx/190x4-Ninety#documentation" data-i18n="hero.docs">
-              Документация
+              Documentation
             </a>
           </div>
           <dl class="hero-stats" aria-label="Project facts">
             <div>
-              <dt data-i18n="hero.stat.platform.label">Платформа</dt>
+              <dt data-i18n="hero.stat.platform.label">Platform</dt>
               <dd data-i18n="hero.stat.platform.value">Windows 10 / 11 x64</dd>
             </div>
             <div>
-              <dt data-i18n="hero.stat.stack.label">Стек</dt>
+              <dt data-i18n="hero.stat.stack.label">Stack</dt>
               <dd data-i18n="hero.stat.stack.value">Tauri 2 · Rust</dd>
             </div>
             <div>
-              <dt data-i18n="hero.stat.core.label">Ядро</dt>
+              <dt data-i18n="hero.stat.core.label">Core</dt>
               <dd data-i18n="hero.stat.core.value">sing-box ecosystem</dd>
             </div>
           </dl>
@@ -92,10 +92,10 @@
         <div class="section-inner intro-grid">
           <div>
             <p class="section-kicker" data-i18n="intro.kicker">Windows networking client</p>
-            <h2 data-i18n="intro.title">Один интерфейс для профилей, режимов и диагностики</h2>
+            <h2 data-i18n="intro.title">One interface for profiles, modes and diagnostics</h2>
           </div>
           <p data-i18n="intro.copy">
-            Ninety собирает подписки, одиночные профили, WARP, TUN, маршрутизацию, логи и автообновления в один desktop-клиент. Фокус проекта — предсказуемое состояние подключения, честные ограничения и аккуратная работа с системными настройками Windows.
+            Ninety brings subscriptions, standalone profiles, WARP, TUN, routing, logs and auto-updates into one desktop client. The project focuses on predictable connection state, honest limitations and careful Windows network handling.
           </p>
         </div>
       </section>
@@ -103,39 +103,39 @@
       <section class="section" id="features" aria-labelledby="features-title">
         <div class="section-inner">
           <div class="section-heading">
-            <p class="section-kicker" data-i18n="features.kicker">Возможности</p>
-            <h2 id="features-title" data-i18n="features.title">Сетевой клиент без лишнего шума</h2>
+            <p class="section-kicker" data-i18n="features.kicker">Features</p>
+            <h2 id="features-title" data-i18n="features.title">A networking client without the noise</h2>
           </div>
           <div class="feature-grid">
             <article class="feature-card">
               <span class="feature-mark">01</span>
-              <h3 data-i18n="feature.modes.title">Режимы Windows</h3>
-              <p data-i18n="feature.modes.copy">Локальный proxy, системный proxy, VPN · TUN и WARP-only. Elevated-режим используется только там, где он действительно нужен.</p>
+              <h3 data-i18n="feature.modes.title">Windows modes</h3>
+              <p data-i18n="feature.modes.copy">Local proxy, system proxy, VPN · TUN and WARP-only. Elevated mode is used only when the selected mode actually needs it.</p>
             </article>
             <article class="feature-card">
               <span class="feature-mark">02</span>
-              <h3 data-i18n="feature.sources.title">Источники</h3>
-              <p data-i18n="feature.sources.copy">Подписки, standalone-ссылки, TrustTunnel endpoint-файлы и .conf WireGuard/AmneziaWG. Импорт из буфера и deep links держатся в одном пользовательском потоке.</p>
+              <h3 data-i18n="feature.sources.title">Sources</h3>
+              <p data-i18n="feature.sources.copy">Subscriptions, standalone links, TrustTunnel endpoint files and WireGuard/AmneziaWG .conf files. Clipboard import and deep links stay in one user flow.</p>
             </article>
             <article class="feature-card">
               <span class="feature-mark">03</span>
-              <h3 data-i18n="feature.routing.title">Маршрутизация</h3>
-              <p data-i18n="feature.routing.copy">LAN bypass, региональные правила, пользовательские правила по доменам, IP и процессам, плюс отдельный монитор активных соединений.</p>
+              <h3 data-i18n="feature.routing.title">Routing</h3>
+              <p data-i18n="feature.routing.copy">LAN bypass, regional rules, custom domain/IP/process rules and a separate live connections monitor.</p>
             </article>
             <article class="feature-card">
               <span class="feature-mark">04</span>
-              <h3 data-i18n="feature.quality.title">Качество канала</h3>
-              <p data-i18n="feature.quality.copy">Проверки задержки, throughput-наблюдение, перепроверка узлов, подсказки по восстановлению и понятные логи вместо пустого статуса.</p>
+              <h3 data-i18n="feature.quality.title">Channel quality</h3>
+              <p data-i18n="feature.quality.copy">Delay checks, throughput watching, node re-tests, recovery hints and useful logs instead of a vague connected label.</p>
             </article>
             <article class="feature-card">
               <span class="feature-mark">05</span>
               <h3 data-i18n="feature.sidecars.title">Sidecar engines</h3>
-              <p data-i18n="feature.sidecars.copy">sing-box остаётся центральным роутером, а XHTTP, NaiveProxy и TrustTunnel подключаются через локальные мосты, когда профиль этого требует.</p>
+              <p data-i18n="feature.sidecars.copy">sing-box remains the central router, while XHTTP, NaiveProxy and TrustTunnel are attached through local bridges when a profile requires them.</p>
             </article>
             <article class="feature-card">
               <span class="feature-mark">06</span>
               <h3 data-i18n="feature.desktop.title">Desktop UX</h3>
-              <p data-i18n="feature.desktop.copy">Трей, восстановление после обновления, темы, onboarding, локализации и осторожные дефолты для логов и runtime-конфигов.</p>
+              <p data-i18n="feature.desktop.copy">Tray control, post-update session restore, themes, onboarding, localizations and cautious defaults for logs and runtime configs.</p>
             </article>
           </div>
         </div>
@@ -144,16 +144,16 @@
       <section class="section screen-section" id="screens" aria-labelledby="screens-title">
         <div class="section-inner">
           <div class="section-heading">
-            <p class="section-kicker" data-i18n="screens.kicker">Интерфейс</p>
-            <h2 id="screens-title" data-i18n="screens.title">Реальное состояние подключения видно сразу</h2>
+            <p class="section-kicker" data-i18n="screens.kicker">Interface</p>
+            <h2 id="screens-title" data-i18n="screens.title">The real connection state is visible at a glance</h2>
           </div>
           <div class="screen-shell">
             <div class="screen-tabs" role="tablist" aria-label="Screenshots">
-              <button class="screen-tab is-active" type="button" data-screen="home" data-i18n="screens.home">Главная</button>
-              <button class="screen-tab" type="button" data-screen="nodes" data-i18n="screens.nodes">Серверы</button>
-              <button class="screen-tab" type="button" data-screen="profiles" data-i18n="screens.profiles">Профили</button>
-              <button class="screen-tab" type="button" data-screen="settings" data-i18n="screens.settings">Настройки</button>
-              <button class="screen-tab" type="button" data-screen="quality" data-i18n="screens.quality">Качество</button>
+              <button class="screen-tab is-active" type="button" data-screen="home" data-i18n="screens.home">Home</button>
+              <button class="screen-tab" type="button" data-screen="nodes" data-i18n="screens.nodes">Servers</button>
+              <button class="screen-tab" type="button" data-screen="profiles" data-i18n="screens.profiles">Profiles</button>
+              <button class="screen-tab" type="button" data-screen="settings" data-i18n="screens.settings">Settings</button>
+              <button class="screen-tab" type="button" data-screen="quality" data-i18n="screens.quality">Quality</button>
             </div>
             <figure class="screenshot-frame">
               <img data-screen-image src="assets/screen-home.webp" alt="Ninety home screen" width="1400" height="878" />
@@ -165,10 +165,10 @@
       <section class="section split-section" id="docs" aria-labelledby="docs-title">
         <div class="section-inner split-grid">
           <div class="copy-block">
-            <p class="section-kicker" data-i18n="docs.kicker">Документация</p>
-            <h2 id="docs-title" data-i18n="docs.title">Быстрый вход без раскрытия приватных данных</h2>
+            <p class="section-kicker" data-i18n="docs.kicker">Documentation</p>
+            <h2 id="docs-title" data-i18n="docs.title">A quick start without exposing private data</h2>
             <p data-i18n="docs.copy">
-              Документация объясняет режимы, privacy-модель, routing и troubleshooting без публикации приватных URL, UUID, ключей, WARP state или полных конфигов.
+              The docs explain modes, privacy, routing and troubleshooting without asking users to publish private URLs, UUIDs, keys, WARP state or full configs.
             </p>
             <div class="link-row">
               <a href="https://github.com/pathetixx/190x4-Ninety#documentation" data-i18n="docs.user">User docs</a>
@@ -179,8 +179,8 @@
           <div class="release-panel" aria-label="Release status">
             <span class="panel-label" data-i18n="release.label">CURRENT RELEASE</span>
             <strong data-release-version>v0.5.3</strong>
-            <span class="release-meta" data-release-meta>Проверяю последний релиз...</span>
-            <p data-i18n="release.copy">Релизы публикуются через annotated tags, draft release и CI-артефакты. OTA changelog берётся из `latest.json`, а не из уже опубликованного текста релиза.</p>
+            <span class="release-meta" data-release-meta>Checking latest release...</span>
+            <p data-i18n="release.copy">Releases are published through annotated tags, draft releases and CI assets. The OTA changelog comes from latest.json, not from an already published release body.</p>
             <div class="release-actions">
               <a
                 class="button secondary compact"
@@ -188,7 +188,7 @@
                 data-release-link
                 data-i18n="release.link"
               >
-                Открыть релиз
+                Open release
               </a>
               <a
                 class="button secondary compact"
@@ -215,20 +215,20 @@
         <div class="section-inner">
           <div class="section-heading">
             <p class="section-kicker" data-i18n="safety.kicker">Safety notes</p>
-            <h2 id="safety-title" data-i18n="safety.title">Сильные сетевые инструменты требуют честных ограничений</h2>
+            <h2 id="safety-title" data-i18n="safety.title">Powerful networking tools need honest limits</h2>
           </div>
           <div class="safety-grid">
             <article>
-              <h3 data-i18n="safety.privacy.title">Не гарантия анонимности</h3>
-              <p data-i18n="safety.privacy.copy">Приватность зависит от сервера, провайдера, профиля и окружения Windows. Ninety помогает управлять подключением, но не меняет эту базовую модель доверия.</p>
+              <h3 data-i18n="safety.privacy.title">Not anonymity</h3>
+              <p data-i18n="safety.privacy.copy">Privacy depends on the server, provider, profile and Windows environment. Ninety helps manage the connection, but it does not change that trust model.</p>
             </article>
             <article>
-              <h3 data-i18n="safety.secrets.title">Секреты не публикуются</h3>
-              <p data-i18n="safety.secrets.copy">В публичные issues нельзя вставлять subscription URLs, UUID, токены, private keys, WARP data и полные экспортированные конфиги.</p>
+              <h3 data-i18n="safety.secrets.title">Do not publish secrets</h3>
+              <p data-i18n="safety.secrets.copy">Public issues must not include subscription URLs, UUIDs, tokens, private keys, WARP data or full exported configs.</p>
             </article>
             <article>
-              <h3 data-i18n="safety.system.title">Системные режимы заметны</h3>
-              <p data-i18n="safety.system.copy">TUN, kill switch и DPI-совместимость могут менять сетевое состояние Windows. Включайте их осознанно и проверяйте настройки перед репортом.</p>
+              <h3 data-i18n="safety.system.title">System modes are visible</h3>
+              <p data-i18n="safety.system.copy">TUN, kill switch and DPI compatibility can change Windows networking state. Enable them deliberately and check settings before reporting bugs.</p>
             </article>
           </div>
         </div>
