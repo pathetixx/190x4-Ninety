@@ -9,7 +9,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tauri::AppHandle;
+
+use crate::util::MutexExt;
+
+/// Сериализация всех операций над хранилищем.
+///
+/// `expected_revision` в `profile_store_replace` — оптимистичная блокировка, но
+/// сама по себе она ничего не гарантирует: команды исполняются в blocking-пуле,
+/// и два параллельных вызова успевали прочитать одну и ту же ревизию, оба
+/// увеличить её до N+1 и записать — второй молча затирал первый. Лок делает
+/// связку «прочитать → сверить ревизию → записать» неделимой. Чтение тоже под
+/// ним: иначе load/status могли застать чужую ротацию primary → .bak на
+/// середине. Тот же приём, что у BACKUP_LOCK в backup.rs.
+static STORE_LOCK: Mutex<()> = Mutex::new(());
 
 const STORE_SCHEMA_VERSION: u64 = 1;
 const MAX_STORE_BYTES: usize = 8 * 1024 * 1024;
@@ -298,6 +312,7 @@ pub async fn profile_store_status(app: AppHandle) -> Result<ProfileStoreStatus, 
 }
 
 pub(crate) fn profile_store_status_blocking(app: AppHandle) -> Result<ProfileStoreStatus, String> {
+    let _guard = STORE_LOCK.lock_recover();
     let path = store_path(&app)?;
     let exists = [path.clone(), backup_path(&path), legacy_backup_path(&path)]
         .iter()
@@ -326,6 +341,7 @@ pub async fn profile_store_load(app: AppHandle) -> Result<ProfileStoreLoadRespon
 pub(crate) fn profile_store_load_blocking(
     app: AppHandle,
 ) -> Result<ProfileStoreLoadResponse, String> {
+    let _guard = STORE_LOCK.lock_recover();
     let path = store_path(&app)?;
     let loaded = load_store(&app, &path)?;
     Ok(match loaded {
@@ -366,6 +382,9 @@ pub(crate) fn profile_store_replace_blocking(
     expected_revision: u64,
     mut store: ProfileStore,
 ) -> Result<ProfileStoreReplaceResponse, String> {
+    // Ревизию читаем и увеличиваем под одним локом: без него сверка ничего не
+    // проверяет — конкурент успевает записать между чтением и записью.
+    let _guard = STORE_LOCK.lock_recover();
     let path = store_path(&app)?;
     let current = load_store(&app, &path)?;
     let current_revision = current
@@ -403,6 +422,7 @@ pub(crate) fn profile_store_clear_blocking(
     app: AppHandle,
     expected_revision: Option<u64>,
 ) -> Result<ProfileStoreClearResponse, String> {
+    let _guard = STORE_LOCK.lock_recover();
     let path = store_path(&app)?;
     if let Some(expected) = expected_revision {
         let current_revision = load_store(&app, &path)?
