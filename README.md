@@ -102,11 +102,19 @@ About the project:
 - [Security](./SECURITY.md) — how to report vulnerabilities and other sensitive problems.
 - [Code signing policy](./CODE_SIGNING_POLICY.md) — release provenance, signing roles and which artifacts are covered.
 - [Contributing](./CONTRIBUTING.md) — what to include in issues and pull requests.
-- [CI and security-gates](./docs/CI.md) — required checks, permissions, audits and SBOM.
+- [CI and security-gates](./docs/CI.md) — required checks, permissions, audits and SBOM. Written in Russian.
 
 Release development:
 
-- [Releasing](./RELEASING.md) — the release process, annotated tags, draft releases and OTA rules.
+- [Releasing](./RELEASING.md) — the release process, annotated tags, draft releases and OTA rules. Written in Russian.
+- [Release qualification](./docs/RELEASE_QUALIFICATION.md) — the manual pass on real Windows before the Early access label is dropped. Written in Russian.
+
+Engineering notes:
+
+- [Safe module extraction plan](./docs/MODULE_EXTRACTION_PLAN.md) — staged split of `main.js`, `singbox.js` and `dpi.rs`.
+- [Encrypted profile-store migration](./docs/PROFILE_STORE_MIGRATION.md) — how `profile-store.v1` works and how WebView keys are retired.
+- [Hardening notes](./docs/hardening-notes.md) — sensitive-storage checklist for follow-up changes.
+- [DPI channel key rotation](./docs/DPI_CHANNEL_KEY_ROTATION.md) — how the `dpi-channel` minisign key is rotated. Written in Russian.
 
 ## Security and privacy notes
 
@@ -162,7 +170,7 @@ src/                  Frontend: screens, styles, i18n, config builder
 src-tauri/src/        Rust backend commands and Windows integration
 src-tauri/dpi/        DPI strategies, lists and bundled runtime resources
 src-tauri/licenses/   Third-party notices and full license texts
-docs/                 Screenshots and project images
+docs/                 Documentation, screenshots and project images
 site/                 GitHub Pages website
 tests/                JavaScript unit tests
 .github/workflows/    Build, checks and release automation

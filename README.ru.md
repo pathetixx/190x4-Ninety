@@ -34,9 +34,10 @@ Ninety — нативный клиент для Windows, построенный 
 | Область | Возможности |
 | --- | --- |
 | **Режимы подключения** | Локальный прокси, системный прокси Windows и полноценный **VPN · TUN**. Запрос UAC появляется только тогда, когда TUN действительно нужны права администратора. При желании Ninety может запускаться с повышенными правами вместе с Windows. |
-| **Источники** | Импорт ссылок на подписки, отдельных конфигураций и `.toml`-профилей TrustTunnel. Ссылку можно вставить из буфера, а поддержку deep links — включить отдельно. |
+| **Источники** | Импорт ссылок на подписки, отдельных конфигураций, `.toml`-профилей TrustTunnel и `.conf`-файлов WireGuard/AmneziaWG. Ссылку можно вставить из буфера, а поддержку deep links — включить отдельно. |
+| **Лимит устройств** | Подписки из панелей, которые считают устройства, могут отправлять идентификатор устройства — отдельный для каждой подписки. По умолчанию отправка выключена, идентификатор получается односторонним преобразованием машинного значения, а посмотреть, скопировать или сменить его можно в настройках. |
 | **Управление нодами** | Сетка серверов с флагами стран, живая проверка задержки, автоматический выбор, переключение из трея и отображение ноды, которая используется прямо сейчас. |
-| **Протоколы** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, SOCKS, NaiveProxy, TrustTunnel и WARP/WireGuard. |
+| **Протоколы** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, SOCKS, NaiveProxy, TrustTunnel, WireGuard/AmneziaWG и WARP. |
 | **Мосты** | XHTTP работает через xray-core. NaiveProxy и TrustTunnel подключаются через локальные SOCKS-мосты, а центральным маршрутизатором остаётся sing-box. |
 | **Маршрутизация** | Обход локальной сети, региональные правила, собственные правила для доменов, IP-адресов и процессов. Есть списки для блокировки рекламы, вредоносных и фишинговых доменов, а также просмотр активных соединений. |
 | **Качество соединения** | Проверяется реальная пропускная способность канала, а не один только ping. Ninety может повторить тест, сменить ноду, включить маскировку, заново просканировать WARP или предложить переподключение. |
@@ -56,7 +57,7 @@ Ninety — нативный клиент для Windows, построенный 
 
 ## Поддерживаемые протоколы и транспорты
 
-**Протоколы:** VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · Hysteria · TUIC · AnyTLS · SOCKS · NaiveProxy · TrustTunnel · WARP/WireGuard
+**Протоколы:** VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · Hysteria · TUIC · AnyTLS · SOCKS · NaiveProxy · TrustTunnel · WireGuard/AmneziaWG · WARP
 
 **Транспорты и опции:** Reality · TLS с uTLS-отпечатками · XHTTP · WebSocket · gRPC · HTTP/2 · HTTPUpgrade · QUIC · mKCP · TCP · TLS-фрагментация · padding · mixed-case SNI · mux
 
@@ -89,22 +90,36 @@ NaiveProxy и TrustTunnel запускаются через собственны
 
 ## Документация
 
+Названия ссылок совпадают с заголовками самих документов, поэтому по названию
+видно, на каком языке написан документ: большая часть — на английском.
+
 Для пользователей:
 
 - [Modes](./docs/modes.md) — Proxy, System proxy, VPN · TUN, режим WARP-only, DPI-инструменты и kill switch.
 - [Troubleshooting](./docs/troubleshooting.md) — что проверить при проблемах, какие логи собрать и какие данные нельзя публиковать.
 - [Privacy](./docs/privacy.md) — локальные данные, чувствительные поля, логи, состояние WARP и известные ограничения.
-- [Строгий туннель и защищённый браузер](./docs/strict-privacy.md) — fail-closed-маршрутизация, интеграция Mullvad Browser и честные ограничения маскировки VPN/IP.
+- [Strict tunnel and protected browser](./docs/strict-privacy.md) — fail-closed-маршрутизация, интеграция Mullvad Browser и честные ограничения маскировки VPN/IP.
 - [Routing](./docs/routing.md) — обход локальной сети, региональные правила, собственная маршрутизация, DNS и монитор соединений.
 
 О проекте:
 
 - [Architecture](./docs/architecture.md) — фронтенд, Rust-бэкенд, вспомогательные процессы, обновления и подготовка движков в CI.
 - [Security](./SECURITY.md) — порядок отправки сообщений об уязвимостях и других чувствительных проблемах.
-- [Политика подписи](./CODE_SIGNING_POLICY.md) — происхождение релизов, роли при подписании и список подписываемых файлов.
+- [Code signing policy](./CODE_SIGNING_POLICY.md) — происхождение релизов, роли при подписании и список подписываемых файлов.
 - [Contributing](./CONTRIBUTING.md) — требования к issues и pull request.
-- [Releasing](./RELEASING.md) — процесс выпуска версий, аннотированные теги, черновики релизов и правила OTA-обновлений.
 - [CI и security-gates](./docs/CI.md) — обязательные проверки, права workflow, аудиты и SBOM.
+
+Выпуск релизов:
+
+- [Релиз Ninety](./RELEASING.md) — процесс выпуска версий, аннотированные теги, черновики релизов и правила OTA-обновлений.
+- [Квалификация Stable-релиза](./docs/RELEASE_QUALIFICATION.md) — ручная проверка на живом Windows перед снятием метки Early access.
+
+Инженерные заметки:
+
+- [Safe module extraction plan](./docs/MODULE_EXTRACTION_PLAN.md) — поэтапное разделение `main.js`, `singbox.js` и `dpi.rs`.
+- [Encrypted profile-store migration](./docs/PROFILE_STORE_MIGRATION.md) — устройство `profile-store.v1` и отказ от ключей WebView.
+- [Ninety hardening notes](./docs/hardening-notes.md) — памятка по хранению чувствительных данных.
+- [Ротация ключа DPI-канала](./docs/DPI_CHANNEL_KEY_ROTATION.md) — порядок смены minisign-ключа канала `dpi-channel`.
 
 ## Безопасность и приватность
 
@@ -160,7 +175,7 @@ src/                  Фронтенд: экраны, стили, i18n и сбо
 src-tauri/src/        Rust-бэкенд и интеграция с Windows
 src-tauri/dpi/        DPI-стратегии, списки и встроенные ресурсы
 src-tauri/licenses/   Сторонние лицензии и полные тексты
-docs/                 Скриншоты и изображения проекта
+docs/                 Документация, скриншоты и изображения проекта
 site/                 Сайт для GitHub Pages
 tests/                Модульные тесты JavaScript
 .github/workflows/    Сборка, проверки и автоматизация релизов
