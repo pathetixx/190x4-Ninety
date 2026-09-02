@@ -1,6 +1,10 @@
-# Ninety — журнал изменений
+# Ninety — changelog · журнал изменений
 
-Журнал начинается с **v0.1.56** — перехода на semver (до неё был счётчик `alphaNN`). Тексты дословно совпадают с заметками релизов, которые приходят в окно обновления (OTA); свежая версия — сверху.
+[Website](https://pathetixx.github.io/190x4-Ninety/) · [Download](https://github.com/pathetixx/190x4-Ninety/releases) · [English](./README.md) · [Русский](./README.ru.md)
+
+Every release, newest first — the same notes the app shows in its update window.
+
+Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
 ## v0.5.3 — 2026-09-02
 
