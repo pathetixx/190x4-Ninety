@@ -201,15 +201,34 @@ const screens = {
   },
 };
 
-function getStoredLanguage() {
+const SUPPORTED_LANGUAGES = ["en", "ru"];
+const DEFAULT_LANGUAGE = "en";
+
+function readStoredLanguage() {
   try {
-    return localStorage.getItem("ninety-site-language") || "en";
+    const stored = localStorage.getItem("ninety-site-language");
+    return SUPPORTED_LANGUAGES.includes(stored) ? stored : null;
   } catch {
-    return "en";
+    return null;
   }
 }
 
-let currentLanguage = getStoredLanguage();
+// navigator.languages — это список по убыванию приоритета, поэтому берём первый
+// знакомый, а не просто navigator.language. Региональные теги (ru-RU, en-GB)
+// сводим к базовому: словарь у нас один на язык.
+function detectBrowserLanguage() {
+  const wanted = navigator.languages?.length ? navigator.languages : [navigator.language];
+  for (const tag of wanted) {
+    const base = String(tag || "").toLowerCase().split("-")[0];
+    if (SUPPORTED_LANGUAGES.includes(base)) return base;
+  }
+  return DEFAULT_LANGUAGE;
+}
+
+// Явный выбор кнопкой сильнее языка браузера: он и только он лежит в
+// localStorage. Пока выбора не было, определение остаётся живым — сменив язык
+// системы, посетитель увидит сайт на новом языке.
+let currentLanguage = readStoredLanguage() || detectBrowserLanguage();
 let currentScreen = "home";
 let latestRelease = releaseFallback;
 let latestReleaseLoaded = false;
@@ -223,7 +242,7 @@ const downloadLinkNodes = document.querySelectorAll("[data-download-link]");
 const msiLinkNodes = document.querySelectorAll("[data-msi-link]");
 
 function t(key) {
-  return translations[currentLanguage][key] || translations.ru[key] || key;
+  return translations[currentLanguage][key] || translations[DEFAULT_LANGUAGE][key] || key;
 }
 
 function formatTemplate(template, values) {
@@ -360,10 +379,10 @@ async function loadReleaseFromGitHubApi() {
   return normalizeRelease(await response.json());
 }
 
-function setLanguage(language) {
-  currentLanguage = translations[language] ? language : "en";
+function setLanguage(language, { persist = true } = {}) {
+  currentLanguage = translations[language] ? language : DEFAULT_LANGUAGE;
   document.documentElement.lang = currentLanguage;
-  storeLanguage(currentLanguage);
+  if (persist) storeLanguage(currentLanguage);
 
   // Заголовок и описание живут в <head>, где нет data-i18n: без этого страница
   // на русском отдавала бы английский <title> и такое же превью в соцсетях.
@@ -411,6 +430,8 @@ window.addEventListener("scroll", () => {
   topbar.classList.toggle("is-scrolled", window.scrollY > 12);
 });
 
-setLanguage(currentLanguage);
+// persist: false — первый показ не должен записывать определённый язык как
+// осознанный выбор, иначе определение сработало бы ровно один раз в жизни.
+setLanguage(currentLanguage, { persist: false });
 updateScreen(currentScreen);
 loadLatestRelease();
