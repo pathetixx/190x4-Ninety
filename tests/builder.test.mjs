@@ -128,6 +128,10 @@ test("строгая приватность: TUN без direct-исключен�
   opts.warp.enabled = true;
   opts.warp.autoRescan = true;
   opts.dns.remoteAddress = "https://dns.example/dns-query";
+  // Заведомо НЕ дефолтный direct: иначе проверка ниже пройдёт и в случае, если
+  // строгий режим вообще ничего не переопределил (дефолты remote и direct
+  // совпадают), то есть перестанет что-либо доказывать.
+  opts.dns.directAddress = "udp://192.0.2.53";
   opts.dns.enableFakeDns = true;
   opts.route.bypassLan = true;
   opts.route.resolveDestination = false;

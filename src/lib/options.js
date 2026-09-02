@@ -61,8 +61,12 @@ export const DEFAULT_OPTIONS = {
     intervalSec: 600,
   },
   dns: {
-    remoteAddress: "https://1.1.1.1/dns-query",
-    directAddress: "udp://77.88.8.8",
+    // Google DoH обеими сторонами. Открытый UDP дефолтом быть не может: из РФ
+    // он отдаёт подделанный NXDOMAIN на фильтруемые домены (см. dns-presets.js).
+    // Прежний direct-дефолт (Yandex) искажал urltest — часть живых нод
+    // показывалась недоступной, см. комментарий к FALLBACKS в dns-guard.js.
+    remoteAddress: "https://8.8.8.8/dns-query",
+    directAddress: "https://8.8.8.8/dns-query",
     independentCache: true,
     enableFakeDns: false,
   },

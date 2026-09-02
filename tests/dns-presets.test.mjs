@@ -11,20 +11,32 @@ const {
 
 const { DEFAULT_OPTIONS } = await import("/lib/options.js");
 
+// dns-guard читает Tauri-invoke на верхнем уровне; для импорта константы
+// достаточно заглушки, как в tests/health-watchdog.test.mjs.
+globalThis.window = globalThis.window
+  ?? { __TAURI__: { core: { invoke: async () => ({}) } } };
+const { FALLBACKS } = await import("/lib/dns-guard.js");
+
 test("дефолтные адреса присутствуют в своих списках", () => {
   assert.ok(findDnsPreset("remote", DEFAULT_OPTIONS.dns.remoteAddress));
   assert.ok(findDnsPreset("direct", DEFAULT_OPTIONS.dns.directAddress));
 });
 
+// Сверяем с самим массивом сторожа, а не с его копией: разъехавшись, копия
+// пропустила бы резерв, которого нет в списке, — и автопереключение уводило бы
+// селект в «Свой адрес» вместо понятного имени.
 test("резервы dns-guard видны в списке direct как готовые пункты", () => {
-  for (const dns of [
-    "https://149.112.112.112/dns-query",
-    "https://77.88.8.8/dns-query",
-    "udp://149.112.112.112",
-    "udp://77.88.8.8",
-  ]) {
+  assert.ok(FALLBACKS.length >= 4);
+  for (const dns of FALLBACKS) {
     assert.ok(findDnsPreset("direct", dns), dns);
   }
+});
+
+// Дефолт обязан быть в цепочке: сторож перебирает её сверху, и адрес, которого
+// в ней нет, после первого же переключения не вернётся никогда.
+test("дефолтный direct-адрес присутствует в цепочке резервов", () => {
+  assert.ok(FALLBACKS.includes(DEFAULT_OPTIONS.dns.directAddress));
+  assert.notEqual(FALLBACKS[0], DEFAULT_OPTIONS.dns.directAddress);
 });
 
 test("неизвестный адрес пресетом не считается", () => {
