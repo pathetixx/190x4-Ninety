@@ -3446,7 +3446,14 @@ mod tests {
 
         let out = ungate_game_ipset(args, lists, "1024-65535", "1024-65535");
 
-        assert_eq!(out, vec![game, "--ipset-exclude=EXCL".to_string()]);
+        assert_eq!(
+            out,
+            vec![
+                "--filter-udp=1024-65535".to_string(),
+                game,
+                "--ipset-exclude=EXCL".to_string(),
+            ]
+        );
     }
 
     // Пара --hostlist-auto-* не создаёт коллекцию хостлистов и не должна
