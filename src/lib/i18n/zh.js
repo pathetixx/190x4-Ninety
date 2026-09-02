@@ -995,7 +995,6 @@ export const zh = {
       directTitle: "Direct DNS",
       directHint: "为绕过 VPN 直连的流量解析地址，例如你所在地区的网站。",
       presetSystem: "与系统一致",
-      presetPlain: "普通 DNS",
       presetCustom: "自定义地址…",
       errPath: "普通 DNS 的地址中没有路径，请删除「/dns-query」",
       errScheme: "未知的地址类型。可用 https://、tls://、quic://、tcp:// 或 udp://",

@@ -1011,7 +1011,6 @@ export const fr = {
       directTitle: "DNS direct",
       directHint: "Résout les adresses du trafic qui passe en direct, sans le VPN — par exemple les sites de votre région.",
       presetSystem: "Comme le système",
-      presetPlain: "DNS classique",
       presetCustom: "Adresse personnalisée…",
       errPath: "Le DNS classique n’a pas de chemin dans l’adresse — retirez « /dns-query »",
       errScheme: "Type d’adresse inconnu. Utilisez https://, tls://, quic://, tcp:// ou udp://",

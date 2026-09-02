@@ -1003,7 +1003,6 @@ export const tr = {
       directTitle: "Doğrudan DNS",
       directHint: "VPN’i atlayarak doğrudan giden trafiğin adreslerini çözer — örneğin bölgenizdeki siteler.",
       presetSystem: "Sistemdeki gibi",
-      presetPlain: "normal DNS",
       presetCustom: "Kendi adresim…",
       errPath: "Normal DNS adresinde yol bulunmaz — «/dns-query» kısmını silin",
       errScheme: "Bilinmeyen adres türü. https://, tls://, quic://, tcp:// veya udp:// kullanın",

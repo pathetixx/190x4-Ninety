@@ -1035,7 +1035,6 @@ export const ar = {
       directTitle: "Direct DNS",
       directHint: "يحدّد عناوين حركة المرور التي تمرّ مباشرةً دون VPN — مثل مواقع منطقتك.",
       presetSystem: "كما في النظام",
-      presetPlain: "DNS عادي",
       presetCustom: "عنوان مخصّص…",
       errPath: "لا يحتوي DNS العادي على مسار في العنوان — احذف «/dns-query»",
       errScheme: "نوع عنوان غير معروف. استخدم https:// أو tls:// أو quic:// أو tcp:// أو udp://",

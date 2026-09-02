@@ -995,7 +995,6 @@ export const ja = {
       directTitle: "Direct DNS",
       directHint: "VPN を通さず直接流れる通信のアドレスを解決します（例: お住まいの地域のサイト）。",
       presetSystem: "システムと同じ",
-      presetPlain: "通常の DNS",
       presetCustom: "自分で入力…",
       errPath: "通常の DNS のアドレスにパスはありません。「/dns-query」を削除してください",
       errScheme: "不明なアドレス形式です。https://、tls://、quic://、tcp://、udp:// が使えます",

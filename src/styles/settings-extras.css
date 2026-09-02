@@ -44,10 +44,16 @@
   align-items: flex-end;
   gap: 6px;
 }
-.settings-dns__select { max-width: 260px; }
-.settings-dns__custom { width: 240px; }
+/* Подпись пункта — «Бренд · адрес · тип», самая длинная сейчас
+   «Quad9 · 149.112.112.112 · UDP» (29 знаков моноширинного 12px ≈ 250px вместе
+   с padding и стрелкой). Прежних 260px хватало впритык: любой запасной
+   моноширинный шрифт пошире — и текст в закрытом селекте обрезается.
+   Колонка контрола в .set-row — auto, соседняя 1fr с min-width:0, так что
+   лишние 40px забирает подпись строки, а вёрстка не ломается. */
+.settings-dns__select { max-width: 300px; }
+.settings-dns__custom { width: 300px; }
 .settings-dns__msg {
-  max-width: 260px;
+  max-width: 300px;
   font-size: 11px;
   line-height: 1.35;
   text-align: end;

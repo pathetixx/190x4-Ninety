@@ -1003,7 +1003,6 @@ export const de = {
       directTitle: "Direct DNS",
       directHint: "Löst Adressen für den Verkehr auf, der direkt am VPN vorbei läuft — etwa für Seiten aus deiner Region.",
       presetSystem: "Wie im System",
-      presetPlain: "normales DNS",
       presetCustom: "Eigene Adresse…",
       errPath: "Normales DNS hat keinen Pfad in der Adresse — entferne „/dns-query“",
       errScheme: "Unbekannter Adresstyp. Erlaubt sind https://, tls://, quic://, tcp:// und udp://",

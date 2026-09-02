@@ -1019,7 +1019,6 @@ export const ru = {
       directTitle: "Direct DNS",
       directHint: "Определяет адреса для трафика, который идёт напрямую, мимо VPN — например, для сайтов вашего региона.",
       presetSystem: "Как в системе",
-      presetPlain: "обычный DNS",
       presetCustom: "Свой адрес…",
       errPath: "У обычного DNS нет пути в адресе — уберите «/dns-query»",
       errScheme: "Неизвестный вид адреса. Допустимы https://, tls://, quic://, tcp:// и udp://",

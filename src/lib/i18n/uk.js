@@ -1019,7 +1019,6 @@ export const uk = {
       directTitle: "Direct DNS",
       directHint: "Визначає адреси для трафіку, що йде напряму, повз VPN — наприклад, для сайтів вашого регіону.",
       presetSystem: "Як у системі",
-      presetPlain: "звичайний DNS",
       presetCustom: "Своя адреса…",
       errPath: "У звичайного DNS немає шляху в адресі — приберіть «/dns-query»",
       errScheme: "Невідомий тип адреси. Дозволені https://, tls://, quic://, tcp:// та udp://",

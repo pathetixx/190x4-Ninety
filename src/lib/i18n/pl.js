@@ -1019,7 +1019,6 @@ export const pl = {
       directTitle: "Bezpośredni DNS",
       directHint: "Ustala adresy dla ruchu idącego bezpośrednio, z pominięciem VPN — na przykład dla stron z Twojego regionu.",
       presetSystem: "Jak w systemie",
-      presetPlain: "zwykły DNS",
       presetCustom: "Własny adres…",
       errPath: "Zwykły DNS nie ma ścieżki w adresie — usuń „/dns-query”",
       errScheme: "Nieznany typ adresu. Dozwolone: https://, tls://, quic://, tcp:// i udp://",

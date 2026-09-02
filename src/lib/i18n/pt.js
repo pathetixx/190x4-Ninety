@@ -1011,7 +1011,6 @@ export const pt = {
       directTitle: "DNS direto",
       directHint: "Resolve os endereços do tráfego que vai direto, sem a VPN — por exemplo, os sites da sua região.",
       presetSystem: "Igual ao sistema",
-      presetPlain: "DNS comum",
       presetCustom: "Endereço próprio…",
       errPath: "O DNS comum não tem caminho no endereço — remova «/dns-query»",
       errScheme: "Tipo de endereço desconhecido. Use https://, tls://, quic://, tcp:// ou udp://",

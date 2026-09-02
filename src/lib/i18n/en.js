@@ -1003,7 +1003,6 @@ export const en = {
       directTitle: "Direct DNS",
       directHint: "Resolves addresses for traffic that goes directly, bypassing the VPN — for example sites from your region.",
       presetSystem: "Same as system",
-      presetPlain: "plain DNS",
       presetCustom: "Custom address…",
       errPath: "Plain DNS has no path in the address — remove “/dns-query”",
       errScheme: "Unknown address type. Use https://, tls://, quic://, tcp:// or udp://",

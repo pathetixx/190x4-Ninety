@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 
 const {
   DNS_PRESETS, DNS_SEPARATOR,
-  dnsPresetLabel, findDnsPreset, isSystemDns, validateDnsAddress,
+  dnsPresetLabel, dnsHostLabel, findDnsPreset, isSystemDns, validateDnsAddress,
 } = await import("/lib/dns-presets.js");
 
 const { DEFAULT_OPTIONS } = await import("/lib/options.js");
@@ -31,11 +31,52 @@ test("неизвестный адрес пресетом не считается
   assert.equal(findDnsPreset("direct", "udp://192.168.1.1"), null);
 });
 
-test("подпись пункта собирается из бренда и типа", () => {
-  const doh = DNS_PRESETS.remote.find(p => p.value === "https://8.8.8.8/dns-query");
-  assert.equal(dnsPresetLabel(doh), "Google · DoH");
-  const dot = DNS_PRESETS.remote.find(p => p.value === "tls://1.1.1.1");
-  assert.equal(dnsPresetLabel(dot), "Cloudflare · DoT");
+test("подпись пункта — бренд, адрес и тип", () => {
+  const label = (kind, value) =>
+    dnsPresetLabel(DNS_PRESETS[kind].find(p => p.value === value));
+  assert.equal(label("remote", "https://8.8.8.8/dns-query"), "Google · 8.8.8.8 · DoH");
+  assert.equal(label("remote", "tls://1.1.1.1"), "Cloudflare · 1.1.1.1 · DoT");
+  // Нешифрованный резолвер подписан протоколом, а не переводимым словом:
+  // UDP/DoT/DoH — имена протоколов и одинаковы во всех языках.
+  assert.equal(label("direct", "udp://77.88.8.8"), "Yandex · 77.88.8.8 · UDP");
+});
+
+test("адрес в подписи без схемы и без пути, но с портом", () => {
+  assert.equal(dnsHostLabel("https://1.1.1.1/dns-query"), "1.1.1.1");
+  assert.equal(dnsHostLabel("tls://9.9.9.9"), "9.9.9.9");
+  assert.equal(dnsHostLabel("udp://77.88.8.8"), "77.88.8.8");
+  assert.equal(dnsHostLabel("udp://1.1.1.1:5353"), "1.1.1.1:5353");
+  assert.equal(dnsHostLabel("https://example.test:8443/dns-query"), "example.test:8443");
+  assert.equal(dnsHostLabel("77.88.8.8"), "77.88.8.8");
+  assert.equal(dnsHostLabel(""), "");
+});
+
+// Главное, ради чего тип остаётся в подписи: у Cloudflare DoH и DoT один и тот
+// же хост, у Yandex в direct — plain и DoH на 77.88.8.8. Убери тип, и пункты
+// станут неотличимы друг от друга прямо в списке.
+test("подписи внутри одного списка не повторяются", () => {
+  for (const kind of ["remote", "direct"]) {
+    const labels = DNS_PRESETS[kind]
+      .filter(p => p.value !== DNS_SEPARATOR)
+      .map(dnsPresetLabel);
+    assert.equal(new Set(labels).size, labels.length, kind);
+  }
+});
+
+// Асимметрия в списке читается как недоделка: у одного бренда обе строки, у
+// соседнего только DoH. Сертификаты 8.8.8.8 и 94.140.14.14 содержат IP-SAN,
+// поэтому DoT по голому IP у них проходит проверку так же, как у Cloudflare.
+test("у каждого remote-бренда есть и DoH, и DoT", () => {
+  const byBrand = new Map();
+  for (const p of DNS_PRESETS.remote) {
+    if (p.value === DNS_SEPARATOR) continue;
+    byBrand.set(p.brand, (byBrand.get(p.brand) || new Set()).add(p.type));
+  }
+  assert.ok(byBrand.size >= 4);
+  for (const [brand, types] of byBrand) {
+    assert.ok(types.has("doh"), `${brand}: нет DoH`);
+    assert.ok(types.has("dot"), `${brand}: нет DoT`);
+  }
 });
 
 test("разделители не участвуют в поиске пресета", () => {

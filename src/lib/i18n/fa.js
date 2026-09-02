@@ -1003,7 +1003,6 @@ export const fa = {
       directTitle: "Direct DNS",
       directHint: "نشانی ترافیکی را تعیین می‌کند که مستقیم و بدون VPN می‌رود؛ مثلاً سایت‌های منطقهٔ شما.",
       presetSystem: "مانند سیستم",
-      presetPlain: "DNS معمولی",
       presetCustom: "نشانی دلخواه…",
       errPath: "DNS معمولی در نشانی مسیر ندارد — «/dns-query» را حذف کنید",
       errScheme: "نوع نشانی ناشناخته است. از https://، tls://، quic://، tcp:// یا udp:// استفاده کنید",

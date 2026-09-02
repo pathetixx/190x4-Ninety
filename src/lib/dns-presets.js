@@ -28,9 +28,11 @@ export const DNS_PRESETS = {
     { value: "https://1.1.1.1/dns-query", brand: "Cloudflare", type: "doh" },
     { value: "tls://1.1.1.1", brand: "Cloudflare", type: "dot" },
     { value: "https://8.8.8.8/dns-query", brand: "Google", type: "doh" },
+    { value: "tls://8.8.8.8", brand: "Google", type: "dot" },
     { value: "https://9.9.9.9/dns-query", brand: "Quad9", type: "doh" },
     { value: "tls://9.9.9.9", brand: "Quad9", type: "dot" },
     { value: "https://94.140.14.14/dns-query", brand: "AdGuard", type: "doh" },
+    { value: "tls://94.140.14.14", brand: "AdGuard", type: "dot" },
   ],
   direct: [
     { value: "local", type: "system" },
@@ -44,11 +46,27 @@ export const DNS_PRESETS = {
   ],
 };
 
+// Хост адреса для подписи пункта и для тостов dns-guard. Схему и путь
+// /dns-query показывать незачем: внутри одного типа они у всех одинаковые, а
+// различает пункты как раз адрес. Порт сохраняем — он единственное, чем
+// нестандартный резолвер отличается от обычного.
+export function dnsHostLabel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    if (raw.startsWith("https://")) return new URL(raw).host;
+    return raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  } catch { return raw; }
+}
+
+// «Бренд · адрес · тип». Тип обязателен и убрать его нельзя: у Cloudflare
+// https://1.1.1.1/dns-query и tls://1.1.1.1 дают один и тот же хост, у Yandex в
+// direct — та же пара на 77.88.8.8. Без типа эти пункты стали бы неразличимы.
+// UDP/DoT/DoH не переводятся: это имена протоколов, а не термины интерфейса.
 export function dnsPresetLabel(preset) {
   if (preset.type === "system") return t("settings.dns.presetSystem");
-  const kind = preset.type === "plain" ? t("settings.dns.presetPlain")
-    : preset.type === "dot" ? "DoT" : "DoH";
-  return `${preset.brand} · ${kind}`;
+  const kind = preset.type === "plain" ? "UDP" : preset.type === "dot" ? "DoT" : "DoH";
+  return `${preset.brand} · ${dnsHostLabel(preset.value)} · ${kind}`;
 }
 
 // Есть ли такой адрес среди пресетов набора (точное совпадение строки).

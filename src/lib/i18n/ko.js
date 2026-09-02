@@ -995,7 +995,6 @@ export const ko = {
       directTitle: "직접 DNS",
       directHint: "VPN을 우회해 직접 나가는 트래픽의 주소를 확인합니다 — 예를 들어 내 지역의 사이트.",
       presetSystem: "시스템과 동일",
-      presetPlain: "일반 DNS",
       presetCustom: "직접 입력…",
       errPath: "일반 DNS 주소에는 경로가 없습니다 — 「/dns-query」를 지우세요",
       errScheme: "알 수 없는 주소 형식입니다. https://, tls://, quic://, tcp://, udp:// 를 사용하세요",

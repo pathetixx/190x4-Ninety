@@ -22,6 +22,7 @@
 // туннель вообще поднимается.
 
 import { loadOptions, updateOption } from "/lib/options.js";
+import { dnsHostLabel } from "/lib/dns-presets.js";
 import { t } from "/lib/i18n/index.js";
 
 const invoke = window.__TAURI__?.core?.invoke
@@ -48,14 +49,6 @@ const ALL_DEAD_TOAST_GAP_MS = 30 * 60_000;
 const ALL_DEAD_BACKOFF_MS = 15 * 60_000;
 let lastAllDeadToastAt = 0;
 let allDeadBackoffUntil = 0;
-
-// Короткое человекочитаемое имя DNS для тоста.
-function prettyDns(dns) {
-  try {
-    if (dns.startsWith("https://")) return new URL(dns).hostname;
-    return dns.replace(/^\w+:\/\//, "");
-  } catch { return dns; }
-}
 
 async function probe(dns) {
   try {
@@ -92,7 +85,7 @@ export async function ensureWorkingDirectDns({ toast, onlyIf } = {}) {
     // сверки сторож молча возвращал свой резерв поверх свежего ручного выбора.
     if ((loadOptions().dns?.directAddress || "") !== cur) return null;
     updateOption("dns.directAddress", cand);
-    toast?.(t("dns.switched", { dns: prettyDns(cand) }), "warn", 6000, {
+    toast?.(t("dns.switched", { dns: dnsHostLabel(cand) }), "warn", 6000, {
       desc: t("dns.switchedDesc"),
     });
     return cand;
