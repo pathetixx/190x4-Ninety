@@ -100,7 +100,17 @@ pub fn program_files_roots() -> Vec<std::path::PathBuf> {
     .collect()
 }
 
-fn checked_body_len(current: usize, incoming: usize, max_bytes: usize) -> Result<usize, String> {
+/// Прирост длины тела с проверкой переполнения и лимита.
+///
+/// `pub(crate)`, потому что этим же гвардом обязаны пользоваться те, кому нужен
+/// собственный текст ошибки и поэтому не подходит `read_response_capped`
+/// целиком (subscription.rs). Собственная арифметика на месте вызова —
+/// это ровно тот `current + incoming` без `checked_add`, который здесь и закрыт.
+pub(crate) fn checked_body_len(
+    current: usize,
+    incoming: usize,
+    max_bytes: usize,
+) -> Result<usize, String> {
     let next = current
         .checked_add(incoming)
         .ok_or_else(|| "HTTP response size overflow".to_string())?;

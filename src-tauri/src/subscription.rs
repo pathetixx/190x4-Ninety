@@ -381,7 +381,11 @@ pub async fn fetch_subscription(
             ));
         }
     }
-    // Стримим с капом (Content-Length может отсутствовать или врать).
+    // Стримим с капом (Content-Length может отсутствовать или врать). Сам лимит
+    // считает общий `util::checked_body_len` — тот же гвард, что у
+    // read_response_capped: локальная арифметика складывала длины без
+    // checked_add. Цикл остаётся здесь только ради текста ошибок: пользователю
+    // важно, что «это не список серверов», а не абстрактное «body too large».
     let mut resp = resp;
     let mut buf: Vec<u8> = Vec::new();
     while let Some(chunk) = resp
@@ -389,7 +393,7 @@ pub async fn fetch_subscription(
         .await
         .map_err(|_| "не удалось прочитать ответ подписки".to_string())?
     {
-        if buf.len() + chunk.len() > MAX_BODY_BYTES {
+        if crate::util::checked_body_len(buf.len(), chunk.len(), MAX_BODY_BYTES).is_err() {
             return Err(format!(
                 "подписка больше {} МБ — это не список серверов",
                 MAX_BODY_BYTES / 1024 / 1024
