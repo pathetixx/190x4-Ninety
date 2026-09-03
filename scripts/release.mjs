@@ -264,10 +264,20 @@ if (needDate) {
 
 run("node", ["scripts/bump-version.mjs", version]);
 run("node", ["scripts/check-version.mjs"]);
+// Список обязан покрывать ВСЁ, что трогает bump-version.mjs: файл, забытый
+// здесь, остаётся изменённым в рабочем дереве, а в тег уезжает старая версия.
+// Равенство двух списков проверяет tests/release-flags.test.mjs.
 run("git", ["add", "package.json", "package-lock.json",
   "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock",
-  "site/app.js", "site/index.html", "CHANGELOG.md"]);
-run("git", ["commit", "-m", tag]);
+  "src/lib/build-info.js", "site/app.js", "site/index.html", "CHANGELOG.md"]);
+// Повторный заход после красной сборки — штатный случай: версия уже забампана
+// прошлым запуском, и коммитить нечего. Пустой `git commit` уронил бы ритуал
+// ровно там, где он должен доводить релиз до тега.
+if (cap("git", ["diff", "--cached", "--name-only"])) {
+  run("git", ["commit", "-m", tag]);
+} else {
+  console.log("  версия уже закоммичена — коммит пропущен");
+}
 
 const dir = mkdtempSync(join(tmpdir(), "ninety-rel-"));
 const notesFile = join(dir, "notes.md");
