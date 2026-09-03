@@ -321,24 +321,16 @@ jobs:
             $pins.trusttunnel_client.sha256 `
             tt.zip "trusttunnel_client.exe" "src-tauri/binaries/trusttunnel_client-x86_64-pc-windows-msvc.exe"
 
-      - name: Generate build-info (About page build id)
+      - name: Generate build-info (About page build sheet)
         shell: pwsh
         run: |
-          # Bake the real commit/date/version into src/lib/build-info.js BEFORE
-          # the build (frontendDist=../src, no bundler → the file ships as is).
-          # core/channel/platform stay untouched — build-info.js is their single
-          # source of truth (core is versioned next to the sing-box pin).
+          # Собираем src/lib/build-info.js ДО сборки (frontendDist=../src, без
+          # бандлера → файл едет как есть). Версии ядер и компонентов берутся из
+          # .github/pins.json — того же файла, который двигает pins-watch, чтобы
+          # «О программе» не отставала от того, что реально собрано.
           $sha = (git rev-parse --short HEAD).Trim()
           $date = (Get-Date).ToUniversalTime().ToString("dd.MM.yyyy")
-          $cfg = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          $ver = $cfg.version
-          $f = "src/lib/build-info.js"
-          $c = Get-Content $f -Raw
-          $c = $c -replace 'commit:\s*"[^"]*"', "commit: `"$sha`""
-          $c = $c -replace 'date:\s*"[^"]*"', "date: `"$date`""
-          $c = $c -replace 'version:\s*"[^"]*"', "version: `"$ver`""
-          Set-Content $f $c -NoNewline
-          Write-Host "build-info: version=$ver commit=$sha date=$date"
+          node scripts/gen-build-info.mjs --commit $sha --date $date
 
       - name: Configure Authenticode (optional)
         shell: pwsh

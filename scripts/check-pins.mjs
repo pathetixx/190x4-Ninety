@@ -22,6 +22,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
+import { currentChannel, renderBuildInfo } from "./gen-build-info.mjs";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pinsPath = join(root, ".github/pins.json");
 
@@ -214,6 +216,10 @@ async function main() {
   if (changed) {
     writeFileSync(pinsPath, `${JSON.stringify(data, null, 2)}\n`);
     console.log("pins.json обновлён");
+    // «О программе» показывает версии ядер и компонентов из этих же пинов.
+    // Без пересборки паспорт бы отставал ровно на один бамп — и именно так он
+    // и отставал, пока строка ядра правилась руками.
+    refreshBuildInfo(data);
   }
 
   if (process.env.GITHUB_OUTPUT) {
@@ -225,6 +231,26 @@ async function main() {
   // Недоступный источник — это не «всё в порядке»: молчаливый зелёный ран здесь
   // означал бы, что сторож перестал сторожить.
   process.exitCode = failures ? 1 : 0;
+}
+
+// Паспорт сборки пересобираем прямо здесь: commit/date в дев-дереве остаются
+// плейсхолдерами (их ставит CI перед сборкой), меняются только версии.
+function refreshBuildInfo(pins) {
+  const buildInfoPath = join(root, "src/lib/build-info.js");
+  const configPath = join(root, "src-tauri/tauri.conf.json");
+  let existing = "";
+  try { existing = readFileSync(buildInfoPath, "utf8"); } catch { /* нет файла — соберём заново */ }
+  const version = JSON.parse(readFileSync(configPath, "utf8")).version;
+  const commit = existing.match(/commit: "([^"]*)"/)?.[1] ?? "local";
+  const date = existing.match(/date: "([^"]*)"/)?.[1] ?? "—";
+  writeFileSync(buildInfoPath, renderBuildInfo({
+    version,
+    commit,
+    date,
+    pins,
+    channel: currentChannel(existing),
+  }));
+  console.log("build-info.js пересобран под новые пины");
 }
 
 function readPins() {

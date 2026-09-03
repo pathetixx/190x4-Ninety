@@ -11,6 +11,9 @@ import { partitionNodes } from "/lib/node-validation.js";
 import { looksLikeWireguardConf } from "/lib/protocol-parsers.js";
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
 import { hwidHeaders, hwidSignal } from "/lib/hwid.js";
+// Реэкспорт: формулировка переехала в свой модуль, но вызывающие (main.js,
+// экран профилей) продолжают брать её отсюда вместе с остальными хелперами.
+export { relativeTime } from "/lib/relative-time.js";
 import {
   getActiveSubscriptionIdFromStore,
   loadSubscriptionsFromStore,
@@ -455,16 +458,4 @@ export function formatBytes(bytes) {
 export function subscriptionLimitBytes(sub) {
   const t = sub?.total;
   return typeof t === "number" && t > 0 ? t : null;
-}
-
-export function relativeTime(ts) {
-  if (!ts) return "—";
-  const secs = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (secs < 60) return t("subs.relNow");
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return t("subs.relMin", { n: mins });
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return t("subs.relHour", { n: hours });
-  const days = Math.floor(hours / 24);
-  return t("subs.relDay", { n: days });
 }

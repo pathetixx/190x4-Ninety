@@ -897,6 +897,13 @@ if (settingsRoot) {
       syncTrayMenu();
       toast(t("settings.general.clearSensitiveDone"), "success", 2400);
     },
+    // Карточка «Обновления» в «О программе» показывает фактическое состояние
+    // подсистемы: идёт ли проверка, найдена ли версия, когда проверяли удачно.
+    getUpdateStatus: () => ({
+      checking: updateChecks.isRunning(),
+      pendingVersion: pendingUpdate?.version || null,
+      lastSuccessAt: updateLastSuccessAt || 0,
+    }),
     getProtectedBrowserStatus: () => protectedBrowser.status(),
     onProtectedBrowserLaunch: () => requestProtectedBrowserLaunch(),
     onProtectedBrowserCheck: () => requestProtectedBrowserLaunch("https://mullvad.net/en/check"),
@@ -4198,6 +4205,12 @@ function updaterProxy() {
 // эндпоинт, не закрылся Resource) молчал в консоли WebView, и снаружи это было
 // неотличимо от «обновлений нет». Пишем исход каждой проверки в рантайм-журнал —
 // он виден в разделе «Логи».
+// «О программе» слушает это событие: без него карточка обновлений оживала бы
+// только при перерисовке секции, то есть уже после того, как всё случилось.
+function emitUpdateState() {
+  try { window.dispatchEvent(new CustomEvent("ninety:update-state")); } catch {}
+}
+
 function recordUpdateEvent(phase, result, reason = null) {
   void invoke("record_frontend_runtime_event", {
     token: null,
@@ -4211,6 +4224,7 @@ function recordUpdateEvent(phase, result, reason = null) {
 // true — проверка ДОСТИГЛА сервера (апдейт есть или его нет); false — не смогли
 // проверить (нет сети / эндпоинты недоступны) → скедулер уходит в бэкоф-ретрай.
 async function performUpdateCheck(request) {
+  emitUpdateState(); // проверка началась — карточка показывает это сразу
   if (!updaterAvailable()) {
     if (request.interactive) toast(t("update.unavailable"), "error", 2500);
     return false;
@@ -4242,6 +4256,7 @@ async function performUpdateCheck(request) {
       pendingUpdate = null;
       syncTrayMenu();
     }
+    emitUpdateState();
     // Фиксируем и пустой результат: без него «OTA молчит, потому что нечего
     // ставить» неотличимо от «проверки вообще не идут» — а в трее это разные
     // диагнозы с разным лечением.
@@ -4261,6 +4276,7 @@ async function performUpdateCheck(request) {
   if (!(updateModalShowing && String(activeUpdateVersion) === String(metadata.version))) {
     pendingUpdate = metadata;
     syncTrayMenu();
+    emitUpdateState();
   }
 
   // Неудачная уборка Rust-ресурса — проблема утечки, а не проверки. Гейт на
@@ -4331,6 +4347,7 @@ function updateCheckSucceeded() {
   updateLastSuccessAt = Date.now();
   updateRetryIdx = 0;
   updateNextCheckAt = Date.now() + UPDATE_CHECK_INTERVAL_MS;
+  emitUpdateState();
 }
 
 async function scheduledUpdateCheck() {

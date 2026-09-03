@@ -66,6 +66,12 @@ edit(
   `$1${version}$2`,
 );
 
+// build-info.js генерируется (scripts/gen-build-info.mjs) и в релизе его
+// перезапишет CI, но в дев-дереве версию видно на экране «О программе» до
+// ответа рантайма — и она отставала на два минора, потому что бампалась только
+// в четырёх «настоящих» местах.
+edit("src/lib/build-info.js", /(version:\s*")\d+\.\d+\.\d+(")/, `$1${version}$2`);
+
 edit("site/app.js", /(tagName:\s*"v)\d+\.\d+\.\d+(")/, `$1${version}$2`);
 edit("site/index.html", /(data-release-version>v)\d+\.\d+\.\d+(<\/strong>)/, `$1${version}$2`);
 

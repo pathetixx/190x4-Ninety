@@ -163,7 +163,9 @@ Tauri получает thumbprint, SHA-256 и timestamp URL, а smoke-step тр�
 - [ ] OTA GitLab/GitHub/R2 qualification пройдена.
 - [ ] Authenticode status подтверждён.
 
-Только после всех пунктов заменить в `src/lib/build-info.js`:
+Только после всех пунктов заменить в `src/lib/build-info.js` (файл собирает
+`scripts/gen-build-info.mjs`, но `channel` он переносит из текущей версии —
+ручная правка переживает сборку, остальные поля перезаписываются пинами):
 
 ```js
 channel: "Early access",

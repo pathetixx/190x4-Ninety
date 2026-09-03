@@ -9,6 +9,7 @@ import { BUILD_INFO } from "/lib/build-info.js";
 import { availableLangs, getLang, setLang, t } from "/lib/i18n/index.js";
 import { mountRoutingRules } from "/lib/routing-view.js";
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
+import { relativeTime } from "/lib/relative-time.js";
 import { a11ySwitchAll } from "/lib/switch-a11y.js";
 import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { openConfirmModal } from "/lib/confirm-modal.js";
@@ -102,6 +103,10 @@ export function mountSettings(root, opts = {}) {
   const onProtectedBrowserLaunch = opts.onProtectedBrowserLaunch || (async () => {});
   const onProtectedBrowserCheck = opts.onProtectedBrowserCheck || (async () => {});
   const onProtectedBrowserDownload = opts.onProtectedBrowserDownload || (async () => {});
+  // Состояние проверки обновлений живёт в main.js (расписание, найденная
+  // версия). Карточка «Обновления» без него могла лишь обещать, что проверки
+  // идут; узнать их исход можно было только нажав кнопку.
+  const getUpdateStatus = opts.getUpdateStatus || (() => null);
   // Живой инстанс под-экрана «Правила маршрутизации» — чтобы погасить его
   // монитор-таймер при уходе назад.
   let routingRulesInstance = null;
@@ -367,6 +372,42 @@ export function mountSettings(root, opts = {}) {
     } catch {}
     el.querySelector("#about-repo")?.addEventListener("click", () => openExternal(REPO_URL));
     el.querySelector("#about-license")?.addEventListener("click", () => openExternal(LICENSE_URL));
+    bindAboutUpdateStatus(el);
+    void fillAboutDpiEngine(el);
+  }
+
+  // Версия движка обхода приходит от самого winws (dpi_versions), а не из
+  // паспорта сборки: запечённое значение разъехалось бы с обновлением канала.
+  async function fillAboutDpiEngine(el) {
+    const slot = el.querySelector("#about-dpi-engine");
+    if (!slot) return;
+    try {
+      const invoke = window.__TAURI__?.core?.invoke;
+      const versions = invoke ? await invoke("dpi_versions") : null;
+      if (!slot.isConnected) return;
+      if (versions?.engine) slot.textContent = versions.engine;
+    } catch { /* движок не спросили — в строке остаётся «—» */ }
+  }
+
+  // Строка живёт, пока жив её узел: секция перерисовывается на смену языка и
+  // на каждый вход в «О программе», и слушатель обязан уходить вместе с ней.
+  function bindAboutUpdateStatus(el) {
+    const slot = el.querySelector("#about-upd-status");
+    if (!slot) return;
+    const paint = () => {
+      if (!slot.isConnected) return false;
+      slot.textContent = aboutUpdateStatusText(getUpdateStatus());
+      return true;
+    };
+    paint();
+    const stop = () => {
+      clearInterval(timer);
+      globalThis.removeEventListener?.("ninety:update-state", onState);
+    };
+    const onState = () => { if (!paint()) stop(); };
+    // «Проверено N минут назад» стареет само по себе, без единого события.
+    const timer = setInterval(() => { if (!paint()) stop(); }, 30_000);
+    globalThis.addEventListener?.("ninety:update-state", onState);
   }
 
   function openExternal(url) {
@@ -1262,13 +1303,38 @@ const ABOUT_PROTOCOLS = [
 const aboutModes = () => [t("mode.proxy"), t("mode.systemProxy"), t("mode.tun")];
 export const ABOUT_MARK_ASSET = "/assets/samurai-mark-v2.webp";
 
-function aboutSpecCell(icon, key, value) {
-  return `<div class="about-spec__cell">
+function aboutSpecCell(icon, key, value, hint = "") {
+  return `<div class="about-spec__cell"${hint ? ` title="${escapeAttr(hint)}"` : ""}>
     <span class="about-spec__icon">${icon}</span>
     <span class="about-spec__k">${escapeHtml(key)}</span>
     <span class="about-spec__dots"></span>
     <span class="about-spec__v">${value}</span>
   </div>`;
+}
+
+function aboutComponentRow(name, value) {
+  return `<div class="about-spec__cell about-components__row">
+    <span class="about-spec__k">${escapeHtml(name)}</span>
+    <span class="about-spec__dots"></span>
+    <span class="about-spec__v">${value}</span>
+  </div>`;
+}
+
+/**
+ * Подпись под карточкой «Обновления». Раньше здесь стояла неизменная фраза
+ * «проверяются автоматически» — состояние подсистемы (когда проверяли, нашли
+ * ли что-то) не было видно нигде, кроме тоста после ручного нажатия.
+ * @param {{checking?: boolean, pendingVersion?: string|null, lastSuccessAt?: number}|null} status
+ */
+export function aboutUpdateStatusText(status) {
+  if (status?.checking) return t("settings.about.updStatusChecking");
+  if (status?.pendingVersion) {
+    return t("settings.about.updStatusFound", { version: status.pendingVersion });
+  }
+  if (status?.lastSuccessAt) {
+    return t("settings.about.updStatusChecked", { ago: relativeTime(status.lastSuccessAt) });
+  }
+  return t("settings.about.updStatus");
 }
 
 // Паспорт сборки. Версия — из рантайма (bindAboutSection подставит в #about-*),
@@ -1311,11 +1377,25 @@ function renderAbout() {
           ${aboutSpecCell(aboutIconBox(), t("settings.about.specVersion"), `<span id="about-version">${escapeHtml(ver)}</span>`)}
           ${aboutSpecCell(aboutIconCpu(), t("settings.about.specBuild"), escapeHtml(b.commit))}
           ${aboutSpecCell(aboutIconBox(), t("settings.about.specCore"), escapeHtml(b.core))}
+          ${aboutSpecCell(aboutIconBolt(), t("settings.about.specCoreAlt"), escapeHtml(b.coreXray), t("settings.about.specCoreAltHint"))}
           ${aboutSpecCell(aboutIconCpu(), t("settings.about.specPlatform"), escapeHtml(b.platform))}
-          ${aboutSpecCell(aboutIconBolt(), t("settings.about.specChannel"), escapeHtml(b.channel))}
-          ${aboutSpecCell(aboutIconRefresh(), t("settings.about.specUpdated"), escapeHtml(b.date))}
+          ${aboutSpecCell(aboutIconRefresh(), t("settings.about.specBuilt"), escapeHtml(b.date))}
         </div>
       </section>
+
+      <details class="about-components">
+        <summary class="about-components__head">
+          <span class="about-components__title">${t("settings.about.componentsHead")}</span>
+          <span class="about-components__hint">${t("settings.about.componentsHint")}</span>
+          <span class="about-components__chev">${aboutIconChevron()}</span>
+        </summary>
+        <div class="about-components__grid">
+          ${aboutComponentRow(t("settings.about.compDpi"), `<span id="about-dpi-engine">${escapeHtml(t("settings.about.compUnknown"))}</span>`)}
+          ${aboutComponentRow("NaiveProxy", escapeHtml(b.components.naive))}
+          ${aboutComponentRow("TrustTunnel", escapeHtml(b.components.trusttunnel))}
+          ${aboutComponentRow(t("settings.about.compTun"), escapeHtml(b.components.wintun))}
+        </div>
+      </details>
 
       <section class="about-links">
         <button class="about-link" id="about-repo" type="button">
@@ -1332,7 +1412,7 @@ function renderAbout() {
           <span class="about-link__main">
             <span class="about-link__t">${t("settings.about.updTitle")}</span>
             <span class="about-link__d">
-              <span class="about-link__status"><span class="about-link__dot"></span>${t("settings.about.updStatus")}</span>
+              <span class="about-link__status"><span class="about-link__dot"></span><span id="about-upd-status">${escapeHtml(aboutUpdateStatusText(null))}</span></span>
             </span>
           </span>
           <span class="about-link__cta btn btn--sm">${aboutIconRefresh()}${t("settings.about.check")}</span>
@@ -1365,6 +1445,7 @@ function aboutIconBox() { return aboutSvg(13, '<path d="M21 8a2 2 0 0 0-1-1.73l-
 function aboutIconCpu() { return aboutSvg(13, '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/>'); }
 function aboutIconBolt() { return aboutSvg(13, '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>'); }
 function aboutIconRefresh() { return aboutSvg(12, '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>'); }
+function aboutIconChevron() { return aboutSvg(13, '<path d="m6 9 6 6 6-6"/>'); }
 function aboutIconGithub() { return aboutSvg(17, '<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>'); }
 function aboutIconExternal() { return aboutSvg(12, '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'); }
 function aboutIconDownload() { return aboutSvg(17, '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>'); }
