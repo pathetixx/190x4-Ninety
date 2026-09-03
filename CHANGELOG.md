@@ -6,6 +6,24 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.5.6 — 2026-09-03
+
+## English
+
+### Performance work
+
+- The interface stays responsive while the computer is under load.
+- The server list opens and scrolls smoothly on subscriptions with hundreds of nodes, and switching between sections no longer stutters.
+- The log screen no longer stutters as it fills: the app reads and draws only the lines that were just written.
+
+## Русский
+
+### Проведена работа над производительностью
+
+- Интерфейс остаётся отзывчивым, когда компьютер загружен.
+- Список серверов открывается и прокручивается плавно на подписках с сотнями узлов, а переходы между разделами больше не дёргаются.
+- Экран журнала больше не подтормаживает по мере наполнения: приложение читает и рисует только что дописанные строки.
+
 ## v0.5.5 — 2026-09-03
 
 ## English
