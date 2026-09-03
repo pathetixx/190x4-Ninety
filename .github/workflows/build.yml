@@ -108,8 +108,10 @@ jobs:
           # GO-2026-6303: source-address из Permissions не проверялся для
           # password/keyboard-interactive/GSSAPI-колбэков x/crypto/ssh. Символ
           # приходит в бинарь через tailscale (with_tailscale) и виден аудиту.
-          # 0.55.0 — первая версия с фиксом. Тот же go get стоит в security.yml.
-          go get golang.org/x/crypto@v0.55.0
+          # GO-2026-6354/6355: обработчик канала x/crypto/ssh уходит в дедлок на
+          # запросе от пира — DoS сервера. 0.56.0 — первая версия с обоими
+          # фиксами. Тот же go get стоит в security.yml.
+          go get golang.org/x/crypto@v0.56.0
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -tags "$BUILD_TAGS" \
@@ -144,9 +146,10 @@ jobs:
           # so re-applying it would downgrade. Mirrored in security.yml, where the
           # resulting binary is audited.
           go get github.com/klauspost/compress@v1.18.7
-          # GO-2026-6303, как и в sing-box выше: ssh.NewServerConn попадает и в
-          # этот бинарь, x/crypto здесь прямая зависимость снапшота.
-          go get golang.org/x/crypto@v0.55.0
+          # GO-2026-6303 и GO-2026-6354/6355, как и в sing-box выше:
+          # ssh.NewServerConn попадает и в этот бинарь, x/crypto здесь прямая
+          # зависимость снапшота.
+          go get golang.org/x/crypto@v0.56.0
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -ldflags "-s -w -buildid=" -o xray.exe ./main; then
