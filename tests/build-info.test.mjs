@@ -55,13 +55,19 @@ test("сгенерированный файл — валидный модуль 
   assert.deepEqual(info.components, componentVersions(pins));
 });
 
+// Сравниваем содержимое, а не байты перевода строки: .gitattributes держит файл
+// в LF, но тест не должен разваливаться от одной лишь настройки checkout'а —
+// именно на этом легла сборка v0.5.5 (Windows-раннер отдал CRLF).
+const sameText = (actual, expected) =>
+  assert.equal(actual.replace(/\r\n/g, "\n"), expected.replace(/\r\n/g, "\n"));
+
 test("файл в дереве совпадает с тем, что даст генератор на тех же пинах", () => {
   const onDisk = readFileSync("src/lib/build-info.js", "utf8");
   const version = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")).version;
   const commit = onDisk.match(/commit: "([^"]*)"/)?.[1] ?? "";
   const date = onDisk.match(/date: "([^"]*)"/)?.[1] ?? "";
   const channel = currentChannel(onDisk);
-  assert.equal(onDisk, renderBuildInfo({ version, commit, date, pins, channel }));
+  sameText(onDisk, renderBuildInfo({ version, commit, date, pins, channel }));
 });
 
 // Канал зрелости ставится руками по итогам релизной матрицы. Генератор, который
@@ -77,4 +83,16 @@ test("канал переносится из предыдущей версии �
   assert.ok(stable.includes('channel: "Stable"'), stable);
   assert.equal(currentChannel(""), "Early access");
   assert.equal(currentChannel("нет такого поля"), "Early access");
+});
+
+// Регресс v0.5.5: на Windows-раннере checkout отдаёт файл в CRLF, и побайтовое
+// сравнение роняло релизную сборку, хотя содержимое совпадало.
+test("сравнение не зависит от переводов строк checkout'а", () => {
+  const rendered = renderBuildInfo({
+    version: "0.5.5",
+    commit: "abc1234",
+    date: "03.09.2026",
+    pins,
+  });
+  sameText(rendered.replace(/\n/g, "\r\n"), rendered);
 });
