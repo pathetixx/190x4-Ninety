@@ -33,6 +33,10 @@ let logsOffset = null;
 // при дописывании сверху отрезается столько же, сколько пришло снизу, и длина
 // может совпасть с прошлой — рендер решил бы, что показывать нечего нового.
 let logsBufferVersion = 0;
+// Выборка (источник + фильтры), под которую собран текущий DOM, и признак того,
+// что в контейнере лежит служебная строка, а не записи журнала.
+let logsRenderedScope = null;
+let logsRenderedInfo = true;
 let logsEntries = [];
 let logsLastRenderKey = null;
 let logsFilterQuery = "";
@@ -190,23 +194,72 @@ function logsInfoLine(text) {
 // требовала сначала склеить всю разметку и только затем сравнить её посимвольно
 // с прошлым результатом — и то и другое на каждом тике таймера, даже когда
 // показывать нечего нового.
-function logsRenderKey(count) {
-  return `${currentLogSource()} ${logsBufferVersion} ${count} ${logsFilterQuery} ${logsFilterLevel}`;
+//
+// Числа отрисованных строк в ключе больше нет: версия буфера меняется при любом
+// изменении содержимого, а фильтры входят в ключ сами — значит считать
+// отфильтрованный список ради одного ключа не нужно.
+function logsRenderKey() {
+  return `${currentLogSource()}\u0000${logsBufferVersion}\u0000${logsFilterQuery}\u0000${logsFilterLevel}`;
 }
 
-function applyLogsRender({ keepScroll = false, force = false } = {}) {
+// Что нарисовано прямо сейчас. Дописывать в конец можно, только пока это тот же
+// источник с теми же фильтрами и пока в контейнере лежат строки журнала, а не
+// служебная строка «лог пуст» / «ничего не найдено».
+function logsRenderScope() {
+  return `${currentLogSource()}\u0000${logsFilterQuery}\u0000${logsFilterLevel}`;
+}
+
+// Дописать в конец вместо пересборки. Дельта уже известна — незачем собирать и
+// парсить разметку восьмисот строк, каждая с флагом и подсветкой, ради одной
+// новой. false = дописать нельзя, зовущий делает полный рендер.
+function appendRenderedLines({ added, dropped }) {
+  if (logsRenderedInfo || logsRenderScope() !== logsRenderedScope) return false;
+  if (!logsView.firstElementChild) return false;
+
+  const visible = filterLogEntries(added);
+  if (visible.length) {
+    const first = logsView.childElementCount;
+    logsView.insertAdjacentHTML("beforeend", renderLogEntries(visible));
+    // Фолбэки флагов вешаем только на дописанное: у остальных строк они уже есть.
+    for (let i = first; i < logsView.childElementCount; i++) {
+      attachLogFlagFallbacks(logsView.children[i]);
+    }
+  }
+  // Сверху снимаем ровно столько строк, сколько ушло из списка записей и при
+  // этом было видно на экране: под фильтром часть записей не отрисована.
+  const gone = dropped.length ? filterLogEntries(dropped).length : 0;
+  for (let i = 0; i < gone && logsView.firstElementChild; i++) {
+    logsView.firstElementChild.remove();
+  }
+  return true;
+}
+
+function applyLogsRender({ keepScroll = false, force = false, delta = null } = {}) {
   if (!logsView) return;
   const text = logsLastValue && logsLastValue !== "__force__" ? logsLastValue : "";
   const atBottom = !keepScroll || (logsView.scrollTop + logsView.clientHeight >= logsView.scrollHeight - 24);
 
-  const filtered = text ? filterLogEntries(logsEntries) : [];
-  const key = text ? logsRenderKey(filtered.length) : `empty ${currentLogSource()}`;
+  const key = text ? logsRenderKey() : `empty\u0000${currentLogSource()}`;
   if (!force && key === logsLastRenderKey) {
     perfObserver.increment("logs.render.suppressed");
     if (atBottom) logsView.scrollTop = logsView.scrollHeight;
     return;
   }
 
+  // Пришла дельта и на экране та же выборка — дописываем, а не пересобираем.
+  if (text && !force && delta) {
+    const finish = perfObserver.time("logs.render.append.ms", { added: delta.added.length });
+    const appended = appendRenderedLines(delta);
+    finish();
+    if (appended) {
+      logsLastRenderKey = key;
+      if (atBottom) logsView.scrollTop = logsView.scrollHeight;
+      return;
+    }
+    perfObserver.increment("logs.render.append.rejected");
+  }
+
+  const filtered = text ? filterLogEntries(logsEntries) : [];
   let html;
   if (!text) {
     const label = LOG_SOURCE_LABEL[currentLogSource()] || t("logs.compFallback");
@@ -218,6 +271,8 @@ function applyLogsRender({ keepScroll = false, force = false } = {}) {
   const finish = perfObserver.time("logs.render.ms", { entries: logsEntries.length });
   logsView.innerHTML = html;
   logsLastRenderKey = key;
+  logsRenderedScope = logsRenderScope();
+  logsRenderedInfo = !text || !filtered.length;
   attachLogFlagFallbacks(logsView);
   finish();
   if (atBottom) logsView.scrollTop = logsView.scrollHeight;
@@ -242,11 +297,14 @@ function appendLogText(text) {
   const chunk = text.endsWith("\n") ? text.slice(0, -1) : text;
   const added = parseLogEntries(chunk, getActiveNodeTag(), { carry });
   for (const entry of added) logsEntries.push(entry);
+  let dropped = [];
   if (logsEntries.length > LOG_RENDER_MAX_LINES) {
-    logsEntries.splice(0, logsEntries.length - LOG_RENDER_MAX_LINES);
+    dropped = logsEntries.splice(0, logsEntries.length - LOG_RENDER_MAX_LINES);
   }
   logsLastValue = trimRawTail(logsLastValue + text);
   logsBufferVersion++;
+  // Дельту отдаём наружу: рендер по ней дописывает строки вместо пересборки.
+  return { added, dropped };
 }
 
 async function refreshLogs({ keepScroll = false } = {}) {
@@ -267,6 +325,7 @@ async function refreshLogs({ keepScroll = false } = {}) {
     // ротация, разрыв больше показываемого хвоста): накопленное заменяем.
     const reset = chunk?.reset !== false;
     logsOffset = chunk?.incremental ? (chunk.offset ?? null) : null;
+    let delta = null;
     if (reset) {
       if (text === logsLastValue) return;
       logsLastValue = text;
@@ -279,7 +338,7 @@ async function refreshLogs({ keepScroll = false } = {}) {
         perfObserver.increment("logs.read.idle");
         return;
       }
-      appendLogText(text);
+      delta = appendLogText(text);
       perfObserver.sample("logs.read.delta.bytes", text.length);
     }
     logsLastRenderKey = null;
@@ -288,7 +347,7 @@ async function refreshLogs({ keepScroll = false } = {}) {
         ? formatBytes(utf8Size(logsLastValue))
         : t("logs.sizeEmpty");
     }
-    applyLogsRender({ keepScroll });
+    applyLogsRender({ keepScroll, delta });
   } catch (e) {
     if (requestId !== logsRequestId || source !== currentLogSource()) return;
     logsView.innerHTML = `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--err">ERR</span><span class="log-line__m">${escapeLog(t("logs.readErr", { err: e?.message || e }))}</span></div>`;
@@ -324,6 +383,8 @@ function applyKicker() {
 function resetLogCache() {
   logsLastValue = "__force__";
   logsBufferVersion++;
+  logsRenderedScope = null;
+  logsRenderedInfo = true;
   // Позицию тоже сбрасываем: следующий ответ обязан прийти полным хвостом,
   // иначе к чужому (или уже очищенному) логу приклеится дельта.
   logsOffset = null;
