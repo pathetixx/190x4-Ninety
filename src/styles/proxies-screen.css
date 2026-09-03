@@ -93,6 +93,13 @@
 .nt-row {
   grid-template-columns: 20px minmax(0, 1fr) 128px 78px 52px 62px 24px 28px;
   gap: 12px; height: 36px; padding: 0 12px 0 16px; border-radius: var(--r-xs);
+  /* Строка = флаг-<img> + инлайновый SVG-спарклайн. На подписке в 300 нод это
+     600 отдельных объектов, для которых Chromium считал layout и paint целиком
+     при каждом показе экрана, хотя видно ~15 строк. content-visibility снимает
+     эту работу с того, что за пределами вьюпорта; высота строки фиксированная,
+     поэтому подстановочный размер точный и скролл не дёргается. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 36px;
 }
 .nt-row + .nt-row { box-shadow: 0 -1px 0 var(--line-1); }
 .nt-row__name { display: flex; align-items: center; gap: 8px; min-width: 0; }

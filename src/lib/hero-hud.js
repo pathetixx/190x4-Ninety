@@ -11,6 +11,11 @@
 //      визуальная телеметрия полностью ставится на паузу через activity-controller.
 //   3) Вращение колец перенесено с rAF+setAttribute('transform') на CSS-анимацию,
 //      идущую на компоновщике (GPU): слой растрится один раз, дальше только крутится.
+//   4) Хроматическая аберрация (filter #hud-ca) висит не на общей группе всех пяти
+//      ридаутов, а на каждом ридауте отдельно. Эффект тот же (фильтр попиксельный,
+//      а тексты не перекрываются), но ежесекундная перерисовка часов пересчитывает
+//      фильтр только по bbox строки часов, а не по всему HUD. Обёртка data-hud="ca"
+//      осталась: на ней живёт glitch-transform и на неё смотрят премиум-темы.
 
 import { activityController } from "/lib/activity-controller.js";
 import { perfObserver } from "/lib/performance-observer.js";
@@ -82,12 +87,12 @@ function buildHud() {
       <circle cx="200" cy="200" r="140" fill="none" stroke="var(--line-2)" stroke-width="2"></circle>
       <circle data-hud="arc" cx="200" cy="200" r="140" fill="none" stroke="var(--accent-bright)" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 880" style="filter:drop-shadow(0 0 3px var(--accent-glow));"></circle>
     </g>
-    <g data-hud="ca" filter="url(#hud-ca)" style="transition:transform .05s linear;">
-      <text data-hud="sys" class="hud__sys"><textPath href="#hud-top" startOffset="50%" text-anchor="middle">SYSTEM STATUS: STAND-BY</textPath></text>
-      <text class="hud__target" data-hud="target"><textPath href="#hud-bot" startOffset="50%" text-anchor="middle">TARGET LOCKED: UNKNOWN</textPath></text>
-      <text data-hud="clock" x="200" y="106" text-anchor="middle" class="hud__clock">——.——.——  ——:——:——</text>
-      <text data-hud="intg" x="200" y="298" text-anchor="middle" class="hud__intg">INTEGRITY 0%</text>
-      <text data-hud="err" x="200" y="372" text-anchor="middle" class="hud__err">NO LINK</text>
+    <g data-hud="ca" style="transition:transform .05s linear;">
+      <g class="hud__ca-fx" filter="url(#hud-ca)"><text data-hud="sys" class="hud__sys"><textPath href="#hud-top" startOffset="50%" text-anchor="middle">SYSTEM STATUS: STAND-BY</textPath></text></g>
+      <g class="hud__ca-fx" filter="url(#hud-ca)"><text class="hud__target" data-hud="target"><textPath href="#hud-bot" startOffset="50%" text-anchor="middle">TARGET LOCKED: UNKNOWN</textPath></text></g>
+      <g class="hud__ca-fx" filter="url(#hud-ca)"><text data-hud="clock" x="200" y="106" text-anchor="middle" class="hud__clock">——.——.——  ——:——:——</text></g>
+      <g class="hud__ca-fx" filter="url(#hud-ca)"><text data-hud="intg" x="200" y="298" text-anchor="middle" class="hud__intg">INTEGRITY 0%</text></g>
+      <g class="hud__ca-fx" filter="url(#hud-ca)"><text data-hud="err" x="200" y="372" text-anchor="middle" class="hud__err">NO LINK</text></g>
     </g>`;
 }
 

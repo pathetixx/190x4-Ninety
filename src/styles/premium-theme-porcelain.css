@@ -87,6 +87,7 @@ html[data-theme="porcelain"] .hero[data-state="secured"] .hero__bloom { opacity:
 html[data-theme="porcelain"] .hero[data-state="secured"] .hero__halo { opacity: 0.28; }
 html[data-theme="porcelain"] .hero[data-state="secured"] .hud { opacity: 0.86 !important; }
 html[data-theme="porcelain"] .hud [data-hud="ca"] { transform: none !important; filter: none !important; }
+html[data-theme="porcelain"] .hud .hud__ca-fx { filter: none !important; }
 html[data-theme="porcelain"] .hud__sys { fill: var(--text-mid); letter-spacing: 1.5px; }
 html[data-theme="porcelain"] .hud__target,
 html[data-theme="porcelain"] .hud__intg { fill: var(--accent-deep); }

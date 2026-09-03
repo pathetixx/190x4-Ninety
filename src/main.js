@@ -28,7 +28,7 @@ import {
   relativeTime,
   setSubscriptionProxy,
 } from "/lib/subscriptions.js";
-import { loadOptions, updateOption, REGIONS } from "/lib/options.js";
+import { loadOptions, getOptionsSnapshot, updateOption, REGIONS } from "/lib/options.js";
 import { backupForUpdate, backupNow, backupSoon, restoreIfEmpty } from "/lib/state-backup.js";
 import { mountSettings } from "/lib/settings-view.js";
 import { pathNeedsRestart } from "/lib/restart-policy.js";
@@ -84,6 +84,7 @@ import {
   snapshotConfirmsStrictKillSwitch,
 } from "/lib/kill-switch.js";
 import { initWifiGuard, forgetWifiAutoRestore } from "/lib/wifi-guard.js";
+import { initPerfProbe } from "/lib/perf-probe.js";
 import { initWarpRescan } from "/lib/warp-rescan.js";
 import { initHealthWatchdog } from "/lib/health-watchdog.js";
 import { initTitlebar } from "/lib/titlebar.js";
@@ -132,8 +133,11 @@ const invoke = window.__TAURI__?.core?.invoke
   });
 const protectedBrowser = createProtectedBrowserService({ invoke });
 
+// Читающие настройку проверки берут общий замороженный снимок: loadOptions()
+// на каждый вызов делает structuredClone всего дерева, а этот предикат зовут
+// из рендеров и из проверок на каждом шаге подключения.
 function strictPrivacyRequested() {
-  return !!loadOptions().privacy?.strictTunnel;
+  return !!getOptionsSnapshot().privacy?.strictTunnel;
 }
 
 let protectedBrowserAutoLaunched = false;
@@ -645,18 +649,53 @@ function refreshSubCardFromActive() {
 const navItems = document.querySelectorAll(".nav__item[data-view]");
 const views = document.querySelectorAll("section.screen[data-view]");
 
+// Вход на экран — работа не на этот кадр. onProxiesViewEnter рендерит таблицу
+// на сотни строк, onLogsViewEnter читает хвост лога и парсит его: выполняясь
+// синхронно, они попадали в тот же кадр, что и первый layout только что
+// показанного экрана, и переход отдавался рывком. Теперь кадр перехода рисуется
+// сразу, а вход отрабатывает следующим. Уход (Leave) остаётся синхронным — он
+// гасит таймеры покидаемого экрана, и откладывать это нельзя.
+let pendingViewEnter = null;
+let currentView = "home";
+
+function runViewEnter(target) {
+  if (currentView !== target) return;
+  if (target === "logs") onLogsViewEnter();
+  if (target === "proxies") onProxiesViewEnter();
+  if (target === "dpi") onDpiViewEnter();
+  if (target === "settings") applySettingsVersion();
+}
+
+// rAF не приходит, пока окно скрыто (открытие экрана из трея), поэтому таймер
+// идёт гонкой с кадром: сработает тот, кто раньше, второй станет no-op.
+function scheduleViewEnter(target) {
+  if (pendingViewEnter) {
+    cancelAnimationFrame(pendingViewEnter.frame);
+    clearTimeout(pendingViewEnter.timer);
+  }
+  const fire = () => {
+    if (!pendingViewEnter) return;
+    cancelAnimationFrame(pendingViewEnter.frame);
+    clearTimeout(pendingViewEnter.timer);
+    pendingViewEnter = null;
+    runViewEnter(target);
+  };
+  pendingViewEnter = {
+    frame: requestAnimationFrame(fire),
+    timer: setTimeout(fire, 120),
+  };
+}
+
 function switchView(target) {
+  currentView = target;
   activityController.setView(target);
   navItems.forEach((n) => n.classList.toggle("nav__item--active", n.dataset.view === target));
   views.forEach((v) => { v.hidden = v.dataset.view !== target; });
   // Видео-маска декодится только пока главный экран виден — оффскрин обнуляем декод.
   if (heroMask) { if (target === "home") heroMask.play?.().catch(() => {}); else heroMask.pause?.(); }
-  if (target === "logs") onLogsViewEnter();
-  else onLogsViewLeave();
-  if (target === "proxies") onProxiesViewEnter();
-  else onProxiesViewLeave();
-  if (target === "dpi") onDpiViewEnter();
-  if (target === "settings") setTimeout(applySettingsVersion, 0);
+  if (target !== "logs") onLogsViewLeave();
+  if (target !== "proxies") onProxiesViewLeave();
+  scheduleViewEnter(target);
 }
 
 navItems.forEach((item) => {
@@ -1966,6 +2005,15 @@ navItems.forEach((item) => {
 // при переключении сервера и объявлен ниже по файлу.
 configureLogsRuntime({ getActiveNodeTag: () => currentEffectiveTag });
 mountLogsView();
+
+// Наблюдатель длинных задач + выгрузка снимка производительности по Ctrl+Alt+P.
+// Счётчики копились с первой версии, но в релизной сборке (devtools выключены)
+// их некуда было прочитать, и разговор о тормозах шёл на ощущениях.
+initPerfProbe({
+  onToast: (kind) => (kind === "ok"
+    ? toast(t("share.copied"), "success", 1600)
+    : toast(t("share.copyFailed"), "error", 2500)),
+});
 
 // ── Profiles view ──────────────────────────────────────────
 const profilesView = document.querySelector('section.screen[data-view="profiles"]');

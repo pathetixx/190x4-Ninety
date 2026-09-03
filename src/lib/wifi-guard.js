@@ -7,7 +7,7 @@
 // запоминаем в WIFI_PREV_MODE_KEY и возвращаем, когда сеть снова безопасна;
 // ручная смена режима отменяет возврат (main.js::changeMode → forgetWifiAutoRestore).
 
-import { loadOptions } from "/lib/options.js";
+import { getOptionsSnapshot } from "/lib/options.js";
 import { getMode } from "/lib/singbox.js";
 import { toast } from "/lib/toast.js";
 import { t } from "/lib/i18n/index.js";
@@ -35,7 +35,7 @@ export function initWifiGuard({ changeMode }) {
 
   async function checkWifiProtect() {
     try {
-      if (!loadOptions().general?.autoProtectWifi) return;
+      if (!getOptionsSnapshot().general?.autoProtectWifi) return;
       const w = await invoke("current_wifi");
       const onOpenUntrusted = !!w?.connected && !w.secured && !wifiTrusted().includes(w.ssid);
       if (!onOpenUntrusted) {

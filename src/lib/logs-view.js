@@ -89,6 +89,25 @@ function attachLogFlagFallbacks(root) {
 }
 
 const LOG_RENDER_MAX_LINES = 800;
+// Хвост читается ровно под то, что вью в состоянии показать: рендер всё равно
+// обрезан LOG_RENDER_MAX_LINES, а прежние 256 КБ каждые две секунды гонялись
+// через IPC и парсились целиком, чтобы половину сразу отбросить.
+const LOG_TAIL_BYTES = 128 * 1024;
+
+// Длина в байтах без второй копии хвоста в памяти. Blob([text]) и
+// TextEncoder().encode() ради одного числа аллоцировали ещё сотню килобайт на
+// каждом тике таймера.
+function utf8Size(text) {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xD800 && code <= 0xDBFF) { bytes += 4; i++; }
+    else bytes += 3;
+  }
+  return bytes;
+}
 const LOG_LEVEL_GROUP = {
   trace: ["TRACE"], debug: ["DEBUG"], info: ["INFO"],
   warn: ["WARN", "WARNING"], error: ["ERROR", "FATAL", "PANIC"],
@@ -197,7 +216,7 @@ async function refreshLogs({ keepScroll = false } = {}) {
   const source = currentLogSource();
   try {
     const finish = perfObserver.time("logs.read.ms", { source });
-    const text = await invoke("read_log", { source, tailBytes: 256 * 1024 });
+    const text = await invoke("read_log", { source, tailBytes: LOG_TAIL_BYTES });
     finish();
     if (requestId !== logsRequestId || source !== currentLogSource()) return;
     if (text === logsLastValue) return;
@@ -205,11 +224,7 @@ async function refreshLogs({ keepScroll = false } = {}) {
     logsEntries = parseLogEntries(text);
     logsLastRenderKey = null;
     if (logsSize) {
-      // Blob().size даёт длину в байтах без второй копии всего хвоста в памяти:
-      // TextEncoder().encode() аллоцировал ещё 256 КБ каждые 2 секунды только
-      // ради одного числа.
-      const bytes = text ? new Blob([text]).size : 0;
-      logsSize.textContent = text ? formatBytes(bytes) : t("logs.sizeEmpty");
+      logsSize.textContent = text ? formatBytes(utf8Size(text)) : t("logs.sizeEmpty");
     }
     applyLogsRender({ keepScroll });
   } catch (e) {

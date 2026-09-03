@@ -21,7 +21,7 @@
 // провайдером), поэтому он ниже DoH, но он последняя ступень, на которой
 // туннель вообще поднимается.
 
-import { loadOptions, updateOption } from "/lib/options.js";
+import { getOptionsSnapshot, updateOption } from "/lib/options.js";
 import { dnsHostLabel } from "/lib/dns-presets.js";
 import { t } from "/lib/i18n/index.js";
 
@@ -76,7 +76,7 @@ async function probe(dns) {
 // toast инжектится из main.js. onlyIf — предикат «ещё актуально» (не переключать,
 // если юзер за время пробы отключился/сменил источник).
 export async function ensureWorkingDirectDns({ toast, onlyIf } = {}) {
-  const cur = loadOptions().dns?.directAddress || "";
+  const cur = getOptionsSnapshot().dns?.directAddress || "";
   const st = await probe(cur);
   if (st !== "dead") return null; // ok / skip — не вмешиваемся
   // Перепроверка: не переключаемся по одиночному сбою (сеть моргнула, пакет
@@ -91,7 +91,7 @@ export async function ensureWorkingDirectDns({ toast, onlyIf } = {}) {
     // Пробы занимают секунды, и за это время пользователь мог задать DNS сам.
     // onlyIf сторожит актуальность операции, но не значение настройки: без этой
     // сверки сторож молча возвращал свой резерв поверх свежего ручного выбора.
-    if ((loadOptions().dns?.directAddress || "") !== cur) return null;
+    if ((getOptionsSnapshot().dns?.directAddress || "") !== cur) return null;
     updateOption("dns.directAddress", cand);
     toast?.(t("dns.switched", { dns: dnsHostLabel(cand) }), "warn", 6000, {
       desc: t("dns.switchedDesc"),

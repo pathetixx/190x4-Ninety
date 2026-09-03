@@ -9,7 +9,7 @@
 // внутри rootEl. onChange("route.customRules") дёргает реконнект (как другие
 // route-настройки), если соединение активно.
 
-import { loadOptions, updateOption } from "/lib/options.js";
+import { loadOptions, getOptionsSnapshot, updateOption } from "/lib/options.js";
 import {
   newRule, normalizeValue, isValidValue, sanitizeRule,
 } from "/lib/routing-rules.js";
@@ -95,7 +95,8 @@ export function mountRoutingRules(rootEl, opts = {}) {
   let repaintValueChips = () => {};
 
   function loadRules() {
-    const r = loadOptions().route?.customRules;
+    // Снимок вместо loadOptions(): клон правил тут делается свой, ниже.
+    const r = getOptionsSnapshot().route?.customRules;
     return Array.isArray(r) ? structuredCloneSafe(r) : [];
   }
   function structuredCloneSafe(v) {

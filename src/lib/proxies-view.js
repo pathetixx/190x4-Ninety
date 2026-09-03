@@ -565,6 +565,74 @@ function reorderRows(container, nodes) {
   }
 }
 
+// Группировка «остатка» по странам: списки, порядок групп и подпись группы.
+// Считается одинаково и для полной пересборки, и для мягкого обновления,
+// поэтому живёт отдельной функцией — иначе два пути разъезжаются.
+function groupRest(rest, { cmpNode, cmp, val, clashData }) {
+  const byC = {};
+  rest.forEach(n => { const c = countryOf(n); (byC[c] ||= []).push(n); });
+  Object.keys(byC).forEach(c => byC[c].sort(cmpNode));
+  // Страны переставляются тем же кликом: по имени — по алфавиту, по остальным
+  // столбцам — по представителю, то есть по первой строке внутри страны.
+  const gkey = (c) => sortState.key === "name" ? c : val[sortState.key](byC[c][0]);
+  const order = Object.keys(byC).sort((a, b) => cmp(gkey(a), gkey(b)));
+  const noteOf = (c) => {
+    const list = byC[c];
+    const mins = list.map(x => val.ping(x)).filter(x => x < 1e9);
+    const never = list.every(x => !historyOf(clashData, x.clashTag).length);
+    return mins.length ? t("proxies.groupFrom", { ms: Math.min(...mins) })
+      : never ? t("proxies.groupNever") : t("proxies.groupDead");
+  };
+  return { byC, order, noteOf };
+}
+
+// Мягкое обновление сгруппированного списка. Тот же смысл, что и у плоского:
+// состав не изменился, изменились цифры и порядок. Раньше эта ветка была только
+// у плоского списка, а группировка по странам — режим по умолчанию, и каждый
+// новый замер пересобирал в ней всю таблицу заново.
+// false = структура на экране не та, которую ждём → зовущий делает полный рендер.
+function patchGroupedRows(grid, { favList, byC, order, noteOf }) {
+  const favHead = grid.querySelector(".nt__grp--static");
+  if (!!favList.length !== !!favHead) return false;
+  const heads = [...grid.querySelectorAll(".nt__grp[data-c]")];
+  if (heads.length !== order.length) return false;
+
+  const pairs = new Map();
+  for (const head of heads) {
+    const body = head.nextElementSibling;
+    if (!body?.classList.contains("nt-body")) return false;
+    if (!byC[head.dataset.c]) return false;
+    pairs.set(head.dataset.c, { head, body });
+  }
+  if (pairs.size !== order.length) return false;
+
+  if (favHead) {
+    const favBody = favHead.nextElementSibling;
+    if (!favBody?.classList.contains("nt-body")) return false;
+    reorderRows(favBody, favList);
+  }
+
+  for (const c of order) {
+    const { head, body } = pairs.get(c);
+    reorderRows(body, byC[c]);
+    const meta = head.querySelector(".n-meta");
+    const note = noteOf(c);
+    if (meta && meta.textContent !== note) meta.textContent = note;
+  }
+
+  // Порядок самих стран трогаем только если он реально изменился: перемещение
+  // узла — это работа по раскладке всего списка, вхолостую её делать незачем.
+  const domOrder = heads.map(h => h.dataset.c);
+  if (domOrder.some((c, i) => c !== order[i])) {
+    for (const c of order) {
+      const { head, body } = pairs.get(c);
+      grid.appendChild(head);
+      grid.appendChild(body);
+    }
+  }
+  return true;
+}
+
 function restoreRowFocus(grid, tag) {
   if (document.activeElement?.closest?.(".nt-row, .rec-row")) return;
   const sel = `[data-tag="${CSS.escape(tag)}"]`;
@@ -650,15 +718,24 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   // «Измерить все» результаты приходят пачками по несколько раз в секунду, и
   // пересборка трёхсот строк с флагами на каждую пачку — это и есть те самые
   // секунды, на которые подвисало окно.
-  const signature = JSON.stringify([
-    pool.map(n => n.clashTag),
-    selectorTag, effectiveTag, query, sortState, grouped, recOpen, strict,
-    [...favs].sort(), [...collapsedGroups].sort(), testingAll, !!sortFreeze,
-  ]);
-  const dataSignature = JSON.stringify([
-    pool.map(n => [lastDelay(clashData?.proxies?.[n.clashTag]), historyOf(clashData, n.clashTag).length]),
-    sweep ? [sweep.done, sweep.total] : null,
-  ]);
+  // Отпечатки собираются конкатенацией, а не JSON.stringify: тот на каждом тике
+  // (раз в 4 секунды) плодил массив тегов и ещё по паре на КАЖДУЮ ноду — на
+  // подписке в три сотни узлов это сотни короткоживущих объектов в мусор просто
+  // ради сравнения «изменилось ли что-нибудь».
+  const SEP = "\u0001";
+  const sigParts = [
+    selectorTag, effectiveTag, query, sortState.key, sortState.dir,
+    grouped, recOpen, strict, testingAll, !!sortFreeze,
+    [...favs].sort().join(","), [...collapsedGroups].sort().join(","),
+  ];
+  for (const n of pool) sigParts.push(n.clashTag);
+  const signature = sigParts.join(SEP);
+
+  const dataParts = [sweep ? `${sweep.done}/${sweep.total}` : ""];
+  for (const n of pool) {
+    dataParts.push(`${lastDelay(clashData?.proxies?.[n.clashTag])}|${historyOf(clashData, n.clashTag).length}`);
+  }
+  const dataSignature = dataParts.join(SEP);
   if (signature === lastSignature && dataSignature === lastDataSignature) return;
   const structureChanged = signature !== lastSignature;
   lastSignature = signature;
@@ -743,19 +820,29 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   const rest = pool.filter(n => !favs.has(n.clashTag));
   const restSorted = flat ? rest.slice().sort(cmpNode) : null;
 
+  const groups = flat ? null : groupRest(rest, { cmpNode, cmp, val, clashData });
+
   // Мягкое обновление. Состав списка тот же — изменились цифры и, возможно,
   // порядок. Строки уже существуют: переставить готовые узлы и заменить в них
   // две ячейки несравнимо дешевле, чем собрать и распарсить заново пять тысяч
   // узлов. Полная пересборка при сортировке по задержке случалась на КАЖДОМ
   // пришедшем замере, то есть каждые несколько секунд, и это она ощущалась
   // как рывки интерфейса.
-  if (!structureChanged && flat && grid.querySelector(".nt-row[data-tag]")) {
-    const bodies = grid.querySelectorAll(".nt-body");
-    const favBody = favList.length ? bodies[0] : null;
-    const restBody = favList.length ? bodies[1] : bodies[0];
-    if (restBody && (!favList.length || favBody)) {
-      if (favBody) reorderRows(favBody, favList);
-      reorderRows(restBody, restSorted);
+  if (!structureChanged && grid.querySelector(".nt-row[data-tag]")) {
+    let patched = false;
+    if (flat) {
+      const bodies = grid.querySelectorAll(".nt-body");
+      const favBody = favList.length ? bodies[0] : null;
+      const restBody = favList.length ? bodies[1] : bodies[0];
+      if (restBody && (!favList.length || favBody)) {
+        if (favBody) reorderRows(favBody, favList);
+        reorderRows(restBody, restSorted);
+        patched = true;
+      }
+    } else {
+      patched = patchGroupedRows(grid, { favList, ...groups });
+    }
+    if (patched) {
       patchDelayCells(grid, pool, ctx);
       if (focusedTag) restoreRowFocus(grid, focusedTag);
       return;
@@ -776,20 +863,11 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   if (flat) {
     body = `<div class="nt-body">${restSorted.map(n => nodeRowHtml(n, ctx)).join("")}</div>`;
   } else {
-    const byC = {};
-    rest.forEach(n => { const c = countryOf(n); (byC[c] ||= []).push(n); });
-    Object.keys(byC).forEach(c => byC[c].sort(cmpNode));
-    // Страны переставляются тем же кликом: по имени — по алфавиту, по остальным
-    // столбцам — по представителю, то есть по первой строке внутри страны.
-    const gkey = (c) => sortState.key === "name" ? c : val[sortState.key](byC[c][0]);
-    const order = Object.keys(byC).sort((a, b) => cmp(gkey(a), gkey(b)));
+    const { byC, order, noteOf } = groups;
     body = order.map(c => {
       const list = byC[c];
       const open = !collapsedGroups.has(c);
-      const mins = list.map(x => val.ping(x)).filter(x => x < 1e9);
-      const never = list.every(x => !historyOf(clashData, x.clashTag).length);
-      const note = mins.length ? t("proxies.groupFrom", { ms: Math.min(...mins) })
-                 : never ? t("proxies.groupNever") : t("proxies.groupDead");
+      const note = noteOf(c);
       const iso = isoOf(list[0].name);
       return `
         <button class="nt__grp" type="button" data-c="${escapeAttr(c)}" aria-expanded="${open}">

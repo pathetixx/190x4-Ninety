@@ -803,10 +803,15 @@
 .hero[data-state="linking"] .hero__mask {
   filter: brightness(1.05) saturate(1.1) contrast(1.05);
 }
+/* drop-shadow здесь был визуальным no-op и стоил blur-прохода по КАЖДОМУ кадру
+   видео (20 fps): кадр непрозрачный (yuv420p, без альфы), поэтому тень ложилась
+   ровно по периметру бокса — то есть целиком за пределами .hero__disc с его
+   overflow:hidden + border-radius:50%, и всегда обрезалась. Свечение вокруг
+   маски даёт box-shadow самого диска (см. .hero[data-state="secured"] .hero__disc).
+   Оставшиеся brightness/saturate/contrast — color-matrix, его композитор считает
+   шейдером и покадровой перерисовки не требует. */
 .hero[data-state="secured"] .hero__mask {
-  filter:
-    brightness(1.08) saturate(1.05) contrast(1.05)
-    drop-shadow(0 0 14px var(--accent-glow));
+  filter: brightness(1.08) saturate(1.05) contrast(1.05);
 }
 
 /* Status block — under stage */
@@ -863,6 +868,7 @@
 [data-theme="shiro"] .hud__intg { fill: var(--accent-deep); }
 [data-theme="shiro"] .hud__err { fill: var(--text-lo); }
 [data-theme="shiro"] .hud [data-hud="ca"] { filter: none !important; }
+[data-theme="shiro"] .hud .hud__ca-fx { filter: none !important; }
 [data-theme="shiro"] .hero__disc {
   background: radial-gradient(closest-side, #FFFFFF 0%, var(--ink-1) 72%, var(--ink-0) 100%);
   box-shadow: 0 0 0 1px var(--line-1) inset, 0 1px 0 var(--shine-2) inset, 0 18px 42px -24px var(--shadow-strong), 0 0 22px var(--accent-glow);
@@ -872,7 +878,7 @@
   box-shadow: 0 0 0 1px var(--line-1) inset, 0 1px 0 var(--shine-2) inset, 0 22px 48px -24px var(--shadow-strong), 0 0 30px var(--accent-glow);
 }
 [data-theme="shiro"] .hero[data-state="secured"] .hero__mask {
-  filter: brightness(1.04) saturate(0.96) contrast(1.02) drop-shadow(0 0 8px var(--accent-glow));
+  filter: brightness(1.04) saturate(0.96) contrast(1.02);
 }
 [data-theme="shiro"] .hero[data-state="secured"] .hero__title { text-shadow: none; }
 

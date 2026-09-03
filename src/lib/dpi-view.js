@@ -8,7 +8,7 @@
 //   setDpiVpnMode(mode, { reevaluate }) — синхронизировать режим VPN (TUN→пауза)
 //   excludeVpnNode(host) — внести сервер активной ноды в exclude winws
 
-import { loadOptions } from "/lib/options.js";
+import { loadOptions, getOptionsSnapshot } from "/lib/options.js";
 import { escapeAttr, escapeHtml as esc } from "/lib/esc.js";
 import { a11ySwitchAll } from "/lib/switch-a11y.js";
 import { t, getLang } from "/lib/i18n/index.js";
@@ -24,7 +24,7 @@ const tauriListen = window.__TAURI__?.event?.listen;
 // direct-Discord на реальном интерфейсе (голос low-ping).
 function splitDiscordAllowedInTun() {
   try {
-    const options = loadOptions();
+    const options = getOptionsSnapshot();
     return !options?.privacy?.strictTunnel
       && !!options?.route?.tunSplitDiscord;
   }
