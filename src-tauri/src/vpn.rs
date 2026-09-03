@@ -1045,6 +1045,49 @@ pub(crate) fn read_tail(path: &std::path::Path, tail_bytes: Option<u64>) -> Resu
     ))
 }
 
+// Чтение с позиции: только целые строки. Пишущий процесс мог оборваться на
+// середине строки (а значит и на середине UTF-8 символа), поэтому всё после
+// последнего перевода строки остаётся в файле до следующего вызова, а offset
+// возвращается ровно на границу строки.
+fn read_from_offset(path: &std::path::Path, from: u64, size: u64) -> Result<(String, u64), String> {
+    use std::io::{Read, Seek, SeekFrom};
+    if from >= size {
+        return Ok((String::new(), from));
+    }
+    let mut f = std::fs::File::open(path).map_err(|e| format!("open: {e}"))?;
+    f.seek(SeekFrom::Start(from))
+        .map_err(|e| format!("seek: {e}"))?;
+    let len = size - from;
+    let mut buf = Vec::with_capacity(len as usize);
+    f.take(len)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("read_to_end: {e}"))?;
+    let Some(last_nl) = buf.iter().rposition(|b| *b == b'\n') else {
+        // Целой строки ещё нет — не сдвигаем позицию, дочитаем в следующий раз.
+        return Ok((String::new(), from));
+    };
+    let cut = last_nl + 1;
+    let text = String::from_utf8_lossy(&buf[..cut]).into_owned();
+    Ok((text, from + cut as u64))
+}
+
+// Хвост лога, дочитанный с позиции. Экран журнала опрашивает файл раз в две
+// секунды, и раньше каждый опрос гонял через IPC весь хвост целиком, чтобы фронт
+// заново распарсил его от начала до конца. Теперь после первого чтения ездит
+// только дописанное, а `reset` говорит фронту, когда накопленный буфер нужно
+// заменить целиком (первое чтение, очистка лога, ротация, слишком большой
+// разрыв). Составные источники (naive/trusttunnel — по файлу на процесс)
+// склеиваются из нескольких файлов, единой монотонной позиции у них нет:
+// для них incremental=false и поведение прежнее.
+#[derive(serde::Serialize)]
+pub struct LogChunk {
+    pub text: String,
+    pub offset: u64,
+    pub size: u64,
+    pub reset: bool,
+    pub incremental: bool,
+}
+
 // Файлы лога по ключу источника. Для naive/TrustTunnel возвращается удобный
 // агрегированный список отдельных процессов плюс legacy-файл старых версий.
 fn component_log_files(dir: &std::path::Path, source: &str) -> Result<Vec<PathBuf>, String> {
@@ -1112,6 +1155,64 @@ pub async fn read_log(
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     let paths = component_log_files(&dir, &source)?;
     read_log_files(&paths, tail_bytes)
+}
+
+// То же чтение, но с продолжением с прошлой позиции (см. LogChunk).
+#[tauri::command]
+pub async fn read_log_chunk(
+    app: AppHandle,
+    source: String,
+    tail_bytes: Option<u64>,
+    from_offset: Option<u64>,
+) -> Result<LogChunk, String> {
+    let dir = crate::app_paths::log_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
+    let paths = component_log_files(&dir, &source)?;
+    if paths.len() != 1 {
+        return Ok(LogChunk {
+            text: read_log_files(&paths, tail_bytes)?,
+            offset: 0,
+            size: 0,
+            reset: true,
+            incremental: false,
+        });
+    }
+    let path = &paths[0];
+    if !path.exists() {
+        return Ok(LogChunk {
+            text: String::new(),
+            offset: 0,
+            size: 0,
+            reset: true,
+            incremental: true,
+        });
+    }
+    let size = std::fs::metadata(path)
+        .map_err(|e| format!("stat: {e}"))?
+        .len();
+    let limit = normalized_log_tail_bytes(tail_bytes);
+    // Дочитываем, только если позиция всё ещё внутри файла и разрыв не больше
+    // того хвоста, который экран и так показывает. Иначе дешевле и честнее
+    // отдать хвост целиком: from > size значит лог очистили или ротировали.
+    if let Some(from) = from_offset {
+        if from <= size && size - from <= limit {
+            let (text, offset) = read_from_offset(path, from, size)?;
+            return Ok(LogChunk {
+                text,
+                offset,
+                size,
+                reset: false,
+                incremental: true,
+            });
+        }
+    }
+    Ok(LogChunk {
+        text: read_tail(path, tail_bytes)?,
+        offset: size,
+        size,
+        reset: true,
+        incremental: true,
+    })
 }
 
 #[tauri::command]
@@ -3634,6 +3735,49 @@ mod tests {
             std::env::temp_dir().join(format!("ninety-vpn-{label}-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    // Журнал дочитывается с прошлой позиции, и сдвигать её можно только на целые
+    // строки: sing-box пишет в файл по мере работы, и опрос легко попадает на
+    // середину строки — а с многобайтным символом ещё и на середину символа.
+    #[test]
+    fn a_half_written_line_does_not_move_the_read_position() {
+        let dir = test_dir("log-offset");
+        let path = dir.join("singbox.log");
+        std::fs::write(&path, b"first line\nsecond a").unwrap();
+        let size = std::fs::metadata(&path).unwrap().len();
+
+        let (text, offset) = read_from_offset(&path, 0, size).unwrap();
+        assert_eq!(text, "first line\n");
+        assert_eq!(offset, 11, "позиция обязана встать за переводом строки");
+
+        // Дописали остаток строки — теперь её можно отдать целиком.
+        std::fs::write(&path, b"first line\nsecond and third\n").unwrap();
+        let size = std::fs::metadata(&path).unwrap().len();
+        let (text, offset) = read_from_offset(&path, offset, size).unwrap();
+        assert_eq!(text, "second and third\n");
+        assert_eq!(offset, size);
+
+        // Ничего не дописали — ни текста, ни движения позиции.
+        let (text, same) = read_from_offset(&path, offset, size).unwrap();
+        assert!(text.is_empty());
+        assert_eq!(same, offset);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_line_without_a_newline_yet_is_held_back_whole() {
+        let dir = test_dir("log-offset-partial");
+        let path = dir.join("singbox.log");
+        std::fs::write(&path, "чанк без перевода строки").unwrap();
+        let size = std::fs::metadata(&path).unwrap().len();
+
+        let (text, offset) = read_from_offset(&path, 0, size).unwrap();
+        assert!(text.is_empty(), "строка без \\n не должна уезжать на фронт");
+        assert_eq!(offset, 0);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     // Парсер экрана «Логи» узнаёт запись по `[offset] [дата] время УРОВЕНЬ` —

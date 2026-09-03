@@ -1334,6 +1334,7 @@ pub fn run() {
             vpn::read_singbox_log,
             vpn::clear_singbox_log,
             vpn::read_log,
+            vpn::read_log_chunk,
             vpn::clear_log,
             vpn::singbox_log_path,
             vpn::open_log_dir,

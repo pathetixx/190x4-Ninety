@@ -25,6 +25,14 @@ let logsView, logsPath, logsSize, logsAuto, logsRefreshBtn, logsCopyBtn,
 let logsTimer = null;
 let logsActive = false;
 let logsLastValue = "";
+// Позиция в файле, с которой backend дочитает в следующий раз. null = читать
+// хвост целиком (первый заход, смена источника, очистка лога, составной
+// источник вроде naive/trusttunnel — у тех единой позиции нет).
+let logsOffset = null;
+// Версия накопленного хвоста. Ключ рендера считает по ней, а не по длине буфера:
+// при дописывании сверху отрезается столько же, сколько пришло снизу, и длина
+// может совпасть с прошлой — рендер решил бы, что показывать нечего нового.
+let logsBufferVersion = 0;
 let logsEntries = [];
 let logsLastRenderKey = null;
 let logsFilterQuery = "";
@@ -115,10 +123,15 @@ const LOG_LEVEL_GROUP = {
 
 // Парс выполняется только при получении нового file tail. Изменение search/level
 // фильтрует уже готовые entries и больше не split/regex-парсит 800 строк заново.
-export function parseLogEntries(text, activeNodeTag = getActiveNodeTag()) {
+//
+// carry — последняя уже разобранная запись, когда парсится ДОПИСАННЫЙ кусок лога:
+// многострочная запись (стек, дамп конфига) разрывается на границе куска, и её
+// продолжение должно приклеиться к той записи, а не стать новой безуровневой.
+// Запись при этом мутируется на месте и в результат не попадает — она уже в списке.
+export function parseLogEntries(text, activeNodeTag = getActiveNodeTag(), { carry = null } = {}) {
   const lines = String(text || "").split(/\r?\n/).slice(-LOG_RENDER_MAX_LINES);
   const entries = [];
-  let cur = null;
+  let cur = carry;
   // Отброшенная запись забирает с собой и свои продолжения: иначе хвост
   // многострочной ошибки прилип бы к предыдущей, ни к чему не относящейся.
   let dropped = false;
@@ -178,7 +191,7 @@ function logsInfoLine(text) {
 // с прошлым результатом — и то и другое на каждом тике таймера, даже когда
 // показывать нечего нового.
 function logsRenderKey(count) {
-  return `${currentLogSource()} ${logsLastValue.length} ${count} ${logsFilterQuery} ${logsFilterLevel}`;
+  return `${currentLogSource()} ${logsBufferVersion} ${count} ${logsFilterQuery} ${logsFilterLevel}`;
 }
 
 function applyLogsRender({ keepScroll = false, force = false } = {}) {
@@ -210,21 +223,70 @@ function applyLogsRender({ keepScroll = false, force = false } = {}) {
   if (atBottom) logsView.scrollTop = logsView.scrollHeight;
 }
 
+// Сырой хвост держим ровно тем, что вью в состоянии показать: он нужен кнопке
+// «Копировать» и счётчику размера, а не бесконечному накоплению в памяти.
+function trimRawTail(text) {
+  if (text.length <= LOG_TAIL_BYTES) return text;
+  const cut = text.length - LOG_TAIL_BYTES;
+  const nl = text.indexOf("\n", cut);
+  return text.slice(nl >= 0 ? nl + 1 : cut);
+}
+
+// Дописанный кусок: разбираем ТОЛЬКО его и доклеиваем к уже разобранному.
+// Раньше каждые две секунды заново парсился весь хвост целиком.
+function appendLogText(text) {
+  const carry = logsEntries.length ? logsEntries[logsEntries.length - 1] : null;
+  // Кусок всегда кончается переводом строки (backend режет ровно по нему), и
+  // пустой остаток после split уехал бы в cont предыдущей записи лишним
+  // переносом — на границе каждого куска, а не один раз в конце файла.
+  const chunk = text.endsWith("\n") ? text.slice(0, -1) : text;
+  const added = parseLogEntries(chunk, getActiveNodeTag(), { carry });
+  for (const entry of added) logsEntries.push(entry);
+  if (logsEntries.length > LOG_RENDER_MAX_LINES) {
+    logsEntries.splice(0, logsEntries.length - LOG_RENDER_MAX_LINES);
+  }
+  logsLastValue = trimRawTail(logsLastValue + text);
+  logsBufferVersion++;
+}
+
 async function refreshLogs({ keepScroll = false } = {}) {
   if (!logsView || !activityController.isInteractive()) return;
   const requestId = ++logsRequestId;
   const source = currentLogSource();
   try {
     const finish = perfObserver.time("logs.read.ms", { source });
-    const text = await invoke("read_log", { source, tailBytes: LOG_TAIL_BYTES });
+    const chunk = await invoke("read_log_chunk", {
+      source,
+      tailBytes: LOG_TAIL_BYTES,
+      fromOffset: logsOffset,
+    });
     finish();
     if (requestId !== logsRequestId || source !== currentLogSource()) return;
-    if (text === logsLastValue) return;
-    logsLastValue = text;
-    logsEntries = parseLogEntries(text);
+    const text = chunk?.text || "";
+    // reset=true — backend отдал хвост целиком (первое чтение, очистка лога,
+    // ротация, разрыв больше показываемого хвоста): накопленное заменяем.
+    const reset = chunk?.reset !== false;
+    logsOffset = chunk?.incremental ? (chunk.offset ?? null) : null;
+    if (reset) {
+      if (text === logsLastValue) return;
+      logsLastValue = text;
+      logsBufferVersion++;
+      logsEntries = parseLogEntries(text);
+      perfObserver.increment("logs.read.full");
+    } else {
+      // Самый частый случай: с прошлого тика в файл ничего не дописали.
+      if (!text) {
+        perfObserver.increment("logs.read.idle");
+        return;
+      }
+      appendLogText(text);
+      perfObserver.sample("logs.read.delta.bytes", text.length);
+    }
     logsLastRenderKey = null;
     if (logsSize) {
-      logsSize.textContent = text ? formatBytes(utf8Size(text)) : t("logs.sizeEmpty");
+      logsSize.textContent = logsLastValue
+        ? formatBytes(utf8Size(logsLastValue))
+        : t("logs.sizeEmpty");
     }
     applyLogsRender({ keepScroll });
   } catch (e) {
@@ -261,6 +323,10 @@ function applyKicker() {
 
 function resetLogCache() {
   logsLastValue = "__force__";
+  logsBufferVersion++;
+  // Позицию тоже сбрасываем: следующий ответ обязан прийти полным хвостом,
+  // иначе к чужому (или уже очищенному) логу приклеится дельта.
+  logsOffset = null;
   logsEntries = [];
   logsLastRenderKey = null;
 }
