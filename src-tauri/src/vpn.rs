@@ -3202,7 +3202,9 @@ pub async fn release_runtime_transition_barrier(
                 && record
                     .as_ref()
                     .is_some_and(|runtime| runtime.process_generation == expected_generation),
-            strict_privacy: record.as_ref().is_some_and(|runtime| runtime.strict_privacy),
+            strict_privacy: record
+                .as_ref()
+                .is_some_and(|runtime| runtime.strict_privacy),
             policy_lease_active: crate::killswitch::policy_lease_active(&kill_switch),
         };
         if !transition_release_allowed(facts) {
