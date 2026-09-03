@@ -6,6 +6,26 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.5.5 — 2026-09-03
+
+## English
+
+- With Kill Switch on, an automatic reconnect no longer leaves the local network and the app's own update checks blocked.
+- Autostart inherited from older builds can now be switched off from Settings.
+- Updating the DPI lists and the hosts file no longer fails when the local port was changed without reconnecting.
+- A settings change now applies even if the app was restoring the connection at that moment.
+- The About screen shows both cores, the components shipped with the build and the real state of the update check.
+- Both cores were rebuilt with the x/crypto fix for the SSH denial-of-service issue.
+
+## Русский
+
+- При включённом Kill Switch автоматическое переподключение больше не оставляет заблокированными локальную сеть и проверку обновлений.
+- Автозапуск, доставшийся от старых сборок, теперь выключается из настроек.
+- Обновление списков DPI и файла hosts больше не срывается, если локальный порт меняли без переподключения.
+- Изменённая настройка применяется, даже если в этот момент приложение восстанавливало подключение.
+- На экране «О программе» видны оба ядра, компоненты сборки и реальное состояние проверки обновлений.
+- Оба ядра пересобраны с исправлением x/crypto для DoS в SSH-компоненте.
+
 ## v0.5.4 — 2026-09-02
 
 ## English
