@@ -24,13 +24,33 @@ test("normalizeOptions чинит повреждённые enum, boolean, port �
     general: { killSwitch: "false" },
     inbound: { mixedPort: 99 },
     urlTest: { connectionTestUrl: "javascript:alert(1)" },
-    quality: { endpoints: ["file:///tmp/a", "https://speed.example/test"] },
+    quality: { endpoints: ["file:///tmp/a", "https://speed.cloudflare.com/__down?bytes=262144"] },
   });
   assert.equal(out.region, DEFAULT_OPTIONS.region);
   assert.equal(out.general.killSwitch, DEFAULT_OPTIONS.general.killSwitch);
   assert.equal(out.inbound.mixedPort, 1024);
   assert.equal(out.urlTest.connectionTestUrl, DEFAULT_OPTIONS.urlTest.connectionTestUrl);
-  assert.deepEqual(out.quality.endpoints, ["https://speed.example/test"]);
+  assert.deepEqual(out.quality.endpoints, ["https://speed.cloudflare.com/__down?bytes=262144"]);
+});
+
+// Rust принимает пробу качества только на своём allowlist (quality.rs).
+// Пропущенный сюда чужой адрес не отвергался бы настройкой, а тихо ломал весь
+// движок: backend отдаёт ошибку на каждую пробу, и канал вечно «UNKNOWN».
+test("quality endpoints ограничены тем же allowlist, что и backend", () => {
+  const foreign = normalizeOptions({
+    quality: { endpoints: ["https://speed.example/test", "http://speed.cloudflare.com/__down"] },
+  });
+  assert.deepEqual(foreign.quality.endpoints, DEFAULT_OPTIONS.quality.endpoints);
+
+  const credentials = normalizeOptions({
+    quality: { endpoints: ["https://user:pass@speed.cloudflare.com/__down"] },
+  });
+  assert.deepEqual(credentials.quality.endpoints, DEFAULT_OPTIONS.quality.endpoints);
+
+  const allowed = normalizeOptions({
+    quality: { endpoints: ["https://SPEED.CLOUDFLARE.COM/__down?bytes=16384"] },
+  });
+  assert.deepEqual(allowed.quality.endpoints, ["https://SPEED.CLOUDFLARE.COM/__down?bytes=16384"]);
 });
 
 test("normalizeOptions упорядочивает диапазоны и не мутирует input", () => {

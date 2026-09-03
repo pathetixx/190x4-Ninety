@@ -27,6 +27,10 @@ const PORTABLE_TASK_NAME: &str = "Ninety Portable";
 // CREATE_NO_WINDOW — не мигать чёрным окном консоли schtasks.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+// tauri-plugin-autostart писал значение под именем приложения; в разных сборках
+// оно было "Ninety" и "ninety". Один список на все места, которые его читают,
+// удаляют и мигрируют.
+const LEGACY_RUN_VALUES: [&str; 2] = ["Ninety", "ninety"];
 const AUTOSTART_BACKOFF_MS: &[u64] = &[100, 150, 250, 400, 650, 1_000, 1_500, 2_000, 2_500];
 
 const INET_SETTINGS_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
@@ -780,9 +784,40 @@ fn legacy_autostart_present() -> bool {
     let Ok(run) = hkcu.open_subkey_with_flags(RUN_KEY, KEY_READ) else {
         return false;
     };
-    ["Ninety", "ninety"]
+    LEGACY_RUN_VALUES
         .iter()
         .any(|name| run.get_raw_value(name).is_ok())
+}
+
+// Снять автозапуск прежнего поколения (Run-ключ реестра). Отдельная операция,
+// потому что задачи Планировщика у такого пользователя может не быть вовсе:
+// миграция заводит её только из elevated-процесса, а до тех пор автозапуск
+// живёт исключительно в Run. Без этой уборки «Выключить автозапуск» ничего не
+// делало — команда сразу выходила по «задачи нет», а autostart_is_enabled
+// продолжал видеть Run-ключ и возвращал тумблер обратно во включённое
+// положение. Отсутствие ключа — не ошибка: операция идемпотентна.
+fn remove_legacy_autostart() -> Result<(), String> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let Ok(run) = hkcu.open_subkey_with_flags(RUN_KEY, KEY_READ | KEY_WRITE) else {
+        return Ok(());
+    };
+    let mut errors = Vec::new();
+    for name in LEGACY_RUN_VALUES {
+        if run.get_raw_value(name).is_err() {
+            continue;
+        }
+        if let Err(e) = run.delete_value(name) {
+            errors.push(format!("{name}: {e}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "не удалось снять устаревший автозапуск: {}",
+            errors.join("; ")
+        ))
+    }
 }
 
 pub fn autostart_is_enabled() -> bool {
@@ -828,7 +863,11 @@ pub fn autostart_enable() -> Result<(), String> {
 }
 
 // Удаляет задачу автозапуска (симметрично enable — direct если elevated).
+// Legacy Run-ключ снимаем ПЕРВЫМ и независимо от наличия задачи: он тоже
+// автозапуск, его видит autostart_is_enabled, и без этого шага выключение
+// оставалось бы no-op'ом для всех, кто пришёл со сборок на Run-ключе.
 fn autostart_disable_unlocked() -> Result<(), String> {
+    remove_legacy_autostart()?;
     if !autostart_is_enabled_unlocked() {
         return Ok(());
     }
@@ -869,21 +908,14 @@ pub fn migrate_legacy_autostart() {
     let _guard = autostart_lock()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let Ok(run) = hkcu.open_subkey_with_flags(RUN_KEY, KEY_READ | KEY_WRITE) else {
-        return;
-    };
-    // tauri-plugin-autostart писал значение под именем приложения; имя в разных
-    // сборках бывало "Ninety"/"ninety" — проверяем оба.
-    let names = ["Ninety", "ninety"];
-    let legacy = names.iter().any(|n| run.get_raw_value(n).is_ok());
-    if !legacy {
+    if !legacy_autostart_present() {
         return;
     }
+    // Ключ снимаем ТОЛЬКО после успешно созданной задачи: у пользователя без
+    // always-admin не-elevated автозапуск через Run — единственный рабочий, и
+    // терять его до появления замены нельзя.
     if is_elevated() && autostart_enable_unlocked().is_ok() {
-        for n in names {
-            let _ = run.delete_value(n);
-        }
+        let _ = remove_legacy_autostart();
     }
 }
 

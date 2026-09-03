@@ -47,7 +47,9 @@ function dropLegacyBuckets(map) {
 }
 
 export function getFavourites(source) {
-  const list = readAll()[selectionSourceKey(source) || "none"];
+  const key = selectionSourceKey(source);
+  if (!key) return new Set();
+  const list = readAll()[key];
   return new Set(Array.isArray(list) ? list : []);
 }
 
@@ -56,8 +58,12 @@ export function isFavourite(source, tag) {
 }
 
 export function toggleFavourite(source, tag) {
+  // Источник без собственного ключа запомнить нечем: прежнее ведро "none" тут же
+  // стирал dropLegacyBuckets на этой же записи — звезда «загоралась» и пропадала
+  // на следующем рендере.
+  const key = selectionSourceKey(source);
+  if (!key) return false;
   const map = readAll();
-  const key = selectionSourceKey(source) || "none";
   const set = new Set(Array.isArray(map[key]) ? map[key] : []);
   if (set.has(tag)) set.delete(tag); else set.add(tag);
   map[key] = [...set];

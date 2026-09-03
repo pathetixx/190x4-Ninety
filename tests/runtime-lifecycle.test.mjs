@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   runtimeEndpointMatchesGeneration,
+  runtimeProbeProxyPort,
   runtimeSnapshotReadyForMode,
 } from "/lib/runtime-lifecycle.js";
 
@@ -61,4 +62,17 @@ test("systemProxy → tun → systemProxy never reuses the previous published en
   assert.equal(runtimeSnapshotReadyForMode(tun, "tun"), true);
   assert.equal(runtimeSnapshotReadyForMode(systemB, "systemProxy"), true);
   assert.equal(runtimeEndpointMatchesGeneration(systemB, 12, systemA.probeProxyEndpoint.address), false);
+});
+
+// Порт для запросов «через туннель» обязан приходить от живого runtime: раньше
+// DPI-раздел брал его из настроек, и смена inbound.mixedPort без реконнекта
+// уводила загрузку списков в порт, которого ядро не слушает.
+test("probe proxy port is read from the live runtime snapshot only", () => {
+  assert.equal(runtimeProbeProxyPort(snapshot()), 2080);
+  assert.equal(runtimeProbeProxyPort(snapshot({ probeProxyEndpoint: { address: "[::1]:7891" } })), 7891);
+  assert.equal(runtimeProbeProxyPort(snapshot({ running: false })), 0);
+  assert.equal(runtimeProbeProxyPort(snapshot({ listenerReady: false })), 0);
+  assert.equal(runtimeProbeProxyPort(snapshot({ probeProxyEndpoint: { address: "127.0.0.1:0" } })), 0);
+  assert.equal(runtimeProbeProxyPort(snapshot({ probeProxyEndpoint: null })), 0);
+  assert.equal(runtimeProbeProxyPort(null), 0);
 });

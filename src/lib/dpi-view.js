@@ -14,6 +14,7 @@ import { a11ySwitchAll } from "/lib/switch-a11y.js";
 import { t, getLang } from "/lib/i18n/index.js";
 import { openConfirmModal } from "/lib/confirm-modal.js";
 import { normalizeIp } from "/lib/routing-rules.js";
+import { runtimeProbeProxyPort } from "/lib/runtime-lifecycle.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -744,8 +745,11 @@ async function loadIpsetCount() {
 // прокси молчит.
 async function listFetchPort() {
   if (S.vpnMode === "tun") return 0;
-  try { if (!(await invoke("singbox_running"))) return 0; } catch { return 0; }
-  try { return Number(loadOptions()?.inbound?.mixedPort) || 7890; } catch { return 7890; }
+  // Порт берём у ЖИВОГО runtime, а не из настроек: `inbound.mixedPort` меняют
+  // без реконнекта, и тогда запрос уходил в порт, которого ядро не слушает —
+  // оставался только прямой путь, ровно тот, который и режут.
+  try { return runtimeProbeProxyPort(await invoke("runtime_snapshot")); }
+  catch { return 0; }
 }
 
 /* ── Файл hosts (правка системного hosts — нужны админ-права) ── */

@@ -3146,6 +3146,75 @@ pub(crate) fn release_transition_barrier(app: &AppHandle) -> Result<(), String> 
     crate::killswitch::transition_release(&kill_switch)
 }
 
+/// Факты, по которым решается судьба транзитного барьера.
+#[derive(Clone, Copy, Debug)]
+struct TransitionReleaseFacts {
+    running: bool,
+    runtime_ready: bool,
+    generation_matches: bool,
+    strict_privacy: bool,
+    policy_lease_active: bool,
+}
+
+/// Барьер отпускается только поверх подтверждённого нового runtime: он живой,
+/// опубликовал listener и clash-контроллер, и это ИМЕННО то поколение, которого
+/// ждал вызывающий. В строгой сессии дополнительно требуется собранная
+/// пользовательская policy — иначе снятие открыло бы ровно то окно, ради
+/// закрытия которого барьер и ставился.
+fn transition_release_allowed(facts: TransitionReleaseFacts) -> bool {
+    facts.running
+        && facts.runtime_ready
+        && facts.generation_matches
+        && (!facts.strict_privacy || facts.policy_lease_active)
+}
+
+/// Снять транзитный барьер после подтверждённого подключения.
+///
+/// Барьер ставит `stop_singbox` для операций смены runtime, а снимала его
+/// только верификация дата-плейна (`verify_runtime_dataplane`). Верификацию
+/// делают лишь смена источника и лечение качества: авто-реконнект по изменению
+/// настроек/режима и восстановление сторожем (смерть ядра, смерть моста) до неё
+/// не доходят, и лишний block-all жил до отключения VPN — поверх уже собранной
+/// пользовательской политики, но без LAN-исключений и без permit самого Ninety.
+/// Фронт зовёт эту команду в конце успешного connect; сам барьер отпускается
+/// только если новый runtime действительно подтверждён.
+///
+/// Возврат: true — барьер снят, false — его и не было.
+#[tauri::command]
+pub async fn release_runtime_transition_barrier(
+    app: AppHandle,
+    expected_generation: u64,
+) -> Result<bool, String> {
+    // Закрытие WFP-сессии — синхронный RPC к BFE, ему не место на главном потоке.
+    tauri::async_runtime::spawn_blocking(move || {
+        let kill_switch = app.state::<crate::killswitch::KillSwitchState>();
+        if !crate::killswitch::transition_active(&kill_switch) {
+            return Ok(false);
+        }
+        let state = app.state::<SingboxState>();
+        let record = state.runtime.lock_recover().clone();
+        let facts = TransitionReleaseFacts {
+            running: compute_singbox_running(&state),
+            runtime_ready: record
+                .as_ref()
+                .is_some_and(|runtime| runtime.listener_ready && runtime.clash_ready),
+            generation_matches: expected_generation != 0
+                && record
+                    .as_ref()
+                    .is_some_and(|runtime| runtime.process_generation == expected_generation),
+            strict_privacy: record.as_ref().is_some_and(|runtime| runtime.strict_privacy),
+            policy_lease_active: crate::killswitch::policy_lease_active(&kill_switch),
+        };
+        if !transition_release_allowed(facts) {
+            return Err("transition barrier release requires a confirmed runtime".into());
+        }
+        release_transition_barrier(&app)?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| format!("не удалось снять транзитный барьер: {e}"))?
+}
+
 // Внутренние вычисления статусов — переиспользуются одиночными командами и
 // агрегатом health_snapshot (один IPC-роунд-трип для watchdog'а вместо четырёх).
 fn compute_singbox_running(state: &SingboxState) -> bool {
@@ -3358,6 +3427,46 @@ mod system_proxy_command_tests {
         assert!(validate_system_proxy_enable_request("", 1).is_err());
         assert!(validate_system_proxy_enable_request("127.0.0.1:7890", 0).is_err());
         assert!(validate_system_proxy_enable_request("127.0.0.1:7890", 1).is_ok());
+    }
+
+    #[test]
+    fn transition_barrier_is_released_only_by_a_confirmed_runtime() {
+        use super::{transition_release_allowed, TransitionReleaseFacts};
+
+        let confirmed = TransitionReleaseFacts {
+            running: true,
+            runtime_ready: true,
+            generation_matches: true,
+            strict_privacy: false,
+            policy_lease_active: false,
+        };
+        assert!(transition_release_allowed(confirmed));
+
+        // Мёртвое ядро, неготовый listener/clash и чужое поколение обязаны
+        // сохранять барьер: снятие здесь и есть fail-open окно.
+        assert!(!transition_release_allowed(TransitionReleaseFacts {
+            running: false,
+            ..confirmed
+        }));
+        assert!(!transition_release_allowed(TransitionReleaseFacts {
+            runtime_ready: false,
+            ..confirmed
+        }));
+        assert!(!transition_release_allowed(TransitionReleaseFacts {
+            generation_matches: false,
+            ..confirmed
+        }));
+
+        // Строгая сессия отпускает барьер только поверх собранной policy.
+        assert!(!transition_release_allowed(TransitionReleaseFacts {
+            strict_privacy: true,
+            ..confirmed
+        }));
+        assert!(transition_release_allowed(TransitionReleaseFacts {
+            strict_privacy: true,
+            policy_lease_active: true,
+            ..confirmed
+        }));
     }
 
     #[test]

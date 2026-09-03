@@ -233,6 +233,20 @@ pub(crate) fn transition_active(state: &KillSwitchState) -> bool {
         .any(|lease| lease.transition)
 }
 
+/// Есть ли действующая ПОЛЬЗОВАТЕЛЬСКАЯ политика (не транзитный барьер).
+///
+/// Нужна тому, кто решает снимать барьер: отпускать его в строгой сессии можно
+/// только когда финальный fail-closed фильтр уже собран, иначе снятие открыло
+/// бы окно, ради закрытия которого барьер и ставился. Живость набора здесь не
+/// проверяем — это делает `is_active` со своим кэшем и BFE-пробой.
+pub(crate) fn policy_lease_active(state: &KillSwitchState) -> bool {
+    state
+        .leases
+        .lock_recover()
+        .iter()
+        .any(|lease| !lease.transition)
+}
+
 /// Releases only temporary transition leases.  Call this solely after the
 /// replacement runtime, identity, listener, dataplane and final user policy
 /// have all been verified; failures deliberately preserve the barrier.

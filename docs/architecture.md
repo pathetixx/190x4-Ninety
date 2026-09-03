@@ -105,6 +105,11 @@ What the frontend owns:
   runtime that dies repeatedly stops being restarted in a loop;
 - keeping the WFP barrier while the core is down (`preserveKillSwitch`) and
   re-arming the kill switch when Windows Filtering Platform objects disappear;
+- releasing the temporary transition barrier once a connection is confirmed
+  (`release_runtime_transition_barrier`): the native side arms it on every
+  runtime replacement and refuses to drop it until the new generation is
+  running, has published its listener and Clash controller, and — in a strict
+  session — its final policy lease is in place;
 - choosing a different node, which is a profile-aware decision and stays with the
   side that owns profile state.
 

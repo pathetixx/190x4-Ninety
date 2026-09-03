@@ -454,8 +454,12 @@ async fn probe_one_with_policy(
             break;
         }
         let remaining = budget - elapsed;
-        // Гейт чанка = min(остаток бюджета, окно stall).
+        // Гейт чанка = min(остаток бюджета, окно stall). Когда бюджет кончается
+        // раньше окна, сработавший таймаут говорит только «время вышло», а не
+        // «поток встал»: такой отсечкой заканчивается любая медленная, но живая
+        // выборка. Помним, кто именно закрыл гейт (см. stall_detected).
         let chunk_gate = remaining.min(policy.chunk_gap);
+        let gate_is_budget = remaining <= policy.chunk_gap;
 
         match tokio::time::timeout(chunk_gate, resp.chunk()).await {
             Ok(Ok(Some(chunk))) => {
@@ -482,10 +486,9 @@ async fn probe_one_with_policy(
                 break;
             }
             Err(_) => {
-                // Гейт сработал — пауза в потоке. До 64 КБ это подпись занавеса.
-                if bytes < policy.stall_before_bytes {
-                    stalled = true;
-                }
+                // Гейт сработал — пауза в потоке. До 64 КБ это подпись занавеса,
+                // но только если гейт закрыло окно stall, а не конец бюджета.
+                stalled = stall_detected(bytes, policy.stall_before_bytes, gate_is_budget);
                 break;
             }
         }
@@ -537,6 +540,14 @@ async fn probe_one_with_policy(
     })
 }
 
+/// Подпись «занавеса»: поток встал, не дотянув до порога, и закрыл окно паузы
+/// сам — а не потому что у пробы кончился бюджет. Без второго условия любая
+/// медленная выборка отмечалась как stall на последнем тике, и в осциллограмме
+/// с журналом появлялся троттлинг там, где канал просто узкий.
+fn stall_detected(bytes: u64, stall_before_bytes: u64, gate_is_budget: bool) -> bool {
+    !gate_is_budget && bytes < stall_before_bytes
+}
+
 fn calculate_goodput_bps(bytes: u64, elapsed_ms: u64) -> u64 {
     bytes.saturating_mul(8).saturating_mul(1000) / elapsed_ms.max(1)
 }
@@ -551,6 +562,16 @@ mod tests {
     #[test]
     fn sub_millisecond_goodput_uses_one_millisecond_floor() {
         assert_eq!(calculate_goodput_bps(1024, 0), 8_192_000);
+    }
+
+    #[test]
+    fn stall_is_reported_only_when_the_stream_pauses_on_its_own() {
+        // Поток замолчал внутри окна ожидания, не дотянув до порога — занавес.
+        assert!(stall_detected(1_024, STALL_BYTES, false));
+        // Тот же обрыв, но гейт закрыл конец бюджета: это медленный канал.
+        assert!(!stall_detected(1_024, STALL_BYTES, true));
+        // Порог набран — пауза уже не подпись троттла.
+        assert!(!stall_detected(STALL_BYTES, STALL_BYTES, false));
     }
 
     #[test]

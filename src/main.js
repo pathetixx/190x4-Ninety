@@ -1073,7 +1073,18 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
     if (!needsReconnect || !isCurrentNetworkIntent(epoch, "connected")) return false;
     if (!operationToken) {
       ownedOperationToken = await beginRuntimeOperation("qualityRemediation");
-      if (!ownedOperationToken) return false;
+      if (!ownedOperationToken) {
+        // Координатор занят более приоритетной операцией (обычно восстановление
+        // сторожем). Намерение пользователя при этом никуда не делось: без
+        // повтора needsReconnect остаётся взведённым, а сам реконнект не
+        // случается никогда — правка настроек молча не применяется до
+        // следующего клика.
+        if (isCurrentNetworkIntent(epoch, "connected") && needsReconnect) {
+          if (pendingReconnectTimer) clearTimeout(pendingReconnectTimer);
+          pendingReconnectTimer = setTimeout(() => performAutoReconnect(reason, epoch), 5000);
+        }
+        return false;
+      }
       operationToken = ownedOperationToken;
     }
     if (state === "disconnecting") {
@@ -1549,6 +1560,25 @@ async function verifyRuntimeOperationDataplane(operationToken) {
     });
     return verdict?.status === "ready";
   } catch {
+    return false;
+  }
+}
+
+// Транзитный WFP-барьер ставит stop_singbox на любой операции смены runtime, а
+// снимала его только верификация дата-плейна — то есть смена источника и
+// лечение качества. Авто-реконнект по настройкам и восстановление сторожем до
+// неё не доходят, и лишний block-all жил до отключения VPN: без LAN-исключений
+// и без permit самого Ninety поверх уже собранной политики. Снимаем его на
+// каждом подтверждённом подключении; backend сам проверит, что новый runtime
+// действительно готов, и откажет, если это не так.
+async function releaseTransitionBarrier(generation) {
+  const expectedGeneration = Number(generation) || 0;
+  if (!expectedGeneration) return false;
+  try {
+    return await invoke("release_runtime_transition_barrier", { expectedGeneration }) === true;
+  } catch (error) {
+    console.warn("transition barrier release failed", error);
+    logSourceSwitchReconnect("transition_barrier", null, "failed", safeSourceSwitchReason(error?.message || error));
     return false;
   }
 }
@@ -3181,7 +3211,11 @@ function finalizeConnected(snapshot, {
 }
 
 function adoptRuntimeSnapshot(snapshot, source = activeDisplaySource(), context = {}) {
-  return finalizeConnected(snapshot, { ...context, source });
+  const adopted = finalizeConnected(snapshot, { ...context, source });
+  // Перезагрузка WebView не убивает WFP-сессию: барьер прошлой попытки мог
+  // пережить её и остаться поверх принятого живого runtime.
+  if (adopted) void releaseTransitionBarrier(snapshot?.processGeneration);
+  return adopted;
 }
 
 async function connectNetwork({ epoch = networkIntentEpoch, operationToken = null } = {}) {
@@ -3534,6 +3568,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         }
         throw new Error("финальный runtime snapshot не прошёл проверку готовности");
       }
+      await releaseTransitionBarrier(finalSnapshot.processGeneration);
       return true;
     } catch (e) {
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {

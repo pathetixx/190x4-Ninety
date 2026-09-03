@@ -196,6 +196,22 @@ function isHttpUrl(value) {
   catch { return false; }
 }
 
+// Список хостов, которые принимает проба качества в Rust (quality.rs,
+// ALLOWED_QUALITY_HOSTS). Держим тот же гейт здесь: адрес вне списка backend
+// отвергает целиком, движок качества уходит в вечный UNKNOWN и молча перестаёт
+// что-либо мерить — а настройка при этом выглядит применённой.
+const QUALITY_ENDPOINT_HOSTS = new Set(["speed.cloudflare.com"]);
+
+function isQualityEndpoint(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:"
+      && !url.username
+      && !url.password
+      && QUALITY_ENDPOINT_HOSTS.has(url.hostname.toLowerCase());
+  } catch { return false; }
+}
+
 export function normalizeOptions(input) {
   const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
   const out = deepMerge(structuredClone(DEFAULT_OPTIONS), source);
@@ -212,7 +228,7 @@ export function normalizeOptions(input) {
   }
   if (!isHttpUrl(out.urlTest.connectionTestUrl)) out.urlTest.connectionTestUrl = DEFAULT_OPTIONS.urlTest.connectionTestUrl;
   out.quality.endpoints = Array.isArray(out.quality.endpoints)
-    ? out.quality.endpoints.filter((url) => typeof url === "string" && isHttpUrl(url)).slice(0, 4)
+    ? out.quality.endpoints.filter((url) => typeof url === "string" && isQualityEndpoint(url)).slice(0, 4)
     : [];
   if (!out.quality.endpoints.length) out.quality.endpoints = [...DEFAULT_OPTIONS.quality.endpoints];
   if (!Array.isArray(out.route.customRules)) out.route.customRules = [];

@@ -1313,6 +1313,7 @@ pub fn run() {
             vpn::start_singbox,
             vpn::stop_singbox,
             vpn::verify_runtime_dataplane,
+            vpn::release_runtime_transition_barrier,
             runtime_ops::begin_frontend_runtime_operation,
             runtime_ops::begin_source_switch_operation,
             runtime_ops::record_frontend_runtime_event,
