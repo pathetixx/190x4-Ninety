@@ -259,6 +259,10 @@ export function createQualityEngine({
         if (step.reconnect) reconnectHandoff = true;
         try { applied = (await fn()) !== false; }
         catch (e) { actions.log?.(`ladder ${step.id} failed: ${e}`); applied = false; }
+        // Наружу (лента инцидентов) уходит и неудачная попытка: «пробовали и не
+        // сработало» объясняет паузу перед следующей ступенью, а без неё в
+        // истории видна только дыра между деградацией и восстановлением.
+        actions.onRemedy?.({ step: step.id, applied, reconnect: !!step.reconnect });
         // R3/R4 физически пересобирают runtime. Успешное action завершается уже
         // после onIdle→onConnected, поэтому переносим remediation на новый epoch
         // вместо того, чтобы принять ожидаемый reconnect за ручной disconnect.
@@ -320,6 +324,8 @@ export function createQualityEngine({
     lastState = "GOOD";
     actions.toast?.(t("qEngine.restored"), "ok", 3000, { group: "quality" });
     actions.onState?.("GOOD", r);
+    // Именно эта ступень закрыла инцидент — лента показывает, что помогло.
+    actions.onRemedy?.({ step: step.id, applied: true, fixed: true });
     try {
       const ctx = (await actions.getContext?.()) || {};
       if (!sessionActive(epoch)) return;

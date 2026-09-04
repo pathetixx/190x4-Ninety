@@ -3,6 +3,7 @@ mod atomic_file;
 mod backup;
 mod clash;
 mod clash_stream;
+mod diagnose;
 mod discord_cache;
 mod dnscheck;
 mod dpi;
@@ -1364,6 +1365,7 @@ pub fn run() {
             scanner::warp_scan_cancel,
             quality::probe_quality,
             dnscheck::dns_probe,
+            diagnose::diagnose_trace,
             dpi::dpi_strategies,
             dpi::dpi_domains_count,
             dpi::dpi_fake_payloads,

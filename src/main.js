@@ -74,6 +74,7 @@ import {
 } from "/lib/profile-store.js";
 import { createQualityEngine } from "/lib/quality-engine.js";
 import { bus } from "/lib/bus.js";
+import { incidentLog } from "/lib/incident-log.js";
 import { openQualityScope } from "/lib/quality-scope.js";
 import { initHeroHud } from "/lib/hero-hud.js";
 import { parseDeepLink } from "/lib/deeplink.js";
@@ -1202,6 +1203,29 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
 // состояния/реконнекта/движка качества. Алиасы сохраняют имена вызовов из setState
 // (start/stopHealthWatchdog) — их не трогаем. getQualityEngine — геттер, т.к.
 // qualityEngine определяется ниже по файлу; вызывается только в runtime-тике.
+// ── Лента инцидентов ───────────────────────────────────────
+// Пишем ПЕРЕХОДЫ состояния канала, а не каждую пробу: движок качества зовёт
+// onState на каждом тике, и без фильтра лента за час набивалась бы сотней
+// одинаковых записей. UNKNOWN — «нечем измерить» (лёг сам пробник), это не
+// событие связи, поэтому он только запоминается, но ничего не пишет.
+let lastIncidentChannelState = null;
+function recordChannelStateIncident(st) {
+  const prev = lastIncidentChannelState;
+  if (st === prev) return;
+  lastIncidentChannelState = st;
+  if (!prev || st === "UNKNOWN") return;
+  if (st === "GOOD") {
+    if (prev !== "UNKNOWN") incidentLog.record("quality.restored", { severity: "ok", params: { from: prev } });
+    return;
+  }
+  if (prev === "GOOD" || prev === "UNKNOWN") {
+    incidentLog.record("quality.degraded", {
+      severity: st === "STALLED" ? "err" : "warn",
+      params: { state: st },
+    });
+  }
+}
+
 const healthWatchdog = initHealthWatchdog({
   getState: () => state,
   isUpdateInstalling: () => updateInstalling,
@@ -1221,8 +1245,21 @@ const healthWatchdog = initHealthWatchdog({
   // Восстановление после краха ядра: намерение пользователя всё ещё
   // «подключено» (intent сбрасывают только явный disconnect и bootstrap),
   // поэтому идём тем же путём, что и реконнект при смене источника.
-  restoreAfterCoreDeath: (reason, context) => reconnectCommittedSource(reason, context),
-  subscribeCoreDeath: (handler) => window.__TAURI__?.event?.listen?.("vpn:core-died", handler),
+  restoreAfterCoreDeath: async (reason, context) => {
+    const restored = await reconnectCommittedSource(reason, context);
+    incidentLog.record(restored ? "core.restored" : "core.restoreFailed", {
+      severity: restored ? "ok" : "err",
+      params: { reason: String(reason || "") },
+    });
+    return restored;
+  },
+  subscribeCoreDeath: (handler) => window.__TAURI__?.event?.listen?.("vpn:core-died", (event) => {
+    incidentLog.record("core.died", {
+      severity: "err",
+      params: { reason: String(event?.payload?.reason || event?.payload || "").slice(0, 200) },
+    });
+    return handler(event);
+  }),
   recordDiagnostic: (phase, result, reason) => {
     void invoke("record_frontend_runtime_event", {
       token: null,
@@ -1358,8 +1395,17 @@ const qualityEngine = createQualityEngine({
       }
       return confirm(t("qToast.confirmSpeedup", { label }));
     },
+    // Лента инцидентов: ступень лечения — контекст внутри уже открытого
+    // инцидента (его открыл переход состояния в onState), поэтому severity info.
+    onRemedy: ({ step, applied, fixed }) => {
+      incidentLog.record(fixed ? "quality.fixed" : "quality.remedy", {
+        severity: fixed ? "ok" : "info",
+        params: { step, applied: !!applied },
+      });
+    },
     // R6 — сдаёмся честно, без жаргона.
     giveUp: (st) => {
+      incidentLog.record("quality.gaveUp", { severity: "err", params: { state: st } });
       toast(t("qToast.giveUp"), "error", 8000, {
         group: "quality",
         desc: t("qToast.giveUpDesc"),
@@ -1391,6 +1437,7 @@ const qualityEngine = createQualityEngine({
       } catch { return "unknown"; }
     },
     onState: (st) => {
+      recordChannelStateIncident(st);
       if (!qualityDot) return;
       setChannelState(st);
       if (qualityDot.dataset.active !== "true") qualityDot.dataset.active = "true";
