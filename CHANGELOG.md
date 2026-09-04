@@ -6,6 +6,40 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.6.0 — 2026-09-04
+
+## English
+
+### New: Diagnostics
+
+- Every service is checked twice — directly and through Ninety — so blocking by the network, throttling and services that refuse the server's address are told apart instead of blurring into one "it does not work".
+- Any address can be checked by hand. The result is broken into DNS, TCP and HTTP for both directions, so a provider that answers with a fake address is visible at a glance.
+- The trace shows the path to your server hop by hop, whether the connection to its port gets through, and — with a control address — whether the problem is this server or the network itself.
+- Leak checks show whether names resolve inside the tunnel, whether IPv6 stays open past it and what address the internet actually sees.
+- The timeline keeps a short history of connection failures and what the app did to recover from them.
+- A verdict on top says in one sentence what is wrong and offers the action that fixes it. The report can be copied for support with IP addresses masked.
+
+### Routing
+
+- A routing rule can now send its traffic through a specific server or through WARP instead of the shared tunnel. If that server leaves the subscription, the rule falls back to the regular tunnel instead of breaking the connection.
+- The connection monitor names the server a connection went through, not just "through VPN".
+
+## Русский
+
+### Новое: Диагностика
+
+- Каждый сервис проверяется дважды — напрямую и через Ninety, — поэтому блокировка сетью, замедление и отказ сервиса адресу сервера различаются, а не сливаются в общее «не работает».
+- Любой адрес можно проверить вручную. Результат разложен по ступеням DNS, TCP и HTTP для обоих направлений, так что подменённый провайдером ответ виден сразу.
+- Трасса показывает путь до вашего сервера по узлам, проходит ли соединение на его порт и — по контрольному адресу — в сервере дело или в самой сети.
+- Проверка утечек показывает, резолвятся ли имена внутри туннеля, открыт ли IPv6 мимо него и какой адрес видит интернет.
+- Лента хранит короткую историю сбоев связи и того, что приложение сделало для восстановления.
+- Вердикт сверху одной фразой говорит, что не так, и предлагает действие. Отчёт копируется для поддержки с замаскированными IP-адресами.
+
+### Маршрутизация
+
+- Правило маршрутизации теперь может уводить трафик в конкретный сервер или в WARP вместо общего туннеля. Если сервер пропал из подписки, правило возвращается к обычному туннелю, а не ломает соединение.
+- Монитор соединений называет сервер, через который прошло соединение, а не просто «через VPN».
+
 ## v0.5.6 — 2026-09-03
 
 ## English
