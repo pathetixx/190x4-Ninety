@@ -874,6 +874,10 @@ export const pt = {
         title: "Ainda não foi feita nenhuma verificação",
         text: "O Ninety percorre a lista de serviços, traça o caminho até ao servidor e procura fugas. Demora alguns segundos.",
       },
+      partial: {
+        title: "A verificação ficou incompleta",
+        text: "A matriz de acessibilidade não voltou, por isso não há como julgar a rede. Verifique de novo.",
+      },
       clean: {
         title: "A rede está limpa",
         text: "Nada limita nem altera as ligações, os serviços abrem e não há fugas à vista.",
@@ -972,6 +976,7 @@ export const pt = {
       globalOnly: "Global",
       pinnedBadge: "MEU",
       emptyTitle: "Ainda não foi feita nenhuma verificação",
+      failedTitle: "A verificação de acessibilidade falhou",
       emptyText: "Carrega em «Verificar» — o Ninety percorre a lista de serviços e compara o acesso direto com o acesso pelo túnel.",
     },
     probe: {

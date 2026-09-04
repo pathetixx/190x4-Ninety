@@ -866,6 +866,10 @@ export const de = {
         title: "Noch keine Prüfung gelaufen",
         text: "Ninety geht die Dienstliste durch, verfolgt den Weg zum Server und sucht nach Lecks. Dauert ein paar Sekunden.",
       },
+      partial: {
+        title: "Die Prüfung wurde nicht vollständig",
+        text: "Die Erreichbarkeitsmatrix kam nicht zurück, also gibt es keine Grundlage für ein Urteil. Prüfe noch einmal.",
+      },
       clean: {
         title: "Das Netz ist sauber",
         text: "Nichts drosselt oder verändert deine Verbindungen, Dienste öffnen, keine Lecks zu sehen.",
@@ -964,6 +968,7 @@ export const de = {
       globalOnly: "Global",
       pinnedBadge: "EIGEN",
       emptyTitle: "Noch keine Prüfung gelaufen",
+      failedTitle: "Die Erreichbarkeitsprüfung schlug fehl",
       emptyText: "Drücke „Prüfen“ — Ninety geht die Dienstliste durch und vergleicht den direkten Zugang mit dem über den Tunnel.",
     },
     probe: {

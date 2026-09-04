@@ -874,6 +874,10 @@ export const fr = {
         title: "Aucune vérification lancée",
         text: "Ninety parcourt la liste des services, trace le chemin vers le serveur et cherche les fuites. Quelques secondes.",
       },
+      partial: {
+        title: "La vérification est incomplète",
+        text: "La matrice d'accessibilité n'est pas revenue : il n'y a rien sur quoi juger le réseau. Relancez la vérification.",
+      },
       clean: {
         title: "Le réseau est propre",
         text: "Rien ne bride ni ne modifie vos connexions, les services s'ouvrent, aucune fuite en vue.",
@@ -972,6 +976,7 @@ export const fr = {
       globalOnly: "Global",
       pinnedBadge: "PERSO",
       emptyTitle: "Aucune vérification lancée",
+      failedTitle: "Le test d'accessibilité a échoué",
       emptyText: "Appuyez sur « Lancer » — Ninety parcourt la liste des services et compare l'accès direct à celui par le tunnel.",
     },
     probe: {

@@ -176,13 +176,16 @@ export function targetsById(pinned = []) {
 
 /// «Ещё не выбирали»: до первого осознанного выбора пакет угадывается.
 export const AUTO_PACK = "auto";
+/// Осознанный выбор «только глобальный набор». Отдельное значение, а не пустая
+/// строка: пустая исторически means «ничего не сохранено», и трактовать её как
+/// выбор значило бы менять поведение старым конфигам при обновлении.
+export const GLOBAL_PACK = "global";
 
-/// Какой пакет использовать. Пустая строка — это ОСОЗНАННЫЙ выбор «только
-/// глобальный набор», и подменять его автоопределением нельзя: иначе пункт
-/// «Глобальный» молча не срабатывает — сохранили пустое, прочитали угаданное.
+/// Какой пакет использовать: "" (только глобальные цели) или код страны.
 export function resolveRegionPack({ stored, region = "", lang = "" } = {}) {
-  if (stored == null || stored === AUTO_PACK) return defaultRegionPack({ region, lang });
-  const pack = String(stored).toLowerCase();
+  const pack = String(stored ?? "").toLowerCase();
+  if (!pack || pack === AUTO_PACK) return defaultRegionPack({ region, lang });
+  if (pack === GLOBAL_PACK) return "";
   return REGION_TARGETS[pack] ? pack : "";
 }
 

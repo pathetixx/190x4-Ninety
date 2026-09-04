@@ -192,3 +192,15 @@ test("подпись строки: своё правило direct тоже уч�
   assert.equal(matchesDirectRule({ host: "mybank.io", customRules: rules }), true);
   assert.equal(matchesDirectRule({ host: "tunnel.example", customRules: rules }), false);
 });
+
+test("вердикт: несобравшаяся матрица не даёт объявить сеть чистой", () => {
+  const verdict = buildVerdict({
+    reach: [],
+    trace: trace({ tcpOpen: true, tcp: { state: "open", ms: 40 } }),
+    leaks: { dnsInTunnel: { state: "ok" }, ipv6Open: { state: "ok" } },
+    connected: true,
+    reachFailed: true,
+  });
+  assert.equal(verdict.kind, "partial");
+  assert.equal(verdict.action, "run");
+});

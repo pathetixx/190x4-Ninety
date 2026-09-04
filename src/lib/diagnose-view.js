@@ -15,7 +15,8 @@ import {
   buildVerdict, countFindings, matchesDirectRule, verdictFacts,
 } from "/lib/diagnose-verdict.js";
 import {
-  buildProbeSet, normalizePinned, resolveRegionPack, targetsById, REGION_PACKS,
+  buildProbeSet, normalizePinned, resolveRegionPack, targetsById,
+  GLOBAL_PACK, REGION_PACKS,
 } from "/lib/probe-sets.js";
 import { groupIncidents, degradedMs, incidentLog } from "/lib/incident-log.js";
 import { escapeHtml as esc } from "/lib/esc.js";
@@ -127,6 +128,7 @@ export function mountDiagnoseView(root, {
     leaksError: null,
     probe: null,
     probeError: null,
+    reachError: null,
     tab: loadTab(),
     ranAt: 0,
   };
@@ -173,15 +175,31 @@ export function mountDiagnoseView(root, {
     const includeDirect = !!allowDirect();
     const set = targets();
 
-    try {
-      state.reach = await invoke("diagnose_reach", {
-        expectedGeneration: generation,
-        targets: set.map(({ id, url }) => ({ id, url })),
-        includeDirect,
-      });
-    } catch (err) {
-      state.reach = [];
-      onToast(t("dg.err.reach", { err: errText(err) }), "error", 4000);
+    // Движок качества и верификация источника делят с диагностикой один шлюз
+    // датаплейна: пока идёт их проба, наша получает отказ. Это норма, а не
+    // сбой — поэтому один раз ждём и повторяем, и только потом показываем
+    // ошибку в самой матрице, а не одним исчезающим тостом.
+    state.reachError = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        state.reach = await invoke("diagnose_reach", {
+          expectedGeneration: generation,
+          targets: set.map(({ id, url }) => ({ id, url })),
+          includeDirect,
+        });
+        state.reachError = null;
+        break;
+      } catch (err) {
+        const code = String(err?.message || err || "");
+        state.reach = [];
+        state.reachError = errText(err);
+        const retriable = code === "probe_busy" || code === "stale_generation";
+        if (!retriable || attempt === 1) {
+          onToast(t("dg.err.reach", { err: state.reachError }), "error", 4000);
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
     }
 
     // Трасса имеет смысл только когда известен адрес сервера. Без активного
@@ -312,6 +330,9 @@ export function mountDiagnoseView(root, {
       trace: state.trace,
       leaks: state.leaks,
       connected: !!isConnected(),
+      // Без матрицы «сеть чистая» — необоснованное утверждение: половина
+      // проверки не отработала, а вердикт звучал бы как полный.
+      reachFailed: !!state.reachError,
     });
   }
 
@@ -399,9 +420,11 @@ export function mountDiagnoseView(root, {
     }
 
     if (!state.reach.length) {
+      const title = state.reachError ? t("dg.reach.failedTitle") : t("dg.reach.emptyTitle");
+      const text = state.reachError || t("dg.reach.emptyText");
       leftCard.appendChild(el("div", "dg-empty",
-        `<div class="dg-empty__title">${esc(t("dg.reach.emptyTitle"))}</div>` +
-        `<div class="dg-empty__text">${esc(t("dg.reach.emptyText"))}</div>`));
+        `<div class="dg-empty__title">${esc(title)}</div>` +
+        `<div class="dg-empty__text">${esc(text)}</div>`));
       return;
     }
 
@@ -613,21 +636,24 @@ export function mountDiagnoseView(root, {
     const menu = el("div", "dg-packmenu");
     menu.setAttribute("role", "listbox");
     const entries = [
-      { code: "", label: t("dg.reach.globalOnly") },
+      { code: GLOBAL_PACK, label: t("dg.reach.globalOnly") },
       ...REGION_PACKS.map((code) => ({ code, label: countryName(code) || code.toUpperCase() })),
     ];
     for (const entry of entries) {
       const item = el("button", "dg-packmenu__item");
       item.type = "button";
       item.setAttribute("role", "option");
-      item.setAttribute("aria-selected", String(entry.code === current));
-      if (entry.code === current) item.dataset.on = "true";
+      // Текущий пакет — уже разрешённое значение (""), поэтому пункт
+      // «Глобальный» сверяем с ним по смыслу, а не по коду.
+      const isCurrent = entry.code === GLOBAL_PACK ? current === "" : entry.code === current;
+      item.setAttribute("aria-selected", String(isCurrent));
+      if (isCurrent) item.dataset.on = "true";
       item.innerHTML =
         '<span class="dg-packmenu__name">' + esc(entry.label) + "</span>" +
         (entry.code ? '<span class="dg-packmenu__code">' + esc(entry.code.toUpperCase()) + "</span>" : "");
       item.addEventListener("click", () => {
         closePackMenu();
-        if (entry.code !== current) {
+        if (!isCurrent) {
           // Результаты прошлого прогона относятся к прежнему набору: оставлять
           // их рядом с новым списком целей — значит показывать чужую матрицу.
           state.reach = [];

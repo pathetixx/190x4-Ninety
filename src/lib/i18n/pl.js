@@ -882,6 +882,10 @@ export const pl = {
         title: "Nie uruchomiono jeszcze sprawdzenia",
         text: "Ninety przejdzie listę usług, prześledzi drogę do serwera i poszuka wycieków. To kilka sekund.",
       },
+      partial: {
+        title: "Sprawdzenie nie było pełne",
+        text: "Macierz dostępności nie wróciła, więc nie ma na czym oprzeć oceny sieci. Sprawdź jeszcze raz.",
+      },
       clean: {
         title: "Sieć jest czysta",
         text: "Nic nie dławi ani nie podmienia połączeń, usługi się otwierają, wycieków nie widać.",
@@ -980,6 +984,7 @@ export const pl = {
       globalOnly: "Globalny",
       pinnedBadge: "WŁASNY",
       emptyTitle: "Nie uruchomiono jeszcze sprawdzenia",
+      failedTitle: "Sprawdzenie dostępności nie powiodło się",
       emptyText: "Naciśnij „Sprawdź” — Ninety przejdzie listę usług i porówna dostęp bezpośredni z dostępem przez tunel.",
     },
     probe: {

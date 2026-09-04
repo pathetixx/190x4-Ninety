@@ -858,6 +858,10 @@ export const zh = {
         title: "尚未进行检测",
         text: "Ninety 会遍历服务列表、追踪到服务器的路径并检查泄漏，只需几秒。",
       },
+      partial: {
+        title: "检测没有完成",
+        text: "可达性矩阵没有返回，无从判断网络状况。请重新检测。",
+      },
       clean: {
         title: "网络是干净的",
         text: "没有限速或篡改，服务都能打开，也看不到泄漏。",
@@ -956,6 +960,7 @@ export const zh = {
       globalOnly: "全球",
       pinnedBadge: "自定",
       emptyTitle: "尚未进行检测",
+      failedTitle: "可达性检测失败",
       emptyText: "点击“检测”——Ninety 会遍历服务列表，并把直连访问与经隧道访问做对比。",
     },
     probe: {

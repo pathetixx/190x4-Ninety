@@ -866,6 +866,10 @@ export const tr = {
         title: "Henüz kontrol yapılmadı",
         text: "Ninety hizmet listesini gezer, sunucuya giden yolu çıkarır ve sızıntı arar. Birkaç saniye sürer.",
       },
+      partial: {
+        title: "Kontrol tam yapılamadı",
+        text: "Erişilebilirlik matrisi gelmedi, bu yüzden ağ hakkında hüküm verecek veri yok. Kontrolü yeniden çalıştırın.",
+      },
       clean: {
         title: "Ağ temiz",
         text: "Bağlantılar kısılmıyor ve değiştirilmiyor, hizmetler açılıyor, sızıntı görünmüyor.",
@@ -964,6 +968,7 @@ export const tr = {
       globalOnly: "Genel",
       pinnedBadge: "KENDİ",
       emptyTitle: "Henüz kontrol yapılmadı",
+      failedTitle: "Erişilebilirlik kontrolü başarısız",
       emptyText: "«Kontrol et» düğmesine basın — Ninety hizmet listesini gezer ve doğrudan erişimi tünel üzerinden erişimle karşılaştırır.",
     },
     probe: {

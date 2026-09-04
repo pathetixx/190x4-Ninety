@@ -866,6 +866,10 @@ export const en = {
         title: "No check has been run yet",
         text: "Ninety will walk the service list, trace the path to your server and look for leaks. Takes a few seconds.",
       },
+      partial: {
+        title: "The check did not complete",
+        text: "The reachability matrix did not come back, so there is nothing to judge the network by. Run the check again.",
+      },
       clean: {
         title: "The network is clean",
         text: "Nothing throttles or rewrites your connections, services open, no leaks in sight.",
@@ -964,6 +968,7 @@ export const en = {
       globalOnly: "Global",
       pinnedBadge: "MINE",
       emptyTitle: "No check has been run yet",
+      failedTitle: "The reachability check failed",
       emptyText: "Press “Run check” — Ninety walks the service list and compares direct access with access through the tunnel.",
     },
     probe: {

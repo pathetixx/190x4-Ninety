@@ -858,6 +858,10 @@ export const ko = {
         title: "아직 검사하지 않았습니다",
         text: "Ninety가 서비스 목록을 돌고, 서버까지의 경로를 추적하고, 누출을 확인합니다. 몇 초면 됩니다.",
       },
+      partial: {
+        title: "검사가 끝까지 진행되지 않았습니다",
+        text: "접근성 매트릭스를 받지 못해 네트워크를 판단할 근거가 없습니다. 다시 검사하세요.",
+      },
       clean: {
         title: "네트워크가 깨끗합니다",
         text: "연결을 조이거나 바꾸는 것이 없고, 서비스는 열리며, 누출도 보이지 않습니다.",
@@ -956,6 +960,7 @@ export const ko = {
       globalOnly: "글로벌",
       pinnedBadge: "내 것",
       emptyTitle: "아직 검사하지 않았습니다",
+      failedTitle: "접근성 검사에 실패했습니다",
       emptyText: "«검사»를 누르면 Ninety가 서비스 목록을 돌며 직접 접근과 터널 경유 접근을 비교합니다.",
     },
     probe: {

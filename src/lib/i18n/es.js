@@ -874,6 +874,10 @@ export const es = {
         title: "Aún no se ha comprobado nada",
         text: "Ninety recorre la lista de servicios, traza el camino al servidor y busca fugas. Tarda unos segundos.",
       },
+      partial: {
+        title: "La comprobación quedó incompleta",
+        text: "La matriz de accesibilidad no llegó, así que no hay con qué juzgar la red. Vuelve a comprobar.",
+      },
       clean: {
         title: "La red está limpia",
         text: "Nada limita ni altera tus conexiones, los servicios abren y no se ven fugas.",
@@ -972,6 +976,7 @@ export const es = {
       globalOnly: "Global",
       pinnedBadge: "PROPIO",
       emptyTitle: "Aún no se ha comprobado nada",
+      failedTitle: "Falló la prueba de accesibilidad",
       emptyText: "Pulsa «Comprobar» — Ninety recorre la lista de servicios y compara el acceso directo con el del túnel.",
     },
     probe: {

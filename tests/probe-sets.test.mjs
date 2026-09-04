@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   AUTO_PACK,
+  GLOBAL_PACK,
   GLOBAL_TARGETS,
   REGION_TARGETS,
   buildProbeSet,
@@ -73,7 +74,10 @@ test("probe sets: пакет по умолчанию берётся из рег�
 test("probe sets: «Глобальный» — это выбор, а не отсутствие выбора", () => {
   // Пустая строка приходит из пункта «Глобальный». Если её принять за «ещё не
   // выбирали», автоопределение вернёт страну — и пункт молча не сработает.
-  assert.equal(resolveRegionPack({ stored: "", region: "ru", lang: "ru" }), "");
+  // Пустая строка — это «ничего не сохранено» (так выглядят старые конфиги),
+  // а осознанный «Глобальный» приходит отдельным значением.
+  assert.equal(resolveRegionPack({ stored: "", region: "ru", lang: "ru" }), "ru");
+  assert.equal(resolveRegionPack({ stored: GLOBAL_PACK, region: "ru", lang: "ru" }), "");
   assert.equal(resolveRegionPack({ stored: AUTO_PACK, region: "ru", lang: "ru" }), "ru");
   assert.equal(resolveRegionPack({ stored: undefined, region: "", lang: "de" }), "de");
   assert.equal(resolveRegionPack({ stored: "de", region: "ru", lang: "ru" }), "de");

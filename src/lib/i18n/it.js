@@ -874,6 +874,10 @@ export const it = {
         title: "Nessuna verifica eseguita",
         text: "Ninety percorre l'elenco dei servizi, traccia il percorso verso il server e cerca fughe. Bastano pochi secondi.",
       },
+      partial: {
+        title: "La verifica non è completa",
+        text: "La matrice di raggiungibilità non è tornata: non c'è nulla su cui giudicare la rete. Riprova la verifica.",
+      },
       clean: {
         title: "La rete è pulita",
         text: "Nulla limita o altera le connessioni, i servizi si aprono, nessuna fuga in vista.",
@@ -972,6 +976,7 @@ export const it = {
       globalOnly: "Globale",
       pinnedBadge: "MIO",
       emptyTitle: "Nessuna verifica eseguita",
+      failedTitle: "La verifica di raggiungibilità è fallita",
       emptyText: "Premi «Verifica» — Ninety percorre l'elenco dei servizi e confronta l'accesso diretto con quello attraverso il tunnel.",
     },
     probe: {

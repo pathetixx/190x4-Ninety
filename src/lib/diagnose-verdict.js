@@ -45,7 +45,7 @@ export function refusedByServiceRows(rows) {
 
 /// Вердикт по собранным данным. Любая часть может отсутствовать (проверку не
 /// запускали или она не смогла отработать) — правила это учитывают.
-export function buildVerdict({ reach = [], trace = null, leaks = null, connected = false } = {}) {
+export function buildVerdict({ reach = [], trace = null, leaks = null, connected = false, reachFailed = false } = {}) {
   const rows = Array.isArray(reach) ? reach : [];
 
   // 1. Соединение до сервера. Вывод строится на ТРЁХ замерах сразу: дошёл ли
@@ -119,6 +119,12 @@ export function buildVerdict({ reach = [], trace = null, leaks = null, connected
 
   if (!rows.length && !trace && !leaks) {
     return { kind: "idle", severity: "info", action: "run", params: {} };
+  }
+
+  // Матрица не собралась: остальные проверки могли пройти, но объявлять сеть
+  // чистой не на чем.
+  if (reachFailed) {
+    return { kind: "partial", severity: "warn", action: "run", params: {} };
   }
 
   return {
