@@ -39,6 +39,15 @@ use std::time::{Duration, Instant};
 const MAX_HOPS_LIMIT: u8 = 30;
 const DEFAULT_MAX_HOPS: u8 = 20;
 const HOP_TIMEOUT_MS: u32 = 900;
+// Второй проход по молчащим хопам: ответ на эхо теряется и просто так (очередь
+// на маршрутизаторе, всплеск трафика сразу после матрицы доступности), а дырка
+// в середине пути выглядит как «дальше не доходит» и вводит в заблуждение.
+// Воспроизвести потерю вне приложения не удалось — поэтому лечим её повтором, а
+// не догадкой о причине.
+const HOP_RETRY_TIMEOUT_MS: u32 = 1_500;
+// Пробы идут пачками: два десятка одновременных эхо-запросов на один адрес —
+// это всплеск, который часть сетей режет как флуд.
+const ICMP_CONCURRENCY: usize = 8;
 const TCP_TIMEOUT: Duration = Duration::from_millis(1200);
 const PROBE_PAYLOAD: &[u8] = b"ninety-diagnose";
 // Контрольный адрес: публичный резолвер Cloudflare. Нужен не сам по себе, а как
@@ -212,19 +221,50 @@ async fn resolve_v4(host: &str, port: u16) -> Result<SocketAddr, String> {
 }
 
 #[cfg(target_os = "windows")]
-async fn icmp_walk(
-    ip: Ipv4Addr,
-    hops: u8,
-) -> Result<Vec<(IcmpStatus, Option<String>, Option<u32>)>, String> {
-    let mut tasks = Vec::with_capacity(hops as usize);
-    for ttl in 1..=hops {
-        tasks.push(tauri::async_runtime::spawn_blocking(move || {
-            win::echo_with_ttl(ip, ttl)
-        }));
+type HopProbe = (IcmpStatus, Option<String>, Option<u32>);
+
+/// Один проход по заданным TTL пачками по ICMP_CONCURRENCY.
+#[cfg(target_os = "windows")]
+async fn icmp_pass(ip: Ipv4Addr, ttls: &[u8], timeout_ms: u32) -> Vec<HopProbe> {
+    let mut out = Vec::with_capacity(ttls.len());
+    for chunk in ttls.chunks(ICMP_CONCURRENCY) {
+        let mut tasks = Vec::with_capacity(chunk.len());
+        for &ttl in chunk {
+            tasks.push(tauri::async_runtime::spawn_blocking(move || {
+                win::echo_with_ttl(ip, ttl, timeout_ms)
+            }));
+        }
+        for task in tasks {
+            out.push(task.await.unwrap_or((IcmpStatus::Error, None, None)));
+        }
     }
-    let mut out = Vec::with_capacity(hops as usize);
-    for task in tasks {
-        out.push(task.await.unwrap_or((IcmpStatus::Error, None, None)));
+    out
+}
+
+#[cfg(target_os = "windows")]
+async fn icmp_walk(ip: Ipv4Addr, hops: u8) -> Result<Vec<HopProbe>, String> {
+    let all: Vec<u8> = (1..=hops).collect();
+    let mut out = icmp_pass(ip, &all, HOP_TIMEOUT_MS).await;
+
+    // Повторяем только то, что молчало, и только в пределах реального пути: за
+    // хопом, где ответила цель, повторять нечего.
+    let limit = out
+        .iter()
+        .position(|(status, ..)| *status == IcmpStatus::Reply)
+        .map(|idx| idx + 1)
+        .unwrap_or(out.len());
+    let silent: Vec<u8> = (1..=limit)
+        .filter(|ttl| matches!(out[*ttl - 1].0, IcmpStatus::Timeout | IcmpStatus::Error))
+        .map(|ttl| ttl as u8)
+        .collect();
+
+    if !silent.is_empty() {
+        let retried = icmp_pass(ip, &silent, HOP_RETRY_TIMEOUT_MS).await;
+        for (ttl, probe) in silent.iter().zip(retried) {
+            if !matches!(probe.0, IcmpStatus::Timeout | IcmpStatus::Error) {
+                out[*ttl as usize - 1] = probe;
+            }
+        }
     }
     Ok(out)
 }
@@ -239,7 +279,7 @@ async fn icmp_walk(
 
 #[cfg(target_os = "windows")]
 mod win {
-    use super::{IcmpStatus, HOP_TIMEOUT_MS, PROBE_PAYLOAD};
+    use super::{IcmpStatus, PROBE_PAYLOAD};
     use std::net::Ipv4Addr;
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::NetworkManagement::IpHelper::{
@@ -262,7 +302,11 @@ mod win {
     }
 
     /// Одна эхо-проба с подставленным TTL. Возвращает (статус, кто ответил, rtt).
-    pub fn echo_with_ttl(ip: Ipv4Addr, ttl: u8) -> (IcmpStatus, Option<String>, Option<u32>) {
+    pub fn echo_with_ttl(
+        ip: Ipv4Addr,
+        ttl: u8,
+        timeout_ms: u32,
+    ) -> (IcmpStatus, Option<String>, Option<u32>) {
         unsafe {
             let handle = match IcmpCreateFile() {
                 Ok(h) => IcmpHandle(h),
@@ -300,7 +344,7 @@ mod win {
                 Some(&options),
                 reply.as_mut_ptr() as *mut core::ffi::c_void,
                 reply_size as u32,
-                HOP_TIMEOUT_MS,
+                timeout_ms,
             );
 
             if count == 0 {
@@ -939,5 +983,39 @@ mod tests {
         assert!(parse_probe_target("   ").is_err());
         assert!(parse_probe_target("example.com/path").is_err());
         assert!(parse_probe_target("example.com:99999").is_err());
+    }
+
+    // Ручной опыт по живой сети (в CI не гоняется):
+    //   set NINETY_TRACE_IP=185.223.171.1
+    //   cargo test manual_icmp_walk -- --ignored --nocapture
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore]
+    fn manual_icmp_walk() {
+        let ip: Ipv4Addr = std::env::var("NINETY_TRACE_IP")
+            .unwrap_or_else(|_| "1.1.1.1".to_string())
+            .parse()
+            .expect("NINETY_TRACE_IP");
+
+        println!("--- sequential ---");
+        for ttl in 1..=14u8 {
+            let (status, addr, rtt) = win::echo_with_ttl(ip, ttl, HOP_TIMEOUT_MS);
+            println!("ttl={ttl} {status:?} {addr:?} {rtt:?}");
+        }
+
+        let hops: u8 = std::env::var("NINETY_TRACE_HOPS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(20);
+        println!("--- concurrent x{hops} (threads, as spawn_blocking does) ---");
+        let handles: Vec<_> = (1..=hops)
+            .map(|ttl| {
+                std::thread::spawn(move || (ttl, win::echo_with_ttl(ip, ttl, HOP_TIMEOUT_MS)))
+            })
+            .collect();
+        for h in handles {
+            let (ttl, (status, addr, rtt)) = h.join().unwrap();
+            println!("ttl={ttl} {status:?} {addr:?} {rtt:?}");
+        }
     }
 }
