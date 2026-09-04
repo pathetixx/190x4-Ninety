@@ -327,15 +327,7 @@ export function mountDiagnoseView(root, {
     const head = el("div", "dg-card__head");
     head.appendChild(el("div", "dg-card__title", esc(t("dg.reach.title"))));
 
-    const packBtn = el("button", "dg-head-link");
-    packBtn.type = "button";
-    const pack = regionPack();
-    packBtn.innerHTML = esc(t("dg.reach.set", {
-      pack: pack ? pack.toUpperCase() : t("dg.reach.globalOnly"),
-      n: targets().length,
-    }));
-    packBtn.addEventListener("click", cycleRegionPack);
-    head.appendChild(state.running ? el("div", "dg-spinner") : packBtn);
+    head.appendChild(state.running ? el("div", "dg-spinner") : regionPackSelect());
     leftCard.appendChild(head);
 
     // Поле ручной проверки — над заголовками колонок: это вход, а не строка.
@@ -506,14 +498,30 @@ export function mountDiagnoseView(root, {
     return t("dg.probe.noteDown");
   }
 
-  function cycleRegionPack() {
-    // Переключение по кругу вместо выпадающего списка: пакетов немного, а
-    // отдельное меню на экране диагностики только мешало бы.
-    const packs = ["", ...REGION_PACKS];
-    const idx = packs.indexOf(regionPack());
-    const next = packs[(idx + 1) % packs.length];
-    saveOption("diagnose.regionPack", next);
-    render();
+  // Выбор странового пакета. Список, а не перебор по кругу: пакетов больше
+  // десятка, и «щёлкать до нужного» — не выбор, а лотерея.
+  function regionPackSelect() {
+    const box = el("label", "dg-pack");
+    const current = regionPack();
+    box.appendChild(el("span", "dg-pack__n", esc(String(targets().length))));
+    const sel = el("select", "dg-pack__sel");
+    sel.setAttribute("aria-label", t("dg.reach.title"));
+    const globalOpt = el("option", null, esc(t("dg.reach.globalOnly")));
+    globalOpt.value = "";
+    if (!current) globalOpt.selected = true;
+    sel.appendChild(globalOpt);
+    for (const pack of REGION_PACKS) {
+      const opt = el("option", null, esc(pack.toUpperCase()));
+      opt.value = pack;
+      if (pack === current) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener("change", () => {
+      saveOption("diagnose.regionPack", sel.value);
+      render();
+    });
+    box.appendChild(sel);
+    return box;
   }
 
   // ── Рендер: правая колонка ──────────────────────────────

@@ -944,7 +944,6 @@ export const en = {
       colService: "Service",
       colDirect: "Direct",
       colTunnel: "Ninety",
-      set: "{pack} · {n}",
       globalOnly: "GLOBAL",
       pinnedBadge: "MINE",
       emptyTitle: "No check has been run yet",

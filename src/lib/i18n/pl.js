@@ -960,7 +960,6 @@ export const pl = {
       colService: "Usługa",
       colDirect: "Bezpośrednio",
       colTunnel: "Ninety",
-      set: "{pack} · {n}",
       globalOnly: "GLOBALNY",
       pinnedBadge: "WŁASNY",
       emptyTitle: "Nie uruchomiono jeszcze sprawdzenia",

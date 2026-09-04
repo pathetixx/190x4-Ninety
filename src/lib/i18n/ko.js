@@ -936,7 +936,6 @@ export const ko = {
       colService: "서비스",
       colDirect: "직접",
       colTunnel: "Ninety",
-      set: "{pack} · {n}",
       globalOnly: "글로벌",
       pinnedBadge: "내 것",
       emptyTitle: "아직 검사하지 않았습니다",

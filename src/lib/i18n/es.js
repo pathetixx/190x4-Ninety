@@ -952,7 +952,6 @@ export const es = {
       colService: "Servicio",
       colDirect: "Directo",
       colTunnel: "Ninety",
-      set: "{pack} · {n}",
       globalOnly: "GLOBAL",
       pinnedBadge: "PROPIO",
       emptyTitle: "Aún no se ha comprobado nada",

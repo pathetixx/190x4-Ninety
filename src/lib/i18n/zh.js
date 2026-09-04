@@ -936,7 +936,6 @@ export const zh = {
       colService: "服务",
       colDirect: "直连",
       colTunnel: "Ninety",
-      set: "{pack} · {n}",
       globalOnly: "全球",
       pinnedBadge: "自定",
       emptyTitle: "尚未进行检测",

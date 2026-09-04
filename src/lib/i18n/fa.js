@@ -944,7 +944,6 @@ export const fa = {
       colService: "سرویس",
       colDirect: "مستقیم",
       colTunnel: "Ninety",
-      set: "{pack} · {n}",
       globalOnly: "جهانی",
       pinnedBadge: "خودم",
       emptyTitle: "هنوز بررسی‌ای انجام نشده",

@@ -976,7 +976,6 @@ export const ar = {
       colService: "الخدمة",
       colDirect: "مباشر",
       colTunnel: "Ninety",
-      set: "{pack} · {n}",
       globalOnly: "عالمي",
       pinnedBadge: "خاص",
       emptyTitle: "لم يُجرَ أي فحص بعد",

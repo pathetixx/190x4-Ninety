@@ -936,7 +936,6 @@ export const ja = {
       colService: "サービス",
       colDirect: "直接",
       colTunnel: "Ninety",
-      set: "{pack} · {n}",
       globalOnly: "グローバル",
       pinnedBadge: "自分",
       emptyTitle: "まだチェックしていません",

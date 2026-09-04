@@ -944,7 +944,6 @@ export const tr = {
       colService: "Hizmet",
       colDirect: "Doğrudan",
       colTunnel: "Ninety",
-      set: "{pack} · {n}",
       globalOnly: "GENEL",
       pinnedBadge: "KENDİ",
       emptyTitle: "Henüz kontrol yapılmadı",

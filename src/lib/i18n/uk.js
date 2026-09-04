@@ -960,7 +960,6 @@ export const uk = {
       colService: "Сервіс",
       colDirect: "Напряму",
       colTunnel: "Ninety",
-      set: "{pack} · {n}",
       globalOnly: "ГЛОБАЛЬНИЙ",
       pinnedBadge: "СВІЙ",
       emptyTitle: "Перевірку ще не запускали",

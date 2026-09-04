@@ -960,7 +960,6 @@ export const ru = {
       colService: "Сервис",
       colDirect: "Напрямую",
       colTunnel: "Ninety",
-      set: "{pack} · {n}",
       globalOnly: "ГЛОБАЛЬНЫЙ",
       pinnedBadge: "СВОЙ",
       emptyTitle: "Проверка ещё не запускалась",
