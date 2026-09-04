@@ -62,7 +62,7 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 # default-features = false убирает FFI bindings и device-loop, оставляет noise/Tunn.
 boringtun = { version = "0.7", default-features = false }
 # BLAKE2s для пересчёта MAC1 после подмены reserved (CF WARP client_id routing).
-blake2 = "0.10"
+blake2 = "0.11"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 # TTL на сокете ДО connect (трасса в diagnose.rs): у tokio такой ручки нет.
 # Крейт и так в дереве зависимостей (tokio/hyper), новых сторонних имён не вносит.
