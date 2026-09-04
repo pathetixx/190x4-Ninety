@@ -75,6 +75,8 @@ import {
 import { createQualityEngine } from "/lib/quality-engine.js";
 import { bus } from "/lib/bus.js";
 import { incidentLog } from "/lib/incident-log.js";
+import { mountDiagnoseView } from "/lib/diagnose-view.js";
+import { newRule, sanitizeRule } from "/lib/routing-rules.js";
 import { openQualityScope } from "/lib/quality-scope.js";
 import { initHeroHud } from "/lib/hero-hud.js";
 import { parseDeepLink } from "/lib/deeplink.js";
@@ -664,6 +666,7 @@ function runViewEnter(target) {
   if (target === "logs") onLogsViewEnter();
   if (target === "proxies") onProxiesViewEnter();
   if (target === "dpi") onDpiViewEnter();
+  if (target === "diagnose") onDiagnoseViewEnter();
   if (target === "settings") applySettingsVersion();
 }
 
@@ -4590,3 +4593,63 @@ function handleDeepLinkUrl(rawUrl) {
     console.warn("deeplink subscribe failed", e);
   }
 })();
+
+// ── Экран «Диагностика» ────────────────────────────────────
+// Монтируем лениво, при первом входе: экран тяжелее прочих (три проверки,
+// лента инцидентов), а открывают его далеко не в каждой сессии. Прогон НЕ
+// стартует сам — пробы уходят в сеть, и решение об этом остаётся за человеком.
+let diagnoseCtl = null;
+function ensureDiagnoseView() {
+  if (diagnoseCtl) return diagnoseCtl;
+  const root = document.getElementById("diagnose-root");
+  if (!root) return null;
+  diagnoseCtl = mountDiagnoseView(root, {
+    invoke,
+    getGeneration: () => Number(runtimeIdentity.capture()?.processGeneration) || null,
+    isConnected: () => state === "connected",
+    // Прямые пробы физически не пройдут при включённом kill switch и запрещены
+    // политикой строгого туннеля: колонка «напрямую» честно остаётся пустой,
+    // вместо выдуманного «недоступно».
+    allowDirect: () => !strictPrivacyRequested() && !loadOptions().general?.killSwitch,
+    getNodeEndpoint: () => (currentEffectiveNode?.host
+      ? { host: currentEffectiveNode.host, port: Number(currentEffectiveNode.port) || 443 }
+      : null),
+    getOptions: loadOptions,
+    saveOption: (path, value) => updateOption(path, value),
+    onToast: toast,
+    onAction: handleDiagnoseAction,
+  });
+  return diagnoseCtl;
+}
+
+function onDiagnoseViewEnter() {
+  ensureDiagnoseView()?.refreshFeed();
+}
+
+// Действие из вердикта или из строки матрицы. Правило маршрутизации пишем в те
+// же options.route.customRules, что и экран правил, и так же дёргаем реконнект:
+// иначе правило легло бы в конфиг только при следующем подключении.
+async function handleDiagnoseAction(action, params = {}) {
+  if (action === "dpi") { switchView("dpi"); return; }
+  if (action === "switchNode") { switchView("proxies"); return; }
+  if (action !== "ruleDirect" && action !== "ruleTunnel") return;
+
+  const domain = String(params.domain || "").trim();
+  if (!domain) return;
+  const { rule } = sanitizeRule(newRule({
+    type: "domain",
+    match: "suffix",
+    values: [domain],
+    action: action === "ruleDirect" ? "direct" : "proxy",
+  }));
+  if (!rule.values.length) {
+    toast(t("dg.err.rule", { domain }), "error", 3500);
+    return;
+  }
+  updateOption("route.customRules", [...(loadOptions().route?.customRules || []), rule]);
+  toast(t("dg.ruleAdded", { domain }), "success", 2600);
+  if (state === "connected" || state === "connecting") scheduleAutoReconnect();
+}
+
+document.getElementById("diagnose-run")?.addEventListener("click", () => ensureDiagnoseView()?.run());
+document.getElementById("diagnose-copy")?.addEventListener("click", () => ensureDiagnoseView()?.copyReport());

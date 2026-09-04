@@ -15,6 +15,9 @@ export function pathNeedsRestart(path, opts, mode) {
   if (path === "privacy.strictTunnel") return true;
   // Kill switch — WFP-фильтр, применяется вживую (см. onChange); ядро не трогает.
   if (path === "general.killSwitch") return false;
+  // Настройки экрана «Диагностика» (набор целей, закреплённые адреса) в конфиг
+  // ядра не попадают вовсе.
+  if (path.startsWith("diagnose.")) return false;
   // WARP register/reset — переразложить config нужно только если WARP активен
   if (path === "warp.registered") return !!opts?.warp?.enabled;
   // warp.deepScan и warp.autoRescan* — не идут в config sing-box, только в UI/JS-loop

@@ -1,0 +1,317 @@
+/* ─────────────────────────────────────────────────────────────
+   Ninety — «Диагностика»
+   Вердикт + матрица доступности + правая колонка с вкладками
+   (трасса / утечки / лента инцидентов). Токены общие с остальным
+   приложением: свои цвета здесь не заводим.
+   ───────────────────────────────────────────────────────────── */
+
+/* ═══ RAZBOR · прототип ═══ */
+.rz { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+
+/* ── Вердикт ── */
+.dg-verdict {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: 14px 18px 13px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-3);
+  background:
+    var(--edge-top),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, var(--ink-2)) 0%, var(--ink-1) 62%);
+  box-shadow: 0 18px 40px -28px var(--shadow-strong);
+  position: relative;
+  overflow: hidden;
+}
+.dg-verdict::before {
+  content: ""; position: absolute; inset-inline-start: 0; top: 0; bottom: 0; width: 2px;
+  background: linear-gradient(180deg, var(--accent-bright), transparent 85%);
+}
+.dg-verdict__ic {
+  width: 44px; height: 44px; border-radius: var(--r-sm);
+  display: grid; place-items: center;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  color: var(--accent-bright);
+}
+.dg-verdict__kicker {
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--accent-bright); opacity: 0.9; margin-bottom: 4px;
+}
+.dg-verdict__title {
+  font-family: var(--font-display); font-size: 17px; font-weight: 600;
+  letter-spacing: -0.01em; color: var(--text-hi); margin: 0 0 5px;
+}
+.dg-verdict__text { font-size: 12.5px; color: var(--text-mid); line-height: 1.5; max-width: 62ch; }
+.dg-verdict__text b { color: var(--text-hi); font-weight: 500; }
+.dg-verdict__cta { display: flex; flex-direction: column; gap: 7px; align-items: stretch; }
+
+/* ── Полоса фактов ── */
+.dg-facts {
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  border-top: 1px solid var(--line-2); margin-top: 11px; padding-top: 9px;
+  grid-column: 1 / -1;
+}
+.dg-fact { padding-inline: 12px; border-inline-start: 1px solid var(--line-2); min-width: 0; }
+.dg-fact:first-child { border-inline-start: 0; padding-inline-start: 0; }
+.dg-fact__k {
+  font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 3px; white-space: nowrap;
+}
+.dg-fact__v {
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-hi);
+  display: flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.dg-fact__v i {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--ok); flex: 0 0 auto;
+  box-shadow: 0 0 7px color-mix(in srgb, var(--ok) 60%, transparent);
+}
+.dg-fact__v.is-err i  { background: var(--err); box-shadow: 0 0 7px color-mix(in srgb, var(--err) 60%, transparent); }
+.dg-fact__v.is-warn i { background: var(--warn); box-shadow: 0 0 7px color-mix(in srgb, var(--warn) 60%, transparent); }
+.dg-fact__v.is-err  { color: var(--err); }
+.dg-fact__v.is-warn { color: var(--warn); }
+
+/* ── Двухколоночная сетка ── */
+.dg-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; min-height: 0; flex: 1 1 auto; }
+
+.dg-card {
+  border: 1px solid var(--line-2); border-radius: var(--r-md);
+  background: var(--edge-top), var(--ink-1);
+  display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+}
+.dg-card__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 11px 14px 10px; border-bottom: 1px solid var(--line-2);
+}
+.dg-card__title {
+  font-family: var(--font-display); font-size: 12.5px; font-weight: 600;
+  letter-spacing: 0.02em; color: var(--text-hi);
+}
+.dg-card__meta {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-lo);
+  letter-spacing: 0.03em; white-space: nowrap;
+}
+
+/* ── Матрица доступности ── */
+.dg-mx { display: flex; flex-direction: column; }
+.dg-mx__cols {
+  display: grid; grid-template-columns: minmax(0, 1fr) 56px 56px 124px 104px;
+  gap: 8px; padding: 7px 14px; align-items: center;
+  font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint);
+  background: var(--overlay-1); border-bottom: 1px solid var(--line-1);
+}
+.dg-mx__cols span:nth-child(2), .dg-mx__cols span:nth-child(3) { text-align: center; }
+.dg-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 56px 56px 124px 104px;
+  gap: 8px; padding: 9px 14px; align-items: center;
+  border-bottom: 1px solid var(--line-1);
+}
+.dg-row:last-child { border-bottom: 0; }
+.dg-row--hl { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.dg-row__name { font-size: 12.5px; color: var(--text-hi); font-weight: 500; min-width: 0; }
+.dg-row__host { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dg-pill {
+  height: 22px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 4px;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em;
+  border: 1px solid var(--line-2); background: var(--ink-2); color: var(--text-lo);
+}
+.dg-pill--ok   { color: var(--ok);   border-color: color-mix(in srgb, var(--ok) 34%, transparent);   background: color-mix(in srgb, var(--ok) 10%, var(--ink-2)); }
+.dg-pill--err  { color: var(--err);  border-color: color-mix(in srgb, var(--err) 36%, transparent);  background: color-mix(in srgb, var(--err) 11%, var(--ink-2)); }
+.dg-pill--warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 34%, transparent); background: color-mix(in srgb, var(--warn) 10%, var(--ink-2)); }
+.dg-row__verdict { min-width: 0; }
+.dg-row__txt { font-size: 11px; color: var(--text-mid); text-align: start; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dg-act {
+  flex: 0 0 auto; height: 24px; padding: 0 9px; border-radius: var(--r-xs);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background: var(--accent-soft); color: var(--accent-bright);
+  font-family: var(--font-body); font-size: 10.5px; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap;
+}
+
+/* ── Трасса ── */
+/* Своя проверка */
+.dg-probe {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px;
+  padding: 9px 14px; border-bottom: 1px solid var(--line-1); background: var(--overlay-1);
+}
+.dg-probe__field {
+  display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px;
+  border: 1px solid var(--line-3); border-radius: var(--r-sm); background: var(--ink-2);
+  color: var(--text-hi); min-width: 0;
+}
+.dg-probe__field svg { color: var(--text-faint); flex: 0 0 auto; }
+.dg-probe__field input {
+  border: 0; background: transparent; outline: none; min-width: 0; width: 100%;
+  color: var(--text-hi); font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.01em;
+}
+.dg-probe__field input::placeholder { color: var(--text-faint); letter-spacing: 0; font-family: var(--font-body); }
+.dg-probe .btn { height: 30px; }
+
+/* Раскрытая своя строка */
+.dg-row--own { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.dg-det {
+  padding: 10px 14px 11px; border-bottom: 1px solid var(--line-1);
+  background: color-mix(in srgb, var(--accent) 3.5%, var(--overlay-1));
+}
+.dg-det__grid { display: grid; grid-template-columns: 62px minmax(0, 1fr) minmax(0, 1fr); gap: 5px 12px; align-items: center; }
+.dg-det__h {
+  font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint);
+}
+.dg-det__k { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-lo); }
+.dg-det__v { font-family: var(--font-mono); font-size: 11px; color: var(--text-mid); display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dg-det__v span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dg-det__v i { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); flex: 0 0 auto; }
+.dg-det__v.is-err { color: var(--err); } .dg-det__v.is-err i { background: var(--err); }
+.dg-det__v.is-off { color: var(--text-faint); } .dg-det__v.is-off i { background: var(--ink-4); }
+.dg-det__foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line-2);
+}
+.dg-det__note { font-size: 11px; color: var(--text-mid); min-width: 0; }
+.dg-det__note b { color: var(--text-hi); font-weight: 500; }
+.dg-det__acts { display: flex; gap: 6px; flex: 0 0 auto; }
+.dg-ghost {
+  height: 24px; padding: 0 9px; border-radius: var(--r-xs); cursor: pointer;
+  border: 1px solid var(--line-3); background: var(--ink-2); color: var(--text-mid);
+  font-family: var(--font-body); font-size: 10.5px;
+}
+.dg-badge {
+  display: inline-flex; align-items: center; height: 15px; padding: 0 5px; margin-inline-end: 6px;
+  border-radius: 3px; border: 1px solid var(--line-3); background: var(--overlay-2);
+  font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.08em;
+  color: var(--text-lo); vertical-align: 1px;
+}
+.dg-tabs { display: flex; gap: 2px; }
+.dg-tab {
+  height: 24px; padding: 0 10px; border-radius: var(--r-xs); border: 1px solid transparent;
+  background: transparent; color: var(--text-lo); cursor: pointer;
+  font-family: var(--font-body); font-size: 11px; letter-spacing: 0.02em;
+}
+.dg-tab--on {
+  color: var(--text-hi); background: var(--overlay-2); border-color: var(--line-2);
+}
+.dg-tab i {
+  display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--ok); margin-inline-start: 6px; vertical-align: 1px;
+}
+.dg-tab i.warn { background: var(--warn); }
+
+/* Вердикт «чисто» */
+.dg-verdict--ok { background: var(--edge-top), linear-gradient(180deg, color-mix(in srgb, var(--ok) 6%, var(--ink-2)) 0%, var(--ink-1) 62%); }
+.dg-verdict--ok::before { background: linear-gradient(180deg, var(--ok), transparent 85%); }
+.dg-verdict--ok .dg-verdict__ic {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent); color: var(--ok);
+}
+.dg-verdict--ok .dg-verdict__kicker { color: var(--ok); }
+
+/* Утечки */
+.dg-leak {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px;
+  align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--line-1);
+}
+.dg-leak:last-of-type { border-bottom: 0; }
+.dg-leak__t { font-size: 12px; color: var(--text-hi); }
+.dg-leak__d { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dg-leak__v { font-family: var(--font-mono); font-size: 10.5px; color: var(--ok); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dg-leak__v.is-warn { color: var(--warn); }
+.dg-leak__v.is-off { color: var(--text-lo); }
+.dg-leak__v i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.dg-head-link {
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px;
+  border: 1px solid var(--line-2); border-radius: 999px; background: var(--ink-2);
+  color: var(--text-lo); font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.03em; cursor: pointer; text-transform: uppercase;
+}
+.dg-more {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 34px; margin-top: auto; border: 0; border-top: 1px solid var(--line-2);
+  background: var(--overlay-1); color: var(--text-mid); cursor: pointer;
+  font-family: var(--font-body); font-size: 11px; letter-spacing: 0.02em;
+}
+.dg-tr { padding: 6px 0 0; display: flex; flex-direction: column; min-height: 0; }
+.dg-tr__cols {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr) 46px 34px;
+  gap: 8px; padding: 4px 14px 7px;
+  font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint);
+}
+.dg-tr__cols span:nth-child(3), .dg-tr__cols span:nth-child(4) { text-align: end; }
+.dg-hop {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr) 46px 34px;
+  gap: 8px; padding: 4px 14px; align-items: center; position: relative;
+}
+.dg-hop__n { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); }
+.dg-hop__ip { font-family: var(--font-mono); font-size: 11px; color: var(--text-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dg-hop__ip small { display: block; font-family: var(--font-body); font-size: 9.5px; color: var(--text-faint); letter-spacing: 0.02em; }
+.dg-hop__rtt { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-lo); text-align: end; }
+.dg-hop__tcp { display: flex; justify-content: flex-end; }
+.dg-hop__tcp i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 7px color-mix(in srgb, var(--ok) 55%, transparent); }
+.dg-hop--dead .dg-hop__tcp i { background: var(--ink-4); box-shadow: none; }
+.dg-hop--dead .dg-hop__ip, .dg-hop--dead .dg-hop__rtt { color: var(--text-faint); }
+.dg-hop--void .dg-hop__ip { color: var(--text-faint); letter-spacing: 0.24em; }
+.dg-hop--server .dg-hop__ip { color: var(--text-hi); }
+
+.dg-break {
+  display: flex; align-items: center; gap: 8px; margin: 3px 14px 4px;
+  padding: 5px 9px; border-radius: var(--r-xs);
+  border: 1px solid color-mix(in srgb, var(--err) 40%, transparent);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  color: var(--err); font-size: 10.5px; font-weight: 500; letter-spacing: 0.01em;
+}
+.dg-break svg { flex: 0 0 auto; }
+.dg-tr__note {
+  margin-top: auto; padding: 9px 14px 11px; border-top: 1px solid var(--line-2);
+  font-size: 11px; color: var(--text-mid); line-height: 1.45;
+}
+.dg-tr__note b { color: var(--text-hi); font-weight: 500; }
+.dg-legend { display: flex; gap: 12px; align-items: center; }
+.dg-legend span { display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: var(--text-faint); letter-spacing: 0.06em; text-transform: uppercase; }
+.dg-legend i { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
+.dg-legend i.off { background: var(--ink-4); }
+
+/* ── Состояния прогона ───────────────────────────────────── */
+.dg-run { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.dg-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 34px 20px; text-align: center; color: var(--text-lo);
+}
+.dg-empty__title { font-family: var(--font-display); font-size: 14px; color: var(--text-hi); }
+.dg-empty__text { font-size: 12px; max-width: 46ch; line-height: 1.5; }
+.dg-spinner {
+  width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid var(--line-3); border-top-color: var(--accent-bright);
+  animation: dg-spin 700ms linear infinite;
+}
+@keyframes dg-spin { to { transform: rotate(360deg); } }
+.dg-card__head .dg-spinner { width: 13px; height: 13px; }
+
+/* Строка в процессе проверки: пилюли гасим, чтобы не мигали устаревшим. */
+.dg-row[data-busy="true"] .dg-pill { opacity: 0.35; }
+
+/* ── Лента инцидентов ────────────────────────────────────── */
+.dg-feed { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+.dg-inc {
+  padding: 9px 14px; border-bottom: 1px solid var(--line-1);
+}
+.dg-inc:last-child { border-bottom: 0; }
+.dg-inc__head { display: flex; align-items: baseline; gap: 8px; }
+.dg-inc__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex: 0 0 auto; }
+.dg-inc__dot--err { background: var(--err); }
+.dg-inc__dot--ok { background: var(--ok); }
+.dg-inc__dot--info { background: var(--text-faint); }
+.dg-inc__title { font-size: 12px; color: var(--text-hi); min-width: 0; }
+.dg-inc__time { margin-inline-start: auto; font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); white-space: nowrap; }
+.dg-inc__steps { margin: 5px 0 0; padding: 0 0 0 14px; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.dg-inc__step { font-size: 11px; color: var(--text-mid); position: relative; }
+.dg-inc__step::before {
+  content: ""; position: absolute; inset-inline-start: -10px; top: 6px;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--line-3);
+}
+.dg-inc__foot { margin-top: 5px; font-size: 10.5px; color: var(--text-faint); }
+.dg-feed__summary {
+  padding: 9px 14px; border-bottom: 1px solid var(--line-2);
+  font-size: 11px; color: var(--text-mid); background: var(--overlay-1);
+}
+.dg-feed__summary b { color: var(--text-hi); font-weight: 500; }

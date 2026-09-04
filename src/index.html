@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/styles/proxies-screen.css" />
     <link rel="stylesheet" href="/styles/dpi.css" />
     <link rel="stylesheet" href="/styles/routing.css" />
+    <link rel="stylesheet" href="/styles/diagnose.css" />
     <link rel="stylesheet" href="/styles/quality-chip.css" />
     <link rel="stylesheet" href="/styles/about.css" />
     <link rel="stylesheet" href="/styles/notify-ui.css" />
@@ -98,6 +99,15 @@
               </span>
               <span class="nav__label" data-i18n="nav.dpi">DPI-обход</span>
               <span class="nav__badge" id="dpi-nav-badge" hidden></span>
+            </li>
+            <li class="nav__item" data-view="diagnose">
+              <span class="nav__icon">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 12h4l2.5-6 4 13 3-9 1.7 4H22"/>
+                </svg>
+              </span>
+              <span class="nav__label" data-i18n="nav.diagnose">Диагностика</span>
+              <span class="nav__hint" id="diagnose-nav-hint"></span>
             </li>
             <li class="nav__item" data-view="logs">
               <span class="nav__icon">
@@ -371,6 +381,24 @@
             </div>
             <div class="screen__body">
               <div class="dpi" id="dpi-body"></div>
+            </div>
+          </section>
+
+          <!-- DIAGNOSE screen ─ вердикт + матрица + трасса/утечки/лента -->
+          <section class="screen" data-view="diagnose" hidden>
+            <div class="screen__head">
+              <div class="screen__head-main">
+                <div class="screen__kicker" data-i18n="dg.kicker">ДИАГНОСТИКА · REACH &amp; TRACE</div>
+                <h2 class="screen__title" data-i18n="dg.title">Диагностика</h2>
+                <div class="screen__sub" data-i18n="dg.sub">Что открывается напрямую, что — только через Ninety, и где рвётся путь до сервера.</div>
+              </div>
+              <div class="screen__actions">
+                <button class="btn btn--sm" id="diagnose-copy" type="button" data-i18n="dg.copy">Скопировать отчёт</button>
+                <button class="btn btn--sm btn--primary" id="diagnose-run" type="button" data-i18n="dg.run">Проверить</button>
+              </div>
+            </div>
+            <div class="screen__body">
+              <div id="diagnose-root"></div>
             </div>
           </section>
 
