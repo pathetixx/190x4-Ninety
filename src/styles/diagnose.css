@@ -97,22 +97,6 @@
 /* ── Матрица доступности ── */
 .dg-mx { display: flex; flex-direction: column; container-type: inline-size; }
 
-/* Узкое окно: пяти колонок не хватает места, и текст вердикта наезжал на имя
-   сервиса. Ниже порога строка перестраивается в две — сверху имя и пилюли,
-   снизу вывод и кнопка действия. */
-@container (max-width: 560px) {
-  .dg-mx__cols,
-  .dg-row { grid-template-columns: minmax(0, 1fr) 62px 62px; }
-  .dg-mx__cols span:nth-child(4),
-  .dg-mx__cols span:nth-child(5) { display: none; }
-  .dg-mx__cols,
-  .dg-row { gap: 6px; }
-  .dg-row { padding-block: 7px; row-gap: 4px; }
-  .dg-row__verdict { grid-column: 1 / -1; }
-  .dg-row__txt { text-align: start; }
-  .dg-row > div:last-child:not(:empty) { grid-column: 1 / -1; justify-self: start; }
-  .dg-row > div:last-child:empty { display: none; }
-}
 .dg-mx__cols {
   display: grid; grid-template-columns: minmax(0, 1fr) 56px 56px 124px 104px;
   gap: 8px; padding: 7px 14px; align-items: center;
@@ -152,6 +136,23 @@
   background: var(--accent-soft); color: var(--accent-bright);
   font-family: var(--font-body); font-size: 10.5px; font-weight: 500;
   display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap;
+}
+
+/* Узкое окно: пяти колонок не хватает места, и текст вердикта наезжал на имя
+   сервиса. Ниже порога строка перестраивается в две — сверху имя и пилюли,
+   снизу вывод и кнопка действия. */
+@container (max-width: 560px) {
+  .dg-mx__cols,
+  .dg-row { grid-template-columns: minmax(0, 1fr) 62px 62px; }
+  .dg-mx__cols span:nth-child(4),
+  .dg-mx__cols span:nth-child(5) { display: none; }
+  .dg-mx__cols,
+  .dg-row { gap: 6px; }
+  .dg-row { padding-block: 7px; row-gap: 4px; }
+  .dg-row__verdict { grid-column: 1 / -1; }
+  .dg-row__txt { text-align: start; }
+  .dg-row > div:last-child:not(:empty) { grid-column: 1 / -1; justify-self: start; }
+  .dg-row > div:last-child:empty { display: none; }
 }
 
 /* ── Трасса ── */
