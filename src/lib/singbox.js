@@ -689,7 +689,13 @@ function buildDns(options, protectedOutbound = "proxy", mode = "") {
 //   ip            → ip_cidr (одиночный IP нормализуем в /32, IPv6 в /128)
 //   process       → process_name (работает во ВСЕХ режимах — sing-box резолвит
 //                   процесс по локальному сокету mixed-inbound, привязки к TUN нет)
-function customRulesToSingbox(customRules, protectedOutbound = "proxy") {
+//
+// Действия node/warp уводят правило в КОНКРЕТНЫЙ аутбаунд: тег отдаёт
+// resolveTarget (замыкание buildConfig — только оно знает, какие ноды дожили до
+// конфига и поднят ли WARP). Вернул null — правило падает обратно на
+// protectedOutbound: сервер мог исчезнуть из подписки или уехать в карантин, и
+// ссылка на несуществующий тег уронила бы старт ядра целиком.
+function customRulesToSingbox(customRules, protectedOutbound = "proxy", resolveTarget = null) {
   if (!Array.isArray(customRules)) return [];
   const out = [];
   for (const r of customRules) {
@@ -713,14 +719,17 @@ function customRulesToSingbox(customRules, protectedOutbound = "proxy") {
     }
 
     if (r.action === "block") rule.action = "reject";
-    else rule.outbound = r.action === "direct" ? "direct" : protectedOutbound;
+    else if (r.action === "direct") rule.outbound = "direct";
+    else if (r.action === "node" || r.action === "warp") {
+      rule.outbound = (resolveTarget && resolveTarget(r)) || protectedOutbound;
+    } else rule.outbound = protectedOutbound;
 
     out.push(rule);
   }
   return out;
 }
 
-function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = false) {
+function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = false, resolveTarget = null) {
   const rules = [
     { action: "sniff" },
     { protocol: "dns", action: "hijack-dns" },
@@ -783,7 +792,7 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
   // «discord.com → через VPN», созданное пользователем вручную, молча не
   // работало — совпадение находилось раньше, в блоке split. Настройка split
   // остаётся базой, но явное правило пользователя её перекрывает.
-  rules.push(...customRulesToSingbox(options.route?.customRules, protectedOutbound));
+  rules.push(...customRulesToSingbox(options.route?.customRules, protectedOutbound, resolveTarget));
 
   if (mode === "tun" && options.route?.tunSplitDiscord) {
     rules.push({ process_name: DISCORD_PROCESS_NAMES, outbound: "direct" });
@@ -1316,8 +1325,34 @@ export function buildConfig({
   }
 
   const protectedOutbound = warpEndpoint ? "warp" : "proxy";
-  const route = buildRoute(opts, effectiveMode, protectedOutbound, runtime.strictPrivacy);
   const useUrltest = nodes.length >= 2;
+
+  // Правило «через конкретный сервер» (action:"node") хранит ссылку на ноду, а
+  // не готовый тег: на одной ноде подписки тег вообще другой ("proxy", группы
+  // нет), а карантин и usableNodes могли выбросить ноду из этой сборки. Карту
+  // строим по тем нодам, что реально доехали до конфига, и ищем сначала по
+  // тегу-хешу, затем по имени. Не нашли — resolveRuleTarget вернёт null, и
+  // правило уйдёт в protectedOutbound вместо ссылки на несуществующий тег.
+  const outboundByNodeTag = new Map();
+  const outboundByNodeName = new Map();
+  nodes.forEach((node, i) => {
+    const actual = useUrltest ? nodeTag(i, node) : "proxy";
+    outboundByNodeTag.set(nodeTag(i, node), actual);
+    const name = String(node?.name || "").trim();
+    if (name && !outboundByNodeName.has(name)) outboundByNodeName.set(name, actual);
+  });
+  const resolveRuleTarget = (rule) => {
+    // WARP как цель существует, только когда endpoint собран: иначе тега "warp"
+    // в конфиге нет вовсе.
+    if (rule?.action === "warp") return warpEndpoint ? "warp" : null;
+    if (rule?.action !== "node") return null;
+    const tag = String(rule?.target?.tag || "").trim();
+    if (tag && outboundByNodeTag.has(tag)) return outboundByNodeTag.get(tag);
+    const name = String(rule?.target?.name || "").trim();
+    return (name && outboundByNodeName.get(name)) || null;
+  };
+
+  const route = buildRoute(opts, effectiveMode, protectedOutbound, runtime.strictPrivacy, resolveRuleTarget);
   // WireGuard-ноды собираются в endpoints, остальные — в outbounds. Массив
   // общий и по индексам совпадает с nodes: теги, группы и карта «объект → нода»
   // обязаны видеть один и тот же порядок, иначе диагностика начнёт называть

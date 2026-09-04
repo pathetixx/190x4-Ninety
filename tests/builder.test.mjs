@@ -947,3 +947,127 @@ test("wireguard: WARP поверх wireguard-ноды не теряет ни о�
   assert.equal(config.route.final, "warp");
   validateConfigReferences(config);
 });
+
+// ── Мульти-выход: правило → конкретный сервер ──────────────────────────────
+// Тег ноды считается хешем её содержимого, поэтому правило хранит именно его.
+// Здесь проверяем всю цепочку: ссылка правила → тег в route.rules → тег реально
+// существует среди outbounds (иначе ядро не встаёт).
+const nodeRule = (over = {}) => ({
+  id: "multi",
+  enabled: true,
+  type: "domain",
+  match: "suffix",
+  values: ["stream.example"],
+  action: "node",
+  ...over,
+});
+
+const findRule = (config, suffix) =>
+  config.route.rules.find((r) => r.domain_suffix?.includes(suffix));
+
+test("мульти-выход: правило уходит в конкретную ноду подписки", () => {
+  const nodes = [vlessNode({ name: "A" }), vlessNode({ name: "B", host: "b.example.com" })];
+  const opts = structuredClone(DEFAULT_OPTIONS);
+  opts.route.customRules = [nodeRule({ target: { tag: nodeTag(1, nodes[1]), name: "B" } })];
+
+  const { config } = buildConfig({
+    source: { kind: "sub", subscription: { name: "S" }, nodes },
+    mode: "proxy",
+    options: opts,
+  });
+
+  assert.equal(findRule(config, "stream.example").outbound, nodeTag(1, nodes[1]));
+  assert.ok(validateConfigReferences(config));
+});
+
+test("мульти-выход: имя ноды — запасной ключ, когда тег уехал", () => {
+  const nodes = [vlessNode({ name: "A" }), vlessNode({ name: "B", host: "b.example.com" })];
+  const opts = structuredClone(DEFAULT_OPTIONS);
+  // Провайдер поменял параметры ноды: хеш содержимого другой, имя прежнее.
+  opts.route.customRules = [nodeRule({ target: { tag: "node-staleHash", name: "B" } })];
+
+  const { config } = buildConfig({
+    source: { kind: "sub", subscription: { name: "S" }, nodes },
+    mode: "proxy",
+    options: opts,
+  });
+
+  assert.equal(findRule(config, "stream.example").outbound, nodeTag(1, nodes[1]));
+});
+
+test("мульти-выход: исчезнувший сервер деградирует в общий туннель", () => {
+  const nodes = [vlessNode({ name: "A" })];
+  const opts = structuredClone(DEFAULT_OPTIONS);
+  opts.route.customRules = [nodeRule({ target: { tag: "node-gone", name: "Z" } })];
+
+  const { config } = buildConfig({
+    source: { kind: "sub", subscription: { name: "S" }, nodes },
+    mode: "proxy",
+    options: opts,
+  });
+
+  assert.equal(findRule(config, "stream.example").outbound, "proxy");
+  assert.ok(validateConfigReferences(config));
+});
+
+test("мульти-выход: на одной ноде тег группы не существует — правило идёт в proxy", () => {
+  const node = vlessNode({ name: "Solo" });
+  const opts = structuredClone(DEFAULT_OPTIONS);
+  opts.route.customRules = [nodeRule({ target: { tag: nodeTag(0, node), name: "Solo" } })];
+
+  const { config } = buildConfig({
+    source: { kind: "single", profile: node },
+    mode: "proxy",
+    options: opts,
+  });
+
+  assert.equal(findRule(config, "stream.example").outbound, "proxy");
+  assert.ok(validateConfigReferences(config));
+});
+
+test("мульти-выход: action warp уходит в warp, а без WARP — в общий туннель", () => {
+  const opts = structuredClone(DEFAULT_OPTIONS);
+  opts.route.customRules = [nodeRule({ action: "warp", target: null })];
+
+  const withoutWarp = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "proxy",
+    options: opts,
+  }).config;
+  assert.equal(findRule(withoutWarp, "stream.example").outbound, "proxy");
+
+  const warpOpts = structuredClone(opts);
+  warpOpts.warp.enabled = true;
+  warpOpts.warp.mode = "chain";
+  const withWarp = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "proxy",
+    options: warpOpts,
+    warpInfo: {
+      private_key: "priv",
+      peer_public_key: "peer",
+      client_id: "AAAA",
+      local_ipv4: "172.16.0.2",
+    },
+  }).config;
+  assert.equal(findRule(withWarp, "stream.example").outbound, "warp");
+  assert.ok(validateConfigReferences(withWarp));
+});
+
+test("мульти-выход: строгий туннель не выпускает трафик во второй сервер", () => {
+  const nodes = [vlessNode({ name: "A" }), vlessNode({ name: "B", host: "b.example.com" })];
+  const opts = structuredClone(DEFAULT_OPTIONS);
+  opts.route.customRules = [nodeRule({ target: { tag: nodeTag(1, nodes[1]), name: "B" } })];
+
+  const { config } = strictBuild({
+    source: { kind: "sub", subscription: { name: "S" }, nodes },
+    mode: "tun",
+    options: opts,
+    selectedNodeTag: nodeTag(0, nodes[0]),
+  });
+
+  // В строгом режиме в конфиге остаётся одна нода: правило обязано схлопнуться
+  // на неё, а не увести трафик мимо выбранного сервера.
+  assert.equal(findRule(config, "stream.example").outbound, "proxy");
+  assert.ok(validateConfigReferences(config));
+});

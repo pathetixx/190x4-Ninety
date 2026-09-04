@@ -250,6 +250,18 @@
 }
 .rr-action--block .rr-action__dot { background: var(--err); }
 
+/* «Через сервер» и «Через WARP» — тот же акцент, что и «через VPN», но
+   заливка спокойнее: это уточнение маршрута, а не другой класс действия. */
+.rr-action--node,
+.rr-action--warp {
+  background: color-mix(in srgb, var(--accent) 9%, var(--ink-2));
+  color: var(--text-hi);
+  border-color: color-mix(in srgb, var(--accent) 26%, transparent);
+  max-width: 220px;
+}
+.rr-action--node .rr-action__dot,
+.rr-action--warp .rr-action__dot { background: var(--accent-bright); }
+
 /* действия над строкой */
 .rr-rowacts { display: inline-flex; gap: 2px; }
 .rr-iconbtn {
@@ -588,6 +600,27 @@
 
 /* ═══ ВЫБОР ДЕЙСТВИЯ (3 крупные кнопки) ══════════════════════ */
 .rr-actions-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+/* Выбор конкретного сервера — под пикером действия, показывается только для
+   действия «через сервер» (routing-view переключает hidden). */
+.rr-nodepick { margin-top: 10px; }
+/* Явный [hidden]: без него правило .rr-nodepick перебивает атрибут. */
+.rr-nodepick[hidden] { display: none; }
+.rr-nodepick__label { margin-bottom: 6px; }
+.rr-nodepick__hint {
+  margin-top: 10px; padding: 9px 11px;
+  border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  background: var(--ink-2); color: var(--text-lo); font-size: 12px; line-height: 1.4;
+}
+.rr-select {
+  width: 100%; height: 36px; padding: 0 10px;
+  border: 1px solid var(--line-3); border-radius: var(--r-sm);
+  background: var(--ink-2); color: var(--text-hi);
+  font-family: var(--font-body); font-size: 13px;
+  appearance: none; cursor: pointer;
+}
+.rr-select:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.rr-select option { background: var(--ink-1); color: var(--text-hi); }
 .rr-apick {
   display: flex; flex-direction: column; align-items: center; gap: 7px;
   padding: 14px 8px 12px;
@@ -729,6 +762,8 @@
 .rr-dot--proxy  { background: var(--accent-bright); box-shadow: 0 0 8px var(--accent-glow); }
 .rr-dot--direct { background: var(--text-lo); }
 .rr-dot--block  { background: var(--err); }
+.rr-dot--node,
+.rr-dot--warp   { background: var(--accent-bright); opacity: 0.65; }
 .rr-appgrp__count {
   min-width: 22px; text-align: center;
   font-family: var(--font-mono);

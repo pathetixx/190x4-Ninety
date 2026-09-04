@@ -7,15 +7,33 @@
 // Правило:
 //   { id, enabled, type:"domain"|"ip"|"process",
 //     match:"suffix"|"exact"|"keyword" (только domain),
-//     values:[…], action:"proxy"|"direct"|"block" }
+//     values:[…], action:"proxy"|"direct"|"block"|"node"|"warp",
+//     target:{ tag, name } — только для action:"node" }
 
 import { uid } from "/lib/uid.js";
 
 export const RULE_TYPES = ["domain", "ip", "process"];
 export const DOMAIN_MATCHES = ["suffix", "exact", "keyword"];
-export const RULE_ACTIONS = ["proxy", "direct", "block"];
+export const RULE_ACTIONS = ["proxy", "direct", "block", "node", "warp"];
+
+// Действия, уводящие трафик в конкретный аутбаунд, а не в общий «через VPN».
+// "node" требует target, "warp" — включённого WARP: и то, и другое может
+// отсутствовать в момент сборки конфига, поэтому оба деградируют до "proxy"
+// (см. resolveRuleTarget в singbox.js) вместо падения ядра на пустом теге.
+export const TARGETED_ACTIONS = ["node", "warp"];
 
 // Подписи для UI — в каталоге i18n (rr.type/rr.match/rr.action), берёт routing-view.js.
+
+// Ссылка правила на конкретный сервер. Тег ноды — хеш её содержимого
+// (singbox.js::nodeTag), поэтому переупорядочивание подписки правило переживает.
+// Имя храним вторым ключом: если провайдер поменял параметры ноды, хеш уедет, а
+// человекочитаемое имя обычно остаётся тем же — правило не осиротеет молча.
+export function normalizeTarget(target) {
+  const tag = String(target?.tag || "").trim().slice(0, 128);
+  const name = String(target?.name || "").trim().slice(0, 200);
+  if (!tag && !name) return null;
+  return { ...(tag ? { tag } : {}), ...(name ? { name } : {}) };
+}
 
 // Новое правило с дефолтами (для кнопки «Добавить»).
 export function newRule(partial = {}) {
@@ -160,7 +178,11 @@ export function isValidValue(type, v, match = "suffix") {
 export function sanitizeRule(rule) {
   const type = RULE_TYPES.includes(rule?.type) ? rule.type : "domain";
   const match = type === "domain" && DOMAIN_MATCHES.includes(rule?.match) ? rule.match : "suffix";
-  const action = RULE_ACTIONS.includes(rule?.action) ? rule.action : "proxy";
+  const requested = RULE_ACTIONS.includes(rule?.action) ? rule.action : "proxy";
+  // «Через сервер» без цели неотличимо от «через VPN», но в конфиг уехало бы с
+  // пустым тегом и уронило старт ядра. Такое правило деградируем прямо здесь.
+  const target = requested === "node" ? normalizeTarget(rule?.target) : null;
+  const action = requested === "node" && !target ? "proxy" : requested;
   const seen = new Set();
   const values = [];
   let dropped = 0;
@@ -182,6 +204,7 @@ export function sanitizeRule(rule) {
       ...(type === "domain" ? { match } : {}),
       values,
       action,
+      ...(target ? { target } : {}),
     },
     dropped,
   };

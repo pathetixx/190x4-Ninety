@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isValidValue, normalizeIp, normalizeValue, sanitizeRule } from "/lib/routing-rules.js";
+import { isValidValue, normalizeIp, normalizeTarget, normalizeValue, sanitizeRule } from "/lib/routing-rules.js";
 
 test("routing rules: IPv6 validation accepts real addresses only", () => {
   assert.equal(normalizeIp("2001:db8::1"), "2001:db8::1/128");
@@ -93,4 +93,40 @@ test("routing rules: IPv4 с ведущими нулями канонизиру�
   });
   assert.equal(dropped, 1, "восьмеричная запись 0300.* должна отбрасываться");
   assert.deepEqual(rule.values, ["192.168.1.100/32"]);
+});
+
+// ── Мульти-выход ───────────────────────────────────────────────────────────
+test("routing rules: правило «через сервер» без цели деградирует в proxy", () => {
+  const { rule } = sanitizeRule({
+    id: "r1", enabled: true, type: "domain", match: "suffix",
+    values: ["example.com"], action: "node",
+  });
+  // Пустой тег уехал бы в конфиг ядра как outbound:"" и уронил старт целиком.
+  assert.equal(rule.action, "proxy");
+  assert.equal(rule.target, undefined);
+});
+
+test("routing rules: цель правила нормализуется и переживает sanitize", () => {
+  const { rule } = sanitizeRule({
+    id: "r1", enabled: true, type: "domain", match: "suffix",
+    values: ["example.com"], action: "node",
+    target: { tag: "  node-abc123  ", name: "  DE-01  " },
+  });
+  assert.equal(rule.action, "node");
+  assert.deepEqual(rule.target, { tag: "node-abc123", name: "DE-01" });
+});
+
+test("routing rules: action warp цели не требует", () => {
+  const { rule } = sanitizeRule({
+    id: "r1", enabled: true, type: "process",
+    values: ["Discord.exe"], action: "warp",
+  });
+  assert.equal(rule.action, "warp");
+  assert.equal(rule.target, undefined);
+});
+
+test("routing rules: нечитаемая цель — это отсутствие цели", () => {
+  assert.equal(normalizeTarget(null), null);
+  assert.equal(normalizeTarget({ tag: "   ", name: "" }), null);
+  assert.deepEqual(normalizeTarget({ name: "Only name" }), { name: "Only name" });
 });

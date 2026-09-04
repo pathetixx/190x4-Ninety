@@ -13,6 +13,7 @@ import { loadOptions, getOptionsSnapshot, updateOption } from "/lib/options.js";
 import {
   newRule, normalizeValue, isValidValue, sanitizeRule,
 } from "/lib/routing-rules.js";
+import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { listNetworkProcesses, getConnections } from "/lib/clash-api.js";
 import { toast } from "/lib/toast.js";
 import { escapeAttr, escapeHtml as esc } from "/lib/esc.js";
@@ -21,7 +22,63 @@ import { t, getLang } from "/lib/i18n/index.js";
 // Подписи правил — из каталога i18n (строятся в рантайме под текущий язык).
 const TYPE_LABELS = () => ({ domain: t("rr.type.domain"), ip: t("rr.type.ip"), process: t("rr.type.process") });
 const MATCH_LABELS = () => ({ suffix: t("rr.match.suffix"), exact: t("rr.match.exact"), keyword: t("rr.match.keyword") });
-const ACTION_LABELS = () => ({ proxy: t("rr.action.proxy"), direct: t("rr.action.direct"), block: t("rr.action.block") });
+const ACTION_LABELS = () => ({
+  proxy: t("rr.action.proxy"), direct: t("rr.action.direct"), block: t("rr.action.block"),
+  node: t("rr.action.node"), warp: t("rr.action.warp"),
+});
+const RULE_ACTION_ORDER = ["proxy", "direct", "block", "node", "warp"];
+
+// Серверы активного источника — цели для действия «через сервер». Тег считаем
+// тем же nodeTag, что и сборщик конфига: правило хранит именно его, поэтому
+// переупорядочивание подписки цель не ломает. Источник может быть не готов
+// (нет подписки, стор ещё не прогрет) — тогда просто пустой список.
+let nodesCache = { at: 0, list: [] };
+function availableNodes() {
+  const now = Date.now();
+  if (now - nodesCache.at < 3000) return nodesCache.list;
+  try {
+    const src = getActiveSource();
+    if (!src) return [];
+    const list = src.kind === "sub" ? (src.nodes || []) : [src.profile];
+    nodesCache = {
+      at: now,
+      list: list.filter(Boolean).map((node, i) => ({
+        tag: nodeTag(i, node),
+        name: String(node?.name || node?.host || "").trim() || `#${i + 1}`,
+      })),
+    };
+    return nodesCache.list;
+  } catch {
+    nodesCache = { at: now, list: [] };
+    return nodesCache.list;
+  }
+}
+
+// Тег outbound'а из clash → вид действия для чипа монитора. С мульти-выходом
+// соединение может уйти в конкретную ноду (тег node-<хеш>) — без этой развёртки
+// монитор рисовал бы его как обычное «через VPN».
+function outboundKind(outbound) {
+  const raw = String(outbound || "");
+  if (raw.startsWith("node-")) return "node";
+  return ACTION_LABELS()[raw] ? raw : "proxy";
+}
+
+function outboundLabel(outbound) {
+  const raw = String(outbound || "");
+  if (raw.startsWith("node-")) {
+    const hit = availableNodes().find((n) => n.tag === raw);
+    return hit ? t("rr.action.nodeNamed", { name: hit.name }) : ACTION_LABELS().node;
+  }
+  return ACTION_LABELS()[outboundKind(raw)];
+}
+
+// Подпись правила «через сервер»: имя цели, а не абстрактное «через сервер» —
+// иначе список из трёх таких правил выглядит одинаково.
+function actionLabelFor(rule) {
+  if (rule?.action !== "node") return ACTION_LABELS()[rule?.action] || ACTION_LABELS().proxy;
+  const name = String(rule?.target?.name || "").trim();
+  return name ? t("rr.action.nodeNamed", { name }) : ACTION_LABELS().node;
+}
 const REGION_SHORT = () => ({ ru: t("rr.region.ru"), cn: t("rr.region.cn"), ir: t("rr.region.ir"), tr: t("rr.region.tr"), by: t("rr.region.by") });
 
 /* ── иконки (Lucide-стиль, currentColor) ── */
@@ -44,9 +101,11 @@ const I = {
   play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5v14l12-7z"/></svg>',
   info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
   chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
+  server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
+  warp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 10-12h-7l1-8z"/></svg>',
 };
 const TYPE_ICON = { domain: I.globe, ip: I.net, process: I.app };
-const ACTION_ICON = { proxy: I.vpn, direct: I.direct, block: I.block };
+const ACTION_ICON = { proxy: I.vpn, direct: I.direct, block: I.block, node: I.server, warp: I.warp };
 
 /* ── helpers ── */
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -157,9 +216,9 @@ export function mountRoutingRules(rootEl, opts = {}) {
   const $ = (sel) => rootEl.querySelector(sel);
 
   /* ═══ СПИСОК ПРАВИЛ ═══ */
-  function actionPill(action) {
-    const a = ACTION_LABELS()[action] ? action : "proxy";
-    return '<span class="rr-action rr-action--' + escapeAttr(a) + '"><span class="rr-action__dot"></span>' + esc(ACTION_LABELS()[a]) + "</span>";
+  function actionPill(rule) {
+    const a = ACTION_LABELS()[rule?.action] ? rule.action : "proxy";
+    return '<span class="rr-action rr-action--' + escapeAttr(a) + '"><span class="rr-action__dot"></span>' + esc(actionLabelFor({ ...rule, action: a })) + "</span>";
   }
   function ruleRow(rule, idx) {
     const row = el("div", "rr-rule");
@@ -180,7 +239,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
       '<button class="switch" data-on="' + (rule.enabled !== false) + '" data-act="toggle" type="button" aria-label="' + esc(t("rr.enableRule")) + '"></button>' +
       '<span class="rr-type">' + TYPE_ICON[rule.type] + esc(TYPE_LABELS()[rule.type] || rule.type) + "</span>" +
       '<div class="rr-values">' + chips + matchNote + "</div>" +
-      actionPill(rule.action) +
+      actionPill(rule) +
       '<div class="rr-rowacts">' +
         '<button class="rr-iconbtn" data-act="edit" type="button" aria-label="' + esc(t("rr.edit")) + '">' + I.edit + "</button>" +
         '<button class="rr-iconbtn rr-iconbtn--danger" data-act="del" type="button" aria-label="' + esc(t("rr.delete")) + '">' + I.trash + "</button>" +
@@ -308,15 +367,29 @@ export function mountRoutingRules(rootEl, opts = {}) {
     // c) действие
     const actField = el("div", "rr-field", `<div class="rr-label">${esc(t("rr.fieldAction"))}</div>`);
     const pick = el("div", "rr-actions-pick");
-    ["proxy", "direct", "block"].forEach((a) => {
+    const nodes = availableNodes();
+    // Поле выбора сервера живёт всегда, но показывается только под действием
+    // «через сервер»: перерисовывать всю модалку на каждый клик по действию
+    // значило бы терять уже введённые значения.
+    const nodeField = nodeTargetField(nodes);
+    RULE_ACTION_ORDER.forEach((a) => {
       const b = el("button", "rr-apick");
       b.type = "button";
       b.dataset.act = a; b.dataset.on = String(draft.action === a);
       b.innerHTML = '<span class="rr-apick__ico">' + ACTION_ICON[a] + '</span><span class="rr-apick__t">' + esc(ACTION_LABELS()[a]) + "</span>";
-      b.addEventListener("click", () => { draft.action = a; pick.querySelectorAll(".rr-apick").forEach((x) => { x.dataset.on = String(x.dataset.act === a); }); });
+      b.addEventListener("click", () => {
+        draft.action = a;
+        if (a !== "node") delete draft.target;
+        else if (!draft.target && nodes.length) draft.target = { tag: nodes[0].tag, name: nodes[0].name };
+        pick.querySelectorAll(".rr-apick").forEach((x) => { x.dataset.on = String(x.dataset.act === a); });
+        syncNodeField(nodeField);
+        updateSave();
+      });
       pick.appendChild(b);
     });
     actField.appendChild(pick);
+    actField.appendChild(nodeField);
+    syncNodeField(nodeField);
     body.appendChild(actField);
 
     updateSave();
@@ -516,10 +589,55 @@ export function mountRoutingRules(rootEl, opts = {}) {
     return box;
   }
 
+  // Селект серверов для действия «через сервер». Пустой источник — это не
+  // ошибка ввода, а состояние приложения (подписки ещё нет), поэтому вместо
+  // пустого селекта показываем подсказку и не даём сохранить такое правило.
+  function nodeTargetField(nodes) {
+    const box = el("div", "rr-nodepick");
+    if (!nodes.length) {
+      box.innerHTML = `<div class="rr-nodepick__hint">${esc(t("rr.nodeNone"))}</div>`;
+      return box;
+    }
+    box.innerHTML = `<div class="rr-label rr-nodepick__label">${esc(t("rr.fieldNode"))}</div>`;
+    const sel = el("select", "rr-select");
+    sel.setAttribute("aria-label", t("rr.fieldNode"));
+    // Цель, сохранённая раньше, могла исчезнуть из подписки: добавляем её в
+    // список отдельным пунктом, иначе селект молча подменил бы сервер на первый
+    // в списке, а пользователь узнал бы об этом только по трафику.
+    const known = new Set(nodes.map((n) => n.tag));
+    const options = [...nodes];
+    const targetTag = String(draft.target?.tag || "");
+    if (targetTag && !known.has(targetTag)) {
+      options.unshift({ tag: targetTag, name: t("rr.nodeMissing", { name: draft.target?.name || "—" }), missing: true });
+    }
+    for (const node of options) {
+      const opt = el("option", null, esc(node.name));
+      opt.value = node.tag;
+      if (node.tag === targetTag) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener("change", () => {
+      const picked = options.find((n) => n.tag === sel.value);
+      draft.target = picked ? { tag: picked.tag, name: picked.missing ? draft.target?.name || "" : picked.name } : null;
+      updateSave();
+    });
+    box.appendChild(sel);
+    return box;
+  }
+
+  function syncNodeField(field) {
+    if (field) field.hidden = draft.action !== "node";
+  }
+
   function updateSave() {
     const save = document.getElementById("rr-save");
     if (!save) return;
-    save.disabled = !draft.values.some((v) => isValidValue(draft.type, v, draft.match));
+    const hasValues = draft.values.some((v) => isValidValue(draft.type, v, draft.match));
+    // «Через сервер» без выбранной цели сохранять нельзя: sanitizeRule молча
+    // деградировал бы его до «через VPN», и правило делало бы не то, что видел
+    // пользователь в момент сохранения.
+    const targeted = draft.action !== "node" || !!String(draft.target?.tag || draft.target?.name || "").trim();
+    save.disabled = !hasValues || !targeted;
   }
 
   function saveDraft() {
@@ -535,12 +653,12 @@ export function mountRoutingRules(rootEl, opts = {}) {
   /* ═══ МОНИТОР СОЕДИНЕНИЙ (группировка по приложению, Throne-style) ═══ */
   const UNKNOWN_KEY = "__ninety_unknown__"; // ведро для соединений без определённого процесса
   function routeChip(outbound) {
-    const ob = ACTION_LABELS()[outbound] ? outbound : "proxy";
-    return '<span class="rr-action rr-action--' + escapeAttr(ob) + '"><span class="rr-action__dot"></span>' + esc(ACTION_LABELS()[ob]) + "</span>";
+    const kind = outboundKind(outbound);
+    return '<span class="rr-action rr-action--' + escapeAttr(kind) + '"><span class="rr-action__dot"></span>' + esc(outboundLabel(outbound)) + "</span>";
   }
   // Сводка маршрутов группы: по точке на каждый различный outbound.
   function routeDots(conns) {
-    const set = [...new Set(conns.map((c) => (ACTION_LABELS()[c.outbound] ? c.outbound : "proxy")))];
+    const set = [...new Set(conns.map((c) => outboundKind(c.outbound)))];
     return '<span class="rr-appgrp__dots">' +
       set.map((o) => '<span class="rr-dot rr-dot--' + escapeAttr(o) + '" title="' + escapeAttr(ACTION_LABELS()[o]) + '"></span>').join("") +
       "</span>";
