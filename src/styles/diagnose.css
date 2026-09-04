@@ -257,13 +257,13 @@
 }
 .dg-tr { padding: 6px 0 0; display: flex; flex-direction: column; min-height: 0; }
 .dg-tr__cols {
-  display: grid; grid-template-columns: 20px minmax(0, 1fr) 46px 34px;
+  display: grid; grid-template-columns: 20px minmax(0, 1fr) 52px;
   gap: 8px; padding: 4px 14px 7px;
   font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint);
 }
-.dg-tr__cols span:nth-child(3), .dg-tr__cols span:nth-child(4) { text-align: end; }
+.dg-tr__cols span:nth-child(3) { text-align: end; }
 .dg-hop {
-  display: grid; grid-template-columns: 20px minmax(0, 1fr) 46px 34px;
+  display: grid; grid-template-columns: 20px minmax(0, 1fr) 52px;
   gap: 8px; padding: 4px 14px; align-items: center; position: relative;
 }
 .dg-hop__n { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); }
@@ -277,6 +277,13 @@
 .dg-hop--void .dg-hop__ip { color: var(--text-faint); letter-spacing: 0.24em; }
 .dg-hop--server .dg-hop__ip { color: var(--text-hi); }
 
+/* Соединение на порт открыто — спокойная строка, а не тревожная плашка. */
+.dg-tr__tcp {
+  margin: 3px 14px; padding: 4px 9px; border-radius: var(--r-xs);
+  border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  color: var(--ok); font-size: 10.5px; font-weight: 500;
+}
 .dg-break {
   display: flex; align-items: center; gap: 8px; margin: 3px 14px 4px;
   padding: 5px 9px; border-radius: var(--r-xs);

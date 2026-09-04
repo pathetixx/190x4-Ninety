@@ -20,7 +20,8 @@ const trace = (over = {}) => ({
   port: 443,
   icmpReached: true,
   tcpOpen: false,
-  filterHop: null,
+  tcp: { state: "silent", ms: 1200 },
+  control: { state: "open", ms: 20 },
   hops: [
     { ttl: 1, rttMs: 1 },
     { ttl: 2, rttMs: 3 },
@@ -31,25 +32,43 @@ const trace = (over = {}) => ({
 
 test("вердикт: фильтр в пути важнее всего остального", () => {
   const verdict = buildVerdict({
-    trace: trace({ filterHop: 2 }),
+    trace: trace(),
     reach: [row("a", "timeout", "ok"), row("b", "timeout", "ok")],
     leaks: { ipv6Open: { state: "warn" } },
   });
   assert.equal(verdict.kind, "filterInPath");
   assert.equal(verdict.severity, "err");
   assert.equal(verdict.action, "dpi");
-  assert.equal(verdict.params.hop, 2);
+  assert.equal(verdict.params.ip, "185.0.0.1");
 });
 
-test("вердикт: молчание на последнем хопе — это сервер, а не фильтр", () => {
-  const verdict = buildVerdict({ trace: trace({ filterHop: 3 }) });
+test("вердикт: явный отказ порта — это сервер, а не фильтр", () => {
+  const verdict = buildVerdict({ trace: trace({ tcp: { state: "refused", ms: 30 } }) });
   assert.equal(verdict.kind, "serverPortSilent");
   assert.equal(verdict.action, "switchNode");
 });
 
 test("вердикт: путь до сервера не доходит вовсе", () => {
-  const verdict = buildVerdict({ trace: trace({ filterHop: 3, icmpReached: false }) });
+  const verdict = buildVerdict({ trace: trace({ icmpReached: false }) });
   assert.equal(verdict.kind, "serverUnreachable");
+});
+
+test("вердикт: мёртвый контрольный адрес переводит стрелки на сеть", () => {
+  // Контрольная проба нужна ровно для этого: без неё «не пускает к серверу» и
+  // «в сети вообще нет TCP» неразличимы, и вердикт врал бы про сервер.
+  const verdict = buildVerdict({ trace: trace({ control: { state: "silent", ms: 1200 } }) });
+  assert.equal(verdict.kind, "localNetwork");
+  assert.equal(verdict.action, null);
+});
+
+test("вердикт: открытый порт не создаёт вердикта по трассе", () => {
+  const clean = [row("a", "ok", "ok")];
+  const verdict = buildVerdict({
+    trace: trace({ tcpOpen: true, tcp: { state: "open", ms: 44 } }),
+    reach: clean,
+    connected: true,
+  });
+  assert.equal(verdict.kind, "clean");
 });
 
 test("вердикт: сеть блокирует часть интернета, туннель её открывает", () => {
@@ -115,12 +134,13 @@ test("строки-хелперы делят матрицу по виновни�
 
 test("факты вердикта собираются из того, что реально померили", () => {
   const facts = verdictFacts({
-    trace: trace({ tcpOpen: true }),
+    trace: trace({ tcpOpen: true, tcp: { state: "open", ms: 44 } }),
     leaks: { dnsInTunnel: { state: "ok" }, ipv6Open: { state: "ok" }, externalIp: { state: "ok", detail: "1.2.3.4" } },
     reach: [row("a", "ok", "ok"), row("b", "ok", "timeout")],
   });
   const byKey = Object.fromEntries(facts.map((f) => [f.key, f]));
   assert.equal(byKey.trace.state, "ok");
+  assert.equal(byKey.trace.value, "44");
   assert.equal(byKey.ip.value, "1.2.3.4");
   assert.equal(byKey.reach.value, "1/2");
   assert.equal(verdictFacts({}).length, 0);
@@ -140,7 +160,8 @@ test("счётчик находок: строка с 403 считается од
 test("счётчик находок: трасса и утечки добавляют свои", () => {
   const base = { reach: [row("fine", "ok", "ok")] };
   assert.equal(countFindings(base), 0);
-  assert.equal(countFindings({ ...base, trace: trace({ filterHop: 2 }) }), 1);
+  assert.equal(countFindings({ ...base, trace: trace() }), 1);
+  assert.equal(countFindings({ ...base, trace: trace({ tcpOpen: true }) }), 0);
   assert.equal(
     countFindings({ ...base, leaks: { ipv6Open: { state: "warn" }, dnsInTunnel: { state: "ok" } } }),
     1,

@@ -873,7 +873,7 @@ export const it = {
       },
       filterInPath: {
         title: "La connessione viene tagliata lungo il percorso",
-        text: "I pacchetti arrivano al server, ma la connessione muore all'hop {hop} — ancora dentro la rete del tuo operatore, non al server.",
+        text: "I pacchetti arrivano a {ip}, ma la connessione alla porta viene inghiottita in silenzio, mentre l'indirizzo di controllo si apre.",
       },
       serverPortSilent: {
         title: "Il server tace sulla sua porta",
@@ -906,6 +906,10 @@ export const it = {
       ipv6Open: {
         title: "IPv6 è aperto fuori dal tunnel",
         text: "Questa macchina raggiunge IPv6 aggirando il tunnel — parte del traffico può uscire fuori da esso.",
+      },
+      localNetwork: {
+        title: "Su questa rete il TCP non funziona",
+        text: "Non si apre nemmeno l'indirizzo di controllo. Non è il server: si rompe la rete stessa — Wi-Fi, router o operatore.",
       },
     },
     action: {
@@ -983,11 +987,14 @@ export const it = {
     },
     trace: {
       node: "Nodo",
-      filterHere: "Qui la connessione non passa più",
+      tcpOpen: "Porta {port} aperta · {ms} ms",
+      tcpRefused: "La porta {port} risponde con un rifiuto",
+      tcpSilent: "La connessione alla porta {port} non passa",
       noEndpoint: "La traccia comparirà quando sarà scelto un server.",
       noteOpen: "Il percorso verso il server è aperto da capo a fondo e la connessione si stabilisce.",
       noteFiltered: "Il server risponde al ping — è vivo. Viene tagliata solo la connessione, e nella rete dell'operatore.",
       noteUnreachable: "Nessun pacchetto ha raggiunto il server: è spento o irraggiungibile dalla tua rete.",
+      noteLocalNetwork: "Anche l'indirizzo di controllo è fallito: il problema è la rete, non il server.",
     },
     leaks: {
       dnsInTunnel: "Richieste DNS",

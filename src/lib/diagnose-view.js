@@ -563,28 +563,35 @@ export function mountDiagnoseView(root, {
       return;
     }
     const cols = el("div", "dg-tr__cols",
-      `<span>#</span><span>${esc(t("dg.trace.node"))}</span><span>ICMP</span><span>TCP</span>`);
+      `<span>#</span><span>${esc(t("dg.trace.node"))}</span><span>ICMP</span>`);
     rightCard.appendChild(cols);
 
     for (const hop of state.trace.hops || []) {
-      const dead = hop.tcp !== "open" && hop.tcp !== "answered";
-      const line = el("div", `dg-hop${dead ? " dg-hop--dead" : ""}${hop.address ? "" : " dg-hop--void"}`);
+      const silent = hop.icmp !== "reply" && hop.icmp !== "expired";
+      const line = el("div", `dg-hop${silent ? " dg-hop--dead" : ""}${hop.address ? "" : " dg-hop--void"}`);
       line.appendChild(el("div", "dg-hop__n", String(hop.ttl)));
       line.appendChild(el("div", "dg-hop__ip", esc(hop.address || "* * *")));
       line.appendChild(el("div", "dg-hop__rtt", hop.rttMs != null ? `${hop.rttMs} ${t("units.ms")}` : "—"));
-      line.appendChild(el("div", "dg-hop__tcp", "<i></i>"));
       rightCard.appendChild(line);
-
-      if (state.trace.filterHop === hop.ttl) {
-        rightCard.appendChild(el("div", "dg-break", I.bolt + esc(t("dg.trace.filterHere"))));
-      }
     }
+
+    // Соединение на порт — отдельной плашкой под хопами: путь и соединение это
+    // разные вопросы, и ответы на них не обязаны совпадать.
+    const tcp = state.trace.tcp || {};
+    const control = state.trace.control || {};
+    const tcpLine = state.trace.tcpOpen
+      ? t("dg.trace.tcpOpen", { ms: tcp.ms ?? "—", port: state.trace.port })
+      : tcp.state === "refused"
+        ? t("dg.trace.tcpRefused", { port: state.trace.port })
+        : t("dg.trace.tcpSilent", { port: state.trace.port });
+    rightCard.appendChild(el("div", state.trace.tcpOpen ? "dg-tr__tcp" : "dg-break",
+      (state.trace.tcpOpen ? "" : I.bolt) + esc(tcpLine)));
 
     const note = state.trace.tcpOpen
       ? t("dg.trace.noteOpen")
-      : state.trace.icmpReached
-        ? t("dg.trace.noteFiltered")
-        : t("dg.trace.noteUnreachable");
+      : control.state === "open"
+        ? (state.trace.icmpReached ? t("dg.trace.noteFiltered") : t("dg.trace.noteUnreachable"))
+        : t("dg.trace.noteLocalNetwork");
     rightCard.appendChild(el("div", "dg-tr__note", note));
   }
 

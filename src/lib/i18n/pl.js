@@ -881,7 +881,7 @@ export const pl = {
       },
       filterInPath: {
         title: "Połączenie jest ucinane po drodze",
-        text: "Pakiety docierają do serwera, ale połączenie ginie na skoku {hop} — wciąż w sieci twojego operatora, nie na serwerze.",
+        text: "Pakiety docierają do {ip}, ale połączenie z portem jest po cichu połykane — adres kontrolny otwiera się normalnie.",
       },
       serverPortSilent: {
         title: "Serwer milczy na swoim porcie",
@@ -914,6 +914,10 @@ export const pl = {
       ipv6Open: {
         title: "IPv6 jest otwarty poza tunelem",
         text: "Ta maszyna sięga IPv6 z pominięciem tunelu — część ruchu może iść obok niego.",
+      },
+      localNetwork: {
+        title: "W tej sieci TCP nie działa",
+        text: "Nie otwiera się nawet adres kontrolny. To nie serwer: psuje się sama sieć — Wi-Fi, router albo operator.",
       },
     },
     action: {
@@ -991,11 +995,14 @@ export const pl = {
     },
     trace: {
       node: "Węzeł",
-      filterHere: "Tutaj połączenie już nie przechodzi",
+      tcpOpen: "Port {port} otwarty · {ms} ms",
+      tcpRefused: "Port {port} odpowiada odmową",
+      tcpSilent: "Połączenie z portem {port} nie przechodzi",
       noEndpoint: "Trasa pojawi się, gdy będzie wybrany serwer.",
       noteOpen: "Droga do serwera jest otwarta na całej długości, połączenie się nawiązuje.",
       noteFiltered: "Serwer odpowiada na ping — żyje. Ucinane jest tylko połączenie i to w sieci operatora.",
       noteUnreachable: "Żaden pakiet nie dotarł do serwera: jest wyłączony albo nieosiągalny z twojej sieci.",
+      noteLocalNetwork: "Adres kontrolny też zawiódł — problem leży w sieci, nie w serwerze.",
     },
     leaks: {
       dnsInTunnel: "Zapytania DNS",

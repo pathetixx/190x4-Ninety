@@ -873,7 +873,7 @@ export const es = {
       },
       filterInPath: {
         title: "La conexión se corta por el camino",
-        text: "Los paquetes llegan al servidor, pero la conexión muere en el salto {hop} — todavía dentro de la red de tu operador, no en el servidor.",
+        text: "Los paquetes llegan a {ip}, pero la conexión al puerto se traga en silencio, mientras que la dirección de control sí abre.",
       },
       serverPortSilent: {
         title: "El servidor calla en su puerto",
@@ -906,6 +906,10 @@ export const es = {
       ipv6Open: {
         title: "IPv6 está abierto fuera del túnel",
         text: "Este equipo alcanza IPv6 esquivando el túnel — parte del tráfico puede salir por fuera.",
+      },
+      localNetwork: {
+        title: "En esta red no funciona TCP",
+        text: "Ni siquiera abre la dirección de control. No es el servidor: se rompe la propia red — wifi, router u operador.",
       },
     },
     action: {
@@ -983,11 +987,14 @@ export const es = {
     },
     trace: {
       node: "Nodo",
-      filterHere: "Aquí la conexión ya no pasa",
+      tcpOpen: "Puerto {port} abierto · {ms} ms",
+      tcpRefused: "El puerto {port} responde con un rechazo",
+      tcpSilent: "La conexión al puerto {port} no pasa",
       noEndpoint: "La traza aparece cuando haya un servidor elegido.",
       noteOpen: "El camino al servidor está abierto de extremo a extremo y la conexión se establece.",
       noteFiltered: "El servidor responde al ping — está vivo. Solo se corta la conexión, y se corta en la red del operador.",
       noteUnreachable: "Ningún paquete llegó al servidor: está apagado o inaccesible desde tu red.",
+      noteLocalNetwork: "La dirección de control también falló: el problema es la red, no el servidor.",
     },
     leaks: {
       dnsInTunnel: "Consultas DNS",

@@ -865,7 +865,7 @@ export const en = {
       },
       filterInPath: {
         title: "The connection is killed on the way",
-        text: "Packets reach the server, but the connection dies at hop {hop} — still inside your provider's network, not at the server.",
+        text: "Packets reach {ip}, but the connection to the port is swallowed silently — while the control address opens fine.",
       },
       serverPortSilent: {
         title: "The server is silent on its port",
@@ -898,6 +898,10 @@ export const en = {
       ipv6Open: {
         title: "IPv6 is open outside the tunnel",
         text: "This machine can reach IPv6 bypassing the tunnel — part of the traffic may leave outside it.",
+      },
+      localNetwork: {
+        title: "TCP does not work on this network",
+        text: "Even the control address will not open. This is not the server: the network itself is breaking — Wi-Fi, router or provider.",
       },
     },
     action: {
@@ -975,11 +979,14 @@ export const en = {
     },
     trace: {
       node: "Hop",
-      filterHere: "The connection stops here",
+      tcpOpen: "Port {port} is open · {ms} ms",
+      tcpRefused: "Port {port} answers with a refusal",
+      tcpSilent: "The connection to port {port} does not get through",
       noEndpoint: "The trace appears once a server is selected.",
       noteOpen: "The path to the server is open end to end and the connection is established.",
       noteFiltered: "The server answers ping — it is alive. Only the connection is cut, and it is cut inside your provider's network.",
       noteUnreachable: "Not a single packet reached the server: it is down or unreachable from your network.",
+      noteLocalNetwork: "The control address failed too — the problem is the network, not the server.",
     },
     leaks: {
       dnsInTunnel: "DNS queries",

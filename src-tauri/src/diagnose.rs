@@ -1,21 +1,25 @@
 // Ninety · Диагностика — трасса до сервера: докуда доходит путь и где он рвётся.
 //
-// Две дорожки по одному и тому же маршруту:
-//   ICMP — «доходят ли пакеты вообще и через какие узлы» (IcmpSendEcho с
-//          подставленным TTL: узел, где TTL истёк, отвечает TTL_EXPIRED и тем
-//          самым называет себя);
-//   TCP  — «доходит ли SYN на нужный порт» (tokio-сокет с тем же TTL).
+// Что меряем:
+//   ICMP-путь — «доходят ли пакеты вообще и через какие узлы» (IcmpSendEcho с
+//               подставленным TTL: узел, где TTL истёк, отвечает TTL_EXPIRED и
+//               тем самым называет себя);
+//   TCP до порта — одно обычное соединение на порт сервера;
+//   контрольный адрес — такое же соединение до заведомо живого публичного
+//               адреса, чтобы отличить «не пускает к этому серверу» от «в этой
+//               сети не работает TCP вообще».
 //
-// Расхождение дорожек и есть подпись фильтра. На честном маршруте обе ведут себя
-// одинаково: до предпоследнего хопа — TTL_EXPIRED/быстрая ошибка, на последнем —
-// эхо-ответ и установленное соединение. Если же узлы продолжают отвечать на ICMP,
-// а SYN с того же хопа перестал получать ХОТЬ КАКОЙ-ТО ответ (тишина до
-// таймаута), значит соединение убивает промежуточный узел, а не сервер: сервер
-// на ping отвечает.
+// Почему НЕ TTL-шагающий SYN (как делает tcptraceroute): проверено на живой
+// Windows — ICMP «TTL истёк» ядро не отдаёт подключающемуся сокету, и КАЖДЫЙ
+// промежуточный TTL выглядит одинаковым таймаутом (замер: ttl=1..10 → timeout
+// 1.2 c, ttl=11 → OPEN 44 мс). Назвать по такой дорожке хоп, где рвётся
+// соединение, невозможно — данных нет. Заодно уходит пачка из двадцати
+// одновременных SYN на один порт: она сама по себе похожа на скан и попадает
+// под SYN-лимиты.
 //
-// Почему не «просто traceroute»: обычная трасса показывает лишь путь и молчит о
-// том, что с TCP. Пользователю же нужен ответ на вопрос «сервер умер или его
-// блокируют», а он выводится только из сравнения двух дорожек.
+// Что из этого выводится: сервер отвечает на ping, TCP до порта не проходит, а
+// контрольный адрес открывается — значит рвут именно это соединение, а не сеть
+// целиком. Ни один из трёх замеров поодиночке такого вывода не даёт.
 //
 // Только Windows: ICMP идёт через IcmpSendEcho (iphlpapi), raw-сокеты и права
 // администратора не нужны. На прочих ОС команда честно возвращает ошибку, чтобы
@@ -33,6 +37,9 @@ const DEFAULT_MAX_HOPS: u8 = 20;
 const HOP_TIMEOUT_MS: u32 = 900;
 const TCP_TIMEOUT: Duration = Duration::from_millis(1200);
 const PROBE_PAYLOAD: &[u8] = b"ninety-diagnose";
+// Контрольный адрес: публичный резолвер Cloudflare. Нужен не сам по себе, а как
+// точка отсчёта — если и он не открывается, дело в сети целиком, а не в сервере.
+const CONTROL_ENDPOINT: &str = "1.1.1.1:443";
 
 /// Что ответил узел на ICMP-пробу с данным TTL.
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -50,15 +57,15 @@ pub enum IcmpStatus {
     Error,
 }
 
-/// Что случилось с SYN на тот же порт с тем же TTL.
+/// Чем кончилась попытка соединения на порт.
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub enum TcpStatus {
-    /// Соединение установилось — путь до порта открыт целиком.
+    /// Соединение установилось.
     Open,
-    /// Пришёл ОТВЕТ (TTL истёк, отказ, недостижимость) — путь жив, просто TTL мал.
-    Answered,
-    /// Ни ответа, ни отказа до таймаута — здесь SYN проглотили.
+    /// Явный отказ (RST, недостижимость) — на той стороне кто-то ответил.
+    Refused,
+    /// Ни ответа, ни отказа до таймаута — SYN проглотили.
     Silent,
 }
 
@@ -70,7 +77,14 @@ pub struct TraceHop {
     pub address: Option<String>,
     pub rtt_ms: Option<u32>,
     pub icmp: IcmpStatus,
-    pub tcp: TcpStatus,
+}
+
+/// Одна попытка соединения: до сервера или до контрольного адреса.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TcpProbe {
+    pub state: TcpStatus,
+    pub ms: u64,
 }
 
 #[derive(Serialize, Clone)]
@@ -82,41 +96,15 @@ pub struct TraceResult {
     pub hops: Vec<TraceHop>,
     /// ICMP дошёл до самого сервера.
     pub icmp_reached: bool,
-    /// TCP-соединение на порт установилось.
+    /// Соединение на порт сервера.
+    pub tcp: TcpProbe,
+    /// Такое же соединение до заведомо живого публичного адреса: отделяет
+    /// «не пускает к этому серверу» от «TCP не работает в этой сети».
+    pub control: TcpProbe,
+    /// TCP-соединение на порт установилось (сокращение для фронта).
     pub tcp_open: bool,
-    /// Первый хоп, начиная с которого SYN перестал получать любые ответы, хотя
-    /// ICMP на этом хопе ещё отвечал. Совпал с последним хопом — молчит сам
-    /// сервер (закрытый порт), иначе SYN убивают в пути. None — расхождения
-    /// дорожек нет.
-    pub filter_hop: Option<u8>,
     /// Сколько заняла вся трасса.
     pub elapsed_ms: u64,
-}
-
-/// Первый хоп, где TCP замолчал при живом ICMP, — и молчание держится до конца.
-/// Разовая «дырка» в середине (узел не ответил на одну пробу) фильтром не
-/// считается: маршрут обязан молчать ДАЛЬШЕ этого хопа тоже, иначе это шум.
-pub fn detect_filter_hop(hops: &[TraceHop]) -> Option<u8> {
-    if hops.iter().any(|h| h.tcp == TcpStatus::Open) {
-        return None; // соединение состоялось — фильтровать нечего
-    }
-    let answered_before = |idx: usize| hops[..idx].iter().any(|h| h.tcp == TcpStatus::Answered);
-    for (idx, hop) in hops.iter().enumerate() {
-        if hop.tcp != TcpStatus::Silent {
-            continue;
-        }
-        // Нужен и живой ICMP на этом хопе (узел отвечает — значит доехали),
-        // и хотя бы один ответивший SYN раньше (иначе тишина была всегда, и
-        // сказать, где она началась, нельзя).
-        let icmp_alive = matches!(hop.icmp, IcmpStatus::Expired | IcmpStatus::Reply);
-        if !icmp_alive || !answered_before(idx) {
-            continue;
-        }
-        if hops[idx..].iter().all(|h| h.tcp == TcpStatus::Silent) {
-            return Some(hop.ttl);
-        }
-    }
-    None
 }
 
 /// Обрезаем хвост после хопа, на котором ICMP дошёл до цели: дальше идут
@@ -128,43 +116,20 @@ pub fn trim_after_destination(hops: Vec<TraceHop>) -> Vec<TraceHop> {
     }
 }
 
-/// TCP-проба с заданным TTL. Ответ (пусть и отрицательный) отличаем от тишины
-/// по виду ошибки: истёкший TTL и явный отказ приходят как ошибка соединения,
-/// а проглоченный SYN не приходит никак — и это таймаут.
-///
-/// Сокет берём из socket2, а не из tokio: TTL нужно выставить ДО connect, а
-/// tokio::net::TcpSocket такой ручки не даёт вовсе. connect_timeout блокирующий,
-/// поэтому вызов уходит в spawn_blocking.
-fn tcp_probe_blocking(addr: SocketAddr, ttl: u32) -> TcpStatus {
-    use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-
-    let socket = match Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP)) {
-        Ok(socket) => socket,
-        Err(_) => return TcpStatus::Silent,
+/// Одно соединение на порт. Отказ (RST/недостижимость) отличаем от тишины по
+/// виду ошибки: проглоченный SYN не приходит никак и даёт таймаут.
+async fn tcp_probe(addr: SocketAddr) -> TcpProbe {
+    let started = Instant::now();
+    let state = match tokio::time::timeout(TCP_TIMEOUT, tokio::net::TcpStream::connect(addr)).await
+    {
+        Ok(Ok(_stream)) => TcpStatus::Open,
+        Ok(Err(_)) => TcpStatus::Refused,
+        Err(_) => TcpStatus::Silent,
     };
-    if socket.set_ttl_v4(ttl).is_err() {
-        return TcpStatus::Silent;
+    TcpProbe {
+        state,
+        ms: started.elapsed().as_millis() as u64,
     }
-    match socket.connect_timeout(&SockAddr::from(addr), TCP_TIMEOUT) {
-        Ok(()) => TcpStatus::Open,
-        Err(err) if err.kind() == std::io::ErrorKind::TimedOut => TcpStatus::Silent,
-        Err(_) => TcpStatus::Answered,
-    }
-}
-
-/// TCP-дорожка целиком: по пробе на каждый TTL, все одновременно.
-async fn tcp_walk(addr: SocketAddr, hops: u8) -> Vec<TcpStatus> {
-    let mut tasks = Vec::with_capacity(hops as usize);
-    for ttl in 1..=hops {
-        tasks.push(tauri::async_runtime::spawn_blocking(move || {
-            tcp_probe_blocking(addr, ttl as u32)
-        }));
-    }
-    let mut out = Vec::with_capacity(hops as usize);
-    for task in tasks {
-        out.push(task.await.unwrap_or(TcpStatus::Silent));
-    }
-    out
 }
 
 /// Трасса до host:port. Возвращает обе дорожки по хопам и вывод о том, где
@@ -191,10 +156,16 @@ pub async fn diagnose_trace(
         IpAddr::V6(_) => return Err("IPv6-трасса пока не поддержана".into()),
     };
 
-    // Обе дорожки идут параллельно, и внутри каждой параллельны сами хопы:
-    // последовательный обход упирался бы в таймауты молчащих узлов и занимал
-    // десятки секунд вместо секунды-двух.
-    let (icmp, tcp) = tokio::join!(icmp_walk(ip, hops_limit), tcp_walk(addr, hops_limit));
+    // ICMP-хопы идут параллельно между собой (иначе трасса упирается в таймауты
+    // молчащих узлов), а соединения — по одному на цель.
+    let control_addr: SocketAddr = CONTROL_ENDPOINT
+        .parse()
+        .map_err(|_| "неверный контрольный адрес".to_string())?;
+    let (icmp, tcp, control) = tokio::join!(
+        icmp_walk(ip, hops_limit),
+        tcp_probe(addr),
+        tcp_probe(control_addr)
+    );
     let icmp = icmp?;
 
     let hops: Vec<TraceHop> = icmp
@@ -205,7 +176,6 @@ pub async fn diagnose_trace(
             address,
             rtt_ms,
             icmp: status,
-            tcp: tcp.get(idx).copied().unwrap_or(TcpStatus::Silent),
         })
         .collect();
 
@@ -215,8 +185,9 @@ pub async fn diagnose_trace(
         port,
         resolved_ip: ip.to_string(),
         icmp_reached: hops.iter().any(|h| h.icmp == IcmpStatus::Reply),
-        tcp_open: hops.iter().any(|h| h.tcp == TcpStatus::Open),
-        filter_hop: detect_filter_hop(&hops),
+        tcp_open: tcp.state == TcpStatus::Open,
+        tcp,
+        control,
         hops,
         elapsed_ms: started.elapsed().as_millis() as u64,
     })
@@ -908,73 +879,31 @@ pub async fn diagnose_probe(
 mod tests {
     use super::*;
 
-    fn hop(ttl: u8, icmp: IcmpStatus, tcp: TcpStatus) -> TraceHop {
+    fn hop(ttl: u8, icmp: IcmpStatus) -> TraceHop {
         TraceHop {
             ttl,
             address: Some(format!("10.0.0.{ttl}")),
             rtt_ms: Some(ttl as u32),
             icmp,
-            tcp,
         }
     }
 
     #[test]
-    fn open_connection_means_no_filter() {
+    fn hops_after_destination_are_dropped() {
+        // Хопы за целью — это повторы её же ответа: параллельный обход шлёт
+        // пробы на все TTL сразу, и после достижения сервера отвечает он же.
         let hops = vec![
-            hop(1, IcmpStatus::Expired, TcpStatus::Answered),
-            hop(2, IcmpStatus::Reply, TcpStatus::Open),
+            hop(1, IcmpStatus::Expired),
+            hop(2, IcmpStatus::Reply),
+            hop(3, IcmpStatus::Reply),
         ];
-        assert_eq!(detect_filter_hop(&hops), None);
+        assert_eq!(trim_after_destination(hops).len(), 2);
     }
 
     #[test]
-    fn silence_after_answers_is_the_filter() {
-        // Узлы отвечают на ICMP до самого сервера, но SYN замолчал на 3-м хопе.
-        let hops = vec![
-            hop(1, IcmpStatus::Expired, TcpStatus::Answered),
-            hop(2, IcmpStatus::Expired, TcpStatus::Answered),
-            hop(3, IcmpStatus::Expired, TcpStatus::Silent),
-            hop(4, IcmpStatus::Expired, TcpStatus::Silent),
-            hop(5, IcmpStatus::Reply, TcpStatus::Silent),
-        ];
-        assert_eq!(detect_filter_hop(&hops), Some(3));
-    }
-
-    #[test]
-    fn gap_in_the_middle_is_ignored_and_final_silence_is_named() {
-        let hops = vec![
-            hop(1, IcmpStatus::Expired, TcpStatus::Answered),
-            hop(2, IcmpStatus::Expired, TcpStatus::Silent),
-            hop(3, IcmpStatus::Expired, TcpStatus::Answered),
-            hop(4, IcmpStatus::Reply, TcpStatus::Silent),
-        ];
-        // Тишина на 2-м хопе не продолжилась — это шум, и хоп не назван.
-        // Названным становится 4-й: там тишина держится до конца. Что он же
-        // является адресом сервера, разбирает фронт: молчание на последнем хопе
-        // означает закрытый порт, а не фильтр в пути.
-        assert_eq!(detect_filter_hop(&hops), Some(4));
-    }
-
-    #[test]
-    fn silence_from_the_first_hop_names_nothing() {
-        // Ни один SYN не получил ответа: сказать, ГДЕ началась тишина, нельзя.
-        let hops = vec![
-            hop(1, IcmpStatus::Expired, TcpStatus::Silent),
-            hop(2, IcmpStatus::Reply, TcpStatus::Silent),
-        ];
-        assert_eq!(detect_filter_hop(&hops), None);
-    }
-
-    #[test]
-    fn dead_icmp_hop_is_not_blamed() {
-        // Узел не ответил и на ICMP — он просто не отвечает на пробы, это не
-        // повод объявлять его фильтром.
-        let hops = vec![
-            hop(1, IcmpStatus::Expired, TcpStatus::Answered),
-            hop(2, IcmpStatus::Timeout, TcpStatus::Silent),
-            hop(3, IcmpStatus::Expired, TcpStatus::Silent),
-        ];
-        assert_eq!(detect_filter_hop(&hops), Some(3));
+    fn trace_without_destination_keeps_every_hop() {
+        let hops = vec![hop(1, IcmpStatus::Expired), hop(2, IcmpStatus::Timeout)];
+        assert_eq!(trim_after_destination(hops).len(), 2);
     }
 
     #[test]
@@ -1006,15 +935,5 @@ mod tests {
         assert!(parse_probe_target("   ").is_err());
         assert!(parse_probe_target("example.com/path").is_err());
         assert!(parse_probe_target("example.com:99999").is_err());
-    }
-
-    #[test]
-    fn hops_after_destination_are_dropped() {
-        let hops = vec![
-            hop(1, IcmpStatus::Expired, TcpStatus::Answered),
-            hop(2, IcmpStatus::Reply, TcpStatus::Open),
-            hop(3, IcmpStatus::Reply, TcpStatus::Open),
-        ];
-        assert_eq!(trim_after_destination(hops).len(), 2);
     }
 }

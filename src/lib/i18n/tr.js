@@ -865,7 +865,7 @@ export const tr = {
       },
       filterInPath: {
         title: "Bağlantı yolda kesiliyor",
-        text: "Paketler sunucuya ulaşıyor ama bağlantı {hop}. atlamada ölüyor — burası hâlâ operatörünüzün ağı, sunucu değil.",
+        text: "Paketler {ip} adresine ulaşıyor, ama porta bağlantı sessizce yutuluyor; kontrol adresi ise açılıyor.",
       },
       serverPortSilent: {
         title: "Sunucu kendi portunda sessiz",
@@ -898,6 +898,10 @@ export const tr = {
       ipv6Open: {
         title: "IPv6 tünelin dışında açık",
         text: "Bu makine tüneli atlayarak IPv6'ya erişebiliyor — trafiğin bir kısmı dışarıdan gidebilir.",
+      },
+      localNetwork: {
+        title: "Bu ağda TCP çalışmıyor",
+        text: "Kontrol adresi bile açılmıyor. Sorun sunucu değil: ağın kendisi kopuyor — Wi-Fi, modem ya da operatör.",
       },
     },
     action: {
@@ -975,11 +979,14 @@ export const tr = {
     },
     trace: {
       node: "Düğüm",
-      filterHere: "Bağlantı buradan öteye geçmiyor",
+      tcpOpen: "Port {port} açık · {ms} ms",
+      tcpRefused: "Port {port} ret yanıtı veriyor",
+      tcpSilent: "{port} portuna bağlantı geçmiyor",
       noEndpoint: "Sunucu seçildiğinde rota görünecek.",
       noteOpen: "Sunucuya giden yol baştan sona açık, bağlantı kuruluyor.",
       noteFiltered: "Sunucu ping'e yanıt veriyor — ayakta. Yalnızca bağlantı kesiliyor, o da operatör ağında.",
       noteUnreachable: "Sunucuya tek bir paket bile ulaşmadı: kapalı ya da ağınızdan erişilemiyor.",
+      noteLocalNetwork: "Kontrol adresi de açılmadı — sorun ağda, sunucuda değil.",
     },
     leaks: {
       dnsInTunnel: "DNS sorguları",

@@ -48,25 +48,25 @@ export function refusedByServiceRows(rows) {
 export function buildVerdict({ reach = [], trace = null, leaks = null, connected = false } = {}) {
   const rows = Array.isArray(reach) ? reach : [];
 
-  // 1. Фильтр в пути: узлы отвечают на ICMP, но SYN не доходит, причём обрыв
-  // случился РАНЬШЕ последнего хопа — значит рвёт не сервер.
-  if (trace?.filterHop != null && trace.hops?.length) {
-    const lastTtl = trace.hops[trace.hops.length - 1]?.ttl;
-    if (trace.filterHop < lastTtl) {
-      return {
-        kind: "filterInPath",
-        severity: "err",
-        action: "dpi",
-        params: { hop: trace.filterHop, ip: trace.resolvedIp || "" },
-      };
+  // 1. Соединение до сервера. Вывод строится на ТРЁХ замерах сразу: дошёл ли
+  // ping, открылся ли порт и открылся ли контрольный адрес. Поодиночке они
+  // ничего не доказывают: закрытый порт и мёртвая сеть выглядят одинаково.
+  if (trace && !trace.tcpOpen) {
+    const controlOk = trace.control?.state === "open";
+    const params = { ip: trace.resolvedIp || "", port: trace.port };
+    if (!controlOk) {
+      // Даже контрольный адрес не открывается — рвётся не сервер, а сеть.
+      return { kind: "localNetwork", severity: "err", action: null, params };
     }
-    // 2. Молчит сам сервер: путь до него есть (ICMP дошёл), а порт не отвечает.
-    return {
-      kind: trace.icmpReached ? "serverPortSilent" : "serverUnreachable",
-      severity: "err",
-      action: "switchNode",
-      params: { ip: trace.resolvedIp || "", port: trace.port },
-    };
+    if (trace.tcp?.state === "refused") {
+      // На той стороне ответили отказом: порт закрыт или сервер не наш.
+      return { kind: "serverPortSilent", severity: "err", action: "switchNode", params };
+    }
+    if (trace.icmpReached) {
+      // Пакеты до сервера доходят, а соединение на порт молча съедают.
+      return { kind: "filterInPath", severity: "err", action: "dpi", params };
+    }
+    return { kind: "serverUnreachable", severity: "err", action: "switchNode", params };
   }
 
   // 3. Туннель мешает конкретным сервисам (банк, госуслуги, локальные сервисы).
@@ -137,7 +137,9 @@ export function verdictFacts({ trace = null, leaks = null, reach = [] } = {}) {
     facts.push({
       key: "trace",
       state: trace.tcpOpen ? "ok" : "err",
-      value: trace.hops?.length ? String(trace.hops[trace.hops.length - 1]?.rttMs ?? "") : "",
+      // Показываем время соединения на порт, а не RTT последнего хопа: именно
+      // оно отвечает на вопрос «дозвонились или нет».
+      value: trace.tcpOpen && trace.tcp?.ms != null ? String(trace.tcp.ms) : "",
     });
   }
   if (leaks) {
@@ -166,7 +168,7 @@ export function countFindings({ reach = [], trace = null, leaks = null } = {}) {
   ).length;
   count -= both;
   count += blockedDirectRows(rows).length;
-  if (trace?.filterHop != null) count += 1;
+  if (trace && !trace.tcpOpen) count += 1;
   for (const check of [leaks?.dnsInTunnel, leaks?.dnsAnswerMatch, leaks?.externalIp, leaks?.ipv6Open]) {
     if (check?.state === "warn" || check?.state === "err") count += 1;
   }

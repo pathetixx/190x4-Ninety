@@ -873,7 +873,7 @@ export const fr = {
       },
       filterInPath: {
         title: "La connexion est coupée en route",
-        text: "Les paquets atteignent le serveur, mais la connexion meurt au saut {hop} — encore dans le réseau de votre opérateur, pas au serveur.",
+        text: "Les paquets atteignent {ip}, mais la connexion au port est avalée en silence — alors que l'adresse de contrôle s'ouvre.",
       },
       serverPortSilent: {
         title: "Le serveur reste muet sur son port",
@@ -906,6 +906,10 @@ export const fr = {
       ipv6Open: {
         title: "IPv6 est ouvert hors du tunnel",
         text: "Cette machine atteint IPv6 en contournant le tunnel — une partie du trafic peut passer à côté.",
+      },
+      localNetwork: {
+        title: "Le TCP ne fonctionne pas sur ce réseau",
+        text: "Même l'adresse de contrôle ne s'ouvre pas. Ce n'est pas le serveur : c'est le réseau qui casse — Wi-Fi, box ou opérateur.",
       },
     },
     action: {
@@ -983,11 +987,14 @@ export const fr = {
     },
     trace: {
       node: "Nœud",
-      filterHere: "La connexion ne passe plus ici",
+      tcpOpen: "Port {port} ouvert · {ms} ms",
+      tcpRefused: "Le port {port} répond par un refus",
+      tcpSilent: "La connexion au port {port} ne passe pas",
       noEndpoint: "La trace apparaît dès qu'un serveur est choisi.",
       noteOpen: "Le chemin vers le serveur est ouvert de bout en bout, la connexion est établie.",
       noteFiltered: "Le serveur répond au ping — il est vivant. Seule la connexion est coupée, et elle l'est chez l'opérateur.",
       noteUnreachable: "Aucun paquet n'a atteint le serveur : il est éteint ou inaccessible depuis votre réseau.",
+      noteLocalNetwork: "L'adresse de contrôle a échoué aussi — le problème vient du réseau, pas du serveur.",
     },
     leaks: {
       dnsInTunnel: "Requêtes DNS",

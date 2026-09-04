@@ -857,7 +857,7 @@ export const zh = {
       },
       filterInPath: {
         title: "连接在途中被切断",
-        text: "数据包能到达服务器，但连接在第 {hop} 跳死掉——那里仍是运营商网络，不是服务器。",
+        text: "数据包能到达 {ip}，但到端口的连接被悄悄吞掉，而对照地址却能正常打开。",
       },
       serverPortSilent: {
         title: "服务器端口没有回应",
@@ -890,6 +890,10 @@ export const zh = {
       ipv6Open: {
         title: "IPv6 绕过隧道处于开放状态",
         text: "这台机器可以绕过隧道访问 IPv6——部分流量可能从旁边走掉。",
+      },
+      localNetwork: {
+        title: "这个网络里 TCP 不通",
+        text: "连对照地址都打不开。问题不在服务器：断的是网络本身——Wi-Fi、路由器或运营商。",
       },
     },
     action: {
@@ -967,11 +971,14 @@ export const zh = {
     },
     trace: {
       node: "节点",
-      filterHere: "连接到此为止",
+      tcpOpen: "端口 {port} 已开放 · {ms} 毫秒",
+      tcpRefused: "端口 {port} 回应拒绝",
+      tcpSilent: "到端口 {port} 的连接不通",
       noEndpoint: "选定服务器后会显示路径。",
       noteOpen: "到服务器的路径全程通畅，连接已建立。",
       noteFiltered: "服务器能回应 ping——它是活的。被切断的只有连接，而且是在运营商网络里被切断。",
       noteUnreachable: "没有数据包到达服务器：它已关闭，或从你的网络无法访问。",
+      noteLocalNetwork: "对照地址同样失败——问题在网络，不在服务器。",
     },
     leaks: {
       dnsInTunnel: "DNS 查询",

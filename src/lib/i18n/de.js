@@ -865,7 +865,7 @@ export const de = {
       },
       filterInPath: {
         title: "Die Verbindung wird unterwegs gekappt",
-        text: "Pakete erreichen den Server, doch die Verbindung stirbt bei Hop {hop} — noch im Netz deines Anbieters, nicht am Server.",
+        text: "Pakete erreichen {ip}, doch die Verbindung zum Port wird stillschweigend verschluckt — die Kontrolladresse öffnet dagegen.",
       },
       serverPortSilent: {
         title: "Der Server schweigt auf seinem Port",
@@ -898,6 +898,10 @@ export const de = {
       ipv6Open: {
         title: "IPv6 ist am Tunnel vorbei offen",
         text: "Dieser Rechner erreicht IPv6 am Tunnel vorbei — ein Teil des Verkehrs kann daran vorbeilaufen.",
+      },
+      localNetwork: {
+        title: "In diesem Netz funktioniert TCP nicht",
+        text: "Nicht einmal die Kontrolladresse öffnet. Das ist nicht der Server: das Netz selbst bricht — WLAN, Router oder Anbieter.",
       },
     },
     action: {
@@ -975,11 +979,14 @@ export const de = {
     },
     trace: {
       node: "Knoten",
-      filterHere: "Hier kommt die Verbindung nicht weiter",
+      tcpOpen: "Port {port} ist offen · {ms} ms",
+      tcpRefused: "Port {port} antwortet mit einer Ablehnung",
+      tcpSilent: "Die Verbindung zu Port {port} kommt nicht durch",
       noEndpoint: "Die Route erscheint, sobald ein Server gewählt ist.",
       noteOpen: "Der Weg zum Server ist durchgängig offen, die Verbindung steht.",
       noteFiltered: "Der Server antwortet auf Ping — er lebt. Gekappt wird nur die Verbindung, und zwar im Netz des Anbieters.",
       noteUnreachable: "Kein Paket erreichte den Server: er ist aus oder aus deinem Netz nicht erreichbar.",
+      noteLocalNetwork: "Auch die Kontrolladresse scheiterte — das Problem ist das Netz, nicht der Server.",
     },
     leaks: {
       dnsInTunnel: "DNS-Anfragen",

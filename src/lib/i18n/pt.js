@@ -873,7 +873,7 @@ export const pt = {
       },
       filterInPath: {
         title: "A ligação é cortada pelo caminho",
-        text: "Os pacotes chegam ao servidor, mas a ligação morre no salto {hop} — ainda dentro da rede do teu operador, não no servidor.",
+        text: "Os pacotes chegam a {ip}, mas a ligação à porta é engolida em silêncio, enquanto o endereço de controlo abre.",
       },
       serverPortSilent: {
         title: "O servidor está calado na sua porta",
@@ -906,6 +906,10 @@ export const pt = {
       ipv6Open: {
         title: "O IPv6 está aberto fora do túnel",
         text: "Esta máquina alcança IPv6 a contornar o túnel — parte do tráfego pode sair por fora.",
+      },
+      localNetwork: {
+        title: "Nesta rede o TCP não funciona",
+        text: "Nem o endereço de controlo abre. Não é o servidor: é a própria rede que parte — Wi-Fi, router ou operador.",
       },
     },
     action: {
@@ -983,11 +987,14 @@ export const pt = {
     },
     trace: {
       node: "Nó",
-      filterHere: "Aqui a ligação deixa de passar",
+      tcpOpen: "Porta {port} aberta · {ms} ms",
+      tcpRefused: "A porta {port} responde com recusa",
+      tcpSilent: "A ligação à porta {port} não passa",
       noEndpoint: "A rota aparece assim que houver um servidor escolhido.",
       noteOpen: "O caminho até ao servidor está aberto de ponta a ponta e a ligação estabelece-se.",
       noteFiltered: "O servidor responde ao ping — está vivo. Só a ligação é cortada, e é cortada na rede do operador.",
       noteUnreachable: "Nenhum pacote chegou ao servidor: está desligado ou inacessível a partir da tua rede.",
+      noteLocalNetwork: "O endereço de controlo também falhou: o problema é a rede, não o servidor.",
     },
     leaks: {
       dnsInTunnel: "Pedidos DNS",

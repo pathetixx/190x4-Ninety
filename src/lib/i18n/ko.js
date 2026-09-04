@@ -857,7 +857,7 @@ export const ko = {
       },
       filterInPath: {
         title: "연결이 도중에 끊깁니다",
-        text: "패킷은 서버까지 도달하지만 연결은 {hop}번째 홉에서 죽습니다. 그곳은 아직 통신사 네트워크이고 서버가 아닙니다.",
+        text: "패킷은 {ip}까지 도달하지만 포트로의 연결은 조용히 삼켜집니다. 대조 주소는 정상적으로 열립니다.",
       },
       serverPortSilent: {
         title: "서버가 자기 포트에서 침묵합니다",
@@ -890,6 +890,10 @@ export const ko = {
       ipv6Open: {
         title: "IPv6가 터널 밖에서 열려 있습니다",
         text: "이 컴퓨터는 터널을 우회해 IPv6에 닿습니다. 일부 트래픽이 밖으로 나갈 수 있습니다.",
+      },
+      localNetwork: {
+        title: "이 네트워크에서는 TCP가 통하지 않습니다",
+        text: "대조 주소조차 열리지 않습니다. 서버 문제가 아니라 네트워크 자체가 끊깁니다 — 와이파이, 공유기 또는 통신사.",
       },
     },
     action: {
@@ -967,11 +971,14 @@ export const ko = {
     },
     trace: {
       node: "노드",
-      filterHere: "연결이 여기서 더 가지 못합니다",
+      tcpOpen: "포트 {port} 열림 · {ms} ms",
+      tcpRefused: "포트 {port}가 거부로 응답합니다",
+      tcpSilent: "포트 {port}로의 연결이 통하지 않습니다",
       noEndpoint: "서버를 선택하면 경로가 표시됩니다.",
       noteOpen: "서버까지의 경로가 끝까지 열려 있고 연결도 성립합니다.",
       noteFiltered: "서버는 ping에 응답합니다 — 살아 있습니다. 끊기는 것은 연결뿐이고, 통신사 네트워크 안에서 끊깁니다.",
       noteUnreachable: "서버에 단 하나의 패킷도 닿지 않았습니다. 꺼져 있거나 이 네트워크에서 접근할 수 없습니다.",
+      noteLocalNetwork: "대조 주소도 실패했습니다 — 문제는 서버가 아니라 네트워크입니다.",
     },
     leaks: {
       dnsInTunnel: "DNS 질의",
