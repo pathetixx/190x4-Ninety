@@ -135,9 +135,11 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: 15px;
-  min-height: 126px;
-  padding: 20px;
+  gap: 14px;
+  /* 126→108 и марка 94→82: с семью пунктами меню прежний ритм не оставлял
+     места блоку трафика внизу — его срезало нижней границей окна. */
+  min-height: 108px;
+  padding: 16px 20px;
   position: relative;
   overflow: hidden;
 }
@@ -152,8 +154,8 @@
   pointer-events: none;
 }
 .brand__mark {
-  width: 94px;
-  height: 94px;
+  width: 82px;
+  height: 82px;
   border-radius: 0;
   object-fit: contain;
   background: transparent;
@@ -261,13 +263,19 @@
   flex-direction: column;
   gap: 0;
   border-bottom: 1px solid var(--sidebar-border-strong);
+  /* Страховка для совсем низких окон: скорее прокрутить меню, чем срезать
+     блок трафика под ним. */
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
 }
+.nav::-webkit-scrollbar { width: 0; height: 0; }
 .nav__item {
   display: flex;
   align-items: center;
-  gap: 20px;
-  min-height: 66px;
-  padding: 0 26px;
+  gap: 18px;
+  min-height: 58px;
+  padding: 0 24px;
   border-radius: 0;
   border-bottom: 1px solid var(--sidebar-border-strong);
   background:
@@ -347,10 +355,11 @@
 
 .traffic {
   border-top: 1px solid var(--line-1);
-  padding: 16px 24px 18px;
+  padding: 12px 24px 14px;
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: 9px;
+  flex: 0 0 auto;
 }
 .traffic__head {
   display: flex;
