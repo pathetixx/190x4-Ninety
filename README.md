@@ -39,7 +39,8 @@ When something breaks, you get diagnostics instead of guesswork.
 | **Node control** | Server grid with country flags, live delay checks, automatic selection, tray switching and tracking of the node currently used by the connection. |
 | **Protocols** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, SOCKS, NaiveProxy, TrustTunnel, WireGuard/AmneziaWG and WARP. |
 | **Bridges** | XHTTP runs through xray-core. NaiveProxy and TrustTunnel use local SOCKS sidecars, with sing-box remaining the central router. |
-| **Routing** | LAN bypass, regional routing, custom rules for domains, IP addresses and processes, plus ad, malware and phishing rule sets. Active connections can be inspected from the app. |
+| **Routing** | LAN bypass, regional routing, custom rules for domains, IP addresses and processes, plus ad, malware and phishing rule sets. A rule can send its traffic through a specific server or through WARP instead of the shared tunnel. Active connections can be inspected from the app. |
+| **Diagnostics** | Every target is probed twice — directly and through the tunnel — so blocking, throttling and services that refuse the server address are told apart. The screen also traces the path to the server on ICMP and TCP, checks DNS, IPv6 and the external address for leaks, and keeps a timeline of connection incidents. Any address can be checked by hand, step by step. |
 | **Quality engine** | Measures real throughput instead of treating ping as the whole story. It can re-test the channel, change nodes, apply masking, rescan WARP or recommend reconnecting. |
 | **DPI tools** | A separate section for DPI compatibility tools, strategy and list updates, driver cleanup and automatic exclusions for VPN node addresses. |
 | **Privacy** | Strict TUN can pin one server, remove direct exceptions and hold a session-scoped WFP block if the tunnel dies. Ninety can also launch the free Mullvad Browser after connection. |
@@ -95,6 +96,7 @@ For users:
 - [Privacy](./docs/privacy.md) — local data, sensitive fields, logs, WARP state and known limitations.
 - [Strict tunnel and protected browser](./docs/strict-privacy.md) — fail-closed routing, Mullvad Browser integration and the limits of VPN/IP reputation hiding.
 - [Routing](./docs/routing.md) — LAN bypass, regional rules, custom routing, DNS and the connection monitor.
+- [Diagnostics](./docs/diagnostics.md) — the reachability matrix, manual address checks, the trace, leak checks and the incident timeline.
 
 About the project:
 

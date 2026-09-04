@@ -34,7 +34,9 @@ Custom rules can match:
 - IP addresses or subnets;
 - process names.
 
-Each custom rule has an action: through VPN, direct or block. Custom rules are intended to be evaluated before broad defaults so user intent can override regional defaults.
+Each custom rule has an action: through VPN, direct, block, through a specific server or through WARP. Custom rules are intended to be evaluated before broad defaults so user intent can override regional defaults.
+
+A rule that targets a specific server stores the identity of that server, so reordering a subscription does not break it. If the server is gone from the active source, quarantined, or excluded because strict tunnel pins a single node, the rule falls back to the regular tunnel instead of pointing at an outbound that no longer exists.
 
 Safe debugging pattern:
 
