@@ -84,6 +84,9 @@ windows = { version = "0.62", features = [
     "Win32_Security_WinTrust",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
+    # Job Object (KILL_ON_JOB_CLOSE) — движки не переживают смерть Ninety
+    # (job_guard.rs).
+    "Win32_System_JobObjects",
     "Win32_System_Ole",
     # GetPerformanceInfo / GlobalMemoryStatusEx — сэмплер давления хоста
     # (host_pressure.rs).

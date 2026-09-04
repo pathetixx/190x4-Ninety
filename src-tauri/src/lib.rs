@@ -8,6 +8,7 @@ mod dnscheck;
 mod dpi;
 mod host_pressure;
 mod hwid;
+mod job_guard;
 mod killswitch;
 mod netproc;
 mod profile_store;
@@ -1008,6 +1009,9 @@ pub fn run() {
             let argv: Vec<String> = std::env::args().collect();
             let autostarted = argv.iter().any(|a| a == "--autostarted");
             let ci_smoke = ci_smoke_requested(&argv);
+            // Страховку жизненного цикла движков поднимаем до первого спавна:
+            // job обязан существовать раньше, чем появится первый движок.
+            job_guard::init();
             vpn::purge_stale_runtime_configs(app.handle());
             if let Err(e) = vpn::recover_stale_system_proxy() {
                 eprintln!("stale system proxy recovery: {e}");

@@ -1380,6 +1380,9 @@ pub async fn dpi_start(
     }
 
     let mut child = cmd.spawn().map_err(|e| format!("spawn winws: {e}"))?;
+    // Сирота winws дерётся за драйвер WinDivert со следующим запуском (см.
+    // kill_stray_winws); job снимает её до того, как она успеет пережить нас.
+    crate::job_guard::bind_pid(child.id());
     if let Some(writer) = log_writer {
         if let Some(stdout) = child.stdout.take() {
             spawn_dpi_log_pipe(stdout, writer.clone());
@@ -2959,7 +2962,12 @@ pub async fn dpi_autotest(
                 cmd.stderr(std::process::Stdio::piped());
             }
             let mut child = match cmd.spawn() {
-                Ok(c) => c,
+                Ok(c) => {
+                    // Автоподбор поднимает тот же winws с драйвером: сирота от
+                    // него так же дерётся за WinDivert, как и от dpi_start.
+                    crate::job_guard::bind_pid(c.id());
+                    c
+                }
                 Err(e) => {
                     if let Some(writer) = log_writer.as_ref() {
                         writer

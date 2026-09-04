@@ -821,6 +821,7 @@ async fn spawn_xray(
         .spawn()
         .map_err(|e| format!("spawn xray: {e}"))?;
     prioritize_datapath_process(child.pid());
+    crate::job_guard::bind_pid(child.pid());
     *state.xray_child.lock_recover() = Some(child);
 
     let died_flag = state.xray_died.clone();
@@ -934,6 +935,7 @@ async fn spawn_sidecars(
             .spawn()
             .map_err(|e| format!("spawn {bin}: {e}"))?;
         prioritize_datapath_process(child.pid());
+        crate::job_guard::bind_pid(child.pid());
         state.sidecars.lock_recover().push(child);
 
         let died_flag = state.sidecar_died.clone();
@@ -2572,6 +2574,7 @@ async fn spawn_singbox_core(
         .map_err(|e| format!("spawn sing-box: {e}"))?;
 
     prioritize_datapath_process(child.pid());
+    crate::job_guard::bind_pid(child.pid());
     *state.child.lock_recover() = Some(child);
 
     let died_flag = state.died.clone();
