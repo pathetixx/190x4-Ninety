@@ -328,12 +328,19 @@
    с тёмным интерфейсом выглядит чужеродно. */
 .dg-packmenu {
   position: fixed; z-index: 9500; min-width: 208px; max-height: 320px; overflow-y: auto;
+  /* Системная полоса прокрутки в тёмной панели выглядит белой заплаткой —
+     оформляем как в остальном приложении. */
+  scrollbar-width: thin; scrollbar-color: var(--overlay-3) transparent;
   padding: 6px; border-radius: var(--r-md);
   background: var(--ink-2); border: 1px solid var(--line-3);
   box-shadow: 0 24px 60px -12px var(--shadow-strong);
   animation: dg-menu-in 140ms var(--ease-out);
 }
 @keyframes dg-menu-in { from { opacity: 0; transform: translateY(-4px); } }
+.dg-packmenu::-webkit-scrollbar { width: 7px; }
+.dg-packmenu::-webkit-scrollbar-track { background: transparent; }
+.dg-packmenu::-webkit-scrollbar-thumb { background: var(--overlay-3); border-radius: 4px; }
+.dg-packmenu::-webkit-scrollbar-thumb:hover { background: var(--overlay-4); }
 .dg-packmenu__item {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-xs);
