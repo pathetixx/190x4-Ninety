@@ -975,7 +975,7 @@ export const pl = {
       colService: "Usługa",
       colDirect: "Bezpośrednio",
       colTunnel: "Ninety",
-      globalOnly: "GLOBALNY",
+      globalOnly: "Globalny",
       pinnedBadge: "WŁASNY",
       emptyTitle: "Nie uruchomiono jeszcze sprawdzenia",
       emptyText: "Naciśnij „Sprawdź” — Ninety przejdzie listę usług i porówna dostęp bezpośredni z dostępem przez tunel.",

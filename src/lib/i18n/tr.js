@@ -959,7 +959,7 @@ export const tr = {
       colService: "Hizmet",
       colDirect: "Doğrudan",
       colTunnel: "Ninety",
-      globalOnly: "GENEL",
+      globalOnly: "Genel",
       pinnedBadge: "KENDİ",
       emptyTitle: "Henüz kontrol yapılmadı",
       emptyText: "«Kontrol et» düğmesine basın — Ninety hizmet listesini gezer ve doğrudan erişimi tünel üzerinden erişimle karşılaştırır.",

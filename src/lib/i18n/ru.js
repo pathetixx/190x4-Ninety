@@ -975,7 +975,7 @@ export const ru = {
       colService: "Сервис",
       colDirect: "Напрямую",
       colTunnel: "Ninety",
-      globalOnly: "ГЛОБАЛЬНЫЙ",
+      globalOnly: "Глобальный",
       pinnedBadge: "СВОЙ",
       emptyTitle: "Проверка ещё не запускалась",
       emptyText: "Нажмите «Проверить» — Ninety пройдёт по списку сервисов и сравнит прямой доступ с доступом через туннель.",

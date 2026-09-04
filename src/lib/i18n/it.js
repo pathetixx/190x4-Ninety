@@ -967,7 +967,7 @@ export const it = {
       colService: "Servizio",
       colDirect: "Diretto",
       colTunnel: "Ninety",
-      globalOnly: "GLOBALE",
+      globalOnly: "Globale",
       pinnedBadge: "MIO",
       emptyTitle: "Nessuna verifica eseguita",
       emptyText: "Premi «Verifica» — Ninety percorre l'elenco dei servizi e confronta l'accesso diretto con quello attraverso il tunnel.",

@@ -444,6 +444,8 @@ const OPTION_SETTERS = new Map([
   ["quality.goodBps", (opts, value) => { opts.quality.goodBps = value; }],
   ["quality.probeBytes", (opts, value) => { opts.quality.probeBytes = value; }],
   ["quality.endpoints", (opts, value) => { opts.quality.endpoints = value; }],
+  ["diagnose.regionPack", (opts, value) => { opts.diagnose.regionPack = value; }],
+  ["diagnose.pinned", (opts, value) => { opts.diagnose.pinned = value; }],
 ]);
 
 export function updateOption(path, value) {

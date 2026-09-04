@@ -84,3 +84,24 @@ test("options: порт clash-API не может совпасть с mixed-по
   });
   assert.notEqual(bothDefaults.inbound.mixedPort, bothDefaults.experimental.clashApiPort);
 });
+
+test("настройки диагностики можно сохранить: путь есть в белом списке", async () => {
+  // updateOption бросает на неизвестном пути, и промах белого списка выглядит
+  // как «интерфейс не реагирует»: именно так молча ломался выбор странового
+  // пакета — экран рисовал список, а запись падала исключением.
+  const data = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (data.has(k) ? data.get(k) : null),
+    setItem: (k, v) => data.set(k, String(v)),
+    removeItem: (k) => data.delete(k),
+  };
+  globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+  globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
+
+  const { updateOption } = await import("../src/lib/options.js?diagnose-paths");
+  assert.equal(updateOption("diagnose.regionPack", "de").diagnose.regionPack, "de");
+  assert.equal(
+    updateOption("diagnose.pinned", [{ id: "x", name: "x", url: "https://x/" }]).diagnose.pinned.length,
+    1,
+  );
+});

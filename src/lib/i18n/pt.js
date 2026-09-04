@@ -967,7 +967,7 @@ export const pt = {
       colService: "Serviço",
       colDirect: "Direto",
       colTunnel: "Ninety",
-      globalOnly: "GLOBAL",
+      globalOnly: "Global",
       pinnedBadge: "MEU",
       emptyTitle: "Ainda não foi feita nenhuma verificação",
       emptyText: "Carrega em «Verificar» — o Ninety percorre a lista de serviços e compara o acesso direto com o acesso pelo túnel.",

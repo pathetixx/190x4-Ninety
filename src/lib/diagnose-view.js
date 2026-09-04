@@ -16,6 +16,7 @@ import { buildProbeSet, defaultRegionPack, normalizePinned, REGION_PACKS } from 
 import { groupIncidents, degradedMs, incidentLog } from "/lib/incident-log.js";
 import { escapeHtml as esc } from "/lib/esc.js";
 import { t, getLang } from "/lib/i18n/index.js";
+import { countryName } from "/lib/country-names.js";
 import { relativeTime } from "/lib/relative-time.js";
 
 const TABS = ["trace", "leaks", "feed"];
@@ -108,6 +109,7 @@ export function mountDiagnoseView(root, {
 } = {}) {
   if (!root) return { run: () => {}, refreshFeed: () => {}, destroy: () => {} };
 
+  let packMenu = null;
   const state = {
     running: false,
     reach: [],
@@ -512,40 +514,95 @@ export function mountDiagnoseView(root, {
     return t("dg.probe.noteDown");
   }
 
-  // Выбор странового пакета. Список, а не перебор по кругу: пакетов больше
-  // десятка, и «щёлкать до нужного» — не выбор, а лотерея.
+  // Выбор странового пакета. Свой попап, а не нативный <select>: WebView2
+  // рисует системный список, который не поддаётся стилизации и рядом с тёмным
+  // интерфейсом выглядит чужеродно. Заодно в списке видно название страны, а не
+  // только код.
   function regionPackSelect() {
-    // Нативный select оставляем ради клавиатуры и системного выпадающего
-    // списка, но кладём его поверх прозрачным слоем: видимую подпись рисуем
-    // сами, иначе число и код страны выглядят двумя разными наклейками в одной
-    // пилюле.
-    const box = el("label", "dg-pack");
     const current = regionPack();
-    const label = el("span", "dg-pack__txt",
+    const btn = el("button", "dg-pack");
+    btn.type = "button";
+    btn.setAttribute("aria-haspopup", "listbox");
+    btn.setAttribute("aria-expanded", "false");
+    btn.innerHTML =
+      '<span class="dg-pack__txt">' +
       esc(current ? current.toUpperCase() : t("dg.reach.globalOnly")) +
-      '<i class="dg-pack__dot"></i>' + esc(String(targets().length)));
-    label.setAttribute("aria-hidden", "true");
-    box.appendChild(label);
-    box.insertAdjacentHTML("beforeend",
-      '<svg class="dg-pack__chev" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>');
-    const sel = el("select", "dg-pack__sel");
-    sel.setAttribute("aria-label", t("dg.reach.title"));
-    const globalOpt = el("option", null, esc(t("dg.reach.globalOnly")));
-    globalOpt.value = "";
-    if (!current) globalOpt.selected = true;
-    sel.appendChild(globalOpt);
-    for (const pack of REGION_PACKS) {
-      const opt = el("option", null, esc(pack.toUpperCase()));
-      opt.value = pack;
-      if (pack === current) opt.selected = true;
-      sel.appendChild(opt);
-    }
-    sel.addEventListener("change", () => {
-      saveOption("diagnose.regionPack", sel.value);
-      render();
+      '<i class="dg-pack__dot"></i>' + esc(String(targets().length)) +
+      '</span>' +
+      '<svg class="dg-pack__chev" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openPackMenu(btn, current);
     });
-    box.appendChild(sel);
-    return box;
+    return btn;
+  }
+
+  function closePackMenu() {
+    packMenu?.remove();
+    packMenu = null;
+    document.removeEventListener("click", onPackOutside, true);
+    document.removeEventListener("keydown", onPackKey, true);
+  }
+
+  function onPackOutside(event) {
+    if (packMenu && !packMenu.contains(event.target)) closePackMenu();
+  }
+
+  function onPackKey(event) {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      closePackMenu();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const items = [...(packMenu?.querySelectorAll(".dg-packmenu__item") || [])];
+    if (!items.length) return;
+    event.preventDefault();
+    const at = items.indexOf(document.activeElement);
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    items[(at + step + items.length) % items.length]?.focus();
+  }
+
+  function openPackMenu(anchor, current) {
+    if (packMenu) {
+      closePackMenu();
+      return;
+    }
+    const menu = el("div", "dg-packmenu");
+    menu.setAttribute("role", "listbox");
+    const entries = [
+      { code: "", label: t("dg.reach.globalOnly") },
+      ...REGION_PACKS.map((code) => ({ code, label: countryName(code) || code.toUpperCase() })),
+    ];
+    for (const entry of entries) {
+      const item = el("button", "dg-packmenu__item");
+      item.type = "button";
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", String(entry.code === current));
+      if (entry.code === current) item.dataset.on = "true";
+      item.innerHTML =
+        '<span class="dg-packmenu__name">' + esc(entry.label) + "</span>" +
+        (entry.code ? '<span class="dg-packmenu__code">' + esc(entry.code.toUpperCase()) + "</span>" : "");
+      item.addEventListener("click", () => {
+        closePackMenu();
+        saveOption("diagnose.regionPack", entry.code);
+        render();
+      });
+      menu.appendChild(item);
+    }
+
+    document.body.appendChild(menu);
+    const rect = anchor.getBoundingClientRect();
+    // Попап держим в пределах окна: у правого края он иначе уезжает за экран.
+    const width = menu.getBoundingClientRect().width;
+    const left = Math.min(rect.right - width, window.innerWidth - width - 8);
+    menu.style.top = `${Math.round(rect.bottom + 6)}px`;
+    menu.style.left = `${Math.round(Math.max(8, left))}px`;
+    packMenu = menu;
+    anchor.setAttribute("aria-expanded", "true");
+    menu.querySelector('[data-on="true"]')?.focus();
+    document.addEventListener("click", onPackOutside, true);
+    document.addEventListener("keydown", onPackKey, true);
   }
 
   // ── Рендер: правая колонка ──────────────────────────────
@@ -728,6 +785,7 @@ export function mountDiagnoseView(root, {
       if (state.tab === "feed") renderSide();
     },
     destroy: () => {
+      closePackMenu();
       unsubscribe();
       root.innerHTML = "";
     },

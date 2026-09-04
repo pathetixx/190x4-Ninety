@@ -959,7 +959,7 @@ export const en = {
       colService: "Service",
       colDirect: "Direct",
       colTunnel: "Ninety",
-      globalOnly: "GLOBAL",
+      globalOnly: "Global",
       pinnedBadge: "MINE",
       emptyTitle: "No check has been run yet",
       emptyText: "Press “Run check” — Ninety walks the service list and compares direct access with access through the tunnel.",
