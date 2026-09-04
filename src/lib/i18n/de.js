@@ -399,6 +399,18 @@ export const de = {
 
   sb: {
     err: {
+      bad_target: "Adresse nicht erkannt",
+      dns_failed: "Der Name löst nicht auf",
+      ipv6_unsupported: "Die Route ist vorerst nur IPv4",
+      no_ipv4: "Der Name hat keine IPv4-Adresse",
+      windows_only: "Die Route gibt es nur unter Windows",
+      no_targets: "Die Zielliste ist leer",
+      too_many_targets: "Zu viele Ziele",
+      internal: "Interner Prüffehler",
+      probe_busy: "Eine andere Prüfung läuft — nochmal versuchen",
+      stale_generation: "Die Verbindung hat gewechselt — nochmal versuchen",
+      endpoint_unavailable: "Eine aktive Verbindung ist nötig",
+      runtime_unavailable: "Eine aktive Verbindung ist nötig",
       notVless: "Kein vless://-Link",
       noHostPort: "@host:port fehlt",
       vlessUuid: "vless: UUID fehlt",

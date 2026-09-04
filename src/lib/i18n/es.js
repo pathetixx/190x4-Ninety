@@ -403,6 +403,18 @@ export const es = {
 
   sb: {
     err: {
+      bad_target: "Dirección no reconocida",
+      dns_failed: "El nombre no se resuelve",
+      ipv6_unsupported: "La traza es solo IPv4 por ahora",
+      no_ipv4: "El nombre no tiene dirección IPv4",
+      windows_only: "La traza solo funciona en Windows",
+      no_targets: "La lista de objetivos está vacía",
+      too_many_targets: "Demasiados objetivos",
+      internal: "Error interno de la comprobación",
+      probe_busy: "Hay otra comprobación en curso: reinténtalo",
+      stale_generation: "La conexión cambió: reinténtalo",
+      endpoint_unavailable: "Hace falta una conexión activa",
+      runtime_unavailable: "Hace falta una conexión activa",
       notVless: "No es un enlace vless://",
       noHostPort: "Falta @host:port",
       vlessUuid: "vless: falta el UUID",

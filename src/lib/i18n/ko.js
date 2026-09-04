@@ -395,6 +395,18 @@ export const ko = {
 
   sb: {
     err: {
+      bad_target: "주소를 인식할 수 없습니다",
+      dns_failed: "이름이 해석되지 않습니다",
+      ipv6_unsupported: "경로는 현재 IPv4 전용입니다",
+      no_ipv4: "이 이름에는 IPv4 주소가 없습니다",
+      windows_only: "경로는 Windows에서만 동작합니다",
+      no_targets: "대상 목록이 비어 있습니다",
+      too_many_targets: "대상이 너무 많습니다",
+      internal: "검사 내부 오류",
+      probe_busy: "다른 검사가 진행 중입니다 — 다시 시도하세요",
+      stale_generation: "연결이 바뀌었습니다 — 다시 시도하세요",
+      endpoint_unavailable: "활성 연결이 필요합니다",
+      runtime_unavailable: "활성 연결이 필요합니다",
       notVless: "vless:// 링크가 아닙니다",
       noHostPort: "@host:port 가 없습니다",
       vlessUuid: "vless: UUID 없음",

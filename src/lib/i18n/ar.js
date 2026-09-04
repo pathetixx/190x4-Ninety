@@ -415,6 +415,18 @@ export const ar = {
 
   sb: {
     err: {
+      bad_target: "العنوان غير معروف",
+      dns_failed: "الاسم لا يُترجم",
+      ipv6_unsupported: "المسار حاليًا لـ IPv4 فقط",
+      no_ipv4: "لا يوجد عنوان IPv4 لهذا الاسم",
+      windows_only: "المسار يعمل على ويندوز فقط",
+      no_targets: "قائمة الأهداف فارغة",
+      too_many_targets: "أهداف كثيرة جدًا",
+      internal: "خطأ داخلي في الفحص",
+      probe_busy: "هناك فحص آخر جارٍ — أعد المحاولة",
+      stale_generation: "تغيّر الاتصال — أعد المحاولة",
+      endpoint_unavailable: "يلزم اتصال نشط",
+      runtime_unavailable: "يلزم اتصال نشط",
       notVless: "ليس رابط vless://",
       noHostPort: "لا يوجد @host:port",
       vlessUuid: "vless: معرّف UUID مفقود",

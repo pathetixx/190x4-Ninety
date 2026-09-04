@@ -403,6 +403,18 @@ export const it = {
 
   sb: {
     err: {
+      bad_target: "Indirizzo non riconosciuto",
+      dns_failed: "Il nome non si risolve",
+      ipv6_unsupported: "La traccia per ora è solo IPv4",
+      no_ipv4: "Il nome non ha un indirizzo IPv4",
+      windows_only: "La traccia funziona solo su Windows",
+      no_targets: "L'elenco delle destinazioni è vuoto",
+      too_many_targets: "Troppe destinazioni",
+      internal: "Errore interno della verifica",
+      probe_busy: "È in corso un'altra verifica: riprova",
+      stale_generation: "La connessione è cambiata: riprova",
+      endpoint_unavailable: "Serve una connessione attiva",
+      runtime_unavailable: "Serve una connessione attiva",
       notVless: "Non è un link vless://",
       noHostPort: "@host:port mancante",
       vlessUuid: "vless: UUID mancante",

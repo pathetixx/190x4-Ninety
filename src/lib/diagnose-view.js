@@ -53,6 +53,17 @@ const I = {
   search: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
 };
 
+// Бэкенд отдаёт стабильные коды, а не готовый текст: подпись собираем здесь,
+// на языке интерфейса. Незнакомый код показываем как есть — техническая строка
+// полезнее пустого места.
+function errText(err) {
+  const code = String(err?.message || err || "").trim();
+  if (!code) return "";
+  const key = `dg.err.${code}`;
+  const text = t(key);
+  return text === key ? code : text;
+}
+
 // Состояние пробы → класс пилюли. Всё, что не «открылось» и не «ответ сервиса»,
 // показываем как ошибку: пользователю не нужен зоопарк оттенков.
 function pillClass(state) {
@@ -158,7 +169,7 @@ export function mountDiagnoseView(root, {
       });
     } catch (err) {
       state.reach = [];
-      onToast(t("dg.err.reach", { err: String(err) }), "error", 4000);
+      onToast(t("dg.err.reach", { err: errText(err) }), "error", 4000);
     }
 
     // Трасса имеет смысл только когда известен адрес сервера. Без активного
@@ -173,7 +184,7 @@ export function mountDiagnoseView(root, {
         state.traceError = null;
       } catch (err) {
         state.trace = null;
-        state.traceError = String(err);
+        state.traceError = errText(err);
       }
     } else {
       state.trace = null;
@@ -185,7 +196,7 @@ export function mountDiagnoseView(root, {
       state.leaksError = null;
     } catch (err) {
       state.leaks = null;
-      state.leaksError = String(err);
+      state.leaksError = errText(err);
     }
 
     state.ranAt = Date.now();
@@ -207,7 +218,7 @@ export function mountDiagnoseView(root, {
         includeDirect: !!allowDirect(),
       });
     } catch (err) {
-      state.probeError = String(err);
+      state.probeError = errText(err);
     }
     state.running = false;
     render();
@@ -502,9 +513,19 @@ export function mountDiagnoseView(root, {
   // Выбор странового пакета. Список, а не перебор по кругу: пакетов больше
   // десятка, и «щёлкать до нужного» — не выбор, а лотерея.
   function regionPackSelect() {
+    // Нативный select оставляем ради клавиатуры и системного выпадающего
+    // списка, но кладём его поверх прозрачным слоем: видимую подпись рисуем
+    // сами, иначе число и код страны выглядят двумя разными наклейками в одной
+    // пилюле.
     const box = el("label", "dg-pack");
     const current = regionPack();
-    box.appendChild(el("span", "dg-pack__n", esc(String(targets().length))));
+    const label = el("span", "dg-pack__txt",
+      esc(current ? current.toUpperCase() : t("dg.reach.globalOnly")) +
+      '<i class="dg-pack__dot"></i>' + esc(String(targets().length)));
+    label.setAttribute("aria-hidden", "true");
+    box.appendChild(label);
+    box.insertAdjacentHTML("beforeend",
+      '<svg class="dg-pack__chev" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>');
     const sel = el("select", "dg-pack__sel");
     sel.setAttribute("aria-label", t("dg.reach.title"));
     const globalOpt = el("option", null, esc(t("dg.reach.globalOnly")));

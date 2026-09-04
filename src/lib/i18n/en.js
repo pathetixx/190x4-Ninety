@@ -399,6 +399,18 @@ export const en = {
 
   sb: {
     err: {
+      bad_target: "Address not recognised",
+      dns_failed: "The name does not resolve",
+      ipv6_unsupported: "The trace is IPv4-only for now",
+      no_ipv4: "The name has no IPv4 address",
+      windows_only: "The trace works on Windows only",
+      no_targets: "The target list is empty",
+      too_many_targets: "Too many targets",
+      internal: "Internal check error",
+      probe_busy: "Another check is running — try again",
+      stale_generation: "The connection changed — try again",
+      endpoint_unavailable: "An active connection is required",
+      runtime_unavailable: "An active connection is required",
       notVless: "Not a vless:// link",
       noHostPort: "Missing @host:port",
       vlessUuid: "vless: missing UUID",

@@ -395,6 +395,18 @@ export const zh = {
 
   sb: {
     err: {
+      bad_target: "无法识别该地址",
+      dns_failed: "域名无法解析",
+      ipv6_unsupported: "路径目前仅支持 IPv4",
+      no_ipv4: "该域名没有 IPv4 地址",
+      windows_only: "路径功能仅限 Windows",
+      no_targets: "目标列表为空",
+      too_many_targets: "目标过多",
+      internal: "检测内部错误",
+      probe_busy: "另一项检测正在进行——请重试",
+      stale_generation: "连接已切换——请重试",
+      endpoint_unavailable: "需要处于连接状态",
+      runtime_unavailable: "需要处于连接状态",
       notVless: "不是 vless:// 链接",
       noHostPort: "缺少 @host:port",
       vlessUuid: "vless：缺少 UUID",

@@ -407,6 +407,18 @@ export const uk = {
 
   sb: {
     err: {
+      bad_target: "Адресу не розпізнано",
+      dns_failed: "Ім'я не резолвиться",
+      ipv6_unsupported: "Траса поки лише для IPv4",
+      no_ipv4: "В імені немає IPv4-адреси",
+      windows_only: "Траса доступна лише на Windows",
+      no_targets: "Список цілей порожній",
+      too_many_targets: "Забагато цілей",
+      internal: "Внутрішня помилка перевірки",
+      probe_busy: "Триває інша перевірка — повторіть",
+      stale_generation: "Підключення змінилося — повторіть",
+      endpoint_unavailable: "Потрібне активне підключення",
+      runtime_unavailable: "Потрібне активне підключення",
       notVless: "Не vless:// посилання",
       noHostPort: "Немає @host:port",
       vlessUuid: "vless: відсутній UUID",

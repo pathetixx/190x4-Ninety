@@ -25,6 +25,10 @@
 // администратора не нужны. На прочих ОС команда честно возвращает ошибку, чтобы
 // dev-окружение не притворялось, что трасса снята.
 
+// Ошибки наружу — СТАБИЛЬНЫЕ КОДЫ (bad_target, dns_failed, ipv6_unsupported,
+// no_ipv4, windows_only, no_targets, too_many_targets, internal), а не готовый
+// текст: подпись собирает каталог i18n на языке интерфейса. Русская строка из
+// бэкенда пролезала в UI мимо перевода и на любом другом языке выглядела чужой.
 use serde::Serialize;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
@@ -142,7 +146,7 @@ pub async fn diagnose_trace(
 ) -> Result<TraceResult, String> {
     let host = target.trim().to_string();
     if host.is_empty() || host.len() > 255 {
-        return Err("пустой или слишком длинный адрес".into());
+        return Err("bad_target".into());
     }
     let port = port.unwrap_or(443);
     let hops_limit = max_hops
@@ -153,14 +157,14 @@ pub async fn diagnose_trace(
     let addr = resolve_v4(&host, port).await?;
     let ip = match addr.ip() {
         IpAddr::V4(v4) => v4,
-        IpAddr::V6(_) => return Err("IPv6-трасса пока не поддержана".into()),
+        IpAddr::V6(_) => return Err("ipv6_unsupported".into()),
     };
 
     // ICMP-хопы идут параллельно между собой (иначе трасса упирается в таймауты
     // молчащих узлов), а соединения — по одному на цель.
     let control_addr: SocketAddr = CONTROL_ENDPOINT
         .parse()
-        .map_err(|_| "неверный контрольный адрес".to_string())?;
+        .map_err(|_| "internal".to_string())?;
     let (icmp, tcp, control) = tokio::join!(
         icmp_walk(ip, hops_limit),
         tcp_probe(addr),
@@ -201,10 +205,10 @@ async fn resolve_v4(host: &str, port: u16) -> Result<SocketAddr, String> {
     }
     let mut addrs = tokio::net::lookup_host((host, port))
         .await
-        .map_err(|e| format!("имя не резолвится: {e}"))?;
+        .map_err(|_| "dns_failed".to_string())?;
     addrs
         .find(|a| a.is_ipv4())
-        .ok_or_else(|| "у имени нет IPv4-адреса".to_string())
+        .ok_or_else(|| "no_ipv4".to_string())
 }
 
 #[cfg(target_os = "windows")]
@@ -230,7 +234,7 @@ async fn icmp_walk(
     _ip: Ipv4Addr,
     _hops: u8,
 ) -> Result<Vec<(IcmpStatus, Option<String>, Option<u32>)>, String> {
-    Err("трасса доступна только на Windows".into())
+    Err("windows_only".into())
 }
 
 #[cfg(target_os = "windows")]
@@ -390,20 +394,20 @@ pub struct ReachRow {
 
 fn validate_targets(targets: Vec<ReachTarget>) -> Result<Vec<ReachTarget>, String> {
     if targets.is_empty() {
-        return Err("список целей пуст".into());
+        return Err("no_targets".into());
     }
     if targets.len() > MAX_TARGETS {
-        return Err(format!("слишком много целей (максимум {MAX_TARGETS})"));
+        return Err("too_many_targets".into());
     }
     for target in &targets {
         if target.url.len() > MAX_URL_LEN {
-            return Err("слишком длинный адрес цели".into());
+            return Err("bad_target".into());
         }
-        let parsed = reqwest::Url::parse(&target.url).map_err(|e| format!("адрес цели: {e}"))?;
+        let parsed = reqwest::Url::parse(&target.url).map_err(|_| "bad_target".to_string())?;
         // Схемы кроме http(s) увели бы reqwest в неожиданный транспорт, а file://
         // вообще прочитал бы локальный файл.
         if !matches!(parsed.scheme(), "http" | "https") {
-            return Err("допустимы только http и https".into());
+            return Err("bad_target".into());
         }
     }
     Ok(targets)
@@ -418,10 +422,10 @@ fn build_probe_client(endpoint: Option<&ProbeProxyEndpoint>) -> Result<reqwest::
         .no_gzip();
     if let Some(endpoint) = endpoint {
         let proxy = reqwest::Proxy::all(format!("http://{}", endpoint.address))
-            .map_err(|e| format!("proxy: {e}"))?;
+            .map_err(|_| "internal".to_string())?;
         builder = builder.proxy(proxy);
     }
-    builder.build().map_err(|e| format!("client: {e}"))
+    builder.build().map_err(|_| "internal".to_string())
 }
 
 /// Ошибка reqwest → короткий вид отказа. Текст ошибки в state не тащим: он
@@ -656,7 +660,7 @@ pub async fn diagnose_leaks(
 ) -> Result<LeakReport, String> {
     let host = control_host.unwrap_or_else(|| "cloudflare.com".to_string());
     if host.len() > 255 || host.contains('/') {
-        return Err("некорректное контрольное имя".into());
+        return Err("bad_target".into());
     }
 
     let (_, endpoint) = crate::vpn::probe_endpoint_for_generation(&state, expected_generation)
@@ -753,7 +757,7 @@ pub struct ProbeReport {
 pub fn parse_probe_target(raw: &str) -> Result<(String, u16, String), String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > MAX_URL_LEN {
-        return Err("пустой или слишком длинный адрес".into());
+        return Err("bad_target".into());
     }
 
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
@@ -777,7 +781,7 @@ pub fn parse_probe_target(raw: &str) -> Result<(String, u16, String), String> {
         _ => (trimmed.trim_matches(['[', ']']).to_string(), 443u16),
     };
     if host.is_empty() || host.contains('/') || host.contains(' ') {
-        return Err("некорректный адрес".into());
+        return Err("bad_target".into());
     }
     let scheme = if port == 80 { "http" } else { "https" };
     let authority = if host.contains(':') {

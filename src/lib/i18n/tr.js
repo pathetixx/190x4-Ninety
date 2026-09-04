@@ -399,6 +399,18 @@ export const tr = {
 
   sb: {
     err: {
+      bad_target: "Adres tanınmadı",
+      dns_failed: "Ad çözümlenmiyor",
+      ipv6_unsupported: "Rota şimdilik yalnızca IPv4",
+      no_ipv4: "Adın IPv4 adresi yok",
+      windows_only: "Rota yalnızca Windows'ta çalışır",
+      no_targets: "Hedef listesi boş",
+      too_many_targets: "Çok fazla hedef",
+      internal: "Dahili kontrol hatası",
+      probe_busy: "Başka bir kontrol sürüyor — tekrar deneyin",
+      stale_generation: "Bağlantı değişti — tekrar deneyin",
+      endpoint_unavailable: "Etkin bir bağlantı gerekiyor",
+      runtime_unavailable: "Etkin bir bağlantı gerekiyor",
       notVless: "vless:// bağlantısı değil",
       noHostPort: "@host:port eksik",
       vlessUuid: "vless: UUID eksik",

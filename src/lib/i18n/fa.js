@@ -399,6 +399,18 @@ export const fa = {
 
   sb: {
     err: {
+      bad_target: "آدرس شناسایی نشد",
+      dns_failed: "نام حل نمی‌شود",
+      ipv6_unsupported: "مسیر فعلاً فقط برای IPv4 است",
+      no_ipv4: "این نام آدرس IPv4 ندارد",
+      windows_only: "مسیر فقط در ویندوز کار می‌کند",
+      no_targets: "فهرست هدف‌ها خالی است",
+      too_many_targets: "هدف‌ها بیش از حد زیادند",
+      internal: "خطای داخلی بررسی",
+      probe_busy: "بررسی دیگری در جریان است — دوباره تلاش کنید",
+      stale_generation: "اتصال عوض شد — دوباره تلاش کنید",
+      endpoint_unavailable: "به اتصال فعال نیاز است",
+      runtime_unavailable: "به اتصال فعال نیاز است",
       notVless: "لینک vless:// نیست",
       noHostPort: "@host:port موجود نیست",
       vlessUuid: "vless: شناسه UUID وجود ندارد",

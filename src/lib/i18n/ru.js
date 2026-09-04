@@ -407,6 +407,18 @@ export const ru = {
 
   sb: {
     err: {
+      bad_target: "Адрес не распознан",
+      dns_failed: "Имя не резолвится",
+      ipv6_unsupported: "Трасса пока только для IPv4",
+      no_ipv4: "У имени нет IPv4-адреса",
+      windows_only: "Трасса доступна только на Windows",
+      no_targets: "Список целей пуст",
+      too_many_targets: "Слишком много целей",
+      internal: "Внутренняя ошибка проверки",
+      probe_busy: "Идёт другая проверка — повторите",
+      stale_generation: "Подключение сменилось — повторите",
+      endpoint_unavailable: "Нужно активное подключение",
+      runtime_unavailable: "Нужно активное подключение",
       notVless: "Не vless:// ссылка",
       noHostPort: "Нет @host:port",
       vlessUuid: "vless: отсутствует UUID",

@@ -407,6 +407,18 @@ export const pl = {
 
   sb: {
     err: {
+      bad_target: "Adres nierozpoznany",
+      dns_failed: "Nazwa się nie rozwiązuje",
+      ipv6_unsupported: "Trasa na razie tylko dla IPv4",
+      no_ipv4: "Nazwa nie ma adresu IPv4",
+      windows_only: "Trasa działa tylko na Windowsie",
+      no_targets: "Lista celów jest pusta",
+      too_many_targets: "Za dużo celów",
+      internal: "Wewnętrzny błąd sprawdzenia",
+      probe_busy: "Trwa inne sprawdzenie — spróbuj ponownie",
+      stale_generation: "Połączenie się zmieniło — spróbuj ponownie",
+      endpoint_unavailable: "Potrzebne aktywne połączenie",
+      runtime_unavailable: "Potrzebne aktywne połączenie",
       notVless: "To nie jest link vless://",
       noHostPort: "Brak @host:port",
       vlessUuid: "vless: brak UUID",

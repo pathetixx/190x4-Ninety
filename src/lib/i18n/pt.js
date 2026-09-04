@@ -403,6 +403,18 @@ export const pt = {
 
   sb: {
     err: {
+      bad_target: "Endereço não reconhecido",
+      dns_failed: "O nome não resolve",
+      ipv6_unsupported: "A rota é por agora só IPv4",
+      no_ipv4: "O nome não tem endereço IPv4",
+      windows_only: "A rota só funciona no Windows",
+      no_targets: "A lista de alvos está vazia",
+      too_many_targets: "Alvos a mais",
+      internal: "Erro interno da verificação",
+      probe_busy: "Está a decorrer outra verificação — tente de novo",
+      stale_generation: "A ligação mudou — tente de novo",
+      endpoint_unavailable: "É preciso uma ligação ativa",
+      runtime_unavailable: "É preciso uma ligação ativa",
       notVless: "Não é um link vless://",
       noHostPort: "@host:port em falta",
       vlessUuid: "vless: UUID em falta",

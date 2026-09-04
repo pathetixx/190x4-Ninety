@@ -403,6 +403,18 @@ export const fr = {
 
   sb: {
     err: {
+      bad_target: "Adresse non reconnue",
+      dns_failed: "Le nom ne se résout pas",
+      ipv6_unsupported: "La trace est encore IPv4 uniquement",
+      no_ipv4: "Le nom n'a pas d'adresse IPv4",
+      windows_only: "La trace n'existe que sous Windows",
+      no_targets: "La liste de cibles est vide",
+      too_many_targets: "Trop de cibles",
+      internal: "Erreur interne de vérification",
+      probe_busy: "Une autre vérification est en cours — réessayez",
+      stale_generation: "La connexion a changé — réessayez",
+      endpoint_unavailable: "Une connexion active est nécessaire",
+      runtime_unavailable: "Une connexion active est nécessaire",
       notVless: "Pas un lien vless://",
       noHostPort: "@host:port manquant",
       vlessUuid: "vless : UUID manquant",

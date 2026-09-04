@@ -395,6 +395,18 @@ export const ja = {
 
   sb: {
     err: {
+      bad_target: "アドレスを認識できません",
+      dns_failed: "名前を解決できません",
+      ipv6_unsupported: "経路は当面 IPv4 のみです",
+      no_ipv4: "この名前に IPv4 アドレスがありません",
+      windows_only: "経路は Windows のみ対応です",
+      no_targets: "対象リストが空です",
+      too_many_targets: "対象が多すぎます",
+      internal: "チェックの内部エラー",
+      probe_busy: "別のチェックが実行中です。もう一度お試しください",
+      stale_generation: "接続が切り替わりました。もう一度お試しください",
+      endpoint_unavailable: "接続中である必要があります",
+      runtime_unavailable: "接続中である必要があります",
       notVless: "vless:// リンクではありません",
       noHostPort: "@host:port がありません",
       vlessUuid: "vless: UUID がありません",
