@@ -578,6 +578,337 @@ pub async fn diagnose_reach(
     Ok(rows)
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Утечки и ручная проверка своего адреса
+// ═══════════════════════════════════════════════════════════════════════════
+
+const DOH_JSON_URL: &str = "https://cloudflare-dns.com/dns-query";
+const TRACE_URL: &str = "https://cloudflare.com/cdn-cgi/trace";
+// Публичный IPv6-резолвер Cloudflare: проверяем не его, а сам факт, что у
+// машины есть рабочий выход в IPv6 мимо туннеля.
+const IPV6_PROBE: &str = "[2606:4700:4700::1111]:443";
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LeakCheck {
+    /// ok — утечки нет; warn — есть на что посмотреть; err — течёт; skipped — не проверяли.
+    pub state: String,
+    pub detail: Option<String>,
+}
+
+impl LeakCheck {
+    fn new(state: &str, detail: Option<String>) -> Self {
+        Self {
+            state: state.to_string(),
+            detail,
+        }
+    }
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LeakReport {
+    /// Резолвится ли имя через туннель вообще.
+    pub dns_in_tunnel: LeakCheck,
+    /// Совпал ли ответ системного резолвера с ответом через туннель. Расхождение
+    /// — это либо CDN (нормально), либо подмена провайдером (не нормально);
+    /// решение остаётся за человеком, поэтому уровень warn, а не err.
+    pub dns_answer_match: LeakCheck,
+    /// Внешний адрес, каким его видит интернет из туннеля.
+    pub external_ip: LeakCheck,
+    /// Есть ли у машины выход в IPv6 мимо туннеля.
+    pub ipv6_open: LeakCheck,
+}
+
+/// Резолв системным резолвером — то есть ровно тем, что выдал провайдер.
+async fn resolve_system(host: &str) -> Result<Vec<String>, String> {
+    let lookup = tokio::net::lookup_host((host, 443))
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut out: Vec<String> = lookup.map(|addr| addr.ip().to_string()).collect();
+    out.sort();
+    out.dedup();
+    Ok(out)
+}
+
+/// Резолв через туннель. DoH в JSON-виде, а не в wire-формате: разбирать
+/// бинарный ответ ради четырёх адресов незачем, а JSON-эндпоинт отдаёт то же
+/// самое и идёт через тот же прокси.
+async fn resolve_via_tunnel(client: &reqwest::Client, host: &str) -> Result<Vec<String>, String> {
+    let url = format!(
+        "{DOH_JSON_URL}?name={}&type=A",
+        urlencoding::encode(host)
+    );
+    let response = client
+        .get(url)
+        .header("accept", "application/dns-json")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    let mut out: Vec<String> = json["Answer"]
+        .as_array()
+        .map(|answers| {
+            answers
+                .iter()
+                .filter(|a| a["type"].as_u64() == Some(1))
+                .filter_map(|a| a["data"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort();
+    out.dedup();
+    Ok(out)
+}
+
+/// Внешний адрес глазами интернета (через переданный клиент).
+async fn external_ip(client: &reqwest::Client) -> Result<String, String> {
+    let body = client
+        .get(TRACE_URL)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+    body.lines()
+        .find_map(|line| line.strip_prefix("ip=").map(str::to_string))
+        .ok_or_else(|| "в ответе нет адреса".to_string())
+}
+
+/// Утечки: что уходит мимо туннеля, пока он поднят.
+///
+/// Контрольное имя приходит от фронта (по умолчанию — домен проверки соединения
+/// из настроек): захардкоженный домен в бэкенде пришлось бы менять релизом.
+#[tauri::command]
+pub async fn diagnose_leaks(
+    state: tauri::State<'_, SingboxState>,
+    expected_generation: Option<u64>,
+    control_host: Option<String>,
+) -> Result<LeakReport, String> {
+    let host = control_host.unwrap_or_else(|| "cloudflare.com".to_string());
+    if host.len() > 255 || host.contains('/') {
+        return Err("некорректное контрольное имя".into());
+    }
+
+    let (_, endpoint) = crate::vpn::probe_endpoint_for_generation(&state, expected_generation)
+        .map_err(|reason| reason.to_string())?;
+    let tunnel = build_probe_client(Some(&endpoint))?;
+
+    let tunnel_answers = resolve_via_tunnel(&tunnel, &host).await;
+    let dns_in_tunnel = match &tunnel_answers {
+        Ok(list) if !list.is_empty() => LeakCheck::new("ok", Some(list.join(", "))),
+        Ok(_) => LeakCheck::new("warn", Some("пустой ответ".into())),
+        Err(err) => LeakCheck::new("err", Some(err.clone())),
+    };
+
+    let system_answers = resolve_system(&host).await;
+    let dns_answer_match = match (&system_answers, &tunnel_answers) {
+        (Ok(system), Ok(tunneled)) if !system.is_empty() && !tunneled.is_empty() => {
+            // Пересечение, а не равенство: у крупных сайтов адреса разные в
+            // каждом регионе, и требовать полного совпадения значило бы кричать
+            // «подмена» на любом CDN.
+            if system.iter().any(|ip| tunneled.contains(ip)) {
+                LeakCheck::new("ok", Some(system.join(", ")))
+            } else {
+                LeakCheck::new(
+                    "warn",
+                    Some(format!(
+                        "провайдер: {} · туннель: {}",
+                        system.join(", "),
+                        tunneled.join(", ")
+                    )),
+                )
+            }
+        }
+        (Err(err), _) => LeakCheck::new("warn", Some(err.clone())),
+        _ => LeakCheck::new("skipped", None),
+    };
+
+    let external_ip = match external_ip(&tunnel).await {
+        Ok(ip) => LeakCheck::new("ok", Some(ip)),
+        Err(err) => LeakCheck::new("err", Some(err)),
+    };
+
+    let ipv6_open = match IPV6_PROBE.parse::<SocketAddr>() {
+        Ok(addr) => {
+            let reachable = tokio::time::timeout(
+                Duration::from_secs(2),
+                tokio::net::TcpStream::connect(addr),
+            )
+            .await
+            .map(|r| r.is_ok())
+            .unwrap_or(false);
+            if reachable {
+                LeakCheck::new("warn", Some("IPv6 доступен".into()))
+            } else {
+                LeakCheck::new("ok", Some("IPv6 закрыт".into()))
+            }
+        }
+        Err(_) => LeakCheck::new("skipped", None),
+    };
+
+    Ok(LeakReport {
+        dns_in_tunnel,
+        dns_answer_match,
+        external_ip,
+        ipv6_open,
+    })
+}
+
+/// Пошаговый разбор одного адреса. Ступени идут в том же порядке, в каком их
+/// проходит настоящее соединение: имя → порт → рукопожатие → ответ.
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeStages {
+    pub dns: Vec<String>,
+    pub dns_error: Option<String>,
+    pub tcp_ms: Option<u64>,
+    pub tcp_error: Option<String>,
+    pub http_status: Option<u16>,
+    pub http_ms: Option<u64>,
+    pub http_state: Option<String>,
+    pub http_error: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeReport {
+    pub host: String,
+    pub port: u16,
+    pub url: String,
+    pub direct: ProbeStages,
+    pub tunnel: ProbeStages,
+}
+
+/// Разбирает пользовательский ввод: домен, домен:порт, IP, IP:порт или URL.
+/// Возвращает (host, port, url) — последний нужен, чтобы бить в тот же адрес
+/// HTTP-запросом.
+pub fn parse_probe_target(raw: &str) -> Result<(String, u16, String), String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.len() > MAX_URL_LEN {
+        return Err("пустой или слишком длинный адрес".into());
+    }
+
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        let url = reqwest::Url::parse(trimmed).map_err(|e| format!("адрес: {e}"))?;
+        let host = url.host_str().ok_or("в адресе нет имени хоста")?.to_string();
+        let port = url
+            .port_or_known_default()
+            .ok_or("не удалось определить порт")?;
+        return Ok((host, port, url.to_string()));
+    }
+
+    // Голый IPv6 в скобках или домен с портом.
+    let (host, port) = match trimmed.rsplit_once(':') {
+        Some((head, tail)) if !head.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) => {
+            let port: u16 = tail.parse().map_err(|_| "некорректный порт".to_string())?;
+            (head.trim_matches(['[', ']']).to_string(), port)
+        }
+        _ => (trimmed.trim_matches(['[', ']']).to_string(), 443u16),
+    };
+    if host.is_empty() || host.contains('/') || host.contains(' ') {
+        return Err("некорректный адрес".into());
+    }
+    let scheme = if port == 80 { "http" } else { "https" };
+    let authority = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.clone()
+    };
+    let url = if port == 80 || port == 443 {
+        format!("{scheme}://{authority}/")
+    } else {
+        format!("{scheme}://{authority}:{port}/")
+    };
+    Ok((host, port, url))
+}
+
+async fn direct_stages(client: &reqwest::Client, host: &str, port: u16, url: &str) -> ProbeStages {
+    let mut stages = ProbeStages::default();
+
+    match resolve_system(host).await {
+        Ok(list) => stages.dns = list,
+        Err(err) => stages.dns_error = Some(err),
+    }
+
+    if let Some(first) = stages.dns.first() {
+        let addr: Option<SocketAddr> = format!("{first}:{port}").parse().ok();
+        if let Some(addr) = addr {
+            let started = Instant::now();
+            match tokio::time::timeout(
+                REACH_CONNECT_TIMEOUT,
+                tokio::net::TcpStream::connect(addr),
+            )
+            .await
+            {
+                Ok(Ok(_)) => stages.tcp_ms = Some(started.elapsed().as_millis() as u64),
+                Ok(Err(err)) => stages.tcp_error = Some(err.to_string()),
+                Err(_) => stages.tcp_error = Some("таймаут".into()),
+            }
+        }
+    }
+
+    let outcome = probe_once(client, url).await;
+    stages.http_state = Some(outcome.state);
+    stages.http_status = outcome.http_status;
+    stages.http_ms = outcome.ms;
+    stages.http_error = outcome.error;
+    stages
+}
+
+async fn tunnel_stages(client: &reqwest::Client, host: &str, url: &str) -> ProbeStages {
+    let mut stages = ProbeStages::default();
+    match resolve_via_tunnel(client, host).await {
+        Ok(list) => stages.dns = list,
+        Err(err) => stages.dns_error = Some(err),
+    }
+    // Отдельной TCP-ступени через туннель нет: соединение устанавливает ядро,
+    // и «время до порта» здесь измерялось бы до локального прокси, а не до
+    // сервера. Фронт показывает в этой клетке прочерк.
+    let outcome = probe_once(client, url).await;
+    stages.http_state = Some(outcome.state);
+    stages.http_status = outcome.http_status;
+    stages.http_ms = outcome.ms;
+    stages.http_error = outcome.error;
+    stages
+}
+
+/// Ручная проверка одного адреса в обе стороны.
+#[tauri::command]
+pub async fn diagnose_probe(
+    state: tauri::State<'_, SingboxState>,
+    expected_generation: Option<u64>,
+    target: String,
+    include_direct: Option<bool>,
+) -> Result<ProbeReport, String> {
+    let (host, port, url) = parse_probe_target(&target)?;
+    let include_direct = include_direct.unwrap_or(true);
+
+    let direct = if include_direct {
+        let client = build_probe_client(None)?;
+        direct_stages(&client, &host, port, &url).await
+    } else {
+        ProbeStages::default()
+    };
+
+    let tunnel = match crate::vpn::probe_endpoint_for_generation(&state, expected_generation) {
+        Ok((_, endpoint)) => {
+            let client = build_probe_client(Some(&endpoint))?;
+            tunnel_stages(&client, &host, &url).await
+        }
+        Err(_) => ProbeStages::default(),
+    };
+
+    Ok(ProbeReport {
+        host,
+        port,
+        url,
+        direct,
+        tunnel,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -649,6 +980,33 @@ mod tests {
             hop(3, IcmpStatus::Expired, TcpStatus::Silent),
         ];
         assert_eq!(detect_filter_hop(&hops), Some(3));
+    }
+
+    #[test]
+    fn probe_target_accepts_host_port_ip_and_url() {
+        assert_eq!(
+            parse_probe_target("example.com").unwrap(),
+            ("example.com".into(), 443, "https://example.com/".into())
+        );
+        assert_eq!(
+            parse_probe_target("example.com:8443").unwrap(),
+            ("example.com".into(), 8443, "https://example.com:8443/".into())
+        );
+        // Порт 80 — это http, иначе проба ушла бы в TLS на нешифрованный порт.
+        assert_eq!(
+            parse_probe_target("1.2.3.4:80").unwrap(),
+            ("1.2.3.4".into(), 80, "http://1.2.3.4/".into())
+        );
+        let (host, port, _) = parse_probe_target("https://docs.example/path").unwrap();
+        assert_eq!((host.as_str(), port), ("docs.example", 443));
+    }
+
+    #[test]
+    fn probe_target_rejects_junk() {
+        assert!(parse_probe_target("").is_err());
+        assert!(parse_probe_target("   ").is_err());
+        assert!(parse_probe_target("example.com/path").is_err());
+        assert!(parse_probe_target("example.com:99999").is_err());
     }
 
     #[test]

@@ -1367,6 +1367,8 @@ pub fn run() {
             dnscheck::dns_probe,
             diagnose::diagnose_trace,
             diagnose::diagnose_reach,
+            diagnose::diagnose_leaks,
+            diagnose::diagnose_probe,
             dpi::dpi_strategies,
             dpi::dpi_domains_count,
             dpi::dpi_fake_payloads,
