@@ -95,7 +95,24 @@
 }
 
 /* ── Матрица доступности ── */
-.dg-mx { display: flex; flex-direction: column; }
+.dg-mx { display: flex; flex-direction: column; container-type: inline-size; }
+
+/* Узкое окно: пяти колонок не хватает места, и текст вердикта наезжал на имя
+   сервиса. Ниже порога строка перестраивается в две — сверху имя и пилюли,
+   снизу вывод и кнопка действия. */
+@container (max-width: 560px) {
+  .dg-mx__cols,
+  .dg-row { grid-template-columns: minmax(0, 1fr) 62px 62px; }
+  .dg-mx__cols span:nth-child(4),
+  .dg-mx__cols span:nth-child(5) { display: none; }
+  .dg-mx__cols,
+  .dg-row { gap: 6px; }
+  .dg-row { padding-block: 7px; row-gap: 4px; }
+  .dg-row__verdict { grid-column: 1 / -1; }
+  .dg-row__txt { text-align: start; }
+  .dg-row > div:last-child:not(:empty) { grid-column: 1 / -1; justify-self: start; }
+  .dg-row > div:last-child:empty { display: none; }
+}
 .dg-mx__cols {
   display: grid; grid-template-columns: minmax(0, 1fr) 56px 56px 124px 104px;
   gap: 8px; padding: 7px 14px; align-items: center;
@@ -110,12 +127,19 @@
 }
 .dg-row:last-child { border-bottom: 0; }
 .dg-row--hl { background: color-mix(in srgb, var(--accent) 5%, transparent); }
-.dg-row__name { font-size: 12.5px; color: var(--text-hi); font-weight: 500; min-width: 0; }
+.dg-row__name {
+  font-size: 12.5px; color: var(--text-hi); font-weight: 500; min-width: 0;
+  /* Обрезаем, а не переносим: перенос менял высоту строки и ломал ритм списка. */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .dg-row__host { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dg-pill {
   height: 22px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 4px;
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em;
   border: 1px solid var(--line-2); background: var(--ink-2); color: var(--text-lo);
+  /* Длинная подпись состояния не имеет права разъехаться на соседнюю колонку:
+     в узком окне она наезжала прямо на имя сервиса. */
+  padding: 0 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dg-pill--ok   { color: var(--ok);   border-color: color-mix(in srgb, var(--ok) 34%, transparent);   background: color-mix(in srgb, var(--ok) 10%, var(--ink-2)); }
 .dg-pill--err  { color: var(--err);  border-color: color-mix(in srgb, var(--err) 36%, transparent);  background: color-mix(in srgb, var(--err) 11%, var(--ink-2)); }

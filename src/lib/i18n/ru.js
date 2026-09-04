@@ -939,7 +939,7 @@ export const ru = {
       ok: "ок",
       http: "отказ",
       timeout: "таймаут",
-      refused: "отказ связи",
+      refused: "нет связи",
       dns: "нет имени",
       tls: "TLS",
       error: "ошибка",

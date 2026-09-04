@@ -923,7 +923,7 @@ export const de = {
       ok: "ok",
       http: "abgelehnt",
       timeout: "Timeout",
-      refused: "kein Connect",
+      refused: "kein Link",
       dns: "kein Name",
       tls: "TLS",
       error: "Fehler",

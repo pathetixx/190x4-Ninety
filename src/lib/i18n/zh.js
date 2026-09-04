@@ -915,7 +915,7 @@ export const zh = {
       ok: "正常",
       http: "拒绝",
       timeout: "超时",
-      refused: "无法连接",
+      refused: "无连接",
       dns: "无解析",
       tls: "TLS",
       error: "错误",

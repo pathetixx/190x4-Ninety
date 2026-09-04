@@ -939,7 +939,7 @@ export const uk = {
       ok: "ок",
       http: "відмова",
       timeout: "тайм-аут",
-      refused: "немає з'єднання",
+      refused: "нема зв'язку",
       dns: "немає імені",
       tls: "TLS",
       error: "помилка",

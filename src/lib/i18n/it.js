@@ -931,7 +931,7 @@ export const it = {
       ok: "ok",
       http: "rifiuto",
       timeout: "timeout",
-      refused: "nessuna connessione",
+      refused: "no link",
       dns: "nessun nome",
       tls: "TLS",
       error: "errore",

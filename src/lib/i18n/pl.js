@@ -939,7 +939,7 @@ export const pl = {
       ok: "ok",
       http: "odmowa",
       timeout: "limit czasu",
-      refused: "brak połączenia",
+      refused: "brak łącza",
       dns: "brak nazwy",
       tls: "TLS",
       error: "błąd",
