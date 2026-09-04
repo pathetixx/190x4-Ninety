@@ -919,6 +919,7 @@ export const tr = {
       dpi: "DPI atlatmayı aç",
       switchNode: "Sunucu değiştir",
       ruleDirect: "Doğrudan gönder",
+      unpin: "Setten çıkar",
       run: "Kontrol et",
     },
     fact: {
@@ -951,6 +952,7 @@ export const tr = {
       fine: "Her yerde çalışıyor",
       down: "Yanıt yok",
       tunnelOk: "Tünel üzerinden çalışıyor",
+      byRule: "Kurala göre doğrudan gidiyor",
       tunnelOff: "Tünel kapalı",
       ruleDirect: "Doğrudan",
     },
@@ -969,7 +971,9 @@ export const tr = {
       run: "Kontrol et",
       badge: "KENDİ",
       pin: "Sabitle",
+      unpin: "Sabitlemeyi kaldır",
       pinnedToast: "{host} kontrol setine eklendi",
+      unpinnedToast: "{host} setten çıkarıldı",
       rule: "Kural: tünel",
       stage: {
         dns: "DNS",

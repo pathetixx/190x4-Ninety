@@ -919,6 +919,7 @@ export const en = {
       dpi: "Turn on DPI bypass",
       switchNode: "Switch server",
       ruleDirect: "Send direct",
+      unpin: "Remove from the set",
       run: "Run check",
     },
     fact: {
@@ -951,6 +952,7 @@ export const en = {
       fine: "Works everywhere",
       down: "No answer",
       tunnelOk: "Works through the tunnel",
+      byRule: "Sent direct by a rule",
       tunnelOff: "Tunnel is off",
       ruleDirect: "Direct",
     },
@@ -969,7 +971,9 @@ export const en = {
       run: "Check",
       badge: "MINE",
       pin: "Pin",
+      unpin: "Unpin",
       pinnedToast: "{host} added to the check set",
+      unpinnedToast: "{host} removed from the set",
       rule: "Rule: tunnel",
       stage: {
         dns: "DNS",

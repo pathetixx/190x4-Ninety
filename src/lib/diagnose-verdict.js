@@ -174,3 +174,34 @@ export function countFindings({ reach = [], trace = null, leaks = null } = {}) {
   }
   return Math.max(0, count);
 }
+
+/// Уходит ли адрес напрямую по правилу маршрутизации — региональному или
+/// пользовательскому. Нужно не для решения, а для ПОДПИСИ: при региональном
+/// правиле колонка «через Ninety» меряет прямое соединение, которое сделало
+/// само ядро, и без пояснения два одинаковых «ок» выглядят странно.
+///
+/// Локально проверяем то, что можем: суффикс страны и доменные правила
+/// пользователя. Списки geosite живут в ядре, и здесь их не развернуть —
+/// поэтому отсутствие совпадения не означает «точно идёт в туннель».
+export function matchesDirectRule({ host = "", region = "", customRules = [] } = {}) {
+  const name = String(host).toLowerCase();
+  if (!name) return false;
+
+  const country = String(region).toLowerCase();
+  if (country && country !== "other" && name.endsWith(`.${country}`)) return true;
+
+  for (const rule of Array.isArray(customRules) ? customRules : []) {
+    if (!rule || rule.enabled === false || rule.action !== "direct" || rule.type !== "domain") continue;
+    for (const raw of rule.values || []) {
+      const value = String(raw || "").toLowerCase();
+      if (!value) continue;
+      const hit = rule.match === "exact"
+        ? name === value
+        : rule.match === "keyword"
+          ? name.includes(value)
+          : name === value || name.endsWith(`.${value}`);
+      if (hit) return true;
+    }
+  }
+  return false;
+}

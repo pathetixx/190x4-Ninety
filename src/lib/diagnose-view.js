@@ -11,8 +11,12 @@
 //
 // Точка входа: mountDiagnoseView(root, deps) → { run, refreshFeed, destroy }.
 
-import { buildVerdict, countFindings, verdictFacts } from "/lib/diagnose-verdict.js";
-import { buildProbeSet, defaultRegionPack, normalizePinned, REGION_PACKS } from "/lib/probe-sets.js";
+import {
+  buildVerdict, countFindings, matchesDirectRule, verdictFacts,
+} from "/lib/diagnose-verdict.js";
+import {
+  buildProbeSet, normalizePinned, resolveRegionPack, targetsById, REGION_PACKS,
+} from "/lib/probe-sets.js";
 import { groupIncidents, degradedMs, incidentLog } from "/lib/incident-log.js";
 import { escapeHtml as esc } from "/lib/esc.js";
 import { t, getLang } from "/lib/i18n/index.js";
@@ -51,6 +55,7 @@ const I = {
   check: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5-2.2 8-5.5 8-10V5l-8-3-8 3v7c0 4.5 3 7.8 8 10z"/><path d="m8.6 11.8 2.3 2.4 4.5-4.6"/></svg>',
   bolt: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
+  x: '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
   search: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
 };
 
@@ -81,9 +86,12 @@ function pillText(outcome) {
 }
 
 // Короткий вывод по строке матрицы — тот же язык, что и в вердикте.
-function rowVerdict(row) {
+function rowVerdict(row, direct2 = false) {
   const direct = row.direct?.state;
   const tunnel = row.tunnel?.state;
+  // Адрес, который правило отправляет мимо туннеля: колонка «через Ninety»
+  // меряет прямое соединение, и «работает везде» здесь ничего не объясняет.
+  if (direct2 && tunnel === "ok") return t("dg.row.byRule");
   if (direct === "skipped" && tunnel === "ok") return t("dg.row.tunnelOk");
   if (tunnel === "ok" && direct !== "ok" && direct !== "skipped") return t("dg.row.rescued");
   if (direct === "ok" && tunnel !== "ok" && tunnel !== "skipped") {
@@ -140,9 +148,11 @@ export function mountDiagnoseView(root, {
   }
 
   function regionPack() {
-    const stored = options().regionPack;
-    if (stored) return stored;
-    return defaultRegionPack({ region: (getOptions() || {}).region, lang: getLang() });
+    return resolveRegionPack({
+      stored: options().regionPack,
+      region: (getOptions() || {}).region,
+      lang: getLang(),
+    });
   }
 
   function pinned() {
@@ -223,6 +233,20 @@ export function mountDiagnoseView(root, {
       state.probeError = errText(err);
     }
     state.running = false;
+    render();
+  }
+
+  function isPinned(host) {
+    const id = `pin-${String(host || "").trim()}`;
+    return pinned().some((entry) => entry?.id === id);
+  }
+
+  function unpin(id) {
+    const list = pinned().filter((entry) => entry?.id !== id);
+    saveOption("diagnose.pinned", list);
+    // Строка закреплённой цели больше не относится к набору — убираем и её.
+    state.reach = state.reach.filter((row) => row.id !== id);
+    onToast(t("dg.probe.unpinnedToast", { host: id.replace(/^pin-/, "") }), "info", 2200);
     render();
   }
 
@@ -381,7 +405,9 @@ export function mountDiagnoseView(root, {
       return;
     }
 
-    const known = new Map(targets().map((target) => [target.id, target]));
+    // Подписи берём из общего каталога, а не из текущего набора: смена пакета
+    // между прогоном и отрисовкой оставляла строки без имени.
+    const known = targetsById(pinned());
     for (const row of state.reach) {
       const meta = known.get(row.id) || { name: row.id, scope: "global" };
       const line = el("div", "dg-row");
@@ -394,9 +420,24 @@ export function mountDiagnoseView(root, {
       line.appendChild(name);
       line.appendChild(el("div", `dg-pill ${pillClass(row.direct?.state)}`, esc(pillText(row.direct))));
       line.appendChild(el("div", `dg-pill ${pillClass(row.tunnel?.state)}`, esc(pillText(row.tunnel))));
-      line.appendChild(el("div", "dg-row__verdict", `<span class="dg-row__txt">${esc(rowVerdict(row))}</span>`));
+      const opts = getOptions() || {};
+      const viaRule = matchesDirectRule({
+        host: hostOf(row.url),
+        region: opts.region,
+        customRules: opts.route?.customRules,
+      });
+      line.appendChild(el("div", "dg-row__verdict",
+        `<span class="dg-row__txt">${esc(rowVerdict(row, viaRule))}</span>`));
 
-      const actionCell = el("div");
+      const actionCell = el("div", "dg-row__acts");
+      if (meta.scope === "pinned") {
+        const off = el("button", "dg-unpin", I.x);
+        off.type = "button";
+        off.title = t("dg.row.unpin");
+        off.setAttribute("aria-label", t("dg.row.unpin"));
+        off.addEventListener("click", () => unpin(row.id));
+        actionCell.appendChild(off);
+      }
       const needsRule = row.direct?.state === "ok" && row.tunnel?.state !== "ok" && row.tunnel?.state !== "skipped";
       if (needsRule) {
         const btn = el("button", "dg-act", esc(t("dg.row.ruleDirect")) + I.arrow);
@@ -452,9 +493,10 @@ export function mountDiagnoseView(root, {
     const foot = el("div", "dg-det__foot");
     foot.appendChild(el("div", "dg-det__note", probeNote(probe)));
     const acts = el("div", "dg-det__acts");
-    const pinBtn = el("button", "dg-ghost", esc(t("dg.probe.pin")));
+    const pinnedAlready = isPinned(probe.host);
+    const pinBtn = el("button", "dg-ghost", esc(pinnedAlready ? t("dg.probe.unpin") : t("dg.probe.pin")));
     pinBtn.type = "button";
-    pinBtn.addEventListener("click", pinProbe);
+    pinBtn.addEventListener("click", () => (pinnedAlready ? unpin(`pin-${probe.host}`) : pinProbe()));
     const ruleBtn = el("button", "dg-act", esc(t("dg.probe.rule")) + I.arrow);
     ruleBtn.type = "button";
     ruleBtn.addEventListener("click", () => onAction("ruleTunnel", { domain: probe.host }));
@@ -585,6 +627,12 @@ export function mountDiagnoseView(root, {
         (entry.code ? '<span class="dg-packmenu__code">' + esc(entry.code.toUpperCase()) + "</span>" : "");
       item.addEventListener("click", () => {
         closePackMenu();
+        if (entry.code !== current) {
+          // Результаты прошлого прогона относятся к прежнему набору: оставлять
+          // их рядом с новым списком целей — значит показывать чужую матрицу.
+          state.reach = [];
+          state.ranAt = 0;
+        }
         saveOption("diagnose.regionPack", entry.code);
         render();
       });

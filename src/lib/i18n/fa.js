@@ -919,6 +919,7 @@ export const fa = {
       dpi: "روشن کردن دور زدن DPI",
       switchNode: "تعویض سرور",
       ruleDirect: "ارسال مستقیم",
+      unpin: "حذف از مجموعه",
       run: "بررسی",
     },
     fact: {
@@ -951,6 +952,7 @@ export const fa = {
       fine: "همه‌جا کار می‌کند",
       down: "پاسخی نیست",
       tunnelOk: "از راه تونل کار می‌کند",
+      byRule: "طبق قانون مستقیم می‌رود",
       tunnelOff: "تونل خاموش است",
       ruleDirect: "مستقیم",
     },
@@ -969,7 +971,9 @@ export const fa = {
       run: "بررسی",
       badge: "خودم",
       pin: "سنجاق",
+      unpin: "برداشتن سنجاق",
       pinnedToast: "{host} به مجموعه بررسی‌ها افزوده شد",
+      unpinnedToast: "{host} از مجموعه حذف شد",
       rule: "قانون: تونل",
       stage: {
         dns: "DNS",

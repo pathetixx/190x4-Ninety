@@ -935,6 +935,7 @@ export const ru = {
       dpi: "Включить DPI-обход",
       switchNode: "Сменить сервер",
       ruleDirect: "Пустить напрямую",
+      unpin: "Убрать из набора",
       run: "Проверить",
     },
     fact: {
@@ -967,6 +968,7 @@ export const ru = {
       fine: "Работает везде",
       down: "Не отвечает",
       tunnelOk: "Работает через туннель",
+      byRule: "Идёт напрямую по правилу",
       tunnelOff: "Туннель выключен",
       ruleDirect: "Напрямую",
     },
@@ -985,7 +987,9 @@ export const ru = {
       run: "Проверить",
       badge: "СВОЙ",
       pin: "Закрепить",
+      unpin: "Открепить",
       pinnedToast: "{host} добавлен в набор проверок",
+      unpinnedToast: "{host} убран из набора",
       rule: "Правило: туннель",
       stage: {
         dns: "DNS",

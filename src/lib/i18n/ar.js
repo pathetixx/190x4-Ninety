@@ -951,6 +951,7 @@ export const ar = {
       dpi: "تشغيل تجاوز DPI",
       switchNode: "تبديل الخادم",
       ruleDirect: "توجيه مباشر",
+      unpin: "إزالة من المجموعة",
       run: "افحص",
     },
     fact: {
@@ -983,6 +984,7 @@ export const ar = {
       fine: "يعمل في كل الحالات",
       down: "لا استجابة",
       tunnelOk: "يعمل عبر النفق",
+      byRule: "يذهب مباشرة وفق قاعدة",
       tunnelOff: "النفق متوقف",
       ruleDirect: "مباشر",
     },
@@ -1001,7 +1003,9 @@ export const ar = {
       run: "افحص",
       badge: "خاص",
       pin: "تثبيت",
+      unpin: "إلغاء التثبيت",
       pinnedToast: "أُضيف {host} إلى مجموعة الفحوص",
+      unpinnedToast: "تمت إزالة {host} من المجموعة",
       rule: "قاعدة: النفق",
       stage: {
         dns: "DNS",

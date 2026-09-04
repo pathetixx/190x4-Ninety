@@ -911,6 +911,7 @@ export const ko = {
       dpi: "DPI 우회 켜기",
       switchNode: "서버 변경",
       ruleDirect: "직접 연결로 보내기",
+      unpin: "목록에서 제거",
       run: "검사",
     },
     fact: {
@@ -943,6 +944,7 @@ export const ko = {
       fine: "어디서나 동작",
       down: "응답 없음",
       tunnelOk: "터널로 동작",
+      byRule: "규칙에 따라 직접 연결",
       tunnelOff: "터널 꺼짐",
       ruleDirect: "직접",
     },
@@ -961,7 +963,9 @@ export const ko = {
       run: "검사",
       badge: "내 것",
       pin: "고정",
+      unpin: "고정 해제",
       pinnedToast: "{host}을(를) 검사 목록에 추가했습니다",
+      unpinnedToast: "{host}을(를) 목록에서 제거했습니다",
       rule: "규칙: 터널",
       stage: {
         dns: "DNS",

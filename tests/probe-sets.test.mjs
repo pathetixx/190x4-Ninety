@@ -2,11 +2,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  AUTO_PACK,
   GLOBAL_TARGETS,
   REGION_TARGETS,
   buildProbeSet,
   defaultRegionPack,
   normalizePinned,
+  resolveRegionPack,
 } from "/lib/probe-sets.js";
 
 test("probe sets: у каждой цели уникальный id и http(s)-адрес", () => {
@@ -66,4 +68,15 @@ test("probe sets: пакет по умолчанию берётся из рег�
   assert.equal(defaultRegionPack({ region: "other", lang: "de" }), "de");
   assert.equal(defaultRegionPack({ region: "", lang: "uk" }), "ua");
   assert.equal(defaultRegionPack({ region: "", lang: "ja" }), "");
+});
+
+test("probe sets: «Глобальный» — это выбор, а не отсутствие выбора", () => {
+  // Пустая строка приходит из пункта «Глобальный». Если её принять за «ещё не
+  // выбирали», автоопределение вернёт страну — и пункт молча не сработает.
+  assert.equal(resolveRegionPack({ stored: "", region: "ru", lang: "ru" }), "");
+  assert.equal(resolveRegionPack({ stored: AUTO_PACK, region: "ru", lang: "ru" }), "ru");
+  assert.equal(resolveRegionPack({ stored: undefined, region: "", lang: "de" }), "de");
+  assert.equal(resolveRegionPack({ stored: "de", region: "ru", lang: "ru" }), "de");
+  // Неизвестный пакет из чужого/старого конфига — это глобальный набор.
+  assert.equal(resolveRegionPack({ stored: "atlantis", region: "ru", lang: "ru" }), "");
 });

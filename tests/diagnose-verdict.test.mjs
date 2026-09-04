@@ -6,6 +6,7 @@ import {
   blockedTunnelRows,
   buildVerdict,
   countFindings,
+  matchesDirectRule,
   verdictFacts,
 } from "/lib/diagnose-verdict.js";
 
@@ -170,4 +171,24 @@ test("счётчик находок: трасса и утечки добавля
 
 test("счётчик находок: пустой прогон не находка", () => {
   assert.equal(countFindings({}), 0);
+});
+
+test("подпись строки: региональное правило уводит адрес напрямую", () => {
+  assert.equal(matchesDirectRule({ host: "online.sberbank.ru", region: "ru" }), true);
+  assert.equal(matchesDirectRule({ host: "youtube.com", region: "ru" }), false);
+  // «Не выбран» регион ничего не уводит.
+  assert.equal(matchesDirectRule({ host: "online.sberbank.ru", region: "other" }), false);
+});
+
+test("подпись строки: своё правило direct тоже учитывается", () => {
+  const rules = [
+    { enabled: true, type: "domain", match: "suffix", action: "direct", values: ["example.com"] },
+    { enabled: false, type: "domain", match: "suffix", action: "direct", values: ["off.example"] },
+    { enabled: true, type: "domain", match: "keyword", action: "direct", values: ["bank"] },
+    { enabled: true, type: "domain", match: "suffix", action: "proxy", values: ["tunnel.example"] },
+  ];
+  assert.equal(matchesDirectRule({ host: "api.example.com", customRules: rules }), true);
+  assert.equal(matchesDirectRule({ host: "off.example", customRules: rules }), false);
+  assert.equal(matchesDirectRule({ host: "mybank.io", customRules: rules }), true);
+  assert.equal(matchesDirectRule({ host: "tunnel.example", customRules: rules }), false);
 });

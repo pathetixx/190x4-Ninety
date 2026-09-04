@@ -911,6 +911,7 @@ export const zh = {
       dpi: "开启 DPI 绕过",
       switchNode: "更换服务器",
       ruleDirect: "改走直连",
+      unpin: "从集合中移除",
       run: "检测",
     },
     fact: {
@@ -943,6 +944,7 @@ export const zh = {
       fine: "哪边都能用",
       down: "无响应",
       tunnelOk: "经隧道可用",
+      byRule: "按规则走直连",
       tunnelOff: "隧道已关闭",
       ruleDirect: "直连",
     },
@@ -961,7 +963,9 @@ export const zh = {
       run: "检测",
       badge: "自定",
       pin: "固定",
+      unpin: "取消固定",
       pinnedToast: "已把 {host} 加入检测集合",
+      unpinnedToast: "已从集合中移除 {host}",
       rule: "规则：走隧道",
       stage: {
         dns: "DNS",

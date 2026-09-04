@@ -927,6 +927,7 @@ export const es = {
       dpi: "Activar evasión DPI",
       switchNode: "Cambiar de servidor",
       ruleDirect: "Enviar directo",
+      unpin: "Quitar del conjunto",
       run: "Comprobar",
     },
     fact: {
@@ -959,6 +960,7 @@ export const es = {
       fine: "Funciona en todas partes",
       down: "Sin respuesta",
       tunnelOk: "Funciona por el túnel",
+      byRule: "Va directo por una regla",
       tunnelOff: "Túnel apagado",
       ruleDirect: "Directo",
     },
@@ -977,7 +979,9 @@ export const es = {
       run: "Comprobar",
       badge: "PROPIO",
       pin: "Fijar",
+      unpin: "Soltar",
       pinnedToast: "{host} añadido al conjunto de comprobaciones",
+      unpinnedToast: "{host} eliminado del conjunto",
       rule: "Regla: túnel",
       stage: {
         dns: "DNS",

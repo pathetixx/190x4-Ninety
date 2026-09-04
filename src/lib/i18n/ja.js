@@ -911,6 +911,7 @@ export const ja = {
       dpi: "DPI 回避を有効化",
       switchNode: "サーバーを変更",
       ruleDirect: "直接に流す",
+      unpin: "チェック対象から外す",
       run: "チェック",
     },
     fact: {
@@ -943,6 +944,7 @@ export const ja = {
       fine: "どちらでも動く",
       down: "応答なし",
       tunnelOk: "トンネル経由で動作",
+      byRule: "ルールにより直接接続",
       tunnelOff: "トンネル停止中",
       ruleDirect: "直接",
     },
@@ -961,7 +963,9 @@ export const ja = {
       run: "チェック",
       badge: "自分",
       pin: "固定",
+      unpin: "固定を解除",
       pinnedToast: "{host} をチェック対象に追加しました",
+      unpinnedToast: "{host} をチェック対象から外しました",
       rule: "ルール: トンネル",
       stage: {
         dns: "DNS",

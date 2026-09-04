@@ -927,6 +927,7 @@ export const it = {
       dpi: "Attiva l'aggiramento DPI",
       switchNode: "Cambia server",
       ruleDirect: "Manda in diretta",
+      unpin: "Rimuovi dall'insieme",
       run: "Verifica",
     },
     fact: {
@@ -959,6 +960,7 @@ export const it = {
       fine: "Funziona ovunque",
       down: "Nessuna risposta",
       tunnelOk: "Funziona tramite il tunnel",
+      byRule: "Va diretto per una regola",
       tunnelOff: "Tunnel spento",
       ruleDirect: "Diretto",
     },
@@ -977,7 +979,9 @@ export const it = {
       run: "Verifica",
       badge: "MIO",
       pin: "Fissa",
+      unpin: "Sgancia",
       pinnedToast: "{host} aggiunto all'insieme delle verifiche",
+      unpinnedToast: "{host} rimosso dall'insieme",
       rule: "Regola: tunnel",
       stage: {
         dns: "DNS",

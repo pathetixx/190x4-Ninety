@@ -158,6 +158,34 @@ export function buildProbeSet({ regionPack = "", pinned = [] } = {}) {
   return out;
 }
 
+/// Полный каталог целей по id — для подписей уже полученных результатов.
+/// Набор мог смениться между прогоном и отрисовкой, и без общего каталога
+/// строка теряла имя сервиса и показывала сырой идентификатор.
+export function targetsById(pinned = []) {
+  const map = new Map();
+  for (const target of GLOBAL_TARGETS) map.set(target.id, { ...target, scope: "global" });
+  for (const [pack, list] of Object.entries(REGION_TARGETS)) {
+    for (const target of list) map.set(target.id, { ...target, scope: "region", region: pack });
+  }
+  for (const entry of Array.isArray(pinned) ? pinned : []) {
+    const normalized = normalizePinned(entry);
+    if (normalized) map.set(normalized.id, { ...normalized, scope: "pinned" });
+  }
+  return map;
+}
+
+/// «Ещё не выбирали»: до первого осознанного выбора пакет угадывается.
+export const AUTO_PACK = "auto";
+
+/// Какой пакет использовать. Пустая строка — это ОСОЗНАННЫЙ выбор «только
+/// глобальный набор», и подменять его автоопределением нельзя: иначе пункт
+/// «Глобальный» молча не срабатывает — сохранили пустое, прочитали угаданное.
+export function resolveRegionPack({ stored, region = "", lang = "" } = {}) {
+  if (stored == null || stored === AUTO_PACK) return defaultRegionPack({ region, lang });
+  const pack = String(stored).toLowerCase();
+  return REGION_TARGETS[pack] ? pack : "";
+}
+
 /// Пакет по умолчанию: сначала настройка маршрутизации (человек уже указал свою
 /// страну), затем язык интерфейса. Не угадали — остаётся только глобальное ядро,
 /// и это честнее, чем показывать чужие банки.

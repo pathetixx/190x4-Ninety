@@ -927,6 +927,7 @@ export const fr = {
       dpi: "Activer le contournement DPI",
       switchNode: "Changer de serveur",
       ruleDirect: "Envoyer en direct",
+      unpin: "Retirer du jeu",
       run: "Lancer",
     },
     fact: {
@@ -959,6 +960,7 @@ export const fr = {
       fine: "Fonctionne partout",
       down: "Pas de réponse",
       tunnelOk: "Fonctionne via le tunnel",
+      byRule: "Envoyé en direct par une règle",
       tunnelOff: "Tunnel désactivé",
       ruleDirect: "Direct",
     },
@@ -977,7 +979,9 @@ export const fr = {
       run: "Vérifier",
       badge: "PERSO",
       pin: "Épingler",
+      unpin: "Détacher",
       pinnedToast: "{host} ajouté au jeu de vérifications",
+      unpinnedToast: "{host} retiré du jeu",
       rule: "Règle : tunnel",
       stage: {
         dns: "DNS",
