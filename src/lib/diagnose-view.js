@@ -11,7 +11,7 @@
 //
 // Точка входа: mountDiagnoseView(root, deps) → { run, refreshFeed, destroy }.
 
-import { buildVerdict, verdictFacts } from "/lib/diagnose-verdict.js";
+import { buildVerdict, countFindings, verdictFacts } from "/lib/diagnose-verdict.js";
 import { buildProbeSet, defaultRegionPack, normalizePinned, REGION_PACKS } from "/lib/probe-sets.js";
 import { groupIncidents, degradedMs, incidentLog } from "/lib/incident-log.js";
 import { escapeHtml as esc } from "/lib/esc.js";
@@ -92,6 +92,7 @@ export function mountDiagnoseView(root, {
   saveOption = () => {},
   onToast = () => {},
   onAction = () => {},
+  onFindings = () => {},
   log = incidentLog,
 } = {}) {
   if (!root) return { run: () => {}, refreshFeed: () => {}, destroy: () => {} };
@@ -677,6 +678,9 @@ export function mountDiagnoseView(root, {
     renderVerdict();
     renderMatrix();
     renderSide();
+    // Счётчик находок в меню: до первого прогона его быть не должно, иначе
+    // «0» выглядит как утверждение «всё проверено и всё хорошо».
+    onFindings(state.ranAt ? countFindings(state) : null);
   }
 
   const unsubscribe = log.subscribe(() => {

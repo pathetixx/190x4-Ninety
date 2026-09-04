@@ -5,6 +5,7 @@ import {
   blockedDirectRows,
   blockedTunnelRows,
   buildVerdict,
+  countFindings,
   verdictFacts,
 } from "/lib/diagnose-verdict.js";
 
@@ -123,4 +124,29 @@ test("факты вердикта собираются из того, что р�
   assert.equal(byKey.ip.value, "1.2.3.4");
   assert.equal(byKey.reach.value, "1/2");
   assert.equal(verdictFacts({}).length, 0);
+});
+
+test("счётчик находок: строка с 403 считается один раз, а не дважды", () => {
+  const rows = [
+    row("chatgpt", { state: "ok" }, { state: "http", httpStatus: 403 }),
+    row("bank", "ok", "timeout"),
+    row("discord", "timeout", "ok"),
+    row("fine", "ok", "ok"),
+  ];
+  // 403 + банк + спасённый Discord = 3, дубля быть не должно.
+  assert.equal(countFindings({ reach: rows }), 3);
+});
+
+test("счётчик находок: трасса и утечки добавляют свои", () => {
+  const base = { reach: [row("fine", "ok", "ok")] };
+  assert.equal(countFindings(base), 0);
+  assert.equal(countFindings({ ...base, trace: trace({ filterHop: 2 }) }), 1);
+  assert.equal(
+    countFindings({ ...base, leaks: { ipv6Open: { state: "warn" }, dnsInTunnel: { state: "ok" } } }),
+    1,
+  );
+});
+
+test("счётчик находок: пустой прогон не находка", () => {
+  assert.equal(countFindings({}), 0);
 });

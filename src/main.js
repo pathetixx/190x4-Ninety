@@ -4618,6 +4618,10 @@ function ensureDiagnoseView() {
     saveOption: (path, value) => updateOption(path, value),
     onToast: toast,
     onAction: handleDiagnoseAction,
+    onFindings: (count) => {
+      const hint = document.getElementById("diagnose-nav-hint");
+      if (hint) hint.textContent = count ? String(count) : "";
+    },
   });
   return diagnoseCtl;
 }

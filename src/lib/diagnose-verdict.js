@@ -151,3 +151,24 @@ export function verdictFacts({ trace = null, leaks = null, reach = [] } = {}) {
   }
   return facts;
 }
+
+/// Сколько находок дал прогон — число для подсказки в меню. Находка это то, что
+/// человек может починить: сервис, который открывается только с одной стороны,
+/// оборванная трасса, замечание по утечкам. Строки, работающие с обеих сторон,
+/// находками не считаются.
+export function countFindings({ reach = [], trace = null, leaks = null } = {}) {
+  const rows = Array.isArray(reach) ? reach : [];
+  let count = blockedTunnelRows(rows).length + refusedByServiceRows(rows).length;
+  // Одна строка может попасть в оба списка (403 через туннель при живом
+  // прямом доступе) — не считаем её дважды.
+  const both = rows.filter(
+    (row) => isOkState(row.direct?.state) && row.tunnel?.state === "http" && (row.tunnel?.httpStatus ?? 0) >= 400,
+  ).length;
+  count -= both;
+  count += blockedDirectRows(rows).length;
+  if (trace?.filterHop != null) count += 1;
+  for (const check of [leaks?.dnsInTunnel, leaks?.dnsAnswerMatch, leaks?.externalIp, leaks?.ipv6Open]) {
+    if (check?.state === "warn" || check?.state === "err") count += 1;
+  }
+  return Math.max(0, count);
+}
