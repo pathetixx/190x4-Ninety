@@ -862,7 +862,6 @@ export const es = {
     title: "Diagnóstico",
     sub: "Qué abre directo, qué solo a través de Ninety y dónde se rompe el camino al servidor.",
     run: "Comprobar",
-    rerun: "Comprobar de nuevo",
     copy: "Copiar informe",
     copied: "Informe copiado",
     copyErr: "No se pudo copiar: {err}",

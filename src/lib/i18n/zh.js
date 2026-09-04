@@ -846,7 +846,6 @@ export const zh = {
     title: "诊断",
     sub: "哪些能直连打开，哪些只能经 Ninety，以及到服务器的路径在哪里断开。",
     run: "检测",
-    rerun: "重新检测",
     copy: "复制报告",
     copied: "报告已复制",
     copyErr: "复制失败：{err}",

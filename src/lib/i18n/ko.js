@@ -846,7 +846,6 @@ export const ko = {
     title: "진단",
     sub: "무엇이 직접 열리고, 무엇이 Ninety를 거쳐야 하며, 서버까지의 경로가 어디서 끊기는지.",
     run: "검사",
-    rerun: "다시 검사",
     copy: "보고서 복사",
     copied: "보고서를 복사했습니다",
     copyErr: "복사하지 못했습니다: {err}",

@@ -854,7 +854,6 @@ export const tr = {
     title: "Tanılama",
     sub: "Doğrudan ne açılıyor, ne yalnızca Ninety üzerinden ve sunucuya giden yol nerede kopuyor.",
     run: "Kontrol et",
-    rerun: "Yeniden kontrol et",
     copy: "Raporu kopyala",
     copied: "Rapor kopyalandı",
     copyErr: "Kopyalanamadı: {err}",

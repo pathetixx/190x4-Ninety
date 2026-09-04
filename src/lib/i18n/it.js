@@ -862,7 +862,6 @@ export const it = {
     title: "Diagnostica",
     sub: "Cosa si apre direttamente, cosa solo tramite Ninety e dove si spezza il percorso verso il server.",
     run: "Verifica",
-    rerun: "Verifica di nuovo",
     copy: "Copia il rapporto",
     copied: "Rapporto copiato",
     copyErr: "Copia non riuscita: {err}",

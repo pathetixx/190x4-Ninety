@@ -854,7 +854,6 @@ export const de = {
     title: "Diagnose",
     sub: "Was direkt öffnet, was nur über Ninety, und wo der Weg zum Server abreißt.",
     run: "Prüfen",
-    rerun: "Erneut prüfen",
     copy: "Bericht kopieren",
     copied: "Bericht kopiert",
     copyErr: "Kopieren fehlgeschlagen: {err}",

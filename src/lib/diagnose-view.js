@@ -258,7 +258,9 @@ export function mountDiagnoseView(root, {
       for (const hop of state.trace.hops || []) {
         lines.push(`  ${hop.ttl}. ${mask(hop.address) || "* * *"} ${hop.rttMs ?? "—"}ms icmp=${hop.icmp} tcp=${hop.tcp}`);
       }
-      if (state.trace.filterHop != null) lines.push(`  ${t("dg.trace.filterHere")}: ${state.trace.filterHop}`);
+      const tcp = state.trace.tcp || {};
+      lines.push(`  ${t("dg.tabs.trace")}/tcp: ${tcp.state || "—"} ${tcp.ms ?? "—"}ms`);
+      lines.push(`  control: ${state.trace.control?.state || "—"}`);
     }
     if (state.leaks) {
       lines.push("", t("dg.tabs.leaks"));

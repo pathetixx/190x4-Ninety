@@ -870,7 +870,6 @@ export const pl = {
     title: "Diagnostyka",
     sub: "Co otwiera się bezpośrednio, co tylko przez Ninety i gdzie urywa się droga do serwera.",
     run: "Sprawdź",
-    rerun: "Sprawdź ponownie",
     copy: "Kopiuj raport",
     copied: "Raport skopiowany",
     copyErr: "Nie udało się skopiować: {err}",

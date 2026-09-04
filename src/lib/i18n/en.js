@@ -854,7 +854,6 @@ export const en = {
     title: "Diagnostics",
     sub: "What opens directly, what only through Ninety, and where the path to your server breaks.",
     run: "Run check",
-    rerun: "Check again",
     copy: "Copy report",
     copied: "Report copied",
     copyErr: "Could not copy: {err}",
