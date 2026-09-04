@@ -635,10 +635,7 @@ async fn resolve_system(host: &str) -> Result<Vec<String>, String> {
 /// бинарный ответ ради четырёх адресов незачем, а JSON-эндпоинт отдаёт то же
 /// самое и идёт через тот же прокси.
 async fn resolve_via_tunnel(client: &reqwest::Client, host: &str) -> Result<Vec<String>, String> {
-    let url = format!(
-        "{DOH_JSON_URL}?name={}&type=A",
-        urlencoding::encode(host)
-    );
+    let url = format!("{DOH_JSON_URL}?name={}&type=A", urlencoding::encode(host));
     let response = client
         .get(url)
         .header("accept", "application/dns-json")
@@ -732,13 +729,11 @@ pub async fn diagnose_leaks(
 
     let ipv6_open = match IPV6_PROBE.parse::<SocketAddr>() {
         Ok(addr) => {
-            let reachable = tokio::time::timeout(
-                Duration::from_secs(2),
-                tokio::net::TcpStream::connect(addr),
-            )
-            .await
-            .map(|r| r.is_ok())
-            .unwrap_or(false);
+            let reachable =
+                tokio::time::timeout(Duration::from_secs(2), tokio::net::TcpStream::connect(addr))
+                    .await
+                    .map(|r| r.is_ok())
+                    .unwrap_or(false);
             if reachable {
                 LeakCheck::new("warn", Some("IPv6 доступен".into()))
             } else {
@@ -792,7 +787,10 @@ pub fn parse_probe_target(raw: &str) -> Result<(String, u16, String), String> {
 
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
         let url = reqwest::Url::parse(trimmed).map_err(|e| format!("адрес: {e}"))?;
-        let host = url.host_str().ok_or("в адресе нет имени хоста")?.to_string();
+        let host = url
+            .host_str()
+            .ok_or("в адресе нет имени хоста")?
+            .to_string();
         let port = url
             .port_or_known_default()
             .ok_or("не удалось определить порт")?;
@@ -836,11 +834,8 @@ async fn direct_stages(client: &reqwest::Client, host: &str, port: u16, url: &st
         let addr: Option<SocketAddr> = format!("{first}:{port}").parse().ok();
         if let Some(addr) = addr {
             let started = Instant::now();
-            match tokio::time::timeout(
-                REACH_CONNECT_TIMEOUT,
-                tokio::net::TcpStream::connect(addr),
-            )
-            .await
+            match tokio::time::timeout(REACH_CONNECT_TIMEOUT, tokio::net::TcpStream::connect(addr))
+                .await
             {
                 Ok(Ok(_)) => stages.tcp_ms = Some(started.elapsed().as_millis() as u64),
                 Ok(Err(err)) => stages.tcp_error = Some(err.to_string()),
@@ -990,7 +985,11 @@ mod tests {
         );
         assert_eq!(
             parse_probe_target("example.com:8443").unwrap(),
-            ("example.com".into(), 8443, "https://example.com:8443/".into())
+            (
+                "example.com".into(),
+                8443,
+                "https://example.com:8443/".into()
+            )
         );
         // Порт 80 — это http, иначе проба ушла бы в TLS на нешифрованный порт.
         assert_eq!(
