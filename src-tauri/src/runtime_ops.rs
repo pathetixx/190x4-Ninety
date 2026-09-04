@@ -435,6 +435,10 @@ fn append_operation_diagnostic(
 pub enum DataplaneProbeKind {
     SourceVerification,
     QualityProbe,
+    /// Пробы экрана «Диагностика». Приоритет выше фоновой пробы качества
+    /// (пользователь нажал «Проверить» и ждёт результат прямо сейчас), но ниже
+    /// верификации источника: та решает, работает ли соединение вообще.
+    Diagnostics,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -466,6 +470,7 @@ impl DataplaneProbeKind {
     fn priority(self) -> u8 {
         match self {
             Self::SourceVerification => 3,
+            Self::Diagnostics => 2,
             Self::QualityProbe => 1,
         }
     }

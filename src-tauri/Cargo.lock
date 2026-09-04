@@ -2641,6 +2641,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "socket2",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",

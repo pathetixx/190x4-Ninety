@@ -129,23 +129,26 @@ pub fn trim_after_destination(hops: Vec<TraceHop>) -> Vec<TraceHop> {
 }
 
 /// TCP-проба с заданным TTL. Ответ (пусть и отрицательный) отличаем от тишины
-/// по факту ошибки до таймаута: истёкший TTL и явный отказ приходят как ошибка
-/// соединения, а проглоченный SYN не приходит никак.
-async fn tcp_probe(addr: SocketAddr, ttl: u32) -> TcpStatus {
-    let socket = match addr {
-        SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4(),
-        SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6(),
+/// по виду ошибки: истёкший TTL и явный отказ приходят как ошибка соединения,
+/// а проглоченный SYN не приходит никак — и это таймаут.
+///
+/// Сокет берём из socket2, а не из tokio: TTL нужно выставить ДО connect, а
+/// tokio::net::TcpSocket такой ручки не даёт вовсе. connect_timeout блокирующий,
+/// поэтому вызов уходит в spawn_blocking.
+fn tcp_probe_blocking(addr: SocketAddr, ttl: u32) -> TcpStatus {
+    use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+
+    let socket = match Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP)) {
+        Ok(socket) => socket,
+        Err(_) => return TcpStatus::Silent,
     };
-    let Ok(socket) = socket else {
-        return TcpStatus::Silent;
-    };
-    if socket.set_ttl(ttl).is_err() {
+    if socket.set_ttl_v4(ttl).is_err() {
         return TcpStatus::Silent;
     }
-    match tokio::time::timeout(TCP_TIMEOUT, socket.connect(addr)).await {
-        Ok(Ok(_stream)) => TcpStatus::Open,
-        Ok(Err(_)) => TcpStatus::Answered,
-        Err(_) => TcpStatus::Silent,
+    match socket.connect_timeout(&SockAddr::from(addr), TCP_TIMEOUT) {
+        Ok(()) => TcpStatus::Open,
+        Err(err) if err.kind() == std::io::ErrorKind::TimedOut => TcpStatus::Silent,
+        Err(_) => TcpStatus::Answered,
     }
 }
 
@@ -153,7 +156,9 @@ async fn tcp_probe(addr: SocketAddr, ttl: u32) -> TcpStatus {
 async fn tcp_walk(addr: SocketAddr, hops: u8) -> Vec<TcpStatus> {
     let mut tasks = Vec::with_capacity(hops as usize);
     for ttl in 1..=hops {
-        tasks.push(tokio::spawn(tcp_probe(addr, ttl as u32)));
+        tasks.push(tauri::async_runtime::spawn_blocking(move || {
+            tcp_probe_blocking(addr, ttl as u32)
+        }));
     }
     let mut out = Vec::with_capacity(hops as usize);
     for task in tasks {
@@ -353,6 +358,224 @@ mod win {
             }
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Доступность: одна цель, два направления
+//
+// Ключ всей диагностики — сравнение. Один и тот же адрес пробуется напрямую и
+// через туннель, и вывод делается из пары исходов: «блокирует провайдер» — это
+// «напрямую нет, через туннель да», а «сервис не пускает наш адрес» — ровно
+// наоборот. Поодиночке ни один из этих замеров ничего не доказывает.
+// ═══════════════════════════════════════════════════════════════════════════
+
+use crate::runtime_ops::{DataplaneProbeKind, ProbeAcquireError};
+use crate::vpn::{ProbeProxyEndpoint, SingboxState};
+use serde::Deserialize;
+
+const MAX_TARGETS: usize = 32;
+const MAX_URL_LEN: usize = 300;
+const REACH_TIMEOUT: Duration = Duration::from_secs(6);
+const REACH_CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+// Сколько целей щупаем одновременно. Слишком много — и мы сами создаём всплеск
+// соединений, который на мобильном ТСПУ выглядит как скан и рубится по SYN.
+const REACH_CONCURRENCY: usize = 6;
+
+#[derive(Deserialize)]
+pub struct ReachTarget {
+    pub id: String,
+    pub url: String,
+}
+
+/// Исход пробы в одном направлении. state — единственное, что читает фронт для
+/// вывода; остальное показывается как подробности.
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectionOutcome {
+    pub state: String,
+    pub http_status: Option<u16>,
+    pub ms: Option<u64>,
+    pub error: Option<String>,
+}
+
+impl DirectionOutcome {
+    fn skipped(reason: &str) -> Self {
+        Self {
+            state: "skipped".into(),
+            error: Some(reason.to_string()),
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ReachRow {
+    pub id: String,
+    pub url: String,
+    pub direct: DirectionOutcome,
+    pub tunnel: DirectionOutcome,
+}
+
+fn validate_targets(targets: Vec<ReachTarget>) -> Result<Vec<ReachTarget>, String> {
+    if targets.is_empty() {
+        return Err("список целей пуст".into());
+    }
+    if targets.len() > MAX_TARGETS {
+        return Err(format!("слишком много целей (максимум {MAX_TARGETS})"));
+    }
+    for target in &targets {
+        if target.url.len() > MAX_URL_LEN {
+            return Err("слишком длинный адрес цели".into());
+        }
+        let parsed = reqwest::Url::parse(&target.url).map_err(|e| format!("адрес цели: {e}"))?;
+        // Схемы кроме http(s) увели бы reqwest в неожиданный транспорт, а file://
+        // вообще прочитал бы локальный файл.
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err("допустимы только http и https".into());
+        }
+    }
+    Ok(targets)
+}
+
+fn build_probe_client(endpoint: Option<&ProbeProxyEndpoint>) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(REACH_CONNECT_TIMEOUT)
+        .timeout(REACH_TIMEOUT)
+        // Редиректы не гасим: для «доступен ли сервис» 301 на www — это доступен.
+        .redirect(reqwest::redirect::Policy::limited(3))
+        .no_gzip();
+    if let Some(endpoint) = endpoint {
+        let proxy = reqwest::Proxy::all(format!("http://{}", endpoint.address))
+            .map_err(|e| format!("proxy: {e}"))?;
+        builder = builder.proxy(proxy);
+    }
+    builder.build().map_err(|e| format!("client: {e}"))
+}
+
+/// Ошибка reqwest → короткий вид отказа. Текст ошибки в state не тащим: он
+/// нестабилен между версиями, а фронту нужен именно вид, чтобы выбрать подпись.
+fn classify_error(err: &reqwest::Error) -> &'static str {
+    if err.is_timeout() {
+        return "timeout";
+    }
+    let text = err.to_string().to_ascii_lowercase();
+    if text.contains("dns") || text.contains("resolve") || text.contains("name or service") {
+        return "dns";
+    }
+    if text.contains("certificate") || text.contains("tls") || text.contains("handshake") {
+        return "tls";
+    }
+    if err.is_connect() {
+        return "refused";
+    }
+    "error"
+}
+
+async fn probe_once(client: &reqwest::Client, url: &str) -> DirectionOutcome {
+    let started = Instant::now();
+    match client.get(url).send().await {
+        Ok(response) => {
+            let status = response.status();
+            // 4xx/5xx — это ответ сервиса, а не поломка канала: «403 для адреса
+            // сервера» и «соединение не дошло» обязаны выглядеть по-разному,
+            // иначе вердикт будет врать.
+            let reachable = status.is_success() || status.is_redirection();
+            let state = if reachable { "ok" } else { "http" };
+            DirectionOutcome {
+                state: state.into(),
+                http_status: Some(status.as_u16()),
+                ms: Some(started.elapsed().as_millis() as u64),
+                error: None,
+            }
+        }
+        Err(err) => DirectionOutcome {
+            state: classify_error(&err).into(),
+            http_status: err.status().map(|s| s.as_u16()),
+            ms: Some(started.elapsed().as_millis() as u64),
+            error: Some(err.to_string().chars().take(200).collect()),
+        },
+    }
+}
+
+/// Матрица доступности: каждая цель пробуется напрямую и через туннель.
+///
+/// include_direct=false приходит от фронта, когда прямая проба запрещена
+/// (kill switch, строгий туннель): тогда колонка «напрямую» помечается
+/// skipped, а не выдумывается.
+#[tauri::command]
+pub async fn diagnose_reach(
+    state: tauri::State<'_, SingboxState>,
+    expected_generation: Option<u64>,
+    targets: Vec<ReachTarget>,
+    include_direct: Option<bool>,
+) -> Result<Vec<ReachRow>, String> {
+    let targets = validate_targets(targets)?;
+    let include_direct = include_direct.unwrap_or(true);
+
+    let tunnel_endpoint = crate::vpn::probe_endpoint_for_generation(&state, expected_generation);
+    let permit = match &tunnel_endpoint {
+        Ok((generation, _)) => match state
+            .dataplane_probe
+            .acquire(DataplaneProbeKind::Diagnostics, *generation, None)
+            .await
+        {
+            Ok(permit) => Some(permit),
+            Err(ProbeAcquireError::Busy) => return Err("probe_busy".into()),
+            Err(ProbeAcquireError::StaleGeneration) => return Err("stale_generation".into()),
+        },
+        Err(_) => None,
+    };
+
+    let direct_client = if include_direct {
+        Some(build_probe_client(None)?)
+    } else {
+        None
+    };
+    let tunnel_client = match &tunnel_endpoint {
+        Ok((_, endpoint)) => Some(build_probe_client(Some(endpoint))?),
+        Err(_) => None,
+    };
+    let tunnel_skip_reason = tunnel_endpoint
+        .as_ref()
+        .err()
+        .copied()
+        .unwrap_or("endpoint_unavailable");
+
+    let mut rows: Vec<ReachRow> = Vec::with_capacity(targets.len());
+    for chunk in targets.chunks(REACH_CONCURRENCY) {
+        let mut batch = Vec::with_capacity(chunk.len());
+        for target in chunk {
+            let direct = direct_client.clone();
+            let tunnel = tunnel_client.clone();
+            let url = target.url.clone();
+            let id = target.id.clone();
+            batch.push(async move {
+                let direct_outcome = match &direct {
+                    Some(client) => probe_once(client, &url).await,
+                    None => DirectionOutcome::skipped("direct_disabled"),
+                };
+                let tunnel_outcome = match &tunnel {
+                    Some(client) => probe_once(client, &url).await,
+                    None => DirectionOutcome::skipped(tunnel_skip_reason),
+                };
+                ReachRow {
+                    id,
+                    url,
+                    direct: direct_outcome,
+                    tunnel: tunnel_outcome,
+                }
+            });
+        }
+        rows.extend(futures_util::future::join_all(batch).await);
+    }
+
+    if let (Some(permit), Ok((_, _))) = (&permit, &tunnel_endpoint) {
+        if !state.dataplane_probe.is_current(permit) {
+            return Err("stale_generation".into());
+        }
+    }
+    Ok(rows)
 }
 
 #[cfg(test)]

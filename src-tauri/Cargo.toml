@@ -64,6 +64,9 @@ boringtun = { version = "0.7", default-features = false }
 # BLAKE2s для пересчёта MAC1 после подмены reserved (CF WARP client_id routing).
 blake2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+# TTL на сокете ДО connect (трасса в diagnose.rs): у tokio такой ручки нет.
+# Крейт и так в дереве зависимостей (tokio/hyper), новых сторонних имён не вносит.
+socket2 = "0.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.56"
