@@ -461,17 +461,35 @@ export function mountSettings(root, opts = {}) {
       prompt: t("portable.prompt"),
       configured: t("portable.configured"),
       cleared: t("portable.cleared"),
+      clear: t("portable.clear"),
+      plainOff: t("portable.plainOff"),
       plaintextConfirm: t("portable.plaintextConfirm"),
       plaintextEnabled: t("portable.plaintextEnabled"),
+      plaintextDisabled: t("portable.plaintextDisabled"),
     };
     try {
       const status = await invoke("portable_secrets_status");
       if (!status?.portable || !rowEl.isConnected) return;
       rowEl.hidden = false;
+      // configured истинно в ДВУХ разных режимах: пароль задан и plaintext
+      // подтверждён. Обе кнопки подписываем по реальному режиму: раньше после
+      // подтверждения plaintext они обещали «Сменить пароль» и «Забыть пароль»,
+      // хотя пароля нет, а сброс снимает подтверждение plaintext.
+      let plaintextOnly = false;
       const sync = (next) => {
+        const passphrase = !!next?.passphraseConfigured;
+        plaintextOnly = !passphrase && !!next?.plaintextConfirmed;
         clearBtn.hidden = !next?.configured;
         plainBtn.hidden = !!next?.configured;
-        setBtn.textContent = next?.configured ? t("portable.setChange") : t("portable.set");
+        setBtn.textContent = passphrase ? t("portable.setChange") : t("portable.set");
+        clearBtn.textContent = plaintextOnly ? copy.plainOff : copy.clear;
+      };
+      // После каждой команды состояние берём у backend, а не собираем из
+      // догадок на месте: он один знает, что осталось на диске и в памяти.
+      const refresh = async () => {
+        try {
+          sync(await invoke("portable_secrets_status"));
+        } catch {}
       };
       sync(status);
       setBtn.addEventListener("click", async (event) => {
@@ -481,7 +499,7 @@ export function mountSettings(root, opts = {}) {
         if (passphrase == null) return;
         try {
           await invoke("portable_secrets_set_passphrase", { passphrase });
-          sync({ configured: true });
+          await refresh();
           toast(copy.configured, "success", 3000);
         } catch (error) {
           alert(error?.message || String(error));
@@ -490,10 +508,13 @@ export function mountSettings(root, opts = {}) {
       clearBtn.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
+        // Режим снимаем ДО вызова: после него состояние уже сброшено, а тост
+        // должен сказать, что именно выключили.
+        const wasPlaintextOnly = plaintextOnly;
         try {
           await invoke("portable_secrets_clear_passphrase");
-          sync({ configured: false });
-          toast(copy.cleared, "info", 2600);
+          await refresh();
+          toast(wasPlaintextOnly ? copy.plaintextDisabled : copy.cleared, "info", 2600);
         } catch (error) {
           alert(error?.message || String(error));
         }
@@ -504,7 +525,7 @@ export function mountSettings(root, opts = {}) {
         if (!window.confirm(copy.plaintextConfirm)) return;
         try {
           await invoke("portable_secrets_confirm_plaintext");
-          sync({ configured: true });
+          await refresh();
           toast(copy.plaintextEnabled, "warn", 4200);
         } catch (error) {
           alert(error?.message || String(error));

@@ -1402,8 +1402,8 @@ async function testAllNodes(nodes, onProgress, shouldContinue = () => true) {
   async function worker() {
     while (i < tags.length) {
       if (!shouldContinue()) return;
-      const t = tags[i++];
-      try { await testNode(t, { timeoutMs: TEST_ALL_TIMEOUT_MS }); } catch {}
+      const tag = tags[i++];
+      try { await testNode(tag, { timeoutMs: TEST_ALL_TIMEOUT_MS }); } catch {}
       done++;
       if (!shouldContinue()) return;
       try { onProgress?.(done); } catch {}

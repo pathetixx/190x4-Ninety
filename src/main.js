@@ -243,15 +243,15 @@ export function getTheme() {
 // портал-UI вне #app-root (модалки/тосты/контекст-меню, аппендятся в body) берёт
 // :root-дефолт (kurogane) вместо активной темы. #app-root держим в синхроне тем же
 // значением — его собственный [data-theme] иначе перебьёт наследование для app-поддерева.
-function applyThemeAttr(t) {
-  document.documentElement.dataset.theme = t;
-  if (appRoot) appRoot.dataset.theme = t;
+function applyThemeAttr(theme) {
+  document.documentElement.dataset.theme = theme;
+  if (appRoot) appRoot.dataset.theme = theme;
 }
-export function setTheme(t) {
-  if (!isThemeId(t)) return;
-  localStorage.setItem(THEME_KEY, t);
-  applyThemeAttr(t);
-  window.dispatchEvent(new CustomEvent("ninety:theme-changed", { detail: { theme: t } }));
+export function setTheme(theme) {
+  if (!isThemeId(theme)) return;
+  localStorage.setItem(THEME_KEY, theme);
+  applyThemeAttr(theme);
+  window.dispatchEvent(new CustomEvent("ninety:theme-changed", { detail: { theme } }));
 }
 // Применяем сохранённую тему сразу — до первого рендера остального
 applyThemeAttr(getTheme());

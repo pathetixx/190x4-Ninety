@@ -371,7 +371,7 @@ pub struct SingboxState {
     // Список, т.к. этих протоколов в одном источнике может быть несколько.
     sidecars: Mutex<Vec<CommandChild>>,
     // Причина смерти любого sidecar-клиента (naive/TT) — как xray_died, для
-    // авто-реконнекта фронтом (sidecar_status).
+    // авто-реконнекта фронтом (едет в health_snapshot).
     sidecar_died: Arc<Mutex<Option<String>>>,
     // Sentinel «запуск идёт»: guard по child ловит только уже присвоенный хэндл,
     // а между проверкой и присвоением у start_singbox секунды await'ов (settle-
@@ -1141,24 +1141,6 @@ fn clear_log_files(paths: &[PathBuf]) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-pub async fn read_singbox_log(app: AppHandle, tail_bytes: Option<u64>) -> Result<String, String> {
-    read_tail(&resolved_log_path(&app)?, tail_bytes)
-}
-
-// Чтение лога любого компонента (singbox/xray/naive/trusttunnel/dpi).
-#[tauri::command]
-pub async fn read_log(
-    app: AppHandle,
-    source: String,
-    tail_bytes: Option<u64>,
-) -> Result<String, String> {
-    let dir = crate::app_paths::log_dir(&app)?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
-    let paths = component_log_files(&dir, &source)?;
-    read_log_files(&paths, tail_bytes)
-}
-
 // То же чтение, но с продолжением с прошлой позиции (см. LogChunk).
 #[tauri::command]
 pub async fn read_log_chunk(
@@ -1215,17 +1197,6 @@ pub async fn read_log_chunk(
         reset: true,
         incremental: true,
     })
-}
-
-#[tauri::command]
-pub async fn clear_singbox_log(app: AppHandle) -> Result<(), String> {
-    let Some(path) = log_path(&app) else {
-        return Err("log_dir недоступен".into());
-    };
-    if path.exists() {
-        std::fs::write(&path, b"").map_err(|e| format!("truncate: {e}"))?;
-    }
-    Ok(())
 }
 
 // Очистка лога любого компонента.
@@ -2860,7 +2831,7 @@ fn purge_current_configs(app: &AppHandle) {
 }
 
 // Сбрасывает флаги смерти движков. Без этого причина прошлой смерти жила бы до
-// следующего start_singbox (vpn_last_error/*_status отдавали бы устаревшее).
+// следующего start_singbox (health_snapshot отдавал бы устаревшее).
 fn clear_death_flags(state: &SingboxState) {
     *state.died.lock_recover() = None;
     *state.xray_died.lock_recover() = None;
@@ -3334,6 +3305,11 @@ fn compute_singbox_running(state: &SingboxState) -> bool {
     false
 }
 
+// Статус xray-sidecar (two-core) для health-watchdog'а фронта:
+//   "none"  — xray не спавнился (xhttp-нод в активном конфиге нет);
+//   "alive" — поднят и не падал;
+//   "died"  — был поднят, но процесс завершился (xhttp-мост мёртв).
+// child-хэндл при смерти не чистится, поэтому различаем по флагу xray_died.
 fn compute_xray_status(state: &SingboxState) -> &'static str {
     if state.xray_child.lock_recover().is_none() {
         return "none";
@@ -3345,6 +3321,10 @@ fn compute_xray_status(state: &SingboxState) -> &'static str {
     }
 }
 
+// Статус sidecar-клиентов naive/TT (аналог compute_xray_status):
+//   "none"  — sidecar'ов не поднимали (таких нод в конфиге нет);
+//   "alive" — подняты и не падали;
+//   "died"  — хотя бы один клиент завершился (мост мёртв → реконнект).
 fn compute_sidecar_status(state: &SingboxState) -> &'static str {
     if state.sidecars.lock_recover().is_empty() {
         return "none";
@@ -3356,6 +3336,7 @@ fn compute_sidecar_status(state: &SingboxState) -> &'static str {
     }
 }
 
+// Последняя причина смерти ядра (sing-box приоритетнее xray/sidecar) — для тоста.
 fn compute_last_error(state: &SingboxState) -> Option<String> {
     if let Some(e) = state.died.lock_recover().clone() {
         return Some(e);
@@ -3397,21 +3378,9 @@ pub async fn runtime_snapshot(app: AppHandle) -> Result<RuntimeSnapshot, String>
     .map_err(|e| format!("не удалось получить снимок runtime: {e}"))
 }
 
-#[tauri::command]
-pub async fn runtime_diagnostic(app: AppHandle) -> Result<RuntimeDiagnostic, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<SingboxState>();
-        let kill_switch = app.state::<crate::killswitch::KillSwitchState>();
-        runtime_snapshot_value(&state, crate::killswitch::is_active(&kill_switch))
-            .runtime_diagnostic
-    })
-    .await
-    .map_err(|e| format!("не удалось получить диагностику runtime: {e}"))
-}
-
-// Агрегат статусов ядер за один вызов — watchdog фронта раньше дёргал
-// singbox_running / xray_status / sidecar_status / vpn_last_error четырьмя
-// отдельными invoke на каждом тике (раз в 5с всю сессию). last_error читаем
+// Агрегат статусов ядер за один вызов — watchdog фронта раньше дёргал статус
+// sing-box, xray, sidecar'ов и последнюю ошибку четырьмя отдельными командами
+// на каждом тике (раз в 5с всю сессию); тех команд больше нет. last_error читаем
 // всегда: фронт использует его только при singbox_running=false, но лишний
 // clone дешевле второго round-trip'а.
 #[derive(serde::Serialize)]
@@ -3605,31 +3574,6 @@ pub async fn verify_runtime_endpoint(
 
 pub fn recover_stale_system_proxy() -> Result<(), String> {
     proxy::recover_stale_system_proxy()
-}
-
-// Статус xray-sidecar (two-core) для health-watchdog'а фронта:
-//   "none"  — xray не спавнился (xhttp-нод в активном конфиге нет);
-//   "alive" — поднят и не падал;
-//   "died"  — был поднят, но процесс завершился (xhttp-мост мёртв).
-// child-хэндл при смерти не чистится, поэтому различаем по флагу xray_died.
-#[tauri::command]
-pub fn xray_status(state: State<'_, SingboxState>) -> &'static str {
-    compute_xray_status(&state)
-}
-
-// Статус sidecar-клиентов naive/TT для health-watchdog'а (аналог xray_status):
-//   "none"  — sidecar'ов не поднимали (таких нод в конфиге нет);
-//   "alive" — подняты и не падали;
-//   "died"  — хотя бы один клиент завершился (мост мёртв → реконнект).
-#[tauri::command]
-pub fn sidecar_status(state: State<'_, SingboxState>) -> &'static str {
-    compute_sidecar_status(&state)
-}
-
-// Последняя причина смерти ядра (sing-box приоритетнее xray/sidecar) — для тоста.
-#[tauri::command]
-pub fn vpn_last_error(state: State<'_, SingboxState>) -> Option<String> {
-    compute_last_error(&state)
 }
 
 pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {

@@ -1,7 +1,10 @@
 // Immutable identity реально запущенной конфигурации. Любая долгая операция
 // захватывает token и обязана убедиться, что после await он всё ещё текущий.
 
-const REVISION_KEY = "ninety.source.revisions.v1";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
+
+// Ключ политики хранения: она решает, что бэкапится и что чистится.
+const REVISION_KEY = STORAGE_KEYS.sourceRevisions;
 
 export class StaleRuntimeError extends Error {
   constructor(operation = "runtime operation") {

@@ -218,7 +218,7 @@ export function createQualityEngine({
   // ── Бюджет реконнектов (кап блипов) ────────────────────
   function canReconnect() {
     const cut = now() - 3600_000;
-    reconnectTimes = reconnectTimes.filter((t) => t > cut);
+    reconnectTimes = reconnectTimes.filter((at) => at > cut);
     return reconnectTimes.length < MAX_RECONNECTS_PER_HOUR;
   }
 

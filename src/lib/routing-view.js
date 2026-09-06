@@ -772,12 +772,12 @@ export function mountRoutingRules(rootEl, opts = {}) {
   function stopMonTimer() { if (monTimer) { clearInterval(monTimer); monTimer = null; } }
 
   /* ═══ ВКЛАДКИ ═══ */
-  function setTab(t) {
-    tab = t;
-    $("#tab-rules").dataset.on = String(t === "rules");
-    $("#tab-monitor").dataset.on = String(t === "monitor");
-    $("#rr-priority").hidden = t !== "rules";
-    if (t === "rules") { stopMonTimer(); renderRules(); }
+  function setTab(next) {
+    tab = next;
+    $("#tab-rules").dataset.on = String(next === "rules");
+    $("#tab-monitor").dataset.on = String(next === "monitor");
+    $("#rr-priority").hidden = next !== "rules";
+    if (next === "rules") { stopMonTimer(); renderRules(); }
     else renderMonitor();
   }
 

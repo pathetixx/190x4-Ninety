@@ -12,8 +12,9 @@
 // изменится и карантин на него не распространится.
 
 import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
-const KEY = "ninety.nodeQuarantine.v1";
+const KEY = STORAGE_KEYS.nodeQuarantine;
 const CAP = 300;
 
 // Разбор держим при исходной строке: список нод проверяется поштучно, то есть

@@ -249,39 +249,6 @@ pub fn unregister_url_handler(scheme: String) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
-#[cfg(target_os = "windows")]
-pub fn is_url_handler_registered(scheme: String) -> Result<bool, String> {
-    use winreg::enums::*;
-    use winreg::RegKey;
-
-    let scheme = scheme.to_lowercase();
-    if !SUPPORTED_SCHEMES.contains(&scheme.as_str()) {
-        return Ok(false);
-    }
-
-    let exe = current_exe_quoted()?;
-    let expected = scheme_handler_path(&exe);
-
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let path = format!("Software\\Classes\\{scheme}\\shell\\open\\command");
-    let last_owned = owned_command_marker(&hkcu, &scheme);
-    match hkcu.open_subkey(&path) {
-        Ok(k) => {
-            let actual: String = k.get_value("").unwrap_or_default();
-            // Регистрация по прежнему пути exe остаётся нашей: статус обязан
-            // это показывать, иначе UI предлагает включить уже включённое.
-            Ok(handler_is_owned(
-                Some(actual.as_str()),
-                &expected,
-                last_owned.as_deref(),
-            ))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(format!("open {path}: {e}")),
-    }
-}
-
 // non-Windows stubs — Tauri command'ы должны существовать, чтобы invoke_handler
 // собирался без cfg-условий.
 #[tauri::command]
@@ -294,12 +261,6 @@ pub fn register_url_handler(_scheme: String) -> Result<(), String> {
 #[cfg(not(target_os = "windows"))]
 pub fn unregister_url_handler(_scheme: String) -> Result<(), String> {
     Err("url handler registration is Windows-only".into())
-}
-
-#[tauri::command]
-#[cfg(not(target_os = "windows"))]
-pub fn is_url_handler_registered(_scheme: String) -> Result<bool, String> {
-    Ok(false)
 }
 
 #[cfg(test)]

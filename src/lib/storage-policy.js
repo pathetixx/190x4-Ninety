@@ -34,6 +34,13 @@ export const STORAGE_KEYS = {
   // намеренно: после очистки WebView2 новый HWID занял бы в панели ещё один слот.
   deviceHwid: "ninety.hwid.v1",
   wifiPrevMode: "ninety.wifi.prevMode",
+  // Ключи живут в своих модулях (node-quarantine / incident-log /
+  // runtime-identity) и перечислены здесь, чтобы политика бэкапа и очистки
+  // видела их наравне с остальными: разъехавшись, они пережили бы «очистить
+  // данные» и уехали бы в бэкап вопреки правилу «телеметрию не бэкапим».
+  nodeQuarantine: "ninety.nodeQuarantine.v1",
+  incidents: "ninety.incidents.v1",
+  sourceRevisions: "ninety.source.revisions.v1",
 };
 
 const BACKUP_EXACT_EXCLUDE = new Set([
@@ -45,6 +52,12 @@ const BACKUP_EXACT_EXCLUDE = new Set([
   STORAGE_KEYS.wifiPrevMode,
   // Замеры задержки — рантайм-телеметрия, в бэкап состояния ей не место.
   STORAGE_KEYS.delayHistory,
+  // Того же рода: карантин нод и лента инцидентов описывают прошлую сессию
+  // (отпечатки нод, причины отказа ядра), а счётчики ревизий — уже удалённые
+  // источники. После restore они воскресали бы и глушили живые сервера.
+  STORAGE_KEYS.nodeQuarantine,
+  STORAGE_KEYS.incidents,
+  STORAGE_KEYS.sourceRevisions,
 ]);
 
 const BACKUP_PREFIX_EXCLUDE = [
@@ -66,6 +79,10 @@ const PROFILE_STORAGE_KEYS = new Set([
   // остаются на диске после «очистить данные».
   STORAGE_KEYS.favourites,
   STORAGE_KEYS.delayHistory,
+  // Карантин адресуется semantic fingerprint'ом ноды, а он переживает
+  // переимпорт: без очистки те же сервера молча исчезали бы из конфига и
+  // после «очистить данные» + повторного добавления подписки.
+  STORAGE_KEYS.nodeQuarantine,
 ]);
 
 const PROFILE_STORAGE_PREFIXES = [

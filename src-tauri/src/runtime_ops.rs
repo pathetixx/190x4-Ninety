@@ -392,13 +392,6 @@ pub fn cancel_frontend_runtime_operation(
     cancelled
 }
 
-#[tauri::command]
-pub fn runtime_operation_snapshot(
-    coordinator: tauri::State<'_, RuntimeOperationCoordinator>,
-) -> Option<RuntimeOperationSnapshot> {
-    coordinator.snapshot()
-}
-
 fn append_operation_attempt_diagnostic(
     app: &tauri::AppHandle,
     kind: RuntimeOperationKind,

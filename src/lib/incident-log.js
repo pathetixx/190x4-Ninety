@@ -13,7 +13,9 @@
 // него есть «Логи»), а обозримая история за последние дни; расти без границ ей
 // незачем, а localStorage у пользователя один на всё приложение.
 
-const KEY = "ninety.incidents.v1";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
+
+const KEY = STORAGE_KEYS.incidents;
 const CAP = 200;
 const TTL_MS = 14 * 24 * 3600 * 1000;
 // Инцидент считается закрытым, если после него не было событий дольше этого

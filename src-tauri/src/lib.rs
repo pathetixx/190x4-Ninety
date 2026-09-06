@@ -63,13 +63,6 @@ fn is_portable() -> bool {
     app_paths::is_portable()
 }
 
-/// True если процесс стартовал с флагом --autostarted (Windows login или
-/// дев-симуляция). Используется фронтендом для авто-подключения после bootstrap.
-#[tauri::command]
-fn is_autostarted() -> bool {
-    std::env::args().any(|a| a == "--autostarted")
-}
-
 /// True если этот запуск должен авто-подключиться после bootstrap:
 ///  --autostarted — вход в Windows (окно в трее);
 ///  --elevated    — мы перезапустились от админа ради TUN (окно видимо).
@@ -1297,11 +1290,9 @@ pub fn run() {
             secrets::portable_secrets_set_passphrase,
             secrets::portable_secrets_clear_passphrase,
             secrets::portable_secrets_confirm_plaintext,
-            profile_store::profile_store_status,
             profile_store::profile_store_load,
             profile_store::profile_store_replace,
             profile_store::profile_store_clear,
-            is_autostarted,
             should_autoconnect,
             startup_deep_links,
             is_elevated,
@@ -1324,21 +1315,13 @@ pub fn run() {
             runtime_ops::record_frontend_runtime_event,
             runtime_ops::complete_frontend_runtime_operation,
             runtime_ops::cancel_frontend_runtime_operation,
-            runtime_ops::runtime_operation_snapshot,
             vpn::plan_bridge_ports,
             vpn::singbox_running,
             vpn::runtime_snapshot,
-            vpn::runtime_diagnostic,
             vpn::verify_runtime_endpoint,
             vpn::health_snapshot,
-            vpn::xray_status,
-            vpn::sidecar_status,
-            vpn::vpn_last_error,
             vpn::enable_system_proxy,
             vpn::disable_system_proxy,
-            vpn::read_singbox_log,
-            vpn::clear_singbox_log,
-            vpn::read_log,
             vpn::read_log_chunk,
             vpn::clear_log,
             vpn::singbox_log_path,
@@ -1357,7 +1340,6 @@ pub fn run() {
             clash_stream::clash_traffic_stop,
             url_handler::register_url_handler,
             url_handler::unregister_url_handler,
-            url_handler::is_url_handler_registered,
             warp::warp_register,
             warp::warp_status,
             warp::warp_reset,
@@ -1381,8 +1363,6 @@ pub fn run() {
             dpi::dpi_check_update,
             dpi::dpi_sync_channel,
             dpi::dpi_autotest,
-            dpi::dpi_log_path,
-            dpi::dpi_read_log,
             dpi::dpi_read_list,
             dpi::dpi_write_list,
             dpi::dpi_unload_driver,

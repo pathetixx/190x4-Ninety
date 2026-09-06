@@ -100,15 +100,6 @@ pub struct ProfileStoreLoadResponse {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProfileStoreStatus {
-    pub exists: bool,
-    pub schema_version: Option<u64>,
-    pub revision: Option<u64>,
-    pub portable_protection: crate::secrets::PortableSecretMode,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ProfileStoreReplaceResponse {
     pub revision: u64,
 }
@@ -300,33 +291,6 @@ fn cleanup_temp_files(path: &Path) -> Result<u32, String> {
         }
     }
     Ok(removed)
-}
-
-// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
-// на главном потоке и морозила бы окно на каждом сохранении профиля.
-#[tauri::command]
-pub async fn profile_store_status(app: AppHandle) -> Result<ProfileStoreStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || profile_store_status_blocking(app))
-        .await
-        .map_err(|error| format!("profile_store_status: {error}"))?
-}
-
-pub(crate) fn profile_store_status_blocking(app: AppHandle) -> Result<ProfileStoreStatus, String> {
-    let _guard = STORE_LOCK.lock_recover();
-    let path = store_path(&app)?;
-    let exists = [path.clone(), backup_path(&path), legacy_backup_path(&path)]
-        .iter()
-        .any(|candidate| candidate.is_file());
-    let (schema_version, revision) = match load_store(&app, &path)? {
-        Some((store, _)) => (Some(store.schema_version), Some(store.revision)),
-        None => (None, None),
-    };
-    Ok(ProfileStoreStatus {
-        exists,
-        schema_version,
-        revision,
-        portable_protection: crate::secrets::portable_secrets_status().mode,
-    })
 }
 
 // Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется

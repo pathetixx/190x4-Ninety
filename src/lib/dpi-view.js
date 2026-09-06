@@ -1048,24 +1048,24 @@ async function saveListEditor(kind) {
 
 /* ═══════════ EVENT DELEGATION ═══════════ */
 function onClick(e) {
-  const t = e.target;
-  if (t.closest("[data-dpi-toggle]")) { e.preventDefault(); e.stopPropagation(); toggleDpi(); return; }
-  if (t.closest("[data-dpi-open]")) { goView("dpi"); return; }
-  if (t.closest("[data-dpi-drawer]")) { openDrawer(); return; }
-  if (t.closest("[data-dpi-drawer-close]") || t.closest("[data-dpi-drawer-bg]")) { closeDrawer(); return; }
-  const strat = t.closest("[data-dpi-strat]");
+  const target = e.target;
+  if (target.closest("[data-dpi-toggle]")) { e.preventDefault(); e.stopPropagation(); toggleDpi(); return; }
+  if (target.closest("[data-dpi-open]")) { goView("dpi"); return; }
+  if (target.closest("[data-dpi-drawer]")) { openDrawer(); return; }
+  if (target.closest("[data-dpi-drawer-close]") || target.closest("[data-dpi-drawer-bg]")) { closeDrawer(); return; }
+  const strat = target.closest("[data-dpi-strat]");
   if (strat) { setStrategy(stratByName(strat.dataset.dpiStrat)); closeDrawer(); return; }
-  if (t.closest("[data-dpi-logs]")) { e.preventDefault(); invoke("open_log_dir").catch(() => goView("logs")); return; }
-  if (t.closest("[data-dpi-pick-start]")) { pickStart(); return; }
-  if (t.closest("[data-dpi-pick-cancel]")) { pickCancel(); return; }
-  const apply = t.closest("[data-dpi-pick-apply]");
+  if (target.closest("[data-dpi-logs]")) { e.preventDefault(); invoke("open_log_dir").catch(() => goView("logs")); return; }
+  if (target.closest("[data-dpi-pick-start]")) { pickStart(); return; }
+  if (target.closest("[data-dpi-pick-cancel]")) { pickCancel(); return; }
+  const apply = target.closest("[data-dpi-pick-apply]");
   if (apply) { pickApply(apply.dataset.dpiPickApply); return; }
-  const game = t.closest("[data-dpi-game]");
+  const game = target.closest("[data-dpi-game]");
   if (game) { S.gameFilter = game.dataset.dpiGame; localStorage.setItem(LS.gameFilter, S.gameFilter); renderBody(); restartIfRunning(); return; }
-  const ips = t.closest("[data-dpi-ipset]");
+  const ips = target.closest("[data-dpi-ipset]");
   if (ips) { S.ipset = ips.dataset.dpiIpset; localStorage.setItem(LS.ipset, S.ipset); renderBody(); restartIfRunning(); return; }
-  if (t.closest("[data-dpi-ipset-toggle]")) { S.ipsetOpen = !S.ipsetOpen; renderBody(); return; }
-  if (t.closest("[data-dpi-monkey]")) {
+  if (target.closest("[data-dpi-ipset-toggle]")) { S.ipsetOpen = !S.ipsetOpen; renderBody(); return; }
+  if (target.closest("[data-dpi-monkey]")) {
     S.monkey = !S.monkey;
     localStorage.setItem(LS.monkey, S.monkey ? "true" : "false");
     renderBody();
@@ -1073,17 +1073,17 @@ function onClick(e) {
     toast(S.monkey ? t("dpi.monkey.toastOn") : t("dpi.monkey.toastOff"), "info", 2400);
     return;
   }
-  const upd = t.closest("[data-dpi-update]");
+  const upd = target.closest("[data-dpi-update]");
   if (upd) { runUpdate(upd.dataset.dpiUpdate); return; }
-  if (t.closest("[data-dpi-update-check]")) { checkUpdate(true); return; }
-  if (t.closest("[data-dpi-cache-clear]")) { clearDiscordCache(); return; }
-  const dom = t.closest("[data-dpi-domains]");
+  if (target.closest("[data-dpi-update-check]")) { checkUpdate(true); return; }
+  if (target.closest("[data-dpi-cache-clear]")) { clearDiscordCache(); return; }
+  const dom = target.closest("[data-dpi-domains]");
   if (dom) { openListEditor(dom.dataset.dpiDomains); return; }
-  if (t.closest("[data-dpi-hosts-apply]")) { applyHosts(); return; }
-  if (t.closest("[data-dpi-hosts-clear]")) { clearHosts(); return; }
-  if (t.closest("[data-dpi-ipset-update]")) { updateIpset(); return; }
-  if (t.closest("[data-dpi-editor-close]") || t.closest("[data-dpi-editor-bg]")) { closeListEditor(); return; }
-  const save = t.closest("[data-dpi-editor-save]");
+  if (target.closest("[data-dpi-hosts-apply]")) { applyHosts(); return; }
+  if (target.closest("[data-dpi-hosts-clear]")) { clearHosts(); return; }
+  if (target.closest("[data-dpi-ipset-update]")) { updateIpset(); return; }
+  if (target.closest("[data-dpi-editor-close]") || target.closest("[data-dpi-editor-bg]")) { closeListEditor(); return; }
+  const save = target.closest("[data-dpi-editor-save]");
   if (save) { saveListEditor(save.dataset.dpiEditorSave); return; }
 }
 

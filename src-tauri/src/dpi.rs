@@ -764,26 +764,6 @@ fn dpi_autotest_log_file(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("dpi-autotest.log"))
 }
 
-/// Путь к логу winws (для UI «Открыть логи»).
-#[tauri::command]
-pub fn dpi_log_path(app: AppHandle) -> Result<String, String> {
-    dpi_log_file(&app)
-        .map(|p| p.to_string_lossy().to_string())
-        .ok_or_else(|| "log_dir недоступен".into())
-}
-
-/// Хвост лога winws (для показа в UI при ошибке).
-#[tauri::command]
-pub fn dpi_read_log(app: AppHandle) -> Result<String, String> {
-    let Some(p) = dpi_log_file(&app) else {
-        return Ok(String::new());
-    };
-    // read_tail капит хвостом (дефолт 128 КБ) вместо слурпа файла целиком: winws
-    // при verbose-логе за долгую сессию раздувает dpi.log, а гнать его весь через
-    // IPC незачем (тот же приём, что для singbox.log — см. vpn::read_tail).
-    crate::vpn::read_tail(&p, None)
-}
-
 fn read_strategies(app: &AppHandle) -> Result<Vec<Strategy>, String> {
     let path = strategies_path(app)?;
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("read strategies.json: {e}"))?;
