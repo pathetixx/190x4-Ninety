@@ -780,6 +780,7 @@ export const fr = {
     duplicate: "L'abonnement {name} est déjà ajouté",
     noVless: "L'abonnement ne contient aucune configuration prise en charge",
     foreignConfig: "Ninety ne lit pas les configurations {format}. Prenez le lien sing-box ou Xray du panneau, ou une simple liste de liens.",
+    archiveBody: "L’abonnement a renvoyé une archive ZIP. Téléchargez-la, décompressez-la et ajoutez le fichier .conf qu’elle contient — Ninety le lit.",
     skippedNote: "Serveurs ignorés : {n} — le cœur refuse leurs paramètres",
     subFallback: "Abonnement",
     notFound: "Abonnement introuvable",

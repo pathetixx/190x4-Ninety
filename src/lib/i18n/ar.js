@@ -804,6 +804,7 @@ export const ar = {
     duplicate: "الاشتراك {name} مضاف بالفعل",
     noVless: "لا يحتوي الاشتراك على إعدادات مدعومة",
     foreignConfig: "لا يقرأ Ninety إعدادات {format}. استخدم من اللوحة رابط sing-box أو Xray، أو قائمة روابط عادية.",
+    archiveBody: "أعاد الاشتراك أرشيف ZIP. نزّله وفكّ ضغطه وأضف ملف ‎.conf‎ الموجود بداخله — فـ Ninety يقرأ هذه الملفات.",
     skippedNote: "خوادم متجاهَلة: {n} — النواة لا تقبل معاملاتها",
     subFallback: "اشتراك",
     notFound: "لم يُعثر على الاشتراك",

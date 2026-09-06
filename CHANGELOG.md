@@ -6,6 +6,38 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.6.1 — 2026-09-06
+
+## English
+
+### Subscriptions
+
+- A subscription link that returns a finished sing-box or Xray config now adds its servers, instead of reporting that it holds nothing supported.
+- A subscription that returns a WireGuard/AmneziaWG `.conf` or a TrustTunnel `.toml` adds it as a profile.
+- Servers listed more than once in the same config are added once.
+- A config Ninety cannot read is named on import, together with what to take instead: a Clash config, or a subscription that hands out a ZIP archive of profile files.
+
+### Servers
+
+- WebSocket early data from a link or a config now reaches the core instead of being dropped.
+- A server that asks to skip certificate checks is now honoured for VLESS, VMess and Trojan as well.
+- A WireGuard peer with reserved bytes (WARP and its kin) keeps them.
+
+## Русский
+
+### Подписки
+
+- Ссылка на подписку, за которой лежит готовый конфиг sing-box или Xray, теперь добавляет серверы, а не сообщает, что в ней нет поддерживаемых конфигов.
+- Подписка, отдающая `.conf` WireGuard/AmneziaWG или `.toml` TrustTunnel, добавляется профилем.
+- Серверы, перечисленные в одном конфиге несколько раз, добавляются один раз.
+- Конфиг, который Ninety прочитать не может, называется по имени вместе с тем, что взять вместо него: конфиг Clash или подписка, отдающая ZIP-архив с файлами профилей.
+
+### Серверы
+
+- Ранняя передача данных WebSocket из ссылки или конфига доезжает до ядра, а не теряется.
+- Сервер, просящий не проверять сертификат, теперь слышен и у VLESS, VMess и Trojan.
+- Пир WireGuard с reserved-байтами (WARP и подобные) их сохраняет.
+
 ## v0.6.0 — 2026-09-04
 
 ## English

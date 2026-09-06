@@ -788,6 +788,7 @@ export const pl = {
     duplicate: "Subskrypcja {name} jest już dodana",
     noVless: "Subskrypcja nie zawiera obsługiwanych konfiguracji",
     foreignConfig: "Ninety nie czyta konfiguracji {format}. Użyj linku sing-box lub Xray z panelu albo zwykłej listy linków.",
+    archiveBody: "Subskrypcja zwróciła archiwum ZIP. Pobierz je, rozpakuj i dodaj znajdujący się w środku plik .conf — Ninety je czyta.",
     skippedNote: "Pominięte serwery: {n} — rdzeń odrzuca ich parametry",
     subFallback: "Subskrypcja",
     notFound: "Nie znaleziono subskrypcji",

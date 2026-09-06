@@ -764,6 +764,7 @@ export const ja = {
     duplicate: "サブスクリプション {name} はすでに追加されています",
     noVless: "サブスクリプションに対応する設定がありません",
     foreignConfig: "Ninety は {format} の設定を読み込めません。パネルの sing-box または Xray 用リンク、あるいはリンクの一覧を使ってください。",
+    archiveBody: "サブスクリプションが ZIP アーカイブを返しました。ダウンロードして展開し、中の .conf ファイルを追加してください。Ninety はそれを読み込めます。",
     skippedNote: "スキップしたサーバー: {n} — コアがパラメータを受け付けません",
     subFallback: "サブスクリプション",
     notFound: "サブスクリプションが見つかりません",

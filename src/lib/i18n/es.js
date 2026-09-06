@@ -780,6 +780,7 @@ export const es = {
     duplicate: "La suscripción {name} ya está añadida",
     noVless: "La suscripción no contiene configuraciones compatibles",
     foreignConfig: "Ninety no lee configuraciones de {format}. Usa el enlace de sing-box o Xray del panel, o una lista simple de enlaces.",
+    archiveBody: "La suscripción devolvió un archivo ZIP. Descárgalo, descomprímelo y añade el archivo .conf que contiene: Ninety sí los lee.",
     skippedNote: "Servidores omitidos: {n} — el núcleo rechaza sus parámetros",
     subFallback: "Suscripción",
     notFound: "Suscripción no encontrada",

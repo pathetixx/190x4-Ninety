@@ -772,6 +772,7 @@ export const tr = {
     duplicate: "{name} aboneliği zaten ekli",
     noVless: "Abonelikte desteklenen yapılandırma yok",
     foreignConfig: "Ninety {format} yapılandırmalarını okumaz. Panelden sing-box ya da Xray bağlantısını, veya düz bağlantı listesini kullanın.",
+    archiveBody: "Abonelik bir ZIP arşivi döndürdü. İndirip açın ve içindeki .conf dosyasını ekleyin — Ninety bu dosyaları okur.",
     skippedNote: "Atlanan sunucular: {n} — çekirdek parametrelerini kabul etmiyor",
     subFallback: "Abonelik",
     notFound: "Abonelik bulunamadı",

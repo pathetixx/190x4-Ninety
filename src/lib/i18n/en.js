@@ -772,6 +772,7 @@ export const en = {
     duplicate: "Subscription {name} is already added",
     noVless: "The subscription contains no supported configs",
     foreignConfig: "Ninety does not read {format} configs. Use the panel's sing-box or Xray link, or a plain list of links.",
+    archiveBody: "The subscription returned a ZIP archive. Download it, unpack it and add the .conf file from inside — Ninety reads those.",
     skippedNote: "Skipped servers: {n} — the core rejects their parameters",
     subFallback: "Subscription",
     notFound: "Subscription not found",

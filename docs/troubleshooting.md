@@ -47,6 +47,8 @@ Sanitized logs or screenshots:
 - Check whether the source is a subscription URL, standalone profile link, ready-made sing-box or Xray config (JSON), TrustTunnel `.toml` endpoint or WireGuard/AmneziaWG `.conf`.
 - A panel can serve a subscription as a finished client config or as a profile file. Ninety takes the servers out of sing-box and Xray configs and out of `.conf`/`.toml` bodies. A Clash config is named as such on import — take the panel's sing-box or Xray link, or its plain list of links, instead.
 - Servers that repeat across a config are imported once. Panels list every server on its own and then again inside a balancer config, so the count can be lower than the number of entries in the file.
+- Some panels serve a subscription as a ZIP archive of profile files. Ninety says so instead of showing an empty subscription: download the archive, unpack it and add the `.conf` from inside.
+- A fragment subscription can yield more servers than the panel has: those panels generate a fresh random WebSocket path for every config, so the entries are not identical and are not merged.
 - Try importing one link first before pasting a multi-link list.
 - Remove unrelated text around the link.
 - Do not share the real subscription URL publicly. Replace hostnames, IDs and credentials with placeholders.

@@ -54,6 +54,9 @@ export function parseClientConfig(text) {
  */
 export function unsupportedFormatMessage(format) {
   if (!format || PARSERS[format]) return null;
+  // Архив — не чужой формат, а нераспакованный файл: внутри лежит ровно то,
+  // что Ninety уже умеет читать, и сказать об этом надо именно так.
+  if (format === "archive") return t("subs.archiveBody");
   const name = CONFIG_FORMAT_NAMES[format];
   return name ? t("subs.foreignConfig", { format: name }) : null;
 }

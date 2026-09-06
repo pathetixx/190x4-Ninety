@@ -764,6 +764,7 @@ export const zh = {
     duplicate: "订阅 {name} 已添加",
     noVless: "订阅中没有受支持的配置",
     foreignConfig: "Ninety 不读取 {format} 配置。请在面板中改用 sing-box 或 Xray 链接，或普通链接列表。",
+    archiveBody: "订阅返回的是 ZIP 压缩包。请下载并解压，添加里面的 .conf 文件 —— Ninety 能读取这类文件。",
     skippedNote: "已跳过 {n} 个服务器：内核不接受它们的参数",
     subFallback: "订阅",
     notFound: "未找到订阅",

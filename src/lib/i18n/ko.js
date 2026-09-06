@@ -764,6 +764,7 @@ export const ko = {
     duplicate: "구독 {name}은(는) 이미 추가되어 있습니다",
     noVless: "구독에 지원되는 설정이 없습니다",
     foreignConfig: "Ninety는 {format} 설정을 읽지 않습니다. 패널에서 sing-box 또는 Xray 링크나 일반 링크 목록을 사용하세요.",
+    archiveBody: "구독이 ZIP 압축 파일을 반환했습니다. 내려받아 압축을 풀고 안에 있는 .conf 파일을 추가하세요. Ninety는 그런 파일을 읽습니다.",
     skippedNote: "건너뛴 서버: {n}개 — 코어가 매개변수를 거부합니다",
     subFallback: "구독",
     notFound: "구독을 찾을 수 없습니다",

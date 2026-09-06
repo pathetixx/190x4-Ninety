@@ -772,6 +772,7 @@ export const de = {
     duplicate: "Das Abo {name} ist bereits hinzugefügt",
     noVless: "Das Abo enthält keine unterstützten Konfigurationen",
     foreignConfig: "Ninety liest keine {format}-Konfigurationen. Nimm im Panel den sing-box- oder Xray-Link oder eine einfache Linkliste.",
+    archiveBody: "Das Abo hat ein ZIP-Archiv geliefert. Lade es herunter, entpacke es und füge die enthaltene .conf hinzu — die liest Ninety.",
     skippedNote: "Übersprungene Server: {n} — der Kern lehnt ihre Parameter ab",
     subFallback: "Abo",
     notFound: "Abo nicht gefunden",

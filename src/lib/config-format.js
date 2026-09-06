@@ -44,22 +44,35 @@ function looksLikeSingbox(root) {
   return outboundsOf(root).some(item => typeof item.type === "string" && !item.protocol);
 }
 
-// Clash — YAML, а не JSON: распознаём только чтобы честно назвать формат в
-// сообщении об ошибке, разбирать его здесь нечем.
-const CLASH_RE = /^\s*proxies\s*:/m;
+// Clash обычно YAML, но JSON — его подмножество, и панели этим пользуются:
+// BPB-Worker-Panel отдаёт clash-подписку именно как JSON. Проверять только
+// YAML значит не узнать формат ровно там, где он чаще всего и встречается.
+// Разбирать его здесь всё равно нечем — распознаём, чтобы назвать по имени.
+const CLASH_YAML_RE = /^\s*proxies\s*:/m;
+
+function looksLikeClash(root) {
+  return configList(root).some(config => Array.isArray(config.proxies)
+    && config.proxies.some(proxy => isPlainObject(proxy) && proxy.name && proxy.type && proxy.server));
+}
+
+// ZIP: сигнатура локального заголовка. Тело подписки приезжает строкой, но эти
+// четыре байта — ASCII и управляющие, лоссовое декодирование их не трогает.
+const ZIP_SIGNATURE = "PK\u0003\u0004";
 
 /**
- * @returns {"sing-box"|"xray"|"clash"|null} null — это не конфиг клиента.
+ * @returns {"sing-box"|"xray"|"clash"|"archive"|null} null — это не конфиг клиента.
  */
 export function detectConfigFormat(text) {
-  const root = safeJsonParse(text);
+  const s = String(text ?? "");
+  if (s.startsWith(ZIP_SIGNATURE)) return "archive";
+  const root = safeJsonParse(s);
   if (root) {
     if (looksLikeXray(root)) return "xray";
     if (looksLikeSingbox(root)) return "sing-box";
+    if (looksLikeClash(root)) return "clash";
     return null;
   }
-  const s = String(text ?? "");
-  if (CLASH_RE.test(s) && /^\s*-\s+(?:name|\{)/m.test(s)) return "clash";
+  if (CLASH_YAML_RE.test(s) && /^\s*-\s+(?:name|\{)/m.test(s)) return "clash";
   return null;
 }
 
