@@ -6,7 +6,7 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
-## v0.6.1 — 2026-09-06
+## v0.6.2 — 2026-09-06
 
 ## English
 
