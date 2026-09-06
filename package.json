@@ -28,6 +28,7 @@
     "check:privileged-paths": "node scripts/check-privileged-paths.mjs",
     "check:dpi-key-rotation": "node scripts/check-dpi-key-rotation.mjs",
     "check:ipc-contract": "node scripts/check-ipc-contract.mjs",
+    "check:tauri-versions": "node scripts/check-tauri-versions.mjs",
     "lint": "eslint --max-warnings 0 src site tests scripts",
     "preinstall": "node scripts/preflight.mjs"
   },
@@ -44,6 +45,6 @@
     "@tauri-apps/plugin-notification": "^2.4.0",
     "@tauri-apps/plugin-process": "^2.0.1",
     "@tauri-apps/plugin-shell": "^2.3.6",
-    "@tauri-apps/plugin-updater": "^2.0.1"
+    "@tauri-apps/plugin-updater": "^2.11.0"
   }
 }
