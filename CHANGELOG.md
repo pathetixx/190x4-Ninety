@@ -12,31 +12,45 @@ Every release, newest first — the same notes the app shows in its update windo
 
 ### Subscriptions
 
-- A subscription link that returns a finished sing-box or Xray config now adds its servers, instead of reporting that it holds nothing supported.
-- A subscription that returns a WireGuard/AmneziaWG `.conf` or a TrustTunnel `.toml` adds it as a profile.
-- Servers listed more than once in the same config are added once.
-- A config Ninety cannot read is named on import, together with what to take instead: a Clash config, or a subscription that hands out a ZIP archive of profile files.
+- A subscription link that hands out a finished sing-box or Xray config now adds the servers from it.
+- A subscription that hands out a WireGuard/AmneziaWG `.conf` or a TrustTunnel endpoint file now adds it as a profile.
+- Servers listed more than once inside one config are added once.
+- A config Ninety cannot read now names its format and says which link to take instead.
 
 ### Servers
 
-- WebSocket early data from a link or a config now reaches the core instead of being dropped.
-- A server that asks to skip certificate checks is now honoured for VLESS, VMess and Trojan as well.
-- A WireGuard peer with reserved bytes (WARP and its kin) keeps them.
+- WebSocket servers that ask for early data now get it.
+- VLESS, VMess and Trojan servers can now ask to skip the certificate check, as the other protocols already could.
+- WireGuard servers that need reserved bytes, such as WARP, keep them.
+
+### Fixes
+
+- The switch that renames the bypass driver works again.
+- Clearing profiles and subscriptions also clears the servers the app had set aside, so adding the subscription again brings all of them back.
+- Backups no longer carry the incident feed or the list of set-aside servers.
+- Portable storage buttons match the protection you actually chose.
 
 ## Русский
 
 ### Подписки
 
-- Ссылка на подписку, за которой лежит готовый конфиг sing-box или Xray, теперь добавляет серверы, а не сообщает, что в ней нет поддерживаемых конфигов.
-- Подписка, отдающая `.conf` WireGuard/AmneziaWG или `.toml` TrustTunnel, добавляется профилем.
+- Ссылка на подписку, за которой лежит готовый конфиг sing-box или Xray, теперь добавляет серверы из него.
+- Подписка, отдающая `.conf` WireGuard/AmneziaWG или файл endpoint'а TrustTunnel, добавляется профилем.
 - Серверы, перечисленные в одном конфиге несколько раз, добавляются один раз.
-- Конфиг, который Ninety прочитать не может, называется по имени вместе с тем, что взять вместо него: конфиг Clash или подписка, отдающая ZIP-архив с файлами профилей.
+- Конфиг, который Ninety прочитать не может, называет свой формат и подсказывает, какую ссылку взять вместо него.
 
 ### Серверы
 
-- Ранняя передача данных WebSocket из ссылки или конфига доезжает до ядра, а не теряется.
-- Сервер, просящий не проверять сертификат, теперь слышен и у VLESS, VMess и Trojan.
-- Пир WireGuard с reserved-байтами (WARP и подобные) их сохраняет.
+- Серверы WebSocket, которым нужна ранняя передача данных, теперь её получают.
+- Серверы VLESS, VMess и Trojan теперь тоже могут попросить не проверять сертификат.
+- Серверы WireGuard, которым нужны reserved-байты, например WARP, их сохраняют.
+
+### Исправления
+
+- Переключатель, меняющий имя драйвера обхода, снова работает.
+- Очистка профилей и подписок убирает и отложенные серверы, поэтому добавленная заново подписка возвращает их все.
+- В резервную копию больше не попадают лента инцидентов и список отложенных серверов.
+- Кнопки портативного хранилища соответствуют выбранной защите.
 
 ## v0.6.0 — 2026-09-04
 
