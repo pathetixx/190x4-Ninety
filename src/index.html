@@ -579,7 +579,7 @@
 
           <textarea class="md__in" id="add-modal-url" spellcheck="false" autocomplete="off"
             data-i18n-placeholder="add.inputPh"
-            placeholder="Ссылка на подписку, vless://, список конфигов или содержимое .toml"></textarea>
+            placeholder="Ссылка на подписку, vless://, список конфигов, готовый конфиг или содержимое .toml"></textarea>
 
           <div class="md__aux">
             <button class="btn btn--sm" id="add-modal-paste" type="button">
@@ -588,9 +588,9 @@
             </button>
             <button class="btn btn--sm" id="add-modal-file-btn" type="button">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg>
-              <span data-i18n="add.tileFile">Файл .toml</span>
+              <span data-i18n="add.tileFile">Файл</span>
             </button>
-            <input id="add-modal-file" type="file" accept=".toml,text/plain" hidden />
+            <input id="add-modal-file" type="file" accept=".toml,.conf,.json,application/json,text/plain" hidden />
           </div>
 
           <div class="det" id="add-modal-det" data-kind="empty">

@@ -48,6 +48,31 @@ function boolParam(value, fallback = false) {
   return fallback;
 }
 
+// Ранняя передача данных у ws: `ed` — сколько байт можно отправить вместе с
+// рукопожатием, `eh` — в каком заголовке. Клиенты sing-box пишут их отдельными
+// параметрами; форма Xray («path=/x?ed=2560») намеренно НЕ разбирается — путь с
+// query ядро и так отправляет как есть, и трогать поведение уже работающих нод
+// ради косметики нельзя.
+//
+// Поля появляются в профиле только когда они реально заданы: отпечаток ноды
+// считается по её содержимому, и постоянное `earlyData: 0` сменило бы identity
+// всем существующим нодам — вместе с запомненным выбором сервера и карантином.
+function earlyDataFields(params) {
+  const raw = params.get("ed");
+  const size = parseInt(String(raw ?? "").trim(), 10);
+  if (!Number.isFinite(size) || size <= 0) return {};
+  return {
+    earlyData: size,
+    earlyDataHeader: params.get("eh") || "Sec-WebSocket-Protocol",
+  };
+}
+
+// Самоподписанный сертификат: панели пишут и allowInsecure, и insecure.
+function insecureField(params) {
+  const value = params.get("allowInsecure") ?? params.get("insecure");
+  return boolParam(value) ? { insecure: true } : {};
+}
+
 // ── vless парсер ────────────────────────────────────────────
 export function parseVless(raw) {
   const url = String(raw || "").trim();
@@ -101,6 +126,8 @@ export function parseVless(raw) {
     // v2ray-QUIC: ядро умеет только «сырой» QUIC без дополнительного шифрования
     // транспорта, поэтому значение проверяется, а не переносится.
     quicSecurity: get("quicSecurity") || get("quicsecurity", ""),
+    ...earlyDataFields(params),
+    ...insecureField(params),
   };
 }
 
@@ -141,6 +168,15 @@ export function parseVmess(raw) {
     // seed обфускации: у остальных транспортов оба поля значат другое.
     headerType: j.type || "",
     seed: j.net === "kcp" ? (j.path || "") : "",
+    // Ранняя передача данных и самоподписанный сертификат: в исходном формате
+    // v2rayN этих полей нет, их дописывают клиенты. Читаем, чтобы конфиг,
+    // импортированный из готового sing-box, доезжал обратно без потерь;
+    // отсутствующие поля в профиль не попадают — см. earlyDataFields.
+    ...earlyDataFields(new URLSearchParams({
+      ...(j.ed ? { ed: String(j.ed) } : {}),
+      ...(j.eh ? { eh: String(j.eh) } : {}),
+    })),
+    ...(boolParam(j.allowInsecure ?? j.insecure) ? { insecure: true } : {}),
   };
 }
 
@@ -172,6 +208,8 @@ export function parseTrojan(raw) {
     serviceName: get("serviceName", ""),
     mode: get("mode", ""),
     extra: get("extra", ""),
+    ...earlyDataFields(query),
+    ...insecureField(query),
   };
 }
 

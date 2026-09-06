@@ -145,6 +145,7 @@ function wireguardIssue(node) {
   }
   const peers = Array.isArray(node.peers) && node.peers.length ? node.peers : [];
   if (!peers.length) return { code: "wgPeer" };
+  let anyReserved = false;
   for (const peer of peers) {
     if (!wireguardKeyValid(peer.publicKey)) return { code: "wgPublicKey" };
     if (peer.presharedKey && !wireguardKeyValid(peer.presharedKey)) return { code: "wgPresharedKey" };
@@ -152,10 +153,34 @@ function wireguardIssue(node) {
     if (!peer.host || !Number.isInteger(peerPort) || peerPort < 1 || peerPort > 65535) {
       return { code: "endpoint" };
     }
+    if (peer.reserved !== undefined) {
+      // Три байта, каждый — обычный октет. Приходят только из импортированного
+      // конфига ядра: в .conf такого поля нет.
+      const reserved = peer.reserved;
+      if (!Array.isArray(reserved) || reserved.length !== 3
+        || reserved.some(v => !Number.isInteger(Number(v)) || Number(v) < 0 || Number(v) > 255)) {
+        return { code: "wgReserved" };
+      }
+      anyReserved = true;
+    }
   }
   const awgIssue = amneziaIssue(node.awg);
   if (awgIssue) return awgIssue;
+  // reserved и шейпинг AmneziaWG на одном пире несовместимы — ядро отвергает
+  // такой endpoint целиком, а вместе с ним и весь конфиг.
+  if (anyReserved && amneziaActive(node.awg)) return { code: "wgReservedNoise" };
   return null;
+}
+
+// Шейпинг включён, если задано хоть одно поле, которое дойдёт до ядра. Условия
+// повторяют buildAmneziaNoise: пустой блок в конфиг не попадает вовсе.
+function amneziaActive(awg) {
+  if (!awg) return false;
+  const num = (value) => Number(awg[value]) || 0;
+  if (num("jc") > 0 && num("jmax") > 0) return true;
+  if (num("s1") > 0 || num("s2") > 0) return true;
+  if ([num("h1"), num("h2"), num("h3"), num("h4")].some((v, i) => v && v !== i + 1)) return true;
+  return ["i1", "i2", "i3", "i4", "i5"].some(key => awg[key]);
 }
 
 // Шейпинг AmneziaWG: те же инварианты, что проверяет ядро (noise/amnezia.go).

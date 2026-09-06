@@ -8,7 +8,8 @@ import { loadOptions } from "/lib/options.js";
 import { safeDecodeBase64 } from "/lib/url-helpers.js";
 import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
 import { partitionNodes } from "/lib/node-validation.js";
-import { looksLikeWireguardConf } from "/lib/protocol-parsers.js";
+import { looksLikeWireguardConf, parseTrustTunnelToml, parseWireguardConf } from "/lib/protocol-parsers.js";
+import { detectConfigFormat, parseClientConfig, unsupportedFormatMessage } from "/lib/config-import.js";
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
 import { hwidHeaders, hwidSignal } from "/lib/hwid.js";
 // Реэкспорт: формулировка переехала в свой модуль, но вызывающие (main.js,
@@ -42,22 +43,72 @@ function looksLikeTrustTunnelToml(s) {
   return TT_TOML_RE.test(s) && /^\s*addresses\s*=/m.test(s) && /^\s*username\s*=/m.test(s);
 }
 
+// Панель может отдать не список ссылок, а собранный конфиг ядра или файл
+// профиля — и в plain, и в base64. Случайно тут ничего не декодируется:
+// atob отвергает всё, что не из алфавита base64.
+function looksLikeJsonText(text) {
+  const s = String(text || "").trimStart();
+  return s.startsWith("{") || s.startsWith("[");
+}
+
+function bodyIsRecognizable(text) {
+  return KNOWN_PROTO_RE.test(text)
+    || looksLikeJsonText(text)
+    || looksLikeWireguardConf(text)
+    || looksLikeTrustTunnelToml(text);
+}
+
+// Тело подписки — один файл профиля, а не список. Разбор тот же, что при
+// вставке текстом; имя ноды берёт сам парсер (endpoint пира / hostname).
+function parseSingleFileBody(text) {
+  try {
+    if (looksLikeWireguardConf(text)) return parseWireguardConf(text);
+    if (looksLikeTrustTunnelToml(text)) return parseTrustTunnelToml(text);
+  } catch (e) {
+    console.warn("subscription: file body did not parse", e?.message);
+  }
+  return null;
+}
+
 /**
  * Парсит тело подписки. Разбирает строки и сразу отбраковывает ноды, которые
  * ядро не примет: одна такая нода валит инициализацию всего конфига, то есть
  * целую подписку. Отброшенные считаем, чтобы честно сказать это пользователю.
- * Поддерживает: plain newline-список, base64-encoded список.
- * @returns {{profiles: object[], skipped: number}}
+ * Поддерживает: plain newline-список, base64-encoded список, готовый конфиг
+ * sing-box (JSON) — из него берётся только серверная часть.
+ * `format` заполнен, когда тело оказалось конфигом клиента: по нему вызывающий
+ * объясняет пустой результат, вместо безликого «нет поддерживаемых конфигов».
+ * @returns {{profiles: object[], skipped: number, format: string|null}}
  */
 export function parseSubscriptionEntries(body) {
   let text = String(body || "").trim();
-  if (!text) return { profiles: [], skipped: 0 };
+  if (!text) return { profiles: [], skipped: 0, format: null };
 
-  // Сначала пробуем декодировать как base64 — если в результате есть
-  // знакомые протокольные схемы, считаем что это base64-list.
+  // Сначала пробуем декодировать как base64 — если в результате узнаём тело
+  // подписки в любом из поддерживаемых видов, дальше работаем с декодом.
   const decoded = safeDecodeBase64(text);
-  if (decoded && KNOWN_PROTO_RE.test(decoded)) {
+  if (decoded && bodyIsRecognizable(decoded)) {
     text = decoded;
+  }
+
+  const { format, profiles: fromConfig, skipped: configSkipped } = parseClientConfig(text);
+  if (format) {
+    // Формат, который прочитать нечем (Clash), даёт ноль серверов: вызывающий
+    // назовёт его по имени вместо безликого «нет поддерживаемых конфигов».
+    const { usable, skipped: rejected } = partitionNodes(fromConfig);
+    for (const { node, issue } of rejected) {
+      console.warn("subscription: skip unusable node", issue.code, node?.host);
+    }
+    return { profiles: usable, skipped: configSkipped + rejected.length, format };
+  }
+
+  // Панель может раздать ссылкой и файл: WARP у BPB-Worker-Panel — это
+  // .conf WireGuard, а не список ссылок. Вставку такого файла текстом мы
+  // понимали и раньше, тело подписки — нет, и подписка выглядела пустой.
+  const single = parseSingleFileBody(text);
+  if (single) {
+    const { usable, skipped: rejected } = partitionNodes([single]);
+    return { profiles: usable, skipped: rejected.length, format: null };
   }
 
   const lines = text.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
@@ -76,7 +127,7 @@ export function parseSubscriptionEntries(body) {
   for (const { node, issue } of rejected) {
     console.warn("subscription: skip unusable node", issue.code, node?.host);
   }
-  return { profiles: usable, skipped: skipped + rejected.length };
+  return { profiles: usable, skipped: skipped + rejected.length, format: null };
 }
 
 /**
@@ -90,10 +141,18 @@ export function parseSubscriptionBody(body) {
 //   { kind: "url", url }              — подписка по http(s) URL
 //   { kind: "config", content }       — одиночная vless:// ссылка
 //   { kind: "list", content }         — несколько vless:// (raw или base64)
+//   { kind: "client-config", content, format } — готовый конфиг клиента
+//   { kind: "tt-toml", content }      — endpoint TrustTunnel
+//   { kind: "wg-conf", content }      — WireGuard / AmneziaWG .conf
 //   { kind: "empty" } / { kind: "unknown" }
 export function detectAddInput(raw) {
   const s = String(raw || "").trim();
   if (!s) return { kind: "empty" };
+
+  // Готовый конфиг клиента проверяем первым: распознавание точное (JSON обязан
+  // разобраться), а вот эвристики ниже на нём могут и ошибиться.
+  const pastedFormat = detectConfigFormat(s);
+  if (pastedFormat) return { kind: "client-config", content: s, format: pastedFormat };
 
   const protocolUrls = Array.from(s.matchAll(KNOWN_PROTO_URL_RE), m => m[0]);
   if (protocolUrls.length > 1) return { kind: "list", content: s };
@@ -119,9 +178,13 @@ export function detectAddInput(raw) {
   // Plain http(s) URL
   if (/^https?:\/\//i.test(s)) return { kind: "url", url: s };
 
-  // Base64 список?
+  // Base64 список или base64-обёрнутый конфиг?
   const decoded = safeDecodeBase64(s);
   if (decoded && KNOWN_PROTO_RE.test(decoded)) return { kind: "list", content: decoded };
+  if (decoded) {
+    const decodedFormat = detectConfigFormat(decoded);
+    if (decodedFormat) return { kind: "client-config", content: decoded, format: decodedFormat };
+  }
 
   // Plain список с любыми поддерживаемыми протоколами
   if (KNOWN_PROTO_RE.test(s)) return { kind: "list", content: s };
@@ -298,9 +361,9 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
   }
 
   const info = await fetchInfo(u, { hwid });
-  const { profiles, skipped } = parseSubscriptionEntries(info.body);
+  const { profiles, skipped, format } = parseSubscriptionEntries(info.body);
   if (profiles.length === 0) {
-    const err = new Error(t("subs.noVless"));
+    const err = new Error(unsupportedFormatMessage(format) || t("subs.noVless"));
     err.hwid = hwidSignal(info, profiles, { sent: hwid });
     throw err;
   }
@@ -344,9 +407,9 @@ export async function refreshSubscription(id) {
   if (!cur) throw new Error(t("subs.notFound"));
 
   const info = await fetchInfo(cur.url, { hwid: !!cur.hwid });
-  const { profiles, skipped } = parseSubscriptionEntries(info.body);
+  const { profiles, skipped, format } = parseSubscriptionEntries(info.body);
   if (profiles.length === 0) {
-    const err = new Error(t("subs.emptyOrInvalid"));
+    const err = new Error(unsupportedFormatMessage(format) || t("subs.emptyOrInvalid"));
     err.hwid = hwidSignal(info, profiles, { sent: !!cur.hwid });
     throw err;
   }
@@ -456,6 +519,6 @@ export function formatBytes(bytes) {
 // total=0 (или отсутствует) у многих панелей = безлимит/не метится. Возвращаем
 // число только если это реальный положительный лимит, иначе null = безлимит.
 export function subscriptionLimitBytes(sub) {
-  const t = sub?.total;
-  return typeof t === "number" && t > 0 ? t : null;
+  const total = sub?.total;
+  return typeof total === "number" && total > 0 ? total : null;
 }

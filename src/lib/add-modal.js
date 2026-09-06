@@ -12,7 +12,18 @@ import {
   updateSubscription,
 } from "/lib/subscriptions.js";
 import { askEnableHwid } from "/lib/hwid-prompt.js";
-import { addProfileFromVless, addTrustTunnelFromToml, addWireguardFromConf } from "/lib/singbox.js";
+import {
+  configFormatName,
+  parseClientConfig,
+  unsupportedFormatMessage,
+} from "/lib/config-import.js";
+import { partitionNodes } from "/lib/node-validation.js";
+import {
+  addParsedProfile,
+  addProfileFromVless,
+  addTrustTunnelFromToml,
+  addWireguardFromConf,
+} from "/lib/singbox.js";
 import { t, tn } from "/lib/i18n/index.js";
 import { escapeHtml } from "/lib/esc.js";
 import { toast } from "/lib/toast.js";
@@ -39,8 +50,23 @@ const DET_ICONS = {
   unknown:   SVG('<path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),
   "wg-conf": SVG('<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M9 12h6"/>'),
 };
+DET_ICONS["client-config"] = SVG('<path d="M20 7h-9m3 10H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>');
 DET_ICONS.url = DET_ICONS.empty;
 DET_ICONS.duplicate = DET_ICONS.unknown;
+
+// Разбор конфига — это JSON.parse чужого файла, а полоса распознавания
+// пересчитывается на каждое нажатие клавиши. Держим результат последнего
+// разбора: пользователь конфиг вставляет, а не набирает, и повторный разбор
+// того же текста ничего не даёт.
+let lastConfigParse = { text: null, result: null };
+function parseConfigCached(text) {
+  if (lastConfigParse.text === text) return lastConfigParse.result;
+  const parsed = parseClientConfig(text);
+  const { usable, skipped } = partitionNodes(parsed.profiles);
+  const result = { profiles: usable, skipped: parsed.skipped + skipped.length };
+  lastConfigParse = { text, result };
+  return result;
+}
 
 // Список подписок для проверки на повтор снимается при открытии окна: пока оно
 // открыто, он не меняется, а перечитывать хранилище на каждое нажатие клавиши
@@ -106,6 +132,25 @@ function describeInput(raw) {
     setDetection("list", "add.detListK",
       `<b>${escapeHtml(tn("add.detListN", hits.length))}</b>${parts ? `<s>·</s>${escapeHtml(parts)}` : ""}`);
     return { ok: true, kind: "list", host: "" };
+  }
+  if (d.kind === "client-config") {
+    // Формат, который прочитать нечем (Clash), называем прямо: пользователю
+    // нужно знать, какую из ссылок панели взять вместо этой.
+    const unreadable = unsupportedFormatMessage(d.format);
+    if (unreadable) {
+      setDetection("unknown", "add.detUnknownK", escapeHtml(unreadable));
+      return { ok: false, kind: "client-config", host: "" };
+    }
+    const { profiles } = parseConfigCached(d.content);
+    if (!profiles.length) {
+      setDetection("unknown", "add.detUnknownK", escapeHtml(t("add.errNoConfigs")));
+      return { ok: false, kind: "client-config", host: "" };
+    }
+    // Сколько нод не взяли, говорим уже после добавления (msgListSkipped):
+    // в полосе распознавания важно, что именно распозналось.
+    setDetection("client-config", "add.detSbConfigK",
+      `<b>${escapeHtml(tn("add.detListN", profiles.length))}</b><s>·</s>${escapeHtml(configFormatName(d.format))}`);
+    return { ok: true, kind: "client-config", host: "" };
   }
   if (d.kind === "tt-toml") {
     setDetection("tt-toml", "add.detTomlK", escapeHtml(t("add.detTomlD")));
@@ -230,6 +275,25 @@ export async function importAddInput(raw, userOverride = {}) {
       // работает здесь и в клиенте, откуда его принесли. Молчать о ней нельзя;
       // показывает её вызывающий, как и счётчик пропущенных у списка.
       ignored,
+    };
+  }
+
+  // Готовый конфиг клиента: берём из него только серверы. Ноды приходят уже
+  // разобранными — часть из них (WireGuard) в ссылку не превращается вовсе,
+  // поэтому кладём объекты, а не raw.
+  if (decision.kind === "client-config") {
+    const unreadable = unsupportedFormatMessage(decision.format);
+    if (unreadable) throw new Error(unreadable);
+    const { profiles, skipped } = parseConfigCached(decision.content);
+    if (profiles.length === 0) throw new Error(t("add.errNoConfigs"));
+    const added = profiles.map(profile => addParsedProfile(profile));
+    return {
+      type: "list",
+      message: skipped
+        ? t("add.msgListSkipped", { n: profiles.length, skipped })
+        : t("add.msgList", { n: profiles.length }),
+      source: { kind: "single", id: added[0].id },
+      skipped,
     };
   }
 

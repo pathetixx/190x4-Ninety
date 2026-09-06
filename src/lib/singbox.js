@@ -122,6 +122,10 @@ function buildTls(p) {
     utls: { enabled: true, fingerprint: normalizeFingerprint(p.fp) },
   };
   if (p.alpn) tls.alpn = String(p.alpn).split(",").map(s => s.trim()).filter(Boolean);
+  // Пишем только когда ссылка прямо об этом попросила: у reality проверка
+  // сертификата и так своя, а молча снятая проверка — это уже другой протокол
+  // безопасности, чем тот, что видел пользователь.
+  if (p.insecure) tls.insecure = true;
   if (tlsMode === "reality") {
     // Панели отдают ключ и в обычном base64, и с паддингом, а ядро принимает
     // только base64url без «=». Нормализуем; заведомо нерабочий ключ отсеивает
@@ -182,50 +186,58 @@ function xrayDownloadToSingbox(ds) {
 
 // Безопасный мерж Xray-extra в xhttp-транспорт форка. Эмитим только
 // поля, известные форку (иначе unknown-field роняет ВЕСЬ конфиг).
-function mergeXhttpExtra(t, ex) {
-  for (const k of XHTTP_PASS_KEYS) if (ex[k] !== undefined) t[k] = ex[k];
-  if (ex.mode) t.mode = ex.mode;
+function mergeXhttpExtra(transport, ex) {
+  for (const k of XHTTP_PASS_KEYS) if (ex[k] !== undefined) transport[k] = ex[k];
+  if (ex.mode) transport.mode = ex.mode;
   if (ex.downloadSettings) {
     const d = xrayDownloadToSingbox(ex.downloadSettings);
-    if (d) t.downloadSettings = d;
+    if (d) transport.downloadSettings = d;
   }
 }
 
 function buildTransport(p) {
   switch (p.type) {
     case "ws": {
-      const t = { type: "ws" };
-      if (p.path) t.path = p.path;
-      if (p.host_header) t.headers = { Host: p.host_header };
-      return t;
+      const tr = { type: "ws" };
+      if (p.path) tr.path = p.path;
+      if (p.host_header) tr.headers = { Host: p.host_header };
+      // Ранняя передача данных приходит отдельными параметрами ссылки (ed/eh)
+      // или из импортированного конфига. Форму Xray («/path?ed=2560») сюда не
+      // приводим: ядро отправляет такой путь вместе с query, это работает, и
+      // менять поведение уже добавленных нод незачем.
+      if (p.earlyData > 0) {
+        tr.max_early_data = p.earlyData;
+        tr.early_data_header_name = p.earlyDataHeader || "Sec-WebSocket-Protocol";
+      }
+      return tr;
     }
     case "grpc": {
-      const t = { type: "grpc" };
-      if (p.serviceName) t.service_name = p.serviceName;
-      return t;
+      const tr = { type: "grpc" };
+      if (p.serviceName) tr.service_name = p.serviceName;
+      return tr;
     }
     case "http":
     case "h2": {
-      const t = { type: "http" };
-      if (p.path) t.path = p.path;
-      if (p.host_header) t.host = p.host_header.split(",").map(s => s.trim());
-      return t;
+      const tr = { type: "http" };
+      if (p.path) tr.path = p.path;
+      if (p.host_header) tr.host = p.host_header.split(",").map(s => s.trim());
+      return tr;
     }
     case "httpupgrade": {
-      const t = { type: "httpupgrade" };
-      if (p.host_header || p.sni) t.host = p.host_header || p.sni;
-      if (p.path) t.path = p.path;
-      return t;
+      const tr = { type: "httpupgrade" };
+      if (p.host_header || p.sni) tr.host = p.host_header || p.sni;
+      if (p.path) tr.path = p.path;
+      return tr;
     }
     case "quic":
       // У v2ray-QUIC в ядре нет опций: дополнительное шифрование транспорта из
       // Xray оно не реализует (такие ноды отсеивает nodeConfigIssue).
       return { type: "quic" };
     case "xhttp": {
-      const t = { type: "xhttp" };
-      if (p.path) t.path = p.path;
-      if (p.host_header) t.host = p.host_header;
-      if (p.mode) t.mode = p.mode;
+      const tr = { type: "xhttp" };
+      if (p.path) tr.path = p.path;
+      if (p.host_header) tr.host = p.host_header;
+      if (p.mode) tr.mode = p.mode;
       // extra={...} из ссылки несёт xhttp-подопции (xPaddingBytes,
       // scMaxEachPostBytes, downloadSettings, noGRPCHeader, headers, xmux…).
       // Без них download-канал уходит в дефолт и сервер рвёт handshake.
@@ -238,13 +250,13 @@ function buildTransport(p) {
       if (p.extra) {
         try {
           const ex = JSON.parse(p.extra);
-          if (ex && typeof ex === "object") mergeXhttpExtra(t, ex);
+          if (ex && typeof ex === "object") mergeXhttpExtra(tr, ex);
         } catch { /* битый extra — игнорируем, базовых полей достаточно */ }
       }
       // Ядро требует непустой mode, иначе падает весь конфиг
       // ("mode is not set" на этапе загрузки). auto — безопасный дефолт.
-      if (!t.mode) t.mode = "auto";
-      return t;
+      if (!tr.mode) tr.mode = "auto";
+      return tr;
     }
     default:
       return null;
@@ -271,13 +283,13 @@ function applyMux(out, options) {
 // сюда не доходит — те делают return раньше, фрагментация TLS-записей к ним
 // неприменима.
 function applyTlsTricks(out, options) {
-  const t = options?.tlsTricks;
-  if (!t || !out.tls?.enabled) return;
-  if (t.enableFragment) {
-    if (t.fragmentMode === "tcp") {
+  const tricksCfg = options?.tlsTricks;
+  if (!tricksCfg || !out.tls?.enabled) return;
+  if (tricksCfg.enableFragment) {
+    if (tricksCfg.fragmentMode === "tcp") {
       // fragment и record_fragment взаимоисключающие — ставим что-то одно.
       out.tls.fragment = true;
-      if (t.fragmentFallbackDelay) out.tls.fragment_fallback_delay = t.fragmentFallbackDelay;
+      if (tricksCfg.fragmentFallbackDelay) out.tls.fragment_fallback_delay = tricksCfg.fragmentFallbackDelay;
     } else {
       out.tls.record_fragment = true;
     }
@@ -289,11 +301,11 @@ function applyTlsTricks(out, options) {
   // такой конфиг отвечает ошибкой, поэтому не шлём.
   if (out.tls.reality?.enabled) return;
   const tricks = {};
-  if (t.enablePadding) {
-    const ps = t.paddingSize || { from: 100, to: 900 };
+  if (tricksCfg.enablePadding) {
+    const ps = tricksCfg.paddingSize || { from: 100, to: 900 };
     tricks.padding_size = `${ps.from}-${ps.to}`;
   }
-  if (t.mixedSniCase) tricks.mixedcase_sni = true;
+  if (tricksCfg.mixedSniCase) tricks.mixedcase_sni = true;
   if (Object.keys(tricks).length) out.tls.tls_tricks = tricks;
 }
 
@@ -972,6 +984,11 @@ function buildWireguardEndpoint(p, tag, strictPrivacy = false) {
       };
       if (peer.presharedKey) out.pre_shared_key = peer.presharedKey;
       if (peer.keepalive) out.persistent_keepalive_interval = peer.keepalive;
+      // Три байта reserved несёт WARP и совместимые с ним пиры. В .conf такого
+      // поля нет — оно приходит только из импортированного конфига ядра.
+      if (Array.isArray(peer.reserved) && peer.reserved.length === 3) {
+        out.reserved = peer.reserved.map(Number);
+      }
       return out;
     }),
   };
@@ -1037,8 +1054,8 @@ function buildCustomNoise(cn) {
   if (!cn) return null;
   const range = (r, defFrom, defTo) => {
     const f = Number.isFinite(r?.from) ? r.from : defFrom;
-    const t = Number.isFinite(r?.to)   ? r.to   : defTo;
-    const lo = Math.min(f, t), hi = Math.max(f, t);
+    const to = Number.isFinite(r?.to)   ? r.to   : defTo;
+    const lo = Math.min(f, to), hi = Math.max(f, to);
     return `${lo}-${hi}`;
   };
   return {
@@ -1686,6 +1703,13 @@ function storeProfile(parsed) {
 
 export function addProfileFromLink(raw) {
   return storeProfile(parseLink(raw));
+}
+
+// Профиль, разобранный не из ссылки: импорт готового конфига sing-box отдаёт
+// уже нормализованные ноды (в том числе WireGuard-endpoint, у которого своей
+// share-ссылки нет вовсе).
+export function addParsedProfile(profile) {
+  return storeProfile(profile);
 }
 
 // Импорт TrustTunnel из endpoint-.toml (вставлен текстом или загружен файлом).
