@@ -599,9 +599,11 @@ function refreshSubCardFromActive() {
     if (subTraffic) {
       // Гибрид: есть реальный лимит провайдера → квота used/total. Иначе показываем
       // наш измеренный трафик (заголовок провайдера ненадёжен/0).
+      // dir="ltr" — величина с единицей читается как одно целое; без изоляции
+      // биди в fa/ar разносит число и единицу по разным концам строки.
       subTraffic.innerHTML = limit != null
-        ? `<b>${fmtTraffic(used)}</b> / <b>${fmtTraffic(limit)}</b>`
-        : `<b>${fmtTraffic(getMeasured(`sub:${sub.id}`).total)}</b> · ${t("home.unlimited")}`;
+        ? `<span dir="ltr"><b>${fmtTraffic(used)}</b> / <b>${fmtTraffic(limit)}</b></span>`
+        : `<span dir="ltr"><b>${fmtTraffic(getMeasured(`sub:${sub.id}`).total)}</b></span> · ${t("home.unlimited")}`;
     }
     // Прогресс-бар: при лимите ГБ — расход квоты (used/total); при безлимите — доля
     // ОСТАВШЕГОСЯ СРОКА подписки. Период провайдер не отдаёт → самокалибровка по пику
@@ -625,7 +627,7 @@ function refreshSubCardFromActive() {
     if (subExpire) subExpire.textContent = "—";
     if (subExpireUnit) subExpireUnit.style.display = "none";
     // У одиночного профиля (hysteria/naive/tt) нет квоты — показываем измеренный трафик.
-    if (subTraffic) subTraffic.innerHTML = `<b>${fmtTraffic(getMeasured(`profile:${src.profile.id}`).total)}</b>`;
+    if (subTraffic) subTraffic.innerHTML = `<span dir="ltr"><b>${fmtTraffic(getMeasured(`profile:${src.profile.id}`).total)}</b></span>`;
     if (subBar) subBar.style.display = "none";
     if (subProgressFill) subProgressFill.style.width = "0%";
     if (subUpdated) subUpdated.textContent = "—";
@@ -633,7 +635,7 @@ function refreshSubCardFromActive() {
     if (subName) subName.textContent = "WARP";
     if (subExpire) subExpire.textContent = "—";
     if (subExpireUnit) subExpireUnit.style.display = "none";
-    if (subTraffic) subTraffic.innerHTML = `<b>${fmtTraffic(getMeasured("warp").total)}</b>`;
+    if (subTraffic) subTraffic.innerHTML = `<span dir="ltr"><b>${fmtTraffic(getMeasured("warp").total)}</b></span>`;
     if (subBar) subBar.style.display = "none";
     if (subProgressFill) subProgressFill.style.width = "0%";
     if (subUpdated) subUpdated.textContent = "—";

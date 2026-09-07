@@ -7,6 +7,9 @@ const POPOVERS = {
   mode: { btnId: "mode-toggle", elId: "mode-popover" },
 };
 
+// Минимальный зазор от края окна при клампе.
+const EDGE = 8;
+
 export function initPopovers() {
   const items = {};
   for (const key of Object.keys(POPOVERS)) {
@@ -24,10 +27,24 @@ export function initPopovers() {
     }
   }
 
+  // Позиционируем через left: якорим по логической стороне кнопки (в LTR правый
+  // край поповера по правому краю кнопки, в RTL — левый по левому) и держим в
+  // границах окна. Жёсткое `right` уводило поповер за левый край в fa/ar: там
+  // тулбар зеркалится к левому краю, а карточка шире расстояния до него.
   function place(p) {
+    const el = p.el;
+    const wasHidden = el.hidden;
+    // Ширина нужна до показа: у hidden-элемента она нулевая.
+    if (wasHidden) { el.style.visibility = "hidden"; el.hidden = false; }
     const r = p.btn.getBoundingClientRect();
-    p.el.style.top = `${Math.round(r.bottom + 8)}px`;
-    p.el.style.right = `${Math.round(window.innerWidth - r.right)}px`;
+    const w = el.offsetWidth;
+    const rtl = getComputedStyle(document.documentElement).direction === "rtl";
+    let left = rtl ? r.left : r.right - w;
+    left = Math.min(Math.max(left, EDGE), Math.max(EDGE, window.innerWidth - w - EDGE));
+    el.style.top = `${Math.round(r.bottom + 8)}px`;
+    el.style.left = `${Math.round(left)}px`;
+    el.style.right = "auto";
+    if (wasHidden) { el.hidden = true; el.style.visibility = ""; }
   }
 
   for (const key of Object.keys(items)) {

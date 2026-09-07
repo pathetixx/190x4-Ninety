@@ -37,7 +37,7 @@
 }
 
 /* ═══ POPOVER (mode-popover) — override screens.css на fixed ═══
-   main.js позиционирует через top + right относительно window —
+   popovers.js позиционирует через top + left относительно window —
    это значения для position:fixed. screens.css ставит absolute. */
 .popover {
   position: fixed;
