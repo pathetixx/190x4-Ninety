@@ -6,6 +6,22 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.6.3 — 2026-09-07
+
+## English
+
+### Fixes
+
+- In Persian and Arabic the connection mode window now opens fully on screen.
+- In Persian and Arabic the session traffic and the subscription quota keep every number next to its own unit.
+
+## Русский
+
+### Исправления
+
+- В персидском и арабском окно выбора режима подключения открывается целиком.
+- В персидском и арабском трафик сессии и квота подписки показывают число рядом со своей единицей.
+
 ## v0.6.2 — 2026-09-06
 
 ## English
