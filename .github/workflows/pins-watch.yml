@@ -19,6 +19,9 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  # The build below is started with `gh workflow run`; without this the call
+  # dies on HTTP 403 and the bump PR sits with no build at all.
+  actions: write
 
 jobs:
   watch:
@@ -49,7 +52,11 @@ jobs:
           git config user.name "ninety-bot"
           git config user.email "noreply@190x4.pw"
           git checkout -b "$branch"
-          git add .github/pins.json
+          # build-info.js is generated from the pins, and a test asserts the
+          # file in the tree matches the generator on those pins. A bump that
+          # touches only pins.json therefore lands red every time.
+          node scripts/gen-build-info.mjs --commit local --date "—"
+          git add .github/pins.json src/lib/build-info.js
           git commit -m "chore(pins): move pinned dependencies to their latest releases"
           git push -u origin "$branch"
           {
