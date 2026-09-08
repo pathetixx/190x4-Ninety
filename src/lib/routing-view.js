@@ -163,8 +163,12 @@ export function mountRoutingRules(rootEl, opts = {}) {
   }
 
   // Персист + реконнект. Зовётся на любое изменение списка.
+  // Отдаём КЛОН: снапшот настроек морозится (options.js::commitCache), а `rules`
+  // остаётся живым состоянием экрана, которое мутируют add/edit/toggle/drag.
+  // Клон заодно исключает обратную связь — правка списка после commit() не
+  // должна задним числом менять уже сохранённый снапшот.
   function commit(silent) {
-    updateOption("route.customRules", rules);
+    updateOption("route.customRules", structuredCloneSafe(rules));
     onChange("route.customRules");
     if (!silent) toast(t("rr.rulesUpdated"), "success", 1600);
   }

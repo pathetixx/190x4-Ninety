@@ -295,7 +295,13 @@ function cloneOptions(value) {
 
 function commitCache(raw, normalized) {
   cachedRaw = raw;
-  cachedOptions = deepFreeze(normalized);
+  // Морозим ТОЛЬКО собственную копию. normalized держит ссылки на структуры
+  // вызывающего: deepMerge кладёт массивы и объекты source как есть, поэтому
+  // updateOption("route.customRules", rules) отдавал сюда живой массив экрана
+  // правил — deepFreeze делал его неизменяемым, и следующая мутация (push
+  // второго правила, замена отредактированного, toggle, drag-reorder) падала
+  // TypeError в strict mode: кнопка «Сохранить» переставала отвечать.
+  cachedOptions = deepFreeze(cloneOptions(normalized));
   cacheInitialized = true;
 }
 
@@ -366,7 +372,10 @@ export function getOptionsSnapshot() {
   try { return loadNormalizedSnapshot(); }
   catch {
     invalidateOptionsCache();
-    return deepFreeze(normalizeOptions(DEFAULT_OPTIONS));
+    // Тоже через клон: normalizeOptions отдаёт out со ссылками на массивы
+    // DEFAULT_OPTIONS (route.customRules, diagnose.pinned) — без копии этот
+    // фолбэк заморозил бы сам модульный дефолт.
+    return deepFreeze(cloneOptions(normalizeOptions(DEFAULT_OPTIONS)));
   }
 }
 
