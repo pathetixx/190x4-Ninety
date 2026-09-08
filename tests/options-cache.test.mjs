@@ -97,3 +97,49 @@ test("legacy regression false is migrated, while a versioned opt-out remains fal
   assert.equal(saved.schemaVersion, options.OPTIONS_SCHEMA_VERSION);
   assert.equal(saved.route.processLookup, false);
 });
+
+test("updateOption does not freeze caller-owned structures", async () => {
+  globalThis.localStorage = storage({ "ninety.options.v1.logWarnMigrated": "1" });
+  globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+  globalThis.CustomEvent = class CustomEvent { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
+
+  const options = await import("../src/lib/options.js?options-cache-caller-freeze");
+
+  // Экран правил маршрутизации держит СВОЙ массив и мутирует его дальше:
+  // push второго правила, замену отредактированного, toggle, drag-reorder.
+  const rules = [{ id: "r-1", enabled: true, type: "domain", match: "suffix", values: ["a.com"], action: "proxy" }];
+  options.updateOption("route.customRules", rules);
+
+  assert.equal(Object.isFrozen(rules), false);
+  assert.equal(Object.isFrozen(rules[0]), false);
+  // Раньше обе операции падали TypeError: снапшот морозился вместе с массивом
+  // вызывающего, и «Сохранить» переставала отвечать после первого правила.
+  rules.push({ id: "r-2", enabled: true, type: "ip", values: ["1.2.3.4/32"], action: "direct" });
+  rules[0].enabled = false;
+
+  // Снапшот при этом не едет задним числом — он независимая копия.
+  assert.equal(options.getOptionsSnapshot().route.customRules.length, 1);
+  assert.equal(options.getOptionsSnapshot().route.customRules[0].enabled, true);
+  assert.equal(Object.isFrozen(options.getOptionsSnapshot().route.customRules), true);
+});
+
+test("snapshot fallback does not freeze module defaults", async () => {
+  globalThis.localStorage = {
+    getItem() { throw new Error("storage blocked"); },
+    setItem() { throw new Error("storage blocked"); },
+    removeItem() {},
+  };
+  globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+  globalThis.CustomEvent = class CustomEvent { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
+
+  const options = await import("../src/lib/options.js?options-cache-default-freeze");
+  const snapshot = options.getOptionsSnapshot();
+
+  // Снапшот обязан быть read-only — это его контракт.
+  assert.equal(Object.isFrozen(snapshot), true);
+  // Но normalizeOptions отдаёт out со ССЫЛКАМИ на массивы DEFAULT_OPTIONS
+  // (deepMerge не копирует массивы), поэтому без клона фолбэк морозил сам
+  // модульный дефолт — на всё время жизни процесса.
+  assert.equal(Object.isFrozen(options.DEFAULT_OPTIONS.route.customRules), false);
+  assert.equal(Object.isFrozen(options.DEFAULT_OPTIONS.diagnose.pinned), false);
+});
