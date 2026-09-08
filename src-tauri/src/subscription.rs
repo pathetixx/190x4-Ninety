@@ -1,6 +1,7 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use tokio::net::lookup_host;
 
 // Кап тела ответа: список серверов — десятки килобайт; гигабайтный ответ — это
@@ -261,6 +262,7 @@ fn reject_forbidden_literal(url: &reqwest::Url) -> Result<(), String> {
 fn make_client(
     proxy: Option<&str>,
     target: Option<&ResolvedTarget>,
+    jar: &Arc<reqwest::cookie::Jar>,
 ) -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
         .user_agent("v2rayN/6.42")
@@ -269,6 +271,12 @@ fn make_client(
         // checked before the next connection. Automatic reqwest redirects
         // cannot provide DNS-rebinding protection for each hop.
         .redirect(reqwest::redirect::Policy::none())
+        // Каждый хоп поднимает свой клиент (адрес пиннится заново), поэтому
+        // хранилище cookie общее и передаётся снаружи. Без него панель, которая
+        // на 302 ставит сессионную cookie и шлёт на тот же адрес, гоняет клиент
+        // по кругу до упора в MAX_REDIRECTS. Домен и путь ограничивает сам jar:
+        // на редиректе к чужому хосту cookie исходной панели не уходит.
+        .cookie_provider(Arc::clone(jar))
         .gzip(true);
     if let Some(target) = target.filter(|target| !target.is_ip_literal) {
         // Connect to the checked address while retaining the URL hostname for
@@ -284,6 +292,18 @@ fn make_client(
     builder
         .build()
         .map_err(|_| "не удалось создать HTTP-клиент для подписки".into())
+}
+
+/// Текст ошибки для упёршейся цепочки: без хоста, кода и признака cookie
+/// «слишком много перенаправлений» не даёт зацепки ни пользователю, ни триажу.
+/// Если панель ставит cookie, а круг всё равно не размыкается, дело уже не в
+/// сессии — так отвечает антибот-защита с проверкой в браузере.
+fn redirect_loop_message(url: &reqwest::Url, status: u16, sets_cookie: bool) -> String {
+    let host = url.host_str().unwrap_or("панель");
+    let cookie_note = if sets_cookie { " и ставит cookie" } else { "" };
+    format!(
+        "подписка зациклила перенаправления: после {MAX_REDIRECTS} шагов {host} снова отвечает HTTP {status}{cookie_note}"
+    )
 }
 
 fn checked_redirect(current: &reqwest::Url, location: &str) -> Result<reqwest::Url, String> {
@@ -320,6 +340,11 @@ pub async fn fetch_subscription(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
+    // Хранилище cookie живёт ровно один вызов: на диск не попадает и между
+    // подписками не переиспользуется — сессия панели нужна только внутри этой
+    // цепочки редиректов.
+    let jar = Arc::new(reqwest::cookie::Jar::default());
+
     let mut redirects = 0usize;
     let resp = loop {
         // Прямой запрос сам резолвит и пиннит адрес; проксированный отдаёт
@@ -331,7 +356,7 @@ pub async fn fetch_subscription(
             }
             None => Some(resolve_public_target(&current).await?),
         };
-        let client = make_client(proxy, target.as_ref())?;
+        let client = make_client(proxy, target.as_ref(), &jar)?;
         let mut request = client.get(current.clone()).header("Accept", "*/*");
         if let Some(headers) = hwid.as_ref().filter(|_| same_host(&origin, &current)) {
             request = apply_hwid_headers(request, headers);
@@ -342,11 +367,12 @@ pub async fn fetch_subscription(
             .map_err(|_| "не удалось получить подписку".to_string())?;
 
         if response.status().is_redirection() {
-            if MAX_REDIRECTS == 0 {
-                return Err("слишком много перенаправлений подписки".into());
-            }
-            if redirects >= MAX_REDIRECTS {
-                return Err("слишком много перенаправлений подписки".into());
+            if MAX_REDIRECTS == 0 || redirects >= MAX_REDIRECTS {
+                return Err(redirect_loop_message(
+                    &current,
+                    response.status().as_u16(),
+                    response.headers().contains_key(reqwest::header::SET_COOKIE),
+                ));
             }
             let location = response
                 .headers()
@@ -578,6 +604,33 @@ mod tests {
         let other = reqwest::Url::parse("https://mirror.example/sub/key").unwrap();
         assert!(same_host(&origin, &same));
         assert!(!same_host(&origin, &other));
+    }
+
+    // Cookie исходной панели не должна уезжать на зеркало чужого домена —
+    // ровно та же граница, что у HWID выше, только её держит сам jar.
+    #[test]
+    fn cookie_jar_is_scoped_to_the_host_that_set_it() {
+        use reqwest::cookie::CookieStore;
+
+        let origin = reqwest::Url::parse("https://panel.example/sub/key").unwrap();
+        let mirror = reqwest::Url::parse("https://mirror.example/sub/key").unwrap();
+        let jar = reqwest::cookie::Jar::default();
+        jar.add_cookie_str("session=abc; Path=/", &origin);
+
+        let sent = jar.cookies(&origin).expect("cookie for the origin host");
+        assert_eq!(sent.to_str().unwrap(), "session=abc");
+        assert!(jar.cookies(&mirror).is_none());
+    }
+
+    #[test]
+    fn redirect_loop_message_names_the_host_status_and_cookie() {
+        let url = reqwest::Url::parse("https://panel.example/sub/key").unwrap();
+        let with_cookie = redirect_loop_message(&url, 302, true);
+        assert!(with_cookie.contains("panel.example"), "{with_cookie}");
+        assert!(with_cookie.contains("HTTP 302"), "{with_cookie}");
+        assert!(with_cookie.contains("ставит cookie"), "{with_cookie}");
+        let plain = redirect_loop_message(&url, 307, false);
+        assert!(!plain.contains("cookie"), "{plain}");
     }
 
     #[test]
