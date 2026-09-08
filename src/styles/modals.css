@@ -700,3 +700,59 @@
    разобран верно, просто добавлять нечего. */
 .det[data-kind="duplicate"] .det__ico,
 .det[data-kind="duplicate"] .det__k { color: var(--warn); }
+
+/* ── Обратная связь ─────────────────────────────────────────────────────
+   Геометрия и рамка наследуются от .confirm-modal: окно то же, отличается
+   только начинкой — поле сообщения, контакт и счётчик. */
+.fb-modal__card { width: min(100%, 520px); }
+.fb-modal__lead {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-mid);
+}
+.fb-modal__text,
+.fb-modal__contact {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-hi);
+  background: var(--ink-0);
+  border: 1px solid var(--overlay-2);
+  border-radius: var(--r-md);
+  outline: none;
+  transition: border-color .15s ease;
+}
+.fb-modal__text { resize: vertical; min-height: 120px; }
+.fb-modal__text:focus,
+.fb-modal__contact:focus { border-color: rgba(255, 62, 92, 0.45); }
+.fb-modal__text:disabled,
+.fb-modal__contact:disabled { opacity: .55; }
+.fb-modal__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.fb-modal__row .fb-modal__contact { flex: 1 1 auto; }
+.fb-modal__counter {
+  flex: 0 0 auto;
+  padding-top: 12px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-lo);
+}
+.fb-modal__meta {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-lo);
+}
+.fb-modal__error {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--accent);
+}

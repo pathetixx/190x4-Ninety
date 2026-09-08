@@ -8,6 +8,7 @@ import {
 import { BUILD_INFO } from "/lib/build-info.js";
 import { availableLangs, getLang, setLang, t } from "/lib/i18n/index.js";
 import { mountRoutingRules } from "/lib/routing-view.js";
+import { openFeedbackModal } from "/lib/feedback-modal.js";
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { relativeTime } from "/lib/relative-time.js";
 import { a11ySwitchAll } from "/lib/switch-a11y.js";
@@ -372,6 +373,7 @@ export function mountSettings(root, opts = {}) {
     } catch {}
     el.querySelector("#about-repo")?.addEventListener("click", () => openExternal(REPO_URL));
     el.querySelector("#about-license")?.addEventListener("click", () => openExternal(LICENSE_URL));
+    el.querySelector("#about-feedback")?.addEventListener("click", () => openFeedbackModal());
     bindAboutUpdateStatus(el);
     void fillAboutDpiEngine(el);
   }
@@ -1447,6 +1449,15 @@ function renderAbout() {
           </span>
           <span class="about-link__lic">MIT</span>
         </button>
+
+        <button class="about-link" id="about-feedback" type="button">
+          <span class="about-link__icon">${aboutIconMessage()}</span>
+          <span class="about-link__main">
+            <span class="about-link__t">${t("settings.about.fbTitle")}</span>
+            <span class="about-link__d">${t("settings.about.fbDesc")}</span>
+          </span>
+          <span class="about-link__cta btn btn--sm">${t("settings.about.fbCta")}</span>
+        </button>
       </section>
 
       <footer class="about-foot">
@@ -1471,6 +1482,7 @@ function aboutIconGithub() { return aboutSvg(17, '<path d="M15 22v-4a4.8 4.8 0 0
 function aboutIconExternal() { return aboutSvg(12, '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'); }
 function aboutIconDownload() { return aboutSvg(17, '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>'); }
 function aboutIconScale() { return aboutSvg(17, '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>'); }
+function aboutIconMessage() { return aboutSvg(17, '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/>'); }
 function aboutIconHeart() { return aboutSvg(11, '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/>'); }
 
 function renderWarp(o) {
