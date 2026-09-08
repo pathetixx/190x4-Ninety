@@ -7,6 +7,7 @@ mod diagnose;
 mod discord_cache;
 mod dnscheck;
 mod dpi;
+mod feedback;
 mod host_pressure;
 mod hwid;
 mod job_guard;
@@ -1328,6 +1329,7 @@ pub fn run() {
             vpn::open_log_dir,
             subscription::fetch_subscription,
             hwid::device_identity,
+            feedback::send_feedback,
             clash::clash_get_proxies,
             clash::clash_get_connections,
             clash::clash_traffic_total,

@@ -78,7 +78,7 @@ fn machine_seed() -> Option<String> {
 }
 
 #[cfg(target_os = "windows")]
-fn os_version() -> String {
+pub(crate) fn os_version() -> String {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
     use winreg::RegKey;
 
@@ -103,7 +103,7 @@ fn os_version() -> String {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn os_version() -> String {
+pub(crate) fn os_version() -> String {
     String::new()
 }
 
