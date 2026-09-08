@@ -300,7 +300,11 @@ fn make_client(
 /// сессии — так отвечает антибот-защита с проверкой в браузере.
 fn redirect_loop_message(url: &reqwest::Url, status: u16, sets_cookie: bool) -> String {
     let host = url.host_str().unwrap_or("панель");
-    let cookie_note = if sets_cookie { " и ставит cookie" } else { "" };
+    let cookie_note = if sets_cookie {
+        " и ставит cookie"
+    } else {
+        ""
+    };
     format!(
         "подписка зациклила перенаправления: после {MAX_REDIRECTS} шагов {host} снова отвечает HTTP {status}{cookie_note}"
     )
