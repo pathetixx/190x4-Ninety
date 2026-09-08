@@ -6,6 +6,36 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.6.4 — 2026-09-08
+
+## English
+
+### New
+
+- The About screen can now send a message to the developer, with an optional contact for a reply.
+
+### Fixes
+
+- Routing rules can be added and edited one after another: Save no longer stops responding after the first rule.
+
+### Bypass lists
+
+- Added the Unity Vivox voice servers that in-game voice chat runs through.
+
+## Русский
+
+### Новое
+
+- На экране «О программе» можно написать сообщение разработчику и оставить контакт для ответа.
+
+### Исправления
+
+- Правила маршрутизации можно добавлять и изменять подряд: «Сохранить» больше не перестаёт отвечать после первого правила.
+
+### Списки обхода
+
+- Добавлены голосовые серверы Unity Vivox, через которые работает голосовой чат в играх.
+
 ## v0.6.3 — 2026-09-07
 
 ## English
