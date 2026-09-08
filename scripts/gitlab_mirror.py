@@ -183,21 +183,32 @@ class GitLabClient:
     def verify_blob(self, version: str, filename: str, expected: bytes) -> bytes:
         expected_size = len(expected)
         expected_sha = sha256_hex(expected)
+        mismatch = None
         for attempt in range(6):
             downloaded = self.download(version, filename)
             if downloaded is not None:
                 if len(downloaded) != expected_size:
-                    raise MirrorError(
+                    mismatch = (
                         f"GitLab {filename}: размер {len(downloaded)}, ожидался {expected_size}"
                     )
-                actual_sha = sha256_hex(downloaded)
-                if actual_sha != expected_sha:
-                    raise MirrorError(
-                        f"GitLab {filename}: SHA-256 {actual_sha}, ожидался {expected_sha}"
-                    )
-                return downloaded
+                else:
+                    actual_sha = sha256_hex(downloaded)
+                    if actual_sha != expected_sha:
+                        mismatch = (
+                            f"GitLab {filename}: SHA-256 {actual_sha}, ожидался {expected_sha}"
+                        )
+                    else:
+                        return downloaded
+                # Чтение сразу после записи может вернуть ПРЕЖНЮЮ копию: stable/
+                # перезаписывается каждым релизом, и GitLab отдаёт предыдущую
+                # ещё несколько секунд. Раньше это роняло релиз на ровном месте —
+                # зеркало уже было верным, а проверка смотрела на устаревший
+                # ответ. Поэтому расхождение — повод повторить, а не падать;
+                # окончательный вердикт выносим, только исчерпав попытки.
             if attempt < 5:
                 time.sleep(2)
+        if mismatch:
+            raise MirrorError(f"{mismatch} (не сошлось за 6 попыток)")
         raise MirrorError(f"GitLab {filename}: файл не появился после загрузки")
 
     def ensure_immutable(

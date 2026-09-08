@@ -96,6 +96,37 @@ class GitLabMirrorTests(unittest.TestCase):
         self.assertEqual(calls[0][1], mirror.DOWNLOAD_TIMEOUT)
         self.assertEqual(delays, [2])
 
+    def test_verify_blob_waits_out_a_stale_read(self):
+        """stable/ перезаписывается каждым релизом, и GitLab отдаёт прежнюю копию
+        ещё несколько секунд после записи. Такое чтение обязано быть поводом
+        повторить: релиз 0.6.4 упал именно здесь, хотя зеркало было верным."""
+        client = mirror.GitLabClient("https://gitlab.test/api/v4", "42", "token")
+        reads = [b"previous release", b"current release"]
+        delays = []
+        original_sleep = mirror.time.sleep
+        try:
+            mirror.time.sleep = delays.append
+            client.download = lambda version, filename: reads.pop(0)
+            self.assertEqual(
+                client.verify_blob("stable", "latest.json", b"current release"),
+                b"current release",
+            )
+        finally:
+            mirror.time.sleep = original_sleep
+        self.assertEqual(delays, [2])
+
+    def test_verify_blob_fails_when_content_never_matches(self):
+        client = mirror.GitLabClient("https://gitlab.test/api/v4", "42", "token")
+        original_sleep = mirror.time.sleep
+        try:
+            mirror.time.sleep = lambda _seconds: None
+            client.download = lambda version, filename: b"someone else's file"
+            with self.assertRaises(mirror.MirrorError) as caught:
+                client.verify_blob("stable", "latest.json", b"current release")
+        finally:
+            mirror.time.sleep = original_sleep
+        self.assertIn("не сошлось за 6 попыток", str(caught.exception))
+
     def test_download_timeout_exhaustion_is_mirror_error(self):
         client = mirror.GitLabClient("https://gitlab.test/api/v4", "42", "token")
         calls = []
