@@ -9,11 +9,12 @@ import { t, getLang } from "/lib/i18n/index.js";
 import { escapeHtml, escapeAttr } from "/lib/esc.js";
 import { ensureDeviceIdentity } from "/lib/hwid.js";
 import { toast } from "/lib/toast.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-const STATE_KEY = "ninety.feedback.v1";
+const STATE_KEY = STORAGE_KEYS.feedbackState;
 const TEXT_MIN = 10;
 const TEXT_MAX = 2000;
 const CONTACT_MAX = 120;

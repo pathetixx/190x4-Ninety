@@ -7,8 +7,9 @@
 // отметку времени последнего замера и дописываем новую точку.
 
 import { selectionSourceKey } from "/lib/proxy-selection.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
-const KEY = "ninety.delayHistory.v1";
+const KEY = STORAGE_KEYS.delayHistory;
 const CAP = 12;                  // столько точек рисует спарклайн
 
 // getProbeHistory зовут на каждую строку каждого рендера, а рендер идёт по

@@ -6,6 +6,7 @@
 // тот же паттерн, что у /lib/dns-guard.js и /lib/wifi-guard.js.
 
 import { loadOptions, updateOption } from "/lib/options.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
 import { testNode } from "/lib/clash-api.js";
 import { toast } from "/lib/toast.js";
 import { t } from "/lib/i18n/index.js";
@@ -13,7 +14,7 @@ import { t } from "/lib/i18n/index.js";
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-const WARP_HISTORY_KEY = "ninety.warp.history";
+const WARP_HISTORY_KEY = STORAGE_KEYS.warpHistory;
 const WARP_HISTORY_LIMIT = 20;
 
 // getState() — геттер текущего состояния соединения из main ("idle"|"connecting"|

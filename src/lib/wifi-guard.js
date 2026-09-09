@@ -8,6 +8,7 @@
 // ручная смена режима отменяет возврат (main.js::changeMode → forgetWifiAutoRestore).
 
 import { getOptionsSnapshot } from "/lib/options.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
 import { getMode } from "/lib/singbox.js";
 import { toast } from "/lib/toast.js";
 import { t } from "/lib/i18n/index.js";
@@ -15,8 +16,10 @@ import { t } from "/lib/i18n/index.js";
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-const WIFI_TRUSTED_KEY = "ninety.wifi.trusted";
-const WIFI_PREV_MODE_KEY = "ninety.wifi.prevMode";
+// Имена ключей — из политики хранения: она решает, что бэкапится и что
+// чистится, и литерал в модуле от неё незаметно отъезжает.
+const WIFI_TRUSTED_KEY = STORAGE_KEYS.wifiTrusted;
+const WIFI_PREV_MODE_KEY = STORAGE_KEYS.wifiPrevMode;
 
 function wifiTrusted() {
   try { return JSON.parse(localStorage.getItem(WIFI_TRUSTED_KEY) || "[]"); }

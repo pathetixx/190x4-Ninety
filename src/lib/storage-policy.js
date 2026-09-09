@@ -41,7 +41,26 @@ export const STORAGE_KEYS = {
   nodeQuarantine: "ninety.nodeQuarantine.v1",
   incidents: "ninety.incidents.v1",
   sourceRevisions: "ninety.source.revisions.v1",
+  // Настройки экрана «DPI-обход»: это выбор пользователя, а не телеметрия, и в
+  // бэкап они идут наравне с остальными настройками.
+  dpiEnabled: "ninety.dpi.enabled",
+  dpiStrategy: "ninety.dpi.strategy",
+  dpiGameFilter: "ninety.dpi.gameFilter",
+  dpiIpset: "ninety.dpi.ipset",
+  dpiMonkey: "ninety.dpi.monkey",
+  dpiRecommended: "ninety.dpi.recommended",
+  // Вкладка диагностики и пропущенная версия обновления — тоже решения
+  // пользователя, они переживают переустановку осмысленно.
+  diagnoseTab: "ninety.diagnose.tab",
+  updateSkip: "ninety.update.skip",
+  // Пауза после отправки обратной связи. Локальный счётчик, авторитет по
+  // лимиту — сервер; в бэкапе ему не место (см. BACKUP_EXACT_EXCLUDE).
+  feedbackState: "ninety.feedback.v1",
 };
+
+// UI-состояние экрана «Серверы» (сортировка, режим показа): ключи вида
+// `ninety.proxies.<поле>` заводит сам экран, поэтому политика знает префикс.
+export const PROXIES_UI_PREFIX = "ninety.proxies.";
 
 const BACKUP_EXACT_EXCLUDE = new Set([
   STORAGE_KEYS.updateResume,
@@ -58,10 +77,17 @@ const BACKUP_EXACT_EXCLUDE = new Set([
   STORAGE_KEYS.nodeQuarantine,
   STORAGE_KEYS.incidents,
   STORAGE_KEYS.sourceRevisions,
+  // Пауза обратной связи — временный маркер того же рода, что update.resume:
+  // после восстановления она относилась бы к чужой сессии.
+  STORAGE_KEYS.feedbackState,
 ]);
 
+// Счётчики трафика по источнику: их ведёт traffic-meter, поэтому префикс живёт
+// здесь, а модуль берёт его отсюда.
+export const TRAFFIC_PREFIX = "ninety.traffic.";
+
 const BACKUP_PREFIX_EXCLUDE = [
-  "ninety.traffic.",
+  TRAFFIC_PREFIX,
 ];
 
 const BACKUP_REGEX_EXCLUDE = [
@@ -86,7 +112,7 @@ const PROFILE_STORAGE_KEYS = new Set([
 ]);
 
 const PROFILE_STORAGE_PREFIXES = [
-  "ninety.traffic.",
+  TRAFFIC_PREFIX,
 ];
 
 const PROFILE_STORAGE_REGEXES = [

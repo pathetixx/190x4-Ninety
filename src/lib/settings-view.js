@@ -11,6 +11,7 @@ import { mountRoutingRules } from "/lib/routing-view.js";
 import { openFeedbackModal } from "/lib/feedback-modal.js";
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { relativeTime } from "/lib/relative-time.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
 import { a11ySwitchAll } from "/lib/switch-a11y.js";
 import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { openConfirmModal } from "/lib/confirm-modal.js";
@@ -95,7 +96,6 @@ let currentSubsection = null; // вложенный уровень внутри 
 export function mountSettings(root, opts = {}) {
   if (!root) return;
   const onChange = opts.onChange || (() => {});
-  const onRender = opts.onRender || (() => {});
   const onSensitiveDataClear = opts.onSensitiveDataClear || (async () => {});
   const getProtectedBrowserStatus = opts.getProtectedBrowserStatus || (async () => ({
     ok: false,
@@ -150,7 +150,6 @@ export function mountSettings(root, opts = {}) {
       bindSection(root, sec, onChange);
     }
     a11ySwitchAll(root);
-    onRender(currentSection);
   }
 
   // Под-экран «Правила маршрутизации»: settings-head (с back → назад в
@@ -916,7 +915,7 @@ export function mountSettings(root, opts = {}) {
     const historyCount = el.querySelector("#warp-history-count");
     const renderHistory = () => {
       let items = [];
-      try { items = JSON.parse(localStorage.getItem("ninety.warp.history") || "[]"); } catch {}
+      try { items = JSON.parse(localStorage.getItem(STORAGE_KEYS.warpHistory) || "[]"); } catch {}
       if (historyCount) historyCount.textContent = items.length ? t("settings.warp.histCount", { n: items.length }) : t("settings.warp.histEmpty");
       if (!historyList) return;
       if (!items.length) { historyList.innerHTML = ""; return; }
@@ -1084,7 +1083,7 @@ function renderPrivacy(o) {
 }
 
 function renderAppearance() {
-  const rawTheme = localStorage.getItem("ninety.theme");
+  const rawTheme = localStorage.getItem(STORAGE_KEYS.theme);
   const current = isThemeId(rawTheme) ? rawTheme : DEFAULT_THEME_ID;
   const langOpts = availableLangs()
     .map(l => `<option value="${escapeAttr(l.code)}"${l.code === getLang() ? " selected" : ""}>${escapeHtml(l.name)}</option>`)

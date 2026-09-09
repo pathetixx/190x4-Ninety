@@ -3,8 +3,9 @@
 // теги из чужой подписки не всплывали в списке текущей.
 
 import { selectionSourceKey } from "/lib/proxy-selection.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
-const KEY = "ninety.favourites";
+const KEY = STORAGE_KEYS.favourites;
 
 // getProbeHistory зовут на каждую строку каждого рендера, а рендер идёт по
 // поллингу раз в 4 с. Дорогая часть — JSON.parse, поэтому кэшируем разбор, но

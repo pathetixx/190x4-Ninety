@@ -15,6 +15,7 @@ import { t, getLang } from "/lib/i18n/index.js";
 import { openConfirmModal } from "/lib/confirm-modal.js";
 import { normalizeIp } from "/lib/routing-rules.js";
 import { runtimeProbeProxyPort } from "/lib/runtime-lifecycle.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -105,13 +106,15 @@ const modeTxt = () => ({ proxy: t("dpi.modeTxt.proxy"), systemProxy: t("dpi.mode
 const chipStatus = () => ({ off: t("dpi.chip.off"), starting: t("dpi.chip.starting"), running: t("dpi.chip.running"), error: t("dpi.chip.error"), paused: t("dpi.chip.paused") });
 
 /* ═══════════ STATE (persisted в localStorage) ═══════════ */
+// Имена ключей — из политики хранения: она решает, что уходит в бэкап и что
+// стирает «очистить данные», и собственный литерал от неё незаметно отъезжает.
 const LS = {
-  enabled: "ninety.dpi.enabled",
-  strategy: "ninety.dpi.strategy",
-  gameFilter: "ninety.dpi.gameFilter",
-  ipset: "ninety.dpi.ipset",
-  monkey: "ninety.dpi.monkey",
-  recommended: "ninety.dpi.recommended",
+  enabled: STORAGE_KEYS.dpiEnabled,
+  strategy: STORAGE_KEYS.dpiStrategy,
+  gameFilter: STORAGE_KEYS.dpiGameFilter,
+  ipset: STORAGE_KEYS.dpiIpset,
+  monkey: STORAGE_KEYS.dpiMonkey,
+  recommended: STORAGE_KEYS.dpiRecommended,
 };
 const lsGet = (k, d) => { const v = localStorage.getItem(k); return v == null ? d : v; };
 

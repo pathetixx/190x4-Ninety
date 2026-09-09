@@ -4,7 +4,9 @@
 // режим должен пережить этот overlay. Храним только допустимые значения, чтобы
 // повреждённое или устаревшее значение не переключило приложение неожиданно.
 
-export const STRICT_TUNNEL_PREVIOUS_MODE_KEY = "ninety.privacy.strictTunnel.previousMode";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
+
+export const STRICT_TUNNEL_PREVIOUS_MODE_KEY = STORAGE_KEYS.strictTunnelPreviousMode;
 
 const VALID_MODES = new Set(["proxy", "systemProxy", "tun"]);
 

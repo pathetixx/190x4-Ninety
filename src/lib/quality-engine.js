@@ -11,6 +11,7 @@
 // при createQualityEngine. Так движок тестируется в изоляции и не знает про DOM.
 
 import { t } from "/lib/i18n/index.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
 // ── Пороги (выровнены с quality.rs STALL_*) ────────────────
 const SLOW_FLOOR_BPS = 200_000;   // ниже = фактически «душат в ноль»
@@ -27,7 +28,7 @@ const PROBE_MIN_GAP_MS = 8_000;   // не чаще пробуем (кроме о
 const SETTLE_CHEAP_MS = 2_500;    // R1/R2 (без реконнекта)
 const SETTLE_RECONNECT_MS = 5_000;// R3+ (реконнект)
 
-const PROFILE_KEY = "ninety.quality.profile";
+const PROFILE_KEY = STORAGE_KEYS.qualityProfile;
 const PROFILE_TTL_MS = 7 * 24 * 3600 * 1000;
 
 // Лесенка лечения. order = порядок; reconnect=true → ступень дорогая (гейт

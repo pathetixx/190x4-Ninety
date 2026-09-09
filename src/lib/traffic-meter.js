@@ -10,8 +10,9 @@
 // перезапуски приложения.
 
 import { getTrafficTotal } from "/lib/clash-api.js";
+import { TRAFFIC_PREFIX } from "/lib/storage-policy.js";
 
-const KEY_PREFIX = "ninety.traffic.";
+const KEY_PREFIX = TRAFFIC_PREFIX;
 
 function load(sourceKey) {
   try {

@@ -16,6 +16,7 @@ import {
 } from "/lib/proxy-selection.js";
 import { getFavourites, toggleFavourite } from "/lib/favourites.js";
 import { countryName } from "/lib/country-names.js";
+import { PROXIES_UI_PREFIX } from "/lib/storage-policy.js";
 import { recordProbes, getProbeHistory, pruneProbeHistory } from "/lib/delay-history.js";
 import {
   liveDelays, medianOf, stdevOf, scoreNode, reasonKeys,
@@ -199,14 +200,15 @@ function invalidateRender() {
   rowState.clear();
 }
 
+// Префикс UI-ключей экрана — из политики хранения, а не литералом здесь.
 function loadUi(k, dflt) {
   try {
-    const v = localStorage.getItem("ninety.proxies." + k);
+    const v = localStorage.getItem(PROXIES_UI_PREFIX + k);
     return v == null ? dflt : JSON.parse(v);
   } catch { return dflt; }
 }
 function saveUi(k, v) {
-  try { localStorage.setItem("ninety.proxies." + k, JSON.stringify(v)); } catch {}
+  try { localStorage.setItem(PROXIES_UI_PREFIX + k, JSON.stringify(v)); } catch {}
 }
 
 // ── статистика по истории замеров clash ─────────────────────

@@ -4,9 +4,10 @@
 import { t } from "/lib/i18n/index.js";
 import { closeUpdateResource, snapshotUpdate } from "/lib/update-resource.js";
 import { formatReleaseNotes } from "/lib/release-notes.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
-const SKIP_KEY = "ninety.update.skip";
-const RESUME_KEY = "ninety.update.resume";
+const SKIP_KEY = STORAGE_KEYS.updateSkip;
+const RESUME_KEY = STORAGE_KEYS.updateResume;
 const RELEASE_BASE_URL = "https://github.com/pathetixx/190x4-Ninety/releases/tag";
 export const UPDATE_DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
 
@@ -321,7 +322,7 @@ export function openUpdateModal(update, opts = {}) {
       setBarIndeterminate();
 
       const dpiWasOn = (() => {
-        try { return localStorage.getItem("ninety.dpi.enabled") === "true"; } catch { return false; }
+        try { return localStorage.getItem(STORAGE_KEYS.dpiEnabled) === "true"; } catch { return false; }
       })();
       const invoke = window.__TAURI__?.core?.invoke;
       // Что было поднято — запоминаем ДО гашения: после перезапуска

@@ -22,6 +22,7 @@ import { countryName } from "/lib/country-names.js";
 import { getProbeHistory } from "/lib/delay-history.js";
 import { liveDelays, medianOf } from "/lib/node-ranking.js";
 import { createLatestRunner } from "/lib/async-control.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -106,7 +107,7 @@ const trayMenuSync = createLatestRunner(async () => {
   if (!ctx) return;
   try {
     let dpiActive = false;
-    try { dpiActive = localStorage.getItem("ninety.dpi.enabled") === "true"; } catch {}
+    try { dpiActive = localStorage.getItem(STORAGE_KEYS.dpiEnabled) === "true"; } catch {}
     const trayServers = buildTrayServers();
     const payload = {
       connected: ctx.getState() === "connected", mode: getMode(),
