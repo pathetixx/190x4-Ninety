@@ -41,6 +41,7 @@ const translations = {
     "screens.home": "Главная",
     "screens.nodes": "Серверы",
     "screens.profiles": "Профили",
+    "screens.diagnose": "Диагностика",
     "screens.settings": "Настройки",
     "screens.quality": "Качество",
     "docs.kicker": "Документация",
@@ -117,6 +118,7 @@ const translations = {
     "screens.home": "Home",
     "screens.nodes": "Servers",
     "screens.profiles": "Profiles",
+    "screens.diagnose": "Diagnostics",
     "screens.settings": "Settings",
     "screens.quality": "Quality",
     "docs.kicker": "Documentation",
@@ -183,6 +185,13 @@ const screens = {
     alt: {
       ru: "Экран профилей Ninety",
       en: "Ninety profiles screen",
+    },
+  },
+  diagnose: {
+    src: "assets/screen-diagnose.webp",
+    alt: {
+      ru: "Экран диагностики Ninety",
+      en: "Ninety diagnostics screen",
     },
   },
   settings: {
