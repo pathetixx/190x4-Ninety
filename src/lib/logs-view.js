@@ -212,9 +212,14 @@ function logsRenderScope() {
 // Дописать в конец вместо пересборки. Дельта уже известна — незачем собирать и
 // парсить разметку восьмисот строк, каждая с флагом и подсветкой, ради одной
 // новой. false = дописать нельзя, зовущий делает полный рендер.
-function appendRenderedLines({ added, dropped }) {
+function appendRenderedLines({ added, dropped, carryGrew }) {
   if (logsRenderedInfo || logsRenderScope() !== logsRenderedScope) return false;
   if (!logsView.firstElementChild) return false;
+  // Кусок начался с продолжения многострочной записи: она уже нарисована, и
+  // дописать её хвост в конец списка нельзя — там он оказался бы отдельной
+  // строкой. Пересобираем целиком, иначе хвост ошибки не виден до смены
+  // фильтра или источника.
+  if (carryGrew) return false;
 
   const visible = filterLogEntries(added);
   if (visible.length) {
@@ -287,24 +292,36 @@ function trimRawTail(text) {
   return text.slice(nl >= 0 ? nl + 1 : cut);
 }
 
-// Дописанный кусок: разбираем ТОЛЬКО его и доклеиваем к уже разобранному.
-// Раньше каждые две секунды заново парсился весь хвост целиком.
-function appendLogText(text) {
-  const carry = logsEntries.length ? logsEntries[logsEntries.length - 1] : null;
+// Применение дописанного куска к списку записей — без DOM и модульного
+// состояния, чтобы граница кусков проверялась тестом.
+//
+// carryGrew=true означает, что кусок начался с продолжения последней записи:
+// она уже нарисована, в `added` её нет, и дописать её хвост в конец списка
+// нельзя — рендеру придётся пересобрать список целиком.
+export function applyLogChunk(entries, text, activeNodeTag, maxLines = LOG_RENDER_MAX_LINES) {
+  const carry = entries.length ? entries[entries.length - 1] : null;
+  const carryLines = carry ? carry.cont.length : 0;
   // Кусок всегда кончается переводом строки (backend режет ровно по нему), и
   // пустой остаток после split уехал бы в cont предыдущей записи лишним
   // переносом — на границе каждого куска, а не один раз в конце файла.
   const chunk = text.endsWith("\n") ? text.slice(0, -1) : text;
-  const added = parseLogEntries(chunk, getActiveNodeTag(), { carry });
-  for (const entry of added) logsEntries.push(entry);
+  const added = parseLogEntries(chunk, activeNodeTag, { carry });
+  for (const entry of added) entries.push(entry);
   let dropped = [];
-  if (logsEntries.length > LOG_RENDER_MAX_LINES) {
-    dropped = logsEntries.splice(0, logsEntries.length - LOG_RENDER_MAX_LINES);
+  if (entries.length > maxLines) {
+    dropped = entries.splice(0, entries.length - maxLines);
   }
+  return { added, dropped, carryGrew: !!carry && carry.cont.length !== carryLines };
+}
+
+// Дописанный кусок: разбираем ТОЛЬКО его и доклеиваем к уже разобранному.
+// Раньше каждые две секунды заново парсился весь хвост целиком.
+function appendLogText(text) {
+  const delta = applyLogChunk(logsEntries, text, getActiveNodeTag());
   logsLastValue = trimRawTail(logsLastValue + text);
   logsBufferVersion++;
   // Дельту отдаём наружу: рендер по ней дописывает строки вместо пересборки.
-  return { added, dropped };
+  return delta;
 }
 
 async function refreshLogs({ keepScroll = false } = {}) {
