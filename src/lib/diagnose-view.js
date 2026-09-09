@@ -23,11 +23,13 @@ import { escapeHtml as esc } from "/lib/esc.js";
 import { t, getLang } from "/lib/i18n/index.js";
 import { countryName } from "/lib/country-names.js";
 import { relativeTime } from "/lib/relative-time.js";
+import { STORAGE_KEYS } from "/lib/storage-policy.js";
+import { maskAddresses } from "/lib/address-mask.js";
 
 const TABS = ["trace", "leaks", "feed"];
 // Выбранная вкладка переживает уход с экрана: человек, который вчера смотрел
 // ленту инцидентов, завтра открывает экран ради неё же.
-const TAB_KEY = "ninety.diagnose.tab";
+const TAB_KEY = STORAGE_KEYS.diagnoseTab;
 
 function loadTab() {
   try {
@@ -280,13 +282,9 @@ export function mountDiagnoseView(root, {
   }
 
   // ── Отчёт в буфер ───────────────────────────────────────
-  // Обезличенный: адреса нод и внешний IP маскируем — отчёт уезжает в чат
-  // поддержки, а там ему не место рядом с настоящим адресом сервера.
-  function mask(value) {
-    const text = String(value || "");
-    if (!text) return "—";
-    return text.replace(/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g, "$1.***.***.$4");
-  }
+  // Обезличенный: адреса нод и внешний IP маскируем (maskAddresses) — отчёт
+  // уезжает в чат поддержки, а там ему не место рядом с настоящим адресом
+  // сервера.
 
   function report() {
     const verdict = currentVerdict();
@@ -298,9 +296,9 @@ export function mountDiagnoseView(root, {
       ...state.reach.map((row) => `  ${row.id}: ${pillText(row.direct)} / ${pillText(row.tunnel)}`),
     ];
     if (state.trace) {
-      lines.push("", `${t("dg.tabs.trace")} → ${mask(state.trace.resolvedIp)}:${state.trace.port}`);
+      lines.push("", `${t("dg.tabs.trace")} → ${maskAddresses(state.trace.resolvedIp)}:${state.trace.port}`);
       for (const hop of state.trace.hops || []) {
-        lines.push(`  ${hop.ttl}. ${mask(hop.address) || "* * *"} ${hop.rttMs ?? "—"}ms icmp=${hop.icmp} tcp=${hop.tcp}`);
+        lines.push(`  ${hop.ttl}. ${maskAddresses(hop.address) || "* * *"} ${hop.rttMs ?? "—"}ms icmp=${hop.icmp} tcp=${hop.tcp}`);
       }
       const tcp = state.trace.tcp || {};
       lines.push(`  ${t("dg.tabs.trace")}/tcp: ${tcp.state || "—"} ${tcp.ms ?? "—"}ms`);
@@ -309,7 +307,7 @@ export function mountDiagnoseView(root, {
     if (state.leaks) {
       lines.push("", t("dg.tabs.leaks"));
       for (const [key, value] of Object.entries(state.leaks)) {
-        lines.push(`  ${key}: ${value?.state} ${mask(value?.detail)}`);
+        lines.push(`  ${key}: ${value?.state} ${maskAddresses(value?.detail)}`);
       }
     }
     return lines.join("\n");
@@ -456,8 +454,8 @@ export function mountDiagnoseView(root, {
       if (meta.scope === "pinned") {
         const off = el("button", "dg-unpin", I.x);
         off.type = "button";
-        off.title = t("dg.row.unpin");
-        off.setAttribute("aria-label", t("dg.row.unpin"));
+        off.title = t("dg.probe.unpin");
+        off.setAttribute("aria-label", t("dg.probe.unpin"));
         off.addEventListener("click", () => unpin(row.id));
         actionCell.appendChild(off);
       }

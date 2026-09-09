@@ -5,6 +5,8 @@
 // Ninety.exe в TUN уходит в direct bypass'ом, поэтому «напрямую» показал бы
 // реальный IP юзера, а не exit. Явный proxyHostPort задаёт main.js.
 
+import { maskIp } from "/lib/address-mask.js";
+
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
@@ -14,18 +16,10 @@ export async function fetchPublicIp({ proxyHostPort } = {}) {
   return info;
 }
 
-// 1.2.3.4 → 1.2.*.* (маскируем два последних октета)
-export function maskIp(ip) {
-  if (!ip || typeof ip !== "string") return "—";
-  if (ip.includes(":")) {
-    // IPv6: первые две группы оставляем, остальное — *
-    const parts = ip.split(":");
-    return parts.slice(0, 2).join(":") + ":·:·";
-  }
-  const parts = ip.split(".");
-  if (parts.length !== 4) return ip;
-  return `${parts[0]}.${parts[1]}.*.*`;
-}
+// Маскировка живёт в /lib/address-mask.js — её же использует отчёт диагностики.
+// Реэкспортируем: вызывающие (main.js) знают её по этому модулю, а bindIpReveal
+// ниже зовёт её напрямую.
+export { maskIp };
 
 // 20-секундный auto-hide reveal
 let revealTimer = null;
