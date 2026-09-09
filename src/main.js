@@ -28,7 +28,7 @@ import {
   relativeTime,
   setSubscriptionProxy,
 } from "/lib/subscriptions.js";
-import { loadOptions, getOptionsSnapshot, updateOption, REGIONS } from "/lib/options.js";
+import { loadOptions, getOptionsSnapshot, updateOption } from "/lib/options.js";
 import { backupForUpdate, backupNow, backupSoon, restoreIfEmpty } from "/lib/state-backup.js";
 import { mountSettings } from "/lib/settings-view.js";
 import { pathNeedsRestart } from "/lib/restart-policy.js";
@@ -93,10 +93,10 @@ import { initHealthWatchdog } from "/lib/health-watchdog.js";
 import { initTitlebar } from "/lib/titlebar.js";
 import { initPopovers } from "/lib/popovers.js";
 import { ensureWorkingDirectDns, startDnsGuard, stopDnsGuard } from "/lib/dns-guard.js";
-import { initI18n, setLang, getLang, onLangChange, applyDom, availableLangs, t, tn } from "/lib/i18n/index.js";
+import { initI18n, onLangChange, applyDom, t, tn } from "/lib/i18n/index.js";
 import { detectRegion } from "/lib/i18n/region-detect.js";
 import { applyLinkHandlers } from "/lib/link-handlers.js";
-import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
+import { DEFAULT_THEME_ID, isThemeId } from "/lib/themes.js";
 import { createRuntimeIdentityController, sourceFingerprint, sourceKey } from "/lib/runtime-identity.js";
 import { createSourceMutationController, planSourceDeletion } from "/lib/source-mutations.js";
 import { createBootstrapCoordinator } from "/lib/bootstrap-coordinator.js";
@@ -262,26 +262,17 @@ window.__ninetySetTheme = setTheme;
 initI18n();
 
 // ── Version (dynamic из Tauri) ─────────────────────────────
-// ВАЖНО: НЕ использовать MutationObserver на settings-root — apply() меняет
-// textContent #settings-version, это создаёт новую мутацию → бесконечный
-// цикл → фриз WebView2 при входе в Settings/Общие (alpha14 bug).
-let appVersionCached = "—";
-
-function applySettingsVersion() {
-  const el = document.getElementById("settings-version");
-  if (el && el.textContent !== appVersionCached) el.textContent = appVersionCached;
-}
-
+// ВАЖНО: НЕ вешать MutationObserver на settings-root — рендер экрана меняет
+// его содержимое, это создаёт новую мутацию → бесконечный цикл → фриз WebView2
+// при входе в Settings/Общие (alpha14 bug).
 async function fillAppVersion() {
   let v = "—";
   try {
     const app = window.__TAURI__?.app;
     if (app?.getVersion) v = await app.getVersion();
   } catch {}
-  appVersionCached = v;
   const sidebar = document.getElementById("sidebar-version");
   if (sidebar) sidebar.textContent = v === "—" ? "v—" : `v${v}`;
-  applySettingsVersion();
 }
 fillAppVersion();
 
@@ -669,7 +660,6 @@ function runViewEnter(target) {
   if (target === "proxies") onProxiesViewEnter();
   if (target === "dpi") onDpiViewEnter();
   if (target === "diagnose") onDiagnoseViewEnter();
-  if (target === "settings") applySettingsVersion();
 }
 
 // rAF не приходит, пока окно скрыто (открытие экрана из трея), поэтому таймер
@@ -953,7 +943,6 @@ if (settingsRoot) {
     onProtectedBrowserLaunch: () => requestProtectedBrowserLaunch(),
     onProtectedBrowserCheck: () => requestProtectedBrowserLaunch("https://mullvad.net/en/check"),
     onProtectedBrowserDownload: openProtectedBrowserDownload,
-    onRender: () => applySettingsVersion(),
   });
 }
 
@@ -2246,7 +2235,6 @@ function openWizardAt(step = 1) {
   if (appRoot) appRoot.dataset.wizard = "true";
   const onb = document.getElementById("onboarding-screen");
   if (onb) onb.hidden = false;
-  populateOnbPrefs();
   showOnbStep(step);
 }
 function closeWizard() {
@@ -2294,54 +2282,16 @@ document.getElementById("onboarding-screen")?.addEventListener("click", async (e
     openAddModal();
   }
 });
-// ── Онбординг · пикеры язык/регион/тема ─────────────────────────────────────
-// Подписи локализованы (t / availableLangs), тема и регион применяются сразу.
-function populateOnbPrefs() {
-  const langSel = document.getElementById("onb-lang");
-  const regionSel = document.getElementById("onb-region");
-  const themesWrap = document.getElementById("onb-themes");
-  if (langSel) {
-    langSel.innerHTML = availableLangs()
-      .map(l => `<option value="${escapeAttr(l.code)}"${l.code === getLang() ? " selected" : ""}>${escapeHtml(l.name)}</option>`)
-      .join("");
-  }
-  if (regionSel) {
-    const cur = loadOptions().region;
-    regionSel.innerHTML = REGIONS
-      .map(r => `<option value="${escapeAttr(r)}"${r === cur ? " selected" : ""}>${escapeHtml(t("region." + r))}</option>`)
-      .join("");
-  }
-  if (themesWrap) {
-    const cur = getTheme();
-    themesWrap.innerHTML = THEMES
-      .map(theme => `<button type="button" class="onb-theme${theme.id === cur ? " onb-theme--on" : ""}" data-onb-theme="${escapeAttr(theme.id)}" title="${escapeAttr(theme.name)}" style="--sw:${escapeAttr(theme.accent)}"></button>`)
-      .join("");
-  }
-}
-
 // Первый запуск: регион предвыбран по таймзоне (один раз; выбор вернувшегося юзера не трогаем).
 if (!localStorage.getItem("ninety.region.detected") && !isOnboardingDone()) {
   updateOption("region", detectRegion());
   localStorage.setItem("ninety.region.detected", "1");
 }
 
-document.getElementById("onb-lang")?.addEventListener("change", (e) => { setLang(e.target.value); });
-document.getElementById("onb-region")?.addEventListener("change", (e) => {
-  updateOption("region", e.target.value);
-  localStorage.setItem("ninety.region.detected", "1");
-});
-document.getElementById("onb-themes")?.addEventListener("click", (e) => {
-  const b = e.target.closest("[data-onb-theme]");
-  if (!b) return;
-  setTheme(b.dataset.onbTheme);
-  populateOnbPrefs();
-});
-
-// Живой ре-рендер при смене языка: static-строки index.html + подписи пикеров + динамика главной.
+// Живой ре-рендер при смене языка: static-строки index.html + динамика главной.
 onLangChange(() => {
   applyDom(document);
   applySidebarState();
-  populateOnbPrefs();
   refreshDynamicText();
   settingsCtl?.refresh();
   syncTrayMenu(); // меню/tooltip трея — на новый язык
@@ -2377,8 +2327,6 @@ function refreshDynamicText() {
   }
   if (statsMode && state === "connected") statsMode.textContent = modeLabel(getMode());
 }
-
-populateOnbPrefs();
 
 document.getElementById("profiles-refresh-all")?.addEventListener("click", async () => {
   try {
