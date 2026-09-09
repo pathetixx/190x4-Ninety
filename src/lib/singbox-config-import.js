@@ -277,6 +277,11 @@ export function singboxOutboundToLink(outbound) {
   if (!isPlainObject(outbound)) return null;
   const type = String(outbound.type || "").toLowerCase();
   if (!type || NON_SERVER_TYPES.has(type)) return null;
+  // WireGuard разбирает отдельная ветка parseSingboxConfig — своей share-ссылки
+  // у протокола нет. Здесь он не «неподдерживаемый»: конфиги старше 1.13 держат
+  // его среди outbounds, и без этой строки одна и та же нода и импортировалась,
+  // и попадала в счётчик пропущенных.
+  if (type === "wireguard") return null;
   if (UNSUPPORTED_TYPES.has(type)) return { unsupported: type };
 
   const builder = URI_BUILDERS[type];

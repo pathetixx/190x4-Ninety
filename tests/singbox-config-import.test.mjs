@@ -278,9 +278,13 @@ test("WireGuard берётся из endpoints вместе с reserved-байт�
 });
 
 test("конфиг постарше держит WireGuard среди outbounds — берём и оттуда", () => {
-  const { profiles } = parseSingboxConfig(wrap([warpEndpoint]));
+  const { profiles, skipped, unsupported } = parseSingboxConfig(wrap([warpEndpoint]));
   assert.equal(profiles.length, 1);
   assert.equal(profiles[0].proto, "wireguard");
+  // Нода импортирована — значит ничего не пропущено. Иначе пользователь видит
+  // «пропущено 1 · wireguard» на конфиге, из которого всё взято.
+  assert.equal(skipped, 0);
+  assert.deepEqual(unsupported, []);
 });
 
 test("битые reserved-байты отбраковывают ноду, а не весь конфиг", () => {
