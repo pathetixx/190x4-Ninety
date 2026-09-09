@@ -603,6 +603,9 @@ pub async fn diagnose_reach(
 
 const DOH_JSON_URL: &str = "https://cloudflare-dns.com/dns-query";
 const TRACE_URL: &str = "https://cloudflare.com/cdn-cgi/trace";
+// Оба ответа — короткие: JSON на четыре адреса и десяток строк trace. Читаем их
+// с потолком, как остальные внешние ответы (util::read_response_capped).
+const MAX_LEAK_RESPONSE_BYTES: usize = 256 * 1024;
 // Публичный IPv6-резолвер Cloudflare: проверяем не его, а сам факт, что у
 // машины есть рабочий выход в IPv6 мимо туннеля.
 const IPV6_PROBE: &str = "[2606:4700:4700::1111]:443";
@@ -661,7 +664,8 @@ async fn resolve_via_tunnel(client: &reqwest::Client, host: &str) -> Result<Vec<
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    let body = crate::util::read_response_capped(response, MAX_LEAK_RESPONSE_BYTES, "DoH").await?;
+    let json: serde_json::Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
     let mut out: Vec<String> = json["Answer"]
         .as_array()
         .map(|answers| {
@@ -679,14 +683,13 @@ async fn resolve_via_tunnel(client: &reqwest::Client, host: &str) -> Result<Vec<
 
 /// Внешний адрес глазами интернета (через переданный клиент).
 async fn external_ip(client: &reqwest::Client) -> Result<String, String> {
-    let body = client
+    let response = client
         .get(TRACE_URL)
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .text()
-        .await
         .map_err(|e| e.to_string())?;
+    let body =
+        crate::util::read_response_text_capped(response, MAX_LEAK_RESPONSE_BYTES, "trace").await?;
     body.lines()
         .find_map(|line| line.strip_prefix("ip=").map(str::to_string))
         .ok_or_else(|| "в ответе нет адреса".to_string())

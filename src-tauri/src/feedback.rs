@@ -22,6 +22,10 @@ const TEXT_MIN: usize = 10;
 const TEXT_MAX: usize = 2000;
 const CONTACT_MAX: usize = 120;
 const TIMEOUT: Duration = Duration::from_secs(25);
+/// Ответ релея — короткий JSON статуса. Читаем его с тем же потолком, что и
+/// остальные внешние ответы (util::read_response_capped): без него ошибочный
+/// или подменённый хост мог бы отдать тело любого размера.
+const MAX_RELAY_RESPONSE_BYTES: usize = 64 * 1024;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,7 +132,10 @@ pub async fn send_feedback(app: tauri::AppHandle, input: FeedbackInput) -> Resul
         .map_err(|_| "network".to_string())?;
 
     let status = response.status();
-    let reply: RelayReply = response.json().await.unwrap_or_default();
+    let body = crate::util::read_response_capped(response, MAX_RELAY_RESPONSE_BYTES, "feedback")
+        .await
+        .unwrap_or_default();
+    let reply: RelayReply = serde_json::from_slice(&body).unwrap_or_default();
     if status.is_success() && reply.ok {
         return Ok(());
     }
