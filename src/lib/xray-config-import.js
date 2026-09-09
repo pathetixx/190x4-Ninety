@@ -383,10 +383,17 @@ export function parseXrayConfig(input) {
       if (!result) continue;
       if (result.unsupported) { note(result.unsupported); continue; }
       if (result.profile) { profiles.push(result.profile); continue; }
-      for (const link of result.links) {
+      // Один outbound разворачивается в несколько ссылок, когда в `vnext`
+      // перечислено больше одного пользователя (или в `servers` — больше одного
+      // адреса). Это разные серверы, и общее имя конфига делало их в списке
+      // неразличимыми — нумеруем.
+      const numbered = result.links.length > 1;
+      for (const [index, link] of result.links.entries()) {
         try {
           const profile = parseLink(link);
-          profiles.push(name ? { ...profile, name } : profile);
+          const base = name || profile.name || profile.host || "";
+          const label = numbered ? `${base} · ${index + 1}`.trim() : name;
+          profiles.push(label ? { ...profile, name: label } : profile);
         } catch (e) {
           skipped++;
           console.warn("xray-config: skip outbound", outbound.tag, e?.message);

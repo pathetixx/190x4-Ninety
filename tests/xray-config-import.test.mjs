@@ -80,6 +80,16 @@ test("имя сервера берётся из remarks конфига, а не 
   assert.deepEqual(profiles.map((p) => p.name), ["💦 1. VL - Domain", "💦 2. VL - IPv4"]);
 });
 
+test("несколько пользователей в одном vnext дают различимые имена", () => {
+  // Панель кладёт в outbound два доступа к одному серверу. Профиля получается
+  // два, и общее имя конфига делало их в списке неразличимыми.
+  const outbound = vlessOutbound();
+  outbound.settings.vnext[0].users.push({ id: "aaaabbbb-cccc-dddd-eeee-ffff00001111", encryption: "none" });
+  const { profiles } = parseXrayConfig([xrayConfig("Panel EU", [outbound, freedom])]);
+  assert.equal(profiles.length, 2);
+  assert.deepEqual(profiles.map((p) => p.name), ["Panel EU · 1", "Panel EU · 2"]);
+});
+
 test("конфиг-балансировщик перечисляет те же серверы — дубликаты схлопываются", () => {
   // Панель кладёт каждый сервер отдельным конфигом, а потом ещё раз все сразу
   // в конфиге «Best Ping». Без склейки пользователь получил бы всё дважды.
