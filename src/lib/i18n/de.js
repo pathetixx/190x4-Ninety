@@ -1363,8 +1363,8 @@ export const de = {
     },
 
     about: {
-      tag: "Ein nativer VPN-Client für Windows auf der sing-box-Engine",
-      desc: "Ein leichter VPN-Client für Windows: VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / Hysteria / TUIC / AnyTLS / SOCKS / NaiveProxy / TrustTunnel, Modi „Proxy · System-Proxy · VPN · TUN“, Abos mit Live-Serverwechsel, Routing-Regeln (Domain / IP / App), eine Verbindungsqualitäts-Engine und Sperrumgehung (TLS-Fragmentierung + DPI).",
+      tag: "Ein VPN-Client für Windows",
+      desc: "Ninety ist ein Client, kein Dienst: Die Server bringen Sie selbst mit — als Abo-Link oder einzelne Konfiguration. Danach kommt es allein zurecht: Es wählt den schnellsten aus, behält die Geschwindigkeit im Blick und setzt sich durch, wenn der Anbieter zu stören beginnt. Durch den Tunnel kann der ganze Rechner laufen oder nur ein paar Programme.",
       protocols: "Protokolle",
       modes: "Modi",
       specHead: "Build-Übersicht",
@@ -1384,7 +1384,6 @@ export const de = {
       updStatusFound: "v{version} verfügbar",
       updStatusChecked: "Geprüft {ago}",
       componentsHead: "Komponenten",
-      componentsHint: "was sonst noch mitgeliefert wird",
       compDpi: "Bypass-Engine",
       compTun: "TUN-Adapter",
       compUnknown: "—",

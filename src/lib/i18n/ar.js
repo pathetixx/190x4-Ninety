@@ -1395,8 +1395,8 @@ export const ar = {
     },
 
     about: {
-      tag: "عميل VPN أصلي لويندوز على محرّك sing-box",
-      desc: "عميل VPN خفيف لويندوز: VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / Hysteria / TUIC / AnyTLS / SOCKS / NaiveProxy / TrustTunnel، أوضاع «وكيل · وكيل النظام · VPN · TUN»، اشتراكات بتبديل خوادم مباشر، قواعد توجيه (نطاق / IP / تطبيق)، محرّك جودة اتصال وتجاوز حجب (تجزئة TLS + DPI).",
+      tag: "عميل VPN لويندوز",
+      desc: "Ninety عميل وليس خدمة: الخوادم تأتي بها أنت، برابط اشتراك أو بإعداد منفرد. بعد ذلك يتدبّر أمره بنفسه — يختار الأسرع، ويراقب السرعة، ويشقّ طريقه عندما يبدأ المزوّد بالتضييق. يمكن تمرير الحاسوب بأكمله عبر النفق أو بضعة برامج فقط.",
       protocols: "البروتوكولات",
       modes: "الأوضاع",
       specHead: "بطاقة البناء",
@@ -1416,7 +1416,6 @@ export const ar = {
       updStatusFound: "الإصدار v{version} متاح",
       updStatusChecked: "تم التحقق {ago}",
       componentsHead: "المكوّنات",
-      componentsHint: "ما الذي تتضمنه النسخة أيضًا",
       compDpi: "محرّك التجاوز",
       compTun: "محوّل TUN",
       compUnknown: "—",

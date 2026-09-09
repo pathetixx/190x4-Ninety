@@ -1379,8 +1379,8 @@ export const pl = {
     },
 
     about: {
-      tag: "Natywny klient VPN dla Windows na silniku sing-box",
-      desc: "Lekki klient VPN dla Windows: VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / Hysteria / TUIC / AnyTLS / SOCKS / NaiveProxy / TrustTunnel, tryby „Proxy · Proxy systemowe · VPN · TUN”, subskrypcje z przełączaniem serwerów na żywo, reguły routingu (domena / IP / aplikacja), silnik jakości połączenia i omijanie blokad (fragmentacja TLS + DPI).",
+      tag: "Klient VPN dla Windows",
+      desc: "Ninety to klient, a nie usługa: serwery przynosisz swoje, linkiem do subskrypcji albo pojedynczą konfiguracją. Dalej radzi sobie sam — wybiera najszybszy, pilnuje prędkości i przebija się, gdy operator zaczyna przeszkadzać. Przez tunel może iść cały komputer albo tylko kilka programów.",
       protocols: "Protokoły",
       modes: "Tryby",
       specHead: "Karta kompilacji",
@@ -1400,7 +1400,6 @@ export const pl = {
       updStatusFound: "Dostępna v{version}",
       updStatusChecked: "Sprawdzono {ago}",
       componentsHead: "Komponenty",
-      componentsHint: "co jeszcze jedzie w kompilacji",
       compDpi: "Silnik omijania",
       compTun: "Adapter TUN",
       compUnknown: "—",

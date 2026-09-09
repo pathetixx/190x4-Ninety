@@ -1363,8 +1363,8 @@ export const tr = {
     },
 
     about: {
-      tag: "sing-box motoru üzerinde Windows için yerel bir VPN istemcisi",
-      desc: "Windows için hafif bir VPN istemcisi: VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / Hysteria / TUIC / AnyTLS / SOCKS / NaiveProxy / TrustTunnel, “Proxy · Sistem proxy'si · VPN · TUN” modları, canlı sunucu değiştirmeli abonelikler, yönlendirme kuralları (alan adı / IP / uygulama), bağlantı kalitesi motoru ve engel atlatma (TLS parçalama + DPI).",
+      tag: "Windows için bir VPN istemcisi",
+      desc: "Ninety bir hizmet değil, bir istemci: sunucuları siz getirirsiniz — abonelik bağlantısıyla ya da tek bir yapılandırmayla. Gerisini kendi halleder: en hızlısını seçer, hızı izler ve operatör engel olmaya başladığında yolunu açar. Tünelden bilgisayarın tamamı da geçebilir, yalnızca birkaç uygulama da.",
       protocols: "Protokoller",
       modes: "Modlar",
       specHead: "Yapı sayfası",
@@ -1384,7 +1384,6 @@ export const tr = {
       updStatusFound: "v{version} mevcut",
       updStatusChecked: "{ago} kontrol edildi",
       componentsHead: "Bileşenler",
-      componentsHint: "derlemede başka neler var",
       compDpi: "Atlatma motoru",
       compTun: "TUN bağdaştırıcısı",
       compUnknown: "—",

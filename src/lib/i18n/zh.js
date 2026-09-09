@@ -1355,8 +1355,8 @@ export const zh = {
     },
 
     about: {
-      tag: "基于 sing-box 引擎的 Windows 原生 VPN 客户端",
-      desc: "轻量级 Windows VPN 客户端：VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / Hysteria / TUIC / AnyTLS / SOCKS / NaiveProxy / TrustTunnel，“代理 · 系统代理 · VPN · TUN”模式，支持实时切换服务器的订阅、路由规则（域名 / IP / 应用）、连接质量引擎以及封锁绕过（TLS 分片 + DPI）。",
+      tag: "Windows VPN 客户端",
+      desc: "Ninety 是客户端，不是服务：服务器由你自己提供，用一条订阅链接或单个配置添加。之后的事它自己搞定——挑最快的服务器、盯住速度，运营商开始添堵时自己打通。可以让整台电脑走隧道，也可以只放几个程序进去。",
       protocols: "协议",
       modes: "模式",
       specHead: "构建信息",
@@ -1376,7 +1376,6 @@ export const zh = {
       updStatusFound: "有新版本 v{version}",
       updStatusChecked: "已检查 {ago}",
       componentsHead: "组件",
-      componentsHint: "构建中还包含什么",
       compDpi: "绕过引擎",
       compTun: "TUN 适配器",
       compUnknown: "—",

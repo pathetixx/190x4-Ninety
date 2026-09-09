@@ -1355,8 +1355,8 @@ export const ja = {
     },
 
     about: {
-      tag: "sing-box エンジンで動く Windows 用ネイティブVPNクライアント",
-      desc: "Windows 用の軽量 VPN クライアント: VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / Hysteria / TUIC / AnyTLS / SOCKS / NaiveProxy / TrustTunnel、「プロキシ · システムプロキシ · VPN · TUN」モード、ライブでサーバーを切り替えられるサブスクリプション、ルーティングルール（ドメイン / IP / アプリ）、接続品質エンジン、ブロック回避（TLS フラグメンテーション + DPI）。",
+      tag: "Windows 用 VPN クライアント",
+      desc: "Ninety はサービスではなくクライアントです。サーバーはご自身で用意します — サブスクリプションのリンク、または単体の設定ファイルで。あとは自力で動きます。いちばん速いサーバーを選び、速度を見張り、プロバイダーが邪魔を始めれば押し通します。トンネルにはパソコン全体を通すことも、数本のアプリだけを通すこともできます。",
       protocols: "プロトコル",
       modes: "モード",
       specHead: "ビルド情報",
@@ -1376,7 +1376,6 @@ export const ja = {
       updStatusFound: "v{version} が利用可能",
       updStatusChecked: "{ago}に確認",
       componentsHead: "コンポーネント",
-      componentsHint: "ビルドに同梱されるもの",
       compDpi: "回避エンジン",
       compTun: "TUN アダプター",
       compUnknown: "—",

@@ -1379,8 +1379,8 @@ export const ru = {
     },
 
     about: {
-      tag: "Нативный VPN-клиент для Windows на движке sing-box",
-      desc: "Лёгкий VPN-клиент под Windows: VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / Hysteria / TUIC / AnyTLS / SOCKS / NaiveProxy / TrustTunnel, режимы «Прокси · Системный прокси · VPN · TUN», подписки с live-переключением серверов, правила маршрутизации (домен / IP / приложение), движок качества связи и обход блокировок (фрагментация TLS + DPI).",
+      tag: "VPN-клиент для Windows",
+      desc: "Ninety — клиент, а не сервис: серверы вы приносите свои, ссылкой на подписку или отдельным конфигом. Дальше он справляется сам — выбирает самый быстрый, следит за скоростью и пробивается, когда провайдер начинает мешать. Через туннель можно пустить весь компьютер или только пару программ.",
       protocols: "Протоколы",
       modes: "Режимы",
       specHead: "Технический паспорт",
@@ -1400,7 +1400,6 @@ export const ru = {
       updStatusFound: "Доступна v{version}",
       updStatusChecked: "Проверено {ago}",
       componentsHead: "Компоненты",
-      componentsHint: "что ещё едет в сборке",
       compDpi: "Движок обхода",
       compTun: "TUN-адаптер",
       compUnknown: "—",

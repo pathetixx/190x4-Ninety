@@ -1409,7 +1409,6 @@ function renderAbout() {
       <details class="about-components">
         <summary class="about-components__head">
           <span class="about-components__title">${t("settings.about.componentsHead")}</span>
-          <span class="about-components__hint">${t("settings.about.componentsHint")}</span>
           <span class="about-components__chev">${aboutIconChevron()}</span>
         </summary>
         <div class="about-components__grid">

@@ -214,16 +214,8 @@
 }
 .about-components__head::-webkit-details-marker { display: none; }
 .about-components__title { font-size: 12px; color: var(--text-lo); }
-.about-components__hint {
-  font-size: 11px;
-  color: var(--text-faint);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .about-components__chev {
+  margin-inline-start: auto;
   color: var(--text-faint);
   display: grid;
   place-items: center;
