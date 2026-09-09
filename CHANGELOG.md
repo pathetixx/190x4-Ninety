@@ -6,6 +6,36 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.6.5 — 2026-09-09
+
+## English
+
+### Fixes
+
+- A subscription whose panel sends you through a session check on the way to the servers now loads instead of coming back empty.
+- Importing a ready-made sing-box config no longer reports skipped servers when every server was taken.
+- Servers that come from one Xray config with several users now have distinct names in the list.
+- A multi-line entry in the log view is shown in full as it arrives.
+- The button that removes a pinned address in Diagnostics shows its tooltip again.
+
+### Privacy
+
+- The diagnostics report you copy for support now hides IPv6 addresses too.
+
+## Русский
+
+### Исправления
+
+- Подписка, у которой панель уводит на проверку сессии по пути к серверам, снова загружается, а не приходит пустой.
+- Импорт готового конфига sing-box больше не сообщает о пропущенных серверах, когда взяты все.
+- Серверы из одного конфига Xray с несколькими пользователями получают в списке разные имена.
+- Многострочная запись в журнале сразу видна целиком.
+- Кнопка, снимающая закреплённый адрес в диагностике, снова показывает подсказку.
+
+### Приватность
+
+- Отчёт диагностики, который копируется для поддержки, теперь скрывает и IPv6-адреса.
+
 ## v0.6.4 — 2026-09-08
 
 ## English
