@@ -215,17 +215,23 @@ const CHANNEL_LIST_FILES: [&str; 4] = [
     "list-exclude.txt",
     "ipset-exclude.txt",
 ];
-const LOCAL_LIST_FILES: [&str; 8] = [
+const LOCAL_LIST_FILES: [&str; 9] = [
     "list-general-user.txt",
     "list-exclude-user.txt",
     "ipset-exclude-user.txt",
     "active-vpn-domain.txt",
     "active-vpn-ip.txt",
     "ipset-all.txt",
-    "ipset-all.base.txt",
+    IPSET_BASE_FILE,
     "ipset-game.txt",
+    // Автосписок — результат обучения на живом трафике, а не часть канала:
+    // без переноса каждое обновление стратегий обнуляло бы его, и заблокированные
+    // сайты снова открывались бы с третьего раза.
+    AUTO_HOSTLIST_FILE,
 ];
-const CHANNEL_SERVICE_FILES: [&str; 2] = ["hosts", "ipset-service.txt"];
+const IPSET_SERVICE_FILE: &str = "ipset-service.txt";
+const IPSET_BASE_FILE: &str = "ipset-all.base.txt";
+const CHANNEL_SERVICE_FILES: [&str; 2] = ["hosts", IPSET_SERVICE_FILE];
 
 struct StagingDirGuard {
     path: PathBuf,
@@ -404,6 +410,10 @@ fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
         // Пустой всегда: снимает ipset-гейт с секций Game Filter, не завися от
         // режима IPset (write_ipset_mode пишет только ipset-all.txt).
         "ipset-game.txt",
+        // Автосписок заблокированных доменов. Ведёт его сам winws в режиме
+        // «Только заблокированные»; нам достаточно, чтобы файл существовал —
+        // winws открывает его на чтение при старте, до первой записи.
+        AUTO_HOSTLIST_FILE,
         "active-vpn-domain.txt",
         "active-vpn-ip.txt",
     ] {
@@ -728,17 +738,20 @@ fn write_ipset_mode(app: &AppHandle, lists: &Path, mode: &str) -> Result<(), Str
         "loaded" => {
             // writable-копия base (после dpi_update_ipset) приоритетнее ресурсной —
             // так обновлённый список IP применяется без переустановки приложения.
-            let wbase = lists.join("ipset-all.base.txt");
+            let wbase = lists.join(IPSET_BASE_FILE);
             let base = if wbase.exists() {
                 wbase
             } else {
-                res_lists(app)?.join("ipset-all.base.txt")
+                res_lists(app)?.join(IPSET_BASE_FILE)
             };
             copy_replace(&base, &target, "ipset loaded")?;
         }
         "off" => {
             write_replace(&target, "203.0.113.113/32\n", "ipset off")?;
         }
+        // "any" и "auto": пустой ipset = «не фильтровать по IP». В «auto» секции
+        // дополнительно перегейчиваются на autohostlist (gate_by_autohostlist),
+        // и собственного IP-фильтра у них уже нет.
         _ => {
             write_replace(&target, "", "ipset any")?;
         }
@@ -762,6 +775,15 @@ fn dpi_autotest_log_file(app: &AppHandle) -> Option<PathBuf> {
     let dir = crate::app_paths::log_dir(app).ok()?;
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("dpi-autotest.log"))
+}
+
+// Лог решений autohostlist: winws пишет туда, почему домен попал в автосписок
+// (счётчик фейлов, протокол, клиент). Без него ответить постфактум «за что
+// сайту достался обход» нечем. Подчиняется общему «отключить логи».
+fn auto_hostlist_log_file(app: &AppHandle) -> Option<PathBuf> {
+    let dir = crate::app_paths::log_dir(app).ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("dpi-autohostlist.log"))
 }
 
 fn read_strategies(app: &AppHandle) -> Result<Vec<Strategy>, String> {
@@ -931,6 +953,94 @@ fn ungate_game_ipset(args: Vec<String>, lists: &Path, g_tcp: &str, g_udp: &str) 
         }
     }
     flush(&mut section, &mut out);
+    out
+}
+
+// Автосписок заблокированных доменов: winws ведёт его сам в режиме «Только
+// заблокированные». Имя файла знают и ensure_lists (создаёт пустым), и команды
+// просмотра/очистки, поэтому литерал один на всех.
+const AUTO_HOSTLIST_FILE: &str = "list-auto.txt";
+// Пороги детекта. Совпадают с дефолтами zapret (3 события за 60 с, 3
+// ретрансмиссии), но передаются явно: число видно пользователю в подсказке UI,
+// и молчаливая смена дефолта в движке не должна её обесценивать.
+const AUTO_FAIL_THRESHOLD: u32 = 3;
+const AUTO_RETRANS_THRESHOLD: u32 = 3;
+
+/// Режим «Только заблокированные»: перегейчиваем стратегию на автосписок winws.
+///
+/// В режиме «Всем сайтам» секции с `--ipset=ipset-all.txt` разгейчены пустым
+/// ipset (пустая коллекция = «не фильтровать по IP»), и десинк летит в любой
+/// домен, кроме исключений. Сайтам, которые не заблокированы, это вредит:
+/// fake-пакет доходит до сервера, и если тот не отбрасывает его по выбранному
+/// `--dpi-desync-fooling`, он принимает фейк вместо настоящего ClientHello —
+/// сайт перестаёт открываться, пока домен не внесут в исключения руками.
+///
+/// `--hostlist-auto` переворачивает логику: домен, которого нет ни в одном
+/// списке, идёт БЕЗ обхода, а winws смотрит на ответ (ретрансмиссии первого
+/// запроса с хостом, RST, HTTP-редирект на чужой домен второго уровня) и
+/// заносит в файл только то, что ведёт себя как заблокированное. Профиль с
+/// autohostlist выигрывает по l3/l4/l7-фильтру всегда, но десинк применяется
+/// лишь к хостам из файла — см. nfq/desync.c, ветку «not applying tampering to
+/// this request» (одинаковую для TCP и QUIC).
+///
+/// Игровые секции (`--dpi-desync-any-protocol=1`) не трогаем: хоста в их
+/// трафике нет по определению, autohostlist там не даёт ничего и только заменил
+/// бы понятный IP-гейт на профиль, который выигрывает всегда.
+fn gate_by_autohostlist(args: Vec<String>, lists: &Path) -> Vec<String> {
+    let gated = format!(
+        "--ipset={}",
+        strip_verbatim(&lists.join("ipset-all.txt").to_string_lossy())
+    );
+    let auto = format!(
+        "--hostlist-auto={}",
+        strip_verbatim(&lists.join(AUTO_HOSTLIST_FILE).to_string_lossy())
+    );
+
+    let mut out = Vec::with_capacity(args.len());
+    let mut section: Vec<String> = Vec::new();
+    let flush = |section: &mut Vec<String>, out: &mut Vec<String>| {
+        let any_protocol = section
+            .iter()
+            .any(|a| a.as_str() == "--dpi-desync-any-protocol=1");
+        for arg in section.drain(..) {
+            if !any_protocol && arg == gated {
+                out.push(auto.clone());
+                out.push(format!(
+                    "--hostlist-auto-fail-threshold={AUTO_FAIL_THRESHOLD}"
+                ));
+                out.push(format!(
+                    "--hostlist-auto-retrans-threshold={AUTO_RETRANS_THRESHOLD}"
+                ));
+            } else {
+                out.push(arg);
+            }
+        }
+    };
+    for arg in args {
+        if arg == "--new" {
+            flush(&mut section, &mut out);
+            out.push(arg);
+        } else {
+            section.push(arg);
+        }
+    }
+    flush(&mut section, &mut out);
+    out
+}
+
+// Домены автосписка для UI: свежие сверху, дубли и комментарии отброшены.
+// Файл ведёт winws (дописывает в конец), мы его только читаем и переписываем.
+fn auto_domains_from(txt: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in txt.lines().rev() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            continue;
+        }
+        if !out.iter().any(|d| d.eq_ignore_ascii_case(t)) {
+            out.push(t.to_string());
+        }
+    }
     out
 }
 
@@ -1244,7 +1354,9 @@ fn remember_owned_driver_services(state: &DpiState, bin: &Path) {
 fn remember_owned_driver_services(_state: &DpiState, _bin: &Path) {}
 
 /// Запуск winws с выбранной стратегией. game_filter: "off"|"tcpudp";
-/// ipset: "any"|"loaded"|"off". Должен вызываться из elevated-процесса.
+/// ipset — область применения обхода: "any" (все домены) | "auto" (только те,
+/// что winws сам определил как заблокированные) | "loaded" (IP из ipset-all) |
+/// "off" (только домены из списков). Должен вызываться из elevated-процесса.
 #[tauri::command]
 pub async fn dpi_start(
     app: AppHandle,
@@ -1317,6 +1429,26 @@ pub async fn dpi_start(
     // при IPset=Off/Loaded игровой фильтр не матчит ничего (см. ungate_game_ipset).
     let args = if game_filter == "tcpudp" {
         ungate_game_ipset(args, &lists, g_tcp, g_udp)
+    } else {
+        args
+    };
+    // «Только заблокированные»: секции, которые в «Всем сайтам» разгейчены пустым
+    // ipset, переводим на автосписок winws — обход достаётся лишь тем доменам,
+    // которые повели себя как заблокированные.
+    let args = if ipset == "auto" {
+        let mut args = gate_by_autohostlist(args, &lists);
+        if !logs_disabled {
+            if let Some(log) = auto_hostlist_log_file(&app) {
+                args.insert(
+                    0,
+                    format!(
+                        "--hostlist-auto-debug={}",
+                        strip_verbatim(&log.to_string_lossy())
+                    ),
+                );
+            }
+        }
+        args
     } else {
         args
     };
@@ -2373,7 +2505,7 @@ pub async fn dpi_sync_channel(
                 let to = lists.join(name);
                 if from.is_file() {
                     copy_replace(&from, &to, &format!("local list {name}"))?;
-                } else if name == "ipset-all.base.txt" {
+                } else if name == IPSET_BASE_FILE {
                     let bundled = res_lists(&app)?.join(name);
                     if bundled.is_file() {
                         copy_replace(&bundled, &to, "bundled ipset base")?;
@@ -2400,6 +2532,17 @@ pub async fn dpi_sync_channel(
                     &service.join(name),
                     &format!("channel service {name}"),
                 )?;
+            }
+            // База ipset приезжает тем же подписанным бандлом, что и стратегии,
+            // поэтому обновляем её здесь же. Раньше её двигала только кнопка
+            // «Обновить список», и режим «Сайтам из списка IP» мог месяцами
+            // работать по набору из установки, пока канал уходил вперёд.
+            // Запись идёт ПОСЛЕ переноса LOCAL_LIST_FILES: свежая база обязана
+            // перекрыть перенесённую из прошлого поколения, а не наоборот.
+            let staged_ipset = std::fs::read_to_string(staged_service.join(IPSET_SERVICE_FILE))
+                .map_err(|e| format!("read staged {IPSET_SERVICE_FILE}: {e}"))?;
+            if let Some(base) = ipset_base_from_service(&staged_ipset) {
+                write_replace(&lists.join(IPSET_BASE_FILE), &base, "channel ipset base")?;
             }
             copy_replace(
                 &strat_path,
@@ -2771,15 +2914,74 @@ fn count_ipset_lines(txt: &str) -> usize {
         .count()
 }
 
+/// Домены, которые winws сам определил как заблокированные (режим «Только
+/// заблокированные»). Свежие — первыми: файл дописывается в конец.
+#[tauri::command]
+pub fn dpi_auto_domains(app: AppHandle) -> Result<Vec<String>, String> {
+    let lists = ensure_lists(&app)?;
+    let txt = std::fs::read_to_string(lists.join(AUTO_HOSTLIST_FILE)).unwrap_or_default();
+    Ok(auto_domains_from(&txt))
+}
+
+/// Убрать домен из автосписка: обход перестанет к нему применяться, пока winws
+/// снова не увидит признаки блокировки. Возвращает остаток списка.
+/// От повторного попадания спасает только список исключений — так же, как
+/// советует сам zapret; кнопка «в исключения» в UI дергает dpi_write_list.
+#[tauri::command]
+pub async fn dpi_auto_forget(
+    app: AppHandle,
+    state: State<'_, DpiState>,
+    domain: String,
+) -> Result<Vec<String>, String> {
+    let _data = state.data.lock().await;
+    let lists = ensure_lists(&app)?;
+    let path = lists.join(AUTO_HOSTLIST_FILE);
+    let txt = std::fs::read_to_string(&path).unwrap_or_default();
+    let target = domain.trim();
+    if target.is_empty() {
+        return Err("пустой домен".into());
+    }
+    let mut kept = String::new();
+    for line in txt.lines() {
+        if line.trim().eq_ignore_ascii_case(target) {
+            continue;
+        }
+        kept.push_str(line);
+        kept.push('\n');
+    }
+    // winws перечитывает автосписок по сигнатуре файла, поэтому перезапуск
+    // движка не нужен — правка подхватывается на следующем соединении.
+    write_replace(&path, &kept, "auto hostlist forget")?;
+    Ok(auto_domains_from(&kept))
+}
+
+/// Очистить автосписок целиком — обучение начнётся заново.
+#[tauri::command]
+pub async fn dpi_auto_clear(app: AppHandle, state: State<'_, DpiState>) -> Result<(), String> {
+    let _data = state.data.lock().await;
+    let lists = ensure_lists(&app)?;
+    write_replace(&lists.join(AUTO_HOSTLIST_FILE), "", "auto hostlist clear")
+}
+
+// Тело базы ipset из service-файла канала. None — записей нет: такой файл базу
+// не заменяет ни при ручном обновлении, ни при синхронизации канала. Прежний
+// рабочий список полезнее обнулённого, а пустая коллекция ipset у winws вообще
+// означает «не фильтровать по IP» — режим «Сайтам из списка IP» молча
+// превратился бы во «Всем сайтам».
+fn ipset_base_from_service(raw: &str) -> Option<String> {
+    let body = raw.replace("\r\n", "\n");
+    (count_ipset_lines(&body) > 0).then_some(body)
+}
+
 /// Текущее число IP в активной базе ipset (writable-override → ресурс).
 #[tauri::command]
 pub fn dpi_ipset_count(app: AppHandle) -> Result<usize, String> {
     let lists = ensure_lists(&app)?;
-    let wbase = lists.join("ipset-all.base.txt");
+    let wbase = lists.join(IPSET_BASE_FILE);
     let path = if wbase.exists() {
         wbase
     } else {
-        res_lists(&app)?.join("ipset-all.base.txt")
+        res_lists(&app)?.join(IPSET_BASE_FILE)
     };
     let txt = std::fs::read_to_string(&path).unwrap_or_default();
     Ok(count_ipset_lines(&txt))
@@ -2798,19 +3000,12 @@ pub async fn dpi_update_ipset(
     let _data = state.data.lock().await;
     let lists = ensure_lists(&app)?;
     // База ipset — тоже из подписанного канала (было: прямой fetch с Flowseal raw).
-    let raw = fetch_channel_service(&app, port, "ipset-service.txt")
+    let raw = fetch_channel_service(&app, port, IPSET_SERVICE_FILE)
         .await
         .map_err(|e| format!("fetch ipset: {e}"))?;
-    let body = raw.replace("\r\n", "\n");
+    let body = ipset_base_from_service(&raw).ok_or("в источнике нет IP-записей")?;
     let n = count_ipset_lines(&body);
-    if n == 0 {
-        return Err("в источнике нет IP-записей".into());
-    }
-    write_replace(
-        &lists.join("ipset-all.base.txt"),
-        &body,
-        "запись ipset base",
-    )?;
+    write_replace(&lists.join(IPSET_BASE_FILE), &body, "запись ipset base")?;
     Ok(n)
 }
 
@@ -2874,6 +3069,9 @@ pub async fn dpi_autotest(
             return Err(format!("winws.exe не найден: {}", exe.display()));
         }
         let lists = ensure_lists(&app)?;
+        // Прогон всегда идёт в «Всем сайтам»: он меряет саму стратегию на тестовых
+        // доменах, а в «Только заблокированным» они ещё не в автосписке — движок не
+        // применил бы десинк ни к одному запросу и все стратегии выглядели бы одинаково.
         write_ipset_mode(&app, &lists, "any")?;
         let bindata = ensure_bindata(&app)?;
         let bindata_s = strip_verbatim(&bindata.to_string_lossy());
@@ -3447,6 +3645,100 @@ mod tests {
         );
     }
 
+    // Обновление канала стратегий пересоздаёт каталог списков: всё, что нажито
+    // локально, переносится явным перечислением. Автосписок — тоже нажитое.
+    #[test]
+    fn auto_hostlist_survives_a_channel_update() {
+        assert!(LOCAL_LIST_FILES.contains(&AUTO_HOSTLIST_FILE));
+        assert!(!CHANNEL_LIST_FILES.contains(&AUTO_HOSTLIST_FILE));
+    }
+
+    // Режим «Только заблокированные» снимает с секции IP-гейт и вешает автосписок
+    // вместе с порогами детекта.
+    #[test]
+    fn auto_mode_swaps_ipset_for_autohostlist() {
+        let lists = Path::new("L");
+        let all = format!("--ipset={}", lists.join("ipset-all.txt").to_string_lossy());
+        let args = vec![
+            "--filter-tcp=80,443,8443".to_string(),
+            all,
+            "--dpi-desync=fake".to_string(),
+        ];
+
+        let out = gate_by_autohostlist(args, lists);
+
+        assert_eq!(
+            out,
+            vec![
+                "--filter-tcp=80,443,8443".to_string(),
+                format!(
+                    "--hostlist-auto={}",
+                    lists.join(AUTO_HOSTLIST_FILE).to_string_lossy()
+                ),
+                "--hostlist-auto-fail-threshold=3".to_string(),
+                "--hostlist-auto-retrans-threshold=3".to_string(),
+                "--dpi-desync=fake".to_string(),
+            ]
+        );
+    }
+
+    // У игровых секций хоста нет по определению: автосписку там нечего решать,
+    // а профиль с ним выигрывал бы всегда. IP-гейт остаётся как был.
+    #[test]
+    fn auto_mode_keeps_any_protocol_sections_on_ipset() {
+        let lists = Path::new("L");
+        let all = format!("--ipset={}", lists.join("ipset-all.txt").to_string_lossy());
+        let args = vec![
+            "--filter-tcp=80,443".to_string(),
+            all.clone(),
+            "--new".to_string(),
+            "--filter-tcp=1024-65535".to_string(),
+            all.clone(),
+            "--dpi-desync-any-protocol=1".to_string(),
+        ];
+
+        let out = gate_by_autohostlist(args, lists);
+
+        assert_eq!(out[out.len() - 2], all);
+        assert!(!out[..out.len() - 2].contains(&all));
+        assert!(out.iter().any(|a| a.starts_with("--hostlist-auto=")));
+    }
+
+    // Автосписок — обычная коллекция хостлистов, поэтому активная нода VPN
+    // обязана попасть в исключения этой секции: без этого обход зацепил бы
+    // собственный VLESS, стоило домену ноды один раз показаться заблокированным.
+    #[test]
+    fn auto_mode_section_still_gets_vpn_exclusion() {
+        let lists = Path::new("L");
+        let all = format!("--ipset={}", lists.join("ipset-all.txt").to_string_lossy());
+        let args = vec!["--filter-tcp=80,443".to_string(), all];
+
+        let out = spread_exclusion_across_sections(
+            gate_by_autohostlist(args, lists),
+            &active_vpn_exclusion_args(lists),
+        );
+
+        assert!(out.iter().any(|a| a.starts_with("--hostlist-auto=")));
+        assert!(out
+            .iter()
+            .any(|a| a.contains("--hostlist-exclude=") && a.contains("active-vpn-domain.txt")));
+    }
+
+    // Файл ведёт winws, дописывая в конец: пользователю показываем свежие сверху,
+    // без дублей и комментариев.
+    #[test]
+    fn auto_domains_are_newest_first_without_dupes() {
+        let txt = "# comment\nold.example\nDota2.ru\n\ndota2.ru\nfresh.example\n";
+        assert_eq!(
+            auto_domains_from(txt),
+            vec![
+                "fresh.example".to_string(),
+                "dota2.ru".to_string(),
+                "old.example".to_string(),
+            ]
+        );
+    }
+
     // Пара --hostlist-auto-* не создаёт коллекцию хостлистов и не должна
     // считаться признаком секции с известным хостом.
     #[test]
@@ -3664,6 +3956,20 @@ mod tests {
     fn count_ipset_lines_ignores_comments_and_blanks() {
         let txt = "# base\n1.1.1.0/24\n\n8.8.8.0/24\n  # spaced comment\n9.9.9.9/32\n";
         assert_eq!(count_ipset_lines(txt), 3);
+    }
+
+    // Синхронизация канала перезаписывает базу ipset его service-файлом. Пустой
+    // или чисто комментарийный файл базу трогать не должен: с пустым ipset режим
+    // «Сайтам из списка IP» превратился бы во «Всем сайтам» — ровно то, от чего
+    // пользователь этим режимом и уходит.
+    #[test]
+    fn empty_ipset_service_leaves_the_base_alone() {
+        assert_eq!(
+            ipset_base_from_service("1.2.3.0/24\r\n8.8.8.8/32\r\n").as_deref(),
+            Some("1.2.3.0/24\n8.8.8.8/32\n")
+        );
+        assert!(ipset_base_from_service("").is_none());
+        assert!(ipset_base_from_service("# only comments\n\n   \n").is_none());
     }
 
     #[test]

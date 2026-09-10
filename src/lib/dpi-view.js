@@ -117,13 +117,35 @@ const LS = {
   recommended: STORAGE_KEYS.dpiRecommended,
 };
 const lsGet = (k, d) => { const v = localStorage.getItem(k); return v == null ? d : v; };
+// Область применения обхода. Значение уходит в dpi_start и в t("dpi.scope.<id>"),
+// поэтому чужую строку (старый бэкап, правка руками) сводим к безопасному режиму,
+// а не тащим в аргументы winws и в ключи перевода.
+const SCOPES = ["auto", "any", "loaded", "off"];
+
+// Дефолт области применения. Чистая установка получает «Только заблокированным»:
+// оно не трогает сайты, которые и так открываются, а Discord с YouTube лежат в
+// хостлистах и обходятся с первой попытки независимо от режима.
+//
+// Установке, которая уже пользовалась обходом (есть след в ninety.dpi.*), режим
+// закрепляется прежний — «Всем сайтам». Человек настроил рабочую конфигурацию под
+// старый дефолт и о смене не просил; молча переводить его на режим, где
+// заблокированный сайт открывается только со второй-третьей попытки, нельзя.
+// Записываем выбор сразу, чтобы он не переигрывался при будущих сменах дефолта.
+function initialScope() {
+  const saved = localStorage.getItem(LS.ipset);
+  if (saved != null) return SCOPES.includes(saved) ? saved : "any";
+  const usedBefore = localStorage.getItem(LS.enabled) != null || localStorage.getItem(LS.strategy) != null;
+  const scope = usedBefore ? "any" : "auto";
+  try { localStorage.setItem(LS.ipset, scope); } catch { /* приватный режим — просто работаем с дефолтом */ }
+  return scope;
+}
 
 const S = {
   base: "off",          // off | starting | running | error
   vpnMode: "systemProxy",
   strategy: lsGet(LS.strategy, DEFAULT_STRATEGY),
   gameFilter: lsGet(LS.gameFilter, "off"),
-  ipset: lsGet(LS.ipset, "any"),
+  ipset: initialScope(),
   monkey: lsGet(LS.monkey, "false") === "true",
   // Победитель последнего авто-подбора. Пусто — замеров ещё не было.
   recommended: lsGet(LS.recommended, ""),
@@ -134,6 +156,9 @@ const S = {
   hosts: { applied: false, entries: 0, busy: false },
   ipsetList: { count: null, busy: false },
   ipsetOpen: false,
+  // Автосписок заблокированных доменов (режим «Только заблокированным»):
+  // domains=null — ещё не читали, [] — winws пока ничего не нашёл.
+  auto: { domains: null, busy: false, acting: "" },
   fakes: {
     options: [],
     discord: null,
@@ -246,7 +271,60 @@ function renderBody() {
       </div>`;
   }).join("");
 
-  const ipsetHint = { any: t("dpi.ipset.hintAny"), loaded: t("dpi.ipset.hintLoaded"), off: t("dpi.ipset.hintOff") }[S.ipset];
+  // Область применения обхода: одна опция = заголовок + человеческое объяснение,
+  // что именно она делает. Сегменты из трёх слов этого не объясняли, а разница
+  // между режимами определяет, будет ли обход ломать незаблокированные сайты.
+  const scopeOpt = (id, recommended) => `
+        <button class="dpi-scope__opt" data-on="${S.ipset === id}" data-dpi-ipset="${id}"
+                role="radio" aria-checked="${S.ipset === id}">
+          <span class="dpi-scope__mark"></span>
+          <span class="dpi-scope__txt">
+            <span class="dpi-scope__t">${t("dpi.scope." + id)}${recommended ? `<em class="dpi-scope__rec">${t("dpi.scope.recommended")}</em>` : ""}</span>
+            <span class="dpi-scope__d">${t("dpi.scope.hint" + id[0].toUpperCase() + id.slice(1))}</span>
+          </span>
+        </button>`;
+  const autoDomains = S.auto.domains;
+  const autoCount = autoDomains == null
+    ? "…"
+    : autoDomains.length
+      ? autoDomains.length.toLocaleString("ru-RU") + " " + t("dpi.scope.autoUnit")
+      : t("dpi.scope.autoNone");
+  const autoItem = (d) => `
+              <li class="dpi-scope__item">
+                <span class="dpi-scope__dom" title="${escapeAttr(d)}">${esc(d)}</span>
+                <span class="dpi-scope__acts">
+                  <button class="dpi-scope__act" data-dpi-auto-exclude="${escapeAttr(d)}"
+                          title="${escapeAttr(t("dpi.scope.autoExcludeHint"))}" ${S.auto.acting ? "disabled" : ""}>${t("dpi.scope.autoExclude")}</button>
+                  <button class="dpi-scope__act" data-dpi-auto-forget="${escapeAttr(d)}"
+                          title="${escapeAttr(t("dpi.scope.autoForgetHint"))}" ${S.auto.acting ? "disabled" : ""}>${t("dpi.scope.autoForget")}</button>
+                </span>
+              </li>`;
+  const autoPanel = S.ipset !== "auto" ? "" : `
+            <div class="dpi-scope__auto">
+              <div class="dpi-scope__auto-head">
+                <div class="dpi-scope__auto-info">
+                  <span class="dpi-scope__auto-t">${t("dpi.scope.autoFound")}</span>
+                  <span class="dpi-scope__auto-c">${autoCount}</span>
+                </div>
+                ${autoDomains && autoDomains.length ? `<div class="dpi-scope__auto-btns">
+                  <button class="btn btn--sm" data-dpi-auto-clear ${S.auto.busy ? "disabled" : ""}>${ic("trash", 13)} ${t("dpi.scope.autoClear")}</button>
+                </div>` : ""}
+              </div>
+              <div class="dpi-scope__auto-note">${t("dpi.scope.autoNote")}</div>
+              ${autoDomains && autoDomains.length ? `<ul class="dpi-scope__list">${autoDomains.map(autoItem).join("")}</ul>` : ""}
+            </div>`;
+  // Панель списка IP видна во всех режимах: база тянется из подписанного канала и
+  // её обновляют заранее, а не в момент переключения режима. В режимах, где список
+  // не участвует, честно говорим об этом строкой ниже, а не прячем кнопку.
+  const ipsetPanel = `
+            <div class="dpi-ipset__upd" data-idle="${S.ipset !== "loaded"}">
+              <div class="dpi-ipset__upd-info">
+                <span class="dpi-ipset__upd-t">${t("dpi.scope.listLabel")}</span>
+                <span class="dpi-ipset__upd-c">${S.ipsetList.count == null ? "—" : S.ipsetList.count.toLocaleString("ru-RU") + " " + t("dpi.scope.unit")}</span>
+                ${S.ipset === "loaded" ? "" : `<span class="dpi-ipset__upd-idle">${t("dpi.scope.listIdle")}</span>`}
+              </div>
+              <button class="btn btn--sm" data-dpi-ipset-update ${S.ipsetList.busy ? "disabled" : ""}>${ic("download", 13)} ${S.ipsetList.busy ? "…" : t("dpi.scope.update")}</button>
+            </div>`;
   const domainsTxt = S.domains == null ? "…" : S.domains.toLocaleString("ru-RU");
   const fakeOptions = (kind) => {
     const current = S.fakes[kind];
@@ -298,6 +376,20 @@ function renderBody() {
             ${p.phase === "running" ? `<span class="dpi-autopick__prog-count">${p.i} / ${p.total || autopickCount()}</span>` : ""}
           </div>
           ${autopick}
+        </article>
+
+        <article class="dpi-card dpi-ipset dpi-scope" data-open="${S.ipsetOpen}">
+          <div class="dpi-ipset__head" data-dpi-ipset-toggle>
+            <div class="dpi-row__lbl"><div class="dpi-row__t">${t("dpi.scope.label")}</div><div class="dpi-row__d">${t("dpi.scope.desc")}</div></div>
+            <span class="dpi-scope__now">${t("dpi.scope." + S.ipset)}</span>
+            <span class="dpi-ipset__chev">${ic("chevron", 16)}</span>
+          </div>
+          <div class="dpi-ipset__body"><div class="dpi-ipset__inner"><div class="dpi-ipset__pad">
+            <div class="dpi-scope__opts" role="radiogroup" aria-label="${escapeAttr(t("dpi.scope.label"))}">
+              ${scopeOpt("auto", true)}${scopeOpt("any")}${scopeOpt("loaded")}${scopeOpt("off")}
+            </div>
+            ${autoPanel}${ipsetPanel}
+          </div></div></div>
         </article>
 
         <article class="dpi-card">
@@ -388,27 +480,6 @@ function renderBody() {
           </div>
         </article>
 
-        <article class="dpi-card dpi-ipset" data-open="${S.ipsetOpen}">
-          <div class="dpi-ipset__head" data-dpi-ipset-toggle>
-            <div class="dpi-row__lbl"><div class="dpi-row__t">${t("dpi.ipset.label")}</div><div class="dpi-row__d">${t("dpi.ipset.desc")}</div></div>
-            <span class="dpi-ipset__chev">${ic("chevron", 16)}</span>
-          </div>
-          <div class="dpi-ipset__body"><div class="dpi-ipset__inner"><div class="dpi-ipset__pad">
-            <div class="seg">
-              <button class="seg__btn" data-on="${S.ipset === "any"}" data-dpi-ipset="any">${t("dpi.ipset.any")}</button>
-              <button class="seg__btn" data-on="${S.ipset === "loaded"}" data-dpi-ipset="loaded">${t("dpi.ipset.loaded")}</button>
-              <button class="seg__btn" data-on="${S.ipset === "off"}" data-dpi-ipset="off">${t("dpi.ipset.off")}</button>
-            </div>
-            <div class="dpi-row__d" style="max-width:none">${ipsetHint}</div>
-            <div class="dpi-ipset__upd">
-              <div class="dpi-ipset__upd-info">
-                <span class="dpi-ipset__upd-t">${t("dpi.ipset.listLabel")}</span>
-                <span class="dpi-ipset__upd-c">${S.ipsetList.count == null ? "—" : S.ipsetList.count.toLocaleString("ru-RU") + " " + t("dpi.ipset.unit")}</span>
-              </div>
-              <button class="btn btn--sm" data-dpi-ipset-update ${S.ipsetList.busy ? "disabled" : ""}>${ic("download", 13)} ${S.ipsetList.busy ? "…" : t("dpi.ipset.update")}</button>
-            </div>
-          </div></div></div>
-        </article>
 
         <article class="dpi-card">
           <div class="dpi-row">
@@ -741,6 +812,62 @@ async function loadIpsetCount() {
   try { S.ipsetList.count = await invoke("dpi_ipset_count"); } catch { S.ipsetList.count = null; }
 }
 
+
+/* ── Автосписок заблокированных доменов (режим «Только заблокированным») ── */
+// Файл ведёт сам winws, поэтому список читаем заново при каждом заходе в раздел
+// и после каждой правки: между рендерами он мог пополниться без нашего участия.
+async function loadAutoDomains() {
+  try { S.auto.domains = await invoke("dpi_auto_domains"); }
+  catch { S.auto.domains = null; }
+}
+
+// «Забыть» = убрать из автосписка. Обход к домену больше не применяется, но
+// если он и правда заблокирован, winws найдёт его снова — для окончательного
+// отказа есть «в исключения».
+async function forgetAutoDomain(domain) {
+  S.auto.acting = domain; renderBody();
+  try {
+    S.auto.domains = await invoke("dpi_auto_forget", { domain });
+    toast(t("dpi.scope.autoToastForget", { d: domain }), "info", 2000);
+  } catch (e) {
+    toast(t("dpi.scope.autoToastErr", { err: e?.message || e }), "error", 3500);
+  }
+  S.auto.acting = ""; renderBody();
+}
+
+// «В исключения» = дописать домен в пользовательский список исключений и убрать
+// из автосписка: winws больше не занесёт его туда (hostlist-exclude гасит и
+// детект, и обход). Перезапуск движка не нужен — хостлисты перечитываются сами.
+async function excludeAutoDomain(domain) {
+  S.auto.acting = domain; renderBody();
+  try {
+    const current = await invoke("dpi_read_list", { kind: "exclude" });
+    const has = current.split(/\r?\n/).some((line) => line.trim().toLowerCase() === domain.toLowerCase());
+    if (!has) {
+      const body = current.length && !current.endsWith("\n") ? current + "\n" + domain : current + domain;
+      await invoke("dpi_write_list", { kind: "exclude", content: body });
+    }
+    S.auto.domains = await invoke("dpi_auto_forget", { domain });
+    await loadDomains();
+    toast(t("dpi.scope.autoToastExclude", { d: domain }), "info", 2400);
+  } catch (e) {
+    toast(t("dpi.scope.autoToastErr", { err: e?.message || e }), "error", 3500);
+  }
+  S.auto.acting = ""; renderBody();
+}
+
+async function clearAutoDomains() {
+  S.auto.busy = true; renderBody();
+  try {
+    await invoke("dpi_auto_clear");
+    S.auto.domains = [];
+    toast(t("dpi.scope.autoToastClear"), "info", 1800);
+  } catch (e) {
+    toast(t("dpi.scope.autoToastErr", { err: e?.message || e }), "error", 3500);
+  }
+  S.auto.busy = false; renderBody();
+}
+
 // Порт для загрузки списков (hosts/ipset): mixed-inbound (трафик через обход),
 // если VPN активен в proxy/systemProxy; 0 = прямой запрос (TUN — трафик и так в
 // туннеле, либо VPN выключен). Прямой запрос к github raw из РФ режется ТСПУ,
@@ -789,10 +916,10 @@ async function updateIpset() {
   try {
     const n = await invoke("dpi_update_ipset", { port: await listFetchPort() });
     S.ipsetList.count = n;
-    toast(t("dpi.ipset.toastDone", { n: n.toLocaleString("ru-RU") }), "info", 2400);
+    toast(t("dpi.scope.toastDone", { n: n.toLocaleString("ru-RU") }), "info", 2400);
     if (S.ipset === "loaded") await restartIfRunning(); // применить свежий набор к winws
   } catch (e) {
-    toast(t("dpi.ipset.toastErr", { err: e?.message || e }), "error", 4500);
+    toast(t("dpi.scope.toastErr", { err: e?.message || e }), "error", 4500);
   }
   S.ipsetList.busy = false; renderBody();
 }
@@ -813,6 +940,7 @@ async function runUpdate(id) {
     await loadFakePayloads();
     await loadVersions();
     await loadDomains();
+    await loadIpsetCount(); // база ipset приезжает тем же бандлом — счётчик мог измениться
     await restartIfRunning(); // применить свежий набор к запущенному winws
     const reset = Array.isArray(r?.fake_selection_reset)
       ? r.fake_selection_reset.filter((kind) => kind === "discord" || kind === "game")
@@ -1066,7 +1194,21 @@ function onClick(e) {
   const game = target.closest("[data-dpi-game]");
   if (game) { S.gameFilter = game.dataset.dpiGame; localStorage.setItem(LS.gameFilter, S.gameFilter); renderBody(); restartIfRunning(); return; }
   const ips = target.closest("[data-dpi-ipset]");
-  if (ips) { S.ipset = ips.dataset.dpiIpset; localStorage.setItem(LS.ipset, S.ipset); renderBody(); restartIfRunning(); return; }
+  if (ips) {
+    S.ipset = ips.dataset.dpiIpset;
+    localStorage.setItem(LS.ipset, S.ipset);
+    renderBody();
+    // Список автообхода мог пополниться, пока режим был другим: показываем
+    // актуальный, а не тот, что прочли при входе в раздел.
+    if (S.ipset === "auto") loadAutoDomains().then(renderBody);
+    restartIfRunning();
+    return;
+  }
+  const autoForget = target.closest("[data-dpi-auto-forget]");
+  if (autoForget) { forgetAutoDomain(autoForget.dataset.dpiAutoForget); return; }
+  const autoExclude = target.closest("[data-dpi-auto-exclude]");
+  if (autoExclude) { excludeAutoDomain(autoExclude.dataset.dpiAutoExclude); return; }
+  if (target.closest("[data-dpi-auto-clear]")) { clearAutoDomains(); return; }
   if (target.closest("[data-dpi-ipset-toggle]")) { S.ipsetOpen = !S.ipsetOpen; renderBody(); return; }
   if (target.closest("[data-dpi-monkey]")) {
     S.monkey = !S.monkey;
@@ -1218,6 +1360,7 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
     checkUpdate(),
     loadHosts(),
     loadIpsetCount(),
+    loadAutoDomains(),
   ]);
   renderAll();
 }

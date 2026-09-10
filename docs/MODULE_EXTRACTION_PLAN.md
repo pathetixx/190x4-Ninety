@@ -339,6 +339,7 @@ Own:
 
 - resource-to-writable seeding;
 - ipset mode generation;
+- auto hostlist bookkeeping (read/forget/clear);
 - user list operations;
 - active VPN domain/IP exclusions;
 - domain counts.
