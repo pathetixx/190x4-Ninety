@@ -3394,6 +3394,18 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         catch (e) { console.warn("plan_bridge_ports failed", e); }
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
       }
+      // Может ли система вообще IPv6. Нужен только в TUN: там ядро назначает
+      // адрес на интерфейс, и на машине с выключенным в Windows IPv6 весь
+      // TUN-режим падал целиком («set ipv6 address: Element not found»).
+      // Проба локальная и синхронная, сети не трогает. Ошибка не блокирует
+      // старт: undefined читается билдером как «не знаем» и оставляет
+      // сегодняшнее поведение с IPv6-адресом.
+      let systemIpv6;
+      if (mode === "tun") {
+        try { systemIpv6 = await invoke("system_ipv6_available"); }
+        catch (e) { console.warn("system_ipv6_available failed", e); }
+        if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
+      }
       // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
       // socks-перенаправление. xray=null когда xhttp в источнике нет.
       const {
@@ -3411,6 +3423,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         warpInfo,
         xray: true,
         bridgePorts,
+        systemIpv6,
       });
       outboundNodes = builtOutboundNodes;
       endpointNodes = builtEndpointNodes;

@@ -433,6 +433,50 @@ test("tun-режим: tun-inbound + probe-in, правило пробы выше
   }
 });
 
+// Машина, где IPv6 выключен в самой Windows: назначение адреса падает
+// («set ipv6 address: Element not found»), и ядро умирает вместе со всем
+// TUN-режимом. Снимаем адрес только на явном false — терять там нечего, раз
+// стека нет, а на любой неизвестности защита от утечки обязана остаться.
+test("tun без системного IPv6: интерфейс собирается на одном IPv4", () => {
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "tun",
+    options: DEFAULT_OPTIONS,
+    systemIpv6: false,
+  });
+  assert.deepEqual(config.inbounds[0].address, ["172.19.0.1/30"]);
+});
+
+test("неизвестность про IPv6 оставляет адрес на месте", () => {
+  // undefined — проба не отработала или это не Windows; null — адаптеров не
+  // нашли вовсе (машина офлайн). Ошибиться в сторону защиты дешевле, чем молча
+  // снять её на здоровой машине.
+  for (const systemIpv6 of [undefined, null, true]) {
+    const { config } = buildConfig({
+      source: { kind: "single", profile: vlessNode() },
+      mode: "tun",
+      options: DEFAULT_OPTIONS,
+      systemIpv6,
+    });
+    assert.deepEqual(
+      config.inbounds[0].address,
+      ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+      `systemIpv6=${systemIpv6}`,
+    );
+  }
+});
+
+test("в прокси-режиме про IPv6 никто не спрашивает: TUN не поднимается", () => {
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+    systemIpv6: false,
+  });
+  assert.equal(config.inbounds.length, 1);
+  assert.equal(config.inbounds[0].type, "mixed");
+});
+
 test("split Discord: процессное правило уводит голосовой UDP мимо туннеля", () => {
   const opts = structuredClone(DEFAULT_OPTIONS);
   opts.route.tunSplitDiscord = true;
@@ -1070,4 +1114,47 @@ test("мульти-выход: строгий туннель не выпуска
   // на неё, а не увести трафик мимо выбранного сервера.
   assert.equal(findRule(config, "stream.example").outbound, "proxy");
   assert.ok(validateConfigReferences(config));
+});
+
+// Система без IPv6: ядро не может назначить IPv6-адрес на TUN и умирает вместе
+// со всем режимом («set ipv6 address: Element not found»). Снимать адрес при
+// этом безопасно — раз стек выключен, IPv6-трафика не бывает.
+test("tun-режим: без IPv6 в системе TUN остаётся с одним IPv4-адресом", () => {
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "tun",
+    options: DEFAULT_OPTIONS,
+    systemIpv6: false,
+  });
+  assert.deepEqual(config.inbounds[0].address, ["172.19.0.1/30"]);
+});
+
+test("tun-режим: неизвестность про IPv6 оставляет адрес на месте", () => {
+  // Проба не отработала (не Windows, машина офлайн, ошибка команды). Ошибиться
+  // в сторону защиты дешевле, чем молча снять её на здоровой машине, поэтому
+  // адрес снимается ТОЛЬКО на явном false.
+  for (const systemIpv6 of [undefined, null, true]) {
+    const { config } = buildConfig({
+      source: { kind: "single", profile: vlessNode() },
+      mode: "tun",
+      options: DEFAULT_OPTIONS,
+      systemIpv6,
+    });
+    assert.deepEqual(
+      config.inbounds[0].address,
+      ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+      `systemIpv6=${systemIpv6}`,
+    );
+  }
+});
+
+test("proxy-режим пробу IPv6 не спрашивает и TUN не поднимает", () => {
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "proxy",
+    options: DEFAULT_OPTIONS,
+    systemIpv6: false,
+  });
+  assert.equal(config.inbounds.length, 1);
+  assert.equal(config.inbounds[0].type, "mixed");
 });

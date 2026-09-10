@@ -10,6 +10,7 @@ mod dpi;
 mod feedback;
 mod host_pressure;
 mod hwid;
+mod ipv6;
 mod job_guard;
 mod killswitch;
 mod netproc;
@@ -1377,6 +1378,7 @@ pub fn run() {
             dpi::dpi_auto_forget,
             dpi::dpi_auto_clear,
             discord_cache::discord_cache_clear,
+            ipv6::system_ipv6_available,
             netproc::list_network_processes,
             netproc::snapshot_network_tcp,
             wifi::current_wifi,

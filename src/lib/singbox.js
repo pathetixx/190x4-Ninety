@@ -852,20 +852,41 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
 // уходит в direct bypass-правилом (защита от петли), поэтому «прямая» проба
 // мерила бы голый канал, а не туннель. Правило inbound=probe-in → proxy/warp
 // в buildRoute стоит ВЫШЕ bypass и гонит пробу сквозь аутбаунд.
-function buildInbounds(mode, options) {
+// ULA-префикс для TUN: в публичную маршрутизацию не попадает.
+const TUN_IPV4 = "172.19.0.1/30";
+const TUN_IPV6 = "fdfe:dcba:9876::1/126";
+
+/**
+ * Адреса TUN-интерфейса.
+ *
+ * IPv4 + IPv6 нужны оба: auto_route строит маршруты только для тех семейств,
+ * чей адрес есть на интерфейсе. С одним IPv4-адресом весь нативный IPv6-трафик
+ * уходит мимо туннеля физическим интерфейсом — приложения со своим резолвером
+ * (Chromium/Electron с DoH получают AAAA в обход hijack-dns) утекают с реальным
+ * адресом даже в TUN.
+ *
+ * Исключение ровно одно: система, где IPv6 отключён целиком. Там назначение
+ * адреса падает («set ipv6 address: Element not found»), и ядро умирает вместе
+ * со всем TUN-режимом. Терять при этом нечего — раз стек выключен, IPv6-трафика
+ * не бывает и защищать нечего.
+ *
+ * `systemIpv6` троичен и приходит из пробы Rust: снимаем адрес ТОЛЬКО на
+ * явном false. Неизвестность (проба не отработала, не-Windows, машина офлайн)
+ * оставляет сегодняшнее поведение: ошибиться в сторону защиты дешевле, чем
+ * молча снять её на здоровой машине.
+ */
+function tunAddresses(systemIpv6) {
+  return systemIpv6 === false ? [TUN_IPV4] : [TUN_IPV4, TUN_IPV6];
+}
+
+function buildInbounds(mode, options, systemIpv6) {
   if (mode === "tun") {
     return [
       {
         type: "tun",
         tag: "tun-in",
         interface_name: "ninety-tun",
-        // IPv4 + IPv6 обязательны оба: auto_route строит маршруты только для тех
-        // семейств, чей адрес есть на интерфейсе. С одним IPv4-адресом весь
-        // нативный IPv6-трафик уходил мимо туннеля физическим интерфейсом —
-        // приложения со своим резолвером (Chromium/Electron с DoH получают AAAA
-        // в обход hijack-dns) утекали с реальным адресом даже в TUN. ULA-префикс,
-        // в публичную маршрутизацию не попадает.
-        address: ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+        address: tunAddresses(systemIpv6),
         mtu: options.inbound.mtu || 9000,
         auto_route: true,
         strict_route: !!options.inbound.strictRoute,
@@ -1290,6 +1311,7 @@ export function buildConfig({
   warpInfo,
   xray = false,
   bridgePorts,
+  systemIpv6,
 }) {
   const runtime = resolveRuntimePrivacyPolicy({
     mode,
@@ -1529,7 +1551,7 @@ export function buildConfig({
       ...(opts.log?.disabled ? { disabled: true } : {}),
     },
     dns: buildDns(opts, warpEndpoint ? "warp" : "proxy", effectiveMode),
-    inbounds: buildInbounds(effectiveMode, opts),
+    inbounds: buildInbounds(effectiveMode, opts, systemIpv6),
     outbounds,
     route,
     experimental: {
