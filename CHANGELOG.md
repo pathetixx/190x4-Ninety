@@ -6,6 +6,34 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.6.6 — 2026-09-10
+
+## English
+
+### New
+
+- The bypass can now be applied only to the sites that turn out to be blocked, so sites that opened fine on their own stop breaking; the first visit to a blocked site may take two or three reloads before it is recognised.
+- Sites recognised that way are listed on the DPI screen, and any of them can be removed from the list or sent to the exclusions.
+- New installations start in this mode, while installations that already used the bypass keep the mode they had.
+- The DPI screen now says what each bypass scope does and which one is active.
+
+### Bypass lists
+
+- The IP list for the bypass now arrives together with the strategies instead of waiting for the update button.
+
+## Русский
+
+### Новое
+
+- Обход теперь можно применять только к тем сайтам, которые оказались заблокированы, — сайты, открывавшиеся и без него, перестают ломаться; заблокированный сайт при первом заходе может потребовать двух-трёх обновлений страницы, пока не определится.
+- Найденные так сайты видны в разделе обхода, любой можно убрать из списка или отправить в исключения.
+- Новые установки начинают с этого режима, а у тех, кто уже пользовался обходом, режим остаётся прежним.
+- В разделе обхода теперь написано, что делает каждый режим применения и какой из них включён.
+
+### Списки обхода
+
+- Список IP для обхода приезжает вместе со стратегиями, а не ждёт кнопки обновления.
+
 ## v0.6.5 — 2026-09-09
 
 ## English
