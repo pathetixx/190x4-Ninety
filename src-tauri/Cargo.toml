@@ -48,7 +48,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # без него dns_probe считал живой DoH-резолвер мёртвым — watchdog спамил фолбэком.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json", "http2", "cookies"] }
 base64 = { version = "0.23", default-features = false, features = ["std"] }
-argon2 = "0.5"
+argon2 = "0.6"
 chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "getrandom"] }
 zeroize = "1"
 # Проверка подписи канала стратегий (minisign — тот же ключ, что у OTA-апдейтера).
