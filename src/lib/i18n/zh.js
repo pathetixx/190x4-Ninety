@@ -1030,10 +1030,12 @@ export const zh = {
     feed: {
       emptyTitle: "目前很安静",
       emptyText: "连接故障以及 Ninety 为修复它们所做的事会显示在这里。",
-      summary: "本周劣化 {minutes} 分钟 · 记录：{count}",
+      summary: "本周劣化至少 {minutes} 分钟 · 记录：{count}",
+      summaryWithUnmeasured: "本周劣化至少 {minutes} 分钟 · 记录：{count} · 结果不明：{unmeasured}",
       ongoing: "正在发生",
       resolvedIn: "{duration} 内恢复",
-      unresolved: "结果不明",
+      endedIn: "{duration} 后中断 — 未确认恢复",
+      unmeasured: "测量已停止 — 结果不明",
       kind: {
         quality: {
           degraded: "速度骤降",
@@ -1041,6 +1043,12 @@ export const zh = {
           fixed: "这一步奏效了：{step}",
           restored: "连接已恢复",
           gaveUp: "恢复失败",
+          endedByDisconnect: "已断开 — 观察中断",
+          endedBySourceChange: "已切换配置 — 观察中断",
+          endedByMonitoringOff: "已关闭质量观察",
+          pausedHostPressure: "测量停止：电脑负载过高",
+          pausedLowData: "测量停止：已开启流量节省",
+          pausedProbeSkipped: "测量停止：检查未执行",
         },
         core: {
           died: "内核已停止",

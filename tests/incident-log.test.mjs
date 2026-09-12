@@ -1,7 +1,7 @@
 // Лента инцидентов: кольцо/TTL хранилища и группировка событий в инциденты.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createIncidentLog, degradedMs, groupIncidents } from "/lib/incident-log.js";
+import { createIncidentLog, degradedMs, groupIncidents, unmeasuredIncidents } from "/lib/incident-log.js";
 
 function fakeStorage(initial = {}) {
   const map = new Map(Object.entries(initial));
@@ -73,8 +73,40 @@ test("группировка: деградация → лечение → вос
   assert.equal(groups.length, 1);
   assert.equal(groups[0].events.length, 3);
   assert.equal(groups[0].resolved, true);
+  assert.equal(groups[0].outcome, "resolved");
   assert.equal(groups[0].durationMs, 8_000);
   assert.equal(groups[0].ongoing, undefined);
+});
+
+// Отключение посреди деградации — исход, а не молчание: без него инцидент
+// дотлевал до таймаута и показывался как «чем закончилось — неизвестно», хотя
+// измерять было уже нечего, а длительность плохой связи известна точно.
+test("группировка: конец сессии закрывает инцидент с известной длительностью", () => {
+  const groups = groupIncidents([
+    entry(1_000, "quality.degraded", "warn"),
+    entry(5_000, "quality.endedByDisconnect", "end"),
+  ], { now: () => 100_000, idleMs: 5_000 });
+
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].outcome, "ended");
+  assert.equal(groups[0].resolved, false, "конец сессии не выдаёт себя за восстановление");
+  assert.equal(groups[0].durationMs, 4_000);
+  assert.equal(groups[0].events.length, 2);
+});
+
+test("группировка: конец сессии вне инцидента не попадает в ленту", () => {
+  const groups = groupIncidents([
+    entry(1_000, "quality.endedByDisconnect", "end"),
+    entry(2_000, "node.switched", "info"),
+  ], { now: () => 3_000 });
+
+  assert.deepEqual(groups.map((g) => g.events[0].kind), ["node.switched"]);
+});
+
+test("группировка: одиночная заметка не притворяется инцидентом без исхода", () => {
+  const [note] = groupIncidents([entry(1_000, "node.switched", "info")], { now: () => 100_000, idleMs: 5_000 });
+  assert.equal(note.outcome, "note");
+  assert.equal(note.resolved, false);
 });
 
 test("группировка: инцидент без развязки помечается как идущий", () => {
@@ -87,6 +119,7 @@ test("группировка: молчание дольше окна закры�
   const groups = groupIncidents([entry(1_000, "quality.degraded", "warn")], { now: () => 100_000, idleMs: 5_000 });
   assert.equal(groups[0].ongoing, false);
   assert.equal(groups[0].resolved, false);
+  assert.equal(groups[0].outcome, "unmeasured");
 });
 
 test("группировка: инцидент наследует худший уровень своих событий", () => {
@@ -121,4 +154,19 @@ test("degradedMs: суммарное время считает только ин
 
   assert.equal(degradedMs(groups), 4_000 + 3_000);
   assert.equal(degradedMs(groups, { since: 50_000 }), 3_000);
+});
+
+// Инцидент из одной записи весит 0 мс: сводка «деградировала N мин» без счётчика
+// недомеренных записей систематически занижает картину недели.
+test("unmeasuredIncidents: считает записи, чьё время degradedMs недосчитал", () => {
+  const groups = groupIncidents([
+    entry(1_000, "quality.degraded", "warn"),
+    entry(60_000, "quality.degraded", "warn"),
+    entry(64_000, "quality.restored", "ok"),
+    entry(200_000, "quality.degraded", "warn"),
+  ], { now: () => 201_000, idleMs: 20_000 });
+
+  assert.equal(degradedMs(groups), 4_000, "незакрытые инциденты дают ноль");
+  assert.equal(unmeasuredIncidents(groups), 1, "идущий сейчас инцидент ещё может закончиться замером");
+  assert.equal(unmeasuredIncidents(groups, { since: 100_000 }), 0);
 });

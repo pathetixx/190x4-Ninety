@@ -1054,10 +1054,12 @@ export const ru = {
     feed: {
       emptyTitle: "Пока тихо",
       emptyText: "Здесь появятся сбои связи и то, что Ninety сделал, чтобы их починить.",
-      summary: "За неделю связь деградировала {minutes} мин · записей: {count}",
+      summary: "За неделю связь деградировала не менее {minutes} мин · записей: {count}",
+      summaryWithUnmeasured: "За неделю связь деградировала не менее {minutes} мин · записей: {count} · без исхода: {unmeasured}",
       ongoing: "идёт прямо сейчас",
       resolvedIn: "восстановлено за {duration}",
-      unresolved: "чем закончилось — неизвестно",
+      endedIn: "прервано через {duration} — восстановление не подтверждено",
+      unmeasured: "замеры прекратились — исход неизвестен",
       kind: {
         quality: {
           degraded: "Скорость упала",
@@ -1065,6 +1067,12 @@ export const ru = {
           fixed: "Помогло: {step}",
           restored: "Связь восстановилась",
           gaveUp: "Восстановить не удалось",
+          endedByDisconnect: "Отключение — наблюдение прервано",
+          endedBySourceChange: "Смена профиля — наблюдение прервано",
+          endedByMonitoringOff: "Наблюдение за качеством выключено",
+          pausedHostPressure: "Замеры остановлены: компьютер перегружен",
+          pausedLowData: "Замеры остановлены: включена экономия трафика",
+          pausedProbeSkipped: "Замеры остановлены: проверка не выполнялась",
         },
         core: {
           died: "Ядро остановилось",

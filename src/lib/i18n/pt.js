@@ -1046,10 +1046,12 @@ export const pt = {
     feed: {
       emptyTitle: "Por agora, tudo calmo",
       emptyText: "Aqui vão aparecer as falhas de ligação e o que o Ninety fez para as corrigir.",
-      summary: "{minutes} min degradados esta semana · registos: {count}",
+      summary: "Pelo menos {minutes} min degradados esta semana · registos: {count}",
+      summaryWithUnmeasured: "Pelo menos {minutes} min degradados esta semana · registos: {count} · sem desfecho: {unmeasured}",
       ongoing: "a acontecer agora",
       resolvedIn: "recuperado em {duration}",
-      unresolved: "desfecho desconhecido",
+      endedIn: "interrompido após {duration} — recuperação não confirmada",
+      unmeasured: "as medições pararam — desfecho desconhecido",
       kind: {
         quality: {
           degraded: "A velocidade caiu",
@@ -1057,6 +1059,12 @@ export const pt = {
           fixed: "Isto ajudou: {step}",
           restored: "Ligação recuperada",
           gaveUp: "Não foi possível recuperar",
+          endedByDisconnect: "Desligado — monitorização interrompida",
+          endedBySourceChange: "Perfil alterado — monitorização interrompida",
+          endedByMonitoringOff: "Monitorização da qualidade desligada",
+          pausedHostPressure: "Medições paradas: o computador está sobrecarregado",
+          pausedLowData: "Medições paradas: modo de poupança de dados ativo",
+          pausedProbeSkipped: "Medições paradas: a verificação não foi executada",
         },
         core: {
           died: "O núcleo parou",

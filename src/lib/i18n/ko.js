@@ -1030,10 +1030,12 @@ export const ko = {
     feed: {
       emptyTitle: "아직은 조용합니다",
       emptyText: "연결 장애와 Ninety가 그것을 고치려고 한 일이 여기에 표시됩니다.",
-      summary: "이번 주 {minutes}분 저하 · 기록: {count}",
+      summary: "이번 주 최소 {minutes}분 저하 · 기록: {count}",
+      summaryWithUnmeasured: "이번 주 최소 {minutes}분 저하 · 기록: {count} · 결과 미상: {unmeasured}",
       ongoing: "지금 진행 중",
       resolvedIn: "{duration} 만에 복구",
-      unresolved: "결과 미상",
+      endedIn: "{duration} 만에 중단 — 회복은 확인되지 않음",
+      unmeasured: "측정이 멈췄습니다 — 결과 미상",
       kind: {
         quality: {
           degraded: "속도가 떨어졌습니다",
@@ -1041,6 +1043,12 @@ export const ko = {
           fixed: "이것이 효과가 있었습니다: {step}",
           restored: "연결이 회복되었습니다",
           gaveUp: "복구하지 못했습니다",
+          endedByDisconnect: "연결 해제 — 관찰이 중단되었습니다",
+          endedBySourceChange: "프로필 변경 — 관찰이 중단되었습니다",
+          endedByMonitoringOff: "품질 관찰을 껐습니다",
+          pausedHostPressure: "측정 중단: 컴퓨터 부하가 높습니다",
+          pausedLowData: "측정 중단: 데이터 절약 모드가 켜져 있습니다",
+          pausedProbeSkipped: "측정 중단: 검사가 실행되지 않았습니다",
         },
         core: {
           died: "코어가 중지되었습니다",

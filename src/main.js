@@ -74,7 +74,8 @@ import {
 } from "/lib/profile-store.js";
 import { createQualityEngine } from "/lib/quality-engine.js";
 import { bus } from "/lib/bus.js";
-import { incidentLog } from "/lib/incident-log.js";
+import { groupIncidents, incidentLog } from "/lib/incident-log.js";
+import { createChannelIncidentRecorder } from "/lib/channel-incidents.js";
 import { mountDiagnoseView } from "/lib/diagnose-view.js";
 import { newRule, sanitizeRule } from "/lib/routing-rules.js";
 import { openQualityScope } from "/lib/quality-scope.js";
@@ -886,10 +887,14 @@ if (settingsRoot) {
       if (path.startsWith("quality.")) {
         qualityEngine.setOptions(loadOptions().quality);
         if (activeStrictPrivacyRuntime) {
-          qualityEngine.onIdle();
+          stopQualityEngine("monitoringOff");
           showQualityChip(false);
         } else if (path === "quality.enabled" && state === "connected") {
-          showQualityChip(loadOptions().quality?.enabled !== false);
+          const enabled = loadOptions().quality?.enabled !== false;
+          // Выключенное наблюдение — такой же конец сессии измерений, как
+          // отключение: открытый инцидент обязан получить исход, а не повиснуть.
+          if (!enabled) channelIncidents.endSession("monitoringOff");
+          showQualityChip(enabled);
         }
         return;
       }
@@ -1198,26 +1203,29 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
 // (start/stopHealthWatchdog) — их не трогаем. getQualityEngine — геттер, т.к.
 // qualityEngine определяется ниже по файлу; вызывается только в runtime-тике.
 // ── Лента инцидентов ───────────────────────────────────────
-// Пишем ПЕРЕХОДЫ состояния канала, а не каждую пробу: движок качества зовёт
-// onState на каждом тике, и без фильтра лента за час набивалась бы сотней
-// одинаковых записей. UNKNOWN — «нечем измерить» (лёг сам пробник), это не
-// событие связи, поэтому он только запоминается, но ничего не пишет.
-let lastIncidentChannelState = null;
-function recordChannelStateIncident(st) {
-  const prev = lastIncidentChannelState;
-  if (st === prev) return;
-  lastIncidentChannelState = st;
-  if (!prev || st === "UNKNOWN") return;
-  if (st === "GOOD") {
-    if (prev !== "UNKNOWN") incidentLog.record("quality.restored", { severity: "ok", params: { from: prev } });
-    return;
-  }
-  if (prev === "GOOD" || prev === "UNKNOWN") {
-    incidentLog.record("quality.degraded", {
-      severity: st === "STALLED" ? "err" : "warn",
-      params: { state: st },
-    });
-  }
+// Переходы состояния канала и исходы инцидентов считает /lib/channel-incidents.js;
+// здесь — только его «руки»: сама лента и то, что знает главный модуль.
+const channelIncidents = createChannelIncidentRecorder({
+  record: (kind, entry) => incidentLog.record(kind, entry),
+  // Инцидент мог открыть и не движок качества (смерть ядра, провал
+  // восстановления): такой тоже кончается вместе с сессией. Разбор ленты здесь
+  // дёшев — конец сессии событие редкое.
+  isAnyIncidentOpen: () => groupIncidents(incidentLog.list())[0]?.ongoing === true,
+  // Реконнект и автовосстановление ядра тоже гасят движок, но сессию не
+  // заканчивают: намерение пользователя осталось «подключено», измерения
+  // возобновятся через секунды, и инцидент обязан дожить до настоящего исхода —
+  // иначе успешный реконнект, который его и вылечил, не будет виден как
+  // восстановление. Смена источника и выключенное наблюдение обрывают
+  // наблюдение в любом случае: мерить прежний канал больше нечем.
+  sessionSurvives: (reason) => reason === "disconnected"
+    && networkIntent.desired() === "connected",
+});
+
+// Единая точка остановки движка: лента должна узнать о конце сессии до того,
+// как движок забудет состояние канала.
+function stopQualityEngine(reason) {
+  channelIncidents.endSession(reason);
+  qualityEngine.onIdle();
 }
 
 const healthWatchdog = initHealthWatchdog({
@@ -1431,11 +1439,17 @@ const qualityEngine = createQualityEngine({
       } catch { return "unknown"; }
     },
     onState: (st) => {
-      recordChannelStateIncident(st);
+      channelIncidents.observe(st);
       if (!qualityDot) return;
       setChannelState(st);
       if (qualityDot.dataset.active !== "true") qualityDot.dataset.active = "true";
     },
+    // Движок перестал измерять по известной причине. Дедупликацию и решение
+    // «писать ли в ленту» держим здесь: движок не знает, открыт ли инцидент.
+    onPaused: (reason) => channelIncidents.pause(reason),
+    // Пропуск пробы — тот же отказ измерения, только его причина техническая
+    // (нет поколения, занят датаплейн); пользователю она ничего не говорит.
+    onSkipped: () => channelIncidents.pause("probeSkipped"),
     // Каждая проба → в шину; осциллограмма канала (раскрытый чип) подписана на неё.
     onSample: (s) => bus.emit("quality:sample", s),
     toast, notify,
@@ -1583,7 +1597,7 @@ function commitActiveSource(kind, id) {
     },
     resetProxiesView: () => { cancelPendingSelections(); resetProxiesViewForSourceChange(); },
     resetTraffic: stopMeter,
-    resetQuality: () => { qualityExcluded.clear(); qualityEngine.onIdle(); },
+    resetQuality: () => { qualityExcluded.clear(); stopQualityEngine("sourceChanged"); },
     invalidateRuntime: () => runtimeIdentity.invalidate(),
     refreshProfiles: refreshProfilesSummary,
     syncTray: syncTrayMenu,
@@ -1864,7 +1878,7 @@ const sourceMutations = createSourceMutationController({
   resetEffectiveNode: () => { currentEffectiveNode = null; currentEffectiveTag = null; },
   resetProxiesView: () => { cancelPendingSelections(); resetProxiesViewForSourceChange(); },
   resetTraffic: stopMeter,
-  resetQuality: () => { qualityExcluded.clear(); qualityEngine.onIdle(); },
+  resetQuality: () => { qualityExcluded.clear(); stopQualityEngine("sourceChanged"); },
   refreshProfiles: refreshProfilesSummary,
   syncTray: syncTrayMenu,
   reconnect: reconnectForSourceChange,
@@ -2882,7 +2896,7 @@ function setState(next, opts = {}) {
       ordinaryFailClosedLatched = false;
     }
     syncHealthWatchdogForState();
-    qualityEngine.onIdle();
+    stopQualityEngine("disconnected");
     showQualityChip(false);
     applyReconnectUI();
     if (heroLabel) heroLabel.textContent = t("hero.notConnected");
@@ -2918,7 +2932,7 @@ function setState(next, opts = {}) {
     stopDnsGuard();
     stopClashStream();
     stopMeter();
-    qualityEngine.onIdle();
+    stopQualityEngine("disconnected");
     // Остановка подтверждается backend'ом (процессы завершены, порты освобождены),
     // поэтому это отдельное переходное состояние, а не новый connect.
     if (heroLabel) heroLabel.textContent = t("hero.disconnecting");
@@ -2940,7 +2954,7 @@ function setState(next, opts = {}) {
       ordinaryFailClosedLatched = false;
     }
     syncHealthWatchdogForState();
-    qualityEngine.onIdle();
+    stopQualityEngine("disconnected");
     if (heroLabel) heroLabel.textContent = t("conn.cleanupFail");
     if (heroDisc && !networkBootstrapInProgress) heroDisc.disabled = false;
     toast(t("conn.cleanupFail"), "error", 6000, { desc: t("conn.cleanupFailDesc") });
@@ -2986,7 +3000,7 @@ function setState(next, opts = {}) {
     // либо probe-in (TUN, тот же порт). «Напрямую» в TUN нельзя — bypass-правило
     // Ninety.exe увело бы пробу в direct, и мерился бы голый канал, а не туннель.
     if (activeStrictPrivacyRuntime) {
-      qualityEngine.onIdle();
+      stopQualityEngine("monitoringOff");
       showQualityChip(false);
     } else {
       qualityEngine.onConnected({

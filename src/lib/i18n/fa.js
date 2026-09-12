@@ -1038,10 +1038,12 @@ export const fa = {
     feed: {
       emptyTitle: "فعلاً آرام است",
       emptyText: "خرابی‌های ارتباط و کاری که Ninety برای رفعشان کرده اینجا می‌آید.",
-      summary: "این هفته {minutes} دقیقه افت · رکوردها: {count}",
+      summary: "این هفته دست‌کم {minutes} دقیقه افت · رکوردها: {count}",
+      summaryWithUnmeasured: "این هفته دست‌کم {minutes} دقیقه افت · رکوردها: {count} · بدون پایان: {unmeasured}",
       ongoing: "همین حالا در جریان است",
       resolvedIn: "در {duration} برطرف شد",
-      unresolved: "پایانش نامعلوم است",
+      endedIn: "پس از {duration} قطع شد — بازگشت تأیید نشد",
+      unmeasured: "اندازه‌گیری‌ها متوقف شد — پایانش نامعلوم",
       kind: {
         quality: {
           degraded: "سرعت افت کرد",
@@ -1049,6 +1051,12 @@ export const fa = {
           fixed: "این کمک کرد: {step}",
           restored: "ارتباط برگشت",
           gaveUp: "ترمیم ناموفق بود",
+          endedByDisconnect: "قطع اتصال — پایش نیمه‌کاره ماند",
+          endedBySourceChange: "تغییر پروفایل — پایش نیمه‌کاره ماند",
+          endedByMonitoringOff: "پایش کیفیت خاموش است",
+          pausedHostPressure: "اندازه‌گیری متوقف: رایانه بیش از حد مشغول است",
+          pausedLowData: "اندازه‌گیری متوقف: حالت کم‌مصرف داده روشن است",
+          pausedProbeSkipped: "اندازه‌گیری متوقف: بررسی اجرا نشد",
         },
         core: {
           died: "هسته متوقف شد",

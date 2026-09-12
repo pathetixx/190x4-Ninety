@@ -18,7 +18,7 @@ import {
   buildProbeSet, normalizePinned, resolveRegionPack, targetsById,
   GLOBAL_PACK, REGION_PACKS,
 } from "/lib/probe-sets.js";
-import { groupIncidents, degradedMs, incidentLog } from "/lib/incident-log.js";
+import { groupIncidents, degradedMs, unmeasuredIncidents, incidentLog } from "/lib/incident-log.js";
 import { escapeHtml as esc } from "/lib/esc.js";
 import { t, getLang } from "/lib/i18n/index.js";
 import { countryName } from "/lib/country-names.js";
@@ -784,8 +784,13 @@ export function mountDiagnoseView(root, {
 
     const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
     const minutes = Math.round(degradedMs(groups, { since: weekAgo }) / 60000);
+    // Инциденты без исхода недосчитаны по времени (см. degradedMs), поэтому
+    // сводка говорит «не менее» и показывает, сколько записей не домерено.
+    const unmeasured = unmeasuredIncidents(groups, { since: weekAgo });
     rightCard.appendChild(el("div", "dg-feed__summary",
-      t("dg.feed.summary", { minutes, count: groups.length })));
+      unmeasured
+        ? t("dg.feed.summaryWithUnmeasured", { minutes, count: groups.length, unmeasured })
+        : t("dg.feed.summary", { minutes, count: groups.length })));
 
     const feed = el("div", "dg-feed");
     for (const group of groups.slice(0, 40)) {
@@ -802,13 +807,10 @@ export function mountDiagnoseView(root, {
       }
       if (steps.childElementCount) item.appendChild(steps);
 
-      item.appendChild(el("div", "dg-inc__foot", esc(
-        group.ongoing
-          ? t("dg.feed.ongoing")
-          : group.resolved
-            ? t("dg.feed.resolvedIn", { duration: humanDuration(group.durationMs) })
-            : t("dg.feed.unresolved"),
-      )));
+      // Одиночная заметка («переключил сервер») ничем не «кончается» — футер ей
+      // не нужен; раньше она получала «чем закончилось — неизвестно».
+      const foot = incidentFoot(group);
+      if (foot) item.appendChild(el("div", "dg-inc__foot", esc(foot)));
       feed.appendChild(item);
     }
     rightCard.appendChild(feed);
@@ -816,6 +818,20 @@ export function mountDiagnoseView(root, {
 
   function incidentTitle(group) {
     return incidentText(group.events[0]);
+  }
+
+  // Исход инцидента. «Неизвестно» осталось только там, где оно и правда
+  // неизвестно: замеры прекратились, а почему — говорит последний шаг внутри.
+  function incidentFoot(group) {
+    if (group.ongoing) return t("dg.feed.ongoing");
+    if (group.outcome === "resolved") {
+      return t("dg.feed.resolvedIn", { duration: humanDuration(group.durationMs) });
+    }
+    if (group.outcome === "ended") {
+      return t("dg.feed.endedIn", { duration: humanDuration(group.durationMs) });
+    }
+    if (group.outcome === "unmeasured") return t("dg.feed.unmeasured");
+    return null;
   }
 
   function incidentText(event) {

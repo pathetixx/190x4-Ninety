@@ -1046,10 +1046,12 @@ export const es = {
     feed: {
       emptyTitle: "De momento, tranquilo",
       emptyText: "Aquí aparecerán los fallos de conexión y lo que Ninety hizo para arreglarlos.",
-      summary: "{minutes} min degradados esta semana · entradas: {count}",
+      summary: "Al menos {minutes} min degradados esta semana · entradas: {count}",
+      summaryWithUnmeasured: "Al menos {minutes} min degradados esta semana · entradas: {count} · sin desenlace: {unmeasured}",
       ongoing: "ocurriendo ahora",
       resolvedIn: "recuperado en {duration}",
-      unresolved: "desenlace desconocido",
+      endedIn: "interrumpido tras {duration} — recuperación sin confirmar",
+      unmeasured: "las mediciones se detuvieron — desenlace desconocido",
       kind: {
         quality: {
           degraded: "La velocidad cayó",
@@ -1057,6 +1059,12 @@ export const es = {
           fixed: "Esto ayudó: {step}",
           restored: "Conexión recuperada",
           gaveUp: "No se pudo recuperar",
+          endedByDisconnect: "Desconexión — seguimiento interrumpido",
+          endedBySourceChange: "Cambio de perfil — seguimiento interrumpido",
+          endedByMonitoringOff: "Seguimiento de calidad desactivado",
+          pausedHostPressure: "Mediciones detenidas: el equipo está sobrecargado",
+          pausedLowData: "Mediciones detenidas: modo de ahorro de datos activo",
+          pausedProbeSkipped: "Mediciones detenidas: la comprobación no se ejecutó",
         },
         core: {
           died: "El núcleo se detuvo",

@@ -23,8 +23,10 @@ const TTL_MS = 14 * 24 * 3600 * 1000;
 // сервер), и вечно открытый инцидент врал бы про «идёт до сих пор».
 const IDLE_CLOSE_MS = 10 * 60_000;
 
-// Уровни: err/warn открывают инцидент, ok закрывает, info — контекст внутри.
-export const INCIDENT_SEVERITIES = ["info", "ok", "warn", "err"];
+// Уровни: err/warn открывают инцидент, ok закрывает его подтверждённым
+// восстановлением, end — закрывает без вердикта (сессия кончилась раньше:
+// отключение, смена источника, выключенное наблюдение), info — контекст внутри.
+export const INCIDENT_SEVERITIES = ["info", "ok", "end", "warn", "err"];
 
 const isOpener = (severity) => severity === "warn" || severity === "err";
 
@@ -125,24 +127,33 @@ export function createIncidentLog({
 }
 
 // Группировка записей в инциденты: «что-то сломалось → что делали → чем
-// кончилось». Открывает инцидент первое warn/err, закрывает первое ok после
-// него либо тишина дольше idleMs. info вне открытого инцидента — отдельная
-// однособытийная запись: пользователю важно видеть и «просто переключил
-// сервер», иначе лента выглядит пустой в спокойные дни.
+// кончилось». Открывает инцидент первое warn/err. Закрыть его может:
+//   ok  — восстановление подтверждено замером (outcome "resolved");
+//   end — сессия кончилась раньше замера (outcome "ended"): исход неизвестен,
+//         но длительность известна — до этого момента связь была плохой;
+//   тишина дольше idleMs (outcome "unmeasured") — замеров больше не было, и
+//         сколько ещё длилась деградация, приложение не знает.
+// info вне открытого инцидента — отдельная однособытийная заметка (outcome
+// "note"): пользователю важно видеть и «просто переключил сервер», иначе лента
+// выглядит пустой в спокойные дни. end вне инцидента не показываем — обычное
+// отключение само по себе не событие связи.
 export function groupIncidents(entries, { idleMs = IDLE_CLOSE_MS, now = Date.now } = {}) {
   const sorted = [...(entries || [])].filter((e) => e && Number.isFinite(e.ts)).sort((a, b) => a.ts - b.ts);
   const groups = [];
   let open = null;
 
-  const close = (group, endTs, resolved) => {
+  const close = (group, endTs, outcome) => {
     group.endTs = endTs;
-    group.resolved = resolved;
+    group.outcome = outcome;
+    // Прежнее поле остаётся: «восстановлено» — только подтверждённое ok, всё
+    // остальное для старых потребителей по-прежнему false.
+    group.resolved = outcome === "resolved";
     group.durationMs = Math.max(0, endTs - group.startTs);
   };
 
   for (const entry of sorted) {
     if (open && entry.ts - open.lastTs > idleMs) {
-      close(open, open.lastTs, false);
+      close(open, open.lastTs, "unmeasured");
       open = null;
     }
 
@@ -159,11 +170,22 @@ export function groupIncidents(entries, { idleMs = IDLE_CLOSE_MS, now = Date.now
       continue;
     }
 
+    if (entry.severity === "end") {
+      // Конец сессии закрывает только уже открытый инцидент. Вне его это
+      // рядовое отключение, и заметкой в ленте оно быть не должно.
+      if (!open) continue;
+      open.events.push(entry);
+      open.lastTs = entry.ts;
+      close(open, entry.ts, "ended");
+      open = null;
+      continue;
+    }
+
     if (open) {
       open.events.push(entry);
       open.lastTs = entry.ts;
       if (entry.severity === "ok") {
-        close(open, entry.ts, true);
+        close(open, entry.ts, "resolved");
         open = null;
       }
       continue;
@@ -171,7 +193,7 @@ export function groupIncidents(entries, { idleMs = IDLE_CLOSE_MS, now = Date.now
 
     // Событие вне инцидента.
     const solo = { startTs: entry.ts, lastTs: entry.ts, severity: entry.severity, events: [entry] };
-    close(solo, entry.ts, entry.severity === "ok");
+    close(solo, entry.ts, entry.severity === "ok" ? "resolved" : "note");
     groups.push(solo);
   }
 
@@ -179,7 +201,7 @@ export function groupIncidents(entries, { idleMs = IDLE_CLOSE_MS, now = Date.now
     // Инцидент без развязки: если тишина уже дольше окна — он закрыт по
     // таймауту, иначе идёт прямо сейчас.
     const silent = now() - open.lastTs > idleMs;
-    close(open, open.lastTs, false);
+    close(open, open.lastTs, "unmeasured");
     open.ongoing = !silent;
   }
 
@@ -189,10 +211,26 @@ export function groupIncidents(entries, { idleMs = IDLE_CLOSE_MS, now = Date.now
 // Суммарное время деградации за период (для строки «за неделю связь
 // деградировала N минут»). Считаем только закрытые/идущие инциденты уровня
 // warn+, одиночные info в счёт не идут.
+//
+// Для "resolved" и "ended" это точная длительность, для "unmeasured" — нижняя
+// граница: после последнего события измерений не было, и деградация могла идти
+// ещё долго. Поэтому сумма — оценка снизу, а сводка обязана говорить «не менее»
+// и показывать рядом unmeasuredIncidents(); иначе инцидент из одной записи
+// (длительность 0) молча улучшает картину недели.
 export function degradedMs(groups, { since = 0 } = {}) {
   return (groups || [])
     .filter((g) => isOpener(g.severity) && g.startTs >= since)
     .reduce((total, g) => total + (g.durationMs || 0), 0);
+}
+
+// Сколько инцидентов за период закрылись без исхода — те самые, чьё время
+// degradedMs недосчитывает. Идущий прямо сейчас инцидент сюда не попадает: он
+// ещё может закончиться замером.
+export function unmeasuredIncidents(groups, { since = 0 } = {}) {
+  return (groups || []).filter((g) => isOpener(g.severity)
+    && g.startTs >= since
+    && g.outcome === "unmeasured"
+    && !g.ongoing).length;
 }
 
 // Общая лента приложения. Тесты создают свою через createIncidentLog.

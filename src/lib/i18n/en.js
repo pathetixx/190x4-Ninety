@@ -1038,10 +1038,12 @@ export const en = {
     feed: {
       emptyTitle: "All quiet so far",
       emptyText: "Connection failures and what Ninety did about them will show up here.",
-      summary: "Degraded for {minutes} min this week · entries: {count}",
+      summary: "Degraded for at least {minutes} min this week · entries: {count}",
+      summaryWithUnmeasured: "Degraded for at least {minutes} min this week · entries: {count} · no outcome: {unmeasured}",
       ongoing: "happening right now",
       resolvedIn: "recovered in {duration}",
-      unresolved: "outcome unknown",
+      endedIn: "cut short after {duration} — recovery not confirmed",
+      unmeasured: "measurements stopped — outcome unknown",
       kind: {
         quality: {
           degraded: "Speed dropped",
@@ -1049,6 +1051,12 @@ export const en = {
           fixed: "This helped: {step}",
           restored: "Connection recovered",
           gaveUp: "Recovery failed",
+          endedByDisconnect: "Disconnected — monitoring cut short",
+          endedBySourceChange: "Profile changed — monitoring cut short",
+          endedByMonitoringOff: "Quality monitoring turned off",
+          pausedHostPressure: "Measurements stopped: the computer is overloaded",
+          pausedLowData: "Measurements stopped: low-data mode is on",
+          pausedProbeSkipped: "Measurements stopped: the check did not run",
         },
         core: {
           died: "The core stopped",

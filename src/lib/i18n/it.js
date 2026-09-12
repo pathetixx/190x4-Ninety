@@ -1046,10 +1046,12 @@ export const it = {
     feed: {
       emptyTitle: "Per ora tutto tranquillo",
       emptyText: "Qui compariranno i guasti di connessione e ciò che Ninety ha fatto per risolverli.",
-      summary: "{minutes} min degradati questa settimana · voci: {count}",
+      summary: "Almeno {minutes} min degradati questa settimana · voci: {count}",
+      summaryWithUnmeasured: "Almeno {minutes} min degradati questa settimana · voci: {count} · senza esito: {unmeasured}",
       ongoing: "in corso adesso",
       resolvedIn: "ripristinato in {duration}",
-      unresolved: "esito sconosciuto",
+      endedIn: "interrotto dopo {duration} — ripristino non confermato",
+      unmeasured: "misurazioni interrotte — esito sconosciuto",
       kind: {
         quality: {
           degraded: "Velocità crollata",
@@ -1057,6 +1059,12 @@ export const it = {
           fixed: "Ha funzionato: {step}",
           restored: "Connessione ripristinata",
           gaveUp: "Ripristino non riuscito",
+          endedByDisconnect: "Disconnessione — monitoraggio interrotto",
+          endedBySourceChange: "Profilo cambiato — monitoraggio interrotto",
+          endedByMonitoringOff: "Monitoraggio della qualità disattivato",
+          pausedHostPressure: "Misurazioni ferme: computer sovraccarico",
+          pausedLowData: "Misurazioni ferme: modalità risparmio dati attiva",
+          pausedProbeSkipped: "Misurazioni ferme: il controllo non è stato eseguito",
         },
         core: {
           died: "Il core si è fermato",

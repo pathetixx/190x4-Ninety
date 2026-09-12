@@ -1038,10 +1038,12 @@ export const tr = {
     feed: {
       emptyTitle: "Şimdilik sessiz",
       emptyText: "Bağlantı arızaları ve Ninety'nin onları düzeltmek için yaptıkları burada görünecek.",
-      summary: "Bu hafta {minutes} dk bozulma · kayıt: {count}",
+      summary: "Bu hafta en az {minutes} dk bozulma · kayıt: {count}",
+      summaryWithUnmeasured: "Bu hafta en az {minutes} dk bozulma · kayıt: {count} · sonuçsuz: {unmeasured}",
       ongoing: "şu anda sürüyor",
       resolvedIn: "{duration} içinde düzeldi",
-      unresolved: "sonucu bilinmiyor",
+      endedIn: "{duration} sonra kesildi — düzelme doğrulanmadı",
+      unmeasured: "ölçümler durdu — sonucu bilinmiyor",
       kind: {
         quality: {
           degraded: "Hız düştü",
@@ -1049,6 +1051,12 @@ export const tr = {
           fixed: "Bu işe yaradı: {step}",
           restored: "Bağlantı düzeldi",
           gaveUp: "Düzeltilemedi",
+          endedByDisconnect: "Bağlantı kesildi — izleme yarıda kaldı",
+          endedBySourceChange: "Profil değişti — izleme yarıda kaldı",
+          endedByMonitoringOff: "Kalite izleme kapatıldı",
+          pausedHostPressure: "Ölçümler durdu: bilgisayar aşırı yüklü",
+          pausedLowData: "Ölçümler durdu: veri tasarrufu açık",
+          pausedProbeSkipped: "Ölçümler durdu: kontrol çalışmadı",
         },
         core: {
           died: "Çekirdek durdu",

@@ -179,11 +179,14 @@ export function createQualityEngine({
   // ── Тик (зовётся из healthTick после liveness-OK) ──────
   async function tick() {
     const epoch = sessionEpoch;
+    if (!sessionActive(epoch) || !cfg.enabled) return;
     // hostPressure гейтит ВЕСЬ тик, а не только лесенку: под голоданием CPU
     // проба меряет не канал, а планировщик, и её результат отравил бы и
-    // статистику, и обучение ISP×час ложным «плохо».
-    if (!sessionActive(epoch) || !cfg.enabled || hostPressure || reconnectHandoff
-      || remediatingEpoch === epoch || probingEpoch === epoch) return;
+    // статистику, и обучение ISP×час ложным «плохо». Наружу об этом сообщаем:
+    // «не мерим» и «всё хорошо» — разные вещи, и для ленты инцидентов разница
+    // принципиальна (иначе открытый инцидент остаётся без исхода молча).
+    if (hostPressure) { actions.onPaused?.("hostPressure"); return; }
+    if (reconnectHandoff || remediatingEpoch === epoch || probingEpoch === epoch) return;
     const timestamp = now();
     if (timestamp < nextEligibleProbeAt) return;
 
@@ -194,7 +197,13 @@ export function createQualityEngine({
     const heartbeatDue = !cfg.lowDataMode &&
       timestamp - lastProbeAt >= cfg.idleProbeSec * 1000;
 
-    if (!suspect && !heartbeatDue) return;
+    if (!suspect && !heartbeatDue) {
+      // В режиме экономии трафика heartbeat выключен совсем: пока пользователь
+      // не качает, измерений не будет ни одного. Для ленты это не «канал в
+      // порядке», а «мерить перестали».
+      if (cfg.lowDataMode) actions.onPaused?.("lowDataMode");
+      return;
+    }
     if (timestamp - lastProbeAt < PROBE_MIN_GAP_MS && !suspect) return;
 
     const r = await probe(null, epoch);

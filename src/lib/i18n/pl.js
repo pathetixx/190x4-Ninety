@@ -1054,10 +1054,12 @@ export const pl = {
     feed: {
       emptyTitle: "Na razie cicho",
       emptyText: "Tu pojawią się awarie połączenia i to, co Ninety zrobił, żeby je naprawić.",
-      summary: "W tym tygodniu {minutes} min degradacji · wpisy: {count}",
+      summary: "W tym tygodniu co najmniej {minutes} min degradacji · wpisy: {count}",
+      summaryWithUnmeasured: "W tym tygodniu co najmniej {minutes} min degradacji · wpisy: {count} · bez rozstrzygnięcia: {unmeasured}",
       ongoing: "trwa teraz",
       resolvedIn: "przywrócono w {duration}",
-      unresolved: "nie wiadomo, czym się skończyło",
+      endedIn: "przerwano po {duration} — powrót do normy niepotwierdzony",
+      unmeasured: "pomiary ustały — nie wiadomo, czym się skończyło",
       kind: {
         quality: {
           degraded: "Prędkość spadła",
@@ -1065,6 +1067,12 @@ export const pl = {
           fixed: "To pomogło: {step}",
           restored: "Połączenie przywrócone",
           gaveUp: "Nie udało się naprawić",
+          endedByDisconnect: "Rozłączenie — obserwacja przerwana",
+          endedBySourceChange: "Zmiana profilu — obserwacja przerwana",
+          endedByMonitoringOff: "Obserwacja jakości wyłączona",
+          pausedHostPressure: "Pomiary wstrzymane: komputer przeciążony",
+          pausedLowData: "Pomiary wstrzymane: włączony tryb oszczędzania danych",
+          pausedProbeSkipped: "Pomiary wstrzymane: sprawdzenie się nie odbyło",
         },
         core: {
           died: "Rdzeń się zatrzymał",

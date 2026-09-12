@@ -390,3 +390,50 @@ test("вход в давление обнуляет накопленную се�
   // проба, снятая на границе давления, досчитала бы чужой стрик.
   assert.equal(ladderRan, false);
 });
+
+// «Не мерим» и «всё хорошо» — разные вещи. Движок обязан сказать об отказе от
+// измерения наружу: без этого открытый инцидент в ленте оставался без исхода,
+// и пользователю нечем было объяснить, почему исход неизвестен.
+test("движок сообщает причину, по которой перестал измерять", async () => {
+  installStorage();
+  let probes = 0;
+  const paused = [];
+  const engine = createQualityEngine({
+    invoke: async (cmd) => { if (cmd === "probe_quality") { probes += 1; return GOOD; } return undefined; },
+    actions: { onPaused: (reason) => paused.push(reason) },
+    opts: { enabled: true },
+  });
+
+  engine.onConnected({});
+  engine.setHostPressure(true);
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(probes, 0);
+  assert.deepEqual(paused, ["hostPressure"]);
+});
+
+test("режим экономии трафика без подозрения объявляется паузой, а не тишиной", async () => {
+  installStorage();
+  let probes = 0;
+  const paused = [];
+  let clock = 1_000_000;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => { if (cmd === "probe_quality") { probes += 1; return GOOD; } return undefined; },
+    actions: { onPaused: (reason) => paused.push(reason) },
+    opts: { enabled: true, lowDataMode: true },
+    now: () => clock,
+  });
+
+  engine.onConnected({});
+  // Трафика не было, а heartbeat в этом режиме выключен: проб не будет вообще.
+  clock += 3600_000;
+  await engine.tick();
+  assert.equal(probes, 0);
+  assert.deepEqual(paused, ["lowDataMode"]);
+
+  // Схлопнувшийся поток по-прежнему пробуем немедленно — экономия не значит
+  // «не замечать обрыв».
+  armSuspect(engine);
+  await engine.tick();
+  assert.equal(probes, 1);
+});

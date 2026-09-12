@@ -1030,10 +1030,12 @@ export const ja = {
     feed: {
       emptyTitle: "いまのところ静かです",
       emptyText: "接続の不具合と、Ninety がそれに対して行ったことがここに並びます。",
-      summary: "今週の劣化 {minutes} 分 · 記録: {count}",
+      summary: "今週の劣化 {minutes} 分以上 · 記録: {count}",
+      summaryWithUnmeasured: "今週の劣化 {minutes} 分以上 · 記録: {count} · 結末不明: {unmeasured}",
       ongoing: "現在進行中",
       resolvedIn: "{duration} で回復",
-      unresolved: "結末は不明",
+      endedIn: "{duration} で中断 — 回復は未確認",
+      unmeasured: "測定が止まりました — 結末は不明",
       kind: {
         quality: {
           degraded: "速度が落ちました",
@@ -1041,6 +1043,12 @@ export const ja = {
           fixed: "これが効きました: {step}",
           restored: "接続が回復しました",
           gaveUp: "復旧できませんでした",
+          endedByDisconnect: "切断 — 監視が中断されました",
+          endedBySourceChange: "プロファイル変更 — 監視が中断されました",
+          endedByMonitoringOff: "品質の監視をオフにしました",
+          pausedHostPressure: "測定停止: パソコンの負荷が高すぎます",
+          pausedLowData: "測定停止: データ節約モードが有効です",
+          pausedProbeSkipped: "測定停止: チェックが実行されませんでした",
         },
         core: {
           died: "コアが停止しました",

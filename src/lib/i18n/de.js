@@ -1038,10 +1038,12 @@ export const de = {
     feed: {
       emptyTitle: "Bisher ruhig",
       emptyText: "Hier erscheinen Verbindungsstörungen und das, was Ninety dagegen getan hat.",
-      summary: "Diese Woche {minutes} Min. beeinträchtigt · Einträge: {count}",
+      summary: "Diese Woche mindestens {minutes} Min. beeinträchtigt · Einträge: {count}",
+      summaryWithUnmeasured: "Diese Woche mindestens {minutes} Min. beeinträchtigt · Einträge: {count} · ohne Ergebnis: {unmeasured}",
       ongoing: "läuft gerade",
       resolvedIn: "behoben in {duration}",
-      unresolved: "Ausgang unbekannt",
+      endedIn: "nach {duration} abgebrochen — Erholung nicht bestätigt",
+      unmeasured: "Messungen gestoppt — Ausgang unbekannt",
       kind: {
         quality: {
           degraded: "Geschwindigkeit eingebrochen",
@@ -1049,6 +1051,12 @@ export const de = {
           fixed: "Das half: {step}",
           restored: "Verbindung wiederhergestellt",
           gaveUp: "Wiederherstellung gescheitert",
+          endedByDisconnect: "Getrennt — Überwachung abgebrochen",
+          endedBySourceChange: "Profil gewechselt — Überwachung abgebrochen",
+          endedByMonitoringOff: "Qualitätsüberwachung ausgeschaltet",
+          pausedHostPressure: "Messungen gestoppt: Computer überlastet",
+          pausedLowData: "Messungen gestoppt: Datensparmodus aktiv",
+          pausedProbeSkipped: "Messungen gestoppt: Prüfung lief nicht",
         },
         core: {
           died: "Der Kern wurde beendet",

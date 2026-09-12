@@ -1070,10 +1070,12 @@ export const ar = {
     feed: {
       emptyTitle: "هدوء حتى الآن",
       emptyText: "ستظهر هنا أعطال الاتصال وما فعله Ninety لإصلاحها.",
-      summary: "تدهور لمدة {minutes} دقيقة هذا الأسبوع · السجلات: {count}",
+      summary: "تدهور لمدة {minutes} دقيقة على الأقل هذا الأسبوع · السجلات: {count}",
+      summaryWithUnmeasured: "تدهور لمدة {minutes} دقيقة على الأقل هذا الأسبوع · السجلات: {count} · بلا نتيجة: {unmeasured}",
       ongoing: "يحدث الآن",
       resolvedIn: "استُعيد خلال {duration}",
-      unresolved: "النتيجة غير معروفة",
+      endedIn: "انقطع بعد {duration} — لم تتأكد العودة",
+      unmeasured: "توقّفت القياسات — النتيجة غير معروفة",
       kind: {
         quality: {
           degraded: "انخفضت السرعة",
@@ -1081,6 +1083,12 @@ export const ar = {
           fixed: "هذا نفع: {step}",
           restored: "عاد الاتصال",
           gaveUp: "تعذّر الإصلاح",
+          endedByDisconnect: "قطع الاتصال — توقّفت المراقبة",
+          endedBySourceChange: "تغيير الملف — توقّفت المراقبة",
+          endedByMonitoringOff: "مراقبة الجودة مُعطّلة",
+          pausedHostPressure: "توقّفت القياسات: الجهاز محمّل أكثر من اللازم",
+          pausedLowData: "توقّفت القياسات: وضع توفير البيانات مفعّل",
+          pausedProbeSkipped: "توقّفت القياسات: لم يُنفَّذ الفحص",
         },
         core: {
           died: "توقفت النواة",

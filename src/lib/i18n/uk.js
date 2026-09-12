@@ -1054,10 +1054,12 @@ export const uk = {
     feed: {
       emptyTitle: "Поки тихо",
       emptyText: "Тут з'являться збої зв'язку і те, що Ninety зробив, щоб їх полагодити.",
-      summary: "За тиждень зв'язок деградував {minutes} хв · записів: {count}",
+      summary: "За тиждень зв'язок деградував щонайменше {minutes} хв · записів: {count}",
+      summaryWithUnmeasured: "За тиждень зв'язок деградував щонайменше {minutes} хв · записів: {count} · без наслідку: {unmeasured}",
       ongoing: "триває просто зараз",
       resolvedIn: "відновлено за {duration}",
-      unresolved: "чим завершилося — невідомо",
+      endedIn: "перервано через {duration} — відновлення не підтверджено",
+      unmeasured: "виміри припинилися — наслідок невідомий",
       kind: {
         quality: {
           degraded: "Швидкість впала",
@@ -1065,6 +1067,12 @@ export const uk = {
           fixed: "Допомогло: {step}",
           restored: "Зв'язок відновлено",
           gaveUp: "Відновити не вдалося",
+          endedByDisconnect: "Відключення — спостереження перервано",
+          endedBySourceChange: "Зміна профілю — спостереження перервано",
+          endedByMonitoringOff: "Спостереження за якістю вимкнено",
+          pausedHostPressure: "Виміри зупинено: комп'ютер перевантажений",
+          pausedLowData: "Виміри зупинено: увімкнено економію трафіку",
+          pausedProbeSkipped: "Виміри зупинено: перевірка не виконувалася",
         },
         core: {
           died: "Ядро зупинилося",

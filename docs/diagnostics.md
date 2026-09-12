@@ -42,6 +42,8 @@ Checks that run while the tunnel is up: whether names resolve inside the tunnel,
 
 A short history of connection incidents: what happened, what Ninety did about it, and how long it took. The quality engine, the watchdogs and the core write into it, so the work they already do stops being invisible. Entries are stored locally, capped, and expire after two weeks.
 
+An incident ends in one of three ways. *Recovered in …* means a measurement confirmed the channel was healthy again. *Cut short after …* means the session ended first — disconnect, profile switch, or monitoring turned off — so the duration is known but the recovery is not. *Measurements stopped* means neither happened: the last step inside the incident says why the engine stopped measuring (host overloaded, low-data mode, probe skipped). Time for those incidents is counted only up to the last event, which is why the weekly summary reports “at least” and shows how many entries ended without an outcome.
+
 ## Report
 
 “Copy report” produces a plain-text summary with IP addresses masked. It is meant to be pasted into a support chat instead of raw logs.

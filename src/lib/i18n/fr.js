@@ -1046,10 +1046,12 @@ export const fr = {
     feed: {
       emptyTitle: "Calme pour l'instant",
       emptyText: "Les incidents de connexion et ce que Ninety a fait pour les corriger apparaîtront ici.",
-      summary: "{minutes} min dégradées cette semaine · entrées : {count}",
+      summary: "Au moins {minutes} min dégradées cette semaine · entrées : {count}",
+      summaryWithUnmeasured: "Au moins {minutes} min dégradées cette semaine · entrées : {count} · sans issue : {unmeasured}",
       ongoing: "en cours",
       resolvedIn: "rétabli en {duration}",
-      unresolved: "issue inconnue",
+      endedIn: "interrompu après {duration} — rétablissement non confirmé",
+      unmeasured: "mesures arrêtées — issue inconnue",
       kind: {
         quality: {
           degraded: "Débit effondré",
@@ -1057,6 +1059,12 @@ export const fr = {
           fixed: "Ça a aidé : {step}",
           restored: "Connexion rétablie",
           gaveUp: "Rétablissement impossible",
+          endedByDisconnect: "Déconnexion — suivi interrompu",
+          endedBySourceChange: "Profil changé — suivi interrompu",
+          endedByMonitoringOff: "Suivi de la qualité désactivé",
+          pausedHostPressure: "Mesures arrêtées : ordinateur surchargé",
+          pausedLowData: "Mesures arrêtées : mode économie de données actif",
+          pausedProbeSkipped: "Mesures arrêtées : la vérification n'a pas eu lieu",
         },
         core: {
           died: "Le cœur s'est arrêté",
