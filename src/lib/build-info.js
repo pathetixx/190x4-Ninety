@@ -11,7 +11,7 @@ export const BUILD_INFO = {
   commit: "local",
   date: "—",
   core: "sing-box 1.13.19-ninety.8",
-  coreXray: "Xray 26.7.28",
+  coreXray: "Xray 26.9.9",
   channel: "Early access",
   platform: "Windows · x64",
   components: {

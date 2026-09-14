@@ -125,6 +125,15 @@ jobs:
           cp sing-box.exe ../binaries/sing-box-x86_64-pc-windows-msvc.exe
           echo "Built ninety-core $CORE_TAG ($(du -m sing-box.exe | cut -f1) MB)."
 
+      - name: Setup Go for Xray-core
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # Xray-core с v26.9.8 требует go 1.27, а зависимости ninety-core на 1.27
+          # не собираются (go-json-experiment/json), поэтому у ядер свои toolchain.
+          # Точный патч по той же причине, что и выше.
+          go-version: '1.27.1'
+          cache: false
+
       - name: Build xray-core from source (xhttp bridge)
         run: |
           set -euo pipefail

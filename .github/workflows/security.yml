@@ -133,6 +133,11 @@ jobs:
             echo "govulncheck found no unallowlisted reachable function or method vulnerability in the built binary"
             jq -s -r '.[] | select(.finding?) | .finding | "module-only finding: \(.osv // "unknown")"' "$tmpdir/sing-box-vulns.json" | sort -u
           )
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # Та же toolchain, что собирает Xray-core в build.yml.
+          go-version: '1.27.1'
+          cache: false
       - name: Audit pinned Xray core
         shell: bash
         run: |
