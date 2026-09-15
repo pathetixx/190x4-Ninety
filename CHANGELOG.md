@@ -6,6 +6,42 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.6.8 — 2026-09-15
+
+## English
+
+### Connection
+
+- Both cores were updated: sing-box to 1.14.1 and Xray to 26.9.9.
+- WARP now tries every address of its server at once, so it connects even when some of them are blocked.
+- Several causes of XHTTP connection failures were fixed.
+- VLESS and Trojan servers over XHTTP or mKCP without TLS, Reality or encryption no longer connect when the server address is public.
+
+### Settings
+
+- The "Independent DNS cache" setting is gone: DNS answers are now always cached separately for each server.
+
+### Diagnostics
+
+- Diagnostics now shows how each connection failure ended, including a disconnect, a profile change or stopped measurements, and the weekly summary counts the entries with no outcome.
+
+## Русский
+
+### Подключение
+
+- Оба ядра обновлены: sing-box до 1.14.1, Xray до 26.9.9.
+- WARP теперь пробует все адреса своего сервера сразу и подключается, даже если часть из них заблокирована.
+- Исправлено несколько причин сбоев XHTTP-соединений.
+- Серверы VLESS и Trojan через XHTTP или mKCP без TLS, Reality и шифрования больше не подключаются, если адрес сервера публичный.
+
+### Настройки
+
+- Настройка «Независимый DNS-кэш» убрана: ответы DNS теперь всегда кэшируются отдельно для каждого сервера.
+
+### Диагностика
+
+- В диагностике у каждого сбоя связи теперь видно, чем он закончился, — в том числе отключением, сменой профиля или остановкой замеров, — а недельная сводка отдельно считает записи без исхода.
+
 ## v0.6.7 — 2026-09-10
 
 ## English
