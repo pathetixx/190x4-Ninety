@@ -67,7 +67,6 @@ export const DEFAULT_OPTIONS = {
     // показывалась недоступной, см. комментарий к FALLBACKS в dns-guard.js.
     remoteAddress: "https://8.8.8.8/dns-query",
     directAddress: "https://8.8.8.8/dns-query",
-    independentCache: true,
     enableFakeDns: false,
   },
   route: {
@@ -184,7 +183,7 @@ const BOOLEAN_PATHS = [
   "general.autoProtectWifi", "general.killSwitch", "general.disableGeoLookup",
   "general.allowDirectSubscriptionFallback", "warp.enabled", "warp.deepScan",
   "privacy.strictTunnel", "privacy.protectedBrowserAutoLaunch",
-  "warp.autoRescan", "log.disabled", "dns.independentCache", "dns.enableFakeDns",
+  "warp.autoRescan", "log.disabled", "dns.enableFakeDns",
   "route.bypassLan", "route.resolveDestination", "route.tunSplitDiscord",
   "route.processLookup", "inbound.strictRoute", "inbound.allowConnectionFromLan",
   "tlsTricks.enableFragment", "tlsTricks.mixedSniCase", "tlsTricks.enablePadding",
@@ -423,7 +422,6 @@ const OPTION_SETTERS = new Map([
   ["urlTest.intervalSec", (opts, value) => { opts.urlTest.intervalSec = value; }],
   ["dns.remoteAddress", (opts, value) => { opts.dns.remoteAddress = value; }],
   ["dns.directAddress", (opts, value) => { opts.dns.directAddress = value; }],
-  ["dns.independentCache", (opts, value) => { opts.dns.independentCache = value; }],
   ["dns.enableFakeDns", (opts, value) => { opts.dns.enableFakeDns = value; }],
   ["route.bypassLan", (opts, value) => { opts.route.bypassLan = value; }],
   ["route.resolveDestination", (opts, value) => { opts.route.resolveDestination = value; }],

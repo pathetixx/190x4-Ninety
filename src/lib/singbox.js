@@ -659,7 +659,7 @@ function buildDns(options, protectedOutbound = "proxy", mode = "") {
   const dns = {
     servers: [remoteSrv, directSrv],
     rules: [],
-    independent_cache: !!options.dns.independentCache,
+    // independent_cache не задаём: с 1.14 кэш DNS всегда разделён по серверам.
     strategy: ipv6Strategy,
     final: "dns-remote",
   };
@@ -1555,7 +1555,9 @@ export function buildConfig({
     outbounds,
     route,
     experimental: {
-      cache_file: { enabled: true, store_rdrc: true },
+      // store_rdrc в 1.14 устарел и кэшировал только отказы DNS-правил с
+      // фильтром по адресу ответа, а таких правил здесь нет.
+      cache_file: { enabled: true },
     },
   };
   const endpoints = vlessOutbounds.filter((node) => nodeEndpoints.has(node));

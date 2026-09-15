@@ -1247,8 +1247,6 @@ export const en = {
       errGeneric: "This address is written incorrectly",
       systemWarn: "Queries will go through the system resolver, outside the VPN — your provider will see them",
       customPlaceholder: "https://1.1.1.1/dns-query",
-      cacheTitle: "Independent DNS cache",
-      cacheHint: "Answers for VPN traffic and for direct traffic are stored separately and never mix.",
       fakeTitle: "Fake-DNS",
       fakeHint: "Sites open faster: an address is returned instantly and the real one is resolved inside the tunnel. Works only in VPN · TUN mode; in proxy modes the setting has no effect.",
     },

@@ -1263,8 +1263,6 @@ export const pl = {
       errGeneric: "Ten adres jest zapisany błędnie",
       systemWarn: "Zapytania pójdą przez systemowy resolver, poza VPN — zobaczy je twój dostawca",
       customPlaceholder: "https://1.1.1.1/dns-query",
-      cacheTitle: "Niezależna pamięć podręczna DNS",
-      cacheHint: "Odpowiedzi dla ruchu przez VPN i dla ruchu bezpośredniego są przechowywane osobno i nigdy się nie mieszają.",
       fakeTitle: "Fake-DNS",
       fakeHint: "Strony otwierają się szybciej: adres zwracany jest natychmiast, a prawdziwy ustalany już w tunelu. Działa tylko w trybie VPN · TUN, w trybach proxy ustawienie nie ma znaczenia.",
     },

@@ -1247,8 +1247,6 @@ export const tr = {
       errGeneric: "Bu adres hatalı yazılmış",
       systemWarn: "Sorgular sistem çözümleyicisinden, VPN dışından gidecek — sağlayıcınız bunları görür",
       customPlaceholder: "https://1.1.1.1/dns-query",
-      cacheTitle: "Bağımsız DNS önbelleği",
-      cacheHint: "VPN üzerinden giden trafiğin ve doğrudan trafiğin yanıtları ayrı saklanır, birbirine karışmaz.",
       fakeTitle: "Fake-DNS",
       fakeHint: "Siteler daha hızlı açılır: adres anında verilir, gerçeği ise tünel içinde çözülür. Yalnızca VPN · TUN modunda çalışır; proxy modlarında bu ayarın etkisi yoktur.",
     },
