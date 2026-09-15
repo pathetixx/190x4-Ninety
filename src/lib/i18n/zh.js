@@ -1239,8 +1239,6 @@ export const zh = {
       errGeneric: "该地址填写有误",
       systemWarn: "查询将绕过 VPN、通过系统解析器发出，运营商可以看到",
       customPlaceholder: "https://1.1.1.1/dns-query",
-      cacheTitle: "独立 DNS 缓存",
-      cacheHint: "经 VPN 的流量与直连流量的解析结果分开保存，互不混用。",
       fakeTitle: "Fake-DNS",
       fakeHint: "网站打开更快：地址立即返回，真实地址在隧道内解析。仅在 VPN · TUN 模式下生效，代理模式下此设置无效。",
     },

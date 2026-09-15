@@ -1255,8 +1255,6 @@ export const es = {
       errGeneric: "Esta dirección está mal escrita",
       systemWarn: "Las consultas irán por el resolutor del sistema, fuera de la VPN: tu proveedor las verá",
       customPlaceholder: "https://1.1.1.1/dns-query",
-      cacheTitle: "Caché DNS independiente",
-      cacheHint: "Las respuestas del tráfico por VPN y del tráfico directo se guardan por separado y nunca se mezclan.",
       fakeTitle: "Fake-DNS",
       fakeHint: "Los sitios abren más rápido: se devuelve una dirección al instante y la real se resuelve dentro del túnel. Solo funciona en modo VPN · TUN; en los modos proxy el ajuste no tiene efecto.",
     },

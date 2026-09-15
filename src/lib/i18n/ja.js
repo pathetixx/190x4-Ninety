@@ -1239,8 +1239,6 @@ export const ja = {
       errGeneric: "アドレスの書き方が正しくありません",
       systemWarn: "問い合わせは VPN を通らずシステムのリゾルバーへ送られ、プロバイダーに見られます",
       customPlaceholder: "https://1.1.1.1/dns-query",
-      cacheTitle: "独立した DNS キャッシュ",
-      cacheHint: "VPN 経由の通信と直接通信の応答を別々に保存し、混ざらないようにします。",
       fakeTitle: "Fake-DNS",
       fakeHint: "サイトの表示が速くなります: アドレスを即座に返し、本当のアドレスはトンネル内で解決します。VPN · TUN モードでのみ動作し、プロキシモードでは無効です。",
     },

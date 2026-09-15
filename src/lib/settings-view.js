@@ -1263,7 +1263,6 @@ function renderDns(o) {
     <div class="settings-section">
       ${row(iconRemote(), t("settings.dns.remoteTitle"), t("settings.dns.remoteHint"), dnsCombo("remote", "dns.remoteAddress", o.dns.remoteAddress))}
       ${row(iconDirect(), t("settings.dns.directTitle"), t("settings.dns.directHint"), dnsCombo("direct", "dns.directAddress", o.dns.directAddress))}
-      ${row(iconCache(), t("settings.dns.cacheTitle"), t("settings.dns.cacheHint"), toggle("dns.independentCache", o.dns.independentCache))}
       ${row(iconMask(), t("settings.dns.fakeTitle"), t("settings.dns.fakeHint"), toggle("dns.enableFakeDns", o.dns.enableFakeDns))}
     </div>
   `;

@@ -1239,8 +1239,6 @@ export const ko = {
       errGeneric: "주소가 잘못 입력되었습니다",
       systemWarn: "질의가 VPN을 우회해 시스템 리졸버로 나가며, 통신사가 이를 볼 수 있습니다",
       customPlaceholder: "https://1.1.1.1/dns-query",
-      cacheTitle: "독립 DNS 캐시",
-      cacheHint: "VPN 트래픽과 직접 트래픽의 응답을 따로 저장해 서로 섞이지 않습니다.",
       fakeTitle: "Fake-DNS",
       fakeHint: "사이트가 더 빨리 열립니다: 주소를 즉시 돌려주고 실제 주소는 터널 안에서 확인합니다. VPN · TUN 모드에서만 작동하며 프록시 모드에서는 적용되지 않습니다.",
     },

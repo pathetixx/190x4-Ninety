@@ -1247,8 +1247,6 @@ export const de = {
       errGeneric: "Diese Adresse ist falsch geschrieben",
       systemWarn: "Die Anfragen laufen über den System-Resolver am VPN vorbei — dein Anbieter sieht sie",
       customPlaceholder: "https://1.1.1.1/dns-query",
-      cacheTitle: "Unabhängiger DNS-Cache",
-      cacheHint: "Antworten für VPN-Verkehr und für direkten Verkehr werden getrennt gespeichert und vermischen sich nie.",
       fakeTitle: "Fake-DNS",
       fakeHint: "Seiten öffnen schneller: Eine Adresse kommt sofort, die echte wird erst im Tunnel aufgelöst. Funktioniert nur im Modus VPN · TUN; in den Proxy-Modi wirkt die Einstellung nicht.",
     },
