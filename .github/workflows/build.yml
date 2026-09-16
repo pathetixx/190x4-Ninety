@@ -112,6 +112,11 @@ jobs:
           # запросе от пира — DoS сервера. 0.56.0 — первая версия с обоими
           # фиксами. Тот же go get стоит в security.yml.
           go get golang.org/x/crypto@v0.56.0
+          # GO-2026-6348 (OOM на фрагментированных DATA-кадрах HTTP/2) и GO-2026-6443
+          # (паника сервера без :authority/Host) в транспорте grpc-go; with_grpc
+          # тянет их в бинарь. 1.83.2 — первая версия с обоими фиксами (заодно
+          # закрывает GO-2026-6441). Тот же go get стоит в security.yml.
+          go get google.golang.org/grpc@v1.83.2
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -tags "$BUILD_TAGS" \

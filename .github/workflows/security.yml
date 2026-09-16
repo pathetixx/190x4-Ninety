@@ -119,6 +119,7 @@ jobs:
             GOTOOLCHAIN=local go get golang.org/x/mod@v0.40.0
             GOTOOLCHAIN=local go get github.com/insomniacslk/dhcp@v0.0.0-20260719225207-c76316d4aa82
             GOTOOLCHAIN=local go get golang.org/x/crypto@v0.56.0
+            GOTOOLCHAIN=local go get google.golang.org/grpc@v1.83.2
             GOTOOLCHAIN=local go mod tidy
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o "$tmpdir/sing-box" ./cmd/sing-box
             govulncheck -mode=binary -format=json "$tmpdir/sing-box" > "$tmpdir/sing-box-vulns.json"
@@ -139,8 +140,10 @@ jobs:
           set -euo pipefail
           tmpdir="$(mktemp -d)"
           trap 'rm -rf "$tmpdir"' EXIT
-          git clone --depth 1 --branch v26.7.28 https://github.com/XTLS/Xray-core.git xray-core
-          test "$(git -C xray-core rev-parse HEAD)" = 5ca6f4b7d4dc20a881d4330e498892697627ec0c
+          xray_tag="$(jq -r '."xray-core".tag' .github/pins.json)"
+          xray_sha="$(jq -r '."xray-core".sha' .github/pins.json)"
+          git clone --depth 1 --branch "$xray_tag" https://github.com/XTLS/Xray-core.git xray-core
+          test "$(git -C xray-core rev-parse HEAD)" = "$xray_sha"
           (
             cd xray-core
             GOTOOLCHAIN=local go get github.com/klauspost/compress@v1.18.7

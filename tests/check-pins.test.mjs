@@ -38,6 +38,7 @@ test("workflow читают пины из файла, а не хранят их 
   for (const yml of [buildYml, securityYml]) {
     assert.doesNotMatch(yml, /CORE_TAG: v/, "тег ядра снова захардкожен в workflow");
     assert.doesNotMatch(yml, /XRAY_TAG: v/, "тег xray снова захардкожен в workflow");
+    assert.doesNotMatch(yml, /--branch v\d/, "тег ядра снова захардкожен в git clone");
     assert.doesNotMatch(yml, /\b[0-9a-f]{64}\b/, "sha256 бинаря снова захардкожен в workflow");
   }
 });
