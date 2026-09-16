@@ -37,7 +37,7 @@ THIRD-PARTY COMPONENTS:
   their own licenses and run as separate processes; Ninety's own code stays MIT.
 
   •  sing-box.exe — GPL-3.0-or-later. Source of the exact build:
-     https://github.com/pathetixx/ninety-core (tag v1.13.16-ninety.1).
+     https://github.com/pathetixx/ninety-core (tag v1.14.1-ninety.1).
   •  xray.exe — MPL-2.0. Source: https://github.com/XTLS/Xray-core
   •  naive.exe — BSD-3-Clause. trusttunnel_client.exe — Apache-2.0.
   •  wintun.dll — Wintun Prebuilt Binaries License (WireGuard LLC).
@@ -117,7 +117,7 @@ Ninety не устанавливает постоянно работающую �
   код Ninety остаётся под MIT.
 
   •  sing-box.exe — GPL-3.0-or-later. Исходники именно этой сборки:
-     https://github.com/pathetixx/ninety-core (тег v1.13.16-ninety.1).
+     https://github.com/pathetixx/ninety-core (тег v1.14.1-ninety.1).
   •  xray.exe — MPL-2.0. Исходники: https://github.com/XTLS/Xray-core
   •  naive.exe — BSD-3-Clause. trusttunnel_client.exe — Apache-2.0.
   •  wintun.dll — Wintun Prebuilt Binaries License (WireGuard LLC).

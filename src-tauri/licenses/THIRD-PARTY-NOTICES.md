@@ -11,9 +11,9 @@ local API. Shipping them together is aggregation, not linking: their licenses
 apply to those files, and Ninety's own source stays under MIT.
 
 Versions below are the ones pinned in
-[`.github/workflows/build.yml`](../../.github/workflows/build.yml) for this
-release line; the workflow is the authoritative source and verifies every
-download by commit SHA or SHA-256.
+[`.github/pins.json`](../../.github/pins.json) and `src-tauri/dpi/` for this
+release line; those files are the authoritative source, and the build verifies
+every download by commit SHA or SHA-256.
 
 ---
 
@@ -23,7 +23,7 @@ The primary networking engine.
 
 | | |
 | --- | --- |
-| Version | `v1.13.19-ninety.4` (commit `505a658b77ba7208da17a9f848c3641a897bfeee`) |
+| Version | `v1.14.1-ninety.1` (commit `817c7d1ef3d1aadadd5daf3a61c0bdf94547b6bc`) |
 | Source | <https://github.com/pathetixx/ninety-core> |
 | Upstream | <https://github.com/SagerNet/sing-box> |
 | License | GNU General Public License v3.0 or later, with an additional naming clause |
@@ -44,7 +44,7 @@ The engine used for XHTTP connections.
 
 | | |
 | --- | --- |
-| Version | `v26.7.28` (commit `5ca6f4b7d4dc20a881d4330e498892697627ec0c`) |
+| Version | `v26.9.9` (commit `52a412d9e2f5c2a5142b1b4e2ab3771dacb8b120`) |
 | Source | <https://github.com/XTLS/Xray-core> |
 | License | Mozilla Public License 2.0 |
 | Text | [`xray-core.txt`](./xray-core.txt) |
@@ -59,7 +59,7 @@ Local SOCKS bridge for `naive+https://` nodes.
 
 | | |
 | --- | --- |
-| Version | `v148.0.7778.96-5` |
+| Version | `v150.0.7871.63-1` |
 | Source | <https://github.com/klzgrad/naiveproxy> |
 | License | BSD 3-Clause (Chromium) |
 | Text | [`naiveproxy.txt`](./naiveproxy.txt) |
@@ -74,7 +74,7 @@ Local SOCKS bridge for `tt://` endpoints.
 
 | | |
 | --- | --- |
-| Version | `v1.0.49` |
+| Version | `v1.1.5` |
 | Source | <https://github.com/TrustTunnel/TrustTunnelClient> |
 | License | Apache License 2.0 |
 | Text | [`trusttunnel-client.txt`](./trusttunnel-client.txt) |
@@ -103,7 +103,7 @@ The DPI-bypass engine and its data.
 
 | | |
 | --- | --- |
-| Version | engine `zapret v72.12`, strategy set `1.10.0` |
+| Version | engine `zapret v72.12`, strategy set `1.10.2` |
 | Source | <https://github.com/bol-van/zapret>, packaging by <https://github.com/Flowseal/zapret-discord-youtube> |
 | License | MIT |
 | Text | [`zapret-winws.txt`](./zapret-winws.txt) |
