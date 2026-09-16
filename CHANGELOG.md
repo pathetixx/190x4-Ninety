@@ -6,6 +6,30 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.6.9 — 2026-09-16
+
+## English
+
+### Portable version
+
+- Profiles and subscriptions are now kept after restarting the portable version.
+- The data password in the portable version is now optional, and Ninety asks for it at startup only if you have set one.
+
+### Security
+
+- The connection core received security fixes.
+
+## Русский
+
+### Portable-версия
+
+- Профили и подписки теперь сохраняются после перезапуска portable-версии.
+- Пароль для данных в portable-версии теперь необязателен, и Ninety спрашивает его при запуске, только если вы его задали.
+
+### Безопасность
+
+- Ядро подключения получило исправления безопасности.
+
 ## v0.6.8 — 2026-09-15
 
 ## English
