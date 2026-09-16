@@ -56,7 +56,11 @@ jobs:
           # file in the tree matches the generator on those pins. A bump that
           # touches only pins.json therefore lands red every time.
           node scripts/gen-build-info.mjs --commit local --date "—"
-          git add .github/pins.json src/lib/build-info.js
+          # check-pins.mjs --write also rewrites the component versions in the
+          # third-party notices and the installer license.
+          git add .github/pins.json src/lib/build-info.js \
+                  src-tauri/licenses/THIRD-PARTY-NOTICES.md \
+                  src-tauri/windows/license.txt src-tauri/windows/license.rtf
           git commit -m "chore(pins): move pinned dependencies to their latest releases"
           git push -u origin "$branch"
           {

@@ -60,13 +60,16 @@ jobs:
           if [ -n "$ver" ]; then
             printf 'zapret %s\n' "$ver" > src-tauri/dpi/engine-version.txt
           fi
+          # The third-party notices name the engine version too.
+          node scripts/gen-notices.mjs
           branch="engine-bump-$(date -u +%Y%m%d-%H%M)"
           git config user.name "ninety-bot"
           git config user.email "noreply@190x4.pw"
           git checkout -b "$branch"
           git add src-tauri/dpi/bin/winws.exe src-tauri/dpi/bin/WinDivert64.sys \
                   src-tauri/dpi/bin/WinDivert.dll src-tauri/dpi/bin/cygwin1.dll \
-                  src-tauri/dpi/engine-version.txt
+                  src-tauri/dpi/engine-version.txt \
+                  src-tauri/licenses/THIRD-PARTY-NOTICES.md
           git commit -m "chore(engine): bump winws/WinDivert from bol-van/zapret-win-bundle"
           git push -u origin "$branch"
           gh pr create \

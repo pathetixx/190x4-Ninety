@@ -23,6 +23,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 import { currentChannel, renderBuildInfo } from "./gen-build-info.mjs";
+import { writeNotices } from "./gen-notices.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pinsPath = join(root, ".github/pins.json");
@@ -220,6 +221,10 @@ async function main() {
     // Без пересборки паспорт бы отставал ровно на один бамп — и именно так он
     // и отставал, пока строка ядра правилась руками.
     refreshBuildInfo(data);
+    // Лицензионные тексты называют те же версии, а для ядра — ещё и тег, по
+    // которому искать исходники сборки.
+    const notices = writeNotices(root);
+    if (notices.length) console.log(`лицензионные тексты обновлены: ${notices.join(", ")}`);
   }
 
   if (process.env.GITHUB_OUTPUT) {
