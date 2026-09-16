@@ -590,7 +590,6 @@ mod tests {
         assert!(validate_passphrase("long enough\npassphrase").is_err());
     }
 
-
     #[test]
     fn legacy_migration_keeps_an_encrypted_rollback_copy() {
         let root = std::env::temp_dir().join(format!(
