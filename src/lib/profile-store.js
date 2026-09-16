@@ -221,10 +221,6 @@ function syncLegacyBeforeReady() {
   if (storageRef) state = readLegacy(storageRef, { preserveDangling: true }).store;
 }
 
-function legacyHasData(storage = storageRef) {
-  return readLegacy(storage).hasData;
-}
-
 function storePayload() {
   return clone({
     schemaVersion: STORE_SCHEMA_VERSION,
@@ -308,10 +304,6 @@ function publish(next) {
     if (!backendDegraded) mirrorLegacyState();
   }
   emit("ninety:profile-store-changed", { revision });
-}
-
-export function hasLegacySensitiveData(storage = storageRef) {
-  return legacyHasData(storage);
 }
 
 export function profileStoreIsReady() {

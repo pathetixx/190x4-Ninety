@@ -1250,8 +1250,8 @@ pub fn run() {
                         });
                         // CI smoke intentionally exercises the portable encrypted
                         // path with an ephemeral in-memory passphrase. Production
-                        // portable runs start in NoPersistentSecrets until the
-                        // user explicitly configures one from Settings.
+                        // portable runs write plaintext until the user sets a
+                        // passphrase in Settings.
                         // Синхронный вариант: setup() не является async-контекстом.
                         backup::state_backup_save_blocking(
                             app.handle().clone(),
@@ -1291,7 +1291,6 @@ pub fn run() {
             secrets::portable_secrets_status,
             secrets::portable_secrets_set_passphrase,
             secrets::portable_secrets_clear_passphrase,
-            secrets::portable_secrets_confirm_plaintext,
             profile_store::profile_store_load,
             profile_store::profile_store_replace,
             profile_store::profile_store_clear,

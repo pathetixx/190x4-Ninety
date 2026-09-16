@@ -1,10 +1,11 @@
 // Ninety · политика хранения чувствительных данных.
 //
 // Установленная сборка использует DPAPI текущего Windows-пользователя. В
-// Full Portable DPAPI непереносим, поэтому режим по умолчанию —
-// NoPersistentSecrets: новые секреты не записываются без явного пароля.
-// После задания пароля он живёт только в памяти процесса; envelope portable
-// использует Argon2id + XChaCha20-Poly1305 и переносится между компьютерами.
+// Full Portable DPAPI непереносим, поэтому без пароля профили, бэкап и WARP
+// пишутся в NinetyData открытым текстом. Прежний режим «без пароля ничего не
+// сохранять» молча терял подписки при каждом перезапуске: пользователь не знал,
+// что пароль вообще нужен. Пароль по желанию живёт только в памяти процесса;
+// envelope использует Argon2id + XChaCha20-Poly1305 и переносится между ПК.
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
@@ -18,7 +19,6 @@ use zeroize::Zeroizing;
 
 pub const DPAPI_MAGIC: &[u8] = b"N90DPAPI1";
 pub const PORTABLE_MAGIC: &[u8] = b"N90PORT1";
-const PORTABLE_PLAINTEXT_CONFIRMATION: &[u8] = b"N90PLAIN1";
 const PORTABLE_SALT_BYTES: usize = 16;
 const PORTABLE_NONCE_BYTES: usize = 24;
 const PORTABLE_KEY_BYTES: usize = 32;
@@ -60,9 +60,11 @@ fn validate_passphrase(passphrase: &str) -> Result<(), String> {
 pub enum PortableSecretMode {
     #[serde(rename = "dpapi")]
     Dpapi,
-    NoPersistentSecrets,
+    Plaintext,
     PassphraseEncrypted,
-    PlaintextExplicitlyConfirmed,
+    /// На диске зашифрованные файлы, а пароля в памяти нет: ни прочитать, ни
+    /// записать нельзя, пока пользователь его не введёт.
+    Locked,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -70,34 +72,8 @@ pub enum PortableSecretMode {
 pub struct PortableSecretStatus {
     pub portable: bool,
     pub mode: PortableSecretMode,
-    pub configured: bool,
     pub passphrase_configured: bool,
-    pub plaintext_confirmed: bool,
-    pub has_persisted_secrets: bool,
-}
-
-fn plaintext_confirmation_path() -> Result<PathBuf, String> {
-    Ok(crate::app_paths::portable_root()?
-        .join("config")
-        .join("portable-secrets-plaintext.confirmed"))
-}
-
-fn plaintext_confirmed() -> bool {
-    plaintext_confirmation_path()
-        .ok()
-        .and_then(|path| std::fs::read(path).ok())
-        .is_some_and(|bytes| is_plaintext_confirmation(&bytes))
-}
-
-fn clear_plaintext_confirmation() -> Result<(), String> {
-    let path = plaintext_confirmation_path()?;
-    match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!(
-            "не удалось отключить plaintext portable-режим: {error}"
-        )),
-    }
+    pub locked: bool,
 }
 
 /// Все контейнеры, которые проходят через `seal_for_app`. Резервные копии тоже
@@ -126,8 +102,21 @@ fn portable_secret_files() -> Vec<PathBuf> {
         .collect()
 }
 
-fn portable_has_persisted_secrets() -> bool {
-    !portable_secret_files().is_empty()
+fn file_is_portable_envelope(path: &Path) -> bool {
+    use std::io::Read;
+    let mut prefix = [0u8; PORTABLE_MAGIC.len()];
+    std::fs::File::open(path)
+        .and_then(|mut file| file.read_exact(&mut prefix))
+        .is_ok_and(|()| prefix == PORTABLE_MAGIC)
+}
+
+/// Хоть один контейнер уже зашифрован паролем. Без пароля в памяти такой
+/// portable заперт: запись открытым текстом поверх затёрла бы данные, которые
+/// ещё можно открыть.
+fn portable_envelopes_on_disk() -> bool {
+    portable_secret_files()
+        .iter()
+        .any(|path| file_is_portable_envelope(path))
 }
 
 /// Проверка пароля по уже существующему контейнеру. Без неё опечатка при вводе
@@ -219,25 +208,38 @@ fn seal_plaintext_portable_secrets(passphrase: &str) -> Result<(), String> {
     commit_portable_secrets(staged, "перевод portable-секретов под пароль")
 }
 
-pub fn can_persist_secrets() -> bool {
-    if !crate::app_paths::is_portable() {
-        return true;
+/// Снятие пароля: все envelope расшифровываются обратно в открытый текст одной
+/// транзакцией. Просто забыть ключ нельзя — файлы остались бы зашифрованными, и
+/// при следующем запуске открыть их было бы нечем, кроме того же пароля.
+fn unseal_portable_secrets(current: &str) -> Result<(), String> {
+    let mut staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)> = Vec::new();
+    for path in portable_secret_files() {
+        let bytes = std::fs::read(&path)
+            .map_err(|error| format!("не удалось прочитать {}: {error}", path.display()))?;
+        if !is_portable_envelope(&bytes) {
+            continue;
+        }
+        let plain = unseal_portable(&bytes, current)?;
+        staged.push((path, bytes, plain));
     }
-    current_passphrase().ok().flatten().is_some() || plaintext_confirmed()
+    commit_portable_secrets(staged, "снятие пароля portable")
+}
+
+/// Новые записи шифруются: DPAPI в установленной сборке, пароль в portable.
+/// Только тогда есть смысл переписывать найденный легаси plaintext — иначе
+/// «миграция» гоняла бы те же байты по диску на каждом чтении.
+pub fn encrypts_writes() -> bool {
+    !crate::app_paths::is_portable() || current_passphrase().ok().flatten().is_some()
 }
 
 pub fn is_portable_envelope(bytes: &[u8]) -> bool {
     bytes.starts_with(PORTABLE_MAGIC)
 }
 
-fn is_plaintext_confirmation(bytes: &[u8]) -> bool {
-    bytes == PORTABLE_PLAINTEXT_CONFIRMATION
-}
-
 /// Миграция сначала сохраняет уже запечатанную rollback-копию, затем
 /// атомарно заменяет primary. Исходный plaintext никогда не копируется в
 /// backup-файл: при установленном режиме backup также DPAPI-sealed, а в
-/// portable — encrypted envelope либо сознательно подтверждённый plaintext.
+/// portable с паролем — encrypted envelope.
 pub fn migrate_legacy_blob(path: &Path, sealed: &[u8], label: &str) -> Result<(), String> {
     let name = path
         .file_name()
@@ -262,22 +264,20 @@ pub fn migrate_legacy_blob(path: &Path, sealed: &[u8], label: &str) -> Result<()
 pub fn portable_secrets_status() -> PortableSecretStatus {
     let portable = crate::app_paths::is_portable();
     let passphrase_configured = current_passphrase().ok().flatten().is_some();
-    let plaintext_mode_confirmed = portable && plaintext_confirmed();
+    let locked = portable && !passphrase_configured && portable_envelopes_on_disk();
     PortableSecretStatus {
         portable,
         mode: if !portable {
             PortableSecretMode::Dpapi
         } else if passphrase_configured {
             PortableSecretMode::PassphraseEncrypted
-        } else if plaintext_mode_confirmed {
-            PortableSecretMode::PlaintextExplicitlyConfirmed
+        } else if locked {
+            PortableSecretMode::Locked
         } else {
-            PortableSecretMode::NoPersistentSecrets
+            PortableSecretMode::Plaintext
         },
-        configured: passphrase_configured || plaintext_mode_confirmed,
         passphrase_configured,
-        plaintext_confirmed: plaintext_mode_confirmed,
-        has_persisted_secrets: portable && portable_has_persisted_secrets(),
+        locked,
     }
 }
 
@@ -306,15 +306,7 @@ pub fn configure_portable_passphrase(passphrase: String) -> Result<(), String> {
         .lock()
         .map_err(|_| "хранилище portable-пароля заблокировано".to_string())?;
     *guard = Some(Zeroizing::new(passphrase));
-    drop(guard);
-    // Маркер plaintext снимаем ПОСЛЕДНИМ и уже после публикации ключа. Прежний
-    // порядок (снять маркер, потом проверять пароль) на опечатке ронял
-    // хранилище из PlaintextExplicitlyConfirmed в NoPersistentSecrets:
-    // неудачная попытка выключала сохранение секретов вообще. Пароль имеет
-    // приоритет над plaintext во всех решениях (seal_for_app,
-    // portable_secrets_status, can_persist_secrets), поэтому оставшийся маркер
-    // ни на что не влияет и сообщается как обычная ошибка удаления файла.
-    clear_plaintext_confirmation()
+    Ok(())
 }
 
 // Смена пароля перевыпускает все контейнеры (Argon2id на каждый) — это
@@ -343,38 +335,18 @@ fn portable_secrets_clear_passphrase_blocking() -> Result<(), String> {
     if !crate::app_paths::is_portable() {
         return Err("пароль нужен только для portable-режима".into());
     }
-    clear_plaintext_confirmation()?;
+    match current_passphrase()? {
+        Some(current) => unseal_portable_secrets(current.as_str())?,
+        None if portable_envelopes_on_disk() => {
+            return Err("сначала введите текущий пароль portable-хранилища".into());
+        }
+        None => return Ok(()),
+    }
     let mut guard = passphrase_slot()
         .lock()
         .map_err(|_| "хранилище portable-пароля заблокировано".to_string())?;
     *guard = None;
     Ok(())
-}
-
-/// Разрешает portable plaintext только отдельным действием пользователя с
-/// предупреждением в UI. Сам по себе legacy plaintext такой режим не включает.
-#[tauri::command]
-pub async fn portable_secrets_confirm_plaintext() -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(portable_secrets_confirm_plaintext_blocking)
-        .await
-        .map_err(|error| format!("portable_secrets_confirm_plaintext: {error}"))?
-}
-
-fn portable_secrets_confirm_plaintext_blocking() -> Result<(), String> {
-    if !crate::app_paths::is_portable() {
-        return Err("plaintext-режим нужен только для portable-сборки".into());
-    }
-    if current_passphrase()?.is_some() {
-        return Err(
-            "сначала отключите passphrase, затем отдельно подтвердите plaintext-режим".into(),
-        );
-    }
-    let path = plaintext_confirmation_path()?;
-    crate::atomic_file::write_bytes_replace(
-        &path,
-        PORTABLE_PLAINTEXT_CONFIRMATION,
-        "portable plaintext confirmation",
-    )
 }
 
 fn derive_portable_key(
@@ -455,13 +427,10 @@ pub fn seal_for_app(_app: &AppHandle, data: &[u8]) -> Result<Vec<u8>, String> {
         if let Some(passphrase) = current_passphrase()? {
             return seal_portable(data, passphrase.as_str());
         }
-        if plaintext_confirmed() {
-            return Ok(data.to_vec());
+        if portable_envelopes_on_disk() {
+            return Err("portable-хранилище заперто: введите пароль в настройках".into());
         }
-        Err(
-            "portable-хранилище выключено: задайте пароль или отдельно подтвердите plaintext-режим"
-                .into(),
-        )
+        Ok(data.to_vec())
     } else {
         seal(data)
     }
@@ -621,12 +590,6 @@ mod tests {
         assert!(validate_passphrase("long enough\npassphrase").is_err());
     }
 
-    #[test]
-    fn plaintext_mode_requires_exact_confirmation_marker() {
-        assert!(is_plaintext_confirmation(PORTABLE_PLAINTEXT_CONFIRMATION));
-        assert!(!is_plaintext_confirmation(b"N90PLAIN1\n"));
-        assert!(!is_plaintext_confirmation(b"plaintext"));
-    }
 
     #[test]
     fn legacy_migration_keeps_an_encrypted_rollback_copy() {
@@ -688,6 +651,29 @@ mod tests {
             unseal_portable(&stored, "correct horse battery staple").unwrap(),
             legacy
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Запертый portable определяется по префиксу файла: короткий или
+    // plaintext-файл не должен запирать запись.
+    #[test]
+    fn envelope_detection_reads_only_the_magic_prefix() {
+        let root = scratch_dir("secret-prefix");
+        let sealed = root.join("profile-store.v1");
+        std::fs::write(
+            &sealed,
+            seal_portable(b"{}", "correct horse battery staple").unwrap(),
+        )
+        .unwrap();
+        let plain = root.join("warp.json");
+        std::fs::write(&plain, br#"{"private_key":"abc"}"#).unwrap();
+        let short = root.join("state-backup.json");
+        std::fs::write(&short, b"N90").unwrap();
+
+        assert!(file_is_portable_envelope(&sealed));
+        assert!(!file_is_portable_envelope(&plain));
+        assert!(!file_is_portable_envelope(&short));
+        assert!(!file_is_portable_envelope(&root.join("missing")));
         let _ = std::fs::remove_dir_all(&root);
     }
 

@@ -210,7 +210,7 @@ fn read_store_file(app: &AppHandle, path: &Path) -> Result<ProfileStore, String>
     // Legacy development/early-build files may be plaintext.  Once the
     // current policy allows persistence, seal the same validated bytes before
     // returning; on failure the readable source remains untouched.
-    if crate::secrets::is_plaintext_json(&bytes) && crate::secrets::can_persist_secrets() {
+    if crate::secrets::is_plaintext_json(&bytes) && crate::secrets::encrypts_writes() {
         if let Ok(sealed) = crate::secrets::seal_for_app(app, &raw) {
             let _ = crate::secrets::migrate_legacy_blob(path, &sealed, "profile store migration");
         }
@@ -247,7 +247,7 @@ fn write_store(app: &AppHandle, path: &Path, store: &ProfileStore) -> Result<(),
     let backup = backup_path(path);
     if path.is_file() {
         if let Ok(previous) = std::fs::read(path) {
-            if crate::secrets::is_plaintext_json(&previous) {
+            if crate::secrets::is_plaintext_json(&previous) && crate::secrets::encrypts_writes() {
                 let sealed_previous = crate::secrets::seal_for_app(app, &previous)?;
                 crate::secrets::migrate_legacy_blob(
                     path,

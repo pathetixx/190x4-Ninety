@@ -126,7 +126,7 @@ Ninety is open source, but the components it controls can change system-wide net
 
 - Imported profiles and subscription URLs may contain credentials.
 - Remove secrets from logs and screenshots before posting them publicly.
-- Installed Windows builds store live profiles/subscriptions, WARP keys and recovery snapshots in versioned Rust/DPAPI envelopes; legacy WebView keys are removed after a successful migration. Full Portable backend persistence defaults to `NoPersistentSecrets`; an explicit passphrase enables Argon2id + XChaCha20-Poly1305 and is kept only in memory. If Portable storage cannot be unlocked or migration fails, the legacy WebView copy is retained as a migration fallback. `PlaintextExplicitlyConfirmed` is available only after a separate warning and confirmation.
+- Installed Windows builds store live profiles/subscriptions, WARP keys and recovery snapshots in versioned Rust/DPAPI envelopes; legacy WebView keys are removed after a successful migration. Full Portable saves this data in `NinetyData` as plain text by default. An optional password in Settings → General encrypts it with Argon2id + XChaCha20-Poly1305; the password is kept only in memory and asked for on every launch. Removing the password decrypts the files back to plain text.
 - TUN mode, DPI tools and the kill switch modify Windows networking. Check the selected settings before enabling them.
 - Ninety does not guarantee anonymity.
 

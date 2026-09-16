@@ -189,7 +189,7 @@ fn migrate_plaintext_backup_if_needed(app: &AppHandle, path: &Path) -> Result<()
     let Ok(previous) = std::fs::read(path) else {
         return Ok(());
     };
-    if !crate::secrets::is_plaintext_json(&previous) {
+    if !crate::secrets::is_plaintext_json(&previous) || !crate::secrets::encrypts_writes() {
         return Ok(());
     }
     let sealed = crate::secrets::seal_for_app(app, &previous)?;
@@ -218,7 +218,7 @@ fn read_snapshot(app: &AppHandle, path: &std::path::Path) -> Option<String> {
     if !valid_snapshot_str(&raw) {
         return None;
     }
-    if legacy_plaintext && crate::secrets::can_persist_secrets() {
+    if legacy_plaintext && crate::secrets::encrypts_writes() {
         match crate::secrets::seal_for_app(app, raw.as_bytes()) {
             Ok(sealed) => {
                 if let Err(error) =

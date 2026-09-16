@@ -82,21 +82,17 @@ Requirements:
 ## Portable-mode decision
 
 Portable mode keeps the WebView profile and WARP state portable. DPAPI would break
-that contract after moving the folder to another PC. The implemented storage
-policy is explicit: new secret writes are disabled until the user sets an
-in-memory passphrase; the passphrase envelope uses Argon2id and
-XChaCha20-Poly1305.
+that contract after moving the folder to another PC.
 
-The runtime exposes three explicit portable modes:
+The runtime exposes three portable modes:
 
-1. **NoPersistentSecrets:** the default; without another choice, new secret writes fail closed;
-2. **PassphraseEncrypted:** derive an encryption key from a user passphrase with Argon2id and store only a versioned salt/nonce/encrypted envelope;
-3. **PlaintextExplicitlyConfirmed:** an additional UI warning creates a versioned confirmation marker and permits plaintext writes for users who explicitly accept that risk.
+1. **Plaintext:** the default; profiles, subscriptions, the state backup and WARP keys are written to `NinetyData` without encryption, so they survive a restart with no setup;
+2. **PassphraseEncrypted:** derive an encryption key from a user passphrase with Argon2id and store only a versioned salt/nonce/encrypted envelope; the passphrase is kept only in memory and asked for on every launch;
+3. **Locked:** encrypted envelopes are on disk and no passphrase is in memory; reads and writes fail until the user enters it, so plaintext is never written over encrypted data.
 
-Setting a passphrase removes the plaintext confirmation marker. Clearing the
-portable protection removes both choices and returns to `NoPersistentSecrets`.
-Legacy plaintext is readable for migration, but it never enables the third mode
-by itself.
+Setting a passphrase seals existing plaintext files in one transaction. Removing
+it decrypts every envelope back to plaintext in one transaction before the key
+is dropped. Legacy plaintext is re-sealed on read only when writes are encrypted.
 
 Do not silently use DPAPI in Full Portable mode.
 

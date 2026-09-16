@@ -69,7 +69,6 @@ import { configureTrafficRuntime, startMeter, stopMeter, getMeasured, resetMeasu
 import { clearProfileStorage } from "/lib/storage-policy.js";
 import {
   clearProfileStore,
-  hasLegacySensitiveData,
   initializeProfileStore,
 } from "/lib/profile-store.js";
 import { createQualityEngine } from "/lib/quality-engine.js";
@@ -207,16 +206,27 @@ function maybeAutoLaunchProtectedBrowser() {
 // localStorage пуст, а снапшот в writable config dir есть — возвращаем ключи и
 // перезагружаем webview, чтобы все модули перечитали хранилище с нуля
 // (тема/язык/опции уже прочитаны дефолтами к этому моменту).
+// Portable без пароля хранит данные открытым текстом и ничего не спрашивает.
+// Пароль нужен, только если данные на диске уже зашифрованы: без него профиль-
+// хранилище не откроется, и пользователь увидел бы пустой список.
 async function unlockPortableSecretsForRecovery() {
   try {
     const status = await invoke("portable_secrets_status");
-    if (!status?.portable || status.configured
-      || (!status.hasPersistedSecrets && !hasLegacySensitiveData())) return;
-    const passphrase = window.prompt(t("portable.recoveryPrompt"));
-    if (passphrase == null || passphrase === "") return;
-    await invoke("portable_secrets_set_passphrase", { passphrase });
+    if (!status?.portable || !status.locked) return;
+    let message = t("portable.recoveryPrompt");
+    for (;;) {
+      const passphrase = window.prompt(message);
+      if (passphrase == null || passphrase === "") return;
+      try {
+        await invoke("portable_secrets_set_passphrase", { passphrase });
+        return;
+      } catch (error) {
+        console.warn("portable secret unlock failed", error);
+        message = `${t("portable.unlockFailed")}\n\n${t("portable.recoveryPrompt")}`;
+      }
+    }
   } catch (error) {
-    console.warn("portable secret unlock failed", error);
+    console.warn("portable secret status failed", error);
   }
 }
 

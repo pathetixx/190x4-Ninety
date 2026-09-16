@@ -62,16 +62,10 @@ Ninety.exe. Не переносите только один EXE: рядом не
 настройки, WebView/localStorage, логи и обновляемые DPI-данные. Чтобы перенести
 Ninety на другой ПК, закройте приложение и скопируйте всю папку Ninety целиком.
 
-ВАЖНО: Full Portable по умолчанию не записывает новые профили, recovery-снимки
-и WARP-секреты в backend NinetyData без явного пароля. В Настройки → Общие
-задайте passphrase, если нужно защищённо сохранять эти данные между запусками:
-profile-store и остальные envelope используют Argon2id + XChaCha20-Poly1305.
-Пароль не сохраняется, поэтому его нужно вводить снова после перезапуска. Если
-старую копию нельзя мигрировать, legacy-профили WebView временно остаются
-fallback; старую plaintext NinetyData не публикуйте и не передавайте другим.
-Отдельная кнопка «Разрешить plaintext» включает незашифрованную запись только
-после дополнительного предупреждения; это режим для осознанного компромисса,
-а не настройка по умолчанию.
+ВАЖНО: без пароля профили, подписки и ключи WARP лежат в NinetyData открытым
+текстом. Не публикуйте эту папку и не передавайте её другим. Чтобы зашифровать
+данные, задайте пароль в Настройки → Общие. Ninety его не запоминает и
+спрашивает при каждом запуске; забытый пароль восстановить нельзя.
 
 Обновление: закройте Ninety и распакуйте новый Portable ZIP поверх этой папки
 с заменой файлов. NinetyData в архив не входит и останется на месте.
@@ -83,14 +77,10 @@ NinetyData is created on first launch. It contains all profiles, settings,
 WebView/localStorage, logs and updatable DPI data. To move Ninety to another PC,
 close the app and copy the entire Ninety folder.
 
-IMPORTANT: Full Portable does not persist new profiles, recovery snapshots or
-WARP secrets in backend NinetyData until you explicitly set a passphrase in
-Settings → General. The passphrase stays in memory, so it must be entered again
-after restart; profile-store and other encrypted envelopes use Argon2id +
-XChaCha20-Poly1305. If an old copy cannot be migrated, legacy WebView profiles
-remain only as a fallback. Do not publish a plaintext NinetyData folder.
-The separate “Allow plaintext” action enables unencrypted persistence only after
-an additional warning and is never enabled by default.
+IMPORTANT: without a password, profiles, subscriptions and WARP keys are stored
+in NinetyData as plain text. Do not publish or share this folder. To encrypt
+the data, set a password in Settings → General. Ninety does not remember it and
+asks for it on every launch; a forgotten password cannot be recovered.
 
 Update: close Ninety and extract the new Portable ZIP over this folder, replacing
 program files. NinetyData is not included in the archive and remains untouched.

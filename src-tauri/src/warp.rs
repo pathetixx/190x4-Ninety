@@ -109,9 +109,9 @@ fn storage_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 // В установленной версии warp.json хранится versioned DPAPI-envelope (см.
-// secrets.rs). Full Portable по умолчанию не записывает новый секрет; после
-// явного пароля используется переносимый Argon2id/XChaCha envelope. Легаси
-// plaintext читается для миграции, но не остаётся форматом новых записей.
+// secrets.rs). Full Portable без пароля пишет открытым текстом; с паролем —
+// переносимый Argon2id/XChaCha envelope. Легаси plaintext при включённом
+// шифровании мигрирует в текущий формат.
 fn read_info(app: &AppHandle) -> Option<WarpInfo> {
     let p = storage_path(app).ok()?;
     for candidate in [
@@ -129,7 +129,7 @@ fn read_info(app: &AppHandle) -> Option<WarpInfo> {
         let Ok(info) = serde_json::from_slice::<WarpInfo>(&plain) else {
             continue;
         };
-        if legacy_plaintext && crate::secrets::can_persist_secrets() {
+        if legacy_plaintext && crate::secrets::encrypts_writes() {
             match crate::secrets::seal_for_app(app, &plain) {
                 Ok(sealed) => {
                     if let Err(error) = crate::secrets::migrate_legacy_blob(

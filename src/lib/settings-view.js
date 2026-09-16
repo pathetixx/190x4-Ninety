@@ -451,39 +451,20 @@ export function mountSettings(root, opts = {}) {
     const rowEl = el.querySelector("[data-portable-secrets-row]");
     const setBtn = el.querySelector("[data-action='portable-secrets-set']");
     const clearBtn = el.querySelector("[data-action='portable-secrets-clear']");
-    const plainBtn = el.querySelector("[data-action='portable-secrets-plain']");
-    if (!invoke || !rowEl || !setBtn || !clearBtn || !plainBtn) return;
+    if (!invoke || !rowEl || !setBtn || !clearBtn) return;
 
-    // Раньше эти строки собирались тернарником getLang() === "ru" прямо здесь и
-    // потому существовали только на двух языках: у остальных 13 весь раздел
-    // Portable выводился по-английски. Теперь это обычные ключи каталога, и
-    // tests/i18n.test.mjs требует их во всех 15 языках.
-    const copy = {
-      prompt: t("portable.prompt"),
-      configured: t("portable.configured"),
-      cleared: t("portable.cleared"),
-      clear: t("portable.clear"),
-      plainOff: t("portable.plainOff"),
-      plaintextConfirm: t("portable.plaintextConfirm"),
-      plaintextEnabled: t("portable.plaintextEnabled"),
-      plaintextDisabled: t("portable.plaintextDisabled"),
-    };
     try {
       const status = await invoke("portable_secrets_status");
       if (!status?.portable || !rowEl.isConnected) return;
       rowEl.hidden = false;
-      // configured истинно в ДВУХ разных режимах: пароль задан и plaintext
-      // подтверждён. Обе кнопки подписываем по реальному режиму: раньше после
-      // подтверждения plaintext они обещали «Сменить пароль» и «Забыть пароль»,
-      // хотя пароля нет, а сброс снимает подтверждение plaintext.
-      let plaintextOnly = false;
+      let locked = false;
       const sync = (next) => {
         const passphrase = !!next?.passphraseConfigured;
-        plaintextOnly = !passphrase && !!next?.plaintextConfirmed;
-        clearBtn.hidden = !next?.configured;
-        plainBtn.hidden = !!next?.configured;
-        setBtn.textContent = passphrase ? t("portable.setChange") : t("portable.set");
-        clearBtn.textContent = plaintextOnly ? copy.plainOff : copy.clear;
+        locked = !!next?.locked;
+        clearBtn.hidden = !passphrase;
+        setBtn.textContent = locked
+          ? t("portable.unlock")
+          : passphrase ? t("portable.setChange") : t("portable.set");
       };
       // После каждой команды состояние берём у backend, а не собираем из
       // догадок на месте: он один знает, что осталось на диске и в памяти.
@@ -496,38 +477,31 @@ export function mountSettings(root, opts = {}) {
       setBtn.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const passphrase = window.prompt(copy.prompt);
-        if (passphrase == null) return;
+        const wasLocked = locked;
+        const passphrase = window.prompt(wasLocked ? t("portable.recoveryPrompt") : t("portable.prompt"));
+        if (passphrase == null || passphrase === "") return;
         try {
           await invoke("portable_secrets_set_passphrase", { passphrase });
+          // Запертое хранилище на этом запуске уже не открылось, и профили
+          // живут только в памяти. Перезагрузка перечитает их с диска с ключом.
+          if (wasLocked) {
+            location.reload();
+            return;
+          }
           await refresh();
-          toast(copy.configured, "success", 3000);
+          toast(t("portable.configured"), "success", 3000);
         } catch (error) {
-          alert(error?.message || String(error));
+          alert(wasLocked ? t("portable.unlockFailed") : (error?.message || String(error)));
         }
       });
       clearBtn.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
-        // Режим снимаем ДО вызова: после него состояние уже сброшено, а тост
-        // должен сказать, что именно выключили.
-        const wasPlaintextOnly = plaintextOnly;
+        if (!window.confirm(t("portable.clearConfirm"))) return;
         try {
           await invoke("portable_secrets_clear_passphrase");
           await refresh();
-          toast(wasPlaintextOnly ? copy.plaintextDisabled : copy.cleared, "info", 2600);
-        } catch (error) {
-          alert(error?.message || String(error));
-        }
-      });
-      plainBtn.addEventListener("click", async (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!window.confirm(copy.plaintextConfirm)) return;
-        try {
-          await invoke("portable_secrets_confirm_plaintext");
-          await refresh();
-          toast(copy.plaintextEnabled, "warn", 4200);
+          toast(t("portable.cleared"), "info", 2600);
         } catch (error) {
           alert(error?.message || String(error));
         }
@@ -1194,7 +1168,6 @@ function renderGeneral(o) {
     hint: t("portable.hint"),
     set: t("portable.set"),
     clear: t("portable.clear"),
-    plain: t("portable.plain"),
   };
   return `
     <div class="settings-section">
@@ -1211,7 +1184,7 @@ function renderGeneral(o) {
       ${row(iconLock(), t("settings.general.hwidTitle"), t("settings.general.hwidHint"), `<code class="settings-hwid" data-hwid-value>${escapeHtml(peekDeviceIdentity()?.hwid || "…")}</code><button class="btn btn--sm" data-action="hwid-copy" type="button">${escapeHtml(t("settings.general.hwidCopy"))}</button><button class="btn btn--sm btn--danger" data-action="hwid-regenerate" type="button">${escapeHtml(t("settings.general.hwidRegenerate"))}</button>`)}
     </div>
     <div class="settings-section" data-portable-secrets-row hidden>
-      ${row(iconLock(), portableCopy.title, portableCopy.hint, `<button class="btn btn--sm" data-action="portable-secrets-set" type="button">${escapeHtml(portableCopy.set)}</button><button class="btn btn--sm btn--danger" data-action="portable-secrets-clear" type="button" hidden>${escapeHtml(portableCopy.clear)}</button><button class="btn btn--sm btn--danger" data-action="portable-secrets-plain" type="button">${escapeHtml(portableCopy.plain)}</button>`)}
+      ${row(iconLock(), portableCopy.title, portableCopy.hint, `<button class="btn btn--sm" data-action="portable-secrets-set" type="button">${escapeHtml(portableCopy.set)}</button><button class="btn btn--sm btn--danger" data-action="portable-secrets-clear" type="button" hidden>${escapeHtml(portableCopy.clear)}</button>`)}
     </div>
     <div class="settings-section">
       ${row(iconUrl(), t("settings.general.testUrlTitle"), t("settings.general.testUrlHint"), inputText("urlTest.connectionTestUrl", o.urlTest.connectionTestUrl, "url"))}
