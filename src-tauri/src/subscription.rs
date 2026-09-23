@@ -331,6 +331,52 @@ fn same_host(a: &reqwest::Url, b: &reqwest::Url) -> bool {
     }
 }
 
+// Сбой запроса подписки простыми словами. Раньше любой отказ превращался в
+// «не удалось получить подписку»: таймаут, отказ соединения и проблема
+// сертификата выглядели одинаково, и зацепиться было не за что ни
+// пользователю, ни триажу. Текст ошибки reqwest наружу не отдаём — в нём адрес
+// подписки с токеном; по цепочке причин только ищем признаки.
+fn describe_fetch_error(error: &reqwest::Error, via_proxy: bool) -> String {
+    let causes = error_causes(error);
+    let reason = if error.is_timeout() {
+        "сервер не ответил за 20 секунд"
+    } else if causes.contains("certificate")
+        || causes.contains("tls")
+        || causes.contains("handshake")
+    {
+        "не удалось установить защищённое соединение (сертификат или TLS)"
+    } else if error.is_connect() && via_proxy {
+        "не удалось соединиться через туннель"
+    } else if error.is_connect() {
+        "сервер недоступен или отказал в соединении"
+    } else {
+        "соединение оборвалось"
+    };
+    format!("не удалось получить подписку: {reason}")
+}
+
+fn describe_read_error(error: &reqwest::Error) -> String {
+    let reason = if error.is_timeout() {
+        "сервер не уложился в 20 секунд"
+    } else {
+        "соединение оборвалось"
+    };
+    format!("не удалось прочитать ответ подписки: {reason}")
+}
+
+// Причины ошибки без её верхнего уровня: сам reqwest::Error печатает адрес
+// запроса, и слово «tls» в пути или домене ложно выдавало бы проблему TLS.
+fn error_causes(error: &reqwest::Error) -> String {
+    let mut text = String::new();
+    let mut current = std::error::Error::source(error);
+    while let Some(cause) = current {
+        text.push_str(&cause.to_string().to_ascii_lowercase());
+        text.push('\n');
+        current = cause.source();
+    }
+    text
+}
+
 #[tauri::command]
 pub async fn fetch_subscription(
     url: String,
@@ -368,7 +414,7 @@ pub async fn fetch_subscription(
         let response = request
             .send()
             .await
-            .map_err(|_| "не удалось получить подписку".to_string())?;
+            .map_err(|error| describe_fetch_error(&error, proxy.is_some()))?;
 
         if response.status().is_redirection() {
             if MAX_REDIRECTS == 0 || redirects >= MAX_REDIRECTS {
@@ -421,7 +467,7 @@ pub async fn fetch_subscription(
     while let Some(chunk) = resp
         .chunk()
         .await
-        .map_err(|_| "не удалось прочитать ответ подписки".to_string())?
+        .map_err(|error| describe_read_error(&error))?
     {
         if crate::util::checked_body_len(buf.len(), chunk.len(), MAX_BODY_BYTES).is_err() {
             return Err(format!(
@@ -646,5 +692,42 @@ mod tests {
         );
         assert!(checked_redirect(&https, "http://example.com/next").is_err());
         assert!(checked_redirect(&https, "file:///etc/passwd").is_err());
+    }
+
+    // Отказ соединения и таймаут различаются в тексте ошибки, а адрес подписки
+    // с токеном в него не попадает.
+    #[tokio::test]
+    async fn fetch_errors_name_the_failure_without_leaking_the_url() {
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = closed.local_addr().unwrap().port();
+        drop(closed);
+        let client = crate::util::direct_client_builder().build().unwrap();
+        let refused = client
+            .get(format!("http://127.0.0.1:{port}/sub/secret-token"))
+            .send()
+            .await
+            .unwrap_err();
+        let message = describe_fetch_error(&refused, false);
+        assert!(message.contains("недоступен"), "{message}");
+        assert!(!message.contains("secret-token"), "{message}");
+
+        let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = silent.local_addr().unwrap();
+        let hold = tokio::spawn(async move {
+            let (_socket, _) = silent.accept().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        });
+        let slow = crate::util::direct_client_builder()
+            .timeout(std::time::Duration::from_millis(200))
+            .build()
+            .unwrap();
+        let timeout = slow
+            .get(format!("http://{address}/sub"))
+            .send()
+            .await
+            .unwrap_err();
+        let message = describe_fetch_error(&timeout, false);
+        assert!(message.contains("20 секунд"), "{message}");
+        hold.abort();
     }
 }
