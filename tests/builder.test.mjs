@@ -1195,3 +1195,35 @@ test("без доступа из локальной сети и в TUN loopback-
     assert.equal(config.route.rules.some((rule) => rule.type === "logical"), false, mode);
   }
 });
+
+// Домен с правилом «Напрямую» должен резолвиться мимо VPN, «Через VPN» —
+// через него даже внутри региона, «Блок» — отказом на DNS. IP- и процессные
+// правила DNS-запросу не соответствуют.
+test("пользовательские доменные правила зеркалятся в DNS выше региона", () => {
+  const options = structuredClone(DEFAULT_OPTIONS);
+  options.region = "ru";
+  options.route.customRules = [
+    { id: "d", enabled: true, type: "domain", match: "suffix", values: ["cdn.example"], action: "direct" },
+    { id: "p", enabled: true, type: "domain", match: "exact", values: ["t.ru"], action: "proxy" },
+    { id: "b", enabled: true, type: "domain", match: "keyword", values: ["ads"], action: "block" },
+    { id: "off", enabled: false, type: "domain", values: ["off.example"], action: "direct" },
+    { id: "ip", enabled: true, type: "ip", values: ["1.1.1.1"], action: "direct" },
+    { id: "proc", enabled: true, type: "process", values: ["app.exe"], action: "direct" },
+  ];
+  const { config } = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "tun", options });
+  assert.deepEqual(config.dns.rules.slice(0, 3), [
+    { domain_suffix: ["cdn.example"], server: "dns-direct" },
+    { domain: ["t.ru"], server: "dns-remote" },
+    { domain_keyword: ["ads"], action: "reject" },
+  ]);
+  assert.deepEqual(config.dns.rules[3].domain_suffix, [".ru"], "регион идёт после пользовательских правил");
+  validateConfigReferences(config);
+
+  options.dns.enableFakeDns = true;
+  const fake = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "tun", options }).config;
+  assert.deepEqual(fake.dns.rules.slice(1, 3), [
+    { domain: ["t.ru"], query_type: ["A", "AAAA"], server: "dns-fake" },
+    { domain: ["t.ru"], server: "dns-remote" },
+  ]);
+  validateConfigReferences(fake);
+});

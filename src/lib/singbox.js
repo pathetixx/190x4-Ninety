@@ -664,6 +664,10 @@ function buildDns(options, protectedOutbound = "proxy", mode = "") {
     final: "dns-remote",
   };
 
+  const fakeIp = !!options.dns.enableFakeDns && mode === "tun";
+  // Пользовательские правила — выше региона, как и в маршрутизации.
+  dns.rules.push(...customRulesToDns(options.route?.customRules, fakeIp));
+
   if (options.region && options.region !== "other") {
     dns.rules.push({
       domain_suffix: [`.${options.region}`],
@@ -679,7 +683,7 @@ function buildDns(options, protectedOutbound = "proxy", mode = "") {
     }
   }
 
-  if (options.dns.enableFakeDns && mode === "tun") {
+  if (fakeIp) {
     dns.servers.push({
       tag: "dns-fake",
       type: "fakeip",
@@ -707,21 +711,27 @@ function buildDns(options, protectedOutbound = "proxy", mode = "") {
 // конфига и поднят ли WARP). Вернул null — правило падает обратно на
 // protectedOutbound: сервер мог исчезнуть из подписки или уехать в карантин, и
 // ссылка на несуществующий тег уронила бы старт ядра целиком.
+function customRuleValues(r) {
+  return (Array.isArray(r?.values) ? r.values : [])
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+}
+
+function customDomainField(r) {
+  return r.match === "exact" ? "domain" : r.match === "keyword" ? "domain_keyword" : "domain_suffix";
+}
+
 function customRulesToSingbox(customRules, protectedOutbound = "proxy", resolveTarget = null) {
   if (!Array.isArray(customRules)) return [];
   const out = [];
   for (const r of customRules) {
     if (!r || r.enabled === false) continue;
-    const values = (Array.isArray(r.values) ? r.values : [])
-      .map((v) => String(v).trim())
-      .filter(Boolean);
+    const values = customRuleValues(r);
     if (!values.length) continue;
 
     const rule = {};
     if (r.type === "domain") {
-      const field =
-        r.match === "exact" ? "domain" : r.match === "keyword" ? "domain_keyword" : "domain_suffix";
-      rule[field] = values;
+      rule[customDomainField(r)] = values;
     } else if (r.type === "ip") {
       rule.ip_cidr = values.map((v) => (v.includes("/") ? v : `${v}/${v.includes(":") ? 128 : 32}`));
     } else if (r.type === "process") {
@@ -737,6 +747,34 @@ function customRulesToSingbox(customRules, protectedOutbound = "proxy", resolveT
     } else rule.outbound = protectedOutbound;
 
     out.push(rule);
+  }
+  return out;
+}
+
+// DNS-зеркало пользовательских доменных правил. Без него домен с правилом
+// «Напрямую» резолвился через dns-remote, то есть через VPN: CDN отдавал адрес
+// под страну сервера, а соединение шло напрямую. Домен из региона с правилом
+// «Через VPN», наоборот, проигрывал DNS-правилу региона и резолвился у
+// провайдера. «Блок» отвечает отказом уже на DNS. IP- и процессные правила
+// DNS-запросу не соответствуют — их пропускаем.
+function customRulesToDns(customRules, fakeIp = false) {
+  if (!Array.isArray(customRules)) return [];
+  const out = [];
+  for (const r of customRules) {
+    if (!r || r.enabled === false || r.type !== "domain") continue;
+    const values = customRuleValues(r);
+    if (!values.length) continue;
+    const match = { [customDomainField(r)]: values };
+    if (r.action === "block") {
+      out.push({ ...match, action: "reject" });
+    } else if (r.action === "direct") {
+      out.push({ ...match, server: "dns-direct" });
+    } else {
+      // С FakeDNS адреса для туннеля по-прежнему подменные: иначе правило
+      // тихо выключало бы FakeDNS для своих доменов.
+      if (fakeIp) out.push({ ...match, query_type: ["A", "AAAA"], server: "dns-fake" });
+      out.push({ ...match, server: "dns-remote" });
+    }
   }
   return out;
 }
