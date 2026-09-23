@@ -180,6 +180,20 @@ test("ss: percent-encoded метод и битый escape не роняют им
   assert.equal(broken.password, "100%pw");
 });
 
+// Тот же битый %-escape в trojan/hysteria2/tuic/naive кидал URIError: в
+// подписке нода молча пропадала, одиночный импорт падал с сырой ошибкой.
+test("пароль с голым % не роняет разбор ни одной схемы", () => {
+  assert.equal(parseTrojan("trojan://100%pw@tj.example.com:443#TJ").password, "100%pw");
+  assert.equal(parseHysteria2("hysteria2://100%pw@h.example.com:443#H").password, "100%pw");
+  assert.equal(
+    parseTuic("tuic://11111111-1111-1111-1111-111111111111:100%pw@t.example.com:443#U").password,
+    "100%pw",
+  );
+  const naive = parseNaive("naive+https://us%er:100%pw@n.example.com:443#N");
+  assert.equal(naive.username, "us%er");
+  assert.equal(naive.password, "100%pw");
+});
+
 // buildOutbound читает p.insecure для tls.insecure. Парсер это поле не выставлял
 // вовсе, поэтому TUIC-нода с самоподписанным сертификатом молча не поднималась.
 test("tuic: insecure и allow_insecure доезжают до профиля", () => {

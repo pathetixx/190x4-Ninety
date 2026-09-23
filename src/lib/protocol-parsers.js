@@ -189,7 +189,7 @@ export function parseTrojan(raw) {
   const { head, query } = splitQuery(main);
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.trojanHostPort"));
-  const password = decodeURIComponent(head.slice(0, atIdx));
+  const password = safeDecode(head.slice(0, atIdx));
   const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.trojanHostPort");
   const get = (k, def = "") => query.get(k) ?? def;
   return {
@@ -275,7 +275,7 @@ export function parseHysteria2(raw) {
   const { head, query } = splitQuery(main);
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.hy2HostPort"));
-  const password = decodeURIComponent(head.slice(0, atIdx));
+  const password = safeDecode(head.slice(0, atIdx));
   const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.hy2HostPort");
   const get = (k, def = "") => query.get(k) ?? def;
   return {
@@ -303,7 +303,7 @@ export function parseTuic(raw) {
   if (atIdx < 0) throw new Error(t("sb.err.tuicHostPort"));
   const auth = head.slice(0, atIdx);
   const [uuid, passwordRaw] = splitFirstColon(auth);
-  const password = decodeURIComponent(passwordRaw || "");
+  const password = safeDecode(passwordRaw || "");
   const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.tuicHostPort");
   const get = (k, def = "") => query.get(k) ?? def;
   return {
@@ -431,8 +431,8 @@ export function parseNaive(raw) {
   const cred = head.slice(0, atIdx);
   const colon = cred.indexOf(":");
   if (colon < 0) throw new Error(t("sb.err.naiveUserPass"));
-  const username = decodeURIComponent(cred.slice(0, colon));
-  const password = decodeURIComponent(cred.slice(colon + 1));
+  const username = safeDecode(cred.slice(0, colon));
+  const password = safeDecode(cred.slice(colon + 1));
   const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.naivePort");
   return { raw: url, proto: "naive", name, host, port, username, password, scheme };
 }
