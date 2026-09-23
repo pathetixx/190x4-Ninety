@@ -551,6 +551,8 @@ export const fr = {
     subFallback: "Abonnement",
     bridgeLoop: "Le pont de protocole plante en boucle",
     bridgeLoopDesc: "Les reconnexions n'ont pas aidé — connexion fermée. Consultez les journaux et essayez un autre serveur",
+    systemProxyLost: "Un autre programme a modifié le proxy Windows",
+    systemProxyLostDesc: "Les navigateurs contournent désormais Ninety. Reconnectez-vous pour les faire repasser par le VPN",
   },
 
   qToast: {

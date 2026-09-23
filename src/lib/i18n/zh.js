@@ -543,6 +543,8 @@ export const zh = {
     subFallback: "订阅",
     bridgeLoop: "协议桥接持续崩溃",
     bridgeLoopDesc: "重连未能解决 — 连接已关闭。请查看日志并尝试其他服务器",
+    systemProxyLost: "其他程序更改了 Windows 代理",
+    systemProxyLostDesc: "浏览器现在绕过了 Ninety。重新连接即可让它们再次通过 VPN",
   },
 
   qToast: {

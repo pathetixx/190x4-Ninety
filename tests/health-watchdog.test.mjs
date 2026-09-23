@@ -490,3 +490,54 @@ test("исчерпанный бюджет отмечается в журнале
     ["core_death", "stopped", "restore_budget"],
   ]);
 });
+
+test("health watchdog предупреждает о перебитом системном прокси один раз и снимает тост", async () => {
+  let lost = true;
+  const toasts = [];
+  const dismissed = [];
+  const notifications = [];
+  const diagnostics = [];
+  const toast = (title, kind, ms, opts) => {
+    toasts.push({ title, kind, ms, group: opts?.group });
+    return `toast-${toasts.length}`;
+  };
+  toast.dismiss = (id) => dismissed.push(id);
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    recordDiagnostic: (...args) => diagnostics.push(args),
+    invoke: async () => ({
+      singbox_running: true,
+      xray: "none",
+      sidecar: "none",
+      kill_switch_active: false,
+      system_proxy_lost: lost,
+    }),
+    toast,
+    notify: (title) => notifications.push(title),
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  await watchdog.tick();
+  assert.deepEqual(toasts, [{ title: "conn.systemProxyLost", kind: "warn", ms: 0, group: "system-proxy" }]);
+  assert.deepEqual(notifications, ["conn.systemProxyLost"]);
+  assert.deepEqual(diagnostics, [["system_proxy", "degraded", "foreign_change"]]);
+
+  lost = false;
+  await watchdog.tick();
+  assert.deepEqual(dismissed, ["toast-1"]);
+
+  lost = true;
+  await watchdog.tick();
+  watchdog.stop();
+  assert.equal(toasts.length, 2, "новая потеря снова предупреждает");
+  assert.deepEqual(dismissed, ["toast-1", "toast-2"], "отключение убирает предупреждение");
+});

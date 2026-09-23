@@ -77,6 +77,7 @@ export function initHealthWatchdog({
   let coreRestores = [];
   let generation = 0;
   let killSwitchAlerted = false;
+  let systemProxyToast = null;
   let unsubscribeCoreDeath = null;
   let lastTimerAt = 0;
   let lastLateReportAt = 0;
@@ -154,10 +155,37 @@ export function initHealthWatchdog({
     void tick();
   }
 
+  function clearSystemProxyAlert() {
+    if (systemProxyToast == null) return;
+    try { toastFn.dismiss?.(systemProxyToast); } catch {}
+    systemProxyToast = null;
+  }
+
+  // В режиме «Системный прокси» только настройка Windows заворачивает браузеры
+  // в туннель. Другая программа (второй VPN-клиент, сами настройки Windows)
+  // может её перебить: ядро живо, на экране «подключено», а трафик идёт мимо.
+  // Прокси сами не возвращаем — перетягивать настройку у другой программы
+  // значит воевать с ней. Честно сообщаем: переподключение вернёт прокси
+  // Ninety, а чужую настройку восстановит при отключении.
+  function reportSystemProxy(snap) {
+    if (snap.system_proxy_lost !== true) {
+      clearSystemProxyAlert();
+      return;
+    }
+    if (systemProxyToast != null) return;
+    recordDiagnostic("system_proxy", "degraded", "foreign_change");
+    systemProxyToast = toastFn(tr("conn.systemProxyLost"), "warn", 0, {
+      group: "system-proxy",
+      desc: tr("conn.systemProxyLostDesc"),
+    }) ?? true;
+    notifyFn(tr("conn.systemProxyLost"), tr("conn.systemProxyLostDesc"));
+  }
+
   function start() {
     if (timer) return;
     generation++;
     killSwitchAlerted = false;
+    clearSystemProxyAlert();
     lastTimerAt = now();
     lastLateReportAt = 0;
     timer = setIntervalFn(timerTick, HEALTH_TICK_MS);
@@ -185,6 +213,7 @@ export function initHealthWatchdog({
   function stop() {
     generation++;
     killSwitchAlerted = false;
+    clearSystemProxyAlert();
     lastTimerAt = 0;
     if (timer) { clearIntervalFn(timer); timer = null; }
     if (unsubscribeCoreDeath) {
@@ -342,10 +371,11 @@ export function initHealthWatchdog({
         ).catch((error) => console.warn("sidecar bridge recovery failed", error));
         return;
       }
+      if (!active(run)) return;
+      reportSystemProxy(snap);
       // Liveness OK — отдаём ход движку качества (детект троттла/деградации).
       // Fire-and-forget: проба до 4с не должна держать busy и тормозить следующий
       // liveness-тик; у движка свои guard'ы probing/remediating.
-      if (!active(run)) return;
       const engine = getQualityEngine();
       // Сначала говорим движку, виноват ли хост. Под нехваткой CPU/памяти
       // деградация канала — следствие, а не причина: лечить её сменой ноды и

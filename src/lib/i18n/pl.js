@@ -555,6 +555,8 @@ export const pl = {
     subFallback: "Subskrypcja",
     bridgeLoop: "Most protokołu ciągle pada",
     bridgeLoopDesc: "Ponowne połączenia nie pomogły — połączenie zamknięte. Sprawdź logi i wypróbuj inny serwer",
+    systemProxyLost: "Inny program zmienił serwer proxy Windows",
+    systemProxyLostDesc: "Przeglądarki omijają teraz Ninety. Połącz się ponownie, aby znów kierować je przez VPN",
   },
 
   qToast: {

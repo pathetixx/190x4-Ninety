@@ -547,6 +547,8 @@ export const tr = {
     subFallback: "Abonelik",
     bridgeLoop: "Protokol köprüsü sürekli çöküyor",
     bridgeLoopDesc: "Yeniden bağlanmalar işe yaramadı — bağlantı kapatıldı. Günlükleri kontrol edin ve başka bir sunucu deneyin",
+    systemProxyLost: "Başka bir program Windows proxy ayarını değiştirdi",
+    systemProxyLostDesc: "Tarayıcılar artık Ninety'yi atlıyor. VPN üzerinden geçmeleri için yeniden bağlanın",
   },
 
   qToast: {

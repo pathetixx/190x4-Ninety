@@ -547,6 +547,8 @@ export const en = {
     subFallback: "Subscription",
     bridgeLoop: "Protocol bridge keeps crashing",
     bridgeLoopDesc: "Reconnects didn't help — connection closed. Check the logs and try another server",
+    systemProxyLost: "Another program changed the Windows proxy",
+    systemProxyLostDesc: "Browsers now bypass Ninety. Reconnect to route them through the VPN again",
   },
 
   qToast: {

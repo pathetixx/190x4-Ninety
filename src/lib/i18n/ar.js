@@ -563,6 +563,8 @@ export const ar = {
     subFallback: "اشتراك",
     bridgeLoop: "جسر البروتوكول يتعطل باستمرار",
     bridgeLoopDesc: "لم تُجدِ إعادة الاتصال — تم إغلاق الاتصال. تحقق من السجلات وجرّب خادماً آخر",
+    systemProxyLost: "غيّر برنامج آخر وكيل Windows",
+    systemProxyLostDesc: "المتصفحات تتجاوز Ninety الآن. أعد الاتصال لتمريرها عبر VPN مجدداً",
   },
 
   qToast: {

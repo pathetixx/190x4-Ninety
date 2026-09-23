@@ -551,6 +551,8 @@ export const es = {
     subFallback: "Suscripción",
     bridgeLoop: "El puente del protocolo se cae constantemente",
     bridgeLoopDesc: "Las reconexiones no ayudaron — conexión cerrada. Revisa los registros y prueba otro servidor",
+    systemProxyLost: "Otro programa cambió el proxy de Windows",
+    systemProxyLostDesc: "Los navegadores ahora evitan Ninety. Vuelve a conectar para enviarlos de nuevo por la VPN",
   },
 
   qToast: {

@@ -436,6 +436,10 @@ struct RuntimeRecord {
     listener_ready: bool,
     clash_port: u16,
     clash_ready: bool,
+    /// Адрес, который этот runtime опубликовал системным прокси Windows. По
+    /// нему сторож проверяет, что настройку не перебила другая программа: в
+    /// режиме «Системный прокси» только она заворачивает браузеры в туннель.
+    system_proxy_endpoint: Option<String>,
 }
 
 /// Control and dataplane addresses are intentionally different types.  A
@@ -1858,7 +1862,7 @@ async fn enable_system_proxy_for_runtime(
     bypass_lan: Option<bool>,
     expected_generation: Option<u64>,
 ) -> Result<(), String> {
-    let (_generation, endpoint) =
+    let (generation, endpoint) =
         validate_runtime_probe_endpoint(state, expected_generation, Some(host_port)).await?;
     let canonical_endpoint = endpoint.address.to_string();
     proxy::set_system_proxy(true, Some(&canonical_endpoint), bypass_lan)?;
@@ -1881,7 +1885,38 @@ async fn enable_system_proxy_for_runtime(
             canonical_endpoint
         ));
     }
+    // Запоминаем только за своим поколением: за время IPC runtime мог смениться.
+    if let Some(runtime) = state
+        .runtime
+        .lock_recover()
+        .as_mut()
+        .filter(|runtime| runtime.process_generation == generation)
+    {
+        runtime.system_proxy_endpoint = Some(canonical_endpoint);
+    }
     Ok(())
+}
+
+fn forget_system_proxy_endpoint(state: &SingboxState) {
+    if let Some(runtime) = state.runtime.lock_recover().as_mut() {
+        runtime.system_proxy_endpoint = None;
+    }
+}
+
+/// Системный прокси, опубликованный живым runtime, больше не наш: его сняла или
+/// перебила другая программа. Трафик браузеров тогда идёт мимо туннеля, хотя
+/// ядро живо и интерфейс показывает «подключено». Во время остановки не
+/// проверяем: stop сам снимает прокси раньше, чем забывает runtime.
+fn system_proxy_lost(state: &SingboxState) -> bool {
+    if state.stopping.load(Ordering::SeqCst) {
+        return false;
+    }
+    let expected = state
+        .runtime
+        .lock_recover()
+        .as_ref()
+        .and_then(|runtime| runtime.system_proxy_endpoint.clone());
+    expected.is_some_and(|endpoint| !proxy::system_proxy_matches(&endpoint))
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -2409,6 +2444,7 @@ async fn start_singbox_inner(
         listener_ready: true,
         clash_port,
         clash_ready: true,
+        system_proxy_endpoint: None,
     });
     state.dataplane_probe.reset_generation(process_generation);
     spawn_core_death_watcher(app.clone(), state, process_generation);
@@ -2680,8 +2716,10 @@ async fn abort_started_runtime_scoped(state: &SingboxState, port_debt: PortDebt)
         let mut guard = state.runtime_ports.lock_recover();
         std::mem::take(&mut *guard)
     };
-    let _ = proxy::set_system_proxy(false, None, None);
+    // Runtime забываем раньше, чем снимаем прокси: иначе сторож успел бы
+    // увидеть «наш прокси пропал» у ещё опубликованного runtime.
     *state.runtime.lock_recover() = None;
+    let _ = proxy::set_system_proxy(false, None, None);
 
     // Тот же короткий барьер подтверждения, что у stop_singbox_inner.
     let (processes_exited, remaining_ports) = wait_runtime_released(state, &ports, &killed).await;
@@ -2876,6 +2914,7 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
         state.start_epoch.fetch_add(1, Ordering::SeqCst);
     }
     let _stopping = StoppingGuard(&state.stopping);
+    forget_system_proxy_endpoint(state);
     state.expected_exit_generation.store(
         state.process_generation.load(Ordering::SeqCst),
         Ordering::SeqCst,
@@ -3390,6 +3429,8 @@ pub struct HealthSnapshot {
     pub sidecar: &'static str,
     pub last_error: Option<String>,
     pub kill_switch_active: bool,
+    // Системный прокси этого runtime сняла или перебила другая программа.
+    pub system_proxy_lost: bool,
     pub runtime_operation: Option<crate::runtime_ops::RuntimeOperationSnapshot>,
     // Виноват ли хост, а не сеть. Едет тем же снимком, чтобы движок качества
     // узнавал о нехватке CPU/памяти без отдельного round-trip'а.
@@ -3409,6 +3450,7 @@ pub async fn health_snapshot(app: AppHandle) -> Result<HealthSnapshot, String> {
             sidecar: compute_sidecar_status(&state),
             last_error: compute_last_error(&state),
             kill_switch_active: crate::killswitch::is_active(&kill_switch),
+            system_proxy_lost: system_proxy_lost(&state),
             runtime_operation: coordinator.snapshot(),
             host_pressure: pressure.snapshot(),
         }
@@ -3489,7 +3531,10 @@ pub async fn enable_system_proxy(
 }
 
 #[tauri::command]
-pub fn disable_system_proxy() -> Result<(), String> {
+pub fn disable_system_proxy(state: State<'_, SingboxState>) -> Result<(), String> {
+    // Прокси снимают сознательно (смена режима, откат после сбоя): сторож не
+    // должен принимать это за вмешательство другой программы.
+    forget_system_proxy_endpoint(&state);
     proxy::set_system_proxy(false, None, None)
 }
 
@@ -3926,6 +3971,7 @@ mod tests {
             listener_ready: true,
             clash_port: 9090,
             clash_ready: true,
+            system_proxy_endpoint: None,
         });
         assert_eq!(
             probe_endpoint_for_generation(&state, Some(42)).unwrap().0,
@@ -4189,7 +4235,33 @@ mod tests {
             listener_ready: true,
             clash_port: 9090,
             clash_ready: true,
+            system_proxy_endpoint: None,
         }
+    }
+
+    // Сторож сверяет с реестром только адрес, который runtime сам опубликовал.
+    // Порт 1 в системном прокси тестовой машины не стоит, поэтому опубликованный
+    // адрес там всегда «потерян»; без публикации и во время остановки — нет.
+    #[test]
+    fn system_proxy_loss_is_reported_only_for_a_published_endpoint() {
+        let state = SingboxState::default();
+        *state.runtime.lock_recover() = Some(published_runtime_record());
+        assert!(!system_proxy_lost(&state), "прокси не публиковался");
+
+        state
+            .runtime
+            .lock_recover()
+            .as_mut()
+            .unwrap()
+            .system_proxy_endpoint = Some("127.0.0.1:1".into());
+        assert!(system_proxy_lost(&state));
+
+        state.stopping.store(true, Ordering::SeqCst);
+        assert!(!system_proxy_lost(&state), "остановка снимает прокси сама");
+        state.stopping.store(false, Ordering::SeqCst);
+
+        forget_system_proxy_endpoint(&state);
+        assert!(!system_proxy_lost(&state));
     }
 
     // Отмена владения операцией (latest-wins смена источника) обязана оставлять

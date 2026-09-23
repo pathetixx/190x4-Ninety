@@ -543,6 +543,8 @@ export const ja = {
     subFallback: "サブスクリプション",
     bridgeLoop: "プロトコルブリッジが繰り返しクラッシュしています",
     bridgeLoopDesc: "再接続でも解決しませんでした — 接続を終了しました。ログを確認し、別のサーバーをお試しください",
+    systemProxyLost: "別のプログラムが Windows のプロキシを変更しました",
+    systemProxyLostDesc: "ブラウザーは現在 Ninety を経由していません。再接続すると再び VPN 経由になります",
   },
 
   qToast: {

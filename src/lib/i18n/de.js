@@ -547,6 +547,8 @@ export const de = {
     subFallback: "Abo",
     bridgeLoop: "Die Protokoll-Brücke stürzt ständig ab",
     bridgeLoopDesc: "Neuverbindungen halfen nicht — Verbindung geschlossen. Prüfe die Logs und versuche einen anderen Server",
+    systemProxyLost: "Ein anderes Programm hat den Windows-Proxy geändert",
+    systemProxyLostDesc: "Browser umgehen Ninety jetzt. Verbinde dich neu, um sie wieder über das VPN zu leiten",
   },
 
   qToast: {

@@ -543,6 +543,8 @@ export const ko = {
     subFallback: "구독",
     bridgeLoop: "프로토콜 브리지가 계속 중단됩니다",
     bridgeLoopDesc: "재연결로 해결되지 않아 연결을 종료했습니다. 로그를 확인하고 다른 서버를 시도하세요",
+    systemProxyLost: "다른 프로그램이 Windows 프록시를 변경했습니다",
+    systemProxyLostDesc: "지금 브라우저가 Ninety를 거치지 않습니다. 다시 VPN을 거치게 하려면 재연결하세요",
   },
 
   qToast: {

@@ -920,24 +920,41 @@ fn set_tray_menu(
 }
 
 /// Последний рубеж перед аварийным завершением. Штатная очистка висит на
-/// `RunEvent::Exit`, но паника до event loop не доходит: паникующий поток не
-/// обязан быть тем, который крутит event loop, и раскрутка до Tauri может не
-/// добраться вовсе. Итог один — в реестре остаётся `ProxyEnable=1` на мёртвый
-/// loopback-порт, и у пользователя пропадает интернет во всём, что читает
-/// WinINet. Hook выполняется ДО раскрутки/abort, поэтому снять прокси можно
-/// только здесь.
+/// `RunEvent::Exit`, но паника главного потока до неё не доходит: раскрутка
+/// через оконную процедуру Windows заканчивается abort'ом, минуя Tauri. Итог —
+/// в реестре остаётся `ProxyEnable=1` на мёртвый loopback-порт, и у
+/// пользователя пропадает интернет во всём, что читает WinINet. Hook
+/// выполняется ДО раскрутки/abort, поэтому снять прокси можно только здесь.
 ///
 /// Внутри — только запись в реестр: без тяжёлых аллокаций, без await и без
 /// обращения к Tauri state (его в этот момент может уже не быть).
+///
+/// Прокси снимаем только при панике главного потока: там крутится event loop
+/// и выполняются синхронные команды, и такая паника завершает процесс. Hook
+/// вызывается и для паник, которые потом перехватываются (`catch_unwind` в
+/// netproc.rs, паника внутри tokio-таска или async-команды). После них процесс
+/// и sing-box живут дальше, а снятый прокси молча пускал браузеры напрямую,
+/// пока интерфейс показывал «подключено».
 fn install_failsafe_panic_hook() {
     let default_hook = std::panic::take_hook();
+    let main_thread = std::thread::current().id();
     std::panic::set_hook(Box::new(move |info| {
-        #[cfg(target_os = "windows")]
-        if let Err(error) = elevation::set_system_proxy(false, None, None) {
-            eprintln!("panic cleanup: system proxy not restored: {error}");
+        if panic_ends_process(std::thread::current().id(), main_thread) {
+            restore_system_proxy_before_exit();
         }
         default_hook(info);
     }));
+}
+
+fn panic_ends_process(panicking: std::thread::ThreadId, main: std::thread::ThreadId) -> bool {
+    panicking == main
+}
+
+fn restore_system_proxy_before_exit() {
+    #[cfg(target_os = "windows")]
+    if let Err(error) = elevation::set_system_proxy(false, None, None) {
+        eprintln!("panic cleanup: system proxy not restored: {error}");
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1506,6 +1523,18 @@ mod tests {
         let mut truncated = vec![0u8; 8];
         paint_update_badge(&mut truncated, 32, 32);
         assert!(truncated.iter().all(|b| *b == 0));
+    }
+
+    // Перехваченная паника фонового потока процесс не завершает: sing-box
+    // продолжает работать, и снимать системный прокси из-за неё нельзя.
+    #[test]
+    fn only_a_main_thread_panic_releases_the_system_proxy() {
+        let main = std::thread::current().id();
+        let worker = std::thread::spawn(|| std::thread::current().id())
+            .join()
+            .unwrap();
+        assert!(panic_ends_process(main, main));
+        assert!(!panic_ends_process(worker, main));
     }
 
     // Один argv-флаг не должен запускать сборочную проверку: она стирает
