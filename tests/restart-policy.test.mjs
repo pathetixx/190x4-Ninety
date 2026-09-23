@@ -68,3 +68,21 @@ test("TUN-only поля рестартят только в TUN-режиме", ()
     assert.equal(pathNeedsRestart(p, {}, "systemProxy"), false, p);
   }
 });
+
+test("переключатели, которые читаются на лету, не рвут соединение", () => {
+  for (const p of [
+    "general.autoProtectWifi",
+    "general.disableGeoLookup",
+    "general.allowDirectSubscriptionFallback",
+  ]) {
+    for (const mode of ["proxy", "systemProxy", "tun"]) {
+      assert.equal(pathNeedsRestart(p, warpOn, mode), false, `${p} · ${mode}`);
+    }
+  }
+});
+
+test("FakeDNS пересобирает ядро только в TUN", () => {
+  assert.equal(pathNeedsRestart("dns.enableFakeDns", {}, "tun"), true);
+  assert.equal(pathNeedsRestart("dns.enableFakeDns", {}, "proxy"), false);
+  assert.equal(pathNeedsRestart("dns.enableFakeDns", {}, "systemProxy"), false);
+});

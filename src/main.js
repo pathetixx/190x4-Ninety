@@ -913,6 +913,8 @@ if (settingsRoot) {
         // включение — вернуть его только после успешного старта.
         if (!(await setDpiVpnMode(getMode(), { reevaluate: true }))) return;
       }
+      // Гео-запросы влияют только на плитку IP — обновляем её без реконнекта.
+      if (path === "general.disableGeoLookup" && state === "connected") void refreshPublicIp();
       if (!pathNeedsRestart(path, loadOptions(), getMode())) return;
       if (state === "connected" || state === "connecting") {
         scheduleAutoReconnect();

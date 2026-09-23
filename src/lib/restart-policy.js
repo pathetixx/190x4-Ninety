@@ -9,6 +9,12 @@ export function pathNeedsRestart(path, opts, mode) {
   if (path === "general.autostart") return false;
   if (path === "general.startMinimized") return false;
   if (path === "general.linkHandlers") return false;
+  // Эти переключатели читаются на лету: авто-защита Wi-Fi — своим циклом,
+  // гео-запросы — плиткой IP, прямое обновление подписок — при загрузке.
+  // Реконнект ради них рвал все соединения на ровном месте.
+  if (path === "general.autoProtectWifi") return false;
+  if (path === "general.disableGeoLookup") return false;
+  if (path === "general.allowDirectSubscriptionFallback") return false;
   // Автозапуск защищённого браузера не меняет сетевой runtime.
   if (path === "privacy.protectedBrowserAutoLaunch") return false;
   // Строгий туннель меняет режим, DNS, маршруты, outbound и TUN strict_route.
@@ -27,6 +33,8 @@ export function pathNeedsRestart(path, opts, mode) {
   if (path.startsWith("warp.customNoise.") && opts?.warp?.noisePreset !== "custom") return false;
   // WARP-настройки при выключенном WARP в config не попадают
   if (path.startsWith("warp.") && path !== "warp.enabled" && !opts?.warp?.enabled) return false;
+  // FakeDNS попадает в конфиг только в TUN (см. buildDns в singbox.js).
+  if (path === "dns.enableFakeDns") return mode === "tun";
   // TUN-only поля в proxy-режиме не используются (см. inbound в singbox.js)
   if (path === "inbound.mtu" || path === "inbound.tunStack" || path === "inbound.strictRoute") {
     return mode === "tun";
