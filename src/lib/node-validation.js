@@ -210,6 +210,18 @@ function amneziaIssue(awg) {
   return null;
 }
 
+// Диапазоны смены портов hysteria2 в форме ядра: «начало:конец».
+function validPortRanges(ports) {
+  if (!Array.isArray(ports) || !ports.length) return false;
+  return ports.every((range) => {
+    const m = /^(\d{1,5}):(\d{1,5})$/.exec(String(range));
+    if (!m) return false;
+    const from = Number(m[1]);
+    const to = Number(m[2]);
+    return from >= 1 && to <= 65535 && from <= to;
+  });
+}
+
 function computeNodeConfigIssue(node) {
   const proto = profileProto(node);
   // Sidecar-протоколы (naive/trusttunnel) в sing-box уходят socks-мостом:
@@ -233,6 +245,10 @@ function computeNodeConfigIssue(node) {
 
   if (proto === "shadowsocks" && !SHADOWSOCKS_METHODS.has(String(node.method || "").toLowerCase())) {
     return { code: "ssMethod" };
+  }
+
+  if (proto === "hysteria2" && node.ports !== undefined && !validPortRanges(node.ports)) {
+    return { code: "endpoint" };
   }
 
   if (proto === "hysteria2" && node.obfs) {

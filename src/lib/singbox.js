@@ -351,6 +351,12 @@ function buildOutbound(p, options) {
         type: "hysteria2",
         password: p.password,
       };
+      // Смена портов: ядро принимает список диапазонов вместо одного порта, и
+      // вместе они не допускаются.
+      if (Array.isArray(p.ports) && p.ports.length) {
+        delete out.server_port;
+        out.server_ports = [...p.ports];
+      }
       if (p.upMbps) out.up_mbps = p.upMbps;
       if (p.downMbps) out.down_mbps = p.downMbps;
       if (p.obfs) {

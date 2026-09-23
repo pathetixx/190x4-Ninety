@@ -10,6 +10,7 @@ import {
   splitHostPort,
   splitQuery,
   splitTrailingHashName,
+  withoutUrlPath,
 } from "/lib/url-helpers.js";
 
 // Разрез `method:password` / `uuid:password` по ПЕРВОМУ двоеточию.
@@ -266,6 +267,43 @@ export function parseShadowsocks(raw) {
 }
 
 // ── hysteria2 ───────────────────────────────────────────────
+// Смена портов (port hopping): «host:443,20000-30000» по спецификации Hysteria
+// и параметр mport=20000-30000 у v2rayN. Ядро принимает такую ноду списком
+// server_ports («начало:конец») вместо одного server_port; основной порт
+// профиля — первый из списка, его же видно в интерфейсе. Без порта вовсе
+// спецификация подразумевает 443.
+const HY2_PORT_ITEM = /^(\d{1,5})(?:-(\d{1,5}))?$/;
+
+function hysteria2PortRanges(spec) {
+  const ranges = [];
+  for (const item of String(spec || "").split(",").map((s) => s.trim()).filter(Boolean)) {
+    const m = item.match(HY2_PORT_ITEM);
+    if (!m) return null;
+    const from = Number(m[1]);
+    const to = m[2] == null ? from : Number(m[2]);
+    if (from < 1 || to > 65535 || from > to) return null;
+    ranges.push([from, to]);
+  }
+  return ranges;
+}
+
+function splitHysteria2Endpoint(rawHostPort, mport) {
+  const hostPort = withoutUrlPath(rawHostPort);
+  const close = hostPort.startsWith("[") ? hostPort.indexOf("]") : -1;
+  if (hostPort.startsWith("[") && close < 0) throw new Error(t("sb.err.badIpv6"));
+  const sep = close >= 0 ? close + 1 : hostPort.lastIndexOf(":");
+  const hasPort = sep >= 0 && hostPort[sep] === ":";
+  const host = close >= 0 ? hostPort.slice(1, close) : (hasPort ? hostPort.slice(0, sep) : hostPort);
+  const spec = hasPort ? hostPort.slice(sep + 1) : "";
+  const main = hasPort ? hysteria2PortRanges(spec) : [[443, 443]];
+  const extra = hysteria2PortRanges(mport);
+  if (!host || !main?.length || !extra) throw new Error(t("sb.err.hy2HostPort"));
+  const ranges = [...main, ...extra];
+  const port = ranges[0][0];
+  const hopping = ranges.length > 1 || ranges[0][0] !== ranges[0][1];
+  return hopping ? { host, port, ports: ranges.map(([from, to]) => `${from}:${to}`) } : { host, port };
+}
+
 export function parseHysteria2(raw) {
   const url = String(raw || "").trim();
   const scheme = url.startsWith("hysteria2://") ? "hysteria2://" : (url.startsWith("hy2://") ? "hy2://" : null);
@@ -276,11 +314,14 @@ export function parseHysteria2(raw) {
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.hy2HostPort"));
   const password = safeDecode(head.slice(0, atIdx));
-  const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.hy2HostPort");
+  const { host, port, ports } = splitHysteria2Endpoint(head.slice(atIdx + 1), query.get("mport"));
   const get = (k, def = "") => query.get(k) ?? def;
   return {
     raw: url, proto: "hysteria2", name,
     host, port, password,
+    // Поле появляется только у нод со сменой портов: отпечаток ноды считается
+    // по содержимому, и лишнее поле сменило бы identity всем старым нодам.
+    ...(ports ? { ports } : {}),
     sni: get("sni") || host,
     obfs: get("obfs", ""),
     obfsPassword: get("obfs-password") || get("obfsPassword", ""),

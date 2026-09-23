@@ -8,6 +8,7 @@ import {
   nodeTag,
   parseVless,
   parseVmess,
+  parseLink,
   parseWireguardConf,
   validateConfigReferences,
 } from "/lib/singbox.js";
@@ -1226,4 +1227,12 @@ test("пользовательские доменные правила зерк�
     { domain: ["t.ru"], server: "dns-remote" },
   ]);
   validateConfigReferences(fake);
+});
+
+test("hysteria2 со сменой портов собирается через server_ports без server_port", () => {
+  const node = parseLink("hysteria2://pw@h.example:443,20000-30000/?sni=h.example#H");
+  const { config } = buildConfig({ source: { kind: "single", profile: node }, mode: "proxy", options: DEFAULT_OPTIONS });
+  const out = config.outbounds.find((o) => o.type === "hysteria2");
+  assert.equal(out.server_port, undefined);
+  assert.deepEqual(out.server_ports, ["443:443", "20000:30000"]);
 });

@@ -37,7 +37,17 @@ export function parsePort(value, errKey = "sb.err.badPort") {
   return port;
 }
 
-export function splitHostPort(hostPort, errKey = "sb.err.badPort") {
+// Адрес заканчивается на первом «/» (RFC 3986): дальше путь. Ссылки вида
+// vless://id@host:443/?type=ws — официальная форма Hysteria 2 и частый вывод
+// панелей — раньше не разбирались ни в одной схеме: «/» попадал в порт.
+export function withoutUrlPath(hostPort) {
+  const value = String(hostPort ?? "");
+  const slash = value.indexOf("/");
+  return slash >= 0 ? value.slice(0, slash) : value;
+}
+
+export function splitHostPort(rawHostPort, errKey = "sb.err.badPort") {
+  const hostPort = withoutUrlPath(rawHostPort);
   if (hostPort.startsWith("[")) {
     const close = hostPort.indexOf("]");
     if (close < 0) throw new Error(t("sb.err.badIpv6"));

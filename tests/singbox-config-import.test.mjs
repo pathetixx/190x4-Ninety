@@ -407,3 +407,29 @@ test("собственный экспорт конфига импортируе�
   ].map(({ tag, ...rest }) => rest);
   assert.deepEqual(strip(reExported), strip(exported));
 });
+
+// Смена портов hysteria2 раньше отбрасывала ноду целиком: диапазон не
+// укладывался в ссылку. Теперь он переносится и возвращается в server_ports.
+test("hysteria2 со сменой портов импортируется и собирается обратно", () => {
+  const outbound = {
+    tag: "hop", type: "hysteria2", server: "h.example", password: "pw",
+    server_ports: ["443:443", "20000:30000"],
+    tls: { enabled: true, server_name: "h.example", alpn: ["h3"] },
+  };
+  const { link } = singboxOutboundToLink(outbound);
+  assert.match(link, /^hysteria2:\/\/pw@h\.example:443,20000-30000\?/);
+
+  const { profiles, skipped } = parseSingboxConfig({ outbounds: [outbound] });
+  assert.equal(skipped, 0);
+  assert.deepEqual(profiles[0].ports, ["443:443", "20000:30000"]);
+  assert.equal(nodeConfigIssue(profiles[0]), null);
+
+  const config = buildConfig({ source: { kind: "single", profile: profiles[0] }, mode: "proxy" }).config;
+  const built = config.outbounds.find((o) => o.type === "hysteria2");
+  assert.deepEqual(built.server_ports, ["443:443", "20000:30000"]);
+  assert.equal(built.server_port, undefined);
+
+  // Битый диапазон по-прежнему не выдаётся за сервер.
+  assert.deepEqual(singboxOutboundToLink({ ...outbound, server_ports: ["abc"] }), { unsupported: "hysteria2" });
+  assert.equal(nodeConfigIssue({ ...profiles[0], ports: ["30000:20000"] })?.code, "endpoint");
+});

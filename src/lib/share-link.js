@@ -62,7 +62,9 @@ export function buildShareLink({ scheme, userinfo = "", server, port, params = [
   const auth = userinfo ? `${userinfo}@` : "";
   const search = query.toString();
   const name = tag ? `#${encodeURIComponent(tag)}` : "";
-  return `${scheme}://${auth}${hostForUri(server)}:${Number(port)}${search ? `?${search}` : ""}${name}`;
+  // Строкой приходит только диапазон смены портов hysteria2 («443,20000-30000»).
+  const portPart = typeof port === "string" && /^\d[\d,-]*$/.test(port) ? port : Number(port);
+  return `${scheme}://${auth}${hostForUri(server)}:${portPart}${search ? `?${search}` : ""}${name}`;
 }
 
 /** vmess — единственная схема, где «ссылка» это base64 от JSON v2rayN. */

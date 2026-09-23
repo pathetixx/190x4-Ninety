@@ -454,3 +454,47 @@ I1 = <b 0xc0ffee>`), "Round");
   // В экспорте нет строк, которых мы не понимаем: он собран из профиля.
   assert.deepEqual(again.ignored, []);
 });
+
+// Адрес заканчивается на первом «/»: ссылки вида host:443/?… (официальная форма
+// Hysteria 2, вывод части панелей) раньше не разбирались ни в одной схеме.
+test("путь перед query не ломает разбор ни одной схемы", () => {
+  const uuid = "11111111-1111-1111-1111-111111111111";
+  for (const link of [
+    `vless://${uuid}@h.example:443/?security=tls&type=ws#V`,
+    "trojan://pw@h.example:443/?security=tls#T",
+    "ss://YWVzLTI1Ni1nY206cHc@h.example:443/?plugin=#S",
+    `tuic://${uuid}:pw@h.example:443/?congestion_control=bbr#U`,
+    "anytls://pw@h.example:443/?sni=x#A",
+    "hysteria://h.example:443/?auth=pw#H1",
+    "hysteria2://pw@h.example:443/?sni=x#H2",
+    "naive+https://u:p@h.example:443/#N",
+    "socks://u:p@h.example:443/#K",
+  ]) {
+    const p = parseLink(link);
+    assert.equal(p.host, "h.example", link);
+    assert.equal(p.port, 443, link);
+  }
+});
+
+test("hysteria2 без порта подключается на 443, как требует спецификация", () => {
+  const p = parseHysteria2("hysteria2://pw@h.example/?insecure=1#H");
+  assert.equal(p.port, 443);
+  assert.equal(p.ports, undefined, "одиночный порт не добавляет поле");
+});
+
+test("hysteria2: смена портов из адреса и из mport", () => {
+  const inline = parseHysteria2("hysteria2://pw@h.example:443,20000-30000/?sni=x#H");
+  assert.equal(inline.port, 443);
+  assert.deepEqual(inline.ports, ["443:443", "20000:30000"]);
+
+  const onlyRange = parseHysteria2("hy2://pw@[2001:db8::1]:20000-30000#R");
+  assert.equal(onlyRange.host, "2001:db8::1");
+  assert.equal(onlyRange.port, 20000);
+  assert.deepEqual(onlyRange.ports, ["20000:30000"]);
+
+  const mport = parseHysteria2("hysteria2://pw@h.example:443?mport=40000-41000#M");
+  assert.deepEqual(mport.ports, ["443:443", "40000:41000"]);
+
+  assert.throws(() => parseHysteria2("hysteria2://pw@h.example:30000-20000#X"));
+  assert.throws(() => parseHysteria2("hysteria2://pw@h.example:443?mport=abc#X"));
+});

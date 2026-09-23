@@ -192,10 +192,26 @@ function shadowsocksUri(node, tag) {
   return link(node, "ss", userinfo, tag, [["plugin", plugin]]);
 }
 
+// server_ports («20000:30000») → форма ссылки Hysteria («20000-30000»,
+// через запятую). null — диапазонов нет или они битые.
+function hysteria2PortSpec(serverPorts) {
+  const list = Array.isArray(serverPorts) ? serverPorts : serverPorts ? [serverPorts] : [];
+  if (!list.length) return null;
+  const items = [];
+  for (const range of list) {
+    const m = /^(\d{1,5}):(\d{1,5})$/.exec(String(range).trim());
+    if (!m) return null;
+    items.push(m[1] === m[2] ? m[1] : `${m[1]}-${m[2]}`);
+  }
+  return items.join(",");
+}
+
 function hysteria2Uri(node, tag) {
   const tls = isPlainObject(node.tls) ? node.tls : {};
   const obfs = isPlainObject(node.obfs) ? node.obfs : {};
-  return link(node, "hysteria2", encodeURIComponent(node.password || ""), tag, [
+  const hopPorts = hysteria2PortSpec(node.server_ports);
+  const endpoint = hopPorts ? { ...node, server_port: hopPorts } : node;
+  return link(endpoint, "hysteria2", encodeURIComponent(node.password || ""), tag, [
     ["sni", tls.server_name || ""],
     ["alpn", joinList(tls.alpn) || "h3"],
     ["insecure", tls.insecure ? "1" : ""],
@@ -289,9 +305,10 @@ export function singboxOutboundToLink(outbound) {
   // Нода за чужим detour — не самостоятельный сервер: без цепочки она пойдёт
   // напрямую, то есть будет вести себя не так, как в конфиге, откуда пришла.
   if (outbound.detour) return { unsupported: `${type}+detour` };
-  // Диапазон портов hysteria2 (server_ports) в ссылку не укладывается, и
-  // ядро без него подключится не туда.
-  if (!outbound.server || !Number.isInteger(Number(outbound.server_port))) {
+  // Диапазон портов hysteria2 (server_ports) ссылка выражает списком через
+  // запятую; у остальных схем без целого порта нода подключилась бы не туда.
+  const hopPorts = type === "hysteria2" ? hysteria2PortSpec(outbound.server_ports) : null;
+  if (!outbound.server || (!hopPorts && !Number.isInteger(Number(outbound.server_port)))) {
     return { unsupported: type };
   }
   return { link: builder(outbound, outbound.tag || "") };
