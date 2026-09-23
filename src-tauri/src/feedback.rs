@@ -118,7 +118,7 @@ pub async fn send_feedback(app: tauri::AppHandle, input: FeedbackInput) -> Resul
         os: crate::hwid::os_version(),
     };
 
-    let client = reqwest::Client::builder()
+    let client = crate::util::direct_client_builder()
         .timeout(TIMEOUT)
         .user_agent(concat!("Ninety/", env!("CARGO_PKG_VERSION")))
         .build()

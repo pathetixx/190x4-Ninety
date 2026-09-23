@@ -112,7 +112,7 @@ fn normalize_ip(v: &Value) -> Option<Value> {
 
 #[tauri::command]
 pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
-    let mut b = reqwest::Client::builder()
+    let mut b = crate::util::direct_client_builder()
         .user_agent("Ninety/0.1")
         // connect_timeout отдельно от общего: недосягаемый провайдер отваливается
         // за 3с вместо того чтобы съесть весь бюджет запроса.
@@ -174,7 +174,7 @@ fn client() -> Result<reqwest::Client, String> {
     if let Some(c) = CLIENT.get() {
         return Ok(c.clone());
     }
-    let c = reqwest::Client::builder()
+    let c = crate::util::direct_client_builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("client: {e}"))?;

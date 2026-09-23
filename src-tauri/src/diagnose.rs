@@ -458,7 +458,7 @@ fn validate_targets(targets: Vec<ReachTarget>) -> Result<Vec<ReachTarget>, Strin
 }
 
 fn build_probe_client(endpoint: Option<&ProbeProxyEndpoint>) -> Result<reqwest::Client, String> {
-    let mut builder = reqwest::Client::builder()
+    let mut builder = crate::util::direct_client_builder()
         .connect_timeout(REACH_CONNECT_TIMEOUT)
         .timeout(REACH_TIMEOUT)
         // Редиректы не гасим: для «доступен ли сервис» 301 на www — это доступен.

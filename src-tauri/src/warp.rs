@@ -238,7 +238,7 @@ fn validate_registration(reg: &CfRegResp) -> Result<(), String> {
 // настроек нет, а полагаться на них — значит работать только в одном режиме
 // из трёх.
 fn http_client(via: Option<&ProbeProxyEndpoint>) -> Result<reqwest::Client, String> {
-    let mut builder = reqwest::Client::builder()
+    let mut builder = crate::util::direct_client_builder()
         .user_agent(CF_UA)
         .timeout(std::time::Duration::from_secs(20));
     builder = match via {

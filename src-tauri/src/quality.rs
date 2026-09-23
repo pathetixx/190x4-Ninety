@@ -183,7 +183,7 @@ fn quality_redirect_policy() -> reqwest::redirect::Policy {
 // стримим до budget_ms вручную, иначе reqwest оборвёт долгую (но живую) выборку
 // как ошибку. connect_timeout отдельный — мёртвый аутбаунд не висит весь бюджет.
 fn build_client(endpoint: Option<&ProbeProxyEndpoint>) -> Result<reqwest::Client, String> {
-    let mut b = reqwest::Client::builder()
+    let mut b = crate::util::direct_client_builder()
         .connect_timeout(Duration::from_secs(5))
         // Проверка исходного endpoint бессмысленна, если reqwest затем молча
         // уйдёт по Location на HTTP или другой origin. Разрешаем только короткую
@@ -710,7 +710,7 @@ mod tests {
             }
         });
 
-        let control_client = reqwest::Client::new();
+        let control_client = crate::util::direct_client_builder().build().unwrap();
         let readiness = control_client
             .get(format!("http://{control_address}/proxies"))
             .send()

@@ -1904,8 +1904,7 @@ const AUTOTEST_ENGINE_ATTEMPTS: usize = 2;
 // Клиент одной пробы автоподбора: без прокси, без переиспользования соединений.
 // Пул соединений здесь — источник ложных успехов, см. dpi_autotest.
 fn probe_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .no_proxy()
+    crate::util::direct_client_builder()
         .timeout(PROBE_TIMEOUT)
         .pool_max_idle_per_host(0)
         .build()
@@ -1918,7 +1917,7 @@ fn probe_client() -> Result<reqwest::Client, String> {
 // из РФ режется ТСПУ — поэтому при активном VPN (proxy/systemProxy) тянем через
 // прокси, а на direct падаем фолбэком (паттерн взят у quality::build_client).
 fn list_client(port: Option<u16>) -> Result<reqwest::Client, String> {
-    let mut b = reqwest::Client::builder().timeout(Duration::from_secs(20));
+    let mut b = crate::util::direct_client_builder().timeout(Duration::from_secs(20));
     if let Some(p) = port {
         if p > 0 {
             let proxy = reqwest::Proxy::all(format!("http://127.0.0.1:{p}"))

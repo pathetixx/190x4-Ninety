@@ -264,7 +264,7 @@ fn make_client(
     target: Option<&ResolvedTarget>,
     jar: &Arc<reqwest::cookie::Jar>,
 ) -> Result<reqwest::Client, String> {
-    let mut builder = reqwest::Client::builder()
+    let mut builder = crate::util::direct_client_builder()
         .user_agent("v2rayN/6.42")
         .timeout(std::time::Duration::from_secs(20))
         // Redirects are followed manually so every Location is resolved and

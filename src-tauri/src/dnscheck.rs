@@ -364,7 +364,7 @@ async fn probe_doh(url: &str, query: &[u8], timeout: Duration) -> Result<(), Str
     } else {
         format!("{url}?dns={b64}")
     };
-    let client = reqwest::Client::builder()
+    let client = crate::util::direct_client_builder()
         // connect не длиннее общего бюджета (раньше connect 3с > timeout 2.5с).
         .connect_timeout(timeout.min(Duration::from_secs(3)))
         .timeout(timeout)
