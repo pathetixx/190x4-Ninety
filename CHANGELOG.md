@@ -6,6 +6,76 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.7.0 — 2026-09-23
+
+## English
+
+### Connection
+
+- A broken Windows proxy left behind by another program no longer stops Ninety from connecting.
+- In system proxy mode, Ninety now warns you when another program changes the Windows proxy and browsers stop going through the VPN.
+- Ninety no longer switches off the system proxy after an internal error while still showing you as connected.
+- Changing settings that don't affect the connection no longer reconnects the VPN and drops open connections.
+- Connection and DPI bypass logs now stay within their size limit instead of growing without bound.
+
+### Servers and links
+
+- Links with a slash before their parameters, including the official Hysteria 2 format, now import in every protocol.
+- Hysteria 2 servers with port hopping are now supported in links and sing-box configs.
+- Passwords with a % sign no longer break Trojan, Hysteria 2, TUIC and NaiveProxy links.
+- A failed subscription download now says why: a timeout, a certificate problem or an unreachable server.
+
+### Routing
+
+- Domain rules now also decide where the domain is resolved, so "Direct" sites get addresses for your location and "Block" stops them at DNS.
+- With "Access from the LAN" turned on, other devices on your network can no longer reach services that listen only on this computer.
+
+### Diagnostics
+
+- In system proxy mode, connection quality checks and diagnostics now measure the direct path instead of going through the VPN.
+
+### DPI bypass
+
+- Hosts entries now apply even when the Windows hosts file contains text in a legacy encoding.
+
+### Portable version
+
+- Changing or removing the data password can no longer leave part of your data locked under the old one.
+
+## Русский
+
+### Подключение
+
+- Сломанный прокси Windows, оставленный другой программой, больше не мешает Ninety подключиться.
+- В режиме системного прокси Ninety теперь предупреждает, если другая программа сменила прокси Windows и браузеры перестали идти через VPN.
+- Ninety больше не отключает системный прокси после внутренней ошибки, продолжая показывать, что вы подключены.
+- Изменение настроек, которые не влияют на подключение, больше не переподключает VPN и не обрывает открытые соединения.
+- Журналы подключения и DPI-обхода теперь держатся в пределах своего размера, а не растут без ограничений.
+
+### Серверы и ссылки
+
+- Ссылки с косой чертой перед параметрами, включая официальный формат Hysteria 2, теперь импортируются во всех протоколах.
+- Серверы Hysteria 2 со сменой портов теперь поддерживаются в ссылках и конфигах sing-box.
+- Пароли со знаком % больше не ломают ссылки Trojan, Hysteria 2, TUIC и NaiveProxy.
+- Если подписка не загрузилась, теперь видно почему: истекло время ожидания, проблема с сертификатом или сервер недоступен.
+
+### Маршрутизация
+
+- Правила для доменов теперь решают и то, где домен резолвится, поэтому сайты «Напрямую» получают адреса для вашего местоположения, а «Блок» останавливает их уже на DNS.
+- При включённом «Доступе из локальной сети» другие устройства в сети больше не видят сервисы, которые слушают только на этом компьютере.
+
+### Диагностика
+
+- В режиме системного прокси проверки качества связи и диагностика теперь измеряют прямой путь, а не идут через VPN.
+
+### DPI-обход
+
+- Записи hosts теперь применяются, даже если системный файл hosts содержит текст в старой кодировке.
+
+### Portable-версия
+
+- Смена или снятие пароля для данных больше не может оставить часть данных запертой под старым паролем.
+
 ## v0.6.9 — 2026-09-16
 
 ## English
