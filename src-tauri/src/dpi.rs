@@ -786,6 +786,21 @@ fn auto_hostlist_log_file(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("dpi-autohostlist.log"))
 }
 
+// winws дописывает решения autohostlist в конец файла и сам его не обрезает, а
+// в режиме «Только заблокированные» строка появляется на каждый подозрительный
+// обрыв. Перед стартом держим файл в пределах капа и сохраняем свежий хвост:
+// история «за что сайту достался обход» нужна, но не за месяцы.
+const AUTO_HOSTLIST_LOG_KEEP_BYTES: u64 = 1024 * 1024;
+
+fn trim_auto_hostlist_log(path: &Path) {
+    let oversized = std::fs::metadata(path).is_ok_and(|meta| meta.len() > DPI_LOG_CAP_BYTES);
+    if !oversized {
+        return;
+    }
+    let tail = crate::vpn::read_tail(path, Some(AUTO_HOSTLIST_LOG_KEEP_BYTES)).unwrap_or_default();
+    let _ = std::fs::write(path, tail);
+}
+
 fn read_strategies(app: &AppHandle) -> Result<Vec<Strategy>, String> {
     let path = strategies_path(app)?;
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("read strategies.json: {e}"))?;
@@ -1256,6 +1271,7 @@ pub async fn dpi_set_active_fake(
 const DPI_LOG_CAP_BYTES: u64 = 8 * 1024 * 1024;
 
 struct DpiLogWriter {
+    path: PathBuf,
     file: std::fs::File,
     written: u64,
 }
@@ -1263,8 +1279,10 @@ struct DpiLogWriter {
 impl DpiLogWriter {
     fn append(&mut self, bytes: &[u8]) {
         use std::io::Write;
+        // Обрезка — через отдельный хэндл: append-хэндл на Windows обрезать
+        // файл не может (см. util::truncate_log_file).
         if self.written.saturating_add(bytes.len() as u64) > DPI_LOG_CAP_BYTES
-            && self.file.set_len(0).is_ok()
+            && crate::util::truncate_log_file(&self.path)
         {
             let marker = b"[dpi log truncated at 8 MB cap]\n";
             let _ = self.file.write_all(marker);
@@ -1283,9 +1301,14 @@ fn prepare_dpi_log(path: &Path) -> Option<Arc<Mutex<DpiLogWriter>>> {
         .truncate(false)
         .open(path)
         .ok()?;
-    let _ = file.set_len(0); // новая сессия — новый диагностический лог
-    let written = 0;
-    Some(Arc::new(Mutex::new(DpiLogWriter { file, written })))
+    // Новая сессия — новый диагностический лог. Прежний `set_len(0)` на
+    // append-хэндле на Windows не срабатывал, и dpi.log копил все сессии.
+    let _ = crate::util::truncate_log_file(path);
+    Some(Arc::new(Mutex::new(DpiLogWriter {
+        path: path.to_path_buf(),
+        file,
+        written: 0,
+    })))
 }
 
 fn spawn_dpi_log_pipe<R: std::io::Read + Send + 'static>(
@@ -1439,6 +1462,7 @@ pub async fn dpi_start(
         let mut args = gate_by_autohostlist(args, &lists);
         if !logs_disabled {
             if let Some(log) = auto_hostlist_log_file(&app) {
+                trim_auto_hostlist_log(&log);
                 args.insert(
                     0,
                     format!(

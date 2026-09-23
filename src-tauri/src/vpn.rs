@@ -180,33 +180,104 @@ fn truncation_marker() -> String {
 
 // Журнал движка пишут ДВА независимых источника: монитор процесса (держит файл
 // открытым всю сессию) и append_runtime_diagnostic_at (открывает файл на каждую
-// строку). Оба проверяют кап и оба вызывают set_len(0). Без общего лока они
+// строку). Оба проверяют кап и оба обрезают файл. Без общего лока они
 // обрезают файл друг под другом: локальный счётчик монитора разъезжается с
 // реальным размером, кап перестаёт держать границу, а записи перемешиваются.
 static LOG_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
-// Запись строки в лог с учётом капа. Файл открыт в append-режиме, поэтому при
-// переполнении достаточно set_len(0): следующая O_APPEND-запись уйдёт с позиции 0.
-fn write_capped(writer: &mut std::fs::File, written: &mut u64, line: &str) {
-    let _guard = LOG_WRITE_LOCK.lock_recover();
-    if *written > LOG_CAP_BYTES {
-        // Только на подозрении о переполнении сверяемся с диском: локальный
-        // счётчик мог отстать (в тот же файл пишет append_runtime_diagnostic_at),
-        // а stat на каждую строку был бы лишним syscall'ом в горячем пути движка.
-        let size = writer.metadata().map(|m| m.len()).unwrap_or(*written);
-        if size > LOG_CAP_BYTES && writer.set_len(0).is_ok() {
-            let marker = format!("{}\n", truncation_marker());
-            let _ = writer.write_all(marker.as_bytes());
-            *written = writer
+// Сколько строк движка копится в памяти до записи на диск и сколько монитор
+// ждёт затишья, прежде чем сбросить пачку. Канал событий движка у
+// tauri-plugin-shell ёмкостью в одно событие: пока монитор пишет строку, поток-
+// читатель стоит, а за ним и pipe самого движка. Системный вызов на каждую
+// строку тормозил ядро ровно тогда, когда оно пишет больше всего логов.
+const LOG_BUFFER_BYTES: usize = 64 * 1024;
+const LOG_FLUSH_IDLE: std::time::Duration = std::time::Duration::from_millis(100);
+
+// Файл лога движка: кап размера и буфер записи.
+struct CappedLog {
+    path: PathBuf,
+    file: std::io::BufWriter<std::fs::File>,
+    written: u64,
+}
+
+impl CappedLog {
+    fn open(path: PathBuf) -> Option<Self> {
+        // Раздутый с прошлой сессии файл начинаем заново — иначе кап стартовал
+        // бы уже переполненным и первую же строку писал бы после обрезки.
+        if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > LOG_CAP_BYTES {
+            let _ = crate::util::truncate_log_file(&path);
+        }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok()?;
+        let written = file.metadata().map(|m| m.len()).unwrap_or(0);
+        Some(Self {
+            path,
+            file: std::io::BufWriter::with_capacity(LOG_BUFFER_BYTES, file),
+            written,
+        })
+    }
+
+    fn write_line(&mut self, line: &str) {
+        let _guard = LOG_WRITE_LOCK.lock_recover();
+        if self.written > LOG_CAP_BYTES {
+            // Только на подозрении о переполнении сверяемся с диском: локальный
+            // счётчик мог отстать (в тот же файл пишет append_runtime_diagnostic_at),
+            // а stat на каждую строку был бы лишним syscall'ом в горячем пути движка.
+            let _ = self.file.flush();
+            let size = self
+                .file
+                .get_ref()
                 .metadata()
                 .map(|m| m.len())
-                .unwrap_or(marker.len() as u64);
-        } else {
-            *written = size;
+                .unwrap_or(self.written);
+            if size <= LOG_CAP_BYTES {
+                self.written = size;
+            } else if crate::util::truncate_log_file(&self.path) {
+                // Append-хэндл пишет в текущий конец файла, то есть с нуля.
+                let marker = format!("{}\n", truncation_marker());
+                let _ = self.file.write_all(marker.as_bytes());
+                self.written = marker.len() as u64;
+            } else {
+                // Обрезать не дали (файл держит другой процесс). Следующая
+                // попытка — через ещё один кап, а не на каждой строке.
+                self.written = 0;
+            }
+        }
+        if writeln!(self.file, "{line}").is_ok() {
+            self.written += line.len() as u64 + 1;
         }
     }
-    if writeln!(writer, "{line}").is_ok() {
-        *written += line.len() as u64 + 1;
+
+    fn has_pending(&self) -> bool {
+        !self.file.buffer().is_empty()
+    }
+
+    fn flush(&mut self) {
+        let _guard = LOG_WRITE_LOCK.lock_recover();
+        let _ = self.file.flush();
+    }
+}
+
+// Следующее событие движка. Пока в буфере лога есть строки, ждём не дольше
+// LOG_FLUSH_IDLE: затишье — момент сбросить пачку на диск, чтобы экран «Логи»
+// видел свежие строки без задержки.
+async fn next_engine_event(
+    rx: &mut tauri::async_runtime::Receiver<CommandEvent>,
+    log: &mut Option<CappedLog>,
+) -> Option<CommandEvent> {
+    loop {
+        match log.as_mut() {
+            Some(pending) if pending.has_pending() => {
+                match tokio::time::timeout(LOG_FLUSH_IDLE, rx.recv()).await {
+                    Ok(event) => return event,
+                    Err(_) => pending.flush(),
+                }
+            }
+            _ => return rx.recv().await,
+        }
     }
 }
 
@@ -236,26 +307,11 @@ fn spawn_log_monitor(
     } = counters;
     live_processes.fetch_add(1, Ordering::SeqCst);
     tauri::async_runtime::spawn(async move {
-        let mut writer = log_file.as_ref().and_then(|p| {
-            // Раздутый с прошлой сессии файл начинаем заново — иначе кап стартовал
-            // бы уже переполненным и первую же строку писал бы после обрезки.
-            if std::fs::metadata(p).map(|m| m.len()).unwrap_or(0) > LOG_CAP_BYTES {
-                let _ = std::fs::write(p, b"");
-            }
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(p)
-                .ok()
-        });
-        let mut written: u64 = writer
-            .as_ref()
-            .and_then(|w| w.metadata().ok())
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let mut writer = log_file.and_then(CappedLog::open);
         if let Some(w) = writer.as_mut() {
             let banner = diagnostic_line(DiagnosticLevel::Info, &spec.start_banner);
-            write_capped(w, &mut written, &format!("\n{banner}"));
+            w.write_line(&format!("\n{banner}"));
+            w.flush();
         }
         // Кольцо последних строк для death-диагностики. VecDeque, а не Vec:
         // при переполнении срезаем голову за O(1) (pop_front) — Vec::remove(0)
@@ -267,12 +323,12 @@ fn spawn_log_monitor(
             }
             last.push_back(text);
         };
-        while let Some(event) = rx.recv().await {
+        while let Some(event) = next_engine_event(&mut rx, &mut writer).await {
             match event {
                 CommandEvent::Stdout(line) => {
                     let text = strip_ansi(&String::from_utf8_lossy(&line));
                     if let Some(w) = writer.as_mut() {
-                        write_capped(w, &mut written, &text);
+                        w.write_line(&text);
                     }
                     if spec.ring_stdout {
                         push(&mut last, text);
@@ -282,9 +338,9 @@ fn spawn_log_monitor(
                     let text = strip_ansi(&String::from_utf8_lossy(&line));
                     if let Some(w) = writer.as_mut() {
                         if spec.prefix_stderr {
-                            write_capped(w, &mut written, &format!("STDERR: {text}"));
+                            w.write_line(&format!("STDERR: {text}"));
                         } else {
-                            write_capped(w, &mut written, &text);
+                            w.write_line(&text);
                         }
                     }
                     push(&mut last, text);
@@ -319,7 +375,10 @@ fn spawn_log_monitor(
                         } else {
                             DiagnosticLevel::Error
                         };
-                        write_capped(w, &mut written, &diagnostic_line(level, &msg));
+                        w.write_line(&diagnostic_line(level, &msg));
+                        // До оповещения о выходе: остановка пишет свой итог в
+                        // тот же журнал и должна оказаться после строк движка.
+                        w.flush();
                     }
                     // Terminated старого комплекта может прийти уже после
                     // быстрого stop и старта нового. Не позволяем запоздалому
@@ -333,6 +392,9 @@ fn spawn_log_monitor(
                 }
                 _ => {}
             }
+        }
+        if let Some(w) = writer.as_mut() {
+            w.flush();
         }
         // Поток событий закончился без Terminated: формального подтверждения
         // завершения процесса нет (например, wait() вернул ошибку). Снимаем
@@ -741,7 +803,7 @@ pub(crate) fn append_runtime_diagnostic_at(app: &AppHandle, level: DiagnosticLev
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(path)
+        .open(&path)
     {
         // Тот же кап и тот же лок, что у монитора движка (см. LOG_WRITE_LOCK):
         // ротация должна быть одна на файл, иначе два писателя обрезают его
@@ -749,7 +811,8 @@ pub(crate) fn append_runtime_diagnostic_at(app: &AppHandle, level: DiagnosticLev
         // диагностика остаётся единственным писателем: без проверки здесь
         // журнал рос бы без ограничения.
         let _guard = LOG_WRITE_LOCK.lock_recover();
-        if file.metadata().map(|m| m.len()).unwrap_or(0) > LOG_CAP_BYTES && file.set_len(0).is_ok()
+        if file.metadata().map(|m| m.len()).unwrap_or(0) > LOG_CAP_BYTES
+            && crate::util::truncate_log_file(&path)
         {
             let _ = writeln!(file, "{}", truncation_marker());
         }

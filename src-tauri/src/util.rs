@@ -100,6 +100,21 @@ pub fn program_files_roots() -> Vec<std::path::PathBuf> {
     .collect()
 }
 
+/// Обнуляет файл лога через отдельный хэндл с правом записи данных.
+///
+/// Логи движков открыты в append-режиме. На Windows std открывает такой хэндл
+/// без `FILE_WRITE_DATA`, а обрезке файла нужен именно он: `set_len(0)` на
+/// append-хэндле отказывает в доступе, и кап в 8 МБ молча не срабатывал —
+/// журнал рос всю сессию. Append-хэндл после обрезки продолжает писать в
+/// текущий конец файла, то есть с нуля.
+pub(crate) fn truncate_log_file(path: &std::path::Path) -> bool {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .is_ok()
+}
+
 /// HTTP-клиент, который никогда не читает системный прокси Windows.
 ///
 /// У reqwest в Cargo.toml фичи по умолчанию выключены, но Cargo объединяет фичи
@@ -180,5 +195,52 @@ mod tests {
         assert_eq!(checked_body_len(10, 5, 20).unwrap(), 15);
         assert!(checked_body_len(10, 11, 20).is_err());
         assert!(checked_body_len(usize::MAX, 1, usize::MAX).is_err());
+    }
+
+    fn scratch_log(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "ninety-log-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("engine.log")
+    }
+
+    fn open_append(path: &std::path::Path) -> std::fs::File {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap()
+    }
+
+    // Причина, по которой кап логов не работал: append-хэндл на Windows не
+    // умеет обрезать файл. Если std когда-нибудь это поменяет, тест скажет.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn an_append_handle_cannot_truncate_on_windows() {
+        let path = scratch_log("append-set-len");
+        std::fs::write(&path, b"old line\n").unwrap();
+        let appender = open_append(&path);
+        assert!(appender.set_len(0).is_err());
+        drop(appender);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_log_truncated_under_an_open_append_handle_restarts_from_zero() {
+        use std::io::Write;
+        let path = scratch_log("truncate");
+        std::fs::write(&path, b"old line\n").unwrap();
+        let mut appender = open_append(&path);
+        assert!(truncate_log_file(&path));
+        appender.write_all(b"new\n").unwrap();
+        drop(appender);
+        assert_eq!(std::fs::read(&path).unwrap(), b"new\n");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }
