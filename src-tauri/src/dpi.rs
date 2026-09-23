@@ -2693,6 +2693,35 @@ fn strip_managed_block(content: &str) -> Result<String, String> {
     Ok(out)
 }
 
+// Системный hosts читаем байтами. Windows не требует от него UTF-8: сторонние
+// утилиты пишут туда комментарии в ANSI-кодировке, и `read_to_string` на таком
+// файле падал — функция hosts становилась недоступной целиком. Каждый байт
+// отображается в символ U+0000..U+00FF и обратно без потерь, а маркеры и
+// записи Ninety — ASCII, поэтому чужие байты возвращаются в файл как были.
+fn read_hosts_file(path: &Path) -> Result<String, String> {
+    let bytes =
+        std::fs::read(path).map_err(|e| format!("чтение hosts ({}): {e}", path.display()))?;
+    Ok(decode_hosts_bytes(&bytes))
+}
+
+fn decode_hosts_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|&byte| char::from(byte)).collect()
+}
+
+fn encode_hosts_text(text: &str) -> Result<Vec<u8>, String> {
+    text.chars()
+        .map(u8::try_from)
+        .collect::<Result<Vec<u8>, _>>()
+        .map_err(|_| "hosts: символ вне однобайтовой кодировки".to_string())
+}
+
+// Хвостовые пробелы и переводы строк снимаем только ASCII. Юникодный trim_end
+// срезал бы и байты 0x85/0xA0, которые в hosts бывают частью чужих символов
+// (UTF-8 «Р» — это D0 A0).
+fn trim_hosts_end(text: &str) -> &str {
+    text.trim_end_matches([' ', '\t', '\r', '\n'])
+}
+
 // Сохранить перенос строки исходного hosts. strip_managed_block работает через
 // lines() и отдаёт текст с LF, поэтому CRLF-файл пользователя иначе молча
 // нормализуется целиком — включая чужие строки, которых мы не касались.
@@ -2775,8 +2804,7 @@ fn sanitize_hosts_body(body: &str) -> Result<String, String> {
 #[tauri::command]
 pub fn dpi_hosts_status(_app: AppHandle) -> Result<serde_json::Value, String> {
     let path = system_hosts_path();
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("чтение hosts ({}): {e}", path.display()))?;
+    let content = read_hosts_file(&path)?;
     // Повреждённые маркеры нельзя показывать как нормальное applied-состояние:
     // apply/clear в таком случае тоже остановятся без записи.
     let _ = strip_managed_block(&content)?;
@@ -2831,8 +2859,7 @@ pub async fn dpi_hosts_apply(
     let body = sanitized.trim();
 
     let path = system_hosts_path();
-    let current = std::fs::read_to_string(&path)
-        .map_err(|e| format!("чтение hosts ({}): {e}", path.display()))?;
+    let current = read_hosts_file(&path)?;
     let base = strip_managed_block(&current)?;
 
     // Бэкап оригинала один раз — до первой нашей записи. Ошибка backup блокирует
@@ -2843,12 +2870,12 @@ pub async fn dpi_hosts_apply(
     if !backup.exists() {
         // При миграции со старой версии managed-блок уже может быть, а backup —
         // ещё нет. В этом случае сохраняем восстановленную базу без нашего блока.
-        let backup_body = if has_managed_block(&current) {
-            base.as_bytes()
+        let backup_body = encode_hosts_text(if has_managed_block(&current) {
+            &base
         } else {
-            current.as_bytes()
-        };
-        write_bytes_replace(&backup, backup_body, "hosts backup")?;
+            &current
+        })?;
+        write_bytes_replace(&backup, &backup_body, "hosts backup")?;
         let saved = std::fs::read(&backup).map_err(|e| format!("verify hosts backup: {e}"))?;
         if saved != backup_body {
             return Err("проверка backup hosts: содержимое не совпало".into());
@@ -2858,7 +2885,7 @@ pub async fn dpi_hosts_apply(
     }
 
     // Снять старый блок (если был), дописать свежий в конец.
-    let base = base.trim_end();
+    let base = trim_hosts_end(&base);
     let mut out = String::new();
     out.push_str(base);
     if !base.is_empty() {
@@ -2875,8 +2902,8 @@ pub async fn dpi_hosts_apply(
     // отдала бы цели DACL временного объекта, а Controlled Folder Access и часть
     // антивирусов блокируют именно подмену. Откат при сбое — проверенный
     // hosts.backup выше.
-    let out = apply_hosts_line_endings(&out, &current);
-    overwrite_in_place(&path, out.as_bytes(), "system hosts").map_err(|e| {
+    let out = encode_hosts_text(&apply_hosts_line_endings(&out, &current))?;
+    overwrite_in_place(&path, &out, "system hosts").map_err(|e| {
         format!(
             "запись hosts ({}): нужны права администратора — {e}",
             path.display()
@@ -2900,16 +2927,15 @@ pub async fn dpi_hosts_clear(_app: AppHandle) -> Result<(), String> {
 
 fn dpi_hosts_clear_blocking() -> Result<(), String> {
     let path = system_hosts_path();
-    let current = std::fs::read_to_string(&path)
-        .map_err(|e| format!("чтение hosts ({}): {e}", path.display()))?;
+    let current = read_hosts_file(&path)?;
     if !has_managed_block(&current) {
         // Даже clear не должен молча принимать лишний END-маркер.
         let _ = strip_managed_block(&current)?;
         return Ok(());
     }
-    let stripped = format!("{}\n", strip_managed_block(&current)?.trim_end());
-    let stripped = apply_hosts_line_endings(&stripped, &current);
-    overwrite_in_place(&path, stripped.as_bytes(), "system hosts")
+    let stripped = format!("{}\n", trim_hosts_end(&strip_managed_block(&current)?));
+    let stripped = encode_hosts_text(&apply_hosts_line_endings(&stripped, &current))?;
+    overwrite_in_place(&path, &stripped, "system hosts")
         .map_err(|e| format!("запись hosts: нужны права администратора — {e}"))?;
     flush_dns();
     Ok(())
@@ -3929,6 +3955,30 @@ mod tests {
         let rendered = "# base\n127.0.0.1 localhost\n";
         assert_eq!(apply_hosts_line_endings(rendered, crlf), crlf);
         assert_eq!(apply_hosts_line_endings(rendered, "# base\n"), rendered);
+    }
+
+    // hosts не обязан быть в UTF-8: комментарий в ANSI (0xCF 0xF0 — «Пр» в
+    // cp1251) и UTF-8 «Р» в самом конце (D0 A0) обязаны пережить снятие нашего
+    // блока байт в байт.
+    #[test]
+    fn hosts_in_any_encoding_survives_our_block_byte_for_byte() {
+        let mut original = b"# \xCF\xF0\xEE\xEA\xF1\xE8\r\n127.0.0.1 localhost\r\n".to_vec();
+        let foreign_len = original.len();
+        original.extend_from_slice(
+            format!("{HOSTS_BEGIN}\r\n1.2.3.4 a.example\r\n{HOSTS_END}\r\n").as_bytes(),
+        );
+        original.extend_from_slice("# Р".as_bytes());
+
+        let text = decode_hosts_bytes(&original);
+        assert!(has_managed_block(&text));
+        let stripped = strip_managed_block(&text).unwrap();
+        let rendered = format!("{}\n", trim_hosts_end(&stripped));
+        let bytes = encode_hosts_text(&apply_hosts_line_endings(&rendered, &text)).unwrap();
+
+        let mut expected = original[..foreign_len].to_vec();
+        expected.extend_from_slice("# Р\r\n".as_bytes());
+        assert_eq!(bytes, expected);
+        assert!(encode_hosts_text("ok\u{100}").is_err());
     }
 
     #[test]
