@@ -17,6 +17,8 @@ use std::sync::{Mutex, OnceLock};
 use tauri::AppHandle;
 use zeroize::Zeroizing;
 
+use crate::util::MutexExt;
+
 pub const DPAPI_MAGIC: &[u8] = b"N90DPAPI1";
 pub const PORTABLE_MAGIC: &[u8] = b"N90PORT1";
 const PORTABLE_SALT_BYTES: usize = 16;
@@ -28,6 +30,21 @@ const ARGON2_MEMORY_KIB: u32 = 19 * 1024;
 const ARGON2_ITERATIONS: u32 = 3;
 
 static PORTABLE_PASSPHRASE: OnceLock<Mutex<Option<Zeroizing<String>>>> = OnceLock::new();
+
+// Чтение и запись контейнеров сериализуются со сменой и снятием пароля.
+// Перешифровка читает все файлы, коммитит их под новым ключом и только потом
+// меняет ключ в памяти. Параллельная запись (state-backup пишется по таймеру и
+// сразу после смены выбора) без этого лока либо ложилась в окно до коммита и
+// терялась, либо попадала под старый ключ после него — и при следующем запуске
+// новый пароль этот файл уже не открывал.
+static SECRET_IO_LOCK: Mutex<()> = Mutex::new(());
+
+/// Держать на всё время «прочитать и расшифровать» или «зашифровать и
+/// записать» контейнер. Порядок локов: сначала лок своего хранилища, затем
+/// этот; сама перешифровка берёт только его.
+pub(crate) fn secret_io_guard() -> std::sync::MutexGuard<'static, ()> {
+    SECRET_IO_LOCK.lock_recover()
+}
 
 fn passphrase_slot() -> &'static Mutex<Option<Zeroizing<String>>> {
     PORTABLE_PASSPHRASE.get_or_init(|| Mutex::new(None))
@@ -288,6 +305,7 @@ pub fn configure_portable_passphrase(passphrase: String) -> Result<(), String> {
         return Err("пароль нужен только для portable-режима".into());
     }
     validate_passphrase(&passphrase)?;
+    let _io = secret_io_guard();
     // Два разных действия под одной командой. Ключа в памяти нет — это
     // разблокировка сессии: пароль обязан открыть то, что уже лежит на диске, а
     // легаси plaintext обязан уехать под этот же ключ прямо сейчас. Ключ есть —
@@ -335,6 +353,7 @@ fn portable_secrets_clear_passphrase_blocking() -> Result<(), String> {
     if !crate::app_paths::is_portable() {
         return Err("пароль нужен только для portable-режима".into());
     }
+    let _io = secret_io_guard();
     match current_passphrase()? {
         Some(current) => unseal_portable_secrets(current.as_str())?,
         None if portable_envelopes_on_disk() => {

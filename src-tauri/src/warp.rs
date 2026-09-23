@@ -113,6 +113,7 @@ fn storage_path(app: &AppHandle) -> Result<PathBuf, String> {
 // переносимый Argon2id/XChaCha envelope. Легаси plaintext при включённом
 // шифровании мигрирует в текущий формат.
 fn read_info(app: &AppHandle) -> Option<WarpInfo> {
+    let _secrets = crate::secrets::secret_io_guard();
     let p = storage_path(app).ok()?;
     for candidate in [
         p.clone(),
@@ -149,6 +150,7 @@ fn read_info(app: &AppHandle) -> Option<WarpInfo> {
 }
 
 fn write_info(app: &AppHandle, info: &WarpInfo) -> Result<(), String> {
+    let _secrets = crate::secrets::secret_io_guard();
     let p = storage_path(app)?;
     let s = serde_json::to_string(info).map_err(|e| format!("serialize: {e}"))?;
     let sealed = crate::secrets::seal_for_app(app, s.as_bytes())?;
@@ -160,6 +162,7 @@ fn write_info(app: &AppHandle, info: &WarpInfo) -> Result<(), String> {
 // приватным ключом — оставались на диске. Приложение продолжало их читать, то
 // есть «Сбросить WARP» отчитывался об ошибке, а секрет никуда не девался.
 fn delete_info(app: &AppHandle) -> Result<(), String> {
+    let _secrets = crate::secrets::secret_io_guard();
     let p = storage_path(app)?;
     let mut errors = Vec::new();
     for file in [

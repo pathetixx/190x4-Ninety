@@ -306,6 +306,7 @@ pub(crate) fn profile_store_load_blocking(
     app: AppHandle,
 ) -> Result<ProfileStoreLoadResponse, String> {
     let _guard = STORE_LOCK.lock_recover();
+    let _secrets = crate::secrets::secret_io_guard();
     let path = store_path(&app)?;
     let loaded = load_store(&app, &path)?;
     Ok(match loaded {
@@ -349,6 +350,7 @@ pub(crate) fn profile_store_replace_blocking(
     // Ревизию читаем и увеличиваем под одним локом: без него сверка ничего не
     // проверяет — конкурент успевает записать между чтением и записью.
     let _guard = STORE_LOCK.lock_recover();
+    let _secrets = crate::secrets::secret_io_guard();
     let path = store_path(&app)?;
     let current = load_store(&app, &path)?;
     let current_revision = current
@@ -387,6 +389,7 @@ pub(crate) fn profile_store_clear_blocking(
     expected_revision: Option<u64>,
 ) -> Result<ProfileStoreClearResponse, String> {
     let _guard = STORE_LOCK.lock_recover();
+    let _secrets = crate::secrets::secret_io_guard();
     let path = store_path(&app)?;
     if let Some(expected) = expected_revision {
         let current_revision = load_store(&app, &path)?

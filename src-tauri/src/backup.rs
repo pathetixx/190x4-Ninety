@@ -60,6 +60,7 @@ pub(crate) fn state_backup_save_blocking(app: AppHandle, json: String) -> Result
     let _guard = BACKUP_LOCK
         .lock()
         .map_err(|_| "state backup lock poisoned")?;
+    let _secrets = crate::secrets::secret_io_guard();
     if !backup_generation_matches(&BACKUP_GENERATION, generation) {
         return Err("state backup save invalidated by sensitive-data clear".into());
     }
@@ -256,6 +257,7 @@ fn state_backup_load_blocking(app: AppHandle) -> Result<Option<String>, String> 
     let _guard = BACKUP_LOCK
         .lock()
         .map_err(|_| "state backup lock poisoned")?;
+    let _secrets = crate::secrets::secret_io_guard();
     let path = backup_path(&app)?;
     // Проверяем оба файла даже если primary валиден: это даёт возможность
     // мигрировать оставшийся legacy plaintext .bak и не держать второй
@@ -283,6 +285,7 @@ fn state_backup_clear_blocking(app: AppHandle) -> Result<u32, String> {
     let _guard = BACKUP_LOCK
         .lock()
         .map_err(|_| "state backup lock poisoned")?;
+    let _secrets = crate::secrets::secret_io_guard();
     // Инвалидация идёт до удаления файлов: даже если remove завершится ошибкой,
     // запросы save, начатые до clear, уже не смогут записать старый snapshot.
     BACKUP_GENERATION.fetch_add(1, Ordering::AcqRel);
