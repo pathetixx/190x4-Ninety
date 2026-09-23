@@ -1158,3 +1158,40 @@ test("proxy-режим пробу IPv6 не спрашивает и TUN не п�
   assert.equal(config.inbounds.length, 1);
   assert.equal(config.inbounds[0].type, "mixed");
 });
+
+// Доступ из локальной сети не должен открывать соседям сервисы, которые на этом
+// ПК слушают только 127.0.0.1: назначение на loopback разрешено только самому ПК.
+test("доступ из локальной сети: loopback-назначения закрыты для чужих источников", () => {
+  const options = structuredClone(DEFAULT_OPTIONS);
+  options.inbound.allowConnectionFromLan = true;
+  const { config } = buildConfig({
+    source: { kind: "single", profile: vlessNode() },
+    mode: "systemProxy",
+    options,
+  });
+  assert.equal(config.inbounds[0].listen, "0.0.0.0");
+  const guard = config.route.rules.find((rule) => rule.type === "logical");
+  assert.deepEqual(guard, {
+    type: "logical",
+    mode: "and",
+    rules: [
+      { inbound: ["mixed-in"], domain_suffix: ["localhost"], ip_cidr: ["127.0.0.0/8", "::1/128"] },
+      { source_ip_cidr: ["127.0.0.0/8", "::1/128"], invert: true },
+    ],
+    action: "reject",
+  });
+  // Правило обязано стоять раньше любого direct: первое совпадение выигрывает.
+  const guardIndex = config.route.rules.indexOf(guard);
+  const firstDirect = config.route.rules.findIndex((rule) => rule.outbound === "direct" && !rule.process_name);
+  assert.ok(firstDirect === -1 || guardIndex < firstDirect);
+  validateConfigReferences(config);
+});
+
+test("без доступа из локальной сети и в TUN loopback-правила нет", () => {
+  const lan = structuredClone(DEFAULT_OPTIONS);
+  lan.inbound.allowConnectionFromLan = true;
+  for (const [options, mode] of [[DEFAULT_OPTIONS, "proxy"], [lan, "tun"]]) {
+    const { config } = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode, options });
+    assert.equal(config.route.rules.some((rule) => rule.type === "logical"), false, mode);
+  }
+});

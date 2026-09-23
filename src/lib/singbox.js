@@ -741,6 +741,25 @@ function customRulesToSingbox(customRules, protectedOutbound = "proxy", resolveT
   return out;
 }
 
+// Назначения на сам этот ПК. «Доступ из локальной сети» открывает mixed-in на
+// 0.0.0.0, и без отдельного правила соседи по сети получали не только выход в
+// интернет, но и сервисы, которые здесь слушают только 127.0.0.1 (панели,
+// dev-серверы): такое назначение уходило в direct. Разрешаем его только самому
+// ПК — источнику с loopback-адреса.
+const LOOPBACK_CIDRS = ["127.0.0.0/8", "::1/128"];
+
+function lanLoopbackGuard() {
+  return {
+    type: "logical",
+    mode: "and",
+    rules: [
+      { inbound: ["mixed-in"], domain_suffix: ["localhost"], ip_cidr: LOOPBACK_CIDRS },
+      { source_ip_cidr: LOOPBACK_CIDRS, invert: true },
+    ],
+    action: "reject",
+  };
+}
+
 function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = false, resolveTarget = null) {
   const rules = [
     { action: "sniff" },
@@ -760,6 +779,8 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
       ? [{ process_name: ["\u0000ninety-force-process-lookup"], outbound: "direct" }]
       : []),
   ];
+
+  if (mode !== "tun" && options.inbound?.allowConnectionFromLan) rules.push(lanLoopbackGuard());
 
   // ProcessName bypass — критично для TUN-режима. Без него собственный трафик
   // Ninety (Tauri webview HTTP-запросы к ipwho.is и т.п.), самого sing-box и
