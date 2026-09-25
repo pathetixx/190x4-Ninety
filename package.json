@@ -34,7 +34,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@tauri-apps/cli": "2.11.4",
+    "@tauri-apps/cli": "2.11.5",
     "eslint": "10.10.0",
     "globals": "17.12.0"
   },
