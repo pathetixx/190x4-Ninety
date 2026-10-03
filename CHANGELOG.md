@@ -6,6 +6,62 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.8.0 — 2026-10-03
+
+## English
+
+### Connection
+
+- Both cores were updated: sing-box to 1.14.2 and Xray to 26.9.30. The NaiveProxy and TrustTunnel clients were updated too.
+- The Xray core received security fixes.
+- Restarting Ninety as administrator for VPN · TUN or DPI bypass no longer turns the VPN on by itself. A connection that was already running comes back after the restart.
+- With “Always run as administrator” turned on, opening Ninety yourself no longer connects the VPN automatically.
+- Restarting Ninety as administrator can no longer leave it closed with no window at all.
+
+### Access from the LAN
+
+- Access from the LAN can now require a login and password. Other devices connect to a separate port, and the local port stays for this computer only.
+- Other devices on your network can no longer reach services on this computer through a domain name that points back to it.
+
+### Subscriptions
+
+- Each provider of a new subscription receives its own device identifier, so different providers cannot tell that it is the same device. Subscriptions you already have keep their current identifier.
+- The subscription settings window now shows the exact device identifier the provider receives, with a Copy button.
+- A subscription server can no longer redirect a download made through the VPN to your router or another device on your local network.
+- Subscriptions at an IPv6 address now download correctly.
+
+### DPI bypass
+
+- If writing the hosts file fails midway, Windows keeps its previous hosts file instead of an empty or partial one.
+- DPI bypass starts faster and no longer freezes when a Windows system service stops responding.
+
+## Русский
+
+### Подключение
+
+- Оба ядра обновлены: sing-box до 1.14.2, Xray до 26.9.30. Обновлены и клиенты NaiveProxy и TrustTunnel.
+- Ядро Xray получило исправления безопасности.
+- Перезапуск Ninety от имени администратора ради VPN · TUN или DPI-обхода больше не включает VPN сам. Если подключение уже работало, после перезапуска оно восстанавливается.
+- При включённом «Всегда запускать от администратора» ручной запуск Ninety больше не подключает VPN автоматически.
+- Перезапуск Ninety от имени администратора больше не может закончиться тем, что Ninety закрывается и не остаётся ни одного окна.
+
+### Доступ из локальной сети
+
+- Для доступа из локальной сети теперь можно задать логин и пароль. Другие устройства подключаются к отдельному порту, а локальный порт остаётся только для этого компьютера.
+- Другие устройства в сети больше не могут добраться до сервисов этого компьютера через доменное имя, которое указывает обратно на него.
+
+### Подписки
+
+- Каждый провайдер новой подписки получает свой идентификатор устройства, поэтому разные провайдеры не могут понять, что это одно устройство. У уже добавленных подписок идентификатор не меняется.
+- В настройках подписки теперь показан точный идентификатор устройства, который получает провайдер, и кнопка «Копировать».
+- Сервер подписки больше не может перенаправить загрузку через VPN на ваш роутер или другое устройство в локальной сети.
+- Подписки по IPv6-адресу теперь загружаются правильно.
+
+### DPI-обход
+
+- Если запись файла hosts оборвётся на середине, у Windows останется прежний hosts, а не пустой или половинчатый.
+- DPI-обход запускается быстрее и больше не зависает, когда системная служба Windows перестаёт отвечать.
+
 ## v0.7.0 — 2026-09-23
 
 ## English
