@@ -219,7 +219,7 @@ async fn resolve_public_target(url: &reqwest::Url) -> Result<ResolvedTarget, Str
         .port_or_known_default()
         .ok_or_else(|| "у подписки отсутствует порт".to_string())?;
 
-    if let Ok(ip) = host.parse::<IpAddr>() {
+    if let Some(ip) = host_literal_ip(host) {
         if is_forbidden_target_ip(ip) {
             return Err("адрес подписки указывает в локальную или специальную сеть".into());
         }
@@ -251,12 +251,59 @@ fn reject_forbidden_literal(url: &reqwest::Url) -> Result<(), String> {
     let host = url
         .host_str()
         .ok_or_else(|| "у подписки отсутствует имя хоста".to_string())?;
-    if let Ok(ip) = host.parse::<IpAddr>() {
+    if let Some(ip) = host_literal_ip(host) {
         if is_forbidden_target_ip(ip) {
             return Err("адрес подписки указывает в локальную или специальную сеть".into());
         }
     }
     Ok(())
+}
+
+// IP-литерал хоста. IPv6 `host_str()` отдаёт в квадратных скобках, и прямой
+// `parse::<IpAddr>()` его не узнавал: `http://[::1]/` через туннель проходил
+// проверку литералов как обычное имя.
+fn host_literal_ip(host: &str) -> Option<IpAddr> {
+    host.strip_prefix('[')
+        .and_then(|inner| inner.strip_suffix(']'))
+        .unwrap_or(host)
+        .parse()
+        .ok()
+}
+
+const PROXIED_REDIRECT_LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+// Перенаправление через туннель на ДРУГОЙ хост. Имя там резолвит sing-box, и
+// direct-маршрут (регион, правило «Напрямую») уводил «x.example.ru →
+// 192.168.1.1» на роутер или сервис этого ПК, а хост перенаправления выбирает
+// сервер подписки, не пользователь. Такое имя проверяем локальным DNS. Если
+// локально оно не разрешилось, решает туннель: из-за блокировок DNS подписку
+// и тянут через него.
+async fn reject_private_proxied_redirect(url: &reqwest::Url) -> Result<(), String> {
+    let (Some(host), Some(port)) = (url.host_str(), url.port_or_known_default()) else {
+        return Ok(());
+    };
+    if host_literal_ip(host).is_some() {
+        return Ok(()); // литерал уже проверен reject_forbidden_literal
+    }
+    let answer = tokio::time::timeout(PROXIED_REDIRECT_LOOKUP_TIMEOUT, lookup_host((host, port)))
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .map(|addresses| addresses.collect::<Vec<_>>());
+    proxied_redirect_verdict(answer.as_deref())
+}
+
+fn proxied_redirect_verdict(answer: Option<&[SocketAddr]>) -> Result<(), String> {
+    match answer {
+        Some(addresses)
+            if addresses
+                .iter()
+                .any(|address| is_forbidden_target_ip(address.ip())) =>
+        {
+            Err("перенаправление подписки ведёт в локальную или специальную сеть".into())
+        }
+        _ => Ok(()),
+    }
 }
 
 fn make_client(
@@ -402,6 +449,9 @@ pub async fn fetch_subscription(
         let target = match proxy {
             Some(_) => {
                 reject_forbidden_literal(&current)?;
+                if !same_host(&origin, &current) {
+                    reject_private_proxied_redirect(&current).await?;
+                }
                 None
             }
             None => Some(resolve_public_target(&current).await?),
@@ -619,6 +669,38 @@ mod tests {
         // Имя не резолвим вовсе — это и есть смысл режима.
         let host = reqwest::Url::parse("https://panel.example/sub").unwrap();
         assert!(reject_forbidden_literal(&host).is_ok());
+    }
+
+    #[test]
+    fn ipv6_literals_are_recognised_in_url_form() {
+        let loopback = reqwest::Url::parse("http://[::1]:8080/sub").unwrap();
+        assert!(reject_forbidden_literal(&loopback).is_err());
+        let mapped = reqwest::Url::parse("http://[::ffff:192.168.1.1]/sub").unwrap();
+        assert!(reject_forbidden_literal(&mapped).is_err());
+        let public = reqwest::Url::parse("https://[2001:4860:4860::8888]/sub").unwrap();
+        assert!(reject_forbidden_literal(&public).is_ok());
+        assert_eq!(
+            host_literal_ip("[::1]"),
+            Some(IpAddr::V6(std::net::Ipv6Addr::LOCALHOST))
+        );
+        assert_eq!(host_literal_ip("panel.example"), None);
+    }
+
+    // Перенаправление через туннель на чужой хост проверяется локальным DNS.
+    // Не разрешилось локально — не повод ронять обновление: в этом и смысл
+    // загрузки через туннель.
+    #[test]
+    fn proxied_cross_host_redirect_into_a_private_network_is_refused() {
+        let private = [SocketAddr::from(([192, 168, 1, 1], 80))];
+        assert!(proxied_redirect_verdict(Some(private.as_slice())).is_err());
+        let mixed = [
+            SocketAddr::from(([1, 1, 1, 1], 443)),
+            SocketAddr::from(([127, 0, 0, 1], 443)),
+        ];
+        assert!(proxied_redirect_verdict(Some(mixed.as_slice())).is_err());
+        let public = [SocketAddr::from(([1, 1, 1, 1], 443))];
+        assert!(proxied_redirect_verdict(Some(public.as_slice())).is_ok());
+        assert!(proxied_redirect_verdict(None).is_ok());
     }
 
     #[test]
