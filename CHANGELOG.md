@@ -6,6 +6,16 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.8.1 — 2026-10-03
+
+## English
+
+- The password for access from the LAN is now stored encrypted instead of in plain text.
+
+## Русский
+
+- Пароль для доступа из локальной сети теперь хранится в зашифрованном виде, а не открытым текстом.
+
 ## v0.8.0 — 2026-10-03
 
 ## English
