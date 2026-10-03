@@ -1,7 +1,7 @@
 // Ninety · sing-box 1.13.x config builder
 // Protocol parsers живут в protocol-parsers.js; здесь builder + storage-фасад.
 
-import { DEFAULT_OPTIONS, lanCredentialsValid } from "/lib/options.js";
+import { DEFAULT_OPTIONS } from "/lib/options.js";
 import { t } from "/lib/i18n/index.js";
 import { uid } from "/lib/uid.js";
 import { hashRuntimeValue, stableNodeId } from "/lib/runtime-identity.js";
@@ -799,12 +799,12 @@ const SELF_DEST_CIDRS = [...LOOPBACK_CIDRS, "0.0.0.0/32", "::/128"];
 const LAN_INBOUNDS = ["mixed-in", "mixed-lan"];
 
 // "off" — в сеть ничего не открыто; "open" — mixed-in на 0.0.0.0 без пароля;
-// "password" — отдельный mixed-lan с логином и паролем. Включённый пароль без
-// годной пары не откатывается к "open": тихо снятая защита хуже закрытого входа.
+// "password" — отдельный mixed-lan с логином и паролем. Пару подставляет
+// бэкенд перед запуском ядра (lan_auth.rs), а без неё убирает этот вход
+// целиком: включённый пароль никогда не превращается в открытый вход.
 export function lanInboundPolicy(inbound) {
   if (!inbound?.allowConnectionFromLan) return "off";
-  if (!inbound.lanAuth) return "open";
-  return lanCredentialsValid(inbound) ? "password" : "off";
+  return inbound.lanAuth ? "password" : "open";
 }
 
 function fromLanNeighbour() {
@@ -1018,12 +1018,13 @@ function buildInbounds(mode, options, systemIpv6) {
     listen_port: options.inbound.mixedPort || 7890,
   }];
   if (lan === "password") {
+    // users здесь нет намеренно: их вписывает бэкенд из зашифрованного
+    // хранилища, а без них убирает этот вход.
     inbounds.push({
       type: "mixed",
       tag: "mixed-lan",
       listen: "0.0.0.0",
       listen_port: options.inbound.lanPort || 7891,
-      users: [{ username: options.inbound.lanUsername, password: options.inbound.lanPassword }],
     });
   }
   return inbounds;

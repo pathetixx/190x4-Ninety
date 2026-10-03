@@ -1289,6 +1289,7 @@ export const pl = {
       lanUserHint: "Litery łacińskie, cyfry, kropka, myślnik i podkreślenie. Wyczyść pole, a Ninety przywróci domyślny login",
       lanPassTitle: "Hasło",
       lanPassHint: "Tworzone automatycznie: litery łacińskie, cyfry i znaki bez spacji. Wyczyść pole, aby dostać nowe, a potem zmień je na wszystkich urządzeniach",
+      lanAuthErr: "Nie udało się zapisać hasła dla sieci LAN: {err}",
     },
 
     tls: {

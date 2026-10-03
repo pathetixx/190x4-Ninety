@@ -284,6 +284,7 @@ export function mountSettings(root, opts = {}) {
     bindAlwaysAdmin(el, sec);
     bindPortableSecrets(el, sec);
     bindDnsSection(el, onChange);
+    bindLanAuth(el, onChange);
     bindWarpSection(el, sec, onChange);
     bindSensitiveDataClear(el, sec, onSensitiveDataClear);
     bindDeviceHwid(el, sec);
@@ -291,6 +292,41 @@ export function mountSettings(root, opts = {}) {
     bindAboutSection(el, sec);
     bindRoutingSection(el, sec, onChange);
     bindPrivacySection(el, sec);
+  }
+
+  // Логин и пароль для соседей по сети. Первый показ заводит пару, если её
+  // ещё нет: включённый пароль сразу даёт рабочие значения. Очищенное поле
+  // бэкенд заполняет новым значением, а не снимает пароль.
+  function bindLanAuth(el, onChange) {
+    const inputs = [...el.querySelectorAll("input[data-lan-auth]")];
+    if (!inputs.length) return;
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (!invoke) return;
+    let shown = null;
+    const show = (credentials) => {
+      shown = credentials;
+      for (const input of inputs) {
+        input.value = credentials?.[input.dataset.lanAuth] ?? "";
+        input.disabled = false;
+      }
+    };
+    const fail = (error) => toast(t("settings.inbound.lanAuthErr", { err: error?.message || error }), "error", 4200);
+    invoke("lan_auth_ensure").then(show).catch(fail);
+    for (const input of inputs) {
+      const field = input.dataset.lanAuth;
+      const save = async () => {
+        if (!shown || input.value === shown[field]) return;
+        try {
+          show(await invoke("lan_auth_update", { [field]: input.value }));
+          onChange("inbound.lanCredentials", true);
+        } catch (error) {
+          input.value = shown[field];
+          fail(error);
+        }
+      };
+      input.addEventListener("change", save);
+      input.addEventListener("blur", save);
+    }
   }
 
   function bindPrivacySection(el, sec) {
@@ -1256,15 +1292,17 @@ function renderInbound(o) {
 }
 
 // Пароль для соседей по сети. Поля видны текстом: их переписывают на телефон
-// или в ТВ. Очищенное поле Ninety заполняет новым значением (см. options.js).
+// или в ТВ. Значения хранит бэкенд (lan_auth.rs), поэтому у полей нет data-opt:
+// общий обработчик записал бы их в настройки, то есть открытым текстом на диск.
 function renderLanAuth(inbound) {
-  const credentialAttrs = 'maxlength="64" spellcheck="false" autocomplete="off" autocapitalize="off"';
+  const credentialInput = (field) => `<input class="settings-input" type="text" value="" data-lan-auth="${field}"
+    maxlength="64" spellcheck="false" autocomplete="off" autocapitalize="off" disabled/>`;
   return `
       ${row(iconLock(), t("settings.inbound.lanAuthTitle"), t("settings.inbound.lanAuthHint"), toggle("inbound.lanAuth", inbound.lanAuth, { affectsView: true }))}
       ${inbound.lanAuth ? `
         ${row(iconPort(), t("settings.inbound.lanPortTitle"), t("settings.inbound.lanPortHint"), inputText("inbound.lanPort", inbound.lanPort, "number", 'min="1024" max="65535"'))}
-        ${row(iconLock(), t("settings.inbound.lanUserTitle"), t("settings.inbound.lanUserHint"), inputText("inbound.lanUsername", inbound.lanUsername, "text", credentialAttrs))}
-        ${row(iconLock(), t("settings.inbound.lanPassTitle"), t("settings.inbound.lanPassHint"), inputText("inbound.lanPassword", inbound.lanPassword, "text", credentialAttrs))}
+        ${row(iconLock(), t("settings.inbound.lanUserTitle"), t("settings.inbound.lanUserHint"), credentialInput("username"))}
+        ${row(iconLock(), t("settings.inbound.lanPassTitle"), t("settings.inbound.lanPassHint"), credentialInput("password"))}
       ` : ""}
   `;
 }

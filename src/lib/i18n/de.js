@@ -1273,6 +1273,7 @@ export const de = {
       lanUserHint: "Lateinische Buchstaben, Ziffern, Punkt, Bindestrich und Unterstrich. Leere das Feld, dann setzt Ninety den Standard-Login wieder ein",
       lanPassTitle: "Passwort",
       lanPassHint: "Wird automatisch erzeugt: lateinische Buchstaben, Ziffern und Zeichen ohne Leerzeichen. Leere das Feld für ein neues – und ändere es dann auf allen Geräten",
+      lanAuthErr: "Das Passwort für das LAN konnte nicht gespeichert werden: {err}",
     },
 
     tls: {

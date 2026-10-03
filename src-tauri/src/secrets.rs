@@ -96,7 +96,7 @@ pub struct PortableSecretStatus {
 /// Все контейнеры, которые проходят через `seal_for_app`. Резервные копии тоже
 /// в списке: файл, оставшийся под прежним ключом, — это данные, которые уже
 /// нечем открыть.
-const PORTABLE_SECRET_FILES: [&str; 9] = [
+const PORTABLE_SECRET_FILES: [&str; 10] = [
     "config/state-backup.json",
     "config/state-backup.json.bak",
     "config/state-backup.json.legacy.bak",
@@ -106,6 +106,7 @@ const PORTABLE_SECRET_FILES: [&str; 9] = [
     "config/warp.json",
     "config/warp.json.bak",
     "config/warp.json.legacy.bak",
+    "config/lan-auth.json",
 ];
 
 fn portable_secret_files() -> Vec<PathBuf> {

@@ -1281,6 +1281,7 @@ export const es = {
       lanUserHint: "Letras latinas, cifras, punto, guion y guion bajo. Vacía el campo y Ninety restaurará el usuario predeterminado",
       lanPassTitle: "Contraseña",
       lanPassHint: "Se genera automáticamente: letras latinas, cifras y símbolos sin espacios. Vacía el campo para obtener una nueva y luego actualízala en todos los dispositivos",
+      lanAuthErr: "No se pudo guardar la contraseña para la LAN: {err}",
     },
 
     tls: {

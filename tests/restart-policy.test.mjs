@@ -86,3 +86,18 @@ test("FakeDNS пересобирает ядро только в TUN", () => {
   assert.equal(pathNeedsRestart("dns.enableFakeDns", {}, "proxy"), false);
   assert.equal(pathNeedsRestart("dns.enableFakeDns", {}, "systemProxy"), false);
 });
+
+// Вход для соседей есть только вне TUN и только при доступе из сети; логин и
+// пароль (их хранит бэкенд) меняют конфиг, только когда пароль включён.
+test("настройки входа для соседей рестартят ядро, только когда он есть", () => {
+  const lan = { inbound: { allowConnectionFromLan: true, lanAuth: true } };
+  const noAuth = { inbound: { allowConnectionFromLan: true, lanAuth: false } };
+  const closed = { inbound: { allowConnectionFromLan: false, lanAuth: true } };
+  assert.equal(pathNeedsRestart("inbound.lanCredentials", lan, "systemProxy"), true);
+  assert.equal(pathNeedsRestart("inbound.lanPort", lan, "proxy"), true);
+  assert.equal(pathNeedsRestart("inbound.lanAuth", noAuth, "proxy"), true);
+  assert.equal(pathNeedsRestart("inbound.lanCredentials", noAuth, "proxy"), false);
+  assert.equal(pathNeedsRestart("inbound.lanPort", closed, "proxy"), false);
+  assert.equal(pathNeedsRestart("inbound.lanAuth", closed, "proxy"), false);
+  assert.equal(pathNeedsRestart("inbound.lanCredentials", lan, "tun"), false);
+});

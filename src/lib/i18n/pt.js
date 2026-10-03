@@ -1281,6 +1281,7 @@ export const pt = {
       lanUserHint: "Letras latinas, algarismos, ponto, hífen e sublinhado. Limpe o campo e o Ninety repõe o nome de utilizador predefinido",
       lanPassTitle: "Palavra-passe",
       lanPassHint: "Gerada automaticamente: letras latinas, algarismos e símbolos sem espaços. Limpe o campo para obter uma nova e depois atualize-a em todos os dispositivos",
+      lanAuthErr: "Não foi possível guardar a palavra-passe para a LAN: {err}",
     },
 
     tls: {

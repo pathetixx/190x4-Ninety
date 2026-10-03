@@ -1281,6 +1281,7 @@ export const fr = {
       lanUserHint: "Lettres latines, chiffres, point, tiret et tiret bas. Videz le champ et Ninety rétablit l’identifiant par défaut",
       lanPassTitle: "Mot de passe",
       lanPassHint: "Généré automatiquement : lettres latines, chiffres et symboles sans espaces. Videz le champ pour en obtenir un nouveau, puis mettez-le à jour sur tous les appareils",
+      lanAuthErr: "Impossible d’enregistrer le mot de passe pour le LAN : {err}",
     },
 
     tls: {

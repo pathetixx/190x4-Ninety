@@ -88,11 +88,11 @@ export const DEFAULT_OPTIONS = {
     // Пароль для соседей по сети. Повесить его на mixedPort нельзя: тем же
     // портом пользуется системный прокси самого ПК, а приложения Windows не
     // умеют отвечать на запрос пароля прокси. Поэтому соседи с паролем ходят
-    // на отдельный lanPort, а mixedPort остаётся только для этого ПК.
+    // на отдельный lanPort, а mixedPort остаётся только для этого ПК. Сами
+    // логин и пароль здесь не живут: localStorage лежит на диске открытым
+    // текстом, поэтому их хранит и подставляет в конфиг бэкенд (lan_auth.rs).
     lanAuth: false,
     lanPort: 7891,
-    lanUsername: "",
-    lanPassword: "",
   },
   tlsTricks: {
     enableFragment: false,
@@ -232,49 +232,23 @@ function isQualityEndpoint(value) {
   } catch { return false; }
 }
 
-// Логин и пароль соседи набирают руками — на телефоне, в приставке, в ТВ.
-// Поэтому только печатный ASCII без пробелов; в логине ещё и без «:», который
-// HTTP Basic считает разделителем логина и пароля.
-const LAN_CREDENTIAL_MAX = 64;
-const LAN_USERNAME_DEFAULT = "ninety";
-const LAN_PASSWORD_LENGTH = 16;
-const LAN_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+// Версия 0.8.0 держала логин и пароль для соседей в этих настройках. Их
+// забираем до первого normalize (он эти поля выбрасывает) и отдаём бэкенду —
+// см. takeLegacyLanCredentials.
+let legacyLanCredentials = (() => {
+  try {
+    const inbound = JSON.parse(localStorage.getItem(OPTIONS_KEY) || "{}")?.inbound;
+    const username = typeof inbound?.lanUsername === "string" ? inbound.lanUsername : "";
+    const password = typeof inbound?.lanPassword === "string" ? inbound.lanPassword : "";
+    return username || password ? { username, password } : null;
+  } catch { return null; }
+})();
 
-export function sanitizeLanUsername(value) {
-  return String(value ?? "").replace(/[^A-Za-z0-9._-]/g, "").slice(0, LAN_CREDENTIAL_MAX);
-}
-
-export function sanitizeLanPassword(value) {
-  return String(value ?? "").replace(/[^\x21-\x7e]/g, "").slice(0, LAN_CREDENTIAL_MAX);
-}
-
-export function lanCredentialsValid(inbound) {
-  const username = inbound?.lanUsername;
-  const password = inbound?.lanPassword;
-  return typeof username === "string" && typeof password === "string"
-    && !!username && username === sanitizeLanUsername(username)
-    && !!password && password === sanitizeLanPassword(password);
-}
-
-// Без похожих символов (0/O, 1/l/I): пароль переписывают с экрана ПК.
-export function generateLanPassword(random = globalThis.crypto) {
-  const out = [];
-  const limit = 256 - (256 % LAN_PASSWORD_ALPHABET.length);
-  while (out.length < LAN_PASSWORD_LENGTH) {
-    const bytes = random.getRandomValues(new Uint8Array(LAN_PASSWORD_LENGTH * 2));
-    for (const byte of bytes) {
-      // Отбрасываем хвост диапазона, иначе первые буквы алфавита выпадали бы чаще.
-      if (byte < limit && out.length < LAN_PASSWORD_LENGTH) {
-        out.push(LAN_PASSWORD_ALPHABET[byte % LAN_PASSWORD_ALPHABET.length]);
-      }
-    }
-  }
-  return out.join("");
-}
-
-function ensureLanCredentials(inbound) {
-  inbound.lanUsername = sanitizeLanUsername(inbound.lanUsername) || LAN_USERNAME_DEFAULT;
-  inbound.lanPassword = sanitizeLanPassword(inbound.lanPassword) || generateLanPassword();
+/** Логин и пароль, оставшиеся в настройках от 0.8.0; отдаются один раз. */
+export function takeLegacyLanCredentials() {
+  const found = legacyLanCredentials;
+  legacyLanCredentials = null;
+  return found;
 }
 
 export function normalizeOptions(input) {
@@ -316,11 +290,9 @@ export function normalizeOptions(input) {
     while (takenPorts.has(port)) port++;
     out.inbound.lanPort = port;
   }
-  // Пустой или испорченный логин здесь не придумываем: normalize вызывается
-  // на каждое чтение, и случайный пароль менялся бы до первого сохранения.
-  // Builder такой набор не откроет в сеть вовсе (lanInboundPolicy).
-  out.inbound.lanUsername = sanitizeLanUsername(out.inbound.lanUsername);
-  out.inbound.lanPassword = sanitizeLanPassword(out.inbound.lanPassword);
+  // Логин и пароль соседей хранит бэкенд, в настройках им не место.
+  delete out.inbound.lanUsername;
+  delete out.inbound.lanPassword;
   for (const pair of [
     out.tlsTricks.paddingSize,
     out.warp.customNoise.count,
@@ -501,20 +473,8 @@ const OPTION_SETTERS = new Map([
   ["inbound.tunStack", (opts, value) => { opts.inbound.tunStack = value; }],
   ["inbound.strictRoute", (opts, value) => { opts.inbound.strictRoute = value; }],
   ["inbound.allowConnectionFromLan", (opts, value) => { opts.inbound.allowConnectionFromLan = value; }],
-  // Включение пароля сразу выдаёт рабочую пару: иначе доступ из сети молча
-  // закрылся бы до того, как пользователь заполнит поля.
-  ["inbound.lanAuth", (opts, value) => {
-    opts.inbound.lanAuth = value;
-    if (value === true) ensureLanCredentials(opts.inbound);
-  }],
+  ["inbound.lanAuth", (opts, value) => { opts.inbound.lanAuth = value; }],
   ["inbound.lanPort", (opts, value) => { opts.inbound.lanPort = value; }],
-  // Очищенное поле — просьба придумать новое значение, а не снять пароль.
-  ["inbound.lanUsername", (opts, value) => {
-    opts.inbound.lanUsername = sanitizeLanUsername(value) || LAN_USERNAME_DEFAULT;
-  }],
-  ["inbound.lanPassword", (opts, value) => {
-    opts.inbound.lanPassword = sanitizeLanPassword(value) || generateLanPassword();
-  }],
   ["tlsTricks.enableFragment", (opts, value) => { opts.tlsTricks.enableFragment = value; }],
   ["tlsTricks.fragmentMode", (opts, value) => { opts.tlsTricks.fragmentMode = value; }],
   ["tlsTricks.fragmentFallbackDelay", (opts, value) => { opts.tlsTricks.fragmentFallbackDelay = value; }],

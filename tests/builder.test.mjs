@@ -1236,34 +1236,18 @@ test("доступ из локальной сети: direct-правила сн�
   assert.ok(remote.route.rules.filter((rule) => rule.action === "resolve").every((rule) => rule.server === "dns-remote"));
 });
 
-test("пароль для сети: соседи на отдельном порту с логином, mixed-in только для ПК", () => {
+// Логин и пароль вписывает бэкенд (lan_auth.rs) из зашифрованного хранилища и
+// без них убирает этот вход: в конфиге фронта их нет вовсе.
+test("пароль для сети: соседи на отдельном порту, mixed-in только для ПК", () => {
   const options = structuredClone(DEFAULT_OPTIONS);
-  Object.assign(options.inbound, {
-    allowConnectionFromLan: true,
-    lanAuth: true,
-    lanPort: 7895,
-    lanUsername: "ninety",
-    lanPassword: "Secret123",
-  });
+  Object.assign(options.inbound, { allowConnectionFromLan: true, lanAuth: true, lanPort: 7895 });
   const { config } = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "systemProxy", options });
   assert.deepEqual(config.inbounds, [
     { type: "mixed", tag: "mixed-in", listen: "127.0.0.1", listen_port: 7890 },
-    {
-      type: "mixed",
-      tag: "mixed-lan",
-      listen: "0.0.0.0",
-      listen_port: 7895,
-      users: [{ username: "ninety", password: "Secret123" }],
-    },
+    { type: "mixed", tag: "mixed-lan", listen: "0.0.0.0", listen_port: 7895 },
   ]);
   assert.ok(config.route.rules.some((rule) => rule.type === "logical" && rule.action === "reject"));
   validateConfigReferences(config);
-
-  // Включённый пароль без годной пары не превращается в открытый вход.
-  options.inbound.lanPassword = "";
-  const closed = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "systemProxy", options }).config;
-  assert.deepEqual(closed.inbounds, [{ type: "mixed", tag: "mixed-in", listen: "127.0.0.1", listen_port: 7890 }]);
-  assert.equal(closed.route.rules.some((rule) => rule.action === "resolve"), false);
 });
 
 test("без доступа из локальной сети и в TUN loopback-правила нет", () => {

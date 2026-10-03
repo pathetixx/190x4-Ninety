@@ -1273,6 +1273,7 @@ export const tr = {
       lanUserHint: "Latin harfler, rakamlar, nokta, kısa çizgi ve alt çizgi. Alanı temizlerseniz Ninety varsayılan kullanıcı adını geri yükler",
       lanPassTitle: "Parola",
       lanPassHint: "Otomatik oluşturulur: boşluksuz Latin harfler, rakamlar ve simgeler. Yenisini almak için alanı temizleyin, ardından tüm cihazlarda güncelleyin",
+      lanAuthErr: "LAN parolası kaydedilemedi: {err}",
     },
 
     tls: {

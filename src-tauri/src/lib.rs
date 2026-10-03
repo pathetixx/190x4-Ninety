@@ -13,6 +13,7 @@ mod hwid;
 mod ipv6;
 mod job_guard;
 mod killswitch;
+mod lan_auth;
 mod netproc;
 mod profile_store;
 mod protected_browser;
@@ -1417,6 +1418,8 @@ pub fn run() {
             vpn::clear_log,
             vpn::singbox_log_path,
             vpn::open_log_dir,
+            lan_auth::lan_auth_ensure,
+            lan_auth::lan_auth_update,
             subscription::fetch_subscription,
             subscription::subscription_hwid,
             hwid::device_identity,

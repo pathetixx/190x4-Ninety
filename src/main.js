@@ -28,7 +28,7 @@ import {
   relativeTime,
   setSubscriptionProxy,
 } from "/lib/subscriptions.js";
-import { loadOptions, getOptionsSnapshot, updateOption } from "/lib/options.js";
+import { loadOptions, getOptionsSnapshot, saveOptions, takeLegacyLanCredentials, updateOption } from "/lib/options.js";
 import { backupForUpdate, backupNow, backupSoon, restoreIfEmpty } from "/lib/state-backup.js";
 import { mountSettings } from "/lib/settings-view.js";
 import { pathNeedsRestart } from "/lib/restart-policy.js";
@@ -4139,6 +4139,21 @@ const bootstrapCoordinator = createBootstrapCoordinator({
 async function bootstrapNetworkRuntime() {
   return bootstrapCoordinator.run();
 }
+
+// 0.8.0 держала логин и пароль для соседей по сети в настройках, то есть
+// открытым текстом в localStorage. Переносим их в хранилище бэкенда и
+// перезаписываем настройки уже без них. Стоит до bootstrap: первое
+// подключение должно найти пару у бэкенда, иначе вход для соседей закроется.
+(async () => {
+  const legacy = takeLegacyLanCredentials();
+  if (!legacy) return;
+  try {
+    await invoke("lan_auth_update", legacy);
+    saveOptions(loadOptions());
+  } catch (e) {
+    console.warn("LAN credentials migration failed", e?.message || e);
+  }
+})();
 
 bootstrapNetworkRuntime();
 

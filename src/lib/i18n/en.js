@@ -1273,6 +1273,7 @@ export const en = {
       lanUserHint: "Latin letters, digits, dot, hyphen and underscore. Clear the field and Ninety restores the default login",
       lanPassTitle: "Password",
       lanPassHint: "Generated automatically: Latin letters, digits and symbols without spaces. Clear the field to get a new one, then update it on every device",
+      lanAuthErr: "Failed to save the LAN password: {err}",
     },
 
     tls: {

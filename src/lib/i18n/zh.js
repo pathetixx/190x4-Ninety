@@ -1265,6 +1265,7 @@ export const zh = {
       lanUserHint: "可用拉丁字母、数字、点、连字符和下划线。清空此项，Ninety 会恢复默认用户名",
       lanPassTitle: "密码",
       lanPassHint: "自动生成：拉丁字母、数字和符号，不含空格。清空此项即可生成新密码，之后请在所有设备上更新",
+      lanAuthErr: "无法保存局域网密码：{err}",
     },
 
     tls: {

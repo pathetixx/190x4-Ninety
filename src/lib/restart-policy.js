@@ -41,5 +41,11 @@ export function pathNeedsRestart(path, opts, mode) {
   }
   // split-routing Discord влияет только на TUN-маршруты
   if (path === "route.tunSplitDiscord") return mode === "tun";
+  // Вход для соседей по сети есть только вне TUN и только при доступе из сети;
+  // логин и пароль (их хранит бэкенд) — только при включённом пароле.
+  if (path === "inbound.lanAuth" || path === "inbound.lanPort" || path === "inbound.lanCredentials") {
+    const lan = mode !== "tun" && !!opts?.inbound?.allowConnectionFromLan;
+    return path === "inbound.lanAuth" ? lan : lan && !!opts?.inbound?.lanAuth;
+  }
   return true;
 }

@@ -1265,6 +1265,7 @@ export const ko = {
       lanUserHint: "라틴 문자, 숫자, 점, 하이픈, 밑줄을 쓸 수 있습니다. 칸을 비우면 Ninety가 기본 로그인으로 되돌립니다",
       lanPassTitle: "비밀번호",
       lanPassHint: "자동으로 만들어집니다(공백 없는 라틴 문자, 숫자, 기호). 칸을 비우면 새 비밀번호가 만들어지니, 모든 기기에서 바꿔 주세요",
+      lanAuthErr: "LAN 비밀번호를 저장하지 못했습니다: {err}",
     },
 
     tls: {

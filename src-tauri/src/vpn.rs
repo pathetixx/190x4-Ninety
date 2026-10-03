@@ -2399,6 +2399,9 @@ async fn start_singbox_inner(
     // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
     let cache_path = singbox_cache_path(&app)?;
     let config_json = harden_config(&raw_config_json, Some(&cache_path));
+    // Пароль для соседей по сети фронт не видит и в конфиг не кладёт: его
+    // подставляет бэкенд из зашифрованного хранилища (lan_auth.rs).
+    let config_json = crate::lan_auth::apply_to_config(&app, &config_json);
     let (endpoints, clash_port, runtime_ports) = runtime_config_metadata_from_config(&config_json)?;
     if operation_token.kind == RuntimeOperationKind::SourceSwitch
         && (operation_token.expected_source_fingerprint.is_none()

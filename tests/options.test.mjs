@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_OPTIONS,
   OPTIONS_SCHEMA_VERSION,
-  generateLanPassword,
-  lanCredentialsValid,
   normalizeOptions,
 } from "/lib/options.js";
 
@@ -119,58 +117,31 @@ test("порт для локальной сети уступает mixed и clas
   assert.equal(normalizeOptions({}).inbound.lanPort, 7891);
 });
 
-// normalize вызывается на каждое чтение: придумай он пароль сам, значение
-// менялось бы до первого сохранения. Испорченную пару он только чистит.
-test("normalizeOptions чистит логин и пароль для сети, но не придумывает их", () => {
+// Логин и пароль для соседей хранит бэкенд в зашифрованном виде: в настройки
+// (localStorage — открытый текст на диске) они попадать не должны.
+test("normalizeOptions выбрасывает логин и пароль для сети", () => {
   const out = normalizeOptions({
-    inbound: { lanAuth: true, lanUsername: "us er:ы", lanPassword: "p a\nss\u0007" },
+    inbound: { lanAuth: true, lanUsername: "ninety", lanPassword: "Secret123" },
   });
-  assert.equal(out.inbound.lanUsername, "user");
-  assert.equal(out.inbound.lanPassword, "pass");
-  const empty = normalizeOptions({ inbound: { lanAuth: true, lanUsername: 5, lanPassword: null } });
-  assert.equal(empty.inbound.lanUsername, "5");
-  assert.equal(empty.inbound.lanPassword, "");
-  assert.equal(lanCredentialsValid(empty.inbound), false);
+  assert.equal(out.inbound.lanAuth, true);
+  assert.equal("lanUsername" in out.inbound, false);
+  assert.equal("lanPassword" in out.inbound, false);
+  assert.doesNotMatch(JSON.stringify(out), /Secret123/);
 });
 
-test("generateLanPassword отбрасывает байты хвоста, а не смещает алфавит", () => {
-  let call = 0;
-  const random = {
-    getRandomValues(bytes) {
-      bytes.fill(call++ === 0 ? 255 : 0);
-      return bytes;
-    },
-  };
-  assert.equal(generateLanPassword(random), "A".repeat(16));
-  assert.equal(call, 2);
-  assert.match(generateLanPassword(), /^[A-HJ-NP-Za-km-z2-9]{16}$/);
-});
-
-test("пароль для сети: включение выдаёт рабочую пару, очищенное поле — новое значение", async () => {
-  const data = new Map();
+// 0.8.0 держала пару в настройках: её забирают один раз до первого normalize.
+test("пара для сети из 0.8.0 забирается из настроек один раз", async () => {
+  const data = new Map([["ninety.options.v1", JSON.stringify({
+    inbound: { lanAuth: true, lanUsername: "ninety", lanPassword: "Secret123" },
+  })]]);
   globalThis.localStorage = {
     getItem: (k) => (data.has(k) ? data.get(k) : null),
     setItem: (k, v) => data.set(k, String(v)),
     removeItem: (k) => data.delete(k),
   };
-  globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-  globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
-
-  const { updateOption } = await import("../src/lib/options.js?lan-auth");
-  const enabled = updateOption("inbound.lanAuth", true).inbound;
-  assert.equal(enabled.lanUsername, "ninety");
-  assert.match(enabled.lanPassword, /^[A-Za-z0-9]{16}$/);
-  assert.ok(lanCredentialsValid(enabled));
-
-  // Повторное включение не перевыпускает пароль, уже вписанный на устройствах.
-  updateOption("inbound.lanAuth", false);
-  assert.equal(updateOption("inbound.lanAuth", true).inbound.lanPassword, enabled.lanPassword);
-
-  const typed = updateOption("inbound.lanPassword", " my pass:wörd ").inbound;
-  assert.equal(typed.lanPassword, "mypass:wrd");
-  assert.equal(updateOption("inbound.lanUsername", "us:er").inbound.lanUsername, "user");
-
-  const regenerated = updateOption("inbound.lanPassword", "").inbound;
-  assert.match(regenerated.lanPassword, /^[A-Za-z0-9]{16}$/);
-  assert.equal(updateOption("inbound.lanUsername", "  ").inbound.lanUsername, "ninety");
+  const { takeLegacyLanCredentials, loadOptions, saveOptions } = await import("../src/lib/options.js?legacy-lan");
+  assert.deepEqual(takeLegacyLanCredentials(), { username: "ninety", password: "Secret123" });
+  assert.equal(takeLegacyLanCredentials(), null);
+  saveOptions(loadOptions());
+  assert.doesNotMatch(data.get("ninety.options.v1"), /Secret123/);
 });
