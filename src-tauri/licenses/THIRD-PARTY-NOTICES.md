@@ -23,7 +23,7 @@ The primary networking engine.
 
 | | |
 | --- | --- |
-| Version | `v1.14.1-ninety.1` (commit `817c7d1ef3d1aadadd5daf3a61c0bdf94547b6bc`) |
+| Version | `v1.14.2-ninety.1` (commit `a9267e566ecc7df8d47cdc93663d5c6438787ef1`) |
 | Source | <https://github.com/pathetixx/ninety-core> |
 | Upstream | <https://github.com/SagerNet/sing-box> |
 | License | GNU General Public License v3.0 or later, with an additional naming clause |
@@ -44,7 +44,7 @@ The engine used for XHTTP connections.
 
 | | |
 | --- | --- |
-| Version | `v26.9.9` (commit `52a412d9e2f5c2a5142b1b4e2ab3771dacb8b120`) |
+| Version | `v26.9.30` (commit `b26a91de4f3294e26a0ad0a970b81a386a41f789`) |
 | Source | <https://github.com/XTLS/Xray-core> |
 | License | Mozilla Public License 2.0 |
 | Text | [`xray-core.txt`](./xray-core.txt) |
