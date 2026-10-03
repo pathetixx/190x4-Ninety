@@ -424,11 +424,19 @@ initWifiGuard({ changeMode });
 // TUN поднимает сетевой интерфейс — для этого sing-box (наш child) должен
 // работать от админа, значит и всё приложение тоже. Если уже elevated — ок,
 // продолжаем. Иначе перезапускаем Ninety от админа через UAC: перезапущенный
-// инстанс читает mode=tun из localStorage и авто-подключается (--elevated).
-// Возврат: true — можно продолжать в текущем (уже admin) процессе; false —
-// идёт перезапуск ИЛИ юзер отказался от UAC.
+// инстанс читает mode=tun из localStorage. Подключается он, только если
+// connect=true (--connect): переключение режима на выключенном VPN не должно
+// поднимать туннель. Возврат: true — можно продолжать в текущем (уже admin)
+// процессе; false — идёт перезапуск ИЛИ юзер отказался от UAC.
 let elevationRelaunchPending = false;
-async function ensureElevatedForTun() {
+
+// Перезапуск с правами сохраняет то, было ли подключение: работающий VPN
+// поднимается в новом процессе снова, выключенный остаётся выключенным.
+function vpnSessionActive() {
+  return state === "connected" || state === "connecting";
+}
+
+async function ensureElevatedForTun({ connect = vpnSessionActive() } = {}) {
   elevationRelaunchPending = false;
   const prevMode = getMode();
   let modeStoredForRelaunch = false;
@@ -443,7 +451,7 @@ async function ensureElevatedForTun() {
     setMode("tun");
     modeStoredForRelaunch = true;
     await backupNow();
-    const started = await invoke("relaunch_elevated");
+    const started = await invoke("relaunch_elevated", { connect });
     if (!started) {
       setMode(prevMode);
       await backupNow();
@@ -484,7 +492,7 @@ async function ensureElevatedForDpi() {
       getEnabled: () => localStorage.getItem("ninety.dpi.enabled") === "true",
       setEnabled: (enabled) => localStorage.setItem("ninety.dpi.enabled", enabled ? "true" : "false"),
       backup: () => backupNow(),
-      relaunch: () => invoke("relaunch_elevated"),
+      relaunch: () => invoke("relaunch_elevated", { connect: vpnSessionActive() }),
     });
     if (!started) {
       toast(t("elev.dpiCancelled"), "error", 3000);
@@ -3343,7 +3351,7 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       return false;
     }
     if (getMode() === "tun") {
-      const elevated = await ensureElevatedForTun();
+      const elevated = await ensureElevatedForTun({ connect: true });
       if (!elevated) return false;
     }
     if (!isCurrentNetworkIntent(epoch, "connected")) return false;
@@ -3986,12 +3994,13 @@ async function reconcileNetworkRuntime() {
 })();
 
 // Авто-запуск после reconcile: при автостарте через Windows login
-// (--autostarted) ИЛИ при перезапуске от админа (--elevated) поднимаем VPN с
-// последним сервером И DPI-обход, если он был включён. Элевация — ОДНИМ
+// (--autostarted) ИЛИ при перезапуске, о котором попросило подключение
+// (--connect), поднимаем VPN с последним сервером. DPI-обход поднимается, если
+// он был включён, — и без VPN, если подключения никто не просил. Элевация — ОДНИМ
 // перезапуском: TUN-режим и DPI требуют admin-прав; если процесс ещё не
 // elevated и что-то из них нужно — тихо relaunch_elevated.
 async function autostartNetworkRuntime() {
-    // После OTA-апдейта процесс перезапускается БЕЗ --autostarted/--elevated, и
+    // После OTA-апдейта процесс перезапускается БЕЗ --autostarted/--connect, и
     // should_autoconnect=false → блок бы не вошёл. update-modal перед установкой
     // пишет, что было поднято (ninety.update.resume = {vpn,dpi}) — по нему
     // возвращаем сессию. Легаси-ключ ninety.dpi.resumeAfterUpdate писали версии
@@ -4027,7 +4036,9 @@ async function autostartNetworkRuntime() {
     // Элевация ради TUN — только если VPN реально будем поднимать.
     if (((tunWanted && vpnWanted) || dpiWanted) && !(await invoke("is_elevated"))) {
       if (tunWanted) setMode("tun"); // перезапущенный admin-инстанс поднимется в TUN
-      const started = await invoke("relaunch_elevated");
+      // Только DPI-обход — без VPN: иначе каждый запуск такого пользователя без
+      // прав заканчивался поднятым туннелем.
+      const started = await invoke("relaunch_elevated", { connect: vpnWanted });
       if (started) return; // текущий процесс вот-вот завершится
       // Элевация не удалась (отказ UAC, политика). Обещанный fallback обязан
       // быть настоящим: раньше режим оставался tun, sing-box без прав интерфейс

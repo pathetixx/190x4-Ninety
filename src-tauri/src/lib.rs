@@ -67,11 +67,35 @@ fn is_portable() -> bool {
 
 /// True если этот запуск должен авто-подключиться после bootstrap:
 ///  --autostarted — вход в Windows (окно в трее);
-///  --elevated    — мы перезапустились от админа ради TUN (окно видимо).
-/// Фронт в обоих случаях поднимает VPN активного источника.
+///  --connect     — перезапуск, о котором попросило подключение (окно видимо).
+/// `--elevated` сюда не входит: он говорит только о правах. С ним Ninety
+/// перезапускается и ради DPI-обхода, и при смене режима на выключенном VPN,
+/// и при «всегда от администратора» — там VPN раньше поднимался без просьбы.
 #[tauri::command]
 fn should_autoconnect() -> bool {
-    std::env::args().any(|a| a == "--autostarted" || a == "--elevated")
+    autoconnect_requested(std::env::args())
+}
+
+fn autoconnect_requested<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .any(|a| matches!(a.as_ref(), "--autostarted" | "--connect"))
+}
+
+/// Аргументы перезапуска от администратора. `--autostarted` переносится, чтобы
+/// окно осталось в трее; `--connect` — только если подключение просил фронт.
+fn elevated_relaunch_args(autostarted: bool, connect: bool) -> Vec<&'static str> {
+    let mut extra = vec!["--elevated"];
+    if autostarted {
+        extra.push("--autostarted");
+    }
+    if connect {
+        extra.push("--connect");
+    }
+    extra
 }
 
 /// Deep-link URL'ы, которые пришли argv при cold-start. Нужны для схем,
@@ -90,18 +114,15 @@ fn is_elevated() -> bool {
     elevation::is_elevated()
 }
 
-/// Перезапускает Ninety от администратора (UAC) для TUN-режима. Передаёт
-/// новому процессу --elevated (+ сохраняет --autostarted если был), чтобы тот
-/// авто-подключился. Возврат:
+/// Перезапускает Ninety от администратора (UAC) для TUN-режима или DPI-обхода.
+/// `connect` — поднять ли VPN в новом процессе: фронт передаёт true, когда
+/// перезапуск идёт из подключения или VPN уже работает. Возврат:
 ///  Ok(true)  — elevated-инстанс стартовал, текущий процесс завершится сам;
 ///  Ok(false) — юзер отменил UAC, остаёмся в текущем (не-admin) процессе.
 #[tauri::command]
-fn relaunch_elevated(app: tauri::AppHandle) -> Result<bool, String> {
-    let mut extra: Vec<&str> = vec!["--elevated"];
+fn relaunch_elevated(app: tauri::AppHandle, connect: Option<bool>) -> Result<bool, String> {
     let autostarted = std::env::args().any(|a| a == "--autostarted");
-    if autostarted {
-        extra.push("--autostarted");
-    }
+    let extra = elevated_relaunch_args(autostarted, connect.unwrap_or(false));
     let started = elevation::relaunch_self_elevated(&extra)?;
     if started {
         // Элевированный инстанс уже создан (юзер согласился в UAC). Текущий
@@ -1043,10 +1064,10 @@ pub fn run() {
                         .map(|p| p.exists())
                         .unwrap_or(false);
                     if want {
-                        let mut extra: Vec<&str> = vec!["--elevated"];
-                        if autostarted {
-                            extra.push("--autostarted");
-                        }
+                        // Ручной запуск остаётся ручным: «всегда от
+                        // администратора» не означает «подключаться при старте».
+                        let connect = argv.iter().any(|a| a == "--connect");
+                        let extra = elevated_relaunch_args(autostarted, connect);
                         if elevation::relaunch_self_elevated(&extra).unwrap_or(false) {
                             // Освобождаем лок single-instance немедленно (ядро
                             // ещё не поднято на этом этапе — чистить нечего).
@@ -1439,6 +1460,31 @@ mod tests {
 
     // Меню трея нельзя подменять, пока оно открыто: замена рушит показанный
     // popup. Признак «сейчас показывается меню» — эти два бита GUITHREADINFO.
+    #[test]
+    fn only_autostart_and_explicit_connect_request_a_connection() {
+        assert!(autoconnect_requested(["ninety.exe", "--autostarted"]));
+        assert!(autoconnect_requested([
+            "ninety.exe",
+            "--elevated",
+            "--connect"
+        ]));
+        assert!(!autoconnect_requested(["ninety.exe", "--elevated"]));
+        assert!(!autoconnect_requested(["ninety.exe"]));
+    }
+
+    #[test]
+    fn elevated_relaunch_carries_connect_only_when_asked() {
+        assert_eq!(elevated_relaunch_args(false, false), ["--elevated"]);
+        assert_eq!(
+            elevated_relaunch_args(true, false),
+            ["--elevated", "--autostarted"]
+        );
+        assert_eq!(
+            elevated_relaunch_args(false, true),
+            ["--elevated", "--connect"]
+        );
+    }
+
     #[test]
     fn open_menu_is_recognised_by_gui_thread_flags() {
         const GUI_INMENUMODE: u32 = 0x0000_0004;
