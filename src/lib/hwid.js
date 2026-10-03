@@ -90,15 +90,37 @@ export async function regenerateDeviceIdentity() {
   return cached;
 }
 
+// Схема HWID подписки. "provider" — у каждого провайдера своё значение,
+// выведенное в Rust из общего идентификатора и хоста подписки: два провайдера
+// не сопоставят, что это одно устройство. Её получают подписки, добавленные
+// после её появления. У прежних поля нет — они шлют общий идентификатор как
+// раньше: смена значения заняла бы в их панели слот нового устройства.
+export const HWID_SCOPE_PROVIDER = "provider";
+
+export function subscriptionUsesScopedHwid(sub) {
+  return sub?.hwidScope === HWID_SCOPE_PROVIDER;
+}
+
 /** Заголовки для подписки, у которой включена отправка HWID. */
-export async function hwidHeaders() {
+export async function hwidHeaders({ scoped = false } = {}) {
   const identity = await ensureDeviceIdentity();
   return {
     hwid: identity.hwid,
+    scoped: !!scoped,
     deviceOs: identity.deviceOs || DEFAULT_OS,
     verOs: identity.verOs || "",
     deviceModel: identity.deviceModel || DEVICE_MODEL,
   };
+}
+
+/** Значение x-hwid, которое увидит панель этой подписки. */
+export async function subscriptionHwid(sub) {
+  const identity = await ensureDeviceIdentity();
+  return invoke("subscription_hwid", {
+    url: String(sub?.url || ""),
+    hwid: identity.hwid,
+    scoped: subscriptionUsesScopedHwid(sub),
+  });
 }
 
 // Панель без ответных заголовков (Remnawave до 2.7.5 и её форки) сообщает о

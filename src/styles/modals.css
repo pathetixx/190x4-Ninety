@@ -383,6 +383,9 @@
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .edit-modal input[type="range"] { width: 100%; accent-color: var(--accent); }
+/* HWID подписки: значение переносится, а не растягивает окно. */
+.edit-modal__hwid { flex-wrap: wrap; }
+.edit-modal__hwid .settings-hwid { flex: 1 1 160px; max-width: none; }
 .edit-modal__hint {
   font-family: var(--font-mono);
   font-size: 11px;

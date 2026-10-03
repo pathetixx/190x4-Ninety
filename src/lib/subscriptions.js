@@ -11,7 +11,7 @@ import { partitionNodes } from "/lib/node-validation.js";
 import { looksLikeWireguardConf, parseTrustTunnelToml, parseWireguardConf } from "/lib/protocol-parsers.js";
 import { detectConfigFormat, parseClientConfig, unsupportedFormatMessage } from "/lib/config-import.js";
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
-import { hwidHeaders, hwidSignal } from "/lib/hwid.js";
+import { HWID_SCOPE_PROVIDER, hwidHeaders, hwidSignal, subscriptionUsesScopedHwid } from "/lib/hwid.js";
 // Реэкспорт: формулировка переехала в свой модуль, но вызывающие (main.js,
 // экран профилей) продолжают брать её отсюда вместе с остальными хелперами.
 export { relativeTime } from "/lib/relative-time.js";
@@ -314,10 +314,10 @@ export function setSubscriptionProxy(fn) { subProxyProvider = fn; }
 
 // HWID уходит только тем подпискам, у которых пользователь его включил:
 // панелям без лимита устройств идентификатор устройства знать незачем.
-async function fetchInfo(url, { hwid = false } = {}) {
+async function fetchInfo(url, { hwid = false, scopedHwid = false } = {}) {
   let proxy = null;
   try { proxy = subProxyProvider?.() || null; } catch {}
-  const headers = hwid ? await hwidHeaders() : null;
+  const headers = hwid ? await hwidHeaders({ scoped: scopedHwid }) : null;
   let info;
   try {
     info = await invoke("fetch_subscription", { url, proxy, hwid: headers });
@@ -360,7 +360,8 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
     throw err;
   }
 
-  const info = await fetchInfo(u, { hwid });
+  // Новая подписка сразу живёт по схеме HWID провайдера (см. hwid.js).
+  const info = await fetchInfo(u, { hwid, scopedHwid: true });
   const { profiles, skipped, format } = parseSubscriptionEntries(info.body);
   if (profiles.length === 0) {
     const err = new Error(unsupportedFormatMessage(format) || t("subs.noVless"));
@@ -388,6 +389,7 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
     serverUpdateIntervalHours,
     skipped,
     hwid: !!hwid,
+    hwidScope: HWID_SCOPE_PROVIDER,
     profiles: assignStableNodeIds(profiles, [], id),
   };
 
@@ -406,7 +408,7 @@ export async function refreshSubscription(id) {
   const cur = loadSubscriptions().find(s => s.id === id);
   if (!cur) throw new Error(t("subs.notFound"));
 
-  const info = await fetchInfo(cur.url, { hwid: !!cur.hwid });
+  const info = await fetchInfo(cur.url, { hwid: !!cur.hwid, scopedHwid: subscriptionUsesScopedHwid(cur) });
   const { profiles, skipped, format } = parseSubscriptionEntries(info.body);
   if (profiles.length === 0) {
     const err = new Error(unsupportedFormatMessage(format) || t("subs.emptyOrInvalid"));

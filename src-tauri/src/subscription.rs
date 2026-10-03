@@ -19,6 +19,11 @@ pub struct HwidHeaders {
     pub device_os: Option<String>,
     pub ver_os: Option<String>,
     pub device_model: Option<String>,
+    /// true — подписка получает собственный HWID провайдера, выведенный из
+    /// `hwid` и хоста подписки (hwid::scoped_hwid), а не общий идентификатор.
+    /// Хост берётся из адреса, который проверил бэкенд, а не из фронтенда.
+    #[serde(default)]
+    pub scoped: bool,
 }
 
 /// Remnawave (панель v3+) проверяет HWID регуляркой `^[a-zA-Z0-9=-]{10,64}$` и
@@ -48,14 +53,26 @@ fn sanitize_device_field(value: Option<&String>) -> Option<String> {
     }
 }
 
+fn hwid_header_value(headers: &HwidHeaders, origin_host: &str) -> Option<String> {
+    if !hwid_is_valid(&headers.hwid) {
+        return None;
+    }
+    Some(if headers.scoped {
+        crate::hwid::scoped_hwid(&headers.hwid, origin_host)
+    } else {
+        headers.hwid.clone()
+    })
+}
+
 fn apply_hwid_headers(
     request: reqwest::RequestBuilder,
     headers: &HwidHeaders,
+    origin_host: &str,
 ) -> reqwest::RequestBuilder {
-    if !hwid_is_valid(&headers.hwid) {
+    let Some(hwid) = hwid_header_value(headers, origin_host) else {
         return request;
-    }
-    let mut request = request.header("x-hwid", headers.hwid.as_str());
+    };
+    let mut request = request.header("x-hwid", hwid);
     if let Some(value) = sanitize_device_field(headers.device_os.as_ref()) {
         request = request.header("x-device-os", value);
     }
@@ -424,6 +441,20 @@ fn error_causes(error: &reqwest::Error) -> String {
     text
 }
 
+/// HWID, который получит подписка. Окно подписки показывает его, чтобы
+/// пользователь мог назвать провайдеру ровно то значение, что видит панель.
+#[tauri::command]
+pub fn subscription_hwid(url: String, hwid: String, scoped: bool) -> Result<String, String> {
+    let url = parse_subscription_url(&url)?;
+    let headers = HwidHeaders {
+        hwid,
+        scoped,
+        ..HwidHeaders::default()
+    };
+    hwid_header_value(&headers, url.host_str().unwrap_or_default())
+        .ok_or_else(|| "идентификатор устройства недействителен".to_string())
+}
+
 #[tauri::command]
 pub async fn fetch_subscription(
     url: String,
@@ -459,7 +490,7 @@ pub async fn fetch_subscription(
         let client = make_client(proxy, target.as_ref(), &jar)?;
         let mut request = client.get(current.clone()).header("Accept", "*/*");
         if let Some(headers) = hwid.as_ref().filter(|_| same_host(&origin, &current)) {
-            request = apply_hwid_headers(request, headers);
+            request = apply_hwid_headers(request, headers, origin.host_str().unwrap_or_default());
         }
         let response = request
             .send()
@@ -669,6 +700,22 @@ mod tests {
         // Имя не резолвим вовсе — это и есть смысл режима.
         let host = reqwest::Url::parse("https://panel.example/sub").unwrap();
         assert!(reject_forbidden_literal(&host).is_ok());
+    }
+
+    // Подписка новой схемы получает свой HWID провайдера, а не общий: два
+    // провайдера не сопоставят устройство. Подписки прежней схемы — как раньше,
+    // иначе панель посчитала бы Ninety новым устройством.
+    #[test]
+    fn scoped_hwid_is_derived_from_the_checked_subscription_host() {
+        let base = "0123456789abcdef0123456789abcdef".to_string();
+        let shown = subscription_hwid("https://Panel.Example/sub/token".into(), base.clone(), true)
+            .unwrap();
+        assert_eq!(shown, crate::hwid::scoped_hwid(&base, "panel.example"));
+        assert_ne!(shown, base);
+        let legacy = subscription_hwid("https://panel.example/sub".into(), base.clone(), false);
+        assert_eq!(legacy.unwrap(), base);
+        assert!(subscription_hwid("https://panel.example/sub".into(), "bad".into(), true).is_err());
+        assert!(subscription_hwid("file:///etc/hosts".into(), base, true).is_err());
     }
 
     #[test]

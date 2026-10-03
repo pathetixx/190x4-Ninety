@@ -165,3 +165,41 @@ test("панель, требующая HWID, объясняет пустой о�
     },
   );
 });
+
+// Новая подписка живёт по схеме HWID провайдера: Rust выводит значение из
+// общего идентификатора и хоста подписки. Прежние подписки (без hwidScope)
+// шлют общий идентификатор как раньше — иначе панель заняла бы новый слот.
+test("новая подписка получает HWID провайдера, прежняя — общий", async () => {
+  const { addSubscriptionFromUrl, loadSubscriptions } = await import("/lib/subscriptions.js");
+  const { subscriptionHwid, subscriptionUsesScopedHwid } = await import("/lib/hwid.js");
+  const seen = [];
+  invokeHandler = async (cmd, args) => {
+    if (cmd === "device_identity") {
+      return { hwid: MACHINE_HWID, deviceOs: "Windows", verOs: "10.0.26100" };
+    }
+    if (cmd === "subscription_hwid") return `${args.scoped ? "scoped" : "plain"}:${args.hwid}`;
+    assert.equal(cmd, "fetch_subscription");
+    seen.push(args);
+    return { status: 200, body: "vless://uuid@node.example:443?security=tls#Amsterdam" };
+  };
+
+  saveSubscriptions([
+    { id: "legacy", url: "https://old-panel.example/sub", hwid: true, profiles: [] },
+  ]);
+  await refreshSubscription("legacy");
+  assert.equal(seen.at(-1).hwid.scoped, false);
+
+  const added = await addSubscriptionFromUrl("https://new-panel.example/sub", "", null, { hwid: true });
+  assert.equal(seen.at(-1).hwid.scoped, true);
+  assert.equal(added.hwidScope, "provider");
+  const stored = loadSubscriptions().find((sub) => sub.id === added.id);
+  assert.ok(subscriptionUsesScopedHwid(stored));
+
+  await refreshSubscription(added.id);
+  assert.equal(seen.at(-1).hwid.scoped, true, "схема сохраняется между обновлениями");
+
+  const legacy = loadSubscriptions().find((sub) => sub.id === "legacy");
+  assert.equal(subscriptionUsesScopedHwid(legacy), false);
+  assert.match(await subscriptionHwid(stored), /^scoped:/);
+  assert.match(await subscriptionHwid(legacy), /^plain:/);
+});

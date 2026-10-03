@@ -11,6 +11,7 @@ use blake2::{Blake2s256, Digest};
 use serde::Serialize;
 
 const HWID_DOMAIN: &[u8] = b"ninety-hwid-v1:";
+const SCOPED_HWID_DOMAIN: &[u8] = b"ninety-hwid-scope-v1:";
 // Remnawave валидирует HWID как `^[a-zA-Z0-9=-]{10,64}$`, поэтому производная
 // кодируется hex'ом (укладывается в разрешённый алфавит) и обрезается до 32
 // символов: этого хватает для уникальности и не упирается в верхнюю границу.
@@ -48,6 +49,20 @@ fn derive_hwid(seed: &str) -> String {
     hasher.update(seed.as_bytes());
     let digest = hasher.finalize();
     hex_prefix(&digest, HWID_CHARS)
+}
+
+/// HWID для одного провайдера подписок. Общий идентификатор, одинаковый для
+/// всех панелей, позволял двум провайдерам сопоставить, что это одно и то же
+/// устройство. Здесь каждая панель (по хосту подписки) получает своё значение;
+/// пересчитать одно в другое без базового идентификатора нельзя, а сам он
+/// уходит как есть только подпискам, добавленным до появления этой схемы.
+pub(crate) fn scoped_hwid(base: &str, host: &str) -> String {
+    let mut hasher = Blake2s256::new();
+    hasher.update(SCOPED_HWID_DOMAIN);
+    hasher.update(base.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(host.to_ascii_lowercase().as_bytes());
+    hex_prefix(&hasher.finalize(), HWID_CHARS)
 }
 
 #[cfg(target_os = "windows")]
@@ -138,6 +153,21 @@ mod tests {
         assert_ne!(derived, guid);
         assert!(!derived.contains("6b9e0f3a"));
         assert_ne!(derived, derive_hwid("6b9e0f3a-1c2d-4e5f-8a9b-0c1d2e3f4a5c"));
+    }
+
+    #[test]
+    fn scoped_hwid_differs_per_provider_and_hides_the_base() {
+        let base = "0123456789abcdef0123456789abcdef";
+        let first = scoped_hwid(base, "panel.example");
+        assert_eq!(first, scoped_hwid(base, "PANEL.example"));
+        assert_eq!(first.len(), HWID_CHARS);
+        assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(first, base);
+        assert_ne!(first, scoped_hwid(base, "other.example"));
+        assert_ne!(
+            first,
+            scoped_hwid("fedcba9876543210fedcba9876543210", "panel.example")
+        );
     }
 
     #[test]

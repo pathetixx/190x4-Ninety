@@ -715,6 +715,7 @@ export const zh = {
     interval: "更新间隔",
     hwid: "发送 HWID",
     hwidHint: "限制设备数量的面板需要它：没有标识就不会返回服务器列表。",
+    hwidValue: "此订阅使用的标识",
   },
 
   hwid: {
@@ -1155,7 +1156,7 @@ export const zh = {
       subPrivacyTitle: "允许直连更新订阅",
       subPrivacyHint: "如果通过隧道更新失败，Ninety 可以直接重试。保持关闭更安全：订阅地址和真实 IP 不会外泄。",
       hwidTitle: "设备标识",
-      hwidHint: "仅发送给已开启 HWID 的订阅。它保持不变，面板每次更新看到的都是同一台设备。",
+      hwidHint: "每个开启 HWID 的订阅提供方都会收到由它派生的不同值，因此各提供方无法相互比对出同一台设备。在 Ninety 早期版本中添加的订阅仍会收到它本身。具体值见该订阅的设置。",
       hwidCopy: "复制",
       hwidCopied: "已复制标识",
       hwidCopyErr: "失败：{err}",

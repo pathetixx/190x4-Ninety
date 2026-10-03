@@ -723,6 +723,7 @@ export const de = {
     interval: "Update-Intervall",
     hwid: "HWID senden",
     hwidHint: "Panels mit Gerätelimit brauchen sie — ohne Kennung geben sie die Serverliste nicht heraus.",
+    hwidValue: "Kennung für dieses Abo",
   },
 
   hwid: {
@@ -1163,7 +1164,7 @@ export const de = {
       subPrivacyTitle: "Direkte Abo-Aktualisierung erlauben",
       subPrivacyHint: "Scheitert die Aktualisierung über den Tunnel, darf Ninety es direkt erneut versuchen. Ausgeschaltet ist sicherer: Abo-URL und echte IP verlassen das Gerät nicht.",
       hwidTitle: "Gerätekennung",
-      hwidHint: "Wird nur an Abos gesendet, für die HWID aktiviert ist. Sie bleibt gleich, das Panel sieht bei jeder Aktualisierung dasselbe Gerät.",
+      hwidHint: "Jeder Abo-Anbieter mit aktiviertem HWID erhält einen eigenen, daraus abgeleiteten Wert – so lässt sich das Gerät nicht anbieterübergreifend zuordnen. Abos aus früheren Ninety-Versionen erhalten sie unverändert. Den genauen Wert findest du in den Einstellungen des Abos.",
       hwidCopy: "Kopieren",
       hwidCopied: "Kennung kopiert",
       hwidCopyErr: "Fehlgeschlagen: {err}",

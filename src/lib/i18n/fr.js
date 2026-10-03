@@ -731,6 +731,7 @@ export const fr = {
     interval: "Intervalle de mise à jour",
     hwid: "Envoyer le HWID",
     hwidHint: "Les panneaux qui limitent le nombre d'appareils en ont besoin : sans identifiant, ils ne renvoient pas la liste des serveurs.",
+    hwidValue: "Identifiant pour cet abonnement",
   },
 
   hwid: {
@@ -1171,7 +1172,7 @@ export const fr = {
       subPrivacyTitle: "Autoriser l'actualisation directe des abonnements",
       subPrivacyHint: "Si l'actualisation via le tunnel échoue, Ninety pourra réessayer directement. Laisser désactivé est plus sûr : l'URL de l'abonnement et l'IP réelle ne sortent pas.",
       hwidTitle: "Identifiant de l'appareil",
-      hwidHint: "Envoyé uniquement aux abonnements pour lesquels le HWID est activé. Il ne change pas : le panneau voit le même appareil à chaque mise à jour.",
+      hwidHint: "Chaque fournisseur d’abonnement avec HWID activé reçoit sa propre valeur dérivée de celui-ci : l’appareil ne peut pas être recoupé d’un fournisseur à l’autre. Les abonnements ajoutés dans les versions précédentes de Ninety le reçoivent tel quel. La valeur exacte figure dans les réglages de l’abonnement.",
       hwidCopy: "Copier",
       hwidCopied: "Identifiant copié",
       hwidCopyErr: "Échec : {err}",

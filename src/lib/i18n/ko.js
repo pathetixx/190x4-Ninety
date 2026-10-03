@@ -715,6 +715,7 @@ export const ko = {
     interval: "업데이트 간격",
     hwid: "HWID 전송",
     hwidHint: "기기 수를 제한하는 패널에 필요합니다. 식별자가 없으면 서버 목록을 주지 않습니다.",
+    hwidValue: "이 구독용 식별자",
   },
 
   hwid: {
@@ -1155,7 +1156,7 @@ export const ko = {
       subPrivacyTitle: "구독 직접 갱신 허용",
       subPrivacyHint: "터널을 통한 갱신이 실패하면 Ninety가 직접 다시 시도할 수 있습니다. 꺼 두는 편이 안전합니다: 구독 주소와 실제 IP가 밖으로 나가지 않습니다.",
       hwidTitle: "기기 식별자",
-      hwidHint: "HWID를 켠 구독에만 전송됩니다. 값이 바뀌지 않으므로 패널은 갱신할 때마다 같은 기기로 인식합니다.",
+      hwidHint: "HWID를 켠 구독의 제공자마다 이 값에서 만든 서로 다른 값을 받으므로, 제공자끼리 기기를 대조할 수 없습니다. 이전 버전의 Ninety에서 추가한 구독은 이 값을 그대로 받습니다. 정확한 값은 구독 설정에서 볼 수 있습니다.",
       hwidCopy: "복사",
       hwidCopied: "식별자를 복사했습니다",
       hwidCopyErr: "실패: {err}",

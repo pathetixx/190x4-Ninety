@@ -739,6 +739,7 @@ export const pl = {
     interval: "Interwał aktualizacji",
     hwid: "Wysyłaj HWID",
     hwidHint: "Potrzebują go panele z limitem urządzeń: bez identyfikatora nie zwracają listy serwerów.",
+    hwidValue: "Identyfikator dla tej subskrypcji",
   },
 
   hwid: {
@@ -1179,7 +1180,7 @@ export const pl = {
       subPrivacyTitle: "Zezwól na bezpośrednie odświeżanie subskrypcji",
       subPrivacyHint: "Jeśli odświeżenie przez tunel się nie uda, Ninety może spróbować bezpośrednio. Wyłączone jest bezpieczniejsze: adres subskrypcji i prawdziwe IP nie wychodzą na zewnątrz.",
       hwidTitle: "Identyfikator urządzenia",
-      hwidHint: "Wysyłany tylko do subskrypcji z włączonym HWID. Jest stały, więc panel przy każdej aktualizacji widzi to samo urządzenie.",
+      hwidHint: "Każdy dostawca subskrypcji z włączonym HWID dostaje własną wartość wyprowadzoną z tego identyfikatora, więc nie da się powiązać urządzenia między dostawcami. Subskrypcje dodane we wcześniejszych wersjach Ninety dostają go bez zmian. Dokładna wartość jest w ustawieniach subskrypcji.",
       hwidCopy: "Kopiuj",
       hwidCopied: "Skopiowano identyfikator",
       hwidCopyErr: "Nie udało się: {err}",

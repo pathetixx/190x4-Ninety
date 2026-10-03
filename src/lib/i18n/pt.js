@@ -731,6 +731,7 @@ export const pt = {
     interval: "Intervalo de atualização",
     hwid: "Enviar HWID",
     hwidHint: "Painéis com limite de dispositivos precisam dele: sem identificador não devolvem a lista de servidores.",
+    hwidValue: "Identificador desta assinatura",
   },
 
   hwid: {
@@ -1171,7 +1172,7 @@ export const pt = {
       subPrivacyTitle: "Permitir atualização direta das subscrições",
       subPrivacyHint: "Se a atualização pelo túnel falhar, o Ninety pode tentar diretamente. Manter desligado é mais seguro: o URL da subscrição e o IP real não saem.",
       hwidTitle: "Identificador do dispositivo",
-      hwidHint: "Enviado apenas às assinaturas com HWID ativado. Ele não muda: o painel vê o mesmo dispositivo em cada atualização.",
+      hwidHint: "Cada fornecedor de assinatura com HWID ativado recebe o seu próprio valor, derivado deste, por isso o dispositivo não pode ser associado entre fornecedores. As assinaturas adicionadas em versões anteriores do Ninety recebem-no sem alterações. O valor exato está nas definições da assinatura.",
       hwidCopy: "Copiar",
       hwidCopied: "Identificador copiado",
       hwidCopyErr: "Falhou: {err}",

@@ -723,6 +723,7 @@ export const en = {
     interval: "Update interval",
     hwid: "Send HWID",
     hwidHint: "Panels that limit the number of devices need it — without an identifier they do not return the server list.",
+    hwidValue: "Identifier for this subscription",
   },
 
   hwid: {
@@ -1163,7 +1164,7 @@ export const en = {
       subPrivacyTitle: "Allow direct subscription refresh",
       subPrivacyHint: "If refresh through the tunnel fails, Ninety may retry directly. Keeping this off is safer: the subscription URL and real IP are not exposed.",
       hwidTitle: "Device identifier",
-      hwidHint: "Sent only to subscriptions where HWID is enabled. It stays the same, so the panel sees one device on every update.",
+      hwidHint: "Each subscription provider with HWID enabled receives its own value derived from this one, so the device cannot be matched across providers. Subscriptions added in earlier Ninety versions receive it unchanged. The exact value is in the subscription’s settings.",
       hwidCopy: "Copy",
       hwidCopied: "Identifier copied",
       hwidCopyErr: "Failed: {err}",

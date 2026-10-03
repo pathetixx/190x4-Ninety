@@ -1366,6 +1366,7 @@ pub fn run() {
             vpn::singbox_log_path,
             vpn::open_log_dir,
             subscription::fetch_subscription,
+            subscription::subscription_hwid,
             hwid::device_identity,
             feedback::send_feedback,
             clash::clash_get_proxies,

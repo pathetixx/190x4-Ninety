@@ -723,6 +723,7 @@ export const tr = {
     interval: "Güncelleme aralığı",
     hwid: "HWID gönder",
     hwidHint: "Cihaz sayısını sınırlayan paneller bunu ister: kimlik olmadan sunucu listesini vermezler.",
+    hwidValue: "Bu abonelik için kimlik",
   },
 
   hwid: {
@@ -1163,7 +1164,7 @@ export const tr = {
       subPrivacyTitle: "Aboneliklerin doğrudan yenilenmesine izin ver",
       subPrivacyHint: "Tünel üzerinden yenileme başarısız olursa Ninety doğrudan yeniden deneyebilir. Kapalı tutmak daha güvenli: abonelik adresi ve gerçek IP dışarı çıkmaz.",
       hwidTitle: "Cihaz kimliği",
-      hwidHint: "Yalnızca HWID açık olan aboneliklere gönderilir. Değişmez, bu yüzden panel her güncellemede aynı cihazı görür.",
+      hwidHint: "HWID açık her abonelik sağlayıcısı bundan türetilmiş kendi değerini alır; böylece cihaz sağlayıcılar arasında eşleştirilemez. Ninety'nin önceki sürümlerinde eklenen abonelikler onu değiştirilmeden alır. Tam değer aboneliğin ayarlarındadır.",
       hwidCopy: "Kopyala",
       hwidCopied: "Kimlik kopyalandı",
       hwidCopyErr: "Başarısız: {err}",

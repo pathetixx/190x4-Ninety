@@ -2,6 +2,7 @@
 // Используется и для подписок (полная форма), и для одиночных профилей (только rename).
 
 import { updateSubscription } from "/lib/subscriptions.js";
+import { subscriptionHwid } from "/lib/hwid.js";
 import { updateProfile } from "/lib/singbox.js";
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { t } from "/lib/i18n/index.js";
@@ -118,6 +119,11 @@ export function openEditSubscription(sub, { onSaved, onToast } = {}) {
             aria-checked="${hwid ? "true" : "false"}"></span>
     </div>
     <div class="edit-modal__hint">${t("edit.hwidHint")}</div>
+    <div class="edit-modal__row edit-modal__hwid">
+      <span class="edit-modal__label">${escapeHtml(t("edit.hwidValue"))}</span>
+      <code class="settings-hwid" data-sub-hwid>…</code>
+      <button class="btn btn--sm" type="button" data-action="sub-hwid-copy">${escapeHtml(t("settings.general.hwidCopy"))}</button>
+    </div>
     <div class="edit-modal__hint">${escapeHtml(sub.url || "")}</div>
   `;
   const root = build({
@@ -144,6 +150,21 @@ export function openEditSubscription(sub, { onSaved, onToast } = {}) {
       // перезагрузки подписки, иначе на экране остаётся ответ старого запроса.
       onSaved?.({ hwidChanged: nextHwid !== hwid });
     },
+  });
+  // У каждого провайдера свой HWID (см. hwid.js): показываем ровно то
+  // значение, что получит панель этой подписки, — его и называют провайдеру.
+  const hwidRow = root.querySelector(".edit-modal__hwid");
+  const hwidValue = subscriptionHwid(sub);
+  hwidValue
+    .then((value) => { hwidRow.querySelector("[data-sub-hwid]").textContent = value; })
+    .catch(() => hwidRow.remove());
+  hwidRow.querySelector("[data-action='sub-hwid-copy']").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(await hwidValue);
+      onToast?.(t("settings.general.hwidCopied"), "success", 1600);
+    } catch (error) {
+      onToast?.(t("settings.general.hwidCopyErr", { err: error?.message || error }), "error", 2800);
+    }
   });
   const slider = root.querySelector("#edit-interval");
   const valEl = root.querySelector("#edit-interval-val");
