@@ -76,6 +76,9 @@ pub async fn snapshot_network_tcp() -> Result<Vec<OsTcpConnection>, String> {
 }
 
 #[cfg(windows)]
+pub(crate) use windows_impl::{process_path as process_image_path, running_pids};
+
+#[cfg(windows)]
 mod windows_impl {
     use super::{NetProcess, OsTcpConnection};
     use std::collections::BTreeMap;
@@ -524,7 +527,29 @@ mod windows_impl {
         }
     }
 
-    fn process_path(pid: u32) -> Option<String> {
+    /// PID всех процессов системы. EnumProcesses не сообщает, сколько их на
+    /// самом деле: заполненный до конца буфер — единственный признак, что PID не
+    /// поместились, и тогда буфер растёт.
+    pub(crate) fn running_pids() -> Vec<u32> {
+        use windows::Win32::System::ProcessStatus::EnumProcesses;
+        const PID_BYTES: usize = std::mem::size_of::<u32>();
+        let mut capacity = 1024usize;
+        loop {
+            let mut pids = vec![0u32; capacity];
+            let bytes = (pids.len() * PID_BYTES) as u32;
+            let mut needed = 0u32;
+            if unsafe { EnumProcesses(pids.as_mut_ptr(), bytes, &mut needed) }.is_err() {
+                return Vec::new();
+            }
+            if needed < bytes || capacity >= 65_536 {
+                pids.truncate(needed as usize / PID_BYTES);
+                return pids;
+            }
+            capacity *= 2;
+        }
+    }
+
+    pub(crate) fn process_path(pid: u32) -> Option<String> {
         unsafe {
             let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
             let mut capacity = 260usize;

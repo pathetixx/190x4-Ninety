@@ -1070,17 +1070,6 @@ fn system32(exe: &str) -> String {
         .to_string_lossy()
         .into_owned()
 }
-// powershell.exe лежит в отдельном подкаталоге System32 (не в самом System32).
-#[cfg(target_os = "windows")]
-fn powershell_exe() -> String {
-    crate::util::system_directory()
-        .join("WindowsPowerShell")
-        .join("v1.0")
-        .join("powershell.exe")
-        .to_string_lossy()
-        .into_owned()
-}
-
 // Лежит ли путь ВНУТРИ каталога, а не просто начинается с той же строки.
 //
 // Голое `starts_with` по строке границу каталога не проверяет: для корня
@@ -1105,41 +1094,33 @@ fn path_is_inside(path: &str, root: &str) -> bool {
 // ВТОРОЙ процесс со своим DpiState; дедуп видит только свой child). Без этого два
 // winws дерутся за один kernel-драйвер WinDivert и движок падает «драйвер занят».
 //
-// Фильтруем по ExecutablePath: убиваем ТОЛЬКО winws внутри нашего res_dpi. Прежний
+// Фильтруем по пути образа: убиваем ТОЛЬКО winws внутри нашего res_dpi. Прежний
 // `taskkill /IM winws.exe` глушил ВСЕ процессы с этим именем — включая отдельный
 // zapret/аналог, запущенный юзером независимо от Ninety.
 #[cfg(target_os = "windows")]
 fn kill_stray_winws(dpi_root: &Path) -> bool {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    // PID|путь каждого winws.exe. CIM отдаёт обычный путь (без verbatim \\?\).
-    let ps = "Get-CimInstance Win32_Process -Filter \"Name='winws.exe'\" | \
-              ForEach-Object { \"$($_.ProcessId)|$($_.ExecutablePath)\" }";
-    let Ok(out) = std::process::Command::new(powershell_exe())
-        .args(["-NoProfile", "-NonInteractive", "-Command", ps])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-    else {
-        return false;
-    };
+    // Процессы перечисляем напрямую: EnumProcesses + путь образа. Прежний
+    // PowerShell с CIM-запросом стартовал по секунде-две на каждый запуск
+    // обхода, а при подвисшем WMI ждал без всякого таймаута.
     // res_dpi может прийти в verbatim-форме — срезаем для префиксного сравнения.
     let root = strip_verbatim(&dpi_root.to_string_lossy()).to_lowercase();
-    let text = String::from_utf8_lossy(&out.stdout);
     let mut killed = false;
-    for line in text.lines() {
-        let Some((pid, path)) = line.trim().split_once('|') else {
+    for pid in crate::netproc::running_pids() {
+        let Some(path) = crate::netproc::process_image_path(pid) else {
             continue;
         };
-        let (pid, path) = (pid.trim(), path.trim());
-        if pid.is_empty() || path.is_empty() {
-            continue;
-        }
+        let path = path.to_lowercase();
+        let is_winws = Path::new(&path)
+            .file_name()
+            .is_some_and(|name| name == "winws.exe");
         // Не наш каталог движка → чужой winws, не трогаем.
-        if !path_is_inside(&path.to_lowercase(), &root) {
+        if !is_winws || !path_is_inside(&path, &root) {
             continue;
         }
         let ok = std::process::Command::new(system32("taskkill.exe"))
-            .args(["/F", "/PID", pid])
+            .args(["/F", "/PID", &pid.to_string()])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map(|o| o.status.success())
@@ -1486,7 +1467,11 @@ pub async fn dpi_start(
     // Ninety — по пути в нашем res_dpi) перед запуском своего, иначе два winws
     // дерутся за драйвер WinDivert. Если кого-то убили, даём драйверу отцепиться
     // от мёртвого хэндла до нашего старта.
-    if kill_stray_winws(&res_dpi(&app)?) {
+    let dpi_root = res_dpi(&app)?;
+    let killed_stray = tauri::async_runtime::spawn_blocking(move || kill_stray_winws(&dpi_root))
+        .await
+        .unwrap_or(false);
+    if killed_stray {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 
