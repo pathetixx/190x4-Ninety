@@ -1271,7 +1271,15 @@ export const fr = {
       strictTitle: "Routage strict",
       strictHint: "Ne laisse aucun trafic contourner le tunnel — protection contre les fuites vers le réseau ouvert",
       lanTitle: "Accès depuis le LAN",
-      lanHint: "⚠ Un proxy ouvert sans mot de passe sur 0.0.0.0 — n’importe quel appareil de votre réseau peut accéder à internet via votre VPN. N’activez que sur un réseau de confiance",
+      lanHint: "⚠ Les appareils de votre réseau pourront accéder à internet via votre VPN avec l’adresse de ce PC et le « Port local ». Sans mot de passe, n’importe quel appareil du réseau le peut : n’activez que sur un réseau de confiance ou définissez un mot de passe ci-dessous",
+      lanAuthTitle: "Mot de passe pour le LAN",
+      lanAuthHint: "Les appareils du réseau se connectent à un port distinct avec identifiant et mot de passe ; le « Port local » reste réservé à ce PC. Tous les appareils ne le gèrent pas : beaucoup de téléviseurs et de box ne savent pas saisir de mot de passe pour ce type de connexion",
+      lanPortTitle: "Port pour le LAN",
+      lanPortHint: "Saisissez-le sur votre téléphone ou un autre appareil avec l’adresse de ce PC",
+      lanUserTitle: "Identifiant",
+      lanUserHint: "Lettres latines, chiffres, point, tiret et tiret bas. Videz le champ et Ninety rétablit l’identifiant par défaut",
+      lanPassTitle: "Mot de passe",
+      lanPassHint: "Généré automatiquement : lettres latines, chiffres et symboles sans espaces. Videz le champ pour en obtenir un nouveau, puis mettez-le à jour sur tous les appareils",
     },
 
     tls: {

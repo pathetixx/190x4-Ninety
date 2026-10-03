@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_OPTIONS,
   OPTIONS_SCHEMA_VERSION,
+  generateLanPassword,
+  lanCredentialsValid,
   normalizeOptions,
 } from "/lib/options.js";
 
@@ -104,4 +106,71 @@ test("настройки диагностики можно сохранить: �
     updateOption("diagnose.pinned", [{ id: "x", name: "x", url: "https://x/" }]).diagnose.pinned.length,
     1,
   );
+});
+
+test("порт для локальной сети уступает mixed и clash-API", () => {
+  const out = normalizeOptions({
+    inbound: { mixedPort: 7891, lanPort: 7891 },
+    experimental: { clashApiPort: 7892 },
+  });
+  assert.equal(out.inbound.mixedPort, 7891);
+  assert.equal(out.experimental.clashApiPort, 7892);
+  assert.equal(out.inbound.lanPort, 7893);
+  assert.equal(normalizeOptions({}).inbound.lanPort, 7891);
+});
+
+// normalize вызывается на каждое чтение: придумай он пароль сам, значение
+// менялось бы до первого сохранения. Испорченную пару он только чистит.
+test("normalizeOptions чистит логин и пароль для сети, но не придумывает их", () => {
+  const out = normalizeOptions({
+    inbound: { lanAuth: true, lanUsername: "us er:ы", lanPassword: "p a\nss\u0007" },
+  });
+  assert.equal(out.inbound.lanUsername, "user");
+  assert.equal(out.inbound.lanPassword, "pass");
+  const empty = normalizeOptions({ inbound: { lanAuth: true, lanUsername: 5, lanPassword: null } });
+  assert.equal(empty.inbound.lanUsername, "5");
+  assert.equal(empty.inbound.lanPassword, "");
+  assert.equal(lanCredentialsValid(empty.inbound), false);
+});
+
+test("generateLanPassword отбрасывает байты хвоста, а не смещает алфавит", () => {
+  let call = 0;
+  const random = {
+    getRandomValues(bytes) {
+      bytes.fill(call++ === 0 ? 255 : 0);
+      return bytes;
+    },
+  };
+  assert.equal(generateLanPassword(random), "A".repeat(16));
+  assert.equal(call, 2);
+  assert.match(generateLanPassword(), /^[A-HJ-NP-Za-km-z2-9]{16}$/);
+});
+
+test("пароль для сети: включение выдаёт рабочую пару, очищенное поле — новое значение", async () => {
+  const data = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (data.has(k) ? data.get(k) : null),
+    setItem: (k, v) => data.set(k, String(v)),
+    removeItem: (k) => data.delete(k),
+  };
+  globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+  globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
+
+  const { updateOption } = await import("../src/lib/options.js?lan-auth");
+  const enabled = updateOption("inbound.lanAuth", true).inbound;
+  assert.equal(enabled.lanUsername, "ninety");
+  assert.match(enabled.lanPassword, /^[A-Za-z0-9]{16}$/);
+  assert.ok(lanCredentialsValid(enabled));
+
+  // Повторное включение не перевыпускает пароль, уже вписанный на устройствах.
+  updateOption("inbound.lanAuth", false);
+  assert.equal(updateOption("inbound.lanAuth", true).inbound.lanPassword, enabled.lanPassword);
+
+  const typed = updateOption("inbound.lanPassword", " my pass:wörd ").inbound;
+  assert.equal(typed.lanPassword, "mypass:wrd");
+  assert.equal(updateOption("inbound.lanUsername", "us:er").inbound.lanUsername, "user");
+
+  const regenerated = updateOption("inbound.lanPassword", "").inbound;
+  assert.match(regenerated.lanPassword, /^[A-Za-z0-9]{16}$/);
+  assert.equal(updateOption("inbound.lanUsername", "  ").inbound.lanUsername, "ninety");
 });

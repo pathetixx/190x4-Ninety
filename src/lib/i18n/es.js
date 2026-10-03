@@ -1271,7 +1271,15 @@ export const es = {
       strictTitle: "Enrutamiento estricto",
       strictHint: "No deja que el tráfico escape del túnel: protección frente a fugas hacia la red abierta",
       lanTitle: "Acceso desde la LAN",
-      lanHint: "⚠ Un proxy abierto y sin contraseña en 0.0.0.0 — cualquier dispositivo de tu red podrá salir a internet por tu VPN. Actívalo solo en una red de confianza",
+      lanHint: "⚠ Los dispositivos de tu red podrán salir a internet por tu VPN con la dirección de este PC y el «Puerto local». Sin contraseña puede hacerlo cualquier dispositivo de la red: actívalo solo en una red de confianza o define una contraseña abajo",
+      lanAuthTitle: "Contraseña para la LAN",
+      lanAuthHint: "Los dispositivos de la red se conectan a un puerto aparte con usuario y contraseña, y el «Puerto local» queda solo para este PC. No todos los dispositivos lo admiten: muchos televisores y decodificadores no pueden introducir una contraseña para este tipo de conexión",
+      lanPortTitle: "Puerto para la LAN",
+      lanPortHint: "Introdúcelo en el teléfono u otro dispositivo junto con la dirección de este PC",
+      lanUserTitle: "Usuario",
+      lanUserHint: "Letras latinas, cifras, punto, guion y guion bajo. Vacía el campo y Ninety restaurará el usuario predeterminado",
+      lanPassTitle: "Contraseña",
+      lanPassHint: "Se genera automáticamente: letras latinas, cifras y símbolos sin espacios. Vacía el campo para obtener una nueva y luego actualízala en todos los dispositivos",
     },
 
     tls: {

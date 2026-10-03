@@ -1263,7 +1263,15 @@ export const en = {
       strictTitle: "Strict routing",
       strictHint: "Lets no traffic slip past the tunnel — protection against leaks to the open network",
       lanTitle: "Access from the LAN",
-      lanHint: "⚠ An open, password-free proxy on 0.0.0.0 — any device on your network can reach the internet through your VPN. Enable only on a trusted network",
+      lanHint: "⚠ Devices on your network can reach the internet through your VPN using this PC’s address and the “Local port”. Without a password any device on the network can do this: enable only on a trusted network or set a password below",
+      lanAuthTitle: "LAN password",
+      lanAuthHint: "Devices on your network connect to a separate port with a login and password, and the “Local port” stays for this PC only. Not every device supports this: many TVs and set-top boxes can’t enter a password for such a connection",
+      lanPortTitle: "LAN port",
+      lanPortHint: "Enter it on your phone or other device together with this PC’s address",
+      lanUserTitle: "Login",
+      lanUserHint: "Latin letters, digits, dot, hyphen and underscore. Clear the field and Ninety restores the default login",
+      lanPassTitle: "Password",
+      lanPassHint: "Generated automatically: Latin letters, digits and symbols without spaces. Clear the field to get a new one, then update it on every device",
     },
 
     tls: {

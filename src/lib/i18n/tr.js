@@ -1263,7 +1263,15 @@ export const tr = {
       strictTitle: "Sıkı yönlendirme",
       strictHint: "Hiçbir trafiğin tüneli atlamasına izin vermez — açık ağa sızıntılara karşı koruma",
       lanTitle: "LAN'dan erişim",
-      lanHint: "⚠ 0.0.0.0 üzerinde parolasız açık bir proxy — ağınızdaki herhangi bir cihaz VPN'iniz üzerinden internete erişebilir. Yalnızca güvenilir bir ağda etkinleştirin",
+      lanHint: "⚠ Ağınızdaki cihazlar bu bilgisayarın adresi ve “Yerel bağlantı noktası” ile VPN'iniz üzerinden internete çıkabilir. Parola olmadan bunu ağdaki her cihaz yapabilir: yalnızca güvenilir bir ağda etkinleştirin veya aşağıdan parola belirleyin",
+      lanAuthTitle: "LAN parolası",
+      lanAuthHint: "Ağdaki cihazlar kullanıcı adı ve parolayla ayrı bir bağlantı noktasına bağlanır; “Yerel bağlantı noktası” yalnızca bu bilgisayara kalır. Her cihaz bunu desteklemez: birçok TV ve medya kutusu bu tür bir bağlantı için parola giremez",
+      lanPortTitle: "LAN bağlantı noktası",
+      lanPortHint: "Telefonda veya başka bir cihazda bu bilgisayarın adresiyle birlikte girin",
+      lanUserTitle: "Kullanıcı adı",
+      lanUserHint: "Latin harfler, rakamlar, nokta, kısa çizgi ve alt çizgi. Alanı temizlerseniz Ninety varsayılan kullanıcı adını geri yükler",
+      lanPassTitle: "Parola",
+      lanPassHint: "Otomatik oluşturulur: boşluksuz Latin harfler, rakamlar ve simgeler. Yenisini almak için alanı temizleyin, ardından tüm cihazlarda güncelleyin",
     },
 
     tls: {

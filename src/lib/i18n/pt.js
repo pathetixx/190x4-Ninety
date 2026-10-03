@@ -1271,7 +1271,15 @@ export const pt = {
       strictTitle: "Encaminhamento estrito",
       strictHint: "Não deixa tráfego escapar do túnel — proteção contra fugas para a rede aberta",
       lanTitle: "Acesso a partir da LAN",
-      lanHint: "⚠ Um proxy aberto sem palavra-passe em 0.0.0.0 — qualquer dispositivo da sua rede pode aceder à internet pela sua VPN. Ative apenas numa rede de confiança",
+      lanHint: "⚠ Os dispositivos da sua rede poderão aceder à internet pela sua VPN com o endereço deste PC e a «Porta local». Sem palavra-passe, qualquer dispositivo da rede o pode fazer: ative apenas numa rede de confiança ou defina uma palavra-passe abaixo",
+      lanAuthTitle: "Palavra-passe para a LAN",
+      lanAuthHint: "Os dispositivos da rede ligam-se a uma porta separada com nome de utilizador e palavra-passe, e a «Porta local» fica só para este PC. Nem todos os dispositivos o suportam: muitas TV e boxes não conseguem introduzir uma palavra-passe para este tipo de ligação",
+      lanPortTitle: "Porta para a LAN",
+      lanPortHint: "Introduza-a no telemóvel ou noutro dispositivo juntamente com o endereço deste PC",
+      lanUserTitle: "Nome de utilizador",
+      lanUserHint: "Letras latinas, algarismos, ponto, hífen e sublinhado. Limpe o campo e o Ninety repõe o nome de utilizador predefinido",
+      lanPassTitle: "Palavra-passe",
+      lanPassHint: "Gerada automaticamente: letras latinas, algarismos e símbolos sem espaços. Limpe o campo para obter uma nova e depois atualize-a em todos os dispositivos",
     },
 
     tls: {

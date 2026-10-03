@@ -1271,7 +1271,15 @@ export const it = {
       strictTitle: "Routing rigoroso",
       strictHint: "Non lascia passare traffico fuori dal tunnel: protezione dalle fughe verso la rete aperta",
       lanTitle: "Accesso dalla LAN",
-      lanHint: "⚠ Un proxy aperto senza password su 0.0.0.0 — qualsiasi dispositivo della tua rete può accedere a internet tramite la tua VPN. Attiva solo su una rete attendibile",
+      lanHint: "⚠ I dispositivi della tua rete potranno accedere a internet tramite la tua VPN con l’indirizzo di questo PC e la «Porta locale». Senza password può farlo qualsiasi dispositivo della rete: attiva solo su una rete attendibile o imposta una password qui sotto",
+      lanAuthTitle: "Password per la LAN",
+      lanAuthHint: "I dispositivi della rete si collegano a una porta separata con nome utente e password, mentre la «Porta locale» resta solo per questo PC. Non tutti i dispositivi lo supportano: molti TV e decoder non sanno inserire una password per questo tipo di connessione",
+      lanPortTitle: "Porta per la LAN",
+      lanPortHint: "Inseriscila sul telefono o su un altro dispositivo insieme all’indirizzo di questo PC",
+      lanUserTitle: "Nome utente",
+      lanUserHint: "Lettere latine, cifre, punto, trattino e trattino basso. Svuota il campo e Ninety ripristina il nome utente predefinito",
+      lanPassTitle: "Password",
+      lanPassHint: "Generata automaticamente: lettere latine, cifre e simboli senza spazi. Svuota il campo per averne una nuova, poi aggiornala su tutti i dispositivi",
     },
 
     tls: {

@@ -70,6 +70,7 @@ const LOG_LABELS = {
 const NUMERIC_LIMITS = {
   "urlTest.intervalSec": { min: 30, max: 3600, fallback: 600 },
   "inbound.mixedPort": { min: 1024, max: 65535, fallback: 7890 },
+  "inbound.lanPort": { min: 1024, max: 65535, fallback: 7891 },
   "inbound.mtu": { min: 576, max: 9000, fallback: 9000 },
   "quality.idleProbeSec": { min: 60, max: 900, fallback: 300 },
   "warp.mtu": { min: 576, max: 1500, fallback: 1280 },
@@ -1248,8 +1249,23 @@ function renderInbound(o) {
       ${row(iconMtu(), t("settings.inbound.mtuTitle"), t("settings.inbound.mtuHint"), inputText("inbound.mtu", o.inbound.mtu, "number", 'min="576" max="9000"'))}
       ${row(iconStack(), t("settings.inbound.stackTitle"), t("settings.inbound.stackHint"), select("inbound.tunStack", o.inbound.tunStack, TUN_STACKS, tunStackLabels()))}
       ${row(iconLock(), t("settings.inbound.strictTitle"), t("settings.inbound.strictHint"), toggle("inbound.strictRoute", o.inbound.strictRoute))}
-      ${row(iconBroadcast(), t("settings.inbound.lanTitle"), t("settings.inbound.lanHint"), toggle("inbound.allowConnectionFromLan", o.inbound.allowConnectionFromLan))}
+      ${row(iconBroadcast(), t("settings.inbound.lanTitle"), t("settings.inbound.lanHint"), toggle("inbound.allowConnectionFromLan", o.inbound.allowConnectionFromLan, { affectsView: true }))}
+      ${o.inbound.allowConnectionFromLan ? renderLanAuth(o.inbound) : ""}
     </div>
+  `;
+}
+
+// Пароль для соседей по сети. Поля видны текстом: их переписывают на телефон
+// или в ТВ. Очищенное поле Ninety заполняет новым значением (см. options.js).
+function renderLanAuth(inbound) {
+  const credentialAttrs = 'maxlength="64" spellcheck="false" autocomplete="off" autocapitalize="off"';
+  return `
+      ${row(iconLock(), t("settings.inbound.lanAuthTitle"), t("settings.inbound.lanAuthHint"), toggle("inbound.lanAuth", inbound.lanAuth, { affectsView: true }))}
+      ${inbound.lanAuth ? `
+        ${row(iconPort(), t("settings.inbound.lanPortTitle"), t("settings.inbound.lanPortHint"), inputText("inbound.lanPort", inbound.lanPort, "number", 'min="1024" max="65535"'))}
+        ${row(iconLock(), t("settings.inbound.lanUserTitle"), t("settings.inbound.lanUserHint"), inputText("inbound.lanUsername", inbound.lanUsername, "text", credentialAttrs))}
+        ${row(iconLock(), t("settings.inbound.lanPassTitle"), t("settings.inbound.lanPassHint"), inputText("inbound.lanPassword", inbound.lanPassword, "text", credentialAttrs))}
+      ` : ""}
   `;
 }
 

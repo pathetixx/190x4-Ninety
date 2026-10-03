@@ -1279,7 +1279,15 @@ export const pl = {
       strictTitle: "Ścisły routing",
       strictHint: "Nie przepuszcza ruchu poza tunelem — ochrona przed wyciekami do otwartej sieci",
       lanTitle: "Dostęp z sieci LAN",
-      lanHint: "⚠ Otwarte proxy bez hasła na 0.0.0.0 — każde urządzenie w Twojej sieci może uzyskać dostęp do internetu przez Twój VPN. Włączaj tylko w zaufanej sieci",
+      lanHint: "⚠ Urządzenia w Twojej sieci będą mogły łączyć się z internetem przez Twój VPN, używając adresu tego komputera i „Portu lokalnego”. Bez hasła może to zrobić każde urządzenie w sieci: włączaj tylko w zaufanej sieci albo ustaw hasło poniżej",
+      lanAuthTitle: "Hasło dla sieci LAN",
+      lanAuthHint: "Urządzenia w sieci łączą się z osobnym portem z loginem i hasłem, a „Port lokalny” zostaje tylko dla tego komputera. Nie każde urządzenie to obsługuje: wiele telewizorów i przystawek nie potrafi podać hasła dla takiego połączenia",
+      lanPortTitle: "Port dla sieci LAN",
+      lanPortHint: "Podaj go w telefonie lub innym urządzeniu razem z adresem tego komputera",
+      lanUserTitle: "Login",
+      lanUserHint: "Litery łacińskie, cyfry, kropka, myślnik i podkreślenie. Wyczyść pole, a Ninety przywróci domyślny login",
+      lanPassTitle: "Hasło",
+      lanPassHint: "Tworzone automatycznie: litery łacińskie, cyfry i znaki bez spacji. Wyczyść pole, aby dostać nowe, a potem zmień je na wszystkich urządzeniach",
     },
 
     tls: {

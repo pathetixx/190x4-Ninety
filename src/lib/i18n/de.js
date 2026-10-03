@@ -1263,7 +1263,15 @@ export const de = {
       strictTitle: "Striktes Routing",
       strictHint: "Lässt keinen Verkehr am Tunnel vorbei — Schutz vor Lecks ins offene Netz",
       lanTitle: "Zugriff aus dem LAN",
-      lanHint: "⚠ Ein offener, passwortloser Proxy auf 0.0.0.0 — jedes Gerät in deinem Netzwerk kann über dein VPN ins Internet. Nur in einem vertrauenswürdigen Netzwerk aktivieren",
+      lanHint: "⚠ Geräte in deinem Netzwerk können über dein VPN ins Internet – mit der Adresse dieses PCs und dem „Lokalen Port“. Ohne Passwort kann das jedes Gerät im Netzwerk: nur in einem vertrauenswürdigen Netzwerk aktivieren oder unten ein Passwort festlegen",
+      lanAuthTitle: "Passwort für das LAN",
+      lanAuthHint: "Geräte im Netzwerk verbinden sich mit einem eigenen Port mit Login und Passwort, der „Lokale Port“ bleibt nur für diesen PC. Nicht jedes Gerät kann das: Viele Fernseher und Set-Top-Boxen können für eine solche Verbindung kein Passwort eingeben",
+      lanPortTitle: "Port für das LAN",
+      lanPortHint: "Gib ihn auf dem Handy oder einem anderen Gerät zusammen mit der Adresse dieses PCs ein",
+      lanUserTitle: "Login",
+      lanUserHint: "Lateinische Buchstaben, Ziffern, Punkt, Bindestrich und Unterstrich. Leere das Feld, dann setzt Ninety den Standard-Login wieder ein",
+      lanPassTitle: "Passwort",
+      lanPassHint: "Wird automatisch erzeugt: lateinische Buchstaben, Ziffern und Zeichen ohne Leerzeichen. Leere das Feld für ein neues – und ändere es dann auf allen Geräten",
     },
 
     tls: {

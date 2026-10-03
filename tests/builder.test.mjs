@@ -1171,13 +1171,18 @@ test("доступ из локальной сети: loopback-назначени
     options,
   });
   assert.equal(config.inbounds[0].listen, "0.0.0.0");
+  const loopback = ["127.0.0.0/8", "::1/128", "::ffff:127.0.0.0/104"];
   const guard = config.route.rules.find((rule) => rule.type === "logical");
   assert.deepEqual(guard, {
     type: "logical",
     mode: "and",
     rules: [
-      { inbound: ["mixed-in"], domain_suffix: ["localhost"], ip_cidr: ["127.0.0.0/8", "::1/128"] },
-      { source_ip_cidr: ["127.0.0.0/8", "::1/128"], invert: true },
+      {
+        inbound: ["mixed-in", "mixed-lan"],
+        domain_suffix: ["localhost"],
+        ip_cidr: [...loopback, "0.0.0.0/32", "::/128"],
+      },
+      { source_ip_cidr: loopback, invert: true },
     ],
     action: "reject",
   });
@@ -1186,6 +1191,79 @@ test("доступ из локальной сети: loopback-назначени
   const firstDirect = config.route.rules.findIndex((rule) => rule.outbound === "direct" && !rule.process_name);
   assert.ok(firstDirect === -1 || guardIndex < firstDirect);
   validateConfigReferences(config);
+});
+
+// Домен соседа direct-выход резолвит сам, и «x.example.ru → 127.0.0.1» проходил
+// мимо проверки адреса. Перед каждым direct-правилом стоит резолв (только для
+// соседей) и повторная проверка уже полученного адреса.
+test("доступ из локальной сети: direct-правила сначала резолвят домен соседа", () => {
+  const options = structuredClone(DEFAULT_OPTIONS);
+  options.region = "ru";
+  options.inbound.allowConnectionFromLan = true;
+  options.route.customRules = [
+    { id: "d", enabled: true, type: "domain", match: "suffix", values: ["cdn.example"], action: "direct" },
+    { id: "p", enabled: true, type: "domain", match: "suffix", values: ["vpn.example"], action: "proxy" },
+  ];
+  const { config } = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "proxy", options });
+  const rules = config.route.rules;
+  const neighbour = [
+    { inbound: ["mixed-in", "mixed-lan"] },
+    { source_ip_cidr: ["127.0.0.0/8", "::1/128", "::ffff:127.0.0.0/104"], invert: true },
+  ];
+  const directs = rules
+    .map((rule, index) => ({ rule, index }))
+    .filter(({ rule }) => rule.outbound === "direct" && !rule.process_name);
+  assert.ok(directs.length >= 3, "регион и пользовательское «Напрямую»");
+  for (const { rule, index } of directs) {
+    const match = { ...rule };
+    delete match.outbound;
+    assert.deepEqual(rules[index - 2], {
+      type: "logical", mode: "and", rules: [match, ...neighbour], action: "resolve", server: "dns-direct",
+    });
+    assert.equal(rules[index - 1].action, "reject");
+    assert.deepEqual(rules[index - 1].rules.slice(1), neighbour);
+    assert.ok(rules[index - 1].rules[0].ip_cidr.includes("127.0.0.0/8"));
+  }
+  // Соединение, которое уйдёт в туннель, домен локально не резолвит: после
+  // resolve ядро дозванивалось бы до сервера по IP вместо имени.
+  const proxied = rules.findIndex((rule) => rule.outbound === "proxy" && rule.domain_suffix?.[0] === "vpn.example");
+  assert.notEqual(rules[proxied - 1]?.action, "resolve");
+  assert.equal(rules.filter((rule) => rule.action === "resolve").length, directs.length);
+  validateConfigReferences(config);
+
+  options.route.resolveDestination = true;
+  const remote = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "proxy", options }).config;
+  assert.ok(remote.route.rules.filter((rule) => rule.action === "resolve").every((rule) => rule.server === "dns-remote"));
+});
+
+test("пароль для сети: соседи на отдельном порту с логином, mixed-in только для ПК", () => {
+  const options = structuredClone(DEFAULT_OPTIONS);
+  Object.assign(options.inbound, {
+    allowConnectionFromLan: true,
+    lanAuth: true,
+    lanPort: 7895,
+    lanUsername: "ninety",
+    lanPassword: "Secret123",
+  });
+  const { config } = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "systemProxy", options });
+  assert.deepEqual(config.inbounds, [
+    { type: "mixed", tag: "mixed-in", listen: "127.0.0.1", listen_port: 7890 },
+    {
+      type: "mixed",
+      tag: "mixed-lan",
+      listen: "0.0.0.0",
+      listen_port: 7895,
+      users: [{ username: "ninety", password: "Secret123" }],
+    },
+  ]);
+  assert.ok(config.route.rules.some((rule) => rule.type === "logical" && rule.action === "reject"));
+  validateConfigReferences(config);
+
+  // Включённый пароль без годной пары не превращается в открытый вход.
+  options.inbound.lanPassword = "";
+  const closed = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "systemProxy", options }).config;
+  assert.deepEqual(closed.inbounds, [{ type: "mixed", tag: "mixed-in", listen: "127.0.0.1", listen_port: 7890 }]);
+  assert.equal(closed.route.rules.some((rule) => rule.action === "resolve"), false);
 });
 
 test("без доступа из локальной сети и в TUN loopback-правила нет", () => {

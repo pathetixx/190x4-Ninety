@@ -1,7 +1,7 @@
 // Ninety · sing-box 1.13.x config builder
 // Protocol parsers живут в protocol-parsers.js; здесь builder + storage-фасад.
 
-import { DEFAULT_OPTIONS } from "/lib/options.js";
+import { DEFAULT_OPTIONS, lanCredentialsValid } from "/lib/options.js";
 import { t } from "/lib/i18n/index.js";
 import { uid } from "/lib/uid.js";
 import { hashRuntimeValue, stableNodeId } from "/lib/runtime-identity.js";
@@ -785,23 +785,66 @@ function customRulesToDns(customRules, fakeIp = false) {
   return out;
 }
 
-// Назначения на сам этот ПК. «Доступ из локальной сети» открывает mixed-in на
+// Назначения на сам этот ПК. «Доступ из локальной сети» открывает вход на
 // 0.0.0.0, и без отдельного правила соседи по сети получали не только выход в
 // интернет, но и сервисы, которые здесь слушают только 127.0.0.1 (панели,
 // dev-серверы): такое назначение уходило в direct. Разрешаем его только самому
-// ПК — источнику с loopback-адреса.
-const LOOPBACK_CIDRS = ["127.0.0.0/8", "::1/128"];
+// ПК — источнику с loopback-адреса. ::ffff:127.x — тот же loopback в форме
+// IPv6-сокета; «неуказанный» адрес часть стеков тоже ведёт на сам хост.
+const LOOPBACK_CIDRS = ["127.0.0.0/8", "::1/128", "::ffff:127.0.0.0/104"];
+const SELF_DEST_CIDRS = [...LOOPBACK_CIDRS, "0.0.0.0/32", "::/128"];
+
+// Входы, на которые могут прийти соседи: mixed-in без пароля либо отдельный
+// mixed-lan с паролем (тогда mixed-in слушает только loopback).
+const LAN_INBOUNDS = ["mixed-in", "mixed-lan"];
+
+// "off" — в сеть ничего не открыто; "open" — mixed-in на 0.0.0.0 без пароля;
+// "password" — отдельный mixed-lan с логином и паролем. Включённый пароль без
+// годной пары не откатывается к "open": тихо снятая защита хуже закрытого входа.
+export function lanInboundPolicy(inbound) {
+  if (!inbound?.allowConnectionFromLan) return "off";
+  if (!inbound.lanAuth) return "open";
+  return lanCredentialsValid(inbound) ? "password" : "off";
+}
+
+function fromLanNeighbour() {
+  return [{ inbound: LAN_INBOUNDS }, { source_ip_cidr: LOOPBACK_CIDRS, invert: true }];
+}
 
 function lanLoopbackGuard() {
   return {
     type: "logical",
     mode: "and",
     rules: [
-      { inbound: ["mixed-in"], domain_suffix: ["localhost"], ip_cidr: LOOPBACK_CIDRS },
+      { inbound: LAN_INBOUNDS, domain_suffix: ["localhost"], ip_cidr: SELF_DEST_CIDRS },
       { source_ip_cidr: LOOPBACK_CIDRS, invert: true },
     ],
     action: "reject",
   };
+}
+
+// Правило выше видит только то, что пришло в запросе. Домен соседа direct-выход
+// резолвит сам, уже после маршрутизации, поэтому «x.example.ru → 127.0.0.1»
+// (регион, пользовательское «Напрямую») уводило соседа на сервисы, слушающие
+// только loopback. Перед каждым direct-правилом резолвим имя тем же резолвером,
+// которым его резолвил бы direct, и снова проверяем адрес. Резолв стоит вплотную
+// к своему правилу и только для соседей: соединение, которое уйдёт в туннель,
+// и трафик самого ПК не меняются (после resolve ядро дозванивается по IP).
+function guardLanDirect(rules, resolver) {
+  const out = [];
+  for (const rule of rules) {
+    if (rule.outbound === "direct" && !rule.process_name) {
+      const match = { ...rule };
+      delete match.outbound;
+      delete match.action;
+      out.push(
+        { type: "logical", mode: "and", rules: [match, ...fromLanNeighbour()], action: "resolve", server: resolver },
+        { type: "logical", mode: "and", rules: [{ ip_cidr: SELF_DEST_CIDRS }, ...fromLanNeighbour()], action: "reject" },
+      );
+    }
+    out.push(rule);
+  }
+  return out;
 }
 
 function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = false, resolveTarget = null) {
@@ -824,7 +867,8 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
       : []),
   ];
 
-  if (mode !== "tun" && options.inbound?.allowConnectionFromLan) rules.push(lanLoopbackGuard());
+  const lanOpen = mode !== "tun" && lanInboundPolicy(options.inbound) !== "off";
+  if (lanOpen) rules.push(lanLoopbackGuard());
 
   // ProcessName bypass — критично для TUN-режима. Без него собственный трафик
   // Ninety (Tauri webview HTTP-запросы к ipwho.is и т.п.), самого sing-box и
@@ -898,13 +942,14 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
     });
   }
 
+  const directResolver = options.route.resolveDestination ? "dns-remote" : "dns-direct";
   const route = {
-    rules,
+    rules: lanOpen ? guardLanDirect(rules, directResolver) : rules,
     rule_set: buildRuleSets(options, mode, protectedOutbound),
     final: "proxy",
     auto_detect_interface: true,
     default_domain_resolver: {
-      server: options.route.resolveDestination ? "dns-remote" : "dns-direct",
+      server: directResolver,
     },
   };
 
@@ -965,12 +1010,23 @@ function buildInbounds(mode, options, systemIpv6) {
       },
     ];
   }
-  return [{
+  const lan = lanInboundPolicy(options.inbound);
+  const inbounds = [{
     type: "mixed",
     tag: "mixed-in",
-    listen: options.inbound.allowConnectionFromLan ? "0.0.0.0" : "127.0.0.1",
+    listen: lan === "open" ? "0.0.0.0" : "127.0.0.1",
     listen_port: options.inbound.mixedPort || 7890,
   }];
+  if (lan === "password") {
+    inbounds.push({
+      type: "mixed",
+      tag: "mixed-lan",
+      listen: "0.0.0.0",
+      listen_port: options.inbound.lanPort || 7891,
+      users: [{ username: options.inbound.lanUsername, password: options.inbound.lanPassword }],
+    });
+  }
+  return inbounds;
 }
 
 // ── WARP endpoint (Cloudflare WireGuard) ───────────────────
@@ -1698,9 +1754,18 @@ export function validateConfigReferences(config) {
   };
 
   requireOutbound(config.route?.final, "route.final");
+  // Наборы правил ядро ищет и во вложенных правилах logical-обёрток (защита
+  // LAN копирует туда direct-правила вместе с их rule_set).
+  const requireNestedRuleSets = (rule, path) => {
+    requireRuleSets(rule?.rule_set, `${path}.rule_set`);
+    for (const [j, sub] of (Array.isArray(rule?.rules) ? rule.rules : []).entries()) {
+      requireNestedRuleSets(sub, `${path}.rules[${j}]`);
+    }
+  };
   for (const [i, rule] of (config.route?.rules || []).entries()) {
     requireOutbound(rule?.outbound, `route.rules[${i}].outbound`);
-    requireRuleSets(rule?.rule_set, `route.rules[${i}].rule_set`);
+    requireDns(rule?.server, `route.rules[${i}].server`);
+    requireNestedRuleSets(rule, `route.rules[${i}]`);
   }
   for (const [i, set] of (config.route?.rule_set || []).entries()) {
     requireOutbound(set?.download_detour, `route.rule_set[${i}].download_detour`);
