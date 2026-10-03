@@ -404,7 +404,7 @@ fn spawn_log_monitor(
         // счётчиков при этом не объявляет child остановленным — на Windows это
         // решают реальные PID, а на прочих платформах требуются оба нуля.
         if live_processes
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
                 value.checked_sub(1)
             })
             .is_ok()
