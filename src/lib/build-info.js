@@ -15,8 +15,8 @@ export const BUILD_INFO = {
   channel: "Early access",
   platform: "Windows · x64",
   components: {
-    naive: "150.0.7871.63-1",
-    trusttunnel: "1.1.5",
+    naive: "154.0.8037.49-2",
+    trusttunnel: "1.1.7",
     wintun: "0.14.1",
   },
 };

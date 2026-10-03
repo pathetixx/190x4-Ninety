@@ -59,7 +59,7 @@ Local SOCKS bridge for `naive+https://` nodes.
 
 | | |
 | --- | --- |
-| Version | `v150.0.7871.63-1` |
+| Version | `v154.0.8037.49-2` |
 | Source | <https://github.com/klzgrad/naiveproxy> |
 | License | BSD 3-Clause (Chromium) |
 | Text | [`naiveproxy.txt`](./naiveproxy.txt) |
@@ -74,7 +74,7 @@ Local SOCKS bridge for `tt://` endpoints.
 
 | | |
 | --- | --- |
-| Version | `v1.1.5` |
+| Version | `v1.1.7` |
 | Source | <https://github.com/TrustTunnel/TrustTunnelClient> |
 | License | Apache License 2.0 |
 | Text | [`trusttunnel-client.txt`](./trusttunnel-client.txt) |
