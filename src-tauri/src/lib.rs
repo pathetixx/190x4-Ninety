@@ -87,16 +87,68 @@ where
 
 /// Аргументы перезапуска от администратора. `--autostarted` переносится, чтобы
 /// окно осталось в трее; `--connect` — только если подключение просил фронт.
-fn elevated_relaunch_args(autostarted: bool, connect: bool) -> Vec<&'static str> {
-    let mut extra = vec!["--elevated"];
+/// `--wait-parent` — PID прежнего процесса, см. wait_for_relaunching_parent.
+fn elevated_relaunch_args(autostarted: bool, connect: bool, parent_pid: u32) -> Vec<String> {
+    let mut extra = vec!["--elevated".to_string()];
     if autostarted {
-        extra.push("--autostarted");
+        extra.push("--autostarted".into());
     }
     if connect {
-        extra.push("--connect");
+        extra.push("--connect".into());
     }
+    extra.push(format!("{WAIT_PARENT_ARG}{parent_pid}"));
     extra
 }
+
+fn relaunch_self_elevated(autostarted: bool, connect: bool) -> Result<bool, String> {
+    let extra = elevated_relaunch_args(autostarted, connect, std::process::id());
+    let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
+    elevation::relaunch_self_elevated(&extra)
+}
+
+const WAIT_PARENT_ARG: &str = "--wait-parent=";
+#[cfg(target_os = "windows")]
+const WAIT_PARENT_TIMEOUT_MS: u32 = 5_000;
+
+fn parent_to_wait_for<I, S>(args: I) -> Option<u32>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .find_map(|a| a.as_ref().strip_prefix(WAIT_PARENT_ARG)?.parse().ok())
+        .filter(|pid| *pid != 0)
+}
+
+/// Прежний процесс завершается сам сразу после UAC, но новый мог стартовать
+/// раньше, чем он успел выйти. Тогда single-instance нового процесса находил
+/// живой мьютекс, отдавал аргументы уходящему процессу и закрывался — и не
+/// оставалось ни одного окна. Поэтому до регистрации плагина ждём выхода
+/// прежнего процесса; ожидание ограничено, а исчезнувший PID не ждём вовсе.
+#[cfg(target_os = "windows")]
+fn wait_for_relaunching_parent() {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+    };
+
+    let Some(pid) = parent_to_wait_for(std::env::args()) else {
+        return;
+    };
+    if pid == std::process::id() {
+        return;
+    }
+    unsafe {
+        let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else {
+            return;
+        };
+        let _ = WaitForSingleObject(handle, WAIT_PARENT_TIMEOUT_MS);
+        let _ = CloseHandle(handle);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn wait_for_relaunching_parent() {}
 
 /// Deep-link URL'ы, которые пришли argv при cold-start. Нужны для схем,
 /// зарегистрированных вручную (vless://, tt://, naive+https://...): plugin
@@ -122,8 +174,7 @@ fn is_elevated() -> bool {
 #[tauri::command]
 fn relaunch_elevated(app: tauri::AppHandle, connect: Option<bool>) -> Result<bool, String> {
     let autostarted = std::env::args().any(|a| a == "--autostarted");
-    let extra = elevated_relaunch_args(autostarted, connect.unwrap_or(false));
-    let started = elevation::relaunch_self_elevated(&extra)?;
+    let started = relaunch_self_elevated(autostarted, connect.unwrap_or(false))?;
     if started {
         // Элевированный инстанс уже создан (юзер согласился в UAC). Текущий
         // (не-admin) процесс надо НЕМЕДЛЕННО убить, чтобы освободить лок
@@ -981,6 +1032,8 @@ fn restore_system_proxy_before_exit() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     install_failsafe_panic_hook();
+    // До Builder: single-instance регистрируется при сборке приложения.
+    wait_for_relaunching_parent();
     let portable = app_paths::is_portable();
     let mut context = tauri::generate_context!();
     if portable {
@@ -1067,8 +1120,7 @@ pub fn run() {
                         // Ручной запуск остаётся ручным: «всегда от
                         // администратора» не означает «подключаться при старте».
                         let connect = argv.iter().any(|a| a == "--connect");
-                        let extra = elevated_relaunch_args(autostarted, connect);
-                        if elevation::relaunch_self_elevated(&extra).unwrap_or(false) {
+                        if relaunch_self_elevated(autostarted, connect).unwrap_or(false) {
                             // Освобождаем лок single-instance немедленно (ядро
                             // ещё не поднято на этом этапе — чистить нечего).
                             std::process::exit(0);
@@ -1475,15 +1527,29 @@ mod tests {
 
     #[test]
     fn elevated_relaunch_carries_connect_only_when_asked() {
-        assert_eq!(elevated_relaunch_args(false, false), ["--elevated"]);
         assert_eq!(
-            elevated_relaunch_args(true, false),
-            ["--elevated", "--autostarted"]
+            elevated_relaunch_args(false, false, 42),
+            ["--elevated", "--wait-parent=42"]
         );
         assert_eq!(
-            elevated_relaunch_args(false, true),
-            ["--elevated", "--connect"]
+            elevated_relaunch_args(true, false, 42),
+            ["--elevated", "--autostarted", "--wait-parent=42"]
         );
+        assert_eq!(
+            elevated_relaunch_args(false, true, 42),
+            ["--elevated", "--connect", "--wait-parent=42"]
+        );
+    }
+
+    #[test]
+    fn relaunched_process_finds_the_parent_to_wait_for() {
+        assert_eq!(
+            parent_to_wait_for(["ninety.exe", "--elevated", "--wait-parent=4242"]),
+            Some(4242)
+        );
+        assert_eq!(parent_to_wait_for(["ninety.exe", "--elevated"]), None);
+        assert_eq!(parent_to_wait_for(["ninety.exe", "--wait-parent=0"]), None);
+        assert_eq!(parent_to_wait_for(["ninety.exe", "--wait-parent=x"]), None);
     }
 
     #[test]
