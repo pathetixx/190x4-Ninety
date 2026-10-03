@@ -2856,16 +2856,26 @@ pub async fn dpi_hosts_apply(
     // без повторной проверки подписи, и дописанная туда строка иначе уехала бы
     // в системный hosts как есть.
     let sanitized = sanitize_hosts_body(body)?;
-    let body = sanitized.trim();
+    let backup_dir = crate::app_paths::data_dir(&app)?.join("dpi");
+    // Дальше — файл в System32 под перехватом Defender и ожидание
+    // `ipconfig /flushdns`: блокирующая работа, которая занимала поток async-
+    // рантайма на секунды (dpi_hosts_clear вынесен так же).
+    let entries = tauri::async_runtime::spawn_blocking(move || {
+        write_hosts_block_blocking(&backup_dir, sanitized.trim())
+    })
+    .await
+    .map_err(|e| format!("не удалось дождаться записи hosts: {e}"))??;
+    Ok(serde_json::json!({ "entries": entries }))
+}
 
+fn write_hosts_block_blocking(bdir: &Path, body: &str) -> Result<usize, String> {
     let path = system_hosts_path();
     let current = read_hosts_file(&path)?;
     let base = strip_managed_block(&current)?;
 
     // Бэкап оригинала один раз — до первой нашей записи. Ошибка backup блокирует
     // системную запись: без проверяемого отката менять hosts нельзя.
-    let bdir = crate::app_paths::data_dir(&app)?.join("dpi");
-    std::fs::create_dir_all(&bdir).map_err(|e| format!("mkdir hosts backup: {e}"))?;
+    std::fs::create_dir_all(bdir).map_err(|e| format!("mkdir hosts backup: {e}"))?;
     let backup = bdir.join("hosts.backup");
     if !backup.exists() {
         // При миграции со старой версии managed-блок уже может быть, а backup —
@@ -2900,17 +2910,18 @@ pub async fn dpi_hosts_apply(
 
     // Системный hosts перезаписываем НА МЕСТЕ, а не подменяем: замена файла
     // отдала бы цели DACL временного объекта, а Controlled Folder Access и часть
-    // антивирусов блокируют именно подмену. Откат при сбое — проверенный
-    // hosts.backup выше.
+    // антивирусов блокируют именно подмену. Оборванную запись overwrite_in_place
+    // откатывает сам; hosts.backup выше — страховка на случай, если не вышло и это.
     let out = encode_hosts_text(&apply_hosts_line_endings(&out, &current))?;
-    overwrite_in_place(&path, &out, "system hosts").map_err(|e| {
+    let original = encode_hosts_text(&current)?;
+    overwrite_in_place(&path, &out, &original, "system hosts").map_err(|e| {
         format!(
             "запись hosts ({}): нужны права администратора — {e}",
             path.display()
         )
     })?;
     flush_dns();
-    Ok(serde_json::json!({ "entries": count_hosts_entries(body) }))
+    Ok(count_hosts_entries(body))
 }
 
 /// Удалить наш managed-блок из системного hosts (полный откат). Требует админ-прав.
@@ -2935,7 +2946,8 @@ fn dpi_hosts_clear_blocking() -> Result<(), String> {
     }
     let stripped = format!("{}\n", trim_hosts_end(&strip_managed_block(&current)?));
     let stripped = encode_hosts_text(&apply_hosts_line_endings(&stripped, &current))?;
-    overwrite_in_place(&path, &stripped, "system hosts")
+    let original = encode_hosts_text(&current)?;
+    overwrite_in_place(&path, &stripped, &original, "system hosts")
         .map_err(|e| format!("запись hosts: нужны права администратора — {e}"))?;
     flush_dns();
     Ok(())
