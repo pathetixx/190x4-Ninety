@@ -147,7 +147,6 @@ pub fn write_replace(to: &Path, body: &str, label: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Seek, Write};
 
     #[test]
     fn in_place_overwrite_keeps_the_same_file_object() {
