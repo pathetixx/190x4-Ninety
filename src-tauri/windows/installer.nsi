@@ -27,6 +27,7 @@ ManifestDPIAwareness PerMonitorV2
 !include "FileAssociation.nsh"
 !include "Win\COM.nsh"
 !include "Win\Propkey.nsh"
+!include "Win\RestartManager.nsh"
 !include "StrFunc.nsh"
 ${StrCase}
 ${StrLoc}
@@ -793,7 +794,7 @@ Section Install
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
 
-  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
   Call NinetyValidateInstallTarget
 
   ; Copy main executable
@@ -942,7 +943,7 @@ Section Uninstall
     !insertmacro NSIS_HOOK_PREUNINSTALL
   !endif
 
-  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
   Call un.NinetyValidateRemovalTarget
 
   ; Delete the app directory and its content from disk

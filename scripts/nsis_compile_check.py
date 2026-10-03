@@ -24,6 +24,7 @@ Usage: python3 scripts/nsis_compile_check.py [--keep]
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -36,9 +37,22 @@ ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = ROOT / "src-tauri/windows"
 KUROGANE = WINDOWS / "kurogane"
 
-# The template is a pinned copy of the stock one from this exact CLI release,
-# so its include files have to be fetched from the same tag.
-TAURI_CLI_TAG = "tauri-cli-v2.11.4"
+
+
+def installed_tauri_cli_tag() -> str:
+    """Tag of the CLI release the build actually uses.
+
+    The template is a pinned copy of the stock one from that release, so its
+    include files have to come from the same tag. A hardcoded tag let a CLI
+    bump pass here while the release runner, which bundles with the new
+    utils.nsh, failed on the template.
+    """
+    lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
+    version = lock["packages"]["node_modules/@tauri-apps/cli"]["version"]
+    return f"tauri-cli-v{version}"
+
+
+TAURI_CLI_TAG = installed_tauri_cli_tag()
 TAURI_NSIS_RAW = (
     "https://raw.githubusercontent.com/tauri-apps/tauri/"
     f"{TAURI_CLI_TAG}/crates/tauri-bundler/src/bundle/windows/nsis"
