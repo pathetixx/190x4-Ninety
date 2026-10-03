@@ -151,6 +151,10 @@ jobs:
           # so re-applying it would downgrade. Mirrored in security.yml, where the
           # resulting binary is audited.
           go get github.com/klauspost/compress@v1.18.7
+          # GO-2026-6443, как и в sing-box выше. Фикс есть в 1.83.2 и в master, а
+          # в 1.84.0 его нет, поэтому для Xray это откат с 1.84.0. Тот же go get
+          # стоит в security.yml.
+          go get google.golang.org/grpc@v1.83.2
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -ldflags "-s -w -buildid=" -o xray.exe ./main; then
