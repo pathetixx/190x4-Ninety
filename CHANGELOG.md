@@ -6,6 +6,20 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.9.0 — 2026-10-07
+
+## English
+
+- Labels, hints and table headers are easier to read in every theme.
+- Settings → Appearance has a new “Increased contrast” switch that makes text, icons and borders brighter; until you change it, it follows the Windows contrast setting.
+- The favourite star in the server list is now visible without hovering over it.
+
+## Русский
+
+- Подписи, подсказки и заголовки таблиц лучше читаются во всех темах.
+- В «Настройки → Оформление» появился переключатель «Повышенный контраст», который делает текст, значки и рамки ярче; пока вы его не трогали, он следует настройке контрастности Windows.
+- Звёздочка «Избранное» в списке серверов теперь видна без наведения курсора.
+
 ## v0.8.1 — 2026-10-03
 
 ## English
