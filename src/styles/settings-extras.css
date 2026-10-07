@@ -591,7 +591,7 @@
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 14px;
-  color: var(--text-faint);
+  color: var(--text-lo);
   font-size: 12px;
   margin-top: 22px;
 }
@@ -608,7 +608,7 @@
   padding: 4px 8px;
   border: 0;
   background: transparent;
-  color: var(--text-faint);
+  color: var(--text-lo);
   box-shadow: none;
 }
 

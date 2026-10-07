@@ -19,7 +19,7 @@
 .n-num{font-family:var(--font-mono);font-size:12.5px;font-weight:500;font-variant-numeric:tabular-nums;
      letter-spacing:-.02em;color:var(--text-hi)}
 .n-unit{font-family:var(--font-mono);font-size:9px;font-weight:400;letter-spacing:.05em;
-     text-transform:uppercase;color:var(--text-faint);margin-inline-start:3px}
+     text-transform:uppercase;color:var(--text-lo);margin-inline-start:3px}
 /* Метка — подпись под числом или над группой. */
 .n-lbl,
 .stats__label, .loc-card__metric-lbl, .sub-card__expire-lbl, .traffic__label,
@@ -27,7 +27,7 @@
 .update-modal__section-label, .about-spec__head, .about-tags__label,
 .dpi-card__label, .dpi-result__label{
      font-family:var(--font-mono);font-size:9px;font-weight:500;letter-spacing:.15em;
-     text-transform:uppercase;color:var(--text-faint)}
+     text-transform:uppercase;color:var(--text-lo)}
 /* Метка, которая должна читаться заметнее соседних — не тише текста строки. */
 .dpi-result__label, .theme-card__kicker{color:var(--text-lo)}
 
@@ -36,7 +36,7 @@
 .screen__kicker, .onb__kicker, .add-modal__kicker, .update-modal__kicker,
 .qr-modal__kicker, .confirm-modal__kicker, .rr-modal__kicker, .drawer__kicker{
      font-family:var(--font-mono);font-size:10px;font-weight:500;letter-spacing:.18em;
-     text-transform:uppercase;color:var(--text-faint)}
+     text-transform:uppercase;color:var(--text-lo)}
 /* Кикер подтверждения предупреждает — потому и акцентный. */
 .confirm-modal__kicker{color:var(--accent-bright)}
 
@@ -82,11 +82,11 @@
      letter-spacing:-.02em;color:var(--text-hi)}
 .n-ping[data-grade="mid"]{color:var(--warn)}
 .n-ping[data-grade="bad"]{color:var(--err)}
-.n-ping[data-grade="dead"]{color:var(--text-faint)}
+.n-ping[data-grade="dead"]{color:var(--text-lo)}
 /* Замер из локального архива: ядро эту ноду в текущей сессии не подтверждало.
    Цифру оставляем (она полезна), но гасим — иначе мёртвый сервер читается как
    живой. Штриховая подчёркивание-метка отличает её от «просто тусклой». */
-.n-ping[data-stale="true"]{color:var(--text-faint);text-decoration:underline dotted currentColor;
+.n-ping[data-stale="true"]{color:var(--text-lo);text-decoration:underline dotted currentColor;
      text-underline-offset:3px}
 
 /* ── флаг: геометрия, без теней и рамок ── */
@@ -104,12 +104,12 @@
 
 /* ── избранное ── */
 .n-star{width:24px;height:24px;display:grid;place-items:center;border:0;background:none;padding:0;
-     border-radius:4px;cursor:pointer;color:var(--text-faint);opacity:.3;
-     transition:opacity .14s var(--ease-out),color .14s var(--ease-out),background .14s var(--ease-out)}
+     border-radius:4px;cursor:pointer;color:var(--text-faint);
+     transition:color .14s var(--ease-out),background .14s var(--ease-out)}
 .n-star svg{width:14px;height:14px}
-.n-star:hover{opacity:1;color:var(--text-hi);background:var(--overlay-3)}
-.n-star:focus-visible{opacity:1;outline:1px solid var(--accent);outline-offset:-1px}
-.n-star[aria-pressed="true"]{opacity:1;color:var(--accent-bright)}
+.n-star:hover{color:var(--text-hi);background:var(--overlay-3)}
+.n-star:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+.n-star[aria-pressed="true"]{color:var(--accent-bright)}
 .n-star[aria-pressed="true"] svg{fill:currentColor}
 
 /* ── поверхность ── */
@@ -128,7 +128,7 @@
 .n-wait::after{content:"";position:absolute;inset-block:0;inset-inline-start:0;width:42%;border-radius:2px;
      background:color-mix(in srgb,var(--accent) 70%,transparent);animation:n-wait-run 1.25s var(--ease-emph) infinite}
 @keyframes n-wait-run{0%{inset-inline-start:-42%}100%{inset-inline-start:100%}}
-.n-dash{font-family:var(--font-mono);font-size:12.5px;color:var(--text-faint);text-align:end}
+.n-dash{font-family:var(--font-mono);font-size:12.5px;color:var(--text-lo);text-align:end}
 
 /* ── пустое состояние ── */
 .n-empty{margin:44px auto 0;max-width:400px;text-align:center;display:flex;flex-direction:column;
@@ -149,14 +149,14 @@
 .n-search:focus-within>svg{color:var(--accent-bright)}
 .n-search input{flex:1 1 auto;min-width:0;height:100%;border:0;background:none;outline:0;
      color:var(--text-hi);font-family:var(--font-body);font-size:12px;letter-spacing:-.005em}
-.n-search input::placeholder{color:var(--text-faint)}
+.n-search input::placeholder{color:var(--text-lo)}
 .n-search input::-webkit-search-cancel-button{display:none}
 .n-search__x{width:17px;height:17px;flex-shrink:0;display:grid;place-items:center;border:0;padding:0;
      border-radius:3px;background:var(--overlay-3);color:var(--text-mid);cursor:pointer}
 .n-search__x svg{width:10px;height:10px}
 .n-search__x:hover{background:var(--overlay-4);color:var(--text-hi)}
 .n-search__x[hidden]{display:none}
-.n-search__k{flex-shrink:0;font-family:var(--font-mono);font-size:9px;line-height:1;color:var(--text-faint);
+.n-search__k{flex-shrink:0;font-family:var(--font-mono);font-size:9px;line-height:1;color:var(--text-lo);
      border:1px solid var(--line-2);border-radius:3px;padding:2px 4px}
 .n-search:focus-within .n-search__k,.n-search[data-filled="true"] .n-search__k{display:none}
 mark{background:color-mix(in srgb,var(--accent) 17%,transparent);color:inherit;border-radius:2px;padding:0 1px}
@@ -176,10 +176,10 @@ mark{background:color-mix(in srgb,var(--accent) 17%,transparent);color:inherit;b
 .n-group{display:flex;align-items:center;gap:9px;padding:0 2px 7px;margin-top:16px}
 .n-group:first-child{margin-top:0}
 .n-group__line{flex:1;height:1px;background:var(--line-1)}
-.n-group__n{font-family:var(--font-mono);font-size:9.5px;color:var(--text-faint);font-variant-numeric:tabular-nums}
+.n-group__n{font-family:var(--font-mono);font-size:9.5px;color:var(--text-lo);font-variant-numeric:tabular-nums}
 /* Действие над всей группой (массовое удаление) — тише строки, но кликабельно. */
 .n-group__act{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;padding:2px 6px;
-     border:0;border-radius:var(--r-xs);background:transparent;color:var(--text-faint);cursor:pointer;
+     border:0;border-radius:var(--r-xs);background:transparent;color:var(--text-lo);cursor:pointer;
      font-family:var(--font-mono);font-size:9px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
      transition:color .14s var(--ease-out),background .14s var(--ease-out)}
 .n-group__act svg{width:12px;height:12px}
@@ -192,4 +192,4 @@ mark{background:color-mix(in srgb,var(--accent) 17%,transparent);color:inherit;b
 }
 /* Меньше двух замеров — линию строить не из чего */
 .n-spark-none{display:block;width:52px;text-align:center;font-family:var(--font-mono);
-     font-size:12px;color:var(--text-faint)}
+     font-size:12px;color:var(--text-lo)}

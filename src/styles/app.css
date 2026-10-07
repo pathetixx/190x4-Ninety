@@ -76,7 +76,7 @@
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-lo);
   font-variant-numeric: tabular-nums;
 }
 .titlebar__title b {
@@ -185,7 +185,7 @@
   font-family: var(--font-mono);
   font-size: 11.5px;
   letter-spacing: 0.13em;
-  color: var(--text-faint);
+  color: var(--text-lo);
   text-transform: uppercase;
   display: flex;
   align-items: center;
@@ -211,7 +211,7 @@
   font-size: 9px;
   letter-spacing: 0.115em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-lo);
 }
 .sidebar-state__dot {
   width: 6px;
@@ -347,7 +347,7 @@
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.08em;
-  color: var(--text-faint);
+  color: var(--text-lo);
   text-transform: uppercase;
 }
 
@@ -408,7 +408,7 @@
 .traffic__unit {
   font-family: var(--font-mono);
   font-size: 9px;
-  color: var(--text-faint);
+  color: var(--text-lo);
   margin-inline-start: 3px;
   letter-spacing: 0.04em;
 }

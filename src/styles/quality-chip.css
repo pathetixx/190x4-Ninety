@@ -74,7 +74,7 @@
 }
 .qscope__legend { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-lo); }
 .qscope__legend i { width: 14px; border-top: 1px dashed var(--ok); opacity: 0.6; }
-.qscope__hint { font-size: 10px; color: var(--text-faint); }
+.qscope__hint { font-size: 10px; color: var(--text-lo); }
 
 @media (prefers-reduced-motion: reduce) {
   .qscope { animation: none; }

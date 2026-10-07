@@ -332,7 +332,7 @@
   font-family: var(--font-mono);
   font-size: 10.5px;
   letter-spacing: 0.04em;
-  color: var(--text-faint);
+  color: var(--text-lo);
 }
 .dpi-autopick__candidate b { color: var(--text-mid); font-weight: 500; }
 
@@ -491,7 +491,7 @@
 .dpi-upd-row__ver {
   font-family: var(--font-mono);
   font-size: 10.5px;
-  color: var(--text-faint);
+  color: var(--text-lo);
   letter-spacing: 0.02em;
 }
 .dpi-upd-row__right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
@@ -512,7 +512,7 @@
   border: 1px solid var(--line-1);
 }
 .dpi-pill[data-kind="idle"] {
-  color: var(--text-faint);
+  color: var(--text-lo);
   background: var(--overlay-1);
   border: 1px solid var(--line-1);
 }
@@ -579,7 +579,7 @@
   padding: 9px 11px;
   border-radius: var(--r-xs);
   background: var(--overlay-1);
-  color: var(--text-faint);
+  color: var(--text-lo);
   font-size: 10.5px;
   line-height: 1.45;
 }
@@ -647,7 +647,7 @@
 .dpi-ipset__upd[data-idle="true"] { opacity: 0.72; }
 /* «Обновить список» ломался на две строки, когда рядом появилась строка-пояснение. */
 .dpi-ipset__upd .btn { white-space: nowrap; }
-.dpi-ipset__upd-idle { font-size: 10.5px; line-height: 1.4; color: var(--text-faint); }
+.dpi-ipset__upd-idle { font-size: 10.5px; line-height: 1.4; color: var(--text-lo); }
 .dpi-ipset__upd-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .dpi-ipset__upd-t {
   font-size: 12px; font-weight: 500; color: var(--text-hi);
@@ -656,7 +656,7 @@
 .dpi-ipset__upd-c {
   font-family: var(--font-mono);
   font-size: 10.5px;
-  color: var(--text-faint);
+  color: var(--text-lo);
   letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
 }
@@ -758,12 +758,12 @@
 .dpi-scope__auto-c {
   font-family: var(--font-mono);
   font-size: 10.5px;
-  color: var(--text-faint);
+  color: var(--text-lo);
   letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
 }
 .dpi-scope__auto-btns { display: flex; gap: 8px; flex-shrink: 0; }
-.dpi-scope__auto-note { font-size: 11px; line-height: 1.45; color: var(--text-faint); }
+.dpi-scope__auto-note { font-size: 11px; line-height: 1.45; color: var(--text-lo); }
 .dpi-scope__list {
   display: flex; flex-direction: column;
   max-height: 244px;
@@ -872,7 +872,7 @@
 .dpi-chip[data-state="error"] .dpi-chip__icon { color: var(--err); }
 .dpi-chip[data-state="error"] .dpi-chip__status { color: var(--err); }
 
-.dpi-chip[data-state="off"] .dpi-chip__strat { color: var(--text-faint); }
+.dpi-chip[data-state="off"] .dpi-chip__strat { color: var(--text-lo); }
 
 .dpi-chip[data-state="paused"] { opacity: 0.55; }
 .dpi-chip[data-state="paused"] .dpi-chip__strat { color: var(--text-mid); }
@@ -999,7 +999,7 @@
   font: inherit; font-size: 13px;
   flex: 1; width: 100%;
 }
-.drawer__search input::placeholder { color: var(--text-faint); }
+.drawer__search input::placeholder { color: var(--text-lo); }
 .drawer__list {
   flex: 1 1 auto;
   min-height: 0;
@@ -1042,7 +1042,7 @@
   transition: border-color 140ms ease;
 }
 .dpi-editor__area:focus { border-color: var(--accent-soft); }
-.dpi-editor__area::placeholder { color: var(--text-faint); }
+.dpi-editor__area::placeholder { color: var(--text-lo); }
 .dpi-editor__foot {
   display: flex;
   align-items: center;
@@ -1053,6 +1053,6 @@
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.08em;
-  color: var(--text-faint);
+  color: var(--text-lo);
 }
 .dpi-editor__actions { display: flex; gap: 8px; }

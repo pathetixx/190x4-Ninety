@@ -318,7 +318,7 @@ button.about-link:hover .about-link__cta {
   font-family: var(--font-mono);
   font-size: 10.5px;
   letter-spacing: 0.06em;
-  color: var(--text-faint);
+  color: var(--text-lo);
 }
 .about-foot__txt b { color: var(--text-lo); font-weight: 500; }
 .about-foot__made {
@@ -329,6 +329,6 @@ button.about-link:hover .about-link__cta {
   font-size: 9px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-lo);
 }
 .about-foot__made svg { color: var(--accent); }

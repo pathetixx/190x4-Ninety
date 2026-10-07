@@ -66,7 +66,7 @@
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-lo);
   font-variant-numeric: tabular-nums;
 }
 
@@ -150,7 +150,7 @@
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: var(--text-faint);
+  color: var(--text-lo);
   font-variant-numeric: tabular-nums;
 }
 
@@ -205,7 +205,7 @@
   font-size: 9.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-lo);
   white-space: nowrap;
   padding-inline-start: 2px;
 }
@@ -377,7 +377,7 @@
   font-family: var(--font-mono);
   font-size: 10px; font-weight: 500;
   letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-lo);
 }
 .rr-sublabel {
   font-size: 11px; color: var(--text-lo); margin-top: -3px; line-height: 1.45;
@@ -459,7 +459,7 @@
   font: inherit; font-size: 13px;
   padding: 4px 2px;
 }
-.rr-chipinput__entry::placeholder { color: var(--text-faint); }
+.rr-chipinput__entry::placeholder { color: var(--text-lo); }
 
 /* превью нормализации */
 .rr-preview {
@@ -574,13 +574,13 @@
 }
 .rr-proc__path {
   font-family: var(--font-mono);
-  font-size: 10px; color: var(--text-faint);
+  font-size: 10px; color: var(--text-lo);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .rr-proc__pid {
   font-family: var(--font-mono);
   font-size: 9px; letter-spacing: 0.08em;
-  color: var(--text-faint);
+  color: var(--text-lo);
   text-transform: uppercase;
 }
 
@@ -700,7 +700,7 @@
 }
 .rr-mon-count {
   font-family: var(--font-mono);
-  font-size: 10px; color: var(--text-faint);
+  font-size: 10px; color: var(--text-lo);
   letter-spacing: 0.08em; text-transform: uppercase;
   font-variant-numeric: tabular-nums;
 }
@@ -751,10 +751,10 @@
   font-size: 12.5px; color: var(--text-hi);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rr-appgrp--unknown .rr-appgrp__name { color: var(--text-faint); }
+.rr-appgrp--unknown .rr-appgrp__name { color: var(--text-lo); }
 .rr-appgrp__path {
   font-family: var(--font-mono);
-  font-size: 10px; color: var(--text-faint);
+  font-size: 10px; color: var(--text-lo);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .rr-appgrp__dots { display: inline-flex; align-items: center; gap: 4px; }
@@ -793,7 +793,7 @@
 }
 .rr-csub__ip {
   font-family: var(--font-mono);
-  font-size: 10px; color: var(--text-faint);
+  font-size: 10px; color: var(--text-lo);
   font-variant-numeric: tabular-nums;
 }
 

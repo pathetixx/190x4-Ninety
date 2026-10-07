@@ -14,7 +14,7 @@
 .rec__fold {
   display: inline-flex; align-items: center; gap: 5px;
   background: none; border: 0; padding: 2px 4px; border-radius: 4px; cursor: pointer;
-  color: var(--text-faint);
+  color: var(--text-lo);
 }
 .rec__fold:hover { background: var(--overlay-2); }
 .rec__fold:hover .n-lbl { color: var(--text-lo); }
@@ -23,7 +23,7 @@
 .rec__why {
   margin-inline-start: auto; display: inline-flex; align-items: center; gap: 5px;
   font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
-  color: var(--text-faint); background: none; border: 0; cursor: pointer; padding: 2px 4px; border-radius: 4px;
+  color: var(--text-lo); background: none; border: 0; cursor: pointer; padding: 2px 4px; border-radius: 4px;
 }
 .rec__why:hover { color: var(--text-mid); background: var(--overlay-2); }
 .rec__why svg { width: 12px; height: 12px; }
@@ -109,14 +109,12 @@
 }
 .nt-row__tr {
   font-family: var(--font-mono); font-size: 9px; font-weight: 500; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--text-faint);
+  text-transform: uppercase; color: var(--text-lo);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .nt-row[data-pending="true"] .n-primary,
 .nt-row[data-pending="true"] .nt-row__host,
 .nt-row[data-pending="true"] .nt-row__tr { opacity: .5; }
-.nt-row:hover .n-star, .nt-row:focus-within .n-star { opacity: .72; }
-.nt-row .n-star[aria-pressed="true"], .nt-row .n-star:hover { opacity: 1; }
 .nt-body { padding-bottom: 6px; }
 .nt-body[hidden] { display: none; }
 
@@ -135,7 +133,7 @@
 .rec-pop__r .n-num { font-size: 11px; text-align: end; }
 .rec-pop__note {
   margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line-1);
-  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); line-height: 1.55;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-lo); line-height: 1.55;
 }
 
 /* ── узкое окно: жертвуем колонками по возрастанию ценности,

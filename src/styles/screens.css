@@ -199,7 +199,7 @@
   outline: none;
   transition: border-color 0.15s ease;
 }
-.logs__search::placeholder { color: var(--text-faint); }
+.logs__search::placeholder { color: var(--text-lo); }
 .logs__search:focus { border-color: var(--accent); }
 .logs__level {
   flex: 0 0 auto;
@@ -241,7 +241,7 @@
 .logs__size {
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--text-faint);
+  color: var(--text-lo);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -280,7 +280,7 @@
   padding: 1px 0;
   word-break: break-word;
 }
-.log-line__t  { color: var(--text-faint); white-space: nowrap; }
+.log-line__t  { color: var(--text-lo); white-space: nowrap; }
 .log-line__l  { font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; padding-top: 2px; }
 .log-line__l--info  { color: #6E8EE0; }
 .log-line__l--warn  { color: var(--warn); }
@@ -533,7 +533,7 @@
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-lo);
 }
 .onb-pref__field { position: relative; display: inline-flex; }
 .onb-pref__select {
@@ -641,7 +641,7 @@
 }
 .popover__warp-lbl svg { color: var(--accent); flex-shrink: 0; }
 .popover__warp-txt { display: flex; flex-direction: column; gap: 2px; }
-.popover__warp-hint { font-size: 10.5px; color: var(--text-faint); }
+.popover__warp-hint { font-size: 10.5px; color: var(--text-lo); }
 
 /* ═══════════════════════════════════════════
    MODE INDICATOR in sub-row (replaces toolbar button)
@@ -696,8 +696,8 @@
 .theme-card[data-theme="mono"] .theme-card__check { color: var(--ink-0); }
 /* Пункт-состояние: сообщает, а не предлагает */
 .pmenu__item--state {
-  color: var(--text-faint);
+  color: var(--text-lo);
   cursor: default;
 }
-.pmenu__item--state:hover { background: transparent; color: var(--text-faint); }
+.pmenu__item--state:hover { background: transparent; color: var(--text-lo); }
 .pmenu__item--state svg { color: var(--accent-bright); opacity: 1; }

@@ -58,7 +58,7 @@
 .dg-fact:first-child { border-inline-start: 0; padding-inline-start: 0; }
 .dg-fact__k {
   font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase;
-  color: var(--text-faint); margin-bottom: 3px; white-space: nowrap;
+  color: var(--text-lo); margin-bottom: 3px; white-space: nowrap;
 }
 .dg-fact__v {
   font-family: var(--font-mono); font-size: 12px; color: var(--text-hi);
@@ -100,7 +100,7 @@
 .dg-mx__cols {
   display: grid; grid-template-columns: minmax(0, 1fr) 70px 70px 124px 104px;
   gap: 8px; padding: 7px 14px; align-items: center;
-  font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint);
+  font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-lo);
   background: var(--overlay-1); border-bottom: 1px solid var(--line-1);
 }
 .dg-mx__cols span:nth-child(2), .dg-mx__cols span:nth-child(3) { text-align: center; }
@@ -116,7 +116,7 @@
   /* Обрезаем, а не переносим: перенос менял высоту строки и ломал ритм списка. */
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.dg-row__host { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dg-row__host { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-lo); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dg-pill {
   height: 22px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 4px;
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em;
@@ -180,7 +180,7 @@
   border: 0; background: transparent; outline: none; min-width: 0; width: 100%;
   color: var(--text-hi); font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.01em;
 }
-.dg-probe__field input::placeholder { color: var(--text-faint); letter-spacing: 0; font-family: var(--font-body); }
+.dg-probe__field input::placeholder { color: var(--text-lo); letter-spacing: 0; font-family: var(--font-body); }
 .dg-probe .btn { height: 30px; }
 
 /* Раскрытая своя строка */
@@ -191,14 +191,14 @@
 }
 .dg-det__grid { display: grid; grid-template-columns: 62px minmax(0, 1fr) minmax(0, 1fr); gap: 5px 12px; align-items: center; }
 .dg-det__h {
-  font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint);
+  font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-lo);
 }
 .dg-det__k { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-lo); }
 .dg-det__v { font-family: var(--font-mono); font-size: 11px; color: var(--text-mid); display: flex; align-items: center; gap: 6px; min-width: 0; }
 .dg-det__v span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dg-det__v i { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); flex: 0 0 auto; }
 .dg-det__v.is-err { color: var(--err); } .dg-det__v.is-err i { background: var(--err); }
-.dg-det__v.is-off { color: var(--text-faint); } .dg-det__v.is-off i { background: var(--ink-4); }
+.dg-det__v.is-off { color: var(--text-lo); } .dg-det__v.is-off i { background: var(--ink-4); }
 .dg-det__foot {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line-2);
@@ -248,7 +248,7 @@
 }
 .dg-leak:last-of-type { border-bottom: 0; }
 .dg-leak__t { font-size: 12px; color: var(--text-hi); }
-.dg-leak__d { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dg-leak__d { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-lo); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dg-leak__v { font-family: var(--font-mono); font-size: 10.5px; color: var(--ok); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .dg-leak__v.is-warn { color: var(--warn); }
 .dg-leak__v.is-off { color: var(--text-lo); }
@@ -269,22 +269,22 @@
 .dg-tr__cols {
   display: grid; grid-template-columns: 20px minmax(0, 1fr) 52px;
   gap: 8px; padding: 4px 14px 7px;
-  font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint);
+  font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-lo);
 }
 .dg-tr__cols span:nth-child(3) { text-align: end; }
 .dg-hop {
   display: grid; grid-template-columns: 20px minmax(0, 1fr) 52px;
   gap: 8px; padding: 4px 14px; align-items: center; position: relative;
 }
-.dg-hop__n { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); }
+.dg-hop__n { font-family: var(--font-mono); font-size: 10px; color: var(--text-lo); }
 .dg-hop__ip { font-family: var(--font-mono); font-size: 11px; color: var(--text-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dg-hop__ip small { display: block; font-family: var(--font-body); font-size: 9.5px; color: var(--text-faint); letter-spacing: 0.02em; }
+.dg-hop__ip small { display: block; font-family: var(--font-body); font-size: 9.5px; color: var(--text-lo); letter-spacing: 0.02em; }
 .dg-hop__rtt { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-lo); text-align: end; }
 .dg-hop__tcp { display: flex; justify-content: flex-end; }
 .dg-hop__tcp i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 7px color-mix(in srgb, var(--ok) 55%, transparent); }
 .dg-hop--dead .dg-hop__tcp i { background: var(--ink-4); box-shadow: none; }
-.dg-hop--dead .dg-hop__ip, .dg-hop--dead .dg-hop__rtt { color: var(--text-faint); }
-.dg-hop--void .dg-hop__ip { color: var(--text-faint); letter-spacing: 0.24em; }
+.dg-hop--dead .dg-hop__ip, .dg-hop--dead .dg-hop__rtt { color: var(--text-lo); }
+.dg-hop--void .dg-hop__ip { color: var(--text-lo); letter-spacing: 0.24em; }
 .dg-hop--server .dg-hop__ip { color: var(--text-hi); }
 
 /* Соединение на порт открыто — спокойная строка, а не тревожная плашка. */
@@ -308,7 +308,7 @@
 }
 .dg-tr__note b { color: var(--text-hi); font-weight: 500; }
 .dg-legend { display: flex; gap: 12px; align-items: center; }
-.dg-legend span { display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: var(--text-faint); letter-spacing: 0.06em; text-transform: uppercase; }
+.dg-legend span { display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: var(--text-lo); letter-spacing: 0.06em; text-transform: uppercase; }
 .dg-legend i { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
 .dg-legend i.off { background: var(--ink-4); }
 
@@ -364,7 +364,7 @@
 }
 .dg-packmenu__code {
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
-  color: var(--text-faint); flex: 0 0 auto;
+  color: var(--text-lo); flex: 0 0 auto;
 }
 .dg-packmenu__item[data-on="true"] .dg-packmenu__code { color: var(--accent-bright); }
 
@@ -399,14 +399,14 @@
 .dg-inc__dot--ok { background: var(--ok); }
 .dg-inc__dot--info { background: var(--text-faint); }
 .dg-inc__title { font-size: 12px; color: var(--text-hi); min-width: 0; }
-.dg-inc__time { margin-inline-start: auto; font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); white-space: nowrap; }
+.dg-inc__time { margin-inline-start: auto; font-family: var(--font-mono); font-size: 10px; color: var(--text-lo); white-space: nowrap; }
 .dg-inc__steps { margin: 5px 0 0; padding: 0; padding-inline-start: 14px; list-style: none; display: flex; flex-direction: column; gap: 3px; }
 .dg-inc__step { font-size: 11px; color: var(--text-mid); position: relative; }
 .dg-inc__step::before {
   content: ""; position: absolute; inset-inline-start: -10px; top: 6px;
   width: 4px; height: 4px; border-radius: 50%; background: var(--line-3);
 }
-.dg-inc__foot { margin-top: 5px; font-size: 10.5px; color: var(--text-faint); }
+.dg-inc__foot { margin-top: 5px; font-size: 10.5px; color: var(--text-lo); }
 .dg-feed__summary {
   padding: 9px 14px; border-bottom: 1px solid var(--line-2);
   font-size: 11px; color: var(--text-mid); background: var(--overlay-1);

@@ -209,13 +209,13 @@
   font-family: var(--font-mono); font-size: 12px; line-height: 1.6; letter-spacing: -.02em;
   transition: border-color .16s var(--ease-out), background .16s var(--ease-out); outline: 0;
 }
-.md__in::placeholder { color: var(--text-faint); }
+.md__in::placeholder { color: var(--text-lo); }
 .md__in:focus { border-color: color-mix(in srgb, var(--accent) 52%, var(--line-3)); background: var(--ink-1); }
 .md__aux { display: flex; align-items: center; gap: 4px; margin-top: 7px; }
 .md__aux .btn { height: 26px; font-size: 11.5px; border-color: transparent; }
 .md__aux .btn:hover { border-color: transparent; background: var(--overlay-2); }
 .md__kbd {
-  font-family: var(--font-mono); font-size: 9px; letter-spacing: .06em; color: var(--text-faint);
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: .06em; color: var(--text-lo);
   border: 1px solid var(--line-2); border-radius: 3px; padding: 1px 4px; margin-inline-start: 2px;
 }
 
@@ -233,7 +233,7 @@
   letter-spacing: .16em; text-transform: uppercase; color: var(--text-mid);
 }
 .det[data-kind="unknown"] .det__k { color: var(--err); }
-.det[data-kind="empty"] .det__k { color: var(--text-faint); }
+.det[data-kind="empty"] .det__k { color: var(--text-lo); }
 .det__l2 {
   margin-top: 5px; font-family: var(--font-mono); font-size: 11px; color: var(--text-lo);
   line-height: 1.55; letter-spacing: -.01em;
@@ -273,7 +273,7 @@
   transition: border-color .16s var(--ease-out);
   font-variant-ligatures: none; font-feature-settings: "calt" 0;
 }
-.fld input[type="text"]::placeholder { color: var(--text-faint); }
+.fld input[type="text"]::placeholder { color: var(--text-lo); }
 .fld input[type="text"]:focus { border-color: color-mix(in srgb, var(--accent) 52%, var(--line-3)); }
 .fld input[type="range"] {
   -webkit-appearance: none; appearance: none; width: 100%; height: 14px; background: transparent; cursor: pointer;
@@ -363,7 +363,7 @@
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.14em;
-  color: var(--text-faint);
+  color: var(--text-lo);
   text-transform: uppercase;
 }
 .edit-modal input[type="text"] {

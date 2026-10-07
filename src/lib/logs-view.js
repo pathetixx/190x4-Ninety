@@ -187,7 +187,7 @@ function renderLogEntries(entries) {
 }
 
 function logsInfoLine(text) {
-  return `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--info">···</span><span class="log-line__m" style="font-style:italic;color:var(--text-faint)">${escapeLog(text)}</span></div>`;
+  return `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--info">···</span><span class="log-line__m" style="font-style:italic;color:var(--text-lo)">${escapeLog(text)}</span></div>`;
 }
 
 // Дешёвый ключ вместо сравнения собранного HTML целиком. Прежняя проверка
