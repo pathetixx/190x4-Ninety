@@ -1131,7 +1131,7 @@ export const es = {
     sec: {
       general:    { title: "General",            hint: "Inicio automático, permisos de administrador, protección Wi-Fi, kill switch, registros" },
       privacy:    { title: "Privacidad",          hint: "Túnel estricto y navegador protegido" },
-      appearance: { title: "Apariencia",         hint: "Idioma de la interfaz y selección de tema" },
+      appearance: { title: "Apariencia",         hint: "Idioma de la interfaz, tema y contraste" },
       routing:    { title: "Enrutamiento",       hint: "Región, evasión de LAN, bloqueo de anuncios, IPv6" },
       dns:        { title: "DNS",                hint: "Qué servidores resuelven las direcciones y cómo se guardan en caché" },
       inbound:    { title: "Acceso local",       hint: "Puerto para los programas, tamaño de paquete, acceso desde otros dispositivos" },
@@ -1225,6 +1225,8 @@ export const es = {
 
     appearance: {
       themeBanner: "La paleta es fija — solo cambia el color de acento. Tu elección se guarda automáticamente.",
+      contrastTitle: "Contraste aumentado",
+      contrastHint: "Hace más legibles las etiquetas, los iconos y los bordes en todos los temas. Mientras no lo cambies, sigue el ajuste de contraste de Windows.",
     },
 
     routing: {

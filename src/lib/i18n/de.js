@@ -1123,7 +1123,7 @@ export const de = {
     sec: {
       general:    { title: "Allgemein",          hint: "Autostart, Administratorrechte, WLAN-Schutz, Kill Switch, Logs" },
       privacy:    { title: "Privatsphäre",        hint: "Strikter Tunnel und geschützter Browser" },
-      appearance: { title: "Darstellung",        hint: "Sprache der Oberfläche und Designauswahl" },
+      appearance: { title: "Darstellung",        hint: "Sprache der Oberfläche, Design und Kontrast" },
       routing:    { title: "Routing",            hint: "Region, LAN-Umgehung, Werbeblockierung, IPv6" },
       dns:        { title: "DNS",                hint: "Welche Server Adressen auflösen und wie sie zwischengespeichert werden" },
       inbound:    { title: "Lokaler Zugriff",    hint: "Port für Programme, Paketgröße, Zugriff von anderen Geräten" },
@@ -1217,6 +1217,8 @@ export const de = {
 
     appearance: {
       themeBanner: "Die Palette ist fest — nur die Akzentfarbe ändert sich. Deine Wahl wird automatisch gespeichert.",
+      contrastTitle: "Erhöhter Kontrast",
+      contrastHint: "Macht Beschriftungen, Symbole und Rahmen in allen Designs besser lesbar. Solange du nichts änderst, folgt es der Kontrasteinstellung von Windows.",
     },
 
     routing: {

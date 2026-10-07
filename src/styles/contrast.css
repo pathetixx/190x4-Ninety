@@ -1,0 +1,36 @@
+/* ══════════════════════════════════════════════════════════════
+   Повышенный контраст (Настройки → Оформление, /lib/contrast.js).
+   Вторичный текст, иконки и рамки выводятся из --text-hi и --ink-1
+   текущей темы, поэтому режим работает в любой теме без своей палитры.
+   На --ink-2 выходит: --text-mid от 10:1, --text-lo от 7:1 (WCAG AAA),
+   --text-faint от 4.5:1, рамки --line-2 от 3:1.
+   Селектор с [data-theme] обязателен: #app-root и превью тем сами
+   объявляют токены своей темы и иначе перекрыли бы значения с корня.
+   ══════════════════════════════════════════════════════════════ */
+:root[data-contrast="more"],
+:root[data-contrast="more"] [data-theme] {
+  --text-mid:   color-mix(in oklab, var(--text-hi) 86%, var(--ink-1));
+  --text-lo:    color-mix(in oklab, var(--text-hi) 72%, var(--ink-1));
+  --text-faint: color-mix(in oklab, var(--text-hi) 58%, var(--ink-1));
+
+  --line-1: color-mix(in srgb, var(--text-hi) 14%, transparent);
+  --line-2: color-mix(in srgb, var(--text-hi) 38%, transparent);
+  --line-3: color-mix(in srgb, var(--text-hi) 50%, transparent);
+}
+
+/* Светлым темам до тех же порогов нужна большая доля --text-hi: тёмный
+   текст на светлом фоне даёт меньший предельный контраст, чем светлый на тёмном. */
+:root[data-contrast="more"][data-theme="shiro"],
+:root[data-contrast="more"] [data-theme="shiro"],
+:root[data-contrast="more"][data-theme="sakura"],
+:root[data-contrast="more"] [data-theme="sakura"],
+:root[data-contrast="more"][data-theme="porcelain"],
+:root[data-contrast="more"] [data-theme="porcelain"] {
+  --text-mid:   color-mix(in oklab, var(--text-hi) 93%, var(--ink-1));
+  --text-lo:    color-mix(in oklab, var(--text-hi) 82%, var(--ink-1));
+  --text-faint: color-mix(in oklab, var(--text-hi) 68%, var(--ink-1));
+
+  --line-1: color-mix(in srgb, var(--text-hi) 20%, transparent);
+  --line-2: color-mix(in srgb, var(--text-hi) 50%, transparent);
+  --line-3: color-mix(in srgb, var(--text-hi) 64%, transparent);
+}

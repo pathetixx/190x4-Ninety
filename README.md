@@ -44,7 +44,7 @@ When something breaks, you get diagnostics instead of guesswork.
 | **Quality engine** | Measures real throughput instead of treating ping as the whole story. It can re-test the channel, change nodes, apply masking, move to a server on a different transport, rescan WARP or recommend reconnecting. |
 | **DPI tools** | A separate section for DPI compatibility tools, strategy and list updates, driver cleanup and automatic exclusions for VPN node addresses. |
 | **Privacy** | Strict TUN can pin one server, remove direct exceptions and hold a session-scoped WFP block if the tunnel dies. Ninety can also launch the free Mullvad Browser after connection. |
-| **Desktop UX** | Tray controls, in-app updates, session restore after an update, themes, onboarding, a message form that reaches the developer straight from the About screen, 15 languages and RTL layouts for فارسی / العربية. |
+| **Desktop UX** | Tray controls, in-app updates, session restore after an update, themes with an increased-contrast mode, onboarding, a message form that reaches the developer straight from the About screen, 15 languages and RTL layouts for فارسی / العربية. |
 
 ## Screenshots
 

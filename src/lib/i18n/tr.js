@@ -1123,7 +1123,7 @@ export const tr = {
     sec: {
       general:    { title: "Genel",         hint: "Otomatik başlatma, yönetici hakları, Wi-Fi koruması, kill switch, günlükler" },
       privacy:    { title: "Gizlilik",       hint: "Sıkı tünel ve korunan tarayıcı" },
-      appearance: { title: "Görünüm",       hint: "Arayüz dili ve tema seçimi" },
+      appearance: { title: "Görünüm",       hint: "Arayüz dili, tema ve kontrast" },
       routing:    { title: "Yönlendirme",   hint: "Bölge, LAN atlatma, reklam engelleme, IPv6" },
       dns:        { title: "DNS",           hint: "Site adreslerini hangi sunucular çözer ve nasıl önbelleğe alınır" },
       inbound:    { title: "Yerel erişim",  hint: "Programlar için bağlantı noktası, paket boyutu, diğer cihazlardan erişim" },
@@ -1217,6 +1217,8 @@ export const tr = {
 
     appearance: {
       themeBanner: "Palet sabittir — yalnızca vurgu rengi değişir. Seçiminiz otomatik olarak kaydedilir.",
+      contrastTitle: "Artırılmış kontrast",
+      contrastHint: "Tüm temalarda etiketleri, simgeleri ve kenarlıkları daha okunaklı yapar. Siz değiştirene kadar Windows kontrast ayarını izler.",
     },
 
     routing: {

@@ -1115,7 +1115,7 @@ export const zh = {
     sec: {
       general:    { title: "通用",        hint: "自动启动、管理员权限、Wi-Fi 保护、紧急阻断、日志" },
       privacy:    { title: "隐私",        hint: "严格隧道与受保护浏览器" },
-      appearance: { title: "外观",        hint: "界面语言和主题选择" },
+      appearance: { title: "外观",        hint: "界面语言、主题和对比度" },
       routing:    { title: "路由",        hint: "地区、局域网绕过、广告拦截、IPv6" },
       dns:        { title: "DNS",         hint: "由哪些服务器解析网站地址，以及如何缓存" },
       inbound:    { title: "本地访问",    hint: "供程序使用的端口、数据包大小、来自其他设备的访问" },
@@ -1209,6 +1209,8 @@ export const zh = {
 
     appearance: {
       themeBanner: "调色板固定——仅强调色可变。你的选择会自动保存。",
+      contrastTitle: "增强对比度",
+      contrastHint: "让所有主题中的标签、图标和边框更清晰。在你手动更改之前，跟随 Windows 的对比度设置。",
     },
 
     routing: {

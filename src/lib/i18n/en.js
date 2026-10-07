@@ -1123,7 +1123,7 @@ export const en = {
     sec: {
       general:    { title: "General",        hint: "Autostart, administrator rights, Wi-Fi protection, kill switch, logs" },
       privacy:    { title: "Privacy",        hint: "Strict tunnel and protected browser" },
-      appearance: { title: "Appearance",     hint: "Interface language and theme selection" },
+      appearance: { title: "Appearance",     hint: "Interface language, theme and contrast" },
       routing:    { title: "Routing",        hint: "Region, LAN bypass, ad blocking, IPv6" },
       dns:        { title: "DNS",            hint: "Which servers resolve site addresses and how they are cached" },
       inbound:    { title: "Local access",   hint: "Port for apps, packet size, access from other devices" },
@@ -1217,6 +1217,8 @@ export const en = {
 
     appearance: {
       themeBanner: "The palette is fixed — only the accent color changes. Your choice is saved automatically.",
+      contrastTitle: "Increased contrast",
+      contrastHint: "Makes labels, icons and borders easier to read in every theme. Until you change it, follows the Windows contrast setting.",
     },
 
     routing: {

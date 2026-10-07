@@ -1115,7 +1115,7 @@ export const ko = {
     sec: {
       general:    { title: "일반",          hint: "자동 시작, 관리자 권한, Wi-Fi 보호, 킬 스위치, 로그" },
       privacy:    { title: "개인정보 보호",  hint: "엄격한 터널 및 보호 브라우저" },
-      appearance: { title: "외관",          hint: "인터페이스 언어 및 테마 선택" },
+      appearance: { title: "외관",          hint: "인터페이스 언어, 테마 및 대비" },
       routing:    { title: "라우팅",        hint: "지역, LAN 우회, 광고 차단, IPv6" },
       dns:        { title: "DNS",          hint: "어떤 서버로 사이트 주소를 확인하고 어떻게 저장할지" },
       inbound:    { title: "로컬 접근",     hint: "프로그램용 포트, 패킷 크기, 다른 기기에서의 접근" },
@@ -1209,6 +1209,8 @@ export const ko = {
 
     appearance: {
       themeBanner: "팔레트는 고정되어 있습니다 — 강조색만 변경됩니다. 선택은 자동으로 저장됩니다.",
+      contrastTitle: "대비 높이기",
+      contrastHint: "모든 테마에서 라벨, 아이콘, 테두리를 더 잘 보이게 합니다. 직접 바꾸기 전까지는 Windows 대비 설정을 따릅니다.",
     },
 
     routing: {

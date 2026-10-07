@@ -97,6 +97,7 @@ import { initI18n, onLangChange, applyDom, t, tn } from "/lib/i18n/index.js";
 import { detectRegion } from "/lib/i18n/region-detect.js";
 import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { DEFAULT_THEME_ID, isThemeId } from "/lib/themes.js";
+import { initContrast } from "/lib/contrast.js";
 import { createRuntimeIdentityController, sourceFingerprint, sourceKey } from "/lib/runtime-identity.js";
 import { createSourceMutationController, planSourceDeletion } from "/lib/source-mutations.js";
 import { createBootstrapCoordinator } from "/lib/bootstrap-coordinator.js";
@@ -266,6 +267,7 @@ export function setTheme(theme) {
 }
 // Применяем сохранённую тему сразу — до первого рендера остального
 applyThemeAttr(getTheme());
+initContrast();
 window.__ninetySetTheme = setTheme;
 
 // ── i18n: язык применяется ДО первого показа (каталог уже в памяти, синхронно).

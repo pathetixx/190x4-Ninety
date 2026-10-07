@@ -1131,7 +1131,7 @@ export const fr = {
     sec: {
       general:    { title: "Général",       hint: "Démarrage auto, droits administrateur, protection Wi-Fi, kill switch, journaux" },
       privacy:    { title: "Confidentialité", hint: "Tunnel strict et navigateur protégé" },
-      appearance: { title: "Apparence",     hint: "Langue de l'interface et choix du thème" },
+      appearance: { title: "Apparence",     hint: "Langue de l'interface, thème et contraste" },
       routing:    { title: "Routage",       hint: "Région, contournement LAN, blocage des pubs, IPv6" },
       dns:        { title: "DNS",           hint: "Quels serveurs résolvent les adresses des sites et comment elles sont mises en cache" },
       inbound:    { title: "Accès local",   hint: "Port pour les applications, taille de paquet, accès depuis d’autres appareils" },
@@ -1225,6 +1225,8 @@ export const fr = {
 
     appearance: {
       themeBanner: "La palette est fixe — seule la couleur d’accent change. Votre choix est enregistré automatiquement.",
+      contrastTitle: "Contraste renforcé",
+      contrastHint: "Rend les libellés, les icônes et les bordures plus lisibles dans tous les thèmes. Tant que vous ne le modifiez pas, suit le réglage de contraste de Windows.",
     },
 
     routing: {

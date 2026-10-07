@@ -1115,7 +1115,7 @@ export const ja = {
     sec: {
       general:    { title: "全般",          hint: "自動起動、管理者権限、Wi-Fi 保護、キルスイッチ、ログ" },
       privacy:    { title: "プライバシー",   hint: "厳格トンネルと保護ブラウザ" },
-      appearance: { title: "外観",          hint: "インターフェース言語とテーマの選択" },
+      appearance: { title: "外観",          hint: "インターフェース言語、テーマ、コントラスト" },
       routing:    { title: "ルーティング",   hint: "地域、LAN回避、広告ブロック、IPv6" },
       dns:        { title: "DNS",           hint: "どのサーバーでサイトのアドレスを解決し、どう保持するか" },
       inbound:    { title: "ローカルアクセス", hint: "アプリ用のポート、パケットサイズ、他の端末からのアクセス" },
@@ -1209,6 +1209,8 @@ export const ja = {
 
     appearance: {
       themeBanner: "パレットは固定です — アクセント色のみ変更できます。選択は自動的に保存されます。",
+      contrastTitle: "コントラストを上げる",
+      contrastHint: "すべてのテーマでラベル、アイコン、枠線を見やすくします。手動で変更するまでは Windows のコントラスト設定に従います。",
     },
 
     routing: {

@@ -21,6 +21,8 @@ export const STORAGE_KEYS = {
   modeMigrated: "ninety.mode.migrated",
   strictTunnelPreviousMode: "ninety.privacy.strictTunnel.previousMode",
   theme: "ninety.theme",
+  // "more" | "normal"; нет ключа — режим следует системной настройке контраста.
+  contrast: "ninety.contrast",
   lang: "ninety.lang",
   onboardingStep: "ninety.onboarding.step",
   onboardingDone: "ninety.onboarding.done",
