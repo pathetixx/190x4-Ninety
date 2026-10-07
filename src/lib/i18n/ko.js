@@ -1208,7 +1208,7 @@ export const ko = {
     },
 
     appearance: {
-      themeBanner: "팔레트는 고정되어 있습니다 — 강조색만 변경됩니다. 선택은 자동으로 저장됩니다.",
+      themeBanner: "어떤 테마는 강조색만, 어떤 테마는 팔레트 전체를 바꿉니다. 선택은 자동으로 저장됩니다.",
       contrastTitle: "대비 높이기",
       contrastHint: "모든 테마에서 라벨, 아이콘, 테두리를 더 잘 보이게 합니다. 직접 바꾸기 전까지는 Windows 대비 설정을 따릅니다.",
     },

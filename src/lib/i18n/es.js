@@ -1224,7 +1224,7 @@ export const es = {
     },
 
     appearance: {
-      themeBanner: "La paleta es fija — solo cambia el color de acento. Tu elección se guarda automáticamente.",
+      themeBanner: "Algunos temas cambian solo el color de acento; otros, toda la paleta. Tu elección se guarda automáticamente.",
       contrastTitle: "Contraste aumentado",
       contrastHint: "Hace más legibles las etiquetas, los iconos y los bordes en todos los temas. Mientras no lo cambies, sigue el ajuste de contraste de Windows.",
     },

@@ -1216,7 +1216,7 @@ export const tr = {
     },
 
     appearance: {
-      themeBanner: "Palet sabittir — yalnızca vurgu rengi değişir. Seçiminiz otomatik olarak kaydedilir.",
+      themeBanner: "Bazı temalar yalnızca vurgu rengini, bazıları tüm paleti değiştirir. Seçiminiz otomatik olarak kaydedilir.",
       contrastTitle: "Artırılmış kontrast",
       contrastHint: "Tüm temalarda etiketleri, simgeleri ve kenarlıkları daha okunaklı yapar. Siz değiştirene kadar Windows kontrast ayarını izler.",
     },

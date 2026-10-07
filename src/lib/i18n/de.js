@@ -1216,7 +1216,7 @@ export const de = {
     },
 
     appearance: {
-      themeBanner: "Die Palette ist fest — nur die Akzentfarbe ändert sich. Deine Wahl wird automatisch gespeichert.",
+      themeBanner: "Manche Designs ändern nur die Akzentfarbe, andere die ganze Palette. Deine Wahl wird automatisch gespeichert.",
       contrastTitle: "Erhöhter Kontrast",
       contrastHint: "Macht Beschriftungen, Symbole und Rahmen in allen Designs besser lesbar. Solange du nichts änderst, folgt es der Kontrasteinstellung von Windows.",
     },
