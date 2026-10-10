@@ -6,6 +6,20 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.9.1 — 2026-10-10
+
+## English
+
+- “Auto” no longer fails to connect when the first server in a subscription is unreachable: it moves on to the next one.
+- Service entries that some providers put into subscriptions, such as remaining traffic or plan expiry, no longer show up as servers.
+- Both cores received security fixes.
+
+## Русский
+
+- «Авто» больше не срывает подключение, если первый сервер подписки недоступен: оно переходит к следующему.
+- Служебные строки, которые некоторые провайдеры добавляют в подписку, например остаток трафика или срок тарифа, больше не показываются как серверы.
+- Оба ядра получили исправления безопасности.
+
 ## v0.9.0 — 2026-10-07
 
 ## English
