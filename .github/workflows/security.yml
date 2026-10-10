@@ -97,7 +97,7 @@ jobs:
           # более новую toolchain самому, поэтому stdlib ядер — ровно эта версия.
           # Нижнюю границу задаёт Xray-core (с v26.9.8 требует go 1.27); sing-box
           # собирается на ней с v1.14.1, где h2mux починен под 1.27.
-          go-version: '1.27.1'
+          go-version: '1.27.2'
           cache: false
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
@@ -120,6 +120,7 @@ jobs:
             GOTOOLCHAIN=local go get github.com/insomniacslk/dhcp@v0.0.0-20260719225207-c76316d4aa82
             GOTOOLCHAIN=local go get golang.org/x/crypto@v0.56.0
             GOTOOLCHAIN=local go get google.golang.org/grpc@v1.83.2
+            GOTOOLCHAIN=local go get golang.org/x/net@v0.60.0
             GOTOOLCHAIN=local go mod tidy
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -tags "$tags" -ldflags "-s -w -buildid= -checklinkname=0 -X internal/godebug.defaultGODEBUG=multipathtcp=0" -o "$tmpdir/sing-box" ./cmd/sing-box
             govulncheck -mode=binary -format=json "$tmpdir/sing-box" > "$tmpdir/sing-box-vulns.json"
@@ -148,6 +149,7 @@ jobs:
             cd xray-core
             GOTOOLCHAIN=local go get github.com/klauspost/compress@v1.18.7
             GOTOOLCHAIN=local go get google.golang.org/grpc@v1.83.2
+            GOTOOLCHAIN=local go get golang.org/x/net@v0.60.0
             GOTOOLCHAIN=local go mod tidy
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -ldflags "-s -w -buildid=" -o "$tmpdir/xray" ./main
             govulncheck -mode=binary -format=json "$tmpdir/xray" > "$tmpdir/xray-vulns.json"

@@ -67,7 +67,7 @@ jobs:
           # более новую toolchain самому, поэтому stdlib ядер — ровно эта версия.
           # Нижнюю границу задаёт Xray-core (с v26.9.8 требует go 1.27); sing-box
           # собирается на ней с v1.14.1, где h2mux починен под 1.27.
-          go-version: '1.27.1'
+          go-version: '1.27.2'
           # The built-in cache keys off a go.sum in this repository, and there is
           # none: the cores are cloned inside the job. Cached below instead.
           cache: false
@@ -117,6 +117,10 @@ jobs:
           # тянет их в бинарь. 1.83.2 — первая версия с обоими фиксами (заодно
           # закрывает GO-2026-6441). Тот же go get стоит в security.yml.
           go get google.golang.org/grpc@v1.83.2
+          # GO-2026-6603/6610/6611/6612/6617: HTTP/2 в x/net (тот же код, что и в
+          # net/http Go 1.27.1 — его закрывает пин Go 1.27.2 выше). 0.60.0 —
+          # первая версия с фиксами. Тот же go get стоит в security.yml.
+          go get golang.org/x/net@v0.60.0
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -tags "$BUILD_TAGS" \
@@ -155,6 +159,8 @@ jobs:
           # в 1.84.0 его нет, поэтому для Xray это откат с 1.84.0. Тот же go get
           # стоит в security.yml.
           go get google.golang.org/grpc@v1.83.2
+          # Те же уязвимости HTTP/2 в x/net, что и у sing-box выше.
+          go get golang.org/x/net@v0.60.0
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -ldflags "-s -w -buildid=" -o xray.exe ./main; then
