@@ -52,7 +52,7 @@ argon2 = "0.6"
 chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "getrandom"] }
 zeroize = "1"
 # Проверка подписи канала стратегий (minisign — тот же ключ, что у OTA-апдейтера).
-minisign-verify = "0.2"
+minisign-verify = "0.3"
 # Распаковка подписанного бандла канала (после верификации байтов).
 zip = { version = "8", default-features = false, features = ["deflate"] }
 urlencoding = "2.1"
