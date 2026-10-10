@@ -595,7 +595,7 @@ test("WARP direct: custom action proxy идёт в warp, а не мимо нег
   assert.equal(config.route.final, "warp");
   const rule = config.route.rules.find((r) => r.domain_suffix?.some((suffix) => suffix === "example.com"));
   assert.equal(rule.outbound, "warp");
-  assert.ok(config.route.rule_set.every((rs) => rs.download_detour === "warp"));
+  assert.ok(config.route.rule_set.every((rs) => rs.http_client?.detour === "warp"));
 });
 
 test("WARP direct может собраться без активного профиля или подписки", () => {
@@ -621,7 +621,7 @@ test("WARP direct может собраться без активного про
   assert.deepEqual(config.outbounds.map((o) => o.tag), ["direct"]);
   assert.equal(config.dns.servers.find((s) => s.tag === "dns-remote")?.detour, "warp");
   assert.equal(validateConfigReferences(config), true);
-  assert.ok(config.route.rule_set.every((rs) => rs.download_detour === "warp"));
+  assert.ok(config.route.rule_set.every((rs) => rs.http_client?.detour === "warp"));
 });
 
 test("semantic validator отклоняет ссылки на отсутствующие outbound tags", () => {

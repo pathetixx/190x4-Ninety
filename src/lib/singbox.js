@@ -540,6 +540,8 @@ function assertStrictBootstrapSafe(node) {
 }
 
 // ── rule_sets для региона + block_ads ───────────────────────
+// Канал скачивания — http_client.detour: download_detour в sing-box 1.14
+// объявлен устаревшим и в 1.16 будет удалён.
 function buildRuleSets(options, mode, downloadDetour = "proxy") {
   const sets = [];
   // TUN + split Discord: правило для маршрутизации доменов Discord мимо туннеля.
@@ -547,7 +549,7 @@ function buildRuleSets(options, mode, downloadDetour = "proxy") {
     sets.push({
       type: "remote", tag: "geosite-discord", format: "binary",
       url: `${GEOSITE_BASE}/geosite-discord.srs`,
-      update_interval: "120h", download_detour: downloadDetour,
+      update_interval: "120h", http_client: { detour: downloadDetour },
     });
   }
   const region = options.region;
@@ -555,14 +557,14 @@ function buildRuleSets(options, mode, downloadDetour = "proxy") {
     sets.push({
       type: "remote", tag: `geoip-${region}`, format: "binary",
       url: `${GEOIP_BASE}/geoip-${region}.srs`,
-      update_interval: "120h", download_detour: downloadDetour,
+      update_interval: "120h", http_client: { detour: downloadDetour },
     });
     const geositeName = COUNTRY_GEOSITE[region];
     if (geositeName) {
       sets.push({
         type: "remote", tag: `geosite-${region}`, format: "binary",
         url: `${GEOSITE_BASE}/${geositeName}.srs`,
-        update_interval: "120h", download_detour: downloadDetour,
+        update_interval: "120h", http_client: { detour: downloadDetour },
       });
     }
   }
@@ -570,7 +572,7 @@ function buildRuleSets(options, mode, downloadDetour = "proxy") {
     for (const [tag, url] of BLOCK_AD_SETS) {
       sets.push({
         type: "remote", tag, format: "binary",
-        url, update_interval: "120h", download_detour: downloadDetour,
+        url, update_interval: "120h", http_client: { detour: downloadDetour },
       });
     }
   }
@@ -1770,7 +1772,7 @@ export function validateConfigReferences(config) {
     requireNestedRuleSets(rule, `route.rules[${i}]`);
   }
   for (const [i, set] of (config.route?.rule_set || []).entries()) {
-    requireOutbound(set?.download_detour, `route.rule_set[${i}].download_detour`);
+    requireOutbound(set?.http_client?.detour, `route.rule_set[${i}].http_client.detour`);
   }
   for (const [i, outbound] of (config.outbounds || []).entries()) {
     for (const [j, tag] of (outbound?.outbounds || []).entries()) {
