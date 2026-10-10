@@ -307,3 +307,38 @@ export function partitionNodes(nodes) {
 export function usableNodes(nodes) {
   return partitionNodes(nodes).usable;
 }
+
+// Провайдеры кладут в подписку строки «осталось трафика», «тариф до …»,
+// «включите HWID» в виде ненастоящих серверов на 127.0.0.1 или 0.0.0.0. В
+// «Авто» такая нода первой в списке: до первого замера ядро шлёт через неё
+// загрузку наборов правил, получает отказ соединения и не стартует вовсе.
+function placeholderHost(raw) {
+  const host = String(raw || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host) return false;
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "0.0.0.0" || host === "::" || host === "::1") return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
+/**
+ * Нода-заглушка подписки: адрес никуда не ведёт за пределы этого ПК.
+ * Ручные профили так не проверяются — там 127.0.0.1 бывает осознанным
+ * (например, локальный туннель).
+ */
+export function isPlaceholderNode(node) {
+  if (!node || typeof node !== "object") return false;
+  if (placeholderHost(node.host)) return true;
+  const addresses = Array.isArray(node.addresses) ? node.addresses : [];
+  return addresses.length > 0 && addresses.every((address) => placeholderHost(String(address).replace(/:\d+$/, "")));
+}
+
+/**
+ * Ноды подписки без заглушек — если после отсева остаётся хоть один сервер.
+ * Подписка из одних заглушек — это ответ панели (HWID, истёкший тариф), и её
+ * оставляем как есть: пусть вызывающий разбирает её по своим правилам.
+ */
+export function withoutPlaceholders(nodes) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  const real = list.filter((node) => !isPlaceholderNode(node));
+  return real.length ? real : list;
+}

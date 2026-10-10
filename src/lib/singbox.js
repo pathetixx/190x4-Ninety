@@ -23,6 +23,7 @@ import {
   normalizeFlow,
   normalizeRealityPublicKey,
   usableNodes,
+  withoutPlaceholders,
 } from "/lib/node-validation.js";
 import { parseWireguardConf } from "/lib/protocol-parsers.js";
 import {
@@ -1469,7 +1470,7 @@ export function buildConfig({
   // принимает, роняет весь старт. Подписку чистим и работаем на оставшихся,
   // одиночный профиль чистить нечем — отдаём понятную ошибку вместо FATAL ядра.
   if (!warpOnly && src.kind === "sub") {
-    nodes = usableNodes(nodes).filter(node => !isNodeQuarantined(node));
+    nodes = withoutPlaceholders(usableNodes(nodes).filter(node => !isNodeQuarantined(node)));
     if (!nodes.length) throw new Error(t("sb.err.buildAllNodesInvalid"));
   } else if (!warpOnly && nodeConfigIssue(nodes[0])) {
     throw new Error(t("sb.err.nodeInvalid", { name: nodes[0]?.name || nodes[0]?.host || "" }));
@@ -1901,7 +1902,7 @@ function loadSubsRaw() {
  */
 export function subscriptionSource(sub) {
   if (!sub) return null;
-  const nodes = usableNodes(sub.profiles || []).filter(node => !isNodeQuarantined(node));
+  const nodes = withoutPlaceholders(usableNodes(sub.profiles || []).filter(node => !isNodeQuarantined(node)));
   if (!nodes.length) return null;
   return { kind: "sub", subscription: sub, nodes };
 }

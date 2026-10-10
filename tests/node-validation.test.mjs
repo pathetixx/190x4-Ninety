@@ -166,3 +166,20 @@ test("wireguard: невозможный шейпинг AmneziaWG отбрако�
   );
   assert.equal(nodeConfigIssue(wgNode("H1 = 1\nH2 = 2\nH3 = 3\nH4 = 4")), null);
 });
+
+test("ноды-заглушки подписки распознаются по адресу, а не по имени", async () => {
+  const { isPlaceholderNode, withoutPlaceholders } = await import("/lib/node-validation.js");
+  const info = parseVless("vless://uuid@127.0.0.1:80?security=none#remaining");
+  const hwid = parseVless("vless://uuid@0.0.0.0:1?security=none#hwid");
+  const loopback6 = parseVless("vless://uuid@[::1]:443?security=none#v6");
+  const real = parseVless(`vless://uuid@1.2.3.4:443?security=reality&sni=a.example&pbk=${PBK}&sid=abcd`);
+  assert.equal(isPlaceholderNode(info), true);
+  assert.equal(isPlaceholderNode(hwid), true);
+  assert.equal(isPlaceholderNode(loopback6), true);
+  assert.equal(isPlaceholderNode(real), false);
+  assert.equal(isPlaceholderNode({ proto: "trusttunnel", addresses: ["127.0.0.1:443"] }), true);
+  assert.equal(isPlaceholderNode({ proto: "trusttunnel", addresses: ["127.0.0.1:443", "5.6.7.8:443"] }), false);
+  assert.deepEqual(withoutPlaceholders([info, real]), [real]);
+  // Одни заглушки — это ответ панели (HWID, истёкший тариф): отдаём как есть.
+  assert.deepEqual(withoutPlaceholders([hwid]), [hwid]);
+});

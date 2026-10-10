@@ -7,7 +7,7 @@ import { uid } from "/lib/uid.js";
 import { loadOptions } from "/lib/options.js";
 import { safeDecodeBase64 } from "/lib/url-helpers.js";
 import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
-import { partitionNodes } from "/lib/node-validation.js";
+import { partitionNodes, withoutPlaceholders } from "/lib/node-validation.js";
 import { looksLikeWireguardConf, parseTrustTunnelToml, parseWireguardConf } from "/lib/protocol-parsers.js";
 import { detectConfigFormat, parseClientConfig, unsupportedFormatMessage } from "/lib/config-import.js";
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
@@ -128,6 +128,18 @@ export function parseSubscriptionEntries(body) {
     console.warn("subscription: skip unusable node", issue.code, node?.host);
   }
   return { profiles: usable, skipped: skipped + rejected.length, format: null };
+}
+
+/**
+ * Тело подписки, полученное по ссылке: то же, что parseSubscriptionEntries,
+ * но без нод-заглушек провайдера (см. withoutPlaceholders). Вставленный руками
+ * список не трогаем: там 127.0.0.1 бывает осознанным.
+ * `received` — все ноды до отсева: по ним распознаётся заглушка HWID.
+ * @returns {{profiles: object[], received: object[], skipped: number, format: string|null}}
+ */
+export function parseRemoteSubscription(body) {
+  const parsed = parseSubscriptionEntries(body);
+  return { ...parsed, profiles: withoutPlaceholders(parsed.profiles), received: parsed.profiles };
 }
 
 /**
@@ -362,10 +374,10 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
 
   // Новая подписка сразу живёт по схеме HWID провайдера (см. hwid.js).
   const info = await fetchInfo(u, { hwid, scopedHwid: true });
-  const { profiles, skipped, format } = parseSubscriptionEntries(info.body);
+  const { profiles, received, skipped, format } = parseRemoteSubscription(info.body);
   if (profiles.length === 0) {
     const err = new Error(unsupportedFormatMessage(format) || t("subs.noVless"));
-    err.hwid = hwidSignal(info, profiles, { sent: hwid });
+    err.hwid = hwidSignal(info, received, { sent: hwid });
     throw err;
   }
 
@@ -398,7 +410,7 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
   saveSubscriptions(list);
   // Сигнал панели про лимит устройств живёт только в ответе: в записи подписки
   // ему не место — он про этот запрос, а не про саму подписку.
-  return { ...sub, hwidSignal: hwidSignal(info, profiles, { sent: hwid }) };
+  return { ...sub, hwidSignal: hwidSignal(info, received, { sent: hwid }) };
 }
 
 /**
@@ -409,10 +421,10 @@ export async function refreshSubscription(id) {
   if (!cur) throw new Error(t("subs.notFound"));
 
   const info = await fetchInfo(cur.url, { hwid: !!cur.hwid, scopedHwid: subscriptionUsesScopedHwid(cur) });
-  const { profiles, skipped, format } = parseSubscriptionEntries(info.body);
+  const { profiles, received, skipped, format } = parseRemoteSubscription(info.body);
   if (profiles.length === 0) {
     const err = new Error(unsupportedFormatMessage(format) || t("subs.emptyOrInvalid"));
-    err.hwid = hwidSignal(info, profiles, { sent: !!cur.hwid });
+    err.hwid = hwidSignal(info, received, { sent: !!cur.hwid });
     throw err;
   }
 
@@ -427,7 +439,7 @@ export async function refreshSubscription(id) {
   migrateRememberedSelection(id, fresh.profiles || [], merged.profiles || []);
   list[idx] = merged;
   saveSubscriptions(list);
-  return { ...list[idx], hwidSignal: hwidSignal(info, profiles, { sent: !!cur.hwid }) };
+  return { ...list[idx], hwidSignal: hwidSignal(info, received, { sent: !!cur.hwid }) };
 }
 
 export function mergeSubscriptionRefresh(fresh, info, profiles, skipped = 0) {

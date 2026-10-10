@@ -112,3 +112,17 @@ test("импорт списка ссылок сообщает о пропуще�
   assert.equal(res.skipped, 1);
   assert.match(res.message, /1/);
 });
+
+test("подписка по ссылке теряет заглушки, но HWID видит весь ответ", async () => {
+  const { parseRemoteSubscription } = await import("/lib/subscriptions.js");
+  const body = [
+    "vless://uuid@127.0.0.1:80?security=none#remaining",
+    "vless://uuid@ok1.example:443?security=none#ok1",
+  ].join("\n");
+  const { profiles, received } = parseRemoteSubscription(body);
+  assert.deepEqual(profiles.map((p) => p.host), ["ok1.example"]);
+  assert.equal(received.length, 2);
+
+  const stub = parseRemoteSubscription("vless://uuid@0.0.0.0:1?security=none#Enable%20HWID");
+  assert.equal(stub.profiles.length, 1);
+});
