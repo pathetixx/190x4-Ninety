@@ -6,6 +6,18 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.10.0 — 2026-10-11
+
+## English
+
+- If Windows forwards traffic between networks (often left over from sharing this PC's internet connection), VPN · TUN cannot pass traffic. Ninety now warns about it when connecting, and Diagnostics names the adapter and gives a command to fix it.
+- Ninety now warns when the core opens thousands of connections in a loop, instead of showing “Checking” with no explanation.
+
+## Русский
+
+- Если Windows пересылает трафик между сетями (часто это остаток раздачи интернета с компьютера), в режиме VPN · TUN трафик не идёт. Теперь Ninety предупреждает об этом при подключении, а «Диагностика» называет адаптер и даёт команду для исправления.
+- Ninety теперь предупреждает, когда ядро открывает тысячи соединений по кругу, вместо того чтобы молча показывать «Проверка».
+
 ## v0.9.1 — 2026-10-10
 
 ## English
