@@ -547,6 +547,8 @@ export const ja = {
     systemProxyLostDesc: "ブラウザーは現在 Ninety を経由していません。再接続すると再び VPN 経由になります",
     forwarding: "Windows がネットワーク間でトラフィックを転送しています",
     forwardingDesc: "アダプター「{iface}」で IP 転送が有効です。VPN · TUN モードでは接続がループし、通信が通りません。無効にする方法は「診断」に表示されます。または「システムプロキシ」に切り替えてください。",
+    storm: "コアが数千の接続を開いています",
+    stormDesc: "現在 {count} 件です。接続がループしていて、通信はほとんど通っていません。原因の多くは Windows の IP 転送か、通信を横取りする別のプログラムです。詳しくは「診断」をご覧ください。",
   },
 
   qToast: {
@@ -1065,6 +1067,7 @@ export const ja = {
           died: "コアが停止しました",
           restored: "接続を復旧しました",
           restoreFailed: "接続を復旧できませんでした",
+          storm: "コアが数千の接続を開きました（{count}）。ループの可能性があります",
         },
         system: {
           forwarding: "Windows がネットワーク間でトラフィックを転送しています（{iface}）",

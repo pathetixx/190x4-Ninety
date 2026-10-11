@@ -555,6 +555,8 @@ export const es = {
     systemProxyLostDesc: "Los navegadores ahora evitan Ninety. Vuelve a conectar para enviarlos de nuevo por la VPN",
     forwarding: "Windows reenvía tráfico entre redes",
     forwardingDesc: "El reenvío IP está activado en el adaptador «{iface}». En el modo VPN · TUN hace que las conexiones entren en bucle y no pase tráfico. Diagnóstico muestra cómo desactivarlo, o cambie a Proxy del sistema.",
+    storm: "El núcleo está abriendo miles de conexiones",
+    stormDesc: "Ahora hay {count}: las conexiones giran en círculo y casi no pasa tráfico. Suele deberse al reenvío IP de Windows o a otro programa que intercepta el tráfico. Consulte Diagnóstico para más detalles.",
   },
 
   qToast: {
@@ -1081,6 +1083,7 @@ export const es = {
           died: "El núcleo se detuvo",
           restored: "Conexión restaurada",
           restoreFailed: "No se pudo restaurar la conexión",
+          storm: "El núcleo abrió miles de conexiones ({count}): parece un bucle",
         },
         system: {
           forwarding: "Windows reenvía tráfico entre redes ({iface})",

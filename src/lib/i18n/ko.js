@@ -547,6 +547,8 @@ export const ko = {
     systemProxyLostDesc: "지금 브라우저가 Ninety를 거치지 않습니다. 다시 VPN을 거치게 하려면 재연결하세요",
     forwarding: "Windows가 네트워크 간에 트래픽을 전달하고 있습니다",
     forwardingDesc: "'{iface}' 어댑터에서 IP 전달이 켜져 있습니다. VPN · TUN 모드에서는 연결이 루프에 빠져 트래픽이 통과하지 않습니다. 끄는 방법은 '진단'에서 확인하거나 '시스템 프록시'로 전환하세요.",
+    storm: "코어가 수천 개의 연결을 열고 있습니다",
+    stormDesc: "현재 {count}개입니다. 연결이 루프를 돌고 있어 트래픽이 거의 통과하지 않습니다. 보통 Windows의 IP 전달이나 트래픽을 가로채는 다른 프로그램이 원인입니다. 자세한 내용은 '진단'에서 확인하세요.",
   },
 
   qToast: {
@@ -1065,6 +1067,7 @@ export const ko = {
           died: "코어가 중지되었습니다",
           restored: "연결이 복구되었습니다",
           restoreFailed: "연결을 복구하지 못했습니다",
+          storm: "코어가 수천 개의 연결을 열었습니다 ({count}). 루프로 보입니다",
         },
         system: {
           forwarding: "Windows가 네트워크 간에 트래픽을 전달하고 있습니다 ({iface})",

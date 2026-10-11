@@ -551,6 +551,8 @@ export const tr = {
     systemProxyLostDesc: "Tarayıcılar artık Ninety'yi atlıyor. VPN üzerinden geçmeleri için yeniden bağlanın",
     forwarding: "Windows trafiği ağlar arasında yönlendiriyor",
     forwardingDesc: "“{iface}” bağdaştırıcısında IP yönlendirme açık. VPN · TUN modunda bağlantıları döngüye sokar ve trafik geçmez. Nasıl kapatılacağını Tanılama gösterir; ya da Sistem proxy'si moduna geçin.",
+    storm: "Çekirdek binlerce bağlantı açıyor",
+    stormDesc: "Şu anda {count} bağlantı var: bağlantılar döngüde dönüyor ve neredeyse hiç trafik geçmiyor. Nedeni genellikle Windows'taki IP yönlendirme ya da trafiği yakalayan başka bir programdır. Ayrıntılar Tanılama'da.",
   },
 
   qToast: {
@@ -1073,6 +1075,7 @@ export const tr = {
           died: "Çekirdek durdu",
           restored: "Bağlantı geri geldi",
           restoreFailed: "Bağlantı geri getirilemedi",
+          storm: "Çekirdek binlerce bağlantı açtı ({count}) — döngüye benziyor",
         },
         system: {
           forwarding: "Windows trafiği ağlar arasında yönlendiriyor ({iface})",

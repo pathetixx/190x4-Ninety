@@ -104,6 +104,8 @@ Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Nam
 
 Replace `Ethernet` with the adapter name from the first command. Ninety never changes these settings itself: forwarding may be needed on purpose (Hyper-V, WSL, Mobile hotspot). If you need it, use Proxy or System proxy mode, which are not affected.
 
+Whatever the cause, Ninety also watches how many connections the core holds. If it stays in the thousands, Ninety warns that connections are looping and records it in the Diagnostics timeline.
+
 ## WARP registration or scan issues
 
 - Check **Settings -> WARP** first.

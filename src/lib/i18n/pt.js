@@ -555,6 +555,8 @@ export const pt = {
     systemProxyLostDesc: "Os navegadores agora ignoram o Ninety. Reconecte para voltar a passá-los pela VPN",
     forwarding: "O Windows está encaminhando tráfego entre redes",
     forwardingDesc: "O encaminhamento IP está ativado no adaptador “{iface}”. No modo VPN · TUN ele faz as conexões entrarem em loop, e nenhum tráfego passa. O Diagnóstico mostra como desativá-lo, ou mude para Proxy do sistema.",
+    storm: "O núcleo está abrindo milhares de conexões",
+    stormDesc: "Agora são {count}: as conexões estão andando em círculos e quase nenhum tráfego passa. Geralmente a causa é o encaminhamento IP do Windows ou outro programa que intercepta o tráfego. Veja os detalhes em Diagnóstico.",
   },
 
   qToast: {
@@ -1081,6 +1083,7 @@ export const pt = {
           died: "O núcleo parou",
           restored: "Ligação restaurada",
           restoreFailed: "Não foi possível restaurar a ligação",
+          storm: "O núcleo abriu milhares de conexões ({count}) — parece um loop",
         },
         system: {
           forwarding: "O Windows está encaminhando tráfego entre redes ({iface})",

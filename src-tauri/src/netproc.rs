@@ -78,6 +78,25 @@ pub async fn snapshot_network_tcp() -> Result<Vec<OsTcpConnection>, String> {
 #[cfg(windows)]
 pub(crate) use windows_impl::{process_path as process_image_path, running_pids};
 
+/// Сколько TCP-сокетов держит процесс (IPv4 + IPv6, кроме LISTEN). Нужен
+/// сторожу «шторма соединений» (#168): ядро, чьи собственные соединения
+/// петляют обратно в TUN, за минуту набирает десятки тысяч сокетов, а снаружи
+/// видна только бесконечная «Проверка». None — не знаем: не Windows, снимок не
+/// снялся или упал.
+pub(crate) fn tcp_socket_count(pid: u32) -> Option<u32> {
+    #[cfg(windows)]
+    {
+        std::panic::catch_unwind(|| windows_impl::tcp_count_for_pid(pid))
+            .ok()?
+            .ok()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
 #[cfg(windows)]
 mod windows_impl {
     use super::{NetProcess, OsTcpConnection};
@@ -159,6 +178,80 @@ mod windows_impl {
                 .then_with(|| a.remote_address.cmp(&b.remote_address))
         });
         Ok(out)
+    }
+
+    // MIB_TCP_STATE_LISTEN: слушатель — не соединение.
+    const TCP_STATE_LISTEN: u32 = 2;
+
+    // Снимок TCP-таблицы семейства в буфере из u32-слов (выравнивание строк),
+    // как у остальных снимков. None — таблица пуста.
+    fn tcp_table(family: u32) -> Result<Option<Vec<u32>>, String> {
+        unsafe {
+            let mut size = 0u32;
+            let _ = GetExtendedTcpTable(None, &mut size, false, family, TCP_TABLE_OWNER_PID_ALL, 0);
+            if size == 0 {
+                return Ok(None);
+            }
+            for _ in 0..3 {
+                let words = (size as usize).div_ceil(4);
+                let mut buf = vec![0u32; words];
+                let mut avail = size;
+                let rc = GetExtendedTcpTable(
+                    Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
+                    &mut avail,
+                    false,
+                    family,
+                    TCP_TABLE_OWNER_PID_ALL,
+                    0,
+                );
+                if rc == ERROR_INSUFFICIENT_BUFFER.0 {
+                    size = avail.max(size.saturating_add(4096));
+                    continue;
+                }
+                if rc != 0 {
+                    return Err(format!("GetExtendedTcpTable({family}): код {rc}"));
+                }
+                return Ok(Some(buf));
+            }
+            Err("таблица TCP растёт быстрее, чем читается".into())
+        }
+    }
+
+    /// Строки снимка, обрезанные по фактически выделенному буферу.
+    ///
+    /// SAFETY: `first` указывает на первую строку таблицы внутри `buf`, а сам
+    /// `buf` — снимок GetExtendedTcpTable для таблицы со строками `R`.
+    unsafe fn table_rows<R>(buf: &[u32], entries: u32, first: *const R) -> &[R] {
+        let header = (first as usize) - (buf.as_ptr() as usize);
+        let cap = (buf.len() * 4).saturating_sub(header) / core::mem::size_of::<R>();
+        unsafe { std::slice::from_raw_parts(first, (entries as usize).min(cap)) }
+    }
+
+    pub fn tcp_count_for_pid(pid: u32) -> Result<u32, String> {
+        let mut count = 0usize;
+        if let Some(buf) = tcp_table(AF_INET.0 as u32)? {
+            // SAFETY: буфер — снимок таблицы MIB_TCPTABLE_OWNER_PID.
+            let rows = unsafe {
+                let table = &*(buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID);
+                table_rows(&buf, table.dwNumEntries, table.table.as_ptr())
+            };
+            count += rows
+                .iter()
+                .filter(|row| row.dwOwningPid == pid && row.dwState != TCP_STATE_LISTEN)
+                .count();
+        }
+        if let Some(buf) = tcp_table(AF_INET6.0 as u32)? {
+            // SAFETY: буфер — снимок таблицы MIB_TCP6TABLE_OWNER_PID.
+            let rows = unsafe {
+                let table = &*(buf.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID);
+                table_rows(&buf, table.dwNumEntries, table.table.as_ptr())
+            };
+            count += rows
+                .iter()
+                .filter(|row| row.dwOwningPid == pid && row.dwState != TCP_STATE_LISTEN)
+                .count();
+        }
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
 
     fn tcp_state(state: u32) -> &'static str {

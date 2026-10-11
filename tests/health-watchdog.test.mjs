@@ -541,3 +541,74 @@ test("health watchdog предупреждает о перебитом сист�
   assert.equal(toasts.length, 2, "новая потеря снова предупреждает");
   assert.deepEqual(dismissed, ["toast-1", "toast-2"], "отключение убирает предупреждение");
 });
+
+test("шторм соединений ядра: два тика подряд, одно предупреждение за сессию", async () => {
+  let sockets = 9000;
+  const toasts = [];
+  const diagnostics = [];
+  const storms = [];
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    recordDiagnostic: (...args) => diagnostics.push(args),
+    onConnectionStorm: (count) => storms.push(count),
+    invoke: async () => ({
+      singbox_running: true,
+      xray: "none",
+      sidecar: "none",
+      kill_switch_active: false,
+      system_proxy_lost: false,
+      core_sockets: sockets,
+    }),
+    toast: (title, kind, ms, opts) => { toasts.push({ title, kind, ms, group: opts?.group }); },
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  watchdog.start();
+  await watchdog.tick();
+  assert.equal(toasts.length, 0, "один всплеск — ещё не шторм");
+  sockets = 200;
+  await watchdog.tick();
+  sockets = 9000;
+  await watchdog.tick();
+  assert.equal(toasts.length, 0, "счёт тиков сбрасывается спадом");
+  await watchdog.tick();
+  await watchdog.tick();
+  assert.deepEqual(toasts, [{ title: "conn.storm", kind: "warn", ms: 0, group: "connection-storm" }]);
+  assert.deepEqual(storms, [9000]);
+  assert.deepEqual(diagnostics, [["core_sockets", "degraded", "connection_storm"]]);
+
+  watchdog.stop();
+  watchdog.start();
+  await watchdog.tick();
+  await watchdog.tick();
+  assert.equal(toasts.length, 2, "новая сессия предупреждает снова");
+});
+
+test("без счётчика сокетов шторм не выдумывается", async () => {
+  let toasts = 0;
+  const watchdog = initHealthWatchdog({
+    getState: () => "connected",
+    isUpdateInstalling: () => false,
+    shutdownCore: async () => true,
+    reconnectForSourceChange: () => {},
+    switchView: () => {},
+    getQualityEngine: () => null,
+    invoke: async () => ({ singbox_running: true, xray: "none", sidecar: "none", core_sockets: null }),
+    toast: () => { toasts++; },
+    notify: () => {},
+    t: (key) => key,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  watchdog.start();
+  for (let i = 0; i < 4; i++) await watchdog.tick();
+  assert.equal(toasts, 0);
+});

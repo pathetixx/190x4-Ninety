@@ -559,6 +559,8 @@ export const pl = {
     systemProxyLostDesc: "Przeglądarki omijają teraz Ninety. Połącz się ponownie, aby znów kierować je przez VPN",
     forwarding: "Windows przekazuje ruch między sieciami",
     forwardingDesc: "Na karcie „{iface}” włączone jest przekazywanie IP. W trybie VPN · TUN połączenia przez nie się zapętlają i ruch nie przechodzi. Jak je wyłączyć, pokazuje Diagnostyka — albo przełącz się na Proxy systemowe.",
+    storm: "Rdzeń otwiera tysiące połączeń",
+    stormDesc: "Jest ich teraz {count}: połączenia krążą w kółko i prawie żaden ruch nie przechodzi. Zwykle przyczyną jest przekazywanie IP w Windows albo inny program przechwytujący ruch. Szczegóły w Diagnostyce.",
   },
 
   qToast: {
@@ -1089,6 +1091,7 @@ export const pl = {
           died: "Rdzeń się zatrzymał",
           restored: "Połączenie przywrócone",
           restoreFailed: "Nie udało się przywrócić połączenia",
+          storm: "Rdzeń otworzył tysiące połączeń ({count}) — wygląda na pętlę",
         },
         system: {
           forwarding: "Windows przekazuje ruch między sieciami ({iface})",

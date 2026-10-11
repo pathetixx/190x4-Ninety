@@ -551,6 +551,8 @@ export const en = {
     systemProxyLostDesc: "Browsers now bypass Ninety. Reconnect to route them through the VPN again",
     forwarding: "Windows is forwarding traffic between networks",
     forwardingDesc: "IP forwarding is on for the “{iface}” adapter. In VPN · TUN mode it makes connections loop, and no traffic gets through. Diagnostics shows how to turn it off, or switch to System proxy.",
+    storm: "The core is opening thousands of connections",
+    stormDesc: "There are {count} now: connections are going in circles, and almost no traffic gets through. This is usually caused by IP forwarding in Windows or by another program that intercepts traffic. See Diagnostics for details.",
   },
 
   qToast: {
@@ -1073,6 +1075,7 @@ export const en = {
           died: "The core stopped",
           restored: "Connection restored",
           restoreFailed: "Could not restore the connection",
+          storm: "The core opened thousands of connections ({count}) — looks like a loop",
         },
         system: {
           forwarding: "Windows is forwarding traffic between networks ({iface})",

@@ -547,6 +547,8 @@ export const zh = {
     systemProxyLostDesc: "浏览器现在绕过了 Ninety。重新连接即可让它们再次通过 VPN",
     forwarding: "Windows 正在网络之间转发流量",
     forwardingDesc: "适配器“{iface}”启用了 IP 转发。在 VPN · TUN 模式下，它会让连接陷入循环，流量无法通过。可在“诊断”中查看如何关闭，或切换到“系统代理”。",
+    storm: "内核正在打开数千个连接",
+    stormDesc: "当前有 {count} 个：连接在循环往返，几乎没有流量通过。通常是 Windows 的 IP 转发或其他拦截流量的程序导致的。详情请查看“诊断”。",
   },
 
   qToast: {
@@ -1065,6 +1067,7 @@ export const zh = {
           died: "内核已停止",
           restored: "连接已恢复",
           restoreFailed: "无法恢复连接",
+          storm: "内核打开了数千个连接（{count}），疑似形成循环",
         },
         system: {
           forwarding: "Windows 正在网络之间转发流量（{iface}）",

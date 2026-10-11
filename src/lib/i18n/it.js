@@ -555,6 +555,8 @@ export const it = {
     systemProxyLostDesc: "I browser ora aggirano Ninety. Riconnettiti per farli passare di nuovo dalla VPN",
     forwarding: "Windows inoltra il traffico tra le reti",
     forwardingDesc: "L’inoltro IP è attivo sulla scheda «{iface}». In modalità VPN · TUN fa girare le connessioni in loop e il traffico non passa. Diagnostica mostra come disattivarlo, oppure passa a Proxy di sistema.",
+    storm: "Il core sta aprendo migliaia di connessioni",
+    stormDesc: "Ora sono {count}: le connessioni girano in tondo e quasi nessun traffico passa. Di solito la causa è l’inoltro IP di Windows o un altro programma che intercetta il traffico. Dettagli in Diagnostica.",
   },
 
   qToast: {
@@ -1081,6 +1083,7 @@ export const it = {
           died: "Il core si è fermato",
           restored: "Connessione ripristinata",
           restoreFailed: "Impossibile ripristinare la connessione",
+          storm: "Il core ha aperto migliaia di connessioni ({count}): sembra un loop",
         },
         system: {
           forwarding: "Windows inoltra il traffico tra le reti ({iface})",

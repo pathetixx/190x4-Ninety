@@ -3501,6 +3501,22 @@ pub struct HealthSnapshot {
     // Виноват ли хост, а не сеть. Едет тем же снимком, чтобы движок качества
     // узнавал о нехватке CPU/памяти без отдельного round-trip'а.
     pub host_pressure: crate::host_pressure::HostPressureSnapshot,
+    // TCP-сокеты процесса sing-box. Тысячи и рост — признак петли маршрутизации
+    // (#168); сам вывод делает сторож на фронте. None — ядро не запущено или
+    // снимок не снялся.
+    pub core_sockets: Option<u32>,
+}
+
+fn compute_core_sockets(state: &SingboxState) -> Option<u32> {
+    if !compute_singbox_running(state) {
+        return None;
+    }
+    let pid = state
+        .child
+        .lock_recover()
+        .as_ref()
+        .map(|child| child.pid())?;
+    crate::netproc::tcp_socket_count(pid)
 }
 
 #[tauri::command]
@@ -3519,6 +3535,7 @@ pub async fn health_snapshot(app: AppHandle) -> Result<HealthSnapshot, String> {
             system_proxy_lost: system_proxy_lost(&state),
             runtime_operation: coordinator.snapshot(),
             host_pressure: pressure.snapshot(),
+            core_sockets: compute_core_sockets(&state),
         }
     })
     .await

@@ -551,6 +551,8 @@ export const de = {
     systemProxyLostDesc: "Browser umgehen Ninety jetzt. Verbinde dich neu, um sie wieder über das VPN zu leiten",
     forwarding: "Windows leitet Datenverkehr zwischen Netzwerken weiter",
     forwardingDesc: "Für den Adapter „{iface}“ ist IP-Weiterleitung aktiv. Im Modus VPN · TUN laufen Verbindungen dadurch im Kreis, und es kommt kein Datenverkehr durch. Wie man sie abschaltet, zeigt die Diagnose – oder wechseln Sie zu System-Proxy.",
+    storm: "Der Kern öffnet Tausende Verbindungen",
+    stormDesc: "Derzeit sind es {count}: Die Verbindungen laufen im Kreis, und fast kein Datenverkehr kommt durch. Ursache ist meist IP-Weiterleitung in Windows oder ein anderes Programm, das Datenverkehr abfängt. Details zeigt die Diagnose.",
   },
 
   qToast: {
@@ -1073,6 +1075,7 @@ export const de = {
           died: "Der Kern wurde beendet",
           restored: "Verbindung wiederhergestellt",
           restoreFailed: "Verbindung ließ sich nicht wiederherstellen",
+          storm: "Der Kern hat Tausende Verbindungen geöffnet ({count}) – vermutlich eine Schleife",
         },
         system: {
           forwarding: "Windows leitet Datenverkehr zwischen Netzwerken weiter ({iface})",

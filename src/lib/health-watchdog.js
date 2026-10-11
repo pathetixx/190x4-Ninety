@@ -38,6 +38,13 @@ const TICK_LATE_REPORT_GAP_MS = 60_000;
 // упал» с тостами каждые ~10 секунд навсегда.
 const BRIDGE_RECONNECT_MAX = 3;
 const BRIDGE_RECONNECT_WINDOW_MS = 10 * 60_000;
+// «Шторм соединений» (#168): собственные соединения ядра петляют обратно в
+// TUN, sing-box за минуту набирает десятки тысяч сокетов и не пропускает
+// трафик. Здоровая сессия держит десятки-сотни сокетов, тяжёлая (торрент) —
+// пару тысяч; петля проходит порог за полминуты. Два тика подряд отсекают
+// разовый всплеск.
+const STORM_SOCKETS = 6000;
+const STORM_TICKS = 2;
 
 // getState() → "idle"|"connecting"|"connected"; isUpdateInstalling() → модалка
 // апдейта сама гасит ядра (иначе watchdog найдёт «труп» и слал бы ложную ошибку);
@@ -62,6 +69,8 @@ export function initHealthWatchdog({
   // Подписка на vpn:core-died. Возвращает функцию отписки.
   subscribeCoreDeath = null,
   recordDiagnostic = () => {},
+  // Шторм соединений подтверждён — раз за сессию; main пишет его в ленту.
+  onConnectionStorm = () => {},
   invoke: invokeFn = invoke,
   toast: toastFn = toast,
   notify: notifyFn = notify,
@@ -81,6 +90,8 @@ export function initHealthWatchdog({
   let unsubscribeCoreDeath = null;
   let lastTimerAt = 0;
   let lastLateReportAt = 0;
+  let stormTicks = 0;
+  let stormReported = false;
 
   const current = (run) => run === generation && !isUpdateInstalling();
   const active = (run) => current(run) && getState() === "connected";
@@ -181,9 +192,28 @@ export function initHealthWatchdog({
     notifyFn(tr("conn.systemProxyLost"), tr("conn.systemProxyLostDesc"));
   }
 
+  // Ядро держит тысячи сокетов тик за тиком. Сами не лечим: причина вне
+  // Ninety (чаще всего пересылка IP в Windows), а реконнект только перезапустит
+  // ту же петлю. Говорим человеку и пишем в журнал — вместо немой «Проверки».
+  function reportConnectionStorm(snap) {
+    const sockets = snap.core_sockets;
+    if (typeof sockets !== "number") return;
+    stormTicks = sockets >= STORM_SOCKETS ? stormTicks + 1 : 0;
+    if (stormTicks < STORM_TICKS || stormReported) return;
+    stormReported = true;
+    recordDiagnostic("core_sockets", "degraded", "connection_storm");
+    toastFn(tr("conn.storm"), "warn", 0, {
+      group: "connection-storm",
+      desc: tr("conn.stormDesc", { count: sockets }),
+    });
+    onConnectionStorm(sockets);
+  }
+
   function start() {
     if (timer) return;
     generation++;
+    stormTicks = 0;
+    stormReported = false;
     killSwitchAlerted = false;
     clearSystemProxyAlert();
     lastTimerAt = now();
@@ -373,6 +403,7 @@ export function initHealthWatchdog({
       }
       if (!active(run)) return;
       reportSystemProxy(snap);
+      reportConnectionStorm(snap);
       // Liveness OK — отдаём ход движку качества (детект троттла/деградации).
       // Fire-and-forget: проба до 4с не должна держать busy и тормозить следующий
       // liveness-тик; у движка свои guard'ы probing/remediating.

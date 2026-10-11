@@ -555,6 +555,8 @@ export const fr = {
     systemProxyLostDesc: "Les navigateurs contournent désormais Ninety. Reconnectez-vous pour les faire repasser par le VPN",
     forwarding: "Windows transfère le trafic entre les réseaux",
     forwardingDesc: "Le transfert IP est activé sur l’adaptateur « {iface} ». En mode VPN · TUN, il fait tourner les connexions en boucle et aucun trafic ne passe. Diagnostic indique comment le désactiver, ou passez en Proxy système.",
+    storm: "Le cœur ouvre des milliers de connexions",
+    stormDesc: "Il y en a {count} : les connexions tournent en boucle et presque aucun trafic ne passe. La cause est généralement le transfert IP de Windows ou un autre programme qui intercepte le trafic. Détails dans Diagnostic.",
   },
 
   qToast: {
@@ -1081,6 +1083,7 @@ export const fr = {
           died: "Le cœur s'est arrêté",
           restored: "Connexion restaurée",
           restoreFailed: "Impossible de restaurer la connexion",
+          storm: "Le cœur a ouvert des milliers de connexions ({count}) — probablement une boucle",
         },
         system: {
           forwarding: "Windows transfère le trafic entre les réseaux ({iface})",

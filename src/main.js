@@ -1285,6 +1285,9 @@ const healthWatchdog = initHealthWatchdog({
     });
     return handler(event);
   }),
+  onConnectionStorm: (sockets) => {
+    incidentLog.record("core.storm", { severity: "err", params: { count: sockets } });
+  },
   recordDiagnostic: (phase, result, reason) => {
     void invoke("record_frontend_runtime_event", {
       token: null,
