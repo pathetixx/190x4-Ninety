@@ -545,6 +545,8 @@ export const zh = {
     bridgeLoopDesc: "重连未能解决 — 连接已关闭。请查看日志并尝试其他服务器",
     systemProxyLost: "其他程序更改了 Windows 代理",
     systemProxyLostDesc: "浏览器现在绕过了 Ninety。重新连接即可让它们再次通过 VPN",
+    forwarding: "Windows 正在网络之间转发流量",
+    forwardingDesc: "适配器“{iface}”启用了 IP 转发。在 VPN · TUN 模式下，它会让连接陷入循环，流量无法通过。可在“诊断”中查看如何关闭，或切换到“系统代理”。",
   },
 
   qToast: {
@@ -866,6 +868,7 @@ export const zh = {
     copied: "报告已复制",
     copyErr: "复制失败：{err}",
     ruleAdded: "已为 {domain} 添加规则",
+    forwardingCopied: "命令已复制，请以管理员身份在 PowerShell 中运行",
     verdict: {
       kicker: "结论",
     },
@@ -926,8 +929,13 @@ export const zh = {
         title: "这个网络里 TCP 不通",
         text: "连对照地址都打不开。问题不在服务器：断的是网络本身——Wi-Fi、路由器或运营商。",
       },
+      ipForwarding: {
+        title: "Windows 正在网络之间转发流量",
+        text: "适配器“{iface}”启用了 IP 转发，这通常是本机曾经共享网络连接留下的。在 VPN · TUN 模式下，它会把 Ninety 的连接不断送回隧道，形成循环，流量无法通过。复制命令，以管理员身份在 PowerShell 中运行，然后重启电脑。如果确实需要共享网络，请使用“系统代理”模式。",
+      },
     },
     action: {
+      copyForwardingFix: "复制命令",
       dpi: "开启 DPI 绕过",
       switchNode: "更换服务器",
       ruleDirect: "改走直连",
@@ -1057,6 +1065,9 @@ export const zh = {
           died: "内核已停止",
           restored: "连接已恢复",
           restoreFailed: "无法恢复连接",
+        },
+        system: {
+          forwarding: "Windows 正在网络之间转发流量（{iface}）",
         },
       },
     },

@@ -553,6 +553,8 @@ export const pt = {
     bridgeLoopDesc: "As reconexões não ajudaram — conexão encerrada. Verifique os logs e tente outro servidor",
     systemProxyLost: "Outro programa alterou o proxy do Windows",
     systemProxyLostDesc: "Os navegadores agora ignoram o Ninety. Reconecte para voltar a passá-los pela VPN",
+    forwarding: "O Windows está encaminhando tráfego entre redes",
+    forwardingDesc: "O encaminhamento IP está ativado no adaptador “{iface}”. No modo VPN · TUN ele faz as conexões entrarem em loop, e nenhum tráfego passa. O Diagnóstico mostra como desativá-lo, ou mude para Proxy do sistema.",
   },
 
   qToast: {
@@ -882,6 +884,7 @@ export const pt = {
     copied: "Relatório copiado",
     copyErr: "Não foi possível copiar: {err}",
     ruleAdded: "Regra para {domain} adicionada",
+    forwardingCopied: "Comando copiado — execute-o no PowerShell como administrador",
     verdict: {
       kicker: "Veredicto",
     },
@@ -942,8 +945,13 @@ export const pt = {
         title: "Nesta rede o TCP não funciona",
         text: "Nem o endereço de controlo abre. Não é o servidor: é a própria rede que parte — Wi-Fi, router ou operador.",
       },
+      ipForwarding: {
+        title: "O Windows está encaminhando tráfego entre redes",
+        text: "O encaminhamento IP está ativado no adaptador “{iface}” — geralmente sobra de ter compartilhado a internet deste PC. No modo VPN · TUN ele devolve as conexões do Ninety ao túnel em loop, e nenhum tráfego passa. Copie o comando, execute-o no PowerShell como administrador e reinicie o computador. Se você precisa do compartilhamento, use o modo Proxy do sistema.",
+      },
     },
     action: {
+      copyForwardingFix: "Copiar comando",
       dpi: "Ativar contorno de DPI",
       switchNode: "Mudar de servidor",
       ruleDirect: "Enviar direto",
@@ -1073,6 +1081,9 @@ export const pt = {
           died: "O núcleo parou",
           restored: "Ligação restaurada",
           restoreFailed: "Não foi possível restaurar a ligação",
+        },
+        system: {
+          forwarding: "O Windows está encaminhando tráfego entre redes ({iface})",
         },
       },
     },

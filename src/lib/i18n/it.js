@@ -553,6 +553,8 @@ export const it = {
     bridgeLoopDesc: "Le riconnessioni non hanno aiutato — connessione chiusa. Controlla i log e prova un altro server",
     systemProxyLost: "Un altro programma ha cambiato il proxy di Windows",
     systemProxyLostDesc: "I browser ora aggirano Ninety. Riconnettiti per farli passare di nuovo dalla VPN",
+    forwarding: "Windows inoltra il traffico tra le reti",
+    forwardingDesc: "L’inoltro IP è attivo sulla scheda «{iface}». In modalità VPN · TUN fa girare le connessioni in loop e il traffico non passa. Diagnostica mostra come disattivarlo, oppure passa a Proxy di sistema.",
   },
 
   qToast: {
@@ -882,6 +884,7 @@ export const it = {
     copied: "Rapporto copiato",
     copyErr: "Copia non riuscita: {err}",
     ruleAdded: "Regola per {domain} aggiunta",
+    forwardingCopied: "Comando copiato: eseguilo in PowerShell come amministratore",
     verdict: {
       kicker: "Verdetto",
     },
@@ -942,8 +945,13 @@ export const it = {
         title: "Su questa rete il TCP non funziona",
         text: "Non si apre nemmeno l'indirizzo di controllo. Non è il server: si rompe la rete stessa — Wi-Fi, router o operatore.",
       },
+      ipForwarding: {
+        title: "Windows inoltra il traffico tra le reti",
+        text: "L’inoltro IP è attivo sulla scheda «{iface}»: di solito è un residuo della condivisione della connessione internet di questo PC. In modalità VPN · TUN rimanda in loop le connessioni di Ninety nel tunnel e il traffico non passa. Copia il comando, eseguilo in PowerShell come amministratore e riavvia il computer. Se la condivisione ti serve, usa la modalità Proxy di sistema.",
+      },
     },
     action: {
+      copyForwardingFix: "Copia comando",
       dpi: "Attiva l'aggiramento DPI",
       switchNode: "Cambia server",
       ruleDirect: "Manda in diretta",
@@ -1073,6 +1081,9 @@ export const it = {
           died: "Il core si è fermato",
           restored: "Connessione ripristinata",
           restoreFailed: "Impossibile ripristinare la connessione",
+        },
+        system: {
+          forwarding: "Windows inoltra il traffico tra le reti ({iface})",
         },
       },
     },

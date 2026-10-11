@@ -557,6 +557,8 @@ export const pl = {
     bridgeLoopDesc: "Ponowne połączenia nie pomogły — połączenie zamknięte. Sprawdź logi i wypróbuj inny serwer",
     systemProxyLost: "Inny program zmienił serwer proxy Windows",
     systemProxyLostDesc: "Przeglądarki omijają teraz Ninety. Połącz się ponownie, aby znów kierować je przez VPN",
+    forwarding: "Windows przekazuje ruch między sieciami",
+    forwardingDesc: "Na karcie „{iface}” włączone jest przekazywanie IP. W trybie VPN · TUN połączenia przez nie się zapętlają i ruch nie przechodzi. Jak je wyłączyć, pokazuje Diagnostyka — albo przełącz się na Proxy systemowe.",
   },
 
   qToast: {
@@ -890,6 +892,7 @@ export const pl = {
     copied: "Raport skopiowany",
     copyErr: "Nie udało się skopiować: {err}",
     ruleAdded: "Reguła dla {domain} dodana",
+    forwardingCopied: "Polecenie skopiowane — uruchom je w PowerShell jako administrator",
     verdict: {
       kicker: "Werdykt",
     },
@@ -950,8 +953,13 @@ export const pl = {
         title: "W tej sieci TCP nie działa",
         text: "Nie otwiera się nawet adres kontrolny. To nie serwer: psuje się sama sieć — Wi-Fi, router albo operator.",
       },
+      ipForwarding: {
+        title: "Windows przekazuje ruch między sieciami",
+        text: "Na karcie „{iface}” włączone jest przekazywanie IP — zwykle to pozostałość po udostępnianiu internetu z tego komputera. W trybie VPN · TUN odsyła ono połączenia Ninety z powrotem do tunelu w pętli i ruch nie przechodzi. Skopiuj polecenie, uruchom je w PowerShell jako administrator i uruchom ponownie komputer. Jeśli udostępnianie jest ci potrzebne, korzystaj z trybu Proxy systemowe.",
+      },
     },
     action: {
+      copyForwardingFix: "Kopiuj polecenie",
       dpi: "Włącz omijanie DPI",
       switchNode: "Zmień serwer",
       ruleDirect: "Puść bezpośrednio",
@@ -1081,6 +1089,9 @@ export const pl = {
           died: "Rdzeń się zatrzymał",
           restored: "Połączenie przywrócone",
           restoreFailed: "Nie udało się przywrócić połączenia",
+        },
+        system: {
+          forwarding: "Windows przekazuje ruch między sieciami ({iface})",
         },
       },
     },

@@ -553,6 +553,8 @@ export const fr = {
     bridgeLoopDesc: "Les reconnexions n'ont pas aidé — connexion fermée. Consultez les journaux et essayez un autre serveur",
     systemProxyLost: "Un autre programme a modifié le proxy Windows",
     systemProxyLostDesc: "Les navigateurs contournent désormais Ninety. Reconnectez-vous pour les faire repasser par le VPN",
+    forwarding: "Windows transfère le trafic entre les réseaux",
+    forwardingDesc: "Le transfert IP est activé sur l’adaptateur « {iface} ». En mode VPN · TUN, il fait tourner les connexions en boucle et aucun trafic ne passe. Diagnostic indique comment le désactiver, ou passez en Proxy système.",
   },
 
   qToast: {
@@ -882,6 +884,7 @@ export const fr = {
     copied: "Rapport copié",
     copyErr: "Copie impossible : {err}",
     ruleAdded: "Règle pour {domain} ajoutée",
+    forwardingCopied: "Commande copiée — exécutez-la dans PowerShell en tant qu’administrateur",
     verdict: {
       kicker: "Verdict",
     },
@@ -942,8 +945,13 @@ export const fr = {
         title: "Le TCP ne fonctionne pas sur ce réseau",
         text: "Même l'adresse de contrôle ne s'ouvre pas. Ce n'est pas le serveur : c'est le réseau qui casse — Wi-Fi, box ou opérateur.",
       },
+      ipForwarding: {
+        title: "Windows transfère le trafic entre les réseaux",
+        text: "Le transfert IP est activé sur l’adaptateur « {iface} » — en général un reste du partage de connexion Internet de ce PC. En mode VPN · TUN, il renvoie les connexions de Ninety dans le tunnel en boucle et aucun trafic ne passe. Copiez la commande, exécutez-la dans PowerShell en tant qu’administrateur et redémarrez l’ordinateur. Si vous avez besoin du partage, utilisez le mode Proxy système.",
+      },
     },
     action: {
+      copyForwardingFix: "Copier la commande",
       dpi: "Activer le contournement DPI",
       switchNode: "Changer de serveur",
       ruleDirect: "Envoyer en direct",
@@ -1073,6 +1081,9 @@ export const fr = {
           died: "Le cœur s'est arrêté",
           restored: "Connexion restaurée",
           restoreFailed: "Impossible de restaurer la connexion",
+        },
+        system: {
+          forwarding: "Windows transfère le trafic entre les réseaux ({iface})",
         },
       },
     },

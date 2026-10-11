@@ -204,3 +204,24 @@ test("вердикт: несобравшаяся матрица не даёт о
   assert.equal(verdict.kind, "partial");
   assert.equal(verdict.action, "run");
 });
+
+const forwarding = {
+  routerEnabled: true,
+  interfaces: [{ alias: "Ethernet", family: "ipv4" }, { alias: "Ethernet", family: "ipv6" }],
+};
+
+test("пересылка IP в TUN перекрывает всё остальное", () => {
+  const v = buildVerdict({ trace: trace(), forwarding, tunMode: true, connected: true });
+  assert.equal(v.kind, "ipForwarding");
+  assert.equal(v.severity, "err");
+  assert.equal(v.action, "copyForwardingFix");
+  assert.equal(v.params.iface, "Ethernet");
+  assert.equal(countFindings({ forwarding, tunMode: true }), 1);
+});
+
+test("пересылка IP вне TUN и один флаг реестра вердикта не дают", () => {
+  assert.notEqual(buildVerdict({ forwarding, tunMode: false }).kind, "ipForwarding");
+  const registryOnly = { routerEnabled: true, interfaces: [] };
+  assert.notEqual(buildVerdict({ forwarding: registryOnly, tunMode: true }).kind, "ipForwarding");
+  assert.equal(countFindings({ forwarding: registryOnly, tunMode: true }), 0);
+});

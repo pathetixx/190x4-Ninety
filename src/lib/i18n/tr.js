@@ -549,6 +549,8 @@ export const tr = {
     bridgeLoopDesc: "Yeniden bağlanmalar işe yaramadı — bağlantı kapatıldı. Günlükleri kontrol edin ve başka bir sunucu deneyin",
     systemProxyLost: "Başka bir program Windows proxy ayarını değiştirdi",
     systemProxyLostDesc: "Tarayıcılar artık Ninety'yi atlıyor. VPN üzerinden geçmeleri için yeniden bağlanın",
+    forwarding: "Windows trafiği ağlar arasında yönlendiriyor",
+    forwardingDesc: "“{iface}” bağdaştırıcısında IP yönlendirme açık. VPN · TUN modunda bağlantıları döngüye sokar ve trafik geçmez. Nasıl kapatılacağını Tanılama gösterir; ya da Sistem proxy'si moduna geçin.",
   },
 
   qToast: {
@@ -874,6 +876,7 @@ export const tr = {
     copied: "Rapor kopyalandı",
     copyErr: "Kopyalanamadı: {err}",
     ruleAdded: "{domain} için kural eklendi",
+    forwardingCopied: "Komut kopyalandı — PowerShell'de yönetici olarak çalıştırın",
     verdict: {
       kicker: "Sonuç",
     },
@@ -934,8 +937,13 @@ export const tr = {
         title: "Bu ağda TCP çalışmıyor",
         text: "Kontrol adresi bile açılmıyor. Sorun sunucu değil: ağın kendisi kopuyor — Wi-Fi, modem ya da operatör.",
       },
+      ipForwarding: {
+        title: "Windows trafiği ağlar arasında yönlendiriyor",
+        text: "“{iface}” bağdaştırıcısında IP yönlendirme açık — genellikle bu bilgisayarın internet paylaşımından kalmadır. VPN · TUN modunda Ninety bağlantılarını döngü halinde tünele geri gönderir ve trafik geçmez. Komutu kopyalayın, PowerShell'de yönetici olarak çalıştırın ve bilgisayarı yeniden başlatın. Paylaşıma ihtiyacınız varsa Sistem proxy'si modunu kullanın.",
+      },
     },
     action: {
+      copyForwardingFix: "Komutu kopyala",
       dpi: "DPI atlatmayı aç",
       switchNode: "Sunucu değiştir",
       ruleDirect: "Doğrudan gönder",
@@ -1065,6 +1073,9 @@ export const tr = {
           died: "Çekirdek durdu",
           restored: "Bağlantı geri geldi",
           restoreFailed: "Bağlantı geri getirilemedi",
+        },
+        system: {
+          forwarding: "Windows trafiği ağlar arasında yönlendiriyor ({iface})",
         },
       },
     },

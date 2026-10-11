@@ -549,6 +549,8 @@ export const de = {
     bridgeLoopDesc: "Neuverbindungen halfen nicht — Verbindung geschlossen. Prüfe die Logs und versuche einen anderen Server",
     systemProxyLost: "Ein anderes Programm hat den Windows-Proxy geändert",
     systemProxyLostDesc: "Browser umgehen Ninety jetzt. Verbinde dich neu, um sie wieder über das VPN zu leiten",
+    forwarding: "Windows leitet Datenverkehr zwischen Netzwerken weiter",
+    forwardingDesc: "Für den Adapter „{iface}“ ist IP-Weiterleitung aktiv. Im Modus VPN · TUN laufen Verbindungen dadurch im Kreis, und es kommt kein Datenverkehr durch. Wie man sie abschaltet, zeigt die Diagnose – oder wechseln Sie zu System-Proxy.",
   },
 
   qToast: {
@@ -874,6 +876,7 @@ export const de = {
     copied: "Bericht kopiert",
     copyErr: "Kopieren fehlgeschlagen: {err}",
     ruleAdded: "Regel für {domain} hinzugefügt",
+    forwardingCopied: "Befehl kopiert – führen Sie ihn in PowerShell als Administrator aus",
     verdict: {
       kicker: "Befund",
     },
@@ -934,8 +937,13 @@ export const de = {
         title: "In diesem Netz funktioniert TCP nicht",
         text: "Nicht einmal die Kontrolladresse öffnet. Das ist nicht der Server: das Netz selbst bricht — WLAN, Router oder Anbieter.",
       },
+      ipForwarding: {
+        title: "Windows leitet Datenverkehr zwischen Netzwerken weiter",
+        text: "Für den Adapter „{iface}“ ist IP-Weiterleitung aktiv – meist ein Überbleibsel der Internetfreigabe dieses PCs. Im Modus VPN · TUN schickt sie die Verbindungen von Ninety im Kreis zurück in den Tunnel, und es kommt kein Datenverkehr durch. Kopieren Sie den Befehl, führen Sie ihn in PowerShell als Administrator aus und starten Sie den Computer neu. Wenn Sie die Freigabe brauchen, nutzen Sie den Modus System-Proxy.",
+      },
     },
     action: {
+      copyForwardingFix: "Befehl kopieren",
       dpi: "DPI-Umgehung aktivieren",
       switchNode: "Server wechseln",
       ruleDirect: "Direkt leiten",
@@ -1065,6 +1073,9 @@ export const de = {
           died: "Der Kern wurde beendet",
           restored: "Verbindung wiederhergestellt",
           restoreFailed: "Verbindung ließ sich nicht wiederherstellen",
+        },
+        system: {
+          forwarding: "Windows leitet Datenverkehr zwischen Netzwerken weiter ({iface})",
         },
       },
     },

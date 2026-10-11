@@ -553,6 +553,8 @@ export const es = {
     bridgeLoopDesc: "Las reconexiones no ayudaron — conexión cerrada. Revisa los registros y prueba otro servidor",
     systemProxyLost: "Otro programa cambió el proxy de Windows",
     systemProxyLostDesc: "Los navegadores ahora evitan Ninety. Vuelve a conectar para enviarlos de nuevo por la VPN",
+    forwarding: "Windows reenvía tráfico entre redes",
+    forwardingDesc: "El reenvío IP está activado en el adaptador «{iface}». En el modo VPN · TUN hace que las conexiones entren en bucle y no pase tráfico. Diagnóstico muestra cómo desactivarlo, o cambie a Proxy del sistema.",
   },
 
   qToast: {
@@ -882,6 +884,7 @@ export const es = {
     copied: "Informe copiado",
     copyErr: "No se pudo copiar: {err}",
     ruleAdded: "Regla para {domain} añadida",
+    forwardingCopied: "Comando copiado: ejecútelo en PowerShell como administrador",
     verdict: {
       kicker: "Veredicto",
     },
@@ -942,8 +945,13 @@ export const es = {
         title: "En esta red no funciona TCP",
         text: "Ni siquiera abre la dirección de control. No es el servidor: se rompe la propia red — wifi, router u operador.",
       },
+      ipForwarding: {
+        title: "Windows reenvía tráfico entre redes",
+        text: "El reenvío IP está activado en el adaptador «{iface}»: suele quedar de haber compartido la conexión a internet de este PC. En el modo VPN · TUN devuelve las conexiones de Ninety al túnel en bucle y no pasa tráfico. Copie el comando, ejecútelo en PowerShell como administrador y reinicie el equipo. Si necesita compartir la conexión, use el modo Proxy del sistema.",
+      },
     },
     action: {
+      copyForwardingFix: "Copiar comando",
       dpi: "Activar evasión DPI",
       switchNode: "Cambiar de servidor",
       ruleDirect: "Enviar directo",
@@ -1073,6 +1081,9 @@ export const es = {
           died: "El núcleo se detuvo",
           restored: "Conexión restaurada",
           restoreFailed: "No se pudo restaurar la conexión",
+        },
+        system: {
+          forwarding: "Windows reenvía tráfico entre redes ({iface})",
         },
       },
     },

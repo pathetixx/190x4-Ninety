@@ -8,6 +8,7 @@ mod discord_cache;
 mod dnscheck;
 mod dpi;
 mod feedback;
+mod forwarding;
 mod host_pressure;
 mod hwid;
 mod ipv6;
@@ -1472,6 +1473,7 @@ pub fn run() {
             dpi::dpi_auto_clear,
             discord_cache::discord_cache_clear,
             ipv6::system_ipv6_available,
+            forwarding::system_forwarding_status,
             netproc::list_network_processes,
             netproc::snapshot_network_tcp,
             wifi::current_wifi,

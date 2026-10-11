@@ -10,6 +10,8 @@
 // говорил бы про утечку IPv6 в момент, когда у человека вообще ничего не
 // открывается.
 
+import { forwardingAliases, forwardingProblem } from "/lib/forwarding.js";
+
 // Доля целей, ниже которой «часть сервисов» не превращается в вывод про сеть:
 // одна упавшая цель — это упавшая цель, а не блокировка.
 const BLOCK_SHARE = 0.34;
@@ -45,8 +47,28 @@ export function refusedByServiceRows(rows) {
 
 /// Вердикт по собранным данным. Любая часть может отсутствовать (проверку не
 /// запускали или она не смогла отработать) — правила это учитывают.
-export function buildVerdict({ reach = [], trace = null, leaks = null, connected = false, reachFailed = false } = {}) {
+export function buildVerdict({
+  reach = [],
+  trace = null,
+  leaks = null,
+  forwarding = null,
+  tunMode = false,
+  connected = false,
+  reachFailed = false,
+} = {}) {
   const rows = Array.isArray(reach) ? reach : [];
+
+  // 0. Пересылка IP на внешнем адаптере. В TUN она зацикливает собственные
+  // соединения ядра, и не работает ничего — остальные замеры тогда описывают
+  // уже следствие. В режиме прокси петли нет, и молчим.
+  if (tunMode && forwardingProblem(forwarding)) {
+    return {
+      kind: "ipForwarding",
+      severity: "err",
+      action: "copyForwardingFix",
+      params: { iface: forwardingAliases(forwarding) },
+    };
+  }
 
   // 1. Соединение до сервера. Вывод строится на ТРЁХ замерах сразу: дошёл ли
   // ping, открылся ли порт и открылся ли контрольный адрес. Поодиночке они
@@ -164,9 +186,10 @@ export function verdictFacts({ trace = null, leaks = null, reach = [] } = {}) {
 /// человек может починить: сервис, который открывается только с одной стороны,
 /// оборванная трасса, замечание по утечкам. Строки, работающие с обеих сторон,
 /// находками не считаются.
-export function countFindings({ reach = [], trace = null, leaks = null } = {}) {
+export function countFindings({ reach = [], trace = null, leaks = null, forwarding = null, tunMode = false } = {}) {
   const rows = Array.isArray(reach) ? reach : [];
   let count = blockedTunnelRows(rows).length + refusedByServiceRows(rows).length;
+  if (tunMode && forwardingProblem(forwarding)) count += 1;
   // Одна строка может попасть в оба списка (403 через туннель при живом
   // прямом доступе) — не считаем её дважды.
   const both = rows.filter(

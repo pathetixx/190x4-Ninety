@@ -545,6 +545,8 @@ export const ko = {
     bridgeLoopDesc: "재연결로 해결되지 않아 연결을 종료했습니다. 로그를 확인하고 다른 서버를 시도하세요",
     systemProxyLost: "다른 프로그램이 Windows 프록시를 변경했습니다",
     systemProxyLostDesc: "지금 브라우저가 Ninety를 거치지 않습니다. 다시 VPN을 거치게 하려면 재연결하세요",
+    forwarding: "Windows가 네트워크 간에 트래픽을 전달하고 있습니다",
+    forwardingDesc: "'{iface}' 어댑터에서 IP 전달이 켜져 있습니다. VPN · TUN 모드에서는 연결이 루프에 빠져 트래픽이 통과하지 않습니다. 끄는 방법은 '진단'에서 확인하거나 '시스템 프록시'로 전환하세요.",
   },
 
   qToast: {
@@ -866,6 +868,7 @@ export const ko = {
     copied: "보고서를 복사했습니다",
     copyErr: "복사하지 못했습니다: {err}",
     ruleAdded: "{domain} 규칙을 추가했습니다",
+    forwardingCopied: "명령을 복사했습니다. 관리자 권한 PowerShell에서 실행하세요",
     verdict: {
       kicker: "판정",
     },
@@ -926,8 +929,13 @@ export const ko = {
         title: "이 네트워크에서는 TCP가 통하지 않습니다",
         text: "대조 주소조차 열리지 않습니다. 서버 문제가 아니라 네트워크 자체가 끊깁니다 — 와이파이, 공유기 또는 통신사.",
       },
+      ipForwarding: {
+        title: "Windows가 네트워크 간에 트래픽을 전달하고 있습니다",
+        text: "'{iface}' 어댑터에서 IP 전달이 켜져 있습니다. 보통 이 PC에서 인터넷 연결을 공유했던 흔적입니다. VPN · TUN 모드에서는 Ninety의 연결이 터널로 계속 되돌아가 루프에 빠지고 트래픽이 통과하지 않습니다. 명령을 복사해 관리자 권한 PowerShell에서 실행한 뒤 컴퓨터를 다시 시작하세요. 공유가 필요하다면 '시스템 프록시' 모드를 사용하세요.",
+      },
     },
     action: {
+      copyForwardingFix: "명령 복사",
       dpi: "DPI 우회 켜기",
       switchNode: "서버 변경",
       ruleDirect: "직접 연결로 보내기",
@@ -1057,6 +1065,9 @@ export const ko = {
           died: "코어가 중지되었습니다",
           restored: "연결이 복구되었습니다",
           restoreFailed: "연결을 복구하지 못했습니다",
+        },
+        system: {
+          forwarding: "Windows가 네트워크 간에 트래픽을 전달하고 있습니다 ({iface})",
         },
       },
     },

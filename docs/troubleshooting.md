@@ -90,6 +90,20 @@ Sanitized logs or screenshots:
 - Check whether another VPN client, firewall or endpoint security product is active.
 - Include the exact point where elevation failed and sanitized Logs output.
 
+## VPN · TUN stays on "Checking" and nothing loads
+
+If Windows forwards traffic between networks (IP forwarding is on for the adapter that leads to the internet), the core's own connections loop back into the tunnel. sing-box then opens thousands of connections, uses noticeable CPU and passes almost no data. This is usually left over from sharing the PC's internet connection.
+
+Ninety warns about it when connecting in VPN · TUN, and **Diagnostics** shows the affected adapter with a **Copy command** button. Run the copied command in PowerShell as administrator and restart the computer. To do the same by hand:
+
+```powershell
+Get-NetIPInterface | Where-Object Forwarding -eq Enabled
+Set-NetIPInterface -InterfaceAlias 'Ethernet' -AddressFamily IPv4 -Forwarding Disabled
+Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name IPEnableRouter -Value 0
+```
+
+Replace `Ethernet` with the adapter name from the first command. Ninety never changes these settings itself: forwarding may be needed on purpose (Hyper-V, WSL, Mobile hotspot). If you need it, use Proxy or System proxy mode, which are not affected.
+
 ## WARP registration or scan issues
 
 - Check **Settings -> WARP** first.

@@ -549,6 +549,8 @@ export const en = {
     bridgeLoopDesc: "Reconnects didn't help — connection closed. Check the logs and try another server",
     systemProxyLost: "Another program changed the Windows proxy",
     systemProxyLostDesc: "Browsers now bypass Ninety. Reconnect to route them through the VPN again",
+    forwarding: "Windows is forwarding traffic between networks",
+    forwardingDesc: "IP forwarding is on for the “{iface}” adapter. In VPN · TUN mode it makes connections loop, and no traffic gets through. Diagnostics shows how to turn it off, or switch to System proxy.",
   },
 
   qToast: {
@@ -874,6 +876,7 @@ export const en = {
     copied: "Report copied",
     copyErr: "Could not copy: {err}",
     ruleAdded: "Rule for {domain} added",
+    forwardingCopied: "Command copied — run it in PowerShell as administrator",
     verdict: {
       kicker: "Verdict",
     },
@@ -934,8 +937,13 @@ export const en = {
         title: "TCP does not work on this network",
         text: "Even the control address will not open. This is not the server: the network itself is breaking — Wi-Fi, router or provider.",
       },
+      ipForwarding: {
+        title: "Windows is forwarding traffic between networks",
+        text: "IP forwarding is on for the “{iface}” adapter — usually left over from sharing this PC's internet connection. In VPN · TUN mode it sends Ninety's connections back into the tunnel in a loop, and no traffic gets through. Copy the command, run it in PowerShell as administrator and restart the computer. If you need the sharing, use System proxy mode.",
+      },
     },
     action: {
+      copyForwardingFix: "Copy command",
       dpi: "Turn on DPI bypass",
       switchNode: "Switch server",
       ruleDirect: "Send direct",
@@ -1065,6 +1073,9 @@ export const en = {
           died: "The core stopped",
           restored: "Connection restored",
           restoreFailed: "Could not restore the connection",
+        },
+        system: {
+          forwarding: "Windows is forwarding traffic between networks ({iface})",
         },
       },
     },

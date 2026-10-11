@@ -25,6 +25,7 @@ import { countryName } from "/lib/country-names.js";
 import { relativeTime } from "/lib/relative-time.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
 import { maskAddresses } from "/lib/address-mask.js";
+import { forwardingAliases, forwardingFixCommand, forwardingProblem } from "/lib/forwarding.js";
 
 const TABS = ["trace", "leaks", "feed"];
 // Выбранная вкладка переживает уход с экрана: человек, который вчера смотрел
@@ -109,6 +110,7 @@ export function mountDiagnoseView(root, {
   invoke,
   getGeneration = () => null,
   isConnected = () => false,
+  isTunMode = () => false,
   allowDirect = () => true,
   getNodeEndpoint = () => null,
   getOptions = () => ({}),
@@ -131,6 +133,7 @@ export function mountDiagnoseView(root, {
     probe: null,
     probeError: null,
     reachError: null,
+    forwarding: null,
     tab: loadTab(),
     ranAt: 0,
   };
@@ -223,6 +226,13 @@ export function mountDiagnoseView(root, {
       state.traceError = t("dg.trace.noEndpoint");
     }
 
+    // Локальная проба без сети: сбой или «не знаем» просто не дают вердикта.
+    try {
+      state.forwarding = await invoke("system_forwarding_status");
+    } catch {
+      state.forwarding = null;
+    }
+
     try {
       state.leaks = await invoke("diagnose_leaks", { expectedGeneration: generation });
       state.leaksError = null;
@@ -304,6 +314,11 @@ export function mountDiagnoseView(root, {
       lines.push(`  ${t("dg.tabs.trace")}/tcp: ${tcp.state || "—"} ${tcp.ms ?? "—"}ms`);
       lines.push(`  control: ${state.trace.control?.state || "—"}`);
     }
+    if (isTunMode() && forwardingProblem(state.forwarding)) {
+      // Имена адаптеров — не адреса: маскировать нечего, а без них не понять,
+      // где выключать.
+      lines.push("", `forwarding: ${forwardingAliases(state.forwarding)}${state.forwarding.routerEnabled ? " · IPEnableRouter=1" : ""}`);
+    }
     if (state.leaks) {
       lines.push("", t("dg.tabs.leaks"));
       for (const [key, value] of Object.entries(state.leaks)) {
@@ -322,11 +337,22 @@ export function mountDiagnoseView(root, {
     }
   }
 
+  async function copyForwardingFix() {
+    try {
+      await navigator.clipboard.writeText(forwardingFixCommand(state.forwarding));
+      onToast(t("dg.forwardingCopied"), "success", 6000);
+    } catch (err) {
+      onToast(t("dg.copyErr", { err: String(err) }), "error", 4000);
+    }
+  }
+
   function currentVerdict() {
     return buildVerdict({
       reach: state.reach,
       trace: state.trace,
       leaks: state.leaks,
+      forwarding: state.forwarding,
+      tunMode: !!isTunMode(),
       connected: !!isConnected(),
       // Без матрицы «сеть чистая» — необоснованное утверждение: половина
       // проверки не отработала, а вердикт звучал бы как полный.
@@ -344,7 +370,10 @@ export function mountDiagnoseView(root, {
     const main = el("div");
     main.appendChild(el("div", "dg-verdict__kicker", esc(t("dg.verdict.kicker"))));
     main.appendChild(el("h3", "dg-verdict__title", esc(t(`dg.v.${verdict.kind}.title`, verdict.params))));
-    main.appendChild(el("div", "dg-verdict__text", t(`dg.v.${verdict.kind}.text`, verdict.params)));
+    // Текст вставляется разметкой, а в параметрах бывают имена, пришедшие
+    // снаружи: закреплённый адрес, имя сетевого адаптера.
+    const textParams = Object.fromEntries(Object.entries(verdict.params || {}).map(([key, value]) => [key, esc(String(value))]));
+    main.appendChild(el("div", "dg-verdict__text", t(`dg.v.${verdict.kind}.text`, textParams)));
 
     // Кнопка здесь — только действие по вердикту («включить обход», «сменить
     // сервер», «пустить напрямую»). Глобальные «Проверить» и «Скопировать
@@ -356,6 +385,7 @@ export function mountDiagnoseView(root, {
       primary.disabled = state.running;
       primary.addEventListener("click", () => {
         if (verdict.action === "run") run();
+        else if (verdict.action === "copyForwardingFix") copyForwardingFix();
         else onAction(verdict.action, verdict.params);
       });
       cta.appendChild(primary);
@@ -855,7 +885,7 @@ export function mountDiagnoseView(root, {
     renderSide();
     // Счётчик находок в меню: до первого прогона его быть не должно, иначе
     // «0» выглядит как утверждение «всё проверено и всё хорошо».
-    onFindings(state.ranAt ? countFindings(state) : null);
+    onFindings(state.ranAt ? countFindings({ ...state, tunMode: !!isTunMode() }) : null);
   }
 
   const unsubscribe = log.subscribe(() => {

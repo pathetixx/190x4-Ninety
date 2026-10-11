@@ -545,6 +545,8 @@ export const ja = {
     bridgeLoopDesc: "再接続でも解決しませんでした — 接続を終了しました。ログを確認し、別のサーバーをお試しください",
     systemProxyLost: "別のプログラムが Windows のプロキシを変更しました",
     systemProxyLostDesc: "ブラウザーは現在 Ninety を経由していません。再接続すると再び VPN 経由になります",
+    forwarding: "Windows がネットワーク間でトラフィックを転送しています",
+    forwardingDesc: "アダプター「{iface}」で IP 転送が有効です。VPN · TUN モードでは接続がループし、通信が通りません。無効にする方法は「診断」に表示されます。または「システムプロキシ」に切り替えてください。",
   },
 
   qToast: {
@@ -866,6 +868,7 @@ export const ja = {
     copied: "レポートをコピーしました",
     copyErr: "コピーできません: {err}",
     ruleAdded: "{domain} のルールを追加しました",
+    forwardingCopied: "コマンドをコピーしました。管理者として PowerShell で実行してください",
     verdict: {
       kicker: "判定",
     },
@@ -926,8 +929,13 @@ export const ja = {
         title: "このネットワークでは TCP が通りません",
         text: "対照アドレスすら開きません。サーバーではなく、ネットワーク自体が切れています — Wi-Fi、ルーター、回線業者のいずれかです。",
       },
+      ipForwarding: {
+        title: "Windows がネットワーク間でトラフィックを転送しています",
+        text: "アダプター「{iface}」で IP 転送が有効です。多くの場合、この PC でインターネット接続を共有していた名残です。VPN · TUN モードでは Ninety の接続がトンネルに戻り続けてループし、通信が通りません。コマンドをコピーして管理者として PowerShell で実行し、コンピューターを再起動してください。共有が必要な場合は「システムプロキシ」モードを使ってください。",
+      },
     },
     action: {
+      copyForwardingFix: "コマンドをコピー",
       dpi: "DPI 回避を有効化",
       switchNode: "サーバーを変更",
       ruleDirect: "直接に流す",
@@ -1057,6 +1065,9 @@ export const ja = {
           died: "コアが停止しました",
           restored: "接続を復旧しました",
           restoreFailed: "接続を復旧できませんでした",
+        },
+        system: {
+          forwarding: "Windows がネットワーク間でトラフィックを転送しています（{iface}）",
         },
       },
     },

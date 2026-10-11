@@ -74,6 +74,7 @@ import {
 import { createQualityEngine } from "/lib/quality-engine.js";
 import { bus } from "/lib/bus.js";
 import { groupIncidents, incidentLog } from "/lib/incident-log.js";
+import { forwardingAliases, forwardingProblem } from "/lib/forwarding.js";
 import { createChannelIncidentRecorder } from "/lib/channel-incidents.js";
 import { mountDiagnoseView } from "/lib/diagnose-view.js";
 import { newRule, sanitizeRule } from "/lib/routing-rules.js";
@@ -3436,6 +3437,9 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       // Проба локальная и синхронная, сети не трогает. Ошибка не блокирует
       // старт: undefined читается билдером как «не знаем» и оставляет
       // сегодняшнее поведение с IPv6-адресом.
+      // Пересылка IP на внешнем адаптере зацикливает TUN (#168). Старт её не
+      // ждёт и от неё не зависит — только предупреждаем.
+      if (mode === "tun") void warnAboutForwarding();
       let systemIpv6;
       if (mode === "tun") {
         try { systemIpv6 = await invoke("system_ipv6_available"); }
@@ -4624,6 +4628,7 @@ function ensureDiagnoseView() {
     invoke,
     getGeneration: () => Number(runtimeIdentity.capture()?.processGeneration) || null,
     isConnected: () => state === "connected",
+    isTunMode: () => getMode() === "tun",
     // Прямые пробы физически не пройдут при включённом kill switch и запрещены
     // политикой строгого туннеля: колонка «напрямую» честно остаётся пустой,
     // вместо выдуманного «недоступно».
@@ -4645,6 +4650,27 @@ function ensureDiagnoseView() {
 
 function onDiagnoseViewEnter() {
   ensureDiagnoseView()?.refreshFeed();
+}
+
+// Windows пересылает трафик между сетями: в TUN соединения ядра уходят в петлю,
+// и снаружи это выглядит как бесконечная «Проверка» (#168). Настройку не
+// трогаем — она бывает нужна осознанно; говорим один раз за запуск, а команду
+// исправления даёт «Диагностика».
+let forwardingWarned = false;
+async function warnAboutForwarding() {
+  if (forwardingWarned) return;
+  let status;
+  try {
+    status = await invoke("system_forwarding_status");
+  } catch (e) {
+    console.warn("system_forwarding_status failed", e);
+    return;
+  }
+  if (forwardingWarned || !forwardingProblem(status)) return;
+  forwardingWarned = true;
+  const iface = forwardingAliases(status);
+  incidentLog.record("system.forwarding", { severity: "warn", params: { iface } });
+  toast(t("conn.forwarding"), "warn", 0, { desc: t("conn.forwardingDesc", { iface }) });
 }
 
 // Действие из вердикта или из строки матрицы. Правило маршрутизации пишем в те

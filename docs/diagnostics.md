@@ -38,6 +38,10 @@ The trace is only meaningful outside the tunnel. ICMP goes through `IcmpSendEcho
 
 Checks that run while the tunnel is up: whether names resolve inside the tunnel, whether the system resolver and the tunnel agree on an address, what the external address looks like from the internet, and whether IPv6 is reachable bypassing the tunnel. WebRTC is not checked here — it is a browser-level property and belongs to the protected browser.
 
+## IP forwarding
+
+Each run also reads, locally, whether Windows forwards traffic on the adapter that leads to the internet. In VPN · TUN mode that makes the core's own connections loop back into the tunnel, so it outranks every other finding. The verdict names the adapter and copies a PowerShell command that turns forwarding off; Ninety does not change the setting itself. See [Troubleshooting](./troubleshooting.md#vpn--tun-stays-on-checking-and-nothing-loads).
+
 ## Timeline
 
 A short history of connection incidents: what happened, what Ninety did about it, and how long it took. The quality engine, the watchdogs and the core write into it, so the work they already do stops being invisible. Entries are stored locally, capped, and expire after two weeks.
