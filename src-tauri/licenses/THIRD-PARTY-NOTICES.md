@@ -44,7 +44,7 @@ The engine used for XHTTP connections.
 
 | | |
 | --- | --- |
-| Version | `v26.9.30` (commit `b26a91de4f3294e26a0ad0a970b81a386a41f789`) |
+| Version | `v26.10.10` (commit `701af60772cda123492f86e383e1fdba066614a9`) |
 | Source | <https://github.com/XTLS/Xray-core> |
 | License | Mozilla Public License 2.0 |
 | Text | [`xray-core.txt`](./xray-core.txt) |
@@ -59,7 +59,7 @@ Local SOCKS bridge for `naive+https://` nodes.
 
 | | |
 | --- | --- |
-| Version | `v154.0.8037.49-2` |
+| Version | `v154.0.8037.49-4` |
 | Source | <https://github.com/klzgrad/naiveproxy> |
 | License | BSD 3-Clause (Chromium) |
 | Text | [`naiveproxy.txt`](./naiveproxy.txt) |
@@ -74,7 +74,7 @@ Local SOCKS bridge for `tt://` endpoints.
 
 | | |
 | --- | --- |
-| Version | `v1.1.7` |
+| Version | `v1.1.11` |
 | Source | <https://github.com/TrustTunnel/TrustTunnelClient> |
 | License | Apache License 2.0 |
 | Text | [`trusttunnel-client.txt`](./trusttunnel-client.txt) |

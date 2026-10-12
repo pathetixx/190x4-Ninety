@@ -11,12 +11,12 @@ export const BUILD_INFO = {
   commit: "local",
   date: "—",
   core: "sing-box 1.14.2-ninety.2",
-  coreXray: "Xray 26.9.30",
+  coreXray: "Xray 26.10.10",
   channel: "Early access",
   platform: "Windows · x64",
   components: {
-    naive: "154.0.8037.49-2",
-    trusttunnel: "1.1.7",
+    naive: "154.0.8037.49-4",
+    trusttunnel: "1.1.11",
     wintun: "0.14.1",
   },
 };
