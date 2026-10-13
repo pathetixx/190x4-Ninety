@@ -5,18 +5,18 @@
     "sha": "5f80fdb5e60754079c3eb0a457bded36f3eab165"
   },
   "xray-core": {
-    "tag": "v26.9.30",
-    "sha": "b26a91de4f3294e26a0ad0a970b81a386a41f789"
+    "tag": "v26.10.10",
+    "sha": "701af60772cda123492f86e383e1fdba066614a9"
   },
   "naive": {
-    "version": "v154.0.8037.49-2",
-    "url": "https://github.com/klzgrad/naiveproxy/releases/download/v154.0.8037.49-2/naiveproxy-v154.0.8037.49-2-win-x64.zip",
-    "sha256": "9aeaefd54c317ae8cded3c39beda2f9cb6571e98116841bf4eda4e5f2f24f4e9"
+    "version": "v154.0.8037.49-4",
+    "url": "https://github.com/klzgrad/naiveproxy/releases/download/v154.0.8037.49-4/naiveproxy-v154.0.8037.49-4-win-x64.zip",
+    "sha256": "120b99474848d2f737515c1043249b0998e235fda750f61893d774b317bf1870"
   },
   "trusttunnel_client": {
-    "version": "v1.1.7",
-    "url": "https://github.com/TrustTunnel/TrustTunnelClient/releases/download/v1.1.7/trusttunnel_client-v1.1.7-windows-x86_64.zip",
-    "sha256": "aff81ff4ebcc00d9ede7f29d0fbb56d277d784168080513074ffb8f357ad3796"
+    "version": "v1.1.11",
+    "url": "https://github.com/TrustTunnel/TrustTunnelClient/releases/download/v1.1.11/trusttunnel_client-v1.1.11-windows-x86_64.zip",
+    "sha256": "c6db992c1164abef1a19a8289173be23d87c6f8c039360dbe9b7fdef89a9e526"
   },
   "wintun": {
     "version": "0.14.1",
