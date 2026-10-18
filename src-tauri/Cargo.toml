@@ -54,7 +54,7 @@ zeroize = "1"
 # Проверка подписи канала стратегий (minisign — тот же ключ, что у OTA-апдейтера).
 minisign-verify = "0.3"
 # Распаковка подписанного бандла канала (после верификации байтов).
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 urlencoding = "2.1"
 x25519-dalek = { version = "3", features = ["static_secrets"] }
 rand_core = { version = "0.6", features = ["getrandom"] }

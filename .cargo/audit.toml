@@ -24,4 +24,11 @@ ignore = [
   "RUSTSEC-2025-0100",
   "RUSTSEC-2025-0098",
   "RUSTSEC-2024-0429",
+  # zip 4.6.1 via tauri-plugin-updater 2.14.0 (no release on zip 9 yet).
+  # Ninety ships v2 updater artifacts (signed NSIS .exe, no zip), and the
+  # updater verifies the minisign signature before touching the payload.
+  # Ninety's own zip is on the patched 9.x line. Drop once the plugin moves.
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
 ]

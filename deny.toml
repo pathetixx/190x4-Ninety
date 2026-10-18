@@ -7,6 +7,11 @@
 [advisories]
 unmaintained = "workspace"
 yanked = "deny"
+ignore = [
+  { id = "RUSTSEC-2026-0367", reason = "zip 4.6.1 via tauri-plugin-updater; updates are signed NSIS .exe verified before extraction, own zip is on 9.x" },
+  { id = "RUSTSEC-2026-0368", reason = "zip 4.6.1 via tauri-plugin-updater; updates are signed NSIS .exe verified before extraction, own zip is on 9.x" },
+  { id = "RUSTSEC-2026-0369", reason = "zip 4.6.1 via tauri-plugin-updater; updates are signed NSIS .exe verified before extraction, own zip is on 9.x" },
+]
 
 [licenses]
 confidence-threshold = 0.8
