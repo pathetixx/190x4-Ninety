@@ -2195,7 +2195,7 @@ async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<Pat
         if entry.size() > MAX_CHANNEL_ENTRY_BYTES {
             return Err(format!(
                 "channel entry too large: {} ({} bytes)",
-                entry.name(),
+                entry.name().unwrap_or_default(),
                 entry.size()
             ));
         }
@@ -2210,7 +2210,12 @@ async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<Pat
         // защита от zip-slip: берём только безопасное относительное имя.
         let name = match entry.enclosed_name() {
             Some(n) => n.to_path_buf(),
-            None => return Err(format!("unsafe channel zip path: {}", entry.name())),
+            None => {
+                return Err(format!(
+                    "unsafe channel zip path: {}",
+                    entry.name().unwrap_or_default()
+                ))
+            }
         };
         let out = staging.join(&name);
         if entry.is_dir() {
