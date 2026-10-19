@@ -6,6 +6,16 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.11.2 — 2026-10-19
+
+## English
+
+- In VPN · TUN mode with IPv6 set to “Enable (prefer IPv4)”, sites covered by a “Direct” rule or by your region open again on connections without IPv6.
+
+## Русский
+
+- В режиме VPN · TUN с настройкой IPv6 «Включено (предпочитать IPv4)» сайты из правил «Напрямую» и из вашего региона снова открываются, если у подключения нет IPv6.
+
 ## v0.11.1 — 2026-10-19
 
 ## English

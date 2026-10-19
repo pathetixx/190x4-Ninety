@@ -7,7 +7,7 @@
 // Единственное поле для ручной правки — channel: генератор переносит его из
 // предыдущей версии файла.
 export const BUILD_INFO = {
-  version: "0.11.1",
+  version: "0.11.2",
   commit: "local",
   date: "—",
   core: "sing-box 1.14.3-ninety.2",
