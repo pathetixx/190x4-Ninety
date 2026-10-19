@@ -165,9 +165,11 @@
   cursor: pointer;
   transition: background 150ms var(--ease-out), color 150ms var(--ease-out);
 }
-.pmenu__item:hover { background: var(--shine-1); color: var(--text-hi); }
+.pmenu__item:hover,
+.pmenu__item:focus-visible { background: var(--shine-1); color: var(--text-hi); outline: none; }
 .pmenu__item--danger { color: #FF566B; }
-.pmenu__item--danger:hover { background: rgba(255,42,64,0.10); color: #FF566B; }
+.pmenu__item--danger:hover,
+.pmenu__item--danger:focus-visible { background: rgba(255,42,64,0.10); color: #FF566B; }
 .pmenu__item svg { width: 16px; height: 16px; opacity: 0.85; }
 @keyframes pmenu-in {
   from { opacity: 0; transform: translateY(-6px) scale(0.98); }

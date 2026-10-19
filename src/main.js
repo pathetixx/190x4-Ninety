@@ -127,6 +127,12 @@ import {
   drainUpdateResourceCleanup,
   snapshotUpdate,
 } from "/lib/update-resource.js";
+import {
+  installPageGuards,
+  isContextMenuKey,
+  nextMenuIndex,
+  placeMenu,
+} from "/lib/pmenu.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
@@ -137,6 +143,9 @@ const invoke = window.__TAURI__?.core?.invoke
     return Promise.reject(new Error("Tauri invoke недоступен (web preview)"));
   });
 const protectedBrowser = createProtectedBrowserService({ invoke });
+
+// Меню страницы WebView2, перезагрузка и переходы по истории — вне приложения.
+installPageGuards(document);
 
 // Читающие настройку проверки берут общий замороженный снимок: loadOptions()
 // на каждый вызов делает structuredClone всего дерева, а этот предикат зовут
@@ -2206,7 +2215,7 @@ function renderProfilesView() {
             <div class="pf__val ${daysState}"><span class="n-num">${days}</span><span class="n-unit">${escapeHtml(t("prof.daysUnit"))}</span></div>
             <span class="n-lbl">${escapeHtml(t("prof.statExpires"))}</span>`}
         </div>
-        <button class="n-icon" data-menu-sub="${escapeAttr(s.id)}" type="button" aria-label="${escapeAttr(t("prof.menuAria"))}">${ICON_DOTS}</button>
+        <button class="n-icon" data-menu-sub="${escapeAttr(s.id)}" type="button" aria-haspopup="menu" aria-label="${escapeAttr(t("prof.menuAria"))}">${ICON_DOTS}</button>
       </div>`;
   };
 
@@ -2233,7 +2242,7 @@ function renderProfilesView() {
           <span class="n-lbl">${escapeHtml(t("prof.statTraffic"))}</span>
         </div>
         <div class="pf__col"></div>
-        <button class="n-icon" data-menu-profile="${escapeAttr(p.id)}" type="button" aria-label="${escapeAttr(t("prof.menuAria"))}">${ICON_DOTS}</button>
+        <button class="n-icon" data-menu-profile="${escapeAttr(p.id)}" type="button" aria-haspopup="menu" aria-label="${escapeAttr(t("prof.menuAria"))}">${ICON_DOTS}</button>
       </div>`;
   };
 
@@ -2260,6 +2269,13 @@ function hostOfUrl(url) {
 
 // Кнопки header'а profiles экрана
 profilesList?.addEventListener("keydown", (e) => {
+  if (isContextMenuKey(e)) {
+    const row = e.target.closest(".pf");
+    if (!row) return;
+    e.preventDefault();
+    openRowMenu(row, row, { returnFocus: e.target, focusFirst: true });
+    return;
+  }
   if (e.key !== "Enter" && e.key !== " ") return;
   const row = e.target.closest(".pf");
   if (!row || e.target.closest("button")) return;
@@ -2419,36 +2435,218 @@ document.getElementById("profiles-refresh-all")?.addEventListener("click", async
   }
 });
 
-// Popup-меню действий
+// Popup-меню действий: у кнопки «⋯», у курсора (правый клик) или у строки
+// (клавиша Menu / Shift+F10). Закрывается кликом или правым кликом мимо,
+// Escape, Tab, ресайзом окна; фокус возвращается туда, откуда меню открыли.
 let openMenu = null;
-function closePMenu() {
-  if (openMenu) { openMenu.remove(); openMenu = null; document.removeEventListener("click", onDocClickClosePMenu); }
+let openMenuReturnFocus = null;
+function closePMenu({ restoreFocus = false } = {}) {
+  if (!openMenu) return;
+  openMenu.remove();
+  openMenu = null;
+  document.removeEventListener("click", onDocClickClosePMenu);
+  document.removeEventListener("contextmenu", onDocClickClosePMenu, true);
+  window.removeEventListener("resize", onWindowResizeClosePMenu);
+  document.removeEventListener("keydown", onDocKeydownClosePMenu);
+  const back = openMenuReturnFocus;
+  openMenuReturnFocus = null;
+  if (restoreFocus && back?.isConnected) back.focus();
 }
 function onDocClickClosePMenu(e) {
   if (openMenu && !openMenu.contains(e.target)) closePMenu();
 }
-function openPMenu(anchor, items) {
+function onWindowResizeClosePMenu() { closePMenu(); }
+// Меню открыто мышью, фокус остался снаружи — Escape всё равно закрывает.
+function onDocKeydownClosePMenu(e) {
+  if (e.key === "Escape") closePMenu({ restoreFocus: true });
+}
+function onPMenuKeydown(e) {
+  const items = [...e.currentTarget.querySelectorAll("[data-act]")];
+  const next = nextMenuIndex(e.key, items.indexOf(document.activeElement), items.length);
+  if (next !== null) { e.preventDefault(); items[next].focus(); return; }
+  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePMenu({ restoreFocus: true }); return; }
+  if (e.key === "Tab") { e.preventDefault(); closePMenu({ restoreFocus: true }); }
+}
+/**
+ * @param {Element|{x:number,y:number}} anchor кнопка/строка или точка курсора
+ * @param {Array} items пункты меню
+ * @param {{returnFocus?: Element|null, focusFirst?: boolean}} [opts]
+ */
+function openPMenu(anchor, items, { returnFocus = null, focusFirst = false } = {}) {
   closePMenu();
   const menu = document.createElement("div");
   menu.className = "pmenu";
+  menu.setAttribute("role", "menu");
   menu.innerHTML = items.map(it => `
-    <button class="pmenu__item${it.danger ? " pmenu__item--danger" : ""}" data-act="${escapeAttr(it.id)}" type="button">
+    <button class="pmenu__item${it.danger ? " pmenu__item--danger" : ""}" data-act="${escapeAttr(it.id)}" type="button" role="menuitem" tabindex="-1">
       ${it.icon || ""}<span>${escapeHtml(it.label)}</span>
     </button>
   `).join("");
   document.body.appendChild(menu);
-  const rect = anchor.getBoundingClientRect();
+  const isPoint = !(anchor instanceof Element);
+  const rect = isPoint
+    ? { top: anchor.y, bottom: anchor.y, left: anchor.x }
+    : anchor.getBoundingClientRect();
   const m = menu.getBoundingClientRect();
-  let top = rect.bottom + 6;
-  let left = rect.left;
-  if (top + m.height > window.innerHeight - 12) top = rect.top - m.height - 6;
-  if (left + m.width > window.innerWidth - 12) left = window.innerWidth - m.width - 12;
-  menu.style.top = `${Math.max(8, top)}px`;
-  menu.style.left = `${Math.max(8, left)}px`;
+  const pos = placeMenu(rect, m, { width: window.innerWidth, height: window.innerHeight }, isPoint ? 0 : 6);
+  menu.style.top = `${pos.top}px`;
+  menu.style.left = `${pos.left}px`;
+  menu.addEventListener("keydown", onPMenuKeydown);
+  // Пункт меню забирает фокус при клике — возвращаем его на исходное место.
+  menu.addEventListener("click", (e) => {
+    if (e.target.closest("[data-act]")) closePMenu({ restoreFocus: true });
+  });
   openMenu = menu;
-  setTimeout(() => document.addEventListener("click", onDocClickClosePMenu), 10);
+  openMenuReturnFocus = returnFocus ?? (isPoint ? null : anchor);
+  if (focusFirst) menu.querySelector("[data-act]")?.focus();
+  setTimeout(() => {
+    if (openMenu !== menu) return;
+    document.addEventListener("click", onDocClickClosePMenu);
+    document.addEventListener("contextmenu", onDocClickClosePMenu, true);
+    window.addEventListener("resize", onWindowResizeClosePMenu);
+    document.addEventListener("keydown", onDocKeydownClosePMenu);
+  }, 10);
   return menu;
 }
+
+// Меню подписки и одиночного профиля. Одна точка входа для «⋯», правого клика
+// и клавиатуры — пункты и действия не могут разъехаться.
+function openSubscriptionMenu(anchor, id, opts) {
+  const menu = openPMenu(anchor, [
+    { id: "refresh",  label: t("prof.menu.refresh"),  icon: ICON_REFRESH },
+    { id: "edit",     label: t("prof.menu.edit"), icon: ICON_EDIT },
+    { id: "copy",     label: t("prof.menu.copyUrl"), icon: ICON_COPY },
+    { id: "qr",       label: t("prof.menu.qr"), icon: ICON_QR },
+    { id: "export",   label: t("prof.menu.export"), icon: ICON_COPY },
+    { id: "activate", label: t("prof.menu.activateSub"), icon: ICON_CHECK },
+    { id: "reset-traffic", label: t("prof.menu.resetTraffic"), icon: ICON_REFRESH },
+    { id: "remove",   label: t("prof.menu.remove"),   icon: ICON_TRASH, danger: true },
+  ], opts);
+  menu.addEventListener("click", async (ev) => {
+    const act = ev.target.closest("[data-act]")?.dataset.act;
+    if (!act) return;
+    closePMenu();
+    if (act === "edit") {
+      const sub = loadSubscriptions().find(s => s.id === id);
+      const before = sourceFingerprint(sourceById("sub", id));
+      if (sub) openEditSubscription(sub, {
+        onSaved: async (changes) => {
+          // Смена отправки HWID меняет сам ответ панели — перечитываем список,
+          // иначе на экране остаётся заглушка предыдущего запроса.
+          const apply = changes?.hwidChanged
+            ? () => refreshSubscription(id)
+            : async () => sub;
+          try {
+            await mutateSource("sub", id, apply, t("conn.applyingSettings"), before);
+          } catch (err) {
+            toast(t("prof.toastErr", { err: err?.message || err }), "error", 2800);
+          }
+          if (changes?.hwidChanged) {
+            renderProfilesView();
+            refreshSubCardFromActive();
+          }
+        },
+        onToast: toast,
+      });
+      return;
+    }
+    if (act === "refresh") {
+      try {
+        // Ручное обновление — это ещё и «попробуй снова»: снимаем карантин,
+        // иначе выключенный по отказу ядра сервер не вернуть ничем, кроме
+        // очистки данных. Если он всё ещё сломан, ядро скажет это снова.
+        clearNodeQuarantine();
+        const tx = await mutateSource("sub", id, () => refreshSubscription(id), t("conn.applyingSettings"));
+        const r = tx.result;
+        toast(t("prof.toastUpdated", { srv: tn("prof.srvN", r.profiles.length) }), "success", 1800);
+        if (r.skipped > 0) toast(t("subs.skippedNote", { n: r.skipped }), "warn", 6000);
+        await offerHwidAndReload(id, r.hwidSignal);
+      } catch (err) {
+        toast(t("prof.toastErr", { err: err?.message || err }), "error", 2800);
+        await offerHwidAndReload(id, err?.hwid);
+      }
+      renderProfilesView();
+      refreshSubCardFromActive();
+    } else if (act === "copy") {
+      const sub = loadSubscriptions().find(s => s.id === id);
+      await copySubscriptionUrl(sub, toast);
+    } else if (act === "qr") {
+      const sub = loadSubscriptions().find(s => s.id === id);
+      if (sub) openQRModal(sub);
+    } else if (act === "export") {
+      const sub = loadSubscriptions().find(s => s.id === id);
+      if (sub) await exportSingboxJson({ kind: "sub", subscription: sub, nodes: sub.profiles }, toast);
+    } else if (act === "activate") {
+      activateSource("sub", id);
+    } else if (act === "reset-traffic") {
+      resetMeasured(`sub:${id}`);
+      renderProfilesView();
+      refreshSubCardFromActive();
+      toast(t("prof.toastTrafficReset"), "info", 1600);
+    } else if (act === "remove") {
+      await deleteSource("sub", id);
+    }
+  });
+  return menu;
+}
+
+function openProfileMenu(anchor, id, opts) {
+  const menuProfile = loadProfiles().find(x => x.id === id);
+  const menu = openPMenu(anchor, [
+    { id: "edit",     label: t("prof.menu.edit"),    icon: ICON_EDIT },
+    // WireGuard делится файлом, а не ссылкой: пункт есть только у таких профилей.
+    ...(menuProfile?.proto === "wireguard"
+      ? [{ id: "wg-conf", label: t("prof.menu.copyConf"), icon: ICON_COPY }]
+      : []),
+    { id: "activate", label: t("prof.menu.activateProfile"), icon: ICON_CHECK },
+    { id: "reset-traffic", label: t("prof.menu.resetTraffic"), icon: ICON_REFRESH },
+    { id: "remove",   label: t("prof.menu.remove"),          icon: ICON_TRASH, danger: true },
+  ], opts);
+  menu.addEventListener("click", async (ev) => {
+    const act = ev.target.closest("[data-act]")?.dataset.act;
+    if (!act) return;
+    closePMenu();
+    if (act === "edit") {
+      const p = loadProfiles().find(x => x.id === id);
+      const before = sourceFingerprint(sourceById("single", id));
+      if (p) openEditProfile(p, {
+        onSaved: () => mutateSource("single", id, async () => p, t("conn.applyingSettings"), before),
+        onToast: toast,
+      });
+      return;
+    }
+    if (act === "wg-conf") {
+      await copyWireguardConf(loadProfiles().find(x => x.id === id), toast);
+      return;
+    }
+    if (act === "activate") {
+      activateSource("single", id);
+    } else if (act === "reset-traffic") {
+      resetMeasured(`profile:${id}`);
+      renderProfilesView();
+      refreshSubCardFromActive();
+      toast(t("prof.toastTrafficReset"), "info", 1600);
+    } else if (act === "remove") {
+      await deleteSource("single", id);
+    }
+  });
+  return menu;
+}
+
+/** Меню строки профилей (.pf): подписка или одиночный профиль. */
+function openRowMenu(row, anchor, opts) {
+  if (row.dataset.subId) return openSubscriptionMenu(anchor, row.dataset.subId, opts);
+  if (row.dataset.id) return openProfileMenu(anchor, row.dataset.id, opts);
+  return null;
+}
+
+// Правый клик по строке → то же меню, что у «⋯», у курсора.
+profilesView?.addEventListener("contextmenu", (e) => {
+  const row = e.target.closest(".pf");
+  if (!row) return;
+  e.preventDefault();
+  openRowMenu(row, { x: e.clientX, y: e.clientY }, { returnFocus: row });
+});
 
 profilesView?.addEventListener("click", async (e) => {
   // FAB → открыть add-modal
@@ -2461,82 +2659,8 @@ profilesView?.addEventListener("click", async (e) => {
   const subMenuBtn = e.target.closest("[data-menu-sub]");
   if (subMenuBtn) {
     e.stopPropagation();
-    const id = subMenuBtn.dataset.menuSub;
-    const menu = openPMenu(subMenuBtn, [
-      { id: "refresh",  label: t("prof.menu.refresh"),  icon: ICON_REFRESH },
-      { id: "edit",     label: t("prof.menu.edit"), icon: ICON_EDIT },
-      { id: "copy",     label: t("prof.menu.copyUrl"), icon: ICON_COPY },
-      { id: "qr",       label: t("prof.menu.qr"), icon: ICON_QR },
-      { id: "export",   label: t("prof.menu.export"), icon: ICON_COPY },
-      { id: "activate", label: t("prof.menu.activateSub"), icon: ICON_CHECK },
-      { id: "reset-traffic", label: t("prof.menu.resetTraffic"), icon: ICON_REFRESH },
-      { id: "remove",   label: t("prof.menu.remove"),   icon: ICON_TRASH, danger: true },
-    ]);
-    menu.addEventListener("click", async (ev) => {
-      const act = ev.target.closest("[data-act]")?.dataset.act;
-      if (!act) return;
-      closePMenu();
-      if (act === "edit") {
-        const sub = loadSubscriptions().find(s => s.id === id);
-        const before = sourceFingerprint(sourceById("sub", id));
-        if (sub) openEditSubscription(sub, {
-          onSaved: async (changes) => {
-            // Смена отправки HWID меняет сам ответ панели — перечитываем список,
-            // иначе на экране остаётся заглушка предыдущего запроса.
-            const apply = changes?.hwidChanged
-              ? () => refreshSubscription(id)
-              : async () => sub;
-            try {
-              await mutateSource("sub", id, apply, t("conn.applyingSettings"), before);
-            } catch (err) {
-              toast(t("prof.toastErr", { err: err?.message || err }), "error", 2800);
-            }
-            if (changes?.hwidChanged) {
-              renderProfilesView();
-              refreshSubCardFromActive();
-            }
-          },
-          onToast: toast,
-        });
-        return;
-      }
-      if (act === "refresh") {
-        try {
-          // Ручное обновление — это ещё и «попробуй снова»: снимаем карантин,
-          // иначе выключенный по отказу ядра сервер не вернуть ничем, кроме
-          // очистки данных. Если он всё ещё сломан, ядро скажет это снова.
-          clearNodeQuarantine();
-          const tx = await mutateSource("sub", id, () => refreshSubscription(id), t("conn.applyingSettings"));
-          const r = tx.result;
-          toast(t("prof.toastUpdated", { srv: tn("prof.srvN", r.profiles.length) }), "success", 1800);
-          if (r.skipped > 0) toast(t("subs.skippedNote", { n: r.skipped }), "warn", 6000);
-          await offerHwidAndReload(id, r.hwidSignal);
-        } catch (err) {
-          toast(t("prof.toastErr", { err: err?.message || err }), "error", 2800);
-          await offerHwidAndReload(id, err?.hwid);
-        }
-        renderProfilesView();
-        refreshSubCardFromActive();
-      } else if (act === "copy") {
-        const sub = loadSubscriptions().find(s => s.id === id);
-        await copySubscriptionUrl(sub, toast);
-      } else if (act === "qr") {
-        const sub = loadSubscriptions().find(s => s.id === id);
-        if (sub) openQRModal(sub);
-      } else if (act === "export") {
-        const sub = loadSubscriptions().find(s => s.id === id);
-        if (sub) await exportSingboxJson({ kind: "sub", subscription: sub, nodes: sub.profiles }, toast);
-      } else if (act === "activate") {
-        activateSource("sub", id);
-      } else if (act === "reset-traffic") {
-        resetMeasured(`sub:${id}`);
-        renderProfilesView();
-        refreshSubCardFromActive();
-        toast(t("prof.toastTrafficReset"), "info", 1600);
-      } else if (act === "remove") {
-        await deleteSource("sub", id);
-      }
-    });
+    // detail === 0 — нажатие с клавиатуры: фокус сразу на первый пункт.
+    openSubscriptionMenu(subMenuBtn, subMenuBtn.dataset.menuSub, { focusFirst: e.detail === 0 });
     return;
   }
 
@@ -2551,46 +2675,7 @@ profilesView?.addEventListener("click", async (e) => {
   const profileMenuBtn = e.target.closest("[data-menu-profile]");
   if (profileMenuBtn) {
     e.stopPropagation();
-    const id = profileMenuBtn.dataset.menuProfile;
-    const menuProfile = loadProfiles().find(x => x.id === id);
-    const menu = openPMenu(profileMenuBtn, [
-      { id: "edit",     label: t("prof.menu.edit"),    icon: ICON_EDIT },
-      // WireGuard делится файлом, а не ссылкой: пункт есть только у таких профилей.
-      ...(menuProfile?.proto === "wireguard"
-        ? [{ id: "wg-conf", label: t("prof.menu.copyConf"), icon: ICON_COPY }]
-        : []),
-      { id: "activate", label: t("prof.menu.activateProfile"), icon: ICON_CHECK },
-      { id: "reset-traffic", label: t("prof.menu.resetTraffic"), icon: ICON_REFRESH },
-      { id: "remove",   label: t("prof.menu.remove"),          icon: ICON_TRASH, danger: true },
-    ]);
-    menu.addEventListener("click", async (ev) => {
-      const act = ev.target.closest("[data-act]")?.dataset.act;
-      if (!act) return;
-      closePMenu();
-      if (act === "edit") {
-        const p = loadProfiles().find(x => x.id === id);
-        const before = sourceFingerprint(sourceById("single", id));
-        if (p) openEditProfile(p, {
-          onSaved: () => mutateSource("single", id, async () => p, t("conn.applyingSettings"), before),
-          onToast: toast,
-        });
-        return;
-      }
-      if (act === "wg-conf") {
-        await copyWireguardConf(loadProfiles().find(x => x.id === id), toast);
-        return;
-      }
-      if (act === "activate") {
-        activateSource("single", id);
-      } else if (act === "reset-traffic") {
-        resetMeasured(`profile:${id}`);
-        renderProfilesView();
-        refreshSubCardFromActive();
-        toast(t("prof.toastTrafficReset"), "info", 1600);
-      } else if (act === "remove") {
-        await deleteSource("single", id);
-      }
-    });
+    openProfileMenu(profileMenuBtn, profileMenuBtn.dataset.menuProfile, { focusFirst: e.detail === 0 });
     return;
   }
 
