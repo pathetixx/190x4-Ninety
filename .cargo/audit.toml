@@ -31,4 +31,11 @@ ignore = [
   "RUSTSEC-2026-0367",
   "RUSTSEC-2026-0368",
   "RUSTSEC-2026-0369",
+  # zvariant / zbus_names / zvariant_derive are unmaintained (merged into
+  # zbus 6). They come only through zbus, the Linux D-Bus backend of
+  # notify-rust and tauri-plugin-single-instance; the Windows build does not
+  # use it. Drop once those crates move to zbus 6.
+  "RUSTSEC-2026-0370",
+  "RUSTSEC-2026-0371",
+  "RUSTSEC-2026-0372",
 ]
