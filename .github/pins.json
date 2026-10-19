@@ -5,8 +5,8 @@
     "sha": "042f6809635eb60fb7e24f485fa2bfb169a7f91d"
   },
   "xray-core": {
-    "tag": "v26.10.10",
-    "sha": "701af60772cda123492f86e383e1fdba066614a9"
+    "tag": "v26.10.17",
+    "sha": "92ccc939aaf4f8965f369cf0b142e005aeaa11d5"
   },
   "naive": {
     "version": "v154.0.8037.49-4",
