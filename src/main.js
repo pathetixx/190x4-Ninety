@@ -707,7 +707,12 @@ function scheduleViewEnter(target) {
 function switchView(target) {
   currentView = target;
   activityController.setView(target);
-  navItems.forEach((n) => n.classList.toggle("nav__item--active", n.dataset.view === target));
+  navItems.forEach((n) => {
+    const active = n.dataset.view === target;
+    n.classList.toggle("nav__item--active", active);
+    if (active) { n.setAttribute("aria-current", "page"); n.scrollIntoView({ block: "nearest" }); }
+    else n.removeAttribute("aria-current");
+  });
   views.forEach((v) => { v.hidden = v.dataset.view !== target; });
   // Видео-маска декодится только пока главный экран виден — оффскрин обнуляем декод.
   if (heroMask) { if (target === "home") heroMask.play?.().catch(() => {}); else heroMask.pause?.(); }
@@ -717,8 +722,25 @@ function switchView(target) {
 }
 
 navItems.forEach((item) => {
+  item.tabIndex = 0;
   item.addEventListener("click", () => switchView(item.dataset.view));
+  item.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchView(item.dataset.view); }
+  });
 });
+
+// В низком окне меню прокручивается внутри себя; полосы нет, поэтому край,
+// за которым остались пункты, помечаем для затухания (см. .nav[data-scroll]).
+const navList = document.querySelector(".nav");
+function syncNavScrollHint() {
+  if (!navList) return;
+  const up = navList.scrollTop > 1;
+  const down = navList.scrollTop + navList.clientHeight < navList.scrollHeight - 1;
+  const hint = up && down ? "both" : up ? "up" : down ? "down" : "";
+  if (hint) navList.dataset.scroll = hint; else delete navList.dataset.scroll;
+}
+navList?.addEventListener("scroll", syncNavScrollHint, { passive: true });
+if (navList && typeof ResizeObserver === "function") new ResizeObserver(syncNavScrollHint).observe(navList);
 
 // Карточка активной подписки на главной → открыть «Профили»:
 // явная кнопка-шеврон + клик/Enter по самой карточке.

@@ -13,7 +13,10 @@
   min-height: 0;
   height: 100%;
 }
-.screen > .hero { flex: 1 1 auto; min-height: 0; }
+/* min-height: auto — пол высоты = минимальная сцена + статус (см. .hero).
+   Ниже экран прокручивается в .content, а не наезжает сценой на карточки
+   и строку статистики. */
+.screen > .hero { flex: 1 1 auto; min-height: auto; }
 .screen__head {
   display: flex;
   align-items: flex-end;
