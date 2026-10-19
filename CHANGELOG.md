@@ -6,6 +6,24 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.11.0 — 2026-10-19
+
+## English
+
+- Settings → Appearance has a new “Calm home screen” switch that stops the home screen animation and makes its labels larger and steady.
+- Right-clicking a profile, server, routing rule or log line now opens a menu with its actions, also available from the keyboard with the Menu key or Shift+F10.
+- Right-clicking elsewhere no longer opens the browser menu, and F5 or Ctrl+R no longer reload the window during a connection.
+- In a small window the side menu, the traffic counter and the stats row stay reachable by scrolling instead of being cut off.
+- The app and the core received security fixes.
+
+## Русский
+
+- В «Настройки → Оформление» появился переключатель «Спокойный главный экран»: анимация главного экрана останавливается, а надписи становятся крупнее и не мигают.
+- Правый клик по профилю, серверу, правилу маршрутизации или строке журнала теперь открывает меню с действиями; с клавиатуры оно открывается клавишей Menu или Shift+F10.
+- Правый клик в остальных местах больше не открывает меню браузера, а F5 и Ctrl+R больше не перезагружают окно во время подключения.
+- В маленьком окне боковое меню, счётчик трафика и строка статистики остаются доступны прокруткой, а не обрезаются.
+- Приложение и ядро получили исправления безопасности.
+
 ## v0.10.0 — 2026-10-11
 
 ## English
