@@ -112,6 +112,18 @@ const IPV6_STRATEGY_MAP = {
   only: "ipv6_only",
 };
 
+// Домены «Напрямую» при «Включено (предпочитать IPv4)» резолвим только в IPv4.
+// В TUN у интерфейса есть IPv6-адрес, и приложение уходит на AAAA-ответ; туннель
+// такой адрес довезёт, а direct — только если у провайдера есть IPv6. Без него
+// стек TUN уже принял соединение, а direct тут же падает с «unreachable
+// network» — браузер видит сброс и на IPv4 не переходит. В режимах «Предпочитать
+// IPv6» и «Только IPv6» пользователь выбрал IPv6 сам, их не трогаем.
+function directDnsAction(options) {
+  const mode = options.route?.ipv6Mode;
+  const strategy = mode === "enable" ? { strategy: "ipv4_only" } : {};
+  return { server: "dns-direct", ...strategy };
+}
+
 // ── общие части (TLS, transport) ───────────────────────────
 function buildTls(p) {
   // Для vless reality/tls; vmess/trojan/tuic — обычный TLS
@@ -675,18 +687,19 @@ function buildDns(options, protectedOutbound = "proxy", mode = "") {
 
   const fakeIp = !!options.dns.enableFakeDns && mode === "tun";
   // Пользовательские правила — выше региона, как и в маршрутизации.
-  dns.rules.push(...customRulesToDns(options.route?.customRules, fakeIp));
+  const direct = directDnsAction(options);
+  dns.rules.push(...customRulesToDns(options.route?.customRules, fakeIp, direct));
 
   if (options.region && options.region !== "other") {
     dns.rules.push({
       domain_suffix: [`.${options.region}`],
-      server: "dns-direct",
+      ...direct,
       rewrite_ttl: 86400,
     });
     if (COUNTRY_GEOSITE[options.region]) {
       dns.rules.push({
         rule_set: [`geosite-${options.region}`],
-        server: "dns-direct",
+        ...direct,
         rewrite_ttl: 86400,
       });
     }
@@ -766,7 +779,7 @@ function customRulesToSingbox(customRules, protectedOutbound = "proxy", resolveT
 // «Через VPN», наоборот, проигрывал DNS-правилу региона и резолвился у
 // провайдера. «Блок» отвечает отказом уже на DNS. IP- и процессные правила
 // DNS-запросу не соответствуют — их пропускаем.
-function customRulesToDns(customRules, fakeIp = false) {
+function customRulesToDns(customRules, fakeIp = false, direct = { server: "dns-direct" }) {
   if (!Array.isArray(customRules)) return [];
   const out = [];
   for (const r of customRules) {
@@ -777,7 +790,7 @@ function customRulesToDns(customRules, fakeIp = false) {
     if (r.action === "block") {
       out.push({ ...match, action: "reject" });
     } else if (r.action === "direct") {
-      out.push({ ...match, server: "dns-direct" });
+      out.push({ ...match, ...direct });
     } else {
       // С FakeDNS адреса для туннеля по-прежнему подменные: иначе правило
       // тихо выключало бы FakeDNS для своих доменов.

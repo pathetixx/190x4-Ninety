@@ -1291,6 +1291,32 @@ test("пользовательские доменные правила зерк�
   validateConfigReferences(fake);
 });
 
+// В TUN приложение получает AAAA и идёт на IPv6; у провайдера без IPv6 direct
+// такой адрес не довезёт, и сайт с правилом «Напрямую» не открывается. При
+// «предпочитать IPv4» домены мимо VPN резолвятся только в IPv4, туннельные —
+// как прежде.
+test("домены «Напрямую» при ipv6Mode=enable резолвятся только в IPv4", () => {
+  const options = structuredClone(DEFAULT_OPTIONS);
+  options.region = "ru";
+  options.route.ipv6Mode = "enable";
+  options.route.customRules = [
+    { id: "d", enabled: true, type: "domain", match: "suffix", values: ["ya.ru"], action: "direct" },
+    { id: "p", enabled: true, type: "domain", match: "suffix", values: ["t.example"], action: "proxy" },
+  ];
+  const { config } = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "tun", options });
+  assert.deepEqual(config.dns.rules[0], { domain_suffix: ["ya.ru"], server: "dns-direct", strategy: "ipv4_only" });
+  assert.deepEqual(config.dns.rules[1], { domain_suffix: ["t.example"], server: "dns-remote" });
+  const region = config.dns.rules.filter((rule) => rule.server === "dns-direct").slice(1);
+  assert.ok(region.length > 0);
+  for (const rule of region) assert.equal(rule.strategy, "ipv4_only");
+  assert.equal(config.dns.strategy, "prefer_ipv4");
+  validateConfigReferences(config);
+
+  options.route.ipv6Mode = "prefer";
+  const prefer = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "tun", options }).config;
+  assert.equal(prefer.dns.rules[0].strategy, undefined);
+});
+
 test("hysteria2 со сменой портов собирается через server_ports без server_port", () => {
   const node = parseLink("hysteria2://pw@h.example:443,20000-30000/?sni=h.example#H");
   const { config } = buildConfig({ source: { kind: "single", profile: node }, mode: "proxy", options: DEFAULT_OPTIONS });
