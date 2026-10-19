@@ -16,6 +16,8 @@
 //      а тексты не перекрываются), но ежесекундная перерисовка часов пересчитывает
 //      фильтр только по bbox строки часов, а не по всему HUD. Обёртка data-hud="ca"
 //      осталась: на ней живёт glitch-transform и на неё смотрят премиум-темы.
+//   5) Спокойный режим (Настройки → Оформление, lib/calm-hud.js): кольца стоят,
+//      нет мигания, глитча и бегущей строки, часы без секунд обновляются раз в 4 с.
 
 import { activityController } from "/lib/activity-controller.js";
 import { perfObserver } from "/lib/performance-observer.js";
@@ -101,7 +103,8 @@ const ERR_OFFLINE = ["NO LINK", "SEARCHING…", "ERR_ON_KNW"];
 const pad = (n) => String(n).padStart(2, "0");
 
 // getState() → 'secured' | 'linking' | 'standby'.  getTarget() → строка-тег сервера или null.
-export function initHeroHud(svg, { getState, getTarget, activity = activityController } = {}) {
+// isCalm() → включён ли спокойный режим при старте; дальше его переключает setCalm().
+export function initHeroHud(svg, { getState, getTarget, activity = activityController, isCalm = () => false } = {}) {
   if (!svg) return { destroy() {} };
   svg.innerHTML = buildHud();
   const els = {};
@@ -110,6 +113,7 @@ export function initHeroHud(svg, { getState, getTarget, activity = activityContr
   const st = () => (getState?.() || "standby");
   let timers = [], transientTimers = [], intgVal = 0, ei = 0, clockStr = "";
   let running = false;
+  let calm = Boolean(isCalm());
 
   function later(fn, ms) {
     const id = setTimeout(() => {
@@ -121,7 +125,10 @@ export function initHeroHud(svg, { getState, getTarget, activity = activityContr
 
   function updClock() {
     const d = new Date();
-    clockStr = `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}  ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    const time = calm
+      ? `${pad(d.getHours())}:${pad(d.getMinutes())}`
+      : `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    clockStr = `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}  ${time}`;
     if (els.clock) els.clock.textContent = clockStr;
   }
   function updIntegrity() {
@@ -188,6 +195,11 @@ export function initHeroHud(svg, { getState, getTarget, activity = activityContr
     setCssAnimationState("running");
     updClock();
     sync();
+    if (calm) {
+      timers.push(setInterval(updClock, 4000));
+      perfObserver.increment("hud.resumes");
+      return;
+    }
     timers.push(setInterval(updClock, 1000));
     timers.push(setInterval(updIntegrity, 1600));
     timers.push(setInterval(blink, 1500));
@@ -203,8 +215,31 @@ export function initHeroHud(svg, { getState, getTarget, activity = activityContr
 
   if (!activity?.subscribe) startTimers();
 
+  // Сброс следов прерванного глитча/мигания: остановка таймеров могла застать
+  // их посередине.
+  function settle() {
+    els.ca?.setAttribute("transform", "");
+    els.sys?.setAttribute("opacity", "1");
+    svg.style.opacity = "";
+  }
+
+  function setCalm(on) {
+    const next = Boolean(on);
+    if (next === calm) return;
+    calm = next;
+    if (running) {
+      stopTimers();
+      settle();
+      startTimers();
+    } else {
+      settle();
+      updClock();
+    }
+  }
+
   return {
     sync,
+    setCalm,
     destroy() {
       unsubscribe();
       stopTimers();

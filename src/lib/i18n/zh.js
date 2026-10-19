@@ -1225,6 +1225,8 @@ export const zh = {
       themeBanner: "有些主题只改变强调色，有些会改变整个调色板。你的选择会自动保存。",
       contrastTitle: "增强对比度",
       contrastHint: "让所有主题中的标签、图标和边框更清晰。在你手动更改之前，跟随 Windows 的对比度设置。",
+      calmHudTitle: "安静的主屏幕",
+      calmHudHint: "停止主屏幕上的圆环和面具动画。文字不再闪烁，字号更大，更易阅读。",
     },
 
     routing: {

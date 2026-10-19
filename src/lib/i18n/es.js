@@ -1241,6 +1241,8 @@ export const es = {
       themeBanner: "Algunos temas cambian solo el color de acento; otros, toda la paleta. Tu elección se guarda automáticamente.",
       contrastTitle: "Contraste aumentado",
       contrastHint: "Hace más legibles las etiquetas, los iconos y los bordes en todos los temas. Mientras no lo cambies, sigue el ajuste de contraste de Windows.",
+      calmHudTitle: "Pantalla de inicio tranquila",
+      calmHudHint: "Detiene los anillos y la animación de la máscara en la pantalla de inicio. Los textos dejan de parpadear, son más grandes y se leen mejor.",
     },
 
     routing: {

@@ -1233,6 +1233,8 @@ export const en = {
       themeBanner: "Some themes change only the accent color, others the whole palette. Your choice is saved automatically.",
       contrastTitle: "Increased contrast",
       contrastHint: "Makes labels, icons and borders easier to read in every theme. Until you change it, follows the Windows contrast setting.",
+      calmHudTitle: "Calm home screen",
+      calmHudHint: "Stops the rings and the mask animation on the home screen. Labels stop blinking, are larger and easier to read.",
     },
 
     routing: {

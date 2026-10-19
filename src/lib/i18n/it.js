@@ -1241,6 +1241,8 @@ export const it = {
       themeBanner: "Alcuni temi cambiano solo il colore d’accento, altri l’intera palette. La tua scelta viene salvata automaticamente.",
       contrastTitle: "Contrasto aumentato",
       contrastHint: "Rende etichette, icone e bordi più leggibili in tutti i temi. Finché non lo modifichi, segue l'impostazione di contrasto di Windows.",
+      calmHudTitle: "Schermata principale tranquilla",
+      calmHudHint: "Ferma gli anelli e l'animazione della maschera nella schermata principale. Le scritte non lampeggiano più, sono più grandi e più leggibili.",
     },
 
     routing: {

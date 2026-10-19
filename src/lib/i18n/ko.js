@@ -1225,6 +1225,8 @@ export const ko = {
       themeBanner: "어떤 테마는 강조색만, 어떤 테마는 팔레트 전체를 바꿉니다. 선택은 자동으로 저장됩니다.",
       contrastTitle: "대비 높이기",
       contrastHint: "모든 테마에서 라벨, 아이콘, 테두리를 더 잘 보이게 합니다. 직접 바꾸기 전까지는 Windows 대비 설정을 따릅니다.",
+      calmHudTitle: "차분한 홈 화면",
+      calmHudHint: "홈 화면의 링과 마스크 애니메이션을 멈춥니다. 글자가 깜박이지 않고 더 크고 읽기 쉬워집니다.",
     },
 
     routing: {

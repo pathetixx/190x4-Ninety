@@ -17,6 +17,7 @@ import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { openConfirmModal } from "/lib/confirm-modal.js";
 import { DEFAULT_THEME_ID, THEMES, isThemeId } from "/lib/themes.js";
 import { isHighContrast, setHighContrast } from "/lib/contrast.js";
+import { isCalmHud, setCalmHud } from "/lib/calm-hud.js";
 import { toast } from "/lib/toast.js";
 import { ensureDeviceIdentity, peekDeviceIdentity, regenerateDeviceIdentity } from "/lib/hwid.js";
 import {
@@ -636,6 +637,11 @@ export function mountSettings(root, opts = {}) {
       setHighContrast(on);
       e.currentTarget.dataset.on = String(on);
     });
+    el.querySelector("[data-calm-hud-toggle]")?.addEventListener("click", (e) => {
+      const on = e.currentTarget.dataset.on !== "true";
+      setCalmHud(on);
+      e.currentTarget.dataset.on = String(on);
+    });
     el.querySelectorAll(".theme-card[data-theme]").forEach(card => {
       card.addEventListener("click", () => {
         const id = card.dataset.theme;
@@ -1109,6 +1115,8 @@ function renderAppearance() {
     `<select class="settings-select" id="settings-lang">${langOpts}</select>`);
   const contrastRow = row(null, t("settings.appearance.contrastTitle"), t("settings.appearance.contrastHint"),
     `<span class="switch" data-contrast-toggle data-on="${isHighContrast() ? "true" : "false"}"></span>`);
+  const calmRow = row(null, t("settings.appearance.calmHudTitle"), t("settings.appearance.calmHudHint"),
+    `<span class="switch" data-calm-hud-toggle data-on="${isCalmHud() ? "true" : "false"}"></span>`);
   const cards = THEMES.map(th => `
     <div class="theme-card" data-theme="${escapeAttr(th.id)}" data-on="${current === th.id}"
          style="--theme-accent:${escapeAttr(th.accent)};--theme-glow:${escapeAttr(th.glow)};">
@@ -1131,6 +1139,7 @@ function renderAppearance() {
   return `
     ${langRow}
     ${contrastRow}
+    ${calmRow}
     <div class="settings-banner">${t("settings.appearance.themeBanner")}</div>
     <div class="theme-grid">${cards}</div>
   `;

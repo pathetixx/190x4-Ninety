@@ -1241,6 +1241,8 @@ export const fr = {
       themeBanner: "Certains thèmes ne changent que la couleur d’accent, d’autres toute la palette. Votre choix est enregistré automatiquement.",
       contrastTitle: "Contraste renforcé",
       contrastHint: "Rend les libellés, les icônes et les bordures plus lisibles dans tous les thèmes. Tant que vous ne le modifiez pas, suit le réglage de contraste de Windows.",
+      calmHudTitle: "Écran d'accueil calme",
+      calmHudHint: "Arrête les anneaux et l'animation du masque sur l'écran d'accueil. Les libellés ne clignotent plus, sont plus grands et plus lisibles.",
     },
 
     routing: {

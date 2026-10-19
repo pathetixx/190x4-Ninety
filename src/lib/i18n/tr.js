@@ -1233,6 +1233,8 @@ export const tr = {
       themeBanner: "Bazı temalar yalnızca vurgu rengini, bazıları tüm paleti değiştirir. Seçiminiz otomatik olarak kaydedilir.",
       contrastTitle: "Artırılmış kontrast",
       contrastHint: "Tüm temalarda etiketleri, simgeleri ve kenarlıkları daha okunaklı yapar. Siz değiştirene kadar Windows kontrast ayarını izler.",
+      calmHudTitle: "Sakin ana ekran",
+      calmHudHint: "Ana ekrandaki halkaları ve maske animasyonunu durdurur. Yazılar yanıp sönmez, daha büyük ve daha kolay okunur.",
     },
 
     routing: {

@@ -99,6 +99,7 @@ import { detectRegion } from "/lib/i18n/region-detect.js";
 import { applyLinkHandlers } from "/lib/link-handlers.js";
 import { DEFAULT_THEME_ID, isThemeId } from "/lib/themes.js";
 import { initContrast } from "/lib/contrast.js";
+import { applyCalmHud, CALM_HUD_EVENT, isCalmHud } from "/lib/calm-hud.js";
 import { createRuntimeIdentityController, sourceFingerprint, sourceKey } from "/lib/runtime-identity.js";
 import { createSourceMutationController, planSourceDeletion } from "/lib/source-mutations.js";
 import { createBootstrapCoordinator } from "/lib/bootstrap-coordinator.js";
@@ -278,6 +279,7 @@ export function setTheme(theme) {
 // Применяем сохранённую тему сразу — до первого рендера остального
 applyThemeAttr(getTheme());
 initContrast();
+applyCalmHud();
 window.__ninetySetTheme = setTheme;
 
 // ── i18n: язык применяется ДО первого показа (каталог уже в памяти, синхронно).
@@ -713,6 +715,14 @@ function scheduleViewEnter(target) {
   };
 }
 
+// Видео-маска декодится только пока главный экран виден — оффскрин обнуляем
+// декод. В спокойном режиме она стоит на текущем кадре.
+function syncHeroMaskPlayback() {
+  if (!heroMask) return;
+  if (currentView === "home" && !isCalmHud()) heroMask.play?.().catch(() => {});
+  else heroMask.pause?.();
+}
+
 function switchView(target) {
   currentView = target;
   activityController.setView(target);
@@ -723,8 +733,7 @@ function switchView(target) {
     else n.removeAttribute("aria-current");
   });
   views.forEach((v) => { v.hidden = v.dataset.view !== target; });
-  // Видео-маска декодится только пока главный экран виден — оффскрин обнуляем декод.
-  if (heroMask) { if (target === "home") heroMask.play?.().catch(() => {}); else heroMask.pause?.(); }
+  syncHeroMaskPlayback();
   if (target !== "logs") onLogsViewLeave();
   if (target !== "proxies") onProxiesViewLeave();
   scheduleViewEnter(target);
@@ -2875,7 +2884,14 @@ function hudTarget() {
 heroHud = initHeroHud(document.getElementById("hero-hud"), {
   getState: () => STATE_HERO[state] || "standby",
   getTarget: hudTarget,
+  isCalm: isCalmHud,
 });
+// Спокойный главный экран переключается в настройках на лету.
+bus.on(CALM_HUD_EVENT, (on) => {
+  heroHud?.setCalm(on);
+  syncHeroMaskPlayback();
+});
+syncHeroMaskPlayback();
 
 function setHeroHintText(text) {
   if (heroHintText) heroHintText.textContent = text;

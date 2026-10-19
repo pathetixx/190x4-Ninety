@@ -1249,6 +1249,8 @@ export const pl = {
       themeBanner: "Niektóre motywy zmieniają tylko kolor akcentu, inne całą paletę. Twój wybór jest zapisywany automatycznie.",
       contrastTitle: "Zwiększony kontrast",
       contrastHint: "Sprawia, że etykiety, ikony i obramowania są czytelniejsze we wszystkich motywach. Dopóki go nie zmienisz, działa zgodnie z ustawieniem kontrastu systemu Windows.",
+      calmHudTitle: "Spokojny ekran główny",
+      calmHudHint: "Zatrzymuje pierścienie i animację maski na ekranie głównym. Napisy przestają migać, są większe i łatwiejsze do odczytania.",
     },
 
     routing: {

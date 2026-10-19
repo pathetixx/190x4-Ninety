@@ -23,6 +23,8 @@ export const STORAGE_KEYS = {
   theme: "ninety.theme",
   // "more" | "normal"; нет ключа — режим следует системной настройке контраста.
   contrast: "ninety.contrast",
+  // "on" — спокойный главный экран; нет ключа — живой HUD.
+  calmHud: "ninety.hud.calm",
   lang: "ninety.lang",
   onboardingStep: "ninety.onboarding.step",
   onboardingDone: "ninety.onboarding.done",

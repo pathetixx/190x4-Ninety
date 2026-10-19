@@ -1233,6 +1233,8 @@ export const de = {
       themeBanner: "Manche Designs ändern nur die Akzentfarbe, andere die ganze Palette. Deine Wahl wird automatisch gespeichert.",
       contrastTitle: "Erhöhter Kontrast",
       contrastHint: "Macht Beschriftungen, Symbole und Rahmen in allen Designs besser lesbar. Solange du nichts änderst, folgt es der Kontrasteinstellung von Windows.",
+      calmHudTitle: "Ruhiger Startbildschirm",
+      calmHudHint: "Die Ringe und die Masken-Animation auf dem Startbildschirm stehen still. Beschriftungen blinken nicht mehr, sind größer und leichter lesbar.",
     },
 
     routing: {
