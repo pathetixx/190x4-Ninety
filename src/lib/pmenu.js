@@ -1,9 +1,12 @@
-// Всплывающее меню действий (.pmenu): положение у кнопки «⋯» или у курсора,
-// и правила, когда WebView2 должен показать своё меню вместо нашего.
+// Всплывающее меню действий (.pmenu) — одно на всё приложение: у кнопки «⋯»,
+// у курсора (правый клик) или у строки (клавиша Menu / Shift+F10), и правила,
+// когда WebView2 должен показать своё меню вместо нашего.
 // Меню страницы WebView2 (Назад, Обновить, Сохранить как, Печать) для
 // приложения бесполезно и опасно: «Обновить» перезапускает интерфейс посреди
 // живого подключения. Поэтому оно остаётся только там, где нужно
 // копирование и вставка, — в полях ввода и на выделенном тексте.
+
+import { escapeAttr, escapeHtml } from "/lib/esc.js";
 
 const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable=\"false\"])";
 const EDGE = 8;
@@ -89,4 +92,91 @@ export function nextMenuIndex(key, current, count) {
   if (key === "Home") return 0;
   if (key === "End") return count - 1;
   return null;
+}
+
+// ── DOM ──────────────────────────────────────────────────────
+// Одновременно открыто одно меню. Закрывается кликом или правым кликом мимо,
+// Escape, Tab, ресайзом окна; фокус возвращается туда, откуда меню открыли.
+let openMenu = null;
+let openMenuReturnFocus = null;
+
+export function closePMenu({ restoreFocus = false } = {}) {
+  if (!openMenu) return;
+  openMenu.remove();
+  openMenu = null;
+  document.removeEventListener("click", onDocClick);
+  document.removeEventListener("contextmenu", onDocClick, true);
+  window.removeEventListener("resize", onWindowResize);
+  document.removeEventListener("keydown", onDocKeydown);
+  const back = openMenuReturnFocus;
+  openMenuReturnFocus = null;
+  if (restoreFocus && back?.isConnected) back.focus();
+}
+
+function onDocClick(e) {
+  if (openMenu && !openMenu.contains(e.target)) closePMenu();
+}
+function onWindowResize() { closePMenu(); }
+// Меню открыто мышью, фокус остался снаружи — Escape всё равно закрывает.
+function onDocKeydown(e) {
+  if (e.key === "Escape") closePMenu({ restoreFocus: true });
+}
+function onMenuKeydown(e) {
+  const items = [...e.currentTarget.querySelectorAll("[data-act]")];
+  const next = nextMenuIndex(e.key, items.indexOf(document.activeElement), items.length);
+  if (next !== null) { e.preventDefault(); items[next].focus(); return; }
+  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePMenu({ restoreFocus: true }); return; }
+  if (e.key === "Tab") { e.preventDefault(); closePMenu({ restoreFocus: true }); }
+}
+
+function itemHtml(it) {
+  // Пункт-состояние («Уже выбран») — не действие, нажать его нельзя.
+  if (it.state) {
+    return `<div class="pmenu__item pmenu__item--state" role="menuitem" aria-disabled="true">${it.icon || ""}<span>${escapeHtml(it.label)}</span></div>`;
+  }
+  return `<button class="pmenu__item${it.danger ? " pmenu__item--danger" : ""}" data-act="${escapeAttr(it.id)}" type="button" role="menuitem" tabindex="-1">${it.icon || ""}<span>${escapeHtml(it.label)}</span></button>`;
+}
+
+/**
+ * Открыть меню. Выбор пункта приходит в onSelect(id) после закрытия меню.
+ * @param {Element|{x:number,y:number}} anchor кнопка/строка или точка курсора
+ * @param {Array<{id?:string,label:string,icon?:string,danger?:boolean,state?:boolean}>} items
+ * @param {{onSelect?: (id:string)=>void, returnFocus?: Element|null, focusFirst?: boolean, align?: "start"|"end"}} [opts]
+ */
+export function openPMenu(anchor, items, { onSelect, returnFocus = null, focusFirst = false, align = "start" } = {}) {
+  closePMenu();
+  const menu = document.createElement("div");
+  menu.className = "pmenu";
+  menu.setAttribute("role", "menu");
+  menu.innerHTML = items.map(itemHtml).join("");
+  document.body.appendChild(menu);
+  const isPoint = !(anchor instanceof Element);
+  const box = isPoint ? null : anchor.getBoundingClientRect();
+  const m = menu.getBoundingClientRect();
+  // align: "end" — правый край меню по правому краю кнопки (кнопка у края строки).
+  const rect = isPoint
+    ? { top: anchor.y, bottom: anchor.y, left: anchor.x }
+    : { top: box.top, bottom: box.bottom, left: align === "end" ? box.right - m.width : box.left };
+  const pos = placeMenu(rect, m, { width: window.innerWidth, height: window.innerHeight }, isPoint ? 0 : 6);
+  menu.style.top = `${pos.top}px`;
+  menu.style.left = `${pos.left}px`;
+  menu.addEventListener("keydown", onMenuKeydown);
+  menu.addEventListener("click", (e) => {
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if (!act) return;
+    // Пункт забирает фокус при клике — возвращаем его на исходное место.
+    closePMenu({ restoreFocus: true });
+    onSelect?.(act);
+  });
+  openMenu = menu;
+  openMenuReturnFocus = returnFocus ?? (isPoint ? null : anchor);
+  if (focusFirst) menu.querySelector("[data-act]")?.focus();
+  setTimeout(() => {
+    if (openMenu !== menu) return;
+    document.addEventListener("click", onDocClick);
+    document.addEventListener("contextmenu", onDocClick, true);
+    window.addEventListener("resize", onWindowResize);
+    document.addEventListener("keydown", onDocKeydown);
+  }, 10);
+  return menu;
 }

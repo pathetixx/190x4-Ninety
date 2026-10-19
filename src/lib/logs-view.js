@@ -10,6 +10,9 @@ import { t } from "/lib/i18n/index.js";
 import { toast } from "/lib/toast.js";
 import { FLAGS_BASE, flagIsoFromName as isoFromNodeName } from "/lib/flags.js";
 import { classifyEngineLogSeverity, healthProbeNodeTag } from "/lib/log-severity.js";
+import { openPMenu, wantsNativeContextMenu } from "/lib/pmenu.js";
+
+const ICON_COPY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 
 const invoke = window.__TAURI__?.core?.invoke
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -462,6 +465,30 @@ export function mountLogsView() {
     applyKicker();
     resetLogCache();
     refreshLogs();
+  });
+
+  // Правый клик по строке журнала: скопировать строку или весь журнал. На
+  // выделенном тексте остаётся меню WebView2 — там нужно «Копировать».
+  logsView?.addEventListener("contextmenu", (e) => {
+    if (wantsNativeContextMenu(e.target, window.getSelection())) return;
+    const line = e.target.closest(".log-line");
+    if (!line) return;
+    e.preventDefault();
+    openPMenu({ x: e.clientX, y: e.clientY }, [
+      { id: "line", label: t("logs.copyLine"), icon: ICON_COPY },
+      { id: "all", label: t("logs.copyAll"), icon: ICON_COPY },
+    ], {
+      onSelect: async (act) => {
+        if (act === "all") { logsCopyBtn?.click(); return; }
+        const text = [...line.children].map((c) => c.textContent.trim()).filter(Boolean).join("  ");
+        try {
+          await navigator.clipboard.writeText(text);
+          toast(t("logs.lineCopied"), "success", 1400);
+        } catch {
+          toast(t("logs.copyErr"), "error", 3000);
+        }
+      },
+    });
   });
 
   logsCopyBtn?.addEventListener("click", async () => {

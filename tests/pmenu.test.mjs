@@ -116,3 +116,15 @@ test("защита документа гасит меню страницы, но
   assert.equal(fire("mouseup", { button: 3 }), true);
   assert.equal(fire("auxclick", { button: 4 }), true);
 });
+
+test("подписи пунктов меню есть во всех языках", async () => {
+  const { readdirSync, readFileSync } = await import("node:fs");
+  const langs = readdirSync("src/lib/i18n").filter((f) => /^[a-z]{2}\.js$/.test(f));
+  assert.ok(langs.length >= 15);
+  for (const file of langs) {
+    const src = readFileSync(`src/lib/i18n/${file}`, "utf8");
+    for (const key of ["disableRule", "copyLine", "copyAll", "lineCopied"]) {
+      assert.match(src, new RegExp(`\\b${key}: "`), `${file}: ${key}`);
+    }
+  }
+});

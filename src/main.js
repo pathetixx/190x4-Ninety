@@ -131,8 +131,7 @@ import {
 import {
   installPageGuards,
   isContextMenuKey,
-  nextMenuIndex,
-  placeMenu,
+  openPMenu,
 } from "/lib/pmenu.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
@@ -2444,84 +2443,10 @@ document.getElementById("profiles-refresh-all")?.addEventListener("click", async
   }
 });
 
-// Popup-меню действий: у кнопки «⋯», у курсора (правый клик) или у строки
-// (клавиша Menu / Shift+F10). Закрывается кликом или правым кликом мимо,
-// Escape, Tab, ресайзом окна; фокус возвращается туда, откуда меню открыли.
-let openMenu = null;
-let openMenuReturnFocus = null;
-function closePMenu({ restoreFocus = false } = {}) {
-  if (!openMenu) return;
-  openMenu.remove();
-  openMenu = null;
-  document.removeEventListener("click", onDocClickClosePMenu);
-  document.removeEventListener("contextmenu", onDocClickClosePMenu, true);
-  window.removeEventListener("resize", onWindowResizeClosePMenu);
-  document.removeEventListener("keydown", onDocKeydownClosePMenu);
-  const back = openMenuReturnFocus;
-  openMenuReturnFocus = null;
-  if (restoreFocus && back?.isConnected) back.focus();
-}
-function onDocClickClosePMenu(e) {
-  if (openMenu && !openMenu.contains(e.target)) closePMenu();
-}
-function onWindowResizeClosePMenu() { closePMenu(); }
-// Меню открыто мышью, фокус остался снаружи — Escape всё равно закрывает.
-function onDocKeydownClosePMenu(e) {
-  if (e.key === "Escape") closePMenu({ restoreFocus: true });
-}
-function onPMenuKeydown(e) {
-  const items = [...e.currentTarget.querySelectorAll("[data-act]")];
-  const next = nextMenuIndex(e.key, items.indexOf(document.activeElement), items.length);
-  if (next !== null) { e.preventDefault(); items[next].focus(); return; }
-  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePMenu({ restoreFocus: true }); return; }
-  if (e.key === "Tab") { e.preventDefault(); closePMenu({ restoreFocus: true }); }
-}
-/**
- * @param {Element|{x:number,y:number}} anchor кнопка/строка или точка курсора
- * @param {Array} items пункты меню
- * @param {{returnFocus?: Element|null, focusFirst?: boolean}} [opts]
- */
-function openPMenu(anchor, items, { returnFocus = null, focusFirst = false } = {}) {
-  closePMenu();
-  const menu = document.createElement("div");
-  menu.className = "pmenu";
-  menu.setAttribute("role", "menu");
-  menu.innerHTML = items.map(it => `
-    <button class="pmenu__item${it.danger ? " pmenu__item--danger" : ""}" data-act="${escapeAttr(it.id)}" type="button" role="menuitem" tabindex="-1">
-      ${it.icon || ""}<span>${escapeHtml(it.label)}</span>
-    </button>
-  `).join("");
-  document.body.appendChild(menu);
-  const isPoint = !(anchor instanceof Element);
-  const rect = isPoint
-    ? { top: anchor.y, bottom: anchor.y, left: anchor.x }
-    : anchor.getBoundingClientRect();
-  const m = menu.getBoundingClientRect();
-  const pos = placeMenu(rect, m, { width: window.innerWidth, height: window.innerHeight }, isPoint ? 0 : 6);
-  menu.style.top = `${pos.top}px`;
-  menu.style.left = `${pos.left}px`;
-  menu.addEventListener("keydown", onPMenuKeydown);
-  // Пункт меню забирает фокус при клике — возвращаем его на исходное место.
-  menu.addEventListener("click", (e) => {
-    if (e.target.closest("[data-act]")) closePMenu({ restoreFocus: true });
-  });
-  openMenu = menu;
-  openMenuReturnFocus = returnFocus ?? (isPoint ? null : anchor);
-  if (focusFirst) menu.querySelector("[data-act]")?.focus();
-  setTimeout(() => {
-    if (openMenu !== menu) return;
-    document.addEventListener("click", onDocClickClosePMenu);
-    document.addEventListener("contextmenu", onDocClickClosePMenu, true);
-    window.addEventListener("resize", onWindowResizeClosePMenu);
-    document.addEventListener("keydown", onDocKeydownClosePMenu);
-  }, 10);
-  return menu;
-}
-
 // Меню подписки и одиночного профиля. Одна точка входа для «⋯», правого клика
 // и клавиатуры — пункты и действия не могут разъехаться.
 function openSubscriptionMenu(anchor, id, opts) {
-  const menu = openPMenu(anchor, [
+  return openPMenu(anchor, [
     { id: "refresh",  label: t("prof.menu.refresh"),  icon: ICON_REFRESH },
     { id: "edit",     label: t("prof.menu.edit"), icon: ICON_EDIT },
     { id: "copy",     label: t("prof.menu.copyUrl"), icon: ICON_COPY },
@@ -2530,11 +2455,7 @@ function openSubscriptionMenu(anchor, id, opts) {
     { id: "activate", label: t("prof.menu.activateSub"), icon: ICON_CHECK },
     { id: "reset-traffic", label: t("prof.menu.resetTraffic"), icon: ICON_REFRESH },
     { id: "remove",   label: t("prof.menu.remove"),   icon: ICON_TRASH, danger: true },
-  ], opts);
-  menu.addEventListener("click", async (ev) => {
-    const act = ev.target.closest("[data-act]")?.dataset.act;
-    if (!act) return;
-    closePMenu();
+  ], { ...opts, onSelect: async (act) => {
     if (act === "edit") {
       const sub = loadSubscriptions().find(s => s.id === id);
       const before = sourceFingerprint(sourceById("sub", id));
@@ -2595,13 +2516,12 @@ function openSubscriptionMenu(anchor, id, opts) {
     } else if (act === "remove") {
       await deleteSource("sub", id);
     }
-  });
-  return menu;
+  } });
 }
 
 function openProfileMenu(anchor, id, opts) {
   const menuProfile = loadProfiles().find(x => x.id === id);
-  const menu = openPMenu(anchor, [
+  return openPMenu(anchor, [
     { id: "edit",     label: t("prof.menu.edit"),    icon: ICON_EDIT },
     // WireGuard делится файлом, а не ссылкой: пункт есть только у таких профилей.
     ...(menuProfile?.proto === "wireguard"
@@ -2610,11 +2530,7 @@ function openProfileMenu(anchor, id, opts) {
     { id: "activate", label: t("prof.menu.activateProfile"), icon: ICON_CHECK },
     { id: "reset-traffic", label: t("prof.menu.resetTraffic"), icon: ICON_REFRESH },
     { id: "remove",   label: t("prof.menu.remove"),          icon: ICON_TRASH, danger: true },
-  ], opts);
-  menu.addEventListener("click", async (ev) => {
-    const act = ev.target.closest("[data-act]")?.dataset.act;
-    if (!act) return;
-    closePMenu();
+  ], { ...opts, onSelect: async (act) => {
     if (act === "edit") {
       const p = loadProfiles().find(x => x.id === id);
       const before = sourceFingerprint(sourceById("single", id));
@@ -2638,8 +2554,7 @@ function openProfileMenu(anchor, id, opts) {
     } else if (act === "remove") {
       await deleteSource("single", id);
     }
-  });
-  return menu;
+  } });
 }
 
 /** Меню строки профилей (.pf): подписка или одиночный профиль. */

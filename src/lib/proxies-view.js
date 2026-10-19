@@ -9,6 +9,7 @@ import {
 import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { FLAGS_BASE, flagIsoFromName, stripFlag } from "/lib/flags.js";
 import { escapeHtml, escapeAttr } from "/lib/esc.js";
+import { isContextMenuKey, openPMenu } from "/lib/pmenu.js";
 import { t, tn } from "/lib/i18n/index.js";
 import {
   getRememberedProxySelection,
@@ -417,7 +418,7 @@ function nodeRowHtml(n, ctx) {
       ${pending ? `<span class="n-dash">···</span>` : pingHtml(delay, gradeDelay(delay), isStaleDelay(ctx.clashData, n.clashTag))}
       ${starHtml(n.clashTag, ctx.favs.has(n.clashTag))}
       <button class="n-icon" type="button" data-node-menu="${escapeAttr(n.clashTag)}"
-        aria-label="${escapeAttr(t("proxies.rowActions"))}">${ICON_DOTS}</button>
+        aria-haspopup="menu" aria-label="${escapeAttr(t("proxies.rowActions"))}">${ICON_DOTS}</button>
     </div>`;
 }
 
@@ -1140,7 +1141,12 @@ export function mountProxiesView({
       return;
     }
     const menu = e.target.closest("[data-node-menu]");
-    if (menu) { e.stopPropagation(); openNodeMenu(menu, menu.dataset.nodeMenu, onToast); return; }
+    if (menu) {
+      e.stopPropagation();
+      // detail === 0 — нажатие с клавиатуры: фокус сразу на первый пункт.
+      openNodeMenu(menu, menu.closest(".prox"), onToast, { focusFirst: e.detail === 0 });
+      return;
+    }
     if (e.target.closest("[data-act=clear-q]")) { setQuery(""); return; }
     if (e.target.closest("[data-act=test]")) { $("proxies-test")?.click(); return; }
 
@@ -1166,6 +1172,15 @@ export function mountProxiesView({
     if (card) handleNodeClick(card, onToast);
   });
 
+  // Правый клик по строке сервера → меню строки у курсора. У строки «Авто»
+  // своих действий нет — там меню не открываем.
+  screen?.addEventListener("contextmenu", (e) => {
+    const row = e.target.closest(".nt-row.prox");
+    if (!row) return;
+    e.preventDefault();
+    openNodeMenu({ x: e.clientX, y: e.clientY }, row, onToast, { returnFocus: row });
+  });
+
   // ── клавиатура: плотная таблица должна ходить стрелками ──
   const rowsInOrder = () => [...screen.querySelectorAll(".rec-row, .nt-row")]
     .filter(r => r.offsetParent !== null);
@@ -1177,6 +1192,13 @@ export function mountProxiesView({
       return;
     }
     const rows = rowsInOrder();
+    if (isContextMenuKey(e)) {
+      const row = e.target.closest?.(".nt-row.prox");
+      if (!row) return;
+      e.preventDefault();
+      openNodeMenu(row, row, onToast, { returnFocus: e.target, focusFirst: true });
+      return;
+    }
     const cur = e.target.closest?.(".rec-row, .nt-row");
     const i = cur ? rows.indexOf(cur) : -1;
     const go = (j) => {
@@ -1336,45 +1358,38 @@ function showScorePopover(anchor) {
 }
 
 // ── меню действий по серверу ────────────────────────────────
-function openNodeMenu(anchor, tag, onToast) {
-  const nodes = nodesFromSource();
-  const node = nodes.find(n => n.clashTag === tag);
+// Общее меню приложения (lib/pmenu.js): кнопка «⋯», правый клик по строке и
+// клавиша Menu / Shift+F10 открывают одно и то же.
+function openNodeMenu(anchor, row, onToast, opts = {}) {
+  const tag = row?.dataset.tag;
+  const node = tag && nodesFromSource().find(n => n.clashTag === tag);
   if (!node) return;
-  document.getElementById("prox-menu")?.remove();
   const fav = getFavourites(getActiveSource()).has(tag);
   // Действие, которое ничего не изменит, не должно выглядеть кликабельным:
   // на уже выбранном сервере пункт показывает состояние, а не предложение.
   const current = effectiveSelectorTag(lastClashSnapshot) === tag;
-  const menu = document.createElement("div");
-  menu.className = "pmenu";
-  menu.id = "prox-menu";
-  menu.innerHTML = `
-    ${current
-      ? `<div class="pmenu__item pmenu__item--state">${ICON_CHECK}${escapeHtml(t("proxies.menuAlready"))}</div>`
-      : `<button class="pmenu__item" type="button" data-a="pin">${ICON_BOLT}${escapeHtml(t("proxies.menuPin"))}</button>`}
-    <button class="pmenu__item" type="button" data-a="fav">${ICON_STAR}${escapeHtml(fav ? t("proxies.favOff") : t("proxies.favOn"))}</button>
-    <button class="pmenu__item" type="button" data-a="test">${ICON_GAUGE}${escapeHtml(t("proxies.menuTestOne"))}</button>`;
-  document.body.appendChild(menu);
-  const ar = anchor.getBoundingClientRect();
-  menu.style.top = Math.min(ar.bottom + 5, window.innerHeight - menu.offsetHeight - 10) + "px";
-  menu.style.left = Math.max(8, ar.right - menu.offsetWidth) + "px";
-  const close = () => menu.remove();
-  menu.addEventListener("click", async (e) => {
-    const b = e.target.closest("[data-a]");
-    if (!b) return;
-    close();
-    if (b.dataset.a === "pin") { handleNodeClick(anchor.closest(".prox"), onToast); return; }
-    if (b.dataset.a === "fav") {
-      const on = toggleFavourite(getActiveSource(), tag);
-      invalidateRender();
-      await refresh();
-      onToast?.(on ? t("proxies.favToastOn") : t("proxies.favToastOff"), "success", 1400);
-      return;
-    }
-    try { await testNode(tag, { timeoutMs: 5000 }); invalidateRender(); await refresh(); }
-    catch (e2) { onToast?.(t("proxies.toastTestErr", { err: e2?.message || e2 }), "error", 2500); }
+  openPMenu(anchor, [
+    current
+      ? { state: true, label: t("proxies.menuAlready"), icon: ICON_CHECK }
+      : { id: "pin", label: t("proxies.menuPin"), icon: ICON_BOLT },
+    { id: "fav", label: fav ? t("proxies.favOff") : t("proxies.favOn"), icon: ICON_STAR },
+    { id: "test", label: t("proxies.menuTestOne"), icon: ICON_GAUGE },
+  ], {
+    align: "end",
+    ...opts,
+    onSelect: async (act) => {
+      if (act === "pin") { handleNodeClick(row, onToast); return; }
+      if (act === "fav") {
+        const on = toggleFavourite(getActiveSource(), tag);
+        invalidateRender();
+        await refresh();
+        onToast?.(on ? t("proxies.favToastOn") : t("proxies.favToastOff"), "success", 1400);
+        return;
+      }
+      try { await testNode(tag, { timeoutMs: 5000 }); invalidateRender(); await refresh(); }
+      catch (e2) { onToast?.(t("proxies.toastTestErr", { err: e2?.message || e2 }), "error", 2500); }
+    },
   });
-  setTimeout(() => document.addEventListener("click", close, { once: true }), 0);
 }
 
 // Перетест ВСЕХ нод по одной через /proxies/{tag}/delay (пропатчен на unified →

@@ -17,6 +17,7 @@ import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { listNetworkProcesses, getConnections } from "/lib/clash-api.js";
 import { toast } from "/lib/toast.js";
 import { escapeAttr, escapeHtml as esc } from "/lib/esc.js";
+import { isContextMenuKey, openPMenu } from "/lib/pmenu.js";
 import { t, getLang } from "/lib/i18n/index.js";
 
 // Подписи правил — из каталога i18n (строятся в рантайме под текущий язык).
@@ -259,6 +260,23 @@ export function mountRoutingRules(rootEl, opts = {}) {
     row.querySelector('[data-act="del"]').addEventListener("click", () => {
       rules = rules.filter((r) => r.id !== rule.id);
       renderRules(); commit();
+    });
+
+    // Правый клик и клавиша Menu / Shift+F10 — меню с теми же действиями, что
+    // кнопки строки: действия выполняют сами кнопки, разойтись им не с чем.
+    const openRuleMenu = (anchor, opts) => openPMenu(anchor, [
+      { id: "edit", label: t("rr.edit"), icon: I.edit },
+      { id: "toggle", label: rule.enabled === false ? t("rr.enableRule") : t("rr.disableRule"), icon: I.check },
+      { id: "del", label: t("rr.delete"), icon: I.trash, danger: true },
+    ], { ...opts, onSelect: (act) => row.querySelector('[data-act="' + act + '"]')?.click() });
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      openRuleMenu({ x: e.clientX, y: e.clientY }, { returnFocus: row.querySelector('[data-act="edit"]') });
+    });
+    row.addEventListener("keydown", (e) => {
+      if (!isContextMenuKey(e)) return;
+      e.preventDefault();
+      openRuleMenu(row, { returnFocus: e.target, focusFirst: true });
     });
 
     // drag-reorder через grip
