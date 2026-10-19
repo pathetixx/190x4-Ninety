@@ -6,6 +6,18 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.11.1 — 2026-10-19
+
+## English
+
+- The “Auto” server mode again picks the fastest working server and switches away from one that stops responding.
+- Checking a server's ping shows its delay again instead of a dash.
+
+## Русский
+
+- Режим «Авто» снова выбирает самый быстрый рабочий сервер и уходит с сервера, который перестал отвечать.
+- Проверка пинга сервера снова показывает задержку вместо прочерка.
+
 ## v0.11.0 — 2026-10-19
 
 ## English
