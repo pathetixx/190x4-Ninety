@@ -6,6 +6,22 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.12.0 — 2026-10-20
+
+## English
+
+- Routing rules can now use ready-made lists: a service's sites such as YouTube or OpenAI, or all addresses of a chosen country.
+- The routing rules screen now shows what your region, LAN, Discord and ad blocking settings add after your own rules.
+- The region's rules can be moved into your own list with “Make them mine” and edited there, and “Restore the base” brings them back.
+- A routing list that fails to download no longer stops the VPN from connecting.
+
+## Русский
+
+- В правилах маршрутизации появились готовые списки: сайты сервиса вроде YouTube или OpenAI либо все адреса выбранной страны.
+- Экран правил маршрутизации теперь показывает, что добавляют после ваших правил регион, локальная сеть, Discord и блокировка рекламы.
+- Правила региона можно перенести в свои кнопкой «Сделать своими» и править там, а «Вернуть базу» возвращает их обратно.
+- Список для маршрутизации, который не удалось скачать, больше не мешает подключиться к VPN.
+
 ## v0.11.2 — 2026-10-19
 
 ## English
