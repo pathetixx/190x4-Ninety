@@ -145,3 +145,22 @@ test("пара для сети из 0.8.0 забирается из настро
   saveOptions(loadOptions());
   assert.doesNotMatch(data.get("ninety.options.v1"), /Secret123/);
 });
+
+// «Сделать своими» отцепляет базу только текущего региона: другой регион снова
+// работает своей базой, иначе выбор страны в настройках молча ничего не менял бы.
+test("смена региона возвращает его базу", async () => {
+  const data = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (data.has(k) ? data.get(k) : null),
+    setItem: (k, v) => data.set(k, String(v)),
+    removeItem: (k) => data.delete(k),
+  };
+  globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+  globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
+
+  const { updateOption } = await import("../src/lib/options.js?region-detached");
+  updateOption("region", "ru");
+  assert.equal(updateOption("route.regionDetached", true).route.regionDetached, true);
+  assert.equal(updateOption("region", "ru").route.regionDetached, true, "тот же регион базу не возвращает");
+  assert.equal(updateOption("region", "by").route.regionDetached, false);
+});

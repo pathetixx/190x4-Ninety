@@ -5,14 +5,15 @@
 // sing-box. Источник истины по форме правила и допустимым значениям.
 //
 // Правило:
-//   { id, enabled, type:"domain"|"ip"|"process",
+//   { id, enabled, type:"domain"|"ip"|"process"|"set",
 //     match:"suffix"|"exact"|"keyword" (только domain),
-//     values:[…], action:"proxy"|"direct"|"block"|"node"|"warp",
+//     values:[…] (для "set" — "geosite:<имя>" / "geoip:<код страны>"), action:"proxy"|"direct"|"block"|"node"|"warp",
 //     target:{ tag, name } — только для action:"node" }
 
 import { uid } from "/lib/uid.js";
+import { REGION_GEOSITE, normalizeSetRef } from "/lib/rule-sets.js";
 
-export const RULE_TYPES = ["domain", "ip", "process"];
+export const RULE_TYPES = ["domain", "ip", "process", "set"];
 export const DOMAIN_MATCHES = ["suffix", "exact", "keyword"];
 export const RULE_ACTIONS = ["proxy", "direct", "block", "node", "warp"];
 
@@ -86,13 +87,17 @@ export function normalizeDomain(v, match = "suffix") {
 // Подчёркивание оставлено намеренно (служебные имена вида _acme-challenge).
 const RE_LABEL = /^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?$/;
 
-// Валидный домен. Прежняя регулярка требовала TLD из одних букв ([a-z]{2,63}) и
+// Валидный домен. Зона целиком пишется явно, с точкой: «.ru», «.xn--p1ai» —
+// так же, как в базе региона, и только для «Поддомены». Голое «youtube» без
+// точки остаётся ошибкой: так почти всегда имели в виду «Содержит».
+// Прежняя регулярка требовала TLD из одних букв ([a-z]{2,63}) и
 // молча выбрасывала весь punycode (xn--p1ai, то есть любой .рф/.中国) и TLD с
 // цифрой (.p2p, .b2b): правило исчезало из списка, а причина нигде не всплывала.
-function isValidDomainName(s) {
+function isValidDomainName(s, match = "suffix") {
   if (!s || s.length > 253) return false;
-  const labels = s.split(".");
-  if (labels.length < 2) return false;
+  const zone = match === "suffix" && s.startsWith(".");
+  const labels = (zone ? s.slice(1) : s).split(".");
+  if (labels.length < (zone ? 1 : 2)) return false;
   if (!labels.every((label) => RE_LABEL.test(label))) return false;
   const tld = labels[labels.length - 1];
   // Чисто числовой TLD запрещён — иначе "1.2.3.4" прошёл бы как домен.
@@ -159,6 +164,7 @@ export function normalizeProcess(v) {
 export function normalizeValue(type, v, match = "suffix") {
   if (type === "ip") return normalizeIp(v);
   if (type === "process") return normalizeProcess(v);
+  if (type === "set") return normalizeSetRef(v);
   return normalizeDomain(v, match); // domain
 }
 
@@ -167,9 +173,9 @@ export function isValidValue(type, v, match = "suffix") {
   const n = normalizeValue(type, v, match);
   if (!n) return false;
   if (type === "domain") {
-    return match === "keyword" ? isValidDomainKeyword(n) : isValidDomainName(n);
+    return match === "keyword" ? isValidDomainKeyword(n) : isValidDomainName(n, match);
   }
-  return true; // ip/process уже выверены нормализацией
+  return true; // ip/process/set уже выверены нормализацией
 }
 
 // Привести правило к чистому виду перед сохранением: нормализовать values,
@@ -205,7 +211,23 @@ export function sanitizeRule(rule) {
       values,
       action,
       ...(target ? { target } : {}),
+      ...(rule?.origin === "region" ? { origin: "region" } : {}),
     },
     dropped,
   };
+}
+
+// База региона в виде пользовательских правил («Сделать своими»): та же зона
+// и те же списки, что выпускает singbox.js для региона, — после переноса
+// маршрутизация не меняется, а правила можно править как свои. origin отличает
+// их при возврате базы.
+export function regionRules(region) {
+  const sets = [
+    ...(REGION_GEOSITE[region] ? [`geosite:${REGION_GEOSITE[region]}`] : []),
+    `geoip:${region}`,
+  ];
+  return [
+    newRule({ type: "domain", match: "suffix", values: [`.${region}`], action: "direct", origin: "region" }),
+    newRule({ type: "set", values: sets, action: "direct", origin: "region" }),
+  ].map((rule) => sanitizeRule(rule).rule);
 }

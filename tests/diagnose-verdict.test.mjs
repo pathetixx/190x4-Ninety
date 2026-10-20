@@ -225,3 +225,9 @@ test("пересылка IP вне TUN и один флаг реестра ве�
   assert.notEqual(buildVerdict({ forwarding: registryOnly, tunMode: true }).kind, "ipForwarding");
   assert.equal(countFindings({ forwarding: registryOnly, tunMode: true }), 0);
 });
+
+test("подпись строки: перенесённая зона региона «.ru» тоже уводит напрямую", () => {
+  const rules = [{ enabled: true, type: "domain", match: "suffix", action: "direct", values: [".ru"] }];
+  assert.equal(matchesDirectRule({ host: "online.sberbank.ru", region: "other", customRules: rules }), true);
+  assert.equal(matchesDirectRule({ host: "guru", region: "other", customRules: rules }), false);
+});

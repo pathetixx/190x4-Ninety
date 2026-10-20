@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isValidValue, normalizeIp, normalizeTarget, normalizeValue, sanitizeRule } from "/lib/routing-rules.js";
+import { isValidValue, normalizeIp, normalizeTarget, normalizeValue, regionRules, sanitizeRule } from "/lib/routing-rules.js";
 
 test("routing rules: IPv6 validation accepts real addresses only", () => {
   assert.equal(normalizeIp("2001:db8::1"), "2001:db8::1/128");
@@ -129,4 +129,42 @@ test("routing rules: нечитаемая цель — это отсутстви
   assert.equal(normalizeTarget(null), null);
   assert.equal(normalizeTarget({ tag: "   ", name: "" }), null);
   assert.deepEqual(normalizeTarget({ name: "Only name" }), { name: "Only name" });
+});
+
+test("routing rules: готовый список хранит только известные ссылки", () => {
+  const { rule, dropped } = sanitizeRule({
+    id: "s1",
+    type: "set",
+    values: ["geosite:YouTube", "geoip:ru", "geosite:no-such-list", "youtube", "geoip:ru"],
+    action: "proxy",
+  });
+  assert.deepEqual(rule.values, ["geosite:youtube", "geoip:ru"]);
+  assert.equal(rule.match, undefined);
+  assert.equal(dropped, 2);
+});
+
+test("routing rules: зона целиком — только явно, с точкой, и только для «Поддомены»", () => {
+  assert.equal(isValidValue("domain", ".ru", "suffix"), true);
+  assert.equal(isValidValue("domain", ".xn--p1ai", "suffix"), true);
+  assert.equal(normalizeValue("domain", ".RU", "suffix"), ".ru");
+  assert.equal(isValidValue("domain", "ru", "suffix"), false);
+  assert.equal(isValidValue("domain", ".ru", "exact"), false);
+  assert.equal(isValidValue("domain", ".123", "suffix"), false);
+  assert.equal(isValidValue("domain", ".", "suffix"), false);
+});
+
+test("routing rules: база региона переносится теми же правилами", () => {
+  const ru = regionRules("ru");
+  assert.deepEqual(ru.map(({ id, ...rest }) => rest), [
+    { enabled: true, type: "domain", match: "suffix", values: [".ru"], action: "direct", origin: "region" },
+    { enabled: true, type: "set", values: ["geosite:category-ru", "geoip:ru"], action: "direct", origin: "region" },
+  ]);
+  // Для страны без своего geosite — только адреса.
+  assert.deepEqual(regionRules("tr")[1].values, ["geoip:tr"]);
+  assert.notEqual(ru[0].id, ru[1].id);
+});
+
+test("routing rules: метку происхождения нельзя подделать", () => {
+  const { rule } = sanitizeRule({ id: "x", type: "domain", values: ["a.example"], action: "direct", origin: "evil" });
+  assert.equal(rule.origin, undefined);
 });

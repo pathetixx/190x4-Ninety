@@ -1,6 +1,7 @@
 // Ninety · Подраздел «Правила маршрутизации» — UI (порт из Claude Design handoff).
-// Гибкие пользовательские правила поверх регионального: домен / IP / процесс →
-// Через VPN / Напрямую / Блок. Источник истины формы правила и валидация —
+// Гибкие пользовательские правила поверх регионального: домен / IP / процесс /
+// готовый список → Через VPN / Напрямую / Блок. Под списком — «Основа»: что
+// добавляют регион и другие настройки после пользовательских правил. Источник истины формы правила и валидация —
 // routing-rules.js; сериализация в sing-box — singbox.js::customRulesToSingbox;
 // хранилище — options.route.customRules. Живой пикер процессов и монитор
 // соединений берут данные из бэкенда (clash-api.js / netproc).
@@ -11,8 +12,12 @@
 
 import { loadOptions, getOptionsSnapshot, updateOption } from "/lib/options.js";
 import {
-  newRule, normalizeValue, isValidValue, sanitizeRule,
+  newRule, normalizeValue, isValidValue, sanitizeRule, regionRules,
 } from "/lib/routing-rules.js";
+import { POPULAR_GEOIP, REGION_GEOSITE, parseSetRef, searchSets } from "/lib/rule-sets.js";
+import { GEOIP_CODES } from "/lib/rule-set-catalog.js";
+import { countryName } from "/lib/country-names.js";
+import { openConfirmModal } from "/lib/confirm-modal.js";
 import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { listNetworkProcesses, getConnections } from "/lib/clash-api.js";
 import { toast } from "/lib/toast.js";
@@ -21,7 +26,10 @@ import { isContextMenuKey, openPMenu } from "/lib/pmenu.js";
 import { t, getLang } from "/lib/i18n/index.js";
 
 // Подписи правил — из каталога i18n (строятся в рантайме под текущий язык).
-const TYPE_LABELS = () => ({ domain: t("rr.type.domain"), ip: t("rr.type.ip"), process: t("rr.type.process") });
+const TYPE_LABELS = () => ({
+  domain: t("rr.type.domain"), ip: t("rr.type.ip"), process: t("rr.type.process"), set: t("rr.type.set"),
+});
+const RULE_TYPE_ORDER = ["domain", "ip", "process", "set"];
 const MATCH_LABELS = () => ({ suffix: t("rr.match.suffix"), exact: t("rr.match.exact"), keyword: t("rr.match.keyword") });
 const ACTION_LABELS = () => ({
   proxy: t("rr.action.proxy"), direct: t("rr.action.direct"), block: t("rr.action.block"),
@@ -104,8 +112,39 @@ const I = {
   chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
   server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
   warp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 10-12h-7l1-8z"/></svg>',
+  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>',
+  lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
 };
-const TYPE_ICON = { domain: I.globe, ip: I.net, process: I.app };
+const TYPE_ICON = { domain: I.globe, ip: I.net, process: I.app, set: I.list };
+
+// Готовый список словами: страна — флагом и названием, список сайтов — его
+// именем в каталоге. Полная ссылка (geosite:youtube) остаётся в подсказке.
+function flagImg(code) {
+  return '<span class="rr-flag"><img src="/assets/flags/' + escapeAttr(code) + '.svg" alt=""></span>';
+}
+function setChip(value, cls = "rr-chip") {
+  const ref = parseSetRef(value);
+  if (!ref) return '<span class="' + cls + '">' + esc(value) + "</span>";
+  const title = ' title="' + escapeAttr(value) + '"';
+  return ref.kind === "geoip"
+    ? '<span class="' + cls + ' rr-chip--set"' + title + ">" + flagImg(ref.name) + esc(countryName(ref.name)) + "</span>"
+    : '<span class="' + cls + ' rr-chip--set"' + title + ">" + esc(ref.name) + "</span>";
+}
+
+// Поиск страны идёт и по коду, и по названию на языке интерфейса.
+function searchCountries(query, limit = 60) {
+  const q = String(query ?? "").trim().toLowerCase();
+  if (!q) return POPULAR_GEOIP.slice();
+  const head = [];
+  const rest = [];
+  for (const code of GEOIP_CODES) {
+    const name = countryName(code).toLowerCase();
+    if (code === q || name.startsWith(q)) head.push(code);
+    else if (code.startsWith(q) || name.includes(q)) rest.push(code);
+  }
+  return [...head, ...rest].slice(0, limit);
+}
 const ACTION_ICON = { proxy: I.vpn, direct: I.direct, block: I.block, node: I.server, warp: I.warp };
 
 /* ── helpers ── */
@@ -235,7 +274,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const vals = Array.isArray(rule.values) ? rule.values : [];
     const vis = vals.slice(0, 2);
     const extra = vals.length - vis.length;
-    let chips = vis.map((v) => '<span class="rr-chip">' + esc(v) + "</span>").join("");
+    let chips = vis.map((v) => (rule.type === "set" ? setChip(v) : '<span class="rr-chip">' + esc(v) + "</span>")).join("");
     if (extra > 0) chips += '<span class="rr-chip rr-chip--more">+' + extra + " " + esc(t("rr.more")) + "</span>";
     const matchNote = rule.type === "domain" ? '<span class="rr-match">' + esc(MATCH_LABELS()[rule.match] || MATCH_LABELS().suffix) + "</span>" : "";
 
@@ -308,10 +347,97 @@ export function mountRoutingRules(rootEl, opts = {}) {
     if (!host) return;
     host.innerHTML = "";
     $("#rr-count").textContent = rules.length + " " + plural(rules.length, "pluralRules");
-    if (!rules.length) { host.appendChild(emptyState()); return; }
-    const list = el("div", "rr-list");
-    rules.forEach((r, i) => list.appendChild(ruleRow(r, i)));
-    host.appendChild(list);
+    if (!rules.length) host.appendChild(emptyState());
+    else {
+      const list = el("div", "rr-list");
+      rules.forEach((r, i) => list.appendChild(ruleRow(r, i)));
+      host.appendChild(list);
+    }
+    host.appendChild(baseSection());
+  }
+
+  /* ═══ ОСНОВА: что срабатывает после правил пользователя ═══ */
+  // Порядок строк — порядок правил в конфиге (singbox.js::buildRoute): Discord
+  // мимо туннеля, локальная сеть, регион, реклама, всё остальное.
+  function baseRow(icon, title, chipsHtml, action, note = "") {
+    const row = el("div", "rr-brow");
+    row.innerHTML =
+      '<span class="rr-brow__ico">' + icon + "</span>" +
+      '<span class="rr-brow__main"><span class="rr-brow__title">' + esc(title) + "</span>" +
+        (note ? '<span class="rr-brow__note">' + esc(note) + "</span>" : "") + "</span>" +
+      '<span class="rr-values">' + chipsHtml + "</span>" +
+      actionPill({ action });
+    return row;
+  }
+  function baseSection() {
+    const o = loadOptions();
+    const region = o.region && o.region !== "other" ? o.region : null;
+    const wrap = el("section", "rr-basesec");
+    wrap.innerHTML =
+      '<div class="rr-basesec__head"><span class="rr-basesec__k">' + I.lock + esc(t("rr.base.kicker")) + "</span>" +
+      '<span class="rr-basesec__sub">' + esc(t("rr.base.sub")) + "</span></div>";
+    const list = el("div", "rr-baselist");
+    const chip = (v) => '<span class="rr-chip">' + esc(v) + "</span>";
+
+    if (o.route?.tunSplitDiscord) {
+      list.appendChild(baseRow(I.app, t("rr.base.discord"), chip("Discord.exe") + setChip("geosite:discord"), "direct", t("rr.base.tunOnly")));
+    }
+    if (o.route?.bypassLan !== false) {
+      list.appendChild(baseRow(I.net, t("rr.base.lan"), chip("10.0.0.0/8") + chip("192.168.0.0/16"), "direct"));
+    }
+    if (region) list.appendChild(regionBlock(o, region));
+    if (o.blockAds) {
+      list.appendChild(baseRow(I.block, t("rr.base.ads"), setChip("geosite:category-ads-all") + chip("malware") + chip("phishing"), "block"));
+    }
+    list.appendChild(baseRow(I.vpn, t("rr.base.rest"), "", "proxy"));
+    wrap.appendChild(list);
+    return wrap;
+  }
+  function regionBlock(o, region) {
+    const box = el("div", "rr-bregion");
+    const name = REGION_SHORT()[region] || countryName(region);
+    const detached = !!o.route?.regionDetached;
+    box.innerHTML =
+      '<div class="rr-bregion__head">' + flagImg(region) +
+        '<span class="rr-bregion__title">' + esc(t("rr.base.region", { name })) + "</span>" +
+        '<span class="rr-bregion__note">' + esc(detached ? t("rr.base.detachedNote") : t("rr.base.regionNote")) + "</span>" +
+        '<button class="btn btn--sm" type="button" data-act="region">' +
+          (detached ? I.refresh + esc(t("rr.base.attach")) : I.edit + esc(t("rr.base.detach"))) + "</button>" +
+      "</div>";
+    if (!detached) {
+      const sets = [...(REGION_GEOSITE[region] ? [`geosite:${REGION_GEOSITE[region]}`] : []), `geoip:${region}`];
+      box.appendChild(baseRow(I.globe, t("rr.type.domain"), '<span class="rr-chip">.' + esc(region) + "</span>", "direct"));
+      box.appendChild(baseRow(I.list, t("rr.type.set"), sets.map((v) => setChip(v)).join(""), "direct"));
+    }
+    box.querySelector('[data-act="region"]').addEventListener("click", () => (detached ? attachRegion() : detachRegion(region)));
+    return box;
+  }
+  // «Сделать своими»: правила региона встают в конец своих — там же, где база
+  // срабатывала раньше, поэтому маршрутизация не меняется, пока их не тронуть.
+  function detachRegion(region) {
+    rules = [...rules, ...regionRules(region)];
+    updateOption("route.customRules", structuredCloneSafe(rules));
+    updateOption("route.regionDetached", true);
+    onChange("route.customRules");
+    renderRules();
+    toast(t("rr.base.detachedToast"), "success", 2200);
+  }
+  async function attachRegion() {
+    const moved = rules.filter((r) => r.origin === "region").length;
+    if (moved) {
+      const ok = await openConfirmModal({
+        title: t("rr.base.attachTitle"),
+        message: t("rr.base.attachMessage", { n: moved }),
+        confirmLabel: t("rr.base.attach"),
+      });
+      if (!ok || !rootEl.isConnected) return;
+    }
+    rules = rules.filter((r) => r.origin !== "region");
+    updateOption("route.customRules", structuredCloneSafe(rules));
+    updateOption("route.regionDetached", false);
+    onChange("route.customRules");
+    renderRules();
+    toast(t("rr.base.attachedToast"), "success", 2200);
   }
 
   function emptyState() {
@@ -366,7 +492,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     // a) тип
     const typeField = el("div", "rr-field", `<div class="rr-label">${esc(t("rr.fieldType"))}</div>`);
     const seg = el("div", "rr-seg");
-    ["domain", "ip", "process"].forEach((ty) => {
+    RULE_TYPE_ORDER.forEach((ty) => {
       const b = el("button", "rr-seg__btn", TYPE_ICON[ty] + "<span>" + esc(TYPE_LABELS()[ty]) + "</span>");
       b.type = "button";
       b.dataset.on = String(draft.type === ty);
@@ -384,6 +510,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     // b) значения по типу
     if (draft.type === "domain") body.appendChild(domainFields());
     else if (draft.type === "ip") body.appendChild(ipFields());
+    else if (draft.type === "set") body.appendChild(setFields());
     else body.appendChild(processFields());
 
     // c) действие
@@ -505,6 +632,95 @@ export function mountRoutingRules(rootEl, opts = {}) {
     queueMicrotask(updatePreview);
     return f;
   }
+  // Готовый список: выбор из каталога, а не ввод — имя, которого нет в
+  // первоисточнике, ядро не скачает. Пустой поиск показывает популярные.
+  function setFields() {
+    let kind = "geosite";
+    const f = el("div", "rr-field", `<div class="rr-label">${esc(t("rr.fieldSets"))}</div><div class="rr-sublabel">${esc(t("rr.subSets"))}</div>`);
+    const picked = el("div", "rr-setpicked");
+    const repaintPicked = () => {
+      picked.innerHTML = "";
+      if (!draft.values.length) {
+        picked.innerHTML = '<span class="rr-setpicked__empty">' + esc(t("rr.setsNone")) + "</span>";
+        return;
+      }
+      draft.values.forEach((v, i) => {
+        const c = el("span", "rr-ichip", setChip(v, "rr-ichip__label") + '<button class="rr-ichip__x" type="button" aria-label="' + esc(t("rr.remove")) + '">' + I.x + "</button>");
+        c.querySelector(".rr-ichip__x").addEventListener("click", () => { draft.values.splice(i, 1); repaintPicked(); paint(); updateSave(); });
+        picked.appendChild(c);
+      });
+    };
+    f.appendChild(picked);
+
+    const seg = el("div", "rr-seg");
+    const kinds = { geosite: t("rr.setKind.geosite"), geoip: t("rr.setKind.geoip") };
+    const search = el("input", "rr-setsearch__input");
+    Object.entries(kinds).forEach(([k, label]) => {
+      const b = el("button", "rr-seg__btn", "<span>" + esc(label) + "</span>");
+      b.type = "button";
+      b.dataset.on = String(kind === k);
+      b.addEventListener("click", () => {
+        kind = k;
+        seg.querySelectorAll(".rr-seg__btn").forEach((x, i) => { x.dataset.on = String(Object.keys(kinds)[i] === k); });
+        search.value = "";
+        search.placeholder = t(`rr.setSearch.${k}`);
+        paint();
+      });
+      seg.appendChild(b);
+    });
+    f.appendChild(seg);
+
+    const box = el("div", "rr-picker");
+    const head = el("label", "rr-setsearch", I.search);
+    search.type = "search";
+    search.placeholder = t("rr.setSearch.geosite");
+    search.setAttribute("spellcheck", "false");
+    search.setAttribute("aria-label", t("rr.fieldSets"));
+    head.appendChild(search);
+    box.appendChild(head);
+    const scroll = el("div", "rr-picker__scroll");
+    box.appendChild(scroll);
+    f.appendChild(box);
+
+    function paint() {
+      const q = search.value;
+      const names = kind === "geoip" ? searchCountries(q) : searchSets("geosite", q);
+      scroll.innerHTML = "";
+      const caption = el("div", "rr-setcaption", esc(q.trim() ? t("rr.setsFound", { n: names.length }) : t("rr.setsPopular")));
+      scroll.appendChild(caption);
+      if (!names.length) {
+        scroll.appendChild(el("div", "rr-picker__state", '<div class="rr-picker__state-text">' + esc(t("rr.setsNothing")) + "</div>"));
+        return;
+      }
+      for (const name of names) {
+        const value = `${kind}:${name}`;
+        const item = el("div", "rr-proc");
+        item.setAttribute("role", "option");
+        item.tabIndex = 0;
+        item.dataset.checked = String(draft.values.includes(value));
+        const label = kind === "geoip" ? countryName(name) : name;
+        item.innerHTML =
+          '<span class="rr-check">' + I.check + "</span>" +
+          '<span class="rr-proc__ico">' + (kind === "geoip" ? flagImg(name) : I.list) + "</span>" +
+          '<span class="rr-proc__main"><span class="rr-proc__name">' + esc(label) + '</span><span class="rr-proc__path">' + esc(value) + "</span></span>";
+        const toggle = () => {
+          const i = draft.values.indexOf(value);
+          if (i >= 0) draft.values.splice(i, 1); else draft.values.push(value);
+          item.dataset.checked = String(draft.values.includes(value));
+          repaintPicked();
+          updateSave();
+        };
+        item.addEventListener("click", toggle);
+        item.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+        scroll.appendChild(item);
+      }
+    }
+    search.addEventListener("input", paint);
+    repaintPicked();
+    paint();
+    return f;
+  }
+
   function processFields() {
     const f = el("div", "rr-field", `<div class="rr-label">${esc(t("rr.fieldApp"))}</div>`);
     const sw = el("div", "rr-proc-switch");

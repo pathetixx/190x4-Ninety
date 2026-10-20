@@ -169,6 +169,8 @@ const ALLOWED_SAME_AS_EN = new Set([
   "settings.enums.qualityGood.3000000",
   "settings.warp.scanRowHint",
   "traffic.label",
+  // de/pl: «Region · {name}» — слово «Region» в обоих языках то же.
+  "rr.base.region",
 ]);
 
 const wordCount = (value) => String(value).trim().split(/\s+/).filter(Boolean).length;

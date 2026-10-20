@@ -14,6 +14,7 @@ import {
 } from "/lib/singbox.js";
 import { DEFAULT_OPTIONS, REGIONS } from "/lib/options.js";
 import { createStrictPrivacyPolicy } from "/lib/strict-privacy-policy.js";
+import { regionRules } from "/lib/routing-rules.js";
 
 // Строгий туннель включается ровно так же в бою: main.js готовит политику
 // через prepareStrictPrivacyRuntime и отдаёт её builder'у как runtimePolicy.
@@ -1315,6 +1316,68 @@ test("домены «Напрямую» при ipv6Mode=enable резолвят�
   options.route.ipv6Mode = "prefer";
   const prefer = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "tun", options }).config;
   assert.equal(prefer.dns.rules[0].strategy, undefined);
+});
+
+// «Готовый список» — rule_set из каталога SagerNet. Один файл — один тег, кто
+// бы его ни подключил: регион и правило пользователя делят загрузку и кэш.
+test("готовый список: правило, DNS и rule_set собираются вместе", () => {
+  const options = structuredClone(DEFAULT_OPTIONS);
+  options.region = "ru";
+  options.route.customRules = [
+    { id: "s", enabled: true, type: "set", values: ["geosite:youtube", "geoip:nl", "geosite:category-ru"], action: "proxy" },
+    { id: "off", enabled: false, type: "set", values: ["geosite:netflix"], action: "direct" },
+    { id: "bad", enabled: true, type: "set", values: ["geosite:no-such-list"], action: "direct" },
+    { id: "ip", enabled: true, type: "set", values: ["geoip:de"], action: "block" },
+  ];
+  const { config } = buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "tun", options });
+
+  const custom = config.route.rules.filter((rule) => rule.rule_set?.some((tag) => ["geosite-youtube", "geoip-de"].includes(tag)));
+  assert.deepEqual(custom, [
+    { rule_set: ["geosite-youtube", "geoip-nl", "geosite-category-ru"], outbound: "proxy" },
+    { rule_set: ["geoip-de"], action: "reject" },
+  ]);
+  // DNS отвечает только по спискам сайтов: у запроса ещё нет адреса.
+  assert.deepEqual(config.dns.rules[0], { rule_set: ["geosite-youtube", "geosite-category-ru"], server: "dns-remote" });
+  assert.equal(config.dns.rules.some((rule) => rule.rule_set?.includes("geoip-de")), false);
+
+  const sets = config.route.rule_set;
+  const tags = sets.map((set) => set.tag);
+  assert.equal(new Set(tags).size, tags.length, "один тег — один список");
+  for (const tag of ["geosite-youtube", "geoip-nl", "geosite-category-ru", "geoip-ru", "geoip-de"]) assert.ok(tags.includes(tag), tag);
+  assert.equal(tags.includes("geosite-netflix"), false, "выключенное правило списков не тянет");
+  assert.equal(tags.includes("geosite-no-such-list"), false);
+  // Недоступный список не должен ронять подключение: ядро стартует без него.
+  assert.ok(sets.every((set) => set.optional === true));
+  assert.equal(sets.find((set) => set.tag === "geosite-youtube").url,
+    "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-youtube.srs");
+  validateConfigReferences(config);
+});
+
+// «Сделать своими»: база региона уходит в правила пользователя, а маршрутизация
+// остаётся той же — те же зона и списки, в том же порядке относительно базы.
+test("перенесённая база региона даёт ту же маршрутизацию", () => {
+  const base = structuredClone(DEFAULT_OPTIONS);
+  base.region = "ru";
+  const detached = structuredClone(base);
+  detached.route.regionDetached = true;
+  detached.route.customRules = regionRules("ru");
+
+  const build = (options) => buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "tun", options }).config;
+  const a = build(base);
+  const b = build(detached);
+  const pick = (config) => config.route.rules.filter((rule) => rule.outbound === "direct" && (rule.domain_suffix || rule.rule_set));
+  assert.deepEqual(pick(b), pick(a));
+  assert.deepEqual(
+    b.route.rule_set.map((set) => set.tag).sort(),
+    a.route.rule_set.map((set) => set.tag).sort(),
+  );
+  validateConfigReferences(b);
+
+  // Без перенесённых правил база не выпускается: регион выбран, но «отцеплен».
+  detached.route.customRules = [];
+  const bare = build(detached);
+  assert.equal(bare.route.rules.some((rule) => rule.domain_suffix?.includes(".ru")), false);
+  assert.equal(bare.route.rule_set.length, 0);
 });
 
 test("hysteria2 со сменой портов собирается через server_ports без server_port", () => {

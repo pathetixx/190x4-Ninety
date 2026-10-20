@@ -78,6 +78,9 @@ export const DEFAULT_OPTIONS = {
     // соединений, чтобы показывать executable каждого процесса.
     processLookup: true,
     customRules: [],
+    // База региона перенесена в customRules («Сделать своими»): сам регион
+    // остаётся выбранным, но своих правил больше не выпускает.
+    regionDetached: false,
   },
   inbound: {
     mixedPort: 7890,
@@ -194,7 +197,7 @@ const BOOLEAN_PATHS = [
   "privacy.strictTunnel", "privacy.protectedBrowserAutoLaunch",
   "warp.autoRescan", "log.disabled", "dns.enableFakeDns",
   "route.bypassLan", "route.resolveDestination", "route.tunSplitDiscord",
-  "route.processLookup", "inbound.strictRoute", "inbound.allowConnectionFromLan",
+  "route.processLookup", "route.regionDetached", "inbound.strictRoute", "inbound.allowConnectionFromLan",
   "inbound.lanAuth", "tlsTricks.enableFragment", "tlsTricks.mixedSniCase", "tlsTricks.enablePadding",
   "mux.enable", "mux.padding", "quality.enabled",
   "quality.aggressive", "quality.lowDataMode",
@@ -429,7 +432,12 @@ export function saveOptions(opts) {
 // controlled path into a prototype-pollution primitive even when it filters a
 // few well-known property names.
 const OPTION_SETTERS = new Map([
-  ["region", (opts, value) => { opts.region = value; }],
+  // Другой регион — другая база: перенесённые правила прежнего региона остаются
+  // у пользователя, а новый регион снова работает своей базой.
+  ["region", (opts, value) => {
+    if (opts.region !== value) opts.route.regionDetached = false;
+    opts.region = value;
+  }],
   ["blockAds", (opts, value) => { opts.blockAds = value; }],
   ["general.autostart", (opts, value) => { opts.general.autostart = value; }],
   ["general.startMinimized", (opts, value) => { opts.general.startMinimized = value; }],
@@ -468,6 +476,7 @@ const OPTION_SETTERS = new Map([
   ["route.tunSplitDiscord", (opts, value) => { opts.route.tunSplitDiscord = value; }],
   ["route.processLookup", (opts, value) => { opts.route.processLookup = value; }],
   ["route.customRules", (opts, value) => { opts.route.customRules = value; }],
+  ["route.regionDetached", (opts, value) => { opts.route.regionDetached = value; }],
   ["inbound.mixedPort", (opts, value) => { opts.inbound.mixedPort = value; }],
   ["inbound.mtu", (opts, value) => { opts.inbound.mtu = value; }],
   ["inbound.tunStack", (opts, value) => { opts.inbound.tunStack = value; }],

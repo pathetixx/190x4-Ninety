@@ -16,6 +16,7 @@ import {
   splitHostPort,
 } from "/lib/url-helpers.js";
 import { parseLink, parseTrustTunnelToml, profileProto } from "/lib/protocol-parsers.js";
+import { GEOSITE_BASE, REGION_GEOSITE, isKnownSet, parseSetRef, setUrl } from "/lib/rule-sets.js";
 import { isNodeQuarantined } from "/lib/node-quarantine.js";
 import {
   nodeConfigIssue,
@@ -65,31 +66,58 @@ export const ENGINE_PROCESS_NAMES = [
   "trusttunnel_client-x86_64-pc-windows-msvc.exe",
 ];
 
-// Списки правил — из первоисточников, а не из чужих зеркал.
-const GEOSITE_BASE = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set";
-const GEOIP_BASE = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set";
+// Списки правил — из первоисточников, а не из чужих зеркал (rule-sets.js).
 // Списки вредоносного/фишинга/майнеров ведёт отдельный проект: ни в sing-geosite,
-// ни в sing-geoip таких категорий нет.
+// ни в sing-geoip таких категорий нет. Теги у них свои, с префиксом: имена из
+// каталога SagerNet получают теги вида geosite-<имя>, и совпадение имени не
+// должно подменить один файл другим.
 const SECURITY_BASE = "https://raw.githubusercontent.com/Chocolate4U/Iran-sing-box-rules/rule-set";
 
 const BLOCK_AD_SETS = [
-  ["geosite-ads", `${GEOSITE_BASE}/geosite-category-ads-all.srs`],
-  ["geosite-malware", `${SECURITY_BASE}/geosite-malware.srs`],
-  ["geosite-phishing", `${SECURITY_BASE}/geosite-phishing.srs`],
-  ["geosite-cryptominers", `${SECURITY_BASE}/geosite-cryptominers.srs`],
-  ["geoip-malware", `${SECURITY_BASE}/geoip-malware.srs`],
-  ["geoip-phishing", `${SECURITY_BASE}/geoip-phishing.srs`],
+  ["geosite-category-ads-all", `${GEOSITE_BASE}/geosite-category-ads-all.srs`],
+  ["security-geosite-malware", `${SECURITY_BASE}/geosite-malware.srs`],
+  ["security-geosite-phishing", `${SECURITY_BASE}/geosite-phishing.srs`],
+  ["security-geosite-cryptominers", `${SECURITY_BASE}/geosite-cryptominers.srs`],
+  ["security-geoip-malware", `${SECURITY_BASE}/geoip-malware.srs`],
+  ["security-geoip-phishing", `${SECURITY_BASE}/geoip-phishing.srs`],
 ];
 
-// Страновой geosite существует не для каждого региона — только эти три.
-// Для остальных правило по доменам не выпускаем вовсе: маршрутизация опирается
-// на geoip. Раньше сюда подставлялось зеркало, где для tr лежал файл с доменами
-// госсайтов РФ, а для by не лежало ничего — правило молча не работало.
-const COUNTRY_GEOSITE = {
-  ru: "geosite-category-ru",
-  cn: "geosite-cn",
-  ir: "geosite-category-ir",
-};
+// Тег списка из каталога SagerNet: один и тот же файл под одним тегом, кто бы
+// его ни подключил — регион, раздельный Discord или правило пользователя.
+// Иначе один файл качался бы и хранился в кэше дважды.
+export function setTag(ref) {
+  return `${ref.kind}-${ref.name}`;
+}
+
+// Регион, база которого действует. «Сделать своими» переносит её правила в
+// пользовательские (regionDetached): регион остаётся выбранным — по нему,
+// например, подбираются сайты для диагностики, — но своих правил не выпускает.
+function activeRegion(options) {
+  const region = options.region;
+  if (!region || region === "other" || options.route?.regionDetached) return null;
+  return region;
+}
+
+// Списки базы региона: страновой geosite есть не для каждого региона (см.
+// REGION_GEOSITE), geoip — для любого.
+function regionSetRefs(region) {
+  const refs = [];
+  if (REGION_GEOSITE[region]) refs.push({ kind: "geosite", name: REGION_GEOSITE[region] });
+  refs.push({ kind: "geoip", name: region });
+  return refs;
+}
+
+// Ссылки «Готового списка» в правиле. Нераспознанное и не из каталога
+// отбрасываем: sanitizeRule уже не пускает такое в сохранённые правила, но
+// конфиг собирается и из старых или импортированных настроек.
+function customRuleSetRefs(r) {
+  const refs = [];
+  for (const value of customRuleValues(r)) {
+    const ref = parseSetRef(value);
+    if (ref && isKnownSet(ref)) refs.push(ref);
+  }
+  return refs;
+}
 // Доменные суффиксы Discord — дублируют geosite-discord на случай, если правило
 // не подтянулось, и ловят по sniffed-SNI. Только домены Discord уходят в direct
 // (без IP-листа: кривой CIDR увёл бы чужой трафик мимо VPN = утечка).
@@ -551,44 +579,35 @@ function assertStrictBootstrapSafe(node) {
   }
 }
 
-// ── rule_sets для региона + block_ads ───────────────────────
+// ── rule_sets: регион, реклама, раздельный Discord, правила пользователя ──
 // Канал скачивания — http_client.detour: download_detour в sing-box 1.14
 // объявлен устаревшим и в 1.16 будет удалён.
+//
+// optional — дельта ninety-core: список, который не скачался при старте,
+// подключается пустым и докачивается в фоне, а не роняет всё подключение.
+// Без него недоступный GitHub или удалённая в первоисточнике категория из
+// правила пользователя оставляли бы человека без VPN вовсе. Пока список пуст,
+// его правила просто не срабатывают и трафик идёт по остальным правилам.
 function buildRuleSets(options, mode, downloadDetour = "proxy") {
-  const sets = [];
+  const sets = new Map();
+  const add = (tag, url) => {
+    if (sets.has(tag)) return;
+    sets.set(tag, {
+      type: "remote", tag, format: "binary", url,
+      update_interval: "120h", http_client: { detour: downloadDetour }, optional: true,
+    });
+  };
+  const addRef = (ref) => add(setTag(ref), setUrl(ref));
+
   // TUN + split Discord: правило для маршрутизации доменов Discord мимо туннеля.
-  if (mode === "tun" && options.route?.tunSplitDiscord) {
-    sets.push({
-      type: "remote", tag: "geosite-discord", format: "binary",
-      url: `${GEOSITE_BASE}/geosite-discord.srs`,
-      update_interval: "120h", http_client: { detour: downloadDetour },
-    });
+  if (mode === "tun" && options.route?.tunSplitDiscord) addRef({ kind: "geosite", name: "discord" });
+  const region = activeRegion(options);
+  if (region) regionSetRefs(region).forEach(addRef);
+  if (options.blockAds) BLOCK_AD_SETS.forEach(([tag, url]) => add(tag, url));
+  for (const r of Array.isArray(options.route?.customRules) ? options.route.customRules : []) {
+    if (r && r.enabled !== false && r.type === "set") customRuleSetRefs(r).forEach(addRef);
   }
-  const region = options.region;
-  if (region && region !== "other") {
-    sets.push({
-      type: "remote", tag: `geoip-${region}`, format: "binary",
-      url: `${GEOIP_BASE}/geoip-${region}.srs`,
-      update_interval: "120h", http_client: { detour: downloadDetour },
-    });
-    const geositeName = COUNTRY_GEOSITE[region];
-    if (geositeName) {
-      sets.push({
-        type: "remote", tag: `geosite-${region}`, format: "binary",
-        url: `${GEOSITE_BASE}/${geositeName}.srs`,
-        update_interval: "120h", http_client: { detour: downloadDetour },
-      });
-    }
-  }
-  if (options.blockAds) {
-    for (const [tag, url] of BLOCK_AD_SETS) {
-      sets.push({
-        type: "remote", tag, format: "binary",
-        url, update_interval: "120h", http_client: { detour: downloadDetour },
-      });
-    }
-  }
-  return sets;
+  return [...sets.values()];
 }
 
 // ── DNS server: парсер строки в новый формат sing-box 1.12+ ─
@@ -690,15 +709,17 @@ function buildDns(options, protectedOutbound = "proxy", mode = "") {
   const direct = directDnsAction(options);
   dns.rules.push(...customRulesToDns(options.route?.customRules, fakeIp, direct));
 
-  if (options.region && options.region !== "other") {
+  const region = activeRegion(options);
+  if (region) {
     dns.rules.push({
-      domain_suffix: [`.${options.region}`],
+      domain_suffix: [`.${region}`],
       ...direct,
       rewrite_ttl: 86400,
     });
-    if (COUNTRY_GEOSITE[options.region]) {
+    const geosite = regionSetRefs(region).filter((ref) => ref.kind === "geosite");
+    if (geosite.length) {
       dns.rules.push({
-        rule_set: [`geosite-${options.region}`],
+        rule_set: geosite.map(setTag),
         ...direct,
         rewrite_ttl: 86400,
       });
@@ -758,6 +779,10 @@ function customRulesToSingbox(customRules, protectedOutbound = "proxy", resolveT
       rule.ip_cidr = values.map((v) => (v.includes("/") ? v : `${v}/${v.includes(":") ? 128 : 32}`));
     } else if (r.type === "process") {
       rule.process_name = values;
+    } else if (r.type === "set") {
+      const refs = customRuleSetRefs(r);
+      if (!refs.length) continue;
+      rule.rule_set = refs.map(setTag);
     } else {
       continue; // неизвестный тип — пропускаем
     }
@@ -783,10 +808,21 @@ function customRulesToDns(customRules, fakeIp = false, direct = { server: "dns-d
   if (!Array.isArray(customRules)) return [];
   const out = [];
   for (const r of customRules) {
-    if (!r || r.enabled === false || r.type !== "domain") continue;
-    const values = customRuleValues(r);
-    if (!values.length) continue;
-    const match = { [customDomainField(r)]: values };
+    if (!r || r.enabled === false) continue;
+    let match;
+    if (r.type === "domain") {
+      const values = customRuleValues(r);
+      if (!values.length) continue;
+      match = { [customDomainField(r)]: values };
+    } else if (r.type === "set") {
+      // На DNS-запрос отвечают только списки сайтов: geoip — это адреса,
+      // их у запроса ещё нет.
+      const sites = customRuleSetRefs(r).filter((ref) => ref.kind === "geosite");
+      if (!sites.length) continue;
+      match = { rule_set: sites.map(setTag) };
+    } else {
+      continue;
+    }
     if (r.action === "block") {
       out.push({ ...match, action: "reject" });
     } else if (r.action === "direct") {
@@ -933,7 +969,7 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
 
   if (mode === "tun" && options.route?.tunSplitDiscord) {
     rules.push({ process_name: DISCORD_PROCESS_NAMES, outbound: "direct" });
-    rules.push({ rule_set: ["geosite-discord"], outbound: "direct" });
+    rules.push({ rule_set: [setTag({ kind: "geosite", name: "discord" })], outbound: "direct" });
     rules.push({ domain_suffix: DISCORD_SUFFIXES, outbound: "direct" });
   }
 
@@ -941,21 +977,14 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
     rules.push({ ip_is_private: true, outbound: "direct" });
   }
 
-  if (options.region && options.region !== "other") {
-    rules.push({ domain_suffix: [`.${options.region}`], outbound: "direct" });
-    rules.push({
-      rule_set: COUNTRY_GEOSITE[options.region]
-        ? [`geosite-${options.region}`, `geoip-${options.region}`]
-        : [`geoip-${options.region}`],
-      outbound: "direct",
-    });
+  const region = activeRegion(options);
+  if (region) {
+    rules.push({ domain_suffix: [`.${region}`], outbound: "direct" });
+    rules.push({ rule_set: regionSetRefs(region).map(setTag), outbound: "direct" });
   }
 
   if (options.blockAds) {
-    rules.push({
-      rule_set: ["geosite-ads", "geosite-malware", "geosite-phishing", "geosite-cryptominers", "geoip-malware", "geoip-phishing"],
-      action: "reject",
-    });
+    rules.push({ rule_set: BLOCK_AD_SETS.map(([tag]) => tag), action: "reject" });
   }
 
   const directResolver = options.route.resolveDestination ? "dns-remote" : "dns-direct";

@@ -26,13 +26,22 @@ Ninety can apply built-in regional and safety-oriented rule sets, such as LAN, r
 
 These rules are meant to provide practical defaults. If behavior is surprising, disable optional rule sets one at a time and retest.
 
+**Settings → Routing → Routing rules** lists them under **Base**, in the order they apply after your own rules: Discord outside the tunnel, LAN, the region, ad blocking, then everything else through the VPN.
+
+**Make them mine** moves the region's rules into your own list. They keep working the same way and can then be edited, reordered or switched off like any other rule. **Restore the base** removes the moved rules and turns the region's base back on. Choosing another region also brings its base back.
+
 ## Custom rules
 
 Custom rules can match:
 
 - domains;
 - IP addresses or subnets;
-- process names.
+- process names;
+- ready-made lists: a service's sites (`geosite:youtube`, `geosite:category-ru`) or a country's addresses (`geoip:cn`) from SagerNet's sing-geosite and sing-geoip.
+
+For a whole domain zone use a leading dot, for example `.ru` with the **Subdomains** match.
+
+Lists are downloaded through the tunnel and refreshed every 5 days. A list that cannot be downloaded does not stop the connection: its rules match nothing until the download succeeds, which is retried within minutes.
 
 Each custom rule has an action: through VPN, direct, block, through a specific server or through WARP. Custom rules are intended to be evaluated before broad defaults so user intent can override regional defaults.
 

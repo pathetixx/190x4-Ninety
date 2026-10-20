@@ -228,7 +228,9 @@ export function matchesDirectRule({ host = "", region = "", customRules = [] } =
         ? name === value
         : rule.match === "keyword"
           ? name.includes(value)
-          : name === value || name.endsWith(`.${value}`);
+          : value.startsWith(".")
+            ? name.endsWith(value)
+            : name === value || name.endsWith(`.${value}`);
       if (hit) return true;
     }
   }
