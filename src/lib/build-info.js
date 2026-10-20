@@ -10,7 +10,7 @@ export const BUILD_INFO = {
   version: "0.11.2",
   commit: "local",
   date: "—",
-  core: "sing-box 1.14.3-ninety.2",
+  core: "sing-box 1.14.3-ninety.3",
   coreXray: "Xray 26.10.17",
   channel: "Early access",
   platform: "Windows · x64",
