@@ -1501,6 +1501,7 @@ pub async fn dpi_start(
     }
 
     let mut child = cmd.spawn().map_err(|e| format!("spawn winws: {e}"))?;
+    crate::vpn::prioritize_datapath_process(child.id());
     // Сирота winws дерётся за драйвер WinDivert со следующим запуском (см.
     // kill_stray_winws); job снимает её до того, как она успеет пережить нас.
     crate::job_guard::bind_pid(child.id());

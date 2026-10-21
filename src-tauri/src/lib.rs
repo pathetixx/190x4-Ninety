@@ -1034,6 +1034,7 @@ fn restore_system_proxy_before_exit() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     install_failsafe_panic_hook();
+    vpn::normalize_own_priority();
     // До Builder: single-instance регистрируется при сборке приложения.
     wait_for_relaunching_parent();
     let portable = app_paths::is_portable();

@@ -838,8 +838,9 @@ fn xray_log_path(app: &AppHandle) -> Option<PathBuf> {
 // процесс жив). Поднимаем только критичные сетевые children до ABOVE_NORMAL:
 // HIGH/REALTIME намеренно не используем, чтобы не превращать Ninety в источник
 // starvation для всей системы. Неудача не фатальна — датаплейн просто остаётся
-// на NORMAL, поэтому ошибку только логируем.
-fn prioritize_datapath_process(pid: u32) {
+// на NORMAL, поэтому ошибку только логируем. winws тоже датаплейн: WinDivert
+// отдаёт ему пакеты до проверки ipset-exclude, включая трафик к самой ноде.
+pub(crate) fn prioritize_datapath_process(pid: u32) {
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::CloseHandle;
@@ -861,6 +862,33 @@ fn prioritize_datapath_process(pid: u32) {
     }
     #[cfg(not(target_os = "windows"))]
     let _ = pid;
+}
+
+// Задача Планировщика по умолчанию стартует процесс с BELOW_NORMAL (Priority 7),
+// и этот класс наследуют все дети, которых мы не поднимаем явно. Под нагрузкой
+// контроллер и winws голодают — VPN «падает», хотя нода жива. Выравниваем себя
+// до NORMAL; если юзер сам поставил выше — не трогаем.
+pub(crate) fn normalize_own_priority() {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Threading::{
+            GetCurrentProcess, GetPriorityClass, SetPriorityClass, BELOW_NORMAL_PRIORITY_CLASS,
+            IDLE_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS,
+        };
+
+        unsafe {
+            let process = GetCurrentProcess();
+            let class = GetPriorityClass(process);
+            let starved =
+                class == BELOW_NORMAL_PRIORITY_CLASS.0 || class == IDLE_PRIORITY_CLASS.0;
+            if !starved {
+                return;
+            }
+            if let Err(error) = SetPriorityClass(process, NORMAL_PRIORITY_CLASS) {
+                eprintln!("own priority normalize failed: {error}");
+            }
+        }
+    }
 }
 
 // Поднимает xray-core sidecar для xhttp-нод (two-core). Всегда user-level,
