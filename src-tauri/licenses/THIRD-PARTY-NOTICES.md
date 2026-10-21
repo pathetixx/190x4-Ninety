@@ -44,7 +44,7 @@ The engine used for XHTTP connections.
 
 | | |
 | --- | --- |
-| Version | `v26.10.17` (commit `92ccc939aaf4f8965f369cf0b142e005aeaa11d5`) |
+| Version | `v26.10.21` (commit `1b1647cd9ddf0abc34b981d4611fc03bcac1ca74`) |
 | Source | <https://github.com/XTLS/Xray-core> |
 | License | Mozilla Public License 2.0 |
 | Text | [`xray-core.txt`](./xray-core.txt) |
