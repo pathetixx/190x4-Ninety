@@ -879,8 +879,7 @@ pub(crate) fn normalize_own_priority() {
         unsafe {
             let process = GetCurrentProcess();
             let class = GetPriorityClass(process);
-            let starved =
-                class == BELOW_NORMAL_PRIORITY_CLASS.0 || class == IDLE_PRIORITY_CLASS.0;
+            let starved = class == BELOW_NORMAL_PRIORITY_CLASS.0 || class == IDLE_PRIORITY_CLASS.0;
             if !starved {
                 return;
             }
