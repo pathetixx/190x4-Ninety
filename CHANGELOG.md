@@ -6,6 +6,18 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.12.1 — 2026-10-21
+
+## English
+
+- The VPN no longer drops while a game or another heavy app loads the processor to the limit.
+- Ninety no longer trusts certificates issued through the compromised emSign intermediate certificates.
+
+## Русский
+
+- VPN больше не отваливается, когда игра или другое тяжёлое приложение загружает процессор до предела.
+- Ninety больше не доверяет сертификатам, выданным через скомпрометированные промежуточные сертификаты emSign.
+
 ## v0.12.0 — 2026-10-20
 
 ## English
