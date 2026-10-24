@@ -81,8 +81,8 @@ Var NinetyLockedPath
 Var NinetyWriteProbeAttempts
 ; Сравнение версий (1 = апгрейд, 0 = та же, -1 = даунгрейд), посчитанное в
 ; .onInit. Silent-установка страниц не исполняет, поэтому $R0 из PageReinstall
-; там навсегда остаётся пустым — и проверка запрета даунгрейда в EarlyChecks
-; сравнивала пустую строку, то есть не срабатывала никогда.
+; там навсегда остаётся пустым — и проверка запрета даунгрейда сравнивала бы
+; пустую строку, то есть не срабатывала никогда.
 Var NinetyVersionCompare
 
 ; A flat kernel-object name avoids accidental namespace separators in NSIS
@@ -485,6 +485,15 @@ Function PageLeaveReinstall
       MessageBox MB_ICONEXCLAMATION "$(unableToUninstall)"
       Abort
     ${EndIf}
+
+    ; The NSIS uninstaller was run in place (`_?=`), so it cannot delete itself
+    ; and the install directory, clean them up here once the uninstall succeeded
+    ; https://nsis.sourceforge.io/Docs/Chapter3.html#:~:text=path%20contains%20spaces.-,3.2.3%20Examples,-installer.exe%20/NCRC
+    ${If} $WixMode = 0
+    ${AndIf} $4 != ""
+      Delete "$4\uninstall.exe"
+      RMDir "$4"
+    ${EndIf}
   reinst_done:
 FunctionEnd
 
@@ -661,8 +670,8 @@ Function .onInit
   !endif
 
   ; Сравнение версий считаем здесь, а не на странице обслуживания: страницы в
-  ; silent-режиме не исполняются вовсе, и EarlyChecks сравнивал бы пустую
-  ; переменную. Контекст (SHCTX) к этому моменту уже окончательный.
+  ; silent-режиме не исполняются вовсе, и проверка даунгрейда ниже сравнивала
+  ; бы пустую переменную. Контекст (SHCTX) к этому моменту уже окончательный.
   ReadRegStr $0 SHCTX "${UNINSTKEY}" "DisplayVersion"
   ${If} $0 == ""
     StrCpy $NinetyVersionCompare 1   ; установленной версии нет — обычная установка
@@ -670,27 +679,30 @@ Function .onInit
     nsis_tauri_utils::SemverCompare "${VERSION}" $0
     Pop $NinetyVersionCompare
   ${EndIf}
-FunctionEnd
 
-
-Section EarlyChecks
-  ; Abort silent installer if downgrades is disabled
+  ; Abort downgrades if they are disabled, in the modes that skip the reinstall page choice:
+  ; silent, passive and update
   !if "${ALLOWDOWNGRADES}" == "false"
   ${If} ${Silent}
-    ; If downgrading (значение посчитано в .onInit — страницы в silent не идут)
+  ${OrIf} $PassiveMode = 1
+  ${OrIf} $UpdateMode = 1
+    ; If downgrading
     ${If} $NinetyVersionCompare = -1
-      System::Call 'kernel32::AttachConsole(i -1)i.r0'
-      ${If} $0 <> 0
-        System::Call 'kernel32::GetStdHandle(i -11)i.r0'
-        System::call 'kernel32::SetConsoleTextAttribute(i r0, i 0x0004)' ; set red color
-        FileWrite $0 "$(silentDowngrades)"
+      ${If} ${Silent}
+        System::Call 'kernel32::AttachConsole(i -1)i.r0'
+        ${If} $0 <> 0
+          System::Call 'kernel32::GetStdHandle(i -11)i.r0'
+          System::call 'kernel32::SetConsoleTextAttribute(i r0, i 0x0004)' ; set red color
+          FileWrite $0 "$(silentDowngrades)"
+        ${EndIf}
+      ${Else}
+        MessageBox MB_ICONSTOP "$(silentDowngrades)"
       ${EndIf}
       Abort
     ${EndIf}
   ${EndIf}
   !endif
-
-SectionEnd
+FunctionEnd
 
 Section WebView2
   Call KuroganeProgressTick
