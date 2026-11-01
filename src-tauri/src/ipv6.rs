@@ -44,10 +44,10 @@ pub async fn system_ipv6_available() -> Result<Option<bool>, String> {
         // и подключение висит.
         tauri::async_runtime::spawn_blocking(|| {
             std::panic::catch_unwind(windows_impl::probe)
-                .unwrap_or_else(|_| Err("проба IPv6 упала".into()))
+                .unwrap_or_else(|_| Err("IPv6 probe panicked".into()))
         })
         .await
-        .map_err(|_| "проба IPv6 не отработала".to_string())?
+        .map_err(|_| "IPv6 probe did not run".to_string())?
     }
     #[cfg(not(windows))]
     {
@@ -141,9 +141,9 @@ mod windows_impl {
                 size = size.saturating_add(16 * 1024);
                 continue;
             }
-            return Err(format!("GetAdaptersAddresses: код {rc}"));
+            return Err(format!("GetAdaptersAddresses: code {rc}"));
         }
-        Err("таблица адаптеров растёт быстрее, чем читается".into())
+        Err("the adapter table grows faster than it can be read".into())
     }
 }
 

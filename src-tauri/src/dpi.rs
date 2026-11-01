@@ -66,14 +66,14 @@ fn terminate_child_bounded(child: &mut Child, label: &str) -> Result<(), String>
             Ok(None) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(20));
             }
-            Ok(None) => return Err(format!("{label} не завершился за 2 секунды")),
-            Err(e) => return Err(format!("не удалось подтвердить остановку {label}: {e}")),
+            Ok(None) => return Err(format!("{label} did not exit within 2 seconds")),
+            Err(e) => return Err(format!("could not confirm that {label} stopped: {e}")),
         }
         if let Some(e) = kill_error.as_ref() {
             // Ошибка kill допустима только если try_wait выше уже подтвердил,
             // что процесс успел завершиться самостоятельно.
             if Instant::now() >= deadline {
-                return Err(format!("не удалось остановить {label}: {e}"));
+                return Err(format!("could not stop {label}: {e}"));
             }
         }
     }
@@ -108,7 +108,7 @@ fn stop_dpi_runtime(state: &DpiState, label: &str) -> Result<(), String> {
     while state.operation_active.load(Ordering::SeqCst) {
         if Instant::now() >= deadline {
             return Err(format!(
-                "{label}: отменяемая операция не завершилась за 2 секунды"
+                "{label}: the cancelled operation did not finish within 2 seconds"
             ));
         }
         std::thread::sleep(Duration::from_millis(20));
@@ -120,12 +120,12 @@ fn stop_dpi_runtime(state: &DpiState, label: &str) -> Result<(), String> {
 
 fn begin_dpi_operation(state: &DpiState, name: &'static str) -> Result<u64, String> {
     if state.operation_active.swap(true, Ordering::SeqCst) {
-        return Err("предыдущая DPI-операция ещё завершается".into());
+        return Err(crate::util::i18n_error("backend.dpi.busy"));
     }
     let mut control = state.control.lock_recover();
-    if let Some(active) = control.operation {
+    if control.operation.is_some() {
         state.operation_active.store(false, Ordering::SeqCst);
-        return Err(format!("DPI-операция уже выполняется: {active}"));
+        return Err(crate::util::i18n_error("backend.dpi.busy"));
     }
     control.generation = control.generation.wrapping_add(1);
     control.operation = Some(name);
@@ -147,11 +147,10 @@ async fn dpi_sleep_or_cancel(
     state: &DpiState,
     generation: u64,
     duration: Duration,
-    label: &str,
 ) -> Result<(), String> {
     tokio::select! {
         _ = tokio::time::sleep(duration) => Ok(()),
-        _ = wait_dpi_cancelled(state, generation) => Err(format!("{label} отменён")),
+        _ = wait_dpi_cancelled(state, generation) => Err(crate::util::i18n_error("backend.dpi.cancelled")),
     }
 }
 
@@ -493,7 +492,7 @@ fn fake_target(kind: &str) -> Result<&'static str, String> {
     match kind {
         "discord" => Ok(ACTIVE_DISCORD_FAKE),
         "game" => Ok(ACTIVE_GAME_FAKE),
-        _ => Err("неизвестный тип UDP-подмены".into()),
+        _ => Err("unknown UDP fake type".into()),
     }
 }
 
@@ -642,13 +641,13 @@ fn current_fake_name(
 
 fn apply_fake_file(dir: &Path, kind: &str, file: &str) -> Result<(), String> {
     if !valid_fake_filename(file) {
-        return Err("недопустимое имя fake-файла".into());
+        return Err("invalid fake file name".into());
     }
     let source = dir.join(file);
     let meta =
-        std::fs::symlink_metadata(&source).map_err(|e| format!("fake '{file}' не найден: {e}"))?;
+        std::fs::symlink_metadata(&source).map_err(|e| format!("fake '{file}' not found: {e}"))?;
     if !meta.file_type().is_file() || meta.len() == 0 || meta.len() > MAX_DPI_PAYLOAD_BYTES {
-        return Err("fake-файл пуст, слишком велик или не является обычным файлом".into());
+        return Err("fake file is empty, too large or not a regular file".into());
     }
     let target = dir.join(fake_target(kind)?);
     copy_replace(&source, &target, &format!("{kind} UDP fake"))
@@ -1211,24 +1210,24 @@ pub async fn dpi_set_active_fake(
     let dir = ensure_bindata(&app)?;
     let options = fake_options(&dir)?;
     if !options.contains(&file) {
-        return Err("fake-файл отсутствует в текущем подписанном наборе".into());
+        return Err("fake file is not in the current signed set".into());
     }
     let target = dir.join(fake_target(&kind)?);
     let previous = match std::fs::symlink_metadata(&target) {
         Ok(meta) if meta.file_type().is_file() && meta.len() <= MAX_DPI_PAYLOAD_BYTES => Some(
             std::fs::read(&target)
-                .map_err(|e| format!("не удалось сохранить текущий UDP fake: {e}"))?,
+                .map_err(|e| format!("could not save the current UDP fake: {e}"))?,
         ),
-        Ok(_) => return Err("текущий ACTIVE-файл небезопасен или слишком велик".into()),
+        Ok(_) => return Err("current ACTIVE file is unsafe or too large".into()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(format!("не удалось сохранить текущий UDP fake: {e}")),
+        Err(e) => return Err(format!("could not save the current UDP fake: {e}")),
     };
     apply_fake_file(&dir, &kind, &file)?;
     let mut selection = load_fake_selection(&app);
     match kind.as_str() {
         "discord" => selection.discord = Some(file.clone()),
         "game" => selection.game = Some(file.clone()),
-        _ => return Err("неизвестный тип UDP-подмены".into()),
+        _ => return Err("unknown UDP fake type".into()),
     }
     if let Err(marker_error) = save_fake_selection(&app, &selection) {
         let rollback = match previous {
@@ -1242,7 +1241,7 @@ pub async fn dpi_set_active_fake(
         return match rollback {
             Ok(()) => Err(marker_error),
             Err(rollback_error) => Err(format!(
-                "{marker_error}; откат ACTIVE-файла тоже не удался: {rollback_error}"
+                "{marker_error}; rolling back the ACTIVE file also failed: {rollback_error}"
             )),
         };
     }
@@ -1385,8 +1384,8 @@ pub async fn dpi_start(
                 Ok(Some(_)) => {
                     *guard = None;
                 } // умер — перезапустим
-                Ok(None) => return Err("DPI-обход уже запущен".into()),
-                Err(_) => return Err("DPI-обход уже запущен".into()),
+                Ok(None) => return Err(crate::util::i18n_error("backend.dpi.alreadyRunning")),
+                Err(_) => return Err(crate::util::i18n_error("backend.dpi.alreadyRunning")),
             }
         }
     }
@@ -1396,18 +1395,23 @@ pub async fn dpi_start(
     // упирался бы в start, который ещё даже не начал проверять отмену.
     let _data = tokio::select! {
         guard = state.data.lock() => guard,
-        _ = wait_dpi_cancelled(&state, generation) => return Err("DPI start отменён".into()),
+        _ = wait_dpi_cancelled(&state, generation) => return Err(crate::util::i18n_error("backend.dpi.cancelled")),
     };
     let strategies = read_strategies(&app)?;
     let strat = strategies
         .into_iter()
         .find(|s| s.id == strategy_id)
-        .ok_or_else(|| format!("стратегия '{strategy_id}' не найдена"))?;
+        .ok_or_else(|| {
+            crate::util::i18n_error_with("backend.dpi.strategyNotFound", &[("id", &strategy_id)])
+        })?;
 
     let bin = bin_dir(&app, monkey)?;
     let exe = bin.join("winws.exe");
     if !exe.exists() {
-        return Err(format!("winws.exe не найден: {}", exe.display()));
+        return Err(crate::util::i18n_error_with(
+            "backend.dpi.winwsMissing",
+            &[("path", &exe.display().to_string())],
+        ));
     }
     let lists = ensure_lists(&app)?;
     write_ipset_mode(&app, &lists, &ipset)?;
@@ -1460,7 +1464,7 @@ pub async fn dpi_start(
     let args = spread_exclusion_across_sections(args, &active_vpn_exclusion_args(&lists));
 
     if !dpi_operation_current(&state, generation) {
-        return Err("DPI start отменён".into());
+        return Err(crate::util::i18n_error("backend.dpi.cancelled"));
     }
 
     // Защита от «двойного старта»: гасим stray-winws (сирота от другого инстанса
@@ -1520,7 +1524,7 @@ pub async fn dpi_start(
         if control.generation != generation || control.operation.is_none() {
             drop(control);
             let _ = terminate_child_bounded(&mut child, "winws");
-            return Err("DPI start отменён".into());
+            return Err(crate::util::i18n_error("backend.dpi.cancelled"));
         }
         *state.child.lock_recover() = Some(child);
     }
@@ -1528,13 +1532,16 @@ pub async fn dpi_start(
     state.driver_loaded.store(true, Ordering::SeqCst);
 
     // Дать winws ~700мс упасть (занятый драйвер / нет прав / битые args).
-    dpi_sleep_or_cancel(&state, generation, Duration::from_millis(700), "DPI start").await?;
+    dpi_sleep_or_cancel(&state, generation, Duration::from_millis(700)).await?;
     remember_owned_driver_services(&state, &bin);
     {
         let mut guard = state.child.lock_recover();
         if let Some(child) = guard.as_mut() {
             if let Ok(Some(status)) = child.try_wait() {
                 *guard = None;
+                let code = status
+                    .code()
+                    .map_or_else(|| "?".to_string(), |code| code.to_string());
                 let tail = log
                     .as_ref()
                     .and_then(|p| std::fs::read(p).ok())
@@ -1547,16 +1554,15 @@ pub async fn dpi_start(
                         } else {
                             s.clone()
                         };
-                        format!("\nВывод winws:\n{t}")
+                        crate::util::i18n_error_with(
+                            "backend.dpi.exitedOutput",
+                            &[("code", &code), ("output", &t)],
+                        )
                     })
                     .unwrap_or_else(|| {
-                        " Нужны права администратора или занят драйвер WinDivert.".into()
+                        crate::util::i18n_error_with("backend.dpi.exitedAdmin", &[("code", &code)])
                     });
-                return Err(format!(
-                    "winws завершился сразу (код {:?}).{}",
-                    status.code(),
-                    tail
-                ));
+                return Err(tail);
             }
         }
     }
@@ -1575,7 +1581,7 @@ pub async fn dpi_stop(app: AppHandle) -> Result<(), String> {
         stop_dpi_runtime(&state, "winws")
     })
     .await
-    .map_err(|e| format!("не удалось дождаться остановки winws: {e}"))?
+    .map_err(|e| format!("waiting for winws to stop failed: {e}"))?
 }
 
 #[tauri::command]
@@ -1726,13 +1732,13 @@ pub async fn dpi_write_list(
 fn normalize_exclude_domain(raw: &str) -> Result<String, String> {
     let value = raw.trim();
     if value.is_empty() || value.len() > 253 {
-        return Err("недопустимая длина домена для списка исключений".into());
+        return Err(crate::util::i18n_error("backend.dpi.badDomain"));
     }
     if !value
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '*'))
     {
-        return Err("домен для списка исключений содержит недопустимые символы".into());
+        return Err(crate::util::i18n_error("backend.dpi.badDomain"));
     }
     Ok(value.to_ascii_lowercase())
 }
@@ -1989,7 +1995,7 @@ async fn fetch_list_bytes_limited(
     max_bytes: u64,
     label: &str,
 ) -> Result<Vec<u8>, String> {
-    let mut last = String::from("нет попыток");
+    let mut last = String::from("no attempts");
     for via in fetch_routes(port) {
         let client = match list_client(via) {
             Ok(c) => c,
@@ -2078,7 +2084,7 @@ fn decode_channel_public_key(key_b64: &str) -> Result<minisign_verify::PublicKey
         .lines()
         .map(|line| line.trim())
         .find(|line| !line.is_empty() && !line.starts_with("untrusted comment"))
-        .ok_or("pubkey: ключевая строка не найдена")?;
+        .ok_or("pubkey: key line not found")?;
     minisign_verify::PublicKey::from_base64(key_line).map_err(|e| format!("pubkey decode: {e}"))
 }
 
@@ -2112,11 +2118,11 @@ fn verify_channel(data: &[u8], sig_b64: &str) -> Result<(), String> {
     }
     if usable_keys == 0 {
         return Err(format!(
-            "ключи DPI-канала повреждены: {}",
+            "DPI channel keys are corrupted: {}",
             key_errors.join("; ")
         ));
     }
-    Err("ПОДПИСЬ НЕВЕРНА: не принята dedicated или legacy ключом DPI-канала".into())
+    Err(crate::util::i18n_error("backend.dpi.badSignature"))
 }
 
 // Какие .bin использует strategies.json (плейсхолдер %BIN%xxx.bin в args).
@@ -2239,7 +2245,10 @@ fn read_cached_service(app: &AppHandle, name: &str) -> Result<String, String> {
     if p.exists() {
         std::fs::read_to_string(&p).map_err(|e| format!("read cached {name}: {e}"))
     } else {
-        Err(format!("{name}: подписанный канал ещё не синхронизирован"))
+        Err(crate::util::i18n_error_with(
+            "backend.dpi.channelNotSynced",
+            &[("name", name)],
+        ))
     }
 }
 
@@ -2309,9 +2318,9 @@ async fn fetch_channel_service(
 
 fn require_regular_file(path: &Path, label: &str) -> Result<(), String> {
     let metadata =
-        std::fs::symlink_metadata(path).map_err(|e| format!("{label} отсутствует: {e}"))?;
+        std::fs::symlink_metadata(path).map_err(|e| format!("{label} is missing: {e}"))?;
     if !metadata.file_type().is_file() {
-        return Err(format!("{label} не является обычным файлом"));
+        return Err(format!("{label} is not a regular file"));
     }
     Ok(())
 }
@@ -2415,13 +2424,13 @@ pub async fn dpi_sync_channel(
         let strategies: Vec<Strategy> =
             serde_json::from_str(&strat_raw).map_err(|e| format!("parse strategies: {e}"))?;
         if strategies.is_empty() {
-            return Err("в бандле нет стратегий".into());
+            return Err("the bundle has no strategies".into());
         }
         // Бандл обязан быть самодостаточным: нельзя принять новую стратегию,
         // которая случайно работает лишь пока в bin-data лежит старый payload.
         let staged_bin = staging.join("bin");
         if !staged_bin.is_dir() {
-            return Err("в бандле отсутствует каталог bin".into());
+            return Err("the bundle has no bin directory".into());
         }
         let mut payloads = Vec::new();
         let mut incoming = std::collections::HashSet::new();
@@ -2437,36 +2446,31 @@ pub async fn dpi_sync_channel(
                 .map_err(|e| format!("staged bin file type: {e}"))?
                 .is_file()
             {
-                return Err("payload канала не является обычным файлом".into());
+                return Err("channel payload is not a regular file".into());
             }
             let name = entry
                 .file_name()
                 .into_string()
-                .map_err(|_| "имя .bin в канале не является UTF-8".to_string())?;
+                .map_err(|_| "channel .bin name is not UTF-8".to_string())?;
             if !valid_bin_filename(&name) {
-                return Err(format!("недопустимое имя .bin в канале: {name}"));
+                return Err(format!("invalid channel .bin name: {name}"));
             }
             let size = entry
                 .metadata()
                 .map_err(|e| format!("staged bin metadata: {e}"))?
                 .len();
             if !(1..=MAX_DPI_PAYLOAD_BYTES).contains(&size) {
-                return Err(format!(
-                    "недопустимый размер .bin в канале: {name} ({size})"
-                ));
+                return Err(format!("invalid channel .bin size: {name} ({size})"));
             }
             incoming.insert(name.clone());
             payloads.push((path, name));
         }
         if payloads.is_empty() || payloads.len() > 256 {
-            return Err(format!(
-                "недопустимое количество .bin в канале: {}",
-                payloads.len()
-            ));
+            return Err(format!("invalid channel .bin count: {}", payloads.len()));
         }
         for name in referenced_bins(&strategies) {
             if !incoming.contains(&name) {
-                return Err(format!("в бандле нет .bin: {name}"));
+                return Err(format!("the bundle has no .bin: {name}"));
             }
         }
 
@@ -2475,7 +2479,7 @@ pub async fn dpi_sync_channel(
             .trim()
             .to_string();
         if !valid_channel_version(&ver) {
-            return Err("недопустимая версия DPI-канала".into());
+            return Err("invalid DPI channel version".into());
         }
 
         let staged_lists = staging.join("lists");
@@ -2654,7 +2658,7 @@ fn strip_managed_block(content: &str) -> Result<String, String> {
         let t = line.trim();
         if t == HOSTS_BEGIN {
             if skip {
-                return Err("hosts: вложенный BEGIN-маркер Ninety".into());
+                return Err("hosts: nested Ninety BEGIN marker".into());
             }
             skip = true;
             blocks += 1;
@@ -2662,7 +2666,7 @@ fn strip_managed_block(content: &str) -> Result<String, String> {
         }
         if t == HOSTS_END {
             if !skip {
-                return Err("hosts: END-маркер Ninety без BEGIN".into());
+                return Err("hosts: Ninety END marker without BEGIN".into());
             }
             skip = false;
             continue;
@@ -2674,11 +2678,11 @@ fn strip_managed_block(content: &str) -> Result<String, String> {
         out.push('\n');
     }
     if skip {
-        return Err("hosts: BEGIN-маркер Ninety без END".into());
+        return Err("hosts: Ninety BEGIN marker without END".into());
     }
     if blocks > 1 {
         return Err(format!(
-            "hosts: найдено несколько managed-блоков Ninety ({blocks})"
+            "hosts: several managed Ninety blocks found ({blocks})"
         ));
     }
     Ok(out)
@@ -2690,8 +2694,7 @@ fn strip_managed_block(content: &str) -> Result<String, String> {
 // отображается в символ U+0000..U+00FF и обратно без потерь, а маркеры и
 // записи Ninety — ASCII, поэтому чужие байты возвращаются в файл как были.
 fn read_hosts_file(path: &Path) -> Result<String, String> {
-    let bytes =
-        std::fs::read(path).map_err(|e| format!("чтение hosts ({}): {e}", path.display()))?;
+    let bytes = std::fs::read(path).map_err(|e| format!("read hosts ({}): {e}", path.display()))?;
     Ok(decode_hosts_bytes(&bytes))
 }
 
@@ -2703,7 +2706,7 @@ fn encode_hosts_text(text: &str) -> Result<Vec<u8>, String> {
     text.chars()
         .map(u8::try_from)
         .collect::<Result<Vec<u8>, _>>()
-        .map_err(|_| "hosts: символ вне однобайтовой кодировки".to_string())
+        .map_err(|_| "hosts: character outside the single-byte encoding".to_string())
 }
 
 // Хвостовые пробелы и переводы строк снимаем только ASCII. Юникодный trim_end
@@ -2770,18 +2773,21 @@ fn sanitize_hosts_body(body: &str) -> Result<String, String> {
         let address = parts.next().unwrap_or_default();
         if address.parse::<std::net::IpAddr>().is_err() {
             return Err(format!(
-                "hosts: строка {} начинается не с IP-адреса: {trimmed}",
+                "hosts: line {} does not start with an IP address: {trimmed}",
                 index + 1
             ));
         }
         let domains: Vec<&str> = parts.take_while(|token| !token.starts_with('#')).collect();
         if domains.is_empty() {
-            return Err(format!("hosts: строка {} без домена: {trimmed}", index + 1));
+            return Err(format!(
+                "hosts: line {} has no domain: {trimmed}",
+                index + 1
+            ));
         }
         for domain in &domains {
             if !valid_hosts_domain(domain) {
                 return Err(format!(
-                    "hosts: строка {} содержит недопустимое имя «{domain}»",
+                    "hosts: line {} has an invalid name "{domain}"",
                     index + 1
                 ));
             }
@@ -2841,7 +2847,7 @@ pub async fn dpi_hosts_apply(
     let body = raw.replace("\r\n", "\n");
     let body = body.trim();
     if count_hosts_entries(body) == 0 {
-        return Err("в источнике нет записей hosts".into());
+        return Err(crate::util::i18n_error("backend.dpi.hostsNoRecords"));
     }
     // Форму проверяем ПЕРЕД записью: оффлайн-фолбэк читает service-файл с диска
     // без повторной проверки подписи, и дописанная туда строка иначе уехала бы
@@ -2855,7 +2861,7 @@ pub async fn dpi_hosts_apply(
         write_hosts_block_blocking(&backup_dir, sanitized.trim())
     })
     .await
-    .map_err(|e| format!("не удалось дождаться записи hosts: {e}"))??;
+    .map_err(|e| format!("waiting for the hosts write failed: {e}"))??;
     Ok(serde_json::json!({ "entries": entries }))
 }
 
@@ -2879,7 +2885,7 @@ fn write_hosts_block_blocking(bdir: &Path, body: &str) -> Result<usize, String> 
         write_bytes_replace(&backup, &backup_body, "hosts backup")?;
         let saved = std::fs::read(&backup).map_err(|e| format!("verify hosts backup: {e}"))?;
         if saved != backup_body {
-            return Err("проверка backup hosts: содержимое не совпало".into());
+            return Err("hosts backup check: contents differ".into());
         }
     } else if backup.exists() {
         std::fs::File::open(&backup).map_err(|e| format!("open hosts backup: {e}"))?;
@@ -2906,9 +2912,9 @@ fn write_hosts_block_blocking(bdir: &Path, body: &str) -> Result<usize, String> 
     let out = encode_hosts_text(&apply_hosts_line_endings(&out, &current))?;
     let original = encode_hosts_text(&current)?;
     overwrite_in_place(&path, &out, &original, "system hosts").map_err(|e| {
-        format!(
-            "запись hosts ({}): нужны права администратора — {e}",
-            path.display()
+        crate::util::i18n_error_with(
+            "backend.dpi.hostsAdmin",
+            &[("error", &format!("{}: {e}", path.display()))],
         )
     })?;
     flush_dns();
@@ -2924,7 +2930,7 @@ fn write_hosts_block_blocking(bdir: &Path, body: &str) -> Result<usize, String> 
 pub async fn dpi_hosts_clear(_app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(dpi_hosts_clear_blocking)
         .await
-        .map_err(|e| format!("не удалось дождаться очистки hosts: {e}"))?
+        .map_err(|e| format!("waiting for the hosts cleanup failed: {e}"))?
 }
 
 fn dpi_hosts_clear_blocking() -> Result<(), String> {
@@ -2939,7 +2945,7 @@ fn dpi_hosts_clear_blocking() -> Result<(), String> {
     let stripped = encode_hosts_text(&apply_hosts_line_endings(&stripped, &current))?;
     let original = encode_hosts_text(&current)?;
     overwrite_in_place(&path, &stripped, &original, "system hosts")
-        .map_err(|e| format!("запись hosts: нужны права администратора — {e}"))?;
+        .map_err(|e| crate::util::i18n_error_with("backend.dpi.hostsAdmin", &[("error", &e)]))?;
     flush_dns();
     Ok(())
 }
@@ -2991,7 +2997,7 @@ pub async fn dpi_auto_forget(
     let txt = std::fs::read_to_string(&path).unwrap_or_default();
     let target = domain.trim();
     if target.is_empty() {
-        return Err("пустой домен".into());
+        return Err("empty domain".into());
     }
     let mut kept = String::new();
     for line in txt.lines() {
@@ -3055,9 +3061,10 @@ pub async fn dpi_update_ipset(
     let raw = fetch_channel_service(&app, port, IPSET_SERVICE_FILE)
         .await
         .map_err(|e| format!("fetch ipset: {e}"))?;
-    let body = ipset_base_from_service(&raw).ok_or("в источнике нет IP-записей")?;
+    let body = ipset_base_from_service(&raw)
+        .ok_or_else(|| crate::util::i18n_error("backend.dpi.ipsetNoRecords"))?;
     let n = count_ipset_lines(&body);
-    write_replace(&lists.join(IPSET_BASE_FILE), &body, "запись ipset base")?;
+    write_replace(&lists.join(IPSET_BASE_FILE), &body, "write ipset base")?;
     Ok(n)
 }
 
@@ -3118,7 +3125,10 @@ pub async fn dpi_autotest(
         let bin = bin_dir(&app, monkey)?;
         let exe = bin.join("winws.exe");
         if !exe.exists() {
-            return Err(format!("winws.exe не найден: {}", exe.display()));
+            return Err(crate::util::i18n_error_with(
+                "backend.dpi.winwsMissing",
+                &[("path", &exe.display().to_string())],
+            ));
         }
         let lists = ensure_lists(&app)?;
         // Прогон всегда идёт в «Всем сайтам»: он меряет саму стратегию на тестовых
@@ -3153,7 +3163,7 @@ pub async fn dpi_autotest(
 
     for (idx, strat) in strategies.iter().enumerate() {
         if !dpi_operation_current(&state, generation) {
-            return Err("DPI autotest отменён".into());
+            return Err(crate::util::i18n_error("backend.dpi.cancelled"));
         }
         let _ = app.emit(
             "dpi:autotest",
@@ -3204,8 +3214,7 @@ pub async fn dpi_autotest(
                             .lock_recover()
                             .append(format!("spawn winws: {e}\n").as_bytes());
                     }
-                    dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE, "DPI autotest")
-                        .await?;
+                    dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE).await?;
                     continue;
                 }
             };
@@ -3222,18 +3231,12 @@ pub async fn dpi_autotest(
                 if control.generation != generation || control.operation.is_none() {
                     drop(control);
                     let _ = terminate_child_bounded(&mut child, "winws autotest");
-                    return Err("DPI autotest отменён".into());
+                    return Err(crate::util::i18n_error("backend.dpi.cancelled"));
                 }
                 *state.child.lock_recover() = Some(child);
             }
             state.driver_loaded.store(true, Ordering::SeqCst);
-            dpi_sleep_or_cancel(
-                &state,
-                generation,
-                Duration::from_millis(700),
-                "DPI autotest",
-            )
-            .await?;
+            dpi_sleep_or_cancel(&state, generation, Duration::from_millis(700)).await?;
             remember_owned_driver_services(&state, &bin);
 
             // winws мог умереть на битом аргументе или занятом драйвере. Без этой
@@ -3250,7 +3253,7 @@ pub async fn dpi_autotest(
                 break;
             }
             *state.child.lock_recover() = None;
-            dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE, "DPI autotest").await?;
+            dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE).await?;
         }
         if !alive {
             engine_failed += 1;
@@ -3273,7 +3276,7 @@ pub async fn dpi_autotest(
                     Err(_) => false,
                 },
                 _ = wait_dpi_cancelled(&state, generation) => {
-                    return Err("DPI autotest отменён".into());
+                    return Err(crate::util::i18n_error("backend.dpi.cancelled"));
                 }
             };
             // Цели проверяются все: обрыв на первой неудаче делал оценку
@@ -3286,7 +3289,7 @@ pub async fn dpi_autotest(
         }
 
         if !dpi_operation_current(&state, generation) {
-            return Err("DPI autotest отменён".into());
+            return Err(crate::util::i18n_error("backend.dpi.cancelled"));
         }
         stop_managed_child(&state, "winws autotest")?;
 
@@ -3304,7 +3307,7 @@ pub async fn dpi_autotest(
             }
         }
         // пауза, чтобы драйвер успел отцепиться между прогонами
-        dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE, "DPI autotest").await?;
+        dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE).await?;
     }
 
     match best {
@@ -3344,7 +3347,7 @@ fn run_sc_bounded(sc: &str, verb: &str, service: &str, deadline: Instant) -> Res
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     if Instant::now() >= deadline {
-        return Err("выгрузка DPI-драйвера превысила 3 секунды".into());
+        return Err(crate::util::i18n_error("backend.dpi.driverTimeout"));
     }
     let mut child = std::process::Command::new(sc)
         .args([verb, service])
@@ -3362,7 +3365,7 @@ fn run_sc_bounded(sc: &str, verb: &str, service: &str, deadline: Instant) -> Res
                 return if status.success() || idempotent {
                     Ok(())
                 } else {
-                    Err(format!("sc {verb} {service} завершился с кодом {code}"))
+                    Err(format!("sc {verb} {service} exited with code {code}"))
                 };
             }
             Ok(None) if Instant::now() < deadline => {
@@ -3371,7 +3374,7 @@ fn run_sc_bounded(sc: &str, verb: &str, service: &str, deadline: Instant) -> Res
             Ok(None) => {
                 let _ = child.kill();
                 return Err(format!(
-                    "sc {verb} {service} не завершился за общий лимит 3 секунды"
+                    "sc {verb} {service} did not finish within the 3 second limit"
                 ));
             }
             Err(e) => return Err(format!("sc {verb} {service}: {e}")),
@@ -3459,7 +3462,7 @@ pub async fn dpi_unload_driver(app: AppHandle) -> Result<(), String> {
         full_unload(&state)
     })
     .await
-    .map_err(|e| format!("не удалось дождаться выгрузки DPI-драйвера: {e}"))?
+    .map_err(|e| format!("waiting for the DPI driver unload failed: {e}"))?
 }
 
 #[cfg(test)]
@@ -4002,24 +4005,24 @@ mod tests {
     #[test]
     fn strip_managed_block_rejects_unbalanced_or_duplicate_markers() {
         let open = format!("127.0.0.1 localhost\n{HOSTS_BEGIN}\n1.2.3.4 example.test\n");
-        assert!(strip_managed_block(&open).unwrap_err().contains("без END"));
+        assert!(strip_managed_block(&open)
+            .unwrap_err()
+            .contains("without END"));
 
         let close = format!("127.0.0.1 localhost\n{HOSTS_END}\n");
         assert!(strip_managed_block(&close)
             .unwrap_err()
-            .contains("без BEGIN"));
+            .contains("without BEGIN"));
 
         let nested = format!("{HOSTS_BEGIN}\n{HOSTS_BEGIN}\n{HOSTS_END}\n{HOSTS_END}\n");
-        assert!(strip_managed_block(&nested)
-            .unwrap_err()
-            .contains("вложенный"));
+        assert!(strip_managed_block(&nested).unwrap_err().contains("nested"));
 
         let duplicate = format!(
             "{HOSTS_BEGIN}\n1.1.1.1 one.test\n{HOSTS_END}\n{HOSTS_BEGIN}\n2.2.2.2 two.test\n{HOSTS_END}\n"
         );
         assert!(strip_managed_block(&duplicate)
             .unwrap_err()
-            .contains("несколько"));
+            .contains("several"));
     }
 
     #[test]

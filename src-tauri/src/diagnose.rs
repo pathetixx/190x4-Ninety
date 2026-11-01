@@ -692,7 +692,7 @@ async fn external_ip(client: &reqwest::Client) -> Result<String, String> {
         crate::util::read_response_text_capped(response, MAX_LEAK_RESPONSE_BYTES, "trace").await?;
     body.lines()
         .find_map(|line| line.strip_prefix("ip=").map(str::to_string))
-        .ok_or_else(|| "в ответе нет адреса".to_string())
+        .ok_or_else(|| "no address in the response".to_string())
 }
 
 /// Утечки: что уходит мимо туннеля, пока он поднят.
@@ -717,7 +717,10 @@ pub async fn diagnose_leaks(
     let tunnel_answers = resolve_via_tunnel(&tunnel, &host).await;
     let dns_in_tunnel = match &tunnel_answers {
         Ok(list) if !list.is_empty() => LeakCheck::new("ok", Some(list.join(", "))),
-        Ok(_) => LeakCheck::new("warn", Some("пустой ответ".into())),
+        Ok(_) => LeakCheck::new(
+            "warn",
+            Some(crate::util::i18n_error("backend.diag.emptyAnswer")),
+        ),
         Err(err) => LeakCheck::new("err", Some(err.clone())),
     };
 
@@ -732,10 +735,12 @@ pub async fn diagnose_leaks(
             } else {
                 LeakCheck::new(
                     "warn",
-                    Some(format!(
-                        "провайдер: {} · туннель: {}",
-                        system.join(", "),
-                        tunneled.join(", ")
+                    Some(crate::util::i18n_error_with(
+                        "backend.diag.dnsMismatch",
+                        &[
+                            ("system", &system.join(", ")),
+                            ("tunnel", &tunneled.join(", ")),
+                        ],
                     )),
                 )
             }
@@ -757,9 +762,15 @@ pub async fn diagnose_leaks(
                     .map(|r| r.is_ok())
                     .unwrap_or(false);
             if reachable {
-                LeakCheck::new("warn", Some("IPv6 доступен".into()))
+                LeakCheck::new(
+                    "warn",
+                    Some(crate::util::i18n_error("backend.diag.ipv6Open")),
+                )
             } else {
-                LeakCheck::new("ok", Some("IPv6 закрыт".into()))
+                LeakCheck::new(
+                    "ok",
+                    Some(crate::util::i18n_error("backend.diag.ipv6Closed")),
+                )
             }
         }
         Err(_) => LeakCheck::new("skipped", None),
@@ -808,21 +819,25 @@ pub fn parse_probe_target(raw: &str) -> Result<(String, u16, String), String> {
     }
 
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-        let url = reqwest::Url::parse(trimmed).map_err(|e| format!("адрес: {e}"))?;
+        let url = reqwest::Url::parse(trimmed).map_err(|e| {
+            crate::util::i18n_error_with("backend.diag.badAddress", &[("error", &e.to_string())])
+        })?;
         let host = url
             .host_str()
-            .ok_or("в адресе нет имени хоста")?
+            .ok_or_else(|| crate::util::i18n_error("backend.diag.noHost"))?
             .to_string();
         let port = url
             .port_or_known_default()
-            .ok_or("не удалось определить порт")?;
+            .ok_or_else(|| crate::util::i18n_error("backend.diag.noPort"))?;
         return Ok((host, port, url.to_string()));
     }
 
     // Голый IPv6 в скобках или домен с портом.
     let (host, port) = match trimmed.rsplit_once(':') {
         Some((head, tail)) if !head.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) => {
-            let port: u16 = tail.parse().map_err(|_| "некорректный порт".to_string())?;
+            let port: u16 = tail
+                .parse()
+                .map_err(|_| crate::util::i18n_error("backend.diag.noPort"))?;
             (head.trim_matches(['[', ']']).to_string(), port)
         }
         _ => (trimmed.trim_matches(['[', ']']).to_string(), 443u16),
@@ -861,7 +876,7 @@ async fn direct_stages(client: &reqwest::Client, host: &str, port: u16, url: &st
             {
                 Ok(Ok(_)) => stages.tcp_ms = Some(started.elapsed().as_millis() as u64),
                 Ok(Err(err)) => stages.tcp_error = Some(err.to_string()),
-                Err(_) => stages.tcp_error = Some("таймаут".into()),
+                Err(_) => stages.tcp_error = Some(crate::util::i18n_error("backend.diag.timeout")),
             }
         }
     }

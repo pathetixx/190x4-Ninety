@@ -105,7 +105,7 @@ fn read(app: &AppHandle) -> Result<Option<LanCredentials>, String> {
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("чтение пароля для локальной сети: {e}")),
+        Err(e) => return Err(format!("read the local network password: {e}")),
     };
     let plain = zeroize::Zeroizing::new(crate::secrets::open_for_app(app, &bytes)?);
     Ok(serde_json::from_slice::<LanCredentials>(&plain)

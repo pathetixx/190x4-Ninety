@@ -10,8 +10,9 @@ import { escapeHtml, escapeAttr } from "/lib/esc.js";
 import { ensureDeviceIdentity } from "/lib/hwid.js";
 import { toast } from "/lib/toast.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 const STATE_KEY = STORAGE_KEYS.feedbackState;

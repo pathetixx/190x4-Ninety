@@ -186,10 +186,10 @@ test("первый refresh legacy-подписки переносит сохра
 test("ошибка загрузки подписки из бэкенда показывается на языке интерфейса", async () => {
   globalThis.localStorage = makeStorage();
   invokeHandler = async () => {
-    throw { key: "subs.err.tooLarge", vars: { mb: "16" } };
+    throw '[[subs.err.tooLarge {"mb":"16"}]]';
   };
   await assert.rejects(
     addSubscriptionFromUrl("https://sub.example/list"),
-    { message: "The subscription is larger than 16 MB — this is not a server list" },
+    (error) => error === "The subscription is larger than 16 MB — this is not a server list",
   );
 });

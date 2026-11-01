@@ -26,6 +26,7 @@ import { relativeTime } from "/lib/relative-time.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
 import { maskAddresses } from "/lib/address-mask.js";
 import { forwardingAliases, forwardingFixCommand, forwardingProblem } from "/lib/forwarding.js";
+import { localizeBackendText } from "/lib/backend-errors.js";
 
 const TABS = ["trace", "leaks", "feed"];
 // Выбранная вкладка переживает уход с экрана: человек, который вчера смотрел
@@ -322,7 +323,7 @@ export function mountDiagnoseView(root, {
     if (state.leaks) {
       lines.push("", t("dg.tabs.leaks"));
       for (const [key, value] of Object.entries(state.leaks)) {
-        lines.push(`  ${key}: ${value?.state} ${maskAddresses(value?.detail)}`);
+        lines.push(`  ${key}: ${value?.state} ${maskAddresses(localizeBackendText(value?.detail))}`);
       }
     }
     return lines.join("\n");
@@ -576,7 +577,7 @@ export function mountDiagnoseView(root, {
       }
       const bad = stages.tcpMs == null;
       cell.className = `dg-det__v${bad ? " is-err" : ""}`;
-      cell.innerHTML = `<i></i><span>${esc(bad ? stages.tcpError || "—" : `${stages.tcpMs} ${t("units.ms")}`)}</span>`;
+      cell.innerHTML = `<i></i><span>${esc(bad ? localizeBackendText(stages.tcpError) || "—" : `${stages.tcpMs} ${t("units.ms")}`)}</span>`;
       return cell;
     }
     const status = stages.httpStatus;
@@ -793,7 +794,7 @@ export function mountDiagnoseView(root, {
       const line = el("div", "dg-leak");
       const main = el("div");
       main.appendChild(el("div", "dg-leak__t", esc(t(`dg.leaks.${key}`))));
-      main.appendChild(el("div", "dg-leak__d", esc(check?.detail || "")));
+      main.appendChild(el("div", "dg-leak__d", esc(localizeBackendText(check?.detail) || "")));
       line.appendChild(main);
       const stateClass = check?.state === "warn" ? " is-warn" : check?.state === "skipped" ? " is-off" : "";
       line.appendChild(el("div", `dg-leak__v${stateClass}`,

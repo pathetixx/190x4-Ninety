@@ -24,6 +24,7 @@ import {
   DNS_PRESETS, DNS_CUSTOM, DNS_SEPARATOR,
   dnsPresetLabel, findDnsPreset, isSystemDns, validateDnsAddress,
 } from "/lib/dns-presets.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
 // Label-карты строятся в рантайме: t() зависит от текущего языка, замораживать
 // на import нельзя. SECTIONS держит только key+icon; title/hint берём через t().
@@ -203,7 +204,7 @@ export function mountSettings(root, opts = {}) {
         if (value === getOption(loadOptions(), path)) return;
         if (input.dataset.action === "autostart") {
           try {
-            const invoke = window.__TAURI__?.core?.invoke;
+            const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
             const cmd = value ? "autostart_enable" : "autostart_disable";
             if (!invoke) throw new Error("Tauri invoke unavailable");
             await invoke(cmd);
@@ -239,7 +240,7 @@ export function mountSettings(root, opts = {}) {
         if (sw.dataset.action === "autostart") {
           sw.setAttribute("aria-busy", "true");
           try {
-            const invoke = window.__TAURI__?.core?.invoke;
+            const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
             const cmd = newVal ? "autostart_enable" : "autostart_disable";
             if (!invoke) throw new Error("Tauri invoke unavailable");
             await invoke(cmd);
@@ -302,7 +303,7 @@ export function mountSettings(root, opts = {}) {
   function bindLanAuth(el, onChange) {
     const inputs = [...el.querySelectorAll("input[data-lan-auth]")];
     if (!inputs.length) return;
-    const invoke = window.__TAURI__?.core?.invoke;
+    const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
     if (!invoke) return;
     let shown = null;
     const show = (credentials) => {
@@ -422,7 +423,7 @@ export function mountSettings(root, opts = {}) {
     const slot = el.querySelector("#about-dpi-engine");
     if (!slot) return;
     try {
-      const invoke = window.__TAURI__?.core?.invoke;
+      const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
       const versions = invoke ? await invoke("dpi_versions") : null;
       if (!slot.isConnected) return;
       if (versions?.engine) slot.textContent = versions.engine;
@@ -465,7 +466,7 @@ export function mountSettings(root, opts = {}) {
   // с UAC (см. setup() в lib.rs) — нужно для TUN без ручного запроса прав.
   async function bindAlwaysAdmin(el, sec) {
     if (sec.key !== "general") return;
-    const invoke = window.__TAURI__?.core?.invoke;
+    const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
     const sw = el.querySelector("#always-admin-switch");
     if (!invoke || !sw) return;
     try {
@@ -486,7 +487,7 @@ export function mountSettings(root, opts = {}) {
 
   async function bindPortableSecrets(el, sec) {
     if (sec.key !== "general") return;
-    const invoke = window.__TAURI__?.core?.invoke;
+    const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
     const rowEl = el.querySelector("[data-portable-secrets-row]");
     const setBtn = el.querySelector("[data-action='portable-secrets-set']");
     const clearBtn = el.querySelector("[data-action='portable-secrets-clear']");
@@ -728,7 +729,7 @@ export function mountSettings(root, opts = {}) {
 
   async function bindWarpSection(el, sec, onChange) {
     if (sec.key !== "warp") return;
-    const invoke = window.__TAURI__?.core?.invoke;
+    const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
     if (!invoke) return;
 
     const statusEl = el.querySelector("#warp-status");

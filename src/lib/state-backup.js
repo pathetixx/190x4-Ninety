@@ -14,12 +14,13 @@ import {
   profileStoreIsPersisted,
   restoreProfileStoreFromBackup,
 } from "/lib/profile-store.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
 // Маркеры «хранилище живое»: есть хоть один — восстановление не нужно.
 const CORE_KEYS = ["ninety.options.v1", "ninety.profiles.v1", "ninety.subscriptions.v1"];
 const BACKUP_SCHEMA_VERSION = 2;
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 function snapshot({ includeUpdateResume = false } = {}) {

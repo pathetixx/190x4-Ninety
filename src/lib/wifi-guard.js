@@ -12,8 +12,9 @@ import { STORAGE_KEYS } from "/lib/storage-policy.js";
 import { getMode } from "/lib/singbox.js";
 import { toast } from "/lib/toast.js";
 import { t } from "/lib/i18n/index.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 // Имена ключей — из политики хранения: она решает, что бэкапится и что

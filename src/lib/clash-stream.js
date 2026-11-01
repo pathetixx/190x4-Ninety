@@ -6,8 +6,9 @@ import { activityController } from "/lib/activity-controller.js";
 import { createDistinctEmitter } from "/lib/distinct-emitter.js";
 import { perfObserver } from "/lib/performance-observer.js";
 import { t } from "/lib/i18n/index.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 const eventApi = window.__TAURI__?.event;
 

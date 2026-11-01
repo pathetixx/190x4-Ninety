@@ -127,10 +127,10 @@ fn overwrite_or_restore(
     };
     match rewrite(target, original) {
         Ok(()) => Err(format!(
-            "write {label}: {error}; прежнее содержимое восстановлено"
+            "write {label}: {error}; previous contents restored"
         )),
         Err(rollback) => Err(format!(
-            "write {label}: {error}; прежнее содержимое вернуть не удалось: {rollback}"
+            "write {label}: {error}; previous contents could not be restored: {rollback}"
         )),
     }
 }
@@ -222,7 +222,7 @@ mod tests {
         let error =
             overwrite_or_restore(&mut file, b"# managed block\n", &original, "hosts").unwrap_err();
         assert!(error.contains("disk full"), "{error}");
-        assert!(error.contains("восстановлено"), "{error}");
+        assert!(error.contains("restored"), "{error}");
         assert_eq!(file.inner.get_ref(), &original);
 
         let mut healthy = FlakyFile {

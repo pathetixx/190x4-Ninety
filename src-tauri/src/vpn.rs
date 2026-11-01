@@ -977,11 +977,11 @@ async fn spawn_sidecars(
     let mut planned_logs: HashSet<String> = HashSet::new();
     for spec in specs {
         let kind = SidecarLogKind::parse(&spec.kind)
-            .ok_or_else(|| format!("неизвестный sidecar: {}", spec.kind))?;
+            .ok_or_else(|| format!("unknown sidecar: {}", spec.kind))?;
         let name = sidecar_log_name(kind, spec.port);
         if !planned_logs.insert(name) {
             return Err(format!(
-                "дублирующийся {} sidecar на порту {}",
+                "duplicate {} sidecar on port {}",
                 spec.kind, spec.port
             ));
         }
@@ -994,7 +994,7 @@ async fn spawn_sidecars(
             .collect();
         if protected.len() > MAX_SIDECAR_LOG_FILES {
             return Err(format!(
-                "слишком много {} sidecar: максимум {MAX_SIDECAR_LOG_FILES}",
+                "too many {} sidecars: the maximum is {MAX_SIDECAR_LOG_FILES}",
                 kind.as_str()
             ));
         }
@@ -1008,7 +1008,7 @@ async fn spawn_sidecars(
         let (bin, ext, file_arg) = match spec.kind.as_str() {
             "naive" => ("naive", "json", false), // naive.exe <config.json>
             "trusttunnel" => ("trusttunnel_client", "toml", true), // --config <toml>
-            other => return Err(format!("неизвестный sidecar: {other}")),
+            other => return Err(format!("unknown sidecar: {other}")),
         };
         let cfg_path = cfg_dir.join(format!("{}-{}.{}", spec.kind, spec.port, ext));
         std::fs::write(&cfg_path, &spec.config)
@@ -1037,7 +1037,7 @@ async fn spawn_sidecars(
             None
         } else {
             let kind = SidecarLogKind::parse(&spec.kind)
-                .ok_or_else(|| format!("неизвестный sidecar: {}", spec.kind))?;
+                .ok_or_else(|| format!("unknown sidecar: {}", spec.kind))?;
             log_dir
                 .as_ref()
                 .map(|d| d.join(sidecar_log_name(kind, spec.port)))
@@ -1081,7 +1081,7 @@ async fn spawn_sidecars(
 // Путь к логу sing-box. Лог во всех режимах пишет сам Tauri в writable log dir
 // (sing-box — наш child, его stdout/stderr льётся в файл монитор-таском).
 fn resolved_log_path(app: &AppHandle) -> Result<PathBuf, String> {
-    log_path(app).ok_or_else(|| "log_dir недоступен".to_string())
+    log_path(app).ok_or_else(|| "log_dir is unavailable".to_string())
 }
 
 #[tauri::command]
@@ -1192,13 +1192,13 @@ fn component_log_files(dir: &std::path::Path, source: &str) -> Result<Vec<PathBu
         "xray" => Some("xray.log"),
         "dpi" => Some("dpi.log"),
         "naive" | "trusttunnel" => None,
-        _ => return Err(format!("неизвестный источник лога: {source}")),
+        _ => return Err(format!("unknown log source: {source}")),
     };
     if let Some(name) = single {
         return Ok(vec![dir.join(name)]);
     }
-    let kind = SidecarLogKind::parse(source)
-        .ok_or_else(|| format!("неизвестный источник лога: {source}"))?;
+    let kind =
+        SidecarLogKind::parse(source).ok_or_else(|| format!("unknown log source: {source}"))?;
     let mut entries = sidecar_log_entries(dir, kind);
     entries.sort_by_key(|entry| entry.file_name());
     Ok(entries.into_iter().map(|entry| entry.path()).collect())
@@ -2392,21 +2392,21 @@ async fn start_singbox_inner(
         // поколения; сам долгий запуск под ним не выполняется.
         let _gate = state.lifecycle_gate.lock_recover();
         if state.stopping.load(Ordering::SeqCst) {
-            return Err("остановка ещё выполняется".into());
+            return Err(crate::util::i18n_error("backend.vpn.stopping"));
         }
         // Sentinel ДО child-проверки: второй конкурентный вызов отсекается,
         // пока первый ещё находится в await до публикации child.
         if state.starting.swap(true, Ordering::SeqCst) {
-            return Err("запуск уже идёт".into());
+            return Err(crate::util::i18n_error("backend.vpn.starting"));
         }
         if state.pending_cleanup.lock_recover().is_some() {
             state.starting.store(false, Ordering::SeqCst);
-            return Err("предыдущий runtime ещё не очищен; повторите отключение".into());
+            return Err(crate::util::i18n_error("backend.vpn.notCleaned"));
         }
         let child = state.child.lock_recover();
         if child.is_some() || state.xray_child.lock_recover().is_some() {
             state.starting.store(false, Ordering::SeqCst);
-            return Err("sing-box уже запущен".into());
+            return Err(crate::util::i18n_error("backend.vpn.running"));
         }
         let start_epoch = state.start_epoch.fetch_add(1, Ordering::SeqCst) + 1;
         // Сначала меняем поколение, затем чистим death-флаги. Иначе запоздалый
@@ -2556,7 +2556,7 @@ async fn start_singbox_inner(
             kill_switch.is_some_and(|ks| crate::killswitch::is_active(&ks))
         })
         .await
-        .map_err(|e| format!("не удалось прочитать состояние kill switch: {e}"))?
+        .map_err(|e| format!("could not read the kill switch state: {e}"))?
     };
     Ok(runtime_snapshot_value(state, kill_switch_active))
 }
@@ -2865,7 +2865,7 @@ async fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), St
         return Ok(());
     }
     abort_started_runtime(state).await;
-    Err("запуск отменён новым сетевым намерением".into())
+    Err(crate::util::i18n_error("backend.vpn.startCancelled"))
 }
 
 // Отнятый/устаревший токен на любом шаге старта. В отличие от epoch-проверки
@@ -3421,7 +3421,7 @@ pub async fn release_runtime_transition_barrier(
         Ok(true)
     })
     .await
-    .map_err(|e| format!("не удалось снять транзитный барьер: {e}"))?
+    .map_err(|e| format!("could not remove the transition barrier: {e}"))?
 }
 
 // Внутренние вычисления статусов — переиспользуются одиночными командами и
@@ -3507,7 +3507,7 @@ pub async fn runtime_snapshot(app: AppHandle) -> Result<RuntimeSnapshot, String>
         runtime_snapshot_value(&state, crate::killswitch::is_active(&kill_switch))
     })
     .await
-    .map_err(|e| format!("не удалось получить снимок runtime: {e}"))
+    .map_err(|e| format!("could not get the runtime snapshot: {e}"))
 }
 
 // Агрегат статусов ядер за один вызов — watchdog фронта раньше дёргал статус
@@ -3566,7 +3566,7 @@ pub async fn health_snapshot(app: AppHandle) -> Result<HealthSnapshot, String> {
         }
     })
     .await
-    .map_err(|e| format!("не удалось получить снимок здоровья: {e}"))
+    .map_err(|e| format!("could not get the health snapshot: {e}"))
 }
 
 fn validate_system_proxy_enable_request(
@@ -3806,7 +3806,7 @@ fn find_free_base(start: u16, count: u16, taken: &mut Vec<(u16, u16)>) -> Result
         base += 1;
     }
     Err(format!(
-        "нет свободных портов для мостов (искали от {start})"
+        "no free ports for the bridges (searched from {start})"
     ))
 }
 

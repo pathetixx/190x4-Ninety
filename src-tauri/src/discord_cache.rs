@@ -33,21 +33,30 @@ fn validate_client_root(roaming: &Path, client_root: &Path) -> Result<bool, Stri
     let metadata = match std::fs::symlink_metadata(client_root) {
         Ok(metadata) => metadata,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(e) => return Err(format!("каталог Discord недоступен: {e}")),
+        Err(e) => {
+            return Err(crate::util::i18n_error_with(
+                "backend.discord.dirUnavailable",
+                &[("error", &e.to_string())],
+            ))
+        }
     };
     if is_link_or_reparse(&metadata) || !metadata.file_type().is_dir() {
         return Err(format!(
-            "отказ от ссылки вместо каталога Discord: {}",
+            "refusing a link instead of the Discord directory: {}",
             client_root.display()
         ));
     }
     let roaming_real =
         std::fs::canonicalize(roaming).map_err(|e| format!("Roaming AppData: {e}"))?;
-    let client_real = std::fs::canonicalize(client_root)
-        .map_err(|e| format!("каталог Discord недоступен: {e}"))?;
+    let client_real = std::fs::canonicalize(client_root).map_err(|e| {
+        crate::util::i18n_error_with(
+            "backend.discord.dirUnavailable",
+            &[("error", &e.to_string())],
+        )
+    })?;
     if !client_real.starts_with(&roaming_real) || client_real == roaming_real {
         return Err(format!(
-            "отказ от небезопасного каталога Discord: {}",
+            "refusing an unsafe Discord directory: {}",
             client_root.display()
         ));
     }
@@ -61,33 +70,44 @@ fn remove_cache_dir(roaming: &Path, client_root: &Path, name: &str) -> Result<bo
     }
     let roaming_real =
         std::fs::canonicalize(roaming).map_err(|e| format!("Roaming AppData: {e}"))?;
-    let client_real = std::fs::canonicalize(client_root)
-        .map_err(|e| format!("каталог Discord недоступен: {e}"))?;
-    let target_real =
-        std::fs::canonicalize(&target).map_err(|e| format!("кэш '{name}' недоступен: {e}"))?;
+    let client_real = std::fs::canonicalize(client_root).map_err(|e| {
+        crate::util::i18n_error_with(
+            "backend.discord.dirUnavailable",
+            &[("error", &e.to_string())],
+        )
+    })?;
+    let target_real = std::fs::canonicalize(&target)
+        .map_err(|e| format!("cache '{name}' is unavailable: {e}"))?;
     if !client_real.starts_with(&roaming_real)
         || client_real == roaming_real
         || !target_real.starts_with(&client_real)
         || target_real == client_real
     {
         return Err(format!(
-            "отказ от небезопасного пути кэша: {}",
+            "refusing an unsafe cache path: {}",
             target.display()
         ));
     }
     let link_meta =
-        std::fs::symlink_metadata(&target).map_err(|e| format!("метаданные кэша: {e}"))?;
+        std::fs::symlink_metadata(&target).map_err(|e| format!("cache metadata: {e}"))?;
     if is_link_or_reparse(&link_meta) || !target_real.is_dir() {
         return Err(format!(
-            "отказ от ссылки вместо каталога: {}",
+            "refusing a link instead of a directory: {}",
             target.display()
         ));
     }
-    std::fs::remove_dir_all(&target)
-        .map_err(|e| format!("не удалось удалить {}: {e}", target.display()))?;
+    std::fs::remove_dir_all(&target).map_err(|e| {
+        crate::util::i18n_error_with(
+            "backend.discord.deleteFailed",
+            &[
+                ("path", &target.display().to_string()),
+                ("error", &e.to_string()),
+            ],
+        )
+    })?;
     if target.exists() {
         return Err(format!(
-            "каталог кэша остался после удаления: {}",
+            "cache directory remained after removal: {}",
             target.display()
         ));
     }
@@ -137,9 +157,12 @@ fn close_process(image: &str) -> Result<bool, String> {
     }
     let status = child
         .wait()
-        .map_err(|e| format!("ожидание taskkill {image}: {e}"))?;
+        .map_err(|e| format!("waiting for taskkill {image}: {e}"))?;
     if timed_out {
-        Err(format!("закрытие {image} превысило 3 секунды"))
+        Err(crate::util::i18n_error_with(
+            "backend.discord.closeTimeout",
+            &[("app", image)],
+        ))
     } else {
         Ok(status.success())
     }
@@ -191,14 +214,14 @@ pub async fn discord_cache_clear(app: AppHandle) -> Result<serde_json::Value, St
     #[cfg(not(target_os = "windows"))]
     {
         let _ = app;
-        Err("очистка кэша Discord доступна только в Windows".into())
+        Err("Discord cache cleanup is Windows-only".into())
     }
 
     #[cfg(target_os = "windows")]
     {
         match tauri::async_runtime::spawn_blocking(move || clear_windows(app)).await {
             Ok(inner) => inner,
-            Err(e) => Err(format!("очистка кэша Discord прервана: {e}")),
+            Err(e) => Err(format!("Discord cache cleanup was interrupted: {e}")),
         }
     }
 }

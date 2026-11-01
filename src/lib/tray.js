@@ -23,8 +23,9 @@ import { getProbeHistory } from "/lib/delay-history.js";
 import { liveDelays, medianOf } from "/lib/node-ranking.js";
 import { createLatestRunner } from "/lib/async-control.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 // Контекст из main.js: геттеры живого состояния + действия.

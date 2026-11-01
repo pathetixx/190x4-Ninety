@@ -38,12 +38,12 @@ pub async fn list_network_processes() -> Result<Vec<NetProcess>, String> {
     {
         let joined = tauri::async_runtime::spawn_blocking(|| {
             std::panic::catch_unwind(windows_impl::collect)
-                .unwrap_or_else(|_| Err("снимок сетевых процессов аварийно прерван".into()))
+                .unwrap_or_else(|_| Err("network process snapshot panicked".into()))
         })
         .await;
         match joined {
             Ok(inner) => inner,
-            Err(e) => Err(format!("задача снимка процессов не выполнилась: {e}")),
+            Err(e) => Err(format!("process snapshot task did not run: {e}")),
         }
     }
     #[cfg(not(windows))]
@@ -61,12 +61,12 @@ pub async fn snapshot_network_tcp() -> Result<Vec<OsTcpConnection>, String> {
     {
         let joined = tauri::async_runtime::spawn_blocking(|| {
             std::panic::catch_unwind(windows_impl::collect_tcp)
-                .unwrap_or_else(|_| Err("снимок TCP-соединений аварийно прерван".into()))
+                .unwrap_or_else(|_| Err("TCP connection snapshot panicked".into()))
         })
         .await;
         match joined {
             Ok(inner) => inner,
-            Err(e) => Err(format!("задача снимка TCP-соединений не выполнилась: {e}")),
+            Err(e) => Err(format!("TCP snapshot task did not run: {e}")),
         }
     }
     #[cfg(not(windows))]
@@ -209,11 +209,11 @@ mod windows_impl {
                     continue;
                 }
                 if rc != 0 {
-                    return Err(format!("GetExtendedTcpTable({family}): код {rc}"));
+                    return Err(format!("GetExtendedTcpTable({family}): code {rc}"));
                 }
                 return Ok(Some(buf));
             }
-            Err("таблица TCP растёт быстрее, чем читается".into())
+            Err("the TCP table grows faster than it can be read".into())
         }
     }
 
@@ -303,7 +303,7 @@ mod windows_impl {
                     continue;
                 }
                 if rc != 0 {
-                    return Err(format!("GetExtendedTcpTable snapshot: код {rc}"));
+                    return Err(format!("GetExtendedTcpTable snapshot: code {rc}"));
                 }
                 let table = &*(buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID);
                 let alloc_bytes = words * 4;
@@ -332,7 +332,7 @@ mod windows_impl {
                     })
                     .collect());
             }
-            Err("таблица TCP snapshot растёт быстрее, чем читается".into())
+            Err("the TCP snapshot table grows faster than it can be read".into())
         }
     }
 
@@ -367,7 +367,7 @@ mod windows_impl {
                     continue;
                 }
                 if rc != 0 {
-                    return Err(format!("GetExtendedTcpTable(v6) snapshot: код {rc}"));
+                    return Err(format!("GetExtendedTcpTable(v6) snapshot: code {rc}"));
                 }
                 let table = &*(buf.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID);
                 let alloc_bytes = words * 4;
@@ -396,7 +396,7 @@ mod windows_impl {
                     })
                     .collect());
             }
-            Err("таблица TCPv6 snapshot растёт быстрее, чем читается".into())
+            Err("the TCPv6 snapshot table grows faster than it can be read".into())
         }
     }
 
@@ -448,7 +448,7 @@ mod windows_impl {
                     continue;
                 }
                 if rc != 0 {
-                    return Err(format!("GetExtendedTcpTable: код {rc}"));
+                    return Err(format!("GetExtendedTcpTable: code {rc}"));
                 }
                 let table = &*(buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID);
                 // Не доверяем dwNumEntries слепо: ограничиваем числом строк, реально
@@ -468,7 +468,7 @@ mod windows_impl {
                 pids.dedup();
                 return Ok(pids);
             }
-            Err("таблица TCP-соединений растёт быстрее, чем читается".into())
+            Err("the TCP connection table grows faster than it can be read".into())
         }
     }
 
@@ -503,7 +503,7 @@ mod windows_impl {
                     continue;
                 }
                 if rc != 0 {
-                    return Err(format!("GetExtendedTcpTable(v6): код {rc}"));
+                    return Err(format!("GetExtendedTcpTable(v6): code {rc}"));
                 }
                 let table = &*(buf.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID);
                 let alloc_bytes = words * 4;
@@ -520,7 +520,7 @@ mod windows_impl {
                     .map(|r| r.dwOwningPid)
                     .collect());
             }
-            Err("таблица TCPv6-соединений растёт быстрее, чем читается".into())
+            Err("the TCPv6 connection table grows faster than it can be read".into())
         }
     }
 
@@ -555,7 +555,7 @@ mod windows_impl {
                     continue;
                 }
                 if rc != 0 {
-                    return Err(format!("GetExtendedUdpTable(v4): код {rc}"));
+                    return Err(format!("GetExtendedUdpTable(v4): code {rc}"));
                 }
                 let table = &*(buf.as_ptr() as *const MIB_UDPTABLE_OWNER_PID);
                 let alloc_bytes = words * 4;
@@ -568,7 +568,7 @@ mod windows_impl {
                 );
                 return Ok(rows.iter().map(|r| r.dwOwningPid).collect());
             }
-            Err("таблица UDPv4 endpoint'ов растёт быстрее, чем читается".into())
+            Err("the UDPv4 endpoint table grows faster than it can be read".into())
         }
     }
 
@@ -603,7 +603,7 @@ mod windows_impl {
                     continue;
                 }
                 if rc != 0 {
-                    return Err(format!("GetExtendedUdpTable(v6): код {rc}"));
+                    return Err(format!("GetExtendedUdpTable(v6): code {rc}"));
                 }
                 let table = &*(buf.as_ptr() as *const MIB_UDP6TABLE_OWNER_PID);
                 let alloc_bytes = words * 4;
@@ -616,7 +616,7 @@ mod windows_impl {
                 );
                 return Ok(rows.iter().map(|r| r.dwOwningPid).collect());
             }
-            Err("таблица UDPv6 endpoint'ов растёт быстрее, чем читается".into())
+            Err("the UDPv6 endpoint table grows faster than it can be read".into())
         }
     }
 

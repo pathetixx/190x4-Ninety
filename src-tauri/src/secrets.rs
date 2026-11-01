@@ -53,7 +53,7 @@ fn passphrase_slot() -> &'static Mutex<Option<Zeroizing<String>>> {
 fn current_passphrase() -> Result<Option<Zeroizing<String>>, String> {
     let guard = passphrase_slot()
         .lock()
-        .map_err(|_| "хранилище portable-пароля заблокировано".to_string())?;
+        .map_err(|_| "portable password store lock is poisoned".to_string())?;
     Ok(guard
         .as_ref()
         .map(|value| Zeroizing::new(value.as_str().to_owned())))
@@ -62,12 +62,16 @@ fn current_passphrase() -> Result<Option<Zeroizing<String>>, String> {
 fn validate_passphrase(passphrase: &str) -> Result<(), String> {
     let chars = passphrase.chars().count();
     if !(MIN_PASSPHRASE_CHARS..=MAX_PASSPHRASE_CHARS).contains(&chars) {
-        return Err(format!(
-            "пароль portable должен содержать от {MIN_PASSPHRASE_CHARS} до {MAX_PASSPHRASE_CHARS} символов"
+        return Err(crate::util::i18n_error_with(
+            "backend.secrets.passwordLength",
+            &[
+                ("min", &MIN_PASSPHRASE_CHARS.to_string()),
+                ("max", &MAX_PASSPHRASE_CHARS.to_string()),
+            ],
         ));
     }
     if passphrase.chars().any(char::is_control) {
-        return Err("пароль portable не должен содержать управляющие символы".into());
+        return Err(crate::util::i18n_error("backend.secrets.passwordChars"));
     }
     Ok(())
 }
@@ -174,7 +178,7 @@ fn commit_portable_secrets(
                     "portable secret rollback",
                 );
             }
-            return Err(format!("{label} отменён: {error}"));
+            return Err(format!("{label} cancelled: {error}"));
         }
         written.push((path, previous));
     }
@@ -186,7 +190,7 @@ fn rekey_portable_secrets(current: &str, next: &str) -> Result<(), String> {
     let mut staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)> = Vec::new();
     for path in portable_secret_files() {
         let bytes = std::fs::read(&path)
-            .map_err(|error| format!("не удалось прочитать {}: {error}", path.display()))?;
+            .map_err(|error| format!("could not read {}: {error}", path.display()))?;
         let plain = if is_portable_envelope(&bytes) {
             Zeroizing::new(unseal_portable(&bytes, current)?)
         } else if is_plaintext_json(&bytes) {
@@ -198,7 +202,7 @@ fn rekey_portable_secrets(current: &str, next: &str) -> Result<(), String> {
         };
         staged.push((path, bytes, seal_portable(&plain, next)?));
     }
-    commit_portable_secrets(staged, "перевыпуск portable-секретов")
+    commit_portable_secrets(staged, "reissue portable secrets")
 }
 
 /// Запечатывание легаси plaintext при ПЕРВОМ включении пароля.
@@ -216,14 +220,14 @@ fn seal_plaintext_portable_secrets(passphrase: &str) -> Result<(), String> {
     let mut staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)> = Vec::new();
     for path in portable_secret_files() {
         let bytes = std::fs::read(&path)
-            .map_err(|error| format!("не удалось прочитать {}: {error}", path.display()))?;
+            .map_err(|error| format!("could not read {}: {error}", path.display()))?;
         if !is_plaintext_json(&bytes) {
             continue;
         }
         let plain = Zeroizing::new(bytes.clone());
         staged.push((path, bytes, seal_portable(&plain, passphrase)?));
     }
-    commit_portable_secrets(staged, "перевод portable-секретов под пароль")
+    commit_portable_secrets(staged, "move portable secrets under a password")
 }
 
 /// Снятие пароля: все envelope расшифровываются обратно в открытый текст одной
@@ -233,14 +237,14 @@ fn unseal_portable_secrets(current: &str) -> Result<(), String> {
     let mut staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)> = Vec::new();
     for path in portable_secret_files() {
         let bytes = std::fs::read(&path)
-            .map_err(|error| format!("не удалось прочитать {}: {error}", path.display()))?;
+            .map_err(|error| format!("could not read {}: {error}", path.display()))?;
         if !is_portable_envelope(&bytes) {
             continue;
         }
         let plain = unseal_portable(&bytes, current)?;
         staged.push((path, bytes, plain));
     }
-    commit_portable_secrets(staged, "снятие пароля portable")
+    commit_portable_secrets(staged, "remove the portable password")
 }
 
 /// Новые записи шифруются: DPAPI в установленной сборке, пароль в portable.
@@ -303,7 +307,7 @@ pub fn portable_secrets_status() -> PortableSecretStatus {
 /// команда вызывается после явного действия пользователя из Settings.
 pub fn configure_portable_passphrase(passphrase: String) -> Result<(), String> {
     if !crate::app_paths::is_portable() {
-        return Err("пароль нужен только для portable-режима".into());
+        return Err(crate::util::i18n_error("backend.secrets.portableOnly"));
     }
     validate_passphrase(&passphrase)?;
     let _io = secret_io_guard();
@@ -323,7 +327,7 @@ pub fn configure_portable_passphrase(passphrase: String) -> Result<(), String> {
     }
     let mut guard = passphrase_slot()
         .lock()
-        .map_err(|_| "хранилище portable-пароля заблокировано".to_string())?;
+        .map_err(|_| "portable password store lock is poisoned".to_string())?;
     *guard = Some(Zeroizing::new(passphrase));
     Ok(())
 }
@@ -352,19 +356,19 @@ pub async fn portable_secrets_clear_passphrase() -> Result<(), String> {
 
 fn portable_secrets_clear_passphrase_blocking() -> Result<(), String> {
     if !crate::app_paths::is_portable() {
-        return Err("пароль нужен только для portable-режима".into());
+        return Err(crate::util::i18n_error("backend.secrets.portableOnly"));
     }
     let _io = secret_io_guard();
     match current_passphrase()? {
         Some(current) => unseal_portable_secrets(current.as_str())?,
         None if portable_envelopes_on_disk() => {
-            return Err("сначала введите текущий пароль portable-хранилища".into());
+            return Err(crate::util::i18n_error("backend.secrets.enterCurrent"));
         }
         None => return Ok(()),
     }
     let mut guard = passphrase_slot()
         .lock()
-        .map_err(|_| "хранилище portable-пароля заблокировано".to_string())?;
+        .map_err(|_| "portable password store lock is poisoned".to_string())?;
     *guard = None;
     Ok(())
 }
@@ -379,12 +383,12 @@ fn derive_portable_key(
         1,
         Some(PORTABLE_KEY_BYTES),
     )
-    .map_err(|_| "не удалось настроить Argon2id".to_string())?;
+    .map_err(|_| "could not configure Argon2id".to_string())?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut key = Zeroizing::new([0u8; PORTABLE_KEY_BYTES]);
     argon
         .hash_password_into(passphrase.as_bytes(), salt, &mut key[..])
-        .map_err(|_| "не удалось получить ключ portable-хранилища".to_string())?;
+        .map_err(|_| "could not derive the portable store key".to_string())?;
     Ok(key)
 }
 
@@ -395,9 +399,9 @@ fn seal_portable(data: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
     OsRng.fill_bytes(&mut nonce);
     let key = derive_portable_key(passphrase, &salt)?;
     let cipher = XChaCha20Poly1305::new_from_slice(&key[..])
-        .map_err(|_| "не удалось создать portable-шифр".to_string())?;
+        .map_err(|_| "could not create the portable cipher".to_string())?;
     let nonce_arg = XNonce::try_from(&nonce[..])
-        .map_err(|_| "не удалось подготовить nonce portable-шифра".to_string())?;
+        .map_err(|_| "could not prepare the portable cipher nonce".to_string())?;
     let encrypted = cipher
         .encrypt(
             &nonce_arg,
@@ -406,7 +410,7 @@ fn seal_portable(data: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
                 aad: PORTABLE_MAGIC,
             },
         )
-        .map_err(|_| "не удалось зашифровать portable-секрет".to_string())?;
+        .map_err(|_| "could not encrypt the portable secret".to_string())?;
 
     let mut envelope = Vec::with_capacity(
         PORTABLE_MAGIC.len() + PORTABLE_SALT_BYTES + PORTABLE_NONCE_BYTES + encrypted.len(),
@@ -421,16 +425,16 @@ fn seal_portable(data: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
 fn unseal_portable(bytes: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
     let header = PORTABLE_MAGIC.len() + PORTABLE_SALT_BYTES + PORTABLE_NONCE_BYTES;
     if !bytes.starts_with(PORTABLE_MAGIC) || bytes.len() < header + 16 {
-        return Err("portable-секрет имеет неизвестный формат".into());
+        return Err(crate::util::i18n_error("backend.secrets.unknownFormat"));
     }
     let salt_start = PORTABLE_MAGIC.len();
     let nonce_start = salt_start + PORTABLE_SALT_BYTES;
     let ciphertext_start = nonce_start + PORTABLE_NONCE_BYTES;
     let key = derive_portable_key(passphrase, &bytes[salt_start..nonce_start])?;
     let cipher = XChaCha20Poly1305::new_from_slice(&key[..])
-        .map_err(|_| "не удалось создать portable-шифр".to_string())?;
+        .map_err(|_| "could not create the portable cipher".to_string())?;
     let nonce_arg = XNonce::try_from(&bytes[nonce_start..ciphertext_start])
-        .map_err(|_| "portable-секрет имеет неизвестный формат".to_string())?;
+        .map_err(|_| crate::util::i18n_error("backend.secrets.unknownFormat"))?;
     cipher
         .decrypt(
             &nonce_arg,
@@ -439,7 +443,7 @@ fn unseal_portable(bytes: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
                 aad: PORTABLE_MAGIC,
             },
         )
-        .map_err(|_| "неверный пароль portable-хранилища или повреждённый файл".into())
+        .map_err(|_| crate::util::i18n_error("backend.secrets.wrongPassword"))
 }
 
 pub fn seal_for_app(_app: &AppHandle, data: &[u8]) -> Result<Vec<u8>, String> {
@@ -448,7 +452,7 @@ pub fn seal_for_app(_app: &AppHandle, data: &[u8]) -> Result<Vec<u8>, String> {
             return seal_portable(data, passphrase.as_str());
         }
         if portable_envelopes_on_disk() {
-            return Err("portable-хранилище заперто: введите пароль в настройках".into());
+            return Err(crate::util::i18n_error("backend.secrets.lockedEnter"));
         }
         Ok(data.to_vec())
     } else {
@@ -462,7 +466,7 @@ pub fn seal_for_app(_app: &AppHandle, data: &[u8]) -> Result<Vec<u8>, String> {
 pub fn open_for_app(_app: &AppHandle, bytes: &[u8]) -> Result<Vec<u8>, String> {
     if is_portable_envelope(bytes) {
         let passphrase = current_passphrase()?
-            .ok_or("portable-хранилище заперто: задайте пароль в настройках")?;
+            .ok_or_else(|| crate::util::i18n_error("backend.secrets.lockedSet"))?;
         return unseal_portable(bytes, passphrase.as_str());
     }
     if is_plaintext_json(bytes) {
@@ -509,7 +513,7 @@ pub fn seal(data: &[u8]) -> Result<Vec<u8>, String> {
 pub fn unseal(data: &[u8]) -> Result<Vec<u8>, String> {
     data.strip_prefix(DPAPI_MAGIC)
         .map(ToOwned::to_owned)
-        .ok_or_else(|| "DPAPI недоступен в этой сборке".into())
+        .ok_or_else(|| "DPAPI is unavailable in this build".into())
 }
 
 #[cfg(target_os = "windows")]
@@ -545,7 +549,7 @@ mod win {
                 CRYPTPROTECT_UI_FORBIDDEN,
                 &mut out,
             )
-            .map_err(|_| "Windows не смогла зашифровать DPAPI-секрет".to_string())?;
+            .map_err(|_| "Windows could not encrypt the DPAPI secret".to_string())?;
             Ok(take(out))
         }
     }
@@ -562,7 +566,7 @@ mod win {
                 CRYPTPROTECT_UI_FORBIDDEN,
                 &mut out,
             )
-            .map_err(|_| "не удалось открыть DPAPI-секрет".to_string())?;
+            .map_err(|_| "could not open the DPAPI secret".to_string())?;
             Ok(take(out))
         }
     }

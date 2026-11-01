@@ -13,8 +13,9 @@ import { loadOptions } from "/lib/options.js";
 import { getMode } from "/lib/singbox.js";
 import { toast } from "/lib/toast.js";
 import { t } from "/lib/i18n/index.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 // После перезагрузки WebView локальные latch-переменные исчезают, но backend и

@@ -6,6 +6,7 @@
 // модуль нормализует IPC-ответы и никогда не отдаёт пользователю сырую ошибку
 // ОС (она может содержать локальные пути и технические детали).
 
+import { localizedInvoke } from "/lib/backend-errors.js";
 export const PROTECTED_BROWSER_COMMANDS = Object.freeze({
   status: "protected_browser_status",
   launch: "protected_browser_launch",
@@ -33,7 +34,7 @@ function failure(action, code, message) {
 }
 
 function browserInvoke() {
-  const call = globalThis.window?.__TAURI__?.core?.invoke;
+  const call = localizedInvoke(globalThis.window?.__TAURI__?.core?.invoke);
   return typeof call === "function" ? call : null;
 }
 

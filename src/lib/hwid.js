@@ -8,8 +8,9 @@
 // Уходит он только тем подпискам, для которых пользователь включил отправку.
 
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 // Панель Remnawave v3+ проверяет HWID этой же регуляркой и молча игнорирует

@@ -2,8 +2,9 @@
 
 import { perfObserver } from "/lib/performance-observer.js";
 import { createTelemetryCache } from "/lib/telemetry-cache.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 const DEFAULT_PORT = 9090;

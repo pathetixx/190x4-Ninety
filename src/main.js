@@ -133,11 +133,12 @@ import {
   isContextMenuKey,
   openPMenu,
 } from "/lib/pmenu.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
 // ── Tauri 2 (withGlobalTauri:true) ───────────────────────────
 const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.()
   ?? window.__TAURI__?.window?.getCurrent?.();
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? ((cmd, args) => {
     console.warn("Tauri invoke недоступен:", cmd, args);
     return Promise.reject(new Error("Tauri invoke недоступен (web preview)"));

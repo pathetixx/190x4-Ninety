@@ -21,6 +21,7 @@ import {
   saveSubscriptionsToStore,
   setActiveSubscriptionIdInStore,
 } from "/lib/profile-store.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
 export { safeDecodeBase64 };
 
@@ -28,7 +29,7 @@ const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt|any
 
 const REFRESH_ALL_CONCURRENCY = 3;
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 // ── base64 detection (try-and-see) ─────────────────────────
@@ -324,17 +325,6 @@ export function findSubscriptionByUrl(url, list = null) {
 let subProxyProvider = null;
 export function setSubscriptionProxy(fn) { subProxyProvider = fn; }
 
-// Бэкенд отказывает ключом каталога с подстановками: текст собирается здесь,
-// на языке интерфейса.
-async function invokeFetch(args) {
-  try {
-    return await invoke("fetch_subscription", args);
-  } catch (e) {
-    if (!e?.key) throw e;
-    throw new Error(t(e.key, e.vars), { cause: e });
-  }
-}
-
 // HWID уходит только тем подпискам, у которых пользователь его включил:
 // панелям без лимита устройств идентификатор устройства знать незачем.
 async function fetchInfo(url, { hwid = false, scopedHwid = false } = {}) {
@@ -343,7 +333,7 @@ async function fetchInfo(url, { hwid = false, scopedHwid = false } = {}) {
   const headers = hwid ? await hwidHeaders({ scoped: scopedHwid }) : null;
   let info;
   try {
-    info = await invokeFetch({ url, proxy, hwid: headers });
+    info = await invoke("fetch_subscription", { url, proxy, hwid: headers });
   } catch (e) {
     if (!proxy) throw e;
     const options = loadOptions();
@@ -353,7 +343,7 @@ async function fetchInfo(url, { hwid = false, scopedHwid = false } = {}) {
       throw new Error(t("subs.proxyFallbackDisabled"), { cause: e });
     }
     // Туннель мог только что умереть — если юзер явно разрешил, повторяем напрямую.
-    info = await invokeFetch({ url, proxy: null, hwid: headers });
+    info = await invoke("fetch_subscription", { url, proxy: null, hwid: headers });
   }
   if (info.status >= 400) {
     const err = new Error(`HTTP ${info.status}`);

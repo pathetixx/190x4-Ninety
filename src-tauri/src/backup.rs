@@ -46,7 +46,7 @@ fn backup_generation_matches(generation: &AtomicU64, captured: u64) -> bool {
 pub async fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || state_backup_save_blocking(app, json))
         .await
-        .map_err(|e| format!("не удалось дождаться записи бэкапа состояния: {e}"))?
+        .map_err(|e| format!("state backup write did not finish: {e}"))?
 }
 
 pub(crate) fn state_backup_save_blocking(app: AppHandle, json: String) -> Result<(), String> {

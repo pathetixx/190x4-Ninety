@@ -10,8 +10,9 @@ import { STORAGE_KEYS } from "/lib/storage-policy.js";
 import { testNode } from "/lib/clash-api.js";
 import { toast } from "/lib/toast.js";
 import { t } from "/lib/i18n/index.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 const WARP_HISTORY_KEY = STORAGE_KEYS.warpHistory;

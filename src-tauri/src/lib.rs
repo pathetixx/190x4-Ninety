@@ -214,7 +214,7 @@ fn is_always_admin(app: tauri::AppHandle) -> bool {
 /// стартах Ninety сам перезапустится с UAC (см. setup()).
 #[tauri::command]
 fn set_always_admin(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
-    let p = always_admin_marker(&app).ok_or("config dir недоступен")?;
+    let p = always_admin_marker(&app).ok_or("config dir is unavailable")?;
     if enable {
         if let Some(parent) = p.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -231,7 +231,7 @@ fn set_always_admin(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
 async fn autostart_is_enabled() -> Result<bool, String> {
     tokio::task::spawn_blocking(elevation::autostart_is_enabled)
         .await
-        .map_err(|e| format!("проверка автозапуска прервана: {e}"))
+        .map_err(|e| format!("autostart check was interrupted: {e}"))
 }
 
 /// Включает автозапуск через задачу Планировщика. RunLevel=highest (старт от
@@ -244,7 +244,7 @@ async fn autostart_is_enabled() -> Result<bool, String> {
 async fn autostart_enable() -> Result<(), String> {
     tokio::task::spawn_blocking(elevation::autostart_enable)
         .await
-        .map_err(|e| format!("создание автозапуска прервано: {e}"))?
+        .map_err(|e| format!("autostart creation was interrupted: {e}"))?
 }
 
 /// Выключает автозапуск (удаляет задачу Планировщика).
@@ -252,7 +252,7 @@ async fn autostart_enable() -> Result<(), String> {
 async fn autostart_disable() -> Result<(), String> {
     tokio::task::spawn_blocking(elevation::autostart_disable)
         .await
-        .map_err(|e| format!("отключение автозапуска прервано: {e}"))?
+        .map_err(|e| format!("autostart removal was interrupted: {e}"))?
 }
 
 /// CI smoke — сборочная проверка релизного артефакта, а не пользовательский
@@ -271,7 +271,7 @@ fn ci_smoke_requested(argv: &[String]) -> bool {
     let has_flag = argv.iter().any(|a| a == "--ci-smoke");
     let enabled = ci_smoke_opt_in(has_flag, std::env::var(CI_SMOKE_ENV).ok().as_deref());
     if has_flag && !enabled {
-        eprintln!("--ci-smoke игнорируется: это сборочная проверка, она требует {CI_SMOKE_ENV}=1");
+        eprintln!("--ci-smoke ignored: this is a build check and requires {CI_SMOKE_ENV}=1");
     }
     enabled
 }
@@ -429,10 +429,10 @@ struct TrayLabels {
     dpi_enable: String,
     dpi_disable: String,
     quit: String,
-    /// Шаблон с {ver} — «Обновить до v{ver}».
+    /// Шаблон с {ver} — «Update to v{ver}».
     update_to: String,
     tip_off: String,
-    /// Шаблон с {mode} — «Ninety · {mode} · подключено».
+    /// Шаблон с {mode} — «Ninety · {mode} · connected».
     tip_connected: String,
     /// Шаблон с {ver}. Вторая строка подсказки, когда найден апдейт: в трее это
     /// единственный признак, который не зависит от OS-уведомлений (те на
@@ -443,28 +443,28 @@ struct TrayLabels {
 impl Default for TrayLabels {
     fn default() -> Self {
         Self {
-            show: "Показать Ninety".into(),
-            connect: "Подключиться".into(),
-            disconnect: "Отключиться".into(),
-            mode_title: "Режим подключения".into(),
-            mode_proxy: "Прокси".into(),
-            mode_system: "Системный прокси".into(),
+            show: "Show Ninety".into(),
+            connect: "Connect".into(),
+            disconnect: "Disconnect".into(),
+            mode_title: "Connection mode".into(),
+            mode_proxy: "Proxy".into(),
+            mode_system: "System proxy".into(),
             mode_tun: "VPN · TUN".into(),
-            server: "Сервер".into(),
-            no_servers: "Нет серверов".into(),
-            favourites: "Избранные".into(),
-            fast: "Быстрые".into(),
-            all_servers: "Все серверы…".into(),
-            dpi_title: "DPI-обход".into(),
-            dpi_status_on: "Статус: активен".into(),
-            dpi_status_off: "Статус: выключен".into(),
-            dpi_enable: "Включить DPI-обход".into(),
-            dpi_disable: "Выключить DPI-обход".into(),
-            quit: "Выход".into(),
-            update_to: "Обновить до v{ver}".into(),
-            tip_off: "Ninety · отключено".into(),
-            tip_connected: "Ninety · {mode} · подключено".into(),
-            tip_update: "Доступно обновление v{ver}".into(),
+            server: "Server".into(),
+            no_servers: "No servers".into(),
+            favourites: "Favourites".into(),
+            fast: "Fastest".into(),
+            all_servers: "All servers…".into(),
+            dpi_title: "DPI bypass".into(),
+            dpi_status_on: "Status: on".into(),
+            dpi_status_off: "Status: off".into(),
+            dpi_enable: "Enable DPI bypass".into(),
+            dpi_disable: "Disable DPI bypass".into(),
+            quit: "Quit".into(),
+            update_to: "Update to v{ver}".into(),
+            tip_off: "Ninety · disconnected".into(),
+            tip_connected: "Ninety · {mode} · connected".into(),
+            tip_update: "Update v{ver} is available".into(),
         }
     }
 }
@@ -520,7 +520,7 @@ fn server_item(
     )
 }
 
-/// Подменю с готовым списком нод — «Избранные», «Быстрые» и каждая страна.
+/// Подменю с готовым списком нод — «Favourites», «Быстрые» и каждая страна.
 /// Флаги рисуются только там, где страны разные: внутри страны иконка у каждой
 /// строки одинаковая, а иконка — самая дорогая часть пункта меню.
 fn server_group_submenu(
@@ -670,7 +670,7 @@ fn build_tray_menu(
         None::<&str>,
     )?;
 
-    // Режим подключения
+    // Connection mode
     let m_proxy = CheckMenuItem::with_id(
         app,
         "mode:proxy",
@@ -1090,7 +1090,7 @@ pub fn run() {
                     .windows
                     .first()
                     .cloned()
-                    .ok_or("конфигурация главного окна отсутствует")?;
+                    .ok_or("main window configuration is missing")?;
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?
                     .data_directory(app_paths::webview_dir()?)
                     .build()?;
@@ -1287,7 +1287,7 @@ pub fn run() {
                 // пропускаем целиком: проверка сборки не стоит данных.
                 let state_is_empty = ci_smoke_state_is_empty(app.handle());
                 if !state_is_empty {
-                    eprintln!("CI smoke: пропускаю проверку хранилища — в конфиге уже есть данные");
+                    eprintln!("CI smoke: skipping the store check, the config already has data");
                 }
                 if state_is_empty && portable {
                     // The portable profile store must use the same explicit

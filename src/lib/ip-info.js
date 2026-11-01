@@ -6,8 +6,9 @@
 // реальный IP юзера, а не exit. Явный proxyHostPort задаёт main.js.
 
 import { maskIp } from "/lib/address-mask.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 export async function fetchPublicIp({ proxyHostPort } = {}) {

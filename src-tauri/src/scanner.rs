@@ -278,7 +278,7 @@ pub async fn warp_scan_endpoints(
     let use_wg = match mode_req.as_str() {
         "wg" => {
             if parsed_keys.is_none() {
-                return Err("WG-режим требует валидную WARP-регистрацию".into());
+                return Err(crate::util::i18n_error("backend.warp.needRegistration"));
             }
             true
         }
@@ -299,7 +299,7 @@ pub async fn warp_scan_endpoints(
     // Парсим ключи один раз для shared между задачами.
     let keys = if use_wg {
         Some(std::sync::Arc::new(parsed_keys.ok_or_else(|| {
-            "warp.json: невалидные private/peer ключи".to_string()
+            "warp.json: invalid private/peer keys".to_string()
         })?))
     } else {
         None
@@ -338,13 +338,13 @@ pub async fn warp_scan_endpoints(
     tokio::pin!(deadline);
     loop {
         if state.generation.load(Ordering::SeqCst) != generation {
-            return Err("WARP scan отменён".into());
+            return Err(crate::util::i18n_error("backend.warp.scanCancelled"));
         }
         tokio::select! {
             _ = &mut deadline => break,
             _ = cancel_tick.tick() => {
                 if state.generation.load(Ordering::SeqCst) != generation {
-                    return Err("WARP scan отменён".into());
+                    return Err(crate::util::i18n_error("backend.warp.scanCancelled"));
                 }
             }
             item = probes.next() => match item {

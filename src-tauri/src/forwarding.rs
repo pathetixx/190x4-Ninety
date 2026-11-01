@@ -51,10 +51,10 @@ pub async fn system_forwarding_status() -> Result<Option<ForwardingStatus>, Stri
         // webview-потока, паника не уходит через IPC-границу, промис settl-ится.
         tauri::async_runtime::spawn_blocking(|| {
             std::panic::catch_unwind(windows_impl::probe)
-                .unwrap_or_else(|_| Err("проба пересылки упала".into()))
+                .unwrap_or_else(|_| Err("forwarding probe panicked".into()))
         })
         .await
-        .map_err(|_| "проба пересылки не отработала".to_string())?
+        .map_err(|_| "forwarding probe did not run".to_string())?
     }
     #[cfg(not(windows))]
     {
@@ -89,7 +89,7 @@ mod windows_impl {
         // таблицу, которую освобождает FreeMibTable в MibTable::drop.
         let rc = unsafe { GetIpInterfaceTable(AF_UNSPEC, &mut table) };
         if rc != ERROR_SUCCESS || table.is_null() {
-            return Err(format!("GetIpInterfaceTable: код {}", rc.0));
+            return Err(format!("GetIpInterfaceTable: code {}", rc.0));
         }
         let _guard = MibTable(table as *const core::ffi::c_void);
         // SAFETY: таблица валидна до drop guard'а; NumEntries строк лежат подряд.
@@ -126,7 +126,7 @@ mod windows_impl {
         // SAFETY: как у GetIpInterfaceTable выше.
         let rc = unsafe { GetIpForwardTable2(AF_UNSPEC, &mut table) };
         if rc != ERROR_SUCCESS || table.is_null() {
-            return Err(format!("GetIpForwardTable2: код {}", rc.0));
+            return Err(format!("GetIpForwardTable2: code {}", rc.0));
         }
         let _guard = MibTable(table as *const core::ffi::c_void);
         // SAFETY: таблица валидна до drop guard'а; NumEntries строк лежат подряд.

@@ -62,7 +62,7 @@ pub fn protected_browser_launch(
     url: Option<String>,
 ) -> Result<(), String> {
     if !crate::vpn::protected_browser_tun_ready(&state) {
-        return Err("Mullvad Browser можно запустить только при активном VPN · TUN".into());
+        return Err(crate::util::i18n_error("backend.browser.needTun"));
     }
     let target = url.map(|url| validate_launch_url(&url)).transpose()?;
 
@@ -74,7 +74,7 @@ pub fn protected_browser_launch(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = target;
-        Err("защищённый браузер поддерживается только в Windows".into())
+        Err("the protected browser is Windows-only".into())
     }
 }
 
@@ -85,7 +85,7 @@ pub fn protected_browser_open_download(
     state: tauri::State<'_, crate::vpn::SingboxState>,
 ) -> Result<(), String> {
     if !crate::vpn::protected_browser_tun_ready(&state) {
-        return Err("страницу загрузки можно открыть только при активном VPN · TUN".into());
+        return Err(crate::util::i18n_error("backend.browser.pageNeedTun"));
     }
     #[cfg(target_os = "windows")]
     {
@@ -94,29 +94,30 @@ pub fn protected_browser_open_download(
 
     #[cfg(not(target_os = "windows"))]
     {
-        Err("защищённый браузер поддерживается только в Windows".into())
+        Err("the protected browser is Windows-only".into())
     }
 }
 
 fn validate_launch_url(raw: &str) -> Result<String, String> {
     if raw.is_empty() || raw.len() > MAX_URL_LENGTH || raw.trim() != raw {
-        return Err("адрес должен быть непустым URL без пробелов по краям".into());
+        return Err(crate::util::i18n_error("backend.browser.badUrl"));
     }
     if raw.chars().any(|ch| ch.is_control() || ch == '"') {
-        return Err("адрес содержит недопустимые символы".into());
+        return Err(crate::util::i18n_error("backend.browser.badUrl"));
     }
 
-    let parsed = reqwest::Url::parse(raw).map_err(|_| "нужен полный адрес http:// или https://")?;
+    let parsed =
+        reqwest::Url::parse(raw).map_err(|_| crate::util::i18n_error("backend.browser.badUrl"))?;
     if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
-        return Err("разрешены только полные адреса http:// и https://".into());
+        return Err(crate::util::i18n_error("backend.browser.badUrl"));
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err("адрес со встроенными логином или паролем запрещён".into());
+        return Err(crate::util::i18n_error("backend.browser.badUrl"));
     }
 
     let normalized = parsed.to_string();
     if normalized.len() > MAX_URL_LENGTH || normalized.chars().any(char::is_whitespace) {
-        return Err("адрес слишком длинный".into());
+        return Err(crate::util::i18n_error("backend.browser.badUrl"));
     }
     Ok(normalized)
 }
@@ -311,16 +312,16 @@ mod windows_impl {
         let browser = match discover() {
             Discovery::Found(browser) => browser,
             Discovery::Rejected { .. } => {
-                return Err("защищённый браузер не прошёл проверку подписи".into())
+                return Err(crate::util::i18n_error("backend.browser.signature"))
             }
-            Discovery::Absent => return Err("Mullvad Browser не найден".into()),
+            Discovery::Absent => return Err(crate::util::i18n_error("backend.browser.notFound")),
         };
         // Re-canonicalize, reject reparse points and verify Authenticode again
         // immediately before spawning. Discovery is intentionally not treated as
         // a durable trust decision because a user-writable path can change after
         // status discovery.
         let verified = verified_executable_path(&browser.path)
-            .ok_or("защищённый браузер не прошёл проверку подписи")?;
+            .ok_or_else(|| crate::util::i18n_error("backend.browser.signature"))?;
         // std::fs::canonicalize() на Windows обычно возвращает extended-length
         // путь (\\?\C:\...). Он подходит для проверки файла, но Windows Shell
         // и некоторые installers не принимают такую форму при запуске.
@@ -332,7 +333,7 @@ mod windows_impl {
         };
         let working_dir = executable
             .parent()
-            .ok_or("не удалось определить папку Mullvad Browser")?
+            .ok_or("could not determine the Mullvad Browser folder")?
             .to_path_buf();
 
         if elevated {
@@ -353,7 +354,12 @@ mod windows_impl {
                 .current_dir(&working_dir)
                 .spawn()
                 .map(|_| ())
-                .map_err(|e| format!("не удалось запустить Mullvad Browser: {e}"))
+                .map_err(|e| {
+                    crate::util::i18n_error_with(
+                        "backend.browser.launchFailed",
+                        &[("error", &e.to_string())],
+                    )
+                })
         }
     }
 
@@ -381,9 +387,9 @@ mod windows_impl {
         if result.0 as isize > 32 {
             Ok(())
         } else {
-            Err(format!(
-                "Windows не смогла открыть официальную страницу Mullvad (код {})",
-                result.0 as isize
+            Err(crate::util::i18n_error_with(
+                "backend.browser.pageFailed",
+                &[("code", &(result.0 as isize).to_string())],
             ))
         }
     }
@@ -820,11 +826,11 @@ mod windows_impl {
                     working_dir.as_deref(),
                 )
             })
-            .map_err(|e| format!("не удалось создать поток запуска браузера: {e}"))?;
+            .map_err(|e| format!("could not create the browser launch thread: {e}"))?;
 
         match thread.join() {
             Ok(result) => result,
-            Err(_) => Err("поток запуска браузера завершился аварийно".into()),
+            Err(_) => Err("the browser launch thread panicked".into()),
         }
     }
 
@@ -836,14 +842,14 @@ mod windows_impl {
         unsafe {
             CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)
                 .ok()
-                .map_err(|e| format!("не удалось инициализировать Windows COM: {e}"))?;
+                .map_err(|e| format!("could not initialize Windows COM: {e}"))?;
         }
         let _apartment = ComApartment;
 
         unsafe {
             let shell_windows: IShellWindows =
                 CoCreateInstance(&ShellWindows, None, CLSCTX_LOCAL_SERVER)
-                    .map_err(|e| format!("не удалось подключиться к Windows Explorer: {e}"))?;
+                    .map_err(|e| format!("could not connect to Windows Explorer: {e}"))?;
 
             let empty = VARIANT::default();
             let mut desktop_hwnd = 0;
@@ -855,28 +861,28 @@ mod windows_impl {
                     &mut desktop_hwnd,
                     SWFO_NEEDDISPATCH,
                 )
-                .map_err(|e| format!("не удалось найти рабочий стол Windows Explorer: {e}"))?;
+                .map_err(|e| format!("could not find the Windows Explorer desktop: {e}"))?;
             let services: IServiceProvider = desktop
                 .cast()
-                .map_err(|e| format!("рабочий стол Windows не отдал системные службы: {e}"))?;
+                .map_err(|e| format!("the Windows desktop did not provide system services: {e}"))?;
             let shell_browser: IShellBrowser = services
                 .QueryService(&SID_STopLevelBrowser)
-                .map_err(|e| format!("не удалось получить окно Windows Explorer: {e}"))?;
+                .map_err(|e| format!("could not get the Windows Explorer window: {e}"))?;
             let shell_view = shell_browser
                 .QueryActiveShellView()
-                .map_err(|e| format!("не удалось получить представление рабочего стола: {e}"))?;
+                .map_err(|e| format!("could not get the desktop view: {e}"))?;
             let background: IDispatch = shell_view
                 .GetItemObject(SVGIO_BACKGROUND)
-                .map_err(|e| format!("не удалось получить оболочку рабочего стола: {e}"))?;
+                .map_err(|e| format!("could not get the desktop shell: {e}"))?;
             let folder_view: IShellFolderViewDual = background
                 .cast()
-                .map_err(|e| format!("рабочий стол не поддерживает Windows Automation: {e}"))?;
+                .map_err(|e| format!("the desktop does not support Windows Automation: {e}"))?;
             let application = folder_view
                 .Application()
-                .map_err(|e| format!("не удалось получить приложение Windows Explorer: {e}"))?;
+                .map_err(|e| format!("could not get the Windows Explorer application: {e}"))?;
             let shell: IShellDispatch2 = application
                 .cast()
-                .map_err(|e| format!("Windows Explorer не поддерживает ShellExecute: {e}"))?;
+                .map_err(|e| format!("Windows Explorer does not support ShellExecute: {e}"))?;
             // Firefox/Mullvad делает тот же best-effort вызов перед запуском,
             // чтобы новое окно могло выйти на передний план.
             let _ = CoAllowSetForegroundWindow(&shell, None);
@@ -888,7 +894,7 @@ mod windows_impl {
             let show = VARIANT::from(SW_SHOWNORMAL.0);
             shell
                 .ShellExecute(&file, &arguments, &working_dir, &operation, &show)
-                .map_err(|e| format!("Windows Explorer не смог запустить браузер: {e}"))
+                .map_err(|e| format!("Windows Explorer could not start the browser: {e}"))
         }
     }
 

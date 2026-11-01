@@ -68,12 +68,39 @@ test("каждый запрошенный кодом ключ есть в кат
   }
 });
 
-test("каждый ключ ошибки подписки из бэкенда есть в каталоге", () => {
-  const source = readFileSync("src-tauri/src/subscription.rs", "utf8");
-  const keys = [...new Set(source.match(/subs\.err\.\w+/g))];
-  assert.ok(keys.length > 20, `ключей найдено подозрительно мало: ${keys.length}`);
+function rustSources() {
+  const dir = "src-tauri/src";
+  return readdirSync(dir)
+    .filter((entry) => entry.endsWith(".rs"))
+    .map((entry) => [entry, readFileSync(join(dir, entry), "utf8")]);
+}
+
+test("каждый ключ ошибки из бэкенда есть в каталоге, и у него те же подстановки", () => {
+  const found = new Map();
+  for (const [, source] of rustSources()) {
+    for (const match of source.matchAll(/"((?:subs\.err|backend)\.[\w.]+)"/g)) found.set(match[1], true);
+  }
+  assert.ok(found.size > 80, `ключей найдено подозрительно мало: ${found.size}`);
   for (const [lang, known] of Object.entries(catalogues)) {
-    const missing = keys.filter((key) => !known.has(key));
+    const missing = [...found.keys()].filter((key) => !known.has(key));
     assert.deepEqual(missing, [], `в каталоге ${lang} нет ключей: ${missing.join(", ")}`);
   }
+});
+
+// Русский текст в коде бэкенда пользователь увидит и при английском интерфейсе:
+// ошибка для него — ключ i18n_error, техническая подробность — по-английски.
+test("в строках бэкенда нет русского текста", () => {
+  const offenders = [];
+  for (const [name, source] of rustSources()) {
+    let inTests = false;
+    source.split("\n").forEach((line, index, lines) => {
+      if (/^\s*mod tests \{/.test(line) && /#\[cfg\(test\)\]/.test(lines[index - 1] ?? "")) inTests = true;
+      else if (inTests && line === "}") inTests = false;
+      const code = line.trim();
+      if (inTests || code.startsWith("//")) return;
+      const literals = code.replace(/\s\/\/.*$/, "").match(/"(?:[^"\\]|\\.)*"/g) ?? [];
+      if (literals.some((literal) => /[А-Яа-яЁё]/.test(literal))) offenders.push(`${name}:${index + 1}`);
+    });
+  }
+  assert.deepEqual(offenders, []);
 });

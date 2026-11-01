@@ -5,6 +5,7 @@
 // через state-backup.js и по-прежнему шифруется backend-политикой.
 
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
 const STORE_SCHEMA_VERSION = 1;
 const PROFILE_KEYS = [
@@ -150,7 +151,7 @@ function readLegacy(storage = storageOrNull(), { preserveDangling = false } = {}
 }
 
 let storageRef = storageOrNull();
-let invokeRef = globalThis.window?.__TAURI__?.core?.invoke ?? null;
+let invokeRef = localizedInvoke(globalThis.window?.__TAURI__?.core?.invoke) ?? null;
 let state = readLegacy(storageRef, { preserveDangling: true }).store;
 let revision = 0;
 let initialized = false;

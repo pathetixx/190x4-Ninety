@@ -164,7 +164,7 @@ pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
             return Ok(v);
         }
     }
-    Err("все провайдеры IP недоступны".to_string())
+    Err(crate::util::i18n_error("backend.ip.allProvidersDown"))
 }
 
 fn client() -> Result<reqwest::Client, String> {

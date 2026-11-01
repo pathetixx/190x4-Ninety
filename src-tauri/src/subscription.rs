@@ -1,6 +1,6 @@
+use crate::util::{i18n_error, i18n_error_with};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::lookup_host;
@@ -199,34 +199,9 @@ fn is_forbidden_target_ip(ip: IpAddr) -> bool {
     }
 }
 
-/// Отказ подписки для фронтенда: ключ каталога i18n и подстановки. Готовый текст
-/// отсюда не уходит — язык интерфейса знает только фронтенд, и ошибка всегда
-/// показывалась бы на языке, вшитом в бэкенд.
-#[derive(Debug, Serialize)]
-pub struct SubscriptionError {
-    key: &'static str,
-    vars: BTreeMap<&'static str, String>,
-}
-
-impl SubscriptionError {
-    fn var(mut self, name: &'static str, value: impl ToString) -> Self {
-        self.vars.insert(name, value.to_string());
-        self
-    }
-}
-
-impl From<&'static str> for SubscriptionError {
-    fn from(key: &'static str) -> Self {
-        Self {
-            key,
-            vars: BTreeMap::new(),
-        }
-    }
-}
-
-fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<SocketAddr, SubscriptionError> {
+fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<SocketAddr, String> {
     if addresses.is_empty() {
-        return Err("subs.err.noAddresses".into());
+        return Err(i18n_error("subs.err.noAddresses"));
     }
     if addresses
         .iter()
@@ -235,32 +210,36 @@ fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<SocketAddr, S
         // Reject the whole answer, not only the first address. This prevents a
         // DNS rebinding answer from hiding a private A/AAAA record behind a
         // public one selected by the resolver.
-        return Err("subs.err.privateNetwork".into());
+        return Err(i18n_error("subs.err.privateNetwork"));
     }
     Ok(addresses[0])
 }
 
-fn parse_subscription_url(raw: &str) -> Result<reqwest::Url, SubscriptionError> {
+fn parse_subscription_url(raw: &str) -> Result<reqwest::Url, String> {
     if raw.trim() != raw || raw.is_empty() {
-        return Err("subs.err.invalidUrl".into());
+        return Err(i18n_error("subs.err.invalidUrl"));
     }
-    let url = reqwest::Url::parse(raw).map_err(|_| "subs.err.invalidUrl")?;
+    let url = reqwest::Url::parse(raw).map_err(|_| i18n_error("subs.err.invalidUrl"))?;
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        return Err("subs.err.badScheme".into());
+        return Err(i18n_error("subs.err.badScheme"));
     }
     if !url.username().is_empty() || url.password().is_some() {
-        return Err("subs.err.embeddedCredentials".into());
+        return Err(i18n_error("subs.err.embeddedCredentials"));
     }
     Ok(url)
 }
 
-async fn resolve_public_target(url: &reqwest::Url) -> Result<ResolvedTarget, SubscriptionError> {
-    let host = url.host_str().ok_or("subs.err.noHost")?;
-    let port = url.port_or_known_default().ok_or("subs.err.noPort")?;
+async fn resolve_public_target(url: &reqwest::Url) -> Result<ResolvedTarget, String> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| i18n_error("subs.err.noHost"))?;
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| i18n_error("subs.err.noPort"))?;
 
     if let Some(ip) = host_literal_ip(host) {
         if is_forbidden_target_ip(ip) {
-            return Err("subs.err.privateNetwork".into());
+            return Err(i18n_error("subs.err.privateNetwork"));
         }
         return Ok(ResolvedTarget {
             host: host.to_ascii_lowercase(),
@@ -271,7 +250,7 @@ async fn resolve_public_target(url: &reqwest::Url) -> Result<ResolvedTarget, Sub
 
     let addresses: Vec<SocketAddr> = lookup_host((host, port))
         .await
-        .map_err(|_| "subs.err.dnsFailed")?
+        .map_err(|_| i18n_error("subs.err.dnsFailed"))?
         .collect();
     let address = validate_resolved_addresses(&addresses)?;
     Ok(ResolvedTarget {
@@ -286,11 +265,13 @@ async fn resolve_public_target(url: &reqwest::Url) -> Result<ResolvedTarget, Sub
 /// панели уезжает системному резолверу и обновление подписки ломается ровно
 /// там, где DNS и блокируют, — а именно ради этого её и обновляют «через VPN».
 /// IP-литерал всё равно отсекаем: он никуда не резолвится и виден сразу.
-fn reject_forbidden_literal(url: &reqwest::Url) -> Result<(), SubscriptionError> {
-    let host = url.host_str().ok_or("subs.err.noHost")?;
+fn reject_forbidden_literal(url: &reqwest::Url) -> Result<(), String> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| i18n_error("subs.err.noHost"))?;
     if let Some(ip) = host_literal_ip(host) {
         if is_forbidden_target_ip(ip) {
-            return Err("subs.err.privateNetwork".into());
+            return Err(i18n_error("subs.err.privateNetwork"));
         }
     }
     Ok(())
@@ -315,7 +296,7 @@ const PROXIED_REDIRECT_LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration
 // сервер подписки, не пользователь. Такое имя проверяем локальным DNS. Если
 // локально оно не разрешилось, решает туннель: из-за блокировок DNS подписку
 // и тянут через него.
-async fn reject_private_proxied_redirect(url: &reqwest::Url) -> Result<(), SubscriptionError> {
+async fn reject_private_proxied_redirect(url: &reqwest::Url) -> Result<(), String> {
     let (Some(host), Some(port)) = (url.host_str(), url.port_or_known_default()) else {
         return Ok(());
     };
@@ -330,14 +311,14 @@ async fn reject_private_proxied_redirect(url: &reqwest::Url) -> Result<(), Subsc
     proxied_redirect_verdict(answer.as_deref())
 }
 
-fn proxied_redirect_verdict(answer: Option<&[SocketAddr]>) -> Result<(), SubscriptionError> {
+fn proxied_redirect_verdict(answer: Option<&[SocketAddr]>) -> Result<(), String> {
     match answer {
         Some(addresses)
             if addresses
                 .iter()
                 .any(|address| is_forbidden_target_ip(address.ip())) =>
         {
-            Err("subs.err.redirectPrivate".into())
+            Err(i18n_error("subs.err.redirectPrivate"))
         }
         _ => Ok(()),
     }
@@ -347,7 +328,7 @@ fn make_client(
     proxy: Option<&str>,
     target: Option<&ResolvedTarget>,
     jar: &Arc<reqwest::cookie::Jar>,
-) -> Result<reqwest::Client, SubscriptionError> {
+) -> Result<reqwest::Client, String> {
     let mut builder = crate::util::direct_client_builder()
         .user_agent("v2rayN/6.42")
         .timeout(std::time::Duration::from_secs(20))
@@ -369,42 +350,49 @@ fn make_client(
         builder = builder.resolve(&target.host, target.address);
     }
     if let Some(proxy) = proxy {
-        let configured = reqwest::Proxy::all(proxy).map_err(|_| "subs.err.invalidProxy")?;
+        let configured =
+            reqwest::Proxy::all(proxy).map_err(|_| i18n_error("subs.err.invalidProxy"))?;
         builder = builder.proxy(configured);
     }
-    builder.build().map_err(|_| "subs.err.clientFailed".into())
+    builder
+        .build()
+        .map_err(|_| i18n_error("subs.err.clientFailed"))
 }
 
 /// Ошибка для упёршейся цепочки: без хоста, кода и признака cookie
 /// «слишком много перенаправлений» не даёт зацепки ни пользователю, ни триажу.
 /// Если панель ставит cookie, а круг всё равно не размыкается, дело уже не в
 /// сессии — так отвечает антибот-защита с проверкой в браузере.
-fn redirect_loop_error(url: &reqwest::Url, status: u16, sets_cookie: bool) -> SubscriptionError {
+fn redirect_loop_error(url: &reqwest::Url, status: u16, sets_cookie: bool) -> String {
     let key = if sets_cookie {
         "subs.err.redirectLoopCookie"
     } else {
         "subs.err.redirectLoop"
     };
-    SubscriptionError::from(key)
-        .var("steps", MAX_REDIRECTS)
-        .var("host", url.host_str().unwrap_or_default())
-        .var("status", status)
+    i18n_error_with(
+        key,
+        &[
+            ("steps", &MAX_REDIRECTS.to_string()),
+            ("host", url.host_str().unwrap_or_default()),
+            ("status", &status.to_string()),
+        ],
+    )
 }
 
-fn too_large_error() -> SubscriptionError {
-    SubscriptionError::from("subs.err.tooLarge").var("mb", MAX_BODY_BYTES / 1024 / 1024)
+fn too_large_error() -> String {
+    i18n_error_with(
+        "subs.err.tooLarge",
+        &[("mb", &(MAX_BODY_BYTES / 1024 / 1024).to_string())],
+    )
 }
 
-fn checked_redirect(
-    current: &reqwest::Url,
-    location: &str,
-) -> Result<reqwest::Url, SubscriptionError> {
+fn checked_redirect(current: &reqwest::Url, location: &str) -> Result<reqwest::Url, String> {
     let next = current
         .join(location)
-        .map_err(|_| "subs.err.redirectInvalid")?;
+        .map_err(|_| i18n_error("subs.err.redirectInvalid"))?;
     parse_subscription_url(next.as_str())?;
     if current.scheme() == "https" && next.scheme() == "http" {
-        return Err("subs.err.redirectDowngrade".into());
+        return Err(i18n_error("subs.err.redirectDowngrade"));
     }
     Ok(next)
 }
@@ -424,7 +412,7 @@ fn same_host(a: &reqwest::Url, b: &reqwest::Url) -> bool {
 // сертификата выглядели одинаково, и зацепиться было не за что ни
 // пользователю, ни триажу. Текст ошибки reqwest наружу не отдаём — в нём адрес
 // подписки с токеном; по цепочке причин только ищем признаки.
-fn describe_fetch_error(error: &reqwest::Error, via_proxy: bool) -> SubscriptionError {
+fn describe_fetch_error(error: &reqwest::Error, via_proxy: bool) -> String {
     let causes = error_causes(error);
     let key = if error.is_timeout() {
         "subs.err.fetchTimeout"
@@ -440,14 +428,14 @@ fn describe_fetch_error(error: &reqwest::Error, via_proxy: bool) -> Subscription
     } else {
         "subs.err.fetchInterrupted"
     };
-    key.into()
+    i18n_error(key)
 }
 
-fn describe_read_error(error: &reqwest::Error) -> SubscriptionError {
+fn describe_read_error(error: &reqwest::Error) -> String {
     if error.is_timeout() {
-        "subs.err.readTimeout".into()
+        i18n_error("subs.err.readTimeout")
     } else {
-        "subs.err.readInterrupted".into()
+        i18n_error("subs.err.readInterrupted")
     }
 }
 
@@ -467,11 +455,7 @@ fn error_causes(error: &reqwest::Error) -> String {
 /// HWID, который получит подписка. Окно подписки показывает его, чтобы
 /// пользователь мог назвать провайдеру ровно то значение, что видит панель.
 #[tauri::command]
-pub fn subscription_hwid(
-    url: String,
-    hwid: String,
-    scoped: bool,
-) -> Result<String, SubscriptionError> {
+pub fn subscription_hwid(url: String, hwid: String, scoped: bool) -> Result<String, String> {
     let url = parse_subscription_url(&url)?;
     let headers = HwidHeaders {
         hwid,
@@ -479,7 +463,7 @@ pub fn subscription_hwid(
         ..HwidHeaders::default()
     };
     hwid_header_value(&headers, url.host_str().unwrap_or_default())
-        .ok_or_else(|| "subs.err.invalidHwid".into())
+        .ok_or_else(|| i18n_error("subs.err.invalidHwid"))
 }
 
 #[tauri::command]
@@ -487,7 +471,7 @@ pub async fn fetch_subscription(
     url: String,
     proxy: Option<String>,
     hwid: Option<HwidHeaders>,
-) -> Result<SubscriptionInfo, SubscriptionError> {
+) -> Result<SubscriptionInfo, String> {
     let mut current = parse_subscription_url(&url)?;
     let origin = current.clone();
     let proxy = proxy
@@ -536,7 +520,7 @@ pub async fn fetch_subscription(
                 .headers()
                 .get(reqwest::header::LOCATION)
                 .and_then(|value| value.to_str().ok())
-                .ok_or("subs.err.redirectNoLocation")?;
+                .ok_or_else(|| i18n_error("subs.err.redirectNoLocation"))?;
             let next = checked_redirect(&current, location)?;
             // The redirect count is tracked locally rather than in reqwest's
             // automatic policy. A new client is intentionally built for every
@@ -826,11 +810,14 @@ mod tests {
     fn redirect_loop_error_names_the_host_status_and_cookie() {
         let url = reqwest::Url::parse("https://panel.example/sub/key").unwrap();
         let with_cookie = redirect_loop_error(&url, 302, true);
-        assert_eq!(with_cookie.key, "subs.err.redirectLoopCookie");
-        assert_eq!(with_cookie.vars["host"], "panel.example");
-        assert_eq!(with_cookie.vars["status"], "302");
+        assert!(
+            with_cookie.starts_with("[[subs.err.redirectLoopCookie "),
+            "{with_cookie}"
+        );
+        assert!(with_cookie.contains("panel.example"), "{with_cookie}");
+        assert!(with_cookie.contains("\"302\""), "{with_cookie}");
         let plain = redirect_loop_error(&url, 307, false);
-        assert_eq!(plain.key, "subs.err.redirectLoop");
+        assert!(plain.starts_with("[[subs.err.redirectLoop "), "{plain}");
     }
 
     #[test]
@@ -858,8 +845,8 @@ mod tests {
             .await
             .unwrap_err();
         let error = describe_fetch_error(&refused, false);
-        assert_eq!(error.key, "subs.err.fetchRefused");
-        assert!(!format!("{error:?}").contains("secret-token"), "{error:?}");
+        assert_eq!(error, i18n_error("subs.err.fetchRefused"));
+        assert!(!error.contains("secret-token"), "{error}");
 
         let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = silent.local_addr().unwrap();
@@ -877,8 +864,8 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(
-            describe_fetch_error(&timeout, false).key,
-            "subs.err.fetchTimeout"
+            describe_fetch_error(&timeout, false),
+            i18n_error("subs.err.fetchTimeout")
         );
         hold.abort();
     }

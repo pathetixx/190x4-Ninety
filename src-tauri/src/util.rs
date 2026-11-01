@@ -32,6 +32,21 @@ impl<T> MutexExt<T> for Mutex<T> {
 /// превращала бы UAC-подтверждение пользователя в запуск чужого бинаря от
 /// администратора. `GetSystemDirectoryW` окружение не читает.
 #[cfg(target_os = "windows")]
+/// Ошибка, которую покажет интерфейс: ключ каталога i18n вместо готового текста,
+/// потому что язык интерфейса знает только фронтенд. Токен разбирает
+/// `backend-errors.js`; в логе он остаётся читаемым.
+pub fn i18n_error(key: &str) -> String {
+    format!("[[{key}]]")
+}
+
+pub fn i18n_error_with(key: &str, vars: &[(&str, &str)]) -> String {
+    let vars: serde_json::Map<String, serde_json::Value> = vars
+        .iter()
+        .map(|(name, value)| ((*name).to_string(), (*value).into()))
+        .collect();
+    format!("[[{key} {}]]", serde_json::Value::Object(vars))
+}
+
 pub fn system_directory() -> std::path::PathBuf {
     use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
     let mut buffer = [0u16; 260];

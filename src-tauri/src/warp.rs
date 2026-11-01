@@ -182,7 +182,7 @@ fn delete_info(app: &AppHandle) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "не удалось удалить состояние WARP: {}",
+            "could not remove the WARP state: {}",
             errors.join("; ")
         ))
     }

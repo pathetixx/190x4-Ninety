@@ -5,6 +5,7 @@ import { t } from "/lib/i18n/index.js";
 import { closeUpdateResource, snapshotUpdate } from "/lib/update-resource.js";
 import { formatReleaseNotes } from "/lib/release-notes.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
 const SKIP_KEY = STORAGE_KEYS.updateSkip;
 const RESUME_KEY = STORAGE_KEYS.updateResume;
@@ -324,7 +325,7 @@ export function openUpdateModal(update, opts = {}) {
       const dpiWasOn = (() => {
         try { return localStorage.getItem(STORAGE_KEYS.dpiEnabled) === "true"; } catch { return false; }
       })();
-      const invoke = window.__TAURI__?.core?.invoke;
+      const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
       // Что было поднято — запоминаем ДО гашения: после перезапуска
       // автоконнект-блок main.js читает ninety.update.resume и возвращает
       // сессию (раньше флаг был только про DPI — юзер с апдейтом при

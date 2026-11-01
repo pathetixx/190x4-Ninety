@@ -23,24 +23,24 @@ const MAX_DOH_RESPONSE_BYTES: usize = 64 * 1024;
 fn build_dns_query(host: &str) -> Result<Vec<u8>, String> {
     let host = host.trim().trim_end_matches('.');
     if host.is_empty() {
-        return Err("DNS probe host пуст".into());
+        return Err("DNS probe host is empty".into());
     }
 
     let labels: Vec<&str> = host.split('.').collect();
     let encoded_name_len = labels.iter().try_fold(1usize, |total, label| {
         if label.is_empty() {
-            return Err("DNS probe host содержит пустой label".to_string());
+            return Err("DNS probe host has an empty label".to_string());
         }
         let len = label.len();
         if len > 63 {
-            return Err(format!("DNS label длиннее 63 байт: {len}"));
+            return Err(format!("DNS label is longer than 63 bytes: {len}"));
         }
         total
             .checked_add(1 + len)
-            .ok_or_else(|| "DNS probe host слишком длинный".to_string())
+            .ok_or_else(|| "DNS probe host is too long".to_string())
     })?;
     if encoded_name_len > 255 {
-        return Err("DNS probe host длиннее 255 байт в wire-формате".into());
+        return Err("DNS probe host is longer than 255 wire bytes".into());
     }
 
     let mut p = Vec::with_capacity(12 + encoded_name_len + 4);
@@ -85,23 +85,23 @@ fn read_dns_name(message: &[u8], start: usize) -> Result<(Vec<Vec<u8>>, usize), 
 
     loop {
         if cursor >= message.len() || !visited.insert(cursor) {
-            return Err("невалидное или циклическое DNS-имя".into());
+            return Err("invalid or cyclic DNS name".into());
         }
         let len = message[cursor];
         if len & 0xc0 == 0xc0 {
             let next = *message
                 .get(cursor + 1)
-                .ok_or("обрезанный DNS compression pointer")?;
+                .ok_or("truncated DNS compression pointer")?;
             let pointer = (usize::from(len & 0x3f) << 8) | usize::from(next);
             if pointer >= message.len() {
-                return Err("DNS compression pointer вне пакета".into());
+                return Err("DNS compression pointer outside the packet".into());
             }
             consumed_end.get_or_insert(cursor + 2);
             cursor = pointer;
             continue;
         }
         if len & 0xc0 != 0 {
-            return Err("неподдерживаемый DNS label type".into());
+            return Err("unsupported DNS label type".into());
         }
         cursor += 1;
         if len == 0 {
@@ -109,12 +109,12 @@ fn read_dns_name(message: &[u8], start: usize) -> Result<(Vec<Vec<u8>>, usize), 
         }
         let label_len = usize::from(len);
         if label_len > 63 {
-            return Err("DNS label длиннее 63 байт".into());
+            return Err("DNS label is longer than 63 bytes".into());
         }
         let end = cursor.checked_add(label_len).ok_or("DNS label overflow")?;
         let label = message
             .get(cursor..end)
-            .ok_or("обрезанный DNS label")?
+            .ok_or("truncated DNS label")?
             .iter()
             .map(|byte| byte.to_ascii_lowercase())
             .collect();
@@ -127,7 +127,7 @@ fn parse_dns_question(message: &[u8], start: usize) -> Result<DnsQuestion, Strin
     let (labels, end) = read_dns_name(message, start)?;
     let fields = message
         .get(end..end + 4)
-        .ok_or("обрезанные DNS QTYPE/QCLASS")?;
+        .ok_or("truncated DNS QTYPE/QCLASS")?;
     Ok(DnsQuestion {
         labels,
         qtype: u16::from_be_bytes([fields[0], fields[1]]),
@@ -137,25 +137,25 @@ fn parse_dns_question(message: &[u8], start: usize) -> Result<DnsQuestion, Strin
 
 fn validate_dns_response(resp: &[u8], query: &[u8]) -> Result<(), String> {
     if resp.len() < 12 || query.len() < 17 {
-        return Err("невалидный DNS-ответ (короткий пакет)".into());
+        return Err("invalid DNS response (short packet)".into());
     }
     if resp[..2] != query[..2] || resp[2] & 0x80 == 0 {
-        return Err("невалидный DNS-ответ (id/QR не совпали)".into());
+        return Err("invalid DNS response (id/QR mismatch)".into());
     }
     let rcode = resp[3] & 0x0f;
     if rcode != 0 {
-        return Err(format!("DNS-ответ вернул RCODE={rcode}"));
+        return Err(format!("DNS response returned RCODE={rcode}"));
     }
     let qdcount = u16::from_be_bytes([resp[4], resp[5]]);
     if qdcount != 1 {
-        return Err(format!("DNS-ответ содержит QDCOUNT={qdcount}, ожидался 1"));
+        return Err(format!("DNS response has QDCOUNT={qdcount}, expected 1"));
     }
 
     // QNAME регистронезависим и может использовать wire compression.
     // Сравниваем разобранные labels + числовые QTYPE/QCLASS, сохраняя
     // защиту от ответа на другой hostname без ложных dead на валидное эхо.
     if parse_dns_question(resp, 12)? != parse_dns_question(query, 12)? {
-        return Err("DNS-ответ относится к другому question".into());
+        return Err("DNS response answers a different question".into());
     }
 
     if answer_count(resp) > 0 {
@@ -167,7 +167,7 @@ fn validate_dns_response(resp: &[u8], query: &[u8]) -> Result<(), String> {
     if resp[2] & 0x02 != 0 {
         return Ok(());
     }
-    Err("ответ без записей (ANCOUNT=0)".into())
+    Err("response has no records (ANCOUNT=0)".into())
 }
 
 // host[:port] → host:port (добавляет default при отсутствии). IPv6 ожидаем в
@@ -234,7 +234,7 @@ fn reject_forbidden_host(host: &str) -> Result<(), String> {
     let host = host.trim().trim_start_matches('[').trim_end_matches(']');
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
         if is_impossible_resolver_ip(ip) {
-            return Err("этот адрес не может быть DNS-резолвером".into());
+            return Err(crate::util::i18n_error("backend.dns.notResolver"));
         }
     }
     Ok(())
@@ -256,10 +256,11 @@ fn parse_target(dns: &str) -> Result<Target, String> {
         return Ok(Target::Skip);
     }
     if s.starts_with("https://") {
-        let url = reqwest::Url::parse(s).map_err(|_| "недопустимый адрес DoH-резолвера")?;
+        let url =
+            reqwest::Url::parse(s).map_err(|_| crate::util::i18n_error("backend.dns.badDoh"))?;
         let host = url
             .host_str()
-            .ok_or("у DoH-резолвера отсутствует имя хоста")?
+            .ok_or_else(|| crate::util::i18n_error("backend.dns.badDoh"))?
             .to_string();
         reject_forbidden_host(&host)?;
         return Ok(Target::Doh(url.to_string()));
@@ -301,9 +302,7 @@ async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> Result<(
         .iter()
         .any(|address| is_impossible_resolver_ip(address.ip()))
     {
-        return Err(format!(
-            "resolve {host_port}: этот адрес не может быть DNS-резолвером"
-        ));
+        return Err(crate::util::i18n_error("backend.dns.notResolver"));
     }
     let mut errors = Vec::new();
     for address in addresses {

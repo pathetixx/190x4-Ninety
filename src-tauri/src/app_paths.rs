@@ -19,7 +19,7 @@ fn executable_dir() -> Result<PathBuf, String> {
         .map_err(|e| format!("current_exe: {e}"))?
         .parent()
         .map(Path::to_path_buf)
-        .ok_or_else(|| "у Ninety.exe нет родительского каталога".into())
+        .ok_or_else(|| "Ninety.exe has no parent directory".into())
 }
 
 fn is_portable_dir(dir: &Path) -> bool {
@@ -35,7 +35,7 @@ pub fn is_portable() -> bool {
 pub fn portable_root() -> Result<PathBuf, String> {
     let dir = executable_dir()?;
     if !is_portable_dir(&dir) {
-        return Err("Portable marker не найден".into());
+        return Err("portable marker not found".into());
     }
     Ok(dir.join(PORTABLE_DATA))
 }
@@ -44,7 +44,7 @@ pub fn ensure_portable_layout() -> Result<(), String> {
     let root = portable_root()?;
     for name in ["config", "data", "logs", "webview"] {
         std::fs::create_dir_all(root.join(name))
-            .map_err(|e| format!("создание NinetyData/{name}: {e}"))?;
+            .map_err(|e| format!("create NinetyData/{name}: {e}"))?;
     }
     Ok(())
 }

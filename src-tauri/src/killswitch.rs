@@ -147,13 +147,13 @@ pub(crate) fn arm_policy(
             .filter(|s| !s.is_empty());
         if strict_tunnel {
             if allow_lan {
-                return Err("строгий kill switch запрещает LAN-исключения".into());
+                return Err("strict kill switch forbids LAN exceptions".into());
             }
             if tun_interface.is_some_and(|alias| !alias.eq_ignore_ascii_case("ninety-tun")) {
-                return Err("неожиданное имя TUN-интерфейса для строгого режима".into());
+                return Err("unexpected TUN interface name for strict mode".into());
             }
         } else if tun_interface.is_some() {
-            return Err("TUN-интерфейс допустим только для строгого kill switch".into());
+            return Err("a TUN interface is allowed only for the strict kill switch".into());
         }
         // Сначала целиком собираем новую dynamic-session. Если любой фильтр не
         // добавился, win::arm закроет только новую сессию, а старая продолжит
@@ -192,7 +192,7 @@ pub(crate) fn arm_policy(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (allow_lan, tun_interface, strict_tunnel);
-        Err("kill switch доступен только на Windows".into())
+        Err("kill switch is Windows-only".into())
     }
 }
 
@@ -221,7 +221,7 @@ pub(crate) fn transition_arm(state: &KillSwitchState, strict_tunnel: bool) -> Re
     #[cfg(not(target_os = "windows"))]
     {
         let _ = &mut guard;
-        Err("transition barrier доступен только на Windows".into())
+        Err("transition barrier is Windows-only".into())
     }
 }
 
@@ -303,7 +303,7 @@ pub async fn killswitch_arm(
         arm_policy(&state, allow_lan, tun_interface, strict_tunnel)
     })
     .await
-    .map_err(|e| format!("не удалось дождаться включения kill switch: {e}"))?
+    .map_err(|e| format!("waiting for the kill switch to turn on failed: {e}"))?
 }
 
 /// Выключить kill switch (снять все фильтры). Идемпотентно.
@@ -315,7 +315,7 @@ pub async fn killswitch_disarm(app: tauri::AppHandle) -> Result<(), String> {
         disarm_policy(&state)
     })
     .await
-    .map_err(|e| format!("не удалось дождаться выключения kill switch: {e}"))?
+    .map_err(|e| format!("waiting for the kill switch to turn off failed: {e}"))?
 }
 
 fn disarm_policy(state: &KillSwitchState) -> Result<(), String> {
@@ -352,7 +352,7 @@ pub async fn killswitch_active(app: tauri::AppHandle) -> Result<bool, String> {
         is_active(&state)
     })
     .await
-    .map_err(|e| format!("не удалось прочитать состояние kill switch: {e}"))
+    .map_err(|e| format!("could not read the kill switch state: {e}"))
 }
 
 pub fn is_active(state: &KillSwitchState) -> bool {
@@ -431,11 +431,11 @@ fn engine_exe_paths(include_controller: bool) -> Result<Vec<String>, String> {
     let self_exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let dir = self_exe
         .parent()
-        .ok_or("нет родительского каталога exe")?
+        .ok_or("the exe has no parent directory")?
         .to_path_buf();
     let mut exes = existing_engine_paths(&dir);
     if exes.is_empty() {
-        return Err("движки не найдены рядом с Ninety — kill switch не включён".into());
+        return Err(crate::util::i18n_error("backend.killSwitch.engineMissing"));
     }
     // Обычный kill switch пропускает и Ninety: в proxy/systemProxy его служебные
     // reqwest-запросы идут напрямую. Строгий TUN контроллер не разрешает —
@@ -613,7 +613,7 @@ mod win {
             let mut bytes = [0u8; 16];
             OsRng
                 .try_fill_bytes(&mut bytes)
-                .map_err(|e| format!("не удалось получить случайный GUID WFP: {e}"))?;
+                .map_err(|e| format!("could not get a random WFP GUID: {e}"))?;
             let value = u128::from_be_bytes(bytes);
             if value != 0 {
                 return Ok(value);
@@ -872,7 +872,7 @@ mod win {
             return Err(format!("FwpmFilterAdd0: {rc}"));
         }
         if filter_id == 0 {
-            return Err("FwpmFilterAdd0 не вернул id фильтра".into());
+            return Err("FwpmFilterAdd0 returned no filter id".into());
         }
         Ok(filter_id)
     }
@@ -910,7 +910,7 @@ mod win {
             return Err(format!("FwpmGetAppIdFromFileName0: {rc}"));
         }
         if blob.is_null() {
-            return Err("app id blob пуст".into());
+            return Err("app id blob is empty".into());
         }
         Ok(blob)
     }

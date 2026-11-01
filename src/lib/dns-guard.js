@@ -24,8 +24,9 @@
 import { getOptionsSnapshot, updateOption } from "/lib/options.js";
 import { dnsHostLabel } from "/lib/dns-presets.js";
 import { t } from "/lib/i18n/index.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 // Нейтральный контрольный домен (IANA, вечный) — проверяем сам факт резолюции,

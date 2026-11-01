@@ -1,12 +1,13 @@
 // Список обязан совпадать с SUPPORTED_SCHEMES (src-tauri/src/url_handler.rs) и
 // TOP_LEVEL_PROTOS (src/lib/deeplink.js) — равенство проверяет
 // tests/link-schemes.test.mjs. Схема, которой нет в Rust, возвращает Err.
+import { localizedInvoke } from "/lib/backend-errors.js";
 export const LINK_HANDLER_SCHEMES = [
   "vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "hysteria", "tuic", "sub",
   "anytls", "tt", "naive+https", "naive+quic",
 ];
 
-const invoke = window.__TAURI__?.core?.invoke
+const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 // Отказ на ОДНОЙ схеме не должен отменять остальные: раньше цикл обрывался на

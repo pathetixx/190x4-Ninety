@@ -269,7 +269,7 @@ fn read_proxy_snapshot(nk: &RegKey) -> Option<ProxySnapshot> {
 fn capture_proxy_settings(inet: &RegKey) -> Result<ProxySnapshot, String> {
     let enable: u32 = inet.get_value("ProxyEnable").unwrap_or(0);
     if enable > 1 {
-        return Err(format!("неожиданное значение ProxyEnable={enable}"));
+        return Err(format!("unexpected ProxyEnable={enable}"));
     }
     Ok(ProxySnapshot {
         enable,
@@ -289,13 +289,13 @@ fn save_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> Result<(), String> {
         return if read_proxy_snapshot(&nk).is_some() {
             Ok(())
         } else {
-            Err("сохранённое состояние системного proxy повреждено; включение отменено".into())
+            Err(crate::util::i18n_error("backend.proxy.stateCorrupted"))
         };
     }
     let cur_enable: u32 = inet.get_value("ProxyEnable").unwrap_or(0);
     if cur_enable > 1 {
         return Err(format!(
-            "неожиданное значение ProxyEnable={cur_enable}; включение отменено"
+            "unexpected ProxyEnable={cur_enable}; enabling cancelled"
         ));
     }
     nk.set_value("SavedProxyEnable", &cur_enable)
@@ -408,7 +408,7 @@ where
         Err(apply_error) => match rollback() {
             Ok(()) => Err(apply_error),
             Err(rollback_error) => Err(format!(
-                "{apply_error}; rollback системного proxy тоже не удался: {rollback_error}"
+                "{apply_error}; rolling back the system proxy also failed: {rollback_error}"
             )),
         },
     }
@@ -628,16 +628,20 @@ pub fn relaunch_self_elevated(extra_args: &[&str]) -> Result<bool, String> {
             ShellLaunchStatus::Started => Ok(true),
             ShellLaunchStatus::Cancelled => Ok(false),
             ShellLaunchStatus::AccessDenied => {
-                Err("Windows отказала в запуске Ninety с правами администратора".into())
+                Err(crate::util::i18n_error("backend.elevation.denied"))
             }
             ShellLaunchStatus::FileNotFound => {
-                Err("Windows не нашла исполняемый файл Ninety".into())
+                Err(crate::util::i18n_error("backend.elevation.exeMissing"))
             }
             ShellLaunchStatus::Failed {
                 shell_code,
                 last_error,
-            } => Err(format!(
-                "не удалось запустить Ninety с правами администратора (ShellExecute={shell_code}, Win32={last_error})"
+            } => Err(crate::util::i18n_error_with(
+                "backend.elevation.failed",
+                &[
+                    ("shell", &shell_code.to_string()),
+                    ("win32", &last_error.to_string()),
+                ],
             )),
         }
     }
@@ -721,19 +725,23 @@ fn run_schtasks_elevated(cmdline: &str) -> ShellLaunchStatus {
     }
 }
 
-fn elevated_task_error(action: &str, status: ShellLaunchStatus) -> Result<(), String> {
+fn elevated_task_error(status: ShellLaunchStatus) -> Result<(), String> {
     match status {
         ShellLaunchStatus::Started => Ok(()),
-        ShellLaunchStatus::Cancelled => Err(format!("{action} отменено пользователем в UAC")),
-        ShellLaunchStatus::AccessDenied => Err(format!("{action}: Windows отказала в доступе")),
-        ShellLaunchStatus::FileNotFound => Err(format!(
-            "{action}: schtasks.exe не найден в системном каталоге Windows"
-        )),
+        ShellLaunchStatus::Cancelled => Err(crate::util::i18n_error("backend.autostart.cancelled")),
+        ShellLaunchStatus::AccessDenied => Err(crate::util::i18n_error("backend.autostart.denied")),
+        ShellLaunchStatus::FileNotFound => {
+            Err(crate::util::i18n_error("backend.autostart.noSchtasks"))
+        }
         ShellLaunchStatus::Failed {
             shell_code,
             last_error,
-        } => Err(format!(
-            "{action}: системная ошибка запуска (ShellExecute={shell_code}, Win32={last_error})"
+        } => Err(crate::util::i18n_error_with(
+            "backend.autostart.launchFailed",
+            &[
+                ("shell", &shell_code.to_string()),
+                ("win32", &last_error.to_string()),
+            ],
         )),
     }
 }
@@ -814,7 +822,7 @@ fn remove_legacy_autostart() -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "не удалось снять устаревший автозапуск: {}",
+            "could not remove the outdated autostart: {}",
             errors.join("; ")
         ))
     }
@@ -845,20 +853,20 @@ fn autostart_enable_unlocked() -> Result<(), String> {
         return if ok {
             Ok(())
         } else {
-            Err("schtasks /create вернул ошибку".into())
+            Err(crate::util::i18n_error("backend.autostart.taskFailed"))
         };
     }
-    elevated_task_error("Создание автозапуска", run_schtasks_elevated(&cmdline))?;
+    elevated_task_error(run_schtasks_elevated(&cmdline))?;
     if wait_for_task_state(true) {
         return Ok(());
     }
-    Err("задача автозапуска не появилась за 8,5 секунд".into())
+    Err(crate::util::i18n_error("backend.autostart.timeout"))
 }
 
 pub fn autostart_enable() -> Result<(), String> {
     let _guard = autostart_lock()
         .lock()
-        .map_err(|_| "блокировка автозапуска повреждена".to_string())?;
+        .map_err(|_| "autostart lock is poisoned".to_string())?;
     autostart_enable_unlocked()
 }
 
@@ -882,20 +890,20 @@ fn autostart_disable_unlocked() -> Result<(), String> {
         return if ok {
             Ok(())
         } else {
-            Err("schtasks /delete вернул ошибку".into())
+            Err(crate::util::i18n_error("backend.autostart.taskFailed"))
         };
     }
-    elevated_task_error("Отключение автозапуска", run_schtasks_elevated(&cmdline))?;
+    elevated_task_error(run_schtasks_elevated(&cmdline))?;
     if wait_for_task_state(false) {
         return Ok(());
     }
-    Err("задача автозапуска не удалилась за 8,5 секунд".into())
+    Err(crate::util::i18n_error("backend.autostart.timeout"))
 }
 
 pub fn autostart_disable() -> Result<(), String> {
     let _guard = autostart_lock()
         .lock()
-        .map_err(|_| "блокировка автозапуска повреждена".to_string())?;
+        .map_err(|_| "autostart lock is poisoned".to_string())?;
     autostart_disable_unlocked()
 }
 
