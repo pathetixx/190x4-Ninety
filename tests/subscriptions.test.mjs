@@ -31,6 +31,7 @@ globalThis.window = {
 };
 
 const {
+  addSubscriptionFromUrl,
   assignStableNodeIds,
   detectAddInput,
   mergeSubscriptionRefresh,
@@ -180,4 +181,15 @@ test("первый refresh legacy-подписки переносит сохра
   const newTag = nodeTag(0, refreshed.profiles[0]);
   assert.notEqual(newTag, oldTag);
   assert.equal(getRememberedProxySelection(source), newTag);
+});
+
+test("ошибка загрузки подписки из бэкенда показывается на языке интерфейса", async () => {
+  globalThis.localStorage = makeStorage();
+  invokeHandler = async () => {
+    throw { key: "subs.err.tooLarge", vars: { mb: "16" } };
+  };
+  await assert.rejects(
+    addSubscriptionFromUrl("https://sub.example/list"),
+    { message: "The subscription is larger than 16 MB — this is not a server list" },
+  );
 });

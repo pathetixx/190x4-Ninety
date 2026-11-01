@@ -67,3 +67,13 @@ test("каждый запрошенный кодом ключ есть в кат
     assert.deepEqual(missing, [], `в каталоге ${lang} нет ключей: ${missing.join(", ")}`);
   }
 });
+
+test("каждый ключ ошибки подписки из бэкенда есть в каталоге", () => {
+  const source = readFileSync("src-tauri/src/subscription.rs", "utf8");
+  const keys = [...new Set(source.match(/subs\.err\.\w+/g))];
+  assert.ok(keys.length > 20, `ключей найдено подозрительно мало: ${keys.length}`);
+  for (const [lang, known] of Object.entries(catalogues)) {
+    const missing = keys.filter((key) => !known.has(key));
+    assert.deepEqual(missing, [], `в каталоге ${lang} нет ключей: ${missing.join(", ")}`);
+  }
+});
