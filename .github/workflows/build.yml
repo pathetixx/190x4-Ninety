@@ -110,17 +110,20 @@ jobs:
           # приходит в бинарь через tailscale (with_tailscale) и виден аудиту.
           # GO-2026-6354/6355: обработчик канала x/crypto/ssh уходит в дедлок на
           # запросе от пира — DoS сервера. 0.56.0 — первая версия с обоими
-          # фиксами. Тот же go get стоит в security.yml.
-          go get golang.org/x/crypto@v0.56.0
+          # фиксами; 0.58.0 — та, что требует x/net ниже. Тот же go get стоит в
+          # security.yml.
+          go get golang.org/x/crypto@v0.58.0
           # GO-2026-6348 (OOM на фрагментированных DATA-кадрах HTTP/2) и GO-2026-6443
           # (паника сервера без :authority/Host) в транспорте grpc-go; with_grpc
           # тянет их в бинарь. 1.83.2 — первая версия с обоими фиксами (заодно
           # закрывает GO-2026-6441). Тот же go get стоит в security.yml.
           go get google.golang.org/grpc@v1.83.2
           # GO-2026-6603/6610/6611/6612/6617: HTTP/2 в x/net (тот же код, что и в
-          # net/http Go 1.27.1 — его закрывает пин Go выше). 0.60.0 —
-          # первая версия с фиксами. Тот же go get стоит в security.yml.
-          go get golang.org/x/net@v0.60.0
+          # net/http Go 1.27.1 — его закрывает пин Go выше).
+          # GO-2026-6860/6866: квадратичная сложность и обход экранирования в
+          # x/net/html. 0.62.0 — первая версия со всеми фиксами. Тот же go get
+          # стоит в security.yml.
+          go get golang.org/x/net@v0.62.0
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -tags "$BUILD_TAGS" \
@@ -160,7 +163,7 @@ jobs:
           # стоит в security.yml.
           go get google.golang.org/grpc@v1.83.2
           # Те же уязвимости HTTP/2 в x/net, что и у sing-box выше.
-          go get golang.org/x/net@v0.60.0
+          go get golang.org/x/net@v0.62.0
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -ldflags "-s -w -buildid=" -o xray.exe ./main; then
