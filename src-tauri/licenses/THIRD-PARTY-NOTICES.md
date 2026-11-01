@@ -59,7 +59,7 @@ Local SOCKS bridge for `naive+https://` nodes.
 
 | | |
 | --- | --- |
-| Version | `v154.0.8037.49-4` |
+| Version | `v154.0.8037.49-5` |
 | Source | <https://github.com/klzgrad/naiveproxy> |
 | License | BSD 3-Clause (Chromium) |
 | Text | [`naiveproxy.txt`](./naiveproxy.txt) |
