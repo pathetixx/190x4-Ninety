@@ -2787,7 +2787,7 @@ fn sanitize_hosts_body(body: &str) -> Result<String, String> {
         for domain in &domains {
             if !valid_hosts_domain(domain) {
                 return Err(format!(
-                    "hosts: line {} has an invalid name "{domain}"",
+                    "hosts: line {} has an invalid name \"{domain}\"",
                     index + 1
                 ));
             }
