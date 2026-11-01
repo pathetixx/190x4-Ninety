@@ -102,8 +102,23 @@ fn elevated_relaunch_args(autostarted: bool, connect: bool, parent_pid: u32) -> 
     extra
 }
 
-fn relaunch_self_elevated(autostarted: bool, connect: bool) -> Result<bool, String> {
-    let extra = elevated_relaunch_args(autostarted, connect, std::process::id());
+/// ShellExecute принимает одну строку параметров, а кавычка в ней — граница
+/// аргумента. Ссылка приходит извне и такой кавычкой дописала бы свои флаги
+/// процессу с правами администратора, поэтому подобную ссылку не передаём.
+fn safe_relaunch_link(url: &str) -> bool {
+    url.len() <= 2048
+        && !url.contains('"')
+        && !url.ends_with('\\')
+        && !url.chars().any(char::is_control)
+}
+
+fn relaunch_self_elevated(
+    autostarted: bool,
+    connect: bool,
+    links: &[String],
+) -> Result<bool, String> {
+    let mut extra = elevated_relaunch_args(autostarted, connect, std::process::id());
+    extra.extend(links.iter().filter(|url| safe_relaunch_link(url)).cloned());
     let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
     elevation::relaunch_self_elevated(&extra)
 }
@@ -176,7 +191,7 @@ fn is_elevated() -> bool {
 #[tauri::command]
 fn relaunch_elevated(app: tauri::AppHandle, connect: Option<bool>) -> Result<bool, String> {
     let autostarted = std::env::args().any(|a| a == "--autostarted");
-    let started = relaunch_self_elevated(autostarted, connect.unwrap_or(false))?;
+    let started = relaunch_self_elevated(autostarted, connect.unwrap_or(false), &[])?;
     if started {
         // Элевированный инстанс уже создан (юзер согласился в UAC). Текущий
         // (не-admin) процесс надо НЕМЕДЛЕННО убить, чтобы освободить лок
@@ -1123,7 +1138,9 @@ pub fn run() {
                         // Ручной запуск остаётся ручным: «всегда от
                         // администратора» не означает «подключаться при старте».
                         let connect = argv.iter().any(|a| a == "--connect");
-                        if relaunch_self_elevated(autostarted, connect).unwrap_or(false) {
+                        // Ссылка, с которой открыли приложение, иначе теряется.
+                        let links = url_handler::extract_deep_link_urls(argv.iter());
+                        if relaunch_self_elevated(autostarted, connect, &links).unwrap_or(false) {
                             // Освобождаем лок single-instance немедленно (ядро
                             // ещё не поднято на этом этапе — чистить нечего).
                             std::process::exit(0);
@@ -1131,6 +1148,9 @@ pub fn run() {
                     }
                 }
             }
+
+            #[cfg(target_os = "windows")]
+            elevation::allow_second_instance_messages(&app.config().identifier);
 
             // Сэмплер давления хоста поднимаем сразу и на всё время жизни
             // процесса: ему нужна предыдущая выборка CPU-счётчиков, чтобы

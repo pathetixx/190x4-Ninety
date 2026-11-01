@@ -1677,13 +1677,23 @@ fn user_list_name(kind: &str) -> &'static str {
     }
 }
 
+// Отсутствие файла — пустой список, а ошибка чтения — нет: файл бывает занят или
+// не в UTF-8, и пустота привела бы к перезаписи настоящего содержимого.
+fn read_list_text(path: &Path) -> Result<String, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(format!("could not read {}: {e}", path.display())),
+    }
+}
+
 /// Прочитать пользовательский список доменов (для редактора в UI).
 /// kind: "user" (домены обхода) | "exclude" (исключения).
 #[tauri::command]
 pub fn dpi_read_list(app: AppHandle, kind: String) -> Result<String, String> {
     let lists = ensure_lists(&app)?;
     let p = lists.join(user_list_name(&kind));
-    Ok(std::fs::read_to_string(&p).unwrap_or_default())
+    read_list_text(&p)
 }
 
 /// Сохранить пользовательский список доменов из редактора. Нормализует:
@@ -2977,7 +2987,7 @@ fn count_ipset_lines(txt: &str) -> usize {
 #[tauri::command]
 pub fn dpi_auto_domains(app: AppHandle) -> Result<Vec<String>, String> {
     let lists = ensure_lists(&app)?;
-    let txt = std::fs::read_to_string(lists.join(AUTO_HOSTLIST_FILE)).unwrap_or_default();
+    let txt = read_list_text(&lists.join(AUTO_HOSTLIST_FILE))?;
     Ok(auto_domains_from(&txt))
 }
 
@@ -2994,7 +3004,7 @@ pub async fn dpi_auto_forget(
     let _data = state.data.lock().await;
     let lists = ensure_lists(&app)?;
     let path = lists.join(AUTO_HOSTLIST_FILE);
-    let txt = std::fs::read_to_string(&path).unwrap_or_default();
+    let txt = read_list_text(&path)?;
     let target = domain.trim();
     if target.is_empty() {
         return Err("empty domain".into());

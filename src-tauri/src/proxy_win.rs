@@ -13,7 +13,9 @@ use windows::Win32::Networking::WinInet::{
 use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNORMAL};
+use windows::Win32::UI::WindowsAndMessaging::{
+    ChangeWindowMessageFilterEx, FindWindowW, MSGFLT_ALLOW, SW_HIDE, SW_SHOWNORMAL, WM_COPYDATA,
+};
 use winreg::enums::*;
 use winreg::RegKey;
 
@@ -678,16 +680,152 @@ fn autostart_uses_highest_run_level(exe: &Path, roots: &[PathBuf]) -> bool {
     })
 }
 
-// Хвост команды создания задачи. /tr с кавычками внутри (путь exe может
-// содержать пробелы) экранируется как \" — это документированный способ
-// schtasks. Триггер onlogon; RunLevel=highest — только для системного каталога.
-fn create_task_cmdline(exe: &str, highest: bool) -> String {
+// Хвост команды создания задачи. Параметры лежат в XML: аргументами schtasks нельзя
+// снять запрет на батарею и лимит в 72 часа, из-за которых Планировщик не запускал
+// Ninety на ноутбуке и завершал её без очистки системного прокси.
+fn create_task_cmdline(xml_path: &str) -> String {
     format!(
-        r#"/create /tn {} /tr "\"{}\" --autostarted --elevated" /sc onlogon{} /f"#,
+        r#"/create /tn {} /xml "{}" /f"#,
         schtasks_name_arg(task_name()),
-        exe,
-        if highest { " /rl highest" } else { "" }
+        xml_path
     )
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+// Триггер — вход этого пользователя; RunLevel=highest — только для системного каталога.
+fn autostart_task_xml(exe: &str, highest: bool, user: &str) -> String {
+    let exe = xml_escape(exe);
+    let user = xml_escape(user);
+    let run_level = if highest {
+        "HighestAvailable"
+    } else {
+        "LeastPrivilege"
+    };
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{user}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{user}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>{run_level}</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{exe}</Command>
+      <Arguments>--autostarted --elevated</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"#
+    )
+}
+
+// Файл с описанием задачи. Файл открыт без разрешения на запись и удаление, пока
+// живёт значение: иначе другой процесс пользователя мог бы подменить его между
+// записью и чтением в schtasks, который после UAC работает с правами администратора.
+struct AutostartTaskFile {
+    path: PathBuf,
+    lock: Option<std::fs::File>,
+}
+
+impl AutostartTaskFile {
+    fn create(xml: &str) -> Result<Self, String> {
+        use std::io::{Read, Write};
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows::Win32::Storage::FileSystem::FILE_SHARE_READ;
+
+        let mut bytes = vec![0xFF, 0xFE];
+        bytes.extend(xml.encode_utf16().flat_map(u16::to_le_bytes));
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let path = std::env::temp_dir().join(format!(
+            "ninety-autostart-{}-{nonce:x}.xml",
+            std::process::id()
+        ));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .and_then(|mut file| file.write_all(&bytes))
+            .map_err(|e| format!("autostart task file: {e}"))?;
+        let mut file = Self { path, lock: None };
+        let mut lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ.0)
+            .open(&file.path)
+            .map_err(|e| format!("autostart task file: {e}"))?;
+        let mut stored = Vec::new();
+        lock.read_to_end(&mut stored)
+            .map_err(|e| format!("autostart task file: {e}"))?;
+        file.lock = Some(lock);
+        if stored != bytes {
+            return Err("autostart task file was changed".into());
+        }
+        Ok(file)
+    }
+}
+
+impl Drop for AutostartTaskFile {
+    fn drop(&mut self) {
+        self.lock.take();
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn autostart_task_user() -> Result<String, String> {
+    let user = std::env::var("USERNAME").unwrap_or_default();
+    if user.is_empty() {
+        return Err(crate::util::i18n_error("backend.autostart.taskFailed"));
+    }
+    Ok(match std::env::var("USERDOMAIN") {
+        Ok(domain) if !domain.is_empty() => format!("{domain}\\{user}"),
+        _ => user,
+    })
+}
+
+// Обычный процесс не может передать аргументы окну процесса с правами
+// администратора: UIPI отбрасывает WM_COPYDATA, и второй запуск со ссылкой
+// завершается без следа. Разрешаем это сообщение только окну single-instance.
+// Имена окна и класса — из tauri-plugin-single-instance.
+pub fn allow_second_instance_messages(identifier: &str) {
+    if !is_elevated() {
+        return;
+    }
+    let class = to_wide(&format!("{identifier}-sic"));
+    let window = to_wide(&format!("{identifier}-siw"));
+    unsafe {
+        let Ok(hwnd) = FindWindowW(PCWSTR(class.as_ptr()), PCWSTR(window.as_ptr())) else {
+            eprintln!("single-instance window not found");
+            return;
+        };
+        if let Err(e) = ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_ALLOW, None) {
+            eprintln!("single-instance message filter: {e}");
+        }
+    }
 }
 
 fn task_name() -> &'static str {
@@ -842,7 +980,11 @@ pub fn autostart_is_enabled() -> bool {
 fn autostart_enable_unlocked() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let highest = autostart_uses_highest_run_level(&exe, &program_files_roots());
-    let cmdline = create_task_cmdline(&exe.to_string_lossy(), highest);
+    let xml = autostart_task_xml(&exe.to_string_lossy(), highest, &autostart_task_user()?);
+    // Файл нужен до конца функции: schtasks с UAC читает его уже после возврата
+    // из ShellExecute.
+    let task_file = AutostartTaskFile::create(&xml)?;
+    let cmdline = create_task_cmdline(&task_file.path.to_string_lossy());
     if is_elevated() {
         let ok = Command::new(schtasks_exe())
             .raw_arg(&cmdline)
@@ -1138,11 +1280,30 @@ mod tests {
     }
 
     #[test]
-    fn schtasks_command_quotes_spaces_and_unicode() {
-        let cmd = create_task_cmdline(r"C:\Program Files\Найнти\Ninety.exe", true);
+    fn schtasks_command_quotes_xml_path_with_spaces_and_unicode() {
+        let cmd = create_task_cmdline(r"C:\Users\Дима Ш\AppData\Local\Temp\task.xml");
         assert_eq!(
             cmd,
-            r#"/create /tn Ninety /tr "\"C:\Program Files\Найнти\Ninety.exe\" --autostarted --elevated" /sc onlogon /rl highest /f"#
+            r#"/create /tn Ninety /xml "C:\Users\Дима Ш\AppData\Local\Temp\task.xml" /f"#
+        );
+    }
+
+    #[test]
+    fn autostart_task_survives_battery_and_long_uptime() {
+        let xml = autostart_task_xml(r"C:\Program Files\Ninety\Ninety.exe", true, r"PC\Дима");
+        assert!(xml.contains("<DisallowStartIfOnBatteries>false<"), "{xml}");
+        assert!(xml.contains("<StopIfGoingOnBatteries>false<"), "{xml}");
+        assert!(xml.contains("<ExecutionTimeLimit>PT0S<"), "{xml}");
+        assert!(xml.contains("<RunLevel>HighestAvailable<"), "{xml}");
+        assert!(xml.contains(r"<UserId>PC\Дима</UserId>"), "{xml}");
+    }
+
+    #[test]
+    fn autostart_task_escapes_xml_in_paths() {
+        let xml = autostart_task_xml(r"D:\R&D <1>\Ninety.exe", false, "user");
+        assert!(
+            xml.contains(r"<Command>D:\R&amp;D &lt;1&gt;\Ninety.exe</Command>"),
+            "{xml}"
         );
     }
 
@@ -1203,10 +1364,9 @@ mod tests {
     }
 
     #[test]
-    fn portable_autostart_command_has_no_highest_run_level() {
-        let cmd = create_task_cmdline(r"D:\Ninety\Ninety.exe", false);
-        assert!(!cmd.contains("/rl highest"), "{cmd}");
-        assert!(cmd.contains("/sc onlogon /f"), "{cmd}");
+    fn portable_autostart_task_has_no_highest_run_level() {
+        let xml = autostart_task_xml(r"D:\Ninety\Ninety.exe", false, "user");
+        assert!(xml.contains("<RunLevel>LeastPrivilege<"), "{xml}");
     }
 
     #[test]

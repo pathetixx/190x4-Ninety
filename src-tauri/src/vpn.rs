@@ -1485,6 +1485,11 @@ fn runtime_endpoints_from_value(value: &serde_json::Value) -> Result<RuntimeEndp
     })
 }
 
+// Диапазон plan_bridge_ports. Другие порты на 127.0.0.1 принадлежат чужому
+// локальному прокси пользователя: ждать их освобождения после остановки нельзя,
+// иначе отключение навсегда застревает в pending_cleanup.
+const BRIDGE_PORTS: std::ops::RangeInclusive<u16> = 31_100..=34_000;
+
 fn runtime_ports_from_value(
     value: &serde_json::Value,
     endpoints: &RuntimeEndpoints,
@@ -1509,6 +1514,7 @@ fn runtime_ports_from_value(
                     .get("server_port")
                     .and_then(|v| v.as_u64())
                     .and_then(|p| u16::try_from(p).ok())
+                    .filter(|p| BRIDGE_PORTS.contains(p))
                 {
                     ports.push(port);
                 }
@@ -4308,6 +4314,7 @@ mod tests {
           "inbounds":[{"listen_port":7899}],
           "outbounds":[
             {"server":"127.0.0.1","server_port":31100},
+            {"server":"127.0.0.1","server_port":1080},
             {"server":"vpn.example","server_port":443}
           ]
         }"#;
