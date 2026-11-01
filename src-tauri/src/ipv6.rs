@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn probe_always_answers() {
         let result = super::windows_impl::probe();
-        assert!(result.is_ok(), "проба вернула ошибку: {result:?}");
+        assert!(result.is_ok(), "probe returned an error: {result:?}");
         println!("system_ipv6_available -> {:?}", result.unwrap());
     }
 }
