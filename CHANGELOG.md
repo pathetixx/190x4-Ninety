@@ -6,6 +6,48 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.12.2 — 2026-11-01
+
+## English
+
+- Autostart now works on battery power, and Windows no longer closes Ninety when the charger is unplugged or after three days of running.
+- One server with invalid settings no longer stops a whole subscription from connecting.
+- Automatic connection recovery now also starts when the connection becomes very slow.
+- Opening a VPN link now brings up Ninety and offers the import even when it runs as administrator.
+- Links opened from a browser keep their security settings and subscription token.
+- Disconnecting no longer gets stuck when a server uses another local proxy.
+- Deleting the active server no longer makes the VPN reconnect on its own later.
+- Declining the administrator prompt at startup no longer turns off TUN mode permanently.
+- Subscriptions are no longer requested from your real IP address while the VPN is reconnecting if direct updates are turned off.
+- A comment in a TrustTunnel config can no longer turn off certificate verification.
+- Exported configs no longer open a passwordless entry to your local network.
+- A profile storage failure no longer overwrites your backup, and a list read error no longer erases your bypass lists.
+- New subscriptions now follow the update interval set by the provider.
+- Bypass lists now download through the VPN in TUN mode.
+- The false “all DNS servers are down” warning no longer appears during reconnects with the Kill Switch on.
+- WARP servers are now correctly excluded from bypass processing.
+- Error messages from the app and subscription downloads now appear in your interface language.
+
+## Русский
+
+- Автозапуск теперь работает от батареи, а Windows больше не закрывает Ninety при отключении зарядки или после трёх дней работы.
+- Один сервер с неверными настройками больше не мешает подключиться ко всей подписке.
+- Автоматическое восстановление соединения теперь запускается и при сильном замедлении.
+- Открытие VPN-ссылки теперь показывает Ninety и предлагает импорт, даже когда приложение запущено от администратора.
+- Ссылки из браузера сохраняют настройки защиты и токен подписки.
+- Отключение больше не зависает, когда сервер использует другой локальный прокси.
+- После удаления активного сервера VPN больше не подключается сам.
+- Отказ от запроса прав администратора при запуске больше не отключает режим TUN навсегда.
+- Если прямое обновление выключено, подписки больше не запрашиваются с реального IP-адреса во время переподключения VPN.
+- Комментарий в конфиге TrustTunnel больше не может отключить проверку сертификата.
+- Экспортированные конфиги больше не открывают вход в локальную сеть без пароля.
+- Сбой хранилища профилей больше не затирает резервную копию, а ошибка чтения больше не стирает списки обхода.
+- Новые подписки теперь используют интервал обновления, заданный провайдером.
+- Списки обхода в режиме TUN теперь загружаются через VPN.
+- Ложное предупреждение «все DNS-серверы недоступны» больше не появляется при переподключении с включённым Kill Switch.
+- Серверы WARP теперь правильно исключаются из обработки обходом.
+- Ошибки приложения и загрузки подписок теперь показываются на языке интерфейса.
+
 ## v0.12.1 — 2026-10-21
 
 ## English
