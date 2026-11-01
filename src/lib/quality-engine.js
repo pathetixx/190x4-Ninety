@@ -169,9 +169,13 @@ export function createQualityEngine({
     if (r.stalled) return "STALLED";
     // Проба не дотянулась (оба endpoint'а легли) — НЕ караем путь: это может быть
     // недоступность самих пробников, а не троттл. UNKNOWN = не действуем.
-    if (!r.ok && r.error) return "UNKNOWN";
+    // Исключение — недокачанная выборка: байты шли, но бюджет кончился раньше.
+    // Это и есть узкий канал, ради которого лесенка существует. Высокая скорость
+    // при неполной выборке значит лишь обрыв потока и успехом не считается.
+    const undersized = !r.ok && /^incomplete sample/.test(String(r.error || "")) && Number(r.bytes) > 0;
+    if (!r.ok && r.error && !undersized) return "UNKNOWN";
     const bps = Number(r.goodput_bps) || 0;
-    if (bps >= cfg.goodBps) return "GOOD";
+    if (bps >= cfg.goodBps) return undersized ? "UNKNOWN" : "GOOD";
     if (bps >= SLOW_FLOOR_BPS) return "SLOW";
     return "STALLED";
   }

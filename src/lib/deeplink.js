@@ -41,6 +41,10 @@ export function safeAtobUrl(s) {
   } catch { return ""; }
 }
 
+function validDeepLinkName(n) {
+  return !!n && n.length <= MAX_DEEPLINK_NAME_LENGTH && !hasControlChars(n);
+}
+
 export function parseDeepLink(rawUrl) {
   const raw = String(rawUrl || "").trim();
   if (!raw || raw.length > MAX_DEEPLINK_LENGTH || raw.includes("\0")) return null;
@@ -52,8 +56,14 @@ export function parseDeepLink(rawUrl) {
     if (TOP_LEVEL_PROTOS.includes(proto)) {
       if (proto === "sub") {
         // sub://<base64-url> → раскрываем и шлём как подписку
-        const decoded = safeAtobUrl(raw.slice(protoIdx + 3));
-        if (decoded) return { url: decoded, name: "" };
+        // Хвост #Имя и ?query в base64 не входят: на них atob падал целиком.
+        const [, body, hash = ""] = raw.slice(protoIdx + 3).match(/^([^?#]*)(?:\?[^#]*)?(?:#(.*))?$/s);
+        const decoded = safeAtobUrl(body);
+        if (decoded) {
+          let subName = hash;
+          try { subName = decodeURIComponent(hash); } catch {}
+          return { url: decoded, name: validDeepLinkName(subName) ? subName : "" };
+        }
       }
       return { url: raw, name: "" };
     }
@@ -75,13 +85,28 @@ export function parseDeepLink(rawUrl) {
   let name = "";
   let queryUrl = "";
   const qIdx = rest.indexOf("?");
-  if (qIdx >= 0) {
+  // Незакодированный payload со своей схемой: его query — часть самой ссылки
+  // (токен подписки, security и pbk у vless). Срезать её нельзя: нода тихо
+  // импортировалась бы без TLS. Забираем только наш name, остальное не трогаем.
+  const ownScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(rest);
+  if (ownScheme && qIdx >= 0) {
+    const hashIdx = rest.indexOf("#", qIdx);
+    const query = rest.slice(qIdx + 1, hashIdx >= 0 ? hashIdx : undefined);
+    const fragment = hashIdx >= 0 ? rest.slice(hashIdx) : "";
+    const kept = [];
+    for (const part of query.split("&")) {
+      if (!part.startsWith("name=")) { kept.push(part); continue; }
+      const n = new URLSearchParams(part).get("name");
+      if (validDeepLinkName(n)) name = n;
+    }
+    rest = rest.slice(0, qIdx) + (kept.length ? `?${kept.join("&")}` : "") + fragment;
+  } else if (qIdx >= 0) {
     const tail = rest.slice(qIdx + 1);
     rest = rest.slice(0, qIdx);
     try {
       const params = new URLSearchParams(tail);
       const n = params.get("name");
-      if (n && n.length <= MAX_DEEPLINK_NAME_LENGTH && !hasControlChars(n)) name = n;
+      if (validDeepLinkName(n)) name = n;
       const u = params.get("url");
       if (u) queryUrl = u;
     } catch {}
@@ -92,7 +117,9 @@ export function parseDeepLink(rawUrl) {
   // Сохраняем legacy-поведение для add/import с обычным сырым payload, но
   // контролируем результат ниже: control chars и oversized payload всё равно
   // отклоняются.
-  try { rest = decodeURIComponent(rest); } catch {}
+  if (!ownScheme) {
+    try { rest = decodeURIComponent(rest); } catch {}
+  }
 
   if (!rest || rest.length > MAX_DEEPLINK_PAYLOAD_LENGTH || hasControlChars(rest)) {
     return null;

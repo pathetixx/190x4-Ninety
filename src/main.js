@@ -8,6 +8,7 @@ import {
   removeAllProfiles,
   getMode,
   setMode,
+  setSessionMode,
   getActiveKind,
   setActiveKind,
   getActiveSource,
@@ -27,6 +28,7 @@ import {
   formatBytes as fmtTraffic,
   relativeTime,
   setSubscriptionProxy,
+  setSubscriptionTunnelTransit,
 } from "/lib/subscriptions.js";
 import { loadOptions, getOptionsSnapshot, saveOptions, takeLegacyLanCredentials, updateOption } from "/lib/options.js";
 import { backupForUpdate, backupNow, backupSoon, restoreIfEmpty } from "/lib/state-backup.js";
@@ -973,6 +975,7 @@ if (settingsRoot) {
       if (state === "idle") updateHeroHint();
     },
     onSensitiveDataClear: async () => {
+      beginNetworkIntent("idle");
       connectAttempts.cancel(); // отменить возможный start_singbox в полёте
       if (!(await shutdownCore())) {
         throw new Error("очистка VPN не подтверждена; данные не удалены");
@@ -1225,10 +1228,8 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
     const nativeStartWasPending = coreStartBarrier.isPending();
     if (!(await shutdownCore({ preserveKillSwitch: preserveGuard, operationToken }))) {
       if (preserveGuard && isCurrentNetworkIntent(epoch, "connected")) {
-        pendingReconnectTimer = setTimeout(
-          () => performAutoReconnect(reason, epoch, operationToken),
-          5000,
-        );
+        // Токен этой операции освобождает finally ниже: повтор получит свой.
+        pendingReconnectTimer = setTimeout(() => performAutoReconnect(reason, epoch), 5000);
       }
       return false;
     }
@@ -1241,10 +1242,7 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
       if (!isCurrentNetworkIntent(epoch, "connected")) return false;
       if (!(await shutdownCore({ preserveKillSwitch: preserveGuard, operationToken }))) {
         if (preserveGuard && isCurrentNetworkIntent(epoch, "connected")) {
-          pendingReconnectTimer = setTimeout(
-            () => performAutoReconnect(reason, epoch, operationToken),
-            5000,
-          );
+          pendingReconnectTimer = setTimeout(() => performAutoReconnect(reason, epoch), 5000);
         }
         return false;
       }
@@ -2007,6 +2005,9 @@ async function deleteSource(kind, id) {
   const { active: isActive, fallback } = plan;
 
   if (plan.mustStopBeforeDelete) {
+    // Намерение гасим до остановки: иначе следующий выбор источника сам поднял бы
+    // туннель, хотя на экране VPN выключен.
+    beginNetworkIntent("idle");
     connectAttempts.cancel();
     const stopped = await shutdownCore();
     if (!stopped) return false;
@@ -2068,6 +2069,7 @@ async function deleteAllProfiles() {
   const wasActiveProfile = getActiveKind() !== "sub" && !!getActiveProfileId();
   const fallbackSub = loadSubscriptions()[0] || null;
   if (wasActiveProfile && !fallbackSub && (state === "connected" || state === "connecting")) {
+    beginNetworkIntent("idle");
     connectAttempts.cancel();
     if (!(await shutdownCore())) return false;
   }
@@ -3443,7 +3445,9 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       // если он мёртв (Google/Cloudflare DoH в РФ), старт падает с невнятным
       // «i/o timeout». Пробуем и при отказе переключаем на резерв ДО buildConfig,
       // чтобы конфиг собрался уже с рабочим резолвером. Только пока юзер не ушёл.
-      if (!strictPrivacy) {
+      // Транзитный барьер Kill Switch не выпускает сам Ninety.exe: проба увидела бы
+      // все резолверы мёртвыми и включила бы ложную тревогу с паузой сторожа.
+      if (!strictPrivacy && !killSwitchMustSurviveRuntimeStop()) {
         await ensureWorkingDirectDns({
           toast,
           onlyIf: () => state === "connecting" && connectAttempts.isCurrent(attemptEpoch),
@@ -3981,6 +3985,8 @@ setSubscriptionProxy(() =>
     : null
 );
 
+setSubscriptionTunnelTransit(() => state === "connecting" || state === "disconnecting");
+
 // ── Бэкап состояния (localStorage → writable config dir) ────
 // Мутации бэкапятся точечно (backupSoon в refreshProfilesSummary/settings);
 // периодический тик подстраховывает ключи, меняющиеся мимо этих точек
@@ -4092,8 +4098,9 @@ async function autostartNetworkRuntime() {
       // быть настоящим: раньше режим оставался tun, sing-box без прав интерфейс
       // не поднимал, и автозапуск заканчивался вторым запросом UAC или молчаливым
       // «не подключается». Опускаемся до режима, который работает без прав.
+      // Только на эту сессию: отказ относился к одному запуску, а не к выбору TUN.
       if (tunWanted && getMode() === "tun") {
-        setMode("systemProxy");
+        setSessionMode("systemProxy");
         console.warn("elevation refused: autostart falls back to system proxy");
         toast(t("elev.tunCancelled"), "warn", 6000, { group: "conn" });
       }
@@ -4566,6 +4573,8 @@ window.__ninetyUpdateCheck = async () => {
 // по-прежнему обновляет немедленно. Ошибки не показываем — фоновая задача.
 const SUBS_REFRESH_DEFAULT_HOURS = 6;
 async function silentRefreshSubs() {
+  // В строгом режиме фоновый запрос без туннеля раскрыл бы реальный IP панели.
+  if (loadOptions().privacy?.strictTunnel && state !== "connected") return;
   const now = Date.now();
   let refreshed = 0;
   for (const s of loadSubscriptions()) {

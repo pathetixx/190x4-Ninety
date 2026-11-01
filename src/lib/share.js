@@ -1,6 +1,6 @@
 // Ninety · «Поделиться» — копирование URL, экспорт sing-box JSON, QR-код.
 
-import { buildConfig, getMode, profileProto, wireguardConfText } from "/lib/singbox.js";
+import { buildConfig, getMode, lanInboundPolicy, profileProto, wireguardConfText } from "/lib/singbox.js";
 import { loadOptions } from "/lib/options.js";
 import qrcode from "/vendor/qrcode.mjs";
 import { t, tn } from "/lib/i18n/index.js";
@@ -127,10 +127,15 @@ export async function exportSingboxJson(source, toast) {
       toast?.(t("share.exportNoNodes"), "error", 2500);
       return;
     }
+    // Пару логин-пароль в LAN-вход подставляет только бэкенд при запуске. В файле
+    // такой вход остался бы открытым для всей сети, поэтому в экспорт он не идёт.
+    const options = loadOptions();
     const { config } = buildConfig({
       source: source.kind === "sub" ? { ...source, nodes: exportable } : source,
       mode: getMode(),
-      options: loadOptions(),
+      options: lanInboundPolicy(options.inbound) === "password"
+        ? { ...options, inbound: { ...options.inbound, allowConnectionFromLan: false } }
+        : options,
     });
     const json = JSON.stringify(config, null, 2);
     await navigator.clipboard.writeText(json);

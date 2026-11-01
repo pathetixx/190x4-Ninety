@@ -164,7 +164,8 @@ export function parseVmess(raw) {
     path: j.path || "",
     host_header: j.host || "",
     serviceName: j.path || "",
-    mode: j.type || "",
+    mode: j.type && j.type !== "none" ? j.type : "",
+    ...(j.extra ? { extra: typeof j.extra === "string" ? j.extra : JSON.stringify(j.extra) } : {}),
     // В vmess-JSON `type` — это заголовок маскировки, а `path` для mKCP несёт
     // seed обфускации: у остальных транспортов оба поля значат другое.
     headerType: j.type || "",
@@ -598,10 +599,38 @@ export function parseTrustTunnelDeepLink(raw) {
 // Мини-парсер endpoint-.toml (плоский: key = value, массивы строк, без секций).
 // Достаточно для конфига, который экспортирует endpoint (см. trusttunnel_nl.toml).
 export function parseTrustTunnelToml(text, displayName) {
-  const src = String(text || "");
+  const lines = String(text || "").split(/\r?\n/);
+  // Комментарий обрезаем только вне кавычек: «skip_verification = false # true»
+  // иначе читалось как true и отключало проверку сертификата.
+  const stripComment = (line) => {
+    let quote = "", esc = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (esc) { esc = false; continue; }
+      if (quote === '"' && ch === "\\") { esc = true; continue; }
+      if (quote) { if (ch === quote) quote = ""; continue; }
+      if (ch === '"' || ch === "'") { quote = ch; continue; }
+      if (ch === "#") return line.slice(0, i).trim();
+    }
+    return line.trim();
+  };
   const get = (key) => {
-    const m = src.match(new RegExp(`^\\s*${key}\\s*=\\s*(.+?)\\s*$`, "m"));
-    return m ? m[1].trim() : undefined;
+    const re = new RegExp(`^\\s*${key}\\s*=\\s*(.+?)\\s*$`);
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(re);
+      if (!m) continue;
+      let value = stripComment(m[1]);
+      // Многострочный массив собираем до закрывающей скобки.
+      if (value.startsWith("[") && !value.includes("]")) {
+        for (let j = i + 1; j < lines.length; j++) {
+          const part = stripComment(lines[j]);
+          value += ` ${part}`;
+          if (part.includes("]")) break;
+        }
+      }
+      return value;
+    }
+    return undefined;
   };
   const unescapeBasic = (s) => s.replace(/\\(["\\btnfrt])/g, (_, c) => ({
     '"': '"', "\\": "\\", b: "\b", t: "\t", n: "\n", f: "\f", r: "\r",
@@ -638,7 +667,7 @@ export function parseTrustTunnelToml(text, displayName) {
     items.push(cur);
     return items.map(s => unq(s.trim())).filter(Boolean);
   };
-  const boolv = (v, d) => (v == null ? d : /true/i.test(v));
+  const boolv = (v, d) => (v == null ? d : /^true$/i.test(unq(v)));
   const hostname = unq(get("hostname"));
   const addresses = arr(get("addresses"));
   const username = unq(get("username"));

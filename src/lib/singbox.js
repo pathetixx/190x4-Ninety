@@ -1378,6 +1378,18 @@ function trustTunnelSidecarConfig(p, port, opts) {
   return lines.join("\n") + "\n";
 }
 
+// Xray завершается на незнакомом отпечатке, а его список уже, чем у sing-box.
+// Отпечаток — лишь маскировка ClientHello: как и для ядра, подменяем на chrome.
+const XRAY_FINGERPRINTS = new Set([
+  "chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq",
+  "random", "randomized", "randomizednoalpn",
+]);
+
+function xrayFingerprint(raw) {
+  const fp = String(raw || "").trim().toLowerCase();
+  return XRAY_FINGERPRINTS.has(fp) ? fp : "chrome";
+}
+
 function nodeToXrayStream(p) {
   // Мост поднимается не только под xhttp: mKCP ядро не умеет вовсе, а xray умеет.
   const network = p.type === "kcp" ? "kcp" : "xhttp";
@@ -1387,13 +1399,13 @@ function nodeToXrayStream(p) {
     ss.security = "reality";
     ss.realitySettings = {
       serverName: p.sni || "",
-      fingerprint: p.fp || "chrome",
-      publicKey: p.pbk || "",
+      fingerprint: xrayFingerprint(p.fp),
+      publicKey: normalizeRealityPublicKey(p.pbk) || p.pbk || "",
       shortId: p.sid || "",
     };
   } else if (sec === "tls") {
     ss.security = "tls";
-    ss.tlsSettings = { serverName: p.sni || "", fingerprint: p.fp || "chrome" };
+    ss.tlsSettings = { serverName: p.sni || "", fingerprint: xrayFingerprint(p.fp) };
     if (p.alpn) ss.tlsSettings.alpn = String(p.alpn).split(",").map(s => s.trim()).filter(Boolean);
   } else {
     ss.security = "none";
@@ -2012,7 +2024,16 @@ export function updateProfile(id, patch) {
 // system proxy). При чтении мигрируем — старые юзеры не теряют поведение.
 const VALID_MODES = new Set(["proxy", "systemProxy", "tun"]);
 
+// Режим только на текущую сессию: отказ от UAC при автозапуске не должен
+// навсегда заменять выбранный пользователем TUN. Сбрасывается через setMode.
+let sessionModeOverride = null;
+
+export function setSessionMode(m) {
+  sessionModeOverride = VALID_MODES.has(m) ? m : null;
+}
+
 export function getMode() {
+  if (sessionModeOverride) return sessionModeOverride;
   const m = localStorage.getItem(MODE_KEY);
   if (m === "tun") return "tun";
   if (m === "systemProxy") return "systemProxy";
@@ -2028,6 +2049,7 @@ export function getMode() {
 }
 
 export function setMode(m) {
+  sessionModeOverride = null;
   const v = VALID_MODES.has(m) ? m : "systemProxy";
   localStorage.setItem(MODE_KEY, v);
   localStorage.setItem(MODE_KEY + ".migrated", "1");

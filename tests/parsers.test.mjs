@@ -498,3 +498,20 @@ test("hysteria2: смена портов из адреса и из mport", () =>
   assert.throws(() => parseHysteria2("hysteria2://pw@h.example:30000-20000#X"));
   assert.throws(() => parseHysteria2("hysteria2://pw@h.example:443?mport=abc#X"));
 });
+
+test("TOML TrustTunnel: комментарий не включает skip_verification, массив многострочный", () => {
+  const p = parseTrustTunnelToml(`
+hostname = "vpn.example.com" # основной
+addresses = [
+  "1.2.3.4:443", # первый
+  "5.6.7.8:443",
+]
+username = "user"
+password = "pa#ss"
+skip_verification = false # true for tests
+`);
+  assert.equal(p.tt?.skipVerification ?? p.skipVerification, false);
+  assert.equal(p.password ?? p.tt?.password, "pa#ss");
+  assert.deepEqual(p.addresses ?? p.tt?.addresses, ["1.2.3.4:443", "5.6.7.8:443"]);
+  assert.equal(p.host ?? p.hostname, "vpn.example.com");
+});

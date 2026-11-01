@@ -52,3 +52,8 @@ test("dpi exclude: битый адрес не уезжает в ip-список"
   assert.deepEqual(await endpointArgsFor("999.1.1.1"), { ip: null, domain: "999.1.1.1" });
   assert.deepEqual(await endpointArgsFor("1.2.3"), { ip: null, domain: "1.2.3" });
 });
+
+test("адрес WARP с портом исключается как IP", async () => {
+  assert.deepEqual(await endpointArgsFor("162.159.192.1:2408"), { ip: "162.159.192.1", domain: null });
+  assert.deepEqual(await endpointArgsFor("engage.cloudflareclient.com:2408"), { ip: null, domain: "engage.cloudflareclient.com" });
+});

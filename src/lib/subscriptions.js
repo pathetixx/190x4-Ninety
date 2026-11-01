@@ -324,12 +324,23 @@ export function findSubscriptionByUrl(url, list = null) {
 // и работает там, где панель заблокирована напрямую). null → напрямую.
 let subProxyProvider = null;
 export function setSubscriptionProxy(fn) { subProxyProvider = fn; }
+let subTunnelInTransit = null;
+// true, пока туннель поднимается или гаснет: прокси ещё нет, но VPN уже включён.
+export function setSubscriptionTunnelTransit(fn) { subTunnelInTransit = fn; }
 
 // HWID уходит только тем подпискам, у которых пользователь его включил:
 // панелям без лимита устройств идентификатор устройства знать незачем.
 async function fetchInfo(url, { hwid = false, scopedHwid = false } = {}) {
   let proxy = null;
   try { proxy = subProxyProvider?.() || null; } catch {}
+  // Без этой проверки запрет прямого пути обходился: адрес с токеном и HWID уходил
+  // с реального IP, если таймер срабатывал во время реконнекта.
+  if (!proxy && subTunnelInTransit?.()) {
+    const options = loadOptions();
+    if (options.privacy?.strictTunnel || !options.general?.allowDirectSubscriptionFallback) {
+      throw new Error(t("subs.proxyFallbackDisabled"));
+    }
+  }
   const headers = hwid ? await hwidHeaders({ scoped: scopedHwid }) : null;
   let info;
   try {

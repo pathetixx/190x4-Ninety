@@ -199,8 +199,10 @@ function vmessLinks(outbound) {
     aid: String(user.alterId ?? 0),
     scy: user.security || "auto",
     net: network === "h2" ? "http" : network,
-    // В формате v2rayN `type` — это заголовок маскировки, а не транспорт.
-    type: flat.headerType || "none",
+    // В формате v2rayN `type` — это заголовок маскировки, а не транспорт. У xhttp
+    // это поле несёт mode: «none» здесь Xray отверг бы как неизвестный режим.
+    type: network === "xhttp" ? (flat.mode || "") : (flat.headerType || "none"),
+    ...(network === "xhttp" && flat.extra ? { extra: flat.extra } : {}),
     host: flat.host || "",
     // Одно поле `path` обслуживает путь у ws/http, имя сервиса у grpc и seed
     // у mKCP — парсер читает его ровно так же.

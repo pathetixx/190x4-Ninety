@@ -101,7 +101,7 @@ test("vmess: ядро знает конечный список шифров", ()
 
 test("shadowsocks: метод обязателен и должен быть из списка ядра", () => {
   const base = { proto: "shadowsocks", host: "a.example", port: 443, password: "p" };
-  assert.equal(nodeConfigIssue({ ...base, method: "2022-blake3-aes-128-gcm" }), null);
+  assert.equal(nodeConfigIssue({ ...base, method: "2022-blake3-aes-128-gcm", password: btoa("k".repeat(16)) }), null);
   assert.deepEqual(nodeConfigIssue({ ...base, method: "" }), { code: "ssMethod" });
   assert.deepEqual(nodeConfigIssue({ ...base, method: "aes-256-gcm-siv" }), { code: "ssMethod" });
 });
@@ -115,7 +115,7 @@ test("hysteria2: obfs только salamander и только с паролем"
 });
 
 test("tuic: неизвестный алгоритм контроля перегрузки отбраковывается", () => {
-  const base = { proto: "tuic", host: "a.example", port: 443, uuid: "u", password: "p" };
+  const base = { proto: "tuic", host: "a.example", port: 443, uuid: "11111111-2222-3333-4444-555555555555", password: "p" };
   assert.equal(nodeConfigIssue({ ...base, congestionControl: "bbr" }), null);
   assert.equal(nodeConfigIssue({ ...base, congestionControl: "" }), null);
   assert.deepEqual(nodeConfigIssue({ ...base, congestionControl: "reno" }), { code: "congestion" });
@@ -182,4 +182,30 @@ test("ноды-заглушки подписки распознаются по �
   assert.deepEqual(withoutPlaceholders([info, real]), [real]);
   // Одни заглушки — это ответ панели (HWID, истёкший тариф): отдаём как есть.
   assert.deepEqual(withoutPlaceholders([hwid]), [hwid]);
+});
+
+test("ноды, на которых ядро падает при инициализации, отсеиваются", () => {
+  const ss = { proto: "shadowsocks", host: "h.example.com", port: 443, method: "aes-256-gcm", password: "p" };
+  assert.deepEqual(nodeConfigIssue({ ...ss, plugin: "cloak" }), { code: "ssPlugin" });
+  assert.equal(nodeConfigIssue({ ...ss, plugin: "v2ray-plugin" }), null);
+
+  const ss2022 = { ...ss, method: "2022-blake3-aes-128-gcm" };
+  assert.deepEqual(nodeConfigIssue({ ...ss2022, password: "plain-password" }), { code: "ssKey" });
+  const key16 = btoa("k".repeat(16));
+  assert.equal(nodeConfigIssue({ ...ss2022, password: key16 }), null);
+  assert.equal(nodeConfigIssue({ ...ss2022, password: `${key16}:${key16}` }), null);
+
+  const tuic = { proto: "tuic", host: "h.example.com", port: 443, password: "p", congestionControl: "bbr" };
+  assert.deepEqual(nodeConfigIssue({ ...tuic, uuid: "not-a-uuid" }), { code: "credentials" });
+  assert.equal(nodeConfigIssue({ ...tuic, uuid: "11111111-2222-3333-4444-555555555555" }), null);
+
+  const hy2 = { proto: "hysteria2", host: "h.example.com", port: 443, password: "p" };
+  assert.deepEqual(nodeConfigIssue({ ...hy2, pinSHA256: "ab".repeat(32) }), { code: "certPin" });
+  assert.equal(nodeConfigIssue({ ...hy2, pinSHA256: btoa("k".repeat(32)) }), null);
+});
+
+test("TCP с HTTP-обфускацией не проходит как обычный TCP", () => {
+  const node = { proto: "vless", host: "h.example.com", port: 443, uuid: "u", type: "tcp", headerType: "http" };
+  assert.deepEqual(nodeConfigIssue(node), { code: "transport" });
+  assert.equal(nodeConfigIssue({ ...node, headerType: "none" }), null);
 });

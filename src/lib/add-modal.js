@@ -203,7 +203,7 @@ function updateAdvancedHint() {
   const name = $("add-modal-name")?.value.trim();
   const hint = $("add-modal-adv-hint");
   if (hint) {
-    hint.textContent = `${name || t("add.hintDefaultName")} · ${hours === 0 ? t("add.hintManual") : t("add.hintEvery", { v: intervalLabel(hours) })}`;
+    hint.textContent = `${name || t("add.hintDefaultName")} · ${hours === 0 ? t("add.intervalAuto") : t("add.hintEvery", { v: intervalLabel(hours) })}`;
   }
   const val = $("add-modal-interval-val");
   if (val) {
@@ -234,6 +234,9 @@ function closeModal() {
   document.removeEventListener("keydown", onKey);
   const u = $("add-modal-url"); if (u) u.value = "";
   const n = $("add-modal-name"); if (n) { n.value = ""; delete n.dataset.touched; }
+  // Интервал одной подписки не должен молча перейти на следующую.
+  const i = $("add-modal-interval"); if (i) i.value = "0";
+  updateAdvancedHint();
 }
 
 function onKey(e) {

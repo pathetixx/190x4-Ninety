@@ -95,6 +95,14 @@ const SHADOWSOCKS_METHODS = new Set([
   "chacha20-ietf", "xchacha20", "rc4-md5",
 ]);
 const TUIC_CONGESTION = new Set(["", "cubic", "new_reno", "bbr"]);
+// transport/sip003: неизвестный плагин — «plugin not found» на инициализации.
+const SHADOWSOCKS_PLUGINS = new Set(["obfs-local", "v2ray-plugin"]);
+// Длина ключа методов 2022 в байтах (sing-shadowsocks2/shadowaead_2022).
+const SHADOWSOCKS_2022_KEY_BYTES = {
+  "2022-blake3-aes-128-gcm": 16,
+  "2022-blake3-aes-256-gcm": 32,
+  "2022-blake3-chacha20-poly1305": 32,
+};
 
 // Транспорты, которые приложение реально умеет провести: часть несёт само ядро
 // (ws/grpc/http/httpupgrade/quic), xhttp и mKCP — локальный xray-мост. Всё
@@ -222,6 +230,28 @@ function validPortRanges(ports) {
   });
 }
 
+// Строгий base64 с паддингом: так ядро декодирует PSK и закреплённый хеш ключа.
+function strictBase64Length(raw) {
+  const s = String(raw || "");
+  if (!s || s.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(s)) return -1;
+  try {
+    return atob(s).length;
+  } catch {
+    return -1;
+  }
+}
+
+// «ipsk:upsk» — несколько ключей через двоеточие, каждый нужной длины.
+function shadowsocks2022KeysValid(password, keyBytes) {
+  return String(password || "").split(":").every((key) => strictBase64Length(key) === keyBytes);
+}
+
+// Ядро принимает формы gofrs/uuid: с дефисами, без них, в скобках и urn:uuid:.
+function uuidValid(raw) {
+  const s = String(raw || "").trim().toLowerCase().replace(/^urn:uuid:/, "").replace(/^\{(.*)\}$/, "$1");
+  return /^[0-9a-f]{32}$/.test(s) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s);
+}
+
 function computeNodeConfigIssue(node) {
   const proto = profileProto(node);
   // Sidecar-протоколы (naive/trusttunnel) в sing-box уходят socks-мостом:
@@ -247,8 +277,21 @@ function computeNodeConfigIssue(node) {
     return { code: "ssMethod" };
   }
 
+  if (proto === "shadowsocks") {
+    if (node.plugin && !SHADOWSOCKS_PLUGINS.has(String(node.plugin))) return { code: "ssPlugin" };
+    const keyBytes = SHADOWSOCKS_2022_KEY_BYTES[String(node.method || "").toLowerCase()];
+    if (keyBytes && !shadowsocks2022KeysValid(node.password, keyBytes)) return { code: "ssKey" };
+  }
+
   if (proto === "hysteria2" && node.ports !== undefined && !validPortRanges(node.ports)) {
     return { code: "endpoint" };
+  }
+
+  // Ядро ждёт base64 SHA-256 публичного ключа (32 байта). Hex-отпечаток сертификата
+  // из оригинального клиента — другая величина: с двоеточиями он роняет конфиг,
+  // а без них не совпадает никогда, и снимать пин ради подключения нельзя.
+  if (proto === "hysteria2" && node.pinSHA256 && strictBase64Length(node.pinSHA256) !== 32) {
+    return { code: "certPin" };
   }
 
   if (proto === "hysteria2" && node.obfs) {
@@ -257,6 +300,8 @@ function computeNodeConfigIssue(node) {
     }
   }
 
+  if (proto === "tuic" && !uuidValid(node.uuid)) return { code: "credentials" };
+
   if (proto === "tuic" && !TUIC_CONGESTION.has(String(node.congestionControl || "").toLowerCase())) {
     return { code: "congestion" };
   }
@@ -264,6 +309,11 @@ function computeNodeConfigIssue(node) {
   if (TRANSPORT_PROTOS.has(proto)) {
     const type = String(node.type || "").toLowerCase();
     if (!TRANSPORT_TYPES.has(type)) return { code: "transport" };
+    // HTTP-обфускацию TCP ядро не реализует: нода собралась бы обычным TCP,
+    // ядро стартовало бы, а сервер молча не отвечал.
+    if ((type === "tcp" || type === "raw") && String(node.headerType || "").toLowerCase() === "http") {
+      return { code: "transport" };
+    }
     // Ядро поднимает «сырой» QUIC; дополнительное шифрование транспорта из Xray
     // оно не реализует, и такая нода не встанет в любом случае.
     if (type === "quic") {

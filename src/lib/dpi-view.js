@@ -869,13 +869,12 @@ async function clearAutoDomains() {
   S.auto.busy = false; renderBody();
 }
 
-// Порт для загрузки списков (hosts/ipset): mixed-inbound (трафик через обход),
-// если VPN активен в proxy/systemProxy; 0 = прямой запрос (TUN — трафик и так в
-// туннеле, либо VPN выключен). Прямой запрос к github raw из РФ режется ТСПУ,
-// поэтому при активном обходе тянем через прокси; Rust сам падает на direct, если
-// прокси молчит.
+// Порт для загрузки списков (hosts/ipset): вход живого runtime — mixed-in, а в TUN
+// probe-in на том же порту; сам Ninety.exe в TUN идёт напрямую по bypass-правилу.
+// 0 = прямой запрос, когда VPN выключен. Прямой запрос к github raw из РФ режется
+// ТСПУ, поэтому при активном обходе тянем через прокси; Rust сам падает на direct,
+// если прокси молчит.
 async function listFetchPort() {
-  if (S.vpnMode === "tun") return 0;
   // Порт берём у ЖИВОГО runtime, а не из настроек: `inbound.mixedPort` меняют
   // без реконнекта, и тогда запрос уходил в порт, которого ядро не слушает —
   // оставался только прямой путь, ровно тот, который и режут.
@@ -1123,8 +1122,15 @@ function editorMeta(kind) {
 async function openListEditor(kind) {
   if (editorEl) return;
   const meta = editorMeta(kind);
-  let content = "";
-  try { content = await invoke("dpi_read_list", { kind }); } catch {}
+  let content;
+  // Без содержимого редактор не открываем: пустое поле и «Сохранить» стёрли бы
+  // список, который просто не удалось прочитать.
+  try {
+    content = await invoke("dpi_read_list", { kind });
+  } catch (e) {
+    toast(e?.message || String(e), "error", 5000);
+    return;
+  }
   const wrap = document.createElement("div");
   wrap.innerHTML = `
     <div class="drawer-bg" data-dpi-editor-bg></div>
@@ -1299,9 +1305,17 @@ function setActiveVpnEndpoint(host) {
   return activeEndpointQueue.catch(() => false);
 }
 
+// У WARP адрес хранится как «ip:port», а исключению нужен только хост: такая
+// строка не проходила проверку в Rust, и оставалось исключение прошлой ноды.
+function endpointHost(host) {
+  const s = String(host).trim();
+  const m = /^\[([^\]]+)\](?::\d+)?$/.exec(s) || /^([^:\s]+):\d+$/.exec(s);
+  return m ? m[1] : s;
+}
+
 export function excludeVpnNode(host) {
   if (!host) return Promise.resolve(false);
-  return setActiveVpnEndpoint(host);
+  return setActiveVpnEndpoint(endpointHost(host));
 }
 
 export function clearVpnNodeExclusion() {

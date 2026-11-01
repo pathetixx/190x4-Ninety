@@ -437,3 +437,22 @@ test("режим экономии трафика без подозрения о�
   await engine.tick();
   assert.equal(probes, 1);
 });
+
+test("недокачанная выборка на узком канале считается замедлением, а не UNKNOWN", async () => {
+  const qualityOf = async (result) => {
+    installStorage();
+    const engine = createQualityEngine({
+      invoke: async () => result,
+      actions: {},
+      opts: { enabled: true },
+    });
+    engine.onConnected({});
+    armSuspect(engine);
+    await engine.tick();
+    return engine.getSamples().at(-1)?.q;
+  };
+  const incomplete = { ok: false, stalled: false, ttfb_ms: 40, ms: 4000, bytes: 60000, error: "incomplete sample: 60000/262144 bytes" };
+  assert.notEqual(await qualityOf({ ...incomplete, goodput_bps: 120_000 }), "UNKNOWN");
+  assert.equal(await qualityOf({ ...incomplete, goodput_bps: 50_000_000 }), "UNKNOWN");
+  assert.equal(await qualityOf({ ok: false, stalled: false, error: "no body bytes", bytes: 0, goodput_bps: 0 }), "UNKNOWN");
+});

@@ -78,3 +78,18 @@ test("safeAtobUrl: url-алфавит и паддинг", () => {
   assert.equal(safeAtobUrl(b64url("hello?x=1&y=2")), "hello?x=1&y=2");
   assert.equal(safeAtobUrl("%%%"), "");
 });
+
+test("сырой payload сохраняет собственную query", () => {
+  assert.deepEqual(
+    parseDeepLink("ninety://add/https://panel.example.com/sub?token=a%2Bb&name=Home"),
+    { url: "https://panel.example.com/sub?token=a%2Bb", name: "Home" },
+  );
+  const link = "vless://id@h.example.com:443?security=reality&pbk=abc#Node";
+  assert.deepEqual(parseDeepLink(`ninety://config/${link}`), { url: link, name: "" });
+});
+
+test("sub:// отделяет имя от base64", () => {
+  const url = "https://sub.example.com/abc";
+  assert.deepEqual(parseDeepLink(`sub://${b64url(url)}#Home`), { url, name: "Home" });
+  assert.deepEqual(parseDeepLink(`sub://${b64url(url)}?x=1`), { url, name: "" });
+});

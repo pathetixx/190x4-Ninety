@@ -145,7 +145,7 @@ test("пароль со спецсимволами не рвёт ссылку п
 });
 
 test("shadowsocks переносит метод и пароль через base64-userinfo", () => {
-  const password = "SbP+ZmJhY2VkZWFkYmVlZjAxMg==";
+  const password = btoa("secret-key-16byt");
   const { profiles } = parseSingboxConfig(wrap([{
     tag: "ss", type: "shadowsocks", server: "5.6.7.8", server_port: 8388,
     method: "2022-blake3-aes-128-gcm", password,

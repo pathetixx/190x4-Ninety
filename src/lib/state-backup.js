@@ -11,6 +11,7 @@
 import { STORAGE_KEYS, shouldBackupStorageKey, shouldRestoreStorageKey } from "/lib/storage-policy.js";
 import {
   profileStoreBackupEntries,
+  profileStoreIsDegraded,
   profileStoreIsPersisted,
   restoreProfileStoreFromBackup,
 } from "/lib/profile-store.js";
@@ -109,6 +110,16 @@ export function backupNow({ includeUpdateResume = false, strict = false } = {}) 
       // Журнал существовал в этой OTA-сессии, но теперь удалён RuntimeReady:
       // следующая запись обязана строго зафиксировать его отсутствие на диске.
       closingResume = pendingResumeValue != null;
+    }
+    // Хранилище профилей отказало: в памяти неполные данные, а причина может
+    // устраниться сама. Снимок затёр бы рабочую копию и за две записи вытеснил бы
+    // .bak, поэтому пропускаем его. Для OTA и закрытия журнала это отказ.
+    if (profileStoreIsDegraded()) {
+      if (strict || closingResume) {
+        if (closingResume) restorePendingResume();
+        throw new Error("profile store is degraded; state backup skipped");
+      }
+      return;
     }
     const snap = snapshot({ includeUpdateResume });
     // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой. Но при
