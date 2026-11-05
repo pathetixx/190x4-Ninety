@@ -6,6 +6,18 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.12.3 — 2026-11-05
+
+## English
+
+- The XHTTP connection engine is updated to the latest version with an important security fix.
+- The app updater now uses a safer component for unpacking archives.
+
+## Русский
+
+- Движок подключений XHTTP обновлён до последней версии с важным исправлением безопасности.
+- Модуль обновления приложения теперь использует более безопасный компонент для распаковки архивов.
+
 ## v0.12.2 — 2026-11-01
 
 ## English
