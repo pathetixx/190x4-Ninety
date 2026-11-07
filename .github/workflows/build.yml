@@ -124,6 +124,12 @@ jobs:
           # x/net/html. 0.62.0 — первая версия со всеми фиксами. Тот же go get
           # стоит в security.yml.
           go get golang.org/x/net@v0.62.0
+          # GO-2026-6865 (паника на кадрах из двух блоков в klauspost/compress) и
+          # GO-2026-6888 (лишняя память при распаковке подобранного потока в
+          # andybalholm/brotli). 1.20.2 и 1.2.7 — первые версии с фиксами. Тот же
+          # go get стоит в security.yml.
+          go get github.com/klauspost/compress@v1.20.2
+          go get github.com/andybalholm/brotli@v1.2.7
           go mod tidy
           for attempt in 1 2 3; do
             if go build -trimpath -tags "$BUILD_TAGS" \
@@ -157,7 +163,10 @@ jobs:
           # the list this used to carry is now newer upstream than the pins were,
           # so re-applying it would downgrade. Mirrored in security.yml, where the
           # resulting binary is audited.
-          go get github.com/klauspost/compress@v1.18.7
+          # GO-2026-6865 и GO-2026-6888, как и в sing-box выше: апстрим держит
+          # compress 1.20.0 и brotli 1.2.3, фиксы — в 1.20.2 и 1.2.7.
+          go get github.com/klauspost/compress@v1.20.2
+          go get github.com/andybalholm/brotli@v1.2.7
           # GO-2026-6443, как и в sing-box выше. Фикс есть в 1.83.2 и в master, а
           # в 1.84.0 его нет, поэтому для Xray это откат с 1.84.0. Тот же go get
           # стоит в security.yml.
