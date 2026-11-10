@@ -69,6 +69,7 @@ Var KuroganeMaintenanceSecondaryDescriptionValue
 Var KuroganeTargetEditControl
 Var KuroganeForegroundHandoffPending
 Var KuroganeForegroundHandoffAttempts
+Var KuroganeBackVisible
 
 LangString KStepOptions 1033 "OPTIONS"
 LangString KStepInstall 1033 "INSTALL"
@@ -578,8 +579,28 @@ FunctionEnd
   ShowWindow $0 ${SHOW_CANCEL}
 !macroend
 
+; NSIS has already decided what this page's buttons are by the time a SHOW
+; callback runs: Back is hidden on the first page, and the button that starts
+; the installation carries the "Install" caption. Follow both instead of
+; hard-coding them per page — the welcome page used to say "Install" while the
+; page that really starts the installation said "Next".
 Function KuroganeApplyChromeNext
-  !insertmacro KuroganeApplyChromeImpl "next" "next" ${SW_SHOW} ${SW_SHOW} ${SW_SHOW}
+  GetDlgItem $0 $HWNDPARENT 3
+  System::Call 'user32::GetWindowLongW(p r0, i -16) i .r1'
+  IntOp $KuroganeBackVisible $1 & 0x10000000
+  GetDlgItem $0 $HWNDPARENT 1
+  System::Call 'user32::GetWindowTextW(p r0, w .r1, i ${NSIS_MAX_STRLEN})'
+  ${If} $1 == "$(^InstallBtn)"
+    Call KuroganeApplyChromeInstall
+  ${Else}
+    !insertmacro KuroganeApplyChromeImpl "next" "next" ${SW_SHOW} ${SW_SHOW} ${SW_SHOW}
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 3
+  ${If} $KuroganeBackVisible == 0
+    ShowWindow $0 ${SW_HIDE}
+  ${Else}
+    ShowWindow $0 ${SW_SHOW}
+  ${EndIf}
 FunctionEnd
 Function un.KuroganeApplyChromeNext
   !insertmacro KuroganeApplyChromeImpl "next" "next" ${SW_SHOW} ${SW_SHOW} ${SW_SHOW}
@@ -1477,6 +1498,10 @@ FunctionEnd
   ShowWindow $0 ${SW_HIDE}
   System::Call 'gdi32::CreateRectRgn(i 0, i 0, i 0, i 0) p .r1'
   System::Call 'user32::SetWindowRgn(p r0, p r1, i 1)'
+  ; NSIS shows Back again as soon as the section ends, disabled, and a disabled
+  ; bitmap button is painted as a flat grey block. Park it outside the window;
+  ; the finish page puts it back over its anchor.
+  System::Call 'user32::SetWindowPos(p r0, p 0, i -32000, i -32000, i 0, i 0, i 0x15)'
   GetDlgItem $0 $HWNDPARENT 1
   ShowWindow $0 ${SW_HIDE}
   System::Call 'gdi32::CreateRectRgn(i 0, i 0, i 0, i 0) p .r1'
@@ -1658,6 +1683,12 @@ FunctionEnd
   System::Call 'user32::SetWindowRgn(p r0, p 0, i 1)'
   ShowWindow $0 ${SW_SHOW}
   !insertmacro KuroganeBringToFront $0
+  ; The work is done, so Cancel is disabled from here on and would stay on
+  ; screen as a dead grey block next to the only button that still works.
+  ; It is parked the same way as Back; a failed run never reaches this point
+  ; and keeps its Cancel.
+  GetDlgItem $0 $HWNDPARENT 2
+  System::Call 'user32::SetWindowPos(p r0, p 0, i -32000, i -32000, i 0, i 0, i 0x15)'
   System::Call 'user32::RedrawWindow(p $HWNDPARENT, p 0, p 0, i 0x0185)'
   Pop $2
   Pop $1

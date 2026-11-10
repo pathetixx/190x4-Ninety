@@ -229,7 +229,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW NinetyWelcomeShow
 !insertmacro MUI_PAGE_WELCOME
 Function NinetyWelcomeShow
-  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text Install
+  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text Next
 FunctionEnd
 
 ; 2. Install mode (if it is set to `both`)
@@ -730,6 +730,7 @@ Section WebView2
           DetailPrint "$(webview2DownloadSuccess)"
         ${Else}
           DetailPrint "$(webview2DownloadError)"
+          ${IfThen} $PassiveMode = 1 ${|} Quit ${|}
           Abort "$(webview2AbortError)"
         ${EndIf}
         StrCpy $6 "$TEMP\MicrosoftEdgeWebview2Setup.exe"
@@ -762,6 +763,7 @@ Section WebView2
           DetailPrint "$(webview2InstallSuccess)"
         ${Else}
           DetailPrint "$(webview2InstallError)"
+          ${IfThen} $PassiveMode = 1 ${|} Quit ${|}
           Abort "$(webview2AbortError)"
         ${EndIf}
       webview2_done:
@@ -1152,6 +1154,10 @@ Function NinetyValidateInstallTarget
     IfSilent 0 +2
       Abort
     MessageBox MB_OK|MB_ICONSTOP "$(KInstallTargetUnavailable)$\r$\n$NinetyLockedPath"
+    ; The passive (OTA) window has no Cancel and a disabled Close: an aborted
+    ; run would leave a window nothing can dismiss, still holding the setup
+    ; mutex. Leave the process instead.
+    ${IfThen} $PassiveMode = 1 ${|} Quit ${|}
     Abort
 FunctionEnd
 

@@ -29,7 +29,7 @@ Var SmokeLicenseDialog
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW SmokeWelcomeShow
 !insertmacro MUI_PAGE_WELCOME
 Function SmokeWelcomeShow
-  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text Install
+  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text Next
 FunctionEnd
 !define MULTIUSER_PAGE_CUSTOMFUNCTION_PRE SmokeSkipIfPassive
 !define MULTIUSER_PAGE_CUSTOMFUNCTION_SHOW SmokeInstallModeShow
