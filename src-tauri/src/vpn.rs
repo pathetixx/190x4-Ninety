@@ -1102,17 +1102,29 @@ pub(crate) fn read_tail(path: &std::path::Path, tail_bytes: Option<u64>) -> Resu
     if !path.exists() {
         return Ok(String::new());
     }
+    let size = std::fs::metadata(path)
+        .map_err(|e| format!("stat: {e}"))?
+        .len();
+    read_tail_within(path, tail_bytes, size)
+}
+
+// Хвост первых `size` байт файла. Размер задаёт вызывающий: движок дописывает
+// журнал между stat и чтением, и чтение «до конца файла» отдавало строки за
+// позицией, которую экран «Логи» затем дочитывал повторно — они задваивались.
+fn read_tail_within(
+    path: &std::path::Path,
+    tail_bytes: Option<u64>,
+    size: u64,
+) -> Result<String, String> {
     let limit = normalized_log_tail_bytes(tail_bytes);
     if limit == 0 {
         return Ok(String::new());
     }
-    let meta = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?;
-    let size = meta.len();
     if size <= limit {
         use std::io::Read;
         let f = std::fs::File::open(path).map_err(|e| format!("open: {e}"))?;
-        let mut bytes = Vec::with_capacity(size.min(limit) as usize);
-        f.take(limit)
+        let mut bytes = Vec::with_capacity(size as usize);
+        f.take(size)
             .read_to_end(&mut bytes)
             .map_err(|e| format!("read_to_end: {e}"))?;
         return Ok(String::from_utf8_lossy(&bytes).into_owned());
@@ -1285,7 +1297,7 @@ pub async fn read_log_chunk(
         }
     }
     Ok(LogChunk {
-        text: read_tail(path, tail_bytes)?,
+        text: read_tail_within(path, tail_bytes, size)?,
         offset: size,
         size,
         reset: true,
