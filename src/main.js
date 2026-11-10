@@ -3461,7 +3461,9 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         try { warpInfo = await invoke("warp_status"); } catch {}
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
         if (!warpInfo) {
-          setState("idle");
+          // Сюда приходит и реконнект поверх сохранённого Kill Switch: голый
+          // idle снял бы барьер, и трафик пошёл бы напрямую.
+          setState("idle", { preserveKillSwitch: killSwitchMustSurviveRuntimeStop() });
           toast(t("conn.warpUnreg"), "error", 3500);
           return false;
         }
