@@ -195,6 +195,7 @@ fn validate_proxy_endpoint(raw: &str) -> Result<String, String> {
 enum ProxyRecoveryAction {
     LeaveUntouched,
     RestoreSnapshot,
+    RestoreSnapshotKeepOverride,
     DisableOwnedProxy,
 }
 
@@ -209,17 +210,23 @@ fn proxy_recovery_action(
     active: Option<&str>,
     snapshot_valid: bool,
 ) -> ProxyRecoveryAction {
-    let settings_still_match = current_enable == 1
-        && matches!(
-            current_override,
-            Some(value) if value == PROXY_OVERRIDE || value == PROXY_OVERRIDE_LOOPBACK_ONLY
-        );
+    let override_is_ours = matches!(
+        current_override,
+        Some(value) if value == PROXY_OVERRIDE || value == PROXY_OVERRIDE_LOOPBACK_ONLY
+    );
+    let settings_still_match = current_enable == 1 && override_is_ours;
     match active {
-        Some(value) if settings_still_match && current_server.eq_ignore_ascii_case(value) => {
-            if snapshot_valid {
-                ProxyRecoveryAction::RestoreSnapshot
-            } else {
-                ProxyRecoveryAction::DisableOwnedProxy
+        // Включённый прокси с нашим адресом остаётся нашим, даже если список
+        // исключений за время сессии поменяли (пользователь в настройках Windows
+        // или другая программа). Оставить его нетронутым значило бы бросить
+        // ProxyEnable=1 на уже закрытый порт: браузеры теряют интернет, а маркеры
+        // владения стёрты, и следующий запуск это тоже не чинит. Чужие
+        // исключения при этом сохраняем.
+        Some(value) if current_enable == 1 && current_server.eq_ignore_ascii_case(value) => {
+            match (snapshot_valid, override_is_ours) {
+                (true, true) => ProxyRecoveryAction::RestoreSnapshot,
+                (true, false) => ProxyRecoveryAction::RestoreSnapshotKeepOverride,
+                (false, _) => ProxyRecoveryAction::DisableOwnedProxy,
             }
         }
         Some(_) => ProxyRecoveryAction::LeaveUntouched,
@@ -494,6 +501,14 @@ pub fn set_system_proxy(
             ProxyRecoveryAction::RestoreSnapshot => {
                 let nk = state.as_ref().ok_or("proxy snapshot key disappeared")?;
                 let snapshot = snapshot.ok_or("proxy snapshot disappeared")?;
+                restore_proxy_snapshot(nk, &key, snapshot)?;
+            }
+            ProxyRecoveryAction::RestoreSnapshotKeepOverride => {
+                // Адрес и флаг включения возвращаем из snapshot, а список
+                // исключений оставляем тем, каким его сделали без нас.
+                let nk = state.as_ref().ok_or("proxy snapshot key disappeared")?;
+                let mut snapshot = snapshot.ok_or("proxy snapshot disappeared")?;
+                snapshot.proxy_override = current_override.clone();
                 restore_proxy_snapshot(nk, &key, snapshot)?;
             }
             ProxyRecoveryAction::DisableOwnedProxy => {
@@ -1174,7 +1189,7 @@ mod tests {
     }
 
     #[test]
-    fn third_party_enable_or_override_change_is_untouched() {
+    fn third_party_disable_is_untouched() {
         assert_eq!(
             proxy_recovery_action(
                 "127.0.0.1:7890",
@@ -1185,6 +1200,10 @@ mod tests {
             ),
             ProxyRecoveryAction::LeaveUntouched
         );
+    }
+
+    #[test]
+    fn owned_proxy_with_foreign_override_is_still_turned_off() {
         assert_eq!(
             proxy_recovery_action(
                 "127.0.0.1:7890",
@@ -1193,7 +1212,21 @@ mod tests {
                 Some("127.0.0.1:7890"),
                 true,
             ),
-            ProxyRecoveryAction::LeaveUntouched
+            ProxyRecoveryAction::RestoreSnapshotKeepOverride
+        );
+        assert_eq!(
+            proxy_recovery_action(
+                "127.0.0.1:7890",
+                1,
+                Some("localhost;<local>"),
+                Some("127.0.0.1:7890"),
+                false,
+            ),
+            ProxyRecoveryAction::DisableOwnedProxy
+        );
+        assert_eq!(
+            proxy_recovery_action("127.0.0.1:7890", 1, None, Some("127.0.0.1:7890"), true),
+            ProxyRecoveryAction::RestoreSnapshotKeepOverride
         );
     }
 
