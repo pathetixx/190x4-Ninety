@@ -862,7 +862,9 @@ export function wireguardConfText(profile) {
     lines.push(`PublicKey = ${peer.publicKey}`);
     if (peer.presharedKey) lines.push(`PresharedKey = ${peer.presharedKey}`);
     lines.push(`AllowedIPs = ${(peer.allowedIps || []).join(", ")}`);
-    lines.push(`Endpoint = ${peer.host}:${peer.port}`);
+    // IPv6-адрес без скобок wg-quick не разберёт: парсер снимает их при импорте.
+    const endpointHost = String(peer.host).includes(":") ? `[${peer.host}]` : peer.host;
+    lines.push(`Endpoint = ${endpointHost}:${peer.port}`);
     if (peer.keepalive) lines.push(`PersistentKeepalive = ${peer.keepalive}`);
   }
   return lines.join("\n") + "\n";
