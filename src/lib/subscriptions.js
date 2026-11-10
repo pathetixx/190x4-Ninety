@@ -170,7 +170,10 @@ export function detectAddInput(raw) {
   const protocolUrls = Array.from(s.matchAll(KNOWN_PROTO_URL_RE), m => m[0]);
   if (protocolUrls.length > 1) return { kind: "list", content: s };
   // Direct protocol link (vless/vmess/trojan/ss/hysteria2/tuic)
-  if (protocolUrls.length === 1 && PROTO_PREFIX_RE.test(s) && protocolUrls[0] === s) {
+  // Имя после «#» панели не всегда кодируют: пробел в нём обрывал совпадение, и
+  // одиночная ссылка уходила в ветку списка.
+  const singleLine = !/[\r\n]/.test(s);
+  if (protocolUrls.length === 1 && PROTO_PREFIX_RE.test(s) && (protocolUrls[0] === s || singleLine)) {
     return { kind: "config", content: s };
   }
 
