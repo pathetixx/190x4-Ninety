@@ -3020,6 +3020,19 @@ struct StopTimings {
     total_ms: u64,
 }
 
+/// Освобождены ли порты runtime с точки зрения очистки.
+///
+/// На Windows выход движков подтверждается по их process object, а слушающий
+/// сокет свой процесс не переживает. Порт, занятый после того как все наши
+/// процессы подтверждённо завершились, держит чужая программа: она успела
+/// занять его, например, после падения ядра. Считать такой порт своим долгом
+/// нельзя — stop не подтвердился бы никогда, а start отвечал бы «повторите
+/// отключение» до перезапуска приложения. Сами порты остаются в отчёте
+/// остановки и видны в журнале.
+fn ports_confirmed_released(processes_exited: bool, remaining_ports: &[u16]) -> bool {
+    remaining_ports.is_empty() || (cfg!(target_os = "windows") && processes_exited)
+}
+
 async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<StopResult, String> {
     let _stop = state.stop_lock.lock().await;
     state.dataplane_probe.invalidate();
@@ -3095,7 +3108,7 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
     let singbox_exited = killed_processes_exited(state, &singbox_processes);
     let xray_exited = killed_processes_exited(state, &xray_processes);
     let sidecars_exited = killed_processes_exited(state, &sidecar_processes);
-    let ports_released = remaining_ports.is_empty();
+    let ports_released = ports_confirmed_released(processes_exited, &remaining_ports);
     let confirmed_at = std::time::Instant::now();
     let proxy_confirmed = !proxy_was_owned || proxy_ok;
     let cleanup_confirmed = processes_exited && ports_released && proxy_confirmed;
