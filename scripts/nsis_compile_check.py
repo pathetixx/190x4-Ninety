@@ -129,7 +129,10 @@ CONTEXT = {
     "header_image": "",
     "uninstaller_icon": "icon.ico",
     "uninstaller_header_image": "",
-    "main_binary_name": "Ninety.exe",
+    # Without the extension, as the bundler passes it: the template appends
+    # ".exe" itself. With it the preview uninstaller looked for
+    # "Ninety.exe.exe" and left the application file behind.
+    "main_binary_name": "Ninety",
     "main_binary_path": "Ninety.exe",
     "bundle_id": "pw.x190x4.ninety",
     "copyright": "190x4",

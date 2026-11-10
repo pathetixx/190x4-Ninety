@@ -462,7 +462,12 @@ Function PageLeaveReinstall
       StrCpy $5 0
     ${EndIf}
 
+    ; The macro leaves the mutex handle in $0, which is where ExecWait put the
+    ; uninstaller's exit code. Without saving it every successful removal was
+    ; read as a failure: "unable to uninstall" after the old version was gone.
+    Push $0
     !insertmacro NinetyAcquireInstallerMutex $6 maintenance
+    Pop $0
 
     BringToFront
 
@@ -493,6 +498,14 @@ Function PageLeaveReinstall
     ${AndIf} $4 != ""
       Delete "$4\uninstall.exe"
       RMDir "$4"
+    ${EndIf}
+
+    ; "Remove Ninety" chosen for the installed version is a removal, not the
+    ; first half of a reinstall: the wizard used to carry on and install the
+    ; application that had just been removed.
+    ${If} $WixMode = 0
+    ${AndIf} $R0 = 0
+      Quit
     ${EndIf}
   reinst_done:
 FunctionEnd
@@ -533,8 +546,8 @@ FunctionEnd
 !insertmacro MUI_PAGE_FINISH
 Function NinetyFinishShow
   !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.FinishPage $mui.FinishPage.Image $mui.FinishPage.Title $mui.FinishPage.Text Finish
-  !insertmacro KuroganeFinishOptionImpl $mui.FinishPage.Run 214
-  !insertmacro KuroganeFinishOptionImpl $mui.FinishPage.ShowReadme 236
+  !insertmacro KuroganeFinishOptionImpl $mui.FinishPage.Run 214 $KuroganeFinishRunControl
+  !insertmacro KuroganeFinishOptionImpl $mui.FinishPage.ShowReadme 236 $KuroganeFinishReadmeControl
 FunctionEnd
 
 Function RunMainBinary
