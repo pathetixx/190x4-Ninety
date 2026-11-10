@@ -2280,9 +2280,15 @@ async fn verify_runtime_dataplane_unlogged(
         .as_ref()
         .is_some_and(|runtime| runtime.strict_privacy);
     if strict_privacy {
+        // `is_active` истинно и тогда, когда жив один лишь транзитный барьер.
+        // Снять его можно только поверх собранной пользовательской policy —
+        // то же условие, что у release_runtime_transition_barrier.
         let wfp_ready = app
             .try_state::<crate::killswitch::KillSwitchState>()
-            .is_some_and(|kill_switch| crate::killswitch::is_active(&kill_switch));
+            .is_some_and(|kill_switch| {
+                crate::killswitch::policy_lease_active(&kill_switch)
+                    && crate::killswitch::is_active(&kill_switch)
+            });
         return if wfp_ready {
             verified_runtime_ready(app)
         } else {
