@@ -1,0 +1,130 @@
+/* ─────────────────────────────────────────────────────────────
+   Ninety — главный экран «Затмение».
+   Карточек нет: HUD — главный герой, подписка ужата до строки с тонкой линией
+   остатка, кнопки — призрачные круги, метрики — без рамок. За камнем — дым
+   (рендер Codex, альфа-маска), он красится цветом текста темы.
+   Селекторы с .screen[data-view="home"] нарочно сильнее премиум-материала
+   (premium-theme-shared.css), который иначе вернул бы карточкам фон.
+   ───────────────────────────────────────────────────────────── */
+
+.screen[data-view="home"] { position: relative; isolation: isolate; }
+.screen[data-view="home"]::before {
+  content: "";
+  position: absolute;
+  inset: -16px -24px -18px;     /* под паддинг .content — дым до краёв окна */
+  z-index: -1;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--text-hi) 9%, transparent);
+  -webkit-mask: url("/assets/hud/smoke.webp") center 42% / cover no-repeat;
+          mask: url("/assets/hud/smoke.webp") center 42% / cover no-repeat;
+  opacity: 0.75;
+  transition: opacity 1.4s var(--ease-out);
+}
+.screen[data-view="home"]:has(.hero[data-state="secured"])::before { opacity: 1; }
+
+/* ── Подписка строкой ── */
+.screen[data-view="home"] .sub-row { gap: 18px; align-items: end; }
+.screen[data-view="home"] .sub-card {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 14px;
+  padding: 4px 4px 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+.screen[data-view="home"] .sub-card__icon { display: none; }
+.screen[data-view="home"] .sub-card__main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "head meta" "bar bar";
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 9px;
+}
+.screen[data-view="home"] .sub-card__head { grid-area: head; }
+.screen[data-view="home"] .sub-card__meta { grid-area: meta; min-width: 0; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; }
+.screen[data-view="home"] .sub-card__name { font-size: 12px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; }
+.screen[data-view="home"] .sub-card__bar { grid-area: bar; height: 1px; background: var(--line-2); border-radius: 0; overflow: visible; }
+.screen[data-view="home"] .sub-card__bar-fill {
+  background: linear-gradient(90deg, transparent, var(--accent) 30%, var(--accent-bright));
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+.screen[data-view="home"] .sub-card__expire { align-self: start; display: flex; align-items: baseline; gap: 5px; padding: 0; }
+.screen[data-view="home"] .sub-card__expire b { display: inline; font-size: 12px; }
+.screen[data-view="home"] .sub-card__expire-lbl { display: inline; margin: 0; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: none; }
+.screen[data-view="home"] .sub-card__open { align-self: start; width: 22px; height: 22px; margin-top: -3px; }
+
+/* ── Призрачные кнопки режима и «+» ── */
+.screen[data-view="home"] .toolbar { gap: 6px; align-self: center; }
+.screen[data-view="home"] .tool-btn {
+  width: 38px;
+  height: 38px;
+  min-height: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink-1) 60%, transparent);
+  border: 1px solid var(--line-2);
+  box-shadow: none;
+}
+.screen[data-view="home"] .tool-btn svg { width: 17px; height: 17px; }
+.screen[data-view="home"] .tool-btn:hover { background: color-mix(in srgb, var(--ink-2) 80%, transparent); border-color: var(--line-3); }
+
+/* ── Метрики без рамок и строка «Готов» на их месте до подключения ── */
+.home-foot { position: relative; }
+.screen[data-view="home"] .stats {
+  padding: 12px 0 2px;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line-1);
+  border-radius: 0;
+  box-shadow: none;
+}
+.screen[data-view="home"] .stats__cell { align-items: center; text-align: center; }
+.screen[data-view="home"] .stats__cell:first-child { padding-inline-start: 16px; }
+.screen[data-view="home"] .stats__cell:last-child { padding-inline-end: 16px; }
+.screen[data-view="home"] .stats__cell--btn { text-align: center; }
+
+.home-ready {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 2px 16px 0;
+  border-top: 1px solid var(--line-1);
+  font-size: 13px;
+  color: var(--text-mid);
+  white-space: nowrap;
+}
+.home-ready[hidden] { display: none; }
+.home-ready__k { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-lo); }
+.home-ready__flag { display: inline-flex; width: 20px; height: 14px; border-radius: 2px; overflow: hidden; box-shadow: 0 0 0 1px var(--line-2); flex: none; }
+.home-ready__flag img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.home-ready__srv { font-weight: 600; color: var(--text-hi); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.home-ready__sep { color: var(--text-faint); }
+
+/* ── Узкое окно (от 720 px): подписка в одну строку, метрики в два ряда ── */
+.screen[data-view="home"] .sub-card { container-type: inline-size; }
+.screen[data-view="home"] .sub-card__main { grid-template-columns: minmax(0, max-content) minmax(0, 1fr); }
+.screen[data-view="home"] .sub-card__head { min-width: 0; overflow: hidden; white-space: nowrap; }
+.screen[data-view="home"] .sub-card__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@container (max-width: 430px) {
+  .screen[data-view="home"] .sub-card__meta { display: none; }
+}
+@container (max-width: 300px) {
+  .screen[data-view="home"] .sub-card__quota { display: none; }
+}
+
+.home-foot { container-type: inline-size; }
+@container (max-width: 560px) {
+  .screen[data-view="home"] .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 10px; }
+  .screen[data-view="home"] .stats__cell { padding: 0 10px; }
+  .screen[data-view="home"] .stats__cell:first-child { grid-column: 1 / -1; padding: 0; }
+  .screen[data-view="home"] .stats__cell:nth-child(2) { border-inline-start: 0; }
+  /* режим уже написан в подписи под заголовком, тоталы сессии — в сайдбаре нет места */
+  .screen[data-view="home"] .stats__cell:last-child,
+  .screen[data-view="home"] .stats__sub { display: none; }
+}

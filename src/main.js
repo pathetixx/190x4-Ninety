@@ -2414,6 +2414,7 @@ function refreshDynamicText() {
     modeHint.innerHTML = t("mode.hint." + (MODE_KEYS.includes(m) ? m : "systemProxy"));
   }
   if (statsMode && state === "connected") statsMode.textContent = modeLabel(getMode());
+  updateHomeReady();
 }
 
 document.getElementById("profiles-refresh-all")?.addEventListener("click", async () => {
@@ -2673,6 +2674,37 @@ function applyHeroState(internalState) {
 // Stats-strip vs Location-card: connected → stats-strip с live-метриками.
 // Когда VPN выключен (idle/connecting) — нижняя плитка сервера не нужна,
 // прячем обе (раньше показывали loc-card в standby — лишний шум).
+// Строка «Готов» под HUD до подключения: выбранный вручную сервер или «Авто», если
+// подписка сама подберёт узел после старта ядра, и режим подключения.
+const homeReady = document.getElementById("home-ready");
+const homeReadyFlag = document.getElementById("home-ready-flag");
+const homeReadySrv = document.getElementById("home-ready-srv");
+const homeReadyMode = document.getElementById("home-ready-mode");
+// applyHomeBottom("idle") зовётся раньше объявления state/currentEffectiveNode (let):
+// до этого флага строку не трогаем, иначе обращение к ним упало бы в мёртвой зоне.
+let homeReadyBooted = false;
+function readyTarget() {
+  if (currentEffectiveNode) return currentEffectiveNode;
+  const src = activeDisplaySource();
+  if (!src) return null;
+  if (src.kind !== "sub") return src.profile || null;
+  if ((src.nodes?.length || 0) === 1) return src.nodes[0];
+  const tag = getRememberedProxySelection(src);
+  return (tag && src.nodes?.find((n, i) => nodeTag(i, n) === tag)) || "auto";
+}
+function updateHomeReady() {
+  if (!homeReady || !homeReadyBooted) return;
+  const target = state === "idle" ? readyTarget() : null;
+  homeReady.hidden = !target;
+  if (!target) return;
+  const node = target === "auto" ? null : target;
+  homeReadySrv.textContent = node ? (stripFlag(node.name) || node.host || "—") : t("proxies.auto");
+  const iso = node ? (isoFromNodeName(node.name) || isoFromNodeName(node.host)) : null;
+  homeReadyFlag.innerHTML = iso ? `<img src="${FLAGS_BASE}/${iso}.svg" alt="">` : "";
+  homeReadyFlag.hidden = !iso;
+  homeReadyMode.textContent = modeLabel(getMode());
+}
+
 function applyHomeBottom(internalState) {
   if (!locCard || !statsStrip) return;
   locCard.hidden = true;
@@ -2681,6 +2713,7 @@ function applyHomeBottom(internalState) {
   // уезжает вверх (а при disconnect — обратно вниз). Резерв места = сцена не двигается.
   statsStrip.hidden = false;
   statsStrip.classList.toggle("stats--reserved", internalState !== "connected");
+  updateHomeReady();
 }
 
 // Активный сервер в stats-strip — обновляется при connect и смене effective-ноды.
@@ -2696,6 +2729,7 @@ function updateStatsServer() {
     statsFlag.innerHTML = iso ? `<img src="${FLAGS_BASE}/${iso}.svg" alt="">` : "";
     statsFlag.hidden = !iso;
   }
+  updateHomeReady(); // сменилась нода или источник — обновить строку «Готов»
 }
 
 let lastPublicIp = null;
@@ -3924,6 +3958,9 @@ async function runtimeSnapshotIsLive(snapshot, source = activeDisplaySource()) {
 heroDisc?.addEventListener("click", () => handleConnectionIntent());
 
 // ── Bootstrap ──────────────────────────────────────────────
+// Все модульные let уже объявлены — строке «Готов» можно читать источник и ноду.
+homeReadyBooted = true;
+updateHomeReady();
 if (locPing) locPing.textContent = `— ${t("units.ms")}`;
 window.addEventListener("ninety:profile-store-ready", () => {
   refreshProfilesSummary();

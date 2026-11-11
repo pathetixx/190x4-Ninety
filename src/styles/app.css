@@ -652,7 +652,7 @@
    нижней карточки/DPI-чипа (рефлоу контента на квадрат больше не влияет). */
 .hero__stage {
   position: relative;
-  width: clamp(180px, min(100cqw, 100cqh), 360px);
+  width: clamp(180px, min(100cqw, 100cqh), 400px);
   aspect-ratio: 1;
   height: auto;
   max-width: 100%;

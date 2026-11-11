@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/styles/tokens.css" />
     <link rel="stylesheet" href="/styles/app.css" />
     <link rel="stylesheet" href="/styles/obsidian-hud.css" />
+    <link rel="stylesheet" href="/styles/home.css" />
     <link rel="stylesheet" href="/styles/system.css" />
     <link rel="stylesheet" href="/styles/screens.css" />
     <link rel="stylesheet" href="/styles/modals.css" />
@@ -281,47 +282,58 @@
               </span>
             </article>
 
-            <!-- Телеметрия-полоса (secured) — session-уровень, мгновенная скорость живёт в сайдбаре -->
-            <div class="stats" id="stats-strip" hidden>
-              <div class="stats__cell">
-                <span class="stats__label" data-i18n="stats.server">Сервер</span>
-                <span class="stats__server-row">
-                  <span class="stats__flag" id="stats-flag" aria-hidden="true" hidden></span>
-                  <span class="stats__value" id="stats-server">—</span>
-                </span>
+            <div class="home-foot">
+              <!-- Телеметрия-полоса (secured) — session-уровень, мгновенная скорость живёт в сайдбаре -->
+              <div class="stats" id="stats-strip" hidden>
+                <div class="stats__cell">
+                  <span class="stats__label" data-i18n="stats.server">Сервер</span>
+                  <span class="stats__server-row">
+                    <span class="stats__flag" id="stats-flag" aria-hidden="true" hidden></span>
+                    <span class="stats__value" id="stats-server">—</span>
+                  </span>
+                </div>
+
+                <button class="stats__cell stats__cell--btn" id="tele-ping" type="button" title="Обновить задержку" data-i18n-title="stats.pingTitle">
+                  <span class="stats__label"><span data-i18n="stats.ping">Пинг</span>
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="stats__label-ic"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+                  </span>
+                  <span class="stats__ping-row">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stats__ping-ic"><path d="M5 12.5a11 11 0 0 1 14 0"/><path d="M2 9a16 16 0 0 1 20 0"/><path d="M8.5 16a6 6 0 0 1 7 0"/><path d="M12 19.5h.01"/></svg>
+                    <span class="stats__value tnum"><span id="stats-ping">—</span><span class="unit" data-i18n="units.ms">мс</span></span>
+                  </span>
+                </button>
+
+                <button class="stats__cell stats__cell--btn" id="tele-channel" type="button" data-q="UNKNOWN" data-active="false" title="Качество канала" data-i18n-title="stats.channelTitle">
+                  <span class="stats__label"><span data-i18n="stats.channel">Канал</span>
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="stats__label-ic"><path d="M3 12h3l2.5 7 4-14 2.5 9 1.5-4h4.5"/></svg>
+                  </span>
+                  <span class="stats__chan-row">
+                    <span class="stats__sonar" aria-hidden="true"><i></i></span>
+                    <span class="stats__value" id="stats-channel">—</span>
+                  </span>
+                </button>
+
+                <div class="stats__cell">
+                  <span class="stats__label" data-i18n="stats.session">Сессия</span>
+                  <span class="stats__sess-row">
+                    <span class="stats__value tnum" id="stats-uptime">—</span>
+                    <span class="stats__sub tnum" id="stats-total" dir="ltr">↓ 0 · ↑ 0</span>
+                  </span>
+                </div>
+
+                <div class="stats__cell">
+                  <span class="stats__label" data-i18n="stats.mode">Режим</span>
+                  <span class="stats__value" id="stats-mode" data-i18n="stats.modeSystem">СИСТЕМНЫЙ</span>
+                </div>
               </div>
 
-              <button class="stats__cell stats__cell--btn" id="tele-ping" type="button" title="Обновить задержку" data-i18n-title="stats.pingTitle">
-                <span class="stats__label"><span data-i18n="stats.ping">Пинг</span>
-                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="stats__label-ic"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
-                </span>
-                <span class="stats__ping-row">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stats__ping-ic"><path d="M5 12.5a11 11 0 0 1 14 0"/><path d="M2 9a16 16 0 0 1 20 0"/><path d="M8.5 16a6 6 0 0 1 7 0"/><path d="M12 19.5h.01"/></svg>
-                  <span class="stats__value tnum"><span id="stats-ping">—</span><span class="unit" data-i18n="units.ms">мс</span></span>
-                </span>
-              </button>
-
-              <button class="stats__cell stats__cell--btn" id="tele-channel" type="button" data-q="UNKNOWN" data-active="false" title="Качество канала" data-i18n-title="stats.channelTitle">
-                <span class="stats__label"><span data-i18n="stats.channel">Канал</span>
-                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="stats__label-ic"><path d="M3 12h3l2.5 7 4-14 2.5 9 1.5-4h4.5"/></svg>
-                </span>
-                <span class="stats__chan-row">
-                  <span class="stats__sonar" aria-hidden="true"><i></i></span>
-                  <span class="stats__value" id="stats-channel">—</span>
-                </span>
-              </button>
-
-              <div class="stats__cell">
-                <span class="stats__label" data-i18n="stats.session">Сессия</span>
-                <span class="stats__sess-row">
-                  <span class="stats__value tnum" id="stats-uptime">—</span>
-                  <span class="stats__sub tnum" id="stats-total" dir="ltr">↓ 0 · ↑ 0</span>
-                </span>
-              </div>
-
-              <div class="stats__cell">
-                <span class="stats__label" data-i18n="stats.mode">Режим</span>
-                <span class="stats__value" id="stats-mode" data-i18n="stats.modeSystem">СИСТЕМНЫЙ</span>
+              <!-- До подключения на месте полосы — куда пойдёт подключение (updateHomeReady) -->
+              <div class="home-ready" id="home-ready" hidden>
+                <span class="home-ready__k" data-i18n="stats.server">Сервер</span>
+                <span class="home-ready__flag" id="home-ready-flag" aria-hidden="true" hidden></span>
+                <span class="home-ready__srv" id="home-ready-srv">—</span>
+                <span class="home-ready__sep" aria-hidden="true">·</span>
+                <span class="home-ready__mode" id="home-ready-mode"></span>
               </div>
             </div>
           </section>
