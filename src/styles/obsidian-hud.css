@@ -1,0 +1,293 @@
+/* ─────────────────────────────────────────────────────────────
+   Ninety — HUD главного экрана: обсидиан, лава и корона.
+   Камень, карты трещин, бликов и короны — готовые рендеры (assets/hud/),
+   код только двигает слои. Всё движение — transform/opacity под статичными
+   масками: слои растрятся один раз и дальше докомпозичиваются на GPU.
+   Состояния: .hero[data-state] = standby · linking · secured · unlinking.
+   Пауза в трее/вне главной: .hero[data-motion="paused"] (main.js).
+   Спокойный режим: html[data-hud-mode="calm"] (styles/calm-hud.css).
+   ───────────────────────────────────────────────────────────── */
+
+@property --ob-reveal { syntax: "<percentage>"; inherits: true; initial-value: 112%; }
+
+.hero {
+  /* цвет лавы и короны — акцент темы; Kintsugi переопределяет на золото */
+  --lava: var(--accent);
+  --lava-hot: var(--accent-bright);
+  --link-ms: 2600ms;
+}
+
+/* Слои сцены: квадрат .hero__stage — 100%, камень — 84.55%, корона шире камня */
+.ob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--ob-size, 84%);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  pointer-events: none;
+  transition: scale 200ms var(--ease-out);
+}
+img.ob { display: block; user-select: none; -webkit-user-drag: none; }
+.hero__stage:has(.hero__disc:active:not(:disabled)) .ob { scale: 0.988; }
+.ob--add { mix-blend-mode: screen; }
+
+/* Корона: тёмный диск совпадает с кромкой камня, внутренний край спрятан под металл */
+.ob-corona { --ob-size: 139%; opacity: 0; transition: opacity 1.2s var(--ease-out); }
+.ob-corona__glow {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--lava-hot) 80%, #fff);
+  -webkit-mask: url("/assets/hud/corona.webp") center / 100% 100% no-repeat;
+          mask: url("/assets/hud/corona.webp") center / 100% 100% no-repeat;
+  animation: ob-rot 160s linear infinite;
+}
+/* по волокнам бегут волны яркости; на светлых темах затемнение дало бы грязь */
+.ob-corona__glow > i {
+  position: absolute;
+  inset: -20%;
+  border-radius: 50%;
+  mix-blend-mode: multiply;
+  background: conic-gradient(rgba(0,0,0,.55), transparent 18%, rgba(0,0,0,.45) 36%, transparent 55%, rgba(0,0,0,.6) 74%, transparent 88%, rgba(0,0,0,.55));
+  animation: ob-rot 23s linear infinite;
+}
+.hero[data-state="secured"] .ob-corona { opacity: 1; animation: ob-breathe 5.5s ease-in-out infinite; }
+.hero[data-state="linking"] .ob-corona { animation: ob-corona-on var(--link-ms) linear forwards; }
+.hero[data-state="unlinking"] .ob-corona { opacity: 0; transition-duration: 0.9s; }
+@keyframes ob-corona-on { 0%, 55% { opacity: 0; } 62% { opacity: .5; } 66% { opacity: .1; } 80% { opacity: .7; } 100% { opacity: 1; } }
+@keyframes ob-breathe { 0%, 100% { opacity: .78; } 50% { opacity: 1; } }
+
+/* Камень: холст на 0.66% шире карт лавы, чтобы металл нигде не упирался в край */
+.ob-stone { --ob-size: 84.55%; transition: filter 400ms var(--ease-out), scale 200ms var(--ease-out); }
+.hero__stage:has(.hero__disc:hover:not(:disabled)) .ob-stone { filter: brightness(1.07); }
+
+/* Лава: форма трещин — маска, цвет — акцент темы. Слой шире камня (100% против 84%),
+   иначе размытое свечение обрезается краем бокса прямой линией. */
+.ob-lava {
+  --ob-size: 100%;
+  opacity: 0;
+  -webkit-mask: radial-gradient(closest-side, #000 calc(var(--ob-reveal) - 13%), transparent var(--ob-reveal));
+          mask: radial-gradient(closest-side, #000 calc(var(--ob-reveal) - 13%), transparent var(--ob-reveal));
+  transition: opacity 500ms var(--ease-out), filter 1.2s var(--ease-out), scale 200ms var(--ease-out);
+}
+.ob-crack {
+  position: absolute;
+  inset: 8%;
+  overflow: hidden;
+  -webkit-mask: url("/assets/hud/lava.webp") center / 100% 100% no-repeat;
+          mask: url("/assets/hud/lava.webp") center / 100% 100% no-repeat;
+}
+.ob-crack--base { background: var(--lava); }
+.ob-lava__glow { position: absolute; inset: 0; filter: blur(9px); opacity: .7; }
+.ob-lava__glow .ob-crack { background: var(--lava); }
+/* горячие пятна бродят по трещинам: крутится подложка, маска трещин стоит */
+.ob-crack > i { position: absolute; inset: -22%; border-radius: 50%; }
+.ob-crack--flow > i {
+  background: conic-gradient(transparent 0 8%, var(--lava-hot) 16%, transparent 27%, transparent 52%, var(--lava-hot) 63%, transparent 72%, transparent 84%, var(--lava-hot) 90%, transparent 97%);
+  animation: ob-rot 19s linear infinite;
+}
+.ob-crack--core > i {
+  opacity: .55;
+  background: conic-gradient(transparent 0 20%, color-mix(in srgb, var(--lava-hot) 62%, #fff) 26%, transparent 33%, transparent 68%, color-mix(in srgb, var(--lava-hot) 62%, #fff) 75%, transparent 82%);
+  animation: ob-rot 31s linear infinite reverse;
+}
+.hero[data-state="standby"] .hero__stage:has(.hero__disc:hover:not(:disabled)) .ob-lava { opacity: .16; }
+.hero[data-state="linking"] .ob-lava {
+  opacity: 1;
+  animation: ob-reveal var(--link-ms) cubic-bezier(.3,.1,.3,1) forwards, ob-ignite var(--link-ms) linear forwards;
+}
+.hero[data-state="secured"] .ob-lava { opacity: 1; animation: ob-lava-breathe 5s ease-in-out infinite; }
+.hero[data-state="unlinking"] .ob-lava {
+  opacity: 0;
+  filter: brightness(.35) saturate(.6);
+  transition: opacity 1.3s cubic-bezier(.5,0,.8,.6), filter .9s var(--ease-out);
+}
+@keyframes ob-reveal { 0% { --ob-reveal: 40%; } 22% { --ob-reveal: 50%; } 34% { --ob-reveal: 52%; } 58% { --ob-reveal: 69%; } 70% { --ob-reveal: 72%; } 100% { --ob-reveal: 112%; } }
+@keyframes ob-ignite {
+  0% { filter: brightness(.5); } 18% { filter: brightness(1.3); } 22% { filter: brightness(.7); }
+  60% { filter: brightness(1.15); } 64% { filter: brightness(.85); } 92% { filter: brightness(1.4); } 100% { filter: brightness(1.1); }
+}
+@keyframes ob-lava-breathe { 0%, 100% { filter: brightness(.95); } 50% { filter: brightness(1.15); } }
+@keyframes ob-rot { to { rotate: 360deg; } }
+
+/* Блики: полоса света едет под статичной маской граней */
+.ob-glint {
+  overflow: hidden;
+  opacity: .6;
+  -webkit-mask: url("/assets/hud/glint.webp") center / 100% 100% no-repeat;
+          mask: url("/assets/hud/glint.webp") center / 100% 100% no-repeat;
+}
+.ob-glint > i {
+  position: absolute;
+  top: -30%;
+  left: 0;
+  width: 34%;
+  height: 160%;
+  rotate: 24deg;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.95) 50%, transparent);
+  animation: ob-sweep 9s cubic-bezier(.5,0,.3,1) infinite;
+}
+.hero[data-state="secured"] .ob-glint { opacity: .35; }
+@keyframes ob-sweep { 0% { translate: -160% 0; } 40% { translate: 330% 0; } 100% { translate: 330% 0; } }
+
+/* Искра по металлическому ободу */
+.ob-rim {
+  border-radius: 50%;
+  opacity: .7;
+  background: conic-gradient(transparent 0 86%, rgba(255,255,255,.8) 89.5%, transparent 90.5%);
+  -webkit-mask: radial-gradient(closest-side, transparent 96%, #000 97%, #000 99.4%, transparent 100%);
+          mask: radial-gradient(closest-side, transparent 96%, #000 97%, #000 99.4%, transparent 100%);
+  animation: ob-rot 11s linear infinite;
+}
+.hero[data-state="secured"] .ob-rim { background: conic-gradient(transparent 0 86%, color-mix(in srgb, var(--lava-hot) 70%, #fff) 89.5%, transparent 90.5%); }
+
+/* Кнопка — круг камня; маска — в отверстии камня */
+.hero__disc {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 84.55%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: scale 200ms var(--ease-out);
+}
+.hero__disc:active:not(:disabled) { scale: 0.988; }
+.hero__disc:disabled { cursor: default; }
+.hero__disc:focus-visible { outline: none; }
+.hero__face {
+  position: absolute;
+  inset: 27.4%;           /* 38.2% сцены внутри круга 84.55% */
+  border-radius: 50%;
+  overflow: hidden;
+  background: #040405;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.05), inset 0 0 26px #000;
+  transition: box-shadow 1s var(--ease-out);
+}
+.hero__disc:focus-visible .hero__face { box-shadow: 0 0 0 2px var(--accent-bright), 0 0 18px var(--accent-glow), inset 0 0 22px #000; }
+.hero[data-state="secured"] .hero__face {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), inset 0 0 22px #000, 0 0 30px var(--accent-glow);
+}
+.hero__face::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(70% 45% at 34% 16%, rgba(255,255,255,.09), transparent 60%);
+}
+
+/* Маска: в покое темнеет, при подключении оживает. Премиум-темы подкрашивают её
+   своим оттенком (--premium-mask-*), затемнение ложится поверх оттенка. */
+.hero__mask {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+  filter: var(--hero-mask-idle, grayscale(.75) brightness(.58) contrast(1.1));
+  scale: .95;
+  transition: filter 1s var(--ease-out), scale 1s cubic-bezier(.2,.8,.2,1);
+}
+.hero[data-state="linking"] .hero__mask { animation: ob-mask-up var(--link-ms) linear forwards; }
+.hero[data-state="secured"] .hero__mask { filter: var(--hero-mask-on, none); scale: 1; }
+.hero[data-state="unlinking"] .hero__mask { transition-duration: 1.3s; }
+@keyframes ob-mask-up {
+  0% { filter: var(--hero-mask-idle, grayscale(.75) brightness(.58) contrast(1.1)); scale: .95; }
+  60% { filter: var(--hero-mask-mid, grayscale(.2) brightness(.85)); }
+  100% { filter: var(--hero-mask-on, none); scale: 1; }
+}
+
+/* Click-ripple из main.js — от отверстия камня */
+.hero__ripple { width: 38.2%; }
+
+/* Светлые темы: камень лежит на фарфоре — мягкая тень, корона без затемняющих волн */
+:is([data-theme="shiro"], [data-theme="sakura"], [data-theme="porcelain"]) .ob-stone {
+  filter: drop-shadow(0 16px 28px rgba(40, 30, 20, .28)) drop-shadow(0 2px 4px rgba(40, 30, 20, .25));
+}
+:is([data-theme="shiro"], [data-theme="sakura"], [data-theme="porcelain"]) .hero__stage:has(.hero__disc:hover:not(:disabled)) .ob-stone {
+  filter: drop-shadow(0 16px 28px rgba(40, 30, 20, .28)) drop-shadow(0 2px 4px rgba(40, 30, 20, .25)) brightness(1.07);
+}
+:is([data-theme="shiro"], [data-theme="sakura"], [data-theme="porcelain"]) .ob-corona__glow > i { display: none; }
+
+/* Окно в трее или открыт другой экран — всё движение камня стоит */
+.hero[data-motion="paused"] :is(.ob, .ob *, .hero__mask) { animation-play-state: paused !important; }
+
+/* ═══════════ Блок статуса под камнем — «Гравировка» ═══════════
+   Заголовок тоньше и крупнее, подпись режима — между двумя штрихами, как гравировка
+   на корпусе; пока идёт подключение, под заголовком бежит тонкая линия прогресса. */
+.hero__title {
+  font-weight: 400;
+  font-size: clamp(23px, 2.75vw, 30px);
+  letter-spacing: 0.015em;
+}
+.hero[data-state="secured"] .hero__title { text-shadow: 0 0 18px var(--accent-soft); }
+
+.hero__prog {
+  display: block;
+  width: 132px;
+  height: 1px;
+  margin: 1px 0 -3px;
+  background: var(--line-2);
+  position: relative;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 400ms var(--ease-out);
+}
+.hero__prog > i {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  scale: 0 1;
+  background: linear-gradient(90deg, transparent, var(--accent-bright));
+}
+.hero:is([data-state="linking"], [data-state="unlinking"]) .hero__prog { opacity: 1; }
+.hero[data-state="linking"] .hero__prog > i { animation: ob-prog-fill var(--link-ms) cubic-bezier(.4,.1,.3,1) forwards; }
+.hero[data-state="unlinking"] .hero__prog > i { scale: 1 1; animation: ob-prog-back 1.3s ease-in forwards; }
+@keyframes ob-prog-fill { to { scale: 1 1; } }
+@keyframes ob-prog-back { from { scale: 1 1; } to { scale: 0 1; } }
+
+.hero__kicker { gap: 12px; letter-spacing: 0.26em; }
+.hero__kicker-dot { display: none; }
+.hero__kicker::before,
+.hero__kicker::after {
+  content: "";
+  width: 34px;
+  height: 1px;
+  flex: none;
+  background: linear-gradient(90deg, transparent, var(--line-3));
+  transition: background 600ms var(--ease-out);
+}
+.hero__kicker::after { background: linear-gradient(90deg, var(--line-3), transparent); }
+.hero[data-state="secured"] .hero__kicker { color: color-mix(in srgb, var(--accent-bright) 70%, var(--text-mid)); }
+.hero[data-state="secured"] .hero__kicker::before { background: linear-gradient(90deg, transparent, var(--accent)); }
+.hero[data-state="secured"] .hero__kicker::after { background: linear-gradient(90deg, var(--accent), transparent); }
+
+/* DPI — одна строка без капсулы: «DPI-обход · Вкл · ALT11» и тумблер; рамка — при наведении */
+.hero .dpi-chip,
+.hero .dpi-chip[data-state="running"] {
+  margin-top: 6px;
+  gap: 10px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 10px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.hero .dpi-chip:hover { background: color-mix(in srgb, var(--ink-1) 70%, transparent); border-color: var(--line-2); }
+.hero .dpi-chip__txt { flex-direction: row; align-items: baseline; gap: 9px; }
+.hero .dpi-chip__name { font: 500 12px var(--font-body); color: var(--text-mid); letter-spacing: 0; }
+.hero .dpi-chip__status,
+.hero .dpi-chip__strat { font: 600 10px var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-lo); }
+.hero .dpi-chip__strat::before { content: "· "; }
+.hero .dpi-chip[data-state="running"] :is(.dpi-chip__status, .dpi-chip__strat) { color: var(--accent-bright); }
+.hero .dpi-chip[data-state="starting"] :is(.dpi-chip__status, .dpi-chip__strat) { color: var(--warn); }
+.hero .dpi-chip[data-state="error"] :is(.dpi-chip__status, .dpi-chip__strat) { color: var(--err); }
+.hero .dpi-chip__sep { display: none; }
+.hero .dpi-chip .switch { scale: 0.8; }

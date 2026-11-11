@@ -1388,7 +1388,7 @@ export const fr = {
       contrastTitle: "Contraste renforcé",
       contrastHint: "Rend les libellés, les icônes et les bordures plus lisibles dans tous les thèmes. Tant que vous ne le modifiez pas, suit le réglage de contraste de Windows.",
       calmHudTitle: "Écran d'accueil calme",
-      calmHudHint: "Arrête les anneaux et l'animation du masque sur l'écran d'accueil. Les libellés ne clignotent plus, sont plus grands et plus lisibles.",
+      calmHudHint: "La lueur et les reflets de l'écran d'accueil s'immobilisent et le masque se fige. L'état de la connexion reste visible : la pierre s'allume et s'éteint toujours.",
     },
 
     routing: {

@@ -151,7 +151,7 @@ fn decode_profile_title(raw: &str) -> Option<String> {
 #[derive(Debug, Clone)]
 struct ResolvedTarget {
     host: String,
-    address: SocketAddr,
+    addresses: Vec<SocketAddr>,
     is_ip_literal: bool,
 }
 
@@ -199,7 +199,7 @@ fn is_forbidden_target_ip(ip: IpAddr) -> bool {
     }
 }
 
-fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<SocketAddr, String> {
+fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<(), String> {
     if addresses.is_empty() {
         return Err(i18n_error("subs.err.noAddresses"));
     }
@@ -212,7 +212,7 @@ fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<SocketAddr, S
         // public one selected by the resolver.
         return Err(i18n_error("subs.err.privateNetwork"));
     }
-    Ok(addresses[0])
+    Ok(())
 }
 
 fn parse_subscription_url(raw: &str) -> Result<reqwest::Url, String> {
@@ -243,7 +243,7 @@ async fn resolve_public_target(url: &reqwest::Url) -> Result<ResolvedTarget, Str
         }
         return Ok(ResolvedTarget {
             host: host.to_ascii_lowercase(),
-            address: SocketAddr::new(ip, port),
+            addresses: vec![SocketAddr::new(ip, port)],
             is_ip_literal: true,
         });
     }
@@ -252,10 +252,10 @@ async fn resolve_public_target(url: &reqwest::Url) -> Result<ResolvedTarget, Str
         .await
         .map_err(|_| i18n_error("subs.err.dnsFailed"))?
         .collect();
-    let address = validate_resolved_addresses(&addresses)?;
+    validate_resolved_addresses(&addresses)?;
     Ok(ResolvedTarget {
         host: host.to_ascii_lowercase(),
-        address,
+        addresses,
         is_ip_literal: false,
     })
 }
@@ -344,10 +344,12 @@ fn make_client(
         .cookie_provider(Arc::clone(jar))
         .gzip(true);
     if let Some(target) = target.filter(|target| !target.is_ip_literal) {
-        // Connect to the checked address while retaining the URL hostname for
-        // TLS SNI and HTTP Host. This closes the resolve-then-connect race for
-        // the target used by this request.
-        builder = builder.resolve(&target.host, target.address);
+        // Connect to the checked addresses while retaining the URL hostname
+        // for TLS SNI and HTTP Host. This closes the resolve-then-connect race
+        // for the target used by this request. Every checked address is
+        // pinned, not just the first one: a host whose first record is an
+        // unroutable IPv6 address must still be reachable over IPv4.
+        builder = builder.resolve_to_addrs(&target.host, &target.addresses);
     }
     if let Some(proxy) = proxy {
         let configured =

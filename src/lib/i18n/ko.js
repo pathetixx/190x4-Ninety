@@ -1372,7 +1372,7 @@ export const ko = {
       contrastTitle: "대비 높이기",
       contrastHint: "모든 테마에서 라벨, 아이콘, 테두리를 더 잘 보이게 합니다. 직접 바꾸기 전까지는 Windows 대비 설정을 따릅니다.",
       calmHudTitle: "차분한 홈 화면",
-      calmHudHint: "홈 화면의 링과 마스크 애니메이션을 멈춥니다. 글자가 깜박이지 않고 더 크고 읽기 쉬워집니다.",
+      calmHudHint: "홈 화면의 빛과 반사가 멈추고 마스크도 정지합니다. 연결 상태는 그대로 보이며, 돌이 빛나고 꺼집니다.",
     },
 
     routing: {

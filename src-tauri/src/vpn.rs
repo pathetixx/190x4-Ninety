@@ -1102,17 +1102,29 @@ pub(crate) fn read_tail(path: &std::path::Path, tail_bytes: Option<u64>) -> Resu
     if !path.exists() {
         return Ok(String::new());
     }
+    let size = std::fs::metadata(path)
+        .map_err(|e| format!("stat: {e}"))?
+        .len();
+    read_tail_within(path, tail_bytes, size)
+}
+
+// Хвост первых `size` байт файла. Размер задаёт вызывающий: движок дописывает
+// журнал между stat и чтением, и чтение «до конца файла» отдавало строки за
+// позицией, которую экран «Логи» затем дочитывал повторно — они задваивались.
+fn read_tail_within(
+    path: &std::path::Path,
+    tail_bytes: Option<u64>,
+    size: u64,
+) -> Result<String, String> {
     let limit = normalized_log_tail_bytes(tail_bytes);
     if limit == 0 {
         return Ok(String::new());
     }
-    let meta = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?;
-    let size = meta.len();
     if size <= limit {
         use std::io::Read;
         let f = std::fs::File::open(path).map_err(|e| format!("open: {e}"))?;
-        let mut bytes = Vec::with_capacity(size.min(limit) as usize);
-        f.take(limit)
+        let mut bytes = Vec::with_capacity(size as usize);
+        f.take(size)
             .read_to_end(&mut bytes)
             .map_err(|e| format!("read_to_end: {e}"))?;
         return Ok(String::from_utf8_lossy(&bytes).into_owned());
@@ -1285,7 +1297,7 @@ pub async fn read_log_chunk(
         }
     }
     Ok(LogChunk {
-        text: read_tail(path, tail_bytes)?,
+        text: read_tail_within(path, tail_bytes, size)?,
         offset: size,
         size,
         reset: true,
@@ -2280,9 +2292,15 @@ async fn verify_runtime_dataplane_unlogged(
         .as_ref()
         .is_some_and(|runtime| runtime.strict_privacy);
     if strict_privacy {
+        // `is_active` истинно и тогда, когда жив один лишь транзитный барьер.
+        // Снять его можно только поверх собранной пользовательской policy —
+        // то же условие, что у release_runtime_transition_barrier.
         let wfp_ready = app
             .try_state::<crate::killswitch::KillSwitchState>()
-            .is_some_and(|kill_switch| crate::killswitch::is_active(&kill_switch));
+            .is_some_and(|kill_switch| {
+                crate::killswitch::policy_lease_active(&kill_switch)
+                    && crate::killswitch::is_active(&kill_switch)
+            });
         return if wfp_ready {
             verified_runtime_ready(app)
         } else {
@@ -3002,6 +3020,19 @@ struct StopTimings {
     total_ms: u64,
 }
 
+/// Освобождены ли порты runtime с точки зрения очистки.
+///
+/// На Windows выход движков подтверждается по их process object, а слушающий
+/// сокет свой процесс не переживает. Порт, занятый после того как все наши
+/// процессы подтверждённо завершились, держит чужая программа: она успела
+/// занять его, например, после падения ядра. Считать такой порт своим долгом
+/// нельзя — stop не подтвердился бы никогда, а start отвечал бы «повторите
+/// отключение» до перезапуска приложения. Сами порты остаются в отчёте
+/// остановки и видны в журнале.
+fn ports_confirmed_released(processes_exited: bool, remaining_ports: &[u16]) -> bool {
+    remaining_ports.is_empty() || (cfg!(target_os = "windows") && processes_exited)
+}
+
 async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<StopResult, String> {
     let _stop = state.stop_lock.lock().await;
     state.dataplane_probe.invalidate();
@@ -3077,7 +3108,7 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
     let singbox_exited = killed_processes_exited(state, &singbox_processes);
     let xray_exited = killed_processes_exited(state, &xray_processes);
     let sidecars_exited = killed_processes_exited(state, &sidecar_processes);
-    let ports_released = remaining_ports.is_empty();
+    let ports_released = ports_confirmed_released(processes_exited, &remaining_ports);
     let confirmed_at = std::time::Instant::now();
     let proxy_confirmed = !proxy_was_owned || proxy_ok;
     let cleanup_confirmed = processes_exited && ports_released && proxy_confirmed;

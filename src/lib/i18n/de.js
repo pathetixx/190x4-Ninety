@@ -1380,7 +1380,7 @@ export const de = {
       contrastTitle: "Erhöhter Kontrast",
       contrastHint: "Macht Beschriftungen, Symbole und Rahmen in allen Designs besser lesbar. Solange du nichts änderst, folgt es der Kontrasteinstellung von Windows.",
       calmHudTitle: "Ruhiger Startbildschirm",
-      calmHudHint: "Die Ringe und die Masken-Animation auf dem Startbildschirm stehen still. Beschriftungen blinken nicht mehr, sind größer und leichter lesbar.",
+      calmHudHint: "Leuchten und Lichtreflexe auf dem Startbildschirm stehen still, die Maske hält an. Der Verbindungsstatus bleibt sichtbar: Der Stein leuchtet weiterhin auf und erlischt.",
     },
 
     routing: {

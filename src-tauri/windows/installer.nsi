@@ -229,7 +229,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW NinetyWelcomeShow
 !insertmacro MUI_PAGE_WELCOME
 Function NinetyWelcomeShow
-  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text Install
+  !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.WelcomePage $mui.WelcomePage.Image $mui.WelcomePage.Title $mui.WelcomePage.Text Next
 FunctionEnd
 
 ; 2. Install mode (if it is set to `both`)
@@ -462,7 +462,12 @@ Function PageLeaveReinstall
       StrCpy $5 0
     ${EndIf}
 
+    ; The macro leaves the mutex handle in $0, which is where ExecWait put the
+    ; uninstaller's exit code. Without saving it every successful removal was
+    ; read as a failure: "unable to uninstall" after the old version was gone.
+    Push $0
     !insertmacro NinetyAcquireInstallerMutex $6 maintenance
+    Pop $0
 
     BringToFront
 
@@ -493,6 +498,14 @@ Function PageLeaveReinstall
     ${AndIf} $4 != ""
       Delete "$4\uninstall.exe"
       RMDir "$4"
+    ${EndIf}
+
+    ; "Remove Ninety" chosen for the installed version is a removal, not the
+    ; first half of a reinstall: the wizard used to carry on and install the
+    ; application that had just been removed.
+    ${If} $WixMode = 0
+    ${AndIf} $R0 = 0
+      Quit
     ${EndIf}
   reinst_done:
 FunctionEnd
@@ -533,8 +546,8 @@ FunctionEnd
 !insertmacro MUI_PAGE_FINISH
 Function NinetyFinishShow
   !insertmacro KuroganeKnownFullWindowPageShowImpl "" $mui.FinishPage $mui.FinishPage.Image $mui.FinishPage.Title $mui.FinishPage.Text Finish
-  !insertmacro KuroganeFinishOptionImpl $mui.FinishPage.Run 214
-  !insertmacro KuroganeFinishOptionImpl $mui.FinishPage.ShowReadme 236
+  !insertmacro KuroganeFinishOptionImpl $mui.FinishPage.Run 214 $KuroganeFinishRunControl
+  !insertmacro KuroganeFinishOptionImpl $mui.FinishPage.ShowReadme 236 $KuroganeFinishReadmeControl
 FunctionEnd
 
 Function RunMainBinary
@@ -730,6 +743,7 @@ Section WebView2
           DetailPrint "$(webview2DownloadSuccess)"
         ${Else}
           DetailPrint "$(webview2DownloadError)"
+          ${IfThen} $PassiveMode = 1 ${|} Quit ${|}
           Abort "$(webview2AbortError)"
         ${EndIf}
         StrCpy $6 "$TEMP\MicrosoftEdgeWebview2Setup.exe"
@@ -762,6 +776,7 @@ Section WebView2
           DetailPrint "$(webview2InstallSuccess)"
         ${Else}
           DetailPrint "$(webview2InstallError)"
+          ${IfThen} $PassiveMode = 1 ${|} Quit ${|}
           Abort "$(webview2AbortError)"
         ${EndIf}
       webview2_done:
@@ -1152,6 +1167,10 @@ Function NinetyValidateInstallTarget
     IfSilent 0 +2
       Abort
     MessageBox MB_OK|MB_ICONSTOP "$(KInstallTargetUnavailable)$\r$\n$NinetyLockedPath"
+    ; The passive (OTA) window has no Cancel and a disabled Close: an aborted
+    ; run would leave a window nothing can dismiss, still holding the setup
+    ; mutex. Leave the process instead.
+    ${IfThen} $PassiveMode = 1 ${|} Quit ${|}
     Abort
 FunctionEnd
 

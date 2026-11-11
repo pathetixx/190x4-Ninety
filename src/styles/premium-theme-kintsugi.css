@@ -75,6 +75,9 @@ html[data-theme="kintsugi"] .nav__item--active {
     #130C0C;
   border-color: rgba(216, 181, 107, 0.18);
 }
+/* Kintsugi: трещины обсидиана заливает золото, как в настоящем кинцуги */
+html[data-theme="kintsugi"] .hero,
+.app[data-theme="kintsugi"] .hero { --lava: #C9A45C; --lava-hot: #F1D594; }
 html[data-theme="kintsugi"] .hero[data-state="secured"] .hero__title {
   color: var(--premium-status);
   text-shadow: 0 0 18px rgba(216, 181, 107, 0.18), 0 0 42px rgba(232, 77, 91, 0.12);

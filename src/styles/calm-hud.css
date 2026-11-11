@@ -1,31 +1,24 @@
 /* ─────────────────────────────────────────────────────────────
    Ninety — спокойный главный экран (Настройки → Оформление)
    Включается только вручную (data-hud-mode="calm" на <html>, см. lib/calm-hud.js).
-   Кольца стоят, надписи HUD без хроматической аберрации и без общей
-   полупрозрачности слоя: приглушается только декор, текст — в цветах токенов.
+   Корона, лава и блики обсидиана стоят на месте, видео-маска на паузе (main.js).
+   Сами состояния остаются: лава разгорается при подключении и гаснет при
+   отключении, просто без непрерывного движения.
    ───────────────────────────────────────────────────────────── */
 
-html[data-hud-mode="calm"] .hud__outer,
-html[data-hud-mode="calm"] .hud__seg,
-html[data-hud-mode="calm"] .hud__ticks {
+html[data-hud-mode="calm"] .ob-corona__glow,
+html[data-hud-mode="calm"] .ob-corona__glow > i,
+html[data-hud-mode="calm"] .ob-crack > i,
+html[data-hud-mode="calm"] .ob-rim {
   animation: none;
-  will-change: auto;
 }
 
-html[data-hud-mode="calm"] .hud [data-hud="ca"],
-html[data-hud-mode="calm"] .hud .hud__ca-fx { filter: none !important; }
+/* Бегущие блики и искра — чистый декор, в спокойном режиме их нет */
+html[data-hud-mode="calm"] .ob-glint,
+html[data-hud-mode="calm"] .ob-rim { display: none; }
 
-/* Прозрачность по состоянию — на декоре, а не на всём слое с текстом. */
-html[data-hud-mode="calm"] .hero .hud { opacity: 1; }
-html[data-hud-mode="calm"] .hero[data-state="standby"] .hud > :not(defs):not([data-hud="ca"]) { opacity: 0.5; }
-html[data-hud-mode="calm"] .hero[data-state="linking"] .hud > :not(defs):not([data-hud="ca"]) { opacity: 0.82; }
-
-/* Мелкие строки — крупнее и без разрядки, чтобы читались. */
-html[data-hud-mode="calm"] .hud__sys,
-html[data-hud-mode="calm"] .hud__target { font-size: 11px; letter-spacing: 1.2px; }
-html[data-hud-mode="calm"] .hud__clock,
-html[data-hud-mode="calm"] .hud__err { font-size: 11px; letter-spacing: 0.8px; }
-html[data-hud-mode="calm"] .hud__clock { fill: var(--text-mid); }
-html[data-hud-mode="calm"] .hero[data-state="secured"] .hud__err { fill: var(--text-mid) !important; }
+/* Свечение не «дышит»: ровное */
+html[data-hud-mode="calm"] .hero[data-state="secured"] .ob-corona,
+html[data-hud-mode="calm"] .hero[data-state="secured"] .ob-lava { animation: none; }
 
 html[data-hud-mode="calm"] .hero[data-state="linking"] .hero__kicker-dot { animation: none; }

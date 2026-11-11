@@ -19,30 +19,12 @@ html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"]
   border-color: color-mix(in srgb, var(--premium-border) 72%, var(--accent) 28%);
 }
 
-html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hero__disc {
-  background: var(--premium-disc);
-  border-color: var(--premium-border);
-  box-shadow:
-    0 0 0 1px var(--line-1) inset,
-    0 1px 0 var(--shine-2) inset,
-    0 26px 64px -26px var(--shadow-strong),
-    0 0 34px var(--accent-glow);
-}
-html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hero__mask {
-  filter: var(--premium-mask-idle);
-}
-html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hero[data-state="secured"] .hero__mask {
-  filter: var(--premium-mask-secured);
-}
-
-/* A second HUD material gives these themes a real identity instead of just a new hue. */
-html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hud__static > path:nth-of-type(even),
-html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hud__outer > line:nth-of-type(6n),
-html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hud__ticks > line:nth-of-type(10n) {
-  stroke: var(--premium-secondary);
-}
-html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hud__target {
-  fill: var(--premium-secondary);
+/* Маска главного экрана подкрашивается оттенком темы; затемнение в покое — поверх оттенка
+   (переменные читает styles/obsidian-hud.css). */
+html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hero {
+  --hero-mask-idle: var(--premium-mask-idle) grayscale(.45) brightness(.66);
+  --hero-mask-mid: var(--premium-mask-idle);
+  --hero-mask-on: var(--premium-mask-secured);
 }
 
 /* Theme chooser previews: show the material, not only four accent-opacity dots. */

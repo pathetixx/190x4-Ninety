@@ -1380,7 +1380,7 @@ export const en = {
       contrastTitle: "Increased contrast",
       contrastHint: "Makes labels, icons and borders easier to read in every theme. Until you change it, follows the Windows contrast setting.",
       calmHudTitle: "Calm home screen",
-      calmHudHint: "Stops the rings and the mask animation on the home screen. Labels stop blinking, are larger and easier to read.",
+      calmHudHint: "The glow and highlights on the home screen stop moving and the mask freezes. The connection state stays visible: the stone still lights up and fades.",
     },
 
     routing: {

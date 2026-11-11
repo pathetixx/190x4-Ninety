@@ -825,6 +825,17 @@ export function parseWireguardConf(text, displayName) {
     i5: iface.i5 || "",
   };
 
+  // Числовое поле шейпинга, которое не разобралось числом (диапазон «100-200»
+  // у новых версий AmneziaWG), раньше молча становилось нулём: тоннель говорил
+  // с пиром не на том протоколе и не поднимался без единого слова почему.
+  // Значение ядру не передаём, но называем поле среди непереносимых.
+  for (const key of ["jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"]) {
+    const rawValue = String(iface[key] ?? "").trim();
+    if (!rawValue || Number.isFinite(Number(rawValue))) continue;
+    const label = key[0].toUpperCase() + key.slice(1);
+    if (!ignored.includes(label)) ignored.push(label);
+  }
+
   const primary = parsedPeers[0];
   return {
     raw: `wg-conf://${primary.host}:${primary.port}`, // синтетический маркер для storage
@@ -862,7 +873,9 @@ export function wireguardConfText(profile) {
     lines.push(`PublicKey = ${peer.publicKey}`);
     if (peer.presharedKey) lines.push(`PresharedKey = ${peer.presharedKey}`);
     lines.push(`AllowedIPs = ${(peer.allowedIps || []).join(", ")}`);
-    lines.push(`Endpoint = ${peer.host}:${peer.port}`);
+    // IPv6-адрес без скобок wg-quick не разберёт: парсер снимает их при импорте.
+    const endpointHost = String(peer.host).includes(":") ? `[${peer.host}]` : peer.host;
+    lines.push(`Endpoint = ${endpointHost}:${peer.port}`);
     if (peer.keepalive) lines.push(`PersistentKeepalive = ${peer.keepalive}`);
   }
   return lines.join("\n") + "\n";

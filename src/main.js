@@ -81,7 +81,6 @@ import { createChannelIncidentRecorder } from "/lib/channel-incidents.js";
 import { mountDiagnoseView } from "/lib/diagnose-view.js";
 import { newRule, sanitizeRule } from "/lib/routing-rules.js";
 import { openQualityScope } from "/lib/quality-scope.js";
-import { initHeroHud } from "/lib/hero-hud.js";
 import { parseDeepLink } from "/lib/deeplink.js";
 import {
   applyKillSwitch,
@@ -2415,6 +2414,7 @@ function refreshDynamicText() {
     modeHint.innerHTML = t("mode.hint." + (MODE_KEYS.includes(m) ? m : "systemProxy"));
   }
   if (statsMode && state === "connected") statsMode.textContent = modeLabel(getMode());
+  updateHomeReady();
 }
 
 document.getElementById("profiles-refresh-all")?.addEventListener("click", async () => {
@@ -2647,7 +2647,7 @@ const locIp = document.getElementById("loc-ip");
 // Мап-имена для CSS data-state
 const STATE_HERO = {
   idle: "standby", connecting: "linking", connected: "secured",
-  disconnecting: "linking", cleanup_error: "standby",
+  disconnecting: "unlinking", cleanup_error: "standby",
 };
 const STATE_KICKER = {
   idle:       "STAND-BY · DISCONNECTED",
@@ -2665,20 +2665,46 @@ const CONNECTED_KICKER = {
 function connectedKicker() { return CONNECTED_KICKER[getMode()] || STATE_KICKER.connected; }
 const modeLabel = (m) => t("mode." + m);
 
-// Кибер-HUD вокруг маски (lib/hero-hud.js). Инициализируется ниже, после
-// объявления `state` — getState читает его лениво из замыкания.
-let heroHud = null;
-
 function applyHeroState(internalState) {
   if (!hero) return;
   const ds = STATE_HERO[internalState] || "standby";
   hero.dataset.state = ds;
-  heroHud?.sync(); // обновить SYSTEM STATUS / TARGET / INTEGRITY / ERR под состояние
 }
 
 // Stats-strip vs Location-card: connected → stats-strip с live-метриками.
 // Когда VPN выключен (idle/connecting) — нижняя плитка сервера не нужна,
 // прячем обе (раньше показывали loc-card в standby — лишний шум).
+// Строка «Готов» под HUD до подключения: выбранный вручную сервер или «Авто», если
+// подписка сама подберёт узел после старта ядра, и режим подключения.
+const homeReady = document.getElementById("home-ready");
+const homeReadyFlag = document.getElementById("home-ready-flag");
+const homeReadySrv = document.getElementById("home-ready-srv");
+const homeReadyMode = document.getElementById("home-ready-mode");
+// applyHomeBottom("idle") зовётся раньше объявления state/currentEffectiveNode (let):
+// до этого флага строку не трогаем, иначе обращение к ним упало бы в мёртвой зоне.
+let homeReadyBooted = false;
+function readyTarget() {
+  if (currentEffectiveNode) return currentEffectiveNode;
+  const src = activeDisplaySource();
+  if (!src) return null;
+  if (src.kind !== "sub") return src.profile || null;
+  if ((src.nodes?.length || 0) === 1) return src.nodes[0];
+  const tag = getRememberedProxySelection(src);
+  return (tag && src.nodes?.find((n, i) => nodeTag(i, n) === tag)) || "auto";
+}
+function updateHomeReady() {
+  if (!homeReady || !homeReadyBooted) return;
+  const target = state === "idle" ? readyTarget() : null;
+  homeReady.hidden = !target;
+  if (!target) return;
+  const node = target === "auto" ? null : target;
+  homeReadySrv.textContent = node ? (stripFlag(node.name) || node.host || "—") : t("proxies.auto");
+  const iso = node ? (isoFromNodeName(node.name) || isoFromNodeName(node.host)) : null;
+  homeReadyFlag.innerHTML = iso ? `<img src="${FLAGS_BASE}/${iso}.svg" alt="">` : "";
+  homeReadyFlag.hidden = !iso;
+  homeReadyMode.textContent = modeLabel(getMode());
+}
+
 function applyHomeBottom(internalState) {
   if (!locCard || !statsStrip) return;
   locCard.hidden = true;
@@ -2687,6 +2713,7 @@ function applyHomeBottom(internalState) {
   // уезжает вверх (а при disconnect — обратно вниз). Резерв места = сцена не двигается.
   statsStrip.hidden = false;
   statsStrip.classList.toggle("stats--reserved", internalState !== "connected");
+  updateHomeReady();
 }
 
 // Активный сервер в stats-strip — обновляется при connect и смене effective-ноды.
@@ -2702,7 +2729,7 @@ function updateStatsServer() {
     statsFlag.innerHTML = iso ? `<img src="${FLAGS_BASE}/${iso}.svg" alt="">` : "";
     statsFlag.hidden = !iso;
   }
-  heroHud?.sync(); // эффективная нода сменилась → перечитать TARGET LOCKED в HUD
+  updateHomeReady(); // сменилась нода или источник — обновить строку «Готов»
 }
 
 let lastPublicIp = null;
@@ -2789,26 +2816,18 @@ function runtimeProbeHostPort(snapshot = runtimeSnapshotCache) {
 // раньше быстрый connect→cancel всё равно заканчивался «Защищено».
 const connectAttempts = createConnectionAttemptGate();
 
-// Запускаем HUD после объявления state. TARGET читает фактический сервер.
-function hudTarget() {
-  // Тот же источник, что ячейка «Сервер» телеметрии (activeNodeForDisplay) — HUD-таргет
-  // всегда совпадает с реально выбранной нодой. Балансировщик подписки выбирает сервер
-  // уже ПОСЛЕ старта ядра, поэтому при коннекте сюда раньше попадал nodes[0] (Germany #1),
-  // а телеметрия позже показывала фактический (Latvia #2) — теперь оба тянут одно и то же.
-  const p = activeNodeForDisplay();
-  const l = stripFlag(p?.name) || p?.host || "190X4";
-  return l.toUpperCase().replace(/\s+/g, "-").slice(0, 16);
+// Обсидиановый HUD (styles/obsidian-hud.css) движется только на виду: в трее, без
+// фокуса и на других экранах его анимации стоят — GPU не греется впустую.
+function syncHeroMotion(snapshot = activityController.snapshot()) {
+  if (!hero) return;
+  const live = snapshot.visible && snapshot.focused && snapshot.view === "home";
+  if (live) delete hero.dataset.motion;
+  else hero.dataset.motion = "paused";
 }
-heroHud = initHeroHud(document.getElementById("hero-hud"), {
-  getState: () => STATE_HERO[state] || "standby",
-  getTarget: hudTarget,
-  isCalm: isCalmHud,
-});
+activityController.subscribe((snapshot) => syncHeroMotion(snapshot));
+syncHeroMotion();
 // Спокойный главный экран переключается в настройках на лету.
-bus.on(CALM_HUD_EVENT, (on) => {
-  heroHud?.setCalm(on);
-  syncHeroMaskPlayback();
-});
+bus.on(CALM_HUD_EVENT, () => syncHeroMaskPlayback());
 syncHeroMaskPlayback();
 
 function setHeroHintText(text) {
@@ -3461,7 +3480,9 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         try { warpInfo = await invoke("warp_status"); } catch {}
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
         if (!warpInfo) {
-          setState("idle");
+          // Сюда приходит и реконнект поверх сохранённого Kill Switch: голый
+          // idle снял бы барьер, и трафик пошёл бы напрямую.
+          setState("idle", { preserveKillSwitch: killSwitchMustSurviveRuntimeStop() });
           toast(t("conn.warpUnreg"), "error", 3500);
           return false;
         }
@@ -3937,6 +3958,9 @@ async function runtimeSnapshotIsLive(snapshot, source = activeDisplaySource()) {
 heroDisc?.addEventListener("click", () => handleConnectionIntent());
 
 // ── Bootstrap ──────────────────────────────────────────────
+// Все модульные let уже объявлены — строке «Готов» можно читать источник и ноду.
+homeReadyBooted = true;
+updateHomeReady();
 if (locPing) locPing.textContent = `— ${t("units.ms")}`;
 window.addEventListener("ninety:profile-store-ready", () => {
   refreshProfilesSummary();

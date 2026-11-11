@@ -6,6 +6,38 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.12.4 — 2026-11-10
+
+## English
+
+- The removal wizard now shows its final button, and removing Ninety from the installer no longer reports a false failure or installs the app again.
+- The installer window can now be moved, minimized and closed on every page, and its buttons are labelled for what they actually do.
+- The system proxy is now switched off on disconnect even if its exceptions list was changed while Ninety was connected.
+- Kill Switch now stays on when a reconnect cannot start because WARP is not registered.
+- Subscriptions now update even when the first address of the provider is unreachable.
+- The server list now refreshes pings fully when some servers respond slowly.
+- The Logs screen no longer shows duplicated lines.
+- A link with spaces in its name is now imported as a single server, and exported WireGuard profiles with IPv6 addresses are now valid.
+- Importing an AmneziaWG profile now names the settings that could not be carried over.
+- Disconnecting no longer gets stuck when another program takes a port Ninety was using.
+- Data for the hosts-based bypass is now verified again right before it is applied.
+- Connection engines received security fixes.
+
+## Русский
+
+- Мастер удаления теперь показывает финальную кнопку, а удаление Ninety из установщика больше не сообщает о ложной ошибке и не ставит приложение заново.
+- Окно установщика теперь можно перемещать, сворачивать и закрывать на любой странице, а подписи кнопок соответствуют их действию.
+- Системный прокси теперь выключается при отключении, даже если список исключений изменили, пока Ninety был подключён.
+- Kill Switch теперь остаётся включённым, когда переподключение не может начаться из-за отсутствующей регистрации WARP.
+- Подписки теперь обновляются, даже если первый адрес провайдера недоступен.
+- Список серверов теперь полностью обновляет пинги, когда часть серверов отвечает медленно.
+- На экране «Логи» больше не появляются повторяющиеся строки.
+- Ссылка с пробелами в имени теперь импортируется как один сервер, а экспортированные профили WireGuard с IPv6-адресами теперь корректны.
+- При импорте профиля AmneziaWG теперь называются параметры, которые не удалось перенести.
+- Отключение больше не зависает, когда порт Ninety занимает другая программа.
+- Данные для обхода через hosts теперь повторно проверяются прямо перед применением.
+- Движки подключений получили исправления безопасности.
+
 ## v0.12.3 — 2026-11-05
 
 ## English

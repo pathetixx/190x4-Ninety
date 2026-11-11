@@ -181,6 +181,13 @@ fn client() -> Result<reqwest::Client, String> {
     Ok(CLIENT.get_or_init(|| c).clone())
 }
 
+// Замер задержки ждёт ядро столько, сколько попросил вызывающий, плюс запас на
+// сам ответ. Общий таймаут клиента (10 с) короче длинного прогона группы:
+// запрос обрывался посередине, и свежие задержки до экрана не доезжали.
+fn delay_request_timeout(timeout_ms: u32) -> std::time::Duration {
+    std::time::Duration::from_millis(u64::from(timeout_ms) + 3_000)
+}
+
 fn base(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }
@@ -431,6 +438,7 @@ pub async fn clash_test_node(
     let r = c
         .get(path)
         .bearer_auth(clash_secret())
+        .timeout(delay_request_timeout(t))
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;
@@ -463,6 +471,7 @@ pub async fn clash_test_group(
     let r = c
         .get(path)
         .bearer_auth(clash_secret())
+        .timeout(delay_request_timeout(t))
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;

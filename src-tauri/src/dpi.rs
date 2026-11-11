@@ -231,6 +231,12 @@ const LOCAL_LIST_FILES: [&str; 9] = [
 const IPSET_SERVICE_FILE: &str = "ipset-service.txt";
 const IPSET_BASE_FILE: &str = "ipset-all.base.txt";
 const CHANNEL_SERVICE_FILES: [&str; 2] = ["hosts", IPSET_SERVICE_FILE];
+// Подписанный бандл и его подпись лежат в поколении рядом с распакованными
+// файлами. Каталог данных доступен на запись обычному пользователю, поэтому
+// service-файлы (hosts уходит в системный файл из elevated-процесса) читаются
+// не с диска на веру, а из бандла после проверки подписи.
+const GENERATION_BUNDLE_FILE: &str = "bundle.zip";
+const GENERATION_SIGNATURE_FILE: &str = "bundle.zip.sig";
 
 struct StagingDirGuard {
     path: PathBuf,
@@ -2152,13 +2158,50 @@ fn referenced_bins(strategies: &[Strategy]) -> std::collections::HashSet<String>
     need
 }
 
-// Каталог последнего применённого подписанного service-набора (hosts/ipset) —
-// оффлайн-фолбэк, когда сеть недоступна, но канал уже синкали хоть раз.
-fn channel_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(match active_channel_generation(app)? {
-        Some(generation) => generation.join("service"),
-        None => crate::app_paths::data_dir(app)?.join("dpi").join("channel"),
-    })
+fn service_entry(name: &str) -> PathBuf {
+    Path::new("service").join(name)
+}
+
+// Файл из подписанного бандла, сохранённого в каталоге `dir` (поколение канала
+// или staging). Подпись проверяется при КАЖДОМ чтении, а содержимое берётся из
+// самого архива: распакованная копия рядом лежит в пользовательском каталоге,
+// и дописанная в неё строка иначе доезжала бы до системного hosts.
+fn read_signed_bundle_file(dir: &Path, relative: &Path) -> Result<String, String> {
+    let bundle = dir.join(GENERATION_BUNDLE_FILE);
+    let size = std::fs::metadata(&bundle)
+        .map_err(|e| format!("signed DPI bundle is missing: {e}"))?
+        .len();
+    if size > MAX_CHANNEL_BUNDLE_BYTES {
+        return Err(format!("signed DPI bundle is too large: {size} bytes"));
+    }
+    let zip_bytes = std::fs::read(&bundle).map_err(|e| format!("read signed DPI bundle: {e}"))?;
+    let sig_b64 = std::fs::read_to_string(dir.join(GENERATION_SIGNATURE_FILE))
+        .map_err(|e| format!("read DPI bundle signature: {e}"))?;
+    verify_channel(&zip_bytes, &sig_b64)?;
+
+    let reader = std::io::Cursor::new(zip_bytes.as_slice());
+    let mut zip = zip::ZipArchive::new(reader).map_err(|e| format!("open zip: {e}"))?;
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
+        let wanted = entry
+            .enclosed_name()
+            .is_some_and(|name| name.as_path() == relative);
+        if !wanted || entry.is_dir() {
+            continue;
+        }
+        if entry.size() > MAX_CHANNEL_ENTRY_BYTES {
+            return Err(format!(
+                "signed DPI bundle entry is too large: {}",
+                relative.display()
+            ));
+        }
+        let mut raw = Vec::new();
+        std::io::copy(&mut entry, &mut raw)
+            .map_err(|e| format!("unzip {}: {e}", relative.display()))?;
+        return String::from_utf8(raw)
+            .map_err(|e| format!("{}: invalid UTF-8: {e}", relative.display()));
+    }
+    Err(format!("signed DPI bundle has no {}", relative.display()))
 }
 
 // Скачать ПОДПИСАННЫЙ бандл канала, проверить minisign-подпись ДО распаковки и
@@ -2245,21 +2288,28 @@ async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<Pat
         let mut f = std::fs::File::create(&out).map_err(|e| format!("create {name:?}: {e}"))?;
         std::io::copy(&mut entry, &mut f).map_err(|e| format!("unzip {name:?}: {e}"))?;
     }
+    // Сам бандл и подпись кладём рядом с распакованным: по ним service-файлы
+    // перепроверяются перед использованием (read_signed_bundle_file). Запись
+    // идёт после распаковки, поэтому одноимённая запись архива их не подменит.
+    std::fs::write(staging.join(GENERATION_BUNDLE_FILE), &zip_bytes)
+        .map_err(|e| format!("store channel bundle: {e}"))?;
+    std::fs::write(staging.join(GENERATION_SIGNATURE_FILE), sig_b64.as_bytes())
+        .map_err(|e| format!("store channel signature: {e}"))?;
     staging_guard.keep = true;
     Ok(staging)
 }
 
-// Прочитать последнюю применённую подписанную копию service-файла (оффлайн-фолбэк).
+// Service-файл последнего применённого поколения (оффлайн-фолбэк). Берётся
+// только из подписанного бандла этого поколения: распакованной копии и кешу
+// прежних версий без подписи больше не доверяем — до следующей синхронизации
+// канала такой фолбэк отвечает «канал не синхронизирован».
 fn read_cached_service(app: &AppHandle, name: &str) -> Result<String, String> {
-    let p = channel_cache_dir(app)?.join(name);
-    if p.exists() {
-        std::fs::read_to_string(&p).map_err(|e| format!("read cached {name}: {e}"))
-    } else {
-        Err(crate::util::i18n_error_with(
-            "backend.dpi.channelNotSynced",
-            &[("name", name)],
-        ))
-    }
+    let not_synced =
+        || crate::util::i18n_error_with("backend.dpi.channelNotSynced", &[("name", name)]);
+    let Some(generation) = active_channel_generation(app)? else {
+        return Err(not_synced());
+    };
+    read_signed_bundle_file(&generation, &service_entry(name)).map_err(|_| not_synced())
 }
 
 // Service-файл активного поколения, если канал уже стоит на опубликованной
@@ -2268,10 +2318,6 @@ fn read_cached_service(app: &AppHandle, name: &str) -> Result<String, String> {
 // версии разошлись, сеть молчит) — None, и вызывающий идёт обычным путём.
 async fn current_channel_service(app: &AppHandle, port: Option<u16>, name: &str) -> Option<String> {
     let generation = active_channel_generation(app).ok().flatten()?;
-    let path = generation.join("service").join(name);
-    if !path.is_file() {
-        return None;
-    }
     let local = strat_version(app).ok()?;
     let remote = fetch_list_text(&format!("{CHANNEL_BASE}/version.txt"), port)
         .await
@@ -2279,7 +2325,9 @@ async fn current_channel_service(app: &AppHandle, port: Option<u16>, name: &str)
     if remote.trim().is_empty() || remote.trim() != local {
         return None;
     }
-    std::fs::read_to_string(&path).ok()
+    // Поколение, собранное до появления сохранённого бандла, проверить нечем:
+    // None отправляет вызывающего за свежим подписанным бандлом.
+    read_signed_bundle_file(&generation, &service_entry(name)).ok()
 }
 
 // Взять service-файл канала (hosts / ipset-service.txt) из ПОДПИСАННОГО бандла.
@@ -2299,25 +2347,11 @@ async fn fetch_channel_service(
     }
     match stage_verified_bundle(app, port).await {
         Ok(staging) => {
-            let result = (|| -> Result<String, String> {
-                let src = staging.join("service").join(name);
-                if !src.exists() {
-                    // Старые установки могут иметь кеш от переходного bundle.
-                    return read_cached_service(app, name);
-                }
-                let body =
-                    std::fs::read_to_string(&src).map_err(|e| format!("read {name}: {e}"))?;
-                // До первой полной синхронизации сохраняем совместимый legacy-кеш.
-                // Активное поколение не меняем по одному service-файлу: оно является
-                // снимком подписанного bundle и переключается только целиком.
-                if active_channel_generation(app)?.is_none() {
-                    let dir = channel_cache_dir(app)?;
-                    std::fs::create_dir_all(&dir)
-                        .map_err(|e| format!("mkdir channel cache: {e}"))?;
-                    write_replace(&dir.join(name), &body, &format!("service {name}"))?;
-                }
-                Ok(body)
-            })();
+            // Читаем из самого бандла, а не из распакованной копии: staging лежит
+            // в пользовательском каталоге. Активное поколение по одному
+            // service-файлу не меняем — оно переключается только целиком.
+            let result = read_signed_bundle_file(&staging, &service_entry(name))
+                .or_else(|_| read_cached_service(app, name));
             let _ = std::fs::remove_dir_all(&staging);
             result
         }
@@ -2577,6 +2611,15 @@ pub async fn dpi_sync_channel(
                 &pending.join("strategies.json"),
                 "channel strategies",
             )?;
+            // Подписанный бандл едет в поколение целиком: service-файлы потом
+            // перепроверяются по нему (read_signed_bundle_file).
+            for name in [GENERATION_BUNDLE_FILE, GENERATION_SIGNATURE_FILE] {
+                copy_replace(
+                    &staging.join(name),
+                    &pending.join(name),
+                    &format!("channel {name}"),
+                )?;
+            }
             write_replace(
                 &pending.join("version.txt"),
                 &format!("{ver}\n"),
@@ -2764,13 +2807,10 @@ fn valid_hosts_domain(name: &str) -> bool {
 
 // Проверка формы блока, который уйдёт в системный hosts.
 //
-// Подпись канала проверяется при загрузке бандла, но дальше service-файлы живут
-// распакованными в пользовательском каталоге, и оффлайн-фолбэк читает их с
-// диска уже без повторной проверки. Пользователь (или любой код, работающий от
-// его имени) может дописать туда строку — и она попала бы в hosts из
-// elevated-процесса. Поэтому перед записью требуем от каждой строки форму
-// «IP домен [домен…]»: подменённая строка становится отказом, а не записью.
-// Тот же shape-check делает CI перед подписью канала.
+// Тело приходит из подписанного бандла (см. read_signed_bundle_file), и это
+// второй рубеж поверх подписи: от каждой строки требуем форму
+// «IP домен [домен…]», чтобы в системный hosts из elevated-процесса не уехало
+// ничего, кроме записей. Тот же shape-check делает CI перед подписью канала.
 fn sanitize_hosts_body(body: &str) -> Result<String, String> {
     let mut out = Vec::new();
     for (index, line) in body.lines().enumerate() {
@@ -2859,9 +2899,7 @@ pub async fn dpi_hosts_apply(
     if count_hosts_entries(body) == 0 {
         return Err(crate::util::i18n_error("backend.dpi.hostsNoRecords"));
     }
-    // Форму проверяем ПЕРЕД записью: оффлайн-фолбэк читает service-файл с диска
-    // без повторной проверки подписи, и дописанная туда строка иначе уехала бы
-    // в системный hosts как есть.
+    // Форму проверяем ПЕРЕД записью — второй рубеж поверх подписи бандла.
     let sanitized = sanitize_hosts_body(body)?;
     let backup_dir = crate::app_paths::data_dir(&app)?.join("dpi");
     // Дальше — файл в System32 под перехватом Defender и ожидание

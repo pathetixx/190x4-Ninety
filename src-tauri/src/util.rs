@@ -23,15 +23,6 @@ impl<T> MutexExt<T> for Mutex<T> {
     }
 }
 
-/// Абсолютный путь к системному каталогу Windows (`...\System32`).
-///
-/// `%SystemRoot%` — переменная окружения процесса, и писать её может в том числе
-/// `HKCU\Environment`, то есть обычный пользователь без прав администратора.
-/// Отсюда берутся пути к `schtasks.exe`, `sc.exe`, `taskkill.exe` и
-/// `powershell.exe`, которые запускаются через `runas`: подменённая переменная
-/// превращала бы UAC-подтверждение пользователя в запуск чужого бинаря от
-/// администратора. `GetSystemDirectoryW` окружение не читает.
-#[cfg(target_os = "windows")]
 /// Ошибка, которую покажет интерфейс: ключ каталога i18n вместо готового текста,
 /// потому что язык интерфейса знает только фронтенд. Токен разбирает
 /// `backend-errors.js`; в логе он остаётся читаемым.
@@ -47,6 +38,15 @@ pub fn i18n_error_with(key: &str, vars: &[(&str, &str)]) -> String {
     format!("[[{key} {}]]", serde_json::Value::Object(vars))
 }
 
+/// Абсолютный путь к системному каталогу Windows (`...\System32`).
+///
+/// `%SystemRoot%` — переменная окружения процесса, и писать её может в том числе
+/// `HKCU\Environment`, то есть обычный пользователь без прав администратора.
+/// Отсюда берутся пути к `schtasks.exe`, `sc.exe`, `taskkill.exe` и
+/// `powershell.exe`, которые запускаются через `runas`: подменённая переменная
+/// превращала бы UAC-подтверждение пользователя в запуск чужого бинаря от
+/// администратора. `GetSystemDirectoryW` окружение не читает.
+#[cfg(target_os = "windows")]
 pub fn system_directory() -> std::path::PathBuf {
     use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
     let mut buffer = [0u16; 260];
@@ -55,6 +55,13 @@ pub fn system_directory() -> std::path::PathBuf {
         return std::path::PathBuf::from(r"C:\Windows\System32");
     }
     std::path::PathBuf::from(String::from_utf16_lossy(&buffer[..len]))
+}
+
+// Вне Windows системных утилит по этому пути нет: функция нужна только затем,
+// чтобы общий код, собирающий такие пути, компилировался.
+#[cfg(not(target_os = "windows"))]
+pub fn system_directory() -> std::path::PathBuf {
+    std::path::PathBuf::from("/usr/bin")
 }
 
 /// Абсолютный путь к каталогу Windows (`C:\Windows`), родителю `System32`.

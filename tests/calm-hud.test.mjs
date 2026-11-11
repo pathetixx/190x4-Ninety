@@ -51,12 +51,15 @@ test("мусор в хранилище не включает режим", () => 
   assert.equal(isCalmHud(), false);
 });
 
-test("стили режима подключены и кольца в нём стоят", () => {
+test("стили режима подключены: корона, лава и блики в нём стоят", () => {
   const html = readFileSync("src/index.html", "utf8");
   assert.match(html, /href="\/styles\/calm-hud\.css"/);
   const css = readFileSync("src/styles/calm-hud.css", "utf8");
-  assert.match(css, /html\[data-hud-mode="calm"\] \.hud__ticks \{\s*animation: none/);
-  assert.match(css, /\.hud__ca-fx \{ filter: none !important; \}/);
+  for (const sel of [".ob-corona__glow", ".ob-crack > i", ".ob-rim"]) {
+    assert.ok(css.includes(`html[data-hud-mode="calm"] ${sel}`), sel);
+  }
+  assert.match(css, /\.ob-corona__glow > i,[\s\S]*?\{\s*animation: none;/);
+  assert.match(css, /html\[data-hud-mode="calm"\] \.ob-glint,[\s\S]*?\{ display: none; \}/);
 });
 
 test("подписи переключателя есть во всех языках", async () => {

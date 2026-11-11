@@ -128,11 +128,21 @@
   position: absolute;
   inset: 0;
   z-index: 0;
-  opacity: 0.16;
+  opacity: 0.5;
   pointer-events: none;
-  background:
-    repeating-linear-gradient(115deg, transparent 0 31px, var(--line-1) 32px, transparent 33px 65px),
-    radial-gradient(circle at 16% 14%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 24%);
+  background: radial-gradient(circle at 16% 14%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 24%);
+}
+/* «Колонна»: весь сайдбар — одна обсидиановая плита (рендер Codex, альфа-маска
+   в цвете текста темы). В ::after, чтобы не спорить с узорами премиум-тем в ::before. */
+.sidebar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--text-hi) 11%, transparent);
+  -webkit-mask: url("/assets/hud/side.webp") center top / cover no-repeat;
+          mask: url("/assets/hud/side.webp") center top / cover no-repeat;
 }
 .sidebar > * { position: relative; z-index: 1; }
 
@@ -140,26 +150,14 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  /* 126→108 и марка 94→82: с семью пунктами меню прежний ритм не оставлял
-     места блоку трафика внизу — его срезало нижней границей окна. */
-  min-height: 108px;
-  padding: 16px 20px;
+  /* Логотип 58 px и NINETY с разрядкой: бренд тише, места под меню и трафик больше. */
+  padding: 26px 24px 16px;
   position: relative;
   overflow: hidden;
 }
-.brand::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0;
-  width: 100%;
-  height: 1px;
-  opacity: 1;
-  background: linear-gradient(90deg, transparent, var(--sidebar-border-strong) 18%, var(--sidebar-border-soft) 82%, transparent);
-  pointer-events: none;
-}
 .brand__mark {
-  width: 82px;
-  height: 82px;
+  width: 58px;
+  height: 58px;
   border-radius: 0;
   object-fit: contain;
   background: transparent;
@@ -171,8 +169,8 @@
 .brand__name {
   font-family: var(--font-body);
   font-weight: 400;
-  font-size: 30px;
-  letter-spacing: 0.125em;
+  font-size: 24px;
+  letter-spacing: 0.32em;
   color: transparent;
   background: var(--sidebar-brand-gradient);
   -webkit-background-clip: text;
@@ -187,8 +185,8 @@
 }
 .brand__meta {
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  letter-spacing: 0.13em;
+  font-size: 9.5px;
+  letter-spacing: 0.3em;
   color: var(--text-lo);
   text-transform: uppercase;
   display: flex;
@@ -198,24 +196,27 @@
 }
 
 .sidebar-state {
-  height: 44px;
-  flex: 0 0 44px;
-  padding: 0 22px;
+  position: relative;
+  flex: 0 0 auto;
+  height: 28px;
+  margin: 0 24px 16px;
+  padding: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  border-top: 1px solid var(--sidebar-border-soft);
-  border-bottom: 1px solid var(--sidebar-border-strong);
-  background:
-    linear-gradient(90deg, var(--sidebar-row-start) 0%, var(--sidebar-row-middle) 52%, var(--sidebar-row-start) 100%);
-  box-shadow:
-    inset 0 1px var(--shine-1),
-    inset 0 -1px var(--sidebar-border-soft);
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.115em;
   text-transform: uppercase;
   color: var(--text-lo);
+}
+/* статус — строка без плашки, под ней тонкая линия, гаснущая к краю */
+.sidebar-state::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -8px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--sidebar-border-strong), transparent);
 }
 .sidebar-state__dot {
   width: 6px;
@@ -225,15 +226,7 @@
   background: var(--accent);
   box-shadow: 0 0 9px var(--accent-glow);
 }
-.sidebar-state__pulse {
-  width: 32px;
-  height: 12px;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.25;
-  opacity: 0.82;
-}
+.sidebar-state__pulse { display: none; }
 .sidebar-state__label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -266,7 +259,6 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  border-bottom: 1px solid var(--sidebar-border-strong);
   /* Страховка для совсем низких окон: скорее прокрутить меню, чем срезать
      блок трафика под ним. */
   min-height: 0;
@@ -283,64 +275,40 @@
 .nav__item {
   display: flex;
   align-items: center;
-  gap: 18px;
-  min-height: 58px;
+  gap: 16px;
+  min-height: 50px;
   padding: 0 24px;
   border-radius: 0;
-  border-bottom: 1px solid var(--sidebar-border-strong);
-  background:
-    linear-gradient(90deg, var(--sidebar-row-start) 0%, var(--sidebar-row-middle) 52%, var(--sidebar-row-start) 100%);
-  box-shadow:
-    inset 0 1px var(--shine-1),
-    inset 0 -1px var(--sidebar-border-soft);
+  background: none;
   color: var(--sidebar-text);
   cursor: pointer;
   transition: background 200ms var(--ease-out), color 200ms var(--ease-out);
   position: relative;
 }
-.nav__item:last-child { border-bottom: 0; }
 .nav__item:hover {
   color: var(--text-hi);
-  background:
-    linear-gradient(90deg, var(--sidebar-row-middle) 0%, var(--sidebar-row-hover) 54%, var(--sidebar-row-middle) 100%);
+  background: linear-gradient(90deg, var(--sidebar-row-hover), transparent 70%);
 }
+.nav__item:active { background: linear-gradient(90deg, var(--sidebar-row-start), transparent 70%); }
+/* Активный пункт: тонкая полоса цвета темы слева и мягкий отсвет, без рамок и срезов */
 .nav__item--active {
   color: var(--sidebar-text-active);
-  box-shadow:
-    inset 0 1px var(--shine-2),
-    inset 0 -1px var(--sidebar-border-strong),
-    inset 0 -2px var(--accent-soft);
   background:
-    repeating-linear-gradient(0deg, var(--line-1) 0 1px, transparent 1px 3px),
-    linear-gradient(90deg, var(--sidebar-row-start) 0%, var(--sidebar-row-middle) 22%, var(--sidebar-row-active) 55%, var(--sidebar-row-middle) 78%, var(--sidebar-row-start) 100%);
-  clip-path: polygon(0 0, calc(100% - 26px) 0, 100% 26px, 100% 100%, 0 100%);
-  border-top: 1px solid var(--sidebar-border-strong);
-  border-bottom: 1px solid var(--sidebar-border-soft);
+    linear-gradient(90deg, var(--accent-soft), transparent 78%),
+    linear-gradient(90deg, var(--sidebar-row-active), var(--sidebar-row-middle) 40%, transparent 85%);
 }
 .nav__item--active::before {
   content: "";
   position: absolute;
-  inset-inline-end: 0;
-  top: 26px;
-  width: 3px;
+  inset-inline-start: 0;
+  top: 13px;
+  width: 2px;
   height: calc(100% - 26px);
+  border-radius: 2px;
   background: var(--accent);
-  transform: none;
   box-shadow: 0 0 7px var(--accent-glow);
 }
-.nav__item--active::after {
-  content: "";
-  position: absolute;
-  inset-inline-end: -6px;
-  top: 12px;
-  width: 38px;
-  height: 2px;
-  background: var(--accent);
-  transform: rotate(45deg);
-  transform-origin: center;
-  box-shadow: 0 0 6px var(--accent-glow);
-  z-index: 2;
-}
+.nav__item--active .nav__icon { color: var(--accent-bright); }
 .nav__icon {
   width: 24px;
   height: 24px;
@@ -348,7 +316,7 @@
   color: currentColor;
 }
 .nav__label {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 400;
   letter-spacing: -0.005em;
 }
@@ -364,12 +332,20 @@
 .sidebar__spacer { flex: 1 1 auto; min-height: 8px; }
 
 .traffic {
-  border-top: 1px solid var(--line-1);
-  padding: 12px 24px 14px;
+  position: relative;
+  margin: 0 24px;
+  padding: 14px 0 18px;
   display: flex;
   flex-direction: column;
   gap: 9px;
   flex: 0 0 auto;
+}
+.traffic::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, var(--sidebar-border-strong), transparent);
 }
 .traffic__head {
   display: flex;
@@ -652,149 +628,12 @@
    нижней карточки/DPI-чипа (рефлоу контента на квадрат больше не влияет). */
 .hero__stage {
   position: relative;
-  width: clamp(180px, min(100cqw, 100cqh), 360px);
+  width: clamp(180px, min(100cqw, 100cqh), 400px);
   aspect-ratio: 1;
   height: auto;
   max-width: 100%;
   display: grid;
   place-items: center;
-}
-
-/* Bloom — самый дальний мягкий ореол акцента */
-.hero__bloom {
-  position: absolute;
-  width: 118%;
-  height: 118%;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, var(--accent-glow) 0%, transparent 70%);
-  filter: blur(42px);
-  opacity: 0.16;
-  pointer-events: none;
-  transition: opacity 0.5s var(--ease-out);
-}
-.hero[data-state="linking"] .hero__bloom { opacity: 0.6; }
-.hero[data-state="secured"] .hero__bloom { opacity: 0.8; }
-
-/* Halo — ближний ореол под маской */
-.hero__halo {
-  position: absolute;
-  width: 78%;
-  height: 78%;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, var(--accent-glow) 0%, var(--accent-soft) 35%, transparent 70%);
-  filter: blur(20px);
-  opacity: 0.5;
-  pointer-events: none;
-  transition: opacity 0.5s var(--ease-out);
-}
-.hero[data-state="linking"] .hero__halo { opacity: 0.85; }
-.hero[data-state="secured"] .hero__halo { opacity: 0.9; }
-
-/* HUD — вращающиеся кольца, гейдж, ридауты (наполняется lib/hero-hud.js) */
-.hud {
-  position: absolute;
-  width: 114%;
-  height: 114%;
-  pointer-events: none;
-  overflow: visible;
-  opacity: 0.5;
-  transition: opacity 0.5s var(--ease-out);
-}
-.hero[data-state="linking"] .hud { opacity: 0.82; }
-.hero[data-state="secured"] .hud { opacity: 1; }
-
-/* Вращение колец HUD — на КОМПОНОВЩИКЕ (GPU), не покадровой перерисовкой SVG.
-   Раньше крутили через setAttribute('transform') в rAF → каждый кадр Chromium
-   заново растрил весь <svg> (~167 примитивов + фильтры) в GPU-процессе.
-   Теперь это CSS-анимация на промоутнутых слоях: слой растрится один раз и
-   дальше только докомпозичивается. Скорости/направления идентичны прежним
-   (outer 6°/с, seg −10°/с, ticks 3.2°/с). НЕ глушим в reduced-motion: HUD —
-   смысловой центр экрана (см. motion-rm.css). */
-.hud__outer, .hud__seg, .hud__ticks {
-  transform-box: view-box;
-  transform-origin: 200px 200px;   /* центр HUD в координатах viewBox */
-  will-change: transform;
-}
-.hud__outer { animation: hud-spin 60s    linear infinite; }
-.hud__seg   { animation: hud-spin 36s    linear infinite reverse; }
-.hud__ticks { animation: hud-spin 112.5s linear infinite; }
-@keyframes hud-spin { to { transform: rotate(360deg); } }
-
-.hud__sys {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 2.2px;
-  fill: var(--text-hi);
-  font-weight: 500;
-}
-.hud__target {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 2.2px;
-  fill: var(--accent-bright);
-  font-weight: 500;
-}
-.hud__clock {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 1.5px;
-  fill: var(--text-lo);
-}
-.hud__intg {
-  font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  fill: var(--accent-bright);
-}
-.hud__err {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 2px;
-  fill: var(--err);
-}
-
-/* Disc — кнопка с маской самурая */
-.hero__disc {
-  position: relative;
-  width: 42%;
-  height: auto;
-  aspect-ratio: 1;   /* диск-маска ВСЕГДА круг (height от ширины), даже если сцена на миг не-квадрат при клике */
-  border-radius: 50%;
-  background:
-    radial-gradient(closest-side, var(--ink-2) 0%, var(--ink-1) 70%, var(--ink-0) 100%);
-  border: 1px solid var(--line-2);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  overflow: hidden;
-  box-shadow:
-    0 0 0 1px var(--line-1) inset,
-    0 1px 0 var(--shine-1) inset,
-    0 24px 60px -20px rgba(0, 0, 0, 0.8),
-    0 0 32px var(--accent-glow);
-  transition:
-    transform 200ms var(--ease-out),
-    box-shadow 320ms var(--ease-out),
-    border-color 320ms var(--ease-out);
-}
-.hero__disc:hover {
-  transform: scale(1.02);
-  border-color: var(--line-3);
-  box-shadow:
-    0 0 0 1px var(--line-1) inset,
-    0 1px 0 var(--overlay-3) inset,
-    0 28px 70px -20px rgba(0, 0, 0, 0.85),
-    0 0 48px var(--accent-glow);
-}
-.hero__disc:active { transform: scale(0.97); transition-duration: 90ms; }
-.hero[data-state="secured"] .hero__disc {
-  border-color: var(--overlay-4);
-  box-shadow:
-    0 0 0 1px var(--line-1) inset,
-    0 1px 0 var(--overlay-3) inset,
-    0 28px 70px -20px rgba(0, 0, 0, 0.85),
-    0 0 60px var(--accent-glow);
 }
 
 /* Click-ripple — расходится от центра диска при клике (создаётся в main.js, живёт 600ms).
@@ -815,31 +654,6 @@
 @keyframes hero-ripple {
   from { opacity: 0.6; transform: translate(-50%, -50%) scale(0.6); }
   to   { opacity: 0;   transform: translate(-50%, -50%) scale(2.2); }
-}
-
-.hero__mask {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  pointer-events: none;
-  user-select: none;
-  /* Чуть приглушаем «огонь» чтобы маска работала премиумно, не как gamer-баннер.
-     При connected — снимаем фильтр и подкидываем drop-shadow в акценте. */
-  filter: brightness(0.92) saturate(0.92) contrast(1.05);
-  transition: filter 500ms var(--ease-out);
-}
-.hero[data-state="linking"] .hero__mask {
-  filter: brightness(1.05) saturate(1.1) contrast(1.05);
-}
-/* drop-shadow здесь был визуальным no-op и стоил blur-прохода по КАЖДОМУ кадру
-   видео (20 fps): кадр непрозрачный (yuv420p, без альфы), поэтому тень ложилась
-   ровно по периметру бокса — то есть целиком за пределами .hero__disc с его
-   overflow:hidden + border-radius:50%, и всегда обрезалась. Свечение вокруг
-   маски даёт box-shadow самого диска (см. .hero[data-state="secured"] .hero__disc).
-   Оставшиеся brightness/saturate/contrast — color-matrix, его композитор считает
-   шейдером и покадровой перерисовки не требует. */
-.hero[data-state="secured"] .hero__mask {
-  filter: brightness(1.08) saturate(1.05) contrast(1.05);
 }
 
 /* Status block — under stage */
@@ -886,28 +700,6 @@
     var(--ink-0);
 }
 [data-theme="shiro"] .app::after { opacity: 0.025; }
-[data-theme="shiro"] .hero__bloom { filter: blur(48px); }
-[data-theme="shiro"] .hero[data-state="secured"] .hero__bloom { opacity: 0.42; }
-[data-theme="shiro"] .hero[data-state="secured"] .hero__halo { opacity: 0.6; }
-[data-theme="shiro"] .hero[data-state="secured"] .hud { opacity: 0.9; }
-[data-theme="shiro"] .hud__sys { fill: var(--text-mid); letter-spacing: 1.5px; }
-[data-theme="shiro"] .hud__target { fill: var(--accent-deep); letter-spacing: 1.5px; }
-[data-theme="shiro"] .hud__clock { fill: var(--text-lo); }
-[data-theme="shiro"] .hud__intg { fill: var(--accent-deep); }
-[data-theme="shiro"] .hud__err { fill: var(--text-lo); }
-[data-theme="shiro"] .hud [data-hud="ca"] { filter: none !important; }
-[data-theme="shiro"] .hud .hud__ca-fx { filter: none !important; }
-[data-theme="shiro"] .hero__disc {
-  background: radial-gradient(closest-side, #FFFFFF 0%, var(--ink-1) 72%, var(--ink-0) 100%);
-  box-shadow: 0 0 0 1px var(--line-1) inset, 0 1px 0 var(--shine-2) inset, 0 18px 42px -24px var(--shadow-strong), 0 0 22px var(--accent-glow);
-}
-[data-theme="shiro"] .hero__disc:hover,
-[data-theme="shiro"] .hero[data-state="secured"] .hero__disc {
-  box-shadow: 0 0 0 1px var(--line-1) inset, 0 1px 0 var(--shine-2) inset, 0 22px 48px -24px var(--shadow-strong), 0 0 30px var(--accent-glow);
-}
-[data-theme="shiro"] .hero[data-state="secured"] .hero__mask {
-  filter: brightness(1.04) saturate(0.96) contrast(1.02);
-}
 [data-theme="shiro"] .hero[data-state="secured"] .hero__title { text-shadow: none; }
 
 /* ═══════════════════════════════════════════

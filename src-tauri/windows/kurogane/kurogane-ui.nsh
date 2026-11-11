@@ -69,6 +69,11 @@ Var KuroganeMaintenanceSecondaryDescriptionValue
 Var KuroganeTargetEditControl
 Var KuroganeForegroundHandoffPending
 Var KuroganeForegroundHandoffAttempts
+Var KuroganeBackVisible
+Var KuroganeTimerHost
+Var KuroganeTimerHostProc
+Var KuroganeFinishRunControl
+Var KuroganeFinishReadmeControl
 
 LangString KStepOptions 1033 "OPTIONS"
 LangString KStepInstall 1033 "INSTALL"
@@ -520,7 +525,10 @@ FunctionEnd
     IntOp $5 $5 - 2
     IntOp $6 $8 + 4
     IntOp $7 $9 + 4
-    System::Call 'user32::SetWindowPos(p r0, p 0, i r4, i r5, i r6, i r7, i 0x14)'
+    ; Also raised to the top of the Z-order: the footer background clips its
+    ; siblings (see KuroganeGuiInitImpl) and so can never paint over a button
+    ; that lies above it.
+    System::Call 'user32::SetWindowPos(p r0, p 0, i r4, i r5, i r6, i r7, i 0x10)'
     IntOp $6 $8 + 2
     IntOp $7 $9 + 2
     System::Call 'gdi32::CreateRectRgn(i 2, i 2, i r6, i r7) p .r3'
@@ -578,8 +586,28 @@ FunctionEnd
   ShowWindow $0 ${SHOW_CANCEL}
 !macroend
 
+; NSIS has already decided what this page's buttons are by the time a SHOW
+; callback runs: Back is hidden on the first page, and the button that starts
+; the installation carries the "Install" caption. Follow both instead of
+; hard-coding them per page — the welcome page used to say "Install" while the
+; page that really starts the installation said "Next".
 Function KuroganeApplyChromeNext
-  !insertmacro KuroganeApplyChromeImpl "next" "next" ${SW_SHOW} ${SW_SHOW} ${SW_SHOW}
+  GetDlgItem $0 $HWNDPARENT 3
+  System::Call 'user32::GetWindowLongW(p r0, i -16) i .r1'
+  IntOp $KuroganeBackVisible $1 & 0x10000000
+  GetDlgItem $0 $HWNDPARENT 1
+  System::Call 'user32::GetWindowTextW(p r0, w .r1, i ${NSIS_MAX_STRLEN})'
+  ${If} $1 == "$(^InstallBtn)"
+    Call KuroganeApplyChromeInstall
+  ${Else}
+    !insertmacro KuroganeApplyChromeImpl "next" "next" ${SW_SHOW} ${SW_SHOW} ${SW_SHOW}
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 3
+  ${If} $KuroganeBackVisible == 0
+    ShowWindow $0 ${SW_HIDE}
+  ${Else}
+    ShowWindow $0 ${SW_SHOW}
+  ${EndIf}
 FunctionEnd
 Function un.KuroganeApplyChromeNext
   !insertmacro KuroganeApplyChromeImpl "next" "next" ${SW_SHOW} ${SW_SHOW} ${SW_SHOW}
@@ -722,6 +750,14 @@ FunctionEnd
   SetCtlColors $0 ${K_COLOR_BORDER} ${K_COLOR_BORDER}
   GetDlgItem $0 $HWNDPARENT 1210
   SetCtlColors $0 ${K_COLOR_WINDOW} ${K_COLOR_WINDOW}
+  ; The navigation buttons sit on top of the footer background, and without
+  ; WS_CLIPSIBLINGS whichever of the two happens to be repainted last wins.
+  ; A button nobody touched after the background was redrawn stayed invisible
+  ; while still taking clicks: the uninstaller reaches its final page without
+  ; a click, and its "Finish" button was never drawn.
+  System::Call 'user32::GetWindowLongW(p r0, i -16) i .r1'
+  IntOp $1 $1 | 0x04000000
+  System::Call 'user32::SetWindowLongW(p r0, i -16, i r1)'
   GetDlgItem $0 $HWNDPARENT 1211
   SetCtlColors $0 ${K_COLOR_BORDER} ${K_COLOR_BORDER}
 
@@ -762,6 +798,9 @@ FunctionEnd
   StrCpy $KuroganeProgressActive 0
   StrCpy $KuroganeCaptionPressed 0
   StrCpy $KuroganeTargetEditControl 0
+  StrCpy $KuroganeTimerHost 0
+  StrCpy $KuroganeFinishRunControl 0
+  StrCpy $KuroganeFinishReadmeControl 0
 !macroend
 
 Function KuroganeGuiInit
@@ -895,6 +934,15 @@ FunctionEnd
           ${If} $1 != 0
             SendMessage $0 ${BM_CLICK} 0 0
           ${Else}
+            ; Closing the window is not a request to launch the app or to put
+            ; a shortcut on the desktop: leave through Finish with the options
+            ; of the final page switched off.
+            ${If} $KuroganeFinishRunControl != 0
+              SendMessage $KuroganeFinishRunControl ${BM_SETCHECK} ${BST_UNCHECKED} 0
+            ${EndIf}
+            ${If} $KuroganeFinishReadmeControl != 0
+              SendMessage $KuroganeFinishReadmeControl ${BM_SETCHECK} ${BST_UNCHECKED} 0
+            ${EndIf}
             GetDlgItem $0 $HWNDPARENT 1
             SendMessage $0 ${BM_CLICK} 0 0
           ${EndIf}
@@ -906,23 +954,29 @@ FunctionEnd
   ${ElseIf} $KuroganeDragWasDown == 0
     StrCpy $KuroganeDragWasDown 1
     StrCpy $KuroganeCaptionPressed 0
-    System::Call '*(&i4 0, &i4 0) p .r1'
-    System::Call 'user32::GetCursorPos(p r1)'
-    System::Call '*$1(&i4 .r2, &i4 .r3)'
-    System::Free $1
+    ; The pointer is polled, not delivered: a click that lands on a folder
+    ; picker or a message box lying over the title bar would otherwise close
+    ; or drag the wizard underneath it.
+    System::Call 'user32::GetForegroundWindow() p .r1'
+    ${If} $1 == $HWNDPARENT
+      System::Call '*(&i4 0, &i4 0) p .r1'
+      System::Call 'user32::GetCursorPos(p r1)'
+      System::Call '*$1(&i4 .r2, &i4 .r3)'
+      System::Free $1
 
-    !insertmacro KuroganePointInControl 1205 $8
-    ${If} $8 == 1
-      StrCpy $KuroganeCaptionPressed 1205
-    ${Else}
-      !insertmacro KuroganePointInControl 1207 $8
+      !insertmacro KuroganePointInControl 1205 $8
       ${If} $8 == 1
-        StrCpy $KuroganeCaptionPressed 1207
+        StrCpy $KuroganeCaptionPressed 1205
       ${Else}
-        !insertmacro KuroganePointInControl 1208 $8
+        !insertmacro KuroganePointInControl 1207 $8
         ${If} $8 == 1
-          System::Call 'user32::ReleaseCapture()'
-          SendMessage $HWNDPARENT ${WM_NCLBUTTONDOWN} ${HTCAPTION} 0
+          StrCpy $KuroganeCaptionPressed 1207
+        ${Else}
+          !insertmacro KuroganePointInControl 1208 $8
+          ${If} $8 == 1
+            System::Call 'user32::ReleaseCapture()'
+            SendMessage $HWNDPARENT ${WM_NCLBUTTONDOWN} ${HTCAPTION} 0
+          ${EndIf}
         ${EndIf}
       ${EndIf}
     ${EndIf}
@@ -1035,14 +1089,46 @@ FunctionEnd
 ; "Distribution corrupted: invalid opcode", 50 times a second, over a page that
 ; otherwise renders correctly. The timer cannot even be stopped afterwards,
 ; since KillTimer is handed the same NULL window and never finds it.
+!macro KuroganeDropTimerHostImpl
+  ${If} $KuroganeTimerHost != 0
+    System::Call 'user32::DestroyWindow(p $KuroganeTimerHost)'
+    StrCpy $KuroganeTimerHost 0
+  ${EndIf}
+!macroend
+
 !macro KuroganePrepareKnownPageImpl UNPREFIX PAGE CHROME OWNER
   StrCpy $KuroganeProgressActive 0
   StrCpy $KuroganePage ${PAGE}
+  StrCpy $KuroganeFinishRunControl 0
+  StrCpy $KuroganeFinishReadmeControl 0
   Call ${UNPREFIX}KuroganeApplyChrome${CHROME}
   Call ${UNPREFIX}KuroganeBindChromeEvents
+  !insertmacro KuroganeDropTimerHostImpl
   !if "${OWNER}" == "nsdialogs"
     Call ${UNPREFIX}KuroganeStartShellTimer
-  !else if "${OWNER}" != "native"
+  !else if "${OWNER}" == "native"
+    ; A native page has no nsDialogs dialog to hang the shell timer on, so the
+    ; title bar (drag, minimise, close) was dead there. Give the timer a hidden
+    ; host of its own: nsDialogs creates the dialog, and that is all it needs
+    ; for SetTimer. nsDialogs also swaps the wizard's dialog procedure for one
+    ; that expects a later nsDialogs::Show; put the original back at once, or
+    ; the next real nsDialogs page would chain that procedure onto itself. The
+    ; host is destroyed, timer included, by the next page's SHOW callback.
+    System::Call 'user32::GetWindowLongW(p $HWNDPARENT, i 4) p .s'
+    Pop $KuroganeTimerHostProc
+    nsDialogs::Create 1018
+    Pop $KuroganeTimerHost
+    System::Call 'user32::SetWindowLongW(p $HWNDPARENT, i 4, p $KuroganeTimerHostProc)'
+    ${If} $KuroganeTimerHost == "error"
+    ${OrIf} $KuroganeTimerHost == 0
+      ; No dialog means no window for the timer; a timer without one fires on
+      ; a stray code offset. Stay without title-bar handling instead.
+      StrCpy $KuroganeTimerHost 0
+    ${Else}
+      ShowWindow $KuroganeTimerHost ${SW_HIDE}
+      Call ${UNPREFIX}KuroganeStartShellTimer
+    ${EndIf}
+  !else
     !error "KuroganePrepareKnownPageImpl: OWNER must be nsdialogs or native"
   !endif
   !insertmacro KuroganeStylePageImpl ${PAGE}
@@ -1469,6 +1555,9 @@ FunctionEnd
 
 !macro KuroganeProgressPageImpl UNPREFIX TITLE SUBTITLE STATUS
   StrCpy $KuroganeProgressActive 1
+  ; No timer on this page: sections run on their own thread, and a timer
+  ; callback on the UI thread would share registers and the stack with them.
+  !insertmacro KuroganeDropTimerHostImpl
   Call ${UNPREFIX}KuroganeApplyChromeNext
   Call ${UNPREFIX}KuroganeBindChromeEvents
   ; The NSIS VM blocks nsDialogs timers while Section instructions execute.
@@ -1477,6 +1566,10 @@ FunctionEnd
   ShowWindow $0 ${SW_HIDE}
   System::Call 'gdi32::CreateRectRgn(i 0, i 0, i 0, i 0) p .r1'
   System::Call 'user32::SetWindowRgn(p r0, p r1, i 1)'
+  ; NSIS shows Back again as soon as the section ends, disabled, and a disabled
+  ; bitmap button is painted as a flat grey block. Park it outside the window;
+  ; the finish page puts it back over its anchor.
+  System::Call 'user32::SetWindowPos(p r0, p 0, i -32000, i -32000, i 0, i 0, i 0x15)'
   GetDlgItem $0 $HWNDPARENT 1
   ShowWindow $0 ${SW_HIDE}
   System::Call 'gdi32::CreateRectRgn(i 0, i 0, i 0, i 0) p .r1'
@@ -1600,7 +1693,8 @@ FunctionEnd
 ; MUI lays the finish page options out for its own 1044 dialog, so on the
 ; Kurogane window they end up past the right edge as unreadable slivers. Move
 ; them under the copy and give them the same treatment as every other control.
-!macro KuroganeFinishOptionImpl HWND Y
+!macro KuroganeFinishOptionImpl HWND Y REMEMBER
+  StrCpy ${REMEMBER} ${HWND}
   ${If} ${HWND} != 0
     System::Call 'uxtheme::SetWindowTheme(p ${HWND}, w "", w "")'
     !insertmacro KuroganeMoveWindowDlu $HWNDPARENT ${HWND} 44 ${Y} 400 14
@@ -1658,6 +1752,12 @@ FunctionEnd
   System::Call 'user32::SetWindowRgn(p r0, p 0, i 1)'
   ShowWindow $0 ${SW_SHOW}
   !insertmacro KuroganeBringToFront $0
+  ; The work is done, so Cancel is disabled from here on and would stay on
+  ; screen as a dead grey block next to the only button that still works.
+  ; It is parked the same way as Back; a failed run never reaches this point
+  ; and keeps its Cancel.
+  GetDlgItem $0 $HWNDPARENT 2
+  System::Call 'user32::SetWindowPos(p r0, p 0, i -32000, i -32000, i 0, i 0, i 0x15)'
   System::Call 'user32::RedrawWindow(p $HWNDPARENT, p 0, p 0, i 0x0185)'
   Pop $2
   Pop $1
