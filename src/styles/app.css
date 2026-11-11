@@ -128,11 +128,21 @@
   position: absolute;
   inset: 0;
   z-index: 0;
-  opacity: 0.16;
+  opacity: 0.5;
   pointer-events: none;
-  background:
-    repeating-linear-gradient(115deg, transparent 0 31px, var(--line-1) 32px, transparent 33px 65px),
-    radial-gradient(circle at 16% 14%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 24%);
+  background: radial-gradient(circle at 16% 14%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 24%);
+}
+/* «Колонна»: весь сайдбар — одна обсидиановая плита (рендер Codex, альфа-маска
+   в цвете текста темы). В ::after, чтобы не спорить с узорами премиум-тем в ::before. */
+.sidebar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--text-hi) 11%, transparent);
+  -webkit-mask: url("/assets/hud/side.webp") center top / cover no-repeat;
+          mask: url("/assets/hud/side.webp") center top / cover no-repeat;
 }
 .sidebar > * { position: relative; z-index: 1; }
 
@@ -140,26 +150,14 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  /* 126→108 и марка 94→82: с семью пунктами меню прежний ритм не оставлял
-     места блоку трафика внизу — его срезало нижней границей окна. */
-  min-height: 108px;
-  padding: 16px 20px;
+  /* Логотип 58 px и NINETY с разрядкой: бренд тише, места под меню и трафик больше. */
+  padding: 26px 24px 16px;
   position: relative;
   overflow: hidden;
 }
-.brand::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0;
-  width: 100%;
-  height: 1px;
-  opacity: 1;
-  background: linear-gradient(90deg, transparent, var(--sidebar-border-strong) 18%, var(--sidebar-border-soft) 82%, transparent);
-  pointer-events: none;
-}
 .brand__mark {
-  width: 82px;
-  height: 82px;
+  width: 58px;
+  height: 58px;
   border-radius: 0;
   object-fit: contain;
   background: transparent;
@@ -171,8 +169,8 @@
 .brand__name {
   font-family: var(--font-body);
   font-weight: 400;
-  font-size: 30px;
-  letter-spacing: 0.125em;
+  font-size: 24px;
+  letter-spacing: 0.32em;
   color: transparent;
   background: var(--sidebar-brand-gradient);
   -webkit-background-clip: text;
@@ -187,8 +185,8 @@
 }
 .brand__meta {
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  letter-spacing: 0.13em;
+  font-size: 9.5px;
+  letter-spacing: 0.3em;
   color: var(--text-lo);
   text-transform: uppercase;
   display: flex;
@@ -198,24 +196,27 @@
 }
 
 .sidebar-state {
-  height: 44px;
-  flex: 0 0 44px;
-  padding: 0 22px;
+  position: relative;
+  flex: 0 0 auto;
+  height: 28px;
+  margin: 0 24px 16px;
+  padding: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  border-top: 1px solid var(--sidebar-border-soft);
-  border-bottom: 1px solid var(--sidebar-border-strong);
-  background:
-    linear-gradient(90deg, var(--sidebar-row-start) 0%, var(--sidebar-row-middle) 52%, var(--sidebar-row-start) 100%);
-  box-shadow:
-    inset 0 1px var(--shine-1),
-    inset 0 -1px var(--sidebar-border-soft);
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.115em;
   text-transform: uppercase;
   color: var(--text-lo);
+}
+/* статус — строка без плашки, под ней тонкая линия, гаснущая к краю */
+.sidebar-state::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -8px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--sidebar-border-strong), transparent);
 }
 .sidebar-state__dot {
   width: 6px;
@@ -225,15 +226,7 @@
   background: var(--accent);
   box-shadow: 0 0 9px var(--accent-glow);
 }
-.sidebar-state__pulse {
-  width: 32px;
-  height: 12px;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.25;
-  opacity: 0.82;
-}
+.sidebar-state__pulse { display: none; }
 .sidebar-state__label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -266,7 +259,6 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  border-bottom: 1px solid var(--sidebar-border-strong);
   /* Страховка для совсем низких окон: скорее прокрутить меню, чем срезать
      блок трафика под ним. */
   min-height: 0;
@@ -283,64 +275,40 @@
 .nav__item {
   display: flex;
   align-items: center;
-  gap: 18px;
-  min-height: 58px;
+  gap: 16px;
+  min-height: 50px;
   padding: 0 24px;
   border-radius: 0;
-  border-bottom: 1px solid var(--sidebar-border-strong);
-  background:
-    linear-gradient(90deg, var(--sidebar-row-start) 0%, var(--sidebar-row-middle) 52%, var(--sidebar-row-start) 100%);
-  box-shadow:
-    inset 0 1px var(--shine-1),
-    inset 0 -1px var(--sidebar-border-soft);
+  background: none;
   color: var(--sidebar-text);
   cursor: pointer;
   transition: background 200ms var(--ease-out), color 200ms var(--ease-out);
   position: relative;
 }
-.nav__item:last-child { border-bottom: 0; }
 .nav__item:hover {
   color: var(--text-hi);
-  background:
-    linear-gradient(90deg, var(--sidebar-row-middle) 0%, var(--sidebar-row-hover) 54%, var(--sidebar-row-middle) 100%);
+  background: linear-gradient(90deg, var(--sidebar-row-hover), transparent 70%);
 }
+.nav__item:active { background: linear-gradient(90deg, var(--sidebar-row-start), transparent 70%); }
+/* Активный пункт: тонкая полоса цвета темы слева и мягкий отсвет, без рамок и срезов */
 .nav__item--active {
   color: var(--sidebar-text-active);
-  box-shadow:
-    inset 0 1px var(--shine-2),
-    inset 0 -1px var(--sidebar-border-strong),
-    inset 0 -2px var(--accent-soft);
   background:
-    repeating-linear-gradient(0deg, var(--line-1) 0 1px, transparent 1px 3px),
-    linear-gradient(90deg, var(--sidebar-row-start) 0%, var(--sidebar-row-middle) 22%, var(--sidebar-row-active) 55%, var(--sidebar-row-middle) 78%, var(--sidebar-row-start) 100%);
-  clip-path: polygon(0 0, calc(100% - 26px) 0, 100% 26px, 100% 100%, 0 100%);
-  border-top: 1px solid var(--sidebar-border-strong);
-  border-bottom: 1px solid var(--sidebar-border-soft);
+    linear-gradient(90deg, var(--accent-soft), transparent 78%),
+    linear-gradient(90deg, var(--sidebar-row-active), var(--sidebar-row-middle) 40%, transparent 85%);
 }
 .nav__item--active::before {
   content: "";
   position: absolute;
-  inset-inline-end: 0;
-  top: 26px;
-  width: 3px;
+  inset-inline-start: 0;
+  top: 13px;
+  width: 2px;
   height: calc(100% - 26px);
+  border-radius: 2px;
   background: var(--accent);
-  transform: none;
   box-shadow: 0 0 7px var(--accent-glow);
 }
-.nav__item--active::after {
-  content: "";
-  position: absolute;
-  inset-inline-end: -6px;
-  top: 12px;
-  width: 38px;
-  height: 2px;
-  background: var(--accent);
-  transform: rotate(45deg);
-  transform-origin: center;
-  box-shadow: 0 0 6px var(--accent-glow);
-  z-index: 2;
-}
+.nav__item--active .nav__icon { color: var(--accent-bright); }
 .nav__icon {
   width: 24px;
   height: 24px;
@@ -348,7 +316,7 @@
   color: currentColor;
 }
 .nav__label {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 400;
   letter-spacing: -0.005em;
 }
@@ -364,12 +332,20 @@
 .sidebar__spacer { flex: 1 1 auto; min-height: 8px; }
 
 .traffic {
-  border-top: 1px solid var(--line-1);
-  padding: 12px 24px 14px;
+  position: relative;
+  margin: 0 24px;
+  padding: 14px 0 18px;
   display: flex;
   flex-direction: column;
   gap: 9px;
   flex: 0 0 auto;
+}
+.traffic::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, var(--sidebar-border-strong), transparent);
 }
 .traffic__head {
   display: flex;
