@@ -6,6 +6,30 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.13.0 — 2026-11-11
+
+## English
+
+- The connect button is now an obsidian stone: its cracks fill with light in your theme colour as Ninety connects, and an eclipse glow surrounds it while you are protected.
+- The home screen is cleaner: the subscription fits in one line, the connection details have no frames, and before you connect it shows which server and mode Ninety will use.
+- The status under the button is easier to read, and DPI bypass now sits in a single line with its state and switch.
+- The sidebar has a calmer look with frameless menu items and a quieter logo.
+- Calm home screen now stops the glow and highlights around the button.
+- Home screen animations now pause while Ninety is in the tray or another screen is open.
+- The XHTTP engine has been updated and now presents a newer browser fingerprint.
+- Connection engines received security fixes.
+
+## Русский
+
+- Кнопка подключения теперь — обсидиановый камень: при подключении его трещины наполняются светом в цвете вашей темы, а пока вы защищены, вокруг него горит свечение затмения.
+- Главный экран стал чище: подписка помещается в одну строку, данные подключения показаны без рамок, а до подключения видно, какой сервер и режим будет использовать Ninety.
+- Статус под кнопкой стал читаться легче, а обход DPI теперь занимает одну строку с состоянием и переключателем.
+- Боковое меню стало спокойнее: пункты без рамок и более сдержанный логотип.
+- Спокойный главный экран теперь останавливает свечение и блики вокруг кнопки.
+- Анимации главного экрана теперь замирают, пока Ninety свёрнут в трей или открыт другой экран.
+- Движок XHTTP обновлён и теперь представляется более новым отпечатком браузера.
+- Движки подключения получили исправления безопасности.
+
 ## v0.12.4 — 2026-11-10
 
 ## English
