@@ -504,7 +504,8 @@ function renderChip() {
   slot.innerHTML = `<button class="dpi-chip" data-state="${escapeAttr(st)}" data-dpi-open title="${escapeAttr(t("dpi.chip.open"))}">
       <span class="dpi-chip__icon">${ic("dpi", 16)}</span>
       <span class="dpi-chip__txt">
-        <span class="dpi-chip__status">DPI · ${chipStatus()[st]}</span>
+        <span class="dpi-chip__name">${esc(t("nav.dpi"))}</span>
+        <span class="dpi-chip__status">${chipStatus()[st]}</span>
         <span class="dpi-chip__strat">${esc(S.strategy)}</span>
       </span>
       <span class="dpi-chip__sep"></span>
