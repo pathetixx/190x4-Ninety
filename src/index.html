@@ -6,6 +6,7 @@
     <title>Ninety · 190x4</title>
     <link rel="stylesheet" href="/styles/tokens.css" />
     <link rel="stylesheet" href="/styles/app.css" />
+    <link rel="stylesheet" href="/styles/obsidian-hud.css" />
     <link rel="stylesheet" href="/styles/system.css" />
     <link rel="stylesheet" href="/styles/screens.css" />
     <link rel="stylesheet" href="/styles/modals.css" />
@@ -218,15 +219,25 @@
             <div class="hero" id="hero" data-state="standby">
               <div class="hero__cell">
               <div class="hero__stage">
-                <div class="hero__bloom"></div>
-                <div class="hero__halo"></div>
-                <svg class="hud" id="hero-hud" viewBox="0 0 400 400" aria-hidden="true"></svg>
+                <!-- Обсидиановый HUD: слои — готовые рендеры, стили в styles/obsidian-hud.css -->
+                <div class="ob ob-corona" aria-hidden="true"><div class="ob-corona__glow"><i></i></div></div>
+                <img class="ob ob-stone" src="/assets/hud/obsidian.webp" alt="" aria-hidden="true" draggable="false" />
+                <div class="ob ob-lava ob--add" aria-hidden="true">
+                  <div class="ob-lava__glow"><div class="ob-crack"></div></div>
+                  <div class="ob-crack ob-crack--base"></div>
+                  <div class="ob-crack ob-crack--flow"><i></i></div>
+                  <div class="ob-crack ob-crack--core"><i></i></div>
+                </div>
+                <div class="ob ob-glint ob--add" aria-hidden="true"><i></i></div>
+                <div class="ob ob-rim ob--add" aria-hidden="true"></div>
 
                 <button class="hero__disc" id="hero-disc" type="button" aria-label="Toggle VPN">
-                  <video class="hero__mask" id="hero-mask"
-                         src="/assets/video/hero-mask.webm"
-                         autoplay loop muted playsinline disablepictureinpicture
-                         aria-hidden="true"></video>
+                  <span class="hero__face">
+                    <video class="hero__mask" id="hero-mask"
+                           src="/assets/video/hero-mask.webm"
+                           autoplay loop muted playsinline disablepictureinpicture
+                           aria-hidden="true"></video>
+                  </span>
                 </button>
               </div>
               </div>

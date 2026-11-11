@@ -1380,7 +1380,7 @@ export const tr = {
       contrastTitle: "Artırılmış kontrast",
       contrastHint: "Tüm temalarda etiketleri, simgeleri ve kenarlıkları daha okunaklı yapar. Siz değiştirene kadar Windows kontrast ayarını izler.",
       calmHudTitle: "Sakin ana ekran",
-      calmHudHint: "Ana ekrandaki halkaları ve maske animasyonunu durdurur. Yazılar yanıp sönmez, daha büyük ve daha kolay okunur.",
+      calmHudHint: "Ana ekrandaki parıltı ve yansımalar durur, maske hareketsiz kalır. Bağlantı durumu yine görünür: taş yanar ve söner.",
     },
 
     routing: {

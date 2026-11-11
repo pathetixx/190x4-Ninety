@@ -81,7 +81,6 @@ import { createChannelIncidentRecorder } from "/lib/channel-incidents.js";
 import { mountDiagnoseView } from "/lib/diagnose-view.js";
 import { newRule, sanitizeRule } from "/lib/routing-rules.js";
 import { openQualityScope } from "/lib/quality-scope.js";
-import { initHeroHud } from "/lib/hero-hud.js";
 import { parseDeepLink } from "/lib/deeplink.js";
 import {
   applyKillSwitch,
@@ -2647,7 +2646,7 @@ const locIp = document.getElementById("loc-ip");
 // Мап-имена для CSS data-state
 const STATE_HERO = {
   idle: "standby", connecting: "linking", connected: "secured",
-  disconnecting: "linking", cleanup_error: "standby",
+  disconnecting: "unlinking", cleanup_error: "standby",
 };
 const STATE_KICKER = {
   idle:       "STAND-BY · DISCONNECTED",
@@ -2665,15 +2664,10 @@ const CONNECTED_KICKER = {
 function connectedKicker() { return CONNECTED_KICKER[getMode()] || STATE_KICKER.connected; }
 const modeLabel = (m) => t("mode." + m);
 
-// Кибер-HUD вокруг маски (lib/hero-hud.js). Инициализируется ниже, после
-// объявления `state` — getState читает его лениво из замыкания.
-let heroHud = null;
-
 function applyHeroState(internalState) {
   if (!hero) return;
   const ds = STATE_HERO[internalState] || "standby";
   hero.dataset.state = ds;
-  heroHud?.sync(); // обновить SYSTEM STATUS / TARGET / INTEGRITY / ERR под состояние
 }
 
 // Stats-strip vs Location-card: connected → stats-strip с live-метриками.
@@ -2702,7 +2696,6 @@ function updateStatsServer() {
     statsFlag.innerHTML = iso ? `<img src="${FLAGS_BASE}/${iso}.svg" alt="">` : "";
     statsFlag.hidden = !iso;
   }
-  heroHud?.sync(); // эффективная нода сменилась → перечитать TARGET LOCKED в HUD
 }
 
 let lastPublicIp = null;
@@ -2789,26 +2782,18 @@ function runtimeProbeHostPort(snapshot = runtimeSnapshotCache) {
 // раньше быстрый connect→cancel всё равно заканчивался «Защищено».
 const connectAttempts = createConnectionAttemptGate();
 
-// Запускаем HUD после объявления state. TARGET читает фактический сервер.
-function hudTarget() {
-  // Тот же источник, что ячейка «Сервер» телеметрии (activeNodeForDisplay) — HUD-таргет
-  // всегда совпадает с реально выбранной нодой. Балансировщик подписки выбирает сервер
-  // уже ПОСЛЕ старта ядра, поэтому при коннекте сюда раньше попадал nodes[0] (Germany #1),
-  // а телеметрия позже показывала фактический (Latvia #2) — теперь оба тянут одно и то же.
-  const p = activeNodeForDisplay();
-  const l = stripFlag(p?.name) || p?.host || "190X4";
-  return l.toUpperCase().replace(/\s+/g, "-").slice(0, 16);
+// Обсидиановый HUD (styles/obsidian-hud.css) движется только на виду: в трее, без
+// фокуса и на других экранах его анимации стоят — GPU не греется впустую.
+function syncHeroMotion(snapshot = activityController.snapshot()) {
+  if (!hero) return;
+  const live = snapshot.visible && snapshot.focused && snapshot.view === "home";
+  if (live) delete hero.dataset.motion;
+  else hero.dataset.motion = "paused";
 }
-heroHud = initHeroHud(document.getElementById("hero-hud"), {
-  getState: () => STATE_HERO[state] || "standby",
-  getTarget: hudTarget,
-  isCalm: isCalmHud,
-});
+activityController.subscribe((snapshot) => syncHeroMotion(snapshot));
+syncHeroMotion();
 // Спокойный главный экран переключается в настройках на лету.
-bus.on(CALM_HUD_EVENT, (on) => {
-  heroHud?.setCalm(on);
-  syncHeroMaskPlayback();
-});
+bus.on(CALM_HUD_EVENT, () => syncHeroMaskPlayback());
 syncHeroMaskPlayback();
 
 function setHeroHintText(text) {

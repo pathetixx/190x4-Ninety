@@ -1388,7 +1388,7 @@ export const es = {
       contrastTitle: "Contraste aumentado",
       contrastHint: "Hace más legibles las etiquetas, los iconos y los bordes en todos los temas. Mientras no lo cambies, sigue el ajuste de contraste de Windows.",
       calmHudTitle: "Pantalla de inicio tranquila",
-      calmHudHint: "Detiene los anillos y la animación de la máscara en la pantalla de inicio. Los textos dejan de parpadear, son más grandes y se leen mejor.",
+      calmHudHint: "El brillo y los reflejos de la pantalla de inicio dejan de moverse y la máscara se detiene. El estado de la conexión sigue visible: la piedra se enciende y se apaga.",
     },
 
     routing: {

@@ -49,6 +49,8 @@ test("premium themes: каждая тема имеет material tokens и previe
   }
 });
 
-test("premium themes: porcelain отключает тяжёлый glitch transform", () => {
-  assert.match(css, /data-theme="porcelain"[^}]*[\s\S]*?\[data-hud="ca"\][^{]*\{[^}]*transform:\s*none\s*!important/);
+test("premium themes: маска главного экрана берёт оттенок темы", () => {
+  // затемнение в покое ложится поверх оттенка, а не заменяет его
+  assert.match(css, /--hero-mask-idle:\s*var\(--premium-mask-idle\)/);
+  assert.match(css, /--hero-mask-on:\s*var\(--premium-mask-secured\)/);
 });

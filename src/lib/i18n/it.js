@@ -1388,7 +1388,7 @@ export const it = {
       contrastTitle: "Contrasto aumentato",
       contrastHint: "Rende etichette, icone e bordi più leggibili in tutti i temi. Finché non lo modifichi, segue l'impostazione di contrasto di Windows.",
       calmHudTitle: "Schermata principale tranquilla",
-      calmHudHint: "Ferma gli anelli e l'animazione della maschera nella schermata principale. Le scritte non lampeggiano più, sono più grandi e più leggibili.",
+      calmHudHint: "Il bagliore e i riflessi nella schermata principale si fermano e la maschera si blocca. Lo stato della connessione resta visibile: la pietra si accende e si spegne.",
     },
 
     routing: {
