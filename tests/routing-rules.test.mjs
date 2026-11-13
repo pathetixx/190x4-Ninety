@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isValidValue, normalizeIp, normalizeTarget, normalizeValue, regionRules, sanitizeRule } from "/lib/routing-rules.js";
+import {
+  isValidValue, normalizeIp, normalizeRuleName, normalizeTarget, normalizeValue, regionRules, sameRuleExceptName, sanitizeRule,
+} from "/lib/routing-rules.js";
 
 test("routing rules: IPv6 validation accepts real addresses only", () => {
   assert.equal(normalizeIp("2001:db8::1"), "2001:db8::1/128");
@@ -167,4 +169,39 @@ test("routing rules: база региона переносится теми ж�
 test("routing rules: метку происхождения нельзя подделать", () => {
   const { rule } = sanitizeRule({ id: "x", type: "domain", values: ["a.example"], action: "direct", origin: "evil" });
   assert.equal(rule.origin, undefined);
+});
+
+test("routing rules: подпись правила нормализуется и опускается, если пуста", () => {
+  const base = { id: "n1", type: "ip", values: ["1.2.3.4"], action: "direct" };
+  assert.equal(sanitizeRule({ ...base, name: "  Riot Games  " }).rule.name, "Riot Games");
+  assert.equal("name" in sanitizeRule({ ...base, name: "   " }).rule, false);
+  assert.equal("name" in sanitizeRule(base).rule, false);
+  assert.equal("name" in sanitizeRule({ ...base, name: { toString: () => "x" } }).rule, false);
+  assert.equal(normalizeRuleName(42), "");
+  assert.equal(normalizeRuleName("a\nb\tc"), "a b c");
+  assert.equal(normalizeRuleName("a\u202eb\u0007c\u2066d"), "abcd");
+  // ZWNJ нужен персидскому тексту — не вычищаем
+  assert.equal(normalizeRuleName("می\u200cخواهم"), "می\u200cخواهم");
+  // HTML хранится как есть, экранируется при выводе
+  assert.equal(normalizeRuleName("<img src=x onerror=1>"), "<img src=x onerror=1>");
+});
+
+test("routing rules: лимит подписи — 64 символа, emoji не режется пополам", () => {
+  const long = "😀".repeat(70);
+  const name = normalizeRuleName(long);
+  assert.equal(Array.from(name).length, 64);
+  assert.equal(name, "😀".repeat(64));
+  assert.equal(normalizeRuleName("a".repeat(63) + "😀😀"), "a".repeat(63) + "😀");
+  assert.equal(normalizeRuleName(normalizeRuleName(long)), name);
+});
+
+test("routing rules: переименование не считается сетевым изменением", () => {
+  const a = sanitizeRule({ id: "n2", type: "domain", match: "suffix", values: ["example.com"], action: "node", target: { tag: "t1", name: "B" } }).rule;
+  assert.equal(sameRuleExceptName(a, { ...a, name: "Работа" }), true);
+  assert.equal(sameRuleExceptName({ ...a, name: "x" }, { ...a, name: "y" }), true);
+  assert.equal(sameRuleExceptName(a, { ...a, enabled: false }), false);
+  assert.equal(sameRuleExceptName(a, { ...a, values: ["example.org"] }), false);
+  // target.name — рабочее поле выбора сервера, а не подпись
+  assert.equal(sameRuleExceptName(a, { ...a, target: { tag: "t1", name: "C" } }), false);
+  assert.equal(sameRuleExceptName(a, null), false);
 });

@@ -949,6 +949,8 @@ export const fa = {
     modalNew: "قانون جدید",
     cancel: "انصراف",
     save: "ذخیره",
+    fieldName: "نام (اختیاری)",
+    namePlaceholder: "مثلاً Riot Games، VPN کاری",
     fieldType: "نوع قانون",
     fieldAction: "با ترافیک چه شود",
     fieldNode: "سرور",

@@ -175,6 +175,17 @@
 
 /* значения (чипы) + режим совпадения */
 .rr-values { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+/* именованное правило: подпись — заголовок, чипы — вторая строка */
+.rr-rule__main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rr-name {
+  min-width: 0; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-hi);
+  font-family: var(--font-body);
+  font-size: 13.5px; font-weight: 600;
+  letter-spacing: -0.005em;
+  unicode-bidi: isolate;
+}
 .rr-chip {
   display: inline-flex;
   align-items: center;
@@ -379,6 +390,21 @@
   letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--text-lo);
 }
+/* однострочное поле формы (подпись правила) */
+.rr-textinput {
+  width: 100%; min-width: 0;
+  height: 42px;
+  padding: 0 12px;
+  background: var(--ink-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  color: var(--text-hi);
+  font: inherit; font-size: 13px;
+  outline: 0;
+  transition: border-color 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.rr-textinput::placeholder { color: var(--text-lo); }
+.rr-textinput:focus { border-color: var(--accent); background: var(--ink-3); }
 .rr-sublabel {
   font-size: 11px; color: var(--text-lo); margin-top: -3px; line-height: 1.45;
 }

@@ -981,6 +981,8 @@ export const ar = {
     modalNew: "قاعدة جديدة",
     cancel: "إلغاء",
     save: "حفظ",
+    fieldName: "الاسم (اختياري)",
+    namePlaceholder: "مثلاً Riot Games، VPN العمل",
     fieldType: "نوع القاعدة",
     fieldAction: "ماذا تفعل بالبيانات",
     fieldNode: "الخادم",

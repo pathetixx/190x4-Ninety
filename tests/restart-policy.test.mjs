@@ -101,3 +101,10 @@ test("настройки входа для соседей рестартят я�
   assert.equal(pathNeedsRestart("inbound.lanAuth", closed, "proxy"), false);
   assert.equal(pathNeedsRestart("inbound.lanCredentials", lan, "tun"), false);
 });
+
+test("подпись правила маршрутизации не требует рестарта, сами правила — требуют", () => {
+  for (const mode of ["proxy", "systemProxy", "tun"]) {
+    assert.equal(pathNeedsRestart("route.customRules.label", {}, mode), false, mode);
+    assert.equal(pathNeedsRestart("route.customRules", {}, mode), true, mode);
+  }
+});

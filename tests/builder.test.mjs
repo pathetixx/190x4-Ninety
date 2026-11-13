@@ -1387,3 +1387,17 @@ test("hysteria2 со сменой портов собирается через s
   assert.equal(out.server_port, undefined);
   assert.deepEqual(out.server_ports, ["443:443", "20000:30000"]);
 });
+
+test("подпись пользовательского правила не попадает в конфиг ядра", () => {
+  const build = (name) => {
+    const opts = structuredClone(DEFAULT_OPTIONS);
+    opts.route.customRules = [
+      { id: "a", enabled: true, type: "ip", values: ["72.25.64.0/18"], action: "direct", ...(name ? { name } : {}) },
+      { id: "b", enabled: true, type: "domain", match: "suffix", values: ["riot.example"], action: "block", ...(name ? { name } : {}) },
+    ];
+    return JSON.stringify(buildConfig({ source: { kind: "single", profile: vlessNode() }, mode: "tun", options: opts }).config);
+  };
+  const plain = build("");
+  assert.equal(build("Riot Games"), plain);
+  assert.equal(plain.includes("Riot Games"), false);
+});

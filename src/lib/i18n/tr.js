@@ -949,6 +949,8 @@ export const tr = {
     modalNew: "Yeni kural",
     cancel: "İptal",
     save: "Kaydet",
+    fieldName: "Ad (isteğe bağlı)",
+    namePlaceholder: "Örn. Riot Games, iş VPN'i",
     fieldType: "Kural türü",
     fieldAction: "Trafikle ne yapılacak",
     fieldNode: "Sunucu",

@@ -957,6 +957,8 @@ export const it = {
     modalNew: "Nuova regola",
     cancel: "Annulla",
     save: "Salva",
+    fieldName: "Nome (facoltativo)",
+    namePlaceholder: "Es. Riot Games, VPN di lavoro",
     fieldType: "Tipo di regola",
     fieldAction: "Cosa fare del traffico",
     fieldNode: "Server",

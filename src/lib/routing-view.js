@@ -13,6 +13,7 @@
 import { loadOptions, getOptionsSnapshot, updateOption } from "/lib/options.js";
 import {
   newRule, normalizeValue, isValidValue, sanitizeRule, regionRules,
+  normalizeRuleName, clampRuleName, sameRuleExceptName, RULE_NAME_MAX,
 } from "/lib/routing-rules.js";
 import { POPULAR_GEOIP, REGION_GEOSITE, parseSetRef, searchSets } from "/lib/rule-sets.js";
 import { GEOIP_CODES } from "/lib/rule-set-catalog.js";
@@ -207,9 +208,11 @@ export function mountRoutingRules(rootEl, opts = {}) {
   // остаётся живым состоянием экрана, которое мутируют add/edit/toggle/drag.
   // Клон заодно исключает обратную связь — правка списка после commit() не
   // должна задним числом менять уже сохранённый снапшот.
-  function commit(silent) {
+  // labelOnly — изменилась только подпись правила: сохраняем и бэкапим как
+  // обычно, но под отдельным путём, который не требует рестарта ядра.
+  function commit(silent, labelOnly = false) {
     updateOption("route.customRules", structuredCloneSafe(rules));
-    onChange("route.customRules");
+    onChange(labelOnly ? "route.customRules.label" : "route.customRules");
     if (!silent) toast(t("rr.rulesUpdated"), "success", 1600);
   }
 
@@ -277,12 +280,19 @@ export function mountRoutingRules(rootEl, opts = {}) {
     let chips = vis.map((v) => (rule.type === "set" ? setChip(v) : '<span class="rr-chip">' + esc(v) + "</span>")).join("");
     if (extra > 0) chips += '<span class="rr-chip rr-chip--more">+' + extra + " " + esc(t("rr.more")) + "</span>";
     const matchNote = rule.type === "domain" ? '<span class="rr-match">' + esc(MATCH_LABELS()[rule.match] || MATCH_LABELS().suffix) + "</span>" : "";
+    // Подпись нормализуем и при показе: правило могло прийти из бэкапа или
+    // старой версии в обход sanitizeRule.
+    const name = normalizeRuleName(rule.name);
+    if (name) row.dataset.named = "true";
 
     row.innerHTML =
       '<div class="rr-grip" title="' + esc(t("rr.gripTitle")) + '">' + I.grip + '<span class="rr-ord">' + ord + "</span></div>" +
       '<button class="switch" data-on="' + (rule.enabled !== false) + '" data-act="toggle" type="button" aria-label="' + esc(t("rr.enableRule")) + '"></button>' +
       '<span class="rr-type">' + TYPE_ICON[rule.type] + esc(TYPE_LABELS()[rule.type] || rule.type) + "</span>" +
-      '<div class="rr-values">' + chips + matchNote + "</div>" +
+      (name
+        ? '<div class="rr-rule__main"><div class="rr-name" dir="auto" title="' + escapeAttr(name) + '">' + esc(name) + "</div>" +
+          '<div class="rr-values">' + chips + matchNote + "</div></div>"
+        : '<div class="rr-values">' + chips + matchNote + "</div>") +
       actionPill(rule) +
       '<div class="rr-rowacts">' +
         '<button class="rr-iconbtn" data-act="edit" type="button" aria-label="' + esc(t("rr.edit")) + '">' + I.edit + "</button>" +
@@ -488,6 +498,31 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const body = document.getElementById("rr-mbody");
     if (!body) return;
     body.innerHTML = "";
+
+    // 0) необязательная подпись — первой, до типа: при смене типа тело формы
+    // пересоздаётся, поэтому значение живёт в draft.name, а не только в input.
+    const nameField = el("div", "rr-field");
+    const nameLabel = el("label", "rr-label", esc(t("rr.fieldName")));
+    nameLabel.htmlFor = "rr-name-input";
+    const nameInput = el("input", "rr-textinput");
+    nameInput.id = "rr-name-input";
+    nameInput.type = "text";
+    nameInput.dir = "auto";
+    nameInput.autocomplete = "off";
+    nameInput.spellcheck = false;
+    nameInput.placeholder = t("rr.namePlaceholder");
+    nameInput.value = clampRuleName(typeof draft.name === "string" ? draft.name : "");
+    // Лимит в символах, как в sanitizeRule; maxlength считал бы UTF-16 и резал
+    // emoji. Во время IME-композиции не трогаем — дождёмся завершения.
+    const syncName = (e) => {
+      if (e?.isComposing) return;
+      if (Array.from(nameInput.value).length > RULE_NAME_MAX) nameInput.value = clampRuleName(nameInput.value);
+      draft.name = nameInput.value;
+    };
+    nameInput.addEventListener("input", syncName);
+    nameInput.addEventListener("compositionend", syncName);
+    nameField.append(nameLabel, nameInput);
+    body.appendChild(nameField);
 
     // a) тип
     const typeField = el("div", "rr-field", `<div class="rr-label">${esc(t("rr.fieldType"))}</div>`);
@@ -882,10 +917,12 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const { rule } = sanitizeRule(draft);
     if (!rule.values.length) return;
     const idx = rules.findIndex((r) => r.id === rule.id);
+    // Переименование не меняет конфиг ядра — не рвём соединение ради подписи.
+    const labelOnly = idx >= 0 && sameRuleExceptName(rules[idx], rule);
     if (idx >= 0) rules[idx] = rule; else rules.push(rule);
     closeModal();
     renderRules();
-    commit();
+    commit(false, labelOnly);
   }
 
   /* ═══ МОНИТОР СОЕДИНЕНИЙ (группировка по приложению, Throne-style) ═══ */

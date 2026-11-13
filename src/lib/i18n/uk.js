@@ -965,6 +965,8 @@ export const uk = {
     modalNew: "Нове правило",
     cancel: "Скасувати",
     save: "Зберегти",
+    fieldName: "Назва (необов’язково)",
+    namePlaceholder: "Наприклад: Riot Games, робочий VPN",
     fieldType: "Тип правила",
     fieldAction: "Що робити з трафіком",
     fieldNode: "Сервер",

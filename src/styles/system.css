@@ -42,7 +42,7 @@
 
 /* Контекстные альтернативы Inter превращают x между цифрами в знак умножения:
    «190x4» становится «190×4». Для имён, хостов и полей ввода это ложь. */
-.n-primary,.n-meta,.nt-row__host,.md__in,.det__l2,.screen__sub{
+.n-primary,.n-meta,.nt-row__host,.md__in,.det__l2,.screen__sub,.rr-name,.rr-textinput{
   font-variant-ligatures:none;font-feature-settings:"calt" 0}
 /* Латиница внутри RTL-предложения не должна переставляться */
 .n-primary,.n-meta,.nt-row__host,.nt-row__tr,.det__l2,.rec-row__reason,.n-ping,.n-num{unicode-bidi:isolate}

@@ -24,6 +24,8 @@ export function pathNeedsRestart(path, opts, mode) {
   // Настройки экрана «Диагностика» (набор целей, закреплённые адреса) в конфиг
   // ядра не попадают вовсе.
   if (path.startsWith("diagnose.")) return false;
+  // Подпись пользовательского правила — только для списка, в конфиг не идёт.
+  if (path === "route.customRules.label") return false;
   // WARP register/reset — переразложить config нужно только если WARP активен
   if (path === "warp.registered") return !!opts?.warp?.enabled;
   // warp.deepScan и warp.autoRescan* — не идут в config sing-box, только в UI/JS-loop

@@ -8,7 +8,8 @@
 //   { id, enabled, type:"domain"|"ip"|"process"|"set",
 //     match:"suffix"|"exact"|"keyword" (только domain),
 //     values:[…] (для "set" — "geosite:<имя>" / "geoip:<код страны>"), action:"proxy"|"direct"|"block"|"node"|"warp",
-//     target:{ tag, name } — только для action:"node" }
+//     target:{ tag, name } — только для action:"node",
+//     name — необязательная подпись для списка; в конфиг ядра не попадает }
 
 import { uid } from "/lib/uid.js";
 import { REGION_GEOSITE, normalizeSetRef } from "/lib/rule-sets.js";
@@ -34,6 +35,43 @@ export function normalizeTarget(target) {
   const name = String(target?.name || "").trim().slice(0, 200);
   if (!tag && !name) return null;
   return { ...(tag ? { tag } : {}), ...(name ? { name } : {}) };
+}
+
+// Подпись правила: чисто косметическое поле, по которому пользователь узнаёт
+// правило в списке. Лимит — в символах (code points), а не в UTF-16: обрезка
+// по .slice() могла бы разрезать emoji пополам. Переносы и табы — в пробел,
+// прочие управляющие и bidi-override символы вычищаем: они ломают строку
+// списка и позволяют визуально подменить текст. ZWJ/ZWNJ оставляем — они
+// нужны персидскому тексту и составным emoji.
+export const RULE_NAME_MAX = 64;
+const NAME_SPACE_RE = /[\t\n\r\v\f\u2028\u2029]+/g;
+// eslint-disable-next-line no-control-regex
+const NAME_STRIP_RE = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+export function clampRuleName(raw) {
+  const chars = Array.from(String(raw));
+  return chars.length > RULE_NAME_MAX ? chars.slice(0, RULE_NAME_MAX).join("") : String(raw);
+}
+export function normalizeRuleName(raw) {
+  if (typeof raw !== "string") return "";
+  const clean = raw.replace(NAME_SPACE_RE, " ").replace(NAME_STRIP_RE, "").trim();
+  return clampRuleName(clean).trim();
+}
+
+// Правила отличаются только подписью? Тогда сетевой результат тот же и
+// переподключаться незачем. Сравниваем всё, кроме корневого name; target.name —
+// рабочее поле выбора сервера, его сравнение сохраняется.
+function stableJson(v) {
+  if (Array.isArray(v)) return "[" + v.map(stableJson).join(",") + "]";
+  if (v && typeof v === "object") {
+    return "{" + Object.keys(v).sort().filter((k) => v[k] !== undefined)
+      .map((k) => JSON.stringify(k) + ":" + stableJson(v[k])).join(",") + "}";
+  }
+  return JSON.stringify(v ?? null);
+}
+export function sameRuleExceptName(a, b) {
+  if (!a || !b) return false;
+  const strip = (r) => ({ ...r, name: undefined });
+  return stableJson(strip(a)) === stableJson(strip(b));
 }
 
 // Новое правило с дефолтами (для кнопки «Добавить»).
@@ -202,9 +240,11 @@ export function sanitizeRule(rule) {
     seen.add(n);
     values.push(n);
   }
+  const name = normalizeRuleName(rule?.name);
   return {
     rule: {
       id: rule?.id || uid("r-"),
+      ...(name ? { name } : {}),
       enabled: rule?.enabled !== false,
       type,
       ...(type === "domain" ? { match } : {}),

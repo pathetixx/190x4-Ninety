@@ -949,6 +949,8 @@ export const de = {
     modalNew: "Neue Regel",
     cancel: "Abbrechen",
     save: "Speichern",
+    fieldName: "Name (optional)",
+    namePlaceholder: "z. B. Riot Games, Arbeits-VPN",
     fieldType: "Regeltyp",
     fieldAction: "Was mit dem Traffic geschehen soll",
     fieldNode: "Server",

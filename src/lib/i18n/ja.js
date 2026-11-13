@@ -941,6 +941,8 @@ export const ja = {
     modalNew: "新しいルール",
     cancel: "キャンセル",
     save: "保存",
+    fieldName: "名前（任意）",
+    namePlaceholder: "例：Riot Games、仕事用 VPN",
     fieldType: "ルールの種類",
     fieldAction: "通信の扱い",
     fieldNode: "サーバー",

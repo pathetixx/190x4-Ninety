@@ -41,6 +41,8 @@ Custom rules can match:
 
 For a whole domain zone use a leading dot, for example `.ru` with the **Subdomains** match.
 
+A rule can have an optional name of up to 64 characters. It is shown as the row title in the list and only helps tell rules apart: it does not affect matching or priority, and renaming a rule does not reconnect.
+
 Lists are downloaded through the tunnel and refreshed every 5 days. A list that cannot be downloaded does not stop the connection: its rules match nothing until the download succeeds, which is retried within minutes.
 
 Each custom rule has an action: through VPN, direct, block, through a specific server or through WARP. Custom rules are intended to be evaluated before broad defaults so user intent can override regional defaults.

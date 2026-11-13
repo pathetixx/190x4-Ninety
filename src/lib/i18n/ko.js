@@ -941,6 +941,8 @@ export const ko = {
     modalNew: "새 규칙",
     cancel: "취소",
     save: "저장",
+    fieldName: "이름(선택 사항)",
+    namePlaceholder: "예: Riot Games, 업무용 VPN",
     fieldType: "규칙 유형",
     fieldAction: "트래픽 처리 방법",
     fieldNode: "서버",

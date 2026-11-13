@@ -941,6 +941,8 @@ export const zh = {
     modalNew: "新建规则",
     cancel: "取消",
     save: "保存",
+    fieldName: "名称（可选）",
+    namePlaceholder: "例如：Riot Games、工作 VPN",
     fieldType: "规则类型",
     fieldAction: "对流量的处理",
     fieldNode: "服务器",
