@@ -6,6 +6,16 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.14.0 — 2026-11-13
+
+## English
+
+- Custom routing rules can now have a name, shown as the rule's title in the list, and renaming a rule no longer interrupts the connection.
+
+## Русский
+
+- Своим правилам маршрутизации теперь можно давать названия: они показываются заголовком правила в списке, а переименование не прерывает подключение.
+
 ## v0.13.0 — 2026-11-11
 
 ## English
