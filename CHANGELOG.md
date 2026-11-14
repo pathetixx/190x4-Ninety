@@ -6,6 +6,20 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.15.0 — 2026-11-14
+
+## English
+
+- New setting in Settings → General: Ninety can connect on launch, either always or only if the VPN was on when you closed it; a manual disconnect is remembered.
+- The portable version can now update itself in one click: Ninety downloads the new version, checks its signature, installs it over the program folder without touching your data and restarts. This works for updates after this release.
+- Security fixes in the app's network components.
+
+## Русский
+
+- Новая настройка в Настройки → Общие: Ninety может подключаться при запуске — всегда или только если VPN был включён при закрытии; ручное отключение запоминается.
+- Portable-версия теперь обновляется в один клик: Ninety сам скачивает новую версию, проверяет её подпись, устанавливает поверх папки программы, не трогая ваши данные, и перезапускается. Это работает для обновлений после этого релиза.
+- Исправления безопасности в сетевых компонентах приложения.
+
 ## v0.14.0 — 2026-11-13
 
 ## English
