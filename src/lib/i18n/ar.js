@@ -779,6 +779,7 @@ export const ar = {
     notesUnavailable: "ملاحظات الإصدار غير متاحة. افتح صفحة الإصدار على GitHub.",
     install: "تحديث",
     downloadPortable: "تنزيل ZIP",
+    portableFallback: "يمكنك تنزيل ملف ZIP من صفحة الإصدار يدويًا.",
     browserUnavailable: "تعذر فتح المتصفح",
     downloading: "جارٍ التنزيل",
     installing: "جارٍ التثبيت…",

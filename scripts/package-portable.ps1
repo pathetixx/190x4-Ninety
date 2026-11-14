@@ -67,8 +67,10 @@ Ninety на другой ПК, закройте приложение и скоп
 данные, задайте пароль в Настройки → Общие. Ninety его не запоминает и
 спрашивает при каждом запуске; забытый пароль восстановить нельзя.
 
-Обновление: закройте Ninety и распакуйте новый Portable ZIP поверх этой папки
-с заменой файлов. NinetyData в архив не входит и останется на месте.
+Обновление: когда выйдет новая версия, Ninety предложит обновиться и сама
+скачает, проверит и установит Portable ZIP поверх этой папки. Вручную: закройте
+Ninety и распакуйте новый ZIP поверх папки с заменой файлов. NinetyData в архив
+не входит и останется на месте.
 
 EN: Extract the whole archive to a writable local folder and run Ninety.exe.
 Do not move the EXE alone: the adjacent engines and resources are required.
@@ -82,8 +84,10 @@ in NinetyData as plain text. Do not publish or share this folder. To encrypt
 the data, set a password in Settings → General. Ninety does not remember it and
 asks for it on every launch; a forgotten password cannot be recovered.
 
-Update: close Ninety and extract the new Portable ZIP over this folder, replacing
-program files. NinetyData is not included in the archive and remains untouched.
+Update: when a new version is out, Ninety offers to update and downloads,
+verifies and installs the Portable ZIP over this folder by itself. Manually:
+close Ninety and extract the new ZIP over this folder, replacing program files.
+NinetyData is not included in the archive and remains untouched.
 "@ | Set-Content -LiteralPath (Join-Path $appDir "README.txt") -Encoding utf8
 
 Compress-Archive -LiteralPath $appDir -DestinationPath $zipPath -CompressionLevel Optimal

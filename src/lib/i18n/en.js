@@ -747,6 +747,7 @@ export const en = {
     notesUnavailable: "Release notes unavailable. Open the release page on GitHub.",
     install: "UPDATE",
     downloadPortable: "DOWNLOAD ZIP",
+    portableFallback: "You can download the ZIP from the release page instead.",
     browserUnavailable: "Couldn't open the browser",
     downloading: "Downloading",
     installing: "Installing…",

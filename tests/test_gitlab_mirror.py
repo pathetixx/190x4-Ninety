@@ -194,6 +194,35 @@ class GitLabMirrorTests(unittest.TestCase):
             ],
         )
 
+    def test_portable_zip_is_mirrored_with_its_own_url(self):
+        client = FakeClient()
+        source = metadata()
+        source["platforms"][mirror.PORTABLE_PLATFORM] = {
+            "signature": "zip-signed",
+            "url": "https://github.invalid/portable.zip",
+        }
+        mirror.promote_release(
+            client, source, "setup.exe", b"installer", "signed",
+            ("portable.zip", b"zip", "zip-signed"),
+        )
+        self.assertIn(("immutable", "1.2.3", "portable.zip", "application/zip"), client.calls)
+        published = json.loads(client.blobs[("1.2.3", "latest.json")])
+        self.assertEqual(
+            published["platforms"][mirror.PORTABLE_PLATFORM]["url"],
+            client.url("1.2.3", "portable.zip"),
+        )
+        self.assertEqual(published["platforms"][mirror.PORTABLE_PLATFORM]["signature"], "zip-signed")
+
+    def test_portable_signature_must_match_metadata(self):
+        client = FakeClient()
+        source = metadata()
+        source["platforms"][mirror.PORTABLE_PLATFORM] = {"signature": "zip-signed", "url": "x"}
+        with self.assertRaises(mirror.MirrorError):
+            mirror.promote_release(
+                client, source, "setup.exe", b"installer", "signed",
+                ("portable.zip", b"zip", "other"),
+            )
+
     def test_downloaded_metadata_must_keep_expected_url(self):
         body = json.dumps(metadata()).encode()
         with self.assertRaises(mirror.MirrorError):

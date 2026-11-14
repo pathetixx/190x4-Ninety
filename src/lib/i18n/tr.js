@@ -747,6 +747,7 @@ export const tr = {
     notesUnavailable: "Sürüm notları kullanılamıyor. GitHub'da sürüm sayfasını açın.",
     install: "GÜNCELLE",
     downloadPortable: "ZIP İNDİR",
+    portableFallback: "ZIP dosyasını sürüm sayfasından elle indirebilirsiniz.",
     browserUnavailable: "Tarayıcı açılamadı",
     downloading: "İndiriliyor",
     installing: "Yükleniyor…",

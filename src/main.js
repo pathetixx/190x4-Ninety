@@ -4331,6 +4331,7 @@ async function showUpdateModal(update, opts = {}) {
     await openUpdateModal(update, {
       ...opts,
       portable,
+      portableProxy: updaterProxy,
       acquireUpdate: () => acquireUpdateForCurrentRoute({
         check: ({ proxy }) => checkForUpdate({ proxy }),
         getProxy: updaterProxy,

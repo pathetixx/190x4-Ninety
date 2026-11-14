@@ -25,6 +25,8 @@ from pathlib import Path
 
 PKG = "ninety"
 PLATFORM = "windows-x86_64"
+# Portable ZIP для обновления из приложения (цель updater-плагина).
+PORTABLE_PLATFORM = "windows-x86_64-portable"
 METADATA_NAME = "latest.json"
 DOWNLOAD_TIMEOUT = 60
 UPLOAD_TIMEOUT = 180
@@ -52,7 +54,26 @@ def is_retryable_http(code: int) -> bool:
     return code in RETRYABLE_HTTP_CODES or 500 <= code < 600
 
 
-def validate_metadata(data: object, expected_version: str, expected_url: str) -> dict:
+def validate_portable(data: dict, expected_url: str) -> None:
+    platforms = data.get("platforms")
+    platform = platforms.get(PORTABLE_PLATFORM) if isinstance(platforms, dict) else None
+    if not isinstance(platform, dict):
+        raise MirrorError(f"в latest.json отсутствует платформа {PORTABLE_PLATFORM}")
+    signature = platform.get("signature")
+    if not isinstance(signature, str) or not signature.strip():
+        raise MirrorError("в latest.json отсутствует подпись Portable ZIP")
+    if platform.get("url") != expected_url:
+        raise MirrorError(
+            f"URL Portable {platform.get('url')!r} не совпадает с {expected_url!r}"
+        )
+
+
+def validate_metadata(
+    data: object,
+    expected_version: str,
+    expected_url: str,
+    expected_portable_url: str | None = None,
+) -> dict:
     if not isinstance(data, dict):
         raise MirrorError("latest.json должен быть JSON-объектом")
     if data.get("version") != expected_version:
@@ -70,18 +91,27 @@ def validate_metadata(data: object, expected_version: str, expected_url: str) ->
         raise MirrorError(
             f"URL latest.json {platform.get('url')!r} не совпадает с {expected_url!r}"
         )
+    if expected_portable_url is not None:
+        validate_portable(data, expected_portable_url)
     return data
 
 
-def validate_metadata_bytes(body: bytes, expected_version: str, expected_url: str) -> dict:
+def validate_metadata_bytes(
+    body: bytes,
+    expected_version: str,
+    expected_url: str,
+    expected_portable_url: str | None = None,
+) -> dict:
     try:
         data = json.loads(body.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise MirrorError(f"скачанный latest.json повреждён: {exc}") from exc
-    return validate_metadata(data, expected_version, expected_url)
+    return validate_metadata(data, expected_version, expected_url, expected_portable_url)
 
 
-def gitlab_metadata(source: dict, version: str, installer_url: str) -> dict:
+def gitlab_metadata(
+    source: dict, version: str, installer_url: str, portable_url: str | None = None
+) -> dict:
     data = copy.deepcopy(source)
     platforms = data.get("platforms")
     platform = platforms.get(PLATFORM) if isinstance(platforms, dict) else None
@@ -89,7 +119,12 @@ def gitlab_metadata(source: dict, version: str, installer_url: str) -> dict:
         raise MirrorError("невозможно создать GitLab metadata без updater signature")
     data["version"] = version
     platform["url"] = installer_url
-    validate_metadata(data, version, installer_url)
+    if portable_url is not None:
+        portable = platforms.get(PORTABLE_PLATFORM)
+        if not isinstance(portable, dict):
+            raise MirrorError(f"в latest.json отсутствует платформа {PORTABLE_PLATFORM}")
+        portable["url"] = portable_url
+    validate_metadata(data, version, installer_url, portable_url)
     return data
 
 
@@ -263,6 +298,7 @@ def promote_release(
     installer_name: str,
     installer_body: bytes,
     signature_body: str,
+    portable: tuple[str, bytes, str] | None = None,
 ) -> str:
     if not installer_body:
         raise MirrorError("NSIS installer пуст")
@@ -278,22 +314,41 @@ def promote_release(
     if source_platform.get("signature") != signature_body.strip() or not signature_body.strip():
         raise MirrorError("подпись .sig отсутствует либо не совпадает с latest.json")
 
+    portable_url = None
+    if portable is not None:
+        portable_name, portable_body, portable_signature = portable
+        if not portable_body:
+            raise MirrorError("Portable ZIP пуст")
+        source_portable = (
+            source_platforms.get(PORTABLE_PLATFORM, {})
+            if isinstance(source_platforms, dict)
+            else {}
+        )
+        if (
+            not portable_signature.strip()
+            or source_portable.get("signature") != portable_signature.strip()
+        ):
+            raise MirrorError("подпись .zip.sig отсутствует либо не совпадает с latest.json")
+        portable_url = client.url(version, portable_name)
+
     installer_url = client.url(version, installer_name)
-    data = gitlab_metadata(source_metadata, version, installer_url)
+    data = gitlab_metadata(source_metadata, version, installer_url, portable_url)
     metadata_body = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
     client.ensure_immutable(
         version, installer_name, installer_body, "application/octet-stream"
     )
     client.verify_blob(version, installer_name, installer_body)
+    if portable is not None:
+        client.ensure_immutable(version, portable[0], portable[1], "application/zip")
 
     downloaded_versioned = client.ensure_immutable(
         version, METADATA_NAME, metadata_body, "application/json"
     )
-    validate_metadata_bytes(downloaded_versioned, version, installer_url)
+    validate_metadata_bytes(downloaded_versioned, version, installer_url, portable_url)
 
     downloaded_stable = client.promote_stable(metadata_body)
-    validate_metadata_bytes(downloaded_stable, version, installer_url)
+    validate_metadata_bytes(downloaded_stable, version, installer_url, portable_url)
     return installer_url
 
 
@@ -359,12 +414,31 @@ def main() -> int:
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise MirrorError(f"локальный latest.json повреждён: {exc}") from exc
 
+    portable = None
+    has_portable_entry = isinstance(source_metadata.get("platforms"), dict) and (
+        PORTABLE_PLATFORM in source_metadata["platforms"]
+    )
+    if has_portable_entry:
+        zips = glob.glob("src-tauri/target/release/portable/*_windows-x64-portable.zip")
+        if len(zips) != 1:
+            raise MirrorError(f"ожидался ровно один Portable ZIP, найдено: {len(zips)}")
+        portable_zip = Path(zips[0])
+        portable_sig = Path(f"{portable_zip}.sig")
+        if not portable_sig.is_file():
+            raise MirrorError(f"подпись Portable ZIP не найдена: {portable_sig}")
+        portable = (
+            portable_zip.name,
+            portable_zip.read_bytes(),
+            portable_sig.read_text(encoding="utf-8"),
+        )
+
     installer_url = promote_release(
         client,
         source_metadata,
         installer.name,
         installer.read_bytes(),
         signature.read_text(encoding="utf-8"),
+        portable,
     )
     print(
         "GitLab OTA promoted safely: "

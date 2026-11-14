@@ -96,6 +96,14 @@ if (Test-Path $LatestJson) {
   Assert-Release ([string]$platform.signature -eq (Get-Content $sigs[0].FullName -Raw).Trim()) `
     "signature latest.json не совпадает с .sig"
   Assert-Release ([string]$platform.url -eq $expectedUrl) "URL latest.json не совпадает с installer"
+  $portablePlatform = $latest.platforms.'windows-x86_64-portable'
+  $portableSigPath = "$($portableZips[0].FullName).sig"
+  $expectedPortableUrl = "https://github.com/pathetixx/190x4-Ninety/releases/download/$($env:GITHUB_REF_NAME)/$($portableZips[0].Name)"
+  Assert-Release ($null -ne $portablePlatform) "в latest.json нет windows-x86_64-portable"
+  Assert-Release (Test-Path $portableSigPath) "нет подписи Portable ZIP"
+  Assert-Release ([string]$portablePlatform.signature -eq (Get-Content $portableSigPath -Raw).Trim()) `
+    "signature Portable в latest.json не совпадает с .zip.sig"
+  Assert-Release ([string]$portablePlatform.url -eq $expectedPortableUrl) "URL Portable в latest.json не совпадает с ZIP"
 }
 
 # Полный boot Tauri без сети/VPN. --ci-smoke проверяет backend ping и сам

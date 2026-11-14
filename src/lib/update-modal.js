@@ -214,14 +214,15 @@ export function openUpdateModal(update, opts = {}) {
   installBtn.disabled = false;
   laterBtn.disabled = false;
   laterBtn.hidden = false;
-  installBtn.textContent = opts.portable
-    ? t("updModal.downloadPortable")
-    : t("updModal.install");
+  installBtn.textContent = t("updModal.install");
   modal.hidden = false;
 
   return new Promise((resolve) => {
     let installing = false;
     let preparing = false;
+    // Portable обновляется сам; если не вышло — следующая кнопка ведёт на
+    // страницу релиза за ZIP, как раньше.
+    let portableFallback = false;
 
     const cleanup = () => {
       installBtn.removeEventListener("click", onInstall);
@@ -257,7 +258,7 @@ export function openUpdateModal(update, opts = {}) {
 
     const onInstall = async () => {
       if (installing || preparing) return;
-      if (opts.portable) {
+      if (opts.portable && portableFallback) {
         try {
           const open = window.__TAURI__?.shell?.open;
           if (typeof open !== "function") throw new Error(t("updModal.browserUnavailable"));
@@ -278,7 +279,7 @@ export function openUpdateModal(update, opts = {}) {
       installBtn.disabled = true;
       showError(null);
       try {
-        if (typeof opts.acquireUpdate === "function") {
+        if (!opts.portable && typeof opts.acquireUpdate === "function") {
           // Retry никогда не переиспользует старый HTTP client/download buffer.
           // Освобождаем его до fresh-check, сохраняя metadata для модалки.
           if (!(await releaseActiveResource())) {
@@ -301,7 +302,8 @@ export function openUpdateModal(update, opts = {}) {
           activeUpdate = acquired;
           activeUpdateConsumed = false;
         }
-        if (typeof activeUpdate.download !== "function"
+        if (!opts.portable
+          && typeof activeUpdate.download !== "function"
           && typeof activeUpdate.downloadAndInstall !== "function") {
           throw new Error(t("update.unavailable"));
         }
@@ -442,7 +444,32 @@ export function openUpdateModal(update, opts = {}) {
         const downloadOptions = {
           timeout: opts.downloadTimeoutMs || UPDATE_DOWNLOAD_TIMEOUT_MS,
         };
-        if (typeof activeUpdate.download === "function"
+        if (opts.portable) {
+          // ZIP качает и проверяет подписью updater-плагин на стороне Rust;
+          // файлы программы меняются только после остановки движков, и при
+          // успехе portable_update_apply не возвращается: процесс уже заменён
+          // новой версией.
+          const Channel = window.__TAURI__?.core?.Channel;
+          if (!invoke || typeof Channel !== "function") throw new Error(t("update.unavailable"));
+          const channel = new Channel();
+          channel.onmessage = onEvent;
+          const version = String(activeUpdate.version);
+          await invoke("portable_update_download", {
+            expectedVersion: version,
+            proxy: opts.portableProxy?.() || null,
+            onEvent: channel,
+          });
+          writeResume("downloaded");
+          setProgressLabel(t("updModal.installing"));
+          setBarIndeterminate();
+          writeResume("backup_ready");
+          await opts.onBeforeInstall?.();
+          await stopEngines();
+          writeResume("runtime_stopped");
+          writeResume("installing");
+          await invoke("portable_update_apply", { version });
+          throw new Error(t("update.unavailable"));
+        } else if (typeof activeUpdate.download === "function"
           && typeof activeUpdate.install === "function") {
           await activeUpdate.download(onEvent, downloadOptions);
           writeResume("downloaded");
@@ -518,10 +545,12 @@ export function openUpdateModal(update, opts = {}) {
         installing = false;
         opts.onInstalling?.(false);
         progressBox.hidden = true;
-        showError(t("updModal.failed", { err: e?.message || e }));
+        const failed = t("updModal.failed", { err: e?.message || e });
+        showError(opts.portable ? `${failed} ${t("updModal.portableFallback")}` : failed);
         installBtn.disabled = false;
         laterBtn.hidden = false;
-        installBtn.textContent = t("updModal.retry");
+        if (opts.portable) portableFallback = true;
+        installBtn.textContent = opts.portable ? t("updModal.downloadPortable") : t("updModal.retry");
       }
     };
 

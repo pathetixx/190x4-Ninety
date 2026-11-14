@@ -104,6 +104,7 @@ async function verifyRelease(version) {
   check(names.some((n) => /-setup\.exe\.sig$/.test(n)), "подпись установщика (.sig)");
   check(names.some((n) => /\.msi$/.test(n)), "ассет .msi");
   check(names.some((n) => /_windows-x64-portable\.zip$/.test(n)), "ассет Portable ZIP (Windows x64)");
+  check(names.some((n) => /_windows-x64-portable\.zip\.sig$/.test(n)), "подпись Portable ZIP (.zip.sig)");
   check(names.includes("latest.json"), "ассет latest.json");
 
   // GitHub /releases/latest/ отдаёт нашу версию ⇒ релиз стал Latest, и подпись на месте.
@@ -147,6 +148,11 @@ async function verifyRelease(version) {
         === glMetadata.platforms["windows-x86_64"].signature,
     "GitHub/GitLab OTA используют одну updater signature",
   );
+  const ghPortable = ghMetadata?.platforms?.["windows-x86_64-portable"];
+  const glPortable = glMetadata?.platforms?.["windows-x86_64-portable"];
+  check(!!ghPortable?.signature && ghPortable.signature === glPortable?.signature
+    && !!glPortable?.url?.includes(`/packages/generic/ninety/${version}/`),
+  "Portable OTA: GitHub и GitLab отдают ZIP с одной подписью");
 }
 
 // --- аргументы ---

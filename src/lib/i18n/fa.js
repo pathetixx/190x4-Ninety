@@ -747,6 +747,7 @@ export const fa = {
     notesUnavailable: "یادداشت‌های انتشار در دسترس نیست. صفحهٔ انتشار را در GitHub باز کنید.",
     install: "به‌روزرسانی",
     downloadPortable: "دانلود ZIP",
+    portableFallback: "می‌توانید ZIP را دستی از صفحهٔ انتشار دانلود کنید.",
     browserUnavailable: "مرورگر باز نشد",
     downloading: "در حال دانلود",
     installing: "در حال نصب…",

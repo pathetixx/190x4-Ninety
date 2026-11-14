@@ -16,6 +16,7 @@ mod job_guard;
 mod killswitch;
 mod lan_auth;
 mod netproc;
+mod portable_update;
 mod profile_store;
 mod protected_browser;
 mod quality;
@@ -208,6 +209,21 @@ fn relaunch_elevated(app: tauri::AppHandle, connect: Option<bool>) -> Result<boo
         std::process::exit(0);
     }
     Ok(false)
+}
+
+/// Ставит скачанное portable-обновление и перезапускает Ninety новой версией.
+/// Движки фронт уже остановил; при успехе процесс завершается здесь же, как в
+/// relaunch_elevated: новый инстанс ждёт его выхода через --wait-parent.
+#[tauri::command]
+fn portable_update_apply(app: tauri::AppHandle, version: String) -> Result<(), String> {
+    portable_update::apply_and_launch(&version)?;
+    if let Some(state) = app.try_state::<SingboxState>() {
+        vpn::force_cleanup(&app, &state);
+    }
+    if let Some(state) = app.try_state::<dpi::DpiState>() {
+        dpi::force_cleanup(&state);
+    }
+    std::process::exit(0);
 }
 
 fn always_admin_marker(app: &tauri::AppHandle) -> Option<PathBuf> {
@@ -1052,6 +1068,7 @@ pub fn run() {
     vpn::normalize_own_priority();
     // До Builder: single-instance регистрируется при сборке приложения.
     wait_for_relaunching_parent();
+    portable_update::spawn_cleanup_after_update();
     let portable = app_paths::is_portable();
     let mut context = tauri::generate_context!();
     if portable {
@@ -1401,6 +1418,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ping,
             is_portable,
+            portable_update::portable_update_download,
+            portable_update_apply,
             secrets::portable_secrets_status,
             secrets::portable_secrets_set_passphrase,
             secrets::portable_secrets_clear_passphrase,

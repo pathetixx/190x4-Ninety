@@ -763,6 +763,7 @@ export const ru = {
     notesUnavailable: "Заметки релиза недоступны. Открой страницу релиза на GitHub.",
     install: "ОБНОВИТЬ",
     downloadPortable: "СКАЧАТЬ ZIP",
+    portableFallback: "Можно скачать ZIP со страницы релиза вручную.",
     browserUnavailable: "Не удалось открыть браузер",
     downloading: "Загрузка",
     installing: "Установка…",

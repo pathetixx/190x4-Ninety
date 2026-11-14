@@ -763,6 +763,7 @@ export const pl = {
     notesUnavailable: "Informacje o wydaniu niedostępne. Otwórz stronę wydania na GitHubie.",
     install: "AKTUALIZUJ",
     downloadPortable: "POBIERZ ZIP",
+    portableFallback: "Możesz pobrać ZIP ze strony wydania ręcznie.",
     browserUnavailable: "Nie udało się otworzyć przeglądarki",
     downloading: "Pobieranie",
     installing: "Instalowanie…",

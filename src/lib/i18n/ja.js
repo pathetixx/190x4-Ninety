@@ -739,6 +739,7 @@ export const ja = {
     notesUnavailable: "リリースノートが利用できません。GitHub のリリースページを開いてください。",
     install: "更新",
     downloadPortable: "ZIPをダウンロード",
+    portableFallback: "代わりにリリースページから ZIP をダウンロードできます。",
     browserUnavailable: "ブラウザーを開けませんでした",
     downloading: "ダウンロード中",
     installing: "インストール中…",

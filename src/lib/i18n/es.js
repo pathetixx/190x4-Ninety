@@ -755,6 +755,7 @@ export const es = {
     notesUnavailable: "Notas de la versión no disponibles. Abre la página de la versión en GitHub.",
     install: "ACTUALIZAR",
     downloadPortable: "DESCARGAR ZIP",
+    portableFallback: "Puedes descargar el ZIP desde la página de la versión.",
     browserUnavailable: "No se pudo abrir el navegador",
     downloading: "Descargando",
     installing: "Instalando…",

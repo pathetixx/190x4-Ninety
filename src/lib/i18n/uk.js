@@ -763,6 +763,7 @@ export const uk = {
     notesUnavailable: "Нотатки релізу недоступні. Відкрий сторінку релізу на GitHub.",
     install: "ОНОВИТИ",
     downloadPortable: "ЗАВАНТАЖИТИ ZIP",
+    portableFallback: "Можна завантажити ZIP зі сторінки релізу вручну.",
     browserUnavailable: "Не вдалося відкрити браузер",
     downloading: "Завантаження",
     installing: "Встановлення…",

@@ -755,6 +755,7 @@ export const pt = {
     notesUnavailable: "Notas de lançamento indisponíveis. Abra a página de lançamento no GitHub.",
     install: "ATUALIZAR",
     downloadPortable: "TRANSFERIR ZIP",
+    portableFallback: "Pode transferir o ZIP a partir da página da versão.",
     browserUnavailable: "Não foi possível abrir o navegador",
     downloading: "A transferir",
     installing: "A instalar…",

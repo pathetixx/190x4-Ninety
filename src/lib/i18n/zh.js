@@ -739,6 +739,7 @@ export const zh = {
     notesUnavailable: "无法获取发行说明。请在 GitHub 打开发行页面。",
     install: "更新",
     downloadPortable: "下载 ZIP",
+    portableFallback: "也可以从发布页面手动下载 ZIP。",
     browserUnavailable: "无法打开浏览器",
     downloading: "下载中",
     installing: "安装中…",
