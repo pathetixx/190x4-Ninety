@@ -30,6 +30,8 @@ export const STORAGE_KEYS = {
   onboardingDone: "ninety.onboarding.done",
   regionDetected: "ninety.region.detected",
   updateResume: "ninety.update.resume",
+  // "on" | "off": был ли VPN подключён при закрытии — для «При запуске: как было».
+  vpnLastState: "ninety.vpn.lastState",
   dpiResumeAfterUpdate: "ninety.dpi.resumeAfterUpdate",
   warpHistory: "ninety.warp.history",
   qualityProfile: "ninety.quality.profile",
@@ -68,6 +70,8 @@ export const PROXIES_UI_PREFIX = "ninety.proxies.";
 
 const BACKUP_EXACT_EXCLUDE = new Set([
   STORAGE_KEYS.updateResume,
+  // Состояние прошлой сессии: после restore на другой машине оно чужое.
+  STORAGE_KEYS.vpnLastState,
   STORAGE_KEYS.dpiResumeAfterUpdate,
   STORAGE_KEYS.warpHistory,
   STORAGE_KEYS.qualityProfile,

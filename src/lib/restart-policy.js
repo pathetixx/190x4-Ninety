@@ -8,6 +8,7 @@ export function pathNeedsRestart(path, opts, mode) {
   // Windows-сторона, sing-box не трогает
   if (path === "general.autostart") return false;
   if (path === "general.startMinimized") return false;
+  if (path === "general.startupConnect") return false;
   if (path === "general.linkHandlers") return false;
   // Эти переключатели читаются на лету: авто-защита Wi-Fi — своим циклом,
   // гео-запросы — плиткой IP, прямое обновление подписок — при загрузке.

@@ -68,7 +68,7 @@ import { notify } from "/lib/notify.js";
 import { toast } from "/lib/toast.js";
 import { FLAGS_BASE, flagIsoFromName as isoFromNodeName, stripFlag } from "/lib/flags.js";
 import { configureTrafficRuntime, startMeter, stopMeter, getMeasured, resetMeasured, sourceKeyOf } from "/lib/traffic-meter.js";
-import { clearProfileStorage } from "/lib/storage-policy.js";
+import { clearProfileStorage, STORAGE_KEYS } from "/lib/storage-policy.js";
 import {
   clearProfileStore,
   initializeProfileStore,
@@ -109,7 +109,7 @@ import { createLatestWinsReconnectQueue } from "/lib/reconnect-queue.js";
 import { shouldShowOnboarding } from "/lib/onboarding-state.js";
 import { getRememberedProxySelection, restoreRememberedProxySelection } from "/lib/proxy-selection.js";
 import { disableSystemProxy, enableSystemProxy } from "/lib/system-proxy-runtime.js";
-import { startupRuntimePlan } from "/lib/startup-runtime-policy.js";
+import { startupConnectRequested, startupRuntimePlan } from "/lib/startup-runtime-policy.js";
 import { persistDpiIntentForRelaunch } from "/lib/dpi-elevation-intent.js";
 import {
   prepareStrictPrivacyRuntime,
@@ -2958,6 +2958,12 @@ function applySidebarState(next = state) {
   sidebarStateLabel.textContent = t(key);
 }
 
+// Для «При запуске: как было». Пишем "on" при каждом подключении и "off" только
+// при ручном «Отключить»: закрытие приложения с поднятым VPN оставляет "on".
+function rememberVpnLastState(value) {
+  try { localStorage.setItem(STORAGE_KEYS.vpnLastState, value); } catch {}
+}
+
 function setState(next, opts = {}) {
   state = next;
   applySidebarState(next);
@@ -3045,6 +3051,7 @@ function setState(next, opts = {}) {
     if (heroDisc && !networkBootstrapInProgress) heroDisc.disabled = false;
     toast(t("conn.cleanupFail"), "error", 6000, { desc: t("conn.cleanupFailDesc") });
   } else if (next === "connected") {
+    rememberVpnLastState("on");
     if (heroLabel) heroLabel.textContent = t("hero.secured");
     if (heroHint) heroHint.hidden = false;
     setHeroHintText(connectedKicker());
@@ -3869,6 +3876,7 @@ async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
   ordinaryFailClosedLatched = false;
   setState("idle");
   if (userInitiated) {
+    rememberVpnLastState("off");
     protectedBrowserAutoLaunched = false;
     toast(t("conn.disconnected"), "info", 2000, { group: "conn", desc: t("conn.disconnectedDesc") });
     notify(t("conn.notifyDisconnected"), t("conn.notifyDisconnectedBody"));
@@ -4097,7 +4105,22 @@ async function autostartNetworkRuntime() {
           : null;
       } catch { return null; }
     })();
-    const autoconnect = await invoke("should_autoconnect");
+    const launchAutoconnect = await invoke("should_autoconnect");
+    // Обычный запуск: подключение по настройке «При запуске». Автозапуск при
+    // входе в Windows и перезапуск ради подключения решают сами (флаги выше).
+    const settingAutoconnect = !launchAutoconnect && !resume?.vpn && startupConnectRequested({
+      setting: loadOptions()?.general?.startupConnect,
+      lastState: (() => {
+        try { return localStorage.getItem(STORAGE_KEYS.vpnLastState); } catch { return null; }
+      })(),
+    });
+    const autoconnect = launchAutoconnect || settingAutoconnect;
+    // TUN без прав: ради одной настройки запуска окно UAC не показываем —
+    // эта сессия подключается через системный прокси.
+    if (settingAutoconnect && getMode() === "tun" && !(await invoke("is_elevated"))) {
+      setSessionMode("systemProxy");
+      toast(t("elev.tunSkippedOnStart"), "warn", 6000, { group: "conn" });
+    }
     const mode = getMode();
     const splitDiscord = mode === "tun"
       && !strictPrivacyRequested()

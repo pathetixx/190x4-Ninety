@@ -2,6 +2,7 @@
 // Все настройки пользователя в одном объекте, сохраняется в localStorage.
 
 import { perfObserver } from "/lib/performance-observer.js";
+import { STARTUP_CONNECT_MODES } from "/lib/startup-runtime-policy.js";
 
 const OPTIONS_KEY = "ninety.options.v1";
 // Флаг разовой миграции log.level info→warn (см. loadOptions).
@@ -21,6 +22,9 @@ export const DEFAULT_OPTIONS = {
   general: {
     autostart: false,
     startMinimized: false,
+    // Подключение при обычном запуске: off | restore | always. Автозапуск при
+    // входе в Windows подключается всегда, независимо от этой настройки.
+    startupConnect: "off",
     // Регистрировать Ninety как обработчик VPN-ссылок верхнего уровня:
     // vless://, vmess://, ss://, trojan://, hysteria2://, hy2://, tuic://,
     // sub://, tt://, naive+https://, naive+quic://.
@@ -165,6 +169,7 @@ const ENUM_PATHS = {
   "warp.mode": ["direct", "chain"],
   "warp.noisePreset": ["off", "default", "aggressive", "custom"],
   "tlsTricks.fragmentMode": ["record", "tcp"],
+  "general.startupConnect": STARTUP_CONNECT_MODES,
 };
 
 const NUMBER_PATHS = {
@@ -441,6 +446,7 @@ const OPTION_SETTERS = new Map([
   ["blockAds", (opts, value) => { opts.blockAds = value; }],
   ["general.autostart", (opts, value) => { opts.general.autostart = value; }],
   ["general.startMinimized", (opts, value) => { opts.general.startMinimized = value; }],
+  ["general.startupConnect", (opts, value) => { opts.general.startupConnect = value; }],
   ["general.linkHandlers", (opts, value) => { opts.general.linkHandlers = value; }],
   ["general.autoProtectWifi", (opts, value) => { opts.general.autoProtectWifi = value; }],
   ["general.killSwitch", (opts, value) => { opts.general.killSwitch = value; }],
