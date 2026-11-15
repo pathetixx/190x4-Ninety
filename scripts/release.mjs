@@ -275,7 +275,7 @@ run("node", ["scripts/check-version.mjs"]);
 // Равенство двух списков проверяет tests/release-flags.test.mjs.
 run("git", ["add", "package.json", "package-lock.json",
   "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock",
-  "src/lib/build-info.js", "site/app.js", "site/index.html", "CHANGELOG.md"]);
+  "src/lib/build-info.js", "site/app.js", "site/index.html", "site/ru/index.html", "CHANGELOG.md"]);
 // Повторный заход после красной сборки — штатный случай: версия уже забампана
 // прошлым запуском, и коммитить нечего. Пустой `git commit` уронил бы ритуал
 // ровно там, где он должен доводить релиз до тега.

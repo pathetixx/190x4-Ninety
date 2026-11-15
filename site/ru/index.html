@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="ru" data-page-lang="ru" data-site-root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ninety — VPN-клиент для Windows</title>
+    <meta
+      name="description"
+      content="Ninety — бесплатный VPN-клиент для Windows с открытым кодом: свои серверы из подписки или конфига, режимы «Прокси · Системный прокси · VPN», правила по сайтам и программам, контроль скорости и диагностика соединения. Без рекламы и телеметрии."
+    />
+    <meta name="theme-color" content="#0a0a0d" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Ninety — VPN-клиент для Windows" />
+    <meta
+      property="og:description"
+      content="Ninety — бесплатный VPN-клиент для Windows с открытым кодом: свои серверы из подписки или конфига, режимы «Прокси · Системный прокси · VPN», правила по сайтам и программам, контроль скорости и диагностика соединения. Без рекламы и телеметрии."
+    />
+    <meta property="og:image" content="https://pathetixx.github.io/190x4-Ninety/assets/og.png" />
+    <meta property="og:url" content="https://pathetixx.github.io/190x4-Ninety/ru/" />
+    <meta property="og:locale" content="ru_RU" />
+    <link rel="canonical" href="https://pathetixx.github.io/190x4-Ninety/ru/" />
+    <link rel="alternate" hreflang="en" href="https://pathetixx.github.io/190x4-Ninety/" />
+    <link rel="alternate" hreflang="ru" href="https://pathetixx.github.io/190x4-Ninety/ru/" />
+    <link rel="alternate" hreflang="x-default" href="https://pathetixx.github.io/190x4-Ninety/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../assets/icon.png" />
+    <link rel="apple-touch-icon" href="../assets/icon.png" />
+    <link rel="manifest" href="../site.webmanifest" />
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body>
+    <header class="topbar" data-topbar>
+      <a class="brand" href="#top" aria-label="Ninety">
+        <img src="../assets/icon.png" alt="" width="32" height="32" />
+        <span>Ninety</span>
+      </a>
+      <nav class="nav" aria-label="Main navigation">
+        <a href="#features" data-i18n="nav.features">Возможности</a>
+        <a href="#screens" data-i18n="nav.screens">Интерфейс</a>
+        <a href="#docs" data-i18n="nav.docs">Документация</a>
+        <a href="#safety" data-i18n="nav.safety">Безопасность</a>
+      </nav>
+      <div class="top-actions" role="group" aria-label="Language">
+        <button class="lang-button" type="button" data-lang="en">EN</button>
+        <button class="lang-button is-active" type="button" data-lang="ru">RU</button>
+        <a class="ghost-link" href="https://github.com/pathetixx/190x4-Ninety" data-i18n="nav.github">GitHub</a>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <picture class="hero-media" aria-hidden="true">
+          <img src="../assets/hero.webp" alt="" width="2200" height="1380" />
+        </picture>
+        <div class="hero-shade" aria-hidden="true"></div>
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="hero-content">
+          <p class="eyebrow" data-i18n="hero.eyebrow">190X4 · SECURE TUNNEL</p>
+          <h1 id="hero-title">Ninety</h1>
+          <p class="lead" data-i18n="hero.lead">VPN-клиент для Windows: серверы вы приносите свои, а Ninety подключает, сам выбирает быстрый сервер и показывает, где именно рвётся связь.</p>
+          <p class="note" data-i18n="hero.note">Бесплатно, с открытым кодом, без рекламы и телеметрии. Нужна своя подписка или конфиг — серверов Ninety не продаёт.</p>
+          <div class="cta-row">
+            <a
+              class="button primary"
+              href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+              data-download-link
+              data-i18n="hero.download"
+            >Скачать</a>
+            <a
+              class="button secondary"
+              href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+              data-portable-link
+              data-i18n="hero.portable"
+            >Portable-версия</a>
+            <a class="button secondary" href="https://github.com/pathetixx/190x4-Ninety#documentation" data-i18n="hero.docs">Документация</a>
+          </div>
+          <dl class="hero-stats" aria-label="Project facts">
+            <div>
+              <dt data-i18n="hero.stat.platform.label">Платформа</dt>
+              <dd data-i18n="hero.stat.platform.value">Windows 10 / 11 x64</dd>
+            </div>
+            <div>
+              <dt data-i18n="hero.stat.modes.label">Режимы</dt>
+              <dd data-i18n="hero.stat.modes.value">Прокси · Системный · VPN</dd>
+            </div>
+            <div>
+              <dt data-i18n="hero.stat.license.label">Лицензия</dt>
+              <dd data-i18n="hero.stat.license.value">MIT</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="section intro-section" aria-label="Ninety summary">
+        <div class="section-inner intro-grid">
+          <div>
+            <p class="section-kicker" data-i18n="intro.kicker">VPN-клиент для Windows</p>
+            <h2 data-i18n="intro.title">Ninety — клиент, а не сервис</h2>
+          </div>
+          <p data-i18n="intro.copy">Подписка или отдельный конфиг превращаются в готовое подключение: Ninety выбирает быстрый сервер, следит за скоростью, сам восстанавливает связь и показывает, где именно рвётся связь, если что-то пошло не так. Внутри работает sing-box, но выбирать движки и править конфиги вручную не нужно.</p>
+        </div>
+      </section>
+
+      <section class="section" id="features" aria-labelledby="features-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker" data-i18n="features.kicker">Возможности</p>
+            <h2 id="features-title" data-i18n="features.title">Серверы ваши — остальное берёт на себя Ninety</h2>
+          </div>
+          <div class="feature-grid">
+            <article class="feature-card">
+              <span class="feature-mark">01</span>
+              <h3 data-i18n="feature.modes.title">Режимы Windows</h3>
+              <p data-i18n="feature.modes.copy">Прокси для отдельных программ, системный прокси или полноценный VPN на весь компьютер. Права администратора запрашиваются только там, где без них режим не работает.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">02</span>
+              <h3 data-i18n="feature.sources.title">Источники</h3>
+              <p data-i18n="feature.sources.copy">Ссылка на подписку, отдельная конфигурация, готовый конфиг sing-box или Xray, файл WireGuard/AmneziaWG или endpoint TrustTunnel. Ссылку можно просто вставить из буфера.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">03</span>
+              <h3 data-i18n="feature.protocols.title">Протоколы</h3>
+              <p data-i18n="feature.protocols.copy">VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, SOCKS, NaiveProxy, TrustTunnel, WireGuard/AmneziaWG и WARP — в одном приложении, движок выбирать руками не нужно.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">04</span>
+              <h3 data-i18n="feature.routing.title">Маршрутизация</h3>
+              <p data-i18n="feature.routing.copy">Локальная сеть остаётся вне туннеля, региональные правила уже готовы, а свои работают по сайту, адресу или программе. Отдельное правило может увести трафик в выбранный сервер или в WARP.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">05</span>
+              <h3 data-i18n="feature.bypass.title">Совместимость с сетью</h3>
+              <p data-i18n="feature.bypass.copy">Отдельные инструменты для сетей, где сервисы открываются нестабильно. Работают и с выключенным VPN, а адрес активного сервера сам попадает в исключения.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">06</span>
+              <h3 data-i18n="feature.diagnostics.title">Диагностика</h3>
+              <p data-i18n="feature.diagnostics.copy">Каждый сервис проверяется дважды — напрямую и через Ninety, — поэтому видно, кто именно мешает: провайдер, сам сервис или сервер. Трасса, проверка утечек и лента сбоев рядом.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">07</span>
+              <h3 data-i18n="feature.quality.title">Качество канала</h3>
+              <p data-i18n="feature.quality.copy">Ninety измеряет реальную скорость, а не только пинг. Когда канал начинают душить, он сам меняет сервер или включает маскировку и говорит, что сделал.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">08</span>
+              <h3 data-i18n="feature.guard.title">Защита сети</h3>
+              <p data-i18n="feature.guard.copy">Kill switch перекрывает трафик, если туннель упал. В открытой Wi-Fi-сети, которой нет в доверенных, Ninety сам включит VPN и вернёт прежний режим, когда сеть снова безопасна.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-mark">09</span>
+              <h3 data-i18n="feature.desktop.title">Интерфейс</h3>
+              <p data-i18n="feature.desktop.copy">Управление из трея, обновления внутри приложения, восстановление сессии после обновления, темы и 15 языков.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section screen-section" id="screens" aria-labelledby="screens-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker" data-i18n="screens.kicker">Интерфейс</p>
+            <h2 id="screens-title" data-i18n="screens.title">Реальное состояние подключения видно сразу</h2>
+          </div>
+          <div class="screen-shell">
+            <div class="screen-tabs" role="tablist" aria-label="Screenshots">
+              <button class="screen-tab is-active" type="button" data-screen="home" data-i18n="screens.home">Главная</button>
+              <button class="screen-tab" type="button" data-screen="nodes" data-i18n="screens.nodes">Серверы</button>
+              <button class="screen-tab" type="button" data-screen="profiles" data-i18n="screens.profiles">Профили</button>
+              <button class="screen-tab" type="button" data-screen="diagnose" data-i18n="screens.diagnose">Диагностика</button>
+              <button class="screen-tab" type="button" data-screen="settings" data-i18n="screens.settings">Настройки</button>
+              <button class="screen-tab" type="button" data-screen="quality" data-i18n="screens.quality">Качество</button>
+            </div>
+            <figure class="screenshot-frame">
+              <img data-screen-image src="../assets/screen-home.webp" alt="Главный экран Ninety" width="1400" height="878" />
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section split-section" id="docs" aria-labelledby="docs-title">
+        <div class="section-inner split-grid">
+          <div class="copy-block">
+            <p class="section-kicker" data-i18n="docs.kicker">Документация</p>
+            <h2 id="docs-title" data-i18n="docs.title">Быстрый вход без раскрытия приватных данных</h2>
+            <p data-i18n="docs.copy">Документация объясняет режимы, приватность, маршрутизацию и решение проблем — и ни разу не просит выкладывать ссылки на подписки, ключи или полные конфиги.</p>
+            <div class="link-row">
+              <a href="https://github.com/pathetixx/190x4-Ninety#documentation" data-i18n="docs.user">Для пользователей</a>
+              <a href="https://github.com/pathetixx/190x4-Ninety/blob/main/docs/architecture.md" data-i18n="docs.arch">Архитектура</a>
+              <a href="https://github.com/pathetixx/190x4-Ninety/blob/main/CHANGELOG.md" data-i18n="docs.release">Что нового</a>
+            </div>
+          </div>
+          <div class="release-panel" aria-label="Release status">
+            <span class="panel-label" data-i18n="release.label">CURRENT RELEASE</span>
+            <strong data-release-version>v0.15.0</strong>
+            <span class="release-meta" data-release-meta>Checking latest release...</span>
+            <p data-i18n="release.copy">Ninety обновляется сам: новая версия скачивается внутри приложения, проверяется по подписи, а подписки и настройки остаются на месте. Portable-версия обновляется так же, в один клик.</p>
+            <div class="release-actions">
+              <a
+                class="button secondary compact"
+                href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+                data-release-link
+                data-i18n="release.link"
+              >Открыть релиз</a>
+              <a
+                class="button secondary compact"
+                href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+                data-download-link
+                data-i18n="release.exe"
+              >Установщик .exe</a>
+              <a
+                class="button secondary compact"
+                href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+                data-portable-link
+                data-i18n="release.portable"
+              >Portable .zip</a>
+              <a
+                class="button secondary compact"
+                href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+                data-msi-link
+                data-i18n="release.msi"
+              >MSI</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section safety-section" id="safety" aria-labelledby="safety-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker" data-i18n="safety.kicker">Честно о границах</p>
+            <h2 id="safety-title" data-i18n="safety.title">Сильные сетевые инструменты требуют честных ограничений</h2>
+          </div>
+          <div class="safety-grid">
+            <article>
+              <h3 data-i18n="safety.privacy.title">Не гарантия анонимности</h3>
+              <p data-i18n="safety.privacy.copy">Приватность зависит от сервера, провайдера, профиля и окружения Windows. Ninety помогает управлять подключением, но не меняет эту базовую модель доверия.</p>
+            </article>
+            <article>
+              <h3 data-i18n="safety.secrets.title">Секреты не публикуются</h3>
+              <p data-i18n="safety.secrets.copy">В публичные обсуждения нельзя вставлять ссылки на подписки, UUID, токены, приватные ключи, данные WARP и полные экспортированные конфиги.</p>
+            </article>
+            <article>
+              <h3 data-i18n="safety.system.title">Системные режимы заметны</h3>
+              <p data-i18n="safety.system.copy">VPN-режим, kill switch и инструменты совместимости меняют сетевые настройки Windows. Включайте их осознанно и проверяйте настройки, прежде чем сообщать об ошибке.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <strong>Ninety</strong>
+          <p data-i18n="footer.copy">Сетевой клиент для Windows с открытым кодом.</p>
+        </div>
+        <div class="footer-links">
+          <a href="https://github.com/pathetixx/190x4-Ninety" data-i18n="footer.github">GitHub</a>
+          <a href="https://github.com/pathetixx/190x4-Ninety/releases/latest" data-download-link data-i18n="footer.download">Скачать</a>
+          <a href="https://github.com/pathetixx/190x4-Ninety/security/policy" data-i18n="footer.security">Безопасность</a>
+          <a href="https://github.com/pathetixx/190x4-Ninety/blob/main/docs/privacy.md" data-i18n="footer.privacy">Приватность</a>
+          <a href="https://github.com/pathetixx/190x4-Ninety/blob/main/CODE_SIGNING_POLICY.md" data-i18n="footer.signing">Политика подписи</a>
+          <a href="https://github.com/pathetixx/190x4-Ninety/issues/6" data-i18n="footer.feedback">Обратная связь</a>
+        </div>
+      </div>
+    </footer>
+
+    <script src="../app.js" defer></script>
+  </body>
+</html>

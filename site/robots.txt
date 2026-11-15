@@ -1,2 +1,4 @@
 User-agent: *
 Allow: /
+
+Sitemap: https://pathetixx.github.io/190x4-Ninety/sitemap.xml

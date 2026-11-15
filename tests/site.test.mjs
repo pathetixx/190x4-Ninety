@@ -57,10 +57,37 @@ test("язык браузера определяется, незнакомый �
 // Если она разойдётся с языком по умолчанию, страница откроется на одном языке,
 // а через долю секунды переедет на другой.
 test("статическая разметка сайта написана на языке по умолчанию", () => {
-  assert.match(html, new RegExp(`<html lang="${defaultLanguage}">`));
+  assert.match(html, new RegExp(`<html lang="${defaultLanguage}"[ >]`));
   const nodes = [...html.matchAll(/<(\w+)[^>]*\bdata-i18n="([^"]+)"[^>]*>(.*?)<\/\1>/gs)];
   assert.ok(nodes.length > 0, "на странице нет ни одного data-i18n");
   for (const [, , key, body] of nodes) {
     assert.equal(body.trim(), translations[defaultLanguage][key], `data-i18n="${key}" разошёлся со словарём`);
+  }
+});
+
+// site/ru/index.html — сгенерированный файл (scripts/build-site-ru.mjs). Если
+// поправить index.html или словарь и забыть пересобрать, русская страница
+// молча покажет старый текст.
+test("site/ru/index.html совпадает с выводом build-site-ru", async () => {
+  const { renderRuPage, RU_PAGE } = await import("../scripts/build-site-ru.mjs");
+  assert.equal(readFileSync(RU_PAGE, "utf8"), renderRuPage(), "запустите node scripts/build-site-ru.mjs");
+});
+
+test("русская страница: язык, тексты из словаря и рабочие пути", () => {
+  const ru = readFileSync("site/ru/index.html", "utf8");
+  assert.match(ru, /<html lang="ru" data-page-lang="ru" data-site-root="\.\.\/">/);
+  assert.match(ru, /<link rel="canonical" href="https:\/\/pathetixx\.github\.io\/190x4-Ninety\/ru\/" \/>/);
+  const nodes = [...ru.matchAll(/<(\w+)[^>]*\bdata-i18n="([^"]+)"[^>]*>(.*?)<\/\1>/gs)];
+  assert.ok(nodes.length > 0);
+  const unescape = (v) => v.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+  for (const [, , key, body] of nodes) {
+    assert.equal(unescape(body), translations.ru[key], `data-i18n="${key}" на /ru/ разошёлся со словарём`);
+  }
+  const refs = [...ru.matchAll(/(?:src|href)="([^"]+)"/g)]
+    .map((m) => m[1])
+    .filter((ref) => !/^(?:https?:|#|mailto:)/.test(ref));
+  for (const ref of refs) {
+    assert.ok(ref.startsWith("../"), `путь без ../ на /ru/: ${ref}`);
+    assert.equal(existsSync(path.join("site/ru", ref.split(/[?#]/)[0])), true, `missing asset: ${ref}`);
   }
 });

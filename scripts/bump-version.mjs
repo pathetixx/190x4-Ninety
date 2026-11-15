@@ -7,7 +7,7 @@
 //   src-tauri/Cargo.toml      — версия крейта;
 //   src-tauri/Cargo.lock      — пакет `ninety` (иначе cargo переписывал бы lock);
 //   package.json + package-lock.json — версия npm-обёртки и lock metadata;
-//   site/app.js + index.html  — offline fallback версии сайта.
+//   site/app.js + index.html  — offline fallback версии сайта (и site/ru/).
 //
 // Механизм чтения версии Tauri НЕ трогаем (напр. "version": "../package.json"):
 // build.yml грепает число из tauri.conf.json как строку — путь-плейсхолдер там
@@ -18,6 +18,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { writeRuPage } from "./build-site-ru.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const version = process.argv[2];
@@ -74,5 +75,7 @@ edit("src/lib/build-info.js", /(version:\s*")\d+\.\d+\.\d+(")/, `$1${version}$2`
 
 edit("site/app.js", /(tagName:\s*"v)\d+\.\d+\.\d+(")/, `$1${version}$2`);
 edit("site/index.html", /(data-release-version>v)\d+\.\d+\.\d+(<\/strong>)/, `$1${version}$2`);
+// Русская страница сайта собирается из index.html — пересобираем с новой версией.
+writeRuPage(root);
 
 console.log(`\nBumped to ${version}. Next: commit + push, then annotated tag (see RELEASING.md).`);

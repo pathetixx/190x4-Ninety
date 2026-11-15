@@ -228,6 +228,11 @@ const screens = {
 
 const SUPPORTED_LANGUAGES = ["en", "ru"];
 const DEFAULT_LANGUAGE = "en";
+// Русская версия лежит статичной страницей в ru/ (scripts/build-site-ru.mjs):
+// у неё язык задан адресом, а пути к ресурсам начинаются с "../".
+const PAGE_LANGUAGE = globalThis.document?.documentElement.dataset.pageLang || DEFAULT_LANGUAGE;
+const SITE_ROOT = globalThis.document?.documentElement.dataset.siteRoot || "";
+const LANGUAGE_PAGES = { en: SITE_ROOT || "./", ru: `${SITE_ROOT}ru/` };
 
 function readStoredLanguage() {
   try {
@@ -253,7 +258,9 @@ function detectBrowserLanguage() {
 // Явный выбор кнопкой сильнее языка браузера: он и только он лежит в
 // localStorage. Пока выбора не было, определение остаётся живым — сменив язык
 // системы, посетитель увидит сайт на новом языке.
-let currentLanguage = readStoredLanguage() || detectBrowserLanguage();
+// На странице не языка по умолчанию язык задан адресом: /ru/ всегда по-русски.
+let currentLanguage =
+  PAGE_LANGUAGE === DEFAULT_LANGUAGE ? readStoredLanguage() || detectBrowserLanguage() : PAGE_LANGUAGE;
 let currentScreen = "home";
 let latestRelease = releaseFallback;
 let latestReleaseLoaded = false;
@@ -390,7 +397,7 @@ async function loadLatestRelease() {
 }
 
 async function loadReleaseFromSiteMetadata() {
-  const response = await fetch("release.json", { cache: "no-store" });
+  const response = await fetch(`${SITE_ROOT}release.json`, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Local release metadata request failed: ${response.status}`);
   }
@@ -442,7 +449,7 @@ function setLanguage(language, { persist = true } = {}) {
 function updateScreen(name) {
   currentScreen = screens[name] ? name : "home";
   const selected = screens[currentScreen];
-  screenImage.src = selected.src;
+  screenImage.src = `${SITE_ROOT}${selected.src}`;
   screenImage.alt = selected.alt[currentLanguage];
 
   document.querySelectorAll("[data-screen]").forEach((button) => {
@@ -451,7 +458,17 @@ function updateScreen(name) {
 }
 
 document.querySelectorAll("[data-lang]").forEach((button) => {
-  button.addEventListener("click", () => setLanguage(button.dataset.lang));
+  button.addEventListener("click", () => {
+    const language = button.dataset.lang;
+    // Русскую версию открываем отдельным адресом: им можно поделиться, и
+    // превью ссылки будет на русском. С /ru/ на английский — обратно в корень.
+    if (language !== PAGE_LANGUAGE && (language !== DEFAULT_LANGUAGE || PAGE_LANGUAGE !== DEFAULT_LANGUAGE)) {
+      storeLanguage(language);
+      window.location.href = LANGUAGE_PAGES[language];
+      return;
+    }
+    setLanguage(language);
+  });
 });
 
 document.querySelectorAll("[data-screen]").forEach((button) => {
