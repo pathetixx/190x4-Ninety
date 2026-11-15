@@ -13,7 +13,7 @@
 
 No ads, no telemetry, no account.
 
-**[⬇ Download for Windows](https://github.com/pathetixx/190x4-Ninety/releases/latest)** · [Portable](https://github.com/pathetixx/190x4-Ninety/releases/latest) · [Website](https://pathetixx.github.io/190x4-Ninety/) · [Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md) · [Security](./SECURITY.md) · [Code signing policy](./CODE_SIGNING_POLICY.md)
+**[⬇ Download for Windows](https://github.com/pathetixx/190x4-Ninety/releases/latest)** · [Portable](https://github.com/pathetixx/190x4-Ninety/releases/latest) · [Website](https://pathetixx.github.io/190x4-Ninety/) · [AlternativeTo](https://alternativeto.net/software/ninety/about/) · [Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md) · [Security](./SECURITY.md) · [Code signing policy](./CODE_SIGNING_POLICY.md)
 
 </div>
 

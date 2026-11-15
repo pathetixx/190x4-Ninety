@@ -13,7 +13,7 @@
 
 Без рекламы, телеметрии и регистрации.
 
-**[⬇ Скачать для Windows](https://github.com/pathetixx/190x4-Ninety/releases/latest)** · [Portable](https://github.com/pathetixx/190x4-Ninety/releases/latest) · [Сайт](https://pathetixx.github.io/190x4-Ninety/) · **Русский** · [English](./README.md) · [Журнал изменений](./CHANGELOG.md) · [Безопасность](./SECURITY.md) · [Политика подписи](./CODE_SIGNING_POLICY.md)
+**[⬇ Скачать для Windows](https://github.com/pathetixx/190x4-Ninety/releases/latest)** · [Portable](https://github.com/pathetixx/190x4-Ninety/releases/latest) · [Сайт](https://pathetixx.github.io/190x4-Ninety/) · [AlternativeTo](https://alternativeto.net/software/ninety/about/) · **Русский** · [English](./README.md) · [Журнал изменений](./CHANGELOG.md) · [Безопасность](./SECURITY.md) · [Политика подписи](./CODE_SIGNING_POLICY.md)
 
 </div>
 
