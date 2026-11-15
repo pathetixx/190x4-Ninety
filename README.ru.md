@@ -9,9 +9,11 @@
 
 # Ninety
 
-**Сетевой клиент для Windows на Tauri 2 и Rust: sing-box, WARP, маршрутизация и нормальная диагностика соединения в одном приложении.**
+**Бесплатный VPN-клиент для Windows с открытым кодом. Подписка или конфиг ваши — Ninety подключает, сам выбирает быстрый сервер, разводит трафик по сайтам и программам и показывает, где именно рвётся связь.**
 
-[Сайт](https://pathetixx.github.io/190x4-Ninety/) · [Скачать](https://github.com/pathetixx/190x4-Ninety/releases) · **Русский** · [English](./README.md) · [Журнал изменений](./CHANGELOG.md) · [Безопасность](./SECURITY.md) · [Политика подписи](./CODE_SIGNING_POLICY.md)
+Без рекламы, телеметрии и регистрации.
+
+**[⬇ Скачать для Windows](https://github.com/pathetixx/190x4-Ninety/releases/latest)** · [Portable](https://github.com/pathetixx/190x4-Ninety/releases/latest) · [Сайт](https://pathetixx.github.io/190x4-Ninety/) · **Русский** · [English](./README.md) · [Журнал изменений](./CHANGELOG.md) · [Безопасность](./SECURITY.md) · [Политика подписи](./CODE_SIGNING_POLICY.md)
 
 </div>
 
@@ -72,8 +74,9 @@ NaiveProxy и TrustTunnel запускаются через собственны
 
 Скачайте последнюю версию из раздела [**Releases**](https://github.com/pathetixx/190x4-Ninety/releases):
 
-- `.exe` — установщик NSIS.
-- `.msi` — пакет MSI.
+- `Ninety_X.Y.Z_x64-setup.exe` — установщик. Подходит большинству.
+- `Ninety_X.Y.Z_windows-x64-portable.zip` — portable-версия. Распакуйте куда угодно и запускайте: профили и настройки лежат в папке `NinetyData` рядом с программой, обновления ставятся в один клик.
+- `Ninety_X.Y.Z_x64_en-US.msi` — пакет MSI для централизованной установки.
 
 Требования: **Windows 10 / 11 x64**.
 
@@ -192,6 +195,8 @@ tests/                Модульные тесты JavaScript
 Не публикуйте в открытых issues приватные ссылки на подписки, токены доступа, UUID, закрытые ключи и полные экспортированные конфигурации.
 
 ## Поддержать проект
+
+Проще всего помочь звездой ⭐ на GitHub: так Ninety проще найти другим.
 
 Ninety разрабатывается в свободное время. Если приложение оказалось полезным и вы хотите поддержать дальнейшую работу:
 

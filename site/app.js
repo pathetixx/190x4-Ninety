@@ -1,16 +1,17 @@
 const translations = {
   ru: {
     "meta.title": "Ninety — VPN-клиент для Windows",
-    "meta.description": "Ninety — VPN-клиент для Windows: свои серверы из подписки или конфига, режимы «Прокси · Системный прокси · VPN», правила маршрутизации, обход блокировок, контроль скорости и диагностика.",
+    "meta.description": "Ninety — бесплатный VPN-клиент для Windows с открытым кодом: свои серверы из подписки или конфига, режимы «Прокси · Системный прокси · VPN», правила по сайтам и программам, контроль скорости и диагностика соединения. Без рекламы и телеметрии.",
     "nav.features": "Возможности",
     "nav.screens": "Интерфейс",
     "nav.docs": "Документация",
     "nav.safety": "Безопасность",
     "nav.github": "GitHub",
     "hero.eyebrow": "190X4 · SECURE TUNNEL",
-    "hero.lead": "VPN-клиент для Windows: серверы вы приносите свои, а подключение, обход блокировок и диагностику Ninety берёт на себя.",
-    "hero.note": "Анонимности не обещает. Даёт понятное управление подключением — и возможность увидеть, что происходит, когда что-то не работает.",
+    "hero.lead": "VPN-клиент для Windows: серверы вы приносите свои, а Ninety подключает, сам выбирает быстрый сервер и показывает, где именно рвётся связь.",
+    "hero.note": "Бесплатно, с открытым кодом, без рекламы и телеметрии. Нужна своя подписка или конфиг — серверов Ninety не продаёт.",
     "hero.download": "Скачать",
+    "hero.portable": "Portable-версия",
     "hero.docs": "Документация",
     "hero.stat.platform.label": "Платформа",
     "hero.stat.platform.value": "Windows 10 / 11 x64",
@@ -20,7 +21,7 @@ const translations = {
     "hero.stat.license.value": "MIT",
     "intro.kicker": "VPN-клиент для Windows",
     "intro.title": "Ninety — клиент, а не сервис",
-    "intro.copy": "Подписка или отдельный конфиг превращаются в готовое подключение: Ninety выбирает быстрый сервер, следит за скоростью, обходит блокировки и показывает, где именно рвётся связь, если что-то пошло не так. Внутри работает sing-box, но выбирать движки и править конфиги вручную не нужно.",
+    "intro.copy": "Подписка или отдельный конфиг превращаются в готовое подключение: Ninety выбирает быстрый сервер, следит за скоростью, сам восстанавливает связь и показывает, где именно рвётся связь, если что-то пошло не так. Внутри работает sing-box, но выбирать движки и править конфиги вручную не нужно.",
     "features.kicker": "Возможности",
     "features.title": "Серверы ваши — остальное берёт на себя Ninety",
     "feature.modes.title": "Режимы Windows",
@@ -31,8 +32,8 @@ const translations = {
     "feature.protocols.copy": "VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, SOCKS, NaiveProxy, TrustTunnel, WireGuard/AmneziaWG и WARP — в одном приложении, движок выбирать руками не нужно.",
     "feature.routing.title": "Маршрутизация",
     "feature.routing.copy": "Локальная сеть остаётся вне туннеля, региональные правила уже готовы, а свои работают по сайту, адресу или программе. Отдельное правило может увести трафик в выбранный сервер или в WARP.",
-    "feature.bypass.title": "Обход блокировок",
-    "feature.bypass.copy": "Встроенный обход для сервисов, которые не открываются напрямую. Работает и с выключенным VPN, а адрес активного сервера добавляется в исключения сам.",
+    "feature.bypass.title": "Совместимость с сетью",
+    "feature.bypass.copy": "Отдельные инструменты для сетей, где сервисы открываются нестабильно. Работают и с выключенным VPN, а адрес активного сервера сам попадает в исключения.",
     "feature.diagnostics.title": "Диагностика",
     "feature.diagnostics.copy": "Каждый сервис проверяется дважды — напрямую и через Ninety, — поэтому видно, кто именно мешает: провайдер, сам сервис или сервер. Трасса, проверка утечек и лента сбоев рядом.",
     "feature.quality.title": "Качество канала",
@@ -51,48 +52,50 @@ const translations = {
     "screens.quality": "Качество",
     "docs.kicker": "Документация",
     "docs.title": "Быстрый вход без раскрытия приватных данных",
-    "docs.copy": "Документация объясняет режимы, privacy-модель, routing и troubleshooting без публикации приватных URL, UUID, ключей, WARP state или полных конфигов.",
-    "docs.user": "User docs",
-    "docs.arch": "Architecture",
-    "docs.release": "Release ritual",
+    "docs.copy": "Документация объясняет режимы, приватность, маршрутизацию и решение проблем — и ни разу не просит выкладывать ссылки на подписки, ключи или полные конфиги.",
+    "docs.user": "Для пользователей",
+    "docs.arch": "Архитектура",
+    "docs.release": "Что нового",
     "release.label": "CURRENT RELEASE",
-    "release.copy": "Релизы публикуются через annotated tags, draft release и CI-артефакты. OTA changelog берётся из latest.json, а не из уже опубликованного текста релиза.",
+    "release.copy": "Ninety обновляется сам: новая версия скачивается внутри приложения, проверяется по подписи, а подписки и настройки остаются на месте. Portable-версия обновляется так же, в один клик.",
     "release.link": "Открыть релиз",
-    "release.exe": "Installer .exe",
+    "release.exe": "Установщик .exe",
+    "release.portable": "Portable .zip",
     "release.msi": "MSI",
     "release.meta.loading": "Проверяю последний релиз...",
     "release.meta.fallback": "Последний релиз откроется через GitHub.",
     "release.meta.published": "Опубликован {date}",
-    "release.meta.assets": "EXE/MSI найдены автоматически",
+    "release.meta.assets": "Установщик, portable и MSI готовы",
     "release.meta.exeOnly": "EXE найден автоматически",
-    "safety.kicker": "Safety notes",
+    "safety.kicker": "Честно о границах",
     "safety.title": "Сильные сетевые инструменты требуют честных ограничений",
     "safety.privacy.title": "Не гарантия анонимности",
     "safety.privacy.copy": "Приватность зависит от сервера, провайдера, профиля и окружения Windows. Ninety помогает управлять подключением, но не меняет эту базовую модель доверия.",
     "safety.secrets.title": "Секреты не публикуются",
-    "safety.secrets.copy": "В публичные issues нельзя вставлять subscription URLs, UUID, токены, private keys, WARP data и полные экспортированные конфиги.",
+    "safety.secrets.copy": "В публичные обсуждения нельзя вставлять ссылки на подписки, UUID, токены, приватные ключи, данные WARP и полные экспортированные конфиги.",
     "safety.system.title": "Системные режимы заметны",
-    "safety.system.copy": "TUN, kill switch и DPI-совместимость могут менять сетевое состояние Windows. Включайте их осознанно и проверяйте настройки перед репортом.",
-    "footer.copy": "Open-source Windows desktop networking client.",
+    "safety.system.copy": "VPN-режим, kill switch и инструменты совместимости меняют сетевые настройки Windows. Включайте их осознанно и проверяйте настройки, прежде чем сообщать об ошибке.",
+    "footer.copy": "Сетевой клиент для Windows с открытым кодом.",
     "footer.github": "GitHub",
-    "footer.download": "Download",
-    "footer.security": "Security",
-    "footer.privacy": "Privacy",
+    "footer.download": "Скачать",
+    "footer.security": "Безопасность",
+    "footer.privacy": "Приватность",
     "footer.signing": "Политика подписи",
-    "footer.feedback": "Feedback",
+    "footer.feedback": "Обратная связь",
   },
   en: {
     "meta.title": "Ninety — a VPN client for Windows",
-    "meta.description": "Ninety is a VPN client for Windows: your own servers from a subscription or a config, Proxy · System proxy · VPN modes, routing rules, blocking bypass, speed monitoring and diagnostics.",
+    "meta.description": "Ninety is a free, open-source VPN client for Windows: your own servers from a subscription or a config, Proxy · System proxy · VPN modes, rules by site and program, speed monitoring and connection diagnostics. No ads, no telemetry.",
     "nav.features": "Features",
     "nav.screens": "Interface",
     "nav.docs": "Docs",
     "nav.safety": "Safety",
     "nav.github": "GitHub",
     "hero.eyebrow": "190X4 · SECURE TUNNEL",
-    "hero.lead": "A VPN client for Windows: you bring your own servers, and Ninety takes care of the connection, the blocking bypass and the diagnostics.",
-    "hero.note": "It does not promise anonymity. What it gives is clear control over the connection — and a way to see what is going on when something breaks.",
+    "hero.lead": "A VPN client for Windows: you bring your own servers, and Ninety connects, picks the fastest one and shows exactly where the connection breaks.",
+    "hero.note": "Free and open source, with no ads and no telemetry. You need your own subscription or config — Ninety does not sell servers.",
     "hero.download": "Download",
+    "hero.portable": "Portable version",
     "hero.docs": "Documentation",
     "hero.stat.platform.label": "Platform",
     "hero.stat.platform.value": "Windows 10 / 11 x64",
@@ -102,7 +105,7 @@ const translations = {
     "hero.stat.license.value": "MIT",
     "intro.kicker": "A VPN client for Windows",
     "intro.title": "Ninety is a client, not a service",
-    "intro.copy": "A subscription or a single config turns into a working connection: Ninety picks a fast server, watches the speed, gets around blocking and shows you exactly where the connection breaks when something goes wrong. sing-box runs underneath, but there are no engines to choose and no configs to edit by hand.",
+    "intro.copy": "A subscription or a single config turns into a working connection: Ninety picks a fast server, watches the speed, recovers the connection by itself and shows you exactly where the connection breaks when something goes wrong. sing-box runs underneath, but there are no engines to choose and no configs to edit by hand.",
     "features.kicker": "Features",
     "features.title": "You bring the servers — Ninety handles the rest",
     "feature.modes.title": "Windows modes",
@@ -113,8 +116,8 @@ const translations = {
     "feature.protocols.copy": "VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, SOCKS, NaiveProxy, TrustTunnel, WireGuard/AmneziaWG and WARP — all in one app, with no engine to pick by hand.",
     "feature.routing.title": "Routing",
     "feature.routing.copy": "The local network stays outside the tunnel, regional rules come ready, and your own rules work by site, address or program. A single rule can send its traffic to a chosen server or to WARP.",
-    "feature.bypass.title": "Blocking bypass",
-    "feature.bypass.copy": "Built-in bypass for services that will not open directly. It works even with the VPN off, and the address of the active server is added to the exclusions on its own.",
+    "feature.bypass.title": "Network compatibility",
+    "feature.bypass.copy": "Dedicated tools for networks where services open unreliably. They work even with the VPN off, and the address of the active server is added to the exclusions on its own.",
     "feature.diagnostics.title": "Diagnostics",
     "feature.diagnostics.copy": "Every service is checked twice — directly and through Ninety — so you can see who is actually in the way: the provider, the service or the server. The trace, leak checks and a feed of failures are right there.",
     "feature.quality.title": "Channel quality",
@@ -136,16 +139,17 @@ const translations = {
     "docs.copy": "The docs explain modes, privacy, routing and troubleshooting without asking users to publish private URLs, UUIDs, keys, WARP state or full configs.",
     "docs.user": "User docs",
     "docs.arch": "Architecture",
-    "docs.release": "Release ritual",
+    "docs.release": "What's new",
     "release.label": "CURRENT RELEASE",
-    "release.copy": "Releases are published through annotated tags, draft releases and CI assets. The OTA changelog comes from latest.json, not from an already published release body.",
+    "release.copy": "Ninety updates itself: the new version downloads inside the app, its signature is checked, and your subscriptions and settings stay in place. The portable version updates the same way, in one click.",
     "release.link": "Open release",
     "release.exe": "Installer .exe",
+    "release.portable": "Portable .zip",
     "release.msi": "MSI",
     "release.meta.loading": "Checking latest release...",
     "release.meta.fallback": "Latest release opens through GitHub.",
     "release.meta.published": "Published {date}",
-    "release.meta.assets": "EXE/MSI found automatically",
+    "release.meta.assets": "Installer, portable and MSI ready",
     "release.meta.exeOnly": "EXE found automatically",
     "safety.kicker": "Safety notes",
     "safety.title": "Powerful networking tools need honest limits",
@@ -170,9 +174,11 @@ const releaseFallback = {
   htmlUrl: "https://github.com/pathetixx/190x4-Ninety/releases/latest",
   exeUrl: "https://github.com/pathetixx/190x4-Ninety/releases/latest",
   msiUrl: "https://github.com/pathetixx/190x4-Ninety/releases/latest",
+  portableUrl: "https://github.com/pathetixx/190x4-Ninety/releases/latest",
   publishedAt: "",
   hasExe: false,
   hasMsi: false,
+  hasPortable: false,
 };
 
 const screens = {
@@ -259,6 +265,7 @@ const releaseMetaNodes = document.querySelectorAll("[data-release-meta]");
 const releaseLinkNodes = document.querySelectorAll("[data-release-link]");
 const downloadLinkNodes = document.querySelectorAll("[data-download-link]");
 const msiLinkNodes = document.querySelectorAll("[data-msi-link]");
+const portableLinkNodes = document.querySelectorAll("[data-portable-link]");
 
 function t(key) {
   return translations[currentLanguage][key] || translations[DEFAULT_LANGUAGE][key] || key;
@@ -305,6 +312,7 @@ function normalizeRelease(data) {
     pickReleaseAsset(assets, /^Ninety_.*_x64-setup\.exe$/i) ||
     pickReleaseAsset(assets, /\.exe$/i);
   const msiAsset = pickReleaseAsset(assets, /\.msi$/i);
+  const portableAsset = pickReleaseAsset(assets, /portable\.zip$/i);
   const htmlUrl = data.html_url || releaseFallback.htmlUrl;
 
   return {
@@ -312,9 +320,11 @@ function normalizeRelease(data) {
     htmlUrl,
     exeUrl: exeAsset?.browser_download_url || htmlUrl,
     msiUrl: msiAsset?.browser_download_url || htmlUrl,
+    portableUrl: portableAsset?.browser_download_url || htmlUrl,
     publishedAt: data.published_at || "",
     hasExe: Boolean(exeAsset?.browser_download_url),
     hasMsi: Boolean(msiAsset?.browser_download_url),
+    hasPortable: Boolean(portableAsset?.browser_download_url),
   };
 }
 
@@ -352,6 +362,9 @@ function renderRelease() {
   });
   msiLinkNodes.forEach((node) => {
     node.href = latestRelease.msiUrl;
+  });
+  portableLinkNodes.forEach((node) => {
+    node.href = latestRelease.portableUrl;
   });
 }
 

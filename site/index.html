@@ -6,14 +6,14 @@
     <title>Ninety — Windows networking client</title>
     <meta
       name="description"
-      content="Ninety is a Windows desktop networking client built with Tauri 2 and Rust around sing-box, WARP, TUN mode, routing rules, DPI tools and connection diagnostics."
+      content="Ninety is a free, open-source VPN client for Windows: your own servers from a subscription or a config, Proxy · System proxy · VPN modes, rules by site and program, speed monitoring and connection diagnostics. No ads, no telemetry."
     />
     <meta name="theme-color" content="#0a0a0d" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Ninety — Windows networking client" />
     <meta
       property="og:description"
-      content="Ninety is a Windows desktop networking client built with Tauri 2 and Rust around sing-box, WARP, TUN mode, routing rules, DPI tools and connection diagnostics."
+      content="Ninety is a free, open-source VPN client for Windows: your own servers from a subscription or a config, Proxy · System proxy · VPN modes, rules by site and program, speed monitoring and connection diagnostics. No ads, no telemetry."
     />
     <meta property="og:image" content="assets/og.png" />
     <meta property="og:url" content="https://pathetixx.github.io/190x4-Ninety/" />
@@ -53,10 +53,10 @@
           <p class="eyebrow" data-i18n="hero.eyebrow">190X4 · SECURE TUNNEL</p>
           <h1 id="hero-title">Ninety</h1>
           <p class="lead" data-i18n="hero.lead">
-            A VPN client for Windows: you bring your own servers, and Ninety takes care of the connection, the blocking bypass and the diagnostics.
+            A VPN client for Windows: you bring your own servers, and Ninety connects, picks the fastest one and shows exactly where the connection breaks.
           </p>
           <p class="note" data-i18n="hero.note">
-            It does not promise anonymity. What it gives is clear control over the connection — and a way to see what is going on when something breaks.
+            Free and open source, with no ads and no telemetry. You need your own subscription or config — Ninety does not sell servers.
           </p>
           <div class="cta-row">
             <a
@@ -66,6 +66,14 @@
               data-i18n="hero.download"
             >
               Download
+            </a>
+            <a
+              class="button secondary"
+              href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+              data-portable-link
+              data-i18n="hero.portable"
+            >
+              Portable version
             </a>
             <a class="button secondary" href="https://github.com/pathetixx/190x4-Ninety#documentation" data-i18n="hero.docs">
               Documentation
@@ -95,7 +103,7 @@
             <h2 data-i18n="intro.title">Ninety is a client, not a service</h2>
           </div>
           <p data-i18n="intro.copy">
-            A subscription or a single config turns into a working connection: Ninety picks a fast server, watches the speed, gets around blocking and shows you exactly where the connection breaks when something goes wrong. sing-box runs underneath, but there are no engines to choose and no configs to edit by hand.
+            A subscription or a single config turns into a working connection: Ninety picks a fast server, watches the speed, recovers the connection by itself and shows you exactly where the connection breaks when something goes wrong. sing-box runs underneath, but there are no engines to choose and no configs to edit by hand.
           </p>
         </div>
       </section>
@@ -129,8 +137,8 @@
             </article>
             <article class="feature-card">
               <span class="feature-mark">05</span>
-              <h3 data-i18n="feature.bypass.title">Blocking bypass</h3>
-              <p data-i18n="feature.bypass.copy">Built-in bypass for services that will not open directly. It works even with the VPN off, and the address of the active server is added to the exclusions on its own.</p>
+              <h3 data-i18n="feature.bypass.title">Network compatibility</h3>
+              <p data-i18n="feature.bypass.copy">Dedicated tools for networks where services open unreliably. They work even with the VPN off, and the address of the active server is added to the exclusions on its own.</p>
             </article>
             <article class="feature-card">
               <span class="feature-mark">06</span>
@@ -189,14 +197,14 @@
             <div class="link-row">
               <a href="https://github.com/pathetixx/190x4-Ninety#documentation" data-i18n="docs.user">User docs</a>
               <a href="https://github.com/pathetixx/190x4-Ninety/blob/main/docs/architecture.md" data-i18n="docs.arch">Architecture</a>
-              <a href="https://github.com/pathetixx/190x4-Ninety/blob/main/RELEASING.md" data-i18n="docs.release">Release ritual</a>
+              <a href="https://github.com/pathetixx/190x4-Ninety/blob/main/CHANGELOG.md" data-i18n="docs.release">What's new</a>
             </div>
           </div>
           <div class="release-panel" aria-label="Release status">
             <span class="panel-label" data-i18n="release.label">CURRENT RELEASE</span>
             <strong data-release-version>v0.15.0</strong>
             <span class="release-meta" data-release-meta>Checking latest release...</span>
-            <p data-i18n="release.copy">Releases are published through annotated tags, draft releases and CI assets. The OTA changelog comes from latest.json, not from an already published release body.</p>
+            <p data-i18n="release.copy">Ninety updates itself: the new version downloads inside the app, its signature is checked, and your subscriptions and settings stay in place. The portable version updates the same way, in one click.</p>
             <div class="release-actions">
               <a
                 class="button secondary compact"
@@ -213,6 +221,14 @@
                 data-i18n="release.exe"
               >
                 Installer .exe
+              </a>
+              <a
+                class="button secondary compact"
+                href="https://github.com/pathetixx/190x4-Ninety/releases/latest"
+                data-portable-link
+                data-i18n="release.portable"
+              >
+                Portable .zip
               </a>
               <a
                 class="button secondary compact"

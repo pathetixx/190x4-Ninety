@@ -9,9 +9,11 @@
 
 # Ninety
 
-**A Windows networking client built with Tauri 2 and Rust. It brings sing-box, WARP, routing rules and connection diagnostics into one desktop app.**
+**A free, open-source VPN client for Windows. Bring your own subscription or config — Ninety connects, picks the fastest server, routes traffic by site or program and shows exactly where the connection breaks.**
 
-[Website](https://pathetixx.github.io/190x4-Ninety/) · [Download](https://github.com/pathetixx/190x4-Ninety/releases) · [Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md) · [Security](./SECURITY.md) · [Code signing policy](./CODE_SIGNING_POLICY.md)
+No ads, no telemetry, no account.
+
+**[⬇ Download for Windows](https://github.com/pathetixx/190x4-Ninety/releases/latest)** · [Portable](https://github.com/pathetixx/190x4-Ninety/releases/latest) · [Website](https://pathetixx.github.io/190x4-Ninety/) · [Русский](./README.ru.md) · **English** · [Changelog](./CHANGELOG.md) · [Security](./SECURITY.md) · [Code signing policy](./CODE_SIGNING_POLICY.md)
 
 </div>
 
@@ -70,8 +72,9 @@ NaiveProxy and TrustTunnel run through their own local clients and expose SOCKS 
 
 Grab the latest installer from [**Releases**](https://github.com/pathetixx/190x4-Ninety/releases):
 
-- `.exe` — NSIS installer.
-- `.msi` — MSI package.
+- `Ninety_X.Y.Z_x64-setup.exe` — the installer. Recommended for most people.
+- `Ninety_X.Y.Z_windows-x64-portable.zip` — the portable version. Unzip anywhere and run; profiles and settings stay in the `NinetyData` folder next to the program, and updates install in one click.
+- `Ninety_X.Y.Z_x64_en-US.msi` — MSI package for managed deployments.
 
 Requirements: **Windows 10 / 11 x64**.
 
@@ -187,6 +190,8 @@ Bug reports, reproducible test cases, documentation fixes and focused pull reque
 Never include private subscription URLs, access tokens, UUIDs, private keys or complete exported configs in a public connection bug report.
 
 ## Support the project
+
+The easiest way to help is a ⭐ on GitHub: it helps other people find Ninety.
 
 Ninety is built and maintained in spare time. If it saves you some hassle and you would like to support further development:
 
