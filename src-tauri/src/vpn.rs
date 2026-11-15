@@ -2651,6 +2651,7 @@ pub async fn start_singbox(
         0,
         source_fingerprint.as_deref(),
     )?;
+    let logs_disabled = logs_disabled.unwrap_or(false);
     let result = start_singbox_inner(
         app.clone(),
         &state,
@@ -2659,7 +2660,7 @@ pub async fn start_singbox(
             mode,
             xray_json,
             sidecars_json,
-            logs_disabled: logs_disabled.unwrap_or(false),
+            logs_disabled,
             source_fingerprint,
             config_hash,
             strict_privacy: strict_privacy.unwrap_or(false),
@@ -2668,8 +2669,43 @@ pub async fn start_singbox(
         &operation_token,
     )
     .await;
+    if let Err(error) = &result {
+        let generation = state.process_generation.load(Ordering::SeqCst);
+        log_start_failure(&app, logs_disabled, generation, error);
+    }
     finish_implicit_operation(&app, &operation_token, implicit);
     result
+}
+
+// Текст отказа старта раньше уходил только во фронт: в журнале оставался код
+// стадии `runtime_start_error`, а тост отправлял пользователя смотреть журнал,
+// где причины не было. Отмена старта — штатный исход, не предупреждение.
+fn log_start_failure(app: &AppHandle, logs_disabled: bool, generation: u64, error: &str) {
+    let level = if is_start_cancellation(error) {
+        DiagnosticLevel::Info
+    } else {
+        DiagnosticLevel::Warn
+    };
+    log_stop_diagnostic(
+        app,
+        logs_disabled,
+        level,
+        &start_failure_line(generation, error),
+    );
+}
+
+fn is_start_cancellation(error: &str) -> bool {
+    error.contains("backend.vpn.startCancelled")
+}
+
+fn start_failure_line(generation: u64, error: &str) -> String {
+    let reason = error
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    format!("runtime_start generation={generation} result=failed reason={reason}")
 }
 
 // Запись конфига + спавн sing-box + fail-fast-окно. Вынесено из start_singbox,
@@ -3941,6 +3977,26 @@ mod tests {
             rest,
             "2026-08-04 19:55:27 WARN runtime_stop kind=Disconnect generation=7 result=refused"
         );
+    }
+
+    #[test]
+    fn start_failure_reason_reaches_the_log_on_one_line() {
+        assert_eq!(
+            start_failure_line(
+                3,
+                "Clash control endpoint port=9090 is not ready: request: timeout"
+            ),
+            "runtime_start generation=3 result=failed \
+             reason=Clash control endpoint port=9090 is not ready: request: timeout"
+        );
+        assert_eq!(
+            start_failure_line(4, "sing-box died\n  FATAL bind: in use\n\n"),
+            "runtime_start generation=4 result=failed reason=sing-box died | FATAL bind: in use"
+        );
+        let cancelled = crate::util::i18n_error("backend.vpn.startCancelled");
+        assert!(is_start_cancellation(&cancelled));
+        let no_listener = "runtime probe endpoint 127.0.0.1:7890 has no live listener";
+        assert!(!is_start_cancellation(no_listener));
     }
 
     #[test]
