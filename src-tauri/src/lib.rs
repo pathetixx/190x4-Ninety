@@ -126,7 +126,9 @@ fn relaunch_self_elevated(
 
 const WAIT_PARENT_ARG: &str = "--wait-parent=";
 #[cfg(target_os = "windows")]
-const WAIT_PARENT_TIMEOUT_MS: u32 = 5_000;
+// Прежний процесс перед выходом гасит движки и возвращает системный прокси:
+// пяти секунд на это не всегда хватало.
+const WAIT_PARENT_TIMEOUT_MS: u32 = 30_000;
 
 fn parent_to_wait_for<I, S>(args: I) -> Option<u32>
 where
@@ -143,30 +145,39 @@ where
 /// живой мьютекс, отдавал аргументы уходящему процессу и закрывался — и не
 /// оставалось ни одного окна. Поэтому до регистрации плагина ждём выхода
 /// прежнего процесса; ожидание ограничено, а исчезнувший PID не ждём вовсе.
+/// true — прежнего процесса больше нет (или ждать было некого); false — он всё
+/// ещё жив по истечении ожидания.
 #[cfg(target_os = "windows")]
-fn wait_for_relaunching_parent() {
-    use windows::Win32::Foundation::CloseHandle;
+fn wait_for_relaunching_parent() -> bool {
+    use windows::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_INVALID_PARAMETER, WAIT_OBJECT_0,
+    };
     use windows::Win32::System::Threading::{
         OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
     };
 
     let Some(pid) = parent_to_wait_for(std::env::args()) else {
-        return;
+        return true;
     };
     if pid == std::process::id() {
-        return;
+        return true;
     }
     unsafe {
+        // ERROR_INVALID_PARAMETER — PID уже исчез. Другая ошибка (ACCESS_DENIED)
+        // выход не подтверждает.
         let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else {
-            return;
+            return GetLastError() == ERROR_INVALID_PARAMETER;
         };
-        let _ = WaitForSingleObject(handle, WAIT_PARENT_TIMEOUT_MS);
+        let exited = WaitForSingleObject(handle, WAIT_PARENT_TIMEOUT_MS) == WAIT_OBJECT_0;
         let _ = CloseHandle(handle);
+        exited
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn wait_for_relaunching_parent() {}
+fn wait_for_relaunching_parent() -> bool {
+    true
+}
 
 /// Deep-link URL'ы, которые пришли argv при cold-start. Нужны для схем,
 /// зарегистрированных вручную (vless://, tt://, naive+https://...): plugin
@@ -1067,8 +1078,15 @@ pub fn run() {
     install_failsafe_panic_hook();
     vpn::normalize_own_priority();
     // До Builder: single-instance регистрируется при сборке приложения.
-    wait_for_relaunching_parent();
-    portable_update::spawn_cleanup_after_update();
+    let parent_exited = wait_for_relaunching_parent();
+    // Exe из вложенной копии после сломанного portable-обновления переносит
+    // себя в исходную папку и перезапускается оттуда — до того, как успеет
+    // создать пустые данные рядом с собой. Только когда прежний процесс точно
+    // вышел: его файлы ещё заняты, а его окно single-instance перехватило бы
+    // запуск исходной копии.
+    if parent_exited && portable_update::repair_nested_install() {
+        std::process::exit(0);
+    }
     let portable = app_paths::is_portable();
     let mut context = tauri::generate_context!();
     if portable {
@@ -1115,6 +1133,7 @@ pub fn run() {
         .manage(scanner::WarpScanState::default())
         .setup(move |app| {
             if portable {
+                portable_update::cleanup_on_start();
                 app_paths::ensure_portable_layout()?;
                 let config = app
                     .config()
@@ -1314,7 +1333,7 @@ pub fn run() {
                 }
                 if portable {
                     for name in ["config", "data", "logs", "webview"] {
-                        if !app_paths::portable_root()?.join(name).is_dir() {
+                        if !app_paths::portable_data_dir()?.join(name).is_dir() {
                             return Err(format!("portable directory missing: {name}").into());
                         }
                     }
@@ -1388,7 +1407,7 @@ pub fn run() {
                             smoke_snapshot.to_string(),
                         )?;
                         let snapshot = std::fs::read(
-                            app_paths::portable_root()?
+                            app_paths::portable_data_dir()?
                                 .join("config")
                                 .join("state-backup.json"),
                         )?;
@@ -1419,6 +1438,7 @@ pub fn run() {
             ping,
             is_portable,
             portable_update::portable_update_download,
+            portable_update::portable_repair_report,
             portable_update_apply,
             secrets::portable_secrets_status,
             secrets::portable_secrets_set_passphrase,

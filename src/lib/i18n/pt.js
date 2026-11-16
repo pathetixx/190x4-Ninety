@@ -1652,6 +1652,11 @@ export const pt = {
     retryHour: "em {n} h",
   },
 
+  portableRepair: {
+    title: "Configurações restauradas",
+    desc: "Uma atualização portable abriu configurações vazias por engano. O Ninety devolveu o app ao lugar: suas assinaturas e regras voltaram.",
+    descRecovered: "Uma atualização portable abriu configurações vazias por engano. O Ninety devolveu o app ao lugar: suas assinaturas e regras voltaram. O que você adicionou depois da falha está na pasta {folder}, ao lado do app.",
+  },
   store: {
     errorTitle: "Os perfis não estão a ser guardados",
     errorDesc: "O armazenamento seguro está indisponível — as alterações de perfis e subscrições serão perdidas ao reiniciar. Consulte os registos.",

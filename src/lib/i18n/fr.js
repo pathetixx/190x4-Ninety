@@ -1652,6 +1652,11 @@ export const fr = {
     retryHour: "dans {n} h",
   },
 
+  portableRepair: {
+    title: "Paramètres restaurés",
+    desc: "Une mise à jour portable a ouvert par erreur des paramètres vides. Ninety a remis l’application en place : vos abonnements et règles sont de retour.",
+    descRecovered: "Une mise à jour portable a ouvert par erreur des paramètres vides. Ninety a remis l’application en place : vos abonnements et règles sont de retour. Ce que vous avez ajouté depuis est conservé dans le dossier {folder} à côté de l’application.",
+  },
   store: {
     errorTitle: "Les profils ne sont pas enregistrés",
     errorDesc: "Le stockage sécurisé est indisponible : les modifications des profils et des abonnements seront perdues au redémarrage. Consultez les journaux.",

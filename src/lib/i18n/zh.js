@@ -1636,6 +1636,11 @@ export const zh = {
     retryHour: "{n} 小时后",
   },
 
+  portableRepair: {
+    title: "设置已恢复",
+    desc: "便携版更新误打开了空白设置。Ninety 已将程序移回原位，订阅和规则都已恢复。",
+    descRecovered: "便携版更新误打开了空白设置。Ninety 已将程序移回原位，订阅和规则都已恢复。故障后添加的内容保存在程序旁的 {folder} 文件夹中。",
+  },
   store: {
     errorTitle: "配置未被保存",
     errorDesc: "安全存储不可用 —— 配置和订阅的更改将在重启后丢失。请查看日志。",

@@ -1644,6 +1644,11 @@ export const tr = {
     retryHour: "{n} sa içinde",
   },
 
+  portableRepair: {
+    title: "Ayarlar geri yüklendi",
+    desc: "Taşınabilir sürüm güncellemesi yanlışlıkla boş ayarlar açtı. Ninety uygulamayı yerine taşıdı; abonelikleriniz ve kurallarınız geri geldi.",
+    descRecovered: "Taşınabilir sürüm güncellemesi yanlışlıkla boş ayarlar açtı. Ninety uygulamayı yerine taşıdı; abonelikleriniz ve kurallarınız geri geldi. Sorundan sonra ekledikleriniz uygulamanın yanındaki {folder} klasöründe duruyor.",
+  },
   store: {
     errorTitle: "Profiller kaydedilmiyor",
     errorDesc: "Güvenli depolama kullanılamıyor — profil ve abonelik değişiklikleri yeniden başlatıldığında kaybolur. Günlüklere bakın.",

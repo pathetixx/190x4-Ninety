@@ -1652,6 +1652,11 @@ export const it = {
     retryHour: "tra {n} h",
   },
 
+  portableRepair: {
+    title: "Impostazioni ripristinate",
+    desc: "Un aggiornamento portable ha aperto per errore impostazioni vuote. Ninety ha riportato l’app al suo posto: abbonamenti e regole sono tornati.",
+    descRecovered: "Un aggiornamento portable ha aperto per errore impostazioni vuote. Ninety ha riportato l’app al suo posto: abbonamenti e regole sono tornati. Ciò che hai aggiunto dopo il problema è nella cartella {folder} accanto all’app.",
+  },
   store: {
     errorTitle: "I profili non vengono salvati",
     errorDesc: "L'archivio protetto non è disponibile: le modifiche a profili e abbonamenti andranno perse al riavvio. Controlla i log.",

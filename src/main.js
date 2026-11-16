@@ -4011,6 +4011,17 @@ window.addEventListener("ninety:profile-store-error", (ev) => {
   });
   notify(t("store.errorTitle"), t("store.errorDesc"));
 });
+// Portable после сломанного обновления 0.15.0–0.16.0: backend уже вернул
+// программу в исходную папку и настройки на место — сообщаем об этом один раз.
+invoke("portable_repair_report")
+  .then((report) => {
+    if (!report) return;
+    const desc = report.recovered
+      ? t("portableRepair.descRecovered", { folder: report.recovered })
+      : t("portableRepair.desc");
+    toast(t("portableRepair.title"), "info", 15000, { group: "portable-repair", desc });
+  })
+  .catch(() => {});
 refreshProfilesSummary();
 updateHeroHint();
 syncTrayMenu();

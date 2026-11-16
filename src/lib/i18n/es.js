@@ -1652,6 +1652,11 @@ export const es = {
     retryHour: "en {n} h",
   },
 
+  portableRepair: {
+    title: "Ajustes restaurados",
+    desc: "Una actualización portable abrió por error ajustes vacíos. Ninety devolvió la aplicación a su sitio: tus suscripciones y reglas han vuelto.",
+    descRecovered: "Una actualización portable abrió por error ajustes vacíos. Ninety devolvió la aplicación a su sitio: tus suscripciones y reglas han vuelto. Lo que añadiste después del fallo está en la carpeta {folder}, junto a la aplicación.",
+  },
   store: {
     errorTitle: "Los perfiles no se guardan",
     errorDesc: "El almacenamiento seguro no está disponible: los cambios de perfiles y suscripciones se perderán al reiniciar. Revisa los registros.",

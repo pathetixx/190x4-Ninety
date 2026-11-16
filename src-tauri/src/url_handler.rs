@@ -249,6 +249,53 @@ pub fn unregister_url_handler(scheme: String) -> Result<(), String> {
     }
 }
 
+/// Exe из команды обработчика вида `"<путь к exe>" "%1"`.
+#[cfg(target_os = "windows")]
+fn handler_exe(command: &str) -> Option<&str> {
+    command.strip_prefix('"')?.split('"').next()
+}
+
+/// После ремонта portable-копии: схемы, которые Ninety зарегистрировал из
+/// вложенной копии внутри `nested_root` (NinetyData этой установки), переводятся
+/// на текущий exe. Регистрации другой копии Ninety и чужих клиентов не трогаем.
+#[cfg(target_os = "windows")]
+pub fn refresh_owned_handlers(nested_root: &std::path::Path) {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let Ok(exe) = current_exe_quoted() else {
+        return;
+    };
+    let expected = scheme_handler_path(&exe);
+    let prefix = nested_root.to_string_lossy().to_lowercase();
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    for scheme in SUPPORTED_SCHEMES {
+        let command_path = format!("Software\\Classes\\{scheme}\\shell\\open\\command");
+        let actual = hkcu
+            .open_subkey(&command_path)
+            .ok()
+            .and_then(|k| k.get_value::<String, _>("").ok());
+        let owned = owned_command_marker(&hkcu, scheme);
+        let stale_own = actual.as_deref().is_some_and(|value| {
+            !value.eq_ignore_ascii_case(&expected)
+                && owned
+                    .as_deref()
+                    .is_some_and(|o| value.eq_ignore_ascii_case(o))
+                && handler_exe(value).is_some_and(|path| {
+                    let path = path.to_lowercase();
+                    path.strip_prefix(&prefix)
+                        .is_some_and(|rest| rest.starts_with('\\'))
+                })
+        });
+        if stale_own {
+            let _ = register_url_handler((*scheme).to_string());
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn refresh_owned_handlers(_nested_root: &std::path::Path) {}
+
 // non-Windows stubs — Tauri command'ы должны существовать, чтобы invoke_handler
 // собирался без cfg-условий.
 #[tauri::command]
@@ -266,6 +313,16 @@ pub fn unregister_url_handler(_scheme: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn handler_exe_is_taken_from_the_quoted_command() {
+        assert_eq!(
+            handler_exe(r#""C:\Tools\Ninety\NinetyData\Ninety.exe" "%1""#),
+            Some(r"C:\Tools\Ninety\NinetyData\Ninety.exe")
+        );
+        assert_eq!(handler_exe("Ninety.exe %1"), None);
+    }
 
     #[test]
     fn extracts_supported_deep_link_args_only() {

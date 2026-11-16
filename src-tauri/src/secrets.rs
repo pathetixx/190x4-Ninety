@@ -114,7 +114,7 @@ const PORTABLE_SECRET_FILES: [&str; 10] = [
 ];
 
 fn portable_secret_files() -> Vec<PathBuf> {
-    let Ok(root) = crate::app_paths::portable_root() else {
+    let Ok(root) = crate::app_paths::portable_data_dir() else {
         return Vec::new();
     };
     PORTABLE_SECRET_FILES

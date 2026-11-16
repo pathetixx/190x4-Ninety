@@ -1644,6 +1644,11 @@ export const en = {
     retryHour: "in {n} h",
   },
 
+  portableRepair: {
+    title: "Settings restored",
+    desc: "A portable update mistakenly opened empty settings. Ninety has moved the app back, and your subscriptions and rules are back too.",
+    descRecovered: "A portable update mistakenly opened empty settings. Ninety has moved the app back, and your subscriptions and rules are back too. Anything you added after the glitch is kept in the {folder} folder next to the app.",
+  },
   store: {
     errorTitle: "Profiles are not being saved",
     errorDesc: "Secure storage is unavailable — profile and subscription changes will be lost on restart. Check the logs.",

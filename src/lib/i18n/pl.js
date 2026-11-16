@@ -1660,6 +1660,11 @@ export const pl = {
     retryHour: "za {n} godz.",
   },
 
+  portableRepair: {
+    title: "Ustawienia przywrócone",
+    desc: "Aktualizacja wersji portable omyłkowo otworzyła puste ustawienia. Ninety przeniósł aplikację z powrotem — subskrypcje i reguły wróciły.",
+    descRecovered: "Aktualizacja wersji portable omyłkowo otworzyła puste ustawienia. Ninety przeniósł aplikację z powrotem — subskrypcje i reguły wróciły. To, co dodano po awarii, jest w folderze {folder} obok aplikacji.",
+  },
   store: {
     errorTitle: "Profile nie są zapisywane",
     errorDesc: "Bezpieczny magazyn jest niedostępny — zmiany profili i subskrypcji znikną po ponownym uruchomieniu. Sprawdź logi.",

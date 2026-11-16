@@ -1644,6 +1644,11 @@ export const de = {
     retryHour: "in {n} Std.",
   },
 
+  portableRepair: {
+    title: "Einstellungen wiederhergestellt",
+    desc: "Ein Portable-Update hat versehentlich leere Einstellungen geöffnet. Ninety hat die App zurückverschoben – Abos und Regeln sind wieder da.",
+    descRecovered: "Ein Portable-Update hat versehentlich leere Einstellungen geöffnet. Ninety hat die App zurückverschoben – Abos und Regeln sind wieder da. Was Sie danach hinzugefügt haben, liegt im Ordner {folder} neben der App.",
+  },
   store: {
     errorTitle: "Profile werden nicht gespeichert",
     errorDesc: "Der sichere Speicher ist nicht verfügbar – Änderungen an Profilen und Abonnements gehen beim Neustart verloren. Sieh in die Logs.",
