@@ -1580,7 +1580,7 @@ export const it = {
       specCore: "Core",
       specPlatform: "Piattaforma",
       specCoreAlt: "Secondo core",
-      specCoreAltHint: "Si avvia per i nodi XHTTP e mKCP",
+      specCoreAltHint: "Si avvia per i nodi XHTTP, mKCP e XMC",
       specBuilt: "Compilato",
       repoTitle: "Repository",
       repoDesc: "Sorgenti, release e segnalazioni di bug su GitHub",

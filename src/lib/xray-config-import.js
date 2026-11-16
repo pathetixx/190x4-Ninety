@@ -10,6 +10,12 @@
 //
 // Что не переносится: маршрутизация, DNS, inbounds, balancers/observatory и
 // mux — это политика приложения, у Ninety она своя.
+//
+// Исключение — сервер, который в ссылку не помещается: маскировка `finalmask`
+// (например, XMC — трафик под вход в Minecraft), постквантовое шифрование
+// VLESS (`encryption` ≠ none) и т.п. Такой outbound едет в профиль целиком
+// (proto "xray") и поднимается локальным xray-мостом как есть: перевод в
+// ссылку молча выкинул бы ровно то, без чего сервер не отвечает.
 
 import { parseLink } from "/lib/protocol-parsers.js";
 import { safeJsonParse } from "/lib/config-format.js";
@@ -64,6 +70,9 @@ function tlsParams(stream) {
 function headerType(settings) {
   return settings?.header?.type || "";
 }
+
+// Поля xhttp, которые ссылка несёт отдельными параметрами (и сам вложенный extra).
+const XHTTP_LINK_FIELDS = new Set(["host", "path", "mode", "extra"]);
 
 function transportParams(stream) {
   const network = String(stream.network || "tcp").toLowerCase();
@@ -127,10 +136,18 @@ function transportParams(stream) {
     case "xhttp":
     case "splithttp": {
       const xh = stream.xhttpSettings || stream.splithttpSettings || {};
-      // Подопции xhttp едут в `extra` целиком, в Xray-схеме: их разбирает
-      // сборщик конфига (mergeXhttpExtra) и эмитит только то, что знает форк.
-      // Без них download-канал уходит в дефолт и сервер рвёт handshake.
-      const extra = Object.keys(xh).length ? JSON.stringify(xh) : "";
+      // Подопции xhttp едут в `extra` в Xray-схеме: их разбирает сборщик
+      // конфига (mergeXhttpExtra) и эмитит только то, что знает форк. Без них
+      // download-канал уходит в дефолт и сервер рвёт handshake.
+      // Форма — как у параметра `extra` в ссылке: подопции плоско, без
+      // host/path/mode (они отдельными параметрами). Панели пишут их и прямо в
+      // xhttpSettings, и во вложенный xhttpSettings.extra — сводим к одному,
+      // иначе сборщик не нашёл бы вложенные, а тот же сервер из JSON и из
+      // ссылки различался бы отпечатком.
+      const options = Object.fromEntries(Object.entries(xh)
+        .filter(([key]) => !XHTTP_LINK_FIELDS.has(key)));
+      if (isPlainObject(xh.extra)) Object.assign(options, xh.extra);
+      const extra = Object.keys(options).length ? JSON.stringify(options) : "";
       return {
         type: "xhttp",
         params: [
@@ -145,7 +162,11 @@ function transportParams(stream) {
     case "raw":
     default: {
       const tcp = stream.tcpSettings || stream.rawSettings || {};
-      return { type: network, params: [["headerType", headerType(tcp)]] };
+      // «none» у TCP — то же, что отсутствие маскировки; ссылка его не пишет.
+      // Иначе тот же сервер из JSON и из списка ссылок различался бы одним
+      // этим полем: смена формата подписки сбрасывала бы выбор сервера.
+      const header = headerType(tcp);
+      return { type: network, params: [["headerType", header === "none" ? "" : header]] };
     }
   }
 }
@@ -165,7 +186,14 @@ function streamParams(outbound) {
 // ── outbound → набор серверов ──────────────────────────────
 // vnext/servers — массивы, у vless/vmess внутри ещё и users: один outbound
 // Xray описывает несколько серверов. Разворачиваем всё, что там лежит.
+// Xray 26 пишет outbound и «плоско»: address/port/id прямо в settings, без
+// vnext/servers. Такой сервер ровно один, а пользователь — сами settings.
+function flatServer(settings) {
+  return isPlainObject(settings) && settings.address !== undefined && !settings.vnext && !settings.servers;
+}
+
 function vnextEntries(settings) {
+  if (flatServer(settings)) return [{ vnext: settings, user: settings }];
   const out = [];
   for (const vnext of settings?.vnext || []) {
     for (const user of vnext?.users || []) out.push({ vnext, user });
@@ -216,7 +244,51 @@ function vmessLinks(outbound) {
 }
 
 function serverEntries(settings) {
+  if (flatServer(settings)) return [settings];
   return (settings?.servers || []).filter(isPlainObject);
+}
+
+// ── finalmask ──────────────────────────────────────────────
+// Маски слоя под транспортом: { tcp: [...], udp: [...] }, каждая — {type, settings}.
+function finalmaskEntries(stream) {
+  const fm = isPlainObject(stream?.finalmask) ? stream.finalmask : null;
+  if (!fm) return [];
+  return Object.values(fm).flatMap(list => (Array.isArray(list) ? list.filter(isPlainObject) : []));
+}
+
+// Hysteria в Xray — это протокол + транспорт, а obfs у него — маска salamander.
+// Её ссылка hysteria2:// передаёт; всё прочее (udphop, TCP-маски) — нет.
+function hysteriaSalamander(stream) {
+  const masks = finalmaskEntries(stream);
+  if (!masks.length) return { ok: true, password: "" };
+  const fm = stream.finalmask;
+  const onlySalamander = masks.length === 1
+    && Array.isArray(fm.udp) && fm.udp.length === 1
+    && String(masks[0].type || "").toLowerCase() === "salamander";
+  return onlySalamander
+    ? { ok: true, password: String(masks[0].settings?.password || "") }
+    : { ok: false, password: "" };
+}
+
+function hysteriaLinks(outbound) {
+  const stream = isPlainObject(outbound.streamSettings) ? outbound.streamSettings : {};
+  const hy = stream.hysteriaSettings || {};
+  if (Number(hy.version ?? outbound.settings?.version ?? 2) !== 2) return [];
+  const ts = stream.tlsSettings || {};
+  const { password } = hysteriaSalamander(stream);
+  return serverEntries(outbound.settings).map(server => buildShareLink({
+    scheme: "hysteria2",
+    userinfo: encodeURIComponent(hy.auth || server.password || ""),
+    server: server.address,
+    port: server.port,
+    params: [
+      ["sni", ts.serverName || ""],
+      ["alpn", joinList(ts.alpn)],
+      ["insecure", ts.allowInsecure ? "1" : ""],
+      ["obfs", password ? "salamander" : ""],
+      ["obfs-password", password],
+    ],
+  }));
 }
 
 function trojanLinks(outbound) {
@@ -259,7 +331,94 @@ const LINK_BUILDERS = {
   trojan: trojanLinks,
   shadowsocks: shadowsocksLinks,
   socks: socksLinks,
+  hysteria: hysteriaLinks,
 };
+
+// ── сервер, который в ссылку не помещается ─────────────────
+// Протоколы, которые локальный xray-мост поднимет из outbound как есть.
+const RAW_PROTOCOLS = new Set(["vless", "vmess", "trojan", "shadowsocks", "hysteria"]);
+// Что ссылка передаёт без потерь. Всё прочее — повод везти outbound целиком.
+const LINK_NETWORKS = new Set([
+  "", "tcp", "raw", "ws", "grpc", "http", "h2", "httpupgrade", "quic", "kcp", "xhttp", "splithttp",
+]);
+const LINK_SECURITY = new Set(["", "none", "tls", "reality"]);
+
+function vlessEncryption(settings) {
+  if (flatServer(settings)) return String(settings.encryption || "");
+  return String(settings?.vnext?.[0]?.users?.[0]?.encryption || "");
+}
+
+/**
+ * Почему outbound нельзя передать ссылкой (null — можно).
+ * @returns {string|null}
+ */
+export function rawOutboundReason(outbound) {
+  const protocol = String(outbound?.protocol || "").toLowerCase();
+  if (!RAW_PROTOCOLS.has(protocol)) return null;
+  const stream = isPlainObject(outbound.streamSettings) ? outbound.streamSettings : {};
+  if (protocol === "hysteria") return hysteriaSalamander(stream).ok ? null : "finalmask";
+  if (finalmaskEntries(stream).length) return "finalmask";
+  const encryption = vlessEncryption(outbound.settings).toLowerCase();
+  if (protocol === "vless" && encryption && encryption !== "none") return "encryption";
+  if (!LINK_NETWORKS.has(String(stream.network || "").toLowerCase())) return "network";
+  if (!LINK_SECURITY.has(String(stream.security || "").toLowerCase())) return "security";
+  return null;
+}
+
+function rawEndpoint(settings) {
+  if (flatServer(settings)) return { host: settings.address, port: settings.port, count: 1 };
+  const vnext = (settings?.vnext || []).filter(isPlainObject);
+  if (vnext.length) {
+    const users = vnext.reduce((n, v) => n + (Array.isArray(v.users) ? v.users.length : 0), 0);
+    return { host: vnext[0].address, port: vnext[0].port, count: Math.max(vnext.length, users) };
+  }
+  const servers = serverEntries(settings);
+  return { host: servers[0]?.address, port: servers[0]?.port, count: servers.length };
+}
+
+// Короткая метка для списка серверов: по ней пользователь видит, чем этот
+// сервер отличается от обычного (XMC, а не безликое VLESS).
+function rawLabel(outbound, reason) {
+  const stream = outbound.streamSettings || {};
+  const masks = finalmaskEntries(stream)
+    .map(mask => String(mask.type || "").toUpperCase())
+    .filter(type => type && type !== "SALAMANDER");
+  if (masks.length) return [...new Set(masks)].join("+");
+  if (reason === "encryption") return "VLESS ML-KEM";
+  return String(outbound.protocol || "xray").toUpperCase();
+}
+
+// Глубокая копия без служебных полей конфига-источника: tag назначит сборщик,
+// а dialerProxy/proxySettings ссылались на соседей по исходному конфигу
+// (фрагментация у Ninety своя, цепочки отсеяны раньше).
+function detachedOutbound(outbound) {
+  const copy = JSON.parse(JSON.stringify(outbound));
+  delete copy.tag;
+  delete copy.proxySettings;
+  delete copy.sendThrough;
+  const sockopt = copy.streamSettings?.sockopt;
+  if (isPlainObject(sockopt)) {
+    delete sockopt.dialerProxy;
+    if (!Object.keys(sockopt).length) delete copy.streamSettings.sockopt;
+  }
+  return copy;
+}
+
+function rawProfile(outbound, name, reason) {
+  const { host, port, count } = rawEndpoint(outbound.settings);
+  const portNumber = Number(port);
+  // Один outbound — один сервер: несколько адресов внутри никто, кроме
+  // балансировщика панели, не пишет, а различать их в списке нечем.
+  if (count !== 1 || !host || !Number.isInteger(portNumber)) return null;
+  return {
+    proto: "xray",
+    name: name || `${host}:${portNumber}`,
+    host: bareHost(host),
+    port: portNumber,
+    label: rawLabel(outbound, reason),
+    outbound: detachedOutbound(outbound),
+  };
+}
 
 // ── WireGuard ──────────────────────────────────────────────
 // В Xray это обычный outbound, а не endpoint, и имена полей свои
@@ -336,6 +495,12 @@ export function xrayOutboundToLinks(outbound, name = "", byTag = new Map()) {
   if (protocol === "wireguard") {
     const profile = wireguardProfile(outbound, name);
     return profile ? { profile } : { unsupported: "wireguard" };
+  }
+
+  const reason = rawOutboundReason(outbound);
+  if (reason) {
+    const profile = rawProfile(outbound, name, reason);
+    return profile ? { profile } : { unsupported: `${protocol}+${reason}` };
   }
 
   const builder = LINK_BUILDERS[protocol];

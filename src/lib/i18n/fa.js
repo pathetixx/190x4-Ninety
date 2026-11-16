@@ -1572,7 +1572,7 @@ export const fa = {
       specCore: "هسته",
       specPlatform: "پلتفرم",
       specCoreAlt: "هستهٔ دوم",
-      specCoreAltHint: "برای نودهای XHTTP و mKCP اجرا می‌شود",
+      specCoreAltHint: "برای نودهای XHTTP، mKCP و XMC اجرا می‌شود",
       specBuilt: "ساخته‌شده",
       repoTitle: "مخزن",
       repoDesc: "منابع، انتشارها و گزارش باگ در GitHub",

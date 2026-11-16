@@ -1604,7 +1604,7 @@ export const ar = {
       specCore: "النواة",
       specPlatform: "المنصة",
       specCoreAlt: "النواة الثانية",
-      specCoreAltHint: "تعمل لعقد XHTTP و mKCP",
+      specCoreAltHint: "تعمل لعقد XHTTP و mKCP و XMC",
       specBuilt: "تم البناء",
       repoTitle: "المستودع",
       repoDesc: "المصادر والإصدارات وتقارير الأخطاء على GitHub",

@@ -115,6 +115,8 @@ const TRANSPORT_TYPES = new Set([
 // Транспорт есть только у протоколов v2ray-семейства; у остальных поле означает
 // другое или его нет вовсе.
 const TRANSPORT_PROTOS = new Set(["vless", "vmess", "trojan"]);
+// Протоколы готового outbound Xray (proto "xray"), которые несёт xray-мост.
+const XRAY_RAW_PROTOCOLS = new Set(["vless", "vmess", "trojan", "shadowsocks", "hysteria"]);
 
 function realityRequested(node) {
   const mode = node?.tlsMode || node?.security;
@@ -264,6 +266,17 @@ function computeNodeConfigIssue(node) {
   }
 
   if (proto === "wireguard") return wireguardIssue(node);
+
+  // Готовый outbound Xray ядро не разбирает: его поднимает xray-мост как есть.
+  // Проверяем только, что внутри действительно сервер, который мост примет.
+  if (proto === "xray") {
+    const outbound = node.outbound;
+    const protocol = String(outbound?.protocol || "").toLowerCase();
+    if (!outbound || typeof outbound !== "object" || !XRAY_RAW_PROTOCOLS.has(protocol)) {
+      return { code: "malformed" };
+    }
+    return null;
+  }
 
   if (proto === "vless" && normalizeFlow(node.flow) === null) {
     return { code: "flow" };

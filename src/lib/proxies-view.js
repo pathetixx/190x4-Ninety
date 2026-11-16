@@ -295,6 +295,8 @@ function transportLabel(n) {
       || [awg.h1, awg.h2, awg.h3, awg.h4].some((value, index) => value && value !== index + 1);
     return shaped ? "AmneziaWG" : "WireGuard";
   }
+  // Готовый outbound Xray: метку (XMC, VLESS ML-KEM) кладёт импортёр.
+  if (n?.proto === "xray") return n.label || "Xray";
   if (PROTO_LABEL[n?.proto]) return PROTO_LABEL[n.proto];
   const sec = String(n?.security || "").toLowerCase();
   if (sec === "reality") return "REALITY";

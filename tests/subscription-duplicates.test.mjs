@@ -54,8 +54,11 @@ test("адрес сравнивается без учёта регистра с�
 test("повторное добавление возвращает уже добавленную подписку и не ходит в сеть", async () => {
   localStorage.clear();
   let fetches = 0;
-  invokeHandler = async (cmd) => {
+  invokeHandler = async (cmd, args) => {
     if (cmd === "device_identity") return { hwid: null, deviceOs: "Windows", verOs: "" };
+    // Проба xray-JSON при добавлении — часть того же добавления; считаем
+    // обычные запросы списка.
+    if (args?.format) return { status: 200, body: "" };
     fetches++;
     return { status: 200, body: "vless://uuid@node.example:443?security=tls#Amsterdam" };
   };

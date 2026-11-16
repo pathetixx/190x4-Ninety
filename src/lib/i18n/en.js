@@ -1572,7 +1572,7 @@ export const en = {
       specCore: "Core",
       specPlatform: "Platform",
       specCoreAlt: "Second core",
-      specCoreAltHint: "Runs for XHTTP and mKCP nodes",
+      specCoreAltHint: "Runs for XHTTP, mKCP and XMC nodes",
       specBuilt: "Built",
       repoTitle: "Repository",
       repoDesc: "Sources, releases and bug reports on GitHub",

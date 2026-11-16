@@ -1588,7 +1588,7 @@ export const uk = {
       specCore: "Ядро",
       specPlatform: "Платформа",
       specCoreAlt: "Друге ядро",
-      specCoreAltHint: "Піднімається для вузлів XHTTP і mKCP",
+      specCoreAltHint: "Піднімається для вузлів XHTTP, mKCP і XMC",
       specBuilt: "Зібрано",
       repoTitle: "Репозиторій",
       repoDesc: "Вихідники, релізи та баг-репорти на GitHub",

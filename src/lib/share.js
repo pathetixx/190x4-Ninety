@@ -86,10 +86,11 @@ function onQRKey(e) {
 // socks-мосту: в одиночном конфиге их воспроизвести нечем.
 const BRIDGE_ONLY_TYPES = new Set(["xhttp", "kcp"]);
 // То же самое, но на уровне протокола: naive и TrustTunnel поднимает отдельный
-// sidecar-клиент, а в конфиг уходит socks на 127.0.0.1. Без этой проверки
+// sidecar-клиент (готовый outbound Xray — локальный xray), а в конфиг уходит
+// socks на 127.0.0.1. Без этой проверки
 // экспорт отдавал внешне валидный файл, который у получателя ведёт в его же
 // localhost — то есть молча нерабочий.
-const BRIDGE_ONLY_PROTOS = new Set(["naive", "trusttunnel"]);
+const BRIDGE_ONLY_PROTOS = new Set(["naive", "trusttunnel", "xray"]);
 
 function isBridgeOnly(node) {
   return BRIDGE_ONLY_TYPES.has(node?.type) || BRIDGE_ONLY_PROTOS.has(profileProto(node));

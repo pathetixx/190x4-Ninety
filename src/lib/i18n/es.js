@@ -1580,7 +1580,7 @@ export const es = {
       specCore: "Núcleo",
       specPlatform: "Plataforma",
       specCoreAlt: "Segundo núcleo",
-      specCoreAltHint: "Se usa para nodos XHTTP y mKCP",
+      specCoreAltHint: "Se usa para nodos XHTTP, mKCP y XMC",
       specBuilt: "Compilado",
       repoTitle: "Repositorio",
       repoDesc: "Fuentes, versiones e informes de errores en GitHub",

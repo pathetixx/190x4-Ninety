@@ -8,7 +8,7 @@ import { loadOptions } from "/lib/options.js";
 import { safeDecodeBase64 } from "/lib/url-helpers.js";
 import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
 import { partitionNodes, withoutPlaceholders } from "/lib/node-validation.js";
-import { looksLikeWireguardConf, parseTrustTunnelToml, parseWireguardConf } from "/lib/protocol-parsers.js";
+import { looksLikeWireguardConf, parseTrustTunnelToml, parseWireguardConf, profileProto } from "/lib/protocol-parsers.js";
 import { detectConfigFormat, parseClientConfig, unsupportedFormatMessage } from "/lib/config-import.js";
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
 import { HWID_SCOPE_PROVIDER, hwidHeaders, hwidSignal, subscriptionUsesScopedHwid } from "/lib/hwid.js";
@@ -28,6 +28,16 @@ export { safeDecodeBase64 };
 const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt|anytls|socks(?:5h?|4a?)?):\/\/|naive\+[a-z]+:\/\/)/i;
 
 const REFRESH_ALL_CONCURRENCY = 3;
+
+// Формат ответа, который просим у панели вместо списка ссылок (Rust по нему
+// меняет User-Agent). Целые конфиги Xray несут то, чего в ссылке нет, — и
+// панели кладут туда серверы, которых в списке ссылок нет вовсе (например,
+// XMC: маскировка под Minecraft через finalmask).
+export const XRAY_JSON_FORMAT = "xray-json";
+// Как часто перепроверять, отдаёт ли панель такой JSON и стоит ли на него
+// переходить: панели добавляют такие серверы со временем, а лишний запрос на
+// каждое обновление ни к чему.
+export const XRAY_JSON_RECHECK_MS = 7 * 24 * 60 * 60 * 1000;
 
 const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -333,7 +343,7 @@ export function setSubscriptionTunnelTransit(fn) { subTunnelInTransit = fn; }
 
 // HWID уходит только тем подпискам, у которых пользователь его включил:
 // панелям без лимита устройств идентификатор устройства знать незачем.
-async function fetchInfo(url, { hwid = false, scopedHwid = false } = {}) {
+async function fetchInfo(url, { hwid = false, scopedHwid = false, format = null } = {}) {
   let proxy = null;
   try { proxy = subProxyProvider?.() || null; } catch {}
   // Без этой проверки запрет прямого пути обходился: адрес с токеном и HWID уходил
@@ -345,9 +355,11 @@ async function fetchInfo(url, { hwid = false, scopedHwid = false } = {}) {
     }
   }
   const headers = hwid ? await hwidHeaders({ scoped: scopedHwid }) : null;
+  // Поле только когда формат задан: старый вызов остаётся байт-в-байт прежним.
+  const extra = format ? { format } : {};
   let info;
   try {
-    info = await invoke("fetch_subscription", { url, proxy, hwid: headers });
+    info = await invoke("fetch_subscription", { url, proxy, hwid: headers, ...extra });
   } catch (e) {
     if (!proxy) throw e;
     const options = loadOptions();
@@ -357,7 +369,7 @@ async function fetchInfo(url, { hwid = false, scopedHwid = false } = {}) {
       throw new Error(t("subs.proxyFallbackDisabled"), { cause: e });
     }
     // Туннель мог только что умереть — если юзер явно разрешил, повторяем напрямую.
-    info = await invoke("fetch_subscription", { url, proxy: null, hwid: headers });
+    info = await invoke("fetch_subscription", { url, proxy: null, hwid: headers, ...extra });
   }
   if (info.status >= 400) {
     const err = new Error(`HTTP ${info.status}`);
@@ -367,6 +379,78 @@ async function fetchInfo(url, { hwid = false, scopedHwid = false } = {}) {
     throw err;
   }
   return info;
+}
+
+// ── xray-JSON вместо списка ссылок ─────────────────────────
+// Сравнение нод двух ответов одной панели: имя, порядок и мелкие поля у
+// форматов расходятся, а сервер — это протокол, адрес, порт и транспорт.
+function looseNodeKey(node) {
+  return [
+    profileProto(node),
+    String(node?.host || "").toLowerCase(),
+    String(node?.port ?? ""),
+    String(node?.type || "").toLowerCase(),
+  ].join("|");
+}
+
+/**
+ * Брать ли xray-JSON вместо списка ссылок: только если в нём есть ВСЁ, что
+ * было в списке, и что-то сверх. JSON не умеет часть протоколов (TUIC,
+ * AnyTLS, Naive…), и панель для JSON-клиентов их просто не отдаёт — такой
+ * обмен потерял бы серверы, а не добавил.
+ */
+export function preferXrayJson(linkProfiles, jsonProfiles) {
+  const json = Array.isArray(jsonProfiles) ? jsonProfiles : [];
+  const links = Array.isArray(linkProfiles) ? linkProfiles : [];
+  if (!json.length) return false;
+  const jsonKeys = new Set(json.map(looseNodeKey));
+  if (!links.every(node => jsonKeys.has(looseNodeKey(node)))) return false;
+  const linkKeys = new Set(links.map(looseNodeKey));
+  return json.some(node => !linkKeys.has(looseNodeKey(node)));
+}
+
+/**
+ * Тянет подписку в лучшем доступном формате. `state` — запомненное решение
+ * {use, checkedAt}: пока оно свежее, повторно не проверяем. Ошибки пробы
+ * JSON не фатальны — остаётся обычный список ссылок.
+ * @returns {{info: object, parsed: object, xrayJson: {use: boolean, checkedAt: number}|null}}
+ */
+async function fetchRemoteSubscription(url, fetchOptions, state = null, now = Date.now()) {
+  const known = state && typeof state === "object" ? state : null;
+  const fresh = !!known && now - (Number(known.checkedAt) || 0) < XRAY_JSON_RECHECK_MS;
+
+  if (fresh && known.use) {
+    try {
+      const info = await fetchInfo(url, { ...fetchOptions, format: XRAY_JSON_FORMAT });
+      const parsed = parseRemoteSubscription(info.body);
+      if (parsed.format === "xray" && parsed.profiles.length) return { info, parsed, xrayJson: known };
+    } catch (e) {
+      console.warn("subscription: xray-json fetch failed, falling back to links", e?.message);
+    }
+    // JSON больше не отдаётся: берём список ссылок и решаем заново.
+  }
+
+  const info = await fetchInfo(url, fetchOptions);
+  const parsed = parseRemoteSubscription(info.body);
+  if (fresh && !known.use) return { info, parsed, xrayJson: known };
+  // Пустой ответ разбирает вызывающий (HWID, формат) — пробовать JSON не к чему.
+  if (!parsed.profiles.length) return { info, parsed, xrayJson: known };
+  const checked = { use: false, checkedAt: now };
+  // Панель и так отдала конфиг клиента — второй формат просить незачем.
+  if (parsed.format) return { info, parsed, xrayJson: checked };
+
+  try {
+    const jsonInfo = await fetchInfo(url, { ...fetchOptions, format: XRAY_JSON_FORMAT });
+    if (jsonInfo.status < 400) {
+      const jsonParsed = parseRemoteSubscription(jsonInfo.body);
+      if (jsonParsed.format === "xray" && preferXrayJson(parsed.profiles, jsonParsed.profiles)) {
+        return { info: jsonInfo, parsed: jsonParsed, xrayJson: { use: true, checkedAt: now } };
+      }
+    }
+  } catch (e) {
+    console.warn("subscription: xray-json probe failed", e?.message);
+  }
+  return { info, parsed, xrayJson: checked };
 }
 
 /**
@@ -388,8 +472,8 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
   }
 
   // Новая подписка сразу живёт по схеме HWID провайдера (см. hwid.js).
-  const info = await fetchInfo(u, { hwid, scopedHwid: true });
-  const { profiles, received, skipped, format } = parseRemoteSubscription(info.body);
+  const { info, parsed, xrayJson } = await fetchRemoteSubscription(u, { hwid, scopedHwid: true });
+  const { profiles, received, skipped, format } = parsed;
   if (profiles.length === 0) {
     const err = new Error(unsupportedFormatMessage(format) || t("subs.noVless"));
     err.hwid = hwidSignal(info, received, { sent: hwid });
@@ -417,6 +501,7 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
     skipped,
     hwid: !!hwid,
     hwidScope: HWID_SCOPE_PROVIDER,
+    ...(xrayJson ? { xrayJson } : {}),
     profiles: assignStableNodeIds(profiles, [], id),
   };
 
@@ -435,8 +520,12 @@ export async function refreshSubscription(id) {
   const cur = loadSubscriptions().find(s => s.id === id);
   if (!cur) throw new Error(t("subs.notFound"));
 
-  const info = await fetchInfo(cur.url, { hwid: !!cur.hwid, scopedHwid: subscriptionUsesScopedHwid(cur) });
-  const { profiles, received, skipped, format } = parseRemoteSubscription(info.body);
+  const { info, parsed, xrayJson } = await fetchRemoteSubscription(
+    cur.url,
+    { hwid: !!cur.hwid, scopedHwid: subscriptionUsesScopedHwid(cur) },
+    cur.xrayJson,
+  );
+  const { profiles, received, skipped, format } = parsed;
   if (profiles.length === 0) {
     const err = new Error(unsupportedFormatMessage(format) || t("subs.emptyOrInvalid"));
     err.hwid = hwidSignal(info, received, { sent: !!cur.hwid });
@@ -451,6 +540,7 @@ export async function refreshSubscription(id) {
   if (idx < 0) throw new Error(t("subs.notFound"));
   const fresh = list[idx];
   const merged = mergeSubscriptionRefresh(fresh, info, profiles, skipped);
+  if (xrayJson) merged.xrayJson = xrayJson;
   migrateRememberedSelection(id, fresh.profiles || [], merged.profiles || []);
   list[idx] = merged;
   saveSubscriptions(list);

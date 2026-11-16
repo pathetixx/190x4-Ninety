@@ -1588,7 +1588,7 @@ export const ru = {
       specCore: "Ядро",
       specPlatform: "Платформа",
       specCoreAlt: "Второе ядро",
-      specCoreAltHint: "Поднимается для нод XHTTP и mKCP",
+      specCoreAltHint: "Поднимается для нод XHTTP, mKCP и XMC",
       specBuilt: "Собрано",
       repoTitle: "Репозиторий",
       repoDesc: "Исходники, релизы и баг-репорты на GitHub",

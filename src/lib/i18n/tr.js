@@ -1572,7 +1572,7 @@ export const tr = {
       specCore: "Çekirdek",
       specPlatform: "Platform",
       specCoreAlt: "İkinci çekirdek",
-      specCoreAltHint: "XHTTP ve mKCP düğümleri için çalışır",
+      specCoreAltHint: "XHTTP, mKCP ve XMC düğümleri için çalışır",
       specBuilt: "Derlendi",
       repoTitle: "Depo",
       repoDesc: "Kaynaklar, sürümler ve hata raporları GitHub'da",

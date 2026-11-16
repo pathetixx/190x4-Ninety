@@ -1580,7 +1580,7 @@ export const fr = {
       specCore: "Cœur",
       specPlatform: "Plateforme",
       specCoreAlt: "Second cœur",
-      specCoreAltHint: "Utilisé pour les nœuds XHTTP et mKCP",
+      specCoreAltHint: "Utilisé pour les nœuds XHTTP, mKCP et XMC",
       specBuilt: "Compilé",
       repoTitle: "Dépôt",
       repoDesc: "Sources, versions et rapports de bugs sur GitHub",

@@ -324,13 +324,31 @@ fn proxied_redirect_verdict(answer: Option<&[SocketAddr]>) -> Result<(), String>
     }
 }
 
+/// User-Agent запроса подписки. Панели выбирают формат ответа по нему:
+/// v2rayN получает список ссылок, а xray-JSON (целые конфиги Xray с полями,
+/// которых в ссылке нет, например `finalmask`) отдают только клиентам,
+/// которые этот формат понимают. Свежая версия — потому что часть панелей
+/// гейтит JSON по версии клиента.
+const LINKS_USER_AGENT: &str = "v2rayN/6.42";
+const XRAY_JSON_USER_AGENT: &str = "Happ/9.9.9";
+
+/// Формат, который фронтенд просит у панели. Неизвестное значение — обычный
+/// список ссылок: так старый вызов без параметра ведёт себя как раньше.
+fn user_agent_for(format: Option<&str>) -> &'static str {
+    match format {
+        Some("xray-json") => XRAY_JSON_USER_AGENT,
+        _ => LINKS_USER_AGENT,
+    }
+}
+
 fn make_client(
     proxy: Option<&str>,
     target: Option<&ResolvedTarget>,
     jar: &Arc<reqwest::cookie::Jar>,
+    user_agent: &str,
 ) -> Result<reqwest::Client, String> {
     let mut builder = crate::util::direct_client_builder()
-        .user_agent("v2rayN/6.42")
+        .user_agent(user_agent)
         .timeout(std::time::Duration::from_secs(20))
         // Redirects are followed manually so every Location is resolved and
         // checked before the next connection. Automatic reqwest redirects
@@ -473,7 +491,9 @@ pub async fn fetch_subscription(
     url: String,
     proxy: Option<String>,
     hwid: Option<HwidHeaders>,
+    format: Option<String>,
 ) -> Result<SubscriptionInfo, String> {
+    let user_agent = user_agent_for(format.as_deref());
     let mut current = parse_subscription_url(&url)?;
     let origin = current.clone();
     let proxy = proxy
@@ -500,7 +520,7 @@ pub async fn fetch_subscription(
             }
             None => Some(resolve_public_target(&current).await?),
         };
-        let client = make_client(proxy, target.as_ref(), &jar)?;
+        let client = make_client(proxy, target.as_ref(), &jar, user_agent)?;
         let mut request = client.get(current.clone()).header("Accept", "*/*");
         if let Some(headers) = hwid.as_ref().filter(|_| same_host(&origin, &current)) {
             request = apply_hwid_headers(request, headers, origin.host_str().unwrap_or_default());
@@ -538,7 +558,7 @@ pub async fn fetch_subscription(
     // панели (sub-store, marzban, xo.e0f.cx и т.п.) отдают:
     //   - известным клиентам (v2rayN, ClashMeta) — plain/base64 vless-список,
     //   - неизвестным — JSON или HTML страницу логина.
-    // Поэтому шлём проверенный v2rayN UA.
+    // Поэтому по умолчанию шлём проверенный v2rayN UA (см. user_agent_for).
     let status = resp.status().as_u16();
 
     let headers = resp.headers().clone();
@@ -609,6 +629,13 @@ pub async fn fetch_subscription(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_agent_follows_requested_format() {
+        assert_eq!(user_agent_for(None), LINKS_USER_AGENT);
+        assert_eq!(user_agent_for(Some("links")), LINKS_USER_AGENT);
+        assert_eq!(user_agent_for(Some("xray-json")), XRAY_JSON_USER_AGENT);
+    }
 
     #[test]
     fn parse_userinfo_full() {

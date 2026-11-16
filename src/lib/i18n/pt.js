@@ -1580,7 +1580,7 @@ export const pt = {
       specCore: "Núcleo",
       specPlatform: "Plataforma",
       specCoreAlt: "Segundo núcleo",
-      specCoreAltHint: "Sobe para nós XHTTP e mKCP",
+      specCoreAltHint: "Sobe para nós XHTTP, mKCP e XMC",
       specBuilt: "Compilado",
       repoTitle: "Repositório",
       repoDesc: "Código-fonte, lançamentos e relatórios de bugs no GitHub",

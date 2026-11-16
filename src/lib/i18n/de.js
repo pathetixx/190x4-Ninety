@@ -1572,7 +1572,7 @@ export const de = {
       specCore: "Kern",
       specPlatform: "Plattform",
       specCoreAlt: "Zweiter Kern",
-      specCoreAltHint: "Läuft für XHTTP- und mKCP-Knoten",
+      specCoreAltHint: "Läuft für XHTTP-, mKCP- und XMC-Knoten",
       specBuilt: "Erstellt",
       repoTitle: "Repository",
       repoDesc: "Quellen, Releases und Fehlerberichte auf GitHub",

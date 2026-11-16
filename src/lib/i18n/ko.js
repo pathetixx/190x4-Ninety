@@ -1564,7 +1564,7 @@ export const ko = {
       specCore: "코어",
       specPlatform: "플랫폼",
       specCoreAlt: "보조 코어",
-      specCoreAltHint: "XHTTP 및 mKCP 노드에서 실행",
+      specCoreAltHint: "XHTTP, mKCP 및 XMC 노드에서 실행",
       specBuilt: "빌드일",
       repoTitle: "저장소",
       repoDesc: "소스, 릴리스, 버그 신고는 GitHub에서",

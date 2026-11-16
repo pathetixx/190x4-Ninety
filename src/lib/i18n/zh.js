@@ -1564,7 +1564,7 @@ export const zh = {
       specCore: "内核",
       specPlatform: "平台",
       specCoreAlt: "第二内核",
-      specCoreAltHint: "用于 XHTTP 和 mKCP 节点",
+      specCoreAltHint: "用于 XHTTP、mKCP 和 XMC 节点",
       specBuilt: "构建于",
       repoTitle: "仓库",
       repoDesc: "源代码、发行版与问题反馈见 GitHub",

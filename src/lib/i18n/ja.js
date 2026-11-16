@@ -1564,7 +1564,7 @@ export const ja = {
       specCore: "コア",
       specPlatform: "プラットフォーム",
       specCoreAlt: "第二コア",
-      specCoreAltHint: "XHTTP と mKCP のノードで起動",
+      specCoreAltHint: "XHTTP、mKCP、XMC のノードで起動",
       specBuilt: "ビルド日",
       repoTitle: "リポジトリ",
       repoDesc: "ソース、リリース、バグ報告は GitHub で",

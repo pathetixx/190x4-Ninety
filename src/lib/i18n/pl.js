@@ -1588,7 +1588,7 @@ export const pl = {
       specCore: "Rdzeń",
       specPlatform: "Platforma",
       specCoreAlt: "Drugi rdzeń",
-      specCoreAltHint: "Uruchamiany dla węzłów XHTTP i mKCP",
+      specCoreAltHint: "Uruchamiany dla węzłów XHTTP, mKCP i XMC",
       specBuilt: "Zbudowano",
       repoTitle: "Repozytorium",
       repoDesc: "Źródła, wydania i zgłoszenia błędów na GitHubie",

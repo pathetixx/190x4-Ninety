@@ -470,6 +470,7 @@ function buildOutbound(p, options) {
     }
     case "naive":
     case "trusttunnel":
+    case "xray":
       // Эти протоколы всегда идут через локальный sidecar-клиент (SOCKS5-мост):
       // нативного outbound в sing-box нет. Заглушка-socks; реальный порт
       // подставит bridge-loop в buildConfig (server_port=0 будет перезаписан).
@@ -561,6 +562,12 @@ function assertStrictBootstrapSafe(node) {
         "Адрес пира WireGuard резолвится до того, как тоннель поднят. В строгом режиме выберите профиль, у которого Endpoint задан IP-адресом.",
       );
     }
+  }
+  if (proto === "xray" && !isIpLiteral(node.host)) {
+    throw new StrictPrivacyPolicyError(
+      "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
+      "Этот сервер поднимает отдельный клиент Xray, которому нужен прямой DNS для адреса сервера. В строгом режиме выберите ноду с IP-адресом.",
+    );
   }
   if (proto === "naive" && !isIpLiteral(node.host)) {
     throw new StrictPrivacyPolicyError(
@@ -1436,11 +1443,19 @@ const XRAY_BRIDGE_PROTOS = new Set(["vless", "vmess", "trojan"]);
 // остаётся socks-мост.
 const XRAY_BRIDGE_TYPES = new Set(["xhttp", "kcp"]);
 export function needsXrayBridge(node) {
+  // Готовый outbound Xray (сервер, который ссылкой не передать: finalmask,
+  // шифрование VLESS) ядро не поднимет вовсе — только xray.
+  if (profileProto(node) === "xray") return true;
   return XRAY_BRIDGE_TYPES.has(node?.type) && XRAY_BRIDGE_PROTOS.has(profileProto(node));
 }
 
 function nodeToXrayOutbound(p, tag) {
   const proto = profileProto(p);
+  if (proto === "xray") {
+    // Как есть, глубокой копией: объект ноды живёт в хранилище и общий для всех
+    // сборок, а tag у каждой сборки свой.
+    return { ...JSON.parse(JSON.stringify(p.outbound || {})), tag };
+  }
   if (proto === "trojan") {
     return {
       tag, protocol: "trojan",
