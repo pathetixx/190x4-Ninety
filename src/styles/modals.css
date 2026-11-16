@@ -182,6 +182,7 @@
 }
 .add-modal__card {
   position: relative; z-index: 1; width: 100%; max-width: 520px;
+  max-height: calc(100dvh - 56px); overflow-y: auto;
   background: var(--ink-1); border: 1px solid var(--line-2); border-radius: var(--r-lg);
   padding: 18px 20px 16px;
   box-shadow: 0 30px 64px -18px var(--shadow-strong);
@@ -226,7 +227,7 @@
 .det__ico svg { width: 100%; height: 100%; }
 .det[data-kind="url"] .det__ico, .det[data-kind="config"] .det__ico,
 .det[data-kind="list"] .det__ico, .det[data-kind="tt-toml"] .det__ico,
-.det[data-kind="wg-conf"] .det__ico { color: var(--accent-bright); }
+.det[data-kind="wg-conf"] .det__ico, .det[data-kind="ovpn-conf"] .det__ico { color: var(--accent-bright); }
 .det[data-kind="unknown"] .det__ico { color: var(--err); }
 .det__k {
   font-family: var(--font-mono); font-size: 10px; font-weight: 500;
@@ -264,17 +265,20 @@
 .adv__t[aria-expanded="true"] + .adv__body { grid-template-rows: 1fr; }
 .adv__inner { overflow: hidden; min-height: 0; }
 .adv__pad { padding-top: 12px; display: flex; flex-direction: column; gap: 12px; }
+.md__credentials { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.md__credentials[hidden] { display: none; }
+.md__credentials > p { margin: 0; }
 .fld { display: flex; flex-direction: column; gap: 6px; }
 .fld__row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.fld input[type="text"] {
+.fld input[type="text"], .fld input[type="password"] {
   height: 32px; padding: 0 11px; border-radius: var(--r-sm); background: var(--ink-0);
   border: 1px solid var(--line-2); color: var(--text-hi);
   font-family: var(--font-body); font-size: 12.5px; outline: 0;
   transition: border-color .16s var(--ease-out);
   font-variant-ligatures: none; font-feature-settings: "calt" 0;
 }
-.fld input[type="text"]::placeholder { color: var(--text-lo); }
-.fld input[type="text"]:focus { border-color: color-mix(in srgb, var(--accent) 52%, var(--line-3)); }
+.fld input[type="text"]::placeholder, .fld input[type="password"]::placeholder { color: var(--text-lo); }
+.fld input[type="text"]:focus, .fld input[type="password"]:focus { border-color: color-mix(in srgb, var(--accent) 52%, var(--line-3)); }
 .fld input[type="range"] {
   -webkit-appearance: none; appearance: none; width: 100%; height: 14px; background: transparent; cursor: pointer;
 }

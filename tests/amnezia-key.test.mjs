@@ -118,21 +118,38 @@ test("несжатый ключ старого формата тоже чита�
   assert.equal(profiles.length, 1);
 });
 
-test("в ключе с OpenVPN и AWG берётся AWG, OpenVPN называется", async () => {
+const OPENVPN = "client\ndev tun\nremote vpn.example.net 1194 udp\n<ca>\nTEST CA\n</ca>";
+const openvpnContainer = () => ({
+  container: "amnezia-openvpn",
+  openvpn: { last_config: JSON.stringify({ config: OPENVPN }) },
+});
+
+test("в ключе с OpenVPN и AWG импортируются оба контейнера", async () => {
   const key = amneziaKey({
-    containers: [{ container: "amnezia-openvpn", openvpn: { last_config: "{}" } }, awgContainer()],
+    containers: [openvpnContainer(), awgContainer()],
     defaultContainer: "amnezia-awg2",
     description: "Mixed",
   });
   const { profiles, unsupported } = await parseAmneziaKey(key);
-  assert.equal(profiles.length, 1);
-  assert.deepEqual(unsupported, ["OpenVPN"]);
+  assert.equal(profiles.length, 2);
+  assert.deepEqual(profiles.map((profile) => profile.proto), ["wireguard", "openvpn"]);
+  assert.deepEqual(profiles.map((profile) => profile.name), ["Mixed · AmneziaWG", "Mixed · OpenVPN"]);
+  assert.deepEqual(unsupported, []);
 });
 
-test("ключ только с OpenVPN или без конфигурации — понятная ошибка", async () => {
+test("OpenVPN импортируется, Cloak остаётся неподдерживаемым, без конфигурации — ошибка", async () => {
+  const { profiles, unsupported } = await parseAmneziaKey(amneziaKey({ containers: [openvpnContainer()] }));
+  assert.equal(profiles[0].proto, "openvpn");
+  assert.equal(profiles[0].ovpn, OPENVPN);
+  assert.deepEqual(unsupported, []);
+  assert.equal(nodeConfigIssue(profiles[0]), null);
+  await assert.rejects(
+    parseAmneziaKey(amneziaKey({ containers: [{ container: "amnezia-openvpn-cloak" }] })),
+    /Cloak/,
+  );
   await assert.rejects(
     parseAmneziaKey(amneziaKey({ containers: [{ container: "amnezia-openvpn", openvpn: { last_config: "{}" } }] })),
-    /OpenVPN/,
+    /Amnezia/,
   );
   // Ключ сервиса Amnezia: доступ к API вместо сервера.
   await assert.rejects(

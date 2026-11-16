@@ -405,6 +405,33 @@ function wireguardProfile(endpoint) {
   };
 }
 
+// OpenVPN уже представлен опциями endpoint; переносим их без потери полей.
+// Пути к локальным файлам сохраняются для проверки, но не читаются браузером.
+function openvpnProfile(source) {
+  const endpoint = structuredClone(source);
+  delete endpoint.type;
+  delete endpoint.tag;
+  // DNS чужого конфига не импортируется: его тег не существует в нашем.
+  delete endpoint.domain_resolver;
+  const primary = Array.isArray(endpoint.servers) && endpoint.servers.length
+    ? endpoint.servers[0] : endpoint;
+  if (!isPlainObject(primary)) return null;
+  const host = String(primary.server || "").replace(/^\[|\]$/g, "");
+  const port = Number(primary.server_port) || 0;
+  if (!host || !port) return null;
+  return {
+    raw: `ovpn://${host}:${port}`,
+    proto: "openvpn",
+    name: source.tag || host,
+    host,
+    port,
+    network: primary.network || endpoint.network || "udp",
+    endpoint,
+    ovpn: "",
+    ignored: [],
+  };
+}
+
 /**
  * Готовый конфиг sing-box → профили Ninety.
  * @param {string|object} input текст конфига или уже разобранный объект
@@ -456,6 +483,18 @@ export function parseSingboxConfig(input) {
       continue;
     }
     const profile = wireguardProfile(endpoint);
+    if (profile) profiles.push(profile);
+    else skipped++;
+  }
+
+  const openvpns = endpoints.filter((endpoint) => String(endpoint.type || "").toLowerCase() === "openvpn-client");
+  for (const endpoint of openvpns) {
+    if (endpoint.detour) {
+      skipped++;
+      if (!unsupported.includes("openvpn-client+detour")) unsupported.push("openvpn-client+detour");
+      continue;
+    }
+    const profile = openvpnProfile(endpoint);
     if (profile) profiles.push(profile);
     else skipped++;
   }

@@ -27,6 +27,7 @@ import {
   withoutPlaceholders,
 } from "/lib/node-validation.js";
 import { parseWireguardConf } from "/lib/protocol-parsers.js";
+import { parseOpenvpnConf } from "/lib/openvpn.js";
 import {
   getActiveKindFromStore,
   getActiveProfileIdFromStore,
@@ -54,6 +55,7 @@ export {
   profileProto,
   wireguardConfText,
 } from "/lib/protocol-parsers.js";
+export { parseOpenvpnConf, openvpnConfText } from "/lib/openvpn.js";
 
 const MODE_KEY = "ninety.mode";
 export const ENGINE_PROCESS_NAMES = [
@@ -579,6 +581,13 @@ function assertStrictBootstrapSafe(node) {
         "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
         "Адрес пира WireGuard резолвится до того, как тоннель поднят. В строгом режиме выберите профиль, у которого Endpoint задан IP-адресом.",
       );
+    }
+  }
+  if (proto === "openvpn") {
+    const endpoint = node.endpoint || {};
+    const servers = endpoint.servers?.length ? endpoint.servers : [endpoint];
+    if (servers.some((server) => !isIpLiteral(server.server))) {
+      throw new StrictPrivacyPolicyError("STRICT_PRIVACY_BOOTSTRAP_UNSAFE", t("sb.err.ovpnBootstrap"));
     }
   }
   if (proto === "xray" && !isIpLiteral(node.host)) {
@@ -1217,6 +1226,19 @@ function buildWireguardEndpoint(p, tag, strictPrivacy = false) {
   return endpoint;
 }
 
+// OpenVPN, как и WireGuard, живёт в endpoints. Копия сохраняет исходную
+// модель профиля при смене тега и применении политики DNS.
+function buildOpenvpnEndpoint(profile, tag, strictPrivacy = false) {
+  const endpoint = structuredClone(profile.endpoint);
+  endpoint.type = "openvpn-client";
+  endpoint.tag = tag;
+  const servers = endpoint.servers?.length ? endpoint.servers : [endpoint];
+  if (strictPrivacy && servers.some((server) => !isIpLiteral(server.server))) {
+    endpoint.domain_resolver = "dns-direct";
+  }
+  return endpoint;
+}
+
 // Шейпинг AmneziaWG едет в ядро именами из .conf (см. noise/amnezia.go в
 // ninety-wireguard-go). Пустой блок не пишем вовсе: обычному WireGuard он не
 // нужен, а ядро отвергает частично заполненный набор H1..H4.
@@ -1612,7 +1634,7 @@ export function buildConfig({
   };
 
   const route = buildRoute(opts, effectiveMode, protectedOutbound, runtime.strictPrivacy, resolveRuleTarget);
-  // WireGuard-ноды собираются в endpoints, остальные — в outbounds. Массив
+  // WireGuard и OpenVPN собираются в endpoints, остальные — в outbounds. Массив
   // общий и по индексам совпадает с nodes: теги, группы и карта «объект → нода»
   // обязаны видеть один и тот же порядок, иначе диагностика начнёт называть
   // чужую ноду. Что из этого endpoint, помнит nodeEndpoints.
@@ -1621,6 +1643,11 @@ export function buildConfig({
     const tag = useUrltest ? nodeTag(i, n) : "proxy";
     if (profileProto(n) === "wireguard") {
       const endpoint = buildWireguardEndpoint(n, tag, runtime.strictPrivacy);
+      nodeEndpoints.add(endpoint);
+      return endpoint;
+    }
+    if (profileProto(n) === "openvpn") {
+      const endpoint = buildOpenvpnEndpoint(n, tag, runtime.strictPrivacy);
       nodeEndpoints.add(endpoint);
       return endpoint;
     }
@@ -1741,7 +1768,7 @@ export function buildConfig({
       { type: "direct", tag: "direct" },
     ];
   } else if (nodeEndpoints.has(vlessOutbounds[0])) {
-    // Единственная нода — WireGuard: в outbounds её нет вовсе, тег "proxy"
+    // Единственная нода — endpoint: в outbounds её нет вовсе, тег "proxy"
     // принадлежит endpoint'у, на который ссылаются route.final и DNS.
     outbounds = [
       { type: "direct", tag: "direct" },
@@ -1810,7 +1837,7 @@ export function buildConfig({
   const nodeByOutbound = new Map(vlessOutbounds.map((outbound, i) => [outbound, nodes[i]]));
   const outboundNodes = outbounds.map(outbound => nodeByOutbound.get(outbound) || null);
   // Ядро нумерует endpoints отдельным списком («initialize endpoint[N]»), так
-  // что по outboundNodes виновника WireGuard-ноды не найти.
+  // что по outboundNodes виновника endpoint-ноды не найти.
   const endpointNodes = endpoints.map(endpoint => nodeByOutbound.get(endpoint) || null);
   return {
     config,
@@ -1975,6 +2002,13 @@ export function addTrustTunnelFromToml(tomlText, displayName) {
 // тоннель молча ведёт себя не так, как в клиенте, откуда конфиг принесли.
 export function addWireguardFromConf(confText, displayName) {
   const parsed = parseWireguardConf(confText, displayName);
+  const stored = storeProfile(parsed);
+  return { ...stored, ignored: parsed.ignored || [] };
+}
+
+// Оригинал .ovpn остаётся в профиле для экспорта; в ядро идут только опции.
+export function addOpenvpnFromConf(confText, displayName, credentials = {}) {
+  const parsed = parseOpenvpnConf(confText, displayName, credentials);
   const stored = storeProfile(parsed);
   return { ...stored, ignored: parsed.ignored || [] };
 }

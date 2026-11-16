@@ -21,13 +21,14 @@ export function stdevOf(a) {
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
-export const TRANSPORT_W = { REALITY: 1, XHTTP: 0.95, TRUSTTUNNEL: 0.9, NAIVE: 0.85, WIREGUARD: 0.82, GRPC: 0.8, WS: 0.75 };
+export const TRANSPORT_W = { REALITY: 1, XHTTP: 0.95, TRUSTTUNNEL: 0.9, NAIVE: 0.85, WIREGUARD: 0.82, OPENVPN: 0.82, GRPC: 0.8, WS: 0.75 };
 
 export function transportWeight(node) {
   const proto = String(node?.proto || "").toLowerCase();
   if (proto === "trusttunnel") return TRANSPORT_W.TRUSTTUNNEL;
   if (proto === "naive") return TRANSPORT_W.NAIVE;
   if (proto === "wireguard") return TRANSPORT_W.WIREGUARD;
+  if (proto === "openvpn") return TRANSPORT_W.OPENVPN;
   const sec = String(node?.security || "").toLowerCase();
   if (sec === "reality") return TRANSPORT_W.REALITY;
   const type = String(node?.type || "").toLowerCase();

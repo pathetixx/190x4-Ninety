@@ -9,6 +9,7 @@ import { safeDecodeBase64 } from "/lib/url-helpers.js";
 import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
 import { partitionNodes, withoutPlaceholders } from "/lib/node-validation.js";
 import { looksLikeWireguardConf, parseTrustTunnelToml, parseWireguardConf, profileProto } from "/lib/protocol-parsers.js";
+import { looksLikeOpenvpnConf, parseOpenvpnConf } from "/lib/openvpn.js";
 import { detectConfigFormat, parseClientConfig, unsupportedFormatMessage } from "/lib/config-import.js";
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
 import { looksLikeAmneziaKey } from "/lib/amnezia-key.js";
@@ -67,6 +68,7 @@ function bodyIsRecognizable(text) {
   return KNOWN_PROTO_RE.test(text)
     || looksLikeJsonText(text)
     || looksLikeWireguardConf(text)
+    || looksLikeOpenvpnConf(text)
     || looksLikeTrustTunnelToml(text);
 }
 
@@ -75,6 +77,7 @@ function bodyIsRecognizable(text) {
 function parseSingleFileBody(text) {
   try {
     if (looksLikeWireguardConf(text)) return parseWireguardConf(text);
+    if (looksLikeOpenvpnConf(text)) return parseOpenvpnConf(text);
     if (looksLikeTrustTunnelToml(text)) return parseTrustTunnelToml(text);
   } catch (e) {
     console.warn("subscription: file body did not parse", e?.message);
@@ -93,7 +96,8 @@ function parseSingleFileBody(text) {
  * @returns {{profiles: object[], skipped: number, format: string|null}}
  */
 export function parseSubscriptionEntries(body) {
-  let text = String(body || "").trim();
+  let originalText = String(body || "");
+  let text = originalText.trim();
   if (!text) return { profiles: [], skipped: 0, format: null };
 
   // Сначала пробуем декодировать как base64 — если в результате узнаём тело
@@ -101,6 +105,7 @@ export function parseSubscriptionEntries(body) {
   const decoded = safeDecodeBase64(text);
   if (decoded && bodyIsRecognizable(decoded)) {
     text = decoded;
+    originalText = decoded;
   }
 
   const { format, profiles: fromConfig, skipped: configSkipped } = parseClientConfig(text);
@@ -117,7 +122,7 @@ export function parseSubscriptionEntries(body) {
   // Панель может раздать ссылкой и файл: WARP у BPB-Worker-Panel — это
   // .conf WireGuard, а не список ссылок. Вставку такого файла текстом мы
   // понимали и раньше, тело подписки — нет, и подписка выглядела пустой.
-  const single = parseSingleFileBody(text);
+  const single = parseSingleFileBody(looksLikeOpenvpnConf(text) ? originalText : text);
   if (single) {
     const { usable, skipped: rejected } = partitionNodes([single]);
     return { profiles: usable, skipped: rejected.length, format: null };
@@ -168,6 +173,7 @@ export function parseSubscriptionBody(body) {
 //   { kind: "client-config", content, format } — готовый конфиг клиента
 //   { kind: "tt-toml", content }      — endpoint TrustTunnel
 //   { kind: "wg-conf", content }      — WireGuard / AmneziaWG .conf
+//   { kind: "ovpn-conf", content }    — OpenVPN .ovpn
 //   { kind: "amnezia-key", content }  — ключ AmneziaVPN (vpn://…)
 //   { kind: "empty" } / { kind: "unknown" }
 export function detectAddInput(raw) {
@@ -182,6 +188,9 @@ export function detectAddInput(raw) {
   // Ключ AmneziaVPN: сжатый JSON в base64url за схемой vpn://. Разбирается
   // асинхронно при добавлении, здесь достаточно узнать форму.
   if (looksLikeAmneziaKey(s)) return { kind: "amnezia-key", content: s };
+
+  // Файлы проверяем до поиска ссылок: комментарий может содержать URL.
+  if (looksLikeOpenvpnConf(s)) return { kind: "ovpn-conf", content: String(raw) };
 
   const protocolUrls = Array.from(s.matchAll(KNOWN_PROTO_URL_RE), m => m[0]);
   if (protocolUrls.length > 1) return { kind: "list", content: s };
@@ -216,6 +225,7 @@ export function detectAddInput(raw) {
   if (decoded) {
     const decodedFormat = detectConfigFormat(decoded);
     if (decodedFormat) return { kind: "client-config", content: decoded, format: decodedFormat };
+    if (looksLikeOpenvpnConf(decoded)) return { kind: "ovpn-conf", content: decoded };
   }
 
   // Plain список с любыми поддерживаемыми протоколами

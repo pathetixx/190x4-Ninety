@@ -21,12 +21,14 @@ import { partitionNodes } from "/lib/node-validation.js";
 import {
   addParsedProfile,
   addProfileFromVless,
+  addOpenvpnFromConf,
   addTrustTunnelFromToml,
   addWireguardFromConf,
 } from "/lib/singbox.js";
 import { t, tn } from "/lib/i18n/index.js";
 import { escapeHtml } from "/lib/esc.js";
 import { parseAmneziaKey } from "/lib/amnezia-key.js";
+import { openvpnNeedsCredentials } from "/lib/protocol-parsers.js";
 import { toast } from "/lib/toast.js";
 
 function $(id) { return document.getElementById(id); }
@@ -54,6 +56,7 @@ const DET_ICONS = {
 DET_ICONS["client-config"] = SVG('<path d="M20 7h-9m3 10H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>');
 DET_ICONS.url = DET_ICONS.empty;
 DET_ICONS.duplicate = DET_ICONS.unknown;
+DET_ICONS["ovpn-conf"] = DET_ICONS["wg-conf"];
 
 // Разбор конфига — это JSON.parse чужого файла, а полоса распознавания
 // пересчитывается на каждое нажатие клавиши. Держим результат последнего
@@ -169,16 +172,55 @@ function describeInput(raw) {
       `${peer ? `<b>${escapeHtml(peer)}</b><s>·</s>` : ""}${escapeHtml(t("add.detWgD"))}`);
     return { ok: true, kind: "wg-conf", host: peer.split(":")[0] || "" };
   }
+  if (d.kind === "ovpn-conf") {
+    const remote = d.content.match(/^\s*remote\s+(?:"([^"]+)"|'([^']+)'|(\S+))/im);
+    const host = remote?.[1] || remote?.[2] || remote?.[3] || "";
+    setDetection("ovpn-conf", "add.detOvpnK",
+      `${host ? `<b>${escapeHtml(host)}</b><s>·</s>` : ""}${escapeHtml(t("add.detOvpnD"))}`);
+    return { ok: true, kind: "ovpn-conf", host, content: d.content };
+  }
   setDetection("unknown", "add.detUnknownK", escapeHtml(t("add.detUnknownD")));
   return { ok: false, kind: "unknown", host: "" };
 }
 
+let credentialsProbe = 0;
+let credentialsText = "";
+
+function showOpenvpnCredentials(show, text = "") {
+  const box = $("add-modal-credentials");
+  if (box) box.hidden = !show;
+  // Пароль одного профиля не должен перейти в другой после замены текста.
+  if (!show || credentialsText !== text) {
+    for (const id of ["add-modal-username", "add-modal-password"]) {
+      const input = $(id);
+      if (input) input.value = "";
+    }
+  }
+  credentialsText = show ? text : "";
+}
+
 function refreshDetection() {
-  const res = describeInput($("add-modal-url")?.value || "");
+  const raw = $("add-modal-url")?.value || "";
+  const res = describeInput(raw);
   const submit = $("add-modal-submit");
   if (submit) submit.disabled = !res.ok;
   const name = $("add-modal-name");
   if (name && !name.dataset.touched) name.placeholder = res.host || t("add.phNameAuto");
+  const probe = ++credentialsProbe;
+  if (res.kind === "ovpn-conf") {
+    showOpenvpnCredentials(openvpnNeedsCredentials(res.content), raw);
+  } else if (res.kind === "amnezia-key") {
+    if (credentialsText !== raw) showOpenvpnCredentials(false);
+    // Содержимое ключа распаковывается асинхронно: устаревший результат
+    // не должен менять поля после закрытия окна или вставки другого текста.
+    void parseAmneziaKey(raw).then(() => {
+      if (probe === credentialsProbe) showOpenvpnCredentials(false);
+    }).catch(err => {
+      if (probe === credentialsProbe) showOpenvpnCredentials(err?.code === "openvpn-credentials", raw);
+    });
+  } else {
+    showOpenvpnCredentials(false);
+  }
   return res;
 }
 
@@ -239,6 +281,8 @@ function closeModal() {
   document.removeEventListener("keydown", onKey);
   const u = $("add-modal-url"); if (u) u.value = "";
   const n = $("add-modal-name"); if (n) { n.value = ""; delete n.dataset.touched; }
+  credentialsProbe++;
+  showOpenvpnCredentials(false);
   // Интервал одной подписки не должен молча перейти на следующую.
   const i = $("add-modal-interval"); if (i) i.value = "0";
   updateAdvancedHint();
@@ -286,10 +330,21 @@ export async function importAddInput(raw, userOverride = {}) {
     };
   }
 
+  if (decision.kind === "ovpn-conf") {
+    const { id, profile, ignored } = addOpenvpnFromConf(decision.content, userOverride.name || "", userOverride);
+    return {
+      type: "config",
+      message: t("add.msgOvpn", { name: profile.name }),
+      source: { kind: "single", id },
+      ignored,
+      ignoredKind: "ovpn",
+    };
+  }
+
   if (decision.kind === "amnezia-key") {
     // Ключ AmneziaVPN: внутри готовые .conf / конфиг Xray. Непереносимые
     // строки и неподдерживаемые протоколы показывает вызывающий, как у .conf.
-    const { profiles, ignored, unsupported, name } = await parseAmneziaKey(decision.content, userOverride.name || "");
+    const { profiles, ignored, unsupported, name } = await parseAmneziaKey(decision.content, userOverride.name || "", userOverride);
     const added = profiles.map(profile => addParsedProfile(profile));
     return {
       type: profiles.length > 1 ? "list" : "config",
@@ -405,23 +460,23 @@ export function mountAddModal({ onCommit } = {}) {
     b.setAttribute("aria-expanded", b.getAttribute("aria-expanded") === "true" ? "false" : "true");
   });
 
-  // Импорт файла (TrustTunnel .toml): кладём текст в то же поле, чтобы
+  // Импорт файла: кладём текст в то же поле, чтобы
   // пользователь увидел, что распозналось, до подтверждения.
   $("add-modal-file")?.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
+    if (file) await readProfileFile(file);
+  });
+  $("add-modal")?.addEventListener("dragover", (e) => {
+    if (!Array.from(e.dataTransfer?.types || []).includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  });
+  $("add-modal")?.addEventListener("drop", async (e) => {
+    const file = e.dataTransfer?.files?.[0];
     if (!file) return;
-    try {
-      const text = await file.text();
-      const input = $("add-modal-url");
-      if (input) input.value = text;
-      const name = $("add-modal-name");
-      if (name && !name.dataset.touched) { name.value = file.name.replace(/\.[^.]+$/, ""); name.dataset.touched = "1"; }
-      refreshDetection();
-      updateAdvancedHint();
-    } catch (err) {
-      setError(err?.message || String(err));
-    }
+    e.preventDefault();
+    await readProfileFile(file);
   });
 
   $("add-modal-interval")?.addEventListener("input", updateAdvancedHint);
@@ -432,25 +487,47 @@ export function mountAddModal({ onCommit } = {}) {
   $("add-modal-name")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); $("add-modal-submit")?.click(); }
   });
+  for (const id of ["add-modal-username", "add-modal-password"]) {
+    $(id)?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); $("add-modal-submit")?.click(); }
+    });
+  }
 
   $("add-modal-submit")?.addEventListener("click", async () => {
-    const raw = $("add-modal-url")?.value.trim();
+    const raw = $("add-modal-url")?.value || "";
     const name = $("add-modal-name")?.value.trim();
+    const username = $("add-modal-username")?.value || "";
+    const password = $("add-modal-password")?.value || "";
     const intervalHours = Number($("add-modal-interval")?.value) || 0;
-    if (!raw) { setError(t("add.errNeedUrl")); return; }
+    if (!raw.trim()) { setError(t("add.errNeedUrl")); return; }
     const kind = describeInput(raw).kind;
     setBusy(true, kind === "url" ? "add.detLoadingSub" : "add.detAdding");
     try {
-      const res = await importAddInput(raw, { name, intervalHours });
+      const res = await importAddInput(raw, { name, intervalHours, username, password });
       if (res.ignored?.length) {
-        toast(t("add.wgIgnored", { keys: res.ignored.join(", ") }), "warn", 8000);
+        toast(t(res.ignoredKind === "ovpn" ? "add.ovpnIgnored" : "add.wgIgnored", { keys: res.ignored.join(", ") }), "warn", 8000);
       }
       await onCommitCb?.(res);
       closeModal();
     } catch (e) {
+      if (e?.code === "openvpn-credentials") showOpenvpnCredentials(true, raw);
       setError(e?.message || String(e));
     }
   });
+}
+
+async function readProfileFile(file) {
+  try {
+    const text = await file.text();
+    const input = $("add-modal-url");
+    if (input) input.value = text;
+    const name = $("add-modal-name");
+    if (name && !name.dataset.touched) { name.value = file.name.replace(/\.[^.]+$/, ""); name.dataset.touched = "1"; }
+    refreshDetection();
+    updateAdvancedHint();
+  } catch (err) {
+    setError(err?.message || String(err));
+  }
 }
 
 // Буфер попадает в поле, а не сразу в импорт: пользователь видит, что
@@ -465,7 +542,7 @@ async function doClipboard() {
   }
   if (!raw?.trim()) { setError(t("add.errClipboardEmpty")); return; }
   const input = $("add-modal-url");
-  if (input) { input.value = raw.trim(); input.focus(); }
+  if (input) { input.value = raw; input.focus(); }
   refreshDetection();
   updateAdvancedHint();
 }

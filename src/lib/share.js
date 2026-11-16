@@ -5,6 +5,7 @@ import { loadOptions } from "/lib/options.js";
 import qrcode from "/vendor/qrcode.mjs";
 import { t, tn } from "/lib/i18n/index.js";
 import { escapeAttr } from "/lib/esc.js";
+import { openvpnConfText } from "/lib/protocol-parsers.js";
 
 export async function copySubscriptionUrl(sub, toast) {
   if (!sub?.url) {
@@ -106,6 +107,21 @@ export async function copyWireguardConf(profile, toast) {
   try {
     await navigator.clipboard.writeText(wireguardConfText(profile));
     toast?.(t("share.confCopied"), "success", 2000);
+  } catch (e) {
+    toast?.(t("share.exportError", { err: e?.message || e }), "error", 2500);
+  }
+}
+
+// Возвращаем исходный .ovpn: сертификаты, ключи и настройки провайдера
+// остаются пригодны для переноса в другой OpenVPN-клиент.
+export async function copyOpenvpnConf(profile, toast) {
+  if (profileProto(profile) !== "openvpn") {
+    toast?.(t("share.ovpnNotOpenvpn"), "error", 2000);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(openvpnConfText(profile));
+    toast?.(t("share.ovpnCopied"), "success", 2000);
   } catch (e) {
     toast?.(t("share.exportError", { err: e?.message || e }), "error", 2500);
   }

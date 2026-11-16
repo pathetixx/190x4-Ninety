@@ -2,6 +2,7 @@
 // Чистый слой: входная ссылка/endpoint text -> нормализованный profile object.
 
 import { t } from "/lib/i18n/index.js";
+export { looksLikeOpenvpnConf, openvpnNeedsCredentials, parseOpenvpnConf, openvpnConfText } from "/lib/openvpn.js";
 import {
   bytesFromB64url,
   parsePort,

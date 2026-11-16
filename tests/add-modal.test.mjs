@@ -84,3 +84,40 @@ PersistentKeepalive = 15`;
   // DNS и Table в профиль не переносятся — о них предупреждают.
   assert.deepEqual(profile.ignored, ["DNS", "Table"]);
 });
+
+const ovpn = `client
+dev tun
+proto udp
+remote vpn.example.net 1194
+auth-user-pass
+<ca>
+-----BEGIN CERTIFICATE-----
+test-ca
+-----END CERTIFICATE-----
+</ca>`;
+
+test("OpenVPN без обязательных логина и пароля не сохраняет мёртвый профиль", async () => {
+  localStorage.clear();
+  await assert.rejects(importAddInput(ovpn), { code: "openvpn-credentials" });
+  assert.equal(localStorage.getItem("ninety.profiles.v1"), null);
+  await assert.rejects(importAddInput(ovpn, { username: "user" }), { code: "openvpn-credentials" });
+  assert.equal(localStorage.getItem("ninety.profiles.v1"), null);
+});
+
+test("импорт OpenVPN сохраняет введённые логин и пароль вместе с исходным .ovpn", async () => {
+  localStorage.clear();
+  const original = `\n# Provider VPN\n${ovpn}\nprovider-option yes\n`;
+  const result = await importAddInput(original, {
+    name: "Provider VPN", username: "user", password: "pa ss:word",
+  });
+  const profiles = JSON.parse(localStorage.getItem("ninety.profiles.v1"));
+  const profile = profiles.find(p => p.id === result.source.id);
+  assert.equal(result.source.kind, "single");
+  assert.equal(profile.proto, "openvpn");
+  assert.equal(profile.name, "Provider VPN");
+  assert.equal(profile.endpoint.username, "user");
+  assert.equal(profile.endpoint.password, "pa ss:word");
+  assert.equal(profile.ovpn, original);
+  assert.deepEqual(result.ignored, ["provider-option"]);
+  assert.equal(localStorage.getItem("ninety.profiles.active"), null);
+});

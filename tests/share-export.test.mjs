@@ -20,7 +20,7 @@ globalThis.document = globalThis.document || {
   addEventListener() {}, removeEventListener() {},
 };
 
-const { exportSingboxJson } = await import("/lib/share.js");
+const { copyOpenvpnConf, exportSingboxJson } = await import("/lib/share.js");
 const { parseVless } = await import("/lib/singbox.js");
 
 const vless = parseVless("vless://uuid@ok.example:443?security=tls&sni=ok.example");
@@ -64,5 +64,22 @@ test("одиночный naive-профиль экспортировать не�
 test("одиночный TrustTunnel-профиль тоже отсеивается", async () => {
   const { toasts, copied: json } = await collect({ kind: "single", profile: trusttunnel });
   assert.equal(json, "");
+  assert.equal(toasts.at(-1)?.kind, "error");
+});
+
+test("copy .ovpn копирует исходный текст без потери комментариев провайдера", async () => {
+  const original = "# Provider VPN\r\nclient\r\nremote vpn.example 1194\r\n";
+  const toasts = [];
+  copied = "";
+  await copyOpenvpnConf({ proto: "openvpn", ovpn: original }, (msg, kind) => toasts.push({ msg, kind }));
+  assert.equal(copied, original);
+  assert.equal(toasts.at(-1)?.kind, "success");
+});
+
+test("copy .ovpn не выдаёт чужой протокол за OpenVPN", async () => {
+  const toasts = [];
+  copied = "";
+  await copyOpenvpnConf(vless, (msg, kind) => toasts.push({ msg, kind }));
+  assert.equal(copied, "");
   assert.equal(toasts.at(-1)?.kind, "error");
 });

@@ -45,7 +45,7 @@ import { planUpdateNotice, UPDATE_NOTICE } from "/lib/update-notice.js";
 import { mountAddModal, openAddModal } from "/lib/add-modal.js";
 import { openEditSubscription, openEditProfile } from "/lib/edit-modal.js";
 import { handleHwidSignal } from "/lib/hwid-prompt.js";
-import { copySubscriptionUrl, copyWireguardConf, exportSingboxJson, openQRModal } from "/lib/share.js";
+import { copySubscriptionUrl, copyWireguardConf, copyOpenvpnConf, exportSingboxJson, openQRModal } from "/lib/share.js";
 import { mountProxiesView, nodesFromSource, onProxiesViewEnter, onProxiesViewLeave, rerenderProxiesView, resetProxiesViewForSourceChange, snapshotMatchesSource } from "/lib/proxies-view.js";
 import {
   applyActiveSourceTransaction,
@@ -2526,9 +2526,12 @@ function openProfileMenu(anchor, id, opts) {
   const menuProfile = loadProfiles().find(x => x.id === id);
   return openPMenu(anchor, [
     { id: "edit",     label: t("prof.menu.edit"),    icon: ICON_EDIT },
-    // WireGuard делится файлом, а не ссылкой: пункт есть только у таких профилей.
+    // WireGuard и OpenVPN делятся файлом: показываем подходящее расширение.
     ...(menuProfile?.proto === "wireguard"
       ? [{ id: "wg-conf", label: t("prof.menu.copyConf"), icon: ICON_COPY }]
+      : []),
+    ...(menuProfile?.proto === "openvpn"
+      ? [{ id: "ovpn-conf", label: t("prof.menu.copyOvpn"), icon: ICON_COPY }]
       : []),
     { id: "activate", label: t("prof.menu.activateProfile"), icon: ICON_CHECK },
     { id: "reset-traffic", label: t("prof.menu.resetTraffic"), icon: ICON_REFRESH },
@@ -2545,6 +2548,10 @@ function openProfileMenu(anchor, id, opts) {
     }
     if (act === "wg-conf") {
       await copyWireguardConf(loadProfiles().find(x => x.id === id), toast);
+      return;
+    }
+    if (act === "ovpn-conf") {
+      await copyOpenvpnConf(loadProfiles().find(x => x.id === id), toast);
       return;
     }
     if (act === "activate") {

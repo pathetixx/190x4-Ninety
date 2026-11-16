@@ -607,7 +607,7 @@
 
           <textarea class="md__in" id="add-modal-url" spellcheck="false" autocomplete="off"
             data-i18n-placeholder="add.inputPh"
-            placeholder="Ссылка на подписку, vless://, список конфигов, готовый конфиг или содержимое .toml"></textarea>
+            placeholder="Ссылка на подписку, vless://, список конфигов, готовый конфиг, .toml, .conf или .ovpn"></textarea>
 
           <div class="md__aux">
             <button class="btn btn--sm" id="add-modal-paste" type="button">
@@ -618,7 +618,7 @@
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg>
               <span data-i18n="add.tileFile">Файл</span>
             </button>
-            <input id="add-modal-file" type="file" accept=".toml,.conf,.json,application/json,text/plain" hidden />
+            <input id="add-modal-file" type="file" accept=".toml,.conf,.ovpn,.json,application/json,text/plain" hidden />
           </div>
 
           <div class="det" id="add-modal-det" data-kind="empty">
@@ -628,6 +628,18 @@
             </div>
             <div class="det__l2" id="add-modal-det-info"></div>
             <div class="det__bar" id="add-modal-det-bar" hidden><div class="det__prog"></div></div>
+          </div>
+
+          <div class="md__credentials" id="add-modal-credentials" hidden>
+            <p class="n-meta" data-i18n="add.ovpnCredentials">Введите логин и пароль, выданные вашим VPN-провайдером.</p>
+            <div class="fld">
+              <label class="n-lbl" for="add-modal-username" data-i18n="add.ovpnUsername">Логин</label>
+              <input type="text" id="add-modal-username" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="fld">
+              <label class="n-lbl" for="add-modal-password" data-i18n="add.ovpnPassword">Пароль</label>
+              <input type="password" id="add-modal-password" autocomplete="off" />
+            </div>
           </div>
 
           <div class="adv">

@@ -32,11 +32,12 @@ const CHIP_BY_PROTO = {
   trusttunnel: "trusttunnel",
 };
 
-// WireGuard не проходит через buildOutbound: в sing-box 1.13 это endpoint, и
-// билдер собирает его отдельной функцией. Инвариант тот же — витрина обязана
+// WireGuard и OpenVPN не проходят через buildOutbound: это endpoints, и
+// билдер собирает их отдельными функциями. Инвариант тот же — витрина обязана
 // показывать то, что клиент действительно поднимает.
 const ENDPOINT_PROTOS = {
   wireguard: ["wireguard", "amneziawg"],
+  openvpn: ["openvpn"],
 };
 
 test("каждый собираемый протокол показан в «О программе»", () => {

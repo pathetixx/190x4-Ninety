@@ -6,7 +6,7 @@
 // пользователь видел 26 мс.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { scoreNode, reasonKeys, latencyScore } from "../src/lib/node-ranking.js";
+import { scoreNode, reasonKeys, latencyScore, transportWeight } from "../src/lib/node-ranking.js";
 
 const REALITY = { security: "reality" };
 // Ровно 12 замеров вокруг медианы — столько история и хранит.
@@ -78,4 +78,8 @@ test("один замер: разброс не измерен, причина п
   assert.equal(s.okN, 1);
   const [reason] = reasonKeys([{ s }], [{ s }]);
   assert.notEqual(reason.key, "stability");
+});
+
+test("OpenVPN получает такой же вес протокола, как WireGuard", () => {
+  assert.equal(transportWeight({ proto: "openvpn" }), transportWeight({ proto: "wireguard" }));
 });

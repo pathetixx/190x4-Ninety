@@ -4,10 +4,11 @@
 // это 4 байта длины (big endian) и следом обычный zlib-поток. Внутри JSON с
 // описанием сервера и контейнерами: у WireGuard/AmneziaWG в `last_config`
 // лежит готовый .conf, у Xray — готовый конфиг Xray. Их и разбираем теми же
-// парсерами, что и вставленный файл; остальное (OpenVPN, Cloak, IKEv2…)
+// парсерами, что и вставленный файл; остальное (Cloak, IKEv2…)
 // называем по имени.
 
 import { parseWireguardConf } from "/lib/protocol-parsers.js";
+import { parseOpenvpnConf } from "/lib/openvpn.js";
 import { parseXrayConfig } from "/lib/xray-config-import.js";
 import { t } from "/lib/i18n/index.js";
 
@@ -94,7 +95,7 @@ function containerLabel(name) {
  * Ключ Amnezia → профили Ninety.
  * @returns {Promise<{profiles: object[], ignored: string[], unsupported: string[], name: string}>}
  */
-export async function parseAmneziaKey(text, displayName = "") {
+export async function parseAmneziaKey(text, displayName = "", credentials = {}) {
   const key = await decodeAmneziaKey(text);
   const name = String(displayName || key.description || key.hostName || "Amnezia").trim();
   const containers = (Array.isArray(key.containers) ? key.containers : [])
@@ -102,7 +103,8 @@ export async function parseAmneziaKey(text, displayName = "") {
   // Контейнер по умолчанию — первым: его пользователь и выбрал в Amnezia.
   containers.sort((a, b) => (b.container === key.defaultContainer) - (a.container === key.defaultContainer));
 
-  const supported = containers.filter((c) => WIREGUARD_CONTAINERS[c.container] || c.container === "amnezia-xray");
+  const supported = containers.filter((c) => WIREGUARD_CONTAINERS[c.container]
+    || c.container === "amnezia-xray" || c.container === "amnezia-openvpn");
   const label = (c) => (supported.length > 1 ? `${name} · ${containerLabel(c.container)}` : name);
   const profiles = [];
   const ignored = [];
@@ -110,6 +112,14 @@ export async function parseAmneziaKey(text, displayName = "") {
   let withoutConfig = 0;
 
   for (const container of containers) {
+    if (container.container === "amnezia-openvpn") {
+      const config = lastConfig(container.openvpn);
+      if (!config?.config) { withoutConfig++; continue; }
+      const profile = parseOpenvpnConf(String(config.config), label(container), credentials);
+      profiles.push(profile);
+      for (const directive of profile.ignored || []) if (!ignored.includes(directive)) ignored.push(directive);
+      continue;
+    }
     const section = WIREGUARD_CONTAINERS[container.container];
     if (section) {
       const config = lastConfig(container[section]);

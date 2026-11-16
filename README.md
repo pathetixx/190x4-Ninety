@@ -36,10 +36,10 @@ When something breaks, you get diagnostics instead of guesswork.
 | Area | What Ninety does |
 | --- | --- |
 | **Connection modes** | Local proxy, Windows system proxy and full **VPN · TUN** mode. UAC appears only when TUN actually needs elevation; Ninety can also start elevated at login. On an open Wi-Fi outside your trusted list it can switch to TUN by itself and put the previous mode back once the network is safe again. |
-| **Sources** | Imports subscription URLs, individual proxy links, ready-made sing-box and Xray configs (JSON), TrustTunnel `.toml` endpoints and WireGuard/AmneziaWG `.conf` files. Any of these also work as the body of a subscription URL. Clipboard import is built in, while deep links remain optional. |
+| **Sources** | Imports subscription URLs, individual proxy links, ready-made sing-box and Xray configs (JSON), TrustTunnel `.toml` endpoints, WireGuard/AmneziaWG `.conf` files and single-file OpenVPN `.ovpn` profiles. Any of these also work as the body of a subscription URL. Clipboard import is built in, while deep links remain optional. |
 | **Device limits** | Subscriptions from panels that count devices can send a per-subscription device identifier. The switch is off by default, the identifier is derived one way from a machine value, and it is shown, copied or changed in Settings. |
 | **Node control** | Server grid with country flags, live delay checks, automatic selection, favourites, tray switching and tracking of the node currently used by the connection. |
-| **Protocols** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, Mieru, SOCKS, NaiveProxy, TrustTunnel, WireGuard/AmneziaWG and WARP. |
+| **Protocols** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, Mieru, SOCKS, NaiveProxy, TrustTunnel, WireGuard/AmneziaWG, OpenVPN and WARP. |
 | **Bridges** | XHTTP runs through xray-core. NaiveProxy and TrustTunnel use local SOCKS sidecars, with sing-box remaining the central router. |
 | **Routing** | LAN bypass, regional routing, custom rules for domains, IP addresses and processes, plus ad, malware and phishing rule sets. A rule can send its traffic through a specific server or through WARP instead of the shared tunnel. Active connections can be inspected from the app. |
 | **Diagnostics** | Every target is probed twice — directly and through the tunnel — so blocking, throttling and services that refuse the server address are told apart. The screen also traces the path to the server on ICMP and TCP, checks DNS, IPv6 and the external address for leaks, and keeps a timeline of connection incidents. Any address can be checked by hand, step by step. |
@@ -62,7 +62,7 @@ When something breaks, you get diagnostics instead of guesswork.
 
 ## Supported protocols and transports
 
-**Protocols:** VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · Hysteria · TUIC · AnyTLS · Mieru · SOCKS · NaiveProxy · TrustTunnel · WireGuard/AmneziaWG · WARP
+**Protocols:** VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · Hysteria · TUIC · AnyTLS · Mieru · SOCKS · NaiveProxy · TrustTunnel · WireGuard/AmneziaWG · OpenVPN · WARP
 
 **Transports and options:** Reality · TLS with uTLS fingerprints · XHTTP · WebSocket · gRPC · HTTP/2 · HTTPUpgrade · QUIC · mKCP · TCP · TLS fragmentation · padding · mixed-case SNI · mux
 

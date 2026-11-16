@@ -10,6 +10,7 @@
 // её отбраковывает health-checker, а не сборщик конфига.
 
 import { awgHeaderRange, parseAwgHeader, profileProto } from "/lib/protocol-parsers.js";
+import { openvpnEndpointIssue } from "/lib/openvpn.js";
 
 // Ядро декодирует public_key строго как base64url без паддинга и требует ровно
 // 32 байта (X25519). Панели иногда отдают ключ в обычном алфавите или с «=» —
@@ -186,6 +187,14 @@ function wireguardIssue(node) {
   return null;
 }
 
+// OpenVPN, как WireGuard, живёт в endpoints. Проверяем и сохранённые .ovpn,
+// и настройки, импортированные непосредственно из JSON sing-box.
+export function openvpnIssue(node) {
+  if (String(node?.dev || "").toLowerCase().startsWith("tap")) return { code: "ovpnTun" };
+  if (node?.network !== undefined && !["udp", "tcp"].includes(node.network)) return { code: "ovpnNetwork" };
+  return openvpnEndpointIssue(node?.endpoint, node?.authUserPass === true);
+}
+
 // Шейпинг включён, если задано хоть одно поле, которое дойдёт до ядра. Условия
 // повторяют buildAmneziaNoise: пустой блок в конфиг не попадает вовсе.
 function amneziaActive(awg) {
@@ -324,6 +333,7 @@ function computeNodeConfigIssue(node) {
   }
 
   if (proto === "wireguard") return wireguardIssue(node);
+  if (proto === "openvpn") return openvpnIssue(node);
 
   // Готовый outbound Xray ядро не разбирает: его поднимает xray-мост как есть.
   // Проверяем только, что внутри действительно сервер, который мост примет.
