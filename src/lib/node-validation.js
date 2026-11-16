@@ -189,8 +189,18 @@ function amneziaActive(awg) {
   const num = (value) => Number(awg[value]) || 0;
   if (num("jc") > 0 && num("jmax") > 0) return true;
   if (num("s1") > 0 || num("s2") > 0 || num("s3") > 0 || num("s4") > 0) return true;
+  if (awg.headerProtectionKey || awg.contentPaddingAddition || awg.randomTrailers) return true;
   if (customAwgHeaders(awg)) return true;
   return ["i1", "i2", "i3", "i4", "i5"].some(key => awg[key]);
+}
+
+// Ключ защиты заголовков: base64, как в .conf, или hex, как в UAPI AmneziaWG.
+function headerKeyLength(raw) {
+  const text = String(raw || "").trim();
+  if (/^[0-9a-fA-F]{64}$/.test(text)) return 32;
+  const std = text.replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "");
+  if (!std || /[^A-Za-z0-9+/]/.test(std) || std.length % 4 === 1) return -1;
+  try { return atob(std + "=".repeat((4 - (std.length % 4)) % 4)).length; } catch { return -1; }
 }
 
 // H1..H4 отличаются от типов сообщений WireGuard (1..4). Диапазон — всегда
@@ -224,6 +234,16 @@ function amneziaIssue(awg) {
   const s3 = num(awg.s3), s4 = num(awg.s4);
   if (s3 < 0 || s3 > 1280) return { code: "wgHandshakeJunk" };
   if (s4 < 0 || s4 > 256) return { code: "wgTransportJunk" };
+  // AmneziaWG 3: ключ защиты заголовков — 32 байта; nonce берётся из начала
+  // padding'а перед каждым сообщением, поэтому каждое S не меньше 12.
+  if (awg.headerProtectionKey) {
+    if (headerKeyLength(awg.headerProtectionKey) !== 32) return { code: "wgHeaderKey" };
+    if ([num(awg.s1), num(awg.s2), s3, s4].some((padding) => padding < 12)) return { code: "wgHeaderKey" };
+  }
+  if (awg.contentPaddingAddition) {
+    const range = awgHeaderRange(awg.contentPaddingAddition);
+    if (!range || range.to > 1500) return { code: "wgContentPadding" };
+  }
   const keys = ["h1", "h2", "h3", "h4"];
   if (keys.some((key) => parseAwgHeader(awg[key]) === null)) return { code: "wgMagicHeaders" };
   if (customAwgHeaders(awg)) {

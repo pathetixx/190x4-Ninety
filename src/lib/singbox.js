@@ -1227,6 +1227,10 @@ function buildAmneziaNoise(awg) {
   for (const key of ["i1", "i2", "i3", "i4", "i5"]) {
     if (awg[key]) noise[key] = awg[key];
   }
+  // AmneziaWG 3: защита заголовков, padding содержимого, случайные хвосты.
+  if (awg.headerProtectionKey) noise.header_protection_key = awg.headerProtectionKey;
+  if (awg.contentPaddingAddition) noise.content_padding_addition = awg.contentPaddingAddition;
+  if (awg.randomTrailers) noise.random_trailers = true;
   return Object.keys(noise).length ? noise : null;
 }
 

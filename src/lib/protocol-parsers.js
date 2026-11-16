@@ -697,7 +697,8 @@ export function parseTrustTunnelToml(text, displayName) {
 // поэтому разбираем его буквально, включая шейпинг AmneziaWG (Jc/Jmin/Jmax,
 // S1..S4, H1..H4, I1..I5) — иначе платный профиль импортируется в клиент,
 // который говорит с пиром не на том протоколе, и молча не поднимается.
-// AmneziaWG 2.0 — это S3/S4 и диапазоны «100-200» в H1..H4.
+// AmneziaWG 2.0 — это S3/S4 и диапазоны «100-200» в H1..H4; AmneziaWG 3 —
+// HeaderProtectionKey, ContentPaddingAddition и RandomTrailers.
 
 // Ключи, которые мы читаем. Всё остальное попадает в profile.ignored и
 // показывается пользователю: тихо потерянная строка из .conf — это тоннель,
@@ -707,6 +708,7 @@ const WG_INTERFACE_KEYS = new Set([
   "jc", "jmin", "jmax", "s1", "s2", "s3", "s4",
   "h1", "h2", "h3", "h4",
   "i1", "i2", "i3", "i4", "i5",
+  "headerprotectionkey", "contentpaddingaddition", "randomtrailers",
 ]);
 const WG_PEER_KEYS = new Set([
   "publickey", "presharedkey", "allowedips", "endpoint", "persistentkeepalive",
@@ -768,6 +770,19 @@ export function awgHeaderRange(value) {
   if (typeof parsed === "number") return { from: parsed, to: parsed };
   const [from, to] = parsed.split("-").map(Number);
   return { from, to };
+}
+
+/** Профиль использует AmneziaWG 3: защиту заголовков, padding содержимого или хвосты. */
+export function isAmneziaWg3(awg) {
+  return !!awg && (!!awg.headerProtectionKey || !!awg.contentPaddingAddition || awg.randomTrailers === true);
+}
+
+// RandomTrailers в .conf — «on/off»; Amnezia пишет и true/false.
+function wgSwitch(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (["on", "true", "1", "yes"].includes(text)) return true;
+  if (["off", "false", "0", "no", ""].includes(text)) return false;
+  return null;
 }
 
 /** Профиль использует то, чего нет в AmneziaWG 1.x: S3/S4 или диапазоны H. */
@@ -871,6 +886,13 @@ export function parseWireguardConf(text, displayName) {
     i4: iface.i4 || "",
     i5: iface.i5 || "",
   };
+  // AmneziaWG 3. Поля появляются, только когда заданы: отпечаток старых
+  // профилей остаётся прежним.
+  const headerKey = String(iface.headerprotectionkey || "").trim();
+  if (headerKey) awg.headerProtectionKey = headerKey;
+  const contentPadding = parseAwgHeader(iface.contentpaddingaddition);
+  if (contentPadding) awg.contentPaddingAddition = contentPadding;
+  if (wgSwitch(iface.randomtrailers) === true) awg.randomTrailers = true;
 
   // Поле шейпинга, которое не разобралось, раньше молча становилось нулём:
   // тоннель говорил с пиром не на том протоколе и не поднимался без единого
@@ -883,6 +905,12 @@ export function parseWireguardConf(text, displayName) {
     if (readable) continue;
     const label = key[0].toUpperCase() + key.slice(1);
     if (!ignored.includes(label)) ignored.push(label);
+  }
+  if (String(iface.contentpaddingaddition ?? "").trim() && parseAwgHeader(iface.contentpaddingaddition) === null) {
+    if (!ignored.includes("ContentPaddingAddition")) ignored.push("ContentPaddingAddition");
+  }
+  if (wgSwitch(iface.randomtrailers) === null && !ignored.includes("RandomTrailers")) {
+    ignored.push("RandomTrailers");
   }
 
   const primary = parsedPeers[0];
@@ -917,6 +945,9 @@ export function wireguardConfText(profile) {
   for (const key of ["i1", "i2", "i3", "i4", "i5"]) {
     if (awg[key]) lines.push(`${key.toUpperCase()} = ${awg[key]}`);
   }
+  if (awg.headerProtectionKey) lines.push(`HeaderProtectionKey = ${awg.headerProtectionKey}`);
+  if (awg.contentPaddingAddition) lines.push(`ContentPaddingAddition = ${awg.contentPaddingAddition}`);
+  if (awg.randomTrailers) lines.push("RandomTrailers = on");
   for (const peer of profile.peers || []) {
     lines.push("", "[Peer]");
     lines.push(`PublicKey = ${peer.publicKey}`);

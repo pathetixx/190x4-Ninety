@@ -359,6 +359,9 @@ function wireguardProfile(endpoint) {
       // H1..H4 у AmneziaWG 2.0 — диапазон «от-до», числом его не прочитать.
       h1: parseAwgHeader(amnezia.h1) ?? 0, h2: parseAwgHeader(amnezia.h2) ?? 0,
       h3: parseAwgHeader(amnezia.h3) ?? 0, h4: parseAwgHeader(amnezia.h4) ?? 0,
+      ...(amnezia.header_protection_key ? { headerProtectionKey: String(amnezia.header_protection_key) } : {}),
+      ...(parseAwgHeader(amnezia.content_padding_addition) ? { contentPaddingAddition: parseAwgHeader(amnezia.content_padding_addition) } : {}),
+      ...(amnezia.random_trailers === true ? { randomTrailers: true } : {}),
       i1: amnezia.i1 || "", i2: amnezia.i2 || "", i3: amnezia.i3 || "",
       i4: amnezia.i4 || "", i5: amnezia.i5 || "",
     },

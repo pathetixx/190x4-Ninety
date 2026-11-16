@@ -11,6 +11,7 @@ import { partitionNodes, withoutPlaceholders } from "/lib/node-validation.js";
 import { looksLikeWireguardConf, parseTrustTunnelToml, parseWireguardConf, profileProto } from "/lib/protocol-parsers.js";
 import { detectConfigFormat, parseClientConfig, unsupportedFormatMessage } from "/lib/config-import.js";
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
+import { looksLikeAmneziaKey } from "/lib/amnezia-key.js";
 import { HWID_SCOPE_PROVIDER, hwidHeaders, hwidSignal, subscriptionUsesScopedHwid } from "/lib/hwid.js";
 // Реэкспорт: формулировка переехала в свой модуль, но вызывающие (main.js,
 // экран профилей) продолжают брать её отсюда вместе с остальными хелперами.
@@ -167,6 +168,7 @@ export function parseSubscriptionBody(body) {
 //   { kind: "client-config", content, format } — готовый конфиг клиента
 //   { kind: "tt-toml", content }      — endpoint TrustTunnel
 //   { kind: "wg-conf", content }      — WireGuard / AmneziaWG .conf
+//   { kind: "amnezia-key", content }  — ключ AmneziaVPN (vpn://…)
 //   { kind: "empty" } / { kind: "unknown" }
 export function detectAddInput(raw) {
   const s = String(raw || "").trim();
@@ -176,6 +178,10 @@ export function detectAddInput(raw) {
   // разобраться), а вот эвристики ниже на нём могут и ошибиться.
   const pastedFormat = detectConfigFormat(s);
   if (pastedFormat) return { kind: "client-config", content: s, format: pastedFormat };
+
+  // Ключ AmneziaVPN: сжатый JSON в base64url за схемой vpn://. Разбирается
+  // асинхронно при добавлении, здесь достаточно узнать форму.
+  if (looksLikeAmneziaKey(s)) return { kind: "amnezia-key", content: s };
 
   const protocolUrls = Array.from(s.matchAll(KNOWN_PROTO_URL_RE), m => m[0]);
   if (protocolUrls.length > 1) return { kind: "list", content: s };

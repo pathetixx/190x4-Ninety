@@ -26,6 +26,7 @@ import {
 } from "/lib/singbox.js";
 import { t, tn } from "/lib/i18n/index.js";
 import { escapeHtml } from "/lib/esc.js";
+import { parseAmneziaKey } from "/lib/amnezia-key.js";
 import { toast } from "/lib/toast.js";
 
 function $(id) { return document.getElementById(id); }
@@ -156,6 +157,10 @@ function describeInput(raw) {
     setDetection("tt-toml", "add.detTomlK", escapeHtml(t("add.detTomlD")));
     return { ok: true, kind: "tt-toml", host: "" };
   }
+  if (d.kind === "amnezia-key") {
+    setDetection("wg-conf", "add.detAmneziaK", escapeHtml(t("add.detAmneziaD")));
+    return { ok: true, kind: "amnezia-key", host: "" };
+  }
   if (d.kind === "wg-conf") {
     // Показываем endpoint пира: по нему пользователь и узнаёт свой файл.
     const peer = s.match(/^\s*Endpoint\s*=\s*(\S+)/im)?.[1] || "";
@@ -278,6 +283,19 @@ export async function importAddInput(raw, userOverride = {}) {
       // работает здесь и в клиенте, откуда его принесли. Молчать о ней нельзя;
       // показывает её вызывающий, как и счётчик пропущенных у списка.
       ignored,
+    };
+  }
+
+  if (decision.kind === "amnezia-key") {
+    // Ключ AmneziaVPN: внутри готовые .conf / конфиг Xray. Непереносимые
+    // строки и неподдерживаемые протоколы показывает вызывающий, как у .conf.
+    const { profiles, ignored, unsupported, name } = await parseAmneziaKey(decision.content, userOverride.name || "");
+    const added = profiles.map(profile => addParsedProfile(profile));
+    return {
+      type: profiles.length > 1 ? "list" : "config",
+      message: t("add.msgAmnezia", { name }),
+      source: { kind: "single", id: added[0].id },
+      ignored: [...ignored, ...unsupported],
     };
   }
 
