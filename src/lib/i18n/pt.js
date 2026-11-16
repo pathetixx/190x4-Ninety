@@ -916,6 +916,7 @@ export const pt = {
     },
   },
   subs: {
+    tooLarge: "A assinatura é grande demais: junto com seus outros perfis, ela não cabe no armazenamento (até 32 MB). As alterações não foram salvas.",
     err: {
       noAddresses: "O endereço da assinatura não tem endereços IP",
       privateNetwork: "O endereço da assinatura aponta para uma rede local ou especial",
@@ -1658,6 +1659,8 @@ export const pt = {
     descRecovered: "Uma atualização portable abriu configurações vazias por engano. O Ninety devolveu o app ao lugar: suas assinaturas e regras voltaram. O que você adicionou depois da falha está na pasta {folder}, ao lado do app.",
   },
   store: {
+    tooLargeTitle: "Os perfis não cabem no armazenamento",
+    tooLargeDesc: "Perfis e assinaturas juntos ocupam mais de 32 MB, então a última alteração não foi salva. Remova assinaturas ou servidores desnecessários.",
     errorTitle: "Os perfis não estão a ser guardados",
     errorDesc: "O armazenamento seguro está indisponível — as alterações de perfis e subscrições serão perdidas ao reiniciar. Consulte os registos.",
     backupErrorTitle: "A cópia de segurança falha",

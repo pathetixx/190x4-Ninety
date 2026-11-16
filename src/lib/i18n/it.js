@@ -916,6 +916,7 @@ export const it = {
     },
   },
   subs: {
+    tooLarge: "L’abbonamento è troppo grande: insieme agli altri profili non entra nell’archivio (fino a 32 MB). Le modifiche non sono state salvate.",
     err: {
       noAddresses: "L'indirizzo dell'abbonamento non ha indirizzi IP",
       privateNetwork: "L'indirizzo dell'abbonamento punta a una rete locale o speciale",
@@ -1658,6 +1659,8 @@ export const it = {
     descRecovered: "Un aggiornamento portable ha aperto per errore impostazioni vuote. Ninety ha riportato l’app al suo posto: abbonamenti e regole sono tornati. Ciò che hai aggiunto dopo il problema è nella cartella {folder} accanto all’app.",
   },
   store: {
+    tooLargeTitle: "I profili non entrano nell’archivio",
+    tooLargeDesc: "Profili e abbonamenti insieme superano i 32 MB, quindi l’ultima modifica non è stata salvata. Rimuovi gli abbonamenti o i server superflui.",
     errorTitle: "I profili non vengono salvati",
     errorDesc: "L'archivio protetto non è disponibile: le modifiche a profili e abbonamenti andranno perse al riavvio. Controlla i log.",
     backupErrorTitle: "Il backup non riesce",

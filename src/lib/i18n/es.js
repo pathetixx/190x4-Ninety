@@ -916,6 +916,7 @@ export const es = {
     },
   },
   subs: {
+    tooLarge: "La suscripción es demasiado grande: junto con tus otros perfiles no cabe en el almacenamiento (hasta 32 MB). Los cambios no se guardaron.",
     err: {
       noAddresses: "La dirección de la suscripción no tiene direcciones IP",
       privateNetwork: "La dirección de la suscripción apunta a una red local o especial",
@@ -1658,6 +1659,8 @@ export const es = {
     descRecovered: "Una actualización portable abrió por error ajustes vacíos. Ninety devolvió la aplicación a su sitio: tus suscripciones y reglas han vuelto. Lo que añadiste después del fallo está en la carpeta {folder}, junto a la aplicación.",
   },
   store: {
+    tooLargeTitle: "Los perfiles no caben en el almacenamiento",
+    tooLargeDesc: "Perfiles y suscripciones ocupan juntos más de 32 MB, así que el último cambio no se guardó. Elimina las suscripciones o servidores que no necesites.",
     errorTitle: "Los perfiles no se guardan",
     errorDesc: "El almacenamiento seguro no está disponible: los cambios de perfiles y suscripciones se perderán al reiniciar. Revisa los registros.",
     backupErrorTitle: "No se crea la copia de seguridad",

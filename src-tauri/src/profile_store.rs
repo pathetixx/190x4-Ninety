@@ -26,7 +26,9 @@ use crate::util::MutexExt;
 static STORE_LOCK: Mutex<()> = Mutex::new(());
 
 const STORE_SCHEMA_VERSION: u64 = 1;
-const MAX_STORE_BYTES: usize = 8 * 1024 * 1024;
+// Сверяется с PROFILE_STORE_MAX_BYTES в src/lib/profile-store.js. Публичные
+// подписки на 12–13 тысяч серверов занимают около 11 МБ.
+const MAX_STORE_BYTES: usize = 32 * 1024 * 1024;
 const STORE_FILE: &str = "profile-store.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -335,11 +337,34 @@ pub async fn profile_store_replace(
     expected_revision: u64,
     store: ProfileStore,
 ) -> Result<ProfileStoreReplaceResponse, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let log_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
         profile_store_replace_blocking(app, expected_revision, store)
     })
     .await
-    .map_err(|error| format!("profile_store_replace: {error}"))?
+    .map_err(|error| format!("profile_store_replace: {error}"))?;
+    if let Err(error) = &result {
+        // В лог — только класс ошибки: текст может содержать путь профиля.
+        crate::vpn::append_runtime_diagnostic_at(
+            &log_app,
+            crate::vpn::diagnostic_level_for_result("failed"),
+            &format!(
+                "profile_store_write result=failed reason={}",
+                write_failure_reason(error)
+            ),
+        );
+    }
+    result
+}
+
+fn write_failure_reason(error: &str) -> &'static str {
+    if error.contains("exceeds") || error.contains("too large") {
+        "too_large"
+    } else if error.contains("revision conflict") {
+        "revision_conflict"
+    } else {
+        "write_error"
+    }
 }
 
 pub(crate) fn profile_store_replace_blocking(
@@ -456,6 +481,22 @@ mod tests {
             .proxy_selection
             .insert("single:1\n".into(), "node".into());
         assert!(validate_store(&bad_selection).is_err());
+    }
+
+    #[test]
+    fn write_failures_are_logged_by_class_only() {
+        assert_eq!(
+            write_failure_reason(&format!("profile store exceeds {MAX_STORE_BYTES} bytes")),
+            "too_large"
+        );
+        assert_eq!(
+            write_failure_reason("profile store revision conflict"),
+            "revision_conflict"
+        );
+        assert_eq!(
+            write_failure_reason(r"profile store: C:\Users\me\x denied"),
+            "write_error"
+        );
     }
 
     #[test]

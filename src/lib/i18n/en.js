@@ -908,6 +908,7 @@ export const en = {
     },
   },
   subs: {
+    tooLarge: "The subscription is too large: together with your other profiles it doesn't fit in storage (up to 32 MB). Changes were not saved.",
     err: {
       noAddresses: "The subscription address has no IP addresses",
       privateNetwork: "The subscription address points to a local or special network",
@@ -1650,6 +1651,8 @@ export const en = {
     descRecovered: "A portable update mistakenly opened empty settings. Ninety has moved the app back, and your subscriptions and rules are back too. Anything you added after the glitch is kept in the {folder} folder next to the app.",
   },
   store: {
+    tooLargeTitle: "Profiles don't fit in storage",
+    tooLargeDesc: "Profiles and subscriptions together take more than 32 MB, so the last change was not saved. Remove subscriptions or servers you don't need.",
     errorTitle: "Profiles are not being saved",
     errorDesc: "Secure storage is unavailable — profile and subscription changes will be lost on restart. Check the logs.",
     backupErrorTitle: "State backup is failing",

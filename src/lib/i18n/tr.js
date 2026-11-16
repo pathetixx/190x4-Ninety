@@ -908,6 +908,7 @@ export const tr = {
     },
   },
   subs: {
+    tooLarge: "Abonelik çok büyük: diğer profillerinizle birlikte depolamaya sığmıyor (en fazla 32 MB). Değişiklikler kaydedilmedi.",
     err: {
       noAddresses: "Abonelik adresinin IP adresi yok",
       privateNetwork: "Abonelik adresi yerel veya özel bir ağı gösteriyor",
@@ -1650,6 +1651,8 @@ export const tr = {
     descRecovered: "Taşınabilir sürüm güncellemesi yanlışlıkla boş ayarlar açtı. Ninety uygulamayı yerine taşıdı; abonelikleriniz ve kurallarınız geri geldi. Sorundan sonra ekledikleriniz uygulamanın yanındaki {folder} klasöründe duruyor.",
   },
   store: {
+    tooLargeTitle: "Profiller depolamaya sığmıyor",
+    tooLargeDesc: "Profiller ve abonelikler birlikte 32 MB’tan fazla yer kaplıyor, bu yüzden son değişiklik kaydedilmedi. Gereksiz abonelikleri veya sunucuları kaldırın.",
     errorTitle: "Profiller kaydedilmiyor",
     errorDesc: "Güvenli depolama kullanılamıyor — profil ve abonelik değişiklikleri yeniden başlatıldığında kaybolur. Günlüklere bakın.",
     backupErrorTitle: "Yedek oluşturulamıyor",

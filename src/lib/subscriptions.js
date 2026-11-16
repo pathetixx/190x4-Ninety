@@ -245,8 +245,39 @@ export function loadSubscriptions() {
   return loadSubscriptionsFromStore();
 }
 
-export function saveSubscriptions(list) {
-  saveSubscriptionsToStore(list);
+export function saveSubscriptions(list, options) {
+  return saveSubscriptionsToStore(list, options);
+}
+
+function tooLargeToSave(saved) {
+  return saved?.error?.code === "too_large";
+}
+
+const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// Откат неудавшегося refresh: возвращаем только поля, которые изменил сам
+// refresh, и только если их с тех пор никто не поменял. Переименование, HWID
+// или интервал, заданные пользователем во время записи, остаются.
+// Поля, которые имеют смысл только вместе: режим интервала без своих часов
+// превращается в настройку, которую никто не выбирал.
+const REFRESH_FIELD_GROUPS = [
+  ["updateIntervalMode", "updateIntervalHours", "serverUpdateIntervalHours"],
+];
+
+function fieldGroup(key) {
+  return REFRESH_FIELD_GROUPS.find(group => group.includes(key)) || [key];
+}
+
+function revertRefresh(current, fresh, merged) {
+  const out = { ...current };
+  for (const key of new Set([...Object.keys(fresh), ...Object.keys(merged)])) {
+    if (sameValue(fresh[key], merged[key])) continue;
+    // Если пользователь тронул хоть одно поле группы, группу не откатываем.
+    if (fieldGroup(key).some(k => !sameValue(current[k], merged[k]))) continue;
+    if (key in fresh) out[key] = fresh[key];
+    else delete out[key];
+  }
+  return out;
 }
 
 // Stable ID переживает rename/reorder и повторный refresh. Для новых одинаковых
@@ -523,7 +554,15 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
 
   const list = loadSubscriptions();
   list.push(sub);
-  saveSubscriptions(list);
+  // Ждём записи: подписка, которая не помещается в хранилище, иначе висела бы
+  // в списке до перезапуска и исчезала. Такую убираем сразу и говорим почему.
+  const saved = await saveSubscriptions(list, { quietTooLarge: true });
+  if (tooLargeToSave(saved)) {
+    await saveSubscriptions(loadSubscriptions().filter(s => s.id !== id));
+    const err = new Error(t("subs.tooLarge"));
+    err.code = "too_large";
+    throw err;
+  }
   // Сигнал панели про лимит устройств живёт только в ответе: в записи подписки
   // ему не место — он про этот запрос, а не про саму подписку.
   return { ...sub, hwidSignal: hwidSignal(info, received, { sent: hwid }) };
@@ -557,9 +596,22 @@ export async function refreshSubscription(id) {
   const fresh = list[idx];
   const merged = mergeSubscriptionRefresh(fresh, info, profiles, skipped);
   if (xrayJson) merged.xrayJson = xrayJson;
-  migrateRememberedSelection(id, fresh.profiles || [], merged.profiles || []);
   list[idx] = merged;
-  saveSubscriptions(list);
+  const saved = await saveSubscriptions(list, { quietTooLarge: true });
+  if (tooLargeToSave(saved)) {
+    // Откатываем только результат этого refresh: соседние подписки и поздние
+    // правки этой не трогаем.
+    const current = loadSubscriptions();
+    const at = current.findIndex(s => s.id === id);
+    if (at >= 0) {
+      current[at] = revertRefresh(current[at], fresh, merged);
+      await saveSubscriptions(current);
+    }
+    const err = new Error(t("subs.tooLarge"));
+    err.code = "too_large";
+    throw err;
+  }
+  migrateRememberedSelection(id, fresh.profiles || [], merged.profiles || []);
   return { ...list[idx], hwidSignal: hwidSignal(info, received, { sent: !!cur.hwid }) };
 }
 

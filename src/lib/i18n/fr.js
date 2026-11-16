@@ -916,6 +916,7 @@ export const fr = {
     },
   },
   subs: {
+    tooLarge: "L’abonnement est trop volumineux : avec vos autres profils, il ne tient pas dans le stockage (32 Mo max). Les modifications n’ont pas été enregistrées.",
     err: {
       noAddresses: "L'adresse de l'abonnement n'a aucune adresse IP",
       privateNetwork: "L'adresse de l'abonnement pointe vers un réseau local ou spécial",
@@ -1658,6 +1659,8 @@ export const fr = {
     descRecovered: "Une mise à jour portable a ouvert par erreur des paramètres vides. Ninety a remis l’application en place : vos abonnements et règles sont de retour. Ce que vous avez ajouté depuis est conservé dans le dossier {folder} à côté de l’application.",
   },
   store: {
+    tooLargeTitle: "Les profils ne tiennent pas dans le stockage",
+    tooLargeDesc: "Profils et abonnements occupent ensemble plus de 32 Mo : la dernière modification n’a pas été enregistrée. Supprimez les abonnements ou serveurs inutiles.",
     errorTitle: "Les profils ne sont pas enregistrés",
     errorDesc: "Le stockage sécurisé est indisponible : les modifications des profils et des abonnements seront perdues au redémarrage. Consultez les journaux.",
     backupErrorTitle: "La sauvegarde échoue",

@@ -908,6 +908,7 @@ export const de = {
     },
   },
   subs: {
+    tooLarge: "Das Abo ist zu groß: Zusammen mit Ihren anderen Profilen passt es nicht in den Speicher (bis 32 MB). Änderungen wurden nicht gespeichert.",
     err: {
       noAddresses: "Die Abonnementadresse hat keine IP-Adressen",
       privateNetwork: "Die Abonnementadresse verweist auf ein lokales oder spezielles Netzwerk",
@@ -1650,6 +1651,8 @@ export const de = {
     descRecovered: "Ein Portable-Update hat versehentlich leere Einstellungen geöffnet. Ninety hat die App zurückverschoben – Abos und Regeln sind wieder da. Was Sie danach hinzugefügt haben, liegt im Ordner {folder} neben der App.",
   },
   store: {
+    tooLargeTitle: "Profile passen nicht in den Speicher",
+    tooLargeDesc: "Profile und Abos belegen zusammen mehr als 32 MB, daher wurde die letzte Änderung nicht gespeichert. Entfernen Sie überflüssige Abos oder Server.",
     errorTitle: "Profile werden nicht gespeichert",
     errorDesc: "Der sichere Speicher ist nicht verfügbar – Änderungen an Profilen und Abonnements gehen beim Neustart verloren. Sieh in die Logs.",
     backupErrorTitle: "Sicherung schlägt fehl",

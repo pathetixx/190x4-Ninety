@@ -900,6 +900,7 @@ export const zh = {
     },
   },
   subs: {
+    tooLarge: "订阅过大：与其他配置一起无法放入存储（上限 32 MB）。更改未保存。",
     err: {
       noAddresses: "订阅地址没有 IP 地址",
       privateNetwork: "订阅地址指向本地或特殊网络",
@@ -1642,6 +1643,8 @@ export const zh = {
     descRecovered: "便携版更新误打开了空白设置。Ninety 已将程序移回原位，订阅和规则都已恢复。故障后添加的内容保存在程序旁的 {folder} 文件夹中。",
   },
   store: {
+    tooLargeTitle: "配置无法放入存储",
+    tooLargeDesc: "配置和订阅合计超过 32 MB，因此最后一次更改未保存。请删除不需要的订阅或服务器。",
     errorTitle: "配置未被保存",
     errorDesc: "安全存储不可用 —— 配置和订阅的更改将在重启后丢失。请查看日志。",
     backupErrorTitle: "备份未能创建",

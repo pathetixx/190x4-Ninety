@@ -22,7 +22,9 @@ static BACKUP_LOCK: Mutex<()> = Mutex::new(());
 // после получения lock отказывается писать, если очистка успела пройти раньше.
 static BACKUP_GENERATION: AtomicU64 = AtomicU64::new(0);
 const BACKUP_SCHEMA_VERSION: u64 = 2;
-const MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
+// Снимок несёт профили строкой JSON внутри JSON (кавычки экранируются) плюс
+// настройки, поэтому запас больше лимита хранилища профилей (32 МиБ).
+const MAX_SNAPSHOT_BYTES: usize = 80 * 1024 * 1024;
 
 fn backup_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = crate::app_paths::config_dir(app)?;
@@ -37,7 +39,7 @@ fn backup_generation_matches(generation: &AtomicU64, captured: u64) -> bool {
 /// Атомарная запись снапшота: tmp + rename. Краш посреди записи не оставит
 /// битый бэкап — прежний файл до rename остаётся целым.
 ///
-/// async + spawn_blocking намеренно: тело валидирует JSON до 8 МБ, а
+/// async + spawn_blocking намеренно: тело валидирует JSON до 80 МБ, а
 /// `seal_for_app` в portable с паролем прогоняет Argon2id (19 МиБ × 3
 /// итерации — по определению медленный KDF) и делает `sync_all()`. Синхронная
 /// команда выполнялась бы на главном потоке, а фронт зовёт её на каждое

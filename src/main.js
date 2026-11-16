@@ -4002,7 +4002,16 @@ window.addEventListener("ninety:state-backup-error", (ev) => {
 let profileStoreErrorShown = false;
 window.addEventListener("ninety:profile-store-error", (ev) => {
   const stage = ev?.detail?.stage || "";
-  console.warn("profile store error:", stage);
+  console.warn("profile store error:", stage, ev?.detail?.code || "");
+  // Хранилище исправно, просто данных больше лимита: говорим именно это и
+  // каждый раз — пользователь может повторить действие.
+  if (ev?.detail?.code === "too_large") {
+    toast(t("store.tooLargeTitle"), "error", 12000, {
+      group: "profile-store-size",
+      desc: t("store.tooLargeDesc"),
+    });
+    return;
+  }
   if (profileStoreErrorShown) return;
   profileStoreErrorShown = true;
   toast(t("store.errorTitle"), "error", 9000, {

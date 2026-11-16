@@ -924,6 +924,7 @@ export const pl = {
     },
   },
   subs: {
+    tooLarge: "Subskrypcja jest za duża: razem z innymi profilami nie mieści się w magazynie (do 32 MB). Zmiany nie zostały zapisane.",
     err: {
       noAddresses: "Adres subskrypcji nie ma adresów IP",
       privateNetwork: "Adres subskrypcji wskazuje na sieć lokalną lub specjalną",
@@ -1666,6 +1667,8 @@ export const pl = {
     descRecovered: "Aktualizacja wersji portable omyłkowo otworzyła puste ustawienia. Ninety przeniósł aplikację z powrotem — subskrypcje i reguły wróciły. To, co dodano po awarii, jest w folderze {folder} obok aplikacji.",
   },
   store: {
+    tooLargeTitle: "Profile nie mieszczą się w magazynie",
+    tooLargeDesc: "Profile i subskrypcje zajmują razem ponad 32 MB, więc ostatnia zmiana nie została zapisana. Usuń zbędne subskrypcje lub serwery.",
     errorTitle: "Profile nie są zapisywane",
     errorDesc: "Bezpieczny magazyn jest niedostępny — zmiany profili i subskrypcji znikną po ponownym uruchomieniu. Sprawdź logi.",
     backupErrorTitle: "Kopia zapasowa się nie tworzy",

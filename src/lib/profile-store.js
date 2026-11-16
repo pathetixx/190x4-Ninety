@@ -8,6 +8,9 @@ import { STORAGE_KEYS } from "/lib/storage-policy.js";
 import { localizedInvoke } from "/lib/backend-errors.js";
 
 const STORE_SCHEMA_VERSION = 1;
+// Тот же лимит, что MAX_STORE_BYTES в profile_store.rs (сверяет тест): заранее
+// отказать понятной ошибкой дешевле, чем гонять большой снимок через IPC.
+export const PROFILE_STORE_MAX_BYTES = 32 * 1024 * 1024;
 const PROFILE_KEYS = [
   STORAGE_KEYS.profiles,
   STORAGE_KEYS.profileActive,
@@ -168,6 +171,9 @@ let backendEnabled = typeof invokeRef === "function";
 // «A Rust write failure must not update the legacy mirror».
 let backendDegraded = false;
 let persistedStore = false;
+// Последняя запись в Rust не прошла: в памяти есть несохранённые изменения.
+// { code: "too_large" | "write", bytes?, limit? }; null после успешной записи.
+let writeFailure = null;
 let initPromise = null;
 let writeChain = Promise.resolve();
 
@@ -239,15 +245,57 @@ function checkRevision(value) {
   return next;
 }
 
+function encodedBytes(value) {
+  const json = JSON.stringify(value);
+  return typeof TextEncoder === "function" ? new TextEncoder().encode(json).length : json.length;
+}
+
+function tooLargeError(bytes) {
+  const error = new Error(`profile store is too large: ${bytes} bytes, limit ${PROFILE_STORE_MAX_BYTES}`);
+  error.code = "too_large";
+  error.bytes = bytes;
+  error.limit = PROFILE_STORE_MAX_BYTES;
+  return error;
+}
+
+function describeWriteError(error) {
+  if (error?.code === "too_large") {
+    return { code: "too_large", bytes: error.bytes, limit: error.limit };
+  }
+  // Rust — окончательный арбитр: его отказ по размеру (строка из
+  // profile_store.rs) тоже должен откатывать и объясняться как too_large.
+  const text = String(error?.message ?? error ?? "");
+  if (text.includes("profile store exceeds") || text.includes("profile store is too large")) {
+    return { code: "too_large", limit: PROFILE_STORE_MAX_BYTES };
+  }
+  return { code: "write" };
+}
+
 async function replaceBackend(payload, expectedRevision) {
   if (!backendEnabled || typeof invokeRef !== "function") return { revision: expectedRevision, persisted: false };
+  const store = { ...clone(payload), revision: expectedRevision };
+  // Rust сериализует уже следующую ревизию: меряем с ней, чтобы граница не
+  // расходилась на лишнюю цифру.
+  const bytes = encodedBytes({ ...store, revision: expectedRevision + 1 });
+  if (bytes > PROFILE_STORE_MAX_BYTES) {
+    // До backend запрос не доходит, поэтому причину в файловый лог пишем сами:
+    // без неё по присланному логу отказ не разобрать.
+    Promise.resolve()
+      .then(() => invokeRef("record_frontend_runtime_event", {
+        phase: "profile_store_write",
+        result: "failed",
+        reason: "too_large",
+      }))
+      .catch(() => {});
+    throw tooLargeError(bytes);
+  }
   // Ключи аргументов Tauri-команд — camelCase (макрос переводит имя параметра
   // Rust в lowerCamelCase). snake_case здесь не находился, команда отвечала
   // «missing required key expectedRevision», и защищённый store не записывался
   // никогда: приложение молча работало на legacy-localStorage.
   const response = await invokeRef("profile_store_replace", {
     expectedRevision,
-    store: { ...clone(payload), revision: expectedRevision },
+    store,
   });
   const nextRevision = checkRevision(response?.revision);
   revision = nextRevision;
@@ -257,18 +305,34 @@ async function replaceBackend(payload, expectedRevision) {
   return { revision: nextRevision, persisted: true };
 }
 
-function enqueuePersist({ notify = true } = {}) {
+// quietTooLarge — вызывающий сам объяснит отказ по размеру (окно добавления);
+// остальные отказы записи всё равно сообщаются общим уведомлением.
+function enqueuePersist({ notify = true, quietTooLarge = false } = {}) {
   const payload = storePayload();
   const task = writeChain
     .catch(() => {})
     .then(() => replaceBackend(payload, revision));
-  writeChain = task.catch(error => {
-    if (notify) {
-      emit("ninety:profile-store-error", { stage: "write" });
-    }
-    return null;
-  });
+  writeChain = task.then(
+    () => { writeFailure = null; },
+    error => {
+      writeFailure = describeWriteError(error);
+      console.warn("profile store write failed:", error?.message || error);
+      if (notify && !(quietTooLarge && writeFailure.code === "too_large")) {
+        emit("ninety:profile-store-error", { stage: "write", ...writeFailure });
+      }
+      return null;
+    },
+  );
   return task;
+}
+
+// Результат записи для вызывающего кода; никогда не отклоняется, чтобы
+// неиспользованный промис не превращался в unhandledrejection.
+function settledPersist(options) {
+  return enqueuePersist(options).then(
+    result => result,
+    error => ({ persisted: false, error: describeWriteError(error) }),
+  );
 }
 
 // Слияние снимка хранилища с локальными записями, сделанными до его загрузки.
@@ -291,13 +355,14 @@ function mergeStoreStates(backendState, localState, revision) {
   }, revision);
 }
 
-function publish(next) {
+function publish(next, { quietTooLarge = false } = {}) {
   state = normalizeStore(next, revision);
   if (!initialized && next?.active && typeof next.active === "object") {
     if (validId(next.active.profileId)) state.active.profileId = next.active.profileId;
     if (validId(next.active.subscriptionId)) state.active.subscriptionId = next.active.subscriptionId;
   }
-  if (initialized && backendEnabled) enqueuePersist();
+  let result = Promise.resolve({ persisted: false });
+  if (initialized && backendEnabled) result = settledPersist({ quietTooLarge });
   else {
     if (!initialized) pendingLocalMutation = true;
     // В деградации мутации остаются только в памяти: открытая копия секретов
@@ -305,6 +370,7 @@ function publish(next) {
     if (!backendDegraded) mirrorLegacyState();
   }
   emit("ninety:profile-store-changed", { revision });
+  return result;
 }
 
 export function profileStoreIsReady() {
@@ -320,6 +386,11 @@ export function profileStoreIsPersisted() {
 // молча работающее приложение выглядит исправным, пока профили не пропадут.
 export function profileStoreIsDegraded() {
   return backendDegraded;
+}
+
+// Почему не прошла последняя запись (null — всё сохранено).
+export function profileStoreWriteFailure() {
+  return writeFailure ? { ...writeFailure } : null;
 }
 
 export async function initializeProfileStore({ invoke = null, storage = null } = {}) {
@@ -452,9 +523,11 @@ export function loadSubscriptionsFromStore() {
   return readSnapshot().subscriptions.slice();
 }
 
-export function saveSubscriptionsToStore(list) {
+// Возвращает промис с результатом записи ({ persisted, error? }); дожидаться
+// его не обязательно.
+export function saveSubscriptionsToStore(list, options) {
   syncLegacyBeforeReady();
-  publish({ ...state, subscriptions: list });
+  return publish({ ...state, subscriptions: list }, options);
 }
 
 export function getActiveSubscriptionIdFromStore() {
