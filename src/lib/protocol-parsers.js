@@ -695,15 +695,16 @@ export function parseTrustTunnelToml(text, displayName) {
 // Файл, а не ссылка: пользователь вставляет содержимое .conf текстом или
 // перетаскивает файл. Формат — тот же ini, который читают wg-quick и Amnezia,
 // поэтому разбираем его буквально, включая шейпинг AmneziaWG (Jc/Jmin/Jmax,
-// S1/S2, H1..H4, I1..I5) — иначе платный профиль импортируется в клиент,
+// S1..S4, H1..H4, I1..I5) — иначе платный профиль импортируется в клиент,
 // который говорит с пиром не на том протоколе, и молча не поднимается.
+// AmneziaWG 2.0 — это S3/S4 и диапазоны «100-200» в H1..H4.
 
 // Ключи, которые мы читаем. Всё остальное попадает в profile.ignored и
 // показывается пользователю: тихо потерянная строка из .conf — это тоннель,
 // который ведёт себя не так, как в Amnezia, без единого слова почему.
 const WG_INTERFACE_KEYS = new Set([
   "privatekey", "address", "mtu", "listenport",
-  "jc", "jmin", "jmax", "s1", "s2",
+  "jc", "jmin", "jmax", "s1", "s2", "s3", "s4",
   "h1", "h2", "h3", "h4",
   "i1", "i2", "i3", "i4", "i5",
 ]);
@@ -735,6 +736,48 @@ function wgList(value) {
 function wgNumber(value) {
   const n = Number(String(value ?? "").trim());
   return Number.isFinite(n) ? n : 0;
+}
+
+const UINT32_MAX = 0xFFFFFFFF;
+
+/**
+ * Магический заголовок AmneziaWG (H1..H4) в форме профиля: число для 1.x,
+ * строка «от-до» для диапазона 2.0. Одиночное значение остаётся числом, чтобы
+ * у старых профилей не поменялся отпечаток. Пусто — 0, мусор — null.
+ * @returns {number|string|null}
+ */
+export function parseAwgHeader(raw) {
+  if (raw === undefined || raw === null) return 0;
+  if (typeof raw === "number") {
+    return Number.isInteger(raw) && raw >= 0 && raw <= UINT32_MAX ? raw : null;
+  }
+  const text = String(raw).trim();
+  if (!text) return 0;
+  const m = /^(\d+)\s*(?:-\s*(\d+))?$/.exec(text);
+  if (!m) return null;
+  const from = Number(m[1]);
+  const to = m[2] === undefined ? from : Number(m[2]);
+  if (from > UINT32_MAX || to > UINT32_MAX || to < from) return null;
+  return from === to ? from : `${from}-${to}`;
+}
+
+/** Заголовок профиля → {from, to}; 0/пусто → null. */
+export function awgHeaderRange(value) {
+  const parsed = parseAwgHeader(value);
+  if (!parsed) return null;
+  if (typeof parsed === "number") return { from: parsed, to: parsed };
+  const [from, to] = parsed.split("-").map(Number);
+  return { from, to };
+}
+
+/** Профиль использует то, чего нет в AmneziaWG 1.x: S3/S4 или диапазоны H. */
+export function isAmneziaWg2(awg) {
+  if (!awg) return false;
+  if (Number(awg.s3) > 0 || Number(awg.s4) > 0) return true;
+  return ["h1", "h2", "h3", "h4"].some((key) => {
+    const range = awgHeaderRange(awg[key]);
+    return !!range && range.from !== range.to;
+  });
 }
 
 // [Interface]/[Peer] в ini-стиле: секции, `key = value`, комментарии # и ;.
@@ -814,10 +857,14 @@ export function parseWireguardConf(text, displayName) {
     jmax: wgNumber(iface.jmax),
     s1: wgNumber(iface.s1),
     s2: wgNumber(iface.s2),
-    h1: wgNumber(iface.h1),
-    h2: wgNumber(iface.h2),
-    h3: wgNumber(iface.h3),
-    h4: wgNumber(iface.h4),
+    // S3/S4 есть только в 2.0: поле появляется, когда задано, — иначе у всех
+    // уже сохранённых профилей сменился бы отпечаток.
+    ...(wgNumber(iface.s3) ? { s3: wgNumber(iface.s3) } : {}),
+    ...(wgNumber(iface.s4) ? { s4: wgNumber(iface.s4) } : {}),
+    h1: parseAwgHeader(iface.h1) ?? 0,
+    h2: parseAwgHeader(iface.h2) ?? 0,
+    h3: parseAwgHeader(iface.h3) ?? 0,
+    h4: parseAwgHeader(iface.h4) ?? 0,
     i1: iface.i1 || "",
     i2: iface.i2 || "",
     i3: iface.i3 || "",
@@ -825,13 +872,15 @@ export function parseWireguardConf(text, displayName) {
     i5: iface.i5 || "",
   };
 
-  // Числовое поле шейпинга, которое не разобралось числом (диапазон «100-200»
-  // у новых версий AmneziaWG), раньше молча становилось нулём: тоннель говорил
-  // с пиром не на том протоколе и не поднимался без единого слова почему.
-  // Значение ядру не передаём, но называем поле среди непереносимых.
-  for (const key of ["jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"]) {
+  // Поле шейпинга, которое не разобралось, раньше молча становилось нулём:
+  // тоннель говорил с пиром не на том протоколе и не поднимался без единого
+  // слова почему. Значение ядру не передаём, но называем поле среди
+  // непереносимых. H1..H4 — число или диапазон «от-до» (AmneziaWG 2.0).
+  for (const key of ["jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4"]) {
     const rawValue = String(iface[key] ?? "").trim();
-    if (!rawValue || Number.isFinite(Number(rawValue))) continue;
+    if (!rawValue) continue;
+    const readable = key[0] === "h" ? parseAwgHeader(rawValue) !== null : Number.isFinite(Number(rawValue));
+    if (readable) continue;
     const label = key[0].toUpperCase() + key.slice(1);
     if (!ignored.includes(label)) ignored.push(label);
   }
@@ -862,7 +911,7 @@ export function wireguardConfText(profile) {
   lines.push(`Address = ${(profile.addresses || []).join(", ")}`);
   if (profile.mtu) lines.push(`MTU = ${profile.mtu}`);
   if (profile.listenPort) lines.push(`ListenPort = ${profile.listenPort}`);
-  for (const key of ["jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"]) {
+  for (const key of ["jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4"]) {
     if (awg[key]) lines.push(`${key.toUpperCase()} = ${awg[key]}`);
   }
   for (const key of ["i1", "i2", "i3", "i4", "i5"]) {

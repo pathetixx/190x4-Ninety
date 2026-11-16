@@ -16,6 +16,7 @@ import {
   rememberProxySelection,
 } from "/lib/proxy-selection.js";
 import { getFavourites, toggleFavourite } from "/lib/favourites.js";
+import { isAmneziaWg2 } from "/lib/protocol-parsers.js";
 import { countryName } from "/lib/country-names.js";
 import { PROXIES_UI_PREFIX } from "/lib/storage-policy.js";
 import { recordProbes, getProbeHistory, pruneProbeHistory } from "/lib/delay-history.js";
@@ -291,6 +292,7 @@ function transportLabel(n) {
   // транспорт: по этой метке пользователь и узнаёт, что импортировал.
   if (n?.proto === "wireguard") {
     const awg = n.awg || {};
+    if (isAmneziaWg2(awg)) return "AmneziaWG 2.0";
     const shaped = awg.jc > 0 || awg.s1 > 0 || awg.s2 > 0 || awg.i1
       || [awg.h1, awg.h2, awg.h3, awg.h4].some((value, index) => value && value !== index + 1);
     return shaped ? "AmneziaWG" : "WireGuard";

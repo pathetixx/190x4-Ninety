@@ -15,7 +15,7 @@ import {
   safeAtob,
   splitHostPort,
 } from "/lib/url-helpers.js";
-import { parseLink, parseTrustTunnelToml, profileProto } from "/lib/protocol-parsers.js";
+import { parseAwgHeader, parseLink, parseTrustTunnelToml, profileProto } from "/lib/protocol-parsers.js";
 import { GEOSITE_BASE, REGION_GEOSITE, isKnownSet, parseSetRef, setUrl } from "/lib/rule-sets.js";
 import { isNodeQuarantined } from "/lib/node-quarantine.js";
 import {
@@ -1212,9 +1212,13 @@ function buildAmneziaNoise(awg) {
   }
   if (awg.s1 > 0) noise.s1 = awg.s1;
   if (awg.s2 > 0) noise.s2 = awg.s2;
+  // S3/S4 — AmneziaWG 2.0: padding у cookie reply и у каждого транспортного пакета.
+  if (awg.s3 > 0) noise.s3 = awg.s3;
+  if (awg.s4 > 0) noise.s4 = awg.s4;
   // H1..H4 = 1,2,3,4 — это и есть типы сообщений WireGuard: файл повторяет
-  // дефолт, менять протокол не просят.
-  const headers = [awg.h1, awg.h2, awg.h3, awg.h4];
+  // дефолт, менять протокол не просят. Значение уходит как есть: число (1.x)
+  // или строка «от-до» (диапазон 2.0) — ядро читает обе формы.
+  const headers = [awg.h1, awg.h2, awg.h3, awg.h4].map((value) => parseAwgHeader(value) || 0);
   if (headers.some((value, index) => value && value !== index + 1)) {
     headers.forEach((value, index) => {
       noise[`h${index + 1}`] = value || index + 1;

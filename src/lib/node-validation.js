@@ -9,7 +9,7 @@
 // Проверки намеренно узкие. Нода, которая просто не отвечает, здесь валидна:
 // её отбраковывает health-checker, а не сборщик конфига.
 
-import { profileProto } from "/lib/protocol-parsers.js";
+import { awgHeaderRange, parseAwgHeader, profileProto } from "/lib/protocol-parsers.js";
 
 // Ядро декодирует public_key строго как base64url без паддинга и требует ровно
 // 32 байта (X25519). Панели иногда отдают ключ в обычном алфавите или с «=» —
@@ -188,9 +188,18 @@ function amneziaActive(awg) {
   if (!awg) return false;
   const num = (value) => Number(awg[value]) || 0;
   if (num("jc") > 0 && num("jmax") > 0) return true;
-  if (num("s1") > 0 || num("s2") > 0) return true;
-  if ([num("h1"), num("h2"), num("h3"), num("h4")].some((v, i) => v && v !== i + 1)) return true;
+  if (num("s1") > 0 || num("s2") > 0 || num("s3") > 0 || num("s4") > 0) return true;
+  if (customAwgHeaders(awg)) return true;
   return ["i1", "i2", "i3", "i4", "i5"].some(key => awg[key]);
+}
+
+// H1..H4 отличаются от типов сообщений WireGuard (1..4). Диапазон — всегда
+// отличие: 2.0 без своих заголовков не бывает.
+function customAwgHeaders(awg) {
+  return ["h1", "h2", "h3", "h4"].some((key, index) => {
+    const range = awgHeaderRange(awg[key]);
+    return !!range && !(range.from === index + 1 && range.to === index + 1);
+  });
 }
 
 // Шейпинг AmneziaWG: те же инварианты, что проверяет ядро (noise/amnezia.go).
@@ -211,11 +220,24 @@ function amneziaIssue(awg) {
   if (s1 + WG_MESSAGE_SIZES.initiation === s2 + WG_MESSAGE_SIZES.response) {
     return { code: "wgHandshakeJunk" };
   }
-  const headers = [num(awg.h1), num(awg.h2), num(awg.h3), num(awg.h4)];
-  const custom = headers.some((value, index) => value && value !== index + 1);
-  if (custom) {
-    const effective = headers.map((value, index) => value || index + 1);
-    if (new Set(effective).size !== effective.length) return { code: "wgMagicHeaders" };
+  // S3 — cookie reply, S4 — каждый транспортный пакет (AmneziaWG 2.0).
+  const s3 = num(awg.s3), s4 = num(awg.s4);
+  if (s3 < 0 || s3 > 1280) return { code: "wgHandshakeJunk" };
+  if (s4 < 0 || s4 > 256) return { code: "wgTransportJunk" };
+  const keys = ["h1", "h2", "h3", "h4"];
+  if (keys.some((key) => parseAwgHeader(awg[key]) === null)) return { code: "wgMagicHeaders" };
+  if (customAwgHeaders(awg)) {
+    // Незаданный заголовок сборщик дополняет типом WireGuard; приёмник
+    // различает сообщения по тому, в чей диапазон попал тип, — пересекаться
+    // диапазонам нельзя даже одним значением.
+    const effective = keys.map((key, index) => awgHeaderRange(awg[key]) || { from: index + 1, to: index + 1 });
+    for (let i = 0; i < effective.length; i++) {
+      for (let j = i + 1; j < effective.length; j++) {
+        if (effective[i].from <= effective[j].to && effective[j].from <= effective[i].to) {
+          return { code: "wgMagicHeaders" };
+        }
+      }
+    }
   }
   return null;
 }

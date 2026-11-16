@@ -12,7 +12,7 @@
 // record_fragment. Первое — политика приложения, второе — клиентские опции,
 // без которых нода работает, просто без этой оптимизации.
 
-import { parseLink } from "/lib/protocol-parsers.js";
+import { parseAwgHeader, parseLink } from "/lib/protocol-parsers.js";
 import { safeJsonParse } from "/lib/config-format.js";
 import {
   bareHost,
@@ -354,7 +354,11 @@ function wireguardProfile(endpoint) {
     awg: {
       jc: num("jc"), jmin: num("jmin"), jmax: num("jmax"),
       s1: num("s1"), s2: num("s2"),
-      h1: num("h1"), h2: num("h2"), h3: num("h3"), h4: num("h4"),
+      ...(num("s3") ? { s3: num("s3") } : {}),
+      ...(num("s4") ? { s4: num("s4") } : {}),
+      // H1..H4 у AmneziaWG 2.0 — диапазон «от-до», числом его не прочитать.
+      h1: parseAwgHeader(amnezia.h1) ?? 0, h2: parseAwgHeader(amnezia.h2) ?? 0,
+      h3: parseAwgHeader(amnezia.h3) ?? 0, h4: parseAwgHeader(amnezia.h4) ?? 0,
       i1: amnezia.i1 || "", i2: amnezia.i2 || "", i3: amnezia.i3 || "",
       i4: amnezia.i4 || "", i5: amnezia.i5 || "",
     },
