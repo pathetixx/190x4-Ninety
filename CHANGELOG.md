@@ -6,6 +6,18 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.16.1 — 2026-11-16
+
+## English
+
+- Fixed the portable version's one-click update: it no longer opens with empty settings. If an earlier update already did this, Ninety moves itself back to its folder on the next start, so your subscriptions and routing rules return; anything you added after the reset is kept in a NinetyData.recovered folder next to the app.
+- Very large subscriptions (more than 10,000 servers) are now saved. If profiles ever exceed the 32 MB storage limit, Ninety says so clearly and does not keep a subscription that would disappear after a restart.
+
+## Русский
+
+- Исправлено обновление portable-версии в один клик: оно больше не открывает пустые настройки. Если прошлое обновление уже так сделало, при следующем запуске Ninety сам вернётся в свою папку, и подписки с правилами маршрутизации вернутся; то, что вы добавили после сброса, сохранится в папке NinetyData.recovered рядом с программой.
+- Очень большие подписки (больше 10 000 серверов) теперь сохраняются. Если профили когда-нибудь превысят лимит хранилища в 32 МБ, Ninety прямо об этом скажет и не оставит подписку, которая пропала бы после перезапуска.
+
 ## v0.16.0 — 2026-11-16
 
 ## English
