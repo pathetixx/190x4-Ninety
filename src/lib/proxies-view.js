@@ -284,7 +284,7 @@ function cleanNameOf(name) {
 
 function transportLabel(n) {
   const PROTO_LABEL = {
-    naive: "Naive", trusttunnel: "TrustTunnel", anytls: "AnyTLS",
+    naive: "Naive", trusttunnel: "TrustTunnel", anytls: "AnyTLS", mieru: "Mieru",
     hysteria: "Hysteria", hysteria2: "Hysteria2", tuic: "TUIC",
     socks: "SOCKS", shadowsocks: "Shadowsocks",
   };

@@ -95,6 +95,10 @@ const SHADOWSOCKS_METHODS = new Set([
   "chacha20-ietf", "xchacha20", "rc4-md5",
 ]);
 const TUIC_CONGESTION = new Set(["", "cubic", "new_reno", "bbr"]);
+const MIERU_MULTIPLEXING = new Set([
+  "MULTIPLEXING_DEFAULT", "MULTIPLEXING_OFF", "MULTIPLEXING_LOW", "MULTIPLEXING_MIDDLE", "MULTIPLEXING_HIGH",
+]);
+const MIERU_HANDSHAKE = new Set(["HANDSHAKE_DEFAULT", "HANDSHAKE_STANDARD", "HANDSHAKE_NO_WAIT"]);
 // transport/sip003: неизвестный плагин — «plugin not found» на инициализации.
 const SHADOWSOCKS_PLUGINS = new Set(["obfs-local", "v2ray-plugin"]);
 // Длина ключа методов 2022 в байтах (sing-shadowsocks2/shadowaead_2022).
@@ -274,6 +278,18 @@ function validPortRanges(ports) {
   });
 }
 
+// У Mieru диапазон записывается через дефис, в отличие от hysteria2.
+function validMieruPortRanges(ports) {
+  if (!Array.isArray(ports) || !ports.length) return false;
+  return ports.every((range) => {
+    const m = /^(\d{1,5})-(\d{1,5})$/.exec(String(range));
+    if (!m) return false;
+    const from = Number(m[1]);
+    const to = Number(m[2]);
+    return from >= 1 && to <= 65535 && from <= to;
+  });
+}
+
 // Строгий base64 с паддингом: так ядро декодирует PSK и закреплённый хеш ключа.
 function strictBase64Length(raw) {
   const s = String(raw || "");
@@ -378,6 +394,17 @@ function computeNodeConfigIssue(node) {
   }
 
   if (proto === "anytls" && !node.password) return { code: "credentials" };
+
+  if (proto === "mieru") {
+    if (!node.username || !node.password) return { code: "credentials" };
+    if (node.transport !== "TCP" && node.transport !== "UDP") return { code: "mieruTransport" };
+    if (node.ports !== undefined && !validMieruPortRanges(node.ports)) return { code: "endpoint" };
+    if ((node.multiplexing !== undefined && !MIERU_MULTIPLEXING.has(node.multiplexing))
+      || (node.handshakeMode !== undefined && !MIERU_HANDSHAKE.has(node.handshakeMode))
+      || (node.mtu !== undefined && (!Number.isInteger(node.mtu) || node.mtu < 1280 || node.mtu > 1500))) {
+      return { code: "mieruOption" };
+    }
+  }
 
   if (proto === "hysteria") {
     // Ядро реализует только обычный UDP: faketcp и wechat-video из

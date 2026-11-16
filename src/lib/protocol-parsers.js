@@ -390,6 +390,72 @@ export function parseAnyTls(raw) {
   };
 }
 
+// ── Mieru ──────────────────────────────────────────────────
+// Простая ссылка mierus://: port и protocol повторяются и образуют пары по
+// порядку. Ядро принимает один транспорт, поэтому при наличии TCP берём его,
+// иначе UDP. Полный mieru:// содержит protobuf и здесь не разбирается.
+export function parseMieru(raw) {
+  const url = String(raw || "").trim();
+  if (!url.startsWith("mierus://")) throw new Error(t("sb.err.notMieru"));
+  const rest = url.slice("mierus://".length);
+  const { name: hashName, main } = splitTrailingHashName(rest, "");
+  const { head, query } = splitQuery(main);
+  const atIdx = head.lastIndexOf("@");
+  if (atIdx < 0) throw new Error(t("sb.err.mieruAuth"));
+  const [user, pass] = splitFirstColon(head.slice(0, atIdx));
+  const username = safeDecode(user || "");
+  const password = safeDecode(pass || "");
+  if (!username || !password) throw new Error(t("sb.err.mieruAuth"));
+  const endpoint = withoutUrlPath(head.slice(atIdx + 1));
+  const host = endpoint.startsWith("[") && endpoint.endsWith("]") ? endpoint.slice(1, -1) : endpoint;
+  if (!host || (endpoint.includes(":") && !(endpoint.startsWith("[") && endpoint.endsWith("]")))) {
+    throw new Error(t("sb.err.mieruAuth"));
+  }
+  const bindings = query.getAll("port");
+  const protocols = query.getAll("protocol");
+  if (!bindings.length || bindings.length !== protocols.length) {
+    throw new Error(t("sb.err.mieruPorts"));
+  }
+  const parsed = bindings.map((binding, index) => {
+    const match = /^(\d{1,5})(?:-(\d{1,5}))?$/.exec(binding);
+    if (!match) throw new Error(t("sb.err.badPort"));
+    const from = parsePort(match[1]);
+    const to = match[2] === undefined ? from : parsePort(match[2]);
+    if (from > to) throw new Error(t("sb.err.badPort"));
+    const transport = protocols[index];
+    if (transport !== "TCP" && transport !== "UDP") throw new Error(t("sb.err.mieruPorts"));
+    return { from, to, range: match[2] !== undefined, transport };
+  });
+  const transport = parsed.some(binding => binding.transport === "TCP") ? "TCP" : "UDP";
+  const selected = parsed.filter(binding => binding.transport === transport);
+  const single = selected.find(binding => !binding.range);
+  const port = single ? single.from : selected[0].from;
+  // Дополнительные одиночные порты передаём как диапазоны из одного порта:
+  // server_port в конфиге один, а server_ports может содержать несколько.
+  const ports = selected.filter(binding => binding !== single).map(binding => `${binding.from}-${binding.to}`);
+  const optional = {};
+  for (const [key, field] of [["multiplexing", "multiplexing"], ["handshake-mode", "handshakeMode"]]) {
+    if (query.has(key)) optional[field] = query.get(key);
+  }
+  if (query.has("mtu")) optional.mtu = Number(query.get("mtu"));
+  if (query.has("traffic-pattern")) {
+    // В base64 встречается «+»: не превращаем его в пробел, как form-urlencoded.
+    const queryText = main.slice(main.indexOf("?") + 1);
+    const item = queryText.split("&").find(part => safeDecode(part.split("=", 1)[0]) === "traffic-pattern");
+    const valueAt = item.indexOf("=");
+    optional.trafficPattern = valueAt < 0 ? "" : safeDecode(item.slice(valueAt + 1));
+  }
+  return {
+    raw: url, proto: "mieru", name: hashName || query.get("profile") || host,
+    host, port, transport, username, password,
+    ...(ports.length ? { ports } : {}),
+    // Одиночного порта нет: .port — лишь начало первого диапазона для списка и
+    // замеров, в конфиг ядра он уходить не должен. Поле только когда true.
+    ...(single ? {} : { rangesOnly: true }),
+    ...optional,
+  };
+}
+
 // ── hysteria v1 ─────────────────────────────────────────────
 // hysteria://host:port?auth=…&peer=…&upmbps=&downmbps=&obfs=…&protocol=udp
 // Первая версия протокола: аутентификация строкой, обфускация — общий секрет
@@ -973,6 +1039,7 @@ export function parseLink(raw) {
   if (s.startsWith("hysteria2://") || s.startsWith("hy2://")) return parseHysteria2(s);
   if (s.startsWith("hysteria://"))  return parseHysteria(s);
   if (s.startsWith("anytls://"))    return parseAnyTls(s);
+  if (s.startsWith("mierus://"))    return parseMieru(s);
   if (/^socks(5h?|4a?)?:\/\//i.test(s)) return parseSocks(s);
   if (s.startsWith("tuic://"))      return parseTuic(s);
   if (s.startsWith("naive+"))       return parseNaive(s);

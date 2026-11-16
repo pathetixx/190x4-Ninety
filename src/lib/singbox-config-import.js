@@ -19,6 +19,7 @@ import {
   buildShareLink,
   buildVmessLink,
   credentialsUserinfo,
+  hostForUri,
   isPlainObject,
   joinList,
   numberOrNull,
@@ -265,6 +266,31 @@ function anytlsUri(node, tag) {
   ]);
 }
 
+// Mieru хранит порты в query: повторяющиеся port/protocol связаны по позиции.
+// Общий сборщик ссылки использует set(), поэтому здесь нужны append().
+function mieruUri(node, tag) {
+  const query = new URLSearchParams([["profile", "default"]]);
+  for (const [key, value] of [
+    ["multiplexing", node.multiplexing],
+    ["handshake-mode", node.handshake_mode],
+    ["mtu", node.mtu],
+    ["traffic-pattern", node.traffic_pattern],
+  ]) {
+    if (value !== undefined && value !== null) query.append(key, String(value));
+  }
+  const ports = [
+    ...(node.server_port !== undefined && node.server_port !== null ? [node.server_port] : []),
+    ...(Array.isArray(node.server_ports) ? node.server_ports : []),
+  ];
+  for (const port of ports) {
+    query.append("port", String(port));
+    query.append("protocol", String(node.transport ?? ""));
+  }
+  const userinfo = credentialsUserinfo(node.username, node.password);
+  const name = tag ? `#${encodeURIComponent(tag)}` : "";
+  return `mierus://${userinfo}@${hostForUri(node.server)}?${query}${name}`;
+}
+
 function socksUri(node, tag) {
   const version = String(node.version ?? "5");
   const scheme = version === "4" ? "socks4" : (version === "4a" ? "socks4a" : "socks5");
@@ -281,6 +307,7 @@ const URI_BUILDERS = {
   hysteria: hysteriaUri,
   tuic: tuicUri,
   anytls: anytlsUri,
+  mieru: mieruUri,
   socks: socksUri,
 };
 
@@ -305,6 +332,15 @@ export function singboxOutboundToLink(outbound) {
   // Нода за чужим detour — не самостоятельный сервер: без цепочки она пойдёт
   // напрямую, то есть будет вести себя не так, как в конфиге, откуда пришла.
   if (outbound.detour) return { unsupported: `${type}+detour` };
+  if (type === "mieru") {
+    const hasPort = outbound.server_port !== undefined && outbound.server_port !== null;
+    const hasRanges = Array.isArray(outbound.server_ports) && outbound.server_ports.length > 0;
+    if (!outbound.server || (!hasPort && !hasRanges)
+      || (outbound.server_ports !== undefined && !Array.isArray(outbound.server_ports))) {
+      return { unsupported: type };
+    }
+    return { link: builder(outbound, outbound.tag || "") };
+  }
   // Диапазон портов hysteria2 (server_ports) ссылка выражает списком через
   // запятую; у остальных схем без целого порта нода подключилась бы не туда.
   const hopPorts = type === "hysteria2" ? hysteria2PortSpec(outbound.server_ports) : null;

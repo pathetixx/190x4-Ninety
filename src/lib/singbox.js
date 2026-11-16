@@ -41,6 +41,7 @@ import {
 export {
   parseHysteria2,
   parseLink,
+  parseMieru,
   parseNaive,
   parseShadowsocks,
   parseTrojan,
@@ -424,6 +425,23 @@ function buildOutbound(p, options) {
       };
       const anytlsAlpn = String(p.alpn || "").split(",").map(x => x.trim()).filter(Boolean);
       if (anytlsAlpn.length) out.tls.alpn = anytlsAlpn;
+      return out;
+    }
+    case "mieru": {
+      out = {
+        ...base,
+        type: "mieru",
+        transport: p.transport,
+        username: p.username,
+        password: p.password,
+      };
+      // Без одиночного порта ядру идут только диапазоны (см. parseMieru).
+      if (p.rangesOnly) delete out.server_port;
+      if (p.ports?.length) out.server_ports = [...p.ports];
+      if (p.multiplexing !== undefined) out.multiplexing = p.multiplexing;
+      if (p.handshakeMode !== undefined) out.handshake_mode = p.handshakeMode;
+      if (p.mtu !== undefined) out.mtu = p.mtu;
+      if (p.trafficPattern !== undefined) out.traffic_pattern = p.trafficPattern;
       return out;
     }
     case "hysteria": {

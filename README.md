@@ -39,7 +39,7 @@ When something breaks, you get diagnostics instead of guesswork.
 | **Sources** | Imports subscription URLs, individual proxy links, ready-made sing-box and Xray configs (JSON), TrustTunnel `.toml` endpoints and WireGuard/AmneziaWG `.conf` files. Any of these also work as the body of a subscription URL. Clipboard import is built in, while deep links remain optional. |
 | **Device limits** | Subscriptions from panels that count devices can send a per-subscription device identifier. The switch is off by default, the identifier is derived one way from a machine value, and it is shown, copied or changed in Settings. |
 | **Node control** | Server grid with country flags, live delay checks, automatic selection, favourites, tray switching and tracking of the node currently used by the connection. |
-| **Protocols** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, SOCKS, NaiveProxy, TrustTunnel, WireGuard/AmneziaWG and WARP. |
+| **Protocols** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, Hysteria, TUIC, AnyTLS, Mieru, SOCKS, NaiveProxy, TrustTunnel, WireGuard/AmneziaWG and WARP. |
 | **Bridges** | XHTTP runs through xray-core. NaiveProxy and TrustTunnel use local SOCKS sidecars, with sing-box remaining the central router. |
 | **Routing** | LAN bypass, regional routing, custom rules for domains, IP addresses and processes, plus ad, malware and phishing rule sets. A rule can send its traffic through a specific server or through WARP instead of the shared tunnel. Active connections can be inspected from the app. |
 | **Diagnostics** | Every target is probed twice — directly and through the tunnel — so blocking, throttling and services that refuse the server address are told apart. The screen also traces the path to the server on ICMP and TCP, checks DNS, IPv6 and the external address for leaks, and keeps a timeline of connection incidents. Any address can be checked by hand, step by step. |
@@ -62,7 +62,7 @@ When something breaks, you get diagnostics instead of guesswork.
 
 ## Supported protocols and transports
 
-**Protocols:** VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · Hysteria · TUIC · AnyTLS · SOCKS · NaiveProxy · TrustTunnel · WireGuard/AmneziaWG · WARP
+**Protocols:** VLESS · VMess · Trojan · Shadowsocks · Hysteria2 · Hysteria · TUIC · AnyTLS · Mieru · SOCKS · NaiveProxy · TrustTunnel · WireGuard/AmneziaWG · WARP
 
 **Transports and options:** Reality · TLS with uTLS fingerprints · XHTTP · WebSocket · gRPC · HTTP/2 · HTTPUpgrade · QUIC · mKCP · TCP · TLS fragmentation · padding · mixed-case SNI · mux
 
@@ -83,7 +83,7 @@ Updates are downloaded from inside the app. When a VPN connection is already act
 ## Quick start
 
 1. Open Ninety and press **+**.
-2. Paste a subscription URL or an individual config link such as `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `anytls://`, `naive+https://` or `tt://`.
+2. Paste a subscription URL or an individual config link such as `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `anytls://`, `mierus://`, `naive+https://` or `tt://`.
 3. Choose a connection mode:
    - **System proxy** — the default option. It does not require administrator rights and works with browsers and many desktop applications.
    - **Proxy** — starts a local SOCKS/HTTP proxy on `127.0.0.1`. Applications must be configured manually.

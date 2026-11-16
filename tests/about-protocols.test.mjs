@@ -26,6 +26,7 @@ const CHIP_BY_PROTO = {
   hysteria: "hysteria",
   tuic: "tuic",
   anytls: "anytls",
+  mieru: "mieru",
   socks: "socks",
   naive: "naiveproxy",
   trusttunnel: "trusttunnel",

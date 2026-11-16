@@ -26,7 +26,7 @@ import { localizedInvoke } from "/lib/backend-errors.js";
 
 export { safeDecodeBase64 };
 
-const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt|anytls|socks(?:5h?|4a?)?):\/\/|naive\+[a-z]+:\/\/)/i;
+const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt|anytls|mierus|socks(?:5h?|4a?)?):\/\/|naive\+[a-z]+:\/\/)/i;
 
 const REFRESH_ALL_CONCURRENCY = 3;
 
@@ -46,8 +46,8 @@ const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
 // ── base64 detection (try-and-see) ─────────────────────────
 // Никаких regex-проверок «похоже на base64». Просто пытаемся decode —
 // если успешно и есть осмысленные ссылки, берём декод; иначе оригинал.
-const KNOWN_PROTO_RE = /vless:\/\/|vmess:\/\/|trojan:\/\/|ss:\/\/|hysteria2?:\/\/|hy2:\/\/|tuic:\/\/|tt:\/\/|anytls:\/\/|socks(?:5h?|4a?)?:\/\/|naive\+[a-z]+:\/\//i;
-const KNOWN_PROTO_URL_RE = /(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt|anytls|socks(?:5h?|4a?)?):\/\/|naive\+[a-z]+:\/\/)\S+/ig;
+const KNOWN_PROTO_RE = /vless:\/\/|vmess:\/\/|trojan:\/\/|ss:\/\/|hysteria2?:\/\/|hy2:\/\/|tuic:\/\/|tt:\/\/|anytls:\/\/|mierus:\/\/|socks(?:5h?|4a?)?:\/\/|naive\+[a-z]+:\/\//i;
+const KNOWN_PROTO_URL_RE = /(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt|anytls|mierus|socks(?:5h?|4a?)?):\/\/|naive\+[a-z]+:\/\/)\S+/ig;
 
 // TrustTunnel endpoint-.toml (export из endpoint): плоский toml с hostname/addresses.
 const TT_TOML_RE = /^\s*hostname\s*=.*[\r\n]/m;
