@@ -6,6 +6,26 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.16.0 — 2026-11-16
+
+## English
+
+- Subscriptions that offer some servers only in Xray JSON format now import them too, so reserve servers marked "client not supported" become available.
+- AmneziaWG 2.0 and AmneziaWG 3 profiles are now supported.
+- AmneziaVPN keys (vpn://) can be pasted into the add window: Ninety imports the AmneziaWG, WireGuard, Xray and OpenVPN servers they contain.
+- New protocols: Mieru and OpenVPN — paste a mierus:// link, or paste or drop an .ovpn file into the add window.
+- When a connection fails to start, the log now shows the exact reason.
+- Updated the TrustTunnel component.
+
+## Русский
+
+- Подписки, которые отдают часть серверов только в формате Xray JSON, теперь импортируют и их, так что резервы с пометкой «клиент не поддерживается» становятся доступны.
+- Поддержаны профили AmneziaWG 2.0 и AmneziaWG 3.
+- Ключи AmneziaVPN (vpn://) можно вставить в окно добавления: Ninety импортирует из них серверы AmneziaWG, WireGuard, Xray и OpenVPN.
+- Новые протоколы: Mieru и OpenVPN — вставьте ссылку mierus:// или вставьте либо перетащите файл .ovpn в окно добавления.
+- Если подключение не запускается, в журнале теперь видна точная причина.
+- Обновлён компонент TrustTunnel.
+
 ## v0.15.0 — 2026-11-14
 
 ## English
