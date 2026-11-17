@@ -49,6 +49,10 @@ Each custom rule has an action: through VPN, direct, block, through a specific s
 
 A rule that targets a specific server stores the identity of that server, so reordering a subscription does not break it. If the server is gone from the active source, quarantined, or excluded because strict tunnel pins a single node, the rule falls back to the regular tunnel instead of pointing at an outbound that no longer exists.
 
+### Moving rules to another PC
+
+**Export** saves the rule list to a JSON file and **Import** loads one. If this PC already has rules, import asks whether to add the new rules to the list (rules that are already there are skipped) or to replace the whole list. Replacing also carries over whether the region base was turned into your own rules, so both PCs route traffic the same way. A rule that targets a specific server works on the other PC only when that server is in its active subscription; otherwise it falls back to the regular tunnel.
+
 Safe debugging pattern:
 
 1. Disable custom rules.

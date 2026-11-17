@@ -20,6 +20,7 @@ mod portable_update;
 mod profile_store;
 mod protected_browser;
 mod quality;
+mod rules_file;
 mod runtime_ops;
 mod scanner;
 mod secrets;
@@ -1543,6 +1544,8 @@ pub fn run() {
             backup::state_backup_save,
             backup::state_backup_load,
             backup::state_backup_clear,
+            rules_file::routing_rules_export_file,
+            rules_file::routing_rules_import_file,
         ])
         .build(context)
         .expect("error while building tauri application")

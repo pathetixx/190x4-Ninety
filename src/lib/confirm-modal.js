@@ -26,11 +26,14 @@ function onKey(e) {
   }
 }
 
+// Результат: true — подтвердили, false — отмена/Esc, "alt" — нажали
+// необязательную третью кнопку (altLabel), когда у выбора два исхода.
 export function openConfirmModal({
   title,
   message,
   confirmLabel,
   cancelLabel,
+  altLabel,
   danger = false,
 } = {}) {
   close(false);
@@ -49,6 +52,7 @@ export function openConfirmModal({
         <p class="confirm-modal__message" id="confirm-modal-message">${escapeHtml(message || t("confirm.message"))}</p>
         <footer class="confirm-modal__actions">
           <button class="confirm-modal__btn confirm-modal__btn--ghost" data-confirm-cancel type="button">${escapeHtml(cancelLabel || t("confirm.cancel"))}</button>
+          ${altLabel ? `<button class="confirm-modal__btn confirm-modal__btn--ghost" data-confirm-alt type="button">${escapeHtml(altLabel)}</button>` : ""}
           <button class="confirm-modal__btn ${danger ? "confirm-modal__btn--danger" : "confirm-modal__btn--primary"}" data-confirm-ok type="button" aria-label="${escapeAttr(confirmLabel || t("confirm.ok"))}">${escapeHtml(confirmLabel || t("confirm.ok"))}</button>
         </footer>
       </section>
@@ -59,6 +63,7 @@ export function openConfirmModal({
       el.addEventListener("click", () => close(false));
     });
     root.querySelector("[data-confirm-ok]")?.addEventListener("click", () => close(true));
+    root.querySelector("[data-confirm-alt]")?.addEventListener("click", () => close("alt"));
     document.addEventListener("keydown", onKey);
     cleanup = () => document.removeEventListener("keydown", onKey);
 

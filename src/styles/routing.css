@@ -51,6 +51,9 @@
    (grid-item по умолчанию justify-self:stretch → в под-экране, где левая ячейка
    могла схлопнуться, кнопка занимала всю строку). */
 .rr-head .btn--primary { width: auto; justify-self: end; flex: 0 0 auto; white-space: nowrap; }
+/* Экспорт/импорт — рядом с основным действием, но тише его. */
+.rr-head__acts { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.rr-head__acts .btn { white-space: nowrap; }
 
 /* ── Панель управления: вкладки + контекст базы + счётчик ── */
 .rr-bar {
@@ -943,4 +946,8 @@
 /* ── Подраздел внутри экрана «Маршрутизация»: своя шапка без back-кнопки
       (back уже есть у settings-head). Отступ сверху отделяет от тумблеров. ── */
 .rr-block { margin-top: 22px; }
-.rr-head--sub { grid-template-columns: 1fr auto; padding-top: 0; }
+.rr-head--sub { display: flex; flex-wrap: wrap; padding-top: 0; }
+/* Подпись забирает свободное место. Когда кнопкам тесно, они уходят строкой
+   ниже, а не сжимают подпись в узкий столбик. */
+.rr-head--sub > :first-child { flex: 1 1 280px; min-width: 0; }
+.rr-head--sub .rr-head__acts { margin-inline-start: auto; }

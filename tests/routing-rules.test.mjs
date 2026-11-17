@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   isValidValue, normalizeIp, normalizeRuleName, normalizeTarget, normalizeValue, regionRules, sameRuleExceptName, sanitizeRule,
+  buildRulesExport, parseRulesImport, mergeImportedRules, RULES_FILE_TYPE, RULES_FILE_VERSION, RULES_IMPORT_MAX,
 } from "/lib/routing-rules.js";
 
 test("routing rules: IPv6 validation accepts real addresses only", () => {
@@ -205,3 +206,89 @@ test("routing rules: переименование не считается сет
   assert.equal(sameRuleExceptName(a, { ...a, target: { tag: "t1", name: "C" } }), false);
   assert.equal(sameRuleExceptName(a, null), false);
 });
+
+// ── Файл правил ──────────────────────────────────────────────────────
+
+const sampleRules = () => [
+  { id: "r-1", name: "Почта", enabled: true, type: "domain", match: "suffix", values: ["почта.рф"], action: "direct" },
+  { id: "r-2", enabled: false, type: "process", values: ["Telegram"], action: "proxy" },
+  { id: "r-3", enabled: true, type: "ip", values: ["10.0.0.0/8"], action: "node", target: { tag: "t1", name: "DE" } },
+];
+
+test("rules file: export drops local ids and round-trips through import", () => {
+  const now = new Date("2026-11-17T10:00:00Z");
+  const payload = buildRulesExport(sampleRules(), { regionDetached: true, now });
+  assert.equal(payload.type, RULES_FILE_TYPE);
+  assert.equal(payload.version, RULES_FILE_VERSION);
+  assert.equal(payload.exportedAt, "2026-11-17T10:00:00.000Z");
+  assert.equal(payload.regionDetached, true);
+  assert.ok(payload.rules.every((r) => !("id" in r)));
+  assert.deepEqual(payload.rules[0].values, ["xn--80a1acny.xn--p1ai"]);
+  assert.equal(payload.rules[1].values[0], "Telegram.exe");
+
+  const parsed = parseRulesImport(JSON.stringify(payload));
+  assert.equal(parsed.error, undefined);
+  assert.equal(parsed.rules.length, 3);
+  assert.equal(parsed.regionDetached, true);
+  assert.equal(parsed.skipped, 0);
+  assert.ok(parsed.rules.every((r) => typeof r.id === "string" && r.id && !["r-1", "r-2", "r-3"].includes(r.id)));
+  const strip = ({ id: _ignored, ...rest }) => rest;
+  assert.deepEqual(parsed.rules.map(strip), payload.rules);
+});
+
+test("rules file: import accepts BOM and a bare array, infers region state", () => {
+  const regional = [{ type: "set", values: ["geoip:ru"], action: "direct", origin: "region" }];
+  const parsed = parseRulesImport("\uFEFF" + JSON.stringify(regional));
+  assert.equal(parsed.rules.length, 1);
+  assert.equal(parsed.rules[0].origin, "region");
+  assert.equal(parsed.regionDetached, true);
+  assert.equal(parseRulesImport(JSON.stringify(sampleRules())).regionDetached, false);
+});
+
+test("rules file: import skips unknown types/actions instead of guessing", () => {
+  const parsed = parseRulesImport(JSON.stringify([
+    { type: "domain", values: ["example.com"], action: "block" },
+    { type: "domain", values: ["example.org"], action: "teleport" },
+    { type: "geo", values: ["x"], action: "proxy" },
+    { type: "domain", values: ["not a domain"], action: "proxy" },
+    "garbage",
+    null,
+  ]));
+  assert.equal(parsed.rules.length, 1);
+  assert.equal(parsed.rules[0].action, "block");
+  assert.equal(parsed.skipped, 5);
+  assert.equal(parsed.dropped, 1);
+});
+
+test("rules file: import reports broken, foreign, newer and oversized files", () => {
+  assert.deepEqual(parseRulesImport("{not json"), { error: "parse" });
+  assert.deepEqual(parseRulesImport(JSON.stringify({ rules: [] })), { error: "format" });
+  assert.deepEqual(parseRulesImport(JSON.stringify({ type: RULES_FILE_TYPE, version: 1 })), { error: "format" });
+  assert.deepEqual(parseRulesImport(JSON.stringify({ type: RULES_FILE_TYPE, version: RULES_FILE_VERSION + 1, rules: [] })), { error: "newer" });
+  assert.deepEqual(parseRulesImport(JSON.stringify([])), { error: "empty" });
+  const many = Array.from({ length: RULES_IMPORT_MAX + 1 }, () => ({ type: "domain", values: ["a.com"], action: "proxy" }));
+  assert.deepEqual(parseRulesImport(JSON.stringify(many)), { error: "tooMany" });
+});
+
+test("rules file: append skips rules already present, replace takes the file as is", () => {
+  const current = [
+    { id: "a", enabled: false, type: "domain", match: "suffix", values: ["example.com"], action: "direct" },
+  ];
+  const incoming = [
+    { id: "n1", name: "Другая подпись", enabled: true, type: "domain", match: "suffix", values: ["example.com"], action: "direct" },
+    { id: "n2", enabled: true, type: "set", values: ["geoip:ru"], action: "direct", origin: "region" },
+  ];
+  const appended = mergeImportedRules(current, incoming, "append");
+  assert.equal(appended.added, 1);
+  assert.equal(appended.duplicates, 1);
+  assert.equal(appended.rules.length, 2);
+  assert.equal(appended.rules[0], current[0]);
+  assert.equal("origin" in appended.rules[1], false);
+
+  const replaced = mergeImportedRules(current, incoming, "replace");
+  assert.equal(replaced.added, 2);
+  assert.equal(replaced.rules.length, 2);
+  assert.equal(replaced.rules[1].origin, "region");
+  assert.notEqual(replaced.rules[0], incoming[0]);
+});
+

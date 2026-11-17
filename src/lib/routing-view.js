@@ -14,6 +14,7 @@ import { loadOptions, getOptionsSnapshot, updateOption } from "/lib/options.js";
 import {
   newRule, normalizeValue, isValidValue, sanitizeRule, regionRules,
   normalizeRuleName, clampRuleName, sameRuleExceptName, RULE_NAME_MAX,
+  buildRulesExport, parseRulesImport, mergeImportedRules,
 } from "/lib/routing-rules.js";
 import { POPULAR_GEOIP, REGION_GEOSITE, parseSetRef, searchSets } from "/lib/rule-sets.js";
 import { GEOIP_CODES } from "/lib/rule-set-catalog.js";
@@ -22,6 +23,7 @@ import { openConfirmModal } from "/lib/confirm-modal.js";
 import { getActiveSource, nodeTag } from "/lib/singbox.js";
 import { listNetworkProcesses, getConnections } from "/lib/clash-api.js";
 import { toast } from "/lib/toast.js";
+import { localizedInvoke } from "/lib/backend-errors.js";
 import { escapeAttr, escapeHtml as esc } from "/lib/esc.js";
 import { isContextMenuKey, openPMenu } from "/lib/pmenu.js";
 import { t, getLang } from "/lib/i18n/index.js";
@@ -115,6 +117,8 @@ const I = {
   warp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 10-12h-7l1-8z"/></svg>',
   list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>',
   lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  fileOut: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>',
+  fileIn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
 };
 const TYPE_ICON = { domain: I.globe, ip: I.net, process: I.app, set: I.list };
@@ -239,7 +243,11 @@ export function mountRoutingRules(rootEl, opts = {}) {
     block.innerHTML =
       '<div class="rr-head rr-head--sub">' +
         headMain +
-        '<button class="btn btn--primary" id="rr-addbtn" type="button">' + I.route + esc(t("rr.addRule")) + "</button>" +
+        '<div class="rr-head__acts">' +
+          '<button class="btn btn--ghost" id="rr-export" type="button" title="' + escapeAttr(t("rr.io.exportHint")) + '">' + I.fileOut + esc(t("rr.io.export")) + "</button>" +
+          '<button class="btn btn--ghost" id="rr-import" type="button" title="' + escapeAttr(t("rr.io.importHint")) + '">' + I.fileIn + esc(t("rr.io.import")) + "</button>" +
+          '<button class="btn btn--primary" id="rr-addbtn" type="button">' + I.route + esc(t("rr.addRule")) + "</button>" +
+        "</div>" +
       "</div>" +
       '<div class="rr-bar">' +
         '<div class="seg">' +
@@ -256,11 +264,95 @@ export function mountRoutingRules(rootEl, opts = {}) {
 
     rootEl.appendChild(block);
     block.querySelector("#rr-addbtn").addEventListener("click", () => openModal(null));
+    block.querySelector("#rr-export").addEventListener("click", exportRules);
+    block.querySelector("#rr-import").addEventListener("click", importRules);
     block.querySelector("#tab-rules").addEventListener("click", () => setTab("rules"));
     block.querySelector("#tab-monitor").addEventListener("click", () => setTab("monitor"));
   }
 
   const $ = (sel) => rootEl.querySelector(sel);
+
+  /* ═══ ФАЙЛ ПРАВИЛ: экспорт / импорт ═══ */
+  // Диалог выбора файла и запись/чтение — в бэкенде (rules_file.rs): путь
+  // выбирает пользователь, страница путей не передаёт. Пока диалог открыт,
+  // повторное нажатие не плодит второе окно.
+  const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
+  const IMPORT_ERRORS = () => ({
+    parse: t("rr.io.errParse"),
+    format: t("rr.io.errFormat"),
+    newer: t("rr.io.errNewer"),
+    tooMany: t("rr.io.errTooMany"),
+    empty: t("rr.io.errEmpty"),
+  });
+  let ioBusy = false;
+
+  async function exportRules() {
+    if (ioBusy) return;
+    if (!rules.length) {
+      toast(t("rr.io.nothing"), "info", 2200);
+      return;
+    }
+    ioBusy = true;
+    try {
+      const payload = buildRulesExport(rules, {
+        regionDetached: !!getOptionsSnapshot().route?.regionDetached,
+      });
+      const saved = await invoke("routing_rules_export_file", { json: JSON.stringify(payload, null, 2) });
+      if (saved) toast(t("rr.io.exported", { n: payload.rules.length }), "success", 2400);
+    } catch (e) {
+      toast(t("rr.io.exportFailed"), "error", 4200, { desc: String(e) });
+    } finally {
+      ioBusy = false;
+    }
+  }
+
+  async function importRules() {
+    if (ioBusy) return;
+    ioBusy = true;
+    try {
+      const text = await invoke("routing_rules_import_file");
+      if (text == null || !rootEl.isConnected) return;
+      const parsed = parseRulesImport(text);
+      if (parsed.error) {
+        toast(t("rr.io.importFailed"), "error", 4200, { desc: IMPORT_ERRORS()[parsed.error] });
+        return;
+      }
+      // Пустой список — просто берём файл. Иначе спрашиваем: добавить новые к
+      // своим (обмен наборами) или заменить целиком (одинаковые правила на
+      // всех устройствах).
+      let mode = "replace";
+      if (rules.length) {
+        const choice = await openConfirmModal({
+          title: t("rr.io.importTitle"),
+          message: t("rr.io.importMessage", { n: parsed.rules.length, m: rules.length }),
+          confirmLabel: t("rr.io.append"),
+          altLabel: t("rr.io.replace"),
+        });
+        if (!choice || !rootEl.isConnected) return;
+        mode = choice === "alt" ? "replace" : "append";
+      }
+      const merged = mergeImportedRules(rules, parsed.rules, mode);
+      const invalid = parsed.skipped + parsed.dropped;
+      const details = [
+        merged.duplicates ? t("rr.io.duplicates", { n: merged.duplicates }) : "",
+        invalid ? t("rr.io.invalid", { n: invalid }) : "",
+      ].filter(Boolean).join(" · ");
+      if (mode === "append" && !merged.added) {
+        toast(t("rr.io.allPresent"), "info", 2600, { desc: details });
+        return;
+      }
+      rules = merged.rules;
+      updateOption("route.customRules", structuredCloneSafe(rules));
+      if (mode === "replace") updateOption("route.regionDetached", parsed.regionDetached);
+      onChange("route.customRules");
+      if (tab === "rules") renderRules();
+      toast(t("rr.io.imported", { n: merged.added }), "success", 3000, { desc: details });
+    } catch (e) {
+      toast(t("rr.io.importFailed"), "error", 4200, { desc: String(e) });
+    } finally {
+      ioBusy = false;
+    }
+  }
 
   /* ═══ СПИСОК ПРАВИЛ ═══ */
   function actionPill(rule) {

@@ -271,3 +271,106 @@ export function regionRules(region) {
     newRule({ type: "set", values: sets, action: "direct", origin: "region" }),
   ].map((rule) => sanitizeRule(rule).rule);
 }
+
+// ── Файл правил: экспорт и импорт ───────────────────────────────────
+// Перенос списка между устройствами. id правила локален (по нему экран ищет
+// строку), поэтому в файл не пишется, а при импорте выдаётся заново.
+// regionDetached едет вместе с правилами: перенесённая база региона живёт в
+// самом списке, и без флага на втором устройстве регион выпускал бы свои
+// правила поверх уже импортированных.
+export const RULES_FILE_TYPE = "ninety.routing-rules";
+export const RULES_FILE_VERSION = 1;
+export const RULES_IMPORT_MAX = 1000;
+
+export function buildRulesExport(rules, { regionDetached = false, now = new Date() } = {}) {
+  const list = (Array.isArray(rules) ? rules : []).map((raw) => {
+    const rule = { ...sanitizeRule(raw).rule };
+    delete rule.id;
+    return rule;
+  });
+  return {
+    type: RULES_FILE_TYPE,
+    version: RULES_FILE_VERSION,
+    exportedAt: now.toISOString(),
+    regionDetached: !!regionDetached,
+    rules: list,
+  };
+}
+
+// Разбор файла. Принимает и голый массив правил — так проще собрать файл
+// руками. Неизвестный тип или действие правило отбрасывают целиком: молча
+// превратить «Блок» из будущей версии в «Через VPN» хуже, чем пропустить.
+// Возвращает { rules, regionDetached, skipped, dropped } или { error }, где
+// error — "parse" | "format" | "newer" | "tooMany" | "empty".
+export function parseRulesImport(text) {
+  let data;
+  try {
+    data = JSON.parse(String(text ?? "").replace(/^\uFEFF/, ""));
+  } catch {
+    return { error: "parse" };
+  }
+  let list;
+  let regionDetached = null;
+  if (Array.isArray(data)) {
+    list = data;
+  } else if (data && typeof data === "object" && data.type === RULES_FILE_TYPE) {
+    if (!Number.isInteger(data.version) || data.version < 1) return { error: "format" };
+    if (data.version > RULES_FILE_VERSION) return { error: "newer" };
+    if (!Array.isArray(data.rules)) return { error: "format" };
+    list = data.rules;
+    if (typeof data.regionDetached === "boolean") regionDetached = data.regionDetached;
+  } else {
+    return { error: "format" };
+  }
+  if (list.length > RULES_IMPORT_MAX) return { error: "tooMany" };
+  const rules = [];
+  let skipped = 0;
+  let dropped = 0;
+  for (const raw of list) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)
+      || !RULE_TYPES.includes(raw.type) || !RULE_ACTIONS.includes(raw.action)) {
+      skipped++;
+      continue;
+    }
+    const { rule, dropped: lost } = sanitizeRule({ ...raw, id: undefined });
+    dropped += lost;
+    if (!rule.values.length) {
+      skipped++;
+      continue;
+    }
+    rules.push(rule);
+  }
+  if (!rules.length) return { error: "empty" };
+  if (regionDetached === null) regionDetached = rules.some((r) => r.origin === "region");
+  return { rules, regionDetached, skipped, dropped };
+}
+
+// Одно и то же правило независимо от id, подписи, метки базы и тумблера:
+// выключенная у себя копия — всё равно «уже есть».
+function ruleFingerprint(rule) {
+  return stableJson({ ...rule, id: undefined, name: undefined, origin: undefined, enabled: undefined });
+}
+
+// mode "replace" — список целиком из файла; "append" — новые правила в конец,
+// уже имеющиеся пропускаются. При добавлении метка базы региона снимается:
+// «Вернуть базу» на этом устройстве не должна удалять то, что импортировали.
+export function mergeImportedRules(current, incoming, mode = "append") {
+  const list = Array.isArray(incoming) ? incoming : [];
+  if (mode === "replace") return { rules: list.map((r) => ({ ...r })), added: list.length, duplicates: 0 };
+  const own = Array.isArray(current) ? current : [];
+  const seen = new Set(own.map(ruleFingerprint));
+  const added = [];
+  let duplicates = 0;
+  for (const rule of list) {
+    const plain = { ...rule };
+    delete plain.origin;
+    const fp = ruleFingerprint(plain);
+    if (seen.has(fp)) {
+      duplicates++;
+      continue;
+    }
+    seen.add(fp);
+    added.push(plain);
+  }
+  return { rules: [...own, ...added], added: added.length, duplicates };
+}
