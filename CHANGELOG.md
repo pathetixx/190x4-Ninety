@@ -6,6 +6,18 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.17.0 — 2026-11-17
+
+## English
+
+- Routing rules can now be saved to a file and loaded on another PC with the Export and Import buttons in Routing rules.
+- The first connection after installing no longer times out while rule lists are still downloading.
+
+## Русский
+
+- Правила маршрутизации теперь можно сохранить в файл и загрузить на другом ПК кнопками «Экспорт» и «Импорт» в «Правилах маршрутизации».
+- Первое подключение после установки больше не обрывается по тайм-ауту, пока скачиваются списки правил.
+
 ## v0.16.1 — 2026-11-16
 
 ## English
