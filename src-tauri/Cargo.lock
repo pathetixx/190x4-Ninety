@@ -2662,7 +2662,6 @@ dependencies = [
  "blake2 0.11.0",
  "boringtun",
  "chacha20poly1305 0.11.0",
- "chrono",
  "futures-util",
  "minisign-verify",
  "rand_core 0.6.4",
@@ -2679,6 +2678,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "time",
  "tokio",
  "tokio-tungstenite",
  "urlencoding",
@@ -2750,6 +2750,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "num_threads"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cabcc654086861f9e1bc5115258de62ef92c79b20f4615a1b0cc57c4e82027d4"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -4968,7 +4977,9 @@ checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
 dependencies = [
  "deranged",
  "itoa",
+ "libc",
  "num-conv",
+ "num_threads",
  "powerfmt",
  "serde_core",
  "time-core",

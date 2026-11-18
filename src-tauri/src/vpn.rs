@@ -155,20 +155,18 @@ pub(crate) fn diagnostic_level_for_result(result: &str) -> DiagnosticLevel {
 // предыдущей записи движка как её продолжение: своего времени нет, фильтр по
 // уровню мимо, поиск находит её в чужой записи. Формат ровно как у sing-box при
 // log.timestamp=true — `-0700 2006-01-02 15:04:05 LEVEL message`.
-fn stamped_diagnostic(
-    now: &chrono::DateTime<chrono::Local>,
-    level: DiagnosticLevel,
-    body: &str,
-) -> String {
-    format!(
-        "{} {} {body}",
-        now.format("%z %Y-%m-%d %H:%M:%S"),
-        level.tag()
-    )
+fn stamped_diagnostic(now: &time::OffsetDateTime, level: DiagnosticLevel, body: &str) -> String {
+    let stamp = now
+        .format(time::macros::format_description!(
+            "[offset_hour sign:mandatory][offset_minute] [year]-[month]-[day] [hour]:[minute]:[second]"
+        ))
+        .unwrap_or_default();
+    format!("{stamp} {} {body}", level.tag())
 }
 
 fn diagnostic_line(level: DiagnosticLevel, body: &str) -> String {
-    stamped_diagnostic(&chrono::Local::now(), level, body)
+    let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    stamped_diagnostic(&now, level, body)
 }
 
 fn truncation_marker() -> String {
@@ -3899,7 +3897,6 @@ pub async fn plan_bridge_ports(needs: BridgeNeeds) -> Result<BridgePorts, String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
     fn test_dir(label: &str) -> PathBuf {
         let nonce = std::time::SystemTime::now()
@@ -3960,9 +3957,7 @@ mod tests {
     #[test]
     fn diagnostics_carry_a_singbox_shaped_timestamp_and_level() {
         let stamped = stamped_diagnostic(
-            &chrono::Local
-                .with_ymd_and_hms(2026, 8, 4, 19, 55, 27)
-                .unwrap(),
+            &time::macros::datetime!(2026-08-04 19:55:27 +03:00),
             DiagnosticLevel::Warn,
             "runtime_stop kind=Disconnect generation=7 result=refused",
         );

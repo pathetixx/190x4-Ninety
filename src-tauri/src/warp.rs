@@ -279,6 +279,12 @@ fn parse_cf_response<T: DeserializeOwned>(label: &str, text: &str) -> Result<T, 
     })
 }
 
+fn now_rfc3339() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default()
+}
+
 async fn cf_register(
     public_key_b64: &str,
     via: Option<&ProbeProxyEndpoint>,
@@ -286,11 +292,14 @@ async fn cf_register(
     let client = http_client(via)?;
     // install_id и fcm_token — псевдо-id мобильного устройства; CF не валидирует
     // их строго, но проверяет факт наличия и UA.
-    let install_id = format!("ninety-{}", chrono::Utc::now().timestamp_millis());
+    let install_id = format!(
+        "ninety-{}",
+        time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000
+    );
     let body = serde_json::json!({
         "install_id": install_id,
         "fcm_token": "",
-        "tos": chrono::Utc::now().to_rfc3339(),
+        "tos": now_rfc3339(),
         "key": public_key_b64,
         "type": "Android",
         "model": "Ninety/190x4",
@@ -439,7 +448,7 @@ pub async fn warp_register(app: AppHandle, license: Option<String>) -> Result<Wa
         },
         warp_plus,
         account_type,
-        registered_at: chrono::Utc::now().to_rfc3339(),
+        registered_at: now_rfc3339(),
     };
 
     if let Err(e) = write_info(&app, &info) {

@@ -529,7 +529,12 @@ fn dir_has_files(dir: &Path) -> Result<bool, String> {
 }
 
 fn recovered_target(root: &Path) -> PathBuf {
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    let stamp = now
+        .format(time::macros::format_description!(
+            "[year][month][day]-[hour][minute][second]"
+        ))
+        .unwrap_or_default();
     let base = root.join(format!("{RECOVERED_PREFIX}{stamp}"));
     if !base.exists() {
         return base;

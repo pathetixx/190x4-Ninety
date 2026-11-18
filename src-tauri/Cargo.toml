@@ -63,7 +63,9 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 boringtun = { version = "0.7", default-features = false }
 # BLAKE2s для пересчёта MAC1 после подмены reserved (CF WARP client_id routing).
 blake2 = "0.11"
-chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+# Метки времени (журнал, WARP, папки восстановления). Крейт и так в дереве
+# зависимостей (tauri, cookie, plist); chrono заменён: RUSTSEC-2026-0543.
+time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 # TTL на сокете ДО connect (трасса в diagnose.rs): у tokio такой ручки нет.
 # Крейт и так в дереве зависимостей (tokio/hyper), новых сторонних имён не вносит.
 socket2 = "0.6"
