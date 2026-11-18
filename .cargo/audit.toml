@@ -31,4 +31,8 @@ ignore = [
   "RUSTSEC-2026-0370",
   "RUSTSEC-2026-0371",
   "RUSTSEC-2026-0372",
+  # chrono is unmaintained and has no maintained release. Ninety itself uses
+  # the time crate; chrono stays only through tauri-utils -> serde_with.
+  # Drop once Tauri stops pulling it in.
+  "RUSTSEC-2026-0543",
 ]
