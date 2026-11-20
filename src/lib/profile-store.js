@@ -176,6 +176,10 @@ let persistedStore = false;
 let writeFailure = null;
 let initPromise = null;
 let writeChain = Promise.resolve();
+// Сколько «Очистить» сейчас в полёте. Запись, поставленная в это время, несёт
+// состояние до очистки и, выполнившись после неё, вернула бы удалённые
+// подписки (с URL и токенами) обратно на диск.
+let clearsInFlight = 0;
 
 function emit(name, detail = {}) {
   try {
@@ -308,6 +312,7 @@ async function replaceBackend(payload, expectedRevision) {
 // quietTooLarge — вызывающий сам объяснит отказ по размеру (окно добавления);
 // остальные отказы записи всё равно сообщаются общим уведомлением.
 function enqueuePersist({ notify = true, quietTooLarge = false } = {}) {
+  if (clearsInFlight > 0) return Promise.resolve({ revision, persisted: false, superseded: true });
   const payload = storePayload();
   const task = writeChain
     .catch(() => {})
@@ -388,6 +393,12 @@ export function profileStoreIsDegraded() {
   return backendDegraded;
 }
 
+// Есть ли нативное хранилище вообще (desktop), независимо от его готовности.
+// На desktop профильные ключи в WebView-хранилище не возвращаются никогда.
+export function profileStoreHasBackend() {
+  return typeof invokeRef === "function";
+}
+
 // Почему не прошла последняя запись (null — всё сохранено).
 export function profileStoreWriteFailure() {
   return writeFailure ? { ...writeFailure } : null;
@@ -450,9 +461,14 @@ export async function initializeProfileStore({ invoke = null, storage = null } =
     // only usable copy of a user's profiles.
     revision = 0;
     persistedStore = false;
-    state = normalizeStore(legacy.store, revision);
+    // Профиль, добавленный до ответа хранилища, есть только в памяти: без
+    // слияния он терялся, а следующая запись удаляла и его зеркало.
+    const legacyState = normalizeStore(legacy.store, revision);
+    const hadLocalMutation = pendingLocalMutation;
+    state = hadLocalMutation ? mergeStoreStates(legacyState, state, revision) : legacyState;
+    pendingLocalMutation = false;
     initialized = true;
-    if (legacy.hasData) {
+    if (legacy.hasData || hadLocalMutation) {
       try {
         await replaceBackend(storePayload(), 0);
         emit("ninety:profile-store-ready", { source: "migrated", persisted: true, revision });
@@ -579,6 +595,12 @@ export function profileStoreBackupEntries() {
 }
 
 export async function restoreProfileStoreFromBackup(snapshot) {
+  // Хранилище не читается: восстановление жило бы только в памяти, а успех
+  // был бы ложным. Оставляем данные на диске и честно сообщаем об ошибке.
+  if (backendDegraded) {
+    emit("ninety:profile-store-error", { stage: "restore" });
+    return false;
+  }
   const profiles = readJsonValue(snapshot?.[STORAGE_KEYS.profiles], []);
   const subscriptions = readJsonValue(snapshot?.[STORAGE_KEYS.subscriptions], []);
   const proxySelection = readJsonValue(snapshot?.[STORAGE_KEYS.proxySelection], {});
@@ -614,11 +636,20 @@ function readJsonValue(raw, fallback) {
 }
 
 export async function clearProfileStore() {
+  clearsInFlight++;
   const task = writeChain
     .catch(() => {})
     .then(async () => {
-      if (backendEnabled && typeof invokeRef === "function") {
+      // Удаление подтверждает только нативный backend — и в деградации тоже.
+      // Rust удаляет файлы без чтения (expectedRevision: null), а раньше этот
+      // вызов пропускался: «Очистить» сообщала об успехе, файлы оставались.
+      if (typeof invokeRef === "function") {
         await invokeRef("profile_store_clear", { expectedRevision: null });
+        if (backendDegraded) {
+          backendDegraded = false;
+          backendEnabled = true;
+          writeFailure = null;
+        }
       }
       state = defaultStore();
       revision = 0;
@@ -627,5 +658,9 @@ export async function clearProfileStore() {
       emit("ninety:profile-store-changed", { revision: 0 });
     });
   writeChain = task.catch(() => {});
-  await task;
+  try {
+    await task;
+  } finally {
+    clearsInFlight--;
+  }
 }

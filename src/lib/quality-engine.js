@@ -23,6 +23,11 @@ const PASSIVE_WINDOW_MS = 10_000; // окно скользящего трафи�
 const FLATLINE_BPS = 4_096;       // down ниже — считаем «потока нет»
 const ACTIVITY_BPS = 32_768;      // был выше в окне → ждали данные (не idle)
 const PROBE_MIN_GAP_MS = 8_000;   // не чаще пробуем (кроме осадки лесенки)
+// Собственная проба качает до probeBytes через тот же inbound, поэтому её
+// трафик виден в clash:traffic. Пока она идёт и пару секунд после (телеметрия
+// отстаёт на тик), пассивный сигнал не пишем: иначе пик пробы с последующим
+// затишьем выглядел как «занавес» и запускал следующую пробу — по кругу.
+const PROBE_PASSIVE_GRACE_MS = 3_000;
 
 // Осадка после ступени (применить→осесть→перепробить).
 const SETTLE_CHEAP_MS = 2_500;    // R1/R2 (без реконнекта)
@@ -69,6 +74,7 @@ export function createQualityEngine({
   let badStreak = 0;
   let goodStreak = 0;
   let lastProbeAt = 0;
+  let passiveMutedUntil = 0;    // до этого момента пассивный сигнал не пишем
   // Ближайший момент, когда пробовать снова осмысленно. Двигается после
   // пропущенных проб и после лесенки: иначе движок бил бы IPC на каждом тике
   // сторожа, получая тот же отказ.
@@ -100,6 +106,7 @@ export function createQualityEngine({
   // ── Пассивный сигнал из clash:traffic ──────────────────
   function updatePassive({ down } = {}) {
     const timestamp = now();
+    if (probingEpoch != null || timestamp < passiveMutedUntil) return;
     passive.push({ t: timestamp, down: Number(down) || 0 });
     while (passive.length && timestamp - passive[0].t > PASSIVE_WINDOW_MS) passive.shift();
   }
@@ -140,6 +147,7 @@ export function createQualityEngine({
         budgetMs: 4000,
       });
       if (!sessionActive(epoch)) return null;
+      if (!r?.skipped) quietPassiveAfterProbe();
       // skipped = проба вообще не выполнялась (нет поколения, датаплейн занят,
       // runtime уже сменился). Это отказ гейта, а не измерение канала: в
       // осциллограмму он не идёт, но и молчать нельзя — без записи отказ
@@ -156,11 +164,20 @@ export function createQualityEngine({
       recordSample(r, rung);
       return r;
     } catch (e) {
+      // Байты могли успеть пройти и до ошибки.
+      if (sessionActive(epoch)) quietPassiveAfterProbe();
       actions.log?.("probe_quality failed: " + e);
       return null;
     } finally {
       if (probingEpoch === epoch) probingEpoch = null;
     }
+  }
+
+  // Замеры пользователя, записанные до пробы, сохраняем: на них держится
+  // вторая проба подряд, нужная лесенке (BAD_STREAK). Не пишем только трафик
+  // самой пробы — он и создавал «пик → затишье» без участия пользователя.
+  function quietPassiveAfterProbe() {
+    passiveMutedUntil = now() + PROBE_PASSIVE_GRACE_MS;
   }
 
   // r → UNKNOWN | GOOD | SLOW | STALLED
@@ -270,6 +287,7 @@ export function createQualityEngine({
         }
 
         let applied = false;
+        const epochBeforeStep = sessionEpoch;
         if (step.reconnect) reconnectHandoff = true;
         try { applied = (await fn()) !== false; }
         catch (e) { actions.log?.(`ladder ${step.id} failed: ${e}`); applied = false; }
@@ -285,10 +303,13 @@ export function createQualityEngine({
           remediatingEpoch = epoch;
         }
         if (step.reconnect) reconnectHandoff = false;
+        // В часовой лимит идёт каждая состоявшаяся пересборка runtime, даже если
+        // проверка после неё не подтвердилась: иначе неуверенная проверка
+        // давала переподключаться без ограничения.
+        if (step.reconnect && (applied || sessionEpoch !== epochBeforeStep)) reconnectTimes.push(now());
         if (!sessionActive(epoch)) return;
         if (!applied) continue;
 
-        if (step.reconnect) reconnectTimes.push(now());
         await sleepFn(step.reconnect ? SETTLE_RECONNECT_MS : SETTLE_CHEAP_MS);
         if (!sessionActive(epoch)) return;
 
@@ -407,6 +428,7 @@ export function createQualityEngine({
     nextEligibleProbeAt = 0;
     passive.length = 0;
     lastProbeAt = now(); // дать туннелю осесть перед первой пробой
+    passiveMutedUntil = 0;
     cachedAsn = null;
     // Прогрев ASN сразу: learnedStartIndex читает ключ обучения СИНХРОННО в
     // начале лесенки (learnKeySync), а cachedAsn раньше заполнялся только в

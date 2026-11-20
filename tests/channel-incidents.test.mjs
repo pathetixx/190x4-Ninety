@@ -151,3 +151,18 @@ test("смена состояния канала разрешает записа
     "quality.pausedHostPressure",
   ]);
 });
+
+// Нагрузка ПК — не состояние канала: движок перестаёт мерить, но скорость
+// от этого не «падает».
+test("нагрузка ПК не открывает инцидент и не стирает причину паузы", () => {
+  const { rec, kinds } = recorder();
+  rec.observe("GOOD");
+  rec.observe("PRESSURE");
+  assert.deepEqual(kinds(), [], "из GOOD нагрузка не открывает «скорость упала»");
+
+  rec.observe("SLOW");
+  rec.observe("PRESSURE");
+  rec.pause("hostPressure");
+  assert.equal(rec.state(), "SLOW");
+  assert.deepEqual(kinds(), ["quality.degraded", "quality.pausedHostPressure"]);
+});

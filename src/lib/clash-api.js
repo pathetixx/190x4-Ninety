@@ -260,9 +260,23 @@ export async function closeProxyConnections({ port, token } = {}) {
 // closeConnections=false — для восстановления выбора на свежем runtime (рвать
 // там нечего, ядро секунду как поднялось) и для тихого возврата к «Авто» после
 // временного закрепления ноды: живые соединения на ней исправны.
-export function selectProxy(group, name, { port, token, closeConnections = true } = {}) {
-  const revision = ++selectionRevision;
+//
+// background=true — фоновая смена (возврат к «Авто» по таймеру): она не
+// вытесняет уже поставленный в очередь выбор пользователя, а сама решает в
+// момент исполнения, нужна ли ещё. shouldApply вызывается внутри очереди,
+// когда все ранее поставленные выборы уже применены; false → { stale: true }.
+export function selectProxy(group, name, {
+  port, token, closeConnections = true, background = false, shouldApply,
+} = {}) {
+  let revision = background ? null : ++selectionRevision;
   const task = async () => {
+    if (background) {
+      const seen = selectionRevision;
+      if (typeof shouldApply === "function" && !(await shouldApply())) return { stale: true };
+      // Пока шла проверка, пользователь мог выбрать сервер: его выбор главнее.
+      if (seen !== selectionRevision) return { stale: true };
+      revision = ++selectionRevision;
+    }
     if (revision !== selectionRevision) return { stale: true };
     const captured = captureRuntime(token);
     await call("selectProxy", "clash_select_proxy", { port, group, name }, { token: captured });

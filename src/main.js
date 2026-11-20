@@ -904,6 +904,12 @@ if (settingsRoot) {
       if (path === "general.killSwitch") {
         const toggleEpoch = ++killSwitchToggleEpoch;
         maybeWarnKillSwitchProxy();
+        // Без прав администратора WFP не поднять, и подключение с включённой
+        // защитой каждый раз отказывает. При отключённом VPN проверка ниже
+        // ничего не армирует — говорим об этом сразу, а не на первом отказе.
+        if (value && state !== "connected" && !(await invoke("is_elevated").catch(() => true))) {
+          toast(t("elev.killSwitchHint"), "warn", 6000);
+        }
         const shouldArm = state === "connected";
         const ready = await applyKillSwitch(shouldArm);
         if (toggleEpoch === killSwitchToggleEpoch && ready !== false) {
@@ -1354,8 +1360,9 @@ const qualityEngine = createQualityEngine({
     selectNextNode: async () => {
       const token = runtimeIdentity.capture();
       if (!token) return false;
-      // При ручном выборе balancer трафик не ведёт — перемерять незачем.
-      if (manualProxySelection(getActiveSource())) return false;
+      // При ручном выборе и пока лесенка держит ноду закреплённой в «Авто»,
+      // balancer трафик не ведёт — перемерять незачем.
+      if (manualProxySelection(getActiveSource()) || qualityAutoHoldTimer) return false;
       const nodes = qualityNodesFromSource();
       if (nodes.length < 2) return false;
       let proxies = {};
@@ -1417,6 +1424,9 @@ const qualityEngine = createQualityEngine({
       const token = runtimeIdentity.capture();
       if (!token) return false;
       if (!loadOptions().warp.enabled) return false;
+      // В цепочке WARP идёт через VPN-сервер, а скан меряет прямой путь с ПК:
+      // переподключение ради такого эндпоинта ничего не даёт.
+      if (loadOptions().warp.mode === "chain") return false;
       try {
         // warp_scan_endpoints отдаёт ScanResult[] с полями ip/port (scanner.rs) —
         // прежний код ждал endpoint/host, всегда получал null и ступень
@@ -1459,7 +1469,7 @@ const qualityEngine = createQualityEngine({
         notify(t("qToast.hiddenNotifyTitle"), t("qToast.hiddenNotifyBody"));
         return false;
       }
-      return confirm(t("qToast.confirmSpeedup", { label }));
+      return askQualityConfirm(t("qToast.confirmSpeedup", { label }));
     },
     // Лента инцидентов: ступень лечения — контекст внутри уже открытого
     // инцидента (его открыл переход состояния в onState), поэтому severity info.
@@ -1548,16 +1558,33 @@ async function switchQualityNode(pick, token) {
   } catch { return false; }
 }
 
+// Вопрос лесенки качества. Асинхронный диалог вместо window.confirm: синхронный
+// confirm останавливал все таймеры окна, и пока он висел, сторож не замечал
+// смерть ядра и не восстанавливал защиту. Уже открытый чужой диалог не
+// закрываем (openConfirmModal закрыл бы его как отмену) — спросим в другой раз.
+async function askQualityConfirm(message) {
+  if (document.querySelector(".confirm-modal")) return false;
+  const answer = await openConfirmModal({
+    title: t("qEngine.notifyTitle"),
+    message,
+    confirmLabel: t("confirm.ok"),
+    cancelLabel: t("confirm.cancel"),
+  });
+  return answer === true;
+}
+
 // Окно в трее → вопрос повис бы невидимым; о замедлении лесенка уже сообщила
 // уведомлением, а спросим на следующем прогоне. Раз в полчаса, чтобы R2 и R5
 // одного прогона не задавали один и тот же вопрос дважды.
 async function offerManualNodeSwitch(pick, token) {
   if (Date.now() - qualityManualOfferAt < QUALITY_MANUAL_OFFER_COOLDOWN_MS) return false;
   if (!(await windowIsForeground())) return false;
+  const manual = manualProxySelection(getActiveSource());
   qualityManualOfferAt = Date.now();
   const node = qualityNodesFromSource().find(n => n.clashTag === pick);
-  if (!confirm(t("qToast.confirmSwitch", { name: node ? nodeDisplayLabel(node) : pick }))) return false;
-  if (!runtimeIdentity.isCurrent(token)) return false;
+  if (!(await askQualityConfirm(t("qToast.confirmSwitch", { name: node ? nodeDisplayLabel(node) : pick })))) return false;
+  // Пока висел вопрос, пользователь мог сам выбрать сервер или переподключиться.
+  if (!runtimeIdentity.isCurrent(token) || manualProxySelection(getActiveSource()) !== manual) return false;
   try {
     const r = await selectProxy("proxy", pick, { token });
     if (r?.stale || !runtimeIdentity.isCurrent(token)) return false;
@@ -1569,18 +1596,42 @@ async function offerManualNodeSwitch(pick, token) {
 
 // balancer выбирает по задержке и не видит, что лидера душат по скорости,
 // поэтому в «Авто» лесенка закрепляет ноду в селекторе. Без возврата «Авто»
-// молча превращался в ручной выбор до следующего переподключения. Возвращаем,
-// только если селектор всё ещё на той же ноде, а пользователь ничего не выбирал.
+// молча превращался в ручной выбор. Возвращаем, только если селектор всё ещё
+// на той же ноде, а пользователь ничего не выбирал. После переподключения
+// таймер устаревает, а «Авто» восстанавливает restoreRememberedProxySelection.
+const QUALITY_AUTO_RETURN_ATTEMPTS = 3;
+const QUALITY_AUTO_RETURN_RETRY_MS = 60_000;
 function holdAutoSelection(tag, token) {
   clearQualityAutoHold();
-  qualityAutoHoldTimer = setTimeout(async () => {
-    qualityAutoHoldTimer = null;
-    if (!runtimeIdentity.isCurrent(token) || manualProxySelection(getActiveSource())) return;
-    let proxies;
-    try { proxies = (await getProxies(undefined, { token }))?.proxies || {}; } catch { return; }
-    if (!runtimeIdentity.isCurrent(token) || proxies.proxy?.now !== tag) return;
-    try { await selectProxy("proxy", "auto", { token, closeConnections: false }); } catch {}
-  }, QUALITY_AUTO_HOLD_MS);
+  const schedule = (attemptsLeft, delay) => {
+    qualityAutoHoldTimer = setTimeout(async () => {
+      qualityAutoHoldTimer = null;
+      if (!runtimeIdentity.isCurrent(token) || manualProxySelection(getActiveSource())) return;
+      try {
+        // Проверка выполняется внутри очереди селектора, после уже поставленных
+        // выборов пользователя: снимок, прочитанный заранее, мог устареть, и
+        // возврат перезаписал бы только что сделанный ручной выбор.
+        await selectProxy("proxy", "auto", {
+          token,
+          closeConnections: false,
+          background: true,
+          shouldApply: async () => {
+            if (!runtimeIdentity.isCurrent(token) || manualProxySelection(getActiveSource())) return false;
+            const proxies = (await getProxies(undefined, { token, fresh: true }))?.proxies || {};
+            return runtimeIdentity.isCurrent(token)
+              && !manualProxySelection(getActiveSource())
+              && proxies.proxy?.now === tag;
+          },
+        });
+      } catch {
+        // Clash API временно не ответил — закрепление ещё действует, повторим.
+        if (attemptsLeft > 1 && runtimeIdentity.isCurrent(token)) {
+          schedule(attemptsLeft - 1, QUALITY_AUTO_RETURN_RETRY_MS);
+        }
+      }
+    }, delay);
+  };
+  schedule(QUALITY_AUTO_RETURN_ATTEMPTS, QUALITY_AUTO_HOLD_MS);
 }
 
 function clearQualityAutoHold() {
@@ -1899,6 +1950,11 @@ async function reconnectCommittedSource(reason, context = {}) {
       connected ? "connected" : "failed",
       connected ? null : (result?.status === "completed" ? "connect_pipeline_false" : result?.status),
     );
+    // Запрос вытеснен более новым реконнектом: результат скажет тот, а не этот.
+    // Переключению источника нужно отличать это от отказа цели (см. source-activation).
+    if (!connected && context.onPreempted && (result?.status === "superseded" || result?.status === "cancelled")) {
+      context.onPreempted();
+    }
     return connected;
   }
   if (state !== "idle") {
@@ -1917,20 +1973,37 @@ async function reconnectCommittedSource(reason, context = {}) {
   } finally { if (toastId) toast.dismiss(toastId); }
 }
 
-function applyActiveSource(kind, id, options = {}) {
+// Координатор занят (идёт старт ядра или ручное подключение/отключение) —
+// выбор источника раньше молча терялся. Повторяем, пока занятость не пройдёт;
+// более новый выбор пользователя отменяет ожидание старого.
+const SOURCE_BUSY_RETRIES = 12;
+const SOURCE_BUSY_RETRY_MS = 500;
+let sourceRequestSeq = 0;
+async function applyActiveSource(kind, id, options = {}) {
   const target = { kind: kind === "sub" ? "sub" : "single", id };
-  if (sameSourceRef(activeSourceRef(), target)) {
-    return Promise.resolve({ changed: false, ready: true, target });
+  const request = ++sourceRequestSeq;
+  for (let attempt = 0; ; attempt++) {
+    if (sameSourceRef(activeSourceRef(), target)) {
+      return { changed: false, ready: true, target };
+    }
+    const shouldReconnect = options.reconnect !== false
+      && networkIntent.desired() === "connected";
+    const isSub = target.kind === "sub";
+    const result = await sourceSwitchController.activate(target, {
+      reconnect: shouldReconnect,
+      silent: !!options.silent,
+      reason: options.reason || (isSub ? t("conn.switchSub") : t("conn.switchProfile")),
+      rollbackReason: t("conn.restorePrevious"),
+    });
+    if (!result?.busy) return result;
+    if (request !== sourceRequestSeq) return { ...result, stale: true };
+    if (attempt >= SOURCE_BUSY_RETRIES) {
+      if (!options.silent) toast(t("backend.vpn.starting"), "warn", 3000, { group: "conn" });
+      return result;
+    }
+    await new Promise((resolve) => setTimeout(resolve, SOURCE_BUSY_RETRY_MS));
+    if (request !== sourceRequestSeq) return { changed: false, stale: true, target };
   }
-  const shouldReconnect = options.reconnect !== false
-    && networkIntent.desired() === "connected";
-  const isSub = target.kind === "sub";
-  return sourceSwitchController.activate(target, {
-    reconnect: shouldReconnect,
-    silent: !!options.silent,
-    reason: options.reason || (isSub ? t("conn.switchSub") : t("conn.switchProfile")),
-    rollbackReason: t("conn.restorePrevious"),
-  });
 }
 
 function activateSource(kind, id) {
@@ -1961,7 +2034,14 @@ configureTrafficRuntime(runtimeIdentity);
 sourceSwitchController = createSourceSwitchController({
   getActiveSource: activeSourceRef,
   applySource: (source) => commitActiveSource(source.kind, source.id),
-  reconnect: reconnectCommittedSource,
+  reconnect: async (reason, context) => {
+    let preempted = false;
+    const connected = await reconnectCommittedSource(reason, {
+      ...context,
+      onPreempted: () => { preempted = true; },
+    });
+    return preempted ? { preempted: true } : connected;
+  },
   confirm: confirmActiveSourceDataplane,
   canContinue: () => networkIntent.desired() === "connected",
   persist: () => backupNow(),
@@ -2087,7 +2167,14 @@ async function deleteSource(kind, id) {
       setActiveProfileId(null);
       setActiveKind("sub");
     }
-    applyActiveSource(fallback.kind, fallback.id, { reason: t("conn.applyingSettings") });
+    void applyActiveSource(fallback.kind, fallback.id, { reason: t("conn.applyingSettings") })
+      .then((result) => {
+        // Координатор так и не освободился: активные id уже сброшены выше, и
+        // без этого шага не осталось бы ни одного активного источника. Запасной
+        // применяем без переподключения — runtime подхватит его при следующем.
+        if (result?.busy && !result?.stale) commitActiveSource(fallback.kind, fallback.id);
+      })
+      .catch((error) => console.warn("fallback source activation failed", error));
   } else {
     if (isActive) {
       setActiveSubscriptionId(null);
@@ -3177,6 +3264,16 @@ function setState(next, opts = {}) {
     // Эндпоинты апдейта стали достижимы через туннель — дочекать, если прямые
     // проверки не проходили (у части провайдеров gitlab/github режутся напрямую).
     updateCheckIfStale();
+    // Журнал возврата сессии после OTA одноразовый: любое подтверждённое
+    // подключение его закрывает. Иначе после неудачного авто-возврата он жил до
+    // следующего удачного запуска и всё это время молча выключал обычные
+    // резервные копии состояния (backupNow пропускает запись, пока он есть).
+    try {
+      if (localStorage.getItem("ninety.update.resume") != null
+          || localStorage.getItem("ninety.dpi.resumeAfterUpdate") != null) {
+        void markUpdateRuntimeReady().catch(() => {});
+      }
+    } catch {}
     // Wizard: подключились — переходим на финальный шаг.
     if (wizardActive && wizardStepNum === 2) showOnbStep(3);
     maybeAutoLaunchProtectedBrowser();
@@ -3909,7 +4006,10 @@ async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
   if (!(await shutdownCore({ finalize: false }))) return false;
   if (lateStart) {
     await coreStartBarrier.wait();
-    if (!isCurrentNetworkIntent(epoch, "idle")) return false;
+    // Поздний старт мог поднять ядро — останавливаем его в любом случае, даже
+    // если намерение уже сменилось. Раньше здесь был голый return false:
+    // состояние оставалось «Отключение…», а очередь реконнекта ждала простоя
+    // вечно. Освободить её можно только после подтверждённой остановки.
     if (!(await shutdownCore({ finalize: false }))) return false;
   }
   if (!isCurrentNetworkIntent(epoch, "idle")) return finalizeStoppedRuntime();
@@ -4037,9 +4137,17 @@ heroDisc?.addEventListener("click", () => handleConnectionIntent());
 homeReadyBooted = true;
 updateHomeReady();
 if (locPing) locPing.textContent = `— ${t("units.ms")}`;
-window.addEventListener("ninety:profile-store-ready", () => {
+window.addEventListener("ninety:profile-store-ready", (ev) => {
   refreshProfilesSummary();
   syncTrayMenu();
+  // Основная копия хранилища не прочиталась, данные подняты из .bak — она
+  // может быть старше. Пользователь должен об этом знать.
+  if (ev?.detail?.source === "backup") {
+    toast(t("store.recoveredTitle"), "warn", 9000, {
+      group: "profile-store",
+      desc: t("store.recoveredDesc"),
+    });
+  }
 });
 
 // Отказ защищённого хранилища профилей раньше был виден только в консоли
@@ -4226,7 +4334,8 @@ async function autostartNetworkRuntime() {
       if (tunWanted) setMode("tun"); // перезапущенный admin-инстанс поднимется в TUN
       // Только DPI-обход — без VPN: иначе каждый запуск такого пользователя без
       // прав заканчивался поднятым туннелем.
-      const started = await invoke("relaunch_elevated", { connect: vpnWanted });
+      // Сценарий автозапуска: новый процесс остаётся в трее, как и прежний.
+      const started = await invoke("relaunch_elevated", { connect: vpnWanted, keepInTray: true });
       if (started) return; // текущий процесс вот-вот завершится
       // Элевация не удалась (отказ UAC, политика). Обещанный fallback обязан
       // быть настоящим: раньше режим оставался tun, sing-box без прав интерфейс

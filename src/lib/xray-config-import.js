@@ -17,7 +17,7 @@
 // (proto "xray") и поднимается локальным xray-мостом как есть: перевод в
 // ссылку молча выкинул бы ровно то, без чего сервер не отвечает.
 
-import { parseLink } from "/lib/protocol-parsers.js";
+import { parseLink, stripXrayFileFields } from "/lib/protocol-parsers.js";
 import { safeJsonParse } from "/lib/config-format.js";
 import {
   bareHost,
@@ -392,7 +392,7 @@ function rawLabel(outbound, reason) {
 // а dialerProxy/proxySettings ссылались на соседей по исходному конфигу
 // (фрагментация у Ninety своя, цепочки отсеяны раньше).
 function detachedOutbound(outbound) {
-  const copy = JSON.parse(JSON.stringify(outbound));
+  const copy = stripXrayFileFields(JSON.parse(JSON.stringify(outbound)));
   delete copy.tag;
   delete copy.proxySettings;
   delete copy.sendThrough;

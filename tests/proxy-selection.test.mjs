@@ -69,6 +69,50 @@ test("сохранённая нода восстанавливается пос�
   assert.equal(calls, 3);
 });
 
+test("без выбора пользователя селектор явно возвращается к auto", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "auto-pinned" } };
+  const applied = [];
+  const result = await restoreRememberedProxySelection({
+    source,
+    // Ядро подняло из cache.db ноду, закреплённую лесенкой качества.
+    topology: { proxies: { proxy: { type: "Selector", now: "node-b", all: ["auto", "node-a", "node-b"] } } },
+    apply: async (tag) => { applied.push(tag); return { stale: false }; },
+  });
+  assert.deepEqual(result, { status: "restored", tag: "auto", implicit: true });
+  assert.deepEqual(applied, ["auto"]);
+  // Неявное «Авто» не становится сохранённым решением пользователя.
+  assert.equal(getRememberedProxySelection(source), null);
+});
+
+test("без выбора пользователя auto не трогается, если уже стоит, а одиночный маршрут пропускается", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "auto-current" } };
+  const current = await restoreRememberedProxySelection({
+    source,
+    topology: { proxies: { proxy: { type: "Selector", now: "auto", all: ["auto", "node-a"] } } },
+    apply: async () => assert.fail("apply не должен вызываться"),
+  });
+  assert.deepEqual(current, { status: "current", tag: "auto", implicit: true });
+  const single = await restoreRememberedProxySelection({
+    source,
+    topology: { proxies: { proxy: { type: "VLESS" } } },
+    apply: async () => assert.fail("apply не должен вызываться"),
+  });
+  assert.deepEqual(single, { status: "none", tag: null });
+});
+
+test("ошибка неявного возврата к auto не роняет подключение", async () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "auto-error" } };
+  const result = await restoreRememberedProxySelection({
+    source,
+    topology: { proxies: { proxy: { type: "Selector", now: "node-b", all: ["auto", "node-b"] } } },
+    apply: async () => { throw new Error("Clash API недоступен"); },
+  });
+  assert.equal(result.status, "none");
+});
+
 test("legacy singleton proxy мигрирует в auto у многонодовой подписки", async () => {
   installStorage();
   const source = { kind: "sub", subscription: { id: "expanded" } };

@@ -9,7 +9,7 @@
 // Проверки намеренно узкие. Нода, которая просто не отвечает, здесь валидна:
 // её отбраковывает health-checker, а не сборщик конфига.
 
-import { awgHeaderRange, parseAwgHeader, profileProto } from "/lib/protocol-parsers.js";
+import { awgHeaderRange, parseAwgHeader, profileProto, vlessEncryptionOf } from "/lib/protocol-parsers.js";
 import { openvpnEndpointIssue } from "/lib/openvpn.js";
 
 // Ядро декодирует public_key строго как base64url без паддинга и требует ровно
@@ -348,6 +348,15 @@ function computeNodeConfigIssue(node) {
 
   if (proto === "vless" && normalizeFlow(node.flow) === null) {
     return { code: "flow" };
+  }
+  // Шифрование VLESS поднимает только xray, а мост умеет его для xhttp, mKCP и
+  // обычного TCP. С другим транспортом нода была бы мертва без единой строки в
+  // логе — честнее отсеять её с причиной.
+  if (vlessEncryptionOf(node)) {
+    const type = String(node.type || "");
+    const raw = type === "" || type === "tcp" || type === "raw";
+    if (!raw && type !== "xhttp" && type !== "kcp") return { code: "encryption" };
+    if (raw && node.headerType && node.headerType !== "none") return { code: "encryption" };
   }
 
   if (proto === "vmess" && !VMESS_SECURITY.has(String(node.security || "").toLowerCase())) {

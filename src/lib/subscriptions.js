@@ -7,7 +7,7 @@ import { uid } from "/lib/uid.js";
 import { loadOptions } from "/lib/options.js";
 import { safeDecodeBase64 } from "/lib/url-helpers.js";
 import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
-import { partitionNodes, withoutPlaceholders } from "/lib/node-validation.js";
+import { isPlaceholderNode, partitionNodes, withoutPlaceholders } from "/lib/node-validation.js";
 import { looksLikeWireguardConf, parseTrustTunnelToml, parseWireguardConf, profileProto } from "/lib/protocol-parsers.js";
 import { looksLikeOpenvpnConf, parseOpenvpnConf } from "/lib/openvpn.js";
 import { detectConfigFormat, parseClientConfig, unsupportedFormatMessage } from "/lib/config-import.js";
@@ -583,6 +583,18 @@ export async function refreshSubscription(id) {
   const { profiles, received, skipped, format } = parsed;
   if (profiles.length === 0) {
     const err = new Error(unsupportedFormatMessage(format) || t("subs.emptyOrInvalid"));
+    err.hwid = hwidSignal(info, received, { sent: !!cur.hwid });
+    throw err;
+  }
+  // Ответ из одних заглушек (лимит устройств, «включите HWID», конец тарифа) —
+  // сообщение панели, а не новый список серверов. Рабочие серверы им не
+  // затираем: их учётные данные часто живы, а фоновое обновление иначе молча
+  // оставляло пользователя с нодой 0.0.0.0. Смешанный ответ с настоящими
+  // серверами обновляется как обычно (заглушки из него уже отсеяны).
+  if (profiles.every(isPlaceholderNode)
+      && (cur.profiles || []).some((node) => !isPlaceholderNode(node))) {
+    const err = new Error(t("subs.placeholderOnly"));
+    err.code = "placeholder_only";
     err.hwid = hwidSignal(info, received, { sent: !!cur.hwid });
     throw err;
   }

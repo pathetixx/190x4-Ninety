@@ -306,3 +306,27 @@ test("подписка отдала массив конфигов Xray — се�
   const encoded = Buffer.from(sub, "utf8").toString("base64");
   assert.equal(parseSubscriptionEntries(encoded).profiles.length, 2);
 });
+
+// Готовый outbound из подписки не должен нести пути к локальным файлам: в TUN
+// xray работает с правами администратора и создал бы или дописал файл где угодно.
+test("файловые поля Xray снимаются при импорте и при сборке", async () => {
+  const { stripXrayFileFields } = await import("/lib/protocol-parsers.js");
+  const outbound = {
+    protocol: "vless",
+    streamSettings: {
+      security: "tls",
+      tlsSettings: {
+        serverName: "srv.example",
+        masterKeyLog: "C:\\x.cmd",
+        certificates: [{ certificateFile: "C:\\a.crt", keyFile: "C:\\a.key", certificate: ["inline"] }],
+      },
+      xhttpSettings: { path: "/p", downloadSettings: { tlsSettings: { masterKeyLog: "C:\\y.cmd" } } },
+    },
+  };
+  const clean = stripXrayFileFields(structuredClone(outbound));
+  const text = JSON.stringify(clean);
+  assert.ok(!text.includes("masterKeyLog") && !text.includes("certificateFile") && !text.includes("keyFile"));
+  assert.equal(clean.streamSettings.tlsSettings.serverName, "srv.example");
+  assert.deepEqual(clean.streamSettings.tlsSettings.certificates[0].certificate, ["inline"]);
+  assert.equal(clean.streamSettings.xhttpSettings.path, "/p");
+});

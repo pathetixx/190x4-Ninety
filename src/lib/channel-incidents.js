@@ -50,8 +50,11 @@ export function createChannelIncidentRecorder({
   const isOpen = () => DEGRADED.has(channelState);
 
   function observe(st) {
-    // UNKNOWN — отказ измерения, а не состояние канала: историю не трогает.
-    if (st === "UNKNOWN" || st === channelState) return null;
+    // UNKNOWN и PRESSURE — отказ измерения (нечем мерить или нельзя из-за
+    // нагрузки ПК), а не состояние канала: историю не трогают. Иначе нагрузка
+    // открывала ложный инцидент «скорость упала», а внутри настоящего — стирала
+    // причину паузы, и pause("hostPressure") больше ничего не писала.
+    if (st === "UNKNOWN" || st === "PRESSURE" || st === channelState) return null;
     const prev = channelState;
     channelState = st;
     // Канал сменил состояние — прежняя причина паузы больше не описывает

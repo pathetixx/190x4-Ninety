@@ -26,9 +26,15 @@ test("disconnectNetwork не бросает UI в disconnecting при чужо�
   const stale = tail.match(/if \(!isCurrentNetworkIntent\(epoch, "idle"\)\) return false;/g) || [];
   assert.equal(
     stale.length,
-    1,
+    0,
     "выход по чужому intent после подтверждённого stop обязан идти через finalizeStoppedRuntime()",
   );
+  // Ядро позднего старта останавливается до любой проверки намерения.
+  const late = tail.slice(tail.indexOf("if (lateStart) {"));
+  const lateBlock = late.slice(0, late.indexOf("\n  }\n"));
+  assert.ok(lateBlock.includes("await coreStartBarrier.wait()"), "ожидание позднего старта исчезло");
+  assert.ok(lateBlock.includes("await shutdownCore({ finalize: false })"), "позднее ядро обязано останавливаться");
+  assert.ok(!lateBlock.includes("isCurrentNetworkIntent"), "проверка намерения не должна пропускать остановку позднего ядра");
 });
 
 for (const call of guarded) {

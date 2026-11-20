@@ -15,7 +15,7 @@ import {
   safeAtob,
   splitHostPort,
 } from "/lib/url-helpers.js";
-import { parseAwgHeader, parseLink, parseTrustTunnelToml, profileProto } from "/lib/protocol-parsers.js";
+import { parseAwgHeader, parseLink, parseTrustTunnelToml, profileProto, stripXrayFileFields, vlessEncryptionOf } from "/lib/protocol-parsers.js";
 import { GEOSITE_BASE, REGION_GEOSITE, isKnownSet, parseSetRef, setUrl } from "/lib/rule-sets.js";
 import { isNodeQuarantined } from "/lib/node-quarantine.js";
 import {
@@ -589,6 +589,14 @@ function assertStrictBootstrapSafe(node) {
     if (servers.some((server) => !isIpLiteral(server.server))) {
       throw new StrictPrivacyPolicyError("STRICT_PRIVACY_BOOTSTRAP_UNSAFE", t("sb.err.ovpnBootstrap"));
     }
+  }
+  // mKCP и VLESS с шифрованием тоже поднимает отдельный xray, который резолвит
+  // адрес сервера сам, мимо DNS-политики строгого режима.
+  if (proto !== "xray" && node?.type !== "xhttp" && needsXrayBridge(node) && !isIpLiteral(node.host)) {
+    throw new StrictPrivacyPolicyError(
+      "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
+      "Этот сервер поднимает отдельный клиент Xray, которому нужен прямой DNS для адреса сервера. В строгом режиме выберите ноду с IP-адресом.",
+    );
   }
   if (proto === "xray" && !isIpLiteral(node.host)) {
     throw new StrictPrivacyPolicyError(
@@ -1190,7 +1198,7 @@ function buildWarpEndpoint(warpOpts, warpInfo) {
 // Тег при этом обычный, node-*: группы (селектор, urltest, balancer) ссылаются
 // на него так же, как на любой outbound, потому что менеджер ядра при промахе
 // по outbound-тегам ищет тег среди endpoint'ов (adapter/outbound/manager.go).
-function buildWireguardEndpoint(p, tag, strictPrivacy = false) {
+function buildWireguardEndpoint(p, tag, pinServerResolver = false) {
   const peers = (p.peers?.length ? p.peers : [{
     host: p.host, port: p.port, publicKey: p.publicKey,
     allowedIps: ["0.0.0.0/0", "::/0"], keepalive: 0,
@@ -1221,9 +1229,9 @@ function buildWireguardEndpoint(p, tag, strictPrivacy = false) {
   if (p.listenPort) endpoint.listen_port = p.listenPort;
   const amnezia = buildAmneziaNoise(p.awg);
   if (amnezia) endpoint.noise = { amnezia };
-  // Адрес пира резолвится до того, как тоннель поднят — в строгом режиме это
-  // тот же случай, что и адрес обычного сервера.
-  if (strictPrivacy && peers.some((peer) => !isIpLiteral(peer.host))) {
+  // Адрес пира резолвится до того, как тоннель поднят — тот же случай, что и
+  // адрес обычного сервера (см. pinServerResolver в buildConfig).
+  if (pinServerResolver && peers.some((peer) => !isIpLiteral(peer.host))) {
     endpoint.domain_resolver = "dns-direct";
   }
   return endpoint;
@@ -1231,12 +1239,12 @@ function buildWireguardEndpoint(p, tag, strictPrivacy = false) {
 
 // OpenVPN, как и WireGuard, живёт в endpoints. Копия сохраняет исходную
 // модель профиля при смене тега и применении политики DNS.
-function buildOpenvpnEndpoint(profile, tag, strictPrivacy = false) {
+function buildOpenvpnEndpoint(profile, tag, pinServerResolver = false) {
   const endpoint = structuredClone(profile.endpoint);
   endpoint.type = "openvpn-client";
   endpoint.tag = tag;
   const servers = endpoint.servers?.length ? endpoint.servers : [endpoint];
-  if (strictPrivacy && servers.some((server) => !isIpLiteral(server.server))) {
+  if (pinServerResolver && servers.some((server) => !isIpLiteral(server.server))) {
     endpoint.domain_resolver = "dns-direct";
   }
   return endpoint;
@@ -1450,7 +1458,8 @@ function xrayFingerprint(raw) {
 
 function nodeToXrayStream(p) {
   // Мост поднимается не только под xhttp: mKCP ядро не умеет вовсе, а xray умеет.
-  const network = p.type === "kcp" ? "kcp" : "xhttp";
+  // Обычный TCP (raw) идёт сюда только ради шифрования VLESS, которого нет в ядре.
+  const network = p.type === "kcp" ? "kcp" : XRAY_RAW_TYPES.has(String(p.type || "")) ? "raw" : "xhttp";
   const ss = { network };
   const sec = p.tlsMode || p.security;
   if (sec === "reality") {
@@ -1468,6 +1477,7 @@ function nodeToXrayStream(p) {
   } else {
     ss.security = "none";
   }
+  if (network === "raw") return ss;
   if (network === "kcp") {
     // Остальные параметры mKCP (mtu/tti/окна/congestion) в ссылках не передают —
     // оставляем дефолты xray, они совпадают с дефолтами серверной стороны.
@@ -1493,19 +1503,60 @@ const XRAY_BRIDGE_PROTOS = new Set(["vless", "vmess", "trojan"]);
 // Транспорты, которых нет в ядре: их несёт локальный xray, а в sing-box
 // остаётся socks-мост.
 const XRAY_BRIDGE_TYPES = new Set(["xhttp", "kcp"]);
+// Обычный TCP. Через xray идёт только VLESS с шифрованием (см. ниже).
+const XRAY_RAW_TYPES = new Set(["", "tcp", "raw"]);
 export function needsXrayBridge(node) {
   // Готовый outbound Xray (сервер, который ссылкой не передать: finalmask,
   // шифрование VLESS) ядро не поднимет вовсе — только xray.
   if (profileProto(node) === "xray") return true;
+  // Шифрование VLESS (ML-KEM и т.п.) есть только в xray: нативный outbound
+  // sing-box поле молча терял, и нода была мертва без единой строки в логе.
+  // Остальные транспорты с шифрованием отсеивает валидация ссылки.
+  if (vlessEncryptionOf(node) && XRAY_RAW_TYPES.has(String(node?.type || ""))) return true;
   return XRAY_BRIDGE_TYPES.has(node?.type) && XRAY_BRIDGE_PROTOS.has(profileProto(node));
+}
+
+// DNS для xray-моста. Без него xray резолвит адрес сервера системным
+// резолвером Windows (Go → GetAddrInfoW → служба DNS Client), а при Kill Switch
+// WFP пропускает только процессы движков: запрос службы блокировался, и
+// доменные XHTTP/mKCP-ноды переставали подключаться, как только истекал кэш.
+// Берём тот же прямой DNS, которым sing-box уже резолвит адреса своих серверов,
+// и только если он задан IP-адресом (иначе его самого пришлось бы резолвить).
+// «+local» — запрос идёт прямо из xray.exe, а не через его outbound'ы.
+function xrayDnsServer(directAddress) {
+  let parsed;
+  try { parsed = parseDnsAddress(directAddress); } catch { return null; }
+  if (!parsed?.server || !isIpLiteral(parsed.server)) return null;
+  const host = parsed.server.includes(":") ? `[${parsed.server}]` : parsed.server;
+  const port = parsed.server_port ? `:${parsed.server_port}` : "";
+  switch (parsed.type) {
+    case "https": return `https+local://${host}${port}${parsed.path || "/dns-query"}`;
+    case "tcp": return `tcp+local://${host}${port}`;
+    case "quic": return `quic+local://${host}${port}`;
+    case "udp": return parsed.server_port ? { address: parsed.server, port: parsed.server_port } : parsed.server;
+    default: return null; // DoT xray не поддерживает — остаётся системный резолвер
+  }
+}
+
+// Адрес сервера резолвить встроенным DNS xray. UseIP, а не ForceIP: если DoH
+// недоступен, xray возвращается к системному резолверу, как раньше.
+function preferXrayDns(outbound) {
+  const ss = outbound?.streamSettings;
+  if (!ss || typeof ss !== "object") return;
+  for (const holder of [ss, ss.xhttpSettings?.downloadSettings]) {
+    if (!holder || typeof holder !== "object") continue;
+    if (!holder.sockopt || typeof holder.sockopt !== "object") holder.sockopt = {};
+    if (!holder.sockopt.domainStrategy) holder.sockopt.domainStrategy = "UseIP";
+  }
 }
 
 function nodeToXrayOutbound(p, tag) {
   const proto = profileProto(p);
   if (proto === "xray") {
-    // Как есть, глубокой копией: объект ноды живёт в хранилище и общий для всех
-    // сборок, а tag у каждой сборки свой.
-    return { ...JSON.parse(JSON.stringify(p.outbound || {})), tag };
+    // Глубокой копией: объект ноды живёт в хранилище и общий для всех сборок,
+    // а tag у каждой сборки свой. Файловые поля снимаем и здесь: профили,
+    // сохранённые до этой проверки, ещё могут их содержать.
+    return { ...stripXrayFileFields(JSON.parse(JSON.stringify(p.outbound || {}))), tag };
   }
   if (proto === "trojan") {
     return {
@@ -1568,6 +1619,12 @@ export function buildConfig({
   const src = source ?? (profile ? { kind: "single", profile } : null);
 
   const warpEndpoint = buildWarpEndpoint(opts.warp, warpInfo);
+  // Пир WARP по домену: с dns-remote (detour через WARP) резолвился бы через сам
+  // WARP. Как и у адресов серверов, ему — прямой dns-direct.
+  if (warpEndpoint && opts.route?.resolveDestination
+      && (warpEndpoint.peers || []).some((peer) => peer?.address && !isIpLiteral(peer.address))) {
+    warpEndpoint.domain_resolver = "dns-direct";
+  }
   const warpOnly = !src && !!warpEndpoint && opts.warp?.mode === "direct";
   if (!src && !warpOnly) throw new Error(t("sb.err.buildNoSource"));
 
@@ -1642,24 +1699,28 @@ export function buildConfig({
   // обязаны видеть один и тот же порядок, иначе диагностика начнёт называть
   // чужую ноду. Что из этого endpoint, помнит nodeEndpoints.
   const nodeEndpoints = new Set();
+  // Адрес самого VPN-сервера неизбежно резолвится до готовности туннеля. Когда
+  // резолвер по умолчанию — dns-remote (строгий режим или «Определять адреса
+  // сайтов внутри туннеля»), а он ходит через тот же proxy, адрес сервера
+  // резолвился бы через сам сервер, и ни одна доменная нода не поднималась.
+  // Поэтому адресу сервера — прямой dns-direct (в strict это IP-hosted DoH без
+  // detour); DNS пользовательских назначений по-прежнему идёт через dns-remote.
+  const pinServerResolver = runtime.strictPrivacy || !!opts.route?.resolveDestination;
   const vlessOutbounds = nodes.map((n, i) => {
     const tag = useUrltest ? nodeTag(i, n) : "proxy";
     if (profileProto(n) === "wireguard") {
-      const endpoint = buildWireguardEndpoint(n, tag, runtime.strictPrivacy);
+      const endpoint = buildWireguardEndpoint(n, tag, pinServerResolver);
       nodeEndpoints.add(endpoint);
       return endpoint;
     }
     if (profileProto(n) === "openvpn") {
-      const endpoint = buildOpenvpnEndpoint(n, tag, runtime.strictPrivacy);
+      const endpoint = buildOpenvpnEndpoint(n, tag, pinServerResolver);
       nodeEndpoints.add(endpoint);
       return endpoint;
     }
     const ob = buildOutbound(n, opts);
     ob.tag = tag;
-    // Адрес самого VPN-сервера неизбежно резолвится до готовности туннеля.
-    // В strict используем отдельный IP-hosted DoH без detour; DNS пользовательских
-    // назначений по-прежнему идёт через dns-remote внутри proxy.
-    if (runtime.strictPrivacy && !isIpLiteral(ob.server)) {
+    if (pinServerResolver && !isIpLiteral(ob.server)) {
       ob.domain_resolver = "dns-direct";
     }
     return ob;
@@ -1691,6 +1752,11 @@ export function buildConfig({
         outbounds: xOut,
         routing: { domainStrategy: "AsIs", rules: xRules },
       };
+      const xrayDns = xrayDnsServer(opts.dns?.directAddress);
+      if (xrayDns) {
+        xrayConfig.dns = { servers: [xrayDns] };
+        xOut.forEach(preferXrayDns);
+      }
     }
   }
 

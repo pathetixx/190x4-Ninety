@@ -47,7 +47,17 @@ export function createKillSwitchController(deps = {}) {
   let desiredPolicyMode = null;
   let revision = 0;
   let queue = Promise.resolve();
-  let killSwitchHintShown = false;
+  // Подсказку про права показываем на каждой попытке, но не чаще раза в
+  // полминуты: раньше она выходила один раз за процесс, и дальше каждое
+  // подключение заканчивалось общим «Не удалось подключиться» без причины.
+  const KILL_SWITCH_HINT_INTERVAL_MS = 30_000;
+  let killSwitchHintAt = -Infinity;
+  const showElevationHint = () => {
+    const at = Date.now();
+    if (at - killSwitchHintAt < KILL_SWITCH_HINT_INTERVAL_MS) return;
+    killSwitchHintAt = at;
+    showToast(tr("elev.killSwitchHint"), "warn", 6000);
+  };
 
   async function reconcile() {
     const mine = revision;
@@ -67,10 +77,7 @@ export function createKillSwitchController(deps = {}) {
         const elevated = await call("is_elevated");
         if (mine !== revision || desiredConnected || !preserveDisconnected) return false;
         if (!elevated) {
-          if (!killSwitchHintShown) {
-            killSwitchHintShown = true;
-            showToast(tr("elev.killSwitchHint"), "warn", 6000);
-          }
+          showElevationHint();
           return false;
         }
         // Core уже остановлен или сейчас будет остановлен: восстанавливаем
@@ -97,10 +104,7 @@ export function createKillSwitchController(deps = {}) {
       // Следующая queued reconciliation применит последнее желаемое состояние.
       if (mine !== revision || !desiredConnected) return false;
       if (!elevated) {
-        if (!killSwitchHintShown) {
-          killSwitchHintShown = true;
-          showToast(tr("elev.killSwitchHint"), "warn", 6000);
-        }
+        showElevationHint();
         return false;
       }
       // До старта ядра строгий WFP работает как fail-closed заслон: разрешены

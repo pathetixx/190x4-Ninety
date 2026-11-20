@@ -304,3 +304,28 @@ test("latest source switch отменяет previous operation без false fail
   assert.deepEqual(cancelled, ["B"]);
   assert.deepEqual(active, { kind: "sub", id: "C" });
 });
+
+// Реконнект цели вытеснен посторонним (правка настройки): это не отказ нового
+// источника, откатывать на прежний нельзя — вытеснивший реконнект поднимет его.
+test("вытесненный реконнект цели не откатывает переключение источника", async () => {
+  let active = { kind: "sub", id: "A" };
+  const applied = [];
+  let persisted = null;
+  let cancelled = 0;
+  const controller = createSourceSwitchController({
+    getActiveSource: () => active,
+    applySource: (source) => { active = source; applied.push(source.id); },
+    reconnect: async () => ({ preempted: true }),
+    confirm: async () => assert.fail("цель не проверяется — её реконнект вытеснен"),
+    canContinue: () => true,
+    persist: async (source) => { persisted = source.id; },
+    cancelOperation: async () => { cancelled++; },
+  });
+  const result = await controller.activate({ kind: "sub", id: "B" }, { reason: "switch", rollbackReason: "restore" });
+  assert.deepEqual(applied, ["B"]);
+  assert.deepEqual(active, { kind: "sub", id: "B" });
+  assert.equal(persisted, "B");
+  assert.equal(result.preempted, true);
+  assert.equal(result.restored, undefined);
+  assert.equal(cancelled, 1);
+});

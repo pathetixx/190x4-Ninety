@@ -136,6 +136,15 @@ export function createSourceSwitchController({
         phase: "target", target, fallback, operationToken,
       });
       if (!current(token, target)) return { changed: true, stale: true, target };
+      // Реконнект цели вытеснил другой (правка настройки, WARP-rescan): тот сам
+      // поднимет уже применённый источник. Это не отказ цели — B ещё ни разу
+      // не проверен, и откат на A молча отменил бы выбор пользователя.
+      if (connected?.preempted) {
+        pending = null;
+        await persist(target);
+        await cancelOperation(operationToken);
+        return { changed: true, preempted: true, target };
+      }
       if (connected === true && canContinue()) {
         verdict = verdictKind(await confirm(target, {
           token: operationToken,

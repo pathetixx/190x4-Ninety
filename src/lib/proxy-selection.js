@@ -47,12 +47,30 @@ export async function restoreRememberedProxySelection({
   wait = sleep,
 }) {
   let tag = getRememberedProxySelection(source);
-  if (!tag) return { status: "none", tag: null };
-
   const selector = topology?.proxies?.proxy;
   const selectableTags = Array.isArray(selector?.all) ? selector.all : [];
   const selectorType = String(selector?.type || "").toLowerCase();
   const isSelector = selectorType === "selector" || selectableTags.length > 0;
+
+  // Пользователь ничего не выбирал — значит, сервер выбирает «Авто». Ядро
+  // помнит последний выбор селектора в cache.db и при старте ставит его раньше
+  // default: нода, временно закреплённая лесенкой качества, иначе переживала
+  // переподключение и навсегда выключала подбор по задержке. Поэтому «Авто»
+  // применяем явно, но в память не записываем: это не решение пользователя.
+  if (!tag) {
+    if (!isSelector || !selectableTags.includes("auto")) return { status: "none", tag: null };
+    if (selector?.now === "auto") return { status: "current", tag: "auto", implicit: true };
+    if (!isCurrent()) return { status: "stale", tag: "auto" };
+    try {
+      const result = await apply("auto");
+      if (result?.stale || !isCurrent()) return { status: "stale", tag: "auto" };
+      return { status: "restored", tag: "auto", implicit: true };
+    } catch (error) {
+      // Не фатально: соединение работает и на закреплённой ноде, а следующий
+      // запуск попробует снова.
+      return { status: "none", tag: null, error };
+    }
+  }
 
   // A source which now has one physical route cannot restore an old selector
   // child. Normalise stale auto/manual state to the only runtime tag.

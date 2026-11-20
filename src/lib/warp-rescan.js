@@ -54,6 +54,9 @@ export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
     stopLoop();
     const opts = loadOptions();
     if (opts.privacy?.strictTunnel || !opts.warp?.enabled || !opts.warp?.autoRescan) return;
+    // В цепочке WARP идёт через VPN-сервер, а скан меряет прямой путь с ПК:
+    // его цифры ничего не говорят о цепочке, ротация по ним бесполезна.
+    if (opts.warp?.mode === "chain") return;
     if (getState() !== "connected") return;
     const minutes = Math.max(5, Math.min(360, Number(opts.warp?.autoRescanIntervalMin) || 30));
     timer = setInterval(tick, minutes * 60_000);
@@ -70,6 +73,7 @@ export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
     if (getState() !== "connected") return;
     const opts = loadOptions();
     if (opts.privacy?.strictTunnel || !opts.warp?.enabled || !opts.warp?.autoRescan) return;
+    if (opts.warp?.mode === "chain") return;
     const threshold = Math.max(100, Number(opts.warp?.autoRescanThresholdMs) || 300);
     const token = runtime?.capture?.() || null;
     if (runtime && !runtime.isCurrent(token)) return;

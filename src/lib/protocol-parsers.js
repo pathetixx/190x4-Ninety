@@ -21,6 +21,8 @@ import {
 // падала только на аутентификации — без единого сообщения.
 // Отсутствие разделителя даёт undefined, как и прежний split: пустое поле не
 // должно превращаться в JSON `null` внутри конфига движка.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function splitFirstColon(value) {
   const s = String(value ?? "");
   const sep = s.indexOf(":");
@@ -246,6 +248,13 @@ export function parseShadowsocks(raw) {
     // %-escape в пароле раньше ронял decodeURIComponent и весь импорт ссылки.
     method = safeDecode(method);
     password = safeDecode(password);
+  } else if (/%3a/i.test(credsRaw)) {
+    // userinfo закодирован целиком: «method%3Apassword». В base64 знака «%» не
+    // бывает, а имя метода двоеточия не содержит — разбор однозначен.
+    const decoded = safeDecode(credsRaw);
+    const sep = decoded.indexOf(":");
+    method = decoded.slice(0, sep);
+    password = decoded.slice(sep + 1);
   } else {
     const decoded = safeDecodeBase64(credsRaw);
     const sep = decoded.indexOf(":");
@@ -345,8 +354,18 @@ export function parseTuic(raw) {
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.tuicHostPort"));
   const auth = head.slice(0, atIdx);
-  const [uuid, passwordRaw] = splitFirstColon(auth);
-  const password = safeDecode(passwordRaw || "");
+  let [uuid, passwordRaw] = splitFirstColon(auth);
+  let password = safeDecode(passwordRaw || "");
+  // Часть клиентов кодирует userinfo целиком: «uuid%3Apassword». UUID двоеточия
+  // не содержит, поэтому раскодированный разделитель однозначен; без этого
+  // нода уходила в отбракованные с пустым паролем.
+  if (passwordRaw === undefined) {
+    const [decodedUuid, decodedPassword] = splitFirstColon(safeDecode(auth));
+    if (decodedPassword !== undefined && UUID_RE.test(decodedUuid.trim())) {
+      uuid = decodedUuid.trim();
+      password = decodedPassword;
+    }
+  }
   const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.tuicHostPort");
   const get = (k, def = "") => query.get(k) ?? def;
   return {
@@ -1050,4 +1069,28 @@ export function parseLink(raw) {
 
 export function profileProto(p) {
   return p?.proto || "vless";
+}
+
+// Поля outbound Xray, через которые движок сам читает или пишет файлы: TLS key
+// log и сертификаты с диска. Готовый outbound из подписки уходит в xray почти
+// как есть, а в TUN мост наследует права администратора — такие поля владелец
+// подписки мог бы направить на любой путь. Мосту локальные пути не нужны:
+// сертификаты задаются содержимым. Rust повторяет чистку перед запуском xray.
+export function stripXrayFileFields(value) {
+  if (Array.isArray(value)) {
+    value.forEach(stripXrayFileFields);
+  } else if (value && typeof value === "object") {
+    for (const key of Object.keys(value)) {
+      if (key === "masterKeyLog" || key.endsWith("File")) delete value[key];
+      else stripXrayFileFields(value[key]);
+    }
+  }
+  return value;
+}
+
+// Шифрование VLESS (ML-KEM и т.п.), если задано и не "none"; иначе null.
+// Его поддерживает только xray — сборщик и валидация решают по этому значению.
+export function vlessEncryptionOf(node) {
+  const value = String(node?.encryption ?? "").trim();
+  return profileProto(node) === "vless" && value && value.toLowerCase() !== "none" ? value : null;
 }

@@ -456,3 +456,65 @@ test("недокачанная выборка на узком канале сч�
   assert.equal(await qualityOf({ ...incomplete, goodput_bps: 50_000_000 }), "UNKNOWN");
   assert.equal(await qualityOf({ ok: false, stalled: false, error: "no body bytes", bytes: 0, goodput_bps: 0 }), "UNKNOWN");
 });
+
+// Трафик собственной пробы виден в clash:traffic. Раньше её пик с последующим
+// затишьем выглядел как «занавес», и без участия пользователя проба уходила на
+// каждом тике сторожа: ~660 проб и ~165 МиБ за час простоя.
+test("проба не запускает следующую своим же трафиком", async () => {
+  installStorage();
+  let clock = 1_000_000;
+  let probes = 0;
+  let pending = 0;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => {
+      if (cmd !== "probe_quality") return undefined;
+      probes++;
+      pending += 262_144; // байты пробы придут в следующем кадре телеметрии
+      return GOOD;
+    },
+    actions: {},
+    opts: { enabled: true },
+    now: () => clock,
+    sleep: async () => {},
+  });
+  engine.onConnected({ expectedGeneration: 3 });
+  for (let s = 1; s <= 3600; s++) { // час простоя, кадр /traffic раз в секунду
+    clock += 1000;
+    const down = pending;
+    pending = 0;
+    engine.updatePassive({ down });
+    if (s % 5 === 0) await engine.tick(); // тик сторожа
+  }
+  // По задумке — только heartbeat раз в idleProbeSec (300 с).
+  assert.ok(probes <= 13, `ожидалось ≈12 проб за час, было ${probes}`);
+});
+
+// R3/R4 пересобирают runtime, даже если проверка после этого не подтвердилась.
+// Такие переподключения тоже идут в часовой лимит.
+test("неподтверждённые переподключения лесенки входят в часовой лимит", async () => {
+  installStorage();
+  let clock = 1_000_000;
+  let reconnects = 0;
+  let engine;
+  const SLOW = { ok: true, stalled: false, goodput_bps: 400_000, bytes: 262_144 };
+  engine = createQualityEngine({
+    invoke: async (cmd) => (cmd === "probe_quality" ? SLOW : undefined),
+    actions: {
+      applyFragmentation: async () => {
+        reconnects++;
+        engine.onIdle();
+        engine.onConnected({ expectedGeneration: 1 });
+        return false; // verify_runtime_dataplane не вернул Ready
+      },
+    },
+    opts: { enabled: true, aggressive: true, idleProbeSec: 60 },
+    now: () => clock,
+    sleep: async () => {},
+  });
+  engine.onConnected({ expectedGeneration: 1 });
+  for (let s = 0; s < 3600; s += 5) {
+    clock += 5000;
+    await engine.tick();
+  }
+  assert.ok(reconnects <= 4, `часовой лимит 4, было ${reconnects}`);
+});
