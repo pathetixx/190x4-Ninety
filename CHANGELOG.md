@@ -6,6 +6,48 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.18.0 — 2026-11-20
+
+## English
+
+- A server you picked yourself is no longer changed by connection-quality recovery without asking, and in Auto mode a server picked by recovery no longer stays selected for good after a reconnect.
+- The connection-quality check no longer downloads test data every few seconds while the window is open.
+- Uninstalling or reinstalling Ninety while it is connected through the system proxy no longer leaves Windows without internet.
+- Installing or updating Ninety no longer closes other VPN or DPI tools that use the same engines.
+- After an update installed from the window, Ninety opens normally and no longer connects on its own.
+- Uninstalling now also removes Ninety's autostart task and its handlers for VPN links.
+- The portable version's update can no longer hang forever, asks again if a newer version appears, and rolls back on the next start if it was interrupted.
+- A subscription that temporarily returns only a notice such as "enable HWID" no longer replaces your working servers.
+- "Clear profiles and subscriptions" now really deletes the data even when the storage could not be read, and Ninety warns you when profiles were restored from a backup copy.
+- "Resolve site addresses inside the tunnel" no longer stops servers set by a domain name and WARP from connecting.
+- VLESS servers with ML-KEM encryption over plain TCP now connect, and XHTTP servers set by a domain name keep working with the kill switch on.
+- TUIC and Shadowsocks links copied from some other clients now import correctly.
+- Subscriptions can no longer make the Xray engine create or modify files on your PC, and DPI bypass settings are verified by signature every time the bypass starts.
+- DPI bypass now shows an error if its engine stops unexpectedly, keeps every server of your subscription out of the bypass, survives a damaged strategy set and keeps the voice chat addresses Ninety adds.
+- Fixed several connection hang-ups: no more getting stuck on "Disconnecting…" after cancelling a connection, and switching subscriptions while connecting is no longer ignored or undone.
+- With the kill switch on and no administrator rights, Ninety now explains why it cannot connect.
+- Strict privacy mode now reconnects by itself after the engine crashes.
+
+## Русский
+
+- Сервер, который вы выбрали сами, восстановление качества связи больше не меняет без вопроса, а в режиме «Авто» сервер, выбранный восстановлением, больше не остаётся навсегда после переподключения.
+- Проверка качества связи больше не скачивает тестовые данные каждые несколько секунд, пока открыто окно.
+- Удаление или переустановка Ninety при подключении через системный прокси больше не оставляет Windows без интернета.
+- Установка и обновление Ninety больше не закрывают другие VPN- и DPI-программы, которые используют те же движки.
+- После обновления из окна Ninety открывается как обычно и больше не подключается сам.
+- Удаление теперь убирает и задачу автозапуска Ninety, и её обработчики VPN-ссылок.
+- Обновление portable-версии больше не может зависнуть навсегда, переспрашивает, если вышла версия новее, и откатывается при следующем запуске, если его прервали.
+- Подписка, которая временно отдаёт только сообщение вроде «включите HWID», больше не затирает ваши рабочие серверы.
+- «Очистить профили и подписки» теперь действительно удаляет данные, даже если хранилище не прочиталось, а если профили восстановлены из резервной копии, Ninety об этом предупредит.
+- «Определять адреса сайтов внутри туннеля» больше не мешает подключаться серверам, заданным доменом, и WARP.
+- Серверы VLESS с шифрованием ML-KEM на обычном TCP теперь подключаются, а серверы XHTTP, заданные доменом, продолжают работать с включённым Kill Switch.
+- Ссылки TUIC и Shadowsocks, скопированные из некоторых других клиентов, теперь импортируются правильно.
+- Подписки больше не могут заставить движок Xray создать или изменить файлы на вашем ПК, а настройки обхода DPI проверяются по подписи при каждом запуске обхода.
+- Обход DPI теперь показывает ошибку, если его движок неожиданно остановился, исключает из обхода все серверы подписки, переживает повреждённый набор стратегий и сохраняет адреса голосового чата, которые добавляет Ninety.
+- Исправлено несколько зависаний подключения: больше не застревает «Отключение…» после отмены подключения, а смена подписки во время подключения больше не теряется и не откатывается.
+- С включённым Kill Switch и без прав администратора Ninety теперь объясняет, почему не может подключиться.
+- Режим строгой приватности теперь сам переподключается после сбоя движка.
+
 ## v0.17.0 — 2026-11-17
 
 ## English
