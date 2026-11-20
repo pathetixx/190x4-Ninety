@@ -212,8 +212,10 @@ export async function restoreIfEmpty() {
     // If the Rust store accepted the snapshot, its profile fields have
     // already been restored and must not be copied back into WebView storage.
     // If IPC failed, keep the legacy fallback path alive instead of dropping
-    // the only recoverable copy of profiles/subscriptions.
-    && (!profileRestored || !profileKeys.has(k))
+    // the only recoverable copy of profiles/subscriptions. A degraded store is
+    // different: its data stays on disk, and copying credentials into WebView
+    // storage as plain text would only look like a restore.
+    && (!profileKeys.has(k) || (!profileRestored && !profileStoreIsDegraded()))
     && typeof v === "string");
   if (!entries.length) return false;
 

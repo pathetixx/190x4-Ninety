@@ -796,12 +796,19 @@ mountDpiView({ onToast: toast, switchView, ensureElevated: ensureElevatedForDpi 
 // не мог уйти с упавшей ноды. IP или имя — разбирает dpi-view; резолв имён
 // там же и только когда winws работает.
 function vpnNodeAddresses() {
+  // VPN выключен — исключать нечего: не резолвим имена сохранённого источника
+  // и не выводим его адреса из-под обхода для обычного трафика.
+  if (state === "idle" || state === "cleanup_error") return [];
   const src = getActiveSource();
   const nodes = src?.kind === "sub" ? (src.nodes || []) : (src?.profile ? [src.profile] : []);
   const out = [];
   const push = (value) => {
     const text = String(value ?? "").trim();
-    if (text) out.push(text);
+    if (!text) return;
+    // Локальные адреса (мосты, заглушки 127.0.0.1/0.0.0.0) не нужны winws.
+    const host = text.replace(/^\[([^\]]+)\](?::\d+)?$/, "$1").replace(/^([^:]+):\d+$/, "$1").toLowerCase();
+    if (host === "localhost" || host === "::1" || host === "::" || host === "0.0.0.0" || host.startsWith("127.")) return;
+    out.push(text);
   };
   for (const node of nodes) {
     push(node?.host);
@@ -819,7 +826,9 @@ function vpnNodeAddresses() {
     }
   }
   const warp = loadOptions().warp;
-  if (warp?.enabled && warp.endpoint && !/^auto/i.test(String(warp.endpoint))) push(warp.endpoint);
+  // auto/auto4/auto6 — выбор эндпоинта сканером, а не адрес.
+  const warpHost = String(warp?.endpoint || "").replace(/:\d+$/, "");
+  if (warp?.enabled && warpHost && !/^auto[46]?$/i.test(warpHost)) push(warp.endpoint);
   return out;
 }
 setVpnNodesProvider(() => ({ domains: vpnNodeAddresses() }));
@@ -1986,9 +1995,13 @@ async function reconnectCommittedSource(reason, context = {}) {
     );
     // Запрос вытеснен более новым реконнектом: результат скажет тот, а не этот.
     // Переключению источника нужно отличать это от отказа цели (см. source-activation).
-    if (!connected && context.onPreempted && (result?.status === "superseded" || result?.status === "cancelled")) {
-      context.onPreempted();
-    }
+    // Ожидавший запрос получает superseded/cancelled, а уже исполнявшийся —
+    // completed:false, когда его намерение сменило более новое «подключено».
+    const preempted = result?.status === "superseded" || result?.status === "cancelled"
+      || (result?.status === "completed"
+        && !isCurrentNetworkIntent(request.epoch, "connected")
+        && networkIntent.desired() === "connected");
+    if (!connected && context.onPreempted && preempted) context.onPreempted();
     return connected;
   }
   if (state !== "idle") {

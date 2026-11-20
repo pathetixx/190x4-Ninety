@@ -75,6 +75,10 @@ export function createQualityEngine({
   let goodStreak = 0;
   let lastProbeAt = 0;
   let passiveMutedUntil = 0;    // до этого момента пассивный сигнал не пишем
+  // Один «занавес» (пик пользовательского трафика) запускает не больше
+  // BAD_STREAK проб — столько нужно лесенке, — а не пробу на каждом тике.
+  let suspectPeakT = null;
+  let suspectPeakProbes = 0;
   // Ближайший момент, когда пробовать снова осмысленно. Двигается после
   // пропущенных проб и после лесенки: иначе движок бил бы IPC на каждом тике
   // сторожа, получая тот же отказ.
@@ -104,17 +108,25 @@ export function createQualityEngine({
   }
 
   // ── Пассивный сигнал из clash:traffic ──────────────────
-  function updatePassive({ down } = {}) {
-    const timestamp = now();
-    if (probingEpoch != null || timestamp < passiveMutedUntil) return;
-    passive.push({ t: timestamp, down: Number(down) || 0 });
+  // Старые образцы вытесняются по времени и при чтении: пока кадры глушатся
+  // (проба и пара секунд после неё), новых не приходит, и без этого окно
+  // хранило бы прежние «пик → затишье» сколь угодно долго.
+  function prunePassive(timestamp) {
     while (passive.length && timestamp - passive[0].t > PASSIVE_WINDOW_MS) passive.shift();
   }
-  function passiveView() {
-    if (!passive.length) return { peak: 0, last: 0 };
+  function updatePassive({ down } = {}) {
+    const timestamp = now();
+    prunePassive(timestamp);
+    if (probingEpoch != null || timestamp < passiveMutedUntil) return;
+    passive.push({ t: timestamp, down: Number(down) || 0 });
+  }
+  function passiveView(timestamp = now()) {
+    prunePassive(timestamp);
+    if (!passive.length) return { peak: 0, peakT: null, last: 0 };
     let peak = 0;
-    for (const s of passive) if (s.down > peak) peak = s.down;
-    return { peak, last: passive[passive.length - 1].down };
+    let peakT = null;
+    for (const s of passive) if (s.down > peak) { peak = s.down; peakT = s.t; }
+    return { peak, peakT, last: passive[passive.length - 1].down };
   }
 
   // Записать сэмпл пробы в ring-буфер + отдать наружу (onSample → шина → осциллограмма).
@@ -211,10 +223,11 @@ export function createQualityEngine({
     const timestamp = now();
     if (timestamp < nextEligibleProbeAt) return;
 
-    const { peak, last } = passiveView();
+    const { peak, peakT, last } = passiveView(timestamp);
     // Подозрение: в окне была активность (юзер качал), а сейчас поток схлопнулся
     // — классика занавеса. Тогда пробуем немедленно.
-    const suspect = peak >= ACTIVITY_BPS && last < FLATLINE_BPS;
+    const suspect = peak >= ACTIVITY_BPS && last < FLATLINE_BPS
+      && !(peakT === suspectPeakT && suspectPeakProbes >= BAD_STREAK);
     const heartbeatDue = !cfg.lowDataMode &&
       timestamp - lastProbeAt >= cfg.idleProbeSec * 1000;
 
@@ -226,6 +239,10 @@ export function createQualityEngine({
       return;
     }
     if (timestamp - lastProbeAt < PROBE_MIN_GAP_MS && !suspect) return;
+    if (suspect) {
+      if (peakT === suspectPeakT) suspectPeakProbes += 1;
+      else { suspectPeakT = peakT; suspectPeakProbes = 1; }
+    }
 
     const r = await probe(null, epoch);
     if (!sessionActive(epoch)) return;
@@ -429,6 +446,8 @@ export function createQualityEngine({
     passive.length = 0;
     lastProbeAt = now(); // дать туннелю осесть перед первой пробой
     passiveMutedUntil = 0;
+    suspectPeakT = null;
+    suspectPeakProbes = 0;
     cachedAsn = null;
     // Прогрев ASN сразу: learnedStartIndex читает ключ обучения СИНХРОННО в
     // начале лесенки (learnKeySync), а cachedAsn раньше заполнялся только в

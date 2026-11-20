@@ -2187,24 +2187,30 @@ pub async fn dpi_stop(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn dpi_running(app: AppHandle, state: State<'_, DpiState>) -> bool {
-    // Труп штатного сеанса — то же падение, что ловит сторож: сообщаем о нём,
-    // иначе опрос, успевший первым, молча съел бы событие.
-    if let Some(event) = reap_unexpected_exit(&state, None) {
-        let _ = app.emit(DPI_EXITED_EVENT, event);
-        return false;
-    }
-    let mut guard = state.child.lock_recover();
-    if let Some(child) = guard.as_mut() {
+    // Один опрос под одним локом: раньше процесс мог умереть между двумя
+    // try_wait, и второй забывал хэндл без события и без сброса сеанса —
+    // интерфейс оставался «Работает», а сторож опрашивал пустой слот вечно.
+    // Труп штатного сеанса — то же падение, что ловит сторож: сообщаем о нём.
+    let event = {
+        let mut guard = state.child.lock_recover();
+        let Some(child) = guard.as_mut() else {
+            return false;
+        };
         match child.try_wait() {
-            Ok(None) => true, // живой
-            _ => {
-                *guard = None; // умер — забываем хэндл
-                false
+            Ok(None) => return true,
+            // Состояние неизвестно — хэндл сохраняем, остановка его ещё заберёт.
+            Err(_) => return false,
+            Ok(Some(status)) => {
+                *guard = None;
+                let session = state.runtime_session.swap(0, Ordering::SeqCst);
+                (session != 0).then(|| dpi_exited_event(session, status.code()))
             }
         }
-    } else {
-        false
+    };
+    if let Some(event) = event {
+        let _ = app.emit(DPI_EXITED_EVENT, event);
     }
+    false
 }
 
 // ── Исключение VPN-нод из winws ─────────────────────────────────────

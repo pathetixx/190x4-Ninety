@@ -9,7 +9,7 @@
 // Проверки намеренно узкие. Нода, которая просто не отвечает, здесь валидна:
 // её отбраковывает health-checker, а не сборщик конфига.
 
-import { awgHeaderRange, parseAwgHeader, profileProto, vlessEncryptionOf } from "/lib/protocol-parsers.js";
+import { awgHeaderRange, parseAwgHeader, profileProto, vlessEncryptionOf, vlessEncryptionValid } from "/lib/protocol-parsers.js";
 import { openvpnEndpointIssue } from "/lib/openvpn.js";
 
 // Ядро декодирует public_key строго как base64url без паддинга и требует ровно
@@ -353,6 +353,7 @@ function computeNodeConfigIssue(node) {
   // обычного TCP. С другим транспортом нода была бы мертва без единой строки в
   // логе — честнее отсеять её с причиной.
   if (vlessEncryptionOf(node)) {
+    if (!vlessEncryptionValid(node.encryption)) return { code: "encryption" };
     const type = String(node.type || "");
     const raw = type === "" || type === "tcp" || type === "raw";
     if (!raw && type !== "xhttp" && type !== "kcp") return { code: "encryption" };

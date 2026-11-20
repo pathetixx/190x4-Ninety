@@ -893,14 +893,33 @@ pub(crate) fn normalize_own_priority() {
 // xray почти как есть, а в TUN мост наследует права администратора: без чистки
 // владелец подписки мог создать или дописать файл в любом месте системы.
 // Локальные пути мосту не нужны — сертификаты задаются содержимым.
+// Регистр не важен: JSON-декодер Go принимает имена полей без учёта регистра.
 fn is_xray_file_field(key: &str) -> bool {
-    key == "masterKeyLog" || key.ends_with("File")
+    let key = key.to_ascii_lowercase();
+    key == "masterkeylog" || key.ends_with("file")
 }
 
 fn strip_xray_file_fields(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
             map.retain(|key, _| !is_xray_file_field(key));
+            // Сертификат, у которого был только путь к файлу, после чистки пуст,
+            // а такой элемент xray отвергает при сборке TLS — и роняет весь мост.
+            for (key, child) in map.iter_mut() {
+                if key.eq_ignore_ascii_case("certificates") {
+                    if let serde_json::Value::Array(items) = child {
+                        items.retain(|item| {
+                            item.as_object().is_some_and(|cert| {
+                                cert.keys().any(|k| k.eq_ignore_ascii_case("certificate"))
+                            })
+                        });
+                    }
+                }
+            }
+            map.retain(|key, child| {
+                !(key.eq_ignore_ascii_case("certificates")
+                    && child.as_array().is_some_and(|items| items.is_empty()))
+            });
             for child in map.values_mut() {
                 strip_xray_file_fields(child);
             }
@@ -4007,16 +4026,43 @@ mod tests {
     // без этого префикса строка приложения станет продолжением чужой записи.
     #[test]
     fn xray_config_drops_file_path_fields_from_imported_outbounds() {
-        let raw = r#"{"log":{"loglevel":"warning"},"outbounds":[{"tag":"node-a","protocol":"vless","streamSettings":{"security":"tls","tlsSettings":{"serverName":"srv.example","masterKeyLog":"C:\x.cmd","certificates":[{"certificateFile":"C:\a.crt","keyFile":"C:\a.key","certificate":["inline"],"usage":"verify"}]},"xhttpSettings":{"path":"/p","downloadSettings":{"tlsSettings":{"masterKeyLog":"C:\y.cmd"}}}}}]}"#;
+        let raw = serde_json::json!({
+            "log": { "loglevel": "warning" },
+            "outbounds": [{
+                "tag": "node-a",
+                "protocol": "vless",
+                "streamSettings": {
+                    "security": "tls",
+                    "tlsSettings": {
+                        "serverName": "srv.example",
+                        "masterKeyLog": "C:\\x.cmd",
+                        "certificates": [
+                            { "certificateFile": "C:\\a.crt", "keyFile": "C:\\a.key", "certificate": ["inline"], "usage": "verify" },
+                            { "CertificateFile": "C:\\b.crt", "KEYFILE": "C:\\b.key" }
+                        ]
+                    },
+                    "xhttpSettings": {
+                        "path": "/p",
+                        "downloadSettings": { "tlsSettings": { "MasterKeyLog": "C:\\y.cmd", "certificates": [{ "certificateFile": "C:\\c.crt" }] } }
+                    }
+                }
+            }]
+        })
+        .to_string();
         let hardened: serde_json::Value =
-            serde_json::from_str(&harden_xray_config(raw)).expect("valid json");
+            serde_json::from_str(&harden_xray_config(&raw)).expect("valid json");
         let text = hardened.to_string();
-        assert!(!text.contains("masterKeyLog"));
-        assert!(!text.contains("certificateFile"));
-        assert!(!text.contains("keyFile"));
+        let lower = text.to_ascii_lowercase();
+        assert!(!lower.contains("masterkeylog"));
+        assert!(!lower.contains("certificatefile"));
+        assert!(!lower.contains("keyfile"));
         let tls = &hardened["outbounds"][0]["streamSettings"]["tlsSettings"];
         assert_eq!(tls["serverName"], "srv.example");
+        assert_eq!(tls["certificates"].as_array().map(Vec::len), Some(1));
         assert_eq!(tls["certificates"][0]["certificate"][0], "inline");
+        let download = &hardened["outbounds"][0]["streamSettings"]["xhttpSettings"]
+            ["downloadSettings"]["tlsSettings"];
+        assert!(download.get("certificates").is_none());
         assert_eq!(
             hardened["outbounds"][0]["streamSettings"]["xhttpSettings"]["path"],
             "/p"

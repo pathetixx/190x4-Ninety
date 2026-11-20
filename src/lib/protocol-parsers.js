@@ -21,7 +21,18 @@ import {
 // падала только на аутентификации — без единого сообщения.
 // Отсутствие разделителя даёт undefined, как и прежний split: пустое поле не
 // должно превращаться в JSON `null` внутри конфига движка.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Разделитель логина и пароля в userinfo: буквальное «:» или «%3A» — часть
+// клиентов кодирует userinfo целиком. Берём тот, что встречается раньше: в
+// UUID и имени метода SS нет ни того ни другого, а в пароле может быть любой.
+function splitUserinfo(value) {
+  const s = String(value ?? "");
+  const colon = s.indexOf(":");
+  const encoded = s.search(/%3a/i);
+  if (colon < 0 && encoded < 0) return null;
+  const at = encoded >= 0 && (colon < 0 || encoded < colon) ? encoded : colon;
+  const len = at === encoded ? 3 : 1;
+  return [s.slice(0, at), s.slice(at + len)];
+}
 
 function splitFirstColon(value) {
   const s = String(value ?? "");
@@ -242,19 +253,14 @@ export function parseShadowsocks(raw) {
   const credsRaw = head.slice(0, atIdx);
   // SIP002: userinfo может быть как раз base64url(method:password)
   let method, password;
-  if (credsRaw.includes(":")) {
-    [method, password] = splitFirstColon(credsRaw);
+  // «method:password» или целиком закодированное «method%3Apassword»; в base64
+  // (SIP002) нет ни «:», ни «%», так что развилка однозначна.
+  const parts = splitUserinfo(credsRaw);
+  if (parts) {
     // safeDecode на обеих половинах: метод панели тоже экранируют, а битый
     // %-escape в пароле раньше ронял decodeURIComponent и весь импорт ссылки.
-    method = safeDecode(method);
-    password = safeDecode(password);
-  } else if (/%3a/i.test(credsRaw)) {
-    // userinfo закодирован целиком: «method%3Apassword». В base64 знака «%» не
-    // бывает, а имя метода двоеточия не содержит — разбор однозначен.
-    const decoded = safeDecode(credsRaw);
-    const sep = decoded.indexOf(":");
-    method = decoded.slice(0, sep);
-    password = decoded.slice(sep + 1);
+    method = safeDecode(parts[0]);
+    password = safeDecode(parts[1]);
   } else {
     const decoded = safeDecodeBase64(credsRaw);
     const sep = decoded.indexOf(":");
@@ -354,18 +360,11 @@ export function parseTuic(raw) {
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.tuicHostPort"));
   const auth = head.slice(0, atIdx);
-  let [uuid, passwordRaw] = splitFirstColon(auth);
-  let password = safeDecode(passwordRaw || "");
-  // Часть клиентов кодирует userinfo целиком: «uuid%3Apassword». UUID двоеточия
-  // не содержит, поэтому раскодированный разделитель однозначен; без этого
-  // нода уходила в отбракованные с пустым паролем.
-  if (passwordRaw === undefined) {
-    const [decodedUuid, decodedPassword] = splitFirstColon(safeDecode(auth));
-    if (decodedPassword !== undefined && UUID_RE.test(decodedUuid.trim())) {
-      uuid = decodedUuid.trim();
-      password = decodedPassword;
-    }
-  }
+  // «uuid:password» или целиком закодированное «uuid%3Apassword» — без второго
+  // варианта нода уходила в отбракованные с пустым паролем.
+  const parts = splitUserinfo(auth);
+  const uuid = safeDecode(parts ? parts[0] : auth).trim();
+  const password = safeDecode(parts ? parts[1] : "");
   const { host, port } = splitHostPort(head.slice(atIdx + 1), "sb.err.tuicHostPort");
   const get = (k, def = "") => query.get(k) ?? def;
   return {
@@ -1076,16 +1075,39 @@ export function profileProto(p) {
 // как есть, а в TUN мост наследует права администратора — такие поля владелец
 // подписки мог бы направить на любой путь. Мосту локальные пути не нужны:
 // сертификаты задаются содержимым. Rust повторяет чистку перед запуском xray.
+//
+// Регистр не важен: JSON-декодер Go принимает имена полей без учёта регистра.
+// Сертификат, у которого был только путь к файлу, после чистки пуст, а такой
+// элемент xray отвергает при сборке TLS — и роняет весь мост; его убираем.
 export function stripXrayFileFields(value) {
   if (Array.isArray(value)) {
     value.forEach(stripXrayFileFields);
   } else if (value && typeof value === "object") {
     for (const key of Object.keys(value)) {
-      if (key === "masterKeyLog" || key.endsWith("File")) delete value[key];
-      else stripXrayFileFields(value[key]);
+      const lower = key.toLowerCase();
+      if (lower === "masterkeylog" || lower.endsWith("file")) {
+        delete value[key];
+        continue;
+      }
+      stripXrayFileFields(value[key]);
+      if (lower === "certificates" && Array.isArray(value[key])) {
+        value[key] = value[key].filter((cert) => cert && typeof cert === "object"
+          && Object.keys(cert).some((name) => name.toLowerCase() === "certificate"));
+        if (!value[key].length) delete value[key];
+      }
     }
   }
   return value;
+}
+
+// Формат шифрования VLESS, который принимает xray: «none» или
+// mlkem768x25519plus.<режим>.<0rtt|1rtt>.<параметры и ключ>. Любое другое
+// значение xray отвергает при сборке конфига — и вместе с одной нодой роняет
+// весь мост со всеми xray-нодами подписки.
+export function vlessEncryptionValid(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text.toLowerCase() === "none") return true;
+  return /^mlkem768x25519plus\.(native|xorpub|random)\.(0rtt|1rtt)(\.[A-Za-z0-9_=+/-]+)+$/.test(text);
 }
 
 // Шифрование VLESS (ML-KEM и т.п.), если задано и не "none"; иначе null.

@@ -85,3 +85,36 @@ test("TUIC и SS с целиком закодированным логином �
   assert.equal(ss.method, "aes-256-gcm");
   assert.equal(ss.password, "secret");
 });
+
+test("закодированный разделитель раньше буквального двоеточия в пароле", () => {
+  const ss = parseLink("ss://aes-256-gcm%3Apa:ss@s.example:8388#S");
+  assert.equal(ss.method, "aes-256-gcm");
+  assert.equal(ss.password, "pa:ss");
+  const tuic = parseLink(`tuic://${UUID}%3Ap:w@h.example:443#T`);
+  assert.equal(tuic.uuid, UUID);
+  assert.equal(tuic.password, "p:w");
+  const plain = parseLink(`tuic://${UUID}:p%3Aw@h.example:443#T`);
+  assert.equal(plain.password, "p:w");
+});
+
+test("xray-мост получает прямой DoH, а UDP и IPv6-скобки не ломают конфиг", () => {
+  const p = parseLink(`vless://${UUID}@x.example.com:443?type=xhttp&security=tls&sni=x.example.com#X`);
+  const build = (directAddress) => {
+    const opts = structuredClone(DEFAULT_OPTIONS);
+    opts.dns.directAddress = directAddress;
+    return buildConfig({ source: { kind: "single", profile: p }, mode: "proxy", options: opts, xray: true }).xray;
+  };
+  const doh = build("https://8.8.8.8/dns-query");
+  assert.deepEqual(doh.dns, { servers: ["https+local://8.8.8.8/dns-query"] });
+  assert.equal(doh.outbounds[0].streamSettings.sockopt.domainStrategy, "UseIP");
+  assert.deepEqual(build("https://[2001:4860:4860::8888]/dns-query").dns,
+    { servers: ["https+local://[2001:4860:4860::8888]/dns-query"] });
+  const udp = build("77.88.8.8");
+  assert.equal(udp.dns, undefined, "обычный UDP ушёл бы через прокси-outbound");
+  assert.equal(udp.outbounds[0].streamSettings.sockopt, undefined);
+});
+
+test("VLESS с неизвестным форматом шифрования отсеивается, а не роняет мост", () => {
+  const p = parseLink(`vless://${UUID}@srv.example.com:443?encryption=aes-128-gcm&type=tcp&security=tls#BAD`);
+  assert.deepEqual(nodeConfigIssue(p), { code: "encryption" });
+});

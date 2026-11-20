@@ -268,22 +268,21 @@ export async function closeProxyConnections({ port, token } = {}) {
 export function selectProxy(group, name, {
   port, token, closeConnections = true, background = false, shouldApply,
 } = {}) {
-  let revision = background ? null : ++selectionRevision;
+  // Обычный выбор вытесняет все ранее поставленные (latest wins). Фоновый
+  // ревизию не меняет вовсе: любой выбор пользователя, сделанный после его
+  // постановки, делает фоновый устаревшим, а сам фоновый никогда не
+  // вытесняет выбор пользователя.
+  const revision = background ? selectionRevision : ++selectionRevision;
+  const isStale = () => revision !== selectionRevision;
   const task = async () => {
-    if (background) {
-      const seen = selectionRevision;
-      if (typeof shouldApply === "function" && !(await shouldApply())) return { stale: true };
-      // Пока шла проверка, пользователь мог выбрать сервер: его выбор главнее.
-      if (seen !== selectionRevision) return { stale: true };
-      revision = ++selectionRevision;
-    }
-    if (revision !== selectionRevision) return { stale: true };
+    if (isStale()) return { stale: true };
+    if (background && typeof shouldApply === "function" && !(await shouldApply())) return { stale: true };
     const captured = captureRuntime(token);
     await call("selectProxy", "clash_select_proxy", { port, group, name }, { token: captured });
     invalidateClashTelemetry("proxies");
-    if (revision !== selectionRevision) return { stale: true };
+    if (isStale()) return { stale: true };
     const confirmed = await getProxies(port, { token: captured, fresh: true });
-    if (revision !== selectionRevision) return { stale: true };
+    if (isStale()) return { stale: true };
     const actual = confirmed?.proxies?.[group]?.now;
     if (actual !== name) {
       throw new ClashApiError("selectProxy", `Selector подтвердил ${actual || "пустое значение"}, ожидалось ${name}`, {

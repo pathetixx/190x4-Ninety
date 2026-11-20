@@ -1294,6 +1294,18 @@ function onChange(e) {
 export function prepareDpiVpnMode(mode) {
   return queueDpiModeChange(async () => {
     if (mode !== "tun" || splitDiscordAllowedInTun()) return true;
+    // Автоподбор выставляет «выключен» ещё до остановки winws и ждёт UAC и DNS:
+    // в это окно вход в TUN не останавливал ничего, и тестовые winws работали
+    // поверх TUN, а пробы мерили туннель. Отменяем подбор вместе с движком;
+    // включённый обход вернёт resumeEngineAfterTun при выходе из TUN.
+    if (S.autopick.phase === "running") {
+      dpiAutopickEpoch++;
+      autopickResume = false;
+      S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" };
+      const stopped = await stopDpiRuntime({ markOff: false });
+      renderAll();
+      return stopped;
+    }
     if (!["running", "starting", "error"].includes(S.base)) return true;
     return pauseEngineForTun();
   });
@@ -1363,11 +1375,13 @@ async function collectVpnNodes() {
     const target = normalizeIp(host) ? ips : domains;
     if (!target.includes(host)) target.push(host);
   };
+  // Фактическая нода — первой: Rust резолвит ограниченное число имён, и она не
+  // должна оказаться за этим порогом на большой подписке.
+  add(legacyEndpointHost);
   let provided;
   try { provided = await vpnNodesProvider?.(); } catch { provided = null; }
   for (const value of Array.isArray(provided?.ips) ? provided.ips : []) add(value);
   for (const value of Array.isArray(provided?.domains) ? provided.domains : []) add(value);
-  add(legacyEndpointHost);
   return { ips, domains };
 }
 
@@ -1391,7 +1405,11 @@ function syncVpnNodeExclusion({ resolve = false, clear = false } = {}) {
 // на паузе TUN), домены не резолвим: уходят только литералы, а резолв
 // случится перед запуском движка.
 export function refreshVpnNodeExclusion() {
-  return syncVpnNodeExclusion({ resolve: S.base === "running" || S.base === "starting" });
+  // Во время автоподбора состояние «выключен», но тестовые winws работают:
+  // без резолва пакет стёр бы уже найденные IP нод.
+  return syncVpnNodeExclusion({
+    resolve: S.base === "running" || S.base === "starting" || S.autopick.phase === "running",
+  });
 }
 
 // Совместимая обёртка: host активной ноды дополняет набор провайдера.

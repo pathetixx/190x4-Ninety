@@ -80,3 +80,35 @@ test("сбой разрыва не отменяет уже подтверждё�
     closeResult = () => 3;
   }
 });
+
+// Фоновый возврат к «Авто» не должен отменять выбор пользователя, даже если
+// пользователь выбрал сервер, пока фоновая задача ждала очереди.
+test("фоновая смена не вытесняет выбор пользователя, поставленный после неё", async () => {
+  releaseX = null;
+  const blocker = selectProxy("proxy", "X");
+  while (!releaseX) await new Promise(r => setTimeout(r, 0));
+  let checked = false;
+  const background = selectProxy("proxy", "auto", {
+    background: true,
+    closeConnections: false,
+    shouldApply: async () => { checked = true; return true; },
+  });
+  const user = selectProxy("proxy", "Y");
+  releaseX();
+  await blocker;
+  assert.equal((await background).stale, true, "фоновая устарела после выбора пользователя");
+  assert.equal(checked, false, "устаревшая фоновая задача не проверяется и не применяется");
+  const ur = await user;
+  assert.equal(ur.stale, false, "выбор пользователя применён");
+  assert.equal(selected, "Y");
+});
+
+test("фоновая смена применяется, если выбора пользователя не было", async () => {
+  const r = await selectProxy("proxy", "auto", {
+    background: true,
+    closeConnections: false,
+    shouldApply: async () => true,
+  });
+  assert.equal(r.stale, false);
+  assert.equal(selected, "auto");
+});

@@ -1522,19 +1522,22 @@ export function needsXrayBridge(node) {
 // доменные XHTTP/mKCP-ноды переставали подключаться, как только истекал кэш.
 // Берём тот же прямой DNS, которым sing-box уже резолвит адреса своих серверов,
 // и только если он задан IP-адресом (иначе его самого пришлось бы резолвить).
-// «+local» — запрос идёт прямо из xray.exe, а не через его outbound'ы.
+// «+local» — запрос идёт прямо из xray.exe, а не через его outbound'ы. Для
+// обычного UDP такой формы нет: xray отправил бы его через dispatcher, то есть
+// в прокси-outbound, которому для этого сначала нужен свой же адрес.
 function xrayDnsServer(directAddress) {
   let parsed;
   try { parsed = parseDnsAddress(directAddress); } catch { return null; }
-  if (!parsed?.server || !isIpLiteral(parsed.server)) return null;
-  const host = parsed.server.includes(":") ? `[${parsed.server}]` : parsed.server;
+  // URL.hostname отдаёт IPv6 уже в скобках — снимаем, чтобы не удвоить.
+  const ip = String(parsed?.server || "").replace(/^\[(.*)\]$/, "$1");
+  if (!ip || !isIpLiteral(ip)) return null;
+  const host = ip.includes(":") ? `[${ip}]` : ip;
   const port = parsed.server_port ? `:${parsed.server_port}` : "";
   switch (parsed.type) {
     case "https": return `https+local://${host}${port}${parsed.path || "/dns-query"}`;
     case "tcp": return `tcp+local://${host}${port}`;
     case "quic": return `quic+local://${host}${port}`;
-    case "udp": return parsed.server_port ? { address: parsed.server, port: parsed.server_port } : parsed.server;
-    default: return null; // DoT xray не поддерживает — остаётся системный резолвер
+    default: return null; // UDP и DoT — остаётся системный резолвер, как раньше
   }
 }
 

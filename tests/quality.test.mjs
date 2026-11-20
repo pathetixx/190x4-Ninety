@@ -518,3 +518,34 @@ test("неподтверждённые переподключения лесен
   }
   assert.ok(reconnects <= 4, `часовой лимит 4, было ${reconnects}`);
 });
+
+// Проба длиннее окна глушения: пока кадры глушатся, старые образцы обязаны
+// стареть, а один пик трафика — запускать не больше двух проб.
+test("долгая проба не зацикливает пробы на старом пике", async () => {
+  installStorage();
+  let clock = 1_000_000;
+  let probes = 0;
+  const engine = createQualityEngine({
+    invoke: async (cmd) => {
+      if (cmd !== "probe_quality") return undefined;
+      probes++;
+      clock += 3_500; // проба идёт 3,5 с — дольше окна глушения после неё
+      return GOOD;
+    },
+    actions: {},
+    opts: { enabled: true, lowDataMode: true },
+    now: () => clock,
+    sleep: async () => {},
+  });
+  engine.onConnected({});
+  clock += 10_000;
+  engine.updatePassive({ down: 500_000 }); // пользователь качал
+  clock += 1_000;
+  engine.updatePassive({ down: 0 });       // и поток схлопнулся
+  for (let s = 0; s < 120; s++) {          // 10 минут тиков сторожа, кадры глушатся/нулевые
+    clock += 5_000;
+    engine.updatePassive({ down: 0 });
+    await engine.tick();
+  }
+  assert.ok(probes <= 2, `один занавес — не больше двух проб, было ${probes}`);
+});

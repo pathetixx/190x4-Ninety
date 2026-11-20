@@ -323,9 +323,12 @@ test("файловые поля Xray снимаются при импорте и
       xhttpSettings: { path: "/p", downloadSettings: { tlsSettings: { masterKeyLog: "C:\\y.cmd" } } },
     },
   };
+  outbound.streamSettings.tlsSettings.certificates.push({ CertificateFile: "C:\\b.crt", KEYFILE: "C:\\b.key" });
   const clean = stripXrayFileFields(structuredClone(outbound));
+  assert.equal(clean.streamSettings.tlsSettings.certificates.length, 1, "сертификат без содержимого убран");
   const text = JSON.stringify(clean);
-  assert.ok(!text.includes("masterKeyLog") && !text.includes("certificateFile") && !text.includes("keyFile"));
+  const lower = text.toLowerCase();
+  assert.ok(!lower.includes("masterkeylog") && !lower.includes("certificatefile") && !lower.includes("keyfile"));
   assert.equal(clean.streamSettings.tlsSettings.serverName, "srv.example");
   assert.deepEqual(clean.streamSettings.tlsSettings.certificates[0].certificate, ["inline"]);
   assert.equal(clean.streamSettings.xhttpSettings.path, "/p");

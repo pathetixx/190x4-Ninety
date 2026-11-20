@@ -156,6 +156,10 @@ fn common_root(paths: &[PathBuf]) -> Option<PathBuf> {
 /// Распаковывает подписанный (уже проверенный плагином) ZIP в staging.
 pub fn stage_archive(root: &Path, version: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     validate_version(version)?;
+    // Staging прерванной замены — материал для её отката: сначала довести её,
+    // иначе очистка ниже уничтожила бы его, а откат переставил бы старые файлы
+    // поверх только что распакованных.
+    finish_interrupted(root)?;
     let staging_root = root.join(STAGING_DIR);
     if staging_root.exists() {
         std::fs::remove_dir_all(&staging_root).map_err(|e| format!("clear update staging: {e}"))?;
@@ -371,8 +375,12 @@ fn target_crosses_link(root: &Path, rel: &Path) -> bool {
 /// журнала больше нет; false — часть файлов вернуть не удалось, журнал и
 /// резервные копии остаются для следующей попытки.
 pub fn rollback(root: &Path, staging: &Path, applied: &[Applied]) -> bool {
+    // Без отметки «откат» оборванный откат выглядел бы для следующего старта
+    // как завершённая замена, и уборка удалила бы последние резервные копии.
+    // Не записалась — файлы не трогаем: журнал, staging и копии остаются.
     if let Err(error) = write_journal(root, staging, JournalState::RollingBack, applied) {
         eprintln!("portable update: {error}");
+        return false;
     }
     let mut restored = true;
     for item in applied.iter().rev() {
@@ -1031,6 +1039,11 @@ pub fn repair_nested_install() -> bool {
             return false;
         }
     };
+    // Как и у обновления: прерванную замену довести до сборки нового staging.
+    if let Err(error) = finish_interrupted(&origin) {
+        eprintln!("portable repair: {error}");
+        return false;
+    }
     if let Err(error) = promote_nested(&exe_dir, &origin, env!("CARGO_PKG_VERSION")) {
         eprintln!("portable repair: {error}");
         return false;
