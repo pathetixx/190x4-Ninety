@@ -8,7 +8,8 @@ import { readFileSync } from "node:fs";
 // канала ещё идут, и Rust отвечает «stale or cancelled runtime operation
 // token». Пользователь видит «Не удалось отключить» на ровном месте.
 // Проверяем инвариант по исходнику: main.js не поддаётся импорту из-за DOM.
-const main = readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+// На Windows-раннере checkout приходит с CRLF: поиск по "\n" иначе промахивается.
+const main = readFileSync(new URL("../src/main.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 const guarded = [
   "runReconnectAttempt(connectNetwork,",
