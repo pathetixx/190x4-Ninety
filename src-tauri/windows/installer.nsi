@@ -84,6 +84,10 @@ Var NinetyWriteProbeAttempts
 ; там навсегда остаётся пустым — и проверка запрета даунгрейда сравнивала бы
 ; пустую строку, то есть не срабатывала никогда.
 Var NinetyVersionCompare
+; 1 — деинсталлятор запущен страницей обслуживания как первая половина
+; обновления/отката («удалить перед установкой»), а не для удаления Ninety.
+; Тогда автозапуск и обработчики ссылок пользователя сохраняются.
+Var NinetyReinstallMode
 
 ; A flat kernel-object name avoids accidental namespace separators in NSIS
 ; strings. Keep creation in one macro so setup, maintenance and uninstall all
@@ -453,6 +457,10 @@ Function PageLeaveReinstall
       ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"
       ${IfThen} $UpdateMode = 1 ${|} StrCpy $R1 "$R1 /UPDATE" ${|} ; append /UPDATE
       ${IfThen} $PassiveMode = 1 ${|} StrCpy $R1 "$R1 /P" ${|} ; append /P
+      ; Обновление/откат через «удалить перед установкой» — переустановка, а не
+      ; удаление: иначе каждое ручное обновление выключало бы автозапуск и
+      ; обработку ссылок. Удаление той же версии ($R0 = 0) флага не получает.
+      ${IfThen} $R0 <> 0 ${|} StrCpy $R1 "$R1 /NINETYREINSTALL" ${|}
       StrCpy $R1 "$R1 _?=$4" ; append uninstall directory
       ExecWait '$R1' $0
     ${EndIf}
@@ -817,6 +825,13 @@ Section Install
   Call KuroganeProgressTick
   SetOutPath $INSTDIR
 
+  ; Каталог должен быть доступен на запись ДО хука: тот завершает Ninety и её
+  ; движки, снимает драйвер и прокси — незачем делать это ради установки,
+  ; которая всё равно упадёт на правах доступа. От запущенных процессов эта
+  ; проверка не зависит (пробный файл новый); залоченные файлы прежней версии
+  ; проверяет NinetyValidateInstallTarget уже после хука.
+  Call NinetyValidateInstallDirectory
+
   !ifmacrodef NSIS_HOOK_PREINSTALL
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
@@ -935,8 +950,12 @@ Function .onInstSuccess
   ${OrIf} ${Silent}
     ${GetOptions} $CMDLINE "/R" $R0
     ${IfNot} ${Errors}
-      ${GetOptions} $CMDLINE "/ARGS" $R0
-      nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "$R0"
+      ; Аргументы старого процесса (/ARGS от updater) намеренно не передаём:
+      ; --autostarted прятал бы окно и сам поднимал VPN, --elevated отменял бы
+      ; запрос прав, --wait-parent ждал бы уже мёртвый PID, а старые ссылки
+      ; открылись бы повторно. Сессию после OTA возвращает журнал
+      ; ninety.update.resume во фронте.
+      nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
     ${EndIf}
   ${EndIf}
 FunctionEnd
@@ -960,6 +979,11 @@ Function un.onInit
   ${GetOptions} $CMDLINE "/UPDATE" $UpdateMode
   ${IfNot} ${Errors}
     StrCpy $UpdateMode 1
+  ${EndIf}
+
+  ${GetOptions} $CMDLINE "/NINETYREINSTALL" $NinetyReinstallMode
+  ${IfNot} ${Errors}
+    StrCpy $NinetyReinstallMode 1
   ${EndIf}
 FunctionEnd
 
@@ -1055,8 +1079,14 @@ Section Uninstall
   ; This ensures the program does not launch automatically after uninstallation if it exists.
   ; If it doesn't exist, it does nothing.
   ; We do this when not updating (to preserve the registry value on updates)
+  ; Переустановка со страницы обслуживания автозапуск тоже сохраняет.
   ${If} $UpdateMode <> 1
+  ${AndIf} $NinetyReinstallMode <> 1
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
+    ; Задача автозапуска в Планировщике и обработчики VPN-ссылок, которые
+    ; Ninety заводит сама уже после установки (hooks.nsh).
+    Call un.NinetyRemoveAutostartTask
+    Call un.NinetyRemoveLinkHandlers
   ${EndIf}
 
   ; Delete app data if the checkbox is selected
@@ -1117,20 +1147,21 @@ Function NinetyProbeWritableFile
   Push ""
 FunctionEnd
 
-Function NinetyValidateInstallTarget
+; Каталог установки существует и в него можно писать. Вызывается до хука
+; PREINSTALL, поэтому не должна зависеть от того, запущена ли Ninety.
+Function NinetyValidateInstallDirectory
   StrCpy $NinetyLockedPath ""
-  StrCpy $NinetyWriteProbeAttempts 0
   ClearErrors
   CreateDirectory "$INSTDIR"
   ${If} ${Errors}
     StrCpy $NinetyLockedPath "$INSTDIR"
-    Goto target_not_writable
+    Goto directory_not_writable
   ${EndIf}
 
   FileOpen $0 "$INSTDIR\.ninety-install-write-test" w
   ${If} ${Errors}
     StrCpy $NinetyLockedPath "$INSTDIR"
-    Goto target_not_writable
+    Goto directory_not_writable
   ${EndIf}
   ClearErrors
   FileWrite $0 "Ninety installer write probe"
@@ -1138,13 +1169,23 @@ Function NinetyValidateInstallTarget
     FileClose $0
     Delete "$INSTDIR\.ninety-install-write-test"
     StrCpy $NinetyLockedPath "$INSTDIR"
-    Goto target_not_writable
+    Goto directory_not_writable
   ${EndIf}
   FileClose $0
   Delete "$INSTDIR\.ninety-install-write-test"
+  Return
+
+  directory_not_writable:
+    Call NinetyInstallTargetUnavailable
+FunctionEnd
+
+Function NinetyValidateInstallTarget
+  StrCpy $NinetyLockedPath ""
+  StrCpy $NinetyWriteProbeAttempts 0
 
   ; Detect any existing locked/unwritable payload before the first extraction.
   ; This converts hundreds of native per-file prompts into one controlled abort.
+  ; Runs after the pre-install hook: files of a running client are locked.
   IfFileExists "$INSTDIR\*.*" 0 target_writable
   target_probe_existing:
   StrCpy $NinetyLockedPath ""
@@ -1163,15 +1204,21 @@ Function NinetyValidateInstallTarget
     Return
 
   target_not_writable:
-    SetErrorLevel 5
-    IfSilent 0 +2
-      Abort
-    MessageBox MB_OK|MB_ICONSTOP "$(KInstallTargetUnavailable)$\r$\n$NinetyLockedPath"
-    ; The passive (OTA) window has no Cancel and a disabled Close: an aborted
-    ; run would leave a window nothing can dismiss, still holding the setup
-    ; mutex. Leave the process instead.
-    ${IfThen} $PassiveMode = 1 ${|} Quit ${|}
+    Call NinetyInstallTargetUnavailable
+FunctionEnd
+
+; Общий отказ обеих проверок каталога. Abort из вложенного Call прерывает
+; секцию так же, как из её собственного тела.
+Function NinetyInstallTargetUnavailable
+  SetErrorLevel 5
+  IfSilent 0 +2
     Abort
+  MessageBox MB_OK|MB_ICONSTOP "$(KInstallTargetUnavailable)$\r$\n$NinetyLockedPath"
+  ; The passive (OTA) window has no Cancel and a disabled Close: an aborted
+  ; run would leave a window nothing can dismiss, still holding the setup
+  ; mutex. Leave the process instead.
+  ${IfThen} $PassiveMode = 1 ${|} Quit ${|}
+  Abort
 FunctionEnd
 
 Function un.NinetyProbeWritableFile
