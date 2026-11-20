@@ -834,6 +834,8 @@ export const fr = {
       cancelled: "L'opération de contournement a été annulée",
       strategyNotFound: "Stratégie « {id} » introuvable",
       winwsMissing: "winws.exe introuvable : {path}",
+      exitedUnexpectedly: "winws s'est arrêté de manière inattendue (code {code}). Le contournement DPI est arrêté — détails dans les journaux.",
+      channelOlder: "Le jeu de stratégies publié {remote} est plus ancien que celui installé {local} — la mise à jour a été refusée",
       exitedOutput: "winws s'est arrêté juste après le démarrage (code {code}).\nSortie de winws :\n{output}",
       exitedAdmin: "winws s'est arrêté juste après le démarrage (code {code}). Des droits d'administrateur sont nécessaires, ou le pilote WinDivert est occupé.",
       badDomain: "Domaine non valide pour la liste d'exclusions",

@@ -818,6 +818,8 @@ export const ja = {
       cancelled: "回避処理はキャンセルされました",
       strategyNotFound: "戦略「{id}」が見つかりません",
       winwsMissing: "winws.exe が見つかりません: {path}",
+      exitedUnexpectedly: "winws が予期せず終了しました（コード {code}）。DPI 回避は停止しています。詳細はログを確認してください。",
+      channelOlder: "公開されている戦略セット {remote} はインストール済みの {local} より古いため、更新を拒否しました",
       exitedOutput: "winws は起動直後に終了しました(コード {code})。\nwinws の出力:\n{output}",
       exitedAdmin: "winws は起動直後に終了しました(コード {code})。管理者権限が必要か、WinDivert ドライバーが使用中です。",
       badDomain: "除外リストのドメインが無効です",

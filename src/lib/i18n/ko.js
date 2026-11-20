@@ -818,6 +818,8 @@ export const ko = {
       cancelled: "우회 작업이 취소되었습니다",
       strategyNotFound: "전략 \"{id}\"을(를) 찾을 수 없습니다",
       winwsMissing: "winws.exe를 찾을 수 없습니다: {path}",
+      exitedUnexpectedly: "winws가 예기치 않게 종료되었습니다(코드 {code}). DPI 우회가 중지되었습니다 — 자세한 내용은 로그를 확인하세요.",
+      channelOlder: "게시된 전략 세트 {remote}이(가) 설치된 {local}보다 오래되어 업데이트를 거부했습니다",
       exitedOutput: "winws가 시작 직후 종료되었습니다(코드 {code}).\nwinws 출력:\n{output}",
       exitedAdmin: "winws가 시작 직후 종료되었습니다(코드 {code}). 관리자 권한이 필요하거나 WinDivert 드라이버가 사용 중입니다.",
       badDomain: "제외 목록의 도메인이 올바르지 않습니다",

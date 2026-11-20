@@ -834,6 +834,8 @@ export const es = {
       cancelled: "La operación de evasión se canceló",
       strategyNotFound: "No se encontró la estrategia «{id}»",
       winwsMissing: "No se encontró winws.exe: {path}",
+      exitedUnexpectedly: "winws se cerró inesperadamente (código {code}). La evasión de DPI se detuvo: consulta los registros para más detalles.",
+      channelOlder: "El conjunto de estrategias publicado {remote} es más antiguo que el instalado {local}; la actualización se rechazó",
       exitedOutput: "winws se cerró justo después de iniciarse (código {code}).\nSalida de winws:\n{output}",
       exitedAdmin: "winws se cerró justo después de iniciarse (código {code}). Se necesitan permisos de administrador o el controlador WinDivert está ocupado.",
       badDomain: "Dominio no válido para la lista de exclusiones",

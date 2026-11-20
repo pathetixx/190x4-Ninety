@@ -826,6 +826,8 @@ export const en = {
       cancelled: "The bypass operation was cancelled",
       strategyNotFound: "Strategy \"{id}\" was not found",
       winwsMissing: "winws.exe was not found: {path}",
+      exitedUnexpectedly: "winws exited unexpectedly (code {code}). DPI bypass has stopped — see the logs for details.",
+      channelOlder: "The published strategy set {remote} is older than the installed {local}, so the update was rejected",
       exitedOutput: "winws exited right after starting (code {code}).\nwinws output:\n{output}",
       exitedAdmin: "winws exited right after starting (code {code}). Administrator rights are needed, or the WinDivert driver is busy.",
       badDomain: "Invalid domain for the exclusion list",

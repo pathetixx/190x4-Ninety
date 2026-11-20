@@ -834,6 +834,8 @@ export const pt = {
       cancelled: "A operação de contorno foi cancelada",
       strategyNotFound: "A estratégia \"{id}\" não foi encontrada",
       winwsMissing: "winws.exe não encontrado: {path}",
+      exitedUnexpectedly: "O winws foi encerrado inesperadamente (código {code}). O contorno de DPI parou — veja os logs para detalhes.",
+      channelOlder: "O conjunto de estratégias publicado {remote} é mais antigo que o instalado {local}, por isso a atualização foi recusada",
       exitedOutput: "O winws fechou logo após iniciar (código {code}).\nSaída do winws:\n{output}",
       exitedAdmin: "O winws fechou logo após iniciar (código {code}). São necessários direitos de administrador, ou o driver WinDivert está ocupado.",
       badDomain: "Domínio inválido para a lista de exclusões",

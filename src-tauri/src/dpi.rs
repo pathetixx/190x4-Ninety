@@ -46,6 +46,14 @@ pub struct DpiState {
     // Мутации подписанного DPI-набора, локальных списков и ACTIVE_*.bin должны
     // быть линейными: sync переносит их в новое поколение перед commit pointer.
     data: tokio::sync::Mutex<()>,
+    // Сеанс winws, поднятый dpi_start: id = generation его операции. 0 — штатного
+    // сеанса нет (остановлен, перезапускается или идёт автоподбор). Меняется
+    // только под локом child: выход процесса при живом сеансе — падение и
+    // событие dpi:exited, а плановая остановка сначала обнуляет сеанс.
+    runtime_session: AtomicU64,
+    // Счётчик запросов исключения VPN-нод. DNS ждём вне лока данных, поэтому
+    // запрос, обогнанный более новым, свой результат не пишет.
+    endpoint_seq: AtomicU64,
 }
 
 #[derive(Default)]
@@ -80,7 +88,15 @@ fn terminate_child_bounded(child: &mut Child, label: &str) -> Result<(), String>
 }
 
 fn stop_managed_child(state: &DpiState, label: &str) -> Result<(), String> {
-    let Some(mut child) = state.child.lock_recover().take() else {
+    // Сеанс обнуляем под тем же локом, под которым забираем хэндл: сторож
+    // выхода либо успел увидеть падение раньше (и тогда хэндла уже нет), либо
+    // увидит нулевой сеанс и плановую остановку падением не назовёт.
+    let taken = {
+        let mut guard = state.child.lock_recover();
+        state.runtime_session.store(0, Ordering::SeqCst);
+        guard.take()
+    };
+    let Some(mut child) = taken else {
         return Ok(());
     };
     match terminate_child_bounded(&mut child, label) {
@@ -182,11 +198,80 @@ impl Drop for DpiOperationGuard<'_> {
     }
 }
 
-#[derive(Deserialize)]
+// ── Сторож выхода winws ─────────────────────────────────────────────
+// Раньше падение winws посреди сессии не замечал никто: фронт продолжал
+// показывать «Работает», пока пользователь сам не открывал раздел. Сторож
+// только сообщает факт — что показать и надо ли поднимать движок снова,
+// решает фронт.
+const DPI_EXITED_EVENT: &str = "dpi:exited";
+const DPI_EXIT_POLL: Duration = Duration::from_millis(500);
+
+#[derive(Serialize, Clone, Debug)]
+struct DpiExitedEvent {
+    // generation операции dpi_start, поднявшей упавший сеанс.
+    generation: u64,
+    code: Option<i32>,
+    // i18n-токен для баннера ошибки.
+    message: String,
+}
+
+fn dpi_exited_event(generation: u64, code: Option<i32>) -> DpiExitedEvent {
+    let code_text = code.map_or_else(|| "?".to_string(), |code| code.to_string());
+    DpiExitedEvent {
+        generation,
+        code,
+        message: crate::util::i18n_error_with(
+            "backend.dpi.exitedUnexpectedly",
+            &[("code", &code_text)],
+        ),
+    }
+}
+
+// Забрать хэндл winws, если штатный сеанс умер сам. expected=Some(id) — сторож
+// конкретного сеанса: чужой (более новый) сеанс он не трогает. None — любой
+// текущий сеанс (dpi_running тоже может первым наткнуться на труп).
+fn reap_unexpected_exit(state: &DpiState, expected: Option<u64>) -> Option<DpiExitedEvent> {
+    let mut guard = state.child.lock_recover();
+    let session = state.runtime_session.load(Ordering::SeqCst);
+    if session == 0 || expected.is_some_and(|id| id != session) {
+        return None;
+    }
+    let status = match guard.as_mut()?.try_wait() {
+        Ok(Some(status)) => status,
+        _ => return None,
+    };
+    *guard = None;
+    state.runtime_session.store(0, Ordering::SeqCst);
+    Some(dpi_exited_event(session, status.code()))
+}
+
+fn spawn_dpi_exit_watcher(app: AppHandle, session: u64) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(DPI_EXIT_POLL).await;
+            let exited = {
+                let state = app.state::<DpiState>();
+                if state.runtime_session.load(Ordering::SeqCst) != session {
+                    return; // плановая остановка или новый сеанс — не наш случай
+                }
+                reap_unexpected_exit(&state, Some(session))
+            };
+            if let Some(event) = exited {
+                let _ = app.emit(DPI_EXITED_EVENT, event);
+                return;
+            }
+        }
+    });
+}
+
+#[derive(Deserialize, Serialize)]
 struct Strategy {
     id: String,
     #[serde(default)]
     name: String,
+    // Описание для UI; в winws не уходит.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    desc: String,
     #[serde(default)]
     experimental: bool,
     args: Vec<String>,
@@ -322,25 +407,110 @@ fn validate_channel_generation(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn active_channel_generation_from_dpi(dpi_data: &Path) -> Result<Option<PathBuf>, String> {
-    let pointer = dpi_data.join(CHANNEL_POINTER_FILE);
-    let raw = match std::fs::read_to_string(&pointer) {
-        Ok(raw) => raw,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("read DPI channel pointer: {e}")),
-    };
-    let name = raw.trim();
-    if !valid_channel_generation_name(name) {
-        return Err("DPI channel pointer is invalid".into());
+struct ChannelResolution {
+    // Поколение, которым реально пользуемся: то, что в pointer, либо самое
+    // свежее целое из сохранённых. None — встроенные ресурсы.
+    active: Option<PathBuf>,
+    // pointer есть, но указывает на испорченное/исчезнувшее поколение.
+    pointer_broken: bool,
+}
+
+// Диагностику испорченного поколения пишем один раз на одно и то же сообщение:
+// резолв зовётся из каждой DPI-команды, и лог иначе зарос бы одной строкой.
+static LAST_CHANNEL_DIAGNOSTIC: Mutex<String> = Mutex::new(String::new());
+
+fn report_channel_diagnostic(message: &str) {
+    let mut last = LAST_CHANNEL_DIAGNOSTIC.lock_recover();
+    if *last != message {
+        eprintln!("{message}");
+        *last = message.to_string();
     }
-    let generation = dpi_data.join(CHANNEL_GENERATIONS_DIR).join(name);
-    validate_channel_generation(&generation)?;
-    Ok(Some(generation))
+}
+
+// Ключ свежести поколения: gen-<nanos>-<pid>-<seq>. Битое имя — в самый низ.
+fn channel_generation_age_key(name: &str) -> (u128, u64) {
+    let mut parts = name.split('-').skip(1);
+    let nanos = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let seq = parts.nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+    (nanos, seq)
+}
+
+// Самое свежее целое поколение, кроме испорченного `skip`. Предыдущее
+// поколение cleanup сохраняет как раз на такой случай.
+fn newest_valid_channel_generation(generations: &Path, skip: Option<&str>) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(generations).ok()?;
+    let mut best: Option<((u128, u64), String)> = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !valid_channel_generation_name(&name) || skip == Some(name.as_str()) {
+            continue;
+        }
+        if validate_channel_generation(&entry.path()).is_err() {
+            continue;
+        }
+        let key = channel_generation_age_key(&name);
+        if best
+            .as_ref()
+            .is_none_or(|(best_key, best_name)| (key, &name) > (*best_key, best_name))
+        {
+            best = Some((key, name));
+        }
+    }
+    best.map(|(_, name)| generations.join(name))
+}
+
+// Испорченное активное поколение больше не роняет весь раздел DPI (включая
+// «Обновить», которое его и чинит): откатываемся на предыдущее целое
+// поколение или на встроенные ресурсы и запоминаем, что нужна синхронизация.
+fn resolve_channel_generation(dpi_data: &Path) -> ChannelResolution {
+    let pointer = dpi_data.join(CHANNEL_POINTER_FILE);
+    let generations = dpi_data.join(CHANNEL_GENERATIONS_DIR);
+    let (problem, skip) = match std::fs::read_to_string(&pointer) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return ChannelResolution {
+                active: None,
+                pointer_broken: false,
+            }
+        }
+        Err(e) => (format!("read DPI channel pointer: {e}"), None),
+        Ok(raw) => {
+            let name = raw.trim().to_string();
+            if !valid_channel_generation_name(&name) {
+                ("DPI channel pointer is invalid".to_string(), None)
+            } else {
+                match validate_channel_generation(&generations.join(&name)) {
+                    Ok(()) => {
+                        return ChannelResolution {
+                            active: Some(generations.join(name)),
+                            pointer_broken: false,
+                        }
+                    }
+                    Err(error) => (error, Some(name)),
+                }
+            }
+        }
+    };
+    let fallback = newest_valid_channel_generation(&generations, skip.as_deref());
+    report_channel_diagnostic(&format!(
+        "{problem}; falling back to {}",
+        fallback.as_ref().map_or_else(
+            || "the bundled DPI set".to_string(),
+            |path| path.display().to_string()
+        )
+    ));
+    ChannelResolution {
+        active: fallback,
+        pointer_broken: true,
+    }
+}
+
+fn active_channel_generation_from_dpi(dpi_data: &Path) -> Option<PathBuf> {
+    resolve_channel_generation(dpi_data).active
 }
 
 fn active_channel_generation(app: &AppHandle) -> Result<Option<PathBuf>, String> {
     let dpi_data = crate::app_paths::data_dir(app)?.join("dpi");
-    active_channel_generation_from_dpi(&dpi_data)
+    Ok(active_channel_generation_from_dpi(&dpi_data))
 }
 
 fn channel_generation_name() -> String {
@@ -375,39 +545,128 @@ fn finalize_channel_generation(from: &Path, to: &Path) -> Result<(), String> {
     std::fs::rename(from, to).map_err(|e| format!("finalize DPI channel generation: {e}"))
 }
 
-// Writable-каталог списков: активное поколение канала либо legacy dpi/lists
-// до первой успешной поколенческой синхронизации.
-fn lists_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = match active_channel_generation(app)? {
+// ── Собственные добавки Ninety к спискам ────────────────────────────
+// Канал (dpi-channel.yml) копирует списки Flowseal как есть, поэтому добавки
+// Ninety не живут в базовых файлах: после «Обновить» они бы пропадали. Они
+// хранятся здесь и накладываются поверх любого базового набора — встроенного
+// и канального — при каждой записи, без дублей.
+// Vivox (голос Unity, AS35028): 85.236.104.0/23 в /21 не входит.
+const NINETY_GENERAL_ADDITIONS: [&str; 1] = ["vivox.com"];
+const NINETY_IPSET_ADDITIONS: [&str; 2] = ["85.236.96.0/21", "85.236.104.0/23"];
+// Маркер версии встроенных базовых списков в legacy-каталоге (без канала).
+const BUNDLED_LISTS_MARKER: &str = ".bundled-lists-version";
+
+// Текст списка с добавками в конце. None — все добавки уже есть (сравнение
+// без регистра, комментарии и пустые строки не в счёт).
+fn with_list_additions(text: &str, additions: &[&str]) -> Option<String> {
+    let present: std::collections::HashSet<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with("//"))
+        .map(str::to_ascii_lowercase)
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    let missing: Vec<&str> = additions
+        .iter()
+        .copied()
+        .filter(|entry| {
+            let key = entry.to_ascii_lowercase();
+            !present.contains(&key) && seen.insert(key)
+        })
+        .collect();
+    if missing.is_empty() {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len() + missing.len() * 24);
+    out.push_str(text);
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    for entry in missing {
+        out.push_str(entry);
+        out.push('\n');
+    }
+    Some(out)
+}
+
+fn apply_list_additions(path: &Path, additions: &[&str], label: &str) -> Result<(), String> {
+    let text = read_list_text(path)?;
+    if let Some(updated) = with_list_additions(&text, additions) {
+        write_replace(path, &updated, label)?;
+    }
+    Ok(())
+}
+
+// Версия встроенных списков: меняется с каждой версией приложения и набора.
+fn bundled_lists_stamp(app: &AppHandle) -> String {
+    format!(
+        "{}+{}",
+        app.package_info().version,
+        bundled_strategies_version()
+    )
+}
+
+// Базовые списки legacy-каталога (установка без канала) — копия ресурсов
+// приложения. Раньше их копировали только при отсутствии файла, и у старых
+// установок они навсегда оставались от первой установки. Теперь при смене
+// версии приложения/набора базовые файлы переписываются из ресурсов.
+// Пользовательские (*-user.txt), сессионные и автосписок здесь не трогаются,
+// writable-база ipset (её двигает «Обновить список») — тоже.
+fn refresh_bundled_base_lists(dst: &Path, src: &Path, stamp: &str) -> Result<(), String> {
+    let marker = dst.join(BUNDLED_LISTS_MARKER);
+    let current = std::fs::read_to_string(&marker).unwrap_or_default();
+    let refresh = current.trim() != stamp;
+    for name in CHANNEL_LIST_FILES {
+        let to = dst.join(name);
+        if !refresh && to.exists() {
+            continue;
+        }
+        let from = src.join(name);
+        if from.is_file() {
+            copy_replace(&from, &to, &format!("bundled list {name}"))?;
+        } else if !to.exists() {
+            write_replace(&to, "", &format!("empty list {name}"))?;
+        }
+    }
+    if refresh {
+        write_replace(&marker, &format!("{stamp}\n"), "bundled lists version")?;
+    }
+    Ok(())
+}
+
+// Засеять writable-списки. В поколении канала базовые списки принадлежат
+// каналу (досоздаём только пропавшие), в legacy-каталоге — ресурсам
+// приложения и обновляются вместе с ним. Добавки Ninety накладываются поверх
+// в обоих случаях, user-списки создаём пустыми. ipset-all.txt пишется
+// отдельно по режиму.
+fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
+    let generation = active_channel_generation(app)?;
+    let dst = match &generation {
         Some(generation) => generation.join("lists"),
         None => crate::app_paths::data_dir(app)?.join("dpi").join("lists"),
     };
-    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir lists: {e}"))?;
-    Ok(dir)
-}
-
-// Засеять writable-списки: базовые копируем из ресурсов (если ещё нет —
-// updater и пользователь правят writable-версию, поэтому не перезатираем),
-// user-списки создаём пустыми. ipset-all.txt пишется отдельно по режиму.
-fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
-    let dst = lists_dir(app)?;
+    std::fs::create_dir_all(&dst).map_err(|e| format!("mkdir lists: {e}"))?;
     let src = res_lists(app)?;
-    for name in [
-        "list-general.txt",
-        "list-google.txt",
-        "list-exclude.txt",
-        "ipset-exclude.txt",
-    ] {
-        let to = dst.join(name);
-        if !to.exists() {
-            let from = src.join(name);
-            if from.exists() {
-                std::fs::copy(&from, &to).map_err(|e| format!("seed {name}: {e}"))?;
-            } else {
-                std::fs::write(&to, b"").map_err(|e| format!("touch {name}: {e}"))?;
+    if generation.is_some() {
+        for name in CHANNEL_LIST_FILES {
+            let to = dst.join(name);
+            if !to.exists() {
+                let from = src.join(name);
+                if from.is_file() {
+                    copy_replace(&from, &to, &format!("seed {name}"))?;
+                } else {
+                    write_replace(&to, "", &format!("touch {name}"))?;
+                }
             }
         }
+    } else {
+        refresh_bundled_base_lists(&dst, &src, &bundled_lists_stamp(app))?;
     }
+    apply_list_additions(
+        &dst.join("list-general.txt"),
+        &NINETY_GENERAL_ADDITIONS,
+        "Ninety list additions",
+    )?;
     for name in [
         "list-general-user.txt",
         "list-exclude-user.txt",
@@ -449,11 +708,36 @@ fn bindata_dir(app: &AppHandle) -> Result<PathBuf, String> {
 // обновлении Ninety с Flowseal <1.10, где bin-data уже не пуст, но ACTIVE_*.bin
 // ещё отсутствуют. При наличии overlay его подписанный набор является
 // единственным источником истины: удалённые каналом файлы не воскрешаем из app.
-fn ensure_bindata(app: &AppHandle) -> Result<PathBuf, String> {
+// Исключение — поколение, чьи стратегии не подтверждены подписью: тогда
+// работают встроенные стратегии, и недостающие им .bin досоздаются из ресурса
+// (существующие файлы поколения и выбор UDP fake не трогаем).
+fn ensure_bindata(app: &AppHandle, active: &ActiveStrategies) -> Result<PathBuf, String> {
     let dst = bindata_dir(app)?;
-    sync_bundled_bindata(app, &dst)?;
+    if active.channel.is_none() && active_channel_generation(app)?.is_some() {
+        copy_missing_bundled_bins(app, &dst, &active.strategies)?;
+    } else {
+        sync_bundled_bindata(app, &dst)?;
+    }
     let _ = reapply_fake_selection(app, &dst)?;
     Ok(dst)
+}
+
+fn copy_missing_bundled_bins(
+    app: &AppHandle,
+    dst: &Path,
+    strategies: &[Strategy],
+) -> Result<(), String> {
+    let src = bin_dir(app, false)?;
+    for name in referenced_bins(strategies) {
+        if !valid_bin_filename(&name) || dst.join(&name).is_file() {
+            continue;
+        }
+        let from = src.join(&name);
+        if from.is_file() {
+            copy_replace(&from, &dst.join(&name), &format!("bundled bin {name}"))?;
+        }
+    }
+    Ok(())
 }
 
 const ACTIVE_DISCORD_FAKE: &str = "ACTIVE_DISCORD_UDP.bin";
@@ -576,12 +860,9 @@ fn sync_bundled_bindata(app: &AppHandle, dst: &Path) -> Result<(), String> {
     if active_channel_generation(app)?.is_some() {
         return Ok(());
     }
-    let authoritative = crate::app_paths::data_dir(app)
-        .map(|dir| !dir.join("dpi").join("strategies.json").is_file())
-        .unwrap_or(true);
-    if !authoritative {
-        return Ok(());
-    }
+    // Legacy-оверлей <data>/dpi/strategies.json больше не читается (см.
+    // load_strategies), поэтому без поколения встроенный набор .bin
+    // авторитетен всегда — он идёт в паре со встроенными стратегиями.
     let mut bundled = std::collections::HashSet::new();
     let rd = std::fs::read_dir(&src).map_err(|e| format!("read bundled bin: {e}"))?;
     for item in rd {
@@ -719,18 +1000,300 @@ fn reapply_fake_selection(app: &AppHandle, dir: &Path) -> Result<Vec<String>, St
     reapply_fake_selection_with_inventory(app, dir, None)
 }
 
-// Путь к strategies.json: активное поколение → legacy overlay → ресурс.
-// Поколение выбирается тем же единым pointer, что списки и .bin.
-fn strategies_path(app: &AppHandle) -> Result<PathBuf, String> {
-    if let Some(generation) = active_channel_generation(app)? {
-        return Ok(generation.join("strategies.json"));
+// ── Стратегии: источник и allowlist аргументов ─────────────────────
+// Аргументы стратегии уходят в winws, который работает с правами
+// администратора, а каталог данных доступен на запись обычному пользователю.
+// Поэтому strategies.json с диска на веру больше не читается нигде:
+//   - канальная стратегия — только из подписанного bundle.zip активного
+//     поколения (подпись проверяется при каждом чтении);
+//   - встроенная — из самого исполняемого файла (include_str!), той же сборки,
+//     что ресурсные .bin и списки;
+//   - legacy-оверлей <data>/dpi/strategies.json игнорируется.
+// Вторая линия — allowlist флагов, зеркало gen_strategies.py::validate_arg.
+const BUNDLED_STRATEGIES_JSON: &str = include_str!("../dpi/strategies.json");
+const BUNDLED_STRATEGIES_VERSION: &str = include_str!("../dpi/version.txt");
+const MAX_STRATEGIES: usize = 64;
+const MAX_STRATEGY_ARGS: usize = 512;
+const MAX_STRATEGY_ARG_LEN: usize = 4096;
+
+fn bundled_strategies_version() -> String {
+    let version = BUNDLED_STRATEGIES_VERSION.trim();
+    if version.is_empty() {
+        "—".into()
+    } else {
+        version.to_string()
     }
-    let dir = crate::app_paths::data_dir(app)?;
-    let p = dir.join("dpi").join("strategies.json");
-    if p.exists() {
-        return Ok(p);
+}
+
+const DESYNC_VALUES: [&str; 9] = [
+    "fake",
+    "fake,fakedsplit",
+    "fake,hostfakesplit",
+    "fake,multidisorder",
+    "fake,multisplit",
+    "hostfakesplit",
+    "multisplit",
+    "syndata",
+    "syndata,multidisorder",
+];
+const FOOLING_VALUES: [&str; 3] = ["badseq", "ts", "ts,md5sig"];
+const L7_VALUES: [&str; 3] = ["quic", "discord,stun", "discord,stun,unknown"];
+const BIN_FLAGS: [&str; 6] = [
+    "--dpi-desync-fake-discord",
+    "--dpi-desync-fake-http",
+    "--dpi-desync-fake-quic",
+    "--dpi-desync-fake-stun",
+    "--dpi-desync-fake-unknown-udp",
+    "--dpi-desync-split-seqovl-pattern",
+];
+
+// Файловые флаги списков: только наши имена под %LISTS%. Служебные
+// --hostlist-auto* и исключение активной ноды добавляет само приложение после
+// проверки, стратегия задать их не может.
+fn allowed_list_values(flag: &str) -> Option<&'static [&'static str]> {
+    match flag {
+        "--hostlist" => Some(&[
+            "%LISTS%list-general.txt",
+            "%LISTS%list-general-user.txt",
+            "%LISTS%list-google.txt",
+        ]),
+        "--hostlist-exclude" => Some(&["%LISTS%list-exclude.txt", "%LISTS%list-exclude-user.txt"]),
+        "--ipset" => Some(&["%LISTS%ipset-all.txt"]),
+        "--ipset-exclude" => Some(&["%LISTS%ipset-exclude.txt", "%LISTS%ipset-exclude-user.txt"]),
+        _ => None,
     }
-    Ok(res_dpi(app)?.join("strategies.json"))
+}
+
+fn bounded_int(value: &str, low: u64, high: u64) -> bool {
+    !value.is_empty()
+        && value.len() <= 19
+        && value.bytes().all(|b| b.is_ascii_digit())
+        && value
+            .parse::<u64>()
+            .is_ok_and(|n| (low..=high).contains(&n))
+}
+
+// %BIN%имя.bin: только символы [A-Za-z0-9._-], без «..» и разделителей пути.
+fn safe_bin_value(value: &str) -> bool {
+    let Some(name) = value.strip_prefix("%BIN%") else {
+        return false;
+    };
+    name.len() > ".bin".len()
+        && name.ends_with(".bin")
+        && !name.contains("..")
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+fn safe_hex_value(value: &str) -> bool {
+    value.strip_prefix("0x").is_some_and(|hex| {
+        (2..=4096).contains(&hex.len()) && hex.bytes().all(|b| b.is_ascii_hexdigit())
+    })
+}
+
+// SAFE_DOMAIN из генератора: метки [A-Za-z0-9-] до 63 символов без дефиса по
+// краям, минимум две метки, последняя — 2..63 латинских букв.
+fn safe_strategy_domain(value: &str) -> bool {
+    let labels: Vec<&str> = value.split('.').collect();
+    let Some((tld, rest)) = labels.split_last() else {
+        return false;
+    };
+    !rest.is_empty()
+        && (2..=63).contains(&tld.len())
+        && tld.bytes().all(|b| b.is_ascii_alphabetic())
+        && rest.iter().all(|label| {
+            (1..=63).contains(&label.len())
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+}
+
+fn valid_port_list(value: &str, placeholder: &str) -> bool {
+    value.split(',').all(|part| {
+        if part == placeholder {
+            return true;
+        }
+        let (start, end) = part.split_once('-').unwrap_or((part, part));
+        let port = |raw: &str| -> Option<u32> {
+            if raw.is_empty() || raw.len() > 5 || !raw.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            raw.parse().ok()
+        };
+        match (port(start), port(end)) {
+            (Some(start), Some(end)) => (1..=end).contains(&start) && end <= 65535,
+            _ => false,
+        }
+    })
+}
+
+// \d{1,5}(,(midsld|sniext+\d{1,5}))?
+fn valid_split_pos(value: &str) -> bool {
+    let short_number =
+        |raw: &str| (1..=5).contains(&raw.len()) && raw.bytes().all(|b| b.is_ascii_digit());
+    let (position, marker) = match value.split_once(',') {
+        Some((position, marker)) => (position, Some(marker)),
+        None => (value, None),
+    };
+    short_number(position)
+        && match marker {
+            None => true,
+            Some("midsld") => true,
+            Some(marker) => marker.strip_prefix("sniext+").is_some_and(short_number),
+        }
+}
+
+/// Проверить один аргумент стратегии до подстановки плейсхолдеров. Зеркало
+/// gen_strategies.py::validate_arg: генератор канала уже фильтрует им вывод, а
+/// клиент повторяет проверку, потому что между подписью и winws лежит диск.
+fn validate_strategy_arg(arg: &str) -> Result<(), String> {
+    let reject =
+        || -> Result<(), String> { Err(format!("unsafe or unknown winws argument: {arg:?}")) };
+    if arg.len() > MAX_STRATEGY_ARG_LEN || arg.contains(['\0', '\r', '\n']) {
+        return reject();
+    }
+    let (flag, value) = match arg.split_once('=') {
+        Some((flag, value)) => (flag, Some(value)),
+        None => (arg, None),
+    };
+    let Some(value) = value else {
+        // Без значения допустим только разделитель секций.
+        return if flag == "--new" { Ok(()) } else { reject() };
+    };
+    let ok = match flag {
+        "--dpi-desync" => DESYNC_VALUES.contains(&value),
+        "--dpi-desync-any-protocol" => value == "1",
+        "--dpi-desync-badseq-increment" => bounded_int(value, 0, 2_147_483_647),
+        "--dpi-desync-cutoff" => value.strip_prefix('n').is_some_and(|n| {
+            (1..=2).contains(&n.len())
+                && n.bytes().all(|b| b.is_ascii_digit())
+                && !n.starts_with('0')
+        }),
+        flag if BIN_FLAGS.contains(&flag) => safe_bin_value(value),
+        "--dpi-desync-fake-tls" => value == "!" || safe_bin_value(value) || safe_hex_value(value),
+        "--dpi-desync-fake-unknown" => safe_bin_value(value) || safe_hex_value(value),
+        "--dpi-desync-fakedsplit-pattern" => safe_hex_value(value),
+        "--dpi-desync-fooling" => FOOLING_VALUES.contains(&value),
+        "--dpi-desync-repeats" => bounded_int(value, 1, 1000),
+        "--dpi-desync-split-seqovl" => bounded_int(value, 0, 65535),
+        "--dpi-desync-split-pos" => valid_split_pos(value),
+        "--dpi-desync-fake-tls-mod" => {
+            value == "none"
+                || value
+                    .strip_prefix("rnd,dupsid,sni=")
+                    .is_some_and(safe_strategy_domain)
+        }
+        "--dpi-desync-hostfakesplit-mod" => value.strip_prefix("host=").is_some_and(|rest| {
+            safe_strategy_domain(rest.strip_suffix(",altorder=1").unwrap_or(rest))
+        }),
+        "--filter-l3" => value == "ipv4",
+        "--filter-l7" => L7_VALUES.contains(&value),
+        "--filter-tcp" | "--wf-tcp" => valid_port_list(value, "%GameFilterTCP%"),
+        "--filter-udp" | "--wf-udp" => valid_port_list(value, "%GameFilterUDP%"),
+        "--hostlist-domains" | "--hostlist-exclude-domains" => {
+            value.split(',').all(safe_strategy_domain)
+        }
+        "--ip-id" => value == "zero",
+        flag => allowed_list_values(flag).is_some_and(|allowed| allowed.contains(&value)),
+    };
+    if ok {
+        Ok(())
+    } else {
+        reject()
+    }
+}
+
+fn validate_strategy_args(args: &[String]) -> Result<(), String> {
+    if args.is_empty() || args.len() > MAX_STRATEGY_ARGS {
+        return Err(format!("invalid winws argument count: {}", args.len()));
+    }
+    args.iter().try_for_each(|arg| validate_strategy_arg(arg))
+}
+
+// Разобрать strategies.json и оставить только стратегии, целиком прошедшие
+// allowlist. Стратегия с запрещённым аргументом не исправляется и не
+// обрезается — она выпадает вся: частичный argv winws — другой профиль.
+fn parse_checked_strategies(raw: &str) -> Result<Vec<Strategy>, String> {
+    let parsed: Vec<Strategy> =
+        serde_json::from_str(raw).map_err(|e| format!("parse strategies.json: {e}"))?;
+    if parsed.len() > MAX_STRATEGIES {
+        return Err(format!("too many strategies: {}", parsed.len()));
+    }
+    let mut checked = Vec::with_capacity(parsed.len());
+    for strategy in parsed {
+        match validate_strategy_args(&strategy.args) {
+            Ok(()) => checked.push(strategy),
+            Err(error) => eprintln!("DPI strategy {} rejected: {error}", strategy.id),
+        }
+    }
+    if checked.is_empty() {
+        return Err("no strategy passed the winws argument allowlist".into());
+    }
+    Ok(checked)
+}
+
+struct ActiveStrategies {
+    strategies: Vec<Strategy>,
+    // Версия именно того набора, из которого взяты стратегии.
+    version: String,
+    // Поколение, чей подписанный бандл дал стратегии; None — встроенный набор.
+    channel: Option<PathBuf>,
+    // Активное поколение повреждено или не может доказать подписью свои
+    // стратегии: работаем на встроенном наборе и предлагаем пересинхронизацию
+    // даже при той же версии канала.
+    needs_resync: bool,
+}
+
+// Стратегии и версия из подписанного бандла поколения (одна проверка подписи).
+fn signed_generation_strategies(generation: &Path) -> Result<(Vec<Strategy>, String), String> {
+    let entries = read_signed_bundle_entries(
+        generation,
+        &[Path::new("strategies.json"), Path::new("version.txt")],
+    )?;
+    let strategies = parse_checked_strategies(&entries[0])?;
+    let version = entries[1].trim().to_string();
+    if !valid_channel_version(&version) {
+        return Err("signed DPI bundle has an invalid version".into());
+    }
+    Ok((strategies, version))
+}
+
+fn load_strategies_from(dpi_data: &Path) -> Result<ActiveStrategies, String> {
+    let resolution = resolve_channel_generation(dpi_data);
+    let mut needs_resync = resolution.pointer_broken;
+    if let Some(generation) = resolution.active {
+        match signed_generation_strategies(&generation) {
+            Ok((strategies, version)) => {
+                return Ok(ActiveStrategies {
+                    strategies,
+                    version,
+                    channel: Some(generation),
+                    needs_resync,
+                })
+            }
+            Err(error) => {
+                report_channel_diagnostic(&format!(
+                    "DPI channel generation {} has no verifiable strategies, using the bundled set: {error}",
+                    generation.display()
+                ));
+                needs_resync = true;
+            }
+        }
+    }
+    Ok(ActiveStrategies {
+        strategies: parse_checked_strategies(BUNDLED_STRATEGIES_JSON)?,
+        version: bundled_strategies_version(),
+        channel: None,
+        needs_resync,
+    })
+}
+
+fn load_strategies(app: &AppHandle) -> Result<ActiveStrategies, String> {
+    load_strategies_from(&crate::app_paths::data_dir(app)?.join("dpi"))
 }
 
 // Режим ipset → содержимое ipset-all.txt (как в service.bat Flowseal):
@@ -749,7 +1312,14 @@ fn write_ipset_mode(app: &AppHandle, lists: &Path, mode: &str) -> Result<(), Str
             } else {
                 res_lists(app)?.join(IPSET_BASE_FILE)
             };
-            copy_replace(&base, &target, "ipset loaded")?;
+            // База приходит и из канала (как есть у Flowseal), поэтому добавки
+            // Ninety накладываются на итоговый файл, который читает winws.
+            let text = std::fs::read_to_string(&base)
+                .map_err(|e| format!("read ipset base ({}): {e}", base.display()))?;
+            match with_list_additions(&text, &NINETY_IPSET_ADDITIONS) {
+                Some(updated) => write_replace(&target, &updated, "ipset loaded")?,
+                None => write_replace(&target, &text, "ipset loaded")?,
+            }
         }
         "off" => {
             write_replace(&target, "203.0.113.113/32\n", "ipset off")?;
@@ -804,12 +1374,6 @@ fn trim_auto_hostlist_log(path: &Path) {
     }
     let tail = crate::vpn::read_tail(path, Some(AUTO_HOSTLIST_LOG_KEEP_BYTES)).unwrap_or_default();
     let _ = std::fs::write(path, tail);
-}
-
-fn read_strategies(app: &AppHandle) -> Result<Vec<Strategy>, String> {
-    let path = strategies_path(app)?;
-    let raw = std::fs::read_to_string(&path).map_err(|e| format!("read strategies.json: {e}"))?;
-    serde_json::from_str(&raw).map_err(|e| format!("parse strategies.json: {e}"))
 }
 
 // Срезать verbatim-префикс Windows (`\\?\C:\…` → `C:\…`, `\\?\UNC\srv\…` →
@@ -1141,11 +1705,12 @@ fn kill_stray_winws(_dpi_root: &Path) -> bool {
 
 // ── Команды ─────────────────────────────────────────────────────────
 
-/// Сырой strategies.json — фронт рендерит список стратегий из него.
+/// Список стратегий для UI (JSON-массив). Тот же проверенный путь, что у
+/// запуска: подписанный бандл поколения или встроенный набор, после allowlist.
 #[tauri::command]
 pub fn dpi_strategies(app: AppHandle) -> Result<String, String> {
-    let path = strategies_path(&app)?;
-    std::fs::read_to_string(&path).map_err(|e| format!("read strategies.json: {e}"))
+    let active = load_strategies(&app)?;
+    serde_json::to_string(&active.strategies).map_err(|e| format!("serialize strategies: {e}"))
 }
 
 /// Сколько доменов в активных списках (для карточки «Списки доменов»).
@@ -1179,10 +1744,11 @@ pub async fn dpi_fake_payloads(
     state: State<'_, DpiState>,
 ) -> Result<serde_json::Value, String> {
     let _data = state.data.lock().await;
-    let dir = ensure_bindata(&app)?;
+    let active = load_strategies(&app)?;
+    let dir = ensure_bindata(&app, &active)?;
     let options = fake_options(&dir)?;
     let selection = load_fake_selection(&app);
-    let referenced = referenced_bins(&read_strategies(&app)?);
+    let referenced = referenced_bins(&active.strategies);
     let discord_supported =
         referenced.contains(ACTIVE_DISCORD_FAKE) && dir.join(ACTIVE_DISCORD_FAKE).is_file();
     let game_supported =
@@ -1213,7 +1779,8 @@ pub async fn dpi_set_active_fake(
     file: String,
 ) -> Result<serde_json::Value, String> {
     let _data = state.data.lock().await;
-    let dir = ensure_bindata(&app)?;
+    let active = load_strategies(&app)?;
+    let dir = ensure_bindata(&app, &active)?;
     let options = fake_options(&dir)?;
     if !options.contains(&file) {
         return Err("fake file is not in the current signed set".into());
@@ -1366,6 +1933,8 @@ fn remember_owned_driver_services(_state: &DpiState, _bin: &Path) {}
 /// ipset — область применения обхода: "any" (все домены) | "auto" (только те,
 /// что winws сам определил как заблокированные) | "loaded" (IP из ipset-all) |
 /// "off" (только домены из списков). Должен вызываться из elevated-процесса.
+/// Возвращает id сеанса (generation): им помечено событие dpi:exited, если
+/// этот winws позже упадёт сам.
 #[tauri::command]
 pub async fn dpi_start(
     app: AppHandle,
@@ -1375,7 +1944,7 @@ pub async fn dpi_start(
     ipset: String,
     monkey: bool,
     logs_disabled: Option<bool>,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     let logs_disabled = logs_disabled.unwrap_or(false);
     let generation = begin_dpi_operation(&state, "start")?;
     let _operation = DpiOperationGuard {
@@ -1388,8 +1957,10 @@ pub async fn dpi_start(
         if let Some(child) = guard.as_mut() {
             match child.try_wait() {
                 Ok(Some(_)) => {
+                    // умер — перезапустим; о прежнем сеансе уже не сообщаем
                     *guard = None;
-                } // умер — перезапустим
+                    state.runtime_session.store(0, Ordering::SeqCst);
+                }
                 Ok(None) => return Err(crate::util::i18n_error("backend.dpi.alreadyRunning")),
                 Err(_) => return Err(crate::util::i18n_error("backend.dpi.alreadyRunning")),
             }
@@ -1403,13 +1974,17 @@ pub async fn dpi_start(
         guard = state.data.lock() => guard,
         _ = wait_dpi_cancelled(&state, generation) => return Err(crate::util::i18n_error("backend.dpi.cancelled")),
     };
-    let strategies = read_strategies(&app)?;
-    let strat = strategies
-        .into_iter()
+    let active = load_strategies(&app)?;
+    let strat = active
+        .strategies
+        .iter()
         .find(|s| s.id == strategy_id)
         .ok_or_else(|| {
             crate::util::i18n_error_with("backend.dpi.strategyNotFound", &[("id", &strategy_id)])
         })?;
+    // Вторая линия прямо перед подстановкой: в winws уходят только аргументы,
+    // прошедшие allowlist, какой бы путь ни привёл сюда стратегию.
+    validate_strategy_args(&strat.args)?;
 
     let bin = bin_dir(&app, monkey)?;
     let exe = bin.join("winws.exe");
@@ -1429,7 +2004,7 @@ pub async fn dpi_start(
 
     // %BIN% → writable bin-data (оверлей канала), НЕ движок: cwd ниже остаётся
     // на read-only ресурсе (winws.exe + WinDivert.dll грузятся оттуда).
-    let bindata = ensure_bindata(&app)?;
+    let bindata = ensure_bindata(&app, &active)?;
     let bindata_s = strip_verbatim(&bindata.to_string_lossy());
     let lists_s = strip_verbatim(&lists.to_string_lossy());
     let args: Vec<String> = strat
@@ -1532,7 +2107,9 @@ pub async fn dpi_start(
             let _ = terminate_child_bounded(&mut child, "winws");
             return Err(crate::util::i18n_error("backend.dpi.cancelled"));
         }
-        *state.child.lock_recover() = Some(child);
+        let mut published = state.child.lock_recover();
+        *published = Some(child);
+        state.runtime_session.store(generation, Ordering::SeqCst);
     }
     // winws поднял драйвер WinDivert — при выходе службу надо будет снять.
     state.driver_loaded.store(true, Ordering::SeqCst);
@@ -1540,11 +2117,27 @@ pub async fn dpi_start(
     // Дать winws ~700мс упасть (занятый драйвер / нет прав / битые args).
     dpi_sleep_or_cancel(&state, generation, Duration::from_millis(700)).await?;
     remember_owned_driver_services(&state, &bin);
+    // Снимаем до лока child: control-лок берётся раньше child (как при
+    // публикации хэндла), обратный порядок недопустим.
+    let still_current = dpi_operation_current(&state, generation);
     {
         let mut guard = state.child.lock_recover();
-        if let Some(child) = guard.as_mut() {
+        let Some(child) = guard.as_mut() else {
+            // Хэндл забрал stop, пришедший уже после sleep, либо dpi_running,
+            // наткнувшийся на труп. В обоих случаях winws не работает, и
+            // успехом это не является.
+            if !still_current {
+                return Err(crate::util::i18n_error("backend.dpi.cancelled"));
+            }
+            return Err(crate::util::i18n_error_with(
+                "backend.dpi.exitedAdmin",
+                &[("code", "?")],
+            ));
+        };
+        {
             if let Ok(Some(status)) = child.try_wait() {
                 *guard = None;
+                state.runtime_session.store(0, Ordering::SeqCst);
                 let code = status
                     .code()
                     .map_or_else(|| "?".to_string(), |code| code.to_string());
@@ -1572,7 +2165,9 @@ pub async fn dpi_start(
             }
         }
     }
-    Ok(())
+    // Пережил стартовое окно — дальше за ним следит сторож выхода.
+    spawn_dpi_exit_watcher(app, generation);
+    Ok(generation)
 }
 
 // Остановка winws подтверждается физически: kill + try_wait до 2с, ожидание
@@ -1591,7 +2186,13 @@ pub async fn dpi_stop(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn dpi_running(state: State<'_, DpiState>) -> bool {
+pub fn dpi_running(app: AppHandle, state: State<'_, DpiState>) -> bool {
+    // Труп штатного сеанса — то же падение, что ловит сторож: сообщаем о нём,
+    // иначе опрос, успевший первым, молча съел бы событие.
+    if let Some(event) = reap_unexpected_exit(&state, None) {
+        let _ = app.emit(DPI_EXITED_EVENT, event);
+        return false;
+    }
     let mut guard = state.child.lock_recover();
     if let Some(child) = guard.as_mut() {
         match child.try_wait() {
@@ -1606,71 +2207,176 @@ pub fn dpi_running(state: State<'_, DpiState>) -> bool {
     }
 }
 
-/// Атомарно заменить исключение активного VPN endpoint. Это session-managed
-/// state, а не пользовательский список: смена ноды заменяет значение целиком и
-/// не трогает правки пользователя в *-user.txt. Прежняя команда дописывала ноду
-/// в пользовательские списки и была снята — адреса всех использованных нод
-/// оставались в исключениях навсегда и перемешивались с правилами пользователя.
+// ── Исключение VPN-нод из winws ─────────────────────────────────────
+// Потолки пакета: файлы исключений читает winws, а резолв — сетевое ожидание
+// перед запуском обхода, поэтому и то и другое ограничено.
+const MAX_ENDPOINT_IPS: usize = 1024;
+const MAX_ENDPOINT_DOMAINS: usize = 512;
+const MAX_ENDPOINT_RESOLVE: usize = 64;
+const ENDPOINT_RESOLVE_PARALLEL: usize = 8;
+const ENDPOINT_RESOLVE_BUDGET: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Default, PartialEq)]
+struct EndpointBatch {
+    // CIDR в формате ipset: /32 и /128 для одиночных адресов.
+    ips: Vec<String>,
+    domains: Vec<String>,
+}
+
+fn valid_port_text(port: &str) -> bool {
+    (1..=5).contains(&port.len()) && port.bytes().all(|b| b.is_ascii_digit())
+}
+
+// Хост без порта: «[v6]:443» → «v6», «host:443» → «host». Голый IPv6
+// (двоеточий больше одного) остаётся как есть. None — адрес испорчен.
+fn endpoint_host(raw: &str) -> Option<&str> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if let Some(rest) = value.strip_prefix('[') {
+        let (host, tail) = rest.split_once(']')?;
+        let port_ok = tail.is_empty() || tail.strip_prefix(':').is_some_and(valid_port_text);
+        return (port_ok && !host.is_empty()).then_some(host);
+    }
+    match value.split_once(':') {
+        Some((host, port)) if !port.contains(':') => {
+            (!host.is_empty() && valid_port_text(port)).then_some(host)
+        }
+        _ => Some(value),
+    }
+}
+
+// Адрес в каноническом виде: иначе 2001:0db8::1 и 2001:db8::1 разошлись бы
+// дублями.
+fn canonical_ip_entry(host: &str) -> Option<String> {
+    match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(addr)) => Some(format!("{addr}/32")),
+        Ok(IpAddr::V6(addr)) => Some(format!("{addr}/128")),
+        Err(_) if host.contains('/') => normalize_ipset_entry(host).ok(),
+        Err(_) => None,
+    }
+}
+
+fn push_unique(list: &mut Vec<String>, value: String, cap: usize) {
+    if list.len() < cap && !list.contains(&value) {
+        list.push(value);
+    }
+}
+
+// Разобрать пакет адресов нод. Классификация — по содержимому, а не по тому,
+// в каком из списков пришла строка: адрес TrustTunnel «ip:port» в domains всё
+// равно IP. Испорченная строка отбрасывается сама по себе и не роняет весь
+// пакет — иначе в файлах осталось бы исключение прошлых нод.
+fn endpoint_batch(ips: &[String], domains: &[String]) -> EndpointBatch {
+    let mut batch = EndpointBatch::default();
+    for raw in ips.iter().chain(domains) {
+        let Some(host) = endpoint_host(raw) else {
+            continue;
+        };
+        if let Some(entry) = canonical_ip_entry(host) {
+            push_unique(&mut batch.ips, entry, MAX_ENDPOINT_IPS);
+        } else if let Ok(domain) = normalize_exclude_domain(host.trim_end_matches('.')) {
+            push_unique(&mut batch.domains, domain, MAX_ENDPOINT_DOMAINS);
+        }
+    }
+    batch
+}
+
+fn render_list_lines(values: &[String]) -> String {
+    if values.is_empty() {
+        return String::new();
+    }
+    let mut out = values.join("\n");
+    out.push('\n');
+    out
+}
+
+fn resolvable_endpoint_domain(domain: &str) -> bool {
+    !domain.contains('*') && domain.bytes().any(|b| b.is_ascii_alphabetic())
+}
+
+// Адреса доменов нод в формате ipset. Не больше ENDPOINT_RESOLVE_PARALLEL
+// запросов одновременно и один общий бюджет на весь пакет: что не успело —
+// пропускается, остальное идёт в дело.
+async fn resolve_endpoint_domains(domains: &[String], budget: Duration) -> Vec<String> {
+    use futures_util::StreamExt;
+    let deadline = tokio::time::Instant::now() + budget;
+    let targets: Vec<String> = domains
+        .iter()
+        .filter(|domain| resolvable_endpoint_domain(domain))
+        .take(MAX_ENDPOINT_RESOLVE)
+        .map(|domain| format!("{domain}:443"))
+        .collect();
+    let lookups = futures_util::stream::iter(targets)
+        .map(move |target| async move {
+            match tokio::time::timeout_at(deadline, tokio::net::lookup_host(target)).await {
+                Ok(Ok(addrs)) => addrs.map(|addr| addr.ip()).collect::<Vec<IpAddr>>(),
+                _ => Vec::new(),
+            }
+        })
+        .buffer_unordered(ENDPOINT_RESOLVE_PARALLEL);
+    let mut lookups = std::pin::pin!(lookups);
+    let mut out = Vec::new();
+    while let Ok(Some(addrs)) = tokio::time::timeout_at(deadline, lookups.next()).await {
+        for addr in addrs {
+            if let Some(entry) = canonical_ip_entry(&addr.to_string()) {
+                push_unique(&mut out, entry, MAX_ENDPOINT_IPS);
+            }
+        }
+    }
+    out
+}
+
+/// Атомарно заменить исключение VPN-нод одним пакетом. Это session-managed
+/// state, а не пользовательский список: новый пакет заменяет прежний целиком и
+/// не трогает правки пользователя в *-user.txt.
+///
+/// Домен ноды на проводе не появляется: VLESS Reality/XHTTP несёт подставной
+/// SNI, поэтому реально защищает только исключение по IP. resolve=true —
+/// резолвим домены сами (фронт просит это, только когда winws работает или
+/// вот-вот стартует): DNS ждём вне лока данных, а файлы пишем одним пакетом
+/// под локом. Ответ запроса, который успел обогнать более новый, отбрасывается.
+/// Возвращает false для такого устаревшего запроса.
 #[tauri::command]
 pub async fn dpi_set_active_vpn_endpoint(
     app: AppHandle,
     state: State<'_, DpiState>,
-    ip: Option<String>,
-    domain: Option<String>,
-) -> Result<(), String> {
-    let _data = state.data.lock().await;
-    let lists = ensure_lists(&app)?;
-    let domain_value = match domain.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(value) => normalize_exclude_domain(value)?,
-        None => String::new(),
-    };
-    let mut ip_value = match ip.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(value) => normalize_ipset_entry(value)?,
-        None => String::new(),
-    };
-    // Домен ноды на проводе не появляется: VLESS Reality/XHTTP несёт подставной
-    // SNI, поэтому исключение по домену не сматчится ни разу. Реально защищает
-    // только исключение по IP — резолвим адрес сами. Best-effort: DNS в этот
-    // момент может быть уже поломан ТСПУ, и провал резолва не должен ронять
-    // подключение (без него будет ровно то, что было раньше — пустой ipset).
-    if ip_value.is_empty() && !domain_value.is_empty() {
-        ip_value = resolve_endpoint_ipset(&domain_value).await;
-    }
-    write_replace(
-        &lists.join("active-vpn-domain.txt"),
-        &domain_value,
-        "active VPN domain",
-    )?;
-    write_replace(&lists.join("active-vpn-ip.txt"), &ip_value, "active VPN IP")?;
-    Ok(())
-}
-
-const ENDPOINT_RESOLVE_TIMEOUT: Duration = Duration::from_millis(1500);
-
-// Адреса ноды в формате ipset (по строке на CIDR). Пустая строка — не срослось.
-async fn resolve_endpoint_ipset(domain: &str) -> String {
-    let target = format!("{domain}:443");
-    let Ok(Ok(addrs)) = tokio::time::timeout(
-        ENDPOINT_RESOLVE_TIMEOUT,
-        tokio::net::lookup_host(target.as_str()),
-    )
-    .await
-    else {
-        return String::new();
-    };
-    let mut lines: Vec<String> = Vec::new();
-    for addr in addrs {
-        let Ok(entry) = normalize_ipset_entry(&addr.ip().to_string()) else {
-            continue;
-        };
-        if !lines.contains(&entry) {
-            lines.push(entry);
+    ips: Option<Vec<String>>,
+    domains: Option<Vec<String>>,
+    resolve: Option<bool>,
+) -> Result<bool, String> {
+    let ticket = state
+        .endpoint_seq
+        .fetch_add(1, Ordering::SeqCst)
+        .wrapping_add(1);
+    let mut batch = endpoint_batch(
+        ips.as_deref().unwrap_or_default(),
+        domains.as_deref().unwrap_or_default(),
+    );
+    if resolve.unwrap_or(false) && !batch.domains.is_empty() {
+        // Best-effort: DNS может быть уже поломан ТСПУ, и провал резолва не
+        // должен ронять подключение — останутся литералы.
+        for entry in resolve_endpoint_domains(&batch.domains, ENDPOINT_RESOLVE_BUDGET).await {
+            push_unique(&mut batch.ips, entry, MAX_ENDPOINT_IPS);
         }
     }
-    if lines.is_empty() {
-        return String::new();
+    let _data = state.data.lock().await;
+    if state.endpoint_seq.load(Ordering::SeqCst) != ticket {
+        return Ok(false);
     }
-    lines.join("\n")
+    let lists = ensure_lists(&app)?;
+    write_replace(
+        &lists.join("active-vpn-domain.txt"),
+        &render_list_lines(&batch.domains),
+        "active VPN domains",
+    )?;
+    write_replace(
+        &lists.join("active-vpn-ip.txt"),
+        &render_list_lines(&batch.ips),
+        "active VPN IPs",
+    )?;
+    Ok(true)
 }
 
 // Имя user-списка по виду: "exclude" → исключения, иначе → пользовательские
@@ -1788,32 +2494,115 @@ fn normalize_ipset_entry(raw: &str) -> Result<String, String> {
 }
 
 // ── Версии / обновление списков ─────────────────────────────────────
-// Версия набора стратегий: активное поколение → legacy marker → ресурс.
-// Так UI не может увидеть версию, не совпадающую с активными данными.
+// Версия набора стратегий — версия ровно того набора, из которого сейчас взяты
+// стратегии (подписанный бандл поколения либо встроенный). Legacy-маркер
+// strategies-version.txt описывал игнорируемый теперь оверлей и не читается.
 fn strat_version(app: &AppHandle) -> Result<String, String> {
-    if let Some(generation) = active_channel_generation(app)? {
-        let version = std::fs::read_to_string(generation.join("version.txt"))
-            .map_err(|e| format!("read DPI channel version: {e}"))?
-            .trim()
-            .to_string();
-        if version.is_empty() {
-            return Err("DPI channel version is empty".into());
-        }
-        return Ok(version);
+    Ok(load_strategies(app)?.version)
+}
+
+// Версия канала — тег Flowseal вида 1.10.2; встречаются буквенные хвосты
+// компонента (1.6.3b), pre-release через «-» и build-метаданные через «+».
+type ParsedChannelVersion = (Vec<(u64, String)>, Option<String>);
+
+fn parse_channel_version(raw: &str) -> Option<ParsedChannelVersion> {
+    let value = raw.trim();
+    let value = value.strip_prefix(['v', 'V']).unwrap_or(value);
+    let value = value.split('+').next().unwrap_or(value);
+    let (core, pre) = match value.split_once('-') {
+        Some((core, pre)) if !pre.is_empty() => (core, Some(pre.to_ascii_lowercase())),
+        Some(_) => return None,
+        None => (value, None),
+    };
+    if core.is_empty() {
+        return None;
     }
-    let dir = crate::app_paths::data_dir(app)?;
-    let marker = dir.join("dpi").join("strategies-version.txt");
-    if let Ok(v) = std::fs::read_to_string(&marker) {
-        let v = v.trim().to_string();
-        if !v.is_empty() {
-            return Ok(v);
+    let mut parts = Vec::new();
+    for part in core.split('.') {
+        let digits = part.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 || digits > 18 {
+            return None;
+        }
+        let suffix = &part[digits..];
+        if !suffix.bytes().all(|b| b.is_ascii_alphabetic()) {
+            return None;
+        }
+        parts.push((part[..digits].parse().ok()?, suffix.to_ascii_lowercase()));
+    }
+    Some((parts, pre))
+}
+
+fn compare_prerelease(left: &str, right: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering as CmpOrdering;
+    let mut left_ids = left.split('.');
+    let mut right_ids = right.split('.');
+    loop {
+        match (left_ids.next(), right_ids.next()) {
+            (None, None) => return CmpOrdering::Equal,
+            (None, Some(_)) => return CmpOrdering::Less,
+            (Some(_), None) => return CmpOrdering::Greater,
+            (Some(a), Some(b)) => {
+                let order = match (a.parse::<u64>(), b.parse::<u64>()) {
+                    (Ok(a), Ok(b)) => a.cmp(&b),
+                    (Ok(_), Err(_)) => CmpOrdering::Less,
+                    (Err(_), Ok(_)) => CmpOrdering::Greater,
+                    (Err(_), Err(_)) => a.cmp(b),
+                };
+                if order != CmpOrdering::Equal {
+                    return order;
+                }
+            }
         }
     }
-    Ok(res_dpi(app)
-        .ok()
-        .and_then(|d| std::fs::read_to_string(d.join("version.txt")).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "—".into()))
+}
+
+// Сравнить версии канала как числовые кортежи (1.10 > 1.9, 1.10 == 1.10.0,
+// 1.6.3b > 1.6.3, 1.0.0-rc1 < 1.0.0). None — хотя бы одна не разбирается.
+fn compare_channel_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    use std::cmp::Ordering as CmpOrdering;
+    let (left_core, left_pre) = parse_channel_version(left)?;
+    let (right_core, right_pre) = parse_channel_version(right)?;
+    let zero = (0u64, String::new());
+    for index in 0..left_core.len().max(right_core.len()) {
+        let a = left_core.get(index).unwrap_or(&zero);
+        let b = right_core.get(index).unwrap_or(&zero);
+        let order = a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1));
+        if order != CmpOrdering::Equal {
+            return Some(order);
+        }
+    }
+    Some(match (left_pre, right_pre) {
+        (None, None) => CmpOrdering::Equal,
+        (None, Some(_)) => CmpOrdering::Greater,
+        (Some(_), None) => CmpOrdering::Less,
+        (Some(a), Some(b)) => compare_prerelease(&a, &b),
+    })
+}
+
+// «Есть обновление» — только если канал строго новее активного набора, либо
+// активное поколение нуждается в пересинхронизации, а канал не старше.
+fn channel_update_available(remote: &str, local: &str, needs_resync: bool) -> bool {
+    use std::cmp::Ordering as CmpOrdering;
+    if !valid_channel_version(remote) {
+        return false;
+    }
+    match compare_channel_versions(remote, local) {
+        Some(CmpOrdering::Greater) => true,
+        Some(CmpOrdering::Equal) => needs_resync,
+        Some(CmpOrdering::Less) => false,
+        // Активная версия неизвестна («—») — разбираемый канал её заменит.
+        None => parse_channel_version(remote).is_some() && parse_channel_version(local).is_none(),
+    }
+}
+
+// Принять ли подписанный бандл версии `incoming` поверх активной `active`.
+// Старый подписанный бандл подпись проходит тоже, поэтому откат версии
+// отсекается отдельно; повтор той же версии разрешён (починка поколения).
+fn channel_bundle_acceptable(incoming: &str, active: &str) -> bool {
+    match compare_channel_versions(incoming, active) {
+        Some(order) => order != std::cmp::Ordering::Less,
+        None => parse_channel_version(active).is_none(),
+    }
 }
 
 // Распарсить версию движка из вывода `winws --version` (баннер вида
@@ -2069,7 +2858,7 @@ pub async fn dpi_check_update(
     app: AppHandle,
     port: Option<u16>,
 ) -> Result<serde_json::Value, String> {
-    let local = strat_version(&app)?;
+    let active = load_strategies(&app)?;
     // port>0 (VPN в proxy/systemProxy) → проверка идёт через туннель: version.txt
     // релиза dpi-channel лежит на github, а он из РФ режется ТСПУ напрямую.
     let remote = fetch_list_text(&format!("{CHANNEL_BASE}/version.txt"), port)
@@ -2077,10 +2866,13 @@ pub async fn dpi_check_update(
         .map_err(|e| format!("fetch version: {e}"))?
         .trim()
         .to_string();
+    // Не «любое отличие»: канал, отставший от встроенного набора, обновлением
+    // не является, а «Обновить» его всё равно отклонило бы.
     Ok(serde_json::json!({
-        "local": local,
+        "local": active.version,
         "remote": remote,
-        "available": !remote.is_empty() && remote != local,
+        "available": channel_update_available(&remote, &active.version, active.needs_resync),
+        "resync": active.needs_resync,
     }))
 }
 
@@ -2167,6 +2959,13 @@ fn service_entry(name: &str) -> PathBuf {
 // самого архива: распакованная копия рядом лежит в пользовательском каталоге,
 // и дописанная в неё строка иначе доезжала бы до системного hosts.
 fn read_signed_bundle_file(dir: &Path, relative: &Path) -> Result<String, String> {
+    let mut entries = read_signed_bundle_entries(dir, &[relative])?;
+    Ok(entries.remove(0))
+}
+
+// Несколько файлов из подписанного бандла за одну проверку подписи. Порядок
+// результата совпадает с `relatives`; отсутствие любого файла — ошибка.
+fn read_signed_bundle_entries(dir: &Path, relatives: &[&Path]) -> Result<Vec<String>, String> {
     let bundle = dir.join(GENERATION_BUNDLE_FILE);
     let size = std::fs::metadata(&bundle)
         .map_err(|e| format!("signed DPI bundle is missing: {e}"))?
@@ -2181,14 +2980,23 @@ fn read_signed_bundle_file(dir: &Path, relative: &Path) -> Result<String, String
 
     let reader = std::io::Cursor::new(zip_bytes.as_slice());
     let mut zip = zip::ZipArchive::new(reader).map_err(|e| format!("open zip: {e}"))?;
+    let mut found: Vec<Option<String>> = vec![None; relatives.len()];
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
-        let wanted = entry
-            .enclosed_name()
-            .is_some_and(|name| name.as_path() == relative);
-        if !wanted || entry.is_dir() {
+        if entry.is_dir() {
             continue;
         }
+        let Some(slot) = entry.enclosed_name().and_then(|name| {
+            relatives
+                .iter()
+                .position(|relative| name.as_path() == *relative)
+        }) else {
+            continue;
+        };
+        if found[slot].is_some() {
+            continue;
+        }
+        let relative = relatives[slot];
         if entry.size() > MAX_CHANNEL_ENTRY_BYTES {
             return Err(format!(
                 "signed DPI bundle entry is too large: {}",
@@ -2198,10 +3006,18 @@ fn read_signed_bundle_file(dir: &Path, relative: &Path) -> Result<String, String
         let mut raw = Vec::new();
         std::io::copy(&mut entry, &mut raw)
             .map_err(|e| format!("unzip {}: {e}", relative.display()))?;
-        return String::from_utf8(raw)
-            .map_err(|e| format!("{}: invalid UTF-8: {e}", relative.display()));
+        found[slot] = Some(
+            String::from_utf8(raw)
+                .map_err(|e| format!("{}: invalid UTF-8: {e}", relative.display()))?,
+        );
     }
-    Err(format!("signed DPI bundle has no {}", relative.display()))
+    found
+        .into_iter()
+        .zip(relatives)
+        .map(|(text, relative)| {
+            text.ok_or_else(|| format!("signed DPI bundle has no {}", relative.display()))
+        })
+        .collect()
 }
 
 // Скачать ПОДПИСАННЫЙ бандл канала, проверить minisign-подпись ДО распаковки и
@@ -2451,7 +3267,10 @@ pub async fn dpi_sync_channel(
 
     let result = (|| -> Result<serde_json::Value, String> {
         std::fs::create_dir_all(&dpi_data).map_err(|e| format!("mkdir dpi data: {e}"))?;
-        let current_generation = active_channel_generation_from_dpi(&dpi_data)?;
+        // Испорченный pointer не мешает: резолв уже откатился на предыдущее
+        // целое поколение или встроенный набор, и новое поколение собирается
+        // поверх, а commit pointer ниже перезапишет испорченный.
+        let current_generation = active_channel_generation_from_dpi(&dpi_data);
         let previous_name = current_generation
             .as_ref()
             .and_then(|path| path.file_name())
@@ -2459,17 +3278,17 @@ pub async fn dpi_sync_channel(
             .map(str::to_string);
         let current_lists = ensure_lists(&app)?;
         let mut fake_selection = load_fake_selection(&app);
+        let active_version = load_strategies_from(&dpi_data)?.version;
 
-        // strategies.json валиден?
-        let strat_path = staging.join("strategies.json");
-        require_regular_file(&strat_path, "staged strategies.json")?;
-        let strat_raw = std::fs::read_to_string(&strat_path)
-            .map_err(|e| format!("staged strategies.json: {e}"))?;
-        let strategies: Vec<Strategy> =
-            serde_json::from_str(&strat_raw).map_err(|e| format!("parse strategies: {e}"))?;
-        if strategies.is_empty() {
-            return Err("the bundle has no strategies".into());
-        }
+        // Стратегии и версия — только из подписанного бандла (подпись
+        // перепроверяется: staging лежит в пользовательском каталоге), а не из
+        // распакованных рядом копий.
+        let signed = read_signed_bundle_entries(
+            &staging,
+            &[Path::new("strategies.json"), Path::new("version.txt")],
+        )?;
+        let strat_raw = &signed[0];
+        let strategies = parse_checked_strategies(strat_raw)?;
         // Бандл обязан быть самодостаточным: нельзя принять новую стратегию,
         // которая случайно работает лишь пока в bin-data лежит старый payload.
         let staged_bin = staging.join("bin");
@@ -2518,12 +3337,17 @@ pub async fn dpi_sync_channel(
             }
         }
 
-        let ver = std::fs::read_to_string(staging.join("version.txt"))
-            .map_err(|e| format!("staged version.txt: {e}"))?
-            .trim()
-            .to_string();
+        let ver = signed[1].trim().to_string();
         if !valid_channel_version(&ver) {
             return Err("invalid DPI channel version".into());
+        }
+        // Подпись старого бандла валидна по-прежнему: без этой проверки
+        // подменённый ответ «канала» откатывал бы набор на старую версию.
+        if !channel_bundle_acceptable(&ver, &active_version) {
+            return Err(crate::util::i18n_error_with(
+                "backend.dpi.channelOlder",
+                &[("remote", &ver), ("local", &active_version)],
+            ));
         }
 
         let staged_lists = staging.join("lists");
@@ -2585,6 +3409,12 @@ pub async fn dpi_sync_channel(
                     &format!("channel list {name}"),
                 )?;
             }
+            // Канал везёт списки Flowseal как есть — добавки Ninety сверху.
+            apply_list_additions(
+                &lists.join("list-general.txt"),
+                &NINETY_GENERAL_ADDITIONS,
+                "Ninety list additions",
+            )?;
             for (path, name) in &payloads {
                 copy_replace(path, &bin.join(name), &format!("channel bin {name}"))?;
             }
@@ -2604,11 +3434,14 @@ pub async fn dpi_sync_channel(
             let staged_ipset = std::fs::read_to_string(staged_service.join(IPSET_SERVICE_FILE))
                 .map_err(|e| format!("read staged {IPSET_SERVICE_FILE}: {e}"))?;
             if let Some(base) = ipset_base_from_service(&staged_ipset) {
+                let base = with_list_additions(&base, &NINETY_IPSET_ADDITIONS).unwrap_or(base);
                 write_replace(&lists.join(IPSET_BASE_FILE), &base, "channel ipset base")?;
             }
-            copy_replace(
-                &strat_path,
+            // Копия для диагностики и проверки целостности поколения; читаются
+            // стратегии всё равно только из bundle.zip.
+            write_replace(
                 &pending.join("strategies.json"),
+                strat_raw,
                 "channel strategies",
             )?;
             // Подписанный бандл едет в поколение целиком: service-файлы потом
@@ -3111,6 +3944,7 @@ pub async fn dpi_update_ipset(
         .map_err(|e| format!("fetch ipset: {e}"))?;
     let body = ipset_base_from_service(&raw)
         .ok_or_else(|| crate::util::i18n_error("backend.dpi.ipsetNoRecords"))?;
+    let body = with_list_additions(&body, &NINETY_IPSET_ADDITIONS).unwrap_or(body);
     let n = count_ipset_lines(&body);
     write_replace(&lists.join(IPSET_BASE_FILE), &body, "write ipset base")?;
     Ok(n)
@@ -3166,10 +4000,7 @@ pub async fn dpi_autotest(
         let _data = state.data.lock().await;
         // EXP доступна для ручного выбора, но экспериментальный профиль не должен
         // автоматически становиться рекомендацией автотеста.
-        let strategies: Vec<Strategy> = read_strategies(&app)?
-            .into_iter()
-            .filter(|strategy| !strategy.experimental)
-            .collect();
+        let active = load_strategies(&app)?;
         let bin = bin_dir(&app, monkey)?;
         let exe = bin.join("winws.exe");
         if !exe.exists() {
@@ -3183,9 +4014,14 @@ pub async fn dpi_autotest(
         // доменах, а в «Только заблокированным» они ещё не в автосписке — движок не
         // применил бы десинк ни к одному запросу и все стратегии выглядели бы одинаково.
         write_ipset_mode(&app, &lists, "any")?;
-        let bindata = ensure_bindata(&app)?;
+        let bindata = ensure_bindata(&app, &active)?;
         let bindata_s = strip_verbatim(&bindata.to_string_lossy());
         let lists_s = strip_verbatim(&lists.to_string_lossy());
+        let strategies: Vec<Strategy> = active
+            .strategies
+            .into_iter()
+            .filter(|strategy| !strategy.experimental)
+            .collect();
         (strategies, bin, exe, bindata_s, lists, lists_s)
     };
     let exclusion = active_vpn_exclusion_args(&lists);
@@ -3221,6 +4057,15 @@ pub async fn dpi_autotest(
                 name: strat.name.clone(),
             },
         );
+        // Тот же allowlist, что у dpi_start, прямо перед подстановкой.
+        if let Err(error) = validate_strategy_args(&strat.args) {
+            if let Some(writer) = log_writer.as_ref() {
+                writer
+                    .lock_recover()
+                    .append(format!("skip {}: {error}\n", strat.name).as_bytes());
+            }
+            continue;
+        }
         let args: Vec<String> = strat
             .args
             .iter()
@@ -3884,6 +4729,7 @@ mod tests {
             Strategy {
                 id: "a".into(),
                 name: String::new(),
+                desc: String::new(),
                 experimental: false,
                 args: vec![
                     "--fake-tls=%BIN%tls_clienthello_www_google_com.bin".into(),
@@ -3894,6 +4740,7 @@ mod tests {
             Strategy {
                 id: "b".into(),
                 name: String::new(),
+                desc: String::new(),
                 experimental: false,
                 // %LISTS% и голый %BIN% без .bin не должны попасть в набор.
                 args: vec!["%LISTS%list-general.txt".into(), "%BIN%".into()],
@@ -3966,17 +4813,11 @@ mod tests {
             "test channel pointer",
         )
         .unwrap();
-        assert_eq!(
-            active_channel_generation_from_dpi(&root).unwrap(),
-            Some(old.clone())
-        );
+        assert_eq!(active_channel_generation_from_dpi(&root), Some(old.clone()));
 
         // Полностью собранное новое поколение ещё не активно без commit pointer.
         let new = create_test_channel_generation(&root, "gen-200-1-0", "new");
-        assert_eq!(
-            active_channel_generation_from_dpi(&root).unwrap(),
-            Some(old)
-        );
+        assert_eq!(active_channel_generation_from_dpi(&root), Some(old.clone()));
 
         write_replace(
             &root.join(CHANNEL_POINTER_FILE),
@@ -3984,14 +4825,14 @@ mod tests {
             "test channel pointer",
         )
         .unwrap();
-        assert_eq!(
-            active_channel_generation_from_dpi(&root).unwrap(),
-            Some(new.clone())
-        );
+        assert_eq!(active_channel_generation_from_dpi(&root), Some(new.clone()));
 
-        // Повреждённое committed-поколение не откатывается молча к смеси legacy.
+        // Повреждённое committed-поколение не роняет раздел: откат на
+        // предыдущее целое поколение и признак испорченного pointer.
         std::fs::remove_file(new.join("strategies.json")).unwrap();
-        assert!(active_channel_generation_from_dpi(&root).is_err());
+        let resolution = resolve_channel_generation(&root);
+        assert_eq!(resolution.active, Some(old));
+        assert!(resolution.pointer_broken);
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -4259,5 +5100,449 @@ mod tests {
         // Повторная отмена уже нечего забирать — stop не должен ждать пустоту.
         assert_eq!(cancel_dpi_operation(&state), None);
         drop(guard);
+    }
+
+    fn test_root(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "ninety-dpi-{tag}-{}-{}",
+            std::process::id(),
+            TEMP_FILE_SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    // ── п.2: сторож выхода winws ──
+
+    fn short_lived_child(code: i32) -> Child {
+        #[cfg(windows)]
+        let child = std::process::Command::new("cmd")
+            .args(["/C", &format!("exit {code}")])
+            .spawn()
+            .unwrap();
+        #[cfg(not(windows))]
+        let child = std::process::Command::new("sh")
+            .args(["-c", &format!("exit {code}")])
+            .spawn()
+            .unwrap();
+        child
+    }
+
+    fn wait_for_reap(state: &DpiState, expected: Option<u64>) -> Option<DpiExitedEvent> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if let Some(event) = reap_unexpected_exit(state, expected) {
+                return Some(event);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        None
+    }
+
+    // Падение штатного сеанса сообщается ровно один раз и с кодом выхода.
+    #[test]
+    fn crash_of_the_running_session_is_reported_once() {
+        let state = DpiState::default();
+        *state.child.lock_recover() = Some(short_lived_child(3));
+        state.runtime_session.store(7, Ordering::SeqCst);
+
+        // Сторож чужого (старого) сеанса новый не трогает.
+        assert!(reap_unexpected_exit(&state, Some(6)).is_none());
+
+        let event = wait_for_reap(&state, Some(7)).expect("падение не замечено");
+        assert_eq!(event.generation, 7);
+        assert_eq!(event.code, Some(3));
+        assert!(event.message.contains("backend.dpi.exitedUnexpectedly"));
+        assert!(state.child.lock_recover().is_none());
+        assert_eq!(state.runtime_session.load(Ordering::SeqCst), 0);
+        assert!(reap_unexpected_exit(&state, None).is_none());
+    }
+
+    // Плановая остановка обнуляет сеанс под тем же локом: ложного события нет.
+    #[test]
+    fn planned_stop_is_not_reported_as_a_crash() {
+        let state = DpiState::default();
+        *state.child.lock_recover() = Some(short_lived_child(0));
+        state.runtime_session.store(9, Ordering::SeqCst);
+
+        stop_managed_child(&state, "test winws").unwrap();
+
+        assert_eq!(state.runtime_session.load(Ordering::SeqCst), 0);
+        assert!(reap_unexpected_exit(&state, Some(9)).is_none());
+        assert!(reap_unexpected_exit(&state, None).is_none());
+    }
+
+    // Процессы автоподбора (сеанс 0) живут и умирают по плану.
+    #[test]
+    fn autotest_children_never_raise_the_event() {
+        let state = DpiState::default();
+        *state.child.lock_recover() = Some(short_lived_child(1));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(reap_unexpected_exit(&state, None).is_none());
+        let _ = stop_managed_child(&state, "test winws");
+    }
+
+    // ── п.3: собственные добавки и встроенные базовые списки ──
+
+    #[test]
+    fn ninety_additions_are_layered_without_duplicates() {
+        // Список Flowseal без добавки (как его везёт канал).
+        let flowseal = "discord.com\nlive-video.net";
+        assert_eq!(
+            with_list_additions(flowseal, &NINETY_GENERAL_ADDITIONS).as_deref(),
+            Some("discord.com\nlive-video.net\nvivox.com\n")
+        );
+        // Уже есть (в любом регистре) — файл не переписывается.
+        assert!(with_list_additions("# c\nVIVOX.com\n", &NINETY_GENERAL_ADDITIONS).is_none());
+        // Закомментированная запись добавкой не считается.
+        assert_eq!(
+            with_list_additions("# vivox.com\n", &NINETY_GENERAL_ADDITIONS).as_deref(),
+            Some("# vivox.com\nvivox.com\n")
+        );
+        // ipset: досыпаются только недостающие подсети.
+        assert_eq!(
+            with_list_additions("1.1.1.0/24\n85.236.96.0/21\n", &NINETY_IPSET_ADDITIONS).as_deref(),
+            Some("1.1.1.0/24\n85.236.96.0/21\n85.236.104.0/23\n")
+        );
+        assert_eq!(
+            with_list_additions("", &NINETY_IPSET_ADDITIONS).as_deref(),
+            Some("85.236.96.0/21\n85.236.104.0/23\n")
+        );
+    }
+
+    // Добавки не должны лежать только во встроенных файлах: канал их не везёт.
+    #[test]
+    fn bundled_lists_already_carry_the_additions() {
+        let general = include_str!("../dpi/lists/list-general.txt");
+        assert!(with_list_additions(general, &NINETY_GENERAL_ADDITIONS).is_none());
+    }
+
+    #[test]
+    fn bundled_base_lists_follow_the_app_version_but_not_user_lists() {
+        let root = test_root("base-lists");
+        let src = root.join("res");
+        let dst = root.join("data");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dst).unwrap();
+        std::fs::write(src.join("list-general.txt"), "fresh.example\n").unwrap();
+        // Старая установка: базовый список с первой установки, маркера нет.
+        std::fs::write(dst.join("list-general.txt"), "stale.example\n").unwrap();
+        std::fs::write(dst.join("list-general-user.txt"), "mine.example\n").unwrap();
+
+        refresh_bundled_base_lists(&dst, &src, "0.18.0+1.10.2").unwrap();
+        let read = |name: &str| std::fs::read_to_string(dst.join(name)).unwrap();
+        assert_eq!(read("list-general.txt"), "fresh.example\n");
+        assert_eq!(read("list-general-user.txt"), "mine.example\n");
+        // Файла нет в ресурсе — создаётся пустым, а не падает.
+        assert_eq!(read("list-google.txt"), "");
+
+        // Та же версия — файлы не переписываются на каждом вызове.
+        std::fs::write(src.join("list-general.txt"), "newer.example\n").unwrap();
+        refresh_bundled_base_lists(&dst, &src, "0.18.0+1.10.2").unwrap();
+        assert_eq!(read("list-general.txt"), "fresh.example\n");
+
+        // Новая версия приложения — базовые списки снова из ресурсов.
+        refresh_bundled_base_lists(&dst, &src, "0.18.1+1.10.2").unwrap();
+        assert_eq!(read("list-general.txt"), "newer.example\n");
+        assert_eq!(read("list-general-user.txt"), "mine.example\n");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ── п.4: версии канала ──
+
+    #[test]
+    fn channel_versions_compare_as_numbers() {
+        use std::cmp::Ordering as CmpOrdering;
+        let cmp = compare_channel_versions;
+        assert_eq!(cmp("1.10.2", "1.9.9"), Some(CmpOrdering::Greater));
+        assert_eq!(cmp("1.10", "1.10.0"), Some(CmpOrdering::Equal));
+        assert_eq!(cmp("v1.10.2", "1.10.2"), Some(CmpOrdering::Equal));
+        assert_eq!(cmp("1.6.3b", "1.6.3"), Some(CmpOrdering::Greater));
+        assert_eq!(cmp("1.6.3a", "1.6.3b"), Some(CmpOrdering::Less));
+        assert_eq!(cmp("1.0.0-rc1", "1.0.0"), Some(CmpOrdering::Less));
+        assert_eq!(cmp("1.0.0-rc.2", "1.0.0-rc.10"), Some(CmpOrdering::Less));
+        assert_eq!(cmp("1.0.0+build7", "1.0.0"), Some(CmpOrdering::Equal));
+        assert_eq!(cmp("—", "1.0.0"), None);
+        assert_eq!(cmp("1..2", "1.2"), None);
+        assert_eq!(cmp("latest", "1.2"), None);
+    }
+
+    // Старый подписанный бандл подпись проходит, но откатить набор не может.
+    #[test]
+    fn older_signed_bundle_is_rejected() {
+        assert!(!channel_bundle_acceptable("1.10.1", "1.10.2"));
+        assert!(!channel_bundle_acceptable("1.9.9", "1.10.0"));
+        assert!(channel_bundle_acceptable("1.10.2", "1.10.2"));
+        assert!(channel_bundle_acceptable("1.10.3", "1.10.2"));
+        // Неразбираемая версия не может «обогнать» известную.
+        assert!(!channel_bundle_acceptable("latest", "1.10.2"));
+        // Активная версия неизвестна — принимаем.
+        assert!(channel_bundle_acceptable("1.10.2", "—"));
+    }
+
+    #[test]
+    fn update_is_offered_only_for_a_strictly_newer_channel() {
+        assert!(channel_update_available("1.10.3", "1.10.2", false));
+        assert!(!channel_update_available("1.10.2", "1.10.2", false));
+        assert!(!channel_update_available("1.10.1", "1.10.2", false));
+        // Поколение без доказуемых стратегий — пересинхронизация той же версии.
+        assert!(channel_update_available("1.10.2", "1.10.2", true));
+        assert!(!channel_update_available("1.10.1", "1.10.2", true));
+        assert!(!channel_update_available("", "1.10.2", true));
+        assert!(channel_update_available("1.10.2", "—", false));
+    }
+
+    // ── п.5: испорченное активное поколение ──
+
+    #[test]
+    fn broken_pointer_falls_back_and_never_fails() {
+        let root = test_root("broken-pointer");
+        // Без pointer — встроенные ресурсы, синхронизировать нечего.
+        let none = resolve_channel_generation(&root);
+        assert!(none.active.is_none() && !none.pointer_broken);
+
+        let older = create_test_channel_generation(&root, "gen-100-1-0", "1.10.1");
+        let newer = create_test_channel_generation(&root, "gen-200-1-0", "1.10.2");
+        let pointer = root.join(CHANNEL_POINTER_FILE);
+
+        // Мусор в pointer — самое свежее целое поколение.
+        std::fs::write(&pointer, "../evil\n").unwrap();
+        let garbage = resolve_channel_generation(&root);
+        assert_eq!(garbage.active, Some(newer.clone()));
+        assert!(garbage.pointer_broken);
+
+        // Испорченное активное — предыдущее целое.
+        std::fs::write(&pointer, "gen-200-1-0\n").unwrap();
+        std::fs::remove_file(newer.join("service").join("hosts")).unwrap();
+        let broken = resolve_channel_generation(&root);
+        assert_eq!(broken.active, Some(older.clone()));
+        assert!(broken.pointer_broken);
+
+        // Целых не осталось — встроенный набор, а не ошибка.
+        std::fs::remove_dir_all(older.join("bin-data")).unwrap();
+        let nothing = resolve_channel_generation(&root);
+        assert!(nothing.active.is_none());
+        assert!(nothing.pointer_broken);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Стратегии (а значит dpi_start и сам sync) переживают испорченное поколение.
+    #[test]
+    fn strategies_survive_a_broken_generation() {
+        let root = test_root("broken-strategies");
+        std::fs::write(root.join(CHANNEL_POINTER_FILE), "gen-300-1-0\n").unwrap();
+        let active = load_strategies_from(&root).unwrap();
+        assert!(active.channel.is_none());
+        assert!(active.needs_resync);
+        assert_eq!(active.version, bundled_strategies_version());
+        assert!(!active.strategies.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ── п.6: стратегии только из подписанного набора + allowlist ──
+
+    // Поколение без bundle.zip/подписи не доказывает свои стратегии: даже
+    // подложенный рядом strategies.json не читается, работает встроенный набор.
+    #[test]
+    fn generation_without_signed_bundle_uses_the_bundled_strategies() {
+        let root = test_root("unsigned-generation");
+        let generation = create_test_channel_generation(&root, "gen-400-1-0", "9.9.9");
+        std::fs::write(
+            generation.join("strategies.json"),
+            r#"[{"id":"evil","name":"evil","args":["--debug=@C:\\x"]}]"#,
+        )
+        .unwrap();
+        std::fs::write(root.join(CHANNEL_POINTER_FILE), "gen-400-1-0\n").unwrap();
+
+        let active = load_strategies_from(&root).unwrap();
+        assert!(active.channel.is_none());
+        assert!(active.needs_resync);
+        assert_eq!(active.version, bundled_strategies_version());
+        assert!(active.strategies.iter().all(|s| s.id != "evil"));
+        // Списки и bin-data поколения при этом остаются в работе.
+        assert_eq!(active_channel_generation_from_dpi(&root), Some(generation));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Все стратегии встроенного набора проходят allowlist — иначе он сломал
+    // бы рабочие профили.
+    #[test]
+    fn every_bundled_strategy_passes_the_allowlist() {
+        let raw: Vec<Strategy> =
+            serde_json::from_str(include_str!("../dpi/strategies.json")).unwrap();
+        assert!(!raw.is_empty());
+        let mut checked = 0usize;
+        for strategy in &raw {
+            for arg in &strategy.args {
+                assert!(
+                    validate_strategy_arg(arg).is_ok(),
+                    "{}: аргумент отвергнут: {arg}",
+                    strategy.id
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > raw.len());
+        assert_eq!(
+            parse_checked_strategies(BUNDLED_STRATEGIES_JSON)
+                .unwrap()
+                .len(),
+            raw.len()
+        );
+    }
+
+    #[test]
+    fn allowlist_keeps_the_strategy_grammar() {
+        for arg in [
+            "--new",
+            "--filter-tcp=%GameFilterTCP%",
+            "--filter-udp=19294-19344,50000-50100",
+            "--wf-udp=443,19294-19344,50000-50100,%GameFilterUDP%",
+            "--dpi-desync-fake-tls=!",
+            "--dpi-desync-fake-tls=0x00000000",
+            "--dpi-desync-fake-tls=%BIN%tls_clienthello_www_google_com.bin",
+            "--dpi-desync-fake-quic=%BIN%quic_initial_4pda.to.bin",
+            "--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1",
+            "--dpi-desync-hostfakesplit-mod=host=www.google.com",
+            "--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com",
+            "--dpi-desync-split-pos=2,sniext+1",
+            "--dpi-desync-split-pos=1,midsld",
+            "--dpi-desync-cutoff=n2",
+            "--hostlist=%LISTS%list-general.txt",
+            "--ipset-exclude=%LISTS%ipset-exclude-user.txt",
+            "--hostlist-domains=discord.media,dis.gd",
+        ] {
+            assert!(validate_strategy_arg(arg).is_ok(), "{arg}");
+        }
+    }
+
+    #[test]
+    fn allowlist_rejects_forged_arguments() {
+        for arg in [
+            r"--debug=@C:\x",
+            "--debug",
+            r"--pidfile=C:\x",
+            r"--hostlist=..\..\x",
+            r"--hostlist=C:\x",
+            r"--hostlist=%LISTS%..\x",
+            "--hostlist=@%LISTS%list-general.txt",
+            "--hostlist=%LISTS%list-auto.txt",
+            "--hostlist-auto=%LISTS%list-auto.txt",
+            r"--hostlist-auto-debug=C:\x",
+            "--hostlist-auto-fail-threshold=3",
+            r"--dpi-desync-fake-quic=%BIN%..\x.bin",
+            "--dpi-desync-fake-quic=%BIN%..bin",
+            "--dpi-desync-fake-quic=@%BIN%x.bin",
+            r"--dpi-desync-fake-tls=C:\x.bin",
+            "--dpi-desync-fake-tls=%BIN%x.txt",
+            "--ipset=%LISTS%ipset-all.txt\n--debug",
+            "--new=1",
+            "--filter-tcp=0",
+            "--filter-tcp=80-70",
+            "--wf-tcp=%GameFilterUDP%",
+            "--dpi-desync-cutoff=n0",
+            "--dpi-desync-repeats=0",
+            "--dpi-desync-fake-tls-mod=rnd,dupsid,sni=../x",
+            "--dpi-desync-hostfakesplit-mod=host=x.com,altorder=1,altorder=1",
+            "--hostlist-domains=a.com,../b",
+            "",
+        ] {
+            assert!(validate_strategy_arg(arg).is_err(), "{arg:?}");
+        }
+        assert!(
+            validate_strategy_arg(&format!("--dpi-desync-fake-tls=0x{}", "0".repeat(5000)))
+                .is_err()
+        );
+    }
+
+    // Стратегия с запрещённым аргументом выпадает целиком, остальные живут.
+    #[test]
+    fn tampered_strategy_is_dropped_whole() {
+        let raw = r#"[
+            {"id":"good","name":"G","args":["--filter-tcp=443","--dpi-desync=fake"]},
+            {"id":"bad","name":"B","args":["--filter-tcp=443","--debug=@C:\\x"]}
+        ]"#;
+        let checked = parse_checked_strategies(raw).unwrap();
+        assert_eq!(checked.len(), 1);
+        assert_eq!(checked[0].id, "good");
+        assert!(parse_checked_strategies(r#"[{"id":"bad","args":["--pidfile=C:\\x"]}]"#).is_err());
+        assert!(parse_checked_strategies(r#"[{"id":"empty","args":[]}]"#).is_err());
+    }
+
+    // ── п.7: пакет исключений VPN-нод ──
+
+    #[test]
+    fn endpoint_hosts_drop_ports_and_keep_ipv6() {
+        assert_eq!(endpoint_host("[2001:db8::1]:443"), Some("2001:db8::1"));
+        assert_eq!(endpoint_host("[2001:db8::1]"), Some("2001:db8::1"));
+        assert_eq!(endpoint_host("2001:db8::1"), Some("2001:db8::1"));
+        assert_eq!(endpoint_host(" 162.159.192.1:2408 "), Some("162.159.192.1"));
+        assert_eq!(
+            endpoint_host("vpn.example.com:443"),
+            Some("vpn.example.com")
+        );
+        assert_eq!(endpoint_host("vpn.example.com"), Some("vpn.example.com"));
+        assert_eq!(endpoint_host("host:abc"), None);
+        assert_eq!(endpoint_host("host:123456"), None);
+        assert_eq!(endpoint_host("[::1]x"), None);
+        assert_eq!(endpoint_host("[]:443"), None);
+        assert_eq!(endpoint_host("   "), None);
+    }
+
+    #[test]
+    fn endpoint_batch_dedups_and_formats_entries() {
+        let ips: Vec<String> = [
+            "1.2.3.4",
+            "1.2.3.4:443",
+            "[2001:0db8::1]:443",
+            "2001:db8::1",
+            "bad host",
+        ]
+        .map(String::from)
+        .to_vec();
+        let domains: Vec<String> = [
+            "VPN.example.com",
+            "vpn.example.com:8443",
+            "vpn.example.com.",
+            "5.6.7.8:2408",
+            "*.example.org",
+            "exa mple.com",
+        ]
+        .map(String::from)
+        .to_vec();
+        let batch = endpoint_batch(&ips, &domains);
+        assert_eq!(
+            batch,
+            EndpointBatch {
+                ips: vec![
+                    "1.2.3.4/32".to_string(),
+                    "2001:db8::1/128".to_string(),
+                    "5.6.7.8/32".to_string(),
+                ],
+                domains: vec!["vpn.example.com".to_string(), "*.example.org".to_string()],
+            }
+        );
+        assert_eq!(
+            render_list_lines(&batch.ips),
+            "1.2.3.4/32\n2001:db8::1/128\n5.6.7.8/32\n"
+        );
+        assert_eq!(render_list_lines(&[]), "");
+        assert_eq!(endpoint_batch(&[], &[]), EndpointBatch::default());
+    }
+
+    #[test]
+    fn only_real_names_are_resolved() {
+        assert!(resolvable_endpoint_domain("vpn.example.com"));
+        assert!(!resolvable_endpoint_domain("*.example.com"));
+        assert!(!resolvable_endpoint_domain("999.1.1.1"));
+    }
+
+    #[test]
+    fn endpoint_batch_is_capped() {
+        let ips: Vec<String> = (0..MAX_ENDPOINT_IPS + 50)
+            .map(|i| format!("10.{}.{}.1", i / 256, i % 256))
+            .collect();
+        assert_eq!(endpoint_batch(&ips, &[]).ips.len(), MAX_ENDPOINT_IPS);
     }
 }

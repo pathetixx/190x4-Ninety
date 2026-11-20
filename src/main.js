@@ -52,7 +52,7 @@ import {
   createSourceSwitchController,
   sameSourceRef,
 } from "/lib/source-activation.js";
-import { mountDpiView, prepareDpiVpnMode, setDpiVpnMode, excludeVpnNode, clearVpnNodeExclusion, autostartDpiIfEnabled, rerenderDpiView, onDpiViewEnter } from "/lib/dpi-view.js";
+import { mountDpiView, prepareDpiVpnMode, setDpiVpnMode, excludeVpnNode, clearVpnNodeExclusion, autostartDpiIfEnabled, rerenderDpiView, onDpiViewEnter, setVpnNodesProvider } from "/lib/dpi-view.js";
 import { configureLogsRuntime, mountLogsView, onLogsViewEnter, onLogsViewLeave, rerenderLogsView } from "/lib/logs-view.js";
 import { initTray, syncTrayMenu } from "/lib/tray.js";
 import { startClashStream, stopClashStream, formatRate } from "/lib/clash-stream.js";
@@ -789,6 +789,40 @@ mountProxiesView({
 // Mount DPI-обход (экран + чип на главной). Синхронизируем режим VPN сразу:
 // в TUN обход авто-паузится (см. dpi-view.js::effState).
 mountDpiView({ onToast: toast, switchView, ensureElevated: ensureElevatedForDpi });
+
+// Адреса всех серверов активного источника — для исключения из обхода DPI.
+// Balancer пингует каждую ноду подписки, и при исключении одной (раньше —
+// nodes[0] до подключения) проверки остальных шли через десинк winws: «Авто»
+// не мог уйти с упавшей ноды. IP или имя — разбирает dpi-view; резолв имён
+// там же и только когда winws работает.
+function vpnNodeAddresses() {
+  const src = getActiveSource();
+  const nodes = src?.kind === "sub" ? (src.nodes || []) : (src?.profile ? [src.profile] : []);
+  const out = [];
+  const push = (value) => {
+    const text = String(value ?? "").trim();
+    if (text) out.push(text);
+  };
+  for (const node of nodes) {
+    push(node?.host);
+    // TrustTunnel подключается к адресам из addresses, а не к отображаемому
+    // host. У WireGuard addresses — адреса интерфейса, их не трогаем.
+    if (node?.proto === "trusttunnel") {
+      for (const address of Array.isArray(node.addresses) ? node.addresses : []) push(address);
+    }
+    for (const peer of Array.isArray(node?.peers) ? node.peers : []) push(peer?.host);
+    const endpoint = node?.endpoint;
+    const servers = endpoint?.servers?.length ? endpoint.servers : (endpoint ? [endpoint] : []);
+    for (const server of servers) push(server?.server);
+    if (node?.extra) {
+      try { push(JSON.parse(node.extra)?.downloadSettings?.address); } catch {}
+    }
+  }
+  const warp = loadOptions().warp;
+  if (warp?.enabled && warp.endpoint && !/^auto/i.test(String(warp.endpoint))) push(warp.endpoint);
+  return out;
+}
+setVpnNodesProvider(() => ({ domains: vpnNodeAddresses() }));
 void setDpiVpnMode(getMode());
 
 // ── Settings view ──────────────────────────────────────────

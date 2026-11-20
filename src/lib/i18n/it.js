@@ -834,6 +834,8 @@ export const it = {
       cancelled: "L'operazione di aggiramento è stata annullata",
       strategyNotFound: "Strategia «{id}» non trovata",
       winwsMissing: "winws.exe non trovato: {path}",
+      exitedUnexpectedly: "winws si è chiuso inaspettatamente (codice {code}). L'aggiramento DPI è stato interrotto: dettagli nei log.",
+      channelOlder: "Il set di strategie pubblicato {remote} è più vecchio di quello installato {local}: aggiornamento rifiutato",
       exitedOutput: "winws si è chiuso subito dopo l'avvio (codice {code}).\nOutput di winws:\n{output}",
       exitedAdmin: "winws si è chiuso subito dopo l'avvio (codice {code}). Servono i diritti di amministratore, oppure il driver WinDivert è occupato.",
       badDomain: "Dominio non valido per l'elenco delle esclusioni",

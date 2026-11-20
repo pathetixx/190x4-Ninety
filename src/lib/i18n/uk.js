@@ -842,6 +842,8 @@ export const uk = {
       cancelled: "Операцію обходу скасовано",
       strategyNotFound: "Стратегію «{id}» не знайдено",
       winwsMissing: "Не знайдено winws.exe: {path}",
+      exitedUnexpectedly: "winws несподівано завершився (код {code}). Обхід DPI зупинено — подробиці в журналі.",
+      channelOlder: "Опублікований набір стратегій {remote} старіший за встановлений {local} — оновлення відхилено",
       exitedOutput: "winws завершився одразу після запуску (код {code}).\nВивід winws:\n{output}",
       exitedAdmin: "winws завершився одразу після запуску (код {code}). Потрібні права адміністратора, або зайнятий драйвер WinDivert.",
       badDomain: "Неприпустимий домен для списку винятків",

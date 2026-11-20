@@ -842,6 +842,8 @@ export const pl = {
       cancelled: "Operacja obejścia została anulowana",
       strategyNotFound: "Nie znaleziono strategii „{id}”",
       winwsMissing: "Nie znaleziono winws.exe: {path}",
+      exitedUnexpectedly: "winws nieoczekiwanie się zamknął (kod {code}). Obejście DPI zatrzymane — szczegóły w logach.",
+      channelOlder: "Opublikowany zestaw strategii {remote} jest starszy niż zainstalowany {local} — aktualizacja odrzucona",
       exitedOutput: "winws zakończył działanie zaraz po uruchomieniu (kod {code}).\nWyjście winws:\n{output}",
       exitedAdmin: "winws zakończył działanie zaraz po uruchomieniu (kod {code}). Potrzebne są uprawnienia administratora albo sterownik WinDivert jest zajęty.",
       badDomain: "Nieprawidłowa domena dla listy wyjątków",

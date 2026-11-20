@@ -818,6 +818,8 @@ export const zh = {
       cancelled: "绕过操作已取消",
       strategyNotFound: "未找到策略“{id}”",
       winwsMissing: "未找到 winws.exe：{path}",
+      exitedUnexpectedly: "winws 意外退出（代码 {code}）。DPI 绕过已停止——详情请查看日志。",
+      channelOlder: "已发布的策略集 {remote} 比已安装的 {local} 旧，已拒绝更新",
       exitedOutput: "winws 启动后立即退出（代码 {code}）。\nwinws 输出：\n{output}",
       exitedAdmin: "winws 启动后立即退出（代码 {code}）。需要管理员权限，或 WinDivert 驱动正被占用。",
       badDomain: "排除列表的域名无效",

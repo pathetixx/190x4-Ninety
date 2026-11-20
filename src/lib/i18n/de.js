@@ -826,6 +826,8 @@ export const de = {
       cancelled: "Der Umgehungsvorgang wurde abgebrochen",
       strategyNotFound: "Strategie „{id}“ wurde nicht gefunden",
       winwsMissing: "winws.exe wurde nicht gefunden: {path}",
+      exitedUnexpectedly: "winws wurde unerwartet beendet (Code {code}). Die DPI-Umgehung ist gestoppt – Details im Protokoll.",
+      channelOlder: "Der veröffentlichte Strategiesatz {remote} ist älter als der installierte {local} – das Update wurde abgelehnt",
       exitedOutput: "winws wurde direkt nach dem Start beendet (Code {code}).\nAusgabe von winws:\n{output}",
       exitedAdmin: "winws wurde direkt nach dem Start beendet (Code {code}). Administratorrechte sind nötig, oder der WinDivert-Treiber ist belegt.",
       badDomain: "Ungültige Domain für die Ausnahmeliste",

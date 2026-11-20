@@ -858,6 +858,8 @@ export const ar = {
       cancelled: "أُلغيت عملية التجاوز",
       strategyNotFound: "لم يُعثر على الاستراتيجية «{id}»",
       winwsMissing: "لم يُعثر على winws.exe: {path}",
+      exitedUnexpectedly: "أُغلق winws بشكل غير متوقع (الرمز {code}). توقّف تجاوز DPI — التفاصيل في السجلات.",
+      channelOlder: "مجموعة الاستراتيجيات المنشورة {remote} أقدم من المثبّتة {local} — تم رفض التحديث",
       exitedOutput: "أُغلق winws فور بدء تشغيله (الرمز {code}).\nمخرجات winws:\n{output}",
       exitedAdmin: "أُغلق winws فور بدء تشغيله (الرمز {code}). يلزم امتلاك صلاحيات المسؤول، أو أن برنامج تشغيل WinDivert مشغول.",
       badDomain: "نطاق غير صالح لقائمة الاستثناءات",

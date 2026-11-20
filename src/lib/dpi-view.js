@@ -6,7 +6,9 @@
 //   mountDpiView({ onToast, switchView, ensureElevated }) — навесить на DOM
 //   prepareDpiVpnMode(mode) — fail-closed подготовка перед входом в TUN
 //   setDpiVpnMode(mode, { reevaluate }) — синхронизировать режим VPN (TUN→пауза)
-//   excludeVpnNode(host) — внести сервер активной ноды в exclude winws
+//   setVpnNodesProvider(fn) — источник адресов всех нод запущенного конфига
+//   refreshVpnNodeExclusion() — переписать исключение нод (после подключения)
+//   excludeVpnNode(host) / clearVpnNodeExclusion() — совместимые обёртки
 
 import { loadOptions, getOptionsSnapshot } from "/lib/options.js";
 import { escapeAttr, escapeHtml as esc } from "/lib/esc.js";
@@ -16,7 +18,7 @@ import { openConfirmModal } from "/lib/confirm-modal.js";
 import { normalizeIp } from "/lib/routing-rules.js";
 import { runtimeProbeProxyPort } from "/lib/runtime-lifecycle.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
-import { localizedInvoke } from "/lib/backend-errors.js";
+import { localizedInvoke, localizeBackendText } from "/lib/backend-errors.js";
 
 const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -176,6 +178,9 @@ const S = {
 };
 let dpiOperationEpoch = 0;
 let dpiAutopickEpoch = 0;
+// id сеанса winws, который вернул последний успешный dpi_start. Событие
+// dpi:exited чужого (старого) сеанса состояние не трогает.
+let dpiRuntimeGeneration = null;
 
 // В TUN весь трафик идёт через туннель → движок реально остановлен (pauseEngineForTun),
 // но если DPI логически включён (LS.enabled) — показываем «На паузе», а не «Выключен»:
@@ -534,9 +539,15 @@ async function startEngine() {
   S.base = "starting";
   renderAll();
   S.lastError = "";
+  // Перед каждым запуском winws — свежий набор нод запущенного конфига, с
+  // резолвом доменов: исключение по IP — единственное, что реально защищает
+  // зашифрованный трафик к серверу. Сбой здесь запуск не блокирует.
+  await syncVpnNodeExclusion({ resolve: true });
+  if (epoch !== dpiOperationEpoch) return false;
   try {
-    await invoke("dpi_start", { strategyId: stratByName(S.strategy).id, gameFilter: S.gameFilter, ipset: S.ipset, monkey: S.monkey, logsDisabled: !!loadOptions()?.log?.disabled });
+    const session = await invoke("dpi_start", { strategyId: stratByName(S.strategy).id, gameFilter: S.gameFilter, ipset: S.ipset, monkey: S.monkey, logsDisabled: !!loadOptions()?.log?.disabled });
     if (epoch !== dpiOperationEpoch) return false;
+    dpiRuntimeGeneration = Number.isSafeInteger(session) ? session : null;
     S.base = "running";
     localStorage.setItem(LS.enabled, "true");
     emitDpiChanged();
@@ -550,6 +561,22 @@ async function startEngine() {
     renderAll();
     return false;
   }
+}
+
+// winws умер сам посреди сессии (событие dpi:exited от сторожа в Rust).
+// Плановые stop/restart события не дают; старый сеанс и уже выключенный или
+// перезапускающийся движок его игнорируют. Желание «DPI включён» не трогаем:
+// это сбой, а не решение пользователя, — баннер ошибки ведёт в логи.
+function onDpiExited(payload) {
+  if (S.base !== "running") return;
+  const generation = Number(payload?.generation);
+  if (dpiRuntimeGeneration != null && generation !== dpiRuntimeGeneration) return;
+  dpiRuntimeGeneration = null;
+  S.base = "error";
+  S.lastError = String(localizeBackendText(payload?.message) || "");
+  toast(S.lastError || t("dpi.banner.errorFallback"), "error", 6000);
+  emitDpiChanged();
+  renderAll();
 }
 
 function reportDpiRuntimeError(error) {
@@ -567,6 +594,7 @@ async function stopDpiRuntime({ disableDesired = false, markOff = true } = {}) {
     reportDpiRuntimeError(e);
     return false;
   }
+  dpiRuntimeGeneration = null;
   if (markOff) S.base = "off";
   S.lastError = "";
   if (disableDesired) {
@@ -605,6 +633,9 @@ let dpiResumeInFlight = null;
 async function resumeEngineAfterTun() {
   if (lsGet(LS.enabled, "false") !== "true") return true;
   if (S.base === "running" || S.base === "starting") return true;
+  // Автоподбор сам владеет движком: dpi_start поверх него упал бы с «занято».
+  // Движок вернёт restoreEngineAfterAutopick, уже по актуальному режиму.
+  if (S.autopick.phase === "running") { autopickResume = true; return true; }
   if (dpiResumeInFlight) return dpiResumeInFlight;
   const run = (async () => {
     const ok = await ensureElevated();
@@ -969,7 +1000,16 @@ async function restoreEngineAfterAutopick() {
   if (!autopickResume) return;
   autopickResume = false;
   S.base = "off";
-  await startEngine();
+  // Решение — в той же очереди, что смены режима VPN. Пока шёл подбор, VPN мог
+  // уйти в TUN: setDpiVpnMode тогда видел выключенный движок, и ставить на
+  // паузу было нечего. Значит, здесь действуют те же правила, что у обычного
+  // входа в TUN: без split Discord winws не поднимаем, остаётся пауза TUN.
+  await queueDpiModeChange(async () => {
+    if (lsGet(LS.enabled, "false") !== "true") return true;
+    if (S.base === "running" || S.base === "starting") return true;
+    if (S.vpnMode === "tun" && !splitDiscordActive()) { renderAll(); return true; }
+    return startEngine();
+  });
 }
 
 async function pickStart() {
@@ -984,6 +1024,10 @@ async function pickStart() {
   renderAll();
   const ok = await ensureElevated();
   if (!ok || epoch !== dpiAutopickEpoch) { S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" }; autopickResume = false; return; }
+  // Подбор поднимает winws по разу на стратегию — ноды исключаются так же,
+  // как перед обычным запуском.
+  await syncVpnNodeExclusion({ resolve: true });
+  if (epoch !== dpiAutopickEpoch) return;
   try {
     const r = await invoke("dpi_autotest", { monkey: S.monkey, logsDisabled: !!loadOptions()?.log?.disabled });
     if (epoch !== dpiAutopickEpoch) return;
@@ -1281,29 +1325,21 @@ async function applyDpiVpnMode(mode, { reevaluate = false } = {}) {
   return true;
 }
 
-// Внести сервер активной VPN-ноды в exclude winws (главный риск из спайка —
-// иначе winws корёжит зашифрованный VLESS к серверу). host = домен или IP.
+// ── Исключение VPN-нод из winws ──
+// Главный риск из спайка: winws корёжит зашифрованный трафик к собственному
+// серверу. Исключаются ВСЕ ноды запущенного конфига (а не только первая): в
+// группе с автовыбором ядро может уйти на любую. Набор отдаёт провайдер из
+// main.js; Rust пишет его одним пакетом и сам резолвит домены, но только
+// когда winws работает или вот-вот стартует (resolve: true) — иначе DNS на
+// каждое подключение ждали бы зря.
+let vpnNodesProvider = null;
+// Хост из старого excludeVpnNode(host): учитывается вместе с провайдером.
+let legacyEndpointHost = null;
 let activeEndpointRevision = 0;
 let activeEndpointQueue = Promise.resolve();
-function setActiveVpnEndpoint(host) {
-  const revision = ++activeEndpointRevision;
-  // Различение «адрес или имя» — через тот же валидатор, что у правил
-  // маршрутизации. Прежняя проверка (/^[0-9a-fA-F:.]+$/ + наличие точки)
-  // объявляла IP-адресом любой домен из hex-букв: abc.def, dead.cf, de.ad.
-  // Такой «IP» не проходил normalize_ipset_entry в Rust, команда падала
-  // целиком (оба файла пишутся только после нормализации обоих значений), и в
-  // списках оставалось исключение ПРЕДЫДУЩЕЙ ноды — winws продолжал жевать
-  // зашифрованный трафик к текущему серверу, а исключение выглядело активным.
-  const isIp = !!host && !!normalizeIp(host);
-  const args = !host ? { ip: null, domain: null }
-    : isIp ? { ip: host, domain: null } : { ip: null, domain: host };
-  const apply = async () => {
-    if (revision !== activeEndpointRevision) return false;
-    await invoke("dpi_set_active_vpn_endpoint", args);
-    return revision === activeEndpointRevision;
-  };
-  activeEndpointQueue = activeEndpointQueue.then(apply, apply);
-  return activeEndpointQueue.catch(() => false);
+
+export function setVpnNodesProvider(fn) {
+  vpnNodesProvider = typeof fn === "function" ? fn : null;
 }
 
 // У WARP адрес хранится как «ip:port», а исключению нужен только хост: такая
@@ -1314,13 +1350,60 @@ function endpointHost(host) {
   return m ? m[1] : s;
 }
 
+async function collectVpnNodes() {
+  const ips = [];
+  const domains = [];
+  // Различение «адрес или имя» — через тот же валидатор, что у правил
+  // маршрутизации. Прежняя проверка (/^[0-9a-fA-F:.]+$/ + наличие точки)
+  // объявляла IP-адресом любой домен из hex-букв: abc.def, dead.cf, de.ad.
+  const add = (raw) => {
+    if (raw == null || raw === "") return;
+    const host = endpointHost(raw);
+    if (!host) return;
+    const target = normalizeIp(host) ? ips : domains;
+    if (!target.includes(host)) target.push(host);
+  };
+  let provided;
+  try { provided = await vpnNodesProvider?.(); } catch { provided = null; }
+  for (const value of Array.isArray(provided?.ips) ? provided.ips : []) add(value);
+  for (const value of Array.isArray(provided?.domains) ? provided.domains : []) add(value);
+  add(legacyEndpointHost);
+  return { ips, domains };
+}
+
+// Отправить текущий набор нод. Запросы идут по очереди, а устаревший (его
+// обогнал более новый) в Rust не уходит; Rust дополнительно отбрасывает ответ
+// запроса, который дождался DNS уже после более нового.
+function syncVpnNodeExclusion({ resolve = false, clear = false } = {}) {
+  const revision = ++activeEndpointRevision;
+  const apply = async () => {
+    if (revision !== activeEndpointRevision) return false;
+    const nodes = clear ? { ips: [], domains: [] } : await collectVpnNodes();
+    if (revision !== activeEndpointRevision) return false;
+    await invoke("dpi_set_active_vpn_endpoint", { ...nodes, resolve: !!resolve && nodes.domains.length > 0 });
+    return revision === activeEndpointRevision;
+  };
+  activeEndpointQueue = activeEndpointQueue.then(apply, apply);
+  return activeEndpointQueue.catch(() => false);
+}
+
+// После подключения или смены источника. Пока winws не работает (выключен или
+// на паузе TUN), домены не резолвим: уходят только литералы, а резолв
+// случится перед запуском движка.
+export function refreshVpnNodeExclusion() {
+  return syncVpnNodeExclusion({ resolve: S.base === "running" || S.base === "starting" });
+}
+
+// Совместимая обёртка: host активной ноды дополняет набор провайдера.
 export function excludeVpnNode(host) {
   if (!host) return Promise.resolve(false);
-  return setActiveVpnEndpoint(endpointHost(host));
+  legacyEndpointHost = endpointHost(host);
+  return refreshVpnNodeExclusion();
 }
 
 export function clearVpnNodeExclusion() {
-  return setActiveVpnEndpoint(null);
+  legacyEndpointHost = null;
+  return syncVpnNodeExclusion({ clear: true });
 }
 
 export function onDpiViewEnter() {
@@ -1354,6 +1437,8 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
         renderBody();
       }
     }).catch(() => {});
+    // winws упал сам посреди сессии — сторож в Rust сообщает об этом сразу.
+    tauriListen("dpi:exited", (ev) => onDpiExited(ev?.payload)).catch(() => {});
   }
 
   renderAll();

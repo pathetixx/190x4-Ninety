@@ -826,6 +826,8 @@ export const fa = {
       cancelled: "عملیات دور زدن لغو شد",
       strategyNotFound: "راهبرد «{id}» پیدا نشد",
       winwsMissing: "winws.exe پیدا نشد: {path}",
+      exitedUnexpectedly: "winws به‌طور غیرمنتظره بسته شد (کد {code}). دور زدن DPI متوقف شد — جزئیات در گزارش‌ها.",
+      channelOlder: "مجموعهٔ راهبردهای منتشرشده {remote} قدیمی‌تر از نسخهٔ نصب‌شده {local} است — به‌روزرسانی رد شد",
       exitedOutput: "winws بلافاصله پس از اجرا بسته شد (کد {code}).\nخروجی winws:\n{output}",
       exitedAdmin: "winws بلافاصله پس از اجرا بسته شد (کد {code}). دسترسی مدیر لازم است یا درایور WinDivert مشغول است.",
       badDomain: "دامنه برای فهرست استثناها نامعتبر است",

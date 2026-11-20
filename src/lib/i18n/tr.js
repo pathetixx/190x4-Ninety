@@ -826,6 +826,8 @@ export const tr = {
       cancelled: "Atlatma işlemi iptal edildi",
       strategyNotFound: "\"{id}\" stratejisi bulunamadı",
       winwsMissing: "winws.exe bulunamadı: {path}",
+      exitedUnexpectedly: "winws beklenmedik şekilde kapandı (kod {code}). DPI atlatma durdu — ayrıntılar günlüklerde.",
+      channelOlder: "Yayımlanan strateji seti {remote}, yüklü olan {local} sürümünden eski — güncelleme reddedildi",
       exitedOutput: "winws başlatıldıktan hemen sonra kapandı (kod {code}).\nwinws çıktısı:\n{output}",
       exitedAdmin: "winws başlatıldıktan hemen sonra kapandı (kod {code}). Yönetici hakları gerekiyor veya WinDivert sürücüsü meşgul.",
       badDomain: "İstisna listesi için geçersiz alan adı",
