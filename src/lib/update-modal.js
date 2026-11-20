@@ -5,7 +5,7 @@ import { t } from "/lib/i18n/index.js";
 import { closeUpdateResource, snapshotUpdate } from "/lib/update-resource.js";
 import { formatReleaseNotes } from "/lib/release-notes.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
-import { localizedInvoke } from "/lib/backend-errors.js";
+import { localizedInvoke, localizeBackendText } from "/lib/backend-errors.js";
 
 const SKIP_KEY = STORAGE_KEYS.updateSkip;
 const RESUME_KEY = STORAGE_KEYS.updateResume;
@@ -14,6 +14,24 @@ export const UPDATE_DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
 
 export function portableReleaseUrl(version) {
   return `${RELEASE_BASE_URL}/v${encodeURIComponent(String(version || ""))}`;
+}
+
+// Версия в latest.json сменилась между уведомлением и «Обновить»: Rust отвечает
+// токеном updModal.versionChanged с новой версией (portable_update.rs). Узнаём
+// его до перевода — иначе он стал бы обычной ошибкой, а запасная кнопка открыла
+// бы страницу релиза прежней версии.
+const VERSION_CHANGED_TOKEN = /\[\[updModal\.versionChanged (\{.*?\})\]\]/;
+
+export function portableVersionChange(error) {
+  const text = typeof error === "string" ? error : String(error?.message ?? "");
+  const match = VERSION_CHANGED_TOKEN.exec(text);
+  if (!match) return null;
+  try {
+    const version = JSON.parse(match[1])?.version;
+    return typeof version === "string" && version ? version : null;
+  } catch {
+    return null;
+  }
 }
 
 export function buildUpdateJournal({ targetVersion, stage, sourceFingerprint, mode, vpn, dpi, attempts = 1 }) {
@@ -256,6 +274,43 @@ export function openUpdateModal(update, opts = {}) {
       if (e.key === "Escape" && !installing) onDismiss();
     };
 
+    // Подтверждали одну версию, а в latest.json уже другая: показываем новую и
+    // ждём повторного «Обновить», окно снова свободно. Общий путь для
+    // установщика и portable.
+    const applyVersionChange = async (next) => {
+      activeUpdate = next;
+      activeUpdateConsumed = false;
+      renderMetadata();
+      opts.onVersionChanged?.(activeUpdate.version);
+      await releaseActiveResource();
+      preparing = false;
+      installing = false;
+      opts.onInstalling?.(false);
+      progressBox.hidden = true;
+      laterBtn.hidden = false;
+      installBtn.disabled = false;
+      installBtn.textContent = t("updModal.install");
+      showError(t("updModal.versionChanged", { version: activeUpdate.version }));
+    };
+
+    // Для portable версию сверяет Rust, а заметки новой версии берём свежей
+    // проверкой, как у установщика. Не вышло — новая версия без заметок: старые
+    // заметки под новым номером ввели бы в заблуждение.
+    const portableMetadata = async (version) => {
+      try {
+        // Прежний Resource освобождаем в любом случае, до fresh-check.
+        const released = await releaseActiveResource();
+        if (released && typeof opts.acquireUpdate === "function") {
+          const acquired = await opts.acquireUpdate();
+          if (acquired && String(acquired.version) === version) return acquired;
+          if (acquired) void closeUpdateResource(acquired);
+        }
+      } catch (e) {
+        console.warn("update notes refresh failed", e);
+      }
+      return { ...snapshotUpdate(activeUpdate), version, body: "" };
+    };
+
     const onInstall = async () => {
       if (installing || preparing) return;
       if (opts.portable && portableFallback) {
@@ -288,15 +343,7 @@ export function openUpdateModal(update, opts = {}) {
           const acquired = await opts.acquireUpdate();
           if (!acquired) throw new Error(t("update.none"));
           if (String(acquired.version) !== String(activeUpdate.version)) {
-            activeUpdate = acquired;
-            renderMetadata();
-            opts.onVersionChanged?.(activeUpdate.version);
-            await releaseActiveResource();
-            showError(t("updModal.versionChanged", { version: activeUpdate.version }));
-            preparing = false;
-            opts.onInstalling?.(false);
-            installBtn.disabled = false;
-            installBtn.textContent = t("updModal.install");
+            await applyVersionChange(acquired);
             return;
           }
           activeUpdate = acquired;
@@ -450,15 +497,32 @@ export function openUpdateModal(update, opts = {}) {
           // успехе portable_update_apply не возвращается: процесс уже заменён
           // новой версией.
           const Channel = window.__TAURI__?.core?.Channel;
-          if (!invoke || typeof Channel !== "function") throw new Error(t("update.unavailable"));
+          const rawInvoke = window.__TAURI__?.core?.invoke;
+          if (typeof rawInvoke !== "function" || typeof Channel !== "function") {
+            throw new Error(t("update.unavailable"));
+          }
           const channel = new Channel();
           channel.onmessage = onEvent;
           const version = String(activeUpdate.version);
-          await invoke("portable_update_download", {
-            expectedVersion: version,
-            proxy: opts.portableProxy?.() || null,
-            onEvent: channel,
-          });
+          // Без localizedInvoke: смену версии надо узнать по токену до перевода.
+          // Дедлайн тот же, что у установщика: пока идёт скачивание, окно
+          // заблокировано, и зависшее соединение не должно держать его вечно.
+          let changedTo = null;
+          try {
+            await rawInvoke("portable_update_download", {
+              expectedVersion: version,
+              proxy: opts.portableProxy?.() || null,
+              timeoutMs: downloadOptions.timeout,
+              onEvent: channel,
+            });
+          } catch (e) {
+            changedTo = portableVersionChange(e);
+            if (!changedTo) throw localizeBackendText(e);
+          }
+          if (changedTo) {
+            await applyVersionChange(await portableMetadata(changedTo));
+            return;
+          }
           writeResume("downloaded");
           setProgressLabel(t("updModal.installing"));
           setBarIndeterminate();

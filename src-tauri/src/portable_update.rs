@@ -14,6 +14,11 @@
 // Ninety.exe, а этот процесс завершается. Следующий запуск подчищает
 // `*.ninety-old` и staging. NinetyData в архив не входит и не трогается.
 //
+// До первого переименования план замены пишется в журнал рядом с папкой
+// staging. Если процесс убит или пропало питание посреди замены, следующий
+// запуск сначала откатывает по журналу уже переставленные файлы и только потом
+// убирает резервные копии — иначе осталась бы смесь двух версий без пути назад.
+//
 // Portable 0.15.0–0.16.0 по ошибке ставил обновление в NinetyData, а не в
 // папку программы: новая версия запускалась из `NinetyData\Ninety.exe` и
 // открывала пустое `NinetyData\NinetyData`. Обновление применяет код старой
@@ -23,7 +28,7 @@
 // файлы программы из NinetyData и откладывает данные, созданные во вложенных
 // копиях, в `NinetyData.recovered-*` (`cleanup_nested_layers`).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 use tauri::ipc::Channel;
@@ -39,6 +44,10 @@ const README: &str = "README.txt";
 const RECOVERED_PREFIX: &str = "NinetyData.recovered-";
 const REPAIR_DIR: &str = ".ninety-repair";
 const LOCK_FILE: &str = ".ninety-update.lock";
+/// Журнал замены файлов программы (см. `Journal`). Вне staging: staging целиком
+/// чистят stage_archive и уборка.
+const JOURNAL_FILE: &str = ".ninety-update.journal";
+const JOURNAL_VERSION: u32 = 1;
 /// Верхний уровень Full Portable — всё, что кладёт туда
 /// scripts/package-portable.ps1 (сверяется тестом). Только эти имена ремонт
 /// переносит из вложенной копии и убирает из NinetyData: рядом с ними там
@@ -58,6 +67,15 @@ const PROGRAM_ENTRIES: [&str; 10] = [
 const MAX_ENTRIES: usize = 20_000;
 const MAX_UNPACKED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
+/// Общий дедлайн скачивания ZIP — тот же, что фронт даёт установщику
+/// (`UPDATE_DOWNLOAD_TIMEOUT_MS` в update-modal.js). Фронт передаёт его сам;
+/// границы защищают от нуля и от «бесконечности».
+const DOWNLOAD_TIMEOUT_MS: u64 = 15 * 60_000;
+const MIN_DOWNLOAD_TIMEOUT_MS: u64 = 30_000;
+const MAX_DOWNLOAD_TIMEOUT_MS: u64 = 60 * 60_000;
+/// Ключ каталога для «в latest.json уже другая версия»: update-modal.js узнаёт
+/// этот токен и ведёт его тем же путём, что и смену версии у установщика.
+const VERSION_CHANGED_KEY: &str = "updModal.versionChanged";
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "event", content = "data")]
@@ -73,7 +91,8 @@ pub enum PortableUpdateEvent {
     Finished,
 }
 
-/// Файл, уже переставленный на новую версию: нужен для отката.
+/// Файл из плана замены: путь внутри папки программы и резервная копия, в
+/// которую отодвигается прежний файл (None — прежнего файла не было).
 pub struct Applied {
     rel: PathBuf,
     old: Option<PathBuf>,
@@ -115,7 +134,7 @@ fn safe_program_path(rel: &Path) -> bool {
     let Some(first) = first_component(rel).and_then(|c| c.to_str()) else {
         return false;
     };
-    if [DATA_DIR, STAGING_DIR, REPAIR_DIR, LOCK_FILE]
+    if [DATA_DIR, STAGING_DIR, REPAIR_DIR, LOCK_FILE, JOURNAL_FILE]
         .iter()
         .any(|reserved| first.eq_ignore_ascii_case(reserved))
     {
@@ -244,36 +263,93 @@ fn old_path_for(target: &Path) -> Result<PathBuf, String> {
         } else {
             target.with_file_name(format!("{name}{OLD_MARKER}-{n}"))
         };
-        if !candidate.exists() || std::fs::remove_file(&candidate).is_ok() {
+        // Битая ссылка с таким именем для exists() «не существует», но
+        // переименованию мешает и откату показалась бы резервной копией.
+        if !present(&candidate) || std::fs::remove_file(&candidate).is_ok() {
             return Ok(candidate);
         }
     }
     Err(format!("no free backup name for {}", target.display()))
 }
 
-fn apply_one(root: &Path, staging: &Path, rel: &Path) -> Result<Applied, String> {
-    let target = root.join(rel);
-    let staged = staging.join(rel);
+/// Есть ли что-то по пути (ссылка — сама, без перехода). Любая ошибка, кроме
+/// «нет такого файла», считается присутствием: откат тогда попробует
+/// переименовать и честно не сможет, а не пропустит файл молча.
+fn present(path: &Path) -> bool {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => true,
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
+/// Переставляет один файл плана. Оба переименования идут подряд, без другой
+/// работы между ними: для Ninety.exe это окно, когда exe на месте нет.
+fn apply_one(root: &Path, staging: &Path, item: &Applied) -> Result<(), String> {
+    let target = root.join(&item.rel);
+    let staged = staging.join(&item.rel);
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {parent:?}: {e}"))?;
     }
-    let old = if target.exists() {
-        let old = old_path_for(&target)?;
-        std::fs::rename(&target, &old).map_err(|e| format!("{} is in use: {e}", rel.display()))?;
-        Some(old)
-    } else {
-        None
-    };
+    if let Some(old) = &item.old {
+        if item.rel == Path::new(PORTABLE_MARKER) {
+            // Без маркера Ninety стартует как установленная версия и до отката
+            // по журналу не доходит. Маркер никто не держит открытым, поэтому
+            // резервная копия — копированием, а ниже он заменяется атомарно:
+            // маркер не пропадает ни на миг. Откату всё равно, копия это или
+            // перенос: в резервной копии в обоих случаях прежнее содержимое.
+            std::fs::copy(&target, old)
+                .map_err(|e| format!("back up {}: {e}", item.rel.display()))?;
+        } else {
+            std::fs::rename(&target, old)
+                .map_err(|e| format!("{} is in use: {e}", item.rel.display()))?;
+        }
+    }
     if let Err(e) = std::fs::rename(&staged, &target) {
-        if let Some(old) = &old {
+        if let Some(old) = &item.old {
             let _ = std::fs::rename(old, &target);
         }
-        return Err(format!("replace {}: {e}", rel.display()));
+        return Err(format!("replace {}: {e}", item.rel.display()));
     }
-    Ok(Applied {
-        rel: rel.to_path_buf(),
-        old,
-    })
+    Ok(())
+}
+
+/// Файл уже стоит в новой версии: сделаны оба переименования. У маркера
+/// резервная копия появляется раньше замены, но он и не последний в плане:
+/// «заменено всё» требует Ninety.exe, а тот ставится после маркера.
+fn is_applied(root: &Path, item: &Applied) -> bool {
+    present(&root.join(&item.rel)) && item.old.as_deref().is_none_or(present)
+}
+
+/// Отодвигает новый файл обратно в staging. true — на месте его больше нет.
+fn move_to_staging(root: &Path, staging: &Path, rel: &Path) -> bool {
+    let target = root.join(rel);
+    if !present(&target) {
+        return true;
+    }
+    let staged = staging.join(rel);
+    if let Some(parent) = staged.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::rename(&target, &staged).is_ok()
+}
+
+/// Возвращает один файл на прежнюю версию. Повторный вызов безопасен: если
+/// резервной копии уже нет (замена этого файла не начиналась или уже
+/// откачена), файл не трогается. true — замены этого файла на диске больше нет.
+fn rollback_one(root: &Path, staging: &Path, item: &Applied) -> bool {
+    let Some(old) = &item.old else {
+        return move_to_staging(root, staging, &item.rel);
+    };
+    if !present(old) {
+        return true;
+    }
+    // Прежний файл встаёт поверх нового одним переименованием: ни мгновения
+    // без файла на месте (без маркера Ninety не узнал бы себя portable на
+    // следующем старте). Занятый новый файл так не заменить — его сначала
+    // отодвигаем в staging.
+    let target = root.join(&item.rel);
+    std::fs::rename(old, &target).is_ok()
+        || (move_to_staging(root, staging, &item.rel) && std::fs::rename(old, &target).is_ok())
 }
 
 /// Есть ли ссылка среди уже существующих компонентов пути `root\rel`.
@@ -288,24 +364,27 @@ fn target_crosses_link(root: &Path, rel: &Path) -> bool {
     })
 }
 
-/// Возвращает файлы на прежнюю версию в обратном порядке.
-pub fn rollback(root: &Path, staging: &Path, applied: &[Applied]) {
-    for item in applied.iter().rev() {
-        let target = root.join(&item.rel);
-        let staged = staging.join(&item.rel);
-        if let Some(parent) = staged.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::rename(&target, &staged);
-        if let Some(old) = &item.old {
-            let _ = std::fs::rename(old, &target);
-        }
+/// Возвращает файлы плана на прежнюю версию в обратном порядке. Журнал сперва
+/// переводится в «откат»: оборвись откат — следующий старт доведёт его, а не
+/// примет замену за завершённую. Файлы, замена которых не начиналась,
+/// пропускаются, поэтому передавать можно весь план. true — откат полный и
+/// журнала больше нет; false — часть файлов вернуть не удалось, журнал и
+/// резервные копии остаются для следующей попытки.
+pub fn rollback(root: &Path, staging: &Path, applied: &[Applied]) -> bool {
+    if let Err(error) = write_journal(root, staging, JournalState::RollingBack, applied) {
+        eprintln!("portable update: {error}");
     }
+    let mut restored = true;
+    for item in applied.iter().rev() {
+        restored &= rollback_one(root, staging, item);
+    }
+    restored && remove_journal(root)
 }
 
-/// Ставит staging на место программы. При ошибке всё уже сделанное откатывается
-/// и возвращается Err; при успехе — список для отката, если не стартует новый exe.
-pub fn apply_staged(root: &Path, staging: &Path) -> Result<Vec<Applied>, String> {
+/// План замены: файлы staging (Ninety.exe — последним) и имена их резервных
+/// копий. Всё проверяется и выбирается до первого переименования: журнал
+/// получает план целиком, а между переименованиями Ninety.exe нет лишней работы.
+fn plan_replacement(root: &Path, staging: &Path) -> Result<Vec<Applied>, String> {
     let mut files = Vec::new();
     list_files(staging, staging, &mut files)?;
     if !files.iter().any(|f| f == Path::new(MAIN_EXE)) {
@@ -322,17 +401,228 @@ pub fn apply_staged(root: &Path, staging: &Path) -> Result<Vec<Applied>, String>
     // Ninety.exe — последним: пока он не заменён, прежняя версия цела и
     // запускается, даже если процесс оборвётся посреди замены.
     files.sort_by_key(|f| f == Path::new(MAIN_EXE));
-    let mut applied = Vec::with_capacity(files.len());
-    for rel in &files {
-        match apply_one(root, staging, rel) {
-            Ok(item) => applied.push(item),
-            Err(error) => {
-                rollback(root, staging, &applied);
-                return Err(error);
+    let mut plan = Vec::with_capacity(files.len());
+    for rel in files {
+        let target = root.join(&rel);
+        let old = if present(&target) {
+            Some(old_path_for(&target)?)
+        } else {
+            None
+        };
+        plan.push(Applied { rel, old });
+    }
+    Ok(plan)
+}
+
+/// Журнал замены файлов программы. План целиком (пути и имена резервных
+/// копий) пишется до первого переименования, поэтому дописывать его после
+/// каждого файла не нужно: докуда дошла замена, видно по самим файлам —
+/// резервная копия появляется только в apply_one, а её имя выбрано свободным
+/// заранее.
+#[derive(Serialize, Deserialize)]
+struct Journal {
+    version: u32,
+    state: JournalState,
+    /// Staging относительно папки программы, через `/`.
+    staging: String,
+    files: Vec<JournalEntry>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum JournalState {
+    /// Идёт замена. Оборвалась на полпути — старт откатит её.
+    Applying,
+    /// Заменены все файлы, осталась уборка.
+    Complete,
+    /// Начат откат (замена упала или новый exe не стартовал) — старт доведёт.
+    RollingBack,
+}
+
+#[derive(Serialize, Deserialize)]
+struct JournalEntry {
+    /// Путь файла в папке программы, через `/`.
+    rel: String,
+    /// Имя резервной копии рядом с файлом; None — файла раньше не было.
+    old: Option<String>,
+}
+
+/// Относительный путь для журнала: только обычные компоненты, через `/`.
+fn journal_rel(path: &Path) -> Option<String> {
+    let parts = path
+        .components()
+        .map(|component| match component {
+            Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+fn write_journal(
+    root: &Path,
+    staging: &Path,
+    state: JournalState,
+    plan: &[Applied],
+) -> Result<(), String> {
+    let staging = staging
+        .strip_prefix(root)
+        .ok()
+        .and_then(journal_rel)
+        .ok_or("update staging is outside the program folder")?;
+    let mut files = Vec::with_capacity(plan.len());
+    for item in plan {
+        let rel = journal_rel(&item.rel).ok_or("update path is not valid Unicode")?;
+        let old = match &item.old {
+            Some(old) => Some(
+                old.file_name()
+                    .and_then(|name| name.to_str())
+                    .ok_or("update backup name is not valid Unicode")?
+                    .to_owned(),
+            ),
+            None => None,
+        };
+        files.push(JournalEntry { rel, old });
+    }
+    let journal = Journal {
+        version: JOURNAL_VERSION,
+        state,
+        staging,
+        files,
+    };
+    let body = serde_json::to_vec(&journal).map_err(|e| format!("encode update journal: {e}"))?;
+    crate::atomic_file::write_bytes_replace(&root.join(JOURNAL_FILE), &body, "update journal")
+}
+
+/// Журнал, прочитанный с диска, с путями, проверенными так же строго, как
+/// пути из архива: по нему переименовываются файлы.
+struct LoadedJournal {
+    state: JournalState,
+    staging: PathBuf,
+    plan: Vec<Applied>,
+}
+
+fn parse_journal(root: &Path, raw: &[u8]) -> Option<LoadedJournal> {
+    let journal: Journal = serde_json::from_slice(raw).ok()?;
+    if journal.version != JOURNAL_VERSION {
+        return None;
+    }
+    let staging: PathBuf = journal.staging.split('/').collect();
+    let staging_ok = staging.components().count() <= 2
+        && staging
+            .components()
+            .all(|c| matches!(c, Component::Normal(_)))
+        && first_component(&staging).is_some_and(|first| {
+            first == std::ffi::OsStr::new(STAGING_DIR) || first == std::ffi::OsStr::new(REPAIR_DIR)
+        });
+    if !staging_ok {
+        return None;
+    }
+    let mut plan = Vec::with_capacity(journal.files.len());
+    for entry in journal.files {
+        let rel: PathBuf = entry.rel.split('/').collect();
+        if !safe_program_path(&rel) {
+            return None;
+        }
+        let old = match entry.old {
+            Some(name) => {
+                // Только `<имя файла>.ninety-old[-N]` рядом с самим файлом.
+                let own = rel.file_name()?.to_str()?;
+                let backup = name
+                    .strip_prefix(own)
+                    .is_some_and(|tail| tail.starts_with(OLD_MARKER))
+                    && is_backup_name(&name);
+                if !backup {
+                    return None;
+                }
+                Some(root.join(&rel).with_file_name(name))
             }
+            None => None,
+        };
+        plan.push(Applied { rel, old });
+    }
+    Some(LoadedJournal {
+        state: journal.state,
+        staging: root.join(staging),
+        plan,
+    })
+}
+
+/// Убирает журнал. true — его больше нет.
+fn remove_journal(root: &Path) -> bool {
+    match std::fs::remove_file(root.join(JOURNAL_FILE)) {
+        Ok(()) => true,
+        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+    }
+}
+
+/// Временный файл атомарной записи журнала, оставшийся после обрыва
+/// (`..ninety-update.journal.<pid>.<n>.tmp`, см. atomic_file).
+fn is_journal_temp(name: &str) -> bool {
+    name.strip_prefix('.')
+        .and_then(|rest| rest.strip_prefix(JOURNAL_FILE))
+        .is_some_and(|rest| rest.starts_with('.') && rest.ends_with(".tmp"))
+}
+
+/// Доводит замену, оборванную на прошлом запуске (убитый процесс, питание):
+/// по журналу либо признаёт её завершённой, либо откатывает. Ok — журнала
+/// больше нет, и `*.ninety-old`/staging можно убирать. Err — откатить не
+/// вышло (файл занят): журнал, резервные копии и staging остаются до
+/// следующей попытки. Вызывается под UpdateLock.
+fn finish_interrupted(root: &Path) -> Result<(), String> {
+    let raw = match std::fs::read(root.join(JOURNAL_FILE)) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("read update journal: {error}")),
+    };
+    let Some(journal) = parse_journal(root, &raw) else {
+        // Журнал пишется атомарно, так что испорченный — чужая правка; откатить
+        // по нему нечего, дальше уборка как без журнала.
+        eprintln!("portable update: ignoring invalid update journal");
+        return if remove_journal(root) {
+            Ok(())
+        } else {
+            Err("remove invalid update journal".into())
+        };
+    };
+    // Обе перестановки сделаны для каждого файла — замена дошла до конца, просто
+    // не успела отметить это в журнале: откат здесь сломал бы новую версию.
+    let finished = journal.state == JournalState::Complete
+        || (journal.state == JournalState::Applying
+            && journal.plan.iter().all(|item| is_applied(root, item)));
+    let settled = if finished {
+        remove_journal(root)
+    } else {
+        rollback(root, &journal.staging, &journal.plan)
+    };
+    if settled {
+        Ok(())
+    } else {
+        Err("interrupted portable update is not rolled back yet".into())
+    }
+}
+
+/// Ставит staging на место программы. При ошибке всё уже сделанное откатывается
+/// и возвращается Err; при успехе — план для отката, если не стартует новый exe.
+pub fn apply_staged(root: &Path, staging: &Path) -> Result<Vec<Applied>, String> {
+    // Резервные копии прерванной замены — единственный путь назад: сначала
+    // довести её, иначе old_path_for удалил бы их как устаревшие.
+    finish_interrupted(root)?;
+    let plan = plan_replacement(root, staging)?;
+    // Журнал — до первого переименования: оборвись замена, следующий старт
+    // откатит её по нему.
+    write_journal(root, staging, JournalState::Applying, &plan)?;
+    for item in &plan {
+        if let Err(error) = apply_one(root, staging, item) {
+            rollback(root, staging, &plan);
+            return Err(error);
         }
     }
-    Ok(applied)
+    // Не записалась отметка — не беда: старт увидит, что заменены все файлы.
+    if let Err(error) = write_journal(root, staging, JournalState::Complete, &plan) {
+        eprintln!("portable update: {error}");
+    }
+    Ok(plan)
 }
 
 /// Резервная копия, которую оставляет `old_path_for`: `имя.ninety-old` или
@@ -384,15 +674,24 @@ fn cleanup_dir(dir: &Path, top: bool) {
                 continue;
             }
             cleanup_dir(&path, false);
-        } else if kind.is_file() && is_backup_name(&name) && (!top || is_program_backup(&name)) {
+        } else if kind.is_file()
+            && ((is_backup_name(&name) && (!top || is_program_backup(&name)))
+                || (top && is_journal_temp(&name)))
+        {
             let _ = std::fs::remove_file(&path);
         }
     }
 }
 
 /// После обновления: убрать `*.ninety-old` и staging. Ошибки молча пропускаем —
-/// занятый файл удалится на следующем запуске.
+/// занятый файл удалится на следующем запуске. Прерванная замена сначала
+/// откатывается по журналу: её резервные копии и staging — материал для отката,
+/// и пока откат не удался, ничего не удаляется.
 pub fn cleanup_leftovers(root: &Path) {
+    if let Err(error) = finish_interrupted(root) {
+        eprintln!("portable update: {error}");
+        return;
+    }
     for dir in [STAGING_DIR, REPAIR_DIR] {
         let staging = root.join(dir);
         if staging.is_dir() && !crate::app_paths::is_link(&staging) {
@@ -761,6 +1060,15 @@ fn update_root() -> Result<PathBuf, String> {
     Ok(root)
 }
 
+/// Дедлайн скачивания: от фронта (`timeoutMs`) или по умолчанию, в границах.
+fn download_deadline(timeout_ms: Option<u64>) -> Duration {
+    Duration::from_millis(
+        timeout_ms
+            .unwrap_or(DOWNLOAD_TIMEOUT_MS)
+            .clamp(MIN_DOWNLOAD_TIMEOUT_MS, MAX_DOWNLOAD_TIMEOUT_MS),
+    )
+}
+
 /// Скачивает ZIP через updater-плагин (подпись проверяется им же) и
 /// распаковывает в staging. Ничего из работающей программы не трогает.
 #[tauri::command]
@@ -768,6 +1076,7 @@ pub async fn portable_update_download(
     app: tauri::AppHandle,
     expected_version: String,
     proxy: Option<String>,
+    timeout_ms: Option<u64>,
     on_event: Channel<PortableUpdateEvent>,
 ) -> Result<(), String> {
     validate_version(&expected_version)?;
@@ -787,25 +1096,31 @@ pub async fn portable_update_download(
         .map_err(|e| e.to_string())?
         .ok_or("portable update is not available")?;
     if update.version != expected_version {
-        return Err(format!(
-            "portable update version changed to {}",
-            update.version
+        // Пользователь подтверждал другую версию: фронт покажет новую и
+        // попросит нажать «Обновить» ещё раз.
+        return Err(crate::util::i18n_error_with(
+            VERSION_CHANGED_KEY,
+            &[("version", update.version.as_str())],
         ));
     }
     let progress = on_event.clone();
     let mut started = false;
-    let bytes = update
-        .download(
-            move |chunk_length, content_length| {
-                if !started {
-                    started = true;
-                    let _ = progress.send(PortableUpdateEvent::Started { content_length });
-                }
-                let _ = progress.send(PortableUpdateEvent::Progress { chunk_length });
-            },
-            || {},
-        )
+    let download = update.download(
+        move |chunk_length, content_length| {
+            if !started {
+                started = true;
+                let _ = progress.send(PortableUpdateEvent::Started { content_length });
+            }
+            let _ = progress.send(PortableUpdateEvent::Progress { chunk_length });
+        },
+        || {},
+    );
+    // Таймаут builder'а действует только на проверку: плагин отдаёт Update с
+    // `timeout: None`, и зависшее скачивание держало бы модалку обновления
+    // заблокированной без конца. Общий дедлайн обрывает его вместе с запросом.
+    let bytes = tokio::time::timeout(download_deadline(timeout_ms), download)
         .await
+        .map_err(|_| crate::util::i18n_error("backend.diag.timeout"))?
         .map_err(|e| e.to_string())?;
     let _ = on_event.send(PortableUpdateEvent::Finished);
     let version = update.version.clone();
@@ -949,10 +1264,12 @@ mod tests {
             "mine"
         );
         assert!(root.join("Ninety.exe.ninety-old").is_file());
+        assert!(root.join(JOURNAL_FILE).is_file());
 
         cleanup_leftovers(&root);
         assert!(!root.join("Ninety.exe.ninety-old").exists());
         assert!(!root.join(STAGING_DIR).exists());
+        assert!(!root.join(JOURNAL_FILE).exists());
         assert!(root.join("NinetyData/profile").is_file());
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1163,7 +1480,7 @@ mod tests {
         ]);
         let staging = stage_archive(&root, "2.0.0", &zip).unwrap();
         let applied = apply_staged(&root, &staging).unwrap();
-        rollback(&root, &staging, &applied);
+        assert!(rollback(&root, &staging, &applied));
         assert_eq!(
             std::fs::read_to_string(root.join("Ninety.exe")).unwrap(),
             "old-exe"
@@ -1173,6 +1490,190 @@ mod tests {
             "old-core"
         );
         assert!(!root.join("Ninety.portable").exists());
+        assert!(!root.join(JOURNAL_FILE).exists());
+        // Повторный откат ничего не ломает: копий уже нет, файлы не трогаются.
+        assert!(rollback(&root, &staging, &applied));
+        assert_eq!(
+            std::fs::read_to_string(root.join("Ninety.exe")).unwrap(),
+            "old-exe"
+        );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Старая версия (exe, маркер, ядро, файл в dpi) и staged новая: в новой
+    /// другой файл в dpi и флаг, которых раньше не было.
+    fn staged_update(tag: &str) -> (PathBuf, PathBuf) {
+        let root = temp_root(tag);
+        std::fs::write(root.join("Ninety.exe"), "old-exe").unwrap();
+        std::fs::write(root.join("Ninety.portable"), "portable=old").unwrap();
+        std::fs::write(root.join("sing-box.exe"), "old-core").unwrap();
+        std::fs::create_dir_all(root.join("dpi")).unwrap();
+        std::fs::write(root.join("dpi/old.txt"), "old-list").unwrap();
+        std::fs::create_dir_all(root.join("NinetyData")).unwrap();
+        std::fs::write(root.join("NinetyData/profile"), "mine").unwrap();
+        let zip = zip_with(&[
+            ("Ninety/Ninety.exe", "new-exe"),
+            ("Ninety/Ninety.portable", "portable=new"),
+            ("Ninety/sing-box.exe", "new-core"),
+            ("Ninety/dpi/new.txt", "new-list"),
+            ("Ninety/flags/ru.svg", "flag"),
+        ]);
+        let staging = stage_archive(&root, "2.0.0", &zip).unwrap();
+        (root, staging)
+    }
+
+    fn item<'a>(plan: &'a [Applied], rel: &str) -> &'a Applied {
+        plan.iter().find(|item| item.rel == Path::new(rel)).unwrap()
+    }
+
+    fn read(root: &Path, rel: &str) -> String {
+        std::fs::read_to_string(root.join(rel)).unwrap()
+    }
+
+    #[test]
+    fn interrupted_replacement_is_rolled_back_on_start() {
+        let (root, staging) = staged_update("interrupted");
+        let plan = plan_replacement(&root, &staging).unwrap();
+        assert_eq!(plan.last().unwrap().rel, Path::new(MAIN_EXE));
+        write_journal(&root, &staging, JournalState::Applying, &plan).unwrap();
+        // Процесс оборвался посреди замены: ядро, маркер и dpi/new.txt уже
+        // новые, флаг ещё не ставился, а Ninety.exe успел отодвинуться в
+        // резервную копию, но новый на его место не встал. Откат не зависит от
+        // порядка — здесь проверяются все состояния файла разом.
+        apply_one(&root, &staging, item(&plan, "sing-box.exe")).unwrap();
+        apply_one(&root, &staging, item(&plan, "dpi/new.txt")).unwrap();
+        apply_one(&root, &staging, item(&plan, PORTABLE_MARKER)).unwrap();
+        // Маркер заменён без промежутка: старый — в копии, новый — на месте.
+        assert_eq!(read(&root, "Ninety.portable"), "portable=new");
+        assert_eq!(read(&root, "Ninety.portable.ninety-old"), "portable=old");
+        let exe = item(&plan, MAIN_EXE);
+        std::fs::rename(root.join(MAIN_EXE), exe.old.as_ref().unwrap()).unwrap();
+        assert!(!root.join(MAIN_EXE).exists());
+
+        cleanup_leftovers(&root);
+        assert_eq!(read(&root, "Ninety.exe"), "old-exe");
+        assert_eq!(read(&root, "Ninety.portable"), "portable=old");
+        assert_eq!(read(&root, "sing-box.exe"), "old-core");
+        assert_eq!(read(&root, "dpi/old.txt"), "old-list");
+        assert!(!root.join("dpi/new.txt").exists());
+        assert!(!root.join("flags/ru.svg").exists());
+        assert!(!root.join("Ninety.exe.ninety-old").exists());
+        assert!(!root.join("Ninety.portable.ninety-old").exists());
+        assert!(!root.join("sing-box.exe.ninety-old").exists());
+        assert!(!root.join(STAGING_DIR).exists());
+        assert!(!root.join(JOURNAL_FILE).exists());
+        assert_eq!(read(&root, "NinetyData/profile"), "mine");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn complete_journal_leads_to_plain_cleanup() {
+        let (root, staging) = staged_update("complete");
+        apply_staged(&root, &staging).unwrap();
+        let journal =
+            parse_journal(&root, &std::fs::read(root.join(JOURNAL_FILE)).unwrap()).unwrap();
+        assert_eq!(journal.state, JournalState::Complete);
+
+        cleanup_leftovers(&root);
+        assert_eq!(read(&root, "Ninety.exe"), "new-exe");
+        assert_eq!(read(&root, "sing-box.exe"), "new-core");
+        assert_eq!(read(&root, "dpi/new.txt"), "new-list");
+        assert_eq!(read(&root, "Ninety.portable"), "portable=new");
+        assert!(!root.join("Ninety.exe.ninety-old").exists());
+        assert!(!root.join("Ninety.portable.ninety-old").exists());
+        assert!(!root.join("sing-box.exe.ninety-old").exists());
+        assert!(!root.join(STAGING_DIR).exists());
+        assert!(!root.join(JOURNAL_FILE).exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn fully_applied_replacement_without_mark_keeps_new_version() {
+        let (root, staging) = staged_update("unmarked");
+        let plan = plan_replacement(&root, &staging).unwrap();
+        write_journal(&root, &staging, JournalState::Applying, &plan).unwrap();
+        // Все файлы переставлены, но отметка «complete» не успела записаться.
+        for item in &plan {
+            apply_one(&root, &staging, item).unwrap();
+        }
+
+        cleanup_leftovers(&root);
+        assert_eq!(read(&root, "Ninety.exe"), "new-exe");
+        assert_eq!(read(&root, "sing-box.exe"), "new-core");
+        assert!(root.join("Ninety.portable").is_file());
+        assert!(!root.join("Ninety.exe.ninety-old").exists());
+        assert!(!root.join(JOURNAL_FILE).exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn interrupted_rollback_is_finished_on_start() {
+        let (root, staging) = staged_update("rolling-back");
+        let plan = apply_staged(&root, &staging).unwrap();
+        // Новый exe не стартовал, и откат оборвался после первого файла.
+        write_journal(&root, &staging, JournalState::RollingBack, &plan).unwrap();
+        assert!(rollback_one(&root, &staging, plan.last().unwrap()));
+        assert_eq!(read(&root, "Ninety.exe"), "old-exe");
+
+        cleanup_leftovers(&root);
+        assert_eq!(read(&root, "Ninety.exe"), "old-exe");
+        assert_eq!(read(&root, "Ninety.portable"), "portable=old");
+        assert_eq!(read(&root, "sing-box.exe"), "old-core");
+        assert!(!root.join("flags/ru.svg").exists());
+        assert!(!root.join(JOURNAL_FILE).exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn journal_paths_are_validated() {
+        let root = temp_root("journal-paths");
+        let parse = |json: &str| parse_journal(&root, json.as_bytes());
+        let ok = r#"{"version":1,"state":"applying","staging":".ninety-update/2.0.0","files":[{"rel":"dpi/a.txt","old":"a.txt.ninety-old-2"},{"rel":"Ninety.exe","old":null}]}"#;
+        let journal = parse(ok).unwrap();
+        assert_eq!(journal.staging, root.join(".ninety-update").join("2.0.0"));
+        assert_eq!(
+            journal.plan[0].old.as_deref(),
+            Some(root.join("dpi").join("a.txt.ninety-old-2").as_path())
+        );
+        for bad in [
+            ok.replace("dpi/a.txt\"", "../a.txt\""),
+            ok.replace("dpi/a.txt\"", "NinetyData/a.txt\""),
+            ok.replace("a.txt.ninety-old-2", "../../evil.ninety-old"),
+            ok.replace("a.txt.ninety-old-2", "b.txt.ninety-old"),
+            ok.replace(".ninety-update/2.0.0", "NinetyData"),
+            ok.replace(".ninety-update/2.0.0", ".ninety-update/../.."),
+            ok.replace("\"version\":1", "\"version\":2"),
+        ] {
+            assert!(parse(bad.as_str()).is_none(), "{bad}");
+        }
+        // Испорченный журнал не мешает уборке: его просто убирают.
+        std::fs::write(root.join(JOURNAL_FILE), "{broken").unwrap();
+        std::fs::write(root.join("Ninety.exe.ninety-old"), "old").unwrap();
+        cleanup_leftovers(&root);
+        assert!(!root.join(JOURNAL_FILE).exists());
+        assert!(!root.join("Ninety.exe.ninety-old").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn journal_temp_files_are_recognized() {
+        assert!(is_journal_temp("..ninety-update.journal.1234.0.tmp"));
+        assert!(!is_journal_temp(".ninety-update.journal"));
+        assert!(!is_journal_temp("..ninety-update.journalx.tmp"));
+        assert!(!is_journal_temp("notes.tmp"));
+    }
+
+    #[test]
+    fn download_deadline_matches_the_installer_and_is_bounded() {
+        assert_eq!(download_deadline(None), Duration::from_millis(15 * 60_000));
+        assert_eq!(
+            download_deadline(Some(15 * 60_000)),
+            download_deadline(None)
+        );
+        assert_eq!(download_deadline(Some(0)), Duration::from_millis(30_000));
+        assert_eq!(
+            download_deadline(Some(u64::MAX)),
+            Duration::from_millis(60 * 60_000)
+        );
     }
 }

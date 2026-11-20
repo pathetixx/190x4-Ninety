@@ -231,3 +231,139 @@ test("вернувшийся install не закрывает уже consumed Upd
 
   globalThis.window.__TAURI__.process.relaunch = async () => {};
 });
+
+function withPortableTauri(downloadHandler) {
+  const core = globalThis.window.__TAURI__.core;
+  const originalInvoke = core.invoke;
+  const calls = [];
+  let opened = 0;
+  core.Channel = class { constructor() { this.onmessage = null; } };
+  core.invoke = async (command, args) => {
+    if (command === "portable_update_download") {
+      calls.push(args);
+      return downloadHandler(args);
+    }
+    return originalInvoke(command, args);
+  };
+  globalThis.window.__TAURI__.shell = { open: async () => { opened++; } };
+  return {
+    calls,
+    opened: () => opened,
+    restore() {
+      core.invoke = originalInvoke;
+      delete core.Channel;
+      delete globalThis.window.__TAURI__.shell;
+    },
+  };
+}
+
+function pressEscape() {
+  for (const listener of [...(documentListeners.get("keydown") || [])]) {
+    listener({ key: "Escape" });
+  }
+}
+
+test("portable: смена версии ведёт на повторное подтверждение, а не на страницу релиза", async () => {
+  resetUi();
+  const tauri = withPortableTauri(async ({ expectedVersion }) => {
+    if (expectedVersion !== "0.2.44") {
+      throw '[[updModal.versionChanged {"version":"0.2.44"}]]';
+    }
+    throw "error sending request: connection reset";
+  });
+  const changed = [];
+  const busyStates = [];
+  let closes = 0;
+  try {
+    const modal = openUpdateModal(
+      { currentVersion: "0.2.42", version: "0.2.43", body: "old notes" },
+      {
+        portable: true,
+        acquireUpdate: async () => ({
+          currentVersion: "0.2.42",
+          version: "0.2.44",
+          body: "new notes",
+          close: async () => { closes++; },
+        }),
+        onVersionChanged: (version) => { changed.push(version); },
+        onInstalling: (busy) => { busyStates.push(busy); },
+      },
+    );
+
+    await elements.get("update-install").dispatch("click");
+    assert.equal(tauri.calls.length, 1);
+    assert.equal(tauri.calls[0].expectedVersion, "0.2.43");
+    assert.equal(tauri.calls[0].timeoutMs, UPDATE_DOWNLOAD_TIMEOUT_MS);
+    assert.deepEqual(changed, ["0.2.44"]);
+    assert.deepEqual(busyStates, [true, false]);
+    assert.equal(closes, 1);
+    assert.equal(elements.get("update-latest").textContent, "0.2.44");
+    assert.match(elements.get("update-changelog").textContent, /new notes/);
+    assert.match(elements.get("update-error").textContent, /0\.2\.44/);
+    assert.doesNotMatch(elements.get("update-error").textContent, /\[\[/);
+    assert.equal(elements.get("update-progress").hidden, true);
+    assert.equal(elements.get("update-later").hidden, false);
+    assert.equal(elements.get("update-install").disabled, false);
+
+    // Повторное «Обновить» качает уже новую версию, страницу релиза не открывает.
+    await elements.get("update-install").dispatch("click");
+    assert.equal(tauri.calls.length, 2);
+    assert.equal(tauri.calls[1].expectedVersion, "0.2.44");
+    assert.equal(tauri.opened(), 0);
+
+    // Ошибка скачивания (в том числе таймаут) освобождает окно.
+    pressEscape();
+    await modal;
+    assert.equal(elements.get("update-modal").hidden, true);
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("portable: без свежих заметок смена версии не показывает старые", async () => {
+  resetUi();
+  const tauri = withPortableTauri(async () => {
+    throw '[[updModal.versionChanged {"version":"0.2.46"}]]';
+  });
+  try {
+    const modal = openUpdateModal(
+      { currentVersion: "0.2.42", version: "0.2.45", body: "old notes" },
+      {
+        portable: true,
+        acquireUpdate: async () => { throw new Error("offline"); },
+      },
+    );
+    await elements.get("update-install").dispatch("click");
+    assert.equal(elements.get("update-latest").textContent, "0.2.46");
+    assert.doesNotMatch(elements.get("update-changelog").textContent, /old notes/);
+    assert.match(elements.get("update-error").textContent, /0\.2\.46/);
+    pressEscape();
+    await modal;
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("portable: таймаут скачивания разблокирует окно и предлагает ZIP", async () => {
+  resetUi();
+  const tauri = withPortableTauri(async () => { throw "[[backend.diag.timeout]]"; });
+  const busyStates = [];
+  try {
+    const modal = openUpdateModal(
+      { currentVersion: "0.2.42", version: "0.2.47", body: "notes" },
+      { portable: true, onInstalling: (busy) => { busyStates.push(busy); } },
+    );
+    await elements.get("update-install").dispatch("click");
+    assert.deepEqual(busyStates, [true, false]);
+    assert.equal(elements.get("update-progress").hidden, true);
+    assert.equal(elements.get("update-later").hidden, false);
+    assert.doesNotMatch(elements.get("update-error").textContent, /\[\[/);
+
+    // Запасная кнопка ведёт на страницу этой же версии.
+    await elements.get("update-install").dispatch("click");
+    assert.equal(tauri.opened(), 1);
+    await modal;
+  } finally {
+    tauri.restore();
+  }
+});

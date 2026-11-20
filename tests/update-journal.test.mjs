@@ -7,6 +7,7 @@ const {
   clearUpdateJournal,
   persistUpdateJournal,
   portableReleaseUrl,
+  portableVersionChange,
   resumeRuntimeReady,
   updateRecoveryRequired,
 } = await import("/lib/update-modal.js");
@@ -27,6 +28,15 @@ test("portable release URL targets the exact encoded tag", () => {
   );
   assert.equal(portableReleaseUrl("1/2"),
     "https://github.com/pathetixx/190x4-Ninety/releases/tag/v1%2F2");
+});
+
+test("portable: смена версии узнаётся по токену бэкенда", () => {
+  assert.equal(portableVersionChange('[[updModal.versionChanged {"version":"0.3.1"}]]'), "0.3.1");
+  assert.equal(portableVersionChange({ message: 'x [[updModal.versionChanged {"version":"1.0.0"}]]' }), "1.0.0");
+  assert.equal(portableVersionChange("[[backend.diag.timeout]]"), null);
+  assert.equal(portableVersionChange('[[updModal.versionChanged {"version":""}]]'), null);
+  assert.equal(portableVersionChange("[[updModal.versionChanged {broken}]]"), null);
+  assert.equal(portableVersionChange(null), null);
 });
 
 test("OTA journal versioned и хранит fingerprint/mode/desired state", () => {
