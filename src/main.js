@@ -1576,7 +1576,7 @@ function holdAutoSelection(tag, token) {
   qualityAutoHoldTimer = setTimeout(async () => {
     qualityAutoHoldTimer = null;
     if (!runtimeIdentity.isCurrent(token) || manualProxySelection(getActiveSource())) return;
-    let proxies = {};
+    let proxies;
     try { proxies = (await getProxies(undefined, { token }))?.proxies || {}; } catch { return; }
     if (!runtimeIdentity.isCurrent(token) || proxies.proxy?.now !== tag) return;
     try { await selectProxy("proxy", "auto", { token, closeConnections: false }); } catch {}
