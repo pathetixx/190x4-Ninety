@@ -257,8 +257,9 @@ export async function closeProxyConnections({ port, token } = {}) {
 // Ручной выбор активной ноды в Selector-группе.
 // PUT /proxies/{group} {"name": tag}. Работает только для type=Selector.
 //
-// closeConnections=false — только для восстановления выбора на свежем runtime:
-// рвать там нечего, ядро секунду как поднялось.
+// closeConnections=false — для восстановления выбора на свежем runtime (рвать
+// там нечего, ядро секунду как поднялось) и для тихого возврата к «Авто» после
+// временного закрепления ноды: живые соединения на ней исправны.
 export function selectProxy(group, name, { port, token, closeConnections = true } = {}) {
   const revision = ++selectionRevision;
   const task = async () => {

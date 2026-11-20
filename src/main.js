@@ -107,7 +107,7 @@ import { createBootstrapCoordinator } from "/lib/bootstrap-coordinator.js";
 import { createNetworkIntentArbiter, repeatedConnectionIntentAction } from "/lib/network-intent.js";
 import { createLatestWinsReconnectQueue } from "/lib/reconnect-queue.js";
 import { shouldShowOnboarding } from "/lib/onboarding-state.js";
-import { getRememberedProxySelection, restoreRememberedProxySelection } from "/lib/proxy-selection.js";
+import { getRememberedProxySelection, manualProxySelection, rememberProxySelection, restoreRememberedProxySelection } from "/lib/proxy-selection.js";
 import { disableSystemProxy, enableSystemProxy } from "/lib/system-proxy-runtime.js";
 import { startupConnectRequested, startupRuntimePlan } from "/lib/startup-runtime-policy.js";
 import { persistDpiIntentForRelaunch } from "/lib/dpi-elevation-intent.js";
@@ -1354,6 +1354,8 @@ const qualityEngine = createQualityEngine({
     selectNextNode: async () => {
       const token = runtimeIdentity.capture();
       if (!token) return false;
+      // При ручном выборе balancer трафик не ведёт — перемерять незачем.
+      if (manualProxySelection(getActiveSource())) return false;
       const nodes = qualityNodesFromSource();
       if (nodes.length < 2) return false;
       let proxies = {};
@@ -1373,7 +1375,8 @@ const qualityEngine = createQualityEngine({
     // R2 — увести с конкретной плохой ноды: текущую кладём на cooldown и вручную
     // выбираем лучшую из оставшихся (selectProxy — он же рвёт живые соединения
     // на прежней ноде). Без реконнекта. false (ступень пропускается) если
-    // альтернатив нет.
+    // альтернатив нет. Сервер, выбранный вручную, меняем только с согласия
+    // пользователя; в «Авто» закрепление временное (см. holdAutoSelection).
     excludeWorstNode: async () => {
       const token = runtimeIdentity.capture();
       if (!token) return false;
@@ -1390,8 +1393,7 @@ const qualityEngine = createQualityEngine({
       const avail = nodes.filter(n => n.clashTag && n.clashTag !== cur && !qualityExcluded.has(scoped(n.clashTag)));
       const pick = rankByDelay(avail, proxies)[0]?.clashTag;
       if (!pick) return false;
-      try { const r = await selectProxy("proxy", pick, { token }); return !r?.stale && runtimeIdentity.isCurrent(token); }
-      catch { return false; }
+      return switchQualityNode(pick, token);
     },
     // R3 — маскировка трафика фрагментацией TLS (реконнект). Если выключена —
     // включаем; если уже включена — эскалируем сменой режима record↔tcp.
@@ -1445,8 +1447,7 @@ const qualityEngine = createQualityEngine({
       const alt = nodes.filter(n => n.clashTag && n.clashTag !== cur && transportClass(n) !== curClass);
       const pick = rankByDelay(alt, proxies)[0]?.clashTag;
       if (!pick) return false;
-      try { const r = await selectProxy("proxy", pick, { token }); return !r?.stale && runtimeIdentity.isCurrent(token); }
-      catch { return false; }
+      return switchQualityNode(pick, token);
     },
     // Гибрид-гейт перед реконнект-ступенью (когда aggressive=false). Простым языком.
     // Окно в трее → нативный confirm повис бы невидимым и заблокировал лесенку
@@ -1527,6 +1528,65 @@ const QUALITY_EXCLUDE_MS = 5 * 60_000;
 // шанс, что все выбранные окажутся мёртвыми и лесенка шагнёт дальше зря.
 const QUALITY_RETEST_LIMIT = 8;
 const qualityExcluded = new Map(); // clashTag → expiry ts
+// Сколько держится нода, закреплённая лесенкой в режиме «Авто», и как часто
+// можно спрашивать о смене сервера, выбранного вручную.
+const QUALITY_AUTO_HOLD_MS = 30 * 60_000;
+const QUALITY_MANUAL_OFFER_COOLDOWN_MS = 30 * 60_000;
+let qualityAutoHoldTimer = null;
+let qualityManualOfferAt = 0;
+
+// Смена ноды ступенями R2/R5. Сервер, выбранный вручную, — решение
+// пользователя: молча его не переписываем, а спрашиваем. В «Авто» выбирает
+// приложение, поэтому ноду ставим сразу.
+async function switchQualityNode(pick, token) {
+  if (manualProxySelection(getActiveSource())) return offerManualNodeSwitch(pick, token);
+  try {
+    const r = await selectProxy("proxy", pick, { token });
+    if (r?.stale || !runtimeIdentity.isCurrent(token)) return false;
+    holdAutoSelection(pick, token);
+    return true;
+  } catch { return false; }
+}
+
+// Окно в трее → вопрос повис бы невидимым; о замедлении лесенка уже сообщила
+// уведомлением, а спросим на следующем прогоне. Раз в полчаса, чтобы R2 и R5
+// одного прогона не задавали один и тот же вопрос дважды.
+async function offerManualNodeSwitch(pick, token) {
+  if (Date.now() - qualityManualOfferAt < QUALITY_MANUAL_OFFER_COOLDOWN_MS) return false;
+  if (!(await windowIsForeground())) return false;
+  qualityManualOfferAt = Date.now();
+  const node = qualityNodesFromSource().find(n => n.clashTag === pick);
+  if (!confirm(t("qToast.confirmSwitch", { name: node ? nodeDisplayLabel(node) : pick }))) return false;
+  if (!runtimeIdentity.isCurrent(token)) return false;
+  try {
+    const r = await selectProxy("proxy", pick, { token });
+    if (r?.stale || !runtimeIdentity.isCurrent(token)) return false;
+    // Пользователь согласился — теперь это его выбор и после переподключения.
+    rememberProxySelection(getActiveSource(), pick);
+    return true;
+  } catch { return false; }
+}
+
+// balancer выбирает по задержке и не видит, что лидера душат по скорости,
+// поэтому в «Авто» лесенка закрепляет ноду в селекторе. Без возврата «Авто»
+// молча превращался в ручной выбор до следующего переподключения. Возвращаем,
+// только если селектор всё ещё на той же ноде, а пользователь ничего не выбирал.
+function holdAutoSelection(tag, token) {
+  clearQualityAutoHold();
+  qualityAutoHoldTimer = setTimeout(async () => {
+    qualityAutoHoldTimer = null;
+    if (!runtimeIdentity.isCurrent(token) || manualProxySelection(getActiveSource())) return;
+    let proxies = {};
+    try { proxies = (await getProxies(undefined, { token }))?.proxies || {}; } catch { return; }
+    if (!runtimeIdentity.isCurrent(token) || proxies.proxy?.now !== tag) return;
+    try { await selectProxy("proxy", "auto", { token, closeConnections: false }); } catch {}
+  }, QUALITY_AUTO_HOLD_MS);
+}
+
+function clearQualityAutoHold() {
+  clearTimeout(qualityAutoHoldTimer);
+  qualityAutoHoldTimer = null;
+}
 // Ноды активного источника с clash-тэгами (зеркало proxies-view.nodesFromSource).
 function qualityNodesFromSource() {
   const src = getActiveSource();
@@ -1660,7 +1720,7 @@ function commitActiveSource(kind, id) {
     },
     resetProxiesView: () => { cancelPendingSelections(); resetProxiesViewForSourceChange(); },
     resetTraffic: stopMeter,
-    resetQuality: () => { qualityExcluded.clear(); stopQualityEngine("sourceChanged"); },
+    resetQuality: () => { qualityExcluded.clear(); clearQualityAutoHold(); stopQualityEngine("sourceChanged"); },
     invalidateRuntime: () => runtimeIdentity.invalidate(),
     refreshProfiles: refreshProfilesSummary,
     syncTray: syncTrayMenu,
@@ -1941,7 +2001,7 @@ const sourceMutations = createSourceMutationController({
   resetEffectiveNode: () => { currentEffectiveNode = null; currentEffectiveTag = null; },
   resetProxiesView: () => { cancelPendingSelections(); resetProxiesViewForSourceChange(); },
   resetTraffic: stopMeter,
-  resetQuality: () => { qualityExcluded.clear(); stopQualityEngine("sourceChanged"); },
+  resetQuality: () => { qualityExcluded.clear(); clearQualityAutoHold(); stopQualityEngine("sourceChanged"); },
   refreshProfiles: refreshProfilesSummary,
   syncTray: syncTrayMenu,
   reconnect: reconnectForSourceChange,

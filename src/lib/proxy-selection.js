@@ -17,6 +17,14 @@ export function getRememberedProxySelection(source) {
   return typeof tag === "string" && tag ? tag : null;
 }
 
+// Сервер, выбранный пользователем вручную, или null. «auto», отсутствие выбора
+// (селектор по умолчанию стоит на том же «auto») и «proxy» одиночного маршрута
+// значат, что сервер выбирает приложение.
+export function manualProxySelection(source) {
+  const tag = getRememberedProxySelection(source);
+  return tag && tag !== "auto" && tag !== "proxy" ? tag : null;
+}
+
 export function rememberProxySelection(source, tag) {
   const key = selectionSourceKey(source);
   if (!key || typeof tag !== "string" || !tag) return false;

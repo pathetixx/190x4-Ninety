@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   getRememberedProxySelection,
+  manualProxySelection,
   rememberProxySelection,
   restoreRememberedProxySelection,
   selectionSourceKey,
@@ -24,6 +25,19 @@ test("выбранный сервер хранится отдельно для �
   assert.equal(getRememberedProxySelection(first), "node-stable-a");
   assert.equal(getRememberedProxySelection(second), "auto");
   assert.equal(selectionSourceKey(first), "sub:first");
+});
+
+test("ручным считается только выбор конкретного сервера", () => {
+  installStorage();
+  const source = { kind: "sub", subscription: { id: "manual" } };
+  assert.equal(manualProxySelection(source), null);
+  rememberProxySelection(source, "auto");
+  assert.equal(manualProxySelection(source), null);
+  rememberProxySelection(source, "proxy");
+  assert.equal(manualProxySelection(source), null);
+  rememberProxySelection(source, "node-stable-a");
+  assert.equal(manualProxySelection(source), "node-stable-a");
+  assert.equal(manualProxySelection(null), null);
 });
 
 test("повреждённое хранилище безопасно игнорируется", () => {
