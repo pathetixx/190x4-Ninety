@@ -92,6 +92,20 @@ Updates are downloaded from inside the app. When a VPN connection is already act
 
 If the connection does not start, open **Logs** first. The log screen shows startup, bridge and routing errors without making you search through application folders.
 
+## Command-line flags
+
+Ninety adds these flags itself; you don't need to pass any of them for normal use.
+
+| Flag | What it does |
+|---|---|
+| `--autostarted` | Launch at Windows sign-in: the window stays in the tray and Ninety connects automatically. The sign-in task runs `Ninety.exe --autostarted --elevated`. |
+| `--elevated` | Marks a process that has already been relaunched as administrator, so the UAC prompt is not shown again. It does not connect on its own. |
+| `--connect` | Connects right after startup with the window visible. Added when a connection required a relaunch as administrator. |
+| `--wait-parent=<PID>` | The new process waits up to 30 seconds for the previous one to exit. Used after a relaunch as administrator and after a portable update. |
+| `--ci-smoke` | Release build check. Ignored unless `NINETY_CI_SMOKE=1` is set; its destructive part is skipped if profiles already exist. Not for normal use. |
+
+Config and subscription links passed as arguments (for example `vless://…` or `naive+https://…`) are imported the same way as links opened from a browser.
+
 ## Documentation
 
 For users:
