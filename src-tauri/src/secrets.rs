@@ -145,7 +145,14 @@ fn portable_envelopes_on_disk() -> bool {
 /// молча заводила второй ключ: старые файлы переставали открываться, а новые
 /// записи уходили под неверный пароль — восстановить данные было уже нечем.
 /// Отсутствие envelope на диске — не ошибка: это первый запуск portable.
+///
+/// Пароль принимается, если открывает хоть один контейнер. Раньше решал только
+/// первый найденный файл: повреждённый state-backup или файл, оставшийся под
+/// другим ключом после оборванной смены пароля, не давал подтвердить пароль по
+/// здоровой копии, и данные оставались запертыми. Опечатка не откроет ни одного
+/// контейнера — вернётся ошибка последней попытки.
 fn verify_portable_passphrase(passphrase: &str) -> Result<(), String> {
+    let mut last_error: Option<String> = None;
     for path in portable_secret_files() {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
@@ -153,9 +160,12 @@ fn verify_portable_passphrase(passphrase: &str) -> Result<(), String> {
         if !is_portable_envelope(&bytes) {
             continue;
         }
-        return unseal_portable(&bytes, passphrase).map(|_| ());
+        match unseal_portable(&bytes, passphrase) {
+            Ok(_) => return Ok(()),
+            Err(error) => last_error = Some(error),
+        }
     }
-    Ok(())
+    last_error.map_or(Ok(()), Err)
 }
 
 /// Транзакционная запись подготовленного набора контейнеров.

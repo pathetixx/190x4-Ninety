@@ -201,9 +201,18 @@ fn is_elevated() -> bool {
 /// перезапуск идёт из подключения или VPN уже работает. Возврат:
 ///  Ok(true)  — elevated-инстанс стартовал, текущий процесс завершится сам;
 ///  Ok(false) — юзер отменил UAC, остаёмся в текущем (не-admin) процессе.
+/// `keep_in_tray` — перенести `--autostarted` (окно в трее + автоподключение):
+/// только для перезапуска из сценария автозапуска при входе в Windows. Раньше
+/// флаг переносился всегда, и интерактивный перезапуск ради DPI или TUN после
+/// входа прятал окно и сам поднимал VPN, хотя пользователь его отключил.
 #[tauri::command]
-fn relaunch_elevated(app: tauri::AppHandle, connect: Option<bool>) -> Result<bool, String> {
-    let autostarted = std::env::args().any(|a| a == "--autostarted");
+fn relaunch_elevated(
+    app: tauri::AppHandle,
+    connect: Option<bool>,
+    keep_in_tray: Option<bool>,
+) -> Result<bool, String> {
+    let autostarted =
+        keep_in_tray.unwrap_or(false) && std::env::args().any(|a| a == "--autostarted");
     let started = relaunch_self_elevated(autostarted, connect.unwrap_or(false), &[])?;
     if started {
         // Элевированный инстанс уже создан (юзер согласился в UAC). Текущий

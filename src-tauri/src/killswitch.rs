@@ -213,7 +213,18 @@ pub(crate) fn transition_arm(state: &KillSwitchState, strict_tunnel: bool) -> Re
         // without it a temporary block-all would turn a safe transition into a
         // needless outage even though traffic cannot escape the TUN.
         let tun_interface = strict_tunnel.then_some("ninety-tun");
-        let mut lease = unsafe { win::arm(&exes, false, tun_interface)? };
+        let mut lease = match unsafe { win::arm(&exes, false, tun_interface) } {
+            Ok(lease) => lease,
+            // Адаптер Wintun умирает вместе с sing-box: после смерти ядра
+            // TUN-permit привязать не к чему. Раньше это срывало остановку
+            // ещё до неё, и восстановление после смерти ядра в строгом режиме
+            // не запускалось вовсе. Барьер без TUN-permit только строже:
+            // block-all без исключения для интерфейса, которого уже нет.
+            Err(error)
+                if tun_interface.is_some() && error.starts_with("ConvertInterfaceAliasToLuid") =>
+            unsafe { win::arm(&exes, false, None)? },
+            Err(error) => return Err(error),
+        };
         lease.transition = true;
         guard.push(lease);
         Ok(())

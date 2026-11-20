@@ -15,16 +15,45 @@ fn temp_path_for(to: &Path) -> PathBuf {
     to.with_file_name(name)
 }
 
+// Путь для прямого вызова Win32. std сам удлиняет длинные пути префиксом
+// `\\?\`, а MoveFileExW без него ограничен MAX_PATH (в манифесте нет
+// longPathAware): в глубокой portable-папке временный файл создавался, а замена
+// падала, и ни одна запись хранилища не проходила. Короткие пути не трогаем.
+#[cfg(target_os = "windows")]
+fn wide_path_for_win32(path: &Path) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    const LONG_PATH_THRESHOLD: usize = 240;
+    let backslash = u16::from(b'\\');
+    let units: Vec<u16> = path.as_os_str().encode_wide().collect();
+    let verbatim = units.starts_with(&[backslash, backslash, u16::from(b'?'), backslash]);
+    let long = units.len() >= LONG_PATH_THRESHOLD
+        && !verbatim
+        && path.is_absolute()
+        && !units.contains(&u16::from(b'/'));
+    let mut out: Vec<u16> = Vec::with_capacity(units.len() + 9);
+    if long && units.starts_with(&[backslash, backslash]) {
+        // \\server\share\x → \\?\UNC\server\share\x
+        out.extend("\\\\?\\UNC".encode_utf16());
+        out.extend_from_slice(&units[1..]);
+    } else if long {
+        out.extend("\\\\?\\".encode_utf16());
+        out.extend_from_slice(&units);
+    } else {
+        out.extend_from_slice(&units);
+    }
+    out.push(0);
+    out
+}
+
 #[cfg(target_os = "windows")]
 fn replace_file(tmp: &Path, to: &Path, label: &str) -> Result<(), String> {
-    use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
     use windows::Win32::Storage::FileSystem::{
         MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
     };
 
-    let from: Vec<u16> = tmp.as_os_str().encode_wide().chain(Some(0)).collect();
-    let dest: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+    let from = wide_path_for_win32(tmp);
+    let dest = wide_path_for_win32(to);
     unsafe {
         MoveFileExW(
             PCWSTR(from.as_ptr()),
@@ -147,6 +176,27 @@ pub fn write_replace(to: &Path, body: &str, label: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn long_paths_get_a_verbatim_prefix_for_win32() {
+        let to_string = |wide: Vec<u16>| String::from_utf16_lossy(&wide[..wide.len() - 1]);
+        let short = Path::new(r"C:\Ninety\NinetyData\config\profile-store.v1");
+        assert_eq!(
+            to_string(wide_path_for_win32(short)),
+            short.to_string_lossy()
+        );
+        let deep = format!(r"C:\{}\profile-store.v1", "d".repeat(260));
+        assert_eq!(
+            to_string(wide_path_for_win32(Path::new(&deep))),
+            format!(r"\\?\{deep}")
+        );
+        let unc = format!(r"\\server\share\{}\x", "d".repeat(260));
+        assert_eq!(
+            to_string(wide_path_for_win32(Path::new(&unc))),
+            format!(r"\\?\UNC\server\share\{}\x", "d".repeat(260))
+        );
+    }
 
     #[test]
     fn in_place_overwrite_keeps_the_same_file_object() {

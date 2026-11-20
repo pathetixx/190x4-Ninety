@@ -888,6 +888,40 @@ pub(crate) fn normalize_own_priority() {
     }
 }
 
+// Поля конфига xray, через которые движок сам читает или пишет файлы: TLS key
+// log и сертификаты с диска. Outbound из подписки формата Xray-JSON уходит в
+// xray почти как есть, а в TUN мост наследует права администратора: без чистки
+// владелец подписки мог создать или дописать файл в любом месте системы.
+// Локальные пути мосту не нужны — сертификаты задаются содержимым.
+fn is_xray_file_field(key: &str) -> bool {
+    key == "masterKeyLog" || key.ends_with("File")
+}
+
+fn strip_xray_file_fields(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            map.retain(|key, _| !is_xray_file_field(key));
+            for child in map.values_mut() {
+                strip_xray_file_fields(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                strip_xray_file_fields(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn harden_xray_config(raw: &str) -> String {
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return raw.to_string();
+    };
+    strip_xray_file_fields(&mut value);
+    serde_json::to_string(&value).unwrap_or_else(|_| raw.to_string())
+}
+
 // Поднимает xray-core sidecar для xhttp-нод (two-core). Всегда user-level,
 // слушает 127.0.0.1; sing-box (свой child или сервис под LocalSystem) ходит
 // к нему через loopback socks-мосты из конфига. Spawn до sing-box.
@@ -900,7 +934,8 @@ async fn spawn_xray(
     process_generation: u64,
 ) -> Result<(), String> {
     let path = xray_config_path(app)?;
-    std::fs::write(&path, xray_json).map_err(|e| format!("write xray config: {e}"))?;
+    std::fs::write(&path, harden_xray_config(xray_json))
+        .map_err(|e| format!("write xray config: {e}"))?;
     let path_str = path.to_string_lossy().to_string();
 
     let sidecar = app
@@ -1546,6 +1581,16 @@ fn runtime_config_metadata_from_config(
     Ok((endpoints, clash_port, runtime_ports))
 }
 
+// Ядро или мост умерли уже после окна в 800 мс, пока ждали готовности. Их
+// настоящая причина (например, `initialize outbound[N]`, по которой фронт
+// ставит ноду в карантин) важнее общего «not ready» через 8 с, которое к тому
+// же стиралось очисткой при abort.
+fn take_startup_death(state: &SingboxState) -> Option<String> {
+    let core = state.died.lock_recover().take();
+    core.or_else(|| state.xray_died.lock_recover().take())
+        .or_else(|| state.sidecar_died.lock_recover().take())
+}
+
 async fn wait_clash_ready(
     control: &ControlEndpoint,
     state: &SingboxState,
@@ -1554,6 +1599,9 @@ async fn wait_clash_ready(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
         ensure_start_current(state, start_epoch).await?;
+        if let Some(err) = take_startup_death(state) {
+            return Err(err);
+        }
         match crate::clash::clash_get_proxies_unchecked_endpoint(control).await {
             Ok(_) => return Ok(()),
             Err(e) if tokio::time::Instant::now() >= deadline => {
@@ -1589,6 +1637,9 @@ async fn wait_probe_listener_ready(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
         ensure_start_current(state, start_epoch).await?;
+        if let Some(err) = take_startup_death(state) {
+            return Err(err);
+        }
         if local_probe_listener_ready(endpoint).await {
             return Ok(());
         }
@@ -3954,6 +4005,25 @@ mod tests {
 
     // Парсер экрана «Логи» узнаёт запись по `[offset] [дата] время УРОВЕНЬ` —
     // без этого префикса строка приложения станет продолжением чужой записи.
+    #[test]
+    fn xray_config_drops_file_path_fields_from_imported_outbounds() {
+        let raw = r#"{"log":{"loglevel":"warning"},"outbounds":[{"tag":"node-a","protocol":"vless","streamSettings":{"security":"tls","tlsSettings":{"serverName":"srv.example","masterKeyLog":"C:\x.cmd","certificates":[{"certificateFile":"C:\a.crt","keyFile":"C:\a.key","certificate":["inline"],"usage":"verify"}]},"xhttpSettings":{"path":"/p","downloadSettings":{"tlsSettings":{"masterKeyLog":"C:\y.cmd"}}}}}]}"#;
+        let hardened: serde_json::Value =
+            serde_json::from_str(&harden_xray_config(raw)).expect("valid json");
+        let text = hardened.to_string();
+        assert!(!text.contains("masterKeyLog"));
+        assert!(!text.contains("certificateFile"));
+        assert!(!text.contains("keyFile"));
+        let tls = &hardened["outbounds"][0]["streamSettings"]["tlsSettings"];
+        assert_eq!(tls["serverName"], "srv.example");
+        assert_eq!(tls["certificates"][0]["certificate"][0], "inline");
+        assert_eq!(
+            hardened["outbounds"][0]["streamSettings"]["xhttpSettings"]["path"],
+            "/p"
+        );
+        assert_eq!(harden_xray_config("not json"), "not json");
+    }
+
     #[test]
     fn diagnostics_carry_a_singbox_shaped_timestamp_and_level() {
         let stamped = stamped_diagnostic(
