@@ -32,7 +32,11 @@ Depending on the features the user enables, Ninety may contact:
 - public IP/geo services (`ipwho.is`, `api.ip.sb` and `ipapi.co`) to show the
   current public IP, country and network provider when geo lookups are enabled;
 - Cloudflare's WARP API and WARP endpoints when the user registers or connects
-  a WARP profile.
+  a WARP profile;
+- the project feedback relay (`190x4.pw/api/ninety/feedback`) when the user
+  sends feedback from the app. It receives the message, the optional contact,
+  the app and Windows versions and a one-way device hash. The request goes
+  directly, not through the tunnel, so the relay sees the public IP address.
 
 Subscription credentials are sent only to the subscription endpoint entered by
 the user. Connection profile credentials are passed to the selected local
@@ -93,6 +97,11 @@ Do not paste real profiles, full configs or raw subscription responses into publ
 ## WARP keys and backup state
 
 WARP/WireGuard state can contain key material and device/account data. Where supported by the backend, Ninety encrypts WARP keys and state backups with Windows DPAPI.
+
+The portable build keeps its data in the `NinetyData` folder next to the
+program. Without a password set in Settings it stores profiles, subscriptions,
+WARP keys and state backups there as plain text; with a password it encrypts
+them. Anyone who can read that folder can read unencrypted data.
 
 DPAPI protects data for the local Windows environment. It does not make copied logs, screenshots or manually exported files safe to publish.
 

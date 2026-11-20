@@ -40,6 +40,8 @@ What can break:
 
 - some apps ignore the Windows system proxy;
 - a crash or external tool can leave Windows proxy state different from what you expect;
+- a proxy auto-config (PAC) script or automatic proxy detection set in Windows takes priority over the manual proxy in many browsers;
+- dial-up, PPPoE and Windows VPN connections keep their own proxy settings: Ninety sets the proxy for the regular network connection only;
 - corporate, school or managed Windows policy can override proxy settings.
 
 Diagnostics: open **Logs**, then verify Windows proxy settings if traffic does not recover after disconnect.
@@ -120,7 +122,8 @@ What can break:
 
 - traffic can remain blocked if the app is interrupted during a state change;
 - another firewall or security product can conflict with the rules;
-- Proxy mode expectations can differ from TUN mode expectations.
+- Proxy mode expectations can differ from TUN mode expectations;
+- NaiveProxy and TrustTunnel servers set by a domain name resolve it through the Windows DNS client, which the kill switch blocks. Use a server with an IP address, or keep LAN bypass on with the router as the DNS server. XHTTP and mKCP servers resolve their address through the direct DNS from settings when it is set by an IP address.
 
 Diagnostics: open **Logs**, disable kill switch from settings if possible, and reconnect. If traffic is still blocked, include sanitized logs in a bug report.
 
