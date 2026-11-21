@@ -1,0 +1,11 @@
+# Comment-only translation of the codebase from Russian to English.
+# Translate Rust backend comments to English
+3e6b63a0c2aa1add7d8d92f9da7d88c0823cba76
+# Translate frontend comments to English
+42c36d9577c1249ff65cf8757ae344a6321b93b4
+# Translate stylesheet comments to English
+ff8aea844ab6986c1d0d82203049c782341f9d60
+# Translate test comments to English
+8b3868c9bdb71860e215fb540d28bbd698dcff8d
+# Translate CI, script and installer comments to English
+265ac8c0c16f068f3ff6d0e45f42dd035e26f21f
