@@ -40,6 +40,7 @@ Prefer:
 - tests for parser/config-builder/routing logic when possible;
 - clear before/after behavior in the PR description;
 - no unrelated formatting churn;
+- code comments in English;
 - no private endpoints, test accounts or real subscription data in fixtures.
 
 ## Development setup
