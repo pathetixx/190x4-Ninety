@@ -23,16 +23,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     # Публикация релиза через GITHUB_TOKEN не создаёт отдельный release-event
     # workflow. workflow_run после Build Ninety гарантирует второй Pages deploy,
     # когда релиз уже стал Latest и release.json содержит его ассеты.
     if: >-
       (github.event_name != 'release' || github.event.release.prerelease == false) &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -59,6 +56,17 @@ jobs:
         with:
           path: site
 
+  # Публикация — отдельным job: deploy-pages в том же job, что и загрузка,
+  # иногда не находит только что загруженный артефакт (actions/deploy-pages#451).
+  # Так же устроены официальные шаблоны Pages; «Re-run failed jobs»
+  # перезапускает только публикацию, не создавая второй артефакт.
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
