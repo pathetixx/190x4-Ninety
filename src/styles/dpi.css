@@ -1,7 +1,7 @@
 /* ─────────────────────────────────────────────────────────────
-   Ninety — DPI-обход (DPI bypass)
-   Экран раздела + чип на главном экране.
-   Строится на токенах tokens.css. Акцент только цветом.
+   Ninety — DPI bypass
+   The section screen + the chip on the home screen.
+   Built on tokens.css. Accent only through color.
    ───────────────────────────────────────────────────────────── */
 
 /* ═══════════════════════════════════════════
@@ -14,7 +14,7 @@
   padding-bottom: 8px;
 }
 
-/* Главное: master + стратегия. Вторичное: вспомогательная колонка. */
+/* Primary: master + strategy. Secondary: the helper column. */
 .dpi-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
@@ -60,7 +60,7 @@
 .dpi-card__label svg { color: var(--text-lo); }
 
 /* ═══════════════════════════════════════════
-   MASTER CARD — мастер-переключатель обхода
+   MASTER CARD — the bypass master switch
 ═══════════════════════════════════════════ */
 .dpi-master {
   position: relative;
@@ -80,7 +80,7 @@
   position: absolute; inset: 0 0 auto 0; height: 1px;
   background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
 }
-/* радиальное свечение акцента — только когда работает */
+/* radial accent glow — only while running */
 .dpi-master__glow {
   position: absolute;
   inset: -40% -10% auto -10%;
@@ -145,7 +145,7 @@
 .dpi-master__desc a:hover { border-bottom-color: var(--accent); }
 .dpi-master__toggle { display: grid; place-items: center; }
 
-/* indeterminate shimmer — только при запуске */
+/* indeterminate shimmer — only while starting */
 .dpi-master__progress {
   position: absolute;
   inset: auto 0 0 0;
@@ -213,7 +213,7 @@
 .dpi-master[data-state="paused"] .dpi-master__main { opacity: 0.72; }
 
 /* ═══════════════════════════════════════════
-   STATE BANNER (TUN-пауза / ошибка)
+   STATE BANNER (TUN pause / error)
 ═══════════════════════════════════════════ */
 .dpi-banner {
   display: grid;
@@ -645,7 +645,7 @@
   border: 1px solid var(--line-1);
 }
 .dpi-ipset__upd[data-idle="true"] { opacity: 0.72; }
-/* «Обновить список» ломался на две строки, когда рядом появилась строка-пояснение. */
+/* "Update list" broke onto two lines when an explanation line appeared next to it. */
 .dpi-ipset__upd .btn { white-space: nowrap; }
 .dpi-ipset__upd-idle { font-size: 10.5px; line-height: 1.4; color: var(--text-lo); }
 .dpi-ipset__upd-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -662,7 +662,7 @@
 }
 
 /* ═══════════════════════════════════════════
-   SCOPE — где применять обход (внутри карточки IPSET)
+   SCOPE — where to apply the bypass (inside the IPSET card)
 ═══════════════════════════════════════════ */
 .dpi-scope .dpi-ipset__head { grid-template-columns: 1fr auto auto; }
 .dpi-scope__now {
@@ -679,8 +679,8 @@
   text-overflow: ellipsis;
 }
 .dpi-scope[data-open="true"] .dpi-scope__now { opacity: 0; }
-/* Две колонки, когда карточка широкая, и одна на узкой раскладке: у опций
-   разной длины описания, и в один столбец они складываются в стену текста. */
+/* Two columns when the card is wide, and one in a narrow layout: the options have
+   descriptions of different lengths, and in one column they stack into a wall of text. */
 .dpi-scope__opts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(238px, 1fr));
@@ -925,12 +925,12 @@
 .strat[data-active="true"] .strat__check { opacity: 1; }
 
 /* ═══════════════════════════════════════════
-   DRAWER CHROME (восстановлен для StrategyDrawer)
-   В проекте .drawer был удалён в alpha43; здесь — локальная
-   копия только нужного chrome. Дравер создаётся в DOM лишь
-   когда открыт (см. dpi-view.js) — поэтому закрытого состояния
-   с box-shadow в кадре нет (та регрессия alpha43 не воспроизводится).
-   position:fixed — оверлей поверх всего окна.
+   DRAWER CHROME (restored for StrategyDrawer)
+   .drawer was removed from the project in alpha43; here is a local
+   copy of only the needed chrome. The drawer is created in the DOM only
+   when it's open (see dpi-view.js) — so there's no closed state
+   with a box-shadow in the frame (that alpha43 regression doesn't reproduce).
+   position:fixed — an overlay on top of the whole window.
 ═══════════════════════════════════════════ */
 .drawer-bg {
   position: fixed;

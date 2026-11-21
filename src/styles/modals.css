@@ -1,6 +1,6 @@
 /* ─────────────────────────────────────────────────────────────
    Ninety — Modals + Popover + Toast (premium tokens)
-   Заменяет: add-modal.css / edit-modal.css / update.css /
+   Replaces: add-modal.css / edit-modal.css / update.css /
    qr-modal.css / popover.css
    ───────────────────────────────────────────────────────────── */
 
@@ -13,9 +13,9 @@
   -webkit-backdrop-filter: blur(8px) saturate(120%);
 }
 
-/* ═══ Premium card mixin (через CSS-классы, без variables) ═══
-   Используется как modifier-mixin для всех модальных карточек.
-   Edge-highlight линия сверху + мягкая тень. */
+/* ═══ Premium card mixin (via CSS classes, without variables) ═══
+   Used as a modifier mixin for all modal cards.
+   An edge highlight line on top + a soft shadow. */
 .modal-card-frame {
   position: relative;
   background: var(--ink-1);
@@ -36,9 +36,9 @@
   to   { opacity: 1; transform: translateY(0)    scale(1); }
 }
 
-/* ═══ POPOVER (mode-popover) — override screens.css на fixed ═══
-   popovers.js позиционирует через top + left относительно window —
-   это значения для position:fixed. screens.css ставит absolute. */
+/* ═══ POPOVER (mode-popover) — override of screens.css to fixed ═══
+   popovers.js positions via top + left relative to window —
+   these are values for position:fixed. screens.css sets absolute. */
 .popover {
   position: fixed;
   z-index: 100;
@@ -50,8 +50,8 @@
   border: 1px solid var(--line-2);
   box-shadow: 0 28px 60px -16px var(--shadow-strong);
   animation: popover-in 0.18s var(--ease-out);
-  /* Перебиваем screens.css .popover (opacity:0/pointer-events:none/transform,
-     завязанные на [data-open]) — здесь видимость держит атрибут [hidden]. */
+  /* We override screens.css .popover (opacity:0/pointer-events:none/transform,
+     tied to [data-open]) — here visibility is controlled by the [hidden] attribute. */
   opacity: 1;
   pointer-events: auto;
   transform: none;
@@ -166,9 +166,9 @@
 }
 
 /* ═══ ADD-PROFILE MODAL ═════════════════════════════════════
-   Одна карточка, которая растёт. Выбор режима убран: в подавляющем
-   большинстве случаев ответ один — «я вставлю ссылку», а тип ввода
-   приложение определяет само и показывает ДО нажатия «Добавить».
+   One card that grows. The mode picker is gone: in the overwhelming
+   majority of cases the answer is the same — "I'll paste a link", and the app
+   detects the input type itself and shows it BEFORE pressing "Add".
    ══════════════════════════════════════════════════════════ */
 .add-modal {
   position: fixed; inset: 0; z-index: 9000;
@@ -188,8 +188,8 @@
   box-shadow: 0 30px 64px -18px var(--shadow-strong);
   animation: modal-card-in .22s var(--ease-emph);
 }
-/* Верхний блик остаётся только у поднятых поверхностей — модалки и поповера.
-   На каждой карточке списка он перестаёт что-либо значить. */
+/* The top glint stays only on raised surfaces — modals and the popover.
+   On every list card it stops meaning anything. */
 .add-modal__card::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; pointer-events: none;
   background: linear-gradient(90deg, transparent, var(--shine-2), transparent);
@@ -220,7 +220,7 @@
   border: 1px solid var(--line-2); border-radius: 3px; padding: 1px 4px; margin-inline-start: 2px;
 }
 
-/* Полоса распознавания — сердце экрана: говорит, что именно будет создано. */
+/* The recognition strip is the heart of the screen: it says exactly what will be created. */
 .det { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line-1); min-height: 62px; }
 .det__l1 { display: flex; align-items: center; gap: 8px; min-height: 16px; }
 .det__ico { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-faint); }
@@ -250,7 +250,7 @@
 }
 @keyframes det-run { 0% { inset-inline-start: -38%; } 100% { inset-inline-start: 100%; } }
 
-/* Раскрытие на месте вместо смены страницы */
+/* Expanding in place instead of changing the page */
 .adv { margin-top: 13px; border-top: 1px solid var(--line-1); padding-top: 11px; }
 .adv__t {
   display: flex; align-items: center; gap: 7px; width: 100%; background: none; border: 0; padding: 0;
@@ -387,7 +387,7 @@
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .edit-modal input[type="range"] { width: 100%; accent-color: var(--accent); }
-/* HWID подписки: значение переносится, а не растягивает окно. */
+/* Subscription HWID: the value wraps rather than stretching the window. */
 .edit-modal__hwid { flex-wrap: wrap; }
 .edit-modal__hwid .settings-hwid { flex: 1 1 160px; max-width: none; }
 .edit-modal__hint {
@@ -432,8 +432,8 @@
 .edit-modal__save {
   background: var(--accent);
   border-color: var(--accent);
-  /* Не литеральный белый: в светлых темах (mono — акцент #E8E8EE) подпись на
-     кнопке сливалась с фоном. --on-accent задан в каждой из 16 тем. */
+  /* Not a literal white: in light themes (mono — accent #E8E8EE) the label on
+     the button merged with the background. --on-accent is set in each of the 16 themes. */
   color: var(--on-accent);
   box-shadow: 0 0 18px var(--accent-glow);
 }
@@ -703,14 +703,14 @@
   border-color: var(--line-3);
 }
 
-/* Повторная ссылка подписки — предупреждение, а не ошибка ввода: адрес
-   разобран верно, просто добавлять нечего. */
+/* A repeated subscription link is a warning, not an input error: the address
+   was parsed correctly, there's just nothing to add. */
 .det[data-kind="duplicate"] .det__ico,
 .det[data-kind="duplicate"] .det__k { color: var(--warn); }
 
-/* ── Обратная связь ─────────────────────────────────────────────────────
-   Геометрия и рамка наследуются от .confirm-modal: окно то же, отличается
-   только начинкой — поле сообщения, контакт и счётчик. */
+/* ── Feedback ─────────────────────────────────────────────────────
+   Geometry and the border are inherited from .confirm-modal: the window is the same, only
+   the contents differ — the message field, the contact and the counter. */
 .fb-modal__card { width: min(100%, 520px); }
 .fb-modal__lead {
   margin: 12px 0 0;

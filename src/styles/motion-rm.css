@@ -1,13 +1,13 @@
 /* ─────────────────────────────────────────────────────────────
    Ninety — Reduced motion overrides
-   prefers-reduced-motion: смягчаем драматические переходы (translate/blur
-   на смене статуса, пульс точки). HUD главного экрана НЕ глушим — он
-   смысловой центр, его движение на JS и живёт всегда (см. hero-hud.js).
-   Короткие popover-transition не трогаем.
+   prefers-reduced-motion: we soften dramatic transitions (translate/blur
+   on status change, the dot pulse). The main screen HUD is NOT muted — it's
+   the semantic center, its motion is in JS and always lives (see hero-hud.js).
+   Short popover transitions are left alone.
    ───────────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
-  /* Title / kicker — смена статуса без translate/blur, только opacity */
+  /* Title / kicker — status change without translate/blur, only opacity */
   .hero__title,
   .hero__kicker {
     animation: hero-rm-text 160ms linear backwards !important;
@@ -19,10 +19,10 @@
     100% { opacity: 1; }
   }
 
-  /* Пульс точки статуса (linking) — без opacity-петли */
+  /* Status dot pulse (linking) — without the opacity loop */
   .hero[data-state="linking"] .hero__kicker-dot {
     animation: none !important;
   }
 
-  /* Spinner FAB / модалки — оставляем: это индикатор активной работы, не декор */
+  /* Spinner FAB / modals — kept: it's an indicator of active work, not decoration */
 }

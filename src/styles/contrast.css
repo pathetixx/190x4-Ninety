@@ -1,11 +1,11 @@
 /* ══════════════════════════════════════════════════════════════
-   Повышенный контраст (Настройки → Оформление, /lib/contrast.js).
-   Вторичный текст, иконки и рамки выводятся из --text-hi и --ink-1
-   текущей темы, поэтому режим работает в любой теме без своей палитры.
-   На --ink-2 выходит: --text-mid от 10:1, --text-lo от 7:1 (WCAG AAA),
-   --text-faint от 4.5:1, рамки --line-2 от 3:1.
-   Селектор с [data-theme] обязателен: #app-root и превью тем сами
-   объявляют токены своей темы и иначе перекрыли бы значения с корня.
+   Increased contrast (Settings → Appearance, /lib/contrast.js).
+   Secondary text, icons and borders are derived from the current theme's --text-hi and --ink-1,
+   so the mode works in any theme without its own palette.
+   On --ink-2 it comes out as: --text-mid from 10:1, --text-lo from 7:1 (WCAG AAA),
+   --text-faint from 4.5:1, --line-2 borders from 3:1.
+   The selector with [data-theme] is mandatory: #app-root and the theme previews
+   declare their theme's tokens themselves and would otherwise override the root values.
    ══════════════════════════════════════════════════════════════ */
 :root[data-contrast="more"],
 :root[data-contrast="more"] [data-theme] {
@@ -18,8 +18,8 @@
   --line-3: color-mix(in srgb, var(--text-hi) 50%, transparent);
 }
 
-/* Светлым темам до тех же порогов нужна большая доля --text-hi: тёмный
-   текст на светлом фоне даёт меньший предельный контраст, чем светлый на тёмном. */
+/* Light themes need a larger share of --text-hi to reach the same thresholds: dark
+   text on a light background gives a lower maximum contrast than light on dark. */
 :root[data-contrast="more"][data-theme="shiro"],
 :root[data-contrast="more"] [data-theme="shiro"],
 :root[data-contrast="more"][data-theme="sakura"],

@@ -10,8 +10,8 @@
   width: 100%;
   height: 100%;
   display: grid;
-  /* minmax(0, …): ряд контента не растёт под минимальный размер содержимого,
-     иначе в низком окне сайдбар и экран вылезают за окно и срезаются. */
+  /* minmax(0, …): the content row doesn't grow to the minimum content size,
+     otherwise in a short window the sidebar and the screen spill out of the window and get cut off. */
   grid-template-rows: 36px minmax(0, 1fr);
   background: var(--ink-0);
   color: var(--text-hi);
@@ -33,8 +33,8 @@
   overflow: hidden;
 }
 
-/* Премиум-фон: матовый чёрный + тонкое радиальное свечение акцента + grain.
-   Никаких mesh-bloom'ов и watermark-карт. */
+/* Premium background: matte black + a subtle radial accent glow + grain.
+   No mesh blooms and no watermark maps. */
 .app::before {
   content: "";
   position: absolute;
@@ -50,7 +50,7 @@
     var(--ink-0);
   pointer-events: none;
 }
-/* Filmgrain — едва заметный, добавляет «материальности» как у Bentley/Hermès цифровых интерфейсов */
+/* Film grain — barely noticeable, adds "materiality" like Bentley/Hermès digital interfaces */
 .app::after {
   content: "";
   position: absolute;
@@ -132,8 +132,8 @@
   pointer-events: none;
   background: radial-gradient(circle at 16% 14%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 24%);
 }
-/* «Колонна»: весь сайдбар — одна обсидиановая плита (рендер Codex, альфа-маска
-   в цвете текста темы). В ::after, чтобы не спорить с узорами премиум-тем в ::before. */
+/* "The column": the whole sidebar is one obsidian slab (a Codex render, an alpha mask
+   in the theme's text color). In ::after, so as not to clash with premium theme patterns in ::before. */
 .sidebar::after {
   content: "";
   position: absolute;
@@ -150,7 +150,7 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  /* Логотип 58 px и NINETY с разрядкой: бренд тише, места под меню и трафик больше. */
+  /* A 58 px logo and letter-spaced NINETY: the brand is quieter, more room for the menu and traffic. */
   padding: 26px 24px 16px;
   position: relative;
   overflow: hidden;
@@ -210,7 +210,7 @@
   text-transform: uppercase;
   color: var(--text-lo);
 }
-/* статус — строка без плашки, под ней тонкая линия, гаснущая к краю */
+/* status — a line without a plate, with a thin line under it that fades toward the edge */
 .sidebar-state::after {
   content: "";
   position: absolute;
@@ -259,15 +259,15 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  /* Страховка для совсем низких окон: скорее прокрутить меню, чем срезать
-     блок трафика под ним. */
+  /* A safeguard for really short windows: better to scroll the menu than to cut off
+     the traffic block under it. */
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
 }
 .nav::-webkit-scrollbar { width: 0; height: 0; }
-/* Полосы прокрутки нет, поэтому скрытые пункты обозначает затухание у края,
-   за которым они есть (data-scroll ставит main.js). */
+/* There's no scrollbar, so hidden items are indicated by a fade at the edge
+   beyond which they are (data-scroll is set by main.js). */
 .nav[data-scroll="down"] { mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent); }
 .nav[data-scroll="up"]   { mask-image: linear-gradient(0deg, #000 calc(100% - 28px), transparent); }
 .nav[data-scroll="both"] { mask-image: linear-gradient(180deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
@@ -290,7 +290,7 @@
   background: linear-gradient(90deg, var(--sidebar-row-hover), transparent 70%);
 }
 .nav__item:active { background: linear-gradient(90deg, var(--sidebar-row-start), transparent 70%); }
-/* Активный пункт: тонкая полоса цвета темы слева и мягкий отсвет, без рамок и срезов */
+/* Active item: a thin theme-colored bar on the left and a soft glow, no borders or cuts */
 .nav__item--active {
   color: var(--sidebar-text-active);
   background:
@@ -415,7 +415,7 @@
 .content > .onboarding { flex: 1 1 auto; }
 
 /* ═══════════════════════════════════════════
-   SUB-CARD (карточка подписки)
+   SUB-CARD (subscription card)
 ═══════════════════════════════════════════ */
 .sub-row {
   display: grid;
@@ -429,7 +429,7 @@
   padding: 14px 18px;
   border-radius: var(--r-md);
   background: var(--ink-1);
-  background-image: var(--edge-top);   /* единый материал с карточкой телеметрии */
+  background-image: var(--edge-top);   /* one material with the telemetry card */
   border: 1px solid var(--line-2);
   display: grid;
   grid-template-columns: auto 1fr auto auto;
@@ -493,7 +493,7 @@
   white-space: nowrap;
 }
 .sub-card__quota b { color: var(--text-mid); font-weight: 500; }
-/* Колонка «осталось дней» справа */
+/* The "days left" column on the right */
 .sub-card__expire {
   text-align: end;
   padding-inline-end: 4px;
@@ -541,7 +541,7 @@
   min-height: 56px;
   border-radius: var(--r-md);
   background: var(--ink-1);
-  background-image: var(--edge-top);   /* единый материал с sub-card и телеметрией */
+  background-image: var(--edge-top);   /* one material with the sub-card and telemetry */
   border: 1px solid var(--line-2);
   color: var(--text-mid);
   display: grid;
@@ -564,21 +564,21 @@
 }
 
 /* ═══════════════════════════════════════════
-   HERO — самурай + targeting
+   HERO — samurai + targeting
 ═══════════════════════════════════════════ */
 .hero {
   position: relative;
   display: grid;
-  /* 180px — минимальная сцена: ниже экран прокручивается, а не сжимает её
-     поверх статуса и карточек. */
+  /* 180px — the minimum scene: below that the screen scrolls rather than squeezing it
+     over the status and cards. */
   grid-template-rows: minmax(180px, 1fr) auto;
   align-items: center;
   justify-items: center;
   padding: 4px 0 0;
   gap: 14px;
 }
-/* Ячейка сцены: квадрат меряется от свободного места над статусом, сколько бы
-   строк статус ни занял (с чипом DPI он выше на строку). */
+/* The scene cell: the square is measured from the free space above the status, however many
+   lines the status takes (with the DPI chip it's one line taller). */
 .hero__cell {
   align-self: stretch;
   justify-self: stretch;
@@ -587,7 +587,7 @@
   container-type: size;
 }
 
-/* Status kicker под stage */
+/* Status kicker under the stage */
 .hero__kicker {
   display: inline-flex;
   align-items: center;
@@ -621,11 +621,11 @@
   50%      { opacity: 0.45; }
 }
 
-/* Stage — кибер-HUD (SVG) вокруг маски-самурая.
-   Сторона = МЕНЬШАЯ из ширины/высоты .hero__cell (место над блоком статуса),
-   зажата в [180px, 360px]. width задаёт сторону, aspect-ratio:1 держит height = width →
-   сцена ВСЕГДА квадрат: не овалит маску, не разъезжается при ресайзе окна и при смене
-   нижней карточки/DPI-чипа (рефлоу контента на квадрат больше не влияет). */
+/* Stage — a cyber HUD (SVG) around the samurai mask.
+   Side = the SMALLER of the width/height of .hero__cell (the space above the status block),
+   clamped to [180px, 360px]. width sets the side, aspect-ratio:1 keeps height = width →
+   the scene is ALWAYS a square: it doesn't make the mask oval, doesn't drift apart on window resize or when
+   the bottom card/DPI chip changes (content reflow no longer affects the square). */
 .hero__stage {
   position: relative;
   width: clamp(180px, min(100cqw, 100cqh), 400px);
@@ -636,9 +636,9 @@
   place-items: center;
 }
 
-/* Click-ripple — расходится от центра диска при клике (создаётся в main.js, живёт 600ms).
-   ОБЯЗАТЕЛЬНО position:absolute: иначе безстилевой div попадает в грид .hero__stage
-   второй строкой и сдвигает центрированную маску вверх на время жизни риппла. */
+/* Click ripple — spreads from the center of the disc on click (created in main.js, lives 600ms).
+   position:absolute is MANDATORY: otherwise the unstyled div lands in the .hero__stage grid
+   as a second row and shifts the centered mask up for the ripple's lifetime. */
 .hero__ripple {
   position: absolute;
   left: 50%;
@@ -693,7 +693,7 @@
 }
 .hero__title { font-size: 23px; }
 
-/* Shiro — отдельная светлая подача, а не тёмный HUD на светлом фоне. */
+/* Shiro is a separate light presentation, not a dark HUD on a light background. */
 [data-theme="shiro"] .app::before {
   background:
     radial-gradient(ellipse 72% 58% at 50% 100%, color-mix(in srgb, var(--accent-soft) 38%, transparent), transparent 70%),
@@ -784,13 +784,13 @@
 .loc-card:hover .loc-card__chev { color: var(--text-mid); background: var(--overlay-2); }
 
 /* ═══════════════════════════════════════════
-   ТЕЛЕМЕТРИЯ-ПОЛОСА (secured) — session-уровень: Сервер · Пинг · Канал · Сессия · Режим.
-   Мгновенная скорость тут НЕ дублируется — она живёт в сайдбар-мониторе.
+   TELEMETRY STRIP (secured) — session level: Server · Ping · Channel · Session · Mode.
+   The instant speed is NOT duplicated here — it lives in the sidebar monitor.
 ═══════════════════════════════════════════ */
-/* Доли колонок посчитаны от реального содержимого на дефолтном окне 1100×720:
-   у «Сессии» два значения в одну строку (аптайм + тоталы) и она самая широкая,
-   у «Сервера» имя ноды и так режется эллипсисом — он и отдаёт место. При старых
-   долях тоталы сессии не помещались и обрывались многоточием прямо на дефолте. */
+/* The column fractions are computed from the real content in the default 1100×720 window:
+   "Session" has two values on one line (uptime + totals) and is the widest,
+   "Server" has the node name truncated with an ellipsis anyway — it's the one that gives up space. With the old
+   fractions the session totals didn't fit and were cut off with an ellipsis right at the default. */
 .stats {
   display: grid;
   grid-template-columns: 1.13fr 0.7fr 0.83fr 1.56fr 1.08fr;
@@ -802,7 +802,7 @@
   background-image: var(--edge-top);
   position: relative;
 }
-/* Резерв места: вне connected полоса невидима, но высоту держит → сцена не уезжает */
+/* Reserved space: outside connected the strip is invisible but keeps its height → the scene doesn't move */
 .stats--reserved { visibility: hidden; }
 .stats__cell {
   display: flex;
@@ -815,7 +815,7 @@
 .stats__cell:first-child { border-inline-start: 0; padding-inline-start: 0; }
 .stats__cell:last-child { padding-inline-end: 0; }
 
-/* Кликабельные ячейки (Пинг / Канал) — переоформленная <button> */
+/* Clickable cells (Ping / Channel) — a restyled <button> */
 .stats__cell--btn {
   border-top: 0;
   border-inline-end: 0;
@@ -856,7 +856,7 @@
 }
 .stats__value--accent { color: var(--accent-bright); }
 
-/* Сервер — флаг + имя */
+/* Server — flag + name */
 .stats__server-row { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .stats__flag {
   width: 20px;
@@ -869,7 +869,7 @@
 }
 .stats__flag img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-/* Пинг — зелёная иконка сигнала + значение */
+/* Ping — a green signal icon + the value */
 .stats__ping-row { display: flex; align-items: center; gap: 8px; }
 .stats__ping-ic { color: var(--ok); flex-shrink: 0; }
 #tele-ping[data-grade="bad"] .stats__ping-ic,
@@ -877,7 +877,7 @@
 #tele-ping[data-grade="mid"] .stats__ping-ic { color: var(--warn); }
 #tele-ping[data-testing="true"] .stats__value { color: var(--text-lo); }
 
-/* Канал — сонар-точка + состояние */
+/* Channel — a sonar dot + the state */
 .stats__chan-row { display: flex; align-items: center; gap: 9px; }
 .stats__sonar {
   --q: var(--ok);
@@ -913,14 +913,14 @@
 #tele-channel[data-q="SLOW"]    .stats__sonar { --q: var(--warn); }
 #tele-channel[data-q="STALLED"] .stats__sonar,
 #tele-channel[data-q="DEAD"]    .stats__sonar { --q: var(--err); }
-/* PRESSURE — движок ПЕРЕСТАЛ измерять из-за нагрузки на ПК, а не «всё хорошо».
-   Без своего правила точка оставалась в цвете предыдущего состояния (обычно
-   зелёном), и индикатор показывал «Отлично» там, где данных вообще нет. */
+/* PRESSURE — the engine STOPPED measuring because of load on the PC, it's not "all good".
+   Without its own rule the dot stayed in the previous state's color (usually
+   green), and the indicator showed "Excellent" where there's no data at all. */
 #tele-channel[data-q="PRESSURE"] .stats__sonar { --q: var(--text-lo); }
 #tele-channel[data-q="PRESSURE"] .stats__sonar::after { animation: none; opacity: 0; }
 #tele-channel[data-active="false"] .stats__sonar::after { animation: none; opacity: 0; }
 
-/* Сессия — аптайм + тоталы справа от времени (одна базовая линия) */
+/* Session — uptime + totals to the right of the time (one baseline) */
 .stats__sess-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .stats__sess-row .stats__value { flex-shrink: 0; }
 .stats__sub {

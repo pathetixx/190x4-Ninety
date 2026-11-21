@@ -3,9 +3,9 @@
    ══════════════════════════════════════════════════════════════ */
 :root[data-theme="porcelain"],
 .app[data-theme="porcelain"] {
-  /* Акцент здесь тёмно-красный (#C94246) — поверх него читается белый. Раньше
-     значение молча наследовалось из :root; фиксируем явно, чтобы смена акцента
-     не оставила подпись невидимой. */
+  /* The accent here is dark red (#C94246) — white reads on top of it. Previously
+     the value was silently inherited from :root; we pin it explicitly so that changing the accent
+     doesn't leave the label invisible. */
   --on-accent: #FFFFFF;
   color-scheme: light;
   --ink-0: #F1ECE3;

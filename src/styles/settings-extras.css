@@ -1,6 +1,6 @@
 /* ─────────────────────────────────────────────────────────────
    Ninety — Settings extras: input/select/banner/version
-   Дополняет screens.css компонентами, которых там нет.
+   Supplements screens.css with components it doesn't have.
    ───────────────────────────────────────────────────────────── */
 
 .settings-input,
@@ -37,19 +37,19 @@
 .settings-input--bad:hover { border-color: var(--err); }
 .settings-input--bad:focus { border-color: var(--err); box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 22%, transparent); }
 
-/* DNS-комбо: селект пресетов, под ним поле «Свой адрес…» и сообщения. */
+/* DNS combo: the preset select, the "Custom address…" field under it and messages. */
 .settings-dns {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 6px;
 }
-/* Подпись пункта — «Бренд · адрес · тип», самая длинная сейчас
-   «Quad9 · 149.112.112.112 · UDP» (29 знаков моноширинного 12px ≈ 250px вместе
-   с padding и стрелкой). Прежних 260px хватало впритык: любой запасной
-   моноширинный шрифт пошире — и текст в закрытом селекте обрезается.
-   Колонка контрола в .set-row — auto, соседняя 1fr с min-width:0, так что
-   лишние 40px забирает подпись строки, а вёрстка не ломается. */
+/* The item label is "Brand · address · type", currently the longest is
+   "Quad9 · 149.112.112.112 · UDP" (29 characters of 12px monospace ≈ 250px together
+   with the padding and the arrow). The former 260px was just barely enough: any slightly wider
+   fallback monospace font — and the text in the closed select gets cut off.
+   The control column in .set-row is auto, the neighboring one is 1fr with min-width:0, so
+   the extra 40px are taken from the row label, and the layout doesn't break. */
 .settings-dns__select { max-width: 300px; }
 .settings-dns__custom { width: 300px; }
 .settings-dns__msg {
@@ -177,7 +177,7 @@
   margin-bottom: 18px;
 }
 
-/* set-row icon (старый макет внутри set-row) */
+/* set-row icon (the old layout inside set-row) */
 .set-row {
   position: relative;
 }
@@ -188,7 +188,7 @@
   pointer-events: none;
 }
 
-/* Строка-ссылка в под-экран: тот же вид, что у .set-row, но кликабельна целиком */
+/* A link row into a sub-screen: the same look as .set-row, but clickable as a whole */
 .set-row--nav {
   width: 100%;
   text-align: start;
@@ -202,7 +202,7 @@
 }
 .set-row--nav:hover .settings-menu__chevron { color: var(--text-mid); }
 
-/* Строка с одиноким тумблером кликабельна целиком (класс вешает settings-view) */
+/* A row with a single toggle is clickable as a whole (the class is set by settings-view) */
 .set-row--toggle { cursor: pointer; user-select: none; }
 .set-row--toggle:hover {
   background: var(--ink-2, var(--overlay-2));
@@ -291,7 +291,7 @@
   letter-spacing: -0.005em;
 }
 
-/* Danger-кнопка — для warp-reset, tunnel-uninstall */
+/* Danger button — for warp-reset, tunnel-uninstall */
 .btn--danger {
   color: var(--err);
   border-color: rgba(229, 72, 77, 0.3);
@@ -302,7 +302,7 @@
   border-color: var(--err);
 }
 
-/* set-row helpers (для set-row__ctl) */
+/* set-row helpers (for set-row__ctl) */
 .set-row__ctl {
   display: inline-flex;
   align-items: center;
@@ -312,7 +312,7 @@
   justify-content: flex-end;
 }
 
-/* ───────── Logs console — структурный рендер log-line ───────── */
+/* ───────── Logs console — structured log-line rendering ───────── */
 .logs__console {
   outline: 0;
   -webkit-font-smoothing: subpixel-antialiased;
@@ -495,8 +495,8 @@
   opacity: 1;
 }
 #onboarding-screen .onb-brand-panel__lockup {
-  /* Логические свойства: базовое правило выше уже на inset-inline, и физический
-     inset здесь возвращал панель на LTR-сторону в فارسی/العربية. */
+  /* Logical properties: the base rule above already uses inset-inline, and a physical
+     inset here returned the panel to the LTR side in فارسی/العربية. */
   inset-block: auto 155px;
   inset-inline: auto 34px;
   width: 190px;
@@ -619,7 +619,7 @@
   #onboarding-screen .onb-flow { padding-inline: 38px; }
 }
 
-/* Wizard — прогресс-индикатор */
+/* Wizard — progress indicator */
 .onb-wizard {
   display: flex;
   flex-direction: column;
@@ -654,7 +654,7 @@
   border-color: var(--accent);
   box-shadow: 0 0 10px var(--accent-glow);
 }
-/* пройденные шаги — серым с заливкой */
+/* completed steps — grey with a fill */
 #onboarding-screen[data-step="2"] .onb-progress__dot[data-step="1"],
 #onboarding-screen[data-step="3"] .onb-progress__dot[data-step="1"],
 #onboarding-screen[data-step="3"] .onb-progress__dot[data-step="2"],
@@ -671,7 +671,7 @@
   justify-content: center;
 }
 
-/* Tiles — Из буфера / Вручную */
+/* Tiles — From clipboard / Manually */
 .onb-tiles {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -724,7 +724,7 @@
 }
 .onb-supported span { color: var(--text-mid); }
 
-/* Connecting — спиннер */
+/* Connecting — spinner */
 .onb-spinner {
   position: relative;
   width: 78px; height: 78px;
@@ -759,7 +759,7 @@
   50%      { opacity: 1;   transform: scale(1); }
 }
 
-/* Готово — галочка */
+/* Done — check mark */
 .onb-check {
   width: 78px; height: 78px;
   border-radius: 50%;
@@ -775,14 +775,14 @@
   to   { transform: scale(1);   opacity: 1; }
 }
 
-/* ───────── HOTFIX: HTML5 hidden атрибут перебивается любым display: ─────────
-   screens.css ставит .screen { display: flex } всем секциям, включая [hidden].
-   Без !important hidden attribute не работает → видны ВСЕ экраны одновременно.
-   Тот же баг с .onboarding { display: grid } и stats-strip. */
+/* ───────── HOTFIX: the HTML5 hidden attribute is overridden by any display: ─────────
+   screens.css sets .screen { display: flex } on all sections, including [hidden].
+   Without !important the hidden attribute doesn't work → ALL screens are visible at once.
+   The same bug with .onboarding { display: grid } and the stats strip. */
 [hidden] { display: none !important; }
 
-/* Ячейка СЕРВЕР в stats-strip: длинное имя ноды режем эллипсисом, иначе
-   ломает grid-колонку 1fr (min-width:auto у grid-итема не даёт ужаться). */
+/* The SERVER cell in the stats strip: a long node name is cut with an ellipsis, otherwise
+   it breaks the 1fr grid column (min-width:auto on a grid item keeps it from shrinking). */
 .stats__cell { min-width: 0; }
 #stats-server {
   display: block;
@@ -793,7 +793,7 @@
   font-size: 14px;
 }
 
-/* ───────── Флаг сервера в stats-strip (secured) ───────── */
+/* ───────── Server flag in the stats strip (secured) ───────── */
 .stats__server-row {
   display: flex;
   align-items: center;
@@ -811,7 +811,7 @@
 .stats__flag img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .stats__server-row .stats__value { min-width: 0; }
 
-/* ───────── Логи: бейдж уровня + зебра + читаемость ───────── */
+/* ───────── Logs: level badge + zebra + readability ───────── */
 .logs__console { line-height: 1.5; }
 .logs__console .log-line {
   grid-template-columns: 68px 50px 1fr;
@@ -837,15 +837,15 @@
 .logs__console .log-line__l--warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
 .logs__console .log-line__l--err  { color: var(--err);  background: color-mix(in srgb, var(--err) 18%, transparent); }
 .logs__console .log-line__l--ok   { color: var(--ok);   background: color-mix(in srgb, var(--ok) 14%, transparent); }
-/* Сообщение: сохраняем переносы строк (мульти-line сообщения склеиваются
-   через \n в renderLogsHtml) и переносим длинные токены (URL/base64/JSON),
-   иначе строки сливаются в «кашу» без видимых границ. */
+/* Message: we keep line breaks (multi-line messages are joined
+   with \n in renderLogsHtml) and wrap long tokens (URL/base64/JSON),
+   otherwise the lines merge into a "mush" without visible boundaries. */
 .logs__console .log-line__m {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: normal;
 }
-/* Флаг страны у тега ноды (узнаётся из имени, как на экране Нод) */
+/* The country flag at a node tag (recognized from the name, as on the Nodes screen) */
 .logs__console .log-flag {
   width: 13px;
   height: auto;
@@ -853,14 +853,14 @@
   margin-inline-end: 4px;
   border-radius: 2px;
 }
-/* Тонкая разделительная линия между записями — глаз цепляет начало строки. */
+/* A thin dividing line between records — the eye catches the start of a line. */
 .logs__console .log-line + .log-line { border-top: 1px solid var(--overlay-2); }
 .logs__console .log-line:nth-child(odd) { background: var(--overlay-1); }
 
-/* Секция «О программе» — стили вынесены в about.css. */
+/* The "About" section — the styles are moved to about.css. */
 
-/* Идентификатор устройства для подписок с лимитом устройств: показывается
-   целиком, но не растягивает строку настроек — длинные значения переносятся. */
+/* Device identifier for subscriptions with a device limit: shown
+   in full, but doesn't stretch the settings row — long values wrap. */
 .settings-hwid {
   font-family: var(--font-mono, ui-monospace, "Cascadia Mono", Consolas, monospace);
   font-size: 11px;

@@ -1,23 +1,23 @@
 /* ─────────────────────────────────────────────────────────────
-   Ninety — HUD главного экрана: обсидиан, лава и корона.
-   Камень, карты трещин, бликов и короны — готовые рендеры (assets/hud/),
-   код только двигает слои. Всё движение — transform/opacity под статичными
-   масками: слои растрятся один раз и дальше докомпозичиваются на GPU.
-   Состояния: .hero[data-state] = standby · linking · secured · unlinking.
-   Пауза в трее/вне главной: .hero[data-motion="paused"] (main.js).
-   Спокойный режим: html[data-hud-mode="calm"] (styles/calm-hud.css).
+   Ninety — the main screen HUD: obsidian, lava and a crown.
+   The stone and the maps of cracks, glints and the crown are ready-made renders (assets/hud/),
+   the code only moves the layers. All motion is transform/opacity under static
+   masks: the layers are rasterized once and then just composited on the GPU.
+   States: .hero[data-state] = standby · linking · secured · unlinking.
+   Paused in the tray/outside the home screen: .hero[data-motion="paused"] (main.js).
+   Calm mode: html[data-hud-mode="calm"] (styles/calm-hud.css).
    ───────────────────────────────────────────────────────────── */
 
 @property --ob-reveal { syntax: "<percentage>"; inherits: true; initial-value: 112%; }
 
 .hero {
-  /* цвет лавы и короны — акцент темы; Kintsugi переопределяет на золото */
+  /* the lava and crown color is the theme accent; Kintsugi overrides it with gold */
   --lava: var(--accent);
   --lava-hot: var(--accent-bright);
   --link-ms: 2600ms;
 }
 
-/* Слои сцены: квадрат .hero__stage — 100%, камень — 84.55%, корона шире камня */
+/* Scene layers: the .hero__stage square is 100%, the stone is 84.55%, the crown is wider than the stone */
 .ob {
   position: absolute;
   left: 50%;
@@ -32,7 +32,7 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
 .hero__stage:has(.hero__disc:active:not(:disabled)) .ob { scale: 0.988; }
 .ob--add { mix-blend-mode: screen; }
 
-/* Корона: тёмный диск совпадает с кромкой камня, внутренний край спрятан под металл */
+/* Crown: the dark disc matches the stone's edge, the inner edge is hidden under the metal */
 .ob-corona { --ob-size: 139%; opacity: 0; transition: opacity 1.2s var(--ease-out); }
 .ob-corona__glow {
   position: absolute;
@@ -43,7 +43,7 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
           mask: url("/assets/hud/corona.webp") center / 100% 100% no-repeat;
   animation: ob-rot 160s linear infinite;
 }
-/* по волокнам бегут волны яркости; на светлых темах затемнение дало бы грязь */
+/* brightness waves run along the fibers; on light themes darkening would produce dirt */
 .ob-corona__glow > i {
   position: absolute;
   inset: -20%;
@@ -58,12 +58,12 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
 @keyframes ob-corona-on { 0%, 55% { opacity: 0; } 62% { opacity: .5; } 66% { opacity: .1; } 80% { opacity: .7; } 100% { opacity: 1; } }
 @keyframes ob-breathe { 0%, 100% { opacity: .78; } 50% { opacity: 1; } }
 
-/* Камень: холст на 0.66% шире карт лавы, чтобы металл нигде не упирался в край */
+/* Stone: the canvas is 0.66% wider than the lava maps so the metal never hits the edge */
 .ob-stone { --ob-size: 84.55%; transition: filter 400ms var(--ease-out), scale 200ms var(--ease-out); }
 .hero__stage:has(.hero__disc:hover:not(:disabled)) .ob-stone { filter: brightness(1.07); }
 
-/* Лава: форма трещин — маска, цвет — акцент темы. Слой шире камня (100% против 84%),
-   иначе размытое свечение обрезается краем бокса прямой линией. */
+/* Lava: the crack shape is a mask, the color is the theme accent. The layer is wider than the stone (100% vs 84%),
+   otherwise the blurred glow is cut off by the box edge in a straight line. */
 .ob-lava {
   --ob-size: 100%;
   opacity: 0;
@@ -81,7 +81,7 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
 .ob-crack--base { background: var(--lava); }
 .ob-lava__glow { position: absolute; inset: 0; filter: blur(9px); opacity: .7; }
 .ob-lava__glow .ob-crack { background: var(--lava); }
-/* горячие пятна бродят по трещинам: крутится подложка, маска трещин стоит */
+/* hot spots wander along the cracks: the underlay rotates, the crack mask stays still */
 .ob-crack > i { position: absolute; inset: -22%; border-radius: 50%; }
 .ob-crack--flow > i {
   background: conic-gradient(transparent 0 8%, var(--lava-hot) 16%, transparent 27%, transparent 52%, var(--lava-hot) 63%, transparent 72%, transparent 84%, var(--lava-hot) 90%, transparent 97%);
@@ -111,7 +111,7 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
 @keyframes ob-lava-breathe { 0%, 100% { filter: brightness(.95); } 50% { filter: brightness(1.15); } }
 @keyframes ob-rot { to { rotate: 360deg; } }
 
-/* Блики: полоса света едет под статичной маской граней */
+/* Glints: a strip of light moves under a static facet mask */
 .ob-glint {
   overflow: hidden;
   opacity: .6;
@@ -131,7 +131,7 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
 .hero[data-state="secured"] .ob-glint { opacity: .35; }
 @keyframes ob-sweep { 0% { translate: -160% 0; } 40% { translate: 330% 0; } 100% { translate: 330% 0; } }
 
-/* Искра по металлическому ободу */
+/* A spark along the metal rim */
 .ob-rim {
   border-radius: 50%;
   opacity: .7;
@@ -142,7 +142,7 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
 }
 .hero[data-state="secured"] .ob-rim { background: conic-gradient(transparent 0 86%, color-mix(in srgb, var(--lava-hot) 70%, #fff) 89.5%, transparent 90.5%); }
 
-/* Кнопка — круг камня; маска — в отверстии камня */
+/* The button is a stone circle; the mask is in the stone's opening */
 .hero__disc {
   position: absolute;
   left: 50%;
@@ -162,7 +162,7 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
 .hero__disc:focus-visible { outline: none; }
 .hero__face {
   position: absolute;
-  inset: 27.4%;           /* 38.2% сцены внутри круга 84.55% */
+  inset: 27.4%;           /* 38.2% of the scene inside the 84.55% circle */
   border-radius: 50%;
   overflow: hidden;
   background: #040405;
@@ -182,8 +182,8 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
   background: radial-gradient(70% 45% at 34% 16%, rgba(255,255,255,.09), transparent 60%);
 }
 
-/* Маска: в покое темнеет, при подключении оживает. Премиум-темы подкрашивают её
-   своим оттенком (--premium-mask-*), затемнение ложится поверх оттенка. */
+/* Mask: darkens at rest, comes alive on connect. Premium themes tint it
+   with their shade (--premium-mask-*), the darkening is laid on top of the tint. */
 .hero__mask {
   display: block;
   width: 100%;
@@ -204,10 +204,10 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
   100% { filter: var(--hero-mask-on, none); scale: 1; }
 }
 
-/* Click-ripple из main.js — от отверстия камня */
+/* Click ripple from main.js — from the stone's opening */
 .hero__ripple { width: 38.2%; }
 
-/* Светлые темы: камень лежит на фарфоре — мягкая тень, корона без затемняющих волн */
+/* Light themes: the stone lies on porcelain — a soft shadow, the crown without darkening waves */
 :is([data-theme="shiro"], [data-theme="sakura"], [data-theme="porcelain"]) .ob-stone {
   filter: drop-shadow(0 16px 28px rgba(40, 30, 20, .28)) drop-shadow(0 2px 4px rgba(40, 30, 20, .25));
 }
@@ -216,12 +216,12 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
 }
 :is([data-theme="shiro"], [data-theme="sakura"], [data-theme="porcelain"]) .ob-corona__glow > i { display: none; }
 
-/* Окно в трее или открыт другой экран — всё движение камня стоит */
+/* The window is in the tray or another screen is open — all stone motion stands still */
 .hero[data-motion="paused"] :is(.ob, .ob *, .hero__mask) { animation-play-state: paused !important; }
 
-/* ═══════════ Блок статуса под камнем — «Гравировка» ═══════════
-   Заголовок тоньше и крупнее, подпись режима — между двумя штрихами, как гравировка
-   на корпусе; пока идёт подключение, под заголовком бежит тонкая линия прогресса. */
+/* ═══════════ The status block under the stone — "Engraving" ═══════════
+   The title is thinner and larger, the mode caption sits between two strokes, like an engraving
+   on a case; while connecting, a thin progress line runs under the title. */
 .hero__title {
   font-weight: 400;
   font-size: clamp(23px, 2.75vw, 30px);
@@ -269,7 +269,7 @@ img.ob { display: block; user-select: none; -webkit-user-drag: none; }
 .hero[data-state="secured"] .hero__kicker::before { background: linear-gradient(90deg, transparent, var(--accent)); }
 .hero[data-state="secured"] .hero__kicker::after { background: linear-gradient(90deg, var(--accent), transparent); }
 
-/* DPI — одна строка без капсулы: «DPI-обход · Вкл · ALT11» и тумблер; рамка — при наведении */
+/* DPI — one line without a capsule: "DPI bypass · On · ALT11" and a toggle; a border on hover */
 .hero .dpi-chip,
 .hero .dpi-chip[data-state="running"] {
   margin-top: 6px;

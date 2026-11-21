@@ -19,8 +19,8 @@ html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"]
   border-color: color-mix(in srgb, var(--premium-border) 72%, var(--accent) 28%);
 }
 
-/* Маска главного экрана подкрашивается оттенком темы; затемнение в покое — поверх оттенка
-   (переменные читает styles/obsidian-hud.css). */
+/* The main screen mask is tinted with the theme's shade; the darkening at rest goes on top of the tint
+   (the variables are read by styles/obsidian-hud.css). */
 html:is([data-theme="kintsugi"], [data-theme="aurora"], [data-theme="porcelain"], [data-theme="titanium"]) .hero {
   --hero-mask-idle: var(--premium-mask-idle) grayscale(.45) brightness(.66);
   --hero-mask-mid: var(--premium-mask-idle);

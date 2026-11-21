@@ -1,14 +1,14 @@
 /* ─────────────────────────────────────────────────────────────
-   Ninety — экран «Серверы»
-   Рекомендации сверху, плотная таблица 36 px снизу.
-   Сетка карточек 268×72 заменена таблицей: при ширине контента
-   760 px она давала две колонки, и 40 серверов превращались в
-   20 экранов прокрутки без вертикального ритма.
+   Ninety — the "Servers" screen
+   Recommendations on top, a dense 36 px table below.
+   The 268×72 card grid was replaced by a table: with a content width of
+   760 px it gave two columns, and 40 servers turned into
+   20 screens of scrolling without a vertical rhythm.
    ───────────────────────────────────────────────────────────── */
 
 .screen[data-view="proxies"] { position: relative; }
 
-/* ── рекомендации ── */
+/* ── recommendations ── */
 .rec { margin-bottom: 18px; }
 .rec__head { display: flex; align-items: center; gap: 9px; padding: 0 2px 7px; }
 .rec__fold {
@@ -45,7 +45,7 @@
 .rec-row__bolt { color: var(--accent-bright); background: var(--accent-soft); }
 .rec-row__bolt svg { width: 12px; height: 12px; object-fit: contain; }
 
-/* первый запуск — состояние, с которого начинается каждый новый пользователь */
+/* first launch — the state every new user starts from */
 .first { display: flex; align-items: center; gap: 14px; padding: 16px; }
 .first__t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .first__t .n-primary { white-space: normal; color: var(--text-hi); }
@@ -57,15 +57,15 @@
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 
-/* ── таблица ── */
+/* ── table ── */
 .nt { display: flex; flex-direction: column; }
 .nt__head {
   position: sticky; top: 0; z-index: 6; display: grid;
   grid-template-columns: 20px minmax(0, 1fr) 128px 78px 52px 62px 24px 28px;
   gap: 12px; align-items: center; height: 28px; padding: 0 12px 0 16px;
   background: var(--ink-0); border-bottom: 1px solid var(--line-2);
-  /* .content прокручивается и имеет верхний padding: без этой заливки строки
-     проезжали бы в щель НАД липкой шапкой. */
+  /* .content scrolls and has a top padding: without this fill rows
+     would slide into the gap ABOVE the sticky header. */
   box-shadow: 0 -18px 0 0 var(--ink-0);
 }
 .nt__h { background: none; border: 0; padding: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: color .14s var(--ease-out); }
@@ -93,11 +93,11 @@
 .nt-row {
   grid-template-columns: 20px minmax(0, 1fr) 128px 78px 52px 62px 24px 28px;
   gap: 12px; height: 36px; padding: 0 12px 0 16px; border-radius: var(--r-xs);
-  /* Строка = флаг-<img> + инлайновый SVG-спарклайн. На подписке в 300 нод это
-     600 отдельных объектов, для которых Chromium считал layout и paint целиком
-     при каждом показе экрана, хотя видно ~15 строк. content-visibility снимает
-     эту работу с того, что за пределами вьюпорта; высота строки фиксированная,
-     поэтому подстановочный размер точный и скролл не дёргается. */
+  /* A row = a flag <img> + an inline SVG sparkline. On a 300-node subscription that's
+     600 separate objects for which Chromium computed layout and paint entirely
+     on every screen display, although ~15 rows are visible. content-visibility removes
+     this work from what's outside the viewport; the row height is fixed,
+     so the placeholder size is exact and scrolling doesn't jerk. */
   content-visibility: auto;
   contain-intrinsic-size: auto 36px;
 }
@@ -118,7 +118,7 @@
 .nt-body { padding-bottom: 6px; }
 .nt-body[hidden] { display: none; }
 
-/* Поповер разбора индекса */
+/* The index breakdown popover */
 .rec-pop {
   position: fixed; z-index: 9500; width: 322px; padding: 14px 15px 13px;
   border-radius: var(--r-md); background: var(--ink-2); border: 1px solid var(--line-3);
@@ -136,8 +136,8 @@
   font-family: var(--font-mono); font-size: 10px; color: var(--text-lo); line-height: 1.55;
 }
 
-/* ── узкое окно: жертвуем колонками по возрастанию ценности,
-      имя сервера не сокращаем никогда ── */
+/* ── narrow window: we sacrifice columns in order of increasing value,
+      the server name is never shortened ── */
 .content { container-type: inline-size; container-name: app; }
 @container app (max-width: 620px) {
   .nt__head, .nt-row { grid-template-columns: 20px minmax(0,1fr) 78px 52px 62px 24px 28px; }
@@ -154,22 +154,22 @@
   .rec-row .n-spark { display: none; }
 }
 
-/* .prox, .prox__flag-img, .prox__flag-fallback стилей не имеют намеренно:
-   первый — хук для делегированных обработчиков (closest(".prox")), два других —
-   якоря для подмены битого флага (attachFlagFallbacks). Оформление приходит
-   от .n-flag; удалять классы как «мёртвые» нельзя. */
+/* .prox, .prox__flag-img, .prox__flag-fallback deliberately have no styles:
+   the first is a hook for delegated handlers (closest(".prox")), the other two are
+   anchors for replacing a broken flag (attachFlagFallbacks). The styling comes
+   from .n-flag; the classes must not be removed as "dead". */
 
-/* Подзаголовок экрана — одна строка: имена у провайдеров длинные, а перенос
-   растил шапку и сдвигал таблицу. Ширину берём всю доступную (max-width из
-   .screen__sub тут не нужен — шапка уже делится с кнопками через flex), а
-   обрезаем по факту нехватки места: сжимается только имя сервера, счётчик
-   отвечающих остаётся целым. */
+/* The screen subtitle is one line: providers' names are long, and wrapping
+   grew the header and shifted the table. We take all the available width (the max-width from
+   .screen__sub isn't needed here — the header already shares space with the buttons via flex), and
+   truncate when space actually runs out: only the server name shrinks, the responding
+   counter stays whole. */
 .screen[data-view="proxies"] .screen__sub {
   display: flex; align-items: baseline; min-width: 0; max-width: none;
   white-space: nowrap;
 }
-/* pre, а не nowrap: разделитель приходит из каталога вместе с пробелами
-   («{pin} · {alive}»), а ведущий пробел в начале flex-элемента схлопнулся бы,
-   склеив имя с точкой. */
+/* pre, not nowrap: the separator comes from the catalog together with spaces
+   ("{pin} · {alive}"), and a leading space at the start of a flex item would collapse,
+   gluing the name to the dot. */
 .screen__sub-pin { overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .screen__sub-rest { flex: none; white-space: pre; }

@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════
-   Осциллограмма канала (qscope) — раскрытый вид ячейки «Канал» телеметрии.
-   Поповер с живой strip-chart goodput-проб движка качества (lib/quality-scope.js).
-   Сам индикатор канала рисуется в телеметрии-полосе (.stats__sonar в app.css).
+   Channel oscilloscope (qscope) — the expanded view of the telemetry "Channel" cell.
+   A popover with a live strip chart of the quality engine's goodput probes (lib/quality-scope.js).
+   The channel indicator itself is drawn in the telemetry strip (.stats__sonar in app.css).
 ═══════════════════════════════════════════ */
 
 .qscope {

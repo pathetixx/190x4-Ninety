@@ -1,9 +1,9 @@
 /* ─────────────────────────────────────────────────────────────
-   Ninety — спокойный главный экран (Настройки → Оформление)
-   Включается только вручную (data-hud-mode="calm" на <html>, см. lib/calm-hud.js).
-   Корона, лава и блики обсидиана стоят на месте, видео-маска на паузе (main.js).
-   Сами состояния остаются: лава разгорается при подключении и гаснет при
-   отключении, просто без непрерывного движения.
+   Ninety — calm main screen (Settings → Appearance)
+   Enabled only manually (data-hud-mode="calm" on <html>, see lib/calm-hud.js).
+   The crown, lava and obsidian glints stand still, the video mask is paused (main.js).
+   The states themselves remain: the lava flares up on connect and dies down on
+   disconnect, just without continuous motion.
    ───────────────────────────────────────────────────────────── */
 
 html[data-hud-mode="calm"] .ob-corona__glow,
@@ -13,11 +13,11 @@ html[data-hud-mode="calm"] .ob-rim {
   animation: none;
 }
 
-/* Бегущие блики и искра — чистый декор, в спокойном режиме их нет */
+/* Running glints and the spark are pure decoration, they're absent in calm mode */
 html[data-hud-mode="calm"] .ob-glint,
 html[data-hud-mode="calm"] .ob-rim { display: none; }
 
-/* Свечение не «дышит»: ровное */
+/* The glow doesn't "breathe": steady */
 html[data-hud-mode="calm"] .hero[data-state="secured"] .ob-corona,
 html[data-hud-mode="calm"] .hero[data-state="secured"] .ob-lava { animation: none; }
 

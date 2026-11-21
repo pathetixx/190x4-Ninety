@@ -1,14 +1,14 @@
 /* ─────────────────────────────────────────────────────────────
-   Ninety — «Диагностика»
-   Вердикт + матрица доступности + правая колонка с вкладками
-   (трасса / утечки / лента инцидентов). Токены общие с остальным
-   приложением: свои цвета здесь не заводим.
+   Ninety — "Diagnostics"
+   Verdict + reachability matrix + the right column with tabs
+   (trace / leaks / incident feed). The tokens are shared with the rest of
+   the app: we don't introduce our own colors here.
    ───────────────────────────────────────────────────────────── */
 
-/* ═══ RAZBOR · прототип ═══ */
+/* ═══ RAZBOR · prototype ═══ */
 .rz { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 
-/* ── Вердикт ── */
+/* ── Verdict ── */
 .dg-verdict {
   flex: 0 0 auto;
   display: grid;
@@ -48,7 +48,7 @@
 .dg-verdict__text b { color: var(--text-hi); font-weight: 500; }
 .dg-verdict__cta { display: flex; flex-direction: column; gap: 7px; align-items: stretch; }
 
-/* ── Полоса фактов ── */
+/* ── Facts strip ── */
 .dg-facts {
   display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
   border-top: 1px solid var(--line-2); margin-top: 11px; padding-top: 9px;
@@ -73,7 +73,7 @@
 .dg-fact__v.is-err  { color: var(--err); }
 .dg-fact__v.is-warn { color: var(--warn); }
 
-/* ── Двухколоночная сетка ── */
+/* ── Two-column grid ── */
 .dg-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; min-height: 0; flex: 1 1 auto; }
 
 .dg-card {
@@ -94,7 +94,7 @@
   letter-spacing: 0.03em; white-space: nowrap;
 }
 
-/* ── Матрица доступности ── */
+/* ── Reachability matrix ── */
 .dg-mx { display: flex; flex-direction: column; container-type: inline-size; }
 
 .dg-mx__cols {
@@ -113,7 +113,7 @@
 .dg-row--hl { background: color-mix(in srgb, var(--accent) 5%, transparent); }
 .dg-row__name {
   font-size: 12.5px; color: var(--text-hi); font-weight: 500; min-width: 0;
-  /* Обрезаем, а не переносим: перенос менял высоту строки и ломал ритм списка. */
+  /* Truncate rather than wrap: wrapping changed the row height and broke the list's rhythm. */
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .dg-row__host { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-lo); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -121,8 +121,8 @@
   height: 22px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 4px;
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em;
   border: 1px solid var(--line-2); background: var(--ink-2); color: var(--text-lo);
-  /* Длинная подпись состояния не имеет права разъехаться на соседнюю колонку:
-     в узком окне она наезжала прямо на имя сервиса. */
+  /* A long state label has no right to spill into the neighboring column:
+     in a narrow window it ran right over the service name. */
   padding: 0 7px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dg-pill--ok   { color: var(--ok);   border-color: color-mix(in srgb, var(--ok) 34%, transparent);   background: color-mix(in srgb, var(--ok) 10%, var(--ink-2)); }
@@ -131,7 +131,7 @@
 .dg-row__verdict { min-width: 0; }
 .dg-row__txt { font-size: 11px; color: var(--text-mid); text-align: start; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dg-row__acts { display: inline-flex; align-items: center; gap: 6px; }
-/* Открепить свою цель: неприметная кнопка, чтобы не спорить с действием строки. */
+/* Unpin your own target: an unobtrusive button so as not to compete with the row's action. */
 .dg-unpin {
   width: 22px; height: 22px; flex: 0 0 auto; display: inline-grid; place-items: center;
   border: 1px solid var(--line-2); border-radius: var(--r-xs);
@@ -147,9 +147,9 @@
   display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap;
 }
 
-/* Узкое окно: пяти колонок не хватает места, и текст вердикта наезжал на имя
-   сервиса. Ниже порога строка перестраивается в две — сверху имя и пилюли,
-   снизу вывод и кнопка действия. */
+/* Narrow window: five columns don't have enough room, and the verdict text ran over the service
+   name. Below the threshold the row is rearranged into two — the name and pills on top,
+   the conclusion and the action button at the bottom. */
 @container (max-width: 560px) {
   .dg-mx__cols,
   .dg-row { grid-template-columns: minmax(0, 1fr) 76px 76px; }
@@ -164,8 +164,8 @@
   .dg-row > div:last-child:empty { display: none; }
 }
 
-/* ── Трасса ── */
-/* Своя проверка */
+/* ── Trace ── */
+/* Your own check */
 .dg-probe {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px;
   padding: 9px 14px; border-bottom: 1px solid var(--line-1); background: var(--overlay-1);
@@ -183,7 +183,7 @@
 .dg-probe__field input::placeholder { color: var(--text-lo); letter-spacing: 0; font-family: var(--font-body); }
 .dg-probe .btn { height: 30px; }
 
-/* Раскрытая своя строка */
+/* An expanded own row */
 .dg-row--own { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .dg-det {
   padding: 10px 14px 11px; border-bottom: 1px solid var(--line-1);
@@ -232,7 +232,7 @@
 }
 .dg-tab i.warn { background: var(--warn); }
 
-/* Вердикт «чисто» */
+/* The "clean" verdict */
 .dg-verdict--ok { background: var(--edge-top), linear-gradient(180deg, color-mix(in srgb, var(--ok) 6%, var(--ink-2)) 0%, var(--ink-1) 62%); }
 .dg-verdict--ok::before { background: linear-gradient(180deg, var(--ok), transparent 85%); }
 .dg-verdict--ok .dg-verdict__ic {
@@ -241,7 +241,7 @@
 }
 .dg-verdict--ok .dg-verdict__kicker { color: var(--ok); }
 
-/* Утечки */
+/* Leaks */
 .dg-leak {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px;
   align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--line-1);
@@ -287,7 +287,7 @@
 .dg-hop--void .dg-hop__ip { color: var(--text-lo); letter-spacing: 0.24em; }
 .dg-hop--server .dg-hop__ip { color: var(--text-hi); }
 
-/* Соединение на порт открыто — спокойная строка, а не тревожная плашка. */
+/* The connection to the port is open — a calm line, not an alarming plate. */
 .dg-tr__tcp {
   margin: 3px 14px; padding: 4px 9px; border-radius: var(--r-xs);
   border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
@@ -312,7 +312,7 @@
 .dg-legend i { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
 .dg-legend i.off { background: var(--ink-4); }
 
-/* Выбор странового пакета в шапке матрицы: селект в оболочке чипа. */
+/* Country pack selection in the matrix header: a select in a chip shell. */
 .dg-pack {
   position: relative;
   display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px;
@@ -325,20 +325,20 @@
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em;
   text-transform: uppercase; white-space: nowrap;
 }
-/* Точка-разделитель между страной и числом целей: одна пилюля читается как
-   одна подпись, а не как две наклейки рядом. */
+/* A dot separator between the country and the number of targets: one pill reads as
+   one label, not as two stickers side by side. */
 .dg-pack__dot {
   width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.45;
 }
 .dg-pack__chev { flex: 0 0 auto; opacity: 0.6; }
 .dg-pack:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
-/* Свой список пакетов: нативный <select> в WebView2 рисуется системой и рядом
-   с тёмным интерфейсом выглядит чужеродно. */
+/* Our own pack list: a native <select> in WebView2 is drawn by the system and looks
+   alien next to the dark interface. */
 .dg-packmenu {
   position: fixed; z-index: 9500; min-width: 208px; max-height: 320px; overflow-y: auto;
-  /* Системная полоса прокрутки в тёмной панели выглядит белой заплаткой —
-     оформляем как в остальном приложении. */
+  /* The system scrollbar in a dark panel looks like a white patch —
+     we style it like in the rest of the app. */
   scrollbar-width: thin; scrollbar-color: var(--overlay-3) transparent;
   padding: 6px; border-radius: var(--r-md);
   background: var(--ink-2); border: 1px solid var(--line-3);
@@ -368,7 +368,7 @@
 }
 .dg-packmenu__item[data-on="true"] .dg-packmenu__code { color: var(--accent-bright); }
 
-/* ── Состояния прогона ───────────────────────────────────── */
+/* ── Run states ───────────────────────────────────── */
 .dg-run { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 .dg-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -384,10 +384,10 @@
 @keyframes dg-spin { to { transform: rotate(360deg); } }
 .dg-card__head .dg-spinner { width: 13px; height: 13px; }
 
-/* Строка в процессе проверки: пилюли гасим, чтобы не мигали устаревшим. */
+/* A row being checked: the pills are dimmed so they don't flash stale values. */
 .dg-row[data-busy="true"] .dg-pill { opacity: 0.35; }
 
-/* ── Лента инцидентов ────────────────────────────────────── */
+/* ── Incident feed ────────────────────────────────────── */
 .dg-feed { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
 .dg-inc {
   padding: 9px 14px; border-bottom: 1px solid var(--line-1);

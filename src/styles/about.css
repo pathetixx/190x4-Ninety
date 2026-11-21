@@ -1,8 +1,8 @@
 /* ─────────────────────────────────────────────────────────────
-   Ninety — «О программе» (About)
-   Премиум spec-sheet в эстетике Kurogane.
-   Шапка (back + заголовок) рендерится общим каркасом Settings
-   (.settings-head), поэтому здесь — только тело-колонка вниз.
+   Ninety — "About"
+   A premium spec sheet in the Kurogane aesthetic.
+   The header (back + title) is rendered by the shared Settings skeleton
+   (.settings-head), so here — only the body column going down.
    ───────────────────────────────────────────────────────────── */
 
 .about__col {
@@ -109,7 +109,7 @@
 }
 .about-id__tag { margin: 2px 0 0; font-size: 13px; color: var(--text-lo); }
 
-/* ── Описание ── */
+/* ── Description ── */
 .about-desc {
   margin: 0 auto;
   text-align: center;
@@ -120,7 +120,7 @@
   text-wrap: pretty;
 }
 
-/* ═══ ПРОТОКОЛЫ / РЕЖИМЫ ═══ */
+/* ═══ PROTOCOLS / MODES ═══ */
 .about-tags {
   display: grid;
   grid-template-columns: auto 1px auto;
@@ -152,7 +152,7 @@
 }
 .about-chip--mode { color: var(--text-lo); background: transparent; border-color: var(--line-1); }
 
-/* ═══ ТЕХНИЧЕСКИЙ ПАСПОРТ ═══ */
+/* ═══ TECHNICAL PASSPORT ═══ */
 .about-spec {
   border-radius: var(--r-md);
   background: var(--ink-1);
@@ -196,7 +196,7 @@
   white-space: nowrap;
 }
 
-/* ═══ КОМПОНЕНТЫ (свёрнутый список того, что едет рядом с ядрами) ═══ */
+/* ═══ COMPONENTS (a collapsed list of what ships next to the cores) ═══ */
 .about-components {
   border-radius: var(--r-md);
   background: var(--ink-1);
@@ -225,7 +225,7 @@
 .about-components__grid { display: grid; grid-template-columns: 1fr; }
 .about-components__row { border-inline-start: 0; }
 
-/* ═══ ССЫЛКИ ═══ */
+/* ═══ LINKS ═══ */
 .about-links { display: flex; flex-direction: column; gap: 8px; }
 .about-link {
   display: grid;
@@ -304,7 +304,7 @@ button.about-link:hover .about-link__cta {
   border: 1px solid var(--line-2);
 }
 
-/* ═══ ПОДВАЛ ═══ */
+/* ═══ FOOTER ═══ */
 .about-foot {
   display: flex;
   flex-direction: column;

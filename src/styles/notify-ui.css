@@ -163,7 +163,7 @@
 }
 /* info + connected both ride the live theme accent (default vars above).
    Design rule: accent = connected/success-of-connection (matches the hero
-   "Защищено" accent-bright label + the accent stitch). The green --ok kind is
+   "Protected" accent-bright label + the accent stitch). The green --ok kind is
    reserved for NON-connection successes (subscriptions updated, profile
    activated, log copied…) and for the small status-dot. The shield-check icon
    is what distinguishes a `connected` toast from a generic `info` toast. */

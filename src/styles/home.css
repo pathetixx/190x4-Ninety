@@ -1,17 +1,17 @@
 /* ─────────────────────────────────────────────────────────────
-   Ninety — главный экран «Затмение».
-   Карточек нет: HUD — главный герой, подписка ужата до строки с тонкой линией
-   остатка, кнопки — призрачные круги, метрики — без рамок. За камнем — дым
-   (рендер Codex, альфа-маска), он красится цветом текста темы.
-   Селекторы с .screen[data-view="home"] нарочно сильнее премиум-материала
-   (premium-theme-shared.css), который иначе вернул бы карточкам фон.
+   Ninety — the "Eclipse" main screen.
+   No cards: the HUD is the main character, the subscription is reduced to a line with a thin
+   remaining-quota line, the buttons are ghost circles, the metrics have no borders. Behind the stone — smoke
+   (a Codex render, an alpha mask), it's tinted with the theme's text color.
+   The selectors with .screen[data-view="home"] are deliberately stronger than the premium material
+   (premium-theme-shared.css), which would otherwise give the cards their background back.
    ───────────────────────────────────────────────────────────── */
 
 .screen[data-view="home"] { position: relative; isolation: isolate; }
 .screen[data-view="home"]::before {
   content: "";
   position: absolute;
-  inset: -16px -24px -18px;     /* под паддинг .content — дым до краёв окна */
+  inset: -16px -24px -18px;     /* under the .content padding — smoke to the window edges */
   z-index: -1;
   pointer-events: none;
   background: color-mix(in srgb, var(--text-hi) 9%, transparent);
@@ -22,7 +22,7 @@
 }
 .screen[data-view="home"]:has(.hero[data-state="secured"])::before { opacity: 1; }
 
-/* ── Подписка строкой ── */
+/* ── Subscription as a line ── */
 .screen[data-view="home"] .sub-row { gap: 18px; align-items: end; }
 .screen[data-view="home"] .sub-card {
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -56,7 +56,7 @@
 .screen[data-view="home"] .sub-card__expire-lbl { display: inline; margin: 0; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: none; }
 .screen[data-view="home"] .sub-card__open { align-self: start; width: 22px; height: 22px; margin-top: -3px; }
 
-/* ── Призрачные кнопки режима и «+» ── */
+/* ── Ghost mode buttons and "+" ── */
 .screen[data-view="home"] .toolbar { gap: 6px; align-self: center; }
 .screen[data-view="home"] .tool-btn {
   width: 38px;
@@ -70,7 +70,7 @@
 .screen[data-view="home"] .tool-btn svg { width: 17px; height: 17px; }
 .screen[data-view="home"] .tool-btn:hover { background: color-mix(in srgb, var(--ink-2) 80%, transparent); border-color: var(--line-3); }
 
-/* ── Метрики без рамок и строка «Готов» на их месте до подключения ── */
+/* ── Borderless metrics and the "Ready" line in their place before connecting ── */
 .home-foot { position: relative; }
 .screen[data-view="home"] .stats {
   padding: 12px 0 2px;
@@ -106,7 +106,7 @@
 .home-ready__srv { font-weight: 600; color: var(--text-hi); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .home-ready__sep { color: var(--text-faint); }
 
-/* ── Узкое окно (от 720 px): подписка в одну строку, метрики в два ряда ── */
+/* ── Narrow window (from 720 px): the subscription on one line, the metrics in two rows ── */
 .screen[data-view="home"] .sub-card { container-type: inline-size; }
 .screen[data-view="home"] .sub-card__main { grid-template-columns: minmax(0, max-content) minmax(0, 1fr); }
 .screen[data-view="home"] .sub-card__head { min-width: 0; overflow: hidden; white-space: nowrap; }
@@ -124,7 +124,7 @@
   .screen[data-view="home"] .stats__cell { padding: 0 10px; }
   .screen[data-view="home"] .stats__cell:first-child { grid-column: 1 / -1; padding: 0; }
   .screen[data-view="home"] .stats__cell:nth-child(2) { border-inline-start: 0; }
-  /* режим уже написан в подписи под заголовком, тоталы сессии — в сайдбаре нет места */
+  /* the mode is already written in the caption under the title, session totals — there's no room in the sidebar */
   .screen[data-view="home"] .stats__cell:last-child,
   .screen[data-view="home"] .stats__sub { display: none; }
 }

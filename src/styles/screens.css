@@ -13,9 +13,9 @@
   min-height: 0;
   height: 100%;
 }
-/* min-height: auto — пол высоты = минимальная сцена + статус (см. .hero).
-   Ниже экран прокручивается в .content, а не наезжает сценой на карточки
-   и строку статистики. */
+/* min-height: auto — the height floor = the minimum scene + status (see .hero).
+   Below that the screen scrolls in .content rather than running the scene over the cards
+   and the stats line. */
 .screen > .hero { flex: 1 1 auto; min-height: auto; }
 .screen__head {
   display: flex;
@@ -75,8 +75,8 @@
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
-  /* Свечение вокруг кнопки убрано: оно ничего не сообщало, а на светлых
-     палитрах читалось грязью. Остался только верхний блик. */
+  /* The glow around the button was removed: it conveyed nothing, and on light
+     palettes it read as dirt. Only the top glint remains. */
   box-shadow: 0 1px 0 var(--shine-2) inset;
 }
 .btn--primary:hover { background: var(--accent-bright); border-color: var(--accent-bright); color: var(--on-accent); }
@@ -96,9 +96,9 @@
 ═══════════════════════════════════════════ */
 .pf-list { display: flex; flex-direction: column; gap: 7px; }
 
-/* Строка профиля: главная метрика — трафик. Колонка, которой нечего сказать,
-   молчит, а не печатает «—». Плашка-иконка убрана: тип профиля читается
-   из группировки и мета-строки. */
+/* Profile row: the main metric is traffic. A column with nothing to say
+   stays silent rather than printing "—". The icon plate is gone: the profile type is read
+   from the grouping and the meta line. */
 .pf {
   grid-template-columns: minmax(0, 1fr) 150px 62px 28px;
   gap: 18px;
@@ -513,7 +513,7 @@
 }
 .onb__cta { display: flex; gap: 10px; margin-top: 6px; }
 
-/* Welcome · быстрые пикеры язык/регион/тема */
+/* Welcome · quick pickers for language/region/theme */
 .onb-prefs {
   width: 100%;
   max-width: 380px;
@@ -693,13 +693,13 @@
 /* Content scroll area now scrolls vertically */
 .content { overflow-y: auto; }
 
-/* Заплатка для mono снята: .btn--primary берёт цвет из --on-accent, а тот
-   переопределён в каждой теме (у mono — var(--ink-0)). Точечные исключения по
-   имени темы возвращать не нужно — правьте токен. */
+/* The mono patch is removed: .btn--primary takes its color from --on-accent, which is
+   overridden in every theme (for mono — var(--ink-0)). Targeted exceptions by
+   theme name don't need to come back — edit the token. */
 
 /* The Mono swatch card's check tick (white-on-near-white regardless of active theme) */
 .theme-card[data-theme="mono"] .theme-card__check { color: var(--ink-0); }
-/* Пункт-состояние: сообщает, а не предлагает */
+/* A state item: it informs rather than offers */
 .pmenu__item--state {
   color: var(--text-lo);
   cursor: default;
