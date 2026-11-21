@@ -1,27 +1,27 @@
-// Ninety · идентификатор устройства для подписочных панелей.
+// Ninety · device identifier for subscription panels.
 //
-// Панели с лимитом устройств (стандарт заголовков Happ, реализованный в
-// Remnawave) опознают устройство по заголовку `x-hwid`. Отдавать панели
-// настоящий Windows MachineGuid нельзя: это глобальный идентификатор машины,
-// общий для всех программ. Вместо него уходит односторонняя производная —
-// она стабильна между переустановками Ninety, но исходное значение из неё
-// не восстанавливается и с другими программами не совпадает.
+// Panels with a device limit (the Happ header standard, implemented in
+// Remnawave) identify the device by the `x-hwid` header. We must not give the panel
+// the real Windows MachineGuid: it is a global machine identifier,
+// shared by all programs. Instead a one-way derivative is sent —
+// it is stable across Ninety reinstalls, but the original value can't be
+// recovered from it and it doesn't match other programs.
 
 use blake2::{Blake2s256, Digest};
 use serde::Serialize;
 
 const HWID_DOMAIN: &[u8] = b"ninety-hwid-v1:";
 const SCOPED_HWID_DOMAIN: &[u8] = b"ninety-hwid-scope-v1:";
-// Remnawave валидирует HWID как `^[a-zA-Z0-9=-]{10,64}$`, поэтому производная
-// кодируется hex'ом (укладывается в разрешённый алфавит) и обрезается до 32
-// символов: этого хватает для уникальности и не упирается в верхнюю границу.
+// Remnawave validates the HWID as `^[a-zA-Z0-9=-]{10,64}$`, so the derivative
+// is hex-encoded (fits the allowed alphabet) and truncated to 32
+// characters: that's enough for uniqueness and stays below the upper bound.
 const HWID_CHARS: usize = 32;
 
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceIdentity {
-    /// `None`, когда стабильный машинный идентификатор недоступен. Тогда HWID
-    /// заводит фронтенд — случайный и сохранённый в состоянии приложения.
+    /// `None` when a stable machine identifier is unavailable. Then the HWID
+    /// is created by the frontend — random and stored in the app state.
     pub hwid: Option<String>,
     pub device_os: String,
     pub ver_os: String,
@@ -51,11 +51,11 @@ fn derive_hwid(seed: &str) -> String {
     hex_prefix(&digest, HWID_CHARS)
 }
 
-/// HWID для одного провайдера подписок. Общий идентификатор, одинаковый для
-/// всех панелей, позволял двум провайдерам сопоставить, что это одно и то же
-/// устройство. Здесь каждая панель (по хосту подписки) получает своё значение;
-/// пересчитать одно в другое без базового идентификатора нельзя, а сам он
-/// уходит как есть только подпискам, добавленным до появления этой схемы.
+/// HWID for a single subscription provider. A shared identifier, the same for
+/// all panels, let two providers match that it is the same
+/// device. Here each panel (by subscription host) gets its own value;
+/// converting one into another without the base identifier is impossible, and the base itself
+/// is sent as is only to subscriptions added before this scheme appeared.
 pub(crate) fn scoped_hwid(base: &str, host: &str) -> String {
     let mut hasher = Blake2s256::new();
     hasher.update(SCOPED_HWID_DOMAIN);
@@ -70,8 +70,8 @@ fn machine_seed() -> Option<String> {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
     use winreg::RegKey;
 
-    // KEY_WOW64_64KEY: под WOW64 перенаправление отдало бы другой раздел, и
-    // HWID менялся бы вместе с разрядностью процесса.
+    // KEY_WOW64_64KEY: under WOW64 redirection would return a different key, and
+    // the HWID would change with the process bitness.
     let key = RegKey::predef(HKEY_LOCAL_MACHINE)
         .open_subkey_with_flags(
             r"SOFTWARE\Microsoft\Cryptography",

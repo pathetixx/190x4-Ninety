@@ -1,47 +1,47 @@
-// Ninety · Умеет ли система IPv6 вообще.
+// Ninety · Whether the system supports IPv6 at all.
 //
-// TUN-интерфейс получает и IPv4-, и IPv6-адрес: auto_route строит маршруты
-// только для тех семейств, чей адрес есть на интерфейсе, и без IPv6-адреса
-// нативный IPv6-трафик уходит мимо туннеля (см. tunAddresses во фронте).
+// The TUN interface gets both an IPv4 and an IPv6 address: auto_route builds routes
+// only for the families whose address is on the interface, and without an IPv6 address
+// native IPv6 traffic bypasses the tunnel (see tunAddresses in the frontend).
 //
-// Но на машине, где IPv6 отключён в самой Windows, назначение этого адреса
-// падает («configure tun interface: set ipv6 address: Element not found»), и
-// ядро умирает целиком — TUN-режим не поднимается вовсе. Терять при этом
-// нечего: раз стек выключен, IPv6-трафика на такой машине не бывает, и
-// защищать нечего. Поэтому спрашиваем систему до сборки конфига.
+// But on a machine where IPv6 is disabled in Windows itself, assigning this address
+// fails ("configure tun interface: set ipv6 address: Element not found"), and
+// the core dies entirely — TUN mode doesn't come up at all. Nothing is lost by
+// skipping it: since the stack is off, there is no IPv6 traffic on such a machine, and
+// nothing to protect. So we ask the system before building the config.
 //
-// Спрашиваем не «есть ли IPv6-связность» (это отдельная проверка утечек в
-// diagnose.rs — ей нужна сеть и две секунды), а «привязан ли стек к адаптерам».
+// We ask not "is there IPv6 connectivity" (that's a separate leak check in
+// diagnose.rs — it needs the network and two seconds), but "is the stack bound to adapters".
 //
-// 🔴 Loopback обязан быть исключён, иначе проба бесполезна. Windows держит IPv6
-// на loopback ДАЖЕ когда стек выключен везде: DisabledComponents документирован
-// как «отключить IPv6 на всех интерфейсах, кроме loopback». Замерено вживую —
-// при снятой привязке ms_tcpip6 у Ethernet флаг и адрес обнулились, а loopback
-// остался с ::1 и включённым флагом. Считая его, проба всегда отвечала бы «да».
+// 🔴 Loopback must be excluded, otherwise the probe is useless. Windows keeps IPv6
+// on loopback EVEN when the stack is off everywhere: DisabledComponents is documented
+// as "disable IPv6 on all interfaces except loopback". Measured live —
+// with the ms_tcpip6 binding removed, Ethernet's flag and address were cleared, while loopback
+// kept ::1 and the enabled flag. Counting it, the probe would always answer "yes".
 //
-// Признака два, и берём оба: флаг IP_ADAPTER_IPV6_ENABLED — прямой ответ
-// Windows, наличие IPv6-адреса — подтверждение, что привязка действительно
-// состоялась. На живой машине они меняются вместе, так что второй признак
-// страхует, а не спорит. Псевдоадаптеры (WAN Miniport, отключённые туннели)
-// сюда не попадают вовсе: GetAdaptersAddresses без GAA_FLAG_INCLUDE_ALL_INTERFACES
-// их не возвращает — тоже замерено, а не выведено из документации.
+// There are two signs and we take both: the IP_ADAPTER_IPV6_ENABLED flag is Windows' direct
+// answer, the presence of an IPv6 address confirms that the binding actually
+// took place. On a live machine they change together, so the second sign
+// is a safeguard, not a contradiction. Pseudo-adapters (WAN Miniport, disabled tunnels)
+// don't get here at all: GetAdaptersAddresses without GAA_FLAG_INCLUDE_ALL_INTERFACES
+// doesn't return them — also measured, not inferred from the documentation.
 //
-// Ответ намеренно троичный: None = «не знаем» (ни одного поднятого адаптера,
-// машина офлайн). Неизвестность обязана трактоваться как «IPv6 есть» — ошибка
-// в эту сторону оставляет сегодняшнее поведение, а в обратную молча снимает
-// защиту от утечки на здоровой машине.
+// The answer is deliberately ternary: None = "we don't know" (not a single adapter up,
+// the machine is offline). Unknown must be treated as "IPv6 is present" — an error
+// in that direction keeps today's behavior, while one in the other direction silently removes
+// leak protection on a healthy machine.
 
-/// `Some(true)` — IPv6 привязан хотя бы к одному рабочему адаптеру,
-/// `Some(false)` — адаптеры есть, IPv6 нет ни на одном,
-/// `None` — судить не по чему.
+/// `Some(true)` — IPv6 is bound to at least one working adapter,
+/// `Some(false)` — there are adapters, but IPv6 is on none of them,
+/// `None` — nothing to judge by.
 #[tauri::command]
 pub async fn system_ipv6_available() -> Result<Option<bool>, String> {
     #[cfg(windows)]
     {
-        // spawn_blocking + catch_unwind по образцу netproc: Win32-снимок не
-        // морозит webview-поток, а паника внутри не уходит через IPC-границу.
-        // Команда обязана всегда завершаться Ok/Err, иначе промис не settl-ится
-        // и подключение висит.
+        // spawn_blocking + catch_unwind following netproc: the Win32 snapshot doesn't
+        // freeze the webview thread, and a panic inside doesn't cross the IPC boundary.
+        // The command must always finish with Ok/Err, otherwise the promise doesn't settle
+        // and the connection hangs.
         tauri::async_runtime::spawn_blocking(|| {
             std::panic::catch_unwind(windows_impl::probe)
                 .unwrap_or_else(|_| Err("IPv6 probe panicked".into()))
@@ -71,8 +71,8 @@ mod windows_impl {
         let mut seen_adapter = false;
         let mut ipv6_ready = false;
 
-        // SAFETY: buf держит валидный снимок GetAdaptersAddresses и жив до конца
-        // функции; обход идёт по цепочке Next до нуля, как задумано Win32.
+        // SAFETY: buf holds a valid GetAdaptersAddresses snapshot and lives until the end of
+        // the function; the walk follows the Next chain to null, as Win32 intends.
         unsafe {
             let mut adapter = buf.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
             while !adapter.is_null() {
@@ -89,16 +89,16 @@ mod windows_impl {
             }
         }
 
-        // Ни одного поднятого адаптера — судить не по чему: машина офлайн, и
-        // «IPv6 нет» здесь значило бы не «стек выключен», а «сети нет».
+        // Not a single adapter up — nothing to judge by: the machine is offline, and
+        // "no IPv6" here would mean not "the stack is off" but "there is no network".
         if !seen_adapter {
             return Ok(None);
         }
         Ok(Some(ipv6_ready))
     }
 
-    /// SAFETY: `entry` — живая запись из снимка, цепочка FirstUnicastAddress
-    /// принадлежит тому же буферу.
+    /// SAFETY: `entry` is a live snapshot entry, the FirstUnicastAddress chain
+    /// belongs to the same buffer.
     unsafe fn has_ipv6_address(entry: &IP_ADAPTER_ADDRESSES_LH) -> bool {
         let mut unicast = entry.FirstUnicastAddress;
         while !unicast.is_null() {
@@ -113,9 +113,9 @@ mod windows_impl {
     }
 
     fn adapters() -> Result<Vec<u8>, String> {
-        // Таблица адаптеров может подрасти между замером и чтением (подняли
-        // интерфейс, воткнули USB-Ethernet) — тот же цикл роста буфера, что у
-        // снимков netproc.
+        // The adapter table may grow between measuring and reading (an interface
+        // came up, a USB Ethernet was plugged in) — the same buffer growth loop as in
+        // the netproc snapshots.
         let flags = GAA_FLAG_SKIP_ANYCAST
             | GAA_FLAG_SKIP_MULTICAST
             | GAA_FLAG_SKIP_DNS_SERVER
@@ -123,8 +123,8 @@ mod windows_impl {
         let mut size: u32 = 16 * 1024;
         for _ in 0..4 {
             let mut buf = vec![0u8; size as usize];
-            // SAFETY: buf выделен на size байт, size передаётся по указателю и
-            // обновляется вызовом; указатель валиден на всё время вызова.
+            // SAFETY: buf is allocated with size bytes, size is passed by pointer and
+            // updated by the call; the pointer is valid for the whole call.
             let rc = unsafe {
                 GetAdaptersAddresses(
                     AF_UNSPEC.0 as u32,
@@ -149,10 +149,10 @@ mod windows_impl {
 
 #[cfg(all(test, windows))]
 mod tests {
-    // Проба обязана ВСЕГДА отвечать, а не падать: её результат читает сборщик
-    // конфига на пути подключения, и паника там означала бы, что подключение не
-    // стартует вовсе. Конкретное значение зависит от машины, поэтому проверяем
-    // контракт, а не ответ.
+    // The probe must ALWAYS answer, not fail: its result is read by the config
+    // builder on the connect path, and a panic there would mean the connection doesn't
+    // start at all. The concrete value depends on the machine, so we check
+    // the contract, not the answer.
     #[test]
     fn probe_always_answers() {
         let result = super::windows_impl::probe();

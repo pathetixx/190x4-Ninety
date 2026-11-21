@@ -1,6 +1,6 @@
-// Подписка на clash WebSocket /traffic (sing-box clash-API).
-// Кадры: {"up": <bytes/sec>, "down": <bytes/sec>} каждую секунду.
-// Эмитим как Tauri event "clash:traffic" в JS.
+// Subscription to the clash WebSocket /traffic (sing-box clash API).
+// Frames: {"up": <bytes/sec>, "down": <bytes/sec>} every second.
+// Emitted to JS as the Tauri event "clash:traffic".
 
 use futures_util::StreamExt;
 use serde_json::Value;
@@ -33,20 +33,20 @@ async fn run_stream(
     generation: u64,
     current_generation: Arc<AtomicU64>,
 ) {
-    // token в query — так clash-API авторизует websocket (браузерный WS-клиент не
-    // умеет слать заголовки, поэтому сервер принимает и query-token). Соединение —
-    // 127.0.0.1, секрет виден только этому процессу, поэтому token в URL безопасен.
-    // ⚠️ ИНВАРИАНТ: НЕ логировать `url` целиком (он содержит секрет) — при ошибках
-    // ниже пишем только факт, без адреса. Нарушение слило бы секрет clash-API в лог.
+    // token in the query — this is how the clash API authorizes websockets (a browser WS client cannot
+    // send headers, so the server accepts a query token too). The connection is
+    // 127.0.0.1, the secret is visible only to this process, so a token in the URL is safe.
+    // ⚠️ INVARIANT: do NOT log the whole `url` (it contains the secret) — on errors
+    // below we log only the fact, without the address. Violating this would leak the clash API secret into the log.
     let url = format!(
         "ws://127.0.0.1:{port}/traffic?token={}",
         crate::clash::clash_secret()
     );
     let is_current = || current_generation.load(Ordering::SeqCst) == generation;
-    // Простой reconnect-цикл: если ядро перезапустилось / ещё не подняло WS — ждём.
-    // 🔴 Цикл ОБЯЗАН умереть вместе со своим поколением: после stop порт может
-    // занять любой другой локальный процесс, а в URL уходит секрет clash-API —
-    // бесконечный reconnect отдал бы ему полное управление ядром.
+    // Simple reconnect loop: if the core restarted / hasn't brought up WS yet — wait.
+    // 🔴 The loop MUST die together with its generation: after stop the port can
+    // be taken by any other local process, and the clash API secret goes into the URL —
+    // an endless reconnect would hand that process full control of the core.
     while is_current() {
         match connect_async(&url).await {
             Ok((ws, _)) => {
@@ -68,7 +68,7 @@ async fn run_stream(
                 }
             }
             Err(_) => {
-                // соединиться не получилось — подождём и попробуем снова
+                // couldn't connect — wait and try again
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(800)).await;
@@ -94,10 +94,10 @@ pub async fn clash_traffic_start(
     runtime: State<'_, crate::vpn::SingboxState>,
     port: u16,
 ) -> Result<(), String> {
-    // Тот же гейт, что у остальных clash-команд (clash.rs::validate_clash_port).
-    // Без него фронт мог назвать ЛЮБОЙ порт, и секрет clash-API уезжал бы в
-    // query-строке произвольному локальному слушателю — вместе с полным
-    // управлением ядром (смена ноды, чтение конфига с UUID/паролями нод).
+    // The same gate as the other clash commands (clash.rs::validate_clash_port).
+    // Without it the frontend could name ANY port, and the clash API secret would go
+    // in the query string to an arbitrary local listener — together with full
+    // control of the core (switching nodes, reading the config with node UUIDs/passwords).
     crate::clash::validate_clash_port_ref(&runtime, port)?;
     let generation = crate::vpn::active_runtime_generation(&runtime)?;
     if generation == 0 {

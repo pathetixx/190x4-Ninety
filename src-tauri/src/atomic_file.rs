@@ -15,10 +15,10 @@ fn temp_path_for(to: &Path) -> PathBuf {
     to.with_file_name(name)
 }
 
-// Путь для прямого вызова Win32. std сам удлиняет длинные пути префиксом
-// `\\?\`, а MoveFileExW без него ограничен MAX_PATH (в манифесте нет
-// longPathAware): в глубокой portable-папке временный файл создавался, а замена
-// падала, и ни одна запись хранилища не проходила. Короткие пути не трогаем.
+// Path for a direct Win32 call. std extends long paths with the `\\?\` prefix
+// itself, but MoveFileExW without it is limited to MAX_PATH (the manifest has no
+// longPathAware): in a deep portable folder the temporary file was created, but the
+// replace failed, and no storage write went through. Short paths are left as is.
 #[cfg(target_os = "windows")]
 fn wide_path_for_win32(path: &Path) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
@@ -95,15 +95,15 @@ pub fn write_bytes_replace(to: &Path, body: &[u8], label: &str) -> Result<(), St
     result
 }
 
-/// Перезапись содержимого уже существующего файла на месте.
+/// Rewrites the contents of an already existing file in place.
 ///
-/// Для системных файлов (в первую очередь `System32\drivers\etc\hosts`) это
-/// правильнее замены через `MoveFileEx`: replace создаёт НОВЫЙ объект файла, и
-/// цель получает DACL/владельца временного файла вместо исходных прав, а
-/// Controlled Folder Access и часть антивирусов блокируют именно подмену
-/// системного файла, пропуская перезапись содержимого. Атомарности здесь нет,
-/// поэтому вызывающий передаёт `original` — прежнее содержимое: если запись
-/// оборвётся уже после обрезки файла, оно возвращается через тот же хэндл.
+/// For system files (primarily `System32\drivers\etc\hosts`) this is more
+/// correct than replacing via `MoveFileEx`: replace creates a NEW file object, and
+/// the target gets the temporary file's DACL/owner instead of the original rights, while
+/// Controlled Folder Access and some antiviruses block exactly the swap of a
+/// system file but allow rewriting its contents. There is no atomicity here,
+/// so the caller passes `original` — the previous contents: if the write
+/// breaks off after the file was truncated, they are restored through the same handle.
 pub fn overwrite_in_place(
     path: &Path,
     body: &[u8],
@@ -119,7 +119,7 @@ pub fn overwrite_in_place(
     overwrite_or_restore(&mut file, body, original, label)
 }
 
-/// Файл, содержимое которого целиком перезаписывается через один хэндл.
+/// A file whose contents are rewritten entirely through a single handle.
 trait InPlaceTarget: std::io::Write + std::io::Seek {
     fn truncate_all(&mut self) -> std::io::Result<()>;
     fn sync(&mut self) -> std::io::Result<()>;
@@ -142,9 +142,9 @@ fn rewrite(target: &mut impl InPlaceTarget, body: &[u8]) -> std::io::Result<()> 
     target.sync()
 }
 
-// Файл уже обрезан, а запись оборвалась (антивирус, диск, отказ после
-// открытия): без отката система осталась бы с пустым или половинчатым hosts.
-// Хэндл тот же, поэтому повторное открытие с его проверками не нужно.
+// The file is already truncated and the write broke off (antivirus, disk, failure after
+// opening): without a rollback the system would be left with an empty or partial hosts.
+// It is the same handle, so reopening with its checks is not needed.
 fn overwrite_or_restore(
     target: &mut impl InPlaceTarget,
     body: &[u8],
@@ -207,18 +207,18 @@ mod tests {
         std::fs::write(&file, b"# original\n127.0.0.1 localhost\n").unwrap();
         overwrite_in_place(&file, b"# managed\n", b"", "test hosts").unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "# managed\n");
-        // Никаких временных файлов рядом с целью: в System32\drivers\etc такой
-        // мусор остаётся после падения процесса.
+        // No temporary files next to the target: in System32\drivers\etc such
+        // garbage stays behind after a process crash.
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
-        // Файла может не быть — тогда он создаётся.
+        // The file may be missing — then it is created.
         let fresh = dir.join("fresh");
         overwrite_in_place(&fresh, b"new\n", b"", "test fresh").unwrap();
         assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "new\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // Пишет не больше `fail_after` байт, затем один раз отказывает — как диск,
-    // который кончился посреди записи.
+    // Writes at most `fail_after` bytes, then fails once — like a disk
+    // that ran out of space mid-write.
     struct FlakyFile {
         inner: std::io::Cursor<Vec<u8>>,
         fail_after: Option<usize>,

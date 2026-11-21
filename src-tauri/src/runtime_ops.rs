@@ -69,27 +69,27 @@ pub struct RuntimeOperationSnapshot {
 
 struct ActiveOperation {
     token: RuntimeOperationToken,
-    /// Момент выдачи по МОНОТОННЫМ часам — единственный источник для решения об
-    /// истечении. Стенные часы для этого не годятся: прыжок системного времени
-    /// вперёд (NTP после сна, смена таймзоны, ручная правка) протухал бы живую
-    /// операцию посреди подключения, а прыжок назад делал `saturating_sub`
-    /// нулевым, и повисшая аренда не истекала бы никогда.
+    /// The moment of issue by the MONOTONIC clock — the only source for the expiry
+    /// decision. The wall clock is no good for this: a forward jump of system time
+    /// (NTP after sleep, a timezone change, a manual edit) would expire a live
+    /// operation mid-connection, while a backward jump made `saturating_sub`
+    /// zero, and a hung lease would never expire.
     started_at: Instant,
-    /// То же начало по стенным часам — только для диагностического снимка.
+    /// The same start by the wall clock — only for the diagnostic snapshot.
     started_at_ms: u64,
     cancelled: Arc<AtomicBool>,
 }
 
-/// Потолок жизни аренды. Владение lifecycle держит фронт: он вызывает `begin`
-/// и обязан вызвать `complete`/`cancel`. Если WebView перезагрузился
-/// (`location.reload()` после восстановления state-backup), упал или потерял
-/// таск между этими вызовами, аренда без срока висела бы вечно — а `begin` для
-/// равного приоритета отвергает всё, кроме SourceSwitch↔SourceSwitch. То есть
-/// один повисший UserConnect навсегда блокировал и ручное подключение, и
-/// авто-восстановление watchdog'а, до перезапуска приложения.
+/// Lease lifetime ceiling. Lifecycle ownership is held by the frontend: it calls `begin`
+/// and must call `complete`/`cancel`. If the WebView reloaded
+/// (`location.reload()` after restoring the state backup), crashed or lost
+/// the task between these calls, a lease without a deadline would hang forever — and `begin` for
+/// an equal priority rejects everything except SourceSwitch↔SourceSwitch. So
+/// one hung UserConnect blocked both manual connecting and the watchdog's
+/// auto-recovery forever, until the app was restarted.
 ///
-/// Значение — с запасом над самой долгой легальной операцией (старт ядра со
-/// всеми settle-паузами мостов, топология clash и верификация датаплейна).
+/// The value has headroom over the longest legitimate operation (core start with
+/// all the bridge settle pauses, the clash topology and dataplane verification).
 const OPERATION_LEASE_MS: u64 = 90_000;
 
 #[derive(Default)]
@@ -115,9 +115,9 @@ impl RuntimeOperationCoordinator {
     ) -> Result<RuntimeOperationToken, String> {
         let mut active = self.active.lock_recover();
         if let Some(current) = active.as_ref() {
-            // Владелец, переживший свой lease, потерян вместе с WebView.
-            // Держать им lifecycle нельзя: подключение не восстановится до
-            // перезапуска приложения.
+            // An owner that has outlived its lease was lost together with the WebView.
+            // It must not keep holding the lifecycle: the connection won't recover until
+            // the app is restarted.
             let expired = lease_expired(current.started_at.elapsed());
             let supersedes = expired
                 || kind.priority() > current.token.kind.priority()
@@ -428,9 +428,9 @@ fn append_operation_diagnostic(
 pub enum DataplaneProbeKind {
     SourceVerification,
     QualityProbe,
-    /// Пробы экрана «Диагностика». Приоритет выше фоновой пробы качества
-    /// (пользователь нажал «Проверить» и ждёт результат прямо сейчас), но ниже
-    /// верификации источника: та решает, работает ли соединение вообще.
+    /// Probes of the "Diagnostics" screen. Priority is higher than the background quality probe
+    /// (the user pressed "Check" and is waiting for the result right now), but lower than
+    /// source verification: that one decides whether the connection works at all.
     Diagnostics,
 }
 
@@ -551,12 +551,12 @@ impl DataplaneProbeCoordinator {
         let deadline = tokio::time::Instant::now() + wait;
 
         loop {
-            // Регистрируем интерес к пробуждению ДО проверки условия и до
-            // первого await: `Notified` встаёт в очередь только при первом
-            // poll, поэтому release соседнего пермита, попавший между проверкой
-            // `available_permits` и `timeout`, иначе теряется — и ожидающая
-            // source verification спала бы до своего дедлайна при свободном
-            // семафоре, возвращая probe_busy вместо готовности.
+            // Register interest in the wakeup BEFORE checking the condition and before
+            // the first await: `Notified` only gets queued on the first
+            // poll, so a neighboring permit release that lands between the
+            // `available_permits` check and `timeout` would otherwise be lost — and a waiting
+            // source verification would sleep until its deadline with the semaphore
+            // free, returning probe_busy instead of readiness.
             let notified = self.notify.notified();
             tokio::pin!(notified);
             let _ = notified.as_mut().enable();
@@ -670,21 +670,21 @@ mod tests {
         assert!(coordinator.authorize(&second));
     }
 
-    // Равный приоритет обычно отвергается — но не тогда, когда прежний владелец
-    // потерян вместе с WebView. Без этого один повисший UserConnect навсегда
-    // блокировал подключение до перезапуска приложения.
+    // An equal priority is usually rejected — but not when the previous owner
+    // was lost together with the WebView. Without this one hung UserConnect blocked
+    // connecting forever until the app was restarted.
     #[test]
     fn expired_lease_is_superseded_by_an_equal_priority_owner() {
         let coordinator = RuntimeOperationCoordinator::default();
         let stale = coordinator
             .begin(RuntimeOperationKind::UserConnect, 1, Some("a"))
             .unwrap();
-        // Свежая аренда того же приоритета уступает действующему владельцу.
+        // A fresh lease of the same priority yields to the active owner.
         assert!(coordinator
             .begin(RuntimeOperationKind::UserConnect, 1, Some("b"))
             .is_err());
 
-        // Отматываем начало аренды за потолок — владелец считается потерянным.
+        // Wind the lease start back past the ceiling — the owner is considered lost.
         {
             let mut active = coordinator.active.lock_recover();
             let current = active.as_mut().expect("active operation");
@@ -703,9 +703,9 @@ mod tests {
         assert!(!lease_expired(Duration::ZERO));
         assert!(!lease_expired(Duration::from_millis(OPERATION_LEASE_MS)));
         assert!(lease_expired(Duration::from_millis(OPERATION_LEASE_MS + 1)));
-        // Источник — Instant::elapsed, поэтому отрицательной дельты не бывает в
-        // принципе: скачок стенных часов больше не может ни протухать живую
-        // аренду, ни продлевать повисшую.
+        // The source is Instant::elapsed, so a negative delta is impossible in
+        // principle: a wall clock jump can no longer either expire a live
+        // lease or extend a hung one.
         assert!(!lease_expired(Duration::from_millis(1)));
     }
 
@@ -782,9 +782,9 @@ mod tests {
         assert!(coordinator.is_current(&source_permit));
     }
 
-    // Освобождённый пермит обязан будить очередь сразу. Регрессия здесь не
-    // выглядит поломкой: verification просто досиживает свой дедлайн и отдаёт
-    // probe_busy, из-за чего исправная смена источника считается неподтверждённой.
+    // A released permit must wake the queue immediately. A regression here doesn't
+    // look like a breakage: verification simply sits out its deadline and returns
+    // probe_busy, because of which a correct source switch is considered unconfirmed.
     #[tokio::test]
     async fn released_permit_wakes_the_queued_waiter_before_its_deadline() {
         let coordinator = Arc::new(DataplaneProbeCoordinator::default());

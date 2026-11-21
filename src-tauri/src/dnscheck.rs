@@ -1,16 +1,16 @@
-// Ninety · активная проба direct-DNS (для DNS-watchdog фронта).
+// Ninety · active direct-DNS probe (for the frontend DNS watchdog).
 //
-// Зачем: имя сервера ноды (напр. de1.example.com) sing-box резолвит через
-// dns-direct ДО поднятия туннеля (иначе замкнутый круг). Если direct-DNS мёртв
-// (в РФ так сегодня легли Google/Cloudflare DoH), НИ ОДНА нода не поднимается, а
-// ошибка выглядит невнятно («i/o timeout»). dns-guard.js периодически (и перед
-// коннектом) зовёт эту команду, чтобы отличить живой резолвер от мёртвого и при
-// нужде переключиться на резерв. Возврат: "ok" | "dead" | "skip".
+// Why: sing-box resolves the node's server name (e.g. de1.example.com) through
+// dns-direct BEFORE the tunnel is up (otherwise it's a vicious circle). If direct DNS is dead
+// (in Russia, Google/Cloudflare DoH went down this way today), NOT A SINGLE node comes up, and
+// the error looks vague ("i/o timeout"). dns-guard.js periodically (and before
+// connecting) calls this command to tell a live resolver from a dead one and
+// switch to a fallback if needed. Returns: "ok" | "dead" | "skip".
 //
-// Поддержаны форматы direct-DNS: udp://host[:port] и голый host (→ UDP:53),
-// https://host/path (DoH, RFC 8484 wireformat через GET ?dns=). tls/tcp/quic/
-// local/system → "skip" (пробу не умеем — не считаем мёртвым, чтобы watchdog не
-// переключал зря). Проверяем именно РЕЗОЛЮЦИЮ (ANCOUNT>0), не просто доступность.
+// Supported direct-DNS formats: udp://host[:port] and a bare host (→ UDP:53),
+// https://host/path (DoH, RFC 8484 wire format via GET ?dns=). tls/tcp/quic/
+// local/system → "skip" (we can't probe them — we don't count them as dead so the watchdog doesn't
+// switch needlessly). We check actual RESOLUTION (ANCOUNT>0), not mere reachability.
 
 use rand_core::{OsRng, RngCore};
 use std::time::Duration;
@@ -18,8 +18,8 @@ use tokio::net::UdpSocket;
 
 const MAX_DOH_RESPONSE_BYTES: usize = 64 * 1024;
 
-// Собирает DNS A-query wire-packet для host. Transaction ID случайный: фиксированный
-// ID позволял постороннему/запоздалому UDP-пакету предсказуемо пройти первую проверку.
+// Builds a DNS A-query wire packet for host. The transaction ID is random: a fixed
+// ID let a stray/late UDP packet predictably pass the first check.
 fn build_dns_query(host: &str) -> Result<Vec<u8>, String> {
     let host = host.trim().trim_end_matches('.');
     if host.is_empty() {
@@ -55,14 +55,14 @@ fn build_dns_query(host: &str) -> Result<Vec<u8>, String> {
         p.push(bytes.len() as u8);
         p.extend_from_slice(bytes);
     }
-    p.push(0); // корневой label
+    p.push(0); // root label
     p.extend_from_slice(&1u16.to_be_bytes()); // qtype A
     p.extend_from_slice(&1u16.to_be_bytes()); // qclass IN
     Ok(p)
 }
 
-// ANCOUNT из заголовка DNS-ответа (байты 6..8). >0 = резолвер реально ответил
-// записями, а не просто «сокет открылся».
+// ANCOUNT from the DNS response header (bytes 6..8). >0 = the resolver actually answered
+// with records, not just "the socket opened".
 fn answer_count(resp: &[u8]) -> u16 {
     if resp.len() < 8 {
         return 0;
@@ -151,9 +151,9 @@ fn validate_dns_response(resp: &[u8], query: &[u8]) -> Result<(), String> {
         return Err(format!("DNS response has QDCOUNT={qdcount}, expected 1"));
     }
 
-    // QNAME регистронезависим и может использовать wire compression.
-    // Сравниваем разобранные labels + числовые QTYPE/QCLASS, сохраняя
-    // защиту от ответа на другой hostname без ложных dead на валидное эхо.
+    // QNAME is case-insensitive and may use wire compression.
+    // We compare parsed labels + numeric QTYPE/QCLASS, keeping
+    // protection against a response for another hostname without false dead on a valid echo.
     if parse_dns_question(resp, 12)? != parse_dns_question(query, 12)? {
         return Err("DNS response answers a different question".into());
     }
@@ -161,18 +161,18 @@ fn validate_dns_response(resp: &[u8], query: &[u8]) -> Result<(), String> {
     if answer_count(resp) > 0 {
         return Ok(());
     }
-    // TC=1 — «ответ не поместился в UDP, повтори по TCP». Резолвер при этом
-    // ответил, то есть жив; объявлять его мёртвым и уводить watchdog на резерв
-    // из-за размера ответа неправильно.
+    // TC=1 means "the answer didn't fit into UDP, retry over TCP". The resolver still
+    // answered, so it is alive; declaring it dead and sending the watchdog to the fallback
+    // because of the response size is wrong.
     if resp[2] & 0x02 != 0 {
         return Ok(());
     }
     Err("response has no records (ANCOUNT=0)".into())
 }
 
-// host[:port] → host:port (добавляет default при отсутствии). IPv6 ожидаем в
-// скобках ([::1] / [::1]:53); голый IPv6 без скобок не поддержан (редко для
-// direct-DNS, обычно udp://[...]).
+// host[:port] → host:port (adds the default if missing). IPv6 is expected in
+// brackets ([::1] / [::1]:53); bare IPv6 without brackets is not supported (rare for
+// direct DNS, usually udp://[...]).
 fn ensure_port(host: &str, default: u16) -> String {
     if host.starts_with('[') {
         if host.contains("]:") {
@@ -188,21 +188,21 @@ fn ensure_port(host: &str, default: u16) -> String {
 }
 
 enum Target {
-    Udp(String), // host:port для UDP DNS
-    Doh(String), // полный https URL
-    Skip,        // формат, который не пробуем
+    Udp(String), // host:port for UDP DNS
+    Doh(String), // full https URL
+    Skip,        // a format we don't probe
 }
 
-// Адрес резолвера приходит из фронта, поэтому цель пробы нужно ограничивать.
-// НО политика здесь намеренно мягче, чем у подписок (subscription.rs): в отличие
-// от URL подписки, адрес DNS — это настройка, которую пользователь вводит сам, и
-// локальный резолвер тут норма (роутер 192.168.x.1, Pi-hole/AdGuard на LAN или
-// loopback, собственный резолвер sing-box). Блокировать их значило бы сломать
-// рабочую конфигурацию.
+// The resolver address comes from the frontend, so the probe target must be restricted.
+// BUT the policy here is deliberately softer than for subscriptions (subscription.rs): unlike
+// a subscription URL, the DNS address is a setting the user enters themselves, and
+// a local resolver is normal here (router 192.168.x.1, Pi-hole/AdGuard on the LAN or
+// loopback, sing-box's own resolver). Blocking them would break
+// a working configuration.
 //
-// Отвергаем только то, что резолвером быть не может и служит классической целью
-// SSRF: link-local (включая cloud-metadata 169.254.169.254), unspecified,
-// multicast и документационные/бенчмарочные диапазоны.
+// We only reject what cannot be a resolver and is a classic
+// SSRF target: link-local (including cloud metadata 169.254.169.254), unspecified,
+// multicast and documentation/benchmark ranges.
 fn is_impossible_resolver_ip(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(ip) => {
@@ -270,22 +270,22 @@ fn parse_target(dns: &str) -> Result<Target, String> {
         reject_forbidden_host(host_of(&host_port))?;
         return Ok(Target::Udp(host_port));
     }
-    // tls/tcp/quic — не пробуем (пробу wire-протокола для них не делаем).
+    // tls/tcp/quic — not probed (we don't implement a wire protocol probe for them).
     if s.contains("://") {
         return Ok(Target::Skip);
     }
-    // Голый host/IP → UDP:53 (как parseDnsAddress в singbox.js).
+    // Bare host/IP → UDP:53 (like parseDnsAddress in singbox.js).
     let host_port = ensure_port(s, 53);
     reject_forbidden_host(host_of(&host_port))?;
     Ok(Target::Udp(host_port))
 }
 
-// Ok = резолвер ответил записями; Err = причина смерти (уходит фронту в detail
-// для console-диагностики — bool терял её, и «почему dead» было не выяснить).
+// Ok = the resolver answered with records; Err = the cause of death (goes to the frontend in detail
+// for console diagnostics — a bool lost it, and "why dead" could not be figured out).
 async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> Result<(), String> {
-    // Один общий deadline включает системный resolve и все полученные адреса.
-    // Иначе lookup_host был безлимитным, а каждый IPv4/IPv6 адрес получал ещё
-    // полный timeout — заявленные 4 секунды превращались в N×4 секунд.
+    // One shared deadline covers the system resolve and all returned addresses.
+    // Otherwise lookup_host was unbounded, and every IPv4/IPv6 address got another
+    // full timeout — the declared 4 seconds turned into N×4 seconds.
     let deadline = tokio::time::Instant::now() + timeout;
     let addresses: Vec<_> = tokio::time::timeout_at(deadline, tokio::net::lookup_host(host_port))
         .await
@@ -295,9 +295,9 @@ async fn probe_udp(host_port: &str, query: &[u8], timeout: Duration) -> Result<(
     if addresses.is_empty() {
         return Err(format!("resolve {host_port}: no addresses"));
     }
-    // Имя могло разрешиться в диапазон, где резолвера быть не может (например в
-    // cloud-metadata 169.254.169.254). Отвергаем весь ответ, а не только первый
-    // адрес: иначе достаточно подмешать один такой A-record.
+    // The name could resolve into a range where a resolver cannot be (e.g. into
+    // cloud metadata 169.254.169.254). We reject the whole answer, not just the first
+    // address: otherwise mixing in a single such A record would be enough.
     if addresses
         .iter()
         .any(|address| is_impossible_resolver_ip(address.ip()))
@@ -334,27 +334,27 @@ async fn probe_udp_addr(address: std::net::SocketAddr, query: &[u8]) -> Result<(
         .await
         .map_err(|e| format!("connect: {e}"))?;
     sock.send(query).await.map_err(|e| format!("send: {e}"))?;
-    // 512 — потолок ответа для запроса БЕЗ EDNS0 (наш случай), но встречаются
-    // резолверы, которые его не соблюдают. На Windows датаграмма больше буфера
-    // не обрезается молча, как на unix, а роняет `recv` в WSAEMSGSIZE — то есть
-    // живой, но многословный резолвер получал вердикт «dead». Берём с запасом.
+    // 512 is the response ceiling for a query WITHOUT EDNS0 (our case), but there are
+    // resolvers that don't respect it. On Windows a datagram larger than the buffer
+    // isn't silently truncated as on unix, but fails `recv` with WSAEMSGSIZE — so
+    // a live but verbose resolver got the "dead" verdict. We take it with headroom.
     let mut buf = [0u8; 4096];
     match sock.recv(&mut buf).await {
         Ok(n) => {
             let resp = &buf[..n];
-            // Ответ обязан эхо-нуть transaction id и исходный question, нести
-            // QR-бит и успешный RCODE — иначе залётный/ошибочный пакет не должен
-            // «оживлять» мёртвый резолвер.
+            // The response must echo the transaction id and the original question, carry
+            // the QR bit and a successful RCODE — otherwise a stray/erroneous packet must not
+            // "revive" a dead resolver.
             validate_dns_response(resp, query)
         }
         Err(e) => Err(format!("recv: {e}")),
     }
 }
 
-// ⚠️ DoH-серверы (Quad9, Yandex) ТРЕБУЮТ HTTP/2: на HTTP/1.1 Quad9 отдаёт 505,
-// Yandex рвёт соединение. Поэтому reqwest в Cargo.toml собран с фичей "http2" —
-// без неё эта проба хоронила ЛЮБОЙ живой DoH (watchdog спамил фолбэком). Если
-// урезаешь фичи reqwest — http2 не трогать.
+// ⚠️ DoH servers (Quad9, Yandex) REQUIRE HTTP/2: on HTTP/1.1 Quad9 returns 505,
+// Yandex drops the connection. That's why reqwest in Cargo.toml is built with the "http2" feature —
+// without it this probe buried ANY live DoH (the watchdog spammed the fallback). If
+// you trim reqwest features — leave http2 alone.
 async fn probe_doh(url: &str, query: &[u8], timeout: Duration) -> Result<(), String> {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     let b64 = URL_SAFE_NO_PAD.encode(query);
@@ -364,12 +364,12 @@ async fn probe_doh(url: &str, query: &[u8], timeout: Duration) -> Result<(), Str
         format!("{url}?dns={b64}")
     };
     let client = crate::util::direct_client_builder()
-        // connect не длиннее общего бюджета (раньше connect 3с > timeout 2.5с).
+        // connect is no longer than the overall budget (previously connect 3 s > timeout 2.5 s).
         .connect_timeout(timeout.min(Duration::from_secs(3)))
         .timeout(timeout)
-        // DoH-резолверу нечего перенаправлять. Автоматические редиректы reqwest
-        // обходили бы проверку адреса: следующий хоп никем не валидируется и
-        // может увести пробу во внутреннюю сеть.
+        // A DoH resolver has nothing to redirect. Automatic reqwest redirects
+        // would bypass the address check: the next hop is validated by nobody and
+        // can lead the probe into the internal network.
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| format!("client: {e}"))?;
@@ -390,14 +390,14 @@ async fn probe_doh(url: &str, query: &[u8], timeout: Duration) -> Result<(), Str
 #[derive(serde::Serialize)]
 pub struct DnsProbeResult {
     pub status: &'static str, // "ok" | "dead" | "skip"
-    /// Причина при "dead" — фронт пишет её в console для диагностики.
+    /// The reason for "dead" — the frontend writes it to the console for diagnostics.
     pub detail: Option<String>,
 }
 
-/// Пробует зарезолвить `host` через резолвер `dns`. status:
-///   "ok"   — резолвер ответил записями (жив);
-///   "dead" — не ответил в срок / ошибка (detail = причина);
-///   "skip" — формат резолвера пробой не покрыт (tls/tcp/quic/local) — не трогаем.
+/// Tries to resolve `host` through the resolver `dns`. status:
+///   "ok"   — the resolver answered with records (alive);
+///   "dead" — didn't answer in time / error (detail = reason);
+///   "skip" — the resolver format isn't covered by the probe (tls/tcp/quic/local) — left alone.
 #[tauri::command]
 pub async fn dns_probe(
     dns: String,
@@ -448,7 +448,7 @@ mod tests {
         // header(12) + 7(example) + 3(com) + 1(root) + qtype(2) + qclass(2)
         assert_eq!(q.len(), 12 + (1 + 7) + (1 + 3) + 1 + 2 + 2);
         assert_eq!(&q[4..6], &1u16.to_be_bytes()); // qdcount=1
-        assert_eq!(q[12], 7); // первый label "example"
+        assert_eq!(q[12], 7); // first label "example"
     }
 
     #[test]
@@ -458,8 +458,8 @@ mod tests {
         assert!(build_dns_query(&format!("{}.example", "a".repeat(64))).is_err());
     }
 
-    // TC=1 значит «не поместилось в UDP, повтори по TCP»: резолвер ответил, то
-    // есть жив. Прежде такой ответ шёл в «dead» и уводил watchdog на резерв.
+    // TC=1 means "didn't fit into UDP, retry over TCP": the resolver answered, so
+    // it is alive. Previously such a response went to "dead" and sent the watchdog to the fallback.
     #[test]
     fn a_truncated_answer_still_proves_the_resolver_is_alive() {
         let query = build_dns_query("example.com").unwrap();
@@ -468,7 +468,7 @@ mod tests {
         truncated[6..8].copy_from_slice(&0u16.to_be_bytes()); // ANCOUNT=0
         assert!(validate_dns_response(&truncated, &query).is_ok());
 
-        // Без TC пустой ответ по-прежнему не является подтверждением.
+        // Without TC an empty answer is still not a confirmation.
         let mut empty = valid_response(&query);
         empty[6..8].copy_from_slice(&0u16.to_be_bytes());
         assert!(validate_dns_response(&empty, &query).is_err());
@@ -480,7 +480,7 @@ mod tests {
         resp[6] = 0;
         resp[7] = 3;
         assert_eq!(answer_count(&resp), 3);
-        assert_eq!(answer_count(&[0, 0]), 0); // короткий ответ
+        assert_eq!(answer_count(&[0, 0]), 0); // short answer
     }
 
     #[test]
@@ -501,9 +501,9 @@ mod tests {
         assert!(matches!(parse_target(""), Ok(Target::Skip)));
     }
 
-    // Гейт цели обязан резать классические SSRF-адреса, но НЕ трогать локальные
-    // резолверы: роутер и Pi-hole/AdGuard на LAN — рабочая пользовательская
-    // настройка, а не атака.
+    // The target gate must cut classic SSRF addresses but NOT touch local
+    // resolvers: a router and Pi-hole/AdGuard on the LAN are a legitimate user
+    // setting, not an attack.
     #[test]
     fn probe_target_refuses_only_impossible_resolvers() {
         for dns in [
@@ -521,7 +521,7 @@ mod tests {
                 "{dns} не может быть резолвером и обязан отвергаться"
             );
         }
-        // И публичные, и локальные резолверы остаются рабочими.
+        // Both public and local resolvers keep working.
         for dns in [
             "1.1.1.1",
             "udp://77.88.8.8:53",

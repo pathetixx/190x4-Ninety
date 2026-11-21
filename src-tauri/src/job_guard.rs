@@ -1,34 +1,34 @@
-// Ninety · Job Object как последний рубеж жизненного цикла движков.
+// Ninety · Job Object as the last line of defense in the engine lifecycle.
 //
-// Штатная остановка ядра и мостов идёт через stop_singbox/force_cleanup: PID
-// сверяется по времени создания, порты ждут освобождения bind-пробой. Всё это
-// работает изнутри ЖИВОГО Ninety. Если процесс убили из диспетчера, он словил
-// OOM или упал так, что не дошёл даже до panic-hook, дети остаются жить:
-// sing-box продолжает гнать трафик, а фиксированные порты (mixed 7890, clash
-// 9090) держатся занятыми — следующий старт падает «address already in use».
-// Мостовые порты подбираются свободными, поэтому их сирота не блокирует, но
-// сам мост тоже переживает родителя.
+// Regular shutdown of the core and bridges goes through stop_singbox/force_cleanup: the PID
+// is matched by creation time, ports are waited on with a bind probe. All of this
+// works from inside a LIVE Ninety. If the process was killed from Task Manager, hit
+// OOM or crashed so hard it didn't even reach the panic hook, the children keep living:
+// sing-box keeps pushing traffic, and the fixed ports (mixed 7890, clash
+// 9090) stay occupied — the next start fails with "address already in use".
+// Bridge ports are picked from free ones, so their orphan doesn't block, but
+// the bridge itself also outlives the parent.
 //
-// Job Object с KILL_ON_JOB_CLOSE закрывает это на уровне ядра Windows: когда
-// закрывается последний хэндл job'а — а он закрывается при смерти процесса,
-// какой бы она ни была, — ОС уничтожает все назначенные процессы.
+// A Job Object with KILL_ON_JOB_CLOSE closes this at the Windows kernel level: when
+// the job's last handle is closed — and it is closed when the process dies,
+// however that happens — the OS destroys all assigned processes.
 //
-// Хэндл ОБЯЗАН жить всё время работы приложения: закрытие раньше немедленно
-// убьёт уже назначенные движки. Поэтому он лежит в OnceLock, наружу не
-// отдаётся и никогда не закрывается явно — его освобождает выход процесса.
+// The handle MUST live for the whole app run: closing it earlier would immediately
+// kill the already assigned engines. So it sits in a OnceLock, is never
+// handed out and never closed explicitly — process exit frees it.
 //
-// Job безымянный намеренно: именованный шарился бы между инстансами (portable
-// рядом с установленной сборкой), и выход одного гасил бы движки другого.
+// The job is deliberately unnamed: a named one would be shared between instances (portable
+// next to an installed build), and one exiting would kill the other's engines.
 //
-// 🔴 Сам Ninety.exe в job НЕ входит и входить не должен. Членство наследуется
-// детьми: попади туда контроллер — новый elevated-инстанс при перезапуске через
-// UAC унаследовал бы job, старый процесс сделал бы exit(0), закрылся последний
-// хэндл — и Windows убила бы только что поднятый инстанс. По той же причине вне
-// job'а остаются OTA-установщик и Mullvad Browser: они обязаны пережить выход.
+// 🔴 Ninety.exe itself is NOT in the job and must not be. Membership is inherited
+// by children: if the controller got in there, a new elevated instance on restart via
+// UAC would inherit the job, the old process would do exit(0), the last handle would close —
+// and Windows would kill the freshly started instance. For the same reason the OTA installer
+// and Mullvad Browser stay outside the job: they must survive the exit.
 //
-// Назначаем по PID, а не по хэндлу child: движки ядра запускаются через
-// tauri-plugin-shell, чей CommandChild отдаёт наружу только pid() — хэндла
-// процесса у него нет. Тот же путь, что у prioritize_datapath_process.
+// We assign by PID, not by the child handle: the core engines are launched via
+// tauri-plugin-shell, whose CommandChild only exposes pid() — it has no
+// process handle. The same path as prioritize_datapath_process.
 
 #[cfg(target_os = "windows")]
 mod imp {
@@ -42,8 +42,8 @@ mod imp {
     };
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
-    /// Владелец хэндла job'а. HANDLE не Send/Sync, но этот конкретный хэндл
-    /// неизменяем после создания и живёт до конца процесса.
+    /// Owner of the job handle. HANDLE is not Send/Sync, but this particular handle
+    /// is immutable after creation and lives until the end of the process.
     struct Job(HANDLE);
 
     unsafe impl Send for Job {}
@@ -55,8 +55,8 @@ mod imp {
         unsafe {
             let handle = CreateJobObjectW(None, PCWSTR::null())
                 .map_err(|error| format!("CreateJobObjectW: {error}"))?;
-            // Через структуру целиком, а не присваиванием поля после default():
-            // clippy::field_reassign_with_default гейтит сборку.
+            // Through the whole struct, not by assigning a field after default():
+            // clippy::field_reassign_with_default gates the build.
             let info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
                 BasicLimitInformation: JOBOBJECT_BASIC_LIMIT_INFORMATION {
                     LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -71,8 +71,8 @@ mod imp {
                 std::ptr::addr_of!(info).cast(),
                 size,
             ) {
-                // Job без KILL_ON_JOB_CLOSE бесполезен и при этом продолжал бы
-                // собирать в себя движки — закрываем сразу.
+                // A job without KILL_ON_JOB_CLOSE is useless and would still keep
+                // collecting engines — close it right away.
                 let _ = CloseHandle(handle);
                 return Err(format!("SetInformationJobObject: {error}"));
             }
@@ -80,8 +80,8 @@ mod imp {
         }
     }
 
-    /// Создаёт job один раз за жизнь процесса. Неудача не фатальна: движки
-    /// просто остаются без страховки, как было до этого механизма.
+    /// Creates the job once per process lifetime. Failure isn't fatal: the engines
+    /// simply stay without the safety net, as before this mechanism existed.
     pub fn init() {
         JOB.get_or_init(|| match create() {
             Ok(job) => Some(job),
@@ -92,15 +92,15 @@ mod imp {
         });
     }
 
-    /// Назначает уже запущенный движок в job. Вызывается сразу после spawn.
-    /// Ошибку только логируем: процесс уже работает, и отменять из-за
-    /// отсутствия страховки рабочее подключение незачем.
+    /// Assigns an already running engine to the job. Called right after spawn.
+    /// The error is only logged: the process is already running, and there is no reason to cancel
+    /// a working connection over a missing safety net.
     pub fn bind_pid(pid: u32) {
         let Some(Some(job)) = JOB.get() else {
             return;
         };
         unsafe {
-            // PROCESS_SET_QUOTA | PROCESS_TERMINATE — минимум, который требует
+            // PROCESS_SET_QUOTA | PROCESS_TERMINATE — the minimum required by
             // AssignProcessToJobObject.
             match OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, false, pid) {
                 Ok(handle) => {

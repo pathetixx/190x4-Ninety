@@ -1,32 +1,32 @@
-// Ninety · обновление Full Portable в один клик.
+// Ninety · one-click Full Portable update.
 //
-// Установленная сборка обновляется NSIS-установщиком через updater-плагин, а
-// распакованная копия раньше только открывала страницу релиза: скачать ZIP,
-// закрыть Ninety, распаковать поверх, запустить заново — руками.
+// The installed build is updated by the NSIS installer through the updater plugin, while
+// the unpacked copy used to only open the release page: download the ZIP,
+// close Ninety, unpack over it, start again — by hand.
 //
-// Теперь updater-плагин с отдельной целью `windows-x86_64-portable` качает ZIP
-// и проверяет его minisign-подпись тем же ключом, что и установщик (запись
-// цели в latest.json добавляет build.yml). Архив распаковывается в staging
-// внутри папки программы — тот же том, поэтому замена идёт переименованием.
-// После остановки движков каждый файл программы отодвигается в `*.ninety-old`
-// (Windows разрешает переименовать даже запущенный exe), на его место встаёт
-// новый; любая ошибка откатывает уже сделанное. Затем стартует новый
-// Ninety.exe, а этот процесс завершается. Следующий запуск подчищает
-// `*.ninety-old` и staging. NinetyData в архив не входит и не трогается.
+// Now the updater plugin with a separate `windows-x86_64-portable` target downloads the ZIP
+// and verifies its minisign signature with the same key as the installer (the target
+// entry in latest.json is added by build.yml). The archive is unpacked into staging
+// inside the program folder — the same volume, so the replacement is done by renaming.
+// After the engines stop, every program file is moved aside to `*.ninety-old`
+// (Windows allows renaming even a running exe), and the new one takes its place;
+// any error rolls back what has already been done. Then the new
+// Ninety.exe starts, and this process exits. The next launch cleans up
+// `*.ninety-old` and staging. NinetyData is not in the archive and is not touched.
 //
-// До первого переименования план замены пишется в журнал рядом с папкой
-// staging. Если процесс убит или пропало питание посреди замены, следующий
-// запуск сначала откатывает по журналу уже переставленные файлы и только потом
-// убирает резервные копии — иначе осталась бы смесь двух версий без пути назад.
+// Before the first rename, the replacement plan is written to a journal next to the
+// staging folder. If the process is killed or power is lost mid-replacement, the next
+// launch first rolls back the already swapped files according to the journal and only then
+// removes the backups — otherwise a mix of two versions would remain with no way back.
 //
-// Portable 0.15.0–0.16.0 по ошибке ставил обновление в NinetyData, а не в
-// папку программы: новая версия запускалась из `NinetyData\Ninety.exe` и
-// открывала пустое `NinetyData\NinetyData`. Обновление применяет код старой
-// версии, поэтому каждое следующее уходило на уровень глубже. Исправленная
-// версия, запущенная из такой копии, переносит себя в исходную папку и
-// перезапускается оттуда (`repair_nested_install`), а та на старте убирает
-// файлы программы из NinetyData и откладывает данные, созданные во вложенных
-// копиях, в `NinetyData.recovered-*` (`cleanup_nested_layers`).
+// Portable 0.15.0–0.16.0 mistakenly installed updates into NinetyData instead of
+// the program folder: the new version started from `NinetyData\Ninety.exe` and
+// opened an empty `NinetyData\NinetyData`. The update is applied by the old version's code,
+// so every following one went one level deeper. The fixed
+// version, started from such a copy, moves itself to the original folder and
+// restarts from there (`repair_nested_install`), and that one at startup removes
+// the program files from NinetyData and sets aside data created in nested
+// copies into `NinetyData.recovered-*` (`cleanup_nested_layers`).
 
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
@@ -44,14 +44,14 @@ const README: &str = "README.txt";
 const RECOVERED_PREFIX: &str = "NinetyData.recovered-";
 const REPAIR_DIR: &str = ".ninety-repair";
 const LOCK_FILE: &str = ".ninety-update.lock";
-/// Журнал замены файлов программы (см. `Journal`). Вне staging: staging целиком
-/// чистят stage_archive и уборка.
+/// Program file replacement journal (see `Journal`). Outside staging: staging is wiped
+/// entirely by stage_archive and the cleanup.
 const JOURNAL_FILE: &str = ".ninety-update.journal";
 const JOURNAL_VERSION: u32 = 1;
-/// Верхний уровень Full Portable — всё, что кладёт туда
-/// scripts/package-portable.ps1 (сверяется тестом). Только эти имена ремонт
-/// переносит из вложенной копии и убирает из NinetyData: рядом с ними там
-/// лежат config/data/logs/webview пользователя.
+/// The top level of Full Portable — everything that
+/// scripts/package-portable.ps1 puts there (checked by a test). Only these names are moved by the repair
+/// from a nested copy and removed from NinetyData: next to them there
+/// lie the user's config/data/logs/webview.
 const PROGRAM_ENTRIES: [&str; 10] = [
     MAIN_EXE,
     "sing-box.exe",
@@ -67,14 +67,14 @@ const PROGRAM_ENTRIES: [&str; 10] = [
 const MAX_ENTRIES: usize = 20_000;
 const MAX_UNPACKED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
-/// Общий дедлайн скачивания ZIP — тот же, что фронт даёт установщику
-/// (`UPDATE_DOWNLOAD_TIMEOUT_MS` в update-modal.js). Фронт передаёт его сам;
-/// границы защищают от нуля и от «бесконечности».
+/// Overall ZIP download deadline — the same the frontend gives the installer
+/// (`UPDATE_DOWNLOAD_TIMEOUT_MS` in update-modal.js). The frontend passes it itself;
+/// the bounds protect against zero and "infinity".
 const DOWNLOAD_TIMEOUT_MS: u64 = 15 * 60_000;
 const MIN_DOWNLOAD_TIMEOUT_MS: u64 = 30_000;
 const MAX_DOWNLOAD_TIMEOUT_MS: u64 = 60 * 60_000;
-/// Ключ каталога для «в latest.json уже другая версия»: update-modal.js узнаёт
-/// этот токен и ведёт его тем же путём, что и смену версии у установщика.
+/// Catalog key for "latest.json already has a different version": update-modal.js recognizes
+/// this token and handles it the same way as a version change for the installer.
 const VERSION_CHANGED_KEY: &str = "updModal.versionChanged";
 
 #[derive(Clone, Serialize)]
@@ -91,8 +91,8 @@ pub enum PortableUpdateEvent {
     Finished,
 }
 
-/// Файл из плана замены: путь внутри папки программы и резервная копия, в
-/// которую отодвигается прежний файл (None — прежнего файла не было).
+/// A file from the replacement plan: the path inside the program folder and the backup to
+/// which the previous file is moved aside (None — there was no previous file).
 pub struct Applied {
     rel: PathBuf,
     old: Option<PathBuf>,
@@ -122,8 +122,8 @@ fn first_component(path: &Path) -> Option<&std::ffi::OsStr> {
     }
 }
 
-/// Путь файла программы внутри архива: только обычные компоненты, без данных
-/// пользователя, staging и наших `*.ninety-old`.
+/// Program file path inside the archive: only regular components, no user
+/// data, staging or our `*.ninety-old`.
 fn safe_program_path(rel: &Path) -> bool {
     if rel.as_os_str().is_empty() {
         return false;
@@ -143,8 +143,8 @@ fn safe_program_path(rel: &Path) -> bool {
     !rel.to_string_lossy().contains(OLD_MARKER)
 }
 
-/// Архив собирается из папки `Ninety\`: если все файлы лежат под одной общей
-/// папкой верхнего уровня, она снимается.
+/// The archive is built from the `Ninety\` folder: if all files are under one common
+/// top-level folder, it is stripped.
 fn common_root(paths: &[PathBuf]) -> Option<PathBuf> {
     let first = first_component(paths.first()?)?;
     let shared = paths
@@ -153,12 +153,12 @@ fn common_root(paths: &[PathBuf]) -> Option<PathBuf> {
     shared.then(|| PathBuf::from(first))
 }
 
-/// Распаковывает подписанный (уже проверенный плагином) ZIP в staging.
+/// Unpacks the signed (already verified by the plugin) ZIP into staging.
 pub fn stage_archive(root: &Path, version: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     validate_version(version)?;
-    // Staging прерванной замены — материал для её отката: сначала довести её,
-    // иначе очистка ниже уничтожила бы его, а откат переставил бы старые файлы
-    // поверх только что распакованных.
+    // The staging of an interrupted replacement is material for rolling it back: finish it first,
+    // otherwise the cleanup below would destroy it, and the rollback would put old files
+    // over the freshly unpacked ones.
     finish_interrupted(root)?;
     let staging_root = root.join(STAGING_DIR);
     if staging_root.exists() {
@@ -259,16 +259,16 @@ fn old_path_for(target: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("bad target path {target:?}"))?
         .to_string_lossy()
         .into_owned();
-    // Прежний `*.ninety-old` мог остаться занятым (старый процесс ещё жив):
-    // тогда берём следующее свободное имя, а не падаем.
+    // A previous `*.ninety-old` may still be locked (the old process is still alive):
+    // then we take the next free name instead of failing.
     for n in 0..10 {
         let candidate = if n == 0 {
             target.with_file_name(format!("{name}{OLD_MARKER}"))
         } else {
             target.with_file_name(format!("{name}{OLD_MARKER}-{n}"))
         };
-        // Битая ссылка с таким именем для exists() «не существует», но
-        // переименованию мешает и откату показалась бы резервной копией.
+        // A broken link with this name "doesn't exist" for exists(), but
+        // it gets in the way of renaming and would look like a backup to the rollback.
         if !present(&candidate) || std::fs::remove_file(&candidate).is_ok() {
             return Ok(candidate);
         }
@@ -276,9 +276,9 @@ fn old_path_for(target: &Path) -> Result<PathBuf, String> {
     Err(format!("no free backup name for {}", target.display()))
 }
 
-/// Есть ли что-то по пути (ссылка — сама, без перехода). Любая ошибка, кроме
-/// «нет такого файла», считается присутствием: откат тогда попробует
-/// переименовать и честно не сможет, а не пропустит файл молча.
+/// Whether something is at the path (a link itself, without following it). Any error other than
+/// "no such file" counts as presence: the rollback will then try to
+/// rename and honestly fail, rather than silently skip the file.
 fn present(path: &Path) -> bool {
     match std::fs::symlink_metadata(path) {
         Ok(_) => true,
@@ -286,8 +286,8 @@ fn present(path: &Path) -> bool {
     }
 }
 
-/// Переставляет один файл плана. Оба переименования идут подряд, без другой
-/// работы между ними: для Ninety.exe это окно, когда exe на месте нет.
+/// Swaps one plan file. Both renames go back to back, with no other
+/// work between them: for Ninety.exe this is the window when the exe isn't in place.
 fn apply_one(root: &Path, staging: &Path, item: &Applied) -> Result<(), String> {
     let target = root.join(&item.rel);
     let staged = staging.join(&item.rel);
@@ -296,11 +296,11 @@ fn apply_one(root: &Path, staging: &Path, item: &Applied) -> Result<(), String> 
     }
     if let Some(old) = &item.old {
         if item.rel == Path::new(PORTABLE_MARKER) {
-            // Без маркера Ninety стартует как установленная версия и до отката
-            // по журналу не доходит. Маркер никто не держит открытым, поэтому
-            // резервная копия — копированием, а ниже он заменяется атомарно:
-            // маркер не пропадает ни на миг. Откату всё равно, копия это или
-            // перенос: в резервной копии в обоих случаях прежнее содержимое.
+            // Without the marker Ninety starts as the installed version and never gets to
+            // the journal rollback. Nobody keeps the marker open, so
+            // the backup is made by copying, and below it is replaced atomically:
+            // the marker never disappears even for an instant. The rollback doesn't care whether it's a copy or
+            // a move: in both cases the backup holds the previous contents.
             std::fs::copy(&target, old)
                 .map_err(|e| format!("back up {}: {e}", item.rel.display()))?;
         } else {
@@ -317,14 +317,14 @@ fn apply_one(root: &Path, staging: &Path, item: &Applied) -> Result<(), String> 
     Ok(())
 }
 
-/// Файл уже стоит в новой версии: сделаны оба переименования. У маркера
-/// резервная копия появляется раньше замены, но он и не последний в плане:
-/// «заменено всё» требует Ninety.exe, а тот ставится после маркера.
+/// The file is already at the new version: both renames are done. The marker's
+/// backup appears before the replacement, but it isn't last in the plan either:
+/// "everything replaced" requires Ninety.exe, and that one is installed after the marker.
 fn is_applied(root: &Path, item: &Applied) -> bool {
     present(&root.join(&item.rel)) && item.old.as_deref().is_none_or(present)
 }
 
-/// Отодвигает новый файл обратно в staging. true — на месте его больше нет.
+/// Moves the new file back into staging. true — it is no longer in place.
 fn move_to_staging(root: &Path, staging: &Path, rel: &Path) -> bool {
     let target = root.join(rel);
     if !present(&target) {
@@ -337,9 +337,9 @@ fn move_to_staging(root: &Path, staging: &Path, rel: &Path) -> bool {
     std::fs::rename(&target, &staged).is_ok()
 }
 
-/// Возвращает один файл на прежнюю версию. Повторный вызов безопасен: если
-/// резервной копии уже нет (замена этого файла не начиналась или уже
-/// откачена), файл не трогается. true — замены этого файла на диске больше нет.
+/// Returns one file to the previous version. Calling it again is safe: if
+/// the backup is already gone (replacement of this file didn't start or has already been
+/// rolled back), the file isn't touched. true — this file's replacement is no longer on disk.
 fn rollback_one(root: &Path, staging: &Path, item: &Applied) -> bool {
     let Some(old) = &item.old else {
         return move_to_staging(root, staging, &item.rel);
@@ -347,16 +347,16 @@ fn rollback_one(root: &Path, staging: &Path, item: &Applied) -> bool {
     if !present(old) {
         return true;
     }
-    // Прежний файл встаёт поверх нового одним переименованием: ни мгновения
-    // без файла на месте (без маркера Ninety не узнал бы себя portable на
-    // следующем старте). Занятый новый файл так не заменить — его сначала
-    // отодвигаем в staging.
+    // The previous file goes over the new one with a single rename: not a moment
+    // without a file in place (without the marker Ninety wouldn't recognize itself as portable on
+    // the next start). A locked new file can't be replaced this way — it is first
+    // moved aside into staging.
     let target = root.join(&item.rel);
     std::fs::rename(old, &target).is_ok()
         || (move_to_staging(root, staging, &item.rel) && std::fs::rename(old, &target).is_ok())
 }
 
-/// Есть ли ссылка среди уже существующих компонентов пути `root\rel`.
+/// Whether there is a link among the already existing components of the path `root\rel`.
 fn target_crosses_link(root: &Path, rel: &Path) -> bool {
     let mut current = root.to_path_buf();
     if crate::app_paths::is_link(&current) {
@@ -368,16 +368,16 @@ fn target_crosses_link(root: &Path, rel: &Path) -> bool {
     })
 }
 
-/// Возвращает файлы плана на прежнюю версию в обратном порядке. Журнал сперва
-/// переводится в «откат»: оборвись откат — следующий старт доведёт его, а не
-/// примет замену за завершённую. Файлы, замена которых не начиналась,
-/// пропускаются, поэтому передавать можно весь план. true — откат полный и
-/// журнала больше нет; false — часть файлов вернуть не удалось, журнал и
-/// резервные копии остаются для следующей попытки.
+/// Returns the plan's files to the previous version in reverse order. The journal is first
+/// switched to "rollback": if the rollback breaks off, the next start finishes it rather than
+/// taking the replacement as completed. Files whose replacement didn't start
+/// are skipped, so the whole plan can be passed. true — the rollback is complete and
+/// the journal is gone; false — some files couldn't be restored, the journal and
+/// backups stay for the next attempt.
 pub fn rollback(root: &Path, staging: &Path, applied: &[Applied]) -> bool {
-    // Без отметки «откат» оборванный откат выглядел бы для следующего старта
-    // как завершённая замена, и уборка удалила бы последние резервные копии.
-    // Не записалась — файлы не трогаем: журнал, staging и копии остаются.
+    // Without the "rollback" mark, an interrupted rollback would look to the next start
+    // like a completed replacement, and the cleanup would delete the last backups.
+    // If it didn't get written, we don't touch the files: the journal, staging and copies remain.
     if let Err(error) = write_journal(root, staging, JournalState::RollingBack, applied) {
         eprintln!("portable update: {error}");
         return false;
@@ -389,9 +389,9 @@ pub fn rollback(root: &Path, staging: &Path, applied: &[Applied]) -> bool {
     restored && remove_journal(root)
 }
 
-/// План замены: файлы staging (Ninety.exe — последним) и имена их резервных
-/// копий. Всё проверяется и выбирается до первого переименования: журнал
-/// получает план целиком, а между переименованиями Ninety.exe нет лишней работы.
+/// Replacement plan: staging files (Ninety.exe last) and the names of their
+/// backups. Everything is checked and chosen before the first rename: the journal
+/// gets the whole plan, and there is no extra work between the Ninety.exe renames.
 fn plan_replacement(root: &Path, staging: &Path) -> Result<Vec<Applied>, String> {
     let mut files = Vec::new();
     list_files(staging, staging, &mut files)?;
@@ -401,13 +401,13 @@ fn plan_replacement(root: &Path, staging: &Path) -> Result<Vec<Applied>, String>
     if let Some(bad) = files.iter().find(|f| !safe_program_path(f)) {
         return Err(format!("unexpected staged path: {}", bad.display()));
     }
-    // Ссылка или junction на пути назначения увела бы замену в чужие файлы
-    // (например, `flags` → NinetyData\config). Проверяем всё до первой замены.
+    // A link or junction on the destination path would lead the replacement into foreign files
+    // (e.g. `flags` → NinetyData\config). We check everything before the first replacement.
     if let Some(bad) = files.iter().find(|f| target_crosses_link(root, f)) {
         return Err(format!("link on update path: {}", bad.display()));
     }
-    // Ninety.exe — последним: пока он не заменён, прежняя версия цела и
-    // запускается, даже если процесс оборвётся посреди замены.
+    // Ninety.exe goes last: until it is replaced, the previous version is intact and
+    // starts, even if the process breaks off mid-replacement.
     files.sort_by_key(|f| f == Path::new(MAIN_EXE));
     let mut plan = Vec::with_capacity(files.len());
     for rel in files {
@@ -422,16 +422,16 @@ fn plan_replacement(root: &Path, staging: &Path) -> Result<Vec<Applied>, String>
     Ok(plan)
 }
 
-/// Журнал замены файлов программы. План целиком (пути и имена резервных
-/// копий) пишется до первого переименования, поэтому дописывать его после
-/// каждого файла не нужно: докуда дошла замена, видно по самим файлам —
-/// резервная копия появляется только в apply_one, а её имя выбрано свободным
-/// заранее.
+/// Program file replacement journal. The whole plan (paths and backup
+/// names) is written before the first rename, so it doesn't need to be appended after
+/// every file: how far the replacement got is visible from the files themselves —
+/// a backup appears only in apply_one, and its name is chosen as free
+/// in advance.
 #[derive(Serialize, Deserialize)]
 struct Journal {
     version: u32,
     state: JournalState,
-    /// Staging относительно папки программы, через `/`.
+    /// Staging relative to the program folder, with `/`.
     staging: String,
     files: Vec<JournalEntry>,
 }
@@ -439,23 +439,23 @@ struct Journal {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 enum JournalState {
-    /// Идёт замена. Оборвалась на полпути — старт откатит её.
+    /// Replacement in progress. If it broke off halfway, the start will roll it back.
     Applying,
-    /// Заменены все файлы, осталась уборка.
+    /// All files replaced, only the cleanup is left.
     Complete,
-    /// Начат откат (замена упала или новый exe не стартовал) — старт доведёт.
+    /// Rollback started (the replacement failed or the new exe didn't start) — the start will finish it.
     RollingBack,
 }
 
 #[derive(Serialize, Deserialize)]
 struct JournalEntry {
-    /// Путь файла в папке программы, через `/`.
+    /// File path in the program folder, with `/`.
     rel: String,
-    /// Имя резервной копии рядом с файлом; None — файла раньше не было.
+    /// Backup name next to the file; None — the file didn't exist before.
     old: Option<String>,
 }
 
-/// Относительный путь для журнала: только обычные компоненты, через `/`.
+/// Relative path for the journal: only regular components, with `/`.
 fn journal_rel(path: &Path) -> Option<String> {
     let parts = path
         .components()
@@ -502,8 +502,8 @@ fn write_journal(
     crate::atomic_file::write_bytes_replace(&root.join(JOURNAL_FILE), &body, "update journal")
 }
 
-/// Журнал, прочитанный с диска, с путями, проверенными так же строго, как
-/// пути из архива: по нему переименовываются файлы.
+/// A journal read from disk, with paths validated as strictly as
+/// paths from the archive: files are renamed based on it.
 struct LoadedJournal {
     state: JournalState,
     staging: PathBuf,
@@ -534,7 +534,7 @@ fn parse_journal(root: &Path, raw: &[u8]) -> Option<LoadedJournal> {
         }
         let old = match entry.old {
             Some(name) => {
-                // Только `<имя файла>.ninety-old[-N]` рядом с самим файлом.
+                // Only `<file name>.ninety-old[-N]` next to the file itself.
                 let own = rel.file_name()?.to_str()?;
                 let backup = name
                     .strip_prefix(own)
@@ -556,7 +556,7 @@ fn parse_journal(root: &Path, raw: &[u8]) -> Option<LoadedJournal> {
     })
 }
 
-/// Убирает журнал. true — его больше нет.
+/// Removes the journal. true — it is gone.
 fn remove_journal(root: &Path) -> bool {
     match std::fs::remove_file(root.join(JOURNAL_FILE)) {
         Ok(()) => true,
@@ -564,19 +564,19 @@ fn remove_journal(root: &Path) -> bool {
     }
 }
 
-/// Временный файл атомарной записи журнала, оставшийся после обрыва
-/// (`..ninety-update.journal.<pid>.<n>.tmp`, см. atomic_file).
+/// Temporary file of the atomic journal write left behind after a break
+/// (`..ninety-update.journal.<pid>.<n>.tmp`, see atomic_file).
 fn is_journal_temp(name: &str) -> bool {
     name.strip_prefix('.')
         .and_then(|rest| rest.strip_prefix(JOURNAL_FILE))
         .is_some_and(|rest| rest.starts_with('.') && rest.ends_with(".tmp"))
 }
 
-/// Доводит замену, оборванную на прошлом запуске (убитый процесс, питание):
-/// по журналу либо признаёт её завершённой, либо откатывает. Ok — журнала
-/// больше нет, и `*.ninety-old`/staging можно убирать. Err — откатить не
-/// вышло (файл занят): журнал, резервные копии и staging остаются до
-/// следующей попытки. Вызывается под UpdateLock.
+/// Finishes a replacement interrupted on the previous launch (killed process, power loss):
+/// based on the journal it either accepts it as completed or rolls it back. Ok — the journal
+/// is gone, and `*.ninety-old`/staging can be cleaned up. Err — the rollback
+/// failed (a file is locked): the journal, backups and staging stay until
+/// the next attempt. Called under UpdateLock.
 fn finish_interrupted(root: &Path) -> Result<(), String> {
     let raw = match std::fs::read(root.join(JOURNAL_FILE)) {
         Ok(raw) => raw,
@@ -584,8 +584,8 @@ fn finish_interrupted(root: &Path) -> Result<(), String> {
         Err(error) => return Err(format!("read update journal: {error}")),
     };
     let Some(journal) = parse_journal(root, &raw) else {
-        // Журнал пишется атомарно, так что испорченный — чужая правка; откатить
-        // по нему нечего, дальше уборка как без журнала.
+        // The journal is written atomically, so a corrupted one is someone else's edit; there is nothing
+        // to roll back based on it, the cleanup continues as without a journal.
         eprintln!("portable update: ignoring invalid update journal");
         return if remove_journal(root) {
             Ok(())
@@ -593,8 +593,8 @@ fn finish_interrupted(root: &Path) -> Result<(), String> {
             Err("remove invalid update journal".into())
         };
     };
-    // Обе перестановки сделаны для каждого файла — замена дошла до конца, просто
-    // не успела отметить это в журнале: откат здесь сломал бы новую версию.
+    // Both swaps are done for every file — the replacement reached the end, it just
+    // didn't get to mark that in the journal: a rollback here would break the new version.
     let finished = journal.state == JournalState::Complete
         || (journal.state == JournalState::Applying
             && journal.plan.iter().all(|item| is_applied(root, item)));
@@ -610,15 +610,15 @@ fn finish_interrupted(root: &Path) -> Result<(), String> {
     }
 }
 
-/// Ставит staging на место программы. При ошибке всё уже сделанное откатывается
-/// и возвращается Err; при успехе — план для отката, если не стартует новый exe.
+/// Puts staging in place of the program. On error everything already done is rolled back
+/// and Err is returned; on success — a plan for rolling back if the new exe doesn't start.
 pub fn apply_staged(root: &Path, staging: &Path) -> Result<Vec<Applied>, String> {
-    // Резервные копии прерванной замены — единственный путь назад: сначала
-    // довести её, иначе old_path_for удалил бы их как устаревшие.
+    // The backups of an interrupted replacement are the only way back: finish
+    // it first, otherwise old_path_for would delete them as outdated.
     finish_interrupted(root)?;
     let plan = plan_replacement(root, staging)?;
-    // Журнал — до первого переименования: оборвись замена, следующий старт
-    // откатит её по нему.
+    // The journal comes before the first rename: if the replacement breaks off, the next start
+    // rolls it back based on it.
     write_journal(root, staging, JournalState::Applying, &plan)?;
     for item in &plan {
         if let Err(error) = apply_one(root, staging, item) {
@@ -626,15 +626,15 @@ pub fn apply_staged(root: &Path, staging: &Path) -> Result<Vec<Applied>, String>
             return Err(error);
         }
     }
-    // Не записалась отметка — не беда: старт увидит, что заменены все файлы.
+    // If the mark didn't get written, no big deal: the start will see that all files are replaced.
     if let Err(error) = write_journal(root, staging, JournalState::Complete, &plan) {
         eprintln!("portable update: {error}");
     }
     Ok(plan)
 }
 
-/// Резервная копия, которую оставляет `old_path_for`: `имя.ninety-old` или
-/// `имя.ninety-old-N`. Подстроки мало: такое имя может быть у файла юзера.
+/// The backup left by `old_path_for`: `name.ninety-old` or
+/// `name.ninety-old-N`. A substring isn't enough: a user file may have such a name.
 fn is_backup_name(name: &str) -> bool {
     match name.rfind(OLD_MARKER) {
         Some(at) => {
@@ -649,7 +649,7 @@ fn is_backup_name(name: &str) -> bool {
     }
 }
 
-/// Резервная копия файла программы верхнего уровня (`Ninety.exe.ninety-old`).
+/// Backup of a top-level program file (`Ninety.exe.ninety-old`).
 fn is_program_backup(name: &str) -> bool {
     is_backup_name(name)
         && name.rfind(OLD_MARKER).is_some_and(|at| {
@@ -659,9 +659,9 @@ fn is_program_backup(name: &str) -> bool {
         })
 }
 
-/// Удаляет `*.ninety-old` в папке программы: на верхнем уровне и внутри
-/// каталогов программы (dpi, flags). В NinetyData, recovered и прочие чужие
-/// каталоги не заходит, по ссылкам не ходит.
+/// Deletes `*.ninety-old` in the program folder: at the top level and inside
+/// program directories (dpi, flags). Doesn't go into NinetyData, recovered or other foreign
+/// directories, doesn't follow links.
 fn cleanup_dir(dir: &Path, top: bool) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -691,10 +691,10 @@ fn cleanup_dir(dir: &Path, top: bool) {
     }
 }
 
-/// После обновления: убрать `*.ninety-old` и staging. Ошибки молча пропускаем —
-/// занятый файл удалится на следующем запуске. Прерванная замена сначала
-/// откатывается по журналу: её резервные копии и staging — материал для отката,
-/// и пока откат не удался, ничего не удаляется.
+/// After an update: remove `*.ninety-old` and staging. Errors are silently skipped —
+/// a locked file will be deleted on the next launch. An interrupted replacement is first
+/// rolled back based on the journal: its backups and staging are material for the rollback,
+/// and nothing is deleted until the rollback succeeds.
 pub fn cleanup_leftovers(root: &Path) {
     if let Err(error) = finish_interrupted(root) {
         eprintln!("portable update: {error}");
@@ -709,10 +709,10 @@ pub fn cleanup_leftovers(root: &Path) {
     cleanup_dir(root, true);
 }
 
-/// Межпроцессная блокировка папки программы на время обновления, ремонта и
-/// уборки: ремонт идёт до single-instance, и без неё уборка другого процесса
-/// могла бы удалить staging или резервные копии посреди замены файлов.
-/// Файл открыт без общего доступа и освобождается с процессом.
+/// Inter-process lock of the program folder for the duration of the update, repair and
+/// cleanup: the repair runs before single-instance, and without it another process's cleanup
+/// could delete staging or backups mid-replacement.
+/// The file is opened without sharing and released with the process.
 struct UpdateLock {
     _file: std::fs::File,
 }
@@ -731,10 +731,10 @@ fn try_update_lock(root: &Path) -> Result<UpdateLock, String> {
         .map_err(|e| format!("portable folder is busy: {e}"))
 }
 
-/// Что сделал ремонт на этом запуске: фронт один раз сообщает об этом.
+/// What the repair did on this launch: the frontend reports it once.
 #[derive(Clone, Serialize, Debug, PartialEq, Eq)]
 pub struct RepairReport {
-    /// Папка с данными, введёнными во вложенных копиях, если такие были.
+    /// The folder with data entered in nested copies, if there were any.
     pub recovered: Option<String>,
 }
 
@@ -744,7 +744,7 @@ fn repair_report_slot() -> &'static std::sync::Mutex<Option<RepairReport>> {
     SLOT.get_or_init(|| std::sync::Mutex::new(None))
 }
 
-/// Отчёт о ремонте отдаётся один раз: повторный вызов вернёт None.
+/// The repair report is given out once: a repeated call returns None.
 #[tauri::command]
 pub fn portable_repair_report() -> Option<RepairReport> {
     repair_report_slot()
@@ -753,15 +753,15 @@ pub fn portable_repair_report() -> Option<RepairReport> {
         .take()
 }
 
-/// Уборка на старте portable-сборки. Вызывается из setup(), то есть уже после
-/// single-instance, и под блокировкой папки — синхронно, раньше, чем фронт
-/// успеет начать новое скачивание в staging.
+/// Cleanup at portable build startup. Called from setup(), i.e. after
+/// single-instance, and under the folder lock — synchronously, before the frontend
+/// gets a chance to start a new download into staging.
 pub fn cleanup_on_start() {
     let Ok(root) = crate::app_paths::portable_app_dir() else {
         return;
     };
     if crate::app_paths::nested_portable_origin(&root).is_some() {
-        // Ремонт не удался: уборка здесь удалила бы файлы работающей копии.
+        // The repair failed: the cleanup here would delete the running copy's files.
         return;
     }
     let Ok(_lock) = try_update_lock(&root) else {
@@ -769,8 +769,8 @@ pub fn cleanup_on_start() {
     };
     cleanup_leftovers(&root);
     let report = cleanup_nested_layers(&root);
-    // Каждый запуск, а не только после ремонта: разовая ошибка записи в реестр
-    // иначе навсегда оставила бы схему за удалённым вложенным exe.
+    // Every launch, not only after a repair: a one-off registry write error
+    // would otherwise leave the scheme pointing at the deleted nested exe forever.
     crate::url_handler::refresh_owned_handlers(&root.join(DATA_DIR));
     if let Some(report) = report {
         *repair_report_slot()
@@ -779,8 +779,8 @@ pub fn cleanup_on_start() {
     }
 }
 
-/// Удаляет файл, каталог или ссылку (саму, не заходя внутрь). true — пути
-/// больше нет.
+/// Deletes a file, directory or link (the link itself, without going inside). true — the path
+/// is gone.
 fn remove_entry(path: &Path) -> bool {
     if crate::app_paths::is_link(path) {
         let _ = std::fs::remove_file(path).or_else(|_| std::fs::remove_dir(path));
@@ -799,10 +799,10 @@ fn holds_program(dir: &Path) -> bool {
     dir.join(MAIN_EXE).exists() || dir.join(PORTABLE_MARKER).exists()
 }
 
-/// Убирает из уровня NinetyData файлы программы, которые туда поставило
-/// сломанное обновление. Маркер — только когда всё остальное удалилось: пока
-/// он есть, уровень снова распознаётся, и прерванная уборка продолжится.
-/// true — уровень чист.
+/// Removes program files that the broken update put into the NinetyData level.
+/// The marker goes only when everything else has been deleted: as long as
+/// it exists, the level is recognized again, and an interrupted cleanup continues.
+/// true — the level is clean.
 fn strip_program_files(level: &Path) -> bool {
     let mut clean = remove_entry(&level.join(STAGING_DIR));
     match std::fs::read_dir(level) {
@@ -828,7 +828,7 @@ fn strip_program_files(level: &Path) -> bool {
     clean && remove_entry(&level.join(PORTABLE_MARKER))
 }
 
-/// Есть ли в каталоге файлы. Ошибка чтения — Err: такой каталог не удаляем.
+/// Whether the directory has files. A read error is Err: such a directory isn't deleted.
 fn dir_has_files(dir: &Path) -> Result<bool, String> {
     let mut files = Vec::new();
     list_files(dir, dir, &mut files)?;
@@ -852,11 +852,11 @@ fn recovered_target(root: &Path) -> PathBuf {
         .unwrap_or(base)
 }
 
-/// Чинит NinetyData после сломанного обновления: убирает файлы программы со
-/// всех вложенных уровней и выносит `NinetyData\NinetyData` (данные, введённые
-/// после «сброса») в `NinetyData.recovered-*` рядом с программой. Настоящие
-/// данные в NinetyData остаются основными; вынесенное не сливается само и не
-/// удаляется. Возвращает отчёт, если что-то было исправлено.
+/// Repairs NinetyData after a broken update: removes program files from
+/// all nested levels and moves `NinetyData\NinetyData` (data entered
+/// after the "reset") into `NinetyData.recovered-*` next to the program. The real
+/// data in NinetyData stays primary; what was moved out isn't merged automatically and isn't
+/// deleted. Returns a report if something was fixed.
 pub(crate) fn cleanup_nested_layers(root: &Path) -> Option<RepairReport> {
     let data = root.join(DATA_DIR);
     if !data.is_dir() || crate::app_paths::is_link(&data) {
@@ -879,14 +879,14 @@ pub(crate) fn cleanup_nested_layers(root: &Path) -> Option<RepairReport> {
 
     let inner = data.join(DATA_DIR);
     let mut recovered = None;
-    // Пока на каком-то уровне остались файлы программы (заняты), вложенное не
-    // трогаем: следующий запуск продолжит. Отчёт — только о законченном ремонте.
+    // While program files remain on some level (locked), the nested part isn't
+    // touched: the next launch will continue. The report is only about a finished repair.
     if !all_clean || holds_program(&data) {
         return None;
     }
     if inner.is_dir() && !crate::app_paths::is_link(&inner) {
         repaired = true;
-        // Пустой только по достоверному списку; при ошибке чтения — выносим.
+        // Empty only per a reliable listing; on a read error — move it out.
         if matches!(dir_has_files(&inner), Ok(false)) {
             if !remove_entry(&inner) {
                 return None;
@@ -910,7 +910,7 @@ fn parse_version(value: &str) -> Option<(u64, u64, u64)> {
     parts.next().is_none().then_some(version)
 }
 
-/// Версия из Ninety.portable (`version=X.Y.Z`, пишет package-portable.ps1).
+/// Version from Ninety.portable (`version=X.Y.Z`, written by package-portable.ps1).
 fn marker_version(dir: &Path) -> Option<(u64, u64, u64)> {
     std::fs::read_to_string(dir.join(PORTABLE_MARKER))
         .ok()?
@@ -919,7 +919,7 @@ fn marker_version(dir: &Path) -> Option<(u64, u64, u64)> {
         .and_then(parse_version)
 }
 
-/// Есть ли в дереве ссылка или junction (сам путь тоже проверяется).
+/// Whether the tree contains a link or junction (the path itself is checked too).
 fn tree_has_link(path: &Path) -> bool {
     if crate::app_paths::is_link(path) {
         return true;
@@ -952,7 +952,7 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Копирует в staging только файлы программы из PROGRAM_ENTRIES.
+/// Copies only the program files from PROGRAM_ENTRIES into staging.
 fn copy_program_entries(nested: &Path, staging: &Path) -> Result<(), String> {
     for name in PROGRAM_ENTRIES {
         let src = nested.join(name);
@@ -971,8 +971,8 @@ fn copy_program_entries(nested: &Path, staging: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Копирует программу из вложенной папки в staging исходной. Копия, а не
-/// перенос: из этой папки сейчас запущен exe, а рядом лежат данные.
+/// Copies the program from the nested folder into the original one's staging. A copy, not
+/// a move: the exe is currently running from this folder, and data lies next to it.
 fn stage_nested_program(nested: &Path, origin: &Path) -> Result<PathBuf, String> {
     let staging = origin.join(REPAIR_DIR);
     if crate::app_paths::is_link(&staging) {
@@ -989,10 +989,10 @@ fn stage_nested_program(nested: &Path, origin: &Path) -> Result<PathBuf, String>
     Ok(staging)
 }
 
-/// Ставит программу из вложенной копии в исходную папку. Ok(false) — в
-/// исходной папке уже более новая версия, её не понижаем. Если версию одной
-/// из сторон прочитать нельзя или в назначении есть ссылка, автоматически
-/// ничего не меняем.
+/// Installs the program from the nested copy into the original folder. Ok(false) — the
+/// original folder already has a newer version, we don't downgrade it. If the version of either
+/// side can't be read or the destination contains a link, nothing is
+/// changed automatically.
 pub(crate) fn promote_nested(
     nested: &Path,
     origin: &Path,
@@ -1020,11 +1020,11 @@ pub(crate) fn promote_nested(
     }
 }
 
-/// Первое, что делает Ninety на старте (после подтверждённого выхода прежнего
-/// процесса и до single-instance). Если exe запущен из вложенной копии,
-/// переносит программу в исходную папку и запускает её; true — текущему
-/// процессу пора выйти. При любой ошибке возвращает false: лучше открыть
-/// вложенную копию, чем ничего.
+/// The first thing Ninety does at startup (after the previous process's exit is confirmed
+/// and before single-instance). If the exe is running from a nested copy,
+/// moves the program to the original folder and starts it; true — the current
+/// process should exit. On any error returns false: better to open
+/// the nested copy than nothing.
 pub fn repair_nested_install() -> bool {
     let Ok(exe_dir) = crate::app_paths::executable_dir() else {
         return false;
@@ -1039,7 +1039,7 @@ pub fn repair_nested_install() -> bool {
             return false;
         }
     };
-    // Как и у обновления: прерванную замену довести до сборки нового staging.
+    // As with the update: finish an interrupted replacement before building a new staging.
     if let Err(error) = finish_interrupted(&origin) {
         eprintln!("portable repair: {error}");
         return false;
@@ -1062,9 +1062,9 @@ pub fn repair_nested_install() -> bool {
     spawned
 }
 
-/// Папка, в которую ставится обновление: папка программы, а не NinetyData.
-/// Из вложенной копии (ремонт не удался) обновляться нельзя — это и создаёт
-/// вложенность.
+/// The folder the update is installed into: the program folder, not NinetyData.
+/// Updating from a nested copy (the repair failed) is not allowed — that's what creates
+/// the nesting.
 fn update_root() -> Result<PathBuf, String> {
     let root = crate::app_paths::portable_app_dir()?;
     if crate::app_paths::nested_portable_origin(&root).is_some() {
@@ -1073,7 +1073,7 @@ fn update_root() -> Result<PathBuf, String> {
     Ok(root)
 }
 
-/// Дедлайн скачивания: от фронта (`timeoutMs`) или по умолчанию, в границах.
+/// Download deadline: from the frontend (`timeoutMs`) or the default, within bounds.
 fn download_deadline(timeout_ms: Option<u64>) -> Duration {
     Duration::from_millis(
         timeout_ms
@@ -1082,8 +1082,8 @@ fn download_deadline(timeout_ms: Option<u64>) -> Duration {
     )
 }
 
-/// Скачивает ZIP через updater-плагин (подпись проверяется им же) и
-/// распаковывает в staging. Ничего из работающей программы не трогает.
+/// Downloads the ZIP through the updater plugin (it also verifies the signature) and
+/// unpacks it into staging. Doesn't touch anything in the running program.
 #[tauri::command]
 pub async fn portable_update_download(
     app: tauri::AppHandle,
@@ -1109,8 +1109,8 @@ pub async fn portable_update_download(
         .map_err(|e| e.to_string())?
         .ok_or("portable update is not available")?;
     if update.version != expected_version {
-        // Пользователь подтверждал другую версию: фронт покажет новую и
-        // попросит нажать «Обновить» ещё раз.
+        // The user confirmed a different version: the frontend will show the new one and
+        // ask to press "Update" again.
         return Err(crate::util::i18n_error_with(
             VERSION_CHANGED_KEY,
             &[("version", update.version.as_str())],
@@ -1128,9 +1128,9 @@ pub async fn portable_update_download(
         },
         || {},
     );
-    // Таймаут builder'а действует только на проверку: плагин отдаёт Update с
-    // `timeout: None`, и зависшее скачивание держало бы модалку обновления
-    // заблокированной без конца. Общий дедлайн обрывает его вместе с запросом.
+    // The builder timeout applies only to the check: the plugin returns Update with
+    // `timeout: None`, and a hung download would keep the update modal
+    // blocked forever. The overall deadline cuts it off together with the request.
     let bytes = tokio::time::timeout(download_deadline(timeout_ms), download)
         .await
         .map_err(|_| crate::util::i18n_error("backend.diag.timeout"))?
@@ -1146,8 +1146,8 @@ pub async fn portable_update_download(
     .map(|_| ())
 }
 
-/// Ставит staged-версию и запускает новый Ninety.exe. Ok(()) значит, что новый
-/// процесс уже стартовал и текущему пора выйти.
+/// Installs the staged version and starts the new Ninety.exe. Ok(()) means the new
+/// process has already started and the current one should exit.
 pub fn apply_and_launch(version: &str) -> Result<(), String> {
     validate_version(version)?;
     let root = update_root()?;
@@ -1311,9 +1311,9 @@ mod tests {
         assert_eq!(parse_version("1.2.3.4"), None);
     }
 
-    /// Раскладка после двух обновлений сломанным кодом:
-    /// R\Ninety.exe (старый) + R\NinetyData (настоящие данные + копия программы)
-    /// + R\NinetyData\NinetyData (данные после «сброса» + ещё одна копия).
+    /// Layout after two updates with the broken code:
+    /// R\Ninety.exe (old) + R\NinetyData (real data + a copy of the program)
+    /// + R\NinetyData\NinetyData (data after the "reset" + one more copy).
     fn nested_layout(tag: &str, origin_version: &str) -> (PathBuf, PathBuf) {
         let root = temp_root(tag);
         std::fs::write(root.join("Ninety.exe"), "old-exe").unwrap();
@@ -1364,7 +1364,7 @@ mod tests {
         assert!(std::fs::read_to_string(root.join("Ninety.portable"))
             .unwrap()
             .contains("0.16.1"));
-        // Данные из вложенной папки в программу не попали.
+        // Data from the nested folder didn't get into the program.
         assert!(!root.join("config").exists());
 
         cleanup_leftovers(&root);
@@ -1387,7 +1387,7 @@ mod tests {
         );
         assert!(!recovered.join("Ninety.exe").exists());
         assert!(!root.join("Ninety.exe.ninety-old").exists());
-        // Повторный запуск ничего не находит.
+        // A repeated launch finds nothing.
         assert_eq!(cleanup_nested_layers(&root), None);
         assert_eq!(crate::app_paths::nested_portable_origin(&root), None);
         let _ = std::fs::remove_dir_all(&root);
@@ -1504,7 +1504,7 @@ mod tests {
         );
         assert!(!root.join("Ninety.portable").exists());
         assert!(!root.join(JOURNAL_FILE).exists());
-        // Повторный откат ничего не ломает: копий уже нет, файлы не трогаются.
+        // A repeated rollback breaks nothing: the copies are already gone, files aren't touched.
         assert!(rollback(&root, &staging, &applied));
         assert_eq!(
             std::fs::read_to_string(root.join("Ninety.exe")).unwrap(),
@@ -1513,8 +1513,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// Старая версия (exe, маркер, ядро, файл в dpi) и staged новая: в новой
-    /// другой файл в dpi и флаг, которых раньше не было.
+    /// The old version (exe, marker, core, a file in dpi) and the staged new one: the new one has
+    /// a different file in dpi and a flag that didn't exist before.
     fn staged_update(tag: &str) -> (PathBuf, PathBuf) {
         let root = temp_root(tag);
         std::fs::write(root.join("Ninety.exe"), "old-exe").unwrap();
@@ -1549,14 +1549,14 @@ mod tests {
         let plan = plan_replacement(&root, &staging).unwrap();
         assert_eq!(plan.last().unwrap().rel, Path::new(MAIN_EXE));
         write_journal(&root, &staging, JournalState::Applying, &plan).unwrap();
-        // Процесс оборвался посреди замены: ядро, маркер и dpi/new.txt уже
-        // новые, флаг ещё не ставился, а Ninety.exe успел отодвинуться в
-        // резервную копию, но новый на его место не встал. Откат не зависит от
-        // порядка — здесь проверяются все состояния файла разом.
+        // The process broke off mid-replacement: the core, marker and dpi/new.txt are already
+        // new, the flag hasn't been installed yet, and Ninety.exe managed to move aside into
+        // the backup, but the new one didn't take its place. The rollback doesn't depend on
+        // the order — all file states are checked here at once.
         apply_one(&root, &staging, item(&plan, "sing-box.exe")).unwrap();
         apply_one(&root, &staging, item(&plan, "dpi/new.txt")).unwrap();
         apply_one(&root, &staging, item(&plan, PORTABLE_MARKER)).unwrap();
-        // Маркер заменён без промежутка: старый — в копии, новый — на месте.
+        // The marker is replaced without a gap: the old one is in the copy, the new one is in place.
         assert_eq!(read(&root, "Ninety.portable"), "portable=new");
         assert_eq!(read(&root, "Ninety.portable.ninety-old"), "portable=old");
         let exe = item(&plan, MAIN_EXE);
@@ -1605,7 +1605,7 @@ mod tests {
         let (root, staging) = staged_update("unmarked");
         let plan = plan_replacement(&root, &staging).unwrap();
         write_journal(&root, &staging, JournalState::Applying, &plan).unwrap();
-        // Все файлы переставлены, но отметка «complete» не успела записаться.
+        // All files are swapped, but the "complete" mark didn't get written.
         for item in &plan {
             apply_one(&root, &staging, item).unwrap();
         }
@@ -1623,7 +1623,7 @@ mod tests {
     fn interrupted_rollback_is_finished_on_start() {
         let (root, staging) = staged_update("rolling-back");
         let plan = apply_staged(&root, &staging).unwrap();
-        // Новый exe не стартовал, и откат оборвался после первого файла.
+        // The new exe didn't start, and the rollback broke off after the first file.
         write_journal(&root, &staging, JournalState::RollingBack, &plan).unwrap();
         assert!(rollback_one(&root, &staging, plan.last().unwrap()));
         assert_eq!(read(&root, "Ninety.exe"), "old-exe");
@@ -1659,7 +1659,7 @@ mod tests {
         ] {
             assert!(parse(bad.as_str()).is_none(), "{bad}");
         }
-        // Испорченный журнал не мешает уборке: его просто убирают.
+        // A corrupted journal doesn't get in the way of the cleanup: it is simply removed.
         std::fs::write(root.join(JOURNAL_FILE), "{broken").unwrap();
         std::fs::write(root.join("Ninety.exe.ninety-old"), "old").unwrap();
         cleanup_leftovers(&root);

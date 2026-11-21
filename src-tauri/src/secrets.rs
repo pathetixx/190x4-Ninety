@@ -1,11 +1,11 @@
-// Ninety · политика хранения чувствительных данных.
+// Ninety · storage policy for sensitive data.
 //
-// Установленная сборка использует DPAPI текущего Windows-пользователя. В
-// Full Portable DPAPI непереносим, поэтому без пароля профили, бэкап и WARP
-// пишутся в NinetyData открытым текстом. Прежний режим «без пароля ничего не
-// сохранять» молча терял подписки при каждом перезапуске: пользователь не знал,
-// что пароль вообще нужен. Пароль по желанию живёт только в памяти процесса;
-// envelope использует Argon2id + XChaCha20-Poly1305 и переносится между ПК.
+// The installed build uses DPAPI of the current Windows user. In
+// Full Portable DPAPI isn't portable, so without a password profiles, the backup and WARP
+// are written to NinetyData in plain text. The former "save nothing without a password"
+// mode silently lost subscriptions on every restart: the user didn't know
+// a password was needed at all. The optional password lives only in process memory;
+// the envelope uses Argon2id + XChaCha20-Poly1305 and moves between PCs.
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
@@ -31,17 +31,17 @@ const ARGON2_ITERATIONS: u32 = 3;
 
 static PORTABLE_PASSPHRASE: OnceLock<Mutex<Option<Zeroizing<String>>>> = OnceLock::new();
 
-// Чтение и запись контейнеров сериализуются со сменой и снятием пароля.
-// Перешифровка читает все файлы, коммитит их под новым ключом и только потом
-// меняет ключ в памяти. Параллельная запись (state-backup пишется по таймеру и
-// сразу после смены выбора) без этого лока либо ложилась в окно до коммита и
-// терялась, либо попадала под старый ключ после него — и при следующем запуске
-// новый пароль этот файл уже не открывал.
+// Reading and writing containers are serialized with changing and removing the password.
+// Re-encryption reads all files, commits them under the new key and only then
+// changes the key in memory. A concurrent write (the state backup is written on a timer and
+// right after a selection change) without this lock either landed in the window before the commit and
+// was lost, or fell under the old key after it — and on the next launch
+// the new password no longer opened that file.
 static SECRET_IO_LOCK: Mutex<()> = Mutex::new(());
 
-/// Держать на всё время «прочитать и расшифровать» или «зашифровать и
-/// записать» контейнер. Порядок локов: сначала лок своего хранилища, затем
-/// этот; сама перешифровка берёт только его.
+/// Hold for the whole "read and decrypt" or "encrypt and
+/// write" of a container. Lock order: first your own storage lock, then
+/// this one; re-encryption itself takes only this one.
 pub(crate) fn secret_io_guard() -> std::sync::MutexGuard<'static, ()> {
     SECRET_IO_LOCK.lock_recover()
 }
@@ -83,8 +83,8 @@ pub enum PortableSecretMode {
     Dpapi,
     Plaintext,
     PassphraseEncrypted,
-    /// На диске зашифрованные файлы, а пароля в памяти нет: ни прочитать, ни
-    /// записать нельзя, пока пользователь его не введёт.
+    /// There are encrypted files on disk, but no password in memory: nothing can be read or
+    /// written until the user enters it.
     Locked,
 }
 
@@ -97,9 +97,9 @@ pub struct PortableSecretStatus {
     pub locked: bool,
 }
 
-/// Все контейнеры, которые проходят через `seal_for_app`. Резервные копии тоже
-/// в списке: файл, оставшийся под прежним ключом, — это данные, которые уже
-/// нечем открыть.
+/// All containers that go through `seal_for_app`. Backups are also
+/// on the list: a file left under the previous key is data that can no longer
+/// be opened.
 const PORTABLE_SECRET_FILES: [&str; 10] = [
     "config/state-backup.json",
     "config/state-backup.json.bak",
@@ -132,19 +132,19 @@ fn file_is_portable_envelope(path: &Path) -> bool {
         .is_ok_and(|()| prefix == PORTABLE_MAGIC)
 }
 
-/// Хоть один контейнер уже зашифрован паролем. Без пароля в памяти такой
-/// portable заперт: запись открытым текстом поверх затёрла бы данные, которые
-/// ещё можно открыть.
+/// At least one container is already encrypted with a password. Without the password in memory such a
+/// portable is locked: writing plain text over it would wipe data that
+/// can still be opened.
 fn portable_envelopes_on_disk() -> bool {
     portable_secret_files()
         .iter()
         .any(|path| file_is_portable_envelope(path))
 }
 
-/// Проверка пароля по уже существующему контейнеру. Без неё опечатка при вводе
-/// молча заводила второй ключ: старые файлы переставали открываться, а новые
-/// записи уходили под неверный пароль — восстановить данные было уже нечем.
-/// Отсутствие envelope на диске — не ошибка: это первый запуск portable.
+/// Checking the password against an already existing container. Without it a typo on entry
+/// silently created a second key: old files stopped opening, while new
+/// writes went under the wrong password — there was nothing left to recover the data with.
+/// No envelope on disk is not an error: it's the first portable launch.
 fn verify_portable_passphrase(passphrase: &str) -> Result<(), String> {
     for path in portable_secret_files() {
         let Ok(bytes) = std::fs::read(&path) else {
@@ -158,12 +158,12 @@ fn verify_portable_passphrase(passphrase: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Транзакционная запись подготовленного набора контейнеров.
+/// Transactional write of a prepared set of containers.
 ///
-/// Вызывающий обязан перешифровать ВСЁ в память до первого вызова: частично
-/// сменённый ключ означал бы, что часть профилей открывается старым паролем,
-/// часть новым, и ни один из них не открывает всё. Если запись всё же оборвётся
-/// на середине, откатываем уже заменённые файлы к исходным байтам.
+/// The caller must re-encrypt EVERYTHING into memory before the first call: a partially
+/// changed key would mean some profiles open with the old password,
+/// some with the new one, and neither opens everything. If the write still breaks off
+/// midway, we roll the already replaced files back to their original bytes.
 fn commit_portable_secrets(
     staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)>,
     label: &str,
@@ -185,7 +185,7 @@ fn commit_portable_secrets(
     Ok(())
 }
 
-/// Перешифровка всех контейнеров под новый пароль.
+/// Re-encrypting all containers under a new password.
 fn rekey_portable_secrets(current: &str, next: &str) -> Result<(), String> {
     let mut staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)> = Vec::new();
     for path in portable_secret_files() {
@@ -196,8 +196,8 @@ fn rekey_portable_secrets(current: &str, next: &str) -> Result<(), String> {
         } else if is_plaintext_json(&bytes) {
             Zeroizing::new(bytes.clone())
         } else {
-            // DPAPI-блоб рядом с portable-хранилищем не наш: чужой ключ мы не
-            // перевыпускаем и файл не трогаем.
+            // A DPAPI blob next to the portable storage isn't ours: we don't reissue
+            // someone else's key and don't touch the file.
             continue;
         };
         staged.push((path, bytes, seal_portable(&plain, next)?));
@@ -205,17 +205,17 @@ fn rekey_portable_secrets(current: &str, next: &str) -> Result<(), String> {
     commit_portable_secrets(staged, "reissue portable secrets")
 }
 
-/// Запечатывание легаси plaintext при ПЕРВОМ включении пароля.
+/// Sealing legacy plaintext when the password is enabled for the FIRST time.
 ///
-/// Без этого шага «включить пароль» меняло только режим в статусе: envelope на
-/// диске не появлялся, а UUID/пароли нод, адреса подписок и приватный ключ WARP
-/// оставались открытым текстом до следующей записи КАЖДОГО файла. Часть из них
-/// перезаписывается редко или не перезаписывается вовсе (`warp.json.bak` пишут
-/// только старые сборки, а `read_info` мигрирует лишь первый успешно прочитанный
-/// кандидат), поэтому «сделаю потом, при записи» здесь не работает.
+/// Without this step "enable password" only changed the mode in the status: no envelope
+/// appeared on disk, and node UUIDs/passwords, subscription addresses and the WARP private key
+/// stayed in plain text until EACH file's next write. Some of them
+/// are rewritten rarely or not at all (`warp.json.bak` is written
+/// only by old builds, and `read_info` migrates only the first successfully read
+/// candidate), so "I'll do it later, on write" doesn't work here.
 ///
-/// Уже существующие envelope не трогаем: их ключ проверен отдельно
-/// (`verify_portable_passphrase`), перевыпускать нечего.
+/// Already existing envelopes are left alone: their key is verified separately
+/// (`verify_portable_passphrase`), there is nothing to reissue.
 fn seal_plaintext_portable_secrets(passphrase: &str) -> Result<(), String> {
     let mut staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)> = Vec::new();
     for path in portable_secret_files() {
@@ -230,9 +230,9 @@ fn seal_plaintext_portable_secrets(passphrase: &str) -> Result<(), String> {
     commit_portable_secrets(staged, "move portable secrets under a password")
 }
 
-/// Снятие пароля: все envelope расшифровываются обратно в открытый текст одной
-/// транзакцией. Просто забыть ключ нельзя — файлы остались бы зашифрованными, и
-/// при следующем запуске открыть их было бы нечем, кроме того же пароля.
+/// Removing the password: all envelopes are decrypted back to plain text in a single
+/// transaction. Simply forgetting the key isn't possible — the files would stay encrypted, and
+/// on the next launch there would be nothing to open them with except the same password.
 fn unseal_portable_secrets(current: &str) -> Result<(), String> {
     let mut staged: Vec<(PathBuf, Vec<u8>, Vec<u8>)> = Vec::new();
     for path in portable_secret_files() {
@@ -247,9 +247,9 @@ fn unseal_portable_secrets(current: &str) -> Result<(), String> {
     commit_portable_secrets(staged, "remove the portable password")
 }
 
-/// Новые записи шифруются: DPAPI в установленной сборке, пароль в portable.
-/// Только тогда есть смысл переписывать найденный легаси plaintext — иначе
-/// «миграция» гоняла бы те же байты по диску на каждом чтении.
+/// New writes are encrypted: DPAPI in the installed build, the password in portable.
+/// Only then does it make sense to rewrite the found legacy plaintext — otherwise
+/// the "migration" would shuffle the same bytes across the disk on every read.
 pub fn encrypts_writes() -> bool {
     !crate::app_paths::is_portable() || current_passphrase().ok().flatten().is_some()
 }
@@ -258,10 +258,10 @@ pub fn is_portable_envelope(bytes: &[u8]) -> bool {
     bytes.starts_with(PORTABLE_MAGIC)
 }
 
-/// Миграция сначала сохраняет уже запечатанную rollback-копию, затем
-/// атомарно заменяет primary. Исходный plaintext никогда не копируется в
-/// backup-файл: при установленном режиме backup также DPAPI-sealed, а в
-/// portable с паролем — encrypted envelope.
+/// The migration first saves an already sealed rollback copy, then
+/// atomically replaces primary. The original plaintext is never copied into
+/// the backup file: in the installed mode the backup is also DPAPI-sealed, and in
+/// portable with a password — an encrypted envelope.
 pub fn migrate_legacy_blob(path: &Path, sealed: &[u8], label: &str) -> Result<(), String> {
     let name = path
         .file_name()
@@ -303,20 +303,20 @@ pub fn portable_secrets_status() -> PortableSecretStatus {
     }
 }
 
-/// Сохраняет пароль только в памяти текущего процесса. В release UI эта
-/// команда вызывается после явного действия пользователя из Settings.
+/// Keeps the password only in the current process's memory. In the release UI this
+/// command is called after an explicit user action in Settings.
 pub fn configure_portable_passphrase(passphrase: String) -> Result<(), String> {
     if !crate::app_paths::is_portable() {
         return Err(crate::util::i18n_error("backend.secrets.portableOnly"));
     }
     validate_passphrase(&passphrase)?;
     let _io = secret_io_guard();
-    // Два разных действия под одной командой. Ключа в памяти нет — это
-    // разблокировка сессии: пароль обязан открыть то, что уже лежит на диске, а
-    // легаси plaintext обязан уехать под этот же ключ прямо сейчас. Ключ есть —
-    // это смена пароля, и она обязана перевыпустить ВСЕ контейнеры до того, как
-    // старый ключ будет забыт: иначе профили, backup и WARP просто перестают
-    // открываться, а UI при этом обещает «Сменить пароль».
+    // Two different actions under one command. No key in memory — this is
+    // unlocking the session: the password must open what's already on disk, and
+    // legacy plaintext must go under this same key right now. A key exists —
+    // this is a password change, and it must reissue ALL containers before
+    // the old key is forgotten: otherwise profiles, the backup and WARP simply stop
+    // opening, while the UI promises "Change password".
     match current_passphrase()? {
         None => {
             verify_portable_passphrase(&passphrase)?;
@@ -332,8 +332,8 @@ pub fn configure_portable_passphrase(passphrase: String) -> Result<(), String> {
     Ok(())
 }
 
-// Смена пароля перевыпускает все контейнеры (Argon2id на каждый) — это
-// заведомо не работа для главного потока.
+// A password change reissues all containers (Argon2id for each) — this is
+// clearly not a job for the main thread.
 #[tauri::command]
 pub async fn portable_secrets_set_passphrase(passphrase: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -460,9 +460,9 @@ pub fn seal_for_app(_app: &AppHandle, data: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
-/// Открывает новый envelope, легаси DPAPI-блоб или легаси plaintext JSON. JSON
-/// принимается только как полностью валидный объект, чтобы случайный бинарный
-/// файл не был принят за секрет.
+/// Opens a new envelope, a legacy DPAPI blob or legacy plaintext JSON. JSON
+/// is accepted only as a fully valid object, so that a random binary
+/// file isn't taken for a secret.
 pub fn open_for_app(_app: &AppHandle, bytes: &[u8]) -> Result<Vec<u8>, String> {
     if is_portable_envelope(bytes) {
         let passphrase = current_passphrase()?
@@ -475,8 +475,8 @@ pub fn open_for_app(_app: &AppHandle, bytes: &[u8]) -> Result<Vec<u8>, String> {
     unseal(bytes)
 }
 
-/// Легаси plaintext распознаём по `{`, но только после полной JSON-проверки.
-/// Это оставляет миграцию старых `warp.json`/backup безопасной и детерминированной.
+/// Legacy plaintext is recognized by `{`, but only after a full JSON check.
+/// This keeps the migration of old `warp.json`/backup safe and deterministic.
 pub fn is_plaintext_json(bytes: &[u8]) -> bool {
     bytes
         .iter()
@@ -653,9 +653,9 @@ mod tests {
         root
     }
 
-    // Включение пароля обязано запечатать легаси plaintext немедленно, а не
-    // «когда-нибудь при следующей записи»: часть контейнеров (warp.json.bak)
-    // не перезаписывается вовсе, и ключ ноды оставался бы открытым на диске.
+    // Enabling the password must seal legacy plaintext immediately, not
+    // "sometime on the next write": some containers (warp.json.bak)
+    // are never rewritten, and the node key would stay open on disk.
     #[test]
     fn enabling_a_passphrase_seals_legacy_plaintext_in_one_transaction() {
         let root = scratch_dir("secret-seal");
@@ -677,8 +677,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    // Запертый portable определяется по префиксу файла: короткий или
-    // plaintext-файл не должен запирать запись.
+    // A locked portable is detected by the file prefix: a short or
+    // plaintext file must not lock writing.
     #[test]
     fn envelope_detection_reads_only_the_magic_prefix() {
         let root = scratch_dir("secret-prefix");
@@ -700,16 +700,16 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    // Частично применённый ключ означал бы, что часть контейнеров открывается
-    // старым паролем, часть новым, и ни один не открывает всё.
+    // A partially applied key would mean some containers open with
+    // the old password, some with the new one, and neither opens everything.
     #[test]
     fn a_failed_write_rolls_every_replaced_container_back() {
         let root = scratch_dir("secret-commit");
         let first = root.join("state-backup.json");
         let original = br#"{"a":1}"#;
         std::fs::write(&first, original).unwrap();
-        // Второй цели соответствует КАТАЛОГ: запись в него заведомо не пройдёт,
-        // и коммит обязан вернуть первый файл к исходным байтам.
+        // The second target is a DIRECTORY: writing to it will certainly fail,
+        // and the commit must return the first file to its original bytes.
         let blocked = root.join("profile-store.v1");
         std::fs::create_dir_all(&blocked).unwrap();
 

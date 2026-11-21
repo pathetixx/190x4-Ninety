@@ -1,15 +1,15 @@
-// Ninety · бэкап состояния фронта (localStorage → writable config dir).
+// Ninety · frontend state backup (localStorage → writable config dir).
 //
-// localStorage живёт в профиле WebView2 (каталог EBWebView) — его сносят
-// чистилки диска, антивирусы и переустановка системы, и юзер молча теряет
-// профили/подписки/настройки. Фронт (state-backup.js) периодически шлёт
-// сюда отфильтрованный снапшот восстанавливаемых ninety.*-ключей; при
-// пустом localStorage на старте забирает его обратно и перезагружает webview.
+// localStorage lives in the WebView2 profile (the EBWebView directory) — disk
+// cleaners, antiviruses and OS reinstalls wipe it, and the user silently loses
+// profiles/subscriptions/settings. The frontend (state-backup.js) periodically sends
+// a filtered snapshot of the restorable ninety.* keys here; when
+// localStorage is empty at startup, it takes the snapshot back and reloads the webview.
 //
-// Снапшот содержит URL подписок и UUID/пароли всех нод. В установленной версии
-// он защищён DPAPI; Full Portable по умолчанию ничего нового не пишет без
-// явного пароля, а после задания пароля использует portable envelope (см.
-// secrets.rs и предупреждение README).
+// The snapshot contains subscription URLs and UUIDs/passwords of all nodes. In the installed version
+// it is protected with DPAPI; Full Portable writes nothing new by default without
+// an explicit password, and once a password is set it uses the portable envelope (see
+// secrets.rs and the README warning).
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -18,12 +18,12 @@ use std::sync::Mutex;
 use tauri::AppHandle;
 
 static BACKUP_LOCK: Mutex<()> = Mutex::new(());
-// Clear повышает поколение под BACKUP_LOCK. Save запоминает его при входе и
-// после получения lock отказывается писать, если очистка успела пройти раньше.
+// Clear bumps the generation under BACKUP_LOCK. Save records it on entry and
+// refuses to write after acquiring the lock if a clear managed to run first.
 static BACKUP_GENERATION: AtomicU64 = AtomicU64::new(0);
 const BACKUP_SCHEMA_VERSION: u64 = 2;
-// Снимок несёт профили строкой JSON внутри JSON (кавычки экранируются) плюс
-// настройки, поэтому запас больше лимита хранилища профилей (32 МиБ).
+// The snapshot carries profiles as a JSON string inside JSON (quotes get escaped) plus
+// settings, so the headroom is larger than the profile storage limit (32 MiB).
 const MAX_SNAPSHOT_BYTES: usize = 80 * 1024 * 1024;
 
 fn backup_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -36,14 +36,14 @@ fn backup_generation_matches(generation: &AtomicU64, captured: u64) -> bool {
     generation.load(Ordering::Acquire) == captured
 }
 
-/// Атомарная запись снапшота: tmp + rename. Краш посреди записи не оставит
-/// битый бэкап — прежний файл до rename остаётся целым.
+/// Atomic snapshot write: tmp + rename. A crash mid-write won't leave
+/// a broken backup — the previous file stays intact until the rename.
 ///
-/// async + spawn_blocking намеренно: тело валидирует JSON до 80 МБ, а
-/// `seal_for_app` в portable с паролем прогоняет Argon2id (19 МиБ × 3
-/// итерации — по определению медленный KDF) и делает `sync_all()`. Синхронная
-/// команда выполнялась бы на главном потоке, а фронт зовёт её на каждое
-/// изменение профиля и раз в 10 минут по таймеру — окно вставало бы регулярно.
+/// async + spawn_blocking on purpose: the body validates JSON up to 80 MB, and
+/// `seal_for_app` in portable with a password runs Argon2id (19 MiB × 3
+/// iterations — a slow KDF by definition) and does `sync_all()`. A synchronous
+/// command would run on the main thread, and the frontend calls it on every
+/// profile change and every 10 minutes on a timer — the window would freeze regularly.
 #[tauri::command]
 pub async fn state_backup_save(app: AppHandle, json: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || state_backup_save_blocking(app, json))
@@ -52,12 +52,12 @@ pub async fn state_backup_save(app: AppHandle, json: String) -> Result<(), Strin
 }
 
 pub(crate) fn state_backup_save_blocking(app: AppHandle, json: String) -> Result<(), String> {
-    // Захватываем поколение ДО потенциально дорогой JSON-валидации/DPAPI. Если
-    // параллельный state_backup_clear завершится раньше получения lock, старый
-    // запрос не имеет права воскресить уже удалённые профили.
+    // Capture the generation BEFORE the potentially expensive JSON validation/DPAPI. If
+    // a concurrent state_backup_clear finishes before the lock is acquired, the old
+    // request has no right to resurrect already deleted profiles.
     let generation = BACKUP_GENERATION.load(Ordering::Acquire);
-    // Валидация обязана быть ДО seal/tmp/rotation. Иначе две подряд невалидные
-    // записи сначала вытеснят рабочий primary в .bak, а затем удалят и его.
+    // Validation must come BEFORE seal/tmp/rotation. Otherwise two invalid writes in a row
+    // would first push the working primary into .bak and then delete it too.
     validate_snapshot_for_save(&json)?;
     let _guard = BACKUP_LOCK
         .lock()
@@ -68,10 +68,10 @@ pub(crate) fn state_backup_save_blocking(app: AppHandle, json: String) -> Result
     }
     let path = backup_path(&app)?;
     let sealed = crate::secrets::seal_for_app(&app, json.as_bytes())?;
-    // Если пользователь включил passphrase уже после восстановления старого
-    // plaintext snapshot, не переносим этот plaintext в обычный .bak при
-    // следующей записи. Сначала переводим старый primary в ту же политику, а
-    // затем стандартная ротация оставляет зашифрованную rollback-копию.
+    // If the user enabled a passphrase after restoring an old
+    // plaintext snapshot, don't carry that plaintext into a regular .bak on
+    // the next write. First move the old primary to the same policy, and
+    // then the standard rotation keeps an encrypted rollback copy.
     let old_backup = path.with_extension("json.bak");
     let old_rollback = path.with_extension("json.legacy.bak");
     for old_path in [&path, &old_backup, &old_rollback] {
@@ -85,9 +85,9 @@ pub(crate) fn state_backup_save_blocking(app: AppHandle, json: String) -> Result
             .map_err(|e| format!("write tmp: {e}"))?;
         file.sync_all().map_err(|e| format!("sync tmp: {e}"))?;
     }
-    // На Windows rename поверх существующего файла падает. Прежний снапшот не
-    // удаляем, а откладываем в .bak: краш в окне «удалили старый, не переименовали
-    // новый» оставлял бы юзера вообще без бэкапа — теперь жив хотя бы прошлый.
+    // On Windows, rename over an existing file fails. The previous snapshot is not
+    // deleted but set aside in .bak: a crash in the window "deleted the old one, didn't rename
+    // the new one" would leave the user with no backup at all — now at least the previous one survives.
     let bak = old_backup;
     if path.exists() {
         if bak.exists() {
@@ -207,17 +207,17 @@ fn migrate_plaintext_backup_if_needed(app: &AppHandle, path: &Path) -> Result<()
     }
 }
 
-// Чтение одного файла снапшота: versioned envelope, легаси DPAPI либо легаси
-// plaintext-JSON. При валидном legacy JSON и доступной текущей политике запись
-// мигрируется атомарно; при ошибке исходный файл остаётся на месте.
-// None — файла нет / не расшифровался / битая кодировка / невалидный JSON.
+// Reads one snapshot file: versioned envelope, legacy DPAPI or legacy
+// plaintext JSON. With valid legacy JSON and the current policy available, the record
+// is migrated atomically; on error the original file stays in place.
+// None — no file / failed to decrypt / broken encoding / invalid JSON.
 fn read_snapshot(app: &AppHandle, path: &std::path::Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
     let legacy_plaintext = crate::secrets::is_plaintext_json(&bytes);
     let raw = String::from_utf8(crate::secrets::open_for_app(app, &bytes).ok()?).ok()?;
-    // Читаемый UTF-8 и даже JSON-объект ещё не означают пригодный snapshot:
-    // primary обязан пройти тот же минимальный контракт, что frontend, иначе он
-    // не должен блокировать fallback на целый .bak.
+    // Readable UTF-8 and even a JSON object don't yet mean a usable snapshot:
+    // primary must pass the same minimal contract as the frontend, otherwise it
+    // must not block the fallback to an intact .bak.
     if !valid_snapshot_str(&raw) {
         return None;
     }
@@ -244,10 +244,10 @@ fn remove_file_if_exists(path: &Path) -> Result<bool, String> {
     }
 }
 
-/// Содержимое бэкапа либо None, если его ещё не делали. Битый/пропавший
-/// основной файл фолбэчится на .bak (прошлый снапшот, см. save).
-// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
-// на главном потоке и морозила бы окно на каждом сохранении профиля.
+/// Backup contents, or None if no backup has been made yet. A broken/missing
+/// primary file falls back to .bak (the previous snapshot, see save).
+// Argon2id (19 MiB × 3) and file I/O. A synchronous Tauri command runs
+// on the main thread and would freeze the window on every profile save.
 #[tauri::command]
 pub async fn state_backup_load(app: AppHandle) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || state_backup_load_blocking(app))
@@ -261,9 +261,9 @@ fn state_backup_load_blocking(app: AppHandle) -> Result<Option<String>, String> 
         .map_err(|_| "state backup lock poisoned")?;
     let _secrets = crate::secrets::secret_io_guard();
     let path = backup_path(&app)?;
-    // Проверяем оба файла даже если primary валиден: это даёт возможность
-    // мигрировать оставшийся legacy plaintext .bak и не держать второй
-    // чувствительный снимок в открытом виде после первого успешного старта.
+    // Check both files even if primary is valid: this lets us
+    // migrate a leftover legacy plaintext .bak and not keep a second
+    // sensitive snapshot in the clear after the first successful start.
     let primary = read_snapshot(&app, &path);
     let backup_path = path.with_extension("json.bak");
     let backup = read_snapshot(&app, &backup_path);
@@ -271,11 +271,11 @@ fn state_backup_load_blocking(app: AppHandle) -> Result<Option<String>, String> 
     Ok(primary.or(backup).or(migration_backup))
 }
 
-/// Явная приватная очистка: фронт уже удалил localStorage-профили, здесь стираем
-/// encrypted snapshot и временные файлы, чтобы старые ноды не восстановились
-/// после следующего старта WebView2.
-// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
-// на главном потоке и морозила бы окно на каждом сохранении профиля.
+/// Explicit private wipe: the frontend has already deleted the localStorage profiles, here we erase
+/// the encrypted snapshot and temporary files so old nodes are not restored
+/// after the next WebView2 start.
+// Argon2id (19 MiB × 3) and file I/O. A synchronous Tauri command runs
+// on the main thread and would freeze the window on every profile save.
 #[tauri::command]
 pub async fn state_backup_clear(app: AppHandle) -> Result<u32, String> {
     tauri::async_runtime::spawn_blocking(move || state_backup_clear_blocking(app))
@@ -288,8 +288,8 @@ fn state_backup_clear_blocking(app: AppHandle) -> Result<u32, String> {
         .lock()
         .map_err(|_| "state backup lock poisoned")?;
     let _secrets = crate::secrets::secret_io_guard();
-    // Инвалидация идёт до удаления файлов: даже если remove завершится ошибкой,
-    // запросы save, начатые до clear, уже не смогут записать старый snapshot.
+    // Invalidation happens before deleting files: even if remove fails,
+    // save requests started before clear can no longer write the old snapshot.
     BACKUP_GENERATION.fetch_add(1, Ordering::AcqRel);
     let path = backup_path(&app)?;
     let mut removed = 0;

@@ -19,19 +19,19 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use winreg::enums::*;
 use winreg::RegKey;
 
-// Имя задачи в Планировщике (Task Scheduler). Через неё реализован автозапуск:
-// задача с RunLevel=Highest стартует Ninety уже с правами администратора при
-// входе в Windows — без UAC-промпта на каждый логин (которым страдал прежний
-// Run-ключ реестра: тот запускал не-elevated инстанс, и тот сам перезапускался
-// через runas → UAC). См. autostart_enable / migrate_legacy_autostart.
+// Task Scheduler task name. Autostart is implemented through it:
+// a task with RunLevel=Highest starts Ninety already with administrator rights at
+// Windows sign-in — without a UAC prompt on every login (which plagued the former
+// registry Run key: it launched a non-elevated instance, which then restarted itself
+// via runas → UAC). See autostart_enable / migrate_legacy_autostart.
 const INSTALLED_TASK_NAME: &str = "Ninety";
 const PORTABLE_TASK_NAME: &str = "Ninety Portable";
-// CREATE_NO_WINDOW — не мигать чёрным окном консоли schtasks.
+// CREATE_NO_WINDOW — no flashing black schtasks console window.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-// tauri-plugin-autostart писал значение под именем приложения; в разных сборках
-// оно было "Ninety" и "ninety". Один список на все места, которые его читают,
-// удаляют и мигрируют.
+// tauri-plugin-autostart wrote a value under the app name; in different builds
+// it was "Ninety" and "ninety". One list for all the places that read,
+// delete and migrate it.
 const LEGACY_RUN_VALUES: [&str; 2] = ["Ninety", "ninety"];
 const AUTOSTART_BACKOFF_MS: &[u64] = &[100, 150, 250, 400, 650, 1_000, 1_500, 2_000, 2_500];
 
@@ -55,15 +55,15 @@ fn autostart_lock() -> &'static Mutex<()> {
     AUTOSTART_LOCK.get_or_init(|| Mutex::new(()))
 }
 
-// InternetSetOptionW с NULL-handle работает синхронно. На части Windows
-// SETTINGS_CHANGED/REFRESH ждут зависшие WinINet-клиенты десятки секунд. Реестр
-// к этому моменту уже атомарно обновлён, поэтому оповещение выполняем вне IPC-
-// shutdown. Generation-coalescing не даёт потерять последний запрос, пока
-// предыдущий SETTINGS_CHANGED/REFRESH ещё выполняется.
+// InternetSetOptionW with a NULL handle runs synchronously. On some Windows systems
+// SETTINGS_CHANGED/REFRESH wait tens of seconds for hung WinINet clients. The registry
+// has already been updated atomically by then, so the notification runs outside IPC
+// shutdown. Generation coalescing ensures the last request isn't lost while
+// the previous SETTINGS_CHANGED/REFRESH is still running.
 fn run_proxy_notify_worker() {
-    // Внешний цикл вместо самовызова: подхват «догнавшего» запроса не должен
-    // наращивать стек — Rust не гарантирует хвостовую оптимизацию, а частота
-    // вызовов задаётся снаружи и ничем не ограничена.
+    // An outer loop instead of a self-call: picking up a "catching up" request must not
+    // grow the stack — Rust doesn't guarantee tail call optimization, and the call frequency
+    // is set from outside and is unbounded.
     loop {
         loop {
             let target = PROXY_NOTIFY_REQUESTED.load(Ordering::Acquire);
@@ -138,8 +138,8 @@ fn classify_shell_launch(shell_code: isize, last_error: u32) -> ShellLaunchStatu
     if shell_code > 32 {
         return ShellLaunchStatus::Started;
     }
-    // ERROR_CANCELLED (1223) надёжно отличает отказ пользователя в UAC от
-    // обычного SE_ERR_ACCESSDENIED (5), когда Windows его выставляет.
+    // ERROR_CANCELLED (1223) reliably distinguishes the user declining UAC from
+    // a regular SE_ERR_ACCESSDENIED (5), when Windows sets it.
     if shell_code == 5 && last_error == 1223 {
         return ShellLaunchStatus::Cancelled;
     }
@@ -199,10 +199,10 @@ enum ProxyRecoveryAction {
     DisableOwnedProxy,
 }
 
-// Старые версии Ninety сохраняли snapshot, но не ActiveProxyServer. Для них
-// поддерживаем только известный исторический адрес по умолчанию и только при
-// полностью валидном snapshot. Один лишь loopback никогда не доказывает
-// владение: это может быть Clash/Fiddler/Charles или корпоративный агент.
+// Old Ninety versions saved the snapshot but not ActiveProxyServer. For them
+// we support only the known historical default address and only with
+// a fully valid snapshot. Loopback alone never proves
+// ownership: it could be Clash/Fiddler/Charles or a corporate agent.
 fn proxy_recovery_action(
     current_server: &str,
     current_enable: u32,
@@ -216,12 +216,12 @@ fn proxy_recovery_action(
     );
     let settings_still_match = current_enable == 1 && override_is_ours;
     match active {
-        // Включённый прокси с нашим адресом остаётся нашим, даже если список
-        // исключений за время сессии поменяли (пользователь в настройках Windows
-        // или другая программа). Оставить его нетронутым значило бы бросить
-        // ProxyEnable=1 на уже закрытый порт: браузеры теряют интернет, а маркеры
-        // владения стёрты, и следующий запуск это тоже не чинит. Чужие
-        // исключения при этом сохраняем.
+        // An enabled proxy with our address stays ours even if the exclusion
+        // list was changed during the session (by the user in Windows settings
+        // or by another program). Leaving it untouched would mean abandoning
+        // ProxyEnable=1 on an already closed port: browsers lose internet, and the ownership
+        // markers are erased, so the next launch doesn't fix it either. Foreign
+        // exclusions are preserved in that case.
         Some(value) if current_enable == 1 && current_server.eq_ignore_ascii_case(value) => {
             match (snapshot_valid, override_is_ours) {
                 (true, true) => ProxyRecoveryAction::RestoreSnapshot,
@@ -287,9 +287,9 @@ fn capture_proxy_settings(inet: &RegKey) -> Result<ProxySnapshot, String> {
     })
 }
 
-// Снапшот прежних proxy-настроек — один раз, до того как Ninety перезапишет их
-// своими. Без этого выключение Ninety затёрло бы прокси/bypass-лист, которые
-// юзер мог настроить вне Ninety. Повторный enable снапшот не перетирает.
+// Snapshot of the previous proxy settings — taken once, before Ninety overwrites them
+// with its own. Without it, turning Ninety off would wipe the proxy/bypass list the
+// user may have configured outside Ninety. A repeated enable doesn't overwrite the snapshot.
 fn save_proxy_snapshot(hkcu: &RegKey, inet: &RegKey) -> Result<(), String> {
     let (nk, _) = hkcu
         .create_subkey(NINETY_KEY)
@@ -365,7 +365,7 @@ fn restore_proxy_settings(inet: &RegKey, snapshot: &ProxySnapshot) -> Result<(),
         .map_err(|e| format!("restore ProxyEnable: {e}"))
 }
 
-// Восстановить полностью проверенное исходное состояние при обычном disable.
+// Restore the fully verified original state on a regular disable.
 fn restore_proxy_snapshot(
     nk: &RegKey,
     inet: &RegKey,
@@ -438,9 +438,9 @@ pub fn set_system_proxy(
         let (ninety, _) = hkcu
             .create_subkey(NINETY_KEY)
             .map_err(|e| format!("open Ninety proxy state: {e}"))?;
-        // SavedProxy* остаётся исходным состоянием до первого enable и нужен для
-        // окончательного disable. Этот отдельный snapshot относится только к
-        // текущему вызову: повторная настройка A → B при ошибке должна вернуть A.
+        // SavedProxy* remains the original state until the first enable and is needed for
+        // the final disable. This separate snapshot applies only to
+        // the current call: a repeated A → B setup must return to A on error.
         let rollback = capture_enable_rollback(&ninety, &key)?;
         save_proxy_snapshot(&hkcu, &key)?;
         let override_list = if bypass_lan.unwrap_or(true) {
@@ -449,9 +449,9 @@ pub fn set_system_proxy(
             PROXY_OVERRIDE_LOOPBACK_ONLY
         };
 
-        // Все записи до ProxyEnable — подготовка, ProxyEnable — commit. Любая
-        // ошибка возвращает состояние до текущего вызова, не исходный snapshot
-        // первой сессии Ninety.
+        // All writes before ProxyEnable are preparation, ProxyEnable is the commit. Any
+        // error restores the state from before the current call, not the original snapshot
+        // of the first Ninety session.
         if let Err(e) = apply_with_rollback(
             || {
                 ninety
@@ -467,8 +467,8 @@ pub fn set_system_proxy(
             },
             || rollback_failed_enable(&ninety, &key, rollback),
         ) {
-            // Даже после успешного rollback часть WinINet-клиентов могла увидеть
-            // промежуточные значения; заставляем их перечитать восстановленный state.
+            // Even after a successful rollback some WinINet clients may have seen
+            // intermediate values; we make them reread the restored state.
             notify_proxy_change();
             return Err(e);
         }
@@ -491,8 +491,8 @@ pub fn set_system_proxy(
             snapshot.is_some(),
         ) {
             ProxyRecoveryAction::LeaveUntouched => {
-                // Кто-то сменил proxy после Ninety либо доказательств владения
-                // нет. Настройки Windows не трогаем, stale-маркеры забываем.
+                // Someone changed the proxy after Ninety, or there is no proof of ownership.
+                // We don't touch the Windows settings, we forget the stale markers.
                 if let Some(nk) = state.as_ref() {
                     let _ = nk.set_value("SavedProxyValid", &0u32);
                     let _ = nk.delete_value("ActiveProxyServer");
@@ -504,17 +504,17 @@ pub fn set_system_proxy(
                 restore_proxy_snapshot(nk, &key, snapshot)?;
             }
             ProxyRecoveryAction::RestoreSnapshotKeepOverride => {
-                // Адрес и флаг включения возвращаем из snapshot, а список
-                // исключений оставляем тем, каким его сделали без нас.
+                // The address and enable flag are restored from the snapshot, while the exclusion
+                // list is left as it was made without us.
                 let nk = state.as_ref().ok_or("proxy snapshot key disappeared")?;
                 let mut snapshot = snapshot.ok_or("proxy snapshot disappeared")?;
                 snapshot.proxy_override = current_override.clone();
                 restore_proxy_snapshot(nk, &key, snapshot)?;
             }
             ProxyRecoveryAction::DisableOwnedProxy => {
-                // Явный ActiveProxyServer совпал, но snapshot отсутствует либо
-                // повреждён. Отключаем только доказанно наш proxy и не пытаемся
-                // восстанавливать частичные значения.
+                // The explicit ActiveProxyServer matched, but the snapshot is missing or
+                // damaged. We disable only the proxy proven to be ours and don't try
+                // to restore partial values.
                 key.set_value("ProxyEnable", &0u32)
                     .map_err(|e| format!("clear ProxyEnable: {e}"))?;
                 if let Some(nk) = state.as_ref() {
@@ -549,10 +549,10 @@ pub fn system_proxy_state() -> SystemProxyState {
     let active = ninety
         .as_ref()
         .and_then(|k| k.get_value::<String, _>("ActiveProxyServer").ok());
-    // Регистронезависимо — как в proxy_recovery_action. Адрес endpoint'а мы
-    // нормализуем сами, но в ProxyServer могла попасть запись, сделанная вне
-    // Ninety (или прежней сборкой) в другом регистре: строгое сравнение тогда
-    // объявляло наш собственный прокси чужим, и disable оставлял его включённым.
+    // Case-insensitive — as in proxy_recovery_action. We normalize the endpoint
+    // address ourselves, but ProxyServer may contain an entry made outside
+    // Ninety (or by an earlier build) in a different case: a strict comparison then
+    // declared our own proxy foreign, and disable left it enabled.
     let same_endpoint = match (server.as_deref(), active.as_deref()) {
         (Some(server), Some(active)) => server.eq_ignore_ascii_case(active),
         _ => false,
@@ -578,9 +578,9 @@ pub fn system_proxy_matches(expected: &str) -> bool {
     actual.is_some_and(|value| value.eq_ignore_ascii_case(expected))
 }
 
-// True если текущий процесс запущен с правами администратора (elevated token).
-// Throne-style TUN требует чтобы всё приложение было elevated — sing-box,
-// поднимающий TUN-инбаунд, работает дочерним процессом и наследует права.
+// True if the current process runs with administrator rights (elevated token).
+// Throne-style TUN requires the whole app to be elevated — sing-box,
+// which brings up the TUN inbound, runs as a child process and inherits the rights.
 pub fn is_elevated() -> bool {
     unsafe {
         let mut token = HANDLE::default();
@@ -602,12 +602,12 @@ pub fn is_elevated() -> bool {
     }
 }
 
-// Перезапускает текущий exe с правами администратора через runas (UAC).
-// Fire-and-forget: вызывающий после Ok(true) должен завершить текущий процесс.
-//  - Ok(true)  — elevated-инстанс стартовал;
-//  - Ok(false) — юзер отменил UAC (текущий процесс НЕ трогаем, остаёмся как есть);
-//  - Err       — системная ошибка запуска.
-// extra_args передаются новому процессу (напр. "--elevated" для авто-коннекта).
+// Restarts the current exe with administrator rights via runas (UAC).
+// Fire-and-forget: after Ok(true) the caller must terminate the current process.
+//  - Ok(true)  — the elevated instance started;
+//  - Ok(false) — the user cancelled UAC (the current process is NOT touched, we stay as is);
+//  - Err       — a system launch error.
+// extra_args are passed to the new process (e.g. "--elevated" for auto-connect).
 pub fn relaunch_self_elevated(extra_args: &[&str]) -> Result<bool, String> {
     let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let exe_str = exe.to_string_lossy().to_string();
@@ -664,8 +664,8 @@ pub fn relaunch_self_elevated(extra_args: &[&str]) -> Result<bool, String> {
     }
 }
 
-// ── Автозапуск через Планировщик заданий ──────────────────────────────────
-// schtasks.exe — полный путь, чтобы не зависеть от PATH/cwd elevated-контекста.
+// ── Autostart via Task Scheduler ──────────────────────────────────
+// schtasks.exe — full path, so as not to depend on PATH/cwd of the elevated context.
 fn schtasks_exe() -> String {
     crate::util::system_directory()
         .join("schtasks.exe")
@@ -673,20 +673,20 @@ fn schtasks_exe() -> String {
         .into_owned()
 }
 
-// Системные корни, запись в которые уже требует прав администратора. Только для
-// exe оттуда задача автозапуска имеет право работать с RunLevel=highest.
-// Источник — HKLM (см. util::program_files_roots): одноимённые переменные
-// окружения переопределяются из HKCU обычным пользователем, и тогда решение о
-// выдаче highest принималось бы по значению, которое подсунул он сам.
+// System roots that already require administrator rights to write to. Only for
+// an exe from there may the autostart task run with RunLevel=highest.
+// The source is HKLM (see util::program_files_roots): environment variables of the
+// same name can be overridden from HKCU by a regular user, and then the decision to
+// grant highest would be made based on a value they slipped in themselves.
 fn program_files_roots() -> Vec<PathBuf> {
     crate::util::program_files_roots()
 }
 
-// Задача с /rl highest стартует exe от администратора без UAC на каждый логин.
-// Если сам exe лежит там, куда обычный пользователь может писать (Full Portable
-// из ZIP, per-user установка в AppData), подмена файла превращается в тихое
-// повышение прав. В таком размещении автозапуск остаётся обычного уровня: TUN
-// при необходимости запросит UAC штатно.
+// A task with /rl highest starts the exe as administrator without UAC on every login.
+// If the exe itself lives where a regular user can write (Full Portable
+// from a ZIP, a per-user install in AppData), swapping the file becomes a silent
+// privilege escalation. In such a location autostart stays at the regular level: TUN
+// will request UAC the normal way if needed.
 fn autostart_uses_highest_run_level(exe: &Path, roots: &[PathBuf]) -> bool {
     let exe = exe.to_string_lossy().to_lowercase();
     roots.iter().any(|root| {
@@ -695,9 +695,9 @@ fn autostart_uses_highest_run_level(exe: &Path, roots: &[PathBuf]) -> bool {
     })
 }
 
-// Хвост команды создания задачи. Параметры лежат в XML: аргументами schtasks нельзя
-// снять запрет на батарею и лимит в 72 часа, из-за которых Планировщик не запускал
-// Ninety на ноутбуке и завершал её без очистки системного прокси.
+// Tail of the task creation command. The parameters are in XML: schtasks arguments can't
+// lift the battery restriction and the 72-hour limit, because of which Task Scheduler didn't start
+// Ninety on a laptop and terminated it without cleaning up the system proxy.
 fn create_task_cmdline(xml_path: &str) -> String {
     format!(
         r#"/create /tn {} /xml "{}" /f"#,
@@ -715,7 +715,7 @@ fn xml_escape(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-// Триггер — вход этого пользователя; RunLevel=highest — только для системного каталога.
+// The trigger is this user's sign-in; RunLevel=highest only for the system directory.
 fn autostart_task_xml(exe: &str, highest: bool, user: &str) -> String {
     let exe = xml_escape(exe);
     let user = xml_escape(user);
@@ -757,9 +757,9 @@ fn autostart_task_xml(exe: &str, highest: bool, user: &str) -> String {
     )
 }
 
-// Файл с описанием задачи. Файл открыт без разрешения на запись и удаление, пока
-// живёт значение: иначе другой процесс пользователя мог бы подменить его между
-// записью и чтением в schtasks, который после UAC работает с правами администратора.
+// The task definition file. The file is held open without write and delete permission while
+// the value lives: otherwise another user process could swap it between
+// writing and schtasks reading it, which runs with administrator rights after UAC.
 struct AutostartTaskFile {
     path: PathBuf,
     lock: Option<std::fs::File>,
@@ -822,10 +822,10 @@ fn autostart_task_user() -> Result<String, String> {
     })
 }
 
-// Обычный процесс не может передать аргументы окну процесса с правами
-// администратора: UIPI отбрасывает WM_COPYDATA, и второй запуск со ссылкой
-// завершается без следа. Разрешаем это сообщение только окну single-instance.
-// Имена окна и класса — из tauri-plugin-single-instance.
+// A regular process can't pass arguments to the window of a process with
+// administrator rights: UIPI drops WM_COPYDATA, and a second launch with a link
+// exits without a trace. We allow this message only for the single-instance window.
+// The window and class names come from tauri-plugin-single-instance.
 pub fn allow_second_instance_messages(identifier: &str) {
     if !is_elevated() {
         return;
@@ -859,8 +859,8 @@ fn schtasks_name_arg(name: &str) -> String {
     }
 }
 
-// Запуск schtasks с поднятием прав (один UAC, само приложение не перезапускаем).
-// SW_HIDE прячет окно консоли; подробный статус нужен для понятной ошибки UI.
+// Running schtasks with elevation (one UAC, the app itself is not restarted).
+// SW_HIDE hides the console window; a detailed status is needed for a clear UI error.
 fn run_schtasks_elevated(cmdline: &str) -> ShellLaunchStatus {
     let verb = to_wide("runas");
     let file = to_wide(&schtasks_exe());
@@ -930,7 +930,7 @@ fn wait_for_task_state(expected: bool) -> bool {
     )
 }
 
-// True если задача автозапуска зарегистрирована. Query прав не требует.
+// True if the autostart task is registered. Query doesn't require rights.
 fn autostart_is_enabled_unlocked() -> bool {
     Command::new(schtasks_exe())
         .args(["/query", "/tn", task_name()])
@@ -950,13 +950,13 @@ fn legacy_autostart_present() -> bool {
         .any(|name| run.get_raw_value(name).is_ok())
 }
 
-// Снять автозапуск прежнего поколения (Run-ключ реестра). Отдельная операция,
-// потому что задачи Планировщика у такого пользователя может не быть вовсе:
-// миграция заводит её только из elevated-процесса, а до тех пор автозапуск
-// живёт исключительно в Run. Без этой уборки «Выключить автозапуск» ничего не
-// делало — команда сразу выходила по «задачи нет», а autostart_is_enabled
-// продолжал видеть Run-ключ и возвращал тумблер обратно во включённое
-// положение. Отсутствие ключа — не ошибка: операция идемпотентна.
+// Remove the previous-generation autostart (registry Run key). A separate operation,
+// because such a user may have no Task Scheduler task at all:
+// the migration creates it only from an elevated process, and until then autostart
+// lives exclusively in Run. Without this cleanup "Disable autostart" did nothing —
+// the command exited immediately on "no task", while autostart_is_enabled
+// kept seeing the Run key and flipped the toggle back to the enabled
+// position. A missing key is not an error: the operation is idempotent.
 fn remove_legacy_autostart() -> Result<(), String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let Ok(run) = hkcu.open_subkey_with_flags(RUN_KEY, KEY_READ | KEY_WRITE) else {
@@ -985,19 +985,19 @@ pub fn autostart_is_enabled() -> bool {
     let _guard = autostart_lock()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    // Пока фоновая миграция ещё не успела заменить старый Run-ключ задачей,
-    // UI должен видеть фактический legacy-autostart, а не временный false.
+    // While the background migration hasn't yet replaced the old Run key with a task,
+    // the UI must see the actual legacy autostart, not a temporary false.
     autostart_is_enabled_unlocked() || legacy_autostart_present()
 }
 
-// Создаёт/обновляет задачу. Если процесс уже elevated — напрямую (без UAC);
-// иначе поднимает права только для schtasks (один UAC) и ждёт появления задачи.
+// Creates/updates the task. If the process is already elevated — directly (no UAC);
+// otherwise elevates only for schtasks (one UAC) and waits for the task to appear.
 fn autostart_enable_unlocked() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let highest = autostart_uses_highest_run_level(&exe, &program_files_roots());
     let xml = autostart_task_xml(&exe.to_string_lossy(), highest, &autostart_task_user()?);
-    // Файл нужен до конца функции: schtasks с UAC читает его уже после возврата
-    // из ShellExecute.
+    // The file is needed until the end of the function: schtasks with UAC reads it after
+    // ShellExecute has already returned.
     let task_file = AutostartTaskFile::create(&xml)?;
     let cmdline = create_task_cmdline(&task_file.path.to_string_lossy());
     if is_elevated() {
@@ -1027,10 +1027,10 @@ pub fn autostart_enable() -> Result<(), String> {
     autostart_enable_unlocked()
 }
 
-// Удаляет задачу автозапуска (симметрично enable — direct если elevated).
-// Legacy Run-ключ снимаем ПЕРВЫМ и независимо от наличия задачи: он тоже
-// автозапуск, его видит autostart_is_enabled, и без этого шага выключение
-// оставалось бы no-op'ом для всех, кто пришёл со сборок на Run-ключе.
+// Deletes the autostart task (symmetric to enable — direct if elevated).
+// The legacy Run key is removed FIRST and regardless of whether the task exists: it is also
+// autostart, autostart_is_enabled sees it, and without this step disabling
+// would remain a no-op for everyone who came from builds using the Run key.
 fn autostart_disable_unlocked() -> Result<(), String> {
     remove_legacy_autostart()?;
     if !autostart_is_enabled_unlocked() {
@@ -1064,11 +1064,11 @@ pub fn autostart_disable() -> Result<(), String> {
     autostart_disable_unlocked()
 }
 
-// Миграция с прежнего автозапуска (Run-ключ реестра плагина autostart). Тот
-// стартовал не-elevated инстанс → relaunch через UAC на каждый логин. Сносим
-// ключ и, если мы в elevated-инстансе, заводим задачу планировщика взамен.
-// Удаляем Run-ключ ТОЛЬКО при успешном создании задачи — иначе у юзера без
-// always-admin (которому хватает не-elevated автозапуска) автозапуск бы пропал.
+// Migration from the former autostart (the autostart plugin's registry Run key). It
+// started a non-elevated instance → relaunch via UAC on every login. We remove
+// the key and, if we are in an elevated instance, create a scheduler task instead.
+// The Run key is deleted ONLY when the task is created successfully — otherwise a user without
+// always-admin (for whom non-elevated autostart is enough) would lose autostart.
 pub fn migrate_legacy_autostart() {
     let _guard = autostart_lock()
         .lock()
@@ -1076,17 +1076,17 @@ pub fn migrate_legacy_autostart() {
     if !legacy_autostart_present() {
         return;
     }
-    // Ключ снимаем ТОЛЬКО после успешно созданной задачи: у пользователя без
-    // always-admin не-elevated автозапуск через Run — единственный рабочий, и
-    // терять его до появления замены нельзя.
+    // The key is removed ONLY after the task was created successfully: for a user without
+    // always-admin, non-elevated autostart via Run is the only working one, and
+    // it must not be lost before the replacement appears.
     if is_elevated() && autostart_enable_unlocked().is_ok() {
         let _ = remove_legacy_autostart();
     }
 }
 
-// Актуализирует путь exe в задаче автозапуска (после переустановки в другой
-// каталог /create /f перезапишет команду). Только если задача уже есть и мы
-// elevated — иначе пропускаем: создание не-elevated дёрнуло бы лишний UAC.
+// Updates the exe path in the autostart task (after reinstalling into a different
+// directory, /create /f overwrites the command). Only if the task already exists and we are
+// elevated — otherwise skip: creating it non-elevated would trigger an extra UAC.
 pub fn autostart_refresh_path() {
     let _guard = autostart_lock()
         .lock()
@@ -1340,8 +1340,8 @@ mod tests {
         );
     }
 
-    // Автозапуск с highest на user-writable exe — это тихое повышение прав для
-    // любого процесса пользователя, который может перезаписать файл.
+    // Autostart with highest on a user-writable exe is a silent privilege escalation for
+    // any user process that can overwrite the file.
     #[test]
     fn autostart_highest_only_for_admin_owned_locations() {
         let roots = vec![
@@ -1359,7 +1359,7 @@ mod tests {
         for user_writable in [
             r"C:\Users\dima\Downloads\Ninety\Ninety.exe",
             r"C:\Users\dima\AppData\Local\Ninety\Ninety.exe",
-            // Совпадение префикса без границы каталога не делает путь системным.
+            // A prefix match without a directory boundary doesn't make a path a system one.
             r"C:\Program Files Portable\Ninety\Ninety.exe",
         ] {
             assert!(
@@ -1369,10 +1369,10 @@ mod tests {
         }
     }
 
-    // Тест выше передаёт корни литералом, поэтому подмену САМОГО ИСТОЧНИКА он
-    // увидеть не может. Продакшн берёт их из HKLM: переменные окружения пишет
-    // HKCU\Environment, и через них обычный пользователь объявил бы свой каталог
-    // системным, получив highest на подменяемый exe.
+    // The test above passes the roots as a literal, so it can't see a substitution of
+    // THE SOURCE ITSELF. Production takes them from HKLM: environment variables are written by
+    // HKCU\Environment, and through them a regular user could declare their own directory
+    // a system one, getting highest on a replaceable exe.
     #[test]
     fn program_files_roots_ignore_process_environment() {
         let planted = r"C:\Users\dima\AppData\Local\NinetyFake";

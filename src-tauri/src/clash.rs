@@ -1,5 +1,5 @@
-// Тонкий клиент к sing-box clash-API на 127.0.0.1.
-// Через Rust, чтобы избежать CORS-ограничений WebView2.
+// Thin client for the sing-box clash API on 127.0.0.1.
+// Goes through Rust to avoid WebView2 CORS restrictions.
 
 use serde_json::Value;
 use std::sync::OnceLock;
@@ -7,10 +7,10 @@ use std::sync::OnceLock;
 const MAX_IP_RESPONSE_BYTES: usize = 64 * 1024;
 const MAX_CLASH_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
-// Секрет clash-API: генерируется один раз за жизнь процесса, инжектится в
-// конфиг sing-box (vpn::harden_config) и отправляется в каждом запросе как
-// Bearer. Без него любой локальный процесс мог бы рулить ядром через 9090
-// (смена ноды, чтение конфига, статистика). 127.0.0.1 + секрет закрывают это.
+// clash API secret: generated once per process lifetime, injected into
+// the sing-box config (vpn::harden_config) and sent with every request as
+// Bearer. Without it any local process could drive the core through 9090
+// (switch node, read config, statistics). 127.0.0.1 + the secret close this off.
 pub fn clash_secret() -> &'static str {
     static SECRET: OnceLock<String> = OnceLock::new();
     SECRET.get_or_init(|| {
@@ -21,25 +21,25 @@ pub fn clash_secret() -> &'static str {
     })
 }
 
-// ── Public IP info (через прокси, если активен) ────────────
-// Возвращает нормализованный {ip, country, country_code, asn, connection:{asn},
-// success}. Один провайдер — единая точка отказа (free-tier лимиты, досягаемость
-// из-под конкретного exit): перебираем несколько, у каждого свой формат ответа,
-// сводим к общему виду. Фронт (ip-info.js) и localAsn читают именно эти поля.
-// Все эндпоинты — HTTPS: fetch_public_ip зовётся и напрямую (localAsn, мимо
-// туннеля), plaintext-HTTP там дал бы ISP/ТСПУ видеть и подменять IP-lookup.
-// ip-api.com в пул НЕ входит намеренно — у него только http-эндпоинт (https за
-// платой), а plaintext здесь неприемлем. Его формат (query/as/countryCode) в
-// normalize_ip/extract_asn всё же разобран: это резерв на случай возврата и
-// покрыто юнит-тестами (normalize_ipapi_com) — сама ветка в проде не срабатывает.
+// ── Public IP info (through the proxy, if active) ────────────
+// Returns a normalized {ip, country, country_code, asn, connection:{asn},
+// success}. A single provider is a single point of failure (free-tier limits, reachability
+// from a particular exit): we try several, each with its own response format,
+// and reduce them to a common shape. The frontend (ip-info.js) and localAsn read exactly these fields.
+// All endpoints are HTTPS: fetch_public_ip is also called directly (localAsn, bypassing
+// the tunnel), and plaintext HTTP there would let the ISP/TSPU see and spoof the IP lookup.
+// ip-api.com is deliberately NOT in the pool — it only has an http endpoint (https is
+// paid), and plaintext is unacceptable here. Its format (query/as/countryCode) is still
+// parsed in normalize_ip/extract_asn: it is a fallback in case it comes back and is
+// covered by unit tests (normalize_ipapi_com) — the branch itself never fires in production.
 const IP_PROVIDERS: &[&str] = &[
     "https://ipwho.is/",
     "https://api.ip.sb/geoip",
     "https://ipapi.co/json/",
 ];
 
-// Достаёт номер ASN из любого формата провайдера: ipwho.is — connection.asn
-// (число); ipapi.co — "asn":"AS13335"; ip-api.com — "as":"AS13335 Cloudflare".
+// Extracts the ASN number from any provider format: ipwho.is — connection.asn
+// (number); ipapi.co — "asn":"AS13335"; ip-api.com — "as":"AS13335 Cloudflare".
 fn extract_asn(v: &Value) -> Value {
     if let Some(a) = v.get("connection").and_then(|c| c.get("asn")) {
         if a.is_number() || a.is_string() {
@@ -48,8 +48,8 @@ fn extract_asn(v: &Value) -> Value {
     }
     for key in ["asn", "as"] {
         let Some(val) = v.get(key) else { continue };
-        // Числовой ASN (api.ip.sb: "asn":13335) — берём как есть; строковый
-        // ("AS13335"/"AS13335 Cloudflare") — выдираем цифры.
+        // Numeric ASN (api.ip.sb: "asn":13335) is taken as is; a string one
+        // ("AS13335"/"AS13335 Cloudflare") has its digits pulled out.
         if val.is_number() {
             return val.clone();
         }
@@ -67,9 +67,9 @@ fn extract_asn(v: &Value) -> Value {
     Value::Null
 }
 
-// Сводит ответ конкретного провайдера к единому виду. None — провайдер явно
-// сигналит неуспех (ipwho success:false, ip-api status:"fail") или нет IP →
-// пробуем следующего.
+// Reduces a specific provider's response to a common shape. None — the provider explicitly
+// signals failure (ipwho success:false, ip-api status:"fail") or there is no IP →
+// try the next one.
 fn normalize_ip(v: &Value) -> Option<Value> {
     if v.get("success").and_then(|x| x.as_bool()) == Some(false) {
         return None;
@@ -81,14 +81,14 @@ fn normalize_ip(v: &Value) -> Option<Value> {
         .get("ip")
         .and_then(|x| x.as_str())
         .or_else(|| v.get("query").and_then(|x| x.as_str()))?;
-    // Полное имя страны: ipapi.co кладёт его в country_name, остальные — в country.
+    // Full country name: ipapi.co puts it in country_name, the rest in country.
     let country = v
         .get("country_name")
         .and_then(|x| x.as_str())
         .or_else(|| v.get("country").and_then(|x| x.as_str()))
         .unwrap_or("");
-    // 2-буквенный код: ipwho — country_code, ip-api — countryCode, ipapi.co —
-    // country (там country это как раз код).
+    // 2-letter code: ipwho — country_code, ip-api — countryCode, ipapi.co —
+    // country (there, country is exactly the code).
     let country_code = v
         .get("country_code")
         .and_then(|x| x.as_str())
@@ -114,8 +114,8 @@ fn normalize_ip(v: &Value) -> Option<Value> {
 pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
     let mut b = crate::util::direct_client_builder()
         .user_agent("Ninety/0.1")
-        // connect_timeout отдельно от общего: недосягаемый провайдер отваливается
-        // за 3с вместо того чтобы съесть весь бюджет запроса.
+        // connect_timeout separate from the overall one: an unreachable provider drops off
+        // after 3 s instead of eating the whole request budget.
         .connect_timeout(std::time::Duration::from_secs(3))
         .timeout(std::time::Duration::from_secs(6));
     if let Some(p) = proxy {
@@ -127,13 +127,13 @@ pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
     }
     let c = b.build().map_err(|e| format!("client: {e}"))?;
 
-    // Ступенчатая гонка: приоритетный провайдер стартует сразу, каждый следующий
-    // — через STAGGER_MS (успеет только если предыдущие молчат). Первый
-    // нормализовавшийся ответ побеждает; остальные фьючи дропаются вместе со
-    // стримом — их запросы отменяются. Прежний join_all бил ВСЕ три эндпоинта
-    // на каждый вызов (по одному GEO-сервису каждые 5 минут сессии — лишние
-    // метаданные третьим сторонам) и ждал самого медленного даже при мгновенном
-    // ответе первого.
+    // Staggered race: the priority provider starts immediately, each next one
+    // — after STAGGER_MS (it only gets a chance if the previous ones are silent). The first
+    // response that normalizes wins; the remaining futures are dropped together with
+    // the stream — their requests are cancelled. The old join_all hit ALL three endpoints
+    // on every call (one GEO service every 5 minutes of a session — extra
+    // metadata for third parties) and waited for the slowest one even when the first
+    // answered instantly.
     use futures_util::StreamExt;
     const STAGGER_MS: u64 = 800;
     let mut requests: futures_util::stream::FuturesUnordered<_> = IP_PROVIDERS
@@ -168,8 +168,8 @@ pub async fn fetch_public_ip(proxy: Option<String>) -> Result<Value, String> {
 }
 
 fn client() -> Result<reqwest::Client, String> {
-    // Клиент один на процесс (внутри Arc, clone дешёвый): не пересоздаём
-    // TLS-конфиг и пул соединений на каждый запрос UI к clash-API.
+    // One client per process (inside an Arc, clone is cheap): we don't recreate
+    // the TLS config and connection pool on every UI request to the clash API.
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     if let Some(c) = CLIENT.get() {
         return Ok(c.clone());
@@ -181,9 +181,9 @@ fn client() -> Result<reqwest::Client, String> {
     Ok(CLIENT.get_or_init(|| c).clone())
 }
 
-// Замер задержки ждёт ядро столько, сколько попросил вызывающий, плюс запас на
-// сам ответ. Общий таймаут клиента (10 с) короче длинного прогона группы:
-// запрос обрывался посередине, и свежие задержки до экрана не доезжали.
+// The latency test waits for the core as long as the caller asked, plus headroom for
+// the response itself. The client's overall timeout (10 s) is shorter than a long group run:
+// the request was cut off midway, and fresh latencies never reached the screen.
 fn delay_request_timeout(timeout_ms: u32) -> std::time::Duration {
     std::time::Duration::from_millis(u64::from(timeout_ms) + 3_000)
 }
@@ -219,20 +219,20 @@ fn validate_clash_port(
     validate_clash_port_ref(&state, port)
 }
 
-/// Тот же гейт по ссылке — для вызывающих без `State` (фоновый WS-стрим).
+/// The same link gate — for callers without `State` (the background WS stream).
 ///
-/// 🔴 Состояние kill switch сюда НЕ передаётся намеренно. `validate_clash_snapshot`
-/// читает только running/clashReady/clashPort, а `killswitch::is_active` при
-/// холодном кэше делает синхронный RPC к службе BFE, держа мьютекс с WFP-хэндлами.
-/// Этот путь зовут async-команды clash — при «обновить все пинги» фронт гонит их
-/// пулом по 8 штук, и каждая блокировала worker-поток tokio на время RPC.
+/// 🔴 The kill switch state is deliberately NOT passed here. `validate_clash_snapshot`
+/// reads only running/clashReady/clashPort, while `killswitch::is_active` with
+/// a cold cache makes a synchronous RPC to the BFE service, holding the mutex with the WFP handles.
+/// This path is called by async clash commands — on "refresh all pings" the frontend fires them
+/// in a pool of 8, and each one blocked a tokio worker thread for the duration of the RPC.
 pub(crate) fn validate_clash_port_ref(
     state: &crate::vpn::SingboxState,
     port: u16,
 ) -> Result<(), String> {
-    // Источник истины — RuntimeRecord в памяти vpn.rs, а не последний файл
-    // singbox-current.json: файл может остаться после stop или исчезнуть при
-    // живой сессии. Сериализация обходит приватные поля RuntimeSnapshot.
+    // The source of truth is the in-memory RuntimeRecord in vpn.rs, not the last
+    // singbox-current.json file: the file may stay behind after stop or vanish during
+    // a live session. Serialization skips the private fields of RuntimeSnapshot.
     let snapshot = serde_json::to_value(crate::vpn::runtime_snapshot_value(state, false))
         .map_err(|e| format!("Clash API runtime snapshot: {e}"))?;
     validate_clash_snapshot(&snapshot, port)
@@ -267,9 +267,9 @@ fn process_name_value(process: &str, process_path: &str) -> Value {
     }
 }
 
-// Куда соединение реально ушло, по его chains. Цепочка несёт теги всех
-// пройденных outbound'ов, поэтому достаточно проверить наличие терминальных:
-// всё, что не отвергнуто и не ушло напрямую, ушло через прокси.
+// Where the connection actually went, judging by its chains. The chain carries the tags of all
+// outbounds it passed through, so it is enough to check for the terminal ones:
+// anything not rejected and not sent direct went through the proxy.
 fn connection_outbound(chains: Option<&Vec<Value>>) -> &'static str {
     let has = |tag: &str| {
         chains
@@ -321,9 +321,9 @@ pub async fn clash_get_proxies(
     clash_get_proxies_unchecked(port).await
 }
 
-// Кумулятивный трафик с момента старта ядра: /connections отдаёт uploadTotal/
-// downloadTotal (байты). Сбрасывается при перезапуске sing-box — накопление между
-// сессиями ведёт фронт (traffic-meter.js, дельты в localStorage per-source).
+// Cumulative traffic since the core started: /connections returns uploadTotal/
+// downloadTotal (bytes). Resets when sing-box restarts — accumulation across
+// sessions is done by the frontend (traffic-meter.js, deltas in localStorage per source).
 #[tauri::command]
 pub async fn clash_traffic_total(
     state: tauri::State<'_, crate::vpn::SingboxState>,
@@ -349,16 +349,16 @@ pub async fn clash_traffic_total(
     Ok(serde_json::json!({ "up": up, "down": down }))
 }
 
-// Живые соединения с привязкой к процессу и outbound'у — для монитора правил
-// маршрутизации (что куда сейчас идёт: напрямую/через VPN/блок). Возвращаем
-// компактный список [{ process, processPath, host, destinationIP, outbound }];
-// outbound нормализован в "direct"|"proxy"|"block" по chains (block — если в
-// цепочке reject/block). processPath заполняется, т.к. в конфиге есть
-// форсирующее process-правило (buildRoute в singbox.js) — sing-box резолвит
-// сокет→PID→exe у КАЖДОГО соединения (route.go: processSearcher!=nil ⇒ резолв на
-// каждом коннекте). process (имя) выводим тут как basename пути: форк отдаёт лишь
-// processPath. Если процесс не определился (системный сокет и т.п.) — process=null,
-// путь пуст.
+// Live connections bound to their process and outbound — for the routing rules
+// monitor (what goes where right now: direct/through VPN/block). We return
+// a compact list [{ process, processPath, host, destinationIP, outbound }];
+// outbound is normalized to "direct"|"proxy"|"block" by chains (block — if the
+// chain contains reject/block). processPath is filled because the config has
+// a forcing process rule (buildRoute in singbox.js) — sing-box resolves
+// socket→PID→exe for EVERY connection (route.go: processSearcher!=nil ⇒ resolve on
+// every connect). process (the name) is derived here as the path's basename: the fork only returns
+// processPath. If the process could not be determined (system socket, etc.) — process=null,
+// the path is empty.
 #[tauri::command]
 pub async fn clash_get_connections(
     state: tauri::State<'_, crate::vpn::SingboxState>,
@@ -390,14 +390,14 @@ pub async fn clash_get_connections(
                     })
                     .unwrap_or_default()
             };
-            // Имя процесса. Ядро НЕ эмитит поле
-            // metadata.process — в clashapi/trafficontrol/tracker.go::MarshalJSON
-            // отдаётся ТОЛЬКО processPath (полный путь к exe). Поэтому имя выводим
-            // как basename пути: C:\...\AyuGram.exe →
-            // "AyuGram.exe". На Windows processPath = чистый путь (ConnectionOwner
-            // UserId=-1, без " (user)"-суффикса). Если ядро когда-нибудь начнёт
-            // слать process — берём его. rsplit по обоим разделителям — не зависит
-            // от платформы сборки.
+            // Process name. The core does NOT emit the
+            // metadata.process field — clashapi/trafficontrol/tracker.go::MarshalJSON
+            // returns ONLY processPath (the full path to the exe). So the name is derived
+            // as the path's basename: C:\...\AyuGram.exe →
+            // "AyuGram.exe". On Windows processPath is a clean path (ConnectionOwner
+            // UserId=-1, no " (user)" suffix). If the core ever starts
+            // sending process — we take it. rsplit on both separators — independent
+            // of the build platform.
             let process_path = field("processPath");
             let process = process_name_value(&field("process"), &process_path);
             let outbound = connection_outbound(conn.get("chains").and_then(|x| x.as_array()));
@@ -482,9 +482,9 @@ pub async fn clash_test_group(
     Ok(value)
 }
 
-// Переключение активной ноды Selector-группы.
+// Switches the active node of a Selector group.
 // PUT /proxies/{group}  body: {"name": "<node-tag>"}
-// В sing-box clash-API это работает только для Selector (не URLTest).
+// In the sing-box clash API this only works for Selector (not URLTest).
 #[tauri::command]
 pub async fn clash_select_proxy(
     state: tauri::State<'_, crate::vpn::SingboxState>,
@@ -513,22 +513,22 @@ pub async fn clash_select_proxy(
     Ok(())
 }
 
-// Разрыв живых прокси-соединений — вторая половина смены ноды.
+// Tears down live proxy connections — the second half of a node switch.
 //
-// PUT /proxies/{group} решает только то, куда пойдут НОВЫЕ соединения. Рвать
-// старые должен был interrupt_exist_connections на селекторе, но в sing-box 1.13
-// для трафика из inbound он не срабатывает: Selector.NewConnectionEx отдаёт
-// соединение сразу в выбранный outbound, минуя собственную interrupt-группу, и
-// та остаётся пустой. Поэтому keep-alive браузера продолжает течь через прежнюю
-// ноду, и внешний IP не меняется до реконнекта ядра.
+// PUT /proxies/{group} only decides where NEW connections go. Tearing down
+// the old ones was supposed to be interrupt_exist_connections on the selector, but in sing-box 1.13
+// it does not fire for inbound traffic: Selector.NewConnectionEx hands
+// the connection straight to the selected outbound, bypassing its own interrupt group, and
+// that group stays empty. So the browser's keep-alive keeps flowing through the previous
+// node, and the external IP doesn't change until the core reconnects.
 //
-// Закрываем адресно по id, а не одним DELETE /connections: тот рвёт заодно
-// direct-соединения (у Ninety это split-tunnel, например звонок в Discord) и
-// дополнительно делает router.ResetNetwork(). Смена exit-ноды не повод трогать
-// то, что через неё и не шло.
+// We close connections individually by id rather than with a single DELETE /connections: that one also tears down
+// direct connections (in Ninety that is split tunneling, e.g. a Discord call) and
+// additionally calls router.ResetNetwork(). Switching the exit node is no reason to touch
+// what never went through it.
 //
-// Возвращает число закрытых соединений. Пропавшее между снапшотом и DELETE
-// соединение (закрылось само) ошибкой не считается — цель уже достигнута.
+// Returns the number of closed connections. A connection that vanished between the snapshot and DELETE
+// (closed on its own) is not an error — the goal is already achieved.
 #[tauri::command]
 pub async fn clash_close_proxy_connections(
     state: tauri::State<'_, crate::vpn::SingboxState>,
@@ -640,7 +640,7 @@ mod tests {
 
     #[test]
     fn normalize_ipapi_co() {
-        // ipapi.co: country=код, country_name=полное, asn="AS15169"
+        // ipapi.co: country=code, country_name=full name, asn="AS15169"
         let v = serde_json::json!({
             "ip": "8.8.8.8", "country": "US", "country_name": "United States",
             "asn": "AS15169"
@@ -654,7 +654,7 @@ mod tests {
 
     #[test]
     fn normalize_ip_sb() {
-        // api.ip.sb/geoip: country_code + числовой asn на верхнем уровне.
+        // api.ip.sb/geoip: country_code + numeric asn at the top level.
         let v = serde_json::json!({
             "ip": "1.1.1.1", "country": "Australia",
             "country_code": "AU", "asn": 13335

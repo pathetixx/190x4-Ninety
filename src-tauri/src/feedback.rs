@@ -1,15 +1,15 @@
-// Ninety · обратная связь из приложения.
+// Ninety · in-app feedback.
 //
-// Сообщение уходит POST'ом на собственный релей, а тот пересылает его в
-// Telegram. Прямой вызов Telegram Bot API из клиента невозможен в принципе:
-// токен бота пришлось бы вшить в общедоступный бинарь, и первый же читатель
-// исходников получил бы полный контроль над ботом.
+// The message goes via POST to our own relay, which forwards it to
+// Telegram. Calling the Telegram Bot API directly from the client is impossible in principle:
+// the bot token would have to be baked into a public binary, and the very first reader
+// of the sources would get full control over the bot.
 //
-// Идентификатор устройства уходит не сырым: он нужен серверу, чтобы держать
-// лимит на устройство и точечно банить спамера, но связывать по нему
-// пользователя с его подпиской нельзя. Поэтому HWID хешируется здесь ещё раз,
-// с ОТДЕЛЬНЫМ доменом: получатель обратной связи и панель подписки видят
-// разные значения, и сопоставить их между собой нельзя.
+// The device identifier isn't sent raw: the server needs it to enforce
+// a per-device limit and ban a spammer precisely, but it must not be usable to link
+// the user to their subscription. So the HWID is hashed here once more,
+// with a SEPARATE domain: the feedback recipient and the subscription panel see
+// different values, and they cannot be matched to each other.
 
 use blake2::{Blake2s256, Digest};
 use serde::{Deserialize, Serialize};
@@ -22,9 +22,9 @@ const TEXT_MIN: usize = 10;
 const TEXT_MAX: usize = 2000;
 const CONTACT_MAX: usize = 120;
 const TIMEOUT: Duration = Duration::from_secs(25);
-/// Ответ релея — короткий JSON статуса. Читаем его с тем же потолком, что и
-/// остальные внешние ответы (util::read_response_capped): без него ошибочный
-/// или подменённый хост мог бы отдать тело любого размера.
+/// The relay's response is a short status JSON. We read it with the same cap as
+/// other external responses (util::read_response_capped): without it an erroneous
+/// or spoofed host could return a body of any size.
 const MAX_RELAY_RESPONSE_BYTES: usize = 64 * 1024;
 
 #[derive(Deserialize)]
@@ -33,11 +33,11 @@ pub struct FeedbackInput {
     pub text: String,
     #[serde(default)]
     pub contact: String,
-    /// HWID устройства из состояния фронтенда — наружу уходит только его хеш.
+    /// Device HWID from the frontend state — only its hash goes out.
     #[serde(default)]
     pub device_seed: String,
-    /// Сколько окно было открыто до отправки: сервер отсекает мгновенные
-    /// отправки как заведомо не-человеческие.
+    /// How long the window was open before sending: the server cuts off instant
+    /// submissions as obviously non-human.
     #[serde(default)]
     pub form_age_ms: u64,
     #[serde(default)]
@@ -90,8 +90,8 @@ fn feedback_id(seed: &str) -> String {
     hex_prefix(&hasher.finalize(), ID_CHARS)
 }
 
-/// Обрезаем по СИМВОЛАМ, а не по байтам: `String::truncate` по индексу байта
-/// паникует на середине многобайтового символа, а кириллица здесь норма.
+/// Truncate by CHARACTERS, not bytes: `String::truncate` at a byte index
+/// panics in the middle of a multibyte character, and Cyrillic is normal here.
 fn clip(value: &str, limit: usize) -> String {
     value.trim().chars().take(limit).collect()
 }
@@ -140,8 +140,8 @@ pub async fn send_feedback(app: tauri::AppHandle, input: FeedbackInput) -> Resul
         return Ok(());
     }
     if status.as_u16() == 429 {
-        // Сервер — единственный авторитет по лимиту: клиентский отсчёт живёт в
-        // localStorage и снимается очисткой данных.
+        // The server is the only authority on the limit: the client-side countdown lives in
+        // localStorage and is removed by clearing data.
         return Err(format!(
             "rate_limited:{}",
             reply.retry_after.unwrap_or(21_600)
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn clip_counts_characters_not_bytes() {
-        // Кириллица по два байта: обрезка по байтам сломала бы строку.
+        // Cyrillic takes two bytes per character: truncating by bytes would break the string.
         assert_eq!(clip("  привет мир  ", 6), "привет");
         assert_eq!(clip("abc", 10), "abc");
     }

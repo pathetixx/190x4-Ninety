@@ -19,17 +19,17 @@ use crate::proxy_stub as proxy;
 #[cfg(target_os = "windows")]
 use crate::proxy_win as proxy;
 
-/// Снимает ANSI-escape (цветовые SGR и прочие CSI) из строки лога движка.
-/// sing-box/xray красят stderr даже в пайп — без этого в .log летят управляющие
-/// коды (\x1b[36mINFO\x1b[0m). Чистим у источника: и файл, и in-memory буферы,
-/// и death-сообщение получаются без мусора. На фронте есть дублирующий стрип.
+/// Strips ANSI escapes (SGR colors and other CSI) from an engine log line.
+/// sing-box/xray color stderr even into a pipe — without this, control codes end up in the .log
+/// (\x1b[36mINFO\x1b[0m). We clean at the source: the file, the in-memory buffers
+/// and the death message all come out without garbage. The frontend has a duplicate strip.
 fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut it = s.chars().peekable();
     while let Some(c) = it.next() {
         if c == '\x1b' {
-            // CSI: ESC '[' … <буква-терминатор>. Прочие ESC-последовательности —
-            // просто роняем сам ESC (в логах движков их практически нет).
+            // CSI: ESC '[' … <terminator letter>. Other ESC sequences —
+            // we just drop the ESC itself (there are practically none in engine logs).
             if it.peek() == Some(&'[') {
                 it.next();
                 while let Some(&n) = it.peek() {
@@ -46,22 +46,22 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
-// Спецификация монитор-таска движка (см. spawn_log_monitor). Три движка
-// (sing-box / xray / naive|TT) читаются одинаково — writer + кольцо последних
-// строк + флаг смерти; различаются лишь баннером, подписью краша и тем, кладём
-// ли stdout в кольцо. Раньше этот блок был скопирован трижды.
+// Engine monitor task spec (see spawn_log_monitor). The three engines
+// (sing-box / xray / naive|TT) are read the same way — writer + ring of recent
+// lines + death flag; they differ only in the banner, the crash label and whether
+// stdout goes into the ring. Previously this block was copied three times.
 struct MonitorSpec {
     start_banner: String,
     death_label: String,
     death_suffix: &'static str,
-    prefix_stderr: bool, // sing-box метит stderr префиксом «STDERR: »
-    ring_stdout: bool,   // класть ли stdout в кольцо диагностики (sing-box — нет)
+    prefix_stderr: bool, // sing-box tags stderr with the "STDERR: " prefix
+    ring_stdout: bool,   // whether to put stdout into the diagnostic ring (sing-box — no)
 }
 
 impl MonitorSpec {
-    // Мосты xray/naive/TT: и stdout, и stderr — диагностика краша, префикса нет.
-    // Строки смерти/маркеры — английские: они уходят в лог-файлы (их шлют в
-    // иссуи/саппорт при любом языке UI), юзерский тост локализуется фронтом.
+    // xray/naive/TT bridges: both stdout and stderr are crash diagnostics, no prefix.
+    // Death lines/markers are in English: they go into log files (which get sent to
+    // issues/support regardless of the UI language), the user toast is localized by the frontend.
     fn bridge(banner: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             start_banner: banner.into(),
@@ -71,7 +71,7 @@ impl MonitorSpec {
             ring_stdout: true,
         }
     }
-    // sing-box: stdout — обычный лог, кольцо копит только stderr (ошибки).
+    // sing-box: stdout is the regular log, the ring accumulates only stderr (errors).
     fn core(banner: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             start_banner: banner.into(),
@@ -97,19 +97,19 @@ fn monitor_exit_expected(
     expected_exit_generation == monitor_generation || current_generation != monitor_generation
 }
 
-// Кап размера одного лог-файла движка. Логи sing-box/xray при уровне info и
-// активном трафике (особенно при DNS-retry-шторме: каждая неудачная резолюция —
-// строка) разрастались до сотен МБ (наблюдали singbox.log на 518 МБ). Кап держит
-// файл ограниченным: при переполнении обрезаем и продолжаем с маркером. Свежие
-// строки для диагностики краша всё равно живут в in-memory кольце (died_flag).
+// Size cap of a single engine log file. sing-box/xray logs at info level with
+// active traffic (especially during a DNS retry storm: every failed resolution is
+// a line) grew to hundreds of MB (we saw a 518 MB singbox.log). The cap keeps
+// the file bounded: on overflow we truncate and continue with a marker. Fresh
+// lines for crash diagnostics still live in the in-memory ring (died_flag).
 const LOG_CAP_BYTES: u64 = 8 * 1024 * 1024;
 const DEFAULT_LOG_TAIL_BYTES: u64 = 128 * 1024;
 const MAX_LOG_TAIL_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_SIDECAR_LOG_FILES: usize = 16;
 
-// Уровень собственной строки приложения в журнале движка. Движки пишут в тот же
-// файл и тем же форматом, поэтому lifecycle-диагностика обязана иметь уровень:
-// без него экран «Логи» не покажет её ни в фильтре «Ошибки», ни в «Инфо».
+// Level of the app's own line in the engine log. The engines write to the same
+// file in the same format, so lifecycle diagnostics must have a level:
+// without it the "Logs" screen won't show them in either the "Errors" or the "Info" filter.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DiagnosticLevel {
     Info,
@@ -127,8 +127,8 @@ impl DiagnosticLevel {
     }
 }
 
-// Результаты фронтовых событий, которые означают отказ, а не ход дела. Всё
-// остальное (none/available/completed/cancelled) — обычная хроника.
+// Results of frontend events that mean a failure rather than progress. Everything
+// else (none/available/completed/cancelled) is ordinary chronicle.
 const DIAGNOSTIC_FAILURE_RESULTS: &[&str] = &[
     "failed",
     "error",
@@ -150,10 +150,10 @@ pub(crate) fn diagnostic_level_for_result(result: &str) -> DiagnosticLevel {
     }
 }
 
-// Собственные строки приложения ложатся в файл движка, и экран «Логи» разбирает
-// их тем же парсером. Голая строка без метки времени и уровня прилипала к
-// предыдущей записи движка как её продолжение: своего времени нет, фильтр по
-// уровню мимо, поиск находит её в чужой записи. Формат ровно как у sing-box при
+// The app's own lines go into the engine file, and the "Logs" screen parses
+// them with the same parser. A bare line without a timestamp and level stuck to
+// the previous engine record as its continuation: no time of its own, the level filter
+// misses it, search finds it inside someone else's record. The format is exactly sing-box's with
 // log.timestamp=true — `-0700 2006-01-02 15:04:05 LEVEL message`.
 fn stamped_diagnostic(now: &time::OffsetDateTime, level: DiagnosticLevel, body: &str) -> String {
     let stamp = now
@@ -176,22 +176,22 @@ fn truncation_marker() -> String {
     )
 }
 
-// Журнал движка пишут ДВА независимых источника: монитор процесса (держит файл
-// открытым всю сессию) и append_runtime_diagnostic_at (открывает файл на каждую
-// строку). Оба проверяют кап и оба обрезают файл. Без общего лока они
-// обрезают файл друг под другом: локальный счётчик монитора разъезжается с
-// реальным размером, кап перестаёт держать границу, а записи перемешиваются.
+// The engine log is written by TWO independent sources: the process monitor (keeps the file
+// open for the whole session) and append_runtime_diagnostic_at (opens the file for every
+// line). Both check the cap and both truncate the file. Without a shared lock they
+// truncate the file under each other: the monitor's local counter diverges from
+// the real size, the cap stops holding the boundary, and records get interleaved.
 static LOG_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
-// Сколько строк движка копится в памяти до записи на диск и сколько монитор
-// ждёт затишья, прежде чем сбросить пачку. Канал событий движка у
-// tauri-plugin-shell ёмкостью в одно событие: пока монитор пишет строку, поток-
-// читатель стоит, а за ним и pipe самого движка. Системный вызов на каждую
-// строку тормозил ядро ровно тогда, когда оно пишет больше всего логов.
+// How many engine lines accumulate in memory before being written to disk and how long the monitor
+// waits for a lull before flushing the batch. The engine event channel of
+// tauri-plugin-shell has a capacity of one event: while the monitor writes a line, the reader
+// thread stands still, and behind it the engine's own pipe. A system call for every
+// line slowed the core down exactly when it writes the most logs.
 const LOG_BUFFER_BYTES: usize = 64 * 1024;
 const LOG_FLUSH_IDLE: std::time::Duration = std::time::Duration::from_millis(100);
 
-// Файл лога движка: кап размера и буфер записи.
+// Engine log file: size cap and write buffer.
 struct CappedLog {
     path: PathBuf,
     file: std::io::BufWriter<std::fs::File>,
@@ -200,8 +200,8 @@ struct CappedLog {
 
 impl CappedLog {
     fn open(path: PathBuf) -> Option<Self> {
-        // Раздутый с прошлой сессии файл начинаем заново — иначе кап стартовал
-        // бы уже переполненным и первую же строку писал бы после обрезки.
+        // A file bloated from the previous session is started over — otherwise the cap would start
+        // already overflowed and write the very first line after a truncation.
         if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > LOG_CAP_BYTES {
             let _ = crate::util::truncate_log_file(&path);
         }
@@ -221,9 +221,9 @@ impl CappedLog {
     fn write_line(&mut self, line: &str) {
         let _guard = LOG_WRITE_LOCK.lock_recover();
         if self.written > LOG_CAP_BYTES {
-            // Только на подозрении о переполнении сверяемся с диском: локальный
-            // счётчик мог отстать (в тот же файл пишет append_runtime_diagnostic_at),
-            // а stat на каждую строку был бы лишним syscall'ом в горячем пути движка.
+            // We check against the disk only on suspicion of overflow: the local
+            // counter may have fallen behind (append_runtime_diagnostic_at writes to the same file),
+            // and a stat on every line would be an extra syscall in the engine's hot path.
             let _ = self.file.flush();
             let size = self
                 .file
@@ -234,13 +234,13 @@ impl CappedLog {
             if size <= LOG_CAP_BYTES {
                 self.written = size;
             } else if crate::util::truncate_log_file(&self.path) {
-                // Append-хэндл пишет в текущий конец файла, то есть с нуля.
+                // The append handle writes at the current end of the file, i.e. from zero.
                 let marker = format!("{}\n", truncation_marker());
                 let _ = self.file.write_all(marker.as_bytes());
                 self.written = marker.len() as u64;
             } else {
-                // Обрезать не дали (файл держит другой процесс). Следующая
-                // попытка — через ещё один кап, а не на каждой строке.
+                // Truncation wasn't allowed (another process holds the file). The next
+                // attempt is after one more cap, not on every line.
                 self.written = 0;
             }
         }
@@ -259,9 +259,9 @@ impl CappedLog {
     }
 }
 
-// Следующее событие движка. Пока в буфере лога есть строки, ждём не дольше
-// LOG_FLUSH_IDLE: затишье — момент сбросить пачку на диск, чтобы экран «Логи»
-// видел свежие строки без задержки.
+// The next engine event. While the log buffer has lines, we wait no longer than
+// LOG_FLUSH_IDLE: a lull is the moment to flush the batch to disk so the "Logs" screen
+// sees fresh lines without delay.
 async fn next_engine_event(
     rx: &mut tauri::async_runtime::Receiver<CommandEvent>,
     log: &mut Option<CappedLog>,
@@ -279,11 +279,11 @@ async fn next_engine_event(
     }
 }
 
-// Монитор процесса-движка: льёт stdout/stderr в файл (если задан), копит
-// последние строки в кольце на 40 и при Terminated выставляет died_flag с
-// причиной. Один хелпер на все три движка.
-// Счётчики жизни движков: сколько мониторов ещё ждёт Terminated и сколько
-// закончилось без него. Едут вместе, потому что описывают одно состояние.
+// Engine process monitor: pours stdout/stderr into the file (if set), keeps
+// the last lines in a ring of 40 and on Terminated sets died_flag with
+// the reason. One helper for all three engines.
+// Engine lifetime counters: how many monitors are still waiting for Terminated and how many
+// ended without it. They travel together because they describe one state.
 struct MonitorCounters {
     live: Arc<AtomicU64>,
     unconfirmed: Arc<AtomicU64>,
@@ -311,9 +311,9 @@ fn spawn_log_monitor(
             w.write_line(&format!("\n{banner}"));
             w.flush();
         }
-        // Кольцо последних строк для death-диагностики. VecDeque, а не Vec:
-        // при переполнении срезаем голову за O(1) (pop_front) — Vec::remove(0)
-        // сдвигал бы весь буфер на каждую строку сверх кэпа.
+        // Ring of recent lines for death diagnostics. VecDeque, not Vec:
+        // on overflow we cut the head in O(1) (pop_front) — Vec::remove(0)
+        // would shift the whole buffer on every line over the cap.
         let mut last: VecDeque<String> = VecDeque::with_capacity(40);
         let push = |last: &mut VecDeque<String>, text: String| {
             if last.len() == 40 {
@@ -366,21 +366,21 @@ fn spawn_log_monitor(
                         )
                     };
                     if let Some(w) = writer.as_mut() {
-                        // В журнал — с меткой и уровнем, во фронт (died_flag) —
-                        // как есть: там это текст ошибки, а не строка лога.
+                        // Into the log — with a timestamp and level, into the frontend (died_flag) —
+                        // as is: there it's an error text, not a log line.
                         let level = if expected {
                             DiagnosticLevel::Info
                         } else {
                             DiagnosticLevel::Error
                         };
                         w.write_line(&diagnostic_line(level, &msg));
-                        // До оповещения о выходе: остановка пишет свой итог в
-                        // тот же журнал и должна оказаться после строк движка.
+                        // Before the exit notification: the stop writes its outcome to
+                        // the same log and must end up after the engine lines.
                         w.flush();
                     }
-                    // Terminated старого комплекта может прийти уже после
-                    // быстрого stop и старта нового. Не позволяем запоздалому
-                    // событию пометить новое ядро умершим.
+                    // The old set's Terminated may arrive after
+                    // a quick stop and the start of a new one. We don't let a late
+                    // event mark the new core as dead.
                     if !expected && current_generation == generation.value {
                         *died_flag.lock_recover() = Some(msg);
                     }
@@ -394,13 +394,13 @@ fn spawn_log_monitor(
         if let Some(w) = writer.as_mut() {
             w.flush();
         }
-        // Поток событий закончился без Terminated: формального подтверждения
-        // завершения процесса нет (например, wait() вернул ошибку). Снимаем
-        // процесс с «живого» счётчика, но переносим его в отдельный
-        // unconfirmed: иначе pending_exit_events оставался бы ненулевым до
-        // конца сессии и в журнале выглядел как висящий процесс. Ни один из
-        // счётчиков при этом не объявляет child остановленным — на Windows это
-        // решают реальные PID, а на прочих платформах требуются оба нуля.
+        // The event stream ended without Terminated: there is no formal confirmation
+        // that the process exited (e.g. wait() returned an error). We remove
+        // the process from the "live" counter but move it into a separate
+        // unconfirmed one: otherwise pending_exit_events would stay non-zero until
+        // the end of the session and look like a hanging process in the log. Neither
+        // counter declares the child stopped — on Windows this is
+        // decided by real PIDs, and on other platforms both must be zero.
         if live_processes
             .try_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
                 value.checked_sub(1)
@@ -414,57 +414,57 @@ fn spawn_log_monitor(
 }
 
 pub struct SingboxState {
-    // Child sing-box (sidecar) для ВСЕХ режимов, включая TUN. В TUN-режиме
-    // Ninety запущен elevated (Throne-style), поэтому sing-box-child наследует
-    // админ-права и сам поднимает TUN-инбаунд — отдельной службы больше нет.
+    // sing-box child (sidecar) for ALL modes, including TUN. In TUN mode
+    // Ninety runs elevated (Throne-style), so the sing-box child inherits
+    // admin rights and brings up the TUN inbound itself — there is no separate service anymore.
     child: Mutex<Option<CommandChild>>,
-    // xray-core sidecar (two-core): обслуживает xhttp-ноды. Слушает 127.0.0.1;
-    // sing-box ходит к нему через loopback socks-мост.
+    // xray-core sidecar (two-core): serves xhttp nodes. Listens on 127.0.0.1;
+    // sing-box reaches it through a loopback socks bridge.
     xray_child: Mutex<Option<CommandChild>>,
     died: Arc<Mutex<Option<String>>>,
-    // Причина смерти xray-sidecar (two-core). Ставится монитор-таском xray при
-    // Terminated, сбрасывается при start_singbox. Нужен чтобы фронт мог отличить
-    // «упал xhttp-мост» (авто-реконнект) от «упал sing-box» (туннель закрыт).
+    // Cause of death of the xray sidecar (two-core). Set by the xray monitor task on
+    // Terminated, reset in start_singbox. Needed so the frontend can tell
+    // "the xhttp bridge crashed" (auto-reconnect) from "sing-box crashed" (tunnel closed).
     xray_died: Arc<Mutex<Option<String>>>,
-    // Sidecar-клиенты naive / trusttunnel_client (по одному процессу на ноду):
-    // каждый поднимает локальный SOCKS5, sing-box ходит к ним loopback-мостом.
-    // Список, т.к. этих протоколов в одном источнике может быть несколько.
+    // naive / trusttunnel_client sidecar clients (one process per node):
+    // each brings up a local SOCKS5, sing-box reaches them through a loopback bridge.
+    // A list, because one source may contain several of these protocols.
     sidecars: Mutex<Vec<CommandChild>>,
-    // Причина смерти любого sidecar-клиента (naive/TT) — как xray_died, для
-    // авто-реконнекта фронтом (едет в health_snapshot).
+    // Cause of death of any sidecar client (naive/TT) — like xray_died, for
+    // auto-reconnect by the frontend (goes into health_snapshot).
     sidecar_died: Arc<Mutex<Option<String>>>,
-    // Sentinel «запуск идёт»: guard по child ловит только уже присвоенный хэндл,
-    // а между проверкой и присвоением у start_singbox секунды await'ов (settle-
-    // паузы мостов) — два конкурентных вызова спавнили бы два комплекта ядер,
-    // дерущихся за порты.
+    // "Start in progress" sentinel: the child guard only catches an already assigned handle,
+    // while between the check and the assignment start_singbox has seconds of awaits (bridge settle
+    // pauses) — two concurrent calls would spawn two sets of cores
+    // fighting over ports.
     starting: AtomicBool,
     stopping: AtomicBool,
     lifecycle_gate: Mutex<()>,
-    // Stop-вызовы сериализуются: второй клик не должен одновременно забирать
-    // уже вынутые child-хэндлы и объявлять runtime остановленным.
+    // Stop calls are serialized: a second click must not simultaneously take
+    // already removed child handles and declare the runtime stopped.
     stop_lock: tokio::sync::Mutex<()>,
     process_generation: Arc<AtomicU64>,
-    // stop инкрементит поколение до kill: уже выполняющийся start после
-    // ближайшего await не имеет права поднять новый child поверх disconnect.
+    // stop increments the generation before kill: an already running start must not, after
+    // its next await, bring up a new child on top of a disconnect.
     start_epoch: AtomicU64,
     runtime: Mutex<Option<RuntimeRecord>>,
     runtime_ports: Mutex<Vec<u16>>,
-    // После неподтверждённого stop сохраняем identity процессов и порты.
-    // Следующий stop повторяет очистку, а start не имеет права затереть runtime.
+    // After an unconfirmed stop we keep the process identity and ports.
+    // The next stop repeats the cleanup, and start must not overwrite the runtime.
     pending_cleanup: Mutex<Option<PendingCleanup>>,
     live_processes: Arc<AtomicU64>,
-    // Мониторы, чей поток событий закончился без Terminated: процесс не
-    // подтверждён завершённым, но и «живым» его считать нельзя. Отдельный
-    // счётчик держит журнал остановки честным.
+    // Monitors whose event stream ended without Terminated: the process is not
+    // confirmed as exited, but it can't be considered "alive" either. A separate
+    // counter keeps the stop log honest.
     unconfirmed_exits: Arc<AtomicU64>,
     process_exit_notify: Arc<Notify>,
     expected_exit_generation: Arc<AtomicU64>,
     pub(crate) dataplane_probe: Arc<DataplaneProbeCoordinator>,
 }
 
-/// Счётчик поколений runtime для фоновых тасков. Таск, привязавшийся к
-/// поколению, обязан сам завершиться, когда ядро сменилось: иначе он переживает
-/// stop и продолжает работать против уже чужого порта.
+/// Runtime generation counter for background tasks. A task bound to
+/// a generation must exit on its own when the core changes: otherwise it outlives
+/// stop and keeps working against a port that is no longer ours.
 pub(crate) fn process_generation_handle(state: &SingboxState) -> Arc<AtomicU64> {
     state.process_generation.clone()
 }
@@ -496,9 +496,9 @@ struct RuntimeRecord {
     listener_ready: bool,
     clash_port: u16,
     clash_ready: bool,
-    /// Адрес, который этот runtime опубликовал системным прокси Windows. По
-    /// нему сторож проверяет, что настройку не перебила другая программа: в
-    /// режиме «Системный прокси» только она заворачивает браузеры в туннель.
+    /// The address this runtime published as the Windows system proxy. Using
+    /// it, the watchdog checks that the setting wasn't overridden by another program: in
+    /// "System proxy" mode it's the only thing that routes browsers into the tunnel.
     system_proxy_endpoint: Option<String>,
 }
 
@@ -545,8 +545,8 @@ struct PendingCleanup {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct TrackedProcess {
     pid: u32,
-    // Windows может переиспользовать PID после завершения процесса. Creation
-    // time отличает исходный process object от нового процесса с тем же PID.
+    // Windows may reuse a PID after a process exits. Creation
+    // time distinguishes the original process object from a new process with the same PID.
     creation_time: Option<u64>,
 }
 
@@ -591,7 +591,7 @@ impl Default for SingboxState {
     }
 }
 
-// RAII-сброс sentinel'а starting: покрывает все ранние return'ы start_singbox.
+// RAII reset of the starting sentinel: covers all early returns of start_singbox.
 struct StartingGuard<'a>(&'a AtomicBool);
 impl Drop for StartingGuard<'_> {
     fn drop(&mut self) {
@@ -606,7 +606,7 @@ impl Drop for StoppingGuard<'_> {
     }
 }
 
-// Спецификация sidecar-клиента, приходит из фронта (buildConfig.sidecars).
+// Sidecar client spec, comes from the frontend (buildConfig.sidecars).
 #[derive(serde::Deserialize)]
 struct SidecarSpec {
     kind: String, // "naive" | "trusttunnel"
@@ -673,9 +673,9 @@ fn prune_sidecar_logs(dir: &std::path::Path, kind: SidecarLogKind, protected: &H
     let is_protected = |entry: &std::fs::DirEntry| {
         protected.contains(&entry.file_name().to_string_lossy().into_owned())
     };
-    // Место под логи будущего runtime резервируем заранее. Складывать длины
-    // entries и protected нельзя: файлы с теми же портами уже могут лежать на
-    // диске и тогда считались бы дважды — счёт выходил завышенным.
+    // We reserve space for the future runtime's logs in advance. Adding up the lengths of
+    // entries and protected is not allowed: files with the same ports may already be on
+    // disk and would then be counted twice — the total came out inflated.
     let keep_existing = MAX_SIDECAR_LOG_FILES.saturating_sub(protected.len());
     let removable = entries
         .iter()
@@ -700,12 +700,12 @@ fn prune_sidecar_logs(dir: &std::path::Path, kind: SidecarLogKind, protected: &H
     }
 }
 
-// Финальная обработка конфига перед запуском sing-box (в любом режиме):
-//  - инжектим секрет clash-API (см. clash::clash_secret), чтобы 9090 не был
-//    доступен любому локальному процессу без авторизации;
-//  - принудительно держим external_controller на 127.0.0.1 (даже если фронт
-//    зачем-то выставил 0.0.0.0) — управление ядром не должно торчать в сеть.
-// При невалидном JSON возвращаем как есть: пусть sing-box сам ругнётся.
+// Final config processing before launching sing-box (in any mode):
+//  - inject the clash API secret (see clash::clash_secret) so that 9090 isn't
+//    accessible to any local process without authorization;
+//  - force external_controller onto 127.0.0.1 (even if the frontend
+//    for some reason set 0.0.0.0) — core control must not be exposed to the network.
+// On invalid JSON we return it as is: let sing-box complain itself.
 fn harden_config(raw: &str, cache_path: Option<&Path>) -> String {
     let mut v: serde_json::Value = match serde_json::from_str(raw) {
         Ok(v) => v,
@@ -720,9 +720,9 @@ fn harden_config(raw: &str, cache_path: Option<&Path>) -> String {
             "secret".into(),
             serde_json::Value::String(crate::clash::clash_secret().to_string()),
         );
-        // Порт обязан быть числом: `rsplit(':')` на значении без порта
-        // («0.0.0.0») отдавал сам адрес, и в конфиг уезжал мусор вида
-        // «127.0.0.1:0.0.0.0» — старт падал позже и с невнятной причиной.
+        // The port must be a number: `rsplit(':')` on a value without a port
+        // ("0.0.0.0") returned the address itself, and garbage like
+        // "127.0.0.1:0.0.0.0" went into the config — the start failed later with an unclear reason.
         let port: u16 = api
             .get("external_controller")
             .and_then(|c| c.as_str())
@@ -782,9 +782,9 @@ fn log_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("singbox.log"))
 }
 
-// Короткие безопасные lifecycle-записи из health controller должны попадать в
-// тот же журнал, который пользователь видит в UI. Здесь нет URL, IP, конфигов
-// или имён нод — только поколение, состояние и фиксированный reason-code.
+// Short safe lifecycle records from the health controller must get into
+// the same log the user sees in the UI. There are no URLs, IPs, configs
+// or node names here — only the generation, the state and a fixed reason code.
 pub(crate) fn append_runtime_diagnostic(app: &AppHandle, line: &str) {
     append_runtime_diagnostic_at(app, DiagnosticLevel::Info, line);
 }
@@ -803,11 +803,11 @@ pub(crate) fn append_runtime_diagnostic_at(app: &AppHandle, level: DiagnosticLev
         .append(true)
         .open(&path)
     {
-        // Тот же кап и тот же лок, что у монитора движка (см. LOG_WRITE_LOCK):
-        // ротация должна быть одна на файл, иначе два писателя обрезают его
-        // друг под другом. С выключенным runtime монитора нет вовсе, и
-        // диагностика остаётся единственным писателем: без проверки здесь
-        // журнал рос бы без ограничения.
+        // The same cap and the same lock as the engine monitor (see LOG_WRITE_LOCK):
+        // there must be one rotation per file, otherwise two writers truncate it
+        // under each other. With the runtime off there is no monitor at all, and
+        // diagnostics stay the only writer: without the check here
+        // the log would grow without bound.
         let _guard = LOG_WRITE_LOCK.lock_recover();
         if file.metadata().map(|m| m.len()).unwrap_or(0) > LOG_CAP_BYTES
             && crate::util::truncate_log_file(&path)
@@ -830,14 +830,14 @@ fn xray_log_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("xray.log"))
 }
 
-// При высокой загрузке Windows не гарантирует, что userspace datapath будет
-// получать CPU вовремя (рендер видео, компиляция, игра — ядро голодает, TUN-
-// очереди не разгребаются, хендшейки истекают, и юзер видит «VPN упал», хотя
-// процесс жив). Поднимаем только критичные сетевые children до ABOVE_NORMAL:
-// HIGH/REALTIME намеренно не используем, чтобы не превращать Ninety в источник
-// starvation для всей системы. Неудача не фатальна — датаплейн просто остаётся
-// на NORMAL, поэтому ошибку только логируем. winws тоже датаплейн: WinDivert
-// отдаёт ему пакеты до проверки ipset-exclude, включая трафик к самой ноде.
+// Under high load Windows doesn't guarantee that the userspace datapath will
+// get CPU in time (video rendering, compilation, a game — the core starves, TUN
+// queues aren't drained, handshakes expire, and the user sees "VPN crashed" although
+// the process is alive). We raise only the critical network children to ABOVE_NORMAL:
+// HIGH/REALTIME are deliberately not used, so as not to turn Ninety into a source of
+// starvation for the whole system. Failure isn't fatal — the dataplane simply stays
+// at NORMAL, so we only log the error. winws is also dataplane: WinDivert
+// hands it packets before the ipset-exclude check, including traffic to the node itself.
 pub(crate) fn prioritize_datapath_process(pid: u32) {
     #[cfg(target_os = "windows")]
     {
@@ -862,10 +862,10 @@ pub(crate) fn prioritize_datapath_process(pid: u32) {
     let _ = pid;
 }
 
-// Задача Планировщика по умолчанию стартует процесс с BELOW_NORMAL (Priority 7),
-// и этот класс наследуют все дети, которых мы не поднимаем явно. Под нагрузкой
-// контроллер и winws голодают — VPN «падает», хотя нода жива. Выравниваем себя
-// до NORMAL; если юзер сам поставил выше — не трогаем.
+// A Task Scheduler task starts the process with BELOW_NORMAL by default (Priority 7),
+// and this class is inherited by all children we don't raise explicitly. Under load
+// the controller and winws starve — the VPN "crashes" although the node is alive. We raise ourselves
+// to NORMAL; if the user set it higher themselves, we leave it alone.
 pub(crate) fn normalize_own_priority() {
     #[cfg(target_os = "windows")]
     {
@@ -888,12 +888,12 @@ pub(crate) fn normalize_own_priority() {
     }
 }
 
-// Поля конфига xray, через которые движок сам читает или пишет файлы: TLS key
-// log и сертификаты с диска. Outbound из подписки формата Xray-JSON уходит в
-// xray почти как есть, а в TUN мост наследует права администратора: без чистки
-// владелец подписки мог создать или дописать файл в любом месте системы.
-// Локальные пути мосту не нужны — сертификаты задаются содержимым.
-// Регистр не важен: JSON-декодер Go принимает имена полей без учёта регистра.
+// xray config fields through which the engine reads or writes files itself: the TLS key
+// log and certificates from disk. An outbound from an Xray-JSON subscription goes into
+// xray almost as is, and in TUN the bridge inherits administrator rights: without cleaning,
+// the subscription owner could create or append to a file anywhere on the system.
+// The bridge doesn't need local paths — certificates are given by content.
+// Case doesn't matter: Go's JSON decoder accepts field names case-insensitively.
 fn is_xray_file_field(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
     key == "masterkeylog" || key.ends_with("file")
@@ -903,8 +903,8 @@ fn strip_xray_file_fields(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
             map.retain(|key, _| !is_xray_file_field(key));
-            // Сертификат, у которого был только путь к файлу, после чистки пуст,
-            // а такой элемент xray отвергает при сборке TLS — и роняет весь мост.
+            // A certificate that had only a file path is empty after cleaning,
+            // and xray rejects such an element when building TLS — and brings down the whole bridge.
             for (key, child) in map.iter_mut() {
                 if key.eq_ignore_ascii_case("certificates") {
                     if let serde_json::Value::Array(items) = child {
@@ -941,9 +941,9 @@ fn harden_xray_config(raw: &str) -> String {
     serde_json::to_string(&value).unwrap_or_else(|_| raw.to_string())
 }
 
-// Поднимает xray-core sidecar для xhttp-нод (two-core). Всегда user-level,
-// слушает 127.0.0.1; sing-box (свой child или сервис под LocalSystem) ходит
-// к нему через loopback socks-мосты из конфига. Spawn до sing-box.
+// Brings up the xray-core sidecar for xhttp nodes (two-core). Always user-level,
+// listens on 127.0.0.1; sing-box (our child or a service under LocalSystem) reaches
+// it through loopback socks bridges from the config. Spawned before sing-box.
 async fn spawn_xray(
     app: &AppHandle,
     state: &SingboxState,
@@ -971,8 +971,8 @@ async fn spawn_xray(
     *state.xray_child.lock_recover() = Some(child);
 
     let died_flag = state.xray_died.clone();
-    // logs_disabled (настройка «Полностью отключить логи») → не пишем файл лога;
-    // in-memory last для диагностики краша (died_flag) сохраняем.
+    // logs_disabled (the "Disable logs completely" setting) → we don't write a log file;
+    // the in-memory last lines for crash diagnostics (died_flag) are kept.
     let log_file = if logs_disabled {
         None
     } else {
@@ -998,22 +998,22 @@ async fn spawn_xray(
         ),
     );
 
-    // Дать xray подняться и забиндить socks-инбаунды до старта sing-box,
-    // иначе первые urltest'ы xhttp-нод словят connection refused.
+    // Let xray come up and bind the socks inbounds before sing-box starts,
+    // otherwise the first urltests of xhttp nodes will hit connection refused.
     wait_start_delay(state, start_epoch, std::time::Duration::from_millis(400)).await?;
 
-    // Fail-fast: умер в settle-паузе (битый конфиг, занятый порт) → фейлим старт
-    // с причиной. Раньше старт «удавался», а health-watchdog через 5с находил
-    // труп и уходил в реконнект — по кругу, потому что порт так и оставался занят.
+    // Fail-fast: it died during the settle pause (broken config, busy port) → fail the start
+    // with the reason. Previously the start "succeeded", and the health watchdog found
+    // the corpse 5 s later and went into a reconnect — in a loop, because the port stayed busy.
     if let Some(err) = state.xray_died.lock_recover().take() {
         return Err(err);
     }
     Ok(())
 }
 
-// Поднимает sidecar-клиенты naive / trusttunnel_client (по одному на ноду).
-// Каждый слушает локальный SOCKS5 (порт из spec), sing-box ходит к ним мостом.
-// User-level (SOCKS-режим TT не требует админ-прав/TUN). Spawn до sing-box.
+// Brings up the naive / trusttunnel_client sidecar clients (one per node).
+// Each listens on a local SOCKS5 (port from the spec), sing-box reaches them through a bridge.
+// User-level (TT's SOCKS mode doesn't need admin rights/TUN). Spawned before sing-box.
 async fn spawn_sidecars(
     app: &AppHandle,
     state: &SingboxState,
@@ -1056,7 +1056,7 @@ async fn spawn_sidecars(
     }
 
     for spec in specs {
-        // Имя бинаря (externalBin) + аргументы + расширение конфига по типу.
+        // Binary name (externalBin) + arguments + config extension by type.
         let (bin, ext, file_arg) = match spec.kind.as_str() {
             "naive" => ("naive", "json", false), // naive.exe <config.json>
             "trusttunnel" => ("trusttunnel_client", "toml", true), // --config <toml>
@@ -1117,12 +1117,12 @@ async fn spawn_sidecars(
     }
 
     if !specs.is_empty() {
-        // Дать клиентам забиндить SOCKS до старта sing-box (handshake к endpoint'у
-        // у TrustTunnel небыстрый), иначе первые urltest'ы словят refused.
+        // Let the clients bind SOCKS before sing-box starts (TrustTunnel's handshake to the endpoint
+        // is slow), otherwise the first urltests will hit refused.
         wait_start_delay(state, start_epoch, std::time::Duration::from_millis(1200)).await?;
 
-        // Fail-fast: клиент умер в settle-паузе → фейлим старт с причиной
-        // (см. spawn_xray — иначе health-watchdog зациклился бы на реконнектах).
+        // Fail-fast: a client died during the settle pause → fail the start with the reason
+        // (see spawn_xray — otherwise the health watchdog would loop on reconnects).
         if let Some(err) = state.sidecar_died.lock_recover().take() {
             return Err(err);
         }
@@ -1130,8 +1130,8 @@ async fn spawn_sidecars(
     Ok(())
 }
 
-// Путь к логу sing-box. Лог во всех режимах пишет сам Tauri в writable log dir
-// (sing-box — наш child, его stdout/stderr льётся в файл монитор-таском).
+// Path to the sing-box log. In all modes the log is written by Tauri itself into the writable log dir
+// (sing-box is our child, its stdout/stderr is poured into the file by the monitor task).
 fn resolved_log_path(app: &AppHandle) -> Result<PathBuf, String> {
     log_path(app).ok_or_else(|| "log_dir is unavailable".to_string())
 }
@@ -1142,8 +1142,8 @@ pub async fn singbox_log_path(app: AppHandle) -> Result<String, String> {
     Ok(p.to_string_lossy().to_string())
 }
 
-// Читает хвост файла (последние tail_bytes), отрезая первую обрезанную строку.
-// pub(crate): dpi.rs переиспользует для dpi.log вместо чтения файла целиком.
+// Reads the tail of a file (the last tail_bytes), cutting off the first partial line.
+// pub(crate): dpi.rs reuses it for dpi.log instead of reading the whole file.
 fn normalized_log_tail_bytes(tail_bytes: Option<u64>) -> u64 {
     tail_bytes
         .unwrap_or(DEFAULT_LOG_TAIL_BYTES)
@@ -1160,9 +1160,9 @@ pub(crate) fn read_tail(path: &std::path::Path, tail_bytes: Option<u64>) -> Resu
     read_tail_within(path, tail_bytes, size)
 }
 
-// Хвост первых `size` байт файла. Размер задаёт вызывающий: движок дописывает
-// журнал между stat и чтением, и чтение «до конца файла» отдавало строки за
-// позицией, которую экран «Логи» затем дочитывал повторно — они задваивались.
+// Tail of the first `size` bytes of the file. The caller sets the size: the engine appends to
+// the log between stat and the read, and reading "to the end of the file" returned lines past
+// the position that the "Logs" screen then read again — they got duplicated.
 fn read_tail_within(
     path: &std::path::Path,
     tail_bytes: Option<u64>,
@@ -1205,10 +1205,10 @@ fn read_tail_within(
     ))
 }
 
-// Чтение с позиции: только целые строки. Пишущий процесс мог оборваться на
-// середине строки (а значит и на середине UTF-8 символа), поэтому всё после
-// последнего перевода строки остаётся в файле до следующего вызова, а offset
-// возвращается ровно на границу строки.
+// Reading from a position: whole lines only. The writing process may have stopped in
+// the middle of a line (and thus in the middle of a UTF-8 character), so everything after
+// the last line break stays in the file until the next call, and the offset
+// is returned exactly at a line boundary.
 fn read_from_offset(path: &std::path::Path, from: u64, size: u64) -> Result<(String, u64), String> {
     use std::io::{Read, Seek, SeekFrom};
     if from >= size {
@@ -1223,7 +1223,7 @@ fn read_from_offset(path: &std::path::Path, from: u64, size: u64) -> Result<(Str
         .read_to_end(&mut buf)
         .map_err(|e| format!("read_to_end: {e}"))?;
     let Some(last_nl) = buf.iter().rposition(|b| *b == b'\n') else {
-        // Целой строки ещё нет — не сдвигаем позицию, дочитаем в следующий раз.
+        // No whole line yet — don't move the position, read it next time.
         return Ok((String::new(), from));
     };
     let cut = last_nl + 1;
@@ -1231,14 +1231,14 @@ fn read_from_offset(path: &std::path::Path, from: u64, size: u64) -> Result<(Str
     Ok((text, from + cut as u64))
 }
 
-// Хвост лога, дочитанный с позиции. Экран журнала опрашивает файл раз в две
-// секунды, и раньше каждый опрос гонял через IPC весь хвост целиком, чтобы фронт
-// заново распарсил его от начала до конца. Теперь после первого чтения ездит
-// только дописанное, а `reset` говорит фронту, когда накопленный буфер нужно
-// заменить целиком (первое чтение, очистка лога, ротация, слишком большой
-// разрыв). Составные источники (naive/trusttunnel — по файлу на процесс)
-// склеиваются из нескольких файлов, единой монотонной позиции у них нет:
-// для них incremental=false и поведение прежнее.
+// Log tail read from a position. The log screen polls the file every two
+// seconds, and previously each poll sent the whole tail through IPC so the frontend
+// would parse it again from start to finish. Now after the first read only
+// the appended part travels, and `reset` tells the frontend when the accumulated buffer must be
+// replaced entirely (first read, log cleared, rotation, too large a
+// gap). Composite sources (naive/trusttunnel — a file per process)
+// are glued together from several files and have no single monotonic position:
+// for them incremental=false and the behavior is as before.
 #[derive(serde::Serialize)]
 pub struct LogChunk {
     pub text: String,
@@ -1248,8 +1248,8 @@ pub struct LogChunk {
     pub incremental: bool,
 }
 
-// Файлы лога по ключу источника. Для naive/TrustTunnel возвращается удобный
-// агрегированный список отдельных процессов плюс legacy-файл старых версий.
+// Log files by source key. For naive/TrustTunnel it returns a convenient
+// aggregated list of individual processes plus the legacy file of old versions.
 fn component_log_files(dir: &std::path::Path, source: &str) -> Result<Vec<PathBuf>, String> {
     let single = match source {
         "singbox" => Some("singbox.log"),
@@ -1299,7 +1299,7 @@ fn clear_log_files(paths: &[PathBuf]) -> Result<(), String> {
     Ok(())
 }
 
-// То же чтение, но с продолжением с прошлой позиции (см. LogChunk).
+// The same read, but continuing from the previous position (see LogChunk).
 #[tauri::command]
 pub async fn read_log_chunk(
     app: AppHandle,
@@ -1333,9 +1333,9 @@ pub async fn read_log_chunk(
         .map_err(|e| format!("stat: {e}"))?
         .len();
     let limit = normalized_log_tail_bytes(tail_bytes);
-    // Дочитываем, только если позиция всё ещё внутри файла и разрыв не больше
-    // того хвоста, который экран и так показывает. Иначе дешевле и честнее
-    // отдать хвост целиком: from > size значит лог очистили или ротировали.
+    // We continue reading only if the position is still inside the file and the gap is no larger than
+    // the tail the screen shows anyway. Otherwise it's cheaper and more honest to
+    // return the whole tail: from > size means the log was cleared or rotated.
     if let Some(from) = from_offset {
         if from <= size && size - from <= limit {
             let (text, offset) = read_from_offset(path, from, size)?;
@@ -1357,7 +1357,7 @@ pub async fn read_log_chunk(
     })
 }
 
-// Очистка лога любого компонента.
+// Clearing the log of any component.
 #[tauri::command]
 pub async fn clear_log(app: AppHandle, source: String) -> Result<(), String> {
     let dir = crate::app_paths::log_dir(&app)?;
@@ -1372,10 +1372,10 @@ pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
     #[cfg(target_os = "windows")]
     {
-        // Абсолютный путь: explorer.exe лежит в каталоге Windows (не в System32).
-        // Не полагаемся ни на PATH, ни на %SystemRoot% — открытие логов может идти
-        // из elevated-процесса, а переменную окружения пишет HKCU\Environment,
-        // то есть обычный пользователь. GetWindowsDirectoryW окружение не читает.
+        // Absolute path: explorer.exe lives in the Windows directory (not in System32).
+        // We rely neither on PATH nor on %SystemRoot% — opening logs may happen
+        // from an elevated process, and the environment variable is written by HKCU\Environment,
+        // i.e. a regular user. GetWindowsDirectoryW doesn't read the environment.
         let explorer = crate::util::windows_directory().join("explorer.exe");
         std::process::Command::new(explorer)
             .arg(&dir)
@@ -1549,9 +1549,9 @@ fn runtime_endpoints_from_value(value: &serde_json::Value) -> Result<RuntimeEndp
     })
 }
 
-// Диапазон plan_bridge_ports. Другие порты на 127.0.0.1 принадлежат чужому
-// локальному прокси пользователя: ждать их освобождения после остановки нельзя,
-// иначе отключение навсегда застревает в pending_cleanup.
+// The plan_bridge_ports range. Other ports on 127.0.0.1 belong to the user's own
+// local proxy: we must not wait for them to be freed after a stop,
+// otherwise disconnecting gets stuck in pending_cleanup forever.
 const BRIDGE_PORTS: std::ops::RangeInclusive<u16> = 31_100..=34_000;
 
 fn runtime_ports_from_value(
@@ -1600,10 +1600,10 @@ fn runtime_config_metadata_from_config(
     Ok((endpoints, clash_port, runtime_ports))
 }
 
-// Ядро или мост умерли уже после окна в 800 мс, пока ждали готовности. Их
-// настоящая причина (например, `initialize outbound[N]`, по которой фронт
-// ставит ноду в карантин) важнее общего «not ready» через 8 с, которое к тому
-// же стиралось очисткой при abort.
+// The core or a bridge died after the 800 ms window, while we were waiting for readiness. Their
+// real cause (e.g. `initialize outbound[N]`, by which the frontend
+// quarantines the node) matters more than the generic "not ready" after 8 s, which on top of that
+// was wiped by the cleanup on abort.
 fn take_startup_death(state: &SingboxState) -> Option<String> {
     let core = state.died.lock_recover().take();
     core.or_else(|| state.xray_died.lock_recover().take())
@@ -1672,9 +1672,9 @@ async fn wait_probe_listener_ready(
     }
 }
 
-// После kill подтверждаем оба условия ОДНИМ коротким барьером. Раньше два
-// независимых 5-секундных ожидания шли последовательно, а при отмене start в
-// полёте stop вызывался дважды — защитные дедлайны складывались почти в 30 с.
+// After kill we confirm both conditions with ONE short barrier. Previously two
+// independent 5-second waits ran sequentially, and when a start was cancelled
+// in flight stop was called twice — the protective deadlines added up to almost 30 s.
 #[cfg(target_os = "windows")]
 fn process_creation_time(handle: windows::Win32::Foundation::HANDLE) -> Option<u64> {
     use windows::Win32::Foundation::FILETIME;
@@ -1736,13 +1736,13 @@ fn process_has_exited(process: &TrackedProcess) -> bool {
         } else {
             PROCESS_SYNCHRONIZE
         };
-        // ERROR_INVALID_PARAMETER означает, что исходный PID уже исчез. Другую
-        // ошибку (например ACCESS_DENIED) нельзя выдавать за подтверждённый exit.
+        // ERROR_INVALID_PARAMETER means the original PID is already gone. Any other
+        // error (e.g. ACCESS_DENIED) must not be passed off as a confirmed exit.
         let Ok(handle) = OpenProcess(access, false, process.pid) else {
             return GetLastError() == ERROR_INVALID_PARAMETER;
         };
-        // Новый process object с тем же PID не является нашим runtime: исходный
-        // процесс уже завершён, а новый нельзя ни ждать, ни тем более убивать.
+        // A new process object with the same PID is not our runtime: the original
+        // process has already exited, and the new one must neither be waited on nor, even less, killed.
         if let Some(expected) = process.creation_time {
             match process_creation_time(handle) {
                 Some(actual) if actual != expected => {
@@ -1771,7 +1771,7 @@ fn terminate_tracked_process(process: &TrackedProcess) {
     };
 
     let Some(expected) = process.creation_time else {
-        // Без устойчивой identity повторно завершать голый PID небезопасно.
+        // Without a stable identity, terminating a bare PID again is unsafe.
         return;
     };
     unsafe {
@@ -1780,8 +1780,8 @@ fn terminate_tracked_process(process: &TrackedProcess) {
             false,
             process.pid,
         ) {
-            // Проверяем identity на том же handle, который передаём в
-            // TerminateProcess: между проверкой и kill PID уже не переедет.
+            // We check the identity on the same handle we pass to
+            // TerminateProcess: the PID can no longer move between the check and the kill.
             if process_creation_time(handle) == Some(expected) {
                 let _ = TerminateProcess(handle, 1);
             }
@@ -1795,8 +1795,8 @@ fn terminate_tracked_process(_process: &TrackedProcess) {}
 
 #[cfg(not(target_os = "windows"))]
 fn killed_processes_exited(state: &SingboxState, _processes: &[TrackedProcess]) -> bool {
-    // Монитор без Terminated ушёл в unconfirmed: подтверждением выхода он не
-    // является, поэтому здесь нужны оба нуля.
+    // A monitor without Terminated went into unconfirmed: it doesn't count as
+    // confirmation of the exit, so both zeros are needed here.
     state.live_processes.load(Ordering::SeqCst) == 0
         && state.unconfirmed_exits.load(Ordering::SeqCst) == 0
 }
@@ -1827,14 +1827,14 @@ async fn wait_runtime_released(
 ) -> (bool, Vec<u16>) {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
-        // live_processes — это счётчик доставки CommandEvent::Terminated в
-        // монитор логов, а не состояние ОС. Событие идёт за stdout/stderr и
-        // может запоздать после успешного kill. На Windows ждём реальные PID.
+        // live_processes is a counter of CommandEvent::Terminated deliveries to
+        // the log monitor, not an OS state. The event comes after stdout/stderr and
+        // may be late after a successful kill. On Windows we wait for real PIDs.
         let processes_exited = killed_processes_exited(state, killed_processes);
-        // Проверяем именно возможность следующего bind, а не connect. На
-        // Windows connect к уже закрытому, но фильтруемому WFP/WinDivert порту
-        // может ждать TCP retransmit 15–30 секунд и тем самым пробивать внешний
-        // двухсекундный deadline. bind отвечает синхронно и мгновенно.
+        // We check exactly the possibility of the next bind, not connect. On
+        // Windows a connect to an already closed but WFP/WinDivert-filtered port
+        // may wait for TCP retransmit for 15–30 seconds and thereby blow through the outer
+        // two-second deadline. bind answers synchronously and instantly.
         let remaining_ports: Vec<u16> = ports
             .iter()
             .copied()
@@ -2061,7 +2061,7 @@ async fn enable_system_proxy_for_runtime(
             canonical_endpoint
         ));
     }
-    // Запоминаем только за своим поколением: за время IPC runtime мог смениться.
+    // We record it only for our own generation: the runtime may have changed during IPC.
     if let Some(runtime) = state
         .runtime
         .lock_recover()
@@ -2079,10 +2079,10 @@ fn forget_system_proxy_endpoint(state: &SingboxState) {
     }
 }
 
-/// Системный прокси, опубликованный живым runtime, больше не наш: его сняла или
-/// перебила другая программа. Трафик браузеров тогда идёт мимо туннеля, хотя
-/// ядро живо и интерфейс показывает «подключено». Во время остановки не
-/// проверяем: stop сам снимает прокси раньше, чем забывает runtime.
+/// The system proxy published by the live runtime is no longer ours: another program
+/// removed or overrode it. Browser traffic then bypasses the tunnel, although
+/// the core is alive and the interface shows "connected". We don't check during
+/// a stop: stop removes the proxy itself before forgetting the runtime.
 fn system_proxy_lost(state: &SingboxState) -> bool {
     if state.stopping.load(Ordering::SeqCst) {
         return false;
@@ -2206,10 +2206,10 @@ fn runtime_logs_disabled(state: &SingboxState) -> bool {
         .is_some_and(|runtime| runtime.logs_disabled)
 }
 
-// Чем именно подтверждена достижимость. Liveness-проба считает успехом ЛЮБОЙ
-// валидный HTTP-ответ (за ним стоит успешный TLS с разрешённым хостом), поэтому
-// в журнале должно быть видно, что это был за ответ: «ready» без этой строки не
-// отличить от 204 и от 500 удалённой стороны.
+// What exactly confirmed reachability. The liveness probe counts ANY
+// valid HTTP response as success (behind it there is a successful TLS with an allowed host), so
+// the log must show what kind of response it was: "ready" without this line can't
+// be told apart from a 204 and from a 500 from the remote side.
 fn log_verification_evidence(app: &AppHandle, state: &SingboxState, evidence: Option<&str>) {
     if runtime_logs_disabled(state) {
         return;
@@ -2264,8 +2264,8 @@ fn log_runtime_verification(
         RuntimeDataplaneVerification::Cancelled => ("cancelled", None),
         RuntimeDataplaneVerification::Stale => ("stale", None),
     };
-    // Отменённая и устаревшая проверки — штатный ход смены источника, а вот
-    // отказ дата-плейна пользователь должен видеть как ошибку.
+    // Cancelled and outdated checks are a normal part of switching sources, but
+    // a dataplane failure must be shown to the user as an error.
     let level = match verdict {
         RuntimeDataplaneVerification::HardFailed { .. } => DiagnosticLevel::Error,
         RuntimeDataplaneVerification::Unverified { .. } => DiagnosticLevel::Warn,
@@ -2360,9 +2360,9 @@ async fn verify_runtime_dataplane_unlogged(
         .as_ref()
         .is_some_and(|runtime| runtime.strict_privacy);
     if strict_privacy {
-        // `is_active` истинно и тогда, когда жив один лишь транзитный барьер.
-        // Снять его можно только поверх собранной пользовательской policy —
-        // то же условие, что у release_runtime_transition_barrier.
+        // `is_active` is also true when only the transitional barrier is alive.
+        // It may be removed only on top of an assembled user policy —
+        // the same condition as in release_runtime_transition_barrier.
         let wfp_ready = app
             .try_state::<crate::killswitch::KillSwitchState>()
             .is_some_and(|kill_switch| {
@@ -2480,14 +2480,14 @@ async fn start_singbox_inner(
         return Err("stale or cancelled runtime operation token".into());
     }
     let (start_epoch, process_generation) = {
-        // Короткий синхронный gate делает старт/стоп линейными в точке смены
-        // поколения; сам долгий запуск под ним не выполняется.
+        // A short synchronous gate makes start/stop linear at the generation switch
+        // point; the long launch itself doesn't run under it.
         let _gate = state.lifecycle_gate.lock_recover();
         if state.stopping.load(Ordering::SeqCst) {
             return Err(crate::util::i18n_error("backend.vpn.stopping"));
         }
-        // Sentinel ДО child-проверки: второй конкурентный вызов отсекается,
-        // пока первый ещё находится в await до публикации child.
+        // The sentinel comes BEFORE the child check: a second concurrent call is cut off
+        // while the first is still in an await before publishing the child.
         if state.starting.swap(true, Ordering::SeqCst) {
             return Err(crate::util::i18n_error("backend.vpn.starting"));
         }
@@ -2501,13 +2501,13 @@ async fn start_singbox_inner(
             return Err(crate::util::i18n_error("backend.vpn.running"));
         }
         let start_epoch = state.start_epoch.fetch_add(1, Ordering::SeqCst) + 1;
-        // Сначала меняем поколение, затем чистим death-флаги. Иначе запоздалый
-        // Terminated старого runtime мог попасть в окно и отравить новую сессию.
+        // First change the generation, then clear the death flags. Otherwise a late
+        // Terminated of the old runtime could land in the window and poison the new session.
         let process_generation = state.process_generation.fetch_add(1, Ordering::SeqCst) + 1;
-        // `expected_exit_generation` относится только к уже остановленному
-        // runtime. После нового start он не должен совпасть с новым generation:
-        // иначе первый реальный crash после отменённого disconnect будет
-        // ошибочно классифицирован как штатный stop.
+        // `expected_exit_generation` applies only to an already stopped
+        // runtime. After a new start it must not match the new generation:
+        // otherwise the first real crash after a cancelled disconnect would be
+        // misclassified as a regular stop.
         state.expected_exit_generation.store(0, Ordering::SeqCst);
         *state.died.lock_recover() = None;
         *state.xray_died.lock_recover() = None;
@@ -2515,11 +2515,11 @@ async fn start_singbox_inner(
         (start_epoch, process_generation)
     };
     let _starting = StartingGuard(&state.starting);
-    // Захардениваем конфиг (секрет clash-API + loopback) до записи/отправки.
+    // Harden the config (clash API secret + loopback) before writing/sending.
     let cache_path = singbox_cache_path(&app)?;
     let config_json = harden_config(&raw_config_json, Some(&cache_path));
-    // Пароль для соседей по сети фронт не видит и в конфиг не кладёт: его
-    // подставляет бэкенд из зашифрованного хранилища (lan_auth.rs).
+    // The frontend doesn't see the password for network neighbors and doesn't put it into the config: it is
+    // substituted by the backend from the encrypted storage (lan_auth.rs).
     let config_json = crate::lan_auth::apply_to_config(&app, &config_json);
     let (endpoints, clash_port, runtime_ports) = runtime_config_metadata_from_config(&config_json)?;
     if operation_token.kind == RuntimeOperationKind::SourceSwitch
@@ -2530,9 +2530,9 @@ async fn start_singbox_inner(
         return Err("source identity changed during source switch".into());
     }
     let probe_endpoint = endpoints.probe_proxy.clone();
-    // Разбор спецификации мостов — до публикации портов: при битом JSON ничего
-    // не запускалось, а список портов уже уехал бы в state и следующий stop
-    // проверял бы освобождение портов несуществовавшего runtime.
+    // Parsing the bridge spec comes before publishing the ports: with broken JSON nothing
+    // was launched, but the port list would already have gone into state and the next stop
+    // would check the release of ports of a runtime that never existed.
     let sidecar_specs: Option<Vec<SidecarSpec>> = sidecars_json
         .as_ref()
         .filter(|s| !s.trim().is_empty())
@@ -2540,8 +2540,8 @@ async fn start_singbox_inner(
         .transpose()?;
     *state.runtime_ports.lock_recover() = runtime_ports;
 
-    // Two-core: если в конфиге есть xhttp-ноды, поднимаем xray ДО sing-box
-    // (в любом режиме). При ошибке спавна — не стартуем VPN вовсе.
+    // Two-core: if the config has xhttp nodes, bring up xray BEFORE sing-box
+    // (in any mode). On a spawn error we don't start the VPN at all.
     if let Some(xj) = xray_json.as_ref().filter(|s| !s.trim().is_empty()) {
         if let Err(e) = spawn_xray(
             &app,
@@ -2560,7 +2560,7 @@ async fn start_singbox_inner(
         ensure_operation_current(&app, state, operation_token).await?;
     }
 
-    // Sidecar-клиенты naive / trusttunnel (если такие ноды есть) — тоже ДО sing-box.
+    // naive / trusttunnel sidecar clients (if there are such nodes) — also BEFORE sing-box.
     if let Some(specs) = sidecar_specs.as_ref() {
         if let Err(e) = spawn_sidecars(
             &app,
@@ -2579,16 +2579,16 @@ async fn start_singbox_inner(
         ensure_operation_current(&app, state, operation_token).await?;
     }
 
-    // Режим (proxy/systemProxy/tun) больше не влияет на запуск ядра в Rust:
-    // TUN-инбаунд уже зашит в config_json (buildInbound в singbox.js), а
-    // system proxy выставляет фронт отдельной командой. В TUN Ninety обязан
-    // быть elevated — это гарантирует JS (is_elevated/relaunch) до вызова.
+    // The mode (proxy/systemProxy/tun) no longer affects the core launch in Rust:
+    // the TUN inbound is already baked into config_json (buildInbound in singbox.js), and
+    // the system proxy is set by the frontend with a separate command. In TUN Ninety must
+    // be elevated — JS guarantees this (is_elevated/relaunch) before the call.
     let _ = &mode;
 
-    // Всё после поднятия мостов — через одну общую зачистку: ранний `?` здесь
-    // оставлял бы xray/naive/TT сиротами при фейле записи конфига или спавна
-    // sing-box (креды в их конфигах на диске, занятые порты, а guard
-    // xray_child.is_some() блокировал бы следующий старт до явного stop).
+    // Everything after the bridges come up goes through one shared cleanup: an early `?` here
+    // would leave xray/naive/TT orphaned if writing the config or spawning
+    // sing-box failed (credentials in their configs on disk, busy ports, and the
+    // xray_child.is_some() guard would block the next start until an explicit stop).
     if let Err(e) = spawn_singbox_core(
         &app,
         state,
@@ -2633,14 +2633,14 @@ async fn start_singbox_inner(
     });
     state.dataplane_probe.reset_generation(process_generation);
     spawn_core_death_watcher(app.clone(), state, process_generation);
-    // Раньше здесь стоял литеральный `false`, то есть поле уезжало во фронт
-    // заведомо ложным: в строгом режиме kill switch армирован ещё на preflight.
-    // Сейчас снимок старта никто не подставляет в `runtimeSnapshotMatchesExpected`
-    // (тот работает со свежим `runtime_snapshot`), но проверка там строгая
-    // (`killSwitchExpected ? === true : !== true`), и первый же вызов, который
-    // доверится ответу старта, молча ломал бы подключение. Отдаём фактическое
-    // состояние; холодный `is_active` — синхронный RPC к BFE, поэтому он уходит
-    // в blocking-пул, как и в `runtime_snapshot`.
+    // Previously there was a literal `false` here, i.e. the field went to the frontend
+    // obviously false: in strict mode the kill switch is already armed at preflight.
+    // Right now nobody substitutes the start snapshot into `runtimeSnapshotMatchesExpected`
+    // (that one works with a fresh `runtime_snapshot`), but the check there is strict
+    // (`killSwitchExpected ? === true : !== true`), and the very first call that
+    // trusted the start response would silently break the connection. We return the actual
+    // state; a cold `is_active` is a synchronous RPC to BFE, so it goes
+    // to the blocking pool, as in `runtime_snapshot`.
     let kill_switch_active = {
         let app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
@@ -2653,8 +2653,8 @@ async fn start_singbox_inner(
     Ok(runtime_snapshot_value(state, kill_switch_active))
 }
 
-// Имя события смерти ядра. Полезная нагрузка — только поколение и текст
-// причины из лога движка: ни адресов, ни конфига.
+// Name of the core death event. The payload is only the generation and the cause
+// text from the engine log: no addresses, no config.
 pub const CORE_DIED_EVENT: &str = "vpn:core-died";
 
 #[derive(Clone, serde::Serialize)]
@@ -2663,28 +2663,28 @@ pub struct CoreDiedEvent {
     pub reason: Option<String>,
 }
 
-// Rust узнаёт о смерти ядра мгновенно: монитор процесса ловит Terminated и
-// дёргает `process_exit_notify`. До этого сторожа событие никто не потреблял —
-// фронт обнаруживал труп только на очередном 5-секундном тике, то есть детект
-// зависел от таймера WebView. В трее Chromium режет таймеры скрытой страницы, а
-// под полной загрузкой CPU рендерер планируется последним, — ровно в тех
-// случаях, где отказоустойчивость и нужна. Сторож НИЧЕГО не останавливает и не
-// поднимает: политику (гасить, восстанавливать, что показать) по-прежнему решает
-// фронт, здесь только доставка факта без задержки.
+// Rust learns about core death instantly: the process monitor catches Terminated and
+// calls `process_exit_notify`. Before this watchdog nobody consumed the event —
+// the frontend discovered the corpse only on the next 5-second tick, i.e. detection
+// depended on the WebView timer. In the tray Chromium throttles timers of a hidden page, and
+// under full CPU load the renderer is scheduled last — exactly in the
+// cases where fault tolerance is needed. The watchdog stops and brings up NOTHING:
+// the policy (stop, recover, what to show) is still decided by
+// the frontend, here we only deliver the fact without delay.
 fn spawn_core_death_watcher(app: AppHandle, state: &SingboxState, generation: u64) {
     let died = state.died.clone();
     let current_generation = state.process_generation.clone();
     let notify = state.process_exit_notify.clone();
     tauri::async_runtime::spawn(async move {
         loop {
-            // Регистрируем ожидание ДО проверки условия: иначе смерть, попавшая
-            // в окно между проверкой и await, потеряла бы пробуждение, и сторож
-            // висел бы до чужого exit'а.
+            // Register the wait BEFORE checking the condition: otherwise a death that landed
+            // in the window between the check and the await would lose the wakeup, and the watchdog
+            // would hang until someone else's exit.
             let notified = notify.notified();
             tokio::pin!(notified);
             let _ = notified.as_mut().enable();
             if current_generation.load(Ordering::SeqCst) != generation {
-                return; // поколение сменилось — этот runtime уже не наш
+                return; // the generation changed — this runtime is no longer ours
             }
             let reason = died.lock_recover().clone();
             if reason.is_some() {
@@ -2697,7 +2697,7 @@ fn spawn_core_death_watcher(app: AppHandle, state: &SingboxState, generation: u6
 }
 
 #[tauri::command]
-#[allow(clippy::too_many_arguments)] // Tauri IPC: именованные поля сохраняют совместимый wire contract.
+#[allow(clippy::too_many_arguments)] // Tauri IPC: named fields keep a compatible wire contract.
 pub async fn start_singbox(
     app: AppHandle,
     state: State<'_, SingboxState>,
@@ -2745,9 +2745,9 @@ pub async fn start_singbox(
     result
 }
 
-// Текст отказа старта раньше уходил только во фронт: в журнале оставался код
-// стадии `runtime_start_error`, а тост отправлял пользователя смотреть журнал,
-// где причины не было. Отмена старта — штатный исход, не предупреждение.
+// The start failure text used to go only to the frontend: the log kept only the
+// `runtime_start_error` stage code, while the toast sent the user to look at the log,
+// where the cause wasn't. A cancelled start is a normal outcome, not a warning.
 fn log_start_failure(app: &AppHandle, logs_disabled: bool, generation: u64, error: &str) {
     let level = if is_start_cancellation(error) {
         DiagnosticLevel::Info
@@ -2776,9 +2776,9 @@ fn start_failure_line(generation: u64, error: &str) -> String {
     format!("runtime_start generation={generation} result=failed reason={reason}")
 }
 
-// Запись конфига + спавн sing-box + fail-fast-окно. Вынесено из start_singbox,
-// чтобы любой Err отсюда проходил у вызывающего через общую зачистку ядра и
-// мостов — сама функция ничего не подчищает.
+// Writing the config + spawning sing-box + the fail-fast window. Moved out of start_singbox
+// so that any Err from here goes through the shared core and bridge cleanup at the caller —
+// the function itself cleans up nothing.
 async fn spawn_singbox_core(
     app: &AppHandle,
     state: &SingboxState,
@@ -2806,8 +2806,8 @@ async fn spawn_singbox_core(
     *state.child.lock_recover() = Some(child);
 
     let died_flag = state.died.clone();
-    // sing-box при logs_disabled и так молчит (log.disabled в конфиге), но гасим
-    // и файловый writer — единообразно с остальными движками.
+    // sing-box is silent anyway with logs_disabled (log.disabled in the config), but we also
+    // turn off the file writer — consistently with the other engines.
     let log_file = if logs_disabled { None } else { log_path(app) };
     spawn_log_monitor(
         rx,
@@ -2829,13 +2829,13 @@ async fn spawn_singbox_core(
         ),
     );
 
-    // даём sing-box 800мс чтобы упасть с ошибкой парсинга / биндинга
+    // give sing-box 800 ms to fail with a parse / bind error
     wait_start_delay(state, start_epoch, std::time::Duration::from_millis(800)).await?;
     if let Some(err) = state.died.lock_recover().take() {
         return Err(err);
     }
-    // Мост мог умереть и в эти 800мс (после своей settle-паузы) — тоже fail-fast,
-    // иначе health-watchdog найдёт труп через 5с и уйдёт в цикл реконнектов.
+    // A bridge may also have died within these 800 ms (after its settle pause) — fail-fast too,
+    // otherwise the health watchdog finds the corpse 5 s later and goes into a reconnect loop.
     let bridge_err = state
         .xray_died
         .lock_recover()
@@ -2863,30 +2863,30 @@ fn kill_sidecars(state: &SingboxState) -> bool {
     ok
 }
 
-// Зачистка незавершённого запуска. Отмена по epoch и отмена по владению
-// операцией — один и тот же исход: поднятый комплект больше никому не
-// принадлежит. Оставлять его живым нельзя: guard `child.is_some()` заблокировал
-// бы следующий старт, а compute_singbox_running продолжал бы отдавать
-// running=true при пустом RuntimeRecord.
+// Cleanup of an unfinished launch. Cancellation by epoch and cancellation by operation
+// ownership are the same outcome: the brought-up set no longer belongs
+// to anyone. It must not be left alive: the `child.is_some()` guard would block
+// the next start, and compute_singbox_running would keep returning
+// running=true with an empty RuntimeRecord.
 //
-// 🔴 Отмена обязана давать те же гарантии, что stop_singbox_inner. Раньше здесь
-// был голый `let _ = child.kill()` без tracked PID, без проверки освобождения
-// портов и без pending_cleanup: если kill не проходил (процесс завис в
-// TUN-инициализации, отказ доступа), state обнулялся, следующий start проходил
-// guard `child.is_some()` и поднимал ВТОРОЙ комплект на тех же портах — два
-// sing-box дрались за clash-API и mixed-in, а осиротевший держал TUN-адаптер.
+// 🔴 Cancellation must give the same guarantees as stop_singbox_inner. Previously there
+// was a bare `let _ = child.kill()` here without a tracked PID, without checking port
+// release and without pending_cleanup: if kill didn't go through (the process hung in
+// TUN initialization, access denied), the state was reset, the next start passed
+// the `child.is_some()` guard and brought up a SECOND set on the same ports — two
+// sing-box instances fought over the clash API and mixed-in, while the orphan held the TUN adapter.
 async fn abort_started_runtime(state: &SingboxState) {
     abort_started_runtime_scoped(state, PortDebt::Ours).await;
 }
 
-/// Кому принадлежат порты незавершённого запуска.
+/// Who owns the ports of an unfinished launch.
 ///
-/// Отмена (новый epoch, отнятый токен) снимает уже поднятый комплект: порт,
-/// оставшийся занятым, почти наверняка держит наш же процесс, и долг обязателен.
-/// Провал спавна — другой случай: порт мог быть занят ЧУЖИМ процессом, ровно
-/// из-за него запуск и не состоялся. Вечный долг по такому порту запирает обе
-/// двери — start отвечает «повторите отключение», а stop не может подтвердить
-/// освобождение чужого порта и оставляет долг снова.
+/// Cancellation (new epoch, revoked token) removes the already brought-up set: a port
+/// that stays busy is almost certainly held by our own process, and the debt is mandatory.
+/// A spawn failure is a different case: the port may have been taken by a FOREIGN process, which is exactly
+/// why the launch didn't happen. A permanent debt on such a port locks both
+/// doors — start answers "repeat the disconnect", and stop can't confirm
+/// the release of a foreign port and leaves the debt again.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PortDebt {
     Ours,
@@ -2894,12 +2894,12 @@ enum PortDebt {
 }
 
 async fn abort_started_runtime_scoped(state: &SingboxState, port_debt: PortDebt) {
-    // Повторный вход на уже зачищенном состоянии. Внутренние шаги старта
-    // (wait_start_delay → ensure_start_current, wait_clash_ready) сами вызывают
-    // отмену, а внешний обработчик их ошибки вызывает её ещё раз. Второму
-    // проходу подтверждать нечего: он видит пустые цели, объявил бы очистку
-    // успешной и стёр долг, записанный первым, — осиротевший движок и занятые
-    // порты остались бы без единой попытки восстановления.
+    // Re-entry on an already cleaned-up state. The internal start steps
+    // (wait_start_delay → ensure_start_current, wait_clash_ready) call
+    // the cancellation themselves, and the outer handler of their error calls it again. The second
+    // pass has nothing to confirm: it sees empty targets, would declare the cleanup
+    // successful and erase the debt recorded by the first one — the orphaned engine and busy
+    // ports would be left without a single recovery attempt.
     let nothing_to_abort = state.child.lock_recover().is_none()
         && state.xray_child.lock_recover().is_none()
         && state.sidecars.lock_recover().is_empty()
@@ -2908,16 +2908,16 @@ async fn abort_started_runtime_scoped(state: &SingboxState, port_debt: PortDebt)
     if nothing_to_abort {
         return;
     }
-    // Отмена — плановое завершение ЭТОГО поколения. Без пометки монитор
-    // классифицирует наш собственный kill как краш и пишет в журнал ERROR
-    // «sing-box died» с дампом строк — пользователь видит отказ ядра там, где
-    // сработала его же отмена.
+    // Cancellation is a planned termination of THIS generation. Without the mark the monitor
+    // classifies our own kill as a crash and writes an ERROR to the log,
+    // "sing-box died" with a dump of lines — the user sees a core failure where
+    // their own cancellation fired.
     state.expected_exit_generation.store(
         state.process_generation.load(Ordering::SeqCst),
         Ordering::SeqCst,
     );
-    // Identity снимаем ДО kill: голый PID Windows переиспользует, а повторной
-    // очистке нужно доказательство, что добивают именно наш process object.
+    // The identity is taken BEFORE kill: Windows reuses a bare PID, and a repeated
+    // cleanup needs proof that it's finishing off exactly our process object.
     let mut killed = Vec::new();
     if let Some(child) = state.child.lock_recover().take() {
         killed.push(track_process(child.pid()));
@@ -2937,23 +2937,23 @@ async fn abort_started_runtime_scoped(state: &SingboxState, port_debt: PortDebt)
         let mut guard = state.runtime_ports.lock_recover();
         std::mem::take(&mut *guard)
     };
-    // Runtime забываем раньше, чем снимаем прокси: иначе сторож успел бы
-    // увидеть «наш прокси пропал» у ещё опубликованного runtime.
+    // The runtime is forgotten before the proxy is removed: otherwise the watchdog could
+    // see "our proxy is gone" on a still published runtime.
     *state.runtime.lock_recover() = None;
     let _ = proxy::set_system_proxy(false, None, None);
 
-    // Тот же короткий барьер подтверждения, что у stop_singbox_inner.
+    // The same short confirmation barrier as in stop_singbox_inner.
     let (processes_exited, remaining_ports) = wait_runtime_released(state, &ports, &killed).await;
     let ports_confirmed = remaining_ports.is_empty() || port_debt == PortDebt::Unproven;
     if processes_exited && ports_confirmed {
         clear_death_flags(state);
-        // Ранее зарегистрированный долг НЕ снимаем: в отличие от
-        // stop_singbox_inner, отмена не подмешивает pending_cleanup в свои
-        // цели, то есть эти процессы и порты никто не проверял. Списать долг
-        // имеет право только stop, который его действительно добивает.
+        // A previously registered debt is NOT removed: unlike
+        // stop_singbox_inner, cancellation doesn't mix pending_cleanup into its
+        // targets, i.e. nobody checked these processes and ports. Only a stop that actually
+        // finishes them off has the right to write off the debt.
     } else {
-        // Очистка не подтверждена — фиксируем долг. Следующий start откажет с
-        // «повторите отключение», а следующий stop физически добьёт остаток.
+        // Cleanup not confirmed — record the debt. The next start will refuse with
+        // "repeat the disconnect", and the next stop will physically finish off the rest.
         let incoming = PendingCleanup {
             processes: unresolved_processes(&killed),
             ports: match port_debt {
@@ -2966,9 +2966,9 @@ async fn abort_started_runtime_scoped(state: &SingboxState, port_debt: PortDebt)
     }
 }
 
-/// Слияние долгов очистки. Новый незавершённый комплект не заменяет прежний:
-/// каждая запись — это ещё не добитый process object или не освобождённый порт,
-/// и потеря любой из них означает сироту без последующей попытки.
+/// Merging cleanup debts. A new unfinished set doesn't replace the previous one:
+/// each record is a process object not yet finished off or a port not yet released,
+/// and losing any of them means an orphan without a subsequent attempt.
 fn merge_pending_cleanup(
     existing: Option<PendingCleanup>,
     incoming: PendingCleanup,
@@ -2996,10 +2996,10 @@ async fn ensure_start_current(state: &SingboxState, epoch: u64) -> Result<(), St
     Err(crate::util::i18n_error("backend.vpn.startCancelled"))
 }
 
-// Отнятый/устаревший токен на любом шаге старта. В отличие от epoch-проверки
-// координатор мог сменить владельца без нового start_epoch (latest-wins смена
-// источника), поэтому чистить обязана именно эта ветка: у stop_singbox с тем же
-// токеном владения уже нет, и он вернёт refused, не тронув процессы.
+// Revoked/outdated token at any start step. Unlike the epoch check,
+// the coordinator may have changed the owner without a new start_epoch (a latest-wins source
+// switch), so this branch is the one that must clean up: stop_singbox with the same
+// token no longer has ownership and will return refused without touching the processes.
 async fn ensure_operation_current(
     app: &AppHandle,
     state: &SingboxState,
@@ -3032,10 +3032,10 @@ async fn wait_start_delay(
     }
 }
 
-// Стирает конфиги мостов (naive-*.json, trusttunnel-*.toml) из writable config dir.
-// В них лежат креды нод (user:pass) — не держим их на диске дольше сессии.
-// singbox-current.json/xray-current.json НЕ трогаем: это норма клиентов, и
-// они перезаписываются при следующем старте.
+// Erases bridge configs (naive-*.json, trusttunnel-*.toml) from the writable config dir.
+// They hold node credentials (user:pass) — we don't keep them on disk longer than the session.
+// singbox-current.json/xray-current.json are NOT touched: that's normal for clients, and
+// they are overwritten on the next start.
 fn purge_bridge_configs(app: &AppHandle) {
     let Ok(dir) = crate::app_paths::config_dir(app) else {
         return;
@@ -3077,9 +3077,9 @@ pub fn purge_stale_runtime_configs(app: &AppHandle) {
     }
 }
 
-// Стирает singbox-current.json / xray-current.json из writable config dir. В них
-// UUID/пароли нод и (при активном WARP) приватный WG-ключ — держать их на диске
-// дольше сессии незачем: следующий старт всё равно перезапишет файлы заново.
+// Erases singbox-current.json / xray-current.json from the writable config dir. They hold
+// node UUIDs/passwords and (with WARP active) the private WG key — there is no reason to keep them on disk
+// longer than the session: the next start will overwrite the files anyway.
 fn purge_current_configs(app: &AppHandle) {
     let Ok(dir) = crate::app_paths::config_dir(app) else {
         return;
@@ -3089,8 +3089,8 @@ fn purge_current_configs(app: &AppHandle) {
     }
 }
 
-// Сбрасывает флаги смерти движков. Без этого причина прошлой смерти жила бы до
-// следующего start_singbox (health_snapshot отдавал бы устаревшее).
+// Resets the engine death flags. Without this the cause of the last death would live until
+// the next start_singbox (health_snapshot would return stale data).
 fn clear_death_flags(state: &SingboxState) {
     *state.died.lock_recover() = None;
     *state.xray_died.lock_recover() = None;
@@ -3107,9 +3107,9 @@ pub struct StopResult {
     remaining_ports: Vec<u16>,
     processes_exited: bool,
     pending_exit_events: u64,
-    // Мониторы, закончившиеся без Terminated. Ненулевое значение объясняет,
-    // почему остановка не подтверждена событиями, и не выдаёт себя за живой
-    // процесс.
+    // Monitors that ended without Terminated. A non-zero value explains
+    // why the stop isn't confirmed by events, and doesn't pass itself off as a live
+    // process.
     unconfirmed_monitor_exits: u64,
     system_proxy: &'static str,
     timings: StopTimings,
@@ -3124,15 +3124,15 @@ struct StopTimings {
     total_ms: u64,
 }
 
-/// Освобождены ли порты runtime с точки зрения очистки.
+/// Whether the runtime ports are released from the cleanup's point of view.
 ///
-/// На Windows выход движков подтверждается по их process object, а слушающий
-/// сокет свой процесс не переживает. Порт, занятый после того как все наши
-/// процессы подтверждённо завершились, держит чужая программа: она успела
-/// занять его, например, после падения ядра. Считать такой порт своим долгом
-/// нельзя — stop не подтвердился бы никогда, а start отвечал бы «повторите
-/// отключение» до перезапуска приложения. Сами порты остаются в отчёте
-/// остановки и видны в журнале.
+/// On Windows the engines' exit is confirmed by their process object, and a listening
+/// socket doesn't outlive its process. A port that is busy after all our
+/// processes have confirmedly exited is held by a foreign program: it managed to
+/// take it, for example, after the core crashed. Such a port must not be counted as our own debt —
+/// stop would never be confirmed, and start would answer "repeat the
+/// disconnect" until the app is restarted. The ports themselves stay in the stop
+/// report and are visible in the log.
 fn ports_confirmed_released(processes_exited: bool, remaining_ports: &[u16]) -> bool {
     remaining_ports.is_empty() || (cfg!(target_os = "windows") && processes_exited)
 }
@@ -3143,8 +3143,8 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
     {
         let _gate = state.lifecycle_gate.lock_recover();
         state.stopping.store(true, Ordering::SeqCst);
-        // Инвалидируем start ДО снятия child-хэндлов. Если IPC-start находится
-        // в await, он увидит новое поколение и завершится без хвоста.
+        // Invalidate start BEFORE removing the child handles. If an IPC start is
+        // in an await, it will see the new generation and finish without leftovers.
         state.start_epoch.fetch_add(1, Ordering::SeqCst);
     }
     let _stopping = StoppingGuard(&state.stopping);
@@ -3161,24 +3161,24 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
         .unwrap_or_default();
     let runtime_ports = state.runtime_ports.lock_recover().clone();
     let (ports, mut killed_processes) = cleanup_targets(&runtime_ports, pending);
-    // CommandChild уже потреблён прошлой попыткой. Повторный stop всё равно
-    // должен физически добить оставшийся process object, но только если его
-    // creation time всё ещё совпадает — голый PID Windows мог переиспользовать.
+    // The CommandChild was already consumed by the previous attempt. A repeated stop must still
+    // physically finish off the remaining process object, but only if its
+    // creation time still matches — Windows may have reused the bare PID.
     for process in &killed_processes {
         terminate_tracked_process(process);
     }
-    // Запоминаем процессы по компонентам: без этого журнал остановки отдавал
-    // всем трём строкам один и тот же общий вердикт, и «failed» не говорил,
-    // какой именно движок не завершился.
+    // We record processes per component: without this the stop log gave
+    // all three lines the same shared verdict, and "failed" didn't say
+    // which engine exactly didn't exit.
     let mut singbox_processes: Vec<TrackedProcess> = Vec::new();
     let mut xray_processes: Vec<TrackedProcess> = Vec::new();
     let mut sidecar_processes: Vec<TrackedProcess> = Vec::new();
     let taken = state.child.lock_recover().take();
     let had_singbox = taken.is_some();
     if let Some(child) = taken {
-        // child.kill() гасит sing-box; wintun-адаптер (non-persistent) снимается
-        // системой вместе со смертью процесса, державшего его — отдельная чистка
-        // TUN-интерфейса не нужна.
+        // child.kill() kills sing-box; the wintun adapter (non-persistent) is removed
+        // by the system together with the death of the process that held it — a separate cleanup
+        // of the TUN interface is not needed.
         let tracked = track_process(child.pid());
         singbox_processes.push(tracked.clone());
         killed_processes.push(tracked);
@@ -3208,7 +3208,7 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
     let proxy_done_at = std::time::Instant::now();
     let (processes_exited, remaining_ports) =
         wait_runtime_released(state, &ports, &killed_processes).await;
-    // Вердикт на компонент считаем по его собственным PID.
+    // The verdict per component is computed from its own PIDs.
     let singbox_exited = killed_processes_exited(state, &singbox_processes);
     let xray_exited = killed_processes_exited(state, &xray_processes);
     let sidecars_exited = killed_processes_exited(state, &sidecar_processes);
@@ -3227,8 +3227,8 @@ async fn stop_singbox_inner(app: &AppHandle, state: &SingboxState) -> Result<Sto
     } else {
         *state.pending_cleanup.lock_recover() = Some(PendingCleanup {
             processes: unresolved_processes(&killed_processes),
-            // Храним весь набор, а не только занятые порты: повторная проверка
-            // должна подтверждать освобождение полного runtime-контракта.
+            // We keep the whole set, not just the busy ports: a repeated check
+            // must confirm the release of the full runtime contract.
             ports: ports.clone(),
         });
     }
@@ -3283,18 +3283,18 @@ pub async fn stop_singbox(
 ) -> Result<StopResult, String> {
     // Manual disconnect owns the lifecycle token and performs one verified stop.
     let generation = state.process_generation.load(Ordering::SeqCst);
-    // logs_disabled живёт в RuntimeRecord, а подтверждённый stop его обнуляет.
-    // Читаем настройку до остановки, иначе итоговая запись ушла бы в файл даже
-    // при полностью отключённых логах.
+    // logs_disabled lives in RuntimeRecord, and a confirmed stop resets it.
+    // We read the setting before stopping, otherwise the final record would go into the file even
+    // with logs fully disabled.
     let logs_disabled = state
         .runtime
         .lock_recover()
         .as_ref()
         .is_some_and(|runtime| runtime.logs_disabled);
-    // Отказ владения — тоже исход остановки, и на UI он выглядит ровно тем же
-    // «очистка не подтверждена», что и незавершённый процесс. Без этих записей
-    // в журнале оставалась дыра: неудачный stop не оставлял следа вообще, и
-    // отличить отнятый токен от реальной проблемы очистки было нечем.
+    // An ownership refusal is also a stop outcome, and in the UI it looks exactly like the same
+    // "cleanup not confirmed" as an unfinished process. Without these records
+    // there was a hole in the log: a failed stop left no trace at all, and
+    // there was no way to tell a revoked token from a real cleanup problem.
     let requested_kind = operation_token.as_ref().map(|token| token.kind);
     let (operation_token, implicit) = match lifecycle_operation(
         &app,
@@ -3371,12 +3371,12 @@ pub async fn stop_singbox(
     result
 }
 
-// Итог остановки уходил только в console.error WebView, недоступную пользователю:
-// по сообщению «очистка не подтверждена» нельзя было отличить незавершённый
-// процесс от занятого порта или от неснятого системного прокси. Пишем разбор в
-// тот же singbox.log, который открывается во вкладке «Логи». Здесь нет URL, IP,
-// имён нод и конфигов — только статусы компонентов, номера runtime-портов и
-// тайминги стадий.
+// The stop outcome went only to the WebView console.error, which is inaccessible to the user:
+// from the "cleanup not confirmed" message one couldn't tell an unfinished
+// process from a busy port or from a system proxy that wasn't removed. We write the breakdown to
+// the same singbox.log that opens in the "Logs" tab. There are no URLs, IPs,
+// node names or configs here — only component statuses, runtime port numbers and
+// stage timings.
 fn log_stop_diagnostic(app: &AppHandle, logs_disabled: bool, level: DiagnosticLevel, line: &str) {
     if logs_disabled {
         return;
@@ -3384,9 +3384,9 @@ fn log_stop_diagnostic(app: &AppHandle, logs_disabled: bool, level: DiagnosticLe
     append_runtime_diagnostic_at(app, level, line);
 }
 
-// Остановка, отклонённая координатором операций: сюда попадают отнятый/устаревший
-// токен и занятый lifecycle. Формат совпадает с обычным runtime_stop, чтобы в
-// журнале обе ветки читались одним грепом.
+// A stop rejected by the operation coordinator: this covers a revoked/outdated
+// token and a busy lifecycle. The format matches the regular runtime_stop so that in
+// the log both branches can be read with one grep.
 fn log_stop_refusal(
     app: &AppHandle,
     logs_disabled: bool,
@@ -3416,9 +3416,9 @@ fn log_stop_result(
     if logs_disabled {
         return;
     }
-    // Неподтверждённая очистка — не хроника, а повод разбираться: процессы или
-    // порты остались за нами. В журнале она должна попадать в фильтр
-    // предупреждений, а не теряться среди обычных строк остановки.
+    // An unconfirmed cleanup is not chronicle but a reason to investigate: processes or
+    // ports are still ours. In the log it must fall into the warnings
+    // filter rather than get lost among regular stop lines.
     let level = match result {
         Ok(stop) if stop.processes_exited && stop.ports_released => DiagnosticLevel::Info,
         _ => DiagnosticLevel::Warn,
@@ -3451,18 +3451,18 @@ fn log_stop_result(
     append_runtime_diagnostic_at(app, level, &line);
 }
 
-// Транзитный барьер имеет смысл ТОЛЬКО поверх уже действующей fail-closed
-// политики: строгая приватность или армированный kill switch. Пользователю с
-// выключенным Kill Switch он не даёт ничего, зато на каждой смене режима и на
-// каждом восстановлении watchdog'а рубит все новые соединения приложений
-// (block-all разрешает лишь loopback, DHCP и exe движков) — вопреки явно
-// выключенной настройке. Барьер снимается только успешной верификацией нового
-// runtime, которой на пути смены режима нет вовсе.
+// The transitional barrier makes sense ONLY on top of an already active fail-closed
+// policy: strict privacy or an armed kill switch. For a user with
+// the Kill Switch off it gives nothing, yet on every mode switch and on
+// every watchdog recovery it cuts all new app connections
+// (block-all allows only loopback, DHCP and engine exes) — against an explicitly
+// disabled setting. The barrier is removed only by successful verification of the new
+// runtime, which doesn't happen at all on the mode switch path.
 fn transition_barrier_required(strict_tunnel: bool, kill_switch_active: bool) -> bool {
     strict_tunnel || kill_switch_active
 }
 
-/// Возвращает true, если барьер армирован, false — если политика его не требует.
+/// Returns true if the barrier is armed, false if the policy doesn't require it.
 fn native_transition_barrier(app: &AppHandle) -> Result<bool, String> {
     let kill_switch = app
         .try_state::<crate::killswitch::KillSwitchState>()
@@ -3494,7 +3494,7 @@ pub(crate) fn release_transition_barrier(app: &AppHandle) -> Result<(), String> 
     crate::killswitch::transition_release(&kill_switch)
 }
 
-/// Факты, по которым решается судьба транзитного барьера.
+/// Facts that decide the fate of the transitional barrier.
 #[derive(Clone, Copy, Debug)]
 struct TransitionReleaseFacts {
     running: bool,
@@ -3504,11 +3504,11 @@ struct TransitionReleaseFacts {
     policy_lease_active: bool,
 }
 
-/// Барьер отпускается только поверх подтверждённого нового runtime: он живой,
-/// опубликовал listener и clash-контроллер, и это ИМЕННО то поколение, которого
-/// ждал вызывающий. В строгой сессии дополнительно требуется собранная
-/// пользовательская policy — иначе снятие открыло бы ровно то окно, ради
-/// закрытия которого барьер и ставился.
+/// The barrier is released only on top of a confirmed new runtime: it is alive,
+/// has published the listener and the clash controller, and it is EXACTLY the generation
+/// the caller was waiting for. In a strict session an assembled user policy
+/// is additionally required — otherwise removing it would open exactly the window
+/// the barrier was installed to close.
 fn transition_release_allowed(facts: TransitionReleaseFacts) -> bool {
     facts.running
         && facts.runtime_ready
@@ -3516,24 +3516,24 @@ fn transition_release_allowed(facts: TransitionReleaseFacts) -> bool {
         && (!facts.strict_privacy || facts.policy_lease_active)
 }
 
-/// Снять транзитный барьер после подтверждённого подключения.
+/// Remove the transitional barrier after a confirmed connection.
 ///
-/// Барьер ставит `stop_singbox` для операций смены runtime, а снимала его
-/// только верификация дата-плейна (`verify_runtime_dataplane`). Верификацию
-/// делают лишь смена источника и лечение качества: авто-реконнект по изменению
-/// настроек/режима и восстановление сторожем (смерть ядра, смерть моста) до неё
-/// не доходят, и лишний block-all жил до отключения VPN — поверх уже собранной
-/// пользовательской политики, но без LAN-исключений и без permit самого Ninety.
-/// Фронт зовёт эту команду в конце успешного connect; сам барьер отпускается
-/// только если новый runtime действительно подтверждён.
+/// The barrier is installed by `stop_singbox` for runtime switch operations, but it was removed
+/// only by dataplane verification (`verify_runtime_dataplane`). Verification
+/// is done only by source switching and quality healing: auto-reconnect on a
+/// settings/mode change and recovery by the watchdog (core death, bridge death) never
+/// reach it, and the extra block-all lived until the VPN was disconnected — on top of the already assembled
+/// user policy, but without LAN exceptions and without a permit for Ninety itself.
+/// The frontend calls this command at the end of a successful connect; the barrier itself is released
+/// only if the new runtime is actually confirmed.
 ///
-/// Возврат: true — барьер снят, false — его и не было.
+/// Returns: true — the barrier was removed, false — there was none.
 #[tauri::command]
 pub async fn release_runtime_transition_barrier(
     app: AppHandle,
     expected_generation: u64,
 ) -> Result<bool, String> {
-    // Закрытие WFP-сессии — синхронный RPC к BFE, ему не место на главном потоке.
+    // Closing a WFP session is a synchronous RPC to BFE, it has no place on the main thread.
     tauri::async_runtime::spawn_blocking(move || {
         let kill_switch = app.state::<crate::killswitch::KillSwitchState>();
         if !crate::killswitch::transition_active(&kill_switch) {
@@ -3565,24 +3565,24 @@ pub async fn release_runtime_transition_barrier(
     .map_err(|e| format!("could not remove the transition barrier: {e}"))?
 }
 
-// Внутренние вычисления статусов — переиспользуются одиночными командами и
-// агрегатом health_snapshot (один IPC-роунд-трип для watchdog'а вместо четырёх).
+// Internal status computations — reused by single commands and
+// by the health_snapshot aggregate (one IPC round trip for the watchdog instead of four).
 fn compute_singbox_running(state: &SingboxState) -> bool {
     if state.child.lock_recover().is_some() {
-        // Хэндл child не чистится при смерти процесса — монитор-таск лишь
-        // выставляет died. Без этой проверки singbox_running возвращал бы true
-        // вечно после краша ядра (UI держит «Защищено», прокси указывает на
-        // мёртвый порт, трафик в чёрную дыру). Труп живым не считаем.
+        // The child handle isn't cleared when the process dies — the monitor task only
+        // sets died. Without this check singbox_running would return true
+        // forever after a core crash (the UI keeps showing "Protected", the proxy points to
+        // a dead port, traffic goes into a black hole). A corpse isn't counted as alive.
         return state.died.lock_recover().is_none();
     }
     false
 }
 
-// Статус xray-sidecar (two-core) для health-watchdog'а фронта:
-//   "none"  — xray не спавнился (xhttp-нод в активном конфиге нет);
-//   "alive" — поднят и не падал;
-//   "died"  — был поднят, но процесс завершился (xhttp-мост мёртв).
-// child-хэндл при смерти не чистится, поэтому различаем по флагу xray_died.
+// xray sidecar (two-core) status for the frontend health watchdog:
+//   "none"  — xray wasn't spawned (no xhttp nodes in the active config);
+//   "alive" — up and hasn't crashed;
+//   "died"  — was up, but the process exited (the xhttp bridge is dead).
+// The child handle isn't cleared on death, so we distinguish by the xray_died flag.
 fn compute_xray_status(state: &SingboxState) -> &'static str {
     if state.xray_child.lock_recover().is_none() {
         return "none";
@@ -3594,10 +3594,10 @@ fn compute_xray_status(state: &SingboxState) -> &'static str {
     }
 }
 
-// Статус sidecar-клиентов naive/TT (аналог compute_xray_status):
-//   "none"  — sidecar'ов не поднимали (таких нод в конфиге нет);
-//   "alive" — подняты и не падали;
-//   "died"  — хотя бы один клиент завершился (мост мёртв → реконнект).
+// naive/TT sidecar client status (analogous to compute_xray_status):
+//   "none"  — no sidecars were brought up (no such nodes in the config);
+//   "alive" — up and haven't crashed;
+//   "died"  — at least one client exited (the bridge is dead → reconnect).
 fn compute_sidecar_status(state: &SingboxState) -> &'static str {
     if state.sidecars.lock_recover().is_empty() {
         return "none";
@@ -3609,7 +3609,7 @@ fn compute_sidecar_status(state: &SingboxState) -> &'static str {
     }
 }
 
-// Последняя причина смерти ядра (sing-box приоритетнее xray/sidecar) — для тоста.
+// The last cause of core death (sing-box takes priority over xray/sidecar) — for the toast.
 fn compute_last_error(state: &SingboxState) -> Option<String> {
     if let Some(e) = state.died.lock_recover().clone() {
         return Some(e);
@@ -3636,10 +3636,10 @@ pub(crate) fn protected_browser_tun_ready(state: &SingboxState) -> bool {
         .is_some_and(|runtime| runtime.mode == "tun" && runtime.clash_ready)
 }
 
-// Снимки состояния читают реестр и (на холодном кэше) опрашивают BFE — то есть
-// синхронный RPC к службе. Фронт зовёт их на каждой перерисовке и на каждом
-// тике сторожа, поэтому на главном потоке они регулярно морозили окно.
-// spawn_blocking переносит работу в blocking-пул, wire contract не меняется.
+// State snapshots read the registry and (with a cold cache) poll BFE — that is,
+// a synchronous RPC to the service. The frontend calls them on every redraw and on every
+// watchdog tick, so on the main thread they regularly froze the window.
+// spawn_blocking moves the work to the blocking pool, the wire contract doesn't change.
 #[tauri::command]
 pub async fn runtime_snapshot(app: AppHandle) -> Result<RuntimeSnapshot, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -3651,11 +3651,11 @@ pub async fn runtime_snapshot(app: AppHandle) -> Result<RuntimeSnapshot, String>
     .map_err(|e| format!("could not get the runtime snapshot: {e}"))
 }
 
-// Агрегат статусов ядер за один вызов — watchdog фронта раньше дёргал статус
-// sing-box, xray, sidecar'ов и последнюю ошибку четырьмя отдельными командами
-// на каждом тике (раз в 5с всю сессию); тех команд больше нет. last_error читаем
-// всегда: фронт использует его только при singbox_running=false, но лишний
-// clone дешевле второго round-trip'а.
+// Aggregate of core statuses in one call — the frontend watchdog used to query the status of
+// sing-box, xray, the sidecars and the last error with four separate commands
+// on every tick (every 5 s for the whole session); those commands are gone. last_error is read
+// always: the frontend uses it only when singbox_running=false, but an extra
+// clone is cheaper than a second round trip.
 #[derive(serde::Serialize)]
 pub struct HealthSnapshot {
     pub singbox_running: bool,
@@ -3663,15 +3663,15 @@ pub struct HealthSnapshot {
     pub sidecar: &'static str,
     pub last_error: Option<String>,
     pub kill_switch_active: bool,
-    // Системный прокси этого runtime сняла или перебила другая программа.
+    // This runtime's system proxy was removed or overridden by another program.
     pub system_proxy_lost: bool,
     pub runtime_operation: Option<crate::runtime_ops::RuntimeOperationSnapshot>,
-    // Виноват ли хост, а не сеть. Едет тем же снимком, чтобы движок качества
-    // узнавал о нехватке CPU/памяти без отдельного round-trip'а.
+    // Whether the host is to blame, not the network. It travels in the same snapshot so that the quality engine
+    // learns about a CPU/memory shortage without a separate round trip.
     pub host_pressure: crate::host_pressure::HostPressureSnapshot,
-    // TCP-сокеты процесса sing-box. Тысячи и рост — признак петли маршрутизации
-    // (#168); сам вывод делает сторож на фронте. None — ядро не запущено или
-    // снимок не снялся.
+    // TCP sockets of the sing-box process. Thousands and growing is a sign of a routing loop
+    // (#168); the conclusion itself is made by the watchdog on the frontend. None — the core isn't running or
+    // the snapshot failed.
     pub core_sockets: Option<u32>,
 }
 
@@ -3723,9 +3723,9 @@ fn validate_system_proxy_enable_request(
     Ok(())
 }
 
-// Остановка runtime под токеном операции: свой токен вызывающего авторизуем,
-// без него берём implicit FrontendRecovery. Занятый более приоритетной
-// операцией lifecycle останавливать нельзя — это не наш runtime.
+// Stopping the runtime under an operation token: we authorize the caller's own token,
+// without it we take an implicit FrontendRecovery. A lifecycle occupied by a higher-priority
+// operation must not be stopped — it's not our runtime.
 async fn stop_owned_runtime(
     app: &AppHandle,
     state: &SingboxState,
@@ -3766,10 +3766,10 @@ pub async fn enable_system_proxy(
     )
     .await
     {
-        // Аварийная остановка после провала готовности прокси — такая же
-        // операция жизненного цикла, как ручное «Отключить». Без владения она
-        // гасила runtime вслепую: за время IPC им мог завладеть более новый
-        // connect, и тот получал внезапно убитое ядро.
+        // An emergency stop after a proxy readiness failure is the same
+        // lifecycle operation as a manual "Disconnect". Without ownership it
+        // killed the runtime blindly: during IPC a newer connect could have taken it over,
+        // and that one got a suddenly killed core.
         let cleanup = stop_owned_runtime(&app, &state, operation_token, expected_generation).await;
         return Err(match cleanup {
             Ok(_) => format!("{error}; runtime stopped after proxy readiness failure"),
@@ -3783,8 +3783,8 @@ pub async fn enable_system_proxy(
 
 #[tauri::command]
 pub fn disable_system_proxy(state: State<'_, SingboxState>) -> Result<(), String> {
-    // Прокси снимают сознательно (смена режима, откат после сбоя): сторож не
-    // должен принимать это за вмешательство другой программы.
+    // The proxy is removed deliberately (mode switch, rollback after a failure): the watchdog must not
+    // take this for interference by another program.
     forget_system_proxy_endpoint(&state);
     proxy::set_system_proxy(false, None, None)
 }
@@ -3813,8 +3813,8 @@ mod system_proxy_command_tests {
         };
         assert!(transition_release_allowed(confirmed));
 
-        // Мёртвое ядро, неготовый listener/clash и чужое поколение обязаны
-        // сохранять барьер: снятие здесь и есть fail-open окно.
+        // A dead core, an unready listener/clash and a foreign generation must
+        // keep the barrier: removing it here is exactly the fail-open window.
         assert!(!transition_release_allowed(TransitionReleaseFacts {
             running: false,
             ..confirmed
@@ -3828,7 +3828,7 @@ mod system_proxy_command_tests {
             ..confirmed
         }));
 
-        // Строгая сессия отпускает барьер только поверх собранной policy.
+        // A strict session releases the barrier only on top of an assembled policy.
         assert!(!transition_release_allowed(TransitionReleaseFacts {
             strict_privacy: true,
             ..confirmed
@@ -3844,8 +3844,8 @@ mod system_proxy_command_tests {
     fn transition_barrier_follows_the_active_fail_closed_policy() {
         use super::transition_barrier_required;
 
-        // Ни строгой приватности, ни армированного kill switch: блокировать сеть
-        // на время замены runtime нельзя — пользователь fail-closed не просил.
+        // Neither strict privacy nor an armed kill switch: blocking the network
+        // during the runtime replacement is not allowed — the user didn't ask for fail-closed.
         assert!(!transition_barrier_required(false, false));
         assert!(transition_barrier_required(false, true));
         assert!(transition_barrier_required(true, false));
@@ -3885,10 +3885,10 @@ pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
     purge_bridge_configs(app);
     purge_current_configs(app);
     clear_death_flags(state);
-    // Последний рубеж перед выходом. Проглатывать здесь ошибку нельзя: если
-    // прокси не снялся, у пользователя после закрытия Ninety нет интернета во
-    // всём, что читает WinINet, и в журнале не остаётся ни одной подсказки —
-    // «сломанный режим прокси» выглядит как отказ Windows на пустом месте.
+    // The last line of defense before exit. The error must not be swallowed here: if
+    // the proxy wasn't removed, after closing Ninety the user has no internet in
+    // everything that reads WinINet, and not a single hint remains in the log —
+    // a "broken proxy mode" looks like a Windows failure out of nowhere.
     #[cfg(target_os = "windows")]
     if let Err(error) = proxy::set_system_proxy(false, None, None) {
         append_runtime_diagnostic_at(
@@ -3900,13 +3900,13 @@ pub fn force_cleanup(app: &AppHandle, state: &SingboxState) {
     }
 }
 
-// ── Планирование портов loopback-мостов ─────────────────────
-// Статические базы (31100/31200/31300 в singbox.js) может занять чужой процесс —
-// тогда мост умирал бы на bind'е. Фронт перед buildConfig присылает, сколько
-// портов нужно каждому семейству; подбираем первый диапазон, где все порты
-// свободны (bind-проба на 127.0.0.1). Диапазоны семейств не пересекаются.
-// TOCTOU-окно (порт займут между пробой и spawn'ом) закрывает fail-fast в
-// start_singbox — но проба убирает детерминированные конфликты.
+// ── Loopback bridge port planning ─────────────────────
+// The static bases (31100/31200/31300 in singbox.js) may be taken by a foreign process —
+// then the bridge would die on bind. Before buildConfig the frontend sends how many
+// ports each family needs; we pick the first range where all ports
+// are free (a bind probe on 127.0.0.1). The family ranges don't overlap.
+// The TOCTOU window (the port gets taken between the probe and spawn) is closed by fail-fast in
+// start_singbox — but the probe removes deterministic conflicts.
 
 #[derive(serde::Deserialize)]
 pub struct BridgeNeeds {
@@ -3929,14 +3929,14 @@ fn port_free(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
-// Первая база >= start, дающая `count` подряд свободных портов вне занятых
-// диапазонов. При count=0 порты не нужны — возвращаем дефолт без резервирования.
+// The first base >= start that gives `count` consecutive free ports outside the busy
+// ranges. With count=0 no ports are needed — return the default without reserving.
 fn find_free_base(start: u16, count: u16, taken: &mut Vec<(u16, u16)>) -> Result<u16, String> {
     if count == 0 {
         return Ok(start);
     }
     let mut base = start;
-    // Верхняя граница поиска с запасом; портов нужны единицы, не упрёмся.
+    // Upper search bound with headroom; only a handful of ports are needed, we won't hit it.
     while u32::from(base) + u32::from(count) <= 65535 && base < start.saturating_add(2000) {
         let end = base + count;
         let overlaps = taken.iter().any(|&(s, e)| base < e && s < end);
@@ -3979,9 +3979,9 @@ mod tests {
         dir
     }
 
-    // Журнал дочитывается с прошлой позиции, и сдвигать её можно только на целые
-    // строки: sing-box пишет в файл по мере работы, и опрос легко попадает на
-    // середину строки — а с многобайтным символом ещё и на середину символа.
+    // The log is read on from the previous position, and it may only be moved by whole
+    // lines: sing-box writes to the file as it works, and a poll easily lands in
+    // the middle of a line — and with a multibyte character, in the middle of the character too.
     #[test]
     fn a_half_written_line_does_not_move_the_read_position() {
         let dir = test_dir("log-offset");
@@ -3993,14 +3993,14 @@ mod tests {
         assert_eq!(text, "first line\n");
         assert_eq!(offset, 11, "позиция обязана встать за переводом строки");
 
-        // Дописали остаток строки — теперь её можно отдать целиком.
+        // The rest of the line was appended — now it can be returned whole.
         std::fs::write(&path, b"first line\nsecond and third\n").unwrap();
         let size = std::fs::metadata(&path).unwrap().len();
         let (text, offset) = read_from_offset(&path, offset, size).unwrap();
         assert_eq!(text, "second and third\n");
         assert_eq!(offset, size);
 
-        // Ничего не дописали — ни текста, ни движения позиции.
+        // Nothing was appended — neither text nor position movement.
         let (text, same) = read_from_offset(&path, offset, size).unwrap();
         assert!(text.is_empty());
         assert_eq!(same, offset);
@@ -4022,8 +4022,8 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    // Парсер экрана «Логи» узнаёт запись по `[offset] [дата] время УРОВЕНЬ` —
-    // без этого префикса строка приложения станет продолжением чужой записи.
+    // The "Logs" screen parser recognizes a record by `[offset] [date] time LEVEL` —
+    // without this prefix an app line would become a continuation of someone else's record.
     #[test]
     fn xray_config_drops_file_path_fields_from_imported_outbounds() {
         let raw = serde_json::json!({
@@ -4133,7 +4133,7 @@ mod tests {
         assert_eq!(strip_ansi("\x1b[36mINFO\x1b[0m text"), "INFO text");
         assert_eq!(strip_ansi("plain"), "plain");
         assert_eq!(strip_ansi(""), "");
-        // ESC без CSI просто выпадает
+        // ESC without CSI simply drops out
         assert_eq!(strip_ansi("a\x1bZb"), "aZb");
     }
 
@@ -4153,7 +4153,7 @@ mod tests {
         let api = &v["experimental"]["clash_api"];
         assert_eq!(api["external_controller"], "127.0.0.1:9090");
         let secret = api["secret"].as_str().unwrap();
-        assert_eq!(secret.len(), 32); // 16 байт hex
+        assert_eq!(secret.len(), 32); // 16 bytes of hex
     }
 
     #[test]
@@ -4422,8 +4422,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    // Логи будущего runtime уже могут лежать на диске: если считать их и в
-    // entries, и в protected, лимит выглядит исчерпанным раньше времени.
+    // Logs of the future runtime may already be on disk: if they are counted both in
+    // entries and in protected, the limit looks exhausted too early.
     #[test]
     fn prune_reserves_space_without_double_counting_reused_ports() {
         let dir = test_dir("prune-reuse");
@@ -4434,7 +4434,7 @@ mod tests {
             )
             .unwrap();
         }
-        // Порты те же, что уже на диске: чистить нечего, файлов ровно лимит.
+        // The same ports as already on disk: nothing to clean up, exactly the limit of files.
         let reused: HashSet<String> = (31000..31002)
             .map(|port| sidecar_log_name(SidecarLogKind::Naive, port))
             .collect();
@@ -4444,7 +4444,7 @@ mod tests {
             MAX_SIDECAR_LOG_FILES
         );
 
-        // Новые порты — место под них освобождается за счёт самых старых.
+        // New ports — space for them is freed at the expense of the oldest ones.
         let fresh: HashSet<String> = (32000..32002)
             .map(|port| sidecar_log_name(SidecarLogKind::Naive, port))
             .collect();
@@ -4482,7 +4482,7 @@ mod tests {
         let mut taken = vec![(41100u16, 41102u16)];
         let base = find_free_base(41100, 2, &mut taken).unwrap();
         assert!(base >= 41102, "диапазон не должен пересечь занятый: {base}");
-        // count=0 → дефолт без резервирования
+        // count=0 → default without reserving
         let before = taken.len();
         assert_eq!(find_free_base(41200, 0, &mut taken).unwrap(), 41200);
         assert_eq!(taken.len(), before);
@@ -4490,8 +4490,8 @@ mod tests {
 
     #[test]
     fn find_free_base_skips_bound_port() {
-        // Реально займём порт (первый свободный в тихом диапазоне) и убедимся,
-        // что база сдвинулась за него.
+        // Actually take a port (the first free one in a quiet range) and make sure
+        // the base moved past it.
         let mut held = None;
         for p in 42000u16..43000 {
             if let Ok(l) = std::net::TcpListener::bind(("127.0.0.1", p)) {
@@ -4554,9 +4554,9 @@ mod tests {
         }
     }
 
-    // Сторож сверяет с реестром только адрес, который runtime сам опубликовал.
-    // Порт 1 в системном прокси тестовой машины не стоит, поэтому опубликованный
-    // адрес там всегда «потерян»; без публикации и во время остановки — нет.
+    // The watchdog checks the registry only against the address the runtime published itself.
+    // Port 1 isn't set as the system proxy on a test machine, so a published
+    // address is always "lost" there; without publishing and during a stop it isn't.
     #[test]
     fn system_proxy_loss_is_reported_only_for_a_published_endpoint() {
         let state = SingboxState::default();
@@ -4579,11 +4579,11 @@ mod tests {
         assert!(!system_proxy_lost(&state));
     }
 
-    // Отмена владения операцией (latest-wins смена источника) обязана оставлять
-    // ровно то же состояние, что и отмена по epoch: без этого stop_singbox с уже
-    // отнятым токеном возвращает refused, а поднятый комплект остаётся жить.
-    // Портов не публикуем: исход bind-пробы зависит от машины, а здесь
-    // проверяется именно очистка опубликованного состояния.
+    // Cancelling operation ownership (a latest-wins source switch) must leave
+    // exactly the same state as cancelling by epoch: without this, stop_singbox with an already
+    // revoked token returns refused, and the brought-up set stays alive.
+    // We don't publish ports: the bind probe outcome depends on the machine, and here
+    // it's exactly the cleanup of the published state being checked.
     #[tokio::test]
     async fn cancelled_start_clears_published_runtime_state() {
         let state = SingboxState::default();
@@ -4594,19 +4594,19 @@ mod tests {
         assert!(state.runtime.lock_recover().is_none());
         assert!(state.runtime_ports.lock_recover().is_empty());
         assert!(!compute_singbox_running(&state));
-        // Без живых child'ов и без портов очистка подтверждается сразу.
+        // Without live children and without ports the cleanup is confirmed immediately.
         assert!(state.pending_cleanup.lock_recover().is_none());
-        // Отмена помечена как плановый выход этого поколения — иначе монитор
-        // запишет собственный kill как краш ядра.
+        // The cancellation is marked as a planned exit of this generation — otherwise the monitor
+        // would log our own kill as a core crash.
         assert_eq!(
             state.expected_exit_generation.load(Ordering::SeqCst),
             state.process_generation.load(Ordering::SeqCst)
         );
     }
 
-    // Главное, ради чего отмена перестала быть голым kill: неподтверждённая
-    // очистка обязана оставлять долг. Иначе следующий start проходит guard
-    // `child.is_some()` и поднимает второй комплект на всё ещё занятых портах.
+    // The main reason cancellation stopped being a bare kill: an unconfirmed
+    // cleanup must leave a debt. Otherwise the next start passes the
+    // `child.is_some()` guard and brings up a second set on still busy ports.
     #[tokio::test]
     async fn cancelled_start_records_unreleased_ports_as_pending_cleanup() {
         let held = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
@@ -4622,17 +4622,17 @@ mod tests {
         let pending = state.pending_cleanup.lock_recover().clone();
         let pending = pending.expect("занятый порт обязан оставить долг очистки");
         assert!(pending.ports.contains(&port));
-        // Опубликованное состояние всё равно снято: держать его нельзя,
-        // долг живёт отдельно в pending_cleanup.
+        // The published state is removed anyway: it must not be kept,
+        // the debt lives separately in pending_cleanup.
         assert!(state.runtime.lock_recover().is_none());
         assert!(state.runtime_ports.lock_recover().is_empty());
         drop(held);
     }
 
-    // Провал спавна — не доказательство владения портом: чужой процесс на нашем
-    // порту как раз и валит старт. Долг по такому порту запер бы обе двери —
-    // start отвечал бы «повторите отключение», а stop не может освободить чужой
-    // порт и оставлял бы долг снова, до перезапуска приложения.
+    // A spawn failure is no proof of port ownership: a foreign process on our
+    // port is exactly what brings the start down. A debt on such a port would lock both doors —
+    // start would answer "repeat the disconnect", and stop can't free a foreign
+    // port and would leave the debt again, until the app is restarted.
     #[tokio::test]
     async fn failed_start_does_not_turn_a_foreign_port_into_a_debt() {
         let held = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
@@ -4646,16 +4646,16 @@ mod tests {
         abort_started_runtime_scoped(&state, PortDebt::Unproven).await;
 
         assert!(state.pending_cleanup.lock_recover().is_none());
-        // Опубликованное состояние снято в обоих режимах: держать его нельзя.
+        // The published state is removed in both modes: it must not be kept.
         assert!(state.runtime.lock_recover().is_none());
         assert!(state.runtime_ports.lock_recover().is_empty());
         drop(held);
     }
 
-    // Шаги старта отменяют запуск сами (wait_start_delay → ensure_start_current),
-    // а внешний обработчик их ошибки вызывает отмену повторно. Второй проход
-    // обязан быть пустым: иначе он «подтверждает» уже снятое состояние и стирает
-    // долг, оставленный первым.
+    // The start steps cancel the launch themselves (wait_start_delay → ensure_start_current),
+    // and the outer handler of their error calls the cancellation again. The second pass
+    // must be empty: otherwise it "confirms" an already removed state and erases
+    // the debt left by the first one.
     #[tokio::test]
     async fn second_abort_does_not_erase_the_debt_left_by_the_first() {
         let held = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))

@@ -1,9 +1,9 @@
-// Ninety · файл правил маршрутизации: экспорт и импорт через системный диалог.
+// Ninety · routing rules file: export and import via the system dialog.
 //
-// Путь выбирает пользователь в нативном окне Windows, фронт путей не передаёт:
-// скрипт страницы не может ни записать, ни прочитать произвольный файл. Форму
-// правил проверяет и нормализует фронт (routing-rules.js), здесь — только
-// лимит размера, кодировка и то, что экспортируемый текст является JSON.
+// The user picks the path in a native Windows dialog, the frontend doesn't pass paths:
+// the page script can neither write nor read an arbitrary file. The shape
+// of the rules is checked and normalized by the frontend (routing-rules.js), here only
+// the size limit, the encoding and that the exported text is JSON.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -13,13 +13,13 @@ use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
 
 use crate::util::i18n_error;
 
-// Тысяча правил с длинными списками доменов укладывается с большим запасом.
+// A thousand rules with long domain lists fit with plenty of headroom.
 const MAX_RULES_FILE_BYTES: u64 = 4 * 1024 * 1024;
 const DEFAULT_FILE_NAME: &str = "ninety-routing-rules.json";
 
 fn file_dialog(app: &AppHandle) -> FileDialogBuilder<tauri::Wry> {
     let mut builder = app.dialog().file().add_filter("JSON", &["json"]);
-    // Диалог с владельцем модален: окно Ninety не примет клики, пока он открыт.
+    // A dialog with an owner is modal: the Ninety window won't accept clicks while it's open.
     if let Some(window) = app.get_webview_window("main") {
         builder = builder.set_parent(&window);
     }
@@ -42,7 +42,7 @@ fn validate_export(json: &str) -> Result<(), String> {
 fn read_rules_file(path: &Path) -> Result<String, String> {
     let file = std::fs::File::open(path);
     let file = file.map_err(|e| format!("open rules file: {e}"))?;
-    // Читаем на байт больше лимита: так переполнение видно без чтения всего файла.
+    // Read one byte more than the limit: this way an overflow is visible without reading the whole file.
     let mut limited = file.take(MAX_RULES_FILE_BYTES + 1);
     let mut body = Vec::new();
     let read = limited.read_to_end(&mut body);
@@ -52,15 +52,15 @@ fn read_rules_file(path: &Path) -> Result<String, String> {
     }
     let text = String::from_utf8(body);
     let text = text.map_err(|_| i18n_error("rr.io.errParse"))?;
-    // Блокнот Windows сохраняет UTF-8 с BOM, а JSON.parse на BOM падает.
+    // Windows Notepad saves UTF-8 with a BOM, and JSON.parse fails on the BOM.
     Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_string())
 }
 
-/// Сохранить правила в файл, выбранный пользователем. `false` — диалог закрыли.
+/// Save rules to a file chosen by the user. `false` — the dialog was closed.
 #[tauri::command]
 pub async fn routing_rules_export_file(app: AppHandle, json: String) -> Result<bool, String> {
     validate_export(&json)?;
-    // blocking_* нельзя звать с главного потока: диалог ждёт его же цикл сообщений.
+    // blocking_* must not be called from the main thread: the dialog waits for its own message loop.
     tauri::async_runtime::spawn_blocking(move || {
         let dialog = file_dialog(&app).set_file_name(DEFAULT_FILE_NAME);
         let Some(picked) = dialog.blocking_save_file() else {
@@ -74,7 +74,7 @@ pub async fn routing_rules_export_file(app: AppHandle, json: String) -> Result<b
     .map_err(|e| format!("rules export did not finish: {e}"))?
 }
 
-/// Прочитать файл правил, выбранный пользователем. `None` — диалог закрыли.
+/// Read a rules file chosen by the user. `None` — the dialog was closed.
 #[tauri::command]
 pub async fn routing_rules_import_file(app: AppHandle) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {

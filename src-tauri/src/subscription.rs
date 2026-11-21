@@ -5,14 +5,14 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::lookup_host;
 
-// Кап тела ответа: список серверов — десятки килобайт; гигабайтный ответ — это
-// либо не подписка, либо злонамеренная панель, и глотать его в память нельзя.
+// Response body cap: a server list is tens of kilobytes; a gigabyte response is
+// either not a subscription or a malicious panel, and it must not be swallowed into memory.
 const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 10;
 
-/// Заголовки устройства для панелей с лимитом устройств (стандарт Happ,
-/// используется Remnawave). Обязателен только `hwid`, остальное — чтобы
-/// устройство было различимо в списке панели.
+/// Device headers for panels with a device limit (the Happ standard,
+/// used by Remnawave). Only `hwid` is mandatory, the rest is so that
+/// the device is distinguishable in the panel's list.
 #[derive(Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HwidHeaders {
@@ -20,16 +20,16 @@ pub struct HwidHeaders {
     pub device_os: Option<String>,
     pub ver_os: Option<String>,
     pub device_model: Option<String>,
-    /// true — подписка получает собственный HWID провайдера, выведенный из
-    /// `hwid` и хоста подписки (hwid::scoped_hwid), а не общий идентификатор.
-    /// Хост берётся из адреса, который проверил бэкенд, а не из фронтенда.
+    /// true — the subscription gets its own provider HWID derived from
+    /// `hwid` and the subscription host (hwid::scoped_hwid), not the shared identifier.
+    /// The host is taken from the address the backend validated, not from the frontend.
     #[serde(default)]
     pub scoped: bool,
 }
 
-/// Remnawave (панель v3+) проверяет HWID регуляркой `^[a-zA-Z0-9=-]{10,64}$` и
-/// молча игнорирует заголовок, который под неё не подходит. Проверяем на своей
-/// стороне, чтобы не отправлять заведомо бесполезный идентификатор.
+/// Remnawave (panel v3+) checks the HWID with the regex `^[a-zA-Z0-9=-]{10,64}$` and
+/// silently ignores a header that doesn't match it. We check on our
+/// side so as not to send an obviously useless identifier.
 fn hwid_is_valid(value: &str) -> bool {
     (10..=64).contains(&value.len())
         && value
@@ -37,8 +37,8 @@ fn hwid_is_valid(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'=' || b == b'-')
 }
 
-/// Описание устройства свободной формы: режем управляющие символы и длину,
-/// чтобы значение из состояния фронтенда не могло разорвать заголовок.
+/// Free-form device description: we strip control characters and limit the length
+/// so that a value from the frontend state can't break the header.
 fn sanitize_device_field(value: Option<&String>) -> Option<String> {
     let cleaned: String = value?
         .trim()
@@ -103,11 +103,11 @@ pub struct SubscriptionInfo {
     pub profile_title: Option<String>,
     pub profile_update_interval_hours: Option<u32>,
     pub status: u16,
-    /// Панель сообщила, что лимит устройств включён.
+    /// The panel reported that the device limit is enabled.
     pub hwid_active: bool,
-    /// Лимит устройств включён, а запрос ушёл без `x-hwid`.
+    /// The device limit is enabled, but the request went out without `x-hwid`.
     pub hwid_not_supported: bool,
-    /// Лимит устройств исчерпан — новые устройства панель не примет.
+    /// The device limit is exhausted — the panel won't accept new devices.
     pub hwid_limit_reached: bool,
 }
 
@@ -260,11 +260,11 @@ async fn resolve_public_target(url: &reqwest::Url) -> Result<ResolvedTarget, Str
     })
 }
 
-/// Проверка адреса, когда запрос уходит через локальный прокси Ninety. Имя
-/// резолвит уже сам туннель, поэтому локальный DNS не трогаем: иначе домен
-/// панели уезжает системному резолверу и обновление подписки ломается ровно
-/// там, где DNS и блокируют, — а именно ради этого её и обновляют «через VPN».
-/// IP-литерал всё равно отсекаем: он никуда не резолвится и виден сразу.
+/// Address check when the request goes through Ninety's local proxy. The name
+/// is resolved by the tunnel itself, so we don't touch local DNS: otherwise the panel's
+/// domain goes to the system resolver and the subscription update breaks exactly
+/// where DNS is blocked — and that's precisely why it's updated "through the VPN".
+/// An IP literal is still cut off: it doesn't resolve anywhere and is visible right away.
 fn reject_forbidden_literal(url: &reqwest::Url) -> Result<(), String> {
     let host = url
         .host_str()
@@ -277,9 +277,9 @@ fn reject_forbidden_literal(url: &reqwest::Url) -> Result<(), String> {
     Ok(())
 }
 
-// IP-литерал хоста. IPv6 `host_str()` отдаёт в квадратных скобках, и прямой
-// `parse::<IpAddr>()` его не узнавал: `http://[::1]/` через туннель проходил
-// проверку литералов как обычное имя.
+// IP literal of the host. `host_str()` returns IPv6 in square brackets, and a direct
+// `parse::<IpAddr>()` didn't recognize it: `http://[::1]/` through the tunnel passed
+// the literal check as a regular name.
 fn host_literal_ip(host: &str) -> Option<IpAddr> {
     host.strip_prefix('[')
         .and_then(|inner| inner.strip_suffix(']'))
@@ -290,18 +290,18 @@ fn host_literal_ip(host: &str) -> Option<IpAddr> {
 
 const PROXIED_REDIRECT_LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
-// Перенаправление через туннель на ДРУГОЙ хост. Имя там резолвит sing-box, и
-// direct-маршрут (регион, правило «Напрямую») уводил «x.example.ru →
-// 192.168.1.1» на роутер или сервис этого ПК, а хост перенаправления выбирает
-// сервер подписки, не пользователь. Такое имя проверяем локальным DNS. Если
-// локально оно не разрешилось, решает туннель: из-за блокировок DNS подписку
-// и тянут через него.
+// A redirect through the tunnel to ANOTHER host. sing-box resolves the name there, and
+// a direct route (region, the "Direct" rule) led "x.example.ru →
+// 192.168.1.1" to the router or a service on this PC, and the redirect host is chosen by
+// the subscription server, not the user. Such a name is checked with local DNS. If
+// it didn't resolve locally, the tunnel decides: the subscription is pulled through it
+// precisely because of DNS blocking.
 async fn reject_private_proxied_redirect(url: &reqwest::Url) -> Result<(), String> {
     let (Some(host), Some(port)) = (url.host_str(), url.port_or_known_default()) else {
         return Ok(());
     };
     if host_literal_ip(host).is_some() {
-        return Ok(()); // литерал уже проверен reject_forbidden_literal
+        return Ok(()); // the literal has already been checked by reject_forbidden_literal
     }
     let answer = tokio::time::timeout(PROXIED_REDIRECT_LOOKUP_TIMEOUT, lookup_host((host, port)))
         .await
@@ -324,16 +324,16 @@ fn proxied_redirect_verdict(answer: Option<&[SocketAddr]>) -> Result<(), String>
     }
 }
 
-/// User-Agent запроса подписки. Панели выбирают формат ответа по нему:
-/// v2rayN получает список ссылок, а xray-JSON (целые конфиги Xray с полями,
-/// которых в ссылке нет, например `finalmask`) отдают только клиентам,
-/// которые этот формат понимают. Свежая версия — потому что часть панелей
-/// гейтит JSON по версии клиента.
+/// User-Agent of the subscription request. Panels choose the response format based on it:
+/// v2rayN gets a list of links, while xray JSON (whole Xray configs with fields
+/// that links don't have, e.g. `finalmask`) is given only to clients
+/// that understand this format. A recent version — because some panels
+/// gate JSON by client version.
 const LINKS_USER_AGENT: &str = "v2rayN/6.42";
 const XRAY_JSON_USER_AGENT: &str = "Happ/9.9.9";
 
-/// Формат, который фронтенд просит у панели. Неизвестное значение — обычный
-/// список ссылок: так старый вызов без параметра ведёт себя как раньше.
+/// The format the frontend asks the panel for. An unknown value means a regular
+/// link list: this way an old call without the parameter behaves as before.
 fn user_agent_for(format: Option<&str>) -> &'static str {
     match format {
         Some("xray-json") => XRAY_JSON_USER_AGENT,
@@ -354,11 +354,11 @@ fn make_client(
         // checked before the next connection. Automatic reqwest redirects
         // cannot provide DNS-rebinding protection for each hop.
         .redirect(reqwest::redirect::Policy::none())
-        // Каждый хоп поднимает свой клиент (адрес пиннится заново), поэтому
-        // хранилище cookie общее и передаётся снаружи. Без него панель, которая
-        // на 302 ставит сессионную cookie и шлёт на тот же адрес, гоняет клиент
-        // по кругу до упора в MAX_REDIRECTS. Домен и путь ограничивает сам jar:
-        // на редиректе к чужому хосту cookie исходной панели не уходит.
+        // Each hop creates its own client (the address is pinned anew), so
+        // the cookie store is shared and passed in from outside. Without it, a panel that
+        // sets a session cookie on a 302 and sends to the same address drives the client
+        // in circles until it hits MAX_REDIRECTS. Domain and path are limited by the jar itself:
+        // on a redirect to a foreign host the original panel's cookie isn't sent.
         .cookie_provider(Arc::clone(jar))
         .gzip(true);
     if let Some(target) = target.filter(|target| !target.is_ip_literal) {
@@ -379,10 +379,10 @@ fn make_client(
         .map_err(|_| i18n_error("subs.err.clientFailed"))
 }
 
-/// Ошибка для упёршейся цепочки: без хоста, кода и признака cookie
-/// «слишком много перенаправлений» не даёт зацепки ни пользователю, ни триажу.
-/// Если панель ставит cookie, а круг всё равно не размыкается, дело уже не в
-/// сессии — так отвечает антибот-защита с проверкой в браузере.
+/// Error for a chain that hit the limit: without the host, the code and the cookie sign,
+/// "too many redirects" gives no clue to either the user or triage.
+/// If the panel sets a cookie and the loop still doesn't break, it's no longer about
+/// the session — that's how anti-bot protection with an in-browser check responds.
 fn redirect_loop_error(url: &reqwest::Url, status: u16, sets_cookie: bool) -> String {
     let key = if sets_cookie {
         "subs.err.redirectLoopCookie"
@@ -417,9 +417,9 @@ fn checked_redirect(current: &reqwest::Url, location: &str) -> Result<reqwest::U
     Ok(next)
 }
 
-/// Идентификатор устройства уходит только на тот хост, который пользователь
-/// добавил сам. Редирект на чужой хост — обычный способ подписочных панелей
-/// раздать трафик по зеркалам, но HWID это уже не его дело.
+/// The device identifier goes only to the host the user added
+/// themselves. A redirect to a foreign host is a common way for subscription panels
+/// to spread traffic across mirrors, but the HWID is none of its business.
 fn same_host(a: &reqwest::Url, b: &reqwest::Url) -> bool {
     match (a.host_str(), b.host_str()) {
         (Some(left), Some(right)) => left.eq_ignore_ascii_case(right),
@@ -427,11 +427,11 @@ fn same_host(a: &reqwest::Url, b: &reqwest::Url) -> bool {
     }
 }
 
-// Сбой запроса подписки простыми словами. Раньше любой отказ превращался в
-// «не удалось получить подписку»: таймаут, отказ соединения и проблема
-// сертификата выглядели одинаково, и зацепиться было не за что ни
-// пользователю, ни триажу. Текст ошибки reqwest наружу не отдаём — в нём адрес
-// подписки с токеном; по цепочке причин только ищем признаки.
+// Subscription request failure in plain words. Previously any failure turned into
+// "failed to get the subscription": a timeout, a refused connection and a certificate
+// problem looked the same, and there was nothing to latch onto for either the
+// user or triage. We don't expose the reqwest error text — it contains the subscription
+// address with the token; we only look for signs along the chain of causes.
 fn describe_fetch_error(error: &reqwest::Error, via_proxy: bool) -> String {
     let causes = error_causes(error);
     let key = if error.is_timeout() {
@@ -459,8 +459,8 @@ fn describe_read_error(error: &reqwest::Error) -> String {
     }
 }
 
-// Причины ошибки без её верхнего уровня: сам reqwest::Error печатает адрес
-// запроса, и слово «tls» в пути или домене ложно выдавало бы проблему TLS.
+// The error's causes without its top level: reqwest::Error itself prints the request
+// address, and the word "tls" in the path or domain would falsely indicate a TLS problem.
 fn error_causes(error: &reqwest::Error) -> String {
     let mut text = String::new();
     let mut current = std::error::Error::source(error);
@@ -472,8 +472,8 @@ fn error_causes(error: &reqwest::Error) -> String {
     text
 }
 
-/// HWID, который получит подписка. Окно подписки показывает его, чтобы
-/// пользователь мог назвать провайдеру ровно то значение, что видит панель.
+/// The HWID the subscription will receive. The subscription window shows it so that
+/// the user can tell the provider exactly the value the panel sees.
 #[tauri::command]
 pub fn subscription_hwid(url: String, hwid: String, scoped: bool) -> Result<String, String> {
     let url = parse_subscription_url(&url)?;
@@ -501,15 +501,15 @@ pub async fn fetch_subscription(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    // Хранилище cookie живёт ровно один вызов: на диск не попадает и между
-    // подписками не переиспользуется — сессия панели нужна только внутри этой
-    // цепочки редиректов.
+    // The cookie store lives for exactly one call: it never reaches disk and isn't
+    // reused between subscriptions — the panel session is needed only within this
+    // redirect chain.
     let jar = Arc::new(reqwest::cookie::Jar::default());
 
     let mut redirects = 0usize;
     let resp = loop {
-        // Прямой запрос сам резолвит и пиннит адрес; проксированный отдаёт
-        // разрешение имени туннелю и локальный DNS не трогает вовсе.
+        // A direct request resolves and pins the address itself; a proxied one leaves
+        // name resolution to the tunnel and doesn't touch local DNS at all.
         let target = match proxy {
             Some(_) => {
                 reject_forbidden_literal(&current)?;
@@ -554,11 +554,11 @@ pub async fn fetch_subscription(
         break response;
     };
 
-    // ВАЖНО: User-Agent определяет ответ сервера. Многие подписочные
-    // панели (sub-store, marzban, xo.e0f.cx и т.п.) отдают:
-    //   - известным клиентам (v2rayN, ClashMeta) — plain/base64 vless-список,
-    //   - неизвестным — JSON или HTML страницу логина.
-    // Поэтому по умолчанию шлём проверенный v2rayN UA (см. user_agent_for).
+    // IMPORTANT: the User-Agent determines the server's response. Many subscription
+    // panels (sub-store, marzban, xo.e0f.cx, etc.) return:
+    //   - to known clients (v2rayN, ClashMeta) — a plain/base64 vless list,
+    //   - to unknown ones — JSON or an HTML login page.
+    // So by default we send the proven v2rayN UA (see user_agent_for).
     let status = resp.status().as_u16();
 
     let headers = resp.headers().clone();
@@ -568,11 +568,11 @@ pub async fn fetch_subscription(
             return Err(too_large_error());
         }
     }
-    // Стримим с капом (Content-Length может отсутствовать или врать). Сам лимит
-    // считает общий `util::checked_body_len` — тот же гвард, что у
-    // read_response_capped: локальная арифметика складывала длины без
-    // checked_add. Цикл остаётся здесь только ради текста ошибок: пользователю
-    // важно, что «это не список серверов», а не абстрактное «body too large».
+    // Stream with a cap (Content-Length may be missing or lie). The limit itself
+    // is computed by the shared `util::checked_body_len` — the same guard as in
+    // read_response_capped: local arithmetic added lengths without
+    // checked_add. The loop stays here only for the error texts: it matters to the user
+    // that "this is not a server list", not an abstract "body too large".
     let mut resp = resp;
     let mut buf: Vec<u8> = Vec::new();
     while let Some(chunk) = resp
@@ -603,9 +603,9 @@ pub async fn fetch_subscription(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.trim().parse::<u32>().ok());
 
-    // Панель (Remnawave ≥ 2.7.5) сообщает состояние лимита устройств
-    // заголовками — по ним фронтенд объясняет пустой список подписки вместо
-    // того, чтобы показывать ноду-заглушку панели как настоящий сервер.
+    // The panel (Remnawave ≥ 2.7.5) reports the device limit state
+    // via headers — the frontend uses them to explain an empty subscription list instead of
+    // showing the panel's placeholder node as a real server.
     let hwid_active = header_is_true(&headers, "x-hwid-active");
     let hwid_not_supported = header_is_true(&headers, "x-hwid-not-supported");
     let hwid_limit_reached = header_is_true(&headers, "x-hwid-max-devices-reached")
@@ -650,7 +650,7 @@ mod tests {
     #[test]
     fn parse_userinfo_partial_and_garbage() {
         let (up, down, total, expire) = parse_userinfo("download=42; junk; foo=bar; upload=abc");
-        assert_eq!(up, None); // не число — пропущен
+        assert_eq!(up, None); // not a number — skipped
         assert_eq!(down, Some(42));
         assert_eq!(total, None);
         assert_eq!(expire, None);
@@ -720,9 +720,9 @@ mod tests {
         assert!(validate_resolved_addresses(&answer).is_err());
     }
 
-    // Проксированный запрос уходит в туннель: локальный резолв домена панели
-    // раскрыл бы его системному DNS и ломал обновление там, где DNS блокируют.
-    // IP-литерал в локальную сеть отсекается и в этом режиме.
+    // A proxied request goes into the tunnel: resolving the panel domain locally
+    // would expose it to the system DNS and break updates where DNS is blocked.
+    // An IP literal into the local network is cut off in this mode too.
     #[test]
     fn proxied_requests_still_reject_local_ip_literals() {
         let local = reqwest::Url::parse("http://127.0.0.1:8080/sub").unwrap();
@@ -731,14 +731,14 @@ mod tests {
         assert!(reject_forbidden_literal(&private).is_err());
         let public = reqwest::Url::parse("https://1.1.1.1/sub").unwrap();
         assert!(reject_forbidden_literal(&public).is_ok());
-        // Имя не резолвим вовсе — это и есть смысл режима.
+        // The name isn't resolved at all — that's the whole point of the mode.
         let host = reqwest::Url::parse("https://panel.example/sub").unwrap();
         assert!(reject_forbidden_literal(&host).is_ok());
     }
 
-    // Подписка новой схемы получает свой HWID провайдера, а не общий: два
-    // провайдера не сопоставят устройство. Подписки прежней схемы — как раньше,
-    // иначе панель посчитала бы Ninety новым устройством.
+    // A new-scheme subscription gets its own provider HWID, not the shared one: two
+    // providers won't match the device. Old-scheme subscriptions work as before,
+    // otherwise the panel would count Ninety as a new device.
     #[test]
     fn scoped_hwid_is_derived_from_the_checked_subscription_host() {
         let base = "0123456789abcdef0123456789abcdef".to_string();
@@ -767,9 +767,9 @@ mod tests {
         assert_eq!(host_literal_ip("panel.example"), None);
     }
 
-    // Перенаправление через туннель на чужой хост проверяется локальным DNS.
-    // Не разрешилось локально — не повод ронять обновление: в этом и смысл
-    // загрузки через туннель.
+    // A redirect through the tunnel to a foreign host is checked with local DNS.
+    // Not resolving locally is no reason to fail the update: that's the whole point of
+    // loading through the tunnel.
     #[test]
     fn proxied_cross_host_redirect_into_a_private_network_is_refused() {
         let private = [SocketAddr::from(([192, 168, 1, 1], 80))];
@@ -789,7 +789,7 @@ mod tests {
         assert!(hwid_is_valid("a1b2c3d4e5f60718"));
         assert!(hwid_is_valid("UE42LJXu4DbiCaBv"));
         assert!(hwid_is_valid("A-B=C-D=E-F=G-H"));
-        // Короче 10 символов, длиннее 64 и посторонние символы панель игнорирует.
+        // Shorter than 10 characters, longer than 64 and foreign characters are ignored by the panel.
         assert!(!hwid_is_valid("short1234"));
         assert!(!hwid_is_valid(&"a".repeat(65)));
         assert!(!hwid_is_valid("{6b9e0f3a-1c2d-4e5f}"));
@@ -808,8 +808,8 @@ mod tests {
         assert_eq!(long.len(), 64);
     }
 
-    // HWID — идентификатор устройства: он уходит только тому хосту, который
-    // пользователь добавил, и не следует за редиректом на чужой домен.
+    // HWID is a device identifier: it goes only to the host the
+    // user added, and doesn't follow a redirect to a foreign domain.
     #[test]
     fn hwid_travels_only_to_the_host_the_user_added() {
         let origin = reqwest::Url::parse("https://panel.example/sub/key").unwrap();
@@ -819,8 +819,8 @@ mod tests {
         assert!(!same_host(&origin, &other));
     }
 
-    // Cookie исходной панели не должна уезжать на зеркало чужого домена —
-    // ровно та же граница, что у HWID выше, только её держит сам jar.
+    // The original panel's cookie must not travel to a mirror on a foreign domain —
+    // exactly the same boundary as for the HWID above, only the jar itself enforces it.
     #[test]
     fn cookie_jar_is_scoped_to_the_host_that_set_it() {
         use reqwest::cookie::CookieStore;
@@ -860,8 +860,8 @@ mod tests {
         assert!(checked_redirect(&https, "file:///etc/passwd").is_err());
     }
 
-    // Отказ соединения и таймаут различаются ключом ошибки, а адрес подписки
-    // с токеном в неё не попадает.
+    // A refused connection and a timeout are distinguished by the error key, and the subscription
+    // address with the token doesn't get into it.
     #[tokio::test]
     async fn fetch_errors_name_the_failure_without_leaking_the_url() {
         let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

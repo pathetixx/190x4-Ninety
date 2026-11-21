@@ -1,10 +1,10 @@
-// Ninety · логин и пароль для «Доступа из локальной сети».
+// Ninety · login and password for "Access from the local network".
 //
-// Пара живёт рядом с остальными секретами (DPAPI или пароль portable-хранилища,
-// см. secrets.rs), а не в настройках WebView: localStorage лежит на диске
-// открытым текстом. Фронт получает её только для показа в настройках, а в
-// конфиг ядра её подставляет start_singbox (apply_to_config) — пара, пришедшая
-// из конфига фронта, не принимается.
+// The pair lives next to the other secrets (DPAPI or the portable storage password,
+// see secrets.rs), not in the WebView settings: localStorage sits on disk
+// in plain text. The frontend gets it only to show it in settings, and
+// start_singbox substitutes it into the core config (apply_to_config) — a pair coming
+// from the frontend config is not accepted.
 
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -12,12 +12,12 @@ use std::path::PathBuf;
 use tauri::AppHandle;
 
 const FILE_NAME: &str = "lan-auth.json";
-// Тег входа для соседей с паролем (buildInbounds в singbox.js).
+// Inbound tag for password-protected neighbors (buildInbounds in singbox.js).
 const LAN_INBOUND_TAG: &str = "mixed-lan";
 const USERNAME_DEFAULT: &str = "ninety";
 const MAX_CHARS: usize = 64;
 const PASSWORD_CHARS: usize = 16;
-// Без похожих символов (0/O, 1/l/I): пароль переписывают с экрана ПК в ТВ.
+// No look-alike characters (0/O, 1/l/I): the password is copied from the PC screen to a TV.
 const PASSWORD_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -26,9 +26,9 @@ pub struct LanCredentials {
     pub password: String,
 }
 
-// Логин и пароль набирают руками на телефоне или в ТВ: только печатный ASCII
-// без пробелов, а в логине ещё и без «:», который HTTP Basic считает
-// разделителем логина и пароля.
+// The login and password are typed by hand on a phone or a TV: printable ASCII only,
+// no spaces, and the login also excludes ":", which HTTP Basic treats as
+// the separator between login and password.
 fn sanitize_username(value: &str) -> String {
     value
         .chars()
@@ -55,8 +55,8 @@ impl LanCredentials {
 }
 
 fn generate_password(rng: &mut impl RngCore) -> String {
-    // Хвост диапазона байта отбрасываем, иначе первые символы алфавита
-    // выпадали бы чаще остальных.
+    // Discard the tail of the byte range, otherwise the first characters of the alphabet
+    // would come up more often than the rest.
     let limit = 256 - (256 % PASSWORD_ALPHABET.len());
     let mut out = String::with_capacity(PASSWORD_CHARS);
     while out.len() < PASSWORD_CHARS {
@@ -72,8 +72,8 @@ fn generate_password(rng: &mut impl RngCore) -> String {
     out
 }
 
-/// Пустое после очистки поле — просьба придумать новое значение, а не снять
-/// пароль: открыть вход без пароля можно только выключив сам пароль.
+/// A field that is empty after clearing is a request to generate a new value, not to remove
+/// the password: login without a password can only be opened by turning the password off itself.
 fn apply_update(
     current: Option<LanCredentials>,
     username: Option<&str>,
@@ -136,14 +136,14 @@ fn update(
     Ok(next)
 }
 
-/// Пара для показа в настройках. Если её ещё нет — заводит: включение пароля
-/// сразу даёт рабочий логин и пароль.
+/// The pair to show in settings. If it doesn't exist yet, creates it: enabling the password
+/// immediately gives a working login and password.
 #[tauri::command]
 pub fn lan_auth_ensure(app: AppHandle) -> Result<LanCredentials, String> {
     update(&app, None, None)
 }
 
-/// Меняет логин и/или пароль. Пустое поле получает новое значение.
+/// Changes the login and/or password. An empty field gets a new value.
 #[tauri::command]
 pub fn lan_auth_update(
     app: AppHandle,
@@ -153,9 +153,9 @@ pub fn lan_auth_update(
     update(&app, username.as_deref(), password.as_deref())
 }
 
-/// Подставляет сохранённую пару во вход для соседей. Пары нет или хранилище
-/// заперто — вход убирается: открыть его без пароля нельзя, а остальная сеть
-/// (и сам VPN) от этого не страдает.
+/// Substitutes the saved pair into the neighbors' inbound. No pair or storage
+/// locked — the inbound is removed: it can't be opened without a password, and the rest of the network
+/// (and the VPN itself) doesn't suffer from it.
 pub fn apply_to_config(app: &AppHandle, raw: &str) -> String {
     if !has_lan_inbound(raw) {
         return raw.to_string();
@@ -269,7 +269,7 @@ mod tests {
 
     #[test]
     fn generated_password_skips_the_biased_tail_of_a_byte() {
-        // 255 отбрасывается целиком, 0 даёт первый символ алфавита.
+        // 255 is discarded entirely, 0 gives the first character of the alphabet.
         let mut rng = FixedBytes(vec![255, 0], 0);
         assert_eq!(generate_password(&mut rng), "A".repeat(PASSWORD_CHARS));
         let random = generate_password(&mut OsRng);
@@ -291,7 +291,7 @@ mod tests {
         );
         assert_eq!(typed, pair("user", "mypass:wrd"));
 
-        // Меняется только переданное поле.
+        // Only the passed field changes.
         let kept = apply_update(Some(typed.clone()), None, Some("other"), &mut rng);
         assert_eq!(kept, pair("user", "other"));
 
@@ -316,7 +316,7 @@ mod tests {
         assert!(value["inbounds"][0].get("users").is_none());
     }
 
-    // Имя сервера с той же строкой — не вход для соседей.
+    // A server name with the same string is not the neighbors' inbound.
     #[test]
     fn lan_inbound_is_recognised_by_its_tag_only() {
         let named = r#"{"inbounds":[{"type":"mixed","tag":"mixed-in"}],

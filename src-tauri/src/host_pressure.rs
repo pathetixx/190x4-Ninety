@@ -1,19 +1,19 @@
-// Ninety · сэмплер давления хоста.
+// Ninety · host pressure sampler.
 //
-// Зачем: liveness-сторож ловит только смерть ядра, движок качества — только
-// деградацию канала. Между ними есть третий класс отказов: ядро живо, канал
-// цел, но машине не хватает ресурсов (рендер видео, компиляция, игра). Тогда
-// userspace-датаплейн не получает CPU вовремя, TUN-очереди не разгребаются,
-// хендшейки истекают — и снаружи это выглядит как проблема сети.
+// Why: the liveness watchdog catches only core death, the quality engine only
+// channel degradation. Between them there is a third class of failures: the core is alive, the channel is
+// intact, but the machine lacks resources (video rendering, compilation, a game). Then
+// the userspace dataplane doesn't get CPU in time, TUN queues aren't drained,
+// handshakes expire — and from the outside it looks like a network problem.
 //
-// Без этого сигнала движок качества лечит локальную нехватку CPU сетевыми
-// средствами: сменить ноду → исключить ноду → фрагментация с реконнектом. То
-// есть самое дорогое действие ровно в тот момент, когда машине и так плохо, —
-// и временный затык превращается в реальный обрыв. Модуль отвечает на один
-// вопрос: «сейчас виноват хост?», и не имеет никаких прав на runtime.
+// Without this signal the quality engine treats a local CPU shortage with network
+// means: switch node → exclude node → fragmentation with a reconnect. That
+// is, the most expensive action exactly when the machine is already struggling —
+// and a temporary stall turns into a real outage. The module answers one
+// question: "is the host to blame right now?", and has no rights over the runtime.
 //
-// Наружу уходят только ограниченные числовые поля (проценты, байты, миллисекунды):
-// ни адресов, ни данных подписок, ни метаданных трафика здесь не появляется.
+// Only bounded numeric fields go out (percentages, bytes, milliseconds):
+// no addresses, subscription data or traffic metadata appear here.
 
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
@@ -21,19 +21,19 @@ use std::time::Duration;
 
 use crate::util::MutexExt;
 
-// 2с: достаточно часто, чтобы поймать затык до того, как движок качества успеет
-// отреагировать (его тик — 5с), и достаточно редко, чтобы стоимость трёх
-// syscall'ов была неразличима.
+// 2 s: often enough to catch a stall before the quality engine gets a chance
+// to react (its tick is 5 s), and rarely enough that the cost of three
+// syscalls is indistinguishable.
 const SAMPLE_INTERVAL: Duration = Duration::from_secs(2);
 
-// Вход в pressure требует двух подряд сэмплов (~4с): одиночный всплеск при
-// запуске приложения не должен глушить анти-троттлинг, а вот устойчивая
-// загрузка обязана. Выход — три подряд (~6с), чтобы не мигать на границе.
+// Entering pressure requires two samples in a row (~4 s): a single spike at
+// app startup must not silence anti-throttling, but a sustained
+// load must. Exiting requires three in a row (~6 s) so it doesn't flicker at the boundary.
 const ENTER_SAMPLES: u8 = 2;
 const EXIT_SAMPLES: u8 = 3;
 
-// Пороги входа/выхода разнесены намеренно (гистерезис): без разрыва состояние
-// дребезжало бы на каждом сэмпле вокруг одной цифры.
+// The entry/exit thresholds are spread apart on purpose (hysteresis): without a gap the state
+// would bounce on every sample around a single number.
 const MEMORY_LOAD_PERCENT: u32 = 95;
 const MEMORY_LOAD_EXIT_PERCENT: u32 = 90;
 const AVAILABLE_PHYSICAL_BYTES: u64 = 512 * 1024 * 1024;
@@ -69,8 +69,8 @@ impl ResourceSample {
             || scheduler_lateness_ms >= SCHEDULER_MS
     }
 
-    // Неизвестная метрика (None) выходу не мешает: сэмплер мог не получить
-    // счётчик, и это не повод держать pressure вечно.
+    // An unknown metric (None) doesn't block exiting: the sampler may have failed to get
+    // the counter, and that's no reason to keep pressure forever.
     fn under_exit_threshold(self, scheduler_lateness_ms: u64) -> bool {
         self.memory_load_percent
             .is_none_or(|value| value <= MEMORY_LOAD_EXIT_PERCENT)
@@ -110,8 +110,8 @@ impl ResourceSample {
     }
 }
 
-/// Снимок для фронта. Уезжает полем `host_pressure` внутри `health_snapshot`,
-/// поэтому имена полей — snake_case, как у соседей в этом ответе.
+/// Snapshot for the frontend. It goes out as the `host_pressure` field inside `health_snapshot`,
+/// so the field names are snake_case, like its neighbors in this response.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct HostPressureSnapshot {
     pub active: bool,
@@ -120,8 +120,8 @@ pub struct HostPressureSnapshot {
     pub memory_load_percent: Option<u32>,
     pub available_memory_bytes: Option<u64>,
     pub scheduler_lateness_ms: u64,
-    /// Счётчик снятых сэмплов. Ноль на живом подключении означает, что сэмплер
-    /// не поднялся, — фронт тогда не должен считать «давления нет» фактом.
+    /// Counter of collected samples. Zero on a live connection means the sampler
+    /// didn't come up — the frontend then must not treat "no pressure" as a fact.
     pub samples: u64,
 }
 
@@ -132,8 +132,8 @@ struct Inner {
     exit_samples: u8,
 }
 
-/// Общий стейт сэмплера. Клонируется дёшево: сама Tauri держит один экземпляр
-/// как managed state, фоновая задача — второй.
+/// Shared sampler state. Cheap to clone: Tauri itself holds one instance
+/// as managed state, the background task holds the second.
 #[derive(Clone, Default)]
 pub struct HostPressureState {
     inner: Arc<Mutex<Inner>>,
@@ -144,8 +144,8 @@ impl HostPressureState {
         self.inner.lock_recover().snapshot.clone()
     }
 
-    /// Чистый переход состояния — вся логика гистерезиса живёт здесь, чтобы
-    /// её можно было прогнать тестами без Windows API.
+    /// Pure state transition — all the hysteresis logic lives here so that
+    /// it can be run in tests without the Windows API.
     pub fn observe(&self, resources: ResourceSample, scheduler_lateness_ms: u64) -> bool {
         let mut inner = self.inner.lock_recover();
         let over = resources.over_enter_threshold(scheduler_lateness_ms);
@@ -162,10 +162,10 @@ impl HostPressureState {
                 }
             } else {
                 inner.exit_samples = 0;
-                // В полосе гистерезиса (ниже порога входа, но выше порога
-                // выхода) причину не переписываем: reason() осмыслен только
-                // когда хоть одна метрика реально за порогом, иначе в журнал
-                // уехал бы фолбэк «мало памяти» на ровном месте.
+                // In the hysteresis band (below the entry threshold but above the exit
+                // threshold) we don't rewrite the reason: reason() is meaningful only
+                // when at least one metric is actually past the threshold, otherwise the
+                // "low memory" fallback would end up in the log out of nowhere.
                 if over {
                     inner.snapshot.reason = Some(resources.reason(scheduler_lateness_ms));
                 }
@@ -198,9 +198,9 @@ struct CpuCounters {
     user: u64,
 }
 
-/// Дельта системных счётчиков CPU. Kernel-время включает idle, поэтому занято =
-/// `kernel + user - idle`. Обнулившиеся или уехавшие назад счётчики дают None,
-/// а не выдуманную нагрузку: лучше «неизвестно», чем ложное давление.
+/// Delta of the system CPU counters. Kernel time includes idle, so busy =
+/// `kernel + user - idle`. Counters that reset or went backwards yield None,
+/// not a made-up load: "unknown" is better than false pressure.
 fn cpu_load_from_deltas(previous: CpuCounters, current: CpuCounters) -> Option<u32> {
     let idle = current.idle.checked_sub(previous.idle)?;
     let kernel = current.kernel.checked_sub(previous.kernel)?;
@@ -287,20 +287,20 @@ fn resource_sample() -> ResourceSample {
     ResourceSample::default()
 }
 
-/// Поднимает фоновой сэмплер на всё время жизни приложения. Он ничем не владеет
-/// и ничего не останавливает — только считает.
+/// Starts the background sampler for the whole app lifetime. It owns nothing
+/// and stops nothing — it only counts.
 pub fn start(state: HostPressureState) {
     tauri::async_runtime::spawn(async move {
         let mut ticker = tokio::time::interval(SAMPLE_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        ticker.tick().await; // первый тик срабатывает мгновенно
+        ticker.tick().await; // the first tick fires immediately
         let mut previous = std::time::Instant::now();
         loop {
             ticker.tick().await;
             let now = std::time::Instant::now();
-            // Собственное опоздание таймера — самый прямой индикатор того, что
-            // процессу не дают CPU. MissedTickBehavior::Delay гарантирует, что
-            // тики не «догоняют» пачкой и опоздание не схлопывается в ноль.
+            // The timer's own lateness is the most direct indicator that
+            // the process isn't getting CPU. MissedTickBehavior::Delay guarantees that
+            // ticks don't "catch up" in a burst and the lateness doesn't collapse to zero.
             let lateness = now
                 .duration_since(previous)
                 .saturating_sub(SAMPLE_INTERVAL)
@@ -348,11 +348,11 @@ mod tests {
         let state = HostPressureState::default();
         state.observe(cpu(99), 0);
         assert!(state.observe(cpu(99), 0));
-        // 90% ниже порога входа, но выше порога выхода: ни туда, ни обратно.
+        // 90% is below the entry threshold but above the exit threshold: neither in nor out.
         for _ in 0..5 {
             assert!(state.observe(cpu(90), 0));
         }
-        // Причина осталась той, из-за которой вошли, а не фолбэком reason().
+        // The reason stayed the one we entered with, not the reason() fallback.
         assert_eq!(state.snapshot().reason, Some("cpu_load"));
     }
 
@@ -439,7 +439,7 @@ mod tests {
             kernel: 2_000,
             user: 1_000,
         };
-        // kernel+user выросли на 200, idle — на 20: занято 90%.
+        // kernel+user grew by 200, idle by 20: 90% busy.
         let current = CpuCounters {
             idle: 1_020,
             kernel: 2_100,

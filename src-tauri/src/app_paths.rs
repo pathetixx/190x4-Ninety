@@ -1,20 +1,20 @@
-// Ninety · единая маршрутизация writable-данных.
+// Ninety · single routing point for writable data.
 //
-// Обычная установленная сборка использует стандартные каталоги Tauri.
-// Full Portable определяется файлом Ninety.portable рядом с exe и хранит всё
-// переносимое состояние в соседнем NinetyData:
-//   config/  — backup localStorage, WARP и временные конфиги движков;
-//   data/    — обновляемые DPI-списки/стратегии;
-//   logs/    — логи движков;
-//   webview/ — профиль WebView2, включая localStorage.
+// A regular installed build uses the standard Tauri directories.
+// Full Portable is detected by a Ninety.portable file next to the exe and keeps all
+// portable state in the sibling NinetyData folder:
+//   config/  — localStorage backup, WARP and temporary engine configs;
+//   data/    — updatable DPI lists/strategies;
+//   logs/    — engine logs;
+//   webview/ — WebView2 profile, including localStorage.
 
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 pub(crate) const PORTABLE_MARKER: &str = "Ninety.portable";
 pub(crate) const PORTABLE_DATA: &str = "NinetyData";
-/// Сколько уровней вложенности разбираем при ремонте: больше обновлений подряд
-/// в сломанной схеме никто не сделает, а цикл по чужому дереву нужно ограничить.
+/// How many nesting levels the repair walks: nobody installs more updates in a row
+/// with the broken layout, and a loop over a foreign tree must be bounded.
 pub(crate) const MAX_NESTED_DEPTH: usize = 64;
 
 pub(crate) fn executable_dir() -> Result<PathBuf, String> {
@@ -35,8 +35,8 @@ pub fn is_portable() -> bool {
         .unwrap_or(false)
 }
 
-/// Папка программы Full Portable: в ней лежат Ninety.exe и Ninety.portable.
-/// Сюда ставится обновление; пользовательские данные — в `portable_data_dir`.
+/// Full Portable program folder: holds Ninety.exe and Ninety.portable.
+/// Updates are installed here; user data lives in `portable_data_dir`.
 pub fn portable_app_dir() -> Result<PathBuf, String> {
     let dir = executable_dir()?;
     if !is_portable_dir(&dir) {
@@ -45,7 +45,7 @@ pub fn portable_app_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// Папка пользовательских данных Full Portable: `<папка программы>\NinetyData`.
+/// Full Portable user data folder: `<program folder>\NinetyData`.
 pub fn portable_data_dir() -> Result<PathBuf, String> {
     Ok(portable_app_dir()?.join(PORTABLE_DATA))
 }
@@ -56,17 +56,17 @@ fn is_data_dir_name(dir: &Path) -> bool {
         .is_some_and(|n| n.eq_ignore_ascii_case(PORTABLE_DATA))
 }
 
-/// Ссылка или junction (std относит к ним и mount point). Несуществующий путь
-/// ссылкой не считается.
+/// Symlink or junction (std counts mount points as these too). A nonexistent path
+/// is not treated as a link.
 pub(crate) fn is_link(dir: &Path) -> bool {
     std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink())
 }
 
-/// Portable 0.15.0–0.16.0 ставил обновление в `NinetyData` вместо папки
-/// программы, и каждое следующее обновление уходило ещё на уровень глубже.
-/// Для exe из такой вложенной копии возвращает исходную папку программы —
-/// верхний уровень цепочки `…\NinetyData\NinetyData`, где у каждого родителя
-/// есть Ninety.portable. Ссылки и разрывы цепочки останавливают подъём.
+/// Portable 0.15.0–0.16.0 installed updates into `NinetyData` instead of the program
+/// folder, and every following update went one more level deeper.
+/// For an exe from such a nested copy, returns the original program folder —
+/// the top of the `…\NinetyData\NinetyData` chain, where every parent
+/// has Ninety.portable. Links and breaks in the chain stop the climb.
 pub fn nested_portable_origin(exe_dir: &Path) -> Option<PathBuf> {
     if !is_portable_dir(exe_dir) {
         return None;
@@ -154,7 +154,7 @@ mod tests {
         portable_level(&root);
         std::fs::create_dir_all(root.join(PORTABLE_DATA).join("config")).unwrap();
         assert_eq!(nested_portable_origin(&root), None);
-        // Папка данных без маркера — не установка программы.
+        // A data folder without the marker is not a program installation.
         assert_eq!(nested_portable_origin(&root.join(PORTABLE_DATA)), None);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn broken_chain_stops_the_walk() {
         let root = temp_dir("broken");
-        // Родитель без маркера: это не наша вложенная установка.
+        // A parent without the marker: this is not our nested installation.
         let first = root.join(PORTABLE_DATA);
         portable_level(&first);
         assert_eq!(nested_portable_origin(&first), None);

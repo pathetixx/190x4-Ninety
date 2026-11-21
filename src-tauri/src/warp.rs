@@ -1,15 +1,15 @@
-// WARP: регистрация WireGuard-устройства в Cloudflare API + опциональная
-// активация WARP+ лицензии. Хранилище — writable config dir/warp.json.
+// WARP: registering a WireGuard device with the Cloudflare API + optional
+// WARP+ license activation. Storage — writable config dir/warp.json.
 //
-// CF API эндпоинты (публично известны из bepass-org/warp-plus, MIT, и старого
+// CF API endpoints (publicly known from bepass-org/warp-plus, MIT, and the old
 // cloudflare/warp-tunnel-rs):
 //   POST   https://api.cloudflareclient.com/v0a2158/reg
-//   PATCH  https://api.cloudflareclient.com/v0a2158/reg/{id}/account   (для WARP+)
+//   PATCH  https://api.cloudflareclient.com/v0a2158/reg/{id}/account   (for WARP+)
 //   DELETE https://api.cloudflareclient.com/v0a2158/reg/{id}
 //
-// User-Agent имитирует мобильный клиент CF (иначе CF режет с 403).
-// WG-пара генерируется локально через x25519-dalek; публичный ключ
-// отправляется в CF, приватный остаётся у нас.
+// The User-Agent imitates the CF mobile client (otherwise CF cuts with a 403).
+// The WG key pair is generated locally via x25519-dalek; the public key
+// is sent to CF, the private one stays with us.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use rand_core::{OsRng, RngCore};
@@ -60,8 +60,8 @@ struct CfAccount {
     warp_plus: bool,
     #[serde(default)]
     account_type: String,
-    // прочие поля ответа CF (license и т.п.) не используем — serde их игнорит.
-    // Лицензию в WarpInfo кладём введённую юзером (license_used), не account.license.
+    // other CF response fields (license, etc.) aren't used — serde ignores them.
+    // We put the license the user entered (license_used) into WarpInfo, not account.license.
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,8 +74,8 @@ struct CfConfig {
 
 #[derive(Debug, Deserialize)]
 struct CfPeer {
-    // из пира берём только публичный ключ; endpoint (host/v4/v6) из ответа
-    // регистрации не используем — адрес выхода подбирает warp_scan_endpoints.
+    // from the peer we take only the public key; the endpoint (host/v4/v6) from the registration
+    // response isn't used — the exit address is picked by warp_scan_endpoints.
     public_key: String,
 }
 
@@ -108,10 +108,10 @@ fn storage_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("warp.json"))
 }
 
-// В установленной версии warp.json хранится versioned DPAPI-envelope (см.
-// secrets.rs). Full Portable без пароля пишет открытым текстом; с паролем —
-// переносимый Argon2id/XChaCha envelope. Легаси plaintext при включённом
-// шифровании мигрирует в текущий формат.
+// In the installed version warp.json stores a versioned DPAPI envelope (see
+// secrets.rs). Full Portable without a password writes plain text; with a password —
+// a portable Argon2id/XChaCha envelope. Legacy plaintext migrates to the current format
+// when encryption is enabled.
 fn read_info(app: &AppHandle) -> Option<WarpInfo> {
     let _secrets = crate::secrets::secret_io_guard();
     let p = storage_path(app).ok()?;
@@ -157,10 +157,10 @@ fn write_info(app: &AppHandle, info: &WarpInfo) -> Result<(), String> {
     crate::atomic_file::write_bytes_replace(&p, &sealed, "warp state")
 }
 
-// Удаляем ВСЕ копии, а не до первой ошибки. Прежний вариант выходил на первом
-// отказе (файл занят, права), и остальные — включая основной warp.json с
-// приватным ключом — оставались на диске. Приложение продолжало их читать, то
-// есть «Сбросить WARP» отчитывался об ошибке, а секрет никуда не девался.
+// We delete ALL copies, not up to the first error. The old variant exited on the first
+// failure (file locked, permissions), and the rest — including the main warp.json with
+// the private key — stayed on disk. The app kept reading them, so
+// "Reset WARP" reported an error while the secret didn't go anywhere.
 fn delete_info(app: &AppHandle) -> Result<(), String> {
     let _secrets = crate::secrets::secret_io_guard();
     let p = storage_path(app)?;
@@ -234,12 +234,12 @@ fn validate_registration(reg: &CfRegResp) -> Result<(), String> {
     Ok(())
 }
 
-// Регистрация ходит в CF через поднятый туннель, а не напрямую: у части
-// провайдеров api.cloudflareclient.com напрямую просто не отвечает (TCP
-// открывается, запрос виснет до таймаута), и кнопка «Зарегистрировать» тогда
-// не работает вообще. Явный proxy, а не системный: в режиме «Прокси» системных
-// настроек нет, а полагаться на них — значит работать только в одном режиме
-// из трёх.
+// Registration reaches CF through the active tunnel, not directly: with some
+// ISPs api.cloudflareclient.com simply doesn't answer directly (TCP
+// opens, the request hangs until the timeout), and the "Register" button then
+// doesn't work at all. An explicit proxy, not the system one: in "Proxy" mode there are no system
+// settings, and relying on them would mean working in only one mode
+// out of three.
 fn http_client(via: Option<&ProbeProxyEndpoint>) -> Result<reqwest::Client, String> {
     let mut builder = crate::util::direct_client_builder()
         .user_agent(CF_UA)
@@ -249,14 +249,14 @@ fn http_client(via: Option<&ProbeProxyEndpoint>) -> Result<reqwest::Client, Stri
             reqwest::Proxy::all(format!("http://{}", endpoint.address))
                 .map_err(|e| format!("proxy: {e}"))?,
         ),
-        // Без туннеля — строго напрямую. Системный прокси может указывать на наш
-        // же инбаунд, которого сейчас нет, и тогда ошибка была бы про него.
+        // Without a tunnel — strictly direct. The system proxy may point to our
+        // own inbound, which doesn't exist right now, and then the error would be about it.
         None => builder.no_proxy(),
     };
     builder.build().map_err(|e| format!("reqwest: {e}"))
 }
 
-// Локальный инбаунд работающего рантайма, если он есть.
+// The local inbound of the running runtime, if there is one.
 fn tunnel_endpoint(app: &AppHandle) -> Option<ProbeProxyEndpoint> {
     let state = app.try_state::<crate::vpn::SingboxState>()?;
     crate::vpn::probe_endpoint_for_generation(&state, None)
@@ -265,12 +265,12 @@ fn tunnel_endpoint(app: &AppHandle) -> Option<ProbeProxyEndpoint> {
 }
 
 fn parse_cf_response<T: DeserializeOwned>(label: &str, text: &str) -> Result<T, String> {
-    // Ответ регистрации содержит access token и WireGuard-конфигурацию, PATCH
-    // может содержать данные лицензии. Никогда не добавляем response body в IPC-
-    // ошибку: её показывает WebView, и секреты попали бы в alert/скриншот.
+    // The registration response contains an access token and the WireGuard configuration, PATCH
+    // may contain license data. We never add the response body to an IPC
+    // error: the WebView shows it, and the secrets would end up in an alert/screenshot.
     serde_json::from_str(text).map_err(|e| {
-        // Даже Display у serde может включить ошибочное значение из JSON.
-        // Наружу отдаём только позицию, полностью независимую от содержимого.
+        // Even serde's Display may include an erroneous value from the JSON.
+        // We expose only the position, fully independent of the contents.
         format!(
             "{label} parse error at line {}, column {}",
             e.line(),
@@ -290,8 +290,8 @@ async fn cf_register(
     via: Option<&ProbeProxyEndpoint>,
 ) -> Result<CfRegResp, String> {
     let client = http_client(via)?;
-    // install_id и fcm_token — псевдо-id мобильного устройства; CF не валидирует
-    // их строго, но проверяет факт наличия и UA.
+    // install_id and fcm_token are pseudo-ids of a mobile device; CF doesn't validate
+    // them strictly, but checks their presence and the UA.
     let install_id = format!(
         "ninety-{}",
         time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000
@@ -357,7 +357,7 @@ async fn cf_delete(id: &str, token: &str, via: Option<&ProbeProxyEndpoint>) -> R
         .await
         .map_err(|e| format!("cf delete: {e}"))?;
     let status = resp.status();
-    // 204 No Content / 200 ok / 404 (уже удалён) — всё считаем успехом
+    // 204 No Content / 200 ok / 404 (already deleted) — all count as success
     if status.is_success() || status == 404 {
         return Ok(());
     }
@@ -366,16 +366,16 @@ async fn cf_delete(id: &str, token: &str, via: Option<&ProbeProxyEndpoint>) -> R
     Err(format!("cf delete {status}"))
 }
 
-/// Регистрирует новое WARP-устройство. license=None — бесплатный WARP, при
-/// наличии 26-символьного ключа — активирует WARP+. Если устройство уже было
-/// зарегистрировано — старое удаляется только после commit новой регистрации.
+/// Registers a new WARP device. license=None — free WARP, with
+/// a 26-character key — activates WARP+. If the device was already
+/// registered, the old one is deleted only after the new registration is committed.
 #[tauri::command]
 pub async fn warp_register(app: AppHandle, license: Option<String>) -> Result<WarpInfo, String> {
     let _operation = WARP_OPERATION_LOCK.lock().await;
     let via = tunnel_endpoint(&app);
-    // Ключ WARP+ — ровно 26 символов. Раньше ключ иной длины молча уходил в
-    // ветку бесплатного WARP (юзер думал, что активировал WARP+) — теперь это
-    // честная ошибка ДО регистрации. UI дублирует проверку локализованно.
+    // A WARP+ key is exactly 26 characters. Previously a key of a different length silently went into
+    // the free WARP branch (the user thought they had activated WARP+) — now it's
+    // an honest error BEFORE registration. The UI duplicates the check, localized.
     let license = license
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty());
@@ -388,10 +388,10 @@ pub async fn warp_register(app: AppHandle, license: Option<String>) -> Result<Wa
         }
     }
 
-    // Старую регистрацию держим рабочей до атомарного commit новой.
+    // The old registration is kept working until the new one is atomically committed.
     let old = read_info(&app);
 
-    // 2) Сгенерировать ключевую пару WG
+    // 2) Generate a WG key pair
     let (priv_b64, pub_b64) = gen_wg_keypair();
 
     // 3) POST /reg
@@ -401,7 +401,7 @@ pub async fn warp_register(app: AppHandle, license: Option<String>) -> Result<Wa
         return Err(e);
     }
 
-    // 4) Опциональная активация WARP+ (длина ключа уже провалидирована выше).
+    // 4) Optional WARP+ activation (the key length was already validated above).
     let (warp_plus, account_type, license_used) = match &license {
         Some(l) => {
             let patch = match cf_patch_account(&reg.id, &reg.token, l, via.as_ref()).await {
@@ -455,7 +455,7 @@ pub async fn warp_register(app: AppHandle, license: Option<String>) -> Result<Wa
         let _ = cf_delete(&reg.id, &reg.token, via.as_ref()).await;
         return Err(e);
     }
-    // Commit состоялся — только теперь старая registration больше не нужна.
+    // The commit happened — only now is the old registration no longer needed.
     if let Some(old) = old.filter(|o| !o.registration_id.trim().is_empty()) {
         if let Err(e) = cf_delete(&old.registration_id, &old.access_token, via.as_ref()).await {
             eprintln!("WARP old registration cleanup failed: {e}");
@@ -464,15 +464,15 @@ pub async fn warp_register(app: AppHandle, license: Option<String>) -> Result<Wa
     Ok(info)
 }
 
-/// Возвращает текущую сохранённую WARP-регистрацию, либо null.
+/// Returns the currently saved WARP registration, or null.
 #[tauri::command]
 pub fn warp_status(app: AppHandle) -> Result<Option<WarpInfo>, String> {
     Ok(read_info(&app))
 }
 
-/// Удаляет WARP-устройство на стороне CF и стирает локальный warp.json.
-/// CF-delete best-effort: ошибки сети не блокируют локальную очистку,
-/// иначе юзер не сможет «сбросить» когда нет интернета.
+/// Deletes the WARP device on the CF side and erases the local warp.json.
+/// CF delete is best-effort: network errors don't block the local cleanup,
+/// otherwise the user couldn't "reset" without internet.
 #[tauri::command]
 pub async fn warp_reset(app: AppHandle) -> Result<(), String> {
     let _operation = WARP_OPERATION_LOCK.lock().await;

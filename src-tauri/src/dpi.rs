@@ -1,13 +1,13 @@
-// Ninety · DPI-обход (winws engine). Запуск/останов движка winws (zapret),
-// управление стратегиями и списками. winws грузит kernel-драйвер WinDivert →
-// требует админ-прав: фронт перед стартом гарантирует элевацию (та же инфра,
-// что у TUN: is_elevated/relaunch_elevated), winws стартует как наш child и
-// наследует права. Бинари движка — read-only в resource_dir (install dir),
-// списки — writable-копия в app_data (для exclude VPN-нод и режима ipset).
+// Ninety · DPI bypass (winws engine). Starting/stopping the winws engine (zapret),
+// managing strategies and lists. winws loads the WinDivert kernel driver →
+// needs admin rights: before starting, the frontend ensures elevation (the same infra
+// as TUN: is_elevated/relaunch_elevated), winws starts as our child and
+// inherits the rights. Engine binaries are read-only in resource_dir (install dir),
+// lists are a writable copy in app_data (for excluding VPN nodes and the ipset mode).
 //
-// Точки интеграции backend↔frontend: dpi_start/stop/running, dpi_strategies,
-// dpi_domains_count, dpi_set_active_vpn_endpoint (главный риск из спайка — нода
-// VPN в exclude, иначе winws корёжит зашифрованный VLESS).
+// backend↔frontend integration points: dpi_start/stop/running, dpi_strategies,
+// dpi_domains_count, dpi_set_active_vpn_endpoint (the main risk from the spike — the VPN
+// node must be excluded, otherwise winws mangles encrypted VLESS).
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
@@ -24,35 +24,35 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Default)]
 pub struct DpiState {
-    // Child winws.exe. None — не запущен. Хэндл мутабелен для try_wait/kill.
+    // Child winws.exe. None — not running. The handle is mutable for try_wait/kill.
     child: Mutex<Option<Child>>,
-    // Короткие start/autotest операции сериализуются и получают generation.
-    // stop увеличивает generation: старый async-код после любого await видит
-    // отмену и не может оживить процесс или перетереть состояние новой сессии.
+    // Short start/autotest operations are serialized and get a generation.
+    // stop bumps the generation: old async code after any await sees
+    // the cancellation and cannot revive the process or overwrite the new session's state.
     control: Mutex<DpiControl>,
-    // operation в control обнуляется сразу при cancel, но async start/autotest
-    // ещё может завершать текущий await. Этот флаг живёт до Drop guard'а и не
-    // позволяет stop/unload вернуть успех раньше фактического завершения таска.
+    // operation in control is reset immediately on cancel, but async start/autotest
+    // may still be finishing its current await. This flag lives until the guard's Drop and keeps
+    // stop/unload from reporting success before the task has actually finished.
     operation_active: AtomicBool,
-    // Грузился ли kernel-драйвер WinDivert в этой сессии (winws хоть раз стартовал).
-    // Гейт для sc-выгрузки при выходе: если DPI не включали, snимать службы нечего —
-    // а безусловный `sc.exe` на каждый выход давал окно ошибки 0xc0000142 при
-    // выключении ПК (sc.exe не поднимается в сворачивающейся сессии). Сбрасывается
-    // после фактической выгрузки службы (full_unload).
+    // Whether the WinDivert kernel driver was loaded in this session (winws started at least once).
+    // Gate for sc unloading on exit: if DPI was never enabled, there are no services to remove —
+    // and an unconditional `sc.exe` on every exit produced a 0xc0000142 error window on
+    // PC shutdown (sc.exe can't start in a session that is being torn down). Reset
+    // after the service is actually unloaded (full_unload).
     driver_loaded: AtomicBool,
-    // Службы, чей ImagePath был проверен как принадлежащий каталогу Ninety.
-    // Никогда не останавливаем глобальные WinDivert/WinDivert14 вслепую.
+    // Services whose ImagePath was verified as belonging to the Ninety directory.
+    // We never stop the global WinDivert/WinDivert14 blindly.
     owned_services: Mutex<Vec<String>>,
-    // Мутации подписанного DPI-набора, локальных списков и ACTIVE_*.bin должны
-    // быть линейными: sync переносит их в новое поколение перед commit pointer.
+    // Mutations of the signed DPI set, local lists and ACTIVE_*.bin must
+    // be linear: sync carries them into the new generation before the pointer commit.
     data: tokio::sync::Mutex<()>,
-    // Сеанс winws, поднятый dpi_start: id = generation его операции. 0 — штатного
-    // сеанса нет (остановлен, перезапускается или идёт автоподбор). Меняется
-    // только под локом child: выход процесса при живом сеансе — падение и
-    // событие dpi:exited, а плановая остановка сначала обнуляет сеанс.
+    // The winws session started by dpi_start: id = generation of its operation. 0 — no regular
+    // session (stopped, restarting, or auto-tuning is running). Changes
+    // only under the child lock: a process exit while the session is live is a crash and
+    // the dpi:exited event, while a planned stop resets the session first.
     runtime_session: AtomicU64,
-    // Счётчик запросов исключения VPN-нод. DNS ждём вне лока данных, поэтому
-    // запрос, обогнанный более новым, свой результат не пишет.
+    // Counter of VPN node exclusion requests. DNS is awaited outside the data lock, so
+    // a request overtaken by a newer one does not write its result.
     endpoint_seq: AtomicU64,
 }
 
@@ -78,8 +78,8 @@ fn terminate_child_bounded(child: &mut Child, label: &str) -> Result<(), String>
             Err(e) => return Err(format!("could not confirm that {label} stopped: {e}")),
         }
         if let Some(e) = kill_error.as_ref() {
-            // Ошибка kill допустима только если try_wait выше уже подтвердил,
-            // что процесс успел завершиться самостоятельно.
+            // A kill error is acceptable only if try_wait above has already confirmed
+            // that the process managed to exit on its own.
             if Instant::now() >= deadline {
                 return Err(format!("could not stop {label}: {e}"));
             }
@@ -88,9 +88,9 @@ fn terminate_child_bounded(child: &mut Child, label: &str) -> Result<(), String>
 }
 
 fn stop_managed_child(state: &DpiState, label: &str) -> Result<(), String> {
-    // Сеанс обнуляем под тем же локом, под которым забираем хэндл: сторож
-    // выхода либо успел увидеть падение раньше (и тогда хэндла уже нет), либо
-    // увидит нулевой сеанс и плановую остановку падением не назовёт.
+    // Reset the session under the same lock under which we take the handle: the exit
+    // watcher either saw the crash earlier (and then the handle is already gone), or
+    // will see a zero session and won't call the planned stop a crash.
     let taken = {
         let mut guard = state.child.lock_recover();
         state.runtime_session.store(0, Ordering::SeqCst);
@@ -102,8 +102,8 @@ fn stop_managed_child(state: &DpiState, label: &str) -> Result<(), String> {
     match terminate_child_bounded(&mut child, label) {
         Ok(()) => Ok(()),
         Err(e) => {
-            // Не теряем handle: повторная команда должна реально повторить
-            // остановку, а не принять None за подтверждённый успех.
+            // Don't lose the handle: a repeated command must actually retry
+            // the stop rather than take None for a confirmed success.
             *state.child.lock_recover() = Some(child);
             Err(e)
         }
@@ -113,10 +113,10 @@ fn stop_managed_child(state: &DpiState, label: &str) -> Result<(), String> {
 fn stop_dpi_runtime(state: &DpiState, label: &str) -> Result<(), String> {
     let cancelled = cancel_dpi_operation(state);
     stop_managed_child(state, label)?;
-    // sync_channel процессов не порождает — он переносит файлы поколения, и на
-    // медленном диске это заметно дольше двух секунд. Ожидание такой операции
-    // превращало обычное отключение обхода в ошибку «отменяемая операция не
-    // завершилась», хотя winws к этому моменту уже физически остановлен.
+    // sync_channel doesn't spawn processes — it moves generation files, and on
+    // a slow disk that takes noticeably longer than two seconds. Waiting for such an operation
+    // turned a normal bypass shutdown into a "cancellable operation did not
+    // finish" error, although winws is physically stopped by then.
     if !operation_can_spawn(cancelled) {
         return Ok(());
     }
@@ -129,8 +129,8 @@ fn stop_dpi_runtime(state: &DpiState, label: &str) -> Result<(), String> {
         }
         std::thread::sleep(Duration::from_millis(20));
     }
-    // Операция могла успеть spawn'ить child между первым take и проверкой
-    // generation. После Drop guard'а делаем финальный подтверждённый stop.
+    // The operation may have managed to spawn a child between the first take and the generation
+    // check. After the guard's Drop we do a final confirmed stop.
     stop_managed_child(state, label)
 }
 
@@ -176,9 +176,9 @@ fn cancel_dpi_operation(state: &DpiState) -> Option<&'static str> {
     control.operation.take()
 }
 
-// Операции, которые сами поднимают winws. Только их stop обязан дожидаться:
-// такая операция может спавнить процесс уже после того, как stop забрал хэндл,
-// и без ожидания остановка вернула бы успех на живом процессе.
+// Operations that bring up winws themselves. Only their stop must wait:
+// such an operation may spawn the process after stop has already taken the handle,
+// and without waiting the stop would report success on a live process.
 fn operation_can_spawn(name: Option<&str>) -> bool {
     matches!(name, Some("start") | Some("autotest"))
 }
@@ -198,20 +198,20 @@ impl Drop for DpiOperationGuard<'_> {
     }
 }
 
-// ── Сторож выхода winws ─────────────────────────────────────────────
-// Раньше падение winws посреди сессии не замечал никто: фронт продолжал
-// показывать «Работает», пока пользователь сам не открывал раздел. Сторож
-// только сообщает факт — что показать и надо ли поднимать движок снова,
-// решает фронт.
+// ── winws exit watcher ─────────────────────────────────────────────
+// Previously nobody noticed winws crashing mid-session: the frontend kept
+// showing "Running" until the user opened the section themselves. The watcher
+// only reports the fact — what to show and whether to bring the engine up again
+// is decided by the frontend.
 const DPI_EXITED_EVENT: &str = "dpi:exited";
 const DPI_EXIT_POLL: Duration = Duration::from_millis(500);
 
 #[derive(Serialize, Clone, Debug)]
 struct DpiExitedEvent {
-    // generation операции dpi_start, поднявшей упавший сеанс.
+    // generation of the dpi_start operation that brought up the crashed session.
     generation: u64,
     code: Option<i32>,
-    // i18n-токен для баннера ошибки.
+    // i18n token for the error banner.
     message: String,
 }
 
@@ -227,9 +227,9 @@ fn dpi_exited_event(generation: u64, code: Option<i32>) -> DpiExitedEvent {
     }
 }
 
-// Забрать хэндл winws, если штатный сеанс умер сам. expected=Some(id) — сторож
-// конкретного сеанса: чужой (более новый) сеанс он не трогает. None — любой
-// текущий сеанс (dpi_running тоже может первым наткнуться на труп).
+// Take the winws handle if the regular session died on its own. expected=Some(id) — the watcher
+// of a specific session: it doesn't touch another (newer) session. None — any
+// current session (dpi_running may also be the first to stumble on the corpse).
 fn reap_unexpected_exit(state: &DpiState, expected: Option<u64>) -> Option<DpiExitedEvent> {
     let mut guard = state.child.lock_recover();
     let session = state.runtime_session.load(Ordering::SeqCst);
@@ -252,7 +252,7 @@ fn spawn_dpi_exit_watcher(app: AppHandle, session: u64) {
             let exited = {
                 let state = app.state::<DpiState>();
                 if state.runtime_session.load(Ordering::SeqCst) != session {
-                    return; // плановая остановка или новый сеанс — не наш случай
+                    return; // a planned stop or a new session — not our case
                 }
                 reap_unexpected_exit(&state, Some(session))
             };
@@ -269,7 +269,7 @@ struct Strategy {
     id: String,
     #[serde(default)]
     name: String,
-    // Описание для UI; в winws не уходит.
+    // Description for the UI; not passed to winws.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     desc: String,
     #[serde(default)]
@@ -277,11 +277,11 @@ struct Strategy {
     args: Vec<String>,
 }
 
-// Канал данных стратегий: подписанный prerelease-ассет, который вручную
-// публикует reviewed workflow dpi-channel.yml из зафиксированного релиза Flowseal.
-// Ninety тянет его на лету,
-// проверяет minisign-подпись и применяет — БЕЗ обновления приложения. Возит только
-// данные (strategies.json + списки + .bin), движок едет через OTA (см. engine-watch).
+// Strategy data channel: a signed prerelease asset that is manually
+// published by the reviewed dpi-channel.yml workflow from a pinned Flowseal release.
+// Ninety pulls it on the fly,
+// verifies the minisign signature and applies it — WITHOUT updating the app. It carries only
+// data (strategies.json + lists + .bin); the engine ships via OTA (see engine-watch).
 const CHANNEL_BASE: &str =
     "https://github.com/pathetixx/190x4-Ninety/releases/download/dpi-channel";
 const MAX_CHANNEL_BUNDLE_BYTES: u64 = 64 * 1024 * 1024;
@@ -308,18 +308,18 @@ const LOCAL_LIST_FILES: [&str; 9] = [
     "ipset-all.txt",
     IPSET_BASE_FILE,
     "ipset-game.txt",
-    // Автосписок — результат обучения на живом трафике, а не часть канала:
-    // без переноса каждое обновление стратегий обнуляло бы его, и заблокированные
-    // сайты снова открывались бы с третьего раза.
+    // The autolist is the result of learning on live traffic, not part of the channel:
+    // without carrying it over, every strategy update would wipe it, and blocked
+    // sites would again open only on the third try.
     AUTO_HOSTLIST_FILE,
 ];
 const IPSET_SERVICE_FILE: &str = "ipset-service.txt";
 const IPSET_BASE_FILE: &str = "ipset-all.base.txt";
 const CHANNEL_SERVICE_FILES: [&str; 2] = ["hosts", IPSET_SERVICE_FILE];
-// Подписанный бандл и его подпись лежат в поколении рядом с распакованными
-// файлами. Каталог данных доступен на запись обычному пользователю, поэтому
-// service-файлы (hosts уходит в системный файл из elevated-процесса) читаются
-// не с диска на веру, а из бандла после проверки подписи.
+// The signed bundle and its signature live in the generation next to the unpacked
+// files. The data directory is writable by a regular user, so
+// service files (hosts goes into a system file from an elevated process) are read
+// not from disk on trust but from the bundle after the signature is verified.
 const GENERATION_BUNDLE_FILE: &str = "bundle.zip";
 const GENERATION_SIGNATURE_FILE: &str = "bundle.zip.sig";
 
@@ -335,16 +335,16 @@ impl Drop for StagingDirGuard {
         }
     }
 }
-// Dedicated ключ канала DPI. Новые bundle подписываются только им.
-// base64 от файла minisign-pubkey; он намеренно НЕ совпадает с OTA updater key.
+// Dedicated DPI channel key. New bundles are signed only with it.
+// base64 of the minisign-pubkey file; it deliberately does NOT match the OTA updater key.
 const CHANNEL_DEDICATED_PUBKEY_B64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ4NDI2MThEQTc1QTVBMEYKUldRUFdscW5qV0ZDMklsd25RR2JhQlZLTWt3dmQ2L3gvSWozdTV4My9xS3Fhcy84MElXZ1h4LzYK";
-// Переходное доверие: уже опубликованный dpi-channel подписан legacy OTA key.
-// Удалять только отдельным релизом после ручной ротации канала, см.
+// Transitional trust: the already published dpi-channel is signed with the legacy OTA key.
+// Remove only in a separate release after manually rotating the channel, see
 // docs/DPI_CHANNEL_KEY_ROTATION.md.
 const CHANNEL_LEGACY_PUBKEY_B64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1N0I1RTAwMEQ3MUQ3OUUKUldTZTEzRU5BRjU3ZGN3TkZoK28yeFRVa2tLdlhxNy8zUXo1aUdXN1lOSUE3MzZLUmVCRnFYamsK";
 
-// ── Пути ────────────────────────────────────────────────────────────
-// Каталог движка в ресурсах (read-only): <resource_dir>/dpi.
+// ── Paths ────────────────────────────────────────────────────────────
+// Engine directory in resources (read-only): <resource_dir>/dpi.
 fn res_dpi(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -353,13 +353,13 @@ fn res_dpi(app: &AppHandle) -> Result<PathBuf, String> {
         .join("dpi");
     Ok(dir)
 }
-// monkey=true → каталог bin-monkey: тот же winws.exe + cygwin1.dll, но WinDivert.dll
-// с пропатченными широкими строками (служба WinDivert→Monkey, файл драйвера
-// WinDivert64.sys→Monkey64.sys; имя устройства \\.\WinDivert сохранено — его
-// создаёт сам .sys в DriverEntry, Monkey64.sys байт-идентичен WinDivert64.sys).
-// Драйвер грузится по той же подписи Microsoft/WDF, но в SCM и на диске значится
-// как «Monkey» → имя WinDivert не светится в списке служб/файлов. На функционал
-// обхода не влияет.
+// monkey=true → the bin-monkey directory: the same winws.exe + cygwin1.dll, but a WinDivert.dll
+// with patched wide strings (service WinDivert→Monkey, driver file
+// WinDivert64.sys→Monkey64.sys; the device name \\.\WinDivert is kept — it is
+// created by the .sys itself in DriverEntry, Monkey64.sys is byte-identical to WinDivert64.sys).
+// The driver loads with the same Microsoft/WDF signature, but in SCM and on disk it shows up
+// as "Monkey" → the WinDivert name doesn't appear in the service/file lists. It has no effect
+// on bypass functionality.
 fn bin_dir(app: &AppHandle, monkey: bool) -> Result<PathBuf, String> {
     Ok(res_dpi(app)?.join(if monkey { "bin-monkey" } else { "bin" }))
 }
@@ -408,15 +408,15 @@ fn validate_channel_generation(path: &Path) -> Result<(), String> {
 }
 
 struct ChannelResolution {
-    // Поколение, которым реально пользуемся: то, что в pointer, либо самое
-    // свежее целое из сохранённых. None — встроенные ресурсы.
+    // The generation we actually use: the one in pointer, or the newest
+    // intact one among the saved ones. None — built-in resources.
     active: Option<PathBuf>,
-    // pointer есть, но указывает на испорченное/исчезнувшее поколение.
+    // pointer exists but points to a corrupted/vanished generation.
     pointer_broken: bool,
 }
 
-// Диагностику испорченного поколения пишем один раз на одно и то же сообщение:
-// резолв зовётся из каждой DPI-команды, и лог иначе зарос бы одной строкой.
+// Diagnostics of a corrupted generation are written once per distinct message:
+// resolution is called from every DPI command, and the log would otherwise fill with one line.
 static LAST_CHANNEL_DIAGNOSTIC: Mutex<String> = Mutex::new(String::new());
 
 fn report_channel_diagnostic(message: &str) {
@@ -427,7 +427,7 @@ fn report_channel_diagnostic(message: &str) {
     }
 }
 
-// Ключ свежести поколения: gen-<nanos>-<pid>-<seq>. Битое имя — в самый низ.
+// Generation freshness key: gen-<nanos>-<pid>-<seq>. A broken name goes to the very bottom.
 fn channel_generation_age_key(name: &str) -> (u128, u64) {
     let mut parts = name.split('-').skip(1);
     let nanos = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -435,8 +435,8 @@ fn channel_generation_age_key(name: &str) -> (u128, u64) {
     (nanos, seq)
 }
 
-// Самое свежее целое поколение, кроме испорченного `skip`. Предыдущее
-// поколение cleanup сохраняет как раз на такой случай.
+// The newest intact generation, except the corrupted `skip`. cleanup keeps the previous
+// generation for exactly this case.
 fn newest_valid_channel_generation(generations: &Path, skip: Option<&str>) -> Option<PathBuf> {
     let entries = std::fs::read_dir(generations).ok()?;
     let mut best: Option<((u128, u64), String)> = None;
@@ -459,9 +459,9 @@ fn newest_valid_channel_generation(generations: &Path, skip: Option<&str>) -> Op
     best.map(|(_, name)| generations.join(name))
 }
 
-// Испорченное активное поколение больше не роняет весь раздел DPI (включая
-// «Обновить», которое его и чинит): откатываемся на предыдущее целое
-// поколение или на встроенные ресурсы и запоминаем, что нужна синхронизация.
+// A corrupted active generation no longer breaks the whole DPI section (including
+// "Update", which is what repairs it): we fall back to the previous intact
+// generation or to the built-in resources and remember that a sync is needed.
 fn resolve_channel_generation(dpi_data: &Path) -> ChannelResolution {
     let pointer = dpi_data.join(CHANNEL_POINTER_FILE);
     let generations = dpi_data.join(CHANNEL_GENERATIONS_DIR);
@@ -545,19 +545,19 @@ fn finalize_channel_generation(from: &Path, to: &Path) -> Result<(), String> {
     std::fs::rename(from, to).map_err(|e| format!("finalize DPI channel generation: {e}"))
 }
 
-// ── Собственные добавки Ninety к спискам ────────────────────────────
-// Канал (dpi-channel.yml) копирует списки Flowseal как есть, поэтому добавки
-// Ninety не живут в базовых файлах: после «Обновить» они бы пропадали. Они
-// хранятся здесь и накладываются поверх любого базового набора — встроенного
-// и канального — при каждой записи, без дублей.
-// Vivox (голос Unity, AS35028): 85.236.104.0/23 в /21 не входит.
+// ── Ninety's own additions to the lists ────────────────────────────
+// The channel (dpi-channel.yml) copies the Flowseal lists as is, so Ninety's
+// additions don't live in the base files: after "Update" they would disappear. They
+// are stored here and overlaid on top of any base set — built-in
+// or channel — on every write, without duplicates.
+// Vivox (Unity voice, AS35028): 85.236.104.0/23 is not within the /21.
 const NINETY_GENERAL_ADDITIONS: [&str; 1] = ["vivox.com"];
 const NINETY_IPSET_ADDITIONS: [&str; 2] = ["85.236.96.0/21", "85.236.104.0/23"];
-// Маркер версии встроенных базовых списков в legacy-каталоге (без канала).
+// Version marker of the built-in base lists in the legacy directory (no channel).
 const BUNDLED_LISTS_MARKER: &str = ".bundled-lists-version";
 
-// Текст списка с добавками в конце. None — все добавки уже есть (сравнение
-// без регистра, комментарии и пустые строки не в счёт).
+// List text with the additions at the end. None — all additions are already present (compared
+// case-insensitively, comments and empty lines don't count).
 fn with_list_additions(text: &str, additions: &[&str]) -> Option<String> {
     let present: std::collections::HashSet<String> = text
         .lines()
@@ -597,7 +597,7 @@ fn apply_list_additions(path: &Path, additions: &[&str], label: &str) -> Result<
     Ok(())
 }
 
-// Версия встроенных списков: меняется с каждой версией приложения и набора.
+// Version of the built-in lists: changes with every app and set version.
 fn bundled_lists_stamp(app: &AppHandle) -> String {
     format!(
         "{}+{}",
@@ -606,12 +606,12 @@ fn bundled_lists_stamp(app: &AppHandle) -> String {
     )
 }
 
-// Базовые списки legacy-каталога (установка без канала) — копия ресурсов
-// приложения. Раньше их копировали только при отсутствии файла, и у старых
-// установок они навсегда оставались от первой установки. Теперь при смене
-// версии приложения/набора базовые файлы переписываются из ресурсов.
-// Пользовательские (*-user.txt), сессионные и автосписок здесь не трогаются,
-// writable-база ipset (её двигает «Обновить список») — тоже.
+// Base lists of the legacy directory (installation without a channel) — a copy of the app's
+// resources. Previously they were copied only when the file was missing, and on old
+// installations they stayed forever from the first install. Now, when the
+// app/set version changes, the base files are rewritten from resources.
+// User lists (*-user.txt), session lists and the autolist are not touched here,
+// nor is the writable ipset base (moved by "Update list").
 fn refresh_bundled_base_lists(dst: &Path, src: &Path, stamp: &str) -> Result<(), String> {
     let marker = dst.join(BUNDLED_LISTS_MARKER);
     let current = std::fs::read_to_string(&marker).unwrap_or_default();
@@ -634,11 +634,11 @@ fn refresh_bundled_base_lists(dst: &Path, src: &Path, stamp: &str) -> Result<(),
     Ok(())
 }
 
-// Засеять writable-списки. В поколении канала базовые списки принадлежат
-// каналу (досоздаём только пропавшие), в legacy-каталоге — ресурсам
-// приложения и обновляются вместе с ним. Добавки Ninety накладываются поверх
-// в обоих случаях, user-списки создаём пустыми. ipset-all.txt пишется
-// отдельно по режиму.
+// Seed the writable lists. In a channel generation the base lists belong to
+// the channel (we only recreate missing ones); in the legacy directory they belong to the app's
+// resources and are updated together with it. Ninety's additions are overlaid on top
+// in both cases; user lists are created empty. ipset-all.txt is written
+// separately according to the mode.
 fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
     let generation = active_channel_generation(app)?;
     let dst = match &generation {
@@ -671,12 +671,12 @@ fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
         "list-general-user.txt",
         "list-exclude-user.txt",
         "ipset-exclude-user.txt",
-        // Пустой всегда: снимает ipset-гейт с секций Game Filter, не завися от
-        // режима IPset (write_ipset_mode пишет только ipset-all.txt).
+        // Always empty: lifts the ipset gate from the Game Filter sections, independent of
+        // the IPset mode (write_ipset_mode writes only ipset-all.txt).
         "ipset-game.txt",
-        // Автосписок заблокированных доменов. Ведёт его сам winws в режиме
-        // «Только заблокированные»; нам достаточно, чтобы файл существовал —
-        // winws открывает его на чтение при старте, до первой записи.
+        // Autolist of blocked domains. winws maintains it itself in the
+        // "Blocked only" mode; we only need the file to exist —
+        // winws opens it for reading at startup, before the first write.
         AUTO_HOSTLIST_FILE,
         "active-vpn-domain.txt",
         "active-vpn-ip.txt",
@@ -689,9 +689,9 @@ fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dst)
 }
 
-// Writable-каталог .bin-пейлоадов: bin-data активного поколения либо legacy
-// <app_data>/dpi/bin-data. Движок (winws.exe + драйвер) остаётся read-only в
-// ресурсе. winws читает .bin по абсолютному пути (%BIN%), независимо от cwd.
+// Writable directory of .bin payloads: bin-data of the active generation or legacy
+// <app_data>/dpi/bin-data. The engine (winws.exe + driver) stays read-only in the
+// resource. winws reads .bin by absolute path (%BIN%), regardless of cwd.
 fn bindata_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = match active_channel_generation(app)? {
         Some(generation) => generation.join("bin-data"),
@@ -703,14 +703,14 @@ fn bindata_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-// Поддерживать writable bin-data в рабочем состоянии. Без channel-overlay
-// встроенный набор приложения является источником истины: это важно при
-// обновлении Ninety с Flowseal <1.10, где bin-data уже не пуст, но ACTIVE_*.bin
-// ещё отсутствуют. При наличии overlay его подписанный набор является
-// единственным источником истины: удалённые каналом файлы не воскрешаем из app.
-// Исключение — поколение, чьи стратегии не подтверждены подписью: тогда
-// работают встроенные стратегии, и недостающие им .bin досоздаются из ресурса
-// (существующие файлы поколения и выбор UDP fake не трогаем).
+// Keep the writable bin-data in working order. Without a channel overlay
+// the app's built-in set is the source of truth: this matters when
+// updating Ninety from Flowseal <1.10, where bin-data is no longer empty but ACTIVE_*.bin
+// are still missing. With an overlay, its signed set is
+// the only source of truth: files removed by the channel are not resurrected from the app.
+// Exception — a generation whose strategies are not confirmed by a signature: then
+// the built-in strategies are used, and the .bin files they lack are recreated from the resource
+// (existing generation files and the UDP fake choice are left alone).
 fn ensure_bindata(app: &AppHandle, active: &ActiveStrategies) -> Result<PathBuf, String> {
     let dst = bindata_dir(app)?;
     if active.channel.is_none() && active_channel_generation(app)?.is_some() {
@@ -860,9 +860,9 @@ fn sync_bundled_bindata(app: &AppHandle, dst: &Path) -> Result<(), String> {
     if active_channel_generation(app)?.is_some() {
         return Ok(());
     }
-    // Legacy-оверлей <data>/dpi/strategies.json больше не читается (см.
-    // load_strategies), поэтому без поколения встроенный набор .bin
-    // авторитетен всегда — он идёт в паре со встроенными стратегиями.
+    // The legacy overlay <data>/dpi/strategies.json is no longer read (see
+    // load_strategies), so without a generation the built-in .bin set
+    // is always authoritative — it goes together with the built-in strategies.
     let mut bundled = std::collections::HashSet::new();
     let rd = std::fs::read_dir(&src).map_err(|e| format!("read bundled bin: {e}"))?;
     for item in rd {
@@ -886,9 +886,9 @@ fn sync_bundled_bindata(app: &AppHandle, dst: &Path) -> Result<(), String> {
         }
     }
 
-    // Без channel-overlay удаляем только устаревшие валидные .bin из нашего
-    // управляемого каталога. Так исчезнувший upstream-кандидат не остаётся
-    // доступным под старым именем после обновления приложения.
+    // Without a channel overlay we only delete outdated valid .bin files from our
+    // managed directory. This way a vanished upstream candidate doesn't stay
+    // available under its old name after an app update.
     let rd = std::fs::read_dir(dst).map_err(|e| format!("read bin-data: {e}"))?;
     for item in rd {
         let entry = item.map_err(|e| format!("read bin-data entry: {e}"))?;
@@ -949,10 +949,10 @@ fn fake_source_usable(dir: &Path, file: &str) -> bool {
         .unwrap_or(false)
 }
 
-// После обновления канала upstream ACTIVE_*.bin заменяются дефолтами. Явный
-// выбор пользователя хранится отдельно и накладывается поверх свежего набора.
-// Если выбранный upstream-файл исчез, сбрасываем только этот слот на новый
-// дефолт — весь sync из-за устаревшего выбора не блокируем.
+// After a channel update the upstream ACTIVE_*.bin are replaced with defaults. The user's explicit
+// choice is stored separately and overlaid on top of the fresh set.
+// If the selected upstream file is gone, only that slot is reset to the new
+// default — we don't block the whole sync because of an outdated choice.
 fn reapply_fake_selection_with_inventory(
     app: &AppHandle,
     dir: &Path,
@@ -989,8 +989,8 @@ fn reapply_fake_selection_value(
             reset.push(kind.to_string());
             continue;
         }
-        // Ошибка записи ACTIVE_* — реальный сбой I/O, а не устаревший выбор:
-        // не скрываем её сбросом маркера и не продолжаем с частично применённым sync.
+        // An ACTIVE_* write error is a real I/O failure, not an outdated choice:
+        // we don't hide it by resetting the marker and don't continue with a partially applied sync.
         apply_fake_file(dir, kind, &file)?;
     }
     Ok(reset)
@@ -1000,16 +1000,16 @@ fn reapply_fake_selection(app: &AppHandle, dir: &Path) -> Result<Vec<String>, St
     reapply_fake_selection_with_inventory(app, dir, None)
 }
 
-// ── Стратегии: источник и allowlist аргументов ─────────────────────
-// Аргументы стратегии уходят в winws, который работает с правами
-// администратора, а каталог данных доступен на запись обычному пользователю.
-// Поэтому strategies.json с диска на веру больше не читается нигде:
-//   - канальная стратегия — только из подписанного bundle.zip активного
-//     поколения (подпись проверяется при каждом чтении);
-//   - встроенная — из самого исполняемого файла (include_str!), той же сборки,
-//     что ресурсные .bin и списки;
-//   - legacy-оверлей <data>/dpi/strategies.json игнорируется.
-// Вторая линия — allowlist флагов, зеркало gen_strategies.py::validate_arg.
+// ── Strategies: source and argument allowlist ─────────────────────
+// Strategy arguments go to winws, which runs with
+// administrator rights, while the data directory is writable by a regular user.
+// So strategies.json is no longer read from disk on trust anywhere:
+//   - a channel strategy comes only from the signed bundle.zip of the active
+//     generation (the signature is checked on every read);
+//   - a built-in one comes from the executable itself (include_str!), the same build
+//     as the resource .bin files and lists;
+//   - the legacy overlay <data>/dpi/strategies.json is ignored.
+// The second line of defense is a flag allowlist, a mirror of gen_strategies.py::validate_arg.
 const BUNDLED_STRATEGIES_JSON: &str = include_str!("../dpi/strategies.json");
 const BUNDLED_STRATEGIES_VERSION: &str = include_str!("../dpi/version.txt");
 const MAX_STRATEGIES: usize = 64;
@@ -1047,9 +1047,9 @@ const BIN_FLAGS: [&str; 6] = [
     "--dpi-desync-split-seqovl-pattern",
 ];
 
-// Файловые флаги списков: только наши имена под %LISTS%. Служебные
-// --hostlist-auto* и исключение активной ноды добавляет само приложение после
-// проверки, стратегия задать их не может.
+// List file flags: only our names under %LISTS%. The service
+// --hostlist-auto* flags and the active node exclusion are added by the app itself after
+// validation; a strategy cannot set them.
 fn allowed_list_values(flag: &str) -> Option<&'static [&'static str]> {
     match flag {
         "--hostlist" => Some(&[
@@ -1073,7 +1073,7 @@ fn bounded_int(value: &str, low: u64, high: u64) -> bool {
             .is_ok_and(|n| (low..=high).contains(&n))
 }
 
-// %BIN%имя.bin: только символы [A-Za-z0-9._-], без «..» и разделителей пути.
+// %BIN%name.bin: only [A-Za-z0-9._-] characters, no ".." and no path separators.
 fn safe_bin_value(value: &str) -> bool {
     let Some(name) = value.strip_prefix("%BIN%") else {
         return false;
@@ -1092,8 +1092,8 @@ fn safe_hex_value(value: &str) -> bool {
     })
 }
 
-// SAFE_DOMAIN из генератора: метки [A-Za-z0-9-] до 63 символов без дефиса по
-// краям, минимум две метки, последняя — 2..63 латинских букв.
+// SAFE_DOMAIN from the generator: labels [A-Za-z0-9-] up to 63 characters without a hyphen at
+// the edges, at least two labels, the last one 2..63 Latin letters.
 fn safe_strategy_domain(value: &str) -> bool {
     let labels: Vec<&str> = value.split('.').collect();
     let Some((tld, rest)) = labels.split_last() else {
@@ -1147,9 +1147,9 @@ fn valid_split_pos(value: &str) -> bool {
         }
 }
 
-/// Проверить один аргумент стратегии до подстановки плейсхолдеров. Зеркало
-/// gen_strategies.py::validate_arg: генератор канала уже фильтрует им вывод, а
-/// клиент повторяет проверку, потому что между подписью и winws лежит диск.
+/// Validate one strategy argument before placeholder substitution. Mirror of
+/// gen_strategies.py::validate_arg: the channel generator already filters its output with it, and
+/// the client repeats the check because a disk sits between the signature and winws.
 fn validate_strategy_arg(arg: &str) -> Result<(), String> {
     let reject =
         || -> Result<(), String> { Err(format!("unsafe or unknown winws argument: {arg:?}")) };
@@ -1161,7 +1161,7 @@ fn validate_strategy_arg(arg: &str) -> Result<(), String> {
         None => (arg, None),
     };
     let Some(value) = value else {
-        // Без значения допустим только разделитель секций.
+        // Without a value only the section separator is allowed.
         return if flag == "--new" { Ok(()) } else { reject() };
     };
     let ok = match flag {
@@ -1214,9 +1214,9 @@ fn validate_strategy_args(args: &[String]) -> Result<(), String> {
     args.iter().try_for_each(|arg| validate_strategy_arg(arg))
 }
 
-// Разобрать strategies.json и оставить только стратегии, целиком прошедшие
-// allowlist. Стратегия с запрещённым аргументом не исправляется и не
-// обрезается — она выпадает вся: частичный argv winws — другой профиль.
+// Parse strategies.json and keep only strategies that fully passed
+// the allowlist. A strategy with a forbidden argument is neither fixed nor
+// truncated — it is dropped entirely: a partial winws argv is a different profile.
 fn parse_checked_strategies(raw: &str) -> Result<Vec<Strategy>, String> {
     let parsed: Vec<Strategy> =
         serde_json::from_str(raw).map_err(|e| format!("parse strategies.json: {e}"))?;
@@ -1238,17 +1238,17 @@ fn parse_checked_strategies(raw: &str) -> Result<Vec<Strategy>, String> {
 
 struct ActiveStrategies {
     strategies: Vec<Strategy>,
-    // Версия именно того набора, из которого взяты стратегии.
+    // Version of exactly the set the strategies were taken from.
     version: String,
-    // Поколение, чей подписанный бандл дал стратегии; None — встроенный набор.
+    // The generation whose signed bundle provided the strategies; None — the built-in set.
     channel: Option<PathBuf>,
-    // Активное поколение повреждено или не может доказать подписью свои
-    // стратегии: работаем на встроенном наборе и предлагаем пересинхронизацию
-    // даже при той же версии канала.
+    // The active generation is corrupted or cannot prove its strategies with a signature:
+    // we run on the built-in set and offer a resync
+    // even with the same channel version.
     needs_resync: bool,
 }
 
-// Стратегии и версия из подписанного бандла поколения (одна проверка подписи).
+// Strategies and version from the generation's signed bundle (one signature check).
 fn signed_generation_strategies(generation: &Path) -> Result<(Vec<Strategy>, String), String> {
     let entries = read_signed_bundle_entries(
         generation,
@@ -1296,24 +1296,24 @@ fn load_strategies(app: &AppHandle) -> Result<ActiveStrategies, String> {
     load_strategies_from(&crate::app_paths::data_dir(app)?.join("dpi"))
 }
 
-// Режим ipset → содержимое ipset-all.txt (как в service.bat Flowseal):
-//   any    — пустой файл (обход по совпадению домена, рекомендуется);
-//   loaded — полный набор IP из ресурсного ipset-all.base.txt;
-//   off    — заглушка (одна несуществующая подсеть, фильтр фактически выключен).
+// ipset mode → contents of ipset-all.txt (as in Flowseal's service.bat):
+//   any    — empty file (bypass by domain match, recommended);
+//   loaded — the full IP set from the resource ipset-all.base.txt;
+//   off    — a placeholder (one nonexistent subnet, the filter is effectively off).
 fn write_ipset_mode(app: &AppHandle, lists: &Path, mode: &str) -> Result<(), String> {
     let target = lists.join("ipset-all.txt");
     match mode {
         "loaded" => {
-            // writable-копия base (после dpi_update_ipset) приоритетнее ресурсной —
-            // так обновлённый список IP применяется без переустановки приложения.
+            // The writable copy of base (after dpi_update_ipset) takes priority over the resource one —
+            // this way an updated IP list applies without reinstalling the app.
             let wbase = lists.join(IPSET_BASE_FILE);
             let base = if wbase.exists() {
                 wbase
             } else {
                 res_lists(app)?.join(IPSET_BASE_FILE)
             };
-            // База приходит и из канала (как есть у Flowseal), поэтому добавки
-            // Ninety накладываются на итоговый файл, который читает winws.
+            // The base also comes from the channel (as Flowseal has it), so Ninety's
+            // additions are overlaid on the final file that winws reads.
             let text = std::fs::read_to_string(&base)
                 .map_err(|e| format!("read ipset base ({}): {e}", base.display()))?;
             match with_list_additions(&text, &NINETY_IPSET_ADDITIONS) {
@@ -1324,9 +1324,9 @@ fn write_ipset_mode(app: &AppHandle, lists: &Path, mode: &str) -> Result<(), Str
         "off" => {
             write_replace(&target, "203.0.113.113/32\n", "ipset off")?;
         }
-        // "any" и "auto": пустой ipset = «не фильтровать по IP». В «auto» секции
-        // дополнительно перегейчиваются на autohostlist (gate_by_autohostlist),
-        // и собственного IP-фильтра у них уже нет.
+        // "any" and "auto": an empty ipset = "don't filter by IP". In "auto" the sections
+        // are additionally re-gated onto the autohostlist (gate_by_autohostlist),
+        // and they no longer have their own IP filter.
         _ => {
             write_replace(&target, "", "ipset any")?;
         }
@@ -1334,37 +1334,37 @@ fn write_ipset_mode(app: &AppHandle, lists: &Path, mode: &str) -> Result<(), Str
     Ok(())
 }
 
-// Лог winws (stdout+stderr) — критичен для диагностики мгновенных падений.
+// winws log (stdout+stderr) — critical for diagnosing instant crashes.
 fn dpi_log_file(app: &AppHandle) -> Option<PathBuf> {
     let dir = crate::app_paths::log_dir(app).ok()?;
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("dpi.log"))
 }
 
-// Отдельный файл для прогонов авто-подбора. В dpi.log писать нельзя: подбор
-// глушит движок, а восстановление его после прогона зовёт dpi_start, который
-// открывает dpi.log с обнулением — диагностика прогона стиралась ровно в тот
-// момент, когда она понадобилась. «Открыть логи» открывает каталог, так что
-// второй файл виден рядом.
+// A separate file for auto-tuning runs. Writing to dpi.log is not allowed: tuning
+// stops the engine, and restoring it after the run calls dpi_start, which
+// opens dpi.log truncating it — the run's diagnostics were wiped exactly at the
+// moment they were needed. "Open logs" opens the directory, so
+// the second file is visible next to it.
 fn dpi_autotest_log_file(app: &AppHandle) -> Option<PathBuf> {
     let dir = crate::app_paths::log_dir(app).ok()?;
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("dpi-autotest.log"))
 }
 
-// Лог решений autohostlist: winws пишет туда, почему домен попал в автосписок
-// (счётчик фейлов, протокол, клиент). Без него ответить постфактум «за что
-// сайту достался обход» нечем. Подчиняется общему «отключить логи».
+// autohostlist decision log: winws writes there why a domain ended up in the autolist
+// (failure counter, protocol, client). Without it there is no way to answer after the fact "why
+// did this site get the bypass". Obeys the global "disable logs".
 fn auto_hostlist_log_file(app: &AppHandle) -> Option<PathBuf> {
     let dir = crate::app_paths::log_dir(app).ok()?;
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("dpi-autohostlist.log"))
 }
 
-// winws дописывает решения autohostlist в конец файла и сам его не обрезает, а
-// в режиме «Только заблокированные» строка появляется на каждый подозрительный
-// обрыв. Перед стартом держим файл в пределах капа и сохраняем свежий хвост:
-// история «за что сайту достался обход» нужна, но не за месяцы.
+// winws appends autohostlist decisions to the end of the file and never truncates it itself, and
+// in the "Blocked only" mode a line appears for every suspicious
+// disconnect. Before starting, we keep the file within the cap and preserve the fresh tail:
+// the history of "why the site got the bypass" is needed, but not for months.
 const AUTO_HOSTLIST_LOG_KEEP_BYTES: u64 = 1024 * 1024;
 
 fn trim_auto_hostlist_log(path: &Path) {
@@ -1376,10 +1376,10 @@ fn trim_auto_hostlist_log(path: &Path) {
     let _ = std::fs::write(path, tail);
 }
 
-// Срезать verbatim-префикс Windows (`\\?\C:\…` → `C:\…`, `\\?\UNC\srv\…` →
-// `\\srv\…`). resource_dir()/canonicalize на Windows возвращают такой путь;
-// CreateProcess его глотает, но сам winws открывает .bin своим парсером, который
-// `\\?\` не понимает → «could not read …». Срезаем для строк, уходящих в args.
+// Strip the Windows verbatim prefix (`\\?\C:\…` → `C:\…`, `\\?\UNC\srv\…` →
+// `\\srv\…`). resource_dir()/canonicalize on Windows return such a path;
+// CreateProcess accepts it, but winws itself opens .bin with its own parser, which
+// doesn't understand `\\?\` → "could not read …". We strip it for strings that go into args.
 fn strip_verbatim(p: &str) -> String {
     if let Some(rest) = p.strip_prefix(r"\\?\UNC\") {
         format!(r"\\{rest}")
@@ -1390,7 +1390,7 @@ fn strip_verbatim(p: &str) -> String {
     }
 }
 
-// Подстановка плейсхолдеров батника на абсолютные пути/порты.
+// Substitutes the batch file's placeholders with absolute paths/ports.
 fn subst(arg: &str, bin: &str, lists: &str, g_tcp: &str, g_udp: &str) -> String {
     let binp = format!("{bin}{MAIN_SEPARATOR}");
     let listp = format!("{lists}{MAIN_SEPARATOR}");
@@ -1401,7 +1401,7 @@ fn subst(arg: &str, bin: &str, lists: &str, g_tcp: &str, g_udp: &str) -> String 
         .replace("%GameFilter%", g_tcp)
 }
 
-// [0] — исключение по домену, [1] — по IP. Раздаются по секциям по-разному, см.
+// [0] — exclusion by domain, [1] — by IP. They are distributed across sections differently, see
 // spread_exclusion_across_sections.
 fn active_vpn_exclusion_args(lists: &Path) -> [String; 2] {
     let active_domain = lists.join("active-vpn-domain.txt");
@@ -1418,9 +1418,9 @@ fn active_vpn_exclusion_args(lists: &Path) -> [String; 2] {
     ]
 }
 
-// Аргумент, создающий в профиле winws коллекцию хостлистов. Именно наличие
-// коллекции (а не её содержимое) включает в движке требование известного хоста —
-// см. spread_exclusion_across_sections.
+// The argument that creates a hostlist collection in a winws profile. It is the presence
+// of the collection (not its contents) that turns on the engine's known-host requirement —
+// see spread_exclusion_across_sections.
 fn is_hostlist_arg(arg: &str) -> bool {
     matches!(
         arg.split('=').next().unwrap_or(arg),
@@ -1432,32 +1432,32 @@ fn is_hostlist_arg(arg: &str) -> bool {
     )
 }
 
-/// Раздать исключение активного VPN endpoint по секциям стратегии.
+/// Distribute the active VPN endpoint exclusion across the strategy's sections.
 ///
-/// В синтаксисе winws `--new` открывает новую секцию, и фильтры действуют только
-/// внутри своей: исключение в хвосте строки покрывало ровно последнюю секцию, а
-/// VLESS к серверу идёт по TCP:443, то есть по чужой.
+/// In winws syntax `--new` opens a new section, and filters apply only
+/// within their own: an exclusion at the end of the line covered exactly the last section, while
+/// VLESS to the server goes over TCP:443, i.e. through a different one.
 ///
-/// НО раздавать `--hostlist-exclude` во все секции подряд нельзя. В zapret
-/// (`nfq/desync.c`, `dp_match`) профиль с непустой коллекцией хостлистов не
-/// матчится вовсе, если хост неизвестен:
+/// BUT `--hostlist-exclude` must not be spread into every section indiscriminately. In zapret
+/// (`nfq/desync.c`, `dp_match`) a profile with a non-empty hostlist collection doesn't
+/// match at all if the host is unknown:
 ///
 /// ```text
 /// if (!dp->hostlist_auto && !hostname && !bHostlistsEmpty) return false;
 /// ```
 ///
-/// У голосового Discord (`--filter-l7=discord,stun`) и у секций Game Filter
-/// (`--dpi-desync-any-protocol=1`) хоста нет по определению — Flowseal поэтому и
-/// оставил их без хостлистов. Наш аргумент делал коллекцию непустой, профиль
-/// переставал матчиться, десинк голосового UDP не применялся вообще, и пинг в
-/// голосовом канале улетал в потолок. Пустой файл коллекцию не наполняет
-/// (`hostlist_collection_is_empty` смотрит на загруженный пул), поэтому баг ловил
-/// только тех, у кого адрес ноды — домен.
+/// Discord voice (`--filter-l7=discord,stun`) and the Game Filter sections
+/// (`--dpi-desync-any-protocol=1`) have no host by definition — that's why Flowseal
+/// left them without hostlists. Our argument made the collection non-empty, the profile
+/// stopped matching, voice UDP desync wasn't applied at all, and the ping in
+/// the voice channel went through the roof. An empty file doesn't fill the collection
+/// (`hostlist_collection_is_empty` looks at the loaded pool), so the bug hit
+/// only those whose node address is a domain.
 ///
-/// Итог: `--ipset-exclude` уходит в каждую секцию (проверка ipset на хост не
-/// смотрит), `--hostlist-exclude` — только туда, где хостлист уже есть и хост
-/// заведомо нужен. Оба файла остаются в argv всегда, даже пустыми: winws
-/// перечитывает их по mtime, и смена ноды применяется без перезапуска движка.
+/// Result: `--ipset-exclude` goes into every section (the ipset check doesn't look
+/// at the host), `--hostlist-exclude` only where a hostlist already exists and the host
+/// is needed anyway. Both files always stay in argv, even when empty: winws
+/// rereads them by mtime, and a node switch applies without restarting the engine.
 fn spread_exclusion_across_sections(args: Vec<String>, exclusion: &[String; 2]) -> Vec<String> {
     let [hostlist_exclude, ipset_exclude] = exclusion;
     let sections = args.iter().filter(|a| a.as_str() == "--new").count() + 1;
@@ -1483,25 +1483,25 @@ fn spread_exclusion_across_sections(args: Vec<String>, exclusion: &[String; 2]) 
     out
 }
 
-/// Игровой фильтр не должен зависеть от переключателя IPset.
+/// The game filter must not depend on the IPset switch.
 ///
-/// Секции Game Filter гейтились общим `ipset-all.txt`, а его содержимое диктует
-/// режим IPset: в «off» туда пишется заведомо несуществующий 203.0.113.113/32,
-/// и десинк игрового трафика не применялся ни к одному пакету — тумблер
-/// «Игровой фильтр» молча не делал ничего. В «loaded» результат тот же по сути:
-/// список заблокированных IP не содержит игровых серверов (Photon, Vivox), под
-/// которые фильтр и включают, так что совпадений снова нет.
+/// The Game Filter sections were gated by the shared `ipset-all.txt`, and its contents are dictated by
+/// the IPset mode: in "off" a known-nonexistent 203.0.113.113/32 is written there,
+/// and game traffic desync wasn't applied to a single packet — the
+/// "Game filter" toggle silently did nothing. In "loaded" the result is essentially the same:
+/// the list of blocked IPs doesn't contain game servers (Photon, Vivox), for
+/// which the filter is turned on in the first place, so again there are no matches.
 ///
-/// Поэтому игровым секциям выдаём собственный ipset-game.txt, всегда пустой:
-/// пустая коллекция ipset у winws означает «не фильтровать по IP», а не «не
-/// совпало» (ровно на этом же свойстве держится режим IPset=Any). Исключения
-/// (`--ipset-exclude`, в том числе активная нода VPN) добавляются отдельно в
-/// spread_exclusion_across_sections и здесь не трогаются — нода остаётся
-/// защищённой.
+/// So the game sections get their own ipset-game.txt, always empty:
+/// an empty ipset collection in winws means "don't filter by IP", not "didn't
+/// match" (the IPset=Any mode relies on exactly this property). Exclusions
+/// (`--ipset-exclude`, including the active VPN node) are added separately in
+/// spread_exclusion_across_sections and aren't touched here — the node stays
+/// protected.
 ///
-/// Секция считается игровой по совпадению `--filter-tcp/udp` с диапазоном,
-/// который подставил game_filter. Зовётся только при включённом фильтре: при
-/// «off» диапазон вырождается в порт-заглушку 12, и подменять там нечего.
+/// A section is considered a game section if `--filter-tcp/udp` matches the range
+/// substituted by game_filter. Called only when the filter is on: with
+/// "off" the range degenerates into placeholder port 12, and there is nothing to replace.
 fn ungate_game_ipset(args: Vec<String>, lists: &Path, g_tcp: &str, g_udp: &str) -> Vec<String> {
     let gated = format!(
         "--ipset={}",
@@ -1540,36 +1540,36 @@ fn ungate_game_ipset(args: Vec<String>, lists: &Path, g_tcp: &str, g_udp: &str) 
     out
 }
 
-// Автосписок заблокированных доменов: winws ведёт его сам в режиме «Только
-// заблокированные». Имя файла знают и ensure_lists (создаёт пустым), и команды
-// просмотра/очистки, поэтому литерал один на всех.
+// Autolist of blocked domains: winws maintains it itself in the "Blocked
+// only" mode. The file name is known both to ensure_lists (creates it empty) and to the view/clear
+// commands, so there is one literal for all of them.
 const AUTO_HOSTLIST_FILE: &str = "list-auto.txt";
-// Пороги детекта. Совпадают с дефолтами zapret (3 события за 60 с, 3
-// ретрансмиссии), но передаются явно: число видно пользователю в подсказке UI,
-// и молчаливая смена дефолта в движке не должна её обесценивать.
+// Detection thresholds. They match zapret's defaults (3 events in 60 s, 3
+// retransmissions) but are passed explicitly: the number is shown to the user in a UI hint,
+// and a silent default change in the engine must not make that hint wrong.
 const AUTO_FAIL_THRESHOLD: u32 = 3;
 const AUTO_RETRANS_THRESHOLD: u32 = 3;
 
-/// Режим «Только заблокированные»: перегейчиваем стратегию на автосписок winws.
+/// "Blocked only" mode: re-gate the strategy onto the winws autolist.
 ///
-/// В режиме «Всем сайтам» секции с `--ipset=ipset-all.txt` разгейчены пустым
-/// ipset (пустая коллекция = «не фильтровать по IP»), и десинк летит в любой
-/// домен, кроме исключений. Сайтам, которые не заблокированы, это вредит:
-/// fake-пакет доходит до сервера, и если тот не отбрасывает его по выбранному
-/// `--dpi-desync-fooling`, он принимает фейк вместо настоящего ClientHello —
-/// сайт перестаёт открываться, пока домен не внесут в исключения руками.
+/// In the "All sites" mode the sections with `--ipset=ipset-all.txt` are ungated by an empty
+/// ipset (an empty collection = "don't filter by IP"), and desync hits any
+/// domain except the exclusions. This harms sites that aren't blocked:
+/// the fake packet reaches the server, and if the server doesn't discard it by the selected
+/// `--dpi-desync-fooling`, it accepts the fake instead of the real ClientHello —
+/// the site stops opening until the domain is added to the exclusions by hand.
 ///
-/// `--hostlist-auto` переворачивает логику: домен, которого нет ни в одном
-/// списке, идёт БЕЗ обхода, а winws смотрит на ответ (ретрансмиссии первого
-/// запроса с хостом, RST, HTTP-редирект на чужой домен второго уровня) и
-/// заносит в файл только то, что ведёт себя как заблокированное. Профиль с
-/// autohostlist выигрывает по l3/l4/l7-фильтру всегда, но десинк применяется
-/// лишь к хостам из файла — см. nfq/desync.c, ветку «not applying tampering to
-/// this request» (одинаковую для TCP и QUIC).
+/// `--hostlist-auto` flips the logic: a domain that isn't in any
+/// list goes WITHOUT the bypass, and winws watches the response (retransmissions of the first
+/// request with the host, RST, an HTTP redirect to a foreign second-level domain) and
+/// records in the file only what behaves as blocked. A profile with
+/// autohostlist always wins by the l3/l4/l7 filter, but desync is applied
+/// only to hosts from the file — see nfq/desync.c, the "not applying tampering to
+/// this request" branch (identical for TCP and QUIC).
 ///
-/// Игровые секции (`--dpi-desync-any-protocol=1`) не трогаем: хоста в их
-/// трафике нет по определению, autohostlist там не даёт ничего и только заменил
-/// бы понятный IP-гейт на профиль, который выигрывает всегда.
+/// Game sections (`--dpi-desync-any-protocol=1`) are left alone: their traffic has
+/// no host by definition, autohostlist gives nothing there and would only replace
+/// a clear IP gate with a profile that always wins.
 fn gate_by_autohostlist(args: Vec<String>, lists: &Path) -> Vec<String> {
     let gated = format!(
         "--ipset={}",
@@ -1612,8 +1612,8 @@ fn gate_by_autohostlist(args: Vec<String>, lists: &Path) -> Vec<String> {
     out
 }
 
-// Домены автосписка для UI: свежие сверху, дубли и комментарии отброшены.
-// Файл ведёт winws (дописывает в конец), мы его только читаем и переписываем.
+// Autolist domains for the UI: newest first, duplicates and comments dropped.
+// winws maintains the file (appends to the end); we only read and rewrite it.
 fn auto_domains_from(txt: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for line in txt.lines().rev() {
@@ -1628,10 +1628,10 @@ fn auto_domains_from(txt: &str) -> Vec<String> {
     out
 }
 
-// Абсолютный путь к утилите в System32. Не полагаемся ни на PATH, ни на
-// %SystemRoot%: DPI-команды исполняются в elevated-процессе, а обе величины
-// пользователь может переопределить без прав администратора (PATH-hijack,
-// HKCU\Environment). Каталог спрашиваем у самой Windows.
+// Absolute path to a utility in System32. We rely neither on PATH nor on
+// %SystemRoot%: DPI commands run in an elevated process, and the user can override both
+// values without administrator rights (PATH hijack,
+// HKCU\Environment). We ask Windows itself for the directory.
 #[cfg(target_os = "windows")]
 fn system32(exe: &str) -> String {
     crate::util::system_directory()
@@ -1639,41 +1639,41 @@ fn system32(exe: &str) -> String {
         .to_string_lossy()
         .into_owned()
 }
-// Лежит ли путь ВНУТРИ каталога, а не просто начинается с той же строки.
+// Whether the path lies INSIDE the directory, not merely starts with the same string.
 //
-// Голое `starts_with` по строке границу каталога не проверяет: для корня
-// `...\Ninety\dpi` под него подходил и `...\Ninety\dpi-backup\winws.exe`, то
-// есть чужой процесс из соседнего каталога уезжал в `taskkill /F` — ровно то,
-// от чего kill_stray_winws обещает защищать. Тот же барьер стоит в
+// A bare string `starts_with` doesn't check the directory boundary: for the root
+// `...\Ninety\dpi` it also matched `...\Ninety\dpi-backup\winws.exe`, so
+// a foreign process from a neighboring directory went into `taskkill /F` — exactly what
+// kill_stray_winws promises to protect against. The same barrier is in
 // proxy_win::autostart_uses_highest_run_level.
 //
-// Обе строки приходят уже приведёнными к нижнему регистру (пути Windows
-// регистронезависимы). Резать по `root.len()` безопасно: успешный
-// `starts_with` гарантирует, что это граница символа.
+// Both strings arrive already lowercased (Windows paths are
+// case-insensitive). Slicing at `root.len()` is safe: a successful
+// `starts_with` guarantees it is a character boundary.
 #[cfg(target_os = "windows")]
 fn path_is_inside(path: &str, root: &str) -> bool {
     let root = root.trim_end_matches(['\\', '/']);
     !root.is_empty() && path.starts_with(root) && path[root.len()..].starts_with(['\\', '/'])
 }
 
-// Снять winws.exe-СИРОТУ ОТ ДРУГОГО ИНСТАНСА Ninety. Возвращает true, если хоть
-// один был убит. Вызывается из dpi_start перед спавном своего winws: к той точке
-// наш child уже не жив (дедуп вернул бы «уже запущен»), значит живой winws из
-// нашего каталога движка — сирота от второго инстанса Ninety (элевация поднимает
-// ВТОРОЙ процесс со своим DpiState; дедуп видит только свой child). Без этого два
-// winws дерутся за один kernel-драйвер WinDivert и движок падает «драйвер занят».
+// Remove an ORPHANED winws.exe FROM ANOTHER Ninety INSTANCE. Returns true if at least
+// one was killed. Called from dpi_start before spawning our own winws: at that point
+// our child is no longer alive (dedup would have returned "already running"), so a live winws from
+// our engine directory is an orphan of a second Ninety instance (elevation starts
+// a SECOND process with its own DpiState; dedup only sees its own child). Without this, two
+// winws fight over one WinDivert kernel driver and the engine fails with "driver busy".
 //
-// Фильтруем по пути образа: убиваем ТОЛЬКО winws внутри нашего res_dpi. Прежний
-// `taskkill /IM winws.exe` глушил ВСЕ процессы с этим именем — включая отдельный
-// zapret/аналог, запущенный юзером независимо от Ninety.
+// We filter by image path: we kill ONLY winws inside our res_dpi. The old
+// `taskkill /IM winws.exe` killed ALL processes with that name — including a separate
+// zapret/equivalent the user launched independently of Ninety.
 #[cfg(target_os = "windows")]
 fn kill_stray_winws(dpi_root: &Path) -> bool {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    // Процессы перечисляем напрямую: EnumProcesses + путь образа. Прежний
-    // PowerShell с CIM-запросом стартовал по секунде-две на каждый запуск
-    // обхода, а при подвисшем WMI ждал без всякого таймаута.
-    // res_dpi может прийти в verbatim-форме — срезаем для префиксного сравнения.
+    // Processes are enumerated directly: EnumProcesses + image path. The old
+    // PowerShell with a CIM query took a second or two to start on every bypass
+    // launch, and with a hung WMI it waited without any timeout.
+    // res_dpi may arrive in verbatim form — strip it for the prefix comparison.
     let root = strip_verbatim(&dpi_root.to_string_lossy()).to_lowercase();
     let mut killed = false;
     for pid in crate::netproc::running_pids() {
@@ -1684,7 +1684,7 @@ fn kill_stray_winws(dpi_root: &Path) -> bool {
         let is_winws = Path::new(&path)
             .file_name()
             .is_some_and(|name| name == "winws.exe");
-        // Не наш каталог движка → чужой winws, не трогаем.
+        // Not our engine directory → someone else's winws, leave it alone.
         if !is_winws || !path_is_inside(&path, &root) {
             continue;
         }
@@ -1703,17 +1703,17 @@ fn kill_stray_winws(_dpi_root: &Path) -> bool {
     false
 }
 
-// ── Команды ─────────────────────────────────────────────────────────
+// ── Commands ─────────────────────────────────────────────────────────
 
-/// Список стратегий для UI (JSON-массив). Тот же проверенный путь, что у
-/// запуска: подписанный бандл поколения или встроенный набор, после allowlist.
+/// Strategy list for the UI (JSON array). The same verified path as
+/// for launching: the generation's signed bundle or the built-in set, after the allowlist.
 #[tauri::command]
 pub fn dpi_strategies(app: AppHandle) -> Result<String, String> {
     let active = load_strategies(&app)?;
     serde_json::to_string(&active.strategies).map_err(|e| format!("serialize strategies: {e}"))
 }
 
-/// Сколько доменов в активных списках (для карточки «Списки доменов»).
+/// How many domains are in the active lists (for the "Domain lists" card).
 #[tauri::command]
 pub fn dpi_domains_count(app: AppHandle) -> Result<usize, String> {
     let lists = ensure_lists(&app)?;
@@ -1736,8 +1736,8 @@ pub fn dpi_domains_count(app: AppHandle) -> Result<usize, String> {
     Ok(n)
 }
 
-/// Доступные `.bin` для двух активных UDP-слотов из Flowseal 1.10+.
-/// Возвращаем только обычные файлы из writable bin-data; пути фронт не задаёт.
+/// Available `.bin` files for the two active UDP slots from Flowseal 1.10+.
+/// We return only regular files from the writable bin-data; the frontend doesn't set paths.
 #[tauri::command]
 pub async fn dpi_fake_payloads(
     app: AppHandle,
@@ -1769,8 +1769,8 @@ pub async fn dpi_fake_payloads(
     }))
 }
 
-/// Атомарно заменить ACTIVE_DISCORD_UDP.bin или ACTIVE_GAME_UDP.bin выбранным
-/// файлом из текущего подписанного набора и сохранить выбор поверх будущих sync.
+/// Atomically replace ACTIVE_DISCORD_UDP.bin or ACTIVE_GAME_UDP.bin with the selected
+/// file from the current signed set and keep the choice across future syncs.
 #[tauri::command]
 pub async fn dpi_set_active_fake(
     app: AppHandle,
@@ -1832,8 +1832,8 @@ struct DpiLogWriter {
 impl DpiLogWriter {
     fn append(&mut self, bytes: &[u8]) {
         use std::io::Write;
-        // Обрезка — через отдельный хэндл: append-хэндл на Windows обрезать
-        // файл не может (см. util::truncate_log_file).
+        // Truncation goes through a separate handle: on Windows an append handle cannot
+        // truncate the file (see util::truncate_log_file).
         if self.written.saturating_add(bytes.len() as u64) > DPI_LOG_CAP_BYTES
             && crate::util::truncate_log_file(&self.path)
         {
@@ -1854,8 +1854,8 @@ fn prepare_dpi_log(path: &Path) -> Option<Arc<Mutex<DpiLogWriter>>> {
         .truncate(false)
         .open(path)
         .ok()?;
-    // Новая сессия — новый диагностический лог. Прежний `set_len(0)` на
-    // append-хэндле на Windows не срабатывал, и dpi.log копил все сессии.
+    // New session — new diagnostic log. The old `set_len(0)` on
+    // an append handle didn't work on Windows, and dpi.log accumulated all sessions.
     let _ = crate::util::truncate_log_file(path);
     Some(Arc::new(Mutex::new(DpiLogWriter {
         path: path.to_path_buf(),
@@ -1929,12 +1929,12 @@ fn remember_owned_driver_services(state: &DpiState, bin: &Path) {
 #[cfg(not(target_os = "windows"))]
 fn remember_owned_driver_services(_state: &DpiState, _bin: &Path) {}
 
-/// Запуск winws с выбранной стратегией. game_filter: "off"|"tcpudp";
-/// ipset — область применения обхода: "any" (все домены) | "auto" (только те,
-/// что winws сам определил как заблокированные) | "loaded" (IP из ipset-all) |
-/// "off" (только домены из списков). Должен вызываться из elevated-процесса.
-/// Возвращает id сеанса (generation): им помечено событие dpi:exited, если
-/// этот winws позже упадёт сам.
+/// Starts winws with the selected strategy. game_filter: "off"|"tcpudp";
+/// ipset — the bypass scope: "any" (all domains) | "auto" (only those
+/// that winws itself detected as blocked) | "loaded" (IPs from ipset-all) |
+/// "off" (only domains from the lists). Must be called from an elevated process.
+/// Returns the session id (generation): the dpi:exited event is tagged with it if
+/// this winws later crashes on its own.
 #[tauri::command]
 pub async fn dpi_start(
     app: AppHandle,
@@ -1951,13 +1951,13 @@ pub async fn dpi_start(
         state: &state,
         generation,
     };
-    // Уже запущен? Чистим труп / отказываем.
+    // Already running? Clean up the corpse / refuse.
     {
         let mut guard = state.child.lock_recover();
         if let Some(child) = guard.as_mut() {
             match child.try_wait() {
                 Ok(Some(_)) => {
-                    // умер — перезапустим; о прежнем сеансе уже не сообщаем
+                    // dead — restart it; we no longer report on the previous session
                     *guard = None;
                     state.runtime_session.store(0, Ordering::SeqCst);
                 }
@@ -1967,9 +1967,9 @@ pub async fn dpi_start(
         }
     }
 
-    // Лок сериализует мутации DPI-набора, и его может держать долгая
-    // sync_channel. Ждём его отменяемо: иначе stop, пришедший в этот момент,
-    // упирался бы в start, который ещё даже не начал проверять отмену.
+    // The lock serializes DPI set mutations, and a long sync_channel may be
+    // holding it. We wait for it cancellably: otherwise a stop arriving at that moment
+    // would get stuck behind a start that hasn't even begun checking for cancellation.
     let _data = tokio::select! {
         guard = state.data.lock() => guard,
         _ = wait_dpi_cancelled(&state, generation) => return Err(crate::util::i18n_error("backend.dpi.cancelled")),
@@ -1982,8 +1982,8 @@ pub async fn dpi_start(
         .ok_or_else(|| {
             crate::util::i18n_error_with("backend.dpi.strategyNotFound", &[("id", &strategy_id)])
         })?;
-    // Вторая линия прямо перед подстановкой: в winws уходят только аргументы,
-    // прошедшие allowlist, какой бы путь ни привёл сюда стратегию.
+    // The second line of defense right before substitution: only arguments that passed
+    // the allowlist go to winws, whatever path brought the strategy here.
     validate_strategy_args(&strat.args)?;
 
     let bin = bin_dir(&app, monkey)?;
@@ -1999,11 +1999,11 @@ pub async fn dpi_start(
 
     let (g_tcp, g_udp) = match game_filter.as_str() {
         "tcpudp" => ("1024-65535", "1024-65535"),
-        _ => ("12", "12"), // off — безвредный одиночный порт (как дефолт Flowseal)
+        _ => ("12", "12"), // off — a harmless single port (like Flowseal's default)
     };
 
-    // %BIN% → writable bin-data (оверлей канала), НЕ движок: cwd ниже остаётся
-    // на read-only ресурсе (winws.exe + WinDivert.dll грузятся оттуда).
+    // %BIN% → writable bin-data (the channel overlay), NOT the engine: cwd below stays
+    // on the read-only resource (winws.exe + WinDivert.dll are loaded from there).
     let bindata = ensure_bindata(&app, &active)?;
     let bindata_s = strip_verbatim(&bindata.to_string_lossy());
     let lists_s = strip_verbatim(&lists.to_string_lossy());
@@ -2012,18 +2012,18 @@ pub async fn dpi_start(
         .iter()
         .map(|a| subst(a, &bindata_s, &lists_s, g_tcp, g_udp))
         .collect();
-    // Активный VPN endpoint — отдельные managed-файлы: смена ноды заменяет
-    // значение, не накапливает старые адреса и не трогает user exclusions.
-    // Игровые секции — до раздачи исключений: снимаем с них ipset-гейт, иначе
-    // при IPset=Off/Loaded игровой фильтр не матчит ничего (см. ungate_game_ipset).
+    // The active VPN endpoint gets separate managed files: a node switch replaces
+    // the value, doesn't accumulate old addresses and doesn't touch user exclusions.
+    // Game sections come before distributing exclusions: we lift the ipset gate from them, otherwise
+    // with IPset=Off/Loaded the game filter matches nothing (see ungate_game_ipset).
     let args = if game_filter == "tcpudp" {
         ungate_game_ipset(args, &lists, g_tcp, g_udp)
     } else {
         args
     };
-    // «Только заблокированные»: секции, которые в «Всем сайтам» разгейчены пустым
-    // ipset, переводим на автосписок winws — обход достаётся лишь тем доменам,
-    // которые повели себя как заблокированные.
+    // "Blocked only": the sections that are ungated by an empty ipset in "All sites"
+    // are switched to the winws autolist — the bypass applies only to domains
+    // that behaved as blocked.
     let args = if ipset == "auto" {
         let mut args = gate_by_autohostlist(args, &lists);
         if !logs_disabled {
@@ -2048,10 +2048,10 @@ pub async fn dpi_start(
         return Err(crate::util::i18n_error("backend.dpi.cancelled"));
     }
 
-    // Защита от «двойного старта»: гасим stray-winws (сирота от другого инстанса
-    // Ninety — по пути в нашем res_dpi) перед запуском своего, иначе два winws
-    // дерутся за драйвер WinDivert. Если кого-то убили, даём драйверу отцепиться
-    // от мёртвого хэндла до нашего старта.
+    // Protection against a "double start": kill a stray winws (an orphan of another Ninety
+    // instance — by its path in our res_dpi) before launching our own, otherwise two winws
+    // fight over the WinDivert driver. If someone was killed, give the driver time to detach
+    // from the dead handle before our start.
     let dpi_root = res_dpi(&app)?;
     let killed_stray = tauri::async_runtime::spawn_blocking(move || kill_stray_winws(&dpi_root))
         .await
@@ -2061,7 +2061,7 @@ pub async fn dpi_start(
     }
 
     let mut cmd = std::process::Command::new(&exe);
-    cmd.args(&args).current_dir(&bin); // cwd = bin → WinDivert.dll грузится по соседству
+    cmd.args(&args).current_dir(&bin); // cwd = bin → WinDivert.dll is loaded from next door
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -2069,11 +2069,11 @@ pub async fn dpi_start(
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    // Перенаправляем stdout+stderr winws в capped dpi.log — без этого причина
-    // мгновенного выхода (битый аргумент / не найден .bin / WinDivert) теряется.
-    // При logs_disabled («Полностью отключить логи») файл не создаём — вывод winws
-    // уходит в никуда (CREATE_NO_WINDOW → нет консоли); диагностика краша при этом
-    // не сохранится, юзер сам отключил логи.
+    // Redirect winws stdout+stderr into the capped dpi.log — without this the cause
+    // of an instant exit (bad argument / .bin not found / WinDivert) is lost.
+    // With logs_disabled ("Disable logs completely") we don't create the file — winws output
+    // goes nowhere (CREATE_NO_WINDOW → no console); crash diagnostics won't be
+    // kept then, the user disabled logs themselves.
     let log = if logs_disabled {
         None
     } else {
@@ -2087,8 +2087,8 @@ pub async fn dpi_start(
 
     let mut child = cmd.spawn().map_err(|e| format!("spawn winws: {e}"))?;
     crate::vpn::prioritize_datapath_process(child.id());
-    // Сирота winws дерётся за драйвер WinDivert со следующим запуском (см.
-    // kill_stray_winws); job снимает её до того, как она успеет пережить нас.
+    // An orphaned winws fights over the WinDivert driver with the next launch (see
+    // kill_stray_winws); the job removes it before it gets a chance to outlive us.
     crate::job_guard::bind_pid(child.id());
     if let Some(writer) = log_writer {
         if let Some(stdout) = child.stdout.take() {
@@ -2098,8 +2098,8 @@ pub async fn dpi_start(
             spawn_dpi_log_pipe(stderr, writer);
         }
     }
-    // stop мог прийти между последней проверкой и spawn. Проверяем generation
-    // под control-lock и только затем публикуем child в общем состоянии.
+    // stop may have arrived between the last check and spawn. We check the generation
+    // under the control lock and only then publish the child in the shared state.
     {
         let control = state.control.lock_recover();
         if control.generation != generation || control.operation.is_none() {
@@ -2111,21 +2111,21 @@ pub async fn dpi_start(
         *published = Some(child);
         state.runtime_session.store(generation, Ordering::SeqCst);
     }
-    // winws поднял драйвер WinDivert — при выходе службу надо будет снять.
+    // winws brought up the WinDivert driver — the service will need to be removed on exit.
     state.driver_loaded.store(true, Ordering::SeqCst);
 
-    // Дать winws ~700мс упасть (занятый драйвер / нет прав / битые args).
+    // Give winws ~700 ms to crash (busy driver / no rights / bad args).
     dpi_sleep_or_cancel(&state, generation, Duration::from_millis(700)).await?;
     remember_owned_driver_services(&state, &bin);
-    // Снимаем до лока child: control-лок берётся раньше child (как при
-    // публикации хэндла), обратный порядок недопустим.
+    // Take it before the child lock: the control lock is acquired before child (as when
+    // publishing the handle), the reverse order is not allowed.
     let still_current = dpi_operation_current(&state, generation);
     {
         let mut guard = state.child.lock_recover();
         let Some(child) = guard.as_mut() else {
-            // Хэндл забрал stop, пришедший уже после sleep, либо dpi_running,
-            // наткнувшийся на труп. В обоих случаях winws не работает, и
-            // успехом это не является.
+            // The handle was taken by a stop that arrived after the sleep, or by dpi_running,
+            // which stumbled on the corpse. In both cases winws isn't running, and
+            // this is not a success.
             if !still_current {
                 return Err(crate::util::i18n_error("backend.dpi.cancelled"));
             }
@@ -2165,16 +2165,16 @@ pub async fn dpi_start(
             }
         }
     }
-    // Пережил стартовое окно — дальше за ним следит сторож выхода.
+    // Survived the startup window — from here on the exit watcher keeps an eye on it.
     spawn_dpi_exit_watcher(app, generation);
     Ok(generation)
 }
 
-// Остановка winws подтверждается физически: kill + try_wait до 2с, ожидание
-// отменяемой операции до 2с и финальный повторный stop. Синхронная команда
-// держала бы всё это на главном потоке — при зависшем winws окно переставало
-// отвечать на несколько секунд. Ожидание уходит в blocking-пул, контракт IPC
-// не меняется (аргументов у команды нет).
+// Stopping winws is confirmed physically: kill + try_wait up to 2 s, waiting for
+// the cancellable operation up to 2 s and a final repeated stop. A synchronous command
+// would hold all of this on the main thread — with a hung winws the window stopped
+// responding for several seconds. The wait goes to the blocking pool; the IPC contract
+// doesn't change (the command has no arguments).
 #[tauri::command]
 pub async fn dpi_stop(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -2187,10 +2187,10 @@ pub async fn dpi_stop(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn dpi_running(app: AppHandle, state: State<'_, DpiState>) -> bool {
-    // Один опрос под одним локом: раньше процесс мог умереть между двумя
-    // try_wait, и второй забывал хэндл без события и без сброса сеанса —
-    // интерфейс оставался «Работает», а сторож опрашивал пустой слот вечно.
-    // Труп штатного сеанса — то же падение, что ловит сторож: сообщаем о нём.
+    // A single poll under a single lock: previously the process could die between two
+    // try_wait calls, and the second one forgot the handle without an event and without resetting the session —
+    // the interface stayed "Running", and the watcher polled an empty slot forever.
+    // The corpse of a regular session is the same crash the watcher catches: report it.
     let event = {
         let mut guard = state.child.lock_recover();
         let Some(child) = guard.as_mut() else {
@@ -2198,7 +2198,7 @@ pub fn dpi_running(app: AppHandle, state: State<'_, DpiState>) -> bool {
         };
         match child.try_wait() {
             Ok(None) => return true,
-            // Состояние неизвестно — хэндл сохраняем, остановка его ещё заберёт.
+            // State unknown — keep the handle, the stop will still take it.
             Err(_) => return false,
             Ok(Some(status)) => {
                 *guard = None;
@@ -2213,9 +2213,9 @@ pub fn dpi_running(app: AppHandle, state: State<'_, DpiState>) -> bool {
     false
 }
 
-// ── Исключение VPN-нод из winws ─────────────────────────────────────
-// Потолки пакета: файлы исключений читает winws, а резолв — сетевое ожидание
-// перед запуском обхода, поэтому и то и другое ограничено.
+// ── Excluding VPN nodes from winws ─────────────────────────────────────
+// Batch limits: winws reads the exclusion files, and resolving is a network wait
+// before the bypass starts, so both are bounded.
 const MAX_ENDPOINT_IPS: usize = 1024;
 const MAX_ENDPOINT_DOMAINS: usize = 512;
 const MAX_ENDPOINT_RESOLVE: usize = 64;
@@ -2224,7 +2224,7 @@ const ENDPOINT_RESOLVE_BUDGET: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Default, PartialEq)]
 struct EndpointBatch {
-    // CIDR в формате ipset: /32 и /128 для одиночных адресов.
+    // CIDR in ipset format: /32 and /128 for single addresses.
     ips: Vec<String>,
     domains: Vec<String>,
 }
@@ -2233,8 +2233,8 @@ fn valid_port_text(port: &str) -> bool {
     (1..=5).contains(&port.len()) && port.bytes().all(|b| b.is_ascii_digit())
 }
 
-// Хост без порта: «[v6]:443» → «v6», «host:443» → «host». Голый IPv6
-// (двоеточий больше одного) остаётся как есть. None — адрес испорчен.
+// Host without port: "[v6]:443" → "v6", "host:443" → "host". Bare IPv6
+// (more than one colon) stays as is. None — the address is malformed.
 fn endpoint_host(raw: &str) -> Option<&str> {
     let value = raw.trim();
     if value.is_empty() {
@@ -2253,8 +2253,8 @@ fn endpoint_host(raw: &str) -> Option<&str> {
     }
 }
 
-// Адрес в каноническом виде: иначе 2001:0db8::1 и 2001:db8::1 разошлись бы
-// дублями.
+// Address in canonical form: otherwise 2001:0db8::1 and 2001:db8::1 would end up
+// as duplicates.
 fn canonical_ip_entry(host: &str) -> Option<String> {
     match host.parse::<IpAddr>() {
         Ok(IpAddr::V4(addr)) => Some(format!("{addr}/32")),
@@ -2270,10 +2270,10 @@ fn push_unique(list: &mut Vec<String>, value: String, cap: usize) {
     }
 }
 
-// Разобрать пакет адресов нод. Классификация — по содержимому, а не по тому,
-// в каком из списков пришла строка: адрес TrustTunnel «ip:port» в domains всё
-// равно IP. Испорченная строка отбрасывается сама по себе и не роняет весь
-// пакет — иначе в файлах осталось бы исключение прошлых нод.
+// Parse a batch of node addresses. Classification is by content, not by
+// which list the line came in: a TrustTunnel address "ip:port" in domains is still
+// an IP. A malformed line is dropped on its own and doesn't break the whole
+// batch — otherwise the files would keep the exclusion of previous nodes.
 fn endpoint_batch(ips: &[String], domains: &[String]) -> EndpointBatch {
     let mut batch = EndpointBatch::default();
     for raw in ips.iter().chain(domains) {
@@ -2302,9 +2302,9 @@ fn resolvable_endpoint_domain(domain: &str) -> bool {
     !domain.contains('*') && domain.bytes().any(|b| b.is_ascii_alphabetic())
 }
 
-// Адреса доменов нод в формате ipset. Не больше ENDPOINT_RESOLVE_PARALLEL
-// запросов одновременно и один общий бюджет на весь пакет: что не успело —
-// пропускается, остальное идёт в дело.
+// Node domain addresses in ipset format. At most ENDPOINT_RESOLVE_PARALLEL
+// simultaneous lookups and one shared budget for the whole batch: whatever doesn't make it
+// is skipped, the rest is used.
 async fn resolve_endpoint_domains(domains: &[String], budget: Duration) -> Vec<String> {
     use futures_util::StreamExt;
     let deadline = tokio::time::Instant::now() + budget;
@@ -2334,16 +2334,16 @@ async fn resolve_endpoint_domains(domains: &[String], budget: Duration) -> Vec<S
     out
 }
 
-/// Атомарно заменить исключение VPN-нод одним пакетом. Это session-managed
-/// state, а не пользовательский список: новый пакет заменяет прежний целиком и
-/// не трогает правки пользователя в *-user.txt.
+/// Atomically replace the VPN node exclusion with one batch. This is session-managed
+/// state, not a user list: a new batch replaces the previous one entirely and
+/// doesn't touch the user's edits in *-user.txt.
 ///
-/// Домен ноды на проводе не появляется: VLESS Reality/XHTTP несёт подставной
-/// SNI, поэтому реально защищает только исключение по IP. resolve=true —
-/// резолвим домены сами (фронт просит это, только когда winws работает или
-/// вот-вот стартует): DNS ждём вне лока данных, а файлы пишем одним пакетом
-/// под локом. Ответ запроса, который успел обогнать более новый, отбрасывается.
-/// Возвращает false для такого устаревшего запроса.
+/// The node's domain doesn't appear on the wire: VLESS Reality/XHTTP carries a decoy
+/// SNI, so only the IP exclusion really protects. resolve=true —
+/// we resolve domains ourselves (the frontend asks for this only when winws is running or
+/// about to start): DNS is awaited outside the data lock, and the files are written as one batch
+/// under the lock. The response of a request that was overtaken by a newer one is discarded.
+/// Returns false for such an outdated request.
 #[tauri::command]
 pub async fn dpi_set_active_vpn_endpoint(
     app: AppHandle,
@@ -2361,8 +2361,8 @@ pub async fn dpi_set_active_vpn_endpoint(
         domains.as_deref().unwrap_or_default(),
     );
     if resolve.unwrap_or(false) && !batch.domains.is_empty() {
-        // Best-effort: DNS может быть уже поломан ТСПУ, и провал резолва не
-        // должен ронять подключение — останутся литералы.
+        // Best-effort: DNS may already be broken by TSPU, and a resolve failure must not
+        // break the connection — the literals stay.
         for entry in resolve_endpoint_domains(&batch.domains, ENDPOINT_RESOLVE_BUDGET).await {
             push_unique(&mut batch.ips, entry, MAX_ENDPOINT_IPS);
         }
@@ -2385,9 +2385,9 @@ pub async fn dpi_set_active_vpn_endpoint(
     Ok(true)
 }
 
-// Имя user-списка по виду: "exclude" → исключения, иначе → пользовательские
-// домены обхода. Правим ТОЛЬКО *-user.txt (базовые списки Flowseal не трогаем —
-// их перезатирает silent-updater).
+// User list name by kind: "exclude" → exclusions, otherwise → user bypass
+// domains. We edit ONLY *-user.txt (the base Flowseal lists are left alone —
+// the silent updater overwrites them).
 fn user_list_name(kind: &str) -> &'static str {
     match kind {
         "exclude" => "list-exclude-user.txt",
@@ -2395,8 +2395,8 @@ fn user_list_name(kind: &str) -> &'static str {
     }
 }
 
-// Отсутствие файла — пустой список, а ошибка чтения — нет: файл бывает занят или
-// не в UTF-8, и пустота привела бы к перезаписи настоящего содержимого.
+// A missing file is an empty list, but a read error is not: the file may be locked or
+// not in UTF-8, and treating it as empty would lead to overwriting the real contents.
 fn read_list_text(path: &Path) -> Result<String, String> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(text),
@@ -2405,8 +2405,8 @@ fn read_list_text(path: &Path) -> Result<String, String> {
     }
 }
 
-/// Прочитать пользовательский список доменов (для редактора в UI).
-/// kind: "user" (домены обхода) | "exclude" (исключения).
+/// Read a user domain list (for the editor in the UI).
+/// kind: "user" (bypass domains) | "exclude" (exclusions).
 #[tauri::command]
 pub fn dpi_read_list(app: AppHandle, kind: String) -> Result<String, String> {
     let lists = ensure_lists(&app)?;
@@ -2414,9 +2414,9 @@ pub fn dpi_read_list(app: AppHandle, kind: String) -> Result<String, String> {
     read_list_text(&p)
 }
 
-/// Сохранить пользовательский список доменов из редактора. Нормализует:
-/// trim каждой строки, выкидывает пустые и дубли (комментарии # и // сохраняет).
-/// Возвращает число записей-доменов (без комментариев) для обновления счётчика.
+/// Save a user domain list from the editor. Normalizes:
+/// trims every line, drops empty lines and duplicates (keeps # and // comments).
+/// Returns the number of domain entries (without comments) to update the counter.
 #[tauri::command]
 pub async fn dpi_write_list(
     app: AppHandle,
@@ -2453,10 +2453,10 @@ pub async fn dpi_write_list(
     Ok(n)
 }
 
-// Домен, уходящий в hostlist winws. IP-ветка нормализуется отдельно
-// (normalize_ipset_entry), а домен раньше писался как есть после trim: значение
-// с переводом строки вставляло в список произвольное число записей, и дедуп по
-// целой строке на нём не срабатывал никогда — файл рос при каждом вызове.
+// A domain that goes into the winws hostlist. The IP branch is normalized separately
+// (normalize_ipset_entry), while a domain used to be written as is after trim: a value
+// with a line break inserted an arbitrary number of entries into the list, and dedup by
+// whole line never worked on it — the file grew on every call.
 fn normalize_exclude_domain(raw: &str) -> Result<String, String> {
     let value = raw.trim();
     if value.is_empty() || value.len() > 253 {
@@ -2499,16 +2499,16 @@ fn normalize_ipset_entry(raw: &str) -> Result<String, String> {
     }
 }
 
-// ── Версии / обновление списков ─────────────────────────────────────
-// Версия набора стратегий — версия ровно того набора, из которого сейчас взяты
-// стратегии (подписанный бандл поколения либо встроенный). Legacy-маркер
-// strategies-version.txt описывал игнорируемый теперь оверлей и не читается.
+// ── Versions / list updates ─────────────────────────────────────
+// Strategy set version — the version of exactly the set the strategies are currently taken from
+// (the generation's signed bundle or the built-in one). The legacy marker
+// strategies-version.txt described the now-ignored overlay and is not read.
 fn strat_version(app: &AppHandle) -> Result<String, String> {
     Ok(load_strategies(app)?.version)
 }
 
-// Версия канала — тег Flowseal вида 1.10.2; встречаются буквенные хвосты
-// компонента (1.6.3b), pre-release через «-» и build-метаданные через «+».
+// Channel version — a Flowseal tag like 1.10.2; there are letter suffixes on a
+// component (1.6.3b), pre-releases via "-" and build metadata via "+".
 type ParsedChannelVersion = (Vec<(u64, String)>, Option<String>);
 
 fn parse_channel_version(raw: &str) -> Option<ParsedChannelVersion> {
@@ -2562,8 +2562,8 @@ fn compare_prerelease(left: &str, right: &str) -> std::cmp::Ordering {
     }
 }
 
-// Сравнить версии канала как числовые кортежи (1.10 > 1.9, 1.10 == 1.10.0,
-// 1.6.3b > 1.6.3, 1.0.0-rc1 < 1.0.0). None — хотя бы одна не разбирается.
+// Compare channel versions as numeric tuples (1.10 > 1.9, 1.10 == 1.10.0,
+// 1.6.3b > 1.6.3, 1.0.0-rc1 < 1.0.0). None — at least one doesn't parse.
 fn compare_channel_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     use std::cmp::Ordering as CmpOrdering;
     let (left_core, left_pre) = parse_channel_version(left)?;
@@ -2585,8 +2585,8 @@ fn compare_channel_versions(left: &str, right: &str) -> Option<std::cmp::Orderin
     })
 }
 
-// «Есть обновление» — только если канал строго новее активного набора, либо
-// активное поколение нуждается в пересинхронизации, а канал не старше.
+// "Update available" — only if the channel is strictly newer than the active set, or
+// the active generation needs a resync and the channel is not older.
 fn channel_update_available(remote: &str, local: &str, needs_resync: bool) -> bool {
     use std::cmp::Ordering as CmpOrdering;
     if !valid_channel_version(remote) {
@@ -2596,14 +2596,14 @@ fn channel_update_available(remote: &str, local: &str, needs_resync: bool) -> bo
         Some(CmpOrdering::Greater) => true,
         Some(CmpOrdering::Equal) => needs_resync,
         Some(CmpOrdering::Less) => false,
-        // Активная версия неизвестна («—») — разбираемый канал её заменит.
+        // Active version unknown ("—") — a parseable channel replaces it.
         None => parse_channel_version(remote).is_some() && parse_channel_version(local).is_none(),
     }
 }
 
-// Принять ли подписанный бандл версии `incoming` поверх активной `active`.
-// Старый подписанный бандл подпись проходит тоже, поэтому откат версии
-// отсекается отдельно; повтор той же версии разрешён (починка поколения).
+// Whether to accept a signed bundle of version `incoming` over the active `active`.
+// An old signed bundle passes the signature check too, so a version rollback
+// is cut off separately; repeating the same version is allowed (generation repair).
 fn channel_bundle_acceptable(incoming: &str, active: &str) -> bool {
     match compare_channel_versions(incoming, active) {
         Some(order) => order != std::cmp::Ordering::Less,
@@ -2611,9 +2611,9 @@ fn channel_bundle_acceptable(incoming: &str, active: &str) -> bool {
     }
 }
 
-// Распарсить версию движка из вывода `winws --version` (баннер вида
-// "github version 72.12 (...)" — печатается самим winws). Ищем токен с цифрами
-// после слова "version".
+// Parse the engine version from the `winws --version` output (a banner like
+// "github version 72.12 (...)" — printed by winws itself). We look for a token with digits
+// after the word "version".
 fn parse_engine_version(out: &str) -> Option<String> {
     for line in out.lines() {
         let low = line.to_lowercase();
@@ -2632,14 +2632,14 @@ fn parse_engine_version(out: &str) -> Option<String> {
     None
 }
 
-// Реальная версия движка winws на машине: спрашиваем у самого winws (--version).
-// Ограниченное ожидание ~1.5с + kill, чтобы не повиснуть, если бинарь поведёт
-// себя неожиданно. Windows-only (winws.exe — Win-бинарь).
+// The actual winws engine version on the machine: we ask winws itself (--version).
+// A bounded wait of ~1.5 s + kill, so we don't hang if the binary behaves
+// unexpectedly. Windows-only (winws.exe is a Windows binary).
 #[cfg(target_os = "windows")]
 fn engine_version_runtime(app: &AppHandle) -> Option<String> {
     use std::io::Read;
     use std::os::windows::process::CommandExt;
-    let bin = bin_dir(app, false).ok()?; // winws.exe идентичен в обоих каталогах
+    let bin = bin_dir(app, false).ok()?; // winws.exe is identical in both directories
     let exe = bin.join("winws.exe");
     if !exe.exists() {
         return None;
@@ -2682,7 +2682,7 @@ fn engine_version_runtime(app: &AppHandle) -> Option<String> {
     parse_engine_version(&out).map(|v| format!("zapret {v}"))
 }
 
-// Версия движка: реальная от winws (--version) → bundled engine-version.txt → дефолт.
+// Engine version: the real one from winws (--version) → bundled engine-version.txt → default.
 fn engine_version(app: &AppHandle) -> String {
     #[cfg(target_os = "windows")]
     {
@@ -2698,9 +2698,9 @@ fn engine_version(app: &AppHandle) -> String {
         .unwrap_or_else(|| "winws (zapret)".into())
 }
 
-/// Три версии для карточки «Обновления»: приложение / движок / набор стратегий.
-/// Движок едет в составе приложения (app-OTA), поэтому отдельной кнопки обновления
-/// у него нет — обновляется вместе с Ninety.
+/// Three versions for the "Updates" card: app / engine / strategy set.
+/// The engine ships as part of the app (app OTA), so it has no separate update
+/// button — it is updated together with Ninety.
 #[tauri::command]
 pub fn dpi_versions(app: AppHandle) -> Result<serde_json::Value, String> {
     let strat = strat_version(&app)?;
@@ -2711,25 +2711,25 @@ pub fn dpi_versions(app: AppHandle) -> Result<serde_json::Value, String> {
     }))
 }
 
-// Цели автоподбора. Discord — основной сценарий обхода, и одного YouTube не
-// хватало: у части провайдеров YouTube открыт, а Discord режется, и тогда
-// «прошли все» получали даже стратегии, на которых Discord не работает. Каждая
-// цель — свой SNI из наших же списков (list-general.txt).
+// Auto-tuning targets. Discord is the main bypass scenario, and YouTube alone wasn't
+// enough: with some ISPs YouTube is open while Discord is cut, and then
+// even strategies on which Discord doesn't work got "all passed". Each
+// target is its own SNI from our own lists (list-general.txt).
 const AUTOTEST_TARGETS: [&str; 3] = [
     "https://discord.com/api/v10/gateway",
     "https://cdn.discordapp.com/embed/avatars/0.png",
     "https://www.youtube.com/",
 ];
 const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
-// Драйверу WinDivert нужно отцепиться от умершего winws до следующего
-// старта. 150 мс подряд 20 раз давали гонку, в которой движок не
-// поднимался, а стратегия выглядела нерабочей.
+// The WinDivert driver needs to detach from the dead winws before the next
+// start. 150 ms 20 times in a row produced a race in which the engine didn't
+// come up and the strategy looked broken.
 const AUTOTEST_ENGINE_SETTLE: Duration = Duration::from_millis(500);
-// Попыток поднять движок на одну стратегию, прежде чем засчитать провал.
+// Attempts to bring up the engine per strategy before counting a failure.
 const AUTOTEST_ENGINE_ATTEMPTS: usize = 2;
 
-// Клиент одной пробы автоподбора: без прокси, без переиспользования соединений.
-// Пул соединений здесь — источник ложных успехов, см. dpi_autotest.
+// Client for one auto-tuning probe: no proxy, no connection reuse.
+// A connection pool here is a source of false successes, see dpi_autotest.
 fn probe_client() -> Result<reqwest::Client, String> {
     crate::util::direct_client_builder()
         .timeout(PROBE_TIMEOUT)
@@ -2738,11 +2738,11 @@ fn probe_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("http client: {e}"))
 }
 
-// Клиент для ЗАГРУЗКИ СПИСКОВ (hosts/ipset). port=Some(p>0) → через mixed-inbound
-// sing-box (http://127.0.0.1:p), т.е. трафик идёт через обход/VPN; иначе прямой
-// запрос. Отличие от probe_client: прямой запрос к raw.githubusercontent.com
-// из РФ режется ТСПУ — поэтому при активном VPN (proxy/systemProxy) тянем через
-// прокси, а на direct падаем фолбэком (паттерн взят у quality::build_client).
+// Client for DOWNLOADING LISTS (hosts/ipset). port=Some(p>0) → through the sing-box mixed inbound
+// (http://127.0.0.1:p), i.e. traffic goes through the bypass/VPN; otherwise a direct
+// request. Difference from probe_client: a direct request to raw.githubusercontent.com
+// from Russia is cut by TSPU — so with an active VPN (proxy/systemProxy) we fetch through
+// the proxy and fall back to direct (the pattern is taken from quality::build_client).
 fn list_client(port: Option<u16>) -> Result<reqwest::Client, String> {
     let mut b = crate::util::direct_client_builder().timeout(Duration::from_secs(20));
     if let Some(p) = port {
@@ -2755,15 +2755,15 @@ fn list_client(port: Option<u16>) -> Result<reqwest::Client, String> {
     b.build().map_err(|e| format!("http client: {e}"))
 }
 
-// Порядок попыток загрузки: сперва через прокси (если port>0 — путь через обход),
-// затем прямой fallback. port=None/0 (VPN выключен / TUN) → только direct. github
-// raw и releases из РФ режутся ТСПУ, поэтому при активном VPN тянем через туннель.
+// Download attempt order: first through the proxy (if port>0 — the path through the bypass),
+// then a direct fallback. port=None/0 (VPN off / TUN) → direct only. GitHub
+// raw and releases are cut by TSPU from Russia, so with an active VPN we fetch through the tunnel.
 fn fetch_routes(port: Option<u16>) -> Vec<Option<u16>> {
     let mut routes: Vec<Option<u16>> = Vec::new();
     if matches!(port, Some(p) if p > 0) {
-        routes.push(port); // 1) через mixed-inbound (обход)
+        routes.push(port); // 1) through the mixed inbound (bypass)
     }
-    routes.push(None); // 2) прямой fallback
+    routes.push(None); // 2) direct fallback
     routes
 }
 
@@ -2795,11 +2795,11 @@ async fn read_http_body_limited(
     Ok(body)
 }
 
-// Загрузить сырые байты устойчиво: proxy→direct (fetch_routes), по 2 попытки на
-// каждый. Ретраи + проксирование повышают шанс пройти сквозь флапающий/режущийся
-// ТСПУ github. Если прокси не слушает (VPN выключен) — proxy-попытка быстро падает.
-// Байты (не текст): подписанный .zip-бандл канала нельзя декодировать как UTF-8;
-// текстовые ассеты (version.txt, .sig) читает fetch_list_text поверх этого.
+// Download raw bytes robustly: proxy→direct (fetch_routes), 2 attempts on
+// each. Retries + proxying raise the chance of getting through a flapping/cutting
+// TSPU on GitHub. If the proxy isn't listening (VPN off), the proxy attempt fails fast.
+// Bytes (not text): the channel's signed .zip bundle cannot be decoded as UTF-8;
+// text assets (version.txt, .sig) are read by fetch_list_text on top of this.
 async fn fetch_list_bytes_limited(
     url: &str,
     port: Option<u16>,
@@ -2836,8 +2836,8 @@ async fn fetch_list_bytes_limited(
     Err(last)
 }
 
-// Текстовый ассет канала (version.txt, .sig) поверх fetch_list_bytes. Ассеты
-// заведомо UTF-8, поэтому lossy-декод безопасен и не плодит второй копии ретрай-цикла.
+// Text channel asset (version.txt, .sig) on top of fetch_list_bytes. The assets
+// are UTF-8 by design, so a lossy decode is safe and doesn't duplicate the retry loop.
 async fn fetch_list_text_limited(
     url: &str,
     port: Option<u16>,
@@ -2852,28 +2852,28 @@ async fn fetch_list_text(url: &str, port: Option<u16>) -> Result<String, String>
     fetch_list_text_limited(url, port, MAX_CHANNEL_TEXT_BYTES, "channel text").await
 }
 
-/// Доступно ли обновление набора стратегий. Сравниваем с версией НАШЕГО КАНАЛА
-/// (version.txt-ассет релиза dpi-channel) — тем, что реально поставит кнопка
-/// «Обновить» через dpi_sync_channel. НЕ с live-версией Flowseal: канал
-/// публикуется после review и может отставать от свежего релиза
-/// Flowseal. Если сверяться с live, в окне «Flowseal зарелизил → канал ещё не
-/// синканул» проверка показывает «обновление есть», а кнопка тянет старый бандл
-/// → local никогда не догоняет remote → вечный «битый круг» обновления.
+/// Whether a strategy set update is available. We compare with the version of OUR CHANNEL
+/// (the version.txt asset of the dpi-channel release) — what the "Update" button will actually
+/// install via dpi_sync_channel. NOT with the live Flowseal version: the channel
+/// is published after review and may lag behind the latest
+/// Flowseal release. If we compared with live, in the window "Flowseal released → the channel hasn't
+/// synced yet" the check shows "update available" while the button pulls the old bundle
+/// → local never catches up with remote → an endless "broken loop" of updating.
 #[tauri::command]
 pub async fn dpi_check_update(
     app: AppHandle,
     port: Option<u16>,
 ) -> Result<serde_json::Value, String> {
     let active = load_strategies(&app)?;
-    // port>0 (VPN в proxy/systemProxy) → проверка идёт через туннель: version.txt
-    // релиза dpi-channel лежит на github, а он из РФ режется ТСПУ напрямую.
+    // port>0 (VPN in proxy/systemProxy) → the check goes through the tunnel: the dpi-channel
+    // release's version.txt is on GitHub, which is cut by TSPU from Russia when accessed directly.
     let remote = fetch_list_text(&format!("{CHANNEL_BASE}/version.txt"), port)
         .await
         .map_err(|e| format!("fetch version: {e}"))?
         .trim()
         .to_string();
-    // Не «любое отличие»: канал, отставший от встроенного набора, обновлением
-    // не является, а «Обновить» его всё равно отклонило бы.
+    // Not "any difference": a channel that lags behind the built-in set is not
+    // an update, and "Update" would reject it anyway.
     Ok(serde_json::json!({
         "local": active.version,
         "remote": remote,
@@ -2882,14 +2882,14 @@ pub async fn dpi_check_update(
     }))
 }
 
-// ── Канал данных стратегий (подписанный, без переустановки) ──────────
+// ── Strategy data channel (signed, no reinstall) ──────────
 
 fn decode_channel_public_key(key_b64: &str) -> Result<minisign_verify::PublicKey, String> {
     use base64::Engine;
     let std_b64 = base64::engine::general_purpose::STANDARD;
-    // Tauri хранит pubkey как base64 от полного minisign .pub-файла. После
-    // одного decode здесь обязан получиться комментарий и одна строка ключа.
-    // Лишний слой base64 раньше ломал чистые установки до чтения legacy key.
+    // Tauri stores the pubkey as base64 of the full minisign .pub file. After
+    // one decode here we must get a comment and one key line.
+    // An extra base64 layer used to break clean installs before reading the legacy key.
     let pk_raw = std_b64
         .decode(key_b64)
         .map_err(|e| format!("pubkey b64: {e}"))?;
@@ -2902,14 +2902,14 @@ fn decode_channel_public_key(key_b64: &str) -> Result<minisign_verify::PublicKey
     minisign_verify::PublicKey::from_base64(key_line).map_err(|e| format!("pubkey decode: {e}"))
 }
 
-// Проверить minisign-подпись бандла. Dedicated key пробуем первым, legacy OTA
-// key — только для безопасного перехода со старого опубликованного канала.
-// sig_b64 — содержимое .sig-ассета (base64 от minisign-подписи, формат tauri).
+// Verify the bundle's minisign signature. The dedicated key is tried first, the legacy OTA
+// key only for a safe transition from the old published channel.
+// sig_b64 — contents of the .sig asset (base64 of the minisign signature, tauri format).
 fn verify_channel(data: &[u8], sig_b64: &str) -> Result<(), String> {
     use base64::Engine;
     use minisign_verify::Signature;
     let std_b64 = base64::engine::general_purpose::STANDARD;
-    // .sig: base64 → текст minisign-подписи (с trusted/untrusted comment).
+    // .sig: base64 → minisign signature text (with trusted/untrusted comment).
     let sig_raw = std_b64
         .decode(sig_b64.trim())
         .map_err(|e| format!("sig b64: {e}"))?;
@@ -2939,7 +2939,7 @@ fn verify_channel(data: &[u8], sig_b64: &str) -> Result<(), String> {
     Err(crate::util::i18n_error("backend.dpi.badSignature"))
 }
 
-// Какие .bin использует strategies.json (плейсхолдер %BIN%xxx.bin в args).
+// Which .bin files strategies.json uses (the %BIN%xxx.bin placeholder in args).
 fn referenced_bins(strategies: &[Strategy]) -> std::collections::HashSet<String> {
     let mut need = std::collections::HashSet::new();
     for st in strategies {
@@ -2960,17 +2960,17 @@ fn service_entry(name: &str) -> PathBuf {
     Path::new("service").join(name)
 }
 
-// Файл из подписанного бандла, сохранённого в каталоге `dir` (поколение канала
-// или staging). Подпись проверяется при КАЖДОМ чтении, а содержимое берётся из
-// самого архива: распакованная копия рядом лежит в пользовательском каталоге,
-// и дописанная в неё строка иначе доезжала бы до системного hosts.
+// A file from a signed bundle stored in directory `dir` (a channel generation
+// or staging). The signature is checked on EVERY read, and the contents come from
+// the archive itself: the unpacked copy next to it lives in a user directory,
+// and a line appended to it would otherwise make it into the system hosts.
 fn read_signed_bundle_file(dir: &Path, relative: &Path) -> Result<String, String> {
     let mut entries = read_signed_bundle_entries(dir, &[relative])?;
     Ok(entries.remove(0))
 }
 
-// Несколько файлов из подписанного бандла за одну проверку подписи. Порядок
-// результата совпадает с `relatives`; отсутствие любого файла — ошибка.
+// Several files from a signed bundle with a single signature check. The order
+// of the result matches `relatives`; any missing file is an error.
 fn read_signed_bundle_entries(dir: &Path, relatives: &[&Path]) -> Result<Vec<String>, String> {
     let bundle = dir.join(GENERATION_BUNDLE_FILE);
     let size = std::fs::metadata(&bundle)
@@ -3026,13 +3026,13 @@ fn read_signed_bundle_entries(dir: &Path, relatives: &[&Path]) -> Result<Vec<Str
         .collect()
 }
 
-// Скачать ПОДПИСАННЫЙ бандл канала, проверить minisign-подпись ДО распаковки и
-// распаковать в уникальный staging (zip-slip-safe). Возвращает путь staging; чистить
-// его — на вызывающем. Единая точка входа доверенных данных канала: dpi_sync_channel
-// применяет отсюда strategies/lists/bin, а hosts/ipset берут service/* — все три
-// потока идут через подпись, без неподписанного github-raw в открытой сети.
-// port>0 (VPN в proxy/systemProxy) → тянем через туннель: ассеты релиза dpi-channel
-// на github, из РФ напрямую режутся ТСПУ. Подпись делает маршрут доставки недоверенным.
+// Download the channel's SIGNED bundle, verify the minisign signature BEFORE unpacking and
+// unpack into a unique staging dir (zip-slip-safe). Returns the staging path; cleaning
+// it up is the caller's job. The single entry point for trusted channel data: dpi_sync_channel
+// applies strategies/lists/bin from here, and hosts/ipset take service/* — all three
+// flows go through the signature, without unsigned github-raw on the open network.
+// port>0 (VPN in proxy/systemProxy) → fetch through the tunnel: the dpi-channel release assets
+// are on GitHub, cut by TSPU from Russia when accessed directly. The signature makes the delivery route untrusted.
 async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<PathBuf, String> {
     let sig_b64 = fetch_list_text_limited(
         &format!("{CHANNEL_BASE}/dpi-channel.zip.sig"),
@@ -3051,7 +3051,7 @@ async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<Pat
     .await
     .map_err(|e| format!("fetch zip: {e}"))?;
 
-    // ВЕРИФИКАЦИЯ подписи до любой распаковки.
+    // Signature VERIFICATION before any unpacking.
     verify_channel(&zip_bytes, &sig_b64)?;
 
     let dpi_data = crate::app_paths::data_dir(app)?.join("dpi");
@@ -3089,7 +3089,7 @@ async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<Pat
                 "channel unpacked data too large: {unpacked} > {MAX_CHANNEL_UNPACKED_BYTES}"
             ));
         }
-        // защита от zip-slip: берём только безопасное относительное имя.
+        // zip-slip protection: we only take a safe relative name.
         let name = match entry.enclosed_name() {
             Some(n) => n.to_path_buf(),
             None => {
@@ -3110,9 +3110,9 @@ async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<Pat
         let mut f = std::fs::File::create(&out).map_err(|e| format!("create {name:?}: {e}"))?;
         std::io::copy(&mut entry, &mut f).map_err(|e| format!("unzip {name:?}: {e}"))?;
     }
-    // Сам бандл и подпись кладём рядом с распакованным: по ним service-файлы
-    // перепроверяются перед использованием (read_signed_bundle_file). Запись
-    // идёт после распаковки, поэтому одноимённая запись архива их не подменит.
+    // The bundle itself and its signature are placed next to the unpacked files: service files
+    // are rechecked against them before use (read_signed_bundle_file). The write
+    // happens after unpacking, so an archive entry with the same name can't replace them.
     std::fs::write(staging.join(GENERATION_BUNDLE_FILE), &zip_bytes)
         .map_err(|e| format!("store channel bundle: {e}"))?;
     std::fs::write(staging.join(GENERATION_SIGNATURE_FILE), sig_b64.as_bytes())
@@ -3121,10 +3121,10 @@ async fn stage_verified_bundle(app: &AppHandle, port: Option<u16>) -> Result<Pat
     Ok(staging)
 }
 
-// Service-файл последнего применённого поколения (оффлайн-фолбэк). Берётся
-// только из подписанного бандла этого поколения: распакованной копии и кешу
-// прежних версий без подписи больше не доверяем — до следующей синхронизации
-// канала такой фолбэк отвечает «канал не синхронизирован».
+// Service file of the last applied generation (offline fallback). Taken
+// only from that generation's signed bundle: we no longer trust the unpacked copy or the
+// unsigned cache of previous versions — until the next channel sync
+// such a fallback answers "channel not synced".
 fn read_cached_service(app: &AppHandle, name: &str) -> Result<String, String> {
     let not_synced =
         || crate::util::i18n_error_with("backend.dpi.channelNotSynced", &[("name", name)]);
@@ -3134,10 +3134,10 @@ fn read_cached_service(app: &AppHandle, name: &str) -> Result<String, String> {
     read_signed_bundle_file(&generation, &service_entry(name)).map_err(|_| not_synced())
 }
 
-// Service-файл активного поколения, если канал уже стоит на опубликованной
-// версии. Тогда качать бандл незачем: service/<name> в поколении — тот же самый
-// подписанный файл, что лежит в zip. Любая осечка (нет поколения, нет файла,
-// версии разошлись, сеть молчит) — None, и вызывающий идёт обычным путём.
+// Service file of the active generation, if the channel is already at the published
+// version. Then there is no point downloading the bundle: service/<name> in the generation is the very same
+// signed file that is in the zip. Any hiccup (no generation, no file,
+// versions diverged, network silent) → None, and the caller takes the regular path.
 async fn current_channel_service(app: &AppHandle, port: Option<u16>, name: &str) -> Option<String> {
     let generation = active_channel_generation(app).ok().flatten()?;
     let local = strat_version(app).ok()?;
@@ -3147,37 +3147,37 @@ async fn current_channel_service(app: &AppHandle, port: Option<u16>, name: &str)
     if remote.trim().is_empty() || remote.trim() != local {
         return None;
     }
-    // Поколение, собранное до появления сохранённого бандла, проверить нечем:
-    // None отправляет вызывающего за свежим подписанным бандлом.
+    // A generation built before the saved bundle existed has nothing to verify against:
+    // None sends the caller off for a fresh signed bundle.
     read_signed_bundle_file(&generation, &service_entry(name)).ok()
 }
 
-// Взять service-файл канала (hosts / ipset-service.txt) из ПОДПИСАННОГО бандла.
-// Сеть → стейджим свежий bundle (verify), извлекаем service/<name>. Нет сети →
-// фолбэк на service из активного поколения (или legacy-кеш до первой миграции).
-// Раньше hosts/ipset тянулись напрямую с raw.githubusercontent.com/Flowseal без
-// подписи — этот путь закрыт: доверяем только minisign-верифицированным данным.
+// Get a channel service file (hosts / ipset-service.txt) from the SIGNED bundle.
+// Network → stage a fresh bundle (verify), extract service/<name>. No network →
+// fall back to the service file from the active generation (or the legacy cache before the first migration).
+// Previously hosts/ipset were fetched directly from raw.githubusercontent.com/Flowseal without
+// a signature — that path is closed: we trust only minisign-verified data.
 async fn fetch_channel_service(
     app: &AppHandle,
     port: Option<u16>,
     name: &str,
 ) -> Result<String, String> {
-    // Бандл канала весит десятки мегабайт, а нужен из него один файл. Пока
-    // поколение совпадает с опубликованной версией, ограничиваемся version.txt.
+    // The channel bundle weighs tens of megabytes, and we need one file from it. As long as
+    // the generation matches the published version, we limit ourselves to version.txt.
     if let Some(current) = current_channel_service(app, port, name).await {
         return Ok(current);
     }
     match stage_verified_bundle(app, port).await {
         Ok(staging) => {
-            // Читаем из самого бандла, а не из распакованной копии: staging лежит
-            // в пользовательском каталоге. Активное поколение по одному
-            // service-файлу не меняем — оно переключается только целиком.
+            // Read from the bundle itself, not from the unpacked copy: staging lives
+            // in a user directory. The active generation isn't changed because of a single
+            // service file — it only switches as a whole.
             let result = read_signed_bundle_file(&staging, &service_entry(name))
                 .or_else(|_| read_cached_service(app, name));
             let _ = std::fs::remove_dir_all(&staging);
             result
         }
-        // Сеть недоступна → отдаём кешированную подпись, если есть; иначе сетевую ошибку.
+        // Network unavailable → return the cached signed file if there is one; otherwise the network error.
         Err(net) => read_cached_service(app, name).map_err(|_| net),
     }
 }
@@ -3241,23 +3241,23 @@ fn cleanup_channel_generations(
     warnings
 }
 
-/// Синхронизировать канал стратегий: скачать подписанный бандл, проверить подпись
-/// ДО распаковки, провалидировать (strategies.json парсится, все .bin на месте) и
-/// собрать полное поколение в app_data. Единственная commit-точка — атомарная
-/// замена channel-current после финализации каталога. Движок НЕ трогает.
+/// Sync the strategy channel: download the signed bundle, verify the signature
+/// BEFORE unpacking, validate it (strategies.json parses, all .bin are present) and
+/// assemble a full generation in app_data. The only commit point is the atomic
+/// replacement of channel-current after the directory is finalized. The engine is NOT touched.
 #[tauri::command]
 pub async fn dpi_sync_channel(
     app: AppHandle,
     state: State<'_, DpiState>,
     port: Option<u16>,
 ) -> Result<serde_json::Value, String> {
-    // 1–3. Скачать + проверить подпись + распаковать в стейджинг (общий хелпер).
+    // 1–3. Download + verify the signature + unpack into staging (shared helper).
     let dpi_data = crate::app_paths::data_dir(&app)?.join("dpi");
     let staging = stage_verified_bundle(&app, port).await?;
-    // Смена поколения канала — операция жизненного цикла DPI, а не просто
-    // запись файлов: старое поколение чистится, и подменять его под работающим
-    // start/autotest нельзя (winws запущен ровно из этого каталога). Гард
-    // берём после скачивания, чтобы длинная загрузка не держала запуск обхода.
+    // Switching the channel generation is a DPI lifecycle operation, not just
+    // writing files: the old generation gets cleaned up, and it must not be swapped out under a running
+    // start/autotest (winws runs from exactly this directory). The guard
+    // is taken after the download so that a long download doesn't block starting the bypass.
     let generation = match begin_dpi_operation(&state, "sync_channel") {
         Ok(generation) => generation,
         Err(error) => {
@@ -3273,9 +3273,9 @@ pub async fn dpi_sync_channel(
 
     let result = (|| -> Result<serde_json::Value, String> {
         std::fs::create_dir_all(&dpi_data).map_err(|e| format!("mkdir dpi data: {e}"))?;
-        // Испорченный pointer не мешает: резолв уже откатился на предыдущее
-        // целое поколение или встроенный набор, и новое поколение собирается
-        // поверх, а commit pointer ниже перезапишет испорченный.
+        // A corrupted pointer doesn't get in the way: resolution has already fallen back to the previous
+        // intact generation or the built-in set, the new generation is assembled
+        // on top, and the pointer commit below overwrites the corrupted one.
         let current_generation = active_channel_generation_from_dpi(&dpi_data);
         let previous_name = current_generation
             .as_ref()
@@ -3286,17 +3286,17 @@ pub async fn dpi_sync_channel(
         let mut fake_selection = load_fake_selection(&app);
         let active_version = load_strategies_from(&dpi_data)?.version;
 
-        // Стратегии и версия — только из подписанного бандла (подпись
-        // перепроверяется: staging лежит в пользовательском каталоге), а не из
-        // распакованных рядом копий.
+        // Strategies and version come only from the signed bundle (the signature
+        // is rechecked: staging lives in a user directory), not from
+        // the unpacked copies next to it.
         let signed = read_signed_bundle_entries(
             &staging,
             &[Path::new("strategies.json"), Path::new("version.txt")],
         )?;
         let strat_raw = &signed[0];
         let strategies = parse_checked_strategies(strat_raw)?;
-        // Бандл обязан быть самодостаточным: нельзя принять новую стратегию,
-        // которая случайно работает лишь пока в bin-data лежит старый payload.
+        // The bundle must be self-contained: we can't accept a new strategy
+        // that only happens to work while an old payload sits in bin-data.
         let staged_bin = staging.join("bin");
         if !staged_bin.is_dir() {
             return Err("the bundle has no bin directory".into());
@@ -3347,8 +3347,8 @@ pub async fn dpi_sync_channel(
         if !valid_channel_version(&ver) {
             return Err("invalid DPI channel version".into());
         }
-        // Подпись старого бандла валидна по-прежнему: без этой проверки
-        // подменённый ответ «канала» откатывал бы набор на старую версию.
+        // The old bundle's signature is still valid: without this check
+        // a spoofed "channel" response would roll the set back to an old version.
         if !channel_bundle_acceptable(&ver, &active_version) {
             return Err(crate::util::i18n_error_with(
                 "backend.dpi.channelOlder",
@@ -3369,8 +3369,8 @@ pub async fn dpi_sync_channel(
             )?;
         }
 
-        // Собираем новое поколение отдельно от активного. Пока channel-current
-        // указывает на старое, ни один читатель не увидит эти файлы.
+        // Assemble the new generation separately from the active one. As long as channel-current
+        // points to the old one, no reader will see these files.
         let generations = dpi_data.join(CHANNEL_GENERATIONS_DIR);
         std::fs::create_dir_all(&generations)
             .map_err(|e| format!("mkdir DPI channel generations: {e}"))?;
@@ -3390,8 +3390,8 @@ pub async fn dpi_sync_channel(
             std::fs::create_dir_all(&service)
                 .map_err(|e| format!("mkdir pending DPI service: {e}"))?;
 
-            // Локальные пользовательские/session-файлы переносятся в снимок,
-            // но четыре базовых списка всегда берутся из подписанного bundle.
+            // Local user/session files are carried into the snapshot,
+            // but the four base lists always come from the signed bundle.
             for name in LOCAL_LIST_FILES {
                 let from = current_lists.join(name);
                 let to = lists.join(name);
@@ -3415,7 +3415,7 @@ pub async fn dpi_sync_channel(
                     &format!("channel list {name}"),
                 )?;
             }
-            // Канал везёт списки Flowseal как есть — добавки Ninety сверху.
+            // The channel ships the Flowseal lists as is — Ninety's additions go on top.
             apply_list_additions(
                 &lists.join("list-general.txt"),
                 &NINETY_GENERAL_ADDITIONS,
@@ -3431,27 +3431,27 @@ pub async fn dpi_sync_channel(
                     &format!("channel service {name}"),
                 )?;
             }
-            // База ipset приезжает тем же подписанным бандлом, что и стратегии,
-            // поэтому обновляем её здесь же. Раньше её двигала только кнопка
-            // «Обновить список», и режим «Сайтам из списка IP» мог месяцами
-            // работать по набору из установки, пока канал уходил вперёд.
-            // Запись идёт ПОСЛЕ переноса LOCAL_LIST_FILES: свежая база обязана
-            // перекрыть перенесённую из прошлого поколения, а не наоборот.
+            // The ipset base arrives in the same signed bundle as the strategies,
+            // so we update it right here. Previously it was moved only by the
+            // "Update list" button, and the "Sites from the IP list" mode could work for months
+            // on the set from the installation while the channel moved ahead.
+            // The write happens AFTER carrying over LOCAL_LIST_FILES: the fresh base must
+            // override the one carried over from the previous generation, not the other way around.
             let staged_ipset = std::fs::read_to_string(staged_service.join(IPSET_SERVICE_FILE))
                 .map_err(|e| format!("read staged {IPSET_SERVICE_FILE}: {e}"))?;
             if let Some(base) = ipset_base_from_service(&staged_ipset) {
                 let base = with_list_additions(&base, &NINETY_IPSET_ADDITIONS).unwrap_or(base);
                 write_replace(&lists.join(IPSET_BASE_FILE), &base, "channel ipset base")?;
             }
-            // Копия для диагностики и проверки целостности поколения; читаются
-            // стратегии всё равно только из bundle.zip.
+            // A copy for diagnostics and generation integrity checks; strategies
+            // are still read only from bundle.zip.
             write_replace(
                 &pending.join("strategies.json"),
                 strat_raw,
                 "channel strategies",
             )?;
-            // Подписанный бандл едет в поколение целиком: service-файлы потом
-            // перепроверяются по нему (read_signed_bundle_file).
+            // The signed bundle goes into the generation in full: service files are later
+            // rechecked against it (read_signed_bundle_file).
             for name in [GENERATION_BUNDLE_FILE, GENERATION_SIGNATURE_FILE] {
                 copy_replace(
                     &staging.join(name),
@@ -3465,15 +3465,15 @@ pub async fn dpi_sync_channel(
                 "channel version",
             )?;
 
-            // Выбор UDP fake тоже входит в новое поколение. Исчезнувший payload
-            // сбрасывается внутри pending, не меняя активный набор до commit.
+            // The UDP fake choice is part of the new generation too. A vanished payload
+            // is reset inside pending without changing the active set before the commit.
             let fake_selection_reset =
                 reapply_fake_selection_value(&bin, Some(&incoming), &mut fake_selection)?;
             save_fake_selection_at(&pending.join("fake-selection.json"), &fake_selection)?;
             validate_channel_generation(&pending)?;
 
-            // Сначала атомарно финализируем полный каталог, затем одним
-            // crash-safe replace переключаем читателей на него.
+            // First atomically finalize the full directory, then switch readers to it
+            // with one crash-safe replace.
             finalize_channel_generation(&pending, &finalized)?;
             validate_channel_generation(&finalized)?;
             write_replace(
@@ -3493,9 +3493,9 @@ pub async fn dpi_sync_channel(
             }
         };
 
-        // Предыдущее поколение оставляем: уже запущенный winws может ещё читать
-        // старые пути до frontend-restart. Более старые/осиротевшие поколения
-        // удаляем best-effort; они не участвуют в выборе активного набора.
+        // Keep the previous generation: an already running winws may still read
+        // the old paths until the frontend restart. Older/orphaned generations
+        // are deleted best-effort; they don't take part in choosing the active set.
         let cleanup_warnings =
             cleanup_channel_generations(&generations, &generation_name, previous_name.as_deref());
 
@@ -3510,18 +3510,18 @@ pub async fn dpi_sync_channel(
     result
 }
 
-// ── Файл hosts (обход DNS-подмены) + обновление базы ipset ───────────
-// Зачем hosts вдобавок к winws: когда провайдер не режет пакеты, а ПОДМЕНЯЕТ
-// DNS-ответ, домен резолвится в мусор и handshake не начинается — winws нечего
-// десинхронить. Прибиваем рабочие IP гвоздём (голосовые серверы Discord,
-// веб-Telegram, GitHub). Пишем ТОЛЬКО свой блок между маркерами, чужие строки
-// hosts не трогаем; идемпотентно — повторный apply заменяет блок целиком.
+// ── hosts file (bypassing DNS spoofing) + ipset base update ───────────
+// Why hosts in addition to winws: when the ISP doesn't cut packets but SPOOFS
+// the DNS answer, the domain resolves to garbage and the handshake never starts — winws has nothing
+// to desync. We nail down working IPs (Discord voice servers,
+// web Telegram, GitHub). We write ONLY our own block between the markers and don't touch other
+// hosts lines; idempotent — a repeated apply replaces the block entirely.
 const HOSTS_BEGIN: &str = "# >>> 190x4 Ninety (DPI hosts) >>>";
 const HOSTS_END: &str = "# <<< 190x4 Ninety (DPI hosts) <<<";
 
-// Путь собирается от GetSystemDirectoryW (util::system_hosts_path), а не от
-// %SystemRoot%: переменную окружения переопределяет HKCU\Environment, а этот
-// путь уходит в перезапись файла из elevated-процесса.
+// The path is built from GetSystemDirectoryW (util::system_hosts_path), not from
+// %SystemRoot%: HKCU\Environment overrides that environment variable, and this
+// path is used to rewrite the file from an elevated process.
 #[cfg(target_os = "windows")]
 fn system_hosts_path() -> PathBuf {
     crate::util::system_hosts_path()
@@ -3531,17 +3531,17 @@ fn system_hosts_path() -> PathBuf {
     PathBuf::from("/etc/hosts")
 }
 
-// Присутствует ли НАШ managed-блок. Маркер обязан быть отдельной строкой —
-// ровно так его ищут strip_managed_block и разбор блока в dpi_hosts_status.
-// Прежний `content.contains(HOSTS_BEGIN)` был подстрокой по всему файлу:
-// комментарий вида `# <маркер> хвост` давал applied=true при пустом блоке, а в
-// dpi_hosts_apply — ещё и выбор не того тела для первого бэкапа hosts.
+// Whether OUR managed block is present. The marker must be a separate line —
+// exactly how strip_managed_block and the block parsing in dpi_hosts_status look for it.
+// The old `content.contains(HOSTS_BEGIN)` was a substring search over the whole file:
+// a comment like `# <marker> tail` gave applied=true with an empty block, and in
+// dpi_hosts_apply it also picked the wrong body for the first hosts backup.
 fn has_managed_block(content: &str) -> bool {
     content.lines().any(|line| line.trim() == HOSTS_BEGIN)
 }
 
-// Удалить наш managed-блок (BEGIN..END включительно) из текста hosts, не трогая
-// остальное. Возвращает текст без блока (с финальным \n у каждой строки).
+// Remove our managed block (BEGIN..END inclusive) from the hosts text without touching
+// the rest. Returns the text without the block (with a trailing \n on every line).
 fn strip_managed_block(content: &str) -> Result<String, String> {
     let mut out = String::new();
     let mut skip = false;
@@ -3580,11 +3580,11 @@ fn strip_managed_block(content: &str) -> Result<String, String> {
     Ok(out)
 }
 
-// Системный hosts читаем байтами. Windows не требует от него UTF-8: сторонние
-// утилиты пишут туда комментарии в ANSI-кодировке, и `read_to_string` на таком
-// файле падал — функция hosts становилась недоступной целиком. Каждый байт
-// отображается в символ U+0000..U+00FF и обратно без потерь, а маркеры и
-// записи Ninety — ASCII, поэтому чужие байты возвращаются в файл как были.
+// The system hosts file is read as bytes. Windows doesn't require it to be UTF-8: third-party
+// utilities write comments there in an ANSI encoding, and `read_to_string` on such
+// a file failed — the hosts feature became unavailable entirely. Each byte
+// maps to a character U+0000..U+00FF and back losslessly, and Ninety's markers and
+// entries are ASCII, so foreign bytes go back into the file exactly as they were.
 fn read_hosts_file(path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("read hosts ({}): {e}", path.display()))?;
     Ok(decode_hosts_bytes(&bytes))
@@ -3601,16 +3601,16 @@ fn encode_hosts_text(text: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "hosts: character outside the single-byte encoding".to_string())
 }
 
-// Хвостовые пробелы и переводы строк снимаем только ASCII. Юникодный trim_end
-// срезал бы и байты 0x85/0xA0, которые в hosts бывают частью чужих символов
-// (UTF-8 «Р» — это D0 A0).
+// Trailing spaces and line breaks are stripped as ASCII only. A Unicode trim_end
+// would also cut bytes 0x85/0xA0, which in hosts can be part of foreign characters
+// (UTF-8 "Р" is D0 A0).
 fn trim_hosts_end(text: &str) -> &str {
     text.trim_end_matches([' ', '\t', '\r', '\n'])
 }
 
-// Сохранить перенос строки исходного hosts. strip_managed_block работает через
-// lines() и отдаёт текст с LF, поэтому CRLF-файл пользователя иначе молча
-// нормализуется целиком — включая чужие строки, которых мы не касались.
+// Preserve the original hosts line endings. strip_managed_block works via
+// lines() and returns LF text, so the user's CRLF file would otherwise be silently
+// normalized entirely — including foreign lines we never touched.
 fn apply_hosts_line_endings(rendered: &str, original: &str) -> String {
     if original.contains("\r\n") {
         rendered.replace('\n', "\r\n")
@@ -3619,7 +3619,7 @@ fn apply_hosts_line_endings(rendered: &str, original: &str) -> String {
     }
 }
 
-// Сколько валидных записей «IP домен» в тексте (без пустых строк и комментариев).
+// How many valid "IP domain" entries are in the text (excluding empty lines and comments).
 fn count_hosts_entries(body: &str) -> usize {
     body.lines()
         .filter(|l| {
@@ -3644,12 +3644,12 @@ fn valid_hosts_domain(name: &str) -> bool {
     })
 }
 
-// Проверка формы блока, который уйдёт в системный hosts.
+// Shape check of the block that will go into the system hosts.
 //
-// Тело приходит из подписанного бандла (см. read_signed_bundle_file), и это
-// второй рубеж поверх подписи: от каждой строки требуем форму
-// «IP домен [домен…]», чтобы в системный hosts из elevated-процесса не уехало
-// ничего, кроме записей. Тот же shape-check делает CI перед подписью канала.
+// The body comes from the signed bundle (see read_signed_bundle_file), and this is
+// a second line of defense on top of the signature: every line must have the form
+// "IP domain [domain…]", so that nothing but entries makes it into the system hosts from
+// an elevated process. CI does the same shape check before signing the channel.
 fn sanitize_hosts_body(body: &str) -> Result<String, String> {
     let mut out = Vec::new();
     for (index, line) in body.lines().enumerate() {
@@ -3686,13 +3686,13 @@ fn sanitize_hosts_body(body: &str) -> Result<String, String> {
     Ok(out.join("\n"))
 }
 
-/// Статус системного hosts: применён ли наш блок и сколько в нём записей.
+/// System hosts status: whether our block is applied and how many entries it has.
 #[tauri::command]
 pub fn dpi_hosts_status(_app: AppHandle) -> Result<serde_json::Value, String> {
     let path = system_hosts_path();
     let content = read_hosts_file(&path)?;
-    // Повреждённые маркеры нельзя показывать как нормальное applied-состояние:
-    // apply/clear в таком случае тоже остановятся без записи.
+    // Damaged markers must not be shown as a normal applied state:
+    // apply/clear will also stop without writing in that case.
     let _ = strip_managed_block(&content)?;
     let mut inside = false;
     let mut applied = false;
@@ -3719,17 +3719,17 @@ pub fn dpi_hosts_status(_app: AppHandle) -> Result<serde_json::Value, String> {
     }))
 }
 
-/// Скачать актуальный hosts из репозитория и (пере)записать наш managed-блок в
-/// системный hosts. Требует админ-прав (фронт элевирует перед вызовом). Делает
-/// бэкап оригинала при первой записи и сбрасывает DNS-кэш. Возвращает число записей.
+/// Download the current hosts from the repository and (re)write our managed block into
+/// the system hosts. Requires admin rights (the frontend elevates before the call). Makes
+/// a backup of the original on the first write and flushes the DNS cache. Returns the number of entries.
 #[tauri::command]
 pub async fn dpi_hosts_apply(
     app: AppHandle,
     port: Option<u16>,
 ) -> Result<serde_json::Value, String> {
-    // hosts прибивает IP↔домен в системном hosts — самый чувствительный из
-    // DPI-путей, поэтому берём его строго из minisign-подписанного канала (было:
-    // прямой неподписанный fetch с Flowseal raw).
+    // hosts pins IP↔domain in the system hosts — the most sensitive of the
+    // DPI paths, so we take it strictly from the minisign-signed channel (it used to be
+    // a direct unsigned fetch from Flowseal raw).
     let raw = fetch_channel_service(&app, port, "hosts")
         .await
         .map_err(|e| format!("fetch hosts: {e}"))?;
@@ -3738,12 +3738,12 @@ pub async fn dpi_hosts_apply(
     if count_hosts_entries(body) == 0 {
         return Err(crate::util::i18n_error("backend.dpi.hostsNoRecords"));
     }
-    // Форму проверяем ПЕРЕД записью — второй рубеж поверх подписи бандла.
+    // Check the shape BEFORE writing — a second line of defense on top of the bundle signature.
     let sanitized = sanitize_hosts_body(body)?;
     let backup_dir = crate::app_paths::data_dir(&app)?.join("dpi");
-    // Дальше — файл в System32 под перехватом Defender и ожидание
-    // `ipconfig /flushdns`: блокирующая работа, которая занимала поток async-
-    // рантайма на секунды (dpi_hosts_clear вынесен так же).
+    // What follows is a file in System32 under Defender interception and waiting for
+    // `ipconfig /flushdns`: blocking work that occupied an async runtime
+    // thread for seconds (dpi_hosts_clear is moved off the same way).
     let entries = tauri::async_runtime::spawn_blocking(move || {
         write_hosts_block_blocking(&backup_dir, sanitized.trim())
     })
@@ -3757,13 +3757,13 @@ fn write_hosts_block_blocking(bdir: &Path, body: &str) -> Result<usize, String> 
     let current = read_hosts_file(&path)?;
     let base = strip_managed_block(&current)?;
 
-    // Бэкап оригинала один раз — до первой нашей записи. Ошибка backup блокирует
-    // системную запись: без проверяемого отката менять hosts нельзя.
+    // Back up the original once — before our first write. A backup error blocks
+    // the system write: hosts must not be changed without a verifiable rollback.
     std::fs::create_dir_all(bdir).map_err(|e| format!("mkdir hosts backup: {e}"))?;
     let backup = bdir.join("hosts.backup");
     if !backup.exists() {
-        // При миграции со старой версии managed-блок уже может быть, а backup —
-        // ещё нет. В этом случае сохраняем восстановленную базу без нашего блока.
+        // When migrating from an old version the managed block may already exist while the backup
+        // doesn't yet. In that case we save the restored base without our block.
         let backup_body = encode_hosts_text(if has_managed_block(&current) {
             &base
         } else {
@@ -3778,7 +3778,7 @@ fn write_hosts_block_blocking(bdir: &Path, body: &str) -> Result<usize, String> 
         std::fs::File::open(&backup).map_err(|e| format!("open hosts backup: {e}"))?;
     }
 
-    // Снять старый блок (если был), дописать свежий в конец.
+    // Remove the old block (if any), append the fresh one at the end.
     let base = trim_hosts_end(&base);
     let mut out = String::new();
     out.push_str(base);
@@ -3792,10 +3792,10 @@ fn write_hosts_block_blocking(bdir: &Path, body: &str) -> Result<usize, String> 
     out.push_str(HOSTS_END);
     out.push('\n');
 
-    // Системный hosts перезаписываем НА МЕСТЕ, а не подменяем: замена файла
-    // отдала бы цели DACL временного объекта, а Controlled Folder Access и часть
-    // антивирусов блокируют именно подмену. Оборванную запись overwrite_in_place
-    // откатывает сам; hosts.backup выше — страховка на случай, если не вышло и это.
+    // The system hosts is rewritten IN PLACE, not swapped: replacing the file
+    // would give the target the temporary object's DACL, and Controlled Folder Access and some
+    // antiviruses block exactly the swap. overwrite_in_place rolls back a broken write
+    // itself; hosts.backup above is insurance in case even that fails.
     let out = encode_hosts_text(&apply_hosts_line_endings(&out, &current))?;
     let original = encode_hosts_text(&current)?;
     overwrite_in_place(&path, &out, &original, "system hosts").map_err(|e| {
@@ -3808,11 +3808,11 @@ fn write_hosts_block_blocking(bdir: &Path, body: &str) -> Result<usize, String> 
     Ok(count_hosts_entries(body))
 }
 
-/// Удалить наш managed-блок из системного hosts (полный откат). Требует админ-прав.
+/// Remove our managed block from the system hosts (full rollback). Requires admin rights.
 ///
-/// async + spawn_blocking: тело читает и переписывает файл в System32 (под
-/// перехватом Defender), а затем ждёт завершения `ipconfig /flushdns`. На
-/// главном потоке это уносило окно в «не отвечает» на секунды.
+/// async + spawn_blocking: the body reads and rewrites a file in System32 (under
+/// Defender interception) and then waits for `ipconfig /flushdns` to finish. On
+/// the main thread this sent the window into "not responding" for seconds.
 #[tauri::command]
 pub async fn dpi_hosts_clear(_app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(dpi_hosts_clear_blocking)
@@ -3824,7 +3824,7 @@ fn dpi_hosts_clear_blocking() -> Result<(), String> {
     let path = system_hosts_path();
     let current = read_hosts_file(&path)?;
     if !has_managed_block(&current) {
-        // Даже clear не должен молча принимать лишний END-маркер.
+        // Even clear must not silently accept an extra END marker.
         let _ = strip_managed_block(&current)?;
         return Ok(());
     }
@@ -3849,7 +3849,7 @@ fn flush_dns() {
     }
 }
 
-// Сколько IP-записей в файле-списке ipset (строки без пустых и комментариев).
+// How many IP entries are in the ipset list file (lines excluding empty ones and comments).
 fn count_ipset_lines(txt: &str) -> usize {
     txt.lines()
         .filter(|l| {
@@ -3859,8 +3859,8 @@ fn count_ipset_lines(txt: &str) -> usize {
         .count()
 }
 
-/// Домены, которые winws сам определил как заблокированные (режим «Только
-/// заблокированные»). Свежие — первыми: файл дописывается в конец.
+/// Domains that winws itself detected as blocked (the "Blocked
+/// only" mode). Newest first: the file is appended to at the end.
 #[tauri::command]
 pub fn dpi_auto_domains(app: AppHandle) -> Result<Vec<String>, String> {
     let lists = ensure_lists(&app)?;
@@ -3868,10 +3868,10 @@ pub fn dpi_auto_domains(app: AppHandle) -> Result<Vec<String>, String> {
     Ok(auto_domains_from(&txt))
 }
 
-/// Убрать домен из автосписка: обход перестанет к нему применяться, пока winws
-/// снова не увидит признаки блокировки. Возвращает остаток списка.
-/// От повторного попадания спасает только список исключений — так же, как
-/// советует сам zapret; кнопка «в исключения» в UI дергает dpi_write_list.
+/// Remove a domain from the autolist: the bypass will stop applying to it until winws
+/// sees signs of blocking again. Returns the rest of the list.
+/// Only the exclusion list prevents it from coming back — just as
+/// zapret itself advises; the "to exclusions" button in the UI calls dpi_write_list.
 #[tauri::command]
 pub async fn dpi_auto_forget(
     app: AppHandle,
@@ -3894,13 +3894,13 @@ pub async fn dpi_auto_forget(
         kept.push_str(line);
         kept.push('\n');
     }
-    // winws перечитывает автосписок по сигнатуре файла, поэтому перезапуск
-    // движка не нужен — правка подхватывается на следующем соединении.
+    // winws rereads the autolist by the file signature, so restarting
+    // the engine is not needed — the edit is picked up on the next connection.
     write_replace(&path, &kept, "auto hostlist forget")?;
     Ok(auto_domains_from(&kept))
 }
 
-/// Очистить автосписок целиком — обучение начнётся заново.
+/// Clear the autolist entirely — learning starts over.
 #[tauri::command]
 pub async fn dpi_auto_clear(app: AppHandle, state: State<'_, DpiState>) -> Result<(), String> {
     let _data = state.data.lock().await;
@@ -3908,17 +3908,17 @@ pub async fn dpi_auto_clear(app: AppHandle, state: State<'_, DpiState>) -> Resul
     write_replace(&lists.join(AUTO_HOSTLIST_FILE), "", "auto hostlist clear")
 }
 
-// Тело базы ipset из service-файла канала. None — записей нет: такой файл базу
-// не заменяет ни при ручном обновлении, ни при синхронизации канала. Прежний
-// рабочий список полезнее обнулённого, а пустая коллекция ipset у winws вообще
-// означает «не фильтровать по IP» — режим «Сайтам из списка IP» молча
-// превратился бы во «Всем сайтам».
+// ipset base body from the channel's service file. None — no entries: such a file
+// doesn't replace the base, neither on a manual update nor on a channel sync. The previous
+// working list is more useful than a wiped one, and an empty ipset collection in winws actually
+// means "don't filter by IP" — the "Sites from the IP list" mode would silently
+// turn into "All sites".
 fn ipset_base_from_service(raw: &str) -> Option<String> {
     let body = raw.replace("\r\n", "\n");
     (count_ipset_lines(&body) > 0).then_some(body)
 }
 
-/// Текущее число IP в активной базе ipset (writable-override → ресурс).
+/// Current number of IPs in the active ipset base (writable override → resource).
 #[tauri::command]
 pub fn dpi_ipset_count(app: AppHandle) -> Result<usize, String> {
     let lists = ensure_lists(&app)?;
@@ -3932,10 +3932,10 @@ pub fn dpi_ipset_count(app: AppHandle) -> Result<usize, String> {
     Ok(count_ipset_lines(&txt))
 }
 
-/// Обновить базу ipset (ipset-all) актуальным списком из репозитория. Пишем в
-/// writable-копию app_data — режим IPSet «Загружен» берёт её приоритетно. Если
-/// движок запущен в этом режиме, перезапуск winws — на стороне фронта.
-/// Возвращает число загруженных IP.
+/// Update the ipset base (ipset-all) with the current list from the repository. We write to
+/// the writable app_data copy — the IPSet "Loaded" mode takes it with priority. If
+/// the engine is running in this mode, restarting winws is up to the frontend.
+/// Returns the number of loaded IPs.
 #[tauri::command]
 pub async fn dpi_update_ipset(
     app: AppHandle,
@@ -3944,7 +3944,7 @@ pub async fn dpi_update_ipset(
 ) -> Result<usize, String> {
     let _data = state.data.lock().await;
     let lists = ensure_lists(&app)?;
-    // База ipset — тоже из подписанного канала (было: прямой fetch с Flowseal raw).
+    // The ipset base also comes from the signed channel (it used to be a direct fetch from Flowseal raw).
     let raw = fetch_channel_service(&app, port, IPSET_SERVICE_FILE)
         .await
         .map_err(|e| format!("fetch ipset: {e}"))?;
@@ -3956,7 +3956,7 @@ pub async fn dpi_update_ipset(
     Ok(n)
 }
 
-// ── Авто-подбор стратегии ───────────────────────────────────────────
+// ── Strategy auto-tuning ───────────────────────────────────────────
 #[derive(serde::Serialize, Clone)]
 struct AutotestProgress {
     i: usize,
@@ -3964,16 +3964,16 @@ struct AutotestProgress {
     name: String,
 }
 
-/// Перебирает неэкспериментальные стратегии: поднимает winws с каждой (до
-/// AUTOTEST_ENGINE_ATTEMPTS попыток — «драйвер занят» гоночно), пробит все цели
-/// свежим соединением на каждую и выбирает лучшую по охвату, при равном — по
-/// задержке. Прогресс — событием "dpi:autotest", вывод winws — в
-/// dpi-autotest.log. winws после теста остаётся выключенным; применяет выбор и
-/// возвращает прежнее состояние движка фронт.
+/// Goes through the non-experimental strategies: brings up winws with each (up to
+/// AUTOTEST_ENGINE_ATTEMPTS attempts — "driver busy" is racy), probes all targets
+/// with a fresh connection each and picks the best by coverage, with ties broken by
+/// latency. Progress goes out as the "dpi:autotest" event, winws output goes to
+/// dpi-autotest.log. winws stays off after the test; the frontend applies the choice and
+/// restores the previous engine state.
 ///
-/// ВАЖНО: бессмысленно в TUN — там проба уходит в туннель мимо winws, и фронт
-/// такой запуск не даёт. В proxy/systemProxy проба идёт мимо системного прокси
-/// (probe_client), поэтому измеряет реальный канал. Требует элевации.
+/// IMPORTANT: pointless in TUN — there the probe goes into the tunnel bypassing winws, and the frontend
+/// doesn't allow such a run. In proxy/systemProxy the probe bypasses the system proxy
+/// (probe_client), so it measures the real channel. Requires elevation.
 #[tauri::command]
 pub async fn dpi_autotest(
     app: AppHandle,
@@ -3988,24 +3988,24 @@ pub async fn dpi_autotest(
         state: &state,
         generation,
     };
-    // Глушим текущий winws без изменения generation: autotest теперь владеет
-    // lifecycle и публикует каждый test-child в state, поэтому dpi_stop/exit
-    // способны отменить и reap'нуть его.
+    // Kill the current winws without changing the generation: autotest now owns
+    // the lifecycle and publishes each test child in the state, so dpi_stop/exit
+    // can cancel and reap it.
     stop_managed_child(&state, "winws")?;
-    // Один пользовательский URL перекрывает набор целиком: ручная проверка
-    // конкретного сайта — это ровно одна цель, а не добавка к дефолтным.
+    // A single user URL replaces the whole set: a manual check of
+    // a specific site is exactly one target, not an addition to the defaults.
     let targets: Vec<String> = match test_url.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(url) => vec![url.to_string()],
         None => AUTOTEST_TARGETS.iter().map(|u| u.to_string()).collect(),
     };
 
-    // Мьютекс данных держим только на подготовке файлов. Прогон стратегий идёт
-    // минутами, и под общим локом он замораживал весь DPI-раздел вместе с
-    // dpi_set_active_vpn_endpoint — а его ждёт автозапуск VPN.
+    // The data mutex is held only while preparing files. Running the strategies takes
+    // minutes, and under the shared lock it froze the whole DPI section together with
+    // dpi_set_active_vpn_endpoint — which the VPN autostart waits for.
     let (strategies, bin, exe, bindata_s, lists, lists_s) = {
         let _data = state.data.lock().await;
-        // EXP доступна для ручного выбора, но экспериментальный профиль не должен
-        // автоматически становиться рекомендацией автотеста.
+        // EXP is available for manual selection, but an experimental profile must not
+        // automatically become the autotest recommendation.
         let active = load_strategies(&app)?;
         let bin = bin_dir(&app, monkey)?;
         let exe = bin.join("winws.exe");
@@ -4016,9 +4016,9 @@ pub async fn dpi_autotest(
             ));
         }
         let lists = ensure_lists(&app)?;
-        // Прогон всегда идёт в «Всем сайтам»: он меряет саму стратегию на тестовых
-        // доменах, а в «Только заблокированным» они ещё не в автосписке — движок не
-        // применил бы десинк ни к одному запросу и все стратегии выглядели бы одинаково.
+        // The run always goes in "All sites": it measures the strategy itself on test
+        // domains, and in "Blocked only" they aren't in the autolist yet — the engine wouldn't
+        // apply desync to a single request and all strategies would look the same.
         write_ipset_mode(&app, &lists, "any")?;
         let bindata = ensure_bindata(&app, &active)?;
         let bindata_s = strip_verbatim(&bindata.to_string_lossy());
@@ -4031,9 +4031,9 @@ pub async fn dpi_autotest(
         (strategies, bin, exe, bindata_s, lists, lists_s)
     };
     let exclusion = active_vpn_exclusion_args(&lists);
-    // Вывод winws за прогон. Без него провал стратегии неотличим от того, что
-    // движок вообще не поднялся: в отчёте и то и другое выглядело как «не
-    // прошла», а диагностировать было нечем.
+    // winws output for the run. Without it a strategy failure is indistinguishable from the
+    // engine not coming up at all: in the report both looked like "didn't
+    // pass", and there was nothing to diagnose with.
     let log_writer = if logs_disabled {
         None
     } else {
@@ -4043,12 +4043,12 @@ pub async fn dpi_autotest(
     };
     let total = strategies.len();
 
-    // (id, name, сколько целей открылось, суммарная задержка).
+    // (id, name, how many targets opened, total latency).
     let mut best: Option<(String, String, usize, u64)> = None;
     let mut passed = 0usize;
-    // Стратегии, на которых движок не поднялся. Это не «стратегия не работает»,
-    // и отчёт обязан их различать, иначе гонка за драйвер читается как провал
-    // половины набора.
+    // Strategies on which the engine didn't come up. This is not "the strategy doesn't work",
+    // and the report must tell them apart, otherwise a race for the driver reads as a failure of
+    // half the set.
     let mut engine_failed = 0usize;
 
     for (idx, strat) in strategies.iter().enumerate() {
@@ -4063,7 +4063,7 @@ pub async fn dpi_autotest(
                 name: strat.name.clone(),
             },
         );
-        // Тот же allowlist, что у dpi_start, прямо перед подстановкой.
+        // The same allowlist as dpi_start, right before substitution.
         if let Err(error) = validate_strategy_args(&strat.args) {
             if let Some(writer) = log_writer.as_ref() {
                 writer
@@ -4077,12 +4077,12 @@ pub async fn dpi_autotest(
             .iter()
             .map(|a| subst(a, &bindata_s, &lists_s, "12", "12"))
             .collect();
-        // Ровно тот же argv, что соберёт dpi_start: иначе автотест проверяет не
-        // то, что потом запустится (исключение ноды меняет матчинг профилей).
+        // Exactly the same argv that dpi_start will build: otherwise autotest checks something other
+        // than what will be launched later (the node exclusion changes profile matching).
         let args = spread_exclusion_across_sections(args, &exclusion);
-        // Движку даётся вторая попытка: «драйвер занят» — состояние гоночное,
-        // а не свойство стратегии, и один такой промах вычёркивал рабочий
-        // профиль из подбора целиком.
+        // The engine gets a second attempt: "driver busy" is a racy state,
+        // not a property of the strategy, and one such miss struck a working
+        // profile out of tuning entirely.
         let mut alive = false;
         for attempt in 0..AUTOTEST_ENGINE_ATTEMPTS {
             let mut cmd = std::process::Command::new(&exe);
@@ -4102,8 +4102,8 @@ pub async fn dpi_autotest(
             }
             let mut child = match cmd.spawn() {
                 Ok(c) => {
-                    // Автоподбор поднимает тот же winws с драйвером: сирота от
-                    // него так же дерётся за WinDivert, как и от dpi_start.
+                    // Auto-tuning brings up the same winws with the driver: an orphan of
+                    // it fights over WinDivert just like one of dpi_start.
                     crate::job_guard::bind_pid(c.id());
                     c
                 }
@@ -4138,9 +4138,9 @@ pub async fn dpi_autotest(
             dpi_sleep_or_cancel(&state, generation, Duration::from_millis(700)).await?;
             remember_owned_driver_services(&state, &bin);
 
-            // winws мог умереть на битом аргументе или занятом драйвере. Без этой
-            // проверки мёртвая стратегия засчитывалась как рабочая: запрос всё
-            // равно проходит, если сайт у провайдера и так открыт.
+            // winws may have died on a bad argument or a busy driver. Without this
+            // check a dead strategy counted as working: the request still
+            // goes through if the site is open at the ISP anyway.
             alive = {
                 let mut guard = state.child.lock_recover();
                 match guard.as_mut() {
@@ -4162,11 +4162,11 @@ pub async fn dpi_autotest(
         let mut ok_count = 0usize;
         let mut lat = 0u64;
         for target in &targets {
-            // Новый клиент на каждую цель. Общий reqwest::Client держит пул
-            // соединений: после первого успеха следующие стратегии переиспользуют
-            // уже установленный TCP+TLS, десинк в этом не участвует, и «прошли»
-            // получали все подряд. DPI режет именно установление соединения —
-            // значит замерять надо только свежий handshake.
+            // A new client for each target. A shared reqwest::Client keeps a connection
+            // pool: after the first success the following strategies reuse
+            // the already established TCP+TLS, desync plays no part in it, and every single one
+            // got "passed". DPI cuts exactly the connection establishment —
+            // so only a fresh handshake should be measured.
             let client = probe_client()?;
             let t0 = Instant::now();
             let ok = tokio::select! {
@@ -4178,9 +4178,9 @@ pub async fn dpi_autotest(
                     return Err(crate::util::i18n_error("backend.dpi.cancelled"));
                 }
             };
-            // Цели проверяются все: обрыв на первой неудаче делал оценку
-            // зависимой от порядка — стратегия, которая чинит YouTube, но не
-            // Discord, была неотличима от полностью нерабочей.
+            // All targets are checked: stopping at the first failure made the score
+            // order-dependent — a strategy that fixes YouTube but not
+            // Discord was indistinguishable from a completely broken one.
             if ok {
                 ok_count += 1;
                 lat = lat.saturating_add(t0.elapsed().as_millis() as u64);
@@ -4196,7 +4196,7 @@ pub async fn dpi_autotest(
             if ok_count == targets.len() {
                 passed += 1;
             }
-            // Сначала охват (сколько целей открылось), при равном — задержка.
+            // Coverage first (how many targets opened), with ties broken by latency.
             let better = match &best {
                 Some((_, _, bc, bl)) => ok_count > *bc || (ok_count == *bc && lat < *bl),
                 None => true,
@@ -4205,15 +4205,15 @@ pub async fn dpi_autotest(
                 best = Some((strat.id.clone(), strat.name.clone(), ok_count, lat));
             }
         }
-        // пауза, чтобы драйвер успел отцепиться между прогонами
+        // pause so the driver can detach between runs
         dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE).await?;
     }
 
     match best {
-        // lat — сумма по открывшимся целям, а UI подписывает число как задержку.
-        // Отдаём среднее на проверку, иначе три успешные пробы выглядят как одна
-        // втрое более медленная. На ранжирование это не влияет: задержки
-        // сравниваются только внутри одинакового охвата.
+        // lat is the sum over the opened targets, while the UI labels the number as latency.
+        // We return the average per check, otherwise three successful probes look like one
+        // three times slower. This doesn't affect ranking: latencies
+        // are compared only within the same coverage.
         Some((id, name, covered, lat)) => Ok(serde_json::json!({
             "best_id": id, "best_name": name, "passed": passed, "total": total,
             "latency_ms": lat / covered.max(1) as u64,
@@ -4232,15 +4232,15 @@ pub fn force_cleanup(state: &DpiState) {
     let _ = stop_dpi_runtime(state, "winws");
 }
 
-/// Снять kernel-службы драйвера WinDivert/Monkey. ТРЕБУЕТ админ-прав — вызывать
-/// только из elevated-процесса (при запущенном DPI аппа уже elevated: winws — наш
-/// child, наследует токен). На kernel-драйвере `sc stop` блокирующий: возвращает
-/// управление лишь ПОСЛЕ выгрузки драйвера из ядра — и только тогда снимается лок с
-/// `WinDivert64.sys`/`Monkey64.sys` в каталоге установки. `stop` идёт перед `delete`:
-/// раз stop синхронный, к delete драйвер уже выгружен и служба-сирота в ядре не
-/// повисает (иначе её не снять без перезагрузки). Имя службы у разных сборок winws —
-/// WinDivert или WinDivert14 (как чистит service.bat Flowseal), плюс Monkey (наш
-/// переименованный вариант, см. bin_dir) — снимаем все.
+/// Remove the WinDivert/Monkey driver kernel services. REQUIRES admin rights — call
+/// only from an elevated process (with DPI running the app is already elevated: winws is our
+/// child and inherits the token). On a kernel driver `sc stop` is blocking: it returns
+/// control only AFTER the driver is unloaded from the kernel — and only then is the lock released on
+/// `WinDivert64.sys`/`Monkey64.sys` in the install directory. `stop` goes before `delete`:
+/// since stop is synchronous, by the time of delete the driver is already unloaded and no orphaned service
+/// hangs in the kernel (otherwise it can't be removed without a reboot). The service name differs between winws builds —
+/// WinDivert or WinDivert14 (as Flowseal's service.bat cleans up), plus Monkey (our
+/// renamed variant, see bin_dir) — we remove them all.
 #[cfg(target_os = "windows")]
 fn run_sc_bounded(sc: &str, verb: &str, service: &str, deadline: Instant) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
@@ -4290,8 +4290,8 @@ pub fn unload_driver_services(state: &DpiState) -> Result<(), String> {
         run_sc_bounded(&sc, "stop", svc, deadline)?;
         run_sc_bounded(&sc, "delete", svc, deadline)?;
     }
-    // Стираем ownership только после полного подтверждения. При ошибке весь
-    // список остаётся для безопасного повторного unload (операции идемпотентны).
+    // Ownership is erased only after full confirmation. On error the whole
+    // list stays for a safe repeated unload (the operations are idempotent).
     state.owned_services.lock_recover().clear();
     Ok(())
 }
@@ -4300,13 +4300,13 @@ pub fn unload_driver_services(_state: &DpiState) -> Result<(), String> {
     Ok(())
 }
 
-/// Полная выгрузка движка: убить winws И снять kernel-драйвер. Вызывается перед
-/// OTA-апдейтом (команда ниже) и при смене режима драйвера. Иначе драйвер остаётся
-/// резидентным в ядре, его .sys лочит файл в каталоге установки, и следующая
-/// (пере)установка падает на «Невозможно открыть файл для записи». Сначала
-/// подтверждаем завершение winws в коротком bounded-цикле — handle к
-/// \\.\WinDivert закрывается ДО `sc stop`, поэтому драйвер выгружается с первого
-/// раза. Все sc-команды делят один общий трёхсекундный deadline.
+/// Full engine unload: kill winws AND remove the kernel driver. Called before
+/// an OTA update (the command below) and when the driver mode changes. Otherwise the driver stays
+/// resident in the kernel, its .sys locks a file in the install directory, and the next
+/// (re)installation fails with "Cannot open file for writing". First we
+/// confirm that winws has exited in a short bounded loop — the handle to
+/// \\.\WinDivert is closed BEFORE `sc stop`, so the driver unloads on the first
+/// try. All sc commands share one common three-second deadline.
 pub fn full_unload(state: &DpiState) -> Result<(), String> {
     stop_dpi_runtime(state, "winws")?;
     unload_driver_services(state)?;
@@ -4314,11 +4314,11 @@ pub fn full_unload(state: &DpiState) -> Result<(), String> {
     Ok(())
 }
 
-/// true, если сессия Windows сейчас завершается (shutdown/logoff/reboot).
+/// true if the Windows session is currently ending (shutdown/logoff/reboot).
 #[cfg(target_os = "windows")]
 fn session_ending() -> bool {
     use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_SHUTTINGDOWN};
-    // SM_SHUTTINGDOWN != 0 на всём протяжении shutdown-последовательности ОС.
+    // SM_SHUTTINGDOWN != 0 throughout the OS shutdown sequence.
     unsafe { GetSystemMetrics(SM_SHUTTINGDOWN) != 0 }
 }
 #[cfg(not(target_os = "windows"))]
@@ -4326,19 +4326,19 @@ fn session_ending() -> bool {
     false
 }
 
-/// Выгрузка при выходе приложения (lib.rs RunEvent::Exit). В отличие от
-/// full_unload здесь `sc.exe` дёргаем ЛИШЬ когда это оправдано:
-///  - идёт выключение/logoff ОС → пропускаем: драйвер и так выгрузится при
-///    перезагрузке, а запущенный в сворачивающейся сессии `sc.exe` не может
-///    инициализироваться и показывает окно ошибки 0xc0000142 (репорт юзера —
-///    «вылазит при выключении ПК»);
-///  - DPI в этой сессии не поднимался (driver_loaded=false) → снимать нечего,
-///    а безусловные 6 запусков `sc.exe` на каждый выход были лишними.
+/// Unload on app exit (lib.rs RunEvent::Exit). Unlike
+/// full_unload, here we call `sc.exe` ONLY when it is justified:
+///  - the OS is shutting down/logging off → skip: the driver unloads anyway on
+///    reboot, and an `sc.exe` launched in a session being torn down can't
+///    initialize and shows a 0xc0000142 error window (user report —
+///    "pops up when shutting down the PC");
+///  - DPI wasn't brought up in this session (driver_loaded=false) → nothing to remove,
+///    and the unconditional 6 `sc.exe` launches on every exit were unnecessary.
 ///
-/// Кейс «снять лок с .sys для переустановки без перезагрузки» покрыт явной
-/// командой dpi_unload_driver (её зовёт фронт перед OTA) — там full_unload.
+/// The "release the .sys lock to reinstall without a reboot" case is covered by the explicit
+/// dpi_unload_driver command (the frontend calls it before OTA) — that one does full_unload.
 pub fn cleanup_on_exit(state: &DpiState) {
-    force_cleanup(state); // убить winws-child — без sc.exe, всегда безопасно
+    force_cleanup(state); // kill the winws child — no sc.exe, always safe
     if session_ending() {
         return;
     }
@@ -4347,15 +4347,15 @@ pub fn cleanup_on_exit(state: &DpiState) {
     }
 }
 
-/// Команда из фронта: перед OTA-апдейтом и при смене режима драйвера (WinDivert↔
-/// Monkey). Тонкая обёртка над full_unload — оставлена как #[tauri::command] под
+/// Command from the frontend: before an OTA update and when the driver mode changes (WinDivert↔
+/// Monkey). A thin wrapper over full_unload — kept as a #[tauri::command] under
 /// invoke("dpi_unload_driver").
 #[tauri::command]
 pub async fn dpi_unload_driver(app: AppHandle) -> Result<(), String> {
-    // Как и dpi_stop: подтверждённая остановка winws плюс блокирующие `sc
-    // stop/delete` (на kernel-драйвере sc возвращает управление только после
-    // выгрузки) складываются в секунды. Фронт зовёт это перед OTA — замирать
-    // окну на время выгрузки незачем.
+    // Like dpi_stop: a confirmed winws stop plus blocking `sc
+    // stop/delete` (on a kernel driver sc returns control only after
+    // unloading) add up to seconds. The frontend calls this before OTA — there is no reason for the
+    // window to freeze during the unload.
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DpiState>();
         full_unload(&state)
@@ -4368,9 +4368,9 @@ pub async fn dpi_unload_driver(app: AppHandle) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    // Подпись канала проверяется при загрузке бандла, но service-файлы потом
-    // лежат распакованными в пользовательском каталоге и читаются оффлайн уже
-    // без проверки. Дописанная туда строка не должна доехать до системного hosts.
+    // The channel signature is checked when the bundle is loaded, but service files then
+    // sit unpacked in a user directory and are read offline already
+    // without a check. A line appended there must not make it into the system hosts.
     #[test]
     fn hosts_body_rejects_anything_but_ip_and_domains() {
         let good =
@@ -4420,7 +4420,7 @@ mod tests {
         assert_eq!(out, format!("BIN{sep}tls.bin"));
         let lst = subst("%LISTS%list-general.txt", "BIN", "LST", "12", "34");
         assert_eq!(lst, format!("LST{sep}list-general.txt"));
-        // Game-фильтры: TCP/UDP раздельны, а legacy %GameFilter% берёт TCP.
+        // Game filters: TCP/UDP are separate, while legacy %GameFilter% takes TCP.
         assert_eq!(
             subst("--wf-tcp=%GameFilterTCP%", "B", "L", "80", "443"),
             "--wf-tcp=80"
@@ -4450,9 +4450,9 @@ mod tests {
         assert!(args[1].ends_with(r"lists\active-vpn-ip.txt"));
     }
 
-    // Регресс: исключение активной ноды дописывалось в хвост строки и накрывало
-    // только последнюю секцию. VLESS идёт по TCP:443 — то есть по другой секции,
-    // и winws десинхрил трафик к собственному серверу.
+    // Regression: the active node exclusion was appended to the end of the line and covered
+    // only the last section. VLESS goes over TCP:443 — that is, through another section,
+    // and winws desynced traffic to our own server.
     #[test]
     fn active_vpn_exclusion_lands_in_every_section() {
         let exclusion = [
@@ -4472,7 +4472,7 @@ mod tests {
         ];
         let out = spread_exclusion_across_sections(args, &exclusion);
 
-        // Три секции, в каждой уже есть хостлист → исключение трижды целиком.
+        // Three sections, each already has a hostlist → the exclusion appears in full three times.
         assert_eq!(
             out.iter()
                 .filter(|a| a.as_str() == "--hostlist-exclude=D")
@@ -4486,7 +4486,7 @@ mod tests {
             3
         );
 
-        // И именно ПЕРЕД разделителем, иначе исключение утечёт в чужую секцию.
+        // And exactly BEFORE the separator, otherwise the exclusion leaks into another section.
         for (i, a) in out.iter().enumerate() {
             if a == "--new" {
                 assert_eq!(out[i - 2], "--hostlist-exclude=D");
@@ -4496,9 +4496,9 @@ mod tests {
         assert_eq!(out.last().unwrap(), "--ipset-exclude=I");
     }
 
-    // Секция без хостлистов (голосовой Discord, Game Filter) ловит трафик без
-    // известного хоста. Хостлист в ней запрещает профилю матчиться вообще —
-    // туда уходит только ipset-исключение.
+    // A section without hostlists (Discord voice, Game Filter) catches traffic without
+    // a known host. A hostlist in it prevents the profile from matching at all —
+    // only the ipset exclusion goes there.
     #[test]
     fn active_vpn_exclusion_skips_hostlist_in_hostless_sections() {
         let exclusion = [
@@ -4536,9 +4536,9 @@ mod tests {
         );
     }
 
-    // Игровой фильтр обязан работать при любом режиме IPset. Секции Game Filter
-    // уходят на собственный пустой ipset-game.txt, остальные остаются на общем
-    // ipset-all.txt, которым управляет переключатель IPset.
+    // The game filter must work in any IPset mode. The Game Filter sections
+    // go to their own empty ipset-game.txt, the rest stay on the shared
+    // ipset-all.txt, which is controlled by the IPset switch.
     #[test]
     fn game_sections_get_their_own_ipset() {
         let lists = Path::new("L");
@@ -4574,8 +4574,8 @@ mod tests {
         );
     }
 
-    // Снятие гейта не должно задевать исключения: активная нода VPN защищена
-    // через --ipset-exclude, и подмена основного ipset её не касается.
+    // Lifting the gate must not affect exclusions: the active VPN node is protected
+    // via --ipset-exclude, and replacing the main ipset doesn't touch it.
     #[test]
     fn game_ipset_ungate_keeps_exclusions() {
         let lists = Path::new("L");
@@ -4599,16 +4599,16 @@ mod tests {
         );
     }
 
-    // Обновление канала стратегий пересоздаёт каталог списков: всё, что нажито
-    // локально, переносится явным перечислением. Автосписок — тоже нажитое.
+    // A strategy channel update recreates the list directory: everything accumulated
+    // locally is carried over by explicit enumeration. The autolist is accumulated data too.
     #[test]
     fn auto_hostlist_survives_a_channel_update() {
         assert!(LOCAL_LIST_FILES.contains(&AUTO_HOSTLIST_FILE));
         assert!(!CHANNEL_LIST_FILES.contains(&AUTO_HOSTLIST_FILE));
     }
 
-    // Режим «Только заблокированные» снимает с секции IP-гейт и вешает автосписок
-    // вместе с порогами детекта.
+    // The "Blocked only" mode removes the IP gate from a section and attaches the autolist
+    // together with the detection thresholds.
     #[test]
     fn auto_mode_swaps_ipset_for_autohostlist() {
         let lists = Path::new("L");
@@ -4636,8 +4636,8 @@ mod tests {
         );
     }
 
-    // У игровых секций хоста нет по определению: автосписку там нечего решать,
-    // а профиль с ним выигрывал бы всегда. IP-гейт остаётся как был.
+    // Game sections have no host by definition: the autolist has nothing to decide there,
+    // and a profile with it would always win. The IP gate stays as it was.
     #[test]
     fn auto_mode_keeps_any_protocol_sections_on_ipset() {
         let lists = Path::new("L");
@@ -4658,9 +4658,9 @@ mod tests {
         assert!(out.iter().any(|a| a.starts_with("--hostlist-auto=")));
     }
 
-    // Автосписок — обычная коллекция хостлистов, поэтому активная нода VPN
-    // обязана попасть в исключения этой секции: без этого обход зацепил бы
-    // собственный VLESS, стоило домену ноды один раз показаться заблокированным.
+    // The autolist is a regular hostlist collection, so the active VPN node
+    // must be in this section's exclusions: without this the bypass would hook
+    // our own VLESS as soon as the node's domain once looked blocked.
     #[test]
     fn auto_mode_section_still_gets_vpn_exclusion() {
         let lists = Path::new("L");
@@ -4678,8 +4678,8 @@ mod tests {
             .any(|a| a.contains("--hostlist-exclude=") && a.contains("active-vpn-domain.txt")));
     }
 
-    // Файл ведёт winws, дописывая в конец: пользователю показываем свежие сверху,
-    // без дублей и комментариев.
+    // winws maintains the file, appending to the end: we show the user the newest first,
+    // without duplicates and comments.
     #[test]
     fn auto_domains_are_newest_first_without_dupes() {
         let txt = "# comment\nold.example\nDota2.ru\n\ndota2.ru\nfresh.example\n";
@@ -4693,8 +4693,8 @@ mod tests {
         );
     }
 
-    // Пара --hostlist-auto-* не создаёт коллекцию хостлистов и не должна
-    // считаться признаком секции с известным хостом.
+    // The --hostlist-auto-* pair doesn't create a hostlist collection and must not
+    // count as a sign of a section with a known host.
     #[test]
     fn hostlist_arg_detection_ignores_auto_tuning_flags() {
         assert!(is_hostlist_arg("--hostlist=x"));
@@ -4707,7 +4707,7 @@ mod tests {
         assert!(!is_hostlist_arg("--filter-l7=discord,stun"));
     }
 
-    // Стратегия без --new — одна секция, исключение ровно один раз.
+    // A strategy without --new is one section, the exclusion appears exactly once.
     #[test]
     fn active_vpn_exclusion_single_section_is_not_duplicated() {
         let exclusion = [
@@ -4748,7 +4748,7 @@ mod tests {
                 name: String::new(),
                 desc: String::new(),
                 experimental: false,
-                // %LISTS% и голый %BIN% без .bin не должны попасть в набор.
+                // %LISTS% and a bare %BIN% without .bin must not get into the set.
                 args: vec!["%LISTS%list-general.txt".into(), "%BIN%".into()],
             },
         ];
@@ -4821,7 +4821,7 @@ mod tests {
         .unwrap();
         assert_eq!(active_channel_generation_from_dpi(&root), Some(old.clone()));
 
-        // Полностью собранное новое поколение ещё не активно без commit pointer.
+        // A fully assembled new generation is not active yet without the pointer commit.
         let new = create_test_channel_generation(&root, "gen-200-1-0", "new");
         assert_eq!(active_channel_generation_from_dpi(&root), Some(old.clone()));
 
@@ -4833,8 +4833,8 @@ mod tests {
         .unwrap();
         assert_eq!(active_channel_generation_from_dpi(&root), Some(new.clone()));
 
-        // Повреждённое committed-поколение не роняет раздел: откат на
-        // предыдущее целое поколение и признак испорченного pointer.
+        // A damaged committed generation doesn't break the section: fallback to
+        // the previous intact generation and a corrupted-pointer flag.
         std::fs::remove_file(new.join("strategies.json")).unwrap();
         let resolution = resolve_channel_generation(&root);
         assert_eq!(resolution.active, Some(old));
@@ -4858,9 +4858,9 @@ mod tests {
         assert_eq!(apply_hosts_line_endings(rendered, "# base\n"), rendered);
     }
 
-    // hosts не обязан быть в UTF-8: комментарий в ANSI (0xCF 0xF0 — «Пр» в
-    // cp1251) и UTF-8 «Р» в самом конце (D0 A0) обязаны пережить снятие нашего
-    // блока байт в байт.
+    // hosts doesn't have to be UTF-8: an ANSI comment (0xCF 0xF0 — "Пр" in
+    // cp1251) and a UTF-8 "Р" at the very end (D0 A0) must survive removal of our
+    // block byte for byte.
     #[test]
     fn hosts_in_any_encoding_survives_our_block_byte_for_byte() {
         let mut original = b"# \xCF\xF0\xEE\xEA\xF1\xE8\r\n127.0.0.1 localhost\r\n".to_vec();
@@ -4892,7 +4892,7 @@ mod tests {
         assert!(out.contains("10.0.0.1 nas"));
         assert!(!out.contains("discord.com"));
         assert!(!out.contains(HOSTS_BEGIN));
-        // Идемпотентность: без блока текст меняется только нормализацией переносов.
+        // Idempotency: without the block the text changes only by line ending normalization.
         let again = strip_managed_block(&out).unwrap();
         assert_eq!(out, again);
     }
@@ -4932,10 +4932,10 @@ mod tests {
         assert_eq!(count_ipset_lines(txt), 3);
     }
 
-    // Синхронизация канала перезаписывает базу ipset его service-файлом. Пустой
-    // или чисто комментарийный файл базу трогать не должен: с пустым ipset режим
-    // «Сайтам из списка IP» превратился бы во «Всем сайтам» — ровно то, от чего
-    // пользователь этим режимом и уходит.
+    // A channel sync overwrites the ipset base with its service file. An empty
+    // or comment-only file must not touch the base: with an empty ipset the
+    // "Sites from the IP list" mode would turn into "All sites" — exactly what
+    // the user picks this mode to get away from.
     #[test]
     fn empty_ipset_service_leaves_the_base_alone() {
         assert_eq!(
@@ -4990,8 +4990,8 @@ mod tests {
         assert_eq!(parse_engine_version(""), None);
     }
 
-    // Домен уходит в hostlist winws построчно: значение с переводом строки
-    // вставляло бы произвольные записи, а дедуп по целой строке их не ловил.
+    // A domain goes into the winws hostlist line by line: a value with a line break
+    // would insert arbitrary entries, and dedup by whole line didn't catch them.
     #[test]
     fn exclude_domain_rejects_multiline_and_control_input() {
         assert_eq!(
@@ -5002,8 +5002,8 @@ mod tests {
             normalize_exclude_domain("*.example.com"),
             Ok("*.example.com".to_string())
         );
-        // Обрамляющий whitespace — мусор ввода, а не инъекция: trim снимает его, и
-        // в файл уходит уже чистая запись. Отвергаем только то, что осталось внутри.
+        // Surrounding whitespace is input garbage, not an injection: trim removes it, and
+        // a clean entry goes into the file. We only reject what remains inside.
         assert_eq!(
             normalize_exclude_domain("example.com\t"),
             Ok("example.com".to_string())
@@ -5026,8 +5026,8 @@ mod tests {
         assert!(normalize_exclude_domain(&"a".repeat(254)).is_err());
     }
 
-    // Соседний каталог с тем же префиксом строки — не наш движок: голое
-    // starts_with уводило taskkill в чужой процесс.
+    // A neighboring directory with the same string prefix is not our engine: a bare
+    // starts_with sent taskkill to a foreign process.
     #[cfg(target_os = "windows")]
     #[test]
     fn stray_winws_lookup_respects_the_directory_boundary() {
@@ -5036,22 +5036,22 @@ mod tests {
         let sibling = r"c:\app\dpi-backup\winws.exe";
         assert!(path_is_inside(inside, root));
         assert!(!path_is_inside(sibling, root));
-        // Сам корень процессом не является; пустой корень не совпадает ни с чем.
+        // The root itself is not a process; an empty root matches nothing.
         assert!(!path_is_inside(root, root));
         assert!(!path_is_inside(inside, ""));
-        // Хвостовой разделитель у корня границу не ломает.
+        // A trailing separator on the root doesn't break the boundary.
         assert!(path_is_inside(inside, "c:\\app\\dpi\\"));
     }
 
-    // «Блок применён» обязан считаться по отдельной строке-маркеру, как это
-    // делают strip_managed_block и разбор блока в dpi_hosts_status. Подстрока
-    // давала applied=true при пустом блоке и не тот выбор тела для бэкапа.
+    // "Block applied" must be determined by a separate marker line, as
+    // strip_managed_block and the block parsing in dpi_hosts_status do. A substring
+    // gave applied=true with an empty block and the wrong body choice for the backup.
     #[test]
     fn managed_block_is_detected_by_a_whole_marker_line() {
         let applied = format!("127.0.0.1 localhost\n{HOSTS_BEGIN}\nx\n{HOSTS_END}\n");
         assert!(has_managed_block(&applied));
         assert!(has_managed_block(&format!("   {HOSTS_BEGIN}   \n")));
-        // Маркер внутри строки — не наш блок.
+        // A marker inside a line is not our block.
         assert!(!has_managed_block(&format!("{HOSTS_BEGIN} и хвост\n")));
         assert!(!has_managed_block(&format!("# было: {HOSTS_BEGIN}\n")));
         assert!(!has_managed_block("127.0.0.1 localhost\n"));
@@ -5085,7 +5085,7 @@ mod tests {
         assert!(dpi_operation_current(&state, second));
     }
 
-    // Ждать завершения имеет смысл только для операций, способных поднять winws.
+    // Waiting for completion makes sense only for operations capable of bringing up winws.
     #[test]
     fn only_spawning_operations_hold_up_stop() {
         assert!(operation_can_spawn(Some("start")));
@@ -5103,7 +5103,7 @@ mod tests {
             generation,
         };
         assert_eq!(cancel_dpi_operation(&state), Some("sync_channel"));
-        // Повторная отмена уже нечего забирать — stop не должен ждать пустоту.
+        // A repeated cancel has nothing left to take — stop must not wait for nothing.
         assert_eq!(cancel_dpi_operation(&state), None);
         drop(guard);
     }
@@ -5119,7 +5119,7 @@ mod tests {
         root
     }
 
-    // ── п.2: сторож выхода winws ──
+    // ── item 2: winws exit watcher ──
 
     fn short_lived_child(code: i32) -> Child {
         #[cfg(windows)]
@@ -5146,14 +5146,14 @@ mod tests {
         None
     }
 
-    // Падение штатного сеанса сообщается ровно один раз и с кодом выхода.
+    // A crash of the regular session is reported exactly once and with the exit code.
     #[test]
     fn crash_of_the_running_session_is_reported_once() {
         let state = DpiState::default();
         *state.child.lock_recover() = Some(short_lived_child(3));
         state.runtime_session.store(7, Ordering::SeqCst);
 
-        // Сторож чужого (старого) сеанса новый не трогает.
+        // The watcher of another (old) session doesn't touch the new one.
         assert!(reap_unexpected_exit(&state, Some(6)).is_none());
 
         let event = wait_for_reap(&state, Some(7)).expect("падение не замечено");
@@ -5165,7 +5165,7 @@ mod tests {
         assert!(reap_unexpected_exit(&state, None).is_none());
     }
 
-    // Плановая остановка обнуляет сеанс под тем же локом: ложного события нет.
+    // A planned stop resets the session under the same lock: no false event.
     #[test]
     fn planned_stop_is_not_reported_as_a_crash() {
         let state = DpiState::default();
@@ -5179,7 +5179,7 @@ mod tests {
         assert!(reap_unexpected_exit(&state, None).is_none());
     }
 
-    // Процессы автоподбора (сеанс 0) живут и умирают по плану.
+    // Auto-tuning processes (session 0) live and die as planned.
     #[test]
     fn autotest_children_never_raise_the_event() {
         let state = DpiState::default();
@@ -5189,24 +5189,24 @@ mod tests {
         let _ = stop_managed_child(&state, "test winws");
     }
 
-    // ── п.3: собственные добавки и встроенные базовые списки ──
+    // ── item 3: own additions and built-in base lists ──
 
     #[test]
     fn ninety_additions_are_layered_without_duplicates() {
-        // Список Flowseal без добавки (как его везёт канал).
+        // A Flowseal list without the addition (as the channel ships it).
         let flowseal = "discord.com\nlive-video.net";
         assert_eq!(
             with_list_additions(flowseal, &NINETY_GENERAL_ADDITIONS).as_deref(),
             Some("discord.com\nlive-video.net\nvivox.com\n")
         );
-        // Уже есть (в любом регистре) — файл не переписывается.
+        // Already present (in any case) — the file is not rewritten.
         assert!(with_list_additions("# c\nVIVOX.com\n", &NINETY_GENERAL_ADDITIONS).is_none());
-        // Закомментированная запись добавкой не считается.
+        // A commented-out entry doesn't count as the addition.
         assert_eq!(
             with_list_additions("# vivox.com\n", &NINETY_GENERAL_ADDITIONS).as_deref(),
             Some("# vivox.com\nvivox.com\n")
         );
-        // ipset: досыпаются только недостающие подсети.
+        // ipset: only the missing subnets are added.
         assert_eq!(
             with_list_additions("1.1.1.0/24\n85.236.96.0/21\n", &NINETY_IPSET_ADDITIONS).as_deref(),
             Some("1.1.1.0/24\n85.236.96.0/21\n85.236.104.0/23\n")
@@ -5217,7 +5217,7 @@ mod tests {
         );
     }
 
-    // Добавки не должны лежать только во встроенных файлах: канал их не везёт.
+    // Additions must not live only in the built-in files: the channel doesn't ship them.
     #[test]
     fn bundled_lists_already_carry_the_additions() {
         let general = include_str!("../dpi/lists/list-general.txt");
@@ -5232,7 +5232,7 @@ mod tests {
         std::fs::create_dir_all(&src).unwrap();
         std::fs::create_dir_all(&dst).unwrap();
         std::fs::write(src.join("list-general.txt"), "fresh.example\n").unwrap();
-        // Старая установка: базовый список с первой установки, маркера нет.
+        // Old installation: the base list from the first install, no marker.
         std::fs::write(dst.join("list-general.txt"), "stale.example\n").unwrap();
         std::fs::write(dst.join("list-general-user.txt"), "mine.example\n").unwrap();
 
@@ -5240,22 +5240,22 @@ mod tests {
         let read = |name: &str| std::fs::read_to_string(dst.join(name)).unwrap();
         assert_eq!(read("list-general.txt"), "fresh.example\n");
         assert_eq!(read("list-general-user.txt"), "mine.example\n");
-        // Файла нет в ресурсе — создаётся пустым, а не падает.
+        // No file in the resource — it is created empty instead of failing.
         assert_eq!(read("list-google.txt"), "");
 
-        // Та же версия — файлы не переписываются на каждом вызове.
+        // The same version — files aren't rewritten on every call.
         std::fs::write(src.join("list-general.txt"), "newer.example\n").unwrap();
         refresh_bundled_base_lists(&dst, &src, "0.18.0+1.10.2").unwrap();
         assert_eq!(read("list-general.txt"), "fresh.example\n");
 
-        // Новая версия приложения — базовые списки снова из ресурсов.
+        // A new app version — the base lists come from the resources again.
         refresh_bundled_base_lists(&dst, &src, "0.18.1+1.10.2").unwrap();
         assert_eq!(read("list-general.txt"), "newer.example\n");
         assert_eq!(read("list-general-user.txt"), "mine.example\n");
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    // ── п.4: версии канала ──
+    // ── item 4: channel versions ──
 
     #[test]
     fn channel_versions_compare_as_numbers() {
@@ -5274,16 +5274,16 @@ mod tests {
         assert_eq!(cmp("latest", "1.2"), None);
     }
 
-    // Старый подписанный бандл подпись проходит, но откатить набор не может.
+    // An old signed bundle passes the signature check but can't roll the set back.
     #[test]
     fn older_signed_bundle_is_rejected() {
         assert!(!channel_bundle_acceptable("1.10.1", "1.10.2"));
         assert!(!channel_bundle_acceptable("1.9.9", "1.10.0"));
         assert!(channel_bundle_acceptable("1.10.2", "1.10.2"));
         assert!(channel_bundle_acceptable("1.10.3", "1.10.2"));
-        // Неразбираемая версия не может «обогнать» известную.
+        // An unparseable version can't "overtake" a known one.
         assert!(!channel_bundle_acceptable("latest", "1.10.2"));
-        // Активная версия неизвестна — принимаем.
+        // Active version unknown — accept.
         assert!(channel_bundle_acceptable("1.10.2", "—"));
     }
 
@@ -5292,19 +5292,19 @@ mod tests {
         assert!(channel_update_available("1.10.3", "1.10.2", false));
         assert!(!channel_update_available("1.10.2", "1.10.2", false));
         assert!(!channel_update_available("1.10.1", "1.10.2", false));
-        // Поколение без доказуемых стратегий — пересинхронизация той же версии.
+        // A generation without provable strategies — resync the same version.
         assert!(channel_update_available("1.10.2", "1.10.2", true));
         assert!(!channel_update_available("1.10.1", "1.10.2", true));
         assert!(!channel_update_available("", "1.10.2", true));
         assert!(channel_update_available("1.10.2", "—", false));
     }
 
-    // ── п.5: испорченное активное поколение ──
+    // ── item 5: corrupted active generation ──
 
     #[test]
     fn broken_pointer_falls_back_and_never_fails() {
         let root = test_root("broken-pointer");
-        // Без pointer — встроенные ресурсы, синхронизировать нечего.
+        // No pointer — built-in resources, nothing to sync.
         let none = resolve_channel_generation(&root);
         assert!(none.active.is_none() && !none.pointer_broken);
 
@@ -5312,20 +5312,20 @@ mod tests {
         let newer = create_test_channel_generation(&root, "gen-200-1-0", "1.10.2");
         let pointer = root.join(CHANNEL_POINTER_FILE);
 
-        // Мусор в pointer — самое свежее целое поколение.
+        // Garbage in pointer — the newest intact generation.
         std::fs::write(&pointer, "../evil\n").unwrap();
         let garbage = resolve_channel_generation(&root);
         assert_eq!(garbage.active, Some(newer.clone()));
         assert!(garbage.pointer_broken);
 
-        // Испорченное активное — предыдущее целое.
+        // Corrupted active one — the previous intact one.
         std::fs::write(&pointer, "gen-200-1-0\n").unwrap();
         std::fs::remove_file(newer.join("service").join("hosts")).unwrap();
         let broken = resolve_channel_generation(&root);
         assert_eq!(broken.active, Some(older.clone()));
         assert!(broken.pointer_broken);
 
-        // Целых не осталось — встроенный набор, а не ошибка.
+        // No intact ones left — the built-in set, not an error.
         std::fs::remove_dir_all(older.join("bin-data")).unwrap();
         let nothing = resolve_channel_generation(&root);
         assert!(nothing.active.is_none());
@@ -5333,7 +5333,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    // Стратегии (а значит dpi_start и сам sync) переживают испорченное поколение.
+    // Strategies (and therefore dpi_start and sync itself) survive a corrupted generation.
     #[test]
     fn strategies_survive_a_broken_generation() {
         let root = test_root("broken-strategies");
@@ -5346,10 +5346,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    // ── п.6: стратегии только из подписанного набора + allowlist ──
+    // ── item 6: strategies only from the signed set + allowlist ──
 
-    // Поколение без bundle.zip/подписи не доказывает свои стратегии: даже
-    // подложенный рядом strategies.json не читается, работает встроенный набор.
+    // A generation without bundle.zip/signature doesn't prove its strategies: even
+    // a strategies.json planted next to it is not read, the built-in set is used.
     #[test]
     fn generation_without_signed_bundle_uses_the_bundled_strategies() {
         let root = test_root("unsigned-generation");
@@ -5366,13 +5366,13 @@ mod tests {
         assert!(active.needs_resync);
         assert_eq!(active.version, bundled_strategies_version());
         assert!(active.strategies.iter().all(|s| s.id != "evil"));
-        // Списки и bin-data поколения при этом остаются в работе.
+        // The generation's lists and bin-data stay in use in that case.
         assert_eq!(active_channel_generation_from_dpi(&root), Some(generation));
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    // Все стратегии встроенного набора проходят allowlist — иначе он сломал
-    // бы рабочие профили.
+    // All strategies of the built-in set pass the allowlist — otherwise it would break
+    // working profiles.
     #[test]
     fn every_bundled_strategy_passes_the_allowlist() {
         let raw: Vec<Strategy> =
@@ -5462,7 +5462,7 @@ mod tests {
         );
     }
 
-    // Стратегия с запрещённым аргументом выпадает целиком, остальные живут.
+    // A strategy with a forbidden argument is dropped entirely, the rest live on.
     #[test]
     fn tampered_strategy_is_dropped_whole() {
         let raw = r#"[
@@ -5476,7 +5476,7 @@ mod tests {
         assert!(parse_checked_strategies(r#"[{"id":"empty","args":[]}]"#).is_err());
     }
 
-    // ── п.7: пакет исключений VPN-нод ──
+    // ── item 7: VPN node exclusion batch ──
 
     #[test]
     fn endpoint_hosts_drop_ports_and_keep_ipv6() {

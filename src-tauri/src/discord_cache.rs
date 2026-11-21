@@ -1,8 +1,8 @@
-// Ninety · точечная очистка Chromium-кэша Discord.
+// Ninety · targeted cleanup of Discord's Chromium cache.
 //
-// Повторяет безопасную часть Flowseal service.bat: закрывает обычный Discord и
-// Discord PTB, затем удаляет только Cache / Code Cache / GPUCache в Roaming
-// AppData. Cookies, Local Storage, настройки и данные авторизации не трогаются.
+// Replicates the safe part of Flowseal service.bat: closes regular Discord and
+// Discord PTB, then deletes only Cache / Code Cache / GPUCache in Roaming
+// AppData. Cookies, Local Storage, settings and auth data are not touched.
 
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -114,9 +114,9 @@ fn remove_cache_dir(roaming: &Path, client_root: &Path, name: &str) -> Result<bo
     Ok(true)
 }
 
-// Абсолютный путь к системному бинарю. Каталог берём у GetSystemDirectoryW, а не
-// из %SystemRoot%: переменную окружения пишет HKCU\Environment, то есть обычный
-// пользователь, а отсюда запускаются taskkill/tasklist в elevated-процессе.
+// Absolute path to a system binary. The directory comes from GetSystemDirectoryW, not
+// from %SystemRoot%: that environment variable is written by HKCU\Environment, i.e. a regular
+// user, while taskkill/tasklist are launched from here in an elevated process.
 #[cfg(target_os = "windows")]
 fn system32(exe: &str) -> PathBuf {
     crate::util::system_directory().join(exe)
@@ -180,8 +180,8 @@ fn clear_windows(app: AppHandle) -> Result<serde_json::Value, String> {
     let mut dirs_missing = 0usize;
 
     for (_label, image, root) in cache_targets(&roaming) {
-        // Проверяем root ДО taskkill: подменённый symlink/junction не должен ни
-        // удалять чужой кэш внутри Roaming, ни без причины закрывать Discord.
+        // Check root BEFORE taskkill: a swapped symlink/junction must neither
+        // delete someone else's cache inside Roaming nor close Discord for no reason.
         if !validate_client_root(&roaming, &root)? {
             continue;
         }
@@ -206,9 +206,9 @@ fn clear_windows(app: AppHandle) -> Result<serde_json::Value, String> {
     }))
 }
 
-/// Закрыть Discord/Discord PTB и удалить только три фиксированных кэш-каталога.
-/// Пути от фронтенда не принимаются. Блокирующие taskkill/FS-операции вынесены
-/// из webview-потока.
+/// Close Discord/Discord PTB and delete only three fixed cache directories.
+/// Paths from the frontend are not accepted. Blocking taskkill/FS operations are moved
+/// off the webview thread.
 #[tauri::command]
 pub async fn discord_cache_clear(app: AppHandle) -> Result<serde_json::Value, String> {
     #[cfg(not(target_os = "windows"))]

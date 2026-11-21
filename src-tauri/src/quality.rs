@@ -1,21 +1,21 @@
-// Движок качества связи — активная проба пропускной способности через туннель.
+// Connection quality engine — an active throughput probe through the tunnel.
 //
-// Зачем: liveness-watchdog (vpn.rs/main.js) ловит только смерть ядра. ТСПУ же не
-// блокирует, а ДЕГРАДИРУЕТ — режет отдачу до первых ~16 КБ на соединение
-// (traffic-shaping, не обрыв). latency/generate_204 этот «занавес» не видит, т.к.
-// сама проба меньше порога. Поэтому probe_quality обязан протащить >16 КБ и
-// померить goodput + поймать stall (нет новых байт до 64 КБ = подпись троттла).
+// Why: the liveness watchdog (vpn.rs/main.js) only catches core death. TSPU, however, doesn't
+// block but DEGRADES — it cuts the download to the first ~16 KB per connection
+// (traffic shaping, not a disconnect). latency/generate_204 doesn't see this "curtain" because
+// the probe itself is smaller than the threshold. So probe_quality must pull >16 KB,
+// measure goodput and catch a stall (no new bytes before 64 KB = the throttling signature).
 //
-// Проба ВСЕГДА идёт через локальный inbound sing-box (http://127.0.0.1:{port}):
-//   proxy/systemProxy — mixed-in; Rust системный прокси не чтит, задаём явно.
-//   tun — отдельный probe-in (mixed на том же порту, см. buildInbound). Гнать
-//     «напрямую» нельзя: собственный трафик Ninety.exe в TUN уходит в direct
-//     bypass-правилом (защита от петли), и проба мерила бы голый канал, а не
-//     туннель. Правило inbound=probe-in → proxy/warp в buildRoute стоит ВЫШЕ
-//     bypass и гонит пробу сквозь аутбаунд.
-// endpoint=None (direct-клиент) оставлен для внутренних strict/passive-путей и
-// отладки; пользовательские probe-команды получают endpoint от runtime.
-// В обоих режимах меряется плечо аутбаунда юзер→exit, где сидит ТСПУ.
+// The probe ALWAYS goes through the local sing-box inbound (http://127.0.0.1:{port}):
+//   proxy/systemProxy — mixed-in; Rust doesn't honor the system proxy, so we set it explicitly.
+//   tun — a separate probe-in (mixed on the same port, see buildInbound). Sending it
+//     "direct" is not allowed: Ninety.exe's own traffic in TUN goes direct via
+//     a bypass rule (loop protection), and the probe would measure the bare channel, not
+//     the tunnel. The inbound=probe-in → proxy/warp rule in buildRoute sits ABOVE
+//     bypass and drives the probe through the outbound.
+// endpoint=None (direct client) is kept for internal strict/passive paths and
+// debugging; user probe commands get the endpoint from the runtime.
+// In both modes the user→exit outbound leg is measured, which is where TSPU sits.
 
 use serde::Serialize;
 use std::time::{Duration, Instant};
@@ -24,14 +24,14 @@ use tokio::task::JoinSet;
 use crate::runtime_ops::{DataplaneProbeKind, ProbeAcquireError};
 use crate::vpn::ProbeProxyEndpoint;
 
-// Пороги детекта stall (подпись ТСПУ-занавеса). Держим РЯДОМ с дефолтами
-// quality-engine.js — если меняешь там, выровняй здесь.
-const STALL_BYTES: u64 = 65_536; // 64 КиБ: до этого порога пауза = занавес
-const STALL_GAP_MS: u64 = 800; // нет нового чанка дольше — это stall
+// Stall detection thresholds (the TSPU curtain signature). Keep them NEXT TO the
+// quality-engine.js defaults — if you change them there, align them here.
+const STALL_BYTES: u64 = 65_536; // 64 KiB: a pause before this threshold = curtain
+const STALL_GAP_MS: u64 = 800; // no new chunk for longer than this = a stall
 
-// IPC-граничные значения: frontend-настройки считаются недоверенными. Без clamp
-// произвольный invoke мог запросить гигабайтную выборку, много URL и минутный
-// runtime, удерживая сеть/память процесса.
+// IPC boundary values: frontend settings are considered untrusted. Without clamping,
+// an arbitrary invoke could request a gigabyte sample, many URLs and a minute-long
+// runtime, holding the process's network/memory.
 const MIN_SAMPLE_BYTES: u64 = 64 * 1024;
 const MAX_SAMPLE_BYTES: u64 = 4 * 1024 * 1024;
 const MIN_BUDGET_MS: u64 = 500;
@@ -57,12 +57,12 @@ fn host_allowed(host: &str, allowlist: &[&str]) -> bool {
 #[derive(Serialize)]
 pub struct ProbeResult {
     pub ok: bool,
-    pub goodput_bps: u64, // бит/с по телу от TTFB до конца выборки
-    pub ttfb_ms: u64,     // от старта запроса до первого байта тела
-    pub bytes: u64,       // сколько реально протащили
-    pub ms: u64,          // полная длительность пробы
-    pub stalled: bool,    // пауза >STALL_GAP_MS до STALL_BYTES
-    pub endpoint: String, // какой URL отработал (или последний пробованный)
+    pub goodput_bps: u64, // bit/s over the body from TTFB to the end of the sample
+    pub ttfb_ms: u64,     // from the start of the request to the first body byte
+    pub bytes: u64,       // how much was actually pulled
+    pub ms: u64,          // full probe duration
+    pub stalled: bool,    // a pause >STALL_GAP_MS before STALL_BYTES
+    pub endpoint: String, // which URL worked (or the last one tried)
     pub error: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub skipped: bool,
@@ -177,20 +177,20 @@ fn quality_redirect_policy() -> reqwest::redirect::Policy {
     })
 }
 
-// Клиент пробы. Some(ProbeProxyEndpoint) → через явный loopback mixed/probe
-// inbound (proxy/systemProxy); None оставляет direct только для внутренних
-// passive/strict-privacy путей. БЕЗ общего .timeout(): тело
-// стримим до budget_ms вручную, иначе reqwest оборвёт долгую (но живую) выборку
-// как ошибку. connect_timeout отдельный — мёртвый аутбаунд не висит весь бюджет.
+// Probe client. Some(ProbeProxyEndpoint) → through an explicit loopback mixed/probe
+// inbound (proxy/systemProxy); None keeps direct only for internal
+// passive/strict-privacy paths. WITHOUT a shared .timeout(): the body
+// is streamed up to budget_ms manually, otherwise reqwest would cut off a long (but live) sample
+// as an error. connect_timeout is separate — a dead outbound doesn't hang for the whole budget.
 fn build_client(endpoint: Option<&ProbeProxyEndpoint>) -> Result<reqwest::Client, String> {
     let mut b = crate::util::direct_client_builder()
         .connect_timeout(Duration::from_secs(5))
-        // Проверка исходного endpoint бессмысленна, если reqwest затем молча
-        // уйдёт по Location на HTTP или другой origin. Разрешаем только короткую
-        // same-origin HTTPS-цепочку; запрещённый redirect останется 3xx и проба
-        // корректно перейдёт к следующему endpoint.
+        // Checking the original endpoint is pointless if reqwest then silently
+        // follows Location to HTTP or another origin. We allow only a short
+        // same-origin HTTPS chain; a forbidden redirect stays a 3xx and the probe
+        // correctly moves on to the next endpoint.
         .redirect(quality_redirect_policy())
-        .no_gzip(); // считаем сырые байты на проводе, не распакованные
+        .no_gzip(); // we count raw bytes on the wire, not decompressed ones
     if let Some(endpoint) = endpoint {
         let proxy = reqwest::Proxy::all(format!("http://{}", endpoint.address))
             .map_err(|e| format!("proxy: {e}"))?;
@@ -199,11 +199,11 @@ fn build_client(endpoint: Option<&ProbeProxyEndpoint>) -> Result<reqwest::Client
     b.build().map_err(|e| format!("client: {e}"))
 }
 
-/// Активная проба пропускной способности через туннель.
+/// Active throughput probe through the tunnel.
 ///
-/// Перебирает endpoints до первого, отдавшего тело; стримит до sample_bytes или
-/// budget_ms; по дороге ловит stall. Возвращает метрики первого успешного (или
-/// последнюю ошибку, если все легли).
+/// Goes through endpoints until the first one that returns a body; streams up to sample_bytes or
+/// budget_ms; catches stalls along the way. Returns the metrics of the first successful one (or
+/// the last error if all of them failed).
 pub(crate) async fn probe_quality_inner(
     endpoint: Option<&ProbeProxyEndpoint>,
     endpoints: Vec<String>,
@@ -222,7 +222,7 @@ pub(crate) async fn probe_quality_inner(
             break;
         };
         match probe_one(&client, ep, sample_bytes, remaining).await {
-            Ok(r) => return Ok(r), // первый отдавший тело — берём его метрики
+            Ok(r) => return Ok(r), // the first one that returned a body — take its metrics
             Err(r) => last_err = r,
         }
     }
@@ -245,9 +245,9 @@ pub(crate) async fn probe_health_inner(
         "health",
     )?;
     let client = build_client(endpoint)?;
-    // Адреса берём итератором, а не индексом по константе: `endpoints[1]` был
-    // паникой внутри `select!`, если HEALTH_ENDPOINTS когда-нибудь сократят до
-    // одного элемента. Пустой список отверг уже валидатор выше.
+    // Addresses are taken via an iterator, not by indexing a constant: `endpoints[1]` was
+    // a panic inside `select!` if HEALTH_ENDPOINTS were ever reduced to
+    // a single element. The validator above already rejected an empty list.
     let mut available = endpoints.into_iter();
     let Some(primary) = available.next() else {
         return Err("health probe has no endpoints".into());
@@ -255,8 +255,8 @@ pub(crate) async fn probe_health_inner(
     let mut secondary = available.next();
     let mut tasks = JoinSet::new();
     tasks.spawn(probe_health_endpoint(client.clone(), primary));
-    // Резерва нет — hedge'у нечего запускать, и ждать его незачем: единственная
-    // проба, закончившись, сразу отдаёт свой результат.
+    // No fallback — the hedge has nothing to launch, and there is no point waiting for it: the single
+    // probe returns its result as soon as it finishes.
     let mut secondary_started = secondary.is_none();
     let mut last = ProbeResult::fail(String::new(), 0, "no health endpoints".into());
     let hedge = tokio::time::sleep(HEALTH_HEDGE_DELAY);
@@ -373,8 +373,8 @@ pub async fn probe_quality(
     Ok(result)
 }
 
-// Одна проба. Ok = тело пошло (метрики валидны, даже если потом stalled);
-// Err = соединение/запрос не состоялись → пробуем следующий endpoint.
+// One probe. Ok = the body started flowing (metrics are valid even if it stalled later);
+// Err = the connection/request didn't happen → try the next endpoint.
 async fn probe_one(
     client: &reqwest::Client,
     endpoint: &str,
@@ -411,7 +411,7 @@ async fn probe_one_with_policy(
 ) -> Result<ProbeResult, ProbeResult> {
     let started = Instant::now();
 
-    // Запрос + заголовки ответа в рамках бюджета.
+    // Request + response headers within the budget.
     let resp = match tokio::time::timeout(budget, client.get(endpoint).send()).await {
         Ok(Ok(r)) => r,
         Ok(Err(e)) => {
@@ -438,8 +438,8 @@ async fn probe_one_with_policy(
         ));
     }
 
-    // Стримим тело по чанкам. Каждый chunk() гейтим на STALL_GAP_MS — этот гейт
-    // и есть детектор занавеса: до STALL_BYTES долгая пауза = троттл.
+    // Stream the body in chunks. Each chunk() is gated on STALL_GAP_MS — this gate
+    // is the curtain detector: a long pause before STALL_BYTES = throttling.
     let status = resp.status();
     let mut resp = resp;
     let mut bytes: u64 = 0;
@@ -448,16 +448,16 @@ async fn probe_one_with_policy(
     let mut stalled = false;
 
     loop {
-        // Не вышли ли за общий бюджет.
+        // Whether we've gone past the overall budget.
         let elapsed = started.elapsed();
         if elapsed >= budget {
             break;
         }
         let remaining = budget - elapsed;
-        // Гейт чанка = min(остаток бюджета, окно stall). Когда бюджет кончается
-        // раньше окна, сработавший таймаут говорит только «время вышло», а не
-        // «поток встал»: такой отсечкой заканчивается любая медленная, но живая
-        // выборка. Помним, кто именно закрыл гейт (см. stall_detected).
+        // Chunk gate = min(remaining budget, stall window). When the budget runs out
+        // before the window, the timeout that fired only says "time's up", not
+        // "the stream stalled": any slow but live sample ends with such a cutoff.
+        // We remember what exactly closed the gate (see stall_detected).
         let chunk_gate = remaining.min(policy.chunk_gap);
         let gate_is_budget = remaining <= policy.chunk_gap;
 
@@ -469,13 +469,13 @@ async fn probe_one_with_policy(
                 }
                 bytes += chunk.len() as u64;
                 if bytes >= sample_bytes {
-                    break; // набрали выборку
+                    break; // collected the sample
                 }
             }
-            Ok(Ok(None)) => break, // тело кончилось раньше sample_bytes
+            Ok(Ok(None)) => break, // the body ended before sample_bytes
             Ok(Err(e)) => {
-                // Обрыв посреди тела. Если ещё ничего не пришло — это провал
-                // запроса (пробуем следующий endpoint); иначе метрики валидны.
+                // A break in the middle of the body. If nothing has arrived yet, it's a request
+                // failure (try the next endpoint); otherwise the metrics are valid.
                 if first_byte_at.is_none() {
                     return Err(ProbeResult::fail(
                         endpoint.into(),
@@ -486,8 +486,8 @@ async fn probe_one_with_policy(
                 break;
             }
             Err(_) => {
-                // Гейт сработал — пауза в потоке. До 64 КБ это подпись занавеса,
-                // но только если гейт закрыло окно stall, а не конец бюджета.
+                // The gate fired — a pause in the stream. Before 64 KB this is the curtain signature,
+                // but only if the stall window closed the gate, not the end of the budget.
                 stalled = stall_detected(bytes, policy.stall_before_bytes, gate_is_budget);
                 break;
             }
@@ -496,7 +496,7 @@ async fn probe_one_with_policy(
 
     let ms = started.elapsed().as_millis() as u64;
 
-    // Тело так и не пошло — не успех, дайм шанс следующему endpoint.
+    // The body never started — not a success, give the next endpoint a chance.
     let Some(fb) = first_byte_at else {
         if policy.allow_empty_body && status == reqwest::StatusCode::NO_CONTENT {
             return Ok(ProbeResult {
@@ -518,8 +518,8 @@ async fn probe_one_with_policy(
         ));
     };
 
-    // goodput считаем от первого байта до конца выборки (без setup/TTFB) —
-    // это честная скорость канала аутбаунда.
+    // goodput is computed from the first byte to the end of the sample (without setup/TTFB) —
+    // this is the honest speed of the outbound channel.
     let goodput_bps = calculate_goodput_bps(bytes, fb.elapsed().as_millis() as u64);
 
     let complete = bytes >= sample_bytes;
@@ -540,10 +540,10 @@ async fn probe_one_with_policy(
     })
 }
 
-/// Подпись «занавеса»: поток встал, не дотянув до порога, и закрыл окно паузы
-/// сам — а не потому что у пробы кончился бюджет. Без второго условия любая
-/// медленная выборка отмечалась как stall на последнем тике, и в осциллограмме
-/// с журналом появлялся троттлинг там, где канал просто узкий.
+/// The "curtain" signature: the stream stopped before reaching the threshold and closed the pause window
+/// itself — not because the probe ran out of budget. Without the second condition any
+/// slow sample was marked as a stall on the last tick, and throttling showed up
+/// in the oscilloscope and log where the channel was simply narrow.
 fn stall_detected(bytes: u64, stall_before_bytes: u64, gate_is_budget: bool) -> bool {
     !gate_is_budget && bytes < stall_before_bytes
 }
@@ -566,11 +566,11 @@ mod tests {
 
     #[test]
     fn stall_is_reported_only_when_the_stream_pauses_on_its_own() {
-        // Поток замолчал внутри окна ожидания, не дотянув до порога — занавес.
+        // The stream went silent within the wait window before reaching the threshold — the curtain.
         assert!(stall_detected(1_024, STALL_BYTES, false));
-        // Тот же обрыв, но гейт закрыл конец бюджета: это медленный канал.
+        // The same break, but the end of the budget closed the gate: it's a slow channel.
         assert!(!stall_detected(1_024, STALL_BYTES, true));
-        // Порог набран — пауза уже не подпись троттла.
+        // The threshold was reached — a pause is no longer the throttling signature.
         assert!(!stall_detected(STALL_BYTES, STALL_BYTES, false));
     }
 

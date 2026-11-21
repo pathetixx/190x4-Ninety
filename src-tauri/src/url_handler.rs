@@ -1,22 +1,22 @@
-// Регистрация Ninety как обработчика top-level VPN-схем (vless/vmess/...)
-// в HKEY_CURRENT_USER\Software\Classes. Без admin прав, per-user.
+// Registering Ninety as the handler of top-level VPN schemes (vless/vmess/...)
+// in HKEY_CURRENT_USER\Software\Classes. No admin rights, per-user.
 //
-// Tauri-plugin-deep-link регистрирует только статически заявленные в
-// tauri.conf.json схемы (у нас — "ninety"). Для opt-in регистрации
-// дополнительных протоколов (vless/vmess/ss/trojan/hysteria2/hy2/tuic/sub/tt/
+// Tauri-plugin-deep-link registers only the schemes statically declared in
+// tauri.conf.json (ours is "ninety"). For opt-in registration
+// of additional protocols (vless/vmess/ss/trojan/hysteria2/hy2/tuic/sub/tt/
 // naive+https/naive+quic)
-// делаем то же самое что и tauri-plugin-deep-link, но руками, чтобы юзер
-// мог включить/выключить из Settings → Общие.
+// we do the same as tauri-plugin-deep-link, but by hand, so that the user
+// can turn it on/off from Settings → General.
 //
-// Структура per-scheme в HKCU\Software\Classes\<scheme>:
+// Per-scheme structure in HKCU\Software\Classes\<scheme>:
 //   (Default) = "URL:<Scheme> Protocol"
 //   URL Protocol = ""
 //   \shell\open\command\(Default) = "\"<exe>\" \"%1\""
 
-// Список обязан совпадать с LINK_HANDLER_SCHEMES (src/lib/link-handlers.js) и
-// TOP_LEVEL_PROTOS (src/lib/deeplink.js): фронт регистрирует схемы по своему
-// списку, а любая схема вне этого возвращает Err. Равенство трёх списков
-// проверяет tests/link-schemes.test.mjs.
+// The list must match LINK_HANDLER_SCHEMES (src/lib/link-handlers.js) and
+// TOP_LEVEL_PROTOS (src/lib/deeplink.js): the frontend registers schemes from its own
+// list, and any scheme outside this one returns Err. The equality of the three lists
+// is checked by tests/link-schemes.test.mjs.
 pub const SUPPORTED_SCHEMES: &[&str] = &[
     "vless",
     "vmess",
@@ -96,11 +96,11 @@ fn handler_backup_path(scheme: &str) -> String {
     format!("Software\\Ninety\\UrlHandlers\\{scheme}")
 }
 
-// Последний command, который Ninety записал для схемы. После переустановки в
-// другой каталог (или перехода installed ↔ portable) актуальный exe уже не
-// совпадает с записью в реестре, но владельцем остаёмся мы: без этого маркера
-// disable молча ничего не снимал, а статус показывал «выключено» при живой
-// регистрации на несуществующий путь.
+// The last command Ninety wrote for the scheme. After reinstalling into
+// a different directory (or switching installed ↔ portable) the current exe no longer
+// matches the registry entry, but we remain the owner: without this marker
+// disable silently removed nothing, and the status showed "off" with a live
+// registration pointing to a nonexistent path.
 #[cfg(target_os = "windows")]
 fn owned_command_marker(hkcu: &winreg::RegKey, scheme: &str) -> Option<String> {
     hkcu.open_subkey(handler_backup_path(scheme))
@@ -126,9 +126,9 @@ pub fn register_url_handler(scheme: String) -> Result<(), String> {
     let command_path = format!("{base}\\shell\\open\\command");
     let backup_path = handler_backup_path(&scheme);
 
-    // Перед КАЖДЫМ захватом чужой регистрации сохраняем её текущее значение.
-    // Другой VPN-клиент мог стать владельцем уже после первого opt-in Ninety;
-    // disable обязан вернуть именно его, а не исторический stale backup.
+    // Before EVERY takeover of a foreign registration we save its current value.
+    // Another VPN client may have become the owner after Ninety's first opt-in;
+    // disable must restore exactly that one, not a historical stale backup.
     let previous = hkcu
         .open_subkey(&command_path)
         .ok()
@@ -138,9 +138,9 @@ pub fn register_url_handler(scheme: String) -> Result<(), String> {
         let (backup, _) = hkcu
             .create_subkey(&backup_path)
             .map_err(|e| format!("create URL handler backup: {e}"))?;
-        // Saved — commit marker. Сначала снимаем его, чтобы crash между
-        // отдельными registry writes не оставил частично обновлённый backup
-        // выглядеть завершённым.
+        // Saved is the commit marker. We remove it first so that a crash between
+        // separate registry writes doesn't leave a partially updated backup
+        // looking complete.
         backup
             .set_value("Saved", &0u32)
             .map_err(|e| format!("begin URL handler backup: {e}"))?;
@@ -168,8 +168,8 @@ pub fn register_url_handler(scheme: String) -> Result<(), String> {
         .map_err(|e| format!("create command subkey: {e}"))?;
     cmd.set_value("", &expected)
         .map_err(|e| format!("set command: {e}"))?;
-    // Отдельно помечаем последний command Ninety. После OTA exe может переехать:
-    // старый путь остаётся нашим и не должен затереть backup чужого клиента.
+    // We separately mark Ninety's last command. After OTA the exe may move:
+    // the old path stays ours and must not overwrite another client's backup.
     let (backup, _) = hkcu
         .create_subkey(&backup_path)
         .map_err(|e| format!("create URL handler ownership marker: {e}"))?;
@@ -198,9 +198,9 @@ pub fn unregister_url_handler(scheme: String) -> Result<(), String> {
         .open_subkey(&command_path)
         .ok()
         .and_then(|k| k.get_value::<String, _>("").ok());
-    // Другой клиент уже стал владельцем — его регистрацию не трогаем. Свою
-    // прежнюю (записанную ещё по старому пути exe) снимать обязаны: иначе
-    // выключение опции ничего не делает, а схема остаётся за мёртвым путём.
+    // Another client has already become the owner — we don't touch its registration. Our own
+    // previous one (written for the old exe path) must be removed: otherwise
+    // turning the option off does nothing, and the scheme stays bound to a dead path.
     let last_owned = owned_command_marker(&hkcu, &scheme);
     if !handler_is_owned(actual.as_deref(), &expected, last_owned.as_deref()) {
         return Ok(());
@@ -234,8 +234,8 @@ pub fn unregister_url_handler(scheme: String) -> Result<(), String> {
         let _ = hkcu.delete_subkey_all(&backup_path);
         return Ok(());
     }
-    // delete_subkey_all — рекурсивное удаление; отсутствие ключа = Ok(()) в нашем
-    // понимании (нечего удалять). NotFound маппим в Ok.
+    // delete_subkey_all is a recursive delete; a missing key = Ok(()) in our
+    // understanding (nothing to delete). NotFound is mapped to Ok.
     match hkcu.delete_subkey_all(&base) {
         Ok(()) => {
             let _ = hkcu.delete_subkey_all(&backup_path);
@@ -249,15 +249,15 @@ pub fn unregister_url_handler(scheme: String) -> Result<(), String> {
     }
 }
 
-/// Exe из команды обработчика вида `"<путь к exe>" "%1"`.
+/// The exe from a handler command of the form `"<path to exe>" "%1"`.
 #[cfg(target_os = "windows")]
 fn handler_exe(command: &str) -> Option<&str> {
     command.strip_prefix('"')?.split('"').next()
 }
 
-/// После ремонта portable-копии: схемы, которые Ninety зарегистрировал из
-/// вложенной копии внутри `nested_root` (NinetyData этой установки), переводятся
-/// на текущий exe. Регистрации другой копии Ninety и чужих клиентов не трогаем.
+/// After repairing a portable copy: schemes that Ninety registered from
+/// a nested copy inside `nested_root` (this installation's NinetyData) are switched
+/// to the current exe. Registrations of another Ninety copy and of foreign clients are left alone.
 #[cfg(target_os = "windows")]
 pub fn refresh_owned_handlers(nested_root: &std::path::Path) {
     use winreg::enums::*;
@@ -296,8 +296,8 @@ pub fn refresh_owned_handlers(nested_root: &std::path::Path) {
 #[cfg(not(target_os = "windows"))]
 pub fn refresh_owned_handlers(_nested_root: &std::path::Path) {}
 
-// non-Windows stubs — Tauri command'ы должны существовать, чтобы invoke_handler
-// собирался без cfg-условий.
+// non-Windows stubs — Tauri commands must exist so that invoke_handler
+// builds without cfg conditions.
 #[tauri::command]
 #[cfg(not(target_os = "windows"))]
 pub fn register_url_handler(_scheme: String) -> Result<(), String> {
@@ -354,7 +354,7 @@ mod tests {
         assert!(!handler_is_owned(Some(other), current, Some(old)));
         assert!(!handler_is_owned(None, current, Some(old)));
         assert!(!handler_is_owned(Some(""), current, Some(old)));
-        // Без маркера владения прежний путь чужой: снимать его нельзя.
+        // Without the ownership marker the previous path is foreign: it must not be removed.
         assert!(!handler_is_owned(Some(old), current, None));
     }
 }

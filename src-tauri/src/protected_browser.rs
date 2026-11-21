@@ -1,8 +1,8 @@
 use serde::Serialize;
 
 const OFFICIAL_DOWNLOAD_URL: &str = "https://mullvad.net/en/download/browser/windows";
-// Для IPC и запуска оставляем консервативную границу, хотя ShellExecute из
-// Explorer допускает более длинную командную строку.
+// For IPC and launching we keep a conservative limit, although ShellExecute from
+// Explorer allows a longer command line.
 const MAX_URL_LENGTH: usize = 768;
 const MAX_VERSION_LENGTH: usize = 64;
 
@@ -12,11 +12,11 @@ pub struct ProtectedBrowserStatus {
     pub available: bool,
     pub path: Option<String>,
     pub version: Option<String>,
-    /// Почему найденный файл всё-таки отклонён: "signature" (подписан чужим
-    /// издателем), "link" (в пути есть junction/симлинк) или "layout" (рядом
-    /// нет установки Mullvad Browser). None — браузера на месте просто нет.
-    /// Без этого поля пользователь видел «не найден» на установленном браузере
-    /// и не имел ни одной зацепки.
+    /// Why the found file was rejected after all: "signature" (signed by another
+    /// publisher), "link" (the path contains a junction/symlink) or "layout" (no
+    /// Mullvad Browser installation next to it). None — the browser simply isn't there.
+    /// Without this field the user saw "not found" with the browser installed
+    /// and had not a single clue.
     pub reason: Option<&'static str>,
 }
 
@@ -53,9 +53,9 @@ pub fn protected_browser_status() -> ProtectedBrowserStatus {
     }
 }
 
-/// Переданный адрес намеренно ограничен обычными web-схемами. При отсутствии
-/// адреса браузер запускается без параметров; произвольные browser-флаги из
-/// frontend никогда не попадают в командную строку.
+/// The passed address is deliberately limited to regular web schemes. Without
+/// an address the browser starts without parameters; arbitrary browser flags from
+/// the frontend never get into the command line.
 #[tauri::command]
 pub fn protected_browser_launch(
     state: tauri::State<'_, crate::vpn::SingboxState>,
@@ -78,8 +78,8 @@ pub fn protected_browser_launch(
     }
 }
 
-/// Только открывает официальную страницу Mullvad в браузере по умолчанию.
-/// Загрузка и установка без явного действия пользователя не выполняются.
+/// Only opens the official Mullvad page in the default browser.
+/// No download or installation happens without an explicit user action.
 #[tauri::command]
 pub fn protected_browser_open_download(
     state: tauri::State<'_, crate::vpn::SingboxState>,
@@ -162,12 +162,12 @@ fn parse_application_ini_version(contents: &str) -> Option<String> {
         .and_then(sanitize_version)
 }
 
-/// Mullvad подписывает только инсталлятор — внутренние бинарники (в том числе
-/// сам mullvadbrowser.exe) идут без Authenticode. Требовать подпись означало бы
-/// не запускать браузер никогда, поэтому у неподписанного файла спрашиваем
-/// доказательство иного рода: рядом обязана лежать настоящая установка, а не
-/// один подкинутый exe. Официальный application.ini — Vendor=Mullvad,
-/// Name=MullvadBrowser (пробел в имени допускаем на будущее).
+/// Mullvad signs only the installer — the internal binaries (including
+/// mullvadbrowser.exe itself) ship without Authenticode. Requiring a signature would mean
+/// never launching the browser, so for an unsigned file we ask for
+/// a different kind of proof: a real installation must lie next to it, not
+/// a single planted exe. The official application.ini has Vendor=Mullvad,
+/// Name=MullvadBrowser (a space in the name is allowed for the future).
 fn application_ini_is_mullvad_browser(contents: &str) -> bool {
     let squash = |value: &str| -> String {
         value
@@ -244,13 +244,13 @@ mod windows_impl {
         version: Option<String>,
     }
 
-    /// Почему кандидат отклонён. Файл на месте — значит пользователю нельзя
-    /// говорить «не найден»: он смотрит на установленный браузер.
+    /// Why the candidate was rejected. The file is in place — so the user must not
+    /// be told "not found": they are looking at an installed browser.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(super) enum Rejection {
         Signature,
         Link,
-        /// Файл называется как браузер, но рядом нет установки Mullvad.
+        /// The file is named like the browser, but there is no Mullvad installation next to it.
         Layout,
     }
 
@@ -322,9 +322,9 @@ mod windows_impl {
         // status discovery.
         let verified = verified_executable_path(&browser.path)
             .ok_or_else(|| crate::util::i18n_error("backend.browser.signature"))?;
-        // std::fs::canonicalize() на Windows обычно возвращает extended-length
-        // путь (\\?\C:\...). Он подходит для проверки файла, но Windows Shell
-        // и некоторые installers не принимают такую форму при запуске.
+        // std::fs::canonicalize() on Windows usually returns an extended-length
+        // path (\\?\C:\...). It works for checking the file, but the Windows Shell
+        // and some installers don't accept this form when launching.
         let elevated = crate::elevation::is_elevated();
         let executable = if elevated {
             without_extended_prefix(&verified)
@@ -337,9 +337,9 @@ mod windows_impl {
             .to_path_buf();
 
         if elevated {
-            // TUN обычно запускает Ninety от администратора. Просим обычный
-            // Explorer выполнить ShellExecute: это официальный Windows-путь
-            // запуска без повышения и не требует SeImpersonatePrivilege.
+            // TUN usually runs Ninety as administrator. We ask the regular
+            // Explorer to perform ShellExecute: this is the official Windows way
+            // to launch without elevation and doesn't require SeImpersonatePrivilege.
             shell_execute_as_interactive_user(
                 executable.into_os_string(),
                 target.map(browser_url_shell_arguments),
@@ -505,8 +505,8 @@ mod windows_impl {
         inspect_executable_path(path).ok()
     }
 
-    /// Ok — путь можно запускать. Err(Some) — файл есть, но не прошёл проверку.
-    /// Err(None) — кандидата просто нет (не тот файл, нет на диске).
+    /// Ok — the path can be launched. Err(Some) — the file exists but failed the check.
+    /// Err(None) — there is simply no candidate (wrong file, not on disk).
     fn inspect_executable_path(path: &Path) -> Result<PathBuf, Option<Rejection>> {
         if !is_local_absolute_path(path)
             || !path
@@ -527,20 +527,20 @@ mod windows_impl {
         if !metadata.is_file() || metadata.len() == 0 {
             return Err(None);
         }
-        // Проверяем и исходный путь, и canonical target: canonicalize
-        // follows junctions, поэтому проверка только target уже не видит
-        // reparse-компонент, через который к нему пришли.
+        // We check both the original path and the canonical target: canonicalize
+        // follows junctions, so checking only the target no longer sees
+        // the reparse component it was reached through.
         if has_reparse_point(path) || has_reparse_point(&canonical) {
             return Err(Some(Rejection::Link));
         }
         match signature_verdict(&canonical) {
-            // Подпись есть, но чужая (или битая) — это подмена, а не Mullvad.
+            // There is a signature, but a foreign (or broken) one — that's a substitution, not Mullvad.
             SignatureVerdict::Untrusted | SignatureVerdict::RevocationUnavailable => {
                 return Err(Some(Rejection::Signature))
             }
-            // Требовать подпись у продукта, который её не имеет, значит не
-            // запускать браузер никогда. Взамен требуем настоящую установку:
-            // одинокий подкинутый exe не принесёт с собой application.ini.
+            // Requiring a signature from a product that doesn't have one means never
+            // launching the browser. Instead we require a real installation:
+            // a lone planted exe won't bring an application.ini with it.
             SignatureVerdict::Unsigned => {
                 if !installation_looks_genuine(&canonical) {
                     return Err(Some(Rejection::Layout));
@@ -595,11 +595,11 @@ mod windows_impl {
         }
     }
 
-    // Отзыв сертификата проверяется по сети (CRL/OCSP). У приложения, которое
-    // включают ИМЕННО когда сеть режут, это первый кандидат на ложное «браузер
-    // не найден»: WinVerifyTrust возвращает revocation-ошибку, и совершенно
-    // валидная подпись читается как чужая. Недоступность списков отзыва — не
-    // приговор подписи, поэтому такой ответ повторяем без revocation.
+    // Certificate revocation is checked over the network (CRL/OCSP). For an app that
+    // people turn on EXACTLY when the network is being cut, this is the first candidate for a false "browser
+    // not found": WinVerifyTrust returns a revocation error, and a perfectly
+    // valid signature reads as foreign. Unavailable revocation lists are no
+    // verdict on the signature, so such an answer is retried without revocation.
     const CERT_E_REVOCATION_FAILURE: i32 = 0x800B_010Eu32 as i32;
     const CRYPT_E_REVOCATION_OFFLINE: i32 = 0x8009_2013u32 as i32;
     const CRYPT_E_NO_REVOCATION_CHECK: i32 = 0x8009_2012u32 as i32;
@@ -608,7 +608,7 @@ mod windows_impl {
     #[derive(PartialEq, Eq)]
     enum SignatureVerdict {
         Trusted,
-        /// Подписи нет вовсе — ровно то, что Mullvad и выпускает.
+        /// No signature at all — exactly what Mullvad ships.
         Unsigned,
         RevocationUnavailable,
         Untrusted,
@@ -729,9 +729,9 @@ mod windows_impl {
                 && matches!(bytes[2], b'\\' | b'/')
         };
         if let Some(extended) = value.strip_prefix(r"\\?\") {
-            // canonicalize обычно даёт \\?\C:\..., но namespace также умеет
-            // GLOBALROOT/Device/Mup. Разрешаем только локальную drive-letter
-            // форму, чтобы registry не подсунул device/сетевой executable.
+            // canonicalize usually gives \\?\C:\..., but the namespace can also do
+            // GLOBALROOT/Device/Mup. We allow only the local drive-letter
+            // form so the registry can't slip in a device/network executable.
             return is_drive_path(extended);
         }
         is_drive_path(&value)
@@ -768,9 +768,9 @@ mod windows_impl {
         if name.eq_ignore_ascii_case("Mullvad Browser") {
             return true;
         }
-        // Alpha устанавливается рядом со stable, но сама Mullvad предупреждает
-        // о более слабых гарантиях. Для privacy-функции автоматически выбираем
-        // только stable-запись (некоторые installers добавляют версию в имя).
+        // Alpha installs next to stable, but Mullvad itself warns
+        // about weaker guarantees. For a privacy feature we automatically pick
+        // only the stable entry (some installers add the version to the name).
         let prefix = "Mullvad Browser ";
         name.get(..prefix.len())
             .is_some_and(|value| value.eq_ignore_ascii_case(prefix))
@@ -883,8 +883,8 @@ mod windows_impl {
             let shell: IShellDispatch2 = application
                 .cast()
                 .map_err(|e| format!("Windows Explorer does not support ShellExecute: {e}"))?;
-            // Firefox/Mullvad делает тот же best-effort вызов перед запуском,
-            // чтобы новое окно могло выйти на передний план.
+            // Firefox/Mullvad makes the same best-effort call before launching
+            // so the new window can come to the foreground.
             let _ = CoAllowSetForegroundWindow(&shell, None);
 
             let file = bstr_from_os(file);
@@ -1041,9 +1041,9 @@ mod tests {
         );
     }
 
-    // Mullvad подписывает только инсталлятор, поэтому доказательством
-    // подлинности неподписанного exe служит application.ini рядом с ним.
-    // Строки взяты из официальной сборки 15.0.19 без изменений.
+    // Mullvad signs only the installer, so the proof
+    // of authenticity for an unsigned exe is the application.ini next to it.
+    // The strings are taken from the official 15.0.19 build unchanged.
     #[test]
     fn official_application_ini_identifies_mullvad_browser() {
         let official = "\
@@ -1054,7 +1054,7 @@ RemotingName=Mullvad Browser
 Version=140.13.0
 ";
         assert!(application_ini_is_mullvad_browser(official));
-        // Пробел в имени — на случай, если сборка его вернёт.
+        // A space in the name — in case the build brings it back.
         assert!(application_ini_is_mullvad_browser(
             "[App]\nVendor=Mullvad\nName=Mullvad Browser\n"
         ));
@@ -1072,11 +1072,11 @@ Version=140.13.0
         assert!(!application_ini_is_mullvad_browser(
             "[App]\nVendor=Mozilla\nName=Firefox\n"
         ));
-        // Правильное имя с чужим вендором — тоже мимо.
+        // The correct name with a foreign vendor doesn't pass either.
         assert!(!application_ini_is_mullvad_browser(
             "[App]\nVendor=Evil\nName=MullvadBrowser\n"
         ));
-        // Ключи вне секции [App] не считаются.
+        // Keys outside the [App] section don't count.
         assert!(!application_ini_is_mullvad_browser(
             "[Gecko]\nVendor=Mullvad\nName=MullvadBrowser\n"
         ));

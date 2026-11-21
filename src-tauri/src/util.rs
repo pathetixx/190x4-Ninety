@@ -1,19 +1,19 @@
-// Ninety · мелкие общие утилиты бэкенда.
+// Ninety · small shared backend utilities.
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-/// Взятие std-мьютекса с восстановлением после отравления.
+/// Taking a std mutex with recovery from poisoning.
 ///
-/// `Mutex::lock().unwrap()` паникует, если поток запаниковал, держа этот лок
-/// (poisoning). У нас за такими локами живут хэндлы процессов-движков
-/// (sing-box/xray/winws), флаги смерти и WFP-хэндл: одна паника под локом
-/// отравила бы мьютекс, и КАЖДАЯ последующая команда с этим `State` тоже
-/// паниковала бы на `.unwrap()` — приложение «залипало» бы без внятной причины
-/// (ядро не остановить, kill switch не снять). Данные под нашими локами при этом
-/// консистентны (короткие критические секции без инвариант-ломающих паник), так
-/// что продолжить с восстановленным guard'ом безопаснее, чем ронять всё.
+/// `Mutex::lock().unwrap()` panics if a thread panicked while holding this lock
+/// (poisoning). Behind such locks we keep the engine process handles
+/// (sing-box/xray/winws), death flags and the WFP handle: one panic under a lock
+/// would poison the mutex, and EVERY subsequent command with this `State` would also
+/// panic on `.unwrap()` — the app would "get stuck" for no clear reason
+/// (the core can't be stopped, the kill switch can't be removed). The data under our locks stays
+/// consistent (short critical sections without invariant-breaking panics), so
+/// continuing with a recovered guard is safer than bringing everything down.
 pub trait MutexExt<T> {
-    /// Как `lock().unwrap()`, но при отравлении возвращает guard, а не паникует.
+    /// Like `lock().unwrap()`, but on poisoning returns the guard instead of panicking.
     fn lock_recover(&self) -> MutexGuard<'_, T>;
 }
 
@@ -23,9 +23,9 @@ impl<T> MutexExt<T> for Mutex<T> {
     }
 }
 
-/// Ошибка, которую покажет интерфейс: ключ каталога i18n вместо готового текста,
-/// потому что язык интерфейса знает только фронтенд. Токен разбирает
-/// `backend-errors.js`; в логе он остаётся читаемым.
+/// An error the interface will show: an i18n catalog key instead of ready text,
+/// because only the frontend knows the interface language. The token is parsed by
+/// `backend-errors.js`; in the log it stays readable.
 pub fn i18n_error(key: &str) -> String {
     format!("[[{key}]]")
 }
@@ -38,14 +38,14 @@ pub fn i18n_error_with(key: &str, vars: &[(&str, &str)]) -> String {
     format!("[[{key} {}]]", serde_json::Value::Object(vars))
 }
 
-/// Абсолютный путь к системному каталогу Windows (`...\System32`).
+/// Absolute path to the Windows system directory (`...\System32`).
 ///
-/// `%SystemRoot%` — переменная окружения процесса, и писать её может в том числе
-/// `HKCU\Environment`, то есть обычный пользователь без прав администратора.
-/// Отсюда берутся пути к `schtasks.exe`, `sc.exe`, `taskkill.exe` и
-/// `powershell.exe`, которые запускаются через `runas`: подменённая переменная
-/// превращала бы UAC-подтверждение пользователя в запуск чужого бинаря от
-/// администратора. `GetSystemDirectoryW` окружение не читает.
+/// `%SystemRoot%` is a process environment variable, and it can also be written by
+/// `HKCU\Environment`, i.e. a regular user without administrator rights.
+/// This is where the paths to `schtasks.exe`, `sc.exe`, `taskkill.exe` and
+/// `powershell.exe` come from, which are launched via `runas`: a swapped variable
+/// would turn the user's UAC confirmation into launching a foreign binary as
+/// administrator. `GetSystemDirectoryW` doesn't read the environment.
 #[cfg(target_os = "windows")]
 pub fn system_directory() -> std::path::PathBuf {
     use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
@@ -57,18 +57,18 @@ pub fn system_directory() -> std::path::PathBuf {
     std::path::PathBuf::from(String::from_utf16_lossy(&buffer[..len]))
 }
 
-// Вне Windows системных утилит по этому пути нет: функция нужна только затем,
-// чтобы общий код, собирающий такие пути, компилировался.
+// Outside Windows there are no system utilities at this path: the function is only needed
+// so that shared code building such paths compiles.
 #[cfg(not(target_os = "windows"))]
 pub fn system_directory() -> std::path::PathBuf {
     std::path::PathBuf::from("/usr/bin")
 }
 
-/// Абсолютный путь к каталогу Windows (`C:\Windows`), родителю `System32`.
+/// Absolute path to the Windows directory (`C:\Windows`), the parent of `System32`.
 ///
-/// Тот же довод, что и у [`system_directory`]: `explorer.exe` лежит здесь, а не
-/// в `System32`, и запускать его по `%SystemRoot%` нельзя — переменную пишет
-/// `HKCU\Environment`. `GetWindowsDirectoryW` окружение не читает.
+/// The same argument as for [`system_directory`]: `explorer.exe` lives here, not
+/// in `System32`, and it must not be launched via `%SystemRoot%` — the variable is written by
+/// `HKCU\Environment`. `GetWindowsDirectoryW` doesn't read the environment.
 #[cfg(target_os = "windows")]
 pub fn windows_directory() -> std::path::PathBuf {
     use windows::Win32::System::SystemInformation::GetWindowsDirectoryW;
@@ -80,24 +80,24 @@ pub fn windows_directory() -> std::path::PathBuf {
     std::path::PathBuf::from(String::from_utf16_lossy(&buffer[..len]))
 }
 
-/// Системный файл `hosts` (`...\System32\drivers\etc\hosts`).
+/// The system `hosts` file (`...\System32\drivers\etc\hosts`).
 ///
-/// Собирается от [`system_directory`], а не от `%SystemRoot%`: путь уходит в
-/// перезапись файла из elevated-процесса, и подменённая переменная превратила бы
-/// её в запись в произвольный файл, выбранный обычным пользователем.
+/// Built from [`system_directory`], not from `%SystemRoot%`: the path is used to
+/// rewrite the file from an elevated process, and a swapped variable would turn
+/// that into writing an arbitrary file chosen by a regular user.
 #[cfg(target_os = "windows")]
 pub fn system_hosts_path() -> std::path::PathBuf {
     system_directory().join("drivers").join("etc").join("hosts")
 }
 
-/// Корни Program Files, запись в которые уже требует прав администратора.
+/// Program Files roots that already require administrator rights to write to.
 ///
-/// Берутся из `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion` — туда пишет
-/// только администратор. Одноимённые переменные окружения (`%ProgramFiles%` и
-/// соседние) для этого не годятся: их переопределяет `HKCU\Environment`, то есть
-/// обычный пользователь, а решение по этим путям принимается о выдаче задаче
-/// автозапуска уровня `highest` (запуск от администратора без UAC на каждый
-/// логин). Пустой результат безопасен: он означает «не системный каталог».
+/// Taken from `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion` — only
+/// an administrator writes there. Environment variables of the same name (`%ProgramFiles%` and
+/// neighbors) are no good for this: they are overridden by `HKCU\Environment`, i.e.
+/// a regular user, and these paths decide whether the autostart task gets
+/// the `highest` level (running as administrator without UAC on every
+/// login). An empty result is safe: it means "not a system directory".
 #[cfg(target_os = "windows")]
 pub fn program_files_roots() -> Vec<std::path::PathBuf> {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
@@ -122,13 +122,13 @@ pub fn program_files_roots() -> Vec<std::path::PathBuf> {
     .collect()
 }
 
-/// Обнуляет файл лога через отдельный хэндл с правом записи данных.
+/// Truncates a log file through a separate handle with data write rights.
 ///
-/// Логи движков открыты в append-режиме. На Windows std открывает такой хэндл
-/// без `FILE_WRITE_DATA`, а обрезке файла нужен именно он: `set_len(0)` на
-/// append-хэндле отказывает в доступе, и кап в 8 МБ молча не срабатывал —
-/// журнал рос всю сессию. Append-хэндл после обрезки продолжает писать в
-/// текущий конец файла, то есть с нуля.
+/// Engine logs are opened in append mode. On Windows std opens such a handle
+/// without `FILE_WRITE_DATA`, and truncating the file needs exactly that: `set_len(0)` on
+/// an append handle is denied access, and the 8 MB cap silently didn't work —
+/// the log grew for the whole session. After truncation the append handle keeps writing at
+/// the current end of the file, i.e. from zero.
 pub(crate) fn truncate_log_file(path: &std::path::Path) -> bool {
     std::fs::OpenOptions::new()
         .write(true)
@@ -137,29 +137,29 @@ pub(crate) fn truncate_log_file(path: &std::path::Path) -> bool {
         .is_ok()
 }
 
-/// HTTP-клиент, который никогда не читает системный прокси Windows.
+/// An HTTP client that never reads the Windows system proxy.
 ///
-/// У reqwest в Cargo.toml фичи по умолчанию выключены, но Cargo объединяет фичи
-/// всего графа зависимостей: tauri и updater включают чтение системного прокси,
-/// и тогда любой `Client::builder()` без `.proxy()`/`.no_proxy()` берёт
-/// `ProxyServer` из реестра. Исключения `127.*` и `<local>` из `ProxyOverride`
-/// для IP-адресов при этом не срабатывают, поэтому даже запрос к clash-API на
-/// 127.0.0.1 уходил в прокси — чужой, мёртвый или наш собственный. «Прямые»
-/// замеры в режиме системного прокси тоже шли через туннель.
+/// reqwest has default features disabled in Cargo.toml, but Cargo unifies features
+/// across the whole dependency graph: tauri and updater enable reading the system proxy,
+/// and then any `Client::builder()` without `.proxy()`/`.no_proxy()` takes
+/// `ProxyServer` from the registry. The `127.*` and `<local>` exclusions from `ProxyOverride`
+/// don't apply to IP addresses, so even a request to the clash API on
+/// 127.0.0.1 went to the proxy — someone else's, a dead one or our own. "Direct"
+/// measurements in system proxy mode also went through the tunnel.
 ///
-/// Явный `.proxy()` поверх этого билдера работает как обычно: он добавляет
-/// прокси в уже пустой список. Все клиенты бэкенда строятся только отсюда —
-/// это проверяет tests/rust-http-clients.test.mjs.
+/// An explicit `.proxy()` on top of this builder works as usual: it adds
+/// the proxy to an already empty list. All backend clients are built only from here —
+/// tests/rust-http-clients.test.mjs checks this.
 pub(crate) fn direct_client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder().no_proxy()
 }
 
-/// Прирост длины тела с проверкой переполнения и лимита.
+/// Body length increment with overflow and limit checks.
 ///
-/// `pub(crate)`, потому что этим же гвардом обязаны пользоваться те, кому нужен
-/// собственный текст ошибки и поэтому не подходит `read_response_capped`
-/// целиком (subscription.rs). Собственная арифметика на месте вызова —
-/// это ровно тот `current + incoming` без `checked_add`, который здесь и закрыт.
+/// `pub(crate)` because the same guard must be used by those who need
+/// their own error text and for whom `read_response_capped` as a whole
+/// doesn't fit (subscription.rs). Custom arithmetic at the call site is
+/// exactly the `current + incoming` without `checked_add` that is closed off here.
 pub(crate) fn checked_body_len(
     current: usize,
     incoming: usize,
@@ -174,7 +174,7 @@ pub(crate) fn checked_body_len(
     Ok(next)
 }
 
-/// Читает HTTP body потоково с реальным лимитом, не доверяя Content-Length.
+/// Reads the HTTP body as a stream with a real limit, without trusting Content-Length.
 pub async fn read_response_capped(
     mut response: reqwest::Response,
     max_bytes: usize,
@@ -240,8 +240,8 @@ mod tests {
             .unwrap()
     }
 
-    // Причина, по которой кап логов не работал: append-хэндл на Windows не
-    // умеет обрезать файл. Если std когда-нибудь это поменяет, тест скажет.
+    // The reason the log cap didn't work: an append handle on Windows can't
+    // truncate a file. If std ever changes this, the test will tell.
     #[cfg(target_os = "windows")]
     #[test]
     fn an_append_handle_cannot_truncate_on_windows() {

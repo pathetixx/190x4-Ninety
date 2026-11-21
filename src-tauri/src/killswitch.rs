@@ -1,26 +1,26 @@
-// Ninety · WFP kill switch (I.2) — ЭКСПЕРИМЕНТАЛЬНО, off-by-default.
+// Ninety · WFP kill switch (I.2) — EXPERIMENTAL, off by default.
 //
-// Назначение: при падении ядра (sing-box/xray) в режимах proxy/systemProxy трафик
-// не должен утечь в открытую сеть. Ставим WFP-фильтры: БЛОКИРОВАТЬ весь исходящий
-// на ALE_AUTH_CONNECT, кроме (а) loopback (приложения ходят в локальный mixed-proxy)
-// и (б) движков Ninety по app-id — их сокеты к VPN-серверу. Движков несколько:
-// внешний коннект делает не только sing-box.exe — при xhttp-нодах наружу ходит
-// xray.exe, при naive/TT — naive.exe / trusttunnel_client.exe (sing-box идёт к ним
-// loopback-мостом). Permit только sing-box глушил бы такие ноды намертво.
-// Если ядро умирает — его permit становится бесполезным, block-all режет прямой
-// выход → нет утечки. Для обычного TUN достаточно strict_route sing-box.
-// Высокоуровневый строгий режим дополнительно передаёт имя TUN-интерфейса:
-// тогда permit получает весь трафик, привязанный Windows к нему. Если интерфейс
-// исчезнет, permit больше не совпадает, а block-all остаётся активен.
+// Purpose: when the core (sing-box/xray) crashes in proxy/systemProxy modes, traffic
+// must not leak into the open network. We install WFP filters: BLOCK all outbound
+// at ALE_AUTH_CONNECT except (a) loopback (apps talk to the local mixed proxy)
+// and (b) Ninety engines by app-id — their sockets to the VPN server. There are several engines:
+// it's not only sing-box.exe that makes external connections — with xhttp nodes
+// xray.exe goes out, with naive/TT — naive.exe / trusttunnel_client.exe (sing-box reaches them
+// via a loopback bridge). Permitting only sing-box would kill such nodes outright.
+// If the core dies, its permit becomes useless, and block-all cuts direct
+// egress → no leak. For regular TUN, sing-box's strict_route is enough.
+// The high-level strict mode additionally passes the TUN interface name:
+// then the permit covers all traffic Windows has bound to it. If the interface
+// disappears, the permit no longer matches, while block-all stays active.
 //
-// Безопасность от «вечного лока»: открываем WFP-движок DYNAMIC-сессией — все объекты
-// авто-снимаются при закрытии хэндла ИЛИ выходе процесса Ninety. То есть если аппа
-// упадёт, фильтры исчезнут сами, сеть не останется заблокированной навсегда.
+// Safety against a "permanent lock": we open the WFP engine with a DYNAMIC session — all objects
+// are removed automatically when the handle is closed OR the Ninety process exits. So if the app
+// crashes, the filters disappear on their own, and the network doesn't stay blocked forever.
 //
-// ⚠️ ВНИМАНИЕ: сырой FWPM-FFI, локально НЕ компилировался (правило проекта — сборка
-// только на CI). Первый CI-ран может потребовать фиксапов имён полей/констант
-// windows-rs. Фича выключена по умолчанию (general.killSwitch /
-// privacy.strictTunnel) — на обычных юзеров не влияет, пока не включат вручную.
+// ⚠️ WARNING: raw FWPM FFI, NOT compiled locally (project rule — builds happen
+// only in CI). The first CI run may require fixups of windows-rs field/constant
+// names. The feature is off by default (general.killSwitch /
+// privacy.strictTunnel) — it doesn't affect regular users until enabled manually.
 
 use std::sync::Mutex;
 
@@ -50,13 +50,13 @@ fn existing_engine_paths(dir: &std::path::Path) -> Vec<String> {
 
 #[derive(Clone, Copy)]
 struct KillSwitchLease {
-    /// HANDLE не Send/Sync — храним числом и восстанавливаем только внутри
-    /// Windows-реализации.
+    /// HANDLE is not Send/Sync — we store it as a number and restore it only inside
+    /// the Windows implementation.
     handle: isize,
-    /// У каждой dynamic-session собственный sublayer: это позволяет полностью
-    /// собрать замену до закрытия старой сессии, без fail-open окна.
+    /// Each dynamic session has its own sublayer: this lets us fully
+    /// assemble the replacement before closing the old session, without a fail-open window.
     sublayer: u128,
-    /// Два критических block-all фильтра (IPv4/IPv6) для health-check.
+    /// Two critical block-all filters (IPv4/IPv6) for the health check.
     block_filters: [u64; 2],
     /// A transition lease is an additional, temporary fail-closed barrier. It
     /// must remain armed after a failed restart; only verified final runtime
@@ -64,15 +64,15 @@ struct KillSwitchLease {
     transition: bool,
 }
 
-/// Активные dynamic-session WFP. Обычно элемент один. Если Windows отказалась
-/// закрыть предыдущую сессию после атомарной замены, сохраняем её handle для
-/// повторного disarm вместо необратимой потери управления фильтрами.
+/// Active WFP dynamic sessions. Usually there is one. If Windows refused to
+/// close the previous session after an atomic replacement, we keep its handle for
+/// a repeated disarm instead of irreversibly losing control over the filters.
 ///
-/// `health` — короткий кэш ответа `is_active`. Проверка бьёт в BFE тремя
-/// запросами на каждую сессию, а спрашивают её и `runtime_snapshot` (UI), и
-/// `health_snapshot` (сторож, раз в 5 с), и верификатор датаплейна. Кэш живёт
-/// доли секунды и сбрасывается при любом изменении набора lease, поэтому
-/// «переармировали → сразу спросили» по-прежнему видит свежий ответ.
+/// `health` is a short cache of the `is_active` answer. The check hits BFE with three
+/// requests per session, and it is asked by `runtime_snapshot` (UI),
+/// `health_snapshot` (the watchdog, every 5 s), and the dataplane verifier. The cache lives
+/// fractions of a second and is reset on any change to the lease set, so
+/// "rearmed → asked right away" still sees a fresh answer.
 #[derive(Default)]
 pub struct KillSwitchState {
     leases: Mutex<Vec<KillSwitchLease>>,
@@ -93,8 +93,8 @@ impl KillSwitchState {
         self.version.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    // Любая мутация набора lease отменяет кэш: ответ, снятый до неё, больше не
-    // описывает действующую политику.
+    // Any mutation of the lease set invalidates the cache: an answer taken before it no longer
+    // describes the policy in effect.
     fn bump_version(&self) {
         self.version
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -111,7 +111,7 @@ impl KillSwitchState {
 
     fn store_health(&self, active: bool, version: u64) {
         if self.version() != version {
-            return; // набор lease сменился, пока шла проверка
+            return; // the lease set changed while the check was running
         }
         *self.health.lock_recover() = Some(HealthCache {
             checked_at: std::time::Instant::now(),
@@ -121,19 +121,19 @@ impl KillSwitchState {
     }
 }
 
-/// Внутренний вариант arm для нативного recovery. Он намеренно принимает тот
-/// же policy-контракт, что IPC-команда, чтобы recovery не обходил WFP-barrier.
+/// Internal arm variant for native recovery. It deliberately takes the same
+/// policy contract as the IPC command so that recovery doesn't bypass the WFP barrier.
 pub(crate) fn arm_policy(
     state: &KillSwitchState,
     allow_lan: Option<bool>,
     tun_interface: Option<String>,
     strict_tunnel: Option<bool>,
 ) -> Result<(), String> {
-    // allow_lan=true (по умолчанию — привязан к route.bypassLan во фронте): наряду
-    // с loopback пропускаем и приватные подсети, чтобы armed-блок не рвал принтеры/
-    // NAS/локальные шары. DHCP пропускаем ВСЕГДА — иначе на renew lease рвётся вся
-    // сеть «непонятно почему». В обычном TUN WFP не нужен; строгий TUN передаёт
-    // strict_tunnel=true и всегда ставит фильтр.
+    // allow_lan=true (by default — tied to route.bypassLan in the frontend): along
+    // with loopback we also let private subnets through so the armed block doesn't break printers/
+    // NAS/local shares. DHCP is ALWAYS let through — otherwise the whole network breaks on lease renew
+    // "for no apparent reason". Regular TUN doesn't need WFP; strict TUN passes
+    // strict_tunnel=true and always installs the filter.
     let allow_lan = allow_lan.unwrap_or(true);
     state.bump_version();
     let mut guard = state.leases.lock_recover();
@@ -155,17 +155,17 @@ pub(crate) fn arm_policy(
         } else if tun_interface.is_some() {
             return Err("a TUN interface is allowed only for the strict kill switch".into());
         }
-        // Сначала целиком собираем новую dynamic-session. Если любой фильтр не
-        // добавился, win::arm закроет только новую сессию, а старая продолжит
-        // блокировать сеть. После успеха swap и закрытие старой уже безопасны.
+        // First assemble the new dynamic session entirely. If any filter fails to
+        // add, win::arm closes only the new session, and the old one keeps
+        // blocking the network. After success, the swap and closing the old one are safe.
         let mut lease = unsafe { win::arm(&exes, allow_lan, tun_interface)? };
         lease.transition = false;
-        // Забираем на замену ТОЛЬКО пользовательскую политику. Транзитный
-        // барьер живёт отдельно: снять его имеет право лишь transition_release
-        // и только после подтверждённой верификации нового runtime. Прежний
-        // `drain(..)` уносил и его, то есть подтверждение приезжало в уже
-        // пустой набор, а фактическая политика на время замены была слабее
-        // барьера (allow_lan и permit контроллера против block-all без них).
+        // Take ONLY the user policy for replacement. The transitional
+        // barrier lives separately: only transition_release may remove it,
+        // and only after the new runtime has been verified. The old
+        // `drain(..)` took it too, so the confirmation arrived into an already
+        // empty set, and the actual policy during the replacement was weaker than
+        // the barrier (allow_lan and the controller permit versus block-all without them).
         let previous: Vec<_> = guard
             .iter()
             .copied()
@@ -180,10 +180,10 @@ pub(crate) fn arm_policy(
                 close_errors.push(error);
             }
         }
-        // Старый preconnect-фильтр рядом с новым connected-фильтром способен
-        // продолжить блокировать TUN из-за одинакового веса sublayer. Не
-        // подтверждаем readiness, пока предыдущая сессия реально не закрыта;
-        // handle сохраняется, поэтому следующий rearm/disarm сможет повторить.
+        // An old preconnect filter next to a new connected filter can
+        // keep blocking TUN because of the same sublayer weight. We don't
+        // confirm readiness until the previous session is actually closed;
+        // the handle is kept, so the next rearm/disarm can retry.
         if !close_errors.is_empty() {
             return Err(close_errors.join("; "));
         }
@@ -215,11 +215,11 @@ pub(crate) fn transition_arm(state: &KillSwitchState, strict_tunnel: bool) -> Re
         let tun_interface = strict_tunnel.then_some("ninety-tun");
         let mut lease = match unsafe { win::arm(&exes, false, tun_interface) } {
             Ok(lease) => lease,
-            // Адаптер Wintun умирает вместе с sing-box: после смерти ядра
-            // TUN-permit привязать не к чему. Раньше это срывало остановку
-            // ещё до неё, и восстановление после смерти ядра в строгом режиме
-            // не запускалось вовсе. Барьер без TUN-permit только строже:
-            // block-all без исключения для интерфейса, которого уже нет.
+            // The Wintun adapter dies together with sing-box: after the core dies
+            // there is nothing to bind the TUN permit to. Previously this broke the stop
+            // before it even began, and recovery after core death in strict mode
+            // never started at all. A barrier without the TUN permit is only stricter:
+            // block-all without an exception for an interface that no longer exists.
             Err(error)
                 if tun_interface.is_some() && error.starts_with("ConvertInterfaceAliasToLuid") =>
             unsafe { win::arm(&exes, false, None)? },
@@ -244,12 +244,12 @@ pub(crate) fn transition_active(state: &KillSwitchState) -> bool {
         .any(|lease| lease.transition)
 }
 
-/// Есть ли действующая ПОЛЬЗОВАТЕЛЬСКАЯ политика (не транзитный барьер).
+/// Whether there is an active USER policy (not a transitional barrier).
 ///
-/// Нужна тому, кто решает снимать барьер: отпускать его в строгой сессии можно
-/// только когда финальный fail-closed фильтр уже собран, иначе снятие открыло
-/// бы окно, ради закрытия которого барьер и ставился. Живость набора здесь не
-/// проверяем — это делает `is_active` со своим кэшем и BFE-пробой.
+/// Needed by whoever decides to remove the barrier: in a strict session it may be released
+/// only once the final fail-closed filter is already assembled, otherwise removing it would open
+/// the very window the barrier was installed to close. Liveness of the set is not
+/// checked here — `is_active` does that with its cache and the BFE probe.
 pub(crate) fn policy_lease_active(state: &KillSwitchState) -> bool {
     state
         .leases
@@ -292,16 +292,16 @@ pub(crate) fn transition_release(state: &KillSwitchState) -> Result<(), String> 
     }
 }
 
-/// Включить или безопасно переармить kill switch. Новая WFP-сессия собирается
-/// транзакционно до закрытия предыдущей. Permit получают все движки Ninety,
-/// найденные рядом с нашим бинарём (Tauri кладёт сайдкары туда же): permit для
-/// не запущенного exe инертен, а пропущенный permit глушит протокол намертво —
-/// поэтому не гадаем, какие ноды в активном конфиге.
+/// Enable or safely rearm the kill switch. The new WFP session is assembled
+/// transactionally before closing the previous one. The permit goes to all Ninety engines
+/// found next to our binary (Tauri puts the sidecars there too): a permit for
+/// an exe that isn't running is inert, while a missing permit kills the protocol outright —
+/// so we don't guess which nodes are in the active config.
 ///
-/// Команда async + spawn_blocking намеренно: сборка сессии — это открытие
-/// движка, sublayer и ~20 FwpmFilterAdd0 с транзакцией, и всё это синхронные
-/// RPC к службе BFE. Синхронная команда исполнялась бы на главном потоке, то
-/// есть морозила окно и IPC WebView2 ровно на переходе состояний.
+/// The command is async + spawn_blocking on purpose: assembling a session means opening
+/// the engine, a sublayer and ~20 FwpmFilterAdd0 calls in a transaction, all of them synchronous
+/// RPCs to the BFE service. A synchronous command would run on the main thread, i.e.
+/// it would freeze the window and WebView2 IPC exactly during the state transition.
 #[tauri::command]
 pub async fn killswitch_arm(
     app: tauri::AppHandle,
@@ -317,8 +317,8 @@ pub async fn killswitch_arm(
     .map_err(|e| format!("waiting for the kill switch to turn on failed: {e}"))?
 }
 
-/// Выключить kill switch (снять все фильтры). Идемпотентно.
-/// async + spawn_blocking по той же причине, что и `killswitch_arm`.
+/// Disable the kill switch (remove all filters). Idempotent.
+/// async + spawn_blocking for the same reason as `killswitch_arm`.
 #[tauri::command]
 pub async fn killswitch_disarm(app: tauri::AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -353,9 +353,9 @@ fn disarm_policy(state: &KillSwitchState) -> Result<(), String> {
     Ok(())
 }
 
-/// Активен ли kill switch (для синхронизации UI).
-/// async + spawn_blocking: на холодном кэше `is_active` идёт в BFE тремя
-/// запросами на каждую сессию — это не работа для главного потока.
+/// Whether the kill switch is active (for UI sync).
+/// async + spawn_blocking: with a cold cache `is_active` hits BFE with three
+/// requests per session — not a job for the main thread.
 #[tauri::command]
 pub async fn killswitch_active(app: tauri::AppHandle) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -376,7 +376,7 @@ pub fn is_active(state: &KillSwitchState) -> bool {
     active
 }
 
-// Живая проверка: подтверждает sublayer и оба block-фильтра каждой сессии в BFE.
+// Live check: confirms the sublayer and both block filters of each session in BFE.
 fn probe_active(state: &KillSwitchState) -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -392,9 +392,9 @@ fn probe_active(state: &KillSwitchState) -> bool {
                 any_alive = true;
                 guard.push(lease);
             } else {
-                // BFE restart/утрата dynamic objects не должны оставлять ложное
-                // true в runtime_snapshot. Но при ошибке Close0 не теряем raw
-                // handle: следующий health-check/disarm повторит cleanup.
+                // A BFE restart/loss of dynamic objects must not leave a false
+                // true in runtime_snapshot. But on a Close0 error we don't lose the raw
+                // handle: the next health check/disarm will retry the cleanup.
                 if unsafe { win::disarm(lease) }.is_err() {
                     guard.push(lease);
                 }
@@ -402,10 +402,10 @@ fn probe_active(state: &KillSwitchState) -> bool {
         }
         let dropped = guard.len() != before;
         drop(guard);
-        // Снятая мёртвая сессия — такая же мутация набора, как arm/disarm.
-        // Без bump кэш, снятый ДО неё, формально описывал бы уже другой набор:
-        // сейчас ответы совпадают, но инвариант «любая мутация отменяет кэш»
-        // (см. bump_version) держится, только пока соблюдается везде.
+        // Removing a dead session is the same kind of set mutation as arm/disarm.
+        // Without a bump, a cache taken BEFORE it would formally describe a different set:
+        // right now the answers match, but the invariant "any mutation invalidates the cache"
+        // (see bump_version) only holds as long as it is observed everywhere.
         if dropped {
             state.bump_version();
         }
@@ -417,8 +417,8 @@ fn probe_active(state: &KillSwitchState) -> bool {
     }
 }
 
-// Снять движок при выходе аппы (на случай, если фронт не успел) — фильтры и так
-// уйдут с процессом (dynamic-session), но закрываем явно.
+// Remove the engine on app exit (in case the frontend didn't get to it) — the filters
+// go away with the process anyway (dynamic session), but we close it explicitly.
 pub fn force_disarm(state: &KillSwitchState) {
     state.bump_version();
     let mut guard = state.leases.lock_recover();
@@ -430,10 +430,10 @@ pub fn force_disarm(state: &KillSwitchState) {
     }
 }
 
-// Все движки, способные делать внешний коннект (см. externalBin в tauri.conf.json).
-// Пропущенные на диске (например dev-запуск без сайдкаров) просто не попадают в
-// permit; если не нашёлся НИ ОДИН — это ошибка: armed-блок без единого permit
-// отрезал бы сеть целиком, включая сам туннель.
+// All engines capable of making external connections (see externalBin in tauri.conf.json).
+// Those missing on disk (e.g. a dev run without sidecars) are simply left out of
+// the permit; if NOT A SINGLE one is found, it's an error: an armed block without a single permit
+// would cut the network entirely, including the tunnel itself.
 #[cfg(target_os = "windows")]
 fn engine_exe_paths(include_controller: bool) -> Result<Vec<String>, String> {
     // Tauri CLI resolves `externalBin: ["binaries/sing-box", ...]` to target-
@@ -448,9 +448,9 @@ fn engine_exe_paths(include_controller: bool) -> Result<Vec<String>, String> {
     if exes.is_empty() {
         return Err(crate::util::i18n_error("backend.killSwitch.engineMissing"));
     }
-    // Обычный kill switch пропускает и Ninety: в proxy/systemProxy его служебные
-    // reqwest-запросы идут напрямую. Строгий TUN контроллер не разрешает —
-    // updater/подписки/прочий fetch обязаны попасть в виртуальный интерфейс.
+    // The regular kill switch also lets Ninety through: in proxy/systemProxy its service
+    // reqwest requests go direct. Strict TUN doesn't allow the controller —
+    // updater/subscriptions/other fetches must go into the virtual interface.
     if include_controller {
         exes.push(self_exe.to_string_lossy().to_string());
     }
@@ -461,8 +461,8 @@ fn engine_exe_paths(include_controller: bool) -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
 
-    // Кэш обязан отражать ровно тот набор lease, на котором был снят: иначе
-    // после переармирования UI и верификатор увидели бы прежний ответ.
+    // The cache must reflect exactly the lease set it was taken on: otherwise
+    // after rearming, the UI and the verifier would see the previous answer.
     #[test]
     fn health_cache_is_scoped_to_the_lease_version() {
         let state = KillSwitchState::default();
@@ -478,7 +478,7 @@ mod tests {
             "мутация набора lease обязана сбрасывать кэш"
         );
 
-        // Ответ, посчитанный до мутации, записывать уже нельзя.
+        // An answer computed before the mutation must not be stored anymore.
         state.store_health(true, version);
         assert_eq!(state.cached_health(state.version()), None);
     }
@@ -509,10 +509,10 @@ mod win {
 
     const AUTHN_DEFAULT: u32 = 0xFFFF_FFFF; // RPC_C_AUTHN_DEFAULT
 
-    // FwpmEngineOpen0 нет в биндингах windows-rs (её сигнатура тянет
-    // SEC_WINNT_AUTH_IDENTITY_W, добавление фичи не помогло) — импортируем символ
-    // напрямую из fwpuclnt.dll через raw-dylib (не зависит от механизма линковки
-    // windows-rs). authidentity передаём null.
+    // FwpmEngineOpen0 isn't in the windows-rs bindings (its signature pulls in
+    // SEC_WINNT_AUTH_IDENTITY_W, adding the feature didn't help) — we import the symbol
+    // directly from fwpuclnt.dll via raw-dylib (independent of the windows-rs linking
+    // mechanism). authidentity is passed as null.
     #[link(name = "fwpuclnt", kind = "raw-dylib")]
     extern "system" {
         fn FwpmEngineOpen0(
@@ -582,7 +582,7 @@ mod win {
     }
 
     pub unsafe fn disarm(lease: super::KillSwitchLease) -> Result<(), String> {
-        // Закрытие хэндла dynamic-сессии снимает все наши фильтры/sublayer.
+        // Closing the dynamic session handle removes all our filters/sublayer.
         let rc = FwpmEngineClose0(HANDLE(lease.handle as *mut core::ffi::c_void));
         if rc == 0 {
             Ok(())
@@ -655,8 +655,8 @@ mod win {
             FWPM_LAYER_ALE_AUTH_CONNECT_V6,
         ];
 
-        // block-all (низкий вес). IDs сохраняем и потом проверяем: живой engine
-        // handle без этих фильтров не является активным kill switch.
+        // block-all (low weight). We keep the IDs and check them later: a live engine
+        // handle without these filters is not an active kill switch.
         let block_filters = [
             add_filter(
                 engine,
@@ -675,7 +675,7 @@ mod win {
                 &mut [],
             )?,
         ];
-        // permit loopback (высокий вес)
+        // permit loopback (high weight)
         for layer in layers {
             let mut c = loopback_condition();
             add_filter(
@@ -687,9 +687,9 @@ mod win {
                 std::slice::from_mut(&mut c),
             )?;
         }
-        // Строгий TUN: пользовательский трафик разрешён только после того, как
-        // Windows связала локальный маршрут с ninety-tun. Когда интерфейс исчезает,
-        // permit перестаёт совпадать, а block-all продолжает держать сеть.
+        // Strict TUN: user traffic is allowed only after
+        // Windows has bound the local route to ninety-tun. When the interface disappears,
+        // the permit stops matching, while block-all keeps holding the network.
         if let Some(mut luid) = tun_luid {
             for layer in layers {
                 let mut c = local_interface_condition(&mut luid);
@@ -703,8 +703,8 @@ mod win {
                 )?;
             }
         }
-        // permit DHCP (всегда): без него renew lease рвёт всю сеть. DHCPv4-клиент
-        // держит локальный UDP-порт 68, DHCPv6 — 546. Ставим по matching-слою.
+        // permit DHCP (always): without it lease renew breaks the whole network. The DHCPv4 client
+        // holds local UDP port 68, DHCPv6 — 546. Installed per matching layer.
         {
             let mut c4 = [
                 protocol_condition(17),
@@ -733,14 +733,14 @@ mod win {
                 &mut c6,
             )?;
         }
-        // permit LAN (по опции): приватные/link-local/broadcast/multicast подсети,
-        // чтобы блок не резал принтеры, NAS и обнаружение устройств. bypassLan в
-        // sing-box эти пакеты мимо ядра не спасает — они режутся block-all у WFP.
+        // permit LAN (optional): private/link-local/broadcast/multicast subnets,
+        // so the block doesn't cut printers, NAS and device discovery. bypassLan in
+        // sing-box doesn't save these packets from bypassing the core — WFP's block-all cuts them.
         if allow_lan {
             permit_lan(engine, sublayer_key)?;
         }
-        // permit каждого движка по app-id (высокий вес): sing-box + мосты
-        // xray/naive/trusttunnel_client — внешний коннект делает любой из них.
+        // permit each engine by app-id (high weight): sing-box + the
+        // xray/naive/trusttunnel_client bridges — any of them makes external connections.
         for exe in exe_paths {
             let blob = app_id_blob(exe)?;
             let add_result = (|| {
@@ -763,8 +763,8 @@ mod win {
         Ok(block_filters)
     }
 
-    // Приватные диапазоны IPv4 (addr/mask в host-order) + IPv6 unique-local и
-    // link-local. broadcast/multicast — для DHCP-offer, mDNS, SSDP-обнаружения.
+    // Private IPv4 ranges (addr/mask in host order) + IPv6 unique-local and
+    // link-local. broadcast/multicast — for DHCP offers, mDNS, SSDP discovery.
     unsafe fn permit_lan(engine: HANDLE, sublayer_key: &GUID) -> Result<(), String> {
         const V4: &[(u32, u32)] = &[
             (0x0A00_0000, 0xFF00_0000), // 10.0.0.0/8
@@ -818,7 +818,7 @@ mod win {
         Ok(())
     }
 
-    // Условие «локальный порт равен N» (для DHCP-permit).
+    // Condition "local port equals N" (for the DHCP permit).
     unsafe fn local_port_condition(port: u16) -> FWPM_FILTER_CONDITION0 {
         let mut c: FWPM_FILTER_CONDITION0 = std::mem::zeroed();
         c.fieldKey = FWPM_CONDITION_IP_LOCAL_PORT;
@@ -848,9 +848,9 @@ mod win {
 
     unsafe fn local_interface_condition(luid: &mut u64) -> FWPM_FILTER_CONDITION0 {
         let mut c: FWPM_FILTER_CONDITION0 = std::mem::zeroed();
-        // IP_LOCAL_INTERFACE официально доступен на ALE_AUTH_CONNECT. Runtime-
-        // поле NEXTHOP_INTERFACE существует, но management filter condition для
-        // этого слоя не поддерживается и FwpmFilterAdd0 отвергает такой фильтр.
+        // IP_LOCAL_INTERFACE is officially available on ALE_AUTH_CONNECT. The runtime
+        // field NEXTHOP_INTERFACE exists, but a management filter condition for
+        // this layer is not supported and FwpmFilterAdd0 rejects such a filter.
         c.fieldKey = FWPM_CONDITION_IP_LOCAL_INTERFACE;
         c.matchType = FWP_MATCH_EQUAL;
         c.conditionValue.r#type = FWP_UINT64;

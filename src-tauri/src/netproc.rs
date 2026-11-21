@@ -1,8 +1,8 @@
-// Ninety · Список процессов с исходящей сетевой активностью. Для UI правил
-// маршрутизации (выбор процесса вместо ручного ввода имени .exe). Снимок таблицы
-// TCP/UDP owner tables Windows (IPv4+IPv6) → PID → имя
-// exe (QueryFullProcessImageNameW). От sing-box НЕ зависит — работает даже без
-// активных правил.
+// Ninety · List of processes with outbound network activity. For the routing
+// rules UI (picking a process instead of typing the .exe name by hand). A snapshot of the Windows
+// TCP/UDP owner tables (IPv4+IPv6) → PID → exe
+// name (QueryFullProcessImageNameW). Does NOT depend on sing-box — works even without
+// active rules.
 
 use serde::Serialize;
 
@@ -24,14 +24,14 @@ pub struct OsTcpConnection {
     pub state: String,
 }
 
-/// Уникальные процессы (по имени exe) с TCP-соединениями или UDP endpoint'ами.
-/// На не-Windows возвращает пустой список (команда всё равно зарегистрирована,
-/// чтобы фронт не падал в dev-окружении).
+/// Unique processes (by exe name) with TCP connections or UDP endpoints.
+/// On non-Windows returns an empty list (the command is still registered
+/// so the frontend doesn't break in a dev environment).
 ///
-/// async + spawn_blocking: Win32-снимок не морозит webview-поток. catch_unwind:
-/// любая паника внутри collect() (рост таблицы, чтение за границей буфера) даёт
-/// Err(String), а не unwind через IPC-границу — иначе JS-промис не settl-ится и
-/// спиннер пикера висит вечно. Команда ОБЯЗАНА всегда завершаться Ok/Err.
+/// async + spawn_blocking: the Win32 snapshot doesn't freeze the webview thread. catch_unwind:
+/// any panic inside collect() (table growth, reading past the buffer end) yields
+/// Err(String) rather than unwinding across the IPC boundary — otherwise the JS promise doesn't settle and
+/// the picker spinner hangs forever. The command MUST always finish with Ok/Err.
 #[tauri::command]
 pub async fn list_network_processes() -> Result<Vec<NetProcess>, String> {
     #[cfg(windows)]
@@ -78,11 +78,11 @@ pub async fn snapshot_network_tcp() -> Result<Vec<OsTcpConnection>, String> {
 #[cfg(windows)]
 pub(crate) use windows_impl::{process_path as process_image_path, running_pids};
 
-/// Сколько TCP-сокетов держит процесс (IPv4 + IPv6, кроме LISTEN). Нужен
-/// сторожу «шторма соединений» (#168): ядро, чьи собственные соединения
-/// петляют обратно в TUN, за минуту набирает десятки тысяч сокетов, а снаружи
-/// видна только бесконечная «Проверка». None — не знаем: не Windows, снимок не
-/// снялся или упал.
+/// How many TCP sockets the process holds (IPv4 + IPv6, excluding LISTEN). Needed by
+/// the "connection storm" watchdog (#168): a core whose own connections
+/// loop back into TUN racks up tens of thousands of sockets within a minute, while from the outside
+/// only an endless "Checking" is visible. None — we don't know: not Windows, the snapshot
+/// failed or crashed.
 pub(crate) fn tcp_socket_count(pid: u32) -> Option<u32> {
     #[cfg(windows)]
     {
@@ -116,8 +116,8 @@ mod windows_impl {
         PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
-    // MIB_TCP_STATE_ESTAB = 5 (ABI Win32; dwState — u32). Только established —
-    // живые исходящие соединения, без LISTEN/слушателей.
+    // MIB_TCP_STATE_ESTAB = 5 (Win32 ABI; dwState is u32). Established only —
+    // live outbound connections, without LISTEN/listeners.
     const TCP_STATE_ESTAB: u32 = 5;
 
     pub fn collect() -> Result<Vec<NetProcess>, String> {
@@ -180,11 +180,11 @@ mod windows_impl {
         Ok(out)
     }
 
-    // MIB_TCP_STATE_LISTEN: слушатель — не соединение.
+    // MIB_TCP_STATE_LISTEN: a listener is not a connection.
     const TCP_STATE_LISTEN: u32 = 2;
 
-    // Снимок TCP-таблицы семейства в буфере из u32-слов (выравнивание строк),
-    // как у остальных снимков. None — таблица пуста.
+    // Snapshot of a family's TCP table in a buffer of u32 words (row alignment),
+    // like the other snapshots. None — the table is empty.
     fn tcp_table(family: u32) -> Result<Option<Vec<u32>>, String> {
         unsafe {
             let mut size = 0u32;
@@ -217,10 +217,10 @@ mod windows_impl {
         }
     }
 
-    /// Строки снимка, обрезанные по фактически выделенному буферу.
+    /// Snapshot rows, trimmed to the actually allocated buffer.
     ///
-    /// SAFETY: `first` указывает на первую строку таблицы внутри `buf`, а сам
-    /// `buf` — снимок GetExtendedTcpTable для таблицы со строками `R`.
+    /// SAFETY: `first` points to the first table row inside `buf`, and `buf`
+    /// itself is a GetExtendedTcpTable snapshot for a table with `R` rows.
     unsafe fn table_rows<R>(buf: &[u32], entries: u32, first: *const R) -> &[R] {
         let header = (first as usize) - (buf.as_ptr() as usize);
         let cap = (buf.len() * 4).saturating_sub(header) / core::mem::size_of::<R>();
@@ -230,7 +230,7 @@ mod windows_impl {
     pub fn tcp_count_for_pid(pid: u32) -> Result<u32, String> {
         let mut count = 0usize;
         if let Some(buf) = tcp_table(AF_INET.0 as u32)? {
-            // SAFETY: буфер — снимок таблицы MIB_TCPTABLE_OWNER_PID.
+            // SAFETY: the buffer is a snapshot of a MIB_TCPTABLE_OWNER_PID table.
             let rows = unsafe {
                 let table = &*(buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID);
                 table_rows(&buf, table.dwNumEntries, table.table.as_ptr())
@@ -241,7 +241,7 @@ mod windows_impl {
                 .count();
         }
         if let Some(buf) = tcp_table(AF_INET6.0 as u32)? {
-            // SAFETY: буфер — снимок таблицы MIB_TCP6TABLE_OWNER_PID.
+            // SAFETY: the buffer is a snapshot of a MIB_TCP6TABLE_OWNER_PID table.
             let rows = unsafe {
                 let table = &*(buf.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID);
                 table_rows(&buf, table.dwNumEntries, table.table.as_ptr())
@@ -412,7 +412,7 @@ mod windows_impl {
 
     fn established_pids_v4() -> Result<Vec<u32>, String> {
         unsafe {
-            // 1-й вызов: узнать размер (вернёт ERROR_INSUFFICIENT_BUFFER — игнор).
+            // 1st call: find out the size (returns ERROR_INSUFFICIENT_BUFFER — ignored).
             let mut size: u32 = 0;
             let _ = GetExtendedTcpTable(
                 None,
@@ -425,15 +425,15 @@ mod windows_impl {
             if size == 0 {
                 return Ok(Vec::new());
             }
-            // Таблица TCP может вырасти между probe и чтением → 2-й вызов вернёт
-            // ERROR_INSUFFICIENT_BUFFER (122) и обновит `avail` нужным размером.
-            // Перечитываем размер и повторяем (до 3 попыток), а не падаем.
+            // The TCP table may grow between the probe and the read → the 2nd call returns
+            // ERROR_INSUFFICIENT_BUFFER (122) and updates `avail` with the required size.
+            // We reread the size and retry (up to 3 attempts) instead of failing.
             for _ in 0..3 {
-                // Буфер выровнен под u32 (структуры MIB_* требуют 4-байтового
-                // выравнивания; Vec<u8> его не гарантирует).
+                // The buffer is aligned to u32 (MIB_* structs require 4-byte
+                // alignment; Vec<u8> doesn't guarantee it).
                 let words = (size as usize).div_ceil(4);
                 let mut buf = vec![0u32; words];
-                let mut avail = size; // сколько байт сообщаем API как доступно
+                let mut avail = size; // how many bytes we report to the API as available
                 let rc = GetExtendedTcpTable(
                     Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
                     &mut avail,
@@ -443,7 +443,7 @@ mod windows_impl {
                     0,
                 );
                 if rc == ERROR_INSUFFICIENT_BUFFER.0 {
-                    // avail теперь несёт требуемый размер — перевыделим и повторим.
+                    // avail now carries the required size — reallocate and retry.
                     size = avail.max(size.saturating_add(4096));
                     continue;
                 }
@@ -451,8 +451,8 @@ mod windows_impl {
                     return Err(format!("GetExtendedTcpTable: code {rc}"));
                 }
                 let table = &*(buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID);
-                // Не доверяем dwNumEntries слепо: ограничиваем числом строк, реально
-                // помещающихся в выделенный буфер (защита от чтения за границей).
+                // We don't trust dwNumEntries blindly: we limit it to the number of rows that actually
+                // fit into the allocated buffer (protection against reading past the end).
                 let alloc_bytes = words * 4;
                 let header = (table.table.as_ptr() as usize) - (buf.as_ptr() as usize);
                 let cap_rows = alloc_bytes.saturating_sub(header)
@@ -620,9 +620,9 @@ mod windows_impl {
         }
     }
 
-    /// PID всех процессов системы. EnumProcesses не сообщает, сколько их на
-    /// самом деле: заполненный до конца буфер — единственный признак, что PID не
-    /// поместились, и тогда буфер растёт.
+    /// PIDs of all system processes. EnumProcesses doesn't report how many there
+    /// actually are: a buffer filled to the end is the only sign that the PIDs didn't
+    /// fit, and then the buffer grows.
     pub(crate) fn running_pids() -> Vec<u32> {
         use windows::Win32::System::ProcessStatus::EnumProcesses;
         const PID_BYTES: usize = std::mem::size_of::<u32>();

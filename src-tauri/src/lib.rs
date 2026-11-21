@@ -61,20 +61,20 @@ fn ping() -> &'static str {
     "pong"
 }
 
-/// Full Portable определяется маркером рядом с Ninety.exe: writable-данные и
-/// WebView-профиль уходят в NinetyData, а updater предлагает новый ZIP вместо
-/// запуска NSIS и превращения распакованной копии в установленную.
+/// Full Portable is detected by a marker next to Ninety.exe: writable data and
+/// the WebView profile go to NinetyData, and the updater offers a new ZIP instead of
+/// running NSIS and turning the unpacked copy into an installed one.
 #[tauri::command]
 fn is_portable() -> bool {
     app_paths::is_portable()
 }
 
-/// True если этот запуск должен авто-подключиться после bootstrap:
-///  --autostarted — вход в Windows (окно в трее);
-///  --connect     — перезапуск, о котором попросило подключение (окно видимо).
-/// `--elevated` сюда не входит: он говорит только о правах. С ним Ninety
-/// перезапускается и ради DPI-обхода, и при смене режима на выключенном VPN,
-/// и при «всегда от администратора» — там VPN раньше поднимался без просьбы.
+/// True if this launch should auto-connect after bootstrap:
+///  --autostarted — Windows sign-in (window in the tray);
+///  --connect     — a restart requested by the connection (window visible).
+/// `--elevated` is not included here: it only speaks about rights. With it, Ninety
+/// restarts both for DPI bypass and when switching modes with the VPN off,
+/// and for "always run as administrator" — there the VPN used to come up unasked.
 #[tauri::command]
 fn should_autoconnect() -> bool {
     autoconnect_requested(std::env::args())
@@ -89,9 +89,9 @@ where
         .any(|a| matches!(a.as_ref(), "--autostarted" | "--connect"))
 }
 
-/// Аргументы перезапуска от администратора. `--autostarted` переносится, чтобы
-/// окно осталось в трее; `--connect` — только если подключение просил фронт.
-/// `--wait-parent` — PID прежнего процесса, см. wait_for_relaunching_parent.
+/// Arguments for restarting as administrator. `--autostarted` is carried over so
+/// the window stays in the tray; `--connect` only if the frontend asked to connect.
+/// `--wait-parent` — PID of the previous process, see wait_for_relaunching_parent.
 fn elevated_relaunch_args(autostarted: bool, connect: bool, parent_pid: u32) -> Vec<String> {
     let mut extra = vec!["--elevated".to_string()];
     if autostarted {
@@ -104,9 +104,9 @@ fn elevated_relaunch_args(autostarted: bool, connect: bool, parent_pid: u32) -> 
     extra
 }
 
-/// ShellExecute принимает одну строку параметров, а кавычка в ней — граница
-/// аргумента. Ссылка приходит извне и такой кавычкой дописала бы свои флаги
-/// процессу с правами администратора, поэтому подобную ссылку не передаём.
+/// ShellExecute takes a single parameter string, and a quote in it is an argument
+/// boundary. The link comes from outside and with such a quote it would append its own flags
+/// to a process running with administrator rights, so we don't pass such a link.
 fn safe_relaunch_link(url: &str) -> bool {
     url.len() <= 2048
         && !url.contains('"')
@@ -127,8 +127,8 @@ fn relaunch_self_elevated(
 
 const WAIT_PARENT_ARG: &str = "--wait-parent=";
 #[cfg(target_os = "windows")]
-// Прежний процесс перед выходом гасит движки и возвращает системный прокси:
-// пяти секунд на это не всегда хватало.
+// Before exiting, the previous process stops the engines and restores the system proxy:
+// five seconds weren't always enough for that.
 const WAIT_PARENT_TIMEOUT_MS: u32 = 30_000;
 
 fn parent_to_wait_for<I, S>(args: I) -> Option<u32>
@@ -141,13 +141,13 @@ where
         .filter(|pid| *pid != 0)
 }
 
-/// Прежний процесс завершается сам сразу после UAC, но новый мог стартовать
-/// раньше, чем он успел выйти. Тогда single-instance нового процесса находил
-/// живой мьютекс, отдавал аргументы уходящему процессу и закрывался — и не
-/// оставалось ни одного окна. Поэтому до регистрации плагина ждём выхода
-/// прежнего процесса; ожидание ограничено, а исчезнувший PID не ждём вовсе.
-/// true — прежнего процесса больше нет (или ждать было некого); false — он всё
-/// ещё жив по истечении ожидания.
+/// The previous process exits on its own right after UAC, but the new one could start
+/// before it managed to exit. Then the new process's single-instance found
+/// a live mutex, handed the arguments to the exiting process and closed — and
+/// not a single window was left. So before registering the plugin we wait for the
+/// previous process to exit; the wait is bounded, and a vanished PID isn't waited on at all.
+/// true — the previous process is gone (or there was nobody to wait for); false — it is still
+/// alive when the wait expires.
 #[cfg(target_os = "windows")]
 fn wait_for_relaunching_parent() -> bool {
     use windows::Win32::Foundation::{
@@ -164,8 +164,8 @@ fn wait_for_relaunching_parent() -> bool {
         return true;
     }
     unsafe {
-        // ERROR_INVALID_PARAMETER — PID уже исчез. Другая ошибка (ACCESS_DENIED)
-        // выход не подтверждает.
+        // ERROR_INVALID_PARAMETER — the PID is already gone. Any other error (ACCESS_DENIED)
+        // doesn't confirm the exit.
         let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else {
             return GetLastError() == ERROR_INVALID_PARAMETER;
         };
@@ -180,31 +180,31 @@ fn wait_for_relaunching_parent() -> bool {
     true
 }
 
-/// Deep-link URL'ы, которые пришли argv при cold-start. Нужны для схем,
-/// зарегистрированных вручную (vless://, tt://, naive+https://...): plugin
-/// deep-link знает только статический ninety:// из tauri.conf.json.
+/// Deep-link URLs that arrived in argv on cold start. Needed for schemes
+/// registered manually (vless://, tt://, naive+https://...): the deep-link
+/// plugin knows only the static ninety:// from tauri.conf.json.
 #[tauri::command]
 fn startup_deep_links() -> Vec<String> {
     url_handler::extract_deep_link_urls(std::env::args())
 }
 
-/// True если текущий процесс имеет права администратора (elevated token).
-/// TUN-режим (Throne-style) требует этого: sing-box-child наследует права и
-/// сам поднимает TUN-интерфейс. Фронт проверяет перед включением TUN.
+/// True if the current process has administrator rights (elevated token).
+/// TUN mode (Throne-style) requires this: the sing-box child inherits the rights and
+/// brings up the TUN interface itself. The frontend checks before enabling TUN.
 #[tauri::command]
 fn is_elevated() -> bool {
     elevation::is_elevated()
 }
 
-/// Перезапускает Ninety от администратора (UAC) для TUN-режима или DPI-обхода.
-/// `connect` — поднять ли VPN в новом процессе: фронт передаёт true, когда
-/// перезапуск идёт из подключения или VPN уже работает. Возврат:
-///  Ok(true)  — elevated-инстанс стартовал, текущий процесс завершится сам;
-///  Ok(false) — юзер отменил UAC, остаёмся в текущем (не-admin) процессе.
-/// `keep_in_tray` — перенести `--autostarted` (окно в трее + автоподключение):
-/// только для перезапуска из сценария автозапуска при входе в Windows. Раньше
-/// флаг переносился всегда, и интерактивный перезапуск ради DPI или TUN после
-/// входа прятал окно и сам поднимал VPN, хотя пользователь его отключил.
+/// Restarts Ninety as administrator (UAC) for TUN mode or DPI bypass.
+/// `connect` — whether to bring up the VPN in the new process: the frontend passes true when
+/// the restart comes from connecting or the VPN is already running. Returns:
+///  Ok(true)  — the elevated instance started, the current process will exit on its own;
+///  Ok(false) — the user cancelled UAC, we stay in the current (non-admin) process.
+/// `keep_in_tray` — carry over `--autostarted` (window in the tray + auto-connect):
+/// only for a restart from the Windows sign-in autostart scenario. Previously
+/// the flag was always carried over, and an interactive restart for DPI or TUN after
+/// sign-in hid the window and brought up the VPN by itself, even though the user had turned it off.
 #[tauri::command]
 fn relaunch_elevated(
     app: tauri::AppHandle,
@@ -215,12 +215,12 @@ fn relaunch_elevated(
         keep_in_tray.unwrap_or(false) && std::env::args().any(|a| a == "--autostarted");
     let started = relaunch_self_elevated(autostarted, connect.unwrap_or(false), &[])?;
     if started {
-        // Элевированный инстанс уже создан (юзер согласился в UAC). Текущий
-        // (не-admin) процесс надо НЕМЕДЛЕННО убить, чтобы освободить лок
-        // tauri-plugin-single-instance — иначе плагин завернёт новый инстанс
-        // как дубль и тот сразу выйдет (как у Throne: relaunch → quit → release
-        // QLocalServer). std::process::exit минует RunEvent::Exit, поэтому
-        // синхронно чистим ядро и системный прокси здесь же.
+        // The elevated instance has already been created (the user agreed in UAC). The current
+        // (non-admin) process must be killed IMMEDIATELY to release the
+        // tauri-plugin-single-instance lock — otherwise the plugin would reject the new instance
+        // as a duplicate and it would exit right away (like Throne: relaunch → quit → release
+        // QLocalServer). std::process::exit bypasses RunEvent::Exit, so
+        // we clean up the core and system proxy synchronously right here.
         if let Some(state) = app.try_state::<SingboxState>() {
             vpn::force_cleanup(&app, &state);
         }
@@ -232,9 +232,9 @@ fn relaunch_elevated(
     Ok(false)
 }
 
-/// Ставит скачанное portable-обновление и перезапускает Ninety новой версией.
-/// Движки фронт уже остановил; при успехе процесс завершается здесь же, как в
-/// relaunch_elevated: новый инстанс ждёт его выхода через --wait-parent.
+/// Installs the downloaded portable update and restarts Ninety with the new version.
+/// The frontend has already stopped the engines; on success the process exits right here, as in
+/// relaunch_elevated: the new instance waits for it to exit via --wait-parent.
 #[tauri::command]
 fn portable_update_apply(app: tauri::AppHandle, version: String) -> Result<(), String> {
     portable_update::apply_and_launch(&version)?;
@@ -253,8 +253,8 @@ fn always_admin_marker(app: &tauri::AppHandle) -> Option<PathBuf> {
         .map(|dir| dir.join("always-admin"))
 }
 
-/// True если включён режим «всегда запускать от администратора» (маркер-файл
-/// в writable config dir). Читается на старте в setup() для авто-элевации.
+/// True if "always run as administrator" is enabled (a marker file
+/// in the writable config dir). Read at startup in setup() for auto-elevation.
 #[tauri::command]
 fn is_always_admin(app: tauri::AppHandle) -> bool {
     always_admin_marker(&app)
@@ -262,8 +262,8 @@ fn is_always_admin(app: tauri::AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-/// Включает/выключает «всегда от администратора». При включении на следующих
-/// стартах Ninety сам перезапустится с UAC (см. setup()).
+/// Enables/disables "always run as administrator". When enabled, on subsequent
+/// starts Ninety restarts itself with UAC (see setup()).
 #[tauri::command]
 fn set_always_admin(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
     let p = always_admin_marker(&app).ok_or("config dir is unavailable")?;
@@ -278,7 +278,7 @@ fn set_always_admin(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// True если автозапуск при входе в Windows включён (задача Планировщика).
+/// True if autostart at Windows sign-in is enabled (a Task Scheduler task).
 #[tauri::command]
 async fn autostart_is_enabled() -> Result<bool, String> {
     tokio::task::spawn_blocking(elevation::autostart_is_enabled)
@@ -286,12 +286,12 @@ async fn autostart_is_enabled() -> Result<bool, String> {
         .map_err(|e| format!("autostart check was interrupted: {e}"))
 }
 
-/// Включает автозапуск через задачу Планировщика. RunLevel=highest (старт от
-/// администратора без UAC на каждый логин) выдаётся только установке в Program
-/// Files: для Full Portable и per-user установки exe лежит в user-writable
-/// каталоге, и там такая задача превратила бы подмену файла в тихое повышение
-/// прав. Если процесс ещё не elevated, поднимет права только ради создания
-/// задачи (один UAC).
+/// Enables autostart via a Task Scheduler task. RunLevel=highest (starting as
+/// administrator without UAC on every login) is granted only to an installation in Program
+/// Files: for Full Portable and per-user installs the exe lives in a user-writable
+/// directory, and there such a task would turn swapping the file into a silent privilege
+/// escalation. If the process isn't elevated yet, it elevates only to create
+/// the task (one UAC).
 #[tauri::command]
 async fn autostart_enable() -> Result<(), String> {
     tokio::task::spawn_blocking(elevation::autostart_enable)
@@ -299,7 +299,7 @@ async fn autostart_enable() -> Result<(), String> {
         .map_err(|e| format!("autostart creation was interrupted: {e}"))?
 }
 
-/// Выключает автозапуск (удаляет задачу Планировщика).
+/// Disables autostart (deletes the Task Scheduler task).
 #[tauri::command]
 async fn autostart_disable() -> Result<(), String> {
     tokio::task::spawn_blocking(elevation::autostart_disable)
@@ -307,12 +307,12 @@ async fn autostart_disable() -> Result<(), String> {
         .map_err(|e| format!("autostart removal was interrupted: {e}"))?
 }
 
-/// CI smoke — сборочная проверка релизного артефакта, а не пользовательский
-/// режим: она пишет и затем стирает боевой profile store, а в portable ещё и
-/// перезаписывает state backup. Одного argv-флага для такого мало — случайный
-/// `Ninety.exe --ci-smoke` (ярлык, .bat, чужая инструкция) уничтожил бы
-/// единственную копию нод и подписок. Требуем явный opt-in переменной
-/// окружения, который выставляет только scripts/release-smoke.ps1.
+/// CI smoke is a build check of the release artifact, not a user
+/// mode: it writes and then wipes the live profile store, and in portable it also
+/// overwrites the state backup. A single argv flag isn't enough for that — an accidental
+/// `Ninety.exe --ci-smoke` (a shortcut, a .bat, someone else's instructions) would destroy
+/// the only copy of nodes and subscriptions. We require an explicit opt-in via an environment
+/// variable that only scripts/release-smoke.ps1 sets.
 const CI_SMOKE_ENV: &str = "NINETY_CI_SMOKE";
 
 fn ci_smoke_opt_in(has_flag: bool, env_value: Option<&str>) -> bool {
@@ -328,7 +328,7 @@ fn ci_smoke_requested(argv: &[String]) -> bool {
     enabled
 }
 
-// Имена файлов, в которых лежит единственная копия профилей/подписок и ключей.
+// Names of the files holding the only copy of profiles/subscriptions and keys.
 const CI_SMOKE_PROTECTED_FILES: &[&str] = &[
     "profile-store.v1",
     "profile-store.v1.bak",
@@ -338,9 +338,9 @@ const CI_SMOKE_PROTECTED_FILES: &[&str] = &[
     "state-backup.json.legacy.bak",
 ];
 
-/// Второй барьер: даже с opt-in smoke не трогает уже существующее состояние.
-/// На чистом раннере его нет, поэтому проверка в CI выполняется полностью, а на
-/// машине с данными деструктивная часть просто пропускается.
+/// Second barrier: even with the opt-in, smoke doesn't touch already existing state.
+/// A clean runner has none, so the CI check runs fully, while on
+/// a machine with data the destructive part is simply skipped.
 fn ci_smoke_state_is_empty_in(dir: &std::path::Path) -> bool {
     !CI_SMOKE_PROTECTED_FILES
         .iter()
@@ -350,8 +350,8 @@ fn ci_smoke_state_is_empty_in(dir: &std::path::Path) -> bool {
 fn ci_smoke_state_is_empty(app: &tauri::AppHandle) -> bool {
     match app_paths::config_dir(app) {
         Ok(dir) => ci_smoke_state_is_empty_in(&dir),
-        // Каталог не определился — считаем состояние непустым: пропустить
-        // проверку безопаснее, чем писать неизвестно куда.
+        // The directory couldn't be determined — treat the state as non-empty: skipping
+        // the check is safer than writing to an unknown location.
         Err(_) => false,
     }
 }
@@ -363,9 +363,9 @@ fn main_window_icon() -> Option<tauri::image::Image<'static>> {
 
 fn apply_main_window_icon(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        // Не используем default_window_icon(): Windows может отдать для него
-        // закэшированный ресурс предыдущей версии. Встроенный PNG каждый раз
-        // заново назначает WM_SETICON для thumbnail/hover окна.
+        // We don't use default_window_icon(): Windows may return a cached resource
+        // of the previous version for it. The embedded PNG reassigns
+        // WM_SETICON for the window thumbnail/hover every time.
         if let Some(icon) = main_window_icon() {
             let _ = w.set_icon(icon);
         }
@@ -387,13 +387,13 @@ struct TraySrv {
     label: String,
     #[serde(default)]
     selected: bool,
-    /// ISO-код страны (2 буквы, lower) для флага в трее. None → без иконки.
+    /// ISO country code (2 letters, lowercase) for the tray flag. None → no icon.
     #[serde(default)]
     iso: Option<String>,
 }
 
-/// Страна и её ноды. Внутри группы флаг у каждой строки не рисуем: он один и
-/// тот же на всю страну, а иконка — самая дорогая часть пункта меню.
+/// A country and its nodes. Within a group we don't draw a flag on every row: it is the same
+/// for the whole country, and the icon is the most expensive part of a menu item.
 #[derive(serde::Deserialize, Default)]
 struct TrayServerGroup {
     #[serde(default)]
@@ -402,8 +402,8 @@ struct TrayServerGroup {
     items: Vec<TraySrv>,
 }
 
-/// Раскладка подменю «Сервер», посчитанная фронтом (tray-servers.js).
-/// `flat` не пуст только на маленькой подписке — там группировать нечего.
+/// Layout of the "Server" submenu, computed by the frontend (tray-servers.js).
+/// `flat` is non-empty only for a small subscription — there's nothing to group there.
 #[derive(serde::Deserialize, Default)]
 struct TrayServers {
     #[serde(default)]
@@ -426,11 +426,11 @@ impl TrayServers {
     }
 }
 
-/// Грузит флаг страны из ресурсов (flags/<iso>.png, растеризованы из SVG)
-/// для IconMenuItem. Best-effort: нет файла/кода → None (пункт без иконки).
-/// Кэшируем по ISO: меню трея пересобирается на каждое изменение состояния
-/// (connect/смена ноды/DPI), а PNG-флаги неизменны — без кэша это лишний
-/// дисковый I/O на каждую пересборку.
+/// Loads a country flag from resources (flags/<iso>.png, rasterized from SVG)
+/// for IconMenuItem. Best-effort: no file/code → None (item without an icon).
+/// Cached by ISO: the tray menu is rebuilt on every state change
+/// (connect/node switch/DPI), and the PNG flags never change — without a cache that's extra
+/// disk I/O on every rebuild.
 fn flag_icon(app: &tauri::AppHandle, iso: &Option<String>) -> Option<tauri::image::Image<'static>> {
     let iso = iso.as_ref()?;
     if iso.len() != 2 || !iso.bytes().all(|b| b.is_ascii_lowercase()) {
@@ -443,8 +443,8 @@ fn flag_icon(app: &tauri::AppHandle, iso: &Option<String>) -> Option<tauri::imag
     if let Some(hit) = cache.lock_recover().get(iso).cloned() {
         return hit;
     }
-    // Флаги — read-only ресурсы рядом с бинарём (<resource_dir>/flags/<iso>.png),
-    // как и движок DPI. resource_dir проверен в dpi.rs.
+    // Flags are read-only resources next to the binary (<resource_dir>/flags/<iso>.png),
+    // like the DPI engine. resource_dir is validated in dpi.rs.
     let img = app
         .path()
         .resource_dir()
@@ -455,10 +455,10 @@ fn flag_icon(app: &tauri::AppHandle, iso: &Option<String>) -> Option<tauri::imag
     img
 }
 
-/// Строки меню трея — приходят из фронта локализованными (язык интерфейса,
-/// см. tray.* в i18n-каталогах). Default = русский фолбэк: он виден только
-/// секунду-другую между созданием трея в setup() и первым set_tray_menu
-/// из bootstrap'а фронта.
+/// Tray menu strings — they arrive from the frontend localized (the UI language,
+/// see tray.* in the i18n catalogs). Default = a Russian fallback: it is visible only
+/// for a second or two between creating the tray in setup() and the first set_tray_menu
+/// from the frontend bootstrap.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 struct TrayLabels {
@@ -474,21 +474,21 @@ struct TrayLabels {
     favourites: String,
     fast: String,
     all_servers: String,
-    /// Шаблон с {n} — «…и ещё {n} на экране Серверы».
+    /// Template with {n} — "…and {n} more on the Servers screen".
     dpi_title: String,
     dpi_status_on: String,
     dpi_status_off: String,
     dpi_enable: String,
     dpi_disable: String,
     quit: String,
-    /// Шаблон с {ver} — «Update to v{ver}».
+    /// Template with {ver} — "Update to v{ver}".
     update_to: String,
     tip_off: String,
-    /// Шаблон с {mode} — «Ninety · {mode} · connected».
+    /// Template with {mode} — "Ninety · {mode} · connected".
     tip_connected: String,
-    /// Шаблон с {ver}. Вторая строка подсказки, когда найден апдейт: в трее это
-    /// единственный признак, который не зависит от OS-уведомлений (те на
-    /// Windows молча теряются, если у сборки нет ярлыка с AppUserModelID).
+    /// Template with {ver}. Second tooltip line when an update is found: in the tray this is
+    /// the only sign that doesn't depend on OS notifications (on
+    /// Windows those are silently lost if the build has no shortcut with an AppUserModelID).
     tip_update: String,
 }
 
@@ -531,21 +531,21 @@ struct TrayMenuPayload {
     servers: TrayServers,
     #[serde(default, rename = "dpiActive")]
     dpi_active: bool,
-    /// Версия доступного обновления, найденного фоновой проверкой пока окно в
-    /// трее. Some → показываем выделенный пункт «Обновить до vX». None → нет.
+    /// Version of an available update found by the background check while the window is in
+    /// the tray. Some → show the highlighted "Update to vX" item. None → nothing.
     #[serde(default, rename = "updateVersion")]
     update_version: Option<String>,
-    /// Пока OTA скачивается/устанавливается, сетевые действия в нативном меню
-    /// блокируются: иначе пользователь может погасить proxy посреди download
-    /// либо запустить reconnect одновременно с остановкой runtime.
+    /// While OTA is downloading/installing, network actions in the native menu
+    /// are blocked: otherwise the user could kill the proxy in the middle of the download
+    /// or start a reconnect at the same time as the runtime is stopping.
     #[serde(default, rename = "updateBusy")]
     update_busy: bool,
     #[serde(default)]
     labels: TrayLabels,
 }
 
-/// Строка сервера с флагом страны. Текущий помечается «●»: у IconMenuItem нет
-/// чек-состояния, а отступ у остальных держит подписи на одной вертикали.
+/// Server row with a country flag. The current one is marked with "●": IconMenuItem has no
+/// checked state, and the indent on the others keeps the labels aligned vertically.
 fn server_item(
     app: &tauri::AppHandle,
     srv: &TraySrv,
@@ -572,9 +572,9 @@ fn server_item(
     )
 }
 
-/// Подменю с готовым списком нод — «Favourites», «Быстрые» и каждая страна.
-/// Флаги рисуются только там, где страны разные: внутри страны иконка у каждой
-/// строки одинаковая, а иконка — самая дорогая часть пункта меню.
+/// Submenu with a ready list of nodes — "Favourites", "Fastest" and each country.
+/// Flags are drawn only where the countries differ: within a country every row's icon
+/// is the same, and the icon is the most expensive part of a menu item.
 fn server_group_submenu(
     app: &tauri::AppHandle,
     title: &str,
@@ -593,10 +593,10 @@ fn server_group_submenu(
     Submenu::with_items(app, format!("{title}  ·  {}", items.len()), enabled, &refs)
 }
 
-/// Подменю «Сервер». На подписке в сотни нод плоский список нечитаем и дорог,
-/// поэтому большой список приходит от фронта уже разложенным: текущая нода,
-/// избранные, самые быстрые, затем страны. Последняя строка ведёт на экран
-/// «Серверы» — там поиск и полный список, которого в меню быть не может.
+/// The "Server" submenu. With a subscription of hundreds of nodes a flat list is unreadable and expensive,
+/// so a large list arrives from the frontend already laid out: the current node,
+/// favorites, the fastest, then countries. The last row leads to the
+/// "Servers" screen — that's where search and the full list are, which can't fit in a menu.
 fn build_server_submenu(
     app: &tauri::AppHandle,
     payload: &TrayMenuPayload,
@@ -609,7 +609,7 @@ fn build_server_submenu(
         return Submenu::with_items(app, &l.server, false, &[&none]);
     }
 
-    // Владельцы пунктов живут до конца сборки: Submenu::with_items берёт ссылки.
+    // The item owners live until the end of the build: Submenu::with_items takes references.
     let mut flat: Vec<IconMenuItem<tauri::Wry>> = Vec::new();
     let mut current: Option<IconMenuItem<tauri::Wry>> = None;
     let mut shortcuts: Vec<Submenu<tauri::Wry>> = Vec::new();
@@ -651,7 +651,7 @@ fn build_server_submenu(
                 false,
             )?);
         }
-        // Разделителей ровно столько, сколько понадобится ниже.
+        // Exactly as many separators as will be needed below.
         for _ in 0..3 {
             separators.push(PredefinedMenuItem::separator(app)?);
         }
@@ -697,9 +697,9 @@ fn build_server_submenu(
     Submenu::with_items(app, &l.server, enabled, &refs)
 }
 
-/// Собирает контекстное меню трея под текущее состояние: выбор режима
-/// подключения (radio-чек) и список серверов активной подписки. Подменю
-/// «Сервер» активно только при поднятом VPN — иначе серое (disabled).
+/// Builds the tray context menu for the current state: connection mode
+/// selection (radio check) and the server list of the active subscription. The
+/// "Server" submenu is active only while the VPN is up — otherwise greyed out (disabled).
 fn build_tray_menu(
     app: &tauri::AppHandle,
     payload: &TrayMenuPayload,
@@ -707,7 +707,7 @@ fn build_tray_menu(
     let l = &payload.labels;
     let show_item = MenuItem::with_id(app, "show", &l.show, true, None::<&str>)?;
 
-    // Подключиться / Отключиться — по фактическому состоянию VPN
+    // Connect / Disconnect — according to the actual VPN state
     let toggle_label = if payload.connected {
         &l.disconnect
     } else {
@@ -754,13 +754,13 @@ fn build_tray_menu(
         &[&m_proxy, &m_sys, &m_tun],
     )?;
 
-    // Выбор сервера — активен только когда VPN поднят. Раскладку считает фронт
-    // (tray-servers.js): маленькая подписка приходит плоским списком, большая —
-    // текущим сервером, быстрыми входами и странами.
+    // Server selection — active only while the VPN is up. The frontend computes the layout
+    // (tray-servers.js): a small subscription arrives as a flat list, a large one as
+    // the current server, quick picks and countries.
     let srv_enabled = runtime_actions_enabled && payload.connected && !payload.servers.is_empty();
     let server_sub = build_server_submenu(app, payload, srv_enabled)?;
 
-    // DPI-обход — статус (disabled, информативный) + переключатель
+    // DPI bypass — status (disabled, informational) + toggle
     let dpi_status = MenuItem::with_id(
         app,
         "dpi:status",
@@ -794,8 +794,8 @@ fn build_tray_menu(
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItem::with_id(app, "quit", &l.quit, true, None::<&str>)?;
 
-    // Доступное обновление (нашлось пока окно в трее) — выделенный пункт сверху.
-    // Клик показывает окно и открывает модалку установки.
+    // An available update (found while the window was in the tray) — a highlighted item at the top.
+    // Clicking shows the window and opens the install modal.
     if let Some(ver) = &payload.update_version {
         let upd = MenuItem::with_id(
             app,
@@ -837,11 +837,11 @@ fn build_tray_menu(
     )
 }
 
-/// Фронтенд зовёт при каждом изменении состояния (connect/disconnect, смена
-/// режима/подписки/эффективной ноды) — пересобираем меню трея под него.
-// Значок трея под состояние: off (отключено) / proxy / tun (synthwave-purple).
-// Встроены в бинарь (include_bytes) — не зависят от resource_dir; 32px,
-// Windows даунскейлит под нужный размер нотификейшн-зоны.
+/// The frontend calls this on every state change (connect/disconnect, change of
+/// mode/subscription/effective node) — we rebuild the tray menu for it.
+// Tray icon per state: off (disconnected) / proxy / tun (synthwave purple).
+// Embedded in the binary (include_bytes) — independent of resource_dir; 32px,
+// Windows downscales to the size the notification area needs.
 fn tray_state_icon(connected: bool, mode: &str) -> Option<tauri::image::Image<'static>> {
     const OFF: &[u8] = include_bytes!("../icons/tray/oni_off_32.png");
     const PROXY: &[u8] = include_bytes!("../icons/tray/oni_proxy_32.png");
@@ -856,17 +856,17 @@ fn tray_state_icon(connected: bool, mode: &str) -> Option<tauri::image::Image<'s
     tauri::image::Image::from_bytes(bytes).ok()
 }
 
-// Метка «есть обновление» поверх значка трея. Пункт меню и подсказка видны
-// только после наведения/ПКМ, поэтому свёрнутое в трей приложение молчало о
-// найденной версии до тех пор, пока пользователь сам не полез в меню. Метку
-// рисуем в рантайме поверх декодированного RGBA — держать в бинаре вторую
-// тройку PNG ради одного кружка незачем.
-const BADGE_FILL: [f32; 3] = [255.0, 77.0, 109.0]; // неоновый акцент
-const BADGE_RING: [f32; 3] = [10.0, 8.0, 12.0]; // тёмная обводка под любой значок
+// "Update available" badge on top of the tray icon. The menu item and tooltip are visible
+// only after hover/right-click, so an app minimized to the tray said nothing about
+// a found version until the user went into the menu themselves. The badge
+// is drawn at runtime on top of the decoded RGBA — keeping a second
+// set of three PNGs in the binary for one dot is pointless.
+const BADGE_FILL: [f32; 3] = [255.0, 77.0, 109.0]; // neon accent
+const BADGE_RING: [f32; 3] = [10.0, 8.0, 12.0]; // dark outline under any icon
 
-/// Рисует кружок-метку в правом нижнем углу RGBA-буфера (straight alpha,
-/// source-over). Субпиксельная выборка обязательна: на 32px без сглаживания
-/// метка выглядит рваным квадратом.
+/// Draws the badge dot in the bottom-right corner of the RGBA buffer (straight alpha,
+/// source-over). Subpixel sampling is mandatory: at 32px without antialiasing
+/// the badge looks like a ragged square.
 fn paint_update_badge(rgba: &mut [u8], width: u32, height: u32) {
     let (w, h) = (width as i64, height as i64);
     if w < 8 || h < 8 || rgba.len() < (w * h * 4) as usize {
@@ -917,7 +917,7 @@ fn paint_update_badge(rgba: &mut [u8], width: u32, height: u32) {
     }
 }
 
-/// Значок трея под состояние + метка отложенного обновления.
+/// Tray icon per state + the pending update badge.
 fn tray_icon(
     connected: bool,
     mode: &str,
@@ -933,8 +933,8 @@ fn tray_icon(
     Some(tauri::image::Image::new_owned(rgba, w, h))
 }
 
-// Tooltip трея — даёт точный режим (иконка только сигналит статус/тип).
-// Строки локализованы фронтом; имя режима — тот же лейбл, что в меню.
+// Tray tooltip — gives the exact mode (the icon only signals status/type).
+// Strings are localized by the frontend; the mode name is the same label as in the menu.
 fn tray_tooltip(
     labels: &TrayLabels,
     connected: bool,
@@ -957,16 +957,16 @@ fn tray_tooltip(
     }
 }
 
-/// Windows не сообщает, когда меню трея закрылось, но состояние «сейчас
-/// показывается меню» видно у GUI-потока переднего плана.
+/// Windows doesn't report when the tray menu closed, but the state "a menu is
+/// being shown right now" is visible on the foreground GUI thread.
 fn menu_flags_indicate_open(flags: u32) -> bool {
     // GUI_INMENUMODE | GUI_POPUPMENUMODE
     flags & (0x0000_0004 | 0x0000_0010) != 0
 }
 
-/// Пока меню показано, подменять его у значка нельзя: замена рушит уже
-/// открытый popup, и пользователь видит, как меню схлопывается сразу после
-/// правого клика. Такую пересборку откладываем до закрытия меню.
+/// While the menu is shown, it must not be swapped on the icon: the replacement destroys the already
+/// open popup, and the user sees the menu collapse right after
+/// the right click. Such a rebuild is postponed until the menu closes.
 #[cfg(target_os = "windows")]
 fn menu_mode_active() -> bool {
     use windows::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO};
@@ -974,8 +974,8 @@ fn menu_mode_active() -> bool {
         cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
         ..Default::default()
     };
-    // idThread = 0 — поток окна переднего плана, а меню трея показывается
-    // именно им.
+    // idThread = 0 means the foreground window's thread, and the tray menu is shown
+    // exactly by it.
     unsafe { GetGUIThreadInfo(0, &mut info).is_ok() && menu_flags_indicate_open(info.flags.0) }
 }
 
@@ -984,8 +984,8 @@ fn menu_mode_active() -> bool {
     false
 }
 
-/// `applied = false` — значок и подсказка обновлены, а меню осталось прежним,
-/// потому что пользователь держит его открытым. Фронт повторит попытку.
+/// `applied = false` — the icon and tooltip were updated, but the menu stayed the same
+/// because the user is holding it open. The frontend will retry.
 #[derive(serde::Serialize)]
 struct TrayMenuOutcome {
     applied: bool,
@@ -999,12 +999,12 @@ fn set_tray_menu(
     let Some(tray) = app.tray_by_id("main") else {
         return Ok(TrayMenuOutcome { applied: true });
     };
-    // Значок и подсказка ставятся ПЕРВЫМИ и независимо от меню. Они дёшевы и
-    // собраться не могут разве что при битом ресурсе, а меню на большой
-    // подписке — сотни пунктов, каждый со своей иконкой флага. Раньше меню
-    // строилось первым и любая его ошибка выходила из функции раньше, чем
-    // обновлялся значок: трей оставался в стартовом «отключено» при поднятом
-    // VPN, и починить это мог только перезапуск приложения.
+    // The icon and tooltip are set FIRST and independently of the menu. They are cheap and
+    // can fail to build only with a broken resource, while the menu for a large
+    // subscription is hundreds of items, each with its own flag icon. Previously the menu
+    // was built first, and any error in it returned from the function before
+    // the icon was updated: the tray stayed in the initial "disconnected" with the VPN
+    // up, and only restarting the app could fix it.
     if let Some(icon) = tray_icon(
         payload.connected,
         &payload.mode,
@@ -1018,18 +1018,18 @@ fn set_tray_menu(
         &payload.mode,
         payload.update_version.as_deref(),
     )));
-    // Проверка идёт после значка и подсказки: они меняются независимо от меню
-    // и открытому popup не мешают.
+    // The check comes after the icon and tooltip: they change independently of the menu
+    // and don't interfere with an open popup.
     if menu_mode_active() {
         return Ok(TrayMenuOutcome { applied: false });
     }
     let menu = match build_tray_menu(&app, &payload) {
         Ok(menu) => menu,
         Err(e) => {
-            // Значок и подсказка уже применены, а вот меню осталось прежним.
-            // Фронт эту ошибку кладёт в консоль вебвью, куда пользователь не
-            // заглянет; пишем в тот же журнал, что читает экран «Логи», чтобы
-            // в следующий раз причина была на виду, а не выводилась из симптома.
+            // The icon and tooltip are already applied, but the menu stayed the same.
+            // The frontend puts this error into the webview console, which the user will never
+            // look at; we write to the same log the "Logs" screen reads, so that
+            // next time the cause is in plain sight rather than inferred from the symptom.
             crate::vpn::append_runtime_diagnostic_at(
                 &app,
                 crate::vpn::DiagnosticLevel::Warn,
@@ -1045,22 +1045,22 @@ fn set_tray_menu(
     Ok(TrayMenuOutcome { applied: true })
 }
 
-/// Последний рубеж перед аварийным завершением. Штатная очистка висит на
-/// `RunEvent::Exit`, но паника главного потока до неё не доходит: раскрутка
-/// через оконную процедуру Windows заканчивается abort'ом, минуя Tauri. Итог —
-/// в реестре остаётся `ProxyEnable=1` на мёртвый loopback-порт, и у
-/// пользователя пропадает интернет во всём, что читает WinINet. Hook
-/// выполняется ДО раскрутки/abort, поэтому снять прокси можно только здесь.
+/// The last line of defense before an abnormal exit. The regular cleanup hangs on
+/// `RunEvent::Exit`, but a main-thread panic never reaches it: unwinding
+/// through the Windows window procedure ends in an abort, bypassing Tauri. The result:
+/// the registry keeps `ProxyEnable=1` pointing to a dead loopback port, and
+/// the user loses internet in everything that reads WinINet. The hook
+/// runs BEFORE unwinding/abort, so this is the only place where the proxy can be removed.
 ///
-/// Внутри — только запись в реестр: без тяжёлых аллокаций, без await и без
-/// обращения к Tauri state (его в этот момент может уже не быть).
+/// Inside — only a registry write: no heavy allocations, no await and no
+/// access to Tauri state (it may already be gone at this point).
 ///
-/// Прокси снимаем только при панике главного потока: там крутится event loop
-/// и выполняются синхронные команды, и такая паника завершает процесс. Hook
-/// вызывается и для паник, которые потом перехватываются (`catch_unwind` в
-/// netproc.rs, паника внутри tokio-таска или async-команды). После них процесс
-/// и sing-box живут дальше, а снятый прокси молча пускал браузеры напрямую,
-/// пока интерфейс показывал «подключено».
+/// The proxy is removed only on a main-thread panic: that's where the event loop
+/// runs and synchronous commands execute, and such a panic terminates the process. The hook
+/// is also called for panics that are caught later (`catch_unwind` in
+/// netproc.rs, a panic inside a tokio task or an async command). After those the process
+/// and sing-box keep living, and a removed proxy silently let browsers go direct
+/// while the interface showed "connected".
 fn install_failsafe_panic_hook() {
     let default_hook = std::panic::take_hook();
     let main_thread = std::thread::current().id();
@@ -1087,32 +1087,32 @@ fn restore_system_proxy_before_exit() {
 pub fn run() {
     install_failsafe_panic_hook();
     vpn::normalize_own_priority();
-    // До Builder: single-instance регистрируется при сборке приложения.
+    // Before the Builder: single-instance is registered when the app is built.
     let parent_exited = wait_for_relaunching_parent();
-    // Exe из вложенной копии после сломанного portable-обновления переносит
-    // себя в исходную папку и перезапускается оттуда — до того, как успеет
-    // создать пустые данные рядом с собой. Только когда прежний процесс точно
-    // вышел: его файлы ещё заняты, а его окно single-instance перехватило бы
-    // запуск исходной копии.
+    // An exe from a nested copy after a broken portable update moves
+    // itself into the original folder and restarts from there — before it gets a chance
+    // to create empty data next to itself. Only once the previous process has definitely
+    // exited: its files are still locked, and its single-instance window would intercept
+    // the launch of the original copy.
     if parent_exited && portable_update::repair_nested_install() {
         std::process::exit(0);
     }
     let portable = app_paths::is_portable();
     let mut context = tauri::generate_context!();
     if portable {
-        // Absolute WebView2 data directory задаётся только через builder.
-        // Запрещаем Tauri автоматически создавать окно из tauri.conf и
-        // создаём его в setup() с NinetyData/webview.
+        // An absolute WebView2 data directory can only be set via the builder.
+        // We forbid Tauri from automatically creating the window from tauri.conf and
+        // create it in setup() with NinetyData/webview.
         if let Some(window) = context.config_mut().app.windows.first_mut() {
             window.create = false;
         }
     }
 
     tauri::Builder::default()
-        // single-instance ОБЯЗАН быть зарегистрирован первым: на second-launch
-        // (юзер кликнул ninety://import/...) система запускает второй процесс;
-        // single-instance перехватывает argv и пробрасывает в первый. Без
-        // этого plugin deep-link создал бы новый window каждый раз.
+        // single-instance MUST be registered first: on a second launch
+        // (the user clicked ninety://import/...) the system starts a second process;
+        // single-instance intercepts argv and forwards it to the first one. Without
+        // this the deep-link plugin would create a new window every time.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
@@ -1130,10 +1130,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        // Автозапуск при входе в Windows реализован через задачу Планировщика
-        // (см. autostart_enable/proxy_win). Прежний tauri-plugin-autostart писал
-        // Run-ключ реестра → не-elevated старт → relaunch с UAC на каждый логин;
-        // от него отказались, миграция в setup() (migrate_legacy_autostart).
+        // Autostart at Windows sign-in is implemented via a Task Scheduler task
+        // (see autostart_enable/proxy_win). The former tauri-plugin-autostart wrote
+        // a registry Run key → non-elevated start → relaunch with UAC on every login;
+        // it was dropped, the migration is in setup() (migrate_legacy_autostart).
         .manage(SingboxState::default())
         .manage(dpi::DpiState::default())
         .manage(host_pressure::HostPressureState::default())
@@ -1160,19 +1160,19 @@ pub fn run() {
             let argv: Vec<String> = std::env::args().collect();
             let autostarted = argv.iter().any(|a| a == "--autostarted");
             let ci_smoke = ci_smoke_requested(&argv);
-            // Страховку жизненного цикла движков поднимаем до первого спавна:
-            // job обязан существовать раньше, чем появится первый движок.
+            // The engine lifecycle safety net is set up before the first spawn:
+            // the job must exist before the first engine appears.
             job_guard::init();
             vpn::purge_stale_runtime_configs(app.handle());
             if let Err(e) = vpn::recover_stale_system_proxy() {
                 eprintln!("stale system proxy recovery: {e}");
             }
 
-            // Throne-style «всегда от админа»: если маркер стоит и мы ещё не
-            // elevated — перезапускаемся с UAC и выходим. Делаем ДО показа окна
-            // (окно visible:false в конфиге), поэтому без мигания. Если юзер
-            // отменит UAC — продолжаем как обычный процесс (TUN просто не
-            // заработает, фронт попросит права при включении).
+            // Throne-style "always as admin": if the marker is set and we aren't
+            // elevated yet — restart with UAC and exit. Done BEFORE showing the window
+            // (the window is visible:false in the config), so there is no flicker. If the user
+            // cancels UAC — we continue as a regular process (TUN simply won't
+            // work, the frontend will ask for rights when it's enabled).
             #[cfg(target_os = "windows")]
             {
                 let already_elevated = argv.iter().any(|a| a == "--elevated");
@@ -1181,14 +1181,14 @@ pub fn run() {
                         .map(|p| p.exists())
                         .unwrap_or(false);
                     if want {
-                        // Ручной запуск остаётся ручным: «всегда от
-                        // администратора» не означает «подключаться при старте».
+                        // A manual launch stays manual: "always as
+                        // administrator" doesn't mean "connect at startup".
                         let connect = argv.iter().any(|a| a == "--connect");
-                        // Ссылка, с которой открыли приложение, иначе теряется.
+                        // Otherwise the link the app was opened with gets lost.
                         let links = url_handler::extract_deep_link_urls(argv.iter());
                         if relaunch_self_elevated(autostarted, connect, &links).unwrap_or(false) {
-                            // Освобождаем лок single-instance немедленно (ядро
-                            // ещё не поднято на этом этапе — чистить нечего).
+                            // Release the single-instance lock immediately (the core
+                            // isn't up yet at this stage — nothing to clean up).
                             std::process::exit(0);
                         }
                     }
@@ -1198,19 +1198,19 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             elevation::allow_second_instance_messages(&app.config().identifier);
 
-            // Сэмплер давления хоста поднимаем сразу и на всё время жизни
-            // процесса: ему нужна предыдущая выборка CPU-счётчиков, чтобы
-            // посчитать первую дельту, а к моменту подключения ответ на вопрос
-            // «виноват ли хост» должен быть уже готов. Прав на runtime у него
-            // нет — только цифры для движка качества.
+            // The host pressure sampler is started right away and for the whole process
+            // lifetime: it needs a previous CPU counter sample to
+            // compute the first delta, and by the time of connecting the answer to
+            // "is the host to blame" must already be ready. It has no rights over the
+            // runtime — only numbers for the quality engine.
             host_pressure::start(
                 app.state::<host_pressure::HostPressureState>()
                     .inner()
                     .clone(),
             );
 
-            // Окно по умолчанию скрыто (visible:false). Показываем сейчас, кроме
-            // автозапуска при входе в Windows — там оставляем в трее.
+            // The window is hidden by default (visible:false). Show it now, except
+            // for autostart at Windows sign-in — there we keep it in the tray.
             if let Some(w) = app.get_webview_window("main") {
                 apply_main_window_icon(app.handle());
                 if autostarted || ci_smoke {
@@ -1220,10 +1220,10 @@ pub fn run() {
                 }
             }
 
-            // schtasks /query и /create могут холодно стартовать сотни миллисекунд.
-            // Они не нужны для создания WebView/tray и поэтому выполняются после
-            // показа окна на отдельном named thread. Сетевой runtime и proxy recovery
-            // остаются в синхронном fail-safe critical path выше.
+            // schtasks /query and /create can take hundreds of milliseconds on a cold start.
+            // They aren't needed to create the WebView/tray, so they run after
+            // the window is shown, on a separate named thread. The network runtime and proxy recovery
+            // stay in the synchronous fail-safe critical path above.
             #[cfg(target_os = "windows")]
             {
                 let migrate_installed = !portable;
@@ -1237,13 +1237,13 @@ pub fn run() {
                     });
             }
 
-            // Регистрация ninety:// в HKCR при первом запуске. На NSIS-инсталле
-            // tauri-plugin-deep-link уже прописал ключи в installer; register_all
-            // нужен для dev-режима / повторной регистрации установленной версии.
+            // Registering ninety:// in HKCR on first launch. On an NSIS install
+            // tauri-plugin-deep-link has already written the keys in the installer; register_all
+            // is needed for dev mode / re-registering the installed version.
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             {
-                // Full Portable не пишет в реестр при обычном запуске. Ручные
-                // обработчики VPN-ссылок остаются opt-in через Настройки.
+                // Full Portable doesn't write to the registry on a normal launch. Manual
+                // VPN link handlers stay opt-in via Settings.
                 if !portable {
                     if let Err(e) = app.deep_link().register_all() {
                         eprintln!("deep-link register_all: {e}");
@@ -1254,14 +1254,14 @@ pub fn run() {
             let init_payload = TrayMenuPayload::default();
             let menu = build_tray_menu(app.handle(), &init_payload)?;
 
-            // Старт всегда в состоянии «отключено» — серый значок; фронт после
-            // загрузки/автоконнекта пришлёт set_tray_menu с актуальным режимом
-            // и локализованными строками (до этого — русский фолбэк labels).
+            // Always start in the "disconnected" state — a grey icon; after
+            // loading/auto-connect the frontend sends set_tray_menu with the current mode
+            // and localized strings (until then — the Russian fallback labels).
             let init_icon = match tray_state_icon(false, "") {
                 Some(icon) => icon,
-                // default_window_icon() пуст в headless-конфигурациях; трей без
-                // значка Windows не создаёт, но паниковать в setup() нельзя —
-                // приложение обязано дойти до окна и сказать об этом словами.
+                // default_window_icon() is empty in headless configurations; Windows doesn't create a tray
+                // without an icon, but panicking in setup() is not allowed —
+                // the app must get to the window and say so in words.
                 None => app
                     .default_window_icon()
                     .cloned()
@@ -1296,8 +1296,8 @@ pub fn run() {
                         "mode:tun" => {
                             let _ = app.emit("tray:set-mode", "tun");
                         }
-                        // Полный список серверов живёт на своём экране: в меню
-                        // он не помещается и там нет поиска.
+                        // The full server list lives on its own screen: it doesn't fit
+                        // in the menu, and there's no search there.
                         "srv:all" => {
                             show_main(app);
                             let _ = app.emit("tray:open-servers", ());
@@ -1317,12 +1317,12 @@ pub fn run() {
                         button_state: MouseButtonState::Up,
                         ..
                     } => show_main(tray.app_handle()),
-                    // Пользователь потянулся к значку — единственный момент,
-                    // когда точно известно, что он сейчас смотрит на трей.
-                    // Свёрнутое окно узнаёт о новой версии только по
-                    // расписанию, поэтому здесь просим фронт дочекать OTA:
-                    // меню собирается заново на set_tray_menu, и к следующему
-                    // открытию пункт «Обновить» уже на месте.
+                    // The user reached for the icon — the only moment
+                    // when we know for sure they are looking at the tray right now.
+                    // A minimized window learns about a new version only on
+                    // schedule, so here we ask the frontend to finish the OTA check:
+                    // the menu is rebuilt on set_tray_menu, and by the next
+                    // opening the "Update" item is already in place.
                     TrayIconEvent::Enter { .. }
                     | TrayIconEvent::Click {
                         button: MouseButton::Right,
@@ -1334,9 +1334,9 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Квалификационный smoke в Windows CI: приложение проходит полный
-            // setup (включая backend-команды и tray), проверяет безопасный ping
-            // и само штатно завершает event loop. Никаких VPN/DPI-соединений.
+            // Qualification smoke in Windows CI: the app goes through the full
+            // setup (including backend commands and tray), checks a safe ping
+            // and properly ends the event loop itself. No VPN/DPI connections.
             if ci_smoke {
                 if ping() != "pong" {
                     return Err("backend ping failed during CI smoke".into());
@@ -1348,9 +1348,9 @@ pub fn run() {
                         }
                     }
                 }
-                // Ниже — единственная часть smoke, которая пишет в боевое
-                // состояние. На машине с уже существующими профилями её
-                // пропускаем целиком: проверка сборки не стоит данных.
+                // Below is the only part of smoke that writes to live
+                // state. On a machine with already existing profiles it is
+                // skipped entirely: a build check isn't worth the data.
                 let state_is_empty = ci_smoke_state_is_empty(app.handle());
                 if !state_is_empty {
                     eprintln!("CI smoke: skipping the store check, the config already has data");
@@ -1398,9 +1398,9 @@ pub fn run() {
                     }
                     profile_store::profile_store_clear_blocking(app.handle().clone(), None)?;
                     if portable {
-                        // Реальная запись через production-path helper: ловит и
-                        // случайный AppData, и DPAPI, который сделал бы Full
-                        // Portable нечитаемым после переноса на другой ПК.
+                        // A real write through the production-path helper: catches both
+                        // an accidental AppData and DPAPI, which would make Full
+                        // Portable unreadable after moving to another PC.
                         let smoke_snapshot = serde_json::json!({
                             "__schemaVersion": 2,
                             "ninety.options.v1": "{}",
@@ -1411,7 +1411,7 @@ pub fn run() {
                         // path with an ephemeral in-memory passphrase. Production
                         // portable runs write plaintext until the user sets a
                         // passphrase in Settings.
-                        // Синхронный вариант: setup() не является async-контекстом.
+                        // Synchronous variant: setup() is not an async context.
                         backup::state_backup_save_blocking(
                             app.handle().clone(),
                             smoke_snapshot.to_string(),
@@ -1559,9 +1559,9 @@ pub fn run() {
         .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
-            // setup() выполняется до полного создания нативного event loop.
-            // Повтор на Ready гарантирует, что Windows получит новую small/big
-            // icon уже после всех внутренних настроек окна Tauri/WebView2.
+            // setup() runs before the native event loop is fully created.
+            // Repeating on Ready guarantees that Windows gets the new small/big
+            // icon after all the internal Tauri/WebView2 window setup.
             if matches!(&event, RunEvent::Ready) {
                 apply_main_window_icon(app);
             }
@@ -1570,11 +1570,11 @@ pub fn run() {
                     vpn::force_cleanup(app, &state);
                 }
                 if let Some(state) = app.try_state::<dpi::DpiState>() {
-                    // cleanup_on_exit убивает winws и снимает kernel-драйвер
-                    // WinDivert/Monkey, НО пропускает sc.exe при выключении ОС
-                    // (там sc.exe падает 0xc0000142, а драйвер выгрузит перезагрузка)
-                    // и когда DPI в этой сессии не поднимался. Лок .sys для
-                    // переустановки без ребута снимает явная dpi_unload_driver (OTA).
+                    // cleanup_on_exit kills winws and removes the WinDivert/Monkey
+                    // kernel driver, BUT skips sc.exe on OS shutdown
+                    // (sc.exe fails there with 0xc0000142, and the reboot unloads the driver)
+                    // and when DPI wasn't brought up in this session. The .sys lock for
+                    // reinstalling without a reboot is released by the explicit dpi_unload_driver (OTA).
                     dpi::cleanup_on_exit(&state);
                 }
                 if let Some(state) = app.try_state::<killswitch::KillSwitchState>() {
@@ -1588,8 +1588,8 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    // Меню трея нельзя подменять, пока оно открыто: замена рушит показанный
-    // popup. Признак «сейчас показывается меню» — эти два бита GUITHREADINFO.
+    // The tray menu must not be swapped while it is open: the replacement destroys the shown
+    // popup. The "a menu is being shown right now" sign is these two GUITHREADINFO bits.
     #[test]
     fn only_autostart_and_explicit_connect_request_a_connection() {
         assert!(autoconnect_requested(["ninety.exe", "--autostarted"]));
@@ -1643,9 +1643,9 @@ mod tests {
         assert!(!menu_flags_indicate_open(GUI_CARETBLINKING));
     }
 
-    // Подсказка трея — единственный признак апдейта, который не зависит от
-    // OS-уведомлений: на Windows тост молча теряется, если у сборки нет ярлыка
-    // с AppUserModelID (портативная копия), и тогда в трее не остаётся ничего.
+    // The tray tooltip is the only update sign that doesn't depend on
+    // OS notifications: on Windows a toast is silently lost if the build has no shortcut
+    // with an AppUserModelID (a portable copy), and then nothing remains in the tray.
     #[test]
     fn tooltip_shows_the_pending_update_in_both_states() {
         let labels = TrayLabels::default();
@@ -1658,10 +1658,10 @@ mod tests {
         assert!(connected.contains("0.2.57"));
     }
 
-    // Подсказка уходит в NOTIFYICONDATAW.szTip: 128 UTF-16 единиц вместе с нулём,
-    // хвост Windows срезает молча — и первым теряется номер версии во второй
-    // строке. Эти лейблы — фолбэк на случай, когда фронт ещё не прислал свои;
-    // тот же предел по всем 15 каталогам проверяет tests/i18n.test.mjs.
+    // The tooltip goes into NOTIFYICONDATAW.szTip: 128 UTF-16 units including the null,
+    // Windows silently cuts the tail — and the version number on the second
+    // line is lost first. These labels are a fallback for when the frontend hasn't sent its own yet;
+    // tests/i18n.test.mjs checks the same limit across all 15 catalogs.
     #[test]
     fn tooltip_fits_the_windows_tray_tip_buffer() {
         let labels = TrayLabels::default();
@@ -1672,9 +1672,9 @@ mod tests {
         }
     }
 
-    // Метка апдейта обязана быть видна на самом значке: подсказку и меню
-    // пользователь открывает сам, а свёрнутое приложение должно сигналить о
-    // новой версии без единого клика.
+    // The update badge must be visible on the icon itself: the user opens the tooltip and menu
+    // themselves, while a minimized app must signal a
+    // new version without a single click.
     #[test]
     fn update_badge_marks_only_the_corner_of_the_icon() {
         let (w, h) = (32u32, 32u32);
@@ -1685,7 +1685,7 @@ mod tests {
             let i = ((y * w + x) * 4) as usize;
             (rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3])
         };
-        // Центр метки — непрозрачный акцент, левый верхний угол не тронут.
+        // The badge center is an opaque accent, the top-left corner is untouched.
         let (r, _, _, a) = px(25, 25);
         assert_eq!(a, 255);
         assert!(r > 200, "ожидали акцентный кружок, получили r={r}");
@@ -1693,7 +1693,7 @@ mod tests {
         assert_eq!(px(2, 20), (0, 0, 0, 0));
     }
 
-    // Значок без апдейта менять нельзя: иначе метка «залипнет» после установки.
+    // The icon must not change without an update: otherwise the badge would "stick" after installation.
     #[test]
     fn tray_icon_is_badged_only_when_an_update_is_pending() {
         let plain = tray_icon(false, "", false).expect("значок трея встроен в бинарь");
@@ -1703,7 +1703,7 @@ mod tests {
         assert_eq!(plain.rgba(), tray_state_icon(false, "").unwrap().rgba());
     }
 
-    // Буфер меньше метки (или битые размеры) не должен паниковать по индексу.
+    // A buffer smaller than the badge (or broken dimensions) must not panic on an index.
     #[test]
     fn update_badge_ignores_degenerate_buffers() {
         let mut tiny = vec![0u8; 4 * 4 * 4];
@@ -1715,8 +1715,8 @@ mod tests {
         assert!(truncated.iter().all(|b| *b == 0));
     }
 
-    // Перехваченная паника фонового потока процесс не завершает: sing-box
-    // продолжает работать, и снимать системный прокси из-за неё нельзя.
+    // A caught panic in a background thread doesn't terminate the process: sing-box
+    // keeps running, and the system proxy must not be removed because of it.
     #[test]
     fn only_a_main_thread_panic_releases_the_system_proxy() {
         let main = std::thread::current().id();
@@ -1727,9 +1727,9 @@ mod tests {
         assert!(!panic_ends_process(worker, main));
     }
 
-    // Один argv-флаг не должен запускать сборочную проверку: она стирает
-    // profile store и перезаписывает state backup, а флаг легко попадает в
-    // ярлык или .bat.
+    // A single argv flag must not start the build check: it wipes the
+    // profile store and overwrites the state backup, and the flag easily ends up in
+    // a shortcut or a .bat.
     #[test]
     fn ci_smoke_needs_both_the_flag_and_the_explicit_environment_opt_in() {
         assert!(ci_smoke_opt_in(true, Some("1")));

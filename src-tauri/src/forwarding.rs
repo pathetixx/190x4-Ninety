@@ -1,37 +1,37 @@
-// Ninety · Пересылка IP на внешнем интерфейсе (issue #168).
+// Ninety · IP forwarding on the external interface (issue #168).
 //
-// В TUN собственный трафик движков уходит правилом process_name → direct, а
-// direct привязан к физическому адаптеру (auto_detect_interface, IP_UNICAST_IF).
-// На машине, где Windows пересылает пакеты между интерфейсами (хвосты раздачи
-// интернета с ПК, IPEnableRouter=1, Set-NetIPInterface -Forwarding Enabled),
-// эта привязка не удерживает трафик: прямое соединение ядра снова попадает в
-// TUN, ядро снова отправляет его напрямую — петля. Снаружи это выглядит как
-// «Проверка» без конца, десятки тысяч сокетов sing-box и ни одного байта.
+// In TUN the engines' own traffic goes out via a process_name → direct rule, and
+// direct is bound to the physical adapter (auto_detect_interface, IP_UNICAST_IF).
+// On a machine where Windows forwards packets between interfaces (leftovers of sharing
+// the internet from the PC, IPEnableRouter=1, Set-NetIPInterface -Forwarding Enabled),
+// this binding doesn't hold the traffic: the core's direct connection lands in
+// TUN again, the core sends it direct again — a loop. From the outside it looks like
+// endless "Checking", tens of thousands of sing-box sockets and not a single byte.
 //
-// Сами настройки не трогаем: пересылка бывает нужна осознанно (Hyper-V, WSL,
-// раздача). Только читаем и говорим человеку, что именно мешает.
+// We don't touch the settings themselves: forwarding is sometimes needed deliberately (Hyper-V, WSL,
+// sharing). We only read them and tell the person exactly what is in the way.
 //
-// Смотрим не на все интерфейсы, а на те, через которые идёт маршрут по
-// умолчанию: именно к ним привязывается direct. Пересылка на внутреннем
-// виртуальном свитче без выхода в интернет петлю не создаёт, и ругаться на неё
-// значило бы пугать каждого владельца WSL. Службу SharedAccess тоже не
-// проверяем: на Windows 11 она часто запущена сама по себе (мобильный
-// хот-спот), а включённую раздачу выдаёт та же пересылка на интерфейсе.
+// We look not at all interfaces but at those the default route
+// goes through: that's what direct binds to. Forwarding on an internal
+// virtual switch without internet access doesn't create a loop, and complaining about it
+// would mean scaring every WSL owner. We don't check the SharedAccess service
+// either: on Windows 11 it often runs on its own (mobile
+// hotspot), and enabled sharing is revealed by the same forwarding on the interface.
 //
-// Ответ троичный, как у пробы IPv6: None — судить не по чему (снимок не
-// снялся). Неизвестность не должна превращаться ни в тревогу, ни в «всё
-// чисто» — фронт тогда просто молчит.
+// The answer is ternary, like the IPv6 probe: None — nothing to judge by (the snapshot
+// failed). Unknown must not turn into either an alarm or "all
+// clear" — the frontend then simply stays silent.
 
 use serde::Serialize;
 
 #[derive(Serialize, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ForwardingStatus {
-    /// IPEnableRouter=1 в реестре: пересылка вернётся после каждой перезагрузки,
-    /// даже если выключить её на интерфейсе.
+    /// IPEnableRouter=1 in the registry: forwarding comes back after every reboot,
+    /// even if you turn it off on the interface.
     pub router_enabled: bool,
-    /// Внешние интерфейсы (с маршрутом по умолчанию), на которых пересылка
-    /// включена прямо сейчас. Непустой список — это и есть проблема.
+    /// External interfaces (with a default route) on which forwarding
+    /// is enabled right now. A non-empty list is the problem.
     pub interfaces: Vec<ForwardingInterface>,
 }
 
@@ -39,7 +39,7 @@ pub struct ForwardingStatus {
 #[serde(rename_all = "camelCase")]
 pub struct ForwardingInterface {
     pub alias: String,
-    /// "ipv4" | "ipv6" — команда исправления называет семейство явно.
+    /// "ipv4" | "ipv6" — the fix command names the family explicitly.
     pub family: &'static str,
 }
 
@@ -47,8 +47,8 @@ pub struct ForwardingInterface {
 pub async fn system_forwarding_status() -> Result<Option<ForwardingStatus>, String> {
     #[cfg(windows)]
     {
-        // Тот же каркас, что у system_ipv6_available: Win32-снимок вне
-        // webview-потока, паника не уходит через IPC-границу, промис settl-ится.
+        // The same scaffolding as system_ipv6_available: a Win32 snapshot off
+        // the webview thread, a panic doesn't cross the IPC boundary, the promise settles.
         tauri::async_runtime::spawn_blocking(|| {
             std::panic::catch_unwind(windows_impl::probe)
                 .unwrap_or_else(|_| Err("forwarding probe panicked".into()))
@@ -62,7 +62,7 @@ pub async fn system_forwarding_status() -> Result<Option<ForwardingStatus>, Stri
     }
 }
 
-/// Интерфейс самого Ninety: его маршруты и флаги — не про систему.
+/// Ninety's own interface: its routes and flags aren't about the system.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn is_own_tun(alias: &str) -> bool {
     alias.eq_ignore_ascii_case("ninety-tun")
@@ -85,14 +85,14 @@ mod windows_impl {
         let mut interfaces = Vec::new();
 
         let mut table: *mut MIB_IPINTERFACE_TABLE = std::ptr::null_mut();
-        // SAFETY: table — выходной указатель; при успехе Windows кладёт туда
-        // таблицу, которую освобождает FreeMibTable в MibTable::drop.
+        // SAFETY: table is an output pointer; on success Windows puts into it
+        // a table that FreeMibTable frees in MibTable::drop.
         let rc = unsafe { GetIpInterfaceTable(AF_UNSPEC, &mut table) };
         if rc != ERROR_SUCCESS || table.is_null() {
             return Err(format!("GetIpInterfaceTable: code {}", rc.0));
         }
         let _guard = MibTable(table as *const core::ffi::c_void);
-        // SAFETY: таблица валидна до drop guard'а; NumEntries строк лежат подряд.
+        // SAFETY: the table is valid until the drop guard; NumEntries rows lie contiguously.
         let rows = unsafe {
             std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize)
         };
@@ -101,7 +101,7 @@ mod windows_impl {
                 continue;
             }
             let family = row.Family.0;
-            // SAFETY: NET_LUID_LH — объединение, Value покрывает его целиком.
+            // SAFETY: NET_LUID_LH is a union, Value covers it entirely.
             let luid = unsafe { row.InterfaceLuid.Value };
             if !upstream.contains(&(luid, family)) {
                 continue;
@@ -120,16 +120,16 @@ mod windows_impl {
         }))
     }
 
-    /// (LUID, семейство) интерфейсов, через которые идёт маршрут по умолчанию.
+    /// (LUID, family) of the interfaces the default route goes through.
     fn default_route_interfaces() -> Result<HashSet<(u64, u16)>, String> {
         let mut table: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
-        // SAFETY: как у GetIpInterfaceTable выше.
+        // SAFETY: as with GetIpInterfaceTable above.
         let rc = unsafe { GetIpForwardTable2(AF_UNSPEC, &mut table) };
         if rc != ERROR_SUCCESS || table.is_null() {
             return Err(format!("GetIpForwardTable2: code {}", rc.0));
         }
         let _guard = MibTable(table as *const core::ffi::c_void);
-        // SAFETY: таблица валидна до drop guard'а; NumEntries строк лежат подряд.
+        // SAFETY: the table is valid until the drop guard; NumEntries rows lie contiguously.
         let rows = unsafe {
             std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize)
         };
@@ -138,8 +138,8 @@ mod windows_impl {
             if row.DestinationPrefix.PrefixLength != 0 {
                 continue;
             }
-            // SAFETY: SOCKADDR_INET — объединение, si_family общий для всех веток;
-            // NET_LUID_LH — объединение, Value покрывает его целиком.
+            // SAFETY: SOCKADDR_INET is a union, si_family is common to all variants;
+            // NET_LUID_LH is a union, Value covers it entirely.
             let (family, luid) = unsafe {
                 (
                     row.DestinationPrefix.Prefix.si_family.0,
@@ -156,7 +156,7 @@ mod windows_impl {
     fn alias_of(luid: &NET_LUID_LH) -> String {
         // NDIS_IF_MAX_STRING_SIZE + 1.
         let mut buf = [0u16; 257];
-        // SAFETY: luid — живая запись снимка, buf передаётся срезом с длиной.
+        // SAFETY: luid is a live snapshot entry, buf is passed as a slice with its length.
         let rc = unsafe { ConvertInterfaceLuidToAlias(luid, &mut buf) };
         if rc != ERROR_SUCCESS {
             return String::new();
@@ -178,7 +178,7 @@ mod windows_impl {
 
     impl Drop for MibTable {
         fn drop(&mut self) {
-            // SAFETY: указатель получен от GetIp*Table* и освобождается ровно раз.
+            // SAFETY: the pointer was obtained from GetIp*Table* and is freed exactly once.
             unsafe { FreeMibTable(self.0) };
         }
     }
@@ -193,8 +193,8 @@ mod tests {
         assert!(!super::is_own_tun("Ethernet"));
     }
 
-    // Проба обязана ВСЕГДА отвечать: её зовут на пути подключения и из
-    // диагностики. Значение зависит от машины, поэтому проверяем контракт.
+    // The probe must ALWAYS answer: it is called on the connect path and from
+    // diagnostics. The value depends on the machine, so we check the contract.
     #[cfg(windows)]
     #[test]
     fn probe_always_answers() {

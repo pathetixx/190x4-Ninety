@@ -33,8 +33,8 @@ pub fn proxy_notification_generations() -> (u64, u64) {
     (0, 0)
 }
 
-// Не-Windows: понятия elevated-токена/UAC нет. Считаем что прав достаточно
-// (на Linux/macOS TUN решается через capabilities/setuid вне рамок клиента).
+// Non-Windows: there's no concept of an elevated token/UAC. We assume the rights are sufficient
+// (on Linux/macOS TUN is handled via capabilities/setuid outside the client's scope).
 pub fn is_elevated() -> bool {
     true
 }
@@ -43,7 +43,7 @@ pub fn relaunch_self_elevated(_extra_args: &[&str]) -> Result<bool, String> {
     Err("elevation supported only on Windows".into())
 }
 
-// Автозапуск через Планировщик заданий — Windows-only.
+// Autostart via Task Scheduler is Windows-only.
 pub fn autostart_is_enabled() -> bool {
     false
 }

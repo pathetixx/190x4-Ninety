@@ -14,20 +14,20 @@ use tauri::AppHandle;
 
 use crate::util::MutexExt;
 
-/// Сериализация всех операций над хранилищем.
+/// Serialization of all storage operations.
 ///
-/// `expected_revision` в `profile_store_replace` — оптимистичная блокировка, но
-/// сама по себе она ничего не гарантирует: команды исполняются в blocking-пуле,
-/// и два параллельных вызова успевали прочитать одну и ту же ревизию, оба
-/// увеличить её до N+1 и записать — второй молча затирал первый. Лок делает
-/// связку «прочитать → сверить ревизию → записать» неделимой. Чтение тоже под
-/// ним: иначе load/status могли застать чужую ротацию primary → .bak на
-/// середине. Тот же приём, что у BACKUP_LOCK в backup.rs.
+/// `expected_revision` in `profile_store_replace` is optimistic locking, but
+/// by itself it guarantees nothing: commands run in the blocking pool,
+/// and two concurrent calls managed to read the same revision, both
+/// bump it to N+1 and write — the second silently overwrote the first. The lock makes
+/// the "read → compare revision → write" sequence atomic. Reads are under it
+/// too: otherwise load/status could catch someone else's primary → .bak rotation
+/// midway. The same technique as BACKUP_LOCK in backup.rs.
 static STORE_LOCK: Mutex<()> = Mutex::new(());
 
 const STORE_SCHEMA_VERSION: u64 = 1;
-// Сверяется с PROFILE_STORE_MAX_BYTES в src/lib/profile-store.js. Публичные
-// подписки на 12–13 тысяч серверов занимают около 11 МБ.
+// Matched against PROFILE_STORE_MAX_BYTES in src/lib/profile-store.js. Public
+// subscriptions with 12–13 thousand servers take about 11 MB.
 const MAX_STORE_BYTES: usize = 32 * 1024 * 1024;
 const STORE_FILE: &str = "profile-store.v1";
 
@@ -258,10 +258,10 @@ fn write_store(app: &AppHandle, path: &Path, store: &ProfileStore) -> Result<(),
                 )?;
             }
         }
-        // Ротация бэкапа — только если текущий primary читается. После
-        // восстановления из .bak повреждённый primary ещё лежит на месте, и
-        // слепое копирование затирало им единственную исправную копию: сбой
-        // следующей записи оставлял пользователя вообще без профилей.
+        // Rotate the backup only if the current primary is readable. After
+        // restoring from .bak the damaged primary is still in place, and
+        // blindly copying it overwrote the only intact copy: a failure of
+        // the next write left the user with no profiles at all.
         if read_store_file(app, path).is_ok() {
             crate::atomic_file::copy_replace(path, &backup, "profile store backup")?;
         }
@@ -295,8 +295,8 @@ fn cleanup_temp_files(path: &Path) -> Result<u32, String> {
     Ok(removed)
 }
 
-// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
-// на главном потоке и морозила бы окно на каждом сохранении профиля.
+// Argon2id (19 MiB × 3) and file I/O. A synchronous Tauri command runs
+// on the main thread and would freeze the window on every profile save.
 #[tauri::command]
 pub async fn profile_store_load(app: AppHandle) -> Result<ProfileStoreLoadResponse, String> {
     tauri::async_runtime::spawn_blocking(move || profile_store_load_blocking(app))
@@ -329,8 +329,8 @@ pub(crate) fn profile_store_load_blocking(
     })
 }
 
-// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
-// на главном потоке и морозила бы окно на каждом сохранении профиля.
+// Argon2id (19 MiB × 3) and file I/O. A synchronous Tauri command runs
+// on the main thread and would freeze the window on every profile save.
 #[tauri::command]
 pub async fn profile_store_replace(
     app: AppHandle,
@@ -344,7 +344,7 @@ pub async fn profile_store_replace(
     .await
     .map_err(|error| format!("profile_store_replace: {error}"))?;
     if let Err(error) = &result {
-        // В лог — только класс ошибки: текст может содержать путь профиля.
+        // Only the error class goes to the log: the text may contain the profile path.
         crate::vpn::append_runtime_diagnostic_at(
             &log_app,
             crate::vpn::diagnostic_level_for_result("failed"),
@@ -372,8 +372,8 @@ pub(crate) fn profile_store_replace_blocking(
     expected_revision: u64,
     mut store: ProfileStore,
 ) -> Result<ProfileStoreReplaceResponse, String> {
-    // Ревизию читаем и увеличиваем под одним локом: без него сверка ничего не
-    // проверяет — конкурент успевает записать между чтением и записью.
+    // The revision is read and bumped under one lock: without it the comparison checks
+    // nothing — a competitor manages to write between the read and the write.
     let _guard = STORE_LOCK.lock_recover();
     let _secrets = crate::secrets::secret_io_guard();
     let path = store_path(&app)?;
@@ -395,8 +395,8 @@ pub(crate) fn profile_store_replace_blocking(
     })
 }
 
-// Argon2id (19 МиБ × 3) и файловый I/O. Синхронная Tauri-команда исполняется
-// на главном потоке и морозила бы окно на каждом сохранении профиля.
+// Argon2id (19 MiB × 3) and file I/O. A synchronous Tauri command runs
+// on the main thread and would freeze the window on every profile save.
 #[tauri::command]
 pub async fn profile_store_clear(
     app: AppHandle,

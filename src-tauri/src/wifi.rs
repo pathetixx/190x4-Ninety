@@ -1,15 +1,15 @@
-// Ninety · определение текущей Wi-Fi сети (III.3 — авто-защита на чужих сетях).
-// Тонкий слой: отдаём фронту SSID + защищена ли сеть. ПОЛИТИКУ (доверенные сети,
-// авто-переключение в TUN) держит фронт — так в Rust минимум FFI, а решения и
-// allowlist живут рядом с остальным UI-состоянием. Только чтение, без админ-прав.
+// Ninety · detecting the current Wi-Fi network (III.3 — auto-protection on foreign networks).
+// A thin layer: we give the frontend the SSID + whether the network is secured. The POLICY (trusted networks,
+// auto-switching to TUN) is kept by the frontend — this way Rust has minimal FFI, and decisions and
+// the allowlist live next to the rest of the UI state. Read-only, no admin rights.
 
 use serde::Serialize;
 
 #[derive(Serialize, Default, Clone)]
 pub struct WifiInfo {
-    pub connected: bool, // подключены к Wi-Fi прямо сейчас
-    pub ssid: String,    // имя сети ("" если неизвестно/не Wi-Fi)
-    pub secured: bool,   // true = шифрование включено (WPA/WEP); false = открытая
+    pub connected: bool, // connected to Wi-Fi right now
+    pub ssid: String,    // network name ("" if unknown/not Wi-Fi)
+    pub secured: bool,   // true = encryption enabled (WPA/WEP); false = open
 }
 
 fn decode_ssid(bytes: &[u8], declared_len: usize) -> String {
@@ -17,8 +17,8 @@ fn decode_ssid(bytes: &[u8], declared_len: usize) -> String {
     String::from_utf8_lossy(&bytes[..len]).to_string()
 }
 
-/// Текущая Wi-Fi сеть (для авто-защиты на чужих сетях). На не-Windows и при
-/// отсутствии Wi-Fi-адаптера возвращает connected=false.
+/// Current Wi-Fi network (for auto-protection on foreign networks). On non-Windows and
+/// without a Wi-Fi adapter returns connected=false.
 #[tauri::command]
 pub fn current_wifi() -> WifiInfo {
     #[cfg(target_os = "windows")]
@@ -42,7 +42,7 @@ mod win {
         unsafe {
             let mut handle = HANDLE::default();
             let mut negotiated: u32 = 0;
-            // Версия клиента 2 (Vista+). None preserved.
+            // Client version 2 (Vista+). None preserved.
             if WlanOpenHandle(2, None, &mut negotiated, &mut handle) != ERROR_SUCCESS.0 {
                 return None;
             }
@@ -92,7 +92,7 @@ mod win {
         let attr = &*(data as *const WLAN_CONNECTION_ATTRIBUTES);
         let ssid = &attr.wlanAssociationAttributes.dot11Ssid;
         let name = super::decode_ssid(&ssid.ucSSID, ssid.uSSIDLength as usize);
-        // Открытая сеть = шифрование выключено ИЛИ auth = OPEN.
+        // Open network = encryption off OR auth = OPEN.
         let sec = &attr.wlanSecurityAttributes;
         let secured =
             sec.bSecurityEnabled.as_bool() && sec.dot11AuthAlgorithm != DOT11_AUTH_ALGO_80211_OPEN;
