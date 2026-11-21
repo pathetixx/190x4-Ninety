@@ -665,20 +665,3 @@ jobs:
           set -euo pipefail
           version="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
           node scripts/release.mjs "$version" --verify
-
-  # После публикации релиза сайт должен подхватить новый Latest в release.json.
-  # Pages запускается отсюда через workflow_dispatch: запуск по workflow_run
-  # не находит собственный артефакт сайта (deploy-pages: «No artifacts named
-  # github-pages»), а workflow_dispatch публикует его штатно.
-  refresh-pages:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: release-on-tag
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Dispatch Pages deploy
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main
