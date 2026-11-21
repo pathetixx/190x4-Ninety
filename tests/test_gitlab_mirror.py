@@ -97,9 +97,9 @@ class GitLabMirrorTests(unittest.TestCase):
         self.assertEqual(delays, [2])
 
     def test_verify_blob_waits_out_a_stale_read(self):
-        """stable/ перезаписывается каждым релизом, и GitLab отдаёт прежнюю копию
-        ещё несколько секунд после записи. Такое чтение обязано быть поводом
-        повторить: релиз 0.6.4 упал именно здесь, хотя зеркало было верным."""
+        """stable/ is overwritten by every release, and GitLab returns the previous copy
+        for a few more seconds after the write. Such a read must be a reason
+        to retry: release 0.6.4 failed exactly here, although the mirror was correct."""
         client = mirror.GitLabClient("https://gitlab.test/api/v4", "42", "token")
         reads = [b"previous release", b"current release"]
         delays = []

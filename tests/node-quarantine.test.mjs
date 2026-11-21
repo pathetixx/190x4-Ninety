@@ -1,5 +1,5 @@
-// Ядро само называет виновника отказа: «initialize outbound[N]: причина».
-// Нода по индексу должна находиться точно и больше в конфиг не попадать.
+// The core names the culprit of a refusal itself: "initialize outbound[N]: reason".
+// The node must be found by index precisely and never get into the config again.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -36,7 +36,7 @@ test("индекс outbound'а из ошибки ядра указывает н�
     mode: "proxy",
     options: DEFAULT_OPTIONS,
   });
-  // selector/auto идут первыми — вторая нода это outbound[3].
+  // selector/auto come first — the second node is outbound[3].
   assert.equal(config.outbounds[3].server, "b.example");
   const hit = matchCoreOutboundRejection(
     "sing-box died. Last errors:\nFATAL[0000] create service: initialize outbound[3]: unsupported flow: xtls-rprx-direct",
@@ -84,9 +84,9 @@ test("карантин привязан к параметрам ноды: поч
   assert.ok(!isNodeQuarantined(fixed));
 });
 
-// WireGuard ядро инициализирует отдельным списком и называет виновника
-// «initialize endpoint[N]». Без своей карты индексов такая нода не попадала бы
-// в карантин вообще: индекс из другого списка указал бы на чужой сервер.
+// The core initializes WireGuard as a separate list and names the culprit
+// "initialize endpoint[N]". Without its own index map such a node wouldn't get
+// into quarantine at all: an index from another list would point at someone else's server.
 test("отказ ядра на endpoint находит wireguard-ноду по своей карте индексов", () => {
   const outboundNodes = [null, { host: "a.example", port: 443 }, null];
   const endpointNodes = [{ host: "162.159.192.1", port: 2408, proto: "wireguard" }];
@@ -98,7 +98,7 @@ test("отказ ядра на endpoint находит wireguard-ноду по �
   assert.equal(hit.node, endpointNodes[0]);
   assert.equal(hit.kind, "endpoint");
   assert.equal(hit.reason, "invalid private key");
-  // Индексы двух списков не пересекаются: outbound[1] по-прежнему свой.
+  // The indices of the two lists don't overlap: outbound[1] is still its own.
   const outboundHit = matchCoreOutboundRejection(
     "create service: initialize outbound[1]: bad flow",
     outboundNodes,

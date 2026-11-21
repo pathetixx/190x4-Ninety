@@ -1,6 +1,6 @@
-// Хранилище профилей ограничено по размеру (#233). Слишком большая запись не
-// должна выглядеть как «защищённое хранилище недоступно» и не должна молча
-// оставлять приложение в состоянии «всё сохранено».
+// The profile storage is size-limited (#233). A write that's too big must not
+// look like "the protected storage is unavailable" and must not silently
+// leave the app in the "everything is saved" state.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -64,7 +64,7 @@ test("слишком большая запись отклоняется поня
   assert.equal(result.error.code, "too_large");
   assert.equal(calls.filter(c => c.command === "profile_store_replace").length, before);
   assert.equal(store.profileStoreWriteFailure().code, "too_large");
-  // Хранилище исправно: это отказ одной записи, а не деградация.
+  // The storage is fine: this is a refusal of one write, not degradation.
   assert.equal(store.profileStoreIsDegraded(), false);
   await new Promise(resolve => setTimeout(resolve, 0));
   const logged = calls.find(c => c.command === "record_frontend_runtime_event");

@@ -1,10 +1,10 @@
-// Импорт готового конфига sing-box. Панели раздают подписку двумя способами —
-// списком ссылок и собранным конфигом ядра (BPB-Worker-Panel, Hiddify-панели), и
-// второй способ до этого выглядел как «подписка не содержит конфигов».
+// Importing a ready sing-box config. Panels hand out a subscription in two ways —
+// as a list of links and as an assembled core config (BPB-Worker-Panel, Hiddify panels), and
+// the second way used to look like "the subscription contains no configs".
 //
-// Проверяем то, что ломается молча: серверная часть должна доехать до конфига
-// без потерь (пароль со спецсимволами, IPv6, reality, early data, reserved
-// WireGuard), а всё, что не сервер, не должно попадать в счётчик пропущенных.
+// We check what breaks silently: the server part must reach the config
+// without losses (a password with special characters, IPv6, reality, early data, WireGuard
+// reserved), and everything that isn't a server must not get into the skipped counter.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -49,9 +49,9 @@ const vlessWs = {
   },
 };
 
-// Собирает конфиг ядра из нод и возвращает outbound'ы самих серверов. Тег
-// зависит от числа нод (одна нода собирается сразу под «proxy»), поэтому
-// отбираем по типу, а не по имени.
+// Builds a core config from nodes and returns the outbounds of the servers themselves. The tag
+// depends on the number of nodes (a single node is built right away under "proxy"), so
+// we select by type, not by name.
 const GROUP_TYPES = new Set(["selector", "urltest", "balancer", "direct", "block", "dns"]);
 function outboundsOf(nodes) {
   const { config } = buildConfig({
@@ -61,7 +61,7 @@ function outboundsOf(nodes) {
   return config.outbounds.filter((o) => !GROUP_TYPES.has(o.type));
 }
 
-// ── распознавание формата ──────────────────────────────────
+// ── format detection ──────────────────────────────────
 test("конфиг sing-box распознаётся, а конфиг чужого движка называется по имени", () => {
   assert.equal(detectConfigFormat(JSON.stringify(wrap([vlessWs]))), "sing-box");
   assert.equal(detectConfigFormat(JSON.stringify({ outbounds: [{ protocol: "vless", settings: {} }] })), "xray");
@@ -71,14 +71,14 @@ test("конфиг sing-box распознаётся, а конфиг чужог
 });
 
 test("outbounds без type, но с protocol — это Xray, а не sing-box", () => {
-  // Ключ `outbounds` есть у обоих движков; отличает их форма записи сервера.
+  // Both engines have an `outbounds` key; what tells them apart is how a server is written.
   const xray = { outbounds: [{ protocol: "vless", tag: "proxy", settings: { vnext: [] } }] };
   assert.equal(detectConfigFormat(JSON.stringify(xray)), "xray");
   assert.equal(detectAddInput(JSON.stringify(xray)).kind, "client-config");
   assert.equal(detectAddInput(JSON.stringify(xray)).format, "xray");
 });
 
-// ── что берём и что пропускаем ─────────────────────────────
+// ── what we take and what we skip ─────────────────────────────
 test("группы и системные outbound'ы не серверы и в пропущенные не попадают", () => {
   const { profiles, skipped } = parseSingboxConfig(wrap([
     { type: "selector", tag: "proxy", outbounds: ["auto"] },
@@ -100,12 +100,12 @@ test("нода за чужим detour и протокол без поддерж�
   ]));
   assert.equal(profiles.length, 1);
   assert.equal(skipped, 2);
-  // Цепочку через чужой outbound Ninety не воспроизводит: без неё нода пошла бы
-  // напрямую, то есть вела бы себя не так, как в конфиге, откуда пришла.
+  // Ninety doesn't reproduce a chain through someone else's outbound: without it the node would go
+  // direct, i.e. behave differently than in the config it came from.
   assert.deepEqual(unsupported.sort(), ["http", "vless+detour"]);
 });
 
-// ── перенос без потерь ─────────────────────────────────────
+// ── carrying over without losses ─────────────────────────────────────
 test("vless ws+tls доезжает до конфига вместе с ранней передачей данных", () => {
   const { profiles } = parseSingboxConfig(wrap([vlessWs]));
   const [out] = outboundsOf(profiles);
@@ -134,8 +134,8 @@ test("IPv6-сервер уезжает в ядро без скобок, а в с
 });
 
 test("пароль со спецсимволами не рвёт ссылку по пути в конфиг", () => {
-  // `@` и `:` в пароле — обычное дело у панелей, а разбор ссылки режет по
-  // последнему `@` и первому `:`: без экранирования сюда доезжает огрызок.
+  // `@` and `:` in a password are common for panels, and link parsing cuts at
+  // the last `@` and the first `:`: without escaping only a stub arrives here.
   const password = "S0me:Tr0j@n/Pa ss#1";
   const { profiles } = parseSingboxConfig(wrap([{
     tag: "tr", type: "trojan", server: HOST, server_port: 8443, password,
@@ -196,9 +196,9 @@ test("vmess собирается через свою base64-ссылку, вкл
 });
 
 test("vmess ws переносит раннюю передачу и insecure, которых нет в формате v2rayN", () => {
-  // Формат ссылки vmess — это JSON v2rayN, и полей ed/eh/allowInsecure в нём
-  // нет. Дописываем свои: чужие клиенты неизвестные ключи игнорируют, а наш
-  // конфиг из ссылки возвращается таким же, каким в неё вошёл.
+  // The vmess link format is v2rayN JSON, and it has no ed/eh/allowInsecure
+  // fields. We add our own: other clients ignore unknown keys, while our
+  // config comes back from the link the same as it went in.
   const { profiles } = parseSingboxConfig(wrap([{
     tag: "vm", type: "vmess", server: "1.2.3.4", server_port: 443, uuid: UUID,
     alter_id: 0, security: "auto",
@@ -256,8 +256,8 @@ const warpEndpoint = {
 };
 
 test("WireGuard берётся из endpoints вместе с reserved-байтами", () => {
-  // Через .conf этот путь не проходит: reserved в ini-формате wg-quick не
-  // выражается, поэтому endpoint кладётся в модель профиля напрямую.
+  // This path doesn't go through .conf: reserved can't be expressed in the wg-quick ini
+  // format, so the endpoint is put into the profile model directly.
   const { profiles, skipped } = parseSingboxConfig(wrap([{ type: "direct", tag: "direct" }], {
     endpoints: [warpEndpoint],
   }));
@@ -281,8 +281,8 @@ test("конфиг постарше держит WireGuard среди outbounds 
   const { profiles, skipped, unsupported } = parseSingboxConfig(wrap([warpEndpoint]));
   assert.equal(profiles.length, 1);
   assert.equal(profiles[0].proto, "wireguard");
-  // Нода импортирована — значит ничего не пропущено. Иначе пользователь видит
-  // «пропущено 1 · wireguard» на конфиге, из которого всё взято.
+  // The node was imported — so nothing was skipped. Otherwise the user sees
+  // "1 skipped · wireguard" on a config from which everything was taken.
   assert.equal(skipped, 0);
   assert.deepEqual(unsupported, []);
 });
@@ -305,14 +305,14 @@ test("reserved вместе с шейпингом AmneziaWG ядро не при
   assert.deepEqual(nodeConfigIssue(profiles[0]), { code: "wgReservedNoise" });
 });
 
-// ── тело подписки ──────────────────────────────────────────
+// ── subscription body ──────────────────────────────────────────
 test("подписка отдала конфиг вместо списка ссылок — серверы всё равно импортируются", () => {
   const body = JSON.stringify(wrap([vlessWs, { type: "direct", tag: "direct" }]));
   const plain = parseSubscriptionEntries(body);
   assert.equal(plain.format, "sing-box");
   assert.equal(plain.profiles.length, 1);
 
-  // Часть панелей заворачивает то же тело в base64 — это по-прежнему конфиг.
+  // Some panels wrap the same body in base64 — it's still a config.
   const encoded = Buffer.from(body, "utf8").toString("base64");
   const wrapped = parseSubscriptionEntries(encoded);
   assert.equal(wrapped.format, "sing-box");
@@ -333,11 +333,11 @@ test("обычный список ссылок разбирается по-пр�
   assert.equal(result.profiles.length, 1);
 });
 
-// ── обратная совместимость ─────────────────────────────────
+// ── backward compatibility ─────────────────────────────────
 test("форма Xray «path=/x?ed=2560» поведение уже добавленных нод не меняет", () => {
-  // Путь с query ядро отправляет как есть, и это работает. Ранняя передача
-  // включается только явными параметрами ссылки — иначе апдейт молча
-  // переписал бы транспорт всем, у кого подписка в формате Xray.
+  // The core sends a path with a query as is, and it works. Early data
+  // is enabled only by explicit link parameters — otherwise an update would silently
+  // rewrite the transport for everyone whose subscription is in Xray format.
   const inPath = parseSubscriptionEntries(
     `vless://${UUID}@${HOST}:443?type=ws&security=tls&path=%2Fvl%2Fx%3Fed%3D2560`,
   );
@@ -354,18 +354,18 @@ test("форма Xray «path=/x?ed=2560» поведение уже добавл
 });
 
 test("ссылка без ранней передачи не заводит полей — отпечаток ноды не меняется", () => {
-  // Отпечаток считается по содержимому ноды: постоянное `earlyData: 0` сменило
-  // бы identity всем существующим нодам вместе с запомненным выбором сервера.
+  // The fingerprint is computed from the node contents: a permanent `earlyData: 0` would change
+  // the identity of all existing nodes together with the remembered server choice.
   const [node] = parseSubscriptionEntries(`vless://${UUID}@${HOST}:443?type=ws#a`).profiles;
   assert.equal("earlyData" in node, false);
   assert.equal("insecure" in node, false);
 });
 
-// ── круг: экспорт → импорт ─────────────────────────────────
+// ── round trip: export → import ─────────────────────────────────
 test("собственный экспорт конфига импортируется обратно без потерь", () => {
-  // Самая строгая проверка переноса: то, что Ninety отдаёт кнопкой «экспорт в
-  // sing-box», обязано вернуться теми же outbound'ами. Разница здесь — это
-  // ровно то поле, которое теряется при импорте чужого конфига.
+  // The strictest carry-over check: what Ninety produces with the "export to
+  // sing-box" button must come back as the same outbounds. A difference here is
+  // exactly the field that gets lost when importing a foreign config.
   const source = wrap([
     vlessWs,
     { tag: "v6", type: "vless", server: "2606:4700::6810:105", server_port: 2053, uuid: UUID,
@@ -408,8 +408,8 @@ test("собственный экспорт конфига импортируе�
   assert.deepEqual(strip(reExported), strip(exported));
 });
 
-// Смена портов hysteria2 раньше отбрасывала ноду целиком: диапазон не
-// укладывался в ссылку. Теперь он переносится и возвращается в server_ports.
+// hysteria2 port hopping used to drop the node entirely: the range didn't
+// fit into a link. Now it's carried over and comes back in server_ports.
 test("hysteria2 со сменой портов импортируется и собирается обратно", () => {
   const outbound = {
     tag: "hop", type: "hysteria2", server: "h.example", password: "pw",
@@ -429,7 +429,7 @@ test("hysteria2 со сменой портов импортируется и с�
   assert.deepEqual(built.server_ports, ["443:443", "20000:30000"]);
   assert.equal(built.server_port, undefined);
 
-  // Битый диапазон по-прежнему не выдаётся за сервер.
+  // A broken range still isn't passed off as a server.
   assert.deepEqual(singboxOutboundToLink({ ...outbound, server_ports: ["abc"] }), { unsupported: "hysteria2" });
   assert.equal(nodeConfigIssue({ ...profiles[0], ports: ["30000:20000"] })?.code, "endpoint");
 });

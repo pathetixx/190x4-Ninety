@@ -186,9 +186,9 @@ test("поздний rearm отменённой policy завершается а
   assert.equal(reconciles, 1);
 });
 
-// Смерть ядра под нагрузкой — тот отказ, ради которого сторож и существует.
-// Погасить и написать «ядро остановилось» это не отказоустойчивость: юзер в
-// другом приложении и увидит тост в лучшем случае через минуты.
+// Core death under load is exactly the failure the watchdog exists for.
+// Shutting down and writing "the core stopped" isn't fault tolerance: the user is in
+// another app and will see the toast minutes later at best.
 test("сторож поднимает runtime заново после смерти ядра", async () => {
   let state = "connected";
   const order = [];
@@ -246,8 +246,8 @@ test("восстановление живёт внутри одной опера
   watchdog.start();
   await watchdog.tick();
 
-  // Один и тот же токен: между остановкой и повторным стартом не должна
-  // вклиниться чужая операция, иначе fail-closed окно останется без владельца.
+  // The same token: no foreign operation must squeeze in between the stop and the restart,
+  // otherwise the fail-closed window would be left without an owner.
   assert.equal(tokens.length, 2);
   assert.deepEqual(tokens[0], { id: 7 });
   assert.deepEqual(tokens[1], { id: 7 });
@@ -283,7 +283,7 @@ test("бюджет восстановления не даёт зациклить
   assert.equal(restores, 1, "вторая смерть в том же окне лечится не перезапуском");
 
   state = "connected";
-  clock += 16 * 60_000; // окно бюджета истекло
+  clock += 16 * 60_000; // the budget window expired
   await watchdog.tick();
   assert.equal(restores, 2);
 });
@@ -332,8 +332,8 @@ test("событие смерти ядра из Rust вызывает прове
     toast: () => {},
     notify: () => {},
     t: (key) => key,
-    // Таймер намеренно мёртвый: детект обязан работать и тогда, когда WebView
-    // в трее задушен Chromium и тик приходит раз в минуту.
+    // The timer is deliberately dead: detection must work even when the WebView
+    // in the tray is throttled by Chromium and the tick arrives once a minute.
     setInterval: () => 1,
     clearInterval: () => {},
   });
@@ -349,7 +349,7 @@ test("событие смерти ядра из Rust вызывает прове
 });
 
 test("опоздавший тик попадает в журнал, а не остаётся незамеченным", async () => {
-  let clock = 1_700_000_000_000; // реальная эпоха: нулевой старт скрыл бы первый замер
+  let clock = 1_700_000_000_000; // a real epoch: a zero start would hide the first measurement
   let timerCallback = null;
   const diagnostics = [];
   const watchdog = initHealthWatchdog({
@@ -371,11 +371,11 @@ test("опоздавший тик попадает в журнал, а не ос
   });
 
   watchdog.start();
-  clock += 5_000; // штатный интервал
+  clock += 5_000; // the regular interval
   timerCallback();
   assert.deepEqual(diagnostics, []);
 
-  clock += 65_000; // страница скрыта, Chromium разбудил таймер раз в минуту
+  clock += 65_000; // the page is hidden, Chromium woke the timer once a minute
   timerCallback();
   assert.deepEqual(diagnostics, [["watchdog_tick", "degraded", "gap_65000ms"]]);
 });
@@ -391,7 +391,7 @@ test("перезапуск сторожа не копит слушателей �
     reconnectForSourceChange: () => {},
     switchView: () => {},
     getQualityEngine: () => null,
-    // Подписка приезжает асинхронно — как настоящий listen() из Tauri.
+    // The subscription arrives asynchronously — like a real listen() from Tauri.
     subscribeCoreDeath: () => {
       const id = ++issued;
       live.add(id);
@@ -417,9 +417,9 @@ test("перезапуск сторожа не копит слушателей �
   assert.equal(live.size, 0, "обе подписки обязаны быть сняты");
 });
 
-// Бюджет восстановления один на 15 минут. Списанный до остановки, он сгорал на
-// неподтверждённой очистке: попытки поднять ядро не было, а следующая смерть
-// уже упиралась в исчерпанный бюджет.
+// One recovery budget per 15 minutes. Charged before the stop, it burned on
+// an unconfirmed cleanup: there was no attempt to bring the core up, and the next death
+// already ran into an exhausted budget.
 test("неудачная остановка не съедает бюджет восстановления", async () => {
   let state = "connected";
   let restores = 0;
@@ -429,7 +429,7 @@ test("неудачная остановка не съедает бюджет в�
     getState: () => state,
     isUpdateInstalling: () => false,
     shutdownCore: async () => {
-      if (!stopOk) return false; // очистка не подтверждена — state остаётся прежним
+      if (!stopOk) return false; // cleanup not confirmed — the state stays the same
       state = "idle";
       return true;
     },

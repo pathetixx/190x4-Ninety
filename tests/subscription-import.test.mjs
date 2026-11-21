@@ -1,5 +1,5 @@
-// Импорт подписки: битые ноды не попадают в конфиг, счётчик пропущенных честный,
-// и добавление НЕ переключает активный источник.
+// Subscription import: broken nodes don't get into the config, the skipped counter is honest,
+// and adding does NOT switch the active source.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -15,8 +15,8 @@ function makeStorage() {
 
 globalThis.localStorage = makeStorage();
 
-// Минимальный DOM: модалка добавления трогает поля формы, а уведомление о
-// пропущенных серверах — стек тостов. Логика импорта от разметки не зависит.
+// A minimal DOM: the add modal touches the form fields, and the notification about
+// skipped servers touches the toast stack. The import logic doesn't depend on the markup.
 const fakeEl = () => {
   const el = {
     className: "", id: "", dataset: {}, innerHTML: "", hidden: false, children: [],
@@ -48,7 +48,7 @@ const BODY = [
   "не ссылка вовсе",
 ].join("\n");
 
-// Мок ставим ДО импорта модулей: subscriptions.js забирает invoke на загрузке.
+// The mock is set BEFORE importing the modules: subscriptions.js takes invoke on load.
 globalThis.window = globalThis.window || {};
 globalThis.window.__TAURI__ = {
   core: {
@@ -102,9 +102,9 @@ test("источник подписки отдаёт только пригодн
   assert.ok(!source.nodes.some((n) => n.host === "broken.example"));
 });
 
-// Список ссылок отбраковывает записи по тем же правилам, что и подписка, но
-// раньше сообщал только про добавленные: пользователь вставлял 12 ссылок, видел
-// «Импортировано 8 конфигов» и не знал, что четыре ядро не приняло.
+// The link list rejects entries by the same rules as a subscription, but
+// used to report only the added ones: the user pasted 12 links, saw
+// "Imported 8 configs" and didn't know that the core didn't accept four.
 test("импорт списка ссылок сообщает о пропущенных", async () => {
   localStorage.clear();
   const res = await importAddInput(BODY);

@@ -1,5 +1,5 @@
-// Хранилище профилей не прочиталось (деградация): восстановление из state-backup
-// не должно класть URL подписок и учётные данные открытым текстом в WebView.
+// The profile storage couldn't be read (degradation): restoring from the state backup
+// must not put subscription URLs and credentials into the WebView in plain text.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

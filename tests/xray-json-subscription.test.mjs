@@ -1,7 +1,7 @@
-// xray-JSON подписки: серверы, которые в ссылку не помещаются (finalmask XMC,
-// постквантовое шифрование VLESS), едут готовым outbound через xray-мост, а
-// подписка сама переходит на JSON, только когда он покрывает список ссылок и
-// что-то добавляет.
+// xray JSON subscriptions: servers that don't fit into a link (finalmask XMC,
+// post-quantum VLESS encryption) travel as a ready outbound via the xray bridge, and
+// the subscription itself switches to JSON only when it covers the link list and
+// adds something.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -199,7 +199,7 @@ test("подписка переходит на xray-JSON, когда там вс
   assert.equal(sub.xrayJson.use, true);
   assert.deepEqual(sub.profiles.map((p) => p.proto), ["vless", "xray"]);
 
-  // Пока решение свежее, обновление идёт сразу за JSON, одним запросом.
+  // While the decision is fresh, the update goes straight for JSON, with a single request.
   calls.length = 0;
   const refreshed = await refreshSubscription(sub.id);
   assert.deepEqual(calls, [XRAY_JSON_FORMAT]);
@@ -217,7 +217,7 @@ test("JSON без новых серверов не заменяет ссылки
   await refreshSubscription(sub.id);
   assert.deepEqual(calls, ["links"]);
 
-  // Решение устарело — проверяем заново.
+  // The decision is stale — we check again.
   const list = loadSubscriptions();
   list[0].xrayJson.checkedAt = Date.now() - XRAY_JSON_RECHECK_MS - 1;
   saveSubscriptions(list);

@@ -1,4 +1,4 @@
-// Единый HTML-эскейп untrusted-данных (имена нод/подписок, хосты, процессы).
+// A single HTML escape for untrusted data (node/subscription names, hosts, processes).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { escapeHtml, escapeAttr } from "/lib/esc.js";

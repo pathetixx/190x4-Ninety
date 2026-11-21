@@ -1,6 +1,6 @@
-// Обновление подписки, когда панель вместо серверов вернула только заглушку
-// (лимит устройств, «включите HWID», конец тарифа). Рабочие серверы не должны
-// затираться нодой 0.0.0.0 — иначе фоновое обновление молча ломало VPN.
+// A subscription update where the panel returned only a placeholder instead of servers
+// (device limit, "enable HWID", end of plan). Working servers must not
+// be overwritten by a 0.0.0.0 node — otherwise a background update silently broke the VPN.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

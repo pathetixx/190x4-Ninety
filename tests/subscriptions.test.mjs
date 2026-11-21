@@ -1,5 +1,5 @@
-// Подписки: refreshAllSubscriptions должен сохранять all-settled поведение,
-// но не запускать безлимитный сетевой burst.
+// Subscriptions: refreshAllSubscriptions must keep the all-settled behavior,
+// but not start an unbounded network burst.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

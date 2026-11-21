@@ -26,9 +26,9 @@ test("routing rules: sanitizeRule drops invalid IP values", () => {
   assert.deepEqual(rule.values, ["1.2.3.4/32", "2001:db8::1/128"]);
 });
 
-// Прежняя регулярка требовала TLD из одних букв и молча выбрасывала весь
-// punycode: правило для .рф исчезало из списка, а UI показывал только счётчик
-// отброшенных значений.
+// The former regex required a TLD of letters only and silently threw away all
+// punycode: a rule for .рф disappeared from the list, while the UI showed only the counter
+// of dropped values.
 test("routing rules: IDN и punycode-домены сохраняются в A-label", () => {
   const { rule, dropped } = sanitizeRule({
     type: "domain",
@@ -56,8 +56,8 @@ test("routing rules: домен обязан иметь метки и нечис
   assert.equal(dropped, 4);
 });
 
-// domain_keyword в sing-box — подстрока имени хоста. Проверка «полный домен с
-// TLD» делала режим «ключевое слово» нерабочим: youtube/google отбрасывались.
+// domain_keyword in sing-box is a substring of the host name. The "full domain with
+// a TLD" check made the "keyword" mode useless: youtube/google were dropped.
 test("routing rules: keyword принимает подстроку и не режет её как URL", () => {
   const { rule, dropped } = sanitizeRule({
     type: "domain",
@@ -73,14 +73,14 @@ test("routing rules: keyword и suffix валидируются по-разно�
   assert.equal(isValidValue("domain", "youtube", "keyword"), true);
   assert.equal(isValidValue("domain", "youtube", "suffix"), false);
   assert.equal(isValidValue("domain", "youtube.com", "suffix"), true);
-  // Для suffix путь и порт срезаются, для keyword — нет: там это часть искомого.
+  // For suffix the path and port are stripped, for keyword they aren't: there they're part of what's searched.
   assert.equal(normalizeValue("domain", "https://x.com/ads", "suffix"), "x.com");
   assert.equal(normalizeValue("domain", "x.com/ads", "keyword"), "x.com/ads");
 });
 
-// Ведущие нули ядро не принимает: «192.168.001.100» валится на разборе ip_cidr, и
-// правило пользователя молча не работает (а в строгих сборках не поднимается весь
-// конфиг). Раньше валидатор такую запись пропускал и отдавал её без изменений.
+// The core doesn't accept leading zeros: "192.168.001.100" fails ip_cidr parsing, and
+// the user's rule silently doesn't work (and in strict builds the whole config doesn't
+// come up). Previously the validator let such an entry through and returned it unchanged.
 test("routing rules: IPv4 с ведущими нулями канонизируется, а не уезжает как есть", () => {
   assert.equal(normalizeIp("192.168.001.100"), "192.168.1.100/32");
   assert.equal(normalizeIp("010.0.0.1"), "10.0.0.1/32");
@@ -98,13 +98,13 @@ test("routing rules: IPv4 с ведущими нулями канонизиру�
   assert.deepEqual(rule.values, ["192.168.1.100/32"]);
 });
 
-// ── Мульти-выход ───────────────────────────────────────────────────────────
+// ── Multi-exit ───────────────────────────────────────────────────────────
 test("routing rules: правило «через сервер» без цели деградирует в proxy", () => {
   const { rule } = sanitizeRule({
     id: "r1", enabled: true, type: "domain", match: "suffix",
     values: ["example.com"], action: "node",
   });
-  // Пустой тег уехал бы в конфиг ядра как outbound:"" и уронил старт целиком.
+  // An empty tag would go into the core config as outbound:"" and bring down the start entirely.
   assert.equal(rule.action, "proxy");
   assert.equal(rule.target, undefined);
 });
@@ -162,7 +162,7 @@ test("routing rules: база региона переносится теми ж�
     { enabled: true, type: "domain", match: "suffix", values: [".ru"], action: "direct", origin: "region" },
     { enabled: true, type: "set", values: ["geosite:category-ru", "geoip:ru"], action: "direct", origin: "region" },
   ]);
-  // Для страны без своего geosite — только адреса.
+  // For a country without its own geosite — addresses only.
   assert.deepEqual(regionRules("tr")[1].values, ["geoip:tr"]);
   assert.notEqual(ru[0].id, ru[1].id);
 });
@@ -181,9 +181,9 @@ test("routing rules: подпись правила нормализуется и
   assert.equal(normalizeRuleName(42), "");
   assert.equal(normalizeRuleName("a\nb\tc"), "a b c");
   assert.equal(normalizeRuleName("a\u202eb\u0007c\u2066d"), "abcd");
-  // ZWNJ нужен персидскому тексту — не вычищаем
+  // ZWNJ is needed for Persian text — we don't strip it
   assert.equal(normalizeRuleName("می\u200cخواهم"), "می\u200cخواهم");
-  // HTML хранится как есть, экранируется при выводе
+  // HTML is stored as is, escaped on output
   assert.equal(normalizeRuleName("<img src=x onerror=1>"), "<img src=x onerror=1>");
 });
 
@@ -202,12 +202,12 @@ test("routing rules: переименование не считается сет
   assert.equal(sameRuleExceptName({ ...a, name: "x" }, { ...a, name: "y" }), true);
   assert.equal(sameRuleExceptName(a, { ...a, enabled: false }), false);
   assert.equal(sameRuleExceptName(a, { ...a, values: ["example.org"] }), false);
-  // target.name — рабочее поле выбора сервера, а не подпись
+  // target.name is a working field of the server choice, not a label
   assert.equal(sameRuleExceptName(a, { ...a, target: { tag: "t1", name: "C" } }), false);
   assert.equal(sameRuleExceptName(a, null), false);
 });
 
-// ── Файл правил ──────────────────────────────────────────────────────
+// ── Rules file ──────────────────────────────────────────────────────
 
 const sampleRules = () => [
   { id: "r-1", name: "Почта", enabled: true, type: "domain", match: "suffix", values: ["почта.рф"], action: "direct" },

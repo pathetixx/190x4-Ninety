@@ -1,5 +1,5 @@
-// Mieru проходит один путь от share-ссылки или готового конфига до outbound'а:
-// выбор транспорта, диапазоны портов и необязательные поля не должны теряться.
+// Mieru goes one way from a share link or a ready config to an outbound:
+// the transport choice, port ranges and optional fields must not get lost.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

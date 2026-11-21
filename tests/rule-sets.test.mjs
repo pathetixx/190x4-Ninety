@@ -13,7 +13,7 @@ test("ссылка на список приводится к каноничес�
   assert.equal(parseSetRef("geosite:"), null);
 });
 
-// Имя вне каталога ядро не скачает — в правило оно попасть не должно.
+// The core won't download a name outside the catalog — it must not get into a rule.
 test("в правило попадают только списки из каталога", () => {
   assert.equal(normalizeSetRef("geosite:no-such-service-123"), "");
   assert.equal(normalizeSetRef("geoip:zz"), "");

@@ -1,7 +1,7 @@
-// «О программе» — витрина того, что клиент умеет. Её список ни с чем не
-// сверялся и отставал: anytls, Hysteria v1 и SOCKS уже собирались в outbound, а
-// чипов было восемь — при том что абзац описания на том же экране перечислял
-// все одиннадцать. Инвариант: каждая ветка buildOutbound представлена чипом.
+// "About" is the showcase of what the client can do. Its list wasn't checked against
+// anything and lagged behind: anytls, Hysteria v1 and SOCKS were already built into outbounds, while
+// there were eight chips — even though the description paragraph on the same screen listed
+// all eleven. Invariant: every buildOutbound branch is represented by a chip.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -16,7 +16,7 @@ const listed = (() => {
   return [...view.slice(open, close).matchAll(/"([^"]+)"/g)].map((m) => m[1].toLowerCase());
 })();
 
-// Имена чипов человекочитаемые, ветки — по значению node.proto.
+// Chip names are human-readable, branches are by node.proto value.
 const CHIP_BY_PROTO = {
   vless: "vless",
   vmess: "vmess",
@@ -32,9 +32,9 @@ const CHIP_BY_PROTO = {
   trusttunnel: "trusttunnel",
 };
 
-// WireGuard и OpenVPN не проходят через buildOutbound: это endpoints, и
-// билдер собирает их отдельными функциями. Инвариант тот же — витрина обязана
-// показывать то, что клиент действительно поднимает.
+// WireGuard and OpenVPN don't go through buildOutbound: they're endpoints, and
+// the builder assembles them with separate functions. The invariant is the same — the showcase must
+// show what the client actually brings up.
 const ENDPOINT_PROTOS = {
   wireguard: ["wireguard", "amneziawg"],
   openvpn: ["openvpn"],

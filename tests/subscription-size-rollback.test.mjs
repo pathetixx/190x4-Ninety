@@ -1,5 +1,5 @@
-// Подписка, которая не помещается в хранилище (#233): добавление и обновление
-// откатываются точечно, а прочие отказы записи по-прежнему видны пользователю.
+// A subscription that doesn't fit into storage (#233): adding and updating
+// are rolled back precisely, while other write failures are still visible to the user.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -21,8 +21,8 @@ globalThis.CustomEvent = class CustomEvent {
   constructor(type, init) { this.type = type; this.detail = init?.detail; }
 };
 
-// Backend: запись со «big.example» отклоняется так же, как Rust отклоняет
-// снимок больше MAX_STORE_BYTES; failNext — обычный отказ диска.
+// Backend: a write with "big.example" is rejected the same way Rust rejects
+// a snapshot larger than MAX_STORE_BYTES; failNext is a regular disk failure.
 let backendRevision = 0;
 let failNext = null;
 let gate = null;
@@ -89,7 +89,7 @@ test("обычный отказ записи при добавлении по-п
 
 test("откат refresh сохраняет переименование, сделанное во время записи", async () => {
   const id = loadSubscriptions().find(s => s.url === "https://panel.example/disk").id;
-  // Успешная запись снимает флаг прошлого отказа.
+  // A successful write clears the previous failure flag.
   await saveSubscriptions(loadSubscriptions());
   const before = loadSubscriptions().find(s => s.id === id);
 
@@ -97,7 +97,7 @@ test("откат refresh сохраняет переименование, сде
   let release;
   gate = new Promise(resolve => { release = resolve; });
   const refresh = refreshSubscription(id);
-  // Даём refresh опубликовать кандидата и встать в очередь записи.
+  // We let refresh publish the candidate and get into the write queue.
   await new Promise(resolve => setTimeout(resolve, 20));
   const renamed = loadSubscriptions().map(s => (s.id === id ? { ...s, name: "Мой сервер" } : s));
   saveSubscriptions(renamed);
@@ -120,7 +120,7 @@ test("откат refresh не смешивает интервал сервера
   body = "vless://uuid@big.example:443?security=tls#Big";
   let release;
   gate = new Promise(resolve => { release = resolve; });
-  // Панель прислала интервал 12 ч: refresh переводит auto-режим на 12.
+  // The panel sent a 12 h interval: refresh switches the auto mode to 12.
   serverInterval = 12;
   const refresh = refreshSubscription(id);
   await new Promise(resolve => setTimeout(resolve, 20));

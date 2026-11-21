@@ -1,14 +1,14 @@
-// Маппинг браузерных абсолютных импортов ("/lib/...") на файлы репо.
-// Фронт живёт без бандлера (frontendDist=../src), модули ссылаются друг на друга
-// абсолютными путями от корня WebView — node так резолвить не умеет.
+// Mapping browser absolute imports ("/lib/...") to repo files.
+// The frontend lives without a bundler (frontendDist=../src), modules reference each other
+// by absolute paths from the WebView root — node can't resolve that.
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 
-const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url))); // корень репо
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url))); // the repo root
 
-// Корни, которые реально существуют под src/ и на которые ссылается фронт.
-// Абсолютные пути ОС (например /root/…) сюда не попадают — иначе тест, который
-// импортирует файл по полному пути, сломался бы.
+// Roots that actually exist under src/ and are referenced by the frontend.
+// Absolute OS paths (e.g. /root/…) don't get here — otherwise a test that
+// imports a file by its full path would break.
 const WEBVIEW_ROOTS = ["/lib/", "/vendor/", "/assets/"];
 
 export function resolve(specifier, context, nextResolve) {

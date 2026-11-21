@@ -108,8 +108,8 @@ function resetUi() {
   documentListeners.clear();
 }
 
-// Esc и клик мимо окна — это «убрать с глаз», а не «эту версию не показывать».
-// Раньше оба пути вели в «Позже» и писали версию в localStorage навсегда.
+// Esc and a click outside the window mean "move it out of sight", not "don't show this version".
+// Previously both paths led to "Later" and wrote the version to localStorage forever.
 test("Esc закрывает окно, но не отказывается от версии навсегда", async () => {
   resetUi();
   const modal = openUpdateModal({ currentVersion: "0.2.42", version: "0.3.10", body: "notes" });
@@ -119,7 +119,7 @@ test("Esc закрывает окно, но не отказывается от �
   await modal;
   assert.equal(elements.get("update-modal").hidden, true);
   assert.equal(localStorage.getItem("ninety.update.skip"), null);
-  // В этой сессии не навязываемся — но апдейт остаётся в трее и после рестарта.
+  // We don't impose in this session — but the update stays in the tray, even after a restart.
   assert.equal(shouldSkip("0.3.10"), true);
 });
 
@@ -305,13 +305,13 @@ test("portable: смена версии ведёт на повторное по�
     assert.equal(elements.get("update-later").hidden, false);
     assert.equal(elements.get("update-install").disabled, false);
 
-    // Повторное «Обновить» качает уже новую версию, страницу релиза не открывает.
+    // A repeated "Update" downloads the new version and doesn't open the release page.
     await elements.get("update-install").dispatch("click");
     assert.equal(tauri.calls.length, 2);
     assert.equal(tauri.calls[1].expectedVersion, "0.2.44");
     assert.equal(tauri.opened(), 0);
 
-    // Ошибка скачивания (в том числе таймаут) освобождает окно.
+    // A download error (including a timeout) frees the window.
     pressEscape();
     await modal;
     assert.equal(elements.get("update-modal").hidden, true);
@@ -359,7 +359,7 @@ test("portable: таймаут скачивания разблокирует о�
     assert.equal(elements.get("update-later").hidden, false);
     assert.doesNotMatch(elements.get("update-error").textContent, /\[\[/);
 
-    // Запасная кнопка ведёт на страницу этой же версии.
+    // The fallback button leads to the page of this same version.
     await elements.get("update-install").dispatch("click");
     assert.equal(tauri.opened(), 1);
     await modal;

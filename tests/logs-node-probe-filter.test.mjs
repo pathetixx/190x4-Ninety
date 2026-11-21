@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 globalThis.window = { __TAURI__: { core: { invoke: async () => "" } } };
 const { parseLogEntries } = await import("/lib/logs-view.js");
 
-// Балансеру нужны задержки всех нод подписки, поэтому health-checker опрашивает
-// каждую и на каждую недоступную пишет WARN. В журнале от этого не видно ничего
-// другого, хотя трафик идёт через один сервер.
+// The balancer needs the latencies of all subscription nodes, so the health checker polls
+// each one and writes a WARN for every unreachable one. Because of this nothing else
+// is visible in the log, although traffic goes through a single server.
 const LOG = [
   "+0300 2026-08-03 22:19:19 WARN monitoring: outbound node-aaa URL test failed: i/o timeout",
   "+0300 2026-08-03 22:19:19 WARN monitoring: outbound node-bbb URL test failed: i/o timeout",
@@ -28,9 +28,9 @@ test("без активной ноды отчёты health-checker'а скрыт
   ]);
 });
 
-// Диагностика самого приложения пишется в тот же файл и раньше шла голой
-// строкой: парсер не находил уровень и цеплял её хвостом к предыдущей записи
-// движка — без своего времени и мимо фильтра по уровню.
+// The app's own diagnostics are written to the same file and used to go as a bare
+// line: the parser didn't find the level and attached it as a tail to the previous engine
+// record — without its own time and past the level filter.
 test("строки приложения читаются как самостоятельные записи", () => {
   const entries = parseLogEntries([
     "+0300 2026-08-04 19:55:27 ERROR [3861125114 214ms] connection: connection upload closed",

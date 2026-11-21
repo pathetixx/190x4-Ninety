@@ -1,7 +1,7 @@
-// Распознавание формата чужого конфига. Оба случая ниже нашлись не на выдуманных
-// примерах, а на живом прогоне BPB-Worker-Panel v5.1.1: пока формат не опознан,
-// пользователь видит «нет поддерживаемых конфигов» и не знает, что делать
-// дальше, — а сделать надо ровно одно конкретное действие.
+// Detecting the format of a foreign config. Both cases below were found not on made-up
+// examples but on a live run of BPB-Worker-Panel v5.1.1: until the format is recognized,
+// the user sees "no supported configs" and doesn't know what to do
+// next — while exactly one specific action is needed.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -18,9 +18,9 @@ const { detectConfigFormat } = await import("/lib/config-format.js");
 const { unsupportedFormatMessage } = await import("/lib/config-import.js");
 const { parseSubscriptionEntries, detectAddInput } = await import("/lib/subscriptions.js");
 
-// Панель отдаёт clash-подписку JSON'ом, а не YAML: JSON — подмножество YAML, и
-// Clash его принимает. Проверка только по «proxies:» в начале строки такое тело
-// не узнавала вовсе.
+// The panel serves the clash subscription as JSON, not YAML: JSON is a subset of YAML, and
+// Clash accepts it. A check only for "proxies:" at the start of a line didn't recognize
+// such a body at all.
 const CLASH_JSON = JSON.stringify({
   "mixed-port": 7890,
   "allow-lan": false,
@@ -43,8 +43,8 @@ const CLASH_YAML = [
   "    server: panel.example",
 ].join("\n");
 
-// ZIP: сигнатура локального заголовка. Тело подписки доезжает до фронта строкой,
-// но эти четыре байта — ASCII и управляющие, лоссовое декодирование их не портит.
+// ZIP: the local header signature. The subscription body reaches the frontend as a string,
+// but these four bytes are ASCII and control characters, lossy decoding doesn't spoil them.
 const ZIP_BODY = "PK\u0003\u0004\u000a   "
   + "BPB-Warp-1.conf[Interface]\nPrivateKey = key\n";
 
@@ -63,8 +63,8 @@ test("подписка с конфигом Clash называет формат �
 });
 
 test("тело-архив опознаётся и объясняется, а не выглядит пустой подпиской", () => {
-  // Внутри архива лежит ровно то, что Ninety уже читает, поэтому сообщение —
-  // не «формат не поддержан», а «распакуйте и добавьте файл».
+  // Inside the archive lies exactly what Ninety already reads, so the message is
+  // not "format not supported" but "unpack it and add the file".
   assert.equal(detectConfigFormat(ZIP_BODY), "archive");
   const result = parseSubscriptionEntries(ZIP_BODY);
   assert.equal(result.format, "archive");

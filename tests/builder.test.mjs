@@ -1,4 +1,4 @@
-// buildConfig: смоук всей сборки + two-core разводка мостов и TOML-экранирование.
+// buildConfig: a smoke test of the whole build + two-core bridge wiring and TOML escaping.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -16,8 +16,8 @@ import { DEFAULT_OPTIONS, REGIONS } from "/lib/options.js";
 import { createStrictPrivacyPolicy } from "/lib/strict-privacy-policy.js";
 import { regionRules } from "/lib/routing-rules.js";
 
-// Строгий туннель включается ровно так же в бою: main.js готовит политику
-// через prepareStrictPrivacyRuntime и отдаёт её builder'у как runtimePolicy.
+// The strict tunnel is enabled exactly the same way in production: main.js prepares the policy
+// via prepareStrictPrivacyRuntime and hands it to the builder as runtimePolicy.
 const strictBuild = ({ selectedNodeTag = null, ...args }) =>
   buildConfig({ ...args, runtimePolicy: createStrictPrivacyPolicy({ selectedNodeTag }) });
 
@@ -71,9 +71,9 @@ test("process lookup: explicit false omits the sentinel rule", () => {
   assert.equal(config.route.final, "proxy");
 });
 
-// Перехватить выданный FakeIP может только TUN-инбаунд. В proxy/systemProxy тот
-// же ответ уходит в direct-маршруты и соединение не встаёт, а выглядит это как
-// «отдельные приложения не работают», не как проблема DNS.
+// Only the TUN inbound can intercept an issued FakeIP. In proxy/systemProxy the
+// same answer goes into direct routes and the connection doesn't come up, and it looks like
+// "some apps don't work", not like a DNS problem.
 test("FakeIP применяется только в TUN", () => {
   const options = structuredClone(DEFAULT_OPTIONS);
   options.dns.enableFakeDns = true;
@@ -105,14 +105,14 @@ test("подписка из 2+ нод: selector/balancer/urltest", () => {
   assert.equal(byTag.proxy.type, "selector");
   assert.equal(byTag.auto.type, "balancer");
   assert.equal(byTag.proxy.default, "auto");
-  // Balancer меряет сам: отдельного urltest-чекера рядом больше нет. Его
-  // тикер всё равно не запускался — периодическую проверку urltest-группа
-  // включает только когда трафик идёт через неё саму.
+  // The Balancer measures itself: there's no separate urltest checker next to it anymore. Its
+  // ticker didn't start anyway — a urltest group enables the periodic check
+  // only when traffic goes through the group itself.
   assert.equal(byTag.lowest, undefined);
   assert.equal(byTag.auto.url, DEFAULT_OPTIONS.urlTest.connectionTestUrl);
   assert.equal(byTag.auto.interval, `${DEFAULT_OPTIONS.urlTest.intervalSec}s`);
-  // Порог обязан быть заметно меньше типичного разброса задержек, иначе
-  // balancer не переключится никогда.
+  // The threshold must be noticeably smaller than the typical latency spread, otherwise
+  // the balancer will never switch.
   assert.ok(byTag.auto.tolerance > 0 && byTag.auto.tolerance <= 20,
     "tolerance должен быть меньше разброса между серверами");
   assert.ok(byTag.auto.failure_cooldown, "нода, через которую не дозвониться, обязана выбывать");
@@ -130,9 +130,9 @@ test("строгая приватность: TUN без direct-исключен�
   opts.warp.enabled = true;
   opts.warp.autoRescan = true;
   opts.dns.remoteAddress = "https://dns.example/dns-query";
-  // Заведомо НЕ дефолтный direct: иначе проверка ниже пройдёт и в случае, если
-  // строгий режим вообще ничего не переопределил (дефолты remote и direct
-  // совпадают), то есть перестанет что-либо доказывать.
+  // A deliberately NON-default direct: otherwise the check below would pass even if
+  // strict mode didn't override anything at all (the remote and direct defaults
+  // match), i.e. it would stop proving anything.
   opts.dns.directAddress = "udp://192.0.2.53";
   opts.dns.enableFakeDns = true;
   opts.route.bypassLan = true;
@@ -226,8 +226,8 @@ test("строгая приватность: TUN без direct-исключен�
   assert.equal(config.route.rules.some((rule) => rule.ip_is_private), false);
   assert.equal(config.route.rules.some((rule) => rule.domain_suffix?.includes(".ru")), false);
   assert.equal(config.route.rule_set.some((ruleSet) => /-(?:ru|discord)$/.test(ruleSet.tag)), false);
-  // Процессное правило split-Discord — тоже прямое исключение: в строгой сессии
-  // его быть не должно, иначе весь трафик клиента Discord уходит мимо туннеля.
+  // The split Discord process rule is also a direct exception: it must not exist in a strict session,
+  // otherwise all Discord client traffic goes past the tunnel.
   assert.equal(
     config.route.rules.some((rule) => rule.process_name?.includes("Discord.exe")),
     false,
@@ -310,7 +310,7 @@ test("two-core: xhttp-нода уходит в xray, в sing-box — socks-мо�
     xray: true,
   });
   assert.ok(xray, "xray-конфиг должен собраться");
-  assert.equal(xray.inbounds[0].port, 31100); // дефолтная база
+  assert.equal(xray.inbounds[0].port, 31100); // the default base
   assert.equal(xray.inbounds[0].listen, "127.0.0.1");
   assert.equal(xray.outbounds[0].protocol, "vless");
   const bridge = config.outbounds.find((o) => o.tag === "proxy");
@@ -358,7 +358,7 @@ test("TrustTunnel sidecar: TOML-экранирование управляющи�
   });
   assert.equal(sidecars.length, 1);
   const toml = sidecars[0].config;
-  // Ни одной сырой многострочной строки: \n внутри значений экранированы.
+  // Not a single raw multiline string: \n inside values is escaped.
   for (const line of toml.split("\n")) {
     const quotes = (line.match(/(?<!\\)"/g) || []).length;
     assert.equal(quotes % 2, 0, `непарная кавычка (сырой перенос?): ${line}`);
@@ -368,8 +368,8 @@ test("TrustTunnel sidecar: TOML-экранирование управляющи�
   assert.ok(toml.includes(`address = "127.0.0.1:${sidecars[0].port}"`));
 });
 
-// Пиннинг приватного CA — единственное, что отличает рабочий endpoint от
-// «Auth Required»: сертификат обязан доехать из профиля в конфиг моста.
+// Pinning the private CA is the only thing that distinguishes a working endpoint from
+// "Auth Required": the certificate must make it from the profile into the bridge config.
 test("TrustTunnel sidecar: PEM-сертификат уезжает в конфиг", () => {
   const pem = "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----\n";
   const { sidecars } = buildConfig({
@@ -412,15 +412,15 @@ test("tun-режим: tun-inbound + probe-in, правило пробы выше
   });
   assert.equal(config.inbounds.length, 2);
   assert.equal(config.inbounds[0].type, "tun");
-  // Оба семейства адресов: без IPv6-адреса auto_route не строит IPv6-маршрут и
-  // трафик приложений с собственным резолвером утекает мимо туннеля.
+  // Both address families: without an IPv6 address auto_route doesn't build an IPv6 route and
+  // the traffic of apps with their own resolver leaks past the tunnel.
   assert.deepEqual(config.inbounds[0].address, ["172.19.0.1/30", "fdfe:dcba:9876::1/126"]);
   const probe = config.inbounds[1];
   assert.equal(probe.tag, "probe-in");
   assert.equal(probe.type, "mixed");
   assert.equal(probe.listen, "127.0.0.1");
-  // Правило probe-in → proxy обязано стоять ВЫШЕ bypass-правила Ninety.exe,
-  // иначе проба качества уходит в direct и меряет голый канал вместо туннеля.
+  // The probe-in → proxy rule must sit ABOVE the Ninety.exe bypass rule,
+  // otherwise the quality probe goes direct and measures the bare channel instead of the tunnel.
   const rules = config.route.rules;
   const probeIdx = rules.findIndex((r) => Array.isArray(r.inbound) && r.inbound.includes("probe-in"));
   const bypassIdx = rules.findIndex((r) => Array.isArray(r.process_name) && r.process_name.includes("Ninety.exe"));
@@ -428,17 +428,17 @@ test("tun-режим: tun-inbound + probe-in, правило пробы выше
   assert.ok(bypassIdx >= 0, "нет bypass-правила Ninety.exe");
   assert.ok(probeIdx < bypassIdx, "probe-in ниже bypass — проба пойдёт в direct");
   assert.equal(rules[probeIdx].outbound, "proxy");
-  // Bypass обязан покрывать ВСЕ движки, дозванивающиеся наружу (= ENGINES в
-  // killswitch.rs): пропущенный sidecar петлял бы через TUN сам в себя.
+  // The bypass must cover ALL engines that dial out (= ENGINES in
+  // killswitch.rs): a missed sidecar would loop through TUN into itself.
   for (const exe of ENGINE_PROCESS_NAMES) {
     assert.ok(rules[bypassIdx].process_name.includes(exe), `нет bypass для ${exe}`);
   }
 });
 
-// Машина, где IPv6 выключен в самой Windows: назначение адреса падает
-// («set ipv6 address: Element not found»), и ядро умирает вместе со всем
-// TUN-режимом. Снимаем адрес только на явном false — терять там нечего, раз
-// стека нет, а на любой неизвестности защита от утечки обязана остаться.
+// A machine where IPv6 is disabled in Windows itself: assigning the address fails
+// ("set ipv6 address: Element not found"), and the core dies together with the whole
+// TUN mode. We remove the address only on an explicit false — there's nothing to lose there, since
+// there's no stack, while on any uncertainty the leak protection must stay.
 test("tun без системного IPv6: интерфейс собирается на одном IPv4", () => {
   const { config } = buildConfig({
     source: { kind: "single", profile: vlessNode() },
@@ -450,9 +450,9 @@ test("tun без системного IPv6: интерфейс собирает�
 });
 
 test("неизвестность про IPv6 оставляет адрес на месте", () => {
-  // undefined — проба не отработала или это не Windows; null — адаптеров не
-  // нашли вовсе (машина офлайн). Ошибиться в сторону защиты дешевле, чем молча
-  // снять её на здоровой машине.
+  // undefined — the probe didn't run or it isn't Windows; null — no adapters were
+  // found at all (the machine is offline). Erring on the side of protection is cheaper than silently
+  // removing it on a healthy machine.
   for (const systemIpv6 of [undefined, null, true]) {
     const { config } = buildConfig({
       source: { kind: "single", profile: vlessNode() },
@@ -488,16 +488,16 @@ test("split Discord: процессное правило уводит голос
     options: opts,
   });
   const rules = config.route.rules;
-  // Голос Discord — UDP на голый IP: домена в пакете нет, доменные правила по
-  // нему не срабатывают, и без процессного правила он уходил в final: proxy.
+  // Discord voice is UDP to a bare IP: there's no domain in the packet, domain rules
+  // don't fire on it, and without the process rule it went to final: proxy.
   const byProcess = rules.find((r) => Array.isArray(r.process_name) && r.process_name.includes("Discord.exe"));
   assert.ok(byProcess, "нет процессного правила Discord — голос уйдёт в туннель");
   assert.equal(byProcess.outbound, "direct");
-  // Доменные правила остаются: они покрывают Discord в браузере.
+  // The domain rules stay: they cover Discord in the browser.
   assert.ok(rules.some((r) => Array.isArray(r.rule_set) && r.rule_set.includes("geosite-discord")));
   assert.ok(rules.some((r) => Array.isArray(r.domain_suffix) && r.domain_suffix.includes("discord.media")));
-  // Выше bypass-правила Ninety.exe вставать нельзя — оно защищает от петли,
-  // а ниже пользовательских правил split обязан остаться перекрываемым.
+  // It must not go above the Ninety.exe bypass rule — that one protects against a loop,
+  // and below the user rules split must stay overridable.
   const bypassIdx = rules.findIndex((r) => Array.isArray(r.process_name) && r.process_name.includes("Ninety.exe"));
   assert.ok(bypassIdx >= 0 && bypassIdx < rules.indexOf(byProcess));
 });
@@ -546,9 +546,9 @@ test("proxy-режим: единственный inbound — mixed (без probe
   assert.equal(config.inbounds[0].type, "mixed");
 });
 
-// Контроллер обязателен: без external_controller Rust отказывается стартовать
-// («Clash control endpoint is not configured»), поэтому выключить его нечем —
-// ни опцией, ни пустым/битым experimental из старого бэкапа.
+// The controller is mandatory: without external_controller Rust refuses to start
+// ("Clash control endpoint is not configured"), so there's no way to turn it off —
+// neither with an option nor with an empty/broken experimental from an old backup.
 test("clash-api есть всегда, порт берётся из настроек", () => {
   const withoutExperimental = { ...DEFAULT_OPTIONS, experimental: undefined };
   for (const opts of [DEFAULT_OPTIONS, withoutExperimental]) {
@@ -634,9 +634,9 @@ test("semantic validator отклоняет ссылки на отсутству
   assert.throws(() => validateConfigReferences(broken), /route\.final -> missing/);
 });
 
-// Страновой geosite есть не для каждого региона (см. COUNTRY_GEOSITE). Правило,
-// ссылающееся на невыпущенный rule-set, ядро не примет, поэтому проверяем
-// целостность ссылок для каждого региона, который можно выбрать в настройках.
+// A country geosite doesn't exist for every region (see COUNTRY_GEOSITE). The core won't accept
+// a rule referencing a rule-set that wasn't emitted, so we check
+// reference integrity for every region that can be selected in settings.
 test("rule-set ссылки целы для всех регионов", () => {
   for (const region of REGIONS) {
     const { config } = buildConfig({
@@ -655,8 +655,8 @@ test("rule-set ссылки целы для всех регионов", () => {
   }
 });
 
-// Страновые списки берём у первоисточников. Зеркало, которое здесь стояло
-// раньше, для tr отдавало файл с доменами госсайтов РФ, а для by — 404.
+// Country lists are taken from the original sources. The mirror that used to be here
+// returned a file with Russian government site domains for tr, and a 404 for by.
 test("страновые rule-set'ы ведут на канонические источники", () => {
   const { config } = buildConfig({
     source: { kind: "single", profile: vlessNode() },
@@ -670,9 +670,9 @@ test("страновые rule-set'ы ведут на канонические и
   assert.match(geoip.url, /SagerNet\/sing-geoip/);
 });
 
-// Мост брал в xray любую ноду с type=xhttp, а собирал из неё vless-outbound:
-// vmess-нода получала чужой протокол с собственным uuid. Конфиг при этом
-// валиден, оба ядра стартуют, и нода просто не работает — молча.
+// The bridge took any node with type=xhttp into xray, but built a vless outbound from it:
+// a vmess node got a foreign protocol with its own uuid. The config was still
+// valid, both cores started, and the node simply didn't work — silently.
 test("two-core: vmess+xhttp собирается как vmess, а не как vless", () => {
   const vmess = parseVmess("vmess://" + Buffer.from(JSON.stringify({
     add: "vm.example.com", port: "443", id: "vmess-uuid", net: "xhttp",
@@ -695,8 +695,8 @@ test("two-core: vmess+xhttp собирается как vmess, а не как vl
   assert.equal(bridge.server_port, 31100);
 });
 
-// Счётчик портов и сборка обязаны решать одинаково: разойдись они — мост занял
-// бы порт, которого никто не планировал.
+// The port counter and the build must decide the same way: if they diverged, the bridge would take
+// a port nobody planned.
 test("two-core: xhttp у неподдерживаемого протокола не идёт в мост", () => {
   const ss = {
     proto: "shadowsocks", host: "ss.example.com", port: 8388,
@@ -714,8 +714,8 @@ test("two-core: xhttp у неподдерживаемого протокола �
   assert.equal(proxy.type, "shadowsocks");
 });
 
-// rule_set и endpoints раньше валидатор не смотрел вовсе: правило, ссылающееся
-// на невыпущенный набор, и WARP-chain с опечаткой в detour доходили до ядра.
+// The validator used not to look at rule_set and endpoints at all: a rule referencing
+// a set that wasn't emitted, and a WARP chain with a typo in detour, reached the core.
 test("semantic validator ловит rule_set и endpoints[].detour", () => {
   const base = {
     outbounds: [{ tag: "direct", type: "direct" }],
@@ -739,7 +739,7 @@ test("semantic validator ловит rule_set и endpoints[].detour", () => {
   }), /endpoints\[0\]\.detour -> proxy/);
 });
 
-// WARP chain — рабочая конфигурация, а не ошибка: detour ведёт в реальный selector.
+// A WARP chain is a working configuration, not an error: detour leads to a real selector.
 test("semantic validator пропускает WARP chain поверх selector", () => {
   const { config } = buildConfig({
     source: { kind: "sub", nodes: [vlessNode(), vlessNode({ host: "b.example.com" })] },
@@ -755,9 +755,9 @@ test("semantic validator пропускает WARP chain поверх selector",
   assert.equal(validateConfigReferences(config), true);
 });
 
-// extra.downloadSettings.address уезжает в конфиг xray как есть, а xray в
-// строгом режиме ходит мимо туннеля: доменное имя оттуда резолвилось системным
-// DNS, хотя сам node.host был IP и проверку проходил.
+// extra.downloadSettings.address goes into the xray config as is, and in strict
+// mode xray goes past the tunnel: a domain name from there was resolved by the system
+// DNS, although node.host itself was an IP and passed the check.
 test("строгая приватность отклоняет домен в download-канале xhttp", () => {
   const node = vlessNode({
     host: "203.0.113.7",
@@ -773,7 +773,7 @@ test("строгая приватность отклоняет домен в dow
     (error) => error?.code === "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
   );
 
-  // Оба адреса IP — нода остаётся допустимой.
+  // Both addresses are IPs — the node stays allowed.
   const safe = vlessNode({
     host: "203.0.113.7",
     type: "xhttp",
@@ -787,8 +787,8 @@ test("строгая приватность отклоняет домен в dow
   assert.ok(config.outbounds.some((o) => o.tag === "proxy"));
 });
 
-// Ядро инициализирует конфиг целиком: нода, чьи параметры оно не принимает,
-// роняла старт всей подписки ("initialize outbound[72]: invalid public_key").
+// The core initializes the config as a whole: a node whose parameters it doesn't accept
+// brought down the start of the whole subscription ("initialize outbound[72]: invalid public_key").
 const REALITY_PBK = "0i4XeZ4CjhIRfQvvyPP6mQR5X5Ov1DKV0KRWFhvQF1s";
 
 test("подписка: нода с непринимаемыми параметрами не попадает в конфиг", () => {
@@ -804,7 +804,7 @@ test("подписка: нода с непринимаемыми парамет�
 
   const servers = config.outbounds.filter((o) => o.type === "vless").map((o) => o.server);
   assert.deepEqual(servers, ["ok1.example", "ok2.example"]);
-  // Селектор и balancer ссылаются только на существующие теги.
+  // The selector and the balancer reference only existing tags.
   validateConfigReferences(config);
   const selector = config.outbounds.find((o) => o.tag === "proxy");
   assert.deepEqual(selector.outbounds, ["auto", nodeTag(0, ok1), nodeTag(1, ok2)]);
@@ -862,9 +862,9 @@ test("незнакомый ядру отпечаток uTLS не доходит 
   assert.equal(config.outbounds.find((o) => o.tag === "proxy").tls.utls.fingerprint, "chrome");
 });
 
-// Явное правило пользователя обязано перекрывать split-Discord: раньше блок
-// split стоял выше кастома, и правило «discord.com → через VPN» молча не
-// работало — совпадение находилось раньше и уводило трафик в direct.
+// An explicit user rule must override split Discord: previously the split
+// block stood above custom, and the rule "discord.com → through VPN" silently didn't
+// work — the match was found earlier and sent the traffic direct.
 test("split Discord не перекрывает пользовательское правило на тот же домен", () => {
   const opts = structuredClone(DEFAULT_OPTIONS);
   opts.route.tunSplitDiscord = true;
@@ -882,10 +882,10 @@ test("split Discord не перекрывает пользовательское
     options: opts,
   });
   const rules = config.route.rules;
-  // Точное сравнение элементов, а не поиск подстроки: domain_suffix — массив
-  // доменов, и `includes` здесь читается (в том числе статическим анализом) как
-  // проверка URL по подстроке, которой «evil-discord.com.attacker.net» тоже
-  // удовлетворяет.
+  // An exact comparison of elements, not a substring search: domain_suffix is an array
+  // of domains, and `includes` here reads (including to static analysis) as
+  // a URL substring check, which "evil-discord.com.attacker.net" also
+  // satisfies.
   const userIdx = rules.findIndex(
     (r) => r.domain_suffix?.some((suffix) => suffix === "discord.com") && r.outbound === "proxy",
   );
@@ -894,16 +894,16 @@ test("split Discord не перекрывает пользовательское
   assert.ok(splitIdx >= 0, "split-Discord не собрался");
   assert.ok(userIdx < splitIdx, "правило пользователя обязано стоять выше split-Discord");
 
-  // Bypass-правило Ninety.exe по-прежнему выше обоих: защита от петли важнее.
+  // The Ninety.exe bypass rule is still above both: loop protection matters more.
   const bypassIdx = rules.findIndex((r) => Array.isArray(r.process_name) && r.process_name.includes("Ninety.exe"));
   assert.ok(bypassIdx >= 0 && bypassIdx < userIdx);
 });
 
-// ── WireGuard: endpoints, а не outbounds ───────────────────
-// В sing-box 1.13 wireguard-outbound удалён. Нода уезжает в config.endpoints,
-// но тег остаётся обычным: группы ссылаются на него как на любой outbound,
-// потому что менеджер ядра при промахе ищет тег среди endpoint'ов. Если это
-// разъедется, конфиг соберётся и упадёт уже в ядре ссылкой на несуществующий тег.
+// ── WireGuard: endpoints, not outbounds ───────────────────
+// In sing-box 1.13 the wireguard outbound was removed. The node goes into config.endpoints,
+// but the tag stays regular: groups reference it like any outbound,
+// because on a miss the core's manager looks the tag up among the endpoints. If this
+// diverges, the config builds and then fails in the core with a reference to a nonexistent tag.
 const WG_PRIVATE = "nlhuTLXG3gAV8AJmw8jYngX3QkwdDoSPi2HxhGGSKrs=";
 const WG_PUBLIC = "zjVMotkY/dyEZygQ7crKvCtV1ODNZkVx1xe/1Bvvo8A=";
 const wgConf = (extra = "") => `[Interface]
@@ -969,7 +969,7 @@ test("wireguard: шейпинг AmneziaWG уходит в ядро, дефолт
     },
   });
 
-  // Обычный WireGuard шума не получает вовсе: пустой блок ядро бы отвергло.
+  // Regular WireGuard gets no noise at all: the core would reject an empty block.
   const bare = parseWireguardConf(wgConf(), "WG");
   const { config: bareConfig } = buildConfig({ profile: bare, mode: "tun", options: DEFAULT_OPTIONS });
   assert.equal("noise" in bareConfig.endpoints[0], false);
@@ -994,10 +994,10 @@ test("wireguard: WARP поверх wireguard-ноды не теряет ни о�
   validateConfigReferences(config);
 });
 
-// ── Мульти-выход: правило → конкретный сервер ──────────────────────────────
-// Тег ноды считается хешем её содержимого, поэтому правило хранит именно его.
-// Здесь проверяем всю цепочку: ссылка правила → тег в route.rules → тег реально
-// существует среди outbounds (иначе ядро не встаёт).
+// ── Multi-exit: rule → a specific server ──────────────────────────────
+// A node tag is computed as a hash of its contents, so the rule stores exactly that.
+// Here we check the whole chain: the rule's reference → the tag in route.rules → the tag actually
+// exists among the outbounds (otherwise the core doesn't come up).
 const nodeRule = (over = {}) => ({
   id: "multi",
   enabled: true,
@@ -1029,7 +1029,7 @@ test("мульти-выход: правило уходит в конкретну
 test("мульти-выход: имя ноды — запасной ключ, когда тег уехал", () => {
   const nodes = [vlessNode({ name: "A" }), vlessNode({ name: "B", host: "b.example.com" })];
   const opts = structuredClone(DEFAULT_OPTIONS);
-  // Провайдер поменял параметры ноды: хеш содержимого другой, имя прежнее.
+  // The provider changed the node's parameters: the content hash is different, the name is the same.
   opts.route.customRules = [nodeRule({ target: { tag: "node-staleHash", name: "B" } })];
 
   const { config } = buildConfig({
@@ -1112,15 +1112,15 @@ test("мульти-выход: строгий туннель не выпуска
     selectedNodeTag: nodeTag(0, nodes[0]),
   });
 
-  // В строгом режиме в конфиге остаётся одна нода: правило обязано схлопнуться
-  // на неё, а не увести трафик мимо выбранного сервера.
+  // In strict mode one node remains in the config: the rule must collapse
+  // onto it rather than send traffic past the selected server.
   assert.equal(findRule(config, "stream.example").outbound, "proxy");
   assert.ok(validateConfigReferences(config));
 });
 
-// Система без IPv6: ядро не может назначить IPv6-адрес на TUN и умирает вместе
-// со всем режимом («set ipv6 address: Element not found»). Снимать адрес при
-// этом безопасно — раз стек выключен, IPv6-трафика не бывает.
+// A system without IPv6: the core can't assign an IPv6 address to TUN and dies together
+// with the whole mode ("set ipv6 address: Element not found"). Removing the address in this case
+// is safe — since the stack is off, there's no IPv6 traffic.
 test("tun-режим: без IPv6 в системе TUN остаётся с одним IPv4-адресом", () => {
   const { config } = buildConfig({
     source: { kind: "single", profile: vlessNode() },
@@ -1132,9 +1132,9 @@ test("tun-режим: без IPv6 в системе TUN остаётся с од
 });
 
 test("tun-режим: неизвестность про IPv6 оставляет адрес на месте", () => {
-  // Проба не отработала (не Windows, машина офлайн, ошибка команды). Ошибиться
-  // в сторону защиты дешевле, чем молча снять её на здоровой машине, поэтому
-  // адрес снимается ТОЛЬКО на явном false.
+  // The probe didn't run (not Windows, the machine is offline, a command error). Erring
+  // on the side of protection is cheaper than silently removing it on a healthy machine, so
+  // the address is removed ONLY on an explicit false.
   for (const systemIpv6 of [undefined, null, true]) {
     const { config } = buildConfig({
       source: { kind: "single", profile: vlessNode() },
@@ -1161,8 +1161,8 @@ test("proxy-режим пробу IPv6 не спрашивает и TUN не п�
   assert.equal(config.inbounds[0].type, "mixed");
 });
 
-// Доступ из локальной сети не должен открывать соседям сервисы, которые на этом
-// ПК слушают только 127.0.0.1: назначение на loopback разрешено только самому ПК.
+// Access from the local network must not open to neighbors the services that on this
+// PC listen only on 127.0.0.1: a loopback destination is allowed only for the PC itself.
 test("доступ из локальной сети: loopback-назначения закрыты для чужих источников", () => {
   const options = structuredClone(DEFAULT_OPTIONS);
   options.inbound.allowConnectionFromLan = true;
@@ -1187,16 +1187,16 @@ test("доступ из локальной сети: loopback-назначени
     ],
     action: "reject",
   });
-  // Правило обязано стоять раньше любого direct: первое совпадение выигрывает.
+  // The rule must come before any direct one: the first match wins.
   const guardIndex = config.route.rules.indexOf(guard);
   const firstDirect = config.route.rules.findIndex((rule) => rule.outbound === "direct" && !rule.process_name);
   assert.ok(firstDirect === -1 || guardIndex < firstDirect);
   validateConfigReferences(config);
 });
 
-// Домен соседа direct-выход резолвит сам, и «x.example.ru → 127.0.0.1» проходил
-// мимо проверки адреса. Перед каждым direct-правилом стоит резолв (только для
-// соседей) и повторная проверка уже полученного адреса.
+// The direct outbound resolves a neighbor's domain itself, and "x.example.ru → 127.0.0.1" got
+// past the address check. Before every direct rule there's a resolve (only for
+// neighbors) and a repeated check of the obtained address.
 test("доступ из локальной сети: direct-правила сначала резолвят домен соседа", () => {
   const options = structuredClone(DEFAULT_OPTIONS);
   options.region = "ru";
@@ -1225,8 +1225,8 @@ test("доступ из локальной сети: direct-правила сн�
     assert.deepEqual(rules[index - 1].rules.slice(1), neighbour);
     assert.ok(rules[index - 1].rules[0].ip_cidr.includes("127.0.0.0/8"));
   }
-  // Соединение, которое уйдёт в туннель, домен локально не резолвит: после
-  // resolve ядро дозванивалось бы до сервера по IP вместо имени.
+  // A connection that will go into the tunnel doesn't resolve the domain locally: after
+  // resolve the core would dial the server by IP instead of by name.
   const proxied = rules.findIndex((rule) => rule.outbound === "proxy" && rule.domain_suffix?.[0] === "vpn.example");
   assert.notEqual(rules[proxied - 1]?.action, "resolve");
   assert.equal(rules.filter((rule) => rule.action === "resolve").length, directs.length);
@@ -1237,8 +1237,8 @@ test("доступ из локальной сети: direct-правила сн�
   assert.ok(remote.route.rules.filter((rule) => rule.action === "resolve").every((rule) => rule.server === "dns-remote"));
 });
 
-// Логин и пароль вписывает бэкенд (lan_auth.rs) из зашифрованного хранилища и
-// без них убирает этот вход: в конфиге фронта их нет вовсе.
+// The login and password are written by the backend (lan_auth.rs) from the encrypted storage, and
+// without them it removes this inbound: they aren't in the frontend config at all.
 test("пароль для сети: соседи на отдельном порту, mixed-in только для ПК", () => {
   const options = structuredClone(DEFAULT_OPTIONS);
   Object.assign(options.inbound, { allowConnectionFromLan: true, lanAuth: true, lanPort: 7895 });
@@ -1260,9 +1260,9 @@ test("без доступа из локальной сети и в TUN loopback-
   }
 });
 
-// Домен с правилом «Напрямую» должен резолвиться мимо VPN, «Через VPN» —
-// через него даже внутри региона, «Блок» — отказом на DNS. IP- и процессные
-// правила DNS-запросу не соответствуют.
+// A domain with a "Direct" rule must be resolved past the VPN, "Through VPN" —
+// through it even inside the region, "Block" — with a refusal at DNS. IP and process
+// rules don't correspond to a DNS query.
 test("пользовательские доменные правила зеркалятся в DNS выше региона", () => {
   const options = structuredClone(DEFAULT_OPTIONS);
   options.region = "ru";
@@ -1292,10 +1292,10 @@ test("пользовательские доменные правила зерк�
   validateConfigReferences(fake);
 });
 
-// В TUN приложение получает AAAA и идёт на IPv6; у провайдера без IPv6 direct
-// такой адрес не довезёт, и сайт с правилом «Напрямую» не открывается. При
-// «предпочитать IPv4» домены мимо VPN резолвятся только в IPv4, туннельные —
-// как прежде.
+// In TUN the app gets AAAA and goes to IPv6; with an ISP without IPv6, direct
+// won't carry such an address, and a site with a "Direct" rule doesn't open. With
+// "prefer IPv4" domains past the VPN are resolved to IPv4 only, tunneled ones —
+// as before.
 test("домены «Напрямую» при ipv6Mode=enable резолвятся только в IPv4", () => {
   const options = structuredClone(DEFAULT_OPTIONS);
   options.region = "ru";
@@ -1318,8 +1318,8 @@ test("домены «Напрямую» при ipv6Mode=enable резолвят�
   assert.equal(prefer.dns.rules[0].strategy, undefined);
 });
 
-// «Готовый список» — rule_set из каталога SagerNet. Один файл — один тег, кто
-// бы его ни подключил: регион и правило пользователя делят загрузку и кэш.
+// A "Ready list" is a rule_set from the SagerNet catalog. One file — one tag, whoever
+// wires it: the region and a user rule share the download and the cache.
 test("готовый список: правило, DNS и rule_set собираются вместе", () => {
   const options = structuredClone(DEFAULT_OPTIONS);
   options.region = "ru";
@@ -1336,7 +1336,7 @@ test("готовый список: правило, DNS и rule_set собира�
     { rule_set: ["geosite-youtube", "geoip-nl", "geosite-category-ru"], outbound: "proxy" },
     { rule_set: ["geoip-de"], action: "reject" },
   ]);
-  // DNS отвечает только по спискам сайтов: у запроса ещё нет адреса.
+  // DNS answers only by site lists: the query doesn't have an address yet.
   assert.deepEqual(config.dns.rules[0], { rule_set: ["geosite-youtube", "geosite-category-ru"], server: "dns-remote" });
   assert.equal(config.dns.rules.some((rule) => rule.rule_set?.includes("geoip-de")), false);
 
@@ -1346,15 +1346,15 @@ test("готовый список: правило, DNS и rule_set собира�
   for (const tag of ["geosite-youtube", "geoip-nl", "geosite-category-ru", "geoip-ru", "geoip-de"]) assert.ok(tags.includes(tag), tag);
   assert.equal(tags.includes("geosite-netflix"), false, "выключенное правило списков не тянет");
   assert.equal(tags.includes("geosite-no-such-list"), false);
-  // Недоступный список не должен ронять подключение: ядро стартует без него.
+  // An unavailable list must not bring down the connection: the core starts without it.
   assert.ok(sets.every((set) => set.optional === true));
   assert.equal(sets.find((set) => set.tag === "geosite-youtube").url,
     "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-youtube.srs");
   validateConfigReferences(config);
 });
 
-// «Сделать своими»: база региона уходит в правила пользователя, а маршрутизация
-// остаётся той же — те же зона и списки, в том же порядке относительно базы.
+// "Make them mine": the region base moves into the user rules, while routing
+// stays the same — the same zone and lists, in the same order relative to the base.
 test("перенесённая база региона даёт ту же маршрутизацию", () => {
   const base = structuredClone(DEFAULT_OPTIONS);
   base.region = "ru";
@@ -1373,7 +1373,7 @@ test("перенесённая база региона даёт ту же мар
   );
   validateConfigReferences(b);
 
-  // Без перенесённых правил база не выпускается: регион выбран, но «отцеплен».
+  // Without the migrated rules the base isn't emitted: the region is selected but "detached".
   detached.route.customRules = [];
   const bare = build(detached);
   assert.equal(bare.route.rules.some((rule) => rule.domain_suffix?.includes(".ru")), false);

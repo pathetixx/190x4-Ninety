@@ -1,6 +1,6 @@
-// DNS-пресеты: подписи пунктов, распознавание сохранённого адреса и проверка
-// ручного ввода. Валидатор обязан совпадать с парсером сборки конфига —
-// иначе UI примет адрес, на котором ядро упадёт при старте.
+// DNS presets: item labels, recognizing a saved address and validating
+// manual input. The validator must match the config builder's parser —
+// otherwise the UI accepts an address on which the core fails at startup.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -11,8 +11,8 @@ const {
 
 const { DEFAULT_OPTIONS } = await import("/lib/options.js");
 
-// dns-guard читает Tauri-invoke на верхнем уровне; для импорта константы
-// достаточно заглушки, как в tests/health-watchdog.test.mjs.
+// dns-guard reads Tauri invoke at the top level; to import the constant
+// a stub is enough, as in tests/health-watchdog.test.mjs.
 globalThis.window = globalThis.window
   ?? { __TAURI__: { core: { invoke: async () => ({}) } } };
 const { FALLBACKS } = await import("/lib/dns-guard.js");
@@ -22,9 +22,9 @@ test("дефолтные адреса присутствуют в своих с�
   assert.ok(findDnsPreset("direct", DEFAULT_OPTIONS.dns.directAddress));
 });
 
-// Сверяем с самим массивом сторожа, а не с его копией: разъехавшись, копия
-// пропустила бы резерв, которого нет в списке, — и автопереключение уводило бы
-// селект в «Свой адрес» вместо понятного имени.
+// We compare with the watchdog's array itself, not with a copy of it: if they diverged, the copy
+// would let through a fallback that isn't in the list — and auto-switching would move
+// the select to "Custom address" instead of a clear name.
 test("резервы dns-guard видны в списке direct как готовые пункты", () => {
   assert.ok(FALLBACKS.length >= 4);
   for (const dns of FALLBACKS) {
@@ -32,8 +32,8 @@ test("резервы dns-guard видны в списке direct как гото
   }
 });
 
-// Дефолт обязан быть в цепочке: сторож перебирает её сверху, и адрес, которого
-// в ней нет, после первого же переключения не вернётся никогда.
+// The default must be in the chain: the watchdog goes through it from the top, and an address that
+// isn't in it will never come back after the very first switch.
 test("дефолтный direct-адрес присутствует в цепочке резервов", () => {
   assert.ok(FALLBACKS.includes(DEFAULT_OPTIONS.dns.directAddress));
   assert.notEqual(FALLBACKS[0], DEFAULT_OPTIONS.dns.directAddress);
@@ -48,8 +48,8 @@ test("подпись пункта — бренд, адрес и тип", () => {
     dnsPresetLabel(DNS_PRESETS[kind].find(p => p.value === value));
   assert.equal(label("remote", "https://8.8.8.8/dns-query"), "Google · 8.8.8.8 · DoH");
   assert.equal(label("remote", "tls://1.1.1.1"), "Cloudflare · 1.1.1.1 · DoT");
-  // Нешифрованный резолвер подписан протоколом, а не переводимым словом:
-  // UDP/DoT/DoH — имена протоколов и одинаковы во всех языках.
+  // An unencrypted resolver is labeled with the protocol, not a translatable word:
+  // UDP/DoT/DoH are protocol names and are the same in all languages.
   assert.equal(label("direct", "udp://77.88.8.8"), "Yandex · 77.88.8.8 · UDP");
 });
 
@@ -63,9 +63,9 @@ test("адрес в подписи без схемы и без пути, но с
   assert.equal(dnsHostLabel(""), "");
 });
 
-// Главное, ради чего тип остаётся в подписи: у Cloudflare DoH и DoT один и тот
-// же хост, у Yandex в direct — plain и DoH на 77.88.8.8. Убери тип, и пункты
-// станут неотличимы друг от друга прямо в списке.
+// The main reason the type stays in the label: Cloudflare DoH and DoT have the same
+// host, Yandex in direct has plain and DoH on 77.88.8.8. Remove the type, and the items
+// become indistinguishable from each other right in the list.
 test("подписи внутри одного списка не повторяются", () => {
   for (const kind of ["remote", "direct"]) {
     const labels = DNS_PRESETS[kind]
@@ -75,9 +75,9 @@ test("подписи внутри одного списка не повторя�
   }
 });
 
-// Асимметрия в списке читается как недоделка: у одного бренда обе строки, у
-// соседнего только DoH. Сертификаты 8.8.8.8 и 94.140.14.14 содержат IP-SAN,
-// поэтому DoT по голому IP у них проходит проверку так же, как у Cloudflare.
+// An asymmetry in the list reads as unfinished work: one brand has both lines, the
+// neighboring one only DoH. The 8.8.8.8 and 94.140.14.14 certificates contain an IP SAN,
+// so DoT by a bare IP passes the check for them the same way as for Cloudflare.
 test("у каждого remote-бренда есть и DoH, и DoT", () => {
   const byBrand = new Map();
   for (const p of DNS_PRESETS.remote) {

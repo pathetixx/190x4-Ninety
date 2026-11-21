@@ -1,8 +1,8 @@
-// Текст и иконки поверх акцентной заливки обязаны брать цвет из --on-accent.
-// Литеральный белый ломается в темах со светлым акцентом: у mono акцент
-// #E8E8EE, и подпись кнопки «ОБНОВИТЬ» в модалке OTA становилась невидимой
-// (контраст ~1.06:1). Токен --on-accent для этого и заведён — и переопределён
-// в каждой из 16 тем.
+// Text and icons on top of an accent fill must take their color from --on-accent.
+// A literal white breaks in themes with a light accent: in mono the accent is
+// #E8E8EE, and the "UPDATE" button label in the OTA modal became invisible
+// (contrast ~1.06:1). That's what the --on-accent token exists for — and it's overridden
+// in each of the 16 themes.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
@@ -11,7 +11,7 @@ import { join } from "node:path";
 const STYLES = "src/styles";
 const files = readdirSync(STYLES).filter((name) => name.endsWith(".css"));
 
-// Ищем правила, где рядом стоят акцентный фон и литеральный белый цвет текста.
+// We look for rules where an accent background and a literal white text color stand next to each other.
 const RULE = /\{[^}]*\}/g;
 
 test("нет литерального белого поверх var(--accent)", () => {
@@ -38,11 +38,11 @@ test("--on-accent определён во всех темах с переопр�
     const css = readFileSync(join(STYLES, file), "utf8");
     for (const match of css.matchAll(RULE)) {
       const body = match[0];
-      // Блок темы: задаёт свой --accent. Базовый :root задаёт и --on-accent.
+      // A theme block: sets its own --accent. The base :root sets --on-accent too.
       if (!/--accent:\s*#/.test(body)) continue;
       const before = css.slice(0, match.index);
       const selector = before.slice(before.lastIndexOf("}") + 1).trim().split("\n").pop().trim();
-      // command наследует белый из :root — это осознанно (акцент тёмно-красный).
+      // command inherits white from :root — this is deliberate (the accent is dark red).
       if (selector.includes("command")) continue;
       if (!/--on-accent:/.test(body)) missing.push(`${file}: ${selector}`);
     }
@@ -50,10 +50,10 @@ test("--on-accent определён во всех темах с переопр�
   assert.deepEqual(missing, [], `тема без --on-accent: ${missing.join("; ")}`);
 });
 
-// ── Контраст текста по WCAG 2.x (issue #159) ─────────────────────────────
-// Ступени текста каждой темы проверяются против всех основных поверхностей:
-// --text-lo — самый тихий цвет текста (AA, 4.5:1), --text-faint — иконки,
-// разделители и графика (AA для нетекстовых элементов, 3:1).
+// ── Text contrast per WCAG 2.x (issue #159) ─────────────────────────────
+// Each theme's text steps are checked against all main surfaces:
+// --text-lo is the quietest text color (AA, 4.5:1), --text-faint is for icons,
+// dividers and graphics (AA for non-text elements, 3:1).
 
 const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
 const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -95,7 +95,7 @@ const mixOklab = (a, b, p) => {
   const [x, y] = [toOklab(a), toOklab(b)];
   return fromOklab(x.map((v, i) => v * p + y[i] * (1 - p)));
 };
-// color-mix(in srgb, fg p%, transparent), положенный на bg
+// color-mix(in srgb, fg p%, transparent), laid over bg
 const overlay = (fg, bg, p) => fg.map((v, i) => v * p + bg[i] * (1 - p));
 
 const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, "");

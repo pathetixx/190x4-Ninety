@@ -1,6 +1,6 @@
-// Адреса VPN-серверов и их сборка в конфиг: резолв адреса сервера не должен
-// зависеть от этого же подключения, шифрование VLESS не должно теряться, а
-// строгий режим — пропускать клиенты, которые резолвят домен сами.
+// VPN server addresses and building them into the config: resolving the server address must not
+// depend on this same connection, VLESS encryption must not get lost, and
+// strict mode must not let through clients that resolve the domain themselves.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildConfig, parseLink } from "/lib/singbox.js";

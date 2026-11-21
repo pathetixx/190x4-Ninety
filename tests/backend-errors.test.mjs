@@ -1,5 +1,5 @@
-// Отказ команды бэкенда приходит токеном с ключом каталога: пользователь обязан
-// увидеть текст на языке интерфейса, а не сам токен.
+// A backend command failure arrives as a token with a catalog key: the user must
+// see text in the interface language, not the token itself.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

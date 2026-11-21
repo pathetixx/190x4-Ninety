@@ -305,8 +305,8 @@ test("latest source switch отменяет previous operation без false fail
   assert.deepEqual(active, { kind: "sub", id: "C" });
 });
 
-// Реконнект цели вытеснен посторонним (правка настройки): это не отказ нового
-// источника, откатывать на прежний нельзя — вытеснивший реконнект поднимет его.
+// The target's reconnect was displaced by an unrelated one (a settings edit): this isn't a failure of the new
+// source, rolling back to the previous one isn't allowed — the displacing reconnect will bring it up.
 test("вытесненный реконнект цели не откатывает переключение источника", async () => {
   let active = { kind: "sub", id: "A" };
   const applied = [];

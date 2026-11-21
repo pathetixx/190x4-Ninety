@@ -1,6 +1,6 @@
-// Избранное хранится по источнику. Источник без собственного ключа (подписка
-// ещё не сохранена, WARP-only) запомнить нечем: прежнее ведро "none" стирал
-// dropLegacyBuckets той же записью, звезда гасла на следующем рендере.
+// Favorites are stored per source. A source without its own key (the subscription
+// isn't saved yet, WARP-only) has nothing to remember with: the former "none" bucket was erased by
+// dropLegacyBuckets in the same write, and the star went out on the next render.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -34,7 +34,7 @@ test("источник без ключа не заводит ведро, кот�
   assert.equal(toggleFavourite(keyless, "node-a"), false);
   assert.equal(getFavourites(keyless).size, 0);
   assert.equal(getFavourites(null).size, 0);
-  // Чужое избранное при этом не пострадало.
+  // Other favorites weren't affected.
   toggleFavourite(subscription, "node-b");
   assert.deepEqual([...getFavourites(subscription)], ["node-b"]);
   assert.equal(localStorage.getItem("ninety.favourites").includes("none"), false);

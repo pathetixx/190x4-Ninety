@@ -1,5 +1,5 @@
-// Ключ AmneziaVPN (vpn://) и AmneziaWG 3. Ключи здесь синтетические: формат
-// собирается так же, как его пишет AmneziaVPN (qCompress → base64url).
+// AmneziaVPN key (vpn://) and AmneziaWG 3. The keys here are synthetic: the format
+// is built the same way AmneziaVPN writes it (qCompress → base64url).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
@@ -51,7 +51,7 @@ AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = vpn.example.net:20507
 PersistentKeepalive = 25`;
 
-// qCompress: 4 байта длины big endian + zlib; дальше base64url без «=».
+// qCompress: 4 length bytes big endian + zlib; then base64url without "=".
 function amneziaKey(json, { compressed = true } = {}) {
   const text = Buffer.from(JSON.stringify(json));
   let payload = text;
@@ -95,7 +95,7 @@ test("ключ с AmneziaWG 3 даёт рабочий профиль с имен
   assert.equal(profile.awg.s4, 14);
   assert.equal(isAmneziaWg3(profile.awg), true);
   assert.equal(nodeConfigIssue(profile), null);
-  // DNS из ключа — плейсхолдер Amnezia; DNS ведёт свой раздел настроек Ninety.
+  // DNS from the key is an Amnezia placeholder; DNS is handled by Ninety's own settings section.
   assert.deepEqual(ignored, ["DNS"]);
   assert.deepEqual(unsupported, []);
 });
@@ -151,7 +151,7 @@ test("OpenVPN импортируется, Cloak остаётся неподде�
     parseAmneziaKey(amneziaKey({ containers: [{ container: "amnezia-openvpn", openvpn: { last_config: "{}" } }] })),
     /Amnezia/,
   );
-  // Ключ сервиса Amnezia: доступ к API вместо сервера.
+  // An Amnezia service key: API access instead of a server.
   await assert.rejects(
     parseAmneziaKey(amneziaKey({ api_config: { service: "x" }, auth_data: { token: "t" } })),
     /Amnezia/,

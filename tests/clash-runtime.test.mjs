@@ -56,8 +56,8 @@ test("подтверждённый выбор рвёт живые прокси-�
   const closes = calls.filter(([cmd]) => cmd === "clash_close_proxy_connections");
   assert.equal(closes.length, before + 1);
   assert.equal(closes.at(-1)[1].port, 9191);
-  // Разрыв идёт строго после PUT: иначе рвались бы соединения старой ноды,
-  // которые ядро тут же переоткрыло бы через неё же.
+  // The teardown happens strictly after PUT: otherwise the old node's connections would be torn down,
+  // and the core would immediately reopen them through it.
   const order = calls.map(([cmd]) => cmd).filter(cmd => cmd === "clash_select_proxy" || cmd === "clash_close_proxy_connections");
   assert.equal(order.at(-2), "clash_select_proxy");
   assert.equal(order.at(-1), "clash_close_proxy_connections");
@@ -81,8 +81,8 @@ test("сбой разрыва не отменяет уже подтверждё�
   }
 });
 
-// Фоновый возврат к «Авто» не должен отменять выбор пользователя, даже если
-// пользователь выбрал сервер, пока фоновая задача ждала очереди.
+// A background return to "Auto" must not cancel the user's choice, even if
+// the user picked a server while the background task was waiting in the queue.
 test("фоновая смена не вытесняет выбор пользователя, поставленный после неё", async () => {
   releaseX = null;
   const blocker = selectProxy("proxy", "X");

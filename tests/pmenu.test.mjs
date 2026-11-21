@@ -1,6 +1,6 @@
-// Меню действий и защита страницы (issue #185): своё меню вместо меню WebView2,
-// без перезагрузки и переходов по истории; меню WebView2 остаётся только для
-// копирования и вставки.
+// The action menu and page protection (issue #185): our own menu instead of the WebView2 menu,
+// no reloads and no history navigation; the WebView2 menu remains only for
+// copy and paste.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {

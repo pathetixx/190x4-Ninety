@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { formatReleaseNotes } from "/lib/release-notes.js";
 
-// Аннотация тега собирается с --cleanup=verbatim, иначе Git выбросил бы строки
-// с решётками как комментарии и OTA осталась бы без заголовков языков. Значит
-// в окно обновления Markdown приходит как есть, и разметку снимает уже клиент.
+// The tag annotation is built with --cleanup=verbatim, otherwise Git would throw away lines
+// with hashes as comments and OTA would be left without the language headings. So
+// Markdown reaches the update window as is, and the client strips the markup.
 const NOTES = [
   "## English",
   "",

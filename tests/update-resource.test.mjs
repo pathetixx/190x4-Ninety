@@ -133,24 +133,24 @@ test("стабильный маршрут выполняет только оди
   assert.equal(checks, 1);
 });
 
-// Ресурс, который не закрывается никогда (типично — rid уже освобождён на
-// Rust-стороне), раньше выключал ВСЮ проверку обновлений до перезапуска
-// приложения: каждый следующий check упирался в незакрытый quarantine и молча
-// возвращал «не смогли проверить».
+// A resource that never closes (typically the rid is already released on the
+// Rust side) used to disable the WHOLE update check until the app
+// restarted: every subsequent check ran into the unclosed quarantine and silently
+// returned "couldn't check".
 test("безнадёжный Resource отпускается и не глушит проверки навсегда", async () => {
   let closes = 0;
   const update = {
     close: async () => { closes++; throw new Error("resource id not found"); },
   };
 
-  // Сам неудачный close — первый раунд, дальше два раунда уборки.
+  // The failed close itself is the first round, then two cleanup rounds.
   assert.equal(await closeUpdateResource(update), false);
   assert.equal(await drainUpdateResourceCleanup(), false);
-  // Третий раунд — последний: дальше уборка перестаёт держать OTA заложником.
+  // The third round is the last: after that the cleanup stops holding OTA hostage.
   assert.equal(await drainUpdateResourceCleanup(), true);
   assert.equal(closes, 6, "три раунда по два бортовых ретрая");
 
-  // И следующий check действительно проходит.
+  // And the next check actually goes through.
   let checks = 0;
   const fresh = await acquireUpdateForCurrentRoute({
     getProxy: () => null,
@@ -160,10 +160,10 @@ test("безнадёжный Resource отпускается и не глуши�
   assert.equal(fresh.version, "0.2.58");
 });
 
-// «Обновления нет» — это null, а не Resource. Раньше смена маршрута в этот
-// момент трактовалась как отказ закрытия (закрывать нечего → false → throw), и
-// спокойное «у вас последняя версия» превращалось в ошибку «не удалось
-// проверить обновления».
+// "No update" is null, not a Resource. Previously a route change at that
+// moment was treated as a close failure (nothing to close → false → throw), and
+// a calm "you have the latest version" turned into the error "couldn't
+// check for updates".
 test("смена маршрута при отсутствии обновления не превращается в ошибку", async () => {
   const proxies = ["http://127.0.0.1:7890", null];
   let proxyReads = 0;
@@ -173,7 +173,7 @@ test("смена маршрута при отсутствии обновлени
     getProxy: () => proxies[Math.min(proxyReads++, proxies.length - 1)],
     check: async ({ proxy }) => {
       checks.push(proxy);
-      return null;                       // обновления нет ни на одном маршруте
+      return null;                       // no update on any route
     },
   });
 

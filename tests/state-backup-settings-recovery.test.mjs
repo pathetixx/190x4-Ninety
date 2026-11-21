@@ -1,8 +1,8 @@
-// Профили живут в Rust-owned store, настройки — только в localStorage WebView2.
-// Очистка профиля WebView оставляет профили нетронутыми, и общая проверка
-// «хранилище целое» объявляла состояние полным: режим, строгий туннель,
-// Kill Switch, маршрутизация, DPI и тема не возвращались, а автозапуск
-// поднимался с настройками по умолчанию.
+// Profiles live in the Rust-owned store, settings only in the WebView2 localStorage.
+// Clearing the WebView profile leaves the profiles untouched, and the shared
+// "storage is intact" check declared the state complete: the mode, strict tunnel,
+// Kill Switch, routing, DPI and theme didn't come back, and autostart
+// came up with default settings.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -32,8 +32,8 @@ const liveStore = {
   proxySelection: {},
 };
 
-// Бэкап заведомо старее живого стора: в нём другой профиль. Его профильная
-// часть не должна доехать до Rust-хранилища.
+// The backup is deliberately older than the live store: it has a different profile. Its profile
+// part must not reach the Rust storage.
 const diskSnapshot = JSON.stringify({
   __schemaVersion: 2,
   "ninety.options.v1": JSON.stringify({ privacy: { strictTunnel: true }, general: { killSwitch: true } }),
@@ -78,13 +78,13 @@ test("потеря WebView-хранилища при живом Rust-сторе 
 
   assert.equal(await restoreIfEmpty(), true);
 
-  // Настройки вернулись.
+  // The settings came back.
   assert.equal(localStorage.getItem("ninety.mode"), "tun");
   assert.equal(localStorage.getItem("ninety.dpi.enabled"), "true");
   assert.equal(localStorage.getItem("ninety.theme"), "dark");
   assert.equal(JSON.parse(localStorage.getItem("ninety.options.v1")).privacy.strictTunnel, true);
 
-  // Профили из старого бэкапа не тронули ни Rust-стор, ни localStorage.
+  // The profiles from the old backup touched neither the Rust store nor localStorage.
   assert.deepEqual(replaceCalls, []);
   assert.equal(localStorage.getItem("ninety.profiles.v1"), null);
   assert.equal(localStorage.getItem("ninety.profiles.active"), null);

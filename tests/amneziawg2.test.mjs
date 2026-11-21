@@ -1,6 +1,6 @@
-// AmneziaWG 2.0: S3/S4 и диапазоны «от-до» в H1..H4. Профиль 2.0 обязан
-// доехать до ядра целиком — потерянный S4 или диапазон, ставший нулём, дают
-// тоннель, который говорит с пиром не на том протоколе и молча не поднимается.
+// AmneziaWG 2.0: S3/S4 and "from-to" ranges in H1..H4. A 2.0 profile must
+// reach the core in full — a lost S4 or a range that became zero produce
+// a tunnel that speaks the wrong protocol to the peer and silently doesn't come up.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -102,7 +102,7 @@ test("профиль 1.x не меняется: ни новых полей, ни
   assert.equal("s4" in p.awg, false);
   assert.equal(p.awg.h1, 1020983529);
   assert.equal(isAmneziaWg2(p.awg), false);
-  // Отпечаток профиля, сохранённого до 2.0, совпадает со свежим разбором.
+  // The fingerprint of a profile saved before 2.0 matches a fresh parse.
   const legacy = { ...p, awg: { ...p.awg } };
   assert.equal(nodeSemanticFingerprint(legacy), nodeSemanticFingerprint(parseWireguardConf(conf(shaping), "AWG1")));
   const amnezia = endpointOf(p).noise.amnezia;
@@ -122,7 +122,7 @@ test("пересекающиеся диапазоны и запредельны�
   const bad = (shaping) => nodeConfigIssue(parseWireguardConf(conf(shaping), "bad"));
   assert.deepEqual(bad("H1 = 100-200\nH2 = 150-250\nH3 = 300\nH4 = 400"), { code: "wgMagicHeaders" });
   assert.deepEqual(bad("H1 = 100-500\nH2 = 250\nH3 = 600\nH4 = 700"), { code: "wgMagicHeaders" });
-  // Незаданный H дополняется типом WireGuard — и тоже не должен попасть в чужой диапазон.
+  // An unset H is filled with the WireGuard type — and it must not fall into another range either.
   assert.deepEqual(bad("H1 = 1-100\nH2 = 200\nH3 = 300\nH4 = 400"), null);
   assert.deepEqual(bad("H2 = 1-100\nH3 = 300\nH4 = 400"), { code: "wgMagicHeaders" });
   assert.deepEqual(bad("S3 = 5000"), { code: "wgHandshakeJunk" });

@@ -1,4 +1,4 @@
-// Разбор deep-link (/lib/deeplink.js) — форматы из README + top-level схемы.
+// Deep link parsing (/lib/deeplink.js) — the formats from the README + top-level schemes.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseDeepLink, safeAtobUrl } from "/lib/deeplink.js";
@@ -31,7 +31,7 @@ test("ninety://add/<base64-url> (Happ-style)", () => {
 });
 
 test("ninety://add с не-base64 падает в сырой URL", () => {
-  // «не base64» здесь = не декодируется вообще (invalid chars даже после чистки)
+  // "not base64" here = doesn't decode at all (invalid chars even after cleanup)
   const r = parseDeepLink("ninety://add/%%%%");
   assert.equal(r.url, "%%%%");
 });

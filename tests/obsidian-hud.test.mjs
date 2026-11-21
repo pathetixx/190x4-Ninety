@@ -1,6 +1,6 @@
-// Обсидиановый HUD главного экрана: камень, лава и корона — готовые рендеры,
-// код только двигает слои. Здесь закреплены инварианты, на которых уже ловили
-// баги: слой лавы шире камня, пауза вне главной, отдельное состояние отключения.
+// The main screen's obsidian HUD: the stone, lava and crown are ready-made renders,
+// the code only moves the layers. Pinned down here are the invariants on which bugs
+// were already caught: the lava layer is wider than the stone, a pause outside the home screen, a separate disconnect state.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, statSync } from "node:fs";

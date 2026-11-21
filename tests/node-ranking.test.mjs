@@ -1,15 +1,15 @@
-// Движок рекомендаций: калибровка шкалы задержки и честность подписи.
+// The recommendation engine: latency scale calibration and label honesty.
 //
-// Кейс, из-за которого шкалу переделали: на подписке, где все живые серверы
-// укладываются в 26–40 мс, линейная шкала «25…300 мс» отдавала весь вес
-// разбросу, и в «Рекомендованных» стоял сервер с 33 мс, пока в списке ниже
-// пользователь видел 26 мс.
+// The case the scale was redone for: on a subscription where all live servers
+// fit into 26–40 ms, the linear "25…300 ms" scale gave all the weight
+// to jitter, and "Recommended" showed a server with 33 ms while in the list below
+// the user saw 26 ms.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { scoreNode, reasonKeys, latencyScore, transportWeight } from "../src/lib/node-ranking.js";
 
 const REALITY = { security: "reality" };
-// Ровно 12 замеров вокруг медианы — столько история и хранит.
+// Exactly 12 measurements around the median — that's how many the history keeps.
 const probes = (med, jit) => Array.from({ length: 12 }, (_, i) => med + (i % 2 ? jit : -jit));
 const rank = (entries) => entries
   .map(([name, med, jit]) => ({ name, s: scoreNode(REALITY, probes(med, jit)) }))
@@ -42,7 +42,7 @@ test("разница в разы важнее ровности на любой �
 test("шкала задержки монотонна и ограничена", () => {
   assert.ok(latencyScore(25) > latencyScore(30));
   assert.ok(latencyScore(30) > latencyScore(300));
-  assert.equal(latencyScore(5), latencyScore(20)); // ниже пола шкала не растёт
+  assert.equal(latencyScore(5), latencyScore(20)); // below the floor the scale doesn't grow
   assert.equal(latencyScore(0), 0);
   assert.ok(latencyScore(5000) >= 0);
 });

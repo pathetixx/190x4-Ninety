@@ -1,5 +1,5 @@
-// Режим «Повышенный контраст»: явный выбор пользователя важнее системной
-// настройки, а без выбора режим следует prefers-contrast и её смене на лету.
+// The "Increased contrast" mode: the user's explicit choice matters more than the system
+// setting, and without a choice the mode follows prefers-contrast and its changes on the fly.
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 

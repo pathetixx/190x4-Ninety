@@ -1,7 +1,7 @@
-// Тело подписки — не всегда список ссылок. Панель может раздать ссылкой и файл
-// профиля: WARP у BPB-Worker-Panel это .conf WireGuard, а не список. Вставку
-// такого файла текстом окно добавления понимало и раньше, а тело подписки — нет,
-// и подписка выглядела пустой без единого слова почему.
+// A subscription body isn't always a list of links. A panel may also hand out a profile file
+// by link: WARP in BPB-Worker-Panel is a WireGuard .conf, not a list. The add window
+// understood pasting such a file as text before, but not as a subscription body,
+// and the subscription looked empty without a single word why.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -29,7 +29,7 @@ Endpoint = engage.cloudflareclient.com:2408
 PersistentKeepalive = 5
 `;
 
-// Шейпинг живёт в [Interface]: в [Peer] эти же ключи ничего не значат.
+// Shaping lives in [Interface]: in [Peer] the same keys mean nothing.
 const AWG_CONF = WG_CONF.replace("MTU = 1280", "MTU = 1280\nJc = 4\nJmin = 40\nJmax = 70");
 
 const TT_TOML = `hostname = "tt.example"
@@ -81,9 +81,9 @@ test("тот же файл в base64 — это по-прежнему файл",
 });
 
 test("битый .conf не выдаёт себя за пустую подписку молча", () => {
-  // Ключ не 32-байтный: парсер бросает, тело остаётся неразобранным. Важно,
-  // что это не падение импорта, а обычный «нет конфигов» — его вызывающий и
-  // покажет пользователю.
+  // The key isn't 32 bytes: the parser throws, the body stays unparsed. What matters
+  // is that it isn't an import crash but a regular "no configs" — which the caller
+  // will show the user.
   const broken = WG_CONF.replace(/PrivateKey = \S+/, "PrivateKey = short");
   const { profiles, skipped } = parseSubscriptionEntries(broken);
   assert.equal(profiles.length, 0);

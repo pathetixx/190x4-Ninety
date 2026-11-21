@@ -33,7 +33,7 @@ test("backend snapshot подтверждает fail-closed policy даже по
   const strictOptions = { privacy: { strictTunnel: true } };
   const strictSnapshot = {
     running: false,
-    // Strict preconnect существует раньше RuntimeRecord: metadata ещё пусты.
+    // Strict preconnect exists before RuntimeRecord: the metadata is still empty.
     mode: null,
     killSwitchActive: true,
     strictPrivacy: false,

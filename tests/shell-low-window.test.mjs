@@ -1,7 +1,7 @@
-// Низкое окно (issue #187). Строка сетки `1fr` = minmax(auto, 1fr): она росла
-// до минимального размера содержимого, сайдбар и главный экран вылезали за окно
-// и срезались без прокрутки — пропадали «Настройки», трафик и строка статистики.
-// Инвариант: ряды шелла ограничены окном, а сцена HUD меряется от своей ячейки.
+// Short window (issue #187). The `1fr` grid row = minmax(auto, 1fr): it grew
+// to the minimum content size, the sidebar and the main screen spilled out of the window
+// and got cut off without scrolling — "Settings", traffic and the stats line disappeared.
+// Invariant: the shell rows are bounded by the window, and the HUD scene is measured from its cell.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -35,7 +35,7 @@ test("сцена HUD меряется от ячейки над статусом"
 
 test("минимальный размер окна не ниже проверенного", () => {
   const win = conf.app.windows[0];
-  // 720×560 проверено замером: всё содержимое достижимо прокруткой.
+  // 720×560 was checked by measurement: all content is reachable by scrolling.
   assert.ok(win.minWidth >= 720, `minWidth ${win.minWidth}`);
   assert.ok(win.minHeight >= 560, `minHeight ${win.minHeight}`);
 });

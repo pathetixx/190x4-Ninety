@@ -1,7 +1,7 @@
-// Политика localStorage: что чистится по «очистить данные» и что уезжает в
-// durable-бэкап. Карантин нод адресуется отпечатком содержимого ноды, поэтому
-// переживает переимпорт подписки: не очистившись, он молча глушил бы те же
-// сервера и после того, как пользователь всё стёр и добавил подписку заново.
+// The localStorage policy: what gets cleared by "clear data" and what goes into
+// the durable backup. Node quarantine is addressed by the node content fingerprint, so
+// it survives a subscription reimport: if it weren't cleared, it would silently suppress the same
+// servers even after the user erased everything and added the subscription again.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -33,8 +33,8 @@ test("«очистить данные» снимает карантин: пер�
   const removed = clearProfileStorage();
   assert.ok(removed.includes(STORAGE_KEYS.nodeQuarantine), "ключ карантина должен быть удалён");
 
-  // Та же нода после повторного импорта подписки: id и порядок другие, а
-  // отпечаток тот же — без очистки она осталась бы в карантине.
+  // The same node after reimporting the subscription: the id and order are different, but
+  // the fingerprint is the same — without cleanup it would stay in quarantine.
   assert.equal(isNodeQuarantined({ ...node, id: "new-id", stableId: "new-stable" }), false);
 });
 

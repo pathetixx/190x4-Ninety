@@ -1,7 +1,7 @@
-// Контракт IPC защищённого хранилища профилей. Регрессия здесь не видна в UI:
-// команда отвечает ошибкой, фасад молча уходит в legacy-localStorage, и профили
-// (URL подписок, UUID, пароли нод) остаются на диске незашифрованными.
-// Имена аргументов Tauri-команд — lowerCamelCase от имён параметров Rust.
+// The IPC contract of the protected profile storage. A regression here isn't visible in the UI:
+// the command answers with an error, the facade silently goes into legacy localStorage, and the profiles
+// (subscription URLs, UUIDs, node passwords) stay on disk unencrypted.
+// Tauri command argument names are lowerCamelCase of the Rust parameter names.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -37,7 +37,7 @@ const invoke = async (command, args) => {
     return { exists: false, schemaVersion: 1, revision: 0, recoveredFromBackup: false, store: null };
   }
   if (command === "profile_store_replace") {
-    // Ровно то, что делает Tauri: неизвестный ключ = отсутствующий аргумент.
+    // Exactly what Tauri does: an unknown key = a missing argument.
     if (!Object.prototype.hasOwnProperty.call(args, "expectedRevision")) {
       throw new Error("command profile_store_replace missing required key expectedRevision");
     }
@@ -61,7 +61,7 @@ test("legacy-профили мигрируют в защищённый store, а
   assert.equal(migration.source, "migrated");
   assert.equal(migration.persisted, true);
   assert.equal(profileStoreIsPersisted(), true);
-  // Чувствительные legacy-ключи снимаются только после подтверждённой записи.
+  // Sensitive legacy keys are removed only after a confirmed write.
   assert.equal(localStorage.getItem("ninety.profiles.v1"), null);
 });
 
@@ -84,7 +84,7 @@ test("последующая мутация уходит в backend с акту�
     { id: "p1", name: "node", host: "example.com" },
     { id: "p2", name: "second", host: "two.example.com" },
   ]);
-  // enqueuePersist ставит запись в очередь — дожидаемся её завершения.
+  // enqueuePersist queues the write — we wait for it to finish.
   await new Promise(resolve => setTimeout(resolve, 0));
   const replace = calls.filter(c => c.command === "profile_store_replace");
   assert.equal(replace.length, before + 1);

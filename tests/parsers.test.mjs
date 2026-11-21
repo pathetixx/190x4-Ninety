@@ -1,5 +1,5 @@
-// Парсеры ссылок singbox.js — чистые функции, главный источник «нода молча
-// не поднялась» при регрессии. Гоняются node --test без сборки приложения.
+// singbox.js link parsers are pure functions, the main source of "the node silently
+// didn't come up" on a regression. Run with node --test without building the app.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -63,8 +63,8 @@ test("vless: IPv6-хост в скобках", () => {
   assert.equal(p.port, 443);
 });
 
-// Панели экранируют userinfo целиком, а пустой UUID собрал бы конфиг, который
-// падает уже в ядре на аутентификации — без внятного сообщения.
+// Panels escape the whole userinfo, and an empty UUID would build a config that
+// fails in the core on authentication — without a clear message.
 test("vless: UUID декодируется, пустой отвергается", () => {
   const p = parseVless("vless://uuid%2Dwith%2Ddash@example.com:443");
   assert.equal(p.uuid, "uuid-with-dash");
@@ -146,9 +146,9 @@ test("tuic: uuid:password и congestion_control", () => {
   assert.equal(p.alpn, "h3");
 });
 
-// base64-пейлоады несут UTF-8. Декод через atob отдавал latin1-строку, и любое
-// не-ASCII (имя ноды из RU/CN-панели, пароль) приезжало побайтово перевранным:
-// имя — мохибаке в UI, пароль — отказ аутентификации без единого сообщения.
+// base64 payloads carry UTF-8. Decoding via atob returned a latin1 string, and any
+// non-ASCII (a node name from a RU/CN panel, a password) arrived garbled byte by byte:
+// the name as mojibake in the UI, the password as an authentication refusal without a single message.
 test("vmess: UTF-8 в имени и host_header переживает base64", () => {
   const j = {
     add: "vm.example.com", port: "443", id: "uuid-here",
@@ -175,13 +175,13 @@ test("ss: percent-encoded метод и битый escape не роняют им
   const p = parseShadowsocks("ss://aes-256-gcm:p%40ss@ss.example.com:8388");
   assert.equal(p.method, "aes-256-gcm");
   assert.equal(p.password, "p@ss");
-  // Битый %-escape раньше кидал из decodeURIComponent и убивал всю ссылку.
+  // A broken %-escape used to throw from decodeURIComponent and kill the whole link.
   const broken = parseShadowsocks("ss://aes-256-gcm:100%pw@ss.example.com:8388");
   assert.equal(broken.password, "100%pw");
 });
 
-// Тот же битый %-escape в trojan/hysteria2/tuic/naive кидал URIError: в
-// подписке нода молча пропадала, одиночный импорт падал с сырой ошибкой.
+// The same broken %-escape in trojan/hysteria2/tuic/naive threw a URIError: in
+// a subscription the node silently disappeared, a single import failed with a raw error.
 test("пароль с голым % не роняет разбор ни одной схемы", () => {
   assert.equal(parseTrojan("trojan://100%pw@tj.example.com:443#TJ").password, "100%pw");
   assert.equal(parseHysteria2("hysteria2://100%pw@h.example.com:443#H").password, "100%pw");
@@ -194,8 +194,8 @@ test("пароль с голым % не роняет разбор ни одно�
   assert.equal(naive.password, "100%pw");
 });
 
-// buildOutbound читает p.insecure для tls.insecure. Парсер это поле не выставлял
-// вовсе, поэтому TUIC-нода с самоподписанным сертификатом молча не поднималась.
+// buildOutbound reads p.insecure for tls.insecure. The parser didn't set this field
+// at all, so a TUIC node with a self-signed certificate silently didn't come up.
 test("tuic: insecure и allow_insecure доезжают до профиля", () => {
   assert.equal(parseTuic("tuic://u:p@t.example.com:443?insecure=1").insecure, true);
   assert.equal(parseTuic("tuic://u:p@t.example.com:443?allow_insecure=true").insecure, true);
@@ -203,9 +203,9 @@ test("tuic: insecure и allow_insecure доезжают до профиля", ()
   assert.equal(parseTuic("tuic://u:p@t.example.com:443").insecure, false);
 });
 
-// Незакодированное двоеточие в пароле встречается в ссылках руками собранных
-// панелей. Обрезка хвоста тут не даёт ошибки нигде: конфиг валиден, ядро
-// стартует, нода отваливается на аутентификации.
+// An unencoded colon in a password occurs in links from hand-built
+// panels. Cutting off the tail doesn't produce an error anywhere here: the config is valid, the core
+// starts, the node drops off on authentication.
 test("ss: пароль с двоеточием не теряет хвост (SIP002 и legacy base64)", () => {
   const sip002 = parseShadowsocks("ss://aes-256-gcm:pa:ss@ss.example.com:8388#SS");
   assert.equal(sip002.method, "aes-256-gcm");
@@ -262,16 +262,16 @@ test("trusttunnel deeplink: malformed TLV даёт нормальную ошиб
   );
 });
 
-// Сертификат в deep-link едет сырым DER, а trusttunnel_client принимает только
-// PEM: без конверсии узел из tt:// уходил в мост без своего CA (тот же endpoint
-// из .toml при этом работал), а Uint8Array ещё и сохранялся в JSON как {"0":..}.
+// The certificate in the deep link travels as raw DER, while trusttunnel_client accepts only
+// PEM: without conversion a node from tt:// went into the bridge without its CA (the same endpoint
+// from .toml worked), and the Uint8Array was also saved into JSON as {"0":..}.
 test("trusttunnel deeplink: DER-сертификат превращается в PEM", () => {
   const tlv = (type, value) => {
     const len = value.length;
     return [type, ...(len < 64 ? [len] : [0x40 | (len >> 8), len & 0xff]), ...value];
   };
   const utf8 = (s) => [...Buffer.from(s, "utf8")];
-  const der = Array.from({ length: 70 }, (_, i) => (i * 7) & 0xff); // > 64 байт base64 → перенос строки
+  const der = Array.from({ length: 70 }, (_, i) => (i * 7) & 0xff); // > 64 bytes of base64 → a line break
   const payload = [
     ...tlv(0x01, utf8("tt.example.com")),
     ...tlv(0x02, utf8("1.2.3.4:443")),
@@ -286,7 +286,7 @@ test("trusttunnel deeplink: DER-сертификат превращается в
   assert.equal(lines.at(-1), "-----END CERTIFICATE-----");
   assert.ok(lines.slice(1, -1).every((l) => l.length <= 64), "PEM переносится по 64 символа");
   assert.deepEqual([...Buffer.from(lines.slice(1, -1).join(""), "base64")], der);
-  // Сырой DER в профиль не уезжает — его некому прочитать, а JSON он портит.
+  // Raw DER doesn't go into the profile — nobody can read it, and it spoils JSON.
   assert.equal("certificateDer" in p, false);
 });
 
@@ -352,9 +352,9 @@ test("парсеры: порт обязан быть 1..65535 и числом", 
 });
 
 // ── WireGuard / AmneziaWG .conf ────────────────────────────
-// Файл приходит от пользователя целиком, поэтому здесь проверяется ровно то,
-// из-за чего профиль потом «просто не работает»: потерянный шейпинг, съеденный
-// второй адрес, тихо выброшенная строка.
+// The file comes from the user in full, so here we check exactly what
+// makes the profile later "just not work": lost shaping, an eaten
+// second address, a silently dropped line.
 const WG_PRIVATE = "nlhuTLXG3gAV8AJmw8jYngX3QkwdDoSPi2HxhGGSKrs=";
 const WG_PUBLIC = "zjVMotkY/dyEZygQ7crKvCtV1ODNZkVx1xe/1Bvvo8A=";
 
@@ -382,7 +382,7 @@ test("wg .conf: базовые поля и оба адреса", () => {
   assert.equal(p.peers.length, 1);
   assert.deepEqual(p.peers[0].allowedIps, ["0.0.0.0/0", "::/0"]);
   assert.equal(p.peers[0].keepalive, 15);
-  // DNS ведёт свой раздел настроек — строка из файла не применяется молча.
+  // DNS is handled by its own settings section — a line from the file isn't applied silently.
   assert.ok(p.ignored.includes("DNS"));
 });
 
@@ -451,12 +451,12 @@ I1 = <b 0xc0ffee>`), "Round");
   assert.deepEqual(again.awg, source.awg);
   assert.deepEqual(again.peers, source.peers);
   assert.equal(again.mtu, source.mtu);
-  // В экспорте нет строк, которых мы не понимаем: он собран из профиля.
+  // The export has no lines we don't understand: it's built from the profile.
   assert.deepEqual(again.ignored, []);
 });
 
-// Адрес заканчивается на первом «/»: ссылки вида host:443/?… (официальная форма
-// Hysteria 2, вывод части панелей) раньше не разбирались ни в одной схеме.
+// The address ends at the first "/": links like host:443/?… (the official
+// Hysteria 2 form, the output of some panels) used to fail to parse in every scheme.
 test("путь перед query не ломает разбор ни одной схемы", () => {
   const uuid = "11111111-1111-1111-1111-111111111111";
   for (const link of [

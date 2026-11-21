@@ -1,8 +1,8 @@
-// Сторож внешних пинов держится на том, что он и сборка читают один и тот же
-// файл. Если пин переименуют или уберут, сторож не упадёт — он просто перестанет
-// видеть компонент и будет молча зеленеть, а инсталлятор останется на старой
-// версии навсегда. Поэтому набор пинов сверяется с тем, что реально читают
-// build.yml и security.yml.
+// The external pin watcher relies on it and the build reading the same
+// file. If a pin is renamed or removed, the watcher won't fail — it will just stop
+// seeing the component and silently stay green, while the installer stays on the old
+// version forever. So the set of pins is checked against what
+// build.yml and security.yml actually read.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -29,9 +29,9 @@ test("у бинарных пинов есть URL и sha256, и версия с�
   }
 });
 
-// Пины вынесены из workflow ровно затем, чтобы бот мог их править: GITHUB_TOKEN
-// не имеет права пушить изменения под .github/workflows. Захардкоженное
-// значение, вернувшееся в workflow, тихо выключит эту возможность.
+// The pins were moved out of the workflow precisely so the bot could edit them: GITHUB_TOKEN
+// has no right to push changes under .github/workflows. A hardcoded
+// value that comes back into the workflow would silently disable this ability.
 test("workflow читают пины из файла, а не хранят их у себя", () => {
   assert.ok(buildYml.includes(".github/pins.json"), "build.yml не читает pins.json");
   assert.ok(securityYml.includes(".github/pins.json"), "security.yml не читает pins.json");

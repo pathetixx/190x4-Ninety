@@ -1,5 +1,5 @@
-// Хранилище не прочиталось (portable с паролем без ввода, сломанный DPAPI):
-// «Очистить» обязана удалить файлы через Rust, а не сообщить об успехе впустую.
+// The storage couldn't be read (portable with a password not entered, broken DPAPI):
+// "Clear" must delete the files through Rust rather than report success in vain.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

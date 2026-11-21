@@ -1,7 +1,7 @@
-// Лицензионные тексты называют точные версии того, что лежит в инсталляторе, а
-// для GPL-ядра — тег, по которому искать исходники сборки. Руками они отставали
-// на несколько бампов, поэтому версии генерируются из pins.json и src-tauri/dpi,
-// а здесь проверяется, что файлы в дереве с этими источниками совпадают.
+// License texts name the exact versions of what's in the installer, and
+// for the GPL core — the tag to look up the build's sources by. Done by hand they lagged
+// several bumps behind, so the versions are generated from pins.json and src-tauri/dpi,
+// and here we check that the files in the tree match these sources.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

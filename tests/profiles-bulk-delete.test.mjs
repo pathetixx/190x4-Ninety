@@ -1,7 +1,7 @@
-// Массовое удаление одиночных конфигов. Список пополняется пачками (импорт
-// буфера, deep links), поэтому у группы есть «удалить все». Проверяем, что
-// операция снимает активный профиль: иначе стор ушёл бы на диск со ссылкой на
-// удалённую запись, а Rust-валидация такой конверт не принимает.
+// Bulk deletion of single configs. The list is filled in batches (clipboard
+// import, deep links), so the group has "delete all". We check that
+// the operation clears the active profile: otherwise the store would go to disk with a reference to
+// a deleted record, and Rust validation doesn't accept such an envelope.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

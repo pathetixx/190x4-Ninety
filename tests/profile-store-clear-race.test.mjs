@@ -1,5 +1,5 @@
-// «Очистить данные», а в это время фоновое обновление подписки сохраняет список.
-// Запись с состоянием до очистки не должна вернуть удалённую подписку на диск.
+// "Clear data", while a background subscription update is saving the list at the same time.
+// A write with the state from before the clear must not bring the deleted subscription back to disk.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -37,7 +37,7 @@ test("запись во время очистки не возвращает уд
   await s.initializeProfileStore({ invoke, storage: globalThis.localStorage });
   const clearing = s.clearProfileStore();
   await new Promise(r => setTimeout(r, 5));
-  // фоновый refresh подписки завершился, пока clear в полёте
+  // the background subscription refresh finished while clear was in flight
   const list = s.loadSubscriptionsFromStore();
   list[0] = { ...list[0], lastUpdate: Date.now() };
   const saved = s.saveSubscriptionsToStore(list);

@@ -64,9 +64,9 @@ test("systemProxy → tun → systemProxy never reuses the previous published en
   assert.equal(runtimeEndpointMatchesGeneration(systemB, 12, systemA.probeProxyEndpoint.address), false);
 });
 
-// Порт для запросов «через туннель» обязан приходить от живого runtime: раньше
-// DPI-раздел брал его из настроек, и смена inbound.mixedPort без реконнекта
-// уводила загрузку списков в порт, которого ядро не слушает.
+// The port for "through the tunnel" requests must come from the live runtime: previously
+// the DPI section took it from settings, and changing inbound.mixedPort without a reconnect
+// sent list downloads to a port the core doesn't listen on.
 test("probe proxy port is read from the live runtime snapshot only", () => {
   assert.equal(runtimeProbeProxyPort(snapshot()), 2080);
   assert.equal(runtimeProbeProxyPort(snapshot({ probeProxyEndpoint: { address: "[::1]:7891" } })), 7891);

@@ -1,5 +1,5 @@
-// Свежая установка (exists:false): профиль, добавленный, пока profile_store_load
-// ещё в полёте, не должен теряться.
+// A fresh install (exists:false): a profile added while profile_store_load
+// is still in flight must not get lost.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -34,7 +34,7 @@ test("ранний профиль на пустом сторе сохраняе�
   s.saveProfilesToStore([{ id: "p-early", name: "early", host: "5.6.7.8", port: 443 }]);
   releaseLoad();
   await init;
-  // следующая мутация пользователя
+  // the user's next mutation
   s.saveProfilesToStore([...s.loadProfilesFromStore(), { id: "p-next", name: "n", host: "9.9.9.9", port: 443 }]);
   await new Promise(r => setTimeout(r, 20));
   assert.ok(s.loadProfilesFromStore().some(p => p.id === "p-early"), "p-early потерян");

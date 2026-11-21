@@ -1,6 +1,6 @@
-// Отбраковка нод, которые ядро не принимает: одна такая нода валит
-// инициализацию всего конфига ("initialize outbound[N]: invalid public_key"),
-// то есть целую подписку.
+// Weeding out nodes the core doesn't accept: one such node brings down
+// the initialization of the whole config ("initialize outbound[N]: invalid public_key"),
+// i.e. the whole subscription.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -16,7 +16,7 @@ const {
 } = await import("/lib/node-validation.js");
 const { parseVless } = await import("/lib/singbox.js");
 
-const PBK = "0i4XeZ4CjhIRfQvvyPP6mQR5X5Ov1DKV0KRWFhvQF1s"; // 32 байта base64url
+const PBK = "0i4XeZ4CjhIRfQvvyPP6mQR5X5Ov1DKV0KRWFhvQF1s"; // 32 bytes of base64url
 
 test("reality без public_key отбраковывается", () => {
   const node = parseVless("vless://uuid@1.2.3.4:443?security=reality&sni=a.example&sid=ab");
@@ -69,8 +69,8 @@ test("partitionNodes делит список и сохраняет порядо�
   assert.equal(usable[0].host, "good.example");
 });
 
-// Значения, которые ядро проверяет строго (списки сняты с его исходников).
-// Любое непринятое значение = FATAL на инициализации = мёртвая подписка целиком.
+// Values the core checks strictly (the lists are taken from its sources).
+// Any unaccepted value = FATAL at initialization = the whole subscription dead.
 const { normalizeFlow, normalizeFingerprint } = await import("/lib/node-validation.js");
 
 test("flow: xray-суффикс -udp443 снимается, всё чужое отбраковывается", () => {
@@ -122,9 +122,9 @@ test("tuic: неизвестный алгоритм контроля перег�
 });
 
 // ── WireGuard ──────────────────────────────────────────────
-// Endpoint инициализируется тем же проходом, что и outbound'ы: битый ключ или
-// невозможный шейпинг роняют весь конфиг, а не одну ноду. Инварианты шейпинга
-// повторяют те, что проверяет ядро (noise/amnezia.go).
+// An endpoint is initialized in the same pass as the outbounds: a broken key or
+// impossible shaping brings down the whole config, not one node. The shaping invariants
+// repeat those the core checks (noise/amnezia.go).
 const { parseWireguardConf } = await import("/lib/singbox.js");
 
 const WG_PRIVATE = "nlhuTLXG3gAV8AJmw8jYngX3QkwdDoSPi2HxhGGSKrs=";
@@ -156,8 +156,8 @@ test("wireguard: невозможный шейпинг AmneziaWG отбрако�
   assert.deepEqual(nodeConfigIssue(wgNode("Jc = 4\nJmin = 80\nJmax = 8")), { code: "wgJunkSize" });
   assert.deepEqual(nodeConfigIssue(wgNode("Jc = 4")), { code: "wgJunkSize" });
   assert.deepEqual(nodeConfigIssue(wgNode("Jc = 500\nJmin = 8\nJmax = 80")), { code: "wgJunkCount" });
-  // S1 + 148 == S2 + 92: init и response станут одной длины, и получатель
-  // перестанет их различать.
+  // S1 + 148 == S2 + 92: init and response would have the same length, and the receiver
+  // would stop telling them apart.
   assert.deepEqual(nodeConfigIssue(wgNode("S1 = 0\nS2 = 56")), { code: "wgHandshakeJunk" });
   assert.equal(nodeConfigIssue(wgNode("S1 = 15\nS2 = 20")), null);
   assert.deepEqual(
@@ -180,7 +180,7 @@ test("ноды-заглушки подписки распознаются по �
   assert.equal(isPlaceholderNode({ proto: "trusttunnel", addresses: ["127.0.0.1:443"] }), true);
   assert.equal(isPlaceholderNode({ proto: "trusttunnel", addresses: ["127.0.0.1:443", "5.6.7.8:443"] }), false);
   assert.deepEqual(withoutPlaceholders([info, real]), [real]);
-  // Одни заглушки — это ответ панели (HWID, истёкший тариф): отдаём как есть.
+  // Placeholders only is the panel's response (HWID, expired plan): we return it as is.
   assert.deepEqual(withoutPlaceholders([hwid]), [hwid]);
 });
 

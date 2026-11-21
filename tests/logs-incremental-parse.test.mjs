@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 globalThis.window = { __TAURI__: { core: { invoke: async () => "" } } };
 const { parseLogEntries, applyLogChunk } = await import("/lib/logs-view.js");
 
-// Журнал дочитывается с прошлой позиции, поэтому разбирается только дописанный
-// кусок. Проверяем ровно то, что от этого может сломаться: границу между старым
-// и новым текстом.
+// The log is read on from the previous position, so only the appended
+// chunk is parsed. We check exactly what can break because of this: the boundary between old
+// and new text.
 
 test("дописанный кусок разбирается сам по себе", () => {
   const first = parseLogEntries("+0300 2026-08-03 22:19:18 INFO router: loaded rule-set", null);
@@ -18,7 +18,7 @@ test("дописанный кусок разбирается сам по себ�
   assert.deepEqual(added.map((e) => [e.lvl, e.msg]), [
     ["WARN", "router: rule-set reload failed"],
   ]);
-  // Запись из прошлого куска не продублирована в результате.
+  // A record from the previous chunk isn't duplicated in the result.
   assert.equal(first.length, 1);
 });
 
@@ -44,10 +44,10 @@ test("carry не мешает первой строке с собственны�
   assert.equal(carry.cont.length, 0);
 });
 
-// Рендер дописывает в конец списка только то, что пришло в `added`. Когда кусок
-// начинается с продолжения уже нарисованной записи, дописывать нечего, а запись
-// изменилась — об этом обязан сказать carryGrew, иначе хвост ошибки не виден на
-// экране до полной пересборки.
+// The render appends to the end of the list only what came in `added`. When a chunk
+// starts with the continuation of an already drawn record, there's nothing to append, but the record
+// changed — carryGrew must say so, otherwise the error's tail isn't visible on
+// screen until a full rebuild.
 test("продолжение прошлой записи помечается carryGrew", () => {
   const entries = [];
   const first = applyLogChunk(entries, "+0300 2026-08-04 19:55:27 ERROR connection: dial failed:\n", null);

@@ -1,11 +1,11 @@
-// Все HTTP-клиенты бэкенда строятся через util::direct_client_builder().
+// All backend HTTP clients are built via util::direct_client_builder().
 //
-// Голый reqwest::Client::builder() на Windows читает системный прокси: Cargo
-// объединяет фичи графа, и чтение ProxyServer из реестра включают зависимости
-// tauri. Исключения `127.*` и `<local>` для IP-адресов при этом не работают,
-// поэтому запрос к clash-API на 127.0.0.1 уходил в чужой или мёртвый прокси, а
-// «прямые» замеры в режиме системного прокси шли через туннель. Тест ловит
-// такой клиент до того, как он попадёт в сборку.
+// A bare reqwest::Client::builder() on Windows reads the system proxy: Cargo
+// unifies the graph's features, and reading ProxyServer from the registry is enabled by the
+// tauri dependencies. The `127.*` and `<local>` exclusions don't work for IP addresses,
+// so a request to the clash API on 127.0.0.1 went to someone else's or a dead proxy, and
+// "direct" measurements in system proxy mode went through the tunnel. The test catches
+// such a client before it gets into the build.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";

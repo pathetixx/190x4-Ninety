@@ -32,9 +32,9 @@ test("локальные assets из site/index.html существуют", () =
   }
 });
 
-// navigator в Node доступен только на чтение: `global.navigator = {...}` молча
-// не срабатывает, и тест начинает проверять локаль машины вместо мока. Поэтому
-// navigator приходит параметром функции.
+// navigator in Node is read-only: `global.navigator = {...}` silently
+// doesn't work, and the test starts checking the machine's locale instead of the mock. So
+// navigator comes in as a function parameter.
 function siteFunction(name) {
   const block = app.slice(app.indexOf("const SUPPORTED_LANGUAGES"), app.indexOf("let currentLanguage"));
   return new Function("navigator", `${block}; return ${name};`);
@@ -53,9 +53,9 @@ test("язык браузера определяется, незнакомый �
   assert.equal(detect([]), defaultLanguage, "пустой список не должен ломать определение");
 });
 
-// Разметка index.html — это то, что видят краулер и посетитель до выполнения JS.
-// Если она разойдётся с языком по умолчанию, страница откроется на одном языке,
-// а через долю секунды переедет на другой.
+// The index.html markup is what a crawler and a visitor see before JS runs.
+// If it diverges from the default language, the page opens in one language
+// and moves to another a fraction of a second later.
 test("статическая разметка сайта написана на языке по умолчанию", () => {
   assert.match(html, new RegExp(`<html lang="${defaultLanguage}"[ >]`));
   const nodes = [...html.matchAll(/<(\w+)[^>]*\bdata-i18n="([^"]+)"[^>]*>(.*?)<\/\1>/gs)];
@@ -65,9 +65,9 @@ test("статическая разметка сайта написана на �
   }
 });
 
-// site/ru/index.html — сгенерированный файл (scripts/build-site-ru.mjs). Если
-// поправить index.html или словарь и забыть пересобрать, русская страница
-// молча покажет старый текст.
+// site/ru/index.html is a generated file (scripts/build-site-ru.mjs). If
+// you edit index.html or the dictionary and forget to rebuild, the Russian page
+// will silently show the old text.
 test("site/ru/index.html совпадает с выводом build-site-ru", async () => {
   const { renderRuPage, RU_PAGE } = await import("../scripts/build-site-ru.mjs");
   assert.equal(readFileSync(RU_PAGE, "utf8"), renderRuPage(), "запустите node scripts/build-site-ru.mjs");

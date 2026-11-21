@@ -105,19 +105,19 @@ test("updateOption does not freeze caller-owned structures", async () => {
 
   const options = await import("../src/lib/options.js?options-cache-caller-freeze");
 
-  // Экран правил маршрутизации держит СВОЙ массив и мутирует его дальше:
-  // push второго правила, замену отредактированного, toggle, drag-reorder.
+  // The routing rules screen keeps ITS OWN array and keeps mutating it:
+  // pushing a second rule, replacing an edited one, toggle, drag-reorder.
   const rules = [{ id: "r-1", enabled: true, type: "domain", match: "suffix", values: ["a.com"], action: "proxy" }];
   options.updateOption("route.customRules", rules);
 
   assert.equal(Object.isFrozen(rules), false);
   assert.equal(Object.isFrozen(rules[0]), false);
-  // Раньше обе операции падали TypeError: снапшот морозился вместе с массивом
-  // вызывающего, и «Сохранить» переставала отвечать после первого правила.
+  // Previously both operations failed with a TypeError: the snapshot was frozen together with the caller's
+  // array, and "Save" stopped responding after the first rule.
   rules.push({ id: "r-2", enabled: true, type: "ip", values: ["1.2.3.4/32"], action: "direct" });
   rules[0].enabled = false;
 
-  // Снапшот при этом не едет задним числом — он независимая копия.
+  // The snapshot doesn't change retroactively — it's an independent copy.
   assert.equal(options.getOptionsSnapshot().route.customRules.length, 1);
   assert.equal(options.getOptionsSnapshot().route.customRules[0].enabled, true);
   assert.equal(Object.isFrozen(options.getOptionsSnapshot().route.customRules), true);
@@ -135,11 +135,11 @@ test("snapshot fallback does not freeze module defaults", async () => {
   const options = await import("../src/lib/options.js?options-cache-default-freeze");
   const snapshot = options.getOptionsSnapshot();
 
-  // Снапшот обязан быть read-only — это его контракт.
+  // The snapshot must be read-only — that's its contract.
   assert.equal(Object.isFrozen(snapshot), true);
-  // Но normalizeOptions отдаёт out со ССЫЛКАМИ на массивы DEFAULT_OPTIONS
-  // (deepMerge не копирует массивы), поэтому без клона фолбэк морозил сам
-  // модульный дефолт — на всё время жизни процесса.
+  // But normalizeOptions returns out with REFERENCES to the DEFAULT_OPTIONS arrays
+  // (deepMerge doesn't copy arrays), so without a clone the fallback froze the
+  // module default itself — for the whole process lifetime.
   assert.equal(Object.isFrozen(options.DEFAULT_OPTIONS.route.customRules), false);
   assert.equal(Object.isFrozen(options.DEFAULT_OPTIONS.diagnose.pinned), false);
 });

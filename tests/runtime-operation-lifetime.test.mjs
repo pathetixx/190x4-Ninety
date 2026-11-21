@@ -2,13 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-// Владение runtime-операцией освобождается в finally. Если сама операция
-// возвращается из try без await, finally срабатывает в момент return, а не
-// после завершения работы: токен отпускается, пока подключение или проверка
-// канала ещё идут, и Rust отвечает «stale or cancelled runtime operation
-// token». Пользователь видит «Не удалось отключить» на ровном месте.
-// Проверяем инвариант по исходнику: main.js не поддаётся импорту из-за DOM.
-// На Windows-раннере checkout приходит с CRLF: поиск по "\n" иначе промахивается.
+// Runtime operation ownership is released in finally. If the operation itself
+// returns from try without await, finally fires at the moment of return, not
+// after the work is done: the token is released while the connection or the channel check
+// is still running, and Rust answers "stale or cancelled runtime operation
+// token". The user sees "Failed to disconnect" out of nowhere.
+// We check the invariant against the source: main.js can't be imported because of the DOM.
+// On the Windows runner checkout comes with CRLF: a search for "\n" would otherwise miss.
 const main = readFileSync(new URL("../src/main.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 const guarded = [
@@ -16,10 +16,10 @@ const guarded = [
   "verifyRuntimeOperationDataplane(operationToken)",
 ];
 
-// Подтверждённый stop обязан закрыть состояние, даже если владение перехватил
-// более новый intent: «disconnecting» ждут и hero-диск, и runtimeIdleGate, а
-// notify() в этом состоянии waiter'ов не будит — очередь реконнекта висела до
-// следующего клика пользователя.
+// A confirmed stop must close the state even if ownership was taken over by
+// a newer intent: "disconnecting" is awaited by both the hero disc and runtimeIdleGate, and
+// notify() in this state doesn't wake the waiters — the reconnect queue hung until
+// the user's next click.
 test("disconnectNetwork не бросает UI в disconnecting при чужом intent", () => {
   const body = main.slice(main.indexOf("async function disconnectNetwork("));
   const tail = body.slice(0, body.indexOf("\nasync function userToggleNetwork("));
@@ -30,7 +30,7 @@ test("disconnectNetwork не бросает UI в disconnecting при чужо�
     0,
     "выход по чужому intent после подтверждённого stop обязан идти через finalizeStoppedRuntime()",
   );
-  // Ядро позднего старта останавливается до любой проверки намерения.
+  // The late-started core is stopped before any intent check.
   const late = tail.slice(tail.indexOf("if (lateStart) {"));
   const lateBlock = late.slice(0, late.indexOf("\n  }\n"));
   assert.ok(lateBlock.includes("await coreStartBarrier.wait()"), "ожидание позднего старта исчезло");

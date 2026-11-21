@@ -1,6 +1,6 @@
-// Переходы состояния канала → записи ленты. Главный инвариант: инцидент должен
-// получать исход в каждом случае, когда исход есть. «Чем закончилось —
-// неизвестно» разрешено только там, где замеров действительно не было.
+// Channel state transitions → feed entries. The main invariant: an incident must
+// get an outcome in every case where there is one. "How it ended —
+// unknown" is allowed only where there really were no measurements.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createChannelIncidentRecorder } from "/lib/channel-incidents.js";
@@ -29,9 +29,9 @@ test("падение и восстановление канала — откры
   ]);
 });
 
-// Ровно тот случай, из-за которого лента была забита «неизвестно»: в плохом
-// канале проба чаще всего и не дотягивается, а UNKNOWN запоминался как
-// состояние и глушил следующий переход в GOOD.
+// Exactly the case that filled the feed with "unknown": in a bad
+// channel the probe most often doesn't reach, and UNKNOWN was remembered as
+// a state and suppressed the next transition to GOOD.
 test("проба, которая не дотянулась, не мешает записать восстановление", () => {
   const { rec, kinds } = recorder();
   rec.observe("GOOD");
@@ -97,17 +97,17 @@ test("конец сессии без открытого инцидента ни�
   assert.deepEqual(kinds(), []);
 });
 
-// Инцидент могла открыть смерть ядра: он тоже кончается вместе с сессией, хотя
-// движок качества о нём ничего не знает.
+// An incident may have been opened by core death: it also ends together with the session, although
+// the quality engine knows nothing about it.
 test("чужой открытый инцидент тоже получает исход", () => {
   const { rec, kinds } = recorder({ isAnyIncidentOpen: () => true });
   rec.endSession("disconnected");
   assert.deepEqual(kinds(), ["quality.endedByDisconnect"]);
 });
 
-// Реконнект гасит движок, но сессию не заканчивает: инцидент обязан дожить до
-// настоящего исхода, иначе вылечивший его реконнект не будет виден как
-// восстановление.
+// A reconnect stops the engine but doesn't end the session: the incident must survive until
+// its real outcome, otherwise the reconnect that cured it won't show as
+// a recovery.
 test("внутренний реконнект не обрывает инцидент и не теряет восстановление", () => {
   const { rec, kinds } = recorder({ sessionSurvives: (reason) => reason === "disconnected" });
   rec.observe("GOOD");
@@ -152,8 +152,8 @@ test("смена состояния канала разрешает записа
   ]);
 });
 
-// Нагрузка ПК — не состояние канала: движок перестаёт мерить, но скорость
-// от этого не «падает».
+// PC load isn't a channel state: the engine stops measuring, but the speed
+// doesn't "drop" because of it.
 test("нагрузка ПК не открывает инцидент и не стирает причину паузы", () => {
   const { rec, kinds } = recorder();
   rec.observe("GOOD");

@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-// Поповер «Режим подключения» позиционируется скриптом, а не CSS. Раскладка
-// зеркалится в fa/ar (dir="rtl"), и тулбар с кнопкой уезжает к левому краю —
-// проверяем, что карточка при этом остаётся внутри окна.
+// The "Connection mode" popover is positioned by script, not CSS. The layout
+// is mirrored in fa/ar (dir="rtl"), and the toolbar with the button moves to the left edge —
+// we check that the card stays inside the window in that case.
 const POPOVER_WIDTH = 320;
 const WINDOW_WIDTH = 1180;
 
@@ -23,7 +23,7 @@ function makeEl(extra = {}) {
   };
 }
 
-// Кнопка тулбара в LTR стоит у правого края окна, в RTL — зеркально у левого.
+// In LTR the toolbar button sits at the right edge of the window, in RTL — mirrored at the left.
 function setup({ dir, btnLeft }) {
   const btn = makeEl();
   btn.rect = { top: 24, bottom: 64, left: btnLeft, right: btnLeft + 40 };

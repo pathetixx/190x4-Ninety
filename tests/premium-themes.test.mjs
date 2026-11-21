@@ -50,7 +50,7 @@ test("premium themes: каждая тема имеет material tokens и previe
 });
 
 test("premium themes: маска главного экрана берёт оттенок темы", () => {
-  // затемнение в покое ложится поверх оттенка, а не заменяет его
+  // the darkening at rest goes on top of the tint rather than replacing it
   assert.match(css, /--hero-mask-idle:\s*var\(--premium-mask-idle\)/);
   assert.match(css, /--hero-mask-on:\s*var\(--premium-mask-secured\)/);
 });

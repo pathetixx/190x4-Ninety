@@ -1,11 +1,11 @@
-// Движок качества: классификация пробы, запуск лесенки по BAD_STREAK, коммит
-// победы с записью обучения. Движок спроектирован под изоляцию (invoke/actions
-// инъектятся, DOM не трогается) — гоняем с мок-localStorage и управляемой пробой.
+// Quality engine: probe classification, starting the ladder on BAD_STREAK, committing
+// a win with a learning record. The engine is designed for isolation (invoke/actions
+// are injected, the DOM isn't touched) — we run it with a mock localStorage and a controlled probe.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createQualityEngine } from "/lib/quality-engine.js";
 
-// Мок localStorage (движок пишет туда профиль обучения ISP×час).
+// Mock localStorage (the engine writes the ISP×hour learning profile there).
 function installStorage() {
   const m = new Map();
   globalThis.localStorage = {
@@ -38,16 +38,16 @@ test("quality probe is bound to the expected runtime generation, never to a fron
   assert.equal(Object.hasOwn(received, "port"), false);
 });
 
-// Приводит движок в состояние «есть подозрение» (был поток → схлопнулся), чтобы
-// tick пробовал немедленно, не дожидаясь idle-heartbeat.
+// Puts the engine into the "suspicion" state (there was a stream → it collapsed) so that
+// tick probes immediately, without waiting for the idle heartbeat.
 function armSuspect(engine) {
-  engine.updatePassive({ down: 50_000 }); // выше ACTIVITY_BPS
-  engine.updatePassive({ down: 100 });    // ниже FLATLINE_BPS
+  engine.updatePassive({ down: 50_000 }); // above ACTIVITY_BPS
+  engine.updatePassive({ down: 100 });    // below FLATLINE_BPS
 }
 
-// Пропущенная проба ничего не измеряет. Без записи и паузы отказ гейта
-// (нет поколения, занят датаплейн) выглядел бы как «канал в порядке», а движок
-// бил бы IPC на каждом тике сторожа.
+// A skipped probe measures nothing. Without a record and a pause a gate refusal
+// (no generation, the dataplane is busy) would look like "the channel is fine", and the engine
+// would hit IPC on every watchdog tick.
 test("skipped-проба логируется, не идёт в осциллограмму и держит паузу", async () => {
   installStorage();
   let calls = 0;
@@ -79,13 +79,13 @@ test("skipped-проба логируется, не идёт в осциллог
   assert.equal(samples.length, 0);
   assert.ok(logs.some((line) => line.includes("generation_required")));
 
-  // Следующий тик в пределах паузы новой пробы не запускает.
+  // The next tick within the pause doesn't start a new probe.
   clock += 1_000;
   armSuspect(engine);
   await engine.tick();
   assert.equal(calls, 1, "движок не должен долбить пробой на каждом тике");
 
-  // После паузы — снова пробует.
+  // After the pause it probes again.
   clock += 10_000;
   armSuspect(engine);
   await engine.tick();
@@ -123,7 +123,7 @@ test("классификация: STALLED-проба → onState STALLED", async
   });
   engine.onConnected({});
   armSuspect(engine);
-  await engine.tick(); // один плохой тик — до BAD_STREAK не дотягивает, лесенки нет
+  await engine.tick(); // one bad tick — doesn't reach BAD_STREAK, no ladder
   assert.equal(states.at(-1), "STALLED");
 });
 
@@ -135,8 +135,8 @@ test("две STALLED-пробы подряд → лесенка, giveUp при �
     invoke: async (cmd) => (cmd === "probe_quality" ? STALLED : undefined),
     actions: {
       onState: () => {},
-      // R1 неприменима (нет альтернативы) — движок идёт дальше; остальных
-      // ступеней в actions нет → лесенка исчерпывается и честно сдаётся.
+      // R1 isn't applicable (no alternative) — the engine moves on; there are no other
+      // steps in actions → the ladder is exhausted and honestly gives up.
       selectNextNode: async () => { selectCalls++; return false; },
       giveUp: () => { gaveUp = true; },
       notify: () => {},
@@ -156,7 +156,7 @@ test("ступень R1 помогла → commitWin пишет профиль �
   const store = installStorage();
   let probeCount = 0;
   const engine = createQualityEngine({
-    // Первые 2 пробы (тики) — STALLED, дальше (верификация ступени) — GOOD.
+    // The first 2 probes (ticks) are STALLED, then (step verification) GOOD.
     invoke: async (cmd) => {
       if (cmd !== "probe_quality") return undefined;
       probeCount++;
@@ -164,7 +164,7 @@ test("ступень R1 помогла → commitWin пишет профиль �
     },
     actions: {
       onState: () => {},
-      selectNextNode: async () => true, // R1 применилась
+      selectNextNode: async () => true, // R1 was applied
       giveUp: () => { throw new Error("giveUp не должен вызваться — ступень помогла"); },
       getContext: () => ({ node: "n1" }),
       localAsn: async () => "12345",
@@ -289,7 +289,7 @@ test("часовой лимит реконнектов сохраняется м
     armSuspect(engine);
     await engine.tick();
     await engine.tick();
-    clock += 121_000; // cooldown прошёл, но все попытки всё ещё внутри одного часа
+    clock += 121_000; // the cooldown passed, but all attempts are still within one hour
   }
 
   assert.equal(reconnects, 4, "пятая и последующие попытки должны блокироваться часовым капом");
@@ -311,9 +311,9 @@ test("выключенный quality engine не прогревает локал
   assert.equal(asnCalls, 0);
 });
 
-// Давление хоста — не свойство канала. Под нехваткой CPU/памяти проба меряет
-// планировщик, а лесенка (смена ноды → реконнект) платит самым дорогим
-// действием ровно тогда, когда машине и так плохо.
+// Host pressure isn't a property of the channel. Under a CPU/memory shortage the probe measures
+// the scheduler, and the ladder (node switch → reconnect) pays with the most expensive
+// action exactly when the machine is already struggling.
 test("под давлением хоста движок не пробует канал и не лечит его", async () => {
   installStorage();
   let probes = 0;
@@ -379,21 +379,21 @@ test("вход в давление обнуляет накопленную се�
 
   engine.onConnected({});
   armSuspect(engine);
-  await engine.tick(); // одна плохая проба — до BAD_STREAK не хватает одной
+  await engine.tick(); // one bad probe — one short of BAD_STREAK
   assert.equal(ladderRan, false);
 
   engine.setHostPressure(true);
   engine.setHostPressure(false);
   armSuspect(engine);
   await engine.tick();
-  // Серия начата заново, поэтому лесенка ещё не имеет права стартовать: иначе
-  // проба, снятая на границе давления, досчитала бы чужой стрик.
+  // The streak was started anew, so the ladder has no right to start yet: otherwise
+  // a probe taken at the pressure boundary would complete someone else's streak.
   assert.equal(ladderRan, false);
 });
 
-// «Не мерим» и «всё хорошо» — разные вещи. Движок обязан сказать об отказе от
-// измерения наружу: без этого открытый инцидент в ленте оставался без исхода,
-// и пользователю нечем было объяснить, почему исход неизвестен.
+// "Not measuring" and "everything is fine" are different things. The engine must report the measurement
+// refusal outward: without it an open incident in the feed stayed without an outcome,
+// and the user had nothing to explain why the outcome was unknown.
 test("движок сообщает причину, по которой перестал измерять", async () => {
   installStorage();
   let probes = 0;
@@ -425,14 +425,14 @@ test("режим экономии трафика без подозрения о�
   });
 
   engine.onConnected({});
-  // Трафика не было, а heartbeat в этом режиме выключен: проб не будет вообще.
+  // There was no traffic, and the heartbeat is off in this mode: there will be no probes at all.
   clock += 3600_000;
   await engine.tick();
   assert.equal(probes, 0);
   assert.deepEqual(paused, ["lowDataMode"]);
 
-  // Схлопнувшийся поток по-прежнему пробуем немедленно — экономия не значит
-  // «не замечать обрыв».
+  // A collapsed stream is still probed immediately — saving doesn't mean
+  // "not noticing a break".
   armSuspect(engine);
   await engine.tick();
   assert.equal(probes, 1);
@@ -457,9 +457,9 @@ test("недокачанная выборка на узком канале сч�
   assert.equal(await qualityOf({ ok: false, stalled: false, error: "no body bytes", bytes: 0, goodput_bps: 0 }), "UNKNOWN");
 });
 
-// Трафик собственной пробы виден в clash:traffic. Раньше её пик с последующим
-// затишьем выглядел как «занавес», и без участия пользователя проба уходила на
-// каждом тике сторожа: ~660 проб и ~165 МиБ за час простоя.
+// Our own probe's traffic is visible in clash:traffic. Previously its peak followed by
+// a lull looked like a "curtain", and without the user's involvement a probe went out on
+// every watchdog tick: ~660 probes and ~165 MiB per idle hour.
 test("проба не запускает следующую своим же трафиком", async () => {
   installStorage();
   let clock = 1_000_000;
@@ -469,7 +469,7 @@ test("проба не запускает следующую своим же тр
     invoke: async (cmd) => {
       if (cmd !== "probe_quality") return undefined;
       probes++;
-      pending += 262_144; // байты пробы придут в следующем кадре телеметрии
+      pending += 262_144; // the probe's bytes will arrive in the next telemetry frame
       return GOOD;
     },
     actions: {},
@@ -478,19 +478,19 @@ test("проба не запускает следующую своим же тр
     sleep: async () => {},
   });
   engine.onConnected({ expectedGeneration: 3 });
-  for (let s = 1; s <= 3600; s++) { // час простоя, кадр /traffic раз в секунду
+  for (let s = 1; s <= 3600; s++) { // an idle hour, a /traffic frame once a second
     clock += 1000;
     const down = pending;
     pending = 0;
     engine.updatePassive({ down });
-    if (s % 5 === 0) await engine.tick(); // тик сторожа
+    if (s % 5 === 0) await engine.tick(); // watchdog tick
   }
-  // По задумке — только heartbeat раз в idleProbeSec (300 с).
+  // By design — only the heartbeat once every idleProbeSec (300 s).
   assert.ok(probes <= 13, `ожидалось ≈12 проб за час, было ${probes}`);
 });
 
-// R3/R4 пересобирают runtime, даже если проверка после этого не подтвердилась.
-// Такие переподключения тоже идут в часовой лимит.
+// R3/R4 rebuild the runtime even if the check after that didn't confirm.
+// Such reconnects also count toward the hourly limit.
 test("неподтверждённые переподключения лесенки входят в часовой лимит", async () => {
   installStorage();
   let clock = 1_000_000;
@@ -504,7 +504,7 @@ test("неподтверждённые переподключения лесен
         reconnects++;
         engine.onIdle();
         engine.onConnected({ expectedGeneration: 1 });
-        return false; // verify_runtime_dataplane не вернул Ready
+        return false; // verify_runtime_dataplane didn't return Ready
       },
     },
     opts: { enabled: true, aggressive: true, idleProbeSec: 60 },
@@ -519,8 +519,8 @@ test("неподтверждённые переподключения лесен
   assert.ok(reconnects <= 4, `часовой лимит 4, было ${reconnects}`);
 });
 
-// Проба длиннее окна глушения: пока кадры глушатся, старые образцы обязаны
-// стареть, а один пик трафика — запускать не больше двух проб.
+// The probe is longer than the mute window: while frames are muted, old samples must
+// age, and one traffic peak must trigger no more than two probes.
 test("долгая проба не зацикливает пробы на старом пике", async () => {
   installStorage();
   let clock = 1_000_000;
@@ -529,7 +529,7 @@ test("долгая проба не зацикливает пробы на ста
     invoke: async (cmd) => {
       if (cmd !== "probe_quality") return undefined;
       probes++;
-      clock += 3_500; // проба идёт 3,5 с — дольше окна глушения после неё
+      clock += 3_500; // the probe runs 3.5 s — longer than the mute window after it
       return GOOD;
     },
     actions: {},
@@ -539,10 +539,10 @@ test("долгая проба не зацикливает пробы на ста
   });
   engine.onConnected({});
   clock += 10_000;
-  engine.updatePassive({ down: 500_000 }); // пользователь качал
+  engine.updatePassive({ down: 500_000 }); // the user was downloading
   clock += 1_000;
-  engine.updatePassive({ down: 0 });       // и поток схлопнулся
-  for (let s = 0; s < 120; s++) {          // 10 минут тиков сторожа, кадры глушатся/нулевые
+  engine.updatePassive({ down: 0 });       // and the stream collapsed
+  for (let s = 0; s < 120; s++) {          // 10 minutes of watchdog ticks, frames are muted/zero
     clock += 5_000;
     engine.updatePassive({ down: 0 });
     await engine.tick();

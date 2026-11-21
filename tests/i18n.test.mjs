@@ -1,12 +1,12 @@
-// Синхронность i18n: все 15 каталогов обязаны иметь ровно те же ключи, что ru
-// (источник истины), и те же {плейсхолдеры} в значениях. Ловит забытые переводы
-// при добавлении фич и опечатки в {var}.
+// i18n sync: all 15 catalogs must have exactly the same keys as ru
+// (the source of truth), and the same {placeholders} in values. Catches forgotten translations
+// when adding features and typos in {var}.
 //
-// Исключение — группы склонений, которые читает tn() через Intl.PluralRules:
-// набор форм там диктует CLDR, а не русский каталог. У японского нет "few",
-// у арабского есть "zero" и "two", которых нет в ru, — требовать от них копию
-// русских форм значило бы засорять каталоги мёртвыми ключами. Поэтому для таких
-// групп сверяем набор форм с Intl для этого языка.
+// The exception is plural groups read by tn() via Intl.PluralRules:
+// the set of forms there is dictated by CLDR, not by the Russian catalog. Japanese has no "few",
+// Arabic has "zero" and "two", which ru doesn't have — requiring them to copy
+// the Russian forms would clutter the catalogs with dead keys. So for such
+// groups we check the set of forms against Intl for that language.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -14,9 +14,9 @@ const CODES = ["ru", "en", "fa", "zh", "ar", "es", "de", "uk", "ja", "fr", "it",
 
 const PLURAL_FORMS = new Set(["zero", "one", "two", "few", "many", "other"]);
 
-// Группы склонений в ru: объект, все ключи которого — формы CLDR. Наличие
-// "other" отличает группы под tn()/Intl от старых rr.plural* — те живут на
-// самодельном плюрализаторе с жёстким one/few/many и паритет с ru сохраняют.
+// Plural groups in ru: an object all of whose keys are CLDR forms. The presence of
+// "other" distinguishes groups under tn()/Intl from the old rr.plural* — those live on
+// a homemade pluralizer with a hard one/few/many and keep parity with ru.
 function cldrGroups(obj, prefix = "", out = new Set()) {
   for (const [k, v] of Object.entries(obj)) {
     if (!v || typeof v !== "object") continue;
@@ -30,7 +30,7 @@ function cldrGroups(obj, prefix = "", out = new Set()) {
   return out;
 }
 
-// тот же флэттенер, что в /lib/i18n/index.js
+// the same flattener as in /lib/i18n/index.js
 function flatten(obj, prefix = "", out = {}) {
   for (const k in obj) {
     const v = obj[k];
@@ -55,9 +55,9 @@ const isPluralForm = (key) => {
   return i > 0 && PLURAL_FORMS.has(key.slice(i + 1)) && groups.has(key.slice(0, i));
 };
 
-// Покрывает ли форма ровно одно число. Диапазон 0..200 берёт все правила CLDR:
-// они цикличны по последним двум разрядам, так что более широкий поиск ничего
-// нового не даст.
+// Whether a form covers exactly one number. The 0..200 range covers all CLDR rules:
+// they cycle over the last two digits, so a wider search would give nothing
+// new.
 function singularOnly(code, form) {
   const rules = new Intl.PluralRules(code);
   let count = 0;
@@ -66,7 +66,7 @@ function singularOnly(code, form) {
 }
 
 const ruKeys = Object.keys(catalogs.ru).sort();
-// Ключи под строгий паритет: всё, кроме отдельных форм склонения.
+// Keys under strict parity: everything except individual plural forms.
 const ruPlainKeys = ruKeys.filter((k) => !isPluralForm(k));
 
 test("ru не пустой", () => {
@@ -102,15 +102,15 @@ for (const code of CODES.filter((c) => c !== "ru")) {
   test(`${code}: плейсхолдеры {var} совпадают с ru`, () => {
     const bad = [];
     for (const k of ruKeys) {
-      // Для форм склонения эталон один — ru "other": сами формы у языков разные.
+      // For plural forms there's one reference — ru "other": the forms themselves differ between languages.
       const ruKey = isPluralForm(k) ? `${k.slice(0, k.lastIndexOf("."))}.other` : k;
       const ruPh = new Set(String(catalogs.ru[ruKey]).match(/\{[a-zA-Z0-9_]+\}/g) || []);
       const value = catalogs[code][k];
-      if (value === undefined && isPluralForm(k)) continue;   // формы нет в этом языке — законно
+      if (value === undefined && isPluralForm(k)) continue;   // the form doesn't exist in this language — legitimate
       const ph = new Set(String(value ?? "").match(/\{[a-zA-Z0-9_]+\}/g) || []);
-      // Форма, покрывающая ровно одно число (ar one=1, two=2, zero=0), вправе
-      // назвать его словом вместо {n} — «قياسان» вместо «2 قياس». Там, где форма
-      // покрывает много чисел (ru one — это 1, 21, 31…), {n} обязателен.
+      // A form covering exactly one number (ar one=1, two=2, zero=0) may
+      // name it with a word instead of {n} — "قياسان" instead of "2 قياس". Where a form
+      // covers many numbers (ru one is 1, 21, 31…), {n} is mandatory.
       const expected = isPluralForm(k) && singularOnly(code, k.slice(k.lastIndexOf(".") + 1))
         ? new Set([...ruPh].filter((p) => p !== "{n}"))
         : ruPh;
@@ -121,15 +121,15 @@ for (const code of CODES.filter((c) => c !== "ru")) {
   });
 }
 
-// Windows кладёт подсказку трея в NOTIFYICONDATAW.szTip — 128 UTF-16 единиц
-// вместе с завершающим нулём — и всё лишнее молча срезает. Резалась именно
-// вторая строка, с номером версии: до tray-icon 0.24.2 предел был 64, и на нём
-// ru/uk/es/it/pt/pl в режиме «Системный прокси» теряли часть номера.
-// Считаем в .length (UTF-16), а не в кодовых точках: в szTip уходят эти единицы.
+// Windows puts the tray tooltip into NOTIFYICONDATAW.szTip — 128 UTF-16 units
+// including the terminating null — and silently cuts everything beyond. It was
+// the second line, with the version number, that got cut: before tray-icon 0.24.2 the limit was 64, and at it
+// ru/uk/es/it/pt/pl in "System proxy" mode lost part of the number.
+// We count in .length (UTF-16), not in code points: these units go into szTip.
 for (const code of CODES) {
   test(`${code}: подсказка трея влезает в szTip`, () => {
     const t = catalogs[code];
-    const version = "99.99.999";                     // с запасом на рост номера
+    const version = "99.99.999";                     // with headroom for the number to grow
     const states = [
       t["tray.tipOff"],
       ...["mode.proxy", "mode.systemProxy", "mode.tun"]
@@ -143,14 +143,14 @@ for (const code of CODES) {
   });
 }
 
-// Ключ может присутствовать во всех каталогах и всё равно быть непереведённым:
-// проверки выше видят набор ключей, формы и плейсхолдеры, но не то, что значение
-// дословно скопировано из en. Так целые разделы («Кэш Discord», «Подмена UDP»,
-// приватность подписок, очистка данных, диалог подтверждения) месяцами
-// оставались английскими у всех 13 языков — включая деструктивные подтверждения.
+// A key may be present in all catalogs and still be untranslated:
+// the checks above see the set of keys, forms and placeholders, but not that the value
+// was copied verbatim from en. This way whole sections ("Discord cache", "UDP spoofing",
+// subscription privacy, data clearing, the confirmation dialog) stayed
+// English for months in all 13 languages — including destructive confirmations.
 //
-// ALLOWED — то, что совпадать обязано: названия продуктов и протоколов, единицы,
-// адреса, строки из одних плейсхолдеров.
+// ALLOWED — what must match: product and protocol names, units,
+// addresses, strings made only of placeholders.
 const ALLOWED_SAME_AS_EN = new Set([
   "mode.tun",
   "dpi.modeTxt.tun",
@@ -161,7 +161,7 @@ const ALLOWED_SAME_AS_EN = new Set([
   "settings.dns.remoteTitle",
   "settings.dns.directTitle",
   "settings.dns.customPlaceholder",
-  // Совпадают законно в отдельных языках: заимствованные слова и единицы.
+  // Legitimately matching in individual languages: loanwords and units.
   // it: «Driver … (standard)», «LOG · SING-BOX»; fr: «strict»; de: «Traffic · live».
   "dpi.monkey.toastOff",
   "logs.kickerInit",
@@ -169,7 +169,7 @@ const ALLOWED_SAME_AS_EN = new Set([
   "settings.enums.qualityGood.3000000",
   "settings.warp.scanRowHint",
   "traffic.label",
-  // de/pl: «Region · {name}» — слово «Region» в обоих языках то же.
+  // de/pl: "Region · {name}" — the word "Region" is the same in both languages.
   "rr.base.region",
 ]);
 
@@ -181,7 +181,7 @@ for (const code of CODES.filter((c) => c !== "en" && c !== "ru")) {
       if (ALLOWED_SAME_AS_EN.has(key) || isPluralForm(key)) return false;
       const english = catalogs.en[key];
       if (typeof english !== "string" || catalogs[code][key] !== english) return false;
-      // Одно-двухсловные подписи совпадают законно чаще (термины, «OK», «PTB»).
+      // One- or two-word labels legitimately match more often (terms, "OK", "PTB").
       return english.length > 12 && wordCount(english) >= 3;
     });
     assert.deepEqual(untranslated, [], `${code}: ${untranslated.slice(0, 5).join(", ")}`);

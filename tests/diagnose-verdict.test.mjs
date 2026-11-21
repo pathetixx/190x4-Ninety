@@ -1,4 +1,4 @@
-// Вердикт диагностики: приоритет правил и границы выводов.
+// Diagnostics verdict: rule priority and the limits of conclusions.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -55,8 +55,8 @@ test("вердикт: путь до сервера не доходит вовс�
 });
 
 test("вердикт: мёртвый контрольный адрес переводит стрелки на сеть", () => {
-  // Контрольная проба нужна ровно для этого: без неё «не пускает к серверу» и
-  // «в сети вообще нет TCP» неразличимы, и вердикт врал бы про сервер.
+  // That's exactly what the control probe is needed for: without it "won't let us reach the server" and
+  // "there's no TCP in the network at all" are indistinguishable, and the verdict would lie about the server.
   const verdict = buildVerdict({ trace: trace({ control: { state: "silent", ms: 1200 } }) });
   assert.equal(verdict.kind, "localNetwork");
   assert.equal(verdict.action, null);
@@ -101,8 +101,8 @@ test("вердикт: сервис отказывает адресу серве�
   const rows = [row("chatgpt", { state: "ok" }, { state: "http", httpStatus: 403 })];
   for (let i = 0; i < 5; i++) rows.push(row(`ok${i}`, "ok", "ok"));
   const verdict = buildVerdict({ reach: rows, connected: true });
-  // Строка с 403 попадает и в «мешает туннель», и в «отказал сервис»; первым
-  // правилом идёт то, что человек может починить правилом маршрутизации.
+  // A row with a 403 ends up both in "the tunnel gets in the way" and in "the service refused"; the first
+  // rule is what the person can fix with a routing rule.
   assert.ok(["tunnelBlocksLocal", "serviceRefusesNode"].includes(verdict.kind));
   assert.ok(["ruleDirect", "switchNode"].includes(verdict.action));
 });
@@ -154,7 +154,7 @@ test("счётчик находок: строка с 403 считается од
     row("discord", "timeout", "ok"),
     row("fine", "ok", "ok"),
   ];
-  // 403 + банк + спасённый Discord = 3, дубля быть не должно.
+  // 403 + bank + rescued Discord = 3, there must be no duplicate.
   assert.equal(countFindings({ reach: rows }), 3);
 });
 
@@ -176,7 +176,7 @@ test("счётчик находок: пустой прогон не находк
 test("подпись строки: региональное правило уводит адрес напрямую", () => {
   assert.equal(matchesDirectRule({ host: "online.sberbank.ru", region: "ru" }), true);
   assert.equal(matchesDirectRule({ host: "youtube.com", region: "ru" }), false);
-  // «Не выбран» регион ничего не уводит.
+  // A region that's "not selected" sends nothing anywhere.
   assert.equal(matchesDirectRule({ host: "online.sberbank.ru", region: "other" }), false);
 });
 

@@ -1,4 +1,4 @@
-// Лента инцидентов: кольцо/TTL хранилища и группировка событий в инциденты.
+// Incident feed: the storage ring/TTL and grouping events into incidents.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createIncidentLog, degradedMs, groupIncidents, unmeasuredIncidents } from "/lib/incident-log.js";
@@ -78,9 +78,9 @@ test("группировка: деградация → лечение → вос
   assert.equal(groups[0].ongoing, undefined);
 });
 
-// Отключение посреди деградации — исход, а не молчание: без него инцидент
-// дотлевал до таймаута и показывался как «чем закончилось — неизвестно», хотя
-// измерять было уже нечего, а длительность плохой связи известна точно.
+// A disconnect in the middle of degradation is an outcome, not silence: without it the incident
+// smoldered until the timeout and showed as "how it ended — unknown", although
+// there was nothing left to measure, and the duration of the bad connection is known exactly.
 test("группировка: конец сессии закрывает инцидент с известной длительностью", () => {
   const groups = groupIncidents([
     entry(1_000, "quality.degraded", "warn"),
@@ -156,8 +156,8 @@ test("degradedMs: суммарное время считает только ин
   assert.equal(degradedMs(groups, { since: 50_000 }), 3_000);
 });
 
-// Инцидент из одной записи весит 0 мс: сводка «деградировала N мин» без счётчика
-// недомеренных записей систематически занижает картину недели.
+// An incident with a single entry weighs 0 ms: a "degraded for N min" summary without a counter
+// of under-measured entries systematically understates the week's picture.
 test("unmeasuredIncidents: считает записи, чьё время degradedMs недосчитал", () => {
   const groups = groupIncidents([
     entry(1_000, "quality.degraded", "warn"),

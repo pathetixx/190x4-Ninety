@@ -1,4 +1,4 @@
-// Settings view: числовые поля нормализуются в JS, а не только HTML min/max.
+// Settings view: numeric fields are normalized in JS, not only by HTML min/max.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

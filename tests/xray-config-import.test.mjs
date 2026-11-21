@@ -1,7 +1,7 @@
-// Импорт готового конфига Xray. Подписка Xray у панелей — это МАССИВ целых
-// конфигов (формат v2rayN), а не один конфиг: имя сервера лежит в `remarks`, а
-// теги outbound'ов служебные. Плюс панель дублирует все серверы ещё раз в
-// конфиге-балансировщике, поэтому одинаковые ноды обязаны схлопываться.
+// Importing a ready Xray config. A panel's Xray subscription is an ARRAY of whole
+// configs (the v2rayN format), not a single config: the server name lies in `remarks`, while
+// outbound tags are service ones. Plus the panel duplicates all servers once more in
+// a balancer config, so identical nodes must collapse.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -35,8 +35,8 @@ function outboundsOf(nodes) {
   return config.outbounds.filter((o) => !GROUP_TYPES.has(o.type));
 }
 
-// Форма, которую отдаёт BPB-Worker-Panel: ws с путём «?ed=», host отдельным
-// ключом wsSettings (не headers.Host), sockopt и rawSettings.
+// The shape BPB-Worker-Panel returns: ws with a "?ed=" path, host as a separate
+// wsSettings key (not headers.Host), sockopt and rawSettings.
 const vlessOutbound = (tag = "proxy", address = HOST, port = 443) => ({
   tag,
   protocol: "vless",
@@ -62,7 +62,7 @@ const xrayConfig = (remarks, outbounds) => ({
   routing: { rules: [] },
 });
 
-// ── формат ─────────────────────────────────────────────────
+// ── format ─────────────────────────────────────────────────
 test("массив конфигов Xray распознаётся форматом xray", () => {
   const sub = [xrayConfig("💦 1. VL - Domain", [vlessOutbound(), freedom, blackhole])];
   assert.equal(detectConfigFormat(JSON.stringify(sub)), "xray");
@@ -81,8 +81,8 @@ test("имя сервера берётся из remarks конфига, а не 
 });
 
 test("несколько пользователей в одном vnext дают различимые имена", () => {
-  // Панель кладёт в outbound два доступа к одному серверу. Профиля получается
-  // два, и общее имя конфига делало их в списке неразличимыми.
+  // The panel puts two accesses to the same server into an outbound. Two profiles
+  // come out, and the shared config name made them indistinguishable in the list.
   const outbound = vlessOutbound();
   outbound.settings.vnext[0].users.push({ id: "aaaabbbb-cccc-dddd-eeee-ffff00001111", encryption: "none" });
   const { profiles } = parseXrayConfig([xrayConfig("Panel EU", [outbound, freedom])]);
@@ -91,8 +91,8 @@ test("несколько пользователей в одном vnext дают
 });
 
 test("конфиг-балансировщик перечисляет те же серверы — дубликаты схлопываются", () => {
-  // Панель кладёт каждый сервер отдельным конфигом, а потом ещё раз все сразу
-  // в конфиге «Best Ping». Без склейки пользователь получил бы всё дважды.
+  // The panel puts each server as a separate config, and then once more all at once
+  // in the "Best Ping" config. Without merging the user would get everything twice.
   const one = vlessOutbound("proxy", HOST, 443);
   const two = vlessOutbound("proxy", "104.16.1.5", 8443);
   const sub = [
@@ -116,10 +116,10 @@ test("freedom, blackhole и dns не серверы и в пропущенные
   assert.equal(skipped, 0);
 });
 
-// ── перенос без потерь ─────────────────────────────────────
+// ── carrying over without losses ─────────────────────────────────────
 test("vless ws+tls доезжает до конфига, путь с «?ed=» остаётся как есть", () => {
-  // Форму Xray в max_early_data не переводим: ядро отправляет такой путь
-  // вместе с query, это работает, и поведение нод менять незачем.
+  // We don't convert the Xray form into max_early_data: the core sends such a path
+  // together with the query, it works, and there's no reason to change the nodes' behavior.
   const { profiles } = parseXrayConfig([xrayConfig("n", [vlessOutbound(), freedom])]);
   const [out] = outboundsOf(profiles);
   assert.equal(out.type, "vless");
@@ -239,11 +239,11 @@ test("xhttp кладёт подопции в extra — без них серве�
   assert.equal(out.transport.downloadSettings.server, "dl.example");
 });
 
-// ── цепочки ────────────────────────────────────────────────
+// ── chains ────────────────────────────────────────────────
 test("dialerProxy на freedom — это фрагментация, нода берётся; на прокси — цепочка, не берётся", () => {
-  // Фрагментация у Xray живёт отдельным freedom-outbound'ом: путь до сервера
-  // она не меняет, и у Ninety своя настройка фрагментации. А dialerProxy на
-  // настоящий прокси — это цепочка: без неё нода пошла бы напрямую.
+  // Fragmentation in Xray lives in a separate freedom outbound: it doesn't change the path
+  // to the server, and Ninety has its own fragmentation setting. But a dialerProxy to
+  // a real proxy is a chain: without it the node would go direct.
   const withFragment = vlessOutbound();
   withFragment.streamSettings = {
     ...withFragment.streamSettings,
@@ -262,14 +262,14 @@ test("dialerProxy на freedom — это фрагментация, нода б�
   const front = { tag: "front", protocol: "socks",
     settings: { servers: [{ address: "1.1.1.1", port: 1080 }] } };
   const chainSkipped = parseXrayConfig([xrayConfig("c", [chained, front])]);
-  assert.equal(chainSkipped.profiles.length, 1); // остался только сам front
+  assert.equal(chainSkipped.profiles.length, 1); // only the front itself remained
   assert.deepEqual(chainSkipped.unsupported, ["vless+chain"]);
 });
 
 // ── WireGuard ──────────────────────────────────────────────
 test("WARP из конфига Xray приезжает вместе с reserved", () => {
-  // У Xray WireGuard — обычный outbound со своими именами полей
-  // (secretKey/publicKey/endpoint), а reserved лежит на уровне settings.
+  // In Xray WireGuard is a regular outbound with its own field names
+  // (secretKey/publicKey/endpoint), and reserved lies at the settings level.
   const { profiles, skipped } = parseXrayConfig([xrayConfig("💦 WARP", [{
     tag: "proxy", protocol: "wireguard",
     settings: {
@@ -293,7 +293,7 @@ test("WARP из конфига Xray приезжает вместе с reserved"
   assert.equal(endpoint.peers[0].persistent_keepalive_interval, 5);
 });
 
-// ── тело подписки ──────────────────────────────────────────
+// ── subscription body ──────────────────────────────────────────
 test("подписка отдала массив конфигов Xray — серверы импортируются", () => {
   const sub = JSON.stringify([
     xrayConfig("💦 1. VL - Domain", [vlessOutbound(), freedom]),
@@ -307,8 +307,8 @@ test("подписка отдала массив конфигов Xray — се�
   assert.equal(parseSubscriptionEntries(encoded).profiles.length, 2);
 });
 
-// Готовый outbound из подписки не должен нести пути к локальным файлам: в TUN
-// xray работает с правами администратора и создал бы или дописал файл где угодно.
+// A ready outbound from a subscription must not carry paths to local files: in TUN
+// xray runs with administrator rights and would create or append to a file anywhere.
 test("файловые поля Xray снимаются при импорте и при сборке", async () => {
   const { stripXrayFileFields } = await import("/lib/protocol-parsers.js");
   const outbound = {

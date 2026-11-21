@@ -1,7 +1,7 @@
-// Историю задержек ведёт приложение, а не ядро: sing-box хранит один результат
-// на тег (map[string]*adapter.URLTestHistory) и отдаёт его как массив из одного
-// элемента. Тест фиксирует, что точки копятся, не дублируются поллингом
-// и не перемешиваются между источниками.
+// The latency history is kept by the app, not the core: sing-box stores one result
+// per tag (map[string]*adapter.URLTestHistory) and returns it as a single-element
+// array. The test pins down that points accumulate, aren't duplicated by polling
+// and don't get mixed between sources.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -16,10 +16,10 @@ const {
   recordProbes, getProbeHistory, pruneProbeHistory, clearProbeHistory,
 } = await import("/lib/delay-history.js");
 
-// Форма источника — ровно та, что возвращает getActiveSource(): {kind, subscription}
-// / {kind, profile}. Прошлая версия теста выдумывала {kind, id} и потому не
-// заметила, что ключ считался по несуществующему полю и все подписки
-// сваливались в одно ведро.
+// The source shape is exactly what getActiveSource() returns: {kind, subscription}
+// / {kind, profile}. The previous version of the test made up {kind, id} and therefore didn't
+// notice that the key was computed from a nonexistent field and all subscriptions
+// fell into one bucket.
 const SRC = { kind: "sub", subscription: { id: "s1" }, nodes: [] };
 const snap = (tag, time, delay) => ({ proxies: { [tag]: { history: [{ time, delay }] } } });
 
@@ -79,7 +79,7 @@ test("чистка тегов одной подписки не трогает и
   clearProbeHistory(SRC); clearProbeHistory(other);
   recordProbes(SRC, snap("n0", "t1", 41), ["n0"]);
   recordProbes(other, snap("n0", "t1", 62), ["n0"]);
-  pruneProbeHistory(SRC, []);                 // у первой подписки нод не осталось
+  pruneProbeHistory(SRC, []);                 // the first subscription has no nodes left
   assert.deepEqual(getProbeHistory(SRC, "n0"), []);
   assert.deepEqual(getProbeHistory(other, "n0"), [62], "соседняя подписка не должна пострадать");
 });
@@ -100,9 +100,9 @@ test("узел без истории в снапшоте ничего не ло�
   assert.deepEqual(getProbeHistory(SRC, "n0"), []);
 });
 
-// Индекс не должен верить двум замерам как двадцати: производные компоненты
-// набирают вес по мере накопления, иначе один плохой сэмпл выбрасывает самый
-// быстрый сервер из рекомендаций.
+// The index must not trust two measurements like twenty: the derived components
+// gain weight as they accumulate, otherwise one bad sample throws the fastest
+// server out of the recommendations.
 test("усадка: при малом числе замеров стабильность тянется к нейтральной", () => {
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
   const stabilityFor = (probes, jit) => {
@@ -110,18 +110,18 @@ test("усадка: при малом числе замеров стабильн
     const raw = clamp01(1 - jit / 55);
     return 0.5 + (raw - 0.5) * evidence;
   };
-  // один замер — разброса нет вообще, ровно нейтрально
+  // one measurement — no jitter at all, exactly neutral
   assert.equal(stabilityFor(1, 0), 0.5);
-  // два замера с чудовищным разбросом не обнуляют компонент
+  // two measurements with a monstrous spread don't zero the component
   assert.ok(stabilityFor(2, 500) > 0.35, "два замера не должны давать ноль");
-  // с накоплением оценка становится настоящей
+  // with accumulation the score becomes real
   assert.ok(stabilityFor(5, 500) < 0.05, "пять замеров уже наказывают разброс");
   assert.ok(stabilityFor(5, 0) > 0.95, "ровный канал на пяти замерах оценивается высоко");
 });
 
 test("осиротевшие ведра сломанного ключа вычищаются при записи", () => {
-  // Сборки до исправления ключа писали всё в "sub:" — эти записи ничьи и
-  // держат теги серверов на диске.
+  // Builds before the key fix wrote everything into "sub:" — these entries belong to nobody and
+  // keep server tags on disk.
   storage.set("ninety.delayHistory.v1", JSON.stringify({
     "sub:": { n0: { at: "t0", d: [999] } },
     "sub:s1": { n0: { at: "t0", d: [41] } },
@@ -133,15 +133,15 @@ test("осиротевшие ведра сломанного ключа вычи
 });
 
 test("источник без собственного ключа не пишет в архив вовсе", () => {
-  // WARP и любой источник без id ключа не имеют. Раньше запись уходила в ведро
-  // "none", которое dropLegacyBuckets стирал на этой же записи: холостой
-  // stringify + запись в localStorage на каждом опросе, да ещё с changed=true.
+  // WARP and any source without an id have no key. Previously the entry went into the
+  // "none" bucket, which dropLegacyBuckets erased in this same write: an idle
+  // stringify + a localStorage write on every poll, and with changed=true on top.
   storage.clear();
   const orphan = { kind: "warp", nodes: [] };
   assert.equal(recordProbes(orphan, snap("n0", "t1", 41), ["n0"]), false);
   assert.equal(storage.has("ninety.delayHistory.v1"), false, "записи быть не должно");
   assert.deepEqual(getProbeHistory(orphan, "n0"), []);
-  // Соседний источник с ключом продолжает работать.
+  // A neighboring source with a key keeps working.
   recordProbes(SRC, snap("n0", "t1", 41), ["n0"]);
   assert.deepEqual(getProbeHistory(SRC, "n0"), [41]);
   assert.deepEqual(getProbeHistory(orphan, "n0"), []);

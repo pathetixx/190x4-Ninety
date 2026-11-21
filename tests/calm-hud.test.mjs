@@ -1,6 +1,6 @@
-// Спокойный главный экран (issue #186): включается только явным выбором в
-// настройках, системный reduced-motion его не включает, а переключение
-// сразу доходит до HUD через шину.
+// Calm main screen (issue #186): enabled only by an explicit choice in
+// settings, the system reduced-motion doesn't enable it, and the switch
+// reaches the HUD immediately via the bus.
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

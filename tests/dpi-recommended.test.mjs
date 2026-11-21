@@ -1,6 +1,6 @@
-// Бейдж «рекоменд.» на карточке стратегии. До этого он был прибит к ALT11
-// строкой в разметке: приложение утверждало рекомендацию независимо от того,
-// что авто-подбор намерил на сети пользователя, и не отличало замер от дефолта.
+// The "recommended" badge on the strategy card. Previously it was nailed to ALT11
+// by a string in the markup: the app claimed a recommendation regardless of
+// what auto-tuning measured on the user's network, and didn't tell a measurement from the default.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -28,13 +28,13 @@ test("без замеров рекомендация — профиль по у�
 
 test("после авто-подбора помечается намеренная стратегия", () => {
   assert.deepEqual(recommendedStrategy(SET, "ALT7"), { name: "ALT7", measured: true });
-  // Дефолт, подтверждённый замером, — это уже замер, а не «из коробки».
+  // A default confirmed by a measurement is already a measurement, not "out of the box".
   assert.deepEqual(recommendedStrategy(SET, "ALT11"), { name: "ALT11", measured: true });
 });
 
 test("исчезнувшая из набора стратегия не помечается", () => {
-  // Канал стратегий обновляется без обновления приложения: сохранённое имя
-  // может пропасть или смениться, и бейдж не должен указывать в пустоту.
+  // The strategy channel updates without updating the app: the saved name
+  // may disappear or change, and the badge must not point at nothing.
   assert.deepEqual(recommendedStrategy(SET, "ALT99"), { name: "ALT11", measured: false });
   assert.deepEqual(recommendedStrategy([], "ALT7"), { name: "ALT11", measured: false });
   assert.deepEqual(recommendedStrategy(undefined, "ALT7"), { name: "ALT11", measured: false });

@@ -1,4 +1,4 @@
-// Пересылка IP (#168): признак проблемы и команда исправления.
+// IP forwarding (#168): the problem sign and the fix command.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { forwardingAliases, forwardingFixCommand, forwardingProblem } from "/lib/forwarding.js";

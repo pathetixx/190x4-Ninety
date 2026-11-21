@@ -1,8 +1,8 @@
-// Отказ ЧТЕНИЯ защищённого хранилища. Раньше фасад в этом случае уходил в
-// legacy-режим и продолжал зеркалить состояние в localStorage — то есть учётные
-// данные нод (UUID, пароли, URL подписок), ради которых и заведён шифрованный
-// стор, снова оказывались на диске открытым текстом. Контракт миграции
-// (docs/PROFILE_STORE_MIGRATION.md) это запрещает прямо: «A Rust write failure
+// A READ failure of the protected storage. Previously the facade in this case went into
+// legacy mode and kept mirroring the state into localStorage — i.e. node
+// credentials (UUIDs, passwords, subscription URLs), for which the encrypted
+// store exists in the first place, ended up on disk in plain text again. The migration contract
+// (docs/PROFILE_STORE_MIGRATION.md) forbids this explicitly: «A Rust write failure
 // must not update the legacy mirror».
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -70,6 +70,6 @@ test("в деградации секреты профиля не уезжают 
     assert.equal(serialized.includes(secret), false, `секрет ${secret} оказался на диске`);
   }
 
-  // Данные при этом остаются доступны приложению — они живут в памяти.
+  // The data stays available to the app — it lives in memory.
   assert.equal(store.loadProfilesFromStore().length, 1);
 });

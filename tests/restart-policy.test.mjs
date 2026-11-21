@@ -1,5 +1,5 @@
-// Матрица «какая настройка требует рестарта ядра». Ошибка здесь = либо лишние
-// обрывы VPN на каждое движение тумблера, либо молча не применившаяся настройка.
+// The "which setting requires a core restart" matrix. An error here = either extra
+// VPN drops on every toggle movement, or a setting that silently didn't apply.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pathNeedsRestart } from "/lib/restart-policy.js";
@@ -87,8 +87,8 @@ test("FakeDNS пересобирает ядро только в TUN", () => {
   assert.equal(pathNeedsRestart("dns.enableFakeDns", {}, "systemProxy"), false);
 });
 
-// Вход для соседей есть только вне TUN и только при доступе из сети; логин и
-// пароль (их хранит бэкенд) меняют конфиг, только когда пароль включён.
+// The neighbors' inbound exists only outside TUN and only with network access; the login and
+// password (kept by the backend) change the config only when the password is enabled.
 test("настройки входа для соседей рестартят ядро, только когда он есть", () => {
   const lan = { inbound: { allowConnectionFromLan: true, lanAuth: true } };
   const noAuth = { inbound: { allowConnectionFromLan: true, lanAuth: false } };

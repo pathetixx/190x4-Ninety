@@ -1,6 +1,6 @@
-// Профиль, добавленный до ответа Rust-хранилища (deep-link или автоимпорт на
-// старте), раньше затирался backend-снимком, а removeLegacySensitiveKeys()
-// удалял и зеркало в localStorage — запись исчезала бесследно.
+// A profile added before the Rust storage responded (a deep link or auto-import at
+// startup) used to be overwritten by the backend snapshot, and removeLegacySensitiveKeys()
+// also deleted the localStorage mirror — the record vanished without a trace.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -52,7 +52,7 @@ const {
 test("профиль, добавленный до ответа хранилища, переживает инициализацию", async () => {
   const init = initializeProfileStore({ invoke, storage: localStorage });
 
-  // Пользователь успел добавить ноду, пока IPC ещё в полёте.
+  // The user managed to add a node while IPC was still in flight.
   saveProfilesToStore([{ id: "p-early", name: "Ранний", host: "5.6.7.8", port: 443 }]);
   setActiveProfileIdInStore("p-early");
 
@@ -61,7 +61,7 @@ test("профиль, добавленный до ответа хранилищ�
 
   const ids = loadProfilesFromStore().map((p) => p.id).sort();
   assert.deepEqual(ids, ["p-backend", "p-early"], "обе записи должны остаться");
-  // Слитое состояние обязано уехать в Rust-хранилище, иначе оно живёт только в памяти.
+  // The merged state must go into the Rust storage, otherwise it lives only in memory.
   assert.equal(replaceCalls.length, 1);
   const persisted = replaceCalls[0].store.profiles.map((p) => p.id).sort();
   assert.deepEqual(persisted, ["p-backend", "p-early"]);

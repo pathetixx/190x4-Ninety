@@ -1,8 +1,8 @@
-// Списки схем ссылок живут в трёх местах и обязаны совпадать: фронт регистрирует
-// обработчики по своему списку, Rust отвергает всё, чего нет в его, а разбор
-// top-level ссылки идёт по третьему. Разъезд означает «включить обработку ссылок
-// нельзя вообще» (регистрация падает) либо «схема зарегистрирована, но ссылка по
-// ней не разбирается».
+// The link scheme lists live in three places and must match: the frontend registers
+// handlers from its list, Rust rejects everything that isn't in its own, and parsing
+// a top-level link follows the third. A divergence means "link handling can't be enabled
+// at all" (registration fails) or "the scheme is registered, but a link with
+// it isn't parsed".
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -11,7 +11,7 @@ globalThis.window = globalThis.window || {};
 
 const { LINK_HANDLER_SCHEMES } = await import("/lib/link-handlers.js");
 
-// Скобка берётся после "=", иначе в Rust первым нашёлся бы "[" из типа `&[&str]`.
+// The bracket is taken after "=", otherwise in Rust the "[" from the `&[&str]` type would be found first.
 const listFrom = (source, marker) => {
   const start = source.indexOf(marker);
   assert.notEqual(start, -1, `не найден ${marker}`);
@@ -37,8 +37,8 @@ test("разбор top-level ссылок покрывает все регист
   assert.deepEqual([...topLevel].sort(), [...LINK_HANDLER_SCHEMES].sort());
 });
 
-// ninety:// регистрируется плагином deep-link, а не этим списком, поэтому в
-// SUPPORTED_SCHEMES его нет — но снимать обработчики Rust обязан и для него.
+// ninety:// is registered by the deep-link plugin, not by this list, so it's
+// not in SUPPORTED_SCHEMES — but Rust must remove handlers for it too.
 test("список снятия обработчиков = поддерживаемые схемы плюс ninety", () => {
   assert.deepEqual([...deepLinkAll].sort(), [...supported, "ninety"].sort());
 });

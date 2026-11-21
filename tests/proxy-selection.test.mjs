@@ -75,13 +75,13 @@ test("без выбора пользователя селектор явно в�
   const applied = [];
   const result = await restoreRememberedProxySelection({
     source,
-    // Ядро подняло из cache.db ноду, закреплённую лесенкой качества.
+    // The core brought up from cache.db a node pinned by the quality ladder.
     topology: { proxies: { proxy: { type: "Selector", now: "node-b", all: ["auto", "node-a", "node-b"] } } },
     apply: async (tag) => { applied.push(tag); return { stale: false }; },
   });
   assert.deepEqual(result, { status: "restored", tag: "auto", implicit: true });
   assert.deepEqual(applied, ["auto"]);
-  // Неявное «Авто» не становится сохранённым решением пользователя.
+  // An implicit "Auto" doesn't become a saved user decision.
   assert.equal(getRememberedProxySelection(source), null);
 });
 

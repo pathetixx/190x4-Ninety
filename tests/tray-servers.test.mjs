@@ -1,5 +1,5 @@
-// Раскладка подменю «Сервер»: маленькая подписка остаётся плоским списком,
-// большая раскладывается по странам с быстрыми входами наверху.
+// Layout of the "Server" submenu: a small subscription stays a flat list,
+// a big one is laid out by country with quick picks at the top.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -14,7 +14,7 @@ const {
 
 const countryLabel = (iso) => ({ nl: "Нидерланды", de: "Германия", fi: "Финляндия" })[iso] || iso;
 
-// n нод одной страны; задержка растёт с номером, поэтому порядок предсказуем.
+// n nodes of one country; latency grows with the number, so the order is predictable.
 const make = (iso, n, { from = 0, delay = (i) => 10 + i } = {}) =>
   Array.from({ length: n }, (_, i) => ({
     id: `${iso}-${from + i}`,
@@ -31,7 +31,7 @@ test("маленькая подписка остаётся плоским спи
   assert.deepEqual(menu.favourites, []);
   assert.equal(menu.hidden, 0);
   assert.equal(menu.total, TRAY_FLAT_LIMIT);
-  // Порядок подписки в плоском списке не переставляется.
+  // The subscription order in a flat list isn't rearranged.
   assert.deepEqual(menu.flat.map(e => e.id), make("nl", TRAY_FLAT_LIMIT).map(e => e.id));
 });
 
@@ -45,13 +45,13 @@ test("пустой список не падает и ничего не пока�
 
 test("большая подписка раскладывается по странам, страна текущей ноды — первой", () => {
   const entries = [...make("nl", 20), ...make("de", 30), ...make("fi", 5)];
-  entries[25].selected = true; // нода в Германии
+  entries[25].selected = true; // a node in Germany
   const menu = buildTrayServerMenu(entries, { countryLabel });
 
   assert.deepEqual(menu.flat, []);
   assert.equal(menu.current.id, entries[25].id);
   assert.equal(menu.groups[0].label, "Германия", "страна текущего сервера идёт первой");
-  // Дальше — по количеству нод.
+  // Then — by the number of nodes.
   assert.deepEqual(menu.groups.map(g => g.label), ["Германия", "Нидерланды", "Финляндия"]);
   assert.equal(menu.total, 55);
 });
@@ -70,7 +70,7 @@ test("внутри страны ноды идут по возрастанию з
 
 test("быстрые входы берут только измеренные ноды и не дублируют текущую", () => {
   const entries = [...make("nl", 20), ...make("de", 20, { from: 100, delay: () => null })];
-  entries[0].selected = true; // самая быстрая нода уже выбрана
+  entries[0].selected = true; // the fastest node is already selected
   const menu = buildTrayServerMenu(entries, { countryLabel });
 
   assert.equal(menu.fast.length, TRAY_FAST_LIMIT);

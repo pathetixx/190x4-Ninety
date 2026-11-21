@@ -1,6 +1,6 @@
-// Меню трея нельзя пересобирать, пока пользователь держит его открытым:
-// подмена рушит показанный popup. Rust в таком случае отвечает applied:false,
-// а фронт обязан вернуться к этой пересборке позже.
+// The tray menu must not be rebuilt while the user holds it open:
+// the replacement destroys the shown popup. In that case Rust answers applied:false,
+// and the frontend must come back to this rebuild later.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -61,11 +61,11 @@ test("применённое меню запоминается: тот же payl
 test("отложенная пересборка не считается применённой и повторяется сама", async () => {
   const before = menuCalls();
   outcome = { applied: false };
-  // force, иначе дедуп решит, что payload тот же и делать нечего.
+  // force, otherwise dedup will decide the payload is the same and there's nothing to do.
   await syncTrayMenu({ force: true });
   assert.equal(menuCalls(), before + 1);
 
-  // Меню закрылось — повтор проходит и payload наконец запоминается.
+  // The menu closed — the retry goes through and the payload is finally remembered.
   outcome = { applied: true };
   await sleep(1700);
   assert.ok(menuCalls() >= before + 2, "отложенная пересборка должна повториться");

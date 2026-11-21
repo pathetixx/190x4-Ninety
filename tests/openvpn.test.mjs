@@ -1,4 +1,4 @@
-// .ovpn переносится в endpoint без потери ключей, remotes и настроек сеанса.
+// .ovpn carries over into an endpoint without losing keys, remotes and session settings.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
@@ -261,7 +261,7 @@ test("OpenVPN: распознавание и тело подписки сохр�
     assert.equal(profiles[0].ovpn, original);
     assert.equal(profiles[0].proto, "openvpn");
   }
-  // Ссылка в комментарии не превращает файл в список отдельных серверов.
+  // A link in a comment doesn't turn the file into a list of separate servers.
   assert.equal(detectAddInput(`# vless://uuid@comment.example:443\n${provider}`).kind, "ovpn-conf");
 });
 
@@ -370,7 +370,7 @@ test("OpenVPN sing-box import: одиночный server, проверки enum 
   const invalid = parseSingboxConfig({ endpoints: [{ ...endpoint, compression: "invalid" }] }).profiles[0];
   assert.deepEqual(nodeConfigIssue(invalid), { code: "ovpnCompression" });
   assert.equal(parseSubscriptionEntries(JSON.stringify({ endpoints: [{ ...endpoint, compression: "invalid" }] })).profiles.length, 0);
-  // Внешний DNS-тег исчезает вместе с DNS исходного конфига.
+  // The external DNS tag disappears together with the original config's DNS.
   const foreignDns = parseSingboxConfig({
     dns: { servers: [{ tag: "provider-dns", type: "udp", server: "1.1.1.1" }] },
     endpoints: [{ ...endpoint, domain_resolver: "provider-dns" }],

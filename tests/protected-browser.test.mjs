@@ -49,8 +49,8 @@ test("protected browser: отсутствие Mullvad Browser является �
   });
 });
 
-// Установленный браузер, забракованный проверкой, — не «не найден». Причина и
-// путь доезжают до UI, иначе пользователю нечего чинить.
+// An installed browser rejected by the check isn't "not found". The reason and
+// the path reach the UI, otherwise the user has nothing to fix.
 test("protected browser: отклонённая установка сохраняет причину и путь", () => {
   assert.deepEqual(normalizeProtectedBrowserStatus({
     available: false,
@@ -63,7 +63,7 @@ test("protected browser: отклонённая установка сохран�
     reason: "signature",
   });
 
-  // Неизвестную причину в интерфейс не пускаем — это обычное «не найден».
+  // An unknown reason isn't let into the interface — it's a regular "not found".
   assert.deepEqual(normalizeProtectedBrowserStatus({
     available: false,
     path: "C:\\x\\mullvadbrowser.exe",

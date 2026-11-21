@@ -55,7 +55,7 @@ class DpiStrategyGuardTests(unittest.TestCase):
             self.assertTrue(all(not item["experimental"] for item in strategies))
 
     def test_reviewed_fake_unknown_payloads_are_accepted(self):
-        # Flowseal 1.10.1 добавил --dpi-desync-fake-unknown (%BIN%-файл или hex).
+        # Flowseal 1.10.1 added --dpi-desync-fake-unknown (a %BIN% file or hex).
         with tempfile.TemporaryDirectory() as raw:
             source = Path(raw)
             output = source / "strategies.json"
@@ -94,8 +94,8 @@ class DpiStrategyGuardTests(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_every_unknown_flag_is_reported_in_one_run(self):
-        # Один прогон канала должен показывать весь новый апстрим-набор,
-        # иначе allowlist чинится вслепую по одному флагу за сборку.
+        # One channel run must show the whole new upstream set,
+        # otherwise the allowlist gets fixed blindly one flag per build.
         with tempfile.TemporaryDirectory() as raw:
             source = Path(raw)
             output = source / "strategies.json"

@@ -81,7 +81,7 @@ PersistentKeepalive = 15`;
   assert.equal(profile.proto, "wireguard");
   assert.equal(profile.name, "Kosmos");
   assert.deepEqual(profile.awg.jc, 4);
-  // DNS и Table в профиль не переносятся — о них предупреждают.
+  // DNS and Table don't carry over into the profile — the user is warned about them.
   assert.deepEqual(profile.ignored, ["DNS", "Table"]);
 });
 

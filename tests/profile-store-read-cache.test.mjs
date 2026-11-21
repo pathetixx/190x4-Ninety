@@ -1,7 +1,7 @@
-// Читатели хранилища вызываются сотнями раз за один рендер списка серверов.
-// Копия делается один раз на версию состояния — но результат обязан оставаться
-// независимым: иначе правка списка у одного вызывающего протекла бы во все
-// остальные и в само хранилище.
+// Storage readers are called hundreds of times in one server list render.
+// The copy is made once per state version — but the result must stay
+// independent: otherwise one caller's list edit would leak into all
+// the others and into the storage itself.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

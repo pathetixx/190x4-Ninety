@@ -1,7 +1,7 @@
-// Исключение VPN-нод из winws. Ошибка классификации здесь не видна
-// нигде: команда падает в Rust, вызов проглатывается .catch(() => false), а в
-// списках остаётся исключение предыдущей ноды — winws десинхрит зашифрованный
-// трафик к текущему серверу, а UI показывает защиту включённой.
+// Excluding VPN nodes from winws. A classification error here isn't visible
+// anywhere: the command fails in Rust, the call is swallowed by .catch(() => false), and
+// the lists keep the previous node's exclusion — winws desyncs encrypted
+// traffic to the current server, while the UI shows protection enabled.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -52,7 +52,7 @@ test("dpi exclude: IPv4/IPv6 уходят в ips, домены — в domains", 
   assert.deepEqual(await endpointArgsFor(null), { ips: [], domains: [], resolve: false });
 });
 
-// Домен из одних hex-букв и точек проходил прежнюю проверку как «IP-адрес».
+// A domain made only of hex letters and dots passed the former check as an "IP address".
 test("dpi exclude: hex-домен не выдаёт себя за IP", async () => {
   for (const host of ["abc.def", "dead.cf", "cafe.ba", "de.ad", "face.ee"]) {
     assert.deepEqual(await endpointArgsFor(host), { ips: [], domains: [host], resolve: false }, host);
@@ -85,7 +85,7 @@ test("перед стартом winws берётся свежий набор п�
   let nodes = { ips: ["10.0.0.1"], domains: ["old.example.com"] };
   setVpnNodesProvider(async () => nodes);
   await refreshVpnNodeExclusion();
-  // Пользователь сменил источник — провайдер уже отдаёт другой конфиг.
+  // The user changed the source — the provider already returns a different config.
   nodes = { ips: ["10.0.0.2"], domains: ["new.example.com"], extra: true };
   calls.length = 0;
   commands.length = 0;

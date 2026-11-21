@@ -1,7 +1,7 @@
-// Контракт флагов релизного скрипта. Разъезд здесь всплывает ровно в момент
-// релиза: `--allow-branch` числился поддерживаемым и не был реализован (скрипт
-// принимал его и всё равно падал на проверке ветки), а документация звала
-// несуществующий `--watch`.
+// The release script flag contract. A divergence here surfaces exactly at the moment
+// of a release: `--allow-branch` was listed as supported but wasn't implemented (the script
+// accepted it and still failed on the branch check), and the documentation called
+// a nonexistent `--watch`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

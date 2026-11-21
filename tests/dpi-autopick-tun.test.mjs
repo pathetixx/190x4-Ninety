@@ -1,7 +1,7 @@
-// Автоподбор глушит winws и держит движок «выключенным», пока идёт прогон.
-// Если в это время VPN ушёл в TUN, setDpiVpnMode ставить на паузу было нечего,
-// а восстановление после подбора поднимало winws прямо в TUN — интерфейс при
-// этом показывал «На паузе», а движок жевал трафик туннеля.
+// Auto-tuning kills winws and keeps the engine "off" while the run is going.
+// If the VPN went into TUN during this time, setDpiVpnMode had nothing to pause,
+// and the recovery after tuning brought winws up right in TUN — while the interface
+// showed "Paused", and the engine chewed on the tunnel traffic.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -56,7 +56,7 @@ test("автоподбор, начатый вне TUN, после переход
   clickPickStart();
   for (let i = 0; i < 5; i++) await tick();
   assert.equal(count("dpi_autotest"), 1, "подбор запущен");
-  // Пользователь (или wifi-guard) переключается в TUN во время подбора.
+  // The user (or wifi-guard) switches to TUN during tuning.
   assert.equal(await setDpiVpnMode("tun"), true);
   const startsBefore = count("dpi_start");
   autotestGate.resolve();
@@ -65,15 +65,15 @@ test("автоподбор, начатый вне TUN, после переход
   assert.equal(chipState(), "paused");
   assert.equal(storage.get("ninety.dpi.enabled"), "true", "желание DPI сохраняется до выхода из TUN");
 
-  // Выход из TUN возвращает движок обычным путём.
+  // Leaving TUN brings the engine back the regular way.
   assert.equal(await setDpiVpnMode("systemProxy"), true);
   assert.equal(count("dpi_start"), startsBefore + 1);
   assert.equal(chipState(), "running");
 });
 
 test("возврат из TUN во время подбора не стартует winws поверх прогона", async () => {
-  // Сейчас движок работает вне TUN. Новый прогон, во время которого VPN
-  // успевает сходить в TUN и обратно.
+  // Right now the engine runs outside TUN. A new run during which the VPN
+  // manages to go into TUN and back.
   autotestGate = deferred();
   clickPickStart();
   for (let i = 0; i < 5; i++) await tick();

@@ -1,12 +1,12 @@
-// Отпечаток ноды — это её identity: по нему держатся stableId (а значит тег
-// сервера в конфиге), запомненный ручной выбор и карантин. Отпечаток считается
-// по ВСЕМ полям профиля, поэтому новое поле в парсере молча меняет identity
-// всех нод, у которых оно встречается: после обновления у пользователя
-// сбрасывается выбранный сервер.
+// A node's fingerprint is its identity: stableId (and therefore the server's tag
+// in the config), the remembered manual choice and the quarantine rely on it. The fingerprint is computed
+// over ALL profile fields, so a new field in the parser silently changes the identity
+// of all nodes that have it: after an update the user's
+// selected server gets reset.
 //
-// Тест фиксирует отпечатки эталонных ссылок. Он не запрещает менять парсер — он
-// требует делать это осознанно: если значения ниже разошлись, автор правки
-// обязан понимать, что подписки переедут на новые теги, и обновить их здесь.
+// The test pins down the fingerprints of reference links. It doesn't forbid changing the parser — it
+// requires doing so deliberately: if the values below diverged, the author of the change
+// must understand that subscriptions will move to new tags, and update them here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

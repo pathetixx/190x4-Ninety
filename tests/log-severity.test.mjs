@@ -14,7 +14,7 @@ test("обрыв локального клиента не считается о�
     classifyEngineLogSeverity("ERROR", "connection: use of closed network connection"),
     { level: "DEBUG", grade: "ok", nonFatal: true },
   );
-  // WSAECONNRESET от локального клиента: «remote host» здесь — сам 127.0.0.1.
+  // WSAECONNRESET from a local client: "remote host" here is 127.0.0.1 itself.
   assert.deepEqual(
     classifyEngineLogSeverity(
       "ERROR",
@@ -22,7 +22,7 @@ test("обрыв локального клиента не считается о�
     ),
     { level: "DEBUG", grade: "ok", nonFatal: true },
   );
-  // А вот тот же reset от настоящего удалённого пира обязан остаться ошибкой.
+  // But the same reset from a real remote peer must stay an error.
   assert.equal(
     classifyEngineLogSeverity(
       "ERROR",

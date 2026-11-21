@@ -1,7 +1,7 @@
-// Паспорт сборки обязан говорить правду о том, что реально собрано. Строка
-// ядра раньше правилась руками рядом с пином, а пины двигает бот
-// (scripts/check-pins.mjs) — расхождение было вопросом времени. Теперь файл
-// генерируется из pins.json, и здесь проверяется именно эта связь.
+// The build passport must tell the truth about what was actually built. The core
+// line used to be edited by hand next to the pin, while the pins are moved by a bot
+// (scripts/check-pins.mjs) — a divergence was a matter of time. Now the file
+// is generated from pins.json, and exactly this link is checked here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -20,8 +20,8 @@ test("версии ядер берутся из пинов вместе с ре�
   const { core, coreXray } = coreLabels(pins);
   assert.equal(core, `sing-box ${pins["ninety-core"].tag.replace(/^v/, "")}`);
   assert.equal(coreXray, `Xray ${pins["xray-core"].tag.replace(/^v/, "")}`);
-  // Ревизия нашего форка — часть правды о сборке: "1.13.19" вместо
-  // "1.13.19-ninety.8" уже неточность.
+  // The revision of our fork is part of the truth about the build: "1.13.19" instead of
+  // "1.13.19-ninety.8" is already an inaccuracy.
   assert.ok(core.includes("-ninety."), `ревизия форка потеряна: ${core}`);
   assert.equal(pinVersion("v26.7.28"), "26.7.28");
   assert.equal(pinVersion(undefined), "");
@@ -55,9 +55,9 @@ test("сгенерированный файл — валидный модуль 
   assert.deepEqual(info.components, componentVersions(pins));
 });
 
-// Сравниваем содержимое, а не байты перевода строки: .gitattributes держит файл
-// в LF, но тест не должен разваливаться от одной лишь настройки checkout'а —
-// именно на этом легла сборка v0.5.5 (Windows-раннер отдал CRLF).
+// We compare the contents, not the line ending bytes: .gitattributes keeps the file
+// in LF, but the test must not fall apart because of a checkout setting alone —
+// that's exactly what broke the v0.5.5 build (the Windows runner returned CRLF).
 const sameText = (actual, expected) =>
   assert.equal(actual.replace(/\r\n/g, "\n"), expected.replace(/\r\n/g, "\n"));
 
@@ -70,8 +70,8 @@ test("файл в дереве совпадает с тем, что даст г�
   sameText(onDisk, renderBuildInfo({ version, commit, date, pins, channel }));
 });
 
-// Канал зрелости ставится руками по итогам релизной матрицы. Генератор, который
-// его затирает, молча вернул бы «Early access» на стабильной сборке.
+// The maturity channel is set by hand based on the release matrix. A generator that
+// wipes it would silently bring back "Early access" on a stable build.
 test("канал переносится из предыдущей версии файла", () => {
   const stable = renderBuildInfo({
     version: "1.0.0",
@@ -85,8 +85,8 @@ test("канал переносится из предыдущей версии �
   assert.equal(currentChannel("нет такого поля"), "Early access");
 });
 
-// Регресс v0.5.5: на Windows-раннере checkout отдаёт файл в CRLF, и побайтовое
-// сравнение роняло релизную сборку, хотя содержимое совпадало.
+// v0.5.5 regression: on the Windows runner checkout returns the file in CRLF, and the byte-by-byte
+// comparison broke the release build although the contents matched.
 test("сравнение не зависит от переводов строк checkout'а", () => {
   const rendered = renderBuildInfo({
     version: "0.5.5",

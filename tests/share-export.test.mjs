@@ -1,8 +1,8 @@
-// Экспорт «sing-box JSON» отдаёт самодостаточный конфиг. Узлы, которые в
-// приложении живут за локальным socks-мостом (xhttp/kcp через xray, naive и
-// TrustTunnel через свои sidecar-клиенты), воспроизвести в одиночном конфиге
-// нечем: там окажется socks на 127.0.0.1, то есть у получателя — его же
-// localhost. Такие узлы обязаны отсеиваться, а не уезжать заглушкой.
+// The "sing-box JSON" export produces a self-contained config. Nodes that in
+// the app live behind a local socks bridge (xhttp/kcp via xray, naive and
+// TrustTunnel via their sidecar clients) can't be reproduced in a standalone config:
+// there it would be socks on 127.0.0.1, i.e. for the recipient — their own
+// localhost. Such nodes must be weeded out rather than shipped as a placeholder.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -11,7 +11,7 @@ globalThis.localStorage = globalThis.localStorage || {
   getItem: () => null, setItem: () => {}, removeItem: () => {},
 };
 let copied = "";
-// navigator в Node — getter-only, поэтому подменяем свойство, а не объект.
+// navigator in Node is getter-only, so we replace the property, not the object.
 Object.defineProperty(globalThis.navigator, "clipboard", {
   configurable: true,
   value: { writeText: async (text) => { copied = text; } },

@@ -1,4 +1,4 @@
-// Наборы целей матрицы доступности: слои, дедуп и выбор пакета страны.
+// Reachability matrix target sets: layers, dedup and country pack selection.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -61,7 +61,7 @@ test("probe sets: дубликат по id не попадает в набор �
     ],
   });
   assert.equal(set.filter((t) => t.id === "ru-bank").length, 1);
-  assert.equal(set[0].scope, "pinned"); // личная цель победила региональную
+  assert.equal(set[0].scope, "pinned"); // the personal target beat the regional one
 });
 
 test("probe sets: пакет по умолчанию берётся из региона, потом из языка", () => {
@@ -72,15 +72,15 @@ test("probe sets: пакет по умолчанию берётся из рег�
 });
 
 test("probe sets: «Глобальный» — это выбор, а не отсутствие выбора", () => {
-  // Пустая строка приходит из пункта «Глобальный». Если её принять за «ещё не
-  // выбирали», автоопределение вернёт страну — и пункт молча не сработает.
-  // Пустая строка — это «ничего не сохранено» (так выглядят старые конфиги),
-  // а осознанный «Глобальный» приходит отдельным значением.
+  // An empty string comes from the "Global" item. If it were taken for "not
+  // chosen yet", auto-detection would return a country — and the item would silently not work.
+  // An empty string means "nothing saved" (that's what old configs look like),
+  // while a deliberate "Global" comes as a separate value.
   assert.equal(resolveRegionPack({ stored: "", region: "ru", lang: "ru" }), "ru");
   assert.equal(resolveRegionPack({ stored: GLOBAL_PACK, region: "ru", lang: "ru" }), "");
   assert.equal(resolveRegionPack({ stored: AUTO_PACK, region: "ru", lang: "ru" }), "ru");
   assert.equal(resolveRegionPack({ stored: undefined, region: "", lang: "de" }), "de");
   assert.equal(resolveRegionPack({ stored: "de", region: "ru", lang: "ru" }), "de");
-  // Неизвестный пакет из чужого/старого конфига — это глобальный набор.
+  // An unknown pack from someone else's/an old config is the global set.
   assert.equal(resolveRegionPack({ stored: "atlantis", region: "ru", lang: "ru" }), "");
 });

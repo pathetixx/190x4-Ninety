@@ -1,7 +1,7 @@
-// Каталоги синхронны между собой (i18n.test.mjs), но это не значит, что ключ,
-// который просит код, вообще существует: t() при промахе возвращает сам ключ, и
-// пользователь видит в интерфейсе строку вида «dg.row.unpin». Проверяем каждый
-// статически заданный ключ во всём фронтенде.
+// The catalogs are in sync with each other (i18n.test.mjs), but that doesn't mean the key
+// the code asks for exists at all: on a miss t() returns the key itself, and
+// the user sees a string like "dg.row.unpin" in the interface. We check every
+// statically specified key across the whole frontend.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -23,7 +23,7 @@ function jsFiles(dir, out = []) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) {
-      // Каталоги переводов — источник ключей, а не их потребитель.
+      // Translation catalogs are a source of keys, not their consumer.
       if (full.endsWith("i18n") || entry === "vendor") continue;
       jsFiles(full, out);
     } else if (entry.endsWith(".js")) {
@@ -33,20 +33,20 @@ function jsFiles(dir, out = []) {
   return out;
 }
 
-// tn(key, n) обращается к key.<форма>; наличие любой формы = ключ есть.
+// tn(key, n) accesses key.<form>; the presence of any form = the key exists.
 const PLURAL_FORMS = ["zero", "one", "two", "few", "many", "other"];
 
 function collectUsed() {
   const used = new Map();
   for (const file of jsFiles("src")) {
     readFileSync(file, "utf8").split("\n").forEach((line, index) => {
-      // Комментарии показывают форму ключа («qEngine.steps.<id>»), а не просят
-      // его у каталога.
+      // Comments show the shape of a key ("qEngine.steps.<id>") rather than asking
+      // the catalog for it.
       const code = line.trim();
       if (code.startsWith("//") || code.startsWith("*")) return;
-      // Только цельный ключ: за строкой обязаны идти закрывающая скобка или
-      // запятая. Иначе в улов попадает префикс из конкатенации
-      // (`t("mode.hint." + mode)`), которого в каталоге и не должно быть.
+      // Only a whole key: the string must be followed by a closing parenthesis or
+      // a comma. Otherwise a prefix from a concatenation gets caught
+      // (`t("mode.hint." + mode)`), which isn't supposed to be in the catalog.
       for (const match of line.matchAll(/\b(?:t|tn)\(\s*"([^"${}]+)"\s*[),]/g)) {
         if (!used.has(match[1])) used.set(match[1], `${file}:${index + 1}`);
       }
@@ -87,8 +87,8 @@ test("каждый ключ ошибки из бэкенда есть в кат�
   }
 });
 
-// Русский текст в коде бэкенда пользователь увидит и при английском интерфейсе:
-// ошибка для него — ключ i18n_error, техническая подробность — по-английски.
+// Russian text in the backend code will be seen by the user even with an English interface:
+// for them an error is an i18n_error key, a technical detail is in English.
 test("в строках бэкенда нет русского текста", () => {
   const offenders = [];
   for (const [name, source] of rustSources()) {

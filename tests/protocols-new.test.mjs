@@ -1,5 +1,5 @@
-// Протоколы и транспорты, добавленные поверх исходного набора: разбор ссылок и
-// то, что уезжает в конфиг. Поля и их имена сверены с исходниками ядра.
+// Protocols and transports added on top of the original set: link parsing and
+// what goes into the config. The fields and their names are checked against the core sources.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -96,7 +96,7 @@ test("mKCP уходит на мост xray с обфускацией из ссы
   const stream = xray.outbounds[0].streamSettings;
   assert.equal(stream.network, "kcp");
   assert.deepEqual(stream.kcpSettings, { header: { type: "srtp" }, seed: "abc" });
-  // В sing-box остаётся только локальный socks-мост.
+  // sing-box keeps only the local socks bridge.
   const proxy = config.outbounds.find(o => o.tag === "proxy");
   assert.equal(proxy.type, "socks");
   assert.equal(proxy.server, "127.0.0.1");
@@ -115,13 +115,13 @@ test("новые схемы распознаются полем добавлен
     "anytls://pass@a.example:443",
     "socks://127.0.0.1:1080",
   ].join("\n")).kind, "list");
-  // http(s) в этом поле по-прежнему означает подписку, а не http-прокси.
+  // http(s) in this field still means a subscription, not an http proxy.
   assert.equal(detectAddInput("https://panel.example/sub").kind, "url");
 });
 
-// Xray переименовал splithttp в xhttp; панели раздают ссылки со старым именем до
-// сих пор. Раньше `raw` (бывший tcp) знали, а `splithttp` — нет, и такая нода
-// молча выбрасывалась из подписки как «неизвестный транспорт».
+// Xray renamed splithttp to xhttp; panels still hand out links with the old name
+// to this day. Previously `raw` (formerly tcp) was known, but `splithttp` wasn't, and such a node
+// was silently thrown out of the subscription as an "unknown transport".
 test("splithttp — это xhttp: нода не выбрасывается и уходит на мост", () => {
   const legacy = parseVless("vless://uuid@a.example:443?security=tls&type=splithttp&path=%2Fx");
   assert.equal(legacy.type, "xhttp");
@@ -132,8 +132,8 @@ test("splithttp — это xhttp: нода не выбрасывается и у
   assert.deepEqual(nodeConfigIssue(legacy), nodeConfigIssue(modern));
 });
 
-// .conf вставляют в то же поле, что и ссылки: тип определяется сам. Ошибка
-// распознавания здесь означает «файл не принят» с подписью «не похоже ни на что».
+// A .conf is pasted into the same field as links: the type is detected automatically. A recognition
+// error here means "file not accepted" with the label "doesn't look like anything".
 test("WireGuard .conf распознаётся полем добавления", () => {
   const conf = `[Interface]
 Address = 172.16.0.2/32
@@ -145,6 +145,6 @@ Endpoint = 162.159.192.1:2408
 AllowedIPs = 0.0.0.0/0`;
   assert.equal(detectAddInput(conf).kind, "wg-conf");
   assert.equal(detectAddInput(`Jc = 4\n${conf}`).kind, "wg-conf");
-  // Без PrivateKey это не профиль, а обрывок: пусть лучше скажет «не распознал».
+  // Without PrivateKey this isn't a profile but a fragment: better let it say "not recognized".
   assert.equal(detectAddInput("[Interface]\nAddress = 172.16.0.2/32").kind, "unknown");
 });

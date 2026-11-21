@@ -1,4 +1,4 @@
-// Одна и та же ссылка не должна давать вторую копию подписки.
+// The same link must not produce a second copy of a subscription.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -22,8 +22,8 @@ globalThis.window = {
   __TAURI__: { core: { invoke: (...args) => invokeHandler(...args) } },
 };
 globalThis.localStorage = makeStorage();
-// Окно добавления трогает DOM (полоса распознавания, кнопки). В тестах его нет,
-// а весь код в add-modal.js null-safe — хватает пустых заглушек.
+// The add window touches the DOM (the recognition strip, buttons). The tests don't have it,
+// and all the code in add-modal.js is null-safe — empty stubs are enough.
 globalThis.document = {
   getElementById: () => null,
   querySelectorAll: () => [],
@@ -45,7 +45,7 @@ test("адрес сравнивается без учёта регистра с�
   assert.equal(normalizeSubscriptionUrl("https://PANEL.Example/sub/key"), base);
   assert.equal(normalizeSubscriptionUrl("https://panel.example:443/sub/key"), base);
   assert.equal(normalizeSubscriptionUrl("  https://panel.example/sub/key#anchor  "), base);
-  // Путь и параметры различают подписки одной панели — их не трогаем.
+  // The path and parameters distinguish subscriptions of the same panel — we don't touch them.
   assert.notEqual(normalizeSubscriptionUrl("https://panel.example/sub/other"), base);
   assert.notEqual(normalizeSubscriptionUrl("https://panel.example/sub/key?v=2"), base);
   assert.notEqual(normalizeSubscriptionUrl("http://panel.example/sub/key"), base);
@@ -56,8 +56,8 @@ test("повторное добавление возвращает уже доб
   let fetches = 0;
   invokeHandler = async (cmd, args) => {
     if (cmd === "device_identity") return { hwid: null, deviceOs: "Windows", verOs: "" };
-    // Проба xray-JSON при добавлении — часть того же добавления; считаем
-    // обычные запросы списка.
+    // The xray JSON probe on adding is part of the same adding; we count
+    // regular list requests.
     if (args?.format) return { status: 200, body: "" };
     fetches++;
     return { status: 200, body: "vless://uuid@node.example:443?security=tls#Amsterdam" };

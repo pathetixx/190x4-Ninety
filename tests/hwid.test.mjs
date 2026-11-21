@@ -1,5 +1,5 @@
-// HWID: идентификатор устройства заводится один раз и уходит только тем
-// подпискам, которым его включили.
+// HWID: the device identifier is created once and sent only to the
+// subscriptions it was enabled for.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -44,7 +44,7 @@ test("HWID принимается только в том виде, которы�
   assert.ok(!isValidHwid("short1234"));
   assert.ok(!isValidHwid("a".repeat(65)));
   assert.ok(!isValidHwid("{6b9e0f3a-1c2d-4e5f}"));
-  // base64url-алфавит панель не примет: подчёркивание вне её правила.
+  // The panel won't accept the base64url alphabet: the underscore is outside its rule.
   assert.ok(!isValidHwid("base64_url_style_id"));
   assert.ok(HWID_PATTERN.test(randomHwid()));
   assert.notEqual(randomHwid(), randomHwid());
@@ -62,7 +62,7 @@ test("идентификатор берётся из бэкенда один р�
   assert.equal(identity.hwid, MACHINE_HWID);
   assert.equal(identity.deviceOs, "Windows");
   assert.equal(identity.verOs, "10.0.26100");
-  // Нейтральная модель: имя компьютера панели не показывается.
+  // A neutral model: the computer name isn't shown to the panel.
   assert.equal(identity.deviceModel, "Ninety");
 
   await ensureDeviceIdentity();
@@ -85,7 +85,7 @@ test("ноду-заглушку панели видно и без её отве�
   assert.ok(looksLikeHwidStub([{ host: "1.2.3.4", name: "Включите HWID параметр" }]));
   assert.ok(!looksLikeHwidStub([]));
   assert.ok(!looksLikeHwidStub([{ host: "1.2.3.4", name: "Amsterdam" }]));
-  // Полноценный список серверов заглушкой не считается, даже если он короткий.
+  // A full-fledged server list isn't considered a placeholder, even if it's short.
   assert.ok(!looksLikeHwidStub([
     { host: "1.2.3.4", name: "Amsterdam" },
     { host: "0.0.0.0", name: "Broken" },
@@ -101,7 +101,7 @@ test("сигнал панели: требование HWID и исчерпанн
     hwidSignal({ status: 404 }, []),
     { required: true, limitReached: false },
   );
-  // Если HWID уже ушёл, повторно предлагать нечего — остаётся только лимит.
+  // If the HWID has already been sent, there's nothing to offer again — only the limit remains.
   assert.deepEqual(
     hwidSignal({ status: 200, hwid_active: true, hwid_limit_reached: true }, [], { sent: true }),
     { required: false, limitReached: true },
@@ -110,8 +110,8 @@ test("сигнал панели: требование HWID и исчерпанн
     hwidSignal({ status: 200 }, [{ host: "1.2.3.4", name: "Amsterdam" }]),
     { required: false, limitReached: false },
   );
-  // Лимит на панели включён, но этому пользователю он отключён и серверы
-  // пришли: спрашивать про HWID незачем.
+  // The limit is enabled on the panel, but disabled for this user and the servers
+  // arrived: there's no reason to ask about the HWID.
   assert.deepEqual(
     hwidSignal({ status: 200, hwid_active: true }, [{ host: "1.2.3.4", name: "Amsterdam" }]),
     { required: false, limitReached: false },
@@ -166,9 +166,9 @@ test("панель, требующая HWID, объясняет пустой о�
   );
 });
 
-// Новая подписка живёт по схеме HWID провайдера: Rust выводит значение из
-// общего идентификатора и хоста подписки. Прежние подписки (без hwidScope)
-// шлют общий идентификатор как раньше — иначе панель заняла бы новый слот.
+// A new subscription uses the provider HWID scheme: Rust derives the value from
+// the shared identifier and the subscription host. Older subscriptions (without hwidScope)
+// send the shared identifier as before — otherwise the panel would take a new slot.
 test("новая подписка получает HWID провайдера, прежняя — общий", async () => {
   const { addSubscriptionFromUrl, loadSubscriptions } = await import("/lib/subscriptions.js");
   const { subscriptionHwid, subscriptionUsesScopedHwid } = await import("/lib/hwid.js");

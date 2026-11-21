@@ -1,6 +1,6 @@
-// Падение winws посреди сессии: Rust-сторож шлёт dpi:exited, а интерфейс
-// обязан перейти в ошибку, а не показывать «Работает» над мёртвым движком.
-// Событие старого сеанса и плановая остановка состояние не трогают.
+// winws crashing mid-session: the Rust watchdog sends dpi:exited, and the interface
+// must go into an error rather than show "Running" over a dead engine.
+// An old session's event and a planned stop don't touch the state.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -48,7 +48,7 @@ test("подписка на dpi:exited оформлена при монтиро�
 test("падение текущего сеанса переводит DPI в ошибку", async () => {
   await toggleDpi();
   assert.equal(chipState(), "running");
-  // Событие от прошлого сеанса (например, пришло после перезапуска) — мимо.
+  // An event from a previous session (e.g. it arrived after a restart) — ignored.
   fire({ generation: nextSession - 1, code: 1, message: "[[backend.dpi.exitedUnexpectedly {\"code\":\"1\"}]]" });
   assert.equal(chipState(), "running");
 
@@ -56,18 +56,18 @@ test("падение текущего сеанса переводит DPI в о�
   await tick();
   assert.equal(chipState(), "error");
   assert.equal(toasts.at(-1)?.kind, "error");
-  // Это сбой, а не решение пользователя: желание «включён» остаётся.
+  // This is a failure, not the user's decision: the "enabled" wish stays.
   assert.equal(storage.get("ninety.dpi.enabled"), "true");
 });
 
 test("после плановой остановки запоздалое событие игнорируется", async () => {
-  // Клик в состоянии ошибки при desired=true — подтверждённая остановка.
+  // A click in the error state with desired=true is a confirmed stop.
   await toggleDpi();
   assert.equal(chipState(), "off");
   await toggleDpi();
   assert.equal(chipState(), "running");
   const session = nextSession;
-  await toggleDpi(); // плановый stop
+  await toggleDpi(); // planned stop
   assert.equal(chipState(), "off");
   fire({ generation: session, code: 1, message: "x" });
   assert.equal(chipState(), "off");

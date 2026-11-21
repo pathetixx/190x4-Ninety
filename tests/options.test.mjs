@@ -33,9 +33,9 @@ test("normalizeOptions чинит повреждённые enum, boolean, port �
   assert.deepEqual(out.quality.endpoints, ["https://speed.cloudflare.com/__down?bytes=262144"]);
 });
 
-// Rust принимает пробу качества только на своём allowlist (quality.rs).
-// Пропущенный сюда чужой адрес не отвергался бы настройкой, а тихо ломал весь
-// движок: backend отдаёт ошибку на каждую пробу, и канал вечно «UNKNOWN».
+// Rust accepts the quality probe only on its allowlist (quality.rs).
+// A foreign address let through here wouldn't be rejected by the setting but would silently break the whole
+// engine: the backend returns an error on every probe, and the channel is forever "UNKNOWN".
 test("quality endpoints ограничены тем же allowlist, что и backend", () => {
   const foreign = normalizeOptions({
     quality: { endpoints: ["https://speed.example/test", "http://speed.cloudflare.com/__down"] },
@@ -67,8 +67,8 @@ test("normalizeOptions игнорирует prototype-pollution ключи из 
   assert.equal({}.polluted, undefined);
 });
 
-// mixed-inbound и clash-API слушают один loopback: совпавшие порты роняли бинд
-// уже в ядре, а UI показывал безымянное «не удалось подключиться».
+// The mixed inbound and the clash API listen on one loopback: matching ports brought down the bind
+// inside the core, while the UI showed a nameless "failed to connect".
 test("options: порт clash-API не может совпасть с mixed-портом", () => {
   const clashCollision = normalizeOptions({
     inbound: { mixedPort: 7890 },
@@ -77,7 +77,7 @@ test("options: порт clash-API не может совпасть с mixed-по
   assert.equal(clashCollision.inbound.mixedPort, 7890);
   assert.notEqual(clashCollision.experimental.clashApiPort, 7890);
 
-  // Юзер занял под mixed сам дефолт clash-API — тогда уступает mixed-порт.
+  // The user took the clash API default itself for mixed — then the mixed port yields.
   const bothDefaults = normalizeOptions({
     inbound: { mixedPort: 9090 },
     experimental: { clashApiPort: 9090 },
@@ -86,9 +86,9 @@ test("options: порт clash-API не может совпасть с mixed-по
 });
 
 test("настройки диагностики можно сохранить: путь есть в белом списке", async () => {
-  // updateOption бросает на неизвестном пути, и промах белого списка выглядит
-  // как «интерфейс не реагирует»: именно так молча ломался выбор странового
-  // пакета — экран рисовал список, а запись падала исключением.
+  // updateOption throws on an unknown path, and a whitelist miss looks
+  // like "the interface doesn't respond": that's exactly how the country pack selection
+  // silently broke — the screen drew the list, and the write failed with an exception.
   const data = new Map();
   globalThis.localStorage = {
     getItem: (k) => (data.has(k) ? data.get(k) : null),
@@ -117,8 +117,8 @@ test("порт для локальной сети уступает mixed и clas
   assert.equal(normalizeOptions({}).inbound.lanPort, 7891);
 });
 
-// Логин и пароль для соседей хранит бэкенд в зашифрованном виде: в настройки
-// (localStorage — открытый текст на диске) они попадать не должны.
+// The neighbors' login and password are kept by the backend in encrypted form: they must not get into
+// settings (localStorage is plain text on disk).
 test("normalizeOptions выбрасывает логин и пароль для сети", () => {
   const out = normalizeOptions({
     inbound: { lanAuth: true, lanUsername: "ninety", lanPassword: "Secret123" },
@@ -129,7 +129,7 @@ test("normalizeOptions выбрасывает логин и пароль для 
   assert.doesNotMatch(JSON.stringify(out), /Secret123/);
 });
 
-// 0.8.0 держала пару в настройках: её забирают один раз до первого normalize.
+// 0.8.0 kept the pair in settings: it's taken once before the first normalize.
 test("пара для сети из 0.8.0 забирается из настроек один раз", async () => {
   const data = new Map([["ninety.options.v1", JSON.stringify({
     inbound: { lanAuth: true, lanUsername: "ninety", lanPassword: "Secret123" },
@@ -146,8 +146,8 @@ test("пара для сети из 0.8.0 забирается из настро
   assert.doesNotMatch(data.get("ninety.options.v1"), /Secret123/);
 });
 
-// «Сделать своими» отцепляет базу только текущего региона: другой регион снова
-// работает своей базой, иначе выбор страны в настройках молча ничего не менял бы.
+// "Make them mine" detaches the base of the current region only: another region again
+// works with its own base, otherwise choosing a country in settings would silently change nothing.
 test("смена региона возвращает его базу", async () => {
   const data = new Map();
   globalThis.localStorage = {

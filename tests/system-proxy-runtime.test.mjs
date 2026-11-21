@@ -25,8 +25,8 @@ test("enable system proxy sends the complete generation-bound contract", async (
   }]]);
 });
 
-// Токен нужен аварийной остановке при провале готовности прокси: без него Rust
-// берёт implicit-операцию, а не гасит чужой runtime вслепую.
+// The token is needed by the emergency stop when proxy readiness fails: without it Rust
+// takes an implicit operation rather than blindly killing someone else's runtime.
 test("enable system proxy passes an explicit null when the caller owns no token", async () => {
   const calls = [];
   await enableSystemProxy(async (...args) => { calls.push(args); }, {

@@ -1,8 +1,8 @@
-// Индикатор «Канал» красит точку через `#tele-channel[data-q=…]`. Состояние
-// PRESSURE («движок перестал измерять — ПК загружен») доезжало до атрибута, но
-// правила под него не было: точка оставалась в цвете предыдущего состояния,
-// обычно зелёном, и рядом стоял текст «Отлично» при полном отсутствии данных.
-// Инвариант: множество состояний в коде == множеству селекторов в CSS.
+// The "Channel" indicator colors the dot via `#tele-channel[data-q=…]`. The
+// PRESSURE state ("the engine stopped measuring — the PC is loaded") reached the attribute, but
+// there was no rule for it: the dot stayed in the previous state's color,
+// usually green, and next to it stood the text "Excellent" with no data at all.
+// Invariant: the set of states in the code == the set of selectors in CSS.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

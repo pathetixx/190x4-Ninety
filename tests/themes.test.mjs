@@ -1,4 +1,4 @@
-// Theme registry: единый источник тем для main/settings/onboarding.
+// Theme registry: a single source of themes for main/settings/onboarding.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

@@ -1,6 +1,6 @@
-// Единственный видимый признак OTA, когда окно в трее. Регрессия здесь не
-// заметна ни в UI, ни в логах: приложение просто молчит, и снаружи это
-// неотличимо от «обновлений нет».
+// The only visible sign of OTA when the window is in the tray. A regression here isn't
+// noticeable either in the UI or in the logs: the app just stays silent, and from the outside it's
+// indistinguishable from "no updates".
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { planUpdateNotice, UPDATE_NOTICE } from "/lib/update-notice.js";
@@ -14,7 +14,7 @@ test("свёрнутое в трей окно получает OS-уведомл
 test("повторная фоновая проверка той же версии не спамит уведомлением", () => {
   const plan = planUpdateNotice({ foreground: false, alreadyNotified: true });
   assert.equal(plan.action, UPDATE_NOTICE.TRAY);
-  // Пункт трея и подсказка остаются: апдейт никуда не делся.
+  // The tray item and tooltip stay: the update hasn't gone anywhere.
   assert.equal(plan.pending, true);
 });
 

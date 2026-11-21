@@ -1,6 +1,6 @@
-// Карточка «Обновления» раньше показывала одну и ту же фразу независимо от
-// того, шла проверка, нашлась ли версия и когда последний раз удалось
-// достучаться до эндпоинтов. Здесь фиксируется, что строка следует состоянию.
+// The "Updates" card used to show the same phrase regardless of
+// whether a check was running, whether a version was found and when the endpoints
+// were last reached. Here we pin down that the line follows the state.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

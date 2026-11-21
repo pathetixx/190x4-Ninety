@@ -1,7 +1,7 @@
-// Отчёт диагностики уезжает в чат поддержки, поэтому маскировка адресов — это
-// обещание приватности, а не косметика. Проверяем то, что легко потерять:
-// IPv6 (прежняя реализация знала только IPv4) и текст, который лишь похож на
-// адрес.
+// The diagnostics report goes to a support chat, so address masking is
+// a privacy promise, not cosmetics. We check what's easy to lose:
+// IPv6 (the former implementation knew only IPv4) and text that merely looks like
+// an address.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
